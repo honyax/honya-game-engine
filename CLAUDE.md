@@ -16,12 +16,25 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 - Phase 0〜1(Day 1〜10): 標準ライブラリのみ(WinForms + LockBits)。GPU不使用のソフトウェアラスタライザ
 - Phase 2(Day 11〜13): Win32 P/Invoke + 生OpenGL(自前バインディング)
 - Phase 3以降(Day 14〜): Silk.NET
-- プロジェクト名・名前空間はPascalCase(`HonyaEngine` 等)
+- プロジェクト名・名前空間はPascalCase
+
+## プロジェクト規約
+
+- **名前空間はDay番号を含めない。Phase単位で固定する**
+  - Day 1〜10: `SoftwareRasterizer` / Day 11〜13: `RawGL` / Day 14〜: `HonyaEngine`
+  - 理由: Dayごとに変えると `git diff --no-index reference/Day01 reference/Day02` に全ファイルの
+    namespace 行が乗り、その日の実装差分が埋もれる。work側のプロジェクト名とも揃う
+- csprojに `<AssemblyName>` は書かない。csprojのファイル名(`DayXX.csproj`)から出力名が決まるので、
+  リネームするだけで「フォルダ名 = 出力アセンブリ名」が保たれる(`.vscode/launch.json` がこれを前提にしている)
+- Phase 0〜1 のcsprojの必須設定: `WinExe` / `net10.0-windows` / `UseWindowsForms` /
+  `ApplicationHighDpiMode = PerMonitorV2`(高DPIで1ピクセル=1ピクセルを保つため)
 
 ## 開発ルール
 
 - `reference/DayXX` は前Dayの完全コピー+その日の差分。`dotnet run --project reference/DayXX` で単体実行できること
 - Day作成後は必ず `dotnet build` が通ることを確認する
+- 実行確認は `.vscode/run.ps1`(開いているファイルから一番近いcsprojを探して `dotnet run`)経由でもよい。
+  FPSを評価するときは必ず `-c Release`(Debugはソフトウェアラスタライザだと目に見えて遅い)
 - コードコメントは日本語。学習用リポジトリなので「なぜそうするか」を重視して書く
 - コミット・プッシュはユーザーが行う。勝手にしない
 - 1Dayの差分は写経1〜3時間程度(数百行以内)に収める。超える場合は報告して分割を提案

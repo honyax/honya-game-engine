@@ -11,10 +11,30 @@ C#による自作ゲームエンジン学習プロジェクト。ソフトウェ
 - `work/` — 写経用(SoftwareRasterizer / RawGL / HonyaEngine / Labs)
 - `assets/` — 共有素材
 
-## 使い方
+## 実行方法(VSCode)
+
+`.vscode/` に設定済み。**エディタで動かしたいプロジェクトのファイルを1つ開いた状態で:**
+
+| 操作 | 動作 |
+|---|---|
+| **Ctrl+Shift+B** | 開いているファイルのプロジェクトを Release でビルドして起動 |
+| **F5** | 同じプロジェクトを Debug でデバッグ実行(ブレークポイントが効く) |
+
+開いているファイルから親フォルダを辿って一番近い `.csproj` を探すので、
+`reference/DayXX` でも `work/` でも同じ操作で動く。Dayが増えても設定変更は不要。
+
+ファイルを開いていないときは Ctrl+Shift+P → `Tasks: Run Task` から:
+
+- `実行: reference の Day を指定 (Release)` — Day番号を入力して起動
+- `ビルド: reference の全Day (Release)` — 全Dayが壊れていないか一括確認
+
+FPSを評価するときは必ず Release で。Debug はソフトウェアラスタライザだと目に見えて遅い。
+
+## 使い方(コマンドライン)
 
 ```
-dotnet run --project reference/Day05   # リファレンスの実行
+dotnet run --project reference/Day05                  # リファレンスの実行
+dotnet run --project reference/Day05 -c Release       # FPSを見るときはRelease
 git diff --no-index reference/Day04 reference/Day05   # 前Dayとの差分
 ```
 
@@ -80,25 +100,37 @@ Claude Codeで「Day 5 を作成して」「Phase 1 のDayをすべて作成し�
 - [ ] Day 39 デモv1組み上げ(1)
 - [ ] Day 40 デモv1組み上げ(2) — **必須構成のデモ完成**
 
-### デモ推奨編 (Day 41〜46)
+### 3Dゲーム編 (Day 41〜50): キャラクターが動き回るプレイアブルデモへ
 
 - [ ] Day 41 スキニングアニメーション
-- [ ] Day 42 ディファードレンダリング
-- [ ] Day 43 Forward+/クラスタード
-- [ ] Day 44 TAA
-- [ ] Day 45 被写界深度・モーションブラー
-- [ ] Day 46 最終デモ — **AAA品質デモ完成**
+- [ ] Day 42 アニメーション制御(ブレンド、ステートマシン)
+- [ ] Day 43 剛体力学、Sphere/Plane衝突とインパルス解決
+- [ ] Day 44 Box(OBB)衝突(SAT)
+- [ ] Day 45 Capsule衝突とキャラクターコントローラ
+- [ ] Day 46 Heightmapコライダとブロードフェーズ
+- [ ] Day 47 摩擦・反発、Sequential Impulses — **ミニ物理エンジン完成**
+- [ ] Day 48 パーティクルシステム
+- [ ] Day 49 エフェクト応用(トレイル、ソフトパーティクル)
+- [ ] Day 50 プレイアブルデモ組み上げ — **プレイアブルデモ完成**
 
-### 教養編 (Day 47〜57、任意・順不同)
+### デモ推奨編 (Day 51〜55)
 
-- [ ] Day 47 コンピュートシェーダ
-- [ ] Day 48 レイマーチング(SDF)
-- [ ] Day 49 CPUレイトレーサ(1)
-- [ ] Day 50 CPUレイトレーサ(2)
-- [ ] Day 51 GPUパストレーサ
-- [ ] Day 52 ハードウェアレイトレーシング
-- [ ] Day 53 ジオメトリシェーダ+テッセレーション
-- [ ] Day 54 メッシュシェーダ
-- [ ] Day 55 GPU駆動レンダリング
-- [ ] Day 56 モダンライティング理論講読
-- [ ] Day 57 3D Gaussian Splatting
+- [ ] Day 51 ディファードレンダリング
+- [ ] Day 52 Forward+/クラスタード
+- [ ] Day 53 TAA
+- [ ] Day 54 被写界深度・モーションブラー
+- [ ] Day 55 最終デモ — **AAA品質プレイアブルデモ完成**
+
+### 教養編 (Day 56〜66、任意・順不同)
+
+- [ ] Day 56 コンピュートシェーダ
+- [ ] Day 57 レイマーチング(SDF)
+- [ ] Day 58 CPUレイトレーサ(1)
+- [ ] Day 59 CPUレイトレーサ(2)
+- [ ] Day 60 GPUパストレーサ
+- [ ] Day 61 ハードウェアレイトレーシング
+- [ ] Day 62 ジオメトリシェーダ+テッセレーション
+- [ ] Day 63 メッシュシェーダ
+- [ ] Day 64 GPU駆動レンダリング
+- [ ] Day 65 モダンライティング理論講読
+- [ ] Day 66 3D Gaussian Splatting
