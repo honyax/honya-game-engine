@@ -1,0 +1,106 @@
+{
+  // タスクの実行方法:
+  //   Ctrl+Shift+B          … 既定のタスク(下の isDefault: true のもの)を一発で実行
+  //   Ctrl+Shift+P → "Tasks: Run Task" … 一覧から選んで実行
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // これが Ctrl+Shift+B に割り当たる本命。
+      // エディタで開いているファイルから一番近い .csproj を探して実行するので、
+      // reference/DayXX でも work/ でも、Day が増えても設定変更なしで使える。
+      "label": "実行: 開いているファイルのプロジェクト (Release)",
+      "detail": "開いているファイルの属するプロジェクトを Release でビルドして起動する",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/.vscode/run.ps1",
+        "-From", "${file}",
+        "-Root", "${workspaceFolder}",
+        "-Configuration", "Release"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      // ファイルを開いていないときや、別のDayを横から動かしたいとき用。
+      // 実行するとDay番号の入力を求められる(既定値は 01)。
+      "label": "実行: reference の Day を指定 (Release)",
+      "detail": "Day番号を入力して reference/DayXX を起動する",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/.vscode/run.ps1",
+        "-From", "${workspaceFolder}/reference/Day${input:dayNumber}",
+        "-Root", "${workspaceFolder}",
+        "-Configuration", "Release"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      // F5(デバッグ実行)の前に走るビルド。デバッガはDebugビルドを見るのでこちらは Debug 固定。
+      "label": "ビルド: 開いているファイルのプロジェクト (Debug)",
+      "detail": "デバッグ実行の前段。単体で使ってもよい",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/.vscode/run.ps1",
+        "-From", "${file}",
+        "-Root", "${workspaceFolder}",
+        "-Configuration", "Debug",
+        "-BuildOnly"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      // reference 全Dayをまとめてビルドする。Phase単位でまとめて作った後の一括確認用。
+      "label": "ビルド: reference の全Day (Release)",
+      "detail": "reference 配下のすべての csproj をビルドして、壊れているDayが無いか確認する",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-Command",
+        "Get-ChildItem '${workspaceFolder}/reference' -Recurse -Filter *.csproj | ForEach-Object { Write-Host \"=== $($_.Name) ===\" -ForegroundColor Cyan; dotnet build $_.FullName -c Release -v q --nologo }"
+      ],
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "dayNumber",
+      "type": "promptString",
+      "description": "Day番号を2桁で入力(例: 01)",
+      "default": "01"
+    }
+  ]
+}
