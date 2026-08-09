@@ -156,14 +156,18 @@ Bresenham を使う理由の本命はここ。速度ではなく、**同じ入�
 
 ## 前Dayからの差分概要
 
-Day 1 の完全コピー + 以下。ソース差分は **+333行 / -34行**(うち半分ほどが日本語コメント)。
+Day 1 の完全コピー + 以下。ソース差分は **+336行 / -37行**(うち半分ほどが日本語コメント)。
 
 | ファイル | 変更 | 内容 |
 |---|---|---|
-| `Day02.csproj` | 変更(コメントのみ) | Day01 → Day02 の記述を更新。設定は同一 |
-| `Framebuffer.cs` | **+163行** | 線分描画の追加。今日の主役 |
-| `GameWindow.cs` | +170 / -34行 | Day 1 のグラデーション+四角を、線分デモ4種に差し替え。Render時間の計測とSpaceキーを追加 |
-| `Program.cs` | 変更なし | — |
+| `Day02.csproj` | 変更(コメントのみ) | Day01 → Day02 の記述と `RootNamespace` を更新 |
+| `Framebuffer.cs` | **+163行** + namespace 1行 | 線分描画の追加。今日の主役 |
+| `GameWindow.cs` | +170 / -34行 + namespace 1行 | Day 1 のグラデーション+四角を、線分デモ4種に差し替え。Render時間の計測とSpaceキーを追加 |
+| `Program.cs` | namespace 1行のみ | 中身は Day 1 と同じ |
+
+**Day 1 → Day 2 は Phase の境目**(Phase 0 → Phase 1)なので、名前空間が
+`Framebuffer` から `SoftwareRasterizer` に変わる。差分に出る namespace 行はそのため。
+Phase の中では名前空間を変えないので、Day 2 以降の差分にはこの行は出てこない。
 
 `Framebuffer.cs` に増えたAPI:
 

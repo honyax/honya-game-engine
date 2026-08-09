@@ -170,8 +170,11 @@ Phase 0 の「動く最小構成」をそのまま残しておきたいのでフ
 git diff --no-index reference/Day01 work/Phase0_Framebuffer
 ```
 
-名前空間は reference / work とも `SoftwareRasterizer` で揃えてある(Day番号を含めない)。
-Day が変わっても名前空間は変わらないので、上の差分にはその日の実装差分だけが出る。
+名前空間は reference / work とも `Framebuffer` で揃えてある(Day番号を含めない)。
+名前空間は Phase 単位で固定する規約なので、Phase 0 は `Framebuffer`、
+Phase 1(Day 2〜10)は `SoftwareRasterizer` になる。
+Day が変わっても Phase の中では名前空間が変わらないので、
+上の差分にはその日の実装差分だけが出る。
 
 ## 完成条件
 

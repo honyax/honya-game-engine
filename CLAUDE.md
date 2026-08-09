@@ -21,7 +21,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 ## プロジェクト規約
 
 - **名前空間はDay番号を含めない。Phase単位で固定する**
-  - Day 1〜10: `SoftwareRasterizer` / Day 11〜13: `RawGL` / Day 14〜: `HonyaEngine`
+  - Day 1: `Framebuffer` / Day 2〜10: `SoftwareRasterizer` / Day 11〜13: `RawGL` / Day 14〜: `HonyaEngine`
   - 理由: Dayごとに変えると `git diff --no-index reference/Day01 reference/Day02` に全ファイルの
     namespace 行が乗り、その日の実装差分が埋もれる。work側のプロジェクト名とも揃う
 - csprojに `<AssemblyName>` は書かない。csprojのファイル名(`DayXX.csproj`)から出力名が決まるので、

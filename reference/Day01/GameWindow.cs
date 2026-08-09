@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
-namespace SoftwareRasterizer;
+namespace Framebuffer;
 
 /// <summary>
 /// ゲームウィンドウ本体。役割は3つ。
