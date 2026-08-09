@@ -310,6 +310,245 @@ dotnet run --project reference/Day10 -c Release
 1 と 2 だけでも大きく変わるはず。どこまで速くできるか、そして
 **どこで頭打ちになるか**を体験しておくと、Phase 2 でGPUの速さを見たときの驚きが違ってくる。
 
+## 付録: マルチスレッド化とSIMDの入り口
+
+改造課題3の 3 と 4 は、やったことがないと取っ掛かりが掴みにくいので、
+**始め方だけ**を具体的に書いておく。どちらも Phase 2 以降では直接使わないが、
+「GPUが何を並列にやっているのか」を手で確かめられるので、寄り道する価値はある。
+
+比較の基準は本Dayの実測値、**1スレッド・スカラーで 17.8 ms/frame**。
+
+### A. マルチスレッド化 — 先にこちらをやる
+
+効果が大きく、SIMDよりずっと簡単。コア数ぶんに近い改善が見込める。
+
+**やってはいけない分け方**: 三角形をスレッドに配る。
+2つのスレッドが同じピクセルに同時に書くと、深度バッファの
+「読む → 比べる → 書く」が競合して結果が壊れる(データ競合)。
+ロックを入れると今度は遅くなる。
+
+**正しい分け方**: **画面を分ける**。
+1つのピクセルを触るスレッドが常に1つだけなら、ロックは1個も要らない。
+
+最も簡単なのは画面を横帯(バンド)に切る方法。2段階に分ける。
+
+```csharp
+// --- 第1段階: 幾何処理(1スレッド)---
+// 変換・クリッピング・カリングまで済ませて、画面座標の三角形リストを作る。
+// ここは頂点数に比例する軽い処理なので、まずは並列化しなくてよい。
+private readonly List<(Vertex A, Vertex B, Vertex C, PixelShader? Shader)> _screenTriangles = new();
+
+// --- 第2段階: ラスタライズ(並列)---
+const int BandCount = 8;                       // Environment.ProcessorCount 程度
+int bandHeight = (_target.Height + BandCount - 1) / BandCount;
+
+Parallel.For(0, BandCount, band =>
+{
+    int minY = band * bandHeight;
+    int maxY = Math.Min(minY + bandHeight - 1, _target.Height - 1);
+
+    foreach (var tri in _screenTriangles)
+    {
+        // この帯に掛かっていない三角形は即スキップ。
+        // FillTriangle の走査範囲を [minY, maxY] に制限して呼ぶ。
+        FillTriangleBanded(tri.A, tri.B, tri.C, tri.Shader, minY, maxY);
+    }
+});
+```
+
+`FillTriangleBanded` は既存の `FillTriangle` に引数を2つ足して、
+バウンディングボックスを求めるところを
+
+```csharp
+int minYClamped = Math.Max((int)MathF.Floor(minYf), bandMinY);
+int maxYClamped = Math.Min((int)MathF.Ceiling(maxYf), bandMaxY);
+```
+
+に変えるだけ。他は1行も変わらない。
+
+**なぜこれで安全なのか**: 帯ごとに担当する行が重ならないので、
+`pixels[]` と `depth[]` の同じ要素を2つのスレッドが触ることが構造的に起きない。
+Day 7 で「Zバッファのおかげで描画順序が自由になった」と書いたが、
+**その自由さがそのままスレッド分割の自由さになっている**。
+
+注意点:
+
+- **統計カウンタが競合する**。`CulledTriangles` / `DrawnTriangles` を
+  そのまま `++` すると壊れる。第1段階(1スレッド)で数えるか、
+  `Interlocked.Increment` を使う
+- **フォールスシェアリングは今回は心配しなくてよい**。
+  帯の境界は行単位なので、1行 640x4 = 2,560バイトぶん離れている
+  (キャッシュラインは64バイト)
+- **`Parallel.For` の呼び出しコスト**は毎フレーム数十マイクロ秒程度。
+  16.7ms のフレームでは誤差
+- 帯の数はコア数と同じか少し多めに。少なすぎると
+  「1つの帯だけ重い」ときに他が遊ぶ
+
+もう一段進めるなら、帯ではなく **32x32 のタイル**に切り、
+「どのタイルにどの三角形が掛かるか」を先に仕分けてから塗る(ビニング)。
+各タイルのフレームバッファと深度バッファがまとめてキャッシュに乗るので、
+並列化とキャッシュ効率の両方が効く。**モバイルGPUはまさにこの方式**。
+
+### B. SIMD — 「1命令で複数のデータ」
+
+やったことがない場合はここから。
+
+**考え方**: 普通の `float` の足し算は1回に1組。SIMD命令は
+**4個や8個の float をまとめて1命令で**処理する。
+CPUの中に「幅の広いレジスタ」(128bit = float 4個、256bit = 8個)があり、
+そこに値を詰めて演算する。
+
+C# では2通りある。
+
+| API | 特徴 |
+|---|---|
+| `System.Numerics.Vector<T>` | **幅が実行環境まかせ**。移植性が高く書きやすい。**まずはこちら** |
+| `System.Runtime.Intrinsics.Vector128/256<T>` | 幅を固定して命令を直接指定。細かく制御できるが CPU 対応の確認が要る |
+
+#### まず配列の合計で感覚を掴む
+
+いきなりラスタライザに手を入れず、この小さな例で書き味を確かめるとよい。
+
+```csharp
+using System.Numerics;   // ImplicitUsings には入っていないので明示的に要る
+
+// 普通の版
+static float Sum(float[] values)
+{
+    float total = 0.0f;
+    for (int i = 0; i < values.Length; i++)
+    {
+        total += values[i];
+    }
+    return total;
+}
+
+// SIMD 版
+static float SumSimd(float[] values)
+{
+    int width = Vector<float>.Count;      // 実行環境の幅。AVX2 なら 8
+    var accumulator = Vector<float>.Zero;
+
+    int i = 0;
+    for (; i <= values.Length - width; i += width)
+    {
+        // 配列から width 個まとめて読んで、まとめて足す
+        accumulator += new Vector<float>(values, i);
+    }
+
+    // 横方向の合計(レーンの中身を1つにまとめる)
+    float total = Vector.Sum(accumulator);
+
+    // 端数(width で割り切れなかったぶん)は普通に処理する
+    for (; i < values.Length; i++)
+    {
+        total += values[i];
+    }
+
+    return total;
+}
+```
+
+ここに SIMD の型どおりの構造が全部入っている。
+
+1. `Vector<float>.Count` で幅を得る
+2. まとめて読んで、まとめて演算する
+3. 最後に**横方向へ畳む**(reduction)
+4. **端数**を普通のループで処理する
+
+**動かして確認したこと**(本Dayの環境 / .NET 10):
+
+- `Vector.IsHardwareAccelerated` は `True`、`Vector<float>.Count` は **8**(AVX2)
+- 1003個の乱数の合計で、`Sum` と `SumSimd` の結果が **6.1e-5 ずれた**
+
+最後の点は覚えておくとよい。**浮動小数の足し算には結合法則が成り立たない**ので、
+足す順序が変わると結果も変わる。SIMD版は8個の部分和を別々に持ってから最後に畳むため、
+順序が必然的に変わる。バグではないが、
+「SIMD化したら結果が1ビット変わった」で悩まないように知っておくこと
+(むしろ部分和に分けるぶん、SIMD版のほうが誤差が小さいことが多い)。
+
+#### 発想の転換: 分岐をやめてマスクにする
+
+SIMD で一番慣れが要るのがここ。8個まとめて処理していると、
+「この4個は条件を満たすが、残り4個は満たさない」が普通に起きる。
+そこで **if で分岐せず、両方計算してから選ぶ**。
+
+```csharp
+Vector<float> a = ...;
+Vector<float> b = ...;
+
+// 「a > b か」を各レーンごとに判定した結果(真は全ビット1)
+Vector<int> mask = Vector.GreaterThan(a, b);
+
+// マスクに従って選ぶ。if の代わりがこれ
+Vector<float> result = Vector.ConditionalSelect(mask, a, b);
+```
+
+#### ラスタライザに当てはめる
+
+**横に並んだ8ピクセルを同時に処理する**のが自然な当てはめ方。
+エッジ関数は x の1次式なので、隣のピクセルとの差は定数
+(Day 3 の改造課題2でやるインクリメンタル化がそのまま効く)。
+
+```csharp
+// 事前に用意しておく: [0, 1, 2, 3, 4, 5, 6, 7]
+// 幅は環境で変わるので、決め打ちせず Count から作る。
+private static readonly Vector<float> LaneOffsets = CreateLaneOffsets();
+
+private static Vector<float> CreateLaneOffsets()
+{
+    var values = new float[Vector<float>.Count];
+    for (int i = 0; i < values.Length; i++)
+    {
+        values[i] = i;
+    }
+    return new Vector<float>(values);
+}
+
+// 行の先頭でスカラーの w0 を求めたあと、8ピクセルぶんに展開する
+Vector<float> w0v = new Vector<float>(w0) + LaneOffsets * new Vector<float>(dw0dx);
+Vector<float> w1v = new Vector<float>(w1) + LaneOffsets * new Vector<float>(dw1dx);
+Vector<float> w2v = new Vector<float>(w2) + LaneOffsets * new Vector<float>(dw2dx);
+
+// 3つとも0以上なら内側。ビット積で3条件をまとめる
+Vector<int> inside =
+    Vector.GreaterThanOrEqual(w0v, Vector<float>.Zero) &
+    Vector.GreaterThanOrEqual(w1v, Vector<float>.Zero) &
+    Vector.GreaterThanOrEqual(w2v, Vector<float>.Zero);
+
+// 8ピクセル全部が外側なら、この塊ごと飛ばせる
+if (Vector.EqualsAll(inside, Vector<int>.Zero))
+{
+    continue;
+}
+```
+
+**この「8個まとめて外側なら丸ごとスキップ」が地味に効く。**
+Day 3 の要点5で測ったとおり、バウンディングボックス走査の
+**約80%は三角形の外側**を判定して捨てているだけなので、そこが8分の1の回数になる。
+
+難所も正直に書いておく。
+
+- **深度バッファへの書き込み**がマスク付きになる。
+  「8ピクセルのうち通ったものだけ書く」ので、
+  読む → 比較 → `ConditionalSelect` → 書き戻す、という手順になる
+- **テクスチャの読み込みが SIMD 化しにくい**。8ピクセルが
+  バラバラの場所のテクセルを読むので、連続したメモリアクセスにならない
+  (gather 命令はあるが、素直にスカラーで4回読むほうが速いことも多い)。
+  **Day 8 で測ったバイリニアの +7ms は、SIMD化してもあまり縮まない可能性が高い**
+- 端数(幅で割り切れないピクセル)の処理を忘れない
+
+#### 進め方の目安
+
+1. まず上の `SumSimd` を書いて動かす。`Vector<float>.Count` が
+   自分のCPUでいくつになるか確認する
+   (本付録のコード片は実際にコンパイル・実行して動作を確認済み)
+2. `Vector.IsHardwareAccelerated` が true か確認する(false ならSIMDが効いていない)
+3. ラスタライザに手を入れる前に、**必ず1スレッド版の時間を記録**しておく
+4. マルチスレッド化 → インクリメンタル化 → SIMD の順に進める。
+   **1つ入れるごとに測る**。Day 2 と Day 9 で繰り返し踏んだとおり、
+   効くと思った最適化が効かないことは普通に起きる
+
 ## 動作確認済み環境
 
 - .NET SDK 10.0.102 / Windows 11
