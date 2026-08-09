@@ -1,0 +1,586 @@
+namespace SoftwareRasterizer;
+
+/// <summary>
+/// 補間された3つの属性から、そのピクセルの色を決める関数。
+///
+/// GPUで言う「ピクセルシェーダ(フラグメントシェーダ)」に相当する。
+/// ラスタライザの仕事を「どのピクセルか」と「その点での属性値はいくつか」までに留め、
+/// **色をどう決めるかは呼び出し側に委ねる**、という役割分担を作るための仕組み。
+///
+/// Day 9 で法線とワールド座標が加わり、引数が増えすぎたので構造体にまとめた。
+/// ここに入っているのは「ラスタライザが補間して用意できる情報」がすべてで、
+/// GPU のフラグメントシェーダが受け取る varying とちょうど同じ役割になっている。
+/// </summary>
+internal readonly struct PixelInput
+{
+    /// <summary>補間された頂点カラー。グーローシェーディングではここに明るさが入っている。</summary>
+    public readonly Vec3 Color;
+
+    /// <summary>補間されたテクスチャ座標。</summary>
+    public readonly Vec2 TexCoord;
+
+    /// <summary>
+    /// 補間された法線。**正規化されていない**点に注意。
+    ///
+    /// 単位ベクトル同士を補間しても長さは1にならない(2つのベクトルの中間は
+    /// 弦の中点にあたるので、必ず短くなる)。使う前にシェーダ側で正規化する必要がある。
+    /// この正規化を忘れると、面の中央が暗くなる独特の症状が出る。
+    /// </summary>
+    public readonly Vec3 Normal;
+
+    /// <summary>補間されたワールド座標。光源やカメラへの方向を求めるのに使う。</summary>
+    public readonly Vec3 World;
+
+    public PixelInput(Vec3 color, Vec2 texCoord, Vec3 normal, Vec3 world)
+    {
+        Color = color;
+        TexCoord = texCoord;
+        Normal = normal;
+        World = world;
+    }
+}
+
+internal delegate int PixelShader(in PixelInput input);
+
+/// <summary>
+/// 三角形ラスタライザ。
+///
+/// なぜ <see cref="Framebuffer"/> に足さずクラスを分けるのか:
+/// 三角形の塗りつぶしは、この先 Day 10 まで育ち続ける中心コードになる。
+/// バリセントリック補間(Day 4)、透視除算(Day 6)、Zバッファ(Day 7)、
+/// テクスチャ(Day 8)、シェーディング(Day 9)は全部この中に積み上がっていく。
+/// </summary>
+internal sealed class Rasterizer
+{
+    private readonly Framebuffer _target;
+
+    /// <summary>深度バッファ。フレームバッファと同じ大きさで一緒に持つ。</summary>
+    public DepthBuffer Depth { get; }
+
+    /// <summary>
+    /// 背面カリングの設定。既定は <see cref="CullMode.Back"/>(裏を向いた面を捨てる)。
+    ///
+    /// OpenGL の <c>glCullFace</c> に相当する正式な描画設定。
+    /// 板ポリゴンのように「裏からも見せたい」ものを描くときは <see cref="CullMode.None"/> にする。
+    /// </summary>
+    public CullMode Culling { get; set; } = CullMode.Back;
+
+    /// <summary>そのフレームでカリングによって捨てた三角形の数(効果の確認用)。</summary>
+    public int CulledTriangles { get; private set; }
+
+    /// <summary>そのフレームで実際に塗った三角形の数。</summary>
+    public int DrawnTriangles { get; private set; }
+
+    /// <summary>統計をリセットする。毎フレームの描画前に呼ぶ。</summary>
+    public void ResetStatistics()
+    {
+        CulledTriangles = 0;
+        DrawnTriangles = 0;
+    }
+
+    /// <summary>
+    /// 透視補正補間を行うか。既定は true。
+    ///
+    /// false にすると属性を画面上で素直に線形補間する(アフィン補間)。
+    /// 初代プレイステーションのテクスチャが揺れて見えたのはこれが理由で、
+    /// 当時のハードには除算器を毎ピクセル回す余裕がなかった。
+    /// 切り替えて見比べられるように残してある。
+    /// </summary>
+    public bool PerspectiveCorrect { get; set; } = true;
+
+    /// <summary>
+    /// 深度テストを行うか。既定は true。
+    ///
+    /// 実験用のトグルではなく、これ自体が正式な描画設定。
+    /// OpenGL の <c>glEnable(GL_DEPTH_TEST)</c> に相当する。
+    /// 半透明のものを描くときや、常に手前に出したいUIを描くときに切る。
+    /// </summary>
+    public bool DepthTestEnabled { get; set; } = true;
+
+    public Rasterizer(Framebuffer target)
+    {
+        _target = target;
+        Depth = new DepthBuffer(target.Width, target.Height);
+    }
+
+    /// <summary>
+    /// エッジ関数。線分 a→b に対して点 (px, py) がどちら側にあるかを返す。
+    ///
+    /// 中身は2次元の外積 (b - a) × (p - a) で、
+    ///   - 符号  … 三角形の内外判定に使う(Day 3)
+    ///   - 大きさ … そのままバリセントリック座標の分子になる(Day 4)
+    /// という二役を持つ。
+    ///
+    /// Day 5 で int から float になった。値の意味は変わらないが、
+    /// 「ちょうど0」になる場面の扱いが変わる(要点5)。
+    /// </summary>
+    private static float EdgeFunction(Vec3 a, Vec3 b, float px, float py)
+        => (b.X - a.X) * (py - a.Y) - (b.Y - a.Y) * (px - a.X);
+
+    /// <summary>
+    /// 辺 a→b が「上の辺」または「左の辺」かを判定する(top-left rule)。
+    ///
+    /// 巻き方向を正に正規化した後、この座標系では
+    ///   - 上の辺 … 水平(a.Y == b.Y)で、右向き(b.X &gt; a.X)のもの
+    ///   - 左の辺 … 画面上で上に向かって進むもの(b.Y &lt; a.Y)
+    /// になる。
+    /// </summary>
+    private static bool IsTopLeft(Vec3 a, Vec3 b)
+        => (a.Y == b.Y && b.X > a.X) || b.Y < a.Y;
+
+    /// <summary>
+    /// top-left rule で「塗らない」側にするためのバイアス。
+    ///
+    /// float.Epsilon は float で表せる最小の正の数(約 1.4e-45)。
+    /// これを引くと、**ちょうど0だった値だけが負になる**。
+    /// 通常の大きさの値(エッジ関数の値は普通10の3乗〜5乗程度)からこれを引いても、
+    /// 浮動小数の刻みのほうがずっと粗いので値は1ビットも変わらない。
+    /// 「0のときだけ効く補正」を、分岐を増やさずに書くための手口。
+    /// </summary>
+    private const float TopLeftBias = float.Epsilon;
+
+    /// <summary>
+    /// クリップ座標の W がこれ以下の頂点は、カメラの真横〜後ろにあるとみなす。
+    ///
+    /// W はカメラからの奥行きそのもの(投影行列が Z をコピーしたもの)なので、
+    /// 0 以下は「カメラと同じ位置か、後ろ」を意味する。
+    /// そのまま透視除算すると 0 除算か符号反転が起き、
+    /// 三角形が画面の反対側へ裏返って飛んでいく。
+    ///
+    /// Day 9 まではこういう頂点を含む三角形を丸ごと捨てていたが、
+    /// Day 10 のクリッピング(<see cref="ClipNearPlane"/>)で正しく切れるようになったので、
+    /// この定数はクリップ面の位置をわずかに手前へずらす保険としてだけ使う。
+    /// </summary>
+    private const float MinClipW = 1e-5f;
+
+    /// <summary>
+    /// クリッピングの途中経過を持つ頂点。クリップ座標(4次元)と属性の組。
+    /// </summary>
+    private struct ClipVertex
+    {
+        public Vec4 Clip;
+
+        public Vertex Attributes;
+    }
+
+    /// <summary>
+    /// 三角形を**近クリップ面**で切り取る(サザーランド・ホジマンのアルゴリズム)。
+    ///
+    /// なぜ近クリップ面だけを切るのか:
+    /// 左右上下と遠クリップ面は、はみ出していてもバウンディングボックスの
+    /// 画面内への切り詰め(Day 3)と深度テスト(Day 7)が面倒を見てくれるので、
+    /// 描画結果が壊れることはない(無駄な走査は増えるが正しい絵は出る)。
+    /// **近クリップ面だけは違う。** ここを跨ぐと透視除算で符号が反転し、
+    /// 絵が根本的に壊れるので、除算の前に切っておくしかない。
+    ///
+    /// 切る条件は「クリップ座標の Z が 0 以上」。
+    /// 本リポジトリの投影行列は近クリップ面を Z = 0 に写すので(Day 6 の要点3)、
+    /// この1つの不等式が「カメラの手前側にあるか」の判定になる。
+    /// カメラの後ろの点も Z が負になるため、同じ条件でまとめて処理できる。
+    ///
+    /// 手順は単純で、多角形の辺を順に見て
+    ///   - 内 → 内 … 終点を出力
+    ///   - 内 → 外 … 交点を出力
+    ///   - 外 → 内 … 交点と終点を出力
+    ///   - 外 → 外 … 何も出力しない
+    /// とするだけ。三角形1枚を平面1つで切った結果は、頂点が最大4つの多角形になる。
+    /// </summary>
+    private static int ClipNearPlane(ReadOnlySpan<ClipVertex> input, Span<ClipVertex> output)
+    {
+        int count = 0;
+
+        for (int i = 0; i < input.Length; i++)
+        {
+            ClipVertex current = input[i];
+            ClipVertex next = input[(i + 1) % input.Length];
+
+            // 平面からの符号付き距離。正なら内側(カメラの手前)。
+            float currentDistance = current.Clip.Z;
+            float nextDistance = next.Clip.Z;
+
+            bool currentInside = currentDistance >= 0.0f;
+            bool nextInside = nextDistance >= 0.0f;
+
+            if (currentInside)
+            {
+                output[count++] = current;
+            }
+
+            // 符号が変わったら辺が平面を跨いでいる。交点を作って出力する。
+            if (currentInside != nextInside)
+            {
+                // 距離が0になる位置を線形補間で求める。
+                float t = currentDistance / (currentDistance - nextDistance);
+                output[count++] = Lerp(current, next, t);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// クリップ頂点を線形補間する。位置も属性もすべて同じ比率で混ぜる。
+    ///
+    /// **クリップ座標のまま補間してよい**のがこのアルゴリズムの美点。
+    /// 透視除算の前なので、すべてが線形に扱える
+    /// (除算の後だと Day 8 の透視補正と同じ問題に悩まされる)。
+    /// </summary>
+    private static ClipVertex Lerp(ClipVertex a, ClipVertex b, float t)
+    {
+        Vertex attributes = a.Attributes;
+        attributes.Position = a.Attributes.Position + (b.Attributes.Position - a.Attributes.Position) * t;
+        attributes.Color = Vec3.Lerp(a.Attributes.Color, b.Attributes.Color, t);
+        attributes.TexCoord = Vec2.Lerp(a.Attributes.TexCoord, b.Attributes.TexCoord, t);
+        attributes.Normal = Vec3.Lerp(a.Attributes.Normal, b.Attributes.Normal, t);
+
+        return new ClipVertex
+        {
+            Clip = a.Clip + (b.Clip - a.Clip) * t,
+            Attributes = attributes,
+        };
+    }
+
+    /// <summary>
+    /// 頂点をクリップ座標へ変換し、透視除算とビューポート変換を経て画面座標にする。
+    ///
+    /// 3DCGのパイプラインで一番大事な数行がここにある。
+    ///
+    ///   1. モデル座標 --(MVP行列)--> クリップ座標(4次元。W に奥行きが入っている)
+    ///   2. クリップ座標 --(W で割る)--> 正規化デバイス座標 NDC(-1〜1 の立方体)
+    ///   3. NDC --(ビューポート変換)--> 画面座標(ピクセル)
+    ///
+    /// **遠近感が生まれるのは 2 の割り算**。奥にあるものほど W が大きいので、
+    /// 割った結果が小さくなり、画面の中心へ引き寄せられて小さく描かれる。
+    /// 行列は「Z を W にコピーする」準備をしただけで、遠近感そのものは作っていない。
+    /// </summary>
+    public bool TryProjectToScreen(Vec3 position, Mat4 mvp, out Vec3 screen)
+        => TryProjectToScreen(position, mvp, out screen, out _);
+
+    /// <summary>
+    /// 上と同じだが、透視補正に使う 1/W も返す。
+    /// </summary>
+    public bool TryProjectToScreen(Vec3 position, Mat4 mvp, out Vec3 screen, out float invW)
+    {
+        // 1. モデル座標 → クリップ座標。点なので W = 1 で入れる。
+        Vec4 clip = Mat4.Transform(Vec4.Point(position), mvp);
+
+        if (clip.W <= MinClipW)
+        {
+            screen = default;
+            invW = 0.0f;
+            return false;
+        }
+
+        // 2. 透視除算。ここが遠近感の正体。
+        invW = 1.0f / clip.W;
+        float ndcX = clip.X * invW;
+        float ndcY = clip.Y * invW;
+        float ndcZ = clip.Z * invW;
+
+        // 3. ビューポート変換。NDC の -1〜1 を画面のピクセル範囲へ移す。
+        //    Y だけ反転しているのは、NDC は上が +1 なのに対して
+        //    画面座標は下へ行くほど Y が増えるため。
+        screen = new Vec3(
+            (ndcX * 0.5f + 0.5f) * _target.Width,
+            (0.5f - ndcY * 0.5f) * _target.Height,
+            ndcZ);
+
+        return true;
+    }
+
+    /// <summary>
+    /// ワールド座標の三角形を、ビュー射影行列で変換してから塗る。
+    ///
+    /// Day 9 から「モデル座標 → ワールド座標」は呼び出し側(<c>DrawMesh</c>)の仕事にした。
+    /// 頂点を索引で共有している場合、そちらでまとめて変換したほうが
+    /// 共有された回数だけ計算が浮くため(<see cref="Mesh"/> のコメント参照)。
+    /// 今日から「絵を描く」入口はここになる。
+    ///
+    /// 前半(頂点の変換)がGPUの頂点シェーダ、
+    /// 後半(FillTriangle)がラスタライザ + ピクセルシェーダに相当する。
+    /// この2段構えは Day 5 のデモですでに作ってあったものが、3Dに拡張されただけ。
+    /// </summary>
+    public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2, Mat4 viewProjection, PixelShader? shader = null)
+    {
+        // --- 1. クリップ座標へ ---
+        Span<ClipVertex> source = stackalloc ClipVertex[3];
+        source[0] = ToClip(v0, viewProjection);
+        source[1] = ToClip(v1, viewProjection);
+        source[2] = ToClip(v2, viewProjection);
+
+        // --- 2. 近クリップ面で切る ---
+        // 三角形1枚を平面1つで切ると、頂点は最大4つになる。
+        Span<ClipVertex> clipped = stackalloc ClipVertex[4];
+        int count = ClipNearPlane(source, clipped);
+
+        if (count < 3)
+        {
+            // 全体がカメラの後ろ。何も描かない。
+            return;
+        }
+
+        // --- 3. 多角形を三角形に分割して描く ---
+        // 頂点0を扇の要にした三角形ファン。4頂点なら2枚になる。
+        for (int i = 1; i + 1 < count; i++)
+        {
+            EmitTriangle(clipped[0], clipped[i], clipped[i + 1], shader);
+        }
+    }
+
+    /// <summary>頂点をクリップ座標へ変換する。ワールド座標は属性として保持する。</summary>
+    private static ClipVertex ToClip(Vertex vertex, Mat4 viewProjection)
+    {
+        // ライティングに使うワールド座標を、位置が上書きされる前に退避する。
+        vertex.World = vertex.Position;
+
+        return new ClipVertex
+        {
+            Clip = Mat4.Transform(Vec4.Point(vertex.Position), viewProjection),
+            Attributes = vertex,
+        };
+    }
+
+    /// <summary>
+    /// クリップ済みの三角形を、透視除算とビューポート変換を通して塗る。
+    /// </summary>
+    private void EmitTriangle(ClipVertex c0, ClipVertex c1, ClipVertex c2, PixelShader? shader)
+    {
+        if (!ToScreen(c0, out Vertex v0) ||
+            !ToScreen(c1, out Vertex v1) ||
+            !ToScreen(c2, out Vertex v2))
+        {
+            return;
+        }
+
+        FillTriangle(v0, v1, v2, shader);
+    }
+
+    /// <summary>クリップ座標の頂点を、透視除算とビューポート変換で画面座標にする。</summary>
+    private bool ToScreen(ClipVertex clipVertex, out Vertex vertex)
+    {
+        Vec4 clip = clipVertex.Clip;
+        vertex = clipVertex.Attributes;
+
+        if (clip.W <= MinClipW)
+        {
+            // クリッピング後は本来ここに来ないが、数値誤差の保険として残す。
+            return false;
+        }
+
+        float invW = 1.0f / clip.W;
+
+        vertex.Position = new Vec3(
+            (clip.X * invW * 0.5f + 0.5f) * _target.Width,
+            (0.5f - clip.Y * invW * 0.5f) * _target.Height,
+            clip.Z * invW);
+        vertex.InvW = invW;
+
+        return true;
+    }
+
+    /// <summary>
+    /// 三角形を塗りつぶす。3頂点の属性をバリセントリック座標で補間する。
+    /// </summary>
+    public void FillTriangle(Vertex v0, Vertex v1, Vertex v2)
+        => FillTriangle(v0, v1, v2, null);
+
+    /// <summary>
+    /// 三角形を塗りつぶし、色の決定を <paramref name="shader"/> に委ねる。
+    /// null なら補間した色をそのまま使う(通常の頂点カラー描画)。
+    /// </summary>
+    public void FillTriangle(Vertex v0, Vertex v1, Vertex v2, PixelShader? shader)
+    {
+        // --- 1. 巻き方向の正規化 ---
+        // 頂点を入れ替えるときは、位置だけでなく属性も一緒に入れ替わる必要がある。
+        // Vertex 構造体ごと交換しているので自動的にそうなっている。
+        float area = EdgeFunction(v0.Position, v1.Position, v2.Position.X, v2.Position.Y);
+        if (area == 0.0f)
+        {
+            return;
+        }
+
+        // --- 背面カリング ---
+        // Day 3 では「負なら頂点を入れ替えて向きをそろえる」と書いて符号を捨てていた。
+        // その符号こそが**その面を表から見ているか裏から見ているか**の情報で、
+        // 今日はそれを使って裏向きの面を描く前に捨てる。
+        //
+        // 画面座標系は Y が下向きなうえ、ビューポート変換でも Y を反転しているので、
+        // 「外から見て反時計回り」に巻いたモデル(Day 9 の要点6)は、
+        // 表から見たとき画面上で**負の面積**になる。符号の向きは規約の積み重ねで決まるので、
+        // 覚えるより「片方を試して裏返っていたら逆にする」と割り切ったほうが早い。
+        bool frontFacing = area < 0.0f;
+
+        if (Culling != CullMode.None)
+        {
+            bool cull = Culling == CullMode.Back ? !frontFacing : frontFacing;
+            if (cull)
+            {
+                CulledTriangles++;
+                return;
+            }
+        }
+
+        DrawnTriangles++;
+
+        if (area < 0.0f)
+        {
+            (v1, v2) = (v2, v1);
+            area = -area;
+        }
+
+        // --- 2. バウンディングボックス ---
+        // 頂点が小数になったので、外側へ丸める(floor / ceiling)。
+        // 内側へ丸めると三角形の端がわずかに欠ける。
+        float minXf = MathF.Min(v0.Position.X, MathF.Min(v1.Position.X, v2.Position.X));
+        float maxXf = MathF.Max(v0.Position.X, MathF.Max(v1.Position.X, v2.Position.X));
+        float minYf = MathF.Min(v0.Position.Y, MathF.Min(v1.Position.Y, v2.Position.Y));
+        float maxYf = MathF.Max(v0.Position.Y, MathF.Max(v1.Position.Y, v2.Position.Y));
+
+        int minX = Math.Max((int)MathF.Floor(minXf), 0);
+        int maxX = Math.Min((int)MathF.Ceiling(maxXf), _target.Width - 1);
+        int minY = Math.Max((int)MathF.Floor(minYf), 0);
+        int maxY = Math.Min((int)MathF.Ceiling(maxYf), _target.Height - 1);
+
+        // --- 3. top-left rule のバイアス ---
+        float bias0 = IsTopLeft(v1.Position, v2.Position) ? 0.0f : -TopLeftBias;
+        float bias1 = IsTopLeft(v2.Position, v0.Position) ? 0.0f : -TopLeftBias;
+        float bias2 = IsTopLeft(v0.Position, v1.Position) ? 0.0f : -TopLeftBias;
+
+        float invArea = 1.0f / area;
+
+        // --- 透視補正のための前計算 ---
+        // 属性を W で割ったものを先に作っておく。画面上で線形に補間してよいのは
+        // 「属性 / W」と「1 / W」であって、属性そのものではない(要点2)。
+        // 三角形につき1回でよい計算なので、内側のループから追い出しておく。
+        bool perspective = PerspectiveCorrect;
+
+        float iw0 = perspective ? v0.InvW : 1.0f;
+        float iw1 = perspective ? v1.InvW : 1.0f;
+        float iw2 = perspective ? v2.InvW : 1.0f;
+
+        Vec3 color0 = v0.Color * iw0;
+        Vec3 color1 = v1.Color * iw1;
+        Vec3 color2 = v2.Color * iw2;
+
+        Vec2 uv0 = v0.TexCoord * iw0;
+        Vec2 uv1 = v1.TexCoord * iw1;
+        Vec2 uv2 = v2.TexCoord * iw2;
+
+        Vec3 normal0 = v0.Normal * iw0;
+        Vec3 normal1 = v1.Normal * iw1;
+        Vec3 normal2 = v2.Normal * iw2;
+
+        Vec3 world0 = v0.World * iw0;
+        Vec3 world1 = v1.World * iw1;
+        Vec3 world2 = v2.World * iw2;
+
+        int[] pixels = _target.Pixels;
+        float[] depth = Depth.Depth;
+        bool depthTest = DepthTestEnabled;
+        int width = _target.Width;
+
+        // --- 4. 走査 ---
+        for (int y = minY; y <= maxY; y++)
+        {
+            int rowOffset = y * width;
+
+            // ピクセルの「中心」で判定する。
+            // ピクセル (x, y) が覆っているのは [x, x+1) x [y, y+1) の正方形なので、
+            // その代表点は中心の (x + 0.5, y + 0.5) になる。
+            // Day 4 まで整数位置で判定していたのは、頂点も整数だったからできた手抜きで、
+            // 頂点が小数になった今は中心で測らないと、絵が半ピクセルずれる。
+            float py = y + 0.5f;
+
+            for (int x = minX; x <= maxX; x++)
+            {
+                float px = x + 0.5f;
+
+                float w0 = EdgeFunction(v1.Position, v2.Position, px, py);
+                float w1 = EdgeFunction(v2.Position, v0.Position, px, py);
+                float w2 = EdgeFunction(v0.Position, v1.Position, px, py);
+
+                // 内外判定にはバイアス付き、補間には生の値を使う(Day 4 の要点3)。
+                if (w0 + bias0 < 0.0f || w1 + bias1 < 0.0f || w2 + bias2 < 0.0f)
+                {
+                    continue;
+                }
+
+                // バリセントリック座標。3つの重みの合計は必ず1になる。
+                float l0 = w0 * invArea;
+                float l1 = w1 * invArea;
+                float l2 = w2 * invArea;
+
+                int index = rowOffset + x;
+
+                // --- 深度テスト ---
+                // 深度は Z を補間するだけで求まる。透視除算を済ませた後の Z は
+                // 画面上で線形に変化するので、バリセントリック補間がそのまま正しい値になる。
+                // (色やUVはそうならない。その話が Day 8 の透視補正補間)
+                //
+                // 色を計算する前にテストするのが大事。落ちるピクセルのために
+                // シェーダを走らせるのは丸損なので、判定は可能な限り早く行う。
+                // GPUが「アーリーZ」と呼んで特別扱いしているのも同じ理由。
+                float z = v0.Position.Z * l0 + v1.Position.Z * l1 + v2.Position.Z * l2;
+
+                if (depthTest)
+                {
+                    // 小さいほど手前(0 = 近クリップ面)。既に描かれているものより
+                    // 手前でなければ捨てる。等号を含めないのは、同じ深度なら
+                    // 先に描いたほうを残すため(後勝ちにすると描画順で絵が変わってしまう)。
+                    if (z >= depth[index])
+                    {
+                        continue;
+                    }
+
+                    depth[index] = z;
+                }
+
+                // --- 属性の補間(透視補正つき)---
+                // 「属性 / W」を補間したものを、「1 / W」を補間したもので割ると、
+                // 3D空間で正しい属性値が得られる。割り算がピクセルごとに1回増えるが、
+                // これを省くと Day 8 の要点2にある通り絵が歪む。
+                float interpolatedInvW = iw0 * l0 + iw1 * l1 + iw2 * l2;
+                float w = 1.0f / interpolatedInvW;
+
+                Vec3 color = (color0 * l0 + color1 * l1 + color2 * l2) * w;
+
+                if (shader is null)
+                {
+                    // シェーダが無いときはUVも法線も要らないので、補間そのものを省く。
+                    pixels[index] = Framebuffer.Rgb(color.X, color.Y, color.Z);
+                    continue;
+                }
+
+                Vec2 uv = (uv0 * l0 + uv1 * l1 + uv2 * l2) * w;
+                Vec3 normal = (normal0 * l0 + normal1 * l1 + normal2 * l2) * w;
+                Vec3 world = (world0 * l0 + world1 * l1 + world2 * l2) * w;
+
+                var input = new PixelInput(color, uv, normal, world);
+                pixels[index] = shader(in input);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 単色で三角形を塗る。3頂点に同じ色を持たせて補間版へ渡すだけ。
+    /// </summary>
+    public void FillTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color)
+        => FillTriangle(new Vertex(p0, color), new Vertex(p1, color), new Vertex(p2, color));
+
+    /// <summary>
+    /// 三角形の輪郭だけを描く(ワイヤーフレーム)。
+    /// 線分描画は整数座標なので、ここで丸める。
+    /// </summary>
+    public void DrawTriangleWireframe(Vec3 p0, Vec3 p1, Vec3 p2, int color)
+    {
+        DrawLine(p0, p1, color);
+        DrawLine(p1, p2, color);
+        DrawLine(p2, p0, color);
+    }
+
+    private void DrawLine(Vec3 a, Vec3 b, int color)
+        => _target.DrawLine(
+            (int)MathF.Round(a.X), (int)MathF.Round(a.Y),
+            (int)MathF.Round(b.X), (int)MathF.Round(b.Y),
+            color);
+}
