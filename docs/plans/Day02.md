@@ -200,11 +200,14 @@ git diff --no-index reference/Day01/Framebuffer.cs reference/Day02/Framebuffer.c
 git diff --no-index reference/Day01/GameWindow.cs  reference/Day02/GameWindow.cs
 ```
 
-写経先は Day 1 と同じ `work/SoftwareRasterizer/`(Day 1〜10 はここを育て続ける)。
+写経先は `work/Phase1_SoftwareRasterizer/`(Day 2〜10 はここを育て続ける。Dayごとにフォルダは分けない)。
+Day 1 で書いた `Framebuffer.cs` と `GameWindow.cs` を `work/Phase0_Framebuffer/` からコピーして始める
+(手順は `work/Phase1_SoftwareRasterizer/Program.cs` のコメントに書いてある)。
+
 自分のコードとの差分は:
 
 ```
-git diff --no-index reference/Day02 work/SoftwareRasterizer
+git diff --no-index reference/Day02 work/Phase1_SoftwareRasterizer
 ```
 
 ## 完成条件

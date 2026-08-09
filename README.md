@@ -8,7 +8,7 @@ C#による自作ゲームエンジン学習プロジェクト。ソフトウェ
 
 - `docs/plans/DayXX.md` — 各Dayの計画書
 - `reference/DayXX/` — リファレンスコード(各Day独立でビルド・実行可能)
-- `work/` — 写経用(SoftwareRasterizer / RawGL / HonyaEngine / Labs)
+- `work/` — 写経用(Phase0_Framebuffer / Phase1_SoftwareRasterizer / RawGL / HonyaEngine / Labs)
 - `assets/` — 共有素材
 
 ## 実行方法(VSCode)
