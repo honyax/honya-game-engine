@@ -2,21 +2,27 @@ namespace SoftwareRasterizer;
 
 internal static class Program
 {
+    // フレームバッファの解像度。ロードマップのマイルストーンに合わせて 640x480。
+    // ソフトウェアラスタライザでは解像度がそのままCPU負荷に直結する
+    // (ピクセル数は幅と高さの積なので、縦横2倍にすると負荷は4倍)。
+    private const int Width = 640;
+    private const int Height = 480;
+
+    /// <summary>
+    /// エントリポイント。
+    ///
+    /// [STAThread] は必須。WinFormsはSTA(シングルスレッドアパートメント)前提のCOMを
+    /// 内部で使っており、これが無いとクリップボードやファイルダイアログ等で例外になる。
+    /// </summary>
     [STAThread]
     private static void Main()
     {
+        // WinFormsのソースジェネレータが生成するメソッド。
+        // ビジュアルスタイルの有効化・既定フォント・DPIモード設定をまとめて行う。
+        // DPIモードは Day01.csproj の ApplicationHighDpiMode から来ている。
         ApplicationConfiguration.Initialize();
 
-        // ここから Day 1 の写経を始める。
-        //
-        // 手順は docs/plans/Day01.md を参照。作るものは2つ:
-        //   Framebuffer.cs … ピクセル配列。Width / Height / Pixels と Rgb / Clear / SetPixel / FillRect
-        //   GameWindow.cs  … Form派生。ゲームループと、フレームバッファの画面転送
-        //
-        // 詰まったら reference/Day01 を見る。差分の確認は
-        //   git diff --no-index reference/Day01 work/SoftwareRasterizer
-        //
-        // 現状は何もしないので、実行してもウィンドウが出ずに即終了する。
-        // ビルドと実行の経路が通っていることの確認だけができる状態。
+        using var window = new GameWindow(Width, Height);
+        window.Run();
     }
 }
