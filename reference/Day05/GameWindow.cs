@@ -270,6 +270,13 @@ internal sealed class GameWindow : Form
         DrawTransformed(square, Mat4.Scale(34.0f) * parent, null);
 
         // --- 子(公転する三角形)と孫 ---
+        // stackalloc はループの外に出す。ループの中で書くと、
+        // 反復のたびにスタックを消費したまま解放されず、回数が増えると溢れる
+        // (このメソッドが返るまでスタックは戻らない)。
+        // 解析器も CA2014 として警告してくれる。
+        Span<Vertex> child = stackalloc Vertex[3];
+        Span<Vertex> moon = stackalloc Vertex[3];
+
         for (int i = 0; i < OrbitChildren; i++)
         {
             float phase = i * (MathF.PI * 2.0f / OrbitChildren);
@@ -282,7 +289,6 @@ internal sealed class GameWindow : Form
                 parent;
 
             Vec3 color = ColorFromHue(i / (float)OrbitChildren);
-            Span<Vertex> child = stackalloc Vertex[3];
             UnitTriangle(child, color, color * 0.55f, color * 0.25f);
 
             // 縮小 → 自転、のあとに上の座標系へ乗せる。
@@ -290,7 +296,6 @@ internal sealed class GameWindow : Form
 
             // --- 孫(子のまわりを回る小さな三角形)---
             // 子の座標系をそのまま親として使えるのが、行列で階層を作る利点。
-            Span<Vertex> moon = stackalloc Vertex[3];
             UnitTriangle(moon, Vec3.One, Vec3.One * 0.6f, Vec3.One * 0.3f);
 
             Mat4 moonTransform =
