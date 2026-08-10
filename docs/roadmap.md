@@ -274,7 +274,8 @@ honya-game-engine/
 │   │   └── Program.cs
 │   └── ... Day66/
 └── work/                        # 写経用(自分の手で書くコード)。Day分割せず、プロジェクトを継続成長させる
-    ├── SoftwareRasterizer/      # Day 1〜10: ソフトウェアラスタライザ(ここで完結)
+    ├── Phase0_Framebuffer/      # Day 1: ピクセルバッファと60fpsループ(Phase 0)
+    ├── Phase1_SoftwareRasterizer/ # Day 2〜10: ソフトウェアラスタライザ(ここで完結)
     ├── RawGL/                   # Day 11〜13: 生OpenGLバインディング体験(使い捨て)
     ├── HonyaEngine/             # Day 14〜: 本番エンジン。Day 29頃にエンジン(classlib)とゲーム(exe)に分割
     │   ├── HonyaEngine/         #   エンジン本体(クラスライブラリ)

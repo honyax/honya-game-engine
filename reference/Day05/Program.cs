@@ -1,4 +1,4 @@
-namespace Framebuffer;
+namespace SoftwareRasterizer;
 
 internal static class Program
 {

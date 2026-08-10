@@ -1,4 +1,4 @@
-namespace SoftwareRasterizer;
+namespace Framebuffer;
 
 /// <summary>
 /// CPU側のピクセルバッファ(フレームバッファ)。

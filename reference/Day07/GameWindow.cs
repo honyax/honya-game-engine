@@ -22,6 +22,11 @@ internal sealed class GameWindow : Form
     private readonly Framebuffer _framebuffer;
 
     /// <summary>
+    /// 三角形ラスタライザ。Day 3 以降、画面に出る絵の大半はこいつが描く。
+    /// </summary>
+    private readonly Rasterizer _rasterizer;
+
+    /// <summary>
     /// フレームバッファを画面へ渡すための中継用ビットマップ。
     /// 毎フレーム new すると GDI+ ハンドルとGCを浪費するので、必ず使い回す。
     /// </summary>
@@ -37,6 +42,7 @@ internal sealed class GameWindow : Form
     public GameWindow(int width, int height)
     {
         _framebuffer = new Framebuffer(width, height);
+        _rasterizer = new Rasterizer(_framebuffer);
 
         // Format32bppRgb: 1ピクセル32bitで、上位8bitのアルファは「未使用」扱い。
         // Format32bppArgb にするとGDI+がアルファ合成を試みる可能性があり、
@@ -44,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day01 - Framebuffer";
+        Text = "Day07 - Zバッファ";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -96,6 +102,9 @@ internal sealed class GameWindow : Form
         double fpsElapsed = 0.0;
         int fpsFrames = 0;
 
+        // Render だけにかかった時間の集計(FPSと同じく0.5秒ぶんを平均する)
+        double renderSecondsAccum = 0.0;
+
         while (_running)
         {
             // OSから届いたメッセージ(マウス、キー、ウィンドウ移動、閉じるボタン…)を処理する。
@@ -113,7 +122,15 @@ internal sealed class GameWindow : Form
             double deltaSeconds = nowSeconds - previousSeconds;
             previousSeconds = nowSeconds;
 
+            // Render の所要時間だけを切り出して測る。
+            // Day 1 の実測で「一番重いのは自分の描画ではなくGDI+の画面転送(約6ms)」と
+            // 分かっているので、線を何本描いても Render 側にはまだ余裕がある、という確認になる。
+            // 三角形は線分と違って「面積ぶん」のピクセルを塗るので、
+            // 線を描いていたDay 2 とは桁が変わる。その実感を数字で持っておく。
+            double renderStartSeconds = clock.Elapsed.TotalSeconds;
             Render(nowSeconds);
+            renderSecondsAccum += clock.Elapsed.TotalSeconds - renderStartSeconds;
+
             Present();
 
             // FPSは毎フレーム表示すると数字が暴れて読めないので、0.5秒ぶんを平均する。
@@ -121,9 +138,13 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                Text = $"Day01 - Framebuffer  {fpsFrames / fpsElapsed:F1} fps";
+                string test = _rasterizer.DepthTestEnabled ? "ON " : "OFF";
+                Text = $"Day07 - Zバッファ  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | 深度テスト:{test} | "
+                     + $"W:ワイヤー Z:深度テスト D:深度表示 Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
+                renderSecondsAccum = 0.0;
             }
 
             // 次フレームの開始時刻を決める。
@@ -143,60 +164,232 @@ internal sealed class GameWindow : Form
         }
     }
 
+    /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
+    private bool _showWireframe;
+
+    /// <summary>深度バッファを白黒で表示するか(Dキー)。</summary>
+    private bool _showDepth;
+
+    /// <summary>立方体1個あたりの三角形数(6面 x 2枚)。</summary>
+    private const int CubeTriangles = 12;
+
+    /// <summary>周囲を回る立方体の数。</summary>
+    private const int OrbitCubes = 3;
+
+    /// <summary>貫通する板の枚数(三角形は1枚につき2)。</summary>
+    private const int BladeCount = 2;
+
+    /// <summary>1フレームに描く三角形の総数。</summary>
+    private const int TriangleCount = CubeTriangles * (1 + OrbitCubes) + BladeCount * 2;
+
+    /// <summary>カメラ。</summary>
+    private readonly Camera _camera = new();
+
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
-    /// Day 1 の時点では「全ピクセルを自分で埋める」ことそのものが主題。
+    ///
+    /// Day 6 との違いは2つ。
+    ///   - 三角形を並べ替える処理が丸ごと消えた(Zバッファが順序を気にしなくする)
+    ///   - 毎フレーム深度バッファをクリアする処理が増えた
+    /// 差し引きでコードは短くなっている。**正しくなったのに簡単になった**のがZバッファの凄み。
     /// </summary>
     private void Render(double timeSeconds)
     {
-        int width = _framebuffer.Width;
-        int height = _framebuffer.Height;
-        int[] pixels = _framebuffer.Pixels;
+        _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
-        // 背景: X方向に赤、Y方向に緑、青は時間で明滅するグラデーション。
-        // 640x480 = 307,200ピクセルを毎フレームCPUで書いている。
-        // 16.67msの持ち時間を割ると1ピクセルあたり約54ns。この予算感がPhase 1の前提になる。
-        byte blue = (byte)((Math.Sin(timeSeconds * 2.0) * 0.5 + 0.5) * 255.0);
+        // 色と同じく、深度も毎フレーム初期化する。
+        // これを忘れると前のフレームの深度が残り、物体が虫食いに抜ける。
+        _rasterizer.Depth.Clear();
 
-        for (int y = 0; y < height; y++)
+        float t = (float)timeSeconds;
+
+        float orbit = t * 0.25f;
+        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.0f, 2.2f, MathF.Cos(orbit) * 6.0f);
+        _camera.Target = Vec3.Zero;
+        _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
+
+        Mat4 viewProjection = _camera.ViewProjection;
+
+        // --- 中央の立方体 ---
+        Mat4 centerModel = Mat4.Scale(1.15f) * Mat4.RotationY(t * 0.6f) * Mat4.RotationX(t * 0.31f);
+        DrawCube(centerModel * viewProjection, 1.0f);
+
+        // --- 立方体を貫通する板 ---
+        // **画家のアルゴリズムでは絶対に解けない配置**。板と立方体は互いに相手を貫いていて、
+        // 「どちらが手前か」を三角形単位では決められない。
+        // Zバッファはピクセル単位で判定するので、何も特別なことをせずに正しく描ける。
+        for (int i = 0; i < BladeCount; i++)
         {
-            byte g = (byte)(y * 255 / (height - 1));
-            int rowOffset = y * width;
+            // RotationY で90度回すと板は互いに直交する。ここを RotationZ にすると
+            // 板が自分の平面の中で回るだけで2枚が同一平面に重なり、
+            // 深度がほぼ同じピクセルが大量にできてZファイティング(ちらつく斑点)が出る。
+            Mat4 blade =
+                Mat4.Scale(2.3f) *
+                Mat4.RotationY(MathF.PI / 2.0f * i) *
+                Mat4.RotationY(t * 0.45f);
 
-            for (int x = 0; x < width; x++)
-            {
-                byte r = (byte)(x * 255 / (width - 1));
-                pixels[rowOffset + x] = Framebuffer.Rgb(r, g, blue);
-            }
+            DrawQuad(blade * viewProjection, i == 0
+                ? new Vec3(0.95f, 0.85f, 0.35f)
+                : new Vec3(0.35f, 0.85f, 0.95f));
         }
 
-        // 動く白い四角。60fpsで滑らかに動いているか、コマ落ちしていないかを
-        // 目視で確認するための的。数字のFPSより体感の判断材料になる。
-        const int size = 48;
-        const double speedX = 220.0;   // ピクセル/秒
-        const double speedY = 130.0;
+        // --- 周囲を回る立方体 ---
+        for (int i = 0; i < OrbitCubes; i++)
+        {
+            float phase = i * (MathF.PI * 2.0f / OrbitCubes);
+            Mat4 model =
+                Mat4.Scale(0.42f) *
+                Mat4.RotationZ(t * 1.7f) *
+                Mat4.Translation(new Vec3(2.9f, 0.0f, 0.0f)) *
+                Mat4.RotationY(t * 0.8f + phase);
 
-        int boxX = PingPong(timeSeconds * speedX, width - size);
-        int boxY = PingPong(timeSeconds * speedY, height - size);
-        _framebuffer.FillRect(boxX, boxY, size, size, Framebuffer.Rgb(255, 255, 255));
+            DrawCube(model * viewProjection, 0.55f + 0.15f * i);
+        }
+
+        if (_showDepth)
+        {
+            VisualizeDepth();
+        }
     }
 
     /// <summary>
-    /// 0 と max の間を往復する値を返す(端で跳ね返る三角波)。
-    /// 経過時間から直接位置を求めているので、フレームレートが変動しても
-    /// 移動速度は変わらない。「位置を毎フレーム加算する」書き方だと
-    /// フレームレート依存になってしまう点は、Day 19 のゲームループ回で改めて扱う。
+    /// 立方体を1個描く。Day 6 と違い、積んで並べ替えずにその場で描いてよい。
     /// </summary>
-    private static int PingPong(double value, int max)
+    private void DrawCube(Mat4 mvp, float brightness)
     {
-        if (max <= 0)
+        Span<Vec3> corners = stackalloc Vec3[8];
+        for (int i = 0; i < 8; i++)
         {
-            return 0;
+            corners[i] = new Vec3(
+                (i & 1) == 0 ? -1.0f : 1.0f,
+                (i & 2) == 0 ? -1.0f : 1.0f,
+                (i & 4) == 0 ? -1.0f : 1.0f);
         }
 
-        double period = max * 2.0;
-        double t = value % period;
-        return (int)(t <= max ? t : period - t);
+        ReadOnlySpan<int> faces = stackalloc int[]
+        {
+            0, 2, 6, 4,   // -X
+            1, 5, 7, 3,   // +X
+            0, 4, 5, 1,   // -Y
+            2, 3, 7, 6,   // +Y
+            0, 1, 3, 2,   // -Z
+            4, 6, 7, 5,   // +Z
+        };
+
+        for (int face = 0; face < 6; face++)
+        {
+            Vec3 color = ColorFromHue(face / 6.0f) * brightness;
+            int i0 = faces[face * 4];
+            int i1 = faces[face * 4 + 1];
+            int i2 = faces[face * 4 + 2];
+            int i3 = faces[face * 4 + 3];
+
+            DrawTriangle(corners[i0], corners[i1], corners[i2], color, mvp);
+            DrawTriangle(corners[i0], corners[i2], corners[i3], color, mvp);
+        }
+    }
+
+    /// <summary>XY 平面上の板(一辺2の正方形)を1枚描く。</summary>
+    private void DrawQuad(Mat4 mvp, Vec3 color)
+    {
+        var lt = new Vec3(-1.0f, -1.0f, 0.0f);
+        var rt = new Vec3(1.0f, -1.0f, 0.0f);
+        var rb = new Vec3(1.0f, 1.0f, 0.0f);
+        var lb = new Vec3(-1.0f, 1.0f, 0.0f);
+
+        DrawTriangle(lt, rt, rb, color, mvp);
+        DrawTriangle(lt, rb, lb, color * 0.8f, mvp);
+    }
+
+    /// <summary>三角形1枚を描く。ワイヤーフレーム表示にも対応する。</summary>
+    private void DrawTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color, Mat4 mvp)
+    {
+        _rasterizer.DrawTriangle(new Vertex(p0, color), new Vertex(p1, color), new Vertex(p2, color), mvp);
+
+        if (_showWireframe &&
+            _rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) &&
+            _rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) &&
+            _rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
+        {
+            _rasterizer.DrawTriangleWireframe(s0, s1, s2, Framebuffer.Rgb(240, 240, 240));
+        }
+    }
+
+    /// <summary>深度バッファを可視化する表示範囲(カメラからの距離)。</summary>
+    private const float DepthViewNear = 2.5f;
+
+    private const float DepthViewFar = 9.5f;
+
+    /// <summary>
+    /// 深度バッファの中身を白黒で塗り直す。手前が白、奥が黒。
+    ///
+    /// そのまま NDC の Z を明るさにすると、ほとんど真っ白になって何も見えない。
+    /// Day 6 の要点4で見たとおり、深度値は手前に極端に偏っているため
+    /// (near=0.1, far=100 のとき、距離5の点でも深度は 0.99 を超える)。
+    /// そこで**カメラからの距離に戻してから**表示する。この逆算の式は
+    /// 深度値がどう作られたかを理解していないと書けないので、復習にちょうどよい。
+    /// </summary>
+    private void VisualizeDepth()
+    {
+        float near = _camera.NearPlane;
+        float far = _camera.FarPlane;
+        float[] depth = _rasterizer.Depth.Depth;
+        int[] pixels = _framebuffer.Pixels;
+
+        for (int i = 0; i < depth.Length; i++)
+        {
+            float ndcZ = depth[i];
+            if (ndcZ >= 1.0f)
+            {
+                // 何も描かれていない場所は背景のままにする。
+                continue;
+            }
+
+            // NDC の Z からカメラまでの距離を逆算する。
+            // 投影行列が ndcZ = far/(far-near) * (1 - near/distance) を作っていたので、
+            // これを distance について解いた形。
+            float distance = near / (1.0f - ndcZ * (far - near) / far);
+
+            // 見やすい範囲へ正規化して、手前を白、奥を黒にする。
+            float shade = 1.0f - Math.Clamp((distance - DepthViewNear) / (DepthViewFar - DepthViewNear), 0.0f, 1.0f);
+            pixels[i] = Framebuffer.Rgb(shade, shade, shade);
+        }
+    }
+
+    /// <summary>0〜1 の色相を Vec3 の RGB に変換する(簡易HSV)。</summary>
+    private static Vec3 ColorFromHue(float hue01)
+    {
+        int packed = HueColor(hue01);
+        return new Vec3(
+            ((packed >> 16) & 0xFF) / 255.0f,
+            ((packed >> 8) & 0xFF) / 255.0f,
+            (packed & 0xFF) / 255.0f);
+    }
+
+    /// <summary>
+    /// 0〜1 の値を虹色に割り当てる(彩度・明度を最大に固定した簡易HSV)。
+    /// 放射状の線を1本ずつ見分けるためだけのデモ用ヘルパー。
+    /// </summary>
+    private static int HueColor(double hue01)
+    {
+        // 色相環を6つの区間に割り、区間内では1色だけが直線的に増減する、と考えると
+        // 分岐6本で書ける。区間の境界(0, 1/6, 2/6 …)で必ず原色になる。
+        double h = (hue01 - Math.Floor(hue01)) * 6.0;
+        int sector = (int)h;
+        double f = h - sector;
+
+        byte up = (byte)(f * 255.0);
+        byte down = (byte)((1.0 - f) * 255.0);
+
+        return sector switch
+        {
+            0 => Framebuffer.Rgb(255, up, 0),
+            1 => Framebuffer.Rgb(down, 255, 0),
+            2 => Framebuffer.Rgb(0, 255, up),
+            3 => Framebuffer.Rgb(0, down, 255),
+            4 => Framebuffer.Rgb(up, 0, 255),
+            _ => Framebuffer.Rgb(255, 0, down),
+        };
     }
 
     /// <summary>
@@ -286,6 +479,26 @@ internal sealed class GameWindow : Form
         if (e.KeyCode == Keys.Escape)
         {
             Close();
+        }
+
+        // W: 塗りつぶしの上にワイヤーフレームを重ねる。
+        if (e.KeyCode == Keys.W)
+        {
+            _showWireframe = !_showWireframe;
+        }
+
+        // Z: 深度テストの ON / OFF。OFF にすると Day 6 で S を切ったときと同じ、
+        // 「後から描いたものが勝つ」状態に戻る。
+        if (e.KeyCode == Keys.Z)
+        {
+            _rasterizer.DepthTestEnabled = !_rasterizer.DepthTestEnabled;
+        }
+
+        // D: 深度バッファそのものを白黒で表示する。
+        // 普段は見えないバッファを覗くと、Zバッファが何を持っているのかが一目で分かる。
+        if (e.KeyCode == Keys.D)
+        {
+            _showDepth = !_showDepth;
         }
 
         base.OnKeyDown(e);

@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
-namespace Framebuffer;
+namespace SoftwareRasterizer;
 
 /// <summary>
 /// ゲームウィンドウ本体。役割は3つ。
@@ -44,7 +44,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day01 - Framebuffer";
+        Text = "Day02 - 線分描画";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -96,6 +96,9 @@ internal sealed class GameWindow : Form
         double fpsElapsed = 0.0;
         int fpsFrames = 0;
 
+        // Render だけにかかった時間の集計(FPSと同じく0.5秒ぶんを平均する)
+        double renderSecondsAccum = 0.0;
+
         while (_running)
         {
             // OSから届いたメッセージ(マウス、キー、ウィンドウ移動、閉じるボタン…)を処理する。
@@ -113,7 +116,14 @@ internal sealed class GameWindow : Form
             double deltaSeconds = nowSeconds - previousSeconds;
             previousSeconds = nowSeconds;
 
+            // Render の所要時間だけを切り出して測る。
+            // Day 1 の実測で「一番重いのは自分の描画ではなくGDI+の画面転送(約6ms)」と
+            // 分かっているので、線を何本描いても Render 側にはまだ余裕がある、という確認になる。
+            // Space キーでの Bresenham / DDA の速度比較も、この数字を見て行う。
+            double renderStartSeconds = clock.Elapsed.TotalSeconds;
             Render(nowSeconds);
+            renderSecondsAccum += clock.Elapsed.TotalSeconds - renderStartSeconds;
+
             Present();
 
             // FPSは毎フレーム表示すると数字が暴れて読めないので、0.5秒ぶんを平均する。
@@ -121,9 +131,11 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                Text = $"Day01 - Framebuffer  {fpsFrames / fpsElapsed:F1} fps";
+                string algorithm = _framebuffer.UseDdaLine ? "DDA      " : "Bresenham";
+                Text = $"Day02 - 線分描画  {fpsFrames / fpsElapsed:F1} fps | {algorithm} | render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | Space:切替 Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
+                renderSecondsAccum = 0.0;
             }
 
             // 次フレームの開始時刻を決める。
@@ -145,58 +157,173 @@ internal sealed class GameWindow : Form
 
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
-    /// Day 1 の時点では「全ピクセルを自分で埋める」ことそのものが主題。
+    ///
+    /// Day 2 の題材はすべて線分1本の組み合わせでできている。
+    ///   - 方眼      … 水平線・垂直線(Bresenhamの退化ケース)
+    ///   - 放射線    … 全方向(8オクタント)の網羅と、画面外へのはみ出し
+    ///   - 星型      … 閉じた折れ線 = 多角形の輪郭
+    ///   - リサージュ… 曲線も細かい折れ線で描ける、という割り切りの実演
     /// </summary>
     private void Render(double timeSeconds)
     {
+        // Day 1 のグラデーション背景は線が見えづらいので、暗い単色に変える。
+        _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
+
+        DrawGrid();
+        DrawFan(timeSeconds);
+        DrawStar(timeSeconds);
+        DrawLissajous(timeSeconds);
+    }
+
+    /// <summary>方眼の間隔(ピクセル)。</summary>
+    private const int GridSpacing = 32;
+
+    /// <summary>
+    /// 方眼を描く。
+    ///
+    /// 見た目は地味だが、水平線(dy = 0)と垂直線(dx = 0)はBresenhamの退化ケースで、
+    /// 誤差項の更新が片側だけになる。ここを踏み外していると「線が1本消える」
+    /// 「1ピクセルずれる」といった形ですぐ表に出るので、実質的なテストになっている。
+    /// </summary>
+    private void DrawGrid()
+    {
         int width = _framebuffer.Width;
         int height = _framebuffer.Height;
-        int[] pixels = _framebuffer.Pixels;
+        int color = Framebuffer.Rgb(34, 38, 52);
 
-        // 背景: X方向に赤、Y方向に緑、青は時間で明滅するグラデーション。
-        // 640x480 = 307,200ピクセルを毎フレームCPUで書いている。
-        // 16.67msの持ち時間を割ると1ピクセルあたり約54ns。この予算感がPhase 1の前提になる。
-        byte blue = (byte)((Math.Sin(timeSeconds * 2.0) * 0.5 + 0.5) * 255.0);
-
-        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x += GridSpacing)
         {
-            byte g = (byte)(y * 255 / (height - 1));
-            int rowOffset = y * width;
-
-            for (int x = 0; x < width; x++)
-            {
-                byte r = (byte)(x * 255 / (width - 1));
-                pixels[rowOffset + x] = Framebuffer.Rgb(r, g, blue);
-            }
+            _framebuffer.DrawLine(x, 0, x, height - 1, color);
         }
 
-        // 動く白い四角。60fpsで滑らかに動いているか、コマ落ちしていないかを
-        // 目視で確認するための的。数字のFPSより体感の判断材料になる。
-        const int size = 48;
-        const double speedX = 220.0;   // ピクセル/秒
-        const double speedY = 130.0;
+        for (int y = 0; y < height; y += GridSpacing)
+        {
+            _framebuffer.DrawLine(0, y, width - 1, y, color);
+        }
+    }
 
-        int boxX = PingPong(timeSeconds * speedX, width - size);
-        int boxY = PingPong(timeSeconds * speedY, height - size);
-        _framebuffer.FillRect(boxX, boxY, size, size, Framebuffer.Rgb(255, 255, 255));
+    /// <summary>放射状に伸ばす線の本数。</summary>
+    private const int FanSpokes = 36;
+
+    /// <summary>
+    /// 中心から放射状に線を伸ばし、ゆっくり回転させる。
+    ///
+    /// 狙いは「1つの DrawLine で8方向すべてを描けているか」の目視確認。
+    /// 傾きの急/緩、右向き/左向き、上向き/下向きのどれか1つでも取りこぼしていると、
+    /// 回転の途中でその向きの線だけが消えたり、階段の形が明らかに崩れたりして一目で分かる。
+    /// 「テストコードの代わりに絵で確かめる」のはグラフィックスで最も効率のよい検証方法。
+    /// </summary>
+    private void DrawFan(double timeSeconds)
+    {
+        int centerX = _framebuffer.Width / 4;
+        int centerY = _framebuffer.Height / 4;
+        double baseAngle = timeSeconds * 0.5;
+
+        for (int i = 0; i < FanSpokes; i++)
+        {
+            double angle = baseAngle + i * (2.0 * Math.PI / FanSpokes);
+
+            // 3本に1本は画面の外まで突き抜けさせる。
+            // 範囲外の座標が来ても SetPixel が黙って捨てるので破綻しない、という確認と、
+            // 同時に「画面外なのにループは回り続けている」という無駄の実演でもある
+            // (この無駄をなくすのが改造課題2のクリッピング)。
+            double radius = (i % 3 == 0) ? 340.0 : 104.0;
+
+            int endX = centerX + (int)Math.Round(Math.Cos(angle) * radius);
+            int endY = centerY + (int)Math.Round(Math.Sin(angle) * radius);
+
+            _framebuffer.DrawLine(centerX, centerY, endX, endY, HueColor(i / (double)FanSpokes));
+        }
     }
 
     /// <summary>
-    /// 0 と max の間を往復する値を返す(端で跳ね返る三角波)。
-    /// 経過時間から直接位置を求めているので、フレームレートが変動しても
-    /// 移動速度は変わらない。「位置を毎フレーム加算する」書き方だと
-    /// フレームレート依存になってしまう点は、Day 19 のゲームループ回で改めて扱う。
+    /// 5つの頂点を1つ飛ばしで結んだ星型多角形({5/2}星形)を回転させる。
+    ///
+    /// 頂点を「2つ進む」順序で並べておけば、あとは素直に閉じた折れ線を描くだけで星になる。
+    /// 多角形を描く側は「頂点をどう並べるか」だけを考えればよく、
+    /// 線を引く仕事は DrawLine に任せきる、という層の分け方をここで作っておく。
     /// </summary>
-    private static int PingPong(double value, int max)
+    private void DrawStar(double timeSeconds)
     {
-        if (max <= 0)
+        const int vertexCount = 5;
+        const double radius = 92.0;
+
+        int centerX = _framebuffer.Width * 3 / 4;
+        int centerY = _framebuffer.Height / 4;
+
+        // 頂点数が少なく寿命もこのメソッド内だけなので、ヒープではなくスタックに置く。
+        // 毎フレーム呼ばれる描画コードでGCを動かさないための基本的な作法。
+        Span<(int X, int Y)> vertices = stackalloc (int X, int Y)[vertexCount];
+
+        double angleOffset = -Math.PI / 2.0 + timeSeconds * 0.8;
+        for (int i = 0; i < vertexCount; i++)
         {
-            return 0;
+            double angle = angleOffset + i * 2 * (2.0 * Math.PI / vertexCount);
+            vertices[i] = (
+                centerX + (int)Math.Round(Math.Cos(angle) * radius),
+                centerY + (int)Math.Round(Math.Sin(angle) * radius));
         }
 
-        double period = max * 2.0;
-        double t = value % period;
-        return (int)(t <= max ? t : period - t);
+        _framebuffer.DrawPolyline(vertices, Framebuffer.Rgb(255, 214, 110), closed: true);
+    }
+
+    /// <summary>リサージュ曲線の分割数。大きいほど滑らかで、そのぶん線分が増える。</summary>
+    private const int LissajousSegments = 160;
+
+    /// <summary>
+    /// リサージュ曲線(x と y を別々の周波数の正弦波で動かした軌跡)を折れ線で描く。
+    ///
+    /// ラスタライザは曲線を曲線のまま扱わない。細かく分割して直線に置き換えるだけ。
+    /// 分割数を減らすとカクカクになり、増やすと滑らかになる代わりに線分の本数が増える
+    /// ——この「滑らかさと処理量のトレードオフ」は、この先メッシュの分割や
+    /// テッセレーションでまったく同じ形で再登場する。
+    /// </summary>
+    private void DrawLissajous(double timeSeconds)
+    {
+        int centerX = _framebuffer.Width / 2;
+        int centerY = _framebuffer.Height * 3 / 4;
+        double amplitudeX = _framebuffer.Width / 2.0 - 24.0;
+        double amplitudeY = _framebuffer.Height / 4.0 - 24.0;
+
+        // x 側の位相だけを時間で動かすと、図形が閉じたり開いたりしながら変化する。
+        double phase = timeSeconds * 0.6;
+
+        Span<(int X, int Y)> points = stackalloc (int X, int Y)[LissajousSegments + 1];
+        for (int i = 0; i <= LissajousSegments; i++)
+        {
+            double t = i / (double)LissajousSegments * (2.0 * Math.PI);
+            points[i] = (
+                centerX + (int)Math.Round(Math.Sin(3.0 * t + phase) * amplitudeX),
+                centerY + (int)Math.Round(Math.Sin(2.0 * t) * amplitudeY));
+        }
+
+        _framebuffer.DrawPolyline(points, Framebuffer.Rgb(120, 216, 255));
+    }
+
+    /// <summary>
+    /// 0〜1 の値を虹色に割り当てる(彩度・明度を最大に固定した簡易HSV)。
+    /// 放射状の線を1本ずつ見分けるためだけのデモ用ヘルパー。
+    /// </summary>
+    private static int HueColor(double hue01)
+    {
+        // 色相環を6つの区間に割り、区間内では1色だけが直線的に増減する、と考えると
+        // 分岐6本で書ける。区間の境界(0, 1/6, 2/6 …)で必ず原色になる。
+        double h = (hue01 - Math.Floor(hue01)) * 6.0;
+        int sector = (int)h;
+        double f = h - sector;
+
+        byte up = (byte)(f * 255.0);
+        byte down = (byte)((1.0 - f) * 255.0);
+
+        return sector switch
+        {
+            0 => Framebuffer.Rgb(255, up, 0),
+            1 => Framebuffer.Rgb(down, 255, 0),
+            2 => Framebuffer.Rgb(0, 255, up),
+            3 => Framebuffer.Rgb(0, down, 255),
+            4 => Framebuffer.Rgb(up, 0, 255),
+            _ => Framebuffer.Rgb(255, 0, down),
+        };
     }
 
     /// <summary>
@@ -286,6 +413,15 @@ internal sealed class GameWindow : Form
         if (e.KeyCode == Keys.Escape)
         {
             Close();
+        }
+
+        // Spaceで線分描画アルゴリズムを切り替える。
+        // 見た目はほとんど変わらない(実測でピクセル全体の0.5%しかずれない)が、
+        // 「ほとんど」であって「完全一致」ではない、というのが今日の見どころ。
+        // 切り替えた瞬間に線がわずかにチラつく箇所があれば、それがDDAの累積誤差。
+        if (e.KeyCode == Keys.Space)
+        {
+            _framebuffer.UseDdaLine = !_framebuffer.UseDdaLine;
         }
 
         base.OnKeyDown(e);

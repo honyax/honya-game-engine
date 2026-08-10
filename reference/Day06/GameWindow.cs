@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
-namespace Framebuffer;
+namespace SoftwareRasterizer;
 
 /// <summary>
 /// ゲームウィンドウ本体。役割は3つ。
@@ -22,6 +22,11 @@ internal sealed class GameWindow : Form
     private readonly Framebuffer _framebuffer;
 
     /// <summary>
+    /// 三角形ラスタライザ。Day 3 以降、画面に出る絵の大半はこいつが描く。
+    /// </summary>
+    private readonly Rasterizer _rasterizer;
+
+    /// <summary>
     /// フレームバッファを画面へ渡すための中継用ビットマップ。
     /// 毎フレーム new すると GDI+ ハンドルとGCを浪費するので、必ず使い回す。
     /// </summary>
@@ -37,6 +42,7 @@ internal sealed class GameWindow : Form
     public GameWindow(int width, int height)
     {
         _framebuffer = new Framebuffer(width, height);
+        _rasterizer = new Rasterizer(_framebuffer);
 
         // Format32bppRgb: 1ピクセル32bitで、上位8bitのアルファは「未使用」扱い。
         // Format32bppArgb にするとGDI+がアルファ合成を試みる可能性があり、
@@ -44,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day01 - Framebuffer";
+        Text = "Day06 - 3Dパイプライン";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -96,6 +102,9 @@ internal sealed class GameWindow : Form
         double fpsElapsed = 0.0;
         int fpsFrames = 0;
 
+        // Render だけにかかった時間の集計(FPSと同じく0.5秒ぶんを平均する)
+        double renderSecondsAccum = 0.0;
+
         while (_running)
         {
             // OSから届いたメッセージ(マウス、キー、ウィンドウ移動、閉じるボタン…)を処理する。
@@ -113,7 +122,15 @@ internal sealed class GameWindow : Form
             double deltaSeconds = nowSeconds - previousSeconds;
             previousSeconds = nowSeconds;
 
+            // Render の所要時間だけを切り出して測る。
+            // Day 1 の実測で「一番重いのは自分の描画ではなくGDI+の画面転送(約6ms)」と
+            // 分かっているので、線を何本描いても Render 側にはまだ余裕がある、という確認になる。
+            // 三角形は線分と違って「面積ぶん」のピクセルを塗るので、
+            // 線を描いていたDay 2 とは桁が変わる。その実感を数字で持っておく。
+            double renderStartSeconds = clock.Elapsed.TotalSeconds;
             Render(nowSeconds);
+            renderSecondsAccum += clock.Elapsed.TotalSeconds - renderStartSeconds;
+
             Present();
 
             // FPSは毎フレーム表示すると数字が暴れて読めないので、0.5秒ぶんを平均する。
@@ -121,9 +138,13 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                Text = $"Day01 - Framebuffer  {fpsFrames / fpsElapsed:F1} fps";
+                string sort = _depthSort ? "ON " : "OFF";
+                Text = $"Day06 - 3Dパイプライン  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | 奥から順に描く:{sort} | "
+                     + $"W:ワイヤー S:並べ替え Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
+                renderSecondsAccum = 0.0;
             }
 
             // 次フレームの開始時刻を決める。
@@ -143,60 +164,216 @@ internal sealed class GameWindow : Form
         }
     }
 
+    /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
+    private bool _showWireframe;
+
+    /// <summary>奥から順に描くか(画家のアルゴリズム。Sキー)。</summary>
+    private bool _depthSort = true;
+
+    /// <summary>立方体1個あたりの三角形数(6面 x 2枚)。</summary>
+    private const int CubeTriangles = 12;
+
+    /// <summary>描く立方体の数(中央の大きいの1個 + 周囲を回る小さいの3個)。</summary>
+    private const int CubeCount = 4;
+
+    /// <summary>1フレームに描く三角形の総数。</summary>
+    private const int TriangleCount = CubeTriangles * CubeCount;
+
+    /// <summary>カメラ。位置と視野角を持つだけの入れ物。</summary>
+    private readonly Camera _camera = new();
+
+    /// <summary>
+    /// 画家のアルゴリズム用に、変換済みの三角形を一時的に溜めておく配列。
+    ///
+    /// 毎フレーム new すると GC が動くので使い回す。
+    /// Day 7 でZバッファを導入すると、この仕組みごと不要になって消える。
+    /// </summary>
+    private readonly (Vertex A, Vertex B, Vertex C, float Depth)[] _triangleBuffer
+        = new (Vertex, Vertex, Vertex, float)[TriangleCount];
+
+    private int _triangleCount;
+
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
-    /// Day 1 の時点では「全ピクセルを自分で埋める」ことそのものが主題。
+    ///
+    /// 今日から絵は3次元になる。手順は
+    ///   1. カメラからビュー行列と投影行列を作る(フレームに1回)
+    ///   2. 物体ごとにモデル行列を作り、上と掛け合わせて MVP 行列にする
+    ///   3. 三角形をMVP行列とともにラスタライザへ渡す
+    /// の3段。2 と 3 の間にZバッファ(Day 7)やカリング(Day 10)が入っていく。
     /// </summary>
     private void Render(double timeSeconds)
     {
-        int width = _framebuffer.Width;
-        int height = _framebuffer.Height;
-        int[] pixels = _framebuffer.Pixels;
+        _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
-        // 背景: X方向に赤、Y方向に緑、青は時間で明滅するグラデーション。
-        // 640x480 = 307,200ピクセルを毎フレームCPUで書いている。
-        // 16.67msの持ち時間を割ると1ピクセルあたり約54ns。この予算感がPhase 1の前提になる。
-        byte blue = (byte)((Math.Sin(timeSeconds * 2.0) * 0.5 + 0.5) * 255.0);
+        float t = (float)timeSeconds;
 
-        for (int y = 0; y < height; y++)
+        // カメラは少し上から見下ろしつつ、ゆっくり周回する。
+        // 立体であることが分かりやすいアングルにしてある。
+        float orbit = t * 0.25f;
+        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.0f, 2.4f, MathF.Cos(orbit) * 6.0f);
+        _camera.Target = Vec3.Zero;
+        _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
+
+        Mat4 viewProjection = _camera.ViewProjection;
+
+        _triangleCount = 0;
+
+        // --- 中央の大きな立方体 ---
+        // モデル行列 = 自転。ワールドの原点に置く。
+        Mat4 centerModel = Mat4.RotationY(t * 0.6f) * Mat4.RotationX(t * 0.31f);
+        SubmitCube(centerModel * viewProjection, 1.0f);
+
+        // --- 周囲を回る小さな立方体 ---
+        for (int i = 0; i < CubeCount - 1; i++)
         {
-            byte g = (byte)(y * 255 / (height - 1));
-            int rowOffset = y * width;
+            float phase = i * (MathF.PI * 2.0f / (CubeCount - 1));
+            Mat4 model =
+                Mat4.Scale(0.45f) *
+                Mat4.RotationZ(t * 1.7f) *
+                Mat4.Translation(new Vec3(2.6f, 0.0f, 0.0f)) *
+                Mat4.RotationY(t * 0.8f + phase);
 
-            for (int x = 0; x < width; x++)
-            {
-                byte r = (byte)(x * 255 / (width - 1));
-                pixels[rowOffset + x] = Framebuffer.Rgb(r, g, blue);
-            }
+            SubmitCube(model * viewProjection, 0.55f + 0.15f * i);
         }
 
-        // 動く白い四角。60fpsで滑らかに動いているか、コマ落ちしていないかを
-        // 目視で確認するための的。数字のFPSより体感の判断材料になる。
-        const int size = 48;
-        const double speedX = 220.0;   // ピクセル/秒
-        const double speedY = 130.0;
-
-        int boxX = PingPong(timeSeconds * speedX, width - size);
-        int boxY = PingPong(timeSeconds * speedY, height - size);
-        _framebuffer.FillRect(boxX, boxY, size, size, Framebuffer.Rgb(255, 255, 255));
+        DrawSubmitted();
     }
 
     /// <summary>
-    /// 0 と max の間を往復する値を返す(端で跳ね返る三角波)。
-    /// 経過時間から直接位置を求めているので、フレームレートが変動しても
-    /// 移動速度は変わらない。「位置を毎フレーム加算する」書き方だと
-    /// フレームレート依存になってしまう点は、Day 19 のゲームループ回で改めて扱う。
+    /// 立方体1個ぶんの三角形を、変換して一時配列へ積む。
+    ///
+    /// 立方体の頂点をここで毎回作り直しているのは、Day 6 の時点では
+    /// まだメッシュという概念を導入していないため(Day 10 で <c>Mesh</c> になる)。
     /// </summary>
-    private static int PingPong(double value, int max)
+    private void SubmitCube(Mat4 mvp, float brightness)
     {
-        if (max <= 0)
+        // 立方体の8頂点。-1〜+1 の立方体(一辺2)。
+        Span<Vec3> corners = stackalloc Vec3[8];
+        for (int i = 0; i < 8; i++)
         {
-            return 0;
+            // ビットで -1 / +1 を作ると、8頂点をループ1つで書ける。
+            corners[i] = new Vec3(
+                (i & 1) == 0 ? -1.0f : 1.0f,
+                (i & 2) == 0 ? -1.0f : 1.0f,
+                (i & 4) == 0 ? -1.0f : 1.0f);
         }
 
-        double period = max * 2.0;
-        double t = value % period;
-        return (int)(t <= max ? t : period - t);
+        // 6面ぶんの頂点番号(各面4頂点)と面の色。
+        // 面ごとに色を変えているのは、どの面が見えているかを目で追えるようにするため。
+        ReadOnlySpan<int> faces = stackalloc int[]
+        {
+            0, 2, 6, 4,   // -X
+            1, 5, 7, 3,   // +X
+            0, 4, 5, 1,   // -Y
+            2, 3, 7, 6,   // +Y
+            0, 1, 3, 2,   // -Z
+            4, 6, 7, 5,   // +Z
+        };
+
+        for (int face = 0; face < 6; face++)
+        {
+            Vec3 color = ColorFromHue(face / 6.0f) * brightness;
+
+            int i0 = faces[face * 4];
+            int i1 = faces[face * 4 + 1];
+            int i2 = faces[face * 4 + 2];
+            int i3 = faces[face * 4 + 3];
+
+            // 四角形の面を三角形2枚に割る。頂点を共有しているので、
+            // Day 3 の top-left rule のおかげで対角線に継ぎ目は出ない。
+            SubmitTriangle(corners[i0], corners[i1], corners[i2], color, mvp);
+            SubmitTriangle(corners[i0], corners[i2], corners[i3], color, mvp);
+        }
+    }
+
+    /// <summary>
+    /// 三角形1枚を変換して一時配列へ積む。深度(画家のアルゴリズム用)も一緒に持たせる。
+    /// </summary>
+    private void SubmitTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color, Mat4 mvp)
+    {
+        if (!_rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) ||
+            !_rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) ||
+            !_rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
+        {
+            return;
+        }
+
+        // 3頂点の深度の平均を、その三角形の代表の深度とする。
+        // **この「代表1つで済ませる」ところに画家のアルゴリズムの限界がある**(要点6)。
+        float depth = (s0.Z + s1.Z + s2.Z) / 3.0f;
+
+        _triangleBuffer[_triangleCount++] = (
+            new Vertex(s0, color),
+            new Vertex(s1, color),
+            new Vertex(s2, color),
+            depth);
+    }
+
+    /// <summary>
+    /// 積んだ三角形を描く。<see cref="_depthSort"/> が true なら奥から順に並べ替える。
+    ///
+    /// 奥のものを先に描き、手前のものを後から上書きする——絵の具を重ねる画家のやり方に
+    /// 似ているので「画家のアルゴリズム」と呼ばれる。
+    /// Zバッファ(Day 7)が普及する前は、これが前後関係を解く標準的な方法だった。
+    /// </summary>
+    private void DrawSubmitted()
+    {
+        var triangles = _triangleBuffer.AsSpan(0, _triangleCount);
+
+        if (_depthSort)
+        {
+            // 深度の大きい(遠い)ものから先に描く。
+            // NDC の Z は 0 が手前、1 が奥なので、降順に並べる。
+            triangles.Sort(static (a, b) => b.Depth.CompareTo(a.Depth));
+        }
+
+        foreach (var tri in triangles)
+        {
+            _rasterizer.FillTriangle(tri.A, tri.B, tri.C);
+
+            if (_showWireframe)
+            {
+                _rasterizer.DrawTriangleWireframe(
+                    tri.A.Position, tri.B.Position, tri.C.Position, Framebuffer.Rgb(240, 240, 240));
+            }
+        }
+    }
+
+    /// <summary>0〜1 の色相を Vec3 の RGB に変換する(簡易HSV)。</summary>
+    private static Vec3 ColorFromHue(float hue01)
+    {
+        int packed = HueColor(hue01);
+        return new Vec3(
+            ((packed >> 16) & 0xFF) / 255.0f,
+            ((packed >> 8) & 0xFF) / 255.0f,
+            (packed & 0xFF) / 255.0f);
+    }
+
+    /// <summary>
+    /// 0〜1 の値を虹色に割り当てる(彩度・明度を最大に固定した簡易HSV)。
+    /// 放射状の線を1本ずつ見分けるためだけのデモ用ヘルパー。
+    /// </summary>
+    private static int HueColor(double hue01)
+    {
+        // 色相環を6つの区間に割り、区間内では1色だけが直線的に増減する、と考えると
+        // 分岐6本で書ける。区間の境界(0, 1/6, 2/6 …)で必ず原色になる。
+        double h = (hue01 - Math.Floor(hue01)) * 6.0;
+        int sector = (int)h;
+        double f = h - sector;
+
+        byte up = (byte)(f * 255.0);
+        byte down = (byte)((1.0 - f) * 255.0);
+
+        return sector switch
+        {
+            0 => Framebuffer.Rgb(255, up, 0),
+            1 => Framebuffer.Rgb(down, 255, 0),
+            2 => Framebuffer.Rgb(0, 255, up),
+            3 => Framebuffer.Rgb(0, down, 255),
+            4 => Framebuffer.Rgb(up, 0, 255),
+            _ => Framebuffer.Rgb(255, 0, down),
+        };
     }
 
     /// <summary>
@@ -286,6 +463,19 @@ internal sealed class GameWindow : Form
         if (e.KeyCode == Keys.Escape)
         {
             Close();
+        }
+
+        // W: 塗りつぶしの上にワイヤーフレームを重ねる。
+        if (e.KeyCode == Keys.W)
+        {
+            _showWireframe = !_showWireframe;
+        }
+
+        // S: 画家のアルゴリズム(奥から順に描く)の ON / OFF。今日の一番の見どころ。
+        // OFF にすると、奥の面が手前の面を上書きして立方体が崩壊する。
+        if (e.KeyCode == Keys.S)
+        {
+            _depthSort = !_depthSort;
         }
 
         base.OnKeyDown(e);

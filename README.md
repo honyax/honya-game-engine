@@ -8,7 +8,7 @@ C#による自作ゲームエンジン学習プロジェクト。ソフトウェ
 
 - `docs/plans/DayXX.md` — 各Dayの計画書
 - `reference/DayXX/` — リファレンスコード(各Day独立でビルド・実行可能)
-- `work/` — 写経用(SoftwareRasterizer / RawGL / HonyaEngine / Labs)
+- `work/` — 写経用(Phase0_Framebuffer / Phase1_SoftwareRasterizer / RawGL / HonyaEngine / Labs)
 - `assets/` — 共有素材
 
 ## 実行方法(VSCode)
@@ -44,7 +44,7 @@ Claude Codeで「Day 5 を作成して」「Phase 1 のDayをすべて作成し�
 
 ### Phase 0〜1: ソフトウェアラスタライザ (Day 1〜10)
 
-- [ ] Day 01 環境構築、ピクセルバッファ60fps表示
+- [x] Day 01 環境構築、ピクセルバッファ60fps表示
 - [ ] Day 02 線分描画(Bresenham)
 - [ ] Day 03 三角形の塗りつぶし
 - [ ] Day 04 バリセントリック座標と属性補間

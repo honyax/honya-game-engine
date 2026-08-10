@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
-namespace Framebuffer;
+namespace SoftwareRasterizer;
 
 /// <summary>
 /// ゲームウィンドウ本体。役割は3つ。
@@ -22,6 +22,11 @@ internal sealed class GameWindow : Form
     private readonly Framebuffer _framebuffer;
 
     /// <summary>
+    /// 三角形ラスタライザ。Day 3 以降、画面に出る絵の大半はこいつが描く。
+    /// </summary>
+    private readonly Rasterizer _rasterizer;
+
+    /// <summary>
     /// フレームバッファを画面へ渡すための中継用ビットマップ。
     /// 毎フレーム new すると GDI+ ハンドルとGCを浪費するので、必ず使い回す。
     /// </summary>
@@ -37,6 +42,7 @@ internal sealed class GameWindow : Form
     public GameWindow(int width, int height)
     {
         _framebuffer = new Framebuffer(width, height);
+        _rasterizer = new Rasterizer(_framebuffer);
 
         // Format32bppRgb: 1ピクセル32bitで、上位8bitのアルファは「未使用」扱い。
         // Format32bppArgb にするとGDI+がアルファ合成を試みる可能性があり、
@@ -44,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day01 - Framebuffer";
+        Text = "Day03 - 三角形の塗りつぶし";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -96,6 +102,9 @@ internal sealed class GameWindow : Form
         double fpsElapsed = 0.0;
         int fpsFrames = 0;
 
+        // Render だけにかかった時間の集計(FPSと同じく0.5秒ぶんを平均する)
+        double renderSecondsAccum = 0.0;
+
         while (_running)
         {
             // OSから届いたメッセージ(マウス、キー、ウィンドウ移動、閉じるボタン…)を処理する。
@@ -113,7 +122,15 @@ internal sealed class GameWindow : Form
             double deltaSeconds = nowSeconds - previousSeconds;
             previousSeconds = nowSeconds;
 
+            // Render の所要時間だけを切り出して測る。
+            // Day 1 の実測で「一番重いのは自分の描画ではなくGDI+の画面転送(約6ms)」と
+            // 分かっているので、線を何本描いても Render 側にはまだ余裕がある、という確認になる。
+            // 三角形は線分と違って「面積ぶん」のピクセルを塗るので、
+            // 線を描いていたDay 2 とは桁が変わる。その実感を数字で持っておく。
+            double renderStartSeconds = clock.Elapsed.TotalSeconds;
             Render(nowSeconds);
+            renderSecondsAccum += clock.Elapsed.TotalSeconds - renderStartSeconds;
+
             Present();
 
             // FPSは毎フレーム表示すると数字が暴れて読めないので、0.5秒ぶんを平均する。
@@ -121,9 +138,12 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                Text = $"Day01 - Framebuffer  {fpsFrames / fpsElapsed:F1} fps";
+                string topLeft = _rasterizer.UseTopLeftRule ? "ON " : "OFF";
+                Text = $"Day03 - 三角形の塗りつぶし  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | TopLeft:{topLeft} | W:ワイヤー T:ルール Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
+                renderSecondsAccum = 0.0;
             }
 
             // 次フレームの開始時刻を決める。
@@ -143,60 +163,181 @@ internal sealed class GameWindow : Form
         }
     }
 
+    /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
+    private bool _showWireframe;
+
+    /// <summary>円盤を構成する三角形の枚数。</summary>
+    private const int DiscTriangles = 64;
+
+    /// <summary>1フレームに描く三角形の総数(単体1枚 + 継ぎ目テスト + 円盤)。</summary>
+    private const int TriangleCount = 1 + (SeamGrid * SeamGrid * 2) + DiscTriangles;
+
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
-    /// Day 1 の時点では「全ピクセルを自分で埋める」ことそのものが主題。
+    ///
+    /// Day 3 の題材は3つとも三角形の塗りつぶしだが、確かめたいことが違う。
+    ///   - 単体の三角形 … エッジ関数による内外判定が正しいか(ワイヤーと見比べる)
+    ///   - 格子         … 辺を共有する三角形の境界が二重に塗られていないか(top-left rule)
+    ///   - 円盤         … 細長い三角形が大量にあっても破綻しないか、そして速度
     /// </summary>
     private void Render(double timeSeconds)
     {
-        int width = _framebuffer.Width;
-        int height = _framebuffer.Height;
-        int[] pixels = _framebuffer.Pixels;
+        _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
-        // 背景: X方向に赤、Y方向に緑、青は時間で明滅するグラデーション。
-        // 640x480 = 307,200ピクセルを毎フレームCPUで書いている。
-        // 16.67msの持ち時間を割ると1ピクセルあたり約54ns。この予算感がPhase 1の前提になる。
-        byte blue = (byte)((Math.Sin(timeSeconds * 2.0) * 0.5 + 0.5) * 255.0);
-
-        for (int y = 0; y < height; y++)
-        {
-            byte g = (byte)(y * 255 / (height - 1));
-            int rowOffset = y * width;
-
-            for (int x = 0; x < width; x++)
-            {
-                byte r = (byte)(x * 255 / (width - 1));
-                pixels[rowOffset + x] = Framebuffer.Rgb(r, g, blue);
-            }
-        }
-
-        // 動く白い四角。60fpsで滑らかに動いているか、コマ落ちしていないかを
-        // 目視で確認するための的。数字のFPSより体感の判断材料になる。
-        const int size = 48;
-        const double speedX = 220.0;   // ピクセル/秒
-        const double speedY = 130.0;
-
-        int boxX = PingPong(timeSeconds * speedX, width - size);
-        int boxY = PingPong(timeSeconds * speedY, height - size);
-        _framebuffer.FillRect(boxX, boxY, size, size, Framebuffer.Rgb(255, 255, 255));
+        DrawSingleTriangle(timeSeconds);
+        DrawSeamTest();
+        DrawDisc(timeSeconds);
     }
 
     /// <summary>
-    /// 0 と max の間を往復する値を返す(端で跳ね返る三角波)。
-    /// 経過時間から直接位置を求めているので、フレームレートが変動しても
-    /// 移動速度は変わらない。「位置を毎フレーム加算する」書き方だと
-    /// フレームレート依存になってしまう点は、Day 19 のゲームループ回で改めて扱う。
+    /// 回転する三角形を1枚描く。
+    ///
+    /// Wキーでワイヤーフレームを重ねられる。塗りつぶされた領域の縁と輪郭線が
+    /// ぴったり一致していれば、エッジ関数の内外判定が正しく効いている。
+    /// なお輪郭線(Bresenham)と塗りつぶし(エッジ関数)は別のアルゴリズムなので、
+    /// 完全に同じピクセルにはならない。ズレるのは辺の上の1ピクセルだけのはず。
     /// </summary>
-    private static int PingPong(double value, int max)
+    private void DrawSingleTriangle(double timeSeconds)
     {
-        if (max <= 0)
+        const double radius = 92.0;
+        int centerX = 150;
+        int centerY = 130;
+
+        Span<(int X, int Y)> v = stackalloc (int X, int Y)[3];
+        for (int i = 0; i < 3; i++)
         {
-            return 0;
+            double angle = timeSeconds * 0.7 + i * (2.0 * Math.PI / 3.0);
+            v[i] = (
+                centerX + (int)Math.Round(Math.Cos(angle) * radius),
+                centerY + (int)Math.Round(Math.Sin(angle) * radius));
         }
 
-        double period = max * 2.0;
-        double t = value % period;
-        return (int)(t <= max ? t : period - t);
+        _rasterizer.FillTriangle(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(230, 140, 60));
+
+        if (_showWireframe)
+        {
+            _rasterizer.DrawTriangleWireframe(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(255, 255, 255));
+        }
+    }
+
+    /// <summary>継ぎ目テストの格子(縦横の枚数)。1マスが三角形2枚。</summary>
+    private const int SeamGrid = 5;
+
+    /// <summary>継ぎ目テストの1マスの大きさ(ピクセル)。</summary>
+    private const int SeamCellSize = 32;
+
+    /// <summary>
+    /// 正方形を2枚の三角形に割ったものを格子状に並べ、加算合成で描く。今日の主役の実験。
+    ///
+    /// 隣り合う三角形は必ず辺を共有している。その辺の上にちょうど乗ったピクセルを
+    /// 両方が「自分の内側だ」と判定すると、そのピクセルは2回塗られる。
+    /// 加算合成にしてあるので、2回塗られた場所は明るい線として浮かび上がる。
+    /// Tキーで top-left rule を切ると、格子線と対角線がはっきり光って見える。
+    ///
+    /// 図形をわざと軸に沿わせているのには理由がある。斜めの辺だと
+    /// 「ピクセルがちょうど辺の上に乗る」ことがめったに起きず、
+    /// 二重描画が数ピクセルしか出ないので目で確認しづらい。
+    /// 縦・横・45度の辺なら整数座標に必ず乗るので、問題が最大限に見える。
+    ///
+    /// 不透明な単色で塗っているうちは二重描画は目に見えないが、
+    /// 半透明合成では色が濃くなり、Day 7 のZバッファでは深度の書き込み回数が変わる。
+    /// 「見えないから放っておいてよい」種類のバグではない。
+    /// </summary>
+    private void DrawSeamTest()
+    {
+        const int originX = 390;
+        const int originY = 46;
+
+        // 加算合成に切り替える。暗めの色で塗るので、
+        // 1回塗り = 落ち着いた青、2回塗り = 明るい青、と見分けがつく。
+        _rasterizer.AdditiveBlend = true;
+        int color = Framebuffer.Rgb(48, 72, 104);
+
+        for (int gy = 0; gy < SeamGrid; gy++)
+        {
+            for (int gx = 0; gx < SeamGrid; gx++)
+            {
+                int left = originX + gx * SeamCellSize;
+                int top = originY + gy * SeamCellSize;
+                int right = left + SeamCellSize;
+                int bottom = top + SeamCellSize;
+
+                // 1マスを対角線で2枚に割る。2枚は対角線(45度)を共有し、
+                // 隣のマスとは縦横の辺を共有する。
+                // 頂点の並び順(巻き方向)をマスごとに交互に変えて、
+                // FillTriangle 側の正規化がどちらの向きでも効くことも確認している。
+                if ((gx + gy) % 2 == 0)
+                {
+                    _rasterizer.FillTriangle(left, top, right, top, left, bottom, color);
+                    _rasterizer.FillTriangle(right, top, right, bottom, left, bottom, color);
+                }
+                else
+                {
+                    _rasterizer.FillTriangle(left, top, left, bottom, right, top, color);
+                    _rasterizer.FillTriangle(right, top, left, bottom, right, bottom, color);
+                }
+            }
+        }
+
+        _rasterizer.AdditiveBlend = false;
+    }
+
+    /// <summary>
+    /// 細長い三角形を大量に並べて円盤を作る。
+    ///
+    /// 頂点1つを中心に集めた「トライアングルファン」で、3Dのモデルでも
+    /// 円錐や円柱の蓋によく出てくる形。中心付近では三角形が極端に細くなるので、
+    /// 内外判定が甘いと中心にピンホール(塗り残しの穴)が空く。
+    /// </summary>
+    private void DrawDisc(double timeSeconds)
+    {
+        const double radius = 108.0;
+        int centerX = _framebuffer.Width / 2;
+        int centerY = 350;
+
+        for (int i = 0; i < DiscTriangles; i++)
+        {
+            double a0 = -timeSeconds * 0.3 + i * (2.0 * Math.PI / DiscTriangles);
+            double a1 = -timeSeconds * 0.3 + (i + 1) * (2.0 * Math.PI / DiscTriangles);
+
+            int x0 = centerX + (int)Math.Round(Math.Cos(a0) * radius);
+            int y0 = centerY + (int)Math.Round(Math.Sin(a0) * radius);
+            int x1 = centerX + (int)Math.Round(Math.Cos(a1) * radius);
+            int y1 = centerY + (int)Math.Round(Math.Sin(a1) * radius);
+
+            _rasterizer.FillTriangle(centerX, centerY, x0, y0, x1, y1, HueColor(i / (double)DiscTriangles));
+
+            if (_showWireframe)
+            {
+                _rasterizer.DrawTriangleWireframe(centerX, centerY, x0, y0, x1, y1, Framebuffer.Rgb(30, 30, 30));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 0〜1 の値を虹色に割り当てる(彩度・明度を最大に固定した簡易HSV)。
+    /// 放射状の線を1本ずつ見分けるためだけのデモ用ヘルパー。
+    /// </summary>
+    private static int HueColor(double hue01)
+    {
+        // 色相環を6つの区間に割り、区間内では1色だけが直線的に増減する、と考えると
+        // 分岐6本で書ける。区間の境界(0, 1/6, 2/6 …)で必ず原色になる。
+        double h = (hue01 - Math.Floor(hue01)) * 6.0;
+        int sector = (int)h;
+        double f = h - sector;
+
+        byte up = (byte)(f * 255.0);
+        byte down = (byte)((1.0 - f) * 255.0);
+
+        return sector switch
+        {
+            0 => Framebuffer.Rgb(255, up, 0),
+            1 => Framebuffer.Rgb(down, 255, 0),
+            2 => Framebuffer.Rgb(0, 255, up),
+            3 => Framebuffer.Rgb(0, down, 255),
+            4 => Framebuffer.Rgb(up, 0, 255),
+            _ => Framebuffer.Rgb(255, 0, down),
+        };
     }
 
     /// <summary>
@@ -286,6 +427,21 @@ internal sealed class GameWindow : Form
         if (e.KeyCode == Keys.Escape)
         {
             Close();
+        }
+
+        // W: 塗りつぶしの上にワイヤーフレームを重ねる。
+        // 「エッジ関数がどこまでを内側と判定したか」を輪郭と見比べられる。
+        if (e.KeyCode == Keys.W)
+        {
+            _showWireframe = !_showWireframe;
+        }
+
+        // T: top-left rule の ON / OFF。今日の一番の見どころ。
+        // OFF にすると、右上の格子の継ぎ目に明るい線が浮かび上がる
+        // (= 隣り合う三角形が同じピクセルを2回塗っている)。
+        if (e.KeyCode == Keys.T)
+        {
+            _rasterizer.UseTopLeftRule = !_rasterizer.UseTopLeftRule;
         }
 
         base.OnKeyDown(e);
