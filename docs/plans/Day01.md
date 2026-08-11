@@ -158,16 +158,16 @@ GDI+の品質設定(`CompositingMode.SourceCopy` 等)を変えても改善しな
 写経の推奨順序は `Day01.csproj` → `Framebuffer.cs` → `Program.cs` → `GameWindow.cs`。
 `GameWindow.cs` が今日の本体なので最後に回し、それ以外を先に済ませて構造を掴んでおくとよい。
 
-写経先は `work/Phase0_Framebuffer/`。csproj と空の `Program.cs` は作成済みなので、
+写経先は `work/Framebuffer/`。csproj と空の `Program.cs` は作成済みなので、
 `Framebuffer.cs` と `GameWindow.cs` を自分で追加していく。
 
-Day 2 以降(Phase 1)は `work/Phase1_SoftwareRasterizer/` に移り、そちらを Day 10 まで育て続ける。
+Day 2 以降(Phase 1)は `work/SoftwareRasterizer/` に移り、そちらを Day 10 まで育て続ける。
 Phase 0 の「動く最小構成」をそのまま残しておきたいのでフォルダを分けている。
 
 差分の確認:
 
 ```
-git diff --no-index reference/Day01 work/Phase0_Framebuffer
+git diff --no-index reference/Day01 work/Framebuffer
 ```
 
 名前空間は reference / work とも `Framebuffer` で揃えてある(Day番号を含めない)。
