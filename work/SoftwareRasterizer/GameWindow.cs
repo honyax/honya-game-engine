@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day04 - 属性補間";
+        Text = "Day05 - ベクトルと行列";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -138,7 +138,7 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                Text = $"Day04 - 属性補間  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                Text = $"Day05 - ベクトルと行列  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
                      + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | W:ワイヤー Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
@@ -165,156 +165,229 @@ internal sealed class GameWindow : Form
     /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
     private bool _showWireframe;
 
-    /// <summary>円盤を構成する三角形の枚数。</summary>
-    private const int DiscTriangles = 64;
+    /// <summary>公転する子の数。</summary>
+    private const int OrbitChildren = 3;
 
-    /// <summary>1フレームに描く三角形の総数(グラデーション1枚 + 市松1枚 + 円盤)。</summary>
-    private const int TriangleCount = 1 + 1 + DiscTriangles;
+    /// <summary>1フレームに描く三角形の総数(グラデーション1 + 市松1 + 中心2 + 子と孫)。</summary>
+    private const int TriangleCount = 1 + 1 + 2 + OrbitChildren * 2;
 
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
     ///
-    /// Day 4 の題材は「3頂点が持つ値を内部へ配り直す」ことの3つの見せ方。
-    ///   - グラデーション三角形 … 色を補間するとどう見えるか(定番の絵)
-    ///   - 市松模様の三角形     … 補間した値を色以外の用途に使う(Day 8 のUVの予告)
-    ///   - 円盤                 … 隣の三角形と頂点色を共有すると継ぎ目が消える
+    /// Day 5 の見どころは絵そのものよりも、**図形の頂点をどう決めているか**。
+    /// 今日から図形は「原点まわりの単純な形」として定義し、
+    /// 画面のどこにどんな大きさ・向きで置くかは行列に任せる。
+    /// 図形の定義と配置が分離される、というのが行列を導入する一番の効能で、
+    /// Day 6 でこれがそのまま3Dのモデル行列になる。
     /// </summary>
     private void Render(double timeSeconds)
     {
         _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
-        DrawGradientTriangle(timeSeconds);
-        DrawBarycentricPattern(timeSeconds);
-        DrawSmoothDisc(timeSeconds);
+        float t = (float)timeSeconds;
+
+        DrawGradientTriangle(t);
+        DrawBarycentricPattern(t);
+        DrawOrbitSystem(t);
     }
 
     /// <summary>
-    /// 3頂点に赤・緑・青を割り当てた三角形。グラフィックスの「Hello, World」。
+    /// 3頂点に赤・緑・青を割り当てた三角形。Day 4 と同じ絵だが、作り方が違う。
     ///
-    /// 各頂点の色が最も濃く出て、内部では滑らかに混ざる。
-    /// 3色が等しく混ざる点(重心)がちょうど灰色になっていれば、
-    /// 3つの重みの合計が 1 になっている証拠。
+    /// Day 4 では毎フレーム三角関数で頂点位置を計算していた。
+    /// 今日は「原点まわりの正三角形」を1回だけ書き、
+    /// 回転と拡大と移動は行列に任せている。
+    /// 拡大が時間で脈動するので、行列の合成順序(拡大 → 回転 → 移動)も確認できる。
     /// </summary>
-    private void DrawGradientTriangle(double timeSeconds)
+    private void DrawGradientTriangle(float t)
     {
-        const double radius = 96.0;
-        int centerX = 150;
-        int centerY = 132;
+        Span<Vertex> shape = stackalloc Vertex[3];
+        UnitTriangle(shape, new Vec3(1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, 0, 1));
 
-        Span<Vertex> v = stackalloc Vertex[3];
-        for (int i = 0; i < 3; i++)
-        {
-            double angle = timeSeconds * 0.7 + i * (2.0 * Math.PI / 3.0);
-            int x = centerX + (int)Math.Round(Math.Cos(angle) * radius);
-            int y = centerY + (int)Math.Round(Math.Sin(angle) * radius);
+        // 拡大 → 回転 → 移動、の順に適用される(行ベクトル規約なので左から順)。
+        // 順序を入れ替えると別物になる。例えば移動を先にすると、
+        // 原点から離れた位置を軸にぐるっと公転してしまう。
+        float pulse = 88.0f + 10.0f * MathF.Sin(t * 2.0f);
+        Mat4 transform =
+            Mat4.Scale(pulse) *
+            Mat4.RotationZ(t * 0.7f) *
+            Mat4.Translation(new Vec3(150.0f, 132.0f, 0.0f));
 
-            // 頂点0 = 赤、頂点1 = 緑、頂点2 = 青
-            v[i] = new Vertex(x, y, i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f);
-        }
-
-        _rasterizer.FillTriangle(v[0], v[1], v[2]);
-
-        if (_showWireframe)
-        {
-            _rasterizer.DrawTriangleWireframe(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(255, 255, 255));
-        }
+        DrawTransformed(shape, transform, null);
     }
 
     /// <summary>
-    /// バリセントリック座標を「色」ではなく「模様の材料」として使う。
+    /// バリセントリック座標を「模様の材料」として使う(Day 4 と同じ趣旨)。
     ///
     /// 頂点1・頂点2に (1,0) と (0,1) を持たせて補間すると、
     /// 三角形の内部に「頂点0を原点とする斜めの座標系」ができる。
-    /// その値を整数化して偶奇で色を変えると市松模様になる。
-    ///
-    /// これはまさに Day 8 のテクスチャマッピングそのもので、
-    /// 違いは「模様を計算で作るか、画像から読むか」だけ。
-    /// 補間した値を色として直接使わずに、何かを引く鍵として使う——という
-    /// 発想の転換が今日の一番の収穫かもしれない。
-    ///
-    /// 実装の都合として、ここでは Vertex の R, G を座標の入れ物として流用している
-    /// (Day 8 で Vertex に専用の U, V を足すまでのつなぎ)。
+    /// これはまさに Day 8 のテクスチャ座標そのもの。
     /// </summary>
-    private void DrawBarycentricPattern(double timeSeconds)
+    private void DrawBarycentricPattern(float t)
     {
-        const double radius = 96.0;
         const int checkerDivisions = 8;
 
-        int centerX = 470;
-        int centerY = 132;
+        Span<Vertex> shape = stackalloc Vertex[3];
+        // 属性を色ではなく UV として使うので、(0,0), (1,0), (0,1) を入れる。
+        UnitTriangle(shape, new Vec3(0, 0, 0), new Vec3(1, 0, 0), new Vec3(0, 1, 0));
 
-        Span<Vertex> v = stackalloc Vertex[3];
-        for (int i = 0; i < 3; i++)
+        Mat4 transform =
+            Mat4.Scale(96.0f) *
+            Mat4.RotationZ(-t * 0.5f) *
+            Mat4.Translation(new Vec3(470.0f, 132.0f, 0.0f));
+
+        DrawTransformed(shape, transform, attribute =>
         {
-            double angle = -timeSeconds * 0.5 + i * (2.0 * Math.PI / 3.0);
-            int x = centerX + (int)Math.Round(Math.Cos(angle) * radius);
-            int y = centerY + (int)Math.Round(Math.Sin(angle) * radius);
-
-            // R を U、G を V として使う。頂点0 が原点、頂点1 が U 軸、頂点2 が V 軸。
-            v[i] = new Vertex(x, y, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f, 0.0f);
-        }
-
-        // ここだけは補間結果を自前で使いたいので、ラスタライザには任せず
-        // 「補間された値を受け取って色を決める」という形で書く。
-        // Day 9 で「ピクセルごとの色の決め方」を差し替えられるようにするときの原型になる。
-        _rasterizer.FillTriangle(v[0], v[1], v[2], (u, vv, _) =>
-        {
-            int cell = (int)(u * checkerDivisions) + (int)(vv * checkerDivisions);
+            int cell = (int)(attribute.X * checkerDivisions) + (int)(attribute.Y * checkerDivisions);
             return (cell & 1) == 0
                 ? Framebuffer.Rgb(0.95f, 0.80f, 0.35f)
                 : Framebuffer.Rgb(0.25f, 0.30f, 0.45f);
         });
+    }
 
-        if (_showWireframe)
+    /// <summary>
+    /// 行列の合成そのものを見せるデモ。中心の四角のまわりを子が公転し、
+    /// 子はさらに自転しながら、その子(孫)を連れている。
+    ///
+    /// 親の変換に子の変換を掛けるだけで、親が動けば子もついてくる。
+    /// この「親の行列に自分の行列を掛ける」構造が、
+    /// Day 22 で作る Transform コンポーネントの階層(シーングラフ)そのものになる。
+    /// 太陽 - 惑星 - 衛星の関係を2Dでやっているだけだが、3Dでも構造は完全に同じ。
+    /// </summary>
+    private void DrawOrbitSystem(float t)
+    {
+        float centerX = _framebuffer.Width / 2.0f;
+        float centerY = 348.0f;
+
+        // --- 親(中心の四角)---
+        // 自転しながら中心に居座る。
+        Mat4 parent =
+            Mat4.RotationZ(t * 0.4f) *
+            Mat4.Translation(new Vec3(centerX, centerY, 0.0f));
+
+        Span<Vertex> square = stackalloc Vertex[6];
+        UnitSquare(square, new Vec3(0.85f, 0.75f, 0.45f));
+        DrawTransformed(square, Mat4.Scale(34.0f) * parent, null);
+
+        // --- 子(公転する三角形)と孫 ---
+        // stackalloc はループの外に出す。ループの中で書くと、
+        // 反復のたびにスタックを消費したまま解放されず、回数が増えると溢れる
+        // (このメソッドが返るまでスタックは戻らない)。
+        // 解析器も CA2014 として警告してくれる。
+        Span<Vertex> child = stackalloc Vertex[3];
+        Span<Vertex> moon = stackalloc Vertex[3];
+
+        for (int i = 0; i < OrbitChildren; i++)
         {
-            _rasterizer.DrawTriangleWireframe(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(255, 255, 255));
+            float phase = i * (MathF.PI * 2.0f / OrbitChildren);
+
+            // 公転半径ぶん移動 → 公転 → 親の変換。ここまでが「子がぶら下がる座標系」。
+            // 自分の見た目(自転と大きさ)を含まないので、孫の親としてそのまま使える。
+            Mat4 childFrame =
+                Mat4.Translation(new Vec3(104.0f, 0.0f, 0.0f)) *
+                Mat4.RotationZ(t * 0.9f + phase) *
+                parent;
+
+            Vec3 color = ColorFromHue(i / (float)OrbitChildren);
+            UnitTriangle(child, color, color * 0.55f, color * 0.25f);
+
+            // 縮小 → 自転、のあとに上の座標系へ乗せる。
+            DrawTransformed(child, Mat4.Scale(26.0f) * Mat4.RotationZ(t * 2.5f) * childFrame, null);
+
+            // --- 孫(子のまわりを回る小さな三角形)---
+            // 子の座標系をそのまま親として使えるのが、行列で階層を作る利点。
+            UnitTriangle(moon, Vec3.One, Vec3.One * 0.6f, Vec3.One * 0.3f);
+
+            Mat4 moonTransform =
+                Mat4.Scale(9.0f) *
+                Mat4.RotationZ(-t * 4.0f) *
+                Mat4.Translation(new Vec3(44.0f, 0.0f, 0.0f)) *
+                Mat4.RotationZ(t * 3.0f) *
+                childFrame;
+
+            DrawTransformed(moon, moonTransform, null);
         }
     }
 
     /// <summary>
-    /// 円盤を頂点カラーで滑らかに塗る。
+    /// モデル座標の頂点列を行列で変換して描く。
+    /// 頂点数は3の倍数で、3つずつが1枚の三角形になっている(トライアングルリスト)。
     ///
-    /// Day 3 では扇形1枚が単色だったので、境界に色の段差(マッハバンド)が見えていた。
-    /// 今日は隣り合う扇形が縁の頂点色を共有しているので、境界で色が連続し、
-    /// 継ぎ目が完全に消える。三角形の枚数は同じなのに滑らかに見えるのがポイント。
-    ///
-    /// これは Day 9 のグーローシェーディングと原理的にまったく同じこと。
-    /// 「頂点で計算して内部は補間」という手抜きが、なぜあれほど効果的なのかがここで分かる。
+    /// この「頂点を変換してからラスタライザに渡す」という2段構えが、
+    /// Day 6 以降ずっと続くパイプラインの原型になる。
+    /// GPUで言えば前半が頂点シェーダ、後半がラスタライザ + ピクセルシェーダ。
     /// </summary>
-    private void DrawSmoothDisc(double timeSeconds)
+    private void DrawTransformed(ReadOnlySpan<Vertex> shape, Mat4 transform, PixelShader? shader)
     {
-        const double radius = 110.0;
-        int centerX = _framebuffer.Width / 2;
-        int centerY = 350;
-
-        // 中心の頂点は白。縁の頂点は角度に応じた虹色。
-        var center = new Vertex(centerX, centerY, 1.0f, 1.0f, 1.0f);
-
-        for (int i = 0; i < DiscTriangles; i++)
+        Span<Vertex> transformed = stackalloc Vertex[shape.Length];
+        for (int i = 0; i < shape.Length; i++)
         {
-            double a0 = -timeSeconds * 0.3 + i * (2.0 * Math.PI / DiscTriangles);
-            double a1 = -timeSeconds * 0.3 + (i + 1) * (2.0 * Math.PI / DiscTriangles);
+            transformed[i] = new Vertex(TransformPoint2D(shape[i].Position, transform), shape[i].Color);
+        }
 
-            var e0 = RimVertex(centerX, centerY, radius, a0, i / (double)DiscTriangles);
-            var e1 = RimVertex(centerX, centerY, radius, a1, (i + 1) / (double)DiscTriangles);
-
-            _rasterizer.FillTriangle(center, e0, e1);
+        for (int i = 0; i + 2 < transformed.Length; i += 3)
+        {
+            _rasterizer.FillTriangle(transformed[i], transformed[i + 1], transformed[i + 2], shader);
 
             if (_showWireframe)
             {
-                _rasterizer.DrawTriangleWireframe(center.X, center.Y, e0.X, e0.Y, e1.X, e1.Y, Framebuffer.Rgb(20, 20, 20));
+                _rasterizer.DrawTriangleWireframe(
+                    transformed[i].Position, transformed[i + 1].Position, transformed[i + 2].Position,
+                    Framebuffer.Rgb(255, 255, 255));
             }
         }
     }
 
-    /// <summary>円盤の縁の頂点を1つ作る。位置は角度から、色は色相から。</summary>
-    private static Vertex RimVertex(int centerX, int centerY, double radius, double angle, double hue01)
+    /// <summary>
+    /// 2次元の点を 4x4 行列で変換する。z = 0 の点として扱い、結果の x, y を取り出す。
+    /// 2Dなのに 4x4 を使うのは無駄に見えるが、Day 6 でそのまま3Dへ移れる利点のほうが大きい。
+    /// </summary>
+    private static Vec2 TransformPoint2D(Vec2 p, Mat4 m)
     {
-        int color = HueColor(hue01);
-        return Vertex.FromPackedColor(
-            centerX + (int)Math.Round(Math.Cos(angle) * radius),
-            centerY + (int)Math.Round(Math.Sin(angle) * radius),
-            color);
+        Vec3 r = Mat4.TransformPoint(new Vec3(p.X, p.Y, 0.0f), m);
+        return new Vec2(r.X, r.Y);
+    }
+
+    /// <summary>原点を中心とする半径1の正三角形。</summary>
+    private static void UnitTriangle(Span<Vertex> destination, Vec3 c0, Vec3 c1, Vec3 c2)
+    {
+        Span<Vec3> colors = stackalloc Vec3[3];
+        colors[0] = c0;
+        colors[1] = c1;
+        colors[2] = c2;
+
+        for (int i = 0; i < 3; i++)
+        {
+            float angle = -MathF.PI / 2.0f + i * (MathF.PI * 2.0f / 3.0f);
+            destination[i] = new Vertex(new Vec2(MathF.Cos(angle), MathF.Sin(angle)), colors[i]);
+        }
+    }
+
+    /// <summary>原点を中心とする一辺2の正方形。三角形2枚(6頂点)で表す。</summary>
+    private static void UnitSquare(Span<Vertex> destination, Vec3 color)
+    {
+        var lt = new Vec2(-1.0f, -1.0f);
+        var rt = new Vec2(1.0f, -1.0f);
+        var rb = new Vec2(1.0f, 1.0f);
+        var lb = new Vec2(-1.0f, 1.0f);
+
+        // 角ごとに明るさをずらして、四角が回っていることが分かるようにする。
+        destination[0] = new Vertex(lt, color);
+        destination[1] = new Vertex(rt, color * 0.75f);
+        destination[2] = new Vertex(rb, color * 0.5f);
+        destination[3] = new Vertex(lt, color);
+        destination[4] = new Vertex(rb, color * 0.5f);
+        destination[5] = new Vertex(lb, color * 0.75f);
+    }
+
+    /// <summary>0〜1 の色相を Vec3 の RGB に変換する(簡易HSV)。</summary>
+    private static Vec3 ColorFromHue(float hue01)
+    {
+        int packed = HueColor(hue01);
+        return new Vec3(
+            ((packed >> 16) & 0xFF) / 255.0f,
+            ((packed >> 8) & 0xFF) / 255.0f,
+            (packed & 0xFF) / 255.0f);
     }
 
     /// <summary>

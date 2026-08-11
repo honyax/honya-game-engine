@@ -8,51 +8,46 @@ namespace SoftwareRasterizer;
 /// 今日は属性が色だけだが、この先
 ///   Day 8 … テクスチャ座標 (U, V)
 ///   Day 9 … 法線ベクトル
-/// が同じように増えていく。そして増えても補間のコードは同じ形のまま
-/// (重み x 頂点の値の足し算)なので、この構造を今日のうちに作っておく。
+/// が同じように増えていく。
 ///
-/// 色を byte ではなく float 0.0〜1.0 で持つ理由:
-///   - 補間の途中で丸めが入らない(byte だと 0〜255 の刻みで誤差が出る)
-///   - Day 9 のライティングで「明るさを掛ける」計算が自然に書ける
-///     (0.5倍の明るさ = 0.5を掛けるだけ。byte だと桁あふれと丸めの扱いが要る)
-///   - 1.0 を超える値(まぶしい光)を一時的に持てる。最後に画面へ出すときだけ丸める
-/// GPUのシェーダーが色を float で扱うのも同じ理由。
+/// Day 4 では位置を int の X, Y、色を float 3つでバラバラに持っていたが、
+/// Day 5 でベクトル型を導入したので Vec2 / Vec3 に置き換えた。
+/// フィールドが5個から2個に減り、意味の単位でまとまった。
+/// この「型を作ると、コードが短くなるだけでなく意味がはっきりする」効果が、
+/// 自前の数学ライブラリを書く一番の見返りになる。
 ///
-/// R, G, B をバラの float で持っているのは Day 5 までのつなぎ。
-/// Day 5 で Vec3 を自作したら、位置も色もそれに置き換わる。
+/// 位置が int から float になった意味は大きい。Day 6 で変換行列を通すと
+/// 画面座標は必ず小数になるし、小数のまま扱えば三角形の辺をピクセルより
+/// 細かい精度で置ける(サブピクセル精度)。回転の滑らかさが目に見えて変わる。
 /// </summary>
 internal struct Vertex
 {
-    /// <summary>画面座標 X。Day 6 で変換行列を通すようになると実数になる。</summary>
-    public int X;
+    /// <summary>画面座標(ピクセル単位、小数可)。</summary>
+    public Vec2 Position;
 
-    /// <summary>画面座標 Y。</summary>
-    public int Y;
+    /// <summary>頂点の色。0.0〜1.0 の RGB。</summary>
+    public Vec3 Color;
 
-    public float R;
-
-    public float G;
-
-    public float B;
-
-    public Vertex(int x, int y, float r, float g, float b)
+    public Vertex(Vec2 position, Vec3 color)
     {
-        X = x;
-        Y = y;
-        R = r;
-        G = g;
-        B = b;
+        Position = position;
+        Color = color;
+    }
+
+    public Vertex(float x, float y, float r, float g, float b)
+        : this(new Vec2(x, y), new Vec3(r, g, b))
+    {
     }
 
     /// <summary>
     /// 0xAARRGGBB の色から頂点を作る便利メソッド。
     /// 色指定を今までどおり16進で書きたい場面のためのもの。
     /// </summary>
-    public static Vertex FromPackedColor(int x, int y, int color)
+    public static Vertex FromPackedColor(float x, float y, int color)
         => new(
-            x,
-            y,
-            ((color >> 16) & 0xFF) / 255.0f,
-            ((color >> 8) & 0xFF) / 255.0f,
-            (color & 0xFF) / 255.0f);
+            new Vec2(x, y),
+            new Vec3(
+                ((color >> 16) & 0xFF) / 255.0f,
+                ((color >> 8) & 0xFF) / 255.0f,
+                (color & 0xFF) / 255.0f));
 }

@@ -7,12 +7,11 @@ namespace SoftwareRasterizer;
 /// ラスタライザの仕事を「どのピクセルか」と「その点での属性値はいくつか」までに留め、
 /// **色をどう決めるかは呼び出し側に委ねる**、という役割分担を作るための仕組み。
 ///
-/// Day 4 の時点では市松模様のデモで使うだけだが、
+/// Day 5 で属性が Vec3 1つにまとまったので、引数も1つで済むようになった。
 /// Day 8(テクスチャを引く)、Day 9(光の計算をする)は、
-/// どちらも「補間された値から色を決める」という同じ形に収まる。
-/// GPUがシェーダーをプログラマブルにした理由が、この分離の中に見えている。
+/// どちらも「補間された値から色を決める」というこの形に収まる。
 /// </summary>
-internal delegate int PixelShader(float a0, float a1, float a2);
+internal delegate int PixelShader(Vec3 attribute);
 
 /// <summary>
 /// 三角形ラスタライザ。
@@ -21,9 +20,6 @@ internal delegate int PixelShader(float a0, float a1, float a2);
 /// 三角形の塗りつぶしは、この先 Day 10 まで育ち続ける中心コードになる。
 /// バリセントリック補間(Day 4)、透視除算(Day 6)、Zバッファ(Day 7)、
 /// テクスチャ(Day 8)、シェーディング(Day 9)は全部この中に積み上がっていく。
-/// Framebuffer は「ピクセル配列とその上の素朴な2D描画」に留めておき、
-/// 「3Dパイプラインの出口」であるここと役割を分けておくと、
-/// 後のDayの差分がこのファイルにまとまって読みやすくなる。
 /// </summary>
 internal sealed class Rasterizer
 {
@@ -35,40 +31,43 @@ internal sealed class Rasterizer
     }
 
     /// <summary>
-    /// エッジ関数。線分 a→b に対して点 p がどちら側にあるかを返す。
+    /// エッジ関数。線分 a→b に対して点 (px, py) がどちら側にあるかを返す。
     ///
-    /// 中身は2次元の外積 (b - a) × (p - a) で、返る値は
-    /// 「a, b, p が作る平行四辺形の符号付き面積」でもある。この2つの意味を持つのが強力な点で、
+    /// 中身は2次元の外積 (b - a) × (p - a) で、
     ///   - 符号  … 三角形の内外判定に使う(Day 3)
-    ///   - 大きさ … そのままバリセントリック座標の分子になる(Day 4 = 今日)
-    /// Day 3 で内外判定のために計算した値が、今日は補間の重みとしてそのまま再利用される。
-    /// 追加の計算は「面積で割る」だけで、そのための面積も正規化のときに計算済み。
+    ///   - 大きさ … そのままバリセントリック座標の分子になる(Day 4)
+    /// という二役を持つ。
     ///
-    /// 画面座標系は y が下向きなので、数学の紙の上とは符号の向きが逆になる。
-    /// a=(0,0), b=(1,0), p=(0,1) のとき戻り値は +1 で、
-    /// 「p が辺 a→b より画面上で下側にあると正」という向きになっている。
+    /// Day 5 で int から float になった。値の意味は変わらないが、
+    /// 「ちょうど0」になる場面の扱いが変わる(要点5)。
     /// </summary>
-    private static int EdgeFunction(int ax, int ay, int bx, int by, int px, int py)
-        => (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+    private static float EdgeFunction(Vec2 a, Vec2 b, float px, float py)
+        => (b.X - a.X) * (py - a.Y) - (b.Y - a.Y) * (px - a.X);
 
     /// <summary>
     /// 辺 a→b が「上の辺」または「左の辺」かを判定する(top-left rule)。
     ///
     /// 巻き方向を正に正規化した後、この座標系では
-    ///   - 上の辺 … 水平(ay == by)で、右向き(bx > ax)のもの
-    ///   - 左の辺 … 画面上で上に向かって進むもの(by &lt; ay)
-    /// になる。三角形 (0,0)-(10,0)-(0,10) で確かめると、
-    /// 上辺 (0,0)→(10,0) は水平かつ右向き、左辺 (0,10)→(0,0) は上向きで、
-    /// 斜辺 (10,0)→(0,10) は下向きなのでどちらでもない。
+    ///   - 上の辺 … 水平(a.Y == b.Y)で、右向き(b.X &gt; a.X)のもの
+    ///   - 左の辺 … 画面上で上に向かって進むもの(b.Y &lt; a.Y)
+    /// になる。
     /// </summary>
-    private static bool IsTopLeft(int ax, int ay, int bx, int by)
-        => (ay == by && bx > ax) || by < ay;
+    private static bool IsTopLeft(Vec2 a, Vec2 b)
+        => (a.Y == b.Y && b.X > a.X) || b.Y < a.Y;
 
     /// <summary>
-    /// 三角形を塗りつぶす。3頂点の色をバリセントリック座標で補間する。
+    /// top-left rule で「塗らない」側にするためのバイアス。
     ///
-    /// Day 3 の単色版との違いは、内外判定に使ったエッジ関数の値を捨てずに、
-    /// 面積で割って重みとして使うところだけ。judge と blend が同じ数字を共有している。
+    /// float.Epsilon は float で表せる最小の正の数(約 1.4e-45)。
+    /// これを引くと、**ちょうど0だった値だけが負になる**。
+    /// 通常の大きさの値(エッジ関数の値は普通10の3乗〜5乗程度)からこれを引いても、
+    /// 浮動小数の刻みのほうがずっと粗いので値は1ビットも変わらない。
+    /// 「0のときだけ効く補正」を、分岐を増やさずに書くための手口。
+    /// </summary>
+    private const float TopLeftBias = float.Epsilon;
+
+    /// <summary>
+    /// 三角形を塗りつぶす。3頂点の属性をバリセントリック座標で補間する。
     /// </summary>
     public void FillTriangle(Vertex v0, Vertex v1, Vertex v2)
         => FillTriangle(v0, v1, v2, null);
@@ -80,34 +79,38 @@ internal sealed class Rasterizer
     public void FillTriangle(Vertex v0, Vertex v1, Vertex v2, PixelShader? shader)
     {
         // --- 1. 巻き方向の正規化 ---
-        // 頂点を入れ替えるときは、位置だけでなく色も一緒に入れ替わる点が今日は重要。
-        // Vertex 構造体ごと交換しているので自動的にそうなっているが、
-        // 位置と色を別々の配列で持つ設計にしていると、ここで取り違える事故が起きる。
-        int area = EdgeFunction(v0.X, v0.Y, v1.X, v1.Y, v2.X, v2.Y);
-        if (area == 0)
+        // 頂点を入れ替えるときは、位置だけでなく属性も一緒に入れ替わる必要がある。
+        // Vertex 構造体ごと交換しているので自動的にそうなっている。
+        float area = EdgeFunction(v0.Position, v1.Position, v2.Position.X, v2.Position.Y);
+        if (area == 0.0f)
         {
             return;
         }
 
-        if (area < 0)
+        if (area < 0.0f)
         {
             (v1, v2) = (v2, v1);
             area = -area;
         }
 
         // --- 2. バウンディングボックス ---
-        int minX = Math.Max(Math.Min(v0.X, Math.Min(v1.X, v2.X)), 0);
-        int maxX = Math.Min(Math.Max(v0.X, Math.Max(v1.X, v2.X)), _target.Width - 1);
-        int minY = Math.Max(Math.Min(v0.Y, Math.Min(v1.Y, v2.Y)), 0);
-        int maxY = Math.Min(Math.Max(v0.Y, Math.Max(v1.Y, v2.Y)), _target.Height - 1);
+        // 頂点が小数になったので、外側へ丸める(floor / ceiling)。
+        // 内側へ丸めると三角形の端がわずかに欠ける。
+        float minXf = MathF.Min(v0.Position.X, MathF.Min(v1.Position.X, v2.Position.X));
+        float maxXf = MathF.Max(v0.Position.X, MathF.Max(v1.Position.X, v2.Position.X));
+        float minYf = MathF.Min(v0.Position.Y, MathF.Min(v1.Position.Y, v2.Position.Y));
+        float maxYf = MathF.Max(v0.Position.Y, MathF.Max(v1.Position.Y, v2.Position.Y));
+
+        int minX = Math.Max((int)MathF.Floor(minXf), 0);
+        int maxX = Math.Min((int)MathF.Ceiling(maxXf), _target.Width - 1);
+        int minY = Math.Max((int)MathF.Floor(minYf), 0);
+        int maxY = Math.Min((int)MathF.Ceiling(maxYf), _target.Height - 1);
 
         // --- 3. top-left rule のバイアス ---
-        int bias0 = IsTopLeft(v1.X, v1.Y, v2.X, v2.Y) ? 0 : -1;
-        int bias1 = IsTopLeft(v2.X, v2.Y, v0.X, v0.Y) ? 0 : -1;
-        int bias2 = IsTopLeft(v0.X, v0.Y, v1.X, v1.Y) ? 0 : -1;
+        float bias0 = IsTopLeft(v1.Position, v2.Position) ? 0.0f : -TopLeftBias;
+        float bias1 = IsTopLeft(v2.Position, v0.Position) ? 0.0f : -TopLeftBias;
+        float bias2 = IsTopLeft(v0.Position, v1.Position) ? 0.0f : -TopLeftBias;
 
-        // 面積の逆数を先に作っておく。割り算はピクセルごとにやると高くつくので、
-        // 三角形につき1回だけにして、内側のループでは掛け算で済ませる。
         float invArea = 1.0f / area;
 
         int[] pixels = _target.Pixels;
@@ -118,64 +121,63 @@ internal sealed class Rasterizer
         {
             int rowOffset = y * width;
 
+            // ピクセルの「中心」で判定する。
+            // ピクセル (x, y) が覆っているのは [x, x+1) x [y, y+1) の正方形なので、
+            // その代表点は中心の (x + 0.5, y + 0.5) になる。
+            // Day 4 まで整数位置で判定していたのは、頂点も整数だったからできた手抜きで、
+            // 頂点が小数になった今は中心で測らないと、絵が半ピクセルずれる。
+            float py = y + 0.5f;
+
             for (int x = minX; x <= maxX; x++)
             {
-                // エッジ関数の生の値。w0 は頂点0の「向かい側の辺」に対する値で、
-                // これが頂点0の重みになる(頂点0から遠いほど 0 に近づく)。
-                int w0 = EdgeFunction(v1.X, v1.Y, v2.X, v2.Y, x, y);
-                int w1 = EdgeFunction(v2.X, v2.Y, v0.X, v0.Y, x, y);
-                int w2 = EdgeFunction(v0.X, v0.Y, v1.X, v1.Y, x, y);
+                float px = x + 0.5f;
 
-                // 内外判定にはバイアスを足した値を使い、補間には生の値を使う。
-                // バイアスは「辺の上のピクセルを塗るか」の取り決めのための ±1 でしかなく、
-                // 重みとしては意味を持たない。混ぜると三角形の縁で色がわずかにずれる。
-                if (((w0 + bias0) | (w1 + bias1) | (w2 + bias2)) < 0)
+                float w0 = EdgeFunction(v1.Position, v2.Position, px, py);
+                float w1 = EdgeFunction(v2.Position, v0.Position, px, py);
+                float w2 = EdgeFunction(v0.Position, v1.Position, px, py);
+
+                // 内外判定にはバイアス付き、補間には生の値を使う(Day 4 の要点3)。
+                if (w0 + bias0 < 0.0f || w1 + bias1 < 0.0f || w2 + bias2 < 0.0f)
                 {
                     continue;
                 }
 
-                // バリセントリック座標。3つの重みは必ず合計1になる
-                // (w0 + w1 + w2 == area がエッジ関数の性質として成り立つため)。
+                // バリセントリック座標。3つの重みの合計は必ず1になる。
                 float l0 = w0 * invArea;
                 float l1 = w1 * invArea;
                 float l2 = w2 * invArea;
 
-                // 属性の補間。頂点の値に重みを掛けて足すだけ。
-                // 変数名を r, g, b ではなく a0, a1, a2(attribute)にしているのは、
-                // 中身が色とは限らないため。市松模様のデモでは UV として使っている。
-                // 属性がUVや法線に変わっても、この式の形は一切変わらない。
-                float a0 = l0 * v0.R + l1 * v1.R + l2 * v2.R;
-                float a1 = l0 * v0.G + l1 * v1.G + l2 * v2.G;
-                float a2 = l0 * v0.B + l1 * v1.B + l2 * v2.B;
+                // 属性の補間。Vec3 になったので3行が1行になった。
+                // 中身が色とは限らない(UVや法線のこともある)ので attribute と呼んでいる。
+                Vec3 attribute = v0.Color * l0 + v1.Color * l1 + v2.Color * l2;
 
-                // shader が無ければ補間結果をそのまま色として使う。
-                // 分岐がピクセルごとに入るが、常に同じ側へ進むので分岐予測がほぼ外さない。
-                // (デリゲート呼び出しのほうがずっと高い。市松模様のデモで実測できる)
                 pixels[rowOffset + x] = shader is null
-                    ? Framebuffer.Rgb(a0, a1, a2)
-                    : shader(a0, a1, a2);
+                    ? Framebuffer.Rgb(attribute.X, attribute.Y, attribute.Z)
+                    : shader(attribute);
             }
         }
     }
 
     /// <summary>
     /// 単色で三角形を塗る。3頂点に同じ色を持たせて補間版へ渡すだけ。
-    /// 補間は行われるが、3頂点が同じ値なので結果は一様になる。
     /// </summary>
-    public void FillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, int color)
-        => FillTriangle(
-            Vertex.FromPackedColor(x0, y0, color),
-            Vertex.FromPackedColor(x1, y1, color),
-            Vertex.FromPackedColor(x2, y2, color));
+    public void FillTriangle(Vec2 p0, Vec2 p1, Vec2 p2, Vec3 color)
+        => FillTriangle(new Vertex(p0, color), new Vertex(p1, color), new Vertex(p2, color));
 
     /// <summary>
-    /// 三角形の輪郭だけを描く(ワイヤーフレーム)。中身は Day 2 の線分描画3回。
-    /// 塗りつぶしの結果と重ねると「どのピクセルまでが三角形の内側と判定されたか」が見える。
+    /// 三角形の輪郭だけを描く(ワイヤーフレーム)。
+    /// 線分描画は整数座標なので、ここで丸める。
     /// </summary>
-    public void DrawTriangleWireframe(int x0, int y0, int x1, int y1, int x2, int y2, int color)
+    public void DrawTriangleWireframe(Vec2 p0, Vec2 p1, Vec2 p2, int color)
     {
-        _target.DrawLine(x0, y0, x1, y1, color);
-        _target.DrawLine(x1, y1, x2, y2, color);
-        _target.DrawLine(x2, y2, x0, y0, color);
+        DrawLine(p0, p1, color);
+        DrawLine(p1, p2, color);
+        DrawLine(p2, p0, color);
     }
+
+    private void DrawLine(Vec2 a, Vec2 b, int color)
+        => _target.DrawLine(
+            (int)MathF.Round(a.X), (int)MathF.Round(a.Y),
+            (int)MathF.Round(b.X), (int)MathF.Round(b.Y),
+            color);
 }
