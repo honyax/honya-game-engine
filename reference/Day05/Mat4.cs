@@ -51,7 +51,10 @@ internal struct Mat4
     /// </summary>
     public static Mat4 Identity => new()
     {
-        M11 = 1.0f, M22 = 1.0f, M33 = 1.0f, M44 = 1.0f,
+        M11 = 1.0f,
+        M22 = 1.0f,
+        M33 = 1.0f,
+        M44 = 1.0f,
     };
 
     /// <summary>
@@ -199,10 +202,22 @@ internal struct Mat4
     /// </summary>
     public readonly Mat4 Transposed() => new()
     {
-        M11 = M11, M12 = M21, M13 = M31, M14 = M41,
-        M21 = M12, M22 = M22, M23 = M32, M24 = M42,
-        M31 = M13, M32 = M23, M33 = M33, M34 = M43,
-        M41 = M14, M42 = M24, M43 = M34, M44 = M44,
+        M11 = M11,
+        M12 = M21,
+        M13 = M31,
+        M14 = M41,
+        M21 = M12,
+        M22 = M22,
+        M23 = M32,
+        M24 = M42,
+        M31 = M13,
+        M32 = M23,
+        M33 = M33,
+        M34 = M43,
+        M41 = M14,
+        M42 = M24,
+        M43 = M34,
+        M44 = M44,
     };
 
     public readonly override string ToString()
