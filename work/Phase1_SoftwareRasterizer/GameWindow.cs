@@ -22,6 +22,11 @@ internal sealed class GameWindow : Form
     private readonly Framebuffer _framebuffer;
 
     /// <summary>
+    /// 三角形ラスタライザ。Day 3 以降、画面に出る絵の大半はこいつが描く。
+    /// </summary>
+    private readonly Rasterizer _rasterizer;
+
+    /// <summary>
     /// フレームバッファを画面へ渡すための中継用ビットマップ。
     /// 毎フレーム new すると GDI+ ハンドルとGCを浪費するので、必ず使い回す。
     /// </summary>
@@ -37,6 +42,7 @@ internal sealed class GameWindow : Form
     public GameWindow(int width, int height)
     {
         _framebuffer = new Framebuffer(width, height);
+        _rasterizer = new Rasterizer(_framebuffer);
 
         // Format32bppRgb: 1ピクセル32bitで、上位8bitのアルファは「未使用」扱い。
         // Format32bppArgb にするとGDI+がアルファ合成を試みる可能性があり、
@@ -44,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day02 - 線分描画";
+        Text = "Day03 - 三角形の塗りつぶし";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -119,7 +125,8 @@ internal sealed class GameWindow : Form
             // Render の所要時間だけを切り出して測る。
             // Day 1 の実測で「一番重いのは自分の描画ではなくGDI+の画面転送(約6ms)」と
             // 分かっているので、線を何本描いても Render 側にはまだ余裕がある、という確認になる。
-            // Space キーでの Bresenham / DDA の速度比較も、この数字を見て行う。
+            // 三角形は線分と違って「面積ぶん」のピクセルを塗るので、
+            // 線を描いていたDay 2 とは桁が変わる。その実感を数字で持っておく。
             double renderStartSeconds = clock.Elapsed.TotalSeconds;
             Render(nowSeconds);
             renderSecondsAccum += clock.Elapsed.TotalSeconds - renderStartSeconds;
@@ -131,8 +138,9 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                string algorithm = _framebuffer.UseDdaLine ? "DDA      " : "Bresenham";
-                Text = $"Day02 - 線分描画  {fpsFrames / fpsElapsed:F1} fps | {algorithm} | render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | Space:切替 Esc:終了";
+                string topLeft = _rasterizer.UseTopLeftRule ? "ON " : "OFF";
+                Text = $"Day03 - 三角形の塗りつぶし  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | TopLeft:{topLeft} | W:ワイヤー T:ルール Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -155,149 +163,155 @@ internal sealed class GameWindow : Form
         }
     }
 
+    /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
+    private bool _showWireframe;
+
+    /// <summary>円盤を構成する三角形の枚数。</summary>
+    private const int DiscTriangles = 64;
+
+    /// <summary>1フレームに描く三角形の総数(単体1枚 + 継ぎ目テスト + 円盤)。</summary>
+    private const int TriangleCount = 1 + (SeamGrid * SeamGrid * 2) + DiscTriangles;
+
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
     ///
-    /// Day 2 の題材はすべて線分1本の組み合わせでできている。
-    ///   - 方眼      … 水平線・垂直線(Bresenhamの退化ケース)
-    ///   - 放射線    … 全方向(8オクタント)の網羅と、画面外へのはみ出し
-    ///   - 星型      … 閉じた折れ線 = 多角形の輪郭
-    ///   - リサージュ… 曲線も細かい折れ線で描ける、という割り切りの実演
+    /// Day 3 の題材は3つとも三角形の塗りつぶしだが、確かめたいことが違う。
+    ///   - 単体の三角形 … エッジ関数による内外判定が正しいか(ワイヤーと見比べる)
+    ///   - 格子         … 辺を共有する三角形の境界が二重に塗られていないか(top-left rule)
+    ///   - 円盤         … 細長い三角形が大量にあっても破綻しないか、そして速度
     /// </summary>
     private void Render(double timeSeconds)
     {
-        // Day 1 のグラデーション背景は線が見えづらいので、暗い単色に変える。
         _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
-        DrawGrid();
-        DrawFan(timeSeconds);
-        DrawStar(timeSeconds);
-        DrawLissajous(timeSeconds);
-    }
-
-    /// <summary>方眼の間隔(ピクセル)。</summary>
-    private const int GridSpacing = 32;
-
-    /// <summary>
-    /// 方眼を描く。
-    ///
-    /// 見た目は地味だが、水平線(dy = 0)と垂直線(dx = 0)はBresenhamの退化ケースで、
-    /// 誤差項の更新が片側だけになる。ここを踏み外していると「線が1本消える」
-    /// 「1ピクセルずれる」といった形ですぐ表に出るので、実質的なテストになっている。
-    /// </summary>
-    private void DrawGrid()
-    {
-        int width = _framebuffer.Width;
-        int height = _framebuffer.Height;
-        int color = Framebuffer.Rgb(34, 38, 52);
-
-        for (int x = 0; x < width; x += GridSpacing)
-        {
-            _framebuffer.DrawLine(x, 0, x, height - 1, color);
-        }
-
-        for (int y = 0; y < height; y += GridSpacing)
-        {
-            _framebuffer.DrawLine(0, y, width - 1, y, color);
-        }
-    }
-
-    /// <summary>放射状に伸ばす線の本数。</summary>
-    private const int FanSpokes = 36;
-
-    /// <summary>
-    /// 中心から放射状に線を伸ばし、ゆっくり回転させる。
-    ///
-    /// 狙いは「1つの DrawLine で8方向すべてを描けているか」の目視確認。
-    /// 傾きの急/緩、右向き/左向き、上向き/下向きのどれか1つでも取りこぼしていると、
-    /// 回転の途中でその向きの線だけが消えたり、階段の形が明らかに崩れたりして一目で分かる。
-    /// 「テストコードの代わりに絵で確かめる」のはグラフィックスで最も効率のよい検証方法。
-    /// </summary>
-    private void DrawFan(double timeSeconds)
-    {
-        int centerX = _framebuffer.Width / 4;
-        int centerY = _framebuffer.Height / 4;
-        double baseAngle = timeSeconds * 0.5;
-
-        for (int i = 0; i < FanSpokes; i++)
-        {
-            double angle = baseAngle + i * (2.0 * Math.PI / FanSpokes);
-
-            // 3本に1本は画面の外まで突き抜けさせる。
-            // 範囲外の座標が来ても SetPixel が黙って捨てるので破綻しない、という確認と、
-            // 同時に「画面外なのにループは回り続けている」という無駄の実演でもある
-            // (この無駄をなくすのが改造課題2のクリッピング)。
-            double radius = (i % 3 == 0) ? 340.0 : 104.0;
-
-            int endX = centerX + (int)Math.Round(Math.Cos(angle) * radius);
-            int endY = centerY + (int)Math.Round(Math.Sin(angle) * radius);
-
-            _framebuffer.DrawLine(centerX, centerY, endX, endY, HueColor(i / (double)FanSpokes));
-        }
+        DrawSingleTriangle(timeSeconds);
+        DrawSeamTest();
+        DrawDisc(timeSeconds);
     }
 
     /// <summary>
-    /// 5つの頂点を1つ飛ばしで結んだ星型多角形({5/2}星形)を回転させる。
+    /// 回転する三角形を1枚描く。
     ///
-    /// 頂点を「2つ進む」順序で並べておけば、あとは素直に閉じた折れ線を描くだけで星になる。
-    /// 多角形を描く側は「頂点をどう並べるか」だけを考えればよく、
-    /// 線を引く仕事は DrawLine に任せきる、という層の分け方をここで作っておく。
+    /// Wキーでワイヤーフレームを重ねられる。塗りつぶされた領域の縁と輪郭線が
+    /// ぴったり一致していれば、エッジ関数の内外判定が正しく効いている。
+    /// なお輪郭線(Bresenham)と塗りつぶし(エッジ関数)は別のアルゴリズムなので、
+    /// 完全に同じピクセルにはならない。ズレるのは辺の上の1ピクセルだけのはず。
     /// </summary>
-    private void DrawStar(double timeSeconds)
+    private void DrawSingleTriangle(double timeSeconds)
     {
-        const int vertexCount = 5;
         const double radius = 92.0;
+        int centerX = 150;
+        int centerY = 130;
 
-        int centerX = _framebuffer.Width * 3 / 4;
-        int centerY = _framebuffer.Height / 4;
-
-        // 頂点数が少なく寿命もこのメソッド内だけなので、ヒープではなくスタックに置く。
-        // 毎フレーム呼ばれる描画コードでGCを動かさないための基本的な作法。
-        Span<(int X, int Y)> vertices = stackalloc (int X, int Y)[vertexCount];
-
-        double angleOffset = -Math.PI / 2.0 + timeSeconds * 0.8;
-        for (int i = 0; i < vertexCount; i++)
+        Span<(int X, int Y)> v = stackalloc (int X, int Y)[3];
+        for (int i = 0; i < 3; i++)
         {
-            double angle = angleOffset + i * 2 * (2.0 * Math.PI / vertexCount);
-            vertices[i] = (
+            double angle = timeSeconds * 0.7 + i * (2.0 * Math.PI / 3.0);
+            v[i] = (
                 centerX + (int)Math.Round(Math.Cos(angle) * radius),
                 centerY + (int)Math.Round(Math.Sin(angle) * radius));
         }
 
-        _framebuffer.DrawPolyline(vertices, Framebuffer.Rgb(255, 214, 110), closed: true);
+        _rasterizer.FillTriangle(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(230, 140, 60));
+
+        if (_showWireframe)
+        {
+            _rasterizer.DrawTriangleWireframe(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(255, 255, 255));
+        }
     }
 
-    /// <summary>リサージュ曲線の分割数。大きいほど滑らかで、そのぶん線分が増える。</summary>
-    private const int LissajousSegments = 160;
+    /// <summary>継ぎ目テストの格子(縦横の枚数)。1マスが三角形2枚。</summary>
+    private const int SeamGrid = 5;
+
+    /// <summary>継ぎ目テストの1マスの大きさ(ピクセル)。</summary>
+    private const int SeamCellSize = 32;
 
     /// <summary>
-    /// リサージュ曲線(x と y を別々の周波数の正弦波で動かした軌跡)を折れ線で描く。
+    /// 正方形を2枚の三角形に割ったものを格子状に並べ、加算合成で描く。今日の主役の実験。
     ///
-    /// ラスタライザは曲線を曲線のまま扱わない。細かく分割して直線に置き換えるだけ。
-    /// 分割数を減らすとカクカクになり、増やすと滑らかになる代わりに線分の本数が増える
-    /// ——この「滑らかさと処理量のトレードオフ」は、この先メッシュの分割や
-    /// テッセレーションでまったく同じ形で再登場する。
+    /// 隣り合う三角形は必ず辺を共有している。その辺の上にちょうど乗ったピクセルを
+    /// 両方が「自分の内側だ」と判定すると、そのピクセルは2回塗られる。
+    /// 加算合成にしてあるので、2回塗られた場所は明るい線として浮かび上がる。
+    /// Tキーで top-left rule を切ると、格子線と対角線がはっきり光って見える。
+    ///
+    /// 図形をわざと軸に沿わせているのには理由がある。斜めの辺だと
+    /// 「ピクセルがちょうど辺の上に乗る」ことがめったに起きず、
+    /// 二重描画が数ピクセルしか出ないので目で確認しづらい。
+    /// 縦・横・45度の辺なら整数座標に必ず乗るので、問題が最大限に見える。
+    ///
+    /// 不透明な単色で塗っているうちは二重描画は目に見えないが、
+    /// 半透明合成では色が濃くなり、Day 7 のZバッファでは深度の書き込み回数が変わる。
+    /// 「見えないから放っておいてよい」種類のバグではない。
     /// </summary>
-    private void DrawLissajous(double timeSeconds)
+    private void DrawSeamTest()
     {
-        int centerX = _framebuffer.Width / 2;
-        int centerY = _framebuffer.Height * 3 / 4;
-        double amplitudeX = _framebuffer.Width / 2.0 - 24.0;
-        double amplitudeY = _framebuffer.Height / 4.0 - 24.0;
+        const int originX = 390;
+        const int originY = 46;
 
-        // x 側の位相だけを時間で動かすと、図形が閉じたり開いたりしながら変化する。
-        double phase = timeSeconds * 0.6;
+        // 加算合成に切り替える。暗めの色で塗るので、
+        // 1回塗り = 落ち着いた青、2回塗り = 明るい青、と見分けがつく。
+        _rasterizer.AdditiveBlend = true;
+        int color = Framebuffer.Rgb(48, 72, 104);
 
-        Span<(int X, int Y)> points = stackalloc (int X, int Y)[LissajousSegments + 1];
-        for (int i = 0; i <= LissajousSegments; i++)
+        for (int gy = 0; gy < SeamGrid; gy++)
         {
-            double t = i / (double)LissajousSegments * (2.0 * Math.PI);
-            points[i] = (
-                centerX + (int)Math.Round(Math.Sin(3.0 * t + phase) * amplitudeX),
-                centerY + (int)Math.Round(Math.Sin(2.0 * t) * amplitudeY));
+            for (int gx = 0; gx < SeamGrid; gx++)
+            {
+                int left = originX + gx * SeamCellSize;
+                int top = originY + gy * SeamCellSize;
+                int right = left + SeamCellSize;
+                int bottom = top + SeamCellSize;
+
+                // 1マスを対角線で2枚に割る。2枚は対角線(45度)を共有し、
+                // 隣のマスとは縦横の辺を共有する。
+                // 頂点の並び順(巻き方向)をマスごとに交互に変えて、
+                // FillTriangle 側の正規化がどちらの向きでも効くことも確認している。
+                if ((gx + gy) % 2 == 0)
+                {
+                    _rasterizer.FillTriangle(left, top, right, top, left, bottom, color);
+                    _rasterizer.FillTriangle(right, top, right, bottom, left, bottom, color);
+                }
+                else
+                {
+                    _rasterizer.FillTriangle(left, top, left, bottom, right, top, color);
+                    _rasterizer.FillTriangle(right, top, left, bottom, right, bottom, color);
+                }
+            }
         }
 
-        _framebuffer.DrawPolyline(points, Framebuffer.Rgb(120, 216, 255));
+        _rasterizer.AdditiveBlend = false;
+    }
+
+    /// <summary>
+    /// 細長い三角形を大量に並べて円盤を作る。
+    ///
+    /// 頂点1つを中心に集めた「トライアングルファン」で、3Dのモデルでも
+    /// 円錐や円柱の蓋によく出てくる形。中心付近では三角形が極端に細くなるので、
+    /// 内外判定が甘いと中心にピンホール(塗り残しの穴)が空く。
+    /// </summary>
+    private void DrawDisc(double timeSeconds)
+    {
+        const double radius = 108.0;
+        int centerX = _framebuffer.Width / 2;
+        int centerY = 350;
+
+        for (int i = 0; i < DiscTriangles; i++)
+        {
+            double a0 = -timeSeconds * 0.3 + i * (2.0 * Math.PI / DiscTriangles);
+            double a1 = -timeSeconds * 0.3 + (i + 1) * (2.0 * Math.PI / DiscTriangles);
+
+            int x0 = centerX + (int)Math.Round(Math.Cos(a0) * radius);
+            int y0 = centerY + (int)Math.Round(Math.Sin(a0) * radius);
+            int x1 = centerX + (int)Math.Round(Math.Cos(a1) * radius);
+            int y1 = centerY + (int)Math.Round(Math.Sin(a1) * radius);
+
+            _rasterizer.FillTriangle(centerX, centerY, x0, y0, x1, y1, HueColor(i / (double)DiscTriangles));
+
+            if (_showWireframe)
+            {
+                _rasterizer.DrawTriangleWireframe(centerX, centerY, x0, y0, x1, y1, Framebuffer.Rgb(30, 30, 30));
+            }
+        }
     }
 
     /// <summary>
@@ -415,13 +429,19 @@ internal sealed class GameWindow : Form
             Close();
         }
 
-        // Spaceで線分描画アルゴリズムを切り替える。
-        // 見た目はほとんど変わらない(実測でピクセル全体の0.5%しかずれない)が、
-        // 「ほとんど」であって「完全一致」ではない、というのが今日の見どころ。
-        // 切り替えた瞬間に線がわずかにチラつく箇所があれば、それがDDAの累積誤差。
-        if (e.KeyCode == Keys.Space)
+        // W: 塗りつぶしの上にワイヤーフレームを重ねる。
+        // 「エッジ関数がどこまでを内側と判定したか」を輪郭と見比べられる。
+        if (e.KeyCode == Keys.W)
         {
-            _framebuffer.UseDdaLine = !_framebuffer.UseDdaLine;
+            _showWireframe = !_showWireframe;
+        }
+
+        // T: top-left rule の ON / OFF。今日の一番の見どころ。
+        // OFF にすると、右上の格子の継ぎ目に明るい線が浮かび上がる
+        // (= 隣り合う三角形が同じピクセルを2回塗っている)。
+        if (e.KeyCode == Keys.T)
+        {
+            _rasterizer.UseTopLeftRule = !_rasterizer.UseTopLeftRule;
         }
 
         base.OnKeyDown(e);

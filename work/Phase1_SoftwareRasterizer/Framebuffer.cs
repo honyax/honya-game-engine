@@ -90,32 +90,8 @@ internal sealed class Framebuffer
     }
 
     /// <summary>
-    /// 線分描画に素朴なDDA(浮動小数)を使うかどうかの切り替え。既定は false = Bresenham。
-    ///
-    /// 本来こういう「アルゴリズム切り替えフラグ」を下層に持たせるのは筋が悪い。
-    /// ここに置いたのは、実行中に Space キーで切り替えて
-    /// 「結果の絵が一致するか」「速度がどれだけ違うか」を自分の目で確かめるため。
-    /// Day 3 以降は Bresenham だけを残してこのフラグごと消す。
-    /// </summary>
-    public bool UseDdaLine { get; set; }
-
-    /// <summary>
-    /// 2点を結ぶ線分を描く(両端を含む)。以降のDayで使う線描画の入口はこれ。
-    /// </summary>
-    public void DrawLine(int x0, int y0, int x1, int y1, int color)
-    {
-        if (UseDdaLine)
-        {
-            DrawLineDda(x0, y0, x1, y1, color);
-        }
-        else
-        {
-            DrawLineBresenham(x0, y0, x1, y1, color);
-        }
-    }
-
-    /// <summary>
-    /// Bresenham のアルゴリズムによる線分描画。整数の加算・比較・符号反転だけで完結する。
+    /// 2点を結ぶ線分を描く(両端を含む)。Bresenham のアルゴリズム。
+    /// 整数の加算・比較・符号反転だけで完結する。
     ///
     /// 考え方: 「長い方の軸を必ず1ずつ進め、短い方は進むか留まるかを毎回選ぶ」。
     /// その選択を、理想の直線と現在位置とのズレ(誤差)を持ち回ることで決める。
@@ -126,7 +102,7 @@ internal sealed class Framebuffer
     /// dx を正、dy を負にそろえ、進む向きを sx / sy に追い出すことで、
     /// 「右上がり/右下がり」「急/緩」の場合分けをコードから消している。
     /// </summary>
-    public void DrawLineBresenham(int x0, int y0, int x1, int y1, int color)
+    public void DrawLine(int x0, int y0, int x1, int y1, int color)
     {
         int dx = Math.Abs(x1 - x0);
         int dy = -Math.Abs(y1 - y0);   // 符号を反転させておくのがこの一般形の定石
@@ -166,56 +142,6 @@ internal sealed class Framebuffer
                 err += dx;
                 y0 += sy;
             }
-        }
-    }
-
-    /// <summary>
-    /// DDA(Digital Differential Analyzer)による線分描画。比較・学習用。
-    ///
-    /// 「傾きを毎ステップ足していく」という素直な発想そのままの実装で、
-    /// Bresenham より短く読みやすい。ただし1ピクセルごとに浮動小数の加算と丸めが要る。
-    /// 昔のCPUではこれが致命的に遅く、それがBresenhamが生まれた理由だった。
-    ///
-    /// 現代のCPUでは速度差は小さくなったが、それでもBresenhamを使う理由は残る。
-    ///   - 誤差が累積しない(整数演算なので、線が何千ピクセル続いても定義どおりの結果になる)
-    ///   - 同じ入力なら必ず同じピクセル集合になる(浮動小数の丸めや最適化に左右されない)
-    ///   - 「主軸を1ずつ進め、従軸を誤差で選ぶ」構造は、この先の三角形ラスタライズや
-    ///     ボクセル走査、レイマーチングにそのまま化けて再登場する
-    /// </summary>
-    public void DrawLineDda(int x0, int y0, int x1, int y1, int color)
-    {
-        int dx = x1 - x0;
-        int dy = y1 - y0;
-
-        // 長い方の軸のピクセル数がそのままステップ数になる。
-        // 短い方を主軸にすると1ステップで他方が2以上飛び、線に穴が空く。
-        // 「長い方を主軸にする」という原則はBresenhamと完全に共通。
-        int steps = Math.Max(Math.Abs(dx), Math.Abs(dy));
-        if (steps == 0)
-        {
-            SetPixel(x0, y0, color);
-            return;
-        }
-
-        // ここで割り算が出るのがDDAの特徴。1本につき2回なので割り算自体は問題にならないが、
-        // このあとのループで毎ピクセル「浮動小数の加算 + 丸め」が発生する点が重い。
-        double stepX = (double)dx / steps;
-        double stepY = (double)dy / steps;
-
-        double x = x0;
-        double y = y0;
-        for (int i = 0; i <= steps; i++)
-        {
-            // +0.5 して切り捨てる = 四捨五入。Math.Round は既定が銀行家丸め
-            // (.5 のとき偶数側へ寄る)なので、線描画の丸めには使わない。
-            //
-            // ただし四捨五入にしてもBresenhamと完全一致はしない。x, y に stepX, stepY を
-            // 足し続けているため、直線の中ほどでは丸め誤差が積もって .5 のすぐ手前/奥に
-            // 着地することがあり、そこで1ピクセルずれる(実測で線の17%、ピクセル全体の0.5%)。
-            // 「誤差が累積する」という言葉の意味が、そのまま絵に出ている場所。
-            SetPixel((int)(x + 0.5), (int)(y + 0.5), color);
-            x += stepX;
-            y += stepY;
         }
     }
 
