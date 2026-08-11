@@ -48,6 +48,24 @@ internal sealed class Framebuffer
     public static int Rgb(byte r, byte g, byte b)
         => unchecked((int)(0xFF000000u | ((uint)r << 16) | ((uint)g << 8) | b));
 
+    /// <summary>
+    /// 0.0〜1.0 の float から1ピクセル分の値を作る。範囲外は切り詰める(クランプ)。
+    ///
+    /// 補間やライティングの計算は float で行い、画面に出す瞬間だけ byte に落とす、
+    /// というのがこの先の基本方針。途中で byte に丸めると、
+    /// 掛けたり足したりを重ねるうちに誤差と桁あふれが溜まってしまう。
+    ///
+    /// クランプが要るのは、計算結果が 0〜1 に収まる保証がないため。
+    /// 今日の補間だけなら必ず収まるが、Day 9 で光を足し合わせると簡単に 1.0 を超える。
+    /// そのとき「1.0 を超えた分をどう扱うか」がトーンマッピングの話になる(Day 31)。
+    /// 今は単純に頭打ちにしておく。
+    /// </summary>
+    public static int Rgb(float r, float g, float b)
+        => Rgb(
+            (byte)(Math.Clamp(r, 0.0f, 1.0f) * 255.0f + 0.5f),
+            (byte)(Math.Clamp(g, 0.0f, 1.0f) * 255.0f + 0.5f),
+            (byte)(Math.Clamp(b, 0.0f, 1.0f) * 255.0f + 0.5f));
+
     /// <summary>画面全体を単色で塗る。毎フレームの描画は基本的にここから始まる。</summary>
     public void Clear(int color) => Array.Fill(Pixels, color);
 

@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day03 - 三角形の塗りつぶし";
+        Text = "Day04 - 属性補間";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -138,9 +138,8 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                string topLeft = _rasterizer.UseTopLeftRule ? "ON " : "OFF";
-                Text = $"Day03 - 三角形の塗りつぶし  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
-                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | TopLeft:{topLeft} | W:ワイヤー T:ルール Esc:終了";
+                Text = $"Day04 - 属性補間  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | W:ワイヤー Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -169,50 +168,51 @@ internal sealed class GameWindow : Form
     /// <summary>円盤を構成する三角形の枚数。</summary>
     private const int DiscTriangles = 64;
 
-    /// <summary>1フレームに描く三角形の総数(単体1枚 + 継ぎ目テスト + 円盤)。</summary>
-    private const int TriangleCount = 1 + (SeamGrid * SeamGrid * 2) + DiscTriangles;
+    /// <summary>1フレームに描く三角形の総数(グラデーション1枚 + 市松1枚 + 円盤)。</summary>
+    private const int TriangleCount = 1 + 1 + DiscTriangles;
 
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
     ///
-    /// Day 3 の題材は3つとも三角形の塗りつぶしだが、確かめたいことが違う。
-    ///   - 単体の三角形 … エッジ関数による内外判定が正しいか(ワイヤーと見比べる)
-    ///   - 格子         … 辺を共有する三角形の境界が二重に塗られていないか(top-left rule)
-    ///   - 円盤         … 細長い三角形が大量にあっても破綻しないか、そして速度
+    /// Day 4 の題材は「3頂点が持つ値を内部へ配り直す」ことの3つの見せ方。
+    ///   - グラデーション三角形 … 色を補間するとどう見えるか(定番の絵)
+    ///   - 市松模様の三角形     … 補間した値を色以外の用途に使う(Day 8 のUVの予告)
+    ///   - 円盤                 … 隣の三角形と頂点色を共有すると継ぎ目が消える
     /// </summary>
     private void Render(double timeSeconds)
     {
         _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
-        DrawSingleTriangle(timeSeconds);
-        DrawSeamTest();
-        DrawDisc(timeSeconds);
+        DrawGradientTriangle(timeSeconds);
+        DrawBarycentricPattern(timeSeconds);
+        DrawSmoothDisc(timeSeconds);
     }
 
     /// <summary>
-    /// 回転する三角形を1枚描く。
+    /// 3頂点に赤・緑・青を割り当てた三角形。グラフィックスの「Hello, World」。
     ///
-    /// Wキーでワイヤーフレームを重ねられる。塗りつぶされた領域の縁と輪郭線が
-    /// ぴったり一致していれば、エッジ関数の内外判定が正しく効いている。
-    /// なお輪郭線(Bresenham)と塗りつぶし(エッジ関数)は別のアルゴリズムなので、
-    /// 完全に同じピクセルにはならない。ズレるのは辺の上の1ピクセルだけのはず。
+    /// 各頂点の色が最も濃く出て、内部では滑らかに混ざる。
+    /// 3色が等しく混ざる点(重心)がちょうど灰色になっていれば、
+    /// 3つの重みの合計が 1 になっている証拠。
     /// </summary>
-    private void DrawSingleTriangle(double timeSeconds)
+    private void DrawGradientTriangle(double timeSeconds)
     {
-        const double radius = 92.0;
+        const double radius = 96.0;
         int centerX = 150;
-        int centerY = 130;
+        int centerY = 132;
 
-        Span<(int X, int Y)> v = stackalloc (int X, int Y)[3];
+        Span<Vertex> v = stackalloc Vertex[3];
         for (int i = 0; i < 3; i++)
         {
             double angle = timeSeconds * 0.7 + i * (2.0 * Math.PI / 3.0);
-            v[i] = (
-                centerX + (int)Math.Round(Math.Cos(angle) * radius),
-                centerY + (int)Math.Round(Math.Sin(angle) * radius));
+            int x = centerX + (int)Math.Round(Math.Cos(angle) * radius);
+            int y = centerY + (int)Math.Round(Math.Sin(angle) * radius);
+
+            // 頂点0 = 赤、頂点1 = 緑、頂点2 = 青
+            v[i] = new Vertex(x, y, i == 0 ? 1.0f : 0.0f, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f);
         }
 
-        _rasterizer.FillTriangle(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(230, 140, 60));
+        _rasterizer.FillTriangle(v[0], v[1], v[2]);
 
         if (_showWireframe)
         {
@@ -220,98 +220,101 @@ internal sealed class GameWindow : Form
         }
     }
 
-    /// <summary>継ぎ目テストの格子(縦横の枚数)。1マスが三角形2枚。</summary>
-    private const int SeamGrid = 5;
-
-    /// <summary>継ぎ目テストの1マスの大きさ(ピクセル)。</summary>
-    private const int SeamCellSize = 32;
-
     /// <summary>
-    /// 正方形を2枚の三角形に割ったものを格子状に並べ、加算合成で描く。今日の主役の実験。
+    /// バリセントリック座標を「色」ではなく「模様の材料」として使う。
     ///
-    /// 隣り合う三角形は必ず辺を共有している。その辺の上にちょうど乗ったピクセルを
-    /// 両方が「自分の内側だ」と判定すると、そのピクセルは2回塗られる。
-    /// 加算合成にしてあるので、2回塗られた場所は明るい線として浮かび上がる。
-    /// Tキーで top-left rule を切ると、格子線と対角線がはっきり光って見える。
+    /// 頂点1・頂点2に (1,0) と (0,1) を持たせて補間すると、
+    /// 三角形の内部に「頂点0を原点とする斜めの座標系」ができる。
+    /// その値を整数化して偶奇で色を変えると市松模様になる。
     ///
-    /// 図形をわざと軸に沿わせているのには理由がある。斜めの辺だと
-    /// 「ピクセルがちょうど辺の上に乗る」ことがめったに起きず、
-    /// 二重描画が数ピクセルしか出ないので目で確認しづらい。
-    /// 縦・横・45度の辺なら整数座標に必ず乗るので、問題が最大限に見える。
+    /// これはまさに Day 8 のテクスチャマッピングそのもので、
+    /// 違いは「模様を計算で作るか、画像から読むか」だけ。
+    /// 補間した値を色として直接使わずに、何かを引く鍵として使う——という
+    /// 発想の転換が今日の一番の収穫かもしれない。
     ///
-    /// 不透明な単色で塗っているうちは二重描画は目に見えないが、
-    /// 半透明合成では色が濃くなり、Day 7 のZバッファでは深度の書き込み回数が変わる。
-    /// 「見えないから放っておいてよい」種類のバグではない。
+    /// 実装の都合として、ここでは Vertex の R, G を座標の入れ物として流用している
+    /// (Day 8 で Vertex に専用の U, V を足すまでのつなぎ)。
     /// </summary>
-    private void DrawSeamTest()
+    private void DrawBarycentricPattern(double timeSeconds)
     {
-        const int originX = 390;
-        const int originY = 46;
+        const double radius = 96.0;
+        const int checkerDivisions = 8;
 
-        // 加算合成に切り替える。暗めの色で塗るので、
-        // 1回塗り = 落ち着いた青、2回塗り = 明るい青、と見分けがつく。
-        _rasterizer.AdditiveBlend = true;
-        int color = Framebuffer.Rgb(48, 72, 104);
+        int centerX = 470;
+        int centerY = 132;
 
-        for (int gy = 0; gy < SeamGrid; gy++)
+        Span<Vertex> v = stackalloc Vertex[3];
+        for (int i = 0; i < 3; i++)
         {
-            for (int gx = 0; gx < SeamGrid; gx++)
-            {
-                int left = originX + gx * SeamCellSize;
-                int top = originY + gy * SeamCellSize;
-                int right = left + SeamCellSize;
-                int bottom = top + SeamCellSize;
+            double angle = -timeSeconds * 0.5 + i * (2.0 * Math.PI / 3.0);
+            int x = centerX + (int)Math.Round(Math.Cos(angle) * radius);
+            int y = centerY + (int)Math.Round(Math.Sin(angle) * radius);
 
-                // 1マスを対角線で2枚に割る。2枚は対角線(45度)を共有し、
-                // 隣のマスとは縦横の辺を共有する。
-                // 頂点の並び順(巻き方向)をマスごとに交互に変えて、
-                // FillTriangle 側の正規化がどちらの向きでも効くことも確認している。
-                if ((gx + gy) % 2 == 0)
-                {
-                    _rasterizer.FillTriangle(left, top, right, top, left, bottom, color);
-                    _rasterizer.FillTriangle(right, top, right, bottom, left, bottom, color);
-                }
-                else
-                {
-                    _rasterizer.FillTriangle(left, top, left, bottom, right, top, color);
-                    _rasterizer.FillTriangle(right, top, left, bottom, right, bottom, color);
-                }
-            }
+            // R を U、G を V として使う。頂点0 が原点、頂点1 が U 軸、頂点2 が V 軸。
+            v[i] = new Vertex(x, y, i == 1 ? 1.0f : 0.0f, i == 2 ? 1.0f : 0.0f, 0.0f);
         }
 
-        _rasterizer.AdditiveBlend = false;
+        // ここだけは補間結果を自前で使いたいので、ラスタライザには任せず
+        // 「補間された値を受け取って色を決める」という形で書く。
+        // Day 9 で「ピクセルごとの色の決め方」を差し替えられるようにするときの原型になる。
+        _rasterizer.FillTriangle(v[0], v[1], v[2], (u, vv, _) =>
+        {
+            int cell = (int)(u * checkerDivisions) + (int)(vv * checkerDivisions);
+            return (cell & 1) == 0
+                ? Framebuffer.Rgb(0.95f, 0.80f, 0.35f)
+                : Framebuffer.Rgb(0.25f, 0.30f, 0.45f);
+        });
+
+        if (_showWireframe)
+        {
+            _rasterizer.DrawTriangleWireframe(v[0].X, v[0].Y, v[1].X, v[1].Y, v[2].X, v[2].Y, Framebuffer.Rgb(255, 255, 255));
+        }
     }
 
     /// <summary>
-    /// 細長い三角形を大量に並べて円盤を作る。
+    /// 円盤を頂点カラーで滑らかに塗る。
     ///
-    /// 頂点1つを中心に集めた「トライアングルファン」で、3Dのモデルでも
-    /// 円錐や円柱の蓋によく出てくる形。中心付近では三角形が極端に細くなるので、
-    /// 内外判定が甘いと中心にピンホール(塗り残しの穴)が空く。
+    /// Day 3 では扇形1枚が単色だったので、境界に色の段差(マッハバンド)が見えていた。
+    /// 今日は隣り合う扇形が縁の頂点色を共有しているので、境界で色が連続し、
+    /// 継ぎ目が完全に消える。三角形の枚数は同じなのに滑らかに見えるのがポイント。
+    ///
+    /// これは Day 9 のグーローシェーディングと原理的にまったく同じこと。
+    /// 「頂点で計算して内部は補間」という手抜きが、なぜあれほど効果的なのかがここで分かる。
     /// </summary>
-    private void DrawDisc(double timeSeconds)
+    private void DrawSmoothDisc(double timeSeconds)
     {
-        const double radius = 108.0;
+        const double radius = 110.0;
         int centerX = _framebuffer.Width / 2;
         int centerY = 350;
+
+        // 中心の頂点は白。縁の頂点は角度に応じた虹色。
+        var center = new Vertex(centerX, centerY, 1.0f, 1.0f, 1.0f);
 
         for (int i = 0; i < DiscTriangles; i++)
         {
             double a0 = -timeSeconds * 0.3 + i * (2.0 * Math.PI / DiscTriangles);
             double a1 = -timeSeconds * 0.3 + (i + 1) * (2.0 * Math.PI / DiscTriangles);
 
-            int x0 = centerX + (int)Math.Round(Math.Cos(a0) * radius);
-            int y0 = centerY + (int)Math.Round(Math.Sin(a0) * radius);
-            int x1 = centerX + (int)Math.Round(Math.Cos(a1) * radius);
-            int y1 = centerY + (int)Math.Round(Math.Sin(a1) * radius);
+            var e0 = RimVertex(centerX, centerY, radius, a0, i / (double)DiscTriangles);
+            var e1 = RimVertex(centerX, centerY, radius, a1, (i + 1) / (double)DiscTriangles);
 
-            _rasterizer.FillTriangle(centerX, centerY, x0, y0, x1, y1, HueColor(i / (double)DiscTriangles));
+            _rasterizer.FillTriangle(center, e0, e1);
 
             if (_showWireframe)
             {
-                _rasterizer.DrawTriangleWireframe(centerX, centerY, x0, y0, x1, y1, Framebuffer.Rgb(30, 30, 30));
+                _rasterizer.DrawTriangleWireframe(center.X, center.Y, e0.X, e0.Y, e1.X, e1.Y, Framebuffer.Rgb(20, 20, 20));
             }
         }
+    }
+
+    /// <summary>円盤の縁の頂点を1つ作る。位置は角度から、色は色相から。</summary>
+    private static Vertex RimVertex(int centerX, int centerY, double radius, double angle, double hue01)
+    {
+        int color = HueColor(hue01);
+        return Vertex.FromPackedColor(
+            centerX + (int)Math.Round(Math.Cos(angle) * radius),
+            centerY + (int)Math.Round(Math.Sin(angle) * radius),
+            color);
     }
 
     /// <summary>
@@ -434,14 +437,6 @@ internal sealed class GameWindow : Form
         if (e.KeyCode == Keys.W)
         {
             _showWireframe = !_showWireframe;
-        }
-
-        // T: top-left rule の ON / OFF。今日の一番の見どころ。
-        // OFF にすると、右上の格子の継ぎ目に明るい線が浮かび上がる
-        // (= 隣り合う三角形が同じピクセルを2回塗っている)。
-        if (e.KeyCode == Keys.T)
-        {
-            _rasterizer.UseTopLeftRule = !_rasterizer.UseTopLeftRule;
         }
 
         base.OnKeyDown(e);
