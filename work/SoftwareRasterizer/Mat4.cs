@@ -196,6 +196,82 @@ internal struct Mat4
         v.X * m.M13 + v.Y * m.M23 + v.Z * m.M33);
 
     /// <summary>
+    /// ビュー行列(カメラの変換)。
+    ///
+    /// 発想の転換がいる場所。**カメラを動かす代わりに、世界のほうを動かす**。
+    /// カメラが右に3進んだ景色は、世界が左に3ずれた景色と同じ。
+    /// つまりビュー行列は「カメラの姿勢の逆変換」で、
+    /// これを掛けると全部の点が「カメラを原点、視線を -Z 方向とする座標系」に移る。
+    ///
+    /// 逆行列を真面目に計算しなくてよいのがこの作り方の要点。
+    /// カメラの姿勢は「回転 + 平行移動」しかないので、
+    ///   - 回転の逆 … 直交行列なので転置でよい(下の3x3が転置された形で入っている)
+    ///   - 平行移動の逆 … 回転後の軸に対する内積の符号を反転したもの(4行目)
+    /// で済む。Day 5 の課題3で「逆行列を避けられる」と書いたのはこのこと。
+    ///
+    /// 右手系で、カメラは -Z 方向を見る(OpenGL / System.Numerics と同じ約束)。
+    /// </summary>
+    public static Mat4 LookAt(Vec3 eye, Vec3 target, Vec3 up)
+    {
+        // カメラの後ろ向き(視線の逆)が Z 軸。カメラが -Z を見る約束なのでこの向きになる。
+        Vec3 zAxis = (eye - target).Normalized();
+
+        // 上方向と Z 軸の外積で右方向(X 軸)が出る。
+        Vec3 xAxis = Vec3.Cross(up, zAxis).Normalized();
+
+        // 残りの Y 軸は、直交するように改めて外積で作る。
+        // 呼び出し側が渡した up が Z 軸と直交しているとは限らないため、
+        // ここで作り直すことで3軸が必ず直交する。
+        Vec3 yAxis = Vec3.Cross(zAxis, xAxis);
+
+        Mat4 m = Identity;
+        m.M11 = xAxis.X; m.M12 = yAxis.X; m.M13 = zAxis.X;
+        m.M21 = xAxis.Y; m.M22 = yAxis.Y; m.M23 = zAxis.Y;
+        m.M31 = xAxis.Z; m.M32 = yAxis.Z; m.M33 = zAxis.Z;
+        m.M41 = -Vec3.Dot(xAxis, eye);
+        m.M42 = -Vec3.Dot(yAxis, eye);
+        m.M43 = -Vec3.Dot(zAxis, eye);
+        return m;
+    }
+
+    /// <summary>
+    /// 透視投影行列。**3DCGが立体的に見える仕掛けの本体**。
+    ///
+    /// 仕組みは拍子抜けするほど単純で、この行列は
+    /// **「点のZ座標(カメラからの奥行き)を、W 成分にコピーする」**ことしかしていない。
+    /// 遠近感そのものは、このあとの**透視除算**(x, y, z を W で割る)で生まれる。
+    /// 奥にあるものほど W が大きくなり、割った結果が小さくなる = 小さく描かれる。
+    ///
+    /// M34 = -1 がその「Z を W へコピーする」係数。
+    /// 符号が負なのは、カメラが -Z 方向を見ているので、
+    /// 目の前にあるものの Z が負であり、W を正にするため。
+    /// M44 = 0 になっている(単位行列と違う)のもこのため。
+    ///
+    /// 視野角から作る倍率:
+    ///   yScale = 1 / tan(fovY / 2)
+    /// 視野角が狭いほど yScale が大きくなり、望遠レンズのように拡大される。
+    ///
+    /// 深度の範囲は 0(近クリップ面)〜 1(遠クリップ面)にしている
+    /// (DirectX / System.Numerics と同じ約束。OpenGL の既定は -1〜1)。
+    /// Day 7 のZバッファでそのまま使える範囲なのでこちらを選んだ。
+    /// </summary>
+    public static Mat4 Perspective(float fieldOfViewY, float aspectRatio, float near, float far)
+    {
+        float yScale = 1.0f / MathF.Tan(fieldOfViewY * 0.5f);
+        float xScale = yScale / aspectRatio;
+
+        return new Mat4
+        {
+            M11 = xScale,
+            M22 = yScale,
+            M33 = far / (near - far),
+            M34 = -1.0f,                        // Z を W へコピーする係数
+            M43 = near * far / (near - far),
+            M44 = 0.0f,                         // ここが 0 なのが透視投影の目印
+        };
+    }
+
+    /// <summary>
     /// 転置(行と列を入れ替える)。
     /// 列ベクトル規約(OpenGL / GLSL)との相互変換に使う。
     /// また、回転だけでできた行列は転置がそのまま逆行列になる、という便利な性質もある。

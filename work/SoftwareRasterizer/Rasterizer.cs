@@ -41,7 +41,7 @@ internal sealed class Rasterizer
     /// Day 5 で int から float になった。値の意味は変わらないが、
     /// 「ちょうど0」になる場面の扱いが変わる(要点5)。
     /// </summary>
-    private static float EdgeFunction(Vec2 a, Vec2 b, float px, float py)
+    private static float EdgeFunction(Vec3 a, Vec3 b, float px, float py)
         => (b.X - a.X) * (py - a.Y) - (b.Y - a.Y) * (px - a.X);
 
     /// <summary>
@@ -52,7 +52,7 @@ internal sealed class Rasterizer
     ///   - 左の辺 … 画面上で上に向かって進むもの(b.Y &lt; a.Y)
     /// になる。
     /// </summary>
-    private static bool IsTopLeft(Vec2 a, Vec2 b)
+    private static bool IsTopLeft(Vec3 a, Vec3 b)
         => (a.Y == b.Y && b.X > a.X) || b.Y < a.Y;
 
     /// <summary>
@@ -65,6 +65,81 @@ internal sealed class Rasterizer
     /// 「0のときだけ効く補正」を、分岐を増やさずに書くための手口。
     /// </summary>
     private const float TopLeftBias = float.Epsilon;
+
+    /// <summary>
+    /// クリップ座標の W がこれ以下の頂点は、カメラの真横〜後ろにあるとみなして捨てる。
+    ///
+    /// W はカメラからの奥行きそのもの(投影行列が Z をコピーしたもの)なので、
+    /// 0 以下は「カメラと同じ位置か、後ろ」を意味する。
+    /// そのまま透視除算すると 0 除算か符号反転が起き、
+    /// 三角形が画面の反対側へ裏返って飛んでいく。
+    ///
+    /// 本来は「三角形を近クリップ面で切って、手前の部分だけ描く」のが正しい対処で、
+    /// それが Day 10 のクリッピング。今日は**三角形ごと捨てる**手抜きで済ませる
+    /// (カメラに近づきすぎると面が丸ごと消えるのはこのため)。
+    /// </summary>
+    private const float MinClipW = 1e-5f;
+
+    /// <summary>
+    /// 頂点をクリップ座標へ変換し、透視除算とビューポート変換を経て画面座標にする。
+    ///
+    /// 3DCGのパイプラインで一番大事な数行がここにある。
+    ///
+    ///   1. モデル座標 --(MVP行列)--> クリップ座標(4次元。W に奥行きが入っている)
+    ///   2. クリップ座標 --(W で割る)--> 正規化デバイス座標 NDC(-1〜1 の立方体)
+    ///   3. NDC --(ビューポート変換)--> 画面座標(ピクセル)
+    ///
+    /// **遠近感が生まれるのは 2 の割り算**。奥にあるものほど W が大きいので、
+    /// 割った結果が小さくなり、画面の中心へ引き寄せられて小さく描かれる。
+    /// 行列は「Z を W にコピーする」準備をしただけで、遠近感そのものは作っていない。
+    /// </summary>
+    public bool TryProjectToScreen(Vec3 position, Mat4 mvp, out Vec3 screen)
+    {
+        // 1. モデル座標 → クリップ座標。点なので W = 1 で入れる。
+        Vec4 clip = Mat4.Transform(Vec4.Point(position), mvp);
+
+        if (clip.W <= MinClipW)
+        {
+            screen = default;
+            return false;
+        }
+
+        // 2. 透視除算。ここが遠近感の正体。
+        float invW = 1.0f / clip.W;
+        float ndcX = clip.X * invW;
+        float ndcY = clip.Y * invW;
+        float ndcZ = clip.Z * invW;
+
+        // 3. ビューポート変換。NDC の -1〜1 を画面のピクセル範囲へ移す。
+        //    Y だけ反転しているのは、NDC は上が +1 なのに対して
+        //    画面座標は下へ行くほど Y が増えるため。
+        screen = new Vec3(
+            (ndcX * 0.5f + 0.5f) * _target.Width,
+            (0.5f - ndcY * 0.5f) * _target.Height,
+            ndcZ);
+
+        return true;
+    }
+
+    /// <summary>
+    /// モデル座標の三角形を、MVP行列で変換してから塗る。
+    /// 今日から「絵を描く」入口はここになる。
+    ///
+    /// 前半(頂点の変換)がGPUの頂点シェーダ、
+    /// 後半(FillTriangle)がラスタライザ + ピクセルシェーダに相当する。
+    /// この2段構えは Day 5 のデモですでに作ってあったものが、3Dに拡張されただけ。
+    /// </summary>
+    public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2, Mat4 mvp, PixelShader? shader = null)
+    {
+        if (!TryProjectToScreen(v0.Position, mvp, out Vec3 s0) ||
+            !TryProjectToScreen(v1.Position, mvp, out Vec3 s1) ||
+            !TryProjectToScreen(v2.Position, mvp, out Vec3 s2))
+        {
+            return;
+        }
+
+        FillTriangle(new Vertex(s0, v0.Color), new Vertex(s1, v1.Color), new Vertex(s2, v2.Color), shader);
+    }
 
     /// <summary>
     /// 三角形を塗りつぶす。3頂点の属性をバリセントリック座標で補間する。
@@ -161,21 +236,21 @@ internal sealed class Rasterizer
     /// <summary>
     /// 単色で三角形を塗る。3頂点に同じ色を持たせて補間版へ渡すだけ。
     /// </summary>
-    public void FillTriangle(Vec2 p0, Vec2 p1, Vec2 p2, Vec3 color)
+    public void FillTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color)
         => FillTriangle(new Vertex(p0, color), new Vertex(p1, color), new Vertex(p2, color));
 
     /// <summary>
     /// 三角形の輪郭だけを描く(ワイヤーフレーム)。
     /// 線分描画は整数座標なので、ここで丸める。
     /// </summary>
-    public void DrawTriangleWireframe(Vec2 p0, Vec2 p1, Vec2 p2, int color)
+    public void DrawTriangleWireframe(Vec3 p0, Vec3 p1, Vec3 p2, int color)
     {
         DrawLine(p0, p1, color);
         DrawLine(p1, p2, color);
         DrawLine(p2, p0, color);
     }
 
-    private void DrawLine(Vec2 a, Vec2 b, int color)
+    private void DrawLine(Vec3 a, Vec3 b, int color)
         => _target.DrawLine(
             (int)MathF.Round(a.X), (int)MathF.Round(a.Y),
             (int)MathF.Round(b.X), (int)MathF.Round(b.Y),

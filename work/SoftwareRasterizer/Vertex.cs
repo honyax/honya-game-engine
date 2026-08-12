@@ -22,20 +22,22 @@ namespace SoftwareRasterizer;
 /// </summary>
 internal struct Vertex
 {
-    /// <summary>画面座標(ピクセル単位、小数可)。</summary>
-    public Vec2 Position;
+    /// <summary>
+    /// 位置。モデル座標(変換前)または画面座標 + 深度(変換後)。
+    /// </summary>
+    public Vec3 Position;
 
     /// <summary>頂点の色。0.0〜1.0 の RGB。</summary>
     public Vec3 Color;
 
-    public Vertex(Vec2 position, Vec3 color)
+    public Vertex(Vec3 position, Vec3 color)
     {
         Position = position;
         Color = color;
     }
 
-    public Vertex(float x, float y, float r, float g, float b)
-        : this(new Vec2(x, y), new Vec3(r, g, b))
+    public Vertex(float x, float y, float z, Vec3 color)
+        : this(new Vec3(x, y, z), color)
     {
     }
 
@@ -43,9 +45,9 @@ internal struct Vertex
     /// 0xAARRGGBB の色から頂点を作る便利メソッド。
     /// 色指定を今までどおり16進で書きたい場面のためのもの。
     /// </summary>
-    public static Vertex FromPackedColor(float x, float y, int color)
+    public static Vertex FromPackedColor(float x, float y, float z, int color)
         => new(
-            new Vec2(x, y),
+            new Vec3(x, y, z),
             new Vec3(
                 ((color >> 16) & 0xFF) / 255.0f,
                 ((color >> 8) & 0xFF) / 255.0f,

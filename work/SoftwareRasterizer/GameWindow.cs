@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day05 - ベクトルと行列";
+        Text = "Day06 - 3Dパイプライン";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -138,8 +138,10 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                Text = $"Day05 - ベクトルと行列  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
-                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | W:ワイヤー Esc:終了";
+                string sort = _depthSort ? "ON " : "OFF";
+                Text = $"Day06 - 3Dパイプライン  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | 奥から順に描く:{sort} | "
+                     + $"W:ワイヤー S:並べ替え Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -165,20 +167,40 @@ internal sealed class GameWindow : Form
     /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
     private bool _showWireframe;
 
-    /// <summary>公転する子の数。</summary>
-    private const int OrbitChildren = 3;
+    /// <summary>奥から順に描くか(画家のアルゴリズム。Sキー)。</summary>
+    private bool _depthSort = true;
 
-    /// <summary>1フレームに描く三角形の総数(グラデーション1 + 市松1 + 中心2 + 子と孫)。</summary>
-    private const int TriangleCount = 1 + 1 + 2 + OrbitChildren * 2;
+    /// <summary>立方体1個あたりの三角形数(6面 x 2枚)。</summary>
+    private const int CubeTriangles = 12;
+
+    /// <summary>描く立方体の数(中央の大きいの1個 + 周囲を回る小さいの3個)。</summary>
+    private const int CubeCount = 4;
+
+    /// <summary>1フレームに描く三角形の総数。</summary>
+    private const int TriangleCount = CubeTriangles * CubeCount;
+
+    /// <summary>カメラ。位置と視野角を持つだけの入れ物。</summary>
+    private readonly Camera _camera = new();
+
+    /// <summary>
+    /// 画家のアルゴリズム用に、変換済みの三角形を一時的に溜めておく配列。
+    ///
+    /// 毎フレーム new すると GC が動くので使い回す。
+    /// Day 7 でZバッファを導入すると、この仕組みごと不要になって消える。
+    /// </summary>
+    private readonly (Vertex A, Vertex B, Vertex C, float Depth)[] _triangleBuffer
+        = new (Vertex, Vertex, Vertex, float)[TriangleCount];
+
+    private int _triangleCount;
 
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
     ///
-    /// Day 5 の見どころは絵そのものよりも、**図形の頂点をどう決めているか**。
-    /// 今日から図形は「原点まわりの単純な形」として定義し、
-    /// 画面のどこにどんな大きさ・向きで置くかは行列に任せる。
-    /// 図形の定義と配置が分離される、というのが行列を導入する一番の効能で、
-    /// Day 6 でこれがそのまま3Dのモデル行列になる。
+    /// 今日から絵は3次元になる。手順は
+    ///   1. カメラからビュー行列と投影行列を作る(フレームに1回)
+    ///   2. 物体ごとにモデル行列を作り、上と掛け合わせて MVP 行列にする
+    ///   3. 三角形をMVP行列とともにラスタライザへ渡す
+    /// の3段。2 と 3 の間にZバッファ(Day 7)やカリング(Day 10)が入っていく。
     /// </summary>
     private void Render(double timeSeconds)
     {
@@ -186,198 +208,136 @@ internal sealed class GameWindow : Form
 
         float t = (float)timeSeconds;
 
-        DrawGradientTriangle(t);
-        DrawBarycentricPattern(t);
-        DrawOrbitSystem(t);
-    }
+        // カメラは少し上から見下ろしつつ、ゆっくり周回する。
+        // 立体であることが分かりやすいアングルにしてある。
+        float orbit = t * 0.25f;
+        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.0f, 2.4f, MathF.Cos(orbit) * 6.0f);
+        _camera.Target = Vec3.Zero;
+        _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
 
-    /// <summary>
-    /// 3頂点に赤・緑・青を割り当てた三角形。Day 4 と同じ絵だが、作り方が違う。
-    ///
-    /// Day 4 では毎フレーム三角関数で頂点位置を計算していた。
-    /// 今日は「原点まわりの正三角形」を1回だけ書き、
-    /// 回転と拡大と移動は行列に任せている。
-    /// 拡大が時間で脈動するので、行列の合成順序(拡大 → 回転 → 移動)も確認できる。
-    /// </summary>
-    private void DrawGradientTriangle(float t)
-    {
-        Span<Vertex> shape = stackalloc Vertex[3];
-        UnitTriangle(shape, new Vec3(1, 0, 0), new Vec3(0, 1, 0), new Vec3(0, 0, 1));
+        Mat4 viewProjection = _camera.ViewProjection;
 
-        // 拡大 → 回転 → 移動、の順に適用される(行ベクトル規約なので左から順)。
-        // 順序を入れ替えると別物になる。例えば移動を先にすると、
-        // 原点から離れた位置を軸にぐるっと公転してしまう。
-        float pulse = 88.0f + 10.0f * MathF.Sin(t * 2.0f);
-        Mat4 transform =
-            Mat4.Scale(pulse) *
-            Mat4.RotationZ(t * 0.7f) *
-            Mat4.Translation(new Vec3(150.0f, 132.0f, 0.0f));
+        _triangleCount = 0;
 
-        DrawTransformed(shape, transform, null);
-    }
+        // --- 中央の大きな立方体 ---
+        // モデル行列 = 自転。ワールドの原点に置く。
+        Mat4 centerModel = Mat4.RotationY(t * 0.6f) * Mat4.RotationX(t * 0.31f);
+        SubmitCube(centerModel * viewProjection, 1.0f);
 
-    /// <summary>
-    /// バリセントリック座標を「模様の材料」として使う(Day 4 と同じ趣旨)。
-    ///
-    /// 頂点1・頂点2に (1,0) と (0,1) を持たせて補間すると、
-    /// 三角形の内部に「頂点0を原点とする斜めの座標系」ができる。
-    /// これはまさに Day 8 のテクスチャ座標そのもの。
-    /// </summary>
-    private void DrawBarycentricPattern(float t)
-    {
-        const int checkerDivisions = 8;
-
-        Span<Vertex> shape = stackalloc Vertex[3];
-        // 属性を色ではなく UV として使うので、(0,0), (1,0), (0,1) を入れる。
-        UnitTriangle(shape, new Vec3(0, 0, 0), new Vec3(1, 0, 0), new Vec3(0, 1, 0));
-
-        Mat4 transform =
-            Mat4.Scale(96.0f) *
-            Mat4.RotationZ(-t * 0.5f) *
-            Mat4.Translation(new Vec3(470.0f, 132.0f, 0.0f));
-
-        DrawTransformed(shape, transform, attribute =>
+        // --- 周囲を回る小さな立方体 ---
+        for (int i = 0; i < CubeCount - 1; i++)
         {
-            int cell = (int)(attribute.X * checkerDivisions) + (int)(attribute.Y * checkerDivisions);
-            return (cell & 1) == 0
-                ? Framebuffer.Rgb(0.95f, 0.80f, 0.35f)
-                : Framebuffer.Rgb(0.25f, 0.30f, 0.45f);
-        });
+            float phase = i * (MathF.PI * 2.0f / (CubeCount - 1));
+            Mat4 model =
+                Mat4.Scale(0.45f) *
+                Mat4.RotationZ(t * 1.7f) *
+                Mat4.Translation(new Vec3(2.6f, 0.0f, 0.0f)) *
+                Mat4.RotationY(t * 0.8f + phase);
+
+            SubmitCube(model * viewProjection, 0.55f + 0.15f * i);
+        }
+
+        DrawSubmitted();
     }
 
     /// <summary>
-    /// 行列の合成そのものを見せるデモ。中心の四角のまわりを子が公転し、
-    /// 子はさらに自転しながら、その子(孫)を連れている。
+    /// 立方体1個ぶんの三角形を、変換して一時配列へ積む。
     ///
-    /// 親の変換に子の変換を掛けるだけで、親が動けば子もついてくる。
-    /// この「親の行列に自分の行列を掛ける」構造が、
-    /// Day 22 で作る Transform コンポーネントの階層(シーングラフ)そのものになる。
-    /// 太陽 - 惑星 - 衛星の関係を2Dでやっているだけだが、3Dでも構造は完全に同じ。
+    /// 立方体の頂点をここで毎回作り直しているのは、Day 6 の時点では
+    /// まだメッシュという概念を導入していないため(Day 10 で <c>Mesh</c> になる)。
     /// </summary>
-    private void DrawOrbitSystem(float t)
+    private void SubmitCube(Mat4 mvp, float brightness)
     {
-        float centerX = _framebuffer.Width / 2.0f;
-        float centerY = 348.0f;
-
-        // --- 親(中心の四角)---
-        // 自転しながら中心に居座る。
-        Mat4 parent =
-            Mat4.RotationZ(t * 0.4f) *
-            Mat4.Translation(new Vec3(centerX, centerY, 0.0f));
-
-        Span<Vertex> square = stackalloc Vertex[6];
-        UnitSquare(square, new Vec3(0.85f, 0.75f, 0.45f));
-        DrawTransformed(square, Mat4.Scale(34.0f) * parent, null);
-
-        // --- 子(公転する三角形)と孫 ---
-        // stackalloc はループの外に出す。ループの中で書くと、
-        // 反復のたびにスタックを消費したまま解放されず、回数が増えると溢れる
-        // (このメソッドが返るまでスタックは戻らない)。
-        // 解析器も CA2014 として警告してくれる。
-        Span<Vertex> child = stackalloc Vertex[3];
-        Span<Vertex> moon = stackalloc Vertex[3];
-
-        for (int i = 0; i < OrbitChildren; i++)
+        // 立方体の8頂点。-1〜+1 の立方体(一辺2)。
+        Span<Vec3> corners = stackalloc Vec3[8];
+        for (int i = 0; i < 8; i++)
         {
-            float phase = i * (MathF.PI * 2.0f / OrbitChildren);
+            // ビットで -1 / +1 を作ると、8頂点をループ1つで書ける。
+            corners[i] = new Vec3(
+                (i & 1) == 0 ? -1.0f : 1.0f,
+                (i & 2) == 0 ? -1.0f : 1.0f,
+                (i & 4) == 0 ? -1.0f : 1.0f);
+        }
 
-            // 公転半径ぶん移動 → 公転 → 親の変換。ここまでが「子がぶら下がる座標系」。
-            // 自分の見た目(自転と大きさ)を含まないので、孫の親としてそのまま使える。
-            Mat4 childFrame =
-                Mat4.Translation(new Vec3(104.0f, 0.0f, 0.0f)) *
-                Mat4.RotationZ(t * 0.9f + phase) *
-                parent;
+        // 6面ぶんの頂点番号(各面4頂点)と面の色。
+        // 面ごとに色を変えているのは、どの面が見えているかを目で追えるようにするため。
+        ReadOnlySpan<int> faces = stackalloc int[]
+        {
+            0, 2, 6, 4,   // -X
+            1, 5, 7, 3,   // +X
+            0, 4, 5, 1,   // -Y
+            2, 3, 7, 6,   // +Y
+            0, 1, 3, 2,   // -Z
+            4, 6, 7, 5,   // +Z
+        };
 
-            Vec3 color = ColorFromHue(i / (float)OrbitChildren);
-            UnitTriangle(child, color, color * 0.55f, color * 0.25f);
+        for (int face = 0; face < 6; face++)
+        {
+            Vec3 color = ColorFromHue(face / 6.0f) * brightness;
 
-            // 縮小 → 自転、のあとに上の座標系へ乗せる。
-            DrawTransformed(child, Mat4.Scale(26.0f) * Mat4.RotationZ(t * 2.5f) * childFrame, null);
+            int i0 = faces[face * 4];
+            int i1 = faces[face * 4 + 1];
+            int i2 = faces[face * 4 + 2];
+            int i3 = faces[face * 4 + 3];
 
-            // --- 孫(子のまわりを回る小さな三角形)---
-            // 子の座標系をそのまま親として使えるのが、行列で階層を作る利点。
-            UnitTriangle(moon, Vec3.One, Vec3.One * 0.6f, Vec3.One * 0.3f);
-
-            Mat4 moonTransform =
-                Mat4.Scale(9.0f) *
-                Mat4.RotationZ(-t * 4.0f) *
-                Mat4.Translation(new Vec3(44.0f, 0.0f, 0.0f)) *
-                Mat4.RotationZ(t * 3.0f) *
-                childFrame;
-
-            DrawTransformed(moon, moonTransform, null);
+            // 四角形の面を三角形2枚に割る。頂点を共有しているので、
+            // Day 3 の top-left rule のおかげで対角線に継ぎ目は出ない。
+            SubmitTriangle(corners[i0], corners[i1], corners[i2], color, mvp);
+            SubmitTriangle(corners[i0], corners[i2], corners[i3], color, mvp);
         }
     }
 
     /// <summary>
-    /// モデル座標の頂点列を行列で変換して描く。
-    /// 頂点数は3の倍数で、3つずつが1枚の三角形になっている(トライアングルリスト)。
-    ///
-    /// この「頂点を変換してからラスタライザに渡す」という2段構えが、
-    /// Day 6 以降ずっと続くパイプラインの原型になる。
-    /// GPUで言えば前半が頂点シェーダ、後半がラスタライザ + ピクセルシェーダ。
+    /// 三角形1枚を変換して一時配列へ積む。深度(画家のアルゴリズム用)も一緒に持たせる。
     /// </summary>
-    private void DrawTransformed(ReadOnlySpan<Vertex> shape, Mat4 transform, PixelShader? shader)
+    private void SubmitTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color, Mat4 mvp)
     {
-        Span<Vertex> transformed = stackalloc Vertex[shape.Length];
-        for (int i = 0; i < shape.Length; i++)
+        if (!_rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) ||
+            !_rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) ||
+            !_rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
         {
-            transformed[i] = new Vertex(TransformPoint2D(shape[i].Position, transform), shape[i].Color);
+            return;
         }
 
-        for (int i = 0; i + 2 < transformed.Length; i += 3)
+        // 3頂点の深度の平均を、その三角形の代表の深度とする。
+        // **この「代表1つで済ませる」ところに画家のアルゴリズムの限界がある**(要点6)。
+        float depth = (s0.Z + s1.Z + s2.Z) / 3.0f;
+
+        _triangleBuffer[_triangleCount++] = (
+            new Vertex(s0, color),
+            new Vertex(s1, color),
+            new Vertex(s2, color),
+            depth);
+    }
+
+    /// <summary>
+    /// 積んだ三角形を描く。<see cref="_depthSort"/> が true なら奥から順に並べ替える。
+    ///
+    /// 奥のものを先に描き、手前のものを後から上書きする——絵の具を重ねる画家のやり方に
+    /// 似ているので「画家のアルゴリズム」と呼ばれる。
+    /// Zバッファ(Day 7)が普及する前は、これが前後関係を解く標準的な方法だった。
+    /// </summary>
+    private void DrawSubmitted()
+    {
+        var triangles = _triangleBuffer.AsSpan(0, _triangleCount);
+
+        if (_depthSort)
         {
-            _rasterizer.FillTriangle(transformed[i], transformed[i + 1], transformed[i + 2], shader);
+            // 深度の大きい(遠い)ものから先に描く。
+            // NDC の Z は 0 が手前、1 が奥なので、降順に並べる。
+            triangles.Sort(static (a, b) => b.Depth.CompareTo(a.Depth));
+        }
+
+        foreach (var tri in triangles)
+        {
+            _rasterizer.FillTriangle(tri.A, tri.B, tri.C);
 
             if (_showWireframe)
             {
                 _rasterizer.DrawTriangleWireframe(
-                    transformed[i].Position, transformed[i + 1].Position, transformed[i + 2].Position,
-                    Framebuffer.Rgb(255, 255, 255));
+                    tri.A.Position, tri.B.Position, tri.C.Position, Framebuffer.Rgb(240, 240, 240));
             }
         }
-    }
-
-    /// <summary>
-    /// 2次元の点を 4x4 行列で変換する。z = 0 の点として扱い、結果の x, y を取り出す。
-    /// 2Dなのに 4x4 を使うのは無駄に見えるが、Day 6 でそのまま3Dへ移れる利点のほうが大きい。
-    /// </summary>
-    private static Vec2 TransformPoint2D(Vec2 p, Mat4 m)
-    {
-        Vec3 r = Mat4.TransformPoint(new Vec3(p.X, p.Y, 0.0f), m);
-        return new Vec2(r.X, r.Y);
-    }
-
-    /// <summary>原点を中心とする半径1の正三角形。</summary>
-    private static void UnitTriangle(Span<Vertex> destination, Vec3 c0, Vec3 c1, Vec3 c2)
-    {
-        Span<Vec3> colors = stackalloc Vec3[3];
-        colors[0] = c0;
-        colors[1] = c1;
-        colors[2] = c2;
-
-        for (int i = 0; i < 3; i++)
-        {
-            float angle = -MathF.PI / 2.0f + i * (MathF.PI * 2.0f / 3.0f);
-            destination[i] = new Vertex(new Vec2(MathF.Cos(angle), MathF.Sin(angle)), colors[i]);
-        }
-    }
-
-    /// <summary>原点を中心とする一辺2の正方形。三角形2枚(6頂点)で表す。</summary>
-    private static void UnitSquare(Span<Vertex> destination, Vec3 color)
-    {
-        var lt = new Vec2(-1.0f, -1.0f);
-        var rt = new Vec2(1.0f, -1.0f);
-        var rb = new Vec2(1.0f, 1.0f);
-        var lb = new Vec2(-1.0f, 1.0f);
-
-        // 角ごとに明るさをずらして、四角が回っていることが分かるようにする。
-        destination[0] = new Vertex(lt, color);
-        destination[1] = new Vertex(rt, color * 0.75f);
-        destination[2] = new Vertex(rb, color * 0.5f);
-        destination[3] = new Vertex(lt, color);
-        destination[4] = new Vertex(rb, color * 0.5f);
-        destination[5] = new Vertex(lb, color * 0.75f);
     }
 
     /// <summary>0〜1 の色相を Vec3 の RGB に変換する(簡易HSV)。</summary>
@@ -506,10 +466,16 @@ internal sealed class GameWindow : Form
         }
 
         // W: 塗りつぶしの上にワイヤーフレームを重ねる。
-        // 「エッジ関数がどこまでを内側と判定したか」を輪郭と見比べられる。
         if (e.KeyCode == Keys.W)
         {
             _showWireframe = !_showWireframe;
+        }
+
+        // S: 画家のアルゴリズム(奥から順に描く)の ON / OFF。今日の一番の見どころ。
+        // OFF にすると、奥の面が手前の面を上書きして立方体が崩壊する。
+        if (e.KeyCode == Keys.S)
+        {
+            _depthSort = !_depthSort;
         }
 
         base.OnKeyDown(e);
