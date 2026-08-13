@@ -25,9 +25,22 @@ internal sealed class Rasterizer
 {
     private readonly Framebuffer _target;
 
+    /// <summary>深度バッファ。フレームバッファと同じ大きさで一緒に持つ。</summary>
+    public DepthBuffer Depth { get; }
+
+    /// <summary>
+    /// 深度テストを行うか。既定は true。
+    ///
+    /// 実験用のトグルではなく、これ自体が正式な描画設定。
+    /// OpenGL の <c>glEnable(GL_DEPTH_TEST)</c> に相当する。
+    /// 半透明のものを描くときや、常に手前に出したいUIを描くときに切る。
+    /// </summary>
+    public bool DepthTestEnabled { get; set; } = true;
+
     public Rasterizer(Framebuffer target)
     {
         _target = target;
+        Depth = new DepthBuffer(target.Width, target.Height);
     }
 
     /// <summary>
@@ -189,6 +202,8 @@ internal sealed class Rasterizer
         float invArea = 1.0f / area;
 
         int[] pixels = _target.Pixels;
+        float[] depth = Depth.Depth;
+        bool depthTest = DepthTestEnabled;
         int width = _target.Width;
 
         // --- 4. 走査 ---
@@ -222,11 +237,35 @@ internal sealed class Rasterizer
                 float l1 = w1 * invArea;
                 float l2 = w2 * invArea;
 
-                // 属性の補間。Vec3 になったので3行が1行になった。
-                // 中身が色とは限らない(UVや法線のこともある)ので attribute と呼んでいる。
+                int index = rowOffset + x;
+
+                // --- 深度テスト ---
+                // 深度は Z を補間するだけで求まる。透視除算を済ませた後の Z は
+                // 画面上で線形に変化するので、バリセントリック補間がそのまま正しい値になる。
+                // (色やUVはそうならない。その話が Day 8 の透視補正補間)
+                //
+                // 色を計算する前にテストするのが大事。落ちるピクセルのために
+                // シェーダを走らせるのは丸損なので、判定は可能な限り早く行う。
+                // GPUが「アーリーZ」と呼んで特別扱いしているのも同じ理由。
+                float z = v0.Position.Z * l0 + v1.Position.Z * l1 + v2.Position.Z * l2;
+
+                if (depthTest)
+                {
+                    // 小さいほど手前(0 = 近クリップ面)。既に描かれているものより
+                    // 手前でなければ捨てる。等号を含めないのは、同じ深度なら
+                    // 先に描いたほうを残すため(後勝ちにすると描画順で絵が変わってしまう)。
+                    if (z >= depth[index])
+                    {
+                        continue;
+                    }
+
+                    depth[index] = z;
+                }
+
+                // 属性の補間。中身が色とは限らない(UVや法線のこともある)ので attribute と呼ぶ。
                 Vec3 attribute = v0.Color * l0 + v1.Color * l1 + v2.Color * l2;
 
-                pixels[rowOffset + x] = shader is null
+                pixels[index] = shader is null
                     ? Framebuffer.Rgb(attribute.X, attribute.Y, attribute.Z)
                     : shader(attribute);
             }

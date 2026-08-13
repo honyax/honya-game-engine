@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day06 - 3Dパイプライン";
+        Text = "Day07 - Zバッファ";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -138,10 +138,10 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                string sort = _depthSort ? "ON " : "OFF";
-                Text = $"Day06 - 3Dパイプライン  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
-                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | 奥から順に描く:{sort} | "
-                     + $"W:ワイヤー S:並べ替え Esc:終了";
+                string test = _rasterizer.DepthTestEnabled ? "ON " : "OFF";
+                Text = $"Day07 - Zバッファ  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | 深度テスト:{test} | "
+                     + $"W:ワイヤー Z:深度テスト D:深度表示 Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -167,100 +167,105 @@ internal sealed class GameWindow : Form
     /// <summary>ワイヤーフレームを重ねて表示するか(Wキー)。</summary>
     private bool _showWireframe;
 
-    /// <summary>奥から順に描くか(画家のアルゴリズム。Sキー)。</summary>
-    private bool _depthSort = true;
+    /// <summary>深度バッファを白黒で表示するか(Dキー)。</summary>
+    private bool _showDepth;
 
     /// <summary>立方体1個あたりの三角形数(6面 x 2枚)。</summary>
     private const int CubeTriangles = 12;
 
-    /// <summary>描く立方体の数(中央の大きいの1個 + 周囲を回る小さいの3個)。</summary>
-    private const int CubeCount = 4;
+    /// <summary>周囲を回る立方体の数。</summary>
+    private const int OrbitCubes = 3;
+
+    /// <summary>貫通する板の枚数(三角形は1枚につき2)。</summary>
+    private const int BladeCount = 2;
 
     /// <summary>1フレームに描く三角形の総数。</summary>
-    private const int TriangleCount = CubeTriangles * CubeCount;
+    private const int TriangleCount = CubeTriangles * (1 + OrbitCubes) + BladeCount * 2;
 
-    /// <summary>カメラ。位置と視野角を持つだけの入れ物。</summary>
+    /// <summary>カメラ。</summary>
     private readonly Camera _camera = new();
-
-    /// <summary>
-    /// 画家のアルゴリズム用に、変換済みの三角形を一時的に溜めておく配列。
-    ///
-    /// 毎フレーム new すると GC が動くので使い回す。
-    /// Day 7 でZバッファを導入すると、この仕組みごと不要になって消える。
-    /// </summary>
-    private readonly (Vertex A, Vertex B, Vertex C, float Depth)[] _triangleBuffer
-        = new (Vertex, Vertex, Vertex, float)[TriangleCount];
-
-    private int _triangleCount;
 
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
     ///
-    /// 今日から絵は3次元になる。手順は
-    ///   1. カメラからビュー行列と投影行列を作る(フレームに1回)
-    ///   2. 物体ごとにモデル行列を作り、上と掛け合わせて MVP 行列にする
-    ///   3. 三角形をMVP行列とともにラスタライザへ渡す
-    /// の3段。2 と 3 の間にZバッファ(Day 7)やカリング(Day 10)が入っていく。
+    /// Day 6 との違いは2つ。
+    ///   - 三角形を並べ替える処理が丸ごと消えた(Zバッファが順序を気にしなくする)
+    ///   - 毎フレーム深度バッファをクリアする処理が増えた
+    /// 差し引きでコードは短くなっている。**正しくなったのに簡単になった**のがZバッファの凄み。
     /// </summary>
     private void Render(double timeSeconds)
     {
         _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
 
+        // 色と同じく、深度も毎フレーム初期化する。
+        // これを忘れると前のフレームの深度が残り、物体が虫食いに抜ける。
+        _rasterizer.Depth.Clear();
+
         float t = (float)timeSeconds;
 
-        // カメラは少し上から見下ろしつつ、ゆっくり周回する。
-        // 立体であることが分かりやすいアングルにしてある。
         float orbit = t * 0.25f;
-        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.0f, 2.4f, MathF.Cos(orbit) * 6.0f);
+        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.0f, 2.2f, MathF.Cos(orbit) * 6.0f);
         _camera.Target = Vec3.Zero;
         _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
 
         Mat4 viewProjection = _camera.ViewProjection;
 
-        _triangleCount = 0;
+        // --- 中央の立方体 ---
+        Mat4 centerModel = Mat4.Scale(1.15f) * Mat4.RotationY(t * 0.6f) * Mat4.RotationX(t * 0.31f);
+        DrawCube(centerModel * viewProjection, 1.0f);
 
-        // --- 中央の大きな立方体 ---
-        // モデル行列 = 自転。ワールドの原点に置く。
-        Mat4 centerModel = Mat4.RotationY(t * 0.6f) * Mat4.RotationX(t * 0.31f);
-        SubmitCube(centerModel * viewProjection, 1.0f);
-
-        // --- 周囲を回る小さな立方体 ---
-        for (int i = 0; i < CubeCount - 1; i++)
+        // --- 立方体を貫通する板 ---
+        // **画家のアルゴリズムでは絶対に解けない配置**。板と立方体は互いに相手を貫いていて、
+        // 「どちらが手前か」を三角形単位では決められない。
+        // Zバッファはピクセル単位で判定するので、何も特別なことをせずに正しく描ける。
+        for (int i = 0; i < BladeCount; i++)
         {
-            float phase = i * (MathF.PI * 2.0f / (CubeCount - 1));
-            Mat4 model =
-                Mat4.Scale(0.45f) *
-                Mat4.RotationZ(t * 1.7f) *
-                Mat4.Translation(new Vec3(2.6f, 0.0f, 0.0f)) *
-                Mat4.RotationY(t * 0.8f + phase);
+            // RotationY で90度回すと板は互いに直交する。ここを RotationZ にすると
+            // 板が自分の平面の中で回るだけで2枚が同一平面に重なり、
+            // 深度がほぼ同じピクセルが大量にできてZファイティング(ちらつく斑点)が出る。
+            Mat4 blade =
+                Mat4.Scale(2.3f) *
+                Mat4.RotationY(MathF.PI / 2.0f * i) *
+                Mat4.RotationY(t * 0.45f);
 
-            SubmitCube(model * viewProjection, 0.55f + 0.15f * i);
+            DrawQuad(blade * viewProjection, i == 0
+                ? new Vec3(0.95f, 0.85f, 0.35f)
+                : new Vec3(0.35f, 0.85f, 0.95f));
         }
 
-        DrawSubmitted();
+        // --- 周囲を回る立方体 ---
+        for (int i = 0; i < OrbitCubes; i++)
+        {
+            float phase = i * (MathF.PI * 2.0f / OrbitCubes);
+            Mat4 model =
+                Mat4.Scale(0.42f) *
+                Mat4.RotationZ(t * 1.7f) *
+                Mat4.Translation(new Vec3(2.9f, 0.0f, 0.0f)) *
+                Mat4.RotationY(t * 0.8f + phase);
+
+            DrawCube(model * viewProjection, 0.55f + 0.15f * i);
+        }
+
+        if (_showDepth)
+        {
+            VisualizeDepth();
+        }
     }
 
     /// <summary>
-    /// 立方体1個ぶんの三角形を、変換して一時配列へ積む。
-    ///
-    /// 立方体の頂点をここで毎回作り直しているのは、Day 6 の時点では
-    /// まだメッシュという概念を導入していないため(Day 10 で <c>Mesh</c> になる)。
+    /// 立方体を1個描く。Day 6 と違い、積んで並べ替えずにその場で描いてよい。
     /// </summary>
-    private void SubmitCube(Mat4 mvp, float brightness)
+    private void DrawCube(Mat4 mvp, float brightness)
     {
-        // 立方体の8頂点。-1〜+1 の立方体(一辺2)。
         Span<Vec3> corners = stackalloc Vec3[8];
         for (int i = 0; i < 8; i++)
         {
-            // ビットで -1 / +1 を作ると、8頂点をループ1つで書ける。
             corners[i] = new Vec3(
                 (i & 1) == 0 ? -1.0f : 1.0f,
                 (i & 2) == 0 ? -1.0f : 1.0f,
                 (i & 4) == 0 ? -1.0f : 1.0f);
         }
 
-        // 6面ぶんの頂点番号(各面4頂点)と面の色。
-        // 面ごとに色を変えているのは、どの面が見えているかを目で追えるようにするため。
         ReadOnlySpan<int> faces = stackalloc int[]
         {
             0, 2, 6, 4,   // -X
@@ -274,69 +279,80 @@ internal sealed class GameWindow : Form
         for (int face = 0; face < 6; face++)
         {
             Vec3 color = ColorFromHue(face / 6.0f) * brightness;
-
             int i0 = faces[face * 4];
             int i1 = faces[face * 4 + 1];
             int i2 = faces[face * 4 + 2];
             int i3 = faces[face * 4 + 3];
 
-            // 四角形の面を三角形2枚に割る。頂点を共有しているので、
-            // Day 3 の top-left rule のおかげで対角線に継ぎ目は出ない。
-            SubmitTriangle(corners[i0], corners[i1], corners[i2], color, mvp);
-            SubmitTriangle(corners[i0], corners[i2], corners[i3], color, mvp);
+            DrawTriangle(corners[i0], corners[i1], corners[i2], color, mvp);
+            DrawTriangle(corners[i0], corners[i2], corners[i3], color, mvp);
         }
     }
 
-    /// <summary>
-    /// 三角形1枚を変換して一時配列へ積む。深度(画家のアルゴリズム用)も一緒に持たせる。
-    /// </summary>
-    private void SubmitTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color, Mat4 mvp)
+    /// <summary>XY 平面上の板(一辺2の正方形)を1枚描く。</summary>
+    private void DrawQuad(Mat4 mvp, Vec3 color)
     {
-        if (!_rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) ||
-            !_rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) ||
-            !_rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
-        {
-            return;
-        }
+        var lt = new Vec3(-1.0f, -1.0f, 0.0f);
+        var rt = new Vec3(1.0f, -1.0f, 0.0f);
+        var rb = new Vec3(1.0f, 1.0f, 0.0f);
+        var lb = new Vec3(-1.0f, 1.0f, 0.0f);
 
-        // 3頂点の深度の平均を、その三角形の代表の深度とする。
-        // **この「代表1つで済ませる」ところに画家のアルゴリズムの限界がある**(要点6)。
-        float depth = (s0.Z + s1.Z + s2.Z) / 3.0f;
-
-        _triangleBuffer[_triangleCount++] = (
-            new Vertex(s0, color),
-            new Vertex(s1, color),
-            new Vertex(s2, color),
-            depth);
+        DrawTriangle(lt, rt, rb, color, mvp);
+        DrawTriangle(lt, rb, lb, color * 0.8f, mvp);
     }
 
+    /// <summary>三角形1枚を描く。ワイヤーフレーム表示にも対応する。</summary>
+    private void DrawTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color, Mat4 mvp)
+    {
+        _rasterizer.DrawTriangle(new Vertex(p0, color), new Vertex(p1, color), new Vertex(p2, color), mvp);
+
+        if (_showWireframe &&
+            _rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) &&
+            _rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) &&
+            _rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
+        {
+            _rasterizer.DrawTriangleWireframe(s0, s1, s2, Framebuffer.Rgb(240, 240, 240));
+        }
+    }
+
+    /// <summary>深度バッファを可視化する表示範囲(カメラからの距離)。</summary>
+    private const float DepthViewNear = 2.5f;
+
+    private const float DepthViewFar = 9.5f;
+
     /// <summary>
-    /// 積んだ三角形を描く。<see cref="_depthSort"/> が true なら奥から順に並べ替える。
+    /// 深度バッファの中身を白黒で塗り直す。手前が白、奥が黒。
     ///
-    /// 奥のものを先に描き、手前のものを後から上書きする——絵の具を重ねる画家のやり方に
-    /// 似ているので「画家のアルゴリズム」と呼ばれる。
-    /// Zバッファ(Day 7)が普及する前は、これが前後関係を解く標準的な方法だった。
+    /// そのまま NDC の Z を明るさにすると、ほとんど真っ白になって何も見えない。
+    /// Day 6 の要点4で見たとおり、深度値は手前に極端に偏っているため
+    /// (near=0.1, far=100 のとき、距離5の点でも深度は 0.99 を超える)。
+    /// そこで**カメラからの距離に戻してから**表示する。この逆算の式は
+    /// 深度値がどう作られたかを理解していないと書けないので、復習にちょうどよい。
     /// </summary>
-    private void DrawSubmitted()
+    private void VisualizeDepth()
     {
-        var triangles = _triangleBuffer.AsSpan(0, _triangleCount);
+        float near = _camera.NearPlane;
+        float far = _camera.FarPlane;
+        float[] depth = _rasterizer.Depth.Depth;
+        int[] pixels = _framebuffer.Pixels;
 
-        if (_depthSort)
+        for (int i = 0; i < depth.Length; i++)
         {
-            // 深度の大きい(遠い)ものから先に描く。
-            // NDC の Z は 0 が手前、1 が奥なので、降順に並べる。
-            triangles.Sort(static (a, b) => b.Depth.CompareTo(a.Depth));
-        }
-
-        foreach (var tri in triangles)
-        {
-            _rasterizer.FillTriangle(tri.A, tri.B, tri.C);
-
-            if (_showWireframe)
+            float ndcZ = depth[i];
+            if (ndcZ >= 1.0f)
             {
-                _rasterizer.DrawTriangleWireframe(
-                    tri.A.Position, tri.B.Position, tri.C.Position, Framebuffer.Rgb(240, 240, 240));
+                // 何も描かれていない場所は背景のままにする。
+                continue;
             }
+
+            // NDC の Z からカメラまでの距離を逆算する。
+            // 投影行列が ndcZ = far/(far-near) * (1 - near/distance) を作っていたので、
+            // これを distance について解いた形。
+            float distance = near / (1.0f - ndcZ * (far - near) / far);
+
+            // 見やすい範囲へ正規化して、手前を白、奥を黒にする。
+            float shade = 1.0f - Math.Clamp((distance - DepthViewNear) / (DepthViewFar - DepthViewNear), 0.0f, 1.0f);
+            pixels[i] = Framebuffer.Rgb(shade, shade, shade);
         }
     }
 
@@ -471,11 +487,18 @@ internal sealed class GameWindow : Form
             _showWireframe = !_showWireframe;
         }
 
-        // S: 画家のアルゴリズム(奥から順に描く)の ON / OFF。今日の一番の見どころ。
-        // OFF にすると、奥の面が手前の面を上書きして立方体が崩壊する。
-        if (e.KeyCode == Keys.S)
+        // Z: 深度テストの ON / OFF。OFF にすると Day 6 で S を切ったときと同じ、
+        // 「後から描いたものが勝つ」状態に戻る。
+        if (e.KeyCode == Keys.Z)
         {
-            _depthSort = !_depthSort;
+            _rasterizer.DepthTestEnabled = !_rasterizer.DepthTestEnabled;
+        }
+
+        // D: 深度バッファそのものを白黒で表示する。
+        // 普段は見えないバッファを覗くと、Zバッファが何を持っているのかが一目で分かる。
+        if (e.KeyCode == Keys.D)
+        {
+            _showDepth = !_showDepth;
         }
 
         base.OnKeyDown(e);
