@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day07 - Zバッファ";
+        Text = "Day08 - テクスチャマッピング";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -138,10 +138,11 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                string test = _rasterizer.DepthTestEnabled ? "ON " : "OFF";
-                Text = $"Day07 - Zバッファ  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
-                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | 深度テスト:{test} | "
-                     + $"W:ワイヤー Z:深度テスト D:深度表示 Esc:終了";
+                string filter = _texture.Filter == TextureFilter.Bilinear ? "バイリニア" : "ニアレスト　";
+                string correct = _rasterizer.PerspectiveCorrect ? "ON " : "OFF";
+                Text = $"Day08 - テクスチャマッピング  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | {filter} | 透視補正:{correct} | "
+                     + $"F:フィルタ P:透視補正 W:ワイヤー Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -174,76 +175,85 @@ internal sealed class GameWindow : Form
     private const int CubeTriangles = 12;
 
     /// <summary>周囲を回る立方体の数。</summary>
-    private const int OrbitCubes = 3;
+    private const int OrbitCubes = 2;
 
-    /// <summary>貫通する板の枚数(三角形は1枚につき2)。</summary>
-    private const int BladeCount = 2;
-
-    /// <summary>1フレームに描く三角形の総数。</summary>
-    private const int TriangleCount = CubeTriangles * (1 + OrbitCubes) + BladeCount * 2;
+    /// <summary>1フレームに描く三角形の総数(床2 + 立方体)。</summary>
+    private const int TriangleCount = 2 + CubeTriangles * (1 + OrbitCubes);
 
     /// <summary>カメラ。</summary>
     private readonly Camera _camera = new();
 
     /// <summary>
+    /// テクスチャ。手続きで作った 32x32 のテストパターン1枚を使い回す。
+    ///
+    /// あえて小さくしてある。立方体に貼ると1テクセルが画面上で何ピクセルにも
+    /// 拡大されるので、ニアレストとバイリニアの差がはっきり見える。
+    /// </summary>
+    private readonly Texture _texture = Texture.CreateTestPattern(32, 8);
+
+    /// <summary>
+    /// テクスチャを引くシェーダ。
+    ///
+    /// ラスタライザから渡ってくるのは「補間された色」と「補間されたUV」だけ。
+    /// ここでは頂点色を明るさとして使い、テクスチャの色に掛けている。
+    /// **色 x テクスチャ**は最も基本的な合成で、Day 9 では
+    /// この「色」の部分が光の計算結果に変わる。
+    /// </summary>
+    private int ShadeTextured(Vec3 color, Vec2 uv)
+    {
+        Vec3 texel = _texture.Sample(uv.X, uv.Y);
+        Vec3 result = texel * color;
+        return Framebuffer.Rgb(result.X, result.Y, result.Z);
+    }
+
+    /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
     ///
-    /// Day 6 との違いは2つ。
-    ///   - 三角形を並べ替える処理が丸ごと消えた(Zバッファが順序を気にしなくする)
-    ///   - 毎フレーム深度バッファをクリアする処理が増えた
-    /// 差し引きでコードは短くなっている。**正しくなったのに簡単になった**のがZバッファの凄み。
+    /// 床を大きく手前まで伸ばしてあるのは、透視補正の有無を見るため。
+    /// 画面の手前と奥で1ピクセルあたりの実距離が大きく違う面ほど、
+    /// 補正を切ったときの歪みが目立つ。
     /// </summary>
     private void Render(double timeSeconds)
     {
         _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
-
-        // 色と同じく、深度も毎フレーム初期化する。
-        // これを忘れると前のフレームの深度が残り、物体が虫食いに抜ける。
         _rasterizer.Depth.Clear();
 
         float t = (float)timeSeconds;
 
-        float orbit = t * 0.25f;
-        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.0f, 2.2f, MathF.Cos(orbit) * 6.0f);
-        _camera.Target = Vec3.Zero;
+        // カメラは床の外側を回る。半径を床の対角の長さより大きく取っているのには理由がある。
+        // 今の実装は「頂点が1つでもカメラの後ろにある三角形」を丸ごと捨てる(Day 6 の要点5)。
+        // 床は大きな三角形2枚なので、隅がカメラの後ろに回った瞬間に床全体が消えてしまう。
+        // Day 10 のクリッピングを入れるまでは、この制約の中で絵を作る。
+        float orbit = t * 0.2f;
+        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.5f, 2.6f, MathF.Cos(orbit) * 6.5f);
+        _camera.Target = new Vec3(0.0f, 0.3f, 0.0f);
         _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
 
         Mat4 viewProjection = _camera.ViewProjection;
 
+        // --- 床 ---
+        // UV を 0〜4 にしてテクスチャを繰り返し貼る。
+        // 1より大きいUVが折り返されるのは Texture.WrapIndex の働き。
+        DrawFloor(viewProjection, 3.2f, 4.0f);
+
         // --- 中央の立方体 ---
-        Mat4 centerModel = Mat4.Scale(1.15f) * Mat4.RotationY(t * 0.6f) * Mat4.RotationX(t * 0.31f);
-        DrawCube(centerModel * viewProjection, 1.0f);
-
-        // --- 立方体を貫通する板 ---
-        // **画家のアルゴリズムでは絶対に解けない配置**。板と立方体は互いに相手を貫いていて、
-        // 「どちらが手前か」を三角形単位では決められない。
-        // Zバッファはピクセル単位で判定するので、何も特別なことをせずに正しく描ける。
-        for (int i = 0; i < BladeCount; i++)
-        {
-            // RotationY で90度回すと板は互いに直交する。ここを RotationZ にすると
-            // 板が自分の平面の中で回るだけで2枚が同一平面に重なり、
-            // 深度がほぼ同じピクセルが大量にできてZファイティング(ちらつく斑点)が出る。
-            Mat4 blade =
-                Mat4.Scale(2.3f) *
-                Mat4.RotationY(MathF.PI / 2.0f * i) *
-                Mat4.RotationY(t * 0.45f);
-
-            DrawQuad(blade * viewProjection, i == 0
-                ? new Vec3(0.95f, 0.85f, 0.35f)
-                : new Vec3(0.35f, 0.85f, 0.95f));
-        }
+        Mat4 centerModel =
+            Mat4.RotationY(t * 0.5f) *
+            Mat4.RotationX(t * 0.27f) *
+            Mat4.Translation(new Vec3(0.0f, 0.9f, 0.0f));
+        DrawTexturedCube(centerModel * viewProjection, Vec3.One);
 
         // --- 周囲を回る立方体 ---
         for (int i = 0; i < OrbitCubes; i++)
         {
-            float phase = i * (MathF.PI * 2.0f / OrbitCubes);
+            float phase = i * MathF.PI;
             Mat4 model =
-                Mat4.Scale(0.42f) *
-                Mat4.RotationZ(t * 1.7f) *
-                Mat4.Translation(new Vec3(2.9f, 0.0f, 0.0f)) *
-                Mat4.RotationY(t * 0.8f + phase);
+                Mat4.Scale(0.4f) *
+                Mat4.RotationZ(t * 1.5f) *
+                Mat4.Translation(new Vec3(2.2f, 0.6f, 0.0f)) *
+                Mat4.RotationY(t * 0.7f + phase);
 
-            DrawCube(model * viewProjection, 0.55f + 0.15f * i);
+            DrawTexturedCube(model * viewProjection, ColorFromHue(i / (float)OrbitCubes) * 1.2f);
         }
 
         if (_showDepth)
@@ -253,9 +263,35 @@ internal sealed class GameWindow : Form
     }
 
     /// <summary>
-    /// 立方体を1個描く。Day 6 と違い、積んで並べ替えずにその場で描いてよい。
+    /// 床(大きな正方形1枚 = 三角形2枚)を描く。
+    ///
+    /// **透視補正の効果が最も分かりやすい場所**。床は手前から奥まで大きく傾いているので、
+    /// 補正を切ると三角形の対角線を境にタイルがぐにゃりと折れ曲がる。
     /// </summary>
-    private void DrawCube(Mat4 mvp, float brightness)
+    private void DrawFloor(Mat4 viewProjection, float halfSize, float uvRepeat)
+    {
+        var lt = new Vertex(new Vec3(-halfSize, 0.0f, -halfSize), Vec3.One, new Vec2(0.0f, 0.0f));
+        var rt = new Vertex(new Vec3(halfSize, 0.0f, -halfSize), Vec3.One, new Vec2(uvRepeat, 0.0f));
+        var rb = new Vertex(new Vec3(halfSize, 0.0f, halfSize), Vec3.One, new Vec2(uvRepeat, uvRepeat));
+        var lb = new Vertex(new Vec3(-halfSize, 0.0f, halfSize), Vec3.One, new Vec2(0.0f, uvRepeat));
+
+        _rasterizer.DrawTriangle(lt, rt, rb, viewProjection, ShadeTextured);
+        _rasterizer.DrawTriangle(lt, rb, lb, viewProjection, ShadeTextured);
+
+        if (_showWireframe)
+        {
+            DrawWire(lt.Position, rt.Position, rb.Position, viewProjection);
+            DrawWire(lt.Position, rb.Position, lb.Position, viewProjection);
+        }
+    }
+
+    /// <summary>
+    /// テクスチャを貼った立方体を1個描く。
+    ///
+    /// 面ごとに UV を (0,0)-(1,1) で貼るので、6面すべてに同じ絵が出る。
+    /// 実際のモデルでは1枚の画像を面ごとに切り分けて使う(UV展開)。
+    /// </summary>
+    private void DrawTexturedCube(Mat4 mvp, Vec3 tint)
     {
         Span<Vec3> corners = stackalloc Vec3[8];
         for (int i = 0; i < 8; i++)
@@ -276,58 +312,54 @@ internal sealed class GameWindow : Form
             4, 6, 7, 5,   // +Z
         };
 
+        // 面ごとにわずかに明るさを変える。ライティングはまだ無いので、
+        // これが無いと立方体が真っ平らな塊に見えてしまう(Day 9 で本物の陰影が入る)。
+        ReadOnlySpan<float> faceShade = stackalloc float[] { 0.72f, 0.86f, 0.60f, 1.0f, 0.78f, 0.92f };
+
+        var uvLt = new Vec2(0.0f, 0.0f);
+        var uvRt = new Vec2(1.0f, 0.0f);
+        var uvRb = new Vec2(1.0f, 1.0f);
+        var uvLb = new Vec2(0.0f, 1.0f);
+
         for (int face = 0; face < 6; face++)
         {
-            Vec3 color = ColorFromHue(face / 6.0f) * brightness;
-            int i0 = faces[face * 4];
-            int i1 = faces[face * 4 + 1];
-            int i2 = faces[face * 4 + 2];
-            int i3 = faces[face * 4 + 3];
+            Vec3 color = tint * faceShade[face];
 
-            DrawTriangle(corners[i0], corners[i1], corners[i2], color, mvp);
-            DrawTriangle(corners[i0], corners[i2], corners[i3], color, mvp);
+            var v0 = new Vertex(corners[faces[face * 4]], color, uvLt);
+            var v1 = new Vertex(corners[faces[face * 4 + 1]], color, uvRt);
+            var v2 = new Vertex(corners[faces[face * 4 + 2]], color, uvRb);
+            var v3 = new Vertex(corners[faces[face * 4 + 3]], color, uvLb);
+
+            _rasterizer.DrawTriangle(v0, v1, v2, mvp, ShadeTextured);
+            _rasterizer.DrawTriangle(v0, v2, v3, mvp, ShadeTextured);
+
+            if (_showWireframe)
+            {
+                DrawWire(v0.Position, v1.Position, v2.Position, mvp);
+                DrawWire(v0.Position, v2.Position, v3.Position, mvp);
+            }
         }
     }
 
-    /// <summary>XY 平面上の板(一辺2の正方形)を1枚描く。</summary>
-    private void DrawQuad(Mat4 mvp, Vec3 color)
+    /// <summary>三角形の輪郭を描く(ワイヤーフレーム表示用)。</summary>
+    private void DrawWire(Vec3 p0, Vec3 p1, Vec3 p2, Mat4 mvp)
     {
-        var lt = new Vec3(-1.0f, -1.0f, 0.0f);
-        var rt = new Vec3(1.0f, -1.0f, 0.0f);
-        var rb = new Vec3(1.0f, 1.0f, 0.0f);
-        var lb = new Vec3(-1.0f, 1.0f, 0.0f);
-
-        DrawTriangle(lt, rt, rb, color, mvp);
-        DrawTriangle(lt, rb, lb, color * 0.8f, mvp);
-    }
-
-    /// <summary>三角形1枚を描く。ワイヤーフレーム表示にも対応する。</summary>
-    private void DrawTriangle(Vec3 p0, Vec3 p1, Vec3 p2, Vec3 color, Mat4 mvp)
-    {
-        _rasterizer.DrawTriangle(new Vertex(p0, color), new Vertex(p1, color), new Vertex(p2, color), mvp);
-
-        if (_showWireframe &&
-            _rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) &&
+        if (_rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) &&
             _rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) &&
             _rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
         {
-            _rasterizer.DrawTriangleWireframe(s0, s1, s2, Framebuffer.Rgb(240, 240, 240));
+            _rasterizer.DrawTriangleWireframe(s0, s1, s2, Framebuffer.Rgb(255, 60, 60));
         }
     }
 
     /// <summary>深度バッファを可視化する表示範囲(カメラからの距離)。</summary>
-    private const float DepthViewNear = 2.5f;
+    private const float DepthViewNear = 1.5f;
 
-    private const float DepthViewFar = 9.5f;
+    private const float DepthViewFar = 11.0f;
 
     /// <summary>
     /// 深度バッファの中身を白黒で塗り直す。手前が白、奥が黒。
-    ///
-    /// そのまま NDC の Z を明るさにすると、ほとんど真っ白になって何も見えない。
-    /// Day 6 の要点4で見たとおり、深度値は手前に極端に偏っているため
-    /// (near=0.1, far=100 のとき、距離5の点でも深度は 0.99 を超える)。
-    /// そこで**カメラからの距離に戻してから**表示する。この逆算の式は
-    /// 深度値がどう作られたかを理解していないと書けないので、復習にちょうどよい。
+    /// NDC の Z は手前に極端に偏っているので、カメラからの距離に逆算してから表示する。
     /// </summary>
     private void VisualizeDepth()
     {
@@ -341,16 +373,10 @@ internal sealed class GameWindow : Form
             float ndcZ = depth[i];
             if (ndcZ >= 1.0f)
             {
-                // 何も描かれていない場所は背景のままにする。
                 continue;
             }
 
-            // NDC の Z からカメラまでの距離を逆算する。
-            // 投影行列が ndcZ = far/(far-near) * (1 - near/distance) を作っていたので、
-            // これを distance について解いた形。
             float distance = near / (1.0f - ndcZ * (far - near) / far);
-
-            // 見やすい範囲へ正規化して、手前を白、奥を黒にする。
             float shade = 1.0f - Math.Clamp((distance - DepthViewNear) / (DepthViewFar - DepthViewNear), 0.0f, 1.0f);
             pixels[i] = Framebuffer.Rgb(shade, shade, shade);
         }
@@ -495,10 +521,24 @@ internal sealed class GameWindow : Form
         }
 
         // D: 深度バッファそのものを白黒で表示する。
-        // 普段は見えないバッファを覗くと、Zバッファが何を持っているのかが一目で分かる。
         if (e.KeyCode == Keys.D)
         {
             _showDepth = !_showDepth;
+        }
+
+        // F: テクスチャフィルタの切り替え(ニアレスト / バイリニア)。
+        if (e.KeyCode == Keys.F)
+        {
+            _texture.Filter = _texture.Filter == TextureFilter.Bilinear
+                ? TextureFilter.Nearest
+                : TextureFilter.Bilinear;
+        }
+
+        // P: 透視補正補間の ON / OFF。今日の一番の見どころ。
+        // OFF にすると、床のタイルが三角形の対角線で折れ曲がって見える。
+        if (e.KeyCode == Keys.P)
+        {
+            _rasterizer.PerspectiveCorrect = !_rasterizer.PerspectiveCorrect;
         }
 
         base.OnKeyDown(e);

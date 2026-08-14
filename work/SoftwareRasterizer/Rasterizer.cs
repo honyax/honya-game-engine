@@ -7,11 +7,11 @@ namespace SoftwareRasterizer;
 /// ラスタライザの仕事を「どのピクセルか」と「その点での属性値はいくつか」までに留め、
 /// **色をどう決めるかは呼び出し側に委ねる**、という役割分担を作るための仕組み。
 ///
-/// Day 5 で属性が Vec3 1つにまとまったので、引数も1つで済むようになった。
-/// Day 8(テクスチャを引く)、Day 9(光の計算をする)は、
-/// どちらも「補間された値から色を決める」というこの形に収まる。
+/// Day 8 で引数にテクスチャ座標が加わった。呼ばれる側は
+/// 「この点の色は何か、UVはいくつか」だけを受け取り、
+/// 画像から引くのか計算で作るのかを自由に決められる。
 /// </summary>
-internal delegate int PixelShader(Vec3 attribute);
+internal delegate int PixelShader(Vec3 color, Vec2 texCoord);
 
 /// <summary>
 /// 三角形ラスタライザ。
@@ -27,6 +27,16 @@ internal sealed class Rasterizer
 
     /// <summary>深度バッファ。フレームバッファと同じ大きさで一緒に持つ。</summary>
     public DepthBuffer Depth { get; }
+
+    /// <summary>
+    /// 透視補正補間を行うか。既定は true。
+    ///
+    /// false にすると属性を画面上で素直に線形補間する(アフィン補間)。
+    /// 初代プレイステーションのテクスチャが揺れて見えたのはこれが理由で、
+    /// 当時のハードには除算器を毎ピクセル回す余裕がなかった。
+    /// 切り替えて見比べられるように残してある。
+    /// </summary>
+    public bool PerspectiveCorrect { get; set; } = true;
 
     /// <summary>
     /// 深度テストを行うか。既定は true。
@@ -107,6 +117,12 @@ internal sealed class Rasterizer
     /// 行列は「Z を W にコピーする」準備をしただけで、遠近感そのものは作っていない。
     /// </summary>
     public bool TryProjectToScreen(Vec3 position, Mat4 mvp, out Vec3 screen)
+        => TryProjectToScreen(position, mvp, out screen, out _);
+
+    /// <summary>
+    /// 上と同じだが、透視補正に使う 1/W も返す。
+    /// </summary>
+    public bool TryProjectToScreen(Vec3 position, Mat4 mvp, out Vec3 screen, out float invW)
     {
         // 1. モデル座標 → クリップ座標。点なので W = 1 で入れる。
         Vec4 clip = Mat4.Transform(Vec4.Point(position), mvp);
@@ -114,11 +130,12 @@ internal sealed class Rasterizer
         if (clip.W <= MinClipW)
         {
             screen = default;
+            invW = 0.0f;
             return false;
         }
 
         // 2. 透視除算。ここが遠近感の正体。
-        float invW = 1.0f / clip.W;
+        invW = 1.0f / clip.W;
         float ndcX = clip.X * invW;
         float ndcY = clip.Y * invW;
         float ndcZ = clip.Z * invW;
@@ -144,14 +161,20 @@ internal sealed class Rasterizer
     /// </summary>
     public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2, Mat4 mvp, PixelShader? shader = null)
     {
-        if (!TryProjectToScreen(v0.Position, mvp, out Vec3 s0) ||
-            !TryProjectToScreen(v1.Position, mvp, out Vec3 s1) ||
-            !TryProjectToScreen(v2.Position, mvp, out Vec3 s2))
+        if (!TryProjectToScreen(v0.Position, mvp, out Vec3 s0, out float iw0) ||
+            !TryProjectToScreen(v1.Position, mvp, out Vec3 s1, out float iw1) ||
+            !TryProjectToScreen(v2.Position, mvp, out Vec3 s2, out float iw2))
         {
             return;
         }
 
-        FillTriangle(new Vertex(s0, v0.Color), new Vertex(s1, v1.Color), new Vertex(s2, v2.Color), shader);
+        // 位置を画面座標に差し替え、属性(色・UV)はそのまま持ち回る。
+        // 透視補正に使う 1/W をここで埋めるのが Day 8 の追加点。
+        v0.Position = s0; v0.InvW = iw0;
+        v1.Position = s1; v1.InvW = iw1;
+        v2.Position = s2; v2.InvW = iw2;
+
+        FillTriangle(v0, v1, v2, shader);
     }
 
     /// <summary>
@@ -200,6 +223,24 @@ internal sealed class Rasterizer
         float bias2 = IsTopLeft(v0.Position, v1.Position) ? 0.0f : -TopLeftBias;
 
         float invArea = 1.0f / area;
+
+        // --- 透視補正のための前計算 ---
+        // 属性を W で割ったものを先に作っておく。画面上で線形に補間してよいのは
+        // 「属性 / W」と「1 / W」であって、属性そのものではない(要点2)。
+        // 三角形につき1回でよい計算なので、内側のループから追い出しておく。
+        bool perspective = PerspectiveCorrect;
+
+        float iw0 = perspective ? v0.InvW : 1.0f;
+        float iw1 = perspective ? v1.InvW : 1.0f;
+        float iw2 = perspective ? v2.InvW : 1.0f;
+
+        Vec3 color0 = v0.Color * iw0;
+        Vec3 color1 = v1.Color * iw1;
+        Vec3 color2 = v2.Color * iw2;
+
+        Vec2 uv0 = v0.TexCoord * iw0;
+        Vec2 uv1 = v1.TexCoord * iw1;
+        Vec2 uv2 = v2.TexCoord * iw2;
 
         int[] pixels = _target.Pixels;
         float[] depth = Depth.Depth;
@@ -262,12 +303,19 @@ internal sealed class Rasterizer
                     depth[index] = z;
                 }
 
-                // 属性の補間。中身が色とは限らない(UVや法線のこともある)ので attribute と呼ぶ。
-                Vec3 attribute = v0.Color * l0 + v1.Color * l1 + v2.Color * l2;
+                // --- 属性の補間(透視補正つき)---
+                // 「属性 / W」を補間したものを、「1 / W」を補間したもので割ると、
+                // 3D空間で正しい属性値が得られる。割り算がピクセルごとに1回増えるが、
+                // これを省くと Day 8 の要点2にある通り絵が歪む。
+                float interpolatedInvW = iw0 * l0 + iw1 * l1 + iw2 * l2;
+                float w = 1.0f / interpolatedInvW;
+
+                Vec3 color = (color0 * l0 + color1 * l1 + color2 * l2) * w;
+                Vec2 uv = (uv0 * l0 + uv1 * l1 + uv2 * l2) * w;
 
                 pixels[index] = shader is null
-                    ? Framebuffer.Rgb(attribute.X, attribute.Y, attribute.Z)
-                    : shader(attribute);
+                    ? Framebuffer.Rgb(color.X, color.Y, color.Z)
+                    : shader(color, uv);
             }
         }
     }

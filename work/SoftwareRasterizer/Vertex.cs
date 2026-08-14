@@ -30,10 +30,41 @@ internal struct Vertex
     /// <summary>頂点の色。0.0〜1.0 の RGB。</summary>
     public Vec3 Color;
 
+    /// <summary>
+    /// テクスチャ座標(UV)。0〜1 が画像の端から端。
+    ///
+    /// 位置と違って**モデルの形とは独立**に決められる。
+    /// 同じ立方体でも UV の付け方次第で、6面に同じ絵を貼ることも、
+    /// 1枚の絵を6面に切り分けて貼ることもできる。
+    /// この「どこに何を貼るか」を決める作業がUV展開で、
+    /// モデラーが手間をかけている部分でもある。
+    /// </summary>
+    public Vec2 TexCoord;
+
+    /// <summary>
+    /// クリップ座標の W の逆数。**投影を通した後だけ意味を持つ**フィールド。
+    ///
+    /// 透視補正補間(Day 8 の要点2)に使う。モデル座標の頂点を作る時点では
+    /// 値が入っていないが、<see cref="Rasterizer.DrawTriangle"/> が投影の途中で埋める。
+    /// 「変換前と変換後で意味が変わるフィールド」は本来きれいな設計ではないが、
+    /// 頂点の型を2つに分けるほどの複雑さでもないので1つの型に同居させている。
+    /// </summary>
+    public float InvW;
+
     public Vertex(Vec3 position, Vec3 color)
     {
         Position = position;
         Color = color;
+        TexCoord = Vec2.Zero;
+        InvW = 1.0f;
+    }
+
+    public Vertex(Vec3 position, Vec3 color, Vec2 texCoord)
+    {
+        Position = position;
+        Color = color;
+        TexCoord = texCoord;
+        InvW = 1.0f;
     }
 
     public Vertex(float x, float y, float z, Vec3 color)
