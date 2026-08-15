@@ -21,8 +21,12 @@ Day番号 XX(2桁ゼロ埋め)に対して、計画書 `docs/plans/DayXX.md` と
 4. `reference/DayXX/` を作成する。前Dayの完全コピーをベースに、その日の実装を追加。csprojは `DayXX.csproj` にリネーム
    - **名前空間は書き換えない**(Phase単位で固定。Day 1〜10 は `SoftwareRasterizer`)。Phaseをまたぐ最初のDay(11, 14)でだけ切り替える
    - csprojに `<AssemblyName>` は追加しない(ファイル名から決まる)
-5. `dotnet build reference/DayXX` でビルド確認。実行可能なら軽く動作確認もする。失敗したら修正してから完了とする
-6. 最後にユーザーへ報告: 実装内容の要約 / 写経時に読む順番(新規・変更ファイルの一覧) / 改造課題
+5. `dotnet format whitespace reference/DayXX/DayXX.csproj` で整形する。
+   VSCodeが保存時に同じRoslynフォーマッタを走らせるので、先に通しておかないと
+   ユーザーがファイルを開いて保存しただけで差分が出て写経の差分確認が濁る。
+   `--verify-no-changes` を付けて差分ゼロになることまで確認する
+6. `dotnet build reference/DayXX` でビルド確認。実行可能なら軽く動作確認もする。失敗したら修正してから完了とする
+7. 最後にユーザーへ報告: 実装内容の要約 / 写経時に読む順番(新規・変更ファイルの一覧) / 改造課題
 
 ## 注意
 
