@@ -58,6 +58,27 @@ internal sealed class Rasterizer
     public DepthBuffer Depth { get; }
 
     /// <summary>
+    /// 背面カリングの設定。既定は <see cref="CullMode.Back"/>(裏を向いた面を捨てる)。
+    ///
+    /// OpenGL の <c>glCullFace</c> に相当する正式な描画設定。
+    /// 板ポリゴンのように「裏からも見せたい」ものを描くときは <see cref="CullMode.None"/> にする。
+    /// </summary>
+    public CullMode Culling { get; set; } = CullMode.Back;
+
+    /// <summary>そのフレームでカリングによって捨てた三角形の数(効果の確認用)。</summary>
+    public int CulledTriangles { get; private set; }
+
+    /// <summary>そのフレームで実際に塗った三角形の数。</summary>
+    public int DrawnTriangles { get; private set; }
+
+    /// <summary>統計をリセットする。毎フレームの描画前に呼ぶ。</summary>
+    public void ResetStatistics()
+    {
+        CulledTriangles = 0;
+        DrawnTriangles = 0;
+    }
+
+    /// <summary>
     /// 透視補正補間を行うか。既定は true。
     ///
     /// false にすると属性を画面上で素直に線形補間する(アフィン補間)。
@@ -119,18 +140,105 @@ internal sealed class Rasterizer
     private const float TopLeftBias = float.Epsilon;
 
     /// <summary>
-    /// クリップ座標の W がこれ以下の頂点は、カメラの真横〜後ろにあるとみなして捨てる。
+    /// クリップ座標の W がこれ以下の頂点は、カメラの真横〜後ろにあるとみなす。
     ///
     /// W はカメラからの奥行きそのもの(投影行列が Z をコピーしたもの)なので、
     /// 0 以下は「カメラと同じ位置か、後ろ」を意味する。
     /// そのまま透視除算すると 0 除算か符号反転が起き、
     /// 三角形が画面の反対側へ裏返って飛んでいく。
     ///
-    /// 本来は「三角形を近クリップ面で切って、手前の部分だけ描く」のが正しい対処で、
-    /// それが Day 10 のクリッピング。今日は**三角形ごと捨てる**手抜きで済ませる
-    /// (カメラに近づきすぎると面が丸ごと消えるのはこのため)。
+    /// Day 9 まではこういう頂点を含む三角形を丸ごと捨てていたが、
+    /// Day 10 のクリッピング(<see cref="ClipNearPlane"/>)で正しく切れるようになったので、
+    /// この定数はクリップ面の位置をわずかに手前へずらす保険としてだけ使う。
     /// </summary>
     private const float MinClipW = 1e-5f;
+
+    /// <summary>
+    /// クリッピングの途中経過を持つ頂点。クリップ座標(4次元)と属性の組。
+    /// </summary>
+    private struct ClipVertex
+    {
+        public Vec4 Clip;
+
+        public Vertex Attributes;
+    }
+
+    /// <summary>
+    /// 三角形を**近クリップ面**で切り取る(サザーランド・ホジマンのアルゴリズム)。
+    ///
+    /// なぜ近クリップ面だけを切るのか:
+    /// 左右上下と遠クリップ面は、はみ出していてもバウンディングボックスの
+    /// 画面内への切り詰め(Day 3)と深度テスト(Day 7)が面倒を見てくれるので、
+    /// 描画結果が壊れることはない(無駄な走査は増えるが正しい絵は出る)。
+    /// **近クリップ面だけは違う。** ここを跨ぐと透視除算で符号が反転し、
+    /// 絵が根本的に壊れるので、除算の前に切っておくしかない。
+    ///
+    /// 切る条件は「クリップ座標の Z が 0 以上」。
+    /// 本リポジトリの投影行列は近クリップ面を Z = 0 に写すので(Day 6 の要点3)、
+    /// この1つの不等式が「カメラの手前側にあるか」の判定になる。
+    /// カメラの後ろの点も Z が負になるため、同じ条件でまとめて処理できる。
+    ///
+    /// 手順は単純で、多角形の辺を順に見て
+    ///   - 内 → 内 … 終点を出力
+    ///   - 内 → 外 … 交点を出力
+    ///   - 外 → 内 … 交点と終点を出力
+    ///   - 外 → 外 … 何も出力しない
+    /// とするだけ。三角形1枚を平面1つで切った結果は、頂点が最大4つの多角形になる。
+    /// </summary>
+    private static int ClipNearPlane(ReadOnlySpan<ClipVertex> input, Span<ClipVertex> output)
+    {
+        int count = 0;
+
+        for (int i = 0; i < input.Length; i++)
+        {
+            ClipVertex current = input[i];
+            ClipVertex next = input[(i + 1) % input.Length];
+
+            // 平面からの符号付き距離。正なら内側(カメラの手前)。
+            float currentDistance = current.Clip.Z;
+            float nextDistance = next.Clip.Z;
+
+            bool currentInside = currentDistance >= 0.0f;
+            bool nextInside = nextDistance >= 0.0f;
+
+            if (currentInside)
+            {
+                output[count++] = current;
+            }
+
+            // 符号が変わったら辺が平面を跨いでいる。交点を作って出力する。
+            if (currentInside != nextInside)
+            {
+                // 距離が0になる位置を線形補間で求める。
+                float t = currentDistance / (currentDistance - nextDistance);
+                output[count++] = Lerp(current, next, t);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// クリップ頂点を線形補間する。位置も属性もすべて同じ比率で混ぜる。
+    ///
+    /// **クリップ座標のまま補間してよい**のがこのアルゴリズムの美点。
+    /// 透視除算の前なので、すべてが線形に扱える
+    /// (除算の後だと Day 8 の透視補正と同じ問題に悩まされる)。
+    /// </summary>
+    private static ClipVertex Lerp(ClipVertex a, ClipVertex b, float t)
+    {
+        Vertex attributes = a.Attributes;
+        attributes.Position = a.Attributes.Position + (b.Attributes.Position - a.Attributes.Position) * t;
+        attributes.Color = Vec3.Lerp(a.Attributes.Color, b.Attributes.Color, t);
+        attributes.TexCoord = Vec2.Lerp(a.Attributes.TexCoord, b.Attributes.TexCoord, t);
+        attributes.Normal = Vec3.Lerp(a.Attributes.Normal, b.Attributes.Normal, t);
+
+        return new ClipVertex
+        {
+            Clip = a.Clip + (b.Clip - a.Clip) * t,
+            Attributes = attributes,
+        };
+    }
 
     /// <summary>
     /// 頂点をクリップ座標へ変換し、透視除算とビューポート変換を経て画面座標にする。
@@ -192,23 +300,82 @@ internal sealed class Rasterizer
     /// 後半(FillTriangle)がラスタライザ + ピクセルシェーダに相当する。
     /// この2段構えは Day 5 のデモですでに作ってあったものが、3Dに拡張されただけ。
     /// </summary>
-    public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2, Mat4 mvp, PixelShader? shader = null)
+    public void DrawTriangle(Vertex v0, Vertex v1, Vertex v2, Mat4 viewProjection, PixelShader? shader = null)
     {
-        if (!TryProjectToScreen(v0.Position, mvp, out Vec3 s0, out float iw0) ||
-            !TryProjectToScreen(v1.Position, mvp, out Vec3 s1, out float iw1) ||
-            !TryProjectToScreen(v2.Position, mvp, out Vec3 s2, out float iw2))
+        // --- 1. クリップ座標へ ---
+        Span<ClipVertex> source = stackalloc ClipVertex[3];
+        source[0] = ToClip(v0, viewProjection);
+        source[1] = ToClip(v1, viewProjection);
+        source[2] = ToClip(v2, viewProjection);
+
+        // --- 2. 近クリップ面で切る ---
+        // 三角形1枚を平面1つで切ると、頂点は最大4つになる。
+        Span<ClipVertex> clipped = stackalloc ClipVertex[4];
+        int count = ClipNearPlane(source, clipped);
+
+        if (count < 3)
+        {
+            // 全体がカメラの後ろ。何も描かない。
+            return;
+        }
+
+        // --- 3. 多角形を三角形に分割して描く ---
+        // 頂点0を扇の要にした三角形ファン。4頂点なら2枚になる。
+        for (int i = 1; i + 1 < count; i++)
+        {
+            EmitTriangle(clipped[0], clipped[i], clipped[i + 1], shader);
+        }
+    }
+
+    /// <summary>頂点をクリップ座標へ変換する。ワールド座標は属性として保持する。</summary>
+    private static ClipVertex ToClip(Vertex vertex, Mat4 viewProjection)
+    {
+        // ライティングに使うワールド座標を、位置が上書きされる前に退避する。
+        vertex.World = vertex.Position;
+
+        return new ClipVertex
+        {
+            Clip = Mat4.Transform(Vec4.Point(vertex.Position), viewProjection),
+            Attributes = vertex,
+        };
+    }
+
+    /// <summary>
+    /// クリップ済みの三角形を、透視除算とビューポート変換を通して塗る。
+    /// </summary>
+    private void EmitTriangle(ClipVertex c0, ClipVertex c1, ClipVertex c2, PixelShader? shader)
+    {
+        if (!ToScreen(c0, out Vertex v0) ||
+            !ToScreen(c1, out Vertex v1) ||
+            !ToScreen(c2, out Vertex v2))
         {
             return;
         }
 
-        // 位置を画面座標に差し替える前に、ワールド座標を退避しておく。
-        // ライティングは「この点から光源へ」「この点からカメラへ」の方向が要るので、
-        // 画面座標に潰してしまうと計算できなくなる。
-        v0.World = v0.Position; v0.Position = s0; v0.InvW = iw0;
-        v1.World = v1.Position; v1.Position = s1; v1.InvW = iw1;
-        v2.World = v2.Position; v2.Position = s2; v2.InvW = iw2;
-
         FillTriangle(v0, v1, v2, shader);
+    }
+
+    /// <summary>クリップ座標の頂点を、透視除算とビューポート変換で画面座標にする。</summary>
+    private bool ToScreen(ClipVertex clipVertex, out Vertex vertex)
+    {
+        Vec4 clip = clipVertex.Clip;
+        vertex = clipVertex.Attributes;
+
+        if (clip.W <= MinClipW)
+        {
+            // クリッピング後は本来ここに来ないが、数値誤差の保険として残す。
+            return false;
+        }
+
+        float invW = 1.0f / clip.W;
+
+        vertex.Position = new Vec3(
+            (clip.X * invW * 0.5f + 0.5f) * _target.Width,
+            (0.5f - clip.Y * invW * 0.5f) * _target.Height,
+            clip.Z * invW);
+        vertex.InvW = invW;
+
+        return true;
     }
 
     /// <summary>
@@ -231,6 +398,29 @@ internal sealed class Rasterizer
         {
             return;
         }
+
+        // --- 背面カリング ---
+        // Day 3 では「負なら頂点を入れ替えて向きをそろえる」と書いて符号を捨てていた。
+        // その符号こそが**その面を表から見ているか裏から見ているか**の情報で、
+        // 今日はそれを使って裏向きの面を描く前に捨てる。
+        //
+        // 画面座標系は Y が下向きなうえ、ビューポート変換でも Y を反転しているので、
+        // 「外から見て反時計回り」に巻いたモデル(Day 9 の要点6)は、
+        // 表から見たとき画面上で**負の面積**になる。符号の向きは規約の積み重ねで決まるので、
+        // 覚えるより「片方を試して裏返っていたら逆にする」と割り切ったほうが早い。
+        bool frontFacing = area < 0.0f;
+
+        if (Culling != CullMode.None)
+        {
+            bool cull = Culling == CullMode.Back ? !frontFacing : frontFacing;
+            if (cull)
+            {
+                CulledTriangles++;
+                return;
+            }
+        }
+
+        DrawnTriangles++;
 
         if (area < 0.0f)
         {

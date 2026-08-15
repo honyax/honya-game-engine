@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day09 - シェーディング";
+        Text = "Day10 - ソフトラスタライザ完成";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -144,9 +144,11 @@ internal sealed class GameWindow : Form
                     ShadingMode.Gouraud => "グーロー",
                     _ => "フォン　",
                 };
-                Text = $"Day09 - シェーディング  {fpsFrames / fpsElapsed:F1} fps | {_triangleCount} tri | "
-                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | {mode} | "
-                     + $"1/2/3:陰影 T:テクスチャ W:ワイヤー Esc:終了";
+                string cull = _rasterizer.Culling == CullMode.None ? "OFF" : "ON ";
+                Text = $"Day10 - ソフトラスタライザ完成  {fpsFrames / fpsElapsed:F1} fps | "
+                     + $"{_rasterizer.DrawnTriangles} 描画 / {_rasterizer.CulledTriangles} カリング | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | {mode} | 背面カリング:{cull} | "
+                     + $"1/2/3:陰影 C:カリング T:テクスチャ W:ワイヤー Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -191,7 +193,17 @@ internal sealed class GameWindow : Form
     private readonly Texture _texture = Texture.CreateTestPattern(64, 8);
 
     // --- メッシュは起動時に1回だけ作る ---
-    private readonly Mesh _sphere = Mesh.CreateSphere(24, 32);
+
+    /// <summary>
+    /// ファイルから読み込んだモデル。**Phase 1 のマイルストーンの主役**。
+    ///
+    /// パスを実行ファイルからの相対ではなくソースツリー基準で解決しているのは、
+    /// <c>dotnet run</c> でも <c>bin</c> から直接起動しても同じように動かすため。
+    /// 資産の置き場所をどう解決するかは Day 21 のリソース管理で正面から扱う。
+    /// </summary>
+    private readonly Mesh _model = ObjLoader.Load(ResolveAssetPath("models/torus.obj"));
+
+    private readonly Mesh _sphere = Mesh.CreateSphere(20, 28);
 
     private readonly Mesh _cube = Mesh.CreateCube();
 
@@ -213,7 +225,38 @@ internal sealed class GameWindow : Form
     /// </summary>
     private readonly Mesh _lightMarker = Mesh.CreateSphere(6, 10);
 
-    private readonly Mesh _floor = Mesh.CreatePlane(3.2f, 4.0f, 4);
+    /// <summary>
+    /// 床。Day 9 では分割数4にしていたが、クリッピングが入ったので1枚(分割1)で足りる。
+    /// カメラの後ろに回った部分は近クリップ面で切られるだけで、面が丸ごと消えることはない。
+    /// </summary>
+    private readonly Mesh _floor = Mesh.CreatePlane(3.6f, 5.0f, 1);
+
+    /// <summary>
+    /// 素材(assets/)のパスを解決する。
+    /// 実行ディレクトリから上へ辿ってリポジトリのルートを探す。
+    /// </summary>
+    private static string ResolveAssetPath(string relativePath)
+    {
+        // 実行ファイルの場所と、現在の作業ディレクトリの両方から上へ辿る。
+        // dotnet run と bin から直接起動とで基準が変わるため、両方見ておくと確実。
+        foreach (string start in new[] { AppContext.BaseDirectory, Environment.CurrentDirectory })
+        {
+            var directory = new DirectoryInfo(start);
+
+            while (directory is not null)
+            {
+                string candidate = Path.Combine(directory.FullName, "assets", relativePath);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                directory = directory.Parent;
+            }
+        }
+
+        throw new FileNotFoundException($"素材が見つからない: assets/{relativePath}");
+    }
 
     /// <summary>
     /// 頂点をワールド座標へ変換した結果を溜める作業用配列。
@@ -222,9 +265,6 @@ internal sealed class GameWindow : Form
     /// 毎フレーム確保するとGCが動くので、一番大きいメッシュに合わせて1回だけ確保する。
     /// </summary>
     private Vertex[] _worldVertices = Array.Empty<Vertex>();
-
-    /// <summary>そのフレームで描いた三角形の数(タイトルバー表示用)。</summary>
-    private int _triangleCount;
 
     /// <summary>いま描いているメッシュのアルベド(素の色)。シェーダから参照する。</summary>
     private Vec3 _currentAlbedo = Vec3.One;
@@ -236,43 +276,62 @@ internal sealed class GameWindow : Form
     {
         _framebuffer.Clear(Framebuffer.Rgb(10, 12, 20));
         _rasterizer.Depth.Clear();
-        _triangleCount = 0;
+        _rasterizer.ResetStatistics();
 
         float t = (float)timeSeconds;
 
-        float orbit = t * 0.18f;
-        _camera.Position = new Vec3(MathF.Sin(orbit) * 6.5f, 2.6f, MathF.Cos(orbit) * 6.5f);
-        _camera.Target = new Vec3(0.0f, 0.5f, 0.0f);
+        // カメラは床の内側まで入り込む軌道にしてある。
+        // クリッピングが無いと床が丸ごと消えたり画面が壊れたりする位置関係で、
+        // Day 10 でそれが解決したことを目で確かめるためのアングル。
+        float orbit = t * 0.22f;
+        float distance = 5.4f + MathF.Sin(t * 0.5f) * 1.0f;
+        _camera.Position = new Vec3(
+            MathF.Sin(orbit) * distance,
+            2.4f + MathF.Sin(t * 0.37f) * 0.5f,
+            MathF.Cos(orbit) * distance);
+        _camera.Target = new Vec3(0.0f, 0.95f, 0.0f);
         _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
 
         // 光源を回して、陰影が動くようにする。
-        // 静止した絵では「本当に光の計算をしているのか」が分かりにくいため。
-        _light.Position = new Vec3(MathF.Cos(t * 0.7f) * 4.0f, 3.2f, MathF.Sin(t * 0.7f) * 4.0f);
+        _light.Position = new Vec3(MathF.Cos(t * 0.7f) * 3.4f, 2.8f, MathF.Sin(t * 0.7f) * 3.4f);
 
         Mat4 viewProjection = _camera.ViewProjection;
 
         // --- 床 ---
-        _currentAlbedo = new Vec3(0.75f, 0.78f, 0.85f);
+        // 板は裏から見ることもあるのでカリングを切る。
+        // 閉じていない形にカリングを掛けると、裏から見たときに消えてしまう。
+        CullMode previousCulling = _rasterizer.Culling;
+        _rasterizer.Culling = CullMode.None;
+        _currentAlbedo = new Vec3(0.72f, 0.75f, 0.82f);
         DrawMesh(_floor, Mat4.Identity, viewProjection);
+        _rasterizer.Culling = previousCulling;
 
-        // --- 中央の球(陰影の主役)---
-        _currentAlbedo = new Vec3(0.85f, 0.55f, 0.35f);
-        DrawMesh(_sphere, Mat4.Scale(1.1f) * Mat4.Translation(new Vec3(0.0f, 1.2f, 0.0f)), viewProjection);
+        // --- 読み込んだモデル(主役)---
+        _currentAlbedo = new Vec3(0.90f, 0.62f, 0.38f);
+        Mat4 modelMatrix =
+            Mat4.Scale(0.85f) *
+            Mat4.RotationX(0.55f) *
+            Mat4.RotationY(t * 0.55f) *
+            Mat4.Translation(new Vec3(0.0f, 1.05f, 0.0f));
+        DrawMesh(_model, modelMatrix, viewProjection);
 
-        // --- 回る立方体 ---
-        _currentAlbedo = new Vec3(0.45f, 0.75f, 0.55f);
-        Mat4 cubeModel =
-            Mat4.Scale(0.45f) *
-            Mat4.RotationY(t * 0.9f) *
-            Mat4.RotationX(t * 0.5f) *
-            Mat4.Translation(new Vec3(2.1f, 0.7f, 0.0f)) *
-            Mat4.RotationY(t * 0.6f);
-        DrawMesh(_cube, cubeModel, viewProjection);
+        // --- 周囲を回る立方体と球 ---
+        _currentAlbedo = new Vec3(0.42f, 0.72f, 0.55f);
+        DrawMesh(
+            _cube,
+            Mat4.Scale(0.32f) * Mat4.RotationY(t * 1.3f) * Mat4.RotationZ(t * 0.7f) *
+            Mat4.Translation(new Vec3(2.4f, 0.5f, 0.0f)) * Mat4.RotationY(t * 0.6f),
+            viewProjection);
+
+        _currentAlbedo = new Vec3(0.45f, 0.55f, 0.92f);
+        DrawMesh(
+            _sphere,
+            Mat4.Scale(0.36f) * Mat4.Translation(new Vec3(2.4f, 0.5f, 0.0f)) * Mat4.RotationY(t * 0.6f + MathF.PI),
+            viewProjection);
 
         // --- 光源の位置を示す小さな球 ---
-        // ライティングを掛けずに白く塗る(自分自身が光っているものの表現)。
         _currentAlbedo = Vec3.One;
-        DrawMesh(_lightMarker, Mat4.Scale(0.12f) * Mat4.Translation(_light.Position), viewProjection, emissive: true);
+        DrawMesh(_lightMarker, Mat4.Scale(0.1f) * Mat4.Translation(_light.Position), viewProjection, emissive: true);
 
         if (_showDepth)
         {
@@ -353,7 +412,6 @@ internal sealed class GameWindow : Form
             }
 
             _rasterizer.DrawTriangle(v0, v1, v2, viewProjection, shader);
-            _triangleCount++;
 
             if (_showWireframe)
             {
@@ -590,6 +648,13 @@ internal sealed class GameWindow : Form
         if (e.KeyCode == Keys.T)
         {
             _useTexture = !_useTexture;
+        }
+
+        // C: 背面カリングの ON / OFF。
+        // 切ると、閉じた立体の裏面まで律儀に塗るようになる(絵は変わらず遅くなるだけ)。
+        if (e.KeyCode == Keys.C)
+        {
+            _rasterizer.Culling = _rasterizer.Culling == CullMode.None ? CullMode.Back : CullMode.None;
         }
 
         base.OnKeyDown(e);
