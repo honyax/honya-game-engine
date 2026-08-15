@@ -50,7 +50,7 @@ internal sealed class GameWindow : Form
         // Framebuffer.Rgb が作る 0xAARRGGBB とそのまま一致する。
         _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
 
-        Text = "Day08 - テクスチャマッピング";
+        Text = "Day09 - シェーディング";
 
         // WinFormsによる自動DPIスケーリングを止める。
         // これを None にしないと、高DPI環境で ClientSize が勝手に拡大され、
@@ -138,11 +138,15 @@ internal sealed class GameWindow : Form
             fpsElapsed += deltaSeconds;
             if (fpsElapsed >= 0.5)
             {
-                string filter = _texture.Filter == TextureFilter.Bilinear ? "バイリニア" : "ニアレスト　";
-                string correct = _rasterizer.PerspectiveCorrect ? "ON " : "OFF";
-                Text = $"Day08 - テクスチャマッピング  {fpsFrames / fpsElapsed:F1} fps | {TriangleCount} tri | "
-                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | {filter} | 透視補正:{correct} | "
-                     + $"F:フィルタ P:透視補正 W:ワイヤー Esc:終了";
+                string mode = _shadingMode switch
+                {
+                    ShadingMode.Flat => "フラット",
+                    ShadingMode.Gouraud => "グーロー",
+                    _ => "フォン　",
+                };
+                Text = $"Day09 - シェーディング  {fpsFrames / fpsElapsed:F1} fps | {_triangleCount} tri | "
+                     + $"render {renderSecondsAccum / fpsFrames * 1000.0:F2} ms | {mode} | "
+                     + $"1/2/3:陰影 T:テクスチャ W:ワイヤー Esc:終了";
                 fpsFrames = 0;
                 fpsElapsed = 0.0;
                 renderSecondsAccum = 0.0;
@@ -171,90 +175,104 @@ internal sealed class GameWindow : Form
     /// <summary>深度バッファを白黒で表示するか(Dキー)。</summary>
     private bool _showDepth;
 
-    /// <summary>立方体1個あたりの三角形数(6面 x 2枚)。</summary>
-    private const int CubeTriangles = 12;
+    /// <summary>陰影の付け方(1/2/3キー)。</summary>
+    private ShadingMode _shadingMode = ShadingMode.Phong;
 
-    /// <summary>周囲を回る立方体の数。</summary>
-    private const int OrbitCubes = 2;
-
-    /// <summary>1フレームに描く三角形の総数(床2 + 立方体)。</summary>
-    private const int TriangleCount = 2 + CubeTriangles * (1 + OrbitCubes);
+    /// <summary>テクスチャを使うか(Tキー)。切ると陰影だけが見える。</summary>
+    private bool _useTexture = true;
 
     /// <summary>カメラ。</summary>
     private readonly Camera _camera = new();
 
-    /// <summary>
-    /// テクスチャ。手続きで作った 32x32 のテストパターン1枚を使い回す。
-    ///
-    /// あえて小さくしてある。立方体に貼ると1テクセルが画面上で何ピクセルにも
-    /// 拡大されるので、ニアレストとバイリニアの差がはっきり見える。
-    /// </summary>
-    private readonly Texture _texture = Texture.CreateTestPattern(32, 8);
+    /// <summary>光源。</summary>
+    private Light _light = Light.Default;
+
+    /// <summary>テクスチャ。</summary>
+    private readonly Texture _texture = Texture.CreateTestPattern(64, 8);
+
+    // --- メッシュは起動時に1回だけ作る ---
+    private readonly Mesh _sphere = Mesh.CreateSphere(24, 32);
+
+    private readonly Mesh _cube = Mesh.CreateCube();
 
     /// <summary>
-    /// テクスチャを引くシェーダ。
+    /// 光源の位置を示す小さな球。画面上では20ピクセルほどにしかならないので、
+    /// 分割数を落としたものを別に持つ。
     ///
-    /// ラスタライザから渡ってくるのは「補間された色」と「補間されたUV」だけ。
-    /// ここでは頂点色を明るさとして使い、テクスチャの色に掛けている。
-    /// **色 x テクスチャ**は最も基本的な合成で、Day 9 では
-    /// この「色」の部分が光の計算結果に変わる。
+    /// 高精細な球を使い回すと、見えないほど小さいのに三角形1536枚ぶんの
+    /// セットアップ(頂点変換・バウンディングボックス・エッジ関数の準備)を払うことになる。
+    /// **画面に占める大きさに見合った精度のモデルを使う**のがLOD(Level of Detail)の考え方で、
+    /// ここではその最も素朴な形をやっている。
+    ///
+    /// ただし実測では、三角形が 3116 枚から 1700 枚へ**ほぼ半減したのに
+    /// render は 14.02ms から 13.77ms にしかならなかった**(改善は2%未満)。
+    /// この場面で効いているのは三角形の枚数ではなく、塗るピクセル数のほうだった、ということ。
+    /// LODが効くのは「小さいものが大量にある」場面であって、今回のように
+    /// 画面の大半を数個の大きな物体が占めている場合ではない。
+    /// 見積もりで最適化せず必ず測る、という Day 2 以来の教訓がまた出た形になる。
     /// </summary>
-    private int ShadeTextured(Vec3 color, Vec2 uv)
-    {
-        Vec3 texel = _texture.Sample(uv.X, uv.Y);
-        Vec3 result = texel * color;
-        return Framebuffer.Rgb(result.X, result.Y, result.Z);
-    }
+    private readonly Mesh _lightMarker = Mesh.CreateSphere(6, 10);
+
+    private readonly Mesh _floor = Mesh.CreatePlane(3.2f, 4.0f, 4);
+
+    /// <summary>
+    /// 頂点をワールド座標へ変換した結果を溜める作業用配列。
+    ///
+    /// 索引で共有された頂点を何度も変換しないための置き場。
+    /// 毎フレーム確保するとGCが動くので、一番大きいメッシュに合わせて1回だけ確保する。
+    /// </summary>
+    private Vertex[] _worldVertices = Array.Empty<Vertex>();
+
+    /// <summary>そのフレームで描いた三角形の数(タイトルバー表示用)。</summary>
+    private int _triangleCount;
+
+    /// <summary>いま描いているメッシュのアルベド(素の色)。シェーダから参照する。</summary>
+    private Vec3 _currentAlbedo = Vec3.One;
 
     /// <summary>
     /// 1フレーム分の絵をフレームバッファに描く。
-    ///
-    /// 床を大きく手前まで伸ばしてあるのは、透視補正の有無を見るため。
-    /// 画面の手前と奥で1ピクセルあたりの実距離が大きく違う面ほど、
-    /// 補正を切ったときの歪みが目立つ。
     /// </summary>
     private void Render(double timeSeconds)
     {
-        _framebuffer.Clear(Framebuffer.Rgb(12, 14, 22));
+        _framebuffer.Clear(Framebuffer.Rgb(10, 12, 20));
         _rasterizer.Depth.Clear();
+        _triangleCount = 0;
 
         float t = (float)timeSeconds;
 
-        // カメラは床の外側を回る。半径を床の対角の長さより大きく取っているのには理由がある。
-        // 今の実装は「頂点が1つでもカメラの後ろにある三角形」を丸ごと捨てる(Day 6 の要点5)。
-        // 床は大きな三角形2枚なので、隅がカメラの後ろに回った瞬間に床全体が消えてしまう。
-        // Day 10 のクリッピングを入れるまでは、この制約の中で絵を作る。
-        float orbit = t * 0.2f;
+        float orbit = t * 0.18f;
         _camera.Position = new Vec3(MathF.Sin(orbit) * 6.5f, 2.6f, MathF.Cos(orbit) * 6.5f);
-        _camera.Target = new Vec3(0.0f, 0.3f, 0.0f);
+        _camera.Target = new Vec3(0.0f, 0.5f, 0.0f);
         _camera.AspectRatio = _framebuffer.Width / (float)_framebuffer.Height;
+
+        // 光源を回して、陰影が動くようにする。
+        // 静止した絵では「本当に光の計算をしているのか」が分かりにくいため。
+        _light.Position = new Vec3(MathF.Cos(t * 0.7f) * 4.0f, 3.2f, MathF.Sin(t * 0.7f) * 4.0f);
 
         Mat4 viewProjection = _camera.ViewProjection;
 
         // --- 床 ---
-        // UV を 0〜4 にしてテクスチャを繰り返し貼る。
-        // 1より大きいUVが折り返されるのは Texture.WrapIndex の働き。
-        DrawFloor(viewProjection, 3.2f, 4.0f);
+        _currentAlbedo = new Vec3(0.75f, 0.78f, 0.85f);
+        DrawMesh(_floor, Mat4.Identity, viewProjection);
 
-        // --- 中央の立方体 ---
-        Mat4 centerModel =
-            Mat4.RotationY(t * 0.5f) *
-            Mat4.RotationX(t * 0.27f) *
-            Mat4.Translation(new Vec3(0.0f, 0.9f, 0.0f));
-        DrawTexturedCube(centerModel * viewProjection, Vec3.One);
+        // --- 中央の球(陰影の主役)---
+        _currentAlbedo = new Vec3(0.85f, 0.55f, 0.35f);
+        DrawMesh(_sphere, Mat4.Scale(1.1f) * Mat4.Translation(new Vec3(0.0f, 1.2f, 0.0f)), viewProjection);
 
-        // --- 周囲を回る立方体 ---
-        for (int i = 0; i < OrbitCubes; i++)
-        {
-            float phase = i * MathF.PI;
-            Mat4 model =
-                Mat4.Scale(0.4f) *
-                Mat4.RotationZ(t * 1.5f) *
-                Mat4.Translation(new Vec3(2.2f, 0.6f, 0.0f)) *
-                Mat4.RotationY(t * 0.7f + phase);
+        // --- 回る立方体 ---
+        _currentAlbedo = new Vec3(0.45f, 0.75f, 0.55f);
+        Mat4 cubeModel =
+            Mat4.Scale(0.45f) *
+            Mat4.RotationY(t * 0.9f) *
+            Mat4.RotationX(t * 0.5f) *
+            Mat4.Translation(new Vec3(2.1f, 0.7f, 0.0f)) *
+            Mat4.RotationY(t * 0.6f);
+        DrawMesh(_cube, cubeModel, viewProjection);
 
-            DrawTexturedCube(model * viewProjection, ColorFromHue(i / (float)OrbitCubes) * 1.2f);
-        }
+        // --- 光源の位置を示す小さな球 ---
+        // ライティングを掛けずに白く塗る(自分自身が光っているものの表現)。
+        _currentAlbedo = Vec3.One;
+        DrawMesh(_lightMarker, Mat4.Scale(0.12f) * Mat4.Translation(_light.Position), viewProjection, emissive: true);
 
         if (_showDepth)
         {
@@ -263,90 +281,126 @@ internal sealed class GameWindow : Form
     }
 
     /// <summary>
-    /// 床(大きな正方形1枚 = 三角形2枚)を描く。
+    /// メッシュを1つ描く。
     ///
-    /// **透視補正の効果が最も分かりやすい場所**。床は手前から奥まで大きく傾いているので、
-    /// 補正を切ると三角形の対角線を境にタイルがぐにゃりと折れ曲がる。
-    /// </summary>
-    private void DrawFloor(Mat4 viewProjection, float halfSize, float uvRepeat)
-    {
-        var lt = new Vertex(new Vec3(-halfSize, 0.0f, -halfSize), Vec3.One, new Vec2(0.0f, 0.0f));
-        var rt = new Vertex(new Vec3(halfSize, 0.0f, -halfSize), Vec3.One, new Vec2(uvRepeat, 0.0f));
-        var rb = new Vertex(new Vec3(halfSize, 0.0f, halfSize), Vec3.One, new Vec2(uvRepeat, uvRepeat));
-        var lb = new Vertex(new Vec3(-halfSize, 0.0f, halfSize), Vec3.One, new Vec2(0.0f, uvRepeat));
-
-        _rasterizer.DrawTriangle(lt, rt, rb, viewProjection, ShadeTextured);
-        _rasterizer.DrawTriangle(lt, rb, lb, viewProjection, ShadeTextured);
-
-        if (_showWireframe)
-        {
-            DrawWire(lt.Position, rt.Position, rb.Position, viewProjection);
-            DrawWire(lt.Position, rb.Position, lb.Position, viewProjection);
-        }
-    }
-
-    /// <summary>
-    /// テクスチャを貼った立方体を1個描く。
+    /// 手順は2段階。
+    ///   1. **全頂点**をモデル座標からワールド座標へ変換する(1回だけ)
+    ///   2. 索引を3つずつ取り出して三角形を組み、ラスタライザへ渡す
     ///
-    /// 面ごとに UV を (0,0)-(1,1) で貼るので、6面すべてに同じ絵が出る。
-    /// 実際のモデルでは1枚の画像を面ごとに切り分けて使う(UV展開)。
+    /// 索引で共有された頂点は、1 で一度変換すれば使い回せる。
+    /// 球(24x32分割)なら三角形1536枚に対して頂点は825個なので、
+    /// 三角形ごとに変換すると 4608 回のところが 825 回で済む。**5.6倍の節約**。
+    /// GPUに頂点バッファとインデックスバッファが別々にある理由がこれ。
     /// </summary>
-    private void DrawTexturedCube(Mat4 mvp, Vec3 tint)
+    private void DrawMesh(Mesh mesh, Mat4 model, Mat4 viewProjection, bool emissive = false)
     {
-        Span<Vec3> corners = stackalloc Vec3[8];
-        for (int i = 0; i < 8; i++)
+        if (_worldVertices.Length < mesh.Vertices.Length)
         {
-            corners[i] = new Vec3(
-                (i & 1) == 0 ? -1.0f : 1.0f,
-                (i & 2) == 0 ? -1.0f : 1.0f,
-                (i & 4) == 0 ? -1.0f : 1.0f);
+            _worldVertices = new Vertex[mesh.Vertices.Length];
         }
 
-        ReadOnlySpan<int> faces = stackalloc int[]
+        // --- 1. 頂点をワールドへ ---
+        for (int i = 0; i < mesh.Vertices.Length; i++)
         {
-            0, 2, 6, 4,   // -X
-            1, 5, 7, 3,   // +X
-            0, 4, 5, 1,   // -Y
-            2, 3, 7, 6,   // +Y
-            0, 1, 3, 2,   // -Z
-            4, 6, 7, 5,   // +Z
-        };
+            Vertex v = mesh.Vertices[i];
 
-        // 面ごとにわずかに明るさを変える。ライティングはまだ無いので、
-        // これが無いと立方体が真っ平らな塊に見えてしまう(Day 9 で本物の陰影が入る)。
-        ReadOnlySpan<float> faceShade = stackalloc float[] { 0.72f, 0.86f, 0.60f, 1.0f, 0.78f, 0.92f };
+            v.Position = Mat4.TransformPoint(v.Position, model);
 
-        var uvLt = new Vec2(0.0f, 0.0f);
-        var uvRt = new Vec2(1.0f, 0.0f);
-        var uvRb = new Vec2(1.0f, 1.0f);
-        var uvLb = new Vec2(0.0f, 1.0f);
+            // 法線は「向き」なので W=0 の方向ベクトルとして変換する。
+            // 平行移動の影響を受けてはいけない(Day 5 の要点1)。
+            //
+            // 注意: これが正しいのは、モデル行列が回転と一様な拡大縮小しか
+            // 含まない場合に限る。軸ごとに違う倍率(非一様スケール)を掛けると
+            // 法線が面に垂直でなくなるため、本来は「逆転置行列」で変換する必要がある。
+            // 本Dayのデモは一様スケールしか使わないので、この簡易版で足りる。
+            v.Normal = Mat4.TransformDirection(v.Normal, model).Normalized();
 
-        for (int face = 0; face < 6; face++)
+            // グーローシェーディングは**頂点で**光を計算し、その結果を色として持たせる。
+            // あとはラスタライザが色を補間してくれるので、ピクセル側では何もしない。
+            if (_shadingMode == ShadingMode.Gouraud && !emissive)
+            {
+                v.Color = _light.Shade(v.Position, v.Normal, _currentAlbedo, _camera.Position);
+            }
+            else
+            {
+                v.Color = _currentAlbedo;
+            }
+
+            _worldVertices[i] = v;
+        }
+
+        PixelShader? shader = emissive ? null : SelectShader();
+
+        // --- 2. 索引から三角形を組んで描く ---
+        for (int i = 0; i + 2 < mesh.Indices.Length; i += 3)
         {
-            Vec3 color = tint * faceShade[face];
+            Vertex v0 = _worldVertices[mesh.Indices[i]];
+            Vertex v1 = _worldVertices[mesh.Indices[i + 1]];
+            Vertex v2 = _worldVertices[mesh.Indices[i + 2]];
 
-            var v0 = new Vertex(corners[faces[face * 4]], color, uvLt);
-            var v1 = new Vertex(corners[faces[face * 4 + 1]], color, uvRt);
-            var v2 = new Vertex(corners[faces[face * 4 + 2]], color, uvRb);
-            var v3 = new Vertex(corners[faces[face * 4 + 3]], color, uvLb);
+            // フラットシェーディングは**面ごとに**1回だけ光を計算する。
+            // 面の法線は3頂点から外積で求める(Day 5 の要点4)。
+            // 3頂点すべてに同じ色を入れるので、補間しても結果は一様になる。
+            if (_shadingMode == ShadingMode.Flat && !emissive)
+            {
+                Vec3 faceNormal = Vec3.Cross(v1.Position - v0.Position, v2.Position - v0.Position).Normalized();
+                Vec3 center = (v0.Position + v1.Position + v2.Position) * (1.0f / 3.0f);
+                Vec3 lit = _light.Shade(center, faceNormal, _currentAlbedo, _camera.Position);
 
-            _rasterizer.DrawTriangle(v0, v1, v2, mvp, ShadeTextured);
-            _rasterizer.DrawTriangle(v0, v2, v3, mvp, ShadeTextured);
+                v0.Color = lit;
+                v1.Color = lit;
+                v2.Color = lit;
+            }
+
+            _rasterizer.DrawTriangle(v0, v1, v2, viewProjection, shader);
+            _triangleCount++;
 
             if (_showWireframe)
             {
-                DrawWire(v0.Position, v1.Position, v2.Position, mvp);
-                DrawWire(v0.Position, v2.Position, v3.Position, mvp);
+                DrawWire(v0.Position, v1.Position, v2.Position, viewProjection);
             }
         }
     }
 
-    /// <summary>三角形の輪郭を描く(ワイヤーフレーム表示用)。</summary>
-    private void DrawWire(Vec3 p0, Vec3 p1, Vec3 p2, Mat4 mvp)
+    /// <summary>いまの設定に合ったピクセルシェーダを返す。</summary>
+    private PixelShader SelectShader()
+        => _shadingMode == ShadingMode.Phong ? ShadePhong : ShadeInterpolated;
+
+    /// <summary>
+    /// フォンシェーディング。**ピクセルごとに**法線を補間して光を計算する。
+    ///
+    /// 3つのモードの中で唯一、面の内側でも正しい法線を使う。
+    /// 球のハイライトが小さく丸く出るのはこれだけで、
+    /// グーローだと頂点にしかハイライトが乗らないため、三角形の形に歪む。
+    /// </summary>
+    private int ShadePhong(in PixelInput input)
     {
-        if (_rasterizer.TryProjectToScreen(p0, mvp, out Vec3 s0) &&
-            _rasterizer.TryProjectToScreen(p1, mvp, out Vec3 s1) &&
-            _rasterizer.TryProjectToScreen(p2, mvp, out Vec3 s2))
+        Vec3 albedo = _useTexture
+            ? _texture.Sample(input.TexCoord.X, input.TexCoord.Y) * input.Color
+            : input.Color;
+
+        Vec3 lit = _light.Shade(input.World, input.Normal, albedo, _camera.Position);
+        return Framebuffer.Rgb(lit.X, lit.Y, lit.Z);
+    }
+
+    /// <summary>
+    /// フラット / グーロー用。光の計算は済んでいるので、テクスチャを掛けるだけ。
+    /// </summary>
+    private int ShadeInterpolated(in PixelInput input)
+    {
+        Vec3 color = _useTexture
+            ? _texture.Sample(input.TexCoord.X, input.TexCoord.Y) * input.Color
+            : input.Color;
+
+        return Framebuffer.Rgb(color.X, color.Y, color.Z);
+    }
+
+    /// <summary>三角形の輪郭を描く(ワイヤーフレーム表示用)。</summary>
+    private void DrawWire(Vec3 p0, Vec3 p1, Vec3 p2, Mat4 viewProjection)
+    {
+        if (_rasterizer.TryProjectToScreen(p0, viewProjection, out Vec3 s0) &&
+            _rasterizer.TryProjectToScreen(p1, viewProjection, out Vec3 s1) &&
+            _rasterizer.TryProjectToScreen(p2, viewProjection, out Vec3 s2))
         {
             _rasterizer.DrawTriangleWireframe(s0, s1, s2, Framebuffer.Rgb(255, 60, 60));
         }
@@ -357,10 +411,7 @@ internal sealed class GameWindow : Form
 
     private const float DepthViewFar = 11.0f;
 
-    /// <summary>
-    /// 深度バッファの中身を白黒で塗り直す。手前が白、奥が黒。
-    /// NDC の Z は手前に極端に偏っているので、カメラからの距離に逆算してから表示する。
-    /// </summary>
+    /// <summary>深度バッファの中身を白黒で塗り直す。手前が白、奥が黒。</summary>
     private void VisualizeDepth()
     {
         float near = _camera.NearPlane;
@@ -380,16 +431,6 @@ internal sealed class GameWindow : Form
             float shade = 1.0f - Math.Clamp((distance - DepthViewNear) / (DepthViewFar - DepthViewNear), 0.0f, 1.0f);
             pixels[i] = Framebuffer.Rgb(shade, shade, shade);
         }
-    }
-
-    /// <summary>0〜1 の色相を Vec3 の RGB に変換する(簡易HSV)。</summary>
-    private static Vec3 ColorFromHue(float hue01)
-    {
-        int packed = HueColor(hue01);
-        return new Vec3(
-            ((packed >> 16) & 0xFF) / 255.0f,
-            ((packed >> 8) & 0xFF) / 255.0f,
-            (packed & 0xFF) / 255.0f);
     }
 
     /// <summary>
@@ -534,11 +575,21 @@ internal sealed class GameWindow : Form
                 : TextureFilter.Bilinear;
         }
 
-        // P: 透視補正補間の ON / OFF。今日の一番の見どころ。
-        // OFF にすると、床のタイルが三角形の対角線で折れ曲がって見える。
+        // P: 透視補正補間の ON / OFF。
         if (e.KeyCode == Keys.P)
         {
             _rasterizer.PerspectiveCorrect = !_rasterizer.PerspectiveCorrect;
+        }
+
+        // 1 / 2 / 3: シェーディングモデルの切り替え。今日の一番の見どころ。
+        if (e.KeyCode == Keys.D1) _shadingMode = ShadingMode.Flat;
+        if (e.KeyCode == Keys.D2) _shadingMode = ShadingMode.Gouraud;
+        if (e.KeyCode == Keys.D3) _shadingMode = ShadingMode.Phong;
+
+        // T: テクスチャの ON / OFF。陰影だけを見たいときに切る。
+        if (e.KeyCode == Keys.T)
+        {
+            _useTexture = !_useTexture;
         }
 
         base.OnKeyDown(e);

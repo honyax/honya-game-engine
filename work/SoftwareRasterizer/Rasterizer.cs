@@ -7,11 +7,40 @@ namespace SoftwareRasterizer;
 /// ラスタライザの仕事を「どのピクセルか」と「その点での属性値はいくつか」までに留め、
 /// **色をどう決めるかは呼び出し側に委ねる**、という役割分担を作るための仕組み。
 ///
-/// Day 8 で引数にテクスチャ座標が加わった。呼ばれる側は
-/// 「この点の色は何か、UVはいくつか」だけを受け取り、
-/// 画像から引くのか計算で作るのかを自由に決められる。
+/// Day 9 で法線とワールド座標が加わり、引数が増えすぎたので構造体にまとめた。
+/// ここに入っているのは「ラスタライザが補間して用意できる情報」がすべてで、
+/// GPU のフラグメントシェーダが受け取る varying とちょうど同じ役割になっている。
 /// </summary>
-internal delegate int PixelShader(Vec3 color, Vec2 texCoord);
+internal readonly struct PixelInput
+{
+    /// <summary>補間された頂点カラー。グーローシェーディングではここに明るさが入っている。</summary>
+    public readonly Vec3 Color;
+
+    /// <summary>補間されたテクスチャ座標。</summary>
+    public readonly Vec2 TexCoord;
+
+    /// <summary>
+    /// 補間された法線。**正規化されていない**点に注意。
+    ///
+    /// 単位ベクトル同士を補間しても長さは1にならない(2つのベクトルの中間は
+    /// 弦の中点にあたるので、必ず短くなる)。使う前にシェーダ側で正規化する必要がある。
+    /// この正規化を忘れると、面の中央が暗くなる独特の症状が出る。
+    /// </summary>
+    public readonly Vec3 Normal;
+
+    /// <summary>補間されたワールド座標。光源やカメラへの方向を求めるのに使う。</summary>
+    public readonly Vec3 World;
+
+    public PixelInput(Vec3 color, Vec2 texCoord, Vec3 normal, Vec3 world)
+    {
+        Color = color;
+        TexCoord = texCoord;
+        Normal = normal;
+        World = world;
+    }
+}
+
+internal delegate int PixelShader(in PixelInput input);
 
 /// <summary>
 /// 三角形ラスタライザ。
@@ -152,7 +181,11 @@ internal sealed class Rasterizer
     }
 
     /// <summary>
-    /// モデル座標の三角形を、MVP行列で変換してから塗る。
+    /// ワールド座標の三角形を、ビュー射影行列で変換してから塗る。
+    ///
+    /// Day 9 から「モデル座標 → ワールド座標」は呼び出し側(<c>DrawMesh</c>)の仕事にした。
+    /// 頂点を索引で共有している場合、そちらでまとめて変換したほうが
+    /// 共有された回数だけ計算が浮くため(<see cref="Mesh"/> のコメント参照)。
     /// 今日から「絵を描く」入口はここになる。
     ///
     /// 前半(頂点の変換)がGPUの頂点シェーダ、
@@ -168,11 +201,12 @@ internal sealed class Rasterizer
             return;
         }
 
-        // 位置を画面座標に差し替え、属性(色・UV)はそのまま持ち回る。
-        // 透視補正に使う 1/W をここで埋めるのが Day 8 の追加点。
-        v0.Position = s0; v0.InvW = iw0;
-        v1.Position = s1; v1.InvW = iw1;
-        v2.Position = s2; v2.InvW = iw2;
+        // 位置を画面座標に差し替える前に、ワールド座標を退避しておく。
+        // ライティングは「この点から光源へ」「この点からカメラへ」の方向が要るので、
+        // 画面座標に潰してしまうと計算できなくなる。
+        v0.World = v0.Position; v0.Position = s0; v0.InvW = iw0;
+        v1.World = v1.Position; v1.Position = s1; v1.InvW = iw1;
+        v2.World = v2.Position; v2.Position = s2; v2.InvW = iw2;
 
         FillTriangle(v0, v1, v2, shader);
     }
@@ -241,6 +275,14 @@ internal sealed class Rasterizer
         Vec2 uv0 = v0.TexCoord * iw0;
         Vec2 uv1 = v1.TexCoord * iw1;
         Vec2 uv2 = v2.TexCoord * iw2;
+
+        Vec3 normal0 = v0.Normal * iw0;
+        Vec3 normal1 = v1.Normal * iw1;
+        Vec3 normal2 = v2.Normal * iw2;
+
+        Vec3 world0 = v0.World * iw0;
+        Vec3 world1 = v1.World * iw1;
+        Vec3 world2 = v2.World * iw2;
 
         int[] pixels = _target.Pixels;
         float[] depth = Depth.Depth;
@@ -311,11 +353,20 @@ internal sealed class Rasterizer
                 float w = 1.0f / interpolatedInvW;
 
                 Vec3 color = (color0 * l0 + color1 * l1 + color2 * l2) * w;
-                Vec2 uv = (uv0 * l0 + uv1 * l1 + uv2 * l2) * w;
 
-                pixels[index] = shader is null
-                    ? Framebuffer.Rgb(color.X, color.Y, color.Z)
-                    : shader(color, uv);
+                if (shader is null)
+                {
+                    // シェーダが無いときはUVも法線も要らないので、補間そのものを省く。
+                    pixels[index] = Framebuffer.Rgb(color.X, color.Y, color.Z);
+                    continue;
+                }
+
+                Vec2 uv = (uv0 * l0 + uv1 * l1 + uv2 * l2) * w;
+                Vec3 normal = (normal0 * l0 + normal1 * l1 + normal2 * l2) * w;
+                Vec3 world = (world0 * l0 + world1 * l1 + world2 * l2) * w;
+
+                var input = new PixelInput(color, uv, normal, world);
+                pixels[index] = shader(in input);
             }
         }
     }

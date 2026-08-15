@@ -42,6 +42,28 @@ internal struct Vertex
     public Vec2 TexCoord;
 
     /// <summary>
+    /// 法線(その点で面が向いている方向)。長さ1の単位ベクトル。
+    ///
+    /// **位置と違って「向き」なので、平行移動の影響を受けてはいけない**。
+    /// 変換するときは W=0 の方向ベクトルとして扱う(Day 5 の要点1)。
+    ///
+    /// 法線を頂点ごとに持つ意味は大きい。立方体の角のように
+    /// 「位置は同じでも面の向きが違う」場所では別の頂点として持つことになるし、
+    /// 逆に球のように滑らかな面では隣り合う三角形で法線を共有することで、
+    /// 少ない三角形でも丸く見せられる(要点4)。
+    /// </summary>
+    public Vec3 Normal;
+
+    /// <summary>
+    /// ワールド座標。<see cref="Position"/> が画面座標に上書きされる前の値を退避したもの。
+    ///
+    /// ライティングの計算に要る。光源やカメラの位置はワールド座標で持っているので、
+    /// 「この点から光源へ向かう方向」を求めるにはワールド座標のままの点が必要になる。
+    /// <see cref="Rasterizer.DrawTriangle"/> が投影の途中で埋める。
+    /// </summary>
+    public Vec3 World;
+
+    /// <summary>
     /// クリップ座標の W の逆数。**投影を通した後だけ意味を持つ**フィールド。
     ///
     /// 透視補正補間(Day 8 の要点2)に使う。モデル座標の頂点を作る時点では
@@ -52,11 +74,8 @@ internal struct Vertex
     public float InvW;
 
     public Vertex(Vec3 position, Vec3 color)
+        : this(position, color, Vec2.Zero)
     {
-        Position = position;
-        Color = color;
-        TexCoord = Vec2.Zero;
-        InvW = 1.0f;
     }
 
     public Vertex(Vec3 position, Vec3 color, Vec2 texCoord)
@@ -64,6 +83,8 @@ internal struct Vertex
         Position = position;
         Color = color;
         TexCoord = texCoord;
+        Normal = Vec3.UnitY;
+        World = position;
         InvW = 1.0f;
     }
 
