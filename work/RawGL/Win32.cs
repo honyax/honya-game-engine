@@ -27,7 +27,7 @@ namespace RawGL;
 ///    逆に <c>int</c> や <c>IntPtr</c> のようにビット表現が完全に一致する型
 ///    (**blittable** と呼ぶ)だけで組まれた宣言なら、変換もコピーも1バイトも起きない。
 ///
-/// 毎フレーム通る <c>PeekMessageW</c> / <c>DispatchMessageW</c> / <c>StretchDIBits</c> が
+/// 毎フレーム通る <c>PeekMessageW</c> / <c>DispatchMessageW</c> / <c>SwapBuffers</c> が
 /// すべて blittable な型で済んでいるのは偶然ではない。Win32 API が「ハンドルと整数」で
 /// 押し通す設計だからで、P/Invoke のコストがここで問題になりにくい理由でもある
 /// (残るのは、ネイティブ実行中に GC 全体を止めないためのモード遷移くらい)。
@@ -123,17 +123,6 @@ internal static class Win32
     /// カーソルが直前のウィンドウのもの(砂時計やリサイズ矢印)のまま残る。
     /// </summary>
     public static readonly IntPtr IDC_ARROW = new(32512);
-
-    // ================= DIB / BitBlt =================
-
-    /// <summary>無圧縮。ビットマップは大昔から RLE 圧縮も選べるが今は使わない。</summary>
-    public const uint BI_RGB = 0;
-
-    /// <summary>カラーテーブルは RGB の実値(パレット索引ではない)。</summary>
-    public const uint DIB_RGB_COLORS = 0;
-
-    /// <summary>転送元をそのまま複写するラスタオペレーション。</summary>
-    public const uint SRCCOPY = 0x00CC0020;
 
     // ================= 高DPI =================
 
@@ -238,50 +227,6 @@ internal static class Win32
         public IntPtr hIconSm;
     }
 
-    /// <summary>
-    /// DIB(Device Independent Bitmap)のヘッダ。ピクセル配列の読み方を GDI に教える。
-    /// これも先頭が biSize で、やはりサイズがバージョン代わり。
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    public struct BITMAPINFOHEADER
-    {
-        public uint biSize;
-        public int biWidth;
-
-        /// <summary>
-        /// 高さ。**負の値にすると「トップダウン」**、つまり
-        /// メモリの先頭が画像の一番上の行になる。
-        ///
-        /// 正の値(ボトムアップ)が Windows ビットマップの既定だが、これは
-        /// 数学の座標系(下が原点)を採った歴史的経緯によるもの。
-        /// こちらの <see cref="Framebuffer"/> は配列の先頭が左上なので、
-        /// 負にしないと上下が逆さまに表示される。
-        /// Day 10 の要点3(OBJ の V 座標反転)と根っこは同じ「原点の流儀の違い」。
-        /// </summary>
-        public int biHeight;
-
-        public ushort biPlanes;
-        public ushort biBitCount;
-        public uint biCompression;
-        public uint biSizeImage;
-        public int biXPelsPerMeter;
-        public int biYPelsPerMeter;
-        public uint biClrUsed;
-        public uint biClrImportant;
-    }
-
-    /// <summary>
-    /// ヘッダ + カラーテーブル。
-    /// 32bpp の BI_RGB ではカラーテーブルを使わないが、
-    /// C の定義が <c>RGBQUAD bmiColors[1]</c> を持つので同じ大きさにしておく。
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    public struct BITMAPINFO
-    {
-        public BITMAPINFOHEADER bmiHeader;
-        public uint bmiColors;
-    }
-
     // ================= ウィンドウプロシージャ =================
 
     /// <summary>
@@ -307,6 +252,39 @@ internal static class Win32
     /// </summary>
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr GetModuleHandleW(string? lpModuleName);
+
+    /// <summary>
+    /// DLL を明示的に読み込む。P/Invoke の <c>[DllImport]</c> が裏でやっているのと同じこと。
+    /// Day 12 では opengl32.dll のハンドルを自分で握るために使う。
+    /// </summary>
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern IntPtr LoadLibraryW(string lpLibFileName);
+
+    /// <summary>
+    /// DLL から関数のアドレスを引く。**関数名は必ず ANSI**
+    /// (この API に W 版は無い。エクスポート名はそもそも ASCII なので必要がない)。
+    ///
+    /// <c>[DllImport]</c> は結局これを呼んでいるだけ、というのが Day 12 の実感どころ。
+    /// 違うのは、こちらは「実行時に名前を組み立てて引ける」こと。
+    /// OpenGL のように関数がドライバ側にあり、コンパイル時には存在すら分からない
+    /// API では、この動的な引き方以外に手が無い。
+    /// </summary>
+    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true, ExactSpelling = true)]
+    public static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool FreeLibrary(IntPtr hLibModule);
+
+    /// <summary>
+    /// このプロセスにコンソールウィンドウを1枚作る。
+    ///
+    /// csproj が WinExe なのでコンソールは付いていないが、
+    /// **GL のバージョン情報やシェーダのコンパイルエラーの出し先**がどうしても要る。
+    /// Day 13 でシェーダを書き始めると、エラーログを見られるかどうかが
+    /// 作業効率を決定的に左右する。
+    /// </summary>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool AllocConsole();
 
     // ================= user32 =================
     //
@@ -408,29 +386,14 @@ internal static class Win32
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int nIndex);
 
-    /// <summary>デバイスコンテキストを得る。GDI の描画は全部これを通す。</summary>
+    /// <summary>
+    /// デバイスコンテキストを得る。
+    /// Day 11 では GDI の転送先だったが、Day 12 からは
+    /// **OpenGL のコンテキストを結び付ける相手**になる(要点2)。
+    /// </summary>
     [DllImport("user32.dll")]
     public static extern IntPtr GetDC(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
-    // ================= gdi32 =================
-
-    /// <summary>
-    /// メモリ上のピクセル配列を、拡大縮小しながらDCへ転送する。
-    ///
-    /// 第10引数の <c>int[]</c> は blittable(マネージドとネイティブでメモリ表現が同じ)な
-    /// 配列なので、CLR はコピーを作らず**配列をピン留めして先頭アドレスを渡すだけ**で済ませる。
-    /// 640x480x4 = 1.2MB を毎フレーム複製されたら話にならないので、これは重要な性質。
-    /// </summary>
-    [DllImport("gdi32.dll")]
-    public static extern int StretchDIBits(
-        IntPtr hdc,
-        int xDest, int yDest, int destWidth, int destHeight,
-        int xSrc, int ySrc, int srcWidth, int srcHeight,
-        int[] lpBits,
-        ref BITMAPINFO lpbmi,
-        uint iUsage,
-        uint rop);
 }
