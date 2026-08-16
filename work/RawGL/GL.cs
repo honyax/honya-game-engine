@@ -39,6 +39,36 @@ internal static class GL
     /// </summary>
     public const uint GL_NUM_EXTENSIONS = 0x821D;
 
+    // ================= GLboolean =================
+    //
+    // **GLboolean は1バイト**(C の unsigned char)。
+    // C# の bool をそのままマーシャリングすると4バイトの Win32 BOOL になってしまい、
+    // スタックの中身がずれる。byte で受け渡すのが確実なので、
+    // このバインディングでは GLboolean を取る引数をすべて byte にしてある。
+    public const byte GL_FALSE = 0;
+    public const byte GL_TRUE = 1;
+
+    // ================= シェーダ =================
+
+    public const uint GL_FRAGMENT_SHADER = 0x8B30;
+    public const uint GL_VERTEX_SHADER = 0x8B31;
+    public const uint GL_COMPILE_STATUS = 0x8B81;
+    public const uint GL_LINK_STATUS = 0x8B82;
+    public const uint GL_INFO_LOG_LENGTH = 0x8B84;
+
+    // ================= バッファと描画 =================
+
+    public const uint GL_ARRAY_BUFFER = 0x8892;
+    public const uint GL_STATIC_DRAW = 0x88E4;
+    public const uint GL_FLOAT = 0x1406;
+    public const uint GL_TRIANGLES = 0x0004;
+
+    /// <summary>ポリゴンの塗り方。W キーのワイヤーフレーム表示に使う。</summary>
+    public const uint GL_FRONT_AND_BACK = 0x0408;
+
+    public const uint GL_LINE = 0x1B01;
+    public const uint GL_FILL = 0x1B02;
+
     // ================= 関数のシグネチャ =================
     //
     // OpenGL の関数は Windows では __stdcall(APIENTRY)。
@@ -65,6 +95,115 @@ internal static class GL
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     public delegate uint GlGetError();
 
+    // --- シェーダ ---
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate uint GlCreateShader(uint type);
+
+    /// <summary>
+    /// シェーダのソースを設定する。
+    ///
+    /// 第3引数は <c>const char* const*</c>、つまり**文字列の配列**。
+    /// 複数渡すと連結される(共通のヘッダを前置きする、といった使い方ができる)。
+    /// 第4引数に長さの配列を渡せるが、null なら NUL 終端として扱われる。
+    ///
+    /// C# の string[] を自動マーシャリングさせず IntPtr[] にしてあるのは、
+    /// **UTF-8 で渡したいから**。既定の ANSI マーシャリングだと
+    /// システムのコードページに変換され、GLSL のコメントに書いた日本語が化ける。
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlShaderSource(uint shader, int count, IntPtr[] strings, int[]? lengths);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlCompileShader(uint shader);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlGetShaderiv(uint shader, uint pname, out int param);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlGetShaderInfoLog(uint shader, int bufSize, out int length, byte[] infoLog);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlDeleteShader(uint shader);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate uint GlCreateProgram();
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlAttachShader(uint program, uint shader);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlLinkProgram(uint program);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlGetProgramiv(uint program, uint pname, out int param);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlGetProgramInfoLog(uint program, int bufSize, out int length, byte[] infoLog);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlUseProgram(uint program);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlDeleteProgram(uint program);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate int GlGetUniformLocation(uint program, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    /// <summary>
+    /// mat4 の uniform を送る。
+    /// 第3引数 transpose は GLboolean なので **byte**(GL_FALSE / GL_TRUE)。
+    /// 詳しくは要点5(列優先)。
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlUniformMatrix4fv(int location, int count, byte transpose, float[] value);
+
+    // --- 頂点バッファと頂点配列 ---
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlGenVertexArrays(int n, out uint arrays);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlBindVertexArray(uint array);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlDeleteVertexArrays(int n, ref uint arrays);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlGenBuffers(int n, out uint buffers);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlBindBuffer(uint target, uint buffer);
+
+    /// <summary>
+    /// バッファに中身を流し込む。
+    /// 第2引数 size は GLsizeiptr(ポインタ幅の整数)なので IntPtr で受ける。
+    /// int にすると 64bit 環境で引数がずれる。
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlBufferData(uint target, IntPtr size, float[] data, uint usage);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlDeleteBuffers(int n, ref uint buffers);
+
+    /// <summary>
+    /// 頂点属性の読み方を教える。最後の pointer は本来ポインタだが、
+    /// VBO がバインドされているときは**バッファ先頭からのバイトオフセット**として解釈される。
+    /// ポインタを整数として使うというこの設計は、VBO が後付けで導入された名残。
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlVertexAttribPointer(
+        uint index, int size, uint type, byte normalized, int stride, IntPtr pointer);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlEnableVertexAttribArray(uint index);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlDrawArrays(uint mode, int first, int count);
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    public delegate void GlPolygonMode(uint face, uint mode);
+
     // ================= ロード済みの関数 =================
     //
     // null! で初期化しているのは、Load() を呼ぶまで使えないことを承知のうえで
@@ -78,6 +217,34 @@ internal static class GL
     public static GlClear glClear = null!;
     public static GlViewport glViewport = null!;
     public static GlGetError glGetError = null!;
+
+    public static GlCreateShader glCreateShader = null!;
+    public static GlShaderSource glShaderSource = null!;
+    public static GlCompileShader glCompileShader = null!;
+    public static GlGetShaderiv glGetShaderiv = null!;
+    public static GlGetShaderInfoLog glGetShaderInfoLog = null!;
+    public static GlDeleteShader glDeleteShader = null!;
+    public static GlCreateProgram glCreateProgram = null!;
+    public static GlAttachShader glAttachShader = null!;
+    public static GlLinkProgram glLinkProgram = null!;
+    public static GlGetProgramiv glGetProgramiv = null!;
+    public static GlGetProgramInfoLog glGetProgramInfoLog = null!;
+    public static GlUseProgram glUseProgram = null!;
+    public static GlDeleteProgram glDeleteProgram = null!;
+    public static GlGetUniformLocation glGetUniformLocation = null!;
+    public static GlUniformMatrix4fv glUniformMatrix4fv = null!;
+
+    public static GlGenVertexArrays glGenVertexArrays = null!;
+    public static GlBindVertexArray glBindVertexArray = null!;
+    public static GlDeleteVertexArrays glDeleteVertexArrays = null!;
+    public static GlGenBuffers glGenBuffers = null!;
+    public static GlBindBuffer glBindBuffer = null!;
+    public static GlBufferData glBufferData = null!;
+    public static GlDeleteBuffers glDeleteBuffers = null!;
+    public static GlVertexAttribPointer glVertexAttribPointer = null!;
+    public static GlEnableVertexAttribArray glEnableVertexAttribArray = null!;
+    public static GlDrawArrays glDrawArrays = null!;
+    public static GlPolygonMode glPolygonMode = null!;
 
     /// <summary>opengl32.dll のモジュールハンドル。1.1 の関数を引く先。</summary>
     private static IntPtr _opengl32;
@@ -150,9 +317,41 @@ internal static class GL
         glViewport = Load<GlViewport>("glViewport");
         glGetError = Load<GlGetError>("glGetError");
 
+        // glPolygonMode も 1.1。GPU 側では今も固定機能として残っている数少ない設定。
+        glPolygonMode = Load<GlPolygonMode>("glPolygonMode");
+
         // --- OpenGL 3.0 の関数(ドライバからしか取れない)---
         // これが取れたことが「拡張ロードの仕組みが動いている」証明になる。
         glGetStringi = Load<GlGetStringi>("glGetStringi");
+
+        // --- シェーダ(OpenGL 2.0)---
+        glCreateShader = Load<GlCreateShader>("glCreateShader");
+        glShaderSource = Load<GlShaderSource>("glShaderSource");
+        glCompileShader = Load<GlCompileShader>("glCompileShader");
+        glGetShaderiv = Load<GlGetShaderiv>("glGetShaderiv");
+        glGetShaderInfoLog = Load<GlGetShaderInfoLog>("glGetShaderInfoLog");
+        glDeleteShader = Load<GlDeleteShader>("glDeleteShader");
+        glCreateProgram = Load<GlCreateProgram>("glCreateProgram");
+        glAttachShader = Load<GlAttachShader>("glAttachShader");
+        glLinkProgram = Load<GlLinkProgram>("glLinkProgram");
+        glGetProgramiv = Load<GlGetProgramiv>("glGetProgramiv");
+        glGetProgramInfoLog = Load<GlGetProgramInfoLog>("glGetProgramInfoLog");
+        glUseProgram = Load<GlUseProgram>("glUseProgram");
+        glDeleteProgram = Load<GlDeleteProgram>("glDeleteProgram");
+        glGetUniformLocation = Load<GlGetUniformLocation>("glGetUniformLocation");
+        glUniformMatrix4fv = Load<GlUniformMatrix4fv>("glUniformMatrix4fv");
+
+        // --- 頂点バッファ(1.5)と頂点配列オブジェクト(3.0)---
+        glGenVertexArrays = Load<GlGenVertexArrays>("glGenVertexArrays");
+        glBindVertexArray = Load<GlBindVertexArray>("glBindVertexArray");
+        glDeleteVertexArrays = Load<GlDeleteVertexArrays>("glDeleteVertexArrays");
+        glGenBuffers = Load<GlGenBuffers>("glGenBuffers");
+        glBindBuffer = Load<GlBindBuffer>("glBindBuffer");
+        glBufferData = Load<GlBufferData>("glBufferData");
+        glDeleteBuffers = Load<GlDeleteBuffers>("glDeleteBuffers");
+        glVertexAttribPointer = Load<GlVertexAttribPointer>("glVertexAttribPointer");
+        glEnableVertexAttribArray = Load<GlEnableVertexAttribArray>("glEnableVertexAttribArray");
+        glDrawArrays = Load<GlDrawArrays>("glDrawArrays");
     }
 
     /// <summary>
