@@ -256,9 +256,11 @@ Silk.NET 自体は画像読み込みを持たないので別途必要になる�
 2. `Vertex.cs` — 短い。`StructLayout` の理由(要点7)を押さえる
 3. `Mesh.cs` — **属性のオフセットを組み立てるループ**が要点。検算も忘れずに
 4. `Texture.cs` — 上下反転(要点4)とフィルタの非対称性(要点5)
-5. `Material.cs` — 25行しかない。**何を持たせないか**(要点2・3)のほうが重要
-6. `shaders/textured.*` — UV とサンプリング
-7. `Program.cs` — シーンの組み立て。`DrawQuad` の3行に注目
+5. `Shader.cs` — `SetVector2` / `SetVector4` を足すだけ(+18行)。
+   次の `Material.cs` が `uTint` / `uUvScale` を送るのに使うので、先に足しておく
+6. `Material.cs` — 25行しかない。**何を持たせないか**(要点2・3)のほうが重要
+7. `shaders/textured.*` — UV とサンプリング
+8. `Program.cs` — シーンの組み立て。`DrawQuad` の3行に注目
 
 Day 14 との比較:
 
