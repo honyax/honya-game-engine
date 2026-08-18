@@ -104,12 +104,30 @@ internal sealed class Shader : IDisposable
         }
     }
 
+    public void SetVector2(string name, Vector2 value)
+    {
+        int location = GetUniformLocation(name);
+        if (location >= 0)
+        {
+            _gl.Uniform2(location, value.X, value.Y);
+        }
+    }
+
     public void SetVector3(string name, Vector3 value)
     {
         int location = GetUniformLocation(name);
         if (location >= 0)
         {
             _gl.Uniform3(location, value.X, value.Y, value.Z);
+        }
+    }
+
+    public void SetVector4(string name, Vector4 value)
+    {
+        int location = GetUniformLocation(name);
+        if (location >= 0)
+        {
+            _gl.Uniform4(location, value.X, value.Y, value.Z, value.W);
         }
     }
 
