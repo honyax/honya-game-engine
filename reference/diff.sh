@@ -39,6 +39,9 @@ usage() {
   ./diff.sh Day15
   ./diff.sh Day25/Physics
 
+差分は前後の文脈行を出さない。文脈が欲しいときは:
+  DIFF_CONTEXT=3 ./diff.sh Day15/Shader.cs
+
 終了コード: 0 = 差分なし / 1 = 差分あり / 2 = 使い方の誤り
 USAGE
 }
@@ -122,7 +125,9 @@ files_differ() {
 
 show_diff() {
     local ref="$1" wrk="$2"
-    local -a opt=(-u --strip-trailing-cr)
+    # 写経の差分確認では前後の文脈行がノイズになるので、既定は文脈0行。
+    # 前後を見たいときは DIFF_CONTEXT=3 ./diff.sh ... のように指定する。
+    local -a opt=(-U "${DIFF_CONTEXT:-0}" --strip-trailing-cr)
     diff --color=auto /dev/null /dev/null >/dev/null 2>&1 && opt+=(--color=auto)
 
     local rl="reference: ${ref#$ROOT/}" wl="work:      ${wrk#$ROOT/}"
