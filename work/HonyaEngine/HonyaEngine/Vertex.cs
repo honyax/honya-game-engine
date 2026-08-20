@@ -21,7 +21,7 @@ namespace HonyaEngine;
 [StructLayout(LayoutKind.Sequential)]
 internal struct Vertex
 {
-    /// <summary>位置。今日は Z を 0 のまま使うが、Day 16 のカメラで使い始める。</summary>
+    /// <summary>位置。Day 15 までは Z を 0 のまま使っていたが、Day 16 のカメラで奥行きが効き始める。</summary>
     public Vector3 Position;
 
     /// <summary>テクスチャ座標。左下が (0,0)、右上が (1,1)(要点4)。</summary>

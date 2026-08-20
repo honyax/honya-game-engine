@@ -9,18 +9,16 @@ namespace HonyaEngine;
 /// <summary>
 /// エントリポイント。
 ///
-/// Day 14 では頂点バッファの作成もドローコールもこのファイルに直書きだった。
-/// 今日それを <see cref="Mesh{TVertex}"/> / <see cref="Texture"/> / <see cref="Material"/> に分け、
-/// Program に残るのは**「何を、どこに、どんな見た目で描くか」だけ**になる。
+/// Day 15 までの絵は「画面に貼り付いた2枚の四角形」だった。
+/// アスペクト比の補正を <c>Program</c> が直接行列に混ぜ込んでいて、
+/// **カメラという概念が存在しなかった**。
 ///
-/// 抽象化が効いているかは、描画ループの短さで測れる。
-/// 今日の <see cref="OnRender"/> は、メッシュが1枚でも100枚でもほとんど変わらない形になっている。
+/// 今日それを <see cref="Camera"/> に切り出し、奥行きのあるシーンを描く。
+/// Phase 1(Day 6・Day 7・Day 10)でやったことを GPU 側で再現する回で、
+/// 新しい概念はほとんど出てこない。**同じ話が置き換わるだけ**なのを確認するのが目的。
 /// </summary>
 internal static class Program
 {
-    private const int Width = 800;
-    private const int Height = 600;
-
     private static IWindow _window = null!;
     private static GL _gl = null!;
     private static IInputContext _input = null!;
@@ -28,15 +26,20 @@ internal static class Program
     private static Shader _shader = null!;
     private static Texture _texture = null!;
 
-    /// <summary>**1枚だけ**作って、2つのマテリアルで使い回す(要点2)。</summary>
+    private static Mesh<Vertex> _cube = null!;
     private static Mesh<Vertex> _quad = null!;
 
-    private static Material _leftMaterial = null!;
-    private static Material _rightMaterial = null!;
+    private static Material _cubeMaterial = null!;
+    private static Material _floorMaterial = null!;
+
+    private static Camera _camera = null!;
+    private static OrbitCameraController _orbit = null!;
 
     private static float _angle;
     private static bool _paused;
     private static bool _wireframe;
+    private static bool _depthTest = true;
+    private static bool _culling = true;
     private static TextureFilter _filter = TextureFilter.Linear;
     private static TextureWrap _wrap = TextureWrap.Repeat;
 
@@ -44,25 +47,54 @@ internal static class Program
     private static int _fpsFrames;
     private static double _fps;
 
+    /// <summary>
+    /// シーンに置く立方体。位置・大きさ・自転の速さだけを持つ。
+    ///
+    /// 「何を、どこに、どう置くか」がデータになると、
+    /// 描画ループは**その一覧をなぞるだけ**になる。
+    /// これを本格的に整えたものが Day 22 の GameObject / Day 23 の ECS で、
+    /// 今日はその原型を配列で置いてある。
+    /// </summary>
+    private static readonly (Vector3 Position, float Scale, float Spin)[] Cubes =
+    [
+        (new Vector3(0.0f, 0.25f, 0.0f), 1.5f, 0.8f),     // 中央。大きめでゆっくり自転
+        (new Vector3(3.0f, 0.0f, 3.0f), 1.0f, 0.0f),      // 手前右。この上に1つ積む
+        (new Vector3(3.0f, 1.0f, 3.0f), 1.0f, 0.5f),      // 積んだぶん(深度の前後関係が見える)
+        (new Vector3(-3.0f, 0.0f, 3.0f), 1.0f, -0.4f),
+        (new Vector3(3.0f, 0.0f, -3.0f), 1.0f, 0.3f),
+        (new Vector3(-3.0f, 0.0f, -3.0f), 1.0f, 0.0f),
+    ];
+
     private static void Main()
     {
         var options = WindowOptions.Default with
         {
-            Size = new Vector2D<int>(Width, Height),
-            Title = "Day15 - メッシュ/テクスチャ/マテリアル",
+            Size = new Vector2D<int>(960, 640),
+            Title = "Day16 - カメラと3Dシーン",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
                 ContextFlags.Default,
                 new APIVersion(3, 3)),
             VSync = true,
-            WindowBorder = WindowBorder.Fixed,
+
+            // 深度バッファを要求する。Silk.NET の既定でも 24bit が付いてくるが、
+            // **3D を描くのに何が要るか**を明示しておく意味で書く。
+            // Phase 1 では自分で float の二次元配列を確保していたもの(Day 7)が、
+            // ここではウィンドウ生成時の1行になる。
+            PreferredDepthBufferBits = 24,
+
+            // Day 15 までは WindowBorder.Fixed で固定していた。
+            // 今日からアスペクト比はカメラの持ち物になったので、
+            // リサイズされても正しく追従できる(OnResize を参照)。
+            WindowBorder = WindowBorder.Resizable,
         };
 
         _window = Window.Create(options);
         _window.Load += OnLoad;
         _window.Update += OnUpdate;
         _window.Render += OnRender;
+        _window.FramebufferResize += OnFramebufferResize;
         _window.Closing += OnClosing;
         _window.Run();
         _window.Dispose();
@@ -82,76 +114,94 @@ internal static class Program
         Console.WriteLine($"GL_VERSION  : {_gl.GetStringS(StringName.Version)}");
         Console.WriteLine();
 
-        // --- シェーダ ---
+        // --- 3D を描くための2つのスイッチ ---
+
+        // 深度テスト。**既定では無効**なので、これを忘れると
+        // 「あとから描いたものが手前に来る」という Day 7 以前の絵になる。
+        // 3D で最初に踏むバグの筆頭。
+        _gl.Enable(EnableCap.DepthTest);
+        _gl.DepthFunc(DepthFunction.Less);   // 既定値。「小さい = 手前」を明示しておく
+
+        // 背面カリング。Day 10 で自作したものと同じ判定を GPU がやる。
+        // 閉じた立体では裏面は必ず表面に隠れるので、描く前に捨ててよい。
+        _gl.Enable(EnableCap.CullFace);
+        _gl.CullFace(TriangleFace.Back);
+        _gl.FrontFace(FrontFaceDirection.Ccw);   // 既定値。反時計回りが表
+
+        // --- シェーダ・テクスチャ・メッシュ ---
         string shaderDirectory = ResolveDirectory("shaders");
         _shader = new Shader(
             _gl,
             Path.Combine(shaderDirectory, "textured.vert"),
             Path.Combine(shaderDirectory, "textured.frag"));
 
-        // --- テクスチャ ---
-        string texturePath = ResolveAssetPath("textures/uv-test.png");
-        _texture = Texture.FromFile(_gl, texturePath);
-        Console.WriteLine($"テクスチャ: {Path.GetFileName(texturePath)} ({_texture.Width}x{_texture.Height})");
+        _texture = Texture.FromFile(_gl, ResolveAssetPath("textures/uv-test.png"));
 
-        // --- メッシュ ---
-        _quad = CreateQuad(_gl);
+        _cube = Primitives.CreateCube(_gl);
+        _quad = Primitives.CreateQuad(_gl);
 
-        // --- マテリアル ---
-        // **同じシェーダ・同じテクスチャ・同じメッシュ**から、
-        // 値を変えるだけで2種類の見た目を作る。これがマテリアルの存在意義。
-        _leftMaterial = new Material(_shader)
+        _cubeMaterial = new Material(_shader)
         {
             MainTexture = _texture,
-            Tint = Vector4.One,               // 素通し
-            UvScale = Vector2.One,            // 等倍
+            Tint = Vector4.One,
+            UvScale = Vector2.One,
         };
 
-        _rightMaterial = new Material(_shader)
+        _floorMaterial = new Material(_shader)
         {
             MainTexture = _texture,
-            Tint = new Vector4(1.0f, 0.75f, 0.55f, 1.0f),   // 暖色に寄せる
-            UvScale = new Vector2(2.0f, 2.0f),              // 縦横2回ずつ繰り返す
+            Tint = new Vector4(0.45f, 0.50f, 0.60f, 1.0f),   // 暗く落として主役を立たせる
+            UvScale = new Vector2(10.0f, 10.0f),             // 1枚のテクスチャを10x10 に敷き詰める
         };
 
-        Console.WriteLine();
-        Console.WriteLine("F:フィルタ R:ラップ W:ワイヤー V:VSync Space:停止 F5:シェーダ再読込 Esc:終了");
+        // --- カメラ ---
+        _camera = new Camera
+        {
+            FieldOfView = MathF.PI / 3.0f,   // 60度
+            NearPlane = 0.1f,
+            FarPlane = 100.0f,
+            AspectRatio = (float)_window.FramebufferSize.X / _window.FramebufferSize.Y,
+        };
+
+        _orbit = new OrbitCameraController(_camera);
+        foreach (IMouse mouse in _input.Mice)
+        {
+            _orbit.Attach(mouse);
+        }
+
+        Console.WriteLine("左ドラッグ:回転  ホイール:ズーム  Home:カメラリセット");
+        Console.WriteLine("Z:深度テスト  C:背面カリング  P:透視/平行  W:ワイヤー");
+        Console.WriteLine("F:フィルタ  R:ラップ  V:VSync  Space:自転停止  F5:シェーダ再読込  Esc:終了");
         Console.WriteLine();
     }
 
     /// <summary>
-    /// 正方形を1枚作る。**4頂点 + 6インデックス**。
+    /// ウィンドウの大きさが変わったとき。
     ///
-    /// インデックスを使わないと三角形2枚で6頂点必要になる。
-    /// 共有される2頂点を1つにまとめられるのがインデックス描画の利点で、
-    /// Day 9 で索引付きメッシュにしたときの理屈がそのまま GPU 側に来ている。
+    /// やることは2つで、**どちらを忘れても絵が歪む**。
+    ///   1. ビューポート … クリップ座標 → ピクセルの対応。これが古いと描画範囲がずれる
+    ///   2. カメラのアスペクト比 … これが古いと絵が縦長・横長に潰れる
+    ///
+    /// <c>Resize</c> ではなく <c>FramebufferResize</c> を使うのは、
+    /// 高DPI環境で**ウィンドウのサイズ(論理ピクセル)と描画先のサイズ(物理ピクセル)が
+    /// 一致しない**ため。ビューポートは物理ピクセルで指定する。
     /// </summary>
-    private static Mesh<Vertex> CreateQuad(GL gl)
+    private static void OnFramebufferResize(Vector2D<int> size)
     {
-        Vector4 white = Vector4.One;
+        if (size.X <= 0 || size.Y <= 0)
+        {
+            return;   // 最小化するとゼロが来る。そのまま割ると NaN になる
+        }
 
-        // UV は左下を (0,0)、右上を (1,1) にする。
-        // テクスチャ側で上下反転して読み込んである(Texture.FromFile 参照)ので、
-        // これで**画像ファイルで見たとおりの向き**に表示される。
-        ReadOnlySpan<Vertex> vertices =
-        [
-            new(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0.0f, 0.0f), white),   // 左下
-            new(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1.0f, 0.0f), white),    // 右下
-            new(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1.0f, 1.0f), white),     // 右上
-            new(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0.0f, 1.0f), white),    // 左上
-        ];
-
-        // 反時計回り(CCW)にそろえる。OpenGL の既定では CCW が表面。
-        ReadOnlySpan<uint> indices = [0, 1, 2, 2, 3, 0];
-
-        return new Mesh<Vertex>(gl, vertices, indices, Vertex.AttributeSizes);
+        _gl.Viewport(size);
+        _camera.AspectRatio = (float)size.X / size.Y;
     }
 
     private static void OnUpdate(double deltaSeconds)
     {
         if (!_paused)
         {
-            _angle += (float)deltaSeconds * 0.5f;
+            _angle += (float)deltaSeconds;
         }
 
         _fpsFrames++;
@@ -163,49 +213,57 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day15 - メッシュ/テクスチャ/マテリアル  {_fps:F1} fps | "
-                + $"フィルタ:{_filter} | ラップ:{_wrap} | {(_wireframe ? "ワイヤー" : "塗り")}"
-                + " | F:フィルタ R:ラップ W:ワイヤー V:VSync Space:停止 Esc:終了";
+                $"Day16 - カメラと3Dシーン  {_fps:F1} fps | {_camera.Mode} | "
+                + $"深度:{(_depthTest ? "ON" : "OFF")} カリング:{(_culling ? "ON" : "OFF")} | "
+                + $"距離:{_orbit.Distance:F1}";
         }
     }
 
     private static void OnRender(double deltaSeconds)
     {
-        _gl.ClearColor(0.10f, 0.11f, 0.13f, 1.0f);
-        _gl.Clear(ClearBufferMask.ColorBufferBit);
+        _gl.ClearColor(0.08f, 0.09f, 0.12f, 1.0f);
 
-        // 画面のアスペクト比を打ち消す。**フレームごとに1回だけ決まる値**なので、
-        // 本来はマテリアルではなくカメラの担当(Day 16 で分離する)。
-        float aspect = (float)Width / Height;
-        Matrix4x4 screen = Matrix4x4.CreateScale(1.0f / aspect, 1.0f, 1.0f);
+        // **深度バッファも毎フレーム消す**。色だけ消して深度を残すと、
+        // 前のフレームの奥行きが判定に効いて、絵が虫食いになる。
+        // Phase 1 で毎フレーム深度バッファを float.MaxValue で埋めていたのと同じ作業。
+        _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
-        // 左: 素通し・等倍
-        DrawQuad(_leftMaterial, offsetX: -0.55f, rotation: _angle, screen);
+        // --- フレームに1回だけ送る uniform ---
+        // uniform はプログラムに紐づく状態なので、Material.Apply() が
+        // glUseProgram を呼び直しても、ここで入れた値は残り続ける。
+        // だからオブジェクトの数だけ送り直す必要が無い。
+        _shader.Use();
+        _shader.SetMatrix4("uViewProjection", _camera.ViewProjection);
 
-        // 右: 暖色・UV 2倍(ラップモードの違いが出る)
-        DrawQuad(_rightMaterial, offsetX: 0.55f, rotation: -_angle, screen);
+        // --- 床 ---
+        // XY 平面の四角形を X 軸まわりに -90 度回して寝かせ、20x20 に広げる。
+        Matrix4x4 floorModel =
+            Matrix4x4.CreateScale(20.0f)
+            * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
+            * Matrix4x4.CreateTranslation(0.0f, -0.5f, 0.0f);
+        Draw(_quad, _floorMaterial, floorModel);
+
+        // --- 立方体 ---
+        foreach ((Vector3 position, float scale, float spin) in Cubes)
+        {
+            Matrix4x4 model =
+                Matrix4x4.CreateScale(scale)
+                * Matrix4x4.CreateRotationY(_angle * spin)
+                * Matrix4x4.CreateTranslation(position);
+            Draw(_cube, _cubeMaterial, model);
+        }
     }
 
     /// <summary>
-    /// 1枚描く。**マテリアルを適用 → オブジェクトの行列を設定 → メッシュを描く**、の3手。
-    /// メッシュが増えてもこの形は変わらない。
+    /// 1つ描く。**マテリアルを適用 → モデル行列を送る → メッシュを描く**の3手。
+    /// Day 15 と形は同じで、送る行列が「全部入りの1本」から
+    /// 「モデル行列だけ」に減っている(残りはフレーム頭で送り済み)。
     /// </summary>
-    private static void DrawQuad(Material material, float offsetX, float rotation, Matrix4x4 screen)
+    private static void Draw(Mesh<Vertex> mesh, Material material, Matrix4x4 model)
     {
         material.Apply();
-
-        // 行ベクトル規約なので「回転 → 拡大 → 平行移動 → 画面補正」の順に左から掛ける
-        // (Day 14 の要点4)。
-        Matrix4x4 transform =
-            Matrix4x4.CreateRotationZ(rotation)
-            * Matrix4x4.CreateScale(0.9f)
-            * Matrix4x4.CreateTranslation(offsetX, 0.0f, 0.0f)
-            * screen;
-
-        // モデル行列は**オブジェクトごと**の値なので、マテリアルではなくここで設定する。
-        material.Shader.SetMatrix4("uTransform", transform);
-
-        _quad.Draw();
+        material.Shader.SetMatrix4("uModel", model);
+        mesh.Draw();
     }
 
     private static void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
@@ -224,6 +282,32 @@ internal static class Program
                 _window.VSync = !_window.VSync;
                 break;
 
+            case Key.Home:
+                _orbit.Reset();
+                break;
+
+            case Key.Z:
+                // 切ると、あとから描いたものが無条件に手前に来る。
+                // 床を最初に描いているので、床が立方体を突き抜けて見えるようになる。
+                // 「描く順で解決する」のが破綻することの実演(Day 7 の動機)。
+                _depthTest = !_depthTest;
+                SetCap(EnableCap.DepthTest, _depthTest);
+                break;
+
+            case Key.C:
+                // 切っても見た目はほとんど変わらない(閉じた立体なので裏面は隠れる)。
+                // 変わるのは**描く三角形の数**で、立方体なら約半分が無駄になる。
+                // ワイヤーフレーム(W)と併用すると、裏側の線が出るので違いが分かる。
+                _culling = !_culling;
+                SetCap(EnableCap.CullFace, _culling);
+                break;
+
+            case Key.P:
+                _camera.Mode = _camera.Mode == ProjectionMode.Perspective
+                    ? ProjectionMode.Orthographic
+                    : ProjectionMode.Perspective;
+                break;
+
             case Key.W:
                 _wireframe = !_wireframe;
                 _gl.PolygonMode(
@@ -232,15 +316,11 @@ internal static class Program
                 break;
 
             case Key.F:
-                // Day 8 で自作したニアレスト/バイリニアの切り替え。
-                // GPU では設定1つで済むが、**やっていることは同じ**。
                 _filter = _filter == TextureFilter.Linear ? TextureFilter.Nearest : TextureFilter.Linear;
                 _texture.SetFilter(_filter);
                 break;
 
             case Key.R:
-                // 右の四角(UV 2倍)で違いが出る。Repeat は模様が4回、
-                // ClampToEdge は端の色が引き伸ばされる。
                 _wrap = _wrap == TextureWrap.Repeat ? TextureWrap.ClampToEdge : TextureWrap.Repeat;
                 _texture.SetWrap(_wrap);
                 break;
@@ -251,11 +331,22 @@ internal static class Program
         }
     }
 
+    private static void SetCap(EnableCap cap, bool enabled)
+    {
+        if (enabled)
+        {
+            _gl.Enable(cap);
+        }
+        else
+        {
+            _gl.Disable(cap);
+        }
+    }
+
     private static void OnClosing()
     {
-        // GPU リソースの解放。**共有されているものは1回だけ**捨てる。
-        // マテリアルはシェーダもテクスチャも所有していないので、
-        // ここで両方を明示的に破棄する(要点2)。
+        _orbit.Detach();
+        _cube.Dispose();
         _quad.Dispose();
         _texture.Dispose();
         _shader.Dispose();
@@ -284,12 +375,7 @@ internal static class Program
         throw new DirectoryNotFoundException($"フォルダが見つかりません: {name}");
     }
 
-    /// <summary>
-    /// リポジトリ共有の素材(<c>assets/</c>)を探す。Phase 1 の ObjLoader と同じ手。
-    ///
-    /// シェーダは Day ごとに変わるので各 Day のフォルダに置くが、
-    /// テクスチャは Day をまたいで同じものを使うので <c>assets/</c> に置く。
-    /// </summary>
+    /// <summary>リポジトリ共有の素材(<c>assets/</c>)を探す(Day 15 と同じ)。</summary>
     private static string ResolveAssetPath(string relativePath)
     {
         foreach (string start in new[] { AppContext.BaseDirectory, Environment.CurrentDirectory })
