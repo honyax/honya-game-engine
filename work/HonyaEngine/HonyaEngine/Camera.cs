@@ -130,6 +130,35 @@ internal sealed class Camera
     }
 
     /// <summary>
+    /// **スクリーン座標をそのまま使える**平行投影行列を作る。2D 描画用。
+    ///
+    /// 3D 用の <see cref="CreateOrthographic"/> は原点が画面中心だったが、
+    /// 2D では「左上が (0,0)、右下が (幅, 高さ)」のほうが圧倒的に扱いやすい。
+    /// スプライトの位置をピクセルで指定できるようになるので、
+    /// UI もタイルマップも、素直に書ける。
+    ///
+    /// 呼び方は <c>CreateScreen(0, width, height, 0, -1, 1)</c>。
+    /// **bottom に height、top に 0 を渡す**のがポイントで、
+    /// これで Y 軸が下向きになる(画面の下ほど y が大きい)。
+    /// 上下の入れ替えは M22 の符号1つで済むので、専用の反転行列は要らない。
+    ///
+    /// z の範囲を -1〜1 にしてあるのは、2D では奥行きを使わないから。
+    /// z = 0 のスプライトがちょうど範囲の真ん中に収まる。
+    /// </summary>
+    public static Matrix4x4 CreateScreen(
+        float left, float right, float bottom, float top, float near, float far)
+    {
+        return new Matrix4x4(
+            2.0f / (right - left), 0.0f, 0.0f, 0.0f,
+            0.0f, 2.0f / (top - bottom), 0.0f, 0.0f,
+            0.0f, 0.0f, 2.0f / (near - far), 0.0f,
+            -(right + left) / (right - left),
+            -(top + bottom) / (top - bottom),
+            (far + near) / (near - far),
+            1.0f);
+    }
+
+    /// <summary>
     /// 平行投影行列を作る。こちらも OpenGL の深度規約に合わせる。
     ///
     /// 透視投影との違いは**W をいじらない**こと。M44 = 1 のままなので透視除算が
