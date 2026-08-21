@@ -7,21 +7,30 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。
+/// エントリポイント。**Phase 3(レンダラ層)の最終日**。
 ///
-/// Day 16 の3Dシーンの**上に、スクリーン空間のスプライトを重ねる**。
-/// この構成にしたのは、実際のゲームがそうなっているからというだけでなく、
-/// 「2D を描くには 3D とは違う状態が要る」ことが同じフレームの中で見えるため
-/// (深度テストを切る、ブレンドを入れる、投影行列を差し替える)。
+/// Day 17 のスプライトバッチには4つの穴があった。今日はそれを全部埋める。
+///   1. テクスチャを混ぜられない       → <see cref="TextureAtlas"/>
+///   2. 描画順を制御できない           → <see cref="SpriteSortMode"/>
+///   3. 頂点が32バイト                 → <see cref="SpriteVertex"/> を20バイトに
+///   4. 切り出しの指定が UV            → <see cref="AtlasRegion"/> がピクセル寸法も持つ
 ///
-/// 今日の主題は<see cref="SpriteBatch"/>で、見るべき数字はタイトルバーの
-/// **ドローコール数**。B キーでバッチを切ると、スプライト2000枚で
-/// ドローコールが 2000 回に増え、fps がはっきり落ちる。
+/// 見るべきは A キー(アトラス)と S キー(ソートモード)の組み合わせ。
+/// **アトラスが無いと、ソートしてもドローコールが減らない場合がある**
+/// ことが分かるようにしてある(計画書の要点3)。
 /// </summary>
 internal static class Program
 {
-    /// <summary>スプライトの上限。実際に描く枚数は Up/Down キーで変える。</summary>
     private const int MaxSprites = 20000;
+
+    /// <summary>アトラスに詰める絵。ファイル名(拡張子なし)がそのままキーになる。</summary>
+    private static readonly string[] SpriteNames =
+    [
+        "sprite-circle",
+        "sprite-ring",
+        "sprite-star",
+        "sprite-diamond",
+    ];
 
     private static IWindow _window = null!;
     private static GL _gl = null!;
@@ -37,11 +46,22 @@ internal static class Program
     private static Camera _camera = null!;
     private static OrbitCameraController _orbit = null!;
 
-    // --- 2D(今日の主題) ---
+    // --- 2D ---
     private static Shader _spriteShader = null!;
     private static SpriteBatch _spriteBatch = null!;
-    private static Texture _circleTexture = null!;
-    private static Texture _ringTexture = null!;
+
+    /// <summary>4枚を1枚に詰めたもの。**A キーが ON のときはこちらを使う**。</summary>
+    private static TextureAtlas _atlas = null!;
+
+    /// <summary>アトラスの中の各リージョン。</summary>
+    private static AtlasRegion[] _regions = null!;
+
+    /// <summary>
+    /// 詰めていない、ばらばらのテクスチャ4枚。**アトラスと比べるためだけに持っている**。
+    /// 実際のゲームでこう持つ理由は無い。
+    /// </summary>
+    private static Texture[] _looseTextures = null!;
+
     private static Sprite[] _sprites = null!;
     private static int _activeSprites = 1000;
 
@@ -51,16 +71,8 @@ internal static class Program
     private static bool _depthTest = true;
     private static bool _culling = true;
     private static bool _draw3D = true;
-
-    /// <summary>
-    /// テクスチャごとにまとめて描くか、配列の順に描くか。
-    ///
-    /// **バッチが効くかどうかを決めるのはこのフラグ**。
-    /// 交互に描くとテクスチャが毎回変わるので、バッチが有効でも
-    /// 1枚ごとにフラッシュされ、まとめた意味が消える(要点4)。
-    /// これを構造的に解決するのが Day 18 のアトラスとソート。
-    /// </summary>
-    private static bool _groupByTexture = true;
+    private static bool _useAtlas = true;
+    private static SpriteSortMode _sortMode = SpriteSortMode.Texture;
 
     private static TextureFilter _filter = TextureFilter.Linear;
     private static TextureWrap _wrap = TextureWrap.Repeat;
@@ -80,7 +92,6 @@ internal static class Program
         (new Vector3(-3.0f, 0.0f, -3.0f), 1.0f, 0.0f),
     ];
 
-    /// <summary>1枚ぶんの状態。**描画に必要な最小限**だけを持たせる。</summary>
     private struct Sprite
     {
         public Vector2 Position;
@@ -89,20 +100,41 @@ internal static class Program
         public float Rotation;
         public float Spin;
         public Vector4 Color;
+
+        /// <summary>どの絵か(<see cref="SpriteNames"/> の添字)。</summary>
+        public int Kind;
+
+        /// <summary>重ね順。<see cref="SpriteSortMode.BackToFront"/> のときだけ効く。</summary>
+        public float Layer;
     }
+
+    /// <summary>
+    /// ソートの効き目を目で見るための、固定配置の3枚。
+    ///
+    /// **わざとレイヤー順と違う順で積む**。
+    ///   Immediate    … 積んだ順(緑 → 赤 → 青)なので、最後の青が一番上
+    ///   BackToFront  … レイヤー順(青 → 緑 → 赤)なので、一番手前の赤が上
+    ///   Texture      … 同じテクスチャなのでキーが並ぶ。**順序は不定**(要点4)
+    /// </summary>
+    private static readonly (Vector2 Offset, float Layer, Vector4 Color)[] LayerTest =
+    [
+        (new Vector2(0.0f, 0.0f), 0.5f, new Vector4(0.35f, 1.00f, 0.45f, 1.0f)),    // 緑・中間
+        (new Vector2(44.0f, 22.0f), 0.9f, new Vector4(1.00f, 0.35f, 0.35f, 1.0f)),  // 赤・手前
+        (new Vector2(88.0f, 44.0f), 0.1f, new Vector4(0.40f, 0.55f, 1.00f, 1.0f)),  // 青・奥
+    ];
 
     private static void Main()
     {
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day17 - スプライトバッチ",
+            Title = "Day18 - スプライトバッチ最適化",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
                 ContextFlags.Default,
                 new APIVersion(3, 3)),
-            VSync = false,   // **今日は fps を見るので既定で切っておく**(V キーで戻せる)
+            VSync = false,
             PreferredDepthBufferBits = 24,
             WindowBorder = WindowBorder.Resizable,
         };
@@ -183,30 +215,51 @@ internal static class Program
             Path.Combine(shaderDirectory, "sprite.vert"),
             Path.Combine(shaderDirectory, "sprite.frag"));
 
-        _circleTexture = Texture.FromFile(_gl, ResolveAssetPath("textures/sprite-circle.png"));
-        _ringTexture = Texture.FromFile(_gl, ResolveAssetPath("textures/sprite-ring.png"));
+        string[] paths = SpriteNames
+            .Select(name => ResolveAssetPath($"textures/{name}.png"))
+            .ToArray();
 
-        // スプライトは拡大縮小しかしないので、繰り返しは不要。
-        // ClampToEdge にしておかないと、縮小時に反対側の端の色が
-        // にじみ込むことがある(バイリニアが 0 と 1 をまたいで読むため)。
-        _circleTexture.SetWrap(TextureWrap.ClampToEdge);
-        _ringTexture.SetWrap(TextureWrap.ClampToEdge);
+        // アトラス版(絵は4種類だが、テクスチャは1枚)
+        _atlas = TextureAtlas.FromFiles(_gl, paths, padding: 4);
+        _regions = SpriteNames.Select(name => _atlas[name]).ToArray();
 
-        _spriteBatch = new SpriteBatch(_gl, _spriteShader, capacity: 4000);
+        Console.WriteLine($"アトラス: {_atlas.Width}x{_atlas.Height}、リージョン {_regions.Length} 個");
+        foreach (string name in SpriteNames)
+        {
+            AtlasRegion region = _atlas[name];
+            Console.WriteLine(
+                $"  {name,-16} {region.Width,3}x{region.Height,-3} "
+                + $"UV ({region.UvMin.X:F3}, {region.UvMin.Y:F3})-({region.UvMax.X:F3}, {region.UvMax.Y:F3})");
+        }
+
+        // 比較用のばらばら版。
+        // **ミップマップを作らない**のはアトラスと条件をそろえるため。
+        // これをそろえないと、比べているのがアトラスの効果なのか
+        // ミップマップの有無なのか分からなくなる。
+        _looseTextures = paths
+            .Select(path => Texture.FromFile(_gl, path, generateMipmaps: false))
+            .ToArray();
+        foreach (Texture texture in _looseTextures)
+        {
+            texture.SetWrap(TextureWrap.ClampToEdge);
+        }
+
+        // 容量を 20000 にして、**2万枚でもフラッシュが起きない**ようにしてある。
+        // 並べ替えモードでは、容量を超えるとそこでソートが分断されるため
+        // (SpriteBatch.Draw のコメント参照)、
+        // 「1フレームで積む最大枚数」を確保しておくのが素直。
+        // 20000 × 4頂点 × 20バイト = 1.6MB。積んだ配列と並べ替え後で2本ぶん必要。
+        _spriteBatch = new SpriteBatch(_gl, _spriteShader, capacity: MaxSprites);
 
         InitializeSprites();
 
-        Console.WriteLine("B:バッチ  T:テクスチャごとにまとめる  O:オーファニング  3:3D背景");
+        Console.WriteLine();
+        Console.WriteLine("A:アトラス  S:ソートモード  B:バッチ  O:オーファニング  3:3D背景");
         Console.WriteLine("上下キー:スプライト数 +-1000  左ドラッグ:カメラ  ホイール:ズーム");
         Console.WriteLine("Z:深度  C:カリング  P:透視/平行  W:ワイヤー  V:VSync  Space:停止  Esc:終了");
         Console.WriteLine();
     }
 
-    /// <summary>
-    /// スプライトの初期状態を作る。
-    /// 乱数の種を固定してあるので、**毎回まったく同じ絵**になる。
-    /// 性能を比べるときに条件がぶれないので、測定用のデモではこうしておくとよい。
-    /// </summary>
     private static void InitializeSprites()
     {
         var random = new Random(20260816);
@@ -234,6 +287,15 @@ internal static class Program
                     0.45f + (float)random.NextDouble() * 0.55f,
                     0.45f + (float)random.NextDouble() * 0.55f,
                     0.85f),
+
+                // **絵の種類を順ぐりに割り当てる**。
+                // 隣り合うスプライトが必ず違う絵になるので、
+                // アトラスもソートも無い状態が最悪ケースになる。
+                Kind = i % SpriteNames.Length,
+
+                // 重ね順はばらばら。BackToFront にすると
+                // **テクスチャの並びが完全に崩れる**ので、アトラスの有無が効いてくる。
+                Layer = (float)random.NextDouble(),
             };
         }
     }
@@ -268,10 +330,10 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day17 - スプライトバッチ  {_fps:F1} fps | "
+                $"Day18 - スプライトバッチ最適化  {_fps:F1} fps | "
                 + $"スプライト:{_activeSprites} | ドローコール:{_drawCalls} | "
+                + $"アトラス:{OnOff(_useAtlas)} ソート:{_sortMode} "
                 + $"バッチ:{OnOff(_spriteBatch.BatchingEnabled)} "
-                + $"まとめ:{OnOff(_groupByTexture)} "
                 + $"オーファン:{OnOff(_spriteBatch.UseOrphaning)} "
                 + $"3D:{OnOff(_draw3D)}";
         }
@@ -279,14 +341,6 @@ internal static class Program
 
     private static string OnOff(bool value) => value ? "ON" : "OFF";
 
-    /// <summary>
-    /// スプライトを動かす。画面の端で跳ね返るだけ。
-    ///
-    /// **描画とは完全に分かれている**のがポイントで、
-    /// ここは GPU のことを何も知らないただの配列処理。
-    /// Day 23 の ECS で「データを連続に並べて一括で回す」形にすると、
-    /// このループがそのままシステムになる。
-    /// </summary>
     private static void UpdateSprites(float dt)
     {
         float width = _window.FramebufferSize.X;
@@ -362,55 +416,64 @@ internal static class Program
     }
 
     /// <summary>
-    /// スプライトを描く。**Begin と End の間に積むだけ**で、
-    /// いつ GPU へ送るかは <see cref="SpriteBatch"/> が決める。
+    /// スプライトを描く。
+    ///
+    /// Day 17 では**呼び出し側がテクスチャごとにまとめて渡していた**が、
+    /// 今日はその工夫が要らなくなっている。ただ順に積むだけ。
+    /// まとめる仕事はバッチの中(ソート)と、素材の側(アトラス)に移った。
     /// </summary>
     private static void RenderSprites()
     {
-        // 投影行列は毎フレーム作り直す。ウィンドウの大きさが変わっても追従するため。
         Matrix4x4 projection = Camera.CreateScreen(
             0.0f, _window.FramebufferSize.X,
             _window.FramebufferSize.Y, 0.0f,
             -1.0f, 1.0f);
 
-        _spriteBatch.Begin(projection);
+        _spriteBatch.Begin(projection, _sortMode);
 
-        if (_groupByTexture)
+        for (int i = 0; i < _activeSprites; i++)
         {
-            // 偶数番と奇数番を分けて回す。**テクスチャの切り替えが1回だけ**になるので、
-            // バッチが最大限に効く(ドローコールは容量で決まる数だけ)。
-            for (int i = 0; i < _activeSprites; i += 2)
-            {
-                Submit(i, _circleTexture);
-            }
+            ref Sprite sprite = ref _sprites[i];
+            Submit(
+                sprite.Kind,
+                sprite.Position,
+                new Vector2(sprite.Size, sprite.Size),
+                sprite.Rotation,
+                sprite.Color,
+                sprite.Layer);
+        }
 
-            for (int i = 1; i < _activeSprites; i += 2)
-            {
-                Submit(i, _ringTexture);
-            }
-        }
-        else
-        {
-            // 配列の順に描く。テクスチャが1枚ごとに変わるので、
-            // **バッチが有効でも1枚ずつフラッシュされる**。
-            for (int i = 0; i < _activeSprites; i++)
-            {
-                Submit(i, (i & 1) == 0 ? _circleTexture : _ringTexture);
-            }
-        }
+        RenderLayerTest();
 
         _spriteBatch.End();
     }
 
-    private static void Submit(int index, Texture texture)
+    /// <summary>ソートの効き目を目で見るための3枚(<see cref="LayerTest"/>)。</summary>
+    private static void RenderLayerTest()
     {
-        ref Sprite sprite = ref _sprites[index];
-        _spriteBatch.Draw(
-            texture,
-            sprite.Position,
-            new Vector2(sprite.Size, sprite.Size),
-            sprite.Rotation,
-            sprite.Color);
+        var origin = new Vector2(120.0f, 120.0f);
+
+        foreach ((Vector2 offset, float layer, Vector4 color) in LayerTest)
+        {
+            Submit(0, origin + offset, new Vector2(110.0f, 110.0f), 0.0f, color, layer);
+        }
+    }
+
+    /// <summary>
+    /// 1枚積む。**アトラスを使うかどうかの分岐はここだけ**。
+    /// バッチから見れば <see cref="AtlasRegion"/> か <see cref="Texture"/> かの違いしかなく、
+    /// どちらでも同じ経路を通る。
+    /// </summary>
+    private static void Submit(int kind, Vector2 center, Vector2 size, float rotation, Vector4 color, float layer)
+    {
+        if (_useAtlas)
+        {
+            _spriteBatch.Draw(_regions[kind], center, size, rotation, color, layer);
+        }
+        else
+        {
+            _spriteBatch.Draw(_looseTextures[kind], center, size, rotation, color, layer);
+        }
     }
 
     private static void Draw(Mesh<Vertex> mesh, Material material, Matrix4x4 model)
@@ -437,12 +500,21 @@ internal static class Program
                 break;
 
             // --- 今日のスイッチ ---
-            case Key.B:
-                _spriteBatch.BatchingEnabled = !_spriteBatch.BatchingEnabled;
+            case Key.A:
+                _useAtlas = !_useAtlas;
                 break;
 
-            case Key.T:
-                _groupByTexture = !_groupByTexture;
+            case Key.S:
+                _sortMode = _sortMode switch
+                {
+                    SpriteSortMode.Texture => SpriteSortMode.BackToFront,
+                    SpriteSortMode.BackToFront => SpriteSortMode.Immediate,
+                    _ => SpriteSortMode.Texture,
+                };
+                break;
+
+            case Key.B:
+                _spriteBatch.BatchingEnabled = !_spriteBatch.BatchingEnabled;
                 break;
 
             case Key.O:
@@ -454,7 +526,7 @@ internal static class Program
                 break;
 
             case Key.Up:
-                _activeSprites = Math.Min(_activeSprites + 1000, MaxSprites);
+                _activeSprites = Math.Min(_activeSprites + 1000, MaxSprites - LayerTest.Length);
                 break;
 
             case Key.Down:
@@ -492,6 +564,7 @@ internal static class Program
             case Key.F:
                 _filter = _filter == TextureFilter.Linear ? TextureFilter.Nearest : TextureFilter.Linear;
                 _texture.SetFilter(_filter);
+                _atlas.Texture.SetFilter(_filter);
                 break;
 
             case Key.R:
@@ -523,8 +596,12 @@ internal static class Program
         _orbit.Detach();
 
         _spriteBatch.Dispose();
-        _circleTexture.Dispose();
-        _ringTexture.Dispose();
+        _atlas.Dispose();
+        foreach (Texture texture in _looseTextures)
+        {
+            texture.Dispose();
+        }
+
         _spriteShader.Dispose();
 
         _cube.Dispose();

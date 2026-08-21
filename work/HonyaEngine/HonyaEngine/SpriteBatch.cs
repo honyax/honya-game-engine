@@ -4,28 +4,43 @@ using Silk.NET.OpenGL;
 
 namespace HonyaEngine;
 
+/// <summary>スプライトを実際に描く順番の決め方。</summary>
+internal enum SpriteSortMode
+{
+    /// <summary>
+    /// 積まれた順にそのまま描く。状態が変わるたびにフラッシュする(Day 17 の挙動)。
+    /// 並べ替えないので**呼び出した順が保証される**が、
+    /// 呼び出し側がテクスチャをまとめて渡さないとドローコールが爆発する。
+    /// </summary>
+    Immediate,
+
+    /// <summary>
+    /// テクスチャごとにまとめてから描く。**ドローコールが最小になる**。
+    /// 並べ替わるので描画順は保証されない。不透明なものや、
+    /// 重ならないものにはこれでよい。
+    /// </summary>
+    Texture,
+
+    /// <summary>
+    /// レイヤーの奥から手前へ描く。同じレイヤーの中ではテクスチャでまとめる。
+    /// **半透明の前後関係を正しくしたいときはこれしかない**(要点3)。
+    /// </summary>
+    BackToFront,
+}
+
 /// <summary>
 /// 大量の四角形を、まとめて少ないドローコールで描くための箱。
 ///
-/// ここまでの <see cref="Mesh{TVertex}"/> は「1つの形 = 1回の <c>glDrawElements</c>」だった。
-/// スプライトを1万枚描こうとすると、それは**1万回のドローコール**になる。
-/// ドローコール1回のCPU側コストは数マイクロ秒あるので、
-/// それだけで1フレームの予算(60fps なら 16.6ms)を軽く超える。
+/// Day 17 で作った素朴な版に、Phase 3 の締めとして3つ足した。
+///   1. <see cref="AtlasRegion"/> を受け取れるようにした
+///      → 絵の種類が増えてもテクスチャは1枚のまま(要点2)
+///   2. <see cref="SpriteSortMode"/> による並べ替え
+///      → 呼び出し側が順番を気にしなくてよくなった(要点3)
+///   3. 頂点を 32 → 20 バイトに(<see cref="SpriteVertex"/>)
 ///
-/// 解決策は「頂点を GPU に送る回数」ではなく「**描けと命じる回数**」を減らすこと。
-/// 1万枚ぶんの頂点(4万頂点)を1本のバッファに詰めて、1回で描かせる。
-/// GPU にとっては4万頂点の三角形リストでしかなく、それが1万個の別々の絵だとは知らない。
-///
-/// <see cref="Mesh{TVertex}"/> を使い回せない理由は、あちらが
-/// <c>StaticDraw</c> で1回きりのアップロードを前提にしているから。
-/// スプライトの頂点は**毎フレーム全部作り直す**ので、バッファの扱いが根本的に違う(要点3)。
-///
-/// 使い方:
-/// <code>
-/// batch.Begin(projection);
-/// batch.Draw(texture, center, size, rotation, color);   // 何回でも
-/// batch.End();
-/// </code>
+/// 1 と 2 が合わさると、**どんな順に Draw を呼んでも、
+/// 1フレーム1回の転送 + テクスチャの種類ぶんのドローコール**に収束する。
+/// アトラスを使えばテクスチャの種類は1なので、**ドローコールは1回**。
 /// </summary>
 internal sealed class SpriteBatch : IDisposable
 {
@@ -35,11 +50,27 @@ internal sealed class SpriteBatch : IDisposable
     /// <summary>1回のフラッシュで溜められるスプライトの最大数。</summary>
     private readonly int _capacity;
 
-    /// <summary>
-    /// CPU 側の作業用配列。**毎フレームここに書き込んで、まとめて GPU へ送る**。
-    /// 使い回すので確保は最初の1回だけ。毎フレーム <c>new</c> すると GC を叩き続けることになる。
-    /// </summary>
+    /// <summary>積まれた順の頂点。</summary>
     private readonly SpriteVertex[] _vertices;
+
+    /// <summary>
+    /// 並べ替えたあとの頂点。GPU へ送るのはこちら。
+    ///
+    /// 元の配列を直接並べ替えないのは、**ソートキーで動かすのは4頂点ひとかたまり**で、
+    /// その場で入れ替えると別のスプライトを上書きしてしまうため。
+    /// 20バイト × 4頂点 × capacity ぶん余分にメモリを食うが、
+    /// capacity 10000 でも 800KB なので気にしなくてよい。
+    /// </summary>
+    private readonly SpriteVertex[] _sorted;
+
+    /// <summary>ソートキー。<see cref="_order"/> と対で <c>Array.Sort</c> に渡す。</summary>
+    private readonly long[] _keys;
+
+    /// <summary>ソート後のスプライト番号。</summary>
+    private readonly int[] _order;
+
+    /// <summary>スプライトごとのテクスチャ。ドローコールの切れ目を決めるのに使う。</summary>
+    private readonly Texture[] _quadTextures;
 
     private readonly uint _vertexArray;
     private readonly uint _vertexBuffer;
@@ -48,10 +79,7 @@ internal sealed class SpriteBatch : IDisposable
     /// <summary>今たまっているスプライトの数(フラッシュするとゼロに戻る)。</summary>
     private int _pending;
 
-    /// <summary>
-    /// 今たまっているぶんが使っているテクスチャ。
-    /// **違うテクスチャで描こうとしたらフラッシュするしかない**(要点4)。
-    /// </summary>
+    /// <summary><see cref="SpriteSortMode.Immediate"/> のときだけ使う、今のテクスチャ。</summary>
     private Texture? _currentTexture;
 
     private bool _began;
@@ -66,6 +94,9 @@ internal sealed class SpriteBatch : IDisposable
     /// <summary>このフレームで受け付けたスプライトの枚数。</summary>
     public int SpriteCount { get; private set; }
 
+    /// <summary>描く順番の決め方。<see cref="Begin"/> で指定する。</summary>
+    public SpriteSortMode SortMode { get; private set; } = SpriteSortMode.Texture;
+
     /// <summary>
     /// false にすると1枚ごとにフラッシュする。**バッチの効果を測るためのスイッチ**で、
     /// 実用の設定ではない。B キーで切り替えて fps を比べる。
@@ -73,30 +104,26 @@ internal sealed class SpriteBatch : IDisposable
     public bool BatchingEnabled { get; set; } = true;
 
     /// <summary>
-    /// バッファオーファニングを使うか(要点3)。
-    /// **測ったらこの負荷では効かなかったので既定は false**。切り替えは残してある。
+    /// バッファオーファニングを使うか(Day 17 の要点3)。
+    /// 測ったらこの負荷では効かなかったので既定は false。切り替えは残してある。
     /// </summary>
     public bool UseOrphaning { get; set; }
 
-    public unsafe SpriteBatch(GL gl, Shader shader, int capacity = 4000)
+    public unsafe SpriteBatch(GL gl, Shader shader, int capacity = 10000)
     {
         _gl = gl;
         _shader = shader;
         _capacity = capacity;
         _vertices = new SpriteVertex[capacity * 4];
+        _sorted = new SpriteVertex[capacity * 4];
+        _keys = new long[capacity];
+        _order = new int[capacity];
+        _quadTextures = new Texture[capacity];
 
         _vertexArray = _gl.GenVertexArray();
         _gl.BindVertexArray(_vertexArray);
 
-        // --- 頂点バッファ: 中身は空のまま、**場所だけ**確保する ---
-        //
-        // 第3引数を null にすると「このサイズで確保はするが、内容は未定義」の意味になる。
-        // 毎フレーム内容が変わるので、ここで詰めるものは無い。
-        //
-        // StreamDraw は「毎フレーム書き換えて、数回描いて捨てる」という使い方の申告。
-        // StaticDraw / DynamicDraw / StreamDraw の違いは**ドライバへのヒントでしかなく**、
-        // 間違えても動く。ただしドライバはこれを見てメモリの置き場所を決めるので、
-        // 嘘をつくと遅くなることがある。
+        // --- 頂点バッファ: 中身は空のまま、場所だけ確保する ---
         _vertexBuffer = _gl.GenBuffer();
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vertexBuffer);
         _gl.BufferData(
@@ -105,11 +132,14 @@ internal sealed class SpriteBatch : IDisposable
             null,
             BufferUsageARB.StreamDraw);
 
-        // --- インデックスバッファ: **こちらは最初に1回作れば終わり** ---
+        // --- インデックスバッファ: 最初に1回作れば終わり ---
         //
         // 四角形 i の頂点は必ず 4i, 4i+1, 4i+2, 4i+3 に並ぶので、
-        // インデックスの中身はスプライトの内容に一切依存しない。
-        // つまり毎フレーム送り直す必要が無い。**動的なのは頂点だけ**というのが要点。
+        // 中身はスプライトの内容に一切依存しない。
+        //
+        // **並べ替えてもここは変わらない**のが今日の設計の要。
+        // 頂点のほうを並べ替えて詰め直すので、インデックスは常に
+        // 「先頭から順に四角形を作る」形のままでよい。
         uint[] indices = new uint[capacity * 6];
         for (int i = 0; i < capacity; i++)
         {
@@ -133,16 +163,25 @@ internal sealed class SpriteBatch : IDisposable
                 BufferUsageARB.StaticDraw);
         }
 
-        // --- 頂点属性 --- (Mesh とまったく同じ組み立て方)
+        // --- 頂点属性 ---
         int stride = Unsafe.SizeOf<SpriteVertex>();
         int offset = 0;
-        ReadOnlySpan<int> attributeSizes = SpriteVertex.AttributeSizes;
-        for (int i = 0; i < attributeSizes.Length; i++)
+        ReadOnlySpan<VertexAttribute> attributes = SpriteVertex.Attributes;
+        for (int i = 0; i < attributes.Length; i++)
         {
+            VertexAttribute attribute = attributes[i];
+
             _gl.VertexAttribPointer(
-                (uint)i, attributeSizes[i], VertexAttribPointerType.Float, false, (uint)stride, (void*)offset);
+                (uint)i,
+                attribute.ComponentCount,
+                attribute.Type,
+                attribute.Normalized,
+                (uint)stride,
+                (void*)offset);
+
             _gl.EnableVertexAttribArray((uint)i);
-            offset += attributeSizes[i] * sizeof(float);
+
+            offset += attribute.ByteSize;
         }
 
         if (offset != stride)
@@ -159,14 +198,10 @@ internal sealed class SpriteBatch : IDisposable
     /// <summary>
     /// スプライトの受け付けを始める。
     ///
-    /// ここで**2D を描くための状態**に切り替える(要点5)。3D 用の設定のままでは、
-    ///   - 深度テストが効いていると、あとから描いた手前のスプライトが弾かれる
-    ///   - 背面カリングが効いていると、Y 下向きの座標系で巻きが裏返って全部消える
-    ///   - ブレンドが無効だと、アルファが 0 の部分も背景色で塗り潰される
-    /// の3つが起きる。**借りたものは <see cref="End"/> で返す**。
+    /// ここで 2D を描くための状態に切り替える(Day 17 の要点5)。
+    /// 借りたものは <see cref="End"/> で返す。
     /// </summary>
-    /// <param name="projection">スクリーン座標 → クリップ座標の行列。</param>
-    public void Begin(Matrix4x4 projection)
+    public void Begin(Matrix4x4 projection, SpriteSortMode sortMode = SpriteSortMode.Texture)
     {
         if (_began)
         {
@@ -174,8 +209,10 @@ internal sealed class SpriteBatch : IDisposable
         }
 
         _began = true;
+        SortMode = sortMode;
         DrawCallCount = 0;
         SpriteCount = 0;
+        _currentTexture = null;
 
         _savedDepthTest = _gl.IsEnabled(EnableCap.DepthTest);
         _savedCullFace = _gl.IsEnabled(EnableCap.CullFace);
@@ -184,10 +221,6 @@ internal sealed class SpriteBatch : IDisposable
         _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.CullFace);
         _gl.Enable(EnableCap.Blend);
-
-        // いわゆる「通常のアルファブレンド」。
-        //   結果 = 描く色 * α + すでにある色 * (1 - α)
-        // α が 0 の部分は「すでにある色」がそのまま残るので、切り抜きになる。
         _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
 
         _shader.Use();
@@ -195,45 +228,60 @@ internal sealed class SpriteBatch : IDisposable
         _shader.SetInt("uTexture", 0);
     }
 
-    /// <summary>スプライトを1枚積む。テクスチャ全体を使う。</summary>
-    public void Draw(Texture texture, Vector2 center, Vector2 size, float rotation, Vector4 color)
-        => Draw(texture, center, size, rotation, color, Vector2.Zero, Vector2.One);
+    /// <summary>テクスチャ全体を1枚のスプライトとして積む。</summary>
+    public void Draw(Texture texture, Vector2 center, Vector2 size, float rotation, Vector4 color, float layer = 0.0f)
+        => Draw(
+            new AtlasRegion(texture, Vector2.Zero, Vector2.One, texture.Width, texture.Height),
+            center, size, rotation, color, layer);
 
     /// <summary>
-    /// スプライトを1枚積む。テクスチャの一部だけを切り出す版。
-    ///
-    /// <paramref name="uvMin"/> / <paramref name="uvMax"/> はテクスチャ座標なので、
-    /// **原点は左下**(Day 15 の要点4で上下反転して読み込んでいるため)。
-    /// スプライトシートを扱いやすいピクセル指定にするのは Day 18 の仕事。
+    /// アトラスの一部を1枚のスプライトとして積む。
     /// </summary>
+    /// <param name="layer">
+    /// 奥行き。0 が奥、1 が手前。
+    /// <see cref="SpriteSortMode.BackToFront"/> のときだけ意味を持つ。
+    ///
+    /// **深度バッファではない**ことに注意。2D では深度テストを切っているので、
+    /// これは「描く順を決めるためだけの数字」。
+    /// 深度バッファを使わない理由は、半透明が深度テストと両立しないため(要点3)。
+    /// </param>
     public void Draw(
-        Texture texture,
+        in AtlasRegion region,
         Vector2 center,
         Vector2 size,
         float rotation,
         Vector4 color,
-        Vector2 uvMin,
-        Vector2 uvMax)
+        float layer = 0.0f)
     {
         if (!_began)
         {
             throw new InvalidOperationException("Begin を先に呼んでください");
         }
 
-        // **フラッシュが必要になる2つの条件**。ここが今日の肝(要点4)。
-        //   1. テクスチャが変わる … シェーダに刺さっているテクスチャは1つだけなので、
-        //      違う絵を混ぜられない
-        //   2. バッファが満杯   … これ以上は物理的に入らない
-        if (_currentTexture != texture || _pending >= _capacity)
+        // 満杯になったら、そこまでのぶんを吐き出す。
+        //
+        // **並べ替えモードでは、これが起きるとソートが分断される**。
+        // 前半だけで並べ替え → 描画 → 後半だけで並べ替え、になるので、
+        // 前半の手前のスプライトが後半の奥のスプライトに隠される。
+        // だから容量は「1フレームで積む最大枚数」以上にしておくのが望ましい。
+        if (_pending >= _capacity)
         {
-            Flush();
-            _currentTexture = texture;
+            FlushAll();
         }
 
+        // Immediate だけは、テクスチャが変わった時点で吐き出す(Day 17 と同じ)。
+        // 並べ替えモードでは、テクスチャが変わっても溜め続ける。
+        // **どうせあとでまとめ直すので、ここで切る意味が無い**。
+        if (SortMode == SpriteSortMode.Immediate
+            && _currentTexture is not null
+            && _currentTexture != region.Texture)
+        {
+            FlushAll();
+        }
+
+        _currentTexture = region.Texture;
+
         // --- 回転を効かせた4隅を求める ---
-        //
-        // 中心から「右半分」「下半分」へのベクトルを回転させて足し引きする。
-        // 4隅それぞれに sin/cos を掛けるより、こちらのほうが計算が少なくて済む。
         float cos = MathF.Cos(rotation);
         float sin = MathF.Sin(rotation);
         Vector2 right = new(cos * size.X * 0.5f, sin * size.X * 0.5f);
@@ -244,27 +292,57 @@ internal sealed class SpriteBatch : IDisposable
         Vector2 bottomRight = center + right + down;
         Vector2 bottomLeft = center - right + down;
 
-        // --- UV の割り当て ---
-        //
-        // **画面の上辺には V が大きいほうを割り当てる**。V 座標の反転がここで3回目。
-        //   Day 10 … OBJ の V
-        //   Day 15 … 画像読み込み時の上下反転
-        //   Day 17 … スクリーン座標が Y 下向き ⇔ テクスチャ座標が V 上向き
-        // 3回とも「原点の取り方が違う2つの世界をつなぐ」という同じ問題で、
-        // 直し方も毎回1か所。どこで1回だけ反転させるかを決めておくのが大事。
+        // 色は**1枚につき1回だけ**詰める。4頂点それぞれで詰め直すのは無駄。
+        uint packed = SpriteVertex.PackColor(color);
+
+        // 画面の上辺には V が大きいほうを割り当てる(Day 17 の要点6)。
+        Vector2 uvMin = region.UvMin;
+        Vector2 uvMax = region.UvMax;
+
         int v = _pending * 4;
-        _vertices[v + 0] = new SpriteVertex(topLeft, new Vector2(uvMin.X, uvMax.Y), color);
-        _vertices[v + 1] = new SpriteVertex(topRight, new Vector2(uvMax.X, uvMax.Y), color);
-        _vertices[v + 2] = new SpriteVertex(bottomRight, new Vector2(uvMax.X, uvMin.Y), color);
-        _vertices[v + 3] = new SpriteVertex(bottomLeft, new Vector2(uvMin.X, uvMin.Y), color);
+        _vertices[v + 0] = new SpriteVertex(topLeft, new Vector2(uvMin.X, uvMax.Y), packed);
+        _vertices[v + 1] = new SpriteVertex(topRight, new Vector2(uvMax.X, uvMax.Y), packed);
+        _vertices[v + 2] = new SpriteVertex(bottomRight, new Vector2(uvMax.X, uvMin.Y), packed);
+        _vertices[v + 3] = new SpriteVertex(bottomLeft, new Vector2(uvMin.X, uvMin.Y), packed);
+
+        _quadTextures[_pending] = region.Texture;
+        _keys[_pending] = MakeSortKey(region.Texture, layer);
+        _order[_pending] = _pending;
 
         _pending++;
         SpriteCount++;
 
         if (!BatchingEnabled)
         {
-            Flush();
+            FlushAll();
         }
+    }
+
+    /// <summary>
+    /// ソートキーを作る。**1本の long に押し込む**のがこの手の定番。
+    ///
+    /// 比較関数を書いて <c>Comparison&lt;T&gt;</c> を渡すより、
+    /// 数値1つに畳んでおくほうがずっと速い(比較のたびにデリゲート呼び出しが起きない)。
+    /// 優先度の高い条件を上位ビットに置くだけで、多段ソートが1回の比較で済む。
+    ///
+    ///   上位32bit … レイヤー(奥ほど小さい)
+    ///   下位32bit … テクスチャのハンドル
+    ///
+    /// レイヤーを 16bit に量子化しているのは、float をそのままビット比較できないから
+    /// (負数の扱いが素直でない)。0.0〜1.0 を 0〜65535 に写せば単純な整数比較になる。
+    /// 65536 段あれば 2D の重ね順には十分すぎる。
+    /// </summary>
+    private long MakeSortKey(Texture texture, float layer)
+    {
+        if (SortMode != SpriteSortMode.BackToFront)
+        {
+            // テクスチャだけでまとめる。ハンドルの値そのものに意味は無く、
+            // **同じものが隣り合えばよい**だけなのでこれで足りる。
+            return texture.Handle;
+        }
+
+        uint quantized = (uint)(Math.Clamp(layer, 0.0f, 1.0f) * 65535.0f);
+        return ((long)quantized << 32) | texture.Handle;
     }
 
     /// <summary>溜まっているぶんを描いて、状態を元に戻す。</summary>
@@ -275,56 +353,56 @@ internal sealed class SpriteBatch : IDisposable
             throw new InvalidOperationException("Begin が呼ばれていません");
         }
 
-        Flush();
+        FlushAll();
         _began = false;
 
-        // 借りた状態を返す。
-        // BlendFunc は元に戻していない。**「何を保存して何を保存しないか」を
-        // クラスごとに決め打ちするのは長期的には破綻する**ので、
-        // 本来はレンダーステートをまとめて持つ仕組みが要る。
-        // ここでは Begin が必ず BlendFunc を設定し直すことで辻褄を合わせている。
         SetCap(EnableCap.DepthTest, _savedDepthTest);
         SetCap(EnableCap.CullFace, _savedCullFace);
         SetCap(EnableCap.Blend, _savedBlend);
     }
 
     /// <summary>
-    /// 溜まっているぶんを GPU へ送って、1回だけ描く。
+    /// 溜まっているぶんを GPU へ送って描く。
+    ///
+    /// **転送は1回、ドローコールはテクスチャの切れ目の数だけ**。
+    /// インデックスバッファは「先頭から順に四角形」の形で固定なので、
+    /// 頂点を並べ替えて詰め直せば、あとは <c>glDrawElements</c> の
+    /// オフセットをずらすだけで任意の区間を描ける。
     /// </summary>
-    private unsafe void Flush()
+    private unsafe void FlushAll()
     {
-        if (_pending == 0 || _currentTexture is null)
+        if (_pending == 0)
         {
             return;
         }
 
+        // --- 並べ替え ---
+        // Immediate では並べ替えも詰め直しもしないので、積んだ配列をそのまま送る。
+        // Day 17 の挙動と同じコストになるようにしてあり、比較の基準として使える。
+        SpriteVertex[] source = _vertices;
+
+        if (SortMode != SpriteSortMode.Immediate)
+        {
+            // キーの配列と番号の配列を対で渡すと、キーで並べ替えつつ番号も同じ順に動く。
+            // 自前で (key, index) のペアを作るより割り当てが少ない。
+            Array.Sort(_keys, _order, 0, _pending);
+
+            // 並べ替えた順に頂点を詰め直す。
+            for (int i = 0; i < _pending; i++)
+            {
+                Array.Copy(_vertices, _order[i] * 4, _sorted, i * 4, 4);
+            }
+
+            source = _sorted;
+        }
+
+        int stride = Unsafe.SizeOf<SpriteVertex>();
+
         _gl.BindVertexArray(_vertexArray);
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vertexBuffer);
 
-        int vertexCount = _pending * 4;
-        int stride = Unsafe.SizeOf<SpriteVertex>();
-
         if (UseOrphaning)
         {
-            // **バッファオーファニング**。動的バッファの定番テクニックとされているもの。
-            //
-            // 同じバッファに BufferSubData で上書きするとき、GPU がまだ前フレームの
-            // 描画でそのバッファを読んでいると、ドライバは読み終わるのを待つ
-            // (= CPU が止まる)。ここで同じサイズ・同じ用途で BufferData を
-            // 呼び直すと「前の中身はもう要らない」という宣言になり、ドライバは
-            // 古い領域を GPU に使わせたまま、**新しい領域をこちらに渡してくれる**。
-            // 古い領域は描き終わったら勝手に回収される(= 孤児 orphan にする)。
-            //
-            // ただし**このデモでは効かなかった**。
-            // 20000枚(6ドローコール、1フレーム約1.05ms)で ON/OFF の差は 0.3% 以内、
-            // 1000枚では ON のほうがむしろ遅い。理由は単純で、**待つほど GPU が
-            // 遅れていない**から。オーファニングは「待ちを消す」技であって、
-            // 待ちが無いところでは BufferData の呼び出しぶんだけ損をする。
-            //
-            // 効くのは GPU 律速のとき。既定を false にしてあるのはそのためで、
-            // O キーで切り替えて自分の環境で測れるようにしてある。
-            // **定番と呼ばれる手法でも、自分の負荷で測るまでは分からない**
-            // ——Day 2・Day 9 で繰り返し踏んだのと同じ話。
             _gl.BufferData(
                 BufferTargetARB.ArrayBuffer,
                 (nuint)(_vertices.Length * stride),
@@ -332,27 +410,45 @@ internal sealed class SpriteBatch : IDisposable
                 BufferUsageARB.StreamDraw);
         }
 
-        fixed (SpriteVertex* data = _vertices)
+        // **1フレームに1回の転送**。ここが Day 17 との一番の違い。
+        // Day 17 はテクスチャが変わるたびに転送していた。
+        fixed (SpriteVertex* data = source)
         {
-            // 使ったぶんだけ送る。満杯でないときに全域を送ると、
-            // 使っていない領域まで毎フレーム転送することになる。
             _gl.BufferSubData(
                 BufferTargetARB.ArrayBuffer,
                 0,
-                (nuint)(vertexCount * stride),
+                (nuint)(_pending * 4 * stride),
                 data);
         }
 
-        _currentTexture.Bind(TextureUnit.Texture0);
+        // --- テクスチャの切れ目でドローコールを分ける ---
+        int runStart = 0;
+        for (int i = 1; i <= _pending; i++)
+        {
+            bool boundary = i == _pending
+                || _quadTextures[_order[i]] != _quadTextures[_order[runStart]];
 
-        _gl.DrawElements(
-            PrimitiveType.Triangles,
-            (uint)(_pending * 6),
-            DrawElementsType.UnsignedInt,
-            (void*)0);
+            if (!boundary)
+            {
+                continue;
+            }
 
-        DrawCallCount++;
+            _quadTextures[_order[runStart]].Bind(TextureUnit.Texture0);
+
+            _gl.DrawElements(
+                PrimitiveType.Triangles,
+                (uint)((i - runStart) * 6),
+                DrawElementsType.UnsignedInt,
+                // インデックスバッファ内のバイトオフセット。
+                // 四角形 runStart 個ぶん先から読む。
+                (void*)(runStart * 6 * sizeof(uint)));
+
+            DrawCallCount++;
+            runStart = i;
+        }
+
         _pending = 0;
+        _currentTexture = null;
     }
 
     private void SetCap(EnableCap cap, bool enabled)

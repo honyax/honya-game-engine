@@ -31,7 +31,7 @@ internal static class Primitives
 
         ReadOnlySpan<uint> indices = [0, 1, 2, 2, 3, 0];
 
-        return new Mesh<Vertex>(gl, vertices, indices, Vertex.AttributeSizes);
+        return new Mesh<Vertex>(gl, vertices, indices, Vertex.Attributes);
     }
 
     /// <summary>
@@ -79,7 +79,7 @@ internal static class Primitives
         AddFace(vertices, indices,
             new Vector3(-h, -h, -h), new Vector3(h, -h, -h), new Vector3(h, -h, h), new Vector3(-h, -h, h), bottom);
 
-        return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.AttributeSizes);
+        return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
     }
 
     /// <summary>四角形1面ぶんの頂点4つとインデックス6つを足す。</summary>

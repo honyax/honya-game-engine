@@ -6,20 +6,22 @@ namespace HonyaEngine;
 /// <summary>
 /// スプライト用の頂点フォーマット。
 ///
-/// <see cref="Vertex"/>(3D用)と分けたのは、**1頂点あたりのバイト数がそのまま
-/// 転送量になる**から。スプライトバッチは毎フレーム全頂点を CPU で作って
-/// GPU へ送り直すので、3D の静的メッシュとは事情がまるで違う。
+/// Day 17 では色を <see cref="Vector4"/>(16バイト)で持っていた。
+/// Day 18 でそれを **byte 4個(4バイト)** に詰め、1頂点 32 → **20バイト** にする。
 ///
-///   <see cref="Vertex"/>       位置(3) + UV(2) + 色(4) = 9 float = 36 バイト
-///   <see cref="SpriteVertex"/> 位置(2) + UV(2) + 色(4) = 8 float = 32 バイト
+///   Day 17  位置(2×4) + UV(2×4) + 色(4×4) = 32 バイト
+///   Day 18  位置(2×4) + UV(2×4) + 色(4×1) = 20 バイト
 ///
-/// Z を落としたのは、2D では奥行きを頂点ではなく**描く順**で決めるため
-/// (深度テストは切る。要点5)。1万スプライト = 4万頂点なので、
-/// 4バイトの差が毎フレーム 160KB の転送量の差になる。
+/// スプライトバッチは毎フレーム全頂点を作り直して GPU へ送るので、
+/// **1頂点のバイト数がそのまま毎フレームの転送量**になる。
+/// 2万枚 = 8万頂点で 2.56MB → 1.60MB。37% 減。
 ///
-/// 色を <see cref="Vector4"/>(16バイト)のまま残しているのは、まだ削る番ではないから。
-/// byte 4個に詰めれば 32 → 20 バイトまで落ちる。**先に測る**のが順序で、
-/// それは Day 18 でやる。
+/// ……という理屈は正しいが、**速くなるとは限らない**。
+/// 実際に測るのが今日の仕事の一つ(計画書の要点4)。
+///
+/// 色を 8bit にして情報が落ちないのかという点については、
+/// **画面に出す色は最終的に 8bit** なので問題ない。
+/// 中間計算で精度が要るのは HDR を扱い始める Day 31 から。
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct SpriteVertex
@@ -30,16 +32,53 @@ internal struct SpriteVertex
     /// <summary>テクスチャ座標。</summary>
     public Vector2 TexCoord;
 
-    /// <summary>頂点色。スプライトごとの色付けに使う。</summary>
-    public Vector4 Color;
+    /// <summary>
+    /// 頂点色。RGBA を各8bit に詰めたもの。
+    ///
+    /// <c>uint</c> 1個として持つが、GPU 側には
+    /// 「unsigned byte 4個、正規化あり」として教える(<see cref="Attributes"/>)。
+    /// シェーダからは今までどおり <c>vec4</c> の 0.0〜1.0 に見えるので、
+    /// **GLSL 側は1文字も変わらない**。
+    /// </summary>
+    public uint Color;
 
-    public SpriteVertex(Vector2 position, Vector2 texCoord, Vector4 color)
+    public SpriteVertex(Vector2 position, Vector2 texCoord, uint color)
     {
         Position = position;
         TexCoord = texCoord;
         Color = color;
     }
 
-    /// <summary>頂点属性それぞれの float の個数(<see cref="Vertex.AttributeSizes"/> と同じ約束)。</summary>
-    public static ReadOnlySpan<int> AttributeSizes => [2, 2, 4];
+    private static readonly VertexAttribute[] AttributeList =
+    [
+        VertexAttribute.Float(2),      // Position
+        VertexAttribute.Float(2),      // TexCoord
+        VertexAttribute.UNormByte4(),  // Color
+    ];
+
+    /// <summary>頂点属性の記述。宣言順に並べる。</summary>
+    public static ReadOnlySpan<VertexAttribute> Attributes => AttributeList;
+
+    /// <summary>
+    /// 0.0〜1.0 の色を RGBA8 に詰める。
+    ///
+    /// リトルエンディアンの環境では <c>uint</c> はメモリ上に
+    /// 下位バイトから並ぶので、<c>r | g&lt;&lt;8 | b&lt;&lt;16 | a&lt;&lt;24</c> と書くと
+    /// **バイト列としては R, G, B, A の順**になる。GL に伝えるのはバイト列なので、
+    /// これで意図どおりの並びになる。
+    /// (ビッグエンディアンの環境では逆になる。.NET が動く環境で
+    ///  ビッグエンディアンはほぼ絶滅しているが、原理としては環境依存)
+    ///
+    /// +0.5f は四捨五入のため。切り捨てだと 1.0 が 254 になってしまう
+    /// (255.0 を float で計算した結果がわずかに下回ることがある)。
+    /// </summary>
+    public static uint PackColor(Vector4 color)
+    {
+        uint r = (uint)(Math.Clamp(color.X, 0.0f, 1.0f) * 255.0f + 0.5f);
+        uint g = (uint)(Math.Clamp(color.Y, 0.0f, 1.0f) * 255.0f + 0.5f);
+        uint b = (uint)(Math.Clamp(color.Z, 0.0f, 1.0f) * 255.0f + 0.5f);
+        uint a = (uint)(Math.Clamp(color.W, 0.0f, 1.0f) * 255.0f + 0.5f);
+
+        return r | (g << 8) | (b << 16) | (a << 24);
+    }
 }

@@ -15,7 +15,7 @@ namespace HonyaEngine;
 /// <see cref="StructLayout"/> で Sequential を明示するのは、
 /// **GPU に渡すメモリの並びを宣言順に固定するため**。
 /// これが無いと CLR がフィールドを詰め替えてよいことになっており、
-/// <see cref="AttributeSizes"/> で教えるオフセットと食い違う可能性がある。
+/// <see cref="Attributes"/> で教えるオフセットと食い違う可能性がある。
 /// Day 11 で Win32 の構造体に付けたのとまったく同じ理由。
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
@@ -37,13 +37,25 @@ internal struct Vertex
         Color = color;
     }
 
+    private static readonly VertexAttribute[] AttributeList =
+    [
+        VertexAttribute.Float(3),   // Position
+        VertexAttribute.Float(2),   // TexCoord
+        VertexAttribute.Float(4),   // Color
+    ];
+
     /// <summary>
-    /// 頂点属性それぞれの float の個数。宣言順に並べる。
+    /// 頂点属性の記述。宣言順に並べる。
     ///
     /// <see cref="Mesh{TVertex}"/> はこれを見て
     /// <c>glVertexAttribPointer</c> のオフセットとストライドを組み立てる。
-    /// **全部 float 前提の簡易版**で、byte に詰めた色などは扱えない。
-    /// Day 17 のスプライトバッチで頂点を小さくしたくなったら、そこで拡張する。
+    /// Day 17 までは <c>int</c> の配列(float の個数だけ)だったが、
+    /// Day 18 で <see cref="SpriteVertex"/> の色を byte に詰めるために
+    /// 型情報を持つ <see cref="VertexAttribute"/> へ置き換えた。
+    ///
+    /// 3D 側は今のところ全部 float のままでよい。
+    /// 法線を byte に詰める、位置を half にする、といった圧縮が要るのは
+    /// 頂点数が桁違いになってから(Day 32 以降)。
     /// </summary>
-    public static ReadOnlySpan<int> AttributeSizes => [3, 2, 4];
+    public static ReadOnlySpan<VertexAttribute> Attributes => AttributeList;
 }

@@ -42,7 +42,7 @@ internal sealed class Mesh<TVertex> : IDisposable
         GL gl,
         ReadOnlySpan<TVertex> vertices,
         ReadOnlySpan<uint> indices,
-        ReadOnlySpan<int> attributeSizes)
+        ReadOnlySpan<VertexAttribute> attributes)
     {
         _gl = gl;
         _indexCount = (uint)indices.Length;
@@ -84,21 +84,21 @@ internal sealed class Mesh<TVertex> : IDisposable
         // --- 頂点属性 ---
         // 宣言順にオフセットを積み上げていくだけ。手で数えていたものを機械にやらせる。
         int offset = 0;
-        for (int i = 0; i < attributeSizes.Length; i++)
+        for (int i = 0; i < attributes.Length; i++)
         {
-            int componentCount = attributeSizes[i];
+            VertexAttribute attribute = attributes[i];
 
             _gl.VertexAttribPointer(
                 (uint)i,
-                componentCount,
-                VertexAttribPointerType.Float,
-                false,
+                attribute.ComponentCount,
+                attribute.Type,
+                attribute.Normalized,
                 (uint)stride,
                 (void*)offset);
 
             _gl.EnableVertexAttribArray((uint)i);
 
-            offset += componentCount * sizeof(float);
+            offset += attribute.ByteSize;
         }
 
         // オフセットの合計が構造体のサイズと合わない = 属性の記述が間違っている。
