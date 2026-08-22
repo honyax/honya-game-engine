@@ -280,6 +280,551 @@ reference/Day25/
 4. **`Program.cs`** — `Body` → `UpdateBodies`(総当たりの二重ループ)→
    `Test(in Body, in Body)`(組み合わせの分岐)→ `RenderBodies` → `RunCollisionCheck`
 
+## 設計書
+
+Day 24 の時点でクラスが 33 個になり、「どこに何があるか」を頭に置いておくのが難しくなった。
+フォルダを分けた今日に合わせて、**現時点のエンジン全体の姿**を図にしておく。
+
+写経の前に読み込む必要はない。**途中で「これは誰が呼ぶんだったか」と迷ったときに戻ってくる場所**として使う。
+Day 26 以降もこの節を更新していくので、差分を追えば設計が育っていく過程がそのまま残る。
+
+### 全体構成 — 5つの層と依存の向き
+
+```mermaid
+graph TD
+    P["Program.cs<br/>デモの組み立て・キー操作・計測"]
+    S["Scene/<br/>GameObject + Component"]
+    E["Ecs/<br/>Entity + ComponentStore"]
+    PH["Physics/<br/>形と衝突判定"]
+    R["Render/<br/>OpenGL の薄い皮"]
+    C["Core/<br/>時間・入力・リソース"]
+
+    P --> S
+    P --> E
+    P --> PH
+    P --> R
+    P --> C
+    S --> C
+    S -.->|SceneSerializer だけ| E
+    R <--> C
+```
+
+| 層 | 依存先 | 備考 |
+|---|---|---|
+| `Physics/` | **なし** | `System.Numerics` だけ。そのまま別プロジェクトへ持ち出せる |
+| `Ecs/` | **なし** | 同上。Day 23 で「他に依存しないので先に5つ書ける」と書いたとおり |
+| `Scene/` | `Core`(`InputSnapshot`)、`Ecs`(`SceneSerializer` のみ) | **描画を一切知らない**。`SpriteRenderer` は絵の種類と大きさを持つデータでしかない |
+| `Render/` | `Core`(`Handle` / `ResourceManager`) | `Material` がハンドルを解くために管理側を呼ぶ |
+| `Core/` | `Render`(`Texture` / `Shader`) | `ResourceManager` が両者の実体を握っている |
+| `Program.cs` | 全部 | 組み立て役。3018行あるが、その大半はデモ・計測・自己チェック |
+
+**`Core` と `Render` が相互参照になっている**のは、この図を描いて初めて見えたことで、
+きれいな形ではない。`ResourceManager`(Core)が `Texture`(Render)を作り、
+`Material`(Render)が `ResourceManager`(Core)を呼ぶ、という往復になっている。
+
+名前空間が `HonyaEngine` 1つなので今は問題なく動くが、**アセンブリを分けようとした瞬間に破綻する**。
+直すなら「`ResourcePool` と `Handle` だけを下層に置き、`ResourceManager` は Render 側に上げる」
+のが素直で、Phase 6 でアセットの種類が増えたときに検討する。
+今日の時点では**そういう歪みがあることを記録しておくだけ**にする。
+
+### Core — 時間・入力・リソース
+
+```mermaid
+classDiagram
+    class GameLoop {
+        +double FixedDeltaTime
+        +int MaxStepsPerFrame
+        +bool DropExcess
+        +double Alpha
+        +int StepsLastFrame
+        +double Lag
+        +Advance(frameSeconds, fixedUpdate)
+    }
+    class InputSystem {
+        +InputSnapshot Current
+        +Attach(keyboard)
+        +Attach(mouse)
+        +BeginStep() InputSnapshot
+        +SetCurrent(snapshot)
+    }
+    class InputMap {
+        +Bind(key, action)
+        +Resolve(key) GameAction
+        +CreateDefault() InputMap
+    }
+    class InputSnapshot {
+        +GameAction Held
+        +GameAction Pressed
+        +GameAction Released
+        +Vector2 MoveAxis
+        +IsHeld(action) bool
+        +WasPressed(action) bool
+    }
+    class InputRecorder {
+        +RecorderMode Mode
+        +Record(snapshot)
+        +TryReplay(out snapshot) bool
+    }
+    class Handle {
+        +bool IsValid
+    }
+    class ResourcePool {
+        +Add(value) Handle
+        +TryGet(handle, out value) bool
+        +Retain(handle) bool
+        +Release(handle, out removed) bool
+        +Replace(handle, value, out prev) bool
+    }
+    class ResourceManager {
+        +int MaxUploadsPerFrame
+        +int PendingCount
+        +LoadTexture(path) Handle
+        +LoadTextureAsync(path) Handle
+        +Update()
+        +GetTexture(handle) Texture
+        +Release(handle) bool
+    }
+
+    InputSystem --> InputMap : キーを引く
+    InputSystem ..> InputSnapshot : 畳んで返す
+    InputRecorder ..> InputSnapshot : 溜める / 返す
+    ResourceManager *-- ResourcePool : テクスチャ用とシェーダ用の2本
+    ResourcePool ..> Handle : 添字 + 世代を配る
+```
+
+`ResourcePool` と `Handle` は総称型(`ResourcePool<T>` / `Handle<T>`)。
+`T` が何かを知らないまま添字と世代だけを管理するので、`Texture` にも `Shader` にも同じものが使える。
+
+この層で押さえるべき責務の線引き:
+
+- **`GameLoop` は時間しか知らない**。何を更新するかは `Action<float>` で渡される
+- **`InputSystem` はデバイスのイベントを畳むだけ**。ゲームとしての意味づけは `InputMap` が持つ
+- **`InputSnapshot` は値**。だから記録・再生で丸ごと差し替えられる(Day 20 の肝)
+
+### Render — OpenGL の薄い皮
+
+```mermaid
+classDiagram
+    class Camera {
+        +Vector3 Position
+        +Vector3 Target
+        +ProjectionMode Mode
+        +float AspectRatio
+        +Matrix4x4 ViewProjection
+        +CreateScreen(width, height) Matrix4x4
+    }
+    class OrbitCameraController {
+        +float Yaw
+        +float Pitch
+        +float Distance
+        +Apply()
+    }
+    class Shader {
+        +Use()
+        +SetInt(name, value)
+        +SetVector4(name, value)
+        +SetMatrix4(name, value)
+        +TryReload() bool
+    }
+    class Texture {
+        +uint Handle
+        +int Width
+        +int Height
+        +bool HasMipmaps
+        +FromFile(gl, path) Texture
+        +DecodeFile(path) DecodedImage
+        +FromPixels(gl, pixels, w, h) Texture
+        +Bind(unit)
+    }
+    class TextureAtlas {
+        +Texture Texture
+        +FromFiles(gl, paths, padding) TextureAtlas
+    }
+    class AtlasRegion {
+        +Texture Texture
+        +Vector2 UvMin
+        +Vector2 UvMax
+    }
+    class Material {
+        +Handle Shader
+        +Handle MainTexture
+        +Vector4 Tint
+        +Vector2 UvScale
+        +Apply(resources)
+    }
+    class Mesh {
+        +Draw()
+        +Dispose()
+    }
+    class Vertex {
+        +Vector3 Position
+        +Vector2 TexCoord
+        +Vector4 Color
+        +Attributes
+    }
+    class SpriteVertex {
+        +Vector2 Position
+        +Vector2 TexCoord
+        +uint Color
+        +PackColor(color) uint
+    }
+    class VertexAttribute {
+        +int ComponentCount
+        +bool Normalized
+        +int ByteSize
+    }
+    class SpriteBatch {
+        +SpriteSortMode SortMode
+        +int DrawCallCount
+        +Begin(projection, sortMode)
+        +Draw(texture, center, size, rotation, color, layer)
+        +End()
+    }
+    class Primitives {
+        +CreateQuad(gl) Mesh
+        +CreateCube(gl) Mesh
+    }
+
+    OrbitCameraController --> Camera : 球面座標で位置を書く
+    Material ..> Shader : ハンドル経由
+    Material ..> Texture : ハンドル経由
+    Mesh ..> VertexAttribute : ストライドとオフセットを組む
+    Vertex ..> VertexAttribute
+    SpriteVertex ..> VertexAttribute
+    Mesh ..> Vertex : 型引数
+    Primitives ..> Mesh : 作る
+    TextureAtlas *-- AtlasRegion
+    TextureAtlas *-- Texture : 1枚に詰める
+    SpriteBatch --> Shader
+    SpriteBatch ..> SpriteVertex : 積む
+    SpriteBatch ..> AtlasRegion : UV を受け取る
+```
+
+**`Material` が何も所有していない**のは Day 15 から一貫している(Day15.md の要点2)。
+持っているのはハンドルだけで、実体の寿命は `ResourceManager` にある。
+
+**3D の道(`Mesh` + `Material`)と 2D の道(`SpriteBatch`)が並列**なのも見てのとおりで、
+両者は `Shader` と `Texture` を共有しているだけで互いを知らない。
+`Mesh` は「形が決まっていて毎フレーム変わらないもの」、
+`SpriteBatch` は「毎フレーム頂点を作り直すもの」という使い分けになっている。
+
+### Scene — GameObject + Component
+
+```mermaid
+classDiagram
+    class Scene {
+        +int GameObjectCount
+        +InputSnapshot Input
+        +Vector2 Bounds
+        +CreateGameObject(name, parent) GameObject
+        +Destroy(gameObject)
+        +FixedUpdate(deltaTime)
+        +Clear()
+    }
+    class GameObject {
+        +string Name
+        +Transform Transform
+        +bool ActiveInHierarchy
+        +AddComponent() T
+        +GetComponent() T
+        +SetActive(active)
+    }
+    class Transform {
+        +Vector3 LocalPosition
+        +Quaternion LocalRotation
+        +Vector3 LocalScale
+        +Transform Parent
+        +Matrix4x4 LocalToWorld
+        +SetParent(parent)
+        +Snapshot()
+        +GetInterpolatedWorldPosition(alpha) Vector3
+    }
+    class Component {
+        +GameObject GameObject
+        +Transform Transform
+        +bool Enabled
+        #Awake()
+        #Start()
+        #OnEnable()
+        #OnDisable()
+        #FixedUpdate(deltaTime)
+        #OnDestroy()
+    }
+    class SpriteRenderer {
+        +int Kind
+        +float Size
+        +Vector4 Color
+        +float Layer
+    }
+    class BouncingMover {
+        +Vector2 Velocity
+        +float SpinSpeed
+    }
+    class OrbitMover {
+        +float Radius
+        +float AngularSpeed
+    }
+    class PlayerController {
+        +Vector2 Velocity
+        +float DashCooldown
+    }
+    class LifecycleLogger {
+        +string Label
+    }
+    class ComponentRegistry {
+        +Register(name)
+        +NameOf(type) string
+        +TypeOf(name) Type
+    }
+    class SceneSerializer {
+        +CurrentVersion
+        +Save(scene, world, name) string
+        +Load(json, world) Scene
+    }
+
+    Scene "1" *-- "n" GameObject
+    GameObject "1" *-- "1" Transform
+    GameObject "1" *-- "n" Component
+    Transform "1" o-- "n" Transform : 親子
+    Component <|-- SpriteRenderer
+    Component <|-- BouncingMover
+    Component <|-- OrbitMover
+    Component <|-- PlayerController
+    Component <|-- LifecycleLogger
+    SceneSerializer ..> Scene : 読み書き
+    SceneSerializer ..> ComponentRegistry : 型名を引く
+```
+
+`Transform` だけが `GameObject` の固定メンバーで、ほかは全部 `Component` として付け外しする
+(Day 22 の要点2)。`SceneSerializer` が `ComponentRegistry` を経由するのは、
+**JSON の文字列から直接 `Type` を作らせない**ため(Day 24 の要点2)。
+
+### Ecs と Physics — どこにも依存しない2つ
+
+```mermaid
+classDiagram
+    class Entity {
+        +bool IsValid
+    }
+    class World {
+        +int AliveCount
+        +CreateEntity() Entity
+        +DestroyEntity(entity) bool
+        +Store() ComponentStore
+        +Add(entity, value)
+        +Get(entity) T
+    }
+    class ComponentStore {
+        +int Count
+        +Values
+        +Entities
+        +Add(entityIndex, value)
+        +Get(entityIndex) T
+        +Remove(entityIndex) bool
+    }
+    class EcsSystems {
+        +Snapshot(world, aligned)
+        +Move(world, deltaTime, bounds, aligned)
+        +AreAligned(a, b) bool
+    }
+
+    World "1" *-- "n" ComponentStore : 型ごとに1本
+    World ..> Entity : 番号を配る
+    EcsSystems ..> World : 舐める
+```
+
+```mermaid
+classDiagram
+    class Aabb2D {
+        +Vector2 Min
+        +Vector2 Max
+        +Vector2 Center
+        +Vector2 HalfSize
+        +FromCenter(center, halfSize) Aabb2D
+        +Union(a, b) Aabb2D
+    }
+    class Circle2D {
+        +Vector2 Center
+        +float Radius
+        +Aabb2D Bounds
+    }
+    class Obb2D {
+        +Vector2 Center
+        +Vector2 HalfSize
+        +float Rotation
+        +Vector2 AxisX
+        +Vector2 AxisY
+        +Aabb2D Bounds
+        +ToLocal(world) Vector2
+        +ToWorld(local) Vector2
+    }
+    class Contact2D {
+        +bool Hit
+        +Vector2 Normal
+        +float Depth
+        +None
+        +Touching(normal, depth) Contact2D
+    }
+    class Collision2D {
+        +Overlap(a, b) bool
+        +Test(a, b) Contact2D
+        +ClosestPoint(box, point) Vector2
+    }
+
+    Collision2D ..> Aabb2D
+    Collision2D ..> Circle2D
+    Collision2D ..> Obb2D
+    Collision2D ..> Contact2D : 返す
+    Circle2D ..> Aabb2D : 外接箱
+    Obb2D ..> Aabb2D : 外接箱
+```
+
+**形は全部 `readonly struct`、判定は `static` メソッドだけ**。状態を持たないので、
+どのスレッドから何回呼んでも同じ答えが返る。Day 26 で空間分割を入れるとき、
+この性質のおかげで**判定そのものには一切手を入れずに済む**。
+
+### 1フレームの流れ
+
+Silk.NET のウィンドウから `OnUpdate` と `OnRender` が交互に呼ばれる。
+**状態を変えるのは `OnUpdate` 側だけ**、というのが Day 19 で引いた線。
+
+```mermaid
+flowchart TD
+    W["Silk.NET ウィンドウ"] --> U["OnUpdate(deltaSeconds)"]
+    U --> A["_loop.Advance(dt, FixedUpdate)"]
+    A --> Q{"アキュムレータに<br/>1ステップ分溜まったか"}
+    Q -->|Yes| F["FixedUpdate(固定 dt)"]
+    F --> Q
+    Q -->|No| AL["Alpha = 端数 / 固定dt<br/>次の描画で使う補間率"]
+    AL --> LW["UpdateLoadWatch / fps / タイトルバー"]
+
+    W --> R["OnRender"]
+    R --> RU["_resources.Update()<br/>裏で復号済みの絵を GPU へ<br/>1フレームの枚数に上限あり"]
+    RU --> CL["Clear"]
+    CL --> D3{"_draw3D ?"}
+    D3 -->|Yes| R3["Render3D()<br/>Mesh + Material"]
+    D3 -->|No| RS
+    R3 --> RS["RenderSprites()<br/>SpriteBatch"]
+    RS --> ST["RenderResourceStrip()<br/>ロード状況の帯"]
+```
+
+`OnRender` の先頭で `_resources.Update()` を呼ぶのが要点で、
+**GL は描画スレッドからしか触れない**ため、裏で復号し終えた画素をここで GPU に上げている
+(Day 21 の要点5・6)。
+
+### FixedUpdate の中身 — 入力の出どころと3つのバックエンド
+
+```mermaid
+flowchart TD
+    S["FixedUpdate(dt)"] --> B["BurnCpu(_loadMicroseconds)<br/>処理落ちの再現"]
+    B --> M{"_recorder.Mode"}
+    M -->|Replaying| TR{"TryReplay 成功?"}
+    TR -->|Yes| SC["記録された入力を採用<br/>_inputSystem.SetCurrent"]
+    TR -->|No| FR["FinishReplay()<br/>その場で操作を返す"]
+    FR --> BS
+    M -->|Off / Recording| BS["input = _inputSystem.BeginStep()<br/>+ _recorder.Record(input)"]
+    SC --> SF
+    BS --> SF["_scene.Input = input<br/>_scene.FixedUpdate(dt)"]
+    SF --> CD{"_collisionDemo ?"}
+    CD -->|Yes| UB["UpdateBodies(dt, bounds)"]
+    CD -->|No| BK
+    UB --> BK{"_backend"}
+    BK -->|StructArray| US["UpdateSprites(dt)<br/>構造体の配列を順に舐める"]
+    BK -->|Ecs| ES["EcsSystems.Snapshot<br/>EcsSystems.Move"]
+    BK -->|GameObject| GO["Scene.FixedUpdate が済ませている"]
+```
+
+**入力がどこから来たかを、この関数から下は誰も気にしない**のがポイント(Day 20 の要点1)。
+`InputSnapshot` という値に畳んであるので、記録の再生と実操作を1行で差し替えられる。
+
+`Scene.FixedUpdate` を `_backend` の分岐より前で必ず呼んでいるのは、
+**プレイヤーと階層の実演がどのモードでも Scene 側にいる**ため。
+
+### Scene.FixedUpdate の4段階
+
+順番に意味がある。入れ替えると壊れる。
+
+```mermaid
+flowchart LR
+    A["1. SnapshotTransforms<br/>今の姿勢を控える"]
+    B["2. RunPendingStart<br/>まだ Start していない部品"]
+    C["3. UpdateComponents<br/>各 Component.FixedUpdate"]
+    D["4. FlushDestroy<br/>溜めた破棄をまとめて実行"]
+    A --> B --> C --> D
+```
+
+| 段 | なぜその位置か |
+|---|---|
+| 1 | **動かす前**に控えないと、補間の始点が終点と同じになって補間が効かない |
+| 2 | `Start` の中で新しいオブジェクトが生まれるので、**開始時点の件数だけ**回す |
+| 3 | ここも開始時点の件数で止める。このステップで生まれたものは次のステップから |
+| 4 | 更新中にリストから消すと**走査中のインデックスがずれる**(Day 22 の要点5)。<br/>まとめて `RemoveAll` するのは、1個ずつ消すと O(n^2) になるため |
+
+### 非同期テクスチャロードの流れ
+
+`Q` キーで走る道。**GL を呼ぶ部分と呼ばない部分の境目**が、
+そのままスレッドの境目になっている(Day 21 の要点5)。
+
+```mermaid
+sequenceDiagram
+    participant P as Program
+    participant RM as ResourceManager
+    participant TP as スレッドプール
+    participant Q as _decoded キュー
+    participant GL as OnRender(描画スレッド)
+
+    P->>RM: LoadTextureAsync(path)
+    RM->>RM: 仮の絵でスロットを確保
+    RM-->>P: Handle を即返す
+    RM->>TP: Task.Run(復号)
+    Note over P,GL: この間もフレームは止まらない<br/>ハンドルを解くと仮の絵が出る
+    TP->>TP: Texture.DecodeFile(GL を呼ばない)
+    TP->>Q: DecodedJob を積む
+    GL->>RM: Update()
+    RM->>Q: TryDequeue
+    RM->>RM: IsAlive で生存確認
+    RM->>GL: Texture.FromPixels でアップロード
+    RM->>RM: Replace(handle, texture)
+    Note over P,GL: 次のフレームから本物が出る<br/>呼び出し側のコードは一切変わらない
+```
+
+`Update()` が `MaxUploadsPerFrame` で枚数を絞っているのが肝で、
+**復号を非同期にしても、アップロードをまとめてやるとそこでカクつく**(Day 21 の要点6)。
+
+### 衝突判定のディスパッチ
+
+`UpdateBodies` は「動かす → 総当たり → 押し戻す」の3段。
+形の組み合わせごとの振り分けは `Test(in Body, in Body)` が一手に引き受ける。
+
+```mermaid
+flowchart TD
+    S["UpdateBodies(dt, bounds)"] --> MV["1. 全体を動かす<br/>位置と回転を進め、壁で跳ね返す<br/>壁は外接 AABB で見る"]
+    MV --> LP["2. 総当たり<br/>for i, for j = i+1"]
+    LP --> T["Test(in Body a, in Body b)<br/>形の組で振り分け"]
+    T --> H{"contact.Hit ?"}
+    H -->|No| LP
+    H -->|Yes| CNT["接触数を数える<br/>色を赤にする"]
+    CNT --> RV{"_resolveOverlap ?"}
+    RV -->|Yes| PS["3. 半分ずつ押し戻す<br/>a -= n*d/2 , b += n*d/2"]
+    RV -->|No| LP
+    PS --> LP
+```
+
+`Test(in Body, in Body)` の中身は形の組み合わせ表そのもの。**3種類で6通り**になる。
+
+| a \ b | Circle | Box | RotatedBox |
+|---|---|---|---|
+| **Circle** | `Test(Circle, Circle)` | `Test(Circle, Aabb)` | `Test(Circle, Obb)` |
+| **Box** | 上を**符号反転** | `Test(Aabb, Aabb)` | OBB 同士へ寄せる |
+| **RotatedBox** | 上を**符号反転** | OBB 同士へ寄せる | `Test(Obb, Obb)` SAT |
+
+- **専用の速い経路**(AABB 同士、円同士)と**一般形**(OBB 同士の SAT)を併存させ、
+  組み合わせの穴は一般形で埋める。`F9` の自己チェックで**両者の答えが一致すること**を確認している
+- 引数の順が逆になる組(`Test(Box, Circle)`)は**法線の符号を反転**して返す。
+  ここを間違えると物体がめり込む方向へ押される(要点6)
+- 種類を1つ足すと表が1行1列増える。3D で球・箱・カプセル・平面・地形と並べると 15 通りになり、
+  **その表を埋めることが物理エンジンを書くこと**になる(Phase 7)
+
 ## 完成条件
 
 ```
