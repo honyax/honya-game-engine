@@ -8,16 +8,16 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。**Phase 4(エンジンコア)の1日目**。
+/// エントリポイント。**Phase 4(エンジンコア)の2日目**。
 ///
-/// Day 18 までの更新は、フレーム時間をそのままシミュレーションに流していた。
-/// 今日それを <see cref="GameLoop"/> に置き換え、
-/// **シミュレーションを固定間隔で回し、描画とは切り離す**。
+/// Day 19 で作った固定タイムステップのループに、入力を載せる。
+/// 入力はイベントで不定期に飛んでくるのに対し、シミュレーションは固定間隔——
+/// この**粒度の違い**を <see cref="InputSystem"/> が吸収する。
 ///
-/// 見どころは 4 キー(シミュレーションを 5Hz に落とす)と I キー(補間 ON/OFF)。
-/// 5Hz + 補間 OFF は 1秒に5回しか絵が変わらないのでガクガクになるが、
-/// 補間を入れると**同じ 5Hz のまま滑らかに見える**。
-/// 描画レートとシミュレーションレートが別物であることが、そこで腹に落ちる。
+/// 見どころは M キー(記録)と N キー(再生)。
+/// 矢印キーで操作したあと N を押すと、**寸分たがわず同じ動きが再現される**。
+/// 記録しているのは画面でも座標でもなく、**入力だけ**。
+/// Day 19 の決定性がここで配当を返す。
 /// </summary>
 internal static class Program
 {
@@ -66,6 +66,24 @@ internal static class Program
     private static int _activeSprites = 1000;
 
     // --- 今日の主役 ---
+    private static InputMap _inputMap = null!;
+    private static InputSystem _inputSystem = null!;
+    private static InputRecorder _recorder = null!;
+
+    // --- プレイヤー(矢印キーで動かす1枚) ---
+    private static Vector2 _playerPosition;
+    private static Vector2 _playerPreviousPosition;
+    private static Vector2 _playerVelocity;
+    private static float _playerRotation;
+    private static float _playerPreviousRotation;
+    private static float _dashCooldown;
+
+    /// <summary>記録を始めた時点のプレイヤーの状態。再生時にここへ巻き戻す。</summary>
+    private static (Vector2 Position, Vector2 Velocity, float Rotation, float DashCooldown) _recordStart;
+
+    /// <summary>記録を終えた時点のプレイヤー状態のハッシュ。再生後に突き合わせる。</summary>
+    private static ulong _recordEndHash;
+
     private static GameLoop _loop = null!;
 
     /// <summary>描画時に前ステップと現ステップを補間するか。OFF にすると素の更新レートが見える。</summary>
@@ -154,7 +172,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day19 - 固定タイムステップ",
+            Title = "Day20 - 入力システム",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -290,10 +308,40 @@ internal static class Program
 
         _loop = new GameLoop { FixedDeltaTime = 1.0 / 60.0 };
 
+        // --- 入力 ---
+        _inputMap = InputMap.CreateDefault();
+        _inputSystem = new InputSystem(_inputMap);
+        _recorder = new InputRecorder();
+
+        foreach (IKeyboard keyboard in _input.Keyboards)
+        {
+            _inputSystem.Attach(keyboard);
+        }
+
+        foreach (IMouse mouse in _input.Mice)
+        {
+            _inputSystem.Attach(mouse);
+        }
+
+        // フォーカスを失ったら押しっぱなしを解除する。
+        // これが無いと、Alt+Tab で切り替えたあと「ずっと右へ走り続ける」ことになる
+        // (KeyUp が来ないまま裏に回るため。InputSystem.Clear のコメント参照)。
+        _window.FocusChanged += focused =>
+        {
+            if (!focused)
+            {
+                _inputSystem.Clear();
+            }
+        };
+
+        _playerPosition = new Vector2(_window.FramebufferSize.X * 0.5f, _window.FramebufferSize.Y * 0.5f);
+        _playerPreviousPosition = _playerPosition;
+
         Console.WriteLine();
+        Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
         Console.WriteLine("1/2/3/4:シミュレーション 120/60/20/5Hz   I:補間  L:負荷  K:余剰破棄  Y:決定性チェック");
         Console.WriteLine("A:アトラス  S:ソートモード  B:バッチ  O:オーファニング  G:3D背景");
-        Console.WriteLine("上下キー:スプライト数 +-1000  左ドラッグ:カメラ  ホイール:ズーム");
+        Console.WriteLine("PageUp/PageDown:スプライト数 +-1000  左ドラッグ:カメラ  ホイール:ズーム");
         Console.WriteLine("Z:深度  C:カリング  P:透視/平行  W:ワイヤー  V:VSync  Space:停止  Esc:終了");
         Console.WriteLine();
     }
@@ -396,13 +444,14 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day19 - 固定タイムステップ  {_fps:F1} fps | "
+                $"Day20 - 入力システム  {_fps:F1} fps | "
                 + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz "
                 + $"step:{_loop.StepsLastFrame} "
                 + $"α:{_loop.Alpha:F2} "
                 + $"遅れ:{_loop.Lag * 1000.0:F1}ms "
                 + $"捨て:{_loop.DroppedSeconds:F2}s | "
                 + $"補間:{OnOff(_interpolate)} 負荷:{_loadMicroseconds}us 破棄:{OnOff(_loop.DropExcess)} | "
+                + $"{RecorderLabel()} | "
                 + $"スプライト:{_activeSprites} DC:{_drawCalls}";
         }
     }
@@ -420,13 +469,119 @@ internal static class Program
     {
         // 処理落ちを再現するためのダミー負荷。L キーで切り替える。
         // **本物の重い処理と同じように、フレーム時間を押し上げる**ので、
-        // 死のスパイラルの入口が観察できる(要点5)。
+        // 死のスパイラルの入口が観察できる(Day 19 要点5)。
         BurnCpu(_loadMicroseconds);
+
+        // --- このステップで使う入力を1つに決める ---
+        //
+        // 再生中は記録した入力、そうでなければ実際の入力。
+        // **ここから下は、入力がどこから来たかを一切気にしない**。
+        // 差し替えられるのは、入力が InputSnapshot という値に畳まれているから(要点1)。
+        InputSnapshot input;
+
+        if (_recorder.Mode == RecorderMode.Replaying)
+        {
+            if (_recorder.TryReplay(out input))
+            {
+                _inputSystem.SetCurrent(input);
+            }
+            else
+            {
+                // 記録の末尾まで来た。**その場で操作を返す**ので、
+                // 再生が終わったステップからもう自分で動かせる。
+                FinishReplay();
+                input = _inputSystem.BeginStep();
+            }
+        }
+        else
+        {
+            input = _inputSystem.BeginStep();
+            _recorder.Record(input);
+        }
+
+        UpdatePlayer(dt, input);
 
         _previousAngle = _angle;
         _angle += dt;
 
         UpdateSprites(dt);
+    }
+
+    /// <summary>
+    /// プレイヤーを1ステップ動かす。
+    ///
+    /// **入力を読むのはこの関数だけ**で、しかも引数で受け取っている。
+    /// グローバルなキーボードの状態を直接見に行かないので、
+    /// 記録した入力を流し込むだけで再生になる(要点5)。
+    /// </summary>
+    private static void UpdatePlayer(float dt, in InputSnapshot input)
+    {
+        const float acceleration = 2600.0f;
+        const float maxSpeed = 480.0f;
+        const float friction = 6.0f;
+        const float dashSpeed = 1200.0f;
+        const float dashInterval = 0.45f;
+
+        _playerPreviousPosition = _playerPosition;
+        _playerPreviousRotation = _playerRotation;
+
+        Vector2 axis = input.MoveAxis;
+        _playerVelocity += axis * acceleration * dt;
+
+        // ダッシュは**押した瞬間だけ**。Held で書くと押しっぱなしで加速し続ける(要点2)。
+        _dashCooldown = MathF.Max(0.0f, _dashCooldown - dt);
+        if (input.WasPressed(GameAction.Dash) && _dashCooldown <= 0.0f)
+        {
+            Vector2 direction = axis != Vector2.Zero
+                ? axis
+                : (_playerVelocity != Vector2.Zero ? Vector2.Normalize(_playerVelocity) : Vector2.UnitX);
+
+            _playerVelocity += direction * dashSpeed;
+            _dashCooldown = dashInterval;
+        }
+
+        // 摩擦。速度に比例して減速させる。
+        // (1 - friction*dt) は指数減衰の1次近似で、**dt が固定だから安心して使える**。
+        // 可変タイムステップだと dt が大きいときに負になって速度が反転する。
+        _playerVelocity *= MathF.Max(0.0f, 1.0f - (friction * dt));
+
+        float speed = _playerVelocity.Length();
+        if (speed > maxSpeed && _dashCooldown <= 0.0f)
+        {
+            _playerVelocity = _playerVelocity / speed * maxSpeed;
+        }
+
+        _playerPosition += _playerVelocity * dt;
+
+        // 向きではなく速さで回す。向き(atan2)で回すと -π と π をまたいだ瞬間に
+        // 補間が画面を1周してしまう(Day 19 要点3の「瞬間移動」と同じ問題)。
+        _playerRotation += speed * dt * 0.012f;
+
+        float half = 34.0f;
+        float width = _window.FramebufferSize.X;
+        float height = _window.FramebufferSize.Y;
+
+        if (_playerPosition.X < half)
+        {
+            _playerPosition.X = half;
+            _playerVelocity.X = MathF.Abs(_playerVelocity.X) * 0.4f;
+        }
+        else if (_playerPosition.X > width - half)
+        {
+            _playerPosition.X = width - half;
+            _playerVelocity.X = -MathF.Abs(_playerVelocity.X) * 0.4f;
+        }
+
+        if (_playerPosition.Y < half)
+        {
+            _playerPosition.Y = half;
+            _playerVelocity.Y = MathF.Abs(_playerVelocity.Y) * 0.4f;
+        }
+        else if (_playerPosition.Y > height - half)
+        {
+            _playerPosition.Y = height - half;
+            _playerVelocity.Y = -MathF.Abs(_playerVelocity.Y) * 0.4f;
+        }
     }
 
     /// <summary>指定したマイクロ秒だけ CPU を回して時間を潰す。</summary>
@@ -449,6 +604,13 @@ internal static class Program
     }
 
     private static string OnOff(bool value) => value ? "ON" : "OFF";
+
+    private static string RecorderLabel() => _recorder.Mode switch
+    {
+        RecorderMode.Recording => $"記録中 {_recorder.Count}",
+        RecorderMode.Replaying => $"再生中 {_recorder.PlayHead}/{_recorder.Count}",
+        _ => _recorder.Count > 0 ? $"記録 {_recorder.Count}" : "記録なし",
+    };
 
     private static void UpdateSprites(float dt)
         => UpdateSprites(_sprites, _activeSprites, dt, _window.FramebufferSize.X, _window.FramebufferSize.Y);
@@ -569,6 +731,21 @@ internal static class Program
 
         RenderLayerTest();
 
+        // プレイヤーは一番手前(レイヤー 1.0)。
+        // ダッシュのクールダウン中は色を落として、
+        // **押した瞬間しか効かないアクション**が視覚的に分かるようにしてある。
+        Vector4 playerColor = _dashCooldown > 0.0f
+            ? new Vector4(1.00f, 0.55f, 0.30f, 0.95f)
+            : new Vector4(1.00f, 0.95f, 0.35f, 1.00f);
+
+        Submit(
+            2,   // sprite-star
+            Interpolate(_playerPreviousPosition, _playerPosition),
+            new Vector2(68.0f, 68.0f),
+            Interpolate(_playerPreviousRotation, _playerRotation),
+            playerColor,
+            1.0f);
+
         _spriteBatch.End();
     }
 
@@ -580,6 +757,99 @@ internal static class Program
         foreach ((Vector2 offset, float layer, Vector4 color) in LayerTest)
         {
             Submit(0, origin + offset, new Vector2(110.0f, 110.0f), 0.0f, color, layer);
+        }
+    }
+
+    /// <summary>
+    /// 入力の記録を始める / 止める(M キー)。
+    ///
+    /// 開始時にプレイヤーの状態を控え、終了時にハッシュを取る。
+    /// **入力列と初期状態がそろえば結果は一意に決まる**はずなので、
+    /// 再生後のハッシュがこれと一致するかどうかで確かめられる。
+    /// </summary>
+    private static void ToggleRecording()
+    {
+        if (_recorder.Mode == RecorderMode.Recording)
+        {
+            _recorder.StopRecording();
+            _recordEndHash = PlayerChecksum();
+            Console.WriteLine(
+                $"[記録停止] {_recorder.Count} ステップ "
+                + $"({_recorder.Count * _recorder.FixedDeltaTime:F2} 秒ぶん) / 終了時ハッシュ {_recordEndHash:X16}");
+            return;
+        }
+
+        _recorder.StartRecording(_loop.FixedDeltaTime);
+        _recordStart = (_playerPosition, _playerVelocity, _playerRotation, _dashCooldown);
+        Console.WriteLine($"[記録開始] {1.0 / _loop.FixedDeltaTime:F0}Hz。矢印キーで動かして、もう一度 M で停止");
+    }
+
+    /// <summary>記録した入力を再生する(N キー)。</summary>
+    private static void StartReplay()
+    {
+        if (_recorder.Count == 0)
+        {
+            Console.WriteLine("[再生] 記録がありません。先に M キーで記録してください");
+            return;
+        }
+
+        // **記録時と同じ条件に戻す**。ステップ間隔が違うと、
+        // 同じ入力列でも別のシミュレーションになる(InputRecorder のコメント参照)。
+        if (Math.Abs(_loop.FixedDeltaTime - _recorder.FixedDeltaTime) > 1e-9)
+        {
+            Console.WriteLine(
+                $"[再生] ステップ間隔を記録時の {1.0 / _recorder.FixedDeltaTime:F0}Hz に戻します");
+            _loop.FixedDeltaTime = _recorder.FixedDeltaTime;
+            _loop.Reset();
+        }
+
+        (_playerPosition, _playerVelocity, _playerRotation, _dashCooldown) = _recordStart;
+        _playerPreviousPosition = _playerPosition;
+        _playerPreviousRotation = _playerRotation;
+
+        // 押しっぱなしのキーが再生に混ざらないように捨てる。
+        _inputSystem.Clear();
+        _recorder.StartReplaying();
+
+        Console.WriteLine($"[再生開始] {_recorder.Count} ステップ");
+    }
+
+    /// <summary>再生が末尾まで来たときの後始末と検証。</summary>
+    private static void FinishReplay()
+    {
+        ulong hash = PlayerChecksum();
+        bool match = hash == _recordEndHash;
+
+        Console.WriteLine(
+            $"[再生終了] ハッシュ {hash:X16} / 記録時 {_recordEndHash:X16}  {(match ? "一致" : "不一致")}");
+        Console.WriteLine(
+            match
+                ? "  → 入力列だけで同じ結果が再現できた。これがリプレイの原理"
+                : "  → 不一致。入力以外の要素(実時間、乱数、描画側の書き込み)が紛れ込んでいる");
+
+        _recorder.Stop();
+    }
+
+    /// <summary>プレイヤーの状態のチェックサム。</summary>
+    private static ulong PlayerChecksum()
+    {
+        ulong hash = 14695981039346656037UL;
+
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerPosition.X));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerPosition.Y));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerVelocity.X));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerVelocity.Y));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerRotation));
+
+        return hash;
+
+        static void Mix(ref ulong hash, uint value)
+        {
+            for (int b = 0; b < 4; b++)
+            {
+                hash ^= (byte)(value >> (b * 8));
+                hash *= 1099511628211UL;
+            }
         }
     }
 
@@ -778,6 +1048,15 @@ internal static class Program
                 break;
 
             // --- 今日のスイッチ ---
+            case Key.M:
+                ToggleRecording();
+                break;
+
+            case Key.N:
+                StartReplay();
+                break;
+
+            // --- Day 19 のスイッチ ---
             case Key.Number1:
                 SetSimulationRate(120.0);
                 break;
@@ -852,11 +1131,12 @@ internal static class Program
                 _draw3D = !_draw3D;
                 break;
 
-            case Key.Up:
+            // 矢印キーはプレイヤーの操作に使うので、スプライト数は PageUp/PageDown へ移した。
+            case Key.PageUp:
                 _activeSprites = Math.Min(_activeSprites + 1000, MaxSprites - LayerTest.Length);
                 break;
 
-            case Key.Down:
+            case Key.PageDown:
                 _activeSprites = Math.Max(_activeSprites - 1000, 0);
                 break;
 
@@ -934,6 +1214,7 @@ internal static class Program
     private static void OnClosing()
     {
         _orbit.Detach();
+        _inputSystem.Detach();
 
         _spriteBatch.Dispose();
         _atlas.Dispose();
