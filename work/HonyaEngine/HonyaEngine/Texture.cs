@@ -24,6 +24,15 @@ internal enum TextureWrap
 }
 
 /// <summary>
+/// 復号済みの画像。**まだ GPU には載っていない**、ただのバイト列。
+///
+/// 非同期ロード(Day 21)でスレッドをまたいで受け渡すために切り出した型。
+/// GL のハンドルを持たないので、どのスレッドで持ち回っても安全。
+/// </summary>
+/// <param name="Pixels">1テクセル4バイト、左下から右上へ並んだピクセル列。</param>
+internal readonly record struct DecodedImage(byte[] Pixels, int Width, int Height);
+
+/// <summary>
 /// GPU 上のテクスチャ。
 ///
 /// Phase 1 の <c>Texture</c> クラスは「ピクセル配列 + 自前のサンプリング関数」だった。
@@ -67,9 +76,23 @@ internal sealed class Texture : IDisposable
     }
 
     /// <summary>
-    /// 画像ファイルから作る。
+    /// 画像ファイルから作る。**復号(CPU)とアップロード(GPU)を続けてやる**。
     /// </summary>
     public static Texture FromFile(GL gl, string path, bool generateMipmaps = true)
+    {
+        DecodedImage image = DecodeFile(path);
+        return FromPixels(gl, image.Pixels, image.Width, image.Height, generateMipmaps);
+    }
+
+    /// <summary>
+    /// 画像ファイルを読んで RGBA のバイト列にするところまで。**GL を一切呼ばない**。
+    ///
+    /// Day 21 で <see cref="FromFile"/> から切り出した。理由は非同期ロード——
+    /// この部分はワーカースレッドで走らせられるが、
+    /// <see cref="FromPixels"/> は GL を呼ぶので描画スレッドから動かせない。
+    /// **「スレッドを選ぶ処理」と「選ばない処理」の境目**がここにある。
+    /// </summary>
+    public static DecodedImage DecodeFile(string path)
     {
         // **上下反転**。Day 10 の要点3(OBJ の V 座標)とまったく同じ話が再来する。
         //
@@ -79,13 +102,19 @@ internal sealed class Texture : IDisposable
         //
         // ここで反転しておくと、UV(0,0) を四角形の左下に割り当てたときに
         // **画像ファイルで見たとおりの向き**で表示される。
+        //
+        // なお、これは stb_image の**グローバルな設定**で、スレッドごとではない。
+        // 今回は常に 1 を入れるので実害は無いが、
+        // 「途中で 0 に戻す」コードをどこかに書いた瞬間、
+        // 裏で走っている復号が巻き添えを食う。
+        // **非同期化で最初に踏むのは、たいていライブラリ側のグローバル状態**。
         StbImage.stbi_set_flip_vertically_on_load(1);
 
         ImageResult image = ImageResult.FromMemory(
             File.ReadAllBytes(path),
             ColorComponents.RedGreenBlueAlpha);
 
-        return FromPixels(gl, image.Data, image.Width, image.Height, generateMipmaps);
+        return new DecodedImage(image.Data, image.Width, image.Height);
     }
 
     /// <summary>

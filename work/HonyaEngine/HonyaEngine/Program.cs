@@ -8,16 +8,19 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。**Phase 4(エンジンコア)の2日目**。
+/// エントリポイント。**Phase 4(エンジンコア)の3日目**。
 ///
-/// Day 19 で作った固定タイムステップのループに、入力を載せる。
-/// 入力はイベントで不定期に飛んでくるのに対し、シミュレーションは固定間隔——
-/// この**粒度の違い**を <see cref="InputSystem"/> が吸収する。
+/// Day 15 からずっと、テクスチャもシェーダも参照を直接配って回していた。
+/// 今日はそこに <see cref="Handle{T}"/> という間接参照を1段はさむ。
+/// 一見遠回りだが、これで**寿命・重複・差し替え**の3つが同時に片付く。
 ///
-/// 見どころは M キー(記録)と N キー(再生)。
-/// 矢印キーで操作したあと N を押すと、**寸分たがわず同じ動きが再現される**。
-/// 記録しているのは画面でも座標でもなく、**入力だけ**。
-/// Day 19 の決定性がここで配当を返す。
+/// 見どころは Q キー(非同期ロード)と E キー(同期ロード)。
+/// どちらも 1024x1024 のテクスチャを6枚読むが、
+///   - E … その場で全部読む。**数十ミリ秒、画面が止まる**
+///   - Q … 即座にハンドルだけ返る。仮の絵(紫の市松)が出て、
+///          読めたものから1枚ずつ差し替わる。**止まらない**
+/// 差し替えが「ハンドルを配った全員に自動で伝わる」ところが、
+/// 間接参照を入れた見返りそのものになる。
 /// </summary>
 internal static class Program
 {
@@ -32,13 +35,30 @@ internal static class Program
         "sprite-diamond",
     ];
 
+    /// <summary>
+    /// ロードの実演に使う素材。**1枚 1024x1024** で、復号にそれぞれ 6ms 前後かかる。
+    /// スプライト用の小さな絵では一瞬で終わってしまい、同期と非同期の差が見えない。
+    /// </summary>
+    private static readonly string[] DemoTextureNames =
+    [
+        "ground-grid",
+        "wall-brick",
+        "wood-planks",
+        "metal-plate",
+        "stone-tiles",
+        "fabric-weave",
+    ];
+
     private static IWindow _window = null!;
     private static GL _gl = null!;
     private static IInputContext _input = null!;
 
-    // --- 3D(Day 16 のまま) ---
-    private static Shader _shader = null!;
-    private static Texture _texture = null!;
+    /// <summary>今日の主役。すべてのリソースはここを通して出入りする。</summary>
+    private static ResourceManager _resources = null!;
+
+    // --- 3D(参照ではなくハンドルを持つようになった) ---
+    private static Handle<Shader> _shader;
+    private static Handle<Texture> _texture;
     private static Mesh<Vertex> _cube = null!;
     private static Mesh<Vertex> _quad = null!;
     private static Material _cubeMaterial = null!;
@@ -47,7 +67,7 @@ internal static class Program
     private static OrbitCameraController _orbit = null!;
 
     // --- 2D ---
-    private static Shader _spriteShader = null!;
+    private static Handle<Shader> _spriteShader;
     private static SpriteBatch _spriteBatch = null!;
 
     /// <summary>4枚を1枚に詰めたもの。**A キーが ON のときはこちらを使う**。</summary>
@@ -60,7 +80,18 @@ internal static class Program
     /// 詰めていない、ばらばらのテクスチャ4枚。**アトラスと比べるためだけに持っている**。
     /// 実際のゲームでこう持つ理由は無い。
     /// </summary>
-    private static Texture[] _looseTextures = null!;
+    private static Handle<Texture>[] _looseTextures = null!;
+
+    /// <summary>ロードの実演に使う6枚(1024x1024)。最初は空。</summary>
+    private static Handle<Texture>[] _demoTextures = [];
+
+    // --- ロードの計測 ---
+    private static bool _watchingLoad;
+    private static bool _watchAsync;
+    private static double _watchCallMilliseconds;
+    private static double _watchElapsed;
+    private static double _watchWorstFrameMilliseconds;
+    private static double _watchReadyAt = -1.0;
 
     private static Sprite[] _sprites = null!;
     private static int _activeSprites = 1000;
@@ -172,7 +203,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day20 - 入力システム",
+            Title = "Day21 - リソース管理",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -224,13 +255,17 @@ internal static class Program
 
         string shaderDirectory = ResolveDirectory("shaders");
 
+        // **今日からリソースは全部ここを通る**。
+        // 直接 new / FromFile を呼ぶ場所が残っていると、そのぶんだけ
+        // 「誰が持っているか分からないもの」が生き残る。
+        _resources = new ResourceManager(_gl);
+
         // --- 3D ---
-        _shader = new Shader(
-            _gl,
+        _shader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "textured.vert"),
             Path.Combine(shaderDirectory, "textured.frag"));
 
-        _texture = Texture.FromFile(_gl, ResolveAssetPath("textures/uv-test.png"));
+        _texture = _resources.LoadTexture(ResolveAssetPath("textures/uv-test.png"));
         _cube = Primitives.CreateCube(_gl);
         _quad = Primitives.CreateQuad(_gl);
 
@@ -263,8 +298,7 @@ internal static class Program
         }
 
         // --- 2D ---
-        _spriteShader = new Shader(
-            _gl,
+        _spriteShader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "sprite.vert"),
             Path.Combine(shaderDirectory, "sprite.frag"));
 
@@ -290,11 +324,11 @@ internal static class Program
         // これをそろえないと、比べているのがアトラスの効果なのか
         // ミップマップの有無なのか分からなくなる。
         _looseTextures = paths
-            .Select(path => Texture.FromFile(_gl, path, generateMipmaps: false))
+            .Select(path => _resources.LoadTexture(path, generateMipmaps: false))
             .ToArray();
-        foreach (Texture texture in _looseTextures)
+        foreach (Handle<Texture> handle in _looseTextures)
         {
-            texture.SetWrap(TextureWrap.ClampToEdge);
+            _resources.GetTexture(handle).SetWrap(TextureWrap.ClampToEdge);
         }
 
         // 容量を 20000 にして、**2万枚でもフラッシュが起きない**ようにしてある。
@@ -302,7 +336,7 @@ internal static class Program
         // (SpriteBatch.Draw のコメント参照)、
         // 「1フレームで積む最大枚数」を確保しておくのが素直。
         // 20000 × 4頂点 × 20バイト = 1.6MB。積んだ配列と並べ替え後で2本ぶん必要。
-        _spriteBatch = new SpriteBatch(_gl, _spriteShader, capacity: MaxSprites);
+        _spriteBatch = new SpriteBatch(_gl, _resources.GetShader(_spriteShader), capacity: MaxSprites);
 
         InitializeSprites();
 
@@ -338,6 +372,7 @@ internal static class Program
         _playerPreviousPosition = _playerPosition;
 
         Console.WriteLine();
+        Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
         Console.WriteLine("1/2/3/4:シミュレーション 120/60/20/5Hz   I:補間  L:負荷  K:余剰破棄  Y:決定性チェック");
         Console.WriteLine("A:アトラス  S:ソートモード  B:バッチ  O:オーファニング  G:3D背景");
@@ -435,6 +470,8 @@ internal static class Program
             _loop.Advance(deltaSeconds, FixedUpdate);
         }
 
+        UpdateLoadWatch(deltaSeconds);
+
         _fpsFrames++;
         _fpsElapsed += deltaSeconds;
         if (_fpsElapsed >= 0.5)
@@ -444,7 +481,7 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day20 - 入力システム  {_fps:F1} fps | "
+                $"Day21 - リソース管理  {_fps:F1} fps | "
                 + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz "
                 + $"step:{_loop.StepsLastFrame} "
                 + $"α:{_loop.Alpha:F2} "
@@ -452,6 +489,7 @@ internal static class Program
                 + $"捨て:{_loop.DroppedSeconds:F2}s | "
                 + $"補間:{OnOff(_interpolate)} 負荷:{_loadMicroseconds}us 破棄:{OnOff(_loop.DropExcess)} | "
                 + $"{RecorderLabel()} | "
+                + $"tex:{_resources.TextureCount} 待ち:{_resources.PendingCount} | "
                 + $"スプライト:{_activeSprites} DC:{_drawCalls}";
         }
     }
@@ -664,6 +702,11 @@ internal static class Program
 
     private static void OnRender(double deltaSeconds)
     {
+        // **描画スレッドでしか GL を呼べない**ので、
+        // 裏で復号し終えたぶんの GPU アップロードはここで消化する。
+        // 1フレームあたりの枚数を絞ってあるのがミソ(ResourceManager.MaxUploadsPerFrame)。
+        _resources.Update();
+
         _gl.ClearColor(0.08f, 0.09f, 0.12f, 1.0f);
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
@@ -673,8 +716,59 @@ internal static class Program
         }
 
         RenderSprites();
-
         _drawCalls = _spriteBatch.DrawCallCount;
+
+        RenderResourceStrip();
+    }
+
+    /// <summary>
+    /// 画面の下にロード中のテクスチャを並べる。
+    ///
+    /// **仮の絵(紫の市松)が本物に差し替わる瞬間**を見るための場所。
+    /// ここが持っているのはハンドルだけで、何が入っているかは知らない。
+    /// 非同期ロードが完了したかどうかを問い合わせるコードすら要らない
+    /// ——毎フレームハンドルを解けば、そのとき入っているものが出る。
+    /// </summary>
+    private static void RenderResourceStrip()
+    {
+        if (_demoTextures.Length == 0)
+        {
+            return;
+        }
+
+        Matrix4x4 projection = Camera.CreateScreen(
+            0.0f, _window.FramebufferSize.X,
+            _window.FramebufferSize.Y, 0.0f,
+            -1.0f, 1.0f);
+
+        // **別のバッチにして Immediate で描く**。
+        // 本編と同じバッチに混ぜると、ソートモードによっては
+        // スプライトの海に沈んで見えなくなる。
+        // 6種類のテクスチャなので6ドローコールになるが、UI の枚数はたかが知れている。
+        _spriteBatch.Begin(projection, SpriteSortMode.Immediate);
+
+        const float size = 116.0f;
+        const float gap = 12.0f;
+        float total = (_demoTextures.Length * size) + ((_demoTextures.Length - 1) * gap);
+        float x = (_window.FramebufferSize.X - total + size) * 0.5f;
+        float y = _window.FramebufferSize.Y - (size * 0.5f) - 20.0f;
+
+        foreach (Handle<Texture> handle in _demoTextures)
+        {
+            // 読めていないものは少し暗く出して、差し替わった瞬間を分かりやすくする。
+            float shade = _resources.IsReady(handle) ? 1.0f : 0.65f;
+
+            _spriteBatch.Draw(
+                _resources.GetTexture(handle),
+                new Vector2(x, y),
+                new Vector2(size, size),
+                0.0f,
+                new Vector4(shade, shade, shade, 1.0f));
+
+            x += size + gap;
+        }
+
+        _spriteBatch.End();
     }
 
     private static void Render3D()
@@ -682,8 +776,9 @@ internal static class Program
         // 立方体の回転も補間する。**描画は「ステップとステップの間」を映す**。
         float angle = Interpolate(_previousAngle, _angle);
 
-        _shader.Use();
-        _shader.SetMatrix4("uViewProjection", _camera.ViewProjection);
+        Shader shader = _resources.GetShader(_shader);
+        shader.Use();
+        shader.SetMatrix4("uViewProjection", _camera.ViewProjection);
 
         Matrix4x4 floorModel =
             Matrix4x4.CreateScale(20.0f)
@@ -849,6 +944,165 @@ internal static class Program
             {
                 hash ^= (byte)(value >> (b * 8));
                 hash *= 1099511628211UL;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 実演用のテクスチャ6枚を読む。Q = 非同期、E = 同期。
+    ///
+    /// 読むファイルも枚数もまったく同じで、**違うのは経路だけ**。
+    /// 同じ仕事をどこのスレッドでやるかで、体感がここまで変わる。
+    /// </summary>
+    private static void LoadDemoTextures(bool useAsync)
+    {
+        if (_demoTextures.Length > 0)
+        {
+            Console.WriteLine("[ロード] すでに読み込み済み。U キーで解放してから試してください");
+            return;
+        }
+
+        string[] paths = DemoTextureNames
+            .Select(name => ResolveAssetPath($"textures/{name}.png"))
+            .ToArray();
+
+        _watchAsync = useAsync;
+        _watchingLoad = true;
+        _watchElapsed = 0.0;
+        _watchWorstFrameMilliseconds = 0.0;
+        _watchReadyAt = -1.0;
+
+        // **ここで測っているのは「呼び出しが返ってくるまで」**。
+        // 同期ならロード時間そのもの、非同期なら Task を投げる時間しかない。
+        var stopwatch = Stopwatch.StartNew();
+        _demoTextures = useAsync
+            ? paths.Select(path => _resources.LoadTextureAsync(path)).ToArray()
+            : paths.Select(path => _resources.LoadTexture(path)).ToArray();
+        _watchCallMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"[ロード開始] {(useAsync ? "非同期" : "同期")} {paths.Length} 枚 / "
+            + $"呼び出しが返るまで {_watchCallMilliseconds:F1}ms");
+    }
+
+    /// <summary>
+    /// 実演用のテクスチャを解放する(U キー)。
+    ///
+    /// **読み込み中に押しても壊れない**のが地味に重要なところ。
+    /// スロットは即座に空き、世代が進む。裏で走っている復号は完走するが、
+    /// 出来上がったものは <see cref="ResourceManager.Update"/> の生存確認で捨てられる。
+    /// 参照を配る設計だと、ここで解放済みのオブジェクトへ書き込むことになる。
+    /// </summary>
+    private static void UnloadDemoTextures()
+    {
+        if (_demoTextures.Length == 0)
+        {
+            Console.WriteLine("[解放] 読み込み済みのものがありません");
+            return;
+        }
+
+        foreach (Handle<Texture> handle in _demoTextures)
+        {
+            _resources.Release(handle);
+        }
+
+        _demoTextures = [];
+        Console.WriteLine($"[解放] 残りテクスチャ {_resources.TextureCount} 件 / 待ち {_resources.PendingCount} 件");
+    }
+
+    /// <summary>
+    /// ロード前後のフレーム時間を見張って、落ち着いたところで報告する。
+    /// </summary>
+    private static void UpdateLoadWatch(double deltaSeconds)
+    {
+        if (!_watchingLoad)
+        {
+            return;
+        }
+
+        _watchElapsed += deltaSeconds;
+        _watchWorstFrameMilliseconds = Math.Max(_watchWorstFrameMilliseconds, deltaSeconds * 1000.0);
+
+        if (_watchReadyAt < 0.0 && _resources.PendingCount == 0)
+        {
+            _watchReadyAt = _watchElapsed;
+        }
+
+        // しばらく様子を見てから出す。差し替えは数フレームに分かれて起きるので、
+        // 直後に打ち切ると最悪値を取り逃がす。
+        if (_watchElapsed < 1.5)
+        {
+            return;
+        }
+
+        _watchingLoad = false;
+
+        Console.WriteLine(
+            $"[ロード完了] {(_watchAsync ? "非同期" : "同期")} / "
+            + $"呼び出し {_watchCallMilliseconds:F1}ms / "
+            + $"全部そろうまで {_watchReadyAt * 1000.0:F0}ms / "
+            + $"最悪フレーム {_watchWorstFrameMilliseconds:F1}ms");
+        Console.WriteLine(
+            _watchWorstFrameMilliseconds > 16.6
+                ? "  → 60fps の1フレーム(16.6ms)を超えた。ユーザーには「固まった」と見える"
+                : "  → 1フレームの予算に収まっている。読み込んでいることに気づかせない");
+    }
+
+    /// <summary>
+    /// **ハンドルの不変条件を確かめる自己チェック**(T キー)。
+    ///
+    /// Day 19 の決定性チェック、Day 20 のリプレイ検証と同じ趣旨で、
+    /// 「そういう設計になっているはず」を実際に走らせて確かめる。
+    /// 特に見たいのは**世代番号が本当に効いているか**——
+    /// スロットが再利用されたときに、古いハンドルが蘇らないこと。
+    /// </summary>
+    private static void RunResourceCheck()
+    {
+        string path = ResolveAssetPath("textures/sprite-diamond.png");
+        int failures = 0;
+
+        Console.WriteLine();
+        Console.WriteLine("[リソースの自己チェック]");
+
+        Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
+
+        Handle<Texture> first = _resources.LoadTexture(path);
+        Handle<Texture> second = _resources.LoadTexture(path);
+        Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
+        Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
+
+        _resources.Release(first);
+        Check("1回返しただけでは消えない", _resources.IsReady(second));
+
+        _resources.Release(second);
+        Check("2回目で消える", !_resources.TryGetTexture(second, out _));
+        Check(
+            "解放後のハンドルからは仮の絵が返る",
+            ReferenceEquals(_resources.GetTexture(second), _resources.Placeholder));
+
+        // **世代番号の本番**。空いたスロットをすぐ次が使う。
+        Handle<Texture> reused = _resources.LoadTexture(path);
+        Check("空いたスロットが再利用される", reused.Index == second.Index,
+            $"新 {reused} / 旧 {second}");
+        Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
+
+        // 読み込み設定までキーに含めているか(ミップマップの有無で結果が変わる)。
+        Handle<Texture> noMipmaps = _resources.LoadTexture(path, generateMipmaps: false);
+        Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
+
+        _resources.Release(noMipmaps);
+        _resources.Release(reused);
+
+        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        Console.WriteLine();
+
+        void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                failures++;
             }
         }
     }
@@ -1020,14 +1274,16 @@ internal static class Program
         }
         else
         {
-            _spriteBatch.Draw(_looseTextures[kind], center, size, rotation, color, layer);
+            // **ハンドルを解いてから渡す**。プールの配列を1回引くだけなので、
+            // 2万枚ぶん繰り返しても実測で誤差の範囲(計画書の要点4)。
+            _spriteBatch.Draw(_resources.GetTexture(_looseTextures[kind]), center, size, rotation, color, layer);
         }
     }
 
     private static void Draw(Mesh<Vertex> mesh, Material material, Matrix4x4 model)
     {
-        material.Apply();
-        material.Shader.SetMatrix4("uModel", model);
+        material.Apply(_resources);
+        _resources.GetShader(material.Shader).SetMatrix4("uModel", model);
         mesh.Draw();
     }
 
@@ -1092,6 +1348,22 @@ internal static class Program
                     8000 => 20000,
                     _ => 0,
                 };
+                break;
+
+            case Key.Q:
+                LoadDemoTextures(useAsync: true);
+                break;
+
+            case Key.E:
+                LoadDemoTextures(useAsync: false);
+                break;
+
+            case Key.U:
+                UnloadDemoTextures();
+                break;
+
+            case Key.T:
+                RunResourceCheck();
                 break;
 
             case Key.Y:
@@ -1169,18 +1441,18 @@ internal static class Program
 
             case Key.F:
                 _filter = _filter == TextureFilter.Linear ? TextureFilter.Nearest : TextureFilter.Linear;
-                _texture.SetFilter(_filter);
+                _resources.GetTexture(_texture).SetFilter(_filter);
                 _atlas.Texture.SetFilter(_filter);
                 break;
 
             case Key.R:
                 _wrap = _wrap == TextureWrap.Repeat ? TextureWrap.ClampToEdge : TextureWrap.Repeat;
-                _texture.SetWrap(_wrap);
+                _resources.GetTexture(_texture).SetWrap(_wrap);
                 break;
 
             case Key.F5:
-                _shader.TryReload();
-                _spriteShader.TryReload();
+                _resources.GetShader(_shader).TryReload();
+                _resources.GetShader(_spriteShader).TryReload();
                 break;
         }
     }
@@ -1218,17 +1490,15 @@ internal static class Program
 
         _spriteBatch.Dispose();
         _atlas.Dispose();
-        foreach (Texture texture in _looseTextures)
-        {
-            texture.Dispose();
-        }
-
-        _spriteShader.Dispose();
 
         _cube.Dispose();
         _quad.Dispose();
-        _texture.Dispose();
-        _shader.Dispose();
+
+        // **テクスチャとシェーダの Dispose がここから消えた**。
+        // 誰が何を持っているかを1箇所に集めた結果、後始末も1行になる。
+        // Day 20 まではここに並べ忘れるとそのままリークしていた。
+        _resources.Dispose();
+
         _input.Dispose();
     }
 
