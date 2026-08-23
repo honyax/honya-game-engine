@@ -8,19 +8,22 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。**Phase 4(エンジンコア)の3日目**。
+/// エントリポイント。**Phase 4(エンジンコア)の4日目**。
 ///
-/// Day 15 からずっと、テクスチャもシェーダも参照を直接配って回していた。
-/// 今日はそこに <see cref="Handle{T}"/> という間接参照を1段はさむ。
-/// 一見遠回りだが、これで**寿命・重複・差し替え**の3つが同時に片付く。
+/// Day 21 までのこのファイルは、スプライトの配列を自分で回し、
+/// プレイヤーの座標を static フィールドで持ち、
+/// **「何をどう動かすか」を全部ここに書いていた**。
+/// 今日はそれを <see cref="GameObject"/> と <see cref="Component"/> に移す。
 ///
-/// 見どころは Q キー(非同期ロード)と E キー(同期ロード)。
-/// どちらも 1024x1024 のテクスチャを6枚読むが、
-///   - E … その場で全部読む。**数十ミリ秒、画面が止まる**
-///   - Q … 即座にハンドルだけ返る。仮の絵(紫の市松)が出て、
-///          読めたものから1枚ずつ差し替わる。**止まらない**
-/// 差し替えが「ハンドルを配った全員に自動で伝わる」ところが、
-/// 間接参照を入れた見返りそのものになる。
+/// 見どころは J キー。まったく同じ動きのスプライトを
+///   - 構造体の配列 + 直接呼び出し(Day 17 からのやり方)
+///   - GameObject + Component(今日のやり方)
+/// で切り替えられる。**見た目は完全に同じで、更新時間だけが変わる**。
+/// この差が Day 23 で ECS を書く動機そのものになる。
+///
+/// プレイヤーは常に GameObject 側にいる。
+/// Day 20 の <c>UpdatePlayer</c> と static フィールド6個が、
+/// <see cref="PlayerController"/> 1クラスに畳まれて消えた。
 /// </summary>
 internal static class Program
 {
@@ -101,16 +104,26 @@ internal static class Program
     private static InputSystem _inputSystem = null!;
     private static InputRecorder _recorder = null!;
 
-    // --- プレイヤー(矢印キーで動かす1枚) ---
-    private static Vector2 _playerPosition;
-    private static Vector2 _playerPreviousPosition;
-    private static Vector2 _playerVelocity;
-    private static float _playerRotation;
-    private static float _playerPreviousRotation;
-    private static float _dashCooldown;
+    // --- 今日の主役 ---
+    private static Scene _scene = null!;
+
+    /// <summary>矢印キーで動く1枚。**もう Program のフィールドではなく GameObject**。</summary>
+    private static PlayerController _player = null!;
+
+    /// <summary>階層の実演に使う根。子・孫がぶら下がっている。</summary>
+    private static GameObject _orbitRoot = null!;
+
+    /// <summary>スプライトを GameObject で動かすか(J キー)。false なら構造体の配列。</summary>
+    private static bool _useGameObjects;
+
+    /// <summary>今シーンに入っている跳ね回るスプライトの数。</summary>
+    private static int _sceneSpriteCount;
+
+    /// <summary>1ステップぶんの更新にかかった時間(ミリ秒)の移動平均。</summary>
+    private static double _updateMilliseconds;
 
     /// <summary>記録を始めた時点のプレイヤーの状態。再生時にここへ巻き戻す。</summary>
-    private static (Vector2 Position, Vector2 Velocity, float Rotation, float DashCooldown) _recordStart;
+    private static (Vector2 Position, Vector2 Velocity, float Angle, float DashCooldown) _recordStart;
 
     /// <summary>記録を終えた時点のプレイヤー状態のハッシュ。再生後に突き合わせる。</summary>
     private static ulong _recordEndHash;
@@ -203,7 +216,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day21 - リソース管理",
+            Title = "Day22 - GameObject + Component",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -368,15 +381,15 @@ internal static class Program
             }
         };
 
-        _playerPosition = new Vector2(_window.FramebufferSize.X * 0.5f, _window.FramebufferSize.Y * 0.5f);
-        _playerPreviousPosition = _playerPosition;
+        BuildScene();
 
         Console.WriteLine();
+        Console.WriteLine("J:更新方式(構造体配列/GameObject)  H:ライフサイクルの実演");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
         Console.WriteLine("1/2/3/4:シミュレーション 120/60/20/5Hz   I:補間  L:負荷  K:余剰破棄  Y:決定性チェック");
         Console.WriteLine("A:アトラス  S:ソートモード  B:バッチ  O:オーファニング  G:3D背景");
-        Console.WriteLine("PageUp/PageDown:スプライト数 +-1000  左ドラッグ:カメラ  ホイール:ズーム");
+        Console.WriteLine("PageUp/PageDown:スプライト数 +-1000 (Shift併用で+-10000)  左ドラッグ:カメラ  ホイール:ズーム");
         Console.WriteLine("Z:深度  C:カリング  P:透視/平行  W:ワイヤー  V:VSync  Space:停止  Esc:終了");
         Console.WriteLine();
     }
@@ -424,6 +437,141 @@ internal static class Program
             _sprites[i].PreviousPosition = _sprites[i].Position;
             _sprites[i].PreviousRotation = _sprites[i].Rotation;
         }
+    }
+
+    /// <summary>
+    /// シーンを組み立てる。**Program がやるのはここまで**で、
+    /// あとは <see cref="Scene.FixedUpdate"/> が全部回してくれる。
+    /// </summary>
+    private static void BuildScene()
+    {
+        _scene = new Scene
+        {
+            Bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y),
+        };
+
+        // --- プレイヤー ---
+        GameObject player = _scene.CreateGameObject("Player");
+        player.Transform.LocalPosition = new Vector3(
+            _window.FramebufferSize.X * 0.5f,
+            _window.FramebufferSize.Y * 0.5f,
+            0.0f);
+        player.Transform.Snapshot();
+
+        SpriteRenderer playerSprite = player.AddComponent<SpriteRenderer>();
+        playerSprite.Kind = 2;              // sprite-star
+        playerSprite.Size = 68.0f;
+        playerSprite.Layer = 1.0f;
+
+        _player = player.AddComponent<PlayerController>();
+
+        // --- 階層の実演 ---
+        //
+        // 根 → 子3つ → それぞれの孫1つ、という3段の木にする。
+        // **子も孫も「親のまわりを回る」としか書いていない**。
+        // 根が画面を移動すれば全部ついてくるし、
+        // 子が回れば孫はその子を中心に回る。
+        // 位置の合成は Transform が引き受けるので、部品側には何も要らない。
+        _orbitRoot = _scene.CreateGameObject("OrbitRoot");
+        _orbitRoot.Transform.LocalPosition = new Vector3(770.0f, 170.0f, 0.0f);
+        _orbitRoot.Transform.Snapshot();
+
+        SpriteRenderer rootSprite = _orbitRoot.AddComponent<SpriteRenderer>();
+        rootSprite.Kind = 0;
+        rootSprite.Size = 72.0f;
+        rootSprite.Color = new Vector4(1.00f, 0.80f, 0.15f, 1.0f);
+        rootSprite.Layer = 0.95f;
+
+        for (int i = 0; i < 3; i++)
+        {
+            GameObject child = _scene.CreateGameObject($"Orbit{i}", _orbitRoot.Transform);
+
+            SpriteRenderer childSprite = child.AddComponent<SpriteRenderer>();
+            childSprite.Kind = 1;
+            childSprite.Size = 46.0f;
+            childSprite.Color = new Vector4(0.20f, 0.75f, 1.00f, 1.0f);
+            childSprite.Layer = 0.94f;
+
+            OrbitMover childOrbit = child.AddComponent<OrbitMover>();
+            childOrbit.Radius = 86.0f;
+            childOrbit.AngularSpeed = 1.1f;
+            childOrbit.StartAngle = i * MathF.Tau / 3.0f;
+
+            GameObject grandChild = _scene.CreateGameObject($"Orbit{i}-moon", child.Transform);
+
+            SpriteRenderer moonSprite = grandChild.AddComponent<SpriteRenderer>();
+            moonSprite.Kind = 3;
+            moonSprite.Size = 26.0f;
+            moonSprite.Color = new Vector4(1.00f, 0.30f, 0.60f, 1.0f);
+            moonSprite.Layer = 0.93f;
+
+            OrbitMover moonOrbit = grandChild.AddComponent<OrbitMover>();
+            moonOrbit.Radius = 32.0f;
+            moonOrbit.AngularSpeed = -3.4f;
+            moonOrbit.StartAngle = i * 1.7f;
+        }
+
+        Console.WriteLine(
+            $"シーン構築: GameObject {_scene.GameObjectCount} 個 / コンポーネント {_scene.ComponentCount} 個");
+    }
+
+    /// <summary>
+    /// 跳ね回るスプライトを <paramref name="count"/> 個ぶん GameObject にする。
+    ///
+    /// 初期値は <c>_sprites</c>(構造体の配列)からそのまま写す。
+    /// **同じ乱数から同じ値を作り直すのではなく、同じ配列を写す**ことで、
+    /// 2つの経路がまったく同じ絵から始まることを保証している。
+    /// </summary>
+    private static void EnsureSceneSprites(int count)
+    {
+        if (_sceneSpriteCount == count)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        // いったん全部消してから作り直す。差分で増減させたほうが速いが、
+        // ここは「作る・壊す」のコストを見たい場所でもあるので素直に書く。
+        foreach (GameObject gameObject in _scene.GameObjects)
+        {
+            if (gameObject.Name.StartsWith("Sprite", StringComparison.Ordinal))
+            {
+                _scene.Destroy(gameObject);
+            }
+        }
+
+        _scene.FixedUpdate(0.0f);   // 破棄の予約をここで消化する
+
+        long before = GC.GetTotalAllocatedBytes(precise: true);
+
+        for (int i = 0; i < count; i++)
+        {
+            ref Sprite source = ref _sprites[i];
+
+            GameObject gameObject = _scene.CreateGameObject("Sprite");
+            gameObject.Transform.LocalPosition = new Vector3(source.Position.X, source.Position.Y, 0.0f);
+            gameObject.Transform.SetLocalRotationZ(source.Rotation);
+            gameObject.Transform.Snapshot();
+
+            SpriteRenderer renderer = gameObject.AddComponent<SpriteRenderer>();
+            renderer.Kind = source.Kind;
+            renderer.Size = source.Size;
+            renderer.Color = source.Color;
+            renderer.Layer = source.Layer;
+
+            BouncingMover mover = gameObject.AddComponent<BouncingMover>();
+            mover.Velocity = source.Velocity;
+            mover.SpinSpeed = source.Spin;
+        }
+
+        long allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+        _sceneSpriteCount = count;
+
+        Console.WriteLine(
+            $"[シーン] スプライト {count} 個を GameObject 化: {stopwatch.Elapsed.TotalMilliseconds:F1}ms / "
+            + $"{allocated / 1024.0:F0}KB ({(count > 0 ? allocated / (double)count : 0.0):F0} バイト/個) / "
+            + $"合計 GameObject {_scene.GameObjectCount} 個、コンポーネント {_scene.ComponentCount} 個");
     }
 
     private static void OnFramebufferResize(Vector2D<int> size)
@@ -481,16 +629,17 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day21 - リソース管理  {_fps:F1} fps | "
-                + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz "
-                + $"step:{_loop.StepsLastFrame} "
-                + $"α:{_loop.Alpha:F2} "
-                + $"遅れ:{_loop.Lag * 1000.0:F1}ms "
-                + $"捨て:{_loop.DroppedSeconds:F2}s | "
-                + $"補間:{OnOff(_interpolate)} 負荷:{_loadMicroseconds}us 破棄:{OnOff(_loop.DropExcess)} | "
+                $"Day22  {_fps:F1} fps | "
+
+                // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
+                + $"{(_useGameObjects ? "GameObject" : "構造体配列")} 更新:{_updateMilliseconds:F2}ms "
+                + $"GO:{_scene.GameObjectCount} C:{_scene.ComponentCount} | "
+                + $"スプライト:{_activeSprites} DC:{_drawCalls} | "
+                + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz step:{_loop.StepsLastFrame} α:{_loop.Alpha:F2} "
+                + $"遅れ:{_loop.Lag * 1000.0:F1}ms | "
+                + $"補間:{OnOff(_interpolate)} 負荷:{_loadMicroseconds}us | "
                 + $"{RecorderLabel()} | "
-                + $"tex:{_resources.TextureCount} 待ち:{_resources.PendingCount} | "
-                + $"スプライト:{_activeSprites} DC:{_drawCalls}";
+                + $"tex:{_resources.TextureCount}/待ち{_resources.PendingCount}";
         }
     }
 
@@ -537,90 +686,30 @@ internal static class Program
             _recorder.Record(input);
         }
 
-        UpdatePlayer(dt, input);
-
         _previousAngle = _angle;
         _angle += dt;
 
-        UpdateSprites(dt);
+        // --- ここから下が今日の比較対象 ---
+        //
+        // 同じ計算を2通りで回す。**測っているのはどちらも「1ステップの更新」**。
+        //   構造体の配列 … UpdateSprites。連続したメモリを順に舐めるだけ
+        //   GameObject   … Scene.FixedUpdate。オブジェクトを辿って仮想呼び出し
+        // プレイヤーと階層の実演は、どちらのモードでも Scene 側にいる。
+        var stopwatch = Stopwatch.StartNew();
+
+        _scene.Input = input;
+        _scene.Bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+        _scene.FixedUpdate(dt);
+
+        if (!_useGameObjects)
+        {
+            UpdateSprites(dt);
+        }
+
+        // 移動平均。1ステップぶんの値はばらつくので、なまして表示する。
+        _updateMilliseconds = (_updateMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
     }
 
-    /// <summary>
-    /// プレイヤーを1ステップ動かす。
-    ///
-    /// **入力を読むのはこの関数だけ**で、しかも引数で受け取っている。
-    /// グローバルなキーボードの状態を直接見に行かないので、
-    /// 記録した入力を流し込むだけで再生になる(要点5)。
-    /// </summary>
-    private static void UpdatePlayer(float dt, in InputSnapshot input)
-    {
-        const float acceleration = 2600.0f;
-        const float maxSpeed = 480.0f;
-        const float friction = 6.0f;
-        const float dashSpeed = 1200.0f;
-        const float dashInterval = 0.45f;
-
-        _playerPreviousPosition = _playerPosition;
-        _playerPreviousRotation = _playerRotation;
-
-        Vector2 axis = input.MoveAxis;
-        _playerVelocity += axis * acceleration * dt;
-
-        // ダッシュは**押した瞬間だけ**。Held で書くと押しっぱなしで加速し続ける(要点2)。
-        _dashCooldown = MathF.Max(0.0f, _dashCooldown - dt);
-        if (input.WasPressed(GameAction.Dash) && _dashCooldown <= 0.0f)
-        {
-            Vector2 direction = axis != Vector2.Zero
-                ? axis
-                : (_playerVelocity != Vector2.Zero ? Vector2.Normalize(_playerVelocity) : Vector2.UnitX);
-
-            _playerVelocity += direction * dashSpeed;
-            _dashCooldown = dashInterval;
-        }
-
-        // 摩擦。速度に比例して減速させる。
-        // (1 - friction*dt) は指数減衰の1次近似で、**dt が固定だから安心して使える**。
-        // 可変タイムステップだと dt が大きいときに負になって速度が反転する。
-        _playerVelocity *= MathF.Max(0.0f, 1.0f - (friction * dt));
-
-        float speed = _playerVelocity.Length();
-        if (speed > maxSpeed && _dashCooldown <= 0.0f)
-        {
-            _playerVelocity = _playerVelocity / speed * maxSpeed;
-        }
-
-        _playerPosition += _playerVelocity * dt;
-
-        // 向きではなく速さで回す。向き(atan2)で回すと -π と π をまたいだ瞬間に
-        // 補間が画面を1周してしまう(Day 19 要点3の「瞬間移動」と同じ問題)。
-        _playerRotation += speed * dt * 0.012f;
-
-        float half = 34.0f;
-        float width = _window.FramebufferSize.X;
-        float height = _window.FramebufferSize.Y;
-
-        if (_playerPosition.X < half)
-        {
-            _playerPosition.X = half;
-            _playerVelocity.X = MathF.Abs(_playerVelocity.X) * 0.4f;
-        }
-        else if (_playerPosition.X > width - half)
-        {
-            _playerPosition.X = width - half;
-            _playerVelocity.X = -MathF.Abs(_playerVelocity.X) * 0.4f;
-        }
-
-        if (_playerPosition.Y < half)
-        {
-            _playerPosition.Y = half;
-            _playerVelocity.Y = MathF.Abs(_playerVelocity.Y) * 0.4f;
-        }
-        else if (_playerPosition.Y > height - half)
-        {
-            _playerPosition.Y = height - half;
-            _playerVelocity.Y = -MathF.Abs(_playerVelocity.Y) * 0.4f;
-        }
-    }
 
     /// <summary>指定したマイクロ秒だけ CPU を回して時間を潰す。</summary>
     private static void BurnCpu(int microseconds)
@@ -812,36 +901,70 @@ internal static class Program
 
         _spriteBatch.Begin(projection, _sortMode);
 
-        for (int i = 0; i < _activeSprites; i++)
+        if (!_useGameObjects)
         {
-            ref Sprite sprite = ref _sprites[i];
-            Submit(
-                sprite.Kind,
-                Interpolate(sprite.PreviousPosition, sprite.Position),
-                new Vector2(sprite.Size, sprite.Size),
-                Interpolate(sprite.PreviousRotation, sprite.Rotation),
-                sprite.Color,
-                sprite.Layer);
+            for (int i = 0; i < _activeSprites; i++)
+            {
+                ref Sprite sprite = ref _sprites[i];
+                Submit(
+                    sprite.Kind,
+                    Interpolate(sprite.PreviousPosition, sprite.Position),
+                    new Vector2(sprite.Size, sprite.Size),
+                    Interpolate(sprite.PreviousRotation, sprite.Rotation),
+                    sprite.Color,
+                    sprite.Layer);
+            }
         }
 
         RenderLayerTest();
-
-        // プレイヤーは一番手前(レイヤー 1.0)。
-        // ダッシュのクールダウン中は色を落として、
-        // **押した瞬間しか効かないアクション**が視覚的に分かるようにしてある。
-        Vector4 playerColor = _dashCooldown > 0.0f
-            ? new Vector4(1.00f, 0.55f, 0.30f, 0.95f)
-            : new Vector4(1.00f, 0.95f, 0.35f, 1.00f);
-
-        Submit(
-            2,   // sprite-star
-            Interpolate(_playerPreviousPosition, _playerPosition),
-            new Vector2(68.0f, 68.0f),
-            Interpolate(_playerPreviousRotation, _playerRotation),
-            playerColor,
-            1.0f);
+        RenderScene();
 
         _spriteBatch.End();
+    }
+
+    /// <summary>
+    /// シーンを歩いて <see cref="SpriteRenderer"/> を積む。
+    ///
+    /// **毎フレーム・全オブジェクトぶんに <c>GetComponent</c> が走る**。
+    /// <see cref="BouncingMover.Start"/> でやっている「1回引いて持つ」の逆で、
+    /// 意図的にそうしてある——GameObject 方式で描画側が背負う典型的な形だから。
+    /// 2万個で実測 0.20ms。あらかじめ配列に集めておけば 0.04ms なので、
+    /// **0.16ms をこの書き方に払っている**ことになる。
+    ///
+    /// 実際のエンジンは、描画対象を別のリストに登録しておく
+    /// (<c>AddComponent</c> のときにシーンへ通知する)ことでこれを避ける。
+    /// Day 23 の ECS は、そのリストを**設計の中心**に据えたもの、とも言える。
+    /// </summary>
+    private static void RenderScene()
+    {
+        float alpha = _interpolate ? (float)_loop.Alpha : 1.0f;
+        IReadOnlyList<GameObject> gameObjects = _scene.GameObjects;
+
+        for (int i = 0; i < gameObjects.Count; i++)
+        {
+            GameObject gameObject = gameObjects[i];
+            if (!gameObject.ActiveInHierarchy)
+            {
+                continue;
+            }
+
+            SpriteRenderer? renderer = gameObject.GetComponent<SpriteRenderer>();
+            if (renderer is null || !renderer.Enabled)
+            {
+                continue;
+            }
+
+            Transform transform = gameObject.Transform;
+            Vector3 position = transform.GetInterpolatedWorldPosition(alpha);
+
+            Submit(
+                renderer.Kind,
+                new Vector2(position.X, position.Y),
+                new Vector2(renderer.Size, renderer.Size),
+                transform.GetInterpolatedWorldRotationZ(alpha),
+                renderer.Color,
+                renderer.Layer);
+        }
     }
 
     /// <summary>ソートの効き目を目で見るための3枚(<see cref="LayerTest"/>)。</summary>
@@ -875,7 +998,7 @@ internal static class Program
         }
 
         _recorder.StartRecording(_loop.FixedDeltaTime);
-        _recordStart = (_playerPosition, _playerVelocity, _playerRotation, _dashCooldown);
+        _recordStart = _player.State;
         Console.WriteLine($"[記録開始] {1.0 / _loop.FixedDeltaTime:F0}Hz。矢印キーで動かして、もう一度 M で停止");
     }
 
@@ -898,9 +1021,8 @@ internal static class Program
             _loop.Reset();
         }
 
-        (_playerPosition, _playerVelocity, _playerRotation, _dashCooldown) = _recordStart;
-        _playerPreviousPosition = _playerPosition;
-        _playerPreviousRotation = _playerRotation;
+        // State の setter が補間の起点までそろえてくれる(PlayerController 参照)。
+        _player.State = _recordStart;
 
         // 押しっぱなしのキーが再生に混ざらないように捨てる。
         _inputSystem.Clear();
@@ -930,11 +1052,13 @@ internal static class Program
     {
         ulong hash = 14695981039346656037UL;
 
-        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerPosition.X));
-        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerPosition.Y));
-        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerVelocity.X));
-        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerVelocity.Y));
-        Mix(ref hash, BitConverter.SingleToUInt32Bits(_playerRotation));
+        (Vector2 position, Vector2 velocity, float angle, _) = _player.State;
+
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(position.X));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(position.Y));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(velocity.X));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(velocity.Y));
+        Mix(ref hash, BitConverter.SingleToUInt32Bits(angle));
 
         return hash;
 
@@ -1047,6 +1171,50 @@ internal static class Program
             _watchWorstFrameMilliseconds > 16.6
                 ? "  → 60fps の1フレーム(16.6ms)を超えた。ユーザーには「固まった」と見える"
                 : "  → 1フレームの予算に収まっている。読み込んでいることに気づかせない");
+    }
+
+    /// <summary>
+    /// ライフサイクルの呼ばれ方を実演する(H キー)。
+    ///
+    /// GameObject を1つ作って、有効・無効を切り替えて、破棄する。
+    /// **どれが即座に呼ばれ、どれがステップの境界まで待たされるか**が見える。
+    /// 破棄がその場では起きないこと(要点4)が、いちばん引っかかりやすい。
+    /// </summary>
+    private static void RunLifecycleDemo()
+    {
+        Console.WriteLine();
+        Console.WriteLine("[ライフサイクルの実演]");
+        Console.WriteLine("  CreateGameObject + AddComponent");
+
+        GameObject demo = _scene.CreateGameObject("LifecycleDemo");
+        LifecycleLogger logger = demo.AddComponent<LifecycleLogger>();
+
+        // **ラベルを入れるのは AddComponent のあと**。
+        // Awake は AddComponent の中で走ってしまうので、
+        // 下の2行が出た時点ではまだ既定値("obj")のまま。
+        // 「Awake の中で、外から設定した値をあてにしてはいけない」のがこれ。
+        logger.Label = "demo";
+        Console.WriteLine("  ↑ ラベルはまだ obj。Awake は AddComponent の中で走るので、");
+        Console.WriteLine("     プロパティを入れる前に呼ばれている");
+
+        Console.WriteLine("  SetActive(false) → SetActive(true)");
+        demo.SetActive(false);
+        demo.SetActive(true);
+
+        Console.WriteLine("  ここから4ステップ動かす(Start は最初のステップの直前)");
+        for (int i = 0; i < 4; i++)
+        {
+            _scene.FixedUpdate((float)_loop.FixedDeltaTime);
+        }
+
+        Console.WriteLine("  Destroy を予約 → まだ生きている");
+        _scene.Destroy(demo);
+        Console.WriteLine($"    IsDestroyed = {demo.IsDestroyed} / シーンにはまだ {_scene.GameObjectCount} 個");
+
+        Console.WriteLine("  次のステップの終わりで実際に消える");
+        _scene.FixedUpdate((float)_loop.FixedDeltaTime);
+        Console.WriteLine($"    シーンは {_scene.GameObjectCount} 個になった");
+        Console.WriteLine();
     }
 
     /// <summary>
@@ -1350,6 +1518,17 @@ internal static class Program
                 };
                 break;
 
+            case Key.J:
+                _useGameObjects = !_useGameObjects;
+                EnsureSceneSprites(_useGameObjects ? _activeSprites : 0);
+                Console.WriteLine(
+                    $"更新方式: {(_useGameObjects ? "GameObject + Component" : "構造体の配列")}");
+                break;
+
+            case Key.H:
+                RunLifecycleDemo();
+                break;
+
             case Key.Q:
                 LoadDemoTextures(useAsync: true);
                 break;
@@ -1405,12 +1584,15 @@ internal static class Program
 
             // 矢印キーはプレイヤーの操作に使うので、スプライト数は PageUp/PageDown へ移した。
             case Key.PageUp:
-                _activeSprites = Math.Min(_activeSprites + 1000, MaxSprites - LayerTest.Length);
-                break;
-
             case Key.PageDown:
-                _activeSprites = Math.Max(_activeSprites - 1000, 0);
-                break;
+                {
+                    // Shift を押しながらだと10倍動く。
+                    // 2万個まで 1000 刻みで上げるのは19回かかって、さすがに試す気が失せる。
+                    bool shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
+                    int step = shift ? 10000 : 1000;
+                    SetSpriteCount(_activeSprites + (key == Key.PageUp ? step : -step));
+                    break;
+                }
 
             case Key.Home:
                 _orbit.Reset();
@@ -1464,6 +1646,23 @@ internal static class Program
     /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
     /// 一瞬だけ早送りになる。
     /// </summary>
+    /// <summary>
+    /// スプライトの数を変える。GameObject モードならシーンのほうもそろえる。
+    ///
+    /// 上限から <c>LayerTest</c> のぶんと階層の実演のぶんを引いてあるのは、
+    /// バッチの容量(<see cref="MaxSprites"/>)を超えるとそこでフラッシュが
+    /// 割り込んで、ソートが分断されるため(Day 18 の <c>SpriteBatch.Draw</c> 参照)。
+    /// </summary>
+    private static void SetSpriteCount(int count)
+    {
+        _activeSprites = Math.Clamp(count, 0, MaxSprites - LayerTest.Length - 16);
+
+        if (_useGameObjects)
+        {
+            EnsureSceneSprites(_activeSprites);
+        }
+    }
+
     private static void SetSimulationRate(double hertz)
     {
         _loop.FixedDeltaTime = 1.0 / hertz;
