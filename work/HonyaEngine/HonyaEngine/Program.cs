@@ -8,22 +8,23 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。**Phase 4(エンジンコア)の4日目**。
+/// エントリポイント。**Phase 4(エンジンコア)の5日目**。
 ///
-/// Day 21 までのこのファイルは、スプライトの配列を自分で回し、
-/// プレイヤーの座標を static フィールドで持ち、
-/// **「何をどう動かすか」を全部ここに書いていた**。
-/// 今日はそれを <see cref="GameObject"/> と <see cref="Component"/> に移す。
+/// Day 22 で GameObject + Component に移したら、2万個の更新が
+/// 0.08ms から 1.37ms(17倍)になった。今日はそれを**3通り目**の書き方で埋める。
 ///
-/// 見どころは J キー。まったく同じ動きのスプライトを
-///   - 構造体の配列 + 直接呼び出し(Day 17 からのやり方)
-///   - GameObject + Component(今日のやり方)
-/// で切り替えられる。**見た目は完全に同じで、更新時間だけが変わる**。
-/// この差が Day 23 で ECS を書く動機そのものになる。
+/// J キーで切り替わる3つは、まったく同じ動きをする。
+///   1. 構造体の配列   … Day 17 からのやり方。専用コード
+///   2. GameObject     … Day 22。1個ぶんがまとまっている
+///   3. ECS            … 今日。**同じ種類がまとまっている**
 ///
-/// プレイヤーは常に GameObject 側にいる。
-/// Day 20 の <c>UpdatePlayer</c> と static フィールド6個が、
-/// <see cref="PlayerController"/> 1クラスに畳まれて消えた。
+/// 3 は 1 の一般化になっている、というのが今日いちばん腑に落ちてほしいところ。
+/// 「構造体の配列を種類ごとに並べて、エンティティ番号で串刺しにする」だけで、
+/// 専用コードの速さと GameObject の柔軟さを両取りできる。
+///
+/// プレイヤーと階層の実演は3つのどれでも GameObject のまま。
+/// **ECS は全部を置き換えるものではない**——少数で込み入ったものは
+/// オブジェクトのほうが書きやすい(要点6)。
 /// </summary>
 internal static class Program
 {
@@ -51,6 +52,19 @@ internal static class Program
         "stone-tiles",
         "fabric-weave",
     ];
+
+    /// <summary>スプライトの更新を誰がやるか。</summary>
+    private enum SpriteBackend
+    {
+        /// <summary>Day 17 からのやり方。構造体の配列を直接回す</summary>
+        StructArray,
+
+        /// <summary>Day 22。GameObject + Component</summary>
+        GameObject,
+
+        /// <summary>Day 23。エンティティ番号 + 種類ごとの配列</summary>
+        Ecs,
+    }
 
     private static IWindow _window = null!;
     private static GL _gl = null!;
@@ -113,11 +127,24 @@ internal static class Program
     /// <summary>階層の実演に使う根。子・孫がぶら下がっている。</summary>
     private static GameObject _orbitRoot = null!;
 
-    /// <summary>スプライトを GameObject で動かすか(J キー)。false なら構造体の配列。</summary>
-    private static bool _useGameObjects;
+    /// <summary>スプライトの更新を誰がやるか(J キー)。</summary>
+    private static SpriteBackend _backend = SpriteBackend.StructArray;
 
     /// <summary>今シーンに入っている跳ね回るスプライトの数。</summary>
     private static int _sceneSpriteCount;
+
+    // --- 今日の主役 ---
+    private static World _world = null!;
+
+    /// <summary>ECS 側に入っているスプライトの数。</summary>
+    private static int _ecsSpriteCount;
+
+    /// <summary>
+    /// 4つのストアが同じ順に並んでいるか。
+    /// **並んでいれば添字をそのまま使える**ので、結合の1段が消える(要点4)。
+    /// エンティティを作り直したときにだけ確かめる。
+    /// </summary>
+    private static bool _ecsAligned;
 
     /// <summary>1ステップぶんの更新にかかった時間(ミリ秒)の移動平均。</summary>
     private static double _updateMilliseconds;
@@ -216,7 +243,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day22 - GameObject + Component",
+            Title = "Day23 - ECS",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -384,7 +411,7 @@ internal static class Program
         BuildScene();
 
         Console.WriteLine();
-        Console.WriteLine("J:更新方式(構造体配列/GameObject)  H:ライフサイクルの実演");
+        Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
         Console.WriteLine("1/2/3/4:シミュレーション 120/60/20/5Hz   I:補間  L:負荷  K:余剰破棄  Y:決定性チェック");
@@ -513,6 +540,77 @@ internal static class Program
 
         Console.WriteLine(
             $"シーン構築: GameObject {_scene.GameObjectCount} 個 / コンポーネント {_scene.ComponentCount} 個");
+
+        // ECS 側は空のまま用意しておく。中身は J で切り替えたときに詰める。
+        _world = new World();
+    }
+
+    /// <summary>
+    /// 跳ね回るスプライトを <paramref name="count"/> 体ぶんエンティティにする。
+    ///
+    /// <see cref="EnsureSceneSprites"/> と同じ初期値を <c>_sprites</c> から写す。
+    /// **3つの経路がまったく同じ絵から始まる**ことを保証するため。
+    /// </summary>
+    private static void EnsureEcsSprites(int count)
+    {
+        if (_ecsSpriteCount == count)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        _world.Clear();
+
+        long before = GC.GetTotalAllocatedBytes(precise: true);
+
+        for (int i = 0; i < count; i++)
+        {
+            ref Sprite source = ref _sprites[i];
+
+            Entity entity = _world.CreateEntity();
+
+            // **付ける順番をそろえる**。全員を同じ順で作れば、
+            // 4つのストアの密な配列が同じ並びになる(要点4)。
+            _world.Add(entity, new Transform2D { Position = source.Position, Rotation = source.Rotation });
+            _world.Add(entity, new Previous2D { Position = source.Position, Rotation = source.Rotation });
+            _world.Add(entity, new Velocity2D
+            {
+                Linear = source.Velocity,
+                Spin = source.Spin,
+                HalfSize = source.Size * 0.5f,
+            });
+            _world.Add(entity, new Sprite2D
+            {
+                Kind = source.Kind,
+                Size = source.Size,
+                Layer = source.Layer,
+                Color = source.Color,
+            });
+        }
+
+        long allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+        _ecsSpriteCount = count;
+        RefreshEcsAlignment();
+
+        Console.WriteLine(
+            $"[ECS] スプライト {count} 体をエンティティ化: {stopwatch.Elapsed.TotalMilliseconds:F1}ms / "
+            + $"{allocated / 1024.0:F0}KB ({(count > 0 ? allocated / (double)count : 0.0):F0} バイト/体) / "
+            + $"{_world.DescribeStores()} / 並び {(_ecsAligned ? "一致" : "不一致")}");
+    }
+
+    /// <summary>
+    /// 4つのストアの並びが一致しているか確かめ直す。
+    /// **O(n) かかる**ので、エンティティの増減があったときだけ呼ぶ。
+    /// </summary>
+    private static void RefreshEcsAlignment()
+    {
+        ComponentStore<Transform2D> transforms = _world.Store<Transform2D>();
+
+        _ecsAligned =
+            EcsSystems.AreAligned(transforms, _world.Store<Previous2D>())
+            && EcsSystems.AreAligned(transforms, _world.Store<Velocity2D>())
+            && EcsSystems.AreAligned(transforms, _world.Store<Sprite2D>());
     }
 
     /// <summary>
@@ -629,11 +727,11 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day22  {_fps:F1} fps | "
+                $"Day23  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
-                + $"{(_useGameObjects ? "GameObject" : "構造体配列")} 更新:{_updateMilliseconds:F2}ms "
-                + $"GO:{_scene.GameObjectCount} C:{_scene.ComponentCount} | "
+                + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
+                + $"GO:{_scene.GameObjectCount} E:{_world.AliveCount} | "
                 + $"スプライト:{_activeSprites} DC:{_drawCalls} | "
                 + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz step:{_loop.StepsLastFrame} α:{_loop.Alpha:F2} "
                 + $"遅れ:{_loop.Lag * 1000.0:F1}ms | "
@@ -691,19 +789,35 @@ internal static class Program
 
         // --- ここから下が今日の比較対象 ---
         //
-        // 同じ計算を2通りで回す。**測っているのはどちらも「1ステップの更新」**。
+        // 同じ計算を3通りで回す。**測っているのはどれも「1ステップの更新」**。
         //   構造体の配列 … UpdateSprites。連続したメモリを順に舐めるだけ
         //   GameObject   … Scene.FixedUpdate。オブジェクトを辿って仮想呼び出し
-        // プレイヤーと階層の実演は、どちらのモードでも Scene 側にいる。
+        //   ECS          … システムを順に呼ぶ。種類ごとの配列を舐める
+        // プレイヤーと階層の実演は、どのモードでも Scene 側にいる。
         var stopwatch = Stopwatch.StartNew();
 
+        var bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
         _scene.Input = input;
-        _scene.Bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+        _scene.Bounds = bounds;
         _scene.FixedUpdate(dt);
 
-        if (!_useGameObjects)
+        switch (_backend)
         {
-            UpdateSprites(dt);
+            case SpriteBackend.StructArray:
+                UpdateSprites(dt);
+                break;
+
+            case SpriteBackend.Ecs:
+                // **呼ぶ順番をここに書く**のが ECS の作法。
+                // 控えてから動かす。逆にすると補間が1ステップぶんずれる。
+                EcsSystems.Snapshot(_world, _ecsAligned);
+                EcsSystems.Move(_world, dt, bounds, _ecsAligned);
+                break;
+
+            case SpriteBackend.GameObject:
+                // Scene.FixedUpdate が済ませている
+                break;
         }
 
         // 移動平均。1ステップぶんの値はばらつくので、なまして表示する。
@@ -901,7 +1015,7 @@ internal static class Program
 
         _spriteBatch.Begin(projection, _sortMode);
 
-        if (!_useGameObjects)
+        if (_backend == SpriteBackend.StructArray)
         {
             for (int i = 0; i < _activeSprites; i++)
             {
@@ -914,6 +1028,10 @@ internal static class Program
                     sprite.Color,
                     sprite.Layer);
             }
+        }
+        else if (_backend == SpriteBackend.Ecs)
+        {
+            RenderEcsSprites();
         }
 
         RenderLayerTest();
@@ -964,6 +1082,48 @@ internal static class Program
                 transform.GetInterpolatedWorldRotationZ(alpha),
                 renderer.Color,
                 renderer.Layer);
+        }
+    }
+
+    /// <summary>
+    /// ECS のスプライトを積む。
+    ///
+    /// Day 22 の <see cref="RenderScene"/> と見比べると差が分かりやすい。
+    /// あちらは**オブジェクトを1個ずつ辿って <c>GetComponent</c>** していた。
+    /// こちらは3本の配列を頭から並走するだけで、
+    /// 「絵を持っているか」の判定すら要らない(持っていないものは配列に入っていない)。
+    /// </summary>
+    private static void RenderEcsSprites()
+    {
+        ComponentStore<Sprite2D> sprites = _world.Store<Sprite2D>();
+        ComponentStore<Transform2D> transforms = _world.Store<Transform2D>();
+        ComponentStore<Previous2D> previous = _world.Store<Previous2D>();
+
+        Span<Sprite2D> s = sprites.Values;
+        Span<Transform2D> t = transforms.Values;
+        Span<Previous2D> p = previous.Values;
+        ReadOnlySpan<int> entities = sprites.Entities;
+
+        float alpha = _interpolate ? (float)_loop.Alpha : 1.0f;
+
+        for (int i = 0; i < s.Length; i++)
+        {
+            // 並びが一致していれば添字がそのまま使える。
+            // していなければエンティティ番号を経由する(要点4)。
+            int ti = _ecsAligned ? i : transforms.DenseIndexOf(entities[i]);
+            int pi = _ecsAligned ? i : previous.DenseIndexOf(entities[i]);
+            if (ti < 0 || pi < 0)
+            {
+                continue;
+            }
+
+            Submit(
+                s[i].Kind,
+                Vector2.Lerp(p[pi].Position, t[ti].Position, alpha),
+                new Vector2(s[i].Size, s[i].Size),
+                p[pi].Rotation + ((t[ti].Rotation - p[pi].Rotation) * alpha),
+                s[i].Color,
+                s[i].Layer);
         }
     }
 
@@ -1171,6 +1331,163 @@ internal static class Program
             _watchWorstFrameMilliseconds > 16.6
                 ? "  → 60fps の1フレーム(16.6ms)を超えた。ユーザーには「固まった」と見える"
                 : "  → 1フレームの予算に収まっている。読み込んでいることに気づかせない");
+    }
+
+    /// <summary>
+    /// **ECS の不変条件を確かめる自己チェック**(D キー)。
+    ///
+    /// Day 19 の決定性、Day 21 のハンドル、Day 22 の階層と同じ趣旨。
+    /// いちばん見たいのは**ストアの並びがいつ崩れるか**で、
+    /// これが分かっていないと、速い経路(要点4)を安全に使えない。
+    /// </summary>
+    private static void RunEcsCheck()
+    {
+        int failures = 0;
+
+        Console.WriteLine();
+        Console.WriteLine("[ECS の自己チェック]");
+
+        var world = new World();
+
+        Check("既定値のエンティティは無効", !default(Entity).IsValid);
+
+        Entity a = world.CreateEntity();
+        world.Add(a, new Transform2D { Position = new Vector2(1.0f, 2.0f) });
+        world.Add(a, new Velocity2D { Linear = new Vector2(3.0f, 4.0f) });
+
+        Check("生きている", world.IsAlive(a));
+        Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
+
+        // ref で返るので、引いてそのまま書き換えられる。
+        // 値で返す作りだとコピーが書き換わるだけで、元は変わらない。
+        world.Get<Transform2D>(a).Position.X = 99.0f;
+        Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
+
+        Entity b = world.CreateEntity();
+        world.Add(b, new Transform2D { Position = new Vector2(10.0f, 0.0f) });
+        world.Add(b, new Velocity2D());
+        Entity c = world.CreateEntity();
+        world.Add(c, new Transform2D { Position = new Vector2(20.0f, 0.0f) });
+        world.Add(c, new Velocity2D());
+
+        ComponentStore<Transform2D> transforms = world.Store<Transform2D>();
+        ComponentStore<Velocity2D> velocities = world.Store<Velocity2D>();
+
+        Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
+
+        // 真ん中を消す。末尾と入れ替わるので**並び順は変わる**が、
+        // どのストアも同じ入れ替えをするので**一致は保たれる**。
+        world.DestroyEntity(b);
+        Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
+        Check("破棄したエンティティは無効", !world.IsAlive(b));
+        Check("残りは正しく引ける",
+            MathF.Abs(world.Get<Transform2D>(c).Position.X - 20.0f) < 0.001f);
+        Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
+
+        // 枠の再利用。Day 21 のハンドルとまったく同じ話。
+        Entity reused = world.CreateEntity();
+        Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
+        Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
+        Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
+
+        // **後から足すと並びが崩れる**。ここが要点4の肝。
+        //
+        // 破棄では崩れない(全ストアが同じ入れ替えをするから)のに対し、
+        // 「片方にだけ後から足す」と順番がずれる。
+        // つまり**エンティティの構成がそろっていないと速い経路は使えない**。
+        Entity late = world.CreateEntity();
+        world.Add(late, new Transform2D());
+        Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
+
+        Entity both = world.CreateEntity();
+        world.Add(both, new Transform2D());
+        world.Add(both, new Velocity2D());
+
+        world.Add(late, new Velocity2D());
+        Check(
+            "件数がそろっても順番は戻らない",
+            transforms.Count == velocities.Count && !EcsSystems.AreAligned(transforms, velocities),
+            $"件数 {transforms.Count} / {velocities.Count}");
+        _ = both;
+
+        Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
+
+        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        Console.WriteLine();
+
+        void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                failures++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 速い経路(並びが一致している前提)と一般の経路(番号で引く)で、
+    /// **100 ステップ回した結果が 1 ビットも違わない**ことを確かめる。
+    ///
+    /// 速い経路は「前提が崩れたら静かに間違う」種類の最適化なので、
+    /// 正しいときには完全に一致することを押さえておきたい。
+    /// </summary>
+    private static bool AlignedAndJoinedAgree()
+    {
+        var bounds = new Vector2(960.0f, 640.0f);
+        var random = new Random(4242);
+
+        ulong Run(bool aligned)
+        {
+            var world = new World();
+            for (int i = 0; i < 64; i++)
+            {
+                Entity entity = world.CreateEntity();
+                world.Add(entity, new Transform2D
+                {
+                    Position = new Vector2((float)random.NextDouble() * 900.0f, (float)random.NextDouble() * 600.0f),
+                    Rotation = (float)random.NextDouble(),
+                });
+                world.Add(entity, new Previous2D());
+                world.Add(entity, new Velocity2D
+                {
+                    Linear = new Vector2((float)random.NextDouble() * 200.0f - 100.0f, 80.0f),
+                    Spin = 1.0f,
+                    HalfSize = 16.0f,
+                });
+            }
+
+            for (int step = 0; step < 100; step++)
+            {
+                EcsSystems.Snapshot(world, aligned);
+                EcsSystems.Move(world, 1.0f / 60.0f, bounds, aligned);
+            }
+
+            ulong hash = 14695981039346656037UL;
+            foreach (Transform2D transform in world.Store<Transform2D>().Values)
+            {
+                Mix(ref hash, BitConverter.SingleToUInt32Bits(transform.Position.X));
+                Mix(ref hash, BitConverter.SingleToUInt32Bits(transform.Position.Y));
+                Mix(ref hash, BitConverter.SingleToUInt32Bits(transform.Rotation));
+            }
+
+            return hash;
+        }
+
+        // 同じ乱数列から作りたいので、種を戻して2回作る。
+        ulong fast = Run(true);
+        random = new Random(4242);
+        ulong general = Run(false);
+        return fast == general;
+
+        static void Mix(ref ulong hash, uint value)
+        {
+            for (int b = 0; b < 4; b++)
+            {
+                hash ^= (byte)(value >> (b * 8));
+                hash *= 1099511628211UL;
+            }
+        }
     }
 
     /// <summary>
@@ -1519,10 +1836,18 @@ internal static class Program
                 break;
 
             case Key.J:
-                _useGameObjects = !_useGameObjects;
-                EnsureSceneSprites(_useGameObjects ? _activeSprites : 0);
-                Console.WriteLine(
-                    $"更新方式: {(_useGameObjects ? "GameObject + Component" : "構造体の配列")}");
+                _backend = _backend switch
+                {
+                    SpriteBackend.StructArray => SpriteBackend.GameObject,
+                    SpriteBackend.GameObject => SpriteBackend.Ecs,
+                    _ => SpriteBackend.StructArray,
+                };
+                ApplyBackend();
+                Console.WriteLine($"更新方式: {BackendLabel()}");
+                break;
+
+            case Key.D:
+                RunEcsCheck();
                 break;
 
             case Key.H:
@@ -1657,11 +1982,22 @@ internal static class Program
     {
         _activeSprites = Math.Clamp(count, 0, MaxSprites - LayerTest.Length - 16);
 
-        if (_useGameObjects)
-        {
-            EnsureSceneSprites(_activeSprites);
-        }
+        ApplyBackend();
     }
+
+    /// <summary>今のモードに合わせて、GameObject 側と ECS 側の中身をそろえる。</summary>
+    private static void ApplyBackend()
+    {
+        EnsureSceneSprites(_backend == SpriteBackend.GameObject ? _activeSprites : 0);
+        EnsureEcsSprites(_backend == SpriteBackend.Ecs ? _activeSprites : 0);
+    }
+
+    private static string BackendLabel() => _backend switch
+    {
+        SpriteBackend.StructArray => "構造体の配列",
+        SpriteBackend.GameObject => "GameObject + Component",
+        _ => "ECS",
+    };
 
     private static void SetSimulationRate(double hertz)
     {
