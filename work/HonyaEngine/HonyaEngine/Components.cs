@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json.Serialization;
 
 namespace HonyaEngine;
 
@@ -157,8 +158,24 @@ internal sealed class PlayerController : Component
     private const float DashInterval = 0.45f;
     private const float HalfSize = 34.0f;
 
+    /// <summary>
+    /// 速度。**これは保存する**。
+    ///
+    /// シーンファイルは「初期状態」を書くものなので、
+    /// 「最初から右へ飛んでいる敵」を置きたければ速度は初期値の一部になる。
+    /// </summary>
     public Vector2 Velocity { get; set; }
 
+    /// <summary>
+    /// ダッシュの残り時間。**保存しない**。
+    ///
+    /// <see cref="Velocity"/> との違いが要点3。
+    /// これは「今まさに走っている最中の一時的な値」で、
+    /// シーンの初期状態としては意味を持たない。
+    /// セーブデータ(途中から再開する)なら保存するが、それはシーンとは別の話。
+    /// **同じ形式で両方をまかなおうとすると、必ずどちらかが歪む**。
+    /// </summary>
+    [JsonIgnore]
     public float DashCooldown { get; private set; }
 
     /// <summary>
@@ -167,10 +184,14 @@ internal sealed class PlayerController : Component
     /// クォータニオンから角度を取り出すには <c>atan2</c> が要るうえ、
     /// 取り出した角度は必ず -π〜π に折り返される。
     /// **足し続ける値は、素の float で持っておくほうが素直**。
+    ///
+    /// 保存しない。向きは <see cref="Transform"/> 側に入っているので二重になる。
     /// </summary>
+    [JsonIgnore]
     public float Angle { get; private set; }
 
     /// <summary>再生や巻き戻しのために、状態をまとめて出し入れする。</summary>
+    [JsonIgnore]
     public (Vector2 Position, Vector2 Velocity, float Angle, float DashCooldown) State
     {
         get => (new Vector2(Transform.LocalPosition.X, Transform.LocalPosition.Y), Velocity, Angle, DashCooldown);

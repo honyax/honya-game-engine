@@ -81,9 +81,20 @@ internal sealed class GameObject
     /// コンストラクタ引数があると、その復元手順を型ごとに書くことになる。
     /// </summary>
     public T AddComponent<T>()
-        where T : Component, new()
+        where T : Component, new() => (T)AttachComponent(new T());
+
+    /// <summary>
+    /// **すでに作られたコンポーネント**を付ける。
+    ///
+    /// Day 24 でシリアライズを入れたときに要るようになった。
+    /// ファイルから復元するときは <c>JsonSerializer</c> が先に実体を作るので、
+    /// 「作ってから付ける」経路が無いと接続できない。
+    /// <see cref="AddComponent{T}"/> もこちらに寄せて、
+    /// **Awake / OnEnable / Start の呼ばれ方を1箇所にまとめてある**。
+    /// </summary>
+    internal Component AttachComponent(Component component)
     {
-        var component = new T { GameObject = this };
+        component.GameObject = this;
         _components.Add(component);
         Scene.RegisterComponent(component);
         return component;

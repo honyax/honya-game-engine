@@ -8,7 +8,7 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。**Phase 4(エンジンコア)の5日目**。
+/// エントリポイント。**Phase 4(エンジンコア)の最終日**。
 ///
 /// Day 22 で GameObject + Component に移したら、2万個の更新が
 /// 0.08ms から 1.37ms(17倍)になった。今日はそれを**3通り目**の書き方で埋める。
@@ -24,7 +24,17 @@ namespace HonyaEngine;
 ///
 /// プレイヤーと階層の実演は3つのどれでも GameObject のまま。
 /// **ECS は全部を置き換えるものではない**——少数で込み入ったものは
-/// オブジェクトのほうが書きやすい(要点6)。
+/// オブジェクトのほうが書きやすい。
+///
+/// **Day 24 での変更**: シーンがコードから出た。
+/// 起動時に <c>assets/scenes/demo.scene.json</c> を読み、
+/// そこに書いてあるとおりに GameObject とコンポーネントを組み立てる。
+/// ファイルが無いときだけ <see cref="CreateDemoScene"/> がコードで組む。
+///
+/// **これで Phase 4 のマイルストーン**——
+/// 「シーンをロードし、コンポーネント付きエンティティが動く」——に到達する。
+/// F4 で、コードで組んだシーンと保存して読み直したシーンが
+/// **300 ステップ後までビット単位で一致する**ことを確かめられる。
 /// </summary>
 internal static class Program
 {
@@ -243,7 +253,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day23 - ECS",
+            Title = "Day24 - シーン管理とシリアライズ",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -408,10 +418,11 @@ internal static class Program
             }
         };
 
-        BuildScene();
+        SetupScene();
 
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
+        Console.WriteLine("F2:シーンを保存  F3:読み込み(Shift併用でコードから組み直し)  F4:往復の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
         Console.WriteLine("1/2/3/4:シミュレーション 120/60/20/5Hz   I:補間  L:負荷  K:余剰破棄  Y:決定性チェック");
@@ -470,19 +481,102 @@ internal static class Program
     /// シーンを組み立てる。**Program がやるのはここまで**で、
     /// あとは <see cref="Scene.FixedUpdate"/> が全部回してくれる。
     /// </summary>
-    private static void BuildScene()
+    /// <summary>
+    /// 起動時のシーンを用意する。**ファイルがあればそれを読む**。
+    ///
+    /// Day 23 まではここでコードを実行してシーンを組んでいた。
+    /// 今日からは組み立て手順がファイルの中にあり、
+    /// このメソッドは「どこから読むか」を決めるだけになる。
+    /// **エンジンとゲームの境目**がここに引かれた、ということでもある。
+    /// </summary>
+    private static void SetupScene()
     {
-        _scene = new Scene
+        _world = new World();
+
+        var bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+        string? path = TryResolveAssetPath("scenes/demo.scene.json");
+
+        if (path is not null)
         {
-            Bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y),
-        };
+            _scene = SceneSerializer.LoadFromFile(path, _world);
+            _scene.Bounds = bounds;
+            Console.WriteLine($"シーンを読み込みました: {Path.GetFileName(path)}");
+        }
+        else
+        {
+            _scene = CreateDemoScene(bounds);
+            Console.WriteLine("シーンをコードから組みました(assets/scenes/demo.scene.json が見つかりません)");
+        }
+
+        BindSceneObjects();
+
+        Console.WriteLine(
+            $"  GameObject {_scene.GameObjectCount} 個 / コンポーネント {_scene.ComponentCount} 個");
+    }
+
+    /// <summary>
+    /// 読み込んだシーンの中から、Program が名指しで使うものを探して覚える。
+    ///
+    /// **ここがコードとデータの継ぎ目**。
+    /// シーンがファイルになった以上、Program は「Player という名前のものがいる」
+    /// くらいのゆるい前提しか置けない。
+    /// 名前で探すのは素朴だが、実際のエンジンでも
+    /// タグや型で探す仕組み(<c>FindObjectOfType</c> の類)は必ず用意されている。
+    /// </summary>
+    private static void BindSceneObjects()
+    {
+        _player = null!;
+        _orbitRoot = null!;
+
+        foreach (GameObject gameObject in _scene.GameObjects)
+        {
+            if (gameObject.GetComponent<PlayerController>() is { } controller)
+            {
+                _player = controller;
+            }
+
+            if (gameObject.Name == "OrbitRoot")
+            {
+                _orbitRoot = gameObject;
+            }
+        }
+
+        if (_player is null)
+        {
+            // ファイルを手で編集してプレイヤーを消してしまった場合の逃げ道。
+            // **落とさずに、何が足りないかを言う**。
+            Console.WriteLine("[scene] PlayerController が見つかりません。コードから組み直します");
+            _scene = CreateDemoScene(_scene.Bounds);
+            BindSceneObjects();
+            return;
+        }
+
+        // スプライトの数え直し。ファイルから読んだぶんも勘定に入れる。
+        int sceneSprites = 0;
+        foreach (GameObject gameObject in _scene.GameObjects)
+        {
+            if (gameObject.Name.StartsWith("Sprite", StringComparison.Ordinal))
+            {
+                sceneSprites++;
+            }
+        }
+
+        _sceneSpriteCount = sceneSprites;
+        _ecsSpriteCount = _world.AliveCount;
+        RefreshEcsAlignment();
+    }
+
+    /// <summary>
+    /// デモのシーンをコードで組む。**ファイルが無いときの後ろ盾**であり、
+    /// <c>assets/scenes/demo.scene.json</c> の出どころでもある。
+    /// </summary>
+    private static Scene CreateDemoScene(Vector2 bounds)
+    {
+        var scene = new Scene { Bounds = bounds };
 
         // --- プレイヤー ---
-        GameObject player = _scene.CreateGameObject("Player");
-        player.Transform.LocalPosition = new Vector3(
-            _window.FramebufferSize.X * 0.5f,
-            _window.FramebufferSize.Y * 0.5f,
-            0.0f);
+        GameObject player = scene.CreateGameObject("Player");
+        player.Transform.LocalPosition = new Vector3(bounds.X * 0.5f, bounds.Y * 0.5f, 0.0f);
         player.Transform.Snapshot();
 
         SpriteRenderer playerSprite = player.AddComponent<SpriteRenderer>();
@@ -490,7 +584,7 @@ internal static class Program
         playerSprite.Size = 68.0f;
         playerSprite.Layer = 1.0f;
 
-        _player = player.AddComponent<PlayerController>();
+        player.AddComponent<PlayerController>();
 
         // --- 階層の実演 ---
         //
@@ -499,11 +593,11 @@ internal static class Program
         // 根が画面を移動すれば全部ついてくるし、
         // 子が回れば孫はその子を中心に回る。
         // 位置の合成は Transform が引き受けるので、部品側には何も要らない。
-        _orbitRoot = _scene.CreateGameObject("OrbitRoot");
-        _orbitRoot.Transform.LocalPosition = new Vector3(770.0f, 170.0f, 0.0f);
-        _orbitRoot.Transform.Snapshot();
+        GameObject orbitRoot = scene.CreateGameObject("OrbitRoot");
+        orbitRoot.Transform.LocalPosition = new Vector3(770.0f, 170.0f, 0.0f);
+        orbitRoot.Transform.Snapshot();
 
-        SpriteRenderer rootSprite = _orbitRoot.AddComponent<SpriteRenderer>();
+        SpriteRenderer rootSprite = orbitRoot.AddComponent<SpriteRenderer>();
         rootSprite.Kind = 0;
         rootSprite.Size = 72.0f;
         rootSprite.Color = new Vector4(1.00f, 0.80f, 0.15f, 1.0f);
@@ -511,7 +605,7 @@ internal static class Program
 
         for (int i = 0; i < 3; i++)
         {
-            GameObject child = _scene.CreateGameObject($"Orbit{i}", _orbitRoot.Transform);
+            GameObject child = scene.CreateGameObject($"Orbit{i}", orbitRoot.Transform);
 
             SpriteRenderer childSprite = child.AddComponent<SpriteRenderer>();
             childSprite.Kind = 1;
@@ -524,7 +618,7 @@ internal static class Program
             childOrbit.AngularSpeed = 1.1f;
             childOrbit.StartAngle = i * MathF.Tau / 3.0f;
 
-            GameObject grandChild = _scene.CreateGameObject($"Orbit{i}-moon", child.Transform);
+            GameObject grandChild = scene.CreateGameObject($"Orbit{i}-moon", child.Transform);
 
             SpriteRenderer moonSprite = grandChild.AddComponent<SpriteRenderer>();
             moonSprite.Kind = 3;
@@ -538,11 +632,7 @@ internal static class Program
             moonOrbit.StartAngle = i * 1.7f;
         }
 
-        Console.WriteLine(
-            $"シーン構築: GameObject {_scene.GameObjectCount} 個 / コンポーネント {_scene.ComponentCount} 個");
-
-        // ECS 側は空のまま用意しておく。中身は J で切り替えたときに詰める。
-        _world = new World();
+        return scene;
     }
 
     /// <summary>
@@ -727,7 +817,7 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day23  {_fps:F1} fps | "
+                $"Day24  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
                 + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
@@ -1333,6 +1423,241 @@ internal static class Program
                 : "  → 1フレームの予算に収まっている。読み込んでいることに気づかせない");
     }
 
+    /// <summary>保存先。リポジトリを汚さないよう一時フォルダに置く。</summary>
+    private static string SavedScenePath => Path.Combine(Path.GetTempPath(), "honya-scene.json");
+
+    /// <summary>今のシーンをファイルに書き出す(F2)。</summary>
+    private static void SaveSceneToFile()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        SceneSerializer.SaveToFile(_scene, _world, SavedScenePath, "saved");
+        double elapsed = stopwatch.Elapsed.TotalMilliseconds;
+
+        long size = new FileInfo(SavedScenePath).Length;
+
+        Console.WriteLine();
+        Console.WriteLine($"[scene] 保存: {SavedScenePath}");
+        Console.WriteLine(
+            $"  GameObject {_scene.GameObjectCount} 個 / エンティティ {_world.AliveCount} 体 / "
+            + $"{size / 1024.0:F1}KB / {elapsed:F1}ms");
+
+        if (_world.AliveCount > 0)
+        {
+            Console.WriteLine(
+                $"  → エンティティ1体あたり {size / (double)_world.AliveCount:F0} バイト。"
+                + "JSON は人が読める代わりに太る(要点7)");
+        }
+    }
+
+    /// <summary>F2 で保存したファイルを読み込む(F3)。</summary>
+    private static void LoadSavedScene()
+    {
+        if (!File.Exists(SavedScenePath))
+        {
+            Console.WriteLine($"[scene] {SavedScenePath} がありません。先に F2 で保存してください");
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        _scene = SceneSerializer.LoadFromFile(SavedScenePath, _world);
+        _scene.Bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+        BindSceneObjects();
+        double elapsed = stopwatch.Elapsed.TotalMilliseconds;
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"[scene] 読み込み: GameObject {_scene.GameObjectCount} 個 / "
+            + $"エンティティ {_world.AliveCount} 体 / {elapsed:F1}ms");
+    }
+
+    /// <summary>
+    /// **シリアライズの往復を確かめる自己チェック**(F4)。Phase 4 のマイルストーン。
+    ///
+    /// 3つ確かめる。
+    ///   1. 保存 → 読み込み → 再保存 で、テキストが1バイトも変わらないこと
+    ///   2. 数(GameObject とコンポーネント)が合っていること
+    ///   3. **300 ステップ動かした結果が一致すること**
+    ///
+    /// 3 がいちばん大事で、1 と 2 が通っても 3 が落ちることはある
+    /// (保存し忘れたフィールドがあると、見た目は同じで動きだけ変わる)。
+    /// 「シーンをロードし、コンポーネント付きエンティティが動く」を
+    /// 目視ではなく数字で確かめるのがここ。
+    /// </summary>
+    private static void RunSceneRoundTrip()
+    {
+        int failures = 0;
+
+        Console.WriteLine();
+        Console.WriteLine("[シーンの往復チェック]");
+
+        var bounds = new Vector2(960.0f, 640.0f);
+
+        Scene coded = CreateDemoScene(bounds);
+
+        // **値が抜けていないか**を確かめるための1体を足しておく。
+        // 数も形も合っているのに中身だけ空、という壊れ方が実際にありうる
+        // (SceneSerializer の ComponentOptions のコメント参照)。
+        // 既定値のままだと「保存できていない」と「たまたま既定値」の区別がつかないので、
+        // **わざと変な値**を入れる。
+        GameObject probe = coded.CreateGameObject("Probe");
+        SpriteRenderer probeSprite = probe.AddComponent<SpriteRenderer>();
+        probeSprite.Size = 31.0f;
+        probeSprite.Color = new Vector4(0.125f, 0.25f, 0.375f, 0.5f);
+        BouncingMover probeMover = probe.AddComponent<BouncingMover>();
+        probeMover.Velocity = new Vector2(123.0f, -45.0f);
+        probeMover.SpinSpeed = 2.5f;
+
+        // ECS 側も一緒に確かめる。**フィールドで持つ型は書き漏らしやすい**ので、
+        // GameObject 側だけ見ていると気づけない(要点5)。
+        var codedWorld = new World();
+        for (int i = 0; i < 3; i++)
+        {
+            Entity entity = codedWorld.CreateEntity();
+            codedWorld.Add(entity, new Transform2D
+            {
+                Position = new Vector2(10.0f + i, 20.0f + i),
+                Rotation = 0.5f * i,
+            });
+            codedWorld.Add(entity, new Previous2D());
+            codedWorld.Add(entity, new Velocity2D { Linear = new Vector2(-1.5f, 2.5f), Spin = 1.0f, HalfSize = 8.0f });
+            codedWorld.Add(entity, new Sprite2D { Kind = i, Size = 12.0f, Layer = 0.5f, Color = Vector4.One });
+        }
+
+        string first = SceneSerializer.Save(coded, codedWorld, "roundtrip");
+
+        var loadedWorld = new World();
+        Scene loaded = SceneSerializer.Load(first, loadedWorld);
+        loaded.Bounds = bounds;
+        string second = SceneSerializer.Save(loaded, loadedWorld, "roundtrip");
+
+        Check("保存 → 読み込み → 再保存でテキストが一致", first == second,
+            $"{first.Length} バイト / {second.Length} バイト");
+        Check("GameObject の数が一致", coded.GameObjectCount == loaded.GameObjectCount,
+            $"{coded.GameObjectCount} / {loaded.GameObjectCount}");
+        Check("コンポーネントの数が一致", coded.ComponentCount == loaded.ComponentCount,
+            $"{coded.ComponentCount} / {loaded.ComponentCount}");
+
+        // 親子が復元できているか。孫までたどれれば、参照の復元は効いている。
+        int depth = 0;
+        foreach (GameObject gameObject in loaded.GameObjects)
+        {
+            int d = 0;
+            for (Transform? t = gameObject.Transform.Parent; t is not null; t = t.Parent)
+            {
+                d++;
+            }
+
+            depth = Math.Max(depth, d);
+        }
+
+        Check("親子の深さが3段(根 → 子 → 孫)", depth == 2, $"実際 {depth + 1} 段");
+
+        GameObject? loadedProbe = null;
+        foreach (GameObject gameObject in loaded.GameObjects)
+        {
+            if (gameObject.Name == "Probe")
+            {
+                loadedProbe = gameObject;
+            }
+        }
+
+        Check("目印のオブジェクトが復元されている", loadedProbe is not null);
+
+        if (loadedProbe is not null)
+        {
+            SpriteRenderer? renderer = loadedProbe.GetComponent<SpriteRenderer>();
+            BouncingMover? mover = loadedProbe.GetComponent<BouncingMover>();
+
+            Check("float が保たれている", renderer is not null && renderer.Size == 31.0f);
+            Check(
+                "Vector4 が保たれている",
+                renderer is not null && renderer.Color == probeSprite.Color,
+                $"{renderer?.Color}");
+            Check(
+                "Vector2 が保たれている",
+                mover is not null && mover.Velocity == probeMover.Velocity,
+                $"{mover?.Velocity}");
+        }
+
+        // **本番**。同じ入力で同じだけ回して突き合わせる。
+        ulong codedHash = StepAndHash(coded, 300);
+        ulong loadedHash = StepAndHash(loaded, 300);
+
+        Check("300 ステップ後の状態が一致", codedHash == loadedHash,
+            $"{codedHash:X16} / {loadedHash:X16}");
+
+        Check("エンティティの数が一致", codedWorld.AliveCount == loadedWorld.AliveCount,
+            $"{codedWorld.AliveCount} / {loadedWorld.AliveCount}");
+
+        Span<Transform2D> codedTransforms = codedWorld.Store<Transform2D>().Values;
+        Span<Transform2D> loadedTransforms = loadedWorld.Store<Transform2D>().Values;
+        Span<Velocity2D> loadedVelocities = loadedWorld.Store<Velocity2D>().Values;
+
+        bool ecsValuesMatch = codedTransforms.Length == loadedTransforms.Length;
+        for (int i = 0; ecsValuesMatch && i < codedTransforms.Length; i++)
+        {
+            ecsValuesMatch =
+                codedTransforms[i].Position == loadedTransforms[i].Position
+                && codedTransforms[i].Rotation == loadedTransforms[i].Rotation
+                && loadedVelocities[i].HalfSize == 8.0f;
+        }
+
+        Check("ECS コンポーネントの値が保たれている", ecsValuesMatch,
+            loadedTransforms.Length > 0 ? $"{loadedTransforms[0].Position}" : "(空)");
+
+        Console.WriteLine(failures == 0
+            ? "  すべて合格 — シーンをファイルから復元しても、同じ動きをする"
+            : $"  {failures} 件 不合格");
+        Console.WriteLine();
+
+        void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                failures++;
+            }
+        }
+    }
+
+    /// <summary>シーンを指定ステップ動かして、全 Transform のハッシュを取る。</summary>
+    private static ulong StepAndHash(Scene scene, int steps)
+    {
+        float dt = (float)_loop.FixedDeltaTime;
+
+        for (int i = 0; i < steps; i++)
+        {
+            // 入力は空。**再現したいのはシーンの復元であって操作ではない**ので、
+            // 外から入る値は固定しておく。
+            scene.Input = InputSnapshot.Empty;
+            scene.FixedUpdate(dt);
+        }
+
+        ulong hash = 14695981039346656037UL;
+
+        foreach (GameObject gameObject in scene.GameObjects)
+        {
+            Vector3 position = gameObject.Transform.WorldPosition;
+            Quaternion rotation = gameObject.Transform.LocalRotation;
+
+            Mix(ref hash, BitConverter.SingleToUInt32Bits(position.X));
+            Mix(ref hash, BitConverter.SingleToUInt32Bits(position.Y));
+            Mix(ref hash, BitConverter.SingleToUInt32Bits(rotation.Z));
+            Mix(ref hash, BitConverter.SingleToUInt32Bits(rotation.W));
+        }
+
+        return hash;
+
+        static void Mix(ref ulong hash, uint value)
+        {
+            for (int b = 0; b < 4; b++)
+            {
+                hash ^= (byte)(value >> (b * 8));
+                hash *= 1099511628211UL;
+            }
+        }
+    }
+
     /// <summary>
     /// **ECS の不変条件を確かめる自己チェック**(D キー)。
     ///
@@ -1850,6 +2175,24 @@ internal static class Program
                 RunEcsCheck();
                 break;
 
+            case Key.F2:
+                SaveSceneToFile();
+                break;
+
+            case Key.F3 when keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight):
+                _scene = CreateDemoScene(_scene.Bounds);
+                BindSceneObjects();
+                Console.WriteLine($"[scene] コードから組み直しました({_scene.GameObjectCount} 個)");
+                break;
+
+            case Key.F3:
+                LoadSavedScene();
+                break;
+
+            case Key.F4:
+                RunSceneRoundTrip();
+                break;
+
             case Key.H:
                 RunLifecycleDemo();
                 break;
@@ -2079,5 +2422,30 @@ internal static class Program
         }
 
         throw new FileNotFoundException($"素材が見つかりません: assets/{relativePath}");
+    }
+
+    /// <summary>
+    /// <see cref="ResolveAssetPath"/> の、無くても例外を投げない版。
+    /// **「あれば使う」もの**(シーンファイルなど)はこちらで探す。
+    /// </summary>
+    private static string? TryResolveAssetPath(string relativePath)
+    {
+        foreach (string start in new[] { AppContext.BaseDirectory, Environment.CurrentDirectory })
+        {
+            var directory = new DirectoryInfo(start);
+
+            while (directory is not null)
+            {
+                string candidate = Path.Combine(directory.FullName, "assets", relativePath);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                directory = directory.Parent;
+            }
+        }
+
+        return null;
     }
 }

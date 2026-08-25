@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HonyaEngine;
 
 /// <summary>
@@ -27,10 +29,19 @@ internal abstract class Component
 {
     private bool _enabled = true;
 
-    /// <summary>付いている先。<see cref="GameObject.AddComponent{T}"/> が設定する。</summary>
+    /// <summary>
+    /// 付いている先。<see cref="GameObject.AddComponent{T}"/> が設定する。
+    ///
+    /// **保存しない**(Day 24)。ここを保存対象にすると、
+    /// コンポーネント → GameObject → コンポーネント → … と無限に潜る。
+    /// 親子や所有関係は「誰が誰を持っているか」を1方向だけ書けば復元できるので、
+    /// 逆向きのリンクは書かない、が原則。
+    /// </summary>
+    [JsonIgnore]
     public GameObject GameObject { get; internal set; } = null!;
 
     /// <summary>付いている先の <see cref="Transform"/>。いちばんよく使うので近道を用意する。</summary>
+    [JsonIgnore]
     public Transform Transform => GameObject.Transform;
 
     /// <summary>
