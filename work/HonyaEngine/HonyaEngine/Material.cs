@@ -22,16 +22,24 @@ namespace HonyaEngine;
 /// uniform は**プログラムに紐づく状態**なので、<c>glUseProgram</c> を呼び直しても値は消えない。
 /// だから 1 はフレームに1回で足り、オブジェクトが100個あっても送り直す必要が無い。
 /// 「どの階層の値か」を取り違えると、毎フレーム100回同じ行列を送るような無駄が生まれる。
+///
+/// **Day 21 での変更**: 参照ではなく <see cref="Handle{T}"/> を持つようになった。
+/// マテリアルは「どのシェーダで、どのテクスチャを」を指定するだけの**設定の塊**で、
+/// リソースそのものの持ち主ではない——という関係が、型に出るようになる。
+/// おかげで
+///   - マテリアルを丸ごとファイルに書き出せる(ハンドルは整数。Day 24 のシリアライズ)
+///   - テクスチャが非同期で差し替わっても、マテリアル側は何もしなくてよい
+/// が付いてくる。
 /// </summary>
 internal sealed class Material
 {
-    public Material(Shader shader)
+    public Material(Handle<Shader> shader)
     {
         Shader = shader;
     }
 
-    /// <summary>使うシェーダ。**共有される**ので Material は破棄の責任を持たない。</summary>
-    public Shader Shader { get; }
+    /// <summary>使うシェーダ。実体は <see cref="ResourceManager"/> が持つ。</summary>
+    public Handle<Shader> Shader { get; }
 
     /// <summary>色味。テクスチャの色に掛け算される。白(1,1,1,1)なら素通し。</summary>
     public Vector4 Tint { get; set; } = Vector4.One;
@@ -43,31 +51,40 @@ internal sealed class Material
     public Vector2 UvScale { get; set; } = Vector2.One;
 
     /// <summary>
-    /// 貼るテクスチャ。**共有される**ので、こちらも破棄の責任は持たない。
-    /// 誰が寿命を持つかを曖昧にするとリークか二重解放になる。
-    /// ハンドルベースの正式な仕組みは Day 21 で作る。
+    /// 貼るテクスチャ。
+    ///
+    /// Day 15 では <c>Texture?</c> を直接持っていて、
+    /// 「共有されるので破棄の責任は持たない」という但し書きが必要だった。
+    /// ハンドルにすると但し書きが要らなくなる——**持てないものは壊せない**。
     /// </summary>
-    public Texture? MainTexture { get; set; }
+    public Handle<Texture> MainTexture { get; set; }
 
     /// <summary>
     /// このマテリアルを使う状態にする。**描画の直前に呼ぶ**。
+    ///
+    /// ハンドルを解く相手が要るので、<see cref="ResourceManager"/> を受け取る形になった。
+    /// マテリアル自身に管理者への参照を持たせてもよいが、
+    /// **どの管理者に属するかが暗黙になる**ので引数で渡している。
     /// </summary>
-    public void Apply()
+    public void Apply(ResourceManager resources)
     {
-        Shader.Use();
+        Shader shader = resources.GetShader(Shader);
+        shader.Use();
 
-        Shader.SetVector4("uTint", Tint);
-        Shader.SetVector2("uUvScale", UvScale);
+        shader.SetVector4("uTint", Tint);
+        shader.SetVector2("uUvScale", UvScale);
 
-        if (MainTexture is not null)
-        {
-            // 0番のテクスチャユニットに刺して、シェーダにも「0番を見ろ」と教える。
-            //
-            // **sampler は int で渡す**。テクスチャのハンドルではなくユニットの番号。
-            // ここを取り違えると、たまたま動いてしまうことがあるぶん厄介
-            // (ハンドルが小さい整数のときに偶然一致する)。
-            MainTexture.Bind(TextureUnit.Texture0);
-            Shader.SetInt("uTexture", 0);
-        }
+        // 0番のテクスチャユニットに刺して、シェーダにも「0番を見ろ」と教える。
+        //
+        // **sampler は int で渡す**。テクスチャのハンドルではなくユニットの番号。
+        // ここを取り違えると、たまたま動いてしまうことがあるぶん厄介
+        // (ハンドルが小さい整数のときに偶然一致する)。
+        //
+        // ハンドルが未設定でも <see cref="ResourceManager.GetTexture"/> は
+        // 仮の絵を返すので、**必ず何かを bind する**。
+        // 「テクスチャが無いときは bind しない」にすると、
+        // 直前に描いたものの絵がそのまま出てしまい、原因が分かりにくい。
+        resources.GetTexture(MainTexture).Bind(TextureUnit.Texture0);
+        shader.SetInt("uTexture", 0);
     }
 }
