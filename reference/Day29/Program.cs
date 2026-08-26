@@ -805,8 +805,6 @@ internal static class Program
         Console.WriteLine("PageUp/PageDown:スプライト数 +-1000 (Shift併用で+-10000)  左ドラッグ:カメラ  ホイール:ズーム");
         Console.WriteLine("Z:深度  C:カリング  P:透視/平行  W:ワイヤー  V:VSync  Space:停止  Esc:終了");
         Console.WriteLine();
-
-
     }
 
     private static void InitializeSprites()
