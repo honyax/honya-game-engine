@@ -8,7 +8,7 @@ using Silk.NET.Windowing;
 namespace HonyaEngine;
 
 /// <summary>
-/// エントリポイント。**Phase 4(エンジンコア)の最終日**。
+/// エントリポイント。**Phase 5(ゲームが作れる状態に)の1日目**。
 ///
 /// Day 22 で GameObject + Component に移したら、2万個の更新が
 /// 0.08ms から 1.37ms(17倍)になった。今日はそれを**3通り目**の書き方で埋める。
@@ -31,10 +31,16 @@ namespace HonyaEngine;
 /// そこに書いてあるとおりに GameObject とコンポーネントを組み立てる。
 /// ファイルが無いときだけ <see cref="CreateDemoScene"/> がコードで組む。
 ///
-/// **これで Phase 4 のマイルストーン**——
-/// 「シーンをロードし、コンポーネント付きエンティティが動く」——に到達する。
+/// **Phase 4 のマイルストーン**——
+/// 「シーンをロードし、コンポーネント付きエンティティが動く」——には Day 24 で到達した。
 /// F4 で、コードで組んだシーンと保存して読み直したシーンが
 /// **300 ステップ後までビット単位で一致する**ことを確かめられる。
+///
+/// **Day 25 での変更**: 当たり判定が入った。
+/// F6 で衝突デモに切り替わり、円・矩形・回転矩形が飛び交って
+/// 当たると色が変わる。F8 で押し戻しを入れると重ならなくなる。
+/// タイトルバーに**組の数と判定時間**が出るので、
+/// 総当たりが O(n^2) で膨らむ様子がそのまま見える(Day 26 の動機)。
 /// </summary>
 internal static class Program
 {
@@ -47,7 +53,20 @@ internal static class Program
         "sprite-ring",
         "sprite-star",
         "sprite-diamond",
+        "sprite-box",
     ];
+
+    /// <summary>
+    /// 背景のスプライトが使う絵の種類数。
+    /// **箱(4番)は衝突デモ専用**なので、背景の巡回からは外してある。
+    /// </summary>
+    private const int BackgroundSpriteKinds = 4;
+
+    /// <summary>円の絵(<see cref="SpriteNames"/> の添字)。</summary>
+    private const int CircleSprite = 0;
+
+    /// <summary>箱の絵。枠が見えるので**重なりが分かる**。</summary>
+    private const int BoxSprite = 4;
 
     /// <summary>
     /// ロードの実演に使う素材。**1枚 1024x1024** で、復号にそれぞれ 6ms 前後かかる。
@@ -159,6 +178,29 @@ internal static class Program
     /// <summary>1ステップぶんの更新にかかった時間(ミリ秒)の移動平均。</summary>
     private static double _updateMilliseconds;
 
+    // --- 今日の主役: 当たり判定のデモ ---
+
+    /// <summary>衝突デモを動かしているか(F6)。</summary>
+    private static bool _collisionDemo;
+
+    /// <summary>めり込みを押し戻すか(F8)。切ると判定だけして重なったままになる。</summary>
+    private static bool _resolveOverlap = true;
+
+    /// <summary>形の組み合わせ(F7)。0 = 混在 / 1 = 円だけ / 2 = 矩形だけ / 3 = 回転矩形だけ。</summary>
+    private static int _shapeMix;
+
+    private static Body[] _bodies = [];
+    private static int _activeBodies = 120;
+
+    /// <summary>直前のステップで試した組の数。**n(n-1)/2 になる**。</summary>
+    private static long _pairTests;
+
+    /// <summary>直前のステップで当たっていた組の数。</summary>
+    private static int _contacts;
+
+    /// <summary>当たり判定にかかった時間(ミリ秒)の移動平均。</summary>
+    private static double _collisionMilliseconds;
+
     /// <summary>記録を始めた時点のプレイヤーの状態。再生時にここへ巻き戻す。</summary>
     private static (Vector2 Position, Vector2 Velocity, float Angle, float DashCooldown) _recordStart;
 
@@ -205,6 +247,37 @@ internal static class Program
         (new Vector3(3.0f, 0.0f, -3.0f), 1.0f, 0.3f),
         (new Vector3(-3.0f, 0.0f, -3.0f), 1.0f, 0.0f),
     ];
+
+    /// <summary>当たり判定に使う形の種類。</summary>
+    private enum BodyShape
+    {
+        Circle,
+        Box,
+        RotatedBox,
+    }
+
+    /// <summary>
+    /// 衝突デモで飛び回る1体。
+    ///
+    /// **形の種類を enum で持ち、判定のときに分岐する**という素朴な作りにしてある。
+    /// 実際のエンジンは仮想関数や、形ごとに別の配列(Day 23 の ECS 的な持ち方)を使うが、
+    /// まずは「形の組み合わせごとに関数が要る」ことを目で見るのが先。
+    /// </summary>
+    private struct Body
+    {
+        public Vector2 Position;
+        public Vector2 Velocity;
+
+        /// <summary>矩形なら半径ベクトル。円なら X を半径として使う。</summary>
+        public Vector2 HalfSize;
+
+        public float Rotation;
+        public float Spin;
+        public BodyShape Shape;
+
+        /// <summary>このステップで当たった相手の数。色に使う。</summary>
+        public int Contacts;
+    }
 
     private struct Sprite
     {
@@ -253,7 +326,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day24 - シーン管理とシリアライズ",
+            Title = "Day25 - 2D衝突判定",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -422,6 +495,7 @@ internal static class Program
 
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
+        Console.WriteLine("F6:衝突デモ  F7:形の切り替え  F8:押し戻し  F9:衝突判定の自己チェック");
         Console.WriteLine("F2:シーンを保存  F3:読み込み(Shift併用でコードから組み直し)  F4:往復の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
@@ -463,7 +537,7 @@ internal static class Program
                 // **絵の種類を順ぐりに割り当てる**。
                 // 隣り合うスプライトが必ず違う絵になるので、
                 // アトラスもソートも無い状態が最悪ケースになる。
-                Kind = i % SpriteNames.Length,
+                Kind = i % BackgroundSpriteKinds,
 
                 // 重ね順はばらばら。BackToFront にすると
                 // **テクスチャの並びが完全に崩れる**ので、アトラスの有無が効いてくる。
@@ -817,12 +891,15 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day24  {_fps:F1} fps | "
+                $"Day25  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
                 + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
                 + $"GO:{_scene.GameObjectCount} E:{_world.AliveCount} | "
-                + $"スプライト:{_activeSprites} DC:{_drawCalls} | "
+                + (_collisionDemo
+                    ? $"衝突:{_activeBodies}体 組:{_pairTests:N0} 接触:{_contacts} "
+                        + $"判定:{_collisionMilliseconds:F2}ms 形:{ShapeMixLabel()} 押戻:{OnOff(_resolveOverlap)} | "
+                    : $"スプライト:{_activeSprites} DC:{_drawCalls} | ")
                 + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz step:{_loop.StepsLastFrame} α:{_loop.Alpha:F2} "
                 + $"遅れ:{_loop.Lag * 1000.0:F1}ms | "
                 + $"補間:{OnOff(_interpolate)} 負荷:{_loadMicroseconds}us | "
@@ -891,6 +968,11 @@ internal static class Program
         _scene.Input = input;
         _scene.Bounds = bounds;
         _scene.FixedUpdate(dt);
+
+        if (_collisionDemo)
+        {
+            UpdateBodies(dt, bounds);
+        }
 
         switch (_backend)
         {
@@ -1127,6 +1209,11 @@ internal static class Program
         RenderLayerTest();
         RenderScene();
 
+        if (_collisionDemo)
+        {
+            RenderBodies();
+        }
+
         _spriteBatch.End();
     }
 
@@ -1215,6 +1302,261 @@ internal static class Program
                 s[i].Color,
                 s[i].Layer);
         }
+    }
+
+    /// <summary>
+    /// 衝突デモの1体を作る。
+    ///
+    /// 大きさと速度は乱数だが、**種は固定**にしてある。
+    /// 当たり判定の不具合は「たまに起きる」形で出ることが多いので、
+    /// 同じ配置を何度でも作り直せるようにしておかないと追えない。
+    /// </summary>
+    private static void InitializeBodies(int count)
+    {
+        var random = new Random(20260825);
+        _bodies = new Body[count];
+
+        float width = _window.FramebufferSize.X;
+        float height = _window.FramebufferSize.Y;
+
+        for (int i = 0; i < count; i++)
+        {
+            // **画面に対して詰め込みすぎない**。
+            // 面積の合計が画面の 2 割を超えたあたりから常時ほぼ全員が接触状態になり、
+            // 「当たったら赤」の表示が意味をなさなくなる。
+            float size = 9.0f + ((float)random.NextDouble() * 12.0f);
+            float speed = 40.0f + ((float)random.NextDouble() * 90.0f);
+            float direction = (float)random.NextDouble() * MathF.Tau;
+
+            _bodies[i] = new Body
+            {
+                Position = new Vector2(
+                    size + ((float)random.NextDouble() * (width - (size * 2.0f))),
+                    size + ((float)random.NextDouble() * (height - (size * 2.0f)))),
+                Velocity = new Vector2(MathF.Cos(direction), MathF.Sin(direction)) * speed,
+                HalfSize = new Vector2(size, size * (0.6f + ((float)random.NextDouble() * 0.6f))),
+                Rotation = (float)random.NextDouble() * MathF.Tau,
+                Spin = ((float)random.NextDouble() - 0.5f) * 1.6f,
+                Shape = PickShape(i),
+            };
+        }
+    }
+
+    /// <summary>F7 の設定に従って形を決める。</summary>
+    private static BodyShape PickShape(int index) => _shapeMix switch
+    {
+        1 => BodyShape.Circle,
+        2 => BodyShape.Box,
+        3 => BodyShape.RotatedBox,
+        _ => (BodyShape)(index % 3),
+    };
+
+    /// <summary>
+    /// 衝突デモの1ステップ。**動かして、壁で跳ねて、総当たりで当てる**。
+    ///
+    /// 総当たりの二重ループがこの日の主役。
+    /// 組の数は n(n-1)/2 で、120 体なら 7,140 組、500 体なら 124,750 組。
+    /// **体数を2倍にすると判定はほぼ4倍**になる。
+    /// タイトルバーの「組」と「判定」を見ながら PageUp を押すと、
+    /// O(n^2) が実際にどう効いてくるかが分かる。これが Day 26 の出発点になる。
+    /// </summary>
+    private static void UpdateBodies(float deltaTime, Vector2 bounds)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        int count = Math.Min(_activeBodies, _bodies.Length);
+
+        // --- 動かす ---
+        for (int i = 0; i < count; i++)
+        {
+            ref Body body = ref _bodies[i];
+            body.Contacts = 0;
+            body.Position += body.Velocity * deltaTime;
+            body.Rotation += body.Spin * deltaTime;
+
+            // 壁。外接 AABB で見るので、回転していてもはみ出さない。
+            Vector2 extent = BoundsExtent(body);
+
+            if (body.Position.X < extent.X)
+            {
+                body.Position.X = extent.X;
+                body.Velocity.X = MathF.Abs(body.Velocity.X);
+            }
+            else if (body.Position.X > bounds.X - extent.X)
+            {
+                body.Position.X = bounds.X - extent.X;
+                body.Velocity.X = -MathF.Abs(body.Velocity.X);
+            }
+
+            if (body.Position.Y < extent.Y)
+            {
+                body.Position.Y = extent.Y;
+                body.Velocity.Y = MathF.Abs(body.Velocity.Y);
+            }
+            else if (body.Position.Y > bounds.Y - extent.Y)
+            {
+                body.Position.Y = bounds.Y - extent.Y;
+                body.Velocity.Y = -MathF.Abs(body.Velocity.Y);
+            }
+        }
+
+        // --- 総当たり ---
+        //
+        // j は i+1 から始める。**同じ組を2回試さないため**で、これだけで半分になる。
+        // それでも O(n^2) であることは変わらない。
+        long pairs = 0;
+        int contacts = 0;
+
+        for (int i = 0; i < count; i++)
+        {
+            for (int j = i + 1; j < count; j++)
+            {
+                pairs++;
+
+                Contact2D contact = Test(in _bodies[i], in _bodies[j]);
+                if (!contact.Hit)
+                {
+                    continue;
+                }
+
+                contacts++;
+                _bodies[i].Contacts++;
+                _bodies[j].Contacts++;
+
+                if (!_resolveOverlap)
+                {
+                    continue;
+                }
+
+                // **半分ずつ押し戻す**。片方だけ動かすと、
+                // 壁際で押された側が壁にめり込む。
+                // 質量を持たせるなら比率を変えるが、それは Phase 7 の話。
+                Vector2 push = contact.Normal * (contact.Depth * 0.5f);
+                _bodies[i].Position -= push;
+                _bodies[j].Position += push;
+            }
+        }
+
+        _pairTests = pairs;
+        _contacts = contacts;
+        _collisionMilliseconds = (_collisionMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+    }
+
+    /// <summary>
+    /// 2体の当たり判定。**形の組み合わせごとに関数を選ぶ**。
+    ///
+    /// 3種類で6通り。ここを見ると「種類を1つ足すと表が1列増える」のが分かる。
+    /// 3D で球・箱・カプセル・平面・地形と増やすと 15 通りになり、
+    /// **その表を埋めることが物理エンジンを書くこと**になる(Phase 7)。
+    ///
+    /// 法線の向きは <see cref="Contact2D"/> の約束どおり
+    /// 「a から b へ向かう向き」にそろえてある。
+    /// <see cref="Collision2D.Test(in Circle2D, in Aabb2D)"/> のように
+    /// 引数の順番が逆になる組み合わせでは、**符号を反転して返す**必要がある。
+    /// </summary>
+    private static Contact2D Test(in Body a, in Body b)
+    {
+        switch (a.Shape, b.Shape)
+        {
+            case (BodyShape.Circle, BodyShape.Circle):
+                return Collision2D.Test(ToCircle(a), ToCircle(b));
+
+            case (BodyShape.Box, BodyShape.Box):
+                return Collision2D.Test(ToAabb(a), ToAabb(b));
+
+            case (BodyShape.Circle, BodyShape.Box):
+                return Collision2D.Test(ToCircle(a), ToAabb(b));
+
+            case (BodyShape.Box, BodyShape.Circle):
+                return Flip(Collision2D.Test(ToCircle(b), ToAabb(a)));
+
+            case (BodyShape.Circle, BodyShape.RotatedBox):
+                return Collision2D.Test(ToCircle(a), ToObb(b));
+
+            case (BodyShape.RotatedBox, BodyShape.Circle):
+                return Flip(Collision2D.Test(ToCircle(b), ToObb(a)));
+
+            default:
+                // 残りは全部 OBB 同士に寄せる。
+                // **回らない矩形は「回転角 0 の OBB」**なので、SAT でそのまま扱える。
+                // 専用の速い経路を持ちつつ、組み合わせの穴は一般形で埋めるのが定石。
+                return Collision2D.Test(ToObb(a), ToObb(b));
+        }
+
+        static Contact2D Flip(Contact2D contact) =>
+            contact.Hit ? Contact2D.Touching(-contact.Normal, contact.Depth) : Contact2D.None;
+    }
+
+    private static Circle2D ToCircle(in Body body) => new(body.Position, body.HalfSize.X);
+
+    private static Aabb2D ToAabb(in Body body) => Aabb2D.FromCenter(body.Position, body.HalfSize);
+
+    private static Obb2D ToObb(in Body body) =>
+        new(body.Position, body.HalfSize, body.Shape == BodyShape.RotatedBox ? body.Rotation : 0.0f);
+
+    /// <summary>壁に使う「外接する半径」。回転矩形は外接 AABB で見る。</summary>
+    private static Vector2 BoundsExtent(in Body body) => body.Shape switch
+    {
+        BodyShape.Circle => new Vector2(body.HalfSize.X),
+        BodyShape.Box => body.HalfSize,
+        _ => ToObb(body).Bounds.HalfSize,
+    };
+
+    /// <summary>
+    /// 衝突デモを描く。**当たっている体は赤くする**。
+    ///
+    /// 円は円の絵、矩形は枠の見える箱の絵。
+    /// 箱の絵に枠を入れてあるのは、**押し戻しを切ったときに重なりが見える**ようにするため。
+    /// </summary>
+    private static void RenderBodies()
+    {
+        int count = Math.Min(_activeBodies, _bodies.Length);
+
+        for (int i = 0; i < count; i++)
+        {
+            ref Body body = ref _bodies[i];
+
+            Vector4 color = body.Contacts > 0
+                ? new Vector4(1.00f, 0.30f, 0.28f, 0.95f)
+                : new Vector4(0.45f, 0.85f, 1.00f, 0.85f);
+
+            if (body.Shape == BodyShape.Circle)
+            {
+                Submit(
+                    CircleSprite,
+                    body.Position,
+                    new Vector2(body.HalfSize.X * 2.0f),
+                    0.0f,
+                    color,
+                    0.6f);
+            }
+            else
+            {
+                Submit(
+                    BoxSprite,
+                    body.Position,
+                    body.HalfSize * 2.0f,
+                    body.Shape == BodyShape.RotatedBox ? body.Rotation : 0.0f,
+                    color,
+                    0.6f);
+            }
+        }
+    }
+
+    private static string ShapeMixLabel() => _shapeMix switch
+    {
+        1 => "円",
+        2 => "矩形",
+        3 => "回転矩形",
+        _ => "混在",
+    };
+
+    /// <summary>体数を変える。衝突デモが動いていれば作り直す。</summary>
+    private static void SetBodyCount(int count)
+    {
+        _activeBodies = Math.Clamp(count, 0, 2000);
+        InitializeBodies(_activeBodies);
+        Console.WriteLine(
+            $"[collision] {_activeBodies} 体 / 組 {(long)_activeBodies * (_activeBodies - 1) / 2:N0}");
     }
 
     /// <summary>ソートの効き目を目で見るための3枚(<see cref="LayerTest"/>)。</summary>
@@ -1655,6 +1997,195 @@ internal static class Program
                 hash ^= (byte)(value >> (b * 8));
                 hash *= 1099511628211UL;
             }
+        }
+    }
+
+    /// <summary>
+    /// **当たり判定の自己チェック**(F9)。
+    ///
+    /// 衝突判定は「見た目で合っていそう」がいちばん当てにならない領域。
+    /// 手で計算できる配置を並べて、法線と深さまで含めて突き合わせる。
+    /// 特に確かめたいのは3つ。
+    ///   - 法線の向きが約束どおり(a から b へ)そろっているか
+    ///   - **ちょうど接している**ときにどちらに転ぶか
+    ///   - 中心が重なるような退化した配置で NaN が出ないか
+    /// </summary>
+    private static void RunCollisionCheck()
+    {
+        int failures = 0;
+
+        Console.WriteLine();
+        Console.WriteLine("[当たり判定の自己チェック]");
+
+        // --- 円同士 ---
+        var c1 = new Circle2D(new Vector2(0.0f, 0.0f), 10.0f);
+        var c2 = new Circle2D(new Vector2(15.0f, 0.0f), 10.0f);
+        Contact2D hit = Collision2D.Test(c1, c2);
+        Check("円同士: 当たる", hit.Hit);
+        Check("円同士: 深さ 5", Near(hit.Depth, 5.0f), $"{hit.Depth}");
+        Check("円同士: 法線は +X", Near(hit.Normal.X, 1.0f) && Near(hit.Normal.Y, 0.0f), $"{hit.Normal}");
+
+        Check("円同士: 離れていれば当たらない",
+            !Collision2D.Test(c1, new Circle2D(new Vector2(21.0f, 0.0f), 10.0f)).Hit);
+
+        // **ちょうど接している**。浮動小数点の境界で、実装によって割れるところ。
+        // ここでは「接触も当たり」とする(<= で書いてある)。
+        Check("円同士: ちょうど接するのは当たり扱い",
+            Collision2D.Test(c1, new Circle2D(new Vector2(20.0f, 0.0f), 10.0f)).Hit);
+
+        // 中心が完全に重なる退化ケース。向きが決まらないが、落ちてはいけない。
+        Contact2D same = Collision2D.Test(c1, new Circle2D(Vector2.Zero, 10.0f));
+        Check("円同士: 中心が重なっても NaN にならない",
+            same.Hit && !float.IsNaN(same.Normal.X) && !float.IsNaN(same.Depth), $"{same.Normal} {same.Depth}");
+
+        // --- AABB 同士 ---
+        Aabb2D b1 = Aabb2D.FromCenter(Vector2.Zero, new Vector2(10.0f, 10.0f));
+        Aabb2D b2 = Aabb2D.FromCenter(new Vector2(16.0f, 4.0f), new Vector2(10.0f, 10.0f));
+        Contact2D boxHit = Collision2D.Test(b1, b2);
+
+        // X 方向の重なりは 20-16=4、Y 方向は 20-4=16。**浅いほう(X)で押す**。
+        Check("AABB: 浅い軸で押す(X)", Near(boxHit.Depth, 4.0f) && Near(boxHit.Normal.X, 1.0f),
+            $"深さ {boxHit.Depth} 法線 {boxHit.Normal}");
+        Check("AABB: 角がかすっていなければ当たらない",
+            !Collision2D.Test(b1, Aabb2D.FromCenter(new Vector2(21.0f, 21.0f), new Vector2(10.0f))).Hit);
+
+        // --- 円と AABB ---
+        // 箱の右辺は x=10。中心 x=14 / 半径 6 なら、最近点までの距離は 4 でめり込みは 2。
+        Contact2D mixed = Collision2D.Test(new Circle2D(new Vector2(14.0f, 0.0f), 6.0f), b1);
+        Check("円とAABB: 辺に当たる", mixed.Hit && Near(mixed.Depth, 2.0f), $"深さ {mixed.Depth}");
+        Check("円とAABB: 法線は円から箱へ(-X)", Near(mixed.Normal.X, -1.0f), $"{mixed.Normal}");
+        Check("円とAABB: 届かなければ当たらない",
+            !Collision2D.Test(new Circle2D(new Vector2(24.0f, 0.0f), 6.0f), b1).Hit);
+
+        // 円が箱の中に完全に入っている場合。距離が 0 になるので別経路を通る。
+        Contact2D inside = Collision2D.Test(new Circle2D(new Vector2(2.0f, 0.0f), 3.0f), b1);
+        Check("円とAABB: 円が中にあっても向きが決まる",
+            inside.Hit && !float.IsNaN(inside.Normal.X) && MathF.Abs(inside.Normal.X) > 0.5f,
+            $"{inside.Normal} 深さ {inside.Depth}");
+
+        // --- OBB 同士(SAT)---
+        //
+        // 45 度傾けた正方形(半径 10)は、角が中心から 10*sqrt(2) ≒ 14.14 出る。
+        // 軸に平行な正方形(半径 10)と X 方向に並べると、
+        // 中心距離 24 ではまだ重なり、25 では離れる。
+        var square = new Obb2D(Vector2.Zero, new Vector2(10.0f, 10.0f), 0.0f);
+        var tilted = new Obb2D(new Vector2(23.0f, 0.0f), new Vector2(10.0f, 10.0f), MathF.PI / 4.0f);
+
+        Contact2D satHit = Collision2D.Test(square, tilted);
+        Check("OBB: 45度の角が刺さっているのを検出", satHit.Hit, $"深さ {satHit.Depth:F3}");
+        Check("OBB: 法線は +X 寄り", satHit.Normal.X > 0.9f, $"{satHit.Normal}");
+
+        Check("OBB: 離れていれば当たらない",
+            !Collision2D.Test(square, new Obb2D(new Vector2(25.0f, 0.0f), new Vector2(10.0f), MathF.PI / 4.0f)).Hit);
+
+        // **回転 0 の OBB は AABB と同じ答えになるはず**。
+        // 専用の速い経路と一般形が食い違っていないかの確認。
+        var obbA = new Obb2D(Vector2.Zero, new Vector2(10.0f, 10.0f), 0.0f);
+        var obbB = new Obb2D(new Vector2(16.0f, 4.0f), new Vector2(10.0f, 10.0f), 0.0f);
+        Contact2D viaSat = Collision2D.Test(obbA, obbB);
+        Check("OBB(回転0) と AABB の答えが一致",
+            Near(viaSat.Depth, boxHit.Depth) && Near(viaSat.Normal.X, boxHit.Normal.X),
+            $"SAT 深さ {viaSat.Depth} 法線 {viaSat.Normal}");
+
+        // --- 円と OBB ---
+        var rotated = new Obb2D(Vector2.Zero, new Vector2(10.0f, 4.0f), MathF.PI / 2.0f);
+        Contact2D circleObb = Collision2D.Test(new Circle2D(new Vector2(0.0f, 12.0f), 3.0f), rotated);
+
+        // 90 度回すと縦横が入れ替わるので、上端は y = 10 になる。円の下端は 9。深さ 1。
+        Check("円とOBB: 回転を考慮している", circleObb.Hit && Near(circleObb.Depth, 1.0f),
+            $"深さ {circleObb.Depth}");
+        Check("円とOBB: 法線は -Y", Near(circleObb.Normal.Y, -1.0f), $"{circleObb.Normal}");
+
+        // --- 押し戻しが本当に離すか ---
+        //
+        // 判定と押し戻しは別物で、**深さの符号を間違えると近づく**。
+        // 1回押し戻した結果、重なりが消えることを確かめておく。
+        var moving = new Circle2D(new Vector2(0.0f, 0.0f), 10.0f);
+        var fixedCircle = new Circle2D(new Vector2(12.0f, 0.0f), 10.0f);
+        Contact2D push = Collision2D.Test(moving, fixedCircle);
+        var afterA = new Circle2D(moving.Center - (push.Normal * (push.Depth * 0.5f)), moving.Radius);
+        var afterB = new Circle2D(fixedCircle.Center + (push.Normal * (push.Depth * 0.5f)), fixedCircle.Radius);
+        Check("押し戻すと重なりが消える", !Collision2D.Test(afterA, afterB).Hit
+            || Collision2D.Test(afterA, afterB).Depth < 0.001f);
+
+        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        Console.WriteLine();
+
+        BenchmarkCollision();
+
+        static bool Near(float a, float b) => MathF.Abs(a - b) < 0.001f;
+
+        void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                failures++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 形ごとの判定コストを測る。**どれを選ぶかの根拠**になる。
+    ///
+    /// 「円がいちばん安い」は誰でも言うが、
+    /// **何倍安いのか**を知らないと設計の判断ができない。
+    /// 2倍なら好きな形を使えばよいし、10倍なら円で済ませる工夫をする価値がある。
+    /// </summary>
+    private static void BenchmarkCollision()
+    {
+        const int n = 2_000_000;
+        var random = new Random(7);
+
+        // 半分くらいが当たる配置にする。**全部外れだと早期脱出ばかり測ることになる**。
+        var circles = new Circle2D[64];
+        var boxes = new Aabb2D[64];
+        var obbs = new Obb2D[64];
+
+        for (int i = 0; i < circles.Length; i++)
+        {
+            var center = new Vector2(
+                (float)random.NextDouble() * 40.0f,
+                (float)random.NextDouble() * 40.0f);
+
+            circles[i] = new Circle2D(center, 12.0f);
+            boxes[i] = Aabb2D.FromCenter(center, new Vector2(12.0f, 9.0f));
+            obbs[i] = new Obb2D(center, new Vector2(12.0f, 9.0f), (float)random.NextDouble() * MathF.Tau);
+        }
+
+        Console.WriteLine("### 判定 1 回あたりのコスト ###");
+
+        // **当たったかどうかだけ**の版。法線と深さを出さないぶん安い。
+        // 「当たったら消える弾」のように結果しか要らない場面では、こちらを使う。
+        Measure("円 と 円 (判定のみ)", i => Collision2D.Overlap(circles[i & 63], circles[(i + 7) & 63]));
+        Measure("AABB (判定のみ)   ", i => Collision2D.Overlap(boxes[i & 63], boxes[(i + 7) & 63]));
+
+        Measure("円 と 円      ", i => Collision2D.Test(circles[i & 63], circles[(i + 7) & 63]).Hit);
+        Measure("AABB と AABB  ", i => Collision2D.Test(boxes[i & 63], boxes[(i + 7) & 63]).Hit);
+        Measure("円 と AABB    ", i => Collision2D.Test(circles[i & 63], boxes[(i + 7) & 63]).Hit);
+        Measure("円 と OBB     ", i => Collision2D.Test(circles[i & 63], obbs[(i + 7) & 63]).Hit);
+        Measure("OBB と OBB    ", i => Collision2D.Test(obbs[i & 63], obbs[(i + 7) & 63]).Hit);
+
+        Console.WriteLine();
+
+        void Measure(string name, Func<int, bool> test)
+        {
+            // ウォームアップ(JIT とデリゲートの解決)
+            int warm = 0;
+            for (int i = 0; i < 10000; i++)
+            {
+                warm += test(i) ? 1 : 0;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            int hits = 0;
+            for (int i = 0; i < n; i++)
+            {
+                hits += test(i) ? 1 : 0;
+            }
+
+            double nanoseconds = stopwatch.Elapsed.TotalMilliseconds * 1e6 / n;
+            Console.WriteLine($"  {name}: {nanoseconds,5:F1}ns  (当たり {hits * 100.0 / n:F0}% / warm {warm})");
         }
     }
 
@@ -2193,6 +2724,33 @@ internal static class Program
                 RunSceneRoundTrip();
                 break;
 
+            case Key.F6:
+                _collisionDemo = !_collisionDemo;
+                if (_collisionDemo && _bodies.Length == 0)
+                {
+                    InitializeBodies(_activeBodies);
+                }
+
+                Console.WriteLine(
+                    $"衝突デモ: {OnOff(_collisionDemo)}"
+                    + (_collisionDemo ? "  (G で3D背景、PageDown でスプライトを消すと見やすい)" : string.Empty));
+                break;
+
+            case Key.F7:
+                _shapeMix = (_shapeMix + 1) % 4;
+                InitializeBodies(_activeBodies);
+                Console.WriteLine($"形: {ShapeMixLabel()}");
+                break;
+
+            case Key.F8:
+                _resolveOverlap = !_resolveOverlap;
+                Console.WriteLine($"押し戻し: {OnOff(_resolveOverlap)}");
+                break;
+
+            case Key.F9:
+                RunCollisionCheck();
+                break;
+
             case Key.H:
                 RunLifecycleDemo();
                 break;
@@ -2257,6 +2815,15 @@ internal static class Program
                     // Shift を押しながらだと10倍動く。
                     // 2万個まで 1000 刻みで上げるのは19回かかって、さすがに試す気が失せる。
                     bool shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
+
+                    // 衝突デモ中は体数を動かす。**今見ているものを増減させる**ほうが素直。
+                    if (_collisionDemo)
+                    {
+                        int bodyStep = shift ? 500 : 60;
+                        SetBodyCount(_activeBodies + (key == Key.PageUp ? bodyStep : -bodyStep));
+                        break;
+                    }
+
                     int step = shift ? 10000 : 1000;
                     SetSpriteCount(_activeSprites + (key == Key.PageUp ? step : -step));
                     break;
