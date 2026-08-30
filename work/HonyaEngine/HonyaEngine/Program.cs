@@ -41,10 +41,35 @@ namespace HonyaEngine;
 /// 当たると色が変わる。F8 で押し戻しを入れると重ならなくなる。
 /// タイトルバーに**組の数と判定時間**が出るので、
 /// 総当たりが O(n^2) で膨らむ様子がそのまま見える(Day 26 の動機)。
+///
+/// **Day 26 での変更**: その O(n^2) から抜ける。
+/// F10 で総当たりと均一グリッドを切り替えられる。
+/// 1000 体で「組 499,500 / 判定 12ms」だったものが
+/// 「候補 2万弱 / 判定 0.5ms」になり、**2万体まで 60fps で回る**ようになる。
+/// F11 でマスを可視化すると、どこに何個入っているかがそのまま見える。
+/// F12 は自己チェックと掃引ベンチ——
+/// **総当たりとグリッドが同じ接触集合を出すこと**を確かめてから速さを測る。
+/// ブロードフェーズの取りこぼしは絵に出ないので、確かめる側を先に書く。
 /// </summary>
 internal static class Program
 {
     private const int MaxSprites = 20000;
+
+    /// <summary>
+    /// 衝突デモの体数の上限。**Day 25 は 2000 だった**。
+    ///
+    /// グリッドを入れたので 10 倍に上げられる。
+    /// ただし 20000 体では当たり判定だけで 15.8ms 使うので、
+    /// **新しい壁がちょうどここに来る**(Day 25 の壁は 1000〜2000 体だった)。
+    /// </summary>
+    private const int MaxBodies = 20000;
+
+    /// <summary>
+    /// 体の大きさを決めるときの基準になる体数(<see cref="InitializeBodies"/>)。
+    /// これを超えたぶんは、**面積の合計が変わらないように小さくする**。
+    /// Day 25 の計測(最大 2000 体)とそのまま比べられるように、境目をそこに置いてある。
+    /// </summary>
+    private const int DensityReferenceBodies = 2000;
 
     /// <summary>アトラスに詰める絵。ファイル名(拡張子なし)がそのままキーになる。</summary>
     private static readonly string[] SpriteNames =
@@ -178,7 +203,7 @@ internal static class Program
     /// <summary>1ステップぶんの更新にかかった時間(ミリ秒)の移動平均。</summary>
     private static double _updateMilliseconds;
 
-    // --- 今日の主役: 当たり判定のデモ ---
+    // --- Day 25 からの当たり判定のデモ。今日はここに「組の絞り込み」が入る ---
 
     /// <summary>衝突デモを動かしているか(F6)。</summary>
     private static bool _collisionDemo;
@@ -192,7 +217,10 @@ internal static class Program
     private static Body[] _bodies = [];
     private static int _activeBodies = 120;
 
-    /// <summary>直前のステップで試した組の数。**n(n-1)/2 になる**。</summary>
+    /// <summary>
+    /// 直前のステップでナローフェーズを呼んだ回数。
+    /// 総当たりなら n(n-1)/2、グリッドなら**候補の数**になる。
+    /// </summary>
     private static long _pairTests;
 
     /// <summary>直前のステップで当たっていた組の数。</summary>
@@ -200,6 +228,55 @@ internal static class Program
 
     /// <summary>当たり判定にかかった時間(ミリ秒)の移動平均。</summary>
     private static double _collisionMilliseconds;
+
+    // --- 今日の主役: ブロードフェーズ ---
+
+    /// <summary>組の絞り込み方(F10)。</summary>
+    private enum Broadphase
+    {
+        /// <summary>Day 25 のやり方。全部の組を試す</summary>
+        BruteForce,
+
+        /// <summary>今日のやり方。同じマスにいるものだけ試す</summary>
+        UniformGrid,
+    }
+
+    private static Broadphase _broadphase = Broadphase.UniformGrid;
+
+    private static readonly SpatialGrid Grid = new();
+
+    /// <summary>
+    /// 体の外接 AABB。**毎ステップ作り直して、グリッドにはこれだけを渡す**。
+    ///
+    /// ブロードフェーズに <see cref="Body"/> を渡さないのがポイントで、
+    /// こうしておくと <see cref="SpatialGrid"/> は形も速度も知らずに済む。
+    /// Day 46 で 3D の物体に付け替えるときも、ここを差し替えるだけになる。
+    /// </summary>
+    private static Aabb2D[] _bodyBounds = [];
+
+    /// <summary>マスを可視化するか(F11)。</summary>
+    private static bool _showCells;
+
+    /// <summary>
+    /// マスの大きさ。0 なら**平均の大きさから自動**(<see cref="SpatialGrid.SuggestCellSize"/>)。
+    /// カンマ / ピリオドで手動の段階に切り替わる。
+    /// </summary>
+    private static float _cellSizeOverride;
+
+    /// <summary>手動で選べるマスの大きさ。両端は「わざと外した」値。</summary>
+    private static readonly float[] CellSizeSteps = [4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f, 256.0f];
+
+    /// <summary>ブロードフェーズ(構築 + 候補列挙)にかかった時間の移動平均。表示用。</summary>
+    private static double _broadphaseMilliseconds;
+
+    /// <summary>直前のステップのブロードフェーズ時間(なましていない生の値)。ベンチが読む。</summary>
+    private static double _broadphaseLastMilliseconds;
+
+    /// <summary>
+    /// 体を増やしても大きさを変えないか(- キー)。
+    /// **ON にすると密度が上がり、グリッドでも O(n^2) に戻っていく**のが見える。
+    /// </summary>
+    private static bool _fixedBodySize;
 
     /// <summary>記録を始めた時点のプレイヤーの状態。再生時にここへ巻き戻す。</summary>
     private static (Vector2 Position, Vector2 Velocity, float Angle, float DashCooldown) _recordStart;
@@ -496,6 +573,8 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
         Console.WriteLine("F6:衝突デモ  F7:形の切り替え  F8:押し戻し  F9:衝突判定の自己チェック");
+        Console.WriteLine("F10:総当たり/グリッド  F11:マスの可視化  F12:ブロードフェーズの自己チェックと計測");
+        Console.WriteLine(", / . :マスの大きさ  -:体の大きさ(面積一定/固定)");
         Console.WriteLine("F2:シーンを保存  F3:読み込み(Shift併用でコードから組み直し)  F4:往復の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
@@ -891,14 +970,21 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day25  {_fps:F1} fps | "
+                $"Day26  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
                 + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
                 + $"GO:{_scene.GameObjectCount} E:{_world.AliveCount} | "
                 + (_collisionDemo
-                    ? $"衝突:{_activeBodies}体 組:{_pairTests:N0} 接触:{_contacts} "
-                        + $"判定:{_collisionMilliseconds:F2}ms 形:{ShapeMixLabel()} 押戻:{OnOff(_resolveOverlap)} | "
+                    ? $"衝突:{_activeBodies}体 {BroadphaseLabel()} "
+
+                        // **削減率を出す**のが今日の眼目。
+                        // 「候補 18,432」だけでは速くなったのか分からない。
+                        // 総当たりなら何組だったかと並べて初めて意味を持つ。
+                        + $"候補:{_pairTests:N0}/{(long)_activeBodies * (_activeBodies - 1) / 2:N0} "
+                        + $"接触:{_contacts} "
+                        + $"広域:{_broadphaseMilliseconds:F2}ms 判定:{_collisionMilliseconds:F2}ms "
+                        + $"形:{ShapeMixLabel()} 押戻:{OnOff(_resolveOverlap)} | "
                     : $"スプライト:{_activeSprites} DC:{_drawCalls} | ")
                 + $"sim {1.0 / _loop.FixedDeltaTime:F0}Hz step:{_loop.StepsLastFrame} α:{_loop.Alpha:F2} "
                 + $"遅れ:{_loop.Lag * 1000.0:F1}ms | "
@@ -1017,6 +1103,54 @@ internal static class Program
     }
 
     private static string OnOff(bool value) => value ? "ON" : "OFF";
+
+    /// <summary>
+    /// マスの大きさを1段ずつ変える(カンマ / ピリオド)。両端まで行くと自動へ戻る。
+    ///
+    /// **手で振ってみるのが早い**。4 にすると1個が何枚にもまたがり、
+    /// 256 にすると画面が数枚のマスになって総当たりに戻る。
+    /// F11 の可視化と一緒に使うと、数字と絵が同時に動く。
+    /// </summary>
+    private static void CycleCellSize(bool larger)
+    {
+        if (_cellSizeOverride <= 0.0f)
+        {
+            // 自動から手動へ。**今の自動値にいちばん近い段**から始めると連続に見える。
+            float current = Grid.CellSize;
+            int nearest = 0;
+            for (int i = 1; i < CellSizeSteps.Length; i++)
+            {
+                if (MathF.Abs(CellSizeSteps[i] - current) < MathF.Abs(CellSizeSteps[nearest] - current))
+                {
+                    nearest = i;
+                }
+            }
+
+            _cellSizeOverride = CellSizeSteps[nearest];
+        }
+        else
+        {
+            int index = Array.IndexOf(CellSizeSteps, _cellSizeOverride) + (larger ? 1 : -1);
+
+            // 端をはみ出したら自動へ戻す。
+            _cellSizeOverride = index < 0 || index >= CellSizeSteps.Length ? 0.0f : CellSizeSteps[index];
+        }
+
+        Console.WriteLine(
+            _cellSizeOverride > 0.0f
+                ? $"マスの大きさ: {_cellSizeOverride:F0}px(手動)"
+                : "マスの大きさ: 自動(平均の直径)");
+    }
+
+    /// <summary>タイトルバー用のブロードフェーズ表示。グリッドならマスの構成も出す。</summary>
+    private static string BroadphaseLabel() => _broadphase switch
+    {
+        Broadphase.UniformGrid =>
+            $"格子{Grid.Columns}x{Grid.Rows}@{Grid.CellSize:F0}"
+            + $"{(_cellSizeOverride > 0.0f ? "手動" : "自動")} "
+            + $"最大{Grid.MaxPerCell}/マス",
+        _ => "総当たり",
+    };
 
     private static string RecorderLabel() => _recorder.Mode switch
     {
@@ -1315,16 +1449,30 @@ internal static class Program
     {
         var random = new Random(20260825);
         _bodies = new Body[count];
+        _bodyBounds = new Aabb2D[count];
 
         float width = _window.FramebufferSize.X;
         float height = _window.FramebufferSize.Y;
+
+        // **体を増やすときは、面積の合計が変わらないように小さくする**。
+        //
+        // 画面の広さは変わらないので、大きさをそのままに 2 万体を撒くと
+        // 画面が体で埋まり、「どのマスにも大量に入っている」状態になる。
+        // そうなるとグリッドで絞っても候補が減らない——
+        // **空間分割が効くのは「疎である」ときだけ**、という前提がここにある。
+        //
+        // 面積を n に反比例させる = 一辺は sqrt(n) に反比例させる。
+        // - キーでこの補正を切ると、密度が上がったときに何が起きるかが見られる。
+        float sizeScale = _fixedBodySize || count <= DensityReferenceBodies
+            ? 1.0f
+            : MathF.Sqrt((float)DensityReferenceBodies / count);
 
         for (int i = 0; i < count; i++)
         {
             // **画面に対して詰め込みすぎない**。
             // 面積の合計が画面の 2 割を超えたあたりから常時ほぼ全員が接触状態になり、
             // 「当たったら赤」の表示が意味をなさなくなる。
-            float size = 9.0f + ((float)random.NextDouble() * 12.0f);
+            float size = (9.0f + ((float)random.NextDouble() * 12.0f)) * sizeScale;
             float speed = 40.0f + ((float)random.NextDouble() * 90.0f);
             float direction = (float)random.NextDouble() * MathF.Tau;
 
@@ -1352,13 +1500,20 @@ internal static class Program
     };
 
     /// <summary>
-    /// 衝突デモの1ステップ。**動かして、壁で跳ねて、総当たりで当てる**。
+    /// 衝突デモの1ステップ。**動かして、壁で跳ねて、組を絞って、当てる**。
     ///
-    /// 総当たりの二重ループがこの日の主役。
-    /// 組の数は n(n-1)/2 で、120 体なら 7,140 組、500 体なら 124,750 組。
-    /// **体数を2倍にすると判定はほぼ4倍**になる。
-    /// タイトルバーの「組」と「判定」を見ながら PageUp を押すと、
-    /// O(n^2) が実際にどう効いてくるかが分かる。これが Day 26 の出発点になる。
+    /// Day 25 との違いは真ん中の「組を絞る」だけ。
+    /// 動かす部分と当てる部分は**1文字も変えていない**——
+    /// ブロードフェーズは「どの組を調べるか」しか決めないので、
+    /// 判定そのもの(<see cref="Collision2D"/>)には手が入らない。
+    /// Day 25 で判定を状態のない <c>static</c> にしておいた効果がここで出る。
+    ///
+    /// 3段の時間はそれぞれ別に測る。
+    ///   移動        … O(n)。ここは方式によらず同じ
+    ///   ブロードフェーズ … 総当たりなら 0(絞らない)、グリッドなら構築 + 候補列挙
+    ///   ナローフェーズ  … 候補の数だけ <see cref="Test(in Body, in Body)"/> を呼ぶ
+    /// **速くなったのはナローフェーズの回数が減ったから**であって、
+    /// 判定1回が速くなったからではない。この区別が付くように測り分ける。
     /// </summary>
     private static void UpdateBodies(float deltaTime, Vector2 bounds)
     {
@@ -1399,34 +1554,92 @@ internal static class Program
             }
         }
 
-        // --- 総当たり ---
-        //
-        // j は i+1 から始める。**同じ組を2回試さないため**で、これだけで半分になる。
-        // それでも O(n^2) であることは変わらない。
+        // --- ブロードフェーズ: 調べる組を決める ---
         long pairs = 0;
         int contacts = 0;
+        double broadphaseMilliseconds = 0.0;
 
-        for (int i = 0; i < count; i++)
+        if (_broadphase == Broadphase.UniformGrid)
         {
-            for (int j = i + 1; j < count; j++)
+            var broadStopwatch = Stopwatch.StartNew();
+
+            // 外接 AABB をまとめて作る。**グリッドに渡すのはこれだけ**。
+            for (int i = 0; i < count; i++)
             {
-                pairs++;
+                ref Body body = ref _bodies[i];
+                _bodyBounds[i] = Aabb2D.FromCenter(body.Position, BoundsExtent(body));
+            }
 
-                Contact2D contact = Test(in _bodies[i], in _bodies[j]);
-                if (!contact.Hit)
+            Span<Aabb2D> boxes = _bodyBounds.AsSpan(0, count);
+
+            Grid.Configure(
+                Vector2.Zero,
+                bounds,
+                _cellSizeOverride > 0.0f ? _cellSizeOverride : SpatialGrid.SuggestCellSize(boxes));
+
+            Grid.Build(boxes);
+            pairs = Grid.CollectPairs(boxes);
+
+            broadphaseMilliseconds = broadStopwatch.Elapsed.TotalMilliseconds;
+
+            // --- ナローフェーズ: 候補だけを本判定にかける ---
+            ReadOnlySpan<BroadPair> candidates = Grid.Pairs;
+
+            for (int p = 0; p < candidates.Length; p++)
+            {
+                if (Resolve(candidates[p].A, candidates[p].B))
                 {
-                    continue;
+                    contacts++;
                 }
-
-                contacts++;
-                _bodies[i].Contacts++;
-                _bodies[j].Contacts++;
-
-                if (!_resolveOverlap)
+            }
+        }
+        else
+        {
+            // --- Day 25 の総当たり ---
+            //
+            // j は i+1 から始める。**同じ組を2回試さないため**で、これだけで半分になる。
+            // それでも O(n^2) であることは変わらない。
+            for (int i = 0; i < count; i++)
+            {
+                for (int j = i + 1; j < count; j++)
                 {
-                    continue;
-                }
+                    pairs++;
 
+                    if (Resolve(i, j))
+                    {
+                        contacts++;
+                    }
+                }
+            }
+        }
+
+        _pairTests = pairs;
+        _contacts = contacts;
+        _broadphaseLastMilliseconds = broadphaseMilliseconds;
+        _broadphaseMilliseconds = (_broadphaseMilliseconds * 0.9) + (broadphaseMilliseconds * 0.1);
+        _collisionMilliseconds = (_collisionMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+
+        // 1組ぶんの判定と押し戻し。**方式が変わってもここは同じ**なので、
+        // 総当たりとグリッドで結果が食い違わない(F12 で確かめる)。
+        //
+        // 押し戻しで位置が動くと、その体の外接 AABB は古くなる。
+        // グリッドはステップの頭の位置で組まれているので、
+        // **押し戻した先で新しく重なった組はこのステップでは拾えない**。
+        // 押し戻し量は 1 ステップぶんの重なりぶんしかないので実用上は問題にならず、
+        // 直すとしたら「押し戻しを後段にまとめる」形になる(Phase 7 のインパルス解決がその形)。
+        static bool Resolve(int i, int j)
+        {
+            Contact2D contact = Test(in _bodies[i], in _bodies[j]);
+            if (!contact.Hit)
+            {
+                return false;
+            }
+
+            _bodies[i].Contacts++;
+            _bodies[j].Contacts++;
+
+            if (_resolveOverlap)
+            {
                 // **半分ずつ押し戻す**。片方だけ動かすと、
                 // 壁際で押された側が壁にめり込む。
                 // 質量を持たせるなら比率を変えるが、それは Phase 7 の話。
@@ -1434,11 +1647,9 @@ internal static class Program
                 _bodies[i].Position -= push;
                 _bodies[j].Position += push;
             }
-        }
 
-        _pairTests = pairs;
-        _contacts = contacts;
-        _collisionMilliseconds = (_collisionMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+            return true;
+        }
     }
 
     /// <summary>
@@ -1511,6 +1722,11 @@ internal static class Program
     {
         int count = Math.Min(_activeBodies, _bodies.Length);
 
+        if (_showCells && _broadphase == Broadphase.UniformGrid)
+        {
+            RenderCells();
+        }
+
         for (int i = 0; i < count; i++)
         {
             ref Body body = ref _bodies[i];
@@ -1542,6 +1758,67 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// グリッドのマスを描く(F11)。**混んでいるマスほど赤くする**。
+    ///
+    /// 数字を見るより、こちらのほうが分かることが多い。
+    ///   - マスを小さくしすぎると、**1個の体が何枚ものマスにまたがる**のが見える
+    ///   - マスを大きくしすぎると、**画面全体が数枚の赤いマス**になる
+    ///   - 体が固まっている場所だけ赤くなり、**均一グリッドの弱点**(偏り)が見える
+    ///
+    /// 可視化は「性能の道具」でもある。プロファイラの数字だけでは
+    /// 「なぜ遅いのか」までは分からない。
+    /// </summary>
+    private static void RenderCells()
+    {
+        float cell = Grid.CellSize;
+
+        // まだ1ステップも回っていなければ格子は空。
+        // F6 を押した直後の1フレームがここに来る(描画が更新より先に走ることがある)。
+        if (Grid.EntryCount == 0)
+        {
+            return;
+        }
+
+        // マスが細かすぎると描画のほうが重くなるので、そこは正直に諦める。
+        if (Grid.CellCount > 6000)
+        {
+            return;
+        }
+
+        for (int row = 0; row < Grid.Rows; row++)
+        {
+            for (int column = 0; column < Grid.Columns; column++)
+            {
+                int inCell = Grid.CellContents(column, row).Length;
+                if (inCell == 0)
+                {
+                    continue;
+                }
+
+                // 4個で赤に振り切る。**「1マスに4個」が総当たりに戻り始める目安**なので、
+                // 赤い場所が広がっていたらマスを小さくする合図になる。
+                float heat = MathF.Min(inCell / 4.0f, 1.0f);
+
+                var color = new Vector4(
+                    0.20f + (0.65f * heat),
+                    0.55f - (0.40f * heat),
+                    0.85f - (0.70f * heat),
+                    0.10f + (0.22f * heat));
+
+                Submit(
+                    BoxSprite,
+                    new Vector2((column + 0.5f) * cell, (row + 0.5f) * cell),
+                    new Vector2(cell - 1.0f),
+                    0.0f,
+                    color,
+
+                    // 体(0.6)より奥に置く。手前だと体が見えなくなる。
+                    0.2f);
+            }
+        }
+    }
+
     private static string ShapeMixLabel() => _shapeMix switch
     {
         1 => "円",
@@ -1553,10 +1830,18 @@ internal static class Program
     /// <summary>体数を変える。衝突デモが動いていれば作り直す。</summary>
     private static void SetBodyCount(int count)
     {
-        _activeBodies = Math.Clamp(count, 0, 2000);
+        _activeBodies = Math.Clamp(count, 0, MaxBodies);
         InitializeBodies(_activeBodies);
-        Console.WriteLine(
-            $"[collision] {_activeBodies} 体 / 組 {(long)_activeBodies * (_activeBodies - 1) / 2:N0}");
+
+        long allPairs = (long)_activeBodies * (_activeBodies - 1) / 2;
+        Console.WriteLine($"[collision] {_activeBodies} 体 / 総当たりなら {allPairs:N0} 組");
+
+        // **総当たりのまま数千体に上げると、その場で数百ミリ秒かかる**。
+        // 気づかずに「グリッドも遅い」と誤解しないよう、ここで断っておく。
+        if (_broadphase == Broadphase.BruteForce && _activeBodies > 2000)
+        {
+            Console.WriteLine("            総当たりのままです。F10 でグリッドに切り替えると軽くなります");
+        }
     }
 
     /// <summary>ソートの効き目を目で見るための3枚(<see cref="LayerTest"/>)。</summary>
@@ -1827,7 +2112,7 @@ internal static class Program
     /// </summary>
     private static void RunSceneRoundTrip()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[シーンの往復チェック]");
@@ -1872,11 +2157,11 @@ internal static class Program
         loaded.Bounds = bounds;
         string second = SceneSerializer.Save(loaded, loadedWorld, "roundtrip");
 
-        Check("保存 → 読み込み → 再保存でテキストが一致", first == second,
+        checks.Check("保存 → 読み込み → 再保存でテキストが一致", first == second,
             $"{first.Length} バイト / {second.Length} バイト");
-        Check("GameObject の数が一致", coded.GameObjectCount == loaded.GameObjectCount,
+        checks.Check("GameObject の数が一致", coded.GameObjectCount == loaded.GameObjectCount,
             $"{coded.GameObjectCount} / {loaded.GameObjectCount}");
-        Check("コンポーネントの数が一致", coded.ComponentCount == loaded.ComponentCount,
+        checks.Check("コンポーネントの数が一致", coded.ComponentCount == loaded.ComponentCount,
             $"{coded.ComponentCount} / {loaded.ComponentCount}");
 
         // 親子が復元できているか。孫までたどれれば、参照の復元は効いている。
@@ -1892,7 +2177,7 @@ internal static class Program
             depth = Math.Max(depth, d);
         }
 
-        Check("親子の深さが3段(根 → 子 → 孫)", depth == 2, $"実際 {depth + 1} 段");
+        checks.Check("親子の深さが3段(根 → 子 → 孫)", depth == 2, $"実際 {depth + 1} 段");
 
         GameObject? loadedProbe = null;
         foreach (GameObject gameObject in loaded.GameObjects)
@@ -1903,19 +2188,19 @@ internal static class Program
             }
         }
 
-        Check("目印のオブジェクトが復元されている", loadedProbe is not null);
+        checks.Check("目印のオブジェクトが復元されている", loadedProbe is not null);
 
         if (loadedProbe is not null)
         {
             SpriteRenderer? renderer = loadedProbe.GetComponent<SpriteRenderer>();
             BouncingMover? mover = loadedProbe.GetComponent<BouncingMover>();
 
-            Check("float が保たれている", renderer is not null && renderer.Size == 31.0f);
-            Check(
+            checks.Check("float が保たれている", renderer is not null && renderer.Size == 31.0f);
+            checks.Check(
                 "Vector4 が保たれている",
                 renderer is not null && renderer.Color == probeSprite.Color,
                 $"{renderer?.Color}");
-            Check(
+            checks.Check(
                 "Vector2 が保たれている",
                 mover is not null && mover.Velocity == probeMover.Velocity,
                 $"{mover?.Velocity}");
@@ -1925,10 +2210,10 @@ internal static class Program
         ulong codedHash = StepAndHash(coded, 300);
         ulong loadedHash = StepAndHash(loaded, 300);
 
-        Check("300 ステップ後の状態が一致", codedHash == loadedHash,
+        checks.Check("300 ステップ後の状態が一致", codedHash == loadedHash,
             $"{codedHash:X16} / {loadedHash:X16}");
 
-        Check("エンティティの数が一致", codedWorld.AliveCount == loadedWorld.AliveCount,
+        checks.Check("エンティティの数が一致", codedWorld.AliveCount == loadedWorld.AliveCount,
             $"{codedWorld.AliveCount} / {loadedWorld.AliveCount}");
 
         Span<Transform2D> codedTransforms = codedWorld.Store<Transform2D>().Values;
@@ -1944,22 +2229,11 @@ internal static class Program
                 && loadedVelocities[i].HalfSize == 8.0f;
         }
 
-        Check("ECS コンポーネントの値が保たれている", ecsValuesMatch,
+        checks.Check("ECS コンポーネントの値が保たれている", ecsValuesMatch,
             loadedTransforms.Length > 0 ? $"{loadedTransforms[0].Position}" : "(空)");
 
-        Console.WriteLine(failures == 0
-            ? "  すべて合格 — シーンをファイルから復元しても、同じ動きをする"
-            : $"  {failures} 件 不合格");
+        checks.Report("すべて合格 — シーンをファイルから復元しても、同じ動きをする");
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>シーンを指定ステップ動かして、全 Transform のハッシュを取る。</summary>
@@ -2012,7 +2286,7 @@ internal static class Program
     /// </summary>
     private static void RunCollisionCheck()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[当たり判定の自己チェック]");
@@ -2021,21 +2295,21 @@ internal static class Program
         var c1 = new Circle2D(new Vector2(0.0f, 0.0f), 10.0f);
         var c2 = new Circle2D(new Vector2(15.0f, 0.0f), 10.0f);
         Contact2D hit = Collision2D.Test(c1, c2);
-        Check("円同士: 当たる", hit.Hit);
-        Check("円同士: 深さ 5", Near(hit.Depth, 5.0f), $"{hit.Depth}");
-        Check("円同士: 法線は +X", Near(hit.Normal.X, 1.0f) && Near(hit.Normal.Y, 0.0f), $"{hit.Normal}");
+        checks.Check("円同士: 当たる", hit.Hit);
+        checks.Check("円同士: 深さ 5", Near(hit.Depth, 5.0f), $"{hit.Depth}");
+        checks.Check("円同士: 法線は +X", Near(hit.Normal.X, 1.0f) && Near(hit.Normal.Y, 0.0f), $"{hit.Normal}");
 
-        Check("円同士: 離れていれば当たらない",
+        checks.Check("円同士: 離れていれば当たらない",
             !Collision2D.Test(c1, new Circle2D(new Vector2(21.0f, 0.0f), 10.0f)).Hit);
 
         // **ちょうど接している**。浮動小数点の境界で、実装によって割れるところ。
         // ここでは「接触も当たり」とする(<= で書いてある)。
-        Check("円同士: ちょうど接するのは当たり扱い",
+        checks.Check("円同士: ちょうど接するのは当たり扱い",
             Collision2D.Test(c1, new Circle2D(new Vector2(20.0f, 0.0f), 10.0f)).Hit);
 
         // 中心が完全に重なる退化ケース。向きが決まらないが、落ちてはいけない。
         Contact2D same = Collision2D.Test(c1, new Circle2D(Vector2.Zero, 10.0f));
-        Check("円同士: 中心が重なっても NaN にならない",
+        checks.Check("円同士: 中心が重なっても NaN にならない",
             same.Hit && !float.IsNaN(same.Normal.X) && !float.IsNaN(same.Depth), $"{same.Normal} {same.Depth}");
 
         // --- AABB 同士 ---
@@ -2044,22 +2318,22 @@ internal static class Program
         Contact2D boxHit = Collision2D.Test(b1, b2);
 
         // X 方向の重なりは 20-16=4、Y 方向は 20-4=16。**浅いほう(X)で押す**。
-        Check("AABB: 浅い軸で押す(X)", Near(boxHit.Depth, 4.0f) && Near(boxHit.Normal.X, 1.0f),
+        checks.Check("AABB: 浅い軸で押す(X)", Near(boxHit.Depth, 4.0f) && Near(boxHit.Normal.X, 1.0f),
             $"深さ {boxHit.Depth} 法線 {boxHit.Normal}");
-        Check("AABB: 角がかすっていなければ当たらない",
+        checks.Check("AABB: 角がかすっていなければ当たらない",
             !Collision2D.Test(b1, Aabb2D.FromCenter(new Vector2(21.0f, 21.0f), new Vector2(10.0f))).Hit);
 
         // --- 円と AABB ---
         // 箱の右辺は x=10。中心 x=14 / 半径 6 なら、最近点までの距離は 4 でめり込みは 2。
         Contact2D mixed = Collision2D.Test(new Circle2D(new Vector2(14.0f, 0.0f), 6.0f), b1);
-        Check("円とAABB: 辺に当たる", mixed.Hit && Near(mixed.Depth, 2.0f), $"深さ {mixed.Depth}");
-        Check("円とAABB: 法線は円から箱へ(-X)", Near(mixed.Normal.X, -1.0f), $"{mixed.Normal}");
-        Check("円とAABB: 届かなければ当たらない",
+        checks.Check("円とAABB: 辺に当たる", mixed.Hit && Near(mixed.Depth, 2.0f), $"深さ {mixed.Depth}");
+        checks.Check("円とAABB: 法線は円から箱へ(-X)", Near(mixed.Normal.X, -1.0f), $"{mixed.Normal}");
+        checks.Check("円とAABB: 届かなければ当たらない",
             !Collision2D.Test(new Circle2D(new Vector2(24.0f, 0.0f), 6.0f), b1).Hit);
 
         // 円が箱の中に完全に入っている場合。距離が 0 になるので別経路を通る。
         Contact2D inside = Collision2D.Test(new Circle2D(new Vector2(2.0f, 0.0f), 3.0f), b1);
-        Check("円とAABB: 円が中にあっても向きが決まる",
+        checks.Check("円とAABB: 円が中にあっても向きが決まる",
             inside.Hit && !float.IsNaN(inside.Normal.X) && MathF.Abs(inside.Normal.X) > 0.5f,
             $"{inside.Normal} 深さ {inside.Depth}");
 
@@ -2072,10 +2346,10 @@ internal static class Program
         var tilted = new Obb2D(new Vector2(23.0f, 0.0f), new Vector2(10.0f, 10.0f), MathF.PI / 4.0f);
 
         Contact2D satHit = Collision2D.Test(square, tilted);
-        Check("OBB: 45度の角が刺さっているのを検出", satHit.Hit, $"深さ {satHit.Depth:F3}");
-        Check("OBB: 法線は +X 寄り", satHit.Normal.X > 0.9f, $"{satHit.Normal}");
+        checks.Check("OBB: 45度の角が刺さっているのを検出", satHit.Hit, $"深さ {satHit.Depth:F3}");
+        checks.Check("OBB: 法線は +X 寄り", satHit.Normal.X > 0.9f, $"{satHit.Normal}");
 
-        Check("OBB: 離れていれば当たらない",
+        checks.Check("OBB: 離れていれば当たらない",
             !Collision2D.Test(square, new Obb2D(new Vector2(25.0f, 0.0f), new Vector2(10.0f), MathF.PI / 4.0f)).Hit);
 
         // **回転 0 の OBB は AABB と同じ答えになるはず**。
@@ -2083,7 +2357,7 @@ internal static class Program
         var obbA = new Obb2D(Vector2.Zero, new Vector2(10.0f, 10.0f), 0.0f);
         var obbB = new Obb2D(new Vector2(16.0f, 4.0f), new Vector2(10.0f, 10.0f), 0.0f);
         Contact2D viaSat = Collision2D.Test(obbA, obbB);
-        Check("OBB(回転0) と AABB の答えが一致",
+        checks.Check("OBB(回転0) と AABB の答えが一致",
             Near(viaSat.Depth, boxHit.Depth) && Near(viaSat.Normal.X, boxHit.Normal.X),
             $"SAT 深さ {viaSat.Depth} 法線 {viaSat.Normal}");
 
@@ -2092,9 +2366,9 @@ internal static class Program
         Contact2D circleObb = Collision2D.Test(new Circle2D(new Vector2(0.0f, 12.0f), 3.0f), rotated);
 
         // 90 度回すと縦横が入れ替わるので、上端は y = 10 になる。円の下端は 9。深さ 1。
-        Check("円とOBB: 回転を考慮している", circleObb.Hit && Near(circleObb.Depth, 1.0f),
+        checks.Check("円とOBB: 回転を考慮している", circleObb.Hit && Near(circleObb.Depth, 1.0f),
             $"深さ {circleObb.Depth}");
-        Check("円とOBB: 法線は -Y", Near(circleObb.Normal.Y, -1.0f), $"{circleObb.Normal}");
+        checks.Check("円とOBB: 法線は -Y", Near(circleObb.Normal.Y, -1.0f), $"{circleObb.Normal}");
 
         // --- 押し戻しが本当に離すか ---
         //
@@ -2105,24 +2379,15 @@ internal static class Program
         Contact2D push = Collision2D.Test(moving, fixedCircle);
         var afterA = new Circle2D(moving.Center - (push.Normal * (push.Depth * 0.5f)), moving.Radius);
         var afterB = new Circle2D(fixedCircle.Center + (push.Normal * (push.Depth * 0.5f)), fixedCircle.Radius);
-        Check("押し戻すと重なりが消える", !Collision2D.Test(afterA, afterB).Hit
+        checks.Check("押し戻すと重なりが消える", !Collision2D.Test(afterA, afterB).Hit
             || Collision2D.Test(afterA, afterB).Depth < 0.001f);
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
 
         BenchmarkCollision();
 
         static bool Near(float a, float b) => MathF.Abs(a - b) < 0.001f;
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -2190,6 +2455,363 @@ internal static class Program
     }
 
     /// <summary>
+    /// **ブロードフェーズの自己チェック**(F12)。今日いちばん大事な関数。
+    ///
+    /// ブロードフェーズのバグは<b>絵に出ない</b>。
+    /// 組をひとつ取りこぼしても、その瞬間に1組がすり抜けるだけで、
+    /// 何百体も飛び交っていれば誰も気づかない。
+    /// 気づくのは「たまに敵が壁を抜ける」とバグ報告が来たときになる。
+    ///
+    /// だから確かめ方はひとつしかない——
+    /// <b>総当たりと同じ答えを出すことを、機械に確かめさせる</b>。
+    /// 総当たりは遅いが**絶対に正しい**ので、正解表として使える。
+    /// 最適化を入れるときは、いつもこの形にする(Day 25 の「SAT と AABB の一致」も同じ)。
+    /// </summary>
+    private static void RunBroadphaseCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[ブロードフェーズの自己チェック]");
+
+        var grid = new SpatialGrid();
+        var world = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        // --- 1. 手で並べた小さな例 ---
+        //
+        // 番号と期待する組を先に決めておく。**乱数の例だけだと、
+        // 落ちたときに何が悪いのか分からない**。
+        Aabb2D[] boxes =
+        [
+            Aabb2D.FromCenter(new Vector2(50.0f, 50.0f), new Vector2(10.0f)),    // 0
+            Aabb2D.FromCenter(new Vector2(64.0f, 50.0f), new Vector2(10.0f)),    // 1: 0 と重なる
+            Aabb2D.FromCenter(new Vector2(300.0f, 300.0f), new Vector2(120.0f)), // 2: マスをまたぐ大物
+            Aabb2D.FromCenter(new Vector2(400.0f, 400.0f), new Vector2(8.0f)),   // 3: 2 の中にいる
+            Aabb2D.FromCenter(new Vector2(-40.0f, -40.0f), new Vector2(10.0f)),  // 4: 世界の外
+            Aabb2D.FromCenter(new Vector2(-30.0f, -40.0f), new Vector2(10.0f)),  // 5: 世界の外で 4 と重なる
+            Aabb2D.FromCenter(new Vector2(10.0f, 10.0f), new Vector2(2.0f)),     // 6: 同じマスだが
+            Aabb2D.FromCenter(new Vector2(28.0f, 28.0f), new Vector2(2.0f)),     // 7: 6 とは離れている
+        ];
+
+        grid.Configure(Vector2.Zero, world, 32.0f);
+        grid.Build(boxes);
+        int found = grid.CollectPairs(boxes);
+
+        checks.Check("小さな例: 組は 3 つ", found == 3, $"{found} 組: {PairsToText(grid.Pairs)}");
+        checks.Check("小さな例: 隣り合う小物(0,1)", HasPair(grid.Pairs, 0, 1));
+        checks.Check("小さな例: マスをまたぐ大物(2,3)", HasPair(grid.Pairs, 2, 3));
+
+        // 世界の外は端のマスへ丸めている。**落ちないだけでなく、組も拾えること**。
+        checks.Check("小さな例: 世界の外でも拾う(4,5)", HasPair(grid.Pairs, 4, 5));
+
+        // 同じマスにいるだけでは候補にしない。AABB の足切りが効いているか。
+        checks.Check("小さな例: 同じマスでも離れていれば候補にしない(6,7)", !HasPair(grid.Pairs, 6, 7));
+        checks.Check("小さな例: 足切り前は同居していた", grid.CoLocatedPairs > found, $"同居 {grid.CoLocatedPairs} 組");
+
+        // またがるぶん、登録の総数は体数より多くなる。
+        checks.Check("小さな例: 大物が複数マスに登録されている", grid.EntryCount > boxes.Length,
+            $"登録 {grid.EntryCount} / 体 {boxes.Length}");
+
+        checks.Check("空でも落ちない", SafeEmpty(grid), "0 体");
+
+        // --- 2. 乱数の配置で、総当たりと突き合わせる ---
+        //
+        // ここが本番。**グリッドが出した組の集合 == AABB が重なる組の集合**でなければならない。
+        // 余分に出す(false positive)のは許されるが、
+        // ここでは AABB で足切りまでしているので、集合として一致するのが正しい。
+        InitializeBodies(1000);
+        int count = 1000;
+        var probe = new Aabb2D[count];
+        for (int i = 0; i < count; i++)
+        {
+            probe[i] = Aabb2D.FromCenter(_bodies[i].Position, BoundsExtent(_bodies[i]));
+        }
+
+        List<long> expected = BruteForcePairs(probe);
+
+        // **マスの大きさを変えても答えは変わらない**。
+        // 変わるなら、それは性能の調整つまみではなく仕様バグ。
+        foreach (float cellSize in (float[])[4.0f, 13.0f, 32.0f, 100.0f, 4000.0f])
+        {
+            grid.Configure(Vector2.Zero, world, cellSize);
+            grid.Build(probe);
+            grid.CollectPairs(probe);
+
+            List<long> actual = [];
+            foreach (BroadPair pair in grid.Pairs)
+            {
+                actual.Add(Key(pair.A, pair.B));
+            }
+
+            actual.Sort();
+            bool unique = true;
+            for (int i = 1; i < actual.Count; i++)
+            {
+                unique &= actual[i] != actual[i - 1];
+            }
+
+            checks.Check($"マス {cellSize,6:F0}px: 総当たりと同じ組", Same(expected, actual),
+                $"{actual.Count} 組(正解 {expected.Count} 組)");
+            checks.Check($"マス {cellSize,6:F0}px: 重複した組が無い", unique);
+        }
+
+        // --- 3. 押し戻しまで含めて、1ステップの結果が一致するか ---
+        //
+        // 組が同じでも、**呼ぶ順番が違えば押し戻しの結果は変わりうる**。
+        // 総当たりは (0,1),(0,2)... の順、グリッドはマスの並び順になる。
+        // 押し戻しは他の組に影響するので、順番が違えば最終位置も少しずれる。
+        // ここでは押し戻しを切って「接触した組の集合」だけを比べる。
+        bool savedResolve = _resolveOverlap;
+        Broadphase savedPhase = _broadphase;
+        float savedCell = _cellSizeOverride;
+        _resolveOverlap = false;
+
+        InitializeBodies(500);
+        _activeBodies = 500;
+
+        _broadphase = Broadphase.BruteForce;
+        UpdateBodies(1.0f / 60.0f, world);
+        int bruteContacts = _contacts;
+        long bruteTests = _pairTests;
+
+        InitializeBodies(500);
+        _broadphase = Broadphase.UniformGrid;
+        _cellSizeOverride = 0.0f;
+        UpdateBodies(1.0f / 60.0f, world);
+
+        checks.Check("1ステップの接触数が一致", _contacts == bruteContacts,
+            $"総当たり {bruteContacts} / グリッド {_contacts}");
+        checks.Check("ナローフェーズの回数は減っている", _pairTests < bruteTests,
+            $"{bruteTests:N0} → {_pairTests:N0}({100.0 - (_pairTests * 100.0 / bruteTests):F1}% 削減)");
+
+        _resolveOverlap = savedResolve;
+        _broadphase = savedPhase;
+        _cellSizeOverride = savedCell;
+
+        checks.Report();
+        Console.WriteLine();
+
+        BenchmarkBroadphase();
+
+        // 触った状態を戻す。
+        InitializeBodies(_activeBodies);
+
+        static long Key(int a, int b) => ((long)a << 32) | (uint)b;
+
+        static bool HasPair(ReadOnlySpan<BroadPair> pairs, int a, int b)
+        {
+            foreach (BroadPair pair in pairs)
+            {
+                if (pair.A == a && pair.B == b)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static string PairsToText(ReadOnlySpan<BroadPair> pairs)
+        {
+            var text = new System.Text.StringBuilder();
+            foreach (BroadPair pair in pairs)
+            {
+                text.Append($"({pair.A},{pair.B})");
+            }
+
+            return text.ToString();
+        }
+
+        static bool SafeEmpty(SpatialGrid grid)
+        {
+            grid.Build([]);
+            return grid.CollectPairs([]) == 0;
+        }
+
+        static List<long> BruteForcePairs(ReadOnlySpan<Aabb2D> boxes)
+        {
+            List<long> pairs = [];
+            for (int i = 0; i < boxes.Length; i++)
+            {
+                for (int j = i + 1; j < boxes.Length; j++)
+                {
+                    if (Collision2D.Overlap(boxes[i], boxes[j]))
+                    {
+                        pairs.Add(Key(i, j));
+                    }
+                }
+            }
+
+            pairs.Sort();
+            return pairs;
+        }
+
+        static bool Same(List<long> a, List<long> b)
+        {
+            if (a.Count != b.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i] != b[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 総当たりとグリッドを、体数とマスの大きさの両方で振って測る。
+    ///
+    /// 見たいのは2つ。
+    ///   1. <b>体数を倍にしたとき、時間が何倍になるか</b>
+    ///      総当たりは 4 倍(O(n^2))。グリッドは**密度が一定なら 2 倍**(O(n))
+    ///   2. <b>マスの大きさで、どれくらい変わるか</b>
+    ///      小さすぎ・大きすぎの両側で遅くなる谷型になる
+    ///
+    /// **測る前に全部の構成を1回空回し**しているのは Day 25 で踏んだ罠のため。
+    /// .NET は同じコードを何度も呼ぶと途中でより良い機械語に差し替える(段階的 JIT)ので、
+    /// 温める前に測ると最初の1件だけ遅く出る。
+    /// </summary>
+    private static void BenchmarkBroadphase()
+    {
+        Broadphase savedPhase = _broadphase;
+        float savedCell = _cellSizeOverride;
+        int savedBodies = _activeBodies;
+        int savedMix = _shapeMix;
+        bool savedResolve = _resolveOverlap;
+        bool savedFixedSize = _fixedBodySize;
+
+        _shapeMix = 0;
+        _resolveOverlap = true;
+        _fixedBodySize = false;
+
+        var world = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+        int[] counts = [250, 500, 1000, 2000, 4000, 8000, 16000];
+
+        // **温め**。ここを削ると最初の1〜2行だけ 2 倍遅く出る。
+        //
+        // .NET は起動直後、まず「そこそこの機械語」(tier 0)で走り、
+        // 何度も呼ばれたものだけを後から最適化した版に差し替える。
+        // 差し替えの判定は**アプリが落ち着いてから**始まるので、
+        // 起動直後にいきなり測ると、最初に測った構成だけ古い機械語で走ったまま終わる。
+        // Day 25 で「120 体だけ 58ns」と出たのがこれ(計画書の「検証の途中で分かったこと」)。
+        Sample(1000, Broadphase.BruteForce, 0.0f, 10);
+        Sample(1000, Broadphase.UniformGrid, 0.0f, 30);
+        Sample(250, Broadphase.BruteForce, 0.0f, 10);
+        Sample(250, Broadphase.UniformGrid, 0.0f, 10);
+
+        Console.WriteLine("### 体数を振る(形は混在、押し戻しあり)。数秒かかります ###");
+        Console.WriteLine("   体数 |     総当たり |   グリッド |   うち広域 |     候補 |  接触 |  倍率");
+
+        foreach (int count in counts)
+        {
+            // 総当たりは 4000 を超えると 1 ステップに 0.2 秒かかる。**測るだけで待たされる**ので、
+            // そこから上はグリッドだけにする。この「測れない」こと自体が今日の結論でもある。
+            double brute = count <= 4000
+                ? Sample(count, Broadphase.BruteForce, 0.0f, StepsFor(count)).Total
+                : double.NaN;
+
+            (double Total, double Broad, long Pairs, int Contacts) grid =
+                Sample(count, Broadphase.UniformGrid, 0.0f, GridStepsFor(count));
+
+            string bruteText = double.IsNaN(brute) ? "     —" : $"{brute,8:F2}ms";
+            string ratio = double.IsNaN(brute) ? "    —" : $"{brute / grid.Total,5:F1}x";
+
+            Console.WriteLine(
+                $"  {count,5} | {bruteText} | {grid.Total,7:F2}ms | {grid.Broad,7:F2}ms | "
+                + $"{grid.Pairs,8:N0} | {grid.Contacts,5} | {ratio}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("### マスの大きさを振る(4000 体)###");
+        Console.WriteLine("   マス |    格子 |   登録 | 最大/マス |     同居 |     候補 |   広域 |    合計");
+
+        foreach (float cellSize in (float[])[4.0f, 8.0f, 16.0f, 32.0f, 64.0f, 128.0f, 256.0f])
+        {
+            (double Total, double Broad, long Pairs, int Contacts) result =
+                Sample(4000, Broadphase.UniformGrid, cellSize, 20);
+
+            Console.WriteLine(
+                $"  {cellSize,5:F0} | {Grid.Columns,3}x{Grid.Rows,-3} | {Grid.EntryCount,6:N0} | "
+                + $"{Grid.MaxPerCell,9} | {Grid.CoLocatedPairs,8:N0} | {result.Pairs,8:N0} | "
+                + $"{result.Broad,5:F2}ms | {result.Total,6:F2}ms");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("  自動で選ばれる値: "
+            + $"{SpatialGrid.SuggestCellSize(_bodyBounds.AsSpan(0, Math.Min(4000, _bodyBounds.Length))):F1}px");
+
+        // --- 密度を上げるとどうなるか ---
+        //
+        // ここまでは体を増やすたびに小さくして、**画面の詰まり具合を一定に保っていた**。
+        // 大きさを固定したまま増やすと密度が上がり、
+        // 1マスに入る数が増えて、グリッドの中で総当たりが始まる。
+        // **空間分割は「疎である」ことに賭けた最適化**で、賭けが外れると効かない。
+        Console.WriteLine();
+        Console.WriteLine("### 大きさを固定したまま増やす(密度が上がる)###");
+        Console.WriteLine("   体数 |   グリッド |     候補 |   接触 | 候補/体 | 最大/マス");
+
+        _fixedBodySize = true;
+        foreach (int count in (int[])[2000, 4000, 8000])
+        {
+            (double Total, double Broad, long Pairs, int Contacts) dense =
+                Sample(count, Broadphase.UniformGrid, 0.0f, 20);
+
+            Console.WriteLine(
+                $"  {count,5} | {dense.Total,7:F2}ms | {dense.Pairs,8:N0} | {dense.Contacts,6} | "
+                + $"{(double)dense.Pairs / count,7:F1} | {Grid.MaxPerCell,9}");
+        }
+
+        _fixedBodySize = false;
+        Console.WriteLine();
+
+        _broadphase = savedPhase;
+        _cellSizeOverride = savedCell;
+        _activeBodies = savedBodies;
+        _shapeMix = savedMix;
+        _resolveOverlap = savedResolve;
+        _fixedBodySize = savedFixedSize;
+
+        // **回数は「合計でどれくらい時間を使うか」で決める**。
+        // 一定回数にすると、軽い構成は測定誤差だらけになり(1ステップ 0.08ms を
+        // 20 回では 1.6ms しか測っていない)、重い構成は待たされる。
+        // 総当たりは組の数、グリッドは体数がだいたいの重さになるので、それで割る。
+        static int StepsFor(int count)
+        {
+            long pairs = (long)count * (count - 1) / 2;
+            return (int)Math.Clamp(20_000_000 / Math.Max(pairs, 1), 3, 60);
+        }
+
+        static int GridStepsFor(int count) => Math.Clamp(400_000 / Math.Max(count, 1), 20, 200);
+
+        (double Total, double Broad, long Pairs, int Contacts) Sample(
+            int count, Broadphase mode, float cellSize, int steps)
+        {
+            _broadphase = mode;
+            _cellSizeOverride = cellSize;
+            _activeBodies = count;
+            InitializeBodies(count);
+
+            double broad = 0.0;
+            var stopwatch = Stopwatch.StartNew();
+
+            for (int step = 0; step < steps; step++)
+            {
+                UpdateBodies(1.0f / 60.0f, world);
+                broad += _broadphaseLastMilliseconds;
+            }
+
+            return (stopwatch.Elapsed.TotalMilliseconds / steps, broad / steps, _pairTests, _contacts);
+        }
+    }
+
+    /// <summary>
     /// **ECS の不変条件を確かめる自己チェック**(D キー)。
     ///
     /// Day 19 の決定性、Day 21 のハンドル、Day 22 の階層と同じ趣旨。
@@ -2198,26 +2820,26 @@ internal static class Program
     /// </summary>
     private static void RunEcsCheck()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[ECS の自己チェック]");
 
         var world = new World();
 
-        Check("既定値のエンティティは無効", !default(Entity).IsValid);
+        checks.Check("既定値のエンティティは無効", !default(Entity).IsValid);
 
         Entity a = world.CreateEntity();
         world.Add(a, new Transform2D { Position = new Vector2(1.0f, 2.0f) });
         world.Add(a, new Velocity2D { Linear = new Vector2(3.0f, 4.0f) });
 
-        Check("生きている", world.IsAlive(a));
-        Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
+        checks.Check("生きている", world.IsAlive(a));
+        checks.Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
 
         // ref で返るので、引いてそのまま書き換えられる。
         // 値で返す作りだとコピーが書き換わるだけで、元は変わらない。
         world.Get<Transform2D>(a).Position.X = 99.0f;
-        Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
+        checks.Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
 
         Entity b = world.CreateEntity();
         world.Add(b, new Transform2D { Position = new Vector2(10.0f, 0.0f) });
@@ -2229,22 +2851,22 @@ internal static class Program
         ComponentStore<Transform2D> transforms = world.Store<Transform2D>();
         ComponentStore<Velocity2D> velocities = world.Store<Velocity2D>();
 
-        Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
 
         // 真ん中を消す。末尾と入れ替わるので**並び順は変わる**が、
         // どのストアも同じ入れ替えをするので**一致は保たれる**。
         world.DestroyEntity(b);
-        Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
-        Check("破棄したエンティティは無効", !world.IsAlive(b));
-        Check("残りは正しく引ける",
+        checks.Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
+        checks.Check("破棄したエンティティは無効", !world.IsAlive(b));
+        checks.Check("残りは正しく引ける",
             MathF.Abs(world.Get<Transform2D>(c).Position.X - 20.0f) < 0.001f);
-        Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
 
         // 枠の再利用。Day 21 のハンドルとまったく同じ話。
         Entity reused = world.CreateEntity();
-        Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
-        Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
-        Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
+        checks.Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
+        checks.Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
+        checks.Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
 
         // **後から足すと並びが崩れる**。ここが要点4の肝。
         //
@@ -2253,32 +2875,23 @@ internal static class Program
         // つまり**エンティティの構成がそろっていないと速い経路は使えない**。
         Entity late = world.CreateEntity();
         world.Add(late, new Transform2D());
-        Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
 
         Entity both = world.CreateEntity();
         world.Add(both, new Transform2D());
         world.Add(both, new Velocity2D());
 
         world.Add(late, new Velocity2D());
-        Check(
+        checks.Check(
             "件数がそろっても順番は戻らない",
             transforms.Count == velocities.Count && !EcsSystems.AreAligned(transforms, velocities),
             $"件数 {transforms.Count} / {velocities.Count}");
         _ = both;
 
-        Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
+        checks.Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -2401,51 +3014,42 @@ internal static class Program
     private static void RunResourceCheck()
     {
         string path = ResolveAssetPath("textures/sprite-diamond.png");
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[リソースの自己チェック]");
 
-        Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
+        checks.Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
 
         Handle<Texture> first = _resources.LoadTexture(path);
         Handle<Texture> second = _resources.LoadTexture(path);
-        Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
-        Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
+        checks.Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
+        checks.Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
 
         _resources.Release(first);
-        Check("1回返しただけでは消えない", _resources.IsReady(second));
+        checks.Check("1回返しただけでは消えない", _resources.IsReady(second));
 
         _resources.Release(second);
-        Check("2回目で消える", !_resources.TryGetTexture(second, out _));
-        Check(
+        checks.Check("2回目で消える", !_resources.TryGetTexture(second, out _));
+        checks.Check(
             "解放後のハンドルからは仮の絵が返る",
             ReferenceEquals(_resources.GetTexture(second), _resources.Placeholder));
 
         // **世代番号の本番**。空いたスロットをすぐ次が使う。
         Handle<Texture> reused = _resources.LoadTexture(path);
-        Check("空いたスロットが再利用される", reused.Index == second.Index,
+        checks.Check("空いたスロットが再利用される", reused.Index == second.Index,
             $"新 {reused} / 旧 {second}");
-        Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
+        checks.Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
 
         // 読み込み設定までキーに含めているか(ミップマップの有無で結果が変わる)。
         Handle<Texture> noMipmaps = _resources.LoadTexture(path, generateMipmaps: false);
-        Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
+        checks.Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
 
         _resources.Release(noMipmaps);
         _resources.Release(reused);
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -2751,6 +3355,34 @@ internal static class Program
                 RunCollisionCheck();
                 break;
 
+            case Key.F10:
+                _broadphase = _broadphase == Broadphase.BruteForce
+                    ? Broadphase.UniformGrid
+                    : Broadphase.BruteForce;
+                Console.WriteLine($"ブロードフェーズ: {(_broadphase == Broadphase.BruteForce ? "総当たり" : "均一グリッド")}");
+                break;
+
+            case Key.F11:
+                _showCells = !_showCells;
+                Console.WriteLine($"マスの可視化: {OnOff(_showCells)}");
+                break;
+
+            case Key.F12:
+                RunBroadphaseCheck();
+                break;
+
+            case Key.Comma:
+            case Key.Period:
+                CycleCellSize(key == Key.Period);
+                break;
+
+            case Key.Minus:
+                _fixedBodySize = !_fixedBodySize;
+                InitializeBodies(_activeBodies);
+                Console.WriteLine(
+                    $"体の大きさ: {(_fixedBodySize ? "固定(増やすと密になる)" : "面積を一定に保つ")}");
+                break;
+
             case Key.H:
                 RunLifecycleDemo();
                 break;
@@ -3014,5 +3646,35 @@ internal static class Program
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 自己チェックの結果を数えて出すだけの小さな道具。
+    ///
+    /// 合否の1行出力と失敗数の集計は、どのチェックでも書くことが同じになる。
+    /// 各 RunXxxCheck() にローカル関数として書き散らすと、チェックが増えるたびに
+    /// **同じコードが増えるだけ**なので、1箇所に寄せてある。
+    /// 失敗数を内側に持たせたので、呼ぶ側が数える変数を用意する必要も無くなる。
+    /// </summary>
+    private sealed class CheckList
+    {
+        /// <summary>不合格だった件数。</summary>
+        public int Failures { get; private set; }
+
+        /// <summary>1項目ぶんの合否を出し、不合格なら数える。</summary>
+        public void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                Failures++;
+            }
+        }
+
+        /// <summary>まとめの1行を出す。全部通ったときの文言だけ差し替えられる。</summary>
+        public void Report(string okMessage = "すべて合格")
+        {
+            Console.WriteLine(Failures == 0 ? $"  {okMessage}" : $"  {Failures} 件 不合格");
+        }
     }
 }
