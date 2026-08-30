@@ -1228,51 +1228,42 @@ internal static class Program
     private static void RunResourceCheck()
     {
         string path = ResolveAssetPath("textures/sprite-diamond.png");
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[リソースの自己チェック]");
 
-        Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
+        checks.Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
 
         Handle<Texture> first = _resources.LoadTexture(path);
         Handle<Texture> second = _resources.LoadTexture(path);
-        Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
-        Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
+        checks.Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
+        checks.Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
 
         _resources.Release(first);
-        Check("1回返しただけでは消えない", _resources.IsReady(second));
+        checks.Check("1回返しただけでは消えない", _resources.IsReady(second));
 
         _resources.Release(second);
-        Check("2回目で消える", !_resources.TryGetTexture(second, out _));
-        Check(
+        checks.Check("2回目で消える", !_resources.TryGetTexture(second, out _));
+        checks.Check(
             "解放後のハンドルからは仮の絵が返る",
             ReferenceEquals(_resources.GetTexture(second), _resources.Placeholder));
 
         // **世代番号の本番**。空いたスロットをすぐ次が使う。
         Handle<Texture> reused = _resources.LoadTexture(path);
-        Check("空いたスロットが再利用される", reused.Index == second.Index,
+        checks.Check("空いたスロットが再利用される", reused.Index == second.Index,
             $"新 {reused} / 旧 {second}");
-        Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
+        checks.Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
 
         // 読み込み設定までキーに含めているか(ミップマップの有無で結果が変わる)。
         Handle<Texture> noMipmaps = _resources.LoadTexture(path, generateMipmaps: false);
-        Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
+        checks.Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
 
         _resources.Release(noMipmaps);
         _resources.Release(reused);
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -1743,5 +1734,35 @@ internal static class Program
         }
 
         throw new FileNotFoundException($"素材が見つかりません: assets/{relativePath}");
+    }
+
+    /// <summary>
+    /// 自己チェックの結果を数えて出すだけの小さな道具。
+    ///
+    /// 合否の1行出力と失敗数の集計は、どのチェックでも書くことが同じになる。
+    /// 各 RunXxxCheck() にローカル関数として書き散らすと、チェックが増えるたびに
+    /// **同じコードが増えるだけ**なので、1箇所に寄せてある。
+    /// 失敗数を内側に持たせたので、呼ぶ側が数える変数を用意する必要も無くなる。
+    /// </summary>
+    private sealed class CheckList
+    {
+        /// <summary>不合格だった件数。</summary>
+        public int Failures { get; private set; }
+
+        /// <summary>1項目ぶんの合否を出し、不合格なら数える。</summary>
+        public void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                Failures++;
+            }
+        }
+
+        /// <summary>まとめの1行を出す。全部通ったときの文言だけ差し替えられる。</summary>
+        public void Report(string okMessage = "すべて合格")
+        {
+            Console.WriteLine(Failures == 0 ? $"  {okMessage}" : $"  {Failures} 件 不合格");
+        }
     }
 }

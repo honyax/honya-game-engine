@@ -1342,26 +1342,26 @@ internal static class Program
     /// </summary>
     private static void RunEcsCheck()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[ECS の自己チェック]");
 
         var world = new World();
 
-        Check("既定値のエンティティは無効", !default(Entity).IsValid);
+        checks.Check("既定値のエンティティは無効", !default(Entity).IsValid);
 
         Entity a = world.CreateEntity();
         world.Add(a, new Transform2D { Position = new Vector2(1.0f, 2.0f) });
         world.Add(a, new Velocity2D { Linear = new Vector2(3.0f, 4.0f) });
 
-        Check("生きている", world.IsAlive(a));
-        Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
+        checks.Check("生きている", world.IsAlive(a));
+        checks.Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
 
         // ref で返るので、引いてそのまま書き換えられる。
         // 値で返す作りだとコピーが書き換わるだけで、元は変わらない。
         world.Get<Transform2D>(a).Position.X = 99.0f;
-        Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
+        checks.Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
 
         Entity b = world.CreateEntity();
         world.Add(b, new Transform2D { Position = new Vector2(10.0f, 0.0f) });
@@ -1373,22 +1373,22 @@ internal static class Program
         ComponentStore<Transform2D> transforms = world.Store<Transform2D>();
         ComponentStore<Velocity2D> velocities = world.Store<Velocity2D>();
 
-        Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
 
         // 真ん中を消す。末尾と入れ替わるので**並び順は変わる**が、
         // どのストアも同じ入れ替えをするので**一致は保たれる**。
         world.DestroyEntity(b);
-        Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
-        Check("破棄したエンティティは無効", !world.IsAlive(b));
-        Check("残りは正しく引ける",
+        checks.Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
+        checks.Check("破棄したエンティティは無効", !world.IsAlive(b));
+        checks.Check("残りは正しく引ける",
             MathF.Abs(world.Get<Transform2D>(c).Position.X - 20.0f) < 0.001f);
-        Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
 
         // 枠の再利用。Day 21 のハンドルとまったく同じ話。
         Entity reused = world.CreateEntity();
-        Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
-        Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
-        Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
+        checks.Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
+        checks.Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
+        checks.Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
 
         // **後から足すと並びが崩れる**。ここが要点4の肝。
         //
@@ -1397,32 +1397,23 @@ internal static class Program
         // つまり**エンティティの構成がそろっていないと速い経路は使えない**。
         Entity late = world.CreateEntity();
         world.Add(late, new Transform2D());
-        Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
 
         Entity both = world.CreateEntity();
         world.Add(both, new Transform2D());
         world.Add(both, new Velocity2D());
 
         world.Add(late, new Velocity2D());
-        Check(
+        checks.Check(
             "件数がそろっても順番は戻らない",
             transforms.Count == velocities.Count && !EcsSystems.AreAligned(transforms, velocities),
             $"件数 {transforms.Count} / {velocities.Count}");
         _ = both;
 
-        Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
+        checks.Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -1545,51 +1536,42 @@ internal static class Program
     private static void RunResourceCheck()
     {
         string path = ResolveAssetPath("textures/sprite-diamond.png");
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[リソースの自己チェック]");
 
-        Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
+        checks.Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
 
         Handle<Texture> first = _resources.LoadTexture(path);
         Handle<Texture> second = _resources.LoadTexture(path);
-        Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
-        Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
+        checks.Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
+        checks.Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
 
         _resources.Release(first);
-        Check("1回返しただけでは消えない", _resources.IsReady(second));
+        checks.Check("1回返しただけでは消えない", _resources.IsReady(second));
 
         _resources.Release(second);
-        Check("2回目で消える", !_resources.TryGetTexture(second, out _));
-        Check(
+        checks.Check("2回目で消える", !_resources.TryGetTexture(second, out _));
+        checks.Check(
             "解放後のハンドルからは仮の絵が返る",
             ReferenceEquals(_resources.GetTexture(second), _resources.Placeholder));
 
         // **世代番号の本番**。空いたスロットをすぐ次が使う。
         Handle<Texture> reused = _resources.LoadTexture(path);
-        Check("空いたスロットが再利用される", reused.Index == second.Index,
+        checks.Check("空いたスロットが再利用される", reused.Index == second.Index,
             $"新 {reused} / 旧 {second}");
-        Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
+        checks.Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
 
         // 読み込み設定までキーに含めているか(ミップマップの有無で結果が変わる)。
         Handle<Texture> noMipmaps = _resources.LoadTexture(path, generateMipmaps: false);
-        Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
+        checks.Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
 
         _resources.Release(noMipmaps);
         _resources.Release(reused);
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -2079,5 +2061,35 @@ internal static class Program
         }
 
         throw new FileNotFoundException($"素材が見つかりません: assets/{relativePath}");
+    }
+
+    /// <summary>
+    /// 自己チェックの結果を数えて出すだけの小さな道具。
+    ///
+    /// 合否の1行出力と失敗数の集計は、どのチェックでも書くことが同じになる。
+    /// 各 RunXxxCheck() にローカル関数として書き散らすと、チェックが増えるたびに
+    /// **同じコードが増えるだけ**なので、1箇所に寄せてある。
+    /// 失敗数を内側に持たせたので、呼ぶ側が数える変数を用意する必要も無くなる。
+    /// </summary>
+    private sealed class CheckList
+    {
+        /// <summary>不合格だった件数。</summary>
+        public int Failures { get; private set; }
+
+        /// <summary>1項目ぶんの合否を出し、不合格なら数える。</summary>
+        public void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                Failures++;
+            }
+        }
+
+        /// <summary>まとめの1行を出す。全部通ったときの文言だけ差し替えられる。</summary>
+        public void Report(string okMessage = "すべて合格")
+        {
+            Console.WriteLine(Failures == 0 ? $"  {okMessage}" : $"  {Failures} 件 不合格");
+        }
     }
 }

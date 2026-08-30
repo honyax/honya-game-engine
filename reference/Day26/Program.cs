@@ -2112,7 +2112,7 @@ internal static class Program
     /// </summary>
     private static void RunSceneRoundTrip()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[シーンの往復チェック]");
@@ -2157,11 +2157,11 @@ internal static class Program
         loaded.Bounds = bounds;
         string second = SceneSerializer.Save(loaded, loadedWorld, "roundtrip");
 
-        Check("保存 → 読み込み → 再保存でテキストが一致", first == second,
+        checks.Check("保存 → 読み込み → 再保存でテキストが一致", first == second,
             $"{first.Length} バイト / {second.Length} バイト");
-        Check("GameObject の数が一致", coded.GameObjectCount == loaded.GameObjectCount,
+        checks.Check("GameObject の数が一致", coded.GameObjectCount == loaded.GameObjectCount,
             $"{coded.GameObjectCount} / {loaded.GameObjectCount}");
-        Check("コンポーネントの数が一致", coded.ComponentCount == loaded.ComponentCount,
+        checks.Check("コンポーネントの数が一致", coded.ComponentCount == loaded.ComponentCount,
             $"{coded.ComponentCount} / {loaded.ComponentCount}");
 
         // 親子が復元できているか。孫までたどれれば、参照の復元は効いている。
@@ -2177,7 +2177,7 @@ internal static class Program
             depth = Math.Max(depth, d);
         }
 
-        Check("親子の深さが3段(根 → 子 → 孫)", depth == 2, $"実際 {depth + 1} 段");
+        checks.Check("親子の深さが3段(根 → 子 → 孫)", depth == 2, $"実際 {depth + 1} 段");
 
         GameObject? loadedProbe = null;
         foreach (GameObject gameObject in loaded.GameObjects)
@@ -2188,19 +2188,19 @@ internal static class Program
             }
         }
 
-        Check("目印のオブジェクトが復元されている", loadedProbe is not null);
+        checks.Check("目印のオブジェクトが復元されている", loadedProbe is not null);
 
         if (loadedProbe is not null)
         {
             SpriteRenderer? renderer = loadedProbe.GetComponent<SpriteRenderer>();
             BouncingMover? mover = loadedProbe.GetComponent<BouncingMover>();
 
-            Check("float が保たれている", renderer is not null && renderer.Size == 31.0f);
-            Check(
+            checks.Check("float が保たれている", renderer is not null && renderer.Size == 31.0f);
+            checks.Check(
                 "Vector4 が保たれている",
                 renderer is not null && renderer.Color == probeSprite.Color,
                 $"{renderer?.Color}");
-            Check(
+            checks.Check(
                 "Vector2 が保たれている",
                 mover is not null && mover.Velocity == probeMover.Velocity,
                 $"{mover?.Velocity}");
@@ -2210,10 +2210,10 @@ internal static class Program
         ulong codedHash = StepAndHash(coded, 300);
         ulong loadedHash = StepAndHash(loaded, 300);
 
-        Check("300 ステップ後の状態が一致", codedHash == loadedHash,
+        checks.Check("300 ステップ後の状態が一致", codedHash == loadedHash,
             $"{codedHash:X16} / {loadedHash:X16}");
 
-        Check("エンティティの数が一致", codedWorld.AliveCount == loadedWorld.AliveCount,
+        checks.Check("エンティティの数が一致", codedWorld.AliveCount == loadedWorld.AliveCount,
             $"{codedWorld.AliveCount} / {loadedWorld.AliveCount}");
 
         Span<Transform2D> codedTransforms = codedWorld.Store<Transform2D>().Values;
@@ -2229,22 +2229,11 @@ internal static class Program
                 && loadedVelocities[i].HalfSize == 8.0f;
         }
 
-        Check("ECS コンポーネントの値が保たれている", ecsValuesMatch,
+        checks.Check("ECS コンポーネントの値が保たれている", ecsValuesMatch,
             loadedTransforms.Length > 0 ? $"{loadedTransforms[0].Position}" : "(空)");
 
-        Console.WriteLine(failures == 0
-            ? "  すべて合格 — シーンをファイルから復元しても、同じ動きをする"
-            : $"  {failures} 件 不合格");
+        checks.Report("すべて合格 — シーンをファイルから復元しても、同じ動きをする");
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>シーンを指定ステップ動かして、全 Transform のハッシュを取る。</summary>
@@ -2297,7 +2286,7 @@ internal static class Program
     /// </summary>
     private static void RunCollisionCheck()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[当たり判定の自己チェック]");
@@ -2306,21 +2295,21 @@ internal static class Program
         var c1 = new Circle2D(new Vector2(0.0f, 0.0f), 10.0f);
         var c2 = new Circle2D(new Vector2(15.0f, 0.0f), 10.0f);
         Contact2D hit = Collision2D.Test(c1, c2);
-        Check("円同士: 当たる", hit.Hit);
-        Check("円同士: 深さ 5", Near(hit.Depth, 5.0f), $"{hit.Depth}");
-        Check("円同士: 法線は +X", Near(hit.Normal.X, 1.0f) && Near(hit.Normal.Y, 0.0f), $"{hit.Normal}");
+        checks.Check("円同士: 当たる", hit.Hit);
+        checks.Check("円同士: 深さ 5", Near(hit.Depth, 5.0f), $"{hit.Depth}");
+        checks.Check("円同士: 法線は +X", Near(hit.Normal.X, 1.0f) && Near(hit.Normal.Y, 0.0f), $"{hit.Normal}");
 
-        Check("円同士: 離れていれば当たらない",
+        checks.Check("円同士: 離れていれば当たらない",
             !Collision2D.Test(c1, new Circle2D(new Vector2(21.0f, 0.0f), 10.0f)).Hit);
 
         // **ちょうど接している**。浮動小数点の境界で、実装によって割れるところ。
         // ここでは「接触も当たり」とする(<= で書いてある)。
-        Check("円同士: ちょうど接するのは当たり扱い",
+        checks.Check("円同士: ちょうど接するのは当たり扱い",
             Collision2D.Test(c1, new Circle2D(new Vector2(20.0f, 0.0f), 10.0f)).Hit);
 
         // 中心が完全に重なる退化ケース。向きが決まらないが、落ちてはいけない。
         Contact2D same = Collision2D.Test(c1, new Circle2D(Vector2.Zero, 10.0f));
-        Check("円同士: 中心が重なっても NaN にならない",
+        checks.Check("円同士: 中心が重なっても NaN にならない",
             same.Hit && !float.IsNaN(same.Normal.X) && !float.IsNaN(same.Depth), $"{same.Normal} {same.Depth}");
 
         // --- AABB 同士 ---
@@ -2329,22 +2318,22 @@ internal static class Program
         Contact2D boxHit = Collision2D.Test(b1, b2);
 
         // X 方向の重なりは 20-16=4、Y 方向は 20-4=16。**浅いほう(X)で押す**。
-        Check("AABB: 浅い軸で押す(X)", Near(boxHit.Depth, 4.0f) && Near(boxHit.Normal.X, 1.0f),
+        checks.Check("AABB: 浅い軸で押す(X)", Near(boxHit.Depth, 4.0f) && Near(boxHit.Normal.X, 1.0f),
             $"深さ {boxHit.Depth} 法線 {boxHit.Normal}");
-        Check("AABB: 角がかすっていなければ当たらない",
+        checks.Check("AABB: 角がかすっていなければ当たらない",
             !Collision2D.Test(b1, Aabb2D.FromCenter(new Vector2(21.0f, 21.0f), new Vector2(10.0f))).Hit);
 
         // --- 円と AABB ---
         // 箱の右辺は x=10。中心 x=14 / 半径 6 なら、最近点までの距離は 4 でめり込みは 2。
         Contact2D mixed = Collision2D.Test(new Circle2D(new Vector2(14.0f, 0.0f), 6.0f), b1);
-        Check("円とAABB: 辺に当たる", mixed.Hit && Near(mixed.Depth, 2.0f), $"深さ {mixed.Depth}");
-        Check("円とAABB: 法線は円から箱へ(-X)", Near(mixed.Normal.X, -1.0f), $"{mixed.Normal}");
-        Check("円とAABB: 届かなければ当たらない",
+        checks.Check("円とAABB: 辺に当たる", mixed.Hit && Near(mixed.Depth, 2.0f), $"深さ {mixed.Depth}");
+        checks.Check("円とAABB: 法線は円から箱へ(-X)", Near(mixed.Normal.X, -1.0f), $"{mixed.Normal}");
+        checks.Check("円とAABB: 届かなければ当たらない",
             !Collision2D.Test(new Circle2D(new Vector2(24.0f, 0.0f), 6.0f), b1).Hit);
 
         // 円が箱の中に完全に入っている場合。距離が 0 になるので別経路を通る。
         Contact2D inside = Collision2D.Test(new Circle2D(new Vector2(2.0f, 0.0f), 3.0f), b1);
-        Check("円とAABB: 円が中にあっても向きが決まる",
+        checks.Check("円とAABB: 円が中にあっても向きが決まる",
             inside.Hit && !float.IsNaN(inside.Normal.X) && MathF.Abs(inside.Normal.X) > 0.5f,
             $"{inside.Normal} 深さ {inside.Depth}");
 
@@ -2357,10 +2346,10 @@ internal static class Program
         var tilted = new Obb2D(new Vector2(23.0f, 0.0f), new Vector2(10.0f, 10.0f), MathF.PI / 4.0f);
 
         Contact2D satHit = Collision2D.Test(square, tilted);
-        Check("OBB: 45度の角が刺さっているのを検出", satHit.Hit, $"深さ {satHit.Depth:F3}");
-        Check("OBB: 法線は +X 寄り", satHit.Normal.X > 0.9f, $"{satHit.Normal}");
+        checks.Check("OBB: 45度の角が刺さっているのを検出", satHit.Hit, $"深さ {satHit.Depth:F3}");
+        checks.Check("OBB: 法線は +X 寄り", satHit.Normal.X > 0.9f, $"{satHit.Normal}");
 
-        Check("OBB: 離れていれば当たらない",
+        checks.Check("OBB: 離れていれば当たらない",
             !Collision2D.Test(square, new Obb2D(new Vector2(25.0f, 0.0f), new Vector2(10.0f), MathF.PI / 4.0f)).Hit);
 
         // **回転 0 の OBB は AABB と同じ答えになるはず**。
@@ -2368,7 +2357,7 @@ internal static class Program
         var obbA = new Obb2D(Vector2.Zero, new Vector2(10.0f, 10.0f), 0.0f);
         var obbB = new Obb2D(new Vector2(16.0f, 4.0f), new Vector2(10.0f, 10.0f), 0.0f);
         Contact2D viaSat = Collision2D.Test(obbA, obbB);
-        Check("OBB(回転0) と AABB の答えが一致",
+        checks.Check("OBB(回転0) と AABB の答えが一致",
             Near(viaSat.Depth, boxHit.Depth) && Near(viaSat.Normal.X, boxHit.Normal.X),
             $"SAT 深さ {viaSat.Depth} 法線 {viaSat.Normal}");
 
@@ -2377,9 +2366,9 @@ internal static class Program
         Contact2D circleObb = Collision2D.Test(new Circle2D(new Vector2(0.0f, 12.0f), 3.0f), rotated);
 
         // 90 度回すと縦横が入れ替わるので、上端は y = 10 になる。円の下端は 9。深さ 1。
-        Check("円とOBB: 回転を考慮している", circleObb.Hit && Near(circleObb.Depth, 1.0f),
+        checks.Check("円とOBB: 回転を考慮している", circleObb.Hit && Near(circleObb.Depth, 1.0f),
             $"深さ {circleObb.Depth}");
-        Check("円とOBB: 法線は -Y", Near(circleObb.Normal.Y, -1.0f), $"{circleObb.Normal}");
+        checks.Check("円とOBB: 法線は -Y", Near(circleObb.Normal.Y, -1.0f), $"{circleObb.Normal}");
 
         // --- 押し戻しが本当に離すか ---
         //
@@ -2390,24 +2379,15 @@ internal static class Program
         Contact2D push = Collision2D.Test(moving, fixedCircle);
         var afterA = new Circle2D(moving.Center - (push.Normal * (push.Depth * 0.5f)), moving.Radius);
         var afterB = new Circle2D(fixedCircle.Center + (push.Normal * (push.Depth * 0.5f)), fixedCircle.Radius);
-        Check("押し戻すと重なりが消える", !Collision2D.Test(afterA, afterB).Hit
+        checks.Check("押し戻すと重なりが消える", !Collision2D.Test(afterA, afterB).Hit
             || Collision2D.Test(afterA, afterB).Depth < 0.001f);
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
 
         BenchmarkCollision();
 
         static bool Near(float a, float b) => MathF.Abs(a - b) < 0.001f;
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -2489,7 +2469,7 @@ internal static class Program
     /// </summary>
     private static void RunBroadphaseCheck()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[ブロードフェーズの自己チェック]");
@@ -2517,22 +2497,22 @@ internal static class Program
         grid.Build(boxes);
         int found = grid.CollectPairs(boxes);
 
-        Check("小さな例: 組は 3 つ", found == 3, $"{found} 組: {PairsToText(grid.Pairs)}");
-        Check("小さな例: 隣り合う小物(0,1)", HasPair(grid.Pairs, 0, 1));
-        Check("小さな例: マスをまたぐ大物(2,3)", HasPair(grid.Pairs, 2, 3));
+        checks.Check("小さな例: 組は 3 つ", found == 3, $"{found} 組: {PairsToText(grid.Pairs)}");
+        checks.Check("小さな例: 隣り合う小物(0,1)", HasPair(grid.Pairs, 0, 1));
+        checks.Check("小さな例: マスをまたぐ大物(2,3)", HasPair(grid.Pairs, 2, 3));
 
         // 世界の外は端のマスへ丸めている。**落ちないだけでなく、組も拾えること**。
-        Check("小さな例: 世界の外でも拾う(4,5)", HasPair(grid.Pairs, 4, 5));
+        checks.Check("小さな例: 世界の外でも拾う(4,5)", HasPair(grid.Pairs, 4, 5));
 
         // 同じマスにいるだけでは候補にしない。AABB の足切りが効いているか。
-        Check("小さな例: 同じマスでも離れていれば候補にしない(6,7)", !HasPair(grid.Pairs, 6, 7));
-        Check("小さな例: 足切り前は同居していた", grid.CoLocatedPairs > found, $"同居 {grid.CoLocatedPairs} 組");
+        checks.Check("小さな例: 同じマスでも離れていれば候補にしない(6,7)", !HasPair(grid.Pairs, 6, 7));
+        checks.Check("小さな例: 足切り前は同居していた", grid.CoLocatedPairs > found, $"同居 {grid.CoLocatedPairs} 組");
 
         // またがるぶん、登録の総数は体数より多くなる。
-        Check("小さな例: 大物が複数マスに登録されている", grid.EntryCount > boxes.Length,
+        checks.Check("小さな例: 大物が複数マスに登録されている", grid.EntryCount > boxes.Length,
             $"登録 {grid.EntryCount} / 体 {boxes.Length}");
 
-        Check("空でも落ちない", SafeEmpty(grid), "0 体");
+        checks.Check("空でも落ちない", SafeEmpty(grid), "0 体");
 
         // --- 2. 乱数の配置で、総当たりと突き合わせる ---
         //
@@ -2570,9 +2550,9 @@ internal static class Program
                 unique &= actual[i] != actual[i - 1];
             }
 
-            Check($"マス {cellSize,6:F0}px: 総当たりと同じ組", Same(expected, actual),
+            checks.Check($"マス {cellSize,6:F0}px: 総当たりと同じ組", Same(expected, actual),
                 $"{actual.Count} 組(正解 {expected.Count} 組)");
-            Check($"マス {cellSize,6:F0}px: 重複した組が無い", unique);
+            checks.Check($"マス {cellSize,6:F0}px: 重複した組が無い", unique);
         }
 
         // --- 3. 押し戻しまで含めて、1ステップの結果が一致するか ---
@@ -2599,16 +2579,16 @@ internal static class Program
         _cellSizeOverride = 0.0f;
         UpdateBodies(1.0f / 60.0f, world);
 
-        Check("1ステップの接触数が一致", _contacts == bruteContacts,
+        checks.Check("1ステップの接触数が一致", _contacts == bruteContacts,
             $"総当たり {bruteContacts} / グリッド {_contacts}");
-        Check("ナローフェーズの回数は減っている", _pairTests < bruteTests,
+        checks.Check("ナローフェーズの回数は減っている", _pairTests < bruteTests,
             $"{bruteTests:N0} → {_pairTests:N0}({100.0 - (_pairTests * 100.0 / bruteTests):F1}% 削減)");
 
         _resolveOverlap = savedResolve;
         _broadphase = savedPhase;
         _cellSizeOverride = savedCell;
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
 
         BenchmarkBroadphase();
@@ -2682,15 +2662,6 @@ internal static class Program
             }
 
             return true;
-        }
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
         }
     }
 
@@ -2849,26 +2820,26 @@ internal static class Program
     /// </summary>
     private static void RunEcsCheck()
     {
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[ECS の自己チェック]");
 
         var world = new World();
 
-        Check("既定値のエンティティは無効", !default(Entity).IsValid);
+        checks.Check("既定値のエンティティは無効", !default(Entity).IsValid);
 
         Entity a = world.CreateEntity();
         world.Add(a, new Transform2D { Position = new Vector2(1.0f, 2.0f) });
         world.Add(a, new Velocity2D { Linear = new Vector2(3.0f, 4.0f) });
 
-        Check("生きている", world.IsAlive(a));
-        Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
+        checks.Check("生きている", world.IsAlive(a));
+        checks.Check("コンポーネントが引ける", world.Has<Transform2D>(a) && world.Has<Velocity2D>(a));
 
         // ref で返るので、引いてそのまま書き換えられる。
         // 値で返す作りだとコピーが書き換わるだけで、元は変わらない。
         world.Get<Transform2D>(a).Position.X = 99.0f;
-        Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
+        checks.Check("Get は参照を返す", MathF.Abs(world.Get<Transform2D>(a).Position.X - 99.0f) < 0.001f);
 
         Entity b = world.CreateEntity();
         world.Add(b, new Transform2D { Position = new Vector2(10.0f, 0.0f) });
@@ -2880,22 +2851,22 @@ internal static class Program
         ComponentStore<Transform2D> transforms = world.Store<Transform2D>();
         ComponentStore<Velocity2D> velocities = world.Store<Velocity2D>();
 
-        Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("同じ順で付ければ並びは一致する", EcsSystems.AreAligned(transforms, velocities));
 
         // 真ん中を消す。末尾と入れ替わるので**並び順は変わる**が、
         // どのストアも同じ入れ替えをするので**一致は保たれる**。
         world.DestroyEntity(b);
-        Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
-        Check("破棄したエンティティは無効", !world.IsAlive(b));
-        Check("残りは正しく引ける",
+        checks.Check("破棄すると全ストアから消える", transforms.Count == 2 && velocities.Count == 2);
+        checks.Check("破棄したエンティティは無効", !world.IsAlive(b));
+        checks.Check("残りは正しく引ける",
             MathF.Abs(world.Get<Transform2D>(c).Position.X - 20.0f) < 0.001f);
-        Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("破棄しても並びの一致は保たれる", EcsSystems.AreAligned(transforms, velocities));
 
         // 枠の再利用。Day 21 のハンドルとまったく同じ話。
         Entity reused = world.CreateEntity();
-        Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
-        Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
-        Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
+        checks.Check("空いた枠が再利用される", reused.Index == b.Index, $"新 {reused} / 旧 {b}");
+        checks.Check("それでも古いエンティティは無効のまま", reused != b && !world.IsAlive(b));
+        checks.Check("再利用した枠に前の中身は残っていない", !world.Has<Transform2D>(reused));
 
         // **後から足すと並びが崩れる**。ここが要点4の肝。
         //
@@ -2904,32 +2875,23 @@ internal static class Program
         // つまり**エンティティの構成がそろっていないと速い経路は使えない**。
         Entity late = world.CreateEntity();
         world.Add(late, new Transform2D());
-        Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
+        checks.Check("片方にしか無ければ件数が合わない", !EcsSystems.AreAligned(transforms, velocities));
 
         Entity both = world.CreateEntity();
         world.Add(both, new Transform2D());
         world.Add(both, new Velocity2D());
 
         world.Add(late, new Velocity2D());
-        Check(
+        checks.Check(
             "件数がそろっても順番は戻らない",
             transforms.Count == velocities.Count && !EcsSystems.AreAligned(transforms, velocities),
             $"件数 {transforms.Count} / {velocities.Count}");
         _ = both;
 
-        Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
+        checks.Check("崩れても結果は同じ", AlignedAndJoinedAgree(), "(速い経路と一般の経路を突き合わせ)");
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -3052,51 +3014,42 @@ internal static class Program
     private static void RunResourceCheck()
     {
         string path = ResolveAssetPath("textures/sprite-diamond.png");
-        int failures = 0;
+        var checks = new CheckList();
 
         Console.WriteLine();
         Console.WriteLine("[リソースの自己チェック]");
 
-        Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
+        checks.Check("既定値のハンドルは無効", !default(Handle<Texture>).IsValid);
 
         Handle<Texture> first = _resources.LoadTexture(path);
         Handle<Texture> second = _resources.LoadTexture(path);
-        Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
-        Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
+        checks.Check("同じパスは同じハンドルになる(重複ロードされない)", first == second);
+        checks.Check("参照カウントが 2 になる", _resources.RefCountOf(first) == 2, $"実際 {_resources.RefCountOf(first)}");
 
         _resources.Release(first);
-        Check("1回返しただけでは消えない", _resources.IsReady(second));
+        checks.Check("1回返しただけでは消えない", _resources.IsReady(second));
 
         _resources.Release(second);
-        Check("2回目で消える", !_resources.TryGetTexture(second, out _));
-        Check(
+        checks.Check("2回目で消える", !_resources.TryGetTexture(second, out _));
+        checks.Check(
             "解放後のハンドルからは仮の絵が返る",
             ReferenceEquals(_resources.GetTexture(second), _resources.Placeholder));
 
         // **世代番号の本番**。空いたスロットをすぐ次が使う。
         Handle<Texture> reused = _resources.LoadTexture(path);
-        Check("空いたスロットが再利用される", reused.Index == second.Index,
+        checks.Check("空いたスロットが再利用される", reused.Index == second.Index,
             $"新 {reused} / 旧 {second}");
-        Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
+        checks.Check("それでも古いハンドルは無効のまま", reused != second && !_resources.TryGetTexture(second, out _));
 
         // 読み込み設定までキーに含めているか(ミップマップの有無で結果が変わる)。
         Handle<Texture> noMipmaps = _resources.LoadTexture(path, generateMipmaps: false);
-        Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
+        checks.Check("読み込み設定が違えば別のハンドル", noMipmaps != reused);
 
         _resources.Release(noMipmaps);
         _resources.Release(reused);
 
-        Console.WriteLine(failures == 0 ? "  すべて合格" : $"  {failures} 件 不合格");
+        checks.Report();
         Console.WriteLine();
-
-        void Check(string name, bool condition, string detail = "")
-        {
-            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
-            if (!condition)
-            {
-                failures++;
-            }
-        }
     }
 
     /// <summary>
@@ -3693,5 +3646,35 @@ internal static class Program
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 自己チェックの結果を数えて出すだけの小さな道具。
+    ///
+    /// 合否の1行出力と失敗数の集計は、どのチェックでも書くことが同じになる。
+    /// 各 RunXxxCheck() にローカル関数として書き散らすと、チェックが増えるたびに
+    /// **同じコードが増えるだけ**なので、1箇所に寄せてある。
+    /// 失敗数を内側に持たせたので、呼ぶ側が数える変数を用意する必要も無くなる。
+    /// </summary>
+    private sealed class CheckList
+    {
+        /// <summary>不合格だった件数。</summary>
+        public int Failures { get; private set; }
+
+        /// <summary>1項目ぶんの合否を出し、不合格なら数える。</summary>
+        public void Check(string name, bool condition, string detail = "")
+        {
+            Console.WriteLine($"  [{(condition ? "OK" : "NG")}] {name}{(detail.Length > 0 ? "  " + detail : "")}");
+            if (!condition)
+            {
+                Failures++;
+            }
+        }
+
+        /// <summary>まとめの1行を出す。全部通ったときの文言だけ差し替えられる。</summary>
+        public void Report(string okMessage = "すべて合格")
+        {
+            Console.WriteLine(Failures == 0 ? $"  {okMessage}" : $"  {Failures} 件 不合格");
+        }
     }
 }
