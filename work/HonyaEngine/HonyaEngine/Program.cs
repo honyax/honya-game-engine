@@ -50,6 +50,13 @@ namespace HonyaEngine;
 /// F12 は自己チェックと掃引ベンチ——
 /// **総当たりとグリッドが同じ接触集合を出すこと**を確かめてから速さを測る。
 /// ブロードフェーズの取りこぼしは絵に出ないので、確かめる側を先に書く。
+///
+/// **Day 27 での変更**: 音が出る。
+/// WAV を自分で読み(<see cref="WavFile"/>)、OpenAL で鳴らす(<see cref="AudioSystem"/>)。
+/// 6 キーで、体が壁に当たるたびに音が鳴るようになる。
+/// **2000 体だと 1 ステップに数十回の再生要求**が飛ぶので、
+/// 発音数の上限とピッチの揺らぎが無いと音として成立しない。
+/// Day 26 で 2 万体を動かせるようにしたことが、そのまま音の設計問題になっている。
 /// </summary>
 internal static class Program
 {
@@ -283,6 +290,32 @@ internal static class Program
 
     /// <summary>記録を終えた時点のプレイヤー状態のハッシュ。再生後に突き合わせる。</summary>
     private static ulong _recordEndHash;
+
+    // --- 今日の主役: 音 ---
+
+    private static AudioSystem _audio = null!;
+
+    /// <summary>効果音。**壁に当たった / 体が当たった / 拾った**の3つ。</summary>
+    private static Handle<AudioClip> _bounceClip;
+    private static Handle<AudioClip> _hitClip;
+    private static Handle<AudioClip> _pickupClip;
+
+    /// <summary>ステレオの実演用。**定位が効かない**ことを確かめるために置いてある。</summary>
+    private static Handle<AudioClip> _stereoClip;
+
+    private static Handle<AudioClip> _musicClip;
+
+    /// <summary>BGM を鳴らしているボイス。止めるために札を持っておく(効果音は持たない)。</summary>
+    private static VoiceId _musicVoice = VoiceId.None;
+
+    /// <summary>壁に当たったときに音を鳴らすか(6)。</summary>
+    private static bool _collisionSfx;
+
+    /// <summary>体の位置で左右に振るか(9)。</summary>
+    private static bool _panning = true;
+
+    /// <summary>このステップで音を要求した回数。**絞る前の数**。</summary>
+    private static int _soundRequests;
 
     private static GameLoop _loop = null!;
 
@@ -570,11 +603,47 @@ internal static class Program
 
         SetupScene();
 
+        // --- 音 ---
+        //
+        // **描画とは完全に別のデバイス**なので、GL とは何の関係もない。
+        // 初期化に失敗しても IsAvailable が false になるだけで、以降の呼び出しは黙って無視される。
+        _audio = new AudioSystem(voiceCount: 32);
+
+        if (_audio.IsAvailable)
+        {
+            _bounceClip = _audio.Load(ResolveAssetPath("audio/bounce.wav"));
+            _hitClip = _audio.Load(ResolveAssetPath("audio/hit.wav"));
+            _pickupClip = _audio.Load(ResolveAssetPath("audio/pickup.wav"));
+            _stereoClip = _audio.Load(ResolveAssetPath("audio/stereo-ping.wav"));
+            _musicClip = _audio.Load(ResolveAssetPath("audio/music-loop.wav"));
+
+            Console.WriteLine();
+            Console.WriteLine($"オーディオ: {_audio.DeviceName} / {_audio.Version} / ボイス {_audio.VoiceCount}");
+            foreach (Handle<AudioClip> handle in
+                (Handle<AudioClip>[])[_bounceClip, _hitClip, _pickupClip, _stereoClip, _musicClip])
+            {
+                AudioClip? clip = _audio.TryGet(handle);
+                if (clip is not null)
+                {
+                    Console.WriteLine(
+                        $"  {clip.Name,-12} {clip.SampleRate,5}Hz {clip.Channels}ch {clip.BitsPerSample,2}bit "
+                        + $"{clip.Duration,5:F2}s {clip.ByteSize,7:N0}B");
+                }
+            }
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.WriteLine("オーディオ: 使えるデバイスがありません(音なしで続行します)");
+        }
+
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
         Console.WriteLine("F6:衝突デモ  F7:形の切り替え  F8:押し戻し  F9:衝突判定の自己チェック");
         Console.WriteLine("F10:総当たり/グリッド  F11:マスの可視化  F12:ブロードフェーズの自己チェックと計測");
         Console.WriteLine(", / . :マスの大きさ  -:体の大きさ(面積一定/固定)");
+        Console.WriteLine("5:効果音  6:衝突音  7:同じ音の上限  8:ピッチ揺らぎ  9:定位  0:BGM");
+        Console.WriteLine("[ / ] :音量  F1:オーディオの自己チェックと計測");
         Console.WriteLine("F2:シーンを保存  F3:読み込み(Shift併用でコードから組み直し)  F4:往復の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
@@ -990,7 +1059,14 @@ internal static class Program
                 + $"遅れ:{_loop.Lag * 1000.0:F1}ms | "
                 + $"補間:{OnOff(_interpolate)} 負荷:{_loadMicroseconds}us | "
                 + $"{RecorderLabel()} | "
-                + $"tex:{_resources.TextureCount}/待ち{_resources.PendingCount}";
+                + $"tex:{_resources.TextureCount}/待ち{_resources.PendingCount} | "
+                + $"音:{_audio.ActiveVoices}/{_audio.VoiceCount} "
+
+                // **要求と発音を並べて出す**のが今日の眼目。
+                // 「1ステップに 47 回要求して、鳴ったのは 4 回」が見えていないと、
+                // 間引きを外したときに何が起きるか分からない。
+                + $"要求:{_soundRequests} 発音:{_audio.StartedLastStep} "
+                + $"間引き:{_audio.CulledLastStep} 奪取:{_audio.StolenLastStep}";
         }
     }
 
@@ -1005,6 +1081,13 @@ internal static class Program
     /// </summary>
     private static void FixedUpdate(float dt)
     {
+        // **音の後始末は毎ステップの頭で**。
+        // 終わったボイスを空きに戻し、1ステップぶんの発音予算を戻す。
+        // 描画側(OnRender)ではなくここに置いたのは、
+        // 音を要求するのがこの下だから——**予算を戻す場所と使う場所を近くに置く**。
+        _audio.Update();
+        _soundRequests = 0;
+
         // 処理落ちを再現するためのダミー負荷。L キーで切り替える。
         // **本物の重い処理と同じように、フレーム時間を押し上げる**ので、
         // 死のスパイラルの入口が観察できる(Day 19 要点5)。
@@ -1530,27 +1613,37 @@ internal static class Program
 
             // 壁。外接 AABB で見るので、回転していてもはみ出さない。
             Vector2 extent = BoundsExtent(body);
+            bool bounced = false;
 
             if (body.Position.X < extent.X)
             {
                 body.Position.X = extent.X;
                 body.Velocity.X = MathF.Abs(body.Velocity.X);
+                bounced = true;
             }
             else if (body.Position.X > bounds.X - extent.X)
             {
                 body.Position.X = bounds.X - extent.X;
                 body.Velocity.X = -MathF.Abs(body.Velocity.X);
+                bounced = true;
             }
 
             if (body.Position.Y < extent.Y)
             {
                 body.Position.Y = extent.Y;
                 body.Velocity.Y = MathF.Abs(body.Velocity.Y);
+                bounced = true;
             }
             else if (body.Position.Y > bounds.Y - extent.Y)
             {
                 body.Position.Y = bounds.Y - extent.Y;
                 body.Velocity.Y = -MathF.Abs(body.Velocity.Y);
+                bounced = true;
+            }
+
+            if (bounced && _collisionSfx)
+            {
+                PlayBounce(in body, bounds);
             }
         }
 
@@ -1695,6 +1788,37 @@ internal static class Program
 
         static Contact2D Flip(Contact2D contact) =>
             contact.Hit ? Contact2D.Touching(-contact.Normal, contact.Depth) : Contact2D.None;
+    }
+
+    /// <summary>
+    /// 壁に当たった音を要求する。**要求しても鳴るとは限らない**。
+    ///
+    /// ここでやっていることは3つ。
+    ///   - <b>左右に振る</b>: 画面の X 位置を -1〜+1 に写して <c>pan</c> に渡す
+    ///   - <b>大きさでピッチを変える</b>: 小さい体ほど高い音。**同じ音源が別の物に聞こえる**
+    ///   - <b>速さで音量を変える</b>: 速く当たったほど大きい。物理量を音に写す最小の形
+    ///
+    /// このどれもが「1つの WAV を使い回す」ための工夫で、
+    /// **音の種類を増やすより、1つを変化させるほうが安上がりで効果が高い**。
+    /// 実際のゲームでも、足音1つに対して 4〜6 個の波形を用意して
+    /// ランダムに選び、さらにピッチと音量を振る、という作りが定番になっている。
+    /// </summary>
+    private static void PlayBounce(in Body body, Vector2 bounds)
+    {
+        _soundRequests++;
+
+        float pan = _panning
+            ? Math.Clamp((body.Position.X / MathF.Max(bounds.X, 1.0f) * 2.0f) - 1.0f, -1.0f, 1.0f)
+            : 0.0f;
+
+        // 半径 4〜21px を、ピッチ 1.6 倍〜0.7 倍へ写す。
+        float size = Math.Clamp(body.HalfSize.X, 4.0f, 21.0f);
+        float pitch = 1.6f - ((size - 4.0f) / 17.0f * 0.9f);
+
+        float speed = body.Velocity.Length();
+        float volume = Math.Clamp(speed / 140.0f, 0.15f, 1.0f);
+
+        _audio.Play(_bounceClip, volume * 0.5f, pitch, pan);
     }
 
     private static Circle2D ToCircle(in Body body) => new(body.Position, body.HalfSize.X);
@@ -2812,6 +2936,279 @@ internal static class Program
     }
 
     /// <summary>
+    /// **オーディオの自己チェック**(F1)。
+    ///
+    /// 音のバグは「聞けば分かる」ように思えて、実はそうでもない。
+    /// ボイスが枯れて鳴らなくなったのか、間引かれたのか、
+    /// そもそも読み込みに失敗しているのか——**耳では区別が付かない**。
+    /// 数で見られるようにしておく。
+    /// </summary>
+    private static void RunAudioCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[オーディオの自己チェック]");
+
+        if (!_audio.IsAvailable)
+        {
+            Console.WriteLine("  デバイスが無いので飛ばします");
+            return;
+        }
+
+        Console.WriteLine($"  デバイス: {_audio.DeviceName} / {_audio.Version}");
+
+        // --- 1. WAV パーサ ---
+        //
+        // 素材はわざとフォーマットをばらしてある。**全部の経路を通す**ため。
+        Expect("bounce.wav", 44100, 1, 16);
+        Expect("hit.wav", 44100, 1, 16);
+        Expect("pickup.wav", 22050, 1, 8);
+        Expect("stereo-ping.wav", 44100, 2, 16);
+        Expect("music-loop.wav", 22050, 1, 16);
+
+        // **知らないチャンクを飛ばせるか**。ここが RIFF を扱ううえでの本題。
+        byte[] withList = BuildWav(44100, 1, 16, new byte[400], "MADE BY HONYA");
+        WavData listed = WavFile.Parse(withList, "LIST 付き");
+        checks.Check("知らないチャンク(LIST)を飛ばせる", listed.Data.Length == 400, $"{listed.Data.Length} バイト");
+
+        // 奇数長のチャンクの後ろには詰め物が 1 バイト入る。
+        // これを飛ばし忘れると、次のチャンク名が 1 バイトずれる。
+        byte[] oddList = BuildWav(44100, 1, 16, new byte[200], "ODD");
+        WavData odd = WavFile.Parse(oddList, "奇数長 LIST 付き");
+        checks.Check("奇数長チャンクの詰め物を飛ばせる", odd.Data.Length == 200, $"{odd.Data.Length} バイト");
+
+        checks.Check("WAV でないものを弾く", Throws<InvalidDataException>(
+            () => WavFile.Parse(new byte[64])));
+
+        checks.Check("24bit を弾く", Throws<NotSupportedException>(
+            () => WavFile.Parse(BuildWav(44100, 1, 24, new byte[300], null))));
+
+        // --- 2. ボイスの管理 ---
+        int savedLimit = _audio.MaxStartsPerClipPerStep;
+        float savedVolume = _audio.MasterVolume;
+
+        // 確かめている間は無音にする。**耳で聞くのはこの後**。
+        _audio.MasterVolume = 0.0f;
+        _audio.StopAll();
+        _audio.Update();
+
+        // 上限を外して、ボイスの数より多く鳴らす。
+        _audio.MaxStartsPerClipPerStep = 0;
+        for (int i = 0; i < _audio.VoiceCount + 8; i++)
+        {
+            _audio.Play(_hitClip, 1.0f);
+        }
+
+        int active = _audio.ActiveVoices;
+        _audio.Update();
+
+        checks.Check("ボイスの数を超えない", active <= _audio.VoiceCount, $"{active} / {_audio.VoiceCount}");
+        checks.Check("足りなければ奪う", _audio.StolenLastStep == 8, $"{_audio.StolenLastStep} 回");
+
+        // **古い札で別人を止めない**(Day 21 の世代と同じ問題)。
+        _audio.StopAll();
+        _audio.Update();
+        VoiceId first = _audio.Play(_hitClip, 1.0f);
+        _audio.Stop(first);
+        VoiceId second = _audio.Play(_hitClip, 1.0f);
+        _audio.Stop(first);
+        checks.Check("古い札は無効になっている", _audio.IsPlaying(second), $"{first} → {second}");
+
+        // ループするものは奪われない。BGM が効果音に消されては困る。
+        _audio.StopAll();
+        _audio.Update();
+        VoiceId loop = _audio.PlayLoop(_musicClip, 1.0f);
+        for (int i = 0; i < _audio.VoiceCount * 2; i++)
+        {
+            _audio.Play(_hitClip, 1.0f);
+        }
+
+        checks.Check("ループは奪われない", _audio.IsPlaying(loop), $"{loop}");
+        _audio.Stop(loop);
+
+        // --- 3. 間引き ---
+        _audio.StopAll();
+        _audio.Update();
+        _audio.MaxStartsPerClipPerStep = 2;
+
+        for (int i = 0; i < 10; i++)
+        {
+            _audio.Play(_hitClip, 1.0f);
+        }
+
+        _audio.Update();
+        checks.Check("1ステップに 2 回まで", _audio.StartedLastStep == 2, $"発音 {_audio.StartedLastStep}");
+        checks.Check("残りは間引かれる", _audio.CulledLastStep == 8, $"間引き {_audio.CulledLastStep}");
+
+        // --- 4. 本当に鳴っているか ---
+        _audio.StopAll();
+        _audio.Update();
+        _audio.MaxStartsPerClipPerStep = savedLimit;
+        _audio.MasterVolume = savedVolume;
+
+        VoiceId audible = _audio.Play(_pickupClip, 0.8f);
+        checks.Check("再生中の状態になる", _audio.IsPlaying(audible), $"{audible}");
+
+        checks.Report();
+        Console.WriteLine();
+
+        BenchmarkAudio();
+
+        _musicVoice = VoiceId.None;
+
+        void Expect(string file, int rate, int channels, int bits)
+        {
+            WavData wav = WavFile.Load(ResolveAssetPath($"audio/{file}"));
+            checks.Check(
+                $"{file,-16} {rate}Hz {channels}ch {bits}bit",
+                wav.SampleRate == rate && wav.Channels == channels && wav.BitsPerSample == bits,
+                $"{wav.Duration:F2}s / {wav.FrameCount:N0} フレーム");
+        }
+
+        static bool Throws<T>(Action action)
+            where T : Exception
+        {
+            try
+            {
+                action();
+                return false;
+            }
+            catch (T)
+            {
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // メモリ上に WAV を組み立てる。**パーサを試すためだけ**の道具。
+        static byte[] BuildWav(int rate, int channels, int bits, byte[] pcm, string? listText)
+        {
+            var stream = new MemoryStream();
+            var writer = new BinaryWriter(stream);
+
+            writer.Write("RIFF"u8);
+            writer.Write(0);
+            writer.Write("WAVE"u8);
+
+            writer.Write("fmt "u8);
+            writer.Write(16);
+            writer.Write((ushort)1);
+            writer.Write((ushort)channels);
+            writer.Write(rate);
+            writer.Write(rate * channels * bits / 8);
+            writer.Write((ushort)(channels * bits / 8));
+            writer.Write((ushort)bits);
+
+            if (listText is not null)
+            {
+                byte[] payload = System.Text.Encoding.ASCII.GetBytes(listText);
+                writer.Write("LIST"u8);
+                writer.Write(payload.Length);
+                writer.Write(payload);
+
+                // **奇数長なら詰め物**。読む側と書く側の両方に同じ規則が要る。
+                if ((payload.Length & 1) != 0)
+                {
+                    writer.Write((byte)0);
+                }
+            }
+
+            writer.Write("data"u8);
+            writer.Write(pcm.Length);
+            writer.Write(pcm);
+
+            byte[] bytes = stream.ToArray();
+            BitConverter.TryWriteBytes(bytes.AsSpan(4), bytes.Length - 8);
+            return bytes;
+        }
+    }
+
+    /// <summary>
+    /// 音の呼び出しコストを測る。**「1ステップに何回まで呼んでよいか」を知るため**。
+    ///
+    /// Day 26 で 2 万体を動かせるようになったので、
+    /// 「全部の衝突で音を鳴らす」と書くと 1 ステップに数万回呼ぶことになる。
+    /// 1 回のコストが分かっていないと、その判断ができない。
+    /// </summary>
+    private static void BenchmarkAudio()
+    {
+        int savedLimit = _audio.MaxStartsPerClipPerStep;
+        float savedVolume = _audio.MasterVolume;
+        _audio.MasterVolume = 0.0f;
+        _audio.StopAll();
+        _audio.Update();
+
+        Console.WriteLine("### 呼び出し 1 回あたりのコスト ###");
+
+        // **間引かれる側**。予算を使い切ったあとの呼び出しはここを通る。
+        _audio.MaxStartsPerClipPerStep = 1;
+        _audio.Play(_hitClip, 1.0f);
+        Measure("Play(間引かれる)", 200_000, () => _audio.Play(_hitClip, 1.0f));
+
+        // **通る側・空きがあるとき**。ボイスが空いていれば設定して鳴らすだけ。
+        // 計測の外で毎回ボイスを空にするので、奪う処理は入らない。
+        _audio.MaxStartsPerClipPerStep = 0;
+        MeasureInBatches("Play(空きあり)  ", 300, _audio.VoiceCount);
+
+        // **通る側・埋まっているとき**。毎回どれかを止めて奪うことになる。
+        Measure("Play(奪う)      ", 20_000, () => _audio.Play(_hitClip, 1.0f));
+
+        Measure("Update()        ", 20_000, () => _audio.Update());
+
+        Console.WriteLine();
+
+        _audio.StopAll();
+        _audio.Update();
+        _audio.MaxStartsPerClipPerStep = savedLimit;
+        _audio.MasterVolume = savedVolume;
+
+        void MeasureInBatches(string name, int rounds, int perRound)
+        {
+            var stopwatch = new Stopwatch();
+
+            for (int round = 0; round < rounds; round++)
+            {
+                // **ここは計測に入れない**。空きを作る手間まで含めると、
+                // 「空いているときの Play」を測っていることにならない。
+                _audio.StopAll();
+                _audio.Update();
+
+                stopwatch.Start();
+                for (int i = 0; i < perRound; i++)
+                {
+                    _audio.Play(_hitClip, 1.0f);
+                }
+
+                stopwatch.Stop();
+            }
+
+            double nanoseconds = stopwatch.Elapsed.TotalMilliseconds * 1e6 / (rounds * perRound);
+            Console.WriteLine($"  {name}: {nanoseconds,8:F0}ns");
+        }
+
+        static void Measure(string name, int count, Action action)
+        {
+            for (int i = 0; i < 1000; i++)
+            {
+                action();
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                action();
+            }
+
+            double nanoseconds = stopwatch.Elapsed.TotalMilliseconds * 1e6 / count;
+            Console.WriteLine($"  {name}: {nanoseconds,8:F0}ns");
+        }
+    }
+
+    /// <summary>
     /// **ECS の不変条件を確かめる自己チェック**(D キー)。
     ///
     /// Day 19 の決定性、Day 21 のハンドル、Day 22 の階層と同じ趣旨。
@@ -3376,6 +3773,76 @@ internal static class Program
                 CycleCellSize(key == Key.Period);
                 break;
 
+            // --- 今日のスイッチ(音)---
+            case Key.Number5:
+                // **札を受け取らない**典型。鳴らしっぱなしで構わない音。
+                _audio.Play(_pickupClip, 0.8f);
+                break;
+
+            case Key.Number6:
+                _collisionSfx = !_collisionSfx;
+                Console.WriteLine(
+                    $"衝突音: {OnOff(_collisionSfx)}"
+                    + (_collisionSfx && !_collisionDemo ? "  (F6 で衝突デモを出すと鳴ります)" : string.Empty));
+                break;
+
+            case Key.Number7:
+                // 0 は無制限。**外すと何が起きるか**を聞くためのスイッチ。
+                _audio.MaxStartsPerClipPerStep = _audio.MaxStartsPerClipPerStep switch
+                {
+                    0 => 1,
+                    1 => 2,
+                    2 => 4,
+                    4 => 8,
+                    _ => 0,
+                };
+                Console.WriteLine(
+                    _audio.MaxStartsPerClipPerStep == 0
+                        ? "同じ音の上限: 無制限(割れます)"
+                        : $"同じ音の上限: 1ステップに {_audio.MaxStartsPerClipPerStep} 回");
+                break;
+
+            case Key.Number8:
+                _audio.PitchVariation = !_audio.PitchVariation;
+                Console.WriteLine($"ピッチの揺らぎ: {OnOff(_audio.PitchVariation)}");
+                break;
+
+            case Key.Number9:
+                _panning = !_panning;
+                Console.WriteLine($"左右の定位: {OnOff(_panning)}");
+                break;
+
+            case Key.Number0:
+                if (_audio.IsPlaying(_musicVoice))
+                {
+                    _audio.Stop(_musicVoice);
+                    _musicVoice = VoiceId.None;
+                    Console.WriteLine("BGM: 停止");
+                }
+                else
+                {
+                    // **ループするものだけが札を必要とする**。
+                    // 止める相手を指せなければ、止めようがない。
+                    _musicVoice = _audio.PlayLoop(_musicClip, 0.55f);
+                    Console.WriteLine($"BGM: 再生 {_musicVoice}");
+                }
+
+                break;
+
+            case Key.LeftBracket:
+                _audio.MasterVolume -= 0.1f;
+                Console.WriteLine($"音量: {_audio.MasterVolume:P0}");
+                break;
+
+            case Key.RightBracket:
+                _audio.MasterVolume += 0.1f;
+                Console.WriteLine($"音量: {_audio.MasterVolume:P0}");
+                break;
+
+            case Key.F1:
+                RunAudioCheck();
+                break;
+
             case Key.Minus:
                 _fixedBodySize = !_fixedBodySize;
                 InitializeBodies(_activeBodies);
@@ -3575,6 +4042,9 @@ internal static class Program
         // 誰が何を持っているかを1箇所に集めた結果、後始末も1行になる。
         // Day 20 まではここに並べ忘れるとそのままリークしていた。
         _resources.Dispose();
+
+        // **音も同じ形で1行**。ボイス → バッファ → コンテキスト → デバイスの順に畳む。
+        _audio.Dispose();
 
         _input.Dispose();
     }
