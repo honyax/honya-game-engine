@@ -69,7 +69,7 @@ internal static class GltfLoader
     /// ファイルを読んで <see cref="Model"/> にする。<c>.glb</c> と <c>.gltf</c> の両方を受ける。
     /// </summary>
     /// <param name="shader">できたマテリアルに割り当てるシェーダ。</param>
-    public static Model Load(GL gl, ResourceManager resources, string path, Handle<Shader> shader)
+    public static Model Load(GL gl, RenderResources resources, string path, Handle<Shader> shader)
     {
         byte[] bytes = File.ReadAllBytes(path);
 
@@ -168,7 +168,7 @@ internal static class GltfLoader
     private sealed class LoadContext
     {
         private readonly GL _gl;
-        private readonly ResourceManager _resources;
+        private readonly RenderResources _resources;
         private readonly string _path;
         private readonly string _directory;
         private readonly JsonElement _root;
@@ -186,14 +186,14 @@ internal static class GltfLoader
         /// 参照カウントを増やしたテクスチャ。<see cref="Model.Dispose"/> が同じ数だけ返す。
         ///
         /// **同じハンドルが複数回入ることを許す**。
-        /// 1枚の絵を2つのマテリアルが指していれば、ResourceManager 側のカウントは 2 になっているので、
+        /// 1枚の絵を2つのマテリアルが指していれば、RenderResources 側のカウントは 2 になっているので、
         /// こちらも 2 回返さないと釣り合わない。
         /// </summary>
         private readonly List<Handle<Texture>> _textures = [];
 
         public LoadContext(
             GL gl,
-            ResourceManager resources,
+            RenderResources resources,
             string path,
             JsonElement root,
             byte[]? embedded,
@@ -733,7 +733,7 @@ internal static class GltfLoader
                 else
                 {
                     // **外部ファイルはパスで読む**。同じ絵を別のモデルが使っていれば、
-                    // ResourceManager の重複排除がそのまま効く。
+                    // RenderResources の重複排除がそのまま効く。
                     handle = _resources.LoadTexture(
                         Path.Combine(_directory, Uri.UnescapeDataString(value)), srgb: srgb);
                 }

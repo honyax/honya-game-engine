@@ -16,7 +16,7 @@ namespace HonyaEngine;
 ///
 /// <para>
 /// <b>何を所有するか</b>。<see cref="Mesh{TVertex}"/> は自分で作ったので所有する。
-/// テクスチャの実体は <see cref="ResourceManager"/> のものだが、
+/// テクスチャの実体は <see cref="RenderResources"/> のものだが、
 /// **読み込んだときに参照カウントを1つ増やしている**ので、
 /// 捨てるときには同じ数だけ返さなければならない(Day 21 の要点3)。
 ///
@@ -44,13 +44,13 @@ internal sealed class Model : IDisposable
         Matrix4x4 Transform,
         string Name);
 
-    private readonly ResourceManager _resources;
+    private readonly RenderResources _resources;
 
     /// <summary>読み込みのときに参照カウントを増やしたテクスチャ。**同じ数だけ返す**。</summary>
     private readonly IReadOnlyList<Handle<Texture>> _textures;
 
     public Model(
-        ResourceManager resources,
+        RenderResources resources,
         IReadOnlyList<Part> parts,
         IReadOnlyList<Material> materials,
         IReadOnlyList<Handle<Texture>> textures,
@@ -118,7 +118,7 @@ internal sealed class Model : IDisposable
 
         // テクスチャは**返す**。捨てるのではない——
         // 他のモデルが同じ絵を使っていれば、そちらの参照が残るので消えない。
-        // 誰も使わなくなった時点で ResourceManager が GPU 側を解放する。
+        // 誰も使わなくなった時点で RenderResources が GPU 側を解放する。
         foreach (Handle<Texture> handle in _textures)
         {
             _resources.Release(handle);

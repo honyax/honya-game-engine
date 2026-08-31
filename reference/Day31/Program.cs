@@ -184,7 +184,7 @@ internal static class Program
     private static IInputContext _input = null!;
 
     /// <summary>今日の主役。すべてのリソースはここを通して出入りする。</summary>
-    private static ResourceManager _resources = null!;
+    private static RenderResources _resources = null!;
 
     // --- 3D(参照ではなくハンドルを持つようになった) ---
     private static Handle<Shader> _shader;
@@ -642,7 +642,7 @@ internal static class Program
         // **今日からリソースは全部ここを通る**。
         // 直接 new / FromFile を呼ぶ場所が残っていると、そのぶんだけ
         // 「誰が持っているか分からないもの」が生き残る。
-        _resources = new ResourceManager(_gl);
+        _resources = new RenderResources(_gl);
 
         // --- 3D ---
         _shader = _resources.LoadShader(
@@ -1595,7 +1595,7 @@ internal static class Program
     {
         // **描画スレッドでしか GL を呼べない**ので、
         // 裏で復号し終えたぶんの GPU アップロードはここで消化する。
-        // 1フレームあたりの枚数を絞ってあるのがミソ(ResourceManager.MaxUploadsPerFrame)。
+        // 1フレームあたりの枚数を絞ってあるのがミソ(RenderResources.MaxUploadsPerFrame)。
         _resources.Update();
 
         // グリフを焼いた数の集計を戻す。**焼くのはこのフレームの描画中**なので、
@@ -2862,7 +2862,7 @@ internal static class Program
     ///
     /// **読み込み中に押しても壊れない**のが地味に重要なところ。
     /// スロットは即座に空き、世代が進む。裏で走っている復号は完走するが、
-    /// 出来上がったものは <see cref="ResourceManager.Update"/> の生存確認で捨てられる。
+    /// 出来上がったものは <see cref="RenderResources.Update"/> の生存確認で捨てられる。
     /// 参照を配る設計だと、ここで解放済みのオブジェクトへ書き込むことになる。
     /// </summary>
     private static void UnloadDemoTextures()
@@ -5675,7 +5675,7 @@ internal static class Program
         _atlas.Dispose();
 
         // フレームバッファとレンダーバッファも GC の管轄外(Day 31)。
-        // シェーダは ResourceManager が持っているので、ここで畳むのはバッファだけ。
+        // シェーダは RenderResources が持っているので、ここで畳むのはバッファだけ。
         _post.Dispose();
 
         _cube.Dispose();
