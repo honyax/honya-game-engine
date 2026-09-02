@@ -57,6 +57,14 @@ namespace HonyaEngine;
 /// **2000 体だと 1 ステップに数十回の再生要求**が飛ぶので、
 /// 発音数の上限とピッチの揺らぎが無いと音として成立しない。
 /// Day 26 で 2 万体を動かせるようにしたことが、そのまま音の設計問題になっている。
+///
+/// **Day 28 での変更**: 文字が出る。
+/// システムのフォント(メイリオ等)を探し、使った文字だけをその場で焼いて
+/// 1枚のアトラスに詰める(<see cref="GlyphAtlas"/>)。
+/// セミコロンで、タイトルバーに出していた数字が**画面の中**へ移る。
+/// 3 回押すと見本帳が出て、日本語・大きさ・整列・カーニング・
+/// ピクセル丸めの効き目を並べて見られる。
+/// **文字も結局スプライト1枚**なので、Day 18 のバッチにそのまま乗る。
 /// </summary>
 internal static class Program
 {
@@ -291,7 +299,37 @@ internal static class Program
     /// <summary>記録を終えた時点のプレイヤー状態のハッシュ。再生後に突き合わせる。</summary>
     private static ulong _recordEndHash;
 
-    // --- 今日の主役: 音 ---
+    // --- 今日の主役: 文字 ---
+
+    /// <summary>見つかったフォント。見つからなければ null(文字なしで動く)。</summary>
+    private static FontFace? _font;
+
+    private static GlyphAtlas? _glyphAtlas;
+    private static TextRenderer? _text;
+
+    /// <summary>
+    /// 文字専用のバッチ。**スプライトとは別に持つ**。
+    ///
+    /// グリフのアトラスは1チャンネル(R8)なので、
+    /// <c>sprite.frag</c>(RGBA をそのまま掛ける)では真っ黒になる。
+    /// シェーダが違えば同じバッチには積めない——
+    /// バッチは「同じ設定で描けるものをまとめる」仕組みなので、当然の帰結。
+    /// UI を最後に別パスで描くのは、実際のエンジンでも普通の形。
+    /// </summary>
+    private static SpriteBatch? _textBatch;
+
+    private static Handle<Shader> _textShader;
+
+    /// <summary>画面内の表示(セミコロン)。0=なし 1=情報 2=情報+アトラス 3=見本帳。</summary>
+    private static int _overlay = 1;
+
+    /// <summary>文字を積むのにかかった時間(ミリ秒)の移動平均。</summary>
+    private static double _textMilliseconds;
+
+    /// <summary>UI の文字の大きさ(ピクセル)。</summary>
+    private const int UiFontSize = 16;
+
+    // --- Day 27 からの音 ---
 
     private static AudioSystem _audio = null!;
 
@@ -436,7 +474,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day25 - 2D衝突判定",
+            Title = "Day28 - テキスト描画",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -603,6 +641,45 @@ internal static class Program
 
         SetupScene();
 
+        // --- 文字 ---
+        //
+        // **頂点シェーダは sprite.vert を使い回す**。
+        // 位置と UV と色を渡してスクリーン座標に写す、という仕事は
+        // スプライトと文字でまったく同じで、違うのは「色をどう作るか」だけ。
+        // シェーダを組み合わせで作れるのは、この2段が分かれているおかげ。
+        _textShader = _resources.LoadShader(
+            Path.Combine(shaderDirectory, "sprite.vert"),
+            Path.Combine(shaderDirectory, "text.frag"));
+
+        _font = SystemFonts.Open();
+
+        if (_font is not null)
+        {
+            // 512x512 の 1 チャンネル = 256KB。
+            // ゲーム1本で実際に使う文字はせいぜい数百字なので、これで足りる。
+            _glyphAtlas = new GlyphAtlas(_gl, _font, size: 512);
+            _text = new TextRenderer(_glyphAtlas);
+
+            // 文字は1フレームに数百枚も積まないので、容量は小さくてよい。
+            _textBatch = new SpriteBatch(_gl, _resources.GetShader(_textShader), capacity: 4096);
+
+            Console.WriteLine();
+            Console.WriteLine($"フォント: {_font.Name}  {_font.Path}");
+            Console.WriteLine(
+                $"  ファイル内のフォント数 {_font.FaceCount} / 使用 {_font.FaceIndex} 番目"
+                + $" / 日本語 {(_font.HasGlyph(0x3042) ? "あり" : "なし")}");
+
+            float scale = _font.ScaleFor(UiFontSize);
+            Console.WriteLine(
+                $"  {UiFontSize}px: ascent {_font.Ascent(scale):F2} / descent {_font.Descent(scale):F2}"
+                + $" / 行送り {_font.LineHeight(scale):F2}");
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.WriteLine("フォント: 見つかりませんでした(文字なしで続行します)");
+        }
+
         // --- 音 ---
         //
         // **描画とは完全に別のデバイス**なので、GL とは何の関係もない。
@@ -644,6 +721,7 @@ internal static class Program
         Console.WriteLine(", / . :マスの大きさ  -:体の大きさ(面積一定/固定)");
         Console.WriteLine("5:効果音  6:衝突音  7:同じ音の上限  8:ピッチ揺らぎ  9:定位  0:BGM");
         Console.WriteLine("[ / ] :音量  F1:オーディオの自己チェックと計測");
+        Console.WriteLine("; :画面内の表示(なし/情報/アトラス/見本帳)  / :テキストの自己チェックと計測");
         Console.WriteLine("F2:シーンを保存  F3:読み込み(Shift併用でコードから組み直し)  F4:往復の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
         Console.WriteLine("矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生");
@@ -1039,7 +1117,7 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title =
-                $"Day26  {_fps:F1} fps | "
+                $"Day28  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
                 + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
@@ -1299,6 +1377,10 @@ internal static class Program
         // 1フレームあたりの枚数を絞ってあるのがミソ(ResourceManager.MaxUploadsPerFrame)。
         _resources.Update();
 
+        // グリフを焼いた数の集計を戻す。**焼くのはこのフレームの描画中**なので、
+        // 描き始める前に 0 に戻しておく。
+        _glyphAtlas?.BeginFrame();
+
         _gl.ClearColor(0.08f, 0.09f, 0.12f, 1.0f);
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
@@ -1311,7 +1393,207 @@ internal static class Program
         _drawCalls = _spriteBatch.DrawCallCount;
 
         RenderResourceStrip();
+
+        // **文字はいちばん最後**。UI は何よりも手前に出る。
+        RenderText();
     }
+
+    /// <summary>
+    /// 文字を描く。**今日の出口**。
+    ///
+    /// やることは <see cref="RenderSprites"/> とまったく同じ形——
+    /// スクリーンの平行投影を作り、<c>Begin</c> して積んで <c>End</c>。
+    /// 違うのはバッチとシェーダだけで、**文字専用の描画経路は無い**。
+    /// </summary>
+    private static void RenderText()
+    {
+        if (_overlay == 0 || _text is null || _textBatch is null || _glyphAtlas is null)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        Matrix4x4 projection = Camera.CreateScreen(
+            0.0f, _window.FramebufferSize.X,
+            _window.FramebufferSize.Y, 0.0f,
+            -1.0f, 1.0f);
+
+        _textBatch.Begin(projection, SpriteSortMode.Texture);
+
+        if (_overlay == 3)
+        {
+            DrawTextSample();
+        }
+        else
+        {
+            DrawOverlayInfo();
+        }
+
+        if (_overlay == 2)
+        {
+            DrawAtlasView();
+        }
+
+        _textBatch.End();
+
+        _textMilliseconds = (_textMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+    }
+
+    /// <summary>
+    /// タイトルバーに出していた数字を画面の中へ。
+    ///
+    /// **1回の <c>Draw</c> で複数行を渡している**のが要点。
+    /// 行ごとに呼んでもよいが、改行の扱いを <see cref="TextRenderer"/> に閉じ込めておくと
+    /// 行送りの計算が1箇所で済む。呼ぶ側が <c>y += 18</c> のような数字を持ち始めると、
+    /// フォントを変えた瞬間に全部ずれる。
+    /// </summary>
+    private static void DrawOverlayInfo()
+    {
+        var lines = new System.Text.StringBuilder();
+
+        lines.AppendLine($"Day28   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine(
+            $"{BackendLabel()}  更新:{_updateMilliseconds:F2}ms  "
+            + $"GO:{_scene.GameObjectCount}  E:{_world.AliveCount}  スプライト:{_activeSprites}");
+
+        if (_collisionDemo)
+        {
+            lines.AppendLine(
+                $"衝突:{_activeBodies}体  {BroadphaseLabel()}  "
+                + $"候補:{_pairTests:N0}  接触:{_contacts}  判定:{_collisionMilliseconds:F2}ms");
+        }
+
+        if (_audio.IsAvailable)
+        {
+            lines.AppendLine(
+                $"音:{_audio.ActiveVoices}/{_audio.VoiceCount}  要求:{_soundRequests}  "
+                + $"発音:{_audio.StartedLastStep}  間引き:{_audio.CulledLastStep}");
+        }
+
+        GlyphAtlas atlas = _glyphAtlas!;
+        lines.Append(
+            $"文字:{atlas.GlyphCount}字  棚{atlas.ShelfCount}段  使用率{atlas.Usage:P1}  "
+            + $"焼:{atlas.BakedThisFrame}  積:{_text!.GlyphsDrawn}枚  描画:{_textMilliseconds:F2}ms"
+            + (atlas.IsFull ? "  [満杯]" : string.Empty));
+
+        _text.Draw(
+            _textBatch!,
+            lines.ToString(),
+            new Vector2(12.0f, 10.0f),
+            UiFontSize,
+            new Vector4(0.95f, 0.97f, 1.00f, 1.0f));
+    }
+
+    /// <summary>
+    /// 見本帳。**目で確かめたいことを全部1画面に並べる**。
+    ///
+    /// 数字の表より、隣り合わせに置いて見比べるほうが早いものがある——
+    /// カーニングの効き目、ピクセル丸めのにじみ、字が抜けたときの豆腐。
+    /// </summary>
+    private static void DrawTextSample()
+    {
+        TextRenderer text = _text!;
+        SpriteBatch batch = _textBatch!;
+
+        var white = new Vector4(0.96f, 0.97f, 1.00f, 1.0f);
+        var dim = new Vector4(0.55f, 0.62f, 0.72f, 1.0f);
+        var warn = new Vector4(1.00f, 0.72f, 0.35f, 1.0f);
+
+        float y = 14.0f;
+        float width = _window.FramebufferSize.X;
+
+        // --- 大きさ ---
+        y += Line("見本帳(; でもどる)", 16, dim, y);
+        y += Line("日本語も出る ひらがな カタカナ 漢字 記号 ①②③ 〜！？", 24, white, y) + 2.0f;
+        y += Line("The quick brown fox jumps over the lazy dog 0123456789", 16, white, y) + 8.0f;
+        y += Line("48px の見出し", 48, white, y) + 6.0f;
+
+        // --- 整列 ---
+        y += Line("整列 ↓(同じ y に3つ)", 16, dim, y);
+        float alignY = y;
+        text.Draw(batch, "左ぞろえ", new Vector2(14.0f, alignY), 16, white);
+        text.Draw(batch, "中央ぞろえ", new Vector2(width * 0.5f, alignY), 16, white, TextAlign.Center);
+        text.Draw(batch, "右ぞろえ", new Vector2(width - 14.0f, alignY), 16, white, TextAlign.Right);
+        y += text.LineHeight(16) + 10.0f;
+
+        // --- カーニング ---
+        //
+        // "AV" "To" "Ya" は、送りのとおりに並べると離れて見える組み合わせ。
+        // 日本語は全角送りなのでほとんど動かない。
+        y += Line("カーニング(上=あり / 下=なし)", 16, dim, y);
+        text.Kerning = true;
+        y += Line("AVATAR Two Ya WAVE To.", 32, white, y);
+        text.Kerning = false;
+        y += Line("AVATAR Two Ya WAVE To.", 32, warn, y) + 10.0f;
+        text.Kerning = true;
+
+        // --- ピクセル丸め ---
+        //
+        // **0.5px ずらして描く**と、丸めていない側だけがにじむ。
+        y += Line("ピクセル丸め(上=あり / 下=なし。0.5px ずらして描画)", 16, dim, y);
+        text.Draw(batch, "細い線ほど差が出る ABC 漢字", new Vector2(14.0f, y), 16, white);
+        y += text.LineHeight(16);
+        text.PixelSnap = false;
+        text.Draw(batch, "細い線ほど差が出る ABC 漢字", new Vector2(14.5f, y + 0.5f), 16, warn);
+        text.PixelSnap = true;
+        y += text.LineHeight(16) + 10.0f;
+
+        // --- 持っていない文字 ---
+        //
+        // 絵文字はメイリオにも游ゴシックにも入っていないので、豆腐(.notdef)になる。
+        // **黙って消えるより、抜けが見えるほうがよい**。
+        Line("フォントに無い文字は豆腐になる → 😀🎮  (絵文字は別フォントが要る)", 16, dim, y);
+    }
+
+    /// <summary>
+    /// アトラスの中身をそのまま画面に出す。**棚詰めが目に見える**。
+    ///
+    /// 数字(使用率・段数)だけでは、隙間がどこにできているかが分からない。
+    /// 大きさの違う字を混ぜてから見ると、段の高さが「その段でいちばん高い字」で
+    /// 決まっていることがはっきり分かる。
+    /// </summary>
+    private static void DrawAtlasView()
+    {
+        GlyphAtlas atlas = _glyphAtlas!;
+
+        // 画面に収まるように縮める。等倍で出すと 512px 占める。
+        float size = MathF.Min(_window.FramebufferSize.Y - 160.0f, 384.0f);
+        var center = new Vector2(
+            _window.FramebufferSize.X - (size * 0.5f) - 16.0f,
+            _window.FramebufferSize.Y - (size * 0.5f) - 16.0f);
+
+        _textBatch!.Draw(
+            atlas.Texture,
+            center,
+            new Vector2(size),
+            0.0f,
+            new Vector4(0.65f, 0.85f, 1.00f, 1.0f),
+            0.5f);
+
+        _text!.Draw(
+            _textBatch,
+            $"アトラス {atlas.Size}x{atlas.Size} R8 / {atlas.GlyphCount}字 / {atlas.ShelfCount}段",
+            new Vector2(center.X, center.Y - (size * 0.5f) - 20.0f),
+            UiFontSize,
+            new Vector4(0.65f, 0.85f, 1.00f, 1.0f),
+            TextAlign.Center);
+    }
+
+    /// <summary>見本帳のための短縮形。1行描いて、その高さを返す。</summary>
+    private static float Line(string content, int pixelHeight, Vector4 color, float y)
+    {
+        _text!.Draw(_textBatch!, content, new Vector2(14.0f, y), pixelHeight, color);
+        return _text.LineHeight(pixelHeight);
+    }
+
+    private static string OverlayLabel() => _overlay switch
+    {
+        1 => "情報",
+        2 => "情報+アトラス",
+        3 => "見本帳",
+        _ => "なし",
+    };
 
     /// <summary>
     /// 画面の下にロード中のテクスチャを並べる。
@@ -2936,6 +3218,325 @@ internal static class Program
     }
 
     /// <summary>
+    /// **テキストの自己チェック**(スラッシュ)。
+    ///
+    /// 文字の不具合は目で見れば分かる——ように思えるが、
+    /// 「1px にじんでいる」「行送りが 1px 足りない」は気づけない。
+    /// そして**気づけないまま画面いっぱいに広がる**のがテキストの厄介なところで、
+    /// UI を組んだあとに直すと全部の座標を調整し直すことになる。
+    ///
+    /// だから測れるものは測る。ここで見ているのは3種類。
+    ///   1. フォントから読んだ数字が筋の通った値か(ascent &gt; 0 など)
+    ///   2. アトラスが**同じものを2度焼かない**か
+    ///   3. <c>Measure</c> と <c>Draw</c> が**同じ答え**を出すか
+    /// 3 が狂うと、枠から字がはみ出したり、中央ぞろえがずれたりする。
+    /// </summary>
+    private static void RunTextCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[テキストの自己チェック]");
+
+        if (_font is null || _glyphAtlas is null || _text is null)
+        {
+            Console.WriteLine("  フォントが無いので飛ばします");
+            return;
+        }
+
+        FontFace font = _font;
+        GlyphAtlas atlas = _glyphAtlas;
+        TextRenderer text = _text;
+
+        Console.WriteLine($"  フォント: {font.Name}({font.FaceCount} 面中 {font.FaceIndex} 番)");
+
+        // --- 1. メトリクス ---
+        float scale = font.ScaleFor(32.0f);
+        float ascent = font.Ascent(scale);
+        float descent = font.Descent(scale);
+        float lineHeight = font.LineHeight(scale);
+
+        checks.Check("ascent は正", ascent > 0.0f, $"{ascent:F2}px");
+        checks.Check("descent は正(下向きの量として)", descent > 0.0f, $"{descent:F2}px");
+
+        // ScaleFor は「ascent + descent が指定の高さになる」倍率を返す。
+        checks.Check("32px 指定で ascent+descent が 32px", MathF.Abs(ascent + descent - 32.0f) < 0.5f,
+            $"{ascent + descent:F2}px");
+
+        // 行送りは字の高さ以上。**lineGap が 0 のフォントでは等しくなる**。
+        checks.Check("行送り >= ascent+descent", lineHeight >= ascent + descent - 0.01f,
+            $"行送り {lineHeight:F2}px / lineGap {font.LineGap(scale):F2}px");
+
+        // --- 2. グリフの有無 ---
+        checks.Check("英字を持っている", font.HasGlyph('A'));
+        checks.Check("ひらがなを持っている", font.HasGlyph(0x3042), font.HasGlyph(0x3042) ? "あ" : "なし");
+        checks.Check("漢字を持っている", font.HasGlyph(0x6F22), font.HasGlyph(0x6F22) ? "漢" : "なし");
+
+        // 絵文字は日本語フォントには入っていない。**入っていないことを確かめておく**と、
+        // 豆腐が出たときに「バグ」ではなく「そういうもの」だと分かる。
+        Console.WriteLine($"  [--] 絵文字 U+1F600: {(font.HasGlyph(0x1F600) ? "あり" : "なし(豆腐になる)")}");
+
+        // --- 3. 空白は送りだけ持つ ---
+        Glyph space = atlas.GetOrAdd(' ', 16);
+        checks.Check("空白は絵を持たないが送りはある", !space.HasPixels && space.Metrics.Advance > 0.0f,
+            $"送り {space.Metrics.Advance:F2}px");
+
+        // --- 4. アトラスのキャッシュ ---
+        int before = atlas.BakedTotal;
+        atlas.GetOrAdd(0x6F22, 16);
+        int afterFirst = atlas.BakedTotal;
+        atlas.GetOrAdd(0x6F22, 16);
+        int afterSecond = atlas.BakedTotal;
+
+        checks.Check("2回目は焼き直さない", afterSecond == afterFirst, $"焼いた回数 {afterSecond - before}");
+
+        // **大きさが違えば別の絵**。同じ文字でも焼き直しになる。
+        atlas.GetOrAdd(0x6F22, 17);
+        checks.Check("大きさが違えば別のグリフ", atlas.BakedTotal == afterSecond + 1,
+            $"16px と 17px で {atlas.BakedTotal - afterSecond} 回");
+
+        // --- 5. UV がテクスチャの中に収まっているか ---
+        Glyph kanji = atlas.GetOrAdd(0x6F22, 16);
+        AtlasRegion region = kanji.Region;
+        bool inside = region.UvMin.X >= 0.0f && region.UvMin.Y >= 0.0f
+            && region.UvMax.X <= 1.0f && region.UvMax.Y <= 1.0f
+            && region.UvMin.X < region.UvMax.X && region.UvMin.Y < region.UvMax.Y;
+        checks.Check("UV が 0..1 に収まっている", inside,
+            $"({region.UvMin.X:F3},{region.UvMin.Y:F3})-({region.UvMax.X:F3},{region.UvMax.Y:F3})");
+
+        // UV の幅は、グリフの画素幅をアトラスの一辺で割ったもの。
+        float uvWidth = (region.UvMax.X - region.UvMin.X) * atlas.Size;
+        checks.Check("UV の幅が画素幅と一致", MathF.Abs(uvWidth - region.Width) < 0.01f,
+            $"{uvWidth:F2}px / {region.Width}px");
+
+        // --- 6. 幅が4の倍数でないグリフを焼いても GL がエラーを出さないか ---
+        //
+        // GL_UNPACK_ALIGNMENT の罠(Texture.UploadR8 のコメント)。
+        // アライメントを直さないと、崩れるだけでエラーにはならないことも多いが、
+        // ここでは「焼いたあとに GL のエラーが残っていない」ことを確かめておく。
+        while (_gl.GetError() != GLEnum.NoError)
+        {
+            // 溜まっているぶんを捨てる
+        }
+
+        for (int i = 0; i < 32; i++)
+        {
+            atlas.GetOrAdd(0x4E00 + i, 15);
+        }
+
+        GLEnum glError = _gl.GetError();
+        checks.Check("グリフを焼いても GL エラーが出ない", glError == GLEnum.NoError, glError.ToString());
+
+        // --- 7. Measure と Draw が一致するか ---
+        const string sample = "Measure と Draw は同じ道を通る";
+        Vector2 measured = text.Measure(sample, 16);
+
+        _textBatch!.Begin(
+            Camera.CreateScreen(0.0f, 100.0f, 100.0f, 0.0f, -1.0f, 1.0f),
+            SpriteSortMode.Texture);
+        Vector2 drawn = text.Draw(_textBatch, sample, Vector2.Zero, 16, Vector4.One);
+        _textBatch.End();
+
+        checks.Check("Measure と Draw の大きさが一致",
+            MathF.Abs(measured.X - drawn.X) < 0.01f && MathF.Abs(measured.Y - drawn.Y) < 0.01f,
+            $"{measured.X:F2}x{measured.Y:F2}");
+
+        // --- 8. 改行 ---
+        Vector2 one = text.Measure("あいうえお", 16);
+        Vector2 two = text.Measure("あいうえお\nかきくけこ", 16);
+        checks.Check("2行の高さは1行の2倍", MathF.Abs(two.Y - (one.Y * 2.0f)) < 0.01f,
+            $"{one.Y:F2} → {two.Y:F2}");
+        checks.Check("2行の幅は広いほうの行", MathF.Abs(two.X - one.X) < 0.01f, $"{two.X:F2}px");
+
+        // "\r\n" でも同じ結果になること。ファイルから読んだ文字列で効く。
+        checks.Check("CRLF でも同じ", MathF.Abs(text.Measure("あ\r\nい", 16).Y - text.Measure("あ\nい", 16).Y) < 0.01f);
+
+        // --- 9. カーニング ---
+        text.Kerning = false;
+        float without = text.Measure("AVAV", 32).X;
+        text.Kerning = true;
+        float with = text.Measure("AVAV", 32).X;
+
+        // 効かないフォントもある(GPOS しか持たない場合)ので、落とさず報告にとどめる。
+        Console.WriteLine(
+            $"  [--] カーニング: AVAV が {without:F2}px → {with:F2}px"
+            + (with < without ? $"({without - with:F2}px 詰まった)" : "(このフォントでは効かない)"));
+
+        // --- 10. サロゲートペア ---
+        //
+        // U+20B9F(𠮟)は char 2個で表される。char で回すと2文字として扱われ、
+        // 両方とも豆腐になって幅が2倍になる。
+        const string surrogate = "\U00020B9F";
+        checks.Check("サロゲートペアを1文字として数える", surrogate.Length == 2,
+            $"char {surrogate.Length} 個 / 幅 {text.Measure(surrogate, 16).X:F2}px");
+
+        // char で回していたら、この文字列は「2文字」として幅が2倍になる。
+        // Rune で回していれば、グリフ1つぶんの送りと一致する。
+        float pairWidth = text.Measure(surrogate, 16).X;
+        float oneGlyph = atlas.GetOrAdd(0x20B9F, 16).Metrics.Advance;
+        checks.Check("幅がグリフ1つぶんと一致", MathF.Abs(pairWidth - oneGlyph) < 0.01f,
+            $"{pairWidth:F2}px / 1グリフ {oneGlyph:F2}px");
+
+        // --- 11. アトラスが満杯になっても落ちない ---
+        using (var tiny = new GlyphAtlas(_gl, font, size: 64))
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                tiny.GetOrAdd(0x4E00 + i, 32);
+            }
+
+            checks.Check("満杯になっても落ちない", tiny.IsFull, $"{tiny.GlyphCount}字 / {tiny.ShelfCount}段");
+
+            // 満杯でも**送りは正しい**ので、レイアウトは崩れない(絵が出ないだけ)。
+            Glyph missing = tiny.GetOrAdd(0x9FA0, 32);
+            checks.Check("満杯でも送りは返す", missing.Metrics.Advance > 0.0f, $"{missing.Metrics.Advance:F2}px");
+        }
+
+        checks.Report();
+        Console.WriteLine();
+
+        BenchmarkText();
+    }
+
+    /// <summary>
+    /// 文字まわりのコストを測る。**「毎フレーム何文字まで出してよいか」を知るため**。
+    ///
+    /// 見たいのは「焼く」と「引く」の差。
+    /// 初回だけ高くて2回目から安いなら、キャッシュが効いている証拠になる。
+    /// 差が小さいなら、そもそもキャッシュを持つ意味が無い。
+    /// </summary>
+    private static void BenchmarkText()
+    {
+        FontFace font = _font!;
+        TextRenderer text = _text!;
+
+        Console.WriteLine("### 文字まわりのコスト ###");
+
+        // --- 焼く ---
+        //
+        // 使い捨てのアトラスを作って、まだ焼いていない字を並べて焼く。
+        // **本番のアトラスを汚さない**ようにするのと、
+        // 「全部が初回」の条件をそろえるため。
+
+        // まず ASCII だけ。**「起動時に全部焼く」が成立する側**の数字。
+        using (var fresh = new GlyphAtlas(_gl, font, size: 512))
+        {
+            var stopwatch = Stopwatch.StartNew();
+            for (int i = 0x20; i < 0x7F; i++)
+            {
+                fresh.GetOrAdd(i, 16);
+            }
+
+            double total = stopwatch.Elapsed.TotalMilliseconds;
+            Console.WriteLine(
+                $"  焼く(ASCII 95字、16px): {total * 1000.0 / 95,7:F1}us  "
+                + $"(合計 {total:F1}ms / 512px 中 使用率 {fresh.Usage:P1})");
+        }
+
+        using (var fresh = new GlyphAtlas(_gl, font, size: 1024))
+        {
+            // **常用漢字の数**(2136字)ぶん焼いてみる。
+            // 「起動時に全部焼く」ならこれだけ待つことになる、という数字。
+            const int count = 2136;
+            var stopwatch = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                fresh.GetOrAdd(0x4E00 + i, 16);
+            }
+
+            double total = stopwatch.Elapsed.TotalMilliseconds;
+            Console.WriteLine(
+                $"  焼く(16px、初回)      : {total * 1000.0 / count,7:F1}us  "
+                + $"({count}字で {total:F1}ms / 1024px 中 使用率 {fresh.Usage:P1})");
+        }
+
+        using (var fresh = new GlyphAtlas(_gl, font, size: 2048))
+        {
+            const int count = 500;
+            var stopwatch = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                fresh.GetOrAdd(0x4E00 + i, 48);
+            }
+
+            double microseconds = stopwatch.Elapsed.TotalMilliseconds * 1000.0 / count;
+            Console.WriteLine($"  焼く(48px、初回)      : {microseconds,7:F1}us");
+        }
+
+        // --- 引く(キャッシュに当たる) ---
+        GlyphAtlas atlas = _glyphAtlas!;
+        atlas.GetOrAdd(0x6F22, 16);
+        Measure("引く(キャッシュあり)  ", 1_000_000, () => atlas.GetOrAdd(0x6F22, 16));
+
+        // --- 測る / 積む ---
+        const string line = "毎フレーム描く文字列の例 fps 512.3 更新 0.12ms";
+        Measure("Measure(24文字)       ", 200_000, () => text.Measure(line, 16));
+
+        // **カーニングを切って測り直す**。
+        // stb のカーニングは、呼ぶたびに2文字ぶんのグリフ番号を引き直して
+        // kern テーブルを二分探索する。1文字ごとに走るので、じわじわ効く。
+        text.Kerning = false;
+        Measure("Measure(カーニングなし)", 200_000, () => text.Measure(line, 16));
+        text.Kerning = true;
+
+        // --- 積む ---
+        //
+        // **Begin と End を計測から外す**。GL への送信はスプライトとまったく同じ経路で、
+        // ここで見たいのは「文字列をクアッドの列に変えるコスト」のほうだから。
+        Matrix4x4 projection = Camera.CreateScreen(0.0f, 960.0f, 640.0f, 0.0f, -1.0f, 1.0f);
+        SpriteBatch batch = _textBatch!;
+
+        text.Kerning = true;
+        Console.WriteLine($"  Draw に積む(24文字)   : {MeasureDraw(),7:F0}ns");
+
+        text.Kerning = false;
+        Console.WriteLine($"  Draw(カーニングなし)  : {MeasureDraw(),7:F0}ns");
+        text.Kerning = true;
+
+        Console.WriteLine();
+
+        double MeasureDraw()
+        {
+            const int rounds = 400;
+            const int perRound = 100;
+            var accumulated = new Stopwatch();
+
+            for (int round = 0; round < rounds; round++)
+            {
+                batch.Begin(projection, SpriteSortMode.Texture);
+
+                accumulated.Start();
+                for (int i = 0; i < perRound; i++)
+                {
+                    text.Draw(batch, line, Vector2.Zero, 16, Vector4.One);
+                }
+
+                accumulated.Stop();
+                batch.End();
+            }
+
+            return accumulated.Elapsed.TotalMilliseconds * 1e6 / (rounds * perRound);
+        }
+
+        static void Measure(string name, int count, Action action)
+        {
+            for (int i = 0; i < Math.Min(count / 10, 10000); i++)
+            {
+                action();
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            for (int i = 0; i < count; i++)
+            {
+                action();
+            }
+
+            double nanoseconds = stopwatch.Elapsed.TotalMilliseconds * 1e6 / count;
+            Console.WriteLine($"  {name}: {nanoseconds,7:F0}ns");
+        }
+    }
+
+    /// <summary>
     /// **オーディオの自己チェック**(F1)。
     ///
     /// 音のバグは「聞けば分かる」ように思えて、実はそうでもない。
@@ -3843,6 +4444,17 @@ internal static class Program
                 RunAudioCheck();
                 break;
 
+            // --- 今日のスイッチ(文字)---
+            case Key.Semicolon:
+                _overlay = (_overlay + 1) % 4;
+                Console.WriteLine($"画面内の表示: {OverlayLabel()}"
+                    + (_overlay >= 2 ? "  (G と PageDown で背景を消すと見やすい)" : string.Empty));
+                break;
+
+            case Key.Slash:
+                RunTextCheck();
+                break;
+
             case Key.Minus:
                 _fixedBodySize = !_fixedBodySize;
                 InitializeBodies(_activeBodies);
@@ -4045,6 +4657,10 @@ internal static class Program
 
         // **音も同じ形で1行**。ボイス → バッファ → コンテキスト → デバイスの順に畳む。
         _audio.Dispose();
+
+        _textBatch?.Dispose();
+        _glyphAtlas?.Dispose();
+        _font?.Dispose();
 
         _input.Dispose();
     }
