@@ -15,6 +15,12 @@ namespace HonyaEngine;
 ///
 /// 数字の隣に**根拠**を書いておくのも大事なところ。
 /// 「なぜ 180 なのか」が分からない数字は、半年後の自分が触れなくなる。
+///
+/// **Day 30 で線を引き直した**。武器の成長カーブ(レベルごとの威力・個数・間隔)は
+/// 数字であると同時に**式**なので、定数の一覧に置くと読めなくなる。
+/// そちらは <see cref="Weapons.StatsFor"/> に移した。
+/// 「数字は1箇所」という原則が守れなくなったとき、
+/// **嘘のまま守るより、カテゴリごとに線を引き直す**ほうがよい。
 /// </summary>
 internal static class GameBalance
 {
@@ -108,11 +114,25 @@ internal static class GameBalance
 
     public const int EnemyKindCount = 3;
 
-    /// <summary>種類ごとの (半径, 速度, 体力, 接触ダメージ, 経験値)。</summary>
+    /// <summary>
+    /// 種類ごとの (半径, 速度, 体力, 接触ダメージ, 経験値)。
+    ///
+    /// **走る敵は速いが、プレイヤーよりは遅い**(140 &lt; 180)。
+    ///
+    /// 一度 190(プレイヤーより速い)にしてみたが、これは**逆効果**だった。
+    /// 追いつく敵は「動いている人」だけを罰するので、
+    /// 自動で確かめると**放置のほうが長生きする**という結果になった
+    /// (放置 219 秒 / 移動 191 秒)。
+    /// 立ち止まっていれば向かってきた順に倒せるが、
+    /// 動いていると永久に追われ続けるため。
+    ///
+    /// 速い敵の役目は「立ち止まっているとすぐ距離を詰められる」ことであって、
+    /// 「逃げても無駄」ではない。**プレイヤーより遅い範囲で速く**する。
+    /// </summary>
     public static readonly (float Radius, float Speed, float Health, float Damage, int Experience)[] EnemyKinds =
     [
         (10.0f, 52.0f, 10.0f, 6.0f, 1),
-        (8.0f, 96.0f, 6.0f, 5.0f, 2),
+        (8.0f, 140.0f, 6.0f, 5.0f, 2),
         (17.0f, 34.0f, 34.0f, 12.0f, 5),
     ];
 
@@ -181,6 +201,36 @@ internal static class GameBalance
     /// 序盤で何も起きないゲームは、遊ぶ側が上達を実感できない。
     /// </summary>
     public static int ExperienceForLevel(int level) => 4 + (level * level * 3);
+
+    // --- レベルアップの選択(Day 30)---
+
+    /// <summary>
+    /// レベルアップのたびに見せる選択肢の数。
+    ///
+    /// **3 が定番**。2 だと選んだ気がせず、4 以上だと読むのが仕事になる。
+    /// 選択肢が多いほど良いわけではない、という分かりやすい例。
+    /// </summary>
+    public const int UpgradeChoices = 3;
+
+    /// <summary>同時に持てる武器の数。**全種類ぶんある**ので、実質「全部持てる」。</summary>
+    public const int MaxWeapons = Weapons.KindCount;
+
+    /// <summary>「体力の器」で増える最大 HP。</summary>
+    public const float UpgradeMaxHealth = 25.0f;
+
+    /// <summary>「軽い足」で増える移動速度の割合。</summary>
+    public const float UpgradeMoveSpeed = 0.12f;
+
+    /// <summary>「引き寄せ」で広がる吸引範囲の割合。</summary>
+    public const float UpgradeMagnet = 0.35f;
+
+    /// <summary>
+    /// レベルアップでその場で回復する量。
+    ///
+    /// **回復が無いと立て直せない**。Day 29 では 8 にしていたが、
+    /// 選択で時間が止まるぶん敵が溜まるので、少し増やしてある。
+    /// </summary>
+    public const float LevelUpHeal = 14.0f;
 
     // --- 見た目 ---
 

@@ -7,6 +7,15 @@ internal enum GamePhase
 {
     Title,
     Playing,
+
+    /// <summary>
+    /// レベルアップの選択待ち。**時間が止まる**。
+    ///
+    /// 止めないと、読んでいる間に殺される。
+    /// 「選ばせる」という体験は、**時間を止められるかどうか**で成立が決まる。
+    /// </summary>
+    LevelUp,
+
     GameOver,
 }
 
@@ -72,10 +81,30 @@ internal struct Gem
 /// 種類ごとに配列を1本持つほうが素直で速い。
 /// Day 23 で「ECS は構造体の配列の一般化」と書いたが、
 /// **一般化が要らない場面では特殊形のままでよい**。
+///
+/// <b>Day 30 で入ったもの</b>: レベルアップの選択と、3種類の武器。
+/// 武器は「弾を撃つ」「周りを回る」「範囲を削る」で当たり方が全部違うが、
+/// <see cref="WeaponState"/>(種類とレベルとタイマー)という同じ器に収まっている。
+/// **性能はレベルから計算する**(<see cref="Weapons.StatsFor"/>)ので、
+/// 状態として持つのは 3 つのフィールドだけで済む。
 /// </summary>
 internal sealed class SurvivorGame
 {
-    private readonly Random _random = new(29);
+    /// <summary>
+    /// 湧きと形の乱数。**<see cref="Start"/> で種から作り直す**。
+    ///
+    /// 種を固定したまま作り直さないと、**毎回まったく同じ試合**になる。
+    /// Day 29 では固定していて、それに気づいていなかった——
+    /// 決定性のありがたみ(自己チェックが同じ結果を出す)に気を取られて、
+    /// **遊ぶ側から見ると毎回同じ**という致命的な副作用を見落としていた。
+    ///
+    /// 答えは「決定性を捨てる」ではなく<b>「種を外から渡す」</b>。
+    /// 遊ぶときは時計から、確かめるときは固定値から作る。
+    /// Day 19 で入力を <see cref="InputSnapshot"/> に畳んだのと同じ形で、
+    /// **外から差し替えられる場所を1つ作れば、両方が成り立つ**。
+    /// </summary>
+    private Random _random = new(29);
+
     private readonly SpatialGrid _grid = new();
 
     /// <summary>敵の外接 AABB。**格子に渡すのはこれだけ**(Day 26 と同じ形)。</summary>
@@ -85,13 +114,23 @@ internal sealed class SurvivorGame
     private readonly int[] _queryBuffer = new int[256];
 
     private float _spawnTimer;
-    private float _fireTimer;
+
+    /// <summary>
+    /// 選択肢を引く乱数。**進行用と分けてある**。
+    ///
+    /// 1つで済ませると、レベルアップの回数が変わるだけで
+    /// **そのあとの湧きが全部ずれる**。分けておけば、
+    /// 「選択だけ違う同じ試合」を比べられる。
+    /// </summary>
+    private Random _choiceRandom = new(30);
 
     public SurvivorGame()
     {
         Enemies = new Enemy[GameBalance.MaxEnemies];
         Projectiles = new Projectile[GameBalance.MaxProjectiles];
         Gems = new Gem[GameBalance.MaxGems];
+        Weapons = new WeaponState[GameBalance.MaxWeapons];
+        Choices = new UpgradeOption[GameBalance.UpgradeChoices];
     }
 
     // --- 状態。描画側(GameView)から読むので public ---
@@ -117,6 +156,33 @@ internal sealed class SurvivorGame
     public int ExperienceToNext => GameBalance.ExperienceForLevel(Level);
 
     public int Kills { get; private set; }
+
+    // --- Day 30: 成長したぶん ---
+
+    /// <summary>持っている武器。**種類ごとに1つ**。</summary>
+    public WeaponState[] Weapons { get; }
+
+    public int WeaponCount { get; private set; }
+
+    /// <summary>いま見せている選択肢。<see cref="GamePhase.LevelUp"/> のときだけ意味を持つ。</summary>
+    public UpgradeOption[] Choices { get; }
+
+    public int ChoiceCount { get; private set; }
+
+    /// <summary>選択肢のどれを指しているか(上下キーで動かす)。</summary>
+    public int ChoiceCursor { get; private set; }
+
+    /// <summary>成長で増えた最大 HP。</summary>
+    public float MaxHealth { get; private set; } = GameBalance.PlayerMaxHealth;
+
+    /// <summary>成長で上がった移動速度の倍率。</summary>
+    public float SpeedMultiplier { get; private set; } = 1.0f;
+
+    /// <summary>成長で広がったジェムの吸引範囲の倍率。</summary>
+    public float MagnetMultiplier { get; private set; } = 1.0f;
+
+    /// <summary>レベルアップで止まっていた合計時間(秒)。**スコアには入れない**。</summary>
+    public float PausedSeconds { get; private set; }
 
     /// <summary>カメラの中心。プレイヤーを追いかける。</summary>
     public Vector2 Camera { get; private set; }
@@ -163,30 +229,52 @@ internal sealed class SurvivorGame
         GameOver,
     }
 
-    public void Start(Vector2 viewSize)
+    /// <param name="seed">
+    /// 乱数の種。**同じ種なら同じ試合**になる。
+    /// 自己チェックは既定値のまま呼んで結果を突き合わせ、
+    /// 遊ぶときは <c>Program</c> が時計から渡す。
+    /// </param>
+    public void Start(Vector2 viewSize, int seed = 29)
     {
+        Seed = seed;
+        _random = new Random(seed);
+        _choiceRandom = new Random(seed * 7919);
+
         Phase = GamePhase.Playing;
         Elapsed = 0.0f;
         PlayerPosition = Vector2.Zero;
         PlayerFacing = Vector2.UnitX;
         Camera = Vector2.Zero;
-        Health = GameBalance.PlayerMaxHealth;
+        MaxHealth = GameBalance.PlayerMaxHealth;
+        Health = MaxHealth;
+        SpeedMultiplier = 1.0f;
+        MagnetMultiplier = 1.0f;
         InvulnerableFor = 0.0f;
         Level = 1;
         Experience = 0;
         Kills = 0;
+        PausedSeconds = 0.0f;
 
         EnemyCount = 0;
         ProjectileCount = 0;
         GemCount = 0;
+        ChoiceCount = 0;
+        ChoiceCursor = 0;
+
+        // **最初の武器はボルト**。何も持たずに始めると、
+        // 最初のレベルアップまで敵を倒せず、経験値も溜まらない。
+        WeaponCount = 0;
+        AddWeapon(WeaponKind.Bolt);
 
         _spawnTimer = 0.0f;
-        _fireTimer = 0.0f;
 
         ViewSize = viewSize;
     }
 
     public Vector2 ViewSize { get; set; } = new(960.0f, 640.0f);
+
+    /// <summary>この試合の乱数の種。**同じ種なら同じ試合**。</summary>
+    public int Seed { get; private set; } = 29;
 
     /// <summary>
     /// 1ステップ進める。**固定間隔で呼ばれる**(Day 19)。
@@ -198,6 +286,15 @@ internal sealed class SurvivorGame
     /// </summary>
     public void Update(float dt, in InputSnapshot input)
     {
+        // **選択中は時間が止まる**。敵も弾もジェムも動かない。
+        // ここで「選択肢を選ぶ操作」だけを受け付ける。
+        if (Phase == GamePhase.LevelUp)
+        {
+            PausedSeconds += dt;
+            UpdateChoice(input);
+            return;
+        }
+
         if (Phase != GamePhase.Playing)
         {
             return;
@@ -211,7 +308,7 @@ internal sealed class SurvivorGame
         UpdateEnemies(dt);
         BuildGrid();
         SeparateEnemies();
-        UpdateWeapon(dt);
+        UpdateWeapons(dt);
         UpdateProjectiles(dt);
         DamagePlayer(dt);
         UpdateGems(dt);
@@ -235,7 +332,7 @@ internal sealed class SurvivorGame
             PlayerFacing = axis;
         }
 
-        PlayerPosition += axis * (GameBalance.PlayerSpeed * dt);
+        PlayerPosition += axis * (GameBalance.PlayerSpeed * SpeedMultiplier * dt);
 
         // **カメラは遅れて付いてくる**。ぴったり追従すると、
         // 背景が無い画面では自分が動いている感じがしない。
@@ -417,44 +514,204 @@ internal sealed class SurvivorGame
     }
 
     /// <summary>
-    /// 自動攻撃。**いちばん近い敵へ撃つ**。
+    /// 持っている武器を全部回す。**種類ごとに当たり方が違う**。
     ///
     /// この題材の要は「プレイヤーは移動しかしない」こと。
     /// 攻撃を自動にすると、遊ぶ側の判断は<b>どこへ動くか</b>だけになり、
     /// 敵の配置がそのまま問題になる。
     ///
-    /// 狙う相手を探すのに、また格子を使う——
-    /// 全部の敵との距離を測ると 1000 体で 1000 回になるが、
-    /// <see cref="SpatialGrid.Query"/> なら射程の中だけを見ればよい。
+    /// 3種類の違いは、**どこに当たり判定を置くか**で分かれる。
+    ///
+    /// <code>
+    ///   ボルト     … 飛んでいく弾。当たり判定は Projectile 側
+    ///   オービット … 毎ステップ位置を計算する球。**残らない**
+    ///   オーラ     … プレイヤーの周り。位置すら持たない
+    /// </code>
+    ///
+    /// オービットとオーラが <see cref="Projectile"/> を作らないのが要点。
+    /// 「武器 = 弾を出すもの」と決めつけて設計すると、この2つが入らない
+    /// (Day 29 の改造課題3で触れた分かれ道)。
     /// </summary>
-    private void UpdateWeapon(float dt)
+    private void UpdateWeapons(float dt)
     {
-        _fireTimer -= dt;
-        if (_fireTimer > 0.0f || ProjectileCount >= GameBalance.MaxProjectiles)
+        for (int i = 0; i < WeaponCount; i++)
         {
-            return;
-        }
+            ref WeaponState weapon = ref Weapons[i];
+            WeaponStats stats = HonyaEngine.Weapons.StatsFor(weapon.Kind, weapon.Level);
 
-        if (!TryFindNearestEnemy(PlayerPosition, GameBalance.TargetRange, out int target))
+            // **オービットだけ刻まない**。
+            //
+            // 球は 1 秒に 200px 以上動くので、0.2 秒ごとに位置を見ると
+            // その間に 50px 飛ぶ。飛んだ隙間にいた敵は一度も判定されない——
+            // 実際、最初は 0.22 秒刻みで書いていて、
+            // **オービットだけで 40 秒遊んで撃破 0 体**になった。
+            // Day 25 の改造課題3(弾が壁をすり抜ける)と同じことが、攻撃側で起きた。
+            //
+            // 直し方は2つあって、
+            //   1. 移動前と移動後を結んだ範囲で判定する(連続衝突判定)
+            //   2. **毎ステップ判定して、ダメージを時間で割る**
+            // ここでは 2 を採った。触れている間ずっと削る形になるので、
+            // 「巻き付いて削る武器」という手触りにも合う。
+            if (weapon.Kind == WeaponKind.Orbit)
+            {
+                weapon.Angle += stats.Speed * dt;
+                StrikeOrbit(in stats, in weapon, dt);
+                continue;
+            }
+
+            weapon.Timer -= dt;
+            if (weapon.Timer > 0.0f)
+            {
+                continue;
+            }
+
+            weapon.Timer = stats.Interval;
+
+            if (weapon.Kind == WeaponKind.Bolt)
+            {
+                FireBolt(in stats, ref weapon);
+            }
+            else
+            {
+                StrikeAura(in stats);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ボルト。**いちばん近い敵へ撃つ**。
+    ///
+    /// 狙う相手を探すのに格子を使う——全部の敵との距離を測ると
+    /// 1000 体で 1000 回になるが、<see cref="SpatialGrid.Query"/> なら
+    /// 射程の中だけを見ればよい。
+    ///
+    /// レベルが上がると弾数が増える。**同じ相手へ束で撃つのではなく、
+    /// 少しずつ角度をずらす**——束にすると1体を過剰に殺すだけで、
+    /// 群れに対して弱いままになる。
+    /// </summary>
+    private void FireBolt(in WeaponStats stats, ref WeaponState weapon)
+    {
+        if (!TryFindNearestEnemy(PlayerPosition, stats.Radius, out int target))
         {
             // 敵がいなければ撃たない。**空撃ちさせない**ことで、
             // 「敵が来た瞬間に撃つ」ようになる。
+            // タイマーも戻しておかないと、次に敵が来たとき1発ぶん遅れる。
+            weapon.Timer = 0.0f;
             return;
         }
 
-        _fireTimer = GameBalance.FireInterval;
-
         Vector2 direction = Vector2.Normalize(Enemies[target].Position - PlayerPosition);
+        float baseAngle = MathF.Atan2(direction.Y, direction.X);
 
-        Projectiles[ProjectileCount++] = new Projectile
+        // 弾数が偶数でも中心がずれないように、真ん中を基準に振り分ける。
+        const float spread = 0.16f;
+        float start = -spread * (stats.Count - 1) * 0.5f;
+
+        for (int i = 0; i < stats.Count; i++)
         {
-            Position = PlayerPosition,
-            Velocity = direction * GameBalance.ProjectileSpeed,
-            Life = GameBalance.ProjectileLife,
-            Damage = GameBalance.ProjectileDamage,
-        };
+            if (ProjectileCount >= GameBalance.MaxProjectiles)
+            {
+                break;
+            }
+
+            float angle = baseAngle + start + (spread * i);
+
+            Projectiles[ProjectileCount++] = new Projectile
+            {
+                Position = PlayerPosition,
+                Velocity = new Vector2(MathF.Cos(angle), MathF.Sin(angle)) * stats.Speed,
+                Life = GameBalance.ProjectileLife,
+                Damage = stats.Damage,
+            };
+        }
 
         OnEvent?.Invoke(GameEvent.Fire, PlayerPosition);
+    }
+
+    /// <summary>
+    /// オービット。**球の位置で当たっている敵を削る**。
+    ///
+    /// 弾を作らないので、寿命の管理も配列の出し入れも要らない。
+    /// 位置は角度から毎回計算する——<b>状態として持つのは角度ひとつ</b>。
+    ///
+    /// **毎ステップ判定して、ダメージは毎秒で持つ**(<see cref="UpdateWeapons"/> のコメント)。
+    /// 触れている間ずっと削るので、「敵ごとのクールダウン」も要らない——
+    /// <b>敵の構造体を太らせずに済む</b>のが、この形のうれしいところ。
+    /// </summary>
+    private void StrikeOrbit(in WeaponStats stats, in WeaponState weapon, float dt)
+    {
+        if (EnemyCount == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < stats.Count; i++)
+        {
+            Vector2 center = HonyaEngine.Weapons.OrbitPosition(PlayerPosition, weapon.Angle, i, in stats);
+
+            var box = Aabb2D.FromCenter(center, new Vector2(HonyaEngine.Weapons.OrbitBallRadius));
+            int found = _grid.Query(box, _queryBuffer);
+
+            var ball = new Circle2D(center, HonyaEngine.Weapons.OrbitBallRadius);
+
+            // **後ろから回す**。DamageEnemy は末尾と入れ替えて縮めるので、
+            // 前から回すと入れ替わってきた敵を飛ばす。
+            for (int c = found - 1; c >= 0; c--)
+            {
+                int e = _queryBuffer[c];
+                if (e >= EnemyCount)
+                {
+                    continue;
+                }
+
+                if (Collision2D.Overlap(ball, new Circle2D(Enemies[e].Position, Enemies[e].Radius)))
+                {
+                    // **毎秒のダメージを、このステップぶんに割る**。
+                    // dt を掛け忘れると 60 倍の威力になる。
+                    DamageEnemy(e, stats.Damage * dt);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// オーラ。**周囲の敵をまとめて削る**。
+    ///
+    /// 狙わない・飛ばない・当たり判定は円ひとつ。
+    /// <see cref="SpatialGrid.Query"/> の値打ちがいちばん素直に出るのがこれで、
+    /// 「半径 150px の中にいる敵」を全部の敵を調べずに取れる。
+    ///
+    /// <b>取りこぼしが起きうる</b>のは正直に書いておくところ。
+    /// <see cref="_queryBuffer"/> は 256 個までなので、
+    /// それ以上が範囲に入ったら入り切らなかったぶんは削れない。
+    /// ゲームとしては「効果範囲の敵は最大 256 体まで」という割り切りで、
+    /// 遊んでいて気づく類のものではない(Day 29 の <c>Query</c> のコメント)。
+    /// </summary>
+    private void StrikeAura(in WeaponStats stats)
+    {
+        if (EnemyCount == 0)
+        {
+            return;
+        }
+
+        var box = Aabb2D.FromCenter(PlayerPosition, new Vector2(stats.Radius));
+        int found = _grid.Query(box, _queryBuffer);
+
+        var area = new Circle2D(PlayerPosition, stats.Radius);
+
+        for (int c = found - 1; c >= 0; c--)
+        {
+            int e = _queryBuffer[c];
+            if (e >= EnemyCount)
+            {
+                continue;
+            }
+
+            if (Collision2D.Overlap(area, new Circle2D(Enemies[e].Position, Enemies[e].Radius)))
+            {
+                DamageEnemy(e, stats.Damage);
+            }
+        }
     }
 
     /// <summary>
@@ -627,7 +884,9 @@ internal sealed class SurvivorGame
     /// </summary>
     private void UpdateGems(float dt)
     {
-        float magnetSquared = GameBalance.GemMagnetRange * GameBalance.GemMagnetRange;
+        // **成長で伸びる**。Day 29 では定数だった。
+        float magnetRange = GameBalance.GemMagnetRange * MagnetMultiplier;
+        float magnetSquared = magnetRange * magnetRange;
         float pickupSquared = GameBalance.GemPickupRange * GameBalance.GemPickupRange;
 
         for (int i = 0; i < GemCount; i++)
@@ -653,30 +912,223 @@ internal sealed class SurvivorGame
 
             // 近いほど速く寄る。**等速だと最後の1歩が遅く感じる**。
             float distance = MathF.Sqrt(distanceSquared);
-            float pull = 1.0f - (distance / GameBalance.GemMagnetRange);
+            float pull = 1.0f - (distance / magnetRange);
             gem.Position += toPlayer / distance * (GameBalance.GemMagnetSpeed * (0.35f + pull) * dt);
         }
     }
 
     /// <summary>
-    /// レベルアップ。**今日は数字が上がるだけ**。
+    /// レベルアップ。**上がったら選択待ちに入る**。
     ///
-    /// Day 30 でここが「武器を選ぶ」に変わる。
-    /// 先に経験値とレベルの器を作っておくと、
-    /// 明日は「上がった瞬間に何をするか」だけを足せばよくなる。
+    /// Day 29 では数字が上がるだけだった。今日はここで時間を止めて、
+    /// 3つの選択肢を見せる。
+    ///
+    /// <b>1ステップで2レベル上がることがある</b>(大きなジェムをまとめて拾ったとき)。
+    /// Day 29 は <c>while</c> で回して一気に上げていたが、
+    /// 選択を挟むならそれはできない——**1回に1レベルずつ**処理して、
+    /// 選び終わってから次のレベルを見る。
+    /// 経験値は減らしてあるので、次の <see cref="Update"/> でまたここへ来る。
     /// </summary>
     private void CheckLevelUp()
     {
-        while (Experience >= ExperienceToNext)
+        if (Experience < ExperienceToNext)
         {
-            Experience -= ExperienceToNext;
-            Level++;
-
-            // ささやかな報酬。Day 30 まではこれだけ。
-            Health = MathF.Min(GameBalance.PlayerMaxHealth, Health + 8.0f);
-
-            OnEvent?.Invoke(GameEvent.LevelUp, PlayerPosition);
+            return;
         }
+
+        Experience -= ExperienceToNext;
+        Level++;
+        Health = MathF.Min(MaxHealth, Health + GameBalance.LevelUpHeal);
+
+        RollChoices();
+
+        // 選択肢が1つも作れない(全部の武器が最大)ことは無い——
+        // パッシブは何度でも取れるので、必ず 3 つ揃う。
+        Phase = GamePhase.LevelUp;
+        ChoiceCursor = 0;
+
+        OnEvent?.Invoke(GameEvent.LevelUp, PlayerPosition);
+    }
+
+    /// <summary>
+    /// 選択肢を引く。**重複させない**。
+    ///
+    /// 候補を全部並べてから、シャッフルして先頭から 3 つ取る。
+    /// 「引いて、被っていたら引き直す」書き方は、
+    /// **候補が少ないときに終わらなくなる**(全部の武器が最大でパッシブが3種類、
+    /// のような状況で無限ループになる)。
+    /// 並べてから選ぶほうが、候補の数によらず必ず終わる。
+    /// </summary>
+    private void RollChoices()
+    {
+        var pool = new List<UpgradeOption>(8);
+
+        for (int kind = 0; kind < HonyaEngine.Weapons.KindCount; kind++)
+        {
+            var weapon = (WeaponKind)kind;
+            int level = LevelOf(weapon);
+
+            if (level == 0)
+            {
+                if (WeaponCount < GameBalance.MaxWeapons)
+                {
+                    pool.Add(UpgradeOption.NewWeapon(weapon));
+                }
+            }
+            else if (level < HonyaEngine.Weapons.MaxLevel)
+            {
+                pool.Add(UpgradeOption.WeaponLevel(weapon, level));
+            }
+        }
+
+        // **パッシブは何度でも取れる**。上限を作らないのは、
+        // 武器を全部最大にしたあとも選ぶものが残るようにするため。
+        pool.Add(UpgradeOption.MaxHealth());
+        pool.Add(UpgradeOption.MoveSpeed());
+        pool.Add(UpgradeOption.Magnet());
+
+        // Fisher-Yates。**末尾から選んで前と入れ替える**だけで一様に混ざる。
+        for (int i = pool.Count - 1; i > 0; i--)
+        {
+            int j = _choiceRandom.Next(i + 1);
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+        }
+
+        ChoiceCount = Math.Min(GameBalance.UpgradeChoices, pool.Count);
+        for (int i = 0; i < ChoiceCount; i++)
+        {
+            Choices[i] = pool[i];
+        }
+    }
+
+    /// <summary>選択中の操作。上下で選び、決定は <see cref="ConfirmChoice"/>。</summary>
+    private void UpdateChoice(in InputSnapshot input)
+    {
+        if (ChoiceCount == 0)
+        {
+            Phase = GamePhase.Playing;
+            return;
+        }
+
+        // **押した瞬間だけ**動かす(Day 20 の要点2)。
+        // Held で書くと、押しっぱなしで一瞬にして端まで飛ぶ。
+        if (input.WasPressed(GameAction.MoveUp))
+        {
+            ChoiceCursor = (ChoiceCursor + ChoiceCount - 1) % ChoiceCount;
+        }
+
+        if (input.WasPressed(GameAction.MoveDown))
+        {
+            ChoiceCursor = (ChoiceCursor + 1) % ChoiceCount;
+        }
+    }
+
+    /// <summary>
+    /// いま指している選択肢を取って、ゲームへ戻る。
+    ///
+    /// **決定キーは外から呼ぶ**(<c>Program</c> の Enter)。
+    /// ゲーム側でキーを見ないのは、決定キーが何かを
+    /// <see cref="SurvivorGame"/> が知る必要が無いから。
+    /// </summary>
+    public void ConfirmChoice()
+    {
+        if (Phase != GamePhase.LevelUp || ChoiceCount == 0)
+        {
+            return;
+        }
+
+        Apply(Choices[ChoiceCursor]);
+
+        ChoiceCount = 0;
+        Phase = GamePhase.Playing;
+    }
+
+    private void Apply(in UpgradeOption option)
+    {
+        switch (option.Kind)
+        {
+            case UpgradeKind.NewWeapon:
+                AddWeapon(option.Weapon);
+                break;
+
+            case UpgradeKind.WeaponLevel:
+                for (int i = 0; i < WeaponCount; i++)
+                {
+                    if (Weapons[i].Kind == option.Weapon)
+                    {
+                        Weapons[i].Level++;
+                        break;
+                    }
+                }
+
+                break;
+
+            case UpgradeKind.MaxHealth:
+                MaxHealth += GameBalance.UpgradeMaxHealth;
+
+                // **増やしたぶんはその場で回復する**。
+                // 上限だけ増えても、その瞬間には何も嬉しくない。
+                Health = MathF.Min(MaxHealth, Health + GameBalance.UpgradeMaxHealth);
+                break;
+
+            case UpgradeKind.MoveSpeed:
+                SpeedMultiplier += GameBalance.UpgradeMoveSpeed;
+                break;
+
+            default:
+                MagnetMultiplier += GameBalance.UpgradeMagnet;
+                break;
+        }
+    }
+
+    private void AddWeapon(WeaponKind kind)
+    {
+        if (WeaponCount >= GameBalance.MaxWeapons || LevelOf(kind) > 0)
+        {
+            return;
+        }
+
+        Weapons[WeaponCount++] = new WeaponState
+        {
+            Kind = kind,
+            Level = 1,
+            Timer = 0.0f,
+            Angle = 0.0f,
+        };
+    }
+
+    /// <summary>
+    /// 武器を1つだけにする。**自己チェックとデバッグのための入り口**。
+    ///
+    /// 遊んでいる最中には呼ばれない。
+    /// 置いてあるのは「オーラだけで敵を削れるか」を機械に確かめさせるためで、
+    /// これが無いと、3つの武器が混ざった状態でしか試せない——
+    /// **ボルトが動いているせいで、オーラのバグに気づけない**ことになる。
+    ///
+    /// 製品のコードにテスト用の口を開けるのは賛否があるが、
+    /// <b>開けないと確かめられないものがある</b>のも事実で、
+    /// 「遊びからは絶対に呼ばれない」ことがはっきりしているなら置いてよい、
+    /// という判断で入れてある。
+    /// </summary>
+    public void SetSingleWeapon(WeaponKind kind, int level)
+    {
+        WeaponCount = 0;
+        AddWeapon(kind);
+        Weapons[0].Level = Math.Clamp(level, 1, HonyaEngine.Weapons.MaxLevel);
+    }
+
+    /// <summary>その武器のレベル。持っていなければ 0。</summary>
+    public int LevelOf(WeaponKind kind)
+    {
+        for (int i = 0; i < WeaponCount; i++)
+        {
+            if (Weapons[i].Kind == kind)
+            {
+                return Weapons[i].Level;
+            }
+        }
+
+        return 0;
     }
 
     // --- 配列から消す。**末尾と入れ替えて縮める** ---

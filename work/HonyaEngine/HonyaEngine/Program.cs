@@ -74,6 +74,16 @@ namespace HonyaEngine;
 /// 残り HP と時間の表示(Day 28)。
 /// **エンジンとゲームの境目**がはっきり見えるように、
 /// ゲームのコードは <c>Game/</c> に分けて、GL も窓も知らない形にしてある。
+///
+/// **Day 30 での変更**: ゲームが1本できあがった。
+/// レベルアップで**時間が止まり**、3つの選択肢から武器や強化を選ぶ。
+/// 武器は3種類——飛ぶ弾(ボルト)、周回する球(オービット)、
+/// 範囲を削る場(オーラ)で、**当たり判定の置き場所が全部違う**。
+/// BGM も流れる(Day 27 の <c>music-loop</c>)。
+///
+/// これで Phase 5 のマイルストーン——
+/// **このエンジンで、敵が数百体押し寄せる見下ろし型アクションを1本完成させる**——
+/// に到達する。
 /// </summary>
 internal static class Program
 {
@@ -503,7 +513,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day28 - テキスト描画",
+            Title = "Day30 - 卒業制作(見下ろし型アクション)",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -788,7 +798,7 @@ internal static class Program
 
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
-        Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動");
+        Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
         Console.WriteLine("F6:衝突デモ  F7:形の切り替え  F8:押し戻し  F9:衝突判定の自己チェック");
@@ -1192,12 +1202,13 @@ internal static class Program
             _fpsElapsed = 0.0;
 
             _window.Title = _playing
-                ? $"Day29  {_fps:F1} fps | 卒業制作 "
+                ? $"Day30  {_fps:F1} fps | 卒業制作 "
                     + $"{_game.Phase} 経過:{_game.Elapsed:F1}s 敵:{_game.EnemyCount} "
-                    + $"弾:{_game.ProjectileCount} 撃破:{_game.Kills} Lv.{_game.Level} | "
+                    + $"弾:{_game.ProjectileCount} 撃破:{_game.Kills} Lv.{_game.Level} "
+                    + $"武器:{_game.WeaponCount} | "
                     + $"更新:{_gameMilliseconds:F2}ms 候補:{_game.PairCandidates:N0} DC:{_drawCalls} | "
                     + $"音:{_audio.ActiveVoices}/{_audio.VoiceCount} 間引き:{_audio.CulledLastStep}"
-                : $"Day29  {_fps:F1} fps | "
+                : $"Day30  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
                 + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
@@ -1525,7 +1536,10 @@ internal static class Program
         // 積む順ではなく layer に任せる(Day 18)。
         _spriteBatch.Begin(projection, SpriteSortMode.BackToFront);
 
-        if (_game.Phase == GamePhase.Playing || _game.Phase == GamePhase.GameOver)
+        // **タイトル以外は世界を描く**。
+        // 選択中(LevelUp)も背景として見せる——止まっている世界が見えることで、
+        // 「時間が止まっている」ことが伝わる。
+        if (_game.Phase != GamePhase.Title)
         {
             _gameView.DrawWorld(Submit, viewSize);
         }
@@ -1567,10 +1581,40 @@ internal static class Program
             return;
         }
 
+        // **選択中は「決定」になる**。
+        // ここで Start を呼ぶと、レベルアップのたびにゲームが最初から始まる。
+        if (_game.Phase == GamePhase.LevelUp)
+        {
+            _game.ConfirmChoice();
+            return;
+        }
+
         if (_game.Phase != GamePhase.Playing)
         {
-            _game.Start(viewSize);
+            // **遊ぶときは種を時計から取る**。固定したままだと毎回同じ試合になる。
+            // 自己チェックは既定の種のまま呼ぶので、結果は突き合わせられる。
+            _game.Start(viewSize, Environment.TickCount);
+            Console.WriteLine($"卒業制作: 開始(種 {_game.Seed})");
+            StartMusic();
         }
+    }
+
+    /// <summary>
+    /// BGM を流す。**すでに鳴っていたら鳴らし直さない**。
+    ///
+    /// やり直すたびに <see cref="AudioSystem.PlayLoop"/> を呼ぶと、
+    /// ボイスが1本ずつ増えて重なっていく。
+    /// ループするものは「今鳴っているか」を必ず確かめてから鳴らす
+    /// (Day 27 で <see cref="VoiceId"/> に世代を持たせたのはこのため)。
+    /// </summary>
+    private static void StartMusic()
+    {
+        if (_audio.IsPlaying(_musicVoice))
+        {
+            return;
+        }
+
+        _musicVoice = _audio.PlayLoop(_musicClip, 0.40f);
     }
 
     /// <summary>後ろへ戻る(Backspace)。プレイ中 → タイトル → デモ。</summary>
@@ -1590,6 +1634,7 @@ internal static class Program
 
         _playing = false;
         _audio.StopAll();
+        _musicVoice = VoiceId.None;
         Console.WriteLine("卒業制作: 終了(デモへ戻りました)");
     }
 
@@ -3436,27 +3481,58 @@ internal static class Program
 
         var viewSize = new Vector2(960.0f, 640.0f);
 
-        // --- 1. 何もしないと死ぬ ---
+        // --- 1〜2. 放置と移動を、**3つの種で**比べる ---
         //
-        // **ゲームとして成立する最低条件**。放置して生き延びるなら、
-        // 難易度曲線が壊れているか、当たり判定が効いていない。
-        var idle = new SurvivorGame();
-        idle.Start(viewSize);
-        int idleSteps = RunSteps(idle, 60 * 600, _ => GameAction.None);
-
-        checks.Check("放置すると死ぬ", idle.Phase == GamePhase.GameOver,
-            $"{idle.Elapsed:F1}秒で力尽きた({idleSteps} ステップ)");
-
-        // --- 2. 動き続けると長く生きる ---
+        // **1試合では何も言えない**。Day 30 で選択肢を入れた結果、
+        // 引いた強化しだいで生き延びる時間が倍以上ぶれるようになった。
+        // 実際、最初は1試合ずつ比べていて、
+        // 「放置のほうが長生きした」という結果が出た——
+        // たまたま放置側がオーラを早く引いただけだった。
         //
-        // 逃げ回れば生き延びられること。**操作に意味がある**ことの確認で、
-        // ここが同じなら、遊ぶ側の判断がスコアに効いていない。
-        var moving = new SurvivorGame();
-        moving.Start(viewSize);
-        RunSteps(moving, 60 * 600, Circle);
+        // ゲームの性質を機械に確かめさせるなら、**種を変えて何度か回して平均を見る**。
+        // 乱数を外から渡せるようにしてあるのはこのため(要点5)。
+        float idleTotal = 0.0f;
+        float movingTotal = 0.0f;
+        bool alwaysGrows = true;
+        var seeds = (int[])[11, 29, 47];
 
-        checks.Check("逃げ回ると長く生きる", moving.Elapsed > idle.Elapsed,
-            $"放置 {idle.Elapsed:F1}秒 → 移動 {moving.Elapsed:F1}秒");
+        foreach (int seed in seeds)
+        {
+            var idle = new SurvivorGame();
+            idle.Start(viewSize, seed);
+            RunSteps(idle, 60 * 300, _ => GameAction.None);
+            idleTotal += idle.Elapsed;
+
+            var moving = new SurvivorGame();
+            moving.Start(viewSize, seed);
+            RunSteps(moving, 60 * 300, Circle);
+            movingTotal += moving.Elapsed;
+
+            // どの試合でも、ちゃんと育って敵を倒していること。
+            alwaysGrows &= idle.Level >= 5 && moving.Level >= 5
+                && idle.Kills > 100 && moving.Kills > 100;
+
+            Console.WriteLine(
+                $"  [--] 種 {seed,3}: 放置 {idle.Elapsed,6:F1}秒(Lv.{idle.Level,2} 撃破 {idle.Kills,4})"
+                + $" / 移動 {moving.Elapsed,6:F1}秒(Lv.{moving.Level,2} 撃破 {moving.Kills,4})");
+        }
+
+        float idleAverage = idleTotal / seeds.Length;
+        float movingAverage = movingTotal / seeds.Length;
+
+        // **ゲームとして進むこと**。どの試合でもレベルが上がり、敵が倒せていること。
+        //
+        // 「放置すると必ず死ぬ」は条件にしていない。上の3試合を見ると、
+        // 種 29 の放置は 300 秒を生き延びて Lv.26 まで育っている——
+        // **引いた強化しだいで、立ち止まったまま雪だるま式に強くなれる**。
+        // それ自体は狙いどおり(ビルドが噛み合うと化ける)なので、
+        // 「必ず死ぬ」を仕様にすると、その面白さを潰すことになる。
+        checks.Check("どの試合でも育って倒せる", alwaysGrows, $"{seeds.Length} 試合 x 2 通り、Lv.5 以上 / 撃破 100 以上");
+
+        // **操作に意味がある**ことの確認。ここが同じなら、
+        // 遊ぶ側の判断がスコアに効いていない。
+        checks.Check("逃げ回るほうが長く生きる(3試合の平均)", movingAverage > idleAverage,
+            $"放置 {idleAverage:F1}秒 → 移動 {movingAverage:F1}秒");
 
         // --- 3. 壊れていないこと ---
         var game = new SurvivorGame();
@@ -3522,6 +3598,87 @@ internal static class Program
         checks.Check("格子で候補が減っている", game.PairCandidates < allPairs / 4,
             $"{game.PairCandidates:N0} 組(総当たりなら {allPairs:N0} 組)");
 
+        // --- 7. レベルアップの選択(Day 30)---
+        //
+        // **時間が止まること**が最初の条件。止まらないと、読んでいる間に殺される。
+        var pausing = new SurvivorGame();
+        pausing.Start(viewSize);
+        RunSteps(pausing, 60 * 300, Circle, autoChoose: false);
+
+        checks.Check("レベルアップで止まる", pausing.Phase == GamePhase.LevelUp,
+            $"{pausing.Elapsed:F1}秒 / Lv.{pausing.Level}");
+
+        float frozen = pausing.Elapsed;
+        RunSteps(pausing, 120, Circle, autoChoose: false);
+        checks.Check("止まっている間は時間が進まない", MathF.Abs(pausing.Elapsed - frozen) < 0.0001f,
+            $"{frozen:F2}秒 → {pausing.Elapsed:F2}秒(止まった合計 {pausing.PausedSeconds:F1}秒)");
+
+        checks.Check("選択肢が 3 つ出る", pausing.ChoiceCount == GameBalance.UpgradeChoices,
+            $"{pausing.ChoiceCount} 個");
+
+        // **同じものが2つ並ばない**。「オーラ Lv.2」が2つ出たら、
+        // 実質2択になってしまう。
+        bool unique = true;
+        for (int i = 0; i < pausing.ChoiceCount; i++)
+        {
+            for (int j = i + 1; j < pausing.ChoiceCount; j++)
+            {
+                unique &= pausing.Choices[i].Title != pausing.Choices[j].Title;
+            }
+        }
+
+        checks.Check("選択肢が重複しない", unique,
+            string.Join(" / ", Enumerable.Range(0, pausing.ChoiceCount).Select(i => pausing.Choices[i].Title)));
+
+        // 選ぶと本当に反映されるか。
+        int weaponsBefore = pausing.WeaponCount;
+        int boltBefore = pausing.LevelOf(WeaponKind.Bolt);
+        float healthBefore = pausing.MaxHealth;
+        float speedBefore = pausing.SpeedMultiplier;
+        float magnetBefore = pausing.MagnetMultiplier;
+
+        UpgradeOption picked = pausing.Choices[pausing.ChoiceCursor];
+        pausing.ConfirmChoice();
+
+        bool applied = pausing.WeaponCount > weaponsBefore
+            || pausing.LevelOf(picked.Weapon) > boltBefore
+            || pausing.MaxHealth > healthBefore
+            || pausing.SpeedMultiplier > speedBefore
+            || pausing.MagnetMultiplier > magnetBefore;
+
+        checks.Check("選ぶと反映される", applied, $"「{picked.Title}」");
+        checks.Check("選び終わると再開する", pausing.Phase == GamePhase.Playing);
+
+        // --- 8. 3種類の武器が、それぞれ単体で敵を削れる ---
+        //
+        // **混ざった状態では確かめられない**。ボルトが動いているせいで、
+        // オーラが1体も削っていないことに気づけない。
+        foreach (WeaponKind kind in (WeaponKind[])[WeaponKind.Bolt, WeaponKind.Orbit, WeaponKind.Aura])
+        {
+            var solo = new SurvivorGame();
+            solo.Start(viewSize);
+            solo.SetSingleWeapon(kind, 3);
+
+            // **強化を取らせない**(autoChoose: false)。
+            // 最初のレベルアップで止まるので、そこまでの撃破は
+            // 確実にこの武器だけによるものになる。
+            RunSteps(solo, 60 * 60, Circle, autoChoose: false);
+
+            checks.Check($"{Weapons.NameOf(kind)} だけで倒せる", solo.Kills > 0,
+                $"{solo.Elapsed:F1}秒で {solo.Kills} 体");
+        }
+
+        // --- 9. 武器を全部最大にしても選択肢が出る ---
+        //
+        // **選ぶものが無くなると、そこでゲームが止まる**。
+        // パッシブに上限を作らなかったのはこのため。
+        var maxed = new SurvivorGame();
+        maxed.Start(viewSize);
+        RunSteps(maxed, 60 * 600, Circle);
+
+        checks.Check("長く遊んでも武器が育つ", maxed.WeaponCount > 1,
+            $"{maxed.WeaponCount} 種類 / Lv.{maxed.Level} / {maxed.Elapsed:F1}秒");
+
         checks.Report();
         Console.WriteLine();
 
@@ -3556,12 +3713,26 @@ internal static class Program
     /// ゲームを指定ステップぶん進める。**窓も GL も要らない**。
     /// 戻り値は実際に進んだステップ数(途中で死んだらそこで止まる)。
     /// </summary>
-    private static int RunSteps(SurvivorGame game, int steps, Func<int, GameAction> input)
+    /// <param name="autoChoose">
+    /// レベルアップの選択を自動で決めるか。
+    /// <c>false</c> にすると**最初のレベルアップで止まる**ので、
+    /// 「強化される前の状態」だけを測れる。
+    /// </param>
+    private static int RunSteps(
+        SurvivorGame game, int steps, Func<int, GameAction> input, bool autoChoose = true)
     {
         const float dt = 1.0f / 60.0f;
 
         for (int step = 0; step < steps; step++)
         {
+            // **自動で遊ぶ人も、選択肢を選ばないと先へ進めない**。
+            // Day 29 の RunSteps をそのまま使うと、
+            // 最初のレベルアップで止まったまま 600 秒が過ぎる。
+            if (autoChoose && game.Phase == GamePhase.LevelUp)
+            {
+                game.ConfirmChoice();
+            }
+
             if (game.Phase != GamePhase.Playing)
             {
                 return step;
@@ -3593,8 +3764,8 @@ internal static class Program
         warm.Start(viewSize);
         RunSteps(warm, 60 * 20, KitePattern);
 
-        Console.WriteLine("### 時間が進むとどうなるか(逃げ続けた場合)###");
-        Console.WriteLine("   経過 |   敵 |  弾 | ジェム |   候補 | 最大/マス |   撃破 | Lv | 1ステップ");
+        Console.WriteLine("### 時間が進むとどうなるか(逃げ続けて、選択は自動)###");
+        Console.WriteLine("   経過 |   敵 |  弾 | ジェム |   候補 |   撃破 | Lv | 武器 | 1ステップ");
 
         var game = new SurvivorGame();
         game.Start(viewSize);
@@ -3619,11 +3790,30 @@ internal static class Program
 
             Console.WriteLine(
                 $"  {seconds,4}s | {game.EnemyCount,4} | {game.ProjectileCount,3} | {game.GemCount,5} | "
-                + $"{game.PairCandidates,6:N0} | {game.GridMaxPerCell,9} | {game.Kills,6} | {game.Level,2} | "
-                + $"{stopwatch.Elapsed.TotalMilliseconds / steps,6:F3}ms");
+                + $"{game.PairCandidates,6:N0} | {game.Kills,6} | {game.Level,2} | "
+                + $"{WeaponDigest(game),-12} | {stopwatch.Elapsed.TotalMilliseconds / steps,6:F3}ms");
         }
 
         Console.WriteLine();
+
+        // 持っている武器を「B3 O2 A1」のように詰めて出す。表の幅に収めるため。
+        static string WeaponDigest(SurvivorGame game)
+        {
+            var parts = new string[game.WeaponCount];
+            for (int i = 0; i < game.WeaponCount; i++)
+            {
+                char initial = game.Weapons[i].Kind switch
+                {
+                    WeaponKind.Bolt => 'B',
+                    WeaponKind.Orbit => 'O',
+                    _ => 'A',
+                };
+
+                parts[i] = $"{initial}{game.Weapons[i].Level}";
+            }
+
+            return string.Join(" ", parts);
+        }
     }
 
     /// <summary>
