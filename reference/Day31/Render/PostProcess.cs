@@ -92,7 +92,7 @@ internal sealed class PostProcess : IDisposable
     private const int BlurIterations = 4;
 
     private readonly GL _gl;
-    private readonly ResourceManager _resources;
+    private readonly RenderResources _resources;
 
     /// <summary>シーンを描き込む先。深度つき。**ここだけ画面と同じ大きさ**。</summary>
     private readonly Framebuffer _scene;
@@ -119,7 +119,7 @@ internal sealed class PostProcess : IDisposable
 
     private bool _disposed;
 
-    public PostProcess(GL gl, ResourceManager resources, string shaderDirectory, int width, int height)
+    public PostProcess(GL gl, RenderResources resources, string shaderDirectory, int width, int height)
     {
         _gl = gl;
         _resources = resources;
@@ -408,6 +408,6 @@ internal sealed class PostProcess : IDisposable
         _gl.DeleteVertexArray(_emptyVao);
         _emptyVao = 0;
 
-        // シェーダは ResourceManager が持っているので、ここでは捨てない。
+        // シェーダは RenderResources が持っているので、ここでは捨てない。
     }
 }

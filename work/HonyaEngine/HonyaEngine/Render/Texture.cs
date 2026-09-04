@@ -175,6 +175,115 @@ internal sealed class Texture : IDisposable
     }
 
     /// <summary>
+    /// **1チャンネル(R8)の空テクスチャ**を作る。中身はあとから流し込む。
+    ///
+    /// フォントのグリフは色を持たない。持っているのは
+    /// 「その画素のどれだけが字で覆われているか」という 0〜255 の値ひとつだけで、
+    /// 色は描くときに頂点色から掛ける(<c>shaders/text.frag</c>)。
+    /// RGBA で持つと、同じ値を 4 回書くために 4 倍のメモリを使うことになる。
+    /// 512x512 なら 1MB が 256KB で済む。
+    ///
+    /// <b>ミップマップは作らない</b>。UI の文字は原寸で描くものなので、
+    /// 縮小版は使われないまま容量だけ食う。
+    /// <b>ClampToEdge にする</b>のも必須で、Repeat のままだと
+    /// アトラスの端の字が反対側からにじんで出る。
+    /// </summary>
+    public static unsafe Texture CreateR8(GL gl, int width, int height)
+    {
+        uint handle = gl.GenTexture();
+
+        gl.ActiveTexture(TextureUnit.Texture0);
+        gl.BindTexture(TextureTarget.Texture2D, handle);
+
+        gl.TexImage2D(
+            TextureTarget.Texture2D,
+            0,
+            InternalFormat.R8,
+            (uint)width,
+            (uint)height,
+            0,
+            PixelFormat.Red,
+            PixelType.UnsignedByte,
+
+            // null を渡すと「場所だけ確保して中身は未定義」になる。
+            // 全面を自分で埋めるならこれでよいが、**アトラスは隙間が残る**ので、
+            // 未定義のごみが端ににじむことがある。0 で埋めた配列を渡しておく。
+            null);
+
+        // 確保しただけでは中身が未定義なので、0 で塗りつぶす。
+        var zero = new byte[width * height];
+        fixed (byte* data = zero)
+        {
+            gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+            gl.TexSubImage2D(
+                TextureTarget.Texture2D, 0, 0, 0,
+                (uint)width, (uint)height,
+                PixelFormat.Red, PixelType.UnsignedByte, data);
+            gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
+        }
+
+        var texture = new Texture(gl, handle, width, height, hasMipmaps: false);
+        texture.SetFilter(TextureFilter.Linear);
+        texture.SetWrap(TextureWrap.ClampToEdge);
+
+        gl.BindTexture(TextureTarget.Texture2D, 0);
+
+        return texture;
+    }
+
+    /// <summary>
+    /// テクスチャの一部だけを書き換える。**アトラスに1文字ずつ足す**ために使う。
+    ///
+    /// <b>ここが今日いちばん有名な罠</b>。
+    /// OpenGL は既定で「各行は4バイト境界にそろっている」と思って読む
+    /// (<c>GL_UNPACK_ALIGNMENT</c> の既定値が 4)。
+    /// RGBA なら1画素4バイトなので必ずそろうが、
+    /// **1チャンネルだと幅が4の倍数のときしかそろわない**。
+    ///
+    /// 幅 15 のグリフを送ると、GL は「1行 16 バイト」のつもりで読み進めるので、
+    /// 2行目以降が1バイトずつずれて**字が斜めに崩れる**。
+    /// 幅がたまたま 4 の倍数の字(たとえば全角)だけ正しく出るので、
+    /// 「一部の字だけ壊れる」という形で出て原因が分かりにくい。
+    ///
+    /// 直し方は1行。**送る前に 1 にして、終わったら戻す**。
+    /// </summary>
+    public unsafe void UploadR8(int x, int y, int width, int height, ReadOnlySpan<byte> coverage)
+    {
+        if (coverage.Length < width * height)
+        {
+            throw new ArgumentException(
+                $"画素が足りません: {coverage.Length} バイト、必要なのは {width * height} バイト",
+                nameof(coverage));
+        }
+
+        Bind();
+
+        SetAlignment(1);
+
+        fixed (byte* data = coverage)
+        {
+            _gl.TexSubImage2D(
+                TextureTarget.Texture2D,
+                0,
+                x,
+                y,
+                (uint)width,
+                (uint)height,
+                PixelFormat.Red,
+                PixelType.UnsignedByte,
+                data);
+        }
+
+        // **他の描画に影響しないよう既定値へ戻す**。
+        // GL の状態はグローバルなので、変えっぱなしにすると
+        // 遠く離れた場所のテクスチャ読み込みが壊れる。
+        SetAlignment(4);
+
+        void SetAlignment(int alignment) =>
+            _gl.PixelStore(PixelStoreParameter.UnpackAlignment, alignment);
+    }
+
+    /// <summary>
     /// 指定したテクスチャユニットに結び付ける。
     ///
     /// **ユニットという段が挟まる**のが Phase 1 との大きな違い。

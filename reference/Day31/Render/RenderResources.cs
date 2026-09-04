@@ -5,19 +5,29 @@ using Silk.NET.OpenGL;
 namespace HonyaEngine;
 
 /// <summary>
-/// リソースの入口。**パスからハンドルを作り、寿命を管理し、非同期ロードを捌く**。
+/// 描画リソースの入口。**パスからハンドルを作り、寿命を管理し、非同期ロードを捌く**。
+///
+/// <b>Day 31 で名前と置き場所を変えた</b>。Day 30 までは <c>Core/ResourceManager.cs</c> だった。
+/// だが中で持っているのは <see cref="Texture"/> と <see cref="Shader"/> の2種類だけ、つまり全部 GL のもので、
+/// **<c>Core/</c> の中で <c>Silk.NET.OpenGL</c> を using している唯一のファイル**でもあった。
+/// 名前は「全リソースの窓口」を約束しているのに、中身は描画専用だった、ということ。
+///
+/// Day 25 の設計書で「きれいな形ではない」と書いた <c>Core</c> ⇔ <c>Render</c> の相互参照は、
+/// **このファイル1つが原因**だったので、<c>Render/</c> へ上げるだけで一方通行に戻る。
+/// <see cref="ResourcePool{T}"/> と <see cref="Handle{T}"/> は <c>Core/</c> に残す——
+/// あちらは <c>T</c> が何かを知らない総称型なので、下層に居るのが正しい。
 ///
 /// <see cref="ResourcePool{T}"/> が「箱」だとすると、こちらは「窓口」。
 /// 分けてあるのは、箱のほうが**リソースの種類を知らずに済む**から。
-/// プールは添字と世代しか扱わないので、テクスチャにもシェーダにも、
-/// このあとメッシュやフォントやオーディオが増えても、そのまま使い回せる。
+/// プールは添字と世代しか扱わないので、テクスチャにもシェーダにも使い回せる。
+/// Day 27 の <see cref="AudioSystem"/> がプールを自前で1本持っているのが、その実例。
 ///
 /// 窓口の仕事は3つ。
 ///   1. **重複排除** … 同じファイルを2回頼まれても1回しか読まない
 ///   2. **寿命** … 参照カウントをプールに預け、0 になったら GPU 側も破棄する
 ///   3. **非同期** … 読み込みでフレームを止めない(要点5・6)
 /// </summary>
-internal sealed class ResourceManager : IDisposable
+internal sealed class RenderResources : IDisposable
 {
     /// <summary>
     /// ワーカースレッドで復号し終えた画像。**GPU へ上げる前**の状態。
@@ -62,7 +72,7 @@ internal sealed class ResourceManager : IDisposable
 
     private int _pending;
 
-    public ResourceManager(GL gl)
+    public RenderResources(GL gl)
     {
         _gl = gl;
         _placeholder = CreatePlaceholder(gl);

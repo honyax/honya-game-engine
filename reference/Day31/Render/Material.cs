@@ -38,7 +38,7 @@ internal sealed class Material
         Shader = shader;
     }
 
-    /// <summary>使うシェーダ。実体は <see cref="ResourceManager"/> が持つ。</summary>
+    /// <summary>使うシェーダ。実体は <see cref="RenderResources"/> が持つ。</summary>
     public Handle<Shader> Shader { get; }
 
     /// <summary>色味。テクスチャの色に掛け算される。白(1,1,1,1)なら素通し。</summary>
@@ -62,11 +62,11 @@ internal sealed class Material
     /// <summary>
     /// このマテリアルを使う状態にする。**描画の直前に呼ぶ**。
     ///
-    /// ハンドルを解く相手が要るので、<see cref="ResourceManager"/> を受け取る形になった。
+    /// ハンドルを解く相手が要るので、<see cref="RenderResources"/> を受け取る形になった。
     /// マテリアル自身に管理者への参照を持たせてもよいが、
     /// **どの管理者に属するかが暗黙になる**ので引数で渡している。
     /// </summary>
-    public void Apply(ResourceManager resources)
+    public void Apply(RenderResources resources)
     {
         Shader shader = resources.GetShader(Shader);
         shader.Use();
@@ -80,7 +80,7 @@ internal sealed class Material
         // ここを取り違えると、たまたま動いてしまうことがあるぶん厄介
         // (ハンドルが小さい整数のときに偶然一致する)。
         //
-        // ハンドルが未設定でも <see cref="ResourceManager.GetTexture"/> は
+        // ハンドルが未設定でも <see cref="RenderResources.GetTexture"/> は
         // 仮の絵を返すので、**必ず何かを bind する**。
         // 「テクスチャが無いときは bind しない」にすると、
         // 直前に描いたものの絵がそのまま出てしまい、原因が分かりにくい。
