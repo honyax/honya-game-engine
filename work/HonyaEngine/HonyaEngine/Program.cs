@@ -65,6 +65,15 @@ namespace HonyaEngine;
 /// 3 回押すと見本帳が出て、日本語・大きさ・整列・カーニング・
 /// ピクセル丸めの効き目を並べて見られる。
 /// **文字も結局スプライト1枚**なので、Day 18 のバッチにそのまま乗る。
+///
+/// **Day 29 での変更**: 卒業制作が始まった。
+/// Enter で <see cref="SurvivorGame"/> に切り替わり、
+/// 見下ろし型の時間耐久アクションが動く。
+/// Day 25〜28 で作ったものが、ここで**ゲームの必然として**要る——
+/// 数百体の敵を捌く格子(Day 26)、倒したときの音(Day 27)、
+/// 残り HP と時間の表示(Day 28)。
+/// **エンジンとゲームの境目**がはっきり見えるように、
+/// ゲームのコードは <c>Game/</c> に分けて、GL も窓も知らない形にしてある。
 /// </summary>
 internal static class Program
 {
@@ -105,7 +114,16 @@ internal static class Program
     /// <summary>円の絵(<see cref="SpriteNames"/> の添字)。</summary>
     private const int CircleSprite = 0;
 
-    /// <summary>箱の絵。枠が見えるので**重なりが分かる**。</summary>
+    /// <summary>環の絵。Day 29 では硬い敵に使う。</summary>
+    private const int RingSprite = 1;
+
+    /// <summary>星の絵。Day 29 ではプレイヤーに使う。</summary>
+    private const int StarSprite = 2;
+
+    /// <summary>菱形の絵。Day 29 では経験値のジェムに使う。</summary>
+    private const int DiamondSprite = 3;
+
+    /// <summary>箱の絵。枠が見えるので**重なりが分かる**。Day 29 では HUD の帯にも使う。</summary>
     private const int BoxSprite = 4;
 
     /// <summary>
@@ -299,7 +317,18 @@ internal static class Program
     /// <summary>記録を終えた時点のプレイヤー状態のハッシュ。再生後に突き合わせる。</summary>
     private static ulong _recordEndHash;
 
-    // --- 今日の主役: 文字 ---
+    // --- 今日の主役: 卒業制作 ---
+
+    private static SurvivorGame _game = null!;
+    private static GameView _gameView = null!;
+
+    /// <summary>ゲームモードに入っているか(Enter)。デモとは排他。</summary>
+    private static bool _playing;
+
+    /// <summary>ゲームの1ステップにかかった時間(ミリ秒)の移動平均。</summary>
+    private static double _gameMilliseconds;
+
+    // --- Day 28 からの文字 ---
 
     /// <summary>見つかったフォント。見つからなければ null(文字なしで動く)。</summary>
     private static FontFace? _font;
@@ -680,6 +709,49 @@ internal static class Program
             Console.WriteLine("フォント: 見つかりませんでした(文字なしで続行します)");
         }
 
+        // --- 卒業制作 ---
+        //
+        // **ゲームは絵の種類しか知らない**(添字だけ受け取る)。
+        // テクスチャもアトラスも GL も知らないので、
+        // 描き方を差し替えてもゲームのコードは動かない。
+        _game = new SurvivorGame();
+        _gameView = new GameView(_game, CircleSprite, RingSprite, StarSprite, DiamondSprite, BoxSprite);
+
+        // 起きたことを音に変える。**ゲーム側は AudioSystem を知らない**ので、
+        // 対応表はここに置く(SurvivorGame.OnEvent のコメント)。
+        _game.OnEvent = (kind, _) =>
+        {
+            switch (kind)
+            {
+                case SurvivorGame.GameEvent.Fire:
+                    _audio.Play(_bounceClip, 0.22f, 1.5f);
+                    break;
+
+                case SurvivorGame.GameEvent.EnemyKilled:
+                    // **終盤は1ステップに数十体死ぬ**。
+                    // AudioSystem の間引き(Day 27 の要点5)が無いと、ここで破綻する。
+                    _audio.Play(_hitClip, 0.30f, 1.2f);
+                    break;
+
+                case SurvivorGame.GameEvent.PlayerHit:
+                    // 被弾は**間引かれては困る**ので優先度を上げる。
+                    _audio.Play(_hitClip, 0.85f, 0.65f, 0.0f, priority: 50);
+                    break;
+
+                case SurvivorGame.GameEvent.GemCollected:
+                    _audio.Play(_pickupClip, 0.30f, 1.35f);
+                    break;
+
+                case SurvivorGame.GameEvent.LevelUp:
+                    _audio.Play(_pickupClip, 0.75f, 0.8f, 0.0f, priority: 60);
+                    break;
+
+                case SurvivorGame.GameEvent.GameOver:
+                    _audio.Play(_hitClip, 0.9f, 0.45f, 0.0f, priority: 80);
+                    break;
+            }
+        };
+
         // --- 音 ---
         //
         // **描画とは完全に別のデバイス**なので、GL とは何の関係もない。
@@ -714,6 +786,9 @@ internal static class Program
             Console.WriteLine("オーディオ: 使えるデバイスがありません(音なしで続行します)");
         }
 
+        Console.WriteLine();
+        Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
+        Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動");
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
         Console.WriteLine("F6:衝突デモ  F7:形の切り替え  F8:押し戻し  F9:衝突判定の自己チェック");
@@ -1116,8 +1191,13 @@ internal static class Program
             _fpsFrames = 0;
             _fpsElapsed = 0.0;
 
-            _window.Title =
-                $"Day28  {_fps:F1} fps | "
+            _window.Title = _playing
+                ? $"Day29  {_fps:F1} fps | 卒業制作 "
+                    + $"{_game.Phase} 経過:{_game.Elapsed:F1}s 敵:{_game.EnemyCount} "
+                    + $"弾:{_game.ProjectileCount} 撃破:{_game.Kills} Lv.{_game.Level} | "
+                    + $"更新:{_gameMilliseconds:F2}ms 候補:{_game.PairCandidates:N0} DC:{_drawCalls} | "
+                    + $"音:{_audio.ActiveVoices}/{_audio.VoiceCount} 間引き:{_audio.CulledLastStep}"
+                : $"Day29  {_fps:F1} fps | "
 
                 // 今日いちばん見たい2つを前に出す。タイトルバーは思ったより早く切れる。
                 + $"{BackendLabel()} 更新:{_updateMilliseconds:F2}ms "
@@ -1211,6 +1291,19 @@ internal static class Program
         var stopwatch = Stopwatch.StartNew();
 
         var bounds = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        // **ゲームモードのときはデモを回さない**。
+        // 同じ入力を2つの世界が食い合うと、どちらも思ったとおりに動かなくなる。
+        if (_playing)
+        {
+            var gameStopwatch = Stopwatch.StartNew();
+            _game.ViewSize = bounds;
+            _game.Update(dt, input);
+            _gameMilliseconds = (_gameMilliseconds * 0.9) + (gameStopwatch.Elapsed.TotalMilliseconds * 0.1);
+
+            _updateMilliseconds = (_updateMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+            return;
+        }
 
         _scene.Input = input;
         _scene.Bounds = bounds;
@@ -1384,6 +1477,14 @@ internal static class Program
         _gl.ClearColor(0.08f, 0.09f, 0.12f, 1.0f);
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 
+        if (_playing)
+        {
+            RenderGame();
+            _drawCalls = _spriteBatch.DrawCallCount;
+            RenderText();
+            return;
+        }
+
         if (_draw3D)
         {
             Render3D();
@@ -1396,6 +1497,100 @@ internal static class Program
 
         // **文字はいちばん最後**。UI は何よりも手前に出る。
         RenderText();
+    }
+
+    /// <summary>
+    /// 卒業制作を描く。
+    ///
+    /// **デモの描画をひとつも呼んでいない**のがポイント。
+    /// 3D の背景もスプライトの群れもロードの帯も出さず、
+    /// 使うのは <see cref="SpriteBatch"/> と <see cref="TextRenderer"/> だけ——
+    /// つまり<b>エンジンの機能のうち、ゲームが実際に要るものだけ</b>を通っている。
+    ///
+    /// 描く順は 世界 → HUD。HUD はカメラの影響を受けないので、
+    /// **座標系が違う**(世界座標とスクリーン座標)。
+    /// 同じバッチに積めるのは、<see cref="GameView"/> の側で
+    /// 世界座標をスクリーン座標に直してから渡しているため。
+    /// </summary>
+    private static void RenderGame()
+    {
+        var viewSize = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        Matrix4x4 projection = Camera.CreateScreen(
+            0.0f, viewSize.X,
+            viewSize.Y, 0.0f,
+            -1.0f, 1.0f);
+
+        // **奥行きで並べ替える**。ジェム → 敵 → 弾 → プレイヤー → HUD の順に出したいので、
+        // 積む順ではなく layer に任せる(Day 18)。
+        _spriteBatch.Begin(projection, SpriteSortMode.BackToFront);
+
+        if (_game.Phase == GamePhase.Playing || _game.Phase == GamePhase.GameOver)
+        {
+            _gameView.DrawWorld(Submit, viewSize);
+        }
+
+        _gameView.DrawHudShapes(Submit, viewSize);
+
+        _spriteBatch.End();
+
+        // 文字は別のバッチ(シェーダが違う。Day 28)。
+        // **同じ HUD が2つのバッチに分かれる**が、
+        // 帯は layer 0.85〜0.9、文字はその上に出るので重なりは崩れない。
+        if (_text is not null && _textBatch is not null)
+        {
+            _textBatch.Begin(projection, SpriteSortMode.Texture);
+            _gameView.DrawHudText(_text, _textBatch, viewSize);
+            _textBatch.End();
+        }
+    }
+
+    /// <summary>
+    /// 前へ進む(Enter)。デモ → タイトル → 開始 → やり直し。
+    ///
+    /// **ゲームモードに入るとデモは回らなくなる**(<see cref="FixedUpdate"/>)。
+    /// 2万個のスプライトを裏で更新したまま遊ぶと、
+    /// 「ゲームが重い」のか「デモが重い」のか分からなくなる。
+    /// </summary>
+    private static void EnterGame()
+    {
+        var viewSize = new Vector2(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        if (!_playing)
+        {
+            _playing = true;
+            _game.ReturnToTitle();
+            _game.ViewSize = viewSize;
+
+            Console.WriteLine("卒業制作: タイトル(Enter で開始 / Backspace でデモへ戻る)");
+            Console.WriteLine("  矢印キーで移動。攻撃は自動。Tab で自己チェックと計測");
+            return;
+        }
+
+        if (_game.Phase != GamePhase.Playing)
+        {
+            _game.Start(viewSize);
+        }
+    }
+
+    /// <summary>後ろへ戻る(Backspace)。プレイ中 → タイトル → デモ。</summary>
+    private static void LeaveGame()
+    {
+        if (!_playing)
+        {
+            return;
+        }
+
+        if (_game.Phase == GamePhase.Playing)
+        {
+            _game.ReturnToTitle();
+            Console.WriteLine("卒業制作: タイトルへ戻りました");
+            return;
+        }
+
+        _playing = false;
+        _audio.StopAll();
+        Console.WriteLine("卒業制作: 終了(デモへ戻りました)");
     }
 
     /// <summary>
@@ -3218,6 +3413,220 @@ internal static class Program
     }
 
     /// <summary>
+    /// **卒業制作の自己チェック**(Tab)。
+    ///
+    /// ゲームは<b>窓を出さずに回せる</b>。
+    /// <see cref="SurvivorGame"/> が GL も <c>Silk.NET</c> も知らないので、
+    /// 入力を作って <c>Update</c> を呼ぶだけで何分ぶんでも進められる。
+    /// **これが「エンジンとゲームを分ける」ことの実利**で、
+    /// 遊んで確かめるしかない状態だと、
+    /// 「5分後に敵が何体になるか」を知るのに毎回5分かかる。
+    ///
+    /// 見ているのは3種類。
+    ///   1. <b>壊れないこと</b> — 上限を超えない、NaN が出ない、消し忘れが無い
+    ///   2. <b>ゲームとして成立すること</b> — 動かなければ死ぬ、倒せばレベルが上がる
+    ///   3. <b>決定性</b> — 同じ入力なら同じ結果(Day 19 の要点6)
+    /// </summary>
+    private static void RunGameCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[卒業制作の自己チェック]");
+
+        var viewSize = new Vector2(960.0f, 640.0f);
+
+        // --- 1. 何もしないと死ぬ ---
+        //
+        // **ゲームとして成立する最低条件**。放置して生き延びるなら、
+        // 難易度曲線が壊れているか、当たり判定が効いていない。
+        var idle = new SurvivorGame();
+        idle.Start(viewSize);
+        int idleSteps = RunSteps(idle, 60 * 600, _ => GameAction.None);
+
+        checks.Check("放置すると死ぬ", idle.Phase == GamePhase.GameOver,
+            $"{idle.Elapsed:F1}秒で力尽きた({idleSteps} ステップ)");
+
+        // --- 2. 動き続けると長く生きる ---
+        //
+        // 逃げ回れば生き延びられること。**操作に意味がある**ことの確認で、
+        // ここが同じなら、遊ぶ側の判断がスコアに効いていない。
+        var moving = new SurvivorGame();
+        moving.Start(viewSize);
+        RunSteps(moving, 60 * 600, Circle);
+
+        checks.Check("逃げ回ると長く生きる", moving.Elapsed > idle.Elapsed,
+            $"放置 {idle.Elapsed:F1}秒 → 移動 {moving.Elapsed:F1}秒");
+
+        // --- 3. 壊れていないこと ---
+        var game = new SurvivorGame();
+        game.Start(viewSize);
+        RunSteps(game, 60 * 150, Circle);
+
+        checks.Check("敵が配列を超えない", game.EnemyCount <= GameBalance.MaxEnemies,
+            $"{game.EnemyCount} / {GameBalance.MaxEnemies}");
+        checks.Check("弾が配列を超えない", game.ProjectileCount <= GameBalance.MaxProjectiles,
+            $"{game.ProjectileCount} / {GameBalance.MaxProjectiles}");
+        checks.Check("ジェムが配列を超えない", game.GemCount <= GameBalance.MaxGems,
+            $"{game.GemCount} / {GameBalance.MaxGems}");
+
+        // **死んだ敵が残っていないこと**。
+        // 末尾と入れ替えて縮める書き方は、`i--` を忘れると取りこぼす。
+        // 体力が 0 以下の敵が残っていたら、それが起きている。
+        bool allAlive = true;
+        bool finite = true;
+        for (int i = 0; i < game.EnemyCount; i++)
+        {
+            allAlive &= game.Enemies[i].Health > 0.0f;
+            finite &= float.IsFinite(game.Enemies[i].Position.X)
+                && float.IsFinite(game.Enemies[i].Position.Y);
+        }
+
+        checks.Check("倒した敵が配列に残っていない", allAlive, $"生存 {game.EnemyCount} 体");
+
+        // 押し合いは中心が重なると向きが決まらない。
+        // Day 25 で NaN を潰してあるので、ここは通るはず(通らなければ退化ケースの取りこぼし)。
+        checks.Check("押し合いで座標が壊れない", finite);
+        checks.Check("プレイヤーの座標が壊れない",
+            float.IsFinite(game.PlayerPosition.X) && float.IsFinite(game.PlayerPosition.Y),
+            $"{game.PlayerPosition}");
+
+        // --- 4. 遊びとして進むこと ---
+        checks.Check("敵を倒せている", game.Kills > 0, $"{game.Kills} 体");
+        checks.Check("レベルが上がる", game.Level > 1, $"Lv.{game.Level}");
+        checks.Check("敵が押し寄せている", game.EnemyCount > 20, $"{game.EnemyCount} 体");
+
+        // --- 5. 決定性(Day 19 の要点6)---
+        //
+        // 同じ入力を与えれば同じ結果になること。
+        // **これが崩れるとリプレイもテストも成り立たない**。
+        var runA = new SurvivorGame();
+        var runB = new SurvivorGame();
+        runA.Start(viewSize);
+        runB.Start(viewSize);
+        RunSteps(runA, 60 * 45, Circle);
+        RunSteps(runB, 60 * 45, Circle);
+
+        checks.Check("同じ入力なら同じ結果",
+            runA.Kills == runB.Kills
+                && runA.EnemyCount == runB.EnemyCount
+                && runA.Level == runB.Level
+                && runA.PlayerPosition == runB.PlayerPosition,
+            $"撃破 {runA.Kills}/{runB.Kills}  敵 {runA.EnemyCount}/{runB.EnemyCount}");
+
+        // --- 6. 格子が効いていること ---
+        //
+        // 押し合いの候補が、総当たりの組数よりはっきり少ないこと。
+        // **ここが同じなら空間分割が働いていない**(Day 26 の要点6と同じ趣旨)。
+        long allPairs = (long)game.EnemyCount * (game.EnemyCount - 1) / 2;
+        checks.Check("格子で候補が減っている", game.PairCandidates < allPairs / 4,
+            $"{game.PairCandidates:N0} 組(総当たりなら {allPairs:N0} 組)");
+
+        checks.Report();
+        Console.WriteLine();
+
+        BenchmarkGame();
+
+        // **逃げ回る入力**。決定性のために、乱数ではなく step から決める。
+        static GameAction Circle(int step) => KitePattern(step);
+    }
+
+    /// <summary>
+    /// 自己チェックと計測で使う「遊んでいる人の代わり」。
+    ///
+    /// **大きく回り込む**動き。1 辺 2.5 秒(450px)なので、
+    /// 追ってくる敵の塊から実際に抜けられる。
+    /// 最初は 1 辺 0.75 秒にしていて、それだと**その場で足踏みしているのと同じ**になり、
+    /// 「逃げても放置しても同じ秒数で死ぬ」という結果が出た。
+    /// 自動で遊ばせるときは、**その動きが人の遊び方に似ているか**を疑うこと。
+    /// </summary>
+    private static GameAction KitePattern(int step) => ((step / 200) % 8) switch
+    {
+        0 => GameAction.MoveRight,
+        1 => GameAction.MoveRight | GameAction.MoveDown,
+        2 => GameAction.MoveDown,
+        3 => GameAction.MoveDown | GameAction.MoveLeft,
+        4 => GameAction.MoveLeft,
+        5 => GameAction.MoveLeft | GameAction.MoveUp,
+        6 => GameAction.MoveUp,
+        _ => GameAction.MoveUp | GameAction.MoveRight,
+    };
+
+    /// <summary>
+    /// ゲームを指定ステップぶん進める。**窓も GL も要らない**。
+    /// 戻り値は実際に進んだステップ数(途中で死んだらそこで止まる)。
+    /// </summary>
+    private static int RunSteps(SurvivorGame game, int steps, Func<int, GameAction> input)
+    {
+        const float dt = 1.0f / 60.0f;
+
+        for (int step = 0; step < steps; step++)
+        {
+            if (game.Phase != GamePhase.Playing)
+            {
+                return step;
+            }
+
+            var snapshot = new InputSnapshot(
+                input(step), GameAction.None, GameAction.None, Vector2.Zero, Vector2.Zero, 0.0f);
+
+            game.Update(dt, snapshot);
+        }
+
+        return steps;
+    }
+
+    /// <summary>
+    /// ゲームの重さを測る。**「何体まで捌けるか」を知るため**。
+    ///
+    /// 遊んでいるときの 1 ステップは 0.5ms 前後だが、
+    /// それは「今その体数だから」でしかない。
+    /// 時間を進めて体数が増えたときにどうなるかは、
+    /// **回してみないと分からない**。
+    /// </summary>
+    private static void BenchmarkGame()
+    {
+        var viewSize = new Vector2(960.0f, 640.0f);
+
+        // 温め。Day 26 で踏んだ段階的 JIT の罠を避ける。
+        var warm = new SurvivorGame();
+        warm.Start(viewSize);
+        RunSteps(warm, 60 * 20, KitePattern);
+
+        Console.WriteLine("### 時間が進むとどうなるか(逃げ続けた場合)###");
+        Console.WriteLine("   経過 |   敵 |  弾 | ジェム |   候補 | 最大/マス |   撃破 | Lv | 1ステップ");
+
+        var game = new SurvivorGame();
+        game.Start(viewSize);
+
+        int previous = 0;
+
+        foreach (int seconds in (int[])[15, 30, 60, 90, 120, 150, 180, 210, 240, 300])
+        {
+            int target = seconds * 60;
+            int steps = target - previous;
+            previous = target;
+
+            var stopwatch = Stopwatch.StartNew();
+            RunSteps(game, steps, KitePattern);
+            stopwatch.Stop();
+
+            if (game.Phase != GamePhase.Playing)
+            {
+                Console.WriteLine($"  {seconds,4}s | ここで力尽きた({game.Elapsed:F1}秒 / 撃破 {game.Kills})");
+                break;
+            }
+
+            Console.WriteLine(
+                $"  {seconds,4}s | {game.EnemyCount,4} | {game.ProjectileCount,3} | {game.GemCount,5} | "
+                + $"{game.PairCandidates,6:N0} | {game.GridMaxPerCell,9} | {game.Kills,6} | {game.Level,2} | "
+                + $"{stopwatch.Elapsed.TotalMilliseconds / steps,6:F3}ms");
+        }
+
+        Console.WriteLine();
+    }
+
+    /// <summary>
     /// **テキストの自己チェック**(スラッシュ)。
     ///
     /// 文字の不具合は目で見れば分かる——ように思えるが、
@@ -4444,7 +4853,35 @@ internal static class Program
                 RunAudioCheck();
                 break;
 
-            // --- 今日のスイッチ(文字)---
+            // --- 今日のスイッチ(卒業制作)---
+            //
+            // **キーの意味を2つに分ける**。
+            //   Enter     … 前へ進む(デモ → タイトル → 開始 → やり直し)
+            //   Backspace … 後ろへ戻る(プレイ中 → タイトル → デモ)
+            // 1つのキーで往復させると、今どちらへ動くのかが分からなくなる。
+            case Key.Enter:
+            case Key.KeypadEnter:
+                EnterGame();
+                break;
+
+            case Key.Backspace:
+                LeaveGame();
+                break;
+
+            case Key.Tab when _playing:
+                RunGameCheck();
+                break;
+
+            case Key.End when _playing && _game.Phase == GamePhase.Playing:
+                // **時間を飛ばす**。時間で難しくなるゲームは、
+                // 終盤を見るのに毎回そこまで遊ぶ必要が出てくる。
+                // 窓を出さずに回せる作りにしてあるので(RunSteps)、
+                // 30 秒ぶんの 1800 ステップは一瞬で終わる。
+                RunSteps(_game, 30 * 60, _ => GameAction.None);
+                Console.WriteLine($"早送り: {_game.Elapsed:F0}秒 / 敵 {_game.EnemyCount} 体");
+                break;
+
+            // --- Day 28 のスイッチ(文字)---
             case Key.Semicolon:
                 _overlay = (_overlay + 1) % 4;
                 Console.WriteLine($"画面内の表示: {OverlayLabel()}"

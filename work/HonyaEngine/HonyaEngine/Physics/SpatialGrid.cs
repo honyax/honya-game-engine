@@ -45,6 +45,19 @@ internal readonly struct BroadPair
 ///    大きすぎると1マスに大量に入って結局そのマスの中で総当たりになる。
 ///    目安は「物体の平均的な直径くらい」だが、**最後は測って決める**(F12 の掃引)
 ///
+/// **使い方は2通りある**。
+///
+/// <code>
+///   CollectPairs … 全部の組を列挙する。総当たりの置き換え
+///   Query        … 1つの箱の近くにいるものを集める。単発の問い合わせ
+/// </code>
+///
+/// 前者は「敵どうしの押し合い」のように<b>全員対全員</b>を見る場面、
+/// 後者は「この弾に当たっている敵は?」「いちばん近い敵は?」のように
+/// <b>特定の1つから探す</b>場面で使う。
+/// 格子は1回組めば両方に使い回せる——Day 29 の卒業制作では、
+/// 1ステップに1回組んだ格子を4通りに使っている。
+///
 /// この構造は 3D でもそのまま通る。Day 46 で 3D 版(セルが立方体になるだけ)へ広げる。
 /// </summary>
 internal sealed class SpatialGrid
@@ -172,6 +185,10 @@ internal sealed class SpatialGrid
     {
         int cells = CellCount;
 
+        // **印の確保はここでやる**。組んだあとなら <see cref="CollectPairs"/> も
+        // <see cref="Query"/> も同じ印を使えるので、置き場所はここが自然。
+        EnsureMark(bounds.Length);
+
         if (_cellStart.Length < cells + 1)
         {
             _cellStart = new int[cells + 1];
@@ -255,23 +272,9 @@ internal sealed class SpatialGrid
         _pairCount = 0;
         CoLocatedPairs = 0;
 
-        if (_mark.Length < bounds.Length)
-        {
-            _mark = new int[Math.Max(bounds.Length * 2, 64)];
-        }
-
         if (_pairs.Length < 64)
         {
             _pairs = new BroadPair[1024];
-        }
-
-        // 通し番号が上限に届いたら、そのときだけ印を消して 0 に戻す。
-        // 1万体 60fps でも1時間近くかかる話だが、**起きたら組を丸ごと取りこぼす**
-        // 種類のバグなので潰しておく。
-        if (_stamp > int.MaxValue - bounds.Length - 1)
-        {
-            Array.Clear(_mark);
-            _stamp = 0;
         }
 
         for (int i = 0; i < bounds.Length; i++)
@@ -323,6 +326,93 @@ internal sealed class SpatialGrid
         }
 
         return _pairCount;
+    }
+
+    /// <summary>
+    /// 箱の近くにいるものを集める。**単発の問い合わせ**。
+    ///
+    /// <see cref="CollectPairs"/> が「全部の組」を返すのに対して、
+    /// こちらは「この箱の近くにいるもの」だけを返す。
+    /// 弾が当たった敵を探す、いちばん近い敵を探す、
+    /// 爆風の範囲に入っている敵を探す——**1対多**はこちらになる。
+    ///
+    /// <b>返すのは候補まで</b>。同じマスにいるだけで実際には離れている相手も混ざる。
+    /// <see cref="CollectPairs"/> は外接 AABB で足切りしていたが、こちらはしない——
+    /// 呼び出し側が持っている形(円なのか箱なのか)で判定したほうが
+    /// 正確だし速いことが多いため。**ブロードフェーズは絞るところまで**。
+    ///
+    /// <paramref name="results"/> があふれたらそこで打ち切る。
+    /// **足りなくても落とさない**代わりに、取りこぼしが起きる。
+    /// 「爆風に巻き込まれる敵は最大 64 体まで」のような割り切りは、
+    /// ゲームでは普通に受け入れられる(戻り値と長さを比べれば起きたことは分かる)。
+    /// </summary>
+    /// <returns>見つかった数。<paramref name="results"/> の長さで打ち切られる。</returns>
+    public int Query(in Aabb2D box, Span<int> results)
+    {
+        if (results.Length == 0 || _cellStart.Length == 0)
+        {
+            return 0;
+        }
+
+        int stamp = ++_stamp;
+        int found = 0;
+
+        CellRange(box, out int x0, out int y0, out int x1, out int y1);
+
+        for (int cy = y0; cy <= y1; cy++)
+        {
+            int rowBase = cy * _columns;
+
+            for (int cx = x0; cx <= x1; cx++)
+            {
+                int cell = rowBase + cx;
+                int end = _cellStart[cell + 1];
+
+                for (int e = _cellStart[cell]; e < end; e++)
+                {
+                    int index = _entries[e];
+
+                    // **またがっているものは複数のマスで見つかる**。
+                    // 組を作るときと同じ印で潰す(<see cref="CollectPairs"/> の要点2)。
+                    if (_mark[index] == stamp)
+                    {
+                        continue;
+                    }
+
+                    _mark[index] = stamp;
+                    results[found++] = index;
+
+                    if (found == results.Length)
+                    {
+                        return found;
+                    }
+                }
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// 印の配列を用意し、通し番号があふれそうなら 0 に戻す。
+    ///
+    /// 毎回クリアする代わりに番号を進めていく方式なので、
+    /// **番号が一周すると古い印が「今回の印」に見えてしまう**。
+    /// 1万体 60fps でも1時間近くかかる話だが、
+    /// 起きたら組を丸ごと取りこぼす種類のバグなので潰しておく。
+    /// </summary>
+    private void EnsureMark(int count)
+    {
+        if (_mark.Length < count)
+        {
+            _mark = new int[Math.Max(count * 2, 64)];
+        }
+
+        if (_stamp > int.MaxValue - count - 2)
+        {
+            Array.Clear(_mark);
+            _stamp = 0;
+        }
     }
 
     /// <summary>
