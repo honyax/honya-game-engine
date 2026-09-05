@@ -1817,7 +1817,6 @@ internal static class Program
         // 後処理の外に置いてあるので、露出やトーンマップの影響を受けない——
         // デバッグ表示は「見たままの値」であってほしいので、通してはいけない。
         _shadow.DrawDebug(_window.FramebufferSize.X, _window.FramebufferSize.Y);
-
     }
 
     /// <summary>
