@@ -301,6 +301,7 @@ Day 33 の作成時に検証用の一時コードを外した跡で、
     成分 9〜12
 11. **`Program.cs`**(変更)
     Day 34 のフィールド → `OnLoad`(3枚の生成とマテリアル)→
+    **`OnRender` に `else if (_surfaceDemo)` の枝を足す**(`_model is not null` の直前)→
     `Render3D` のフレーム uniform と分岐 → `RenderSurfaceDemo` →
     深度パスの分岐 → `SetModel`(接線の出どころを出す)→
     `DebugChannelLabel` / `ParallaxLabel` / `TangentLabel` → HUD の行 →

@@ -268,6 +268,7 @@ Cook-Torrance は微小な鏡で**1回だけ**跳ねる前提なので、
 5. **`Program.cs`**(変更)
    Day 35 のフィールド(`GridLightDirection` / `GridLightScale` / `GridColors` まで)→
    `OnLoad`(`_sphere` の生成、白 1x1、`_gridMaterial`)→
+   **`OnRender` の `else if (_surfaceDemo)` を `_materialGrid || _surfaceDemo` へ**(Day 34 で足した枝)→
    `Render3D` のフレーム uniform と分岐 → **`RenderMaterialGrid`** →
    深度パスの分岐 → `DebugChannelLabel` の 13〜17 →
    `MetallicOverrideValue` / `RoughnessOverrideValue` / `PbrLabel` → HUD の行 →

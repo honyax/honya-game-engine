@@ -2066,6 +2066,25 @@ internal static class Program
             _drawCalls = _spriteBatch.DrawCallCount;
             RenderText();
         }
+        else if (_materialGrid || _surfaceDemo)
+        {
+            // **材質グリッドと材質テストの板は、それだけを見る絵**(Day 34・35)。
+            //
+            // 下のモデルの枝とまったく同じ扱いにする。スプライトの群れもロードの帯も出さない——
+            // 材質の差も板の凹凸も細かいので、上に 1000 枚のスプライトが重なると
+            // **何を見ているのかすら分からなくなる**。
+            //
+            // <b>分岐を Render3D の中ではなくここに置く</b>のが要点。
+            // グリッドと板を選ぶ分岐自体は Render3D の中にもあるが、そちらは
+            // `_draw3D`(G キー)でまるごと飛ばされる枝の内側にある。
+            // Ctrl+Shift+5 で「グリッドを出せ」と言われたのに
+            // 3D 背景のスイッチで消えるのは筋が通らないので、判断をここへ上げた。
+            //
+            // ドローコールは RenderMaterialGrid / RenderSurfaceDemo が数える。
+            // 下の枝で `_spriteBatch.DrawCallCount` に上書きされないのも、分けた効き目。
+            Render3D();
+            RenderText();
+        }
         else if (_model is not null)
         {
             // **モデルを見せている間はデモを出さない**(Day 32)。

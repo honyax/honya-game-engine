@@ -1867,6 +1867,24 @@ internal static class Program
             _drawCalls = _spriteBatch.DrawCallCount;
             RenderText();
         }
+        else if (_surfaceDemo)
+        {
+            // **材質テストの板は、それだけを見る絵**(Day 34)。
+            //
+            // 下のモデルの枝とまったく同じ扱いにする。スプライトの群れもロードの帯も出さない——
+            // 板の凹凸は細かいので、上に 1000 枚のスプライトが重なると
+            // **視差が効いているのかどうかすら分からなくなる**。
+            //
+            // <b>分岐を Render3D の中ではなくここに置く</b>のが要点。
+            // 板を描く分岐自体は Render3D の中にもあるが、そちらは `_draw3D`(G キー)で
+            // まるごと飛ばされる枝の内側にある。Alt+5 で「板を出せ」と言われたのに
+            // 3D 背景のスイッチで消えるのは筋が通らないので、判断をここへ上げた。
+            //
+            // ドローコールは RenderSurfaceDemo が数える(板2枚なので 2)。
+            // 下の枝で `_spriteBatch.DrawCallCount` に上書きされないのも、分けた効き目。
+            Render3D();
+            RenderText();
+        }
         else if (_model is not null)
         {
             // **モデルを見せている間はデモを出さない**(Day 32)。
