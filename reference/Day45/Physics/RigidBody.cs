@@ -269,9 +269,19 @@ internal sealed class RigidBody
     ///
     /// 「無限に重い」ので、何をぶつけても動かないし回らない。
     /// 床の箱や、動かない障害物に使う。
+    ///
+    /// <para>
+    /// <b><see cref="UpdateInertiaWorld"/> を必ず呼ぶ</b>。
+    /// <see cref="InverseInertiaWorld"/> の初期値は単位行列なので、
+    /// 呼ばないままだと「回しにくさ 0」ではなく「回しにくさ 1」の体になる。
+    /// すると <c>PhysicsWorld.AngularTerm</c> が <c>|r x n|²</c> をそのまま返し、
+    /// <b>接触点が体の位置から離れているほど押し戻しが効かなくなる</b>——
+    /// 壁(±5m)に当たった球が沈み込む形で出る。
+    /// </para>
     /// </summary>
-    public static RigidBody CreateStatic(in Collider shape) =>
-        new()
+    public static RigidBody CreateStatic(in Collider shape)
+    {
+        var body = new RigidBody
         {
             Shape = shape,
             InverseMass = 0.0f,
@@ -284,6 +294,12 @@ internal sealed class RigidBody
             // 「跳ねない床」が欲しければ、作ったあとで 0 を入れる。
             Restitution = 1.0f,
         };
+
+        // **逆慣性テンソルを世界へ運び直す**(Day 46 で足した)。
+        // 初期値が単位行列なので、これを呼ばないと「回しにくさ 0」にならない。
+        body.UpdateInertiaWorld();
+        return body;
+    }
 
     /// <summary>
     /// 無限に広い平面。**必ず静的**(Day 44)。
@@ -299,8 +315,9 @@ internal sealed class RigidBody
     /// Bullet の <c>btStaticPlaneShape</c> もまったく同じ割り切りをしている。
     /// </para>
     /// </summary>
-    public static RigidBody CreatePlane(Vector3 point, Vector3 normal) =>
-        new()
+    public static RigidBody CreatePlane(Vector3 point, Vector3 normal)
+    {
+        var body = new RigidBody
         {
             Shape = Collider.Plane(normal),
             Position = point,
@@ -310,6 +327,10 @@ internal sealed class RigidBody
             // **相手の反発係数をそのまま通す**(<see cref="CreateStatic"/> と同じ理由)。
             Restitution = 1.0f,
         };
+
+        body.UpdateInertiaWorld();
+        return body;
+    }
 
     /// <summary>球としての形。判定関数へ渡すときの受け皿。</summary>
     public Sphere3D ToSphere() => new(Position, Shape.Radius);

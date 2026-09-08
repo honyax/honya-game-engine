@@ -225,6 +225,18 @@ internal sealed class RigidBody
         Create(mass, Collider.Box(halfSize));
 
     /// <summary>
+    /// 中身の詰まったカプセルを作る(Day 45)。**半径と「線分の半分の長さ」**で渡す。
+    ///
+    /// <b>この関数に慣性の式が1行も無い</b>のが Day 44 の設計の答え合わせになる。
+    /// 形が体から出ているので、カプセルを足すのに
+    /// <see cref="Create"/> も <see cref="UpdateInertiaWorld"/> も1文字も変わらなかった。
+    /// 「形が2つ目になった時点で切り出す」判断が正しかったことが、
+    /// **3つ目でようやく確かめられる**。
+    /// </summary>
+    public static RigidBody CreateCapsule(float mass, float radius, float halfHeight) =>
+        Create(mass, Collider.Capsule(radius, halfHeight));
+
+    /// <summary>
     /// 形と質量から体を1つ作る。**形ごとの分岐はここに無い**(Day 44)。
     ///
     /// Day 43 は <c>CreateSphere</c> の中に <c>0.4f * mass * radius * radius</c> と
@@ -259,12 +271,15 @@ internal sealed class RigidBody
     /// 床の箱や、動かない障害物に使う。
     ///
     /// <para>
-    /// <b><see cref="UpdateInertiaWorld"/> を必ず呼ぶ</b>。
+    /// <b><see cref="UpdateInertiaWorld"/> を必ず呼ぶ</b>(Day 46 で直した)。
     /// <see cref="InverseInertiaWorld"/> の初期値は単位行列なので、
     /// 呼ばないままだと「回しにくさ 0」ではなく「回しにくさ 1」の体になる。
-    /// すると <c>PhysicsWorld.AngularTerm</c> が <c>|r x n|²</c> をそのまま返し、
-    /// <b>接触点が体の位置から離れているほど押し戻しが効かなくなる</b>——
-    /// 壁(±5m)に当たった球が沈み込む形で出る。
+    /// すると <c>PhysicsWorld.AngularTerm</c> が
+    /// <c>|r x n|²</c> をそのまま返し、接触点が体の位置から離れているほど
+    /// <b>インパルスの分母が大きくなって押し戻しが効かなくなる</b>。
+    /// 壁(±5m)では 10 倍ほど弱まる程度で気づきにくかったが、
+    /// 地形(隅が原点で、接触点が最大 30m 先)では
+    /// <b>物が地面をすり抜けて落ちていく</b>形で表に出た。
     /// </para>
     /// </summary>
     public static RigidBody CreateStatic(in Collider shape)
@@ -320,11 +335,56 @@ internal sealed class RigidBody
         return body;
     }
 
+    /// <summary>
+    /// 地形。**必ず静的**(Day 46)。
+    ///
+    /// <paramref name="corner"/> は格子の (0, 0) 隅の世界座標で、
+    /// 高さもここが基準になる。中心ではなく隅にしてあるのは、
+    /// マスの番号が割り算の切り捨てでそのまま出るようにするため
+    /// (<see cref="Terrain3D.CellRange"/>)。
+    ///
+    /// <para>
+    /// <b>向きは持たない</b>。<see cref="Orientation"/> を回しても地形は回らない——
+    /// 「1つの (x, z) に高さが1つ」という前提に全部が寄りかかっているので、
+    /// 回した瞬間にそれが崩れる。傾けた地面が要るなら箱を使う。
+    /// </para>
+    /// </summary>
+    public static RigidBody CreateTerrain(HeightField field, Vector3 corner)
+    {
+        var body = new RigidBody
+        {
+            Shape = Collider.Terrain(field),
+            Position = corner,
+            InverseMass = 0.0f,
+            InverseInertiaLocal = Vector3.Zero,
+
+            // **相手の反発係数をそのまま通す**(<see cref="CreatePlane"/> と同じ理由)。
+            Restitution = 1.0f,
+        };
+
+        // **ここを忘れると物が地面をすり抜ける**(<see cref="CreateStatic"/> の説明)。
+        // 地形は位置(隅)から接触点までが最大 30m 離れるので、
+        // 逆慣性が単位行列のままだとインパルスの分母が 900 倍近くになる。
+        body.UpdateInertiaWorld();
+        return body;
+    }
+
     /// <summary>球としての形。判定関数へ渡すときの受け皿。</summary>
     public Sphere3D ToSphere() => new(Position, Shape.Radius);
 
     /// <summary>箱としての形。**向きは体の向きがそのまま箱の向きになる**。</summary>
     public Box3D ToBox() => new(Position, Shape.HalfExtents, Orientation);
+
+    /// <summary>
+    /// カプセルとしての形(Day 45)。**軸は体の Y 軸**。
+    ///
+    /// 立っているカプセルは <see cref="Orientation"/> が単位クォータニオン。
+    /// 横倒しになれば軸も一緒に倒れる——
+    /// <b>剛体としてのカプセルは倒れるが、キャラクターのカプセルは倒れない</b>
+    /// (<see cref="CharacterController"/> は向きを持たず、常に立っている)。
+    /// </summary>
+    public Capsule3D ToCapsule() =>
+        Capsule3D.FromCenter(Position, Orientation, Shape.Radius, Shape.HalfHeight);
 
     /// <summary>
     /// 平面としての形。法線は体の向きで回した先。
@@ -335,6 +395,37 @@ internal sealed class RigidBody
     /// </summary>
     public Plane3D ToPlane() =>
         Plane3D.FromPointNormal(Position, Vector3.Transform(Shape.Normal, Orientation));
+
+    /// <summary>
+    /// 地形としての形(Day 46)。**体の位置が格子の (0, 0) 隅**。
+    ///
+    /// 向きは使わない(地形は回らない)ので、他の <c>ToXxx</c> と違って
+    /// <see cref="Orientation"/> が式に出てこない。
+    /// </summary>
+    public Terrain3D ToTerrain() => new(Shape.Field!, Position);
+
+    /// <summary>
+    /// 外接する AABB。**ブロードフェーズが見るのはこれだけ**(Day 46 の要点5)。
+    ///
+    /// 形ごとに外接箱の作り方は違うが、<b>出てくるものは同じ型</b>。
+    /// おかげで <see cref="SpatialGrid3D"/> は形の札を1度も見ずに済む——
+    /// 形が増えても格子は変わらない、というのがこの一段の値打ちになる。
+    ///
+    /// <para>
+    /// <b>平面だけが無限を返す</b>。外接箱が作れない形なので、
+    /// <see cref="Aabb3D.Infinite"/> という値でそれを表す。
+    /// 「作れません」を例外や <c>null</c> ではなく<b>値で表す</b>と、
+    /// 呼ぶ側の分岐が1つ消える(Day 46 の設計書)。
+    /// </para>
+    /// </summary>
+    public Aabb3D Bounds() => Shape.Kind switch
+    {
+        ColliderKind.Sphere => ToSphere().Bounds,
+        ColliderKind.Box => ToBox().Bounds,
+        ColliderKind.Capsule => ToCapsule().Bounds,
+        ColliderKind.HeightField => ToTerrain().Bounds,
+        _ => Aabb3D.Infinite,
+    };
 
     /// <summary>
     /// 慣性テンソルの逆数を世界座標へ運び直す。**向きが変わるたびに要る**。
