@@ -2589,7 +2589,7 @@ internal static class Program
     /// <para>
     /// <b>同じジオメトリを1フレームに3回描いている</b>ことになった
     /// (影 → 幾何 → 本描画)。これがディファードレンダリングの動機そのもので、
-    /// Day 51 で「1回描いて全部のバッファへ同時に書く」形に整理する。
+    /// Day 52 で「1回描いて全部のバッファへ同時に書く」形に整理する。
     /// </para>
     /// </summary>
     private static void RenderSsaoPass()

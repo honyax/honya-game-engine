@@ -274,7 +274,7 @@ internal struct ContactPoint
 /// <b>これでミニ物理エンジンが一通り揃う</b>。
 /// 積分(Day 43)・形と判定(Day 44〜46)・ブロードフェーズ(Day 46)・
 /// 摩擦と収束と眠り(Day 47)。
-/// この先の Day 48〜49 はエフェクトなので、物理の本体に手を入れるのは今日が最後になる。
+/// この先は Day 48 が入力の整理、Day 49〜50 がエフェクトなので、物理の本体に手を入れるのは今日が最後になる。
 /// </para>
 /// </summary>
 internal sealed class PhysicsWorld

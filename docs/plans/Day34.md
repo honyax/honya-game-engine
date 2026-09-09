@@ -429,7 +429,7 @@ _shadow.End(width, height);
 `PostProcess.Begin` / `End` と同じ形にしてあるので、
 **「シーンを知らないパス」の作り方が2例そろった**ことになる。
 2例あると形が見えてくるのがよいところで、
-Day 37 の SSAO も Day 51 の G-Buffer も、この形で足せる。
+Day 37 の SSAO も Day 52 の G-Buffer も、この形で足せる。
 
 **これが Render To Texture のいちばんの配当**で、
 画面全体に効く処理(影・SSAO・被写界深度・ディファード)は
@@ -891,7 +891,7 @@ GPU から読み返す(`glGetBufferSubData`)なら払うのは呼んだときだ
 `Texture` は「これがレンダーターゲットである」ことを知らない。
 中身を渡さずに場所だけ確保し、ミップマップを作らず、ClampToEdge にする——
 それだけの機能として置いてあるので、
-影(Day 33)でも環境マップ(Day 36)でも G-Buffer(Day 51)でも同じものが使える。
+影(Day 33)でも環境マップ(Day 36)でも G-Buffer(Day 52)でも同じものが使える。
 
 **Day 33 で足したのは `CreateDepthTarget` 1つ**。
 `CreateTarget` との違いは3つとも影のための必然になっている。

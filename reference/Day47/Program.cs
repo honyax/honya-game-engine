@@ -2768,7 +2768,7 @@ internal static class Program
             // いちばん素朴な追従。可変 dt 側に置いてあるのは見せ方だからで、
             // カメラワーク(Day 40)と同じ扱いになる。
             //
-            // **本物の三人称カメラは Day 50**。滑らかに遅れて付いていく、
+            // **本物の三人称カメラは Day 51**。滑らかに遅れて付いていく、
             // 壁に入ったら寄る、進行方向を先読みする——
             // どれもここには無い。今はキャラクターが画面外へ出ないだけで足りる。
             if (_characterDemo)
@@ -2784,7 +2784,7 @@ internal static class Program
             // 決定性が要るので、FixedUpdate 側へ移すことになる。
             // Day 45 のキャラクターコントローラは<b>カプセル1本で当たりを取る</b>ので、
             // 骨の位置には触らない——だからアニメーションは可変 dt のままでよい。
-            // (アニメを載せるのは Day 50。そこでも当たり判定はカプセルのまま)
+            // (アニメを載せるのは Day 51。そこでも当たり判定はカプセルのまま)
             // **重みを先に決めてから時刻を進める**(Day 42)。
             // 逆にすると、速度が変わったフレームだけ1フレーム古い重みで描かれる。
             UpdateLocomotion((float)deltaSeconds);
@@ -3270,7 +3270,7 @@ internal static class Program
     /// <para>
     /// <b>同じジオメトリを1フレームに3回描いている</b>ことになった
     /// (影 → 幾何 → 本描画)。これがディファードレンダリングの動機そのもので、
-    /// Day 51 で「1回描いて全部のバッファへ同時に書く」形に整理する。
+    /// Day 52 で「1回描いて全部のバッファへ同時に書く」形に整理する。
     /// </para>
     /// </summary>
     private static void RenderSsaoPass()
@@ -5346,7 +5346,7 @@ internal static class Program
     /// 判定が「線分に球を滑らせる」だったのと、絵の分け方が一致している。
     /// <b>描いているのは当たり判定の形そのもの</b>なので、
     /// めり込んでいれば絵でもめり込んで見える——
-    /// Day 50 でモデルを載せると、この一致は失われる(モデルとカプセルは別物になる)。
+    /// Day 51 でモデルを載せると、この一致は失われる(モデルとカプセルは別物になる)。
     ///
     /// <para>
     /// 足元に<b>接地の印</b>を出す。接地していれば法線の向きに小さな板が寝るので、
@@ -5447,7 +5447,7 @@ internal static class Program
         return Matrix4x4.CreateFromAxisAngle(axis, MathF.Acos(dot));
     }
 
-    /// <summary>キャラクターの向きを含む行列(Day 50 でモデルを載せる場所)。</summary>
+    /// <summary>キャラクターの向きを含む行列(Day 51 でモデルを載せる場所)。</summary>
     private static Matrix4x4 CharacterMatrix() =>
         Matrix4x4.CreateRotationY(Character.FacingYaw)
             * Matrix4x4.CreateTranslation(Character.Position);
@@ -13864,7 +13864,7 @@ internal static class Program
             // 修飾キーを1つでも押していれば、そちらは今日のものになる——
             // つまり <c>Ctrl+G</c> で 3D 背景を切っていた人には挙動が変わる。
             // 割り当ての表そのものをデータにする(Day 40 の <c>FeatureToggles</c> のような形)
-            // 片付け方は、<c>Program.cs</c> の分割と一緒に Day 50 で。
+            // 片付け方は Day 48 で。<c>OnKeyDown</c> を丸ごと表に置き換えて <c>Program.cs</c> から追い出す。
             //
             // G を選んだのは <b>G</b>round(地形)と <b>G</b>rid(格子)の頭文字だから。
             case Key.G when ctrl && !shift && !alt:
