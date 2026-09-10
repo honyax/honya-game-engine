@@ -4,12 +4,12 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 
 ## 構造と役割
 
-- `docs/roadmap.md`: ロードマップ全体(Day 1〜66)。Dayの内容・順序・進捗(Dayプラン表の「状態」列)はここが正
+- `docs/roadmap.md`: ロードマップ全体(Day 1〜67)。Dayの内容・順序・進捗(Dayプラン表の「状態」列)はここが正
 - `docs/plans/DayXX.md`: 各Dayの計画書(create-day スキルで生成)
 - `reference/DayXX/`: Claudeが作成するリファレンスコード(答え)。各Dayは独立してビルド・実行可能
 - `work/`: ユーザーが写経・改造するコード。**ユーザーの学習領域。明示的に依頼されない限り編集しないこと**(レビュー時に読むのは可)
   - Dayフォルダは作らず、`Framebuffer` / `SoftwareRasterizer` / `RawGL` / `HonyaEngine` / `Labs` の5系統を継続的に成長させる。区切りはgitのタグ/コミット(`day05` 等)
-  - 教養編のうちシェーダー中心の題材(Day 56・57)は `HonyaEngine/Sandbox` に、エンジンと独立した題材(Day 58〜61・66)は `Labs` に置く。3Dゲーム編(物理・エフェクト)は `HonyaEngine` 本体+`Sandbox`
+  - 教養編のうちシェーダー中心の題材(Day 57・58)は `HonyaEngine/Sandbox` に、エンジンと独立した題材(Day 59〜62・67)は `Labs` に置く。3Dゲーム編(物理・エフェクト)は `HonyaEngine` 本体+`Sandbox`
 - `assets/`: 複数Dayで共有する素材(テクスチャ、objモデル、HDRI等)
 
 ## 技術スタック
