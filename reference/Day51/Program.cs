@@ -21316,7 +21316,7 @@ internal static class Program
         checks.Check("ページがある", _menu.Pages.Count > 0, $"{_menu.Pages.Count} 枚");
         checks.Check(
             "**Day 31 以降のスイッチが全部入っている**",
-            entryCount == 181,
+            entryCount == 190,
             $"{entryCount} 項目");
 
         bool withinCapacity = _menu.Pages.All(page => page.Entries.Count <= DebugMenu.SlotCount);

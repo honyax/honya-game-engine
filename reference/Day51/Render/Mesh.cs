@@ -183,23 +183,36 @@ internal sealed class Mesh<TVertex> : IDisposable
     ///
     /// 頂点法線と突き合わせれば機械で確かめられるので、その材料としてここに置く。
     /// 遅さと「控えを持たない」判断は <see cref="ReadVertices"/> と同じ。
+    ///
+    /// <para>
+    /// <b>ElementArrayBuffer に結び付けてはいけない</b>。
+    /// インデックスバッファの結び付けは<b>いま結び付いている VAO の記録そのもの</b>で、
+    /// ここで結び付けて最後に 0 へ戻すと、直前に描いたメッシュの VAO から
+    /// インデックスバッファが外れる(<see cref="Draw"/> は描いたあと VAO を外さない)。
+    /// そのメッシュを次に描いた瞬間、<c>DrawElements</c> がオフセット 0 を
+    /// CPU のメモリの 0 番地として読みに行き、アクセス違反で落ちる。
+    /// 読むだけなら、どの VAO にも属さない <c>CopyReadBuffer</c> に結び付ければよい。
+    /// 頂点バッファ(ArrayBuffer)のほうは VAO の記録ではないので、<see cref="ReadVertices"/> はそのままでよい。
+    /// (Day 52 の自己チェックが、光の球を描いた直後にこれを読んで落ちたことで見つかった。
+    /// それまでは直前に別の VAO が結び付いていて、たまたま踏まずに済んでいた。Day 35 まで遡って直してある)
+    /// </para>
     /// </summary>
     public unsafe uint[] ReadIndices()
     {
         var result = new uint[_indexCount];
 
-        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, _indexBuffer);
+        _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, _indexBuffer);
 
         fixed (uint* data = result)
         {
             _gl.GetBufferSubData(
-                BufferTargetARB.ElementArrayBuffer,
+                BufferTargetARB.CopyReadBuffer,
                 0,
                 (nuint)(_indexCount * sizeof(uint)),
                 data);
         }
 
-        _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, 0);
+        _gl.BindBuffer(BufferTargetARB.CopyReadBuffer, 0);
 
         return result;
     }
