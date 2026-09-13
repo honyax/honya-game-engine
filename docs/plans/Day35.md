@@ -259,7 +259,10 @@ Cook-Torrance は微小な鏡で**1回だけ**跳ねる前提なので、
    **`w = -1`** と**巻き順**(左下 → 左上 → 右上)を間違えないこと——
    前者は凹凸が裏返り、後者はカリングで球が消える
 3. **`Render/Mesh.cs`**(変更)
-   `ReadIndices` を `ReadVertices` の直後、`Draw` の直前に
+   `ReadIndices` を `ReadVertices` の直後、`Draw` の直前に。
+   **`ElementArrayBuffer` ではなく `CopyReadBuffer` に結び付けて読む**——インデックスバッファの結び付けは
+   VAO の記録なので、0 に戻すと直前に描いたメッシュが壊れる(Day 52 の検証で見つかった潜在バグを遡って直してある。
+   Day52.md の「検証の途中で分かったこと 1」)
 4. **`shaders/textured.frag`**(変更)
    `uDebugChannel` のコメントに 13〜17 → Day 35 の uniform 7本 →
    `main` の直前に `PI` / `MIN_ROUGHNESS` / `DistributionGgx` / `GeometrySchlickGgx` /
