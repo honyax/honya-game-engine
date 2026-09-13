@@ -292,7 +292,7 @@ _orbit.Distance = targetRadius * 2.6f;
 | `Render/Primitives.cs` | 立方体と板に法線を持たせる。立方体は面の外積から求める |
 | `Render/Shader.cs` | `SetMatrix3` を追加(法線行列用。**詰め直しが要る**) |
 | `Render/Texture.cs` | `FromPixels` / `FromFile` に `srgb` 引数。`DecodeBytes`(メモリ上の PNG/JPEG)を追加 |
-| `Core/ResourceManager.cs` | `LoadTexture` に `srgb`。`LoadTextureFromMemory` を追加。キャッシュのキーに sRGB を混ぜる |
+| `Render/RenderResources.cs` | `LoadTexture` に `srgb`。`LoadTextureFromMemory` を追加。キャッシュのキーに sRGB を混ぜる |
 | `Render/Material.cs` | metallic-roughness の値5つと補助マップ4枚。`Apply` がユニット 1〜4 に割り当てる |
 | `shaders/textured.vert` | 法線属性と `uNormalMatrix` |
 | `shaders/textured.frag` | 平行光源のランバート反射、PBR のマップ、表示成分の切り替え |
@@ -335,13 +335,13 @@ Day 31 で `Tint` を流用していたのは陰影が無かったから許さ�
 4. **`Render/Texture.cs`**(変更)
    `DecodeBytes` を追加 → `FromFile` / `FromPixels` に `srgb` 引数 →
    内部形式を `srgb ? Srgb8Alpha8 : Rgba8` に
-5. **`Core/ResourceManager.cs`**(変更)
+5. **`Render/RenderResources.cs`**(変更)
    `LoadTexture` に `srgb` → `LoadTextureFromMemory` を追加 →
    `MakeTextureKey` を `MakeMemoryKey` に分けて sRGB を混ぜる。
    **`LoadTextureAsync` のキー生成も直す**(引数が増えたのでコンパイルが通らなくなる)
 6. **`Render/Material.cs`**(変更)
    `Name` と PBR のプロパティ → `Apply` の追記 → `BindMap`。
-   **`Texture.cs` と `ResourceManager.cs` より後**(ハンドルを解くのに要る)
+   **`Texture.cs` と `RenderResources.cs` より後**(ハンドルを解くのに要る)
 7. **`Model/Model.cs`**(新規)
    `Part` レコード、境界箱、`Dispose` でのテクスチャ返却。
    `Material` が要るので6の後
@@ -383,7 +383,7 @@ Day 31 で `Tint` を流用していたのは陰影が無かったから許さ�
 | `Material` | metallic-roughness の値5つと、補助マップ4枚 |
 | `Texture` | **sRGB かどうかの引数**。色とデータでテクスチャの読み方が変わる |
 | `Shader` | `SetMatrix3`(法線行列を送るため) |
-| `ResourceManager` | `LoadTextureFromMemory`(glb の中の画像を読むため) |
+| `RenderResources` | `LoadTextureFromMemory`(glb の中の画像を読むため) |
 
 Day 31 の設計書を丸ごと引き継ぎ、差分の当たった図にだけ手を入れてある。
 変わった図は次の3つ。
@@ -391,7 +391,7 @@ Day 31 の設計書を丸ごと引き継ぎ、差分の当たった図にだけ�
 | 図 | 何が変わったか |
 |---|---|
 | 全体構成 | **`Model/` が1つ増えた**。依存は `Render` と `Core` への一方通行 |
-| `Render` のクラス図 | `Vertex` / `Material` / `Shader` / `Texture` に追記 |
+| `Render` のクラス図 | `Vertex` / `Material` / `Shader` / `Texture` / `RenderResources` に追記 |
 | 1フレームの流れ | モデル表示中はデモを出さない分岐が入った |
 
 そして新しく2つ足した。
@@ -427,8 +427,8 @@ graph TD
     P --> R
     P --> A
     P --> C
-    MD -->|"Mesh / Material / Texture / Vertex"| R
-    MD -->|"Handle / ResourceManager"| C
+    MD -->|"Mesh / Material / Texture / Vertex / RenderResources"| R
+    MD -->|"Handle"| C
     G -->|SpatialGrid / Collision2D| PH
     G -->|InputSnapshot| C
     G -.->|GameView だけ| T
@@ -436,7 +436,7 @@ graph TD
     S --> C
     S -.->|SceneSerializer だけ| E
     T -->|Texture / AtlasRegion / SpriteBatch| R
-    R <--> C
+    R -->|Handle / ResourcePool| C
     A -->|Handle と ResourcePool だけ| C
 ```
 
@@ -454,8 +454,15 @@ Day 41 で FBX を足したくなったときに `Render/` を触る羽目にな
 `Primitives`(コードで作る)と `GltfLoader`(ファイルから作る)が
 **同じ `Mesh` を作る2つの入口**として並んでいるのが、今の形。
 
+**Day 31 で矢印を1本直した**。層は Day 29 のままだが、
+`Core` ⇔ `Render` の相互参照が `Render` → `Core` の一方通行になった——
+`ResourceManager` を `Render/RenderResources` へ引っ越したのがそれ(下の「相互参照だった話」)。
+
+`Core/` の中身を実際に調べると、`Silk.NET.OpenGL` を using しているファイルは1つも無い。
+**いま `Core/` は本当に時間・入力・ハンドルだけの層**になっている。
+
 後処理は `Render/` の中で閉じている。`PostProcess` が知っているのは
-`GL` と `Framebuffer` と `Shader` と `ResourceManager` だけで、
+`GL` と `Framebuffer` と `Shader` と `RenderResources` だけで、
 **シーンに何が入っているかを一切知らない**。だから
 `Program` が「今日はゲームを描く」「今日はデモを描く」と切り替えても、
 後処理側は1行も変わらない。
@@ -485,12 +492,12 @@ public Action<GameEvent, Vector2>? OnEvent { get; set; }
 | `Physics/` | **なし** | `System.Numerics` だけ。そのまま別プロジェクトへ持ち出せる |
 | `Ecs/` | **なし** | 同上。Day 23 で「他に依存しないので先に5つ書ける」と書いたとおり |
 | `Scene/` | `Core`(`InputSnapshot`)、`Ecs`(`SceneSerializer` のみ) | **描画を一切知らない**。`SpriteRenderer` は絵の種類と大きさを持つデータでしかない |
-| `Render/` | `Core`(`Handle` / `ResourceManager`) | `Material` がハンドルを解くために管理側を呼ぶ |
+| `Render/` | `Core`(`Handle` / `ResourcePool`) | `RenderResources` が箱を借りる。**GL を触るのは全部この層** |
 | `Text/` | `Render`(`Texture` / `AtlasRegion` / `SpriteBatch`) | **一方通行**。`Render` は `Text` を知らない |
-| **`Model/`** | `Render`(`Mesh` / `Material` / `Texture` / `Vertex`)、`Core`(`Handle` / `ResourceManager`) | **一方通行**。`Render` は glTF を知らない |
+| **`Model/`** | `Render`(`Mesh` / `Material` / `Texture` / `Vertex` / `RenderResources`)、`Core`(`Handle`) | **一方通行**。`Render` は glTF を知らない |
 | `Audio/` | `Core`(`Handle` / `ResourcePool` **のみ**) | **一方通行**。`Core` は `Audio` を知らない |
 | **`Game/`** | `Physics` / `Core`(入力)。描画側だけ `Render` と `Text` | **エンジンは `Game` を知らない**。窓も GL も音も知らない |
-| `Core/` | `Render`(`Texture` / `Shader`) | `ResourceManager` が両者の実体を握っている |
+| `Core/` | **なし** | Day 31 の引っ越しで一方通行になった(下の「相互参照だった話」) |
 | `Program.cs` | 全部 | 組み立て役。6320行あるが、その大半はデモ・計測・自己チェック |
 
 `Game/` の中でも線が引いてある。
@@ -517,20 +524,25 @@ public Action<GameEvent, Vector2>? OnEvent { get; set; }
 描画の中核が「文字とは何か」を抱え込むことになる。
 `SpriteBatch` から見れば、文字は**ただの四角**でしかない。
 
-**`Core` と `Render` が相互参照になっている**のは、この図を描いて初めて見えたことで、
-きれいな形ではない。`ResourceManager`(Core)が `Texture`(Render)を作り、
-`Material`(Render)が `ResourceManager`(Core)を呼ぶ、という往復になっている。
+**`Core` と `Render` が相互参照だった話**(Day 25 で見つけ、Day 31 で直した)。
 
-名前空間が `HonyaEngine` 1つなので今は問題なく動くが、**アセンブリを分けようとした瞬間に破綻する**。
-直すなら「`ResourcePool` と `Handle` だけを下層に置き、`ResourceManager` は Render 側に上げる」
-のが素直で、Phase 6 でアセットの種類が増えたときに検討する。
+`ResourceManager`(Core)が `Texture`(Render)を作り、
+`Material`(Render)が `ResourceManager`(Core)を呼ぶ、という往復になっていた。
+名前空間が `HonyaEngine` 1つなので動きはするが、
+**アセンブリを分けようとした瞬間に破綻する**形だった。
+
+直し方は Day 25 の設計書に書いたとおりで、
+**`ResourcePool` と `Handle` だけを下層に残し、窓口は `Render/` へ上げる**。
+Day 31 でそれを実行し、`Core/ResourceManager.cs` は `Render/RenderResources.cs` になった。
+名前も変えたのは、中で持っているのが `Texture` と `Shader` だけ——
+つまり全部 GL のもので、「全リソースの窓口」という名前が中身と合っていなかったため。
 
 **Day 27 の判断**: 音を足すとき、この歪みを繰り返さないようにした。
 
 音のリソースも「パスをキーにして使い回し、ハンドルで配る」という点でテクスチャと同じなので、
-`ResourceManager` に `LoadAudio` を足すのが自然に見える。
-だがそうすると `ResourceManager`(= `Core`)が **GL と OpenAL の両方を握る**ことになり、
-上の相互参照が「`Core` ⇔ `Render` + `Core` ⇔ `Audio`」に増える。
+当時の `ResourceManager` に `LoadAudio` を足すのが自然に見える。
+だがそうすると `ResourceManager`(= 当時は `Core`)が **GL と OpenAL の両方を握る**ことになり、
+当時の相互参照が「`Core` ⇔ `Render` + `Core` ⇔ `Audio`」に増える。
 
 そこで `AudioSystem` は、`Core` から**総称型の `ResourcePool<T>` と `Handle<T>` だけを借りて**、
 音のリソースは自分で持つ形にした。`ResourcePool<T>` は `T` が何かを知らないので、
@@ -587,31 +599,26 @@ classDiagram
         +Release(handle, out removed) bool
         +Replace(handle, value, out prev) bool
     }
-    class ResourceManager {
-        +int MaxUploadsPerFrame
-        +int PendingCount
-        +LoadTexture(path) Handle
-        +LoadTextureAsync(path) Handle
-        +Update()
-        +GetTexture(handle) Texture
-        +Release(handle) bool
-    }
 
     InputSystem --> InputMap : キーを引く
     InputSystem ..> InputSnapshot : 畳んで返す
     InputRecorder ..> InputSnapshot : 溜める / 返す
-    ResourceManager *-- ResourcePool : テクスチャ用とシェーダ用の2本
     ResourcePool ..> Handle : 添字 + 世代を配る
 ```
 
+**`ResourceManager` がこの図から消えた**(Day 31 で `Render/RenderResources` へ引っ越した)。
+実物は `Render` のクラス図のほうに載せてある。
+
 `ResourcePool` と `Handle` は総称型(`ResourcePool<T>` / `Handle<T>`)。
 `T` が何かを知らないまま添字と世代だけを管理するので、`Texture` にも `Shader` にも同じものが使える。
+**`T` を知らないから下層に残せた**——引っ越しでこの2つだけ `Core/` に残したのはそのため。
 
 この層で押さえるべき責務の線引き:
 
 - **`GameLoop` は時間しか知らない**。何を更新するかは `Action<float>` で渡される
 - **`InputSystem` はデバイスのイベントを畳むだけ**。ゲームとしての意味づけは `InputMap` が持つ
 - **`InputSnapshot` は値**。だから記録・再生で丸ごと差し替えられる(Day 20 の肝)
+- **`Core/` は GL を1行も知らない**。`Silk.NET.OpenGL` を using しているファイルが無い、が実際の姿
 
 ### Render — OpenGL の薄い皮
 
@@ -653,6 +660,20 @@ classDiagram
         +CreateTarget(gl, w, h, format) Texture
         +UploadR8(x, y, w, h, coverage)
         +Bind(unit)
+    }
+    class RenderResources {
+        +int MaxUploadsPerFrame
+        +int PendingCount
+        +Texture Placeholder
+        +LoadTexture(path, mipmaps, srgb) Handle
+        +LoadTextureFromMemory(key, bytes, mipmaps, srgb) Handle
+        +LoadTextureAsync(path) Handle
+        +LoadShader(vert, frag) Handle
+        +Update()
+        +GetTexture(handle) Texture
+        +GetShader(handle) Shader
+        +Retain(handle) bool
+        +Release(handle) bool
     }
     class RenderTargetFormat {
         <<enumeration>>
@@ -778,6 +799,9 @@ classDiagram
     PostProcess ..> Shader : 明部 / ぼかし / 合成
     PostProcess ..> ToneMapOperator
     PostProcess ..> PostDebugView
+    PostProcess ..> RenderResources : シェーダを借りる
+    RenderResources ..> Texture : 作る / 配る
+    RenderResources ..> Shader : 作る / 配る
 ```
 
 **Day 28 で `Texture` に足したのは2つだけ**。
@@ -811,12 +835,12 @@ glTF のモデルは必ず持っているので、**無いと読んだデータ�
 **そのフレームバッファと同じ大きさ・同じ形式でなければならない**ので、
 外から差し替えられると壊れる。**所有すべきものは所有する**。
 
-**`PostProcess` はシェーダだけ `ResourceManager` に預けている**。
+**`PostProcess` はシェーダだけ `RenderResources` に預けている**。
 バッファ(4枚)は自分で持ち、シェーダは借りる——
 シェーダは F5 でリロードしたいので、管理の窓口に載せておく必要がある。
 
 **`Material` が何も所有していない**のは Day 15 から一貫している(Day15.md の要点2)。
-持っているのはハンドルだけで、実体の寿命は `ResourceManager` にある。
+持っているのはハンドルだけで、実体の寿命は `RenderResources` にある。
 
 **3D の道(`Mesh` + `Material`)と 2D の道(`SpriteBatch`)が並列**なのも見てのとおりで、
 両者は `Shader` と `Texture` を共有しているだけで互いを知らない。
@@ -1266,7 +1290,7 @@ classDiagram
     Model *-- Part
     Part --> Mesh : 所有する
     Part --> Material : 共有される
-    Model ..> ResourceManager : テクスチャを借りて返す
+    Model ..> RenderResources : テクスチャを借りて返す
 ```
 
 **`LoadContext` を切り出したのは、引数が増えすぎたから**。
@@ -1284,7 +1308,7 @@ glTF の中身はノードの木だが、**静的なモデルに階層は要ら�
 そのときは `Model` に木を残す形へ戻すことになるが、
 **要るまで持たない**ほうが今は読みやすい。
 
-**`Model` が `ResourceManager` を握っている**のは、
+**`Model` が `RenderResources` を握っている**のは、
 テクスチャの参照カウントを返すため(Day 21 の要点3)。
 `Mesh` は自分で作ったので所有するが、テクスチャは借り物なので返す必要がある。
 ここを忘れると、モデルを切り替えるたびに 2K テクスチャが数枚ずつ残り、
@@ -1671,7 +1695,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant P as Program
-    participant RM as ResourceManager
+    participant RM as RenderResources
     participant TP as スレッドプール
     participant Q as _decoded キュー
     participant GL as OnRender(描画スレッド)
@@ -2153,7 +2177,7 @@ Day 21 で作った非同期ロードは**テクスチャ1枚ずつ**の仕組�
 | GPU へ上げる(Mesh / Texture) | **描画スレッドだけ** |
 
 つまり**上の3つをワーカーへ出し、最後だけ描画スレッドで消化する**形になる。
-`ResourceManager.Update` が1フレームの枚数に上限を持っている(Day21.md の要点6)のと
+`RenderResources.Update` が1フレームの枚数に上限を持っている(Day21.md の要点6)のと
 同じ考え方で、メッシュのアップロードにも上限が要る。
 
 読み込み中に何を表示するかも決める必要がある。

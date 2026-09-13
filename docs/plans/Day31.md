@@ -335,11 +335,39 @@ GPU が 2x2 のピクセル単位で処理する都合でその線上だけ2回�
 
 | ファイル | 変更 |
 |---|---|
+| `Core/ResourceManager.cs` → `Render/RenderResources.cs` | **改名して `Render/` へ移動**(下の「`ResourceManager` を `Render/RenderResources` へ引っ越した」)。変わるのはクラス名・コンストラクタ名とクラス概要のコメントだけ |
+| `Render/Material.cs` | `Apply` の引数とコメントを `RenderResources` へ |
+| `Audio/AudioSystem.cs` | コメントのみ。「`RenderResources` に相乗りしない」理由を書き直した |
+| `Text/GlyphAtlas.cs` | コメントのみ。Day 21 の窓口への参照に当時の名前を補った |
 | `Render/Texture.cs` | `RenderTargetFormat` 列挙を追加。カラーテクスチャの内部形式を `Srgb8Alpha8` へ。`CreateTarget`(描き込み先の空テクスチャ)を追加 |
 | `shaders/textured.frag` | 頂点色を sRGB→リニアへ。`uTint` は**変換しない**(明るさの倍率という意味に変更) |
 | `shaders/sprite.frag` | 頂点色を sRGB→リニアへ |
 | `shaders/text.frag` | 同上。被覆率(R8)は色ではないので変換しない |
-| `Program.cs` | `PostProcess` の生成・リサイズ・破棄、`OnRender` を `Begin`/`End` で挟む、発光する立方体と明るさの階段、`Shift+数字` のスイッチ、`RunHdrCheck`、床マテリアルの色をリニアへ |
+| `Program.cs` | `ResourceManager` → `RenderResources`、`PostProcess` の生成・リサイズ・破棄、`OnRender` を `Begin`/`End` で挟む、発光する立方体と明るさの階段、`Shift+数字` のスイッチ、`RunHdrCheck`、床マテリアルの色をリニアへ |
+
+### `ResourceManager` を `Render/RenderResources` へ引っ越した
+
+今日の本題(HDR)とは別に、**Day 25 から持ち越していた歪みを1つ直した**。
+
+Day 25 の設計書で「きれいな形ではない」と書いた `Core` ⇔ `Render` の相互参照は、
+`Core/ResourceManager.cs` 1ファイルが原因だった。中で持っているのは `Texture` と `Shader` だけ——
+つまり全部 GL のもので、**`Core/` の中で `Silk.NET.OpenGL` を using している唯一のファイル**でもあった。
+名前は「全リソースの窓口」を約束しているのに、中身は描画専用だったことになる。
+
+| | Day 30 まで | Day 31 から |
+|---|---|---|
+| 置き場所と名前 | `Core/ResourceManager.cs` | `Render/RenderResources.cs` |
+| `Core` と `Render` | 相互参照 | **`Render` → `Core` の一方通行** |
+| `ResourcePool<T>` / `Handle<T>` | `Core/` | `Core/`(**動かさない**) |
+
+`ResourcePool<T>` と `Handle<T>` を `Core/` に残すのは、`T` が何かを知らない総称型だから。
+知らないものは下層に居てよい。窓口だけを上げれば、相互参照はそれで消える。
+
+今日やるのは、**`PostProcess` という利用者が今日増える**から。
+Day 25 の設計書では「Phase 6 でアセットの種類が増えたときに検討する」と書いたが、
+後に回すほど書き換える呼び出し側が増える。Phase 6 の初日がいちばん安い。
+
+中身の処理は1行も変わっていない。
 
 ### キーは Shift + 数字にまとめた
 
@@ -363,37 +391,46 @@ GPU が 2x2 のピクセル単位で処理する都合でその線上だけ2回�
 
 ### 写経する順番
 
-依存の下から。シェーダを先に置くのは、`PostProcess` が起動時に名前で読むため。
+**引っ越しを最初に済ませる**。処理が1行も変わらないので、ここでビルドして Day 30 と同じように動けば
+置き換え漏れが無いと言える。HDR の差分と混ぜると、動かなかったときにどちらのせいか分からなくなる。
 
-1. **`shaders/fullscreen.vert`**(新規)
+そのあとは依存の下から。シェーダを先に置くのは、`PostProcess` が起動時に名前で読むため。
+
+1. **`Core/ResourceManager.cs` → `Render/RenderResources.cs`**(改名・移動)
+   ファイルを動かし、クラス名・コンストラクタ名・クラス概要のコメントを書き換える。
+   続けて呼び出し側を置き換える——`Render/Material.cs`(`Apply` の引数とコメント)、
+   `Program.cs`(フィールドと `new`、コメント2か所)、
+   `Audio/AudioSystem.cs` と `Text/GlyphAtlas.cs`(コメントのみ)。
+   **ここで一度ビルドして、Day 30 と同じように動くことを確かめる**
+2. **`shaders/fullscreen.vert`**(新規)
    頂点バッファ無しのフルスクリーン三角形。`gl_VertexID` から座標を作る
-2. **`shaders/bright.frag`**(新規)
+3. **`shaders/bright.frag`**(新規)
    明部の抽出。輝度の重み付けとソフトニー
-3. **`shaders/blur.frag`**(新規)
+4. **`shaders/blur.frag`**(新規)
    分離型ガウス。`uDirection` で横/縦を切り替える
-4. **`shaders/composite.frag`**(新規)
+5. **`shaders/composite.frag`**(新規)
    Reinhard と ACES、露出、ブルーム加算、ガンマ。**今日いちばん長いシェーダ**
-5. **`shaders/textured.frag`**(変更)
+6. **`shaders/textured.frag`**(変更)
    `SrgbToLinear` を追加して頂点色に適用。`uTint` はそのまま掛ける
-6. **`shaders/sprite.frag`**(変更)
+7. **`shaders/sprite.frag`**(変更)
    同じ変換を頂点色に。アルファは触らない
-7. **`shaders/text.frag`**(変更)
+8. **`shaders/text.frag`**(変更)
    同上。被覆率は変換しない
-8. **`Render/Texture.cs`**(変更)
+9. **`Render/Texture.cs`**(変更)
    `RenderTargetFormat` 列挙 → `FromPixels` の内部形式を `Srgb8Alpha8` へ → `CreateTarget` を追加。
    **`Framebuffer` がこの2つを使う**ので先に書く
-9. **`Render/Framebuffer.cs`**(新規)
-   FBO の生成・アタッチ・完全性チェック・リサイズ。`Texture.CreateTarget` を呼ぶ
-10. **`Render/PostProcess.cs`**(新規)
-    バッファ4枚と 10 パス。`Framebuffer` を使うので後
-11. **`Program.cs`**(変更)
+10. **`Render/Framebuffer.cs`**(新規)
+    FBO の生成・アタッチ・完全性チェック・リサイズ。`Texture.CreateTarget` を呼ぶ
+11. **`Render/PostProcess.cs`**(新規)
+    バッファ4枚と 10 パス。`Framebuffer` と `RenderResources` を使うので後
+12. **`Program.cs`**(変更)
     ヘッダのコメント → `Emitters` / `LadderSteps` → `_post` / `_emissiveMaterial` / `ClearColor` の
     フィールド → `OnLoad`(`PostProcess` 生成と発光マテリアル、床の色をリニアへ) →
     `OnFramebufferResize` → `OnRender`(`Begin`/`End` で挟む) →
     `RenderEmitters` / `RenderLadder` → `SrgbToLinear` → `DrawOverlayInfo` の HDR 行 →
     `ToneMapLabel` / `DebugViewLabel` → `OnKeyDown`(`shift` を switch の外へ出す + Shift 群 + F5) →
     `RunHdrCheck` → `OnClosing` → 起動時のコンソール出力とウィンドウタイトル
-12. **`Day31.csproj`**(リネームのみ)
+13. **`Day31.csproj`**(リネームのみ)
     中身は Day 30 と同じ。ファイル名を変えるだけで出力アセンブリ名が付いてくる
 
 ## 設計書
@@ -409,14 +446,20 @@ GPU が 2x2 のピクセル単位で処理する都合でその線上だけ2回�
 (`Mesh` / `Material` / `SpriteBatch`)。今日入ったのは
 **「描いた絵をもう一度読む」ための道具**で、性格がまるで違う。
 
+もう1つ、**`Core/ResourceManager` が `Render/RenderResources` へ引っ越した**
+(差分概要の「`ResourceManager` を `Render/RenderResources` へ引っ越した」)。
+これで Day 25 から残っていた `Core` ⇔ `Render` の相互参照が消える。
+
 Day 30 の設計書を丸ごと引き継ぎ、差分の当たった図にだけ手を入れてある。
-変わった図は次の3つ。
+変わった図は次の5つ。
 
 | 図 | 何が変わったか |
 |---|---|
-| 全体構成 | 層も矢印も同じ。`Render/` の中身だけが増えた |
-| `Render` のクラス図 | `Framebuffer` / `PostProcess` / `RenderTargetFormat` を追加 |
+| 全体構成 | 層は同じ。**`Core` ⇔ `Render` の相互参照が一方通行になった** |
+| `Core` のクラス図 | `ResourceManager` を削除(`Render` へ引っ越した) |
+| `Render` のクラス図 | `Framebuffer` / `PostProcess` / `RenderTargetFormat` / `RenderResources` を追加 |
 | 1フレームの流れ | 描画全体が `_post.Begin` 〜 `_post.End` に挟まれた |
+| 非同期テクスチャロードの流れ | 窓口の名前が `RenderResources` になった |
 
 そして新しく1つ足した。
 
@@ -455,14 +498,19 @@ graph TD
     S --> C
     S -.->|SceneSerializer だけ| E
     T -->|Texture / AtlasRegion / SpriteBatch| R
-    R <--> C
+    R -->|Handle / ResourcePool| C
     A -->|Handle と ResourcePool だけ| C
 ```
 
-**Day 31 でもこの図は変わっていない**。矢印も層も Day 29 のまま。
+**Day 31 で矢印を1本直した**。層は Day 29 のままだが、
+`Core` ⇔ `Render` の相互参照が `Render` → `Core` の一方通行になった——
+`ResourceManager` を `Render/RenderResources` へ引っ越したのがそれ(下の「相互参照だった話」)。
+
+`Core/` の中身を実際に調べると、`Silk.NET.OpenGL` を using しているファイルは1つも無い。
+**いま `Core/` は本当に時間・入力・ハンドルだけの層**になっている。
 
 後処理は `Render/` の中で閉じている。`PostProcess` が知っているのは
-`GL` と `Framebuffer` と `Shader` と `ResourceManager` だけで、
+`GL` と `Framebuffer` と `Shader` と `RenderResources` だけで、
 **シーンに何が入っているかを一切知らない**。だから
 `Program` が「今日はゲームを描く」「今日はデモを描く」と切り替えても、
 後処理側は1行も変わらない。
@@ -492,11 +540,11 @@ public Action<GameEvent, Vector2>? OnEvent { get; set; }
 | `Physics/` | **なし** | `System.Numerics` だけ。そのまま別プロジェクトへ持ち出せる |
 | `Ecs/` | **なし** | 同上。Day 23 で「他に依存しないので先に5つ書ける」と書いたとおり |
 | `Scene/` | `Core`(`InputSnapshot`)、`Ecs`(`SceneSerializer` のみ) | **描画を一切知らない**。`SpriteRenderer` は絵の種類と大きさを持つデータでしかない |
-| `Render/` | `Core`(`Handle` / `ResourceManager`) | `Material` がハンドルを解くために管理側を呼ぶ |
+| `Render/` | `Core`(`Handle` / `ResourcePool`) | `RenderResources` が箱を借りる。**GL を触るのは全部この層** |
 | `Text/` | `Render`(`Texture` / `AtlasRegion` / `SpriteBatch`) | **一方通行**。`Render` は `Text` を知らない |
 | `Audio/` | `Core`(`Handle` / `ResourcePool` **のみ**) | **一方通行**。`Core` は `Audio` を知らない |
 | **`Game/`** | `Physics` / `Core`(入力)。描画側だけ `Render` と `Text` | **エンジンは `Game` を知らない**。窓も GL も音も知らない |
-| `Core/` | `Render`(`Texture` / `Shader`) | `ResourceManager` が両者の実体を握っている |
+| `Core/` | **なし** | Day 31 の引っ越しで一方通行になった(下の「相互参照だった話」) |
 | `Program.cs` | 全部 | 組み立て役。5850行あるが、その大半はデモ・計測・自己チェック |
 
 `Game/` の中でも線が引いてある。
@@ -523,20 +571,25 @@ public Action<GameEvent, Vector2>? OnEvent { get; set; }
 描画の中核が「文字とは何か」を抱え込むことになる。
 `SpriteBatch` から見れば、文字は**ただの四角**でしかない。
 
-**`Core` と `Render` が相互参照になっている**のは、この図を描いて初めて見えたことで、
-きれいな形ではない。`ResourceManager`(Core)が `Texture`(Render)を作り、
-`Material`(Render)が `ResourceManager`(Core)を呼ぶ、という往復になっている。
+**`Core` と `Render` が相互参照だった話**(Day 25 で見つけ、Day 31 で直した)。
 
-名前空間が `HonyaEngine` 1つなので今は問題なく動くが、**アセンブリを分けようとした瞬間に破綻する**。
-直すなら「`ResourcePool` と `Handle` だけを下層に置き、`ResourceManager` は Render 側に上げる」
-のが素直で、Phase 6 でアセットの種類が増えたときに検討する。
+`ResourceManager`(Core)が `Texture`(Render)を作り、
+`Material`(Render)が `ResourceManager`(Core)を呼ぶ、という往復になっていた。
+名前空間が `HonyaEngine` 1つなので動きはするが、
+**アセンブリを分けようとした瞬間に破綻する**形だった。
+
+直し方は Day 25 の設計書に書いたとおりで、
+**`ResourcePool` と `Handle` だけを下層に残し、窓口は `Render/` へ上げる**。
+Day 31 でそれを実行し、`Core/ResourceManager.cs` は `Render/RenderResources.cs` になった。
+名前も変えたのは、中で持っているのが `Texture` と `Shader` だけ——
+つまり全部 GL のもので、「全リソースの窓口」という名前が中身と合っていなかったため。
 
 **Day 27 の判断**: 音を足すとき、この歪みを繰り返さないようにした。
 
 音のリソースも「パスをキーにして使い回し、ハンドルで配る」という点でテクスチャと同じなので、
-`ResourceManager` に `LoadAudio` を足すのが自然に見える。
-だがそうすると `ResourceManager`(= `Core`)が **GL と OpenAL の両方を握る**ことになり、
-上の相互参照が「`Core` ⇔ `Render` + `Core` ⇔ `Audio`」に増える。
+当時の `ResourceManager` に `LoadAudio` を足すのが自然に見える。
+だがそうすると `ResourceManager`(= 当時は `Core`)が **GL と OpenAL の両方を握る**ことになり、
+当時の相互参照が「`Core` ⇔ `Render` + `Core` ⇔ `Audio`」に増える。
 
 そこで `AudioSystem` は、`Core` から**総称型の `ResourcePool<T>` と `Handle<T>` だけを借りて**、
 音のリソースは自分で持つ形にした。`ResourcePool<T>` は `T` が何かを知らないので、
@@ -593,31 +646,26 @@ classDiagram
         +Release(handle, out removed) bool
         +Replace(handle, value, out prev) bool
     }
-    class ResourceManager {
-        +int MaxUploadsPerFrame
-        +int PendingCount
-        +LoadTexture(path) Handle
-        +LoadTextureAsync(path) Handle
-        +Update()
-        +GetTexture(handle) Texture
-        +Release(handle) bool
-    }
 
     InputSystem --> InputMap : キーを引く
     InputSystem ..> InputSnapshot : 畳んで返す
     InputRecorder ..> InputSnapshot : 溜める / 返す
-    ResourceManager *-- ResourcePool : テクスチャ用とシェーダ用の2本
     ResourcePool ..> Handle : 添字 + 世代を配る
 ```
 
+**`ResourceManager` がこの図から消えた**(Day 31 で `Render/RenderResources` へ引っ越した)。
+実物は `Render` のクラス図のほうに載せてある。
+
 `ResourcePool` と `Handle` は総称型(`ResourcePool<T>` / `Handle<T>`)。
 `T` が何かを知らないまま添字と世代だけを管理するので、`Texture` にも `Shader` にも同じものが使える。
+**`T` を知らないから下層に残せた**——引っ越しでこの2つだけ `Core/` に残したのはそのため。
 
 この層で押さえるべき責務の線引き:
 
 - **`GameLoop` は時間しか知らない**。何を更新するかは `Action<float>` で渡される
 - **`InputSystem` はデバイスのイベントを畳むだけ**。ゲームとしての意味づけは `InputMap` が持つ
 - **`InputSnapshot` は値**。だから記録・再生で丸ごと差し替えられる(Day 20 の肝)
+- **`Core/` は GL を1行も知らない**。`Silk.NET.OpenGL` を using しているファイルが無い、が実際の姿
 
 ### Render — OpenGL の薄い皮
 
@@ -656,6 +704,19 @@ classDiagram
         +CreateTarget(gl, w, h, format) Texture
         +UploadR8(x, y, w, h, coverage)
         +Bind(unit)
+    }
+    class RenderResources {
+        +int MaxUploadsPerFrame
+        +int PendingCount
+        +Texture Placeholder
+        +LoadTexture(path, mipmaps) Handle
+        +LoadTextureAsync(path) Handle
+        +LoadShader(vert, frag) Handle
+        +Update()
+        +GetTexture(handle) Texture
+        +GetShader(handle) Shader
+        +Retain(handle) bool
+        +Release(handle) bool
     }
     class RenderTargetFormat {
         <<enumeration>>
@@ -769,6 +830,9 @@ classDiagram
     PostProcess ..> Shader : 明部 / ぼかし / 合成
     PostProcess ..> ToneMapOperator
     PostProcess ..> PostDebugView
+    PostProcess ..> RenderResources : シェーダを借りる
+    RenderResources ..> Texture : 作る / 配る
+    RenderResources ..> Shader : 作る / 配る
 ```
 
 **Day 28 で `Texture` に足したのは2つだけ**。
@@ -789,12 +853,12 @@ classDiagram
 **そのフレームバッファと同じ大きさ・同じ形式でなければならない**ので、
 外から差し替えられると壊れる。**所有すべきものは所有する**。
 
-**`PostProcess` はシェーダだけ `ResourceManager` に預けている**。
+**`PostProcess` はシェーダだけ `RenderResources` に預けている**。
 バッファ(4枚)は自分で持ち、シェーダは借りる——
 シェーダは F5 でリロードしたいので、管理の窓口に載せておく必要がある。
 
 **`Material` が何も所有していない**のは Day 15 から一貫している(Day15.md の要点2)。
-持っているのはハンドルだけで、実体の寿命は `ResourceManager` にある。
+持っているのはハンドルだけで、実体の寿命は `RenderResources` にある。
 
 **3D の道(`Mesh` + `Material`)と 2D の道(`SpriteBatch`)が並列**なのも見てのとおりで、
 両者は `Shader` と `Texture` を共有しているだけで互いを知らない。
@@ -1510,7 +1574,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant P as Program
-    participant RM as ResourceManager
+    participant RM as RenderResources
     participant TP as スレッドプール
     participant Q as _decoded キュー
     participant GL as OnRender(描画スレッド)

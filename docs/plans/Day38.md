@@ -439,7 +439,7 @@ Day 37 の設計書を丸ごと引き継ぎ、差分の当たった図にだけ�
 
 写経の前に読み込む必要はない。**途中で「これは誰が呼ぶんだったか」と迷ったときに戻ってくる場所**として使う。
 
-### 全体構成 — 8つの層と、その上のゲーム(依存の向きを実装から取り直した)
+### 全体構成 — 8つの層と、その上のゲーム
 
 ```mermaid
 graph TD
@@ -463,8 +463,8 @@ graph TD
     P --> R
     P --> A
     P --> C
-    MD -->|"Mesh / Material / Texture / Vertex"| R
-    MD -->|"Handle / RenderResources"| C
+    MD -->|"Mesh / Material / Texture / Vertex / RenderResources"| R
+    MD -->|"Handle"| C
     G -->|SpatialGrid / Collision2D| PH
     G -->|InputSnapshot| C
     G -.->|GameView だけ| T
@@ -487,13 +487,6 @@ Day 25 で層を切り分けた配当が、いちばん機能を足した Phase 
 Day 25 で層を切り分けた配当が続いている、と読める。
 
 **Day 33 でクラスの増減は無かった**(`ShadowMap` は `Render/` の中)。
-代わりに**矢印を1本直した**。`Core` ⇔ `Render` の相互参照が、
-実は Day 31 の時点で解消されていた——
-`ResourceManager` を `Render/RenderResources` へ引っ越したのがそれで、
-設計書のほうが2日ぶん追随していなかった。
-
-`Core/` の中身を実際に調べると、`Silk.NET.OpenGL` を using しているファイルは1つも無い。
-**いま `Core/` は本当に時間・入力・ハンドルだけの層**になっている。
 
 **Day 32 で `Model/` が1つ増えた**。矢印の向きは変わっていない。
 
@@ -508,6 +501,13 @@ Day 25 で層を切り分けた配当が続いている、と読める。
 Day 41 で FBX を足したくなったときに `Render/` を触る羽目になる。
 `Primitives`(コードで作る)と `GltfLoader`(ファイルから作る)が
 **同じ `Mesh` を作る2つの入口**として並んでいるのが、今の形。
+
+**Day 31 で矢印を1本直した**。層は Day 29 のままだが、
+`Core` ⇔ `Render` の相互参照が `Render` → `Core` の一方通行になった——
+`ResourceManager` を `Render/RenderResources` へ引っ越したのがそれ(下の「相互参照だった話」)。
+
+`Core/` の中身を実際に調べると、`Silk.NET.OpenGL` を using しているファイルは1つも無い。
+**いま `Core/` は本当に時間・入力・ハンドルだけの層**になっている。
 
 後処理は `Render/` の中で閉じている。`PostProcess` が知っているのは
 `GL` と `Framebuffer` と `Shader` と `RenderResources` だけで、
@@ -613,10 +613,6 @@ Day 31 でそれを実行し、`Core/ResourceManager.cs` は `Render/RenderResou
 名前も変えたのは、中で持っているのが `Texture` と `Shader` だけ——
 つまり全部 GL のもので、「全リソースの窓口」という名前が中身と合っていなかったため。
 
-**設計書のほうは2日ぶん直し忘れていた**(Day 31・32 の図に `Core/ResourceManager` が残っていた)。
-図は実装から起こし直さないと、**コードより先に図が嘘になる**。
-今日そこを直したので、この節は「歪みの記録」ではなく「直した記録」になった。
-
 **Day 27 の判断**: 音を足すとき、この歪みを繰り返さないようにした。
 
 音のリソースも「パスをキーにして使い回し、ハンドルで配る」という点でテクスチャと同じなので、
@@ -686,9 +682,7 @@ classDiagram
     ResourcePool ..> Handle : 添字 + 世代を配る
 ```
 
-**`ResourceManager` がこの図から消えた**(Day 33 で図を直した)。
-Day 31 で `Render/RenderResources` へ引っ越していたのに、
-Day 31・32 の設計書には `Core` に居るままで描いてあった。
+**`ResourceManager` がこの図から消えた**(Day 31 で `Render/RenderResources` へ引っ越した)。
 実物は `Render` のクラス図のほうに載せてある。
 
 `ResourcePool` と `Handle` は総称型(`ResourcePool<T>` / `Handle<T>`)。
