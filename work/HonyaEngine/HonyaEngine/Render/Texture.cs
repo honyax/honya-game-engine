@@ -13,6 +13,44 @@ internal enum TextureFilter
     Linear,
 }
 
+/// <summary>
+/// レンダーターゲット(描き込む先)のテクセルの持ち方。**Day 31 の主役**。
+///
+/// 画面に出す色は最終的に 8bit で足りるが、
+/// **途中の計算に 8bit を使うと、そこで情報が消える**。
+/// 8bit は 0.0〜1.0 を 256 段で刻むだけなので、
+///   - 1.0 を超える明るさ(太陽、電球、火花)は**書いた瞬間に 1.0 に丸められる**
+///   - 暗いところは 1/255 刻みしか無く、露出を上げると縞になる
+/// という2つが同時に起きる。
+///
+/// 露出やトーンマッピングは「1.0 を超えたぶんをどう畳むか」の話なので、
+/// **畳む前に 1.0 で切られていたら何もできない**。だから中間バッファを
+/// 浮動小数点にする。これが HDR レンダリングの出発点。
+/// </summary>
+internal enum RenderTargetFormat
+{
+    /// <summary>
+    /// 1チャンネル 8bit の固定小数点。0.0〜1.0 しか入らない。
+    /// **比較用**に残してある(Shift+1 で切り替えて違いを見る)。
+    /// </summary>
+    Rgba8,
+
+    /// <summary>
+    /// 1チャンネル 16bit の半精度浮動小数点。
+    ///
+    /// 1.0 を超える値も、0.001 のような小さい値もそのまま入る。
+    /// 精度は仮数部 10bit なので**相対誤差 1/1024 程度**——
+    /// 明るさが 100 でも 0.1 でも「その値に対して 0.1%」の精度が保たれる。
+    /// これが固定小数点との決定的な違いで、
+    /// 8bit は「0.5 付近では 1/255」「0.01 付近でも 1/255」と絶対値で刻む。
+    ///
+    /// 32bit float(Rgba32f)にすればさらに精度は上がるが、
+    /// **帯域が倍**になるうえ、色の精度で 16bit が足りない場面はほぼ無い。
+    /// 実際のエンジンでも中間バッファは 16bit(あるいは R11G11B10F)が定番。
+    /// </summary>
+    Rgba16F,
+}
+
 /// <summary>UV が 0〜1 の外に出たときの扱い。</summary>
 internal enum TextureWrap
 {
@@ -148,7 +186,24 @@ internal sealed class Texture : IDisposable
             gl.TexImage2D(
                 TextureTarget.Texture2D,
                 0,                              // ミップマップのレベル。0 が原寸
-                InternalFormat.Rgba8,           // GPU 側での持ち方
+
+                // **Day 31 で Rgba8 から変えた**。GPU 側での持ち方を「sRGB で入っている」に変更する。
+                //
+                // PNG の中の 128 は「明るさ 0.5」ではない。
+                // ディスプレイのガンマ(だいたい 2.2 乗)を打ち消すように
+                // あらかじめ曲げてある値で、実際の明るさは 0.5^2.2 ≒ 0.22 にあたる。
+                // 今までは曲がったまま掛け算していた——それでも
+                // 「テクスチャを素通しで出す」だけなら曲がったまま画面に戻るので破綻しなかった。
+                //
+                // HDR パイプラインは明るさを足したり畳んだりするので、
+                // **曲がった値のままでは足し算が合わない**(要点2)。
+                // Srgb8Alpha8 にしておくと、シェーダで texture() した瞬間に
+                // GPU が 2.2 乗を戻して**リニアな値**を返してくれる。ハードウェアの仕事なので無料。
+                //
+                // データを入れるテクスチャ(法線マップ、ラフネス。Day 34・35)は
+                // 色ではないので**必ず Rgba8 のまま**でなければならない。
+                // その日が来たら引数で切り替える。
+                InternalFormat.Srgb8Alpha8,
                 (uint)width,
                 (uint)height,
                 0,                              // border。常に 0(過去の遺物)
@@ -221,6 +276,62 @@ internal sealed class Texture : IDisposable
                 PixelFormat.Red, PixelType.UnsignedByte, data);
             gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
         }
+
+        var texture = new Texture(gl, handle, width, height, hasMipmaps: false);
+        texture.SetFilter(TextureFilter.Linear);
+        texture.SetWrap(TextureWrap.ClampToEdge);
+
+        gl.BindTexture(TextureTarget.Texture2D, 0);
+
+        return texture;
+    }
+
+    /// <summary>
+    /// **描き込む先**にするための空テクスチャを作る。<see cref="Framebuffer"/> から呼ばれる。
+    ///
+    /// <see cref="CreateR8"/> との違いは中身を用意しないこと。
+    /// このテクスチャは CPU から一度も触らず、
+    /// **GPU が描いた結果がそのまま入る**ので、初期化する意味が無い
+    /// (どのみち毎フレーム <c>glClear</c> で塗り潰される)。
+    ///
+    /// 設定は2つとも必然的に決まる。
+    ///   - <b>ミップマップは作らない</b> … 画面と同じ大きさで1回読むだけ。縮小版を使う場面が無い
+    ///   - <b>ClampToEdge</b> … Repeat だと、ぼかしで画面の端をはみ出して読んだときに
+    ///     **反対側の色が回り込む**。左端の明るいものが右端から滲み出す、という壊れ方をする
+    ///
+    /// フィルタは Linear。ブルーム用のバッファは画面の半分の大きさで作り、
+    /// 合成のときに拡大して読むので、ここが Nearest だと拡大が四角く出る。
+    /// </summary>
+    public static unsafe Texture CreateTarget(GL gl, int width, int height, RenderTargetFormat format)
+    {
+        uint handle = gl.GenTexture();
+
+        gl.ActiveTexture(TextureUnit.Texture0);
+        gl.BindTexture(TextureTarget.Texture2D, handle);
+
+        // **内部形式と「渡すデータの型」は別物**。
+        // データは null(何も渡さない)なので PixelType は実質使われないが、
+        // GL の API は形式の組み合わせを検査するので、辻褄の合う値を渡す必要がある。
+        (InternalFormat internalFormat, PixelType pixelType) = format switch
+        {
+            RenderTargetFormat.Rgba16F => (InternalFormat.Rgba16f, PixelType.HalfFloat),
+            _ => (InternalFormat.Rgba8, PixelType.UnsignedByte),
+        };
+
+        // ここでは **sRGB にしない**。
+        // 中間バッファに入るのはリニアな明るさそのもので、色の入れ物ではない。
+        // sRGB にすると書き込みのたびに 1/2.2 乗され、読むたびに 2.2 乗されて、
+        // 1.0 を超える値が保存できなくなる(sRGB は 0〜1 前提の符号化)。
+        gl.TexImage2D(
+            TextureTarget.Texture2D,
+            0,
+            internalFormat,
+            (uint)width,
+            (uint)height,
+            0,
+            PixelFormat.Rgba,
+            pixelType,
+            null);
 
         var texture = new Texture(gl, handle, width, height, hasMipmaps: false);
         texture.SetFilter(TextureFilter.Linear);
