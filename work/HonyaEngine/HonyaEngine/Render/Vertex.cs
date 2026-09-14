@@ -30,11 +30,34 @@ internal struct Vertex
     /// <summary>頂点色。マテリアルの色とは別に、頂点ごとに色を付けたいとき用。</summary>
     public Vector4 Color;
 
+    /// <summary>
+    /// 法線。**その頂点で面がどちらを向いているか**。Day 32 で足した。
+    ///
+    /// Phase 1 では Day 9 で持っていたものが、GPU へ移った Day 14 で落ちていた。
+    /// 陰影を付けていなかったので要らなかった——が、
+    /// glTF のモデルは必ず法線を持っており、
+    /// **これが無いと読み込んだデータの半分を捨てることになる**。
+    ///
+    /// 単位ベクトルで持つ。長さが 1 でないと <c>N・L</c> が明るさとして意味を持たない。
+    ///
+    /// <b>末尾に足した</b>のは、属性の番号(location)を振り直さずに済ませるため。
+    /// 「宣言順 = location の順」という <see cref="Attributes"/> の約束は保たれる
+    /// (0=位置, 1=UV, 2=色, 3=法線)。位置の次に置くほうが意味の並びとしては自然だが、
+    /// そうすると既存のシェーダの location を全部ずらすことになる。
+    /// </summary>
+    public Vector3 Normal;
+
     public Vertex(Vector3 position, Vector2 texCoord, Vector4 color)
+        : this(position, texCoord, color, Vector3.UnitZ)
+    {
+    }
+
+    public Vertex(Vector3 position, Vector2 texCoord, Vector4 color, Vector3 normal)
     {
         Position = position;
         TexCoord = texCoord;
         Color = color;
+        Normal = normal;
     }
 
     private static readonly VertexAttribute[] AttributeList =
@@ -42,6 +65,7 @@ internal struct Vertex
         VertexAttribute.Float(3),   // Position
         VertexAttribute.Float(2),   // TexCoord
         VertexAttribute.Float(4),   // Color
+        VertexAttribute.Float(3),   // Normal
     ];
 
     /// <summary>
@@ -54,8 +78,10 @@ internal struct Vertex
     /// 型情報を持つ <see cref="VertexAttribute"/> へ置き換えた。
     ///
     /// 3D 側は今のところ全部 float のままでよい。
-    /// 法線を byte に詰める、位置を half にする、といった圧縮が要るのは
-    /// 頂点数が桁違いになってから(Day 32 以降)。
+    /// 1頂点 48 バイト(位置12 + UV8 + 色16 + 法線12)で、
+    /// DamagedHelmet の 14556 頂点なら 700KB。この規模なら詰める意味が無い。
+    /// 法線を byte に詰める、位置を half にする、といった圧縮が効いてくるのは
+    /// 数百万頂点を扱い始めてから。
     /// </summary>
     public static ReadOnlySpan<VertexAttribute> Attributes => AttributeList;
 }

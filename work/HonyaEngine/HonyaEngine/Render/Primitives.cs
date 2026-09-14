@@ -21,12 +21,15 @@ internal static class Primitives
     {
         Vector4 white = Vector4.One;
 
+        // 板は +Z を向いているので、法線は4頂点とも同じ(Day 32 で足した)。
+        Vector3 normal = Vector3.UnitZ;
+
         ReadOnlySpan<Vertex> vertices =
         [
-            new(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0.0f, 0.0f), white),   // 左下
-            new(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1.0f, 0.0f), white),    // 右下
-            new(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1.0f, 1.0f), white),     // 右上
-            new(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0.0f, 1.0f), white),    // 左上
+            new(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0.0f, 0.0f), white, normal),   // 左下
+            new(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1.0f, 0.0f), white, normal),    // 右下
+            new(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1.0f, 1.0f), white, normal),     // 右上
+            new(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0.0f, 1.0f), white, normal),    // 左上
         ];
 
         ReadOnlySpan<uint> indices = [0, 1, 2, 2, 3, 0];
@@ -94,10 +97,22 @@ internal static class Primitives
     {
         uint baseIndex = (uint)vertices.Count;
 
-        vertices.Add(new Vertex(bottomLeft, new Vector2(0.0f, 0.0f), color));
-        vertices.Add(new Vertex(bottomRight, new Vector2(1.0f, 0.0f), color));
-        vertices.Add(new Vertex(topRight, new Vector2(1.0f, 1.0f), color));
-        vertices.Add(new Vertex(topLeft, new Vector2(0.0f, 1.0f), color));
+        // **法線は面から計算する**(Day 32)。
+        // 立方体の頂点が 8 個ではなく 24 個なのは面ごとに UV が違うからだったが、
+        // 法線も面ごとに違うので、いずれにせよ分けるしかなかった
+        // (角を共有させると、その頂点の法線は3面の平均になり、
+        //  立方体の角が丸く陰影付けされてしまう)。
+        //
+        // 外積の順は「反時計回りに並んだ3点」から外向きが出るように取る。
+        // 渡される4点は外から見て CCW という約束なので、
+        // (右下 - 左下) x (左上 - 左下) が外を向く。
+        Vector3 normal = Vector3.Normalize(
+            Vector3.Cross(bottomRight - bottomLeft, topLeft - bottomLeft));
+
+        vertices.Add(new Vertex(bottomLeft, new Vector2(0.0f, 0.0f), color, normal));
+        vertices.Add(new Vertex(bottomRight, new Vector2(1.0f, 0.0f), color, normal));
+        vertices.Add(new Vertex(topRight, new Vector2(1.0f, 1.0f), color, normal));
+        vertices.Add(new Vertex(topLeft, new Vector2(0.0f, 1.0f), color, normal));
 
         // 四角形を三角形2枚に割る。渡された順が CCW なら、この並びも CCW になる。
         indices.Add(baseIndex + 0);

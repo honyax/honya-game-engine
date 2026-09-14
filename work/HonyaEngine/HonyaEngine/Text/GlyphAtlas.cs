@@ -124,7 +124,8 @@ internal sealed class GlyphAtlas : IDisposable
     ///
     /// 呼ぶ側は「あるかどうか」を気にしない。
     /// 初回だけ焼く時間がかかり、2回目以降は辞書を引くだけになる。
-    /// Day 21 の <see cref="ResourceManager"/> のキャッシュと同じ考え方だが、
+    /// Day 21 で作った窓口(<see cref="RenderResources"/>、当時の名前は <c>ResourceManager</c>)の
+    /// キャッシュと同じ考え方だが、
     /// **こちらは同期で焼く**——グリフ1つは 1ms もかからないので、
     /// 非同期にする価値より複雑さのほうが勝つ。
     /// </summary>

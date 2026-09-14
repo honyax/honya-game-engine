@@ -161,6 +161,41 @@ internal sealed class Shader : IDisposable
         }
     }
 
+    /// <summary>
+    /// 3x3 行列を送る。**法線行列専用**(Day 32)。
+    ///
+    /// <see cref="Matrix4x4"/> のような 3x3 の型が System.Numerics に無いので、
+    /// 4x4 を受け取って左上 3x3 だけを取り出す。
+    ///
+    /// <b>ここで詰め直しが要る</b>のが 4x4 との違い。
+    /// GLSL の mat3 は「3 float の列が3本」で詰めて並ぶが、
+    /// 4x4 のメモリから左上を取ると 4 float ごとに飛び飛びになる。
+    /// <c>SetMatrix4</c> のようにポインタをそのまま渡すと、
+    /// **2列目以降が1つずつずれた行列**になり、法線が妙な向きを向く。
+    /// </summary>
+    public unsafe void SetMatrix3(string name, in Matrix4x4 value)
+    {
+        int location = GetUniformLocation(name);
+        if (location < 0)
+        {
+            return;
+        }
+
+        Span<float> packed =
+        [
+            value.M11, value.M12, value.M13,
+            value.M21, value.M22, value.M23,
+            value.M31, value.M32, value.M33,
+        ];
+
+        fixed (float* pointer = packed)
+        {
+            // transpose: false のままでよい理由は SetMatrix4 と同じ
+            // (行優先のメモリを列優先で読ませると転置になり、規約の違いと打ち消し合う)。
+            _gl.UniformMatrix3(location, 1, false, pointer);
+        }
+    }
+
     private int GetUniformLocation(string name)
     {
         if (_uniformLocations.TryGetValue(name, out int cached))

@@ -202,7 +202,6 @@ internal sealed class Shader : IDisposable
         }
     }
 
-
     /// <summary>
     /// 3x3 行列を送る。**法線行列専用**(Day 32)。
     ///
@@ -237,6 +236,7 @@ internal sealed class Shader : IDisposable
             _gl.UniformMatrix3(location, 1, false, pointer);
         }
     }
+
     private int GetUniformLocation(string name)
     {
         if (_uniformLocations.TryGetValue(name, out int cached))

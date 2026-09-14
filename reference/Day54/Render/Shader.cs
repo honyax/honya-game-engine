@@ -246,7 +246,6 @@ internal sealed class Shader : IDisposable
         }
     }
 
-
     /// <summary>
     /// <b>4x4 行列の配列</b>をまとめて送る(Day 41)。スキニングの関節行列用。
     ///
@@ -325,6 +324,7 @@ internal sealed class Shader : IDisposable
             _gl.UniformMatrix3(location, 1, false, pointer);
         }
     }
+
     private int GetUniformLocation(string name)
     {
         if (_uniformLocations.TryGetValue(name, out int cached))
