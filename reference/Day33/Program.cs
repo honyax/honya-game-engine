@@ -2520,6 +2520,7 @@ internal static class Program
         _orbit.Apply();
     }
 
+    /// <summary>
     /// 光っているものを描く。**Day 31 の題材**。
     ///
     /// やっていることは今までの立方体と同じで、違うのは <c>Tint</c> だけ。
