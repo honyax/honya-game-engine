@@ -116,10 +116,10 @@ internal sealed class Texture : IDisposable
     /// <summary>
     /// 画像ファイルから作る。**復号(CPU)とアップロード(GPU)を続けてやる**。
     /// </summary>
-    public static Texture FromFile(GL gl, string path, bool generateMipmaps = true)
+    public static Texture FromFile(GL gl, string path, bool generateMipmaps = true, bool srgb = true)
     {
         DecodedImage image = DecodeFile(path);
-        return FromPixels(gl, image.Pixels, image.Width, image.Height, generateMipmaps);
+        return FromPixels(gl, image.Pixels, image.Width, image.Height, generateMipmaps, srgb);
     }
 
     /// <summary>
@@ -156,6 +156,28 @@ internal sealed class Texture : IDisposable
     }
 
     /// <summary>
+    /// **メモリ上の PNG / JPEG** を復号する。ファイルを経由しない版。
+    ///
+    /// Day 32 で要るようになった。glb は 1 ファイルの中に
+    /// JSON もメッシュも**画像もまとめて**入っているので、
+    /// テクスチャの実体はバイト列の一部としてしか取り出せない
+    /// (<see cref="GltfLoader"/> 参照)。
+    ///
+    /// <see cref="DecodeFile"/> と同じく GL を一切呼ばないので、
+    /// ワーカースレッドから呼んでよい。
+    /// </summary>
+    public static DecodedImage DecodeBytes(ReadOnlySpan<byte> encoded)
+    {
+        StbImage.stbi_set_flip_vertically_on_load(1);
+
+        ImageResult image = ImageResult.FromMemory(
+            encoded.ToArray(),
+            ColorComponents.RedGreenBlueAlpha);
+
+        return new DecodedImage(image.Data, image.Width, image.Height);
+    }
+
+    /// <summary>
     /// メモリ上の RGBA 配列から作る。
     ///
     /// ファイルを介さずにテクスチャを作りたい場面はいくつもある。
@@ -164,8 +186,23 @@ internal sealed class Texture : IDisposable
     /// レンダーターゲットの内容を扱うとき(Day 31)に効いてくる。
     /// </summary>
     /// <param name="rgba">1テクセル4バイト、左下から右上へ並んだピクセル列。</param>
+    /// <param name="srgb">
+    /// <b>中身が色かデータか</b>。Day 32 で足した、今日いちばん間違えやすい引数。
+    ///
+    /// <list type="bullet">
+    /// <item><b>true(色)</b> … ベースカラー、発光。sRGB で符号化されているので GPU に戻させる</item>
+    /// <item><b>false(データ)</b> … 法線マップ、メタリック/ラフネス、AO。
+    /// **数値がそのまま入っている**ので、戻すと値が変わってしまう</item>
+    /// </list>
+    ///
+    /// 法線マップを sRGB で読むと、(0.5, 0.5, 1.0) が (0.22, 0.22, 1.0) になり、
+    /// 面の傾きが実際より強く出る。ラフネスを sRGB で読むと、
+    /// 「少しざらついた面」が軒並みつるつるになる。
+    /// **どちらもエラーにならず、絵が微妙におかしくなるだけ**なので気付きにくい。
+    /// </param>
     public static unsafe Texture FromPixels(
-        GL gl, ReadOnlySpan<byte> rgba, int width, int height, bool generateMipmaps = true)
+        GL gl, ReadOnlySpan<byte> rgba, int width, int height,
+        bool generateMipmaps = true, bool srgb = true)
     {
         if (rgba.Length < width * height * 4)
         {
@@ -200,10 +237,11 @@ internal sealed class Texture : IDisposable
                 // Srgb8Alpha8 にしておくと、シェーダで texture() した瞬間に
                 // GPU が 2.2 乗を戻して**リニアな値**を返してくれる。ハードウェアの仕事なので無料。
                 //
-                // データを入れるテクスチャ(法線マップ、ラフネス。Day 34・35)は
-                // 色ではないので**必ず Rgba8 のまま**でなければならない。
-                // その日が来たら引数で切り替える。
-                InternalFormat.Srgb8Alpha8,
+                // **Day 32 で引数になった**。glTF は1つのモデルの中に
+                // 色のテクスチャ(ベースカラー・発光)と
+                // データのテクスチャ(法線・メタリック/ラフネス・AO)を混ぜて持つので、
+                // 「全部 sRGB」では立ち行かなくなった(srgb 引数のコメント参照)。
+                srgb ? InternalFormat.Srgb8Alpha8 : InternalFormat.Rgba8,
                 (uint)width,
                 (uint)height,
                 0,                              // border。常に 0(過去の遺物)

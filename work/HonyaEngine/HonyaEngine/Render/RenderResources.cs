@@ -112,15 +112,47 @@ internal sealed class RenderResources : IDisposable
     /// 起動時にどうしても必要なもの(UI のフォント、最初の画面)はこれでよい。
     /// **「読み終わるまで進めない」ことが仕様なら、同期のほうが単純で速い**。
     /// </summary>
-    public Handle<Texture> LoadTexture(string path, bool generateMipmaps = true)
+    public Handle<Texture> LoadTexture(string path, bool generateMipmaps = true, bool srgb = true)
     {
-        string key = MakeTextureKey(path, generateMipmaps);
+        string key = MakeTextureKey(path, generateMipmaps, srgb);
         if (TryReuse(key, out Handle<Texture> existing))
         {
             return existing;
         }
 
-        Texture texture = Texture.FromFile(_gl, path, generateMipmaps);
+        Texture texture = Texture.FromFile(_gl, path, generateMipmaps, srgb);
+        Handle<Texture> handle = _textures.Add(texture);
+        Register(key, handle);
+        return handle;
+    }
+
+    /// <summary>
+    /// **メモリ上の PNG / JPEG** から読む。Day 32 で足した。
+    ///
+    /// glb は1ファイルの中に画像も入っているので、
+    /// 「パスを渡して読む」経路が使えない(<see cref="GltfLoader"/>)。
+    /// かといって窓口を通さずに <see cref="Texture"/> を作ると、
+    /// そこだけ寿命管理の外に出てしまう。
+    ///
+    /// そこで**キャッシュのキーだけ呼び出し側が決める**形にした。
+    /// glTF ローダは <c>"…/DamagedHelmet.glb#image2"</c> のような文字列を渡すので、
+    /// 同じモデルを2回読んでも画像は1回しか復号されない。
+    /// </summary>
+    /// <param name="cacheKey">
+    /// このバイト列を一意に表す文字列。**同じ中身なら同じキー**にすること。
+    /// ここが衝突すると、まったく別の絵が返る。
+    /// </param>
+    public Handle<Texture> LoadTextureFromMemory(
+        string cacheKey, ReadOnlySpan<byte> encoded, bool generateMipmaps = true, bool srgb = true)
+    {
+        string key = MakeMemoryKey(cacheKey, generateMipmaps, srgb);
+        if (TryReuse(key, out Handle<Texture> existing))
+        {
+            return existing;
+        }
+
+        DecodedImage image = Texture.DecodeBytes(encoded);
+        Texture texture = Texture.FromPixels(_gl, image.Pixels, image.Width, image.Height, generateMipmaps, srgb);
         Handle<Texture> handle = _textures.Add(texture);
         Register(key, handle);
         return handle;
@@ -136,7 +168,7 @@ internal sealed class RenderResources : IDisposable
     /// </summary>
     public Handle<Texture> LoadTextureAsync(string path, bool generateMipmaps = true)
     {
-        string key = MakeTextureKey(path, generateMipmaps);
+        string key = MakeTextureKey(path, generateMipmaps, srgb: true);
         if (TryReuse(key, out Handle<Texture> existing))
         {
             return existing;
@@ -349,8 +381,16 @@ internal sealed class RenderResources : IDisposable
     /// Day 18 で見たとおり、ミップマップの有無を取り違えたテクスチャは
     /// 黙って真っ黒になる。**キャッシュのキーは「同じ結果になる条件」全部**。
     /// </summary>
-    private static string MakeTextureKey(string path, bool generateMipmaps) =>
-        generateMipmaps ? Path.GetFullPath(path) : Path.GetFullPath(path) + "|nomip";
+    private static string MakeTextureKey(string path, bool generateMipmaps, bool srgb) =>
+        MakeMemoryKey(Path.GetFullPath(path), generateMipmaps, srgb);
+
+    /// <summary>
+    /// キーに**読み込み設定を全部混ぜる**。
+    /// Day 32 で sRGB が加わった——同じ PNG でも
+    /// 「色として読む」か「データとして読む」かで別物になるため。
+    /// </summary>
+    private static string MakeMemoryKey(string baseKey, bool generateMipmaps, bool srgb) =>
+        baseKey + (generateMipmaps ? string.Empty : "|nomip") + (srgb ? string.Empty : "|linear");
 
     private void Register(string key, Handle<Texture> handle)
     {

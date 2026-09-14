@@ -100,6 +100,20 @@ namespace HonyaEngine;
 /// そこで Shift+1 を押してシーンバッファを 8bit に落とすと、
 /// **露出をいくら下げても上の段は戻ってこない**——畳む前に 1.0 で切られているから。
 /// これが HDR パイプラインが要る理由そのもの。
+///
+/// **Day 32 での変更**: 本物のモデルが載った。
+/// glTF 2.0 を自前で読み(<see cref="GltfLoader"/>)、
+/// Khronos の公式サンプル(DamagedHelmet / WaterBottle / Lantern / BoxTextured)を
+/// Shift+0 で切り替えられる。
+///
+/// Day 10 の OBJ ローダとの違いは**マテリアルが仕様に入っていること**で、
+/// ベースカラー・法線・メタリック/ラフネス・AO・発光の5枚が
+/// 1つのファイルから出てくる。Shift+9 でそれを1枚ずつ画面に出せる——
+/// **今日はベースカラーしか絵に使わない**が、読み込みは全部済ませてある。
+/// 使い始めるのは法線が Day 34、メタリック/ラフネスが Day 35、AO が Day 37。
+///
+/// 併せて <see cref="Vertex"/> に法線が戻り、平行光源1つぶんの
+/// ランバート反射が付いた(Day 9 でソフトウェアラスタライザに書いたものの GPU 版)。
 /// </summary>
 internal static class Program
 {
@@ -200,6 +214,75 @@ internal static class Program
 
     /// <summary>HDR パイプライン。**すべての描画がここを通って画面に出る**。</summary>
     private static PostProcess _post = null!;
+
+    // --- 今日の主役: glTF ---
+
+    /// <summary>
+    /// 切り替えて見るモデル。**それぞれ違う経路を通す**ように選んである。
+    ///
+    /// | | 何を試すか |
+    /// |---|---|
+    /// | DamagedHelmet | glb 埋め込み・**JPEG** テクスチャ・5枚のマップが全部揃っている定番 |
+    /// | WaterBottle | glb 埋め込み・PNG・つるつるの金属と半透明のラベル |
+    /// | Lantern | **ノードが4つで親子がある**。世界行列の掛け合わせが要る唯一のモデル |
+    /// | BoxTextured | **.gltf + .bin + .png の3ファイル**。外部参照と matrix 形式のノード |
+    ///
+    /// 「読めた」を確かめるには、**違う書かれ方のファイルを通す**しかない。
+    /// 1個だけで通っても、それはそのファイルが通っただけになる。
+    /// </summary>
+    private static readonly string[] ModelPaths =
+    [
+        "models/DamagedHelmet.glb",
+        "models/WaterBottle.glb",
+        "models/Lantern.glb",
+        "models/BoxTextured/BoxTextured.gltf",
+    ];
+
+    /// <summary>今表示しているモデル。null なら無し(Day 31 までの絵)。</summary>
+    private static Model? _model;
+
+    /// <summary><see cref="ModelPaths"/> の添字。範囲外なら「無し」。</summary>
+    private static int _modelIndex;
+
+    /// <summary>モデルを画面に収めるための倍率と位置。読み込み時に境界箱から決める。</summary>
+    private static Matrix4x4 _modelTransform = Matrix4x4.Identity;
+
+    /// <summary>読み込みにかかった時間(ミリ秒)。**同期で読むので、そのままフレームが飛ぶ**。</summary>
+    private static double _modelLoadMilliseconds;
+
+    /// <summary>
+    /// 画面に出す成分(Shift+9)。
+    /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ。
+    /// </summary>
+    private static int _debugChannel;
+
+    /// <summary>
+    /// 平行光源の向き。**光が進む向き**であって、光源へ向かう向きではない。
+    /// シェーダ側で <c>-uLightDirection</c> と符号を反転している。
+    /// どちらの約束にするかは決めの問題だが、混ぜると必ず陰影が裏返る。
+    /// </summary>
+    private static Vector3 _lightDirection = Vector3.Normalize(new Vector3(-0.45f, -0.72f, -0.53f));
+
+    /// <summary>
+    /// 太陽の色と強さ。少し暖色にしてある。
+    ///
+    /// **1.0 の少し上に置く**のが Day 31 との兼ね合いで効いてくる。
+    /// 光に正対した白い面が <c>1.15</c> になるので、ACES で畳むと 0.92 前後——
+    /// 「白いが飽和はしていない」ところに収まり、ブルームもごく淡くしか出ない。
+    ///
+    /// ここを 2.5 にすると、**モデル全部が発光体のように滲む**。
+    /// HDR パイプラインは 1.0 を超えたものを「まぶしいもの」として扱うので、
+    /// 普通の物体が 1.0 を超えると絵が壊れる。
+    /// **明るさの基準を決めるのは光源側の仕事**で、露出(Shift+5/6)はそのあとの調整。
+    /// </summary>
+    private static Vector3 _lightColor = new(1.15f, 1.11f, 1.04f);
+
+    /// <summary>
+    /// 環境光。空からの回り込みのつもりで、少し青くしてある。
+    /// **これが無いと影の側が真っ黒になる**——現実には空や地面からの反射が回り込む。
+    /// 本物の回り込みを計算するのが Day 36(IBL)で、これはその一番粗い近似。
+    /// </summary>
+    private static Vector3 _ambientColor = new(0.13f, 0.16f, 0.22f);
 
     /// <summary>
     /// 発光するものと明るさの階段に使うマテリアル。
@@ -704,10 +787,22 @@ internal static class Program
             _window.FramebufferSize.X,
             _window.FramebufferSize.Y);
 
-        // 発光するもの用。**Tint に 1.0 を超える値を入れる**のがこのマテリアルの役目。
+        // 発光するもの用。
+        //
+        // **Day 32 で表し方が変わった**。Day 31 は Tint に 1.0 を超える値を入れていたが、
+        // 今日から陰影が付くようになったので、それだと光源まで影の側が暗くなる。
+        //
+        // glTF の言い方に合わせて「ベースカラーは黒、発光がその色」にする。
+        //   BaseColorFactor = (0,0,0,1)  … 拡散反射しない。ライティングの影響を受けない
+        //   EmissiveFactor  = 明るさ      … そのまま出る
+        // アルファだけはテクスチャから来るので、箱の丸い角はそのまま残る。
+        //
+        // **これが「光っているもの」の正しい書き方**で、
+        // Day 31 で Tint を流用していたのは陰影が無かったから許されていた。
         _emissiveMaterial = new Material(_shader)
         {
             MainTexture = _resources.LoadTexture(ResolveAssetPath("textures/sprite-box.png")),
+            BaseColorFactor = new Vector4(0.0f, 0.0f, 0.0f, 1.0f),
             Tint = Vector4.One,
             UvScale = Vector2.One,
         };
@@ -901,9 +996,31 @@ internal static class Program
             Console.WriteLine("オーディオ: 使えるデバイスがありません(音なしで続行します)");
         }
 
+        // --- 今日の主役: モデルを1体読む ---
+        //
+        // **失敗しても起動は続ける**。素材が無い環境(LFS を引いていない、など)で
+        // 例外を投げて落ちると、他の Day の機能まで触れなくなる。
+        try
+        {
+            SetModel(0);
+        }
+        catch (Exception error)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"モデルを読めませんでした: {error.Message}");
+            Console.WriteLine("  assets/models/ が空なら `git lfs pull` を試してください");
+            Console.WriteLine();
+            _modelIndex = ModelPaths.Length;
+        }
+
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 32: glTF(Shift + 数字)---");
+        Console.WriteLine("Shift+0:モデル切り替え(DamagedHelmet / WaterBottle / Lantern / BoxTextured / 無し)");
+        Console.WriteLine("Shift+9:表示する成分(通常/ベースカラー/法線/メタリック/ラフネス/AO/発光/法線マップ)");
+        Console.WriteLine("Shift+-:glTF の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 31: HDR パイプライン(Shift + 数字)---");
         Console.WriteLine("Shift+1:シーンバッファ RGBA16F / RGBA8   Shift+2:ブルーム  Shift+3:トーンマップ(なし/Reinhard/ACES)");
@@ -1617,6 +1734,16 @@ internal static class Program
             _drawCalls = _spriteBatch.DrawCallCount;
             RenderText();
         }
+        else if (_model is not null)
+        {
+            // **モデルを見せている間はデモを出さない**(Day 32)。
+            // ゲームモード(_playing)で同じことをしているのと理由も同じで、
+            // スプライトの群れと重ねると、どちらの陰影を見ているのか分からなくなる。
+            // Day 31 までのデモは Shift+0 で「モデル無し」まで回すと戻る。
+            // ドローコールは RenderModel が数える(パーツ数がそのまま回数になる)。
+            Render3D();
+            RenderText();
+        }
         else
         {
             if (_draw3D)
@@ -1824,7 +1951,15 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day31   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day32   {_fps:F1} fps   DC:{_drawCalls}");
+
+        if (_model is not null)
+        {
+            lines.AppendLine(
+                $"{ModelLabel()}  三角形:{_model.TriangleCount:N0}  パーツ:{_model.Parts.Count}  "
+                + $"マテリアル:{_model.Materials.Count}  テクスチャ:{_model.TextureCount}  "
+                + $"読込:{_modelLoadMilliseconds:F0}ms  成分:{DebugChannelLabel()}");
+        }
 
         // **今日の状態を1行で**。絵作りの機能は「今どの設定か」を見失いやすいので、
         // 切り替えた結果ではなく設定そのものを出しておく。
@@ -1967,6 +2102,21 @@ internal static class Program
         return _text.LineHeight(pixelHeight);
     }
 
+    private static string DebugChannelLabel() => _debugChannel switch
+    {
+        1 => "ベースカラー",
+        2 => "法線",
+        3 => "メタリック",
+        4 => "ラフネス",
+        5 => "AO",
+        6 => "発光",
+        7 => "法線マップ",
+        _ => "通常",
+    };
+
+    private static string ModelLabel() =>
+        _model is null ? "モデル無し" : Path.GetFileNameWithoutExtension(_model.SourcePath);
+
     private static string ToneMapLabel() => _post.ToneMap switch
     {
         ToneMapOperator.Reinhard => "Reinhard",
@@ -2049,6 +2199,22 @@ internal static class Program
         shader.Use();
         shader.SetMatrix4("uViewProjection", _camera.ViewProjection);
 
+        // ライトと表示モードは**フレームに1回**で足りる(Day 15 の要点: uniform の3階層)。
+        // オブジェクトごとに送り直すと、モデルのパーツ数だけ無駄が出る。
+        shader.SetVector3("uLightDirection", _lightDirection);
+        shader.SetVector3("uLightColor", _lightColor);
+        shader.SetVector3("uAmbientColor", _ambientColor);
+        shader.SetInt("uDebugChannel", _debugChannel);
+
+        // **モデルがあるときは、それだけを描く**。
+        // Day 31 までのデモ(立方体・床・明るさの階段)と一緒に出すと、
+        // どちらの陰影を見ているのか分からなくなる。
+        if (_model is not null)
+        {
+            RenderModel();
+            return;
+        }
+
         Matrix4x4 floorModel =
             Matrix4x4.CreateScale(20.0f)
             * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
@@ -2069,15 +2235,153 @@ internal static class Program
     }
 
     /// <summary>
+    /// <summary>
+    /// 読み込んだモデルを描く。**パーツを順に並べるだけ**。
+    ///
+    /// glTF のノードの木は読み込み時に平らにしてある(<see cref="Model"/>)ので、
+    /// ここに階層の処理は残っていない。
+    /// 各パーツが持つ世界行列に、画面へ収めるための <see cref="_modelTransform"/> を掛ける。
+    ///
+    /// **マテリアルの切り替えがそのままドローコールの境目**になる。
+    /// DamagedHelmet はマテリアル1つ・パーツ1つなので1回、
+    /// Lantern はパーツ3つが同じマテリアルを共有するので3回。
+    /// パーツをマテリアル順に並べ替えれば状態変更を減らせるが、
+    /// 数個の単位では測っても差が出ないので今日はやらない(Day 18 のバッチと同じ話)。
+    /// </summary>
+    private static void RenderModel()
+    {
+        Model model = _model!;
+        _drawCalls = model.Parts.Count;
+
+        foreach (Model.Part part in model.Parts)
+        {
+            // **裏面を描くかはマテリアルが決める**。
+            // glTF の既定は片面(doubleSided: false)だが、
+            // 葉や布のような薄いものは両面で作られている。
+            // C キーの設定より、モデルの指定を優先する。
+            SetCap(EnableCap.CullFace, _culling && !part.Material.DoubleSided);
+
+            Draw(part.Mesh, part.Material, part.Transform * _modelTransform);
+        }
+
+        SetCap(EnableCap.CullFace, _culling);
+    }
+
+    /// <summary>
+    /// モデルを切り替える。<paramref name="index"/> が範囲外なら「無し」に戻す。
+    ///
+    /// **同期で読む**ので、その場でフレームが止まる(DamagedHelmet で 0.3 秒ほど)。
+    /// Day 21 で作った非同期ロードを使えば止まらないが、
+    /// あれはテクスチャ1枚ずつの仕組みで、
+    /// **モデル1体は「JSON を読む → 頂点を組む → 画像を5枚復号する → GPU へ上げる」**
+    /// という混ざった仕事なので、そのままでは載らない。
+    /// どこで切ってワーカーへ出すかは改造課題3で扱う。
+    /// </summary>
+    private static void SetModel(int index)
+    {
+        // **先に捨てる**。DamagedHelmet と WaterBottle を同時に持つと
+        // 2K テクスチャが9枚になり、VRAM を 200MB 以上使う。
+        _model?.Dispose();
+        _model = null;
+
+        if (index < 0 || index >= ModelPaths.Length)
+        {
+            _modelIndex = ModelPaths.Length;
+
+            // **カメラも戻す**。モデルに合わせて寄せた距離と注視点のままだと、
+            // デモに戻った瞬間に明るさの階段が画面いっぱいに映って何も分からなくなる。
+            _orbit.Reset();
+            Console.WriteLine("モデル: 無し(Day 31 までのデモに戻る)");
+            return;
+        }
+
+        _modelIndex = index;
+        string path = ResolveAssetPath(ModelPaths[index]);
+
+        var stopwatch = Stopwatch.StartNew();
+        _model = GltfLoader.Load(_gl, _resources, path, _shader);
+        _modelLoadMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+
+        FrameModel(_model);
+
+        Console.WriteLine();
+        Console.WriteLine($"モデル: {Path.GetFileName(path)}  {_modelLoadMilliseconds:F0}ms");
+        Console.WriteLine($"  {GltfLoader.Describe(path)}");
+        Console.WriteLine(
+            $"  パーツ {_model.Parts.Count} / 三角形 {_model.TriangleCount:N0} / 頂点 {_model.VertexCount:N0}"
+            + $" / マテリアル {_model.Materials.Count} / テクスチャ {_model.TextureCount}");
+        Console.WriteLine(
+            $"  境界 ({_model.BoundsMin.X:F2}, {_model.BoundsMin.Y:F2}, {_model.BoundsMin.Z:F2})"
+            + $"〜({_model.BoundsMax.X:F2}, {_model.BoundsMax.Y:F2}, {_model.BoundsMax.Z:F2})"
+            + $"  半径 {_model.BoundsRadius:F2}m");
+
+        foreach (Material material in _model.Materials)
+        {
+            Console.WriteLine(
+                $"  [{material.Name}] metallic {material.MetallicFactor:F2} / roughness {material.RoughnessFactor:F2}"
+                + $" / {material.AlphaMode}{(material.DoubleSided ? " / 両面" : string.Empty)}");
+            Console.WriteLine(
+                $"    マップ: {MapLabel("ベース", material.MainTexture)}{MapLabel("MR", material.MetallicRoughnessTexture)}"
+                + $"{MapLabel("法線", material.NormalTexture)}{MapLabel("AO", material.OcclusionTexture)}"
+                + $"{MapLabel("発光", material.EmissiveTexture)}");
+        }
+
+        Console.WriteLine();
+
+        static string MapLabel(string name, Handle<Texture> handle) =>
+            handle.IsValid ? name + " " : string.Empty;
+    }
+
+    /// <summary>
+    /// モデルを画面に収める。**大きさが読むまで分からない**ので、境界箱から決める。
+    ///
+    /// glTF の単位は「1.0 = 1メートル」と決まっているが、
+    /// 実際に来るものは水筒(0.06m)から街灯(40m)まで 3 桁ぶれる。
+    /// 固定の倍率を書くと、どれか1つにしか合わない。
+    ///
+    /// やることは2つ。**中心を原点へ運び、半径 2 に揃える**。
+    /// カメラを動かすほうが素直に思えるが、そうすると
+    /// ニアクリップとファークリップも一緒に調整することになる(Day 16 の要点5)。
+    /// **モデルの側を動かすほうが、触るものが少ない**。
+    /// </summary>
+    private static void FrameModel(Model model)
+    {
+        const float targetRadius = 2.0f;
+
+        float radius = MathF.Max(model.BoundsRadius, 0.0001f);
+        float scale = targetRadius / radius;
+
+        _modelTransform =
+            Matrix4x4.CreateTranslation(-model.BoundsCenter)
+            * Matrix4x4.CreateScale(scale)
+
+            // 床(Y = -0.5)の上に立たせる。
+            * Matrix4x4.CreateTranslation(0.0f, targetRadius * 0.5f, 0.0f);
+
+        // **カメラも合わせる**。倍率だけ合わせても、
+        // 既定の距離 9 のままでは画面の隅に小さく映るだけになる。
+        // 注視点をモデルの中心に置き、半径の 2.6 倍まで引く——
+        // 視野角 60 度なら、これで上下に少し余白が残る。
+        _orbit.Reset();
+        _orbit.Target = new Vector3(0.0f, targetRadius * 0.5f, 0.0f);
+        _orbit.Distance = targetRadius * 2.6f;
+        _orbit.Apply();
+    }
+
+    /// <summary>
     /// 光っているものを描く。**Day 31 の題材**。
     ///
-    /// やっていることは今までの立方体と同じで、違うのは <c>Tint</c> だけ。
+    /// やっていることは今までの立方体と同じで、違うのはマテリアルに入れる明るさだけ。
     /// 1.0 を超える値を入れると、Day 30 までは画面で 1.0 に丸められて
     /// ただの白い箱になっていた。今日からは
     ///   - シーンバッファ(RGBA16F)にその値のまま入り
     ///   - 明部の抽出で拾われて滲み(ブルーム)になり
     ///   - トーンマップで「白いけれど、その手前に階調のある白」に畳まれる
     /// という3つが順に効く。
+    ///
+    /// 明るさの入れ先は、**Day 32 で <c>Tint</c> から <c>EmissiveFactor</c> に変わった**
+    /// (ベースカラーは黒にする)。陰影が付くようになり、<c>Tint</c> のままでは
+    /// 光源の影の側まで暗くなるため。詳しくは <c>_emissiveMaterial</c> を作る箇所のコメント。
     ///
     /// **光源として周りを照らしはしない**。今日は「光っているように見える」だけで、
     /// 影(Day 33)も反射(Day 36)もまだ無い。
@@ -2086,7 +2390,7 @@ internal static class Program
     {
         foreach ((Vector3 position, Vector3 color) in Emitters)
         {
-            _emissiveMaterial.Tint = new Vector4(color, 1.0f);
+            _emissiveMaterial.EmissiveFactor = color;
 
             Matrix4x4 model =
                 Matrix4x4.CreateScale(0.4f)
@@ -2120,7 +2424,7 @@ internal static class Program
         for (int i = 0; i < LadderSteps.Length; i++)
         {
             float intensity = LadderSteps[i];
-            _emissiveMaterial.Tint = new Vector4(intensity, intensity, intensity, 1.0f);
+            _emissiveMaterial.EmissiveFactor = new Vector3(intensity);
 
             // 立方体より手前・上に、カメラのほうを向けて並べる。
             // <see cref="Primitives.CreateQuad"/> の板は +Z を向いているので、回転は要らない。
@@ -4825,6 +5129,113 @@ internal static class Program
     }
 
     /// <summary>
+    /// **glTF ローダの自己チェック**(Shift+-)。
+    ///
+    /// 4体すべてを読み、**書かれ方の違う経路が全部通るか**を確かめる。
+    /// 「1体読めた」は「その1体が読めた」でしかない——
+    /// glb と gltf、埋め込みと外部参照、TRS と matrix、
+    /// ノード1個と親子つき。**通っていない経路は必ず後で壊れる**。
+    ///
+    /// 数値の期待値はファイルから読める事実だけを書いてある
+    /// (三角形の数、パーツの数)。絵の印象ではなく、
+    /// **読めたデータそのもの**を突き合わせるのが自己チェックの役目。
+    /// </summary>
+    private static void RunGltfCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[glTF の自己チェック]");
+
+        // チェックのあいだ表示中のモデルは外しておく。
+        // **同じファイルを2回読む**ことになるが、テクスチャは RenderResources が
+        // 重複排除するので2回目は復号が走らない——それも確かめる。
+        int restore = _modelIndex;
+        _model?.Dispose();
+        _model = null;
+
+        int cacheHitsBefore = _resources.CacheHits;
+        int texturesBefore = _resources.TextureCount;
+
+        // (パス, 最低パーツ数, 最低三角形数, 期待するマテリアル数)
+        (string Path, int Parts, int Triangles, int Materials)[] expected =
+        [
+            ("models/DamagedHelmet.glb", 1, 15000, 1),
+            ("models/WaterBottle.glb", 1, 2000, 1),
+            ("models/Lantern.glb", 3, 5000, 1),
+            ("models/BoxTextured/BoxTextured.gltf", 1, 12, 1),
+        ];
+
+        var loaded = new List<Model>();
+
+        foreach ((string path, int parts, int triangles, int materials) in expected)
+        {
+            string full = ResolveAssetPath(path);
+            string name = System.IO.Path.GetFileName(full);
+
+            Model model = GltfLoader.Load(_gl, _resources, full, _shader);
+            loaded.Add(model);
+
+            checks.Check($"{name}: 読めた", true, GltfLoader.Describe(full));
+            checks.Check($"{name}: パーツが {parts} 個以上", model.Parts.Count >= parts, $"実際 {model.Parts.Count}");
+            checks.Check($"{name}: 三角形が {triangles:N0} 個以上", model.TriangleCount >= triangles,
+                $"実際 {model.TriangleCount:N0}");
+            checks.Check($"{name}: マテリアル {materials} 個", model.Materials.Count == materials,
+                $"実際 {model.Materials.Count}");
+            checks.Check($"{name}: ベースカラーのマップがある",
+                model.Materials.All(m => m.MainTexture.IsValid));
+            checks.Check($"{name}: 境界箱が有限", float.IsFinite(model.BoundsRadius) && model.BoundsRadius > 0.0f,
+                $"半径 {model.BoundsRadius:F3}m");
+        }
+
+        // **階層が効いているか**。Lantern の3パーツは、
+        // ファイル上ではそれぞれ別の平行移動を持っている。
+        // 親の回転(Y 軸 180 度)を掛け忘れると、位置は合っているのに向きだけ裏返る。
+        Model lantern = loaded[2];
+        bool distinctTransforms = lantern.Parts
+            .Select(part => part.Transform.Translation)
+            .Distinct()
+            .Count() == lantern.Parts.Count;
+        checks.Check("Lantern: 3つのパーツが別々の位置にある(親子の掛け合わせが効いている)", distinctTransforms);
+
+        // **BoxTextured は matrix 形式**。Z-up を Y-up に直す回転が入っているので、
+        // 単位行列のままなら読めていない。
+        Model box = loaded[3];
+        checks.Check("BoxTextured: matrix 形式のノードが単位行列になっていない",
+            box.Parts[0].Transform != Matrix4x4.Identity);
+
+        // 大きさの幅。**glTF の 1.0 は 1 メートル**という約束が効いていることの確認。
+        checks.Check("水筒より街灯のほうが大きい",
+            loaded[2].BoundsRadius > loaded[1].BoundsRadius * 10.0f,
+            $"WaterBottle {loaded[1].BoundsRadius:F2}m / Lantern {loaded[2].BoundsRadius:F2}m");
+
+        // 同じファイルをもう一度読む。**画像は復号し直されないはず**。
+        int texturesAfterFirst = _resources.TextureCount;
+        Model again = GltfLoader.Load(_gl, _resources, ResolveAssetPath(expected[0].Path), _shader);
+        checks.Check("2回目の読み込みでテクスチャが増えない(重複排除が効いている)",
+            _resources.TextureCount == texturesAfterFirst,
+            $"{texturesAfterFirst} → {_resources.TextureCount}");
+        checks.Check("そのぶんキャッシュヒットが増える", _resources.CacheHits > cacheHitsBefore,
+            $"{cacheHitsBefore} → {_resources.CacheHits}");
+        again.Dispose();
+
+        foreach (Model model in loaded)
+        {
+            model.Dispose();
+        }
+
+        // **全部返したらテクスチャは元の数に戻る**。ここが今日いちばん見たい行。
+        // 増えたままなら Model.Dispose の Release が足りていない。
+        checks.Check("全部畳んだらテクスチャの数が元に戻る", _resources.TextureCount == texturesBefore,
+            $"{texturesBefore} → {_resources.TextureCount}");
+
+        checks.Report();
+        Console.WriteLine();
+
+        SetModel(restore);
+    }
+
+    /// <summary>
     /// **HDR バッファが本当に 1.0 を超えて持てるかを確かめる自己チェック**(Shift+8)。
     ///
     /// 今日の主張は「8bit のバッファでは明るさが 1.0 で切られてしまう」の一点なので、
@@ -5147,8 +5558,41 @@ internal static class Program
     private static void Draw(Mesh<Vertex> mesh, Material material, Matrix4x4 model)
     {
         material.Apply(_resources);
-        _resources.GetShader(material.Shader).SetMatrix4("uModel", model);
+
+        Shader shader = _resources.GetShader(material.Shader);
+        shader.SetMatrix4("uModel", model);
+        shader.SetMatrix3("uNormalMatrix", NormalMatrix(model));
         mesh.Draw();
+    }
+
+    /// <summary>
+    /// 法線を世界空間へ運ぶ行列。**モデル行列の左上 3x3 の逆転置**(Day 32)。
+    ///
+    /// 位置は <c>uModel</c> で運べるのに法線は運べない、というのが引っかかりどころ。
+    /// 理由は「法線は面に垂直だが、垂直という関係は変換で保たれない」から。
+    /// x 方向だけ2倍に伸ばすと、斜めの面は寝るのに、
+    /// 同じ行列を法線に掛けると法線は逆に立ってしまう。
+    ///
+    /// 逆転置を使うと垂直が保たれる。導出は「面上のベクトル t と法線 n の内積 0 を、
+    /// 変換後も 0 にする行列は何か」を解くだけで、答えが (M^-1)^T になる。
+    ///
+    /// **一様スケールと回転しか使っていなければ M と一致する**ので、
+    /// 手を抜いても大半のモデルは正しく見える。
+    /// glTF は非一様スケールを持つノードを普通に含むので、ここで払っておく。
+    /// </summary>
+    private static Matrix4x4 NormalMatrix(Matrix4x4 model)
+    {
+        // 平行移動は法線に効かないので落とす(3x3 だけ使うので実害は無いが、
+        // 逆行列の計算を安定させるために消しておく)。
+        model.M41 = 0.0f;
+        model.M42 = 0.0f;
+        model.M43 = 0.0f;
+
+        // 退化した行列(スケール 0 など)は逆行列が作れない。
+        // そのときは諦めてモデル行列をそのまま使う——**黙って NaN を流すよりまし**。
+        return Matrix4x4.Invert(model, out Matrix4x4 inverse)
+            ? Matrix4x4.Transpose(inverse)
+            : model;
     }
 
     private static void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
@@ -5225,6 +5669,23 @@ internal static class Program
 
             case Key.Number8 when shift:
                 RunHdrCheck();
+                break;
+
+            // --- 今日のスイッチ(glTF)---
+            case Key.Number9 when shift:
+                _debugChannel = (_debugChannel + 1) % 8;
+                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+                break;
+
+            case Key.Number0 when shift:
+                // 最後まで行ったら「無し」を1周ぶん挟む。
+                // **Day 31 までのデモに戻れる**ようにしておかないと、
+                // 明るさの階段やスプライトの計測が見られなくなる。
+                SetModel(_modelIndex + 1 > ModelPaths.Length ? 0 : _modelIndex + 1);
+                break;
+
+            case Key.Minus when shift:
+                RunGltfCheck();
                 break;
 
             case Key.Escape:
@@ -5673,6 +6134,11 @@ internal static class Program
 
         _spriteBatch.Dispose();
         _atlas.Dispose();
+
+        // モデルはメッシュを所有し、テクスチャの参照を握っている(Day 32)。
+        // **RenderResources より先に畳む**——順番を逆にすると、
+        // 既に消えたプールへ Release を呼ぶことになる。
+        _model?.Dispose();
 
         // フレームバッファとレンダーバッファも GC の管轄外(Day 31)。
         // シェーダは RenderResources が持っているので、ここで畳むのはバッファだけ。
