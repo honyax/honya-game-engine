@@ -25807,6 +25807,16 @@ internal static class Program
         int width = _post.Scene.Width;
         int height = _post.Scene.Height;
 
+        // **3 と 4 は TAA の既定のつまみで測る**(Day 56 の検証で見つかり、Day 54 まで遡って直した)。
+        // 2 の最後で本番のつまみに戻しているので、そのままだと「TAA」ページで回したつまみを借りることになる——
+        // 今の絵の割合を 50% にしたまま走らせると、追いかける箱の輪郭の項目が落ちていた。戻すのは 4 の saved.Restore。
+        taa.CurrentWeight = 0.1f;
+        taa.Rectify = TaaRectify.VarianceClip;
+        taa.HistoryFilter = TaaHistoryFilter.CatmullRom;
+        taa.ToneWeighted = true;
+        taa.DebugView = TaaDebugView.None;
+        _motion.ObjectMotion = true;
+
         // 1フレームぶん: ずらして描き、深度を写し、速度を描いて読み返す。
         int sample = 0;
         float[] MotionFrame(Matrix4x4 cubeMatrix)
@@ -25995,6 +26005,26 @@ internal static class Program
         //
         // **ずらしの 8 点をただ平均したもの**も並べる。TAA が混ぜているのはこの 8 点なので、
         // 近づけるのはここまで——64 点の答えとの残りは、点が 8 つしか無いぶん(計画書「検証の途中で分かったこと」)。
+        //
+        // **確認用のシーンを照らす光も、ここで決める**(Day 56 の検証で見つかり、Day 54 まで遡って直した)。
+        // 確認用のシーンは、いま画面に出ている空・太陽・影・SSAO を借りて照らされる。TAA は明るさで重みを付けて混ぜるので、
+        // 明るい縁ほど 64 点の答え(光の量の平均)から離れる——起動直後の手焼きの空は IBL が明るく、FXAA 76% / TAA 36% で落ちていた。
+        // 影と SSAO は直前のフレームのもの(別のカメラ・別の物)が残っていて、関係の無い縁まで足す。
+        // そこで光は起動直後の手書きの光に揃え、IBL・影・SSAO を切る。これで、何を押したあとに走らせても同じ数字になる。
+        Vector3 savedLightDirection = _lightDirection;
+        Vector3 savedLightColor = _lightColor;
+        Vector3 savedAmbient = _ambientColor;
+        bool savedIbl = _env.Enabled;
+        bool savedShadow = _shadow.Enabled;
+        bool savedSsao = _ssao.Enabled;
+
+        _lightDirection = _manualLightDirection;
+        _lightColor = _manualLightColor;
+        _ambientColor = _manualAmbientColor;
+        _env.Enabled = false;
+        _shadow.Enabled = false;
+        _ssao.Enabled = false;
+
         _camera.Jitter = Vector2.Zero;
         float[] plainHdr = RenderTaaProbeImage(probeFloor, probeCube, cube, Vector2.Zero);
 
@@ -26046,6 +26076,13 @@ internal static class Program
         float[] temporalHdr = TemporalImage(TaaRectify.VarianceClip);
         float[] trustingHdr = TemporalImage(TaaRectify.None);
         saved.Restore(taa, _motion);
+
+        _lightDirection = savedLightDirection;
+        _lightColor = savedLightColor;
+        _ambientColor = savedAmbient;
+        _env.Enabled = savedIbl;
+        _shadow.Enabled = savedShadow;
+        _ssao.Enabled = savedSsao;
 
         PostSettings post = PostSettings.Capture(_post);
         _post.BloomEnabled = false;
