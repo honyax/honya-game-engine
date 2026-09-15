@@ -612,11 +612,13 @@ internal static class Program
     /// 何個描いたのかが絵から読めない。多光源の本番は Day 56 の「多光源シーン化」で、
     /// 今日のこれは<b>光の数を目で数えるための窓</b>。
     /// </para>
+    ///
+    /// <para>
+    /// <b>Day 56 で、夜の強さはシーンの持ち物になった</b>(<see cref="DemoScene.Night"/>)。
+    /// ここに残ったのは「夜にするか」の1つだけで、3% の決め打ち(<c>NightDim</c>)は <see cref="DemoScene.DefaultNightScale"/> へ移した。
+    /// </para>
     /// </summary>
     private static bool _night;
-
-    /// <summary>夜のときに太陽と空に掛ける倍率。</summary>
-    private const float NightDim = 0.03f;
 
     /// <summary>G-Buffer パスにかかった時間(移動平均。**CPU が命令を積んだ時間**で、GPU の時間ではない)。</summary>
     private static double _gbufferMilliseconds;
@@ -689,6 +691,29 @@ internal static class Program
 
     /// <summary>直前の <see cref="OnRender"/> の間隔 [秒]。シャッターを秒で決めるときと、内訳の表示に使う。</summary>
     private static double _renderSeconds = 1.0 / 60.0;
+
+    // ===== Day 56: 最終デモ =====
+
+    /// <summary>
+    /// 完成版のシーン。**<c>demo-v1.json</c> に書き足さず、別のファイルにした**——
+    /// assets/ は全部の Day で共有しているので、v1 に板を1枚足すだけで Day 39〜55 の絵と自己チェックが変わる。
+    /// </summary>
+    private const string FinalScenePath = "scenes/demo-final.json";
+
+    /// <summary>
+    /// 灯りを点けるか(「最終デモ」の F5 / 機能表の「灯り」)。**状態の置き場所はここだけ**で、
+    /// <see cref="SceneLights.Update"/> が毎フレーム受け取って、照らす側と見える側の両方に反映する。
+    /// </summary>
+    private static bool _sceneLights = true;
+
+    /// <summary>灯りの照らす側の位置に玉を描くか(「最終デモ」の F7)。**光だけは画面に写らない**ので、置き場所を目で見る窓。</summary>
+    private static bool _showLightMarkers;
+
+    /// <summary>
+    /// 灯りと群れを1本に並べる器(<see cref="CurrentLights"/>)。**両方あるときだけ**使う。
+    /// 片方だけならその列をそのまま返すので、Day 55 までの絵ではコピーが1回も起きない。
+    /// </summary>
+    private static PointLight[] _mergedLights = [];
 
     /// <summary>カメラワークを再生中か(「カメラワークと機能」の F3)。</summary>
     private static bool _cameraPlaying;
@@ -3105,6 +3130,11 @@ internal static class Program
             }
         }
 
+        // **灯りも可変 dt**(Day 56)。揺らぎは時刻の関数で、誰の当たり判定にも関わらない。
+        // 群れ(上の _swarm.Update)と違って<b>止めていても呼ぶ</b>——進めるのは時刻だけで、点け消しは止めていても効かせる。
+        // 見える側は材質の数字なので、書き直さないと「消したのにガラスだけ光っている」絵が止めている間じゅう残る。
+        _demo?.Lights.Update(_paused ? 0.0f : (float)deltaSeconds, _sceneLights);
+
         _fpsFrames++;
         _fpsElapsed += deltaSeconds;
         if (_fpsElapsed >= 0.5)
@@ -4153,6 +4183,13 @@ internal static class Program
         if (_demo is not null)
         {
             lines.AppendLine(DeferredLabel());
+        }
+
+        // **今日の1行**(Day 56)。灯りは見える側も照らす側も絵に出るが、
+        // 「いくつ置いて、いま点いているか」「夜の露出がいくつか」は絵から読めない。
+        if (_demo is { Lights.Count: > 0 })
+        {
+            lines.AppendLine(SceneLightsLabel());
         }
 
         // **今日の1行**(Day 43)。物理は「なんとなく動いている」で済ませてしまいやすい。
@@ -7808,6 +7845,14 @@ internal static class Program
     /// <b>表は状態を持たない</b>という約束(<see cref="FeatureToggles"/> の説明)を守るために、
     /// 戻す先の値もその場で決め打ちにしてある。
     /// </para>
+    ///
+    /// <para>
+    /// <b>Day 56 で Phase 8 のぶんを載せた</b>(15 項目)。灯り(今日)・被写界深度とモーションブラー(Day 55)の3つを足し、
+    /// FXAA の項目を <b>AA</b> に置き換えた。<b>AA の ON は TAA</b>(Day 54 の「FXAA からの置き換え」)——
+    /// 「ソフト影」の ON が PCF 2 に決め打ちなのと同じで、FXAA に戻したいときは「FXAA と色調整」の F2 を押す。
+    /// 2つを別々の項目にすると「全部 ON」で TAA と FXAA が両方掛かり、TAA が均した縁を FXAA がもう一度ぼかす。
+    /// Day 55 の計画書が「機能ツアーへの登録は Day 56」と書いて残していた宿題がこれ。
+    /// </para>
     /// </summary>
     private static FeatureToggles BuildFeatureToggles()
     {
@@ -7853,6 +7898,12 @@ internal static class Program
             () => _env.Enabled,
             on => _env.Enabled = on);
 
+        // 環境光の次に置く。**太陽と空の次の、3つ目の光**だから(Day 56)。
+        features.Add(
+            "灯り", "街灯・窓・看板が消え、夜の通りが月明かりだけになる(Day 56)",
+            () => _sceneLights,
+            on => _sceneLights = on);
+
         features.Add(
             "SSAO", "物が接しているところの暗がりが消える(Day 37)",
             () => _ssao.Enabled,
@@ -7864,14 +7915,35 @@ internal static class Program
             on => _post.BloomEnabled = on);
 
         features.Add(
-            "FXAA", "輪郭に階段が出る(Day 38)",
-            () => _post.FxaaEnabled,
-            on => _post.FxaaEnabled = on);
+            "AA", "輪郭に階段が出て、細い線がちらつく(Day 38 の FXAA / Day 54 の TAA)",
+            () => _post.FxaaEnabled || _post.Taa.Enabled,
+            on =>
+            {
+                // 入れ直すときは履歴を捨てる(「TAA」の F2 と同じ)。切っていた間の古い絵を混ぜないため。
+                if (on && !_post.Taa.Enabled)
+                {
+                    _post.Taa.Reset();
+                }
+
+                _post.Taa.Enabled = on;
+                _post.FxaaEnabled = false;
+            });
 
         features.Add(
             "色調整", "シーンが指定した色温度・彩度が外れる(Day 38)",
             () => _post.Grade.Enabled,
             on => _post.Grade.Enabled = on);
+
+        // --- Day 55 の2つ(被写界深度 → ブラーの順は、後処理で掛ける順と同じ)---
+        features.Add(
+            "被写界深度", "ピントの外れた物がぼけず、手前も奥も同じくっきりした絵になる(Day 55)",
+            () => _post.DepthOfField.Enabled,
+            on => _post.DepthOfField.Enabled = on);
+
+        features.Add(
+            "モーションブラー", "動いた物が流れず、カメラを振ると絵がパラパラ漫画になる(Day 55)",
+            () => _post.MotionBlur.Enabled,
+            on => _post.MotionBlur.Enabled = on);
 
         return features;
     }
@@ -8194,7 +8266,8 @@ internal static class Program
         // --- 7. Phase 6 のマイルストーン ---
         //
         // ロードマップに書いてある必須構成を、そのまま項目にする。
-        string[] required = ["PBR", "IBL", "影", "ソフト影", "SSAO", "ブルーム", "FXAA"];
+        // (Day 56 で表の「FXAA」が「AA」になった。ON は TAA だが、必須構成の「AA」はどちらでも満たす)
+        string[] required = ["PBR", "IBL", "影", "ソフト影", "SSAO", "ブルーム", "AA"];
         string missing = string.Join(
             '/',
             required.Where(name =>
@@ -8265,13 +8338,18 @@ internal static class Program
     /// (<see cref="SetModel"/> と同じ事情)。
     /// **止まる代わりに、どこで何ミリ秒かかったかを必ず出す**。
     /// </para>
+    ///
+    /// <para>
+    /// <b>Day 56 で読むファイルを選べるようになった</b>(完成版の <see cref="FinalScenePath"/>)。
+    /// 絶対パスもそのまま受ける——読み直し(「デモ v1」の F11)は、いま出ているシーンの <see cref="DemoScene.SourcePath"/> を渡す。
+    /// </para>
     /// </summary>
-    private static void LoadDemoScene()
+    private static void LoadDemoScene(string scenePath = "scenes/demo-v1.json")
     {
-        string? path = TryResolveAssetPath("scenes/demo-v1.json");
-        if (path is null)
+        string? path = Path.IsPathRooted(scenePath) ? scenePath : TryResolveAssetPath(scenePath);
+        if (path is null || !File.Exists(path))
         {
-            Console.WriteLine("デモ v1: assets/scenes/demo-v1.json が見つかりません");
+            Console.WriteLine($"デモ: assets/{scenePath} が見つかりません");
             return;
         }
 
@@ -8531,10 +8609,14 @@ internal static class Program
 
         // **夜は太陽と空をまとめて落とす**(Day 52。「ディファード」の F4)。
         // シーンの光を決める場所がここ1か所なので、倍率もここで1回掛ければ済む。
-        float night = _night ? NightDim : 1.0f;
+        //
+        // **Day 56 で倍率と露出がシーンの持ち物になった**(DemoScene.Night)。
+        // demo-v1.json は night を書いていないので、太陽も空も 3%・露出は昼のまま——Day 52〜55 と同じ夜になる。
+        DemoScene.NightSettings nightSettings = _demo.Night;
+        float night = _night ? nightSettings.SunScale : 1.0f;
 
-        _post.Exposure = _demo.Exposure;
-        _env.Intensity = _demo.IblIntensity * night;
+        _post.Exposure = _night ? nightSettings.Exposure : _demo.Exposure;
+        _env.Intensity = _demo.IblIntensity * (_night ? nightSettings.IblScale : 1.0f);
         _ambientColor = _demo.Ambient;
 
         // **色調整もシーンの持ち物**(Day 40)。露出や IBL の強さと同じで、
@@ -8647,6 +8729,12 @@ internal static class Program
         }
 
         SetCap(EnableCap.CullFace, _culling);
+
+        // 灯りの置き場所(Day 56。「最終デモ」の F7)。光る板は Items に入っているので、ここで足すのは玉だけ。
+        if (_showLightMarkers)
+        {
+            RenderLightMarkers();
+        }
     }
 
     /// <summary>シーンの内訳をコンソールに出す(<c>「デモ v1」の F10</c>)。</summary>
@@ -15888,7 +15976,8 @@ internal static class Program
             }
             else
             {
-                LoadDemoScene();
+                // **いま出ているシーンを読み直す**(Day 56)。完成版を出していれば demo-final.json のほう。
+                LoadDemoScene(_demo.SourcePath);
                 Console.WriteLine("デモ v1: 読み直した");
             }
         });
@@ -17240,9 +17329,13 @@ internal static class Program
             _night = !_night;
             ApplyDemoLighting();
 
+            // 倍率はシーンの持ち物(Day 56)。シーンが無ければ Day 52 の既定。
+            DemoScene.NightSettings settings =
+                _demo?.Night ?? new(DemoScene.DefaultNightScale, DemoScene.DefaultNightScale, _post.Exposure);
+
             Console.WriteLine(
                 _night
-                    ? $"夜: **ON**。太陽と空を {NightDim * 100.0f:F0}% に落とした。点光源の数は F3"
+                    ? $"夜: **ON**。太陽を {settings.SunScale * 100.0f:F0}%、空を {settings.IblScale * 100.0f:F0}% に落とした。点光源の数は F3"
                     : "夜: OFF(夕暮れに戻す)");
         });
 
@@ -17607,6 +17700,52 @@ internal static class Program
         lens.Add("内訳", "レンズ・錯乱円・シャッター・升目・VRAM・GPU の時間", DescribeCameraBlur);
 
         lens.Add("自己チェック", "錯乱円の式・ボケの集め方・尾の長さ・後処理への差し込み", RunCameraBlurCheck);
+
+        // ===== Day 56: 最終デモ =====
+        DebugMenu.Page final = menu.Add(
+            "最終デモ", "Day 56。灯りをシーンに置き、Phase 6〜8 の全部を1枚の絵に束ねる");
+
+        final.Add("完成版で遊ぶ", "夜の裏通りをキツネで歩く。**今日の到達点**", () => ShowFinalDemo(play: true));
+
+        final.Add("完成版を眺める", "同じ絵をカメラワークで巡る", () => ShowFinalDemo(play: false));
+
+        final.Add("時間帯", "夜 ↔ 夕暮れ。**灯りは点いたまま**", () =>
+        {
+            _night = !_night;
+            ApplyDemoLighting();
+
+            Console.WriteLine(
+                _night
+                    ? $"時間帯: **夜**。露出を {_post.Exposure:F2} に上げた(夜の露出はシーンが決める)"
+                    : "時間帯: 夕暮れ。**灯りは点いたまま**——日の当たる地面の上では、街灯の光だまりがほとんど見えない");
+        });
+
+        final.Add("灯り", "ON / OFF。**見える側と照らす側が一緒に消える**", () =>
+        {
+            StopTourIfRunning();
+            _sceneLights = !_sceneLights;
+
+            Console.WriteLine(
+                _sceneLights
+                    ? $"灯り: ON({_demo?.Lights.Count ?? 0} 個)"
+                    : "灯り: **OFF**。ガラスも窓も看板も消え、床の光だまりも同時に消える——1つの項目に書いた2つが一緒に動く");
+        });
+
+        final.Add("Day 51 と比べる", "Phase 8 で足したもの(夜・灯り・TAA・ボケ・ブラー)だけを外す / 戻す", ComparePhase8);
+
+        final.Add("灯りの位置を見る", "照らす側の置き場所に玉を出す。**光そのものは画面に写らない**", () =>
+        {
+            _showLightMarkers = !_showLightMarkers;
+
+            Console.WriteLine(
+                _showLightMarkers
+                    ? "灯りの位置: **表示**。窓の光は板の 40cm 手前、街灯の光はガラスの中(だから玉はガラスに隠れる)"
+                    : "灯りの位置: 消した");
+        });
+
+        final.Add("内訳", "灯りの一覧・機能表・後処理の代償", DescribeFinalDemo);
+
+        final.Add("自己チェック", "灯りの読み込み・揺らぎ・機能表・完成版の構成", RunFinalDemoCheck);
 
         return menu;
     }
@@ -22123,7 +22262,7 @@ internal static class Program
         checks.Check("ページがある", _menu.Pages.Count > 0, $"{_menu.Pages.Count} 枚");
         checks.Check(
             "**Day 31 以降のスイッチが全部入っている**",
-            entryCount == 229,
+            entryCount == 237,
             $"{entryCount} 項目");
 
         bool withinCapacity = _menu.Pages.All(page => page.Entries.Count <= DebugMenu.SlotCount);
@@ -23222,6 +23361,11 @@ internal static class Program
 
         SetCap(EnableCap.CullFace, _culling);
 
+        if (_showLightMarkers)
+        {
+            RenderLightMarkers();
+        }
+
         if (_showColliders)
         {
             RenderSceneColliders();
@@ -23627,9 +23771,40 @@ internal static class Program
     /// <summary>
     /// いま効かせる点光源。**デモ v1 が出ているときだけ**——群れは裏通りの箱の中を漂うので、
     /// 材質グリッドや物理デモの上に出しても意味が無い。
+    ///
+    /// <para>
+    /// <b>Day 56 でシーンの灯りが加わった</b>。<b>灯りを先に並べる</b>——フォワードは 64 個で打ち切るので、
+    /// 群れを 1024 個にしても、街灯や窓は消えずに残る(消えるのは後ろの群れのほう)。
+    /// 光を受け取る3人(フォワードの uniform・ディファードの球・Forward+ の升目)は全員ここから読むので、
+    /// 灯りを足すのにこの関数の外は1行も触っていない。
+    /// </para>
     /// </summary>
-    private static ReadOnlySpan<PointLight> CurrentLights() =>
-        _demo is not null ? _swarm.Lights : ReadOnlySpan<PointLight>.Empty;
+    private static ReadOnlySpan<PointLight> CurrentLights()
+    {
+        if (_demo is null)
+        {
+            return ReadOnlySpan<PointLight>.Empty;
+        }
+
+        ReadOnlySpan<PointLight> scene = _demo.Lights.Lights;
+        ReadOnlySpan<PointLight> swarm = _swarm.Lights;
+
+        // **片方だけならそのまま返す**。Day 55 までの絵(灯りの無い v1)は、ここで今までと同じ列を受け取る。
+        if (scene.IsEmpty || swarm.IsEmpty)
+        {
+            return scene.IsEmpty ? swarm : scene;
+        }
+
+        int count = scene.Length + swarm.Length;
+        if (_mergedLights.Length < count)
+        {
+            _mergedLights = new PointLight[count];
+        }
+
+        scene.CopyTo(_mergedLights);
+        swarm.CopyTo(_mergedLights.AsSpan(scene.Length));
+        return _mergedLights.AsSpan(0, count);
+    }
 
     /// <summary>
     /// **G-Buffer パス**(Day 52)。今日の1パス目。
@@ -23725,8 +23900,9 @@ internal static class Program
             return ClusteredLabel();
         }
 
-        int count = _swarm.Count;
-        string lights = count == 0 ? "光:0" : $"光:{count}個 半径{_swarm.Radius:F2}m";
+        // 灯りも数える(Day 56)。フォワードの上限と比べるのは、実際に渡している全部の数。
+        int count = CurrentLights().Length;
+        string lights = LightCountLabel();
         string night = _night ? "  夜" : string.Empty;
         int shadowPass = _shadow.Enabled ? 1 : 0;
 
@@ -24653,8 +24829,7 @@ internal static class Program
     private static string ClusteredLabel()
     {
         ClusterGrid grid = _clusters.Grid;
-        int count = _swarm.Count;
-        string lights = count == 0 ? "光:0" : $"光:{count}個 半径{_swarm.Radius:F2}m";
+        string lights = LightCountLabel();
         int geometryPasses = (_shadow.Enabled ? 1 : 0) + (_ssao.Enabled ? 1 : 0) + 1;
 
         return $"描画:Forward+  {lights}  "
@@ -27415,6 +27590,717 @@ internal static class Program
             blur.ShowTiles = ShowTiles;
         }
     }
+
+    // ================================================================
+    //  Day 56: 最終デモ(灯りをシーンに置き、推奨項目を1枚の絵に束ねる)
+    // ================================================================
+
+    /// <summary>いま出ているシーンが完成版か。**ファイル名で見る**(同じシーンを2回読まないため)。</summary>
+    private static bool IsFinalScene() =>
+        _demo is not null
+        && string.Equals(
+            Path.GetFileName(_demo.SourcePath), Path.GetFileName(FinalScenePath), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// **完成版を出す**(「最終デモ」の F2 / F3)。今日の到達点。
+    ///
+    /// <para>
+    /// 新しく作ったものはほとんど無い。やっているのは Day 39 の「決めの構図」と同じく
+    /// <b>すでにあるスイッチを、決めた位置に倒す</b>ことだけ——シーンを完成版に差し替え、
+    /// 機能表の 15 項目を全部入れ、夜にして、光の当て方を Forward+ にし、キツネを下ろす(かカメラを回す)。
+    /// Day 40 で「フラグを手で並べると書き忘れる」と表にした配当が、ここで最後にもう一度効く:
+    /// Phase 8 の3つ(TAA・被写界深度・ブラー)も表に載ったので、<c>SetAll(true)</c> の1行で入る。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>光の当て方を Forward+ にする理由</b>(計画書の要点5)。灯りは 7 個しかないのでフォワードでも描けるが、
+    /// Forward+ はフォワードと<b>1ビットも違わない絵</b>のまま光の数に強く(Day 53)、
+    /// ディファードと違って成分表示も半透明も乗る。G-Buffer の 15.8MB も要らない。
+    /// </para>
+    /// </summary>
+    /// <param name="play">キツネで歩くか(false ならカメラワークで巡る)。</param>
+    private static void ShowFinalDemo(bool play)
+    {
+        StopTourIfRunning();
+        _cameraPlaying = false;
+
+        if (!IsFinalScene())
+        {
+            LoadDemoScene(FinalScenePath);
+        }
+
+        if (!IsFinalScene())
+        {
+            Console.WriteLine("最終デモ: シーンが読めないので中止した");
+            return;
+        }
+
+        _useHdriSky = true;
+        _sunFromHdri = true;
+        _sceneShadows = true;
+        _post.Split = PostSplit.None;
+        _debugChannel = 0;
+        SetSpriteCount(0);
+
+        // **Phase 6〜8 の全部**。表に載っている 15 項目(Day 40 の必須構成 + Day 55・56 の推奨)。灯りもこの中。
+        _features.SetAll(true);
+
+        // 群れは出さない。**数を比べるための道具で、シーンの灯りではない**(Day 52)。
+        _lightCountIndex = 0;
+        _swarm.SetCount(0);
+
+        _lightingPath = LightingPath.ForwardPlus;
+        _night = true;
+
+        BakeSky();
+        ApplyDemoLighting();
+
+        // **画角もシーンの決めの構図へ戻す**。カメラワークのあとに遊ぶと、最後のショットの画角(38 度など)のまま歩くことになる。
+        FrameDemoScene();
+
+        if (play)
+        {
+            ShowPlayableDemo();
+        }
+        else
+        {
+            HidePlayableDemo();
+            PlayDemoCamera();
+        }
+
+        SceneLights lights = _demo!.Lights;
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"最終デモ: **完成版**「{_demo.Name}」 灯り {lights.Count} 個 / 夜(露出 {_demo.Night.Exposure:F2}) / "
+            + $"{PathName(ActivePath())} / 機能 {_features.OnCount}/{_features.Features.Count}");
+        Console.WriteLine("  必須(Day 31〜40): HDR・空・影・ソフト影・法線マップ・視差・PBR・IBL・SSAO・ブルーム・AA・色調整");
+        Console.WriteLine("  推奨(Day 52〜56): 灯り(Forward+)・TAA・被写界深度・モーションブラー");
+        Console.WriteLine(
+            play
+                ? "  矢印キーで歩く、X で走る、Space で跳ぶ(Day 51)。このページの F6 で Day 51 の絵と比べる"
+                : "  カメラワークで巡る(Day 40)。F2 でキツネを下ろす。このページの F6 で Day 51 の絵と比べる");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// **Day 51 の絵と比べる**(「最終デモ」の F6)。Phase 8 で足したものだけを外す / 戻す。
+    ///
+    /// <para>
+    /// 外すのは 夜・灯り・TAA・被写界深度・モーションブラー・Forward+ の6つで、AA は Day 51 の FXAA に戻す。
+    /// シーンは完成版のまま(ランタンや窓の板は残る)なので、厳密には「完成版のシーンを Day 51 の設定で描いた絵」。
+    /// 機能表の「全部 OFF」が Day 31 の素の絵へ戻すのに対し、こちらは<b>Phase 8 の5日ぶんだけ</b>を戻す。
+    /// </para>
+    /// </summary>
+    private static void ComparePhase8()
+    {
+        StopTourIfRunning();
+
+        // 1つでも入っていれば「外す」、全部外れていれば「戻す」(「全部 ON / OFF」と同じ決め方。状態を増やさない)。
+        bool remove = _sceneLights || _night || _post.Taa.Enabled || _post.DepthOfField.Enabled || _post.MotionBlur.Enabled;
+
+        if (!remove)
+        {
+            _post.Taa.Reset();
+        }
+
+        _sceneLights = !remove;
+        _night = !remove;
+        _post.Taa.Enabled = !remove;
+        _post.FxaaEnabled = remove;
+        _post.DepthOfField.Enabled = !remove;
+        _post.MotionBlur.Enabled = !remove;
+        _lightingPath = remove ? LightingPath.Forward : LightingPath.ForwardPlus;
+
+        ApplyDemoLighting();
+
+        Console.WriteLine(
+            remove
+                ? "Day 51 の設定: 夕暮れ・灯りなし・FXAA・ピンホール・一瞬のシャッター・フォワード(シーンは完成版のまま)"
+                : "完成版に戻した: 夜・灯り・TAA・被写界深度・モーションブラー・Forward+");
+    }
+
+    /// <summary>
+    /// 光の数の表示(Day 52 の HUD から切り出した。Day 56)。**灯りと群れを分けて出す**——
+    /// 群れは数で半径が変わるが、灯りは1つずつ JSON で決めてあるので、まとめると半径が読めない。
+    /// 灯りが無ければ Day 55 と同じ文言。
+    /// </summary>
+    private static string LightCountLabel()
+    {
+        int lamps = _demo?.Lights.Lights.Length ?? 0;
+        int swarm = _swarm.Count;
+        string swarmText = $"{swarm}個 半径{_swarm.Radius:F2}m";
+
+        return (lamps, swarm) switch
+        {
+            (0, 0) => "光:0",
+            (0, _) => $"光:{swarmText}",
+            (_, 0) => $"光:灯り{lamps}個",
+            _ => $"光:灯り{lamps}個+群れ{swarmText}",
+        };
+    }
+
+    /// <summary>HUD の1行(Day 56)。灯りの数・夜の露出・描き方。</summary>
+    private static string SceneLightsLabel()
+    {
+        DemoScene demo = _demo!;
+        SceneLights lights = demo.Lights;
+        int flickering = lights.Fixtures.Count(fixture => fixture.Flicker > 0.0f);
+
+        return $"灯り:{(_sceneLights ? "ON" : "**OFF**")} {lights.Lights.Length}/{lights.Count}個  揺らぐもの:{flickering}個  "
+            + (_night
+                ? $"夜  露出:{demo.Night.Exposure:F2}  月:{demo.Night.SunScale:P0}  空:{demo.Night.IblScale:P0}"
+                : "夕暮れ")
+            + $"  描き方:{PathName(ActivePath())}"
+            + (_showLightMarkers ? "  表示:灯りの位置" : string.Empty);
+    }
+
+    /// <summary>
+    /// 灯りの照らす側の位置に、光る玉を描く(「最終デモ」の F7)。
+    ///
+    /// <para>
+    /// 点光源は<b>画面に1画素も写らない</b>ので、置いた場所が絵から分からない。
+    /// 窓の光が窓の板の 40cm 手前にあること、街灯の光がガラスの中にあること(だから玉はガラスに隠れる)を目で確かめる窓。
+    /// 消した灯りも暗い玉で出す——消えているのか置き忘れたのかを区別するため。
+    /// </para>
+    /// </summary>
+    private static void RenderLightMarkers()
+    {
+        SceneLights lights = _demo!.Lights;
+
+        for (int i = 0; i < lights.Count; i++)
+        {
+            SceneLights.Fixture fixture = lights.Fixtures[i];
+            _emissiveMaterial.EmissiveFactor = fixture.Color * (_sceneLights ? 8.0f : 0.3f);
+
+            Draw(_sphere, _emissiveMaterial, Matrix4x4.CreateScale(0.12f) * Matrix4x4.CreateTranslation(fixture.Position));
+            _drawCalls++;
+        }
+    }
+
+    /// <summary>
+    /// 最終デモの内訳をコンソールへ(「最終デモ」の F8)。
+    ///
+    /// <para>
+    /// <b>灯りを1つずつ並べる</b>のが眼目。置き場所を JSON に書かずに見える側から決めた灯り(街灯・窓)は、
+    /// ここで初めて座標が分かる。絵と突き合わせるには <c>F7</c> の玉と一緒に見る。
+    /// </para>
+    /// </summary>
+    private static void DescribeFinalDemo()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- 最終デモの内訳 ---");
+
+        if (_demo is null)
+        {
+            Console.WriteLine("  シーンが出ていない(このページの F2)");
+            Console.WriteLine();
+            return;
+        }
+
+        DemoScene demo = _demo;
+        SceneLights lights = demo.Lights;
+        DemoScene.NightSettings night = demo.Night;
+
+        Console.WriteLine(
+            $"  シーン:「{demo.Name}」 {Path.GetFileName(demo.SourcePath)}  描画 {demo.Items.Count} 回 / "
+            + $"三角形 {demo.TriangleCount:N0} 枚 / glTF {demo.ModelCount} 体 / テクスチャ {demo.TextureCount} 枚");
+        Console.WriteLine(
+            $"  夜: 太陽 x{night.SunScale:F3} / 空 x{night.IblScale:F3} / 露出 {night.Exposure:F2}(夕暮れは {demo.Exposure:F2})"
+            + $"  いま: {(_night ? "夜" : "夕暮れ")}");
+        Console.WriteLine($"  灯り: {lights.Count} 個({(_sceneLights ? "点灯" : "消灯")})  揺らぎの時刻 {lights.Time:F1}s");
+
+        for (int i = 0; i < lights.Count; i++)
+        {
+            SceneLights.Fixture fixture = lights.Fixtures[i];
+            string glow = string.Join("・", fixture.GlowMaterials.Select(material => material.Name));
+
+            Console.WriteLine(
+                $"    {fixture.Name,-12} 位置 ({fixture.Position.X,6:F2}, {fixture.Position.Y,5:F2}, {fixture.Position.Z,6:F2})"
+                + $"  色 ({fixture.Color.X:F2}, {fixture.Color.Y:F2}, {fixture.Color.Z:F2})"
+                + $"  照らす x{fixture.Intensity,4:F1} 届く {fixture.Radius,4:F1}m  見える x{fixture.Glow,4:F1} [{glow}]"
+                + (fixture.Flicker > 0.0f ? $"  揺らぎ {fixture.Flicker:F2}(いま {lights.Brightness(i, lights.Time):F2})" : string.Empty));
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"  機能 {_features.OnCount}/{_features.Features.Count}: {_features.Describe()}");
+        Console.WriteLine(
+            $"  描き方: {PathName(ActivePath())}  渡している光 {CurrentLights().Length} 個"
+            + (UseForwardPlus()
+                ? $"  1升あたり 最大 {_clusters.Grid.MaxPerCluster} 個 / 平均 {_clusters.Grid.AveragePerCluster:F1} 個"
+                : string.Empty));
+        Console.WriteLine(
+            $"  後処理: {_post.PassCount} パス / {_post.ByteSize / (1024.0 * 1024.0):F1}MB  "
+            + $"TAA {OnOff(_post.TaaApplied)} / 被写界深度 {OnOff(_post.DepthOfFieldApplied)} / "
+            + $"ブラー {OnOff(_post.MotionBlurApplied)} / FXAA {OnOff(_post.FxaaEnabled)}");
+        // **影の時間は VSync の待ちを含む**。フレームで最初に GL を呼ぶ段なので、前のフレームの表示を待たされた時間がここに乗る
+        // (影を切ると SSAO の段へ移る。計画書「検証の途中で分かったこと」)。
+        Console.WriteLine(
+            $"  CPU(命令を積んだ時間): 影 {_shadowMilliseconds:F2}ms(VSync の待ちを含む)/ SSAO {_ssaoMilliseconds:F2}ms / "
+            + $"振り分け {_clusterMilliseconds:F2}ms / 粒 {_particleMilliseconds:F2}ms / エフェクト {_effectMilliseconds:F2}ms");
+        Console.WriteLine(
+            $"  GPU(タイマークエリ): 速度 {_motion.GpuMilliseconds:F2}ms / TAA {_post.Taa.GpuMilliseconds:F2}ms / "
+            + $"地図 {_post.BlurField.GpuMilliseconds:F2}ms / 被写界深度 {_post.DepthOfField.GpuMilliseconds:F2}ms / "
+            + $"ブラー {_post.MotionBlur.GpuMilliseconds:F2}ms"
+            + (_post.FxaaEnabled ? $" / FXAA {_post.FxaaGpuMilliseconds:F2}ms" : string.Empty));
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// **今日の自己チェック**(「最終デモ」の F9。Day 56)。
+    ///
+    /// <para>
+    /// 灯りの壊れ方は、どれも<b>絵が出てしまう</b>種類になる。見える側の名前を書き間違えても床は照らされ、
+    /// 照らす側を壁の面の上に置いても窓は光る。揺らぎが刻み方に引きずられても、ちらつきにしか見えない。
+    /// だから数字で押さえる。
+    /// </para>
+    /// <list type="number">
+    /// <item><b>窓なし</b>: 古い JSON が読めるか、置き場所の決め方、色の共有、点け消し、揺らぎ</item>
+    /// <item><b>完成版のシーン</b>(捨てる1体を読む): 灯りが通りの中にあるか、見える側が全部見つかったか</item>
+    /// <item><b>描いて確かめる</b>: 灯りを点けると床とガラスが明るくなるか、3つの描き方で同じ絵か</item>
+    /// <item><b>完成版の構成</b>: 機能表の 15 項目、AA が TAA、Phase 8 のマイルストーン</item>
+    /// </list>
+    /// </summary>
+    private static void RunFinalDemoCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("=== Day 56 自己チェック(灯りの読み込み・揺らぎ・機能表・完成版の構成)===");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 窓を開かずに確かめられること
+        // ============================================================
+        //
+        // **使い捨ての JSON を一時フォルダに書いて読む**。glTF を1つも指さなければ、GL に触るのは
+        // 板に貼る白い 1x1 だけ(板のメッシュは借りるだけ、材質は数字の入れ物)。
+
+        string folder = Path.Combine(Path.GetTempPath(), "honya-day56-check");
+        Directory.CreateDirectory(folder);
+
+        string oldPath = Path.Combine(folder, "old.json");
+        File.WriteAllText(oldPath, """{ "name": "古い書き方", "lighting": { "exposure": 0.5 } }""");
+
+        using (DemoScene old = DemoScene.Load(_gl, _resources, oldPath, _shader, _quad, ResolveAssetPath))
+        {
+            checks.Check(
+                "**lights も night も無い JSON(Day 39〜55 の書き方)がそのまま読める**",
+                old.Lights.Count == 0
+                    && old.Night.SunScale == DemoScene.DefaultNightScale
+                    && old.Night.IblScale == DemoScene.DefaultNightScale
+                    && old.Night.Exposure == old.Exposure,
+                $"灯り {old.Lights.Count} 個 / 夜は太陽・空 x{old.Night.SunScale:F2}、露出 {old.Night.Exposure:F2}(昼と同じ)");
+        }
+
+        // 板を x = -4 の壁に貼る(+X を向く)。1つ目は置き場所を書かない、2つ目は書く、3つ目は揺らぐ。
+        string newPath = Path.Combine(folder, "lights.json");
+        File.WriteAllText(newPath, """
+            {
+              "lighting": { "exposure": 0.5, "night": { "sunScale": 0.1, "iblScale": 0.2, "exposure": 1.5 } },
+              "lights": [
+                { "name": "窓", "color": [1.0, 0.5, 0.25], "intensity": 4.0, "radius": 3.0,
+                  "glow": { "size": [1.0, 1.4], "rotation": [0.0, 90.0, 0.0], "position": [-4.0, 2.0, 0.0], "strength": 2.0 } },
+                { "name": "書いた場所", "color": [0.2, 0.4, 1.0], "intensity": 2.0, "radius": 2.0, "position": [1.0, 1.0, 1.0],
+                  "glow": { "size": [0.5, 0.5], "position": [0.0, 1.0, 1.0] } },
+                { "name": "揺らぐ", "color": [1.0, 1.0, 1.0], "intensity": 1.0, "position": [0.0, 2.0, 0.0], "flicker": 0.8 }
+              ]
+            }
+            """);
+
+        using (DemoScene probe = DemoScene.Load(_gl, _resources, newPath, _shader, _quad, ResolveAssetPath))
+        {
+            SceneLights lights = probe.Lights;
+
+            checks.Check(
+                "夜の強さと露出をシーンから読める",
+                probe.Night == new DemoScene.NightSettings(0.1f, 0.2f, 1.5f),
+                $"太陽 x{probe.Night.SunScale:F2} / 空 x{probe.Night.IblScale:F2} / 露出 {probe.Night.Exposure:F2}");
+
+            // 板の中心 (-4, 2, 0)、向き +X → 照らす側は (-4 + 0.4, 2, 0)。
+            Vector3 expected = new(-4.0f + DemoScene.PanelLightOffset, 2.0f, 0.0f);
+            float placed = Vector3.Distance(lights.Fixtures[0].Position, expected);
+
+            checks.Check(
+                $"**置き場所を書かなければ、板の {DemoScene.PanelLightOffset * 100.0f:F0}cm 手前に置く**(壁の面の上だと壁が照らされない)",
+                placed < 1e-4f,
+                $"({lights.Fixtures[0].Position.X:F2}, {lights.Fixtures[0].Position.Y:F2}, {lights.Fixtures[0].Position.Z:F2})");
+
+            checks.Check(
+                "書けば書いたほうが勝つ",
+                lights.Fixtures[1].Position == new Vector3(1.0f, 1.0f, 1.0f));
+
+            bool panelsQuiet = probe.Items.All(item =>
+                item.Name.StartsWith("灯り/", StringComparison.Ordinal)
+                && !item.CastShadow
+                && item.Collision == SceneCollisionKind.None);
+
+            checks.Check(
+                "光る板は影を落とさず、当たらない",
+                panelsQuiet && probe.Items.Count == 2,
+                $"板 {probe.Items.Count} 枚");
+
+            // --- 色の共有と点け消し ---
+            lights.Update(0.0f, on: true);
+            SceneLights.Fixture window = lights.Fixtures[0];
+            Vector3 lit = lights.Lights[0].Color;
+            Vector3 glow = window.GlowMaterials[0].EmissiveFactor;
+
+            // 照らす側 = 色 x 4、見える側 = 色 x 2。**向き(色相)が同じで、大きさだけが違う**。
+            float hue = Vector3.Distance(Vector3.Normalize(lit), Vector3.Normalize(glow));
+
+            checks.Check(
+                "**照らす側と見える側が同じ色**(明るさだけ別に決める)",
+                hue < 1e-5f && Vector3.Distance(lit, window.Color * 4.0f) < 1e-5f && Vector3.Distance(glow, window.Color * 2.0f) < 1e-5f,
+                $"照らす ({lit.X:F2}, {lit.Y:F2}, {lit.Z:F2}) / 見える ({glow.X:F2}, {glow.Y:F2}, {glow.Z:F2})");
+
+            lights.Update(0.0f, on: false);
+
+            checks.Check(
+                "**消すと照らす側も見える側も一緒に消える**",
+                lights.Lights.IsEmpty && window.GlowMaterials[0].EmissiveFactor == Vector3.Zero,
+                $"照らす側 {lights.Lights.Length} 個 / 見える側 {window.GlowMaterials[0].EmissiveFactor}");
+
+            // --- 揺らぎ ---
+            //
+            // 揺らがない灯りは常に 1.0、揺らぐ灯りは 1 - 0.8 = 0.2 から 1.0 の間。
+            float steadyWorst = 0.0f;
+            float low = float.MaxValue;
+            float high = float.MinValue;
+            int brighter = 0;
+            const int Samples = 4000;
+
+            for (int i = 0; i < Samples; i++)
+            {
+                float time = i * 0.0137f;
+                steadyWorst = MathF.Max(steadyWorst, MathF.Abs(lights.Brightness(0, time) - 1.0f));
+
+                float value = lights.Brightness(2, time);
+                low = MathF.Min(low, value);
+                high = MathF.Max(high, value);
+                brighter += value > 1.0f - (0.8f * 0.5f) ? 1 : 0;
+            }
+
+            checks.Check(
+                "揺らぎ 0 の灯りは揺らがない",
+                steadyWorst == 0.0f,
+                $"1.0 からのずれ {steadyWorst:E1}");
+
+            checks.Check(
+                "**揺らぎは深さの範囲に収まり、明るい時間のほうが長い**(2乗してから引く)",
+                low >= 0.2f - 1e-6f && high <= 1.0f && brighter > Samples / 2,
+                $"{low:F2}〜{high:F2}  範囲の真ん中より明るい時間 {brighter * 100.0f / Samples:F0}%");
+
+            // 60fps と 144fps で1秒ぶん進めても、同じ明るさに来る(時刻の関数なので)。
+            var at60 = new SceneLights(lights.Fixtures);
+            var at144 = new SceneLights(lights.Fixtures);
+
+            for (int i = 0; i < 60; i++)
+            {
+                at60.Update(1.0f / 60.0f, on: true);
+            }
+
+            for (int i = 0; i < 144; i++)
+            {
+                at144.Update(1.0f / 144.0f, on: true);
+            }
+
+            float gap = MathF.Abs(at60.Lights[2].Color.X - at144.Lights[2].Color.X);
+
+            checks.Check(
+                "揺らぎがフレームレートに依らない",
+                gap < 1e-3f,
+                $"1秒後 60fps {at60.Lights[2].Color.X:F4} / 144fps {at144.Lights[2].Color.X:F4}");
+        }
+
+        // ============================================================
+        //  2. 完成版のシーン(捨てる1体を読んで、数字だけ見る)
+        // ============================================================
+        //
+        // **本番の _demo には触らない**(Day 51 の自己チェックが捨てる物理の世界に組んだのと同じ)。
+        // テクスチャは RenderResources が使い回すので、完成版を出していれば読み直しの代償は glTF のぶんだけ。
+
+        string? finalPath = TryResolveAssetPath(FinalScenePath);
+
+        if (finalPath is null)
+        {
+            checks.Check("完成版のシーンがある", false, $"assets/{FinalScenePath} が見つからない");
+            checks.Report();
+            Console.WriteLine();
+            return;
+        }
+
+        using DemoScene final = DemoScene.Load(_gl, _resources, finalPath, _shader, _quad, ResolveAssetPath);
+        SceneLights finalLights = final.Lights;
+
+        checks.Check(
+            $"灯りが読めて、フォワードの上限({PointLight.MaxForward} 個)に収まる",
+            finalLights.Count > 0 && finalLights.Count <= PointLight.MaxForward,
+            $"{finalLights.Count} 個");
+
+        // 通りの形は壁の板から取る(数字を手で写さない。Day 52 の LightSwarm の反省)。
+        DemoScene.Item leftWall = final.Items.First(item => item.Name == "左の壁");
+        DemoScene.Item endWall = final.Items.First(item => item.Name == "突き当りの壁");
+
+        string outside = string.Join("・", finalLights.Fixtures
+            .Where(fixture => fixture.Position.X <= leftWall.BoundsMax.X
+                || fixture.Position.Z <= endWall.BoundsMax.Z
+                || fixture.Position.Y <= 0.0f
+                || fixture.Position.Y >= leftWall.BoundsMax.Y)
+            .Select(fixture => fixture.Name));
+
+        checks.Check(
+            "**どの灯りも通りの中にある**(左の壁より右、突き当りより手前、床と壁の上端の間)",
+            outside.Length == 0,
+            outside.Length == 0
+                ? $"x > {leftWall.BoundsMax.X:F1} / z > {endWall.BoundsMax.Z:F1} / 0 < y < {leftWall.BoundsMax.Y:F1}"
+                : $"外に居る: {outside}");
+
+        string invisible = string.Join("・", finalLights.Fixtures
+            .Where(fixture => fixture.GlowMaterials.Count == 0 || fixture.Glow <= 0.0f)
+            .Select(fixture => fixture.Name));
+
+        checks.Check(
+            "**どの灯りにも見える側がある**(何も無いところから差す光が無い)",
+            invisible.Length == 0,
+            invisible.Length == 0
+                ? $"材質 {finalLights.Fixtures.Sum(fixture => fixture.GlowMaterials.Count)} 枚"
+                : $"見える側が無い: {invisible}");
+
+        // 板は白い 1x1 を借りている。**仮の絵(マゼンタの市松)のままだと、灯りを消した窓に市松が浮く**。
+        int placeholders = final.Items.Count(item =>
+            item.Name.StartsWith("灯り/", StringComparison.Ordinal) && !_resources.IsReady(item.Material.MainTexture));
+
+        checks.Check(
+            "光る板に仮の絵が貼られていない(灯りを消した窓に市松が浮かない)",
+            placeholders == 0,
+            $"仮の絵のままの板 {placeholders} 枚");
+
+        // ============================================================
+        //  3. 描いて確かめる(ここから GL を使う)
+        // ============================================================
+        //
+        // 捨てるシーンを、いつもの本描画と同じ uniform で描く。影と SSAO は直前のフレームのものを借りる——
+        // どの絵にも同じだけ効くので、比べる分には差にならない。**元の状態は必ず戻す**。
+
+        Vector3 savedPosition = _camera.Position;
+        Vector3 savedTarget = _camera.Target;
+        ProjectionMode savedMode = _camera.Mode;
+        ClusterView savedView = _clusters.View;
+        bool savedFrozen = _clusters.Frozen;
+
+        _camera.Mode = ProjectionMode.Perspective;
+        _clusters.View = ClusterView.None;
+        _clusters.Frozen = false;
+
+        // 街灯を斜め前から見上げる(灯りを名前で引く。Day 51 の自己チェックが「左の壁」を名前で引いたのと同じ)。
+        SceneLights.Fixture lamp = finalLights.Fixtures.FirstOrDefault(fixture => fixture.Name == "街灯")
+            ?? finalLights.Fixtures[0];
+        _camera.Target = new Vector3(lamp.Position.X + 0.3f, 1.5f, lamp.Position.Z);
+        _camera.Position = _camera.Target + new Vector3(3.6f, 0.4f, 4.8f);
+
+        Vector2 glassPixel = WorldToScreenPixel(lamp.Position, _camera.ViewProjection);
+        Vector2 floorPixel = WorldToScreenPixel(
+            new Vector3(lamp.Position.X + 0.8f, 0.0f, lamp.Position.Z + 0.8f), _camera.ViewProjection);
+
+        finalLights.Update(0.0f, on: false);
+        RenderFinalProbe(final, LightingPath.ForwardPlus);
+        Vector4 glassOff = ReadScenePixel(glassPixel);
+        Vector4 floorOff = ReadScenePixel(floorPixel);
+
+        finalLights.Update(0.0f, on: true);
+        float[] plusImage = RenderFinalProbe(final, LightingPath.ForwardPlus);
+        Vector4 glassOn = ReadScenePixel(glassPixel);
+        Vector4 floorOn = ReadScenePixel(floorPixel);
+
+        // **比ではなく差で見る**。いま出ている太陽で照らして描くので、夕暮れなら床はもともと明るく、比は小さくなる。
+        // 灯りが足す量(差)は、太陽がどうであっても変わらない。
+        checks.Check(
+            "**点けるとガラスが光る**(見える側)",
+            Luminance(glassOn) - Luminance(glassOff) > 1.0f,
+            $"輝度 {Luminance(glassOff):F3} → {Luminance(glassOn):F3}  画素 ({glassPixel.X:F0}, {glassPixel.Y:F0})");
+
+        checks.Check(
+            "**点けると足元の床が明るくなる**(照らす側)",
+            Luminance(floorOn) - Luminance(floorOff) > 0.02f,
+            $"輝度 {Luminance(floorOff):F3} → {Luminance(floorOn):F3}  画素 ({floorPixel.X:F0}, {floorPixel.Y:F0})");
+
+        float[] forwardImage = RenderFinalProbe(final, LightingPath.Forward);
+        float forwardGap = MaxDifference(forwardImage, plusImage);
+
+        checks.Check(
+            "**フォワードと Forward+ で同じ絵**(灯りも升目に振り分けられている)",
+            forwardGap < 1e-4f,
+            $"最大の差 {forwardGap:E1}");
+
+        float[] deferredImage = RenderFinalProbe(final, LightingPath.Deferred);
+        (float meanError, float outliers) = CompareImages(plusImage, deferredImage, 0.05f);
+
+        checks.Check(
+            "ディファードとも同じ絵(Day 52 のフォワードとの差と同じ程度)",
+            meanError < 0.01f && outliers < 0.02f,
+            $"平均の相対差 {meanError:P2} / 5% を超える画素 {outliers:P2}");
+
+        _camera.Position = savedPosition;
+        _camera.Target = savedTarget;
+        _camera.Mode = savedMode;
+        _clusters.View = savedView;
+        _clusters.Frozen = savedFrozen;
+
+        Framebuffer.BindDefault(_gl, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        // ============================================================
+        //  4. 完成版の構成
+        // ============================================================
+
+        // 表の往復は Day 40 の自己チェックと同じ。**AA だけは TAA / FXAA のどちらだったかを自分で戻す**——
+        // 表は ON の中身(どちらの AA か)を持たないので、Restore では TAA に揃ってしまう。
+        (bool savedFxaa, bool savedTaa) = (_post.FxaaEnabled, _post.Taa.Enabled);
+        bool[] before = _features.Capture();
+
+        _features.SetAll(true);
+        bool taaOnly = _post.Taa.Enabled && !_post.FxaaEnabled;
+        string[] names = [.. _features.Features.Select(feature => feature.Name)];
+
+        _features.Restore(before);
+        (_post.FxaaEnabled, _post.Taa.Enabled) = (savedFxaa, savedTaa);
+
+        string[] phase8 = ["灯り", "AA", "被写界深度", "モーションブラー"];
+
+        checks.Check(
+            "**機能表に Phase 8 が載っている**(15 項目)",
+            names.Length == 15 && phase8.All(names.Contains),
+            $"{names.Length} 項目: …{string.Join(" ", names.TakeLast(4))}");
+
+        checks.Check(
+            "**全部 ON の AA は TAA**(FXAA と二重に掛けない)",
+            taaOnly);
+
+        // --- Phase 8 のマイルストーン。**いまの状態**を見る(Day 40 の「必須構成が全部 ON」と同じ) ---
+        var missing = new List<string>();
+
+        if (!IsFinalScene() || _demo!.Lights.Lights.IsEmpty)
+        {
+            missing.Add("灯り");
+        }
+
+        if (!_night)
+        {
+            missing.Add("夜");
+        }
+
+        if (ActivePath() == LightingPath.Forward)
+        {
+            missing.Add("多光源の描き方");
+        }
+
+        if (!_post.TaaApplied)
+        {
+            missing.Add("TAA");
+        }
+
+        if (!_post.DepthOfFieldApplied)
+        {
+            missing.Add("被写界深度");
+        }
+
+        if (!_post.MotionBlurApplied)
+        {
+            missing.Add("モーションブラー");
+        }
+
+        if (!_features.AllOn)
+        {
+            missing.Add($"機能表 {_features.OnCount}/{_features.Features.Count}");
+        }
+
+        if (!_playable)
+        {
+            missing.Add("キツネ");
+        }
+
+        checks.Check(
+            "**Phase 8 のマイルストーン**(多光源 + TAA + 被写界深度で仕上げたプレイアブルデモ)",
+            missing.Count == 0,
+            missing.Count == 0
+                ? $"「{_demo!.Name}」 灯り {_demo.Lights.Lights.Length} 個 / {PathName(ActivePath())} / 機能 {_features.OnCount}/{_features.Features.Count}"
+                : $"足りない: {string.Join("・", missing)}(このページの F2 で完成版を出してから)");
+
+        checks.Report("すべて合格(灯りの読み込み・揺らぎ・機能表・完成版の構成が仕様どおり)");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// 完成版のシーンを、光の当て方を指定して1枚描き、シーンのバッファの色を読み返す(Day 56 の自己チェック)。
+    ///
+    /// <para>
+    /// Day 52 の <see cref="RenderProbe"/> の形をそのまま使い、床と立方体の代わりにシーンの <c>Items</c> を並べる。
+    /// <b>本番の <c>_demo</c> を差し替えない</b>ために、描く中身は引数でもらう(<see cref="Render3D"/> は <c>_demo</c> を見る)。
+    /// </para>
+    /// </summary>
+    private static float[] RenderFinalProbe(DemoScene scene, LightingPath path)
+    {
+        int width = _window.FramebufferSize.X;
+        int height = _window.FramebufferSize.Y;
+        ReadOnlySpan<PointLight> lights = scene.Lights.Lights;
+        Shader shader = _resources.GetShader(_shader);
+
+        // 深度テストと裏面の間引きは自分で入れる(前の処理が切ったまま描くと、深度が書かれず静かに間違う)。
+        SetCap(EnableCap.DepthTest, true);
+        SetCap(EnableCap.Blend, false);
+
+        if (path == LightingPath.Deferred)
+        {
+            _gbuffer.Begin();
+
+            shader.Use();
+            shader.SetInt("uGBufferPass", 1);
+            PrepareProbeShader(shader);
+            ApplyPointLights(shader, lights, path);
+            DrawSceneItems(scene);
+
+            shader.Use();
+            shader.SetInt("uGBufferPass", 0);
+
+            _gbuffer.End(width, height);
+
+            _post.Begin(ClearColor);
+            _gbuffer.Target.BlitDepthTo(_post.Scene);
+            _post.Scene.Bind();
+
+            _deferredLighting.Render(_camera, _gbuffer, lights, ApplyLighting);
+        }
+        else
+        {
+            if (path == LightingPath.ForwardPlus)
+            {
+                _clusters.Build(_camera, width, height, lights);
+            }
+
+            _post.Begin(ClearColor);
+
+            shader.Use();
+            PrepareProbeShader(shader);
+            ApplyPointLights(shader, lights, path);
+            DrawSceneItems(scene);
+        }
+
+        return ReadSceneColor();
+    }
+
+    /// <summary>シーンの Items を順に描く(<see cref="RenderDemoScene"/> の中身だけ)。</summary>
+    private static void DrawSceneItems(DemoScene scene)
+    {
+        foreach (DemoScene.Item item in scene.Items)
+        {
+            SetCap(EnableCap.CullFace, _culling && !item.Material.DoubleSided);
+            Draw(item.Mesh, item.Material, item.Transform);
+        }
+
+        SetCap(EnableCap.CullFace, _culling);
+    }
+
+    /// <summary>画素の明るさ(Rec. 709 の重み)。</summary>
+    private static float Luminance(Vector4 color) =>
+        (color.X * 0.2126f) + (color.Y * 0.7152f) + (color.Z * 0.0722f);
 
     /// <summary>
     /// 「いま見ている場所」にエフェクトを1発出す(メニューの F8 / F9)。
