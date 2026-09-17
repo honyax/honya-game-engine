@@ -47,11 +47,13 @@ USAGE
 }
 
 # Day番号から写経先のプロジェクトを決める(CLAUDE.md の「5系統」に対応)。
+# 教養編のうちエンジンと独立した題材は work/Labs の下に、題材ごとのプロジェクトとして置く。
 work_dir_for_day() {
     local n=$((10#$1))
     if   [ "$n" -le 1  ]; then echo "work/Framebuffer"
     elif [ "$n" -le 10 ]; then echo "work/SoftwareRasterizer"
     elif [ "$n" -le 13 ]; then echo "work/RawGL"
+    elif [ "$n" -ge 59 ] && [ "$n" -le 61 ]; then echo "work/Labs/CpuRayTracer"
     else                       echo "work/HonyaEngine/HonyaEngine"
     fi
 }

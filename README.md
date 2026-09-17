@@ -27,13 +27,13 @@ honya-game-engine/
 │   ├── roadmap.md               # 全体計画(Day一覧・進捗・参考資料)
 │   └── plans/
 │       ├── Day01.md             # 各Dayの計画書(ゴール/事前に読む資料/実装手順/改造課題)
-│       └── ... Day66.md
+│       └── ... Day67.md
 ├── assets/                      # 複数Dayで共有する素材(テクスチャ、objモデル、フォント等)
 ├── reference/                   # リファレンスコード(AIが作成する「答え」)。Dayごとの完動スナップショット
 │   ├── Day01/
 │   │   ├── Day01.csproj
 │   │   └── Program.cs
-│   └── ... Day66/
+│   └── ... Day67/
 └── work/                        # 写経用(自分の手で書くコード)。Day分割せず、プロジェクトを継続成長させる
     ├── Framebuffer/             # Day 1: ピクセルバッファと60fpsループ(Phase 0)
     ├── SoftwareRasterizer/      # Day 2〜10: ソフトウェアラスタライザ(ここで完結)
@@ -42,12 +42,13 @@ honya-game-engine/
     │   ├── HonyaEngine/         #   エンジン本体(クラスライブラリ)
     │   └── Sandbox/             #   動作確認用ゲーム(卒業制作もここ)
     └── Labs/                    # 教養編の独立実験(エンジンに組み込まないもの)
-        ├── CpuRayTracer/        #   Day 58〜60
-        ├── VulkanRT/            #   Day 61・63(メッシュシェーダ含む)
-        └── GaussianSplatting/   #   Day 66
+        ├── CpuRayTracer/        #   Day 59〜61(CPU レイトレーサと、その GPU 移植)
+        ├── VulkanRT/            #   Day 62・64(メッシュシェーダ含む)
+        └── GaussianSplatting/   #   Day 67
 ```
 
-- `reference/DayXX` は各Dayが独立プロジェクトで、単体でビルド・実行できる。後のDayは前のDayの完全コピー+その日の差分。
+- `reference/DayXX` は各Dayが独立プロジェクトで、単体でビルド・実行できる。後のDayは前のDayの完全コピー+その日の差分
+  (教養編の Labs だけは題材の初日に新しいプロジェクトとして始め、同じ題材の中でコピーをつなぐ)。
   コード重複は意図的で、任意の時点の完動品が常に残る(「30日でできる!OS自作入門」と同じ方式)
 - `work/` はDayでフォルダを分けず、上記のプロジェクトを継続的に成長させる。区切りはgitのタグ/コミット(`day05` 等)で残す
 - 写経で詰まったら該当Dayの `reference/DayXX` を見る
