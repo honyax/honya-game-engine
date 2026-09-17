@@ -24,6 +24,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 
 - **名前空間はDay番号を含めない。Phase単位で固定する**
   - Day 1: `Framebuffer` / Day 2〜10: `SoftwareRasterizer` / Day 11〜13: `RawGL` / Day 14〜: `HonyaEngine`
+    (教養編の Labs は題材ごと。Day 59〜61: `CpuRayTracer`)
   - 理由: Dayごとに変えると `git diff --no-index reference/Day01 reference/Day02` に全ファイルの
     namespace 行が乗り、その日の実装差分が埋もれる。work側のプロジェクト名とも揃う
 - csprojに `<AssemblyName>` は書かない。csprojのファイル名(`DayXX.csproj`)から出力名が決まるので、
@@ -35,6 +36,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 
 - `reference/DayXX` は前Dayの完全コピー+その日の差分。`dotnet run --project reference/DayXX` で単体実行できること
   (コード重複は意図的。任意の時点の完動品が常に残る)
+  - 例外: 教養編の Labs は題材の初日(Day 59 など)だけ前Dayのコピーにせず、新しいプロジェクトとして始める。同じ題材の後続Dayはその完全コピー+差分
 - Day作成後は必ず `dotnet build` が通ることを確認する
 - **C#ファイルを作成・編集したら `dotnet format whitespace <csproj>` を必ず走らせる**。
   VSCode(C# Dev Kit)は保存時にRoslynフォーマッタを実行するため、整形前のコードを
