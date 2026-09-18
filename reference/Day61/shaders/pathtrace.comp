@@ -1,0 +1,1008 @@
+#version 430 core
+
+// =============================================================================
+//  Day 61: GPU パストレーサ。Day 60 の Tracing/PathTracer.cs を GLSL に写したもの。
+//
+//  **1回の呼び出し(invocation)= 1画素の1サンプル**。
+//  Day 60 の ProgressiveRenderer は Parallel.For で「行」を配り、1行の中を for で回していた。
+//  ここでは行も for も無く、**画素の座標が gl_GlobalInvocationID として降ってくる**。
+//  「画素どうしが互いを見ない」という性質(Day 60 の ProgressiveRenderer の説明)が、
+//  そのまま GPU の実行モデルになっている。
+//
+//  C# 版と**同じ乱数列**を引くように書いてある(Sampling/Rng.cs を参照)。
+//  そのおかげで「同じ画素の1サンプル目が、CPU と GPU で同じ色になる」ことを
+//  自己チェック20 が突き合わせられる。乱数が違うと、移植の間違いとノイズの区別がつかない。
+//
+//  GLSL に無くて困るもの(今日の要点3):
+//    - **再帰**            … Trace は Day 60 の時点でループなので、そのまま写せる
+//    - **参照 / 継承**     … Shape の仮想関数は、球と平面の配列を別々に舐める形にほどいた
+//    - **64 ビット整数**   … 乱数を 32 ビット PCG に替えた(CPU 側も揃えてある)
+//    - **例外 / 文字列**   … TraceLog は移していない(1画素を追うのは CPU の仕事のまま)
+// =============================================================================
+
+// ワークグループは 8x8 = 64 呼び出し。NVIDIA の 32(warp)/ AMD の 64(wavefront)の
+// どちらでも割り切れる大きさで、画面を 8x8 のタイルに切ることになる。
+// **隣の画素は隣の呼び出し**になるので、同じ形に当たって同じ枝を通りやすい(発散が減る)。
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// -----------------------------------------------------------------------------
+//  場面のデータ。C# 側は Gpu/GpuScene.cs。**1バイトずつ同じ並び**でなければならない。
+// -----------------------------------------------------------------------------
+struct Material
+{
+    vec4 albedo;    // rgb = 反射率(金属は F0)、w = 市松の1マスの大きさ
+    vec4 checker;   // rgb = 市松のもう一方の色、w = 屈折率
+    vec4 emission;  // rgb = 発光、w = 種類(0 拡散 / 1 金属 / 2 ガラス)
+};
+
+struct Sphere
+{
+    vec4 centerRadius;  // xyz = 中心、w = 半径
+    ivec4 info;         // x = 材質の番号
+};
+
+struct Plane
+{
+    vec4 normalDistance;  // xyz = 法線、w = 原点からの符号付き距離
+    ivec4 info;           // x = 材質の番号
+};
+
+struct Node
+{
+    vec4 boundsMin;
+    vec4 boundsMax;
+    ivec4 info;  // x = 葉なら球の開始位置 / 内側なら右の子、y = 葉の形の数(内側は 0)、z = 割った軸
+};
+
+struct PointLight
+{
+    vec4 position;
+    vec4 colorIntensity;  // rgb = 色、w = 強さ
+};
+
+layout(std430, binding = 0) readonly buffer MaterialBuffer { Material uMaterials[]; };
+layout(std430, binding = 1) readonly buffer SphereBuffer { Sphere uSpheres[]; };
+layout(std430, binding = 2) readonly buffer PlaneBuffer { Plane uPlanes[]; };
+layout(std430, binding = 3) readonly buffer NodeBuffer { Node uNodes[]; };
+layout(std430, binding = 4) readonly buffer PointLightBuffer { PointLight uPointLights[]; };
+layout(std430, binding = 5) readonly buffer AreaLightBuffer { int uAreaLights[]; };
+
+// 画面に出す画素(0xAARRGGBB)。CPU 版の ProgressiveRenderer.ToPixel と同じ詰め方にしてあるので、
+// 読み戻した uint をそのまま int[] として Bitmap へ流せる。
+layout(std430, binding = 6) writeonly buffer PixelBuffer { uint uPixels[]; };
+
+// 光線と交差判定の数(RayCounters と同じ7つ)。
+layout(std430, binding = 7) coherent buffer CounterBuffer { uint uCounters[]; };
+
+// 積み重ねる場所。**rgba32f の image**。読んで足して書くので readonly でも writeonly でもない。
+// 画素ごとに自分の1つしか触らないので、同時に書き合うことは無い(だから coherent も不要)。
+layout(rgba32f, binding = 0) uniform image2D uAccum;
+
+// -----------------------------------------------------------------------------
+//  つまみ(C# の RenderSettings と Camera がそのまま降りてくる)
+// -----------------------------------------------------------------------------
+uniform int uResolutionX;
+uniform int uResolutionY;
+uniform vec3 uCameraPosition;
+uniform vec3 uCameraForward;
+uniform vec3 uCameraRight;
+uniform vec3 uCameraUp;
+uniform float uHalfWidth;
+uniform float uHalfHeight;
+uniform vec2 uJitter;
+uniform int uSample;
+uniform int uMaxDepth;
+
+uniform int uPlaneCount;
+uniform int uSphereCount;
+uniform int uNodeCount;  // 0 なら BVH を使わない(総当たり)
+uniform int uPointLightCount;
+uniform int uAreaLightCount;
+
+uniform vec3 uSkyHorizon;
+uniform vec3 uSkyZenith;
+
+uniform bool uNee;
+uniform bool uRoulette;
+uniform bool uDecorrelate;
+uniform bool uOffsetOrigin;
+uniform int uFresnel;   // 0 正確 / 1 シュリック / 2 なし
+uniform int uViewMode;  // 0 陰影 / 1 法線 / 2 光線の数 / 3 交差判定の数
+
+const float PI = 3.14159265358979323846;
+const float SURFACE_OFFSET = 1e-3;
+const int ROULETTE_START_DEPTH = 3;
+const float MIN_SURVIVAL = 0.05;
+
+const int KIND_DIFFUSE = 0;
+const int KIND_METAL = 1;
+const int KIND_GLASS = 2;
+
+const int VIEW_SHADED = 0;
+const int VIEW_NORMAL = 1;
+const int VIEW_RAYCOUNT = 2;
+const int VIEW_COST = 3;
+
+// 光線と交差判定の数。**呼び出しごとの手元の変数**で数え、最後に1回だけまとめる(要点6)。
+uint gCamera = 0u;
+uint gShadow = 0u;
+uint gReflection = 0u;
+uint gRefraction = 0u;
+uint gScatter = 0u;
+uint gBoxTests = 0u;
+uint gShapeTests = 0u;
+
+uint rayTotal() { return gCamera + gShadow + gReflection + gRefraction + gScatter; }
+
+// ワークグループ(64 呼び出し)ぶんの集計場所。Day 57 の要点6 と同じ畳み方。
+shared uint sCounters[7];
+
+// =============================================================================
+//  乱数(Sampling/Rng.cs と1行ずつ同じ)
+// =============================================================================
+uint gRngState;
+
+// triple32(Wellons)。SplitMix64 の 32 ビット版。
+uint mix32(uint value)
+{
+    value ^= value >> 17u;
+    value *= 0xED5AD4BBu;
+    value ^= value >> 11u;
+    value *= 0xAC4C1B51u;
+    value ^= value >> 15u;
+    value *= 0x31848BABu;
+    value ^= value >> 14u;
+    return value;
+}
+
+void rngCreate(int x, int y, int sampleIndex, bool decorrelate)
+{
+    uint seed = uint(sampleIndex) * 0x9E3779B9u;
+    if (decorrelate)
+    {
+        seed ^= mix32((uint(y) << 16u) ^ uint(x));
+    }
+
+    gRngState = mix32(seed);
+}
+
+// PCG-RXS-M-XS 32。
+uint nextUint()
+{
+    uint old = gRngState;
+    gRngState = old * 747796405u + 2891336453u;
+    uint word = ((old >> ((old >> 28u) + 4u)) ^ old) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float nextFloat() { return float(nextUint() >> 8u) * (1.0 / 16777216.0); }
+
+int nextInt(int count) { return int(nextUint() % uint(count)); }
+
+// =============================================================================
+//  サンプリング(Sampling/Sampler.cs)
+// =============================================================================
+
+// Duff ほか (2017) の分岐なしの正規直交基底。
+//
+// **符号は「n.z >= 0.0」ではなく、符号ビットそのものを見る**。C# の MathF.CopySign(1, n.z) と揃えるため。
+// GLSL で素直に書くと -0.0 >= 0.0 が true になって +1 を返すが、CopySign は -1 を返す。
+// n = (-1, -0.0, -0.0)(コーネルボックスの横の壁を内側から見たときの法線がまさにこれ)で
+// **CPU と GPU が別の基底を作り、散る向きが丸ごと変わる**。値としては両方とも正しい正規直交基底なので、
+// 絵も収束先も合ったまま、1サンプルの突き合わせ(自己チェック20)だけが落ちる(検証1)。
+void orthonormalBasis(vec3 n, out vec3 tangent, out vec3 bitangent)
+{
+    float s = (floatBitsToUint(n.z) & 0x80000000u) != 0u ? -1.0 : 1.0;
+    float a = -1.0 / (s + n.z);
+    float b = n.x * n.y * a;
+    tangent = vec3(1.0 + s * n.x * n.x * a, s * b, -s * n.x);
+    bitangent = vec3(b, s + n.y * n.y * a, -n.y);
+}
+
+// コサイン重点サンプリング(Malley の方法)。pdf = cosθ/π。
+vec3 cosineHemisphere(vec3 n)
+{
+    float u1 = nextFloat();
+    float u2 = nextFloat();
+
+    float radius = sqrt(u1);
+    float phi = 2.0 * PI * u2;
+    float x = radius * cos(phi);
+    float y = radius * sin(phi);
+    float z = sqrt(max(0.0, 1.0 - u1));
+
+    vec3 tangent;
+    vec3 bitangent;
+    orthonormalBasis(n, tangent, bitangent);
+    return normalize(tangent * x + bitangent * y + n * z);
+}
+
+// 円錐の中に一様。面光源(球)へ向ける向きを引く。
+vec3 uniformCone(vec3 axis, float cosThetaMax)
+{
+    float cosTheta = 1.0 - nextFloat() * (1.0 - cosThetaMax);
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    float phi = 2.0 * PI * nextFloat();
+
+    vec3 tangent;
+    vec3 bitangent;
+    orthonormalBasis(axis, tangent, bitangent);
+    return normalize(tangent * (sinTheta * cos(phi)) + bitangent * (sinTheta * sin(phi)) + axis * cosTheta);
+}
+
+float uniformConePdf(float cosThetaMax) { return 1.0 / (2.0 * PI * (1.0 - cosThetaMax)); }
+
+// =============================================================================
+//  光学(Shading/Optics.cs)
+// =============================================================================
+
+// GLSL には組み込みの reflect() があるが、**掛ける順番が違うと最後の1ビットがずれる**ので、
+// C# 版と同じ形で書く(自己チェック20 が 1e-3 の桁で突き合わせるので、ここは揃えておきたい)。
+vec3 reflectDir(vec3 d, vec3 n) { return d - n * (2.0 * dot(d, n)); }
+
+bool tryRefract(vec3 d, vec3 n, float eta, out vec3 refracted)
+{
+    float cosI = -dot(d, n);
+    float sin2T = eta * eta * (1.0 - cosI * cosI);
+    if (sin2T > 1.0)
+    {
+        refracted = vec3(0.0);
+        return false;
+    }
+
+    float cosT = sqrt(1.0 - sin2T);
+    refracted = d * eta + n * (eta * cosI - cosT);
+    return true;
+}
+
+float fresnelExact(float cosI, float n1, float n2)
+{
+    if (n1 == n2)
+    {
+        return 0.0;
+    }
+
+    cosI = clamp(cosI, 0.0, 1.0);
+    float sinT = n1 / n2 * sqrt(1.0 - cosI * cosI);
+    if (sinT >= 1.0)
+    {
+        return 1.0;
+    }
+
+    float cosT = sqrt(1.0 - sinT * sinT);
+    float rs = (n1 * cosI - n2 * cosT) / (n1 * cosI + n2 * cosT);
+    float rp = (n2 * cosI - n1 * cosT) / (n2 * cosI + n1 * cosT);
+    return 0.5 * (rs * rs + rp * rp);
+}
+
+float normalIncidence(float n1, float n2)
+{
+    float r0 = (n1 - n2) / (n1 + n2);
+    return r0 * r0;
+}
+
+float schlickDielectric(float cosI, float n1, float n2)
+{
+    float r0 = normalIncidence(n1, n2);
+    float c = clamp(cosI, 0.0, 1.0);
+    if (n1 > n2)
+    {
+        float sin2T = n1 / n2 * (n1 / n2) * (1.0 - c * c);
+        if (sin2T >= 1.0)
+        {
+            return 1.0;
+        }
+
+        c = sqrt(1.0 - sin2T);
+    }
+
+    float m = 1.0 - c;
+    return r0 + (1.0 - r0) * (m * m * m * m * m);
+}
+
+float dielectricFresnel(float cosI, float n1, float n2)
+{
+    if (uFresnel == 1)
+    {
+        return schlickDielectric(cosI, n1, n2);
+    }
+
+    if (uFresnel == 2)
+    {
+        return normalIncidence(n1, n2);
+    }
+
+    return fresnelExact(cosI, n1, n2);
+}
+
+vec3 metalFresnel(float cosI, vec3 f0)
+{
+    if (uFresnel == 2)
+    {
+        return f0;
+    }
+
+    float m = 1.0 - clamp(cosI, 0.0, 1.0);
+    float m5 = m * m * m * m * m;
+    return f0 + (vec3(1.0) - f0) * m5;
+}
+
+// =============================================================================
+//  形との交差(Geometry/Sphere.cs / Plane.cs / Aabb.cs)
+// =============================================================================
+bool sphereHit(int index, vec3 origin, vec3 direction, float tMin, float tMax, out float t)
+{
+    vec4 s = uSpheres[index].centerRadius;
+    vec3 oc = origin - s.xyz;
+    float b = dot(oc, direction);
+    float c = dot(oc, oc) - s.w * s.w;
+
+    float discriminant = b * b - c;
+    if (discriminant < 0.0)
+    {
+        t = 0.0;
+        return false;
+    }
+
+    float root = sqrt(discriminant);
+    t = -b - root;
+    if (t <= tMin)
+    {
+        t = -b + root;
+    }
+
+    return t > tMin && t < tMax;
+}
+
+bool planeHit(int index, vec3 origin, vec3 direction, float tMin, float tMax, out float t)
+{
+    vec4 p = uPlanes[index].normalDistance;
+    float denominator = dot(p.xyz, direction);
+    if (abs(denominator) < 1e-8)
+    {
+        t = 0.0;
+        return false;
+    }
+
+    t = (p.w - dot(p.xyz, origin)) / denominator;
+    return t > tMin && t < tMax;
+}
+
+// スラブ法。min/max ではなく比較で書いてあるのは Day 60 の要点7 と同じ理由
+// (0 かける無限大 = NaN を「その軸を無視する」に倒すため)。
+// ただし **GLSL コンパイラがこれを min/max に畳み直すことは止められない**——
+// 箱の縁ちょうどを平行に進む光線の扱いは、ドライバ任せになる(今日の要点5)。
+void slab(float lo, float hi, float o, float inv, inout float enter, inout float exit)
+{
+    float t0 = (lo - o) * inv;
+    float t1 = (hi - o) * inv;
+    if (t0 > t1)
+    {
+        float tmp = t0;
+        t0 = t1;
+        t1 = tmp;
+    }
+
+    if (t0 > enter) { enter = t0; }
+    if (t1 < exit) { exit = t1; }
+}
+
+bool aabbHit(vec3 lo, vec3 hi, vec3 origin, vec3 invDirection, float tMin, float tMax)
+{
+    float enter = tMin;
+    float exit = tMax;
+    slab(lo.x, hi.x, origin.x, invDirection.x, enter, exit);
+    slab(lo.y, hi.y, origin.y, invDirection.y, enter, exit);
+    slab(lo.z, hi.z, origin.z, invDirection.z, enter, exit);
+    return enter <= exit;
+}
+
+// =============================================================================
+//  場面への問い合わせ(Tracing/Scene.cs + Geometry/Bvh.cs)
+// =============================================================================
+
+// BVH を辿るスタック。**再帰が無いので自前で持つ**(C# 版も同じ形)。
+// 木の深さは形の数の log 程度(球 465 個で 9)なので 32 で十二分。
+const int STACK_SIZE = 32;
+
+// いちばん近くで当たる形を探す。kind: 0 = 平面 / 1 = 球。
+bool sceneIntersect(vec3 origin, vec3 direction, out float tBest, out int kind, out int index)
+{
+    float closest = 1.0 / 0.0;  // +∞
+    kind = -1;
+    index = -1;
+
+    // CPU 版の Scene.Intersect は「囲めない形」を先に総当たりする。総当たりモードでは
+    // 球もそちら側に入るので、数える判定の回数もそれに揃える(HUD の数字が CPU と一致する)。
+    gShapeTests += uint(uNodeCount == 0 ? uPlaneCount + uSphereCount : uPlaneCount);
+
+    for (int i = 0; i < uPlaneCount; i++)
+    {
+        float t;
+        if (planeHit(i, origin, direction, 0.0, closest, t))
+        {
+            closest = t;
+            kind = 0;
+            index = i;
+        }
+    }
+
+    if (uNodeCount == 0)
+    {
+        for (int i = 0; i < uSphereCount; i++)
+        {
+            float t;
+            if (sphereHit(i, origin, direction, 0.0, closest, t))
+            {
+                closest = t;
+                kind = 1;
+                index = i;
+            }
+        }
+    }
+    else
+    {
+        vec3 invDirection = vec3(1.0) / direction;
+        bvec3 negative = lessThan(invDirection, vec3(0.0));
+
+        int stack[STACK_SIZE];
+        int top = 0;
+        int current = 0;
+
+        while (true)
+        {
+            gBoxTests++;
+            if (aabbHit(uNodes[current].boundsMin.xyz, uNodes[current].boundsMax.xyz, origin, invDirection, 0.0, closest))
+            {
+                int count = uNodes[current].info.y;
+                if (count > 0)
+                {
+                    int start = uNodes[current].info.x;
+                    gShapeTests += uint(count);
+                    for (int i = start; i < start + count; i++)
+                    {
+                        float t;
+                        if (sphereHit(i, origin, direction, 0.0, closest, t))
+                        {
+                            closest = t;
+                            kind = 1;
+                            index = i;
+                        }
+                    }
+                }
+                else
+                {
+                    // 手前の子から辿ると closest が早く縮み、奥の箱は入る前に捨てられる。
+                    int left = current + 1;
+                    int right = uNodes[current].info.x;
+                    int axis = uNodes[current].info.z;
+                    bool rightFirst = axis == 0 ? negative.x : (axis == 1 ? negative.y : negative.z);
+                    if (rightFirst)
+                    {
+                        int tmp = left;
+                        left = right;
+                        right = tmp;
+                    }
+
+                    stack[top++] = right;
+                    current = left;
+                    continue;
+                }
+            }
+
+            if (top == 0)
+            {
+                break;
+            }
+
+            current = stack[--top];
+        }
+    }
+
+    tBest = closest;
+    return kind >= 0;
+}
+
+// 距離 maxDistance より手前に何か1つでもあるか(影の光線)。
+// いちばん近いものは要らないので、見つけ次第すぐ抜ける。
+bool findOccluder(vec3 origin, vec3 direction, float maxDistance)
+{
+    gShapeTests += uint(uNodeCount == 0 ? uPlaneCount + uSphereCount : uPlaneCount);
+
+    for (int i = 0; i < uPlaneCount; i++)
+    {
+        float t;
+        if (planeHit(i, origin, direction, 0.0, maxDistance, t))
+        {
+            return true;
+        }
+    }
+
+    if (uNodeCount == 0)
+    {
+        for (int i = 0; i < uSphereCount; i++)
+        {
+            float t;
+            if (sphereHit(i, origin, direction, 0.0, maxDistance, t))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    vec3 invDirection = vec3(1.0) / direction;
+    int stack[STACK_SIZE];
+    int top = 0;
+    int current = 0;
+
+    while (true)
+    {
+        gBoxTests++;
+        if (aabbHit(uNodes[current].boundsMin.xyz, uNodes[current].boundsMax.xyz, origin, invDirection, 0.0, maxDistance))
+        {
+            int count = uNodes[current].info.y;
+            if (count > 0)
+            {
+                int start = uNodes[current].info.x;
+                gShapeTests += uint(count);
+                for (int i = start; i < start + count; i++)
+                {
+                    float t;
+                    if (sphereHit(i, origin, direction, 0.0, maxDistance, t))
+                    {
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                stack[top++] = uNodes[current].info.x;
+                current = current + 1;
+                continue;
+            }
+        }
+
+        if (top == 0)
+        {
+            return false;
+        }
+
+        current = stack[--top];
+    }
+}
+
+// =============================================================================
+//  材質・空(Shading/Material.cs / Tracing/Scene.cs)
+// =============================================================================
+vec3 albedoAt(int material, vec3 point)
+{
+    float size = uMaterials[material].albedo.w;
+    if (size <= 0.0)
+    {
+        return uMaterials[material].albedo.rgb;
+    }
+
+    // **ここだけ CPU 版と厳密には一致しない**。C# は long で floor しているが、GLSL に 64 ビットが無いので
+    // float のまま偶奇を見る。地平線の近く(|x| が 10⁷ を超えるあたり)で float の刻みが 1 を超え、
+    // 市松の模様が潰れる。今日の場面では画面の下の隅で数画素ぶんの違いになる(要点5)。
+    float ix = floor(point.x / size);
+    float iz = floor(point.z / size);
+    return mod(ix + iz, 2.0) < 0.5 ? uMaterials[material].albedo.rgb : uMaterials[material].checker.rgb;
+}
+
+// Vector3.Lerp と同じ形(a + (b−a)t)で書く。mix() は a(1−t) + bt なので、
+// **a と b が等しいときにぴったり a を返す保証が無い**——白い炉のテスト(自己チェック21)がそこを突く。
+vec3 sky(vec3 direction)
+{
+    float up = clamp(direction.y, 0.0, 1.0);
+    return uSkyHorizon + (uSkyZenith - uSkyHorizon) * sqrt(up);
+}
+
+// =============================================================================
+//  当たりの情報(Tracing/Tracer.cs の SurfaceHit / TryHit)
+// =============================================================================
+struct Hit
+{
+    vec3 point;
+    vec3 normal;    // 光線がやって来た側へ向けてある
+    vec3 toViewer;
+    float dist;
+    int material;
+    bool frontFace;
+};
+
+bool tryHit(vec3 origin, vec3 direction, out Hit hit)
+{
+    float t;
+    int kind;
+    int index;
+
+    hit.point = vec3(0.0);
+    hit.normal = vec3(0.0);
+    hit.toViewer = vec3(0.0);
+    hit.dist = 0.0;
+    hit.material = 0;
+    hit.frontFace = true;
+
+    if (!sceneIntersect(origin, direction, t, kind, index))
+    {
+        return false;
+    }
+
+    vec3 point = origin + direction * t;
+    vec3 normal;
+    int material;
+    if (kind == 0)
+    {
+        normal = uPlanes[index].normalDistance.xyz;
+        material = uPlanes[index].info.x;
+    }
+    else
+    {
+        normal = (point - uSpheres[index].centerRadius.xyz) / uSpheres[index].centerRadius.w;
+        material = uSpheres[index].info.x;
+    }
+
+    bool frontFace = dot(direction, normal) < 0.0;
+    if (!frontFace)
+    {
+        normal = -normal;
+    }
+
+    hit.point = point;
+    hit.normal = normal;
+    hit.toViewer = -direction;
+    hit.dist = t;
+    hit.material = material;
+    hit.frontFace = frontFace;
+    return true;
+}
+
+vec3 offsetAlong(vec3 point, vec3 direction)
+{
+    return uOffsetOrigin ? point + direction * SURFACE_OFFSET : point;
+}
+
+// =============================================================================
+//  NEE(Tracing/PathTracer.cs の SampleDirectLight)
+// =============================================================================
+vec3 sampleDirectLight(Hit hit, vec3 albedo)
+{
+    int total = uPointLightCount + uAreaLightCount;
+    if (total == 0)
+    {
+        return vec3(0.0);
+    }
+
+    vec3 brdf = albedo / PI;
+
+    // **ここで必ず1つ乱数を引く**(光源が1つでも)。引く回数が CPU と1つでも違うと、
+    // その先の乱数が全部ずれて、絵が別物になる(自己チェック20 が真っ先に落ちる)。
+    int pick = nextInt(total);
+
+    if (pick < uPointLightCount)
+    {
+        vec3 offset = uPointLights[pick].position.xyz - hit.point;
+        float distance = length(offset);
+        vec3 toLight = offset / distance;
+
+        float cosTheta = dot(hit.normal, toLight);
+        if (cosTheta <= 0.0)
+        {
+            return vec3(0.0);
+        }
+
+        gShadow++;
+        if (findOccluder(offsetAlong(hit.point, hit.normal), toLight, distance))
+        {
+            return vec3(0.0);
+        }
+
+        vec3 irradiance = uPointLights[pick].colorIntensity.rgb
+            * (uPointLights[pick].colorIntensity.w / (distance * distance) * cosTheta);
+        return brdf * irradiance * float(total);
+    }
+
+    int sphereIndex = uAreaLights[pick - uPointLightCount];
+    vec4 s = uSpheres[sphereIndex].centerRadius;
+
+    vec3 toCenter = s.xyz - hit.point;
+    float distanceToCenter = length(toCenter);
+    if (distanceToCenter <= s.w * 1.0001)
+    {
+        return vec3(0.0);
+    }
+
+    float sin2 = s.w * s.w / (distanceToCenter * distanceToCenter);
+    float cosThetaMax = sqrt(max(0.0, 1.0 - sin2));
+
+    vec3 direction = uniformCone(toCenter / distanceToCenter, cosThetaMax);
+    float pdf = uniformConePdf(cosThetaMax);
+
+    float lightDistance;
+    if (!sphereHit(sphereIndex, hit.point, direction, 0.0, 1.0 / 0.0, lightDistance) || pdf <= 0.0)
+    {
+        return vec3(0.0);
+    }
+
+    float cosSurface = dot(hit.normal, direction);
+    if (cosSurface <= 0.0)
+    {
+        return vec3(0.0);
+    }
+
+    gShadow++;
+
+    // 光源自身に当たって「遮られた」と判定されないよう、わずかに手前で打ち切る。
+    float maxDistance = max(lightDistance - 2.0 * SURFACE_OFFSET, 0.0);
+    if (findOccluder(offsetAlong(hit.point, hit.normal), direction, maxDistance))
+    {
+        return vec3(0.0);
+    }
+
+    vec3 emission = uMaterials[uSpheres[sphereIndex].info.x].emission.rgb;
+    return brdf * emission * (cosSurface / pdf) * float(total);
+}
+
+// =============================================================================
+//  1本の道を歩く(Tracing/PathTracer.cs の Trace)
+// =============================================================================
+vec3 pathTrace(vec3 origin, vec3 direction)
+{
+    vec3 radiance = vec3(0.0);
+    vec3 throughput = vec3(1.0);
+    bool specularBounce = true;
+
+    for (int depth = 0; ; depth++)
+    {
+        Hit hit;
+        if (!tryHit(origin, direction, hit))
+        {
+            radiance += throughput * sky(direction);
+            break;
+        }
+
+        Material material = uMaterials[hit.material];
+        vec3 emission = material.emission.rgb;
+        int kind = int(material.emission.w);
+
+        if (emission != vec3(0.0))
+        {
+            // NEE で数え済みなら足さない(2重に数えないため。Day 60 の要点4)。
+            if (!(uNee && !specularBounce))
+            {
+                radiance += throughput * emission;
+            }
+
+            break;
+        }
+
+        if (kind == KIND_DIFFUSE)
+        {
+            vec3 albedo = albedoAt(hit.material, hit.point);
+            if (uNee)
+            {
+                radiance += throughput * sampleDirectLight(hit, albedo);
+            }
+
+            if (depth >= uMaxDepth)
+            {
+                break;
+            }
+
+            // BRDF × cosθ / pdf = albedo。π も cos も約分で消える(Day 60 の要点3)。
+            vec3 scattered = cosineHemisphere(hit.normal);
+            throughput *= albedo;
+            specularBounce = false;
+            gScatter++;
+            origin = offsetAlong(hit.point, hit.normal);
+            direction = normalize(scattered);
+        }
+        else
+        {
+            if (depth >= uMaxDepth)
+            {
+                break;
+            }
+
+            float cosI = dot(hit.normal, hit.toViewer);
+            if (kind == KIND_METAL)
+            {
+                throughput *= metalFresnel(cosI, material.albedo.rgb);
+                gReflection++;
+                vec3 next = reflectDir(direction, hit.normal);
+                origin = offsetAlong(hit.point, hit.normal);
+                direction = normalize(next);
+            }
+            else
+            {
+                float ior = material.checker.w;
+                float n1 = hit.frontFace ? 1.0 : ior;
+                float n2 = hit.frontFace ? ior : 1.0;
+
+                vec3 refracted;
+                bool canRefract = tryRefract(direction, hit.normal, n1 / n2, refracted);
+                float reflectance = canRefract ? dielectricFresnel(cosI, n1, n2) : 1.0;
+
+                // 確率 F で反射、1−F で屈折。**どちらを選んでも重みは 1 のまま**(Day 60 の要点5)。
+                if (nextFloat() < reflectance)
+                {
+                    gReflection++;
+                    vec3 next = reflectDir(direction, hit.normal);
+                    origin = offsetAlong(hit.point, hit.normal);
+                    direction = normalize(next);
+                }
+                else
+                {
+                    gRefraction++;
+                    origin = offsetAlong(hit.point, -hit.normal);
+                    direction = normalize(refracted);
+                }
+            }
+
+            specularBounce = true;
+        }
+
+        if (uRoulette && depth >= ROULETTE_START_DEPTH)
+        {
+            float survival = clamp(max(throughput.x, max(throughput.y, throughput.z)), MIN_SURVIVAL, 1.0);
+            if (nextFloat() >= survival)
+            {
+                break;
+            }
+
+            throughput /= survival;
+        }
+    }
+
+    return radiance;
+}
+
+// =============================================================================
+//  表示(Tracing/Tracer.cs の HeatColor / ProgressiveRenderer.ToPixel)
+// =============================================================================
+vec3 heatColor(uint count, float maxPower)
+{
+    vec3 stops[7] = vec3[7](
+        vec3(0.00, 0.00, 0.30),
+        vec3(0.00, 0.30, 1.00),
+        vec3(0.00, 0.90, 0.90),
+        vec3(0.20, 0.90, 0.10),
+        vec3(1.00, 0.90, 0.00),
+        vec3(1.00, 0.20, 0.00),
+        vec3(1.00, 1.00, 1.00));
+
+    float scale = 6.0 / maxPower;
+    float level = clamp(log2(max(float(count), 1.0)) * scale, 0.0, 6.0);
+    int index = min(int(level), 5);
+    float t = level - float(index);
+    return stops[index] + (stops[index + 1] - stops[index]) * t;
+}
+
+float linearToSrgb(float value)
+{
+    if (!(value > 0.0))
+    {
+        return 0.0;
+    }
+
+    if (value >= 1.0)
+    {
+        return 1.0;
+    }
+
+    return value <= 0.0031308 ? value * 12.92 : 1.055 * pow(value, 1.0 / 2.4) - 0.055;
+}
+
+uint toByte(float value)
+{
+    if (!(value > 0.0))
+    {
+        return 0u;
+    }
+
+    return value >= 1.0 ? 255u : uint(value * 255.0 + 0.5);
+}
+
+uint packPixel(vec3 color, bool encodeSrgb)
+{
+    if (encodeSrgb)
+    {
+        color = vec3(linearToSrgb(color.r), linearToSrgb(color.g), linearToSrgb(color.b));
+    }
+
+    return 0xFF000000u | (toByte(color.r) << 16) | (toByte(color.g) << 8) | toByte(color.b);
+}
+
+// =============================================================================
+//  本体
+// =============================================================================
+void main()
+{
+    // 共有メモリの初期化と barrier() は**全員が必ず通る場所**に置く。
+    // if の中に barrier() を入れると、通らない呼び出しが出て永久に待つ(未定義動作)。
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        for (int i = 0; i < 7; i++)
+        {
+            sCounters[i] = 0u;
+        }
+    }
+
+    barrier();
+
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+
+    // 画面の幅・高さがワークグループの大きさで割り切れないと、はみ出した呼び出しが出る
+    // (540 行を 8 で割ると 67.5 なので、68 グループ = 544 行ぶん走る)。はみ出した4行は何もしない。
+    if (pixel.x < uResolutionX && pixel.y < uResolutionY)
+    {
+        rngCreate(pixel.x, pixel.y, uSample, uDecorrelate);
+
+        // Camera.GetRay。画素の座標から世界へ向かう向きを作る。
+        float px = float(pixel.x) + uJitter.x;
+        float py = float(pixel.y) + uJitter.y;
+        float ndcX = px / float(uResolutionX) * 2.0 - 1.0;
+        float ndcY = 1.0 - py / float(uResolutionY) * 2.0;
+        vec3 direction = normalize(uCameraForward + uCameraRight * (ndcX * uHalfWidth) + uCameraUp * (ndcY * uHalfHeight));
+
+        // CPU 版(Tracer.Sample)と同じ順。カメラの光線を数える前に「前の値」を控える。
+        uint raysBefore = rayTotal();
+        uint testsBefore = gBoxTests + gShapeTests;
+        gCamera++;
+
+        vec3 color;
+        if (uViewMode == VIEW_NORMAL)
+        {
+            Hit hit;
+            color = tryHit(uCameraPosition, direction, hit) ? hit.normal * 0.5 + vec3(0.5) : vec3(0.0);
+        }
+        else if (uViewMode == VIEW_RAYCOUNT)
+        {
+            pathTrace(uCameraPosition, direction);
+            color = heatColor(rayTotal() - raysBefore, 6.0);
+        }
+        else if (uViewMode == VIEW_COST)
+        {
+            pathTrace(uCameraPosition, direction);
+            color = heatColor(gBoxTests + gShapeTests - testsBefore, 10.0);
+        }
+        else
+        {
+            color = pathTrace(uCameraPosition, direction);
+        }
+
+        // 積み重ね。**線形のまま足して、出すときだけ曲線を掛ける**(Day 60 と同じ)。
+        // uSample == 0 のときに読まないので、積算バッファを消す手間が要らない。
+        vec3 sum = color;
+        if (uSample > 0)
+        {
+            sum += imageLoad(uAccum, pixel).rgb;
+        }
+
+        imageStore(uAccum, pixel, vec4(sum, 1.0));
+        uPixels[pixel.y * uResolutionX + pixel.x] = packPixel(sum / float(uSample + 1), uViewMode == VIEW_SHADED);
+    }
+
+    // 数えたものをワークグループの中で畳んでから、**グループにつき7回だけ**全体へ足す(Day 57 の要点6)。
+    // 呼び出しごとに atomicAdd すると、50 万本が7つの番地を奪い合って目に見えて遅くなる。
+    atomicAdd(sCounters[0], gCamera);
+    atomicAdd(sCounters[1], gShadow);
+    atomicAdd(sCounters[2], gReflection);
+    atomicAdd(sCounters[3], gRefraction);
+    atomicAdd(sCounters[4], gScatter);
+    atomicAdd(sCounters[5], gBoxTests);
+    atomicAdd(sCounters[6], gShapeTests);
+
+    barrier();
+
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        for (int i = 0; i < 7; i++)
+        {
+            atomicAdd(uCounters[i], sCounters[i]);
+        }
+    }
+}

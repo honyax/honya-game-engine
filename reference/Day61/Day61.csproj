@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      教養編の Labs(Day 59〜61 の CpuRayTracer)は、エンジン(HonyaEngine)とは別の独立プロジェクト。
+      Day 61 は Day 60 の完全コピー + 差分。
+
+      窓は Day 60 のまま WinForms + LockBits にしてある。今日は絵を GPU が作るが、
+      **画面へ出す道筋を変えない**のが狙い。CPU 版と GPU 版が同じ経路で同じ int[] を画面に出すので、
+      G キーで切り替えたときに「絵が同じで速さだけ違う」ことが素直に見える。
+      GL のコンテキストは見えない窓の上に作る(Gpu/GpuDevice.cs)。
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      Silk.NET へ渡すバッファの中身を fixed で指すため(Day 14 以降のエンジンと同じ)。
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      AssemblyName は明示しない(csproj のファイル名 Day61.csproj から Day61.dll になる)。
+
+      名前空間は Day 番号を含めず CpuRayTracer に固定する。写経先の work/Labs/CpuRayTracer と揃い、
+      Day 59〜61 の差分(git diff)に namespace 行が乗らない。
+      GPU 版が入っても名前は変えない——CPU 版と並べて比べるのが今日の主題なので、
+      「CpuRayTracer の中に GPU 版がある」でちょうどよい。
+    -->
+    <RootNamespace>CpuRayTracer</RootNamespace>
+
+    <!--
+      高DPI環境でOSに画面を引き伸ばされると「計算した1画素 = 画面の1画素」が崩れ、
+      ノイズの粒が1画素ぶんに見えなくなる(隣の画素と混ざって、実際より滑らかに見える)。
+      パストレーシングはノイズの量そのものが見どころなので、Day 1 と同じ理由で宣言しておく。
+    -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Phase 3 以降のエンジンと同じ Silk.NET。Day 11〜13 で wgl の儀式を一度自分で書いてあるので、
+      ここは堂々と借りる。**Windowing を使うのはコンテキストを作るためだけ**で、
+      窓そのものは見せない(WinForms の窓に描く。GpuDevice.cs を参照)。
+    -->
+    <PackageReference Include="Silk.NET.Windowing" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      GLSL は出力先へそのままコピーする。**埋め込みリソースにしない**のは、
+      exe を建て直さずにシェーダだけ書き換えて試せるようにするため(改造課題で効く)。
+    -->
+    <None Update="shaders\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
