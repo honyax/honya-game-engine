@@ -30,12 +30,30 @@ uniform mat4 uModel;
 // 「動いているから正しい」が言えない類の話。立方体を潰すと差が出る。
 uniform mat3 uNormalMatrix;
 
+// 光の目から見たビュー射影行列(Day 33)。**深度パスに送るものとまったく同じ行列**。
+// ShadowMap が1か所で作って、深度パスと本描画の両方へ配っている。
+// ここがずれると影が丸ごとずれるので、2か所で組み立ててはいけない。
+uniform mat4 uLightSpaceMatrix;
+
 // --- マテリアルごとに変わる(Material.Apply が設定) ---
 uniform vec2 uUvScale;
 
 out vec2 vTexCoord;
 out vec4 vColor;
 out vec3 vNormal;
+
+// 世界座標(Day 33)。今日は影の座標を作るのに使うだけだが、
+// **点光源の方向・視線ベクトル・フォグ**など、これから要るものが軒並みここから始まる。
+out vec3 vWorldPos;
+
+// 光の座標系での位置(Day 33)。**頂点シェーダで写しておく**のが定石。
+//
+// 画素シェーダで vWorldPos に uLightSpaceMatrix を掛けても同じ結果になるが、
+// 行列とベクトルの積を**頂点の数だけ**やるか**画素の数だけ**やるかの差になる。
+// 立方体1個なら 24 回 対 数万回。線形な変換は補間しても同じ値になるので、
+// 頂点側でやってラスタライザに運ばせるのが正しい
+// (法線のように「補間で長さが崩れる」たぐいの問題も、位置には無い)。
+out vec4 vLightSpacePos;
 
 void main()
 {
@@ -44,7 +62,13 @@ void main()
     // Day 14 の要点4で見たとおり、C# 側(行ベクトル)の
     //   model * view * projection
     // と、この行は同じ変換を表している。
-    gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);
+    // 世界座標は影にもライティングにも要るので、先に出しておく(Day 33)。
+    vec4 worldPos = uModel * vec4(aPosition, 1.0);
+
+    gl_Position = uViewProjection * worldPos;
+
+    vWorldPos = worldPos.xyz;
+    vLightSpacePos = uLightSpaceMatrix * worldPos;
 
     vTexCoord = aTexCoord * uUvScale;
     vColor = aColor;
