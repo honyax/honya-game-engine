@@ -1,0 +1,63 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+
+// ---------------------------------------------------------------------------------------
+// raygen シェーダ。**1画素に1回呼ばれる**(vkCmdTraceRaysKHR に渡した幅 x 高さの数だけ)。
+//
+// コンピュートシェーダとの対応はほぼ1対1:
+//   gl_GlobalInvocationID  ->  gl_LaunchIDEXT
+//   ワークグループの大きさ   ->  **無い**(ドライバが決める。local_size を書く場所が無い)
+//
+// 違うのは**ここから先**。traceRayEXT を呼ぶと、当たったかどうかに応じて
+// ドライバが miss / closest-hit のどれかを呼んでくれる。
+// どれを呼ぶかの表が SBT(シェーダバインディングテーブル)。
+// ---------------------------------------------------------------------------------------
+
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D outImage;
+layout(set = 0, binding = 2) uniform accelerationStructureEXT topLevel;
+
+#include "common.glsl"
+
+// **荷物**。traceRayEXT の行き先のシェーダと、この変数でやり取りする。
+// location は「何番の荷物か」で、受け取る側の rayPayloadInEXT と番号を合わせる。
+layout(location = 0) rayPayloadEXT RayPayload payload;
+
+void main() {
+    ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
+
+    vec3 origin = pc.positionHalfWidth.xyz;
+    vec3 direction = cameraRay(pixel);
+
+    // **床は加速構造に入っていない**(無限に広がるものは箱で囲めない)。
+    // そこで、床に当たるならそこで光線を止める——tMax を床までの距離にしておく。
+    // すると「球に当たらなければ miss シェーダが呼ばれ、miss シェーダは
+    // gl_RayTmaxEXT を見て床か空かを判断できる」(sky.rmiss)。
+    //
+    // BLAS に入らないものを miss で拾うのは実戦でもよくやる手で、
+    // スカイボックスや解析的な地面はだいたいこの形になる。
+    float tMax = 1e30;
+    float floorT = floorDistance(origin, direction);
+    if (floorT > 1e-4) {
+        tMax = floorT;
+    }
+
+    payload.color = vec3(0.0);
+    payload.depth = MaxBounces;
+
+    // 引数は前から:
+    //   TLAS / フラグ / カリングマスク /
+    //   sbtRecordOffset(0)/ sbtRecordStride(1)/ missIndex(0 = sky.rmiss)/
+    //   始点 / tMin / 向き / tMax / 荷物の番号
+    //
+    // **sbtRecordStride が 1** なのが今日の肝。当たったときに呼ばれる hit グループの番号は
+    //   instanceSBTOffset + geometryIndex * stride + offset
+    // なので、stride = 1・offset = 0 なら **geometryIndex がそのままグループの番号**になる。
+    // ジオメトリ 0(拡散)-> グループ 0、ジオメトリ 1(金属)-> グループ 1。
+    traceRayEXT(topLevel, gl_RayFlagsOpaqueEXT, 0xFF, 0, 1, 0,
+                origin, 1e-4, direction, tMax, 0);
+
+    vec3 color = pc.mode == 0 ? toneMap(payload.color) : payload.color;
+
+    // 画像の形式は RGBA の順、WinForms が欲しいのは BGRA。書くときに入れ替える。
+    imageStore(outImage, pixel, vec4(color.bgr, 1.0));
+}

@@ -1,0 +1,41 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+
+// ---------------------------------------------------------------------------------------
+// intersection シェーダ。**箱の中で球の式を解く**。
+//
+// RT コアは三角形と箱しか知らないので、箱に当たるとここが呼ばれる。
+// Day 62b で ray query のループの中に書いていたものが、**そのままシェーダ1本になった**。
+//
+//   ray query : while (rayQueryProceedEXT) { ... rayQueryGenerateIntersectionEXT(t) }
+//   RT pipeline: この .rint が呼ばれる          { ... reportIntersectionEXT(t, 0) }
+//
+// ray query より素直なところが1つある。**区間の上限を自分で持たなくてよい**——
+// gl_RayTmaxEXT が「いまの確定値」に縮んでいくので、そのまま渡せばよい
+// (Day 62b の要点で「間違えやすい」と書いた upper の話が、ここでは起きない)。
+// ---------------------------------------------------------------------------------------
+
+#include "common.glsl"
+
+// closest-hit へ渡す属性。三角形なら重心座標が入ってくる場所で、
+// **procedural では自分で中身を決められる**。法線を入れておけば、当たった側で計算し直さずに済む。
+hitAttributeEXT vec3 hitNormal;
+
+void main() {
+    int index = sphereIndex(gl_GeometryIndexEXT, gl_PrimitiveID);
+    vec4 cr = spheres[index].centerRadius;
+
+    float t;
+    if (!hitSphere(gl_WorldRayOriginEXT, gl_WorldRayDirectionEXT, cr.xyz, cr.w,
+                   gl_RayTminEXT, gl_RayTmaxEXT, t)) {
+        return;
+    }
+
+    // 属性は reportIntersectionEXT より**前**に書く。
+    vec3 position = gl_WorldRayOriginEXT + t * gl_WorldRayDirectionEXT;
+    hitNormal = (position - cr.xyz) / cr.w;
+
+    // 第2引数は「当たり方の種類」で、any-hit や closest-hit が gl_HitKindEXT で読める。
+    // 表と裏を区別したいときなどに使う。今日は使わないので 0。
+    reportIntersectionEXT(t, 0u);
+}
