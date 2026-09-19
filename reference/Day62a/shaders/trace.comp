@@ -1,0 +1,282 @@
+#version 460
+
+// ---------------------------------------------------------------------------------------
+// Day 62a: Vulkan のコンピュートシェーダで球を撃つ。
+//
+// 中身は Day 59 の Whitted 風レイトレーサをぐっと削ったもの(拡散 + 金属の反射 + 硬い影)。
+// **今日の主題は絵ではなく Vulkan の作法**なので、光の計算はわざと素朴にしてある。
+//
+// 探し方は**総当たり**。球を先頭から1個ずつ試す。Day 60 で CPU 版に BVH を入れたのと同じ問題が
+// ここにもあって、球を 8 個から 720 個に増やすと素直に 90 倍重くなる。
+// **それを Day 62b で BLAS(ハードウェアの加速構造)に置き換える**のが次の一歩。
+//
+// GLSL は Vulkan 向けに書く。OpenGL 向けとの主な違いは2つ:
+//   - すべての資源に layout(set = , binding = ) が要る(OpenGL は binding だけでよかった)
+//   - gl_FragColor のような組み込みの出口が無い。書き込み先は自分で宣言する
+// ---------------------------------------------------------------------------------------
+
+// ワークグループの大きさ。**C# 側の ComputeRenderer.WorkGroupSize と必ず一致させる**。
+// ここを 16 にして C# を 8 のままにすると、絵の右下 3/4 が描かれないまま残る。
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// 出力先のストレージ画像。format 修飾子(rgba8)は
+// **C# 側の VulkanImage.PixelFormat(R8G8B8A8Unorm)と一致していなければならない**。
+// ずれていると検証レイヤが止めるか、色が壊れる。
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D outImage;
+
+// 球の配列。std430 なので「vec4 が 16 バイト境界に並ぶ」だけの素直な詰め方になる
+// (std140 だと配列の要素が 16 バイトに切り上げられて、C# 側と合わなくなる)。
+struct Sphere {
+    vec4 centerRadius;  // xyz = 中心、w = 半径
+    vec4 albedoKind;    // xyz = 色、w = 材質(0 = 拡散、1 = 金属)
+};
+
+layout(set = 0, binding = 1, std430) readonly buffer Spheres {
+    Sphere spheres[];
+};
+
+// プッシュ定数。C# 側の PushConstants と1バイトも違ってはいけない。
+layout(push_constant) uniform Push {
+    vec4 positionHalfWidth;  // xyz = カメラ位置、w = 画面の半分の幅
+    vec4 rightHalfHeight;    // xyz = 右方向、   w = 画面の半分の高さ
+    vec4 up;                 // xyz = 上方向
+    vec4 forward;            // xyz = 前方向
+    int width;
+    int height;
+    int sphereCount;
+    int mode;                // 0 = 陰影、1 = 法線、2 = 交差判定の回数
+} pc;
+
+// 反射を追う回数の上限。金属に当たるたびに1減る。
+// GPU には再帰が無いので(Day 61 の要点と同じ)、for ループで回す。
+const int MaxBounces = 3;
+
+// 太陽の向き(光が**来る**向き)。時刻を持たない場面なので決め打ち。
+const vec3 SunDirection = normalize(vec3(-0.45, 0.85, -0.30));
+const vec3 SunColor = vec3(1.0, 0.96, 0.88) * 1.9;
+
+// 床は y = 0 の無限の平面。**配列に入れず、ここに直接書いてある**。
+// 無限に広がるものは箱で囲めないので、Day 62b で BLAS を建てるときにも入れられない
+// (Day 60 の Scene.Prepare が平面を「囲めない側」に置いたのと同じ線引き)。
+const float FloorHeight = 0.0;
+
+// 光線が当たったところの情報。C# の構造体と違って**参照で返せない**ので、
+// 呼び出し側の変数を inout で受け取るか、この構造体をそのまま返す。
+struct Hit {
+    float t;
+    vec3 position;
+    vec3 normal;
+    vec3 albedo;
+    int kind;       // 0 = 拡散、1 = 金属
+};
+
+// 交差判定を何回したか。**mode 2 の絵はこれを色にしたもの**で、
+// 総当たりの費用が画面のどこで高いかが一目で分かる(Day 62b の比較の土台)。
+int gTests = 0;
+
+// -----------------------------------------------------------------------------
+// 光線と球(Day 59 と同じ式。half-b の形)
+//
+//   |P - C|^2 = r^2 に P = O + tD を入れて oc = O - C と置くと
+//   t^2 + 2(oc.D)t + (oc.oc - r^2) = 0  ... D は長さ 1 なので t^2 の係数は 1
+//   b = oc.D と置くと t = -b +- sqrt(b*b - c)
+// -----------------------------------------------------------------------------
+bool hitSphere(vec3 origin, vec3 direction, vec3 center, float radius, float tMin, float tMax, out float t) {
+    gTests++;
+
+    vec3 oc = origin - center;
+    float b = dot(oc, direction);
+    float c = dot(oc, oc) - radius * radius;
+    float discriminant = b * b - c;
+    if (discriminant < 0.0) {
+        t = 0.0;
+        return false;
+    }
+
+    float root = sqrt(discriminant);
+
+    // 近いほうから試す。始点が球の中(または球が丸ごと後ろ)なら遠いほうを見る。
+    t = -b - root;
+    if (t <= tMin) {
+        t = -b + root;
+    }
+    return t > tMin && t < tMax;
+}
+
+// -----------------------------------------------------------------------------
+// 場面全体との交差。**総当たり**——球を先頭から全部試す。
+//
+// ここが今日いちばん素朴なところで、Day 62b で
+// rayQueryEXT の3行に置き換わる部分でもある。置き換えたとき、
+// この関数の中で数えている gTests は**数えられなくなる**
+// (RT コアの中で何回試されたかはシェーダから見えない)。
+// -----------------------------------------------------------------------------
+bool traceScene(vec3 origin, vec3 direction, float tMin, float tMax, out Hit hit) {
+    bool found = false;
+    hit.t = tMax;
+
+    for (int i = 0; i < pc.sphereCount; i++) {
+        vec4 cr = spheres[i].centerRadius;
+        float t;
+        if (hitSphere(origin, direction, cr.xyz, cr.w, tMin, hit.t, t)) {
+            found = true;
+            hit.t = t;
+            hit.position = origin + t * direction;
+            hit.normal = (hit.position - cr.xyz) / cr.w;
+            hit.albedo = spheres[i].albedoKind.xyz;
+            hit.kind = int(spheres[i].albedoKind.w);
+        }
+    }
+
+    // 床。平行(direction.y がほぼ 0)なら当たらない。
+    if (abs(direction.y) > 1e-6) {
+        float t = (FloorHeight - origin.y) / direction.y;
+        if (t > tMin && t < hit.t) {
+            found = true;
+            hit.t = t;
+            hit.position = origin + t * direction;
+            hit.normal = vec3(0.0, 1.0, 0.0);
+            hit.kind = 0;
+
+            // 市松模様。x と z の整数部の和の偶奇で色を選ぶ(Day 59 の Material.AlbedoAt と同じ)。
+            vec2 cell = floor(hit.position.xz);
+            bool even = mod(cell.x + cell.y, 2.0) < 0.5;
+            hit.albedo = even ? vec3(0.62) : vec3(0.18);
+        }
+    }
+
+    return found;
+}
+
+// 何にも当たらなかったときの色。上を向くほど青くなる素朴な空。
+vec3 sky(vec3 direction) {
+    float up = clamp(direction.y, 0.0, 1.0);
+    vec3 gradient = mix(vec3(0.72, 0.80, 0.92), vec3(0.24, 0.42, 0.78), sqrt(up));
+
+    // 太陽の見た目。反射の中に丸い光が映るようにしておくと、金属の球が金属らしく見える。
+    float sun = pow(max(dot(direction, SunDirection), 0.0), 900.0);
+    return gradient + SunColor * sun;
+}
+
+// 影の光線。**当たったかどうかだけ**が要るので、いちばん近いものを探さずに
+// 1つでも当たったら即座に打ち切る(Day 59 でもやった省き方)。
+bool inShadow(vec3 position, vec3 normal) {
+    // 自分自身に当たらないよう、法線の向きに少し浮かせる。
+    // 浮かせ方が足りないと「影の斑点(shadow acne)」が出る。
+    vec3 origin = position + normal * 1e-3;
+
+    for (int i = 0; i < pc.sphereCount; i++) {
+        vec4 cr = spheres[i].centerRadius;
+        float t;
+        if (hitSphere(origin, SunDirection, cr.xyz, cr.w, 1e-4, 1e30, t)) {
+            return true;
+        }
+    }
+
+    // 床は太陽より上に無いので、影を作らない(太陽が地平線より上にある限り)。
+    return false;
+}
+
+// 拡散面の色。直接光 + 空からの一定の明るさ(環境光)。
+// Day 60 のパストレーサはこの環境光を使わずに周りからの光を数えたが、
+// 今日は「Vulkan が動くこと」が主題なので Day 59 の素朴な式に戻してある。
+vec3 shadeDiffuse(Hit hit) {
+    float ndotl = max(dot(hit.normal, SunDirection), 0.0);
+    vec3 direct = (ndotl > 0.0 && !inShadow(hit.position, hit.normal)) ? SunColor * ndotl : vec3(0.0);
+
+    // 空を「上から来る弱い光」として足す。影の中が真っ黒にならないようにするごまかし。
+    // 強くしすぎると全体が白っぽく濁る(Day 59 でも同じ加減をした)。
+    vec3 ambient = sky(hit.normal) * 0.13;
+    return hit.albedo * (direct + ambient);
+}
+
+// 交差判定の回数を色にする(mode 2)。暗い青 → 水色 → 緑 → 黄 → 赤 の順に高い。
+//
+// この絵がいちばん雄弁なのは**空の部分**。何にも当たらない光線でも
+// 色が付いている = 球 720 個を全部試している、ということ。
+// 総当たりは「当たらなかったこと」を確かめるのにも満額の費用がかかる。
+// Day 62b で BLAS に入れると、この空の部分の費用がほぼ消える。
+vec3 heatColor(int tests) {
+    // 1画素あたりの目安。球の数の3倍(一次光線 + 影 + 反射ぶん)で正規化する。
+    float x = clamp(float(tests) / float(max(pc.sphereCount, 1) * 3), 0.0, 1.0);
+
+    const vec3 stops[6] = vec3[6](
+        vec3(0.03, 0.03, 0.12),
+        vec3(0.15, 0.25, 0.85),
+        vec3(0.10, 0.80, 0.85),
+        vec3(0.20, 0.85, 0.25),
+        vec3(0.95, 0.85, 0.15),
+        vec3(0.90, 0.15, 0.10));
+
+    float s = x * 5.0;
+    int i = min(int(floor(s)), 4);
+    return mix(stops[i], stops[i + 1], s - float(i));
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+
+    // ワークグループの大きさで割り切れないぶんははみ出す。**書かずに捨てる**。
+    // これを忘れると画像の外に imageStore することになり、結果は未定義(たいていは無視されるが、
+    // 保証は無い)。
+    if (pixel.x >= pc.width || pixel.y >= pc.height) {
+        return;
+    }
+
+    // 画素の中心を通る光線。行列は使わず、カメラの3軸を混ぜるだけ(Camera.cs の説明)。
+    vec2 ndc = vec2(
+        (float(pixel.x) + 0.5) / float(pc.width) * 2.0 - 1.0,
+        1.0 - (float(pixel.y) + 0.5) / float(pc.height) * 2.0);
+
+    vec3 origin = pc.positionHalfWidth.xyz;
+    vec3 direction = normalize(
+        pc.forward.xyz
+        + pc.rightHalfHeight.xyz * (ndc.x * pc.positionHalfWidth.w)
+        + pc.up.xyz * (ndc.y * pc.rightHalfHeight.w));
+
+    vec3 color = vec3(0.0);
+    vec3 throughput = vec3(1.0);   // ここまでに掛かった反射率の積
+    Hit hit;
+    bool wroteNormal = false;
+
+    // 再帰の代わりのループ。金属に当たったら反射して続け、拡散か空なら終わる。
+    for (int bounce = 0; bounce <= MaxBounces; bounce++) {
+        if (!traceScene(origin, direction, 1e-4, 1e30, hit)) {
+            color += throughput * sky(direction);
+            break;
+        }
+
+        // mode 1(法線)は**最初に当たった面**の法線だけを見せる。
+        // 反射の先の法線まで混ぜると、何を見ているのか分からなくなる。
+        if (pc.mode == 1 && !wroteNormal) {
+            color = hit.normal * 0.5 + 0.5;
+            wroteNormal = true;
+            break;
+        }
+
+        if (hit.kind == 1 && bounce < MaxBounces) {
+            // 金属: 反射して続ける。反射率(F0)を throughput に掛けておく。
+            throughput *= hit.albedo;
+            origin = hit.position + hit.normal * 1e-3;
+            direction = reflect(direction, hit.normal);
+            continue;
+        }
+
+        color += throughput * shadeDiffuse(hit);
+        break;
+    }
+
+    if (pc.mode == 2) {
+        color = heatColor(gTests);
+    } else if (pc.mode == 0) {
+        // 簡単なトーンマップ + ガンマ。線形の明るさのまま出すと、
+        // 太陽の当たった面が白く飛んで形が分からなくなる。
+        color = color / (color + vec3(1.0));
+        color = pow(color, vec3(1.0 / 2.2));
+    }
+
+    // **ここが今日の要点5**。画像の形式は RGBA の順(R8G8B8A8Unorm)だが、
+    // WinForms の Format32bppRgb が欲しいバイトの並びは B, G, R, X。
+    // 100 万画素ぶんを CPU で入れ替える代わりに、**書くときに .bgr で入れ替える**。
+    imageStore(outImage, pixel, vec4(color.bgr, 1.0));
+}

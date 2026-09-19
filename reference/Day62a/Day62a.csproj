@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      教養編 Day 62 の Labs。Day 59〜61 の CpuRayTracer とは**別の新しいプロジェクト**として始める。
+
+      Day 61 までは OpenGL(+ WinForms)で、コードの土台は Day 59 から一本に伸びていた。
+      Vulkan はその土台と1行も共有しない——コンテキストの作り方も、メモリの持ち方も、
+      シェーダの渡し方も別物なので、写経の差分を読めるようにするには新規で建てるほうがよい
+      (CLAUDE.md の「教養編の Labs は題材の初日だけ前Dayのコピーにしない」に当たる)。
+
+      持ってくるのは**場面とカメラの式だけ**(Scene/)。同じ絵を出して比べるために要る。
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      Vulkan は C の API をほぼ素のまま呼ぶことになる。構造体のポインタを渡し、
+      配列の先頭を fixed で指す場面が絶え間なく出てくるので、unsafe は必須。
+      Day 14 以降のエンジンでも Silk.NET に同じ理由で付けている。
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      AssemblyName は明示しない(csproj のファイル名 Day62a.csproj から Day62a.dll になる)。
+
+      名前空間は Day 番号を含めず HardwareRayTracer に固定する。
+      Day 62a / 62b / 62c で同じ名前空間を使うので、git diff に namespace 行が乗らない。
+    -->
+    <RootNamespace>HardwareRayTracer</RootNamespace>
+
+    <!-- 計算した1画素 = 画面の1画素を保つ(Day 1 と同じ理由)。 -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Silk.NET.Vulkan       : Vulkan 本体の束縛。**関数ポインタを引いてくるだけ**で、
+                              Silk.NET 側の親切な包みはほとんど無い(だから C の資料がそのまま読める)
+      ...Extensions.KHR     : VK_KHR_* の拡張。今日は使わないが、Day 62b で
+                              VK_KHR_acceleration_structure / ray_tracing_pipeline を引くのに要る
+      ...Extensions.EXT     : VK_EXT_debug_utils(検証レイヤからの通知を受け取る口)
+
+      **Silk.NET.Windowing を入れていない**のが Day 61 との違い。OpenGL は窓が無いと
+      コンテキストすら作れなかったが(Day 61 は見えない 16x16 の窓を作った)、
+      Vulkan は画面に一切関わらずに device を作れる。今日いちばん最初に効く差。
+    -->
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
+
+    <!--
+      GLSL を SPIR-V に翻訳する道具。**Vulkan SDK を入れなくて済む**のが効く。
+
+      Vulkan のドライバは GLSL を受け取らない。受け取るのは SPIR-V(中間表現)だけで、
+      翻訳は事前に済ませておくのが本来の形(glslangValidator / glslc を叩く)。
+      ただそれだと「シェーダを書き換えて再実行」に SDK の導入が要る。
+      shaderc は glslang を包んだ共有ライブラリで、Native パッケージが .dll ごと付いてくるので、
+      **実行時に翻訳する**ことにする(Day 61 の「exe を建て直さずに試せる」を保ちたい)。
+    -->
+    <PackageReference Include="Silk.NET.Shaderc" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- GLSL は出力先へそのままコピーする(埋め込みリソースにしない。Day 61 と同じ方針)。 -->
+    <None Update="shaders\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
