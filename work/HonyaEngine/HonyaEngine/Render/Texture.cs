@@ -59,6 +59,18 @@ internal enum TextureWrap
 
     /// <summary>端の色で引き延ばす。1枚絵をそのまま貼るとき。</summary>
     ClampToEdge,
+
+    /// <summary>
+    /// 範囲の外は**指定した1色**を返す。Day 33 のシャドウマップ用。
+    ///
+    /// <see cref="ClampToEdge"/> との違いが効くのがまさに影で、
+    /// 光の届く範囲(正射影の箱)の外を引いたとき、
+    ///   - ClampToEdge … **端のテクセルの深度**が返る。箱の縁の影が外へ筋になって伸びる
+    ///   - ClampToBorder + 白(1.0)… 「いちばん奥」が返るので、**必ず影の外**と判定される
+    /// という差になる。影は「箱の外は影なし」が正しい振る舞いなので、後者を使う。
+    /// 縁の色は <see cref="CreateDepthTarget"/> の中で 1.0 に設定している。
+    /// </summary>
+    ClampToBorder,
 }
 
 /// <summary>
@@ -381,6 +393,79 @@ internal sealed class Texture : IDisposable
     }
 
     /// <summary>
+    /// **深度だけを入れるテクスチャ**を作る。Day 33 のシャドウマップの器。
+    ///
+    /// Day 31 の <see cref="Framebuffer"/> は深度をレンダーバッファに置いていた。
+    /// 「読まないものにテクスチャの機能を持たせても無駄」という理由で、
+    /// そこには**読みたくなったらテクスチャに変える(Day 33 と Day 37)**と書いてあった。
+    /// 今日がその日で、影は「光から見た深度をあとで読む」技法そのものなので、
+    /// 深度がサンプリングできる形で置かれていないと始まらない。
+    ///
+    /// <see cref="CreateTarget"/> との違いは3つとも**影のための必然**になっている。
+    ///
+    /// <list type="number">
+    /// <item>
+    /// <b>内部形式が DepthComponent24</b> … 色ではなく深度。
+    /// 16bit だと 1024x1024 でも段差(縞)が見えることがあり、
+    /// 32bit(DepthComponent32F)は帯域が倍になる。**24bit が定番**。
+    /// </item>
+    /// <item>
+    /// <b>フィルタが Nearest</b> … ここが引っかかりどころ。
+    /// Linear にすると GPU が**深度を4つ平均して**返してくるが、
+    /// 深度の平均には意味が無い(手前 0.2 と奥 0.9 の平均 0.55 は、どこにも存在しない面)。
+    /// 影の境目に**実在しない中間の面**が生まれて、輪郭が二重にぶれる。
+    /// 「Linear にしたら影がなめらかになるのでは」は最初に必ず思いつくが、逆に壊れる。
+    /// <para>
+    /// なめらかにしたいなら**比較してから平均する**(PCF)。順番が逆なのがミソで、
+    /// 深度を平均してから比較するのではなく、比較の結果(0 か 1)を平均する。
+    /// GPU にはこれを専用でやる仕掛け(<c>sampler2DShadow</c> + 比較モード)もあり、
+    /// そちらは Linear が正しい設定になる——改造課題2で扱う。
+    /// </para>
+    /// </item>
+    /// <item>
+    /// <b>ラップが ClampToBorder + 白</b> … <see cref="TextureWrap.ClampToBorder"/> のコメント参照。
+    /// 光の箱の外は「いちばん奥」を返して、**必ず影の外**と判定させる。
+    /// </item>
+    /// </list>
+    /// </summary>
+    public static unsafe Texture CreateDepthTarget(GL gl, int width, int height)
+    {
+        uint handle = gl.GenTexture();
+
+        gl.ActiveTexture(TextureUnit.Texture0);
+        gl.BindTexture(TextureTarget.Texture2D, handle);
+
+        // PixelFormat も DepthComponent にする。**Rgba のままだと GL エラー**になる——
+        // 内部形式が深度なのに「色を渡す」と言っていることになるため。
+        gl.TexImage2D(
+            TextureTarget.Texture2D,
+            0,
+            InternalFormat.DepthComponent24,
+            (uint)width,
+            (uint)height,
+            0,
+            PixelFormat.DepthComponent,
+            PixelType.Float,
+            null);
+
+        var texture = new Texture(gl, handle, width, height, hasMipmaps: false);
+        texture.SetFilter(TextureFilter.Nearest);
+        texture.SetWrap(TextureWrap.ClampToBorder);
+
+        // 縁の色。**深度なので使うのは R だけ**だが、API は4成分を要求する。
+        // 1.0 =「いちばん奥」= 何にも遮られていない、の意味になる。
+        ReadOnlySpan<float> border = [1.0f, 1.0f, 1.0f, 1.0f];
+        fixed (float* data = border)
+        {
+            gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureBorderColor, data);
+        }
+
+        gl.BindTexture(TextureTarget.Texture2D, 0);
+
+        return texture;
+    }
+
+    /// <summary>
     /// テクスチャの一部だけを書き換える。**アトラスに1文字ずつ足す**ために使う。
     ///
     /// <b>ここが今日いちばん有名な罠</b>。
@@ -476,9 +561,12 @@ internal sealed class Texture : IDisposable
     {
         Bind();
 
-        int mode = wrap == TextureWrap.Repeat
-            ? (int)TextureWrapMode.Repeat
-            : (int)TextureWrapMode.ClampToEdge;
+        int mode = wrap switch
+        {
+            TextureWrap.Repeat => (int)TextureWrapMode.Repeat,
+            TextureWrap.ClampToBorder => (int)TextureWrapMode.ClampToBorder,
+            _ => (int)TextureWrapMode.ClampToEdge,
+        };
 
         // S が横(U)、T が縦(V)。数学で x,y,z を使っているため
         // テクスチャ座標には s,t,r を当てる、という命名の慣習。

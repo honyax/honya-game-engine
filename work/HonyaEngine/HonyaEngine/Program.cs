@@ -215,6 +215,17 @@ internal static class Program
     /// <summary>HDR パイプライン。**すべての描画がここを通って画面に出る**。</summary>
     private static PostProcess _post = null!;
 
+    /// <summary>
+    /// **今日の主役**。光の目から見た深度を焼き、本描画で引く(Day 33)。
+    ///
+    /// <see cref="PostProcess"/> と同じく<b>シーンを知らない</b>ので、
+    /// 何を影として落とすかは <see cref="RenderShadowPass"/> がここで決める。
+    /// </summary>
+    private static ShadowMap _shadow = null!;
+
+    /// <summary>深度パスにかかった時間(移動平均)。**影の代償を数字で見る**ため。</summary>
+    private static double _shadowMilliseconds;
+
     // --- 今日の主役: glTF ---
 
     /// <summary>
@@ -252,7 +263,8 @@ internal static class Program
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
-    /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ。
+    /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ
+    /// 8=影の係数(Day 33)。
     /// </summary>
     private static int _debugChannel;
 
@@ -260,8 +272,21 @@ internal static class Program
     /// 平行光源の向き。**光が進む向き**であって、光源へ向かう向きではない。
     /// シェーダ側で <c>-uLightDirection</c> と符号を反転している。
     /// どちらの約束にするかは決めの問題だが、混ぜると必ず陰影が裏返る。
+    ///
+    /// <para>
+    /// <b>Day 33 で 90 度回した</b>。Day 32 までは (-0.45, -0.72, -0.53) で、
+    /// これは既定のカメラ(<see cref="OrbitCameraController"/> の Yaw 0.6)と
+    /// **ほぼ同じ方角から照らしている**——つまり光が視線と同じ向きに進む。
+    ///
+    /// 陰影を見るだけなら問題なかったが、影が付くと事情が変わる。
+    /// 影は光の進む向きへ伸びるので、**物体のちょうど真後ろに隠れて1ピクセルも見えない**。
+    /// 起動直後の画面に影が出ていないと、実装が正しいかどうかすら分からない。
+    ///
+    /// 横から照らすと影が横へ倒れて全体が見える。**照明の位置は絵の一部**で、
+    /// 「正しく実装したのに何も見えない」の原因になりうる、という Day 33 の教訓。
+    /// </para>
     /// </summary>
-    private static Vector3 _lightDirection = Vector3.Normalize(new Vector3(-0.45f, -0.72f, -0.53f));
+    private static Vector3 _lightDirection = Vector3.Normalize(new Vector3(-0.53f, -0.72f, 0.45f));
 
     /// <summary>
     /// 太陽の色と強さ。少し暖色にしてある。
@@ -787,6 +812,13 @@ internal static class Program
             _window.FramebufferSize.X,
             _window.FramebufferSize.Y);
 
+        // --- 今日の主役: シャドウマップ ---
+        //
+        // **画面の大きさと関係無い**のがポイント。後処理のバッファは画面に追随するが、
+        // シャドウマップは「光から見た絵」なので、ウィンドウをどう変えても 2048x2048 のまま。
+        // リサイズのたびに作り直さなくてよいのはそのため(OnFramebufferResize を見ると分かる)。
+        _shadow = new ShadowMap(_gl, _resources, shaderDirectory, resolution: 2048);
+
         // 発光するもの用。
         //
         // **Day 32 で表し方が変わった**。Day 31 は Tint に 1.0 を超える値を入れていたが、
@@ -1017,9 +1049,15 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
+        Console.WriteLine("--- Day 33: シャドウマッピング(Ctrl + 数字)---");
+        Console.WriteLine("Ctrl+1:影 ON/OFF  Ctrl+2:解像度 512/1024/2048/4096  Ctrl+3:PCF 1タップ/3x3/5x5/7x7");
+        Console.WriteLine("Ctrl+4:深度バイアス(0 でアクネが出る)  Ctrl+5:傾きに比例したバイアス  Ctrl+6:深度パスの表カリング");
+        Console.WriteLine("Ctrl+7:シャドウマップを隅に表示  Ctrl+8:光の届く範囲 3/6/12/24m  Ctrl+9:光の向きを 30 度回す");
+        Console.WriteLine("Ctrl+0:影の自己チェックと計測   Shift+9 を 8 回押すと「影の係数」だけを見られる");
+        Console.WriteLine();
         Console.WriteLine("--- Day 32: glTF(Shift + 数字)---");
         Console.WriteLine("Shift+0:モデル切り替え(DamagedHelmet / WaterBottle / Lantern / BoxTextured / 無し)");
-        Console.WriteLine("Shift+9:表示する成分(通常/ベースカラー/法線/メタリック/ラフネス/AO/発光/法線マップ)");
+        Console.WriteLine("Shift+9:表示する成分(通常/ベースカラー/法線/メタリック/ラフネス/AO/発光/法線マップ/影)");
         Console.WriteLine("Shift+-:glTF の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 31: HDR パイプライン(Shift + 数字)---");
@@ -1719,6 +1757,13 @@ internal static class Program
         // 描き始める前に 0 に戻しておく。
         _glyphAtlas?.BeginFrame();
 
+        // **今日の1パス目**(Day 33)。シーンを描く前に、光の目から見た深度を焼く。
+        //
+        // ここより後ろの描画は1行も変わっていない——増えたのは
+        // 「本番の前にもう1回描く」ことと、シェーダが5番のテクスチャを引くことだけ。
+        // Day 31 で「1回では終わらない描画が全部ここから始まる」と書いた、その2例目になる。
+        RenderShadowPass();
+
         // **今日からここが画面ではない**(Day 31)。
         // Begin と End の間に描いたものは、いったん RGBA16F のテクスチャに溜まり、
         // End の中で 明部抽出 → ぼかし → 露出・トーンマップ・ガンマ を通って画面に出る。
@@ -1767,6 +1812,71 @@ internal static class Program
         // 「画面に出るものが全部1本のパイプラインを通る」形をまず見るため。
         // 分けるのは Day 38(カラーグレーディング)で扱う。
         _post.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        // **焼いたシャドウマップを最後に隅へ出す**(Ctrl+7)。
+        // 後処理の外に置いてあるので、露出やトーンマップの影響を受けない——
+        // デバッグ表示は「見たままの値」であってほしいので、通してはいけない。
+        _shadow.DrawDebug(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+    }
+
+    /// <summary>
+    /// **光の目から見て、影を落とすものだけを描く**(Day 33)。今日の1パス目。
+    ///
+    /// 本描画(<see cref="Render3D"/>)との違いは3つ。
+    ///   1. 行列が <c>uViewProjection</c> ではなく <c>uLightSpaceMatrix</c>
+    ///   2. マテリアルを一切使わない(色を書かないので、テクスチャも色味も要らない)
+    ///   3. **描くものを選ぶ**
+    ///
+    /// 3つ目が設計の判断になる。ここでは
+    ///   - 落とす … 床・立方体・モデル
+    ///   - 落とさない … 発光する箱、明るさの階段、スプライト、文字
+    /// にした。**光っているものが影を落とすのはおかしい**というのが理由で、
+    /// 見た目の都合ではなく「そのものが光源側か被写体側か」で分けている。
+    ///
+    /// 実際のエンジンはこれをマテリアルかコンポーネントのフラグ(<c>CastShadow</c>)で持つ。
+    /// ここで手書きの分岐にしてあるのは、**まず「選ぶ必要がある」ことを見るため**で、
+    /// フラグにするのはシーン側に影を載せる Day 39 の仕事になる。
+    /// </summary>
+    private static void RenderShadowPass()
+    {
+        if (!_shadow.Enabled)
+        {
+            _shadowMilliseconds = 0.0;
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        // **照らす中心はカメラの注視点**にする。世界の原点に固定すると、
+        // カメラを引いたときに画面の端が光の箱からはみ出して、そこだけ影が消える。
+        // 注視点に追随させておけば「今見ているもの」が必ず箱の中に入る。
+        _shadow.Begin(_lightDirection, _orbit.Target);
+
+        float angle = Interpolate(_previousAngle, _angle);
+
+        if (_model is not null)
+        {
+            foreach (Model.Part part in _model.Parts)
+            {
+                _shadow.Draw(part.Mesh, part.Transform * _modelTransform);
+            }
+
+            _shadow.Draw(_quad, FloorMatrix());
+        }
+        else if (_draw3D)
+        {
+            _shadow.Draw(_quad, FloorMatrix());
+
+            foreach ((Vector3 position, float scale, float spin) in Cubes)
+            {
+                _shadow.Draw(_cube, CubeMatrix(position, scale, spin, angle));
+            }
+        }
+
+        _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        _shadowMilliseconds = (_shadowMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+
     }
 
     /// <summary>
@@ -1951,7 +2061,7 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day32   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day33   {_fps:F1} fps   DC:{_drawCalls}");
 
         if (_model is not null)
         {
@@ -1968,6 +2078,13 @@ internal static class Program
             + $"{ToneMapLabel()}  露出:{_post.Exposure:F2}  "
             + $"ブルーム:{(_post.BloomEnabled ? $"閾{_post.BloomThreshold:F1}" : "OFF")}  "
             + $"{DebugViewLabel()}  パス:{_post.PassCount}  {_post.ByteSize / (1024.0 * 1024.0):F1}MB");
+        // **今日の設定を1行で**。影は「なぜこう見えるか」が設定に強く依存するので、
+        // 解像度・PCF・範囲・バイアスを常に出しておく。
+        // 1テクセルが覆うワールドの長さ(m/tx)が、**影のギザギザの大きさそのもの**。
+        lines.AppendLine(
+            $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
+            + $"{_shadow.ByteSize / (1024.0 * 1024.0):F1}MB  影パス:{_shadow.DrawCalls}回 {_shadowMilliseconds:F2}ms");
+
         lines.AppendLine(
             $"{BackendLabel()}  更新:{_updateMilliseconds:F2}ms  "
             + $"GO:{_scene.GameObjectCount}  E:{_world.AliveCount}  スプライト:{_activeSprites}");
@@ -2111,8 +2228,15 @@ internal static class Program
         5 => "AO",
         6 => "発光",
         7 => "法線マップ",
+        8 => "影の係数",
         _ => "通常",
     };
+
+    private static string ShadowLabel() => _shadow.Enabled
+        ? $"影:{_shadow.Resolution}  PCF:{(_shadow.PcfRadius == 0 ? "1タップ" : $"{(2 * _shadow.PcfRadius) + 1}x{(2 * _shadow.PcfRadius) + 1}")}"
+            + $"  範囲:{_shadow.Radius:F0}m  バイアス:{_shadow.DepthBias:F4}{(_shadow.SlopeBias ? "+傾き" : string.Empty)}"
+            + $"{(_shadow.CullFrontFaces ? "  表カリング" : string.Empty)}"
+        : "影:OFF";
 
     private static string ModelLabel() =>
         _model is null ? "モデル無し" : Path.GetFileNameWithoutExtension(_model.SourcePath);
@@ -2206,6 +2330,13 @@ internal static class Program
         shader.SetVector3("uAmbientColor", _ambientColor);
         shader.SetInt("uDebugChannel", _debugChannel);
 
+        // **影に関わる uniform もフレームに1回**(Day 33)。
+        // 光源行列・シャドウマップ・PCF の設定はオブジェクトによらないので、
+        // ここで一度送れば、以降のドローコールは何も知らなくてよい。
+        // テクスチャユニットの割り当ては GL のコンテキストの状態なので、
+        // マテリアルが 0〜4 を上書きしても 5 番は残る。
+        _shadow.Apply(shader);
+
         // **モデルがあるときは、それだけを描く**。
         // Day 31 までのデモ(立方体・床・明るさの階段)と一緒に出すと、
         // どちらの陰影を見ているのか分からなくなる。
@@ -2215,24 +2346,35 @@ internal static class Program
             return;
         }
 
-        Matrix4x4 floorModel =
-            Matrix4x4.CreateScale(20.0f)
-            * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
-            * Matrix4x4.CreateTranslation(0.0f, -0.5f, 0.0f);
-        Draw(_quad, _floorMaterial, floorModel);
+        Draw(_quad, _floorMaterial, FloorMatrix());
 
         foreach ((Vector3 position, float scale, float spin) in Cubes)
         {
-            Matrix4x4 model =
-                Matrix4x4.CreateScale(scale)
-                * Matrix4x4.CreateRotationY(angle * spin)
-                * Matrix4x4.CreateTranslation(position);
-            Draw(_cube, _cubeMaterial, model);
+            Draw(_cube, _cubeMaterial, CubeMatrix(position, scale, spin, angle));
         }
 
         RenderEmitters(angle);
         RenderLadder();
     }
+
+    /// <summary>
+    /// 床の行列。**深度パスと本描画で同じものを使う**ために切り出した(Day 33)。
+    ///
+    /// 影は「同じ物体を2回、違う行列で描く」技法なので、
+    /// **形の置き場所が2か所に散ると必ずずれる**。
+    /// ずれ方が「影だけ少し浮く」のような微妙な形で出るので、原因を掴みにくい。
+    /// 1つの式を2か所から呼ぶ、が唯一の予防になる。
+    /// </summary>
+    private static Matrix4x4 FloorMatrix() =>
+        Matrix4x4.CreateScale(20.0f)
+        * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
+        * Matrix4x4.CreateTranslation(0.0f, -0.5f, 0.0f);
+
+    /// <summary>立方体1個の行列。<see cref="FloorMatrix"/> と同じ理由で切り出してある。</summary>
+    private static Matrix4x4 CubeMatrix(Vector3 position, float scale, float spin, float angle) =>
+        Matrix4x4.CreateScale(scale)
+        * Matrix4x4.CreateRotationY(angle * spin)
+        * Matrix4x4.CreateTranslation(position);
 
     /// <summary>
     /// <summary>
@@ -2251,7 +2393,17 @@ internal static class Program
     private static void RenderModel()
     {
         Model model = _model!;
-        _drawCalls = model.Parts.Count;
+        _drawCalls = model.Parts.Count + 1;
+
+        // **床を1枚足した**(Day 33)。影には受け手が要る。
+        //
+        // Day 32 はモデルだけを宙に浮かべていた。陰影しか無いうちはそれで足りたが、
+        // 影は**他の物体の上に落ちて初めて見える**ので、
+        // 落ちる先が無いと「影が出ていない」のか「落ちる先が無い」のか区別が付かない。
+        //
+        // モデルの側は FrameModel が床(Y = -0.5)の上に立つよう合わせてあるので、
+        // デモと同じ床をそのまま敷けばよい。
+        Draw(_quad, _floorMaterial, FloorMatrix());
 
         foreach (Model.Part part in model.Parts)
         {
@@ -5236,6 +5388,216 @@ internal static class Program
     }
 
     /// <summary>
+    /// **シャドウマッピングの自己チェック**(Ctrl+0)。
+    ///
+    /// 影は「出ない」「全部影になる」「ずれる」の3つが同じくらい起きるうえ、
+    /// **どれも絵からは原因が読めない**——光源行列、深度の焼き込み、座標の写し直し、
+    /// 比較の向き、バイアスのどこが悪くても同じ見た目になる。
+    /// だから絵ではなく<b>数字</b>で1段ずつ確かめる。
+    ///
+    /// 見るのは2つ。
+    ///   1. <b>光源行列が期待どおりの座標系を作るか</b>(CPU 側の行列計算)
+    ///   2. <b>焼いた深度が期待どおりの値か</b>(<c>glReadPixels</c> で読み返す)
+    /// </summary>
+    private static void RunShadowCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[シャドウマッピングの自己チェック]");
+
+        // 元の設定を覚えておく。**チェックがフレームの状態を汚さない**ようにする。
+        float originalRadius = _shadow.Radius;
+        bool originalCull = _shadow.CullFrontFaces;
+        int originalResolution = _shadow.Resolution;
+
+        // --- 1. 深度専用フレームバッファ ---
+        checks.Check("深度テクスチャが挿さっている", _shadow.Target.Depth is not null);
+        checks.Check("カラーアタッチメントは無い", _shadow.Target.Color is null);
+        checks.Check(
+            "正方形になっている",
+            _shadow.Target.Width == _shadow.Target.Height,
+            $"{_shadow.Target.Width}x{_shadow.Target.Height}");
+
+        // --- 2. 光源行列 ---
+        //
+        // **真上からの光**にする。up が視線と平行になる場合の逃げ道(Begin のコメント)も
+        // ここで一緒に踏んでおく。
+        const float radius = 6.0f;
+        _shadow.Radius = radius;
+        _shadow.CullFrontFaces = false;
+        _shadow.Begin(-Vector3.UnitY, Vector3.Zero);
+
+        Matrix4x4 light = _shadow.LightSpaceMatrix;
+
+        Vector4 atCenter = ToClip(Vector3.Zero, light);
+        checks.Check(
+            "中心が NDC の原点に来る",
+            Near(atCenter.X, 0.0f) && Near(atCenter.Y, 0.0f),
+            $"({atCenter.X:F3}, {atCenter.Y:F3})");
+
+        // **正射影なので w は 1**。透視除算が何もしない、が平行光源の目印になる。
+        checks.Check("w が 1(正射影なので透視除算が要らない)", Near(atCenter.W, 1.0f), $"w = {atCenter.W:F3}");
+
+        // 深度は 0〜1 に写して比べる(シェーダの proj = proj * 0.5 + 0.5 と同じ式)。
+        float depthCenter = (atCenter.Z * 0.5f) + 0.5f;
+        checks.Check("中心の深度が範囲のちょうど中央(0.5)", Near(depthCenter, 0.5f), $"実際 {depthCenter:F3}");
+
+        float depthNear = (ToClip(new Vector3(0.0f, 6.0f, 0.0f), light).Z * 0.5f) + 0.5f;
+        checks.Check(
+            "**光に近いほど深度が小さい**",
+            depthNear < depthCenter,
+            $"6m 上 {depthNear:F3} < 中心 {depthCenter:F3}");
+
+        Vector4 atEdge = ToClip(new Vector3(radius, 0.0f, 0.0f), light);
+        checks.Check("半径ちょうどの点が NDC の端(±1)", Near(MathF.Abs(atEdge.X), 1.0f), $"実際 {atEdge.X:F3}");
+
+        Vector4 outside = ToClip(new Vector3(radius * 1.5f, 0.0f, 0.0f), light);
+        checks.Check(
+            "半径の外は NDC からはみ出す(= 影の判定に載らない)",
+            MathF.Abs(outside.X) > 1.0f,
+            $"実際 {outside.X:F3}");
+
+        // --- 3. 焼いた深度を読み返す ---
+        //
+        // 1辺 2 の立方体を原点に置く。上面が y = +1、下面が y = -1。
+        // 光は真上から来るので、**表だけ焼けば上面、裏だけ焼けば下面**が記録されるはず。
+        _shadow.Draw(_cube, Matrix4x4.CreateScale(2.0f));
+        _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        float expectedTop = (ToClip(new Vector3(0.0f, 1.0f, 0.0f), light).Z * 0.5f) + 0.5f;
+        float center = ReadShadowDepth(0.5f, 0.5f);
+        float corner = ReadShadowDepth(0.02f, 0.02f);
+
+        checks.Check(
+            "中央のテクセルに立方体の**上面**が焼けている",
+            Near(center, expectedTop, 0.005f),
+            $"実際 {center:F4} / 期待 {expectedTop:F4}");
+        checks.Check(
+            "何も無い隅は 1.0(クリア値のまま)",
+            Near(corner, 1.0f, 0.001f),
+            $"実際 {corner:F4}");
+
+        // 表を捨てて裏だけ焼くと、記録される深度が**立方体の厚みぶん奥**へずれる。
+        // これがアクネを消す仕掛けそのもの。
+        _shadow.CullFrontFaces = true;
+        _shadow.Begin(-Vector3.UnitY, Vector3.Zero);
+        _shadow.Draw(_cube, Matrix4x4.CreateScale(2.0f));
+        _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        float expectedBottom = (ToClip(new Vector3(0.0f, -1.0f, 0.0f), light).Z * 0.5f) + 0.5f;
+        float back = ReadShadowDepth(0.5f, 0.5f);
+
+        checks.Check(
+            "**表カリングにすると裏面(下面)が焼ける**",
+            Near(back, expectedBottom, 0.005f),
+            $"実際 {back:F4} / 期待 {expectedBottom:F4}(表のとき {center:F4})");
+
+        // --- 4. 解像度と密度 ---
+        float perTexelBefore = _shadow.WorldPerTexel;
+        _shadow.SetResolution(originalResolution * 2);
+        checks.Check(
+            "解像度を2倍にすると1テクセルの担当が半分になる",
+            Near(_shadow.WorldPerTexel, perTexelBefore * 0.5f, 1e-5f),
+            $"{perTexelBefore * 100.0f:F2}cm → {_shadow.WorldPerTexel * 100.0f:F2}cm");
+        checks.Check(
+            "VRAM は4倍になる",
+            _shadow.ByteSize == (long)originalResolution * originalResolution * 3L * 4L,
+            $"{_shadow.ByteSize / (1024.0 * 1024.0):F1}MB");
+
+        _shadow.SetResolution(originalResolution);
+
+        float perTexelNarrow = _shadow.WorldPerTexel;
+        _shadow.Radius = radius * 4.0f;
+        checks.Check(
+            "光の箱を4倍広げると1テクセルの担当も4倍になる(= 影が粗くなる)",
+            Near(_shadow.WorldPerTexel, perTexelNarrow * 4.0f, 1e-4f),
+            $"{perTexelNarrow * 100.0f:F1}cm → {_shadow.WorldPerTexel * 100.0f:F1}cm");
+
+        // --- 5. 深度パスの実測 ---
+        //
+        // **glFinish を入れる**のが要点。GL の呼び出しは積むだけで返ってくるので、
+        // 入れないと「命令を並べる時間」を測ってしまう(HUD の 影パス がまさにそれ)。
+        Console.WriteLine("  解像度ごとの深度パス(立方体6個 + 床、glFinish 込みの 120 回平均):");
+        foreach (int resolution in ShadowMap.Resolutions)
+        {
+            _shadow.SetResolution(resolution);
+            _shadow.Radius = originalRadius;
+
+            // 1回捨てる(確保直後の初回は割り当てのぶんだけ遅い)。
+            BenchmarkDepthPass(1);
+            double milliseconds = BenchmarkDepthPass(120);
+
+            Console.WriteLine(
+                $"    {resolution,4}x{resolution,-4} {milliseconds,6:F3}ms"
+                + $"  {_shadow.ByteSize / (1024.0 * 1024.0),5:F1}MB"
+                + $"  1テクセル {_shadow.WorldPerTexel * 100.0f,5:F1}cm");
+        }
+
+        _shadow.SetResolution(originalResolution);
+        _shadow.Radius = originalRadius;
+        _shadow.CullFrontFaces = originalCull;
+
+        Framebuffer.BindDefault(_gl, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        checks.Report();
+        Console.WriteLine();
+
+        // 世界座標を光のクリップ座標へ。**シェーダがやっているのと同じ計算**を CPU で。
+        static Vector4 ToClip(Vector3 world, Matrix4x4 lightSpace) =>
+            Vector4.Transform(new Vector4(world, 1.0f), lightSpace);
+
+        static bool Near(float value, float expected, float tolerance = 0.01f) =>
+            MathF.Abs(value - expected) <= tolerance;
+    }
+
+    /// <summary>
+    /// シャドウマップの1テクセルを読み返す。<paramref name="u"/> / <paramref name="v"/> は 0〜1。
+    ///
+    /// **形式に DepthComponent を指定する**のが今日の新しいところ。
+    /// <see cref="RunHdrCheck"/> はカラーを読んでいたが、
+    /// ここには色が無いので、同じ <c>glReadPixels</c> でも取りに行く先が違う。
+    /// </summary>
+    private static unsafe float ReadShadowDepth(float u, float v)
+    {
+        Framebuffer target = _shadow.Target;
+        target.Bind();
+
+        int x = Math.Clamp((int)(u * target.Width), 0, target.Width - 1);
+        int y = Math.Clamp((int)(v * target.Height), 0, target.Height - 1);
+
+        float depth = 1.0f;
+        _gl.ReadPixels(x, y, 1, 1, PixelFormat.DepthComponent, PixelType.Float, &depth);
+
+        return depth;
+    }
+
+    /// <summary>深度パスを <paramref name="iterations"/> 回まわして1回あたりのミリ秒を返す。</summary>
+    private static double BenchmarkDepthPass(int iterations)
+    {
+        _gl.Finish();
+        var stopwatch = Stopwatch.StartNew();
+
+        for (int i = 0; i < iterations; i++)
+        {
+            _shadow.Begin(_lightDirection, Vector3.Zero);
+            _shadow.Draw(_quad, FloorMatrix());
+
+            foreach ((Vector3 position, float scale, float spin) in Cubes)
+            {
+                _shadow.Draw(_cube, CubeMatrix(position, scale, spin, 0.0f));
+            }
+
+            _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+        }
+
+        // **GPU が終わるまで待つ**。これを入れないと積んだだけの時間が返る。
+        _gl.Finish();
+
+        return stopwatch.Elapsed.TotalMilliseconds / iterations;
+    }
+
+    /// <summary>
     /// **HDR バッファが本当に 1.0 を超えて持てるかを確かめる自己チェック**(Shift+8)。
     ///
     /// 今日の主張は「8bit のバッファでは明るさが 1.0 で切られてしまう」の一点なので、
@@ -5598,9 +5960,99 @@ internal static class Program
     private static void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
     {
         bool shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
+        bool ctrl = keyboard.IsKeyPressed(Key.ControlLeft) || keyboard.IsKeyPressed(Key.ControlRight);
 
         switch (key)
         {
+            // --- 今日のスイッチ(シャドウマッピング)---
+            //
+            // **Ctrl + 数字**。Shift + 数字は Day 31・32 で埋まったので、次の段へ移った。
+            // 修飾キーで日をまとめておくと、あとから「あの機能は何日目だったか」を
+            // 手が覚えている、という副産物がある。
+            //
+            // ガード付きの case は**上から順に照合される**ので、
+            // 修飾キー付きを全部先に置く(Shift 版と同じ理由。下のコメント参照)。
+            case Key.Number1 when ctrl:
+                _shadow.Enabled = !_shadow.Enabled;
+                Console.WriteLine($"影: {OnOff(_shadow.Enabled)}");
+                break;
+
+            case Key.Number2 when ctrl:
+                {
+                    int index = Array.IndexOf(ShadowMap.Resolutions, _shadow.Resolution);
+                    int next = ShadowMap.Resolutions[(index + 1) % ShadowMap.Resolutions.Length];
+                    _shadow.SetResolution(next);
+                    Console.WriteLine(
+                        $"シャドウマップ: {next}x{next}  {_shadow.ByteSize / (1024.0 * 1024.0):F1}MB"
+                        + $"  1テクセル {_shadow.WorldPerTexel * 100.0f:F1}cm");
+                }
+
+                break;
+
+            case Key.Number3 when ctrl:
+                _shadow.PcfRadius = (_shadow.PcfRadius + 1) % 4;
+                Console.WriteLine(
+                    $"PCF: 半径{_shadow.PcfRadius}"
+                    + $"({(2 * _shadow.PcfRadius) + 1}x{(2 * _shadow.PcfRadius) + 1} = {_shadow.TapCount}タップ)");
+                break;
+
+            case Key.Number4 when ctrl:
+                // **0 を必ず通す**。アクネが出る状態を1周ごとに見られるようにしてある。
+                _shadow.DepthBias = _shadow.DepthBias switch
+                {
+                    <= 0.0f => 0.0005f,
+                    < 0.001f => 0.0015f,
+                    < 0.003f => 0.006f,
+                    _ => 0.0f,
+                };
+                Console.WriteLine(
+                    $"深度バイアス: {_shadow.DepthBias:F4}"
+                    + (_shadow.DepthBias <= 0.0f ? "(アクネが出る)" : string.Empty));
+                break;
+
+            case Key.Number5 when ctrl:
+                _shadow.SlopeBias = !_shadow.SlopeBias;
+                Console.WriteLine($"傾きに比例したバイアス: {OnOff(_shadow.SlopeBias)}");
+                break;
+
+            case Key.Number6 when ctrl:
+                _shadow.CullFrontFaces = !_shadow.CullFrontFaces;
+                Console.WriteLine(
+                    $"深度パスのカリング: {(_shadow.CullFrontFaces ? "表を捨てる(裏だけ焼く)" : "裏を捨てる(通常)")}"
+                    + (_shadow.CullFrontFaces ? "  ※床のような1枚板は影を落とさなくなる" : string.Empty));
+                break;
+
+            case Key.Number7 when ctrl:
+                _shadow.ShowMap = !_shadow.ShowMap;
+                Console.WriteLine($"シャドウマップの表示: {OnOff(_shadow.ShowMap)}");
+                break;
+
+            case Key.Number8 when ctrl:
+                // 光の箱の広さ。**広げるほど影が粗くなる**のを 1 キーで見るためのもの。
+                _shadow.Radius = _shadow.Radius switch
+                {
+                    < 4.0f => 6.0f,
+                    < 9.0f => 12.0f,
+                    < 18.0f => 24.0f,
+                    _ => 3.0f,
+                };
+                Console.WriteLine(
+                    $"光の届く範囲: 半径 {_shadow.Radius:F0}m"
+                    + $"  1テクセル {_shadow.WorldPerTexel * 100.0f:F1}cm");
+                break;
+
+            case Key.Number9 when ctrl:
+                // 光を Y 軸まわりに 30 度ずつ回す。**影が動くと形が読める**。
+                _lightDirection = Vector3.Normalize(
+                    Vector3.Transform(_lightDirection, Matrix4x4.CreateRotationY(MathF.PI / 6.0f)));
+                Console.WriteLine(
+                    $"光の向き: ({_lightDirection.X:F2}, {_lightDirection.Y:F2}, {_lightDirection.Z:F2})");
+                break;
+
+            case Key.Number0 when ctrl:
+                RunShadowCheck();
+                break;
+
             // --- 今日のスイッチ(HDR パイプライン)---
             //
             // **Shift + 数字**にまとめた。文字キーはもう空きが無く、
@@ -5673,7 +6125,8 @@ internal static class Program
 
             // --- 今日のスイッチ(glTF)---
             case Key.Number9 when shift:
-                _debugChannel = (_debugChannel + 1) % 8;
+                // Day 33 で「影の係数」が末尾に増えて 9 通りになった。
+                _debugChannel = (_debugChannel + 1) % 9;
                 Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
                 break;
 
@@ -6143,6 +6596,9 @@ internal static class Program
         // フレームバッファとレンダーバッファも GC の管轄外(Day 31)。
         // シェーダは RenderResources が持っているので、ここで畳むのはバッファだけ。
         _post.Dispose();
+
+        // シャドウマップも同じ(Day 33)。深度テクスチャと空 VAO を返す。
+        _shadow.Dispose();
 
         _cube.Dispose();
         _quad.Dispose();

@@ -31,15 +31,31 @@ namespace HonyaEngine;
 /// (フィルタ、ミップマップ、サンプラ)を持たせても無駄だから。
 /// レンダーバッファは「描き込み専用のメモリ」で、GPU が圧縮などの最適化をかけやすい。
 /// 深度を読みたくなったら(影、SSAO)そこでテクスチャに変える——Day 33 と Day 37 でそうなる。
+///
+/// <para>
+/// <b>Day 33 でその「読みたくなったら」が来た</b>。組み合わせが1つ増える。
+///   3. <b>深度テクスチャだけ</b> … カラーを挿さない。<see cref="CreateDepthOnly"/>
+/// シャドウマップは「光から見た深度」しか使わないので、色を1枚も持たない。
+/// 持たせないための作法が1つあり、それが <see cref="CreateDepthOnlyAttachments"/> の
+/// <c>glDrawBuffer(GL_NONE)</c>。
+/// </para>
 /// </summary>
 internal sealed class Framebuffer : IDisposable
 {
     private readonly GL _gl;
     private readonly bool _hasDepth;
 
+    /// <summary>
+    /// **深度テクスチャだけを持つ形か**(Day 33)。
+    ///
+    /// カラーアタッチメントが1枚も無いフレームバッファは合法だが、
+    /// <see cref="Create"/> でひと手間要る(<c>glDrawBuffer(GL_NONE)</c>)。
+    /// </summary>
+    private readonly bool _depthOnly;
+
     private uint _handle;
 
-    /// <summary>深度用のレンダーバッファ。0 なら深度なし。</summary>
+    /// <summary>深度用のレンダーバッファ。0 なら深度なし(あるいは深度テクスチャ)。</summary>
     private uint _depthBuffer;
 
     private bool _disposed;
@@ -48,13 +64,43 @@ internal sealed class Framebuffer : IDisposable
     {
         _gl = gl;
         _hasDepth = depth;
+        _depthOnly = false;
         Format = format;
 
         Create(Math.Max(1, width), Math.Max(1, height));
     }
 
-    /// <summary>描き込み先のテクスチャ。**これを次のパスで読む**。</summary>
+    private Framebuffer(GL gl, int width, int height)
+    {
+        _gl = gl;
+        _hasDepth = true;
+        _depthOnly = true;
+        Format = RenderTargetFormat.Rgba8;
+
+        Create(Math.Max(1, width), Math.Max(1, height));
+    }
+
+    /// <summary>
+    /// **深度テクスチャだけのフレームバッファ**を作る(Day 33)。
+    ///
+    /// シャドウマップは「光から見た深度」しか要らないので、色は1バイトも要らない。
+    /// カラーを付けないと 1024x1024 で 4MB(24bit 深度のみ)が 3MB になる、
+    /// という節約以上に、**画素シェーダが色を書く仕事ごと消える**のが効く。
+    /// 深度パスが速いのはこのため(実測は計画書の「完成条件」を参照)。
+    /// </summary>
+    public static Framebuffer CreateDepthOnly(GL gl, int width, int height) =>
+        new(gl, width, height);
+
+    /// <summary>描き込み先のテクスチャ。**これを次のパスで読む**。深度専用のときは null。</summary>
     public Texture Color { get; private set; } = null!;
+
+    /// <summary>
+    /// 深度テクスチャ。**深度専用のときだけ入る**(Day 33)。
+    ///
+    /// 通常のカラー用フレームバッファでは深度はレンダーバッファなので、ここは null のまま。
+    /// 「読むならテクスチャ、読まないならレンダーバッファ」の区別がそのまま型に出ている。
+    /// </summary>
+    public Texture? Depth { get; private set; }
 
     public int Width { get; private set; }
 
@@ -63,9 +109,10 @@ internal sealed class Framebuffer : IDisposable
     public RenderTargetFormat Format { get; private set; }
 
     /// <summary>テクスチャが占める VRAM の推定バイト数。HUD に出して代償を見えるようにする。</summary>
-    public long ByteSize =>
-        ((long)Width * Height * (Format == RenderTargetFormat.Rgba16F ? 8 : 4))
-        + (_hasDepth ? (long)Width * Height * 3 : 0);
+    public long ByteSize => _depthOnly
+        ? (long)Width * Height * 3
+        : ((long)Width * Height * (Format == RenderTargetFormat.Rgba16F ? 8 : 4))
+            + (_hasDepth ? (long)Width * Height * 3 : 0);
 
     /// <summary>
     /// ここへ描くように切り替える。
@@ -144,6 +191,40 @@ internal sealed class Framebuffer : IDisposable
         _handle = _gl.GenFramebuffer();
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _handle);
 
+        if (_depthOnly)
+        {
+            CreateDepthOnlyAttachments(width, height);
+        }
+        else
+        {
+            CreateColorAttachments(width, height);
+        }
+
+        // **完全性(completeness)の確認は必須**。
+        //
+        // フレームバッファは組み合わせが自由なぶん、GPU が描けない組み合わせも作れてしまう。
+        // 不完全なフレームバッファに描いても**エラーは出ず、ただ何も起きない**——
+        // 画面が真っ黒になるだけで、原因を教えてもらえない。
+        // ここで一度確認しておけば、少なくとも「作った時点で壊れていた」かは分かる。
+        //
+        // よくある不完全の原因:
+        //   - カラーもデプスも挿していない(アタッチメントが1つも無い)
+        //   - カラーとデプスで大きさが違う
+        //   - GPU がその内部形式にレンダリングできない(古い環境の Rgba16f など)
+        //   - **深度だけ挿したのに glDrawBuffer(GL_NONE) を忘れた**(Day 33。下を参照)
+        GLEnum status = _gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+        if (status != GLEnum.FramebufferComplete)
+        {
+            throw new InvalidOperationException(
+                $"フレームバッファが不完全です: {status} ({width}x{height}, {(_depthOnly ? "深度のみ" : Format.ToString())})");
+        }
+
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+    }
+
+    /// <summary>カラーテクスチャ + 深度レンダーバッファ。Day 31 からの形。</summary>
+    private void CreateColorAttachments(int width, int height)
+    {
         Color = Texture.CreateTarget(_gl, width, height, Format);
 
         // **テクスチャを 0 番のカラーアタッチメントに挿す**。
@@ -173,26 +254,41 @@ internal sealed class Framebuffer : IDisposable
 
             _gl.BindRenderbuffer(RenderbufferTarget.Renderbuffer, 0);
         }
+    }
 
-        // **完全性(completeness)の確認は必須**。
-        //
-        // フレームバッファは組み合わせが自由なぶん、GPU が描けない組み合わせも作れてしまう。
-        // 不完全なフレームバッファに描いても**エラーは出ず、ただ何も起きない**——
-        // 画面が真っ黒になるだけで、原因を教えてもらえない。
-        // ここで一度確認しておけば、少なくとも「作った時点で壊れていた」かは分かる。
-        //
-        // よくある不完全の原因:
-        //   - カラーもデプスも挿していない(アタッチメントが1つも無い)
-        //   - カラーとデプスで大きさが違う
-        //   - GPU がその内部形式にレンダリングできない(古い環境の Rgba16f など)
-        GLEnum status = _gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
-        if (status != GLEnum.FramebufferComplete)
-        {
-            throw new InvalidOperationException(
-                $"フレームバッファが不完全です: {status} ({width}x{height}, {Format})");
-        }
+    /// <summary>
+    /// **深度テクスチャだけ**を挿す(Day 33)。
+    ///
+    /// ここに1行だけ、他では出てこない呪文が要る。
+    ///
+    /// <code>
+    /// glDrawBuffer(GL_NONE);
+    /// glReadBuffer(GL_NONE);
+    /// </code>
+    ///
+    /// OpenGL のフレームバッファは既定で「0 番のカラーアタッチメントへ描く」つもりでいる。
+    /// カラーを1枚も挿していないのにそのままにしておくと、
+    /// **「描く先が無い」で不完全(GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER)**になる。
+    /// 「色を出力しない」と明示して初めて完全になる、という理屈。
+    ///
+    /// これを忘れたときの症状が分かりやすくて、
+    /// <see cref="Create"/> の完全性チェックがそのまま例外で教えてくれる。
+    /// チェックを入れていなければ「影が出ない」だけになり、
+    /// 光源行列を疑って何時間も溶かすことになる——Day 31 でチェックを書いた配当がここで出る。
+    /// </summary>
+    private void CreateDepthOnlyAttachments(int width, int height)
+    {
+        Depth = Texture.CreateDepthTarget(_gl, width, height);
 
-        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        _gl.FramebufferTexture2D(
+            FramebufferTarget.Framebuffer,
+            FramebufferAttachment.DepthAttachment,
+            TextureTarget.Texture2D,
+            Depth.Handle,
+            0);
+
+        _gl.DrawBuffer(DrawBufferMode.None);
+        _gl.ReadBuffer(ReadBufferMode.None);
     }
 
     private void Destroy()
@@ -211,6 +307,9 @@ internal sealed class Framebuffer : IDisposable
 
         Color?.Dispose();
         Color = null!;
+
+        Depth?.Dispose();
+        Depth = null;
     }
 
     public void Dispose()
