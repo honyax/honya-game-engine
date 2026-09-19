@@ -1,0 +1,241 @@
+#version 460
+
+// ---------------------------------------------------------------------------------------
+// コンピュートシェーダ版の探し方2つ(Day 62a と 62b)。今日はここには手を入れない——
+// **RT パイプライン版(raytrace.rgen ほか)と3つ並べて比べる**ための片側として残す。
+//
+//   USE_RAY_QUERY 無し … 総当たり。球を先頭から1個ずつ試す(Day 62a)
+//   USE_RAY_QUERY あり … TLAS を rayQueryEXT でたどる(Day 62b)
+//
+// Day 62c の差分は2つだけ。
+//   1. 共通部分を common.glsl へ追い出した(120 行ほど減った)
+//   2. BLAS のジオメトリが2つに割れたので、球の番号を sphereIndex() で引き直す
+// ---------------------------------------------------------------------------------------
+
+#ifdef USE_RAY_QUERY
+// **ray query を使う宣言**。これが無いと rayQueryEXT が未定義になる。
+#extension GL_EXT_ray_query : require
+#endif
+
+// ワークグループの大きさ。**C# 側の ComputeRenderer.WorkGroupSize と必ず一致させる**。
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// 出力先のストレージ画像。format 修飾子(rgba8)は
+// **C# 側の VulkanImage.PixelFormat(R8G8B8A8Unorm)と一致していなければならない**。
+layout(set = 0, binding = 0, rgba8) uniform writeonly image2D outImage;
+
+#include "common.glsl"
+
+#ifdef USE_RAY_QUERY
+// **TLAS**。ディスクリプタの型は accelerationStructureEXT で、
+// 中身をシェーダから覗く手立ては無い(節点も、箱も、木の形も見えない)。
+layout(set = 0, binding = 2) uniform accelerationStructureEXT topLevel;
+#endif
+
+// 光線が当たったところの情報。
+struct Hit {
+    float t;
+    vec3 position;
+    vec3 normal;
+    vec3 albedo;
+    int kind;       // 0 = 拡散、1 = 金属
+};
+
+// 当たった球の情報を Hit に詰める。総当たり版と ray query 版で共通。
+void fillSphereHit(int index, vec3 origin, vec3 direction, float t, out Hit hit) {
+    vec4 cr = spheres[index].centerRadius;
+    hit.t = t;
+    hit.position = origin + t * direction;
+    hit.normal = (hit.position - cr.xyz) / cr.w;
+    hit.albedo = spheres[index].albedoKind.xyz;
+    hit.kind = int(spheres[index].albedoKind.w);
+}
+
+// 床との交差を Hit に足す。両方の探し方で共通。
+void addFloorHit(vec3 origin, vec3 direction, float tMin, inout bool found, inout Hit hit) {
+    float t = floorDistance(origin, direction);
+    if (t > tMin && t < hit.t) {
+        found = true;
+        hit.t = t;
+        hit.position = origin + t * direction;
+        hit.normal = vec3(0.0, 1.0, 0.0);
+        hit.kind = 0;
+        hit.albedo = floorAlbedo(hit.position);
+    }
+}
+
+#ifdef USE_RAY_QUERY
+// -----------------------------------------------------------------------------
+// 球を **RT コアに探させる**(Day 62b の要点4)。
+//
+// 流れは4段。
+//   1. rayQueryInitializeEXT で「この TLAS を、この光線で、この区間だけ」と申し込む
+//   2. rayQueryProceedEXT のループが回る。**箱に当たるたびに1回止まって戻ってくる**
+//   3. 止まったところで球との交差を自分で計算し、当たっていれば
+//      rayQueryGenerateIntersectionEXT で「この t で確定候補にしてくれ」と返す
+//   4. ループを抜けたら rayQueryGetIntersection...EXT(committed = true)で結果を読む
+// -----------------------------------------------------------------------------
+bool traceScene(vec3 origin, vec3 direction, float tMin, float tMax, out Hit hit) {
+    bool found = false;
+    hit.t = tMax;
+
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, topLevel, gl_RayFlagsNoneEXT, 0xFF, origin, tMin, direction, tMax);
+
+    while (rayQueryProceedEXT(query)) {
+        if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionAABBEXT) {
+            // **ジオメトリの番号も見る**(Day 62c)。BLAS を材質で2つに割ったので、
+            // 図形の番号だけでは球を引けなくなった。
+            int index = sphereIndex(
+                rayQueryGetIntersectionGeometryIndexEXT(query, false),
+                rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
+            vec4 cr = spheres[index].centerRadius;
+
+            float t;
+
+            // **区間の上限は「いまの確定値」でなければならない**(ここは間違えやすい)。
+            // rayQueryGenerateIntersectionEXT は「いまの区間の中の t」しか受け付けず、
+            // 外の t を渡したときの振る舞いは未定義。ここを tMax(1e30)にして
+            // 遠い交点まで generate すると、**近い交点が後から上書きされて**
+            // 画素の 5% が壊れた(Day62b.md の検証1)。
+            //
+            // なお確定が1つも無いときは、この関数は光線の tMax を返す(仕様)。
+            float upper = rayQueryGetIntersectionTEXT(query, true);
+            if (hitSphere(origin, direction, cr.xyz, cr.w, tMin, upper, t)) {
+                rayQueryGenerateIntersectionEXT(query, t);
+            }
+        }
+    }
+
+    if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionGeneratedEXT) {
+        found = true;
+        fillSphereHit(
+            sphereIndex(rayQueryGetIntersectionGeometryIndexEXT(query, true),
+                        rayQueryGetIntersectionPrimitiveIndexEXT(query, true)),
+            origin, direction, rayQueryGetIntersectionTEXT(query, true), hit);
+    }
+
+    addFloorHit(origin, direction, tMin, found, hit);
+    return found;
+}
+#else
+// -----------------------------------------------------------------------------
+// 場面全体との交差。**総当たり**——球を先頭から全部試す(Day 62a のまま)。
+// -----------------------------------------------------------------------------
+bool traceScene(vec3 origin, vec3 direction, float tMin, float tMax, out Hit hit) {
+    bool found = false;
+    hit.t = tMax;
+
+    for (int i = 0; i < pc.sphereCount; i++) {
+        vec4 cr = spheres[i].centerRadius;
+        float t;
+        if (hitSphere(origin, direction, cr.xyz, cr.w, tMin, hit.t, t)) {
+            found = true;
+            fillSphereHit(i, origin, direction, t, hit);
+        }
+    }
+
+    addFloorHit(origin, direction, tMin, found, hit);
+    return found;
+}
+#endif
+
+// 影の光線。**当たったかどうかだけ**が要るので、いちばん近いものを探さずに
+// 1つでも当たったら即座に打ち切る。
+bool inShadow(vec3 position, vec3 normal) {
+    // 自分自身に当たらないよう、法線の向きに少し浮かせる。
+    // 浮かせ方が足りないと「影の斑点(shadow acne)」が出る。
+    vec3 origin = position + normal * 1e-3;
+
+#ifdef USE_RAY_QUERY
+    //   gl_RayFlagsTerminateOnFirstHitEXT … 最初に確定した時点で打ち切る
+    //   gl_RayFlagsOpaqueEXT              … any-hit を呼ばない(今日はどのみち Opaque)
+    // ただし**箱(procedural)では自分が GenerateIntersection を呼ぶまで
+    // 「当たった」ことにならない**。呼んだ時点で打ち切られる。
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, topLevel,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT,
+        0xFF, origin, 1e-4, SunDirection, 1e30);
+
+    while (rayQueryProceedEXT(query)) {
+        if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionAABBEXT) {
+            int index = sphereIndex(
+                rayQueryGetIntersectionGeometryIndexEXT(query, false),
+                rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
+            vec4 cr = spheres[index].centerRadius;
+            float t;
+            if (hitSphere(origin, SunDirection, cr.xyz, cr.w, 1e-4, 1e30, t)) {
+                rayQueryGenerateIntersectionEXT(query, t);
+            }
+        }
+    }
+
+    return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+#else
+    for (int i = 0; i < pc.sphereCount; i++) {
+        vec4 cr = spheres[i].centerRadius;
+        float t;
+        if (hitSphere(origin, SunDirection, cr.xyz, cr.w, 1e-4, 1e30, t)) {
+            return true;
+        }
+    }
+
+    // 床は太陽より上に無いので、影を作らない(太陽が地平線より上にある限り)。
+    return false;
+#endif
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+
+    // ワークグループの大きさで割り切れないぶんははみ出す。**書かずに捨てる**。
+    if (pixel.x >= pc.width || pixel.y >= pc.height) {
+        return;
+    }
+
+    vec3 origin = pc.positionHalfWidth.xyz;
+    vec3 direction = cameraRay(pixel);
+
+    vec3 color = vec3(0.0);
+    vec3 throughput = vec3(1.0);   // ここまでに掛かった反射率の積
+    Hit hit;
+    bool wroteNormal = false;
+
+    // 再帰の代わりのループ。金属に当たったら反射して続け、拡散か空なら終わる。
+    //
+    // **ここが RT パイプライン版との最大の違い**(Day62c.md の要点4)。
+    // raytrace.rgen 側は metal.rchit が自分を呼び直す**本物の再帰**で書けるので、
+    // このループも throughput の積も要らない。
+    for (int bounce = 0; bounce <= MaxBounces; bounce++) {
+        if (!traceScene(origin, direction, 1e-4, 1e30, hit)) {
+            color += throughput * sky(direction);
+            break;
+        }
+
+        if (pc.mode == 1 && !wroteNormal) {
+            color = hit.normal * 0.5 + 0.5;
+            wroteNormal = true;
+            break;
+        }
+
+        if (hit.kind == 1 && bounce < MaxBounces) {
+            throughput *= hit.albedo;
+            origin = hit.position + hit.normal * 1e-3;
+            direction = reflect(direction, hit.normal);
+            continue;
+        }
+
+        color += throughput * shadeSurface(hit.albedo, hit.normal, inShadow(hit.position, hit.normal));
+        break;
+    }
+
+    if (pc.mode >= 2) {
+        color = heatColor(gTests);
+    } else if (pc.mode == 0) {
+        color = toneMap(color);
+    }
+
+    // 画像の形式は RGBA の順(R8G8B8A8Unorm)だが、WinForms の Format32bppRgb が
+    // 欲しいバイトの並びは B, G, R, X。**書くときに .bgr で入れ替える**。
+    imageStore(outImage, pixel, vec4(color.bgr, 1.0));
+}

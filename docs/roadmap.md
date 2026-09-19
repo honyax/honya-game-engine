@@ -181,7 +181,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 
 デモには載せないが学びとして価値の高い技術。ここは順不同でつまみ食い可。
 
-**ハードウェア条件の注意**: Day 62(ハードウェアRT)とDay 64(メッシュシェーダ)はGPU世代の条件あり(NVIDIA RTX 2000系以降/AMD RX 6000系以降。APIはSilk.NET経由のVulkanを使用)。それ以外のDayはどのGPUでも(Day 59〜60はCPUのみでも)動きます。
+**ハードウェア条件の注意**: Day 62b・62c(ハードウェアRT)とDay 64(メッシュシェーダ)はGPU世代の条件あり(NVIDIA RTX 2000系以降/AMD RX 6000系以降。APIはSilk.NET経由のVulkanを使用)。それ以外のDayはどのGPUでも(Day 59〜60はCPUのみでも)動きます。
 
 | Day | 状態 | 内容 | ポイント |
 |---|---|---|---|
@@ -190,7 +190,9 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | 59 |  | CPUレイトレーサ(1): 球と平面、反射・屈折 | 「Ray Tracing in One Weekend」をC#で。GPU不要でレイトレの原理を完全理解 |
 | 60 |  | CPUレイトレーサ(2): パストレーシング、モンテカルロ積分、BVH | オフラインレンダリングの本質(レンダリング方程式)と空間データ構造 |
 | 61 |  | GPUパストレーサ化(Day 60をコンピュートシェーダに移植) | 積算バッファでプログレッシブレンダリング。CPU版との速度差を体感 |
-| 62 |  | ハードウェアレイトレーシング(Vulkan Ray Tracing) | BLAS/TLAS(加速構造)とRTコアが何を肩代わりするかを理解 |
+| 62a |  | Vulkan を立ち上げる(device・メモリ・ディスクリプタ・SPIR-V) | ハードウェアRTの下ごしらえ。窓なしで GPU を1台用意する。絵は総当たりのレイトレーサ |
+| 62b |  | 加速構造(BLAS/TLAS)と ray query | **Day 62 の本題**。RTコアが何を肩代わりするかを理解。球 5000 個で総当たりの 150 倍 |
+| 62c |  | レイトレーシングパイプラインと SBT | raygen / miss / closest-hit / intersection の分割。材質の分岐がシェーダの分割になる |
 | 63 |  | ジオメトリシェーダ+テッセレーション | 特論B-15、西川本Ch5/Ch6。レガシー寄りだが教養として |
 | 64 |  | メッシュシェーダ(VK_EXT_mesh_shader) | メッシュレット分割とGPUカリング。Day 63との設計思想比較 |
 | 65 |  | GPU駆動レンダリング(インダイレクトドロー、GPUカリング) | 「CPUがドローコールを発行しない」現代アーキテクチャ。UE5 Naniteの基礎理論もここで読む |
@@ -199,7 +201,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 
 補足: シャドウボリューム(B-12前半)は現代ではほぼ使われないため理論のみでOK。ジオメトリシェーダ/テッセレーションはメッシュシェーダに置き換わりつつあるため「教養として実装」の位置づけです。
 
-教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)
+教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)
 
 ---
 
