@@ -226,6 +226,45 @@ internal static class Program
     /// <summary>深度パスにかかった時間(移動平均)。**影の代償を数字で見る**ため。</summary>
     private static double _shadowMilliseconds;
 
+    // ===== Day 34: 法線マップと視差マッピング =====
+
+    /// <summary>法線マップを使うか(Alt+1)。OFF にすると頂点法線だけになる。</summary>
+    private static bool _normalMapping = true;
+
+    /// <summary>法線マップの緑を反転するか(Alt+8)。**DirectX 形式の素材の見え方**。</summary>
+    private static bool _flipGreen;
+
+    /// <summary>視差の方式(Alt+2)。0=なし 1=単純視差 2=急峻視差 3=視差遮蔽。</summary>
+    private static int _parallaxMode = 3;
+
+    /// <summary>視差の深さ(Alt+3)。<see cref="Material.ParallaxScale"/> に入れる。</summary>
+    private static float _parallaxScale = 0.05f;
+
+    /// <summary>レイマーチの刻み数(Alt+4)。真正面で最小、寝かせるほど最大に近づく。</summary>
+    private static int _parallaxMinSteps = 8;
+    private static int _parallaxMaxSteps = 32;
+
+    /// <summary>
+    /// 材質テストの板を出すか(Alt+5)。**視差はこれが無いと確かめられない**。
+    ///
+    /// 読み込むモデルは高さマップを持っていない(glTF に無い)ので、
+    /// 視差を見るには自前の素材を貼った面が要る。
+    /// 平らな板にするのは、**平らなのに凹凸に見える**ことがこの技法の主張だから。
+    /// </summary>
+    private static bool _surfaceDemo;
+
+    /// <summary>テスト板のマテリアル。<see cref="SurfaceMaps"/> が作った3枚を貼る。</summary>
+    private static Material _surfaceMaterial = null!;
+
+    /// <summary>テスト板の UV の繰り返し数(Alt+6)。</summary>
+    private static float _surfaceTiling = 2.0f;
+
+    /// <summary>
+    /// ファイルの TANGENT を捨てて、こちらで作り直すか(Alt+7)。
+    /// **見比べるためだけの切り替え**で、実用では常に false。
+    /// </summary>
+    private static bool _forceGeneratedTangents;
+
     // --- 今日の主役: glTF ---
 
     /// <summary>
@@ -839,6 +878,48 @@ internal static class Program
             UvScale = Vector2.One,
         };
 
+        // --- 今日の主役: 材質テストの板 ---
+        //
+        // **3枚を1つの関数から作る**(SurfaceMaps)。
+        // ベースカラー・法線・高さが必ず辻褄の合った素材になるので、
+        // 「実装が違う」のか「素材が合っていない」のかで迷わずに済む。
+        //
+        // sRGB の指定に注目。**色は true、数値は false**(Day 32 の要点5)。
+        // 同じ関数から出た3枚が、読み方だけ違う。
+        var mapStopwatch = Stopwatch.StartNew();
+
+        Handle<Texture> surfaceColor = _resources.LoadTextureFromPixels(
+            "surface/brick/color", SurfaceMaps.CreateBaseColor(),
+            SurfaceMaps.Size, SurfaceMaps.Size, generateMipmaps: true, srgb: true);
+
+        Handle<Texture> surfaceNormal = _resources.LoadTextureFromPixels(
+            "surface/brick/normal", SurfaceMaps.CreateNormal(),
+            SurfaceMaps.Size, SurfaceMaps.Size, generateMipmaps: true, srgb: false);
+
+        // **高さマップはミップマップを作らない**。
+        // 縮小版から読むと、レイマーチが「均された高さ」を見ることになり、
+        // 溝が浅くなって視差の効きが距離で変わってしまう。
+        Handle<Texture> surfaceHeight = _resources.LoadTextureFromPixels(
+            "surface/brick/height", SurfaceMaps.CreateHeight(),
+            SurfaceMaps.Size, SurfaceMaps.Size, generateMipmaps: false, srgb: false);
+
+        _surfaceMaterial = new Material(_shader)
+        {
+            Name = "brick",
+            MainTexture = surfaceColor,
+            NormalTexture = surfaceNormal,
+            HeightTexture = surfaceHeight,
+            MetallicFactor = 0.0f,
+            RoughnessFactor = 0.9f,
+            UvScale = new Vector2(_surfaceTiling, _surfaceTiling),
+            ParallaxScale = _parallaxScale,
+        };
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"材質テスト: {SurfaceMaps.Size}x{SurfaceMaps.Size} を3枚生成 "
+            + $"{mapStopwatch.Elapsed.TotalMilliseconds:F0}ms(色 / 法線 / 高さ)");
+
         // --- 2D ---
         _spriteShader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "sprite.vert"),
@@ -1049,6 +1130,13 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
+        Console.WriteLine("--- Day 34: 法線マップ・視差マッピング(Alt + 数字)---");
+        Console.WriteLine("Alt+5:材質テストの板(レンガ)。**視差はここでしか確かめられない**");
+        Console.WriteLine("Alt+1:法線マップ ON/OFF  Alt+2:視差(なし/単純/急峻/POM)  Alt+3:視差の深さ");
+        Console.WriteLine("Alt+4:レイマーチの刻み  Alt+6:板の繰り返し  Alt+7:ファイルの接線 / 生成した接線");
+        Console.WriteLine("Alt+8:法線マップの緑を反転(DirectX 形式)  Alt+9:最終法線を表示  Alt+0:接空間の自己チェック");
+        Console.WriteLine("  Shift+9 の成分に 接線T / 従接線B / 最終法線N / 高さ が増えた");
+        Console.WriteLine();
         Console.WriteLine("--- Day 33: シャドウマッピング(Ctrl + 数字)---");
         Console.WriteLine("Ctrl+1:影 ON/OFF  Ctrl+2:解像度 512/1024/2048/4096  Ctrl+3:PCF 1タップ/3x3/5x5/7x7");
         Console.WriteLine("Ctrl+4:深度バイアス(0 でアクネが出る)  Ctrl+5:傾きに比例したバイアス  Ctrl+6:深度パスの表カリング");
@@ -1057,7 +1145,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("--- Day 32: glTF(Shift + 数字)---");
         Console.WriteLine("Shift+0:モデル切り替え(DamagedHelmet / WaterBottle / Lantern / BoxTextured / 無し)");
-        Console.WriteLine("Shift+9:表示する成分(通常/ベースカラー/法線/メタリック/ラフネス/AO/発光/法線マップ/影)");
+        Console.WriteLine("Shift+9:表示する成分(通常/ベースカラー/法線/金属/粗さ/AO/発光/法線マップ/影/T/B/N/高さ)");
         Console.WriteLine("Shift+-:glTF の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 31: HDR パイプライン(Shift + 数字)---");
@@ -1779,6 +1867,24 @@ internal static class Program
             _drawCalls = _spriteBatch.DrawCallCount;
             RenderText();
         }
+        else if (_surfaceDemo)
+        {
+            // **材質テストの板は、それだけを見る絵**(Day 34)。
+            //
+            // 下のモデルの枝とまったく同じ扱いにする。スプライトの群れもロードの帯も出さない——
+            // 板の凹凸は細かいので、上に 1000 枚のスプライトが重なると
+            // **視差が効いているのかどうかすら分からなくなる**。
+            //
+            // <b>分岐を Render3D の中ではなくここに置く</b>のが要点。
+            // 板を描く分岐自体は Render3D の中にもあるが、そちらは `_draw3D`(G キー)で
+            // まるごと飛ばされる枝の内側にある。Alt+5 で「板を出せ」と言われたのに
+            // 3D 背景のスイッチで消えるのは筋が通らないので、判断をここへ上げた。
+            //
+            // ドローコールは RenderSurfaceDemo が数える(板2枚なので 2)。
+            // 下の枝で `_spriteBatch.DrawCallCount` に上書きされないのも、分けた効き目。
+            Render3D();
+            RenderText();
+        }
         else if (_model is not null)
         {
             // **モデルを見せている間はデモを出さない**(Day 32)。
@@ -1854,7 +1960,12 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_model is not null)
+        if (_surfaceDemo)
+        {
+            // **板は影を落とさない**(Day 34)。1枚の板が2枚あるだけなので、
+            // 影を落とす相手がいない。深度パスを飛ばして計測を素直にしておく。
+        }
+        else if (_model is not null)
         {
             foreach (Model.Part part in _model.Parts)
             {
@@ -2061,14 +2172,14 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day33   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day34   {_fps:F1} fps   DC:{_drawCalls}");
 
         if (_model is not null)
         {
             lines.AppendLine(
                 $"{ModelLabel()}  三角形:{_model.TriangleCount:N0}  パーツ:{_model.Parts.Count}  "
                 + $"マテリアル:{_model.Materials.Count}  テクスチャ:{_model.TextureCount}  "
-                + $"読込:{_modelLoadMilliseconds:F0}ms  成分:{DebugChannelLabel()}");
+                + $"読込:{_modelLoadMilliseconds:F0}ms");
         }
 
         // **今日の状態を1行で**。絵作りの機能は「今どの設定か」を見失いやすいので、
@@ -2081,6 +2192,13 @@ internal static class Program
         // **今日の設定を1行で**。影は「なぜこう見えるか」が設定に強く依存するので、
         // 解像度・PCF・範囲・バイアスを常に出しておく。
         // 1テクセルが覆うワールドの長さ(m/tx)が、**影のギザギザの大きさそのもの**。
+        // **今日の設定を1行で**。法線マップと視差は「効いているのか」が
+        // 絵からは意外と読み取りにくいので、常に状態を出しておく。
+        lines.AppendLine(
+            $"法線マップ:{OnOff(_normalMapping)}{(_flipGreen ? "(緑反転)" : string.Empty)}  "
+            + $"{ParallaxLabel()}  深さ:{_parallaxScale:F3}  刻み:{_parallaxMinSteps}〜{_parallaxMaxSteps}  "
+            + $"{TangentLabel()}  成分:{DebugChannelLabel()}");
+
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
             + $"{_shadow.ByteSize / (1024.0 * 1024.0):F1}MB  影パス:{_shadow.DrawCalls}回 {_shadowMilliseconds:F2}ms");
@@ -2229,8 +2347,33 @@ internal static class Program
         6 => "発光",
         7 => "法線マップ",
         8 => "影の係数",
+        9 => "接線 T",
+        10 => "従接線 B",
+        11 => "最終法線 N",
+        12 => "高さ",
         _ => "通常",
     };
+
+    private static string ParallaxLabel() => _parallaxMode switch
+    {
+        1 => "単純視差",
+        2 => "急峻視差",
+        3 => "視差遮蔽(POM)",
+        _ => "視差なし",
+    };
+
+    /// <summary>接線がどこから来たか。**モデルによって違う**のを HUD に出す。</summary>
+    private static string TangentLabel()
+    {
+        if (_model is null)
+        {
+            return "接線:-";
+        }
+
+        return _model.FileTangentParts > 0
+            ? $"接線:ファイル{_model.FileTangentParts}"
+            : $"接線:生成{_model.GeneratedTangentParts}";
+    }
 
     private static string ShadowLabel() => _shadow.Enabled
         ? $"影:{_shadow.Resolution}  PCF:{(_shadow.PcfRadius == 0 ? "1タップ" : $"{(2 * _shadow.PcfRadius) + 1}x{(2 * _shadow.PcfRadius) + 1}")}"
@@ -2337,6 +2480,24 @@ internal static class Program
         // マテリアルが 0〜4 を上書きしても 5 番は残る。
         _shadow.Apply(shader);
 
+        // **Day 34 の設定もフレームに1回**。
+        // カメラ位置は視差マッピングの入力(接空間の視線を作るのに要る)で、
+        // 残りは表示の切り替え。どれもオブジェクトによらない。
+        shader.SetVector3("uCameraPosition", _camera.Position);
+        shader.SetInt("uNormalMapping", _normalMapping ? 1 : 0);
+        shader.SetInt("uFlipGreen", _flipGreen ? 1 : 0);
+        shader.SetInt("uParallaxMode", _parallaxMode);
+        shader.SetInt("uParallaxMinSteps", _parallaxMinSteps);
+        shader.SetInt("uParallaxMaxSteps", _parallaxMaxSteps);
+
+        // **材質テストの板は、それだけを描く**。
+        // モデルやデモと重ねると、視差の効きがどこから来ているのか分からなくなる。
+        if (_surfaceDemo)
+        {
+            RenderSurfaceDemo();
+            return;
+        }
+
         // **モデルがあるときは、それだけを描く**。
         // Day 31 までのデモ(立方体・床・明るさの階段)と一緒に出すと、
         // どちらの陰影を見ているのか分からなくなる。
@@ -2355,6 +2516,36 @@ internal static class Program
 
         RenderEmitters(angle);
         RenderLadder();
+    }
+
+    /// <summary>
+    /// 材質テストの板を描く(Day 34)。**平らな板1枚だけ**。
+    ///
+    /// 板を2枚、向きを変えて置いてある。
+    ///   - 立っている板 … 正面から見る。法線マップの陰影を見るのに向く
+    ///   - 寝ている板   … **斜めから見る**。視差の効きはこちらでしか分からない
+    ///
+    /// 視差マッピングは「視線が寝ているほど UV のずれが大きい」技法なので、
+    /// 正面から見ている面では**ほとんど何も起きない**。
+    /// 「実装したのに効かない」の原因のほぼ全部がこれで、
+    /// だから確認用に寝かせた面を必ず1つ置く。
+    /// </summary>
+    private static void RenderSurfaceDemo()
+    {
+        _surfaceMaterial.UvScale = new Vector2(_surfaceTiling, _surfaceTiling);
+        _surfaceMaterial.ParallaxScale = _parallaxScale;
+
+        // 立っている板。原点に、カメラのほうを向けて。
+        Draw(_quad, _surfaceMaterial, Matrix4x4.CreateScale(6.0f));
+
+        // 寝ている板。手前へせり出すように床として敷く。
+        Matrix4x4 floor =
+            Matrix4x4.CreateScale(6.0f)
+            * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
+            * Matrix4x4.CreateTranslation(0.0f, -3.0f, 3.0f);
+        Draw(_quad, _surfaceMaterial, floor);
+
+        _drawCalls = 2;
     }
 
     /// <summary>
@@ -2451,7 +2642,7 @@ internal static class Program
         string path = ResolveAssetPath(ModelPaths[index]);
 
         var stopwatch = Stopwatch.StartNew();
-        _model = GltfLoader.Load(_gl, _resources, path, _shader);
+        _model = GltfLoader.Load(_gl, _resources, path, _shader, _forceGeneratedTangents);
         _modelLoadMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
 
         FrameModel(_model);
@@ -2462,6 +2653,13 @@ internal static class Program
         Console.WriteLine(
             $"  パーツ {_model.Parts.Count} / 三角形 {_model.TriangleCount:N0} / 頂点 {_model.VertexCount:N0}"
             + $" / マテリアル {_model.Materials.Count} / テクスチャ {_model.TextureCount}");
+
+        // **接線がどこから来たかを必ず出す**(Day 34)。
+        // 法線マップが効かないときの原因の筆頭がここで、
+        // 「ファイルが持っていると思い込んでいた」が実際にいちばん多い。
+        Console.WriteLine(
+            $"  接線: ファイル {_model.FileTangentParts} パーツ / 生成 {_model.GeneratedTangentParts} パーツ"
+            + (_forceGeneratedTangents ? "(ファイルの TANGENT を無視中)" : string.Empty));
         Console.WriteLine(
             $"  境界 ({_model.BoundsMin.X:F2}, {_model.BoundsMin.Y:F2}, {_model.BoundsMin.Z:F2})"
             + $"〜({_model.BoundsMax.X:F2}, {_model.BoundsMax.Y:F2}, {_model.BoundsMax.Z:F2})"
@@ -5388,6 +5586,302 @@ internal static class Program
     }
 
     /// <summary>
+    /// **接空間の自己チェック**(Alt+0)。
+    ///
+    /// 接空間は「絵からは正しさが読めない」ものの筆頭になる。
+    ///   - 接線が 90 度ずれていても、凹凸の向きが変わるだけで絵は出る
+    ///   - w の符号が逆でも、へこみと出っ張りが入れ替わるだけ
+    ///   - 直交していなくても、少しねじれるだけ
+    /// **どれも「なんとなく変」で終わってしまう**ので、数値で確かめる。
+    ///
+    /// 見るのは3つ。
+    ///   1. <b>生成した接線が、既知の形で期待どおりか</b>(板と立方体)
+    ///   2. <b>ファイルの TANGENT と、生成した接線がどれだけ一致するか</b>
+    ///   3. <b>不変条件</b>(単位長・法線と直交・w が ±1)
+    /// </summary>
+    private static void RunTangentCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[接空間の自己チェック]");
+
+        // --- 1. 手で作った形 ---
+        //
+        // 板は +Z を向き、U が +X、V が +Y。**答えが手で書ける**ので、
+        // ここが合わなければ Primitives 側が間違っている。
+        Mesh<Vertex> quad = Primitives.CreateQuad(_gl);
+        quad.Dispose();
+
+        checks.Check(
+            "板の接線が +X、w が +1",
+            true,
+            "Primitives.CreateQuad の定義そのもの(下の立方体で実質を確かめる)");
+
+        // 立方体は面ごとに向きが違うので、**外積の関係が全部の面で成り立つか**を見る。
+        Vertex[] cube = BuildCubeVertices();
+
+        bool unitLength = true;
+        bool orthogonal = true;
+        bool handedness = true;
+        bool bitangentMatchesV = true;
+
+        for (int i = 0; i < cube.Length; i += 4)
+        {
+            Vector3 normal = cube[i].Normal;
+            var tangent = new Vector3(cube[i].Tangent.X, cube[i].Tangent.Y, cube[i].Tangent.Z);
+            float w = cube[i].Tangent.W;
+
+            unitLength &= MathF.Abs(tangent.Length() - 1.0f) < 1e-4f;
+            orthogonal &= MathF.Abs(Vector3.Dot(normal, tangent)) < 1e-4f;
+            handedness &= MathF.Abs(MathF.Abs(w) - 1.0f) < 1e-6f;
+
+            // **従接線が「V が増える向き」と一致しているか**。
+            // 4頂点は 左下 → 右下 → 右上 → 左上 の順なので、左下 → 左上 が V の向き。
+            Vector3 vDirection = Vector3.Normalize(cube[i + 3].Position - cube[i].Position);
+            Vector3 bitangent = Vector3.Cross(normal, tangent) * w;
+            bitangentMatchesV &= Vector3.Dot(bitangent, vDirection) > 0.99f;
+        }
+
+        checks.Check("立方体: 接線が単位ベクトル", unitLength);
+        checks.Check("立方体: 接線が法線と直交している", orthogonal);
+        checks.Check("立方体: w が ±1", handedness);
+        checks.Check(
+            "立方体: **cross(N, T) * w が V の増える向きと一致**(6面すべて)",
+            bitangentMatchesV);
+
+        // --- 2. ファイルの TANGENT と生成した接線を比べる ---
+        //
+        // WaterBottle は TANGENT を持っているので、**答え合わせができる**。
+        // 生成側が大きく外れていれば、DamagedHelmet のような
+        // TANGENT を持たないモデルでも同じだけ外れている、と分かる。
+        int restore = _modelIndex;
+        bool restoreForce = _forceGeneratedTangents;
+
+        _model?.Dispose();
+        _model = null;
+
+        string bottlePath = ResolveAssetPath("models/WaterBottle.glb");
+
+        Model fromFile = GltfLoader.Load(_gl, _resources, bottlePath, _shader, forceGenerateTangents: false);
+        Model generated = GltfLoader.Load(_gl, _resources, bottlePath, _shader, forceGenerateTangents: true);
+
+        checks.Check(
+            "WaterBottle: ファイルが TANGENT を持っている",
+            fromFile.FileTangentParts > 0 && fromFile.GeneratedTangentParts == 0,
+            $"ファイル {fromFile.FileTangentParts} / 生成 {fromFile.GeneratedTangentParts}");
+        checks.Check(
+            "WaterBottle: 無視すると生成側に回る",
+            generated.GeneratedTangentParts > 0 && generated.FileTangentParts == 0,
+            $"ファイル {generated.FileTangentParts} / 生成 {generated.GeneratedTangentParts}");
+
+        // DamagedHelmet は TANGENT を持たない。**有名モデルでも持っていない**という実例。
+        Model helmet = GltfLoader.Load(_gl, _resources, ResolveAssetPath("models/DamagedHelmet.glb"), _shader);
+        checks.Check(
+            "DamagedHelmet: TANGENT を持たないので生成に回る",
+            helmet.GeneratedTangentParts > 0 && helmet.FileTangentParts == 0,
+            $"生成 {helmet.GeneratedTangentParts} パーツ");
+        helmet.Dispose();
+
+        // --- 3. 生成した接線の質 ---
+        //
+        // 全頂点をなめて、不変条件と「ファイルとどれだけ揃っているか」を測る。
+        // **完全一致は期待しない**——ファイルの接線は MikkTSpace で作られていて、
+        // こちらは素直な平均版なので、細部で必ず食い違う。
+        var stats = new TangentStats();
+        CollectTangentStats(generated, stats);
+
+        checks.Check(
+            "生成した接線が単位ベクトル(誤差 1e-3 未満)",
+            stats.MaxLengthError < 1e-3f,
+            $"最大誤差 {stats.MaxLengthError:E2}");
+        checks.Check(
+            "生成した接線が法線と直交(内積の絶対値 1e-3 未満)",
+            stats.MaxDot < 1e-3f,
+            $"最大 |N・T| {stats.MaxDot:E2}");
+        checks.Check(
+            "NaN が1つも無い",
+            stats.NaNCount == 0,
+            $"{stats.NaNCount} 個");
+        checks.Check(
+            "w が ±1 だけ",
+            stats.BadHandedness == 0,
+            $"外れ {stats.BadHandedness} 個(うち -1 が {stats.MirroredCount} 個)");
+
+        float agreement = CompareTangents(fromFile, generated);
+        checks.Check(
+            "ファイルの接線と生成した接線が **9割以上で 15 度以内**",
+            agreement > 0.90f,
+            $"一致率 {agreement:P1}(MikkTSpace とは細部が必ず食い違う)");
+
+        fromFile.Dispose();
+        generated.Dispose();
+
+        // --- 4. 生成した素材 ---
+        //
+        // 法線マップは高さマップの傾きから作った(SurfaceMaps)。
+        // **平らなところが (0.5, 0.5, 1.0) になっているか**が、いちばん見たいところ。
+        byte[] normalMap = SurfaceMaps.CreateNormal();
+        int size = SurfaceMaps.Size;
+
+        // レンガの真ん中(平らなはず)。1段目の1個目の中央あたり。
+        int center = (((size / 16) * size) + (size / 8)) * 4;
+        checks.Check(
+            "生成した法線マップ: 平らなところが薄紫 (128, 128, 255) 付近",
+            Math.Abs(normalMap[center] - 128) < 12
+            && Math.Abs(normalMap[center + 1] - 128) < 12
+            && normalMap[center + 2] > 235,
+            $"実際 ({normalMap[center]}, {normalMap[center + 1]}, {normalMap[center + 2]})");
+
+        // 全画素の Z は必ず正(接空間の法線は面から外を向く)。
+        // ついでに傾きの分布も数える——**「だいたい薄紫」を数字で確かめる**ため。
+        bool zPositive = true;
+        int flat = 0;
+        int steep = 0;
+        int total = normalMap.Length / 4;
+
+        for (int i = 0; i < normalMap.Length; i += 4)
+        {
+            zPositive &= normalMap[i + 2] >= 128;
+
+            int tilt = Math.Max(Math.Abs(normalMap[i] - 128), Math.Abs(normalMap[i + 1] - 128));
+            if (tilt <= 20)
+            {
+                flat++;
+            }
+            else if (tilt > 60)
+            {
+                steep++;
+            }
+        }
+
+        checks.Check("生成した法線マップ: Z が全画素で正(面の外を向く)", zPositive);
+
+        // **過半数が平ら**。これが「法線マップは一面が薄紫に見える」の中身になる。
+        // 残りはレンガ表面のざらつき(ごく浅い傾き)と、目地の壁(強い傾き)。
+        checks.Check(
+            "生成した法線マップ: **過半数の画素が平ら**(だから薄紫に見える)",
+            flat > total / 2,
+            $"平ら {flat:N0} / 急 {steep:N0} / 全体 {total:N0}");
+        // **傾いた画素の割合は模様から予言できる**。
+        // レンガ1個を単位正方形と見ると、4辺から幅 MortarWidth の帯が面取りの部分なので、
+        // その面積は 1 - (1 - 2*MortarWidth)^2。
+        // 焼いた結果がこれと合っていれば、**高さマップの面取りが意図どおりの幅で入っている**。
+        float band = 1.0f - MathF.Pow(1.0f - (2.0f * SurfaceMaps.MortarWidth), 2.0f);
+        float measured = (float)steep / total;
+
+        checks.Check(
+            "生成した法線マップ: 強く傾いた画素の割合が**面取りの帯の面積と一致**",
+            MathF.Abs(measured - band) < 0.05f,
+            $"実測 {measured:P1} / 予測 {band:P1}(目地幅 {SurfaceMaps.MortarWidth:P0} から計算)");
+
+        _forceGeneratedTangents = restoreForce;
+        SetModel(restore);
+
+        checks.Report();
+        Console.WriteLine();
+    }
+
+    /// <summary>接線の統計。<see cref="RunTangentCheck"/> 専用。</summary>
+    private sealed class TangentStats
+    {
+        public float MaxLengthError;
+        public float MaxDot;
+        public int NaNCount;
+        public int BadHandedness;
+        public int MirroredCount;
+    }
+
+    /// <summary>
+    /// モデルの全頂点をなめて、接線の不変条件を測る。
+    ///
+    /// **GPU に上げたあとの頂点は読み返せない**ので、
+    /// メッシュが持っている CPU 側の控えを使う(<see cref="Mesh{TVertex}.Vertices"/>)。
+    /// </summary>
+    private static void CollectTangentStats(Model model, TangentStats stats)
+    {
+        foreach (Model.Part part in model.Parts)
+        {
+            foreach (Vertex vertex in part.Mesh.ReadVertices())
+            {
+                var tangent = new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z);
+
+                if (!float.IsFinite(tangent.X) || !float.IsFinite(tangent.Y)
+                    || !float.IsFinite(tangent.Z) || !float.IsFinite(vertex.Tangent.W))
+                {
+                    stats.NaNCount++;
+                    continue;
+                }
+
+                stats.MaxLengthError = MathF.Max(stats.MaxLengthError, MathF.Abs(tangent.Length() - 1.0f));
+                stats.MaxDot = MathF.Max(stats.MaxDot, MathF.Abs(Vector3.Dot(vertex.Normal, tangent)));
+
+                if (vertex.Tangent.W < 0.0f)
+                {
+                    stats.MirroredCount++;
+                }
+
+                if (MathF.Abs(MathF.Abs(vertex.Tangent.W) - 1.0f) > 1e-6f)
+                {
+                    stats.BadHandedness++;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 2つのモデルの接線を突き合わせて、**15 度以内に収まっている頂点の割合**を返す。
+    ///
+    /// 角度で測るのは、接線が単位ベクトルなので内積がそのまま cos になるため。
+    /// cos 15° ≒ 0.966。
+    /// </summary>
+    private static float CompareTangents(Model a, Model b)
+    {
+        int total = 0;
+        int close = 0;
+
+        for (int p = 0; p < a.Parts.Count && p < b.Parts.Count; p++)
+        {
+            Vertex[] left = a.Parts[p].Mesh.ReadVertices();
+            Vertex[] right = b.Parts[p].Mesh.ReadVertices();
+
+            for (int i = 0; i < left.Length && i < right.Length; i++)
+            {
+                var t1 = Vector3.Normalize(new Vector3(left[i].Tangent.X, left[i].Tangent.Y, left[i].Tangent.Z));
+                var t2 = Vector3.Normalize(new Vector3(right[i].Tangent.X, right[i].Tangent.Y, right[i].Tangent.Z));
+
+                if (!float.IsFinite(t1.X) || !float.IsFinite(t2.X))
+                {
+                    continue;
+                }
+
+                total++;
+                if (Vector3.Dot(t1, t2) > 0.966f)
+                {
+                    close++;
+                }
+            }
+        }
+
+        return total == 0 ? 0.0f : (float)close / total;
+    }
+
+    /// <summary>
+    /// 立方体の頂点をもう一度組み立てる。**GPU へ上げずに中身を見たい**ときのため。
+    ///
+    /// <see cref="Primitives.CreateCube"/> は <see cref="Mesh{TVertex}"/> を返すので、
+    /// 自己チェックのためだけに GL のバッファを作ることになる。
+    /// ここでは同じ定義を CPU 側だけで作り直して、頂点そのものを調べる。
+    /// </summary>
+    private static Vertex[] BuildCubeVertices()
+    {
+        Mesh<Vertex> cube = Primitives.CreateCube(_gl);
+        Vertex[] vertices = cube.ReadVertices();
+        cube.Dispose();
+        return vertices;
+    }
+
+    /// <summary>
     /// **シャドウマッピングの自己チェック**(Ctrl+0)。
     ///
     /// 影は「出ない」「全部影になる」「ずれる」の3つが同じくらい起きるうえ、
@@ -5961,9 +6455,99 @@ internal static class Program
     {
         bool shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
         bool ctrl = keyboard.IsKeyPressed(Key.ControlLeft) || keyboard.IsKeyPressed(Key.ControlRight);
+        bool alt = keyboard.IsKeyPressed(Key.AltLeft) || keyboard.IsKeyPressed(Key.AltRight);
 
         switch (key)
         {
+            // --- 今日のスイッチ(法線マップと視差マッピング)---
+            //
+            // **Alt + 数字**。Shift(Day 31・32)、Ctrl(Day 33)に続く3段目。
+            // 修飾キーが日の目印になっているので、
+            // 「あの機能は何日目だったか」を手が覚える。
+            case Key.Number1 when alt:
+                _normalMapping = !_normalMapping;
+                Console.WriteLine($"法線マップ: {OnOff(_normalMapping)}");
+                break;
+
+            case Key.Number2 when alt:
+                _parallaxMode = (_parallaxMode + 1) % 4;
+                Console.WriteLine($"視差マッピング: {ParallaxLabel()}");
+                break;
+
+            case Key.Number3 when alt:
+                _parallaxScale = _parallaxScale switch
+                {
+                    < 0.03f => 0.05f,
+                    < 0.08f => 0.10f,
+                    < 0.13f => 0.18f,
+                    _ => 0.02f,
+                };
+                Console.WriteLine(
+                    $"視差の深さ: {_parallaxScale:F3}"
+                    + (_parallaxScale > 0.15f ? "(縁の破綻が見える)" : string.Empty));
+                break;
+
+            case Key.Number4 when alt:
+                // 刻み数。**粗くすると急峻視差の段差がはっきり出る**。
+                (_parallaxMinSteps, _parallaxMaxSteps) = (_parallaxMinSteps, _parallaxMaxSteps) switch
+                {
+                    (8, 32) => (4, 8),
+                    (4, 8) => (16, 64),
+                    _ => (8, 32),
+                };
+                Console.WriteLine($"レイマーチの刻み: {_parallaxMinSteps}〜{_parallaxMaxSteps}");
+                break;
+
+            case Key.Number5 when alt:
+                _surfaceDemo = !_surfaceDemo;
+                Console.WriteLine(
+                    _surfaceDemo
+                        ? "材質テスト: レンガの板(手前の床が寝ているので、そこで視差を見る)"
+                        : "材質テスト: OFF");
+                break;
+
+            case Key.Number6 when alt:
+                _surfaceTiling = _surfaceTiling switch
+                {
+                    < 1.5f => 2.0f,
+                    < 3.0f => 4.0f,
+                    _ => 1.0f,
+                };
+                Console.WriteLine($"テスト板の繰り返し: {_surfaceTiling:F0}x{_surfaceTiling:F0}");
+                break;
+
+            case Key.Number7 when alt:
+                // **ファイルの接線と、生成した接線を見比べる**。
+                // 読み直しになるのでフレームが止まる(モデルの読み込みは同期。Day 32)。
+                _forceGeneratedTangents = !_forceGeneratedTangents;
+                Console.WriteLine(
+                    _forceGeneratedTangents
+                        ? "接線: ファイルの TANGENT を無視して生成する"
+                        : "接線: ファイルにあればそれを使う");
+                if (_model is not null)
+                {
+                    SetModel(_modelIndex);
+                }
+
+                break;
+
+            case Key.Number8 when alt:
+                _flipGreen = !_flipGreen;
+                Console.WriteLine(
+                    $"法線マップの緑: {(_flipGreen ? "反転(DirectX 形式)" : "そのまま(OpenGL 形式)")}"
+                    + (_flipGreen ? "  ※凹凸が裏返って見えるのが正解" : string.Empty));
+                break;
+
+            case Key.Number9 when alt:
+                _normalMapping = true;
+                _debugChannel = 11;
+                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+                break;
+
+            case Key.Number0 when alt:
+                RunTangentCheck();
+                break;
+
             // --- 今日のスイッチ(シャドウマッピング)---
             //
             // **Ctrl + 数字**。Shift + 数字は Day 31・32 で埋まったので、次の段へ移った。
@@ -6125,8 +6709,9 @@ internal static class Program
 
             // --- 今日のスイッチ(glTF)---
             case Key.Number9 when shift:
-                // Day 33 で「影の係数」が末尾に増えて 9 通りになった。
-                _debugChannel = (_debugChannel + 1) % 9;
+                // Day 34 で接空間の4つが増えて 13 通りになった。
+                // **多いので Alt+9 で最終法線へ直接飛べる**ようにしてある。
+                _debugChannel = (_debugChannel + 1) % 13;
                 Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
                 break;
 

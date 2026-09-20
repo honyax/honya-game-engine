@@ -89,8 +89,48 @@ internal sealed class Material
     /// </summary>
     public Handle<Texture> MetallicRoughnessTexture { get; set; }
 
-    /// <summary>接空間の法線マップ。使い始めるのは Day 34。</summary>
+    /// <summary>
+    /// 接空間の法線マップ。**Day 34 でついに絵に効くようになった**。
+    ///
+    /// Day 32 で読み込みだけ先に作ってあったので、今日の差分は
+    /// 「接線を用意してシェーダで使う」だけで済んでいる。
+    /// <b>器を先に作っておくと、その日の差分が小さくなる</b>という
+    /// Day 32 の狙いが当たった形。
+    /// </summary>
     public Handle<Texture> NormalTexture { get; set; }
+
+    /// <summary>
+    /// 法線の強さ(Day 34)。glTF の <c>normalTexture.scale</c> に対応する。
+    ///
+    /// 読んだ法線の xy にだけ掛ける。1.0 で素通し、0 で凹凸なし、
+    /// 1 より大きくすると凹凸が誇張される。
+    /// **z には掛けない**のがミソで、xy だけ伸ばして正規化し直すと
+    /// 「傾きだけを強くする」になる。
+    /// </summary>
+    public float NormalScale { get; set; } = 1.0f;
+
+    /// <summary>
+    /// 高さマップ(Day 34)。視差マッピングが読む。**glTF には無い**。
+    ///
+    /// コア仕様にも Khronos の主要な拡張にも、視差用の高さテクスチャは入っていない
+    /// (<c>KHR_materials_displacement</c> は提案止まり)。
+    /// だから読み込んだモデルには絶対に付いてこず、
+    /// 使うなら**素材を別に用意する**か、こちらで作ることになる
+    /// (<see cref="SurfaceMaps"/>)。
+    ///
+    /// 値の約束は「1 が表面、0 が谷底」。逆(0 が表面)の素材も世の中にはあるので、
+    /// **貼ってみて凹凸が反転したら、まずここを疑う**。
+    /// </summary>
+    public Handle<Texture> HeightTexture { get; set; }
+
+    /// <summary>
+    /// 視差の深さ(Day 34)。**UV をずらす量の上限**を接空間の高さで表したもの。
+    ///
+    /// 0.05 なら「高さ 1 の凹凸が、面の大きさの 5% ぶん UV をずらす」。
+    /// 大きくするほど奥行きが出るが、**輪郭の破綻も大きくなる**——
+    /// 視差マッピングは形を変えていないので、深くするほど嘘がばれる。
+    /// </summary>
+    public float ParallaxScale { get; set; } = 0.05f;
 
     /// <summary>環境遮蔽。焼き込まれた「へこみの暗さ」。Day 37 の SSAO と足し合わせる。</summary>
     public Handle<Texture> OcclusionTexture { get; set; }
@@ -145,6 +185,7 @@ internal sealed class Material
         // シェーダ側が知りようがなくなる。番号は two-way の約束なので、
         // ここと textured.frag の両方に同じ表を書いておく。
         //   0 ベースカラー / 1 メタリック・ラフネス / 2 法線 / 3 AO / 4 発光
+        //   5 シャドウマップ(ShadowMap が刺す)/ 6 高さ(Day 34)
         shader.SetVector4("uBaseColorFactor", BaseColorFactor);
         shader.SetFloat("uMetallicFactor", MetallicFactor);
         shader.SetFloat("uRoughnessFactor", RoughnessFactor);
@@ -154,6 +195,15 @@ internal sealed class Material
         BindMap(resources, shader, NormalTexture, 2, "uNormalMap", "uHasNormalMap");
         BindMap(resources, shader, OcclusionTexture, 3, "uOcclusionMap", "uHasOcclusionMap");
         BindMap(resources, shader, EmissiveTexture, 4, "uEmissiveMap", "uHasEmissiveMap");
+
+        // --- Day 34: 接空間 ---
+        //
+        // **5番は飛ばす**。そこは Day 33 のシャドウマップが使っていて、
+        // マテリアルではなく ShadowMap がフレームに1回刺す
+        // (ユニットの割り当ては1枚の表で管理しないと必ず衝突する)。
+        shader.SetFloat("uNormalScale", NormalScale);
+        shader.SetFloat("uParallaxScale", ParallaxScale);
+        BindMap(resources, shader, HeightTexture, 6, "uHeightMap", "uHasHeightMap");
     }
 
     /// <summary>

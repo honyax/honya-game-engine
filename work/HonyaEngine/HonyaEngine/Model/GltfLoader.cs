@@ -69,7 +69,17 @@ internal static class GltfLoader
     /// ファイルを読んで <see cref="Model"/> にする。<c>.glb</c> と <c>.gltf</c> の両方を受ける。
     /// </summary>
     /// <param name="shader">できたマテリアルに割り当てるシェーダ。</param>
-    public static Model Load(GL gl, RenderResources resources, string path, Handle<Shader> shader)
+    /// <param name="forceGenerateTangents">
+    /// <b>ファイルの TANGENT を無視して、こちらで作り直す</b>(Day 34)。
+    ///
+    /// 見比べるためだけの引数で、実用では常に false でよい——
+    /// ファイルの接線は**法線マップを焼いたときと同じもの**なので、
+    /// あるならそちらを使うのが正しい。
+    /// 生成した接線とどれだけ違うかを目で見るために開けてある(Alt+7)。
+    /// </param>
+    public static Model Load(
+        GL gl, RenderResources resources, string path, Handle<Shader> shader,
+        bool forceGenerateTangents = false)
     {
         byte[] bytes = File.ReadAllBytes(path);
 
@@ -92,7 +102,8 @@ internal static class GltfLoader
 
         using (json)
         {
-            var context = new LoadContext(gl, resources, path, json.RootElement, embeddedBuffer, shader);
+            var context = new LoadContext(
+                gl, resources, path, json.RootElement, embeddedBuffer, shader, forceGenerateTangents);
             return context.Build();
         }
     }
@@ -179,6 +190,9 @@ internal static class GltfLoader
 
         private readonly byte[]? _embedded;
 
+        /// <summary>ファイルの TANGENT を捨てて作り直すか(Day 34。見比べ用)。</summary>
+        private readonly bool _forceGenerateTangents;
+
         /// <summary>material 番号 → できあがったマテリアル。**同じものを何度も作らない**。</summary>
         private readonly Dictionary<int, Material> _materials = [];
 
@@ -191,13 +205,20 @@ internal static class GltfLoader
         /// </summary>
         private readonly List<Handle<Texture>> _textures = [];
 
+        /// <summary>ファイルに TANGENT が入っていたパーツの数(Day 34)。HUD と自己チェック用。</summary>
+        public int FileTangentParts { get; private set; }
+
+        /// <summary>接線をこちらで作ったパーツの数(Day 34)。</summary>
+        public int GeneratedTangentParts { get; private set; }
+
         public LoadContext(
             GL gl,
             RenderResources resources,
             string path,
             JsonElement root,
             byte[]? embedded,
-            Handle<Shader> shader)
+            Handle<Shader> shader,
+            bool forceGenerateTangents)
         {
             _gl = gl;
             _resources = resources;
@@ -206,6 +227,7 @@ internal static class GltfLoader
             _root = root;
             _embedded = embedded;
             _shader = shader;
+            _forceGenerateTangents = forceGenerateTangents;
         }
 
         public Model Build()
@@ -241,6 +263,8 @@ internal static class GltfLoader
             {
                 TriangleCount = triangles,
                 VertexCount = vertices,
+                FileTangentParts = FileTangentParts,
+                GeneratedTangentParts = GeneratedTangentParts,
             };
         }
 
@@ -380,8 +404,14 @@ internal static class GltfLoader
                 ? ReadVector2Accessor(uvRef.GetInt32())
                 : null;
 
-            // TANGENT は読まない。接空間が要るのは法線マップを貼る Day 34 からで、
-            // そこで Vertex に足す(WaterBottle と Lantern は既に持っている)。
+            // **TANGENT は Day 34 で読むようになった**。VEC4 で、xyz が接線、w が従接線の符号。
+            //
+            // 持っていないモデルのほうが多い(4体のうち WaterBottle と Lantern だけ)。
+            // 無ければ位置と UV から作る——それが <see cref="GenerateTangents"/>。
+            Vector4[]? tangents = !_forceGenerateTangents
+                && attributes.TryGetProperty("TANGENT", out JsonElement tangentRef)
+                ? ReadVector4Accessor(tangentRef.GetInt32())
+                : null;
 
             var built = new Vertex[positions.Length];
             for (int i = 0; i < positions.Length; i++)
@@ -401,7 +431,24 @@ internal static class GltfLoader
                     ? new Vector2(uvs[i].X, 1.0f - uvs[i].Y)
                     : Vector2.Zero;
 
-                built[i] = new Vertex(position, uv, Vector4.One, normal);
+                // **接線の w はここでは触らない**(Day 34 の落とし穴)。
+                //
+                // 上で V を反転しているので、「V が増える向き」は
+                // ファイルの言う従接線と**逆**になる。それなら w も反転すべきに見えるが、逆。
+                //
+                // 法線マップの緑成分は「ファイルの従接線に沿ってどれだけ傾いているか」を表す。
+                // そして UV の反転と画像の上下反転は打ち消し合うので、
+                // シェーダが読むテクセルは**ファイルの想定どおりの場所**になる。
+                // つまり緑の意味も**ファイルの従接線のまま**なので、w もそのまま使うのが正しい。
+                //
+                // ここを「反転しているのだから w も」と直すと、
+                // **凹凸が全部へこみになる**(でこぼこの向きだけが裏返る)。
+                // 絵は出るので気づきにくい類の間違いで、Alt+8 でわざと再現できるようにしてある。
+                Vector4 tangent = tangents is not null
+                    ? tangents[i]
+                    : new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+
+                built[i] = new Vertex(position, uv, Vector4.One, normal, tangent);
 
                 // 境界箱は**世界行列を通したあと**で取る。
                 // ローカルのままだと、ノードの平行移動(街灯は 13m 上にある)が反映されない。
@@ -416,6 +463,18 @@ internal static class GltfLoader
                 // インデックスが無いときは 0,1,2,… と並んでいるものとして扱う(仕様どおり)。
                 : Enumerable.Range(0, built.Length).Select(i => (uint)i).ToArray();
 
+            // **接線が無ければ作る**(Day 34)。インデックスが要るので、ここまで来てから。
+            // 作ったかどうかを覚えておくのは、HUD と自己チェックで区別を出すため。
+            if (tangents is null && uvs is not null && normals is not null)
+            {
+                GenerateTangents(built, indices, uvs);
+                GeneratedTangentParts++;
+            }
+            else if (tangents is not null)
+            {
+                FileTangentParts++;
+            }
+
             triangles += indices.Length / 3;
             vertices += built.Length;
 
@@ -424,6 +483,119 @@ internal static class GltfLoader
 
             var mesh = new Mesh<Vertex>(_gl, built, indices, Vertex.Attributes);
             return new Model.Part(mesh, material, world, name);
+        }
+
+        /// <summary>
+        /// **接線を位置と UV から作る**(Day 34)。TANGENT を持たないモデル用。
+        ///
+        /// 求めたいのは「UV の U が増える向きは、3D 空間ではどちらか」。
+        /// 三角形1枚には頂点が3つあり、それぞれ位置と UV を持っているので、
+        /// **連立方程式を1つ解けば出る**。
+        ///
+        /// 三角形の2辺を、位置の差と UV の差で書くと
+        /// <code>
+        ///   E1 = T * du1 + B * dv1
+        ///   E2 = T * du2 + B * dv2
+        /// </code>
+        /// 未知が T と B の2本、式も2本なので解ける。答えが下のコードで、
+        /// <c>r = 1 / (du1*dv2 - du2*dv1)</c> は 2x2 行列の逆行列の分母
+        /// (= UV の三角形の面積の2倍)にあたる。
+        ///
+        /// <para>
+        /// <b>頂点は複数の三角形に共有される</b>ので、面ごとに出した T を足し込んでいく。
+        /// 法線を頂点で共有するときに面法線を平均するのと同じ理屈で、
+        /// これで隣り合う面の間で接線が滑らかに繋がる。
+        /// </para>
+        ///
+        /// <para>
+        /// <b>UV が退化した三角形に注意</b>。UV の三角形が潰れている
+        /// (3頂点が同じ UV を持つ、など)と分母が 0 になって NaN が出る。
+        /// NaN は足し込みで**周りの頂点まで巻き込んで伝染する**ので、
+        /// 面積が 0 に近い三角形はそこで捨てる。
+        /// モデルの一部が真っ黒になるときの原因として、かなり上位に来る。
+        /// </para>
+        ///
+        /// <para>
+        /// <b>UV は反転前のものを使う</b>のがここの肝。<paramref name="sourceUvs"/> は
+        /// ファイルから読んだそのままで、頂点に入れた「V を反転したもの」ではない。
+        /// 反転した UV で作ると従接線の向きが逆になり、
+        /// **ファイルが TANGENT を持っているモデルと符号の約束が食い違う**。
+        /// 同じシェーダで両方を扱うので、規約はファイル側に合わせる。
+        /// </para>
+        ///
+        /// なお実用では <c>MikkTSpace</c>(Blender などが使う標準実装)に合わせるのが定石で、
+        /// **焼いた法線マップとまったく同じ接線でないと、細かい継ぎ目が出る**。
+        /// ここで作るのは素直な平均版なので、法線マップを焼いたツールとは厳密には一致しない。
+        /// </summary>
+        private static void GenerateTangents(Vertex[] vertices, uint[] indices, Vector2[] sourceUvs)
+        {
+            var accumulatedTangent = new Vector3[vertices.Length];
+            var accumulatedBitangent = new Vector3[vertices.Length];
+
+            for (int i = 0; i + 2 < indices.Length; i += 3)
+            {
+                uint i0 = indices[i];
+                uint i1 = indices[i + 1];
+                uint i2 = indices[i + 2];
+
+                Vector3 e1 = vertices[i1].Position - vertices[i0].Position;
+                Vector3 e2 = vertices[i2].Position - vertices[i0].Position;
+
+                Vector2 duv1 = sourceUvs[i1] - sourceUvs[i0];
+                Vector2 duv2 = sourceUvs[i2] - sourceUvs[i0];
+
+                float determinant = (duv1.X * duv2.Y) - (duv2.X * duv1.Y);
+
+                // 退化した UV。ここで捨てないと NaN が伝染する(上のコメント)。
+                if (MathF.Abs(determinant) < 1e-12f)
+                {
+                    continue;
+                }
+
+                float r = 1.0f / determinant;
+
+                Vector3 tangent = ((e1 * duv2.Y) - (e2 * duv1.Y)) * r;
+                Vector3 bitangent = ((e2 * duv1.X) - (e1 * duv2.X)) * r;
+
+                foreach (uint index in (ReadOnlySpan<uint>)[i0, i1, i2])
+                {
+                    accumulatedTangent[index] += tangent;
+                    accumulatedBitangent[index] += bitangent;
+                }
+            }
+
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                Vector3 normal = vertices[i].Normal;
+                Vector3 tangent = accumulatedTangent[i];
+
+                // **グラム・シュミットで法線に直交させる**。
+                // 足し込んだ接線は、法線とぴったり直角にはなっていない
+                // (共有する面ごとに少しずつ傾いているため)。
+                // 法線の向きの成分を引くと、面に乗った成分だけが残る。
+                tangent -= normal * Vector3.Dot(normal, tangent);
+
+                // 直交させた結果が 0 になることがある(接線が法線と平行だった)。
+                // そのときは適当な直交ベクトルで埋める——**絵は狂うが NaN よりまし**。
+                tangent = tangent.LengthSquared() > 1e-12f
+                    ? Vector3.Normalize(tangent)
+                    : Orthogonal(normal);
+
+                // **w は cross(N, T) が従接線と同じ向きかどうか**。
+                // 逆を向いていれば -1。UV が鏡像になっている面がこれになる。
+                float handedness =
+                    Vector3.Dot(Vector3.Cross(normal, tangent), accumulatedBitangent[i]) < 0.0f
+                        ? -1.0f
+                        : 1.0f;
+
+                vertices[i].Tangent = new Vector4(tangent, handedness);
+            }
+
+            // 法線に直交する適当な1本。**どの軸と組んでも平行にならない**ように選ぶ。
+            static Vector3 Orthogonal(Vector3 normal) =>
+                Vector3.Normalize(Vector3.Cross(
+                    normal,
+                    MathF.Abs(normal.Y) < 0.99f ? Vector3.UnitY : Vector3.UnitX));
         }
 
         // ===== アクセサ =====
@@ -440,6 +612,18 @@ internal static class GltfLoader
             int count = GetInt(accessor, "count", 0);
             var result = new Vector3[count];
             ReadFloats(accessor, count, 3, result.AsSpan());
+            return result;
+        }
+
+        private Vector4[] ReadVector4Accessor(int index)
+        {
+            JsonElement accessor = Get(_root, "accessors")[index];
+            RequireType(accessor, "VEC4", index);
+            RequireComponent(accessor, ComponentFloat, index);
+
+            int count = GetInt(accessor, "count", 0);
+            var result = new Vector4[count];
+            ReadFloats(accessor, count, 4, result.AsSpan());
             return result;
         }
 
@@ -666,6 +850,16 @@ internal static class GltfLoader
                 }
 
                 material.NormalTexture = ReadTexture(source, "normalTexture", srgb: false);
+
+                // **法線の強さは normalTexture の中に入っている**(Day 34)。
+                // baseColorFactor のようにマテリアル直下ではなく、
+                // テクスチャ参照の側に付くのが glTF の書き方。
+                // 既定は 1.0 なので、指定が無ければ素通しになる。
+                if (source.TryGetProperty("normalTexture", out JsonElement normalRef))
+                {
+                    material.NormalScale = GetFloat(normalRef, "scale", 1.0f);
+                }
+
                 material.OcclusionTexture = ReadTexture(source, "occlusionTexture", srgb: false);
 
                 // 発光は色なので sRGB。

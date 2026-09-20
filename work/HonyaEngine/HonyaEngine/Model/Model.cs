@@ -97,6 +97,19 @@ internal sealed class Model : IDisposable
 
     public int VertexCount { get; init; }
 
+    /// <summary>
+    /// ファイルに TANGENT が入っていたパーツの数(Day 34)。
+    ///
+    /// **持っているモデルのほうが少ない**のが実感で、今日の4体では
+    /// WaterBottle と Lantern だけが持っている。
+    /// 「エクスポータが出してくれるはず」と決め打ちすると、
+    /// DamagedHelmet のような有名モデルでいきなり法線マップが効かなくなる。
+    /// </summary>
+    public int FileTangentParts { get; init; }
+
+    /// <summary>接線をローダ側で作ったパーツの数(Day 34)。</summary>
+    public int GeneratedTangentParts { get; init; }
+
     /// <summary>このモデルが握っているテクスチャの枚数。</summary>
     public int TextureCount => _textures.Count;
 

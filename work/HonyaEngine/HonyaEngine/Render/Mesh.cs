@@ -36,6 +36,9 @@ internal sealed class Mesh<TVertex> : IDisposable
 
     private readonly uint _indexCount;
 
+    /// <summary>頂点の数。<see cref="ReadVertices"/> が読み返す量を知るために覚えておく。</summary>
+    private readonly int _vertexCount;
+
     private bool _disposed;
 
     public unsafe Mesh(
@@ -46,6 +49,7 @@ internal sealed class Mesh<TVertex> : IDisposable
     {
         _gl = gl;
         _indexCount = (uint)indices.Length;
+        _vertexCount = vertices.Length;
 
         // **VAO を先にバインドする**。以降の設定はカレントの VAO に記録される。
         _vertexArray = _gl.GenVertexArray();
@@ -114,6 +118,53 @@ internal sealed class Mesh<TVertex> : IDisposable
         _gl.BindVertexArray(0);
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
         _gl.BindBuffer(BufferTargetARB.ElementArrayBuffer, 0);
+    }
+
+    /// <summary>頂点の数。</summary>
+    public int VertexCount => _vertexCount;
+
+    /// <summary>
+    /// **GPU から頂点を読み返す**(Day 34)。自己チェック用。
+    ///
+    /// VBO へ送った内容は取り出せる。<c>glGetBufferSubData</c> は
+    /// <c>glBufferData</c> のちょうど逆で、GPU 側のバイト列を CPU のメモリへ書き戻す。
+    ///
+    /// <para>
+    /// <b>ただし遅い</b>。GPU から CPU への転送は、
+    /// **描画キューが空になるまで待つ**(同期する)ことが多い——
+    /// GL の呼び出しは普段は積むだけで返るが、
+    /// 「結果をよこせ」と言った瞬間だけ待たされる。
+    /// 毎フレーム呼ぶ類のものではなく、検査とデバッグのための窓口として置いてある。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>CPU 側に控えを持たない</b>という判断でもある。
+    /// コンストラクタで受け取った配列をそのまま保持すれば読み返しは要らないが、
+    /// DamagedHelmet の 14556 頂点 × 64 バイトで 930KB を、
+    /// **使うかどうか分からないのに常に払う**ことになる。
+    /// 当たり判定やレイキャストで頂点が要り用になったら(Phase 7)、
+    /// そのとき「持つ」へ倒すことを考えればよい。
+    /// </para>
+    /// </summary>
+    public unsafe TVertex[] ReadVertices()
+    {
+        var result = new TVertex[_vertexCount];
+        int stride = Unsafe.SizeOf<TVertex>();
+
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vertexBuffer);
+
+        fixed (TVertex* data = result)
+        {
+            _gl.GetBufferSubData(
+                BufferTargetARB.ArrayBuffer,
+                0,
+                (nuint)(_vertexCount * stride),
+                data);
+        }
+
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, 0);
+
+        return result;
     }
 
     /// <summary>
