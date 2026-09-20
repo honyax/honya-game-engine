@@ -47,17 +47,48 @@ internal struct Vertex
     /// </summary>
     public Vector3 Normal;
 
+    /// <summary>
+    /// 接線。**UV の U が増える向きが、3D 空間ではどちらか**。Day 34 で足した。
+    ///
+    /// 法線マップに入っているのは「接空間での法線」——
+    /// つまり**面に貼り付いた座標系での向き**であって、世界での向きではない。
+    /// 世界へ戻すには、その座標系の3本の軸が要る。
+    ///
+    ///   T(接線)   … U が増える向き。**このフィールド**
+    ///   B(従接線) … V が増える向き。<c>cross(N, T) * W</c> で作る
+    ///   N(法線)   … 面の向き。<see cref="Normal"/>
+    ///
+    /// <b>なぜ B を持たないのか</b>。3本のうち2本が決まれば3本目は外積で出るので、
+    /// 12 バイト節約できる。代わりに要るのが <see cref="Vector4.W"/> の1個で、
+    /// ここには **+1 か -1 しか入らない**——外積の向きが合っているか、逆かの符号。
+    ///
+    /// 逆になるのは、UV が鏡像になっている面
+    /// (左右対称のモデルで、片側の UV を裏返して使い回す定番の手)。
+    /// **符号を落とすと、鏡像の側だけ凹凸が反転する**。
+    /// 左右対称のキャラクタで「右半分だけ変」という壊れ方はたいていこれ。
+    ///
+    /// glTF の TANGENT はこの形(VEC4)でそのまま入っているので、
+    /// 仕様に合わせた結果として 4 成分になっている。
+    /// </summary>
+    public Vector4 Tangent;
+
     public Vertex(Vector3 position, Vector2 texCoord, Vector4 color)
         : this(position, texCoord, color, Vector3.UnitZ)
     {
     }
 
     public Vertex(Vector3 position, Vector2 texCoord, Vector4 color, Vector3 normal)
+        : this(position, texCoord, color, normal, new Vector4(1.0f, 0.0f, 0.0f, 1.0f))
+    {
+    }
+
+    public Vertex(Vector3 position, Vector2 texCoord, Vector4 color, Vector3 normal, Vector4 tangent)
     {
         Position = position;
         TexCoord = texCoord;
         Color = color;
         Normal = normal;
+        Tangent = tangent;
     }
 
     private static readonly VertexAttribute[] AttributeList =
@@ -66,6 +97,7 @@ internal struct Vertex
         VertexAttribute.Float(2),   // TexCoord
         VertexAttribute.Float(4),   // Color
         VertexAttribute.Float(3),   // Normal
+        VertexAttribute.Float(4),   // Tangent(Day 34。xyz = 接線、w = 従接線の符号)
     ];
 
     /// <summary>
@@ -78,10 +110,14 @@ internal struct Vertex
     /// 型情報を持つ <see cref="VertexAttribute"/> へ置き換えた。
     ///
     /// 3D 側は今のところ全部 float のままでよい。
-    /// 1頂点 48 バイト(位置12 + UV8 + 色16 + 法線12)で、
-    /// DamagedHelmet の 14556 頂点なら 700KB。この規模なら詰める意味が無い。
+    /// **Day 34 で 1頂点 64 バイト**(位置12 + UV8 + 色16 + 法線12 + 接線16)。
+    /// DamagedHelmet の 14556 頂点なら 930KB。この規模なら詰める意味が無い。
     /// 法線を byte に詰める、位置を half にする、といった圧縮が効いてくるのは
     /// 数百万頂点を扱い始めてから。
+    ///
+    /// なお**頂点色 16 バイトがいちばん無駄**で、glTF から読むモデルは全部 (1,1,1,1) が入る。
+    /// 消せば 48 バイトに戻るが、Day 15 からのデモ(面ごとに色を変えた立方体)が
+    /// 使っているので残してある。
     /// </summary>
     public static ReadOnlySpan<VertexAttribute> Attributes => AttributeList;
 }

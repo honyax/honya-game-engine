@@ -24,12 +24,21 @@ internal static class Primitives
         // 板は +Z を向いているので、法線は4頂点とも同じ(Day 32 で足した)。
         Vector3 normal = Vector3.UnitZ;
 
+        // 接線(Day 34)。**U が増える向き**を入れる。
+        // この板は左下 (0,0) → 右下 (1,0) で U が増えるので、+X がそのまま接線になる。
+        //
+        // w = +1 は「従接線 = cross(N, T) で合っている」の意味。
+        // 確かめると cross((0,0,1), (1,0,0)) = (0,1,0) = +Y で、
+        // 左下 → 左上 で V が増える向きと一致する。**合っているか必ず手で確かめる**——
+        // 符号を間違えても絵は出て、凹凸だけが裏返る。
+        var tangent = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+
         ReadOnlySpan<Vertex> vertices =
         [
-            new(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0.0f, 0.0f), white, normal),   // 左下
-            new(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1.0f, 0.0f), white, normal),    // 右下
-            new(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1.0f, 1.0f), white, normal),     // 右上
-            new(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0.0f, 1.0f), white, normal),    // 左上
+            new(new Vector3(-0.5f, -0.5f, 0.0f), new Vector2(0.0f, 0.0f), white, normal, tangent),   // 左下
+            new(new Vector3(0.5f, -0.5f, 0.0f), new Vector2(1.0f, 0.0f), white, normal, tangent),    // 右下
+            new(new Vector3(0.5f, 0.5f, 0.0f), new Vector2(1.0f, 1.0f), white, normal, tangent),     // 右上
+            new(new Vector3(-0.5f, 0.5f, 0.0f), new Vector2(0.0f, 1.0f), white, normal, tangent),    // 左上
         ];
 
         ReadOnlySpan<uint> indices = [0, 1, 2, 2, 3, 0];
@@ -109,10 +118,20 @@ internal static class Primitives
         Vector3 normal = Vector3.Normalize(
             Vector3.Cross(bottomRight - bottomLeft, topLeft - bottomLeft));
 
-        vertices.Add(new Vertex(bottomLeft, new Vector2(0.0f, 0.0f), color, normal));
-        vertices.Add(new Vertex(bottomRight, new Vector2(1.0f, 0.0f), color, normal));
-        vertices.Add(new Vertex(topRight, new Vector2(1.0f, 1.0f), color, normal));
-        vertices.Add(new Vertex(topLeft, new Vector2(0.0f, 1.0f), color, normal));
+        // **接線も面から出る**(Day 34)。渡される4点は「左下 → 右下 → 右上 → 左上」で、
+        // UV も同じ順に (0,0) → (1,0) → (1,1) → (0,1) を割り当てているので、
+        // **左下 → 右下 が U の増える向き**そのものになる。
+        //
+        // w = +1 でよいことは、板(CreateQuad)と同じ確かめ方でどの面でも成り立つ——
+        // cross(N, T) が「左下 → 左上」を向く。UV の割り当てを1面でも変えると崩れるので、
+        // 面ごとに UV を変えたくなったときはここも見直すこと。
+        Vector3 tangent = Vector3.Normalize(bottomRight - bottomLeft);
+        var tangent4 = new Vector4(tangent, 1.0f);
+
+        vertices.Add(new Vertex(bottomLeft, new Vector2(0.0f, 0.0f), color, normal, tangent4));
+        vertices.Add(new Vertex(bottomRight, new Vector2(1.0f, 0.0f), color, normal, tangent4));
+        vertices.Add(new Vertex(topRight, new Vector2(1.0f, 1.0f), color, normal, tangent4));
+        vertices.Add(new Vertex(topLeft, new Vector2(0.0f, 1.0f), color, normal, tangent4));
 
         // 四角形を三角形2枚に割る。渡された順が CCW なら、この並びも CCW になる。
         indices.Add(baseIndex + 0);

@@ -159,6 +159,34 @@ internal sealed class RenderResources : IDisposable
     }
 
     /// <summary>
+    /// **手で組み立てたピクセル列**から作る。Day 34 で足した。
+    ///
+    /// <see cref="LoadTextureFromMemory"/> は PNG / JPEG を復号する経路だが、
+    /// <see cref="SurfaceMaps"/> が作るのは復号済みの RGBA なので、
+    /// 「復号する」の一段を飛ばしたい。
+    ///
+    /// 窓口を通す意味は変わらない——**寿命の管理とキャッシュが1箇所に残る**。
+    /// ここを通さずに <see cref="Texture"/> を直接 new すると、
+    /// そのテクスチャだけ <see cref="Dispose"/> の対象から外れる。
+    /// </summary>
+    /// <param name="cacheKey">中身を一意に表す文字列。**生成のパラメータを混ぜること**。</param>
+    public Handle<Texture> LoadTextureFromPixels(
+        string cacheKey, ReadOnlySpan<byte> rgba, int width, int height,
+        bool generateMipmaps = true, bool srgb = true)
+    {
+        string key = MakeMemoryKey(cacheKey, generateMipmaps, srgb);
+        if (TryReuse(key, out Handle<Texture> existing))
+        {
+            return existing;
+        }
+
+        Texture texture = Texture.FromPixels(_gl, rgba, width, height, generateMipmaps, srgb);
+        Handle<Texture> handle = _textures.Add(texture);
+        Register(key, handle);
+        return handle;
+    }
+
+    /// <summary>
     /// 非同期でテクスチャを読む。**その場でハンドルが返る**。
     ///
     /// 返ってくるハンドルは最初から有効で、指す先は仮の絵。

@@ -8,6 +8,9 @@ layout (location = 2) in vec4 aColor;
 // Day 32 で足した。**末尾に足す**ことで 0〜2 の番号を動かさずに済ませている。
 layout (location = 3) in vec3 aNormal;
 
+// Day 34。同じ理由でさらに末尾。xyz が接線、w が従接線の符号(+1 / -1)。
+layout (location = 4) in vec4 aTangent;
+
 // --- フレームごとに変わる(カメラが設定。1フレームに1回) ---
 // ビュー行列と投影行列を掛け合わせたもの。オブジェクトが何個あっても同じ値なので、
 // 描画のたびに送り直す必要が無い。uniform は**プログラムに紐づく状態**で、
@@ -35,6 +38,10 @@ uniform mat3 uNormalMatrix;
 // ここがずれると影が丸ごとずれるので、2か所で組み立ててはいけない。
 uniform mat4 uLightSpaceMatrix;
 
+// カメラの位置(Day 34)。視差マッピングは「どこから見ているか」で
+// UV のずらし方が変わるので、視線ベクトルが要る。
+uniform vec3 uCameraPosition;
+
 // --- マテリアルごとに変わる(Material.Apply が設定) ---
 uniform vec2 uUvScale;
 
@@ -54,6 +61,23 @@ out vec3 vWorldPos;
 // 頂点側でやってラスタライザに運ばせるのが正しい
 // (法線のように「補間で長さが崩れる」たぐいの問題も、位置には無い)。
 out vec4 vLightSpacePos;
+
+// --- Day 34: 接空間 ---
+//
+// **世界空間の TBN をそのまま渡す**。法線マップから読んだ接空間の法線を
+// 世界へ持ち上げるのに使う(frag 側で mat3(T, B, N) を組む)。
+//
+// 行列 1 本(mat3)で渡してもよいが、3本のベクトルとして渡すのと同じこと。
+// 分けておくと**接線だけ・従接線だけを色に出す**デバッグ表示が書きやすい。
+out vec3 vTangent;
+out vec3 vBitangent;
+
+/// 接空間から見た視線の向き(面 → カメラ)。**視差マッピングの入力そのもの**。
+///
+/// 世界空間のまま frag へ渡して、frag で接空間へ回してもよい。
+/// ここで回しておくのは、**行列とベクトルの積を頂点の数だけで済ませる**ため
+/// (Day 33 の vLightSpacePos と同じ判断)。
+out vec3 vTangentViewDir;
 
 void main()
 {
@@ -77,4 +101,36 @@ void main()
     // 頂点間で線形補間された法線は短くなるので、
     // 受け取ったフラグメント側で正規化し直すのが正しい。
     vNormal = uNormalMatrix * aNormal;
+
+    // --- Day 34: 接空間の3本の軸を世界空間へ ---
+    //
+    // **接線も法線行列で運ぶ**。位置ではなく向きなので uModel ではない……
+    // というのは半分だけ正しくて、接線は「面に沿ったベクトル」なので
+    // 本当は uModel の 3x3 で運ぶのが厳密。
+    // 法線だけが逆転置を要る特別扱い(Day 32 の要点6)で、接線は違う。
+    //
+    // それでも uNormalMatrix を使っているのは、
+    // **直後に法線と直交させ直す**ので、一様スケールと回転の範囲では結果が同じになるため。
+    // 非一様スケールでは厳密には差が出るが、そのときは法線マップ自体が伸びるので、
+    // 接線だけ正しくしても意味が無い。
+    vec3 t = normalize(uNormalMatrix * aTangent.xyz);
+    vec3 n = normalize(vNormal);
+
+    // **グラム・シュミット**。補間と変換で直交が崩れているので、その場で立て直す。
+    // これを省くと、法線マップの傾きがわずかにねじれた方向へ乗る。
+    t = normalize(t - (n * dot(n, t)));
+
+    // 従接線は外積で作る。w がその向きの符号(Vertex.Tangent のコメント)。
+    vec3 b = cross(n, t) * aTangent.w;
+
+    vTangent = t;
+    vBitangent = b;
+
+    // 世界空間の視線(面 → カメラ)を、接空間へ持ち込む。
+    //
+    // **転置が逆行列になる**のが直交行列の便利なところ。
+    // TBN は「接空間 → 世界」なので、逆(世界 → 接空間)は本来 inverse だが、
+    // 3本が正規直交なら転置で済む。だから行ごとに内積を取るだけでよい。
+    vec3 worldViewDir = uCameraPosition - worldPos.xyz;
+    vTangentViewDir = vec3(dot(worldViewDir, t), dot(worldViewDir, b), dot(worldViewDir, n));
 }
