@@ -38,6 +38,7 @@ usage() {
   ./diff.sh Day15/Day15.csproj
   ./diff.sh Day15
   ./diff.sh Day25/Physics
+  ./diff.sh Day63a/Sandbox        (分けたDayは枝番を付けたまま指定する)
 
 差分は前後の文脈行を出さない。文脈が欲しいときは:
   DIFF_CONTEXT=3 ./diff.sh Day15/Shader.cs
@@ -48,12 +49,14 @@ USAGE
 
 # Day番号から写経先のプロジェクトを決める(CLAUDE.md の「5系統」に対応)。
 # 教養編のうちエンジンと独立した題材は work/Labs の下に、題材ごとのプロジェクトとして置く。
+# 引数は枝番を落とした数字(62a なら 62)。
 work_dir_for_day() {
     local n=$((10#$1))
     if   [ "$n" -le 1  ]; then echo "work/Framebuffer"
     elif [ "$n" -le 10 ]; then echo "work/SoftwareRasterizer"
     elif [ "$n" -le 13 ]; then echo "work/RawGL"
     elif [ "$n" -ge 59 ] && [ "$n" -le 61 ]; then echo "work/Labs/CpuRayTracer"
+    elif [ "$n" -eq 62 ]; then echo "work/Labs/HardwareRayTracer"
     else                       echo "work/HonyaEngine/HonyaEngine"
     fi
 }
@@ -152,16 +155,18 @@ target="${1#./}"; target="${target#reference/}"; target="${target%/}"
 day="${target%%/*}"
 rest="${target#"$day"}"; rest="${rest#/}"
 
-# day15 や Day5 のような書き方も受け付けて DayXX に正規化する
-if [[ "$day" =~ ^[Dd]ay0*([0-9]{1,2})$ ]]; then
-    day="$(printf 'Day%02d' "$((10#${BASH_REMATCH[1]}))")"
+# day15 や Day5 のような書き方も受け付けて DayXX に正規化する。
+# 1日の分量が多くて分けたDay(Day62a / Day63b など)は、枝番を付けたまま扱う。
+if [[ "$day" =~ ^[Dd]ay0*([0-9]{1,2})([a-z]?)$ ]]; then
+    day_number="${BASH_REMATCH[1]}"
+    day="$(printf 'Day%02d%s' "$((10#$day_number))" "${BASH_REMATCH[2]}")"
 else
-    echo "${C_RED}エラー${C_OFF}: Day番号の指定が不正です: '$day'(例: Day15)" >&2
+    echo "${C_RED}エラー${C_OFF}: Day番号の指定が不正です: '$day'(例: Day15 / Day63a)" >&2
     exit 2
 fi
 
 ref_day="$ROOT/reference/$day"
-work_rel="$(work_dir_for_day "${day#Day}")"
+work_rel="$(work_dir_for_day "$day_number")"
 work_dir="$ROOT/$work_rel"
 
 [ -d "$ref_day" ] || { echo "${C_RED}エラー${C_OFF}: $ref_day がありません" >&2; exit 2; }
