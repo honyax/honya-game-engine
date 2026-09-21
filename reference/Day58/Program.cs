@@ -6449,7 +6449,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// ブロードフェーズのマスを線で描く(「地形とブロードフェーズ」の F4)。**中身のあるマスだけ**(要点7)。
+    /// ブロードフェーズのマスを線で描く(「地形とブロードフェーズ」の F4)。**中身のあるマスだけ**(要点3)。
     ///
     /// 空のマスまで描くと画面が線で埋まって何も読めない。
     /// 中身のあるマスだけ描けば、<b>体がどう散らばっているか</b>と
@@ -16943,7 +16943,7 @@ internal static class Program
 
         terrain.Add("ブロードフェーズ", "均一グリッドと総当たり。**絵は変わらない**", () =>
         {
-            // **今日いちばん分かりやすい実験**(要点5)。
+            // **今日いちばん分かりやすい実験**(要点1)。
             // 絵は1ピクセルも変わらず、HUD の「候補」と ms だけが動く。
             Physics.Broadphase = Physics.Broadphase == BroadphaseMode.UniformGrid
                 ? BroadphaseMode.BruteForce
@@ -21122,7 +21122,6 @@ internal static class Program
         Console.WriteLine();
     }
 
-    /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>
     /// <summary>
     /// Day 46 の自己チェック(「地形とブロードフェーズ」の F8)。**窓を1枚も出さずに走る**。
     ///
@@ -21144,7 +21143,7 @@ internal static class Program
         var checks = new CheckList();
 
         // ============================================================
-        //  1. AABB(要点5)
+        //  1. AABB(要点1)
         // ============================================================
 
         var unit = new Aabb3D(new Vector3(-1.0f), new Vector3(1.0f));
@@ -21562,7 +21561,7 @@ internal static class Program
             $"{MathF.Acos(Math.Clamp(spawnNormal.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI:F3}度");
 
         // ============================================================
-        //  5. ブロードフェーズ(要点5〜7)
+        //  5. ブロードフェーズ(要点1〜3)
         // ============================================================
 
         var grid = new SpatialGrid3D();
@@ -21685,7 +21684,7 @@ internal static class Program
             new PhysicsWorld().QueryCapsule(standing, hits) == 0);
 
         // ============================================================
-        //  6. 通しで動かす(要点8)
+        //  6. 通しで動かす(Day 46a の要点5)
         // ============================================================
 
         var settled = BuildBroadphaseWorld(BroadphaseMode.UniformGrid, 2.0f);
@@ -22619,6 +22618,7 @@ internal static class Program
         return puck.Position.X - startX;
     }
 
+    /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>
     private static Vector3 RandomPoint(Random random) =>
         new(
             (float)((random.NextDouble() * 2.0) - 1.0),

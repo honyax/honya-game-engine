@@ -487,7 +487,7 @@ internal sealed class RigidBody
     public Terrain3D ToTerrain() => new(Shape.Field!, Position);
 
     /// <summary>
-    /// 外接する AABB。**ブロードフェーズが見るのはこれだけ**(Day 46 の要点5)。
+    /// 外接する AABB。**ブロードフェーズが見るのはこれだけ**(Day 46b の要点1)。
     ///
     /// 形ごとに外接箱の作り方は違うが、<b>出てくるものは同じ型</b>。
     /// おかげで <see cref="SpatialGrid3D"/> は形の札を1度も見ずに済む——
