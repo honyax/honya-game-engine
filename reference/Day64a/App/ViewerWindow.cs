@@ -1,0 +1,398 @@
+using System.Diagnostics;
+using System.Drawing.Imaging;
+using System.Drawing.Text;
+using System.Runtime.InteropServices;
+
+namespace MeshletRenderer;
+
+/// <summary>
+/// 窓。Day 62c の同名のクラスから持ってきた。「自前のループ + LockBits で転送」の形はそのまま。
+///
+/// <para>
+/// <b>Vulkan は今日も画面に一切関わっていない</b>。ラスタライズした絵も、GPU の画像から
+/// <c>int[]</c> へ引き取って Day 1 と同じやり方で貼るだけ(スワップチェーンは作らない)。
+/// </para>
+/// <para>
+/// 変わったのはキーと HUD。<c>B</c> が「探し方」から「描き方」(メッシュ / 頂点)に、
+/// <c>O</c>(メッシュレットの切り方)が増え、HUD に<b>各段が何回走ったか</b>の行が増えた。
+/// </para>
+/// </summary>
+internal sealed class ViewerWindow : Form
+{
+    private const double TargetFps = 60.0;
+
+    private readonly int _width;
+    private readonly int _height;
+
+    private readonly VulkanDevice? _device;
+
+    /// <summary>GPU の素性、または使えなかった理由。HUD に出す。</summary>
+    private readonly string _deviceMessage;
+
+    private readonly ShaderCompiler? _compiler;
+
+    /// <summary>
+    /// 形は1つだけ。起動時に1回作って使い回す(体の数や切り方を変えても形は変わらない)。
+    /// </summary>
+    private readonly MeshData _mesh = TorusKnot.Create();
+
+    private readonly int[] _pixels;
+    private readonly Bitmap _backBuffer;
+
+    private readonly Font _font = new("Meiryo UI", 9.0f);
+    private readonly SolidBrush _textBrush = new(Color.White);
+    private readonly SolidBrush _panelBrush = new(Color.FromArgb(170, 0, 0, 0));
+
+    private Graphics? _screen;
+    private Graphics? _overlay;
+    private bool _running;
+
+    private MeshRenderer? _renderer;
+
+    /// <summary>シェーダの翻訳やパイプラインの作成に失敗したときの説明。HUD に出す。</summary>
+    private string? _error;
+
+    private int _presetIndex = 1;
+    private int _mode;
+
+    /// <summary>描き方。起動時はメッシュシェーダ——今日の主役なので最初から見せる。</summary>
+    private DrawPath _path = DrawPath.MeshShader;
+
+    private MeshletStrategy _strategy = MeshletStrategy.Grow;
+    private OrbitView _view;
+    private bool _hudVisible = true;
+
+    /// <summary>直近のフレームの所要時間の平均(ms)。1フレームだけ見ると揺れが大きい。</summary>
+    private double _averageMilliseconds;
+
+    /// <summary>同じく、描く命令だけの GPU の時間の平均(ms)。</summary>
+    private double _averageDrawMilliseconds;
+
+    // --- マウスで回す ---
+    private bool _dragging;
+    private Point _dragStart;
+    private OrbitView _dragStartView;
+
+    public ViewerWindow(int width, int height)
+    {
+        _width = width;
+        _height = height;
+        _pixels = new int[width * height];
+        _backBuffer = new Bitmap(width, height, PixelFormat.Format32bppRgb);
+        _view = SceneData.DefaultView(SceneData.Presets[_presetIndex]);
+
+        // **失敗しても落とさない**。Vulkan が使えない環境でも「なぜ駄目か」を画面に出したい。
+        _device = VulkanDevice.TryCreate(out _deviceMessage);
+        if (_device is not null)
+        {
+            _compiler = new ShaderCompiler();
+            RebuildRenderer();
+        }
+
+        Text = "Day64a - メッシュシェーダ: 頂点を配らずに三角形を作る";
+
+        // Day 1 と同じ。自動の DPI 拡大を止めて、描いた1画素 = 画面の1画素にする。
+        AutoScaleMode = AutoScaleMode.None;
+        ClientSize = new Size(width, height);
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
+        StartPosition = FormStartPosition.CenterScreen;
+        SetStyle(ControlStyles.Opaque | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint, true);
+    }
+
+    public void Run()
+    {
+        Show();
+        _screen = CreateGraphics();
+        _overlay = Graphics.FromImage(_backBuffer);
+        _overlay.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+        _running = true;
+
+        var clock = Stopwatch.StartNew();
+        double nextFrameSeconds = 0.0;
+
+        while (_running)
+        {
+            Application.DoEvents();
+            if (!_running)
+            {
+                break;
+            }
+
+            if (_renderer is not null)
+            {
+                _renderer.Render(new Camera(_view, _width, _height), _mode, _path, _pixels);
+
+                // 指数移動平均。1フレームの値は揺れるので、読める形にならす。
+                _averageMilliseconds = Smooth(_averageMilliseconds, _renderer.LastFrameMilliseconds);
+                _averageDrawMilliseconds = Smooth(_averageDrawMilliseconds, _renderer.LastDrawMilliseconds);
+            }
+
+            Present();
+
+            nextFrameSeconds = Math.Max(nextFrameSeconds + 1.0 / TargetFps, clock.Elapsed.TotalSeconds);
+            int sleepMilliseconds = (int)((nextFrameSeconds - clock.Elapsed.TotalSeconds) * 1000.0);
+            if (sleepMilliseconds > 0)
+            {
+                // **GPU を 100% に張り付かせない**ための休み(Day 61・62 と同じ配慮)。
+                Thread.Sleep(sleepMilliseconds);
+            }
+        }
+    }
+
+    private static double Smooth(double average, double sample)
+        => average == 0.0 ? sample : average * 0.9 + sample * 0.1;
+
+    /// <summary>
+    /// 体の数か切り方を変えたので、レンダラを作り直す。
+    ///
+    /// <para>
+    /// 作り直しの中身は「メッシュレットを切る(CPU、数十 ms)」「バッファを作って転送する」
+    /// 「シェーダを翻訳してパイプラインを作る」の3つ。形(<see cref="_mesh"/>)は作り直さない。
+    /// </para>
+    /// </summary>
+    private void RebuildRenderer()
+    {
+        if (_device is null || _compiler is null)
+        {
+            return;
+        }
+
+        _renderer?.Dispose();
+        _renderer = null;
+        _error = null;
+        _averageMilliseconds = 0.0;
+        _averageDrawMilliseconds = 0.0;
+
+        try
+        {
+            MeshletSet meshlets = MeshletBuilder.Build(_mesh, _strategy);
+            _renderer = new MeshRenderer(
+                _device, _width, _height,
+                _mesh, meshlets, SceneData.CreateInstances(SceneData.Presets[_presetIndex]),
+                _compiler, Path.Combine(AppContext.BaseDirectory, "shaders"));
+        }
+        catch (Exception e)
+        {
+            // GLSL を書き換えて試しているときはここに来る。落とさずに理由を画面に出す。
+            _error = e.Message;
+        }
+    }
+
+    /// <summary>
+    /// いま実際に使われる描き方。メッシュの道を持っていなければ頂点の道に落ちる
+    /// (<see cref="MeshRenderer.Render"/> と同じ判断を HUD 側でもする)。
+    /// </summary>
+    private DrawPath Effective()
+        => _path == DrawPath.MeshShader && _renderer?.MeshShaderAvailable != true ? DrawPath.VertexShader : _path;
+
+    private void Present()
+    {
+        CopyPixelsTo(_backBuffer);
+
+        if (_hudVisible)
+        {
+            DrawHud(_overlay!);
+        }
+
+        _screen!.DrawImage(_backBuffer, new Rectangle(0, 0, _width, _height));
+    }
+
+    /// <summary>Day 1 の Present と同じ。行ごとに Stride で進めてコピーする。</summary>
+    private void CopyPixelsTo(Bitmap bitmap)
+    {
+        BitmapData data = bitmap.LockBits(new Rectangle(0, 0, _width, _height), ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
+        try
+        {
+            for (int y = 0; y < _height; y++)
+            {
+                Marshal.Copy(_pixels, y * _width, data.Scan0 + y * data.Stride, _width);
+            }
+        }
+        finally
+        {
+            bitmap.UnlockBits(data);
+        }
+    }
+
+    private void DrawHud(Graphics g)
+    {
+        string[] modeNames = ["陰影", "メッシュレットごとの色", "三角形ごとの色"];
+        int count = SceneData.Presets[_presetIndex];
+
+        var lines = new List<string>
+        {
+            $"GPU   : {_deviceMessage}",
+            $"場面  : トーラスノット {count} 体 / 三角形 {(double)_mesh.TriangleCount * count / 10000.0:F0} 万枚"
+                + $" (1/2/3/4 で {string.Join(" / ", SceneData.Presets)} 体)",
+            $"描き方: {(Effective() == DrawPath.MeshShader ? "メッシュシェーダ" : "頂点シェーダ")} (B)",
+            $"表示  : {modeNames[_mode]} (M)",
+        };
+
+        if (_renderer is not null)
+        {
+            MeshletSet m = _renderer.Meshlets;
+            lines.Add($"分割  : {(m.Strategy == MeshletStrategy.Grow ? "育てる" : "並び順のまま")} (O)"
+                + $"  1体 {m.Meshlets.Length} 個 / 三角形 {m.TrianglesPerMeshlet:F1} 枚・頂点 {m.VerticesPerMeshlet:F1} 個 (個あたり)"
+                + $" / 頂点の重複 x{m.VertexDuplication:F2} / {m.BuildMilliseconds:F0} ms");
+
+            double ms = _averageMilliseconds;
+            lines.Add($"1枚   : {ms:F2} ms ({(ms > 0.0 ? 1000.0 / ms : 0.0):F0} 枚/秒)"
+                + $"  うち描画 {_averageDrawMilliseconds:F2} ms (GPU)");
+
+            // 今日の目。**どの段が何回走ったか**を GPU に数えさせた値(要点6)。
+            DrawStatistics s = _renderer.LastStatistics;
+            // メッシュシェーダの回数だけは数えずに計算で出す(MeshRenderer の _meshStatistics の説明)。
+            string shader = Effective() == DrawPath.MeshShader
+                ? $"メッシュシェーダ {_renderer.MeshWorkGroups:N0} 組 x 32 人"
+                : $"頂点シェーダ {s.VertexShaderInvocations:N0} 回";
+            lines.Add($"内訳  : {shader} / ラスタライザへ 三角形 {s.Triangles:N0} 枚 / 画素シェーダ {s.FragmentShaderInvocations:N0} 回");
+        }
+
+        if (_device is not null && !_device.MeshShaderSupported)
+        {
+            lines.Add("この GPU はメッシュシェーダに対応していません(頂点シェーダのみ)");
+        }
+
+        if (_error is not null)
+        {
+            // 翻訳エラーは何行にもなるので、先頭3行だけ出す。
+            lines.Add(string.Empty);
+            foreach (string line in _error.Split('\n').Take(3))
+            {
+                lines.Add(line.TrimEnd());
+            }
+        }
+
+        lines.Add(string.Empty);
+        lines.Add("ドラッグ: 回す / ホイール: 寄る / R: 視点を戻す / H: この表示 / Esc: 終了");
+
+        float lineHeight = _font.GetHeight(g) + 2.0f;
+        var rect = new RectangleF(0.0f, 0.0f, _width, lines.Count * lineHeight + 8.0f);
+        g.FillRectangle(_panelBrush, rect);
+
+        float y = 4.0f;
+        foreach (string line in lines)
+        {
+            g.DrawString(line, _font, _textBrush, 6.0f, y);
+            y += lineHeight;
+        }
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+
+        switch (e.KeyCode)
+        {
+            case Keys.Escape:
+                _running = false;
+                break;
+
+            case Keys.D1:
+            case Keys.D2:
+            case Keys.D3:
+            case Keys.D4:
+                _presetIndex = e.KeyCode - Keys.D1;
+                _view = SceneData.DefaultView(SceneData.Presets[_presetIndex]);
+                RebuildRenderer();
+                break;
+
+            // 描き方を切り替える。**作り直しは起きない**——2本のパイプラインは起動時に両方できていて、
+            // 束ねるハンドルが変わるだけ(Day 62b と同じ)。
+            case Keys.B:
+                _path = _path == DrawPath.MeshShader ? DrawPath.VertexShader : DrawPath.MeshShader;
+                _averageMilliseconds = 0.0;
+                _averageDrawMilliseconds = 0.0;
+                break;
+
+            // 切り方を変える。こちらはメッシュレットを切り直すので作り直す。
+            case Keys.O:
+                _strategy = _strategy == MeshletStrategy.Grow ? MeshletStrategy.Scan : MeshletStrategy.Grow;
+                RebuildRenderer();
+                break;
+
+            case Keys.M:
+                _mode = (_mode + 1) % 3;
+                break;
+
+            case Keys.R:
+                _view = SceneData.DefaultView(SceneData.Presets[_presetIndex]);
+                break;
+
+            case Keys.H:
+                _hudVisible = !_hudVisible;
+                break;
+        }
+    }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button == MouseButtons.Left)
+        {
+            _dragging = true;
+            _dragStart = e.Location;
+            _dragStartView = _view;
+        }
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (!_dragging)
+        {
+            return;
+        }
+
+        float dx = (e.X - _dragStart.X) * 0.006f;
+        float dy = (e.Y - _dragStart.Y) * 0.006f;
+        _view = _dragStartView with
+        {
+            Yaw = _dragStartView.Yaw - dx,
+
+            // 真上・真下を越えると、カメラの「右」を作る外積が壊れる(前とワールドの上が平行になる)。
+            Pitch = Math.Clamp(_dragStartView.Pitch + dy, -1.45f, 1.45f),
+        };
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        _dragging = false;
+    }
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        float scale = MathF.Pow(0.9f, e.Delta / 120.0f);
+        _view = _view with { Distance = Math.Clamp(_view.Distance * scale, 2.0f, 80.0f) };
+    }
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        _running = false;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            // **順番が大事**。レンダラが持つ資源はデバイスより先に壊す
+            // (Vulkan は参照を数えてくれないので、デバイスを先に壊すと落ちる)。
+            _renderer?.Dispose();
+            _compiler?.Dispose();
+            _device?.Dispose();
+
+            _screen?.Dispose();
+            _overlay?.Dispose();
+            _backBuffer.Dispose();
+            _font.Dispose();
+            _textBrush.Dispose();
+            _panelBrush.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+}

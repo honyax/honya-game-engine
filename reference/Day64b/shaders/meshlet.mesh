@@ -1,0 +1,83 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+// メッシュシェーダ。**今日の主役**。
+//
+// 1つのワークグループ(32 人)が、1つのメッシュレット(頂点 64 個・三角形 124 枚まで)を丸ごと受け持つ。
+// 頂点シェーダと違って、
+//   - 誰も頂点を配ってくれない → **自分でバッファから読む**
+//   - 出せる量の上限を**先に宣言する**(max_vertices / max_primitives)→ 出力の置き場所の大きさが最初から決まる
+//   - 出す場所を**番号で指定して書く** → 32 人が同時に、ばらばらの順で書いてよい
+//     (ラスタライズの順番は「出力の配列の何番目か」で決まる。書いた時刻の順ではない)
+// Day 63a のジオメトリシェーダは EmitVertex() で1つずつ後ろに付け足したので、
+// 何個出るか実行するまで分からず、付け足した順がそのまま出力の順になった。この違いが Day 64a の要点3。
+//
+// **Day 64b: このファイルは2回翻訳する**。USE_TASK を定義したほうはタスクシェーダの後ろに付き、
+// 「どのメッシュレットを描くか」をタスクシェーダの荷物から受け取る。定義しないほうは Day 64a のまま。
+#include "common.glsl"
+
+// ワークグループの人数。**GPU の推奨値**(maxPreferredMeshWorkGroupInvocations。RTX 3070 は 32)に合わせる。
+layout(local_size_x = 32) in;
+
+// 出せる量の上限。MeshletBuilder.MaxVertices / MaxTriangles と一致させる。
+// ここに書いた量が**出力の置き場所としてあらかじめ確保される**(実際に出す数が少なくても)。
+layout(triangles, max_vertices = 64, max_primitives = 124) out;
+
+// 頂点ごとの出力。配列の添字が「何番目の頂点か」。
+layout(location = 0) out vec3 vNormal[];
+layout(location = 1) out vec3 vWorld[];
+layout(location = 2) flat out uint vInstance[];
+
+#ifdef USE_TASK
+// タスクシェーダが書いた荷物。同じタスクのワークグループから生まれたメッシュシェーダ全員が読める。
+taskPayloadSharedEXT TaskPayload payload;
+#endif
+
+void main()
+{
+#ifdef USE_TASK
+    // タスクシェーダが EmitMeshTasksEXT(生き残った数, 1, 1) で呼んでいる。
+    // gl_WorkGroupID.x は「生き残った中の何番目か」なので、荷物から本当のメッシュレットの番号を引く。
+    uint meshletIndex = payload.meshlets[gl_WorkGroupID.x];
+    uint instance = payload.instance;
+#else
+    // どの体のどのメッシュレットか。vkCmdDrawMeshTasksEXT(メッシュレットの数, 体の数, 1) で呼んでいる。
+    uint meshletIndex = gl_WorkGroupID.x;
+    uint instance = gl_WorkGroupID.y;
+#endif
+    Meshlet meshlet = meshlets[meshletIndex];
+    mat4 model = instances[instance];
+
+    // **実際に出す数を宣言する**(上限以下)。この呼び出しより前に出力へ書いてはいけない。
+    // 32 人全員が同じ値で呼ぶ(ワークグループの中で1回、全員がそろって通る場所で呼ぶ決まり)。
+    SetMeshOutputsEXT(meshlet.vertexCount, meshlet.triangleCount);
+
+    // ---- 頂点: 64 個を 32 人で。1人 2 個 ----------------------------------------------
+    // gl_LocalInvocationIndex(0〜31)から始めて 32 ずつ飛ぶ。こうすると隣の人が隣の頂点を読むので、
+    // メモリの読み方が揃う(32 人ぶんの読み込みが1回にまとまる)。
+    for (uint i = gl_LocalInvocationIndex; i < meshlet.vertexCount; i += 32u)
+    {
+        Vertex v = vertices[meshletVertices[meshlet.vertexOffset + i]];
+
+        // scene.vert と同じ式・同じ順(2つの道で同じ絵を出すため)。
+        vec4 world = model * vec4(v.position.xyz, 1.0);
+        gl_MeshVerticesEXT[i].gl_Position = frame.viewProj * world;
+        vNormal[i] = mat3(model) * v.normal.xyz;
+        vWorld[i] = world.xyz;
+        vInstance[i] = instance;
+    }
+
+    // ---- 三角形: 124 枚を 32 人で。1人 4 枚まで ---------------------------------------
+    for (uint i = gl_LocalInvocationIndex; i < meshlet.triangleCount; i += 32u)
+    {
+        uint packed = meshletTriangles[meshlet.triangleOffset + i];
+
+        // 局所番号3つ(このメッシュレットの中での頂点の番号)で三角形を1枚作る。
+        gl_PrimitiveTriangleIndicesEXT[i] = uvec3(packed & 0xFFu, (packed >> 8u) & 0xFFu, (packed >> 16u) & 0xFFu);
+
+        // **三角形ごとの出力**。頂点シェーダには書けない種類の値(要点3)。
+        // 画素シェーダの gl_PrimitiveID に届く。頂点の道で「k 番目の三角形」になるのと同じ番号を入れて、
+        // 2つの道で同じ色分けになるようにする。
+        gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int(meshlet.triangleOffset + i);
+    }
+}

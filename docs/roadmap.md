@@ -181,7 +181,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 
 デモには載せないが学びとして価値の高い技術。ここは順不同でつまみ食い可。
 
-**ハードウェア条件の注意**: Day 62b・62c(ハードウェアRT)とDay 64(メッシュシェーダ)はGPU世代の条件あり(NVIDIA RTX 2000系以降/AMD RX 6000系以降。APIはSilk.NET経由のVulkanを使用)。それ以外のDayはどのGPUでも(Day 59〜60はCPUのみでも)動きます。
+**ハードウェア条件の注意**: Day 62b・62c(ハードウェアRT)とDay 64a・64b(メッシュシェーダ)はGPU世代の条件あり(NVIDIA RTX 2000系以降/AMD RX 6000系以降。APIはSilk.NET経由のVulkanを使用)。それ以外のDayはどのGPUでも(Day 59〜60はCPUのみでも)動きます。
 
 | Day | 状態 | 内容 | ポイント |
 |---|---|---|---|
@@ -195,14 +195,15 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | 62c |  | レイトレーシングパイプラインと SBT | raygen / miss / closest-hit / intersection の分割。材質の分岐がシェーダの分割になる |
 | 63a |  | ジオメトリシェーダ | 特論B-15、西川本Ch5。法線の可視化・面の押し出し・点→板・**輪郭抽出**。素通しでも 4.9 倍という段の値段も測る |
 | 63b |  | テッセレーション | 西川本Ch6。4隅だけ送って GPU に割らせる。変位・距離LOD・**亀裂と、その直し方**。地形/水面で現役 |
-| 64 |  | メッシュシェーダ(VK_EXT_mesh_shader) | メッシュレット分割とGPUカリング。Day 63a・63bとの設計思想比較 |
+| 64a |  | メッシュシェーダ(VK_EXT_mesh_shader) | Vulkan でラスタライズし、メッシュレットに切ってメッシュシェーダで描く。頂点シェーダの道と全画素同じ絵・ほぼ同じ値段(GS の素通し 4.89 倍と対照的)。Day 63a との設計思想比較 |
+| 64b |  | タスクシェーダと GPU カリング | メッシュレットの境界の球と法線の円錐で、画面の外と丸ごと裏向きを GPU の上で捨てる。**効き目はメッシュレットの切り方で決まる**。Day 63b との設計思想比較 |
 | 65 |  | GPU駆動レンダリング(インダイレクトドロー、GPUカリング) | 「CPUがドローコールを発行しない」現代アーキテクチャ。UE5 Naniteの基礎理論もここで読む |
 | 66 |  | モダンライティング理論講読 | TAA発展・アップスケーリング(DLSS/FSRの原理)、DDGI・Lumen・ReSTIR |
 | 67 |  | 3D Gaussian Splatting簡易ビューア | NeRF以降の新潮流。ポリゴンパイプラインとの違いを体感 |
 
 補足: シャドウボリューム(B-12前半)は現代ではほぼ使われないため理論のみでOK。ジオメトリシェーダ(Day 63a)はメッシュシェーダに置き換わりつつあるため「教養として実装」の位置づけですが、テッセレーション(Day 63b)は地形・水面・曲面で現役です。
 
-教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)
+教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、[VK_EXT_mesh_shader の提案書](https://github.com/KhronosGroup/Vulkan-Docs/blob/main/proposals/VK_EXT_mesh_shader.adoc)と [meshoptimizer](https://github.com/zeux/meshoptimizer)(Day 64a・64b)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)
 
 ---
 
