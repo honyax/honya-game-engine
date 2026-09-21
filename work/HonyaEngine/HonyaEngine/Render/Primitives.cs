@@ -94,6 +94,117 @@ internal static class Primitives
         return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
     }
 
+    /// <summary>
+    /// 半径 0.5 の球(直径 1)。中心が原点。**UV 球**(緯度と経度で刻む素直な作り)。
+    ///
+    /// Day 35 で足した。理由は<b>材質を見比べるには球しかない</b>から。
+    /// 立方体は面ごとに法線が一定なので、1つの面の中でハイライトが動かない——
+    /// 粗さを変えてもハイライトの広がりが見えず、金属度の効きも読み取れない。
+    /// 球は<b>法線があらゆる向きを1個の中で通る</b>ので、
+    /// フレネル(縁ほど明るい)も、粗さ(ハイライトの広がり)も、
+    /// 1個の絵に全部出る。PBR の解説がどれも球を並べるのはこのため。
+    ///
+    /// <para>
+    /// UV 球の弱点は極が詰まること(三角形が細く潰れる)。
+    /// 均等に割りたければ正二十面体を分割する測地球にするが、
+    /// <b>UV が素直に取れない</b>ので今日はこちらを取った——
+    /// 法線マップを貼れる形にしておきたい(Day 34)。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>接線は導関数から出す</b>。Day 34 の板や立方体は
+    /// 「左下 → 右下 が U」と手で決められたが、曲面ではそうはいかない。
+    /// U が増える向き = <c>∂P/∂u</c> をそのまま計算するのが本来の定義で、
+    /// 球なら経度方向の接ベクトルになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>この球は w = -1 になる</b>。手で決めた板・立方体は +1 だったので、
+    /// **Day 34 で作った w の仕組みが初めて実際に効く**形になっている。
+    /// 理由は下のコメントに書いた。
+    /// </para>
+    /// </summary>
+    /// <param name="slices">経度方向の分割数(横)。</param>
+    /// <param name="stacks">緯度方向の分割数(縦)。</param>
+    public static Mesh<Vertex> CreateSphere(GL gl, int slices = 48, int stacks = 32)
+    {
+        var vertices = new List<Vertex>((slices + 1) * (stacks + 1));
+        var indices = new List<uint>(slices * stacks * 6);
+
+        Vector4 white = Vector4.One;
+
+        // **経度は 0〜slices(slices+1 本)**。最後の1本は最初と同じ位置だが、
+        // U が 0 と 1 で違うので別の頂点にする必要がある
+        // (立方体の頂点が 8 個ではなく 24 個だったのと同じ事情)。
+        for (int y = 0; y <= stacks; y++)
+        {
+            // v = 0 を下、v = 1 を上にする。θ は上から測るので (1 - v)。
+            float v = (float)y / stacks;
+            float theta = (1.0f - v) * MathF.PI;
+            float sinTheta = MathF.Sin(theta);
+            float cosTheta = MathF.Cos(theta);
+
+            for (int x = 0; x <= slices; x++)
+            {
+                float u = (float)x / slices;
+                float phi = u * MathF.Tau;
+                float sinPhi = MathF.Sin(phi);
+                float cosPhi = MathF.Cos(phi);
+
+                // 単位球の上の点。**位置がそのまま法線**になるのが球の便利なところ。
+                var normal = new Vector3(sinTheta * cosPhi, cosTheta, sinTheta * sinPhi);
+
+                // ∂P/∂u。φ で微分すると (-sinφ, 0, cosφ) に比例する。
+                // **極でも長さが 0 にならない**ので、正規化して安全に使える
+                // (∂P/∂v のほうは極で潰れるので、こちらを接線に選ぶのが正しい)。
+                var tangent = new Vector3(-sinPhi, 0.0f, cosPhi);
+
+                // **w = -1 になる**。確かめ方は Day 34 と同じで、
+                // cross(N, T) が「V の増える向き」と合うかを見る。
+                //   赤道の φ=0 で N = (1,0,0)、T = (0,0,1)
+                //   cross(N, T) = (0,-1,0) = 下向き
+                // V は上へ増えるので、符号を反転しないと合わない。
+                //
+                // 板と立方体は +1 だったので、**今日はじめて -1 が出る**。
+                // ここを +1 のままにすると、球に法線マップを貼ったときだけ
+                // 凹凸が上下反転する——絵が出てしまうぶん気づきにくい壊れ方をする。
+                var tangent4 = new Vector4(tangent, -1.0f);
+
+                vertices.Add(new Vertex(normal * 0.5f, new Vector2(u, v), white, normal, tangent4));
+            }
+        }
+
+        int stride = slices + 1;
+
+        for (int y = 0; y < stacks; y++)
+        {
+            for (int x = 0; x < slices; x++)
+            {
+                uint bottomLeft = (uint)((y * stride) + x);
+                uint bottomRight = bottomLeft + 1;
+                uint topLeft = bottomLeft + (uint)stride;
+                uint topRight = topLeft + 1;
+
+                // 外から見て反時計回り(CCW)。立方体と同じ約束にそろえてある。
+                //
+                // **並びが「左下 → 左上 → 右上」になる**のは、
+                // U が増える向き(経度)と V が増える向き(緯度)の外積が
+                // 球の内側を向くため。手で決めずに、
+                // cross(BR - BL, TR - BL) が外を向くかを実際に計算して決めた——
+                // 逆にするとカリングで全部消える(C キーで切れば見えるので、
+                // 「消えた = 巻き順」と切り分けられる)。
+                indices.Add(bottomLeft);
+                indices.Add(topLeft);
+                indices.Add(topRight);
+                indices.Add(topRight);
+                indices.Add(bottomRight);
+                indices.Add(bottomLeft);
+            }
+        }
+
+        return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
+    }
+
     /// <summary>四角形1面ぶんの頂点4つとインデックス6つを足す。</summary>
     private static void AddFace(
         List<Vertex> vertices,
