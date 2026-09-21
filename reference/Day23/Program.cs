@@ -1947,13 +1947,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// シミュレーションのレートを変える。
-    ///
-    /// **溜まっている時間は捨てる**(<see cref="GameLoop.Reset"/>)。
-    /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
-    /// 一瞬だけ早送りになる。
-    /// </summary>
-    /// <summary>
     /// スプライトの数を変える。GameObject モードならシーンのほうもそろえる。
     ///
     /// 上限から <c>LayerTest</c> のぶんと階層の実演のぶんを引いてあるのは、
@@ -1981,6 +1974,13 @@ internal static class Program
         _ => "ECS",
     };
 
+    /// <summary>
+    /// シミュレーションのレートを変える。
+    ///
+    /// **溜まっている時間は捨てる**(<see cref="GameLoop.Reset"/>)。
+    /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
+    /// 一瞬だけ早送りになる。
+    /// </summary>
     private static void SetSimulationRate(double hertz)
     {
         _loop.FixedDeltaTime = 1.0 / hertz;

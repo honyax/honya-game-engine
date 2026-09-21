@@ -7,6 +7,31 @@ using Silk.NET.OpenGL;
 namespace HonyaEngine;
 
 /// <summary>
+/// シーンの1つを<b>当たり判定としてどう扱うか</b>(Day 51)。
+/// JSON の <c>collision</c> に <c>"box"</c> / <c>"plane"</c> / <c>"none"</c> と書く。
+///
+/// <para>
+/// <b>描画メッシュから自動で起こさない</b>のが今日の判断。
+/// 60m 角の地面の板を素直に箱にすると<b>厚み 0 の箱</b>になり、
+/// 街灯の細い柱は<b>腕まで含んだ大きな箱</b>になる。
+/// どちらも「メッシュを見れば分かる」ことではないので、
+/// 露出や太陽の方位と同じく<b>絵を作る人が書く</b>ほうへ寄せた
+/// (<see cref="DemoScene"/> の説明にある「シーンはコードではなくファイルに書く」)。
+/// </para>
+/// </summary>
+internal enum SceneCollisionKind
+{
+    /// <summary>当たらない。**通り抜ける小物**(倒したタイヤなど)。</summary>
+    None,
+
+    /// <summary>世界軸に沿った箱で近似する。**既定**。</summary>
+    Box,
+
+    /// <summary>無限に広い平面。**地面だけ**。</summary>
+    Plane,
+}
+
+/// <summary>
 /// **デモ v1 のシーン**(Day 39)。今日の主役その3。
 ///
 /// Day 31〜38 で積んだ描画機能——HDR / glTF / 影 / 法線 / PBR / IBL / SSAO / FXAA——は、
@@ -48,31 +73,6 @@ namespace HonyaEngine;
 /// 書いていない JSON もそのまま読めるので、Day 39 のファイルは何も変えずに動く。
 /// </para>
 /// </summary>
-/// <summary>
-/// シーンの1つを<b>当たり判定としてどう扱うか</b>(Day 51)。
-/// JSON の <c>collision</c> に <c>"box"</c> / <c>"plane"</c> / <c>"none"</c> と書く。
-///
-/// <para>
-/// <b>描画メッシュから自動で起こさない</b>のが今日の判断。
-/// 60m 角の地面の板を素直に箱にすると<b>厚み 0 の箱</b>になり、
-/// 街灯の細い柱は<b>腕まで含んだ大きな箱</b>になる。
-/// どちらも「メッシュを見れば分かる」ことではないので、
-/// 露出や太陽の方位と同じく<b>絵を作る人が書く</b>ほうへ寄せた
-/// (<see cref="DemoScene"/> の説明にある「シーンはコードではなくファイルに書く」)。
-/// </para>
-/// </summary>
-internal enum SceneCollisionKind
-{
-    /// <summary>当たらない。**通り抜ける小物**(倒したタイヤなど)。</summary>
-    None,
-
-    /// <summary>世界軸に沿った箱で近似する。**既定**。</summary>
-    Box,
-
-    /// <summary>無限に広い平面。**地面だけ**。</summary>
-    Plane,
-}
-
 internal sealed class DemoScene : IDisposable
 {
     /// <summary>
@@ -663,15 +663,6 @@ internal sealed class DemoScene : IDisposable
     }
 
     /// <summary>
-    /// 板1枚の世界行列。**板は +Z を向いている**(<see cref="Primitives.CreateQuad"/>)ので、
-    /// 床にするには X 軸まわりに -90 度回す。
-    ///
-    /// <para>
-    /// 回転は **X → Y → Z** の順で掛ける。この順番は JSON を書く人との約束で、
-    /// どれか1つでも変えると同じ数字が別の向きになる。
-    /// </para>
-    /// </summary>
-    /// <summary>
     /// <c>collision</c> を読む(Day 51)。**書いていなければ箱**。
     ///
     /// <para>
@@ -688,6 +679,15 @@ internal sealed class DemoScene : IDisposable
             _ => SceneCollisionKind.Box,
         };
 
+    /// <summary>
+    /// 板1枚の世界行列。**板は +Z を向いている**(<see cref="Primitives.CreateQuad"/>)ので、
+    /// 床にするには X 軸まわりに -90 度回す。
+    ///
+    /// <para>
+    /// 回転は **X → Y → Z** の順で掛ける。この順番は JSON を書く人との約束で、
+    /// どれか1つでも変えると同じ数字が別の向きになる。
+    /// </para>
+    /// </summary>
     private static Matrix4x4 ReadTransform(JsonElement entry)
     {
         Vector2 size = GetVector2(entry, "size", Vector2.One);

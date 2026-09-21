@@ -460,6 +460,21 @@ internal static class Sat
     }
 
     /// <summary>
+    /// 2つの入れ物を入れ替える。**タプルでは書けない**。
+    ///
+    /// <c>Span&lt;T&gt;</c> は ref 構造体なので、
+    /// <c>(a, b) = (b, a)</c> のようにタプルへ詰めることができない
+    /// (タプルはヒープに載りうる型なので、スタックにしか置けない値は入れられない)。
+    /// 昔ながらの一時変数で書くしかない箇所。
+    /// </summary>
+    private static void Swap(ref Span<Vector3> a, ref Span<Vector3> b)
+    {
+        Span<Vector3> temporary = a;
+        a = b;
+        b = temporary;
+    }
+
+    /// <summary>
     /// 多角形を半空間で切る(Sutherland-Hodgman)。
     /// <c>n·p ≤ offset</c> を満たす側だけを残す。
     ///
@@ -477,21 +492,6 @@ internal static class Sat
     /// やっていることは完全に同じ形をしている。
     /// </para>
     /// </summary>
-    /// <summary>
-    /// 2つの入れ物を入れ替える。**タプルでは書けない**。
-    ///
-    /// <c>Span&lt;T&gt;</c> は ref 構造体なので、
-    /// <c>(a, b) = (b, a)</c> のようにタプルへ詰めることができない
-    /// (タプルはヒープに載りうる型なので、スタックにしか置けない値は入れられない)。
-    /// 昔ながらの一時変数で書くしかない箇所。
-    /// </summary>
-    private static void Swap(ref Span<Vector3> a, ref Span<Vector3> b)
-    {
-        Span<Vector3> temporary = a;
-        a = b;
-        b = temporary;
-    }
-
     private static int Clip(
         ReadOnlySpan<Vector3> input, int count, Span<Vector3> output,
         Vector3 planeNormal, float planeOffset)
