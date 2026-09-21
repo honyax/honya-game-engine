@@ -109,7 +109,7 @@ internal readonly struct Plane3D
 /// <see cref="Box2D"/>(Day 25)の3D版だが、性格はだいぶ違う。
 /// 2D の箱は軸に沿った AABB で、判定は各軸の重なりを見るだけだった。
 /// こちらは**向きを持つ**ので、比べるべき軸が最初から決まっていない——
-/// そこで出てくるのが分離軸定理(要点2)。
+/// そこで出てくるのが分離軸定理(要点1)。
 ///
 /// <para>
 /// 持っているのは中心・半分の長さ・向きの3つだけ。
@@ -290,7 +290,7 @@ internal readonly struct Box3D
         (local - Vector3.Clamp(local, -HalfExtents, HalfExtents)).LengthSquared();
 
     /// <summary>
-    /// この向きに投影したときの「半径」。**SAT の主役**(要点2)。
+    /// この向きに投影したときの「半径」。**SAT の主役**(要点1)。
     ///
     /// <code>
     ///   r(n) = |e_x (a_x · n)| + |e_y (a_y · n)| + |e_z (a_z · n)|
@@ -332,7 +332,7 @@ internal readonly struct Box3D
     ///
     /// 物体座標で「各軸の成分の符号を、n の側へ倒す」だけ。
     /// 凸形状の判定で繰り返し出てくる関数で、GJK も EPA もこれ1本でできている
-    /// (発展課題として Day 44 の改造課題3に置いた)。
+    /// (発展課題として Day 44b の改造課題3に置いた)。
     /// </summary>
     public Vector3 Support(Vector3 direction)
     {

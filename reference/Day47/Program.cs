@@ -915,7 +915,7 @@ internal static class Program
     private static bool _kickOffCenter = true;
 
     // ================================================================
-    //  Day 44: 箱(OBB)の衝突(分離軸定理と接触マニフォールド)
+    //  Day 44: 箱(OBB)の衝突(44a: 接触マニフォールド / 44b: 分離軸定理)
     // ================================================================
 
     /// <summary>
@@ -4758,7 +4758,7 @@ internal static class Program
     ///
     /// <para>
     /// <b>Ctrl+Shift+Alt+4 で上限を 1 にすると、どれも落ち着かなくなる</b>——
-    /// これが今日いちばん見てほしいところ(要点4)。
+    /// これが今日いちばん見てほしいところ(要点3)。
     /// </para>
     /// </summary>
     private static void BuildBoxDropScene()
@@ -4864,14 +4864,14 @@ internal static class Program
     }
 
     /// <summary>
-    /// 細長い箱を回しながら落とす。**辺×辺の軸が出る場面**(要点2)。
+    /// 細長い箱を回しながら落とす。**辺×辺の軸が出る場面**(要点1)。
     ///
     /// 角と角がすれ違うように当たると、
     /// 面の法線 6 本では分離を見つけられず、辺の外積 9 本のどれかが最小になる。
     /// HUD の「辺」が 0 でなくなるのはたいていこの筋書き。
     ///
     /// <para>
-    /// 細長い箱は<b>慣性テンソルが軸ごとに大きく違う</b>(要点1)。
+    /// 細長い箱は<b>慣性テンソルが軸ごとに大きく違う</b>(Day 44a の要点1)。
     /// 長い方向を軸にして回すのは楽で、横に振るのは大変——
     /// 同じ角速度を与えても、当たったあとに残る回り方が軸によって違うのが見える。
     /// </para>
@@ -14183,7 +14183,7 @@ internal static class Program
                 break;
 
             case Key.Number7 when ctrl && shift && alt:
-                // **今日いちばん深い比較**(要点7)。Day 43 の <c>Ctrl+Shift+Alt+F2</c>
+                // **今日いちばん深い比較**(要点5)。Day 43 の <c>Ctrl+Shift+Alt+F2</c>
                 // (積分法の切り替え)と同じ性格のつまみで、
                 // 「正しい解き方」と「素朴な解き方」を並べて見るためだけにある。
                 Physics.SolveContactsTogether = !Physics.SolveContactsTogether;
@@ -17908,7 +17908,7 @@ internal static class Program
             (tilted.ToLocal(tilted.ToWorld(sample)) - sample).Length() < 1e-5f);
 
         // ============================================================
-        //  3. 分離軸定理(要点2)
+        //  3. 分離軸定理(要点1)
         // ============================================================
 
         var unit = new Box3D(Vector3.Zero, new Vector3(0.5f), Quaternion.Identity);
@@ -18038,7 +18038,7 @@ internal static class Program
             $"取りこぼし {missed} 件");
 
         // ============================================================
-        //  4. 接触マニフォールド(要点4・要点5)
+        //  4. 接触マニフォールド(Day 44a の要点3・今日の要点2)
         // ============================================================
 
         var floor = Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY);
@@ -18169,7 +18169,7 @@ internal static class Program
             !Collision3D.SphereBox(new Sphere3D(new Vector3(0.0f, 3.0f, 0.0f), 0.4f), target).Hit);
 
         // ============================================================
-        //  6. Collider にしたことで消えた分岐(要点3)
+        //  6. Collider にしたことで消えた分岐(Day 44a の要点2)
         // ============================================================
 
         var world = new PhysicsWorld();
@@ -18205,9 +18205,14 @@ internal static class Program
 
         // 落とした箱が、最後の1秒でどれだけ揺れているかを測る。
         // **最後の値だけを見ると揺れを見逃す**ので、その間の最大値を採る。
-        static (float Height, float Tilt, float Spin) DropBox(int maxContacts, int steps)
+        static (float Height, float Tilt, float Spin) DropBox(
+            int maxContacts, int steps, bool together = true)
         {
-            var w = new PhysicsWorld { MaxContactsPerPair = maxContacts };
+            var w = new PhysicsWorld
+            {
+                MaxContactsPerPair = maxContacts,
+                SolveContactsTogether = together,
+            };
             w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
 
             RigidBody body = RigidBody.CreateBox(1.0f, 0.5f);
@@ -18259,6 +18264,16 @@ internal static class Program
             "1点だと傾き続ける(4点なら傾かない。Day 46 の 0.94 度から半減)",
             tilt1 > tilt4 + 0.002f,
             $"1点 {tilt1 * 180.0f / MathF.PI:F3} 度 / 4点 {tilt4 * 180.0f / MathF.PI:F3} 度");
+
+        (_, _, float spinLoose) = DropBox(4, 300, together: false);
+
+        // **ここも Day 47 で主張が変わった**。Day 46 までは、4点を順番に解くと
+        // 床の箱1つでも揺れが止まらなかった(0.118 rad/s)。蓄積インパルスが入り、
+        // 先に押しすぎた点の分を後の周で取り戻せるようになったので、<b>順番でも落ち着く</b>。
+        checks.Check(
+            "4点を順番に解いても床の箱は落ち着く(Day 46 までは揺れ続けた。蓄積インパルスが効いている)",
+            spinLoose < 0.002f,
+            $"順番 {spinLoose:F5} rad/s / 同時 {spin4:F5} rad/s");
 
         static (float Penetration, float Top, float Drift) BoxStack(
             int count, int steps, bool together)

@@ -30,7 +30,7 @@ internal enum IntegratorMode
 /// </item>
 /// <item>
 /// <b><see cref="LocalA"/> / <see cref="LocalB"/> / <see cref="Separation"/> が増えた</b>。
-/// 位置の補正でめり込みを測り直すのに使う(要点6)。
+/// 位置の補正でめり込みを測り直すのに使う(要点4)。
 /// Day 43 は判定関数をもう一度呼んで測り直していたが、
 /// あれは「形が球しか無い」ことに寄りかかった書き方だった。
 /// </item>
@@ -48,7 +48,7 @@ internal readonly struct ContactPoint
     public readonly Vector3 Point;
 
     /// <summary>
-    /// 接触点を **A の物体座標で**表したもの。**位置の補正で測り直すのに使う**(要点6)。
+    /// 接触点を **A の物体座標で**表したもの。**位置の補正で測り直すのに使う**(要点4)。
     ///
     /// 体に画鋲で留めた印だと思えばよい。体が動けば印も一緒に動くので、
     /// 「印どうしがどれだけ離れたか」を見れば、判定をやり直さずに
@@ -156,7 +156,7 @@ internal sealed class PhysicsWorld
     /// <summary>
     /// マニフォールドごとの範囲(<see cref="_contacts"/> の開始位置と点の数)。
     ///
-    /// **点をまとめて解くために要る**(要点7)。
+    /// **点をまとめて解くために要る**(要点5)。
     /// 接触点は組ごとに続けて並んでいるので、区切りさえ覚えておけば
     /// 「この4点は同じ組」と分かる。
     /// </summary>
@@ -183,7 +183,7 @@ internal sealed class PhysicsWorld
     public int VelocityIterations { get; set; } = 8;
 
     /// <summary>
-    /// 1組の接触から採る点の数の上限。**1 にすると箱が落ち着かない**(要点4)。
+    /// 1組の接触から採る点の数の上限。**1 にすると箱が落ち着かない**(要点3)。
     ///
     /// 実装の都合ではなく<b>実験のための道具</b>。
     /// 4 が本来の値で、1 にすると Day 43 の「1点だけの接触」に戻る——
@@ -193,7 +193,7 @@ internal sealed class PhysicsWorld
     public int MaxContactsPerPair { get; set; } = ContactManifold.MaxPoints;
 
     /// <summary>
-    /// 1組の接触点を**同時に**解くか(要点7)。**切ると柱が崩れる**。
+    /// 1組の接触点を**同時に**解くか(Day 44a の要点5)。**切ると柱が崩れる**。
     ///
     /// true(既定)なら、4点ぶんのインパルスを同じ状態から計算してからまとめて掛ける。
     /// false なら Day 43 と同じで、1点ずつ順に解く——
@@ -329,7 +329,7 @@ internal sealed class PhysicsWorld
     ///
     /// **絵からは読めない数字**なので HUD に出す。
     /// 面で触れているはずなのに <see cref="ManifoldSource.EdgeEdge"/> が並ぶときは、
-    /// たいてい <see cref="Sat"/> の下駄が効いていない(要点2)。
+    /// たいてい <see cref="Sat"/> の下駄が効いていない(要点1)。
     /// </summary>
     public int SourceCount(ManifoldSource source) => _sourceCounts[(int)source];
 
@@ -490,7 +490,7 @@ internal sealed class PhysicsWorld
 
         // --- 3. 速度の解決 ---
         //
-        // **組の間は順番に、組の中は同時に**(要点7)。
+        // **組の間は順番に、組の中は同時に**(要点5)。
         // 外側の周回(組から組へ)はガウス・ザイデル——直前の組の結果を見て解くので、
         // 柱の下から上へ荷重が伝わる。
         // 内側(1つの組の4点)はヤコビ——同じ状態から一度に決めるので、
@@ -584,7 +584,7 @@ internal sealed class PhysicsWorld
                 MaxPenetration = MathF.Max(MaxPenetration, manifold.MaxDepth);
 
                 // **区切りを覚えておく**。この範囲の点は同じ組から出たもので、
-                // 速度の解決ではまとめて1回で解く(要点7)。
+                // 速度の解決ではまとめて1回で解く(要点5)。
                 _manifolds.Add((_contacts.Count, manifold.Count));
 
                 for (int k = 0; k < manifold.Count; k++)
@@ -624,7 +624,7 @@ internal sealed class PhysicsWorld
         // **ゆっくりぶつかったものは跳ねない**。しきい値が無いと置いた箱が震え続ける。
         float bounce = approach < -RestitutionThreshold ? -restitution * approach : 0.0f;
 
-        // **接触点を両方の体に貼り付けておく**(要点6)。
+        // **接触点を両方の体に貼り付けておく**(要点4)。
         // 位置の補正はこの2つの印がどれだけ離れたかだけを見る。
         Vector3 localA = Vector3.Transform(
             point.Point - a.Position, Quaternion.Conjugate(a.Orientation));
@@ -636,7 +636,7 @@ internal sealed class PhysicsWorld
     }
 
     /// <summary>
-    /// 1組ぶんの接触点をまとめて解く。**4点は同時に決める**(要点7)。
+    /// 1組ぶんの接触点をまとめて解く。**4点は同時に決める**(要点5)。
     ///
     /// Day 43 は接触が1点しか無かったので、順番に解けばそれで済んだ。
     /// 今日は1組から4点出るので、<b>その4点をどう解くか</b>という問題が新しく生まれる。
@@ -788,7 +788,7 @@ internal sealed class PhysicsWorld
     /// 静的な体(逆質量 0)は 1 ミリも動かない——ここでも分岐が要らない。
     ///
     /// <para>
-    /// <b>測り直し方が Day 44 で変わった</b>(要点6)。Day 43 は判定関数をもう一度呼んで
+    /// <b>測り直し方が Day 44 で変わった</b>(要点4)。Day 43 は判定関数をもう一度呼んで
     /// 「今の位置ならどれだけめり込んでいるか」を計算していた。
     /// 箱では判定そのものが重い(15 本の軸 + クリップ)ので、
     /// 4周 × 接触の数だけ呼び直すと目に見えて遅くなる。
