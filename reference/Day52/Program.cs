@@ -2598,10 +2598,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// シーンを組み立てる。**Program がやるのはここまで**で、
-    /// あとは <see cref="Scene.FixedUpdate"/> が全部回してくれる。
-    /// </summary>
-    /// <summary>
     /// 起動時のシーンを用意する。**ファイルがあればそれを読む**。
     ///
     /// Day 23 まではここでコードを実行してシーンを組んでいた。
@@ -11659,20 +11655,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// **接空間の自己チェック**(「法線マップと視差」の F11)。
-    ///
-    /// 接空間は「絵からは正しさが読めない」ものの筆頭になる。
-    ///   - 接線が 90 度ずれていても、凹凸の向きが変わるだけで絵は出る
-    ///   - w の符号が逆でも、へこみと出っ張りが入れ替わるだけ
-    ///   - 直交していなくても、少しねじれるだけ
-    /// **どれも「なんとなく変」で終わってしまう**ので、数値で確かめる。
-    ///
-    /// 見るのは3つ。
-    ///   1. <b>生成した接線が、既知の形で期待どおりか</b>(板と立方体)
-    ///   2. <b>ファイルの TANGENT と、生成した接線がどれだけ一致するか</b>
-    ///   3. <b>不変条件</b>(単位長・法線と直交・w が ±1)
-    /// </summary>
-    /// <summary>
     /// **FXAA とカラーグレーディングの自己チェック**(「SSAO」の 1)。
     ///
     /// この2つは、絵を見ても正しいかどうかが分からない類のもの。
@@ -12899,6 +12881,7 @@ internal static class Program
 
         return Vector3.Normalize(direction);
     }
+
     /// <summary>
     /// キューブマップの1面の**中心テクセル**を読む。
     ///
@@ -12952,6 +12935,7 @@ internal static class Program
 
         return (float)Math.Sqrt(variance);
     }
+
     /// <summary>
     /// **PBR の自己チェック**(「PBR」の F11)。
     ///
@@ -13343,6 +13327,20 @@ internal static class Program
         Console.WriteLine();
     }
 
+    /// <summary>
+    /// **接空間の自己チェック**(「法線マップと視差」の F11)。
+    ///
+    /// 接空間は「絵からは正しさが読めない」ものの筆頭になる。
+    ///   - 接線が 90 度ずれていても、凹凸の向きが変わるだけで絵は出る
+    ///   - w の符号が逆でも、へこみと出っ張りが入れ替わるだけ
+    ///   - 直交していなくても、少しねじれるだけ
+    /// **どれも「なんとなく変」で終わってしまう**ので、数値で確かめる。
+    ///
+    /// 見るのは3つ。
+    ///   1. <b>生成した接線が、既知の形で期待どおりか</b>(板と立方体)
+    ///   2. <b>ファイルの TANGENT と、生成した接線がどれだけ一致するか</b>
+    ///   3. <b>不変条件</b>(単位長・法線と直交・w が ±1)
+    /// </summary>
     private static void RunTangentCheck()
     {
         var checks = new CheckList();
@@ -17136,13 +17134,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// シミュレーションのレートを変える。
-    ///
-    /// **溜まっている時間は捨てる**(<see cref="GameLoop.Reset"/>)。
-    /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
-    /// 一瞬だけ早送りになる。
-    /// </summary>
-    /// <summary>
     /// スプライトの数を変える。GameObject モードならシーンのほうもそろえる。
     ///
     /// 上限から <c>LayerTest</c> のぶんと階層の実演のぶんを引いてあるのは、
@@ -17170,6 +17161,13 @@ internal static class Program
         _ => "ECS",
     };
 
+    /// <summary>
+    /// シミュレーションのレートを変える。
+    ///
+    /// **溜まっている時間は捨てる**(<see cref="GameLoop.Reset"/>)。
+    /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
+    /// 一瞬だけ早送りになる。
+    /// </summary>
     private static void SetSimulationRate(double hertz)
     {
         _loop.FixedDeltaTime = 1.0 / hertz;
