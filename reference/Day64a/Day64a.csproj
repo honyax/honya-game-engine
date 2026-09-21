@@ -1,0 +1,73 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      教養編 Day 64a の Labs。**新しい題材 MeshletRenderer の初日**。
+
+      Day 62 の HardwareRayTracer とは別のプロジェクトとして始めるが、
+      Vulkan の土台(Vulkan/ の4ファイル・窓・カメラ)は Day 62c から持ってきて、
+      名前空間を置き換え、レイトレーシングの部分を外したものを使う。
+      device・メモリ・ディスクリプタ・SPIR-V の話は Day 62a で済んでいるので、
+      今日はその上に**ラスタライズ**(グラフィックスパイプライン)と**メッシュシェーダ**を足す。
+
+      shaders フォルダの中身:
+        common.glsl   … 下の3本が #include する共通部分(バッファの並びと色の関数)
+        scene.vert    … 頂点シェーダ。**比べるための従来の道**
+        meshlet.mesh  … メッシュシェーダ。**今日の主役**
+        shade.frag    … 画素シェーダ。2つの道で同じ1本を使う
+    -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      Vulkan は C の API をほぼ素のまま呼ぶことになる。構造体のポインタを渡し、
+      配列の先頭を fixed で指す場面が絶え間なく出てくるので、unsafe は必須。
+      Day 14 以降のエンジンでも Silk.NET に同じ理由で付けている。
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!--
+      AssemblyName は明示しない(csproj のファイル名 Day64a.csproj から Day64a.dll になる)。
+
+      名前空間は Day 番号を含めず MeshletRenderer に固定する。
+      Day 64a / 64b で同じ名前空間を使うので、git diff に namespace 行が乗らない。
+    -->
+    <RootNamespace>MeshletRenderer</RootNamespace>
+
+    <!-- 描いた1画素 = 画面の1画素を保つ(Day 1 と同じ理由)。 -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Silk.NET.Vulkan       : Vulkan 本体の束縛。**関数ポインタを引いてくるだけ**で、
+                              Silk.NET 側の親切な包みはほとんど無い(だから C の資料がそのまま読める)
+      ...Extensions.EXT     : VK_EXT_mesh_shader(今日の主役)と VK_EXT_debug_utils(検証レイヤの通知)
+
+      Day 62 にあった **Extensions.KHR を外した**。KHR で使っていたのは
+      加速構造とレイトレーシングパイプラインだけで、今日のラスタライズには要らない
+      (dynamic rendering は Vulkan 1.3 のコアに入ったので、拡張としては引かない)。
+    -->
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.EXT" Version="2.23.0" />
+
+    <!--
+      GLSL を SPIR-V に翻訳する道具。**Vulkan SDK を入れなくて済む**のが効く(Day 62a と同じ)。
+      shaderc の中の glslang は GL_EXT_mesh_shader も翻訳できる。
+    -->
+    <PackageReference Include="Silk.NET.Shaderc" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- GLSL は出力先へそのままコピーする(埋め込みリソースにしない。Day 61 と同じ方針)。 -->
+    <None Update="shaders\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
