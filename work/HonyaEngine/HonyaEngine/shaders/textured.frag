@@ -62,7 +62,41 @@ uniform vec3 uAmbientColor;
 /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ
 /// 8=影の係数(Day 33)
 /// 9=接線 T / 10=従接線 B / 11=最終法線 N / 12=高さ(Day 34)
+/// 13=拡散のみ / 14=鏡面のみ / 15=フレネル F / 16=法線分布 D / 17=幾何減衰 G(Day 35)
 uniform int uDebugChannel;
+
+// --- Day 35: 物理ベースレンダリング(Cook-Torrance)---
+
+/// カメラの位置。**視線ベクトル V が要る**のが Day 34 との大きな違い。
+///
+/// ランバート反射は N と L しか見ないので、どこから見ても同じ明るさだった。
+/// 鏡面反射は「反射した光がこちらへ来るか」を問うので、視線が入る。
+/// vert 側にも同じ uniform があるが(視差マッピング用)、
+/// **同じ名前の uniform を両方のステージに書いてよい**——リンク時に1つにまとめられる。
+uniform vec3 uCameraPosition;
+
+/// Cook-Torrance を使うか。OFF にすると Day 34 のランバート反射に戻る。
+uniform int uPbrEnabled;
+
+/// 非金属(誘電体)の F0。既定は 0.04。
+uniform float uDielectricF0;
+
+/// α の作り方。1 なら α = roughness²(glTF の流儀)、0 なら α = roughness。
+uniform int uPerceptualRoughness;
+
+/// 環境光にも粗い鏡面を足すか。**Day 36(IBL)までのつなぎ**。
+///
+/// 平行光源1つだけだと、金属は**ハイライト以外が真っ黒**になる。
+/// 拡散反射をしない材質なので、当然といえば当然の結果——
+/// 現実の金属が黒く見えないのは、まわりの景色を映しているから。
+/// それを本当に計算するのが Day 36 で、ここでは
+/// 「環境光を F0 の色で薄く足す」だけの粗い代用を置いている。
+uniform int uAmbientSpecular;
+
+/// 金属度・粗さの上書き。**負なら上書きしない**(マテリアルの値を使う)。
+/// 材質の効きを1つずつ確かめるための窓で、絵作りの機能ではない。
+uniform float uMetallicOverride;
+uniform float uRoughnessOverride;
 
 // --- Day 34: 法線マップと視差マッピング ---
 
@@ -327,6 +361,119 @@ float ShadowFactor(vec3 normal, vec3 lightDir)
     return lit / float(taps);
 }
 
+const float PI = 3.14159265359;
+
+/// 粗さの下限。**0 だと D が発散する**(幅 0 の無限に高いピークになる)。
+const float MIN_ROUGHNESS = 0.045;
+
+/// **法線分布関数 D**(GGX / Trowbridge-Reitz)。Pbr.DistributionGgx と同じ式。
+///
+/// 「微小な鏡のうち、法線がちょうど H を向いているものの密度」。
+/// H が V へ光を返せる唯一の向きなので、鏡面の強さはここで決まる。
+///
+///   D = α² / (π * ((N・H)²(α² - 1) + 1)²)
+///
+/// 分母が2乗になっているのが GGX の裾の長さの正体で、
+/// Phong や Beckmann(指数関数)より遠くまで減らずに残る。
+float DistributionGgx(float nDotH, float alpha)
+{
+    float a2 = alpha * alpha;
+    float d = (nDotH * nDotH * (a2 - 1.0)) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+/// **幾何減衰 G** の片側(Schlick-GGX)。
+float GeometrySchlickGgx(float nDotX, float k)
+{
+    return nDotX / ((nDotX * (1.0 - k)) + k);
+}
+
+/// 入りと出の両方ぶん(Smith)。**k は知覚的な粗さから作る**(2乗する前)。
+///
+/// (r + 1)² / 8 は Disney の当てはめで、物理からは出てこない数字。
+/// IBL 用は α / 2 で、**同じ G なのに係数が2通りある**(Day 36)。
+float GeometrySmith(float nDotV, float nDotL, float roughness)
+{
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return GeometrySchlickGgx(nDotV, k) * GeometrySchlickGgx(nDotL, k);
+}
+
+/// **フレネル F**(Schlick 近似)。
+///
+///   F = F0 + (1 - F0) * (1 - cosθ)^5
+///
+/// cosθ に入れるのは **V・H**(視線と微小な鏡の法線の角)。
+/// N・V を入れると、粗い材質の縁だけが不自然に光る。
+vec3 FresnelSchlick(float cosTheta, vec3 f0)
+{
+    return f0 + ((1.0 - f0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0));
+}
+
+/// **Cook-Torrance を1回評価する**。拡散と鏡面を**分けて返す**。
+///
+/// 分けているのは、Shift+9 で片方ずつ見られるようにするため。
+/// 「金属なのに拡散が残っている」「非金属なのに鏡面が色付き」のような
+/// 取り違えは、合成した絵ではまず気づけない。
+///
+/// D・G・F も外へ出しているのは同じ理由。3つの項がどう効いているかは
+/// **1枚ずつ画面に出すのがいちばん早い**。
+void CookTorrance(
+    vec3 n, vec3 v, vec3 l,
+    vec3 albedo, float metallic, float roughness,
+    out vec3 diffuse, out vec3 specular,
+    out float outD, out float outG, out vec3 outF)
+{
+    diffuse = vec3(0.0);
+    specular = vec3(0.0);
+    outD = 0.0;
+    outG = 0.0;
+
+    // **F0 が metallic-roughness の心臓部**。
+    //   非金属 → 0.04 の白っぽい鏡面。色は拡散が担う
+    //   金属   → ベースカラーが鏡面の色になる。拡散はしない
+    vec3 f0 = mix(vec3(uDielectricF0), albedo, metallic);
+    outF = f0;
+
+    float nDotL = dot(n, l);
+    if (nDotL <= 0.0)
+    {
+        // 光が裏から当たっている面。鏡面も拡散も 0。
+        // **早期に返す**のは、下の式が nDotL で割るため。
+        return;
+    }
+
+    // 0 割りを避ける。真横から見ている画素(縁)で効く。
+    float nDotV = max(dot(n, v), 1e-4);
+
+    vec3 h = normalize(v + l);
+    float nDotH = max(dot(n, h), 0.0);
+    float vDotH = max(dot(v, h), 0.0);
+
+    float r = max(roughness, MIN_ROUGHNESS);
+    float alpha = uPerceptualRoughness == 1 ? (r * r) : r;
+
+    float d = DistributionGgx(nDotH, alpha);
+    float g = GeometrySmith(nDotV, nDotL, r);
+    vec3 f = FresnelSchlick(vDotH, f0);
+
+    outD = d;
+    outG = g;
+    outF = f;
+
+    specular = (d * g * f) / (4.0 * nDotV * nDotL);
+
+    // **反射しなかったぶんだけが中に入る**。これがエネルギー保存の要。
+    // さらに金属は中へ入った光を吸収してしまうので (1 - metallic)。
+    vec3 kd = (vec3(1.0) - f) * (1.0 - metallic);
+
+    // ランバートの 1/π。**半球に均等にばらまくと積分が π になる**ので割る。
+    // Day 34 まではこの π を省いていた(光の強さのほうで吸収していた)ので、
+    // PBR に切り替えると**全体が π 分の 1 に暗くなる**——
+    // uLightColor を上げて釣り合いを取り直しているのはそのため。
+    diffuse = kd * albedo / PI;
+}
+
 void main()
 {
     // **UV を先に決める**(Day 34)。視差マッピングは
@@ -356,6 +503,20 @@ void main()
         vec3 mr = texture(uMetallicRoughnessMap, uv).rgb;
         roughness *= mr.g;
         metallic *= mr.b;
+    }
+
+    // **上書き**(Day 35)。負なら素通し。
+    // モデルが持っている値を止めて、金属度と粗さだけを動かせるようにする窓。
+    // 「DamagedHelmet がなぜあの見え方なのか」は、
+    // 値を固定して1軸ずつ動かさないと分からない。
+    if (uMetallicOverride >= 0.0)
+    {
+        metallic = uMetallicOverride;
+    }
+
+    if (uRoughnessOverride >= 0.0)
+    {
+        roughness = uRoughnessOverride;
     }
 
     float occlusion = uHasOcclusionMap == 1 ? texture(uOcclusionMap, uv).r : 1.0;
@@ -427,27 +588,88 @@ void main()
     // 色を混ぜない状態のほうが圧倒的に読み取りやすい。
     if (uDebugChannel == 8) { FragColor = vec4(vec3(shadow), 1.0); return; }
 
-    // --- ランバート反射(Day 9 の要点2)---
+    // --- Day 34 までのランバート反射(Day 9 の要点2)---
     //
-    // 面が光に正対していれば明るく、傾くほど暗い。
-    // 内積が「傾き具合」そのものになるのがこの式の気持ちよさで、
-    // 裏を向いた面は負になるので 0 で止める。
+    // 面が光に正対していれば明るく、傾くほど暗い。**金属度も粗さも使わない**。
+    // Ctrl+Shift+1 でこちらに戻せるようにしてあるのは、
+    // **同じシーンを並べて見比べる**のが PBR の値打ちを掴むいちばんの近道だから。
     //
-    // **今日は金属度も粗さも使わない**。使えるようにするのが Day 35 で、
-    // ここが Cook-Torrance BRDF に置き換わる。
-    float lambert = max(dot(normal, toLight), 0.0);
+    // **成分 13〜17(BRDF の中身)はこの枝では出ない**。
+    // ランバートには D も G も F も無いので、見せるものが無い。
+    if (uPbrEnabled == 0)
+    {
+        float lambert = max(dot(normal, toLight), 0.0);
 
-    // 環境光を AO で削る。**直接光には AO をかけない**——
-    // AO は「まわりから回り込んでくる光がどれだけ遮られるか」なので、
-    // 太陽から直接来る光とは無関係。ここを間違えると影がべったり黒くなる。
-    //
-    // **影は直接光にだけ掛ける**(Day 33)。理由は AO とちょうど裏返しで、
-    // 影とは「太陽が遮られている」ことだから。
-    // 環境光にまで掛けると影が真っ黒になり、夜のような絵になる——
-    // 現実の影が黒くないのは、空や周囲からの光が回り込んでいるおかげ。
-    // ここで残している uAmbientColor が、その回り込みのいちばん粗い近似になっている
-    // (ちゃんと計算するのが Day 36 の IBL と Day 37 の SSAO)。
-    vec3 lighting = (uLightColor * lambert * shadow) + (uAmbientColor * occlusion);
+        // 環境光を AO で削る。**直接光には AO をかけない**——
+        // AO は「まわりから回り込んでくる光がどれだけ遮られるか」なので、
+        // 太陽から直接来る光とは無関係。ここを間違えると影がべったり黒くなる。
+        //
+        // **影は直接光にだけ掛ける**(Day 33)。理由は AO とちょうど裏返しで、
+        // 影とは「太陽が遮られている」ことだから。
+        vec3 lighting = (uLightColor * lambert * shadow) + (uAmbientColor * occlusion);
+        FragColor = vec4((base.rgb * lighting) + emissive, base.a);
+        return;
+    }
 
-    FragColor = vec4((base.rgb * lighting) + emissive, base.a);
+    // --- 今日の主役: Cook-Torrance BRDF ---
+    //
+    // 出ていく明るさは、レンダリング方程式のいちばん素朴な形:
+    //
+    //   Lo = f(V, L) * Li * (N・L)
+    //
+    // f が BRDF(拡散 + 鏡面)、Li が光の強さ、(N・L) が**面の傾きによる薄まり**。
+    // 光源が1つしか無いので積分は要らず、掛け算1回で済む。
+    // 光源が増えれば L ごとに足す(Day 39)、あらゆる方向から来るなら積分する(Day 36)。
+    vec3 viewDir = normalize(uCameraPosition - vWorldPos);
+
+    vec3 diffuse;
+    vec3 specular;
+    float ndfD;
+    float geomG;
+    vec3 fresnelF;
+    CookTorrance(
+        normal, viewDir, toLight,
+        base.rgb, metallic, roughness,
+        diffuse, specular, ndfD, geomG, fresnelF);
+
+    float nDotL = max(dot(normal, toLight), 0.0);
+
+    // **3項を1枚ずつ見る窓**(Day 35)。
+    // D は 1 を大きく超えるので、そのままだと真っ白に飛ぶ。
+    // 20 で割って「ハイライトの形」が見える程度に落としている——
+    // **絶対値ではなく分布の形を見るための表示**。
+    if (uDebugChannel == 15) { FragColor = vec4(fresnelF, 1.0); return; }
+    if (uDebugChannel == 16) { FragColor = vec4(vec3(ndfD / 20.0), 1.0); return; }
+    if (uDebugChannel == 17) { FragColor = vec4(vec3(geomG), 1.0); return; }
+
+    vec3 directDiffuse = diffuse * uLightColor * nDotL * shadow;
+    vec3 directSpecular = specular * uLightColor * nDotL * shadow;
+
+    // 環境光の拡散ぶん。**金属は拡散しない**ので (1 - metallic) で落とす。
+    // これが「平行光源だけだと金属が真っ黒になる」の直接の原因。
+    vec3 ambientDiffuse = uAmbientColor * base.rgb * occlusion * (1.0 - metallic);
+
+    // **Day 36 までのつなぎ**(Ctrl+Shift+7)。
+    // 本当は「まわりの景色を F0 の色で映す」ものを、
+    // 環境光の色 × F × (粗いほど弱く)で代用しているだけ。
+    // 物理的な裏付けは無いが、**金属が真っ黒でなくなる**ので
+    // 金属度の効きを見るときに要る。
+    //
+    // **ここのフレネルは V・H ではなく N・V で引く**。
+    // 環境光には特定の L が無いので H が作れない、というのが理屈だが、
+    // 実際上も大事で、直接光の F を流用すると
+    // **光の当たる境目(N・L = 0)で F が飛んで、そこに線が出る**。
+    vec3 f0 = mix(vec3(uDielectricF0), base.rgb, metallic);
+    vec3 ambientF = FresnelSchlick(max(dot(normal, viewDir), 0.0), f0);
+
+    vec3 ambientSpecular = uAmbientSpecular == 1
+        ? uAmbientColor * ambientF * occlusion * (1.0 - roughness)
+        : vec3(0.0);
+
+    if (uDebugChannel == 13) { FragColor = vec4(directDiffuse + ambientDiffuse, 1.0); return; }
+    if (uDebugChannel == 14) { FragColor = vec4(directSpecular + ambientSpecular, 1.0); return; }
+
+    vec3 color = directDiffuse + directSpecular + ambientDiffuse + ambientSpecular;
+
+    FragColor = vec4(color + emissive, base.a);
 }

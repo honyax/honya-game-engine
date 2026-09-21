@@ -114,6 +114,27 @@ namespace HonyaEngine;
 ///
 /// 併せて <see cref="Vertex"/> に法線が戻り、平行光源1つぶんの
 /// ランバート反射が付いた(Day 9 でソフトウェアラスタライザに書いたものの GPU 版)。
+///
+/// **Day 33 での変更**: 影が落ちる(<see cref="ShadowMap"/>)。
+/// 光の目から深度を1枚焼き、本描画でそれと比べる2パス構成。
+/// Ctrl + 数字でバイアスや PCF を動かすと、
+/// **アクネとピーターパンの間に正解が挟まっている**ことが手で分かる。
+///
+/// **Day 34 での変更**: 平らな面に凹凸が出る(<see cref="SurfaceMaps"/>)。
+/// 接空間(T・B・N)を頂点に持たせ、法線マップと視差マッピングを入れた。
+/// Alt + 数字で方式を切り替えられる。
+///
+/// **Day 35 での変更**: 陰影が**物理ベース**になった。
+/// ランバート反射が Cook-Torrance BRDF(<see cref="Pbr"/>)に置き換わり、
+/// Day 32 で読むだけしていた**メタリックとラフネスがやっと絵に効く**。
+///
+/// Ctrl+Shift+5 で材質グリッド(球 7x7)が出る。
+/// 縦が金属度、横が粗さ——**2つの数字だけで材質の空間が張られている**ことが
+/// 1枚の絵に出る。Ctrl+Shift+1 で Day 34 のランバートに戻せるので、
+/// 同じシーンを並べて見比べられる。
+///
+/// 金属の行がほとんど黒くなるのは**正しい**。金属は拡散反射をせず、
+/// 映り込む景色がまだ無いため。それを与えるのが Day 36(IBL)。
 /// </summary>
 internal static class Program
 {
@@ -264,6 +285,90 @@ internal static class Program
     /// **見比べるためだけの切り替え**で、実用では常に false。
     /// </summary>
     private static bool _forceGeneratedTangents;
+
+    // ===== Day 35: 物理ベースレンダリング(Cook-Torrance)=====
+
+    /// <summary>
+    /// Cook-Torrance を使うか(Ctrl+Shift+1)。OFF で Day 34 のランバートに戻る。
+    ///
+    /// **切り替えられるようにしてあるのが今日の肝**。
+    /// PBR の値打ちは「単体で見て正しい」ことではなく
+    /// 「材質の違いが1つの式から出てくる」ことなので、
+    /// 前の式と並べないと何が変わったのか分からない。
+    /// </summary>
+    private static bool _pbrEnabled = true;
+
+    /// <summary>金属度の上書き(Ctrl+Shift+2)。0=モデル既定 / 1=0.0 / 2=0.5 / 3=1.0。</summary>
+    private static int _metallicOverride;
+
+    /// <summary>粗さの上書き(Ctrl+Shift+3)。0=モデル既定 / 1=0.05 / 2=0.3 / 3=0.6 / 4=1.0。</summary>
+    private static int _roughnessOverride;
+
+    /// <summary>
+    /// 非金属の F0(Ctrl+Shift+4)。既定は 0.04。
+    /// 0.00(反射しない) / 0.04(普通) / 0.08(宝石) / 0.17(ダイヤモンド)。
+    /// </summary>
+    private static float _dielectricF0 = Pbr.DielectricF0;
+
+    /// <summary>α の作り方(Ctrl+Shift+6)。true なら α = roughness²(glTF の流儀)。</summary>
+    private static bool _perceptualRoughness = true;
+
+    /// <summary>環境光に粗い鏡面を足すか(Ctrl+Shift+7)。**Day 36 の IBL までのつなぎ**。</summary>
+    private static bool _ambientSpecular = true;
+
+    /// <summary>
+    /// 材質グリッドを出すか(Ctrl+Shift+5)。**PBR はこれが無いと確かめられない**。
+    ///
+    /// 縦に金属度、横に粗さを振った球を並べる。
+    /// PBR の解説がどれもこの絵を載せるのは、
+    /// **2つのパラメータで材質の空間が張られている**ことが一目で分かるため。
+    /// 「金属の列だけ拡散が消える」「粗さを上げるとハイライトが広がって暗くなる」が
+    /// 同時に見える。
+    /// </summary>
+    private static bool _materialGrid;
+
+    /// <summary>材質グリッドの1辺の個数。7 なら 0, 1/6, ..., 1 の 7 段。</summary>
+    private const int MaterialGridSize = 7;
+
+    /// <summary>材質グリッドの球。<see cref="Primitives.CreateSphere"/> が作る。</summary>
+    private static Mesh<Vertex> _sphere = null!;
+
+    /// <summary>材質グリッドのマテリアル。**球ごとに金属度と粗さを書き換えて使い回す**。</summary>
+    private static Material _gridMaterial = null!;
+
+    /// <summary>
+    /// 材質グリッドのベースカラー(Ctrl+Shift+8)。
+    ///
+    /// **金属は F0 がベースカラーそのものになる**ので、
+    /// 色を変えると金属の行だけ鏡面に色が乗る。
+    /// 非金属の行は鏡面が白いまま、拡散だけが色付く——
+    /// この対比が「metallic が何を切り替えているか」の答えそのもの。
+    /// 値は実測の F0 に近いものを選んである(金・銅)。
+    /// </summary>
+    private static int _gridColorIndex;
+
+    /// <summary>
+    /// 材質グリッド専用の光の向き(進む向き)。**カメラの少し左上から当てる**。
+    ///
+    /// デモの太陽は画面の奥から手前へ進むので、正面から見るグリッドは逆光になる。
+    /// <see cref="RenderMaterialGrid"/> のコメント参照。
+    /// </summary>
+    private static readonly Vector3 GridLightDirection =
+        Vector3.Normalize(new Vector3(0.42f, -0.52f, -0.75f));
+
+    /// <summary>
+    /// 材質グリッド用の光の強さの倍率。**白飛びさせないための「露出」**。
+    /// <see cref="RenderMaterialGrid"/> のコメント参照。
+    /// </summary>
+    private const float GridLightScale = 0.30f;
+
+    private static readonly (string Name, Vector3 Color)[] GridColors =
+    [
+        ("白", new Vector3(0.85f, 0.85f, 0.85f)),
+        ("金", new Vector3(1.00f, 0.77f, 0.34f)),
+        ("銅", new Vector3(0.95f, 0.64f, 0.54f)),
+        ("青", new Vector3(0.15f, 0.35f, 0.85f)),
+    ];
 
     // --- 今日の主役: glTF ---
 
@@ -800,6 +905,11 @@ internal static class Program
         _cube = Primitives.CreateCube(_gl);
         _quad = Primitives.CreateQuad(_gl);
 
+        // **球は Day 35 で足した**。材質を見比べられる形が球しかない、というのが理由
+        // (Primitives.CreateSphere のコメント)。分割数は 48x32 = 三角形 3072 枚。
+        // 49 個並べても 15 万枚で、いまどきの GPU には何でもない数。
+        _sphere = Primitives.CreateSphere(_gl);
+
         _cubeMaterial = new Material(_shader)
         {
             MainTexture = _texture,
@@ -919,6 +1029,28 @@ internal static class Program
         Console.WriteLine(
             $"材質テスト: {SurfaceMaps.Size}x{SurfaceMaps.Size} を3枚生成 "
             + $"{mapStopwatch.Elapsed.TotalMilliseconds:F0}ms(色 / 法線 / 高さ)");
+
+        // --- 今日の主役: 材質グリッドのマテリアル ---
+        //
+        // **テクスチャを1枚も貼らない**。金属度と粗さだけで見え方が決まる、
+        // というのが今日いちばん見せたいことなので、模様が乗ると邪魔になる。
+        //
+        // それでも真っ白な 1x1 を作って貼るのは、
+        // 貼らないと <see cref="RenderResources.GetTexture"/> が
+        // **仮の絵(マゼンタの市松)**を返すため。
+        // 「無いときは必ず何かを bind する」という Day 21 の約束の裏返しで、
+        // 白が要るなら白を用意する、が正しい対処になる。
+        Handle<Texture> white = _resources.LoadTextureFromPixels(
+            "pbr/white", [255, 255, 255, 255], 1, 1, generateMipmaps: false, srgb: false);
+
+        _gridMaterial = new Material(_shader)
+        {
+            Name = "pbr-grid",
+            MainTexture = white,
+            BaseColorFactor = new Vector4(GridColors[_gridColorIndex].Color, 1.0f),
+            MetallicFactor = 0.0f,
+            RoughnessFactor = 0.5f,
+        };
 
         // --- 2D ---
         _spriteShader = _resources.LoadShader(
@@ -1130,6 +1262,14 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
+        Console.WriteLine("--- Day 35: 物理ベースレンダリング(Ctrl+Shift + 数字)---");
+        Console.WriteLine("Ctrl+Shift+5:材質グリッド(球 7x7。縦=金属度 横=粗さ)。**PBR はここでいちばん分かる**");
+        Console.WriteLine("Ctrl+Shift+1:Cook-Torrance / ランバート(Day 34)を切り替え");
+        Console.WriteLine("Ctrl+Shift+2:金属度の上書き  Ctrl+Shift+3:粗さの上書き  Ctrl+Shift+4:非金属の F0");
+        Console.WriteLine("Ctrl+Shift+6:α = r² / r  Ctrl+Shift+7:環境鏡面(Day 36 までのつなぎ)  Ctrl+Shift+8:グリッドの色");
+        Console.WriteLine("Ctrl+Shift+9:グリッド + 鏡面のみ表示  Ctrl+Shift+0:PBR の自己チェック");
+        Console.WriteLine("  Shift+9 の成分に 拡散 / 鏡面 / フレネルF / 分布D / 幾何G が増えた");
+        Console.WriteLine();
         Console.WriteLine("--- Day 34: 法線マップ・視差マッピング(Alt + 数字)---");
         Console.WriteLine("Alt+5:材質テストの板(レンガ)。**視差はここでしか確かめられない**");
         Console.WriteLine("Alt+1:法線マップ ON/OFF  Alt+2:視差(なし/単純/急峻/POM)  Alt+3:視差の深さ");
@@ -1216,10 +1356,6 @@ internal static class Program
         }
     }
 
-    /// <summary>
-    /// シーンを組み立てる。**Program がやるのはここまで**で、
-    /// あとは <see cref="Scene.FixedUpdate"/> が全部回してくれる。
-    /// </summary>
     /// <summary>
     /// 起動時のシーンを用意する。**ファイルがあればそれを読む**。
     ///
@@ -1867,20 +2003,21 @@ internal static class Program
             _drawCalls = _spriteBatch.DrawCallCount;
             RenderText();
         }
-        else if (_surfaceDemo)
+        else if (_materialGrid || _surfaceDemo)
         {
-            // **材質テストの板は、それだけを見る絵**(Day 34)。
+            // **材質グリッドと材質テストの板は、それだけを見る絵**(Day 34・35)。
             //
             // 下のモデルの枝とまったく同じ扱いにする。スプライトの群れもロードの帯も出さない——
-            // 板の凹凸は細かいので、上に 1000 枚のスプライトが重なると
-            // **視差が効いているのかどうかすら分からなくなる**。
+            // 材質の差も板の凹凸も細かいので、上に 1000 枚のスプライトが重なると
+            // **何を見ているのかすら分からなくなる**。
             //
             // <b>分岐を Render3D の中ではなくここに置く</b>のが要点。
-            // 板を描く分岐自体は Render3D の中にもあるが、そちらは `_draw3D`(G キー)で
-            // まるごと飛ばされる枝の内側にある。Alt+5 で「板を出せ」と言われたのに
+            // グリッドと板を選ぶ分岐自体は Render3D の中にもあるが、そちらは
+            // `_draw3D`(G キー)でまるごと飛ばされる枝の内側にある。
+            // Ctrl+Shift+5 で「グリッドを出せ」と言われたのに
             // 3D 背景のスイッチで消えるのは筋が通らないので、判断をここへ上げた。
             //
-            // ドローコールは RenderSurfaceDemo が数える(板2枚なので 2)。
+            // ドローコールは RenderMaterialGrid / RenderSurfaceDemo が数える。
             // 下の枝で `_spriteBatch.DrawCallCount` に上書きされないのも、分けた効き目。
             Render3D();
             RenderText();
@@ -1960,7 +2097,17 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_surfaceDemo)
+        if (_materialGrid)
+        {
+            // **材質グリッドは影を落とさない**(Day 35)。
+            //
+            // 落とす先(床)を置いていないので落ちる相手がいない、というのが第一の理由。
+            // もう1つは**自分の影で材質が読めなくなる**のを避けるためで、
+            // 球の陰の側に自己遮蔽の縞が乗ると、
+            // それが粗さのせいなのかバイアスのせいなのか分からなくなる。
+            // 材質だけを見たい絵からは、材質以外の変数を抜いておく。
+        }
+        else if (_surfaceDemo)
         {
             // **板は影を落とさない**(Day 34)。1枚の板が2枚あるだけなので、
             // 影を落とす相手がいない。深度パスを飛ばして計測を素直にしておく。
@@ -2172,7 +2319,7 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day34   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day35   {_fps:F1} fps   DC:{_drawCalls}");
 
         if (_model is not null)
         {
@@ -2198,6 +2345,15 @@ internal static class Program
             $"法線マップ:{OnOff(_normalMapping)}{(_flipGreen ? "(緑反転)" : string.Empty)}  "
             + $"{ParallaxLabel()}  深さ:{_parallaxScale:F3}  刻み:{_parallaxMinSteps}〜{_parallaxMaxSteps}  "
             + $"{TangentLabel()}  成分:{DebugChannelLabel()}");
+
+        // **今日の設定を1行で**。金属度と粗さは絵から逆算しにくいので、
+        // 「いま何を見ているのか」を常に出しておく。
+        // 材質グリッドのときは、球ごとに振っていることが分かるよう文言を変える。
+        lines.AppendLine(
+            _materialGrid
+                ? $"{PbrLabel()}  グリッド:{MaterialGridSize}x{MaterialGridSize}"
+                    + $"(縦=金属度 横=粗さ)  色:{GridColors[_gridColorIndex].Name}"
+                : PbrLabel());
 
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
@@ -2351,8 +2507,52 @@ internal static class Program
         10 => "従接線 B",
         11 => "最終法線 N",
         12 => "高さ",
+        13 => "拡散のみ",
+        14 => "鏡面のみ",
+        15 => "フレネル F",
+        16 => "法線分布 D",
+        17 => "幾何減衰 G",
         _ => "通常",
     };
+
+    /// <summary>金属度の上書き。**負なら上書きしない**という約束をシェーダと共有している。</summary>
+    private static float MetallicOverrideValue() => _metallicOverride switch
+    {
+        1 => 0.0f,
+        2 => 0.5f,
+        3 => 1.0f,
+        _ => -1.0f,
+    };
+
+    /// <summary>粗さの上書き。同上。</summary>
+    private static float RoughnessOverrideValue() => _roughnessOverride switch
+    {
+        1 => 0.05f,
+        2 => 0.3f,
+        3 => 0.6f,
+        4 => 1.0f,
+        _ => -1.0f,
+    };
+
+    /// <summary>PBR の状態を1行にまとめる(HUD 用)。</summary>
+    private static string PbrLabel()
+    {
+        if (!_pbrEnabled)
+        {
+            return "陰影:ランバート(Day 34)";
+        }
+
+        // **材質グリッドでは上書きを効かせていない**(RenderMaterialGrid)ので、
+        // そのときは表示もしない。HUD が実際の描画と食い違うのがいちばん質が悪い。
+        string metallic = _materialGrid || _metallicOverride == 0
+            ? "既定" : $"{MetallicOverrideValue():F2}";
+        string roughness = _materialGrid || _roughnessOverride == 0
+            ? "既定" : $"{RoughnessOverrideValue():F2}";
+
+        return $"陰影:Cook-Torrance  金属:{metallic}  粗さ:{roughness}  F0:{_dielectricF0:F2}"
+            + $"  α={(_perceptualRoughness ? "r²" : "r")}"
+            + (_ambientSpecular ? "  環境鏡面" : string.Empty);
+    }
 
     private static string ParallaxLabel() => _parallaxMode switch
     {
@@ -2469,9 +2669,28 @@ internal static class Program
         // ライトと表示モードは**フレームに1回**で足りる(Day 15 の要点: uniform の3階層)。
         // オブジェクトごとに送り直すと、モデルのパーツ数だけ無駄が出る。
         shader.SetVector3("uLightDirection", _lightDirection);
-        shader.SetVector3("uLightColor", _lightColor);
+
+        // **PBR に切り替えると光を π 倍する**(Day 35)。
+        //
+        // Cook-Torrance の拡散項には 1/π が入っている(半球にばらまくと
+        // 積分が π になるので、1 に戻すため)。Day 34 までのランバートは
+        // その π を省き、**光の強さのほうで吸わせていた**。
+        // だから式を差し替えるとシーン全体が 1/π に沈む。
+        //
+        // ここで掛けているのは「Ctrl+Shift+1 で切り替えたときに
+        // 明るさが揃っていないと見比べられない」という理由だけで、
+        // 物理的には π を掛けたほうが正しい強さ(uLightColor が放射輝度になる)。
+        shader.SetVector3("uLightColor", _pbrEnabled ? _lightColor * MathF.PI : _lightColor);
         shader.SetVector3("uAmbientColor", _ambientColor);
         shader.SetInt("uDebugChannel", _debugChannel);
+
+        // **Day 35 の設定もフレームに1回**。
+        shader.SetInt("uPbrEnabled", _pbrEnabled ? 1 : 0);
+        shader.SetFloat("uDielectricF0", _dielectricF0);
+        shader.SetInt("uPerceptualRoughness", _perceptualRoughness ? 1 : 0);
+        shader.SetInt("uAmbientSpecular", _ambientSpecular ? 1 : 0);
+        shader.SetFloat("uMetallicOverride", MetallicOverrideValue());
+        shader.SetFloat("uRoughnessOverride", RoughnessOverrideValue());
 
         // **影に関わる uniform もフレームに1回**(Day 33)。
         // 光源行列・シャドウマップ・PCF の設定はオブジェクトによらないので、
@@ -2490,7 +2709,15 @@ internal static class Program
         shader.SetInt("uParallaxMinSteps", _parallaxMinSteps);
         shader.SetInt("uParallaxMaxSteps", _parallaxMaxSteps);
 
-        // **材質テストの板は、それだけを描く**。
+        // **材質グリッドは、それだけを描く**(Day 35)。
+        // 板やモデルと重ねると、材質の違いが背景の明るさに紛れる。
+        if (_materialGrid)
+        {
+            RenderMaterialGrid();
+            return;
+        }
+
+        // **材質テストの板も、それだけを描く**。
         // モデルやデモと重ねると、視差の効きがどこから来ているのか分からなくなる。
         if (_surfaceDemo)
         {
@@ -2516,6 +2743,117 @@ internal static class Program
 
         RenderEmitters(angle);
         RenderLadder();
+    }
+
+    /// <summary>
+    /// **材質グリッドを描く**(Day 35)。今日の主役。
+    ///
+    /// 球を <see cref="MaterialGridSize"/> 角に並べ、
+    ///   - 縦(上へ) … 金属度 0 → 1
+    ///   - 横(右へ) … 粗さ 0 → 1
+    /// を振る。**1枚の絵に材質の空間が全部載る**のがこの並べ方の値打ちで、
+    /// PBR の解説がどれもこの図から始まるのには理由がある。
+    ///
+    /// <para>
+    /// 見どころは4つ。
+    /// </para>
+    /// <list type="number">
+    /// <item>
+    /// <b>左端(粗さ 0)は、ほぼ点のハイライト</b>。右へ行くほど広がって、
+    /// 同時に**暗くなる**——同じ量の光を広い範囲に配っているから。
+    /// エネルギー保存が絵として見える箇所で、
+    /// 「つるつるのほうが明るい」は錯覚ではなく物理。
+    /// </item>
+    /// <item>
+    /// <b>上の行(金属)は拡散が消える</b>。ハイライト以外が真っ黒になる。
+    /// これは**間違いではない**。金属は中へ入った光を吸収するので、
+    /// 映り込む景色が無ければ本当に黒い。Day 36 の IBL がこれを埋める。
+    /// </item>
+    /// <item>
+    /// <b>金属のハイライトには色が付く</b>(Ctrl+Shift+8 で金や銅に)。
+    /// 非金属のハイライトは白いまま。F0 の1行が効いている場所。
+    /// </item>
+    /// <item>
+    /// <b>どの球も縁が明るい</b>。フレネル。
+    /// 粗さ 1・金属度 0(右下)の、いちばん地味な球でも縁だけは光る。
+    /// </item>
+    /// </list>
+    ///
+    /// <para>
+    /// マテリアルは<b>1つを使い回して、球ごとに書き換える</b>。
+    /// 49 個ぶん作ってもよいが、マテリアルは「シェーダに渡す値の組」でしかないので
+    /// (<see cref="Material"/>)、描く直前に差し替えれば同じこと。
+    /// ドローコールは 49 回で、状態変更もその都度入る——
+    /// **本番なら uniform をまとめて送る**(インスタンシング)ところだが、
+    /// 49 個では測っても差が出ない。
+    /// </para>
+    /// </summary>
+    private static void RenderMaterialGrid()
+    {
+        Shader shader = _resources.GetShader(_shader);
+
+        // **上書きは効かせない**。グリッド自身が金属度と粗さを振っているので、
+        // ここで上書きが生きていると全部同じ球になる。
+        // Render3D がフレーム頭で送った値を、ここで打ち消しておく。
+        shader.SetFloat("uMetallicOverride", -1.0f);
+        shader.SetFloat("uRoughnessOverride", -1.0f);
+
+        // **この絵だけ光の向きを差し替える**。
+        //
+        // デモの太陽(_lightDirection)は**画面の奥から手前へ**進む向きに置いてある。
+        // 立方体やモデルを斜めから見るぶんにはそれで陰影が付くが、
+        // グリッドは正面から見る絵なので、**手前の面が全部逆光**になってしまう。
+        // 実際、拡散も鏡面も出ずに環境光だけの、のっぺりした 49 個が並んだ。
+        //
+        // 材質の見本を撮るときは光を「カメラの少し左上」に置くのが定石で、
+        // ハイライトが球の左上に出て、下へ回り込む陰との対比で丸みが読める。
+        // ここだけの都合なので、グローバルな太陽は動かさずにこの1回の描画で上書きする。
+        shader.SetVector3("uLightDirection", GridLightDirection);
+
+        // **光の強さも落とす**。デモの太陽の強さのままだと、
+        // 拡散の行が軒並み白飛びして**粗さの違いが消える**——
+        // 見本を撮るときに露出を絞るのと同じ話で、
+        // ハイライトのぶんの余地を上に残しておかないと材質が読めない。
+        //
+        // π は Render3D と同じ理由(Cook-Torrance の 1/π を釣り合わせる)。
+        // ここで一緒に掛けておかないと、Ctrl+Shift+1 の切り替えで明るさが飛ぶ。
+        shader.SetVector3(
+            "uLightColor",
+            _lightColor * GridLightScale * (_pbrEnabled ? MathF.PI : 1.0f));
+
+        _gridMaterial.BaseColorFactor = new Vector4(GridColors[_gridColorIndex].Color, 1.0f);
+
+        const float spacing = 1.35f;
+        float half = (MaterialGridSize - 1) * spacing * 0.5f;
+
+        for (int row = 0; row < MaterialGridSize; row++)
+        {
+            // 金属度は 0 か 1 しか物理的に無い(中間は「金属の粉が塗ってある」のような
+            // 混ざりものを表す近似)。それでも中間を並べるのは、
+            // **どこで拡散が消えるか**を目で追えるようにするため。
+            float metallic = (float)row / (MaterialGridSize - 1);
+
+            for (int column = 0; column < MaterialGridSize; column++)
+            {
+                float roughness = (float)column / (MaterialGridSize - 1);
+
+                _gridMaterial.MetallicFactor = metallic;
+
+                // 粗さ 0 は D が発散するので下限で止める(Pbr.MinRoughness)。
+                // シェーダ側でも同じ下限を掛けているが、
+                // **画面に出す数字と実際に使う値をそろえておく**ほうが混乱しない。
+                _gridMaterial.RoughnessFactor = MathF.Max(roughness, Pbr.MinRoughness);
+
+                Matrix4x4 model = Matrix4x4.CreateTranslation(
+                    (column * spacing) - half,
+                    (row * spacing) - half,
+                    0.0f);
+
+                Draw(_sphere, _gridMaterial, model);
+            }
+        }
+
+        _drawCalls = MaterialGridSize * MaterialGridSize;
     }
 
     /// <summary>
@@ -5586,6 +5924,397 @@ internal static class Program
     }
 
     /// <summary>
+    /// **PBR の自己チェック**(Ctrl+Shift+0)。
+    ///
+    /// 見た目だけでは絶対に分からないことを確かめる。
+    /// PBR の怖いところは<b>間違っていても「それらしい絵」が出る</b>ことで、
+    ///   - D が正規化されていない     → 全体が明るい/暗いだけ
+    ///   - 1/π を忘れた                → 光を強くすれば釣り合ってしまう
+    ///   - kD に (1 - F) を掛け忘れた  → 少し明るいだけ
+    /// のように、どれも一目では気づけない形で現れる。
+    ///
+    /// だから確かめるのは絵ではなく<b>数字の性質</b>にする。
+    /// <list type="number">
+    /// <item>法線分布 D の積分が 1(正規化)</item>
+    /// <item>フレネルの端の値(0 度で F0、90 度で 1)</item>
+    /// <item>金属は拡散しない / 非金属の F0 は 0.04</item>
+    /// <item><b>入ってきた以上の光を返していない</b>(方向アルベド ≤ 1)</item>
+    /// <item>相反性(V と L を入れ替えても同じ)</item>
+    /// <item>NaN も負の値も出ない</item>
+    /// </list>
+    ///
+    /// 4 は半球を数万点に刻んで積分するので、GPU ではまず書かない類の検算になる。
+    /// **CPU 側に同じ式を持っている値打ちがここに出る**(<see cref="Pbr"/>)。
+    /// </summary>
+    private static void RunPbrCheck()
+    {
+        var checks = new CheckList();
+        var stopwatch = Stopwatch.StartNew();
+
+        Console.WriteLine();
+        Console.WriteLine("[PBR の自己チェック]");
+
+        // --- 1. 法線分布 D の正規化 ---
+        //
+        // ∫ D(H) (N・H) dω = 1。**これが成り立たないと全部が狂う**——
+        // 鏡面の総量が粗さごとに勝手に変わってしまう。
+        //
+        // 積分で sinθ を掛け忘れると 2 近くの値になるので、
+        // 「1 になるか」を見るだけで球面積分の書き間違いも同時に捕まえられる。
+        foreach (float roughness in (float[])[0.1f, 0.3f, 0.6f, 1.0f])
+        {
+            float alpha = Pbr.Alpha(roughness);
+            double integral = Pbr.IntegrateNdf(alpha);
+
+            checks.Check(
+                $"D の積分が 1(粗さ {roughness:F2} / α {alpha:F4})",
+                Math.Abs(integral - 1.0) < 0.01,
+                $"∫D(N・H)dω = {integral:F4}");
+        }
+
+        // ピークの高さは解析的に出る。**式を写し間違えていないか**の最短の確認。
+        //   D(N・H = 1) = α² / (π * (α²)²) = 1 / (π α²)
+        float peakAlpha = Pbr.Alpha(0.3f);
+        float peak = Pbr.DistributionGgx(1.0f, peakAlpha);
+        float expectedPeak = 1.0f / (MathF.PI * peakAlpha * peakAlpha);
+
+        checks.Check(
+            "D のピークが 1/(π α²) と一致",
+            MathF.Abs(peak - expectedPeak) < expectedPeak * 1e-4f,
+            $"{peak:F1} / 期待 {expectedPeak:F1}");
+
+        // --- 2. フレネル ---
+        //
+        // 端の値だけは暗算で分かる。**正面から見れば F0、真横から見れば 1**。
+        // 「真横なら何でも鏡」というのがフレネルの言っていることそのもの。
+        var f0 = new Vector3(Pbr.DielectricF0);
+
+        checks.Check(
+            "F(0 度) = F0",
+            (Pbr.FresnelSchlick(1.0f, f0) - f0).Length() < 1e-6f);
+        checks.Check(
+            "F(90 度) = 1(**真横なら何でも鏡**)",
+            (Pbr.FresnelSchlick(0.0f, f0) - Vector3.One).Length() < 1e-6f);
+
+        // --- 3. F0 の作られ方 ---
+        var red = new Vector3(0.8f, 0.1f, 0.1f);
+
+        checks.Check(
+            "非金属の F0 はベースカラーによらず 0.04",
+            (Pbr.F0Of(red, 0.0f) - f0).Length() < 1e-6f,
+            $"{Pbr.F0Of(red, 0.0f)}");
+        checks.Check(
+            "金属の F0 はベースカラーそのもの(**鏡面に色が付く**)",
+            (Pbr.F0Of(red, 1.0f) - red).Length() < 1e-6f);
+
+        // 金属は拡散しない。**足し合わせた色からは確かめようがない**ので、
+        // 拡散と鏡面を分けて受け取る版を使う。
+        var n = Vector3.UnitY;
+        var v = Vector3.Normalize(new Vector3(0.4f, 0.8f, 0.2f));
+        var l = Vector3.Normalize(new Vector3(-0.3f, 0.7f, 0.5f));
+
+        Pbr.Evaluate(n, v, l, red, 1.0f, 0.3f, out Vector3 metalDiffuse, out Vector3 metalSpecular);
+        Pbr.Evaluate(n, v, l, red, 0.0f, 0.3f, out Vector3 plasticDiffuse, out _);
+
+        checks.Check("金属の拡散が 0", metalDiffuse.Length() < 1e-6f);
+        checks.Check("非金属の拡散が 0 でない", plasticDiffuse.Length() > 1e-3f);
+        checks.Check("金属の鏡面が 0 でない", metalSpecular.Length() > 1e-3f);
+
+        // --- 4. エネルギー保存 ---
+        //
+        // **入ってきた以上の光を返していないか**。
+        // あらゆる方向から明るさ 1 の光が来たときに返す量(方向アルベド)を
+        // 半球積分で出して、1 を超えないことを見る。
+        // 超えたら物理として破綻——光を作り出している。
+        //
+        // 金属と非金属を**分けて見る**。同じ式なのに結論が違うからで、
+        // その差がそのまま「この実装がどこまで正しいか」の線引きになる。
+        float worstMetal = 0.0f;
+        string worstMetalLabel = string.Empty;
+        float worstDielectric = 0.0f;
+        string worstDielectricLabel = string.Empty;
+
+        foreach (float roughness in (float[])[0.05f, 0.3f, 0.6f, 1.0f])
+        {
+            foreach (float viewAngle in (float[])[0.1f, 0.7f, 1.3f, 1.5f])
+            {
+                var view = new Vector3(MathF.Sin(viewAngle), MathF.Cos(viewAngle), 0.0f);
+                string label = $"粗さ {roughness:F2} / 視線 {MathF.Cos(viewAngle):F2}(N・V)";
+
+                float metal = Pbr.DirectionalAlbedo(n, view, Vector3.One, 1.0f, roughness).X;
+                if (metal > worstMetal)
+                {
+                    worstMetal = metal;
+                    worstMetalLabel = label;
+                }
+
+                float dielectric = Pbr.DirectionalAlbedo(n, view, Vector3.One, 0.0f, roughness).X;
+                if (dielectric > worstDielectric)
+                {
+                    worstDielectric = dielectric;
+                    worstDielectricLabel = label;
+                }
+            }
+        }
+
+        // 金属は鏡面だけ(拡散が 0)なので、**マイクロファセットの理屈どおり必ず 1 以下**。
+        checks.Check(
+            "**金属の方向アルベドが 1 を超えない**(16 通り)",
+            worstMetal <= 1.0f + 1e-3f,
+            $"最大 {worstMetal:F4}({worstMetalLabel})");
+
+        // --- 非金属は、浅い角度でわずかに 1 を超える ---
+        //
+        // **これは実装ミスではなく、今日の式が持っている穴**。正直に書いておく。
+        //
+        // 原因は拡散に回す量の決め方。<c>kD = 1 - F(V・H)</c> は
+        // 「この1本の光線が反射しなかった割合」であって、
+        // 「鏡面が**半球全体で**持って行った割合」ではない。
+        // 浅い角度では F が 1 に近づくのに、拡散側は
+        // **入ってくる光の平均**で減らされるため、引き足りずに残る。
+        //
+        // 正しくやるには、鏡面の方向アルベド(まさにこの関数が出している値)を
+        // 使って拡散を減らす。それには視線角と粗さの2次元表が要り、
+        // **Day 36 の IBL で焼く分割和の LUT がちょうどそれ**になる。
+        // だから今日は数字を出して知っておくところまでにする。
+        checks.Check(
+            "非金属の超過は 10% 未満(**(1 - F) の分け方の限界**。直すのは Day 36 の LUT)",
+            worstDielectric < 1.10f,
+            $"最大 {worstDielectric:F4}({worstDielectricLabel})"
+            + $"  超過 {MathF.Max(worstDielectric - 1.0f, 0.0f):P1}");
+
+        // --- 5. 近似の限界を数字で見る ---
+        //
+        // Cook-Torrance は微小な鏡で**1回だけ**跳ねる前提なので、
+        // 凹凸の中で2回3回と跳ね返る光をまるごと落としている。
+        // **粗いほど損が大きい**——ざらざらの金属が実物より暗くなるのはこれ。
+        //
+        // 不合格にはしない。**間違いではなく、この式が持っている限界**なので、
+        // 「知っていて使っている」ことを確かめるための表示にとどめる。
+        Console.WriteLine("  --- 単一散乱で失われるエネルギー(金属・白・正面から)---");
+
+        var frontView = Vector3.UnitY;
+        float smoothLoss = 0.0f;
+        float roughLoss = 0.0f;
+
+        foreach (float roughness in (float[])[0.05f, 0.25f, 0.5f, 0.75f, 1.0f])
+        {
+            Vector3 albedo = Pbr.DirectionalAlbedo(n, frontView, Vector3.One, 1.0f, roughness);
+            float loss = 1.0f - albedo.X;
+
+            Console.WriteLine($"      粗さ {roughness:F2}: 返る {albedo.X:P1}   失う {loss:P1}");
+
+            if (roughness < 0.1f)
+            {
+                smoothLoss = loss;
+            }
+
+            roughLoss = loss;
+        }
+
+        checks.Check(
+            "粗いほど損が大きい(**多重散乱を落としている証拠**)",
+            roughLoss > smoothLoss + 0.05f,
+            $"粗さ 0.05 で {smoothLoss:P1} → 粗さ 1.00 で {roughLoss:P1}");
+
+        // --- 6. 相反性 ---
+        //
+        // BRDF は V と L を入れ替えても同じ値でなければならない(ヘルムホルツの相反性)。
+        // **光路を逆に辿っても同じ**という物理の要請で、
+        // 破れていると経路追跡系のレンダラで辻褄が合わなくなる。
+        //
+        // Cook-Torrance は D も G も F も V と L について対称に組んであるので、
+        // 素直に書けば自動的に成り立つ。**成り立たなければ写し間違い**。
+        bool reciprocal = true;
+        float maxReciprocityError = 0.0f;
+
+        for (int i = 0; i < 64; i++)
+        {
+            // **両方とも面の表側に置く**。片方が裏へ回ると、
+            // 一方は 0 を返し、他方は 0 割り避けのクランプが効いて、
+            // 式のせいではないところで対称性が崩れる——
+            // それは相反性が破れたのではなく、**確かめ方が悪い**。
+            float theta1 = 0.15f + ((i % 8) * 0.15f);
+            float phi1 = i * 0.7f;
+            var v1 = new Vector3(
+                MathF.Sin(theta1) * MathF.Cos(phi1), MathF.Cos(theta1), MathF.Sin(theta1) * MathF.Sin(phi1));
+
+            float theta2 = 0.2f + ((i % 7) * 0.16f);
+            float phi2 = (i * 1.3f) + 0.4f;
+            var l1 = new Vector3(
+                MathF.Sin(theta2) * MathF.Cos(phi2), MathF.Cos(theta2), MathF.Sin(theta2) * MathF.Sin(phi2));
+
+            Vector3 forward = Pbr.Evaluate(n, v1, l1, red, 0.5f, 0.4f);
+            Vector3 backward = Pbr.Evaluate(n, l1, v1, red, 0.5f, 0.4f);
+
+            float error = (forward - backward).Length();
+            maxReciprocityError = MathF.Max(maxReciprocityError, error);
+            reciprocal &= error < 1e-4f;
+        }
+
+        checks.Check(
+            "相反性: f(V, L) = f(L, V)(64 通り)",
+            reciprocal,
+            $"最大誤差 {maxReciprocityError:E2}");
+
+        // --- 7. 壊れた値が出ないか ---
+        //
+        // **端を総なめする**。粗さ 0、真横からの視線、裏から当たる光——
+        // どれも式のどこかで 0 割りになりうる場所で、
+        // NaN は絵の上では「黒い点」や「真っ白な塊」になって現れる。
+        bool finite = true;
+        bool nonNegative = true;
+        bool geometryBounded = true;
+        int cases = 0;
+
+        for (int i = 0; i <= 32; i++)
+        {
+            float roughness = (float)i / 32.0f;
+
+            for (int j = 0; j <= 32; j++)
+            {
+                // 0 度(真正面)から 90 度(真横)まで。**両端を必ず含める**。
+                float angle = (float)j / 32.0f * (MathF.PI / 2.0f);
+                var view = new Vector3(MathF.Sin(angle), MathF.Cos(angle), 0.0f);
+
+                for (int k = 0; k <= 16; k++)
+                {
+                    // 光は裏側まで振る。裏なら 0 が返るのが正しい。
+                    float lightAngle = ((float)k / 16.0f * MathF.PI) - (MathF.PI / 4.0f);
+                    var light = new Vector3(MathF.Sin(lightAngle), MathF.Cos(lightAngle), 0.0f);
+
+                    Vector3 value = Pbr.Evaluate(n, view, light, Vector3.One, 0.5f, roughness);
+
+                    finite &= float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+                    nonNegative &= value.X >= 0.0f && value.Y >= 0.0f && value.Z >= 0.0f;
+                    cases++;
+                }
+            }
+
+            float g = Pbr.GeometrySmith(1.0f, 1.0f, roughness);
+            geometryBounded &= g is >= 0.0f and <= 1.0f;
+        }
+
+        checks.Check($"NaN も無限大も出ない(粗さ×視線×光 の {cases:N0} 通り)", finite);
+        checks.Check("負の値が出ない", nonNegative);
+        checks.Check("幾何減衰 G が 0〜1 に収まる", geometryBounded);
+
+        // --- 8. 今日足した球 ---
+        //
+        // 材質グリッドは球でしか成り立たない(<see cref="Primitives.CreateSphere"/>)ので、
+        // その球が正しく組めているかも今日の検査に入れる。
+        //
+        // **曲面は手で確かめにくい**のがここの動機。板や立方体は
+        // 「左下 → 右下 が U」と目で追えたが、球は導関数から出しているので、
+        // 符号を1つ間違えても**それらしい絵が出てしまう**。
+        Vertex[] sphere = _sphere.ReadVertices();
+
+        bool onSphere = true;
+        bool normalIsPosition = true;
+        bool tangentUnit = true;
+        bool tangentOrthogonal = true;
+        bool handednessNegative = true;
+        bool bitangentMatchesV = true;
+
+        foreach (Vertex vertex in sphere)
+        {
+            onSphere &= MathF.Abs(vertex.Position.Length() - 0.5f) < 1e-4f;
+            normalIsPosition &= Vector3.Dot(Vector3.Normalize(vertex.Position), vertex.Normal) > 0.9999f;
+
+            var tangent = new Vector3(vertex.Tangent.X, vertex.Tangent.Y, vertex.Tangent.Z);
+            tangentUnit &= MathF.Abs(tangent.Length() - 1.0f) < 1e-4f;
+            tangentOrthogonal &= MathF.Abs(Vector3.Dot(vertex.Normal, tangent)) < 1e-4f;
+
+            // **板と立方体は +1、球は -1**。Day 34 で作った w の仕組みが、
+            // 今日はじめて -1 の側で使われる。
+            handednessNegative &= MathF.Abs(vertex.Tangent.W + 1.0f) < 1e-6f;
+
+            // 従接線が「V の増える向き」と合っているか。
+            // 球なら ∂P/∂v を解析的に書けるので、**UV から答えを作って突き合わせる**。
+            //   θ = (1 - v)π、φ = u・2π
+            //   ∂P/∂v ∝ (-cosθ cosφ, sinθ, -cosθ sinφ)
+            float theta = (1.0f - vertex.TexCoord.Y) * MathF.PI;
+            float phi = vertex.TexCoord.X * MathF.Tau;
+
+            var expected = Vector3.Normalize(new Vector3(
+                -MathF.Cos(theta) * MathF.Cos(phi),
+                MathF.Sin(theta),
+                -MathF.Cos(theta) * MathF.Sin(phi)));
+
+            Vector3 bitangent = Vector3.Cross(vertex.Normal, tangent) * vertex.Tangent.W;
+            bitangentMatchesV &= Vector3.Dot(bitangent, expected) > 0.999f;
+        }
+
+        checks.Check($"球: 全頂点が半径 0.5 の上にある({sphere.Length:N0} 頂点)", onSphere);
+        checks.Check("球: 法線が位置と同じ向き(単位球の性質)", normalIsPosition);
+        checks.Check("球: 接線が単位ベクトルで、法線と直交", tangentUnit && tangentOrthogonal);
+        checks.Check("球: **w が全頂点で -1**(板と立方体は +1)", handednessNegative);
+        checks.Check(
+            "球: cross(N, T) * w が **∂P/∂v(V の増える向き)と一致**",
+            bitangentMatchesV);
+
+        // **巻き順**。間違えると背面カリングで消えるだけなので、
+        // 「実装は合っているのに真っ暗」という掴みにくい形で出る。
+        // 三角形の3点から作った法線が、頂点法線と同じ側を向いていれば外向き。
+        uint[] sphereIndices = _sphere.ReadIndices();
+
+        bool windingOutward = true;
+        int triangles = 0;
+        int degenerate = 0;
+
+        for (int i = 0; i + 2 < sphereIndices.Length; i += 3)
+        {
+            Vertex a = sphere[sphereIndices[i]];
+            Vertex b = sphere[sphereIndices[i + 1]];
+            Vertex c = sphere[sphereIndices[i + 2]];
+
+            Vector3 geometric = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
+
+            // **極の三角形は潰れる**。UV 球は極で経度が1点に集まるので、
+            // 2頂点が同じ位置に来る三角形が上下に 1 段ずつできる。
+            // 面積 0 なので外積から向きが出ない——数えるだけにして飛ばす。
+            if (geometric.Length() < 1e-9f)
+            {
+                degenerate++;
+                continue;
+            }
+
+            Vector3 average = a.Normal + b.Normal + c.Normal;
+            windingOutward &= Vector3.Dot(Vector3.Normalize(geometric), Vector3.Normalize(average)) > 0.0f;
+            triangles++;
+        }
+
+        checks.Check(
+            "球: 全三角形が外向きに巻かれている(**逆だとカリングで消える**)",
+            windingOutward,
+            $"{triangles:N0} 枚 / 極で潰れた三角形 {degenerate} 枚は対象外");
+
+        // --- 9. CPU と GPU で同じ約束を使っているか ---
+        //
+        // <see cref="Pbr"/> と textured.frag は**同じ式を2か所に書いている**。
+        // 数値そのものを突き合わせることはできない(GPU の中は覗けない)ので、
+        // せめて**定数が揃っていること**は機械で確かめる。
+        // 「片方だけ直す」がいちばん起こりやすい壊し方なので。
+        string fragPath = Path.Combine(ResolveDirectory("shaders"), "textured.frag");
+        string frag = File.ReadAllText(fragPath);
+
+        checks.Check(
+            "シェーダの MIN_ROUGHNESS が Pbr.MinRoughness と一致",
+            frag.Contains($"MIN_ROUGHNESS = {Pbr.MinRoughness:0.000}", StringComparison.Ordinal),
+            $"Pbr.MinRoughness = {Pbr.MinRoughness:0.000}");
+
+        checks.Check(
+            "α = roughness² が両方に入っている",
+            frag.Contains("(r * r) : r", StringComparison.Ordinal)
+            && Pbr.Alpha(0.5f) is > 0.2499f and < 0.2501f,
+            $"Pbr.Alpha(0.5) = {Pbr.Alpha(0.5f):F4}");
+
+        Console.WriteLine($"  所要 {stopwatch.Elapsed.TotalMilliseconds:F0}ms(半球の重点サンプリング 37 回 x 8192 点)");
+        checks.Report();
+        Console.WriteLine();
+    }
+
+    /// <summary>
     /// **接空間の自己チェック**(Alt+0)。
     ///
     /// 接空間は「絵からは正しさが読めない」ものの筆頭になる。
@@ -6459,6 +7188,117 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(物理ベースレンダリング)---
+            //
+            // **Ctrl+Shift + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)に続く4段目。
+            //
+            // ガード付きの case は**上から順に照合される**ので、
+            // **2つ押しの組は1つ押しより必ず先に置く**。
+            // 下の `when ctrl` を先に書くと、Ctrl+Shift+1 がそちら(影の ON/OFF)に吸われて、
+            // 「押しても何も起きない」ではなく「別の機能が動く」という分かりにくい壊れ方をする。
+            case Key.Number1 when ctrl && shift:
+                _pbrEnabled = !_pbrEnabled;
+                Console.WriteLine(
+                    _pbrEnabled
+                        ? "陰影: Cook-Torrance(物理ベース)"
+                        : "陰影: ランバート(Day 34 まで。金属度も粗さも効かない)");
+                break;
+
+            case Key.Number2 when ctrl && shift:
+                _metallicOverride = (_metallicOverride + 1) % 4;
+                Console.WriteLine(
+                    $"金属度の上書き: {(_metallicOverride == 0 ? "しない(モデルの値)" : $"{MetallicOverrideValue():F2}")}");
+                break;
+
+            case Key.Number3 when ctrl && shift:
+                _roughnessOverride = (_roughnessOverride + 1) % 5;
+                Console.WriteLine(
+                    $"粗さの上書き: {(_roughnessOverride == 0 ? "しない(モデルの値)" : $"{RoughnessOverrideValue():F2}")}");
+                break;
+
+            case Key.Number4 when ctrl && shift:
+                // 非金属の F0。**0.04 から動かす理由はほとんど無い**が、
+                // 動かすと「非金属の鏡面はこんなに弱い」ことが逆に分かる。
+                _dielectricF0 = _dielectricF0 switch
+                {
+                    < 0.02f => 0.04f,
+                    < 0.06f => 0.08f,
+                    < 0.12f => 0.17f,
+                    _ => 0.00f,
+                };
+                Console.WriteLine(
+                    $"非金属の F0: {_dielectricF0:F2}"
+                    + _dielectricF0 switch
+                    {
+                        < 0.02f => "(反射しない。物理的には有り得ない)",
+                        < 0.06f => "(水・プラスチック・ガラス。ほとんどの物質)",
+                        < 0.12f => "(宝石)",
+                        _ => "(ダイヤモンド)",
+                    });
+                break;
+
+            case Key.Number5 when ctrl && shift:
+                _materialGrid = !_materialGrid;
+                if (_materialGrid)
+                {
+                    // **正面から見せる**。材質を見比べる絵なので、
+                    // 斜めから見ると列ごとに視線の角度が変わり、
+                    // フレネルのせいで右へ行くほど明るくなってしまう。
+                    _orbit.Yaw = 0.0f;
+                    _orbit.Pitch = 0.0f;
+                    _orbit.Target = Vector3.Zero;
+                    _orbit.Distance = 13.0f;
+                    _orbit.Apply();
+                }
+
+                Console.WriteLine(
+                    _materialGrid
+                        ? $"材質グリッド: {MaterialGridSize}x{MaterialGridSize}(縦=金属度 0→1 / 横=粗さ 0→1)"
+                            + "  ※上の行が黒いのは正しい。映り込む景色が要る(Day 36)"
+                        : "材質グリッド: OFF");
+                break;
+
+            case Key.Number6 when ctrl && shift:
+                _perceptualRoughness = !_perceptualRoughness;
+                Console.WriteLine(
+                    _perceptualRoughness
+                        ? "α の作り方: roughness²(glTF・Unreal・Unity の流儀)"
+                        : "α の作り方: roughness そのまま  ※中央より右がほとんど同じに見える");
+                break;
+
+            case Key.Number7 when ctrl && shift:
+                _ambientSpecular = !_ambientSpecular;
+                Console.WriteLine(
+                    _ambientSpecular
+                        ? "環境鏡面: ON(Day 36 の IBL までの粗いつなぎ)"
+                        : "環境鏡面: OFF  ※金属がハイライト以外真っ黒になるのが素の姿");
+                break;
+
+            case Key.Number8 when ctrl && shift:
+                _gridColorIndex = (_gridColorIndex + 1) % GridColors.Length;
+                Console.WriteLine(
+                    $"グリッドのベースカラー: {GridColors[_gridColorIndex].Name}"
+                    + "  ※金属の行だけ鏡面に色が乗る(F0 = ベースカラー)");
+                break;
+
+            case Key.Number9 when ctrl && shift:
+                // **一足飛びで見どころへ**(Alt+9 と同じ趣旨)。
+                // 鏡面だけを見ると、粗さとフレネルの効きが拡散に邪魔されずに読める。
+                _pbrEnabled = true;
+                _materialGrid = true;
+                _debugChannel = 14;
+                _orbit.Yaw = 0.0f;
+                _orbit.Pitch = 0.0f;
+                _orbit.Target = Vector3.Zero;
+                _orbit.Distance = 13.0f;
+                _orbit.Apply();
+                Console.WriteLine($"材質グリッド + 表示する成分: {DebugChannelLabel()}");
+                break;
+
+            case Key.Number0 when ctrl && shift:
+                RunPbrCheck();
+                break;
+
             // --- 今日のスイッチ(法線マップと視差マッピング)---
             //
             // **Alt + 数字**。Shift(Day 31・32)、Ctrl(Day 33)に続く3段目。
@@ -6709,9 +7549,9 @@ internal static class Program
 
             // --- 今日のスイッチ(glTF)---
             case Key.Number9 when shift:
-                // Day 34 で接空間の4つが増えて 13 通りになった。
-                // **多いので Alt+9 で最終法線へ直接飛べる**ようにしてある。
-                _debugChannel = (_debugChannel + 1) % 13;
+                // Day 34 で接空間の4つ、Day 35 で BRDF の5つが増えて 18 通りになった。
+                // **多いので Alt+9 と Ctrl+Shift+9 で目当ての成分へ直接飛べる**ようにしてある。
+                _debugChannel = (_debugChannel + 1) % 18;
                 Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
                 break;
 
@@ -7112,13 +7952,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// シミュレーションのレートを変える。
-    ///
-    /// **溜まっている時間は捨てる**(<see cref="GameLoop.Reset"/>)。
-    /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
-    /// 一瞬だけ早送りになる。
-    /// </summary>
-    /// <summary>
     /// スプライトの数を変える。GameObject モードならシーンのほうもそろえる。
     ///
     /// 上限から <c>LayerTest</c> のぶんと階層の実演のぶんを引いてあるのは、
@@ -7146,6 +7979,13 @@ internal static class Program
         _ => "ECS",
     };
 
+    /// <summary>
+    /// シミュレーションのレートを変える。
+    ///
+    /// **溜まっている時間は捨てる**(<see cref="GameLoop.Reset"/>)。
+    /// 捨てないと、レートを下げた瞬間に古い間隔ぶんの時間が新しい間隔で消化され、
+    /// 一瞬だけ早送りになる。
+    /// </summary>
     private static void SetSimulationRate(double hertz)
     {
         _loop.FixedDeltaTime = 1.0 / hertz;
@@ -7187,6 +8027,7 @@ internal static class Program
 
         _cube.Dispose();
         _quad.Dispose();
+        _sphere.Dispose();
 
         // **テクスチャとシェーダの Dispose がここから消えた**。
         // 誰が何を持っているかを1箇所に集めた結果、後始末も1行になる。
