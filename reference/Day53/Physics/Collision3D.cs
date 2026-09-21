@@ -678,7 +678,7 @@ internal static class Collision3D
     /// <b>地形の上を歩けるようになるのはこの関数</b>。
     /// <see cref="CharacterController"/> は
     /// <see cref="PhysicsWorld.QueryCapsule"/> 越しにこれを呼び、
-    /// 返ってきた法線の Y から「登れる坂か」を決める(Day 45 の要点7)。
+    /// 返ってきた法線の Y から「登れる坂か」を決める(Day 45b の要点2)。
     /// つまり<b>坂の上限は三角形1枚ごとに効く</b>ことになる。
     /// </summary>
     public static ContactManifold CapsuleTerrain(in Capsule3D capsule, in Terrain3D terrain)

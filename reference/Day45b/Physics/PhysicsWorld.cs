@@ -351,7 +351,7 @@ internal sealed class PhysicsWorld
             plane.Normal * plane.Distance, plane.Normal));
 
     /// <summary>
-    /// カプセルと当たっている体を集める。**キャラクターのための問い合わせ**(Day 45 の要点6)。
+    /// カプセルと当たっている体を集める。**キャラクターのための問い合わせ**(Day 45b の要点1)。
     ///
     /// <see cref="Step"/> が回している総当たりとは<b>別の入口</b>にしてある。
     /// キャラクターは剛体ではない——質量も速度も物理に預けていないので、

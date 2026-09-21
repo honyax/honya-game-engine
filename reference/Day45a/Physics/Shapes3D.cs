@@ -208,7 +208,7 @@ internal readonly struct Box3D
     }
 
     /// <summary>
-    /// 線分にいちばん近い、箱の上の点。**距離が凸なので三分探索で詰める**(Day 45 の要点3)。
+    /// 線分にいちばん近い、箱の上の点。**距離が凸なので三分探索で詰める**(Day 45a の要点3)。
     ///
     /// 線分と箱の最近接点対は、解析的に解こうとすると
     /// 「線分の端 × 箱の 6 面 + 12 辺 + 8 頂点」の場合分けになって手に負えない。
@@ -636,7 +636,7 @@ internal readonly struct Capsule3D
     /// </summary>
     public Sphere3D SphereNear(Vector3 point) => new(Segment.ClosestPoint(point), Radius);
 
-    /// <summary>下側の端の球(**足元**)。<see cref="CharacterController"/> が接地判定に使う。</summary>
+    /// <summary>下側の端の球(**足元**)。Day 45b のキャラクターが接地判定に使う。</summary>
     public Sphere3D LowerSphere => new(Segment.Start, Radius);
 
     /// <summary>上側の端の球(**頭**)。</summary>

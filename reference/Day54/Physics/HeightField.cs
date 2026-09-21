@@ -385,7 +385,7 @@ internal readonly struct Terrain3D
     /// 物が勝手に滑り出す。
     ///
     /// <para>
-    /// <see cref="CharacterController"/> の坂の上限(Day 45 の要点7)は
+    /// <see cref="CharacterController"/> の坂の上限(Day 45b の要点2)は
     /// この法線の Y 成分だけを見る。
     /// つまり<b>「登れる坂か」は三角形1枚ごとに決まる</b>ことになる。
     /// </para>

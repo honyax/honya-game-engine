@@ -795,25 +795,12 @@ internal static class Program
         /// <summary>
         /// カプセルを落とす(Day 45)。**寝ると2点で支えられる**のを見る筋書き。
         ///
-        /// 立てて落としたカプセルは1点で着地して倒れ、
+        /// 傾けて落としたカプセルは1点で着地して倒れ、
         /// 倒れ切ると端2つで支えられて止まる。
         /// 箱の日(Day 44)に「接触点の数 = 支え方の数」と書いたのが、
         /// <b>同じ物体が転がる間に 1 → 2 と変わる</b>形で見える。
         /// </summary>
         CapsuleDrop,
-    }
-
-    /// <summary>キャラクターデモの筋書き(Day 45)。**確かめたいことが1つずつ**ある。</summary>
-    private enum CharacterScene
-    {
-        /// <summary>傾きを振った坂。**坂の上限(Alt+X)が効く**(要点7)。</summary>
-        Slopes,
-
-        /// <summary>高さを振った階段。**段差の乗り越え(Ctrl+Shift+X)が効く**(要点8)。</summary>
-        Steps,
-
-        /// <summary>箱と球とカプセルが転がっている中を歩く。**キネマティックと動的の同居**。</summary>
-        Obstacles,
     }
 
     /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
@@ -915,45 +902,8 @@ internal static class Program
     //  Day 45: カプセル衝突とキャラクターコントローラ(キネマティック)
     // ================================================================
 
-    /// <summary>キャラクターデモを出しているか(Ctrl+X)。</summary>
-    private static bool _characterDemo;
-
-    /// <summary>
-    /// 動かすキャラクター。**物理の世界には入っていない**(要点6)。
-    ///
-    /// <see cref="Physics"/> の <c>Bodies</c> に並んでいないので、
-    /// 箱や球はキャラクターに当たらない——当たるのはキャラクターの側だけ。
-    /// 「押されるが押さない」というこの非対称が、
-    /// キネマティックなキャラクターの性格そのものになる。
-    /// </summary>
-    private static readonly CharacterController Character = new();
-
-    /// <summary>今の筋書き。</summary>
-    private static CharacterScene _characterScene = CharacterScene.Slopes;
-
-    /// <summary>キャラクターを描くマテリアル。**カプセルは球2つ + 円柱1本**で描く。</summary>
-    private static Material _characterMaterial = null!;
-
     /// <summary>降らせたカプセルの数。色を巡回させるのに使う。</summary>
     private static int _capsuleSpawnCount;
-
-    /// <summary>1ステップにキャラクターの更新が使った時間 [ms]。移動平均。</summary>
-    private static double _characterMilliseconds;
-
-    /// <summary>
-    /// キャラクターを出す位置(足元)。**落ちたときに戻す先**でもある。
-    ///
-    /// 床(<see cref="PhysicsFloorY"/>)より少しだけ上に置いて、
-    /// 最初の数フレームで落ちて着地させる。
-    /// ぴったり床の高さに置くと、初期状態でめり込んでいるのか
-    /// 接地しているのかが分からなくなる。
-    ///
-    /// <para>
-    /// <b>筋書きごとに変わる</b>。坂も階段も「登り口の手前」に立たせたいので、
-    /// 各コースの組み立てが書き換える。
-    /// </para>
-    /// </summary>
-    private static Vector3 _characterSpawn = new(0.0f, PhysicsFloorY + 0.2f, 2.6f);
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
@@ -1700,21 +1650,6 @@ internal static class Program
             EmissiveFactor = new Vector3(4.0f, 0.9f, 0.15f),
         };
 
-        // **キャラクター**(Day 45)。周りの箱や球と見分けが付くように、
-        // 少し発光させて明るい単色にしてある。
-        // 模様が要らないのは、キャラクターのカプセルは<b>回らない</b>から——
-        // 球(<see cref="_physicsMaterial"/>)に格子を貼ったのは
-        // 回転を目で追うためだったので、ここでは要らない。
-        _characterMaterial = new Material(_shader)
-        {
-            Name = "character",
-            MainTexture = white,
-            BaseColorFactor = SrgbToLinear(new Vector4(0.22f, 0.78f, 0.95f, 1.0f)),
-            MetallicFactor = 0.0f,
-            RoughnessFactor = 0.45f,
-            EmissiveFactor = new Vector3(0.05f, 0.20f, 0.28f),
-        };
-
         // --- 2D ---
         _spriteShader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "sprite.vert"),
@@ -1944,11 +1879,7 @@ internal static class Program
         Console.WriteLine("Ctrl+Shift+Alt+0:Day 44 の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 45: カプセル衝突とキャラクターコントローラ(X の段)---");
-        Console.WriteLine("Ctrl+X:キャラクターデモ ON/OFF。**坂と階段の上を歩き回れる。今日の到達点**");
-        Console.WriteLine("  矢印キー:歩く(カメラ基準)  X 押しっぱなし:走る  Space:ジャンプ");
-        Console.WriteLine("Shift+X:筋書き(坂/階段/障害物)  Alt+X:**坂の上限 ON/OFF(切ると壁も登れる)**");
-        Console.WriteLine("Ctrl+Shift+X:**段差の乗り越え ON/OFF(切ると 15cm の段で止まる)**");
-        Console.WriteLine("Ctrl+Alt+X:カプセルを1つ降らせる  Shift+Alt+X:キャラクターの内訳");
+        Console.WriteLine("Ctrl+Alt+X:カプセルを1つ降らせる");
         Console.WriteLine("Ctrl+Shift+Alt+X:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
@@ -2456,28 +2387,12 @@ internal static class Program
         {
             UpdateDemoCamera(deltaSeconds);
 
-            // **キャラクターを画面に留める**(Day 45)。
-            // 注視点をキャラクターの胸のあたりへ置き直すだけの、
-            // いちばん素朴な追従。可変 dt 側に置いてあるのは見せ方だからで、
-            // カメラワーク(Day 40)と同じ扱いになる。
-            //
-            // **本物の三人称カメラは Day 51**。滑らかに遅れて付いていく、
-            // 壁に入ったら寄る、進行方向を先読みする——
-            // どれもここには無い。今はキャラクターが画面外へ出ないだけで足りる。
-            if (_characterDemo)
-            {
-                _orbit.Target = Character.Position + new Vector3(0.0f, 1.0f, 0.0f);
-                _orbit.Apply();
-            }
-
             // **アニメーションも可変 dt で回す**(Day 41)。
             // 今日のところは見せ方だけの処理なので、カメラワークと同じ扱いでよい。
             //
-            // ただし**これは今日までの話**。骨の位置を当たり判定に使い始めたら
-            // 決定性が要るので、FixedUpdate 側へ移すことになる。
-            // Day 45 のキャラクターコントローラは<b>カプセル1本で当たりを取る</b>ので、
-            // 骨の位置には触らない——だからアニメーションは可変 dt のままでよい。
-            // (アニメを載せるのは Day 51。そこでも当たり判定はカプセルのまま)
+            // ただし**これは今日までの話**。骨の位置を当たり判定に使い始めると
+            // (Day 45 のキャラクターコントローラ)決定性が要るので、
+            // そのときは FixedUpdate 側へ移すことになる。
             // **重みを先に決めてから時刻を進める**(Day 42)。
             // 逆にすると、速度が変わったフレームだけ1フレーム古い重みで描かれる。
             UpdateLocomotion((float)deltaSeconds);
@@ -2613,13 +2528,7 @@ internal static class Program
             return;
         }
 
-        // **キャラクターデモ中はシーンに入力を渡さない**(Day 45)。
-        // 矢印キーはキャラクターのものになるので、
-        // そのままシーンへも流すと**デモのプレイヤーが同時に動く**。
-        // 上の `_playing` の枝が「同じ入力を2つの世界が食い合う」と書いたのと同じ話で、
-        // こちらは早期 return ではなく空の入力を渡して凌いでいる——
-        // シーンの更新そのものは続けたい(背景のスプライトは動いていてよい)ため。
-        _scene.Input = _characterDemo ? InputSnapshot.Empty : input;
+        _scene.Input = input;
         _scene.Bounds = bounds;
         _scene.FixedUpdate(dt);
 
@@ -2633,11 +2542,6 @@ internal static class Program
         // Day 41〜42 のアニメーションを可変 dt 側(OnUpdate)に置いたのと逆の判断で、
         // 線引きは Day 19 のまま——**状態を持つものはこちら**。
         UpdatePhysics(dt);
-
-        // **キャラクターは物理のあと**(Day 45 の要点6)。
-        // 箱や球が動き終わった世界に対して当たりを取るので、
-        // 転がってきた物にめり込んだまま次のステップへ進むことがない。
-        UpdateCharacter(dt, input);
 
         switch (_backend)
         {
@@ -3105,13 +3009,6 @@ internal static class Program
                 _shadow.Draw(BodyMesh(physicsBody), BodyMatrix(physicsBody));
             }
 
-            // **キャラクターも影を落とす**(Day 45)。足元の影が無いと、
-            // 段の上に乗っているのか手前で止まっているのかが読めない。
-            if (_characterDemo)
-            {
-                ShadowCapsule(Character.ToCapsule());
-            }
-
             _shadow.Draw(_quad, FloorMatrix());
         }
         else if (_demo is not null)
@@ -3366,13 +3263,6 @@ internal static class Program
             // **今日の1行**(Day 44)。接触が何組・何点あるか、
             // そしてそれがどの軸から出たかは、絵をいくら見ても分からない。
             lines.AppendLine(ContactLabel());
-
-            // **今日の1行**(Day 45)。接地しているか、立っている面が何度か、
-            // 段差を越えたか——どれも絵からは読み取れない。
-            if (_characterDemo)
-            {
-                lines.AppendLine(CharacterLabel());
-            }
         }
 
         if (_model is not null)
@@ -4172,11 +4062,6 @@ internal static class Program
         SetSpriteCount(0);
 
         _physicsDemo = true;
-
-        // **キャラクターは下ろす**(Day 45)。剛体の筋書きへ切り替えたのに
-        // キャラクターが立っていると、消えた床の上に取り残される。
-        _characterDemo = false;
-
         _physicsPaused = false;
         _physicsStepsRequested = 0;
 
@@ -4554,8 +4439,10 @@ internal static class Program
     /// <summary>
     /// カプセルを落とす(Ctrl+Shift+Alt+2 で選ぶ)。**寝ると2点で支えられる**(要点4)。
     ///
-    /// 傾きを振った5本を落とす。まっすぐ立てた1本目は<b>1点で着地して倒れ</b>、
+    /// 傾きを振った5本を落とす。傾いた4本は<b>1点で着地して倒れ</b>、
     /// 倒れ切ると<b>端2つで支えられて止まる</b>。
+    /// まっすぐ立てた1本目だけは倒れるきっかけが無く、1点で立ったまま残る
+    /// (理屈のうえでは倒れない。自己チェックが傾けて落としているのはそのため)。
     /// 接触点の表示(Ctrl+Shift+Alt+3)を出しておくと、
     /// 光る玉が1つから2つに増える瞬間が見える。
     ///
@@ -4629,392 +4516,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// キャラクターデモを出す下ごしらえ(Ctrl+X / Shift+X)。
-    ///
-    /// <see cref="ShowPhysicsDemo"/> と同じ形だが、
-    /// <b>物理デモも同時に立てる</b>のが違い——
-    /// キャラクターが歩く床や坂は <see cref="Physics"/> の静的な体でできているので、
-    /// 物理の世界そのものは要る。<see cref="_characterDemo"/> は
-    /// 「その世界の中をキャラクターが歩いているかどうか」の札でしかない。
-    /// </summary>
-    private static void ShowCharacterDemo(CharacterScene scene)
-    {
-        if (_demo is not null)
-        {
-            UnloadDemoScene();
-        }
-
-        StopTourIfRunning();
-
-        if (_model is not null)
-        {
-            SetModel(ModelPaths.Length);
-        }
-
-        _materialGrid = false;
-        _surfaceDemo = false;
-        _draw3D = true;
-        _debugChannel = 0;
-        SetSpriteCount(0);
-
-        _physicsDemo = true;
-        _characterDemo = true;
-        _physicsPaused = false;
-        _physicsStepsRequested = 0;
-
-        BuildCharacterScene(scene);
-
-        // **カメラは肩越しくらいの高さ**。真上から見ると段差の高さが読めず、
-        // 真横から見ると坂の向きが読めない。
-        _orbit.Reset();
-        _orbit.Target = Character.Position + new Vector3(0.0f, 1.0f, 0.0f);
-        _orbit.Distance = 11.0f;
-        _orbit.Yaw = 0.0f;
-        _orbit.Pitch = 0.30f;
-        _orbit.Apply();
-    }
-
-    /// <summary>
-    /// キャラクターの遊び場を組む。**筋書きごとに確かめたいことが1つ**。
-    ///
-    /// <list type="bullet">
-    /// <item><b>坂</b> … 傾きを 15/30/45/60 度に振った4枚。上限(Alt+X)で登れる範囲が変わる</item>
-    /// <item><b>階段</b> … 段差 15/30/45cm の3本。乗り越え(Ctrl+Shift+X)で越えられる段が変わる</item>
-    /// <item><b>障害物</b> … 動く箱・球・カプセルの中を歩く。**押されるが押さない**のが見える</item>
-    /// </list>
-    ///
-    /// <para>
-    /// 床と壁は <see cref="BuildPhysicsScene"/> と同じ平面を張る。
-    /// <b>キャラクターは剛体ではないので <c>BodyColors</c> に席が要らない</b>——
-    /// 体の番号と色の対応(Day 44 で手当てした並行配列)には影響しない。
-    /// </para>
-    /// </summary>
-    private static void BuildCharacterScene(CharacterScene scene)
-    {
-        _characterScene = scene;
-        _physicsScene = PhysicsScene.Drop;   // HUD の表示だけ。体は下で組む
-        _spawnCount = 0;
-
-        Physics.Clear();
-        BodyColors.Clear();
-        Physics.VelocityIterations = IterationSteps[_iterationIndex];
-        Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
-
-        AddPhysicsPlane(new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY);
-        AddPhysicsPlane(new Vector3(-PhysicsWallDistance, 0.0f, 0.0f), Vector3.UnitX);
-        AddPhysicsPlane(new Vector3(PhysicsWallDistance, 0.0f, 0.0f), -Vector3.UnitX);
-        AddPhysicsPlane(new Vector3(0.0f, 0.0f, -PhysicsWallDistance), Vector3.UnitZ);
-        AddPhysicsPlane(new Vector3(0.0f, 0.0f, PhysicsWallDistance), -Vector3.UnitZ);
-
-        switch (scene)
-        {
-            case CharacterScene.Steps:
-                BuildStepCourse();
-                break;
-
-            case CharacterScene.Obstacles:
-                BuildObstacleCourse();
-                break;
-
-            default:
-                BuildSlopeCourse();
-                break;
-        }
-
-        Character.Teleport(_characterSpawn);
-    }
-
-    /// <summary>
-    /// 坂を4枚(要点7)。**傾き 15 / 30 / 45 / 60 度**。
-    ///
-    /// 既定の上限は 50 度なので、<b>45 度までは登れて 60 度は登れない</b>。
-    /// `Alt+X` で上限を切ると 60 度も登れるようになり、
-    /// <b>ほとんど壁のような面をよじ登る</b>のが見える——
-    /// 「登れる坂かどうか」が物理ではなく決めごとであることが、これで分かる。
-    ///
-    /// <para>
-    /// 坂は<b>静的な箱</b>(<see cref="RigidBody.CreateStatic"/>)を傾けて作る。
-    /// 平面ではなく箱にしてあるのは端が要るから——
-    /// 登り切った先で平らな床に戻れないと、坂の上限を確かめにくい。
-    /// </para>
-    /// </summary>
-    private static void BuildSlopeCourse()
-    {
-        float[] degrees = [15.0f, 30.0f, 45.0f, 60.0f];
-
-        // 登り口の手前に立たせる。4本は z のレーンに分けて並べるので、
-        // 左右(z)に歩いて坂を選ぶことになる。
-        _characterSpawn = new Vector3(-3.6f, PhysicsFloorY + 0.2f, 0.0f);
-
-        for (int i = 0; i < degrees.Length; i++)
-        {
-            float radians = degrees[i] * MathF.PI / 180.0f;
-
-            const float halfLength = 1.6f;
-            const float halfThickness = 0.5f;
-
-            // **上面が床と滑らかにつながるように置く**のがいちばん大事なところ。
-            // 素直に「傾けて持ち上げる」と、坂の切り口(下を向いた法線の面)が
-            // 床から飛び出し、キャラクターは坂ではなく<b>その切り口の壁</b>に
-            // ぶつかって止まる。坂を登れないのに坂の上限は関係ない、
-            // という分かりにくい詰まり方をする。
-            //
-            // 上面の中心を「登り口から halfLength だけ上」に置けば、
-            // 上面のいちばん下の端がちょうど床の高さに来る。
-            // 残りの厚みは床の下に潜るので、キャラクターには当たらない。
-            var up = new Vector3(-MathF.Sin(radians), MathF.Cos(radians), 0.0f);
-            var along = new Vector3(MathF.Cos(radians), MathF.Sin(radians), 0.0f);
-
-            // **4本は z のレーンに分ける**。x 方向へ登るので、
-            // 横に並べると急な坂ほど短く、緩い坂ほど長くなって重なってしまう
-            // (最初こう書いて、坂が互いにめり込んだ)。
-            var foot = new Vector3(-2.0f, PhysicsFloorY, (i - 1.5f) * 2.2f);
-            Vector3 topCenter = foot + (along * halfLength);
-
-            RigidBody ramp = RigidBody.CreateStatic(
-                Collider.Box(new Vector3(halfLength, halfThickness, 0.9f)));
-
-            ramp.Position = topCenter - (up * halfThickness);
-            ramp.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, radians);
-            ramp.Restitution = 0.0f;
-
-            Physics.AddBody(ramp);
-
-            // 緑(緩い)→ 赤(急)。**色が傾きの目盛り**になる。
-            float t = i / (float)(degrees.Length - 1);
-            BodyColors.Add(SrgbToLinear(
-                new Vector4(0.25f + (0.65f * t), 0.75f - (0.45f * t), 0.30f, 1.0f)));
-        }
-    }
-
-    /// <summary>
-    /// 階段を3本(要点8)。**段差 15 / 30 / 45cm**。
-    ///
-    /// 既定の乗り越え(<see cref="CharacterController.StepOffset"/>)は 35cm なので、
-    /// <b>15cm と 30cm は登れて、45cm は登れない</b>。
-    /// `Ctrl+Shift+X` で切ると 15cm ですら越えられなくなり、
-    /// <b>床のわずかな段差に足を取られる</b>のが体感できる。
-    ///
-    /// <para>
-    /// 降りるときにも見どころがある。段を降りる間、
-    /// <see cref="CharacterController"/> が床へ吸い付いていないと
-    /// <b>1段ごとに宙に浮いて跳ねる</b>——
-    /// HUD の「接地」が点滅するかどうかで確かめられる。
-    /// </para>
-    /// </summary>
-    private static void BuildStepCourse()
-    {
-        float[] heights = [0.15f, 0.30f, 0.45f];
-
-        // 階段は -x へ向かって上がる。手前(+x 側)に立たせる。
-        _characterSpawn = new Vector3(2.8f, PhysicsFloorY + 0.2f, 0.0f);
-
-        for (int lane = 0; lane < heights.Length; lane++)
-        {
-            float height = heights[lane];
-            float z = (lane - 1) * 2.2f;
-
-            for (int step = 0; step < 4; step++)
-            {
-                // 上るほど厚く積む。**1段ぶんの上面が段の高さになる**ように、
-                // 箱の上面の高さを (step+1) * height に合わせる。
-                float top = PhysicsFloorY + ((step + 1) * height);
-                float halfY = (top - PhysicsFloorY) * 0.5f;
-
-                RigidBody block = RigidBody.CreateStatic(
-                    Collider.Box(new Vector3(0.45f, halfY, 0.9f)));
-
-                // **いちばん低い段が手前(+x)**。逆に並べると、
-                // 出発点からいきなり4段ぶんの壁に突き当たることになる。
-                block.Position = new Vector3(1.6f - (step * 0.9f), PhysicsFloorY + halfY, z);
-                block.Restitution = 0.0f;
-
-                Physics.AddBody(block);
-
-                float t = step / 3.0f;
-                BodyColors.Add(SrgbToLinear(new Vector4(
-                    0.35f + (0.20f * lane), 0.45f + (0.30f * t), 0.65f - (0.20f * lane), 1.0f)));
-            }
-        }
-    }
-
-    /// <summary>
-    /// 障害物のコース。**キネマティックと動的が同じ世界に居る**のを見る。
-    ///
-    /// 動く箱・球・カプセルが転がっている中を歩く。
-    /// <b>キャラクターは押されるが押さない</b>——
-    /// 転がってきた箱に当たると押し戻されて止まるのに、
-    /// 箱を押しても箱は動かない(要点6)。
-    /// この非対称がキネマティックの代償で、
-    /// 直すには当たった相手にインパルスを掛けてやることになる(改造課題3)。
-    /// </summary>
-    private static void BuildObstacleCourse()
-    {
-        _characterSpawn = new Vector3(0.0f, PhysicsFloorY + 0.2f, 3.0f);
-
-        // 台。**歩いて登れる高さ**にしてある(段差 30cm を2段)。
-        for (int i = 0; i < 2; i++)
-        {
-            RigidBody block = RigidBody.CreateStatic(
-                Collider.Box(new Vector3(1.2f, 0.15f + (i * 0.15f), 1.2f)));
-
-            block.Position = new Vector3(
-                -2.6f, PhysicsFloorY + 0.15f + (i * 0.15f), -2.4f + (i * 1.2f));
-            block.Restitution = 0.0f;
-
-            Physics.AddBody(block);
-            BodyColors.Add(SrgbToLinear(new Vector4(0.45f, 0.48f, 0.55f, 1.0f)));
-        }
-
-        for (int i = 0; i < 9; i++)
-        {
-            RigidBody body = (i % 3) switch
-            {
-                0 => RigidBody.CreateBox(1.0f, 0.28f),
-                1 => RigidBody.CreateSphere(1.0f, 0.30f),
-                _ => RigidBody.CreateCapsule(1.0f, 0.22f, 0.30f),
-            };
-
-            body.Position = new Vector3(
-                2.2f + (((i % 3) - 1) * 0.9f), 3.0f + (i * 0.7f), -1.8f + (i * 0.45f));
-            body.Orientation = Quaternion.CreateFromYawPitchRoll(i * 0.5f, i * 0.4f, i * 0.3f);
-            body.Restitution = 0.2f;
-            body.AngularDamping = 0.3f;
-
-            Physics.AddBody(body);
-
-            // 箱は橙、球は青、カプセルは緑。**形の違いが色で分かる**。
-            BodyColors.Add(SrgbToLinear((i % 3) switch
-            {
-                0 => new Vector4(0.95f, 0.55f, 0.20f, 1.0f),
-                1 => new Vector4(0.25f, 0.60f, 0.95f, 1.0f),
-                _ => new Vector4(0.35f, 0.85f, 0.45f, 1.0f),
-            }));
-        }
-    }
-
-    /// <summary>
-    /// キャラクターを1ステップ動かす。**<see cref="FixedUpdate"/> からだけ呼ぶ**(要点6)。
-    ///
-    /// <b>入力はカメラ基準に直してから渡す</b>。
-    /// 「上キー = 画面の奥へ」が三人称の約束で、
-    /// 世界の -Z へ固定すると、カメラを回した瞬間に操作が破綻する。
-    /// カメラの向き(<see cref="OrbitCameraController.Yaw"/>)から
-    /// 前と右を作り、入力を載せ替えるだけで済む。
-    ///
-    /// <para>
-    /// <see cref="CharacterController"/> 自身は<b>カメラを知らない</b>。
-    /// 受け取るのは「どちらへ行きたいか」の水平ベクトルだけで、
-    /// カメラ基準に直すのは呼ぶ側の仕事——
-    /// Day 18 の <see cref="InputSnapshot"/> が
-    /// 「どのキーか」を知らなかったのと同じ線を引いてある。
-    /// </para>
-    ///
-    /// <para>
-    /// <b>物理より後に動かす</b>。箱や球が動いたあとの世界に対して
-    /// キャラクターが当たりを取るので、<b>1ステップ前の位置に押し戻される</b>ことがない。
-    /// 逆にすると、転がってきた箱にめり込んだまま次のステップへ進む。
-    /// </para>
-    /// </summary>
-    private static void UpdateCharacter(float dt, in InputSnapshot input)
-    {
-        if (!_characterDemo)
-        {
-            return;
-        }
-
-        if (_physicsPaused && _physicsStepsRequested <= 0)
-        {
-            return;
-        }
-
-        var stopwatch = Stopwatch.StartNew();
-
-        // **問い合わせの計測は1ステップぶん**。ここで 0 に戻しておくと、
-        // HUD の「問合」が「このステップで何回投げたか」になる。
-        Physics.ResetQueryStats();
-
-        // --- 入力をカメラ基準へ ---
-        //
-        // カメラは注視点の +Z 側(Yaw=0)に居るので、
-        // **画面の奥へ進む向き**は -(sin Yaw, 0, cos Yaw)。
-        float yaw = _orbit.Yaw;
-        var forward = new Vector3(-MathF.Sin(yaw), 0.0f, -MathF.Cos(yaw));
-        var right = new Vector3(MathF.Cos(yaw), 0.0f, -MathF.Sin(yaw));
-
-        // MoveAxis は画面座標の約束(下が +Y)なので、前後は符号を反転する。
-        Vector2 axis = input.MoveAxis;
-        Vector3 wish = (right * axis.X) + (forward * -axis.Y);
-
-        Character.Move(
-            Physics,
-            wish,
-            input.IsHeld(GameAction.Dash),
-            input.WasPressed(GameAction.Jump),
-            dt);
-
-        // **落ちたら戻す**。見えない壁で四方は囲ってあるが、
-        // 床をすり抜けるようなことがあってもデモが続けられるように。
-        if (Character.Position.Y < PhysicsFloorY - 5.0f)
-        {
-            Character.Teleport(_characterSpawn);
-            Console.WriteLine("キャラクターが落ちたので出発点へ戻した");
-        }
-
-        _characterMilliseconds =
-            (_characterMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
-    }
-
-    /// <summary>
-    /// キャラクターを描く。**カプセルは球2つ + 円柱1本**(要点10)。
-    ///
-    /// 判定が「線分に球を滑らせる」だったのと、絵の分け方が一致している。
-    /// <b>描いているのは当たり判定の形そのもの</b>なので、
-    /// めり込んでいれば絵でもめり込んで見える——
-    /// Day 51 でモデルを載せると、この一致は失われる(モデルとカプセルは別物になる)。
-    ///
-    /// <para>
-    /// 足元に<b>接地の印</b>を出す。接地していれば法線の向きに小さな板が寝るので、
-    /// 坂の上でどちらを向いているかが目で読める。
-    /// HUD の数字(傾き何度)と突き合わせるためのもの。
-    /// </para>
-    /// </summary>
-    private static void RenderCharacter()
-    {
-        if (!_characterDemo)
-        {
-            return;
-        }
-
-        Capsule3D capsule = Character.ToCapsule();
-
-        DrawCapsule(capsule, _characterMaterial);
-
-        // --- 接地の印 ---
-        //
-        // 接地していれば緑、していなければ何も出さない。
-        // **床の法線に沿って寝かせる**ので、坂の上では板も傾く。
-        if (!Character.IsGrounded)
-        {
-            return;
-        }
-
-        _contactMaterial.BaseColorFactor = new Vector4(0.05f, 0.05f, 0.05f, 1.0f);
-        _contactMaterial.EmissiveFactor = new Vector3(0.2f, 3.0f, 0.6f);
-
-        Draw(
-            _cylinder,
-            _contactMaterial,
-            Matrix4x4.CreateScale(Character.Radius * 1.6f, 0.02f, Character.Radius * 1.6f)
-                * RotationTo(Character.GroundNormal)
-                * Matrix4x4.CreateTranslation(Character.Position + (Character.GroundNormal * 0.02f)));
-
-        // 接触点の印は橙に戻しておく(<see cref="RenderContacts"/> が使う)。
-        _contactMaterial.EmissiveFactor = new Vector3(4.0f, 0.9f, 0.15f);
-    }
-
-    /// <summary>
-    /// カプセル1本を描く。**下の球・胴の円柱・上の球**の3回(要点10)。
+    /// カプセル1本を描く。**下の球・胴の円柱・上の球**の3回(要点6)。
     ///
     /// 円柱は XZ に半径・Y に線分の長さで拡大する。
     /// <b>非一様な拡大でも円柱なら正しい形になる</b>のがこの分け方の値打ちで、
@@ -5046,7 +4548,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 「+Y をこの向きへ倒す」回転。**カプセルの胴と接地の印**が使う。
+    /// 「+Y をこの向きへ倒す」回転。**カプセルの胴**が使う(Day 45b で接地の印も使う)。
     ///
     /// 軸は <c>cross(+Y, 向き)</c>、角度は内積から。
     /// <b>真下を向いたときだけ軸が作れない</b>(外積が 0)ので、
@@ -5070,83 +4572,6 @@ internal static class Program
 
         Vector3 axis = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, direction));
         return Matrix4x4.CreateFromAxisAngle(axis, MathF.Acos(dot));
-    }
-
-    /// <summary>キャラクターの向きを含む行列(Day 51 でモデルを載せる場所)。</summary>
-    private static Matrix4x4 CharacterMatrix() =>
-        Matrix4x4.CreateRotationY(Character.FacingYaw)
-            * Matrix4x4.CreateTranslation(Character.Position);
-
-    /// <summary>
-    /// HUD の1行(Day 45)。**絵から読めないものだけ**。
-    ///
-    /// 接地しているか、立っている面が何度か、段差を越えたか——
-    /// どれも「なんとなく歩けている」で済ませてしまいやすいところ。
-    /// <b>坂を登れないときに、上限で弾かれたのか引っかかっているのかは、
-    /// この行を見ないと分からない</b>。
-    /// </summary>
-    private static string CharacterLabel() =>
-        $"キャラ[{CharacterSceneLabel()}]  {(Character.IsGrounded ? "接地" : "**空中**")}  "
-        + $"傾き:{Character.GroundSlopeDegrees:F0}度  速さ:{Character.HorizontalSpeed:F2}m/s  "
-        + $"高さ:{Character.Position.Y - PhysicsFloorY:F2}m  "
-        + $"坂上限:{(Character.UseSlopeLimit ? $"{Character.SlopeLimitDegrees:F0}度" : "**なし**")}  "
-        + $"段差:{(Character.UseStepOffset ? $"{Character.StepOffset * 100.0f:F0}cm" : "**なし**")}  "
-        + $"押戻:{Character.ResolvedContacts}  "
-        + (Character.SteppedUp ? $"**段 {Character.LastStepHeight * 100.0f:F0}cm**  " : string.Empty)
-        + (Character.TouchedWall ? "壁  " : string.Empty)
-        + $"問合:{Physics.CapsuleQueries}回/{Physics.CapsuleQueryTests}体  "
-        + $"{_characterMilliseconds:F2}ms";
-
-    private static string CharacterSceneLabel() => _characterScene switch
-    {
-        CharacterScene.Steps => "階段",
-        CharacterScene.Obstacles => "障害物",
-        _ => "坂",
-    };
-
-    /// <summary>
-    /// キャラクターの内訳をコンソールへ(Shift+Alt+X)。
-    ///
-    /// **設定と状態を並べて出す**。坂が登れない・段差が越えられないとき、
-    /// 原因は「上限の設定」か「引っかかり」のどちらかしかないので、
-    /// 両方を1画面に出しておくと切り分けが1回で済む。
-    /// </summary>
-    private static void DescribeCharacter()
-    {
-        Console.WriteLine();
-        Console.WriteLine($"--- キャラクターの内訳({CharacterSceneLabel()})---");
-        Console.WriteLine(
-            $"  形: カプセル 半径 {Character.Radius:F2}m  全高 {Character.Height:F2}m  "
-            + $"線分の半分 {Character.HalfHeight:F2}m  skin {Character.SkinWidth * 1000.0f:F1}mm");
-        Console.WriteLine(
-            $"  位置(足元): ({Character.Position.X:F2}, {Character.Position.Y:F2}, "
-            + $"{Character.Position.Z:F2})  向き {Character.FacingYaw * 180.0f / MathF.PI:F0}度");
-        Console.WriteLine(
-            $"  速度: ({Character.Velocity.X:F2}, {Character.Velocity.Y:F2}, "
-            + $"{Character.Velocity.Z:F2}) m/s  水平 {Character.HorizontalSpeed:F2}m/s");
-        Console.WriteLine(
-            $"  接地: {(Character.IsGrounded ? "している" : "していない")}  "
-            + $"床の法線 ({Character.GroundNormal.X:F2}, {Character.GroundNormal.Y:F2}, "
-            + $"{Character.GroundNormal.Z:F2})  傾き {Character.GroundSlopeDegrees:F1}度");
-        Console.WriteLine(
-            $"  坂の上限: {(Character.UseSlopeLimit ? $"{Character.SlopeLimitDegrees:F0}度"
-                + $"(法線の Y が {Character.SlopeLimitCosine:F3} 以上)" : "切ってある")}");
-        Console.WriteLine(
-            $"  段差の乗り越え: {(Character.UseStepOffset
-                ? $"{Character.StepOffset * 100.0f:F0}cm まで" : "切ってある")}");
-        Console.WriteLine(
-            $"  速さ: 歩き {Character.WalkSpeed:F1}m/s  走り {Character.RunSpeed:F1}m/s  "
-            + $"ジャンプ {Character.JumpHeight:F2}m  重力 {Character.Gravity:F1}m/s²"
-            + $"(物理の世界は {-Physics.Gravity.Y:F2})");
-        Console.WriteLine(
-            $"  直前のステップ: 押し戻し {Character.ResolvedContacts} 回  "
-            + $"段差 {(Character.SteppedUp ? $"{Character.LastStepHeight * 100.0f:F1}cm" : "なし")}  "
-            + $"壁 {(Character.TouchedWall ? "あり" : "なし")}");
-        Console.WriteLine(
-            $"  問い合わせ: {Physics.CapsuleQueries} 回 / 延べ {Physics.CapsuleQueryTests} 体"
-            + $"(体は全部で {Physics.Bodies.Count} 個。**Day 46 のブロードフェーズで減る数字**)");
-        Console.WriteLine($"  1ステップ: {_characterMilliseconds:F3}ms");
-        Console.WriteLine();
     }
 
     /// <summary>
@@ -5349,11 +4774,6 @@ internal static class Program
             Draw(BodyMesh(body), _physicsMaterial, BodyMatrix(body));
         }
 
-        // **キャラクターは体のあと**(Day 45)。半透明ではないので順番は
-        // 絵に効かないが、「物理の体 → その外に居るもの」の順に並べておくと
-        // 描画の並びが世界の作りと一致して読みやすい。
-        RenderCharacter();
-
         RenderContacts();
     }
 
@@ -5488,19 +4908,17 @@ internal static class Program
             * Matrix4x4.CreateTranslation(Interpolate(body.PreviousPosition, body.Position));
     }
 
-    private static string PhysicsSceneLabel() => _characterDemo
-        ? CharacterSceneLabel()
-        : _physicsScene switch
-        {
-            PhysicsScene.Stack => "積み上げ",
-            PhysicsScene.Cradle => "撞き玉",
-            PhysicsScene.BoxDrop => "箱を落とす",
-            PhysicsScene.BoxStack => "箱を積む",
-            PhysicsScene.BoxMix => "球と箱",
-            PhysicsScene.BoxTumble => "箱が転がる",
-            PhysicsScene.CapsuleDrop => "カプセルを落とす",
-            _ => "落下",
-        };
+    private static string PhysicsSceneLabel() => _physicsScene switch
+    {
+        PhysicsScene.Stack => "積み上げ",
+        PhysicsScene.Cradle => "撞き玉",
+        PhysicsScene.BoxDrop => "箱を落とす",
+        PhysicsScene.BoxStack => "箱を積む",
+        PhysicsScene.BoxMix => "球と箱",
+        PhysicsScene.BoxTumble => "箱が転がる",
+        PhysicsScene.CapsuleDrop => "カプセルを落とす",
+        _ => "落下",
+    };
 
     /// <summary>
     /// 箱かカプセルの筋書きかどうか(Ctrl+Shift+Alt+1 の ON/OFF 判定に使う)。
@@ -12904,9 +12322,7 @@ internal static class Program
             // A〜Z のうち X だけが `case Key.X:` を持っていなかった。
             //
             // <b>素の X には触らない</b>。X は Day 18 の <see cref="InputMap"/> で
-            // ダッシュに割り当ててあり、キャラクターデモでは「走る」になる。
-            // だから <c>Ctrl+X</c> を押した瞬間だけ一緒に走ることになるが、
-            // その瞬間にデモが消えるので実害は無い。
+            // ダッシュに割り当ててある(Day 45b のキャラクターが「走る」に使う)。
             //
             // <b>この塊はいちばん上に置くこと</b>。`case Key.X:` は今のところ
             // どこにも無いので今日は事故らないが、
@@ -12916,102 +12332,12 @@ internal static class Program
             // <b>文字キーの段も、これで最後**。Day 46 以降は
             // Day 40 の <c>FeatureToggles</c> のように、
             // 割り当ての表そのものをデータにするしかない。
-            case Key.X when ctrl && !shift && !alt:
-                // **今日の到達点**。坂と階段の上をキャラクターが歩き回る。
-                if (_characterDemo)
-                {
-                    _characterDemo = false;
-                    _physicsDemo = false;
-                    Physics.Clear();
-                    BodyColors.Clear();
-                    _orbit.Reset();
-                    Console.WriteLine("キャラクターデモ: OFF");
-                }
-                else
-                {
-                    ShowCharacterDemo(CharacterScene.Slopes);
-                    Console.WriteLine(
-                        $"キャラクターデモ: {CharacterSceneLabel()}。"
-                        + "**矢印キーで歩く / X を押しっぱなしで走る / Space でジャンプ**");
-                    Console.WriteLine(
-                        "  Shift+X:筋書き  Alt+X:**坂の上限**  Ctrl+Shift+X:**段差の乗り越え**  "
-                        + "Ctrl+Alt+X:カプセルを追加  Shift+Alt+X:内訳  Ctrl+Shift+Alt+X:自己チェック");
-                    Console.WriteLine(
-                        "  移動は**カメラ基準**。マウスで視点を回すと進む向きも一緒に回る");
-                }
-
-                break;
-
-            case Key.X when shift && !ctrl && !alt:
-                {
-                    CharacterScene next = _characterScene switch
-                    {
-                        CharacterScene.Slopes => CharacterScene.Steps,
-                        CharacterScene.Steps => CharacterScene.Obstacles,
-                        _ => CharacterScene.Slopes,
-                    };
-
-                    ShowCharacterDemo(next);
-                    Console.WriteLine(_characterScene switch
-                    {
-                        CharacterScene.Steps =>
-                            "筋書き: **階段**(段差 15 / 30 / 45cm。既定の乗り越えは 35cm)",
-                        CharacterScene.Obstacles =>
-                            "筋書き: **障害物**(箱・球・カプセルの中を歩く。押されるが押さない)",
-                        _ =>
-                            "筋書き: **坂**(15 / 30 / 45 / 60 度。既定の上限は 50 度)",
-                    });
-                }
-
-                break;
-
-            case Key.X when alt && !ctrl && !shift:
-                // **今日いちばん分かりやすい実験**(要点7)。
-                Character.UseSlopeLimit = !Character.UseSlopeLimit;
-
-                Console.WriteLine(
-                    Character.UseSlopeLimit
-                        ? $"坂の上限: **{Character.SlopeLimitDegrees:F0}度まで**"
-                            + "(これより急な面は「壁」。押し戻しから上向きを抜く)"
-                        : "坂の上限: **なし**(押し戻しがそのまま登りになる。"
-                            + "60 度の坂も、ほとんど垂直な壁もよじ登れる)");
-                break;
-
-            case Key.X when ctrl && shift && !alt:
-                // **段差の実験**(要点8)。階段の筋書きで見ると一目で分かる。
-                Character.UseStepOffset = !Character.UseStepOffset;
-
-                Console.WriteLine(
-                    Character.UseStepOffset
-                        ? $"段差の乗り越え: **{Character.StepOffset * 100.0f:F0}cm まで**"
-                            + "(持ち上げて、進んで、落とす)"
-                        : "段差の乗り越え: **なし**(15cm の段でも止まる。"
-                            + "階段を降りるときの吸い付きも切れる)");
-                break;
-
             case Key.X when ctrl && alt && !shift:
                 SpawnCapsule();
                 break;
 
-            case Key.X when shift && alt && !ctrl:
-                DescribeCharacter();
-                break;
-
             case Key.X when ctrl && shift && alt:
                 RunCapsuleCheck();
-                break;
-
-            // **ジャンプの Space を横取りする**(Day 45)。
-            // Space は Day 19 から「一時停止」だが、
-            // <see cref="InputMap"/> で <see cref="GameAction.Jump"/> にも割り当てた。
-            // キャラクターを動かしている間だけ、ここで飲み込んで
-            // ポーズに落とさない——**ジャンプするたびに世界が止まる**のを防ぐ。
-            //
-            // ジャンプそのものはここでは処理しない。
-            // 固定ステップの <see cref="UpdateCharacter"/> が
-            // <see cref="InputSnapshot"/> 越しに読む(Day 18 の要点2)ので、
-            // <b>キーイベントとシミュレーションが直につながらない</b>形は保たれている。
-            case Key.Space when _characterDemo:
                 break;
 
             // --- Day 44 のスイッチ(箱の衝突: 分離軸定理と接触マニフォールド)---
@@ -13028,7 +12354,7 @@ internal static class Program
             // 「**ガード付き case は具体的なものほど上**」がそのまま続いている。
             //
             // <b>数字キーの段も、これでほぼ最後**。予告どおり
-            // Day 45 は文字キー(X の段)へ移り、そこも今日で埋まった。
+            // Day 45 は文字キー(X の段)へ移った。
             // Day 46 以降は Day 40 の <c>FeatureToggles</c> のように、
             // 割り当ての表そのものをデータにするしかない。
             case Key.Number1 when ctrl && shift && alt:
@@ -13036,7 +12362,6 @@ internal static class Program
                 if (_physicsDemo && IsBoxScene(_physicsScene))
                 {
                     _physicsDemo = false;
-                    _characterDemo = false;   // 世界を消すならキャラクターも下ろす(Day 45)
                     Physics.Clear();
                     BodyColors.Clear();
                     _orbit.Reset();
@@ -13162,12 +12487,6 @@ internal static class Program
                 if (_physicsDemo)
                 {
                     _physicsDemo = false;
-
-                    // **キャラクターも一緒に下ろす**(Day 45)。
-                    // 世界を消してキャラクターだけ残すと、
-                    // 床の無いところを落ち続けることになる。
-                    _characterDemo = false;
-
                     Physics.Clear();
                     BodyColors.Clear();
                     _orbit.Reset();
@@ -17308,30 +16627,20 @@ internal static class Program
     /// <summary>
     /// 今日の自己チェック(Ctrl+Shift+Alt+X)。
     ///
-    /// 今日は<b>2つの層をまとめて押さえる</b>。
-    /// <list type="number">
-    /// <item><b>判定</b>(カプセル)… 線分の最近接点・慣性テンソル・2点の接触</item>
-    /// <item><b>操作</b>(キャラクター)… 坂・段差・接地・滑り</item>
-    /// </list>
+    /// 今日押さえるのは<b>判定</b>(カプセル)の層。
+    /// 線分の最近接点・慣性テンソル・2点の接触を、
+    /// <b>解析解と総当たりの突き合わせ</b>で確かめる。
+    /// Day 45b でキャラクター(坂・段差・接地・滑り)の項目がここに足される。
     ///
     /// <para>
-    /// <b>2 のほうが厄介</b>。判定は数式に照らせば合否が出るが、
-    /// 「坂を登れる」は<b>実際に歩かせてみないと分からない</b>。
-    /// だから下の項目は、どれも
-    /// <c>CharacterController.Move</c> を数十〜数百ステップ回して結果を見ている——
-    /// <b>自動で遊ばせて確かめている</b>ことになる。
-    /// Day 30 の卒業制作で「遊んでいる人の代わり」を用意したのと同じ考え方。
-    /// </para>
-    ///
-    /// <para>
-    /// <see cref="CharacterController"/> も <see cref="PhysicsWorld"/> も GL を知らないので、
+    /// <see cref="PhysicsWorld"/> も <see cref="Collision3D"/> も GL を知らないので、
     /// **窓を1枚も出さずに全項目が走る**。Day 43 から続く層のまま。
     /// </para>
     /// </summary>
     private static void RunCapsuleCheck()
     {
         Console.WriteLine();
-        Console.WriteLine("--- Day 45: カプセルとキャラクターの自己チェック ---");
+        Console.WriteLine("--- Day 45: カプセルの自己チェック ---");
         var checks = new CheckList();
 
         // ============================================================
@@ -17651,377 +16960,7 @@ internal static class Program
             rolled.AngularVelocity.Length() < 0.15f,
             $"{rolled.AngularVelocity.Length():F5} rad/s(摩擦もスリープも無いので 0 にはならない)");
 
-        // ============================================================
-        //  5. キャラクター: 落ちて、立つ(要点9)
-        // ============================================================
-
-        static PhysicsWorld GroundWorld()
-        {
-            var w = new PhysicsWorld();
-            w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-            return w;
-        }
-
-        static CharacterController Walker()
-        {
-            var c = new CharacterController();
-            c.Teleport(new Vector3(0.0f, 1.5f, 0.0f));
-            return c;
-        }
-
-        static void Walk(
-            CharacterController c, PhysicsWorld w, Vector3 wish, int steps, bool run = false)
-        {
-            for (int i = 0; i < steps; i++)
-            {
-                c.Move(w, wish, run, false, 1.0f / 60.0f);
-            }
-        }
-
-        PhysicsWorld flat = GroundWorld();
-        CharacterController walker = Walker();
-
-        Walk(walker, flat, Vector3.Zero, 120);
-
-        checks.Check(
-            "落としたキャラクターは**足元が床の高さで止まる**",
-            MathF.Abs(walker.Position.Y) < 0.05f,
-            $"{walker.Position.Y * 1000.0f:F2}mm");
-        checks.Check(
-            "止まったキャラクターは**接地している**(skin ぶん浮いていても)",
-            walker.IsGrounded && MathF.Abs(walker.GroundNormal.Y - 1.0f) < 1e-3f,
-            $"接地 {walker.IsGrounded} / 法線の Y {walker.GroundNormal.Y:F4}");
-
-        Walk(walker, flat, Vector3.UnitX, 120);
-
-        checks.Check(
-            "歩くと**歩く速さ**になる(3.2 m/s)",
-            MathF.Abs(walker.HorizontalSpeed - walker.WalkSpeed) < 0.05f,
-            $"{walker.HorizontalSpeed:F3} m/s");
-
-        Walk(walker, flat, Vector3.UnitX, 60, run: true);
-
-        checks.Check(
-            "走ると**走る速さ**になる(6.4 m/s)",
-            MathF.Abs(walker.HorizontalSpeed - walker.RunSpeed) < 0.05f,
-            $"{walker.HorizontalSpeed:F3} m/s");
-
-        Walk(walker, flat, Vector3.Zero, 40);
-
-        checks.Check(
-            "キーを離すと**すぐ止まる**(慣性が残らない)",
-            walker.HorizontalSpeed < 0.05f,
-            $"{walker.HorizontalSpeed:F4} m/s");
-
-        // ジャンプ。**届く高さが JumpHeight と合う**。
-        PhysicsWorld jumpWorld = GroundWorld();
-        CharacterController jumper = Walker();
-        Walk(jumper, jumpWorld, Vector3.Zero, 120);
-
-        jumper.Move(jumpWorld, Vector3.Zero, false, true, 1.0f / 60.0f);
-
-        float peak = 0.0f;
-        for (int i = 0; i < 120; i++)
-        {
-            jumper.Move(jumpWorld, Vector3.Zero, false, false, 1.0f / 60.0f);
-            peak = MathF.Max(peak, jumper.Position.Y);
-        }
-
-        checks.Check(
-            "ジャンプで**設定した高さまで届く**(1.1m)",
-            MathF.Abs(peak - jumper.JumpHeight) < 0.08f,
-            $"{peak:F3}m(設定 {jumper.JumpHeight:F2}m)");
-        checks.Check(
-            "ジャンプのあと着地して接地に戻る",
-            jumper.IsGrounded && MathF.Abs(jumper.Position.Y) < 0.05f,
-            $"高さ {jumper.Position.Y * 1000.0f:F1}mm");
-
-        // ============================================================
-        //  6. キャラクター: 坂(要点7)
-        // ============================================================
-
-        // 傾けた大きな箱を1枚だけ置いた世界を作り、そこを登らせる。
-        //
-        // **上面が原点をちょうど通る**ように置くのが肝。
-        // 坂の端が床から飛び出していると、キャラクターは坂ではなく
-        // <b>箱の切り口(下を向いた法線の壁)</b>にぶつかって止まってしまう——
-        // これは実際にこの日踏んだ罠で、「坂が登れない」の原因が
-        // 坂の上限ではなく置き方だった。
-        static PhysicsWorld SlopeWorld(float degrees)
-        {
-            var w = new PhysicsWorld();
-            w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-
-            float radians = degrees * MathF.PI / 180.0f;
-
-            // 上面の法線と、上りの向き。
-            var up = new Vector3(-MathF.Sin(radians), MathF.Cos(radians), 0.0f);
-            var along = new Vector3(MathF.Cos(radians), MathF.Sin(radians), 0.0f);
-
-            // 上面の中心を「登り口から 3m 上」に置くと、上面は原点を通る。
-            // 登り口より手前の部分は床の下に潜るので、キャラクターには当たらない。
-            Vector3 topCenter = along * 3.0f;
-
-            RigidBody ramp = RigidBody.CreateStatic(
-                Collider.Box(new Vector3(6.0f, 0.5f, 4.0f)));
-
-            ramp.Position = topCenter - (up * 0.5f);
-            ramp.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, radians);
-
-            w.AddBody(ramp);
-            return w;
-        }
-
-        // **最高到達点を採る**。最後の位置を見ると、登り切って坂の向こうへ
-        // 歩き去ってしまった場合に 0 になり、「登れなかった」と区別が付かない。
-        static float ClimbHeight(float degrees, bool useSlopeLimit)
-        {
-            PhysicsWorld w = SlopeWorld(degrees);
-            var c = new CharacterController { UseSlopeLimit = useSlopeLimit };
-            c.Teleport(new Vector3(-1.0f, 0.5f, 0.0f));
-
-            // **まず床に落ち着かせてから測り始める**。
-            // 出発点の高さ(0.5m)が最高到達点に混ざると、
-            // 1ミリも登れなかった場合でも 0.5m 登ったように見える。
-            for (int i = 0; i < 60; i++)
-            {
-                c.Move(w, Vector3.Zero, false, false, 1.0f / 60.0f);
-            }
-
-            float peak = 0.0f;
-            for (int i = 0; i < 300; i++)
-            {
-                c.Move(w, Vector3.UnitX, true, false, 1.0f / 60.0f);
-                peak = MathF.Max(peak, c.Position.Y);
-            }
-
-            return peak;
-        }
-
-        float climb30 = ClimbHeight(30.0f, useSlopeLimit: true);
-        float climb60 = ClimbHeight(60.0f, useSlopeLimit: true);
-        float climb60Free = ClimbHeight(60.0f, useSlopeLimit: false);
-
-        checks.Check(
-            "**30 度の坂は登れる**(上限 50 度の内側)",
-            climb30 > 1.5f,
-            $"5 秒で {climb30:F2}m 登った");
-        checks.Check(
-            "**60 度の坂は登れない**(上限を超えているので「壁」扱い)",
-            climb60 < 0.35f,
-            $"5 秒で {climb60:F2}m しか上がらない");
-        checks.Check(
-            "**上限を切ると 60 度も登れる**(押し戻しがそのまま登りになる)",
-            climb60Free > climb60 + 1.0f,
-            $"上限なし {climb60Free:F2}m / 上限あり {climb60:F2}m");
-
-        PhysicsWorld slopeStand = SlopeWorld(30.0f);
-        var stander = new CharacterController();
-        stander.Teleport(new Vector3(1.0f, 2.0f, 0.0f));
-        Walk(stander, slopeStand, Vector3.Zero, 180);
-
-        checks.Check(
-            "30 度の坂に立つと、床の傾きが**30 度と出る**",
-            stander.IsGrounded && MathF.Abs(stander.GroundSlopeDegrees - 30.0f) < 2.0f,
-            $"{stander.GroundSlopeDegrees:F2} 度");
-
-        // ============================================================
-        //  7. キャラクター: 段差(要点8)
-        // ============================================================
-
-        static float StepDistance(float height, bool useStepOffset)
-        {
-            var w = new PhysicsWorld();
-            w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-
-            RigidBody block = RigidBody.CreateStatic(
-                Collider.Box(new Vector3(2.0f, height * 0.5f, 2.0f)));
-            block.Position = new Vector3(2.5f, height * 0.5f, 0.0f);
-            w.AddBody(block);
-
-            var c = new CharacterController { UseStepOffset = useStepOffset };
-            c.Teleport(new Vector3(0.0f, 0.1f, 0.0f));
-
-            for (int i = 0; i < 240; i++)
-            {
-                c.Move(w, Vector3.UnitX, false, false, 1.0f / 60.0f);
-            }
-
-            return c.Position.X;
-        }
-
-        float low = StepDistance(0.15f, useStepOffset: true);
-        float mid = StepDistance(0.30f, useStepOffset: true);
-        float high = StepDistance(0.45f, useStepOffset: true);
-        float lowBlocked = StepDistance(0.15f, useStepOffset: false);
-
-        checks.Check(
-            "**15cm の段は越えられる**(上限 35cm の内側)",
-            low > 2.0f,
-            $"x = {low:F2}(段は x = 0.5 から)");
-        checks.Check(
-            "**30cm の段も越えられる**",
-            mid > 2.0f,
-            $"x = {mid:F2}");
-        checks.Check(
-            "**45cm の段は越えられない**(上限を超えている)",
-            high < 0.8f,
-            $"x = {high:F2}");
-        checks.Check(
-            "**乗り越えを切ると 15cm でも止まる**(今日の見どころ)",
-            lowBlocked < 0.8f,
-            $"切った {lowBlocked:F2} / 入れた {low:F2}");
-
-        // 階段を降りるとき、床に吸い付いて跳ねないこと。
-        static int AirborneStepsWhileDescending(bool useStepOffset)
-        {
-            var w = new PhysicsWorld();
-            w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-
-            // 4段の階段。上から下りてくる。
-            for (int i = 0; i < 4; i++)
-            {
-                float top = (4 - i) * 0.25f;
-                RigidBody block = RigidBody.CreateStatic(
-                    Collider.Box(new Vector3(0.5f, top * 0.5f, 2.0f)));
-                block.Position = new Vector3(i * 1.0f, top * 0.5f, 0.0f);
-                w.AddBody(block);
-            }
-
-            var c = new CharacterController { UseStepOffset = useStepOffset };
-            c.Teleport(new Vector3(0.0f, 1.2f, 0.0f));
-
-            // まず落ち着かせる。
-            for (int i = 0; i < 60; i++)
-            {
-                c.Move(w, Vector3.Zero, false, false, 1.0f / 60.0f);
-            }
-
-            int airborne = 0;
-            for (int i = 0; i < 180; i++)
-            {
-                c.Move(w, Vector3.UnitX, false, false, 1.0f / 60.0f);
-                if (!c.IsGrounded)
-                {
-                    airborne++;
-                }
-            }
-
-            return airborne;
-        }
-
-        int snapped = AirborneStepsWhileDescending(useStepOffset: true);
-        int unsnapped = AirborneStepsWhileDescending(useStepOffset: false);
-
-        checks.Check(
-            "階段を降りる間、**床に吸い付いて浮かない**",
-            snapped < 5,
-            $"180 ステップ中 {snapped} ステップだけ空中");
-        checks.Check(
-            "吸い付きを切ると**段ごとに浮く**",
-            unsnapped > snapped + 5,
-            $"切った {unsnapped} / 入れた {snapped} ステップ");
-
-        // ============================================================
-        //  8. キャラクター: 滑りと押し戻し(要点6)
-        // ============================================================
-
-        var wallWorld = new PhysicsWorld();
-        wallWorld.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-        wallWorld.AddPlane(Plane3D.FromPointNormal(new Vector3(2.0f, 0.0f, 0.0f), -Vector3.UnitX));
-
-        var slider = new CharacterController();
-        slider.Teleport(new Vector3(0.0f, 0.1f, 0.0f));
-
-        // 壁へ斜めに突っ込む。
-        Vector3 diagonal = Vector3.Normalize(new Vector3(1.0f, 0.0f, 1.0f));
-        Walk(slider, wallWorld, diagonal, 180);
-
-        checks.Check(
-            "壁は抜けない(x が壁の内側に留まる)",
-            slider.Position.X < 2.0f + 1e-3f,
-            $"x = {slider.Position.X:F3}(壁は 2.0)");
-        checks.Check(
-            "**壁に沿って滑る**(z 方向へは進み続ける)",
-            slider.Position.Z > 3.0f,
-            $"z = {slider.Position.Z:F2}");
-        checks.Check(
-            "滑っている間の速さは**壁に沿った成分だけ**",
-            MathF.Abs(slider.Velocity.X) < 0.2f && slider.Velocity.Z > 2.0f,
-            $"({slider.Velocity.X:F2}, {slider.Velocity.Y:F2}, {slider.Velocity.Z:F2}) m/s");
-
-        // 部屋の角。**2枚の壁の押し戻しが打ち消し合う**ので、反復が要る。
-        var cornerWorld = new PhysicsWorld();
-        cornerWorld.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-        cornerWorld.AddPlane(Plane3D.FromPointNormal(new Vector3(1.0f, 0.0f, 0.0f), -Vector3.UnitX));
-        cornerWorld.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, 1.0f), -Vector3.UnitZ));
-
-        var cornered = new CharacterController();
-        cornered.Teleport(new Vector3(0.0f, 0.1f, 0.0f));
-        Walk(cornered, cornerWorld, diagonal, 240);
-
-        checks.Check(
-            "部屋の角に押し込んでも**両方の壁の内側に留まる**",
-            cornered.Position.X < 1.0f + 1e-3f && cornered.Position.Z < 1.0f + 1e-3f,
-            $"({cornered.Position.X:F3}, {cornered.Position.Z:F3})");
-
-        // 天井。**頭をぶつけたら落ちる**。
-        var ceilingWorld = new PhysicsWorld();
-        ceilingWorld.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-        ceilingWorld.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 2.2f, 0.0f), -Vector3.UnitY));
-
-        var ducker = new CharacterController();
-        ducker.Teleport(new Vector3(0.0f, 0.1f, 0.0f));
-        Walk(ducker, ceilingWorld, Vector3.Zero, 60);
-
-        ducker.Move(ceilingWorld, Vector3.Zero, false, true, 1.0f / 60.0f);
-
-        float ceilingPeak = 0.0f;
-        for (int i = 0; i < 120; i++)
-        {
-            ducker.Move(ceilingWorld, Vector3.Zero, false, false, 1.0f / 60.0f);
-            ceilingPeak = MathF.Max(ceilingPeak, ducker.Position.Y);
-        }
-
-        checks.Check(
-            "天井のある部屋では**頭をぶつけて跳べる高さが減る**",
-            ceilingPeak < 0.45f && MathF.Abs(ducker.Position.Y) < 0.05f,
-            $"最高 {ceilingPeak:F3}m(天井 2.2m - 身長 1.8m = 0.4m)");
-
-        // ============================================================
-        //  9. 問い合わせが世界を書き換えないこと
-        // ============================================================
-
-        var readOnlyWorld = new PhysicsWorld();
-        readOnlyWorld.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
-
-        RigidBody witness = RigidBody.CreateBox(1.0f, 0.5f);
-        witness.Position = new Vector3(0.0f, 0.5f, 0.0f);
-        readOnlyWorld.AddBody(witness);
-
-        Vector3 before = witness.Position;
-        Span<ContactManifold> buffer = stackalloc ContactManifold[8];
-
-        int found = readOnlyWorld.QueryCapsule(
-            new Capsule3D(new Vector3(0.0f, 0.6f, 0.0f), new Vector3(0.0f, 1.2f, 0.0f), 0.3f),
-            buffer);
-
-        checks.Check(
-            "カプセルの問い合わせは当たりを返す",
-            found > 0,
-            $"{found} 件");
-        checks.Check(
-            "**問い合わせは世界を1ミリも動かさない**(読むだけ)",
-            (witness.Position - before).Length() < 1e-9f
-                && witness.LinearVelocity.LengthSquared() < 1e-9f);
-        checks.Check(
-            "当たっていないカプセルは 0 件",
-            readOnlyWorld.QueryCapsule(
-                new Capsule3D(
-                    new Vector3(9.0f, 5.0f, 9.0f), new Vector3(9.0f, 6.0f, 9.0f), 0.3f),
-                buffer) == 0);
-
-        checks.Report("すべて合格(カプセルは寝て支えられ、キャラクターは坂と段差を歩く)");
+        checks.Report("すべて合格(カプセルは寝て支えられる)");
         Console.WriteLine();
     }
 
