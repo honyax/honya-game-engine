@@ -106,7 +106,7 @@ rectified = ClipTowardCenter(historyColor, low, high);      // 箱の中心へ�
   — **分散で箱を作る**(平均 ± 標準偏差)の出どころ(要点6)
 - [Lei Yang, Shiqiu Liu, Marco Salvi, "A Survey of Temporally Antialiasing Techniques"(Eurographics 2020 STAR)](http://behindthepixels.io/assets/files/TemporalAA.pdf)
   — **全体の地図**。ずらし・再投影・疑い方・速度・アップスケーリングまで、TAA の部品を一覧にした総説。
-  Day 66(DLSS / FSR の原理)の予習にもなる
+  Day 66b(DLSS / FSR の原理)の予習にもなる
 - [Emilio López, "Temporal AA and the quest for the Holy Trail"](https://www.elopezr.com/temporal-aa-and-the-quest-for-the-holy-trail/)
   — **読み物として最短**。ゴースト・ぼけ・ちらつきの3つの壊れ方と、それぞれの手当てが図付きで追える
 - **Day 38 の計画書 要点1・3・5**(このリポジトリ)
@@ -347,7 +347,7 @@ Day 38 の FXAA の自己チェックも、Day 52・53 の自己チェックも�
 | 速度に応じた今の絵の割合 | 速く動く場面でも 1 割のまま | 動きが大きいほど割合を上げるのが定番 |
 | ずらしを知らない位置の復元 | SSAO・ディファードの位置の復元と Forward+ の升目が、半画素ずれた点を扱う | 改造課題3(設計書「今日残した歪み」の1つ目) |
 | 16 点・中心合わせのずらし | 止めた絵の答えに 8 点の平均までしか近づかない | 改造課題1 |
-| アップスケーリング(TAAU / DLSS / FSR) | 画面と同じ解像度で描いている | Day 66(講読) |
+| アップスケーリング(TAAU / DLSS / FSR) | 画面と同じ解像度で描いている | Day 66b(講読) |
 | Z プリパスでの速度 | 速度の2段目は動いた物をもう一度描く | 物が多くなったら G-Buffer / プリパスで一緒に書く |
 
 ## 前Dayからの差分概要

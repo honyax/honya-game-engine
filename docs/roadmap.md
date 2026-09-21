@@ -198,12 +198,13 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | 64a |  | メッシュシェーダ(VK_EXT_mesh_shader) | Vulkan でラスタライズし、メッシュレットに切ってメッシュシェーダで描く。頂点シェーダの道と全画素同じ絵・ほぼ同じ値段(GS の素通し 4.89 倍と対照的)。Day 63a との設計思想比較 |
 | 64b |  | タスクシェーダと GPU カリング | メッシュレットの境界の球と法線の円錐で、画面の外と丸ごと裏向きを GPU の上で捨てる。**効き目はメッシュレットの切り方で決まる**。Day 63b との設計思想比較 |
 | 65 |  | GPU駆動レンダリング(インダイレクトドロー、GPUカリング) | 「CPUがドローコールを発行しない」現代アーキテクチャ。UE5 Naniteの基礎理論もここで読む |
-| 66 |  | モダンライティング理論講読 | TAA発展・アップスケーリング(DLSS/FSRの原理)、DDGI・Lumen・ReSTIR |
+| 66a |  | 焼いたイラディアンスプローブ(プローブの格子+球面調和L2)— 静的GI | Day 56 の夜の裏通りにプローブを格子状に並べ、各点でシーンをキューブマップに描いて Day 36 と同じ手順で放射照度を焼き、球面調和の9係数に縮めて補間する。IBL の「その点は空だけを見ている」前提を外し、**灯りが照らした路面や壁の照り返しが、ほかの面に回り込む**(夜は空が暗いので、これが唯一の環境光になる)。ライトマップと並ぶAAAの静的GIの主力。格子補間の**壁越しの光漏れ**と、揺らぐランタンに付いてこないことも確かめる |
+| 66b |  | モダンライティング理論講読 | TAA発展・アップスケーリング(DLSS/FSRの原理)、DDGI・Lumen・ReSTIR。**DDGI は Day 66a のプローブを毎フレームのレイで焼き直し、深度を持たせて光漏れを防いだもの**として読む |
 | 67 |  | 3D Gaussian Splatting簡易ビューア | NeRF以降の新潮流。ポリゴンパイプラインとの違いを体感 |
 
 補足: シャドウボリューム(B-12前半)は現代ではほぼ使われないため理論のみでOK。ジオメトリシェーダ(Day 63a)はメッシュシェーダに置き換わりつつあるため「教養として実装」の位置づけですが、テッセレーション(Day 63b)は地形・水面・曲面で現役です。
 
-教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、[VK_EXT_mesh_shader の提案書](https://github.com/KhronosGroup/Vulkan-Docs/blob/main/proposals/VK_EXT_mesh_shader.adoc)と [meshoptimizer](https://github.com/zeux/meshoptimizer)(Day 64a・64b)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)
+教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、[VK_EXT_mesh_shader の提案書](https://github.com/KhronosGroup/Vulkan-Docs/blob/main/proposals/VK_EXT_mesh_shader.adoc)と [meshoptimizer](https://github.com/zeux/meshoptimizer)(Day 64a・64b)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)、[An Efficient Representation for Irradiance Environment Maps](https://graphics.stanford.edu/papers/envmap/)(Ramamoorthi & Hanrahan。放射照度を球面調和9係数で表す原典)と [Stupid Spherical Harmonics (SH) Tricks](https://www.ppsloan.org/publications/StupidSH36.pdf)(Sloan。実装の手引き)(Day 66a)、[Dynamic Diffuse Global Illumination with Ray-Traced Irradiance Fields](https://jcgt.org/published/0008/02/01/)(Majercik ほか。DDGI の論文)(Day 66b)
 
 ---
 
@@ -249,7 +250,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | Ch7 | HDRレンダリング | Day 31(ブルーム・トーンマッピング)とDay 35(PBRはHDR前提) |
 | Ch8 | 水面表現 | 応用課題向き(Day 34+63bの組み合わせで実装できる) |
 | Ch9 | 人肌表現(サブサーフェス・スキャッタリング) | Day 35の発展として理論講読 |
-| Ch10 | 大局照明技術 | Day 36・37・60・66(GI系Dayすべての背景知識) |
+| Ch10 | 大局照明技術 | Day 36・37・60・66a・66b(GI系Dayすべての背景知識) |
 | Ch11 | トゥーン・シェーディング | Day 9またはDay 14以降の改造課題に最適(実装が軽く効果が派手) |
 
 ### その他
@@ -288,6 +289,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | スキニングアニメーション | 41 | 3Dゲーム編に移動し実質必須化(キャラクターが動き回るデモの前提) |
 | TAA(FXAAからの置き換え) | 54 | AAAの標準AA。実装難度は高め |
 | 被写界深度、モーションブラー | 55 | ポストエフェクトの追加分。カメラワーク演出と相性が良い |
+| 焼いたプローブGI(静的な照り返し) | 66a | 教養編に置き、デモの完成後に足す。夜のシーンでは近くの灯りの照り返しが IBL では出ないので効きが大きい。灯りが動かない静的シーンだから焼いて済む |
 
 ### 任意(デモの見た目には直結しない)
 
@@ -296,7 +298,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | ジオメトリシェーダ、テッセレーション、メッシュシェーダ | 63, 64 | 基盤技術で画面には直接見えない(教養として) |
 | レイマーチング、CPU/GPUパストレーサ、ハードウェアRT | 58〜62 | 学び優先の題材。RT影/RT反射をデモに入れるのは大幅な追加工数 |
 | GPU駆動レンダリング、Nanite理論 | 65 | 大規模シーン向けのスケール技術。単一デモシーンでは不要 |
-| 動的GI(Lumen/DDGI級) | 66(講読) | AAAの最先端だが個人実装は重い。IBL+SSAOで近似が現実解 |
+| 動的GI(Lumen/DDGI級) | 66b(講読) | AAAの最先端だが個人実装は重い。静的シーンなら IBL+SSAO+66a の焼いたプローブで近似が現実解 |
 | Gaussian Splatting | 67 | 別系統の技術(ポリゴンパイプラインのデモには入らない) |
 | 水面、人肌、トゥーン(西川本Ch8/9/11) | - | シーン題材に含める場合のみ |
 
