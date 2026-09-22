@@ -462,6 +462,132 @@ internal static class Pbr
     }
 
     /// <summary>
+    /// **IBL 用の <c>k</c>**(Day 36)。<see cref="DirectK"/> と<b>別の式</b>になる。
+    ///
+    /// <code>
+    ///   直接光: k = (roughness + 1)² / 8
+    ///   IBL   : k = roughness² / 2 = α / 2
+    /// </code>
+    ///
+    /// 同じ幾何減衰なのに係数が2通りある、というのは Day 35 の要点5 で触れたとおり。
+    /// 直接光のほうは Disney の当てはめで、こちらは
+    /// 「あらゆる方向から来る光を積分する」場合に合うよう Karis が選んだもの。
+    ///
+    /// **取り違えると金属の縁が暗くなりすぎる**(直接光用の k は IBL では大きすぎる)。
+    /// 症状が地味なので、間違えたまま気づかないことが多い。
+    /// </summary>
+    public static float IblK(float roughness) => Alpha(roughness) / 2.0f;
+
+    /// <summary>IBL 用の幾何減衰。<see cref="GeometrySmith"/> と k だけが違う。</summary>
+    public static float GeometrySmithIbl(float nDotV, float nDotL, float roughness)
+    {
+        float k = IblK(roughness);
+        return GeometrySchlickGgx(nDotV, k) * GeometrySchlickGgx(nDotL, k);
+    }
+
+    /// <summary>
+    /// **粗さを考えたフレネル**(Day 36)。環境光の鏡面の割合を出すのに使う。
+    ///
+    /// <code>
+    ///   F = F0 + (max(1 - roughness, F0) - F0) * (1 - cosθ)^5
+    /// </code>
+    ///
+    /// 素の <see cref="FresnelSchlick"/> は、浅い角度で必ず 1 に飛ぶ。
+    /// 直接光ならそれでよい(1本の光線の話なので)が、
+    /// 環境光に使うと**粗い材質の縁が真っ白に光る**——
+    /// ざらざらの面では、浅く当たった光もあちこちへ散るので、
+    /// 実際にはそこまで強く返らない。
+    ///
+    /// そこで上限を <c>1 - roughness</c> で抑える。
+    /// 物理から導いた式ではなく、Sébastien Lagarde が
+    /// 「見た目が破綻しない」ように置いた当てはめ。
+    /// </summary>
+    public static Vector3 FresnelSchlickRoughness(float cosTheta, Vector3 f0, float roughness)
+    {
+        float f = MathF.Pow(1.0f - Math.Clamp(cosTheta, 0.0f, 1.0f), 5.0f);
+        var ceiling = new Vector3(
+            MathF.Max(1.0f - roughness, f0.X),
+            MathF.Max(1.0f - roughness, f0.Y),
+            MathF.Max(1.0f - roughness, f0.Z));
+
+        return f0 + ((ceiling - f0) * f);
+    }
+
+    /// <summary>
+    /// **分割和の右半分**(Day 36)。BRDF を環境から切り離して事前に表にする。
+    ///
+    /// Day 35 の <see cref="DirectionalAlbedo"/> と積分の中身はほとんど同じだが、
+    /// <b>フレネルを2つに割る</b>ところが違う。Schlick の式
+    /// <code>
+    ///   F = F0 + (1 - F0) * (1 - V・H)^5
+    /// </code>
+    /// は <c>F0</c> について1次なので、積分の外へ出せる:
+    /// <code>
+    ///   ∫ f (N・L) dω = F0 * A + B
+    ///     A = ∫ (1 - (1-V・H)^5) * G_vis dω
+    ///     B = ∫      (1-V・H)^5  * G_vis dω
+    /// </code>
+    /// **A と B は F0 に依存しない**——つまり材質の色に依存しない。
+    /// 残った変数は <c>N・V</c> と <c>roughness</c> の2つだけなので、
+    /// <b>2次元の表1枚</b>で全材質ぶんをまかなえる。これが split-sum の値打ち。
+    ///
+    /// <para>
+    /// 返すのは <c>(A, B)</c>。使う側は
+    /// <code>
+    ///   specular = prefiltered * (F0 * A + B)
+    /// </code>
+    /// と書く。表はテクスチャ(RG16F)に焼いて GPU へ渡す。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>CPU で焼いている</b>のは、Day 35 で書いた重点サンプリングがそのまま使えるから。
+    /// GPU でやるなら5本目のシェーダが要るところを、既にある関数の組み替えで済ませた——
+    /// Day 35 の計画書で「Day 36 の LUT がまさにそれ」と書いた回収になる。
+    /// </para>
+    /// </summary>
+    public static Vector2 IntegrateBrdf(float nDotV, float roughness, int samples = 1024)
+    {
+        nDotV = Math.Clamp(nDotV, 1e-3f, 1.0f);
+
+        // **N を +Z に固定して考える**。等方性なので方位は自由に取ってよく、
+        // V を XZ 平面に寝かせておけば N・V だけで系が決まる。
+        var n = Vector3.UnitZ;
+        var v = new Vector3(MathF.Sqrt(1.0f - (nDotV * nDotV)), 0.0f, nDotV);
+
+        float alpha = Alpha(roughness);
+
+        float a = 0.0f;
+        float b = 0.0f;
+
+        for (uint i = 0; i < samples; i++)
+        {
+            Vector2 xi = Hammersley(i, (uint)samples);
+            Vector3 h = ImportanceSampleGgx(xi, n, alpha);
+            Vector3 l = Vector3.Normalize((2.0f * Vector3.Dot(v, h) * h) - v);
+
+            float nDotL = l.Z;
+            if (nDotL <= 0.0f)
+            {
+                continue;
+            }
+
+            float nDotH = MathF.Max(h.Z, 0.0f);
+            float vDotH = MathF.Max(Vector3.Dot(v, h), 0.0f);
+
+            // pdf で割ったあとに残るぶん。D が約分で消えるのは Day 35 と同じ。
+            float g = GeometrySmithIbl(nDotV, nDotL, roughness);
+            float visibility = (g * vDotH) / (nDotH * nDotV);
+
+            float fc = MathF.Pow(1.0f - vDotH, 5.0f);
+
+            a += (1.0f - fc) * visibility;
+            b += fc * visibility;
+        }
+
+        return new Vector2(a / samples, b / samples);
+    }
+
+    /// <summary>
     /// <paramref name="n"/> に垂直な2本を作る。**n が ±Y でも壊れない選び方**にしてある。
     /// </summary>
     private static (Vector3 Tangent, Vector3 Bitangent) Basis(Vector3 n)

@@ -280,6 +280,83 @@ internal sealed class Texture : IDisposable
     }
 
     /// <summary>
+    /// **浮動小数のテクスチャ**を作る(Day 36)。中身は CPU で作った <c>float</c> の配列。
+    ///
+    /// 8bit のテクスチャと違うのは<b>1.0 を超える値が入る</b>こと。
+    /// 今日これが要るものは2つで、どちらも「色ではない数」を持つ。
+    ///
+    /// | 用途 | 成分 | 入る値 |
+    /// |---|---|---|
+    /// | 空の HDR 画像(<see cref="SkyImage"/>) | 3(RGB16F) | 太陽で 300 前後 |
+    /// | BRDF の事前積分表(<see cref="EnvironmentMap"/>) | 2(RG16F) | 0〜1 だが**精度が要る** |
+    ///
+    /// 後者が 8bit で足りないのは、**バイアス側が 0.001 の桁で効く**ため。
+    /// 8bit だと 1/255 = 0.0039 が最小刻みなので、
+    /// 金属の縁が階段状にがたつく。
+    ///
+    /// <para>
+    /// <b>ミップマップも Repeat も付けない</b>。正距円筒の絵は原寸で1回読むだけ、
+    /// LUT は表なので補間はしても繰り返しはしない。
+    /// とくに LUT を Repeat にすると、**端の値が反対側と混ざって縁が壊れる**。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>16F(half)で持つ</b>のは容量のため。1024x512x3 を 32bit で持つと 6MB、
+    /// 16bit なら 3MB。半精度の有効数字は 10bit ほどあり、
+    /// 明るさの入れ物としては十分(Day 31 でシーンバッファに RGBA16F を選んだのと同じ理由)。
+    /// </para>
+    /// </summary>
+    public static unsafe Texture FromFloatPixels(
+        GL gl, ReadOnlySpan<float> data, int width, int height, int components)
+    {
+        (InternalFormat internalFormat, PixelFormat pixelFormat) = components switch
+        {
+            1 => (InternalFormat.R16f, PixelFormat.Red),
+            2 => (InternalFormat.RG16f, PixelFormat.RG),
+            3 => (InternalFormat.Rgb16f, PixelFormat.Rgb),
+            _ => (InternalFormat.Rgba16f, PixelFormat.Rgba),
+        };
+
+        uint handle = gl.GenTexture();
+
+        gl.ActiveTexture(TextureUnit.Texture0);
+        gl.BindTexture(TextureTarget.Texture2D, handle);
+
+        // **行の詰め方を 1 バイト境界に**。既定は 4 バイト境界で、
+        // 3 成分 x float だと 12 バイトなのでたまたま揃うが、
+        // 成分数を変えた瞬間に**行がずれて絵が斜めになる**。
+        // ここで明示しておけば、どの成分数でも同じように動く。
+        gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+
+        fixed (float* pixels = data)
+        {
+            gl.TexImage2D(
+                TextureTarget.Texture2D,
+                0,
+                internalFormat,
+                (uint)width,
+                (uint)height,
+                0,
+                pixelFormat,
+
+                // **渡すのは 32bit float、GPU が持つのは 16bit**。
+                // 内部形式と転送形式が別物、というのは Day 31 で見たとおり。
+                PixelType.Float,
+                pixels);
+        }
+
+        gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);
+
+        var texture = new Texture(gl, handle, width, height, hasMipmaps: false);
+        texture.SetFilter(TextureFilter.Linear);
+        texture.SetWrap(TextureWrap.ClampToEdge);
+
+        gl.BindTexture(TextureTarget.Texture2D, 0);
+
+        return texture;
+    }
+
+    /// <summary>
     /// **1チャンネル(R8)の空テクスチャ**を作る。中身はあとから流し込む。
     ///
     /// フォントのグリフは色を持たない。持っているのは

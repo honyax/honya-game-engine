@@ -135,6 +135,18 @@ namespace HonyaEngine;
 ///
 /// 金属の行がほとんど黒くなるのは**正しい**。金属は拡散反射をせず、
 /// 映り込む景色がまだ無いため。それを与えるのが Day 36(IBL)。
+///
+/// **Day 36 での変更**: 空ができて、**まわりの景色が光になった**
+/// (<see cref="EnvironmentMap"/>)。
+///
+/// HDR の空を手で焼き(<see cref="SkyImage"/>)、キューブマップへ写して、
+/// そこから3枚を事前計算する——放射照度(拡散)、事前フィルタ(鏡面)、
+/// BRDF の表(材質)。`Ctrl+Alt+1` で切ると Day 35 の
+/// 「環境光は定数」に戻るので、**金属が真っ黒に戻る**のを見比べられる。
+///
+/// 材質グリッド(Ctrl+Shift+5)を出したまま IBL を入れると、
+/// **黒かった上の行に景色が映る**。Day 35 で「正しいが物足りない」と書いた絵が、
+/// ここで完成する。
 /// </summary>
 internal static class Program
 {
@@ -246,6 +258,17 @@ internal static class Program
 
     /// <summary>深度パスにかかった時間(移動平均)。**影の代償を数字で見る**ため。</summary>
     private static double _shadowMilliseconds;
+
+    // ===== Day 36: 環境マッピングと IBL =====
+
+    /// <summary>環境マップ一式(空 / 放射照度 / 事前フィルタ / BRDF の表)。</summary>
+    private static EnvironmentMap _env = null!;
+
+    /// <summary>太陽を何度回したか(Ctrl+Alt+5)。**空と平行光源が同時に動く**。</summary>
+    private static float _sunYaw;
+
+    /// <summary>IBL の3枚を巡回表示する状態(Ctrl+Alt+7)。0 = 通常。</summary>
+    private static int _iblViewIndex;
 
     // ===== Day 34: 法線マップと視差マッピング =====
 
@@ -968,6 +991,24 @@ internal static class Program
         // リサイズのたびに作り直さなくてよいのはそのため(OnFramebufferResize を見ると分かる)。
         _shadow = new ShadowMap(_gl, _resources, shaderDirectory, resolution: 2048);
 
+        // --- 今日の主役: 環境マップ ---
+        //
+        // **作るのと焼くのを分けてある**。コンストラクタはシェーダと FBO を用意するだけで、
+        // 実際に焼くのは Bake。太陽の向きを変えるたびに焼き直したいので、
+        // 「作り直さずに中身だけ入れ替えられる」形にしておく必要がある。
+        _env = new EnvironmentMap(_gl, _resources, shaderDirectory);
+        _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"環境マップ: 空 {SkyImage.Width}x{SkyImage.Height} → "
+            + $"キューブ {EnvironmentMap.EnvironmentSize} / 放射照度 {EnvironmentMap.IrradianceSize} / "
+            + $"事前フィルタ {EnvironmentMap.PrefilterSize}x{EnvironmentMap.PrefilterMipCount}段 / "
+            + $"BRDF表 {EnvironmentMap.BrdfLutSize}");
+        Console.WriteLine(
+            $"  焼き {_env.BakeMilliseconds:F0}ms(空の生成 {_env.SkyMilliseconds:F0}ms / "
+            + $"BRDF表 {_env.LutMilliseconds:F0}ms)  {_env.ByteSize / (1024.0 * 1024.0):F1}MB");
+
         // 発光するもの用。
         //
         // **Day 32 で表し方が変わった**。Day 31 は Tint に 1.0 を超える値を入れていたが、
@@ -1261,6 +1302,15 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 36: 環境マッピングと IBL(Ctrl+Alt + 数字)---");
+        Console.WriteLine("Ctrl+Alt+9:材質グリッド + IBL。**黒かった金属の行に景色が映る**");
+        Console.WriteLine("Ctrl+Alt+1:IBL ON/OFF(OFF で Day 35 の「環境光は定数」に戻る)  Ctrl+Alt+2:空の表示");
+        Console.WriteLine("Ctrl+Alt+3:環境光の強さ  Ctrl+Alt+4:空に事前フィルタの段を出す(粗さとぼけの対応)");
+        Console.WriteLine("Ctrl+Alt+5:太陽を30度回して焼き直す  Ctrl+Alt+6:空を8bitに落として焼き直す");
+        Console.WriteLine("Ctrl+Alt+7:焼いた3枚を1枚ずつ見る  Ctrl+Alt+8:事前フィルタを使わず原寸を引く");
+        Console.WriteLine("Ctrl+Alt+0:IBL の自己チェック");
+        Console.WriteLine("  Shift+9 の成分に 放射照度 / 映り込み / BRDFの表 が増えた");
         Console.WriteLine();
         Console.WriteLine("--- Day 35: 物理ベースレンダリング(Ctrl+Shift + 数字)---");
         Console.WriteLine("Ctrl+Shift+5:材質グリッド(球 7x7。縦=金属度 横=粗さ)。**PBR はここでいちばん分かる**");
@@ -1997,6 +2047,15 @@ internal static class Program
         // 画面全体に効く処理をいくらでも後ろに継ぎ足せるようになった。
         _post.Begin(ClearColor);
 
+        // **空はいちばん先**(Day 36)。深度を書かないので、あとから描くものが必ず手前に来る。
+        //
+        // ゲームモードでは出さない。見下ろし型の 2D に空が映っても意味が無く、
+        // 「エンジンの機能のうちゲームが要るものだけを通る」という Day 29 の線から外れる。
+        if (!_playing && (_draw3D || _model is not null || _materialGrid || _surfaceDemo))
+        {
+            _env.DrawSkybox(_camera, _depthTest, _culling);
+        }
+
         if (_playing)
         {
             RenderGame();
@@ -2319,7 +2378,7 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day35   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day36   {_fps:F1} fps   DC:{_drawCalls}");
 
         if (_model is not null)
         {
@@ -2354,6 +2413,10 @@ internal static class Program
                 ? $"{PbrLabel()}  グリッド:{MaterialGridSize}x{MaterialGridSize}"
                     + $"(縦=金属度 横=粗さ)  色:{GridColors[_gridColorIndex].Name}"
                 : PbrLabel());
+
+        // **今日の設定を1行で**。IBL は「効いているのか」が絵から読み取りにくいので、
+        // 状態と焼き時間を常に出しておく。
+        lines.AppendLine(IblLabel());
 
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
@@ -2512,6 +2575,9 @@ internal static class Program
         15 => "フレネル F",
         16 => "法線分布 D",
         17 => "幾何減衰 G",
+        18 => "放射照度（拡散 IBL）",
+        19 => "事前フィルタ（映り込み）",
+        20 => "BRDF の表（R=A / G=B）",
         _ => "通常",
     };
 
@@ -2534,6 +2600,23 @@ internal static class Program
         _ => -1.0f,
     };
 
+    /// <summary>IBL の状態を1行にまとめる(HUD 用)。</summary>
+    private static string IblLabel()
+    {
+        if (!_env.Enabled)
+        {
+            return "IBL:OFF(環境光は定数。Day 35 まで)";
+        }
+
+        string skybox = _env.SkyboxVisible
+            ? (_env.SkyboxMip < 0 ? "空:環境" : $"空:段{_env.SkyboxMip}")
+            : "空:OFF";
+
+        return $"IBL:ON  強さ:{_env.Intensity:F2}  {skybox}"
+            + $"  {(_env.UsePrefilter ? "事前フィルタ" : "原寸のみ")}"
+            + (_env.ClampSkyToLdr ? "  空を8bitに制限" : string.Empty)
+            + $"  焼き:{_env.BakeMilliseconds:F0}ms  {_env.ByteSize / (1024.0 * 1024.0):F1}MB";
+    }
     /// <summary>PBR の状態を1行にまとめる(HUD 用)。</summary>
     private static string PbrLabel()
     {
@@ -2699,6 +2782,10 @@ internal static class Program
         // マテリアルが 0〜4 を上書きしても 5 番は残る。
         _shadow.Apply(shader);
 
+        // **IBL もフレームに1回**(Day 36)。3枚のテクスチャ(7〜9番)と、
+        // 強さ・段数の設定。オブジェクトによらないので、ここで一度送れば足りる。
+        _env.Apply(shader);
+
         // **Day 34 の設定もフレームに1回**。
         // カメラ位置は視差マッピングの入力(接空間の視線を作るのに要る)で、
         // 残りは表示の切り替え。どれもオブジェクトによらない。
@@ -2820,6 +2907,13 @@ internal static class Program
         shader.SetVector3(
             "uLightColor",
             _lightColor * GridLightScale * (_pbrEnabled ? MathF.PI : 1.0f));
+
+        // **環境光も同じだけ絞る**(Day 36)。
+        // 直接光だけ落として環境光を素のままにすると、
+        // IBL を入れた瞬間にグリッド全体が白飛びして、また材質が読めなくなる——
+        // 実際そうなった(計画書の「検証の途中で分かったこと」)。
+        // 見本の露出は「その絵に入る光すべて」に掛けるものなので、両方に掛ける。
+        shader.SetFloat("uIblIntensity", _env.Intensity * GridLightScale);
 
         _gridMaterial.BaseColorFactor = new Vector4(GridColors[_gridColorIndex].Color, 1.0f);
 
@@ -5924,6 +6018,367 @@ internal static class Program
     }
 
     /// <summary>
+    /// **IBL の自己チェック**(Ctrl+Alt+0)。
+    ///
+    /// IBL がいちばん厄介なのは、<b>間違っていても「それらしく良い絵」になる</b>こと。
+    /// 上下が反転していても、強さが π ぶんずれていても、
+    /// 事前フィルタの段の対応が1つずれていても、
+    /// 「なんとなく質感が上がった」という印象は変わらない。
+    ///
+    /// だから確かめるのは絵ではなく<b>数字の一致</b>にする。今日の柱は2つ。
+    ///
+    /// <list type="number">
+    /// <item>
+    /// <b>焼いたキューブが、元の空と一致するか</b>。
+    /// 6面それぞれの中心テクセルは、その面が向いている方向の空の色になるはず。
+    /// <see cref="SkyImage.Sample"/> を直接呼べば答えが手に入る——
+    /// <b>これがキューブマップの上下反転を捕まえる唯一の自動チェック</b>になる。
+    /// </item>
+    /// <item>
+    /// <b>放射照度が、CPU で積分した値と一致するか</b>。
+    /// GPU のシェーダと <see cref="SkyImage.IntegrateIrradiance"/> は、
+    /// まったく違う書き方で同じ積分をしている。
+    /// 独立に出した2つが揃えば、両方が正しい見込みが高い。
+    /// </item>
+    /// </list>
+    ///
+    /// 加えて、BRDF の表の端の値と、事前フィルタが本当にぼけているかを見る。
+    /// </summary>
+    private static void RunIblCheck()
+    {
+        var checks = new CheckList();
+        var stopwatch = Stopwatch.StartNew();
+
+        Console.WriteLine();
+        Console.WriteLine("[IBL の自己チェック]");
+
+        CubeMap? environment = _env.Environment;
+        CubeMap? irradiance = _env.Irradiance;
+        CubeMap? prefiltered = _env.Prefiltered;
+        Texture? lut = _env.BrdfLut;
+
+        checks.Check(
+            "3枚 + 表がそろっている",
+            environment is not null && irradiance is not null && prefiltered is not null && lut is not null);
+
+        if (environment is null || irradiance is null || prefiltered is null || lut is null)
+        {
+            checks.Report();
+            return;
+        }
+
+        checks.Check(
+            "事前フィルタが5段ある(粗さ 0 / 0.25 / 0.5 / 0.75 / 1.0)",
+            prefiltered.MipLevels == EnvironmentMap.PrefilterMipCount,
+            $"{prefiltered.MipLevels} 段 / {prefiltered.Size}x{prefiltered.Size}");
+
+        // --- 1. 焼いたキューブと元の空を突き合わせる ---
+        //
+        // **テクセルの向きを自分で計算して**、その向きの空の色と比べる。
+        //
+        // 向きの求め方は OpenGL の仕様に書いてある式(<see cref="CubeTexelDirection"/>)で、
+        // **こちらが焼くときに使った行列とは独立**。だから
+        //   - 6面のビュー行列の上下反転(CubeMap.FaceViews)
+        //   - 正距円筒の方位角の取り方(SkyImage と equirect.frag)
+        // のどちらが狂っていても、ここで必ず落ちる。
+        //
+        // 面の中心だけを見る形にしていたときは**方位のずれを捕まえられなかった**
+        // (この空は方位に対してほぼ一様なので)。計画書の「検証の途中で分かったこと」参照。
+        Vector3 toSun = Vector3.Normalize(-_lightDirection);
+
+        string[] faceNames = ["+X", "-X", "+Y", "-Y", "+Z", "-Z"];
+
+        bool facesMatch = true;
+        float worstFaceError = 0.0f;
+        string worstFaceLabel = string.Empty;
+        int compared = 0;
+
+        // いちばん明るいテクセルの向きも一緒に探す。**太陽がどこに焼けたか**が分かる。
+        float brightest = -1.0f;
+        Vector3 brightestDirection = Vector3.Zero;
+
+        for (int face = 0; face < 6; face++)
+        {
+            float[] pixels = environment.ReadFace(face);
+            int side = environment.Size;
+
+            for (int y = 0; y < side; y++)
+            {
+                for (int x = 0; x < side; x++)
+                {
+                    int index = ((y * side) + x) * 3;
+                    var baked = new Vector3(pixels[index], pixels[index + 1], pixels[index + 2]);
+
+                    Vector3 direction = CubeTexelDirection(face, (x + 0.5f) / side, (y + 0.5f) / side);
+
+                    float luminance = baked.X + baked.Y + baked.Z;
+                    if (luminance > brightest)
+                    {
+                        brightest = luminance;
+                        brightestDirection = direction;
+                    }
+
+                    // **16 テクセルおきに比べる**。全部やっても構わないが、
+                    // 読み返しより比較のほうが遅くなるので間引く。
+                    if ((x % 16 != 0) || (y % 16 != 0))
+                    {
+                        continue;
+                    }
+
+                    // **太陽の縁は外す**。あそこは 0.013 ラジアンで 0 から 300 まで変わるので、
+                    // 元の絵(1024x512)とキューブ(256)の解像度の差がそのまま誤差になる。
+                    // 式の間違いではなく標本化の話なので、確かめる対象から外すのが正しい。
+                    if (Vector3.Dot(direction, toSun) > MathF.Cos(0.12f))
+                    {
+                        continue;
+                    }
+
+                    Vector3 expected = SkyImage.Sample(direction, toSun);
+                    float error = (baked - expected).Length() / MathF.Max(expected.Length(), 1e-3f);
+
+                    compared++;
+                    facesMatch &= error < 0.05f;
+
+                    if (error > worstFaceError)
+                    {
+                        worstFaceError = error;
+                        worstFaceLabel = faceNames[face];
+                    }
+                }
+            }
+        }
+
+        checks.Check(
+            "**焼いたキューブが元の空と一致**(上下反転も方位のずれもここで出る)",
+            facesMatch,
+            $"{compared:N0} 点 / 最大誤差 {worstFaceError:P1}({worstFaceLabel})");
+
+        // **いちばん明るいテクセルは太陽の向き**。方位角の取り違えを直接捕まえる。
+        float sunAngle = MathF.Acos(Math.Clamp(Vector3.Dot(brightestDirection, toSun), -1.0f, 1.0f));
+
+        checks.Check(
+            "**いちばん明るいテクセルが太陽の向き**(方位の取り違えが出る)",
+            sunAngle < 0.06f,
+            $"ずれ {sunAngle * 180.0f / MathF.PI:F2} 度  明るさ {brightest / 3.0f:F0}");
+
+        // 上下がひっくり返っていないことを、意味のある形でもう一度。
+        // **空のほうが地面より明るい**は、絵を見なくても言えるはずのこと。
+        Vector3 up = CenterTexel(environment, 2);
+        Vector3 down = CenterTexel(environment, 3);
+
+        checks.Check(
+            "上の面が下の面より明るい(**空と地面が逆さまでない**)",
+            up.Y > down.Y * 3.0f,
+            $"上 {up.Y:F3} / 下 {down.Y:F3}");
+
+        // --- 2. 放射照度を CPU の積分と突き合わせる ---
+        //
+        // **まったく違う書き方で同じ積分**をしている2つを比べる。
+        // シェーダ側は 1/π を焼き込んでいるので、CPU 側も π で割ってから比べる。
+        bool irradianceMatches = true;
+        float worstIrradianceError = 0.0f;
+        string worstIrradianceLabel = string.Empty;
+
+        for (int face = 0; face < 6; face++)
+        {
+            // **読んだテクセルの向きをそのまま使う**。面の中心と言っても、
+            // 1辺が偶数なので真ん中のテクセルは半個ぶんずれている。
+            // 「だいたい真上」で済ませずに、実際の向きで積分するほうが誤差が読める。
+            Vector3 direction = CenterDirection(face, irradiance.Size);
+
+            Vector3 baked = CenterTexel(irradiance, face);
+            Vector3 expected = SkyImage.IntegrateIrradiance(direction, toSun) / MathF.PI;
+
+            float error = (baked - expected).Length() / MathF.Max(expected.Length(), 1e-3f);
+            irradianceMatches &= error < 0.15f;
+
+            if (error > worstIrradianceError)
+            {
+                worstIrradianceError = error;
+                worstIrradianceLabel = faceNames[face];
+            }
+        }
+
+        checks.Check(
+            "**放射照度が CPU の半球積分と一致**(誤差 15% 未満)",
+            irradianceMatches,
+            $"最大誤差 {worstIrradianceError:P1}({worstIrradianceLabel})"
+            + "  ※シェーダの刻みが 0.025 ラジアンなので完全一致はしない");
+
+        // 放射照度は「半球ぶんの平均」なので、**元より必ず滑らか**。
+        // 面の中のばらつきを測ると、環境マップより桁で小さくなる。
+        float environmentSpread = Spread(environment, face: 2);
+        float irradianceSpread = Spread(irradiance, face: 2);
+
+        checks.Check(
+            "放射照度は環境マップよりばらつきが小さい(**ならしたのだから当然**)",
+            irradianceSpread < environmentSpread,
+            $"環境 {environmentSpread:F3} → 放射照度 {irradianceSpread:F3}");
+
+        // --- 3. 事前フィルタは段が進むほどぼけているか ---
+        //
+        // **ぼけているかは「ばらつきが減っているか」で測れる**。
+        // 目で見ると「それっぽくぼけている」としか言えないが、
+        // 数字にすれば単調に減ることを要求できる。
+        bool blurIncreases = true;
+        var spreads = new float[EnvironmentMap.PrefilterMipCount];
+
+        for (int mip = 0; mip < EnvironmentMap.PrefilterMipCount; mip++)
+        {
+            spreads[mip] = Spread(prefiltered, face: 2, mip);
+            if (mip > 0 && spreads[mip] > spreads[mip - 1])
+            {
+                blurIncreases = false;
+            }
+        }
+
+        checks.Check(
+            "事前フィルタは段が進むほどぼけている(ばらつきが単調に減る)",
+            blurIncreases,
+            string.Join(" → ", spreads.Select(value => value.ToString("F3"))));
+
+        // --- 4. BRDF の表 ---
+        //
+        // 端の値は手で分かる。**粗さ 0 で正面から見れば、鏡はほぼ全部返す**ので
+        // A が 1 に近く、B は 0 に近い。
+        Vector2 mirror = Pbr.IntegrateBrdf(1.0f, 0.0f);
+
+        checks.Check(
+            "BRDF の表: 粗さ 0・正面で (A, B) ≒ (1, 0)",
+            mirror.X > 0.97f && mirror.Y < 0.03f,
+            $"({mirror.X:F4}, {mirror.Y:F4})");
+
+        // A + B は「F0 = 1 の材質がどれだけ返すか」なので、1 を超えてはいけない。
+        bool lutBounded = true;
+        float worstLut = 0.0f;
+
+        for (int i = 0; i <= 16; i++)
+        {
+            for (int j = 0; j <= 16; j++)
+            {
+                Vector2 value = Pbr.IntegrateBrdf((i + 0.5f) / 17.0f, (float)j / 16.0f, samples: 256);
+                float sum = value.X + value.Y;
+                worstLut = MathF.Max(worstLut, sum);
+                lutBounded &= sum <= 1.0f + 1e-3f;
+            }
+        }
+
+        checks.Check(
+            "BRDF の表: A + B が 1 を超えない(**F0 = 1 でも光を作らない**)",
+            lutBounded,
+            $"最大 {worstLut:F4}");
+
+        // --- 5. IBL が実際に金属を救っているか ---
+        //
+        // Day 35 の宿題そのもの。**金属が黒いままなら今日の意味が無い**ので、
+        // 「粗さ 0 の金属が受け取る環境光」が 0 でないことを直接見る。
+        Vector3 mirrorEnvironment = CenterTexel(prefiltered, face: 2, mip: 0);
+
+        checks.Check(
+            "**鏡の金属に映る環境が 0 でない**(Day 35 の「金属が真っ黒」の解消)",
+            mirrorEnvironment.Length() > 0.1f,
+            $"上向きの鏡が受け取る明るさ {mirrorEnvironment.Length():F3}");
+
+        Console.WriteLine($"  所要 {stopwatch.Elapsed.TotalMilliseconds:F0}ms");
+        checks.Report();
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// **キューブマップのテクセルが向いている方向**。OpenGL の仕様どおりの式。
+    ///
+    /// <c>glGetTexImage</c> で読み返した配列の並びと、GPU が
+    /// <c>texture(cube, direction)</c> で引くときの対応を、そのまま書き下したもの。
+    ///
+    /// <para>
+    /// <b>ここが独立していることに意味がある</b>。
+    /// <see cref="CubeMap.FaceViews"/> は「焼くときにどの向きへカメラを置くか」で、
+    /// こちらは「読むときにどの向きとして扱われるか」。
+    /// 焼く側と読む側が食い違っていれば、この2つを突き合わせたときに必ず出る。
+    /// </para>
+    ///
+    /// <para>
+    /// 仕様の表は面ごとに符号がばらばらで、覚えるものではない
+    /// (OpenGL 4.6 spec の Table 8.19)。1980 年代の RenderMan の
+    /// 左手系の約束をそのまま引きずっているためで、
+    /// <b>写してくるしかない</b>類のもの。
+    /// </para>
+    /// </summary>
+    /// <param name="s">面の中の横位置(0〜1)。</param>
+    /// <param name="t">面の中の縦位置(0〜1)。読み返した配列の行番号がそのまま t。</param>
+    private static Vector3 CubeTexelDirection(int face, float s, float t)
+    {
+        float u = (2.0f * s) - 1.0f;
+        float v = (2.0f * t) - 1.0f;
+
+        Vector3 direction = face switch
+        {
+            0 => new Vector3(1.0f, -v, -u),
+            1 => new Vector3(-1.0f, -v, u),
+            2 => new Vector3(u, 1.0f, v),
+            3 => new Vector3(u, -1.0f, -v),
+            4 => new Vector3(u, -v, 1.0f),
+            _ => new Vector3(-u, -v, -1.0f),
+        };
+
+        return Vector3.Normalize(direction);
+    }
+
+    /// <summary>
+    /// キューブマップの1面の**中心テクセル**を読む。
+    ///
+    /// 中心を選ぶのは、そこがちょうど「面が向いている方向」を見ているから。
+    /// 端のテクセルは 45 度近く傾いた方向を見ているので、答えを手で書けない。
+    /// </summary>
+    private static Vector3 CenterDirection(int face, int side)
+    {
+        float center = ((side / 2) + 0.5f) / side;
+        return CubeTexelDirection(face, center, center);
+    }
+
+    /// <summary>
+    /// キューブマップの1面の**真ん中あたりのテクセル**を読む。
+    /// 向きが要るときは <see cref="CenterDirection"/> と対で使う。
+    /// </summary>
+    private static Vector3 CenterTexel(CubeMap cube, int face, int mip = 0)
+    {
+        float[] pixels = cube.ReadFace(face, mip);
+        int side = Math.Max(1, cube.Size >> mip);
+
+        int index = (((side / 2) * side) + (side / 2)) * 3;
+        return new Vector3(pixels[index], pixels[index + 1], pixels[index + 2]);
+    }
+
+    /// <summary>
+    /// 1面の**ばらつき**(標準偏差の輝度版)。ぼけ具合を数字にするために使う。
+    ///
+    /// ぼかすとは「隣どうしの差を減らすこと」なので、
+    /// **同じ絵をぼかしたなら必ずばらつきが減る**。
+    /// 平均は保たれる(ぼかしは重みの合計が 1)ので、平均では判定できない。
+    /// </summary>
+    private static float Spread(CubeMap cube, int face, int mip = 0)
+    {
+        float[] pixels = cube.ReadFace(face, mip);
+
+        double sum = 0.0;
+        double sumSquares = 0.0;
+        int count = pixels.Length / 3;
+
+        for (int i = 0; i < pixels.Length; i += 3)
+        {
+            // 輝度。RGB の重みは Rec.709(Day 31 の明部抽出と同じもの)。
+            double luminance = (0.2126 * pixels[i]) + (0.7152 * pixels[i + 1]) + (0.0722 * pixels[i + 2]);
+            sum += luminance;
+            sumSquares += luminance * luminance;
+        }
+
+        double mean = sum / count;
+        double variance = Math.Max((sumSquares / count) - (mean * mean), 0.0);
+
+        return (float)Math.Sqrt(variance);
+    }
+
+    /// <summary>
     /// **PBR の自己チェック**(Ctrl+Shift+0)。
     ///
     /// 見た目だけでは絶対に分からないことを確かめる。
@@ -7188,6 +7643,126 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(環境マッピングと IBL)---
+            //
+            // **Ctrl+Alt + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)、
+            // Ctrl+Shift(Day 35)に続く5段目。
+            //
+            // **Alt+Shift を使わなかった**のは、Windows でキーボードレイアウトの
+            // 切り替えに割り当てられていることが多いため。押した瞬間に
+            // 入力方式が変わってしまうと、原因が分からないまま手が止まる。
+            //
+            // ガード付きの case は上から順に照合されるので、
+            // **2つ押しの組はここでも先頭**に置く(Day 35 と同じ理由)。
+            case Key.Number1 when ctrl && alt:
+                _env.Enabled = !_env.Enabled;
+                Console.WriteLine(
+                    _env.Enabled
+                        ? "IBL: ON(まわりの景色が光になる)"
+                        : "IBL: OFF(Day 35 の「環境光は定数」に戻る。**金属が黒くなる**)");
+                break;
+
+            case Key.Number2 when ctrl && alt:
+                _env.SkyboxVisible = !_env.SkyboxVisible;
+                Console.WriteLine($"空の表示: {OnOff(_env.SkyboxVisible)}(**照明とは無関係**。見た目だけ)");
+                break;
+
+            case Key.Number3 when ctrl && alt:
+                _env.Intensity = _env.Intensity switch
+                {
+                    < 0.4f => 0.5f,
+                    < 0.8f => 1.0f,
+                    < 1.5f => 2.0f,
+                    _ => 0.25f,
+                };
+                Console.WriteLine($"環境光の強さ: {_env.Intensity:F2}");
+                break;
+
+            case Key.Number4 when ctrl && alt:
+                // 空として事前フィルタの段を出す。**粗さとぼけ具合の対応を目で確かめる**窓。
+                _env.SkyboxMip = _env.SkyboxMip + 1 >= EnvironmentMap.PrefilterMipCount
+                    ? -1
+                    : _env.SkyboxMip + 1;
+                Console.WriteLine(
+                    _env.SkyboxMip < 0
+                        ? "空に出すもの: 環境マップそのもの"
+                        : $"空に出すもの: 事前フィルタ 第{_env.SkyboxMip}段"
+                            + $"(粗さ {(float)_env.SkyboxMip / (EnvironmentMap.PrefilterMipCount - 1):F2} 相当)");
+                break;
+
+            case Key.Number5 when ctrl && alt:
+                {
+                    // **太陽を回して焼き直す**。空・影・平行光源が一緒に動く。
+                    //
+                    // 焼き直しに 1 秒近くかかるのでフレームが止まる。
+                    // 「環境が変わったら焼き直しが要る」という IBL の性質が、
+                    // そのまま体感として出る——動く太陽を扱うゲームで
+                    // IBL をどうするかは、それだけで大きな設計問題になる。
+                    _sunYaw += MathF.PI / 6.0f;
+
+                    Matrix4x4 rotation = Matrix4x4.CreateRotationY(MathF.PI / 6.0f);
+                    _lightDirection = Vector3.Normalize(Vector3.TransformNormal(_lightDirection, rotation));
+
+                    var watch = Stopwatch.StartNew();
+                    _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+                    Console.WriteLine(
+                        $"太陽を 30 度回した(通算 {_sunYaw * 180.0f / MathF.PI:F0} 度)"
+                        + $"  焼き直し {watch.Elapsed.TotalMilliseconds:F0}ms");
+                }
+
+                break;
+
+            case Key.Number6 when ctrl && alt:
+                {
+                    // **空を 8bit に落として焼き直す**。Day 31 の Shift+1 と同じ実験を、
+                    // 今度は「光源としての環境」で行う。
+                    _env.ClampSkyToLdr = !_env.ClampSkyToLdr;
+                    _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+                    Console.WriteLine(
+                        _env.ClampSkyToLdr
+                            ? "空を 1.0 で頭打ちにして焼き直した  ※環境光がのっぺりするのが正解"
+                            : "空を HDR のまま焼き直した(太陽は 300)");
+                }
+
+                break;
+
+            case Key.Number7 when ctrl && alt:
+                // 焼いた3枚を1枚ずつ見る。**「なんとなく良くなった」で済ませないため**。
+                _iblViewIndex = (_iblViewIndex + 1) % 4;
+                _debugChannel = _iblViewIndex == 0 ? 0 : 17 + _iblViewIndex;
+                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+                break;
+
+            case Key.Number8 when ctrl && alt:
+                _env.UsePrefilter = !_env.UsePrefilter;
+                Console.WriteLine(
+                    _env.UsePrefilter
+                        ? "鏡面の環境: 事前フィルタ(粗さに応じた段を引く)"
+                        : "鏡面の環境: 原寸のみ  ※粗い金属が鏡になり、太陽の反射がちらつくのが正解");
+                break;
+
+            case Key.Number9 when ctrl && alt:
+                // **一足飛びで見どころへ**(Alt+9 / Ctrl+Shift+9 と同じ趣旨)。
+                // 材質グリッドに IBL を当てた絵が、今日いちばん見せたいもの。
+                _env.Enabled = true;
+                _env.SkyboxVisible = true;
+                _pbrEnabled = true;
+                _materialGrid = true;
+                _debugChannel = 0;
+                _iblViewIndex = 0;
+                _orbit.Yaw = 0.0f;
+                _orbit.Pitch = 0.0f;
+                _orbit.Target = Vector3.Zero;
+                _orbit.Distance = 13.0f;
+                _orbit.Apply();
+                Console.WriteLine("材質グリッド + IBL(**上の行に景色が映る**)");
+                break;
+
+            case Key.Number0 when ctrl && alt:
+                RunIblCheck();
+                break;
             // --- 今日のスイッチ(物理ベースレンダリング)---
             //
             // **Ctrl+Shift + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)に続く4段目。
@@ -7549,9 +8124,9 @@ internal static class Program
 
             // --- 今日のスイッチ(glTF)---
             case Key.Number9 when shift:
-                // Day 34 で接空間の4つ、Day 35 で BRDF の5つが増えて 18 通りになった。
+                // Day 35 で BRDF の5つ、Day 36 で IBL の3つが増えて 21 通りになった。
                 // **多いので Alt+9 と Ctrl+Shift+9 で目当ての成分へ直接飛べる**ようにしてある。
-                _debugChannel = (_debugChannel + 1) % 18;
+                _debugChannel = (_debugChannel + 1) % 21;
                 Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
                 break;
 
@@ -8024,6 +8599,9 @@ internal static class Program
 
         // シャドウマップも同じ(Day 33)。深度テクスチャと空 VAO を返す。
         _shadow.Dispose();
+
+        // 環境マップも同じ(Day 36)。キューブマップ3枚と表1枚、FBO、立方体を畳む。
+        _env.Dispose();
 
         _cube.Dispose();
         _quad.Dispose();
