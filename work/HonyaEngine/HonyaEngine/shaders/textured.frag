@@ -63,7 +63,33 @@ uniform vec3 uAmbientColor;
 /// 8=影の係数(Day 33)
 /// 9=接線 T / 10=従接線 B / 11=最終法線 N / 12=高さ(Day 34)
 /// 13=拡散のみ / 14=鏡面のみ / 15=フレネル F / 16=法線分布 D / 17=幾何減衰 G(Day 35)
+/// 18=放射照度 / 19=事前フィルタ(映り込み)/ 20=BRDF の表(Day 36)
 uniform int uDebugChannel;
+
+// --- Day 36: イメージベースドライティング ---
+
+/// IBL を使うか(Ctrl+Alt+1)。OFF で Day 35 の「環境光は定数」に戻る。
+uniform int uIblEnabled;
+
+/// 環境光の強さ(Ctrl+Alt+3)。
+uniform float uIblIntensity;
+
+/// **拡散ぶん**。法線を渡すと、その向きの面に入ってくる光の合計が返る。
+/// 1/π は焼くときに済ませてある(irradiance.frag)ので、ここでは albedo を掛けるだけ。
+uniform samplerCube uIrradianceMap;
+
+/// **鏡面ぶんの環境側**。ミップの段が粗さに対応している。
+uniform samplerCube uPrefilterMap;
+
+/// **鏡面ぶんの材質側**。横が N・V、縦が粗さ。R が F0 に掛ける係数、G が足す値。
+uniform sampler2D uBrdfLut;
+
+/// 事前フィルタのいちばん粗い段の番号。粗さ 0〜1 をこの範囲へ写す。
+uniform float uPrefilterMaxLod;
+
+/// 事前フィルタを使うか(Ctrl+Alt+8)。0 なら**粗さを無視して原寸を引く**。
+/// ぼかしていない環境を鏡面に使うとどうなるか——を見るためのスイッチ。
+uniform int uIblPrefilter;
 
 // --- Day 35: 物理ベースレンダリング(Cook-Torrance)---
 
@@ -410,6 +436,20 @@ vec3 FresnelSchlick(float cosTheta, vec3 f0)
     return f0 + ((1.0 - f0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0));
 }
 
+/// **粗さを考えたフレネル**(Day 36)。環境光の鏡面の割合を出すのに使う。
+///
+/// 素の FresnelSchlick は浅い角度で必ず 1 に飛ぶ。直接光ならそれでよい(光線1本の話)が、
+/// 環境光に使うと**粗い材質の縁が真っ白に光る**——
+/// ざらざらの面では、浅く当たった光もあちこちへ散るので実際はそこまで返らない。
+///
+/// そこで上限を 1 - roughness で抑える。物理から導いた式ではなく、
+/// Lagarde が「破綻しない」ように置いた当てはめ(Pbr.FresnelSchlickRoughness と同じ)。
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness)
+{
+    vec3 ceiling = max(vec3(1.0 - roughness), f0);
+    return f0 + ((ceiling - f0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0));
+}
+
 /// **Cook-Torrance を1回評価する**。拡散と鏡面を**分けて返す**。
 ///
 /// 分けているのは、Shift+9 で片方ずつ見られるようにするため。
@@ -645,26 +685,84 @@ void main()
     vec3 directDiffuse = diffuse * uLightColor * nDotL * shadow;
     vec3 directSpecular = specular * uLightColor * nDotL * shadow;
 
-    // 環境光の拡散ぶん。**金属は拡散しない**ので (1 - metallic) で落とす。
-    // これが「平行光源だけだと金属が真っ黒になる」の直接の原因。
-    vec3 ambientDiffuse = uAmbientColor * base.rgb * occlusion * (1.0 - metallic);
-
-    // **Day 36 までのつなぎ**(Ctrl+Shift+7)。
-    // 本当は「まわりの景色を F0 の色で映す」ものを、
-    // 環境光の色 × F × (粗いほど弱く)で代用しているだけ。
-    // 物理的な裏付けは無いが、**金属が真っ黒でなくなる**ので
-    // 金属度の効きを見るときに要る。
+    // --- 環境光 ---
     //
-    // **ここのフレネルは V・H ではなく N・V で引く**。
+    // **ここが今日の差分の全部**。Day 35 までは「環境光は定数」だった。
+    // 定数の環境光には向きが無いので、金属は何も映せず真っ黒のままだった。
+    //
+    // **フレネルは V・H ではなく N・V で引く**。
     // 環境光には特定の L が無いので H が作れない、というのが理屈だが、
     // 実際上も大事で、直接光の F を流用すると
     // **光の当たる境目(N・L = 0)で F が飛んで、そこに線が出る**。
     vec3 f0 = mix(vec3(uDielectricF0), base.rgb, metallic);
-    vec3 ambientF = FresnelSchlick(max(dot(normal, viewDir), 0.0), f0);
+    float nDotV = max(dot(normal, viewDir), 0.0);
 
-    vec3 ambientSpecular = uAmbientSpecular == 1
-        ? uAmbientColor * ambientF * occlusion * (1.0 - roughness)
-        : vec3(0.0);
+    vec3 ambientDiffuse;
+    vec3 ambientSpecular;
+
+    if (uIblEnabled == 1)
+    {
+        // --- 今日の主役: IBL ---
+        //
+        // 鏡面が持って行った残りが拡散に回る、という分け前は Day 35 と同じ。
+        // 違うのは**環境光にも向きがある**こと。
+        vec3 kS = FresnelSchlickRoughness(nDotV, f0, roughness);
+        vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+
+        // **拡散**: 法線を渡すだけ。半球ぶんの積分は焼くときに済ませてある。
+        vec3 irradiance = texture(uIrradianceMap, normal).rgb * uIblIntensity;
+        ambientDiffuse = kD * irradiance * base.rgb * occlusion;
+
+        // **鏡面**: 分割和の2つを掛け合わせる。
+        //
+        //   1. 環境側 … 反射方向を、粗さに応じてぼかした段から引く
+        //   2. 材質側 … N・V と粗さで表を引き、F0 * A + B を作る
+        //
+        // reflect(-V, N) が「鏡だったらどこが映るか」。
+        // **-V なのは reflect が「入ってくる向き」を取る**ため——
+        // ここを V のまま渡すと映り込みが裏返り、
+        // 球の左右が入れ替わったような、微妙に気持ち悪い絵になる。
+        vec3 reflection = reflect(-viewDir, normal);
+
+        // 粗さ 0〜1 を段 0〜uPrefilterMaxLod へ。**焼いた側と同じ対応**でなければならない
+        // (EnvironmentMap.Bake のループ)。
+        float lod = uIblPrefilter == 1 ? (roughness * uPrefilterMaxLod) : 0.0;
+        vec3 prefiltered = textureLod(uPrefilterMap, reflection, lod).rgb * uIblIntensity;
+
+        vec2 ab = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
+
+        ambientSpecular = prefiltered * ((kS * ab.x) + ab.y) * occlusion;
+
+        // **中身を1枚ずつ見る窓**(Day 36)。
+        // IBL は「なんとなく良くなった」で済ませやすいので、
+        // 3枚がそれぞれ何を返しているかを直接見られるようにしておく。
+        if (uDebugChannel == 18) { FragColor = vec4(irradiance, 1.0); return; }
+        if (uDebugChannel == 19) { FragColor = vec4(prefiltered, 1.0); return; }
+        if (uDebugChannel == 20) { FragColor = vec4(ab, 0.0, 1.0); return; }
+    }
+    else
+    {
+        // --- Day 35 まで: 定数の環境光 ---
+        //
+        // 金属は拡散しないので (1 - metallic) で落とす。
+        // その結果ハイライト以外が真っ黒になるのが、Day 36 が要る理由そのものだった。
+        ambientDiffuse = uAmbientColor * base.rgb * occlusion * (1.0 - metallic);
+
+        // Day 35 で置いた粗いつなぎ(Ctrl+Shift+7)。
+        // 環境光の色 × F × (粗いほど弱く)で代用していただけで、物理的な裏付けは無い。
+        vec3 ambientF = FresnelSchlick(nDotV, f0);
+
+        ambientSpecular = uAmbientSpecular == 1
+            ? uAmbientColor * ambientF * occlusion * (1.0 - roughness)
+            : vec3(0.0);
+
+        if (uDebugChannel == 18 || uDebugChannel == 19 || uDebugChannel == 20)
+        {
+            // IBL が OFF のときは、見せるものが無いことが分かるように黒で塗る。
+            FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+    }
 
     if (uDebugChannel == 13) { FragColor = vec4(directDiffuse + ambientDiffuse, 1.0); return; }
     if (uDebugChannel == 14) { FragColor = vec4(directSpecular + ambientSpecular, 1.0); return; }
