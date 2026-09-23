@@ -85,6 +85,7 @@ bool hitSphere(vec3 origin, vec3 direction, vec3 center, float radius, float tMi
     if (t <= tMin) {
         t = -b + root;
     }
+
     return t > tMin && t < tMax;
 }
 
@@ -93,6 +94,7 @@ float floorDistance(vec3 origin, vec3 direction) {
     if (abs(direction.y) <= 1e-6) {
         return -1.0;
     }
+
     return (FloorHeight - origin.y) / direction.y;
 }
 

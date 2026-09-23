@@ -2752,6 +2752,7 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
+
         // --- 割り当て表から起こす(Day 48)---
         //
         // 昨日までここには **140 行のキー一覧**が手で並んでいた。
@@ -3431,7 +3432,6 @@ internal static class Program
         _updateMilliseconds = (_updateMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
     }
 
-
     /// <summary>指定したマイクロ秒だけ CPU を回して時間を潰す。</summary>
     private static void BurnCpu(int microseconds)
     {
@@ -4110,7 +4110,6 @@ internal static class Program
         _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
         _shadowMilliseconds = (_shadowMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
-
     }
 
     /// <summary>
@@ -4689,6 +4688,7 @@ internal static class Program
             + (_env.ClampSkyToLdr ? "  空を8bitに制限" : string.Empty)
             + $"  焼き:{_env.BakeMilliseconds:F0}ms  {_env.ByteSize / (1024.0 * 1024.0):F1}MB";
     }
+
     /// <summary>デモ v1 の状態を1行にまとめる(HUD 用。Day 39)。</summary>
     private static string DemoLabel()
     {
@@ -7946,6 +7946,7 @@ internal static class Program
                     sample => $"{sample.Name}({sample.Parameter:F1}m/s)"))
                 + "  (「アニメのブレンド」の F2 で再生)");
         }
+
         Console.WriteLine(
             $"  境界 ({_model.BoundsMin.X:F2}, {_model.BoundsMin.Y:F2}, {_model.BoundsMin.Z:F2})"
             + $"〜({_model.BoundsMax.X:F2}, {_model.BoundsMax.Y:F2}, {_model.BoundsMax.Z:F2})"
@@ -14786,7 +14787,6 @@ internal static class Program
         // 修飾キーの否定(<c>!shift &amp;&amp; !alt</c>)はもう1つも無い。
         switch (key)
         {
-
             // **ジャンプの Space を横取りする**(Day 45)。
             // Space は Day 19 から「一時停止」だが、
             // <see cref="InputMap"/> で <see cref="GameAction.Jump"/> にも割り当てた。
@@ -15308,7 +15308,6 @@ internal static class Program
             RunGltfCheck();
         });
 
-
         // --- Day 33。深度パスとバイアスの詰め ---
         DebugMenu.Page shadow = menu.Add("シャドウマップ", "Day 33。深度パスとバイアスの詰め");
 
@@ -15399,7 +15398,6 @@ internal static class Program
         {
             RunShadowCheck();
         });
-
 
         // --- Day 34。接空間と、面を押し込んで見せる工夫 ---
         DebugMenu.Page normal = menu.Add("法線マップと視差", "Day 34。接空間と、面を押し込んで見せる工夫");
@@ -15496,7 +15494,6 @@ internal static class Program
         {
             RunTangentCheck();
         });
-
 
         // --- Day 35。Cook-Torrance と材質グリッド ---
         DebugMenu.Page pbr = menu.Add("PBR", "Day 35。Cook-Torrance と材質グリッド");
@@ -15614,7 +15611,6 @@ internal static class Program
             RunPbrCheck();
         });
 
-
         // --- Day 36。まわりの景色を光として使う ---
         DebugMenu.Page ibl = menu.Add("IBL と環境マップ", "Day 36。まわりの景色を光として使う");
 
@@ -15731,7 +15727,6 @@ internal static class Program
         {
             RunIblCheck();
         });
-
 
         // --- Day 37。画面空間の遮蔽で接地感を出す ---
         DebugMenu.Page ssao = menu.Add("SSAO", "Day 37。画面空間の遮蔽で接地感を出す");
@@ -15888,7 +15883,6 @@ internal static class Program
         {
             RunAaCheck();
         });
-
 
         // --- Day 38。縁のぼかしとカラーグレーディング ---
         DebugMenu.Page aa = menu.Add("FXAA と色調整", "Day 38。縁のぼかしとカラーグレーディング");
@@ -16060,7 +16054,6 @@ internal static class Program
                 + "  「FXAA と色調整」の F11 で比較を切り、「FXAA と色調整」の F2 で FXAA を切って見比べる");
         });
 
-
         // --- Day 39。HDRI・太陽の抽出・決めの構図 ---
         DebugMenu.Page demo = menu.Add("デモ v1", "Day 39。HDRI・太陽の抽出・決めの構図");
 
@@ -16228,7 +16221,6 @@ internal static class Program
                 + "  「デモ v1」の F5 で太陽の出どころ、「デモ v1」の F6 で二重計上を見比べる");
         });
 
-
         // --- Day 40。ショットの補間と、機能の一括切り替え ---
         DebugMenu.Page camera = menu.Add("カメラワークと機能", "Day 40。ショットの補間と、機能の一括切り替え");
 
@@ -16362,7 +16354,6 @@ internal static class Program
             RunSceneCheck();
         });
 
-
         // --- Day 41。glTF のアニメーションと関節行列 ---
         DebugMenu.Page skin = menu.Add("スキニング", "Day 41。glTF のアニメーションと関節行列");
 
@@ -16475,7 +16466,6 @@ internal static class Program
         {
             RunSkinningCheck();
         });
-
 
         // --- Day 42。歩き↔走りを速度で混ぜる ---
         DebugMenu.Page blend = menu.Add("アニメのブレンド", "Day 42。歩き↔走りを速度で混ぜる");
@@ -16595,7 +16585,6 @@ internal static class Program
         {
             RunLocomotionCheck();
         });
-
 
         // --- Day 43。積分・反発・インパルス解決 ---
         DebugMenu.Page rigid = menu.Add("剛体力学", "Day 43。積分・反発・インパルス解決");
@@ -16759,7 +16748,6 @@ internal static class Program
             RunRigidBodyCheck();
         });
 
-
         // --- Day 44。分離軸定理と接触マニフォールド ---
         DebugMenu.Page box = menu.Add("箱の衝突", "Day 44。分離軸定理と接触マニフォールド");
 
@@ -16886,7 +16874,6 @@ internal static class Program
             RunBoxCollisionCheck();
         });
 
-
         // --- Day 45。坂・段差・接地判定 ---
         DebugMenu.Page character = menu.Add("カプセルとキャラクタ", "Day 45。坂・段差・接地判定");
 
@@ -16980,7 +16967,6 @@ internal static class Program
             RunCapsuleCheck();
         });
 
-
         // --- Day 46。Heightmap と均一グリッド ---
         DebugMenu.Page terrain = menu.Add("地形とブロードフェーズ", "Day 46。Heightmap と均一グリッド");
 
@@ -17063,7 +17049,6 @@ internal static class Program
         {
             RunTerrainCheck();
         });
-
 
         // --- Day 47。クーロン摩擦・Sequential Impulses・眠り ---
         DebugMenu.Page solver = menu.Add("摩擦とソルバ", "Day 47。クーロン摩擦・Sequential Impulses・眠り");
@@ -17156,6 +17141,7 @@ internal static class Program
         {
             RunSolverCheck();
         });
+
         // --- Day 49。ビルボード・加算合成・コマ送り ---
         //
         // **昨日の値打ちがここに出る**。Day 48 までなら、
@@ -22277,7 +22263,6 @@ internal static class Program
 
         return highest - baseline;
     }
-
 
     /// <summary>
     /// 今日の自己チェック(「摩擦とソルバ」の F8)。**画面を1枚も出さずに走る**。

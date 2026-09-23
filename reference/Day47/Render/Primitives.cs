@@ -341,6 +341,7 @@ internal static class Primitives
 
         return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
     }
+
     /// <summary>
     /// 高さの格子からメッシュを起こす(Day 46)。**当たり判定と同じ割り方で作る**。
     ///

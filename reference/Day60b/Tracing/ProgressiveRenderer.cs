@@ -81,7 +81,6 @@ internal sealed class ProgressiveRenderer : IDisposable
     /// </summary>
     public RenderStatus Status => Volatile.Read(ref _status);
 
-
     /// <summary>
     /// 描き直しを始める。走っている描画があれば、止まるのを待ってから始める。
     /// 場面・カメラ・設定はどれも不変なので、描画スレッドにそのまま渡してよい。

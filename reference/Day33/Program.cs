@@ -1615,7 +1615,6 @@ internal static class Program
         _updateMilliseconds = (_updateMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
     }
 
-
     /// <summary>指定したマイクロ秒だけ CPU を回して時間を潰す。</summary>
     private static void BurnCpu(int microseconds)
     {
@@ -1872,7 +1871,6 @@ internal static class Program
         _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
         _shadowMilliseconds = (_shadowMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
-
     }
 
     /// <summary>
