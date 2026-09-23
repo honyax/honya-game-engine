@@ -17,6 +17,8 @@ out vec4 FragColor;
 //   0 ベースカラー / 1 メタリック・ラフネス / 2 法線 / 3 AO / 4 発光
 //   5 シャドウマップ(Day 33。**マテリアルではなく ShadowMap.Apply が刺す**)
 //   6 高さ(Day 34)
+//   7〜9 IBL(Day 36。EnvironmentMap.Apply が刺す)
+//   10 スクリーンスペース環境遮蔽(Day 37。Ssao.Apply が刺す)
 uniform sampler2D uTexture;
 uniform sampler2D uMetallicRoughnessMap;
 uniform sampler2D uNormalMap;
@@ -64,7 +66,27 @@ uniform vec3 uAmbientColor;
 /// 9=接線 T / 10=従接線 B / 11=最終法線 N / 12=高さ(Day 34)
 /// 13=拡散のみ / 14=鏡面のみ / 15=フレネル F / 16=法線分布 D / 17=幾何減衰 G(Day 35)
 /// 18=放射照度 / 19=事前フィルタ(映り込み)/ 20=BRDF の表(Day 36)
+/// 21=スクリーンスペース環境遮蔽(Day 37)
 uniform int uDebugChannel;
+
+// --- Day 37: スクリーンスペース環境遮蔽(SSAO)---
+
+/// 画面に貼られた遮蔽率。**1成分(R)しか入っていない**。
+///
+/// マテリアルの AO(3番)との違いは<b>誰が作ったか</b>だけで、
+/// 意味はまったく同じ「環境光がどれだけ届かないか」。
+///   - マテリアルの AO … モデルを作った人が焼いた。**細かいが、その物の中だけ**
+///   - こちらの AO     … 実行時に画面から作る。**粗いが、物どうしの関係が入る**
+/// 立方体を床に置いたときの接地の暗がりは、後者にしか作れない。
+uniform sampler2D uAoMap;
+
+uniform int uSsaoEnabled;
+
+/// 直接光にも掛けるか(Ctrl+F11)。**通常は 0**。1 は間違いを見るための窓。
+uniform int uSsaoOnDirect;
+
+/// 画面(フレームバッファ)の大きさ。gl_FragCoord を UV に直すのに使う。
+uniform vec2 uScreenSize;
 
 // --- Day 36: イメージベースドライティング ---
 
@@ -168,6 +190,27 @@ uniform float uShadowSlopeBias;
 
 /// シャドウマップの1テクセルぶんの UV。PCF がずらす幅になる。
 uniform vec2 uShadowTexelSize;
+
+/// **画面に貼られた遮蔽率を引く**(Day 37)。
+///
+/// UV が要らない。要るのは「この画素が画面のどこか」だけで、
+/// それは <c>gl_FragCoord.xy</c> がそのまま持っている(画素の中心なので +0.5 済み)。
+///
+/// <b>スクリーンスペースの技法は全部この形になる</b>——
+/// 世界のどこにあるかではなく、画面のどこに写っているかで値を引く。
+/// だから同じモデルでも、カメラを動かせば違う値が返る。
+///
+/// AO バッファが半解像度でも、この式は変わらない。
+/// 0〜1 に直して引いているので、拡大はサンプラのバイリニアが面倒を見る。
+float ScreenSpaceOcclusion()
+{
+    if (uSsaoEnabled == 0)
+    {
+        return 1.0;
+    }
+
+    return texture(uAoMap, gl_FragCoord.xy / uScreenSize).r;
+}
 
 /// sRGB からリニアへ(Day 31)。
 vec3 SrgbToLinear(vec3 color)
@@ -561,6 +604,27 @@ void main()
 
     float occlusion = uHasOcclusionMap == 1 ? texture(uOcclusionMap, uv).r : 1.0;
 
+    // --- Day 37: 画面から作った遮蔽率を混ぜる ---
+    //
+    // **掛け算1回で終わる**のが今日の差分の要で、
+    // 環境光に occlusion を掛ける形は Day 32 からずっと同じだった。
+    // そこへ「モデルが持ってきた AO」と「画面から作った AO」を
+    // 掛け合わせたものを流し込むだけで済む。
+    //
+    // 2つを掛けるのは厳密には正しくない(同じ遮蔽を二重に数えうる)が、
+    // 実務ではこうする。**細かさの担当範囲が違う**ためで、
+    // 焼いた AO は物の中の溝、SSAO は物どうしの隙間を受け持っている。
+    float ssao = ScreenSpaceOcclusion();
+    float ambientOcclusion = occlusion * ssao;
+
+    // **AO を直接光に掛けるのは間違い**(Ctrl+F11 で実演)。
+    //
+    // AO は「まわりから回り込んでくる光がどれだけ遮られるか」なので、
+    // 太陽から一直線に来る光とは関係が無い。遮っているものがあるなら、
+    // それは影(Day 33)が担当する仕事。
+    // 掛けてしまうと、日向の壁際まで black になり、**絵全体が薄汚れる**。
+    float directOcclusion = uSsaoOnDirect == 1 ? ssao : 1.0;
+
     vec3 emissive = uEmissiveFactor;
     if (uHasEmissiveMap == 1)
     {
@@ -580,6 +644,10 @@ void main()
     if (uDebugChannel == 4) { FragColor = vec4(vec3(roughness), 1.0); return; }
     if (uDebugChannel == 5) { FragColor = vec4(vec3(occlusion), 1.0); return; }
     if (uDebugChannel == 6) { FragColor = vec4(emissive, 1.0); return; }
+
+    // **画面から作った遮蔽率だけ**(Day 37)。成分 5(焼いた AO)と見比べる窓。
+    // 全画面で見たいときは Ctrl+F2 のほうが速い(こちらは物体の上にしか出ない)。
+    if (uDebugChannel == 21) { FragColor = vec4(vec3(ssao), 1.0); return; }
 
     // **法線マップの生の中身**。接空間の法線が RGB に詰まっているので、
     // 平らなところは (0.5, 0.5, 1.0) = 薄い青紫になる。
@@ -646,7 +714,9 @@ void main()
         //
         // **影は直接光にだけ掛ける**(Day 33)。理由は AO とちょうど裏返しで、
         // 影とは「太陽が遮られている」ことだから。
-        vec3 lighting = (uLightColor * lambert * shadow) + (uAmbientColor * occlusion);
+        vec3 lighting =
+            (uLightColor * lambert * shadow * directOcclusion)
+            + (uAmbientColor * ambientOcclusion);
         FragColor = vec4((base.rgb * lighting) + emissive, base.a);
         return;
     }
@@ -682,8 +752,8 @@ void main()
     if (uDebugChannel == 16) { FragColor = vec4(vec3(ndfD / 20.0), 1.0); return; }
     if (uDebugChannel == 17) { FragColor = vec4(vec3(geomG), 1.0); return; }
 
-    vec3 directDiffuse = diffuse * uLightColor * nDotL * shadow;
-    vec3 directSpecular = specular * uLightColor * nDotL * shadow;
+    vec3 directDiffuse = diffuse * uLightColor * nDotL * shadow * directOcclusion;
+    vec3 directSpecular = specular * uLightColor * nDotL * shadow * directOcclusion;
 
     // --- 環境光 ---
     //
@@ -711,7 +781,7 @@ void main()
 
         // **拡散**: 法線を渡すだけ。半球ぶんの積分は焼くときに済ませてある。
         vec3 irradiance = texture(uIrradianceMap, normal).rgb * uIblIntensity;
-        ambientDiffuse = kD * irradiance * base.rgb * occlusion;
+        ambientDiffuse = kD * irradiance * base.rgb * ambientOcclusion;
 
         // **鏡面**: 分割和の2つを掛け合わせる。
         //
@@ -731,7 +801,12 @@ void main()
 
         vec2 ab = texture(uBrdfLut, vec2(nDotV, roughness)).rg;
 
-        ambientSpecular = prefiltered * ((kS * ab.x) + ab.y) * occlusion;
+        // **鏡面にも掛けている**。厳密には拡散と同じ遮蔽率でよいはずがなく、
+        // 鏡面が見ているのは半球全体ではなく反射方向のまわりの狭い範囲なので、
+        // 粗さに応じて効き目を弱めるのが正しい(鏡面遮蔽)。
+        // ここで同じ値を使っているのは、**掛けないと金属だけ接地が浮く**から——
+        // 近似としては掛けるほうが絵が合う、という実務寄りの判断。
+        ambientSpecular = prefiltered * ((kS * ab.x) + ab.y) * ambientOcclusion;
 
         // **中身を1枚ずつ見る窓**(Day 36)。
         // IBL は「なんとなく良くなった」で済ませやすいので、
@@ -746,14 +821,14 @@ void main()
         //
         // 金属は拡散しないので (1 - metallic) で落とす。
         // その結果ハイライト以外が真っ黒になるのが、Day 36 が要る理由そのものだった。
-        ambientDiffuse = uAmbientColor * base.rgb * occlusion * (1.0 - metallic);
+        ambientDiffuse = uAmbientColor * base.rgb * ambientOcclusion * (1.0 - metallic);
 
         // Day 35 で置いた粗いつなぎ(Ctrl+Shift+7)。
         // 環境光の色 × F × (粗いほど弱く)で代用していただけで、物理的な裏付けは無い。
         vec3 ambientF = FresnelSchlick(nDotV, f0);
 
         ambientSpecular = uAmbientSpecular == 1
-            ? uAmbientColor * ambientF * occlusion * (1.0 - roughness)
+            ? uAmbientColor * ambientF * ambientOcclusion * (1.0 - roughness)
             : vec3(0.0);
 
         if (uDebugChannel == 18 || uDebugChannel == 19 || uDebugChannel == 20)

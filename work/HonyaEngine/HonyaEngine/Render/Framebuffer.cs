@@ -111,8 +111,22 @@ internal sealed class Framebuffer : IDisposable
     /// <summary>テクスチャが占める VRAM の推定バイト数。HUD に出して代償を見えるようにする。</summary>
     public long ByteSize => _depthOnly
         ? (long)Width * Height * 3
-        : ((long)Width * Height * (Format == RenderTargetFormat.Rgba16F ? 8 : 4))
+        : ((long)Width * Height * BytesPerPixel(Format))
             + (_hasDepth ? (long)Width * Height * 3 : 0);
+
+    /// <summary>
+    /// 1画素あたりのバイト数。**形式が3つになったので表に分けた**(Day 37)。
+    ///
+    /// 三項演算子で「16F なら 8、それ以外は 4」と書いていたときに R8 を足すと、
+    /// 1成分のバッファが 4 バイトとして数えられ、**HUD の VRAM が 4 倍に見える**。
+    /// 数字を出すこと自体が目的の値なので、増えたぶんは必ずここに足す。
+    /// </summary>
+    private static int BytesPerPixel(RenderTargetFormat format) => format switch
+    {
+        RenderTargetFormat.Rgba16F => 8,
+        RenderTargetFormat.R8 => 1,
+        _ => 4,
+    };
 
     /// <summary>
     /// ここへ描くように切り替える。

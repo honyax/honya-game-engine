@@ -49,6 +49,21 @@ internal enum RenderTargetFormat
     /// 実際のエンジンでも中間バッファは 16bit(あるいは R11G11B10F)が定番。
     /// </summary>
     Rgba16F,
+
+    /// <summary>
+    /// **1成分 8bit**(Day 37)。0.0〜1.0 が 256 段。
+    ///
+    /// スクリーンスペース環境遮蔽が書き出すのは「どれだけ遮られているか」の
+    /// **数字ひとつ**で、色ではない。RGBA で持つと同じ値を4回書くために
+    /// 4 倍の帯域とメモリを使うことになる——1920x1080 なら 8.3MB が 2.1MB。
+    ///
+    /// <b>後処理のバッファを何でも RGBA16F にしない</b>、というのがここの教訓。
+    /// 中間バッファは「何が入るか」で選ぶもので、
+    /// 1.0 を超えない1成分に 16bit x 4 は明らかに過剰。
+    /// <see cref="Texture.CreateR8"/>(グリフ)と同じ判断を、
+    /// 今度は**描き込み先**に対して行っている。
+    /// </summary>
+    R8,
 }
 
 /// <summary>UV が 0〜1 の外に出たときの扱い。</summary>
@@ -439,10 +454,16 @@ internal sealed class Texture : IDisposable
         // **内部形式と「渡すデータの型」は別物**。
         // データは null(何も渡さない)なので PixelType は実質使われないが、
         // GL の API は形式の組み合わせを検査するので、辻褄の合う値を渡す必要がある。
-        (InternalFormat internalFormat, PixelType pixelType) = format switch
+        //
+        // Day 37 で **R8**(1成分)が増えた。転送形式まで Red にそろえておくのは、
+        // 内部形式が1成分なのに PixelFormat.Rgba を渡す組み合わせが
+        // 「合法だが紛らわしい」ため。**中身の成分数と渡し方をそろえておく**と、
+        // あとで中身を流し込む(glTexSubImage2D)ときにそのまま使える。
+        (InternalFormat internalFormat, PixelFormat pixelFormat, PixelType pixelType) = format switch
         {
-            RenderTargetFormat.Rgba16F => (InternalFormat.Rgba16f, PixelType.HalfFloat),
-            _ => (InternalFormat.Rgba8, PixelType.UnsignedByte),
+            RenderTargetFormat.Rgba16F => (InternalFormat.Rgba16f, PixelFormat.Rgba, PixelType.HalfFloat),
+            RenderTargetFormat.R8 => (InternalFormat.R8, PixelFormat.Red, PixelType.UnsignedByte),
+            _ => (InternalFormat.Rgba8, PixelFormat.Rgba, PixelType.UnsignedByte),
         };
 
         // ここでは **sRGB にしない**。
@@ -456,7 +477,7 @@ internal sealed class Texture : IDisposable
             (uint)width,
             (uint)height,
             0,
-            PixelFormat.Rgba,
+            pixelFormat,
             pixelType,
             null);
 
