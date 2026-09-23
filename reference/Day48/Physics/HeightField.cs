@@ -211,7 +211,7 @@ internal readonly struct Terrain3D
     /// <b>理屈のうえではブロードフェーズの格子に入れられる</b>。
     /// ただし1枚で世界じゅうを覆うので、入れると全部のマスに登録されて
     /// 格子の意味が無くなる——<see cref="SpatialGrid3D"/> が
-    /// 「大きすぎるものは別扱い」で弾くのはそのため(要点6)。
+    /// 「大きすぎるものは別扱い」で弾くのはそのため(要点2)。
     ///
     /// <para>
     /// <b>下だけ <see cref="RecoveryDepth"/> ぶん広い</b>のがこの箱の非対称なところ。
@@ -385,7 +385,7 @@ internal readonly struct Terrain3D
     /// 物が勝手に滑り出す。
     ///
     /// <para>
-    /// <see cref="CharacterController"/> の坂の上限(Day 45 の要点7)は
+    /// <see cref="CharacterController"/> の坂の上限(Day 45b の要点2)は
     /// この法線の Y 成分だけを見る。
     /// つまり<b>「登れる坂か」は三角形1枚ごとに決まる</b>ことになる。
     /// </para>

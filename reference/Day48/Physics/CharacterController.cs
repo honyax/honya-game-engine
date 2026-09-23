@@ -3,7 +3,7 @@ using System.Numerics;
 namespace HonyaEngine;
 
 /// <summary>
-/// キネマティックなキャラクターコントローラ。**今日の主役**(要点6〜9)。
+/// キネマティックなキャラクターコントローラ。**今日の主役**(要点1〜4)。
 ///
 /// 「キネマティック」は<b>力で動かさない</b>という意味。
 /// <see cref="RigidBody"/> は力とインパルスを受けて速度が変わり、
@@ -65,7 +65,7 @@ internal sealed class CharacterController
     private const float GroundProbe = 0.06f;
 
     /// <summary>
-    /// 段差を降ろすときに何回に分けるか。**1回で落とすと縁にめり込みすぎる**(要点8)。
+    /// 段差を降ろすときに何回に分けるか。**1回で落とすと縁にめり込みすぎる**(要点3)。
     ///
     /// 掃引(スイープ)が無いので、段差ぶんを一度に落とすと
     /// 段の角に深くめり込んだ姿勢で押し戻すことになり、
@@ -161,7 +161,7 @@ internal sealed class CharacterController
     public float Gravity { get; set; } = 22.0f;
 
     /// <summary>
-    /// 登れる坂の上限 [度](要点7)。**これを超えた面は「壁」になる**。
+    /// 登れる坂の上限 [度](要点2)。**これを超えた面は「壁」になる**。
     ///
     /// 45〜55 度あたりが普通。この数字は<b>見た目の傾き</b>ではなく
     /// 面の法線と真上のなす角で測るので、
@@ -170,7 +170,7 @@ internal sealed class CharacterController
     public float SlopeLimitDegrees { get; set; } = 50.0f;
 
     /// <summary>
-    /// 乗り越えられる段差の高さ [m](要点8)。
+    /// 乗り越えられる段差の高さ [m](要点3)。
     ///
     /// 0.35m は「階段の1段 + 少し」くらい。
     /// <b>大きくしすぎると壁をよじ登る</b>ようになり、
@@ -180,10 +180,10 @@ internal sealed class CharacterController
 
     // ===== 実験用のつまみ =====
 
-    /// <summary>坂の上限を効かせるか。**切ると垂直の壁も登れる**(要点7)。</summary>
+    /// <summary>坂の上限を効かせるか。**切ると垂直の壁も登れる**(要点2)。</summary>
     public bool UseSlopeLimit { get; set; } = true;
 
-    /// <summary>段差の乗り越えを効かせるか。**切ると 15cm の段で止まる**(要点8)。</summary>
+    /// <summary>段差の乗り越えを効かせるか。**切ると 15cm の段で止まる**(要点3)。</summary>
     public bool UseStepOffset { get; set; } = true;
 
     // ===== 状態(読むだけ)=====
@@ -191,7 +191,7 @@ internal sealed class CharacterController
     /// <summary>速度 [m/s]。**押し戻しのたびに書き換わる**ので、外から入れても消える。</summary>
     public Vector3 Velocity;
 
-    /// <summary>接地しているか(要点9)。</summary>
+    /// <summary>接地しているか(要点4)。</summary>
     public bool IsGrounded { get; private set; }
 
     /// <summary>立っている面の法線。空中では真上。</summary>
@@ -250,7 +250,7 @@ internal sealed class CharacterController
     }
 
     /// <summary>
-    /// 1ステップ動かす。**固定 dt で呼ぶこと**(要点6)。
+    /// 1ステップ動かす。**固定 dt で呼ぶこと**(要点1)。
     ///
     /// 順番はこう。
     /// <list type="number">
@@ -262,7 +262,7 @@ internal sealed class CharacterController
     /// </list>
     ///
     /// <para>
-    /// <b>3 と 4 を分けるのが肝</b>(要点8)。一度に動かすと、
+    /// <b>3 と 4 を分けるのが肝</b>(要点3)。一度に動かすと、
     /// 段差に当たったときに「壁にぶつかったのか、床に着いたのか」が区別できない。
     /// 分けておけば、水平の移動が止められたときだけ段差を試せばよくなる。
     /// Quake の <c>PM_StepSlideMove</c> から続く定石で、
@@ -354,7 +354,7 @@ internal sealed class CharacterController
     }
 
     /// <summary>
-    /// 水平に動かす。**進めなかったら段差を試す**(要点8)。
+    /// 水平に動かす。**進めなかったら段差を試す**(要点3)。
     ///
     /// 手順は「まず素直に動かしてみて、進めなかったら、
     /// <b>行く先を覗いて、段だったらその高さまで持ち上げてから、もう一度進む</b>」。
@@ -451,7 +451,7 @@ internal sealed class CharacterController
     }
 
     /// <summary>
-    /// 行く先に「登れる段」があるかを覗く(要点8)。**位置は動かさない**。
+    /// 行く先に「登れる段」があるかを覗く(要点3)。**位置は動かさない**。
     ///
     /// <list type="number">
     /// <item><b>半径ぶん前、段差ぶん上</b>にカプセルを置いてみる。埋まっていたら段ではない</item>
@@ -538,7 +538,7 @@ internal sealed class CharacterController
     }
 
     /// <summary>
-    /// 動かして、めり込んだぶんを押し戻す。**今日の心臓部**(要点6)。
+    /// 動かして、めり込んだぶんを押し戻す。**今日の心臓部**(要点1)。
     ///
     /// <list type="number">
     /// <item>まず<b>行きたい場所へ動かしてしまう</b>(めり込んでよい)</item>
@@ -598,7 +598,7 @@ internal sealed class CharacterController
 
                 ResolvedContacts++;
 
-                // --- 歩ける床: **真上へ押し出す**(要点7)---
+                // --- 歩ける床: **真上へ押し出す**(要点2)---
                 //
                 // 法線の向きへ押し戻すのが素直だが、**坂ではそれが横滑りになる**。
                 // 30 度の坂に立っているだけで、重力ぶんの押し戻しが
@@ -620,7 +620,7 @@ internal sealed class CharacterController
                     continue;
                 }
 
-                // --- 坂の上限(要点7)---
+                // --- 坂の上限(要点2)---
                 //
                 // 登れない急な面は「壁」として扱う。押し戻す向きから
                 // **上向きの成分を抜く**と、その面に沿って登れなくなる。
@@ -661,7 +661,7 @@ internal sealed class CharacterController
     }
 
     /// <summary>
-    /// 接地しているかを調べ直し、床へ吸い付ける。**今日いちばん細かい 30 行**(要点9)。
+    /// 接地しているかを調べ直し、床へ吸い付ける。**今日いちばん細かい 30 行**(要点4)。
     ///
     /// 押し戻しの結果だけで判定すると、<b>接地が毎フレーム途切れる</b>。
     /// <see cref="SkinWidth"/> ぶん浮かせているので、

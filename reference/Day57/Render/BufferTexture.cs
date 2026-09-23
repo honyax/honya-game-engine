@@ -141,7 +141,7 @@ internal sealed class BufferTexture : IDisposable
 
     /// <summary>
     /// **GPU から読み返す**(自己チェック用)。<see cref="Mesh{TVertex}.ReadIndices"/> と同じく、
-    /// どの VAO にも属さない <c>CopyReadBuffer</c> に結び付けて読む(Day 52 の検証の途中で分かったこと 1)。
+    /// どの VAO にも属さない <c>CopyReadBuffer</c> に結び付けて読む(Day 52b の検証の途中で分かったこと 1)。
     /// </summary>
     public unsafe T[] Read<T>(int count)
         where T : unmanaged

@@ -1158,7 +1158,7 @@ internal static class Program
         /// <summary>
         /// カプセルを落とす(Day 45)。**寝ると2点で支えられる**のを見る筋書き。
         ///
-        /// 立てて落としたカプセルは1点で着地して倒れ、
+        /// 傾けて落としたカプセルは1点で着地して倒れ、
         /// 倒れ切ると端2つで支えられて止まる。
         /// 箱の日(Day 44)に「接触点の数 = 支え方の数」と書いたのが、
         /// <b>同じ物体が転がる間に 1 → 2 と変わる</b>形で見える。
@@ -1191,10 +1191,10 @@ internal static class Program
     /// <summary>キャラクターデモの筋書き(Day 45)。**確かめたいことが1つずつ**ある。</summary>
     private enum CharacterScene
     {
-        /// <summary>傾きを振った坂。**坂の上限(「カプセルとキャラクタ」の F4)が効く**(要点7)。</summary>
+        /// <summary>傾きを振った坂。**坂の上限(「カプセルとキャラクタ」の F4)が効く**(要点2)。</summary>
         Slopes,
 
-        /// <summary>高さを振った階段。**段差の乗り越え(「カプセルとキャラクタ」の F5)が効く**(要点8)。</summary>
+        /// <summary>高さを振った階段。**段差の乗り越え(「カプセルとキャラクタ」の F5)が効く**(要点3)。</summary>
         Steps,
 
         /// <summary>箱と球とカプセルが転がっている中を歩く。**キネマティックと動的の同居**。</summary>
@@ -1278,7 +1278,7 @@ internal static class Program
     private static bool _kickOffCenter = true;
 
     // ================================================================
-    //  Day 44: 箱(OBB)の衝突(分離軸定理と接触マニフォールド)
+    //  Day 44: 箱(OBB)の衝突(44a: 接触マニフォールド / 44b: 分離軸定理)
     // ================================================================
 
     /// <summary>
@@ -1466,7 +1466,7 @@ internal static class Program
     private static bool _characterDemo;
 
     /// <summary>
-    /// 動かすキャラクター。**物理の世界には入っていない**(要点6)。
+    /// 動かすキャラクター。**物理の世界には入っていない**(要点1)。
     ///
     /// <see cref="Physics"/> の <c>Bodies</c> に並んでいないので、
     /// 箱や球はキャラクターに当たらない——当たるのはキャラクターの側だけ。
@@ -3344,7 +3344,7 @@ internal static class Program
         // 線引きは Day 19 のまま——**状態を持つものはこちら**。
         UpdatePhysics(dt);
 
-        // **キャラクターは物理のあと**(Day 45 の要点6)。
+        // **キャラクターは物理のあと**(Day 45b の要点1)。
         // 箱や球が動き終わった世界に対して当たりを取るので、
         // 転がってきた物にめり込んだまま次のステップへ進むことがない。
         UpdateCharacter(dt, input);
@@ -5385,7 +5385,7 @@ internal static class Program
     ///
     /// <para>
     /// <b>「箱の衝突」の F5 で上限を 1 にすると、どれも落ち着かなくなる</b>——
-    /// これが今日いちばん見てほしいところ(要点4)。
+    /// これが今日いちばん見てほしいところ(要点3)。
     /// </para>
     /// </summary>
     private static void BuildBoxDropScene()
@@ -5491,14 +5491,14 @@ internal static class Program
     }
 
     /// <summary>
-    /// 細長い箱を回しながら落とす。**辺×辺の軸が出る場面**(要点2)。
+    /// 細長い箱を回しながら落とす。**辺×辺の軸が出る場面**(要点1)。
     ///
     /// 角と角がすれ違うように当たると、
     /// 面の法線 6 本では分離を見つけられず、辺の外積 9 本のどれかが最小になる。
     /// HUD の「辺」が 0 でなくなるのはたいていこの筋書き。
     ///
     /// <para>
-    /// 細長い箱は<b>慣性テンソルが軸ごとに大きく違う</b>(要点1)。
+    /// 細長い箱は<b>慣性テンソルが軸ごとに大きく違う</b>(Day 44a の要点1)。
     /// 長い方向を軸にして回すのは楽で、横に振るのは大変——
     /// 同じ角速度を与えても、当たったあとに残る回り方が軸によって違うのが見える。
     /// </para>
@@ -5540,8 +5540,10 @@ internal static class Program
     /// <summary>
     /// カプセルを落とす(「箱の衝突」の F3 で選ぶ)。**寝ると2点で支えられる**(要点4)。
     ///
-    /// 傾きを振った5本を落とす。まっすぐ立てた1本目は<b>1点で着地して倒れ</b>、
+    /// 傾きを振った5本を落とす。傾いた4本は<b>1点で着地して倒れ</b>、
     /// 倒れ切ると<b>端2つで支えられて止まる</b>。
+    /// まっすぐ立てた1本目だけは倒れるきっかけが無く、1点で立ったまま残る
+    /// (理屈のうえでは倒れない。自己チェックが傾けて落としているのはそのため)。
     /// 接触点の表示(「箱の衝突」の F4)を出しておくと、
     /// 光る玉が1つから2つに増える瞬間が見える。
     ///
@@ -5735,7 +5737,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 坂を4枚(要点7)。**傾き 15 / 30 / 45 / 60 度**。
+    /// 坂を4枚(要点2)。**傾き 15 / 30 / 45 / 60 度**。
     ///
     /// 既定の上限は 50 度なので、<b>45 度までは登れて 60 度は登れない</b>。
     /// `「カプセルとキャラクタ」の F4` で上限を切ると 60 度も登れるようになり、
@@ -5798,7 +5800,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 階段を3本(要点8)。**段差 15 / 30 / 45cm**。
+    /// 階段を3本(要点3)。**段差 15 / 30 / 45cm**。
     ///
     /// 既定の乗り越え(<see cref="CharacterController.StepOffset"/>)は 35cm なので、
     /// <b>15cm と 30cm は登れて、45cm は登れない</b>。
@@ -5854,7 +5856,7 @@ internal static class Program
     /// 動く箱・球・カプセルが転がっている中を歩く。
     /// <b>キャラクターは押されるが押さない</b>——
     /// 転がってきた箱に当たると押し戻されて止まるのに、
-    /// 箱を押しても箱は動かない(要点6)。
+    /// 箱を押しても箱は動かない(要点1)。
     /// この非対称がキネマティックの代償で、
     /// 直すには当たった相手にインパルスを掛けてやることになる(改造課題3)。
     /// </summary>
@@ -5904,7 +5906,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// キャラクターを1ステップ動かす。**<see cref="FixedUpdate"/> からだけ呼ぶ**(要点6)。
+    /// キャラクターを1ステップ動かす。**<see cref="FixedUpdate"/> からだけ呼ぶ**(要点1)。
     ///
     /// <b>入力はカメラ基準に直してから渡す</b>。
     /// 「上キー = 画面の奥へ」が三人称の約束で、
@@ -5984,7 +5986,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// キャラクターを描く。**カプセルは球2つ + 円柱1本**(要点10)。
+    /// キャラクターを描く。**カプセルは球2つ + 円柱1本**(Day 45a の要点6)。
     ///
     /// 判定が「線分に球を滑らせる」だったのと、絵の分け方が一致している。
     /// <b>描いているのは当たり判定の形そのもの</b>なので、
@@ -6032,7 +6034,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// カプセル1本を描く。**下の球・胴の円柱・上の球**の3回(要点10)。
+    /// カプセル1本を描く。**下の球・胴の円柱・上の球**の3回(要点6)。
     ///
     /// 円柱は XZ に半径・Y に線分の長さで拡大する。
     /// <b>非一様な拡大でも円柱なら正しい形になる</b>のがこの分け方の値打ちで、
@@ -6405,7 +6407,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// ブロードフェーズのマスを線で描く(「地形とブロードフェーズ」の F4)。**中身のあるマスだけ**(要点7)。
+    /// ブロードフェーズのマスを線で描く(「地形とブロードフェーズ」の F4)。**中身のあるマスだけ**(要点3)。
     ///
     /// 空のマスまで描くと画面が線で埋まって何も読めない。
     /// 中身のあるマスだけ描けば、<b>体がどう散らばっているか</b>と
@@ -16749,7 +16751,7 @@ internal static class Program
 
         box.Add("接触点の解き方", "同時に決めるか、順番に決めるか", () =>
         {
-            // **今日いちばん深い比較**(要点7)。Day 43 の <c>「剛体力学」の F3</c>
+            // **今日いちばん深い比較**(要点5)。Day 43 の <c>「剛体力学」の F3</c>
             // (積分法の切り替え)と同じ性格のつまみで、
             // 「正しい解き方」と「素朴な解き方」を並べて見るためだけにある。
             Physics.SolveContactsTogether = !Physics.SolveContactsTogether;
@@ -16830,7 +16832,7 @@ internal static class Program
 
         character.Add("坂の上限", "切ると垂直に近い壁もよじ登る", () =>
         {
-            // **今日いちばん分かりやすい実験**(要点7)。
+            // **今日いちばん分かりやすい実験**(要点2)。
             Character.UseSlopeLimit = !Character.UseSlopeLimit;
 
             Console.WriteLine(
@@ -16843,7 +16845,7 @@ internal static class Program
 
         character.Add("段差の乗り越え", "切ると 15cm の段でも止まる", () =>
         {
-            // **段差の実験**(要点8)。階段の筋書きで見ると一目で分かる。
+            // **段差の実験**(要点3)。階段の筋書きで見ると一目で分かる。
             Character.UseStepOffset = !Character.UseStepOffset;
 
             Console.WriteLine(
@@ -16899,7 +16901,7 @@ internal static class Program
 
         terrain.Add("ブロードフェーズ", "均一グリッドと総当たり。**絵は変わらない**", () =>
         {
-            // **今日いちばん分かりやすい実験**(要点5)。
+            // **今日いちばん分かりやすい実験**(要点1)。
             // 絵は1ピクセルも変わらず、HUD の「候補」と ms だけが動く。
             Physics.Broadphase = Physics.Broadphase == BroadphaseMode.UniformGrid
                 ? BroadphaseMode.BruteForce
@@ -19762,7 +19764,7 @@ internal static class Program
             (tilted.ToLocal(tilted.ToWorld(sample)) - sample).Length() < 1e-5f);
 
         // ============================================================
-        //  3. 分離軸定理(要点2)
+        //  3. 分離軸定理(要点1)
         // ============================================================
 
         var unit = new Box3D(Vector3.Zero, new Vector3(0.5f), Quaternion.Identity);
@@ -19892,7 +19894,7 @@ internal static class Program
             $"取りこぼし {missed} 件");
 
         // ============================================================
-        //  4. 接触マニフォールド(要点4・要点5)
+        //  4. 接触マニフォールド(Day 44a の要点3・今日の要点2)
         // ============================================================
 
         var floor = Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY);
@@ -20023,7 +20025,7 @@ internal static class Program
             !Collision3D.SphereBox(new Sphere3D(new Vector3(0.0f, 3.0f, 0.0f), 0.4f), target).Hit);
 
         // ============================================================
-        //  6. Collider にしたことで消えた分岐(要点3)
+        //  6. Collider にしたことで消えた分岐(Day 44a の要点2)
         // ============================================================
 
         var world = new PhysicsWorld();
@@ -20059,9 +20061,14 @@ internal static class Program
 
         // 落とした箱が、最後の1秒でどれだけ揺れているかを測る。
         // **最後の値だけを見ると揺れを見逃す**ので、その間の最大値を採る。
-        static (float Height, float Tilt, float Spin) DropBox(int maxContacts, int steps)
+        static (float Height, float Tilt, float Spin) DropBox(
+            int maxContacts, int steps, bool together = true)
         {
-            var w = new PhysicsWorld { MaxContactsPerPair = maxContacts };
+            var w = new PhysicsWorld
+            {
+                MaxContactsPerPair = maxContacts,
+                SolveContactsTogether = together,
+            };
             w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
 
             RigidBody body = RigidBody.CreateBox(1.0f, 0.5f);
@@ -20113,6 +20120,16 @@ internal static class Program
             "1点だと傾き続ける(4点なら傾かない。Day 46 の 0.94 度から半減)",
             tilt1 > tilt4 + 0.002f,
             $"1点 {tilt1 * 180.0f / MathF.PI:F3} 度 / 4点 {tilt4 * 180.0f / MathF.PI:F3} 度");
+
+        (_, _, float spinLoose) = DropBox(4, 300, together: false);
+
+        // **ここも Day 47 で主張が変わった**。Day 46 までは、4点を順番に解くと
+        // 床の箱1つでも揺れが止まらなかった(0.118 rad/s)。蓄積インパルスが入り、
+        // 先に押しすぎた点の分を後の周で取り戻せるようになったので、<b>順番でも落ち着く</b>。
+        checks.Check(
+            "4点を順番に解いても床の箱は落ち着く(Day 46 までは揺れ続けた。蓄積インパルスが効いている)",
+            spinLoose < 0.002f,
+            $"順番 {spinLoose:F5} rad/s / 同時 {spin4:F5} rad/s");
 
         static (float Penetration, float Top, float Drift) BoxStack(
             int count, int steps, bool together)
@@ -20587,7 +20604,7 @@ internal static class Program
             $"{rolled.AngularVelocity.Length():F5} rad/s(摩擦もスリープも無いので 0 にはならない)");
 
         // ============================================================
-        //  5. キャラクター: 落ちて、立つ(要点9)
+        //  5. キャラクター: 落ちて、立つ(要点4)
         // ============================================================
 
         static PhysicsWorld GroundWorld()
@@ -20672,7 +20689,7 @@ internal static class Program
             $"高さ {jumper.Position.Y * 1000.0f:F1}mm");
 
         // ============================================================
-        //  6. キャラクター: 坂(要点7)
+        //  6. キャラクター: 坂(要点2)
         // ============================================================
 
         // 傾けた大きな箱を1枚だけ置いた世界を作り、そこを登らせる。
@@ -20761,7 +20778,7 @@ internal static class Program
             $"{stander.GroundSlopeDegrees:F2} 度");
 
         // ============================================================
-        //  7. キャラクター: 段差(要点8)
+        //  7. キャラクター: 段差(要点3)
         // ============================================================
 
         static float StepDistance(float height, bool useStepOffset)
@@ -20858,7 +20875,7 @@ internal static class Program
             $"切った {unsnapped} / 入れた {snapped} ステップ");
 
         // ============================================================
-        //  8. キャラクター: 滑りと押し戻し(要点6)
+        //  8. キャラクター: 滑りと押し戻し(要点1)
         // ============================================================
 
         var wallWorld = new PhysicsWorld();
@@ -20960,7 +20977,6 @@ internal static class Program
         Console.WriteLine();
     }
 
-    /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>
     /// <summary>
     /// Day 46 の自己チェック(「地形とブロードフェーズ」の F8)。**窓を1枚も出さずに走る**。
     ///
@@ -20982,7 +20998,7 @@ internal static class Program
         var checks = new CheckList();
 
         // ============================================================
-        //  1. AABB(要点5)
+        //  1. AABB(要点1)
         // ============================================================
 
         var unit = new Aabb3D(new Vector3(-1.0f), new Vector3(1.0f));
@@ -21400,7 +21416,7 @@ internal static class Program
             $"{MathF.Acos(Math.Clamp(spawnNormal.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI:F3}度");
 
         // ============================================================
-        //  5. ブロードフェーズ(要点5〜7)
+        //  5. ブロードフェーズ(要点1〜3)
         // ============================================================
 
         var grid = new SpatialGrid3D();
@@ -21523,7 +21539,7 @@ internal static class Program
             new PhysicsWorld().QueryCapsule(standing, hits) == 0);
 
         // ============================================================
-        //  6. 通しで動かす(要点8)
+        //  6. 通しで動かす(Day 46a の要点5)
         // ============================================================
 
         var settled = BuildBroadphaseWorld(BroadphaseMode.UniformGrid, 2.0f);
@@ -21789,7 +21805,7 @@ internal static class Program
     /// 丘へ向かって 4 秒歩かせて、**どれだけ登れたか**を返す。
     ///
     /// 坂の上限が効いていれば急な丘では登れず、
-    /// 効いていなければ壁でもよじ登る(Day 45 の要点7)。
+    /// 効いていなければ壁でもよじ登る(Day 45b の要点2)。
     /// <b>数字で確かめないと、絵では「登れていない」のか
     /// 「引っかかっている」のかが区別できない</b>。
     /// </summary>
@@ -22457,6 +22473,7 @@ internal static class Program
         return puck.Position.X - startX;
     }
 
+    /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>
     private static Vector3 RandomPoint(Random random) =>
         new(
             (float)((random.NextDouble() * 2.0) - 1.0),
