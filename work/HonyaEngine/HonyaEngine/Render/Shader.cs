@@ -122,6 +122,47 @@ internal sealed class Shader : IDisposable
         }
     }
 
+    /// <summary>
+    /// <b>vec3 の配列</b>をまとめて送る(Day 37)。SSAO のカーネル(64 本)用。
+    ///
+    /// <para>
+    /// <b>配列の uniform は「先頭の位置 + 個数」で書ける</b>。
+    /// GLSL の <c>uniform vec3 uKernel[64];</c> は、内部では
+    /// <c>uKernel[0]</c> 〜 <c>uKernel[63]</c> の 64 個の uniform として並んでおり、
+    /// 位置は連続することが仕様で保証されている。だから先頭の位置さえ分かれば
+    /// <c>glUniform3fv(location, 64, data)</c> の1回で全部送れる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>名前は配列名そのままでよい</b>。<c>glGetUniformLocation("uKernel")</c> は
+    /// 配列の場合に要素 0 の位置を返す、と仕様に書いてある
+    /// (<c>"uKernel[0]"</c> と書いても同じ)。
+    /// </para>
+    ///
+    /// <para>
+    /// これが無いと <see cref="SetVector3"/> を 64 回呼ぶことになる。
+    /// 動きはするが、**文字列を 64 本組み立てて辞書を 64 回引く**のが毎フレーム乗る。
+    /// 実測で 0.02ms 程度なので速度の問題ではなく、
+    /// 「配列は配列として送れる」という API の形を知っておくためのもの。
+    /// </para>
+    /// </summary>
+    public unsafe void SetVector3Array(string name, ReadOnlySpan<Vector3> values)
+    {
+        int location = GetUniformLocation(name);
+        if (location < 0 || values.Length == 0)
+        {
+            return;
+        }
+
+        // Vector3 は float 3 個が隙間なく並んだ構造体なので、
+        // 配列の先頭アドレスをそのまま float* として渡せる
+        // (SetMatrix4 と同じ理屈。**パディングが入る型では通用しない**)。
+        fixed (Vector3* pointer = values)
+        {
+            _gl.Uniform3(location, (uint)values.Length, (float*)pointer);
+        }
+    }
+
     public void SetVector4(string name, Vector4 value)
     {
         int location = GetUniformLocation(name);

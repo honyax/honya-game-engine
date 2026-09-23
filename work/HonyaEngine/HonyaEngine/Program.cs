@@ -147,6 +147,20 @@ namespace HonyaEngine;
 /// 材質グリッド(Ctrl+Shift+5)を出したまま IBL を入れると、
 /// **黒かった上の行に景色が映る**。Day 35 で「正しいが物足りない」と書いた絵が、
 /// ここで完成する。
+///
+/// **Day 37 での変更**: 物と物が接しているところに暗がりが出た
+/// (<see cref="Ssao"/>)。
+///
+/// Day 36 の環境光は「どの点も空だけを見ている」前提の値だったので、
+/// 立方体は床から浮き、隅は妙に明るかった。
+/// カメラから見た法線と距離を1枚に焼き(幾何パス)、
+/// **すでに描いてある深度を世界の模型として使って**遮蔽率を作る。
+///
+/// キーは `Ctrl+F1`〜`F11`。数字キーは Shift / Ctrl / Alt / Ctrl+Shift / Ctrl+Alt の
+/// 5段で埋まったので、今日からファンクションキーへ移った
+/// (`Alt+F4` が窓を閉じるので Alt は使えない)。
+/// `Ctrl+F2` で遮蔽率だけを全画面に出せる——
+/// **合成した絵からは半径もバイアスも読み取れない**ので、これが今日の主な道具になる。
 /// </summary>
 internal static class Program
 {
@@ -258,6 +272,21 @@ internal static class Program
 
     /// <summary>深度パスにかかった時間(移動平均)。**影の代償を数字で見る**ため。</summary>
     private static double _shadowMilliseconds;
+
+    // ===== Day 37: スクリーンスペース環境遮蔽(SSAO)=====
+
+    /// <summary>
+    /// **画面から作る環境遮蔽**。今日の主役。
+    ///
+    /// <see cref="PostProcess"/>(Day 31)・<see cref="ShadowMap"/>(Day 33)・
+    /// <see cref="EnvironmentMap"/>(Day 36)に続く<b>4つ目の「自分でバッファを持つ」クラス</b>。
+    /// 形がそろっているのは偶然ではなく、
+    /// 「1回では終わらない描画」が全部 Day 31 の Render To Texture から派生しているため。
+    /// </summary>
+    private static Ssao _ssao = null!;
+
+    /// <summary>幾何パス + 遮蔽の計算にかかった時間(移動平均)。HUD 用。</summary>
+    private static double _ssaoMilliseconds;
 
     // ===== Day 36: 環境マッピングと IBL =====
 
@@ -999,6 +1028,17 @@ internal static class Program
         _env = new EnvironmentMap(_gl, _resources, shaderDirectory);
         _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
 
+        // --- 今日の主役: スクリーンスペース環境遮蔽 ---
+        //
+        // **画面の大きさに紐づく**ので、リサイズのたびに作り直しが要る
+        // (後処理と同じで、シャドウマップとは違う。OnFramebufferResize を見ると分かる)。
+        _ssao = new Ssao(
+            _gl,
+            _resources,
+            shaderDirectory,
+            _window.FramebufferSize.X,
+            _window.FramebufferSize.Y);
+
         Console.WriteLine();
         Console.WriteLine(
             $"環境マップ: 空 {SkyImage.Width}x{SkyImage.Height} → "
@@ -1008,6 +1048,10 @@ internal static class Program
         Console.WriteLine(
             $"  焼き {_env.BakeMilliseconds:F0}ms(空の生成 {_env.SkyMilliseconds:F0}ms / "
             + $"BRDF表 {_env.LutMilliseconds:F0}ms)  {_env.ByteSize / (1024.0 * 1024.0):F1}MB");
+        Console.WriteLine(
+            $"SSAO: 幾何 {_ssao.Geometry.Width}x{_ssao.Geometry.Height}(RGBA16F)  "
+            + $"遮蔽 {_ssao.Width}x{_ssao.Height}(R8) x2  標本 {_ssao.SampleCount}本  "
+            + $"半径 {_ssao.Radius:F2}m  {_ssao.ByteSize / (1024.0 * 1024.0):F1}MB");
 
         // 発光するもの用。
         //
@@ -1302,6 +1346,14 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 37: スクリーンスペース環境遮蔽(Ctrl+F1〜F11)---");
+        Console.WriteLine("Ctrl+F9:SSAO が効く構図へ。**立方体の接地と隅に暗がりが出る**");
+        Console.WriteLine("Ctrl+F1:SSAO ON/OFF  Ctrl+F2:遮蔽率 / ビュー法線 / 距離 を全画面に出す");
+        Console.WriteLine("Ctrl+F3:半径  Ctrl+F4:標本数  Ctrl+F5:ぼかし(OFF でノイズのタイルが見える)");
+        Console.WriteLine("Ctrl+F6:AO バッファを半解像度に  Ctrl+F7:強さ  Ctrl+F8:下駄(0 で縞が出る)");
+        Console.WriteLine("Ctrl+F11:直接光にも掛ける(**わざと間違える**)  Ctrl+F10:SSAO の自己チェック");
+        Console.WriteLine("  Shift+9 の成分に SSAO が増えた(成分 21)");
         Console.WriteLine();
         Console.WriteLine("--- Day 36: 環境マッピングと IBL(Ctrl+Alt + 数字)---");
         Console.WriteLine("Ctrl+Alt+9:材質グリッド + IBL。**黒かった金属の行に景色が映る**");
@@ -1702,6 +1754,11 @@ internal static class Program
         // 「絵は左下 1/4 に縮こまり、残りは前のフレームの残骸」という見た目になる。
         // 画面の大きさに紐づくものが増えるほど、リサイズは壊れやすくなる。
         _post.Resize(size.X, size.Y);
+
+        // **SSAO のバッファも同じ**(Day 37)。3枚とも作り直す。
+        // 幾何バッファは画面と同じ大きさ、遮蔽の2枚は半解像度なら半分——
+        // その対応は Ssao の側が持っているので、ここは画面の大きさを渡すだけでよい。
+        _ssao.Resize(size.X, size.Y);
     }
 
     /// <summary>
@@ -2038,6 +2095,16 @@ internal static class Program
         // Day 31 で「1回では終わらない描画が全部ここから始まる」と書いた、その2例目になる。
         RenderShadowPass();
 
+        // **今日の1パス目**(Day 37)。カメラの目から、法線と距離だけを焼く。
+        //
+        // **本描画より前でなければならない**のがここの制約。
+        // 遮蔽率は環境光に掛けるものなので、シーンを描き始める時点で
+        // もう出来上がっていないと間に合わない。
+        // 「描いてから画面全体に暗さを掛ける」形にすれば1パス減らせるが、
+        // それだと**発光するものや空まで暗くなる**——
+        // AO は環境光にだけ掛かるものなので、掛ける場所を選べる本描画の中に入れる。
+        RenderSsaoPass();
+
         // **今日からここが画面ではない**(Day 31)。
         // Begin と End の間に描いたものは、いったん RGBA16F のテクスチャに溜まり、
         // End の中で 明部抽出 → ぼかし → 露出・トーンマップ・ガンマ を通って画面に出る。
@@ -2119,6 +2186,106 @@ internal static class Program
         // 後処理の外に置いてあるので、露出やトーンマップの影響を受けない——
         // デバッグ表示は「見たままの値」であってほしいので、通してはいけない。
         _shadow.DrawDebug(_window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        // **遮蔽率を全画面に出す**(Ctrl+F2)。こちらも後処理の外。
+        //
+        // 隅に小さく出す影のデバッグ表示と違って画面いっぱいに出すのは、
+        // AO の善し悪しが**1画素単位のノイズと暗がりの広がり方**で決まるから。
+        // 縮めて見ても、半径が大きすぎるのかバイアスが足りないのか判断できない。
+        _ssao.DrawDebug(
+            _window.FramebufferSize.X,
+            _window.FramebufferSize.Y,
+            _camera.FarPlane * 0.4f);
+    }
+
+    /// <summary>
+    /// **カメラの目から見て、法線と距離だけを描く**(Day 37)。今日の1パス目。
+    ///
+    /// <see cref="RenderShadowPass"/> と形はそっくりで、違いは3つ。
+    ///   1. 行列が光源のものではなく<b>カメラのビュー行列</b>
+    ///   2. 色を書く(法線と距離。深度だけの影パスと違い、カラーアタッチメントが要る)
+    ///   3. <b>描くものが多い</b>——材質グリッドも材質テストの板も入れる
+    ///
+    /// 3つ目が影パスとの本質的な違いになる。影は「落とす側/落とされる側」を
+    /// 選ぶ意味があったが、AO は<b>画面に写っているものすべて</b>が遮蔽物になる。
+    /// 写っているのに幾何バッファに無いものがあると、
+    /// そこだけ AO が 1.0(遮られていない)になって**穴が開く**。
+    ///
+    /// <para>
+    /// <b>発光するものだけは外してある</b>(影パスと同じ線)。
+    /// AO は環境光に掛かるものなので、
+    /// 発光だけで色が決まっている箱には効きようがない。
+    /// 代償として、発光する箱の画素は<b>その裏にある床の遮蔽率</b>を引くことになるが、
+    /// 環境光の寄与がほぼ 0 なので絵には出ない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>同じジオメトリを1フレームに3回描いている</b>ことになった
+    /// (影 → 幾何 → 本描画)。これがディファードレンダリングの動機そのもので、
+    /// Day 52 で「1回描いて全部のバッファへ同時に書く」形に整理する。
+    /// </para>
+    /// </summary>
+    private static void RenderSsaoPass()
+    {
+        // ゲームモードでは出さない。見下ろし型の 2D に環境遮蔽は要らず、
+        // 「エンジンの機能のうちゲームが要るものだけを通る」という Day 29 の線から外れる。
+        if (!_ssao.Enabled || _playing)
+        {
+            _ssaoMilliseconds = 0.0;
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        _ssao.BeginGeometry(_camera);
+
+        float angle = Interpolate(_previousAngle, _angle);
+
+        if (_materialGrid)
+        {
+            // **グリッドも入れる**(影パスでは外した)。
+            // 球どうしの隙間が近いので、隣り合う球の間にうっすら暗がりが出る——
+            // 影パスと違って「材質が読めなくなる」ことは無い。
+            for (int row = 0; row < MaterialGridSize; row++)
+            {
+                for (int column = 0; column < MaterialGridSize; column++)
+                {
+                    _ssao.Draw(_sphere, GridMatrix(row, column));
+                }
+            }
+        }
+        else if (_surfaceDemo)
+        {
+            _ssao.Draw(_quad, SurfaceWallMatrix());
+            _ssao.Draw(_quad, SurfaceFloorMatrix());
+        }
+        else if (_model is not null)
+        {
+            foreach (Model.Part part in _model.Parts)
+            {
+                _ssao.Draw(part.Mesh, part.Transform * _modelTransform);
+            }
+
+            _ssao.Draw(_quad, FloorMatrix());
+        }
+        else if (_draw3D)
+        {
+            _ssao.Draw(_quad, FloorMatrix());
+
+            foreach ((Vector3 position, float scale, float spin) in Cubes)
+            {
+                _ssao.Draw(_cube, CubeMatrix(position, scale, spin, angle));
+            }
+        }
+
+        _ssao.EndGeometry();
+
+        // **遮蔽の計算はここ**。幾何パスと分けてあるのは、
+        // フルスクリーンのパスがシーンの描画とはまるで性格が違うため
+        // (三角形の数に依存せず、画素数と標本数の積だけで決まる)。
+        _ssao.Compute(_camera, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        _ssaoMilliseconds = (_ssaoMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
     }
 
     /// <summary>
@@ -2418,6 +2585,11 @@ internal static class Program
         // 状態と焼き時間を常に出しておく。
         lines.AppendLine(IblLabel());
 
+        // **今日の設定を1行で**(Day 37)。SSAO は半径・標本数・バイアスのどれを動かしても
+        // 「なんとなく暗くなった/明るくなった」にしか見えないので、
+        // **数字と代償(パス数・ms・MB)を必ず並べて出す**。
+        lines.AppendLine(SsaoLabel());
+
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
             + $"{_shadow.ByteSize / (1024.0 * 1024.0):F1}MB  影パス:{_shadow.DrawCalls}回 {_shadowMilliseconds:F2}ms");
@@ -2578,6 +2750,7 @@ internal static class Program
         18 => "放射照度（拡散 IBL）",
         19 => "事前フィルタ（映り込み）",
         20 => "BRDF の表（R=A / G=B）",
+        21 => "SSAO（画面から作った遮蔽）",
         _ => "通常",
     };
 
@@ -2617,6 +2790,40 @@ internal static class Program
             + (_env.ClampSkyToLdr ? "  空を8bitに制限" : string.Empty)
             + $"  焼き:{_env.BakeMilliseconds:F0}ms  {_env.ByteSize / (1024.0 * 1024.0):F1}MB";
     }
+    /// <summary>SSAO のデバッグ表示の名前。切り替えたときのコンソール出力用。</summary>
+    private static string SsaoViewLabel() => _ssao.DebugView switch
+    {
+        SsaoDebugView.Occlusion => "遮蔽率(白 = 遮られていない)",
+        SsaoDebugView.Normal => "ビュー空間の法線(**カメラを回すと色が変わるのが正しい**)",
+        SsaoDebugView.Depth => "カメラからの距離(近いほど白い)",
+        _ => "通常の絵",
+    };
+
+    /// <summary>SSAO の状態を1行にまとめる(HUD 用)。</summary>
+    private static string SsaoLabel()
+    {
+        if (!_ssao.Enabled)
+        {
+            return "SSAO:OFF(接地の暗がりが消える。Day 36 まで)";
+        }
+
+        string view = _ssao.DebugView switch
+        {
+            SsaoDebugView.Occlusion => "  表示:遮蔽率",
+            SsaoDebugView.Normal => "  表示:ビュー法線",
+            SsaoDebugView.Depth => "  表示:距離",
+            _ => string.Empty,
+        };
+
+        return $"SSAO:{_ssao.SampleCount}本  半径:{_ssao.Radius:F2}m  下駄:{_ssao.Bias:F3}  "
+            + $"強さ:{_ssao.Strength:F1}  {(_ssao.BlurEnabled ? "ぼかしON" : "ぼかしOFF")}  "
+            + $"{_ssao.Width}x{_ssao.Height}{(_ssao.HalfResolution ? "(半分)" : string.Empty)}  "
+            + $"幾何:{_ssao.DrawCalls}回  パス:{_ssao.PassCount}  {_ssaoMilliseconds:F2}ms  "
+            + $"{_ssao.ByteSize / (1024.0 * 1024.0):F1}MB"
+            + (_ssao.ApplyToDirectLight ? "  [直接光にも適用=誤用]" : string.Empty)
+            + view;
+    }
+
     /// <summary>PBR の状態を1行にまとめる(HUD 用)。</summary>
     private static string PbrLabel()
     {
@@ -2786,6 +2993,12 @@ internal static class Program
         // 強さ・段数の設定。オブジェクトによらないので、ここで一度送れば足りる。
         _env.Apply(shader);
 
+        // **SSAO もフレームに1回**(Day 37)。遮蔽率(10番)と画面の大きさ。
+        // シェーダ側は gl_FragCoord から UV を作るので、
+        // **オブジェクトごとに送るものが1つも無い**——
+        // スクリーンスペースの技法は、この意味でいちばん uniform が少ない。
+        _ssao.Apply(shader);
+
         // **Day 34 の設定もフレームに1回**。
         // カメラ位置は視差マッピングの入力(接空間の視線を作るのに要る)で、
         // 残りは表示の切り替え。どれもオブジェクトによらない。
@@ -2917,9 +3130,6 @@ internal static class Program
 
         _gridMaterial.BaseColorFactor = new Vector4(GridColors[_gridColorIndex].Color, 1.0f);
 
-        const float spacing = 1.35f;
-        float half = (MaterialGridSize - 1) * spacing * 0.5f;
-
         for (int row = 0; row < MaterialGridSize; row++)
         {
             // 金属度は 0 か 1 しか物理的に無い(中間は「金属の粉が塗ってある」のような
@@ -2938,16 +3148,30 @@ internal static class Program
                 // **画面に出す数字と実際に使う値をそろえておく**ほうが混乱しない。
                 _gridMaterial.RoughnessFactor = MathF.Max(roughness, Pbr.MinRoughness);
 
-                Matrix4x4 model = Matrix4x4.CreateTranslation(
-                    (column * spacing) - half,
-                    (row * spacing) - half,
-                    0.0f);
-
-                Draw(_sphere, _gridMaterial, model);
+                Draw(_sphere, _gridMaterial, GridMatrix(row, column));
             }
         }
 
         _drawCalls = MaterialGridSize * MaterialGridSize;
+    }
+
+    /// <summary>
+    /// 材質グリッドの球1個ぶんの行列。**幾何パスと本描画で同じものを使う**ために
+    /// 切り出した(Day 37。<see cref="FloorMatrix"/> と同じ理由)。
+    ///
+    /// SSAO はカメラから見た形を焼き直すので、
+    /// **本描画と1ミリでもずれると遮蔽率が隣の画素のものになる**。
+    /// 球のような丸いものだと縁が二重に見える形で出るので、気づきにくい。
+    /// </summary>
+    private static Matrix4x4 GridMatrix(int row, int column)
+    {
+        const float spacing = 1.35f;
+        const float half = (MaterialGridSize - 1) * spacing * 0.5f;
+
+        return Matrix4x4.CreateTranslation(
+            (column * spacing) - half,
+            (row * spacing) - half,
+            0.0f);
     }
 
     /// <summary>
@@ -2968,17 +3192,25 @@ internal static class Program
         _surfaceMaterial.ParallaxScale = _parallaxScale;
 
         // 立っている板。原点に、カメラのほうを向けて。
-        Draw(_quad, _surfaceMaterial, Matrix4x4.CreateScale(6.0f));
+        Draw(_quad, _surfaceMaterial, SurfaceWallMatrix());
 
         // 寝ている板。手前へせり出すように床として敷く。
-        Matrix4x4 floor =
-            Matrix4x4.CreateScale(6.0f)
-            * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
-            * Matrix4x4.CreateTranslation(0.0f, -3.0f, 3.0f);
-        Draw(_quad, _surfaceMaterial, floor);
+        Draw(_quad, _surfaceMaterial, SurfaceFloorMatrix());
 
         _drawCalls = 2;
     }
+
+    /// <summary>
+    /// 材質テストの立っている板。**幾何パスと本描画で同じものを使う**ために切り出した(Day 37)。
+    /// <see cref="FloorMatrix"/> と同じ理由で、式を2か所に書かない。
+    /// </summary>
+    private static Matrix4x4 SurfaceWallMatrix() => Matrix4x4.CreateScale(6.0f);
+
+    /// <summary>材質テストの寝ている板。同上。</summary>
+    private static Matrix4x4 SurfaceFloorMatrix() =>
+        Matrix4x4.CreateScale(6.0f)
+        * Matrix4x4.CreateRotationX(-MathF.PI / 2.0f)
+        * Matrix4x4.CreateTranslation(0.0f, -3.0f, 3.0f);
 
     /// <summary>
     /// 床の行列。**深度パスと本描画で同じものを使う**ために切り出した(Day 33)。
@@ -6018,6 +6250,401 @@ internal static class Program
     }
 
     /// <summary>
+    /// **SSAO の自己チェック**(Ctrl+F10)。
+    ///
+    /// AO は IBL(Day 36)と同じで、<b>間違っていても「それらしい絵」になる</b>。
+    /// 半径が倍でも、上下が反転していても、全体がうっすら暗いだけの絵は出る。
+    /// だから確かめるのは絵ではなく<b>決まった場所の数字</b>にする。
+    ///
+    /// <para>
+    /// そのために<b>この場で確認用のシーンを組む</b>。
+    /// 床の上に立方体を1個置き、カメラを決まった位置に置いて、
+    /// 「ここは暗いはず」「ここは明るいはず」という3点を読み返す。
+    /// ユーザーが回したカメラのままだと、どの画素を見ればよいかが決まらない。
+    /// </para>
+    ///
+    /// <list type="number">
+    /// <item><b>1パス目が正しいか</b> … 焼いた距離が、CPU で計算した距離と一致するか</item>
+    /// <item><b>遮蔽の向きが正しいか</b> … 接地部が開けた床より暗いか。空は 1.0 か</item>
+    /// <item><b>つまみが効いているか</b> … 半径 0、下駄 0、標本数を動かして値が動くか</item>
+    /// </list>
+    /// </summary>
+    private static void RunSsaoCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[SSAO の自己チェック]");
+
+        // --- 1. カーネル(CPU 側だけで確かめられること)---
+        //
+        // GL を1回も呼ばずに済むものは先に片付ける。
+        // **半球でなければ何をどう直しても AO は 0.5 に張り付く**ので、
+        // ここが落ちていたら以降の数字を読む意味が無い。
+        ReadOnlySpan<Vector3> kernel = _ssao.Kernel;
+
+        bool inHemisphere = true;
+        bool inUnitBall = true;
+        float nearSum = 0.0f;
+        float farSum = 0.0f;
+
+        for (int i = 0; i < kernel.Length; i++)
+        {
+            inHemisphere &= kernel[i].Z >= 0.0f;
+            inUnitBall &= kernel[i].Length() <= 1.0f + 1e-4f;
+
+            if (i < kernel.Length / 2)
+            {
+                nearSum += kernel[i].Length();
+            }
+            else
+            {
+                farSum += kernel[i].Length();
+            }
+        }
+
+        float nearAverage = nearSum / (kernel.Length / 2);
+        float farAverage = farSum / (kernel.Length / 2);
+
+        checks.Check(
+            "**標本が全部 z >= 0(半球)**  ※球にすると平らな面まで 0.5 になる",
+            inHemisphere,
+            $"{kernel.Length} 本");
+
+        checks.Check("標本が単位球の中にある", inUnitBall);
+
+        checks.Check(
+            "標本が中心寄りに密(前半の平均長 < 後半の平均長)",
+            nearAverage < farAverage,
+            $"前半 {nearAverage:F3} / 後半 {farAverage:F3}");
+
+        // --- 2. 確認用のシーンを組む ---
+        //
+        // 元の状態は必ず戻す(RunHdrCheck と同じ作法)。
+        // 戻し忘れるとカメラが飛んだままになり、
+        // 「チェックを走らせたら絵が壊れた」という最悪の後味になる。
+        Vector3 savedPosition = _camera.Position;
+        Vector3 savedTarget = _camera.Target;
+        ProjectionMode savedMode = _camera.Mode;
+        float savedRadius = _ssao.Radius;
+        float savedBias = _ssao.Bias;
+        float savedStrength = _ssao.Strength;
+        int savedSamples = _ssao.SampleCount;
+        bool savedBlur = _ssao.BlurEnabled;
+
+        _camera.Mode = ProjectionMode.Perspective;
+        _camera.Position = new Vector3(2.4f, 1.6f, 3.6f);
+        _camera.Target = new Vector3(0.0f, -0.1f, 0.0f);
+
+        _ssao.Radius = 1.0f;
+        _ssao.Bias = 0.025f;
+        _ssao.Strength = 1.0f;
+        _ssao.SampleCount = 64;
+
+        // **ぼかしを切る**。ぼかすと隣の画素と混ざって、
+        // 「この1点がいくつか」を確かめるという話が成立しなくなる。
+        _ssao.BlurEnabled = false;
+
+        // 床の上にちょうど乗る立方体(底面 y = -0.5 が床と同じ高さ)。
+        Matrix4x4 probeCube = CubeMatrix(Vector3.Zero, 1.0f, 0.0f, 0.0f);
+
+        BakeProbeScene(probeCube);
+
+        Matrix4x4 viewProjection = _camera.ViewProjection;
+
+        // 立方体の +X 面のすぐ横(6cm)、床の上。**いちばん暗くなるはずの点**。
+        var contact = new Vector3(0.56f, -0.5f, 0.0f);
+
+        // 立方体から離れた開けた床。**遮るものが無いので 1.0 になるはず**。
+        //
+        // カメラの前に来る点を選ぶこと。適当に決めると<b>カメラの後ろ</b>に置いてしまい、
+        // 透視除算で符号が反転して、画面の反対側の画素を読むことになる
+        // (最初はそれで距離が負になり、チェックが落ちた)。
+        var open = new Vector3(-3.0f, -0.5f, 0.0f);
+
+        Vector2 contactPixel = WorldToPixel(contact, viewProjection);
+        Vector2 openPixel = WorldToPixel(open, viewProjection);
+
+        // --- 3. 1パス目(幾何バッファ)が正しいか ---
+        //
+        // **CPU で出せる答えと突き合わせる**のが要点(Day 36 の放射照度と同じ手口)。
+        // 焼いた距離が合っているなら、ビュー行列も法線行列も投影も通っている。
+        Vector4 geometry = ReadGeometry(openPixel);
+
+        float expectedDepth = -Vector4.Transform(new Vector4(open, 1.0f), _camera.ViewMatrix).Z;
+        float depthError = MathF.Abs(geometry.W - expectedDepth) / MathF.Max(expectedDepth, 1e-3f);
+
+        checks.Check(
+            "**焼いた距離が CPU の計算と一致**(ビュー行列と投影が通っている)",
+            depthError < 0.02f,
+            $"焼いた {geometry.W:F3} / 期待 {expectedDepth:F3}(誤差 {depthError:P1})");
+
+        // 床の法線は世界で (0,1,0)。ビュー空間へ運んだものと比べる。
+        var expectedNormal = Vector3.Normalize(
+            Vector3.TransformNormal(Vector3.UnitY, _camera.ViewMatrix));
+
+        var bakedNormal = Vector3.Normalize(new Vector3(geometry.X, geometry.Y, geometry.Z));
+        float normalDot = Vector3.Dot(bakedNormal, expectedNormal);
+
+        checks.Check(
+            "**焼いた法線がビュー空間の床の法線と一致**(uNormalMatrix が効いている)",
+            normalDot > 0.99f,
+            $"内積 {normalDot:F4}");
+
+        // --- 4. 遮蔽の向きが正しいか ---
+        float contactAo = ReadOcclusion(contactPixel);
+        float openAo = ReadOcclusion(openPixel);
+
+        // 空(何も描かれていないところ)。クリア色が (0,0,0,0) なので距離 0 で素通りするはず。
+        float skyAo = ReadOcclusion(new Vector2(_ssao.Width * 0.5f, _ssao.Height - 2.0f));
+
+        checks.Check(
+            "**空は遮られない**(距離 0 を素通りしている)",
+            skyAo > 0.99f,
+            $"実際 {skyAo:F3}");
+
+        checks.Check(
+            "開けた床はほぼ遮られない(**下駄が効いて自己遮蔽が出ていない**)",
+            openAo > 0.92f,
+            $"実際 {openAo:F3}");
+
+        checks.Check(
+            "**立方体の接地部は暗い**(今日いちばん見せたい暗がり)",
+            contactAo < openAo - 0.1f,
+            $"接地 {contactAo:F3} / 開けた床 {openAo:F3}");
+
+        // --- 5. つまみが効いているか ---
+        //
+        // 「値を動かしたら結果が動く」を確かめるのは、
+        // **uniform が届いていない**という一番ありがちな壊れ方を捕まえるため。
+        // 名前を1文字打ち間違えても GL は黙っているので、絵だけでは気づけない。
+        _ssao.Radius = 0.0f;
+        BakeProbeScene(probeCube);
+        float zeroRadiusAo = ReadOcclusion(contactPixel);
+
+        checks.Check(
+            "半径 0 なら遮蔽ゼロ(**探る球が潰れれば何も当たらない**)",
+            zeroRadiusAo > 0.99f,
+            $"実際 {zeroRadiusAo:F3}");
+
+        // **下駄を 0 にすると、平らな床に自己遮蔽が出る**。
+        //
+        // 見た目には「一面にうっすら砂が乗る」形で出る。
+        // 平均値はほとんど動かない(1.000 のまま)ので、
+        // **平均ではなくノイズの量**を測らないと捕まえられない——
+        // 実際、最初は開けた床の AO を見ていて、この不具合を捕まえ損ねた。
+        _ssao.Radius = 1.0f;
+        _ssao.Bias = 0.0f;
+        BakeProbeScene(probeCube);
+        float noBiasNoise = TileNoise(openPixel, 32);
+
+        _ssao.Bias = 0.025f;
+        BakeProbeScene(probeCube);
+        float biasedNoise = TileNoise(openPixel, 32);
+
+        checks.Check(
+            "**下駄 0 では平らな床に自己遮蔽が出る**(シャドウアクネと同じ理屈)",
+            noBiasNoise > biasedNoise + 0.005f,
+            $"下駄なし {noBiasNoise:F4} / 下駄あり {biasedNoise:F4}");
+
+        // 標本数とノイズ。**少ないほど荒れる**のを数字で見る。
+        _ssao.SampleCount = 8;
+        BakeProbeScene(probeCube);
+        float roughNoise = TileNoise(contactPixel, 32);
+
+        _ssao.SampleCount = 64;
+        BakeProbeScene(probeCube);
+        float fineNoise = TileNoise(contactPixel, 32);
+
+        checks.Check(
+            "標本を増やすとノイズが減る(**モンテカルロの収束**)",
+            fineNoise < roughNoise,
+            $"8本 {roughNoise:F4} → 64本 {fineNoise:F4}");
+
+        // **ぼかしがノイズを消す**。4x4 のタイルの中を平均するので、
+        // タイル内のばらつきはほぼ 0 になるはず——
+        // これが「ノイズを入れてからぼかす」形の値打ちそのもの。
+        _ssao.SampleCount = 16;
+        _ssao.BlurEnabled = false;
+        BakeProbeScene(probeCube);
+        float unblurred = TileNoise(contactPixel, 32);
+
+        _ssao.BlurEnabled = true;
+        BakeProbeScene(probeCube);
+        float blurred = TileNoise(contactPixel, 32);
+
+        checks.Check(
+            "**ぼかしがタイルの中のばらつきを消す**(4x4 の周期にそろえてある)",
+            blurred < unblurred * 0.5f,
+            $"ぼかし前 {unblurred:F4} → ぼかし後 {blurred:F4}");
+
+        // --- 6. 代償 ---
+        long fullBytes = _ssao.ByteSize;
+        bool wasHalf = _ssao.HalfResolution;
+
+        _ssao.SetHalfResolution(!wasHalf);
+        long otherBytes = _ssao.ByteSize;
+        _ssao.SetHalfResolution(wasHalf);
+
+        checks.Check(
+            "半解像度にすると遮蔽バッファが小さくなる",
+            wasHalf ? otherBytes > fullBytes : otherBytes < fullBytes,
+            $"{fullBytes / 1024.0 / 1024.0:F1}MB ⇔ {otherBytes / 1024.0 / 1024.0:F1}MB"
+                + "  ※幾何バッファは常に原寸なので 1/4 にはならない");
+
+        // --- 後始末 ---
+        _camera.Position = savedPosition;
+        _camera.Target = savedTarget;
+        _camera.Mode = savedMode;
+        _ssao.Radius = savedRadius;
+        _ssao.Bias = savedBias;
+        _ssao.Strength = savedStrength;
+        _ssao.SampleCount = savedSamples;
+        _ssao.BlurEnabled = savedBlur;
+
+        Framebuffer.BindDefault(_gl, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+        checks.Report();
+        Console.WriteLine(
+            $"  幾何 {_ssao.Geometry.Width}x{_ssao.Geometry.Height}(RGBA16F)  "
+            + $"遮蔽 {_ssao.Width}x{_ssao.Height}(R8) x2  "
+            + $"合計 {_ssao.ByteSize / (1024.0 * 1024.0):F1}MB  {_ssaoMilliseconds:F2}ms/フレーム");
+        Console.WriteLine();
+    }
+
+    /// <summary>確認用のシーン(床 + 立方体1個)を幾何バッファへ焼いて、遮蔽まで計算する。</summary>
+    private static void BakeProbeScene(Matrix4x4 cube)
+    {
+        _ssao.BeginGeometry(_camera);
+        _ssao.Draw(_quad, FloorMatrix());
+        _ssao.Draw(_cube, cube);
+        _ssao.EndGeometry();
+
+        _ssao.Compute(_camera, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+    }
+
+    /// <summary>
+    /// 世界座標が<b>遮蔽バッファのどの画素に写るか</b>を返す。
+    ///
+    /// シェーダがやっているのとまったく同じ変換(ビュー射影 → 透視除算 → 0〜1)を
+    /// CPU で1回やるだけ。**glReadPixels の原点は左下**なので、
+    /// NDC の y をそのまま使えて都合がよい(画像の座標系だと反転が要る)。
+    ///
+    /// 遮蔽バッファは半解像度のこともあるので、最後にその大きさを掛ける。
+    /// </summary>
+    private static Vector2 WorldToPixel(Vector3 world, Matrix4x4 viewProjection)
+    {
+        Vector4 clip = Vector4.Transform(new Vector4(world, 1.0f), viewProjection);
+        var ndc = new Vector2(clip.X / clip.W, clip.Y / clip.W);
+
+        return new Vector2(
+            ((ndc.X * 0.5f) + 0.5f) * _ssao.Width,
+            ((ndc.Y * 0.5f) + 0.5f) * _ssao.Height);
+    }
+
+    /// <summary>遮蔽率を1画素読み返す。**R8 でも Float で受け取れば 0〜1 で返る**。</summary>
+    private static unsafe float ReadOcclusion(Vector2 pixel)
+    {
+        Framebuffer target = _ssao.Result;
+        target.Bind();
+
+        int x = Math.Clamp((int)pixel.X, 0, target.Width - 1);
+        int y = Math.Clamp((int)pixel.Y, 0, target.Height - 1);
+
+        float value = 1.0f;
+        _gl.ReadPixels(x, y, 1, 1, PixelFormat.Red, PixelType.Float, &value);
+
+        return value;
+    }
+
+    /// <summary>
+    /// <b>ノイズのタイル1枚の中でのばらつき</b>を測る。**AO のざらつきそのもの**。
+    ///
+    /// <para>
+    /// 素朴に「広い範囲の標準偏差」を測ってはいけない。
+    /// AO は場所によって本当に変わる値なので、
+    /// <b>本物の濃淡と、標本が足りないことによるノイズが混ざってしまう</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// ノイズは 4x4 で敷いてあるので、<b>4x4 の中では幾何はほぼ同じで、
+    /// 違うのは乱数の向きだけ</b>。だからタイル1枚の中のばらつきを測れば、
+    /// 混ざりもの無しでノイズの量だけが出る。
+    /// それを範囲じゅうのタイルで平均する。
+    /// </para>
+    ///
+    /// この物差しがそのまま「ぼかしが何を消しているか」の説明にもなっている——
+    /// <c>ssao-blur.frag</c> は 4x4 の平均なので、ここで測っている量をちょうど潰す。
+    /// </summary>
+    private static unsafe float TileNoise(Vector2 pixel, int size)
+    {
+        Framebuffer target = _ssao.Result;
+        target.Bind();
+
+        int x = Math.Clamp((int)pixel.X - (size / 2), 0, Math.Max(0, target.Width - size));
+        int y = Math.Clamp((int)pixel.Y - (size / 2), 0, Math.Max(0, target.Height - size));
+
+        var values = new float[size * size];
+
+        fixed (float* data = values)
+        {
+            _gl.ReadPixels(x, y, (uint)size, (uint)size, PixelFormat.Red, PixelType.Float, data);
+        }
+
+        int tile = Ssao.NoiseSize;
+        double total = 0.0;
+        int tiles = 0;
+
+        for (int ty = 0; ty + tile <= size; ty += tile)
+        {
+            for (int tx = 0; tx + tile <= size; tx += tile)
+            {
+                double mean = 0.0;
+                double squares = 0.0;
+
+                for (int j = 0; j < tile; j++)
+                {
+                    for (int i = 0; i < tile; i++)
+                    {
+                        double value = values[((ty + j) * size) + tx + i];
+                        mean += value;
+                        squares += value * value;
+                    }
+                }
+
+                int count = tile * tile;
+                mean /= count;
+
+                total += Math.Sqrt(Math.Max(0.0, (squares / count) - (mean * mean)));
+                tiles++;
+            }
+        }
+
+        return (float)(total / Math.Max(1, tiles));
+    }
+
+    /// <summary>幾何バッファを1画素読み返す。RGB = ビュー法線、A = 距離。</summary>
+    private static unsafe Vector4 ReadGeometry(Vector2 pixel)
+    {
+        Framebuffer target = _ssao.Geometry;
+        target.Bind();
+
+        // 幾何バッファは常に原寸なので、遮蔽バッファの座標から戻す倍率を掛ける。
+        float scale = (float)target.Width / _ssao.Width;
+
+        int x = Math.Clamp((int)(pixel.X * scale), 0, target.Width - 1);
+        int y = Math.Clamp((int)(pixel.Y * scale), 0, target.Height - 1);
+
+        Span<float> pixels = stackalloc float[4];
+        fixed (float* data = pixels)
+        {
+            _gl.ReadPixels(x, y, 1, 1, PixelFormat.Rgba, PixelType.Float, data);
+        }
+
+        return new Vector4(pixels[0], pixels[1], pixels[2], pixels[3]);
+    }
+
+    /// <summary>
     /// **IBL の自己チェック**(Ctrl+Alt+0)。
     ///
     /// IBL がいちばん厄介なのは、<b>間違っていても「それらしく良い絵」になる</b>こと。
@@ -7643,6 +8270,158 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(スクリーンスペース環境遮蔽)---
+            //
+            // **数字キーが5段とも埋まった**。Shift(Day 31・32)、Ctrl(Day 33)、
+            // Alt(Day 34)、Ctrl+Shift(Day 35)、Ctrl+Alt(Day 36)。
+            // 6段目として Ctrl+Alt+Shift も作れるが、片手で押せないので
+            // **ファンクションキーへ移った**。
+            //
+            // <b>Alt+F1〜 は使えない</b>。Alt+F4 が窓を閉じるので、
+            // 隣を押し間違えた瞬間にアプリが終わる。Ctrl+F は安全。
+            //
+            // ここも上から順に照合されるので、ガード付きを先に置く
+            // (下のほうに `case Key.F5:`(シェーダ再読込)がある)。
+            case Key.F1 when ctrl:
+                _ssao.Enabled = !_ssao.Enabled;
+                Console.WriteLine(
+                    _ssao.Enabled
+                        ? "SSAO: ON(物と物が接するところに暗がりが出る)"
+                        : "SSAO: OFF(Day 36 まで。**立方体が床から浮いて見える**)");
+                break;
+
+            case Key.F2 when ctrl:
+                // **今日いちばん使う窓**。合成した絵からは半径もバイアスも読み取れない。
+                _ssao.DebugView = _ssao.DebugView switch
+                {
+                    SsaoDebugView.None => SsaoDebugView.Occlusion,
+                    SsaoDebugView.Occlusion => SsaoDebugView.Normal,
+                    SsaoDebugView.Normal => SsaoDebugView.Depth,
+                    _ => SsaoDebugView.None,
+                };
+                Console.WriteLine($"SSAO の表示: {SsaoViewLabel()}");
+                break;
+
+            case Key.F3 when ctrl:
+                // **絵の印象をいちばん強く決めるつまみ**。
+                // 小さいと接地の線だけ、大きいと部屋の隅ぜんぶが暗くなる。
+                _ssao.Radius = _ssao.Radius switch
+                {
+                    < 0.35f => 0.5f,
+                    < 0.75f => 1.0f,
+                    < 1.5f => 2.0f,
+                    _ => 0.25f,
+                };
+                Console.WriteLine(
+                    $"SSAO の半径: {_ssao.Radius:F2}m"
+                    + "  ※大きいほど広く暗くなるが、**遠くの物まで遮蔽物と数え始める**");
+                break;
+
+            case Key.F4 when ctrl:
+                {
+                    int index = Array.IndexOf(Ssao.SampleCounts, _ssao.SampleCount);
+                    _ssao.SampleCount = Ssao.SampleCounts[(index + 1) % Ssao.SampleCounts.Length];
+                    Console.WriteLine(
+                        $"SSAO の標本数: {_ssao.SampleCount}本"
+                        + "  ※Ctrl+F5 でぼかしを切ると、少ないほど荒れるのが直接見える");
+                }
+
+                break;
+
+            case Key.F5 when ctrl:
+                _ssao.BlurEnabled = !_ssao.BlurEnabled;
+                Console.WriteLine(
+                    _ssao.BlurEnabled
+                        ? "SSAO のぼかし: ON(4x4 平均。ノイズのタイルが消える)"
+                        : "SSAO のぼかし: OFF  ※**4x4 の格子模様が見える**のが正解");
+                break;
+
+            case Key.F6 when ctrl:
+                _ssao.SetHalfResolution(!_ssao.HalfResolution);
+                Console.WriteLine(
+                    $"SSAO の解像度: {_ssao.Width}x{_ssao.Height}"
+                    + $"({(_ssao.HalfResolution ? "画面の半分。画素数は 1/4" : "画面と同じ")})");
+                break;
+
+            case Key.F7 when ctrl:
+                _ssao.Strength = _ssao.Strength switch
+                {
+                    < 0.75f => 1.0f,
+                    < 1.25f => 1.5f,
+                    < 1.75f => 2.0f,
+                    _ => 0.5f,
+                };
+                Console.WriteLine($"SSAO の強さ: {_ssao.Strength:F1}");
+                break;
+
+            case Key.F8 when ctrl:
+                // **0 にすると平らな面に縞が出る**。シャドウアクネと同じ現象を、
+                // 今度は「自分自身を遮蔽物と数えてしまう」形で見る。
+                _ssao.Bias = _ssao.Bias switch
+                {
+                    < 0.005f => 0.01f,
+                    < 0.02f => 0.025f,
+                    < 0.04f => 0.05f,
+                    _ => 0.0f,
+                };
+                Console.WriteLine(
+                    $"SSAO の下駄: {_ssao.Bias:F3}"
+                    + (_ssao.Bias <= 0.0f ? "  ※**平らな床に縞が出る**のが正解" : string.Empty));
+                break;
+
+            case Key.F9 when ctrl:
+                // **一足飛びで見どころへ**(Ctrl+Alt+9 などと同じ趣旨)。
+                // 立方体が床に乗っている構図が、今日いちばん分かりやすい。
+                _ssao.Enabled = true;
+                _ssao.DebugView = SsaoDebugView.None;
+
+                // **見せるための設定にそろえる**。既定より少し強くしてあるのは、
+                // 「効いているかどうか」を最初に分からせるため——
+                // 実際に絵を作るときは既定(強さ 1.0)から詰める。
+                _ssao.Radius = 1.0f;
+                _ssao.Strength = 2.0f;
+                _ssao.SampleCount = 32;
+                _ssao.BlurEnabled = true;
+                _materialGrid = false;
+                _surfaceDemo = false;
+                _draw3D = true;
+                _debugChannel = 0;
+                SetModel(ModelPaths.Length);
+
+                // **スプライトの群れを消す**。
+                //
+                // Day 31 以来のデモは 3D の上に 1000 枚のスプライトを重ねている。
+                // 今日の暗がりは接地の細い線なので、上に何か重なると完全に読めない
+                // (材質グリッドを出す Ctrl+Shift+5 や Ctrl+Alt+9 でも同じことが起きる。
+                // あちらは球が大きいので気づきにくいが、同じ問題を抱えている)。
+                // PageUp で元に戻せる。
+                SetSpriteCount(0);
+                // **目線を落として立方体の根元に寄せる**。
+                // 接地の暗がりは床と物の境目にしか出ないので、
+                // 見下ろすと床の面積ばかりが増えて、いちばん見たい線が細くなる。
+                _orbit.Yaw = 0.9f;
+                _orbit.Pitch = 0.10f;
+                _orbit.Target = new Vector3(0.0f, -0.35f, 0.0f);
+                _orbit.Distance = 4.0f;
+                _orbit.Apply();
+                Console.WriteLine(
+                    "SSAO が効く構図(**立方体の根元に暗がりの帯が出る**)"
+                    + "  Ctrl+F1 で切って見比べる");
+                break;
+
+            case Key.F10 when ctrl:
+                RunSsaoCheck();
+                break;
+
+            case Key.F11 when ctrl:
+                // **わざと間違えるための窓**。AO を直接光に掛けると何が起きるか。
+                _ssao.ApplyToDirectLight = !_ssao.ApplyToDirectLight;
+                Console.WriteLine(
+                    _ssao.ApplyToDirectLight
+                        ? "AO を直接光にも掛けた ※**日向の壁際まで暗くなる**のが正解。これは誤用"
+                        : "AO は環境光にだけ掛かる(正しい使い方)");
+                break;
+
             // --- 今日のスイッチ(環境マッピングと IBL)---
             //
             // **Ctrl+Alt + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)、
@@ -8124,9 +8903,9 @@ internal static class Program
 
             // --- 今日のスイッチ(glTF)---
             case Key.Number9 when shift:
-                // Day 35 で BRDF の5つ、Day 36 で IBL の3つが増えて 21 通りになった。
+                // Day 35 で BRDF の5つ、Day 36 で IBL の3つ、Day 37 で SSAO が増えて 22 通りになった。
                 // **多いので Alt+9 と Ctrl+Shift+9 で目当ての成分へ直接飛べる**ようにしてある。
-                _debugChannel = (_debugChannel + 1) % 21;
+                _debugChannel = (_debugChannel + 1) % 22;
                 Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
                 break;
 
@@ -8522,6 +9301,10 @@ internal static class Program
                 // 数字を1つ変えて絵を見る、を何十回も繰り返して決めるもの。
                 // 再起動を挟むとその往復が成立しない。
                 _post.ReloadShaders();
+
+                // **SSAO も同じ**(Day 37)。半径・下駄・重み付けは
+                // 数字を1つ変えて絵を見る、を繰り返して決めるもの。
+                _ssao.ReloadShaders();
                 break;
         }
     }
@@ -8602,6 +9385,9 @@ internal static class Program
 
         // 環境マップも同じ(Day 36)。キューブマップ3枚と表1枚、FBO、立方体を畳む。
         _env.Dispose();
+
+        // SSAO も同じ(Day 37)。幾何バッファ・遮蔽の2枚・ノイズ・空 VAO を畳む。
+        _ssao.Dispose();
 
         _cube.Dispose();
         _quad.Dispose();
