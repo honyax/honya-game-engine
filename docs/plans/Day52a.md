@@ -1,53 +1,43 @@
-# Day 52: ディファードレンダリング(G-Buffer・光の球・多光源)
+# Day 52a: ディファードレンダリング(G-Buffer と、あとから光を当てる)
 
 **Phase 8(デモ推奨編)の初日**。Day 51 でプレイアブルデモが完成したので、
 ここからの5日間は「デモをワンランク上げる技術」を足していく。
 今日はその土台になる<b>描き方の組み替え</b>をする。
 
+**Day 52 は2日に分けてある。**
+
+| | 何をするか | 絵の変化 |
+|---|---|---|
+| **Day 52a(今日)** | 描き方を2回に分ける。G-Buffer に表面を書き、**全画面1枚で太陽を当てる** | **無し**(幾何パスが 3 回 → 2 回) |
+| Day 52b | **光を 1024 個に増やす**。点光源・光の球・夜・フォワードとの比較 | 床に色とりどりの光だまり |
+
 Day 32 から今日まで、本描画は<b>フォワード</b>だった——
 三角形を1つ描くたびに、その画素の色を最後まで(表面を決めて、光を当てて)決めてしまう。
 光は太陽1つだったので、それで何も困らなかった。
 
-今日は光を<b>最大 1024 個</b>に増やす。フォワードのままでは2つの壁にぶつかる。
+今日やるのは、その1回を<b>2回に切る</b>ことだけ。
+1回目は表面(色・法線・材質)を G-Buffer に書いて帰り、2回目でその G-Buffer を読んで光を当てる。
+2回目は三角形を1つも見ず、<b>画面に残った画素だけ</b>を塗る。
 
-| 壁 | どう出るか |
-|---|---|
-| **代償** | 描いた画素ごとに全部の光を回す。手前の物に上書きされる画素(オーバードロー)のぶんも払う |
-| **上限** | 全部の光を1本のシェーダに uniform で渡すので、**枠が光の数の上限になる**(今日のフォワードは 64 個) |
-
-ディファードは描き方を<b>2回に分ける</b>ことで両方を越える。
-1回目は表面(色・法線・材質)だけを G-Buffer に書き、2回目で光を当てる。
-2回目は三角形を1つも見ず、<b>光が届く範囲の画素だけ</b>を塗る。
-
-> **今日の実装でいちばん引っかかったのは、Day 35 から居た潜在バグだった**
-> 自己チェックが光の球の頂点を読み戻した(`Mesh.ReadIndices`)直後に、
-> 次の光の球を描いたところで**アクセス違反で落ちた**。
-> `ReadIndices` はインデックスバッファを `ElementArrayBuffer` に結び付けて読み、
-> 最後に 0 へ戻していた——ところがこの結び付けは<b>いま結び付いている VAO の記録そのもの</b>で、
-> 直前に描いた光の球の VAO からインデックスバッファを外していた。
-> Day 35〜51 で落ちなかったのは、読み戻す前に別の VAO(文字のバッチ)が結び付いていたから。
-> <b>どの VAO が結び付いているかで結果が変わる</b>、GL の状態機械らしい壊れ方だった。
-> Day 35〜51 の `Mesh.cs` まで遡って直してあるので、今日の差分には出てこない(検証の途中で分かったこと 1)。
+**今日は絵が1ピクセルも変わらない**。それでいい——
+今日の配当は数字にしか出ない(HUD の「幾何パス」が 3 回から 2 回に減る)。
+何のためにこんな組み替えをするのかは Day 52b で分かる。
+表面を先に置いておくと<b>光を当てる仕事が三角形の数から切り離される</b>ので、
+光を 1024 個に増やしてもほとんど値段が変わらない。
 
 ## 今日のゴール
 
 **メニューの「ディファード」ページで `F2` を押すと、描き方がディファードに変わる——
 けれど絵は1ピクセルも(ほぼ)変わらず、HUD の「幾何パス」が 3 回から 2 回に減る。
-`F3` で点光源を 16 → 64 → 256 → 1024 個に増やし、`F4` で夜にすると、
-裏通りの床に色とりどりの光だまりが並ぶ。フォワードは 64 個で打ち切られるが、
-ディファードは 1024 個を 16 個とほぼ同じ代償で描く。**
+`F3` で G-Buffer を1枚ずつ見ると、アルベドには陰影が1つも無く、
+法線はビュー空間の色で、距離は奥ほど白い。**
 
 | キー(「ディファード」ページ) | 何が起きるか |
 |---|---|
 | `F2` | ディファード ON/OFF。**今日の到達点**。絵は変わらず、描き方だけが変わる |
-| `F3` | 点光源の数(0 / 16 / 64 / 256 / 1024)。**球が塗る量は揃えたまま** |
-| `F4` | 夜にする(太陽と空を 3% に落とす)。点光源が主役になる |
-| `F5` | G-Buffer を見る(アルベド / 法線 / 距離 / 金属度 / 粗さ / AO / 発光) |
-| `F6` | 光の重なり(1画素を何個の球が塗ったか)。**ディファードの代償そのもの** |
-| `F7` | 画面外の光を CPU で落とす。**絵は変わらない**(ドローコールだけが変わる) |
-| `F8` | 内訳(G-Buffer の4枚と、光の数・描いた数) |
-| `F9` | 計測(光の数ごとにフォワードとディファードを測る) |
-| `F10` | 今日の自己チェック(31 項目) |
+| `F3` | G-Buffer を見る(アルベド / 法線 / 距離 / 金属度 / 粗さ / AO / 発光) |
+| `F4` | 内訳(G-Buffer の4枚と、いまの描き方) |
+| `F5` | 今日の自己チェック(14 項目) |
 
 デモ v1 を出していないときはフォワードのまま動く(材質グリッドやモデル単体など)。
 **実際のエンジンも、半透明や特殊な材質のためにフォワードの道を必ず残している**。
@@ -71,38 +61,36 @@ if (uGBufferPass == 1)
 ```
 
 後半は `deferred.frag` へ移った。G-Buffer は<b>切り口に置く中間データ</b>で、
-中身は「光を当てるのに要るもの」の全部になる(要点2)。
+中身は「光を当てるのに要るもの」の全部になる(要点1)。
 
-**2つ目は「光の形 = 描く形」**。太陽はどこにでも当たるので全画面の三角形1枚、
-点光源は半径の中にしか当たらないので<b>その半径の球</b>を描く。
-球が覆った画素だけでシェーダが走るので、<b>光1個の代償は「画面をどれだけ覆うか」</b>で決まる。
-
-```
-  フォワード   代償 ≒ 描いた画素(オーバードロー込み)× 光の数
-  ディファード 代償 ≒ 画面の画素 + 光の球が覆った画素の合計
-```
-
-球は<b>裏面を描く</b>(表面をカリング)。表面を描くと、カメラが球の中に入った瞬間に光が消える(要点6)。
-
-**3つ目は「位置を持たない」**。G-Buffer の2枚目は Day 37 の SSAO が作っていた
+**2つ目は「位置を持たない」**。G-Buffer の2枚目は Day 37 の SSAO が作っていた
 「ビュー空間の法線 + 距離」と<b>まったく同じ形</b>にした。
 位置は距離1つから戻せる(`ssao.frag` の `ViewPosition` と同じ式)ので持たず、
 同じ形なので SSAO は自前の幾何パスを描かずに<b>それを借りる</b>。
 
 ```
   Day 51  影 → SSAO の幾何 → 本描画       … ジオメトリを 3 回描く
-  Day 52  影 → G-Buffer → (光は画面だけ)  … 2 回
+  Day 52a 影 → G-Buffer → (光は画面だけ)  … 2 回
 ```
 
 Day 37 の設計書に「同じジオメトリを1フレームに3回描いている。正しい直し方は MRT / G バッファで、
 それが Day 52 の主題になる」と書いた、その回収になる。
 
+**3つ目は「光の形 = 描く形」**。今日の光は太陽(平行光源)だけで、
+太陽はどこにでも当たるので<b>全画面の三角形1枚</b>を描く——環境光と発光もここで足す。
+この「光の形の分だけ描く」という考え方が、Day 52b で点光源の球になる。
+
+```
+  太陽    どこにでも当たる  → 全画面の三角形 1 枚
+  点光源  半径の中だけ      → その半径の球    (Day 52b)
+```
+
 ### 今日は Render とシェーダが主役
 
-差分は `Render/` に新規3本(`GBuffer` / `DeferredLighting` / `PointLight`)と変更3本
-(`Framebuffer` / `Shader` / `Ssao`)、`Demo/` に新規1本(`LightSwarm`)、
-シェーダが新規3本と `textured.frag` の変更、そして `Program.cs`。
-`Model/` も `Scene/` も `Ecs/` も `Physics/` も `Text/` も `Audio/` も `Game/` も1行も変わっていない。
+差分は `Render/` に新規2本(`GBuffer` / `DeferredLighting`)と変更2本
+(`Framebuffer` / `Ssao`)、シェーダが新規2本と `textured.frag` の変更、そして `Program.cs`。
+`Demo/` も `Model/` も `Scene/` も `Ecs/` も `Physics/` も `Text/` も `Audio/` も `Game/` も
+1行も変わっていない。
 
 ## 事前に読む資料
 
@@ -110,13 +98,11 @@ Day 37 の設計書に「同じジオメトリを1フレームに3回描いて�
   — **今日の一次資料**。Day 31 で前半(FBO)を読んだ回の続きで、
   G-Buffer に何を詰めるか、なぜ光源の数に強いのかが講義資料にまとまっている
 - [LearnOpenGL: Deferred Shading](https://learnopengl.com/Advanced-Lighting/Deferred-Shading)
-  — **コードで追うならここが最短**。MRT → G-Buffer → ライティングパス → 深度を写す → ライトボリューム、
-  の順に今日とほぼ同じ構成で進む。ただしあちらは位置を G-Buffer にそのまま持つ(今日は距離から戻す。要点3)
+  — **コードで追うならここが最短**。MRT → G-Buffer → ライティングパス → 深度を写す、
+  の順に今日とほぼ同じ構成で進む(その先のライトボリュームが Day 52b)。
+  ただしあちらは位置を G-Buffer にそのまま持つ(今日は距離から戻す。要点2)
 - [Matt Pettineo, "Reconstructing Position From Depth"](https://mynameismjp.wordpress.com/2009/03/10/reconstructing-position-from-depth/)
-  — **要点3の根拠**。「位置を持たずに深度から戻す」がなぜ定石なのか、戻し方が何通りあるか
-- [Brian Karis, "Real Shading in Unreal Engine 4"(SIGGRAPH 2013 の講義ノート)](https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf)
-  — **要点5の減衰の式**の出どころ。`saturate(1 - (d/r)⁴)² / (d² + 1)`。
-  Day 35 の PBR を読んだときと同じ資料の、ライトの章
+  — **要点2の根拠**。「位置を持たずに深度から戻す」がなぜ定石なのか、戻し方が何通りあるか
 - **Day 37 の計画書 設計書「今日残した歪み」**(このリポジトリ)
   — 「同じジオメトリを1フレームに3回描く」。今日それが2回になる
 - **Day 50 の計画書 要点3**(このリポジトリ)
@@ -124,39 +110,14 @@ Day 37 の設計書に「同じジオメトリを1フレームに3回描いて�
 
 ## 理論の要点
 
-### 1. フォワードの代償は「描いた画素 × 光の数」
-
-フォワードの画素シェーダは、三角形が画素を覆うたびに1回走り、
-その中で全部の光について「届くか」を確かめて足す(`textured.frag` のループ)。
-
-```glsl
-for (int i = 0; i < uPointLightCount; i++)
-{
-    pointLight += PointLightContribution(uPointLightPositions[i], ...);
-}
-```
-
-払っているものは2つある。
-
-| | 何に比例するか | 今日の数字 |
-|---|---|---|
-| 距離を測って捨てる | **全部の光の数** × 描いた画素 | 64 個なら 64 回。届かない光でも距離の計算は走る |
-| BRDF を計算する | 届いた光の数 × 描いた画素 | 半径の中にある光だけ |
-
-**「描いた画素」はオーバードローを含む**。道路バリアの向こうの床は、
-床を描いたあとにバリアで上書きされる——床の画素に払った光の計算は丸ごと捨てられる。
-
-ディファードはこれを2つに分ける。1回目(G-Buffer)は光を1つも計算しないので、
-オーバードローしても安い。2回目は<b>画面に残った画素だけ</b>を見る。
-
-### 2. G-Buffer — 光を当てるのに要るものの全部
+### 1. G-Buffer — 光を当てるのに要るものの全部
 
 光を当てる側(`deferred.frag`)が三角形を知らずに済むには、
 画素ごとに<b>表面の性質を全部</b>置いておく必要がある。
 
 | 枚 | 形式 | 中身 | バイト |
 |---|---|---|---|
-| 0 | RGBA8 | ベースカラー(**平方根で詰める**。要点4)。A は空き | 4 |
+| 0 | RGBA8 | ベースカラー(**平方根で詰める**。要点3)。A は空き | 4 |
 | 1 | RGBA8 | R = AO / G = 粗さ / B = 金属度(**glTF の ORM と同じ並び**) | 4 |
 | 2 | RGBA16F | ビュー空間の法線 + 距離(**Day 37 の幾何バッファと同じ形**) | 8 |
 | 3 | RGBA16F | 発光(1.0 を超えるので 16F) | 8 |
@@ -182,7 +143,7 @@ _gl.DrawBuffers(4, buffers);
 <b>その番号に居る値の意味までマテリアルと同じ</b>になる。
 ライティングパスにはマテリアルが無いので 0〜4 は空いている。
 
-### 3. 位置は持たない — 距離1つから戻す
+### 2. 位置は持たない — 距離1つから戻す
 
 LearnOpenGL の作例は位置を RGBA16F のまま G-Buffer に持つ。今日は持たない。
 **「どの画素か」は `gl_FragCoord` が知っている**ので、距離が1つあれば位置は決まる。
@@ -194,14 +155,15 @@ vec3 worldPos = (uInverseView * vec4(viewPos, 1.0)).xyz;
 ```
 
 持たないぶん RGBA16F 1枚(8 バイト/画素)が浮く。G-Buffer は1フレームに
-「書く1回 + 読む(全画面1回 + 光が覆った画素)」通るので、**帯域はそのまま速度に効く**。
+「書く1回 + 読む1回(全画面)」通るので、**帯域はそのまま速度に効く**——
+Day 52b で光の球が覆った画素のぶんだけ、読む回数がさらに増える。
 
 代償は精度で、距離は 16F に入っている。**半精度の刻みは距離に比例して粗くなる**
 (4〜8m で 4mm、8〜16m で 8mm)。自己チェックは 6.3m の床で 3.1mm のずれを出していて、
-これが<b>影の縁でだけ</b>絵に出る——PCF の升目がたまに1つずれる(検証の途中で分かったこと 3)。
+これが<b>影の縁でだけ</b>絵に出る——PCF の升目がたまに1つずれる(検証の途中で分かったこと 1)。
 深度バッファ(24bit)から戻せば手前ほど精度が上がる。それが改造課題2。
 
-### 4. 8bit に色を入れるなら平方根で
+### 3. 8bit に色を入れるなら平方根で
 
 ベースカラーは 0〜1 に収まるので RGBA8 で足りる……と言いたいが、<b>リニアのまま入れると暗部が潰れる</b>。
 8bit は 0〜1 を 256 段に均等に配るので、0.002 未満は全部 0 になり、
@@ -215,51 +177,9 @@ vec3 worldPos = (uInverseView * vec4(viewPos, 1.0)).xyz;
 これは sRGB の符号化(ガンマ 2.2)と同じ発想の簡易版で、本番のエンジンは
 sRGB 形式のテクスチャ(`GL_SRGB8_ALPHA8`)に書いてハードウェアに変換させる。
 
-### 5. 光の形 = 描く形。窓があるから球が有限になる
+### 4. 深度を写す — あとから描く粒のために
 
-点光源の明るさは物理では 1/d²——**0 にならない**。そのままだと「どの画素に効くか」は全画面になり、
-球を描く意味が無い。そこで<b>半径ちょうどで 0 に落ちる窓</b>を掛ける(Karis 2013)。
-
-```
-  減衰 = saturate(1 - (d / r)⁴)² / (d² + 1)
-```
-
-| 部分 | 何のため |
-|---|---|
-| `1 / (d² + 1)` | 物理の 1/d²。**+1 は d → 0 で無限大に飛ぶのを止める** |
-| `(1 - (d/r)⁴)²` | 窓。近くではほぼ 1(1/d² の形を崩さない)、半径で滑らかに 0 |
-
-**4乗してから2乗する**のは、近くでは窓を効かせず(半径の 1 割で 0.9998)、
-端でだけ滑らかに落とすため。`1 - d/r` を素朴に掛けると、近くまで一様に暗くなって光が小さく見える。
-
-窓があるので、**半径の外の画素は1つも塗らなくてよい**。
-球を描き、その球が覆った画素でだけシェーダを走らせる——これがライトボリューム。
-
-分割した球は面が内側へ入り込む(弦は弧の内側を通る)ので、
-<b>外接するように膨らませて描く</b>。16x12 分割で 1.028 倍。
-自己チェックは、いちばん内側に入り込む面でも届く距離の 1.0003 倍の外にあることを見ている。
-
-### 6. 球の裏面を描く — 深度は「奥なら通す」
-
-点光源の球を描くときの GL の状態は、ふだんの本描画と3か所違う。
-
-| 状態 | 本描画 | 光の球 | なぜ |
-|---|---|---|---|
-| カリング | 裏面を捨てる | **表面を捨てる** | カメラが球の中に入ると表面が全部後ろへ回って光が消える |
-| 深度テスト | 手前なら通す(`LESS`) | **奥なら通す(`GEQUAL`)** | 裏面が面より奥 = 面は球の中か手前 |
-| 深度の書き込み | 書く | **書かない** | 球どうしが隠し合うと、後から描いた光が消える |
-| ブレンド | しない | **加算(`One, One`)** | 光の寄与は足し算で重なる。描く順を気にしなくてよい |
-
-**裏面が G-Buffer の面より手前にある**(深度テストで落ちる)のは、面が球よりずっと奥にあるとき——
-そこには光が届かないので塗らなくてよい。逆に<b>面が球より手前にある</b>(光が壁の裏に隠れている)ときは
-通ってしまうが、シェーダの中で距離を測って 0 を足すだけで済む。
-「光の重なり」(`F6`)はこの<b>無駄に通った画素も含めて</b>数えるので、払っている量がそのまま見える。
-
-完全に弾くにはステンシルを使った2パスにするが、今日は入れていない(要点11)。
-
-### 7. 深度を写す — 球と、あとから描く粒のために
-
-光の球はシーンのバッファ(`_post.Scene`)に描く。ところがそのバッファの深度は
+ライティングパスはシーンのバッファ(`_post.Scene`)に描く。ところがそのバッファの深度は
 `_post.Begin` でクリアされたままで、G-Buffer パスの深度は G-Buffer の側にある。
 
 ```csharp
@@ -267,11 +187,14 @@ _gbuffer.Target.BlitDepthTo(_post.Scene);   // Day 50 で足した口
 _post.Scene.Bind();                         // Blit は割り当てを 0 に戻して帰る
 ```
 
-写さないと2つ壊れる。**点光源の球が1つも通らない**(比べる相手がいちばん奥のまま)ことと、
-**あとから描く粒(Day 49)が壁の向こうに透けて見え、ソフトパーティクル(Day 50)も効かない**こと。
+写さないと**あとから描く粒(Day 49)が壁の向こうに透けて見え、ソフトパーティクル(Day 50)も効かない**。
 LearnOpenGL の Deferred Shading の章が最後に `glBlitFramebuffer` を呼んでいるのと同じ理由になる。
 
-### 8. SSAO が G-Buffer を借りる — 3回が2回に
+**Day 52b の光の球も、この深度と比べて塗る画素を選ぶ**。写さないと
+比べる相手がいちばん奥のままなので、球が1つも通らない——
+今日のうちに写しておくことの値打ちは、明日もう1つ増える。
+
+### 5. SSAO が G-Buffer を借りる — 3回が2回に
 
 SSAO の遮蔽の計算(`ssao.frag`)が読むのは「ビュー空間の法線 + 距離」の1枚だけで、
 G-Buffer の2枚目はそれとまったく同じ形にしてある。だから `Ssao.Compute` に渡すだけでよい。
@@ -288,66 +211,25 @@ _ssao.Compute(_camera, width, height, _gbuffer.NormalDepth);   // 幾何パス�
 (Day 37 の幾何パスは頂点法線だった)。レンガの目地に細かい暗がりが乗るようになる。
 実際のエンジンもほとんどが G-Buffer の法線で SSAO を計算している。
 
-### 9. フォワードの壁 — uniform の枠が光の数の上限になる
-
-フォワードは全部の光を1本のシェーダに渡す。今日は uniform の配列にした。
-
-```glsl
-const int MAX_FORWARD_LIGHTS = 64;
-uniform vec4 uPointLightPositions[MAX_FORWARD_LIGHTS];   // xyz 位置 / w 届く距離
-uniform vec4 uPointLightColors[MAX_FORWARD_LIGHTS];
-```
-
-位置と色で vec4 を2本ずつ、64 個で float 512 個。OpenGL 3.3 が画素シェーダに保証する
-uniform の枠は float 1024 個で、`textured.frag` の他の uniform がすでに百個近く使っている。
-**保証の範囲で置けるのはこのあたりが限度**で、65 個目からは捨てるしかない。
-
-自己チェックは「64 個の光を床の下(どこにも届かない)に置き、65 個目だけを床の上に置く」形で、
-フォワードでは<b>65 個目が消える</b>(絵が1画素も変わらない)こと、
-ディファードでは見えることを確かめている。
-
-この壁を越えるもう1つの道が、光の一覧を uniform ではなくバッファに置き、
-**画面のタイルごとに効く光だけを選り分けて渡す**やり方——明日の Forward+ になる。
-
-### 10. 光の数を比べるための並べ方
-
-「光を増やすとどうなるか」を見たいのに、半径を同じまま 16 個を 1024 個にすると、
-通りが光の球で埋まって1画素を何百個もの球が塗る。それは<b>数の比べではなく重なりの比べ</b>になる。
-
-ディファードの代償は球が画面を覆う面積 ∝ 半径² なので、<b>個数 × 半径² を一定</b>にする。
-
-| 個数 | 届く距離 | 高さの上限 | 1個の強さ |
-|---|---|---|---|
-| 16 | 4.0m | 2.4m | 8.0 |
-| 64 | 2.0m | 1.3m | 4.0 |
-| 256 | 1.0m | 0.75m | 2.0 |
-| 1024 | 0.5m | 0.48m | 1.0 |
-
-**高さも半径に合わせて下げる**。半径 0.5m の光が高さ 2m を飛んでも床にも壁にも届かず、
-球の代償だけ払って絵に何も出ない。**強さは半径に比例**させた——
-床に降る光の総量を並べて測ると、この比でおおむね揃った(検証の途中で分かったこと 2)。
-
-「光の重なり」(`F6`)で 16 個と 1024 個を見比べると、
-<b>大きな球 16 個と小さな球 1024 個で、塗られる量がほぼ同じ</b>になっているのが見える。
-
-### 11. 今日入れなかったもの
+### 6. 今日入れなかったもの
 
 | 入れなかったもの | 何が起きるか | どこでやるか |
 |---|---|---|
+| **点光源** | 光は太陽1つのまま。G-Buffer を作った甲斐がまだ数字にしか出ない | **Day 52b**(光の球・1024 個・夜) |
 | 半透明 | ディファードは1画素に表面を1つしか持てない。**半透明は描けない** | フォワードで後から重ねる(今日も粒はそうしている) |
 | MSAA | G-Buffer まで4倍になる(Day 38 の要点) | Day 54 の TAA で置き換える |
-| インスタンシング | 光1個 = ドローコール1回。1024 個で 940 回 | 改造課題3 |
-| ステンシルで弾く光の球 | 壁の裏の光も壁の手前の画素を塗る(要点6) | 教養として。Forward+ のほうが筋がよい |
-| タイル / クラスターで光を選る | 光1個ずつの粗いカリングしかない | **Day 53(Forward+ / クラスタード)** |
 | 深度バッファからの位置の復元 | 影の縁で 0.2% の画素が 5% 以上ずれる | 改造課題2 |
 | 法線を2成分に畳む(八面体) | 法線に RGBA16F を1枚まるごと使っている | 本番の G-Buffer はここを詰める |
-| 点光源の影 | 点光源は影を落とさない(壁を突き抜けて照らす) | キューブのシャドウマップが要る。デモの規模では重い |
-| スポットライト | 光の形が球しかない | 円錐を描けば同じ仕組みで入る |
-| GPU の時間の計測 | HUD の ms は CPU が命令を積んだ時間 | 計測(`F9`)は `glFinish` で待って測る |
+| SSAO の幾何バッファを捨てる | フォワードの絵のために 6.4MB を残してある | フォワードの道を捨てるまで消せない |
 
 **半透明が描けない**のがディファードの最大の弱点で、どのエンジンもここでフォワードを残している。
 今日も粒(Day 49)はライティングパスのあとにフォワードで重ねていて、
-深度を写した(要点7)ので壁の向こうに透けずに済んでいる。
+深度を写した(要点4)ので壁の向こうに透けずに済んでいる。
+
+**今日の差分だけを見ると「得が1つも無い組み替え」に見える**。
+幾何パスが1回減ったぶんだけ速くなっているが、その代わり G-Buffer の 15.8MB を
+毎フレーム書いて読んでいるので、光が1つしか無いうちは<b>ほぼ引き分け</b>になる。
+配当が出るのは光が増えてからで、それが Day 52b。
 
 ## 前Dayからの差分概要
 
@@ -355,23 +237,20 @@ uniform の枠は float 1024 個で、`textured.frag` の他の uniform がす�
 
 | ファイル | 行数 | 役割 |
 |---|---|---|
-| `Render/GBuffer.cs` | 321 | **G-Buffer**。4枚 + 深度の入れ物と、1枚ずつ見る表示(要点2・3) |
-| `Render/DeferredLighting.cs` | 373 | **ライティングパス**。太陽の全画面1枚と、点光源の球(要点5・6) |
-| `Render/PointLight.cs` | 90 | **点光源1つ**。位置・届く距離・色と、減衰の式の CPU 版(要点5) |
-| `Demo/LightSwarm.cs` | 215 | **通りを漂う光の群れ**。数を変えても球が塗る量を揃える(要点10) |
-| `shaders/deferred.frag` | 368 | ライティングパスの画素シェーダ。**`textured.frag` の後半** |
-| `shaders/light-volume.vert` | 27 | 光の球を置く頂点シェーダ |
+| `Render/GBuffer.cs` | 322 | **G-Buffer**。4枚 + 深度の入れ物と、1枚ずつ見る表示(要点1・2) |
+| `Render/DeferredLighting.cs` | 133 | **ライティングパス**。太陽・環境光・発光を全画面1枚で当てる |
+| `shaders/deferred.frag` | 292 | ライティングパスの画素シェーダ。**`textured.frag` の後半** |
 | `shaders/gbuffer-view.frag` | 78 | G-Buffer を1枚ずつ見る |
 
 ### 変更ファイル
 
 | ファイル | 何が変わったか | 差分 |
 |---|---|---|
-| `Render/Shader.cs` | `SetVector4Array` を追加 | +24 / -0 |
 | `Render/Framebuffer.cs` | **カラーを何枚も挿す**(MRT)。`Colors`、`glDrawBuffers` | +108 / -15 |
 | `Render/Ssao.cs` | `Compute` が借りた幾何バッファを受け取る。`BorrowsGeometry` | +44 / -3 |
-| `shaders/textured.frag` | 出口に番号、**G-Buffer の枝で打ち切る**、フォワードの点光源ループ | +149 / -8 |
-| `Program.cs` | 描き方の切り替え、`ApplyLighting` の切り出し、夜、メニュー 9 項目、HUD 1行、自己チェック 31 項目、計測 | +1305 / -42 |
+| `shaders/textured.frag` | 出口に番号、**G-Buffer の枝で打ち切る** | +67 / -7 |
+| `Program.cs` | 描き方の切り替え、`ApplyLighting` の切り出し、メニュー 4 項目、HUD 1行、自己チェック 14 項目 | +842 / -39 |
+| `Day52a.csproj` | `Day51.csproj` からのリネームのみ | — |
 
 **`Program.cs` の差分の半分は自己チェック**(`RunDeferredCheck` と、確認用のシーンを描く道具)。
 描き方の本体は `RenderGBufferPass` と `RenderDeferredLighting` の 2 つで、合わせて 40 行ほどしかない——
@@ -380,65 +259,56 @@ uniform の枠は float 1024 個で、`textured.frag` の他の uniform がす�
 ### 写経する順番
 
 ```
- 1. Render/Shader.cs              SetVector4Array(12 の ApplyForwardLights が使う)
- 2. Render/Framebuffer.cs         MRT(4 の GBuffer が使う)
- 3. Render/PointLight.cs          点光源(新規。6・11・12 が使う)
- 4. Render/GBuffer.cs             G-Buffer(新規。2 の MRT を使う)
- 5. shaders/gbuffer-view.frag     G-Buffer の表示(新規。4 が読み込む)
- 6. Render/DeferredLighting.cs    ライティングパス(新規。3 と 4 を使う)
- 7. shaders/light-volume.vert     光の球(新規。6 が読み込む)
- 8. shaders/deferred.frag         ライティングパス(新規。6 が読み込む)
- 9. shaders/textured.frag         G-Buffer の枝と、フォワードの点光源
-10. Render/Ssao.cs                借りた幾何バッファで遮蔽を計算する
-11. Demo/LightSwarm.cs            光の群れ(新規。3 を使う)
-12. Program.cs                    全部を繋ぐ
-13. Day52.csproj                  Day51.csproj からのリネームのみ
+1. Render/Framebuffer.cs         MRT(2 の GBuffer が使う)
+2. Render/GBuffer.cs             G-Buffer(新規。1 の MRT を使う)
+3. shaders/gbuffer-view.frag     G-Buffer の表示(新規。2 が読み込む)
+4. Render/DeferredLighting.cs    ライティングパス(新規。2 を使う)
+5. shaders/deferred.frag         ライティングパス(新規。4 が読み込む)
+6. shaders/textured.frag         G-Buffer の枝
+7. Render/Ssao.cs                借りた幾何バッファで遮蔽を計算する
+8. Program.cs                    全部を繋ぐ
+9. Day52a.csproj                 Day51.csproj からのリネームのみ
 ```
 
-**依存順に並べてある**。C# のビルドが通るのは 1〜4・6・10〜12 の順で、
-シェーダ(5・7・8・9)は実行時に読むのでビルドには効かない——
+**依存順に並べてある**。C# のビルドが通るのは 1・2・4・7・8 の順で、
+シェーダ(3・5・6)は実行時に読むのでビルドには効かない——
 ただし<b>読み込むクラスの直後に置いておく</b>と、
 「`GBuffer` を写したのに `gbuffer-view.frag` が無くて起動で落ちる」を踏まずに済む。
-9 の `textured.frag` は 8 の `deferred.frag` と<b>同じ関数を2つ持つ</b>(減衰と点光源1つぶん)ので、
+6 の `textured.frag` は 5 の `deferred.frag` と<b>同じ関数を持つ</b>(`CookTorrance` と `ShadowFactor`)ので、
 並べて写すと見比べやすい。
 
 `Program.cs` の中は次の順で読むとよい。
 
 ```
-  フィールド(_deferred / _gbuffer / _deferredLighting / _swarm / _night)
+  フィールド(_deferred / _gbuffer / _deferredLighting)
     → OnLoad / OnFramebufferResize / F5 / OnClosing       作る・作り直す・畳む
-    → OnUpdate の _swarm.Update                            光を漂わせる
     → OnRender の RenderGBufferPass と分岐                 **今日の骨格**
     → RenderSsaoPass の頭                                  G-Buffer を借りる
-    → Render3D → ApplyLighting / ApplyForwardLights       切り出したもの
-    → ApplyDemoLighting / UnloadDemoScene                  夜
-    → UseDeferred / CurrentLights / RenderGBufferPass / RenderDeferredLighting
-    → DeferredLabel / DescribeDeferred / BenchmarkDeferred
+    → Render3D → ApplyLighting                            切り出したもの
+    → UseDeferred / RenderGBufferPass / RenderDeferredLighting
+    → DeferredLabel / DescribeDeferred
     → RunDeferredCheck と道具(RenderProbe / ReadGBuffer / ReconstructWorld …)
-    → BuildDebugMenu の末尾(メニュー 1 ページ)と RunDebugMenuCheck の 199
+    → BuildDebugMenu の末尾(メニュー 1 ページ)と RunDebugMenuCheck の 194
     → DrawOverlayInfo(HUD 1行)
 ```
 
 ## 設計書
 
-**層は今日も増えていない**。`Render/` に型が4つ(`GBuffer` / `GBufferView` / `DeferredLighting` /
-`PointLight`)、`Demo/` に型が1つ(`LightSwarm`)増えて、`Render/` の3クラスの口が広がっただけ。
+**層は今日も増えていない**。`Render/` に型が3つ(`GBuffer` / `GBufferView` / `DeferredLighting`)
+増えて、`Render/` の2クラスの口が広がっただけ。
 
 | 増えたもの | どこに | 何をするか |
 |---|---|---|
 | `Render/GBuffer` | `Render/` | 4枚 + 深度。**5つ目の「自分でバッファを持ち、シェーダは借りる」クラス** |
 | `Render/GBufferView` | `Render/` | G-Buffer のどれを見るか(8 通り) |
-| `Render/DeferredLighting` | `Render/` | 太陽の全画面1枚 + 点光源の球。**バッファを持たない** |
-| `Render/PointLight` | `Render/` | 点光源1つ。**GL を知らない**(`Pbr` と同じ置き方) |
-| `Demo/LightSwarm` | `Demo/` | 光の群れ。**GL を知らない** |
+| `Render/DeferredLighting` | `Render/` | 太陽・環境光・発光の全画面1枚。**バッファを持たない** |
 
 | 変わったもの | 何が変わったか | 差分 |
 |---|---|---|
 | `Render/Framebuffer` | カラーを何枚も挿せる(MRT)。`Colors` | +108 / -15 |
 | `Render/Ssao` | `Compute` が幾何バッファを借りられる | +44 / -3 |
-| `Render/Shader` | `SetVector4Array` | +24 / -0 |
-| `shaders/textured.frag` | G-Buffer の枝、点光源のループ | +149 / -8 |
-| `Program.cs` | 描き方の切り替え、`ApplyLighting`、夜、メニュー、自己チェック | +1305 / -42 |
+| `shaders/textured.frag` | G-Buffer の枝 | +67 / -7 |
+| `Program.cs` | 描き方の切り替え、`ApplyLighting`、メニュー、自己チェック | +842 / -39 |
 
 ### 今日足したものは、どこに繋がったか
 
@@ -447,12 +317,10 @@ flowchart LR
     R3["Program.Render3D<br/>Day 39〜51。何を描くかの分岐"] -- "uGBufferPass = 1 で呼ぶだけ" --> TF["textured.frag の前半<br/>表面を決めて帰る"]
     TF -- "layout location 0〜3" --> GB["GBuffer<br/>4枚 + 深度"]
     GB -- "2枚目(Texture 1枚)" --> SS["Ssao.Compute<br/>幾何パスを描かない"]
-    GB -- "Apply で 0・1・2・4 番に刺す" --> DL["DeferredLighting<br/>全画面1枚 + 光の球"]
-    LS["LightSwarm<br/>GL を知らない"] -- "PointLight の並び" --> DL
-    LS -- "64 個まで" --> FW["textured.frag の後半<br/>フォワードの点光源ループ"]
+    GB -- "Apply で 0・1・2・4 番に刺す" --> DL["DeferredLighting<br/>全画面1枚"]
     AL["Program.ApplyLighting<br/>太陽・影・IBL・SSAO"] -. "Action 1本" .-> DL
-    AL --> FW
-    GB -- "深度を写す" --> PS["_post.Scene<br/>光の球と粒が比べる相手"]
+    AL --> FW["textured.frag の後半<br/>フォワードの本描画"]
+    GB -- "深度を写す" --> PS["_post.Scene<br/>あとから描く粒が比べる相手"]
     DL --> PS
 ```
 
@@ -476,15 +344,14 @@ flowchart TD
     SP["RenderShadowPass<br/>光の目から深度(Day 33)"] --> UD{"UseDeferred?<br/>スイッチ ON・デモ v1 が出ている<br/>ゲーム中でない・成分表示でない"}
     UD -->|No| SSF["RenderSsaoPass<br/>自前の幾何パス → 遮蔽(Day 37)"]
     SSF --> PBF["_post.Begin → 空"]
-    PBF --> FWD["Render3D<br/>表面を決めて、その場で光を当てる<br/>点光源は 64 個まで"]
+    PBF --> FWD["Render3D<br/>表面を決めて、その場で光を当てる"]
     UD -->|Yes| GBP["RenderGBufferPass<br/>_gbuffer.Begin → uGBufferPass = 1<br/>**Render3D をそのまま呼ぶ** → uGBufferPass = 0"]
     GBP --> SSD["RenderSsaoPass<br/>**G-Buffer の2枚目を借りる**<br/>幾何パスを描かない"]
     SSD --> PBD["_post.Begin → 空"]
     PBD --> BL["BlitDepthTo(_post.Scene)<br/>**深度を写す**"]
     BL --> SUN["全画面1枚: 太陽・環境光・発光<br/>空の画素は discard で残す"]
-    SUN --> PT["光の球を1個ずつ<br/>表面カリング・GEQUAL・加算"]
     FWD --> PR["RenderParticles<br/>深度の写し → 粒 → トレイル"]
-    PT --> PR
+    SUN --> PR
     PR --> PE["_post.End<br/>ブルーム → トーンマップ → FXAA"]
     PE --> DBG["DrawDebug<br/>影 / SSAO / **G-Buffer**"]
 ```
@@ -497,7 +364,7 @@ flowchart TD
 
 **`RenderParticles` が両方の道の合流点に居る**のが大事なところ。
 半透明は G-Buffer に入れられない(1画素に表面を1つしか持てない)ので、
-どちらの道でも最後にフォワードで重ねる。深度を写してある(要点7)ので、
+どちらの道でも最後にフォワードで重ねる。深度を写してある(要点4)ので、
 ディファードの道でも粒は壁の向こうに透けない。
 
 ### textured.frag を真ん中で切る
@@ -512,8 +379,8 @@ flowchart TD
     CUT -->|"Yes(G-Buffer パス)"| OUT["4つの出口に書いて return<br/>0: sqrt(ベース) / 1: ORM<br/>2: ビュー法線 + 距離 / 3: 発光"]
     CUT -->|"No(フォワード)"| SSAO["ScreenSpaceOcclusion(Day 37)"]
     SSAO --> DBG["成分表示の窓(Day 32〜41)"]
-    DBG --> LIT["影 → Cook-Torrance → IBL<br/>+ **点光源のループ**(Day 52)"]
-    OUT -.->|"次のパスで"| DF["deferred.frag<br/>G-Buffer を開く → 影 → Cook-Torrance → IBL<br/>点光源は球ごとに1個"]
+    DBG --> LIT["影 → Cook-Torrance → IBL"]
+    OUT -.->|"次のパスで"| DF["deferred.frag<br/>G-Buffer を開く → 影 → Cook-Torrance → IBL"]
 ```
 
 **切る場所は SSAO の手前でなければならない**。SSAO はディファードのとき G-Buffer から作るので、
@@ -522,38 +389,12 @@ G-Buffer パスの時点ではまだ出来ていない。発光を SSAO の上�
 
 **成分表示の窓(Shift+9 の類)が後半に居る**ので、ディファードでは出せない。
 成分表示中は `UseDeferred` がフォワードに戻す——
-ディファードの側の同じ窓が「G-Buffer を見る」(`F5`)になる。
+ディファードの側の同じ窓が「G-Buffer を見る」(`F3`)になる。
 
-**同じ関数が2本のシェーダにある**(`CookTorrance`・`ShadowFactor`・`PointAttenuation`・
-`PointLightContribution`)。これが今日いちばん大きな歪みで、「今日残した歪み」の1つ目に書いた。
+**同じ関数が2本のシェーダにある**(`CookTorrance`・`ShadowFactor`)。
+これが今日いちばん大きな歪みで、「今日残した歪み」の1つ目に書いた。
 
-### 点光源が1画素を塗るまで — 5つの関門
-
-```mermaid
-flowchart TD
-    L["PointLight 1個<br/>位置・届く距離・色"] --> C1{"CullLights ?<br/>IsVisible(視錐台, 中心, 半径)"}
-    C1 -->|"外"| X1["**描かない**(ドローコール 0)<br/>絵は変わらない"]
-    C1 -->|"かかる"| V["light-volume.vert<br/>normalize(頂点) × 半径 × 1.028 + 位置"]
-    V --> C2{"表面カリング<br/>(裏面だけ残す)"}
-    C2 --> C3{"深度 GEQUAL<br/>裏面が G-Buffer の面より奥?"}
-    C3 -->|"手前"| X2["塗らない<br/>面は球よりずっと奥"]
-    C3 -->|"奥"| F["deferred.frag(uPointLightPass = 1)<br/>G-Buffer を開いて位置を戻す"]
-    F --> C4{"距離 >= 届く距離 ?"}
-    C4 -->|"Yes"| X3["0 を足す<br/>(壁の裏に隠れた光。代償は払っている)"]
-    C4 -->|"No"| CT["Cook-Torrance × 色 × 減衰 × N・L"]
-    CT --> ADD["加算で重ねる<br/>One, One"]
-```
-
-**関門が CPU・GPU の固定機能・シェーダの3か所に分かれている**。
-1つ目(視錐台)は落としても絵が変わらない最適化で、`F7` で切ると確かめられる。
-2つ目と3つ目(カリングと深度)は GPU がシェーダを走らせる前に落とすので、ほぼ無料。
-4つ目(距離)だけがシェーダの中で、ここまで来た画素は<b>0 を足すだけでも代償を払っている</b>。
-
-**3つ目を「奥なら通す」にしたせいで、壁の裏の光も通る**(`X3`)。
-床の下に光を置いても1画素も明るくならないことは自己チェックが確かめているが、
-その球が塗った画素のぶんは払っている。「光の重なり」(`F6`)に出ているのはこの全部。
-
-### 今日残した歪み(5つ)
+### 今日残した歪み(4つ)
 
 **1つ目: 同じ BRDF が3か所にある**。`Pbr.cs`(Day 35。検算用)と `textured.frag` に加えて、
 今日 `deferred.frag` にも `CookTorrance` 以下を書き写した。
@@ -565,12 +406,12 @@ flowchart TD
 | `deferred.frag` | ディファード。D・G・F の出口を外した版 |
 
 GLSL には `#include` が無いので、書き写すしかなかった。
-自己チェックは<b>文字列が揃っているか</b>(`MIN_ROUGHNESS`、窓の式、出口の番号)と、
+自己チェックは<b>文字列が揃っているか</b>(`MIN_ROUGHNESS`、出口の番号)と、
 <b>フォワードとディファードで同じ絵になるか</b>(平均の相対差 0.33%)の2段で見張っている。
 直し方は `Shader` に `#include` を足して共通部分を1本のファイルへ出すこと——
 エンジンが文字列を差し込むだけの仕組みで、Unreal の `.ush` がまさにこれ。
-**Day 53 で Forward+ がフォワードの点光源ループを書き換える**ので、
-そのときに2か所を同時に直すことになったら、先に `#include` を入れる時期になる。
+**Day 52b で点光源の式が2本のシェーダに増え、Day 53 で Forward+ がもう一度書き換える**ので、
+そのあたりが `#include` を入れる時期になる。
 
 **2つ目: 同じ並びを手で書き写すパスが1本残った**。
 G-Buffer パスは `Render3D` をそのまま呼ぶ形にしたので、何を描くかを書き写していない。
@@ -580,16 +421,11 @@ SSAO の自前の幾何パスと幾何バッファ(6.4MB)も、フォワード�
 影パスも「描くものの一覧を1つ持ち、パスごとに使うシェーダだけ変える」形にするのが筋で、
 Day 56 でシーンの光を整理するときにまとめて片付けるのがよさそう。
 
-**3つ目: 位置の精度が 16F**(要点3)。影の縁の 0.2% の画素でフォワードと 5% 以上ずれる。
+**3つ目: 位置の精度が 16F**(要点2)。影の縁の 0.2% の画素でフォワードと 5% 以上ずれる。
 見た目には判別できない量なので今日は残した。
 深度バッファ(24bit)から戻すほうが手前の精度は高く、それが改造課題2。
 
-**4つ目: 光1個 = ドローコール1回**。1024 個で 940 回(画面外の 84 個は落とす)で、
-1回ごとに uniform を3つ送り直している。
-球はどれも同じメッシュなので、位置と色を頂点バッファに並べて1回で描ける(インスタンシング)。
-それが改造課題3。
-
-**5つ目: ディファードに乗れない絵がある**。材質グリッド(Day 35)は光の向きと強さを
+**4つ目: ディファードに乗れない絵がある**。材質グリッド(Day 35)は光の向きと強さを
 <b>描画の分岐の中で</b>差し替えるので、`ApplyLighting` の値とずれる。
 Day 35 の設計書に「分岐の中で全体設定を書き換えるのは本来まずい形」と書いた、その形がここで効いた。
 今日は `UseDeferred` がデモ v1 のときだけに絞って逃げている。
@@ -599,26 +435,23 @@ Day 35 の設計書に「分岐の中で全体設定を書き換えるのは本�
 2つとも、光の設定をパスごとに持つ形へ整理する Day 56 の仕事に回す。
 
 Day 51 の設計書を丸ごと引き継ぎ、差分の当たった図にだけ手を入れてある。
-変わった図は次の5つ。
+変わった図は次の3つ。
 
 | 図 | 何が変わったか |
 |---|---|
-| `全体構成` | `Demo/` → `Render/` の矢印に `PointLight` が乗った(層も矢印も増えていない) |
-| `Render` のクラス図 | **`GBuffer` / `GBufferView` / `DeferredLighting` / `PointLight` が増えた**。`Framebuffer` / `Shader` / `Ssao` の口が広がった |
-| `Demo` のクラス図 | `LightSwarm` が増えた。ページが 19 枚から **20 枚**へ |
+| `Render` のクラス図 | **`GBuffer` / `GBufferView` / `DeferredLighting` が増えた**。`Framebuffer` / `Ssao` の口が広がった |
 | `1フレームの流れ` | `RenderGBufferPass` が影の次に入り、デモの枝がディファードに分かれた |
-| `1画素の色が決まるまで` | **真ん中に出口ができた**(G-Buffer の枝)。直接光に点光源のループが足された |
+| `1画素の色が決まるまで` | **真ん中に出口ができた**(G-Buffer の枝) |
 
-新しく足した図が4つ(この節の上に並べたもの)。
+新しく足した図が3つ(この節の上に並べたもの)。
 
 | 図 | 何を描いたか |
 |---|---|
 | 今日足したものが繋がった場所 | 何を描くかとどう照らすかを、2つの道で共有していること |
 | フォワードとディファードの分かれ道 | ジオメトリを描く箱が 3 つから 2 つになること |
 | textured.frag を真ん中で切る | 切る場所がなぜ SSAO の手前なのか |
-| 点光源が1画素を塗るまで | CPU・固定機能・シェーダの5つの関門 |
 
-`Model/`・`Scene/`・`Ecs/`・`Physics/`・`Text/`・`Audio/`・`Game/` の図は**昨日のまま**で、今日は1つも触っていない。
+`Demo/`・`Model/`・`Scene/`・`Ecs/`・`Physics/`・`Text/`・`Audio/`・`Game/` の図は**昨日のまま**で、今日は1つも触っていない。
 
 ### 全体構成 — 9つの層と、その上のゲームとデモ(Day 39 から変更なし)
 
@@ -648,7 +481,7 @@ graph TD
     P --> C
     MD -->|"Mesh / Material / Texture / Vertex / RenderResources"| R
     MD -->|"Handle"| C
-    DM -->|"Mesh / Material / Primitives / RenderResources / PointLight(Day 52)"| R
+    DM -->|"Mesh / Material / Primitives / RenderResources"| R
     DM -->|"Model / GltfLoader"| MD
     DM -->|"Handle"| C
     DM -->|"PhysicsWorld / RigidBody / Collider(Day 51)"| PH
@@ -663,11 +496,10 @@ graph TD
     A -->|Handle と ResourcePool だけ| C
 ```
 
-**Day 52 でも層は増えていない**。増えたのは `Render/` の中の型4つと `Demo/` の中の型1つで、
-矢印は1本も足していない——`Demo/LightSwarm` が `Render/PointLight` を作って返すのは、
-すでにある `Demo/` → `Render/` の矢印の中に収まる(図のラベルに `PointLight` を足しただけ)。
-`PointLight` と `LightSwarm` はどちらも GL を1行も知らないので、
-矢印が増えないどころか、<b>自己チェックの 11 項目が窓を開かずに走る</b>。
+**Day 52a でも層は増えていない**。増えたのは `Render/` の中の型3つで、
+矢印は1本も足していない——G-Buffer もライティングパスも `Render/` の中で閉じていて、
+外から見ると「本描画の描き方が変わった」だけになる。
+`Demo/` から `Render/` への矢印に `PointLight` が乗るのは Day 52b。
 
 **Day 43 でも層は増えていない**。増えたのは `Physics/` の中のクラス8つで、
 矢印は1本も足していない——`Physics/` は今日も
@@ -868,7 +700,6 @@ Day 31 でそれを実行し、`Core/ResourceManager.cs` は `Render/RenderResou
 
 図に描いておくと、こういう判断が「なんとなく」ではなくできるようになる。
 **設計書は、次に何かを足すときのために書いている**。
-
 ### Core — 時間・入力・リソース(Day 45 で `GameAction` に `Jump` が増えた)
 
 `GameAction` は `[Flags]` の `uint` なので 32 個までしか作れない。
@@ -945,7 +776,7 @@ classDiagram
 - **`InputSnapshot` は値**。だから記録・再生で丸ごと差し替えられる(Day 20 の肝)
 - **`Core/` は GL を1行も知らない**。`Silk.NET.OpenGL` を using しているファイルが無い、が実際の姿
 
-### Render — OpenGL の薄い皮(Day 52 で `GBuffer` と `DeferredLighting` と `PointLight` が増えた)
+### Render — OpenGL の薄い皮(Day 52a で `GBuffer` と `DeferredLighting` が増えた)
 
 **`GBuffer` は5つ目の「自分でバッファを持ち、シェーダは借りる」クラス**(Day 52)。
 `PostProcess`(Day 31)・`ShadowMap`(Day 33)・`EnvironmentMap`(Day 36)・`Ssao`(Day 37)と
@@ -954,7 +785,7 @@ Day 37 の設計書に「この形が4例あることの値打ちは、Day 52 �
 設計を考え直さなくてよいこと」と書いた、その5つ目になる。
 
 **`DeferredLighting` はバッファを持たない**のが、これまでのパスとの違い。
-描く先は後処理のシーンバッファ(`_post.Scene`)で、持っているのはシェーダ2本と光の球1本だけ。
+描く先は後処理のシーンバッファ(`_post.Scene`)で、持っているのは画素シェーダ1本と空の VAO だけ。
 `GBuffer` から `DeferredLighting` への矢印は無く、逆向き(`DeferredLighting ..> GBuffer`)だけがある——
 G-Buffer は「誰が読むか」を知らない。
 
@@ -965,14 +796,6 @@ G-Buffer の2枚目を Day 37 の形に合わせた、その配当がこの「�
 **`Framebuffer` が4つ目の形を持った**(Day 52)。Day 31 の「カラー1枚 + 深度レンダーバッファ」、
 Day 33 の「深度テクスチャだけ」に加えて、**カラー N 枚 + 深度レンダーバッファ**(MRT)。
 `Color` は今日も 0 番を指していて、Day 51 までの呼び出しは1つも変わらない。
-
-**`PointLight` はどこからも矢印が出ていない**(`Pbr` と同じ置き方)。
-`System.Numerics` だけで書かれていて、減衰の式の CPU 版を持つ。
-シェーダ2本(`textured.frag` / `deferred.frag`)に同じ式があり、こちらは検算用。
-
-**`Mesh.ReadIndices` は Day 35 まで遡って直した**(検証の途中で分かったこと 1)。
-`ElementArrayBuffer` は VAO の記録なので、読むだけなら `CopyReadBuffer` に結び付ける。
-口は同じで、Day 51 の `Mesh.cs` にも同じ直しが入っているので、今日の差分には出ない。
 
 **`FollowCamera` は `OrbitCameraController` を置き換えない**(Day 51)。
 マウスを受けるのは今日もあちらで、`FollowCamera` は
@@ -991,7 +814,6 @@ Day 33 の「深度テクスチャだけ」に加えて、**カラー N 枚 + �
 `Collision3D` がカプセルの判定を球に落として解いているのと、
 `Primitives` が円柱と球でカプセルを組み立てているのは、
 同じ「線分 + 半径」の言い換えになっている。
-
 
 ```mermaid
 classDiagram
@@ -1036,7 +858,6 @@ classDiagram
         +SetVector3(name, value)
         +SetVector3Array(name, values)
         +SetVector4(name, value)
-        +SetVector4Array(name, values)
         +SetMatrix3(name, value)
         +SetMatrix4(name, value)
         +SetMatrix4Array(name, values)
@@ -1478,27 +1299,8 @@ classDiagram
         Emissive
     }
     class DeferredLighting {
-        +float VolumeScale
-        +bool OverdrawView
-        +bool CullLights
-        +int LightsDrawn
-        +int LightsCulled
-        +int VolumeTriangles
-        +Render(camera, gbuffer, lights, applyLighting)
-        +IsVisible(viewProjection, center, radius) bool$
-        +MeasureInnerRadius() float
+        +Render(camera, gbuffer, applyLighting)
         +ReloadShaders()
-        -DrawPointLights(camera, gbuffer, lights, applyLighting)
-        -Inside(plane, center, radius) bool$
-    }
-    class PointLight {
-        <<record struct>>
-        +Vector3 Position
-        +float Radius
-        +Vector3 Color
-        +Vector4 PositionAndRadius
-        +int MaxForward$
-        +Attenuation(distance, radius) float$
     }
 
     OrbitCameraController --> Camera : 球面座標で位置を書く
@@ -1559,12 +1361,9 @@ classDiagram
     GBuffer ..> Camera : 逆ビュー行列と射影の2つの数
     GBuffer ..> GBufferView
     DeferredLighting ..> GBuffer : Apply で4枚を刺してもらう
-    DeferredLighting *-- Mesh : 光の球(1本を使い回す)
-    DeferredLighting ..> Primitives : 球を作ってもらう
-    DeferredLighting ..> PointLight : 並びを読むだけ
     DeferredLighting ..> RenderResources : シェーダを借りる
-    DeferredLighting ..> Camera : ビュー射影と視錐台
-    DeferredLighting ..> Shader : 太陽 / 点光源の2本
+    DeferredLighting ..> Camera : GBuffer.Apply へ渡す
+    DeferredLighting ..> Shader : 太陽の全画面1枚
 
     ParticleEmitter *-- Particle : 生きている粒の配列
     ParticleEmitter ..> ParticleShape : 撒く形
@@ -1853,7 +1652,6 @@ Day 35 で `Pbr` を CPU にも持った判断の、そのまま2例目になる
 `∂P/∂u` を実際に計算するしかない。その結果 **`w` が -1 になる**——
 Day 34 で入れた「符号1個を持つ」仕組みが、ここではじめて -1 の側で使われる。
 
-
 **Day 28 で `Texture` に足したのは2つだけ**。
 `CreateR8` が1チャンネルの空テクスチャを作り、`UploadR8` がその一部を書き換える。
 どちらもグリフのために足したものだが、**`Texture` はグリフを知らない**——
@@ -1961,7 +1759,6 @@ Day 21 からの線がそのまま出ている。
 両者は `Shader` と `Texture` を共有しているだけで互いを知らない。
 `Mesh` は「形が決まっていて毎フレーム変わらないもの」、
 `SpriteBatch` は「毎フレーム頂点を作り直すもの」という使い分けになっている。
-
 ### Scene — GameObject + Component
 
 ```mermaid
@@ -3931,7 +3728,7 @@ Day 23 で「ECS は構造体の配列の一般化」と書いたが、
 遊んで気になったことは全部ここを触ることになるので、
 **数字がコードの中に散らばっていると調整が苦行になる**。
 
-### Demo — エンジンを使う側の、もう1つの層(Day 52 で `LightSwarm` が増えた)
+### Demo — エンジンを使う側の、もう1つの層(Day 52a では1文字も変わっていない)
 
 ```mermaid
 classDiagram
@@ -4027,24 +3824,6 @@ classDiagram
         +PartJoints(part) ReadOnlySpan
         +BlendLabel() string
         +Dispose()
-    }
-    class LightSwarm {
-        +int[] CountSteps$
-        +float BaseRadius$
-        +int BaseCount$
-        +Vector3 BoundsMin$
-        +Vector3 BoundsMax$
-        +int Capacity
-        +int Count
-        +float Radius
-        +float Intensity
-        +float Time
-        +ReadOnlySpan Lights
-        +RadiusFor(count) float$
-        +HeightRange(radius) tuple$
-        +SetCount(count)
-        +Update(deltaSeconds)
-        -Evaluate()
     }
     class GradeSettings {
         <<record struct>>
@@ -4168,7 +3947,6 @@ classDiagram
     CameraPath ..> OrbitCameraController : EyePosition だけ借りる
     FeatureToggles *-- Feature : 機能の並び
     DebugMenu *-- Page : ページの並び(20 枚)
-    LightSwarm ..> PointLight : 位置と色を作って並べる(Render/)
     Page *-- Entry : 割り当ての並び(席の順)
     DemoScene *-- Model : glTF を所有する
     DemoScene ..> GltfLoader : 読んでもらう
@@ -4178,13 +3956,8 @@ classDiagram
     DemoScene ..> Primitives : 借りた板(Program が作ったもの)
 ```
 
-**Day 52 で `Demo/` に1つ増えた**。`LightSwarm` は `Program` が持ち(`_swarm`)、
-知っているのは `Render/PointLight` だけ——GL もカメラもシーンも知らない。
-
-**裏通りの箱を数字で持っている**(`BoundsMin` / `BoundsMax`)のが、このクラスでいちばん筋の悪いところ。
-壁の位置は `demo-v1.json` に書いてあるのに、それを読まずに同じ数字を手で写している。
-光の置き場をシーンの持ち物にする(JSON に光の節を足す)のは、多光源シーン化の Day 56 の仕事になる。
-今日の群れは「数を比べるための道具」でシーンの一部ではないので、あえて `DemoScene` の外に置いた。
+**Day 52a で `Demo/` は1文字も変わっていない**。増えたのは
+`DebugMenu` に載るページが1枚(「ディファード」)だけで、それは `Program` 側の登録になる。
 
 **Day 51 で `Demo/` に3つの型が増えた**。並べ方に癖がある。
 
@@ -4266,7 +4039,6 @@ JSON には「マテリアルの一覧」「板の一覧」「glTF の一覧」�
 `CameraPath` は1行も触っていない。
 プレイアブルデモとカメラワークは<b>排他</b>(`ShowPlayableDemo` が `StopTourIfRunning` を呼ぶ)で、
 `Camera` に書き込む型が同時に2つ動くことはない。
-
 ### カメラが1フレーム進むまで — 時刻から姿勢へ、5段
 
 ```mermaid
@@ -4386,20 +4158,19 @@ flowchart TD
     LC["UpdateLocomotion(dt)<br/>速度 → ClipWeight[] → SetBlend<br/>**重みを先に決める**"]
     LC --> AN["_animation.Update(dt)<br/>**可変 dt**。位相を進めて<br/>混ぜる → 世界行列 → 関節行列"]
     AN --> AV["_avatar.Advance(Character, dt, blend)<br/>**プレイアブル中だけ**<br/>速さ → 重み → 位相 → 世界行列"]
-    AV --> SW["_swarm.Update(dt)(Day 52)<br/>点光源の位置は時刻の関数"]
-    SW --> FT["_features.Update(dt)<br/>機能ツアーの2相を回す"]
+    AV --> FT["_features.Update(dt)<br/>機能ツアーの2相を回す"]
     FT --> FP["fps / タイトルバー"]
 
     W --> R["OnRender"]
     R --> RU["_resources.Update()<br/>裏で復号済みの絵を GPU へ<br/>1フレームの枚数に上限あり"]
     RU --> GA["_glyphAtlas.BeginFrame()<br/>焼いた数の集計を戻す"]
     GA --> SP["RenderShadowPass()<br/>光の目から深度だけを焼く<br/>デモ中は <b>CastShadow が true のものだけ</b><br/><b>プレイアブル中はキャラクターも落とす</b><br/>材質テスト・材質グリッド中は飛ばす"]
-    SP --> GBP["RenderGBufferPass()(Day 52)<br/>ディファードなら Render3D を<br/><b>G-Buffer の4枚へ</b>1回描く<br/>フォワードなら素通り"]
+    SP --> GBP["RenderGBufferPass()(Day 52a)<br/>ディファードなら Render3D を<br/><b>G-Buffer の4枚へ</b>1回描く<br/>フォワードなら素通り"]
     GBP --> SS["RenderSsaoPass()<br/>カメラの目から法線と距離を焼く<br/>→ 遮蔽を計算 → ぼかす<br/>デモ中は <b>Items 全部</b>。ゲーム中は飛ばす<br/><b>プレイアブル中はキャラクターも遮蔽物</b><br/><b>ディファードなら G-Buffer を借りて幾何パスを描かない</b>"]
     SS --> PB["_post.Begin(ClearColor)<br/>シーンバッファへ切り替えて Clear"]
     PB --> SKY["_env.DrawSkybox()<br/>立方体を内側から。<b>深度を書かない</b><br/>ゲーム中は出さない"]
-    SKY --> DFQ{"UseDeferred?(Day 52)<br/>デモ v1 が出ていて<br/>成分表示でない"}
-    DFQ -->|Yes| DL["RenderDeferredLighting()<br/>深度を写す → 太陽の全画面1枚<br/>→ 点光源の球を加算"]
+    SKY --> DFQ{"UseDeferred?(Day 52a)<br/>デモ v1 が出ていて<br/>成分表示でない"}
+    DFQ -->|Yes| DL["RenderDeferredLighting()<br/>深度を写す → 太陽の全画面1枚<br/>(環境光と発光もここ)"]
     DFQ -->|No| PLQ{"プレイアブルデモ?"}
     DL --> PT
     PLQ -->|Yes| RPL["Render3D → RenderPlayable&lpar;&rpar;<br/>Items → キャラクターのパーツ<br/><b>F6 なら環境の箱とカプセルも</b>"]
@@ -4433,20 +4204,20 @@ flowchart TD
     UQ -->|"通さない(既定)"| PE["_post.End(幅, 高さ)<br/>合成 → LDR → FXAA → 画面"]
     PE --> SD["_shadow.DrawDebug(幅, 高さ)<br/>「シャドウマップ」の F8。**後処理の外**"]
     SD --> AD["_ssao.DrawDebug(幅, 高さ)<br/>「SSAO」の F3。**全画面**"]
-    AD --> GD["_gbuffer.DrawDebug(幅, 高さ)(Day 52)<br/>「ディファード」の F5。<b>全画面</b>"]
+    AD --> GD["_gbuffer.DrawDebug(幅, 高さ)(Day 52a)<br/>「ディファード」の F3。<b>全画面</b>"]
     GD --> TX2["RenderText()<br/>**後処理の外。いちばん最後**<br/>FXAA もトーンマップも掛からない"]
 ```
 
-**Day 52 でパスが1本前に増え、分岐が1つ増えた**。影の次に `RenderGBufferPass` が入り、
+**Day 52a でパスが1本前に増え、分岐が1つ増えた**。影の次に `RenderGBufferPass` が入り、
 デモの枝の手前で `UseDeferred` が分かれる。ディファードの道では `Render3D` を呼ぶ場所が
 G-Buffer パスへ移り、デモの枝があった位置には<b>三角形を1つも描かない</b>ライティングパスが入る。
 
 **`RenderParticles` は両方の道の合流点のまま**。半透明は G-Buffer に入れられないので、
 どちらの道でも最後にフォワードで重ねる。ライティングパスが G-Buffer の深度をシーンのバッファへ
-写してある(要点7)ので、粒は壁の向こうに透けない。
+写してある(要点4)ので、粒は壁の向こうに透けない。
 
 **デモ以外の絵(材質グリッド・モデル単体)とゲームモードは今日もフォワード**。
-`UseDeferred` がデモ v1 のときだけ true を返す(設計書「今日残した歪み」の5つ目)。
+`UseDeferred` がデモ v1 のときだけ true を返す(設計書「今日残した歪み」の4つ目)。
 
 **Day 51 で分岐が3か所に増えた**。`OnUpdate` の側に2本
 (追従カメラと、キャラクターの姿勢)、`OnRender` の側に1本(`RenderPlayable`)。
@@ -4630,7 +4401,6 @@ Day 31 までのデモは `「HDR とブルーム」の F11` を「モデル無�
 前はガンマ(1/2.2 乗)を通っていたので 0.95 が 0.977 に持ち上がっていた——
 **Day 37 までより文字がわずかに暗く見える**のはそのためで、
 UI の色は表示空間で決めるものなので、こちらのほうが筋が通っている。
-
 ### 影が1枚出るまで — 2つのパスと、5つの落とし穴
 
 ```mermaid
@@ -4930,7 +4700,7 @@ flowchart TD
     UV --> TEX["5枚のマップを **ずらしたあとの UV** で読む<br/>ベース / MR / 法線 / AO / 発光"]
     TEX --> NM["PerturbNormal<br/>接空間の法線を世界へ(Day 34)"]
     NM --> OV["金属度・粗さの上書き(Day 35)<br/>負なら素通し"]
-    OV --> GBQ{"uGBufferPass ?(Day 52)"}
+    OV --> GBQ{"uGBufferPass ?(Day 52a)"}
     GBQ -->|"1"| GBO["**G-Buffer の4枚に書いて return**<br/>0: sqrt(ベース) / 1: AO・粗さ・金属度<br/>2: ビュー法線 + 距離 / 3: 発光<br/>後半は deferred.frag が画素ごとにやり直す"]
     GBQ -->|"0"| AO["**ScreenSpaceOcclusion()**(Day 37)<br/>gl_FragCoord / 画面の大きさ で引く<br/>マップの AO と掛け合わせる"]
     AO --> DBG1{"成分 1〜7, 12, 21 ?"}
@@ -4945,7 +4715,7 @@ flowchart TD
 
     CT --> DBG3{"成分 15〜17 ?"}
     DBG3 -->|Yes| OUT3["F / D / G を1枚ずつ"]
-    DBG3 -->|No| DIR["直接光<br/>拡散・鏡面 × 光 × N・L × 影<br/>+ **点光源のループ**(Day 52。64 個まで)"]
+    DBG3 -->|No| DIR["直接光<br/>拡散・鏡面 × 光 × N・L × 影"]
     DIR --> IBL{"uIblEnabled ?"}
     IBL -->|"1"| AMB["**IBL**(Day 36)<br/>拡散 = kD × irradiance(N) × albedo × <b>AO×SSAO</b><br/>鏡面 = prefiltered(R, 粗さ) × (kS×A + B) × <b>AO×SSAO</b>"]
     IBL -->|"0"| AMB2["Day 35 まで<br/>環境光は定数。**向きが無い**<br/>金属はほぼ黒"]
@@ -4961,16 +4731,12 @@ flowchart TD
     FB --> PP["PostProcess<br/>明部抽出 → ぼかし → 露出 → トーンマップ → ガンマ"]
 ```
 
-**Day 52 でこの図の真ん中に出口が1つできた**(`GBQ`)。上書きまでが「表面を決める」前半、
+**Day 52a でこの図の真ん中に出口が1つできた**(`GBQ`)。上書きまでが「表面を決める」前半、
 SSAO から下が「光を当てる」後半で、G-Buffer パスは前半だけ走らせて帰る。
 **切る場所は SSAO の手前でなければならない**——ディファードの SSAO は G-Buffer から作るので、
 G-Buffer パスの時点ではまだ出来ていない。発光を SSAO より前へ上げたのはそのため
 (出口で書くものが全部、切れ目より前に揃っている必要がある)。
 下の表で「SSAO はどこでもよい」と書いた段に、今日1つだけ制約ができたことになる。
-
-**直接光の段に点光源のループが入った**(フォワードのぶん)。全部の光について距離を測り、
-届く光だけ `CookTorrance` をもう一度呼ぶ。同じ関数が `deferred.frag` にもあり、
-あちらは球1個につき1回だけ走る。
 
 **読み取ってほしいのは順番の必然性**で、上から下へ「動かせない理由」がある。
 
@@ -5026,7 +4792,6 @@ Day 31 で RGBA16F のシーンバッファを用意しておいたので、
 ここで切られずに後処理まで届く——
 **8bit(「HDR とブルーム」の F2)に落とすと、粗さの左端が全部同じ白になる**のを確かめられる。
 PBR と HDR が対で語られるのはこのため。
-
 ### HDR パイプラインの中身 — 11 回のフルスクリーンパス
 
 `_post.End()` の中で何が起きているか。**入力と出力を全部書き出す**と、
@@ -5613,7 +5378,7 @@ Day 25 の改造課題3(速い弾が細い壁をすり抜ける)とまったく�
 
 ## 完成条件
 
-`dotnet run --project reference/Day52 -c Release` で起動する。
+`dotnet run --project reference/Day52a -c Release` で起動する。
 先に「デモ v1」ページ(8 枚目)の `1`(決めの構図)でデモ v1 を出し、
 `F1` を 20 回押すか `Ctrl+F1` の目次から「ディファード」ページ(20 枚目)を開く。
 
@@ -5628,56 +5393,27 @@ Day 25 の改造課題3(速い弾が細い壁をすり抜ける)とまったく�
 HUD に今日の1行が出ていて、ON/OFF で次のように変わる。
 
 ```
-描画:フォワード  光:0  1画素で0個を回す  幾何パス:3回
-描画:ディファード  光:0  球:0描画/0間引き  G-Buffer:960x640x4枚 15.8MB  幾何パス:2回  G:0.11ms 光:0.19ms
+描画:フォワード  幾何パス:3回
+描画:ディファード  G-Buffer:960x640x4枚 15.8MB  幾何パス:2回  G:0.26ms 光:0.26ms
 ```
 
 **`F2` を何度押しても絵が動かない**のが今日の到達点。
-並べて差を取ると、違うのは<b>影の縁の数画素だけ</b>(全画素の 0.2%。検証の途中で分かったこと 3)。
-HUD の SSAO の行(Day 37)は `幾何:0回` になる——SSAO が G-Buffer を借りている(要点8)。
+並べて差を取ると、違うのは<b>影の縁の数画素だけ</b>(検証の途中で分かったこと 1)。
+HUD の SSAO の行(Day 37)は `幾何:0回` になる——SSAO が G-Buffer を借りている(要点5)。
 
-### 2. `F3` と `F4`: 光を増やして、夜にする
-
-`F3` で 16 → 64 → 256 → 1024 → 0 と回る。
-
-```
-点光源: **64 個**  届く距離 2.00m
-点光源: **256 個**  届く距離 1.00m  ※フォワードは 64 個で打ち切る(uniform の枠)
-```
-
-夕暮れのままだと、日の当たる床の上では光がほとんど見えない(太陽が強い)。
-`F4` で夜にすると、裏通りの床に色とりどりの光だまりが並ぶ。
-1024 個まで上げると、床が<b>小さな光の粒の敷石</b>のようになる。
-
-### 3. フォワードの壁: 64 個を超えると光が消える
-
-256 個か 1024 個のまま `F2` でフォワードに戻すと、HUD が
-`**64個で打ち切り**` になり、<b>床の光だまりが目に見えて減る</b>。
-64 個以下なら、ON/OFF で絵はほぼ同じ(夜・64 個で全画素の 0.07% が 5% 以上ずれる程度)。
-
-### 4. `F6`: 光の重なり
-
-画面が暗くなり、光の球が塗った画素だけが橙に焼ける。
-**光の数を 16 ↔ 1024 で切り替えても、焼け方の総量がほぼ変わらない**——
-大きな球 16 個と小さな球 1024 個で、塗る量を揃えてある(要点10)。
-壁の上のほうにも焼けが出るのは、<b>壁の手前の画素を、壁の裏の球が塗っている</b>から(要点6)。
-
-### 5. `F5`: G-Buffer を見る
+### 2. `F3`: G-Buffer を見る
 
 アルベド → 法線 → 距離 → 金属度 → 粗さ → AO → 発光 → 通常 と回る。見どころは4つ。
 
-- **アルベドに陰影が1つも無い**。影も光だまりも消えて、材質の色だけになる
+- **アルベドに陰影が1つも無い**。影も空の映り込みも消えて、材質の色だけになる
 - **法線はビュー空間**。マウスでカメラを回すと色が変わる(床は薄緑、左の壁はピンク)
 - **金属度はゴミ箱と街灯だけが白い**
 - **発光は真っ黒**。裏通りには光る材質が1つも無い(プレイアブルデモで当たり判定を出すと、カプセルだけが光る)
 
-### 6. `F7`: 画面外の光を落とす
+ディファードで描いていないと出ない(コンソールがそう言う)。
+フォワードのときは G-Buffer に何も書かれていないので、出しても前のフレームの残りが見えるだけになる。
 
-1024 個・決めの構図で `球:940描画/84間引き`。OFF にすると `1024描画/0間引き` になるが、
-**絵は1画素も変わらない**——GPU が球をクリップするので、落としても落とさなくても同じ絵になる。
-変わるのはドローコールの数だけ。
-
-### 7. `F8`: 内訳
+### 3. `F4`: 内訳
 
 ```
 --- ディファードの内訳 ---
@@ -5687,58 +5423,45 @@ HUD の SSAO の行(Day 37)は `幾何:0回` になる——SSAO が G-Buffer �
   3: 発光             Rgba16F  8B/画素  4.7MB  読むときの番号 4
   深度: DepthComponent24 3B/画素  1.8MB(読まない。シーンのバッファへ写すだけ)
   合計 960x640  15.8MB  ※SSAO の幾何バッファ 6.4MB はフォワードのために残してある
+
+  いまの描き方: ディファード  G-Buffer パス 0.24ms / ライティング 0.21ms(CPU が命令を積んだ時間。GPU の時間は測っていない)
 ```
 
-**読むときの番号が 0・1・2・4** なのが要点2(`Material` の表を引き継いでいる)。
+**読むときの番号が 0・1・2・4** なのが要点1(`Material` の表を引き継いでいる)。
+15.8MB を毎フレーム書いて読んでいるので、**光が1つのうちは幾何パスが1回減ったぶんと相殺する**。
+ここが黒字に変わるのが Day 52b。
 
-### 8. `F9`: 計測
-
-```
---- 光の数ごとの計測(960x640、24 回の平均。影と SSAO は含めない)---
-  光の数  届く距離   フォワード                    ディファード
-      0    4.00m     0.71ms                      0.72ms(球 0 個)
-     16    4.00m     0.96ms                      0.84ms(球 16 個)
-     64    2.00m     1.42ms                      0.80ms(球 64 個)
-    256    1.00m     0.80ms(64個で打ち切り)            0.57ms(球 249 個)
-   1024    0.50m     0.74ms(64個で打ち切り)            0.92ms(球 940 個)
-```
-
-**比べてよいのは 64 個まで**。フォワードは 0 → 64 個で倍になり、ディファードはほぼ横ばい。
-256 個から先のフォワードは、打ち切った 64 個が小さな光なので<b>かえって安く</b>出る——
-フォワードの代償は「全部の光の距離を測る」ぶんと「届いた光の BRDF」ぶんの和で、
-小さな光ほど届く画素が少ないため(要点1)。
-数字は 0.2ms ほどぶれる(GPU のクロックが負荷で上下する)ので、並びの傾向を読むこと。
-
-### 9. `F10`: 自己チェックが 31 項目すべて合格
+### 4. `F5`: 自己チェックが 14 項目すべて合格
 
 ```
-=== Day 52 自己チェック(G-Buffer・位置の復元・光の球・フォワードとの一致)===
-  [OK] 減衰: 中心で 1(分母の +1 が無限大を止める)  1.0000
+=== Day 52 自己チェック(G-Buffer・位置の復元・フォワードとの一致)===
+  [OK] **平方根で詰めると暗部が潰れない**(0.02〜1 での最大の相対誤差)  リニアの 8bit 8.8% / 平方根 2.7%
   ...
-  すべて合格(G-Buffer・位置の復元・光の球・フォワードとの一致が仕様どおり)
+  すべて合格(G-Buffer・位置の復元・フォワードとの一致が仕様どおり)
 ```
 
-**窓を開かずに走る項目が 11 ある**(減衰・平方根・群れ・視錐台)。
-`PointLight` と `LightSwarm` が GL を知らないおかげで、数字だけで確かめられる。
+柱は**フォワードとディファードで同じ絵になるか**の1項目。
+ディファードのいちばん厄介なところは<b>間違っていても絵が出る</b>ことで、
+位置の戻し方が少しずれていても影はそれらしく落ち、G-Buffer の1枚が真っ黒でも残りの3枚で絵になる。
+だから「それらしいか」ではなく「同じか」を見る。
 
-### 10. プレイアブルデモもディファードで動く
+### 5. プレイアブルデモもディファードで動く
 
 「プレイアブルデモ」ページ(19 枚目)の `F2` でキツネを出すと、ディファードのまま歩き回れる。
-夜にすると<b>キツネが光だまりを通るたびに照らされる</b>。
 `F6`(当たり判定を出す)の箱とカプセルも G-Buffer に入る——
 G-Buffer パスは `Render3D` をそのまま呼ぶので、何も足さずに乗る(設計書)。
 
-### 11. ウィンドウを広げても G-Buffer が付いてくる
+### 6. ウィンドウを広げても G-Buffer が付いてくる
 
 ウィンドウの端をドラッグして大きくすると、HUD の `G-Buffer:` の大きさが追いかけて変わる
 (`OnFramebufferResize` の `_gbuffer.Resize`)。
 忘れると、ライティングパスが `gl_FragCoord` で引く画素と G-Buffer の画素がずれ、
 絵が左下に縮んで右上が空だけになる。
 
-### 12. Day 39〜51 の絵が1つも壊れていない
+### 7. Day 39〜51 の絵が1つも壊れていない
 
-**既定はフォワード・光 0 個**なので、起動した直後の絵は Day 51 とまったく同じになる。
-Day 48 の自己チェック(`Alt+F1`)は **199 項目**で通る(下の検証の途中で分かったこと 4)。
+**既定はフォワード**なので、起動した直後の絵は Day 51 とまったく同じになる。
+Day 48 の自己チェック(`Alt+F1`)は **194 項目**で通る(下の検証の途中で分かったこと 2)。
 Day 51 のプレイアブルデモの自己チェックも、Day 37 の SSAO・Day 35 の PBR の自己チェックも通る。
 
 **IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる**こと。
@@ -5747,34 +5470,29 @@ HDRI の空を焼いたあとでは4項目が落ちる。これは Day 51 まで
 
 ## 改造課題
 
-### 課題1(易): 街灯に光を灯す
+### 課題1(易): G-Buffer の表示に「復元した位置」を足す
 
-いまの点光源は通りを漂う群れだけで、<b>街灯は光っていない</b>。
-街灯のガラスの位置に点光源を1つ置く。
+要点2の「距離1つから位置が戻る」を、数字ではなく絵で確かめる。
+`GBufferView` に `Position` を足し、`gbuffer-view.frag` で距離から世界の位置を戻して色にする。
+いまの `gbuffer-view.frag` は uniform を6つしか持っていないので、
+`deferred.frag` と同じ3つ(`uScreenSize` / `uProjScale` / `uInverseView`)を送るところから始める
+(`GBuffer.DrawDebug` に `Camera` を渡す必要が出る——`Apply` はもう受け取っている)。
 
-```csharp
-// デモ v1 を読んだあと、Items から街灯のガラスを探して位置を覚える
-foreach (DemoScene.Item item in _demo.Items)
-{
-    if (item.Name.StartsWith("街灯/", StringComparison.Ordinal) && item.Name.Contains("Glass"))
-    {
-        _lampPosition = (item.BoundsMin + item.BoundsMax) * 0.5f;
-    }
-}
-
-// CurrentLights で、群れの後ろに1つ足した並びを返す
-_lightBuffer[count++] = new PointLight(_lampPosition, 6.0f, new Vector3(18.0f, 10.0f, 4.0f));
+```glsl
+// ndc と距離だけで、まずビュー空間の位置が決まる
+vec3 viewPosition = vec3(ndc * uProjScale * depth, -depth);
+vec3 worldPosition = (uInverseView * vec4(viewPosition, 1.0)).xyz;
+FragColor = vec4(fract(worldPosition), 1.0);   // 1m ごとに色が一周する
 ```
 
-パーツの名前は「デモ v1」の `F10`(デモの内訳)で見られる。
-やってみると<b>フォワードで光を 64 個以上にしたとき、街灯だけが消える</b>——
-並びのいちばん後ろに足したので、打ち切りで最初に捨てられる。
-**フォワードの上限は「何を捨てるか」を決める仕事を生む**、というのがこの課題の読みどころ。
-本番のエンジンは明るさや距離で並べ替えてから切る。
+`fract` を使うと<b>1m ごとの等高線</b>が床と壁に出る。
+カメラを動かしても<b>模様が world に貼り付いたまま動かない</b>のが正しい姿で、
+式を1文字間違えるとカメラと一緒に模様が滑る。
+自己チェックの「位置の復元」(3.1mm)が数字で言っていることの、絵の側になる。
 
 ### 課題2(中): 位置を深度バッファから戻す
 
-いまは G-Buffer の2枚目(16F の距離)から位置を戻していて、影の縁で 0.2% の画素がずれる(要点3)。
+いまは G-Buffer の2枚目(16F の距離)から位置を戻していて、影の縁で 0.2% の画素がずれる(要点2)。
 深度バッファ(24bit)から戻すように変える。
 
 1. `GBuffer` の深度をレンダーバッファから**深度テクスチャ**に替える
@@ -5793,23 +5511,26 @@ vec3 viewPosition = view.xyz / view.w;                          // 透視除算�
 **手前は 24bit のほうがずっと細かいが、遠くは逆に粗くなる**
 (24bit の深度は 1/z に比例した刻みなので)——どこで入れ替わるかを計算してみるとよい。
 
-### 課題3(難): 光の球をインスタンシングで1回に描く
+### 課題3(難): 法線を2成分に畳んで G-Buffer を1枚減らす
 
-いまは光1個 = ドローコール1回で、1024 個なら 940 回。
-位置と色を頂点バッファに並べ、`glDrawElementsInstanced` の1回で描く。
+法線に RGBA16F を1枚まるごと使っている(8 バイト/画素)。
+単位ベクトルは自由度が2つしかないので、**八面体マッピング**で2成分に畳める。
 
+```glsl
+// 書く側: 単位球 → 八面体 → 正方形
+vec2 OctEncode(vec3 n) {
+    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    return (n.z >= 0.0) ? n.xy : (1.0 - abs(n.yx)) * sign(n.xy);
+}
 ```
-  いま      uniform 3 つ + DrawElements  × 940 回
-  課題      頂点バッファ 1 本に 940 個ぶん詰める + DrawElementsInstanced × 1 回
-```
 
-`glVertexAttribDivisor(location, 1)` で「この属性は頂点ごとではなく球ごとに進む」と指定する。
-**難しいのは GL の手順ではなく `deferred.frag` の約束のほう**で、
-球ごとの位置と色を頂点シェーダから画素シェーダへ渡す(`flat out`)と、
-いまの「入力を1つも宣言しない」(全画面の三角形とプログラムを共有するため)が崩れる。
-全画面のほうにも同じ名前の出力を足すか、画素シェーダを分けて `#include` を入れるか——
-「今日残した歪み」の1つ目と、ここで正面から向き合うことになる。
-HUD の「光」の ms と、計測(`F9`)の数字がどう動くかを並べること。
+2成分 + 距離で RGB16F 相当に収まるので、2枚目を RGBA16F から RG16F + R32F に分けるか、
+材質の1枚(RGBA8)の空きへ押し込むかを設計する。
+**難しいのは畳み方ではなく、SSAO が借りている形を変えてしまうこと**——
+`ssao.frag` は「RGB = 法線、A = 距離」を前提にしているので、
+そちらも同時に直さないと遮蔽が壊れる。
+自己チェックの「SSAO: G-Buffer から作った遮蔽が、自前の幾何パスとほぼ一致」が、
+まさにその見張りになっている。畳んだあとに平均の差がどこまで増えるかを見ること。
 
 ## 動作確認済み環境
 
@@ -5821,32 +5542,20 @@ HUD の「光」の ms と、計測(`F9`)の数字がどう動くかを並べる
 | 解像度 | 960 x 640(リサイズの確認で 1120 x 700) |
 | 確認の条件 | `-c Release`、**VSync を入れて**確認した(GPU への負荷を抑えるため。fps は 60 で頭打ち) |
 
-ディファードの計測(決めの構図・夜)。
+ディファードの計測(決めの構図)。
 
 | 項目 | 値 |
 |---|---|
 | G-Buffer | 960x640 x4枚 + 深度 = 15.8MB |
-| G-Buffer パス(CPU) | 0.08〜0.21 ms |
-| ライティングパス(CPU) | 0.19〜0.35 ms(光の重なりを出すと 0.9 ms) |
-| 光の球 | 1024 個で 940 描画 / 84 間引き、256 個で 249 / 7 |
-| フォワードとディファードの差(夕暮れ・光 0) | 平均 0.34% / 5% を超える画素 0.24%(**全部が影の縁**) |
-| フォワードとディファードの差(夜・光 64) | 平均 0.31% / 5% を超える画素 0.07% |
+| G-Buffer パス(CPU) | 0.20〜0.29 ms |
+| ライティングパス(CPU) | 0.18〜0.26 ms |
+| フォワードとディファードの差(自己チェックの確認用シーン) | 平均 0.33% / 5% を超える画素 0.03%(**全部が影の縁**) |
 
-### 自己チェック(31 項目すべて合格)
+### 自己チェック(14 項目すべて合格)
 
 ```
-=== Day 52 自己チェック(G-Buffer・位置の復元・光の球・フォワードとの一致)===
-  [OK] 減衰: 中心で 1(分母の +1 が無限大を止める)  1.0000
-  [OK] 減衰: **半径ちょうどで 0**(球の外は塗らなくてよい)  2.999m で 1.8E-007
-  [OK] 減衰: 距離とともに単調に減る(途中で明るくならない)  0〜3m を 1cm 刻み
-  [OK] 減衰: 半径の 1 割の距離では窓がほぼ効かない(**1/d² の形を崩さない**)  窓 0.9998
+=== Day 52 自己チェック(G-Buffer・位置の復元・フォワードとの一致)===
   [OK] **平方根で詰めると暗部が潰れない**(0.02〜1 での最大の相対誤差)  リニアの 8bit 8.8% / 平方根 2.7%
-  [OK] 群れ: 3秒を1回で進めても 60 回で進めても同じ位置(**位置は時刻の関数**)  最大のずれ 0.0014mm
-  [OK] 群れ: 全部が裏通りの箱の中  64 個
-  [OK] 群れ: 数を変えても球が塗る量(個数 × 半径²)が一定  256.0〜256.0 m²
-  [OK] 視錐台: 目の前の光は描き、背後と真横の光は落とす
-  [OK] 視錐台: 中心が画面の外でも、**縁にかかる球は描く**
-  [OK] 視錐台: カメラが球の中なら必ず描く
   [OK] G-Buffer: カラー4枚が挿さっている(**MRT が組めている**)  4 枚
   [OK] G-Buffer: 1画素 24B + 深度 3B  15.8MB
   [OK] G-Buffer: 距離が CPU の計算と一致(2枚目の A)  焼いた 6.336m / 期待 6.344m
@@ -5857,77 +5566,25 @@ HUD の「光」の ms と、計測(`F9`)の数字がどう動くかを並べる
   [OK] **位置の復元: 距離1つから世界の位置が戻る**(1cm 以内)  ずれ 3.11mm(距離 6.34m)
   [OK] SSAO: G-Buffer から作った遮蔽が、自前の幾何パスとほぼ一致  平均の差 0.0000
   [OK] SSAO: 借りるときは**幾何パスを1回も描かない**(3回 → 2回)  幾何 0 回
-  [OK] 光の球: **床の下の光は1画素も明るくしない**(球は写っても届かない)  描いた球 1 個 / 最大の差 0.0E+000
-  [OK] 光の球: **カメラが球の中に入っても光が消えない**(裏面を描いている)  画面の平均 0.008 → 0.037
-  [OK] 光の球: 分割した球の面が届く距離の外にある(**光の縁が欠けない**)  いちばん内側 1.0003 x 届く距離(倍率 1.0284)
-  [OK] **フォワードとディファードで同じ絵**(光3個・影・IBL・SSAO 込み)  平均の相対差 0.33% / 5% を超える画素 0.01%
-  [OK] フォワードは 64 個で打ち切る(**65 個目の光が消える**)  最大の差 0.0E+000
-  [OK] ディファードに上限は無い(65 個目の光が見える)  画面の平均 0.0079 → 0.1995
+  [OK] **フォワードとディファードで同じ絵**(太陽・環境光・発光・影・IBL・SSAO 込み)  平均の相対差 0.33% / 5% を超える画素 0.03%
   [OK] MIN_ROUGHNESS が textured.frag・deferred.frag・Pbr で一致  MIN_ROUGHNESS = 0.045
-  [OK] MAX_FORWARD_LIGHTS が PointLight.MaxForward と一致  64 個
-  [OK] 減衰の窓が2本のシェーダで同じ式
   [OK] G-Buffer の出口の番号が GBuffer の定数と一致(layout の location)
-  すべて合格(G-Buffer・位置の復元・光の球・フォワードとの一致が仕様どおり)
+  すべて合格(G-Buffer・位置の復元・フォワードとの一致が仕様どおり)
 ```
 
 ### 検証の途中で分かったこと
 
-**1. `Mesh.ReadIndices` が VAO を壊していた**(いちばん時間を食った)。
-自己チェックの「光の縁が欠けない」を足したところ、次の項目(フォワードとの一致)で
-<b>アクセス違反で落ちた</b>。落ちたのは `Mesh.Draw` の中の `DrawElements`。
+**1. フォワードとの差は影の縁にしか無い**。自己チェックの確認用シーン(床 + 立方体)を
+両方の描き方で描いて差を取ると、5% 以上ずれる画素が 0.03% あった。
+場所を塗って見ると<b>全部が影の縁</b>で、影を切るとちょうど 0 になる。
 
-原因は Day 35 の `ReadIndices` にあった。インデックスバッファを `ElementArrayBuffer` に結び付けて読み、
-最後に 0 へ戻す——ところが `ElementArrayBuffer` の結び付けは<b>いま結び付いている VAO の記録そのもの</b>で、
-直前に描いた光の球の VAO(`Mesh.Draw` は描いたあと VAO を外さない)から
-インデックスバッファを外していた。次にその球を描いた瞬間、
-`DrawElements` はオフセット 0 を CPU のメモリの 0 番地として読みに行く。
-
-```
-  Day 35〜51  ReadIndices の直前に結び付いていた VAO = 文字のバッチ(フレームの最後に描く)
-  Day 52      ReadIndices の直前に結び付いていた VAO = 光の球(自己チェックが直前に描いた)
-```
-
-**Day 35〜51 で落ちなかったのは、たまたま**だった。
-直し方は、どの VAO にも属さない `CopyReadBuffer` に結び付けて読むこと。
-`ReadVertices` のほうは `ArrayBuffer` を使っていて、こちらは VAO の記録ではないので無事だった。
-**GL の結び付けには「グローバルなもの」と「VAO が持つもの」が混ざっている**、というのが教訓。
-`Mesh` のコンストラクタの末尾には、元から「VAO を付けたまま `ElementArrayBuffer` に 0 を入れると外れる」と
-書いてあった——<b>作るときは避けていた罠を、読み戻すときに踏んでいた</b>。
-
-**Day 35〜51 の `Mesh.cs` まで遡って同じ直しを入れてある**。だから今日の差分
-(`git diff --no-index Day51 Day52`)には `Mesh.cs` が出てこない。
-
-**2. 1024 個が暗すぎた**。最初は「個数 × 半径³ を一定」(光が覆う<b>体積</b>を揃える)にして、
-高さは全部 0.3〜2.6m、強さは半径² で弱めていた。1024 個(半径 1m)にすると床がほぼ真っ暗になった——
-<b>高さ 1m より上の光は床に届かない</b>ので、半分以上の光が何も照らしていなかった。
-
-ディファードの代償は球が画面を覆う<b>面積</b>で決まるので、揃えるべきは 個数 × 半径²。
-高さを半径に合わせて下げ、強さを半径の1乗で弱めると、どの数でも床に同じくらいの光が降るようになった(要点10)。
-「光の重なり」(`F6`)を出して 16 個と 1024 個を並べたのが決め手になった。
-
-**3. フォワードとの差は影の縁にしか無い**。決めの構図で両方の絵を読み返して差を取ると、
-5% 以上ずれる画素が 0.22%(SSAO なし)あった。場所を塗って見ると<b>全部が影の縁</b>で、
-影を切るとちょうど 0 になる。
-
-```
-  夕暮れ・SSAO あり   平均 0.34%   5% を超える画素 0.24%
-  夕暮れ・SSAO なし   平均 0.32%   5% を超える画素 0.22%
-  夕暮れ・影なし      平均 0.27%   5% を超える画素 0.00%
-```
-
-原因は位置の精度で、16F の距離から戻した位置は数 mm ずれる(要点3)。
+原因は位置の精度で、16F の距離から戻した位置は数 mm ずれる(要点2)。
 フォワードは頂点シェーダで光の座標を作って補間しているので、
 **影の縁で PCF の升目がたまに1つずれる**。見た目には判別できない量なので設計はそのままにして、
 改造課題2に回した。SSAO を借りたことによる差(法線マップの有無)は 0.02% ぶんしか増えなかった。
 
-**4. Day 48 の自己チェックの期待値が Day 51 で直っていなかった**。
+**2. Day 48 の自己チェックの期待値が Day 51 で直っていなかった**。
 Day 51 でメニューに 9 項目足したのに、`RunDebugMenuCheck` の期待値は `181` のままで、
 実際は 190 項目あった(Day 51 のままだとこの1項目が落ちる)。
-**Day 51 の reference も 190 に直してある**(遡って直した2つ目)。
-今日さらに 9 項目足したので、今日の差分では `190 → 199` と見える。
-
-**5. フォワードの代償は「届く光」にも比例する**。計測(`F9`)で、
-64 個で打ち切った 1024 個(半径 0.5m)のほうが、64 個ちょうど(半径 2m)より 0.7ms 安かった。
-どちらもループは 64 周だが、半径の外なら BRDF の前に帰る——
-<b>距離を測るぶんは光の数に、BRDF のぶんは届いた光の数に比例する</b>(要点1の表)。
-フォワードの多光源が「光を増やすと重い」だけでなく「光が大きいと重い」のは、この2つ目のため。
+**Day 51 の reference も 190 に直してある**(遡って直した)。
+今日さらに 4 項目足したので、今日の差分では `190 → 194` と見える。
