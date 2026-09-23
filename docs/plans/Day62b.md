@@ -100,7 +100,7 @@ Day 61 の `-0.0` と同じで、**絵が合っていることは移植できて
   今日踏んだ落とし穴(検証3)はここに書いてある
 - **[Vulkan Guide: Ray Tracing](https://docs.vulkan.org/guide/latest/extensions/ray_tracing.html)**
   — `ray_query` と `ray_tracing_pipeline` の**どちらを使うか**の整理。62c の位置づけが分かる
-- **Day 60 の計画書**(BVH)の**要点7〜9** — 今日 GPU に渡すのは、Day 60 で自分で書いたあの木。
+- **Day 60b の計画書**(BVH)の**要点7〜9** — 今日 GPU に渡すのは、Day 60 で自分で書いたあの木。
   「SAH で切る」「葉に何個入れる」をドライバがどう決めているか想像しながら読むと面白い
 - **[Tero Karras, "Maximizing Parallelism in the Construction of BVHs, Octrees, and k-d Trees"(HPG 2012)](https://research.nvidia.com/publication/2012-06_maximizing-parallelism-construction-bvhs-octrees-and-k-d-trees)**
   — **GPU で BVH を建てる**方法(LBVH / Morton コード)。`vkCmdBuildAccelerationStructures` の中で
@@ -308,7 +308,7 @@ TLAS のメモリを気にする場面はまず無い。
 少ないうちは素直に総当たりのほうが速い。
 
 Day 60 で CPU の BVH を作ったときにも同じことが起きていた
-(`Day60.md` の要点8。総当たりと BVH が入れ替わるのはおよそ 30 個のあたり)。
+(`Day60b.md` の要点8。総当たりと BVH が入れ替わるのはおよそ 30 個のあたり)。
 **加速構造を入れれば無条件に速くなる、ではない**ことは、GPU でも変わらない。
 
 実戦では「図形が少ないから総当たり」という分岐は書かない
