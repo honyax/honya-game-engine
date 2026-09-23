@@ -2283,7 +2283,6 @@ internal static class Program
         _updateMilliseconds = (_updateMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
     }
 
-
     /// <summary>指定したマイクロ秒だけ CPU を回して時間を潰す。</summary>
     private static void BurnCpu(int microseconds)
     {
@@ -2558,7 +2557,6 @@ internal static class Program
         {
             RenderText();
         }
-
     }
 
     /// <summary>
@@ -2755,7 +2753,6 @@ internal static class Program
         _shadow.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
         _shadowMilliseconds = (_shadowMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
-
     }
 
     /// <summary>
@@ -3209,6 +3206,7 @@ internal static class Program
             + (_env.ClampSkyToLdr ? "  空を8bitに制限" : string.Empty)
             + $"  焼き:{_env.BakeMilliseconds:F0}ms  {_env.ByteSize / (1024.0 * 1024.0):F1}MB";
     }
+
     /// <summary>デモ v1 の状態を1行にまとめる(HUD 用。Day 39)。</summary>
     private static string DemoLabel()
     {
@@ -3996,6 +3994,7 @@ internal static class Program
                 $"  [クリップ {i}: {clip.Name}] {clip.Duration:F2}s"
                 + $" / チャンネル {clip.Channels.Count}");
         }
+
         Console.WriteLine(
             $"  境界 ({_model.BoundsMin.X:F2}, {_model.BoundsMin.Y:F2}, {_model.BoundsMin.Z:F2})"
             + $"〜({_model.BoundsMax.X:F2}, {_model.BoundsMax.Y:F2}, {_model.BoundsMax.Z:F2})"
@@ -11541,6 +11540,7 @@ internal static class Program
             case Key.Number0 when ctrl && alt:
                 RunIblCheck();
                 break;
+
             // --- 今日のスイッチ(物理ベースレンダリング)---
             //
             // **Ctrl+Shift + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)に続く4段目。

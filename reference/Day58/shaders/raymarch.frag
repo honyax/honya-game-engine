@@ -452,7 +452,6 @@ void main()
             if (abs(direction.y) > 1e-4 && slice > 0.0 && (!hit || slice < t)
                 && abs(q.x) < 8.0 && abs(q.z) < 8.0)
             {
-
                 gIncludeGround = false;
                 color = sliceColor(map(q).x);
                 gIncludeGround = true;

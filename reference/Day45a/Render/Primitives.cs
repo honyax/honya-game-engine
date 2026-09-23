@@ -341,6 +341,7 @@ internal static class Primitives
 
         return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
     }
+
     /// <summary>四角形1面ぶんの頂点4つとインデックス6つを足す。</summary>
     private static void AddFace(
         List<Vertex> vertices,
