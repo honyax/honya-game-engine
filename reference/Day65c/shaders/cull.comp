@@ -1,0 +1,146 @@
+#version 460
+#extension GL_EXT_samplerless_texture_functions : enable
+
+// 体ごとのカリング。**Day 65a の主役**。
+//
+// 描く前にコンピュートシェーダを1回走らせ、1人が1体ずつ「この体は画面に入るか」を調べる。
+// 入る体の番号を一覧(binding 8)に詰め、**描く命令の引数**(binding 9)の「何体描くか」の欄に足していく。
+// このあと C# 側は vkCmdDraw*Indirect で「引数はあのバッファに書いてある」と言うだけ。
+// **CPU は何体描かれるかを知らないまま、描く命令を積み終える**——これが GPU 駆動の骨格。
+//
+// Day 64b のタスクシェーダは、1体につき 468 個のメッシュレットを 15 組 x 32 人で調べていた。
+// 画面の外にいる体でも、468 個を1つずつ調べて1つずつ捨てていた(Day 64b の歪み2)。
+// ここで体ごとに1回だけ球を調べれば、画面の外の体はタスクシェーダすら立ち上がらない。
+//   体(ここ)→ メッシュレット(タスクシェーダ)→ 三角形(ラスタライザ)
+// と、粗いものから順に捨てる**階層カリング**になる。
+//
+// **Day 65c: このファイルは3回翻訳する**(meshlet.task と同じ)。
+//   定義なし … Day 65a のまま(1パス)。画面の外の体だけ捨てる
+//   EARLY    … 早いパス。**前のフレームで見えていた体**のうち、画面の中にいるものだけを選ぶ(隠れの判定はしない)
+//   LATE     … 遅いパス。全部の体を「画面の外か」「Hi-Z で隠れているか」で調べ直し、見えた印を書き直す。
+//              早いパスで描いていない体(タスクの道では、見える体全部)を選ぶ
+#define CULL_INSTANCES
+#include "common.glsl"
+
+// 1ワークグループ 64 人。体の数は 256 までなので、多くても 4 組。
+// 人数は何でもよい(共有メモリも投票も使わない)が、32 の倍数にしておくと GPU の組(ワープ / ウェーブ)を余らせない。
+layout(local_size_x = 64) in;
+
+// ---- 9: 描く命令の引数 ----------------------------------------------------------------
+// **Vulkan が決めた構造体そのもの**を3つ並べてある(C# の DrawArguments と同じ並び)。
+// 描く命令(vkCmdDraw*Indirect)は、この中の決まった位置(オフセット)を読みに来る。
+// C# 側が毎フレーム「数の欄を 0 にした下書き」を書き込み、ここで数の欄に足す。
+//
+// Day 65c: 2つ並べた(0 = 1パス / 早いパス、1 = 遅いパス)。44 バイトずつ。
+struct DrawArguments
+{
+    // VkDrawIndexedIndirectCommand(20 バイト)… 頂点の道
+    uint indexCount;
+    uint instanceCount;     // ← 足す
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+
+    // VkDrawMeshTasksIndirectCommandEXT(12 バイト)… メッシュの道
+    uint meshGroupsX;       // メッシュレットの数
+    uint meshGroupsY;       // ← 足す
+    uint meshGroupsZ;
+
+    // VkDrawMeshTasksIndirectCommandEXT(12 バイト)… タスクの道
+    uint taskGroupsX;       // ceil(メッシュレットの数 / 32)
+    uint taskGroupsY;       // ← 足す
+    uint taskGroupsZ;
+};
+
+layout(std430, set = 0, binding = 9) buffer DrawArgumentsBlock { DrawArguments args[2]; };
+
+// ---- 11: 体ごとの「前のフレームで見えていたか」(Day 65c で追加)-------------------------
+// 遅いパスが毎フレーム書き直し、次のフレームの早いパスが読む。フレームをまたいで残る、今日唯一の状態。
+layout(std430, set = 0, binding = 11) buffer InstanceVisibility { uint instanceVisible[]; };
+
+// どちらのパスの一覧と引数に書くか。一覧は1本のバッファの前半(0)と後半(1)。
+#ifdef LATE
+const uint passIndex = 1u;
+#else
+const uint passIndex = 0u;
+#endif
+
+// ---- 生き残ったので、一覧に席を取る(Day 65a の要点3)-------------------------------------
+// atomicAdd は「足す前の値」を返すので、それがそのまま自分の席の番号になる。
+// **席の順番は走るたびに変わる**(先に着いた人から取る)。Day 64b のタスクシェーダは投票で元の順番を保ったが、
+// ここでは保たない。不透明な物を深度テスト付きで描くなら、体を描く順番が変わっても絵は変わらないから(Day 65a の検証1)。
+// Day 65c で関数にした(3通りの翻訳のどれからも呼ぶので)。
+void append(uint entry)
+{
+    uint slot = atomicAdd(args[passIndex].instanceCount, 1u);
+    visibleInstances[passIndex * frame.instanceCount + slot] = entry;
+
+    // 3つの道のどれで描いても同じ数になるよう、残り2つの欄にも足す。
+    // (どの道で描くかをここで知っていれば1か所で済むが、そうすると描き方を変えるたびにこのシェーダも変わる)
+    atomicAdd(args[passIndex].meshGroupsY, 1u);
+    atomicAdd(args[passIndex].taskGroupsY, 1u);
+}
+
+void main()
+{
+    // vkCmdDispatch(ceil(体の数 / 64), 1, 1) で呼んでいる。最後の組ははみ出す人がいる。
+    uint instance = gl_GlobalInvocationID.x;
+    if (instance >= frame.instanceCount)
+    {
+        return;
+    }
+
+    // 形全体の球を体の行列で世界へ運ぶ。体の行列は回転と移動だけなので、半径はそのまま使える
+    // (meshlet.task のメッシュレットの球と同じ扱い)。
+    vec3 center = (instances[instance] * vec4(frame.meshSphere.xyz, 1.0)).xyz;
+    float radius = frame.meshSphere.w;
+
+#if defined(EARLY)
+    // 早いパス(Day 65c): 前のフレームで見えていた体を、そのまま描く(画面の外に出たものだけは捨てる)。
+    // 隠れているかは**まだ判定できない**。判定に使う深度を、いまから描いて作るのだから。
+    if (instanceVisible[instance] == 0u || outsideFrustum(center, radius))
+    {
+        return;
+    }
+
+    append(instance);
+#elif defined(LATE)
+    // 遅いパス(Day 65c): 早いパスの深度で作った Hi-Z と比べて、全部の体を調べ直す。
+    bool wasVisible = instanceVisible[instance] != 0u;
+    bool visible = false;
+    if (outsideFrustum(center, radius))
+    {
+        atomicAdd(counters.frustumInstances, 1u);
+    }
+    else if (occluded(center, radius))
+    {
+        atomicAdd(counters.occludedInstances, 1u);
+    }
+    else
+    {
+        visible = true;
+    }
+
+    // 次のフレームの早いパスのために、見えたかどうかを書き残す。
+    instanceVisible[instance] = visible ? 1u : 0u;
+
+    // 何を描き足すか。
+    //   タスクの道(cullFlags の 4)… 見える体を**全部**送る。早いパスで描いた体でも、そのときは印の無かった
+    //                                メッシュレットが新しく見えているかもしれない。どれを描き足すかは
+    //                                タスクシェーダがメッシュレットの印で決める。そのために「前も見えていた」を
+    //                                番号のいちばん上のビットに載せて渡す
+    //   それ以外の道                … 体を丸ごと描くので、早いパスで描いていない体だけ送る
+    bool sendAll = (frame.cullFlags & 4u) != 0u;
+    if (visible && (sendAll || !wasVisible))
+    {
+        append(instance | (wasVisible ? 0x80000000u : 0u));
+    }
+#else
+    if (outsideFrustum(center, radius))
+    {
+        return;
+    }
+
+    append(instance);
+#endif
+}

@@ -1,0 +1,82 @@
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+
+// Hi-Z(深度のピラミッド)を1段作る。**Day 65b で追加**。
+//
+// 出力の1画素 = 1つ下の段の 2x2 画素のうち、**いちばん奥の深度**(値が大きいほう。深度は手前 0、奥 1)。
+// 段を上がるたびに縦横が半分になり、1画素が受け持つ画面の範囲が倍になる。
+//   段 0 = 深度そのもの(960 x 540)を 2x2 ずつ畳んだもの(480 x 270)。1画素 = 画面の 2 x 2 画素
+//   段 1 = 段 0 を畳んだもの(240 x 135)。1画素 = 画面の 4 x 4 画素
+//   ...
+//   段 8 = 1 x 1。画面全体でいちばん奥の深度
+//
+// 「いちばん奥」を残すのは、カリングで**安全側に**使うため。
+// ある物のいちばん手前の深度が、その物が覆う範囲の「いちばん奥の深度」よりさらに奥なら、
+// 範囲のどの画素でも、すでに描かれた物のほうが手前にある → 1画素も見えない、と言い切れる。
+//
+// ミップの大きさは Vulkan の決まりで**切り捨て**(15 → 7)。そのままだと、奇数の段を半分にしたとき
+// いちばん端の1列(1行)がどの出力にも入らない。取りこぼすと、その列にだけ見えていた物を「隠れている」と
+// 言いかねない(安全側が崩れる)ので、**端の出力だけは 3 列(3 行)読む**。
+//
+// サンプラーは使わない(GL_EXT_samplerless_texture_functions)。texelFetch で画素を1つずつ読むだけなので、
+// 絞り込み(フィルタ)も端の扱い(アドレスモード)も要らない。
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// 段 0 のときだけ読む。描き終わった深度(ShaderReadOnlyOptimal に移してある)。
+layout(set = 0, binding = 0) uniform texture2D depthImage;
+
+// 段 1 以降で読む。Hi-Z の全部の段が見えるビュー。1つ下の段(level − 1)を読む。
+layout(set = 0, binding = 1) uniform texture2D pyramid;
+
+// 書き込み先。**この段だけ**を見るビュー(ストレージ画像はミップ1段ずつしか挿せない)。
+layout(set = 0, binding = 2, r32f) uniform writeonly image2D outputLevel;
+
+// 何段目を作っているか。段ごとにディスクリプタセットは別だが、読み方(深度か Hi-Z か)をここで分ける。
+layout(push_constant) uniform Reduce
+{
+    uint level;
+} reduce;
+
+float readSource(ivec2 p)
+{
+    if (reduce.level == 0u)
+    {
+        ivec2 size = textureSize(depthImage, 0);
+        return texelFetch(depthImage, min(p, size - 1), 0).r;
+    }
+
+    int source = int(reduce.level) - 1;
+    ivec2 size = textureSize(pyramid, source);
+    return texelFetch(pyramid, min(p, size - 1), source).r;
+}
+
+void main()
+{
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(p, imageSize(outputLevel))))
+    {
+        return;
+    }
+
+    ivec2 outputSize = imageSize(outputLevel);
+    ivec2 sourceSize = reduce.level == 0u
+        ? textureSize(depthImage, 0)
+        : textureSize(pyramid, int(reduce.level) - 1);
+
+    // ふつうは 2x2。下の段が奇数で、自分が端の出力なら、はみ出した3列目(3行目)も読む。
+    int countX = (p.x == outputSize.x - 1 && (sourceSize.x & 1) != 0) ? 3 : 2;
+    int countY = (p.y == outputSize.y - 1 && (sourceSize.y & 1) != 0) ? 3 : 2;
+
+    ivec2 base = p * 2;
+    float farthest = 0.0;
+    for (int y = 0; y < countY; y++)
+    {
+        for (int x = 0; x < countX; x++)
+        {
+            farthest = max(farthest, readSource(base + ivec2(x, y)));
+        }
+    }
+
+    imageStore(outputLevel, p, vec4(farthest));
+}
