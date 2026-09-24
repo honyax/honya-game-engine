@@ -1,0 +1,74 @@
+#version 460
+
+// 体ごとのカリング。**Day 65a の主役**。
+//
+// 描く前にコンピュートシェーダを1回走らせ、1人が1体ずつ「この体は画面に入るか」を調べる。
+// 入る体の番号を一覧(binding 8)に詰め、**描く命令の引数**(binding 9)の「何体描くか」の欄に足していく。
+// このあと C# 側は vkCmdDraw*Indirect で「引数はあのバッファに書いてある」と言うだけ。
+// **CPU は何体描かれるかを知らないまま、描く命令を積み終える**——これが GPU 駆動の骨格。
+//
+// Day 64b のタスクシェーダは、1体につき 468 個のメッシュレットを 15 組 x 32 人で調べていた。
+// 画面の外にいる体でも、468 個を1つずつ調べて1つずつ捨てていた(Day 64b の歪み2)。
+// ここで体ごとに1回だけ球を調べれば、画面の外の体はタスクシェーダすら立ち上がらない。
+//   体(ここ)→ メッシュレット(タスクシェーダ)→ 三角形(ラスタライザ)
+// と、粗いものから順に捨てる**階層カリング**になる。
+#define CULL_INSTANCES
+#include "common.glsl"
+
+// 1ワークグループ 64 人。体の数は 256 までなので、多くても 4 組。
+// 人数は何でもよい(共有メモリも投票も使わない)が、32 の倍数にしておくと GPU の組(ワープ / ウェーブ)を余らせない。
+layout(local_size_x = 64) in;
+
+// ---- 9: 描く命令の引数 ----------------------------------------------------------------
+// **Vulkan が決めた構造体そのもの**を3つ並べてある(C# の DrawArguments と同じ並び)。
+// 描く命令(vkCmdDraw*Indirect)は、この中の決まった位置(オフセット)を読みに来る。
+// C# 側が毎フレーム「数の欄を 0 にした下書き」を書き込み、ここで数の欄に足す。
+layout(std430, set = 0, binding = 9) buffer DrawArguments
+{
+    // VkDrawIndexedIndirectCommand(20 バイト)… 頂点の道
+    uint indexCount;
+    uint instanceCount;     // ← 足す
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+
+    // VkDrawMeshTasksIndirectCommandEXT(12 バイト)… メッシュの道
+    uint meshGroupsX;       // メッシュレットの数
+    uint meshGroupsY;       // ← 足す
+    uint meshGroupsZ;
+
+    // VkDrawMeshTasksIndirectCommandEXT(12 バイト)… タスクの道
+    uint taskGroupsX;       // ceil(メッシュレットの数 / 32)
+    uint taskGroupsY;       // ← 足す
+    uint taskGroupsZ;
+} args;
+
+void main()
+{
+    // vkCmdDispatch(ceil(体の数 / 64), 1, 1) で呼んでいる。最後の組ははみ出す人がいる。
+    uint instance = gl_GlobalInvocationID.x;
+    if (instance >= frame.instanceCount)
+    {
+        return;
+    }
+
+    // 形全体の球を体の行列で世界へ運ぶ。体の行列は回転と移動だけなので、半径はそのまま使える
+    // (meshlet.task のメッシュレットの球と同じ扱い)。
+    vec3 center = (instances[instance] * vec4(frame.meshSphere.xyz, 1.0)).xyz;
+    if (outsideFrustum(center, frame.meshSphere.w))
+    {
+        return;
+    }
+
+    // ---- 生き残ったので、一覧に席を取る(要点3)---------------------------------------------
+    // atomicAdd は「足す前の値」を返すので、それがそのまま自分の席の番号になる。
+    // **席の順番は走るたびに変わる**(先に着いた人から取る)。Day 64b のタスクシェーダは投票で元の順番を保ったが、
+    // ここでは保たない。不透明な物を深度テスト付きで描くなら、体を描く順番が変わっても絵は変わらないから(検証1)。
+    uint slot = atomicAdd(args.instanceCount, 1u);
+    visibleInstances[slot] = instance;
+
+    // 3つの道のどれで描いても同じ数になるよう、残り2つの欄にも足す。
+    // (どの道で描くかをここで知っていれば1か所で済むが、そうすると描き方を変えるたびにこのシェーダも変わる)
+    atomicAdd(args.meshGroupsY, 1u);
+    atomicAdd(args.taskGroupsY, 1u);
+}

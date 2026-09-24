@@ -9,7 +9,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 - `reference/DayXX/`: Claudeが作成するリファレンスコード(答え)。各Dayは独立してビルド・実行可能
 - `work/`: ユーザーが写経・改造するコード。**ユーザーの学習領域。明示的に依頼されない限り編集しないこと**(レビュー時に読むのは可)
   - Dayフォルダは作らず、`Framebuffer` / `SoftwareRasterizer` / `RawGL` / `HonyaEngine` / `Labs` の5系統を継続的に成長させる。区切りはgitのタグ/コミット(`day05` 等)
-  - 教養編のうちシェーダー中心の題材(Day 57・58・63a・63b)は `HonyaEngine/Sandbox` に、エンジンと独立した題材(Day 59〜62・64a・64b・67)は `Labs` に置く。デモのシーンに効かせる題材(Day 66a のプローブGI)は `HonyaEngine` 本体に入れる。3Dゲーム編(物理・エフェクト)は `HonyaEngine` 本体+`Sandbox`
+  - 教養編のうちシェーダー中心の題材(Day 57・58・63a・63b)は `HonyaEngine/Sandbox` に、エンジンと独立した題材(Day 59〜62・64a〜65c・67)は `Labs` に置く。デモのシーンに効かせる題材(Day 66a のプローブGI)は `HonyaEngine` 本体に入れる。3Dゲーム編(物理・エフェクト)は `HonyaEngine` 本体+`Sandbox`
 - `assets/`: 複数Dayで共有する素材(テクスチャ、objモデル、HDRI等)
 
 ## 技術スタック
@@ -24,7 +24,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 
 - **名前空間はDay番号を含めない。Phase単位で固定する**
   - Day 1: `Framebuffer` / Day 2〜10: `SoftwareRasterizer` / Day 11〜13: `RawGL` / Day 14〜: `HonyaEngine`
-    (教養編の Labs は題材ごと。Day 59〜61: `CpuRayTracer` / Day 62a〜62c: `HardwareRayTracer` / Day 64a〜64b: `MeshletRenderer`)
+    (教養編の Labs は題材ごと。Day 59〜61: `CpuRayTracer` / Day 62a〜62c: `HardwareRayTracer` / Day 64a〜65c: `MeshletRenderer`)
   - 理由: Dayごとに変えると `git diff --no-index reference/Day01 reference/Day02` に全ファイルの
     namespace 行が乗り、その日の実装差分が埋もれる。work側のプロジェクト名とも揃う
 - csprojに `<AssemblyName>` は書かない。csprojのファイル名(`DayXX.csproj`)から出力名が決まるので、
