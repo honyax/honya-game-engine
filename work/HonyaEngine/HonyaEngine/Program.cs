@@ -161,6 +161,29 @@ namespace HonyaEngine;
 /// (`Alt+F4` が窓を閉じるので Alt は使えない)。
 /// `Ctrl+F2` で遮蔽率だけを全画面に出せる——
 /// **合成した絵からは半径もバイアスも読み取れない**ので、これが今日の主な道具になる。
+///
+/// **Day 38 での変更**: 輪郭の階段が消え、絵に色が付いた。
+///
+/// 後処理の出口が2段になった。合成(トーンマップとガンマまで)の結果を
+/// いったん 8bit のバッファに置き、そこから **FXAA**(<c>fxaa.frag</c>)が
+/// 縁だけを均して画面へ出す。ジオメトリも深度も見ず、
+/// **もう出来上がった1枚の絵の輝度だけ**で段差を探す手法なので、
+/// ポリゴンの縁にもテクスチャの模様にも同じように効く。
+///
+/// 合成パスの中には**カラーグレーディング**(<see cref="ColorGrade"/>)が入った。
+/// ホワイトバランス・コントラスト・彩度の3つだけだが、
+/// これで絵の印象はほとんど決まる。**1パスも増えない**のがこちらの性格で、
+/// 丸ごと1パス増える FXAA と並べると、
+/// 「後処理を足す」と言っても代償がまるで違うことが分かる。
+///
+/// 併せて、**UI が後処理の外に出た**。Day 31 から HUD の文字は
+/// シーンと同じバッファに描かれていたので、露出を上げると文字まで白飛びしていた。
+/// FXAA は文字を滲ませるため、外に出さないと今日の絵が成立しない——
+/// Day 37 の <see cref="OnRender"/> に「分けるのは Day 38」と書いた宿題がこれ。
+///
+/// キーは `Shift+F1`〜`F12`(`Shift+F3` だけは Day 24 の先客が居るので空き)。
+/// `Shift+F11` の左右比較が今日の主な道具になる——
+/// **アンチエイリアスも色も、隣に並べないと分からない**。
 /// </summary>
 internal static class Program
 {
@@ -272,6 +295,27 @@ internal static class Program
 
     /// <summary>深度パスにかかった時間(移動平均)。**影の代償を数字で見る**ため。</summary>
     private static double _shadowMilliseconds;
+
+    // ===== Day 38: FXAA と簡易カラーグレーディング =====
+    //
+    // 今日の主役は2つとも <see cref="PostProcess"/> の中に居るので、
+    // ここに増える状態は「UI をどこで描くか」の1つだけになった。
+
+    /// <summary>
+    /// HUD の文字を**後処理に通すか**(Shift+F5)。
+    ///
+    /// <b>Day 37 まではずっと通していた</b>。シーンと同じバッファに描いていたので、
+    /// 露出を上げると文字まで白飛びし、トーンマップの曲線で色が転んでいた。
+    /// 今日 FXAA が入って、それに加えて<b>文字が滲む</b>ようになる——
+    /// FXAA は「1画素の細い線」がいちばん苦手なので、字はまっさきに犠牲になる。
+    ///
+    /// <para>
+    /// 既定は <c>false</c>(通さない)。ON にすると Day 37 までの挙動に戻るので、
+    /// 露出を上げて文字が飛ぶところと、Shift+F1 で FXAA を切ったときに
+    /// 字の輪郭が戻るところを見比べられる。
+    /// </para>
+    /// </summary>
+    private static bool _uiThroughPost;
 
     // ===== Day 37: スクリーンスペース環境遮蔽(SSAO)=====
 
@@ -891,7 +935,7 @@ internal static class Program
         var options = WindowOptions.Default with
         {
             Size = new Vector2D<int>(960, 640),
-            Title = "Day31 - FBOとHDRパイプライン(トーンマッピング・ブルーム)",
+            Title = "Day38 - FXAAと簡易カラーグレーディング",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
                 ContextProfile.Core,
@@ -1052,6 +1096,15 @@ internal static class Program
             $"SSAO: 幾何 {_ssao.Geometry.Width}x{_ssao.Geometry.Height}(RGBA16F)  "
             + $"遮蔽 {_ssao.Width}x{_ssao.Height}(R8) x2  標本 {_ssao.SampleCount}本  "
             + $"半径 {_ssao.Radius:F2}m  {_ssao.ByteSize / (1024.0 * 1024.0):F1}MB");
+
+        // **代償を起動時に1行で出しておく**(Day 38)。
+        // FXAA そのものは軽いが、そのために画面と同じ大きさの 8bit バッファが1枚要る。
+        // 「後処理を1段足す」の実際の値段は、パスの時間よりバッファのほうが効くことが多い。
+        Console.WriteLine(
+            $"FXAA: LDR バッファ {_post.Ldr.Width}x{_post.Ldr.Height}(RGBA8) "
+            + $"{_post.Ldr.ByteSize / (1024.0 * 1024.0):F1}MB  "
+            + $"しきい値 {_post.FxaaEdgeThreshold:F3}/{_post.FxaaEdgeThresholdMin:F4}  "
+            + $"歩幅 {_post.FxaaSpanMax:F0}tx  後処理の合計 {_post.ByteSize / (1024.0 * 1024.0):F1}MB");
 
         // 発光するもの用。
         //
@@ -1346,6 +1399,15 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 38: FXAA と簡易カラーグレーディング(Shift+F1〜F12)---");
+        Console.WriteLine("Shift+F12:FXAA が効く構図へ。**画面の左が加工前、右が加工後**");
+        Console.WriteLine("Shift+F1:FXAA ON/OFF  Shift+F2:輝度 / 縁の検出 / 混合量 を全画面に出す");
+        Console.WriteLine("Shift+F4:効き(低/中/高/極)  Shift+F5:UI を後処理に通すか(Day 37 まで の挙動)");
+        Console.WriteLine("Shift+F6:グレーディング ON/OFF  Shift+F7:下敷き(夕暮れ / 月夜 / 退色 / モノクロ)");
+        Console.WriteLine("Shift+F8:コントラスト  Shift+F9:彩度  Shift+F10:色温度");
+        Console.WriteLine("Shift+F11:左右比較(FXAA / グレーディング)  Ctrl+F12:今日の自己チェック");
+        Console.WriteLine("  ※Shift+F3 は Day 24(シーンをコードから組み直す)が使っているので空き");
         Console.WriteLine();
         Console.WriteLine("--- Day 37: スクリーンスペース環境遮蔽(Ctrl+F1〜F11)---");
         Console.WriteLine("Ctrl+F9:SSAO が効く構図へ。**立方体の接地と隅に暗がりが出る**");
@@ -2126,7 +2188,6 @@ internal static class Program
         {
             RenderGame();
             _drawCalls = _spriteBatch.DrawCallCount;
-            RenderText();
         }
         else if (_materialGrid || _surfaceDemo)
         {
@@ -2145,7 +2206,6 @@ internal static class Program
             // ドローコールは RenderMaterialGrid / RenderSurfaceDemo が数える。
             // 下の枝で `_spriteBatch.DrawCallCount` に上書きされないのも、分けた効き目。
             Render3D();
-            RenderText();
         }
         else if (_model is not null)
         {
@@ -2155,7 +2215,6 @@ internal static class Program
             // Day 31 までのデモは Shift+0 で「モデル無し」まで回すと戻る。
             // ドローコールは RenderModel が数える(パーツ数がそのまま回数になる)。
             Render3D();
-            RenderText();
         }
         else
         {
@@ -2168,17 +2227,23 @@ internal static class Program
             _drawCalls = _spriteBatch.DrawCallCount;
 
             RenderResourceStrip();
+        }
 
-            // **文字はいちばん最後**。UI は何よりも手前に出る。
+        // **UI を後処理に通すか**(Day 38。Shift+F5)。
+        //
+        // Day 37 まではここに RenderText があった——つまり HUD の文字は
+        // シーンと同じ RGBA16F のバッファに描かれ、
+        // 露出・グレーディング・トーンマップ・ガンマを全部くぐっていた。
+        // 露出を上げると文字まで白飛びし、モノクロにすると文字まで灰色になる。
+        //
+        // 今日それを外に出す。決め手になったのは FXAA で、
+        // **字は1画素の細い線の塊**なので、輪郭を均す処理といちばん相性が悪い。
+        // ON にすると Day 37 までの挙動に戻るので、見比べられる。
+        if (_uiThroughPost)
+        {
             RenderText();
         }
 
-        // **UI もトーンマップを通ってしまう**のは、この置き方の弱点。
-        // 露出を上げると HUD の文字まで白飛びする。
-        // 実際のエンジンは後処理のあとに UI を描く(あるいは UI 専用のパスを持つ)——
-        // ここでそうしないのは、
-        // 「画面に出るものが全部1本のパイプラインを通る」形をまず見るため。
-        // 分けるのは Day 38(カラーグレーディング)で扱う。
         _post.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
         // **焼いたシャドウマップを最後に隅へ出す**(Ctrl+7)。
@@ -2195,6 +2260,20 @@ internal static class Program
             _window.FramebufferSize.X,
             _window.FramebufferSize.Y,
             _camera.FarPlane * 0.4f);
+
+        // **UI はいちばん最後、後処理の外**(Day 38)。
+        //
+        // 影と遮蔽のデバッグ表示より後ろに置く。遮蔽の表示は画面いっぱいに出るので、
+        // 先に文字を描くと上から塗り潰される。
+        //
+        // ここは既定のフレームバッファなので、書いた色がそのまま画面の値になる。
+        // <b>Day 37 までより文字がわずかに暗く見える</b>のはそのため——
+        // 前はガンマ(1/2.2 乗)を通っていたので 0.95 が 0.977 に持ち上がっていた。
+        // UI の色は**表示空間で決めるもの**なので、こちらのほうが筋が通っている。
+        if (!_uiThroughPost)
+        {
+            RenderText();
+        }
     }
 
     /// <summary>
@@ -2543,7 +2622,7 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day36   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day38   {_fps:F1} fps   DC:{_drawCalls}");
 
         if (_model is not null)
         {
@@ -2587,6 +2666,12 @@ internal static class Program
         // 「なんとなく暗くなった/明るくなった」にしか見えないので、
         // **数字と代償(パス数・ms・MB)を必ず並べて出す**。
         lines.AppendLine(SsaoLabel());
+
+        // **今日の設定を2行で**(Day 38)。FXAA もグレーディングも、
+        // 絵からは「効いているのか、効きすぎているのか」が読み取れない。
+        // しきい値も色温度も、数字で出しておかないと同じ絵を作り直せない。
+        lines.AppendLine(AaLabel());
+        lines.AppendLine(GradeLabel());
 
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
@@ -2821,6 +2906,93 @@ internal static class Program
             + $"{_ssao.ByteSize / (1024.0 * 1024.0):F1}MB"
             + (_ssao.ApplyToDirectLight ? "  [直接光にも適用=誤用]" : string.Empty)
             + view;
+    }
+
+    /// <summary>FXAA のデバッグ表示の名前。切り替えたときのコンソール出力用。</summary>
+    private static string FxaaViewLabel() => _post.FxaaDebugView switch
+    {
+        FxaaDebugView.Luma => "輝度(**FXAA が見ている世界**)",
+        FxaaDebugView.Edge => "縁の検出(赤い画素だけが処理される)",
+        FxaaDebugView.Blend => "混合量(**輪郭の線だけが光るのが正解**)",
+        _ => "通常の絵",
+    };
+
+    /// <summary>FXAA の効きの名前。</summary>
+    private static string FxaaQualityLabel() => _post.Quality switch
+    {
+        FxaaQuality.Low => "低",
+        FxaaQuality.High => "高",
+        FxaaQuality.Extreme => "極",
+        _ => "中",
+    };
+
+    /// <summary>左右比較の名前。</summary>
+    private static string SplitLabel() => _post.Split switch
+    {
+        PostSplit.Grade => "  比較:左=グレーディング前",
+        PostSplit.Fxaa => "  比較:左=FXAA前",
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// FXAA の状態を1行にまとめる(HUD 用。Day 38)。
+    ///
+    /// **しきい値を数字で出しておく**のが要点。FXAA は
+    /// 「効いているのか、効きすぎているのか」が絵から読み取れない後処理で、
+    /// 縁が残っていても滲んでいても、どちらも「そういう絵」に見えてしまう。
+    /// </summary>
+    private static string AaLabel()
+    {
+        if (!_post.FxaaEnabled)
+        {
+            return "FXAA:OFF(輪郭が階段になる。Day 37 まで)" + SplitLabel();
+        }
+
+        string view = _post.FxaaDebugView switch
+        {
+            FxaaDebugView.Luma => "  表示:輝度",
+            FxaaDebugView.Edge => "  表示:縁",
+            FxaaDebugView.Blend => "  表示:混合量",
+            _ => string.Empty,
+        };
+
+        return $"FXAA:{FxaaQualityLabel()}  しきい値:{_post.FxaaEdgeThreshold:F3}"
+            + $"/{_post.FxaaEdgeThresholdMin:F4}  歩幅:{_post.FxaaSpanMax:F0}tx  "
+            + $"UI:{(_uiThroughPost ? "後処理を通す(Day 37 まで)" : "後処理の外")}"
+            + view
+            + SplitLabel();
+    }
+
+    /// <summary>
+    /// カラーグレーディングの状態を1行にまとめる(HUD 用。Day 38)。
+    ///
+    /// **色は数字で持っておかないと再現できない**。「なんとなく good」で
+    /// つまみを回すと、次に開いたときに同じ絵を作れない。
+    /// </summary>
+    private static string GradeLabel()
+    {
+        ColorGrade grade = _post.Grade;
+
+        if (!grade.Enabled)
+        {
+            return "グレーディング:OFF";
+        }
+
+        string preset = grade.Preset switch
+        {
+            GradePreset.Sunset => "夕暮れ",
+            GradePreset.Moonlight => "月夜",
+            GradePreset.Bleach => "退色",
+            GradePreset.Monochrome => "モノクロ",
+            _ => grade.IsIdentity ? "ニュートラル(素通し)" : "手動",
+        };
+
+        Vector3 balance = grade.WhiteBalance;
+
+        return $"グレーディング:{preset}  色温度:{grade.Temperature:+0;-0;0}"
+            + $"  色合い:{grade.Tint:+0;-0;0}  コントラスト:{grade.Contrast:F2}"
+            + $"  彩度:{grade.Saturation:F2}"
+            + $"  白点:({balance.X:F2},{balance.Y:F2},{balance.Z:F2})";
     }
 
     /// <summary>PBR の状態を1行にまとめる(HUD 用)。</summary>
@@ -6249,6 +6421,532 @@ internal static class Program
     }
 
     /// <summary>
+    /// **FXAA とカラーグレーディングの自己チェック**(Ctrl+F12)。
+    ///
+    /// この2つは、絵を見ても正しいかどうかが分からない類のもの。
+    ///   - FXAA … 縁が残っていても滲んでいても、どちらも「そういう絵」に見える
+    ///   - グレーディング … <b>目が数秒で順応する</b>ので、色かぶりが正常に見えてくる
+    ///
+    /// だから確かめるのは印象ではなく<b>読み戻した数値</b>にする。柱は3つ。
+    ///
+    /// <list type="number">
+    /// <item>
+    /// <b>階段を自分で作って、それが均されるかを見る</b>。
+    /// シーンバッファにシザーテスト付きの <c>glClear</c> で
+    /// 傾き 1/4 の階段を焼く。三角形もシェーダも要らないので、
+    /// <b>入力が完全に決まった1枚の絵</b>になる。
+    /// </item>
+    /// <item>
+    /// <b>平らなところは1ビットも変わらないこと</b>。
+    /// FXAA の速さは早期打ち切りが本体なので、
+    /// ここが崩れていると「全画面をぼかしている」ことになる。
+    /// </item>
+    /// <item>
+    /// <b>グレーディングの中立点</b>。素通しの設定なら ON/OFF で絵が一致し、
+    /// コントラストを回しても 18% グレーは動かない。
+    /// </item>
+    /// </list>
+    /// </summary>
+    private static void RunAaCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[FXAA とカラーグレーディングの自己チェック]");
+
+        ColorGrade grade = _post.Grade;
+
+        // --- 1. ホワイトバランス(GL を1回も呼ばずに済む)---
+        //
+        // CPU だけで確かめられるものは先に片付ける(Day 37 のカーネルと同じ作法)。
+        float savedTemperature = grade.Temperature;
+        float savedTint = grade.Tint;
+        float savedContrast = grade.Contrast;
+        float savedSaturation = grade.Saturation;
+        Vector3 savedFilter = grade.Filter;
+        bool savedGradeEnabled = grade.Enabled;
+        GradePreset savedPreset = grade.Preset;
+
+        grade.ApplyPreset(GradePreset.Neutral);
+        Vector3 neutral = grade.WhiteBalance;
+
+        checks.Check(
+            "**色温度 0 の増幅率がちょうど 1**(素通しが本当に素通し)",
+            MathF.Abs(neutral.X - 1.0f) < 1e-4f
+                && MathF.Abs(neutral.Y - 1.0f) < 1e-4f
+                && MathF.Abs(neutral.Z - 1.0f) < 1e-4f,
+            $"({neutral.X:F5}, {neutral.Y:F5}, {neutral.Z:F5})");
+
+        grade.Temperature = 40.0f;
+        Vector3 warm = grade.WhiteBalance;
+
+        checks.Check(
+            "暖色へ回すと L(長波長=赤側)が上がり S(短波長=青側)が下がる",
+            warm.X > 1.0f && warm.Z < 1.0f,
+            $"L {warm.X:F3} / M {warm.Y:F3} / S {warm.Z:F3}");
+
+        grade.Temperature = -40.0f;
+        Vector3 cool = grade.WhiteBalance;
+
+        checks.Check(
+            "寒色はその逆(**軌跡の上を反対へ動いている**)",
+            cool.X < 1.0f && cool.Z > 1.0f,
+            $"L {cool.X:F3} / M {cool.Y:F3} / S {cool.Z:F3}");
+
+        int width = _window.FramebufferSize.X;
+        int height = _window.FramebufferSize.Y;
+
+        if (width < 340 || height < 240)
+        {
+            Console.WriteLine("  窓が小さすぎるので描画側のチェックは飛ばしました(340x240 以上が要る)");
+            grade.ApplyPreset(savedPreset);
+            grade.Temperature = savedTemperature;
+            grade.Tint = savedTint;
+            grade.Contrast = savedContrast;
+            grade.Saturation = savedSaturation;
+            grade.Filter = savedFilter;
+            grade.Enabled = savedGradeEnabled;
+            checks.Report();
+            Console.WriteLine();
+            return;
+        }
+
+        // --- 2. 描画側の準備 ---
+        //
+        // 元の状態は必ず戻す(RunHdrCheck / RunSsaoCheck と同じ作法)。
+        bool savedFxaa = _post.FxaaEnabled;
+        FxaaQuality savedQuality = _post.Quality;
+        FxaaDebugView savedFxaaView = _post.FxaaDebugView;
+        PostSplit savedSplit = _post.Split;
+        bool savedBloom = _post.BloomEnabled;
+        ToneMapOperator savedToneMap = _post.ToneMap;
+        PostDebugView savedDebugView = _post.DebugView;
+        float savedExposure = _post.Exposure;
+
+        // **確かめたいもの以外は全部止める**。
+        // ブルームが入ると階段の周りが滲み、トーンマップが入ると
+        // 「白は本当に 1.0 か」が言えなくなる。
+        _post.BloomEnabled = false;
+        _post.DebugView = PostDebugView.Final;
+        _post.ToneMap = ToneMapOperator.None;
+        _post.Exposure = 1.0f;
+        _post.FxaaDebugView = FxaaDebugView.None;
+        _post.Split = PostSplit.None;
+        grade.Enabled = false;
+
+        using var target = new Framebuffer(_gl, width, height, RenderTargetFormat.Rgba8, depth: false);
+
+        // 階段の形。傾きは 1/4(横 8 画素で縦に 2 画素上がる)。
+        const int StairX = 64;
+        const int StairY = 64;
+        const int StepWidth = 8;
+        const int StepHeight = 2;
+        const int StepCount = 24;
+
+        int regionWidth = StepWidth * StepCount;
+        int regionHeight = (StepHeight * StepCount) + 8;
+
+        _post.FxaaEnabled = false;
+        DrawStaircase(StairX, StairY, StepWidth, StepHeight, StepCount);
+        _post.EndToTarget(target);
+        int plainPasses = _post.PassCount;
+        float[] plain = ReadRed(target, StairX, StairY - 4, regionWidth, regionHeight);
+
+        _post.FxaaEnabled = true;
+        _post.SetFxaaQuality(FxaaQuality.Medium);
+        DrawStaircase(StairX, StairY, StepWidth, StepHeight, StepCount);
+        _post.EndToTarget(target);
+        int fxaaPasses = _post.PassCount;
+        float[] smoothed = ReadRed(target, StairX, StairY - 4, regionWidth, regionHeight);
+
+        // --- 3. 階段が均されたか ---
+        int plainMid = MidTones(plain);
+        int smoothedMid = MidTones(smoothed);
+
+        checks.Check(
+            "FXAA なしでは**中間の明るさが1画素も無い**(白か黒しかない = 階段)",
+            plainMid == 0,
+            $"{plainMid} 画素 / 全 {plain.Length} 画素");
+
+        checks.Check(
+            "**FXAA を掛けると中間の明るさが現れる**(階段の角が埋まった)",
+            smoothedMid > 0,
+            $"{smoothedMid} 画素({(double)smoothedMid / plain.Length:P1})");
+
+        double plainDeviation = EdgeDeviation(plain, regionWidth, regionHeight, out double plainCoverage);
+        double smoothedDeviation = EdgeDeviation(smoothed, regionWidth, regionHeight, out double smoothedCoverage);
+
+        checks.Check(
+            "**縁が理想の直線に近づく**(列ごとの被覆率のずれが減る)",
+            smoothedDeviation < plainDeviation * 0.8,
+            $"ずれ {plainDeviation:F3} → {smoothedDeviation:F3} 画素"
+                + $"(完全な直線なら 0。階段のままなら段の高さの 1/4 = {StepHeight * 0.25:F3})");
+
+        checks.Check(
+            "**明るさの総量はほとんど変わらない**(ぼかしではなく整形だから)",
+            Math.Abs(smoothedCoverage - plainCoverage) < plainCoverage * 0.01,
+            $"{plainCoverage:F1} → {smoothedCoverage:F1} 画素ぶん"
+                + $"({(smoothedCoverage - plainCoverage) / plainCoverage:P2})");
+
+        // --- 4. 平らなところは触らない ---
+        //
+        // **FXAA の速さは早期打ち切りが本体**。ここが崩れていたら、
+        // やっていることは「全画面のぼかし」になっている。
+        float[] plainWhite = ReadRed(target, 200, 66, 16, 16);
+        _post.FxaaEnabled = false;
+        DrawStaircase(StairX, StairY, StepWidth, StepHeight, StepCount);
+        _post.EndToTarget(target);
+        float[] rawWhite = ReadRed(target, 200, 66, 16, 16);
+
+        checks.Check(
+            "**白一色の面は1ビットも動かない**(局所コントラストが 0 なので縁ではない)",
+            Identical(plainWhite, rawWhite),
+            $"最大差 {MaxDifference(plainWhite, rawWhite):F5}");
+
+        // --- 5. しきい値の経路が本当に効いているか ---
+        //
+        // 相対しきい値を 1.0 にすると、どんな段差も「縁ではない」ことになる。
+        // **そのとき FXAA ON の絵は OFF の絵と完全に一致するはず**——
+        // 一致しないなら、しきい値を見ずに混ぜている画素がある。
+        float restoreThreshold = _post.FxaaEdgeThreshold;
+        float restoreThresholdMin = _post.FxaaEdgeThresholdMin;
+
+        _post.FxaaEnabled = true;
+        _post.FxaaEdgeThreshold = 2.0f;
+        _post.FxaaEdgeThresholdMin = 2.0f;
+        DrawStaircase(StairX, StairY, StepWidth, StepHeight, StepCount);
+        _post.EndToTarget(target);
+        float[] gated = ReadRed(target, StairX, StairY - 4, regionWidth, regionHeight);
+
+        checks.Check(
+            "**しきい値を 1.0 にすると FXAA なしと完全一致**(早期打ち切りの経路)",
+            Identical(gated, plain),
+            $"最大差 {MaxDifference(gated, plain):F5}");
+
+        _post.FxaaEdgeThreshold = restoreThreshold;
+        _post.FxaaEdgeThresholdMin = restoreThresholdMin;
+
+        checks.Check(
+            "FXAA を掛けるとフルスクリーンパスが1つ増える",
+            fxaaPasses == plainPasses + 1,
+            $"OFF {plainPasses} パス → ON {fxaaPasses} パス");
+
+        // --- 6. グレーディングの中立点 ---
+        _post.FxaaEnabled = false;
+        grade.ApplyPreset(GradePreset.Neutral);
+
+        var probe = new Vector4(0.6f, 0.3f, 0.15f, 1.0f);
+
+        grade.Enabled = false;
+        Vector4 rawProbe = CompositeProbe(target, probe);
+
+        grade.Enabled = true;
+        Vector4 identityProbe = CompositeProbe(target, probe);
+
+        checks.Check(
+            "**素通しの設定なら ON/OFF で絵が一致**(恒等が恒等になっている)",
+            Near(identityProbe.X, rawProbe.X, 0.005f)
+                && Near(identityProbe.Y, rawProbe.Y, 0.005f)
+                && Near(identityProbe.Z, rawProbe.Z, 0.005f),
+            $"OFF ({rawProbe.X:F3},{rawProbe.Y:F3},{rawProbe.Z:F3})"
+                + $" / ON ({identityProbe.X:F3},{identityProbe.Y:F3},{identityProbe.Z:F3})");
+
+        grade.Saturation = 0.0f;
+        Vector4 grey = CompositeProbe(target, probe);
+
+        checks.Check(
+            "彩度 0 で R = G = B(モノクロになる)",
+            Near(grey.X, grey.Y, 0.006f) && Near(grey.Y, grey.Z, 0.006f),
+            $"({grey.X:F3}, {grey.Y:F3}, {grey.Z:F3})");
+
+        grade.Saturation = 1.0f;
+
+        // **18% グレーはコントラストで動かない**。これが「中心を選ぶ」ことの意味。
+        var midProbe = new Vector4(ColorGrade.MiddleGrey, ColorGrade.MiddleGrey, ColorGrade.MiddleGrey, 1.0f);
+
+        grade.Enabled = false;
+        Vector4 midRaw = CompositeProbe(target, midProbe);
+
+        grade.Enabled = true;
+        grade.Contrast = 1.4f;
+        Vector4 midGraded = CompositeProbe(target, midProbe);
+
+        checks.Check(
+            "**コントラストを上げても 18% グレーは動かない**(回転の中心)",
+            Near(midGraded.X, midRaw.X, 0.006f),
+            $"{midRaw.X:F4} → {midGraded.X:F4}(0.18 のガンマ後は {MathF.Pow(0.18f, 1.0f / 2.2f):F4})");
+
+        // 中心から外れたところはちゃんと動くこと。動かないなら uniform が届いていない。
+        var darkProbe = new Vector4(0.05f, 0.05f, 0.05f, 1.0f);
+
+        grade.Enabled = false;
+        Vector4 darkRaw = CompositeProbe(target, darkProbe);
+
+        grade.Enabled = true;
+        Vector4 darkGraded = CompositeProbe(target, darkProbe);
+
+        checks.Check(
+            "中心より暗いところはコントラストでさらに沈む",
+            darkGraded.X < darkRaw.X - 0.01f,
+            $"{darkRaw.X:F4} → {darkGraded.X:F4}");
+
+        grade.Contrast = 1.0f;
+
+        // 色温度が絵に届いているか。**uniform の名前を1文字間違えても GL は黙っている**。
+        var greyProbe = new Vector4(0.5f, 0.5f, 0.5f, 1.0f);
+
+        grade.Enabled = false;
+        Vector4 greyRaw = CompositeProbe(target, greyProbe);
+
+        grade.Enabled = true;
+        grade.Temperature = 40.0f;
+        Vector4 greyWarm = CompositeProbe(target, greyProbe);
+
+        checks.Check(
+            "**暖色へ回すと絵の赤が上がり青が下がる**(白点の付け替えが届いている)",
+            greyWarm.X > greyRaw.X + 0.005f && greyWarm.Z < greyRaw.Z - 0.005f,
+            $"R {greyRaw.X:F3}→{greyWarm.X:F3}  G {greyRaw.Y:F3}→{greyWarm.Y:F3}"
+                + $"  B {greyRaw.Z:F3}→{greyWarm.Z:F3}");
+
+        // --- 7. 代償 ---
+        grade.Enabled = false;
+        _post.FxaaEnabled = false;
+        double compositeOnly = BenchmarkPost(target, 60);
+
+        _post.FxaaEnabled = true;
+        double withFxaa = BenchmarkPost(target, 60);
+
+        // --- 後始末 ---
+        _post.FxaaEnabled = savedFxaa;
+        _post.SetFxaaQuality(savedQuality);
+        _post.FxaaDebugView = savedFxaaView;
+        _post.Split = savedSplit;
+        _post.BloomEnabled = savedBloom;
+        _post.ToneMap = savedToneMap;
+        _post.DebugView = savedDebugView;
+        _post.Exposure = savedExposure;
+
+        grade.ApplyPreset(savedPreset);
+        grade.Temperature = savedTemperature;
+        grade.Tint = savedTint;
+        grade.Contrast = savedContrast;
+        grade.Saturation = savedSaturation;
+        grade.Filter = savedFilter;
+        grade.Enabled = savedGradeEnabled;
+
+        Framebuffer.BindDefault(_gl, width, height);
+
+        checks.Report();
+        Console.WriteLine(
+            $"  合成のみ {compositeOnly:F3}ms  合成+FXAA {withFxaa:F3}ms"
+            + $"  → FXAA ぶん {withFxaa - compositeOnly:F3}ms  ({width}x{height})");
+        Console.WriteLine(
+            $"  LDR バッファ {_post.Ldr.Width}x{_post.Ldr.Height}(RGBA8)"
+            + $" {_post.Ldr.ByteSize / (1024.0 * 1024.0):F1}MB"
+            + $"  後処理の合計 {_post.ByteSize / (1024.0 * 1024.0):F1}MB");
+        Console.WriteLine();
+
+        static bool Near(float value, float expected, float tolerance) =>
+            MathF.Abs(value - expected) <= tolerance;
+    }
+
+    /// <summary>
+    /// **シーンバッファに階段を焼く**(自己チェック用)。三角形もシェーダも要らない。
+    ///
+    /// <c>glClear</c> はシザー矩形の中しか塗らない、という性質だけを使う。
+    /// 短冊を <paramref name="stepWidth"/> ずつずらしながら
+    /// <paramref name="stepHeight"/> ずつ高くしていくと、
+    /// **傾き stepHeight/stepWidth の直線をラスタライズしたときの階段**が出来上がる。
+    ///
+    /// <para>
+    /// 描いた絵が完全に決まっているのが値打ちで、
+    /// カメラの位置にもシーンの中身にも左右されない。
+    /// 「入力が同じなら出力も同じ」でないと、そもそも数値で確かめられない。
+    /// </para>
+    /// </summary>
+    private static void DrawStaircase(int x, int y, int stepWidth, int stepHeight, int steps)
+    {
+        // 背景は真っ黒。**輝度差を最大にする**ので、しきい値の話が混ざらない。
+        _post.Begin(new Vector4(0.0f, 0.0f, 0.0f, 1.0f));
+
+        _gl.Enable(EnableCap.ScissorTest);
+        _gl.ClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+        for (int i = 0; i < steps; i++)
+        {
+            _gl.Scissor(x + (i * stepWidth), y, (uint)stepWidth, (uint)(1 + (i * stepHeight)));
+            _gl.Clear(ClearBufferMask.ColorBufferBit);
+        }
+
+        // **必ず戻す**。切り忘れると、このあとのフルスクリーンパスが
+        // 最後の短冊の中だけに描かれて、画面がほぼ真っ黒になる。
+        _gl.Disable(EnableCap.ScissorTest);
+    }
+
+    /// <summary>シーンバッファを1色で塗って、後処理を通した結果を1画素読む。</summary>
+    private static Vector4 CompositeProbe(Framebuffer target, Vector4 color)
+    {
+        _post.Begin(color);
+        _post.EndToTarget(target);
+
+        return ReadPixel(target, 4, 4);
+    }
+
+    /// <summary>後処理を <paramref name="iterations"/> 回まわして1回あたりのミリ秒を返す。</summary>
+    private static double BenchmarkPost(Framebuffer target, int iterations)
+    {
+        _post.Begin(new Vector4(0.2f, 0.25f, 0.3f, 1.0f));
+
+        _gl.Finish();
+        var stopwatch = Stopwatch.StartNew();
+
+        for (int i = 0; i < iterations; i++)
+        {
+            _post.EndToTarget(target);
+        }
+
+        // **GPU が終わるまで待つ**。これを入れないと積んだだけの時間が返る。
+        _gl.Finish();
+
+        return stopwatch.Elapsed.TotalMilliseconds / iterations;
+    }
+
+    /// <summary>赤成分だけを矩形ぶん読み返す。**灰色の絵なので1成分で足りる**。</summary>
+    private static unsafe float[] ReadRed(Framebuffer target, int x, int y, int width, int height)
+    {
+        target.Bind();
+
+        var values = new float[width * height];
+
+        fixed (float* data = values)
+        {
+            _gl.ReadPixels(x, y, (uint)width, (uint)height, PixelFormat.Red, PixelType.Float, data);
+        }
+
+        return values;
+    }
+
+    /// <summary>1画素を RGBA で読み返す。</summary>
+    private static unsafe Vector4 ReadPixel(Framebuffer target, int x, int y)
+    {
+        target.Bind();
+
+        Span<float> pixel = stackalloc float[4];
+        fixed (float* data = pixel)
+        {
+            _gl.ReadPixels(x, y, 1, 1, PixelFormat.Rgba, PixelType.Float, data);
+        }
+
+        return new Vector4(pixel[0], pixel[1], pixel[2], pixel[3]);
+    }
+
+    /// <summary>白でも黒でもない画素の数。**アンチエイリアスが作った中間色**そのもの。</summary>
+    private static int MidTones(ReadOnlySpan<float> values)
+    {
+        int count = 0;
+
+        foreach (float value in values)
+        {
+            if (value is > 0.08f and < 0.92f)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// **縁が理想の直線からどれだけずれているか**。ジャギーを1つの数字にしたもの。
+    ///
+    /// <para>
+    /// 列ごとに明るさを足し合わせると、その列で縁がどの高さにあるかが出る
+    /// (<b>被覆率のプロファイル</b>)。理想的にアンチエイリアスされた斜めの縁なら、
+    /// この値は列に対して<b>まっすぐ増える</b>——1画素の中を縁が何割通ったかが
+    /// そのまま明るさになるから。階段のままなら、段の位置で跳ねる折れ線になる。
+    /// </para>
+    ///
+    /// <para>
+    /// そこで最小二乗で直線を当てはめ、<b>そこからの平均のずれ</b>を返す。
+    /// 階段のままなら、ずれは高さ ±段の半分ののこぎり波になるので
+    /// 平均で段の高さの 1/4 前後。均されるほど 0 に近づく。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>全変動(隣どうしの差の和)や2階差分では測れない</b>のが要点。
+    /// 全変動は段をなだらかにしても変わらず、2階差分は
+    /// FXAA が縁の周りに作る細かい起伏を拾ってしまって<b>むしろ増える</b>
+    /// (実測で 92.0 → 97.5)。**何を測るかで結論がひっくり返る**という、
+    /// この手の計測でいちばんありがちな落とし穴。
+    /// </para>
+    /// </summary>
+    /// <param name="coverage">白の総量(画素数ぶん)。**ぼかしていないこと**の確認に使う。</param>
+    private static double EdgeDeviation(
+        ReadOnlySpan<float> values,
+        int width,
+        int height,
+        out double coverage)
+    {
+        var profile = new double[width];
+        coverage = 0.0;
+
+        for (int x = 0; x < width; x++)
+        {
+            double sum = 0.0;
+
+            for (int y = 0; y < height; y++)
+            {
+                sum += values[(y * width) + x];
+            }
+
+            profile[x] = sum;
+            coverage += sum;
+        }
+
+        // 最小二乗で直線 y = a*x + b を当てる。
+        double n = width;
+        double sumX = 0.0;
+        double sumY = 0.0;
+        double sumXx = 0.0;
+        double sumXy = 0.0;
+
+        for (int x = 0; x < width; x++)
+        {
+            sumX += x;
+            sumY += profile[x];
+            sumXx += (double)x * x;
+            sumXy += x * profile[x];
+        }
+
+        double slope = ((n * sumXy) - (sumX * sumY)) / ((n * sumXx) - (sumX * sumX));
+        double intercept = (sumY - (slope * sumX)) / n;
+
+        double deviation = 0.0;
+
+        for (int x = 0; x < width; x++)
+        {
+            deviation += Math.Abs(profile[x] - ((slope * x) + intercept));
+        }
+
+        return deviation / n;
+    }
+
+    private static bool Identical(ReadOnlySpan<float> a, ReadOnlySpan<float> b) =>
+        MaxDifference(a, b) == 0.0f;
+
+    private static float MaxDifference(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        float worst = 0.0f;
+
+        for (int i = 0; i < a.Length && i < b.Length; i++)
+        {
+            worst = MathF.Max(worst, MathF.Abs(a[i] - b[i]));
+        }
+
+        return worst;
+    }
+
+    /// <summary>
     /// **SSAO の自己チェック**(Ctrl+F10)。
     ///
     /// AO は IBL(Day 36)と同じで、<b>間違っていても「それらしい絵」になる</b>。
@@ -8269,6 +8967,186 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(FXAA と簡易カラーグレーディング)---
+            //
+            // **Shift + ファンクションキー**。Day 37 が Ctrl+F1〜F11 を取ったので、
+            // その隣の段を使う。数字キーは Shift / Ctrl / Alt / Ctrl+Shift / Ctrl+Alt の
+            // 5段とも埋まっている(Day 37 の但し書き参照)。
+            //
+            // <b>Shift+F3 だけ飛ばしてある</b>。Day 24 の
+            // 「シーンをコードから組み直す」が先に居るためで、上書きすると
+            // 過去Dayの動作確認が通らなくなる。**歯抜けは仕方がない**——
+            // 育っていく砂場では、キー割り当ては必ずこうなる。
+            //
+            // ガード付きの case は上から順に照合されるので、
+            // 下のほうにある `case Key.F5:`(シェーダ再読込)より前に置くこと。
+            case Key.F1 when shift:
+                _post.FxaaEnabled = !_post.FxaaEnabled;
+                Console.WriteLine(
+                    _post.FxaaEnabled
+                        ? "FXAA: ON(合成 → LDR バッファ → FXAA → 画面。パスが1つ増える)"
+                        : "FXAA: OFF(**輪郭が階段に戻る**。合成が直接画面へ書く)");
+                break;
+
+            case Key.F2 when shift:
+                // **今日いちばん使う窓のひとつ**。FXAA は絵を見ても
+                // 「効いているのか滲んでいるのか」が区別できない。
+                _post.FxaaDebugView = _post.FxaaDebugView switch
+                {
+                    FxaaDebugView.None => FxaaDebugView.Luma,
+                    FxaaDebugView.Luma => FxaaDebugView.Edge,
+                    FxaaDebugView.Edge => FxaaDebugView.Blend,
+                    _ => FxaaDebugView.None,
+                };
+                Console.WriteLine($"FXAA の表示: {FxaaViewLabel()}");
+                break;
+
+            // Shift+F3 は Day 24 の「シーンをコードから組み直す」が使っている。
+
+            case Key.F4 when shift:
+                _post.SetFxaaQuality(_post.Quality switch
+                {
+                    FxaaQuality.Low => FxaaQuality.Medium,
+                    FxaaQuality.Medium => FxaaQuality.High,
+                    FxaaQuality.High => FxaaQuality.Extreme,
+                    _ => FxaaQuality.Low,
+                });
+                Console.WriteLine(
+                    $"FXAA の効き: {FxaaQualityLabel()}"
+                    + $"(しきい値 {_post.FxaaEdgeThreshold:F3}/{_post.FxaaEdgeThresholdMin:F4}"
+                    + $"  歩幅 {_post.FxaaSpanMax:F0}tx)"
+                    + "  ※上げるほど拾うが、**細い線が滲み始める**");
+                break;
+
+            case Key.F5 when shift:
+                // **Day 37 までの置き方に戻す窓**。
+                // 露出(Shift+5/6)を上げると HUD の文字まで白飛びし、
+                // モノクロ(Shift+F7 で4回)にすると文字まで灰色になる。
+                _uiThroughPost = !_uiThroughPost;
+                Console.WriteLine(
+                    _uiThroughPost
+                        ? "UI: 後処理を通す(Day 37 まで)※露出を上げると**文字が白飛びする**"
+                        : "UI: 後処理の外(今日から)※FXAA も掛からないので字が滲まない");
+                break;
+
+            case Key.F6 when shift:
+                _post.Grade.Enabled = !_post.Grade.Enabled;
+                Console.WriteLine(
+                    _post.Grade.Enabled
+                        ? $"カラーグレーディング: ON({GradeLabel()})"
+                        : "カラーグレーディング: OFF(Day 37 までの素の色)");
+                break;
+
+            case Key.F7 when shift:
+                _post.Grade.ApplyPreset(_post.Grade.Preset switch
+                {
+                    GradePreset.Neutral => GradePreset.Sunset,
+                    GradePreset.Sunset => GradePreset.Moonlight,
+                    GradePreset.Moonlight => GradePreset.Bleach,
+                    GradePreset.Bleach => GradePreset.Monochrome,
+                    _ => GradePreset.Neutral,
+                });
+                _post.Grade.Enabled = true;
+                Console.WriteLine($"下敷き: {GradeLabel()}");
+                break;
+
+            case Key.F8 when shift:
+                {
+                    int index = Array.IndexOf(ColorGrade.ContrastSteps, _post.Grade.Contrast);
+                    _post.Grade.Contrast =
+                        ColorGrade.ContrastSteps[(index + 1) % ColorGrade.ContrastSteps.Length];
+                    _post.Grade.MarkCustom();
+                    Console.WriteLine(
+                        $"コントラスト: {_post.Grade.Contrast:F2}"
+                        + $"  ※{ColorGrade.MiddleGrey:F2}(18% グレー)を中心に回る");
+                }
+
+                break;
+
+            case Key.F9 when shift:
+                {
+                    int index = Array.IndexOf(ColorGrade.SaturationSteps, _post.Grade.Saturation);
+                    _post.Grade.Saturation =
+                        ColorGrade.SaturationSteps[(index + 1) % ColorGrade.SaturationSteps.Length];
+                    _post.Grade.MarkCustom();
+                    Console.WriteLine($"彩度: {_post.Grade.Saturation:F2}");
+                }
+
+                break;
+
+            case Key.F10 when shift:
+                {
+                    int index = Array.IndexOf(ColorGrade.TemperatureSteps, _post.Grade.Temperature);
+                    _post.Grade.Temperature =
+                        ColorGrade.TemperatureSteps[(index + 1) % ColorGrade.TemperatureSteps.Length];
+                    _post.Grade.MarkCustom();
+
+                    Vector3 balance = _post.Grade.WhiteBalance;
+                    Console.WriteLine(
+                        $"色温度: {_post.Grade.Temperature:+0;-0;0}  "
+                        + (_post.Grade.Temperature > 0.0f ? "暖色" : "寒色/D65")
+                        + $"  LMS の増幅率 ({balance.X:F3}, {balance.Y:F3}, {balance.Z:F3})");
+                }
+
+                break;
+
+            case Key.F11 when shift:
+                // **今日の主な道具**。アンチエイリアスも色も、隣に並べないと分からない。
+                _post.Split = _post.Split switch
+                {
+                    PostSplit.None => PostSplit.Fxaa,
+                    PostSplit.Fxaa => PostSplit.Grade,
+                    _ => PostSplit.None,
+                };
+                Console.WriteLine(_post.Split switch
+                {
+                    PostSplit.Fxaa => "左右比較: 左 = FXAA 前 / 右 = FXAA 後",
+                    PostSplit.Grade => "左右比較: 左 = グレーディング前 / 右 = 後",
+                    _ => "左右比較: なし",
+                });
+                break;
+
+            case Key.F12 when shift:
+                // **一足飛びで見どころへ**(Ctrl+F9 と同じ趣旨)。
+                // ジャギーがいちばん見える構図は「明るい空を背景にした斜めの縁」。
+                _post.FxaaEnabled = true;
+                _post.SetFxaaQuality(FxaaQuality.High);
+                _post.FxaaDebugView = FxaaDebugView.None;
+                _post.Split = PostSplit.Fxaa;
+                _post.Grade.ApplyPreset(GradePreset.Sunset);
+                _post.Grade.Enabled = true;
+                _uiThroughPost = false;
+
+                _materialGrid = false;
+                _surfaceDemo = false;
+                _draw3D = true;
+                _debugChannel = 0;
+                SetModel(ModelPaths.Length);
+
+                // **スプライトの群れを消す**(Ctrl+F9 と同じ理由)。
+                // 今日見たいのは1画素幅の階段なので、上に何か重なると読めない。
+                SetSpriteCount(0);
+
+                // **少し引いて、市松の床を奥まで見せる**。
+                //
+                // ジャギーがいちばんよく見えるのは、
+                //   1. 白飛びした空を背景にした<b>立方体の斜めの縁</b>
+                //   2. 遠くへ向かって細かくなる<b>市松模様</b>
+                // の2つ。近づきすぎると縁が画面から外れ、
+                // 見下ろしすぎると空が消えて 1 が無くなる。
+                // 分割線(画面の真ん中)を床の模様がまたぐようにしてあるので、
+                // **同じ模様の左右を見比べられる**。
+                _orbit.Yaw = 0.55f;
+                _orbit.Pitch = 0.08f;
+                _orbit.Target = new Vector3(0.0f, 0.40f, 0.0f);
+                _orbit.Distance = 9.0f;
+                _orbit.Apply();
+
+                Console.WriteLine(
+                    "FXAA が効く構図(**画面の左が加工前、右が加工後**)"
+                    + "  Shift+F11 で比較を切り、Shift+F1 で FXAA を切って見比べる");
+                break;
+
             // --- 今日のスイッチ(スクリーンスペース環境遮蔽)---
             //
             // **数字キーが5段とも埋まった**。Shift(Day 31・32)、Ctrl(Day 33)、
@@ -8410,6 +9288,12 @@ internal static class Program
 
             case Key.F10 when ctrl:
                 RunSsaoCheck();
+                break;
+
+            // 自己チェックは Ctrl+F12(Day 38)。今日のキーは Shift+F12 まで埋まったので、
+            // 空いていた Ctrl 側の末尾を使う。
+            case Key.F12 when ctrl:
+                RunAaCheck();
                 break;
 
             case Key.F11 when ctrl:

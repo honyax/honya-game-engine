@@ -33,6 +33,57 @@ internal enum PostDebugView
 }
 
 /// <summary>
+/// FXAA の効き(Shift+F4)。**しきい値と歩幅の組に名前を付けたもの**。
+///
+/// 数字そのものは <see cref="PostProcess.SetFxaaQuality"/> が入れる。
+/// 元の FXAA 3.11 にも同じ趣旨のプリセットが 10 段階あり、
+/// コンソールでは低め、PC では高めを使うのが定番だった。
+/// </summary>
+internal enum FxaaQuality
+{
+    /// <summary>粗い。縁を拾いにくく、混ぜる幅も狭い。**残るジャギーが見える**。</summary>
+    Low,
+
+    /// <summary>元の FXAA の既定値。ほとんどの場面でこれで足りる。</summary>
+    Medium,
+
+    /// <summary>細かい段差まで拾う。</summary>
+    High,
+
+    /// <summary>拾えるだけ拾う。**細い線が滲み始める**のが見える。</summary>
+    Extreme,
+}
+
+/// <summary>FXAA の中間の量を直接見る(Shift+F2)。</summary>
+internal enum FxaaDebugView
+{
+    /// <summary>普通に出す。</summary>
+    None,
+
+    /// <summary>輝度。**FXAA が見ている世界そのもの**。</summary>
+    Luma,
+
+    /// <summary>縁と判定された画素を赤く。しきい値の効き目が分かる。</summary>
+    Edge,
+
+    /// <summary>元の色からどれだけ動いたか。**輪郭の線だけが光るのが正解**。</summary>
+    Blend,
+}
+
+/// <summary>左右に並べて比べる窓(Shift+F11)。**画面の左半分を加工前にする**。</summary>
+internal enum PostSplit
+{
+    /// <summary>比較しない。</summary>
+    None,
+
+    /// <summary>左半分をグレーディング前にする(<c>composite.frag</c>)。</summary>
+    Grade,
+
+    /// <summary>左半分を FXAA 前にする(<c>fxaa.frag</c>)。</summary>
+    Fxaa,
+}
+
+/// <summary>
 /// **HDR パイプライン**。Day 31 の主役。
 ///
 /// Day 30 までの描画は「画面へ直接描いて終わり」だった。今日からはこうなる。
@@ -44,8 +95,20 @@ internal enum PostDebugView
 ///                        │                             │
 ///                        └──────────────┬──────────────┘
 ///                                       ▼
-///                             露出 → 合成 → トーンマップ → ガンマ ──▶ 画面
+///                   露出 → 合成 → グレーディング → トーンマップ → ガンマ
+///                                       │
+///                                       ▼
+///                              [LDR バッファ RGBA8] ──▶ FXAA ──▶ 画面
 /// </code>
+///
+/// <para>
+/// <b>Day 38 で出口が2段になった</b>。トーンマップとガンマまで済ませた 8bit の絵を
+/// いったん <see cref="_ldr"/> に置き、そこから FXAA が画面へ出す。
+/// FXAA は「もう出来上がった絵を見てジャギーを均す」手法なので、
+/// <b>ガンマまで通したあとの値でなければ正しく動かない</b>——
+/// 詳しくは <c>fxaa.frag</c> の <c>Luma</c> を参照。
+/// FXAA を切っているときは <see cref="_ldr"/> を素通りして直接画面へ書く。
+/// </para>
 ///
 /// 段が増えているように見えるが、増えているのは**フルスクリーンのパス**だけで、
 /// シーンの描き方は1行も変わっていない。
@@ -104,9 +167,27 @@ internal sealed class PostProcess : IDisposable
     private readonly Framebuffer _blurA;
     private readonly Framebuffer _blurB;
 
+    /// <summary>
+    /// 合成まで済ませた 8bit の絵(Day 38)。**FXAA の入力**。
+    ///
+    /// <b>なぜ RGBA8 でよいのか</b>。ここに来る値はトーンマップとガンマを通ったあとで、
+    /// すでに 0〜1 に畳まれている。畳んだあとの値に 16bit の幅は要らない——
+    /// 画面に出す値そのものなので、画面と同じ精度で足りる。
+    /// 1920x1080 で 8.3MB。RGBA16F にすると倍の 16.6MB を、
+    /// **何も足さずに**使うことになる。
+    ///
+    /// <para>
+    /// FXAA を切っていても確保したままにしてある。作り直す手間と、
+    /// 「切っている間だけ VRAM が減る」という分かりにくさを避けるため——
+    /// HUD に出る MB は常に同じ値になる。
+    /// </para>
+    /// </summary>
+    private readonly Framebuffer _ldr;
+
     private readonly Handle<Shader> _brightShader;
     private readonly Handle<Shader> _blurShader;
     private readonly Handle<Shader> _compositeShader;
+    private readonly Handle<Shader> _fxaaShader;
 
     /// <summary>
     /// 中身が空の頂点配列オブジェクト。
@@ -135,12 +216,21 @@ internal sealed class PostProcess : IDisposable
         _blurA = new Framebuffer(gl, bloomWidth, bloomHeight, RenderTargetFormat.Rgba16F, depth: false);
         _blurB = new Framebuffer(gl, bloomWidth, bloomHeight, RenderTargetFormat.Rgba16F, depth: false);
 
+        // **画面と同じ大きさ**でなければならない(Day 38)。
+        // FXAA は「1テクセルの隣」を見る手法なので、
+        // 縮めた絵の上で走らせると、画面に拡大した時点で階段が戻ってくる。
+        // ブルームと違い、**ここは1画素の精度そのものが仕事**。
+        _ldr = new Framebuffer(gl, width, height, RenderTargetFormat.Rgba8, depth: false);
+
         string fullscreen = Path.Combine(shaderDirectory, "fullscreen.vert");
         _brightShader = resources.LoadShader(fullscreen, Path.Combine(shaderDirectory, "bright.frag"));
         _blurShader = resources.LoadShader(fullscreen, Path.Combine(shaderDirectory, "blur.frag"));
         _compositeShader = resources.LoadShader(fullscreen, Path.Combine(shaderDirectory, "composite.frag"));
+        _fxaaShader = resources.LoadShader(fullscreen, Path.Combine(shaderDirectory, "fxaa.frag"));
 
         _emptyVao = gl.GenVertexArray();
+
+        SetFxaaQuality(FxaaQuality.Medium);
     }
 
     /// <summary>シーンバッファのテクセルの持ち方(Shift+1)。**今日の見せ場**。</summary>
@@ -168,11 +258,47 @@ internal sealed class PostProcess : IDisposable
     /// <summary>ぼかした結果をどれだけ足すか。</summary>
     public float BloomIntensity { get; set; } = 0.55f;
 
+    /// <summary>カラーグレーディングのつまみ(Day 38)。**数字だけを持つ相棒**。</summary>
+    public ColorGrade Grade { get; } = new();
+
+    /// <summary>FXAA を掛けるか(Shift+F1)。OFF なら合成が直接画面へ書く。</summary>
+    public bool FxaaEnabled { get; set; } = true;
+
+    /// <summary>FXAA の中間の量を直接見る(Shift+F2)。</summary>
+    public FxaaDebugView FxaaDebugView { get; set; } = FxaaDebugView.None;
+
+    /// <summary>いま選ばれている効き(Shift+F4)。HUD の表示用。</summary>
+    public FxaaQuality Quality { get; private set; } = FxaaQuality.Medium;
+
+    /// <summary>
+    /// 局所コントラストがこの割合を超えたら縁とみなす(相対しきい値)。
+    ///
+    /// **1.0 にすると何も縁にならない**——自己チェックはこれを使って
+    /// 「早期打ち切りの経路が本当に効いているか」を確かめる。
+    /// </summary>
+    public float FxaaEdgeThreshold { get; set; }
+
+    /// <summary>暗いところで誤検出しないための下限(絶対しきい値)。</summary>
+    public float FxaaEdgeThresholdMin { get; set; }
+
+    /// <summary>何テクセルまで離れて混ぜてよいか。**大きいほど滑らかで、大きいほど滲む**。</summary>
+    public float FxaaSpanMax { get; set; }
+
+    /// <summary>左右に並べて比べる窓(Shift+F11)。</summary>
+    public PostSplit Split { get; set; } = PostSplit.None;
+
+    /// <summary>比較の境目(0〜1)。既定は画面の真ん中。</summary>
+    public float SplitPosition { get; set; } = 0.5f;
+
     /// <summary>シーンバッファの内容。自己チェックから読み戻すために公開する。</summary>
     public Framebuffer Scene => _scene;
 
+    /// <summary>合成まで済ませた 8bit の絵。自己チェックが読み戻すために公開する。</summary>
+    public Framebuffer Ldr => _ldr;
+
     /// <summary>パイプラインが抱えている VRAM の推定バイト数。</summary>
-    public long ByteSize => _scene.ByteSize + _bright.ByteSize + _blurA.ByteSize + _blurB.ByteSize;
+    public long ByteSize =>
+        _scene.ByteSize + _bright.ByteSize + _blurA.ByteSize + _blurB.ByteSize + _ldr.ByteSize;
 
     /// <summary>
     /// **直前のフレーム**で走らせたフルスクリーンパスの数。代償を数えるための値。
@@ -209,7 +335,22 @@ internal sealed class PostProcess : IDisposable
     /// </summary>
     /// <param name="screenWidth">ウィンドウ側のフレームバッファの幅。</param>
     /// <param name="screenHeight">同じく高さ。</param>
-    public void End(int screenWidth, int screenHeight)
+    public void End(int screenWidth, int screenHeight) =>
+        EndCore(null, screenWidth, screenHeight);
+
+    /// <summary>
+    /// **自己チェック用の出口**(Day 38)。画面ではなく <paramref name="target"/> へ出す。
+    ///
+    /// 合成 → FXAA を本番とまったく同じ経路で走らせるので、
+    /// <b>読み戻して数字で確かめられる</b>。
+    /// 画面(既定のフレームバッファ)を読み戻すこともできなくはないが、
+    /// そちらは「今どちらのバッファが表か」に結果が左右されるので、
+    /// 確かめる側の道具としては使えない。
+    /// </summary>
+    public void EndToTarget(Framebuffer target) =>
+        EndCore(target, target.Width, target.Height);
+
+    private void EndCore(Framebuffer? target, int screenWidth, int screenHeight)
     {
         // **シーンが残していった GL の状態を畳む**。
         //
@@ -243,7 +384,21 @@ internal sealed class PostProcess : IDisposable
             Blur();
         }
 
-        Composite(screenWidth, screenHeight);
+        // **FXAA を掛けるかどうかで、合成の行き先が変わる**(Day 38)。
+        //
+        // 掛けないときに LDR バッファを経由して素通しのコピーを1パス挟む、
+        // という書き方もできる(コードは1本になる)が、
+        // **1920x1080 の読み書きが丸ごと1回増える**のでやらない。
+        // 後処理では「パスを1つ増やす/減らす」が、そのまま帯域の話になる。
+        if (FxaaEnabled)
+        {
+            Composite(_ldr, _ldr.Width, _ldr.Height);
+            ApplyFxaa(target, screenWidth, screenHeight);
+        }
+        else
+        {
+            Composite(target, screenWidth, screenHeight);
+        }
 
         SetCap(EnableCap.DepthTest, depth);
         SetCap(EnableCap.Blend, blend);
@@ -263,6 +418,10 @@ internal sealed class PostProcess : IDisposable
         _bright.Resize(bloomWidth, bloomHeight);
         _blurA.Resize(bloomWidth, bloomHeight);
         _blurB.Resize(bloomWidth, bloomHeight);
+
+        // **LDR バッファは画面と同じ大きさのまま**(Day 38)。
+        // ここを縮めると FXAA が拡大後の階段を見られなくなる。
+        _ldr.Resize(width, height);
     }
 
     /// <summary>後処理のシェーダを読み直す(F5)。**絵を見ながら曲線をいじる**ために要る。</summary>
@@ -271,6 +430,10 @@ internal sealed class PostProcess : IDisposable
         _resources.GetShader(_brightShader).TryReload();
         _resources.GetShader(_blurShader).TryReload();
         _resources.GetShader(_compositeShader).TryReload();
+
+        // **FXAA こそリロードが効く**(Day 38)。しきい値も歩幅も、
+        // 数字を1つ変えて縁を見る、を繰り返して決めるもの。
+        _resources.GetShader(_fxaaShader).TryReload();
     }
 
     /// <summary>明部を抜いて <see cref="_bright"/> に貯める。</summary>
@@ -324,16 +487,25 @@ internal sealed class PostProcess : IDisposable
         }
     }
 
-    /// <summary>露出・合成・トーンマップ・ガンマ。**唯一、画面へ書くパス**。</summary>
-    private void Composite(int screenWidth, int screenHeight)
+    /// <summary>
+    /// 露出・合成・グレーディング・トーンマップ・ガンマ。
+    ///
+    /// **Day 38 で行き先が引数になった**。FXAA が有効なら
+    /// <see cref="_ldr"/> へ、無効なら画面(あるいは自己チェックの的)へ。
+    /// </summary>
+    private void Composite(Framebuffer? target, int screenWidth, int screenHeight)
     {
-        Framebuffer.BindDefault(_gl, screenWidth, screenHeight);
+        BindTarget(target, screenWidth, screenHeight);
 
         Shader shader = _resources.GetShader(_compositeShader);
         shader.Use();
         shader.SetFloat("uExposure", Exposure);
         shader.SetFloat("uBloomIntensity", BloomIntensity);
         shader.SetInt("uToneMap", (int)ToneMap);
+
+        // グレーディングのつまみ(Day 38)。**送るだけで1パスも増えない**。
+        Grade.Apply(shader);
+        shader.SetFloat("uGradeSplit", Split == PostSplit.Grade ? SplitPosition : 0.0f);
 
         // ブルームを切っているときは「シーンのみ」と同じ扱いにする。
         // シェーダ側に「ブルームを足すか」の分岐をもう1つ増やすより、
@@ -359,6 +531,91 @@ internal sealed class PostProcess : IDisposable
         BindTexture(1, bloom, shader, "uBloom");
 
         DrawFullscreen();
+    }
+
+    /// <summary>
+    /// **FXAA**(Day 38)。<see cref="_ldr"/> を読んで、縁だけを均して出す。
+    ///
+    /// <para>
+    /// 入力が「ガンマまで済ませた 8bit の絵」であることが効いている。
+    /// FXAA はジオメトリも深度も見ず、<b>1枚の画像の輝度だけ</b>で段差を探すので、
+    /// ポリゴンの縁だけでなくテクスチャの模様や高輝度部の縁にも効く——
+    /// MSAA が三角形の縁しか直せないのと、ここが決定的に違う。
+    /// </para>
+    ///
+    /// <para>
+    /// 代償はフルスクリーン1パス。読むのは 8bit の画像1枚で、
+    /// 1画素あたり最大9回のテクスチャ取得。
+    /// <b>ほとんどの画素は最初の5回で抜ける</b>(平らなら早期打ち切り)ので、
+    /// 実測は 1920x1080 で 0.2ms 前後に収まる。
+    /// </para>
+    /// </summary>
+    private void ApplyFxaa(Framebuffer? target, int screenWidth, int screenHeight)
+    {
+        BindTarget(target, screenWidth, screenHeight);
+
+        Shader shader = _resources.GetShader(_fxaaShader);
+        shader.Use();
+
+        // **入力の大きさで割る**。行き先ではない。
+        // FXAA が知りたいのは「読む側の1テクセルはどれだけか」なので、
+        // ここを画面の大きさで計算すると、
+        // 自己チェックが別の大きさの的へ出したときだけ結果がずれる。
+        shader.SetVector2("uTexelSize", new Vector2(1.0f / _ldr.Width, 1.0f / _ldr.Height));
+
+        shader.SetFloat("uEdgeThreshold", FxaaEdgeThreshold);
+        shader.SetFloat("uEdgeThresholdMin", FxaaEdgeThresholdMin);
+        shader.SetFloat("uSpanMax", FxaaSpanMax);
+
+        // この2つはつまみにしていない。元の FXAA でも固定値で、
+        // 動かしても絵がほとんど変わらないため。
+        shader.SetFloat("uReduceMul", 1.0f / 8.0f);
+        shader.SetFloat("uReduceMin", 1.0f / 128.0f);
+
+        shader.SetInt("uDebug", (int)FxaaDebugView);
+        shader.SetFloat("uSplit", Split == PostSplit.Fxaa ? SplitPosition : 0.0f);
+
+        BindTexture(0, _ldr.Color, shader, "uSource");
+
+        DrawFullscreen();
+    }
+
+    /// <summary>
+    /// 効きの段を選ぶ(Shift+F4)。**数字はここに1箇所だけ**置く。
+    ///
+    /// 相対しきい値は「明るいところほど大きな差でないと縁とみなさない」割合、
+    /// 絶対しきい値は「真っ暗なところでノイズを縁と誤認しない」ための床。
+    /// 元の FXAA 3.11 のコメントに載っている値をそのまま使っている。
+    /// </summary>
+    public void SetFxaaQuality(FxaaQuality quality)
+    {
+        Quality = quality;
+
+        (FxaaEdgeThreshold, FxaaEdgeThresholdMin, FxaaSpanMax) = quality switch
+        {
+            FxaaQuality.Low => (0.250f, 0.0833f, 4.0f),
+            FxaaQuality.High => (0.125f, 0.0312f, 8.0f),
+            FxaaQuality.Extreme => (0.063f, 0.0156f, 16.0f),
+            _ => (0.166f, 0.0625f, 8.0f),
+        };
+    }
+
+    /// <summary>
+    /// 描き込み先を決める。<c>null</c> なら画面(既定のフレームバッファ)。
+    ///
+    /// **ビューポートも一緒に変わる**ので、
+    /// どちらへ書くかを1箇所にまとめておかないと必ず取りこぼす(Day 31 の轍)。
+    /// </summary>
+    private void BindTarget(Framebuffer? target, int width, int height)
+    {
+        if (target is null)
+        {
+            Framebuffer.BindDefault(_gl, width, height);
+        }
+        else
+        {
+            target.Bind();
+        }
     }
 
     private void BindTexture(int unit, Texture texture, Shader shader, string name)
@@ -404,6 +661,7 @@ internal sealed class PostProcess : IDisposable
         _bright.Dispose();
         _blurA.Dispose();
         _blurB.Dispose();
+        _ldr.Dispose();
 
         _gl.DeleteVertexArray(_emptyVao);
         _emptyVao = 0;
