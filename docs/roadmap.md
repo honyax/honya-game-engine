@@ -204,14 +204,16 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 | 63b |  | テッセレーション | 西川本Ch6。4隅だけ送って GPU に割らせる。変位・距離LOD・**亀裂と、その直し方**。地形/水面で現役 |
 | 64a |  | メッシュシェーダ(VK_EXT_mesh_shader) | Vulkan でラスタライズし、メッシュレットに切ってメッシュシェーダで描く。頂点シェーダの道と全画素同じ絵・ほぼ同じ値段(GS の素通し 4.89 倍と対照的)。Day 63a との設計思想比較 |
 | 64b |  | タスクシェーダと GPU カリング | メッシュレットの境界の球と法線の円錐で、画面の外と丸ごと裏向きを GPU の上で捨てる。**効き目はメッシュレットの切り方で決まる**。Day 63b との設計思想比較 |
-| 65 |  | GPU駆動レンダリング(インダイレクトドロー、GPUカリング) | 「CPUがドローコールを発行しない」現代アーキテクチャ。UE5 Naniteの基礎理論もここで読む |
+| 65a |  | GPU駆動レンダリング(1): インダイレクトドローと体ごとの GPU カリング | コンピュートシェーダが体を選び、**描く命令の引数を GPU が書く**。CPU は何体描かれるかを知らない。Day 64b の続き(MeshletRenderer)。体 → メッシュレット → 三角形の階層カリング。**CPU で選んでも GPU で選んでも絵も速さも同じ**で、違うのは答えを知っているのが誰か |
+| 65b |  | GPU駆動レンダリング(2): 深度を畳んで Hi-Z を作る | 描き終わった深度を縦横半分ずつ畳み、「その範囲でいちばん奥」を残した画像の山を作って、`Z` で目で見る。**ミップの大きさは切り捨て**なので、奇数の段の端を取りこぼさないように読む。穴だらけの形は粗い段でほぼ「何も無い」になる |
+| 65c |  | GPU駆動レンダリング(3): Hi-Z オクルージョンカリング(2パス)と Nanite 講読 | 前のフレームに見えていたものを先に描き、その深度の Hi-Z で残りを調べて描き足す2パス。**CPU が知らない情報(深度)で選ぶ**ので、65a の indirect が初めて要る。**体ごとでは1体も隠れず、メッシュレットごとなら低い視点で半分近く捨てられる**。UE5 Nanite の基礎理論(クラスタの階層と LOD)もここで読む |
 | 66a |  | 焼いたイラディアンスプローブ(プローブの格子+球面調和L2)— 静的GI | Day 56 の夜の裏通りにプローブを格子状に並べ、各点でシーンをキューブマップに描いて Day 36 と同じ手順で放射照度を焼き、球面調和の9係数に縮めて補間する。IBL の「その点は空だけを見ている」前提を外し、**灯りが照らした路面や壁の照り返しが、ほかの面に回り込む**(夜は空が暗いので、これが唯一の環境光になる)。ライトマップと並ぶAAAの静的GIの主力。格子補間の**壁越しの光漏れ**と、揺らぐランタンに付いてこないことも確かめる |
 | 66b |  | モダンライティング理論講読 | TAA発展・アップスケーリング(DLSS/FSRの原理)、DDGI・Lumen・ReSTIR。**DDGI は Day 66a のプローブを毎フレームのレイで焼き直し、深度を持たせて光漏れを防いだもの**として読む |
 | 67 |  | 3D Gaussian Splatting簡易ビューア | NeRF以降の新潮流。ポリゴンパイプラインとの違いを体感 |
 
 補足: シャドウボリューム(B-12前半)は現代ではほぼ使われないため理論のみでOK。ジオメトリシェーダ(Day 63a)はメッシュシェーダに置き換わりつつあるため「教養として実装」の位置づけですが、テッセレーション(Day 63b)は地形・水面・曲面で現役です。
 
-教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、[VK_EXT_mesh_shader の提案書](https://github.com/KhronosGroup/Vulkan-Docs/blob/main/proposals/VK_EXT_mesh_shader.adoc)と [meshoptimizer](https://github.com/zeux/meshoptimizer)(Day 64a・64b)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65)、[An Efficient Representation for Irradiance Environment Maps](https://graphics.stanford.edu/papers/envmap/)(Ramamoorthi & Hanrahan。放射照度を球面調和9係数で表す原典)と [Stupid Spherical Harmonics (SH) Tricks](https://www.ppsloan.org/publications/StupidSH36.pdf)(Sloan。実装の手引き)(Day 66a)、[Dynamic Diffuse Global Illumination with Ray-Traced Irradiance Fields](https://jcgt.org/published/0008/02/01/)(Majercik ほか。DDGI の論文)(Day 66b)
+教養編の参考資料: [Ray Tracing in One Weekend](https://raytracing.github.io/)(Day 59〜60)、[Inigo Quilez のSDF記事群](https://iquilezles.org/articles/)(Day 58)、[NVIDIA Vulkan Ray Tracing Tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/)(Day 62b・62c)、[VK_EXT_mesh_shader の提案書](https://github.com/KhronosGroup/Vulkan-Docs/blob/main/proposals/VK_EXT_mesh_shader.adoc)と [meshoptimizer](https://github.com/zeux/meshoptimizer)(Day 64a・64b)、A Trip Through the Graphics Pipeline / GPU-driven rendering各種資料(Day 65a〜65c)、[An Efficient Representation for Irradiance Environment Maps](https://graphics.stanford.edu/papers/envmap/)(Ramamoorthi & Hanrahan。放射照度を球面調和9係数で表す原典)と [Stupid Spherical Harmonics (SH) Tricks](https://www.ppsloan.org/publications/StupidSH36.pdf)(Sloan。実装の手引き)(Day 66a)、[Dynamic Diffuse Global Illumination with Ray-Traced Irradiance Fields](https://jcgt.org/published/0008/02/01/)(Majercik ほか。DDGI の論文)(Day 66b)
 
 ---
 
@@ -304,7 +306,7 @@ Day 48だけは描画でも物理でもなく**土台の片付け**にあてる�
 |---|---|---|
 | ジオメトリシェーダ、テッセレーション、メッシュシェーダ | 63, 64 | 基盤技術で画面には直接見えない(教養として) |
 | レイマーチング、CPU/GPUパストレーサ、ハードウェアRT | 58〜62 | 学び優先の題材。RT影/RT反射をデモに入れるのは大幅な追加工数 |
-| GPU駆動レンダリング、Nanite理論 | 65 | 大規模シーン向けのスケール技術。単一デモシーンでは不要 |
+| GPU駆動レンダリング、Nanite理論 | 65a〜65c | 大規模シーン向けのスケール技術。単一デモシーンでは不要 |
 | 動的GI(Lumen/DDGI級) | 66b(講読) | AAAの最先端だが個人実装は重い。静的シーンなら IBL+SSAO+66a の焼いたプローブで近似が現実解 |
 | Gaussian Splatting | 67 | 別系統の技術(ポリゴンパイプラインのデモには入らない) |
 | 水面、人肌、トゥーン(西川本Ch8/9/11) | - | シーン題材に含める場合のみ |

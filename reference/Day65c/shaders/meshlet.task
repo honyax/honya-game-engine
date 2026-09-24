@@ -1,0 +1,161 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_EXT_samplerless_texture_functions : enable
+
+// タスクシェーダ。**Day 64b の主役**。
+//
+// メッシュシェーダの手前に置く段で、1つのワークグループ(32 人)が 32 個のメッシュレットを受け持つ。
+// 1人が1個ずつ「このメッシュレットは描く必要があるか」を調べ、生き残ったものだけについて
+// メッシュシェーダのワークグループを立ち上げる(EmitMeshTasksEXT)。
+//
+// 調べるのは三角形ではなく、メッシュレットの**要約**(境界の球と法線の円錐、32 バイト)だけ。
+// 捨てると決まったメッシュレットは、頂点を1つも読まれず、変換もされず、ラスタライザにも届かない。
+// Day 64a でラスタライザがやっていた裏向きの判定(三角形1枚ずつ、変換した後)を、
+// **メッシュレット単位で、変換する前に**やる——それがこの段の値打ち。
+//
+// **Day 65c: このファイルは3回翻訳する**(cull.comp と同じ)。
+//   定義なし … Day 65a のまま(1パス)
+//   EARLY    … 早いパス。**前のフレームで見えていた**メッシュレットだけを描く(印は binding 10)
+//   LATE     … 遅いパス。Hi-Z で「隠れているか」も調べ、早いパスで描いていない見えるメッシュレットを描き足す。印を書き直す
+#define TASK_STAGE
+#include "common.glsl"
+
+// 人数は GPU の推奨値(maxPreferredTaskWorkGroupInvocations。RTX 3070 は 32)に合わせる。
+// **荷物の配列(TaskPayload.meshlets[32])の大きさと一致させる**。
+layout(local_size_x = 32) in;
+
+// ---- 7: カリングの数え上げ ------------------------------------------------------------
+// Day 65c で common.glsl へ移した(cull.comp も書くようになったので)。TASK_STAGE を定義してあるので見える。
+
+// ---- 10: メッシュレットごとの「前のフレームで見えていたか」(Day 65c で追加)---------------
+// 並びは 体の番号 x メッシュレットの数 + メッシュレットの番号。遅いパスが書き直し、次のフレームの早いパスが読む。
+layout(std430, set = 0, binding = 10) buffer MeshletVisibility { uint meshletVisible[]; };
+
+// メッシュシェーダへの荷物。
+taskPayloadSharedEXT TaskPayload payload;
+
+// 球が視錐台の外にあるか(outsideFrustum)は、Day 65a で common.glsl へ移した(cull.comp も使うので)。
+
+// メッシュレットの三角形が**全部**裏を向いているか(要点3)。
+//
+// 三角形が裏向き ⇔ 目から三角形へ向かう向き v と、面の法線 n が同じ側を向く(dot(n, v) >= 0)。
+// n は全部「軸 axis から α 以内」にあるので、v が axis から (90° − α) 以内なら、どの n とも dot >= 0。
+//   → dot(axis, v) >= |v| * cos(90° − α) = |v| * sin α
+// 三角形は点ではなく球の中にあるので、球の半径ぶん安全側に寄せる(C# 側 ComputeCone の説明も参照)。
+bool facingAway(vec3 center, float radius, vec3 axis, float sinAlpha)
+{
+    vec3 v = center - frame.cullPos.xyz;
+    return dot(axis, v) >= sinAlpha * length(v) + radius * (1.0 + sinAlpha);
+}
+
+void main()
+{
+    // vkCmdDrawMeshTasksEXT(ceil(メッシュレットの数 / 32), 描く体の数, 1) で呼んでいる。
+    // Day 65a: y は「何番目に描く体か」になった。本当の体の番号は一覧(binding 8)で引く。
+    // 描く体の数(y の大きさ)は、GPU で選ぶときは cull.comp が引数のバッファに書いたもの(indirect)。
+    // Day 65c: 一覧の引き方を関数にした(遅いパスの一覧は番号に印が載っているので)。
+    uint meshletIndex = gl_WorkGroupID.x * 32u + gl_LocalInvocationIndex;
+    uint instance = drawnInstance(gl_WorkGroupID.y);
+
+    // 最後のワークグループは 32 個に満たない(343 = 32 x 10 + 23)。はみ出した人は「描かない」に入れる。
+    bool inRange = meshletIndex < frame.meshletCount;
+    bool frustumCulled = false;
+    bool backfaceCulled = false;
+    bool occludedByDepth = false;
+
+    if (inRange)
+    {
+        Meshlet meshlet = meshlets[meshletIndex];
+        mat4 model = instances[instance];
+
+        // 球と円錐は模型の座標で持っているので、体の行列で世界へ運ぶ。
+        // 体の行列は回転と移動だけ(拡大しない)なので、半径と角度はそのまま使える。
+        vec3 center = (model * vec4(meshlet.sphere.xyz, 1.0)).xyz;
+        float radius = meshlet.sphere.w;
+
+        if ((frame.cullFlags & 1u) != 0u)
+        {
+            frustumCulled = outsideFrustum(center, radius);
+        }
+
+        if (!frustumCulled && (frame.cullFlags & 2u) != 0u)
+        {
+            vec3 axis = mat3(model) * meshlet.cone.xyz;
+            backfaceCulled = facingAway(center, radius, axis, meshlet.cone.w);
+        }
+
+#ifdef LATE
+        // Day 65c: 画面の中で表を向いていても、早いパスで描いた物の後ろに隠れていれば捨てる。
+        if (!frustumCulled && !backfaceCulled)
+        {
+            occludedByDepth = occluded(center, radius);
+        }
+#endif
+    }
+
+    bool visible = inRange && !frustumCulled && !backfaceCulled && !occludedByDepth;
+
+    // ---- このパスで描くか(Day 65c)---------------------------------------------------------
+    // 見えるもの(visible)と、このパスで描くもの(draw)を分ける。
+    //   早いパス: 見えて、かつ前のフレームでも見えていた
+    //   遅いパス: 見えて、かつ早いパスで描いていない(= 体が前も見えていて、メッシュレットの印もある、ではない)
+    // 同じ目・同じ式で調べるので、早いパスで描いたものは遅いパスでも必ず「見える」側に入る(隠れの判定は後から足すだけ)。
+    uint visibilityIndex = instance * frame.meshletCount + meshletIndex;
+#if defined(EARLY)
+    bool draw = visible && meshletVisible[visibilityIndex] != 0u;
+#elif defined(LATE)
+    bool drawnEarly = drawnInstanceWasVisible(gl_WorkGroupID.y) && inRange && meshletVisible[visibilityIndex] != 0u;
+    bool draw = visible && !drawnEarly;
+    if (inRange)
+    {
+        meshletVisible[visibilityIndex] = visible ? 1u : 0u;
+    }
+#else
+    bool draw = visible;
+#endif
+
+    // ---- 生き残ったものを前から詰める(要点4)------------------------------------------
+    // 32 人で「自分は生き残ったか」を**投票**する。結果は 32 ビットの印(誰が手を挙げたか)。
+    // 自分より前(番号が小さい人)で手を挙げた人の数が、そのまま自分の席の番号になる。
+    //   手を挙げた人: 0 1 _ _ 4 _ 6 ...
+    //   席の番号    : 0 1     2   3 ...
+    // 並びは元のメッシュレットの順のまま詰まるので、描く順番も Day 64a と同じになる(検証1)。
+    // Day 65c: 投票するのは「見えるか」ではなく「このパスで描くか」。
+    uvec4 vote = subgroupBallot(draw);
+    if (draw)
+    {
+        payload.meshlets[subgroupBallotExclusiveBitCount(vote)] = meshletIndex;
+    }
+
+    uint drawCount = subgroupBallotBitCount(vote);
+
+    // 数え上げ。32 人がそれぞれ atomicAdd すると同じ番地の奪い合いになるので、
+    // 投票で数を出してから代表の1人(0 番)だけが足す。投票は**全員が通る場所で**呼ぶ決まり。
+    // Day 65c: 行き先の内訳(画面の外 / 裏向き / 隠れている / 見える)は1パスと遅いパスで数える。
+    // 早いパスは「何個描いたか」だけ(遅いパスが全部を数え直すので、両方で数えると二重になる)。
+    uint frustumCount = subgroupBallotBitCount(subgroupBallot(frustumCulled));
+    uint backfaceCount = subgroupBallotBitCount(subgroupBallot(backfaceCulled));
+    uint occludedCount = subgroupBallotBitCount(subgroupBallot(occludedByDepth));
+    uint visibleCount = subgroupBallotBitCount(subgroupBallot(visible));
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        payload.instance = instance;
+#if defined(EARLY)
+        atomicAdd(counters.earlyDrawn, drawCount);
+#else
+        atomicAdd(counters.frustumCulled, frustumCount);
+        atomicAdd(counters.backfaceCulled, backfaceCount);
+        atomicAdd(counters.occluded, occludedCount);
+        atomicAdd(counters.visible, visibleCount);
+#endif
+#if defined(LATE)
+        atomicAdd(counters.lateDrawn, drawCount);
+#endif
+    }
+
+    // メッシュシェーダのワークグループを drawCount 組立ち上げる(0 なら1組も立ち上がらない)。
+    // **全員が1回だけ呼ぶ**決まりで、呼んだところでこの段は終わる(後ろに何を書いても走らない)。
+    // 荷物への書き込みは、この呼び出しが含む barrier() でメッシュシェーダから見えるようになる。
+    EmitMeshTasksEXT(drawCount, 1, 1);
+}
