@@ -1,0 +1,115 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+// タスクシェーダ。**Day 64b の主役**。
+//
+// メッシュシェーダの手前に置く段で、1つのワークグループ(32 人)が 32 個のメッシュレットを受け持つ。
+// 1人が1個ずつ「このメッシュレットは描く必要があるか」を調べ、生き残ったものだけについて
+// メッシュシェーダのワークグループを立ち上げる(EmitMeshTasksEXT)。
+//
+// 調べるのは三角形ではなく、メッシュレットの**要約**(境界の球と法線の円錐、32 バイト)だけ。
+// 捨てると決まったメッシュレットは、頂点を1つも読まれず、変換もされず、ラスタライザにも届かない。
+// Day 64a でラスタライザがやっていた裏向きの判定(三角形1枚ずつ、変換した後)を、
+// **メッシュレット単位で、変換する前に**やる——それがこの段の値打ち。
+#include "common.glsl"
+
+// 人数は GPU の推奨値(maxPreferredTaskWorkGroupInvocations。RTX 3070 は 32)に合わせる。
+// **荷物の配列(TaskPayload.meshlets[32])の大きさと一致させる**。
+layout(local_size_x = 32) in;
+
+// ---- 7: カリングの数え上げ ------------------------------------------------------------
+// C# 側(MeshRenderer)が毎フレーム 0 に戻し、描き終わったら読む。
+layout(std430, set = 0, binding = 7) buffer CullCounters
+{
+    uint frustumCulled;     // 視錐台の外で捨てた数
+    uint backfaceCulled;    // 丸ごと裏向きで捨てた数
+    uint visible;           // 生き残った数(= メッシュシェーダのワークグループの数)
+    uint unused;
+} counters;
+
+// メッシュシェーダへの荷物。
+taskPayloadSharedEXT TaskPayload payload;
+
+// 球が視錐台の外にあるか(outsideFrustum)は、Day 65a で common.glsl へ移した(cull.comp も使うので)。
+
+// メッシュレットの三角形が**全部**裏を向いているか(要点3)。
+//
+// 三角形が裏向き ⇔ 目から三角形へ向かう向き v と、面の法線 n が同じ側を向く(dot(n, v) >= 0)。
+// n は全部「軸 axis から α 以内」にあるので、v が axis から (90° − α) 以内なら、どの n とも dot >= 0。
+//   → dot(axis, v) >= |v| * cos(90° − α) = |v| * sin α
+// 三角形は点ではなく球の中にあるので、球の半径ぶん安全側に寄せる(C# 側 ComputeCone の説明も参照)。
+bool facingAway(vec3 center, float radius, vec3 axis, float sinAlpha)
+{
+    vec3 v = center - frame.cullPos.xyz;
+    return dot(axis, v) >= sinAlpha * length(v) + radius * (1.0 + sinAlpha);
+}
+
+void main()
+{
+    // vkCmdDrawMeshTasksEXT(ceil(メッシュレットの数 / 32), 描く体の数, 1) で呼んでいる。
+    // Day 65a: y は「何番目に描く体か」になった。本当の体の番号は一覧(binding 8)で引く。
+    // 描く体の数(y の大きさ)は、GPU で選ぶときは cull.comp が引数のバッファに書いたもの(indirect)。
+    uint meshletIndex = gl_WorkGroupID.x * 32u + gl_LocalInvocationIndex;
+    uint instance = visibleInstances[gl_WorkGroupID.y];
+
+    // 最後のワークグループは 32 個に満たない(343 = 32 x 10 + 23)。はみ出した人は「描かない」に入れる。
+    bool inRange = meshletIndex < frame.meshletCount;
+    bool frustumCulled = false;
+    bool backfaceCulled = false;
+
+    if (inRange)
+    {
+        Meshlet meshlet = meshlets[meshletIndex];
+        mat4 model = instances[instance];
+
+        // 球と円錐は模型の座標で持っているので、体の行列で世界へ運ぶ。
+        // 体の行列は回転と移動だけ(拡大しない)なので、半径と角度はそのまま使える。
+        vec3 center = (model * vec4(meshlet.sphere.xyz, 1.0)).xyz;
+        float radius = meshlet.sphere.w;
+
+        if ((frame.cullFlags & 1u) != 0u)
+        {
+            frustumCulled = outsideFrustum(center, radius);
+        }
+
+        if (!frustumCulled && (frame.cullFlags & 2u) != 0u)
+        {
+            vec3 axis = mat3(model) * meshlet.cone.xyz;
+            backfaceCulled = facingAway(center, radius, axis, meshlet.cone.w);
+        }
+    }
+
+    bool visible = inRange && !frustumCulled && !backfaceCulled;
+
+    // ---- 生き残ったものを前から詰める(要点4)------------------------------------------
+    // 32 人で「自分は生き残ったか」を**投票**する。結果は 32 ビットの印(誰が手を挙げたか)。
+    // 自分より前(番号が小さい人)で手を挙げた人の数が、そのまま自分の席の番号になる。
+    //   手を挙げた人: 0 1 _ _ 4 _ 6 ...
+    //   席の番号    : 0 1     2   3 ...
+    // 並びは元のメッシュレットの順のまま詰まるので、描く順番も Day 64a と同じになる(検証1)。
+    uvec4 vote = subgroupBallot(visible);
+    if (visible)
+    {
+        payload.meshlets[subgroupBallotExclusiveBitCount(vote)] = meshletIndex;
+    }
+
+    uint visibleCount = subgroupBallotBitCount(vote);
+
+    // 数え上げ。32 人がそれぞれ atomicAdd すると同じ番地の奪い合いになるので、
+    // 投票で数を出してから代表の1人(0 番)だけが足す。投票は**全員が通る場所で**呼ぶ決まり。
+    uint frustumCount = subgroupBallotBitCount(subgroupBallot(frustumCulled));
+    uint backfaceCount = subgroupBallotBitCount(subgroupBallot(backfaceCulled));
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        payload.instance = instance;
+        atomicAdd(counters.frustumCulled, frustumCount);
+        atomicAdd(counters.backfaceCulled, backfaceCount);
+        atomicAdd(counters.visible, visibleCount);
+    }
+
+    // メッシュシェーダのワークグループを visibleCount 組立ち上げる(0 なら1組も立ち上がらない)。
+    // **全員が1回だけ呼ぶ**決まりで、呼んだところでこの段は終わる(後ろに何を書いても走らない)。
+    // 荷物への書き込みは、この呼び出しが含む barrier() でメッシュシェーダから見えるようになる。
+    EmitMeshTasksEXT(visibleCount, 1, 1);
+}
