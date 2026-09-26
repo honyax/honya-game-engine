@@ -24,7 +24,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 
 - **名前空間はDay番号を含めない。Phase単位で固定する**
   - Day 1: `Framebuffer` / Day 2〜10: `SoftwareRasterizer` / Day 11〜13: `RawGL` / Day 14〜: `HonyaEngine`
-    (教養編の Labs は題材ごと。Day 59〜61: `CpuRayTracer` / Day 62a〜62c: `HardwareRayTracer` / Day 64a〜65c: `MeshletRenderer`)
+    (教養編の Labs は題材ごと。Day 59〜61: `CpuRayTracer` / Day 62a〜62c: `HardwareRayTracer` / Day 64a〜65c: `MeshletRenderer` / Day 67: `GaussianSplatting`)
   - 理由: Dayごとに変えると `git diff --no-index reference/Day01 reference/Day02` に全ファイルの
     namespace 行が乗り、その日の実装差分が埋もれる。work側のプロジェクト名とも揃う
 - csprojに `<AssemblyName>` は書かない。csprojのファイル名(`DayXX.csproj`)から出力名が決まるので、

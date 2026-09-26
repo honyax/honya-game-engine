@@ -58,6 +58,7 @@ work_dir_for_day() {
     elif [ "$n" -ge 59 ] && [ "$n" -le 61 ]; then echo "work/Labs/CpuRayTracer"
     elif [ "$n" -eq 62 ]; then echo "work/Labs/HardwareRayTracer"
     elif [ "$n" -ge 64 ] && [ "$n" -le 65 ]; then echo "work/Labs/MeshletRenderer"
+    elif [ "$n" -eq 67 ]; then echo "work/Labs/GaussianSplatting"
     else                       echo "work/HonyaEngine/HonyaEngine"
     fi
 }
