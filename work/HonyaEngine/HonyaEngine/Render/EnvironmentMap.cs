@@ -73,6 +73,11 @@ internal sealed class EnvironmentMap : IDisposable
     /// <summary>BRDF の表の1辺。**横が N・V、縦が粗さ**。</summary>
     public const int BrdfLutSize = 128;
 
+    /// <summary>
+    /// 半精度 float(RGB16F)で表せる最大値。これを超える値は GPU へ上げると +Inf になる。
+    /// </summary>
+    private const float HalfFloatMax = 65504.0f;
+
     private readonly GL _gl;
     private readonly RenderResources _resources;
 
@@ -87,7 +92,10 @@ internal sealed class EnvironmentMap : IDisposable
     private readonly Handle<Shader> _prefilterShader;
     private readonly Handle<Shader> _skyboxShader;
 
-    /// <summary>元になる正距円筒の HDR 画像。<see cref="SkyImage"/> が作る。</summary>
+    /// <summary>
+    /// 元になる正距円筒の HDR 画像。<see cref="SkyImage"/> が作るか、
+    /// <see cref="HdrImage"/> が <c>.hdr</c> から読む(Day 39)。
+    /// </summary>
     private Texture? _source;
 
     private bool _disposed;
@@ -151,6 +159,14 @@ internal sealed class EnvironmentMap : IDisposable
     /// <summary>空を 8bit(1.0 で頭打ち)にして焼くか(Ctrl+Alt+6)。**HDR が要る理由**。</summary>
     public bool ClampSkyToLdr { get; set; }
 
+    /// <summary>
+    /// 空を Y 軸まわりに回す角度(ラジアン。Day 39)。
+    /// **HDRI の太陽をシーンの都合のよい方位へ持ってくる**ためのつまみ。
+    /// 焼き込みパスでだけ効くので、ここを変えたら <see cref="BakeFromPixels"/> を呼び直すこと。
+    /// 理屈は <c>shaders/equirect.frag</c> のコメント。
+    /// </summary>
+    public float SkyYaw { get; set; }
+
     /// <summary>焼くのにかかった時間(ミリ秒)。**代償を数字で見る**。</summary>
     public double BakeMilliseconds { get; private set; }
 
@@ -159,6 +175,17 @@ internal sealed class EnvironmentMap : IDisposable
 
     /// <summary>BRDF の表を焼くのにかかった時間。</summary>
     public double LutMilliseconds { get; private set; }
+
+    /// <summary>
+    /// いま焼いてある空がどこから来たか(Day 39)。HUD と自己チェックの表示用。
+    /// 手で焼いたものなら <c>"手焼き"</c>、HDRI なら**ファイル名**が入る。
+    /// </summary>
+    public string SourceLabel { get; private set; } = "(未焼き)";
+
+    /// <summary>元画像の大きさ(Day 39)。手焼きは 1024x512、HDRI は 2048x1024。</summary>
+    public int SourceWidth { get; private set; }
+
+    public int SourceHeight { get; private set; }
 
     /// <summary>3枚が抱えている VRAM の推定バイト数。</summary>
     public long ByteSize =>
@@ -181,15 +208,70 @@ internal sealed class EnvironmentMap : IDisposable
     /// </summary>
     public void Bake(Vector3 sunDirection, int screenWidth, int screenHeight)
     {
-        var total = Stopwatch.StartNew();
-
         // --- 1. 空を CPU で作る ---
         var skyWatch = Stopwatch.StartNew();
-        float[] sky = SkyImage.Create(sunDirection, ClampSkyToLdr);
-        SkyMilliseconds = skyWatch.Elapsed.TotalMilliseconds;
+        float[] sky = SkyImage.Create(sunDirection);
+        double skyMilliseconds = skyWatch.Elapsed.TotalMilliseconds;
+
+        BakeFromPixels(sky, SkyImage.Width, SkyImage.Height, screenWidth, screenHeight, "手焼き");
+        SkyMilliseconds = skyMilliseconds;
+    }
+
+    /// <summary>
+    /// **すでにある正距円筒の HDR 画像から焼く**(Day 39)。
+    ///
+    /// <see cref="Bake"/> との違いは「空をどこから持ってくるか」だけで、
+    /// 2 段目から先(キューブ → 放射照度 → 事前フィルタ)はまったく同じ道を通る。
+    /// Day 36 で「Day 39 で本物の HDRI を差し込むときは**この層を差し替えるだけ**で済む」
+    /// と書いた設計が、そのとおりに効いた形。
+    ///
+    /// <para>
+    /// <b>ここで <see cref="ClampSkyToLdr"/> も効く</b>。HDRI に対して掛けると、
+    /// 手焼きのときよりずっと落差が大きい——本物の太陽は 10 万を超えるので、
+    /// 1.0 で切ると環境光の 8 割が消える。
+    /// </para>
+    /// </summary>
+    /// <param name="pixels">RGB の float が横並び。長さ <c>width * height * 3</c>。</param>
+    /// <param name="label">どこから来た空か。HUD に出す。</param>
+    public void BakeFromPixels(
+        float[] pixels, int width, int height, int screenWidth, int screenHeight, string label)
+    {
+        var total = Stopwatch.StartNew();
+
+        SkyMilliseconds = 0.0;
+        SourceLabel = label;
+        SourceWidth = width;
+        SourceHeight = height;
+
+        float[] source = pixels;
+
+        if (ClampSkyToLdr)
+        {
+            // **切るのはここ**。手焼きの側は SkyImage.Create が自分で切っていたが、
+            // 読み込んだ画像に対しては呼び出し側でやる場所が無い。
+            source = new float[pixels.Length];
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                source[i] = MathF.Min(pixels[i], 1.0f);
+            }
+        }
+        else
+        {
+            // **半精度 float の上限で切る**。下で RGB16F に上げるが、
+            // 半精度の最大値 65504 を超えた値は頭打ちにならず **+Inf になる**
+            // (IEEE 754 の丸め。表せる最大値より大きいものは無限大へ行く)。
+            // 本物の太陽の芯は 24 万あるので、太陽を抜かずに焼くと(Ctrl+Shift+F5)
+            // 環境キューブに Inf が入り、放射照度と事前フィルタの畳み込みで周りへ広がり、
+            // トーンマップで Inf / Inf = NaN になって**画面が真っ黒になる**。
+            source = new float[pixels.Length];
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                source[i] = MathF.Min(pixels[i], HalfFloatMax);
+            }
+        }
 
         _source?.Dispose();
-        _source = Texture.FromFloatPixels(_gl, sky, SkyImage.Width, SkyImage.Height, components: 3);
+        _source = Texture.FromFloatPixels(_gl, source, width, height, components: 3);
 
         // **横は繰り返す**。方位角は一周してつながっているので、
         // ClampToEdge のままだと u = 0 と u = 1 の継ぎ目に細い線が出る。
@@ -203,6 +285,7 @@ internal sealed class EnvironmentMap : IDisposable
         equirect.Use();
         _source.Bind(TextureUnit.Texture0);
         equirect.SetInt("uEquirect", 0);
+        equirect.SetFloat("uSkyYaw", SkyYaw);
 
         RenderToCube(Environment, equirect, mip: 0);
 

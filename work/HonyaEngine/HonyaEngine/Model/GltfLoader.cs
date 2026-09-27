@@ -413,6 +413,10 @@ internal static class GltfLoader
                 ? ReadVector4Accessor(tangentRef.GetInt32())
                 : null;
 
+            // パーツ単位の境界箱(Day 39)。頂点を回すついでに取る。
+            var partMin = new Vector3(float.MaxValue);
+            var partMax = new Vector3(float.MinValue);
+
             var built = new Vertex[positions.Length];
             for (int i = 0; i < positions.Length; i++)
             {
@@ -455,6 +459,11 @@ internal static class GltfLoader
                 Vector3 worldPosition = Vector3.Transform(position, world);
                 min = Vector3.Min(min, worldPosition);
                 max = Vector3.Max(max, worldPosition);
+
+                // **パーツ単位でも取る**(Day 39)。モデル全体のぶんとは別勘定で、
+                // 「このパーツだけを置きたい」ときの大きさと足元がこれで分かる。
+                partMin = Vector3.Min(partMin, worldPosition);
+                partMax = Vector3.Max(partMax, worldPosition);
             }
 
             uint[] indices = primitive.TryGetProperty("indices", out JsonElement indicesRef)
@@ -482,7 +491,7 @@ internal static class GltfLoader
             Material material = GetOrCreateMaterial(materialIndex);
 
             var mesh = new Mesh<Vertex>(_gl, built, indices, Vertex.Attributes);
-            return new Model.Part(mesh, material, world, name);
+            return new Model.Part(mesh, material, world, name, partMin, partMax);
         }
 
         /// <summary>

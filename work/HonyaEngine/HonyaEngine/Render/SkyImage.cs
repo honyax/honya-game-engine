@@ -5,6 +5,15 @@ namespace HonyaEngine;
 /// <summary>
 /// **HDR の空を手で焼くところ**(Day 36)。<see cref="SurfaceMaps"/>(Day 34)の環境版。
 ///
+/// <para>
+/// <b>Day 39 で本物の HDRI が入った</b>(<see cref="HdrImage"/>)。
+/// それでもこのクラスは残す——下に書いた理由の 2 番目と 3 番目が
+/// <b>今日いっそう効く</b>ため。
+/// <c>Ctrl+Shift+F2</c> で手焼きと HDRI を切り替えられるようにしてあるので、
+/// 「太陽の向きが最初から合っている空」と「絵から測った空」を見比べられる。
+/// 放射照度マップの検算(<c>RunIblCheck</c>)も、答えが手元にある手焼きでしかできない。
+/// </para>
+///
 /// IBL には環境の絵が要る。普通は Poly Haven のような配布サイトから
 /// HDRI(<c>.hdr</c> / <c>.exr</c>)を持ってくるが、今日は自分で作る。理由は3つ。
 ///
@@ -61,12 +70,14 @@ internal static class SkyImage
     /// 太陽の**進む向き**(<c>Program._lightDirection</c> と同じ規約)。
     /// 空の中で太陽が見える方向はこの逆になる。
     /// </param>
-    /// <param name="clampToLdr">
-    /// true なら 1.0 で切る。**HDR が要る理由を見るためのスイッチ**(Ctrl+Alt+6)。
-    /// 環境光の大半は太陽が担っているので、そこを 1.0 で潰すと
-    /// 「全体的にぼんやり明るいだけ」の環境になり、映り込みも陰影も一段のっぺりする。
-    /// </param>
-    public static float[] Create(Vector3 sunDirection, bool clampToLdr = false)
+    /// <remarks>
+    /// **Day 39 で <c>clampToLdr</c> の引数が無くなった**。
+    /// 1.0 で頭打ちにする処理(Ctrl+Alt+6)は
+    /// <see cref="EnvironmentMap.BakeFromPixels"/> へ移してある——
+    /// 今日から空の出どころが2つ(手焼きと HDRI)になったので、
+    /// **どちらから来た画像でも同じ場所で切る**ほうが辻褄が合う。
+    /// </remarks>
+    public static float[] Create(Vector3 sunDirection)
     {
         var pixels = new float[Width * Height * 3];
 
@@ -102,11 +113,6 @@ internal static class SkyImage
                     MathF.Sin(theta) * MathF.Sin(phi));
 
                 Vector3 color = Sample(direction, toSun);
-
-                if (clampToLdr)
-                {
-                    color = Vector3.Min(color, Vector3.One);
-                }
 
                 int index = ((y * Width) + x) * 3;
                 pixels[index + 0] = color.X;

@@ -184,6 +184,32 @@ namespace HonyaEngine;
 /// キーは `Shift+F1`〜`F12`(`Shift+F3` だけは Day 24 の先客が居るので空き)。
 /// `Shift+F11` の左右比較が今日の主な道具になる——
 /// **アンチエイリアスも色も、隣に並べないと分からない**。
+///
+/// **Day 39 での変更**: **デモ v1 が組み上がった**。
+/// Day 31〜38 で積んだ描画機能を、初めて<b>本番の絵</b>の上で動かす。
+///
+/// 入ったものは3つ。
+///
+/// 1つ目は<b>本物の HDRI</b>(<see cref="HdrImage"/>)。
+/// Radiance の <c>.hdr</c> を自分で読む。RGBE——
+/// **3色で1つの指数を共有する**——という詰め方を読むと、
+/// HDR が「広い範囲を 1 画素 4 バイトに収める工夫」であることが分かる。
+///
+/// 2つ目は<b>絵から太陽を測ること</b>(<see cref="SkyAnalysis"/>)。
+/// Day 36 の <see cref="SkyImage"/> には
+/// 「買ってきた HDRI だと絵の中の太陽とシーンの平行光源が別物になる」と書いてあった。
+/// **いちばん明るいかたまりを探して、向きと放射照度を取り出す**——
+/// これだけで影の向きも濃さも辻褄が合う。
+/// 併せて<b>環境マップから太陽を抜く</b>(二重計上を消す)。
+///
+/// 3つ目は<b>シーンをファイルに書くこと</b>(<see cref="DemoScene"/>)。
+/// <c>assets/scenes/demo-v1.json</c> に地面・壁・小物・光の設定が並び、
+/// <c>Ctrl+Shift+F10</c> で読み直せる。
+/// **影・SSAO・本描画の3つのパスが同じ並びを回る**ようになり、
+/// Day 33 で書いた「フラグにするのは Day 39 の仕事」という宿題も片付いた。
+///
+/// キーは `Ctrl+Shift+F1`〜`F12`、自己チェックは `Ctrl+Alt+F12`。
+/// `Ctrl+Shift+F12` で決めの構図に飛ぶ。
 /// </summary>
 internal static class Program
 {
@@ -336,6 +362,71 @@ internal static class Program
 
     /// <summary>環境マップ一式(空 / 放射照度 / 事前フィルタ / BRDF の表)。</summary>
     private static EnvironmentMap _env = null!;
+
+    // --- 今日の主役: デモ v1(Day 39)---
+
+    /// <summary>組み上げたシーン。無い間は Day 38 までのデモが出る。</summary>
+    private static DemoScene? _demo;
+
+    /// <summary>使える HDRI。**Ctrl+Shift+F3 で回す**。3枚で「太陽の写り方」が3通り見られる。</summary>
+    private static readonly string[] HdriPaths =
+    [
+        // 太陽がきれいに撮れているもの。抽出が素直に決まる(視半径 0.3 度)。
+        "hdri/spruit_sunrise_2k.hdr",
+
+        // 太陽がかすんでいるもの。抽出はできるが、担っている光がごく僅か。
+        "hdri/venice_sunset_2k.hdr",
+
+        // 太陽が飽和しているもの。**抽出が破綻する**——今日いちばんの教材。
+        "hdri/the_sky_is_on_fire_2k.hdr",
+    ];
+
+    private static int _hdriIndex;
+
+    /// <summary>空を HDRI にするか(false なら Day 36 の手焼き)。</summary>
+    private static bool _useHdriSky = true;
+
+    /// <summary>平行光源を HDRI から取るか(false なら Day 38 までの手書きの向き)。</summary>
+    private static bool _sunFromHdri = true;
+
+    /// <summary>いま焼いてある HDRI の解析結果。**空を回す前の座標で測った値**。</summary>
+    private static SkyAnalysis.Result _skyAnalysis;
+
+    /// <summary>空を Y 軸まわりに回した角度(ラジアン)。<c>equirect.frag</c> の <c>uSkyYaw</c>。</summary>
+    private static float _skyYaw;
+
+    /// <summary>空の回転を効かせるか(Ctrl+Shift+F11。**回さないとどうなるか**を見る窓)。</summary>
+    private static bool _applySkyYaw = true;
+
+    /// <summary>空を回したあとの太陽の向き(進む向き)。**平行光源に入るのはこちら**。</summary>
+    private static Vector3 _sunWorldDirection = -Vector3.UnitY;
+
+    /// <summary>環境マップから太陽を抜くか(**二重計上を消す**)。</summary>
+    private static bool _removeSunFromIbl = true;
+
+    /// <summary>太陽を取り出すしきい値(最大輝度に対する比)。Ctrl+Shift+F6 で回す。</summary>
+    private static float _sunThreshold = 0.05f;
+
+    private static readonly float[] SunThresholdSteps = [0.30f, 0.10f, 0.05f, 0.02f];
+
+    /// <summary>影を落とす設定を一括で無視するか(Ctrl+Shift+F7。**影が消える**)。</summary>
+    private static bool _sceneShadows = true;
+
+    /// <summary><c>.hdr</c> の読み込みと解析にかかった時間。</summary>
+    private static double _hdrLoadMilliseconds;
+
+    private static double _skyAnalysisMilliseconds;
+
+    /// <summary>Day 38 までの手書きの光。デモから戻るときに書き戻す。</summary>
+    private static Vector3 _manualLightDirection;
+
+    private static Vector3 _manualLightColor;
+
+    private static Vector3 _manualAmbientColor;
+
+    private static float _manualExposure;
+
+    private static float _manualShadowRadius;
 
     /// <summary>太陽を何度回したか(Ctrl+Alt+5)。**空と平行光源が同時に動く**。</summary>
     private static float _sunYaw;
@@ -1070,6 +1161,20 @@ internal static class Program
         // 実際に焼くのは Bake。太陽の向きを変えるたびに焼き直したいので、
         // 「作り直さずに中身だけ入れ替えられる」形にしておく必要がある。
         _env = new EnvironmentMap(_gl, _resources, shaderDirectory);
+
+        // --- 今日の主役: デモ v1 の下ごしらえ(Day 39)---
+        //
+        // **手書きの光を控えておく**。デモに入ると HDRI から測った値で上書きするので、
+        // Ctrl+Shift+F1 で戻ったときに書き戻せるようにしておく。
+        // 「元に戻す」を後から足すのは大抵つらいので、上書きする側を書くときに一緒に用意する。
+        _manualLightDirection = _lightDirection;
+        _manualLightColor = _lightColor;
+        _manualAmbientColor = _ambientColor;
+        _manualExposure = _post.Exposure;
+        _manualShadowRadius = _shadow.Radius;
+
+        // Day 38 までの絵から始める。デモは Ctrl+Shift+F1 で入る。
+        _useHdriSky = false;
         _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
 
         // --- 今日の主役: スクリーンスペース環境遮蔽 ---
@@ -1399,6 +1504,17 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 39: デモ v1 の組み上げ(Ctrl+Shift+F1〜F12)---");
+        Console.WriteLine("Ctrl+Shift+F12:デモ v1 の決めの構図へ。**今日の到達点はこの1枚**");
+        Console.WriteLine("Ctrl+Shift+F1:デモ ON/OFF  Ctrl+Shift+F2:空を HDRI / 手焼き(Day 36)で切替");
+        Console.WriteLine("Ctrl+Shift+F3:HDRI を回す(3枚。**太陽の写り方が3通り**)");
+        Console.WriteLine("Ctrl+Shift+F4:平行光源を HDRI から取るか手書きか(**影が空と食い違う**)");
+        Console.WriteLine("Ctrl+Shift+F5:環境マップから太陽を抜く(**二重計上**)  Ctrl+Shift+F6:抽出のしきい値");
+        Console.WriteLine("Ctrl+Shift+F7:影を全部落とさなくする  Ctrl+Shift+F11:空の回転 ON/OFF");
+        Console.WriteLine("Ctrl+Shift+F8:スクリーンショット  Ctrl+Shift+F9:シーンの内訳");
+        Console.WriteLine("Ctrl+Shift+F10:シーンを読み直す(**assets/scenes/demo-v1.json を書き換えて押す**)");
+        Console.WriteLine("Ctrl+Alt+F12:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 38: FXAA と簡易カラーグレーディング(Shift+F1〜F12)---");
         Console.WriteLine("Shift+F12:FXAA が効く構図へ。**画面の左が加工前、右が加工後**");
@@ -2179,7 +2295,8 @@ internal static class Program
         //
         // ゲームモードでは出さない。見下ろし型の 2D に空が映っても意味が無く、
         // 「エンジンの機能のうちゲームが要るものだけを通る」という Day 29 の線から外れる。
-        if (!_playing && (_draw3D || _model is not null || _materialGrid || _surfaceDemo))
+        if (!_playing
+            && (_draw3D || _demo is not null || _model is not null || _materialGrid || _surfaceDemo))
         {
             _env.DrawSkybox(_camera, _depthTest, _culling);
         }
@@ -2188,6 +2305,17 @@ internal static class Program
         {
             RenderGame();
             _drawCalls = _spriteBatch.DrawCallCount;
+        }
+        else if (_demo is not null)
+        {
+            // **デモ v1 も「それだけを見る絵」**(Day 39)。
+            // 材質グリッドや読み込んだモデルと同じ扱いで、
+            // スプライトの群れもロードの帯も出さない——
+            // デモの絵に 1000 枚のスプライトが重なったら、それはもうデモではない。
+            //
+            // <b>G キー(_draw3D)より上に置く</b>のもグリッドと同じ理由。
+            // 「デモを出せ」と言われたのに 3D 背景のスイッチで消えるのは筋が通らない。
+            Render3D();
         }
         else if (_materialGrid || _surfaceDemo)
         {
@@ -2319,7 +2447,18 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_materialGrid)
+        if (_demo is not null)
+        {
+            // **AO はシーン全部に効かせる**(Day 39)。
+            // 影(<see cref="RenderShadowPass"/>)は「落とす側」を選ぶが、
+            // 環境遮蔽に選択の余地は無い——**そこにある物は必ず周りを遮る**。
+            // 地面を入れないと、壁と地面の入隅に暗がりが出ない。
+            foreach (DemoScene.Item item in _demo.Items)
+            {
+                _ssao.Draw(item.Mesh, item.Transform);
+            }
+        }
+        else if (_materialGrid)
         {
             // **グリッドも入れる**(影パスでは外した)。
             // 球どうしの隙間が近いので、隣り合う球の間にうっすら暗がりが出る——
@@ -2401,7 +2540,24 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_materialGrid)
+        if (_demo is not null)
+        {
+            // **フラグで選ぶ**(Day 39)。この関数の説明に書いた宿題がここで片付いた——
+            // 手書きの分岐ではなく、シーンのデータが「落とすかどうか」を持っている。
+            // Ctrl+Shift+F7 で <see cref="_sceneShadows"/> を切ると全部落とさなくなり、
+            // **影がどれだけ絵を支えているか**が分かる。
+            if (_sceneShadows)
+            {
+                foreach (DemoScene.Item item in _demo.Items)
+                {
+                    if (item.CastShadow)
+                    {
+                        _shadow.Draw(item.Mesh, item.Transform);
+                    }
+                }
+            }
+        }
+        else if (_materialGrid)
         {
             // **材質グリッドは影を落とさない**(Day 35)。
             //
@@ -2673,6 +2829,10 @@ internal static class Program
         lines.AppendLine(AaLabel());
         lines.AppendLine(GradeLabel());
 
+        // **今日の設定を1行で**(Day 39)。デモは「どの空で、どこから太陽を取ったか」で
+        // 絵が丸ごと変わる。しかもそれは絵を見ても分からないので、常に出しておく。
+        lines.AppendLine(DemoLabel());
+
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
             + $"{_shadow.ByteSize / (1024.0 * 1024.0):F1}MB  影パス:{_shadow.DrawCalls}回 {_shadowMilliseconds:F2}ms");
@@ -2872,6 +3032,30 @@ internal static class Program
             + $"  {(_env.UsePrefilter ? "事前フィルタ" : "原寸のみ")}"
             + (_env.ClampSkyToLdr ? "  空を8bitに制限" : string.Empty)
             + $"  焼き:{_env.BakeMilliseconds:F0}ms  {_env.ByteSize / (1024.0 * 1024.0):F1}MB";
+    }
+
+    /// <summary>デモ v1 の状態を1行にまとめる(HUD 用。Day 39)。</summary>
+    private static string DemoLabel()
+    {
+        if (_demo is null)
+        {
+            return $"デモ:OFF(Ctrl+Shift+F1 で入る)  空:{_env.SourceLabel}";
+        }
+
+        SkyAnalysis.Sun sun = _skyAnalysis.Sun;
+        Vector3 toSun = -_sunWorldDirection;
+
+        string sunLabel = _useHdriSky && _sunFromHdri
+            ? $"太陽:HDRI 仰角{MathF.Asin(Math.Clamp(toSun.Y, -1.0f, 1.0f)) * (180.0f / MathF.PI):F0}度"
+                + $"/視半径{sun.AngularRadius * (180.0f / MathF.PI):F2}度"
+            : "太陽:手書き(Day 38 まで)";
+
+        return $"デモ:{_demo.Name}  空:{_env.SourceLabel}"
+            + (_useHdriSky ? $"(回転{_skyYaw * (180.0f / MathF.PI):F0}度)" : "(手焼き)")
+            + $"  {sunLabel}"
+            + $"  太陽抜き:{OnOff(_removeSunFromIbl)}  しきい値:{_sunThreshold:F2}"
+            + $"  影:{(_sceneShadows ? _demo.ShadowCasterCount.ToString() : "OFF")}/{_demo.Items.Count}"
+            + $"  読み:{_hdrLoadMilliseconds:F0}+{_skyAnalysisMilliseconds:F0}ms";
     }
 
     /// <summary>SSAO のデバッグ表示の名前。切り替えたときのコンソール出力用。</summary>
@@ -3180,6 +3364,14 @@ internal static class Program
         shader.SetInt("uParallaxMinSteps", _parallaxMinSteps);
         shader.SetInt("uParallaxMaxSteps", _parallaxMaxSteps);
 
+        // **デモ v1 はいちばん優先する**(Day 39)。
+        // 他のデモと重ねる意味が無いので、読み込んである間はこれだけを描く。
+        if (_demo is not null)
+        {
+            RenderDemoScene();
+            return;
+        }
+
         // **材質グリッドは、それだけを描く**(Day 35)。
         // 板やモデルと重ねると、材質の違いが背景の明るさに紛れる。
         if (_materialGrid)
@@ -3403,7 +3595,6 @@ internal static class Program
         * Matrix4x4.CreateTranslation(position);
 
     /// <summary>
-    /// <summary>
     /// 読み込んだモデルを描く。**パーツを順に並べるだけ**。
     ///
     /// glTF のノードの木は読み込み時に平らにしてある(<see cref="Model"/>)ので、
@@ -3551,6 +3742,603 @@ internal static class Program
         _orbit.Target = new Vector3(0.0f, targetRadius * 0.5f, 0.0f);
         _orbit.Distance = targetRadius * 2.6f;
         _orbit.Apply();
+    }
+
+    // ================================================================
+    //  Day 39: デモ v1
+    // ================================================================
+
+    /// <summary>
+    /// **シーンを読み込んで、光を合わせる**(Day 39)。<c>Ctrl+Shift+F1</c> / <c>Ctrl+Shift+F10</c>。
+    ///
+    /// 順番に意味がある。
+    /// <code>
+    ///   JSON を読む → HDRI を読む → 太陽を取り出す → 環境マップを焼く → 光を入れる
+    ///                                  ~~~~~~~~~~~~
+    ///                       ここで得た向きが、影・映り込み・カメラの全部に効く
+    /// </code>
+    ///
+    /// <para>
+    /// <b>読み込みは同期</b>。HDRI 1枚(2048x1024)の復号だけで数十ミリ秒、
+    /// モデル 5 体を足すと 1 秒近く止まる。
+    /// Day 21 の非同期ロードはテクスチャ1枚の仕組みなので、そのままでは載らない
+    /// (<see cref="SetModel"/> と同じ事情)。
+    /// **止まる代わりに、どこで何ミリ秒かかったかを必ず出す**。
+    /// </para>
+    /// </summary>
+    private static void LoadDemoScene()
+    {
+        string? path = TryResolveAssetPath("scenes/demo-v1.json");
+        if (path is null)
+        {
+            Console.WriteLine("デモ v1: assets/scenes/demo-v1.json が見つかりません");
+            return;
+        }
+
+        // **先に捨てる**。読み直し(Ctrl+Shift+F10)で 2 セット持つと、
+        // 1k のテクスチャが 20 枚ぶん重複する。
+        _demo?.Dispose();
+        _demo = null;
+
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            _demo = DemoScene.Load(_gl, _resources, path, _shader, _quad, ResolveAssetPath);
+        }
+        catch (Exception exception)
+        {
+            // **黙って戻らない**。素材が1つ足りないだけで真っ黒になるのがいちばん困る。
+            Console.WriteLine($"デモ v1: 読み込みに失敗しました — {exception.Message}");
+            return;
+        }
+
+        double sceneMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+
+        // シーンが指している HDRI を既定にする(Ctrl+Shift+F3 で変えるまで)。
+        int index = Array.IndexOf(HdriPaths, _demo.HdriPath);
+        if (index >= 0)
+        {
+            _hdriIndex = index;
+        }
+
+        _removeSunFromIbl = _demo.RemoveSunFromIbl;
+        _sunThreshold = _demo.SunThreshold;
+
+        // **他のデモは全部畳む**。材質グリッドやモデル単体と重なると、
+        // どの絵を見ているのか分からなくなる(Render3D の分岐と同じ方針)。
+        _materialGrid = false;
+        _surfaceDemo = false;
+        SetModel(ModelPaths.Length);
+
+        BakeSky();
+        ApplyDemoLighting();
+        FrameDemoScene();
+
+        Console.WriteLine();
+        Console.WriteLine($"デモ v1: 「{_demo.Name}」");
+        Console.WriteLine(
+            $"  シーン {sceneMilliseconds:F0}ms(glTF {_demo.ModelCount} 体 / "
+            + $"描画 {_demo.Items.Count} 回 / 三角形 {_demo.TriangleCount:N0} 枚 / "
+            + $"テクスチャ {_demo.TextureCount} 枚)");
+        Console.WriteLine($"  影を落とすもの: {_demo.ShadowCasterCount} / {_demo.Items.Count}");
+        Console.WriteLine();
+    }
+
+    /// <summary>デモを畳んで Day 38 までの絵に戻す。</summary>
+    private static void UnloadDemoScene()
+    {
+        _demo?.Dispose();
+        _demo = null;
+
+        // **手書きの光を書き戻す**。デモ用に上書きしたままだと、
+        // 戻ったあとの立方体と床が夕焼け色のままになる。
+        _lightDirection = _manualLightDirection;
+        _lightColor = _manualLightColor;
+        _ambientColor = _manualAmbientColor;
+        _post.Exposure = _manualExposure;
+        _shadow.Radius = _manualShadowRadius;
+
+        _useHdriSky = false;
+        BakeSky();
+
+        _orbit.Reset();
+        Console.WriteLine("デモ v1: OFF(Day 38 までのデモに戻る)");
+    }
+
+    /// <summary>
+    /// **空を焼き直す**。手焼き(Day 36)と HDRI(今日)の分岐はここだけ。
+    ///
+    /// <para>
+    /// HDRI のときは3段階を通る。
+    /// </para>
+    /// <list type="number">
+    /// <item><see cref="HdrImage.Load"/> で <c>.hdr</c> を float の並びにする</item>
+    /// <item><see cref="SkyAnalysis.Analyze"/> で太陽を取り出す</item>
+    /// <item>
+    /// <see cref="SkyAnalysis.RemoveSun"/> で太陽を抜いてから焼く
+    /// (<see cref="_removeSunFromIbl"/> が true のとき)
+    /// </item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>解析は太陽を抜く前の画像に対してやる</b>。順番を逆にすると、
+    /// 抜いたあとの画像で「いちばん明るいところ」を探すことになり、
+    /// 太陽ではない場所(空の一番明るい部分)を拾う。
+    /// </para>
+    /// </summary>
+    private static void BakeSky()
+    {
+        if (!_useHdriSky)
+        {
+            _hdrLoadMilliseconds = 0.0;
+            _skyAnalysisMilliseconds = 0.0;
+            _skyAnalysis = default;
+            _skyYaw = 0.0f;
+            _env.SkyYaw = 0.0f;
+            _sunWorldDirection = _lightDirection;
+            _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+            return;
+        }
+
+        string path = ResolveAssetPath(HdriPaths[_hdriIndex]);
+
+        var loadWatch = Stopwatch.StartNew();
+        HdrImage.Result image = HdrImage.Load(path);
+        _hdrLoadMilliseconds = loadWatch.Elapsed.TotalMilliseconds;
+
+        var analyzeWatch = Stopwatch.StartNew();
+        _skyAnalysis = SkyAnalysis.Analyze(image.Pixels, image.Width, image.Height, _sunThreshold);
+
+        // --- 空を回す角度を決める ---
+        //
+        // シーンが「太陽にこの方位へ来てほしい」と言っているので、
+        // **測った方位との差**をそのまま回転量にする。
+        // HDRI を差し替えても太陽の位置が動かないのがこの持ち方の値打ち。
+        Vector3 toSun = -_skyAnalysis.Sun.Direction;
+        float measured = MathF.Atan2(toSun.Z, toSun.X);
+
+        _skyYaw = _demo is not null && _applySkyYaw
+            ? measured - (_demo.SunAzimuth * (MathF.PI / 180.0f))
+            : 0.0f;
+
+        _env.SkyYaw = _skyYaw;
+
+        // 平行光源に入れる向きも同じだけ回す。**ここを忘れると影だけが元の方位に残る**。
+        _sunWorldDirection = Vector3.Transform(
+            _skyAnalysis.Sun.Direction, Matrix4x4.CreateRotationY(_skyYaw));
+
+        // **太陽を抜くのは回す前の画像に対して**。RemoveSun は正距円筒の座標で動くので、
+        // 回転を挟むと抜く場所がずれる(回転は焼き込みパスの中でだけ起きる)。
+        float[] pixels = _removeSunFromIbl
+            ? SkyAnalysis.RemoveSun(image.Pixels, image.Width, image.Height, _skyAnalysis)
+            : image.Pixels;
+
+        _skyAnalysisMilliseconds = analyzeWatch.Elapsed.TotalMilliseconds;
+
+        _env.BakeFromPixels(
+            pixels,
+            image.Width,
+            image.Height,
+            _window.FramebufferSize.X,
+            _window.FramebufferSize.Y,
+            Path.GetFileNameWithoutExtension(path));
+
+        DescribeSky();
+    }
+
+    /// <summary>解析の結果をコンソールに出す。**数字で見ないと合っているか分からない**。</summary>
+    private static void DescribeSky()
+    {
+        SkyAnalysis.Sun sun = _skyAnalysis.Sun;
+        Vector3 toSun = -sun.Direction;
+        Vector3 toSunWorld = -_sunWorldDirection;
+
+        float elevation = MathF.Asin(Math.Clamp(toSun.Y, -1.0f, 1.0f)) * (180.0f / MathF.PI);
+        float azimuth = MathF.Atan2(toSun.Z, toSun.X) * (180.0f / MathF.PI);
+        float worldAzimuth = MathF.Atan2(toSunWorld.Z, toSunWorld.X) * (180.0f / MathF.PI);
+        float radiusDegrees = sun.AngularRadius * (180.0f / MathF.PI);
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"空: {_env.SourceLabel} {_env.SourceWidth}x{_env.SourceHeight}"
+            + $"  読み {_hdrLoadMilliseconds:F0}ms / 解析 {_skyAnalysisMilliseconds:F0}ms"
+            + $" / 焼き {_env.BakeMilliseconds:F0}ms");
+        Console.WriteLine(
+            $"  太陽: 仰角 {elevation:F1}度 / 方位 {azimuth:F1}度"
+            + $"  放射照度 ({sun.Irradiance.X:F2}, {sun.Irradiance.Y:F2}, {sun.Irradiance.Z:F2})"
+            + $"  全体の {_skyAnalysis.SunShare * 100.0f:F0}%");
+        Console.WriteLine(
+            $"  空の回転 {_skyYaw * (180.0f / MathF.PI):F1}度 → シーンでの方位 {worldAzimuth:F1}度"
+            + "(HDRI を差し替えてもここは動かない)");
+        Console.WriteLine(
+            $"  見かけの半径 {radiusDegrees:F2}度({sun.PixelCount} 画素 / 立体角 {sun.SolidAngle:F6}sr)"
+            + $"  ピーク輝度 {sun.PeakLuminance:F0}"
+            + (radiusDegrees > 3.0f ? "  ← **大きすぎる。太陽を取り出せていない**" : string.Empty));
+        Console.WriteLine(
+            $"  立体角の合計 {_skyAnalysis.SolidAngleSum:F4}(4π = {MathF.Tau * 2.0f:F4})"
+            + (_skyAnalysis.HalfFloatOverflow > 0
+                ? $"  ※ 65504 を超える画素が {_skyAnalysis.HalfFloatOverflow} 個(RGB16F で頭打ち)"
+                : string.Empty));
+        Console.WriteLine(
+            _removeSunFromIbl
+                ? "  環境マップからは太陽を抜いてある(平行光源との二重計上を消すため)"
+                : "  環境マップに太陽が入ったまま(**影の中が明るくなる**)");
+    }
+
+    /// <summary>
+    /// **抽出した太陽をシーンの光に入れる**。
+    ///
+    /// <para>
+    /// ここが Day 36 で先送りにした問題の答え。
+    /// <c>uLightDirection</c> は絵の中の太陽と同じ向きになり、
+    /// <c>uLightColor</c> は太陽が実際に運んでいる放射照度になる。
+    /// **どちらも手で決めた数字ではない**ので、HDRI を差し替えれば勝手に付いてくる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>π を掛けない</b>のがここの注意点。<see cref="Render3D"/> は PBR のとき
+    /// <c>_lightColor</c> を π 倍して渡しているが、
+    /// あれは「Day 34 までのランバートと明るさを揃える」ための辻褄合わせで、
+    /// **放射照度をそのまま入れるのが物理的に正しい**。
+    /// 抽出値をそのまま渡すと π 倍されて 3 倍明るくなるので、
+    /// あらかじめ π で割ってある。
+    /// </para>
+    /// </summary>
+    private static void ApplyDemoLighting()
+    {
+        if (_demo is null)
+        {
+            return;
+        }
+
+        _post.Exposure = _demo.Exposure;
+        _env.Intensity = _demo.IblIntensity;
+        _ambientColor = _demo.Ambient;
+
+        // **影の箱を広げる**(Day 33)。太陽の仰角が 8 度しかないので、
+        // 高さ 4m のものが 28m 先まで影を落とす。既定の半径 6 では入りきらない。
+        _shadow.Radius = _demo.ShadowRadius;
+
+        if (!_sunFromHdri || !_useHdriSky || _skyAnalysis.Sun.PixelCount == 0)
+        {
+            // HDRI から取らないときは手書きの光に戻す。**影の向きが絵と食い違う**のが見える。
+            _lightDirection = _manualLightDirection;
+            _lightColor = _manualLightColor;
+            return;
+        }
+
+        _lightDirection = Vector3.Normalize(_sunWorldDirection);
+        _lightColor = _skyAnalysis.Sun.Irradiance * (_demo.SunScale / MathF.PI);
+    }
+
+    /// <summary>決めの構図に合わせる(<c>Ctrl+Shift+F12</c>)。</summary>
+    private static void FrameDemoScene()
+    {
+        if (_demo is null)
+        {
+            return;
+        }
+
+        _orbit.Target = _demo.CameraTarget;
+        _orbit.Distance = _demo.CameraDistance;
+        _orbit.Yaw = _demo.CameraYaw;
+        _orbit.Pitch = _demo.CameraPitch;
+        _orbit.Apply();
+    }
+
+    /// <summary>
+    /// **デモ v1 を描く**。3つのパスが同じ <see cref="DemoScene.Items"/> を回る。
+    ///
+    /// <para>
+    /// Day 38 までは、パスごとに「何を描くか」が手書きの分岐だった
+    /// (<see cref="RenderShadowPass"/> のコメント)。
+    /// シーンをデータにすると、<b>3か所が同じ並びを回るだけ</b>になる——
+    /// これが「シーングラフを持つ」ことのいちばん素朴な御利益。
+    /// </para>
+    /// </summary>
+    private static void RenderDemoScene()
+    {
+        DemoScene demo = _demo!;
+        _drawCalls = demo.Items.Count;
+
+        foreach (DemoScene.Item item in demo.Items)
+        {
+            // 裏面を描くかはマテリアルが決める(RenderModel と同じ)。
+            SetCap(EnableCap.CullFace, _culling && !item.Material.DoubleSided);
+            Draw(item.Mesh, item.Material, item.Transform);
+        }
+
+        SetCap(EnableCap.CullFace, _culling);
+    }
+
+    /// <summary>シーンの内訳をコンソールに出す(<c>Ctrl+Shift+F9</c>)。</summary>
+    private static void DescribeDemoScene()
+    {
+        DemoScene demo = _demo!;
+
+        Console.WriteLine();
+        Console.WriteLine($"[デモ v1 の内訳] {demo.Name}  {Path.GetFileName(demo.SourcePath)}");
+        Console.WriteLine(
+            $"  描画 {demo.Items.Count} 回 / 三角形 {demo.TriangleCount:N0} 枚 / "
+            + $"glTF {demo.ModelCount} 体 / テクスチャ {demo.TextureCount} 枚 / "
+            + $"読み込み {demo.LoadMilliseconds:F0}ms");
+        Console.WriteLine(
+            $"  露出 {demo.Exposure:F2} / IBL {demo.IblIntensity:F2} / 太陽 x{demo.SunScale:F2} / "
+            + $"影の半径 {demo.ShadowRadius:F0}m / 太陽の方位 {demo.SunAzimuth:F0}度");
+        Console.WriteLine();
+
+        foreach (DemoScene.Item item in demo.Items)
+        {
+            Vector3 position = item.Transform.Translation;
+            Console.WriteLine(
+                $"  {(item.CastShadow ? "影" : "  ")} {item.Name,-44}"
+                + $" 三角形 {item.Mesh.IndexCount / 3,7:N0}"
+                + $"  ({position.X,6:F2}, {position.Y,5:F2}, {position.Z,6:F2})"
+                + $"  [{item.Material.Name}]");
+        }
+
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// **今日の自己チェック**(<c>Ctrl+Alt+F12</c>)。
+    ///
+    /// <para>
+    /// 確かめるものは3つ。
+    /// </para>
+    /// <list type="number">
+    /// <item>
+    /// <b><c>.hdr</c> の復号</b>。読み込んだ画素が正しいかは絵を見ても言えないので、
+    /// **RGBE の逆変換を手で1画素ぶんやって突き合わせる**。
+    /// </item>
+    /// <item>
+    /// <b>立体角の積分</b>。全画素の <c>dω</c> を足すと 4π になるはず。
+    /// ここが合っていないと、太陽の放射照度も環境光も全部ずれる——
+    /// しかも<b>絵はそれらしく出る</b>ので、数字でしか見つけられない。
+    /// </item>
+    /// <item>
+    /// <b>太陽の抽出</b>。向きが絵の中でいちばん明るい画素と一致するか、
+    /// 見かけの半径が現実的か、抜いたあとに本当に消えているか。
+    /// </item>
+    /// </list>
+    /// </summary>
+    private static void RunSceneCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[デモ v1(HDRI・太陽の抽出・シーン)の自己チェック]");
+
+        // --- 1. .hdr の復号 ---
+        string path = ResolveAssetPath(HdriPaths[0]);
+        HdrImage.Result image = HdrImage.Load(path);
+
+        checks.Check(
+            "**正距円筒の縦横比が 2:1**(HDRI の約束)",
+            image.Width == image.Height * 2,
+            $"{image.Width}x{image.Height}");
+
+        checks.Check(
+            "画素の数が幅 x 高さ x 3 になっている",
+            image.Pixels.Length == image.Width * image.Height * 3,
+            $"{image.Pixels.Length:N0} 要素");
+
+        // **RGBE の逆変換を手でやる**。
+        //
+        // 読み込んだ float から元の (R,G,B,E) を復元し、
+        // もう一度 float に戻して一致するかを見る。
+        // 復号が 1 段でもずれていれば、ここで必ず落ちる。
+        int checkedPixels = 0;
+        int roundTripped = 0;
+        double worstError = 0.0;
+
+        for (int i = 0; i < image.Width * image.Height; i += 977)
+        {
+            var color = new Vector3(
+                image.Pixels[(i * 3) + 0], image.Pixels[(i * 3) + 1], image.Pixels[(i * 3) + 2]);
+
+            checkedPixels++;
+
+            float max = MathF.Max(color.X, MathF.Max(color.Y, color.Z));
+            if (max <= 0.0f)
+            {
+                roundTripped++;
+                continue;
+            }
+
+            // 指数を求め直す。ldexp の逆で、log2 の切り上げ。
+            int exponent = (int)MathF.Ceiling(MathF.Log2(max));
+            float scale = MathF.ScaleB(1.0f, exponent - 8);
+
+            var mantissa = new Vector3(
+                MathF.Round(color.X / scale), MathF.Round(color.Y / scale), MathF.Round(color.Z / scale));
+
+            Vector3 restored = mantissa * scale;
+            double error = (restored - color).Length() / MathF.Max(max, 1e-6f);
+            worstError = Math.Max(worstError, error);
+
+            if (error < 1e-4)
+            {
+                roundTripped++;
+            }
+        }
+
+        checks.Check(
+            "**すべての画素が RGBE(仮数 8bit + 共有指数)の格子の上に乗っている**",
+            roundTripped == checkedPixels,
+            $"{roundTripped}/{checkedPixels} 画素  最大のずれ {worstError:E2}");
+
+        // --- 2. 立体角の積分 ---
+        SkyAnalysis.Result analysis = SkyAnalysis.Analyze(image.Pixels, image.Width, image.Height, 0.05f);
+
+        // **どこまで合えば合格か**を決めるのが、この手のチェックのいちばん難しいところ。
+        //
+        // 残る差は**中点則の打ち切り誤差**で、行数 H に対して (π/H)²/24 の相対誤差になる。
+        // H = 1024 なら 3.9e-7、絶対では 4.9e-6。実測もぴったりそこに乗る。
+        // つまり 1e-5 で切れば「数値積分としては満点」を意味し、
+        // これより粗い誤差が出たら **sinθ の掛け忘れか、float での足し込み**を疑えばよい
+        // (前者なら 2.7、後者なら 2e-3 のずれになるので、桁で区別が付く)。
+        double solidAngleError = Math.Abs(analysis.SolidAngleSum - (4.0 * Math.PI));
+
+        checks.Check(
+            "**立体角の合計が 4π**(sinθ の重みが正しく入っている)",
+            solidAngleError < 1e-5,
+            $"{analysis.SolidAngleSum:F8}(4π = {4.0 * Math.PI:F8})  ずれ {solidAngleError:E2}"
+                + $"  ※中点則の打ち切り誤差 {4.0 * Math.PI * Math.Pow(Math.PI / image.Height, 2) / 24.0:E2}");
+
+        // --- 3. 太陽の抽出 ---
+        //
+        // いちばん明るい画素を総当たりで探し、抽出した向きと突き合わせる。
+        int brightest = 0;
+        float peak = -1.0f;
+
+        for (int i = 0; i < image.Width * image.Height; i++)
+        {
+            float luminance =
+                (image.Pixels[(i * 3) + 0] * 0.2126f)
+                + (image.Pixels[(i * 3) + 1] * 0.7152f)
+                + (image.Pixels[(i * 3) + 2] * 0.0722f);
+
+            if (luminance > peak)
+            {
+                peak = luminance;
+                brightest = i;
+            }
+        }
+
+        Vector3 brightestDirection = SkyAnalysis.DirectionAt(
+            brightest % image.Width, brightest / image.Width, image.Width, image.Height);
+
+        float angle = MathF.Acos(
+            Math.Clamp(Vector3.Dot(brightestDirection, -analysis.Sun.Direction), -1.0f, 1.0f));
+
+        checks.Check(
+            "**抽出した太陽の向きが、いちばん明るい画素と一致する**(1 度以内)",
+            angle < 1.0f * (MathF.PI / 180.0f),
+            $"ずれ {angle * (180.0f / MathF.PI):F3} 度");
+
+        checks.Check(
+            "見かけの半径が現実的("
+                + "本物の太陽は 0.27 度。**3 度を超えたら取り出せていない**)",
+            analysis.Sun.AngularRadius * (180.0f / MathF.PI) < 3.0f,
+            $"{analysis.Sun.AngularRadius * (180.0f / MathF.PI):F3} 度"
+                + $"({analysis.Sun.PixelCount} 画素)");
+
+        checks.Check(
+            "**太陽が全体の光の大半を担っている**(晴れた朝の HDRI なので)",
+            analysis.SunShare > 0.5f,
+            $"{analysis.SunShare * 100.0f:F1}%");
+
+        // 抜いたあとに本当に消えているか。
+        float[] removed = SkyAnalysis.RemoveSun(image.Pixels, image.Width, image.Height, analysis);
+        SkyAnalysis.Result after = SkyAnalysis.Analyze(removed, image.Width, image.Height, 0.05f);
+
+        // **抜いたぶんがちょうど太陽の放射照度**であること。
+        // ここが合っていれば、平行光源に足したものと環境マップから引いたものが釣り合う——
+        // つまり二重計上も引きすぎも起きていない。
+        Vector3 expectedTotal = analysis.TotalIrradiance - analysis.Sun.Irradiance;
+        float totalError = Vector3.Distance(after.TotalIrradiance, expectedTotal);
+
+        checks.Check(
+            "**抜いたぶんがちょうど太陽の放射照度**(平行光源に足した量と釣り合う)",
+            totalError < expectedTotal.Length() * 0.02f,
+            $"({expectedTotal.X:F2}, {expectedTotal.Y:F2}, {expectedTotal.Z:F2}) を期待して"
+                + $" ({after.TotalIrradiance.X:F2}, {after.TotalIrradiance.Y:F2},"
+                + $" {after.TotalIrradiance.Z:F2})  ずれ {totalError:F3}");
+
+        // **残るのはしきい値のすぐ下まで**。同じ基準で選んで同じ基準で抜いているので、
+        // 残った画素のいちばん明るいものは必ずしきい値未満になる。
+        //
+        // 逆に言えば、**しきい値のすぐ下のにじみ(グレア)は残る**。
+        // 太陽の芯の 5% でも空の 3 万倍あるので、
+        // 粗い金属にはうっすら太陽が映り続ける——今日の実装の限界。
+        checks.Check(
+            "**残った画素はすべてしきい値より暗い**(選んだ基準と抜いた基準が同じ)",
+            after.Sun.PeakLuminance < analysis.Cutoff,
+            $"ピーク {analysis.Sun.PeakLuminance:F0} → {after.Sun.PeakLuminance:F1}"
+                + $"(しきい値 {analysis.Cutoff:F1})");
+
+        // --- 4. 太陽が飽和した HDRI では破綻すること ---
+        //
+        // **失敗するのが正しい**という項目。露出段数の足りない HDRI では
+        // しきい値法が空の半分を「太陽」と判定する。
+        // それを黙って使うと、平行光源が空全体の平均になって影が消える。
+        HdrImage.Result clipped = HdrImage.Load(ResolveAssetPath(HdriPaths[2]));
+        SkyAnalysis.Result clippedAnalysis =
+            SkyAnalysis.Analyze(clipped.Pixels, clipped.Width, clipped.Height, 0.05f);
+
+        checks.Check(
+            "**太陽が飽和した HDRI では見かけの半径が跳ね上がる**(検出できたことにする方が危ない)",
+            clippedAnalysis.Sun.AngularRadius * (180.0f / MathF.PI) > 10.0f,
+            $"{Path.GetFileNameWithoutExtension(HdriPaths[2])}: "
+                + $"{clippedAnalysis.Sun.AngularRadius * (180.0f / MathF.PI):F1} 度"
+                + $"(ピーク輝度 {clippedAnalysis.Sun.PeakLuminance:F0})");
+
+        // --- 5. シーンの中身 ---
+        if (_demo is null)
+        {
+            Console.WriteLine("  デモ v1 が読み込まれていないので、シーン側のチェックは飛ばしました");
+            checks.Report();
+            Console.WriteLine();
+            return;
+        }
+
+        DemoScene demo = _demo;
+
+        checks.Check(
+            "シーンに描くものが入っている",
+            demo.Items.Count > 0,
+            $"{demo.Items.Count} 個 / 三角形 {demo.TriangleCount:N0} 枚");
+
+        checks.Check(
+            "**影を落とすものと落とさないものが分かれている**(地面は受け手だけ)",
+            demo.ShadowCasterCount > 0 && demo.ShadowCasterCount < demo.Items.Count,
+            $"{demo.ShadowCasterCount} / {demo.Items.Count}");
+
+        // **足元が床に乗っているか**。align の検算で、
+        // 回転してから境界箱を取り直していないと、寝かせたタイヤがここで落ちる。
+        float lowest = float.MaxValue;
+        foreach (DemoScene.Item item in demo.Items)
+        {
+            lowest = MathF.Min(lowest, item.Transform.Translation.Y);
+        }
+
+        checks.Check(
+            "**床より下に沈んでいるものが無い**(回してから足元を合わせている)",
+            lowest > -0.01f,
+            $"いちばん低い原点 {lowest:F3}m");
+
+        // 抽出した向きが、シーンが要求した方位になっているか。
+        Vector3 toSun = -_sunWorldDirection;
+        float worldAzimuth = MathF.Atan2(toSun.Z, toSun.X) * (180.0f / MathF.PI);
+        float difference = MathF.Abs(WrapDegrees(worldAzimuth - demo.SunAzimuth));
+
+        checks.Check(
+            "**空を回して太陽をシーンの指定した方位に持ってこられている**",
+            !_applySkyYaw || !_useHdriSky || difference < 0.5f,
+            $"指定 {demo.SunAzimuth:F1}度 / 実際 {worldAzimuth:F1}度(空の回転 "
+                + $"{_skyYaw * (180.0f / MathF.PI):F1}度)");
+
+        checks.Report();
+        Console.WriteLine();
+    }
+
+    /// <summary>角度を -180〜180 度に畳む。</summary>
+    private static float WrapDegrees(float degrees)
+    {
+        degrees %= 360.0f;
+
+        if (degrees > 180.0f)
+        {
+            degrees -= 360.0f;
+        }
+        else if (degrees < -180.0f)
+        {
+            degrees += 360.0f;
+        }
+
+        return degrees;
     }
 
     /// <summary>
@@ -8967,6 +9755,182 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(デモ v1 の組み上げ)---
+            //
+            // **Ctrl+Shift + ファンクションキー**。Day 37 が Ctrl+F、Day 38 が Shift+F を
+            // 取ったので、残っている安全な組み合わせがここになる。
+            //
+            // <b>Alt+F は今日も使えない</b>。Day 37 の但し書きのとおり、
+            // Alt+F4 が窓を閉じるので隣を押し間違えるとアプリが落ちる。
+            //
+            // <b>この塊はガードの弱い case より必ず上に置く</b>。
+            // 下にある `case Key.F1 when ctrl:`(Day 37)は
+            // Ctrl+Shift+F1 でも成立してしまうので、
+            // **順番が仕様の一部**になっている。C# の switch は上から順に照合する。
+            case Key.F1 when ctrl && shift:
+                if (_demo is null)
+                {
+                    LoadDemoScene();
+                }
+                else
+                {
+                    UnloadDemoScene();
+                }
+
+                break;
+
+            case Key.F2 when ctrl && shift:
+                // **今日いちばん効く比較**。同じシーンを手焼きの空(Day 36)と
+                // 本物の HDRI で見比べる。手焼きは「それらしい」が、
+                // 空の細部が無いので**磨いた金属に何も映らない**。
+                _useHdriSky = !_useHdriSky;
+                BakeSky();
+                ApplyDemoLighting();
+                Console.WriteLine(
+                    _useHdriSky
+                        ? "空: HDRI(本物。太陽も雲も地面も映る)"
+                        : "空: 手焼き(Day 36。**太陽の向きは手書きの値**)");
+                break;
+
+            case Key.F3 when ctrl && shift:
+                // **3枚とも太陽の写り方が違う**。方位は空の回転で揃えてあるので、
+                // 動くのは光の質だけ。
+                _hdriIndex = (_hdriIndex + 1) % HdriPaths.Length;
+                _useHdriSky = true;
+                BakeSky();
+                ApplyDemoLighting();
+                break;
+
+            case Key.F4 when ctrl && shift:
+                // **わざと食い違わせる窓**。手書きの向きに戻すと、
+                // 空の太陽と影の向きが別々になる——Day 36 で先送りにした問題そのもの。
+                _sunFromHdri = !_sunFromHdri;
+                ApplyDemoLighting();
+                Console.WriteLine(
+                    _sunFromHdri
+                        ? "平行光源: HDRI から抽出(絵の中の太陽と一致する)"
+                        : "平行光源: 手書き(Day 38 まで。**影の向きが空と食い違う**)");
+                break;
+
+            case Key.F5 when ctrl && shift:
+                // **二重計上を見る窓**。抜くのをやめると影の中が明るくなる。
+                _removeSunFromIbl = !_removeSunFromIbl;
+                BakeSky();
+                Console.WriteLine(
+                    _removeSunFromIbl
+                        ? "環境マップ: 太陽を抜く(平行光源と足しても二重にならない)"
+                        : "環境マップ: 太陽を残す(**影の中まで明るくなる**。粗い金属には映り込む)");
+                break;
+
+            case Key.F6 when ctrl && shift:
+                {
+                    int index = Array.IndexOf(SunThresholdSteps, _sunThreshold);
+                    _sunThreshold = SunThresholdSteps[(index + 1) % SunThresholdSteps.Length];
+                    BakeSky();
+                    ApplyDemoLighting();
+                    Console.WriteLine($"太陽のしきい値: 最大輝度の {_sunThreshold:F2} 倍");
+                }
+
+                break;
+
+            case Key.F7 when ctrl && shift:
+                // **影がどれだけ絵を支えているか**。全部の投げ手を落とすと、
+                // 物が床に置かれている感じが一気に消える(SSAO は残る)。
+                _sceneShadows = !_sceneShadows;
+                Console.WriteLine(
+                    _sceneShadows
+                        ? "シーンの影: ON(castShadow が true のものだけ深度パスへ)"
+                        : "シーンの影: OFF(**全部の投げ手を落とす**。接地感が消える)");
+                break;
+
+            case Key.F8 when ctrl && shift:
+                {
+                    // **デモはスクリーンショットが撮れて初めてデモ**。
+                    // 後処理を全部通したあとの絵をそのまま PNG にする。
+                    string saved = Screenshot.Save(
+                        _gl,
+                        _window.FramebufferSize.X,
+                        _window.FramebufferSize.Y,
+                        Path.Combine(Environment.CurrentDirectory, "screenshots"));
+                    Console.WriteLine($"スクリーンショット: {saved}");
+                }
+
+                break;
+
+            case Key.F9 when ctrl && shift:
+                if (_demo is null)
+                {
+                    Console.WriteLine("デモ v1: 読み込まれていません(Ctrl+Shift+F1)");
+                }
+                else
+                {
+                    DescribeDemoScene();
+                }
+
+                break;
+
+            case Key.F10 when ctrl && shift:
+                // **JSON を書き換えて押す**。これがあると絵作りが回り始める。
+                if (_demo is null)
+                {
+                    Console.WriteLine("デモ v1: 読み込まれていません(Ctrl+Shift+F1)");
+                }
+                else
+                {
+                    LoadDemoScene();
+                    Console.WriteLine("デモ v1: 読み直した");
+                }
+
+                break;
+
+            case Key.F11 when ctrl && shift:
+                // **空を回さないとどうなるか**。HDRI を撮影時の方位のまま使うと、
+                // 太陽が壁の裏に回って通りが日陰になる——
+                // 「HDRI を1枚拾ってきて貼っただけ」の絵がこれ。
+                _applySkyYaw = !_applySkyYaw;
+                BakeSky();
+                ApplyDemoLighting();
+                Console.WriteLine(
+                    _applySkyYaw
+                        ? "空の回転: シーンの指定どおり(太陽を狙った方位へ持ってくる)"
+                        : "空の回転: 0 度(**HDRI の撮影時の方位のまま**)");
+                break;
+
+            case Key.F12 when ctrl && shift:
+                // **一足飛びで見どころへ**(Shift+F12 と同じ趣旨)。
+                if (_demo is null)
+                {
+                    LoadDemoScene();
+                }
+
+                _useHdriSky = true;
+                _sunFromHdri = true;
+                _sceneShadows = true;
+                _env.Enabled = true;
+                _env.SkyboxVisible = true;
+                _shadow.Enabled = true;
+                _ssao.Enabled = true;
+                _post.BloomEnabled = true;
+                _post.FxaaEnabled = true;
+                _post.Split = PostSplit.None;
+                _post.Grade.Enabled = false;
+                _debugChannel = 0;
+                SetSpriteCount(0);
+
+                BakeSky();
+                ApplyDemoLighting();
+                FrameDemoScene();
+
+                Console.WriteLine(
+                    "デモ v1 の決めの構図"
+                    + "  Ctrl+Shift+F4 で太陽の出どころ、Ctrl+Shift+F5 で二重計上を見比べる");
+                break;
+
+            // 自己チェックは Ctrl+Alt+F12(Day 39)。Ctrl+F12 は Day 38 が使っている。
+            case Key.F12 when ctrl && alt:
+                RunSceneCheck();
+                break;
+
             // --- 今日のスイッチ(FXAA と簡易カラーグレーディング)---
             //
             // **Shift + ファンクションキー**。Day 37 が Ctrl+F1〜F11 を取ったので、
@@ -10272,6 +11236,10 @@ internal static class Program
 
         // SSAO も同じ(Day 37)。幾何バッファ・遮蔽の2枚・ノイズ・空 VAO を畳む。
         _ssao.Dispose();
+
+        // デモのシーンも同じ(Day 39)。glTF のメッシュを畳み、
+        // 借りたテクスチャの参照カウントを返す。
+        _demo?.Dispose();
 
         _cube.Dispose();
         _quad.Dispose();

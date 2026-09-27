@@ -124,6 +124,12 @@ internal sealed class Mesh<TVertex> : IDisposable
     public int VertexCount => _vertexCount;
 
     /// <summary>
+    /// インデックスの数(Day 39)。3 で割れば三角形の枚数になる。
+    /// <see cref="DemoScene"/> が「このシーンは三角形が何枚か」を数えるのに使う。
+    /// </summary>
+    public int IndexCount => (int)_indexCount;
+
+    /// <summary>
     /// **GPU から頂点を読み返す**(Day 34)。自己チェック用。
     ///
     /// VBO へ送った内容は取り出せる。<c>glGetBufferSubData</c> は
