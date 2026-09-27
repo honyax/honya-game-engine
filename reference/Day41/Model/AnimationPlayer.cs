@@ -19,7 +19,7 @@ namespace HonyaEngine;
 /// </para>
 ///
 /// <para>
-/// <b>1フレームの流れ</b>は3段。
+/// <b>1フレームの流れ</b>は4段。
 /// <code>
 ///   1. ファイルの姿勢へ戻す        … _pose ← model.Nodes[i].RestPose
 ///   2. クリップを当てる            … clip.Apply(time, _pose)     ノードの TRS が変わる
