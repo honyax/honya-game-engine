@@ -210,6 +210,36 @@ namespace HonyaEngine;
 ///
 /// キーは `Ctrl+Shift+F1`〜`F12`、自己チェックは `Ctrl+Alt+F12`。
 /// `Ctrl+Shift+F12` で決めの構図に飛ぶ。
+///
+/// **Day 40 での変更**: **デモ v1 が動き出した**。Phase 6 の最終日。
+///
+/// Day 39 で出来たのは<b>決めの構図1枚</b>だった。
+/// 静止画でよいなら PNG を置けばよく、実時間で描いている意味が無い——
+/// 今日はそこに2つを足して、デモとして成立させる。
+///
+/// 1つ目は<b>カメラワーク</b>(<see cref="CameraPath"/>)。
+/// 注視点・距離・方位・仰角・画角を持つキーフレームを並べ、
+/// Catmull-Rom スプラインで繋いでゆっくり巡回する。
+/// <c>Ctrl+Alt+F4</c> で線形補間に落とすと、**キーを通過する瞬間に速度が飛ぶ**——
+/// 絵では気づけないので、HUD に m/s と 度/s を出してある。
+///
+/// 2つ目は<b>機能の ON/OFF 表</b>(<see cref="FeatureToggles"/>)。
+/// Day 31〜38 のスイッチは switch 文に8日ぶん散らばっていて、
+/// 「全部 OFF の素の絵」へ1キーで行けなかった。
+/// 表にすると <c>Ctrl+Alt+F9</c> の1押しで往復でき、
+/// <c>Ctrl+Alt+F10</c> の機能ツアーは
+/// **1つずつ切っては戻す**のを勝手に繰り返す。
+/// Day 39 の <c>Ctrl+Shift+F12</c> がフラグを手で12個並べていたのも、
+/// <c>SetAll(true)</c> の1行になった。
+///
+/// これで Phase 6 のマイルストーン——
+/// **HDRI と CC0 アセットで組んだ静的シーンが、
+/// PBR+IBL+ソフトシャドウ+SSAO+ブルーム+AA で描かれ、
+/// ゆっくりしたカメラパンで見られる(各機能は ON/OFF 切り替え可能)**——
+/// に到達する。
+///
+/// キーは `Ctrl+Alt+F1`〜`F11`(`F12` は Day 39 の自己チェックが先客)。
+/// `Ctrl+Alt+F1` で再生が始まる。
 /// </summary>
 internal static class Program
 {
@@ -363,7 +393,37 @@ internal static class Program
     /// <summary>環境マップ一式(空 / 放射照度 / 事前フィルタ / BRDF の表)。</summary>
     private static EnvironmentMap _env = null!;
 
-    // --- 今日の主役: デモ v1(Day 39)---
+    // --- 今日の主役: カメラワークと機能トグル(Day 40)---
+
+    /// <summary>
+    /// 機能の ON/OFF 表(<see cref="BuildFeatureToggles"/> が組む)。
+    /// **Day 31〜38 の機能がここに全部並ぶ**。
+    /// </summary>
+    private static FeatureToggles _features = null!;
+
+    /// <summary>カメラワークを再生中か(Ctrl+Alt+F2)。</summary>
+    private static bool _cameraPlaying;
+
+    /// <summary>再生位置(秒)。1周したら勝手に戻る。</summary>
+    private static float _cameraTime;
+
+    /// <summary>再生速度。**遅くして見るためのもの**で、既定は等倍。</summary>
+    private static float _cameraSpeed = 1.0f;
+
+    private static readonly float[] CameraSpeedSteps = [0.25f, 0.5f, 1.0f, 2.0f];
+
+    /// <summary>補間方式(Ctrl+Alt+F4)。**線形にすると継ぎ目で速度が飛ぶ**。</summary>
+    private static CameraInterpolation _cameraInterpolation = CameraInterpolation.CatmullRom;
+
+    /// <summary>区間の出入りで速度を 0 に寄せるか(Ctrl+Alt+F5)。</summary>
+    private static bool _cameraEase = true;
+
+    /// <summary>いま画面が動いている速さ(HUD 用。**線形と Catmull-Rom の差はここに出る**)。</summary>
+    private static float _cameraMetresPerSecond;
+
+    private static float _cameraDegreesPerSecond;
+
+    // --- Day 39 の主役: デモ v1 ---
 
     /// <summary>組み上げたシーン。無い間は Day 38 までのデモが出る。</summary>
     private static DemoScene? _demo;
@@ -1032,7 +1092,12 @@ internal static class Program
                 ContextProfile.Core,
                 ContextFlags.Default,
                 new APIVersion(3, 3)),
-            VSync = false,
+            // **既定で ON**(V キーでいつでも切り替えられる)。
+            // Day 17 ではバッチングの効果を fps で比べるために切っていたが、
+            // Day 31 から全画面のパスが何本も走るようになり、上限なしで回すと GPU が常に全力で回り続ける。
+            // 起動やリサイズの瞬間に負荷が 0 から全開へ跳ね上がるのは電源にも厳しい。
+            // 性能を測りたいときだけ V で切る。
+            VSync = true,
             PreferredDepthBufferBits = 24,
             WindowBorder = WindowBorder.Resizable,
 
@@ -1172,6 +1237,13 @@ internal static class Program
         _manualAmbientColor = _ambientColor;
         _manualExposure = _post.Exposure;
         _manualShadowRadius = _shadow.Radius;
+
+        // --- 今日の主役: 機能の ON/OFF 表(Day 40)---
+        //
+        // **ここより後ろでないと組めない**。表が持っているのは
+        // `_ssao.Enabled` などへの読み書きの手順なので、
+        // その `_ssao` や `_post` が出来上がっている必要がある。
+        _features = BuildFeatureToggles();
 
         // Day 38 までの絵から始める。デモは Ctrl+Shift+F1 で入る。
         _useHdriSky = false;
@@ -1504,6 +1576,16 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 40: カメラワークと機能トグル(Ctrl+Alt+F1〜F11)---");
+        Console.WriteLine("Ctrl+Alt+F1:デモ v1 を出して**カメラワークを再生**。**今日の到達点はこれ**");
+        Console.WriteLine("Ctrl+Alt+F2:再生 / 一時停止(止めれば左ドラッグで手動に戻れる)");
+        Console.WriteLine("Ctrl+Alt+F3:次のショットへ飛ぶ  Ctrl+Alt+F6:再生速度 0.25/0.5/1/2 倍");
+        Console.WriteLine("Ctrl+Alt+F4:補間 Catmull-Rom / 線形(**通過点で速度が飛ぶ**)");
+        Console.WriteLine("Ctrl+Alt+F5:イージング ON/OFF(**軌跡は変わらず、速さの配分だけ変わる**)");
+        Console.WriteLine("Ctrl+Alt+F7:機能を1つ選ぶ  Ctrl+Alt+F8:選んだ機能を ON/OFF");
+        Console.WriteLine("Ctrl+Alt+F9:全部 ON / 全部 OFF(**必須構成の絵と素の絵を往復**)");
+        Console.WriteLine("Ctrl+Alt+F10:機能ツアー(1つずつ切っては戻す)  Ctrl+Alt+F11:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 39: デモ v1 の組み上げ(Ctrl+Shift+F1〜F12)---");
         Console.WriteLine("Ctrl+Shift+F12:デモ v1 の決めの構図へ。**今日の到達点はこの1枚**");
@@ -1973,6 +2055,22 @@ internal static class Program
         }
 
         UpdateLoadWatch(deltaSeconds);
+
+        // **カメラワークと機能ツアーは可変 dt で回す**(Day 40)。
+        // どちらも見せ方だけの処理で、ゲームの状態には触れない——
+        // だから固定ステップ(FixedUpdate)ではなくここに置く。
+        // 一時停止(Space)でも動かしてよいのだが、
+        // **止めたときは全部止まっているほうが分かりやすい**ので _paused も見る。
+        if (!_paused)
+        {
+            UpdateDemoCamera(deltaSeconds);
+
+            string? tourMessage = _features.Update((float)deltaSeconds);
+            if (tourMessage is not null)
+            {
+                Console.WriteLine(tourMessage);
+            }
+        }
 
         _fpsFrames++;
         _fpsElapsed += deltaSeconds;
@@ -2778,7 +2876,7 @@ internal static class Program
     {
         var lines = new System.Text.StringBuilder();
 
-        lines.AppendLine($"Day38   {_fps:F1} fps   DC:{_drawCalls}");
+        lines.AppendLine($"Day40   {_fps:F1} fps   DC:{_drawCalls}");
 
         if (_model is not null)
         {
@@ -2832,6 +2930,15 @@ internal static class Program
         // **今日の設定を1行で**(Day 39)。デモは「どの空で、どこから太陽を取ったか」で
         // 絵が丸ごと変わる。しかもそれは絵を見ても分からないので、常に出しておく。
         lines.AppendLine(DemoLabel());
+
+        // **今日の2行**(Day 40)。
+        // カメラは「いまどのショットの、どのくらいの速さか」が絵から読めない。
+        // 機能のほうは、切ったつもりのものが本当に切れているかを一覧で押さえる——
+        // 12 個もあると、HUD を見ずに憶えているのは無理。
+        lines.AppendLine(CameraLabel());
+        lines.AppendLine(
+            $"機能 {_features.OnCount}/{_features.Features.Count}: {_features.Describe()}"
+            + (_features.TourActive ? $"  {_features.TourLabel()}" : string.Empty));
 
         lines.AppendLine(
             $"{ShadowLabel()}  {_shadow.WorldPerTexel * 100.0f:F1}cm/tx  "
@@ -3745,6 +3852,464 @@ internal static class Program
     }
 
     // ================================================================
+    //  Day 40: カメラワークと機能トグル
+    // ================================================================
+
+    /// <summary>
+    /// **機能の ON/OFF 表を組む**(Day 40)。Phase 6 で積んだものが全部ここに並ぶ。
+    ///
+    /// <para>
+    /// 並べる順は<b>パイプラインの順</b>——
+    /// 空 → 影 → 材質 → 環境光 → 遮蔽 → 後処理。
+    /// 名前順やDay順ではなく、絵が出来上がる順に並べておくと、
+    /// <c>Ctrl+Alt+F10</c> のツアーが<b>絵が組み上がっていく順に</b>見えるようになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>bool でないものも bool に見せる</b>。PCF の半径や視差の方式は
+    /// 段階のあるつまみだが、表としては「ソフトかどうか」「凹凸があるかどうか」で足りる。
+    /// 細かい段は Day 33・34 のキーが持っているので、
+    /// ここで同じつまみを二重に持たない——
+    /// <b>表は状態を持たない</b>という約束(<see cref="FeatureToggles"/> の説明)を守るために、
+    /// 戻す先の値もその場で決め打ちにしてある。
+    /// </para>
+    /// </summary>
+    private static FeatureToggles BuildFeatureToggles()
+    {
+        var features = new FeatureToggles();
+
+        features.Add(
+            "HDR", "1.0 で切られ、露出を下げても明部が戻らない(Day 31)",
+            () => _post.SceneFormat == RenderTargetFormat.Rgba16F,
+            on => _post.SceneFormat = on ? RenderTargetFormat.Rgba16F : RenderTargetFormat.Rgba8);
+
+        features.Add(
+            "空", "背景が単色になる。映り込みの元は残る(Day 36)",
+            () => _env.SkyboxVisible,
+            on => _env.SkyboxVisible = on);
+
+        features.Add(
+            "影", "接地感が消えて、物が床に浮く(Day 33)",
+            () => _shadow.Enabled,
+            on => _shadow.Enabled = on);
+
+        features.Add(
+            "ソフト影", "影の縁が1テクセルの階段になる(PCF なし。Day 33)",
+            () => _shadow.PcfRadius > 0,
+            on => _shadow.PcfRadius = on ? 2 : 0);
+
+        features.Add(
+            "法線マップ", "壁と地面が平らな板に戻る(Day 34)",
+            () => _normalMapping,
+            on => _normalMapping = on);
+
+        features.Add(
+            "視差", "目地の奥行きが消える。輪郭は変わらない(Day 34)",
+            () => _parallaxMode != 0,
+            on => _parallaxMode = on ? 3 : 0);
+
+        features.Add(
+            "PBR", "ランバートに戻り、金属とプラスチックの差が消える(Day 35)",
+            () => _pbrEnabled,
+            on => _pbrEnabled = on);
+
+        features.Add(
+            "IBL", "環境光が定数になり、**ゴミ箱の金属が真っ黒になる**(Day 36)",
+            () => _env.Enabled,
+            on => _env.Enabled = on);
+
+        features.Add(
+            "SSAO", "物が接しているところの暗がりが消える(Day 37)",
+            () => _ssao.Enabled,
+            on => _ssao.Enabled = on);
+
+        features.Add(
+            "ブルーム", "明部のにじみが消えて、光が強く見えなくなる(Day 31)",
+            () => _post.BloomEnabled,
+            on => _post.BloomEnabled = on);
+
+        features.Add(
+            "FXAA", "輪郭に階段が出る(Day 38)",
+            () => _post.FxaaEnabled,
+            on => _post.FxaaEnabled = on);
+
+        features.Add(
+            "色調整", "シーンが指定した色温度・彩度が外れる(Day 38)",
+            () => _post.Grade.Enabled,
+            on => _post.Grade.Enabled = on);
+
+        return features;
+    }
+
+    /// <summary>
+    /// **カメラワークを1フレーム進める**(Day 40)。<see cref="OnUpdate"/> から呼ぶ。
+    ///
+    /// <para>
+    /// <b>なぜ <see cref="FixedUpdate"/> ではないのか</b>。
+    /// Day 19 で引いた線は「ゲームの状態を変えるものは固定ステップ、
+    /// 見せ方だけのものは描画側」だった。カメラワークは後者で、
+    /// <b>誰の当たり判定にも影響しない</b>。
+    /// 固定ステップに載せると 120Hz でも 20Hz でも同じ絵になる代わりに、
+    /// 1・2・3・4 キーでシミュレーション周波数を落としたときに
+    /// <b>カメラまでカクつく</b>——見せ方が計算の都合に引きずられるのは筋が悪い。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>速度を毎フレーム測る</b>のが今日の道具。
+    /// 補間方式の違いは通過点の 0.1 秒にしか出ないので、
+    /// 数字を出しておかないと <c>Ctrl+Alt+F4</c> を押しても何が変わったか分からない。
+    /// </para>
+    /// </summary>
+    private static void UpdateDemoCamera(double deltaSeconds)
+    {
+        if (_demo?.Shots is not { } path)
+        {
+            return;
+        }
+
+        // つまみは毎フレーム流し込む。**パスに状態を二重に持たせない**ためで、
+        // FeatureToggles が値を持たないのと同じ判断。
+        path.Interpolation = _cameraInterpolation;
+        path.Ease = _cameraEase;
+
+        if (_cameraPlaying)
+        {
+            _cameraTime = path.Wrap(_cameraTime + ((float)deltaSeconds * _cameraSpeed));
+            ApplyCameraPose(path.Sample(_cameraTime));
+        }
+
+        (_cameraMetresPerSecond, _cameraDegreesPerSecond) =
+            _cameraPlaying ? path.SpeedAt(_cameraTime) : (0.0f, 0.0f);
+    }
+
+    /// <summary>
+    /// 姿勢を軌道カメラに流し込む。
+    ///
+    /// <para>
+    /// <b>画角も一緒に運ぶ</b>のを忘れやすい。画角はカメラのレンズの話で、
+    /// 軌道(どこから見るか)とは別物なので <see cref="Camera"/> のほうへ直接入れる。
+    /// そのあと <see cref="OrbitCameraController.Apply"/> を呼ぶのは、
+    /// 平行投影用の高さが画角から決まっているため(P キーで切り替えても大きさが揃う)。
+    /// </para>
+    /// </summary>
+    private static void ApplyCameraPose(CameraPath.Pose pose)
+    {
+        _orbit.Target = pose.Target;
+        _orbit.Distance = pose.Distance;
+        _orbit.Yaw = pose.Yaw;
+        _orbit.Pitch = pose.Pitch;
+        _camera.FieldOfView = pose.FieldOfView;
+        _orbit.Apply();
+    }
+
+    /// <summary>次のショットの頭へ飛ぶ(<c>Ctrl+Alt+F3</c>)。</summary>
+    private static void JumpToNextShot()
+    {
+        if (_demo?.Shots is not { KeyCount: > 1 } path)
+        {
+            Console.WriteLine("カメラワーク: このシーンには shots が書かれていません");
+            return;
+        }
+
+        int next = (path.IndexAt(_cameraTime) + 1) % path.KeyCount;
+        _cameraTime = path.StartTimeOf(next);
+        ApplyCameraPose(path.Sample(_cameraTime));
+
+        Console.WriteLine(
+            $"ショット {next + 1}/{path.KeyCount}「{path.Keys[next].Name}」  "
+            + $"t={_cameraTime:F1}s / {path.TotalDuration:F1}s");
+    }
+
+    /// <summary>
+    /// 手で機能を触る前にツアーを畳む。
+    ///
+    /// <para>
+    /// **勝手に戻されるのを避ける**ため。ツアーは毎回 <c>SetAll(true)</c> から
+    /// 組み直すので、走っている間に <c>Ctrl+Alt+F8</c> で1つ切っても、
+    /// 数秒後には元へ戻ってしまう。**押しても効かないスイッチ**は
+    /// バグにしか見えないので、押された時点でツアーのほうを終わらせる。
+    /// </para>
+    /// </summary>
+    private static void StopTourIfRunning()
+    {
+        if (!_features.TourActive)
+        {
+            return;
+        }
+
+        _features.EndTour();
+        Console.WriteLine("機能ツアー: 手で切り替えたので終了しました");
+    }
+
+    /// <summary>カメラワークの状態を1行にまとめる(HUD 用)。</summary>
+    private static string CameraLabel()
+    {
+        if (_demo?.Shots is not { } path)
+        {
+            return $"カメラ:手動  画角:{_camera.FieldOfView * (180.0f / MathF.PI):F0}度";
+        }
+
+        int index = path.IndexAt(_cameraTime);
+
+        return $"カメラ:{(_cameraPlaying ? "再生" : "停止")}"
+            + $"  ショット{index + 1}/{path.KeyCount}「{path.Keys[index].Name}」"
+            + $"  {_cameraTime:F1}/{path.TotalDuration:F1}s  x{_cameraSpeed:F2}"
+            + $"  {(_cameraInterpolation == CameraInterpolation.CatmullRom ? "Catmull-Rom" : "線形")}"
+            + $"  イージング:{OnOff(_cameraEase)}"
+            + $"  {_cameraMetresPerSecond:F2}m/s {_cameraDegreesPerSecond:F1}度/s"
+            + $"  画角:{_camera.FieldOfView * (180.0f / MathF.PI):F0}度";
+    }
+
+    /// <summary>
+    /// **今日の自己チェック**(<c>Ctrl+Alt+F11</c>)。
+    ///
+    /// <para>
+    /// カメラワークは「なんとなく滑らかに見える」で済ませられてしまうので、
+    /// <b>絵では言えないことだけを数字にする</b>。
+    /// </para>
+    /// <list type="number">
+    /// <item>キーの上を本当に通るか(Catmull-Rom が制御点を通る補間であること)</item>
+    /// <item>方位が近いほうを回るか(巻き取りが効いているか)</item>
+    /// <item>通過点で速度が繋がるか(**線形と Catmull-Rom を同じ物差しで比べる**)</item>
+    /// <item>機能表が状態を失わずに往復できるか</item>
+    /// <item>必須構成が全部 ON か(Phase 6 のマイルストーンそのもの)</item>
+    /// </list>
+    /// </summary>
+    private static void RunCameraCheck()
+    {
+        var checks = new CheckList();
+
+        Console.WriteLine();
+        Console.WriteLine("[カメラワークと機能トグルの自己チェック]");
+
+        if (_demo?.Shots is not { KeyCount: > 1 } path)
+        {
+            Console.WriteLine("  デモ v1 が読み込まれていないので、カメラ側は飛ばしました(Ctrl+Alt+F1)");
+        }
+        else
+        {
+            // --- 1. キーの上を通るか ---
+            //
+            // **ベジエ曲線との違いがここに出る**。制御点を通らない補間だと、
+            // JSON に書いた構図と実際に映る構図がずれる。
+            CameraInterpolation original = path.Interpolation;
+            bool originalEase = path.Ease;
+
+            path.Interpolation = CameraInterpolation.CatmullRom;
+            path.Ease = true;
+
+            float worstKeyError = 0.0f;
+
+            for (int i = 0; i < path.KeyCount; i++)
+            {
+                CameraPath.Key key = path.Keys[i];
+                if (key.Travel <= 0.0f)
+                {
+                    continue;
+                }
+
+                // **静止区間ではなく移動区間の両端で測る**。
+                // 静止中は補間を通らずキーをそのまま返すので、そこを見ても何も確かめられない。
+                float moveStart = path.StartTimeOf(i) + key.Hold;
+
+                CameraPath.Pose head = path.Sample(moveStart + (key.Travel * 1e-5f));
+                CameraPath.Pose tail = path.Sample(moveStart + (key.Travel * (1.0f - 1e-5f)));
+                CameraPath.Key next = path.Keys[(i + 1) % path.KeyCount];
+
+                worstKeyError = MathF.Max(worstKeyError, KeyError(head, key));
+                worstKeyError = MathF.Max(worstKeyError, KeyError(tail, next));
+            }
+
+            checks.Check(
+                "**キーの上をきっちり通る**(Catmull-Rom は制御点を通る補間)",
+                worstKeyError < 1e-4f,
+                $"いちばん大きいずれ {worstKeyError:E2}");
+
+            // --- 2. 方位の巻き取り ---
+            //
+            // 経路上のどこを取っても、隣り合う標本の方位差は小さいはず。
+            // 巻き取りを忘れると、ここに 300 度超の跳びが出る。
+            float worstYawJump = 0.0f;
+            const int Samples = 2000;
+
+            for (int i = 0; i < Samples; i++)
+            {
+                float t0 = path.TotalDuration * i / Samples;
+                float t1 = path.TotalDuration * (i + 1) / Samples;
+
+                float difference = MathF.Abs(
+                    CameraPath.WrapAngle(path.Sample(t1).Yaw - path.Sample(t0).Yaw));
+
+                worstYawJump = MathF.Max(worstYawJump, difference * (180.0f / MathF.PI));
+            }
+
+            // 1周を 2000 で割った刻みなので、素直に回っていれば1標本あたり数度に収まる。
+            checks.Check(
+                "**方位が近いほうを回る**(巻き取りが効いている)",
+                worstYawJump < 15.0f,
+                $"1標本あたりの最大 {worstYawJump:F2} 度({path.TotalDuration / Samples * 1000.0f:F1}ms 刻み)");
+
+            // --- 3. 通過点で速度が繋がるか ---
+            //
+            // **同じ物差しで2つの方式を測る**のがこの項目の値打ち。
+            // 「Catmull-Rom は滑らか」と読んだだけでは、どれくらい違うのか分からない。
+            path.Ease = false;   // イージングを外さないと、どちらも通過点で 0 になって差が消える
+
+            float linearJump = WorstSpeedJump(path, CameraInterpolation.Linear);
+            float splineJump = WorstSpeedJump(path, CameraInterpolation.CatmullRom);
+
+            checks.Check(
+                "**Catmull-Rom のほうが通過点の速度変化が小さい**(C1 連続)",
+                splineJump < linearJump,
+                $"線形 {linearJump:F2}m/s の跳び / Catmull-Rom {splineJump:F2}m/s");
+
+            // --- 4. イージングは軌跡を変えないか ---
+            //
+            // 「補間方式」と「イージング」が別の軸だ、という要点の検算。
+            //
+            // **時刻を付け替えて比べる**のがこの項目の書きかた。
+            // イージングは区間内の進み u を smoothstep(u) に置き換えるだけなので、
+            // 「イージング入りで時刻 t」と「イージング無しで、進みが smoothstep(u) になる時刻」は
+            // <b>まったく同じ点</b>を指すはず。ずれたら、イージングが軌跡にも触っている。
+            path.Interpolation = CameraInterpolation.CatmullRom;
+
+            float worstPathDifference = 0.0f;
+
+            for (int i = 0; i < path.KeyCount; i++)
+            {
+                CameraPath.Key key = path.Keys[i];
+                if (key.Travel <= 0.0f)
+                {
+                    continue;
+                }
+
+                float moveStart = path.StartTimeOf(i) + key.Hold;
+
+                for (int step = 0; step <= 100; step++)
+                {
+                    float u = step / 100.0f;
+                    float eased = u * u * (3.0f - (2.0f * u));
+
+                    path.Ease = true;
+                    Vector3 with = path.Sample(moveStart + (u * key.Travel)).Target;
+
+                    path.Ease = false;
+                    Vector3 without = path.Sample(moveStart + (eased * key.Travel)).Target;
+
+                    worstPathDifference =
+                        MathF.Max(worstPathDifference, Vector3.Distance(with, without));
+                }
+            }
+
+            checks.Check(
+                "**イージングは軌跡を動かさない**(速さの配分だけを変える)",
+                worstPathDifference < 1e-4f,
+                $"いちばん大きいずれ {worstPathDifference:E2}");
+
+            path.Interpolation = original;
+            path.Ease = originalEase;
+
+            // --- 5. ショットが軌道カメラの可動域に入っているか ---
+            //
+            // 入っていないと **JSON に書いた構図と映る構図が違う**——
+            // OrbitCameraController が黙って丸めるので、絵からは気づけない。
+            bool inRange = true;
+            string outOfRange = string.Empty;
+
+            foreach (CameraPath.Key key in path.Keys)
+            {
+                if (key.Distance < _orbit.MinDistance || key.Distance > _orbit.MaxDistance
+                    || MathF.Abs(key.Pitch) > 1.5f)
+                {
+                    inRange = false;
+                    outOfRange = key.Name;
+                    break;
+                }
+            }
+
+            checks.Check(
+                "全ショットが軌道カメラの可動域(距離 "
+                    + $"{_orbit.MinDistance:F0}〜{_orbit.MaxDistance:F0}m / 仰角 ±86度)に入っている",
+                inRange,
+                inRange ? $"{path.KeyCount} ショット" : $"「{outOfRange}」が範囲外");
+        }
+
+        // --- 6. 機能表の往復 ---
+        bool[] before = _features.Capture();
+
+        _features.SetAll(false);
+        bool allOff = _features.OnCount == 0;
+
+        _features.SetAll(true);
+        bool allOn = _features.AllOn;
+
+        _features.Restore(before);
+        bool restored = _features.Capture().SequenceEqual(before);
+
+        checks.Check(
+            "**機能表から全部 OFF / 全部 ON にできる**",
+            allOff && allOn,
+            $"{_features.Features.Count} 項目");
+
+        checks.Check(
+            "**控えた状態にそのまま戻せる**(読み書きが対になっている)",
+            restored,
+            $"ON {_features.OnCount}/{_features.Features.Count}");
+
+        // --- 7. Phase 6 のマイルストーン ---
+        //
+        // ロードマップに書いてある必須構成を、そのまま項目にする。
+        string[] required = ["PBR", "IBL", "影", "ソフト影", "SSAO", "ブルーム", "FXAA"];
+        string missing = string.Join(
+            '/',
+            required.Where(name =>
+                _features.Features.FirstOrDefault(feature => feature.Name == name)?.Value != true));
+
+        checks.Check(
+            "**必須構成が全部 ON**(PBR+IBL+ソフトシャドウ+SSAO+ブルーム+AA)",
+            missing.Length == 0,
+            missing.Length == 0 ? "Phase 6 のマイルストーン" : $"OFF: {missing}");
+
+        checks.Report();
+        Console.WriteLine();
+    }
+
+    /// <summary>姿勢とキーのずれ(注視点・距離・方位のうちいちばん大きいもの)。</summary>
+    private static float KeyError(CameraPath.Pose pose, CameraPath.Key key) =>
+        MathF.Max(
+            Vector3.Distance(pose.Target, key.Target),
+            MathF.Max(
+                MathF.Abs(pose.Distance - key.Distance),
+                MathF.Abs(CameraPath.WrapAngle(pose.Yaw - key.Yaw))));
+
+    /// <summary>
+    /// 経路をひと回りして、**隣り合う標本の間で速度がいちばん跳ぶ量**を返す。
+    ///
+    /// <para>
+    /// 速度そのものではなく<b>速度の変化</b>を見るのが要点。
+    /// 線形補間でも速度は出るし、直線区間なら一定にもなる——
+    /// 壊れるのは<b>キーを通過する瞬間だけ</b>なので、差分の最大値でしか捕まえられない。
+    /// </para>
+    /// </summary>
+    private static float WorstSpeedJump(CameraPath path, CameraInterpolation interpolation)
+    {
+        path.Interpolation = interpolation;
+
+        const int Samples = 600;
+        float worst = 0.0f;
+        float previous = path.SpeedAt(0.0f).Metres;
+
+        for (int i = 1; i <= Samples; i++)
+        {
+            float speed = path.SpeedAt(path.TotalDuration * i / Samples).Metres;
+            worst = MathF.Max(worst, MathF.Abs(speed - previous));
+            previous = speed;
+        }
+
+        return worst;
+    }
+
+    // ================================================================
     //  Day 39: デモ v1
     // ================================================================
 
@@ -3822,6 +4387,18 @@ internal static class Program
             + $"描画 {_demo.Items.Count} 回 / 三角形 {_demo.TriangleCount:N0} 枚 / "
             + $"テクスチャ {_demo.TextureCount} 枚)");
         Console.WriteLine($"  影を落とすもの: {_demo.ShadowCasterCount} / {_demo.Items.Count}");
+
+        // カメラワークがあれば秒数まで出す(Day 40)。**読み直しても再生位置は頭に戻す**——
+        // JSON を書き換えて Ctrl+Shift+F10 を押したとき、
+        // 直したショットを見たいのに途中から始まるのは不便。
+        if (_demo.Shots is { KeyCount: > 1 } cameraPath)
+        {
+            _cameraTime = 0.0f;
+            Console.WriteLine(
+                $"  カメラワーク: {cameraPath.KeyCount} ショット / "
+                + $"1周 {cameraPath.TotalDuration:F1}秒  (Ctrl+Alt+F1 で再生)");
+        }
+
         Console.WriteLine();
     }
 
@@ -3841,6 +4418,13 @@ internal static class Program
 
         _useHdriSky = false;
         BakeSky();
+
+        // カメラワークも畳む(Day 40)。**画角も 60 度に戻す**——
+        // デモ用の 40 度のままだと、戻った先の立方体と床が妙に望遠に見える。
+        _cameraPlaying = false;
+        _cameraTime = 0.0f;
+        _camera.FieldOfView = MathF.PI / 3.0f;
+        _features.EndTour();
 
         _orbit.Reset();
         Console.WriteLine("デモ v1: OFF(Day 38 までのデモに戻る)");
@@ -3996,6 +4580,22 @@ internal static class Program
         _env.Intensity = _demo.IblIntensity;
         _ambientColor = _demo.Ambient;
 
+        // **色調整もシーンの持ち物**(Day 40)。露出や IBL の強さと同じで、
+        // 「この絵をどう見せたいか」の一部なので JSON 側に置く。
+        // Day 38 のキー(Shift+F6〜F10)で上書きできるのは今までどおり。
+        DemoScene.GradeSettings grade = _demo.Grade;
+
+        // **先に下敷きを外す**。Shift+F7 で「月夜」などを当てたままデモに入ると、
+        // 色フィルタ(JSON には無い項目)だけが残って、
+        // シーンの指定どおりの色にならない。
+        _post.Grade.ApplyPreset(GradePreset.Neutral);
+
+        _post.Grade.Enabled = grade.Enabled;
+        _post.Grade.Temperature = grade.Temperature;
+        _post.Grade.Tint = grade.Tint;
+        _post.Grade.Contrast = grade.Contrast;
+        _post.Grade.Saturation = grade.Saturation;
+
         // **影の箱を広げる**(Day 33)。太陽の仰角が 8 度しかないので、
         // 高さ 4m のものが 28m 先まで影を落とす。既定の半径 6 では入りきらない。
         _shadow.Radius = _demo.ShadowRadius;
@@ -4012,7 +4612,16 @@ internal static class Program
         _lightColor = _skyAnalysis.Sun.Irradiance * (_demo.SunScale / MathF.PI);
     }
 
-    /// <summary>決めの構図に合わせる(<c>Ctrl+Shift+F12</c>)。</summary>
+    /// <summary>
+    /// 決めの構図に合わせる(<c>Ctrl+Shift+F12</c>)。
+    ///
+    /// <para>
+    /// <b>Day 40 で画角も運ぶようになった</b>。
+    /// <see cref="Camera.FieldOfView"/> の既定は 60 度で、
+    /// これは「操作するゲーム」の画角。デモの絵には広すぎて、
+    /// 壁が倒れて見える(遠近が誇張されるため)。
+    /// </para>
+    /// </summary>
     private static void FrameDemoScene()
     {
         if (_demo is null)
@@ -4020,11 +4629,42 @@ internal static class Program
             return;
         }
 
+        _camera.FieldOfView = _demo.CameraFieldOfView;
         _orbit.Target = _demo.CameraTarget;
         _orbit.Distance = _demo.CameraDistance;
         _orbit.Yaw = _demo.CameraYaw;
         _orbit.Pitch = _demo.CameraPitch;
         _orbit.Apply();
+    }
+
+    /// <summary>
+    /// カメラワークを頭から再生する(<c>Ctrl+Alt+F1</c>)。
+    ///
+    /// <para>
+    /// <b>shots が無いシーンでは黙って静止画のまま</b>にする。
+    /// Day 39 の JSON をそのまま読めることを保ちたいので、
+    /// 「カメラワークが書いてあれば動く」という足し方にしてある。
+    /// </para>
+    /// </summary>
+    private static void PlayDemoCamera()
+    {
+        if (_demo?.Shots is not { KeyCount: > 1 } path)
+        {
+            _cameraPlaying = false;
+            Console.WriteLine("カメラワーク: このシーンには shots が書かれていません(決めの構図のまま)");
+            return;
+        }
+
+        _cameraTime = 0.0f;
+        _cameraPlaying = true;
+
+        path.Interpolation = _cameraInterpolation;
+        path.Ease = _cameraEase;
+        ApplyCameraPose(path.Sample(0.0f));
+
+        Console.WriteLine(
+            $"カメラワーク: {path.KeyCount} ショット / 1周 {path.TotalDuration:F1}秒 で再生"
+            + "  (Ctrl+Alt+F2 で一時停止、Ctrl+Alt+F3 で次のショット)");
     }
 
     /// <summary>
@@ -4066,6 +4706,26 @@ internal static class Program
         Console.WriteLine(
             $"  露出 {demo.Exposure:F2} / IBL {demo.IblIntensity:F2} / 太陽 x{demo.SunScale:F2} / "
             + $"影の半径 {demo.ShadowRadius:F0}m / 太陽の方位 {demo.SunAzimuth:F0}度");
+
+        // カメラワークの内訳(Day 40)。**JSON を書き換えたときにここで検算する**——
+        // 引き継ぎ(書かなかった項目は前のショットのまま)が効いているかは、
+        // 展開後の数字を並べてもらわないと分からない。
+        if (demo.Shots is { } shots)
+        {
+            Console.WriteLine(
+                $"  カメラワーク {shots.KeyCount} ショット / 1周 {shots.TotalDuration:F1}秒");
+
+            foreach (CameraPath.Key key in shots.Keys)
+            {
+                Console.WriteLine(
+                    $"    {key.Name,-16} 距離 {key.Distance,5:F1}m  "
+                    + $"方位 {key.Yaw * (180.0f / MathF.PI),6:F1}度  "
+                    + $"仰角 {key.Pitch * (180.0f / MathF.PI),5:F1}度  "
+                    + $"画角 {key.FieldOfView * (180.0f / MathF.PI),4:F0}度  "
+                    + $"静止 {key.Hold:F1}s → 移動 {key.Travel:F1}s");
+            }
+        }
+
         Console.WriteLine();
 
         foreach (DemoScene.Item item in demo.Items)
@@ -9755,7 +10415,145 @@ internal static class Program
 
         switch (key)
         {
-            // --- 今日のスイッチ(デモ v1 の組み上げ)---
+            // --- 今日のスイッチ(カメラワークと機能トグル)---
+            //
+            // **Ctrl+Alt + ファンクションキー**。Ctrl+F(Day 37)、Shift+F(Day 38)、
+            // Ctrl+Shift+F(Day 39)が埋まったので、残りはここしかない。
+            // <c>Ctrl+Alt+F12</c> だけは Day 39 の自己チェックが先客なので、
+            // 今日は **F1〜F11** に収める。
+            //
+            // <b>Ctrl+Alt+F4 は Alt+F4 ではない</b>ので窓は閉じない。
+            // Day 37 が避けたのは Alt 単独との組み合わせで、Ctrl が入れば別のキーになる。
+            //
+            // <b>この塊もいちばん上に置く</b>。下にある `case Key.F1 when ctrl:`(Day 37)は
+            // Ctrl+Alt+F1 でも成立してしまう。Day 39 の塊と同じ理由で、
+            // **順番が仕様の一部**になっている。
+            case Key.F1 when ctrl && alt:
+                // **今日の到達点**。シーンを出して、必須構成を全部入れて、カメラを回す。
+                if (_demo is null)
+                {
+                    LoadDemoScene();
+                }
+
+                if (_demo is not null)
+                {
+                    StopTourIfRunning();
+                    _useHdriSky = true;
+                    _sunFromHdri = true;
+                    _sceneShadows = true;
+                    _post.Split = PostSplit.None;
+                    _debugChannel = 0;
+                    SetSpriteCount(0);
+
+                    // **Day 39 が手で 12 個並べていたところ**。表にした御利益がここに出る。
+                    _features.SetAll(true);
+
+                    BakeSky();
+                    ApplyDemoLighting();
+                    PlayDemoCamera();
+                }
+
+                break;
+
+            case Key.F2 when ctrl && alt:
+                _cameraPlaying = !_cameraPlaying;
+                Console.WriteLine(
+                    _cameraPlaying
+                        ? "カメラワーク: 再生"
+                        : "カメラワーク: 一時停止(**止めている間は左ドラッグで手動に戻れる**)");
+                break;
+
+            case Key.F3 when ctrl && alt:
+                JumpToNextShot();
+                break;
+
+            case Key.F4 when ctrl && alt:
+                // **今日いちばん効く比較**。線形に落とすと、キーを通過する瞬間に
+                // HUD の m/s が飛ぶ。絵のほうでも、通過点でパンが「カクッ」と折れる。
+                _cameraInterpolation = _cameraInterpolation == CameraInterpolation.CatmullRom
+                    ? CameraInterpolation.Linear
+                    : CameraInterpolation.CatmullRom;
+                Console.WriteLine(
+                    _cameraInterpolation == CameraInterpolation.CatmullRom
+                        ? "補間: Catmull-Rom(前後を覗いて接線を決める。**通過点で速度が繋がる**)"
+                        : "補間: 線形(**通過点で速度が飛ぶ**。HUD の m/s を見ながら押す)");
+                break;
+
+            case Key.F5 when ctrl && alt:
+                // **軌跡は1ミリも動かない**のが要点。動くのは速さの配分だけ。
+                _cameraEase = !_cameraEase;
+                Console.WriteLine(
+                    _cameraEase
+                        ? "イージング: smoothstep(静止と滑らかに繋がる)"
+                        : "イージング: なし(**止まっていたカメラがいきなり最高速で動き出す**)");
+                break;
+
+            case Key.F6 when ctrl && alt:
+                {
+                    int index = Array.IndexOf(CameraSpeedSteps, _cameraSpeed);
+                    _cameraSpeed = CameraSpeedSteps[(index + 1) % CameraSpeedSteps.Length];
+                    Console.WriteLine($"再生速度: x{_cameraSpeed:F2}");
+                }
+
+                break;
+
+            case Key.F7 when ctrl && alt:
+                _features.SelectNext();
+                Console.WriteLine(
+                    $"選択: {_features.Features[_features.Selected].Name}"
+                    + $"({OnOff(_features.Features[_features.Selected].Value)})"
+                    + "  Ctrl+Alt+F8 で切り替え");
+                break;
+
+            case Key.F8 when ctrl && alt:
+                {
+                    StopTourIfRunning();
+
+                    FeatureToggles.Feature feature = _features.ToggleSelected();
+                    Console.WriteLine(
+                        $"{feature.Name}: {OnOff(feature.Value)}"
+                        + (feature.Value ? string.Empty : $"  — {feature.Effect}"));
+                }
+
+                break;
+
+            case Key.F9 when ctrl && alt:
+                {
+                    // **素の絵と必須構成の絵の往復**。Day 31 の出発点がどれだけ素っ気ないか、
+                    // 8日ぶんの積み上げが何をしていたかが、1押しで見える。
+                    StopTourIfRunning();
+
+                    bool on = !_features.AllOn;
+                    _features.SetAll(on);
+                    Console.WriteLine(
+                        on
+                            ? $"機能: 全部 ON({_features.Features.Count} 項目。必須構成の絵)"
+                            : "機能: 全部 OFF(**Day 31 に戻した絵**。ベースカラーと平行光源だけ)");
+                }
+
+                break;
+
+            case Key.F10 when ctrl && alt:
+                if (_features.TourActive)
+                {
+                    _features.EndTour();
+                    Console.WriteLine("機能ツアー: 終了(始める前の状態に戻した)");
+                }
+                else
+                {
+                    Console.WriteLine();
+                    Console.WriteLine(
+                        $"機能ツアー: {_features.TourInterval:F1} 秒ごとに1つずつ切っては戻す");
+                    Console.WriteLine(_features.BeginTour());
+                }
+
+                break;
+
+            case Key.F11 when ctrl && alt:
+                RunCameraCheck();
+                break;
+
+            // --- Day 39 のスイッチ(デモ v1 の組み上げ)---
             //
             // **Ctrl+Shift + ファンクションキー**。Day 37 が Ctrl+F、Day 38 が Shift+F を
             // 取ったので、残っている安全な組み合わせがここになる。
@@ -9906,16 +10704,17 @@ internal static class Program
                 _useHdriSky = true;
                 _sunFromHdri = true;
                 _sceneShadows = true;
-                _env.Enabled = true;
-                _env.SkyboxVisible = true;
-                _shadow.Enabled = true;
-                _ssao.Enabled = true;
-                _post.BloomEnabled = true;
-                _post.FxaaEnabled = true;
                 _post.Split = PostSplit.None;
-                _post.Grade.Enabled = false;
                 _debugChannel = 0;
                 SetSpriteCount(0);
+
+                // **Day 40 でここが1行になった**。
+                // 元は `_env.Enabled = true; _shadow.Enabled = true; ...` と
+                // フラグを手で並べていて、機能が増えるたびに書き足す必要があった。
+                // 書き忘れても絵は出る——ただ「前と違う絵」になるだけなので、
+                // 原因を探すのがいちばん厄介な種類のバグになる。
+                StopTourIfRunning();
+                _features.SetAll(true);
 
                 BakeSky();
                 ApplyDemoLighting();
