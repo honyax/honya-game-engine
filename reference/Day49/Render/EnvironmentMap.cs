@@ -73,6 +73,11 @@ internal sealed class EnvironmentMap : IDisposable
     /// <summary>BRDF の表の1辺。**横が N・V、縦が粗さ**。</summary>
     public const int BrdfLutSize = 128;
 
+    /// <summary>
+    /// 半精度 float(RGB16F)で表せる最大値。これを超える値は GPU へ上げると +Inf になる。
+    /// </summary>
+    private const float HalfFloatMax = 65504.0f;
+
     private readonly GL _gl;
     private readonly RenderResources _resources;
 
@@ -248,6 +253,20 @@ internal sealed class EnvironmentMap : IDisposable
             for (int i = 0; i < pixels.Length; i++)
             {
                 source[i] = MathF.Min(pixels[i], 1.0f);
+            }
+        }
+        else
+        {
+            // **半精度 float の上限で切る**。下で RGB16F に上げるが、
+            // 半精度の最大値 65504 を超えた値は頭打ちにならず **+Inf になる**
+            // (IEEE 754 の丸め。表せる最大値より大きいものは無限大へ行く)。
+            // 本物の太陽の芯は 24 万あるので、太陽を抜かずに焼くと(Ctrl+Shift+F5)
+            // 環境キューブに Inf が入り、放射照度と事前フィルタの畳み込みで周りへ広がり、
+            // トーンマップで Inf / Inf = NaN になって**画面が真っ黒になる**。
+            source = new float[pixels.Length];
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                source[i] = MathF.Min(pixels[i], HalfFloatMax);
             }
         }
 

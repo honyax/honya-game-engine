@@ -37,12 +37,26 @@ internal sealed class Model : IDisposable
     /// **世界行列**。ノードの木を根から掛け合わせて確定させたもの。
     /// モデル全体をさらに動かすときは、これに外から掛ける。
     /// </param>
-    /// <param name="Name">glTF のノード名。デバッグ表示用。</param>
+    /// <param name="Name">
+    /// glTF のノード名。デバッグ表示用……<b>だったが、Day 39 で仕事が増えた</b>。
+    /// 配布されているモデルには「きれいな版」と「錆びた版」が
+    /// 1 ファイルに並べて入っていることがある(<c>fire_hydrant</c> / <c>metal_trash_can</c>)。
+    /// デモに置くときはどちらか一方だけが欲しいので、
+    /// <see cref="DemoScene"/> がこの名前でパーツを選り分ける。
+    /// </param>
+    /// <param name="BoundsMin">
+    /// **このパーツだけ**の境界箱(世界行列を通したあと)。Day 39 で足した。
+    /// モデル全体の境界箱だと、上のように 2 体入っているファイルで
+    /// 「片方だけ拾ったときの大きさと足元」が分からない。
+    /// </param>
+    /// <param name="BoundsMax">同上。</param>
     internal readonly record struct Part(
         Mesh<Vertex> Mesh,
         Material Material,
         Matrix4x4 Transform,
-        string Name);
+        string Name,
+        Vector3 BoundsMin,
+        Vector3 BoundsMax);
 
     private readonly RenderResources _resources;
 
