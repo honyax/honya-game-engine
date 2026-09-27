@@ -2066,7 +2066,12 @@ internal static class Program
                 ContextProfile.Core,
                 ContextFlags.Default,
                 new APIVersion(4, 3)),
-            VSync = false,
+            // **既定で ON**(V キーでいつでも切り替えられる)。
+            // Day 17 ではバッチングの効果を fps で比べるために切っていたが、
+            // Day 31 から全画面のパスが何本も走るようになり、上限なしで回すと GPU が常に全力で回り続ける。
+            // 起動やリサイズの瞬間に負荷が 0 から全開へ跳ね上がるのは電源にも厳しい。
+            // 性能を測りたいときだけ V で切る。
+            VSync = true,
             PreferredDepthBufferBits = 24,
             WindowBorder = WindowBorder.Resizable,
 
