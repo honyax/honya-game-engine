@@ -111,19 +111,41 @@ internal sealed class OrbitCameraController
         Pitch = Math.Clamp(Pitch, -pitchLimit, pitchLimit);
         Distance = Math.Clamp(Distance, MinDistance, MaxDistance);
 
-        float cosPitch = MathF.Cos(Pitch);
-
         _camera.Target = Target;
-        _camera.Position = Target + new Vector3(
-            Distance * cosPitch * MathF.Sin(Yaw),
-            Distance * MathF.Sin(Pitch),
-            Distance * cosPitch * MathF.Cos(Yaw));
+        _camera.Position = EyePosition(Target, Distance, Yaw, Pitch);
 
         // 平行投影のときは「視野角」に相当するものが無いので、
         // 距離から画面に収める高さを決める。こうしておくと
         // 透視 ⇔ 平行を切り替えても**注視点まわりの見かけの大きさが揃う**ので、
         // 遠近感の有無だけを比べられる。
         _camera.OrthographicHeight = 2.0f * Distance * MathF.Tan(_camera.FieldOfView * 0.5f);
+    }
+
+    /// <summary>
+    /// 球面座標から目の位置を求める。**<see cref="Apply"/> の中身をそのまま出したもの**(Day 40)。
+    ///
+    /// <para>
+    /// <see cref="CameraPath.SpeedAt"/> が「そのときカメラは何 m/s で動いているか」を
+    /// 測るのに、同じ式を必要とする。式を写して2か所に置くと、
+    /// <b>片方だけ直したときに測った速度と実際の動きがずれる</b>——
+    /// しかも絵は正しく出るので、数字のほうを疑うことになる。
+    /// <c>static</c> にして両方から呼ぶ。
+    /// </para>
+    ///
+    /// <para>
+    /// 角度の意味は <see cref="Apply"/> の説明のとおり。
+    /// <c>cos(pitch)</c> が x と z の両方に掛かるのは、
+    /// **上を向くほど水平方向の半径が縮む**から。
+    /// </para>
+    /// </summary>
+    public static Vector3 EyePosition(Vector3 target, float distance, float yaw, float pitch)
+    {
+        float cosPitch = MathF.Cos(pitch);
+
+        return target + new Vector3(
+            distance * cosPitch * MathF.Sin(yaw),
+            distance * MathF.Sin(pitch),
+            distance * cosPitch * MathF.Cos(yaw));
     }
 
     private void OnMouseDown(IMouse mouse, MouseButton button)

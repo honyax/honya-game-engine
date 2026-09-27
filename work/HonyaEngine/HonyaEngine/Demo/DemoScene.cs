@@ -39,6 +39,14 @@ namespace HonyaEngine;
 /// テクスチャは <see cref="RenderResources"/> から借りて参照カウントを返す——
 /// Day 21 で決めた作法をそのまま踏襲している。
 /// </para>
+///
+/// <para>
+/// <b>Day 40 での変更</b>: JSON に<b>カメラワーク</b>(<c>camera.shots</c>)と
+/// <b>色調整</b>(<c>lighting.grade</c>)が書けるようになった。
+/// どちらも「この絵をどう見せたいか」の側で、露出や IBL の強さと同類。
+/// <b>コードではなくシーンに置く</b>と、絵づくりがビルドを待たずに回る。
+/// 書いていない JSON もそのまま読めるので、Day 39 のファイルは何も変えずに動く。
+/// </para>
 /// </summary>
 internal sealed class DemoScene : IDisposable
 {
@@ -145,6 +153,33 @@ internal sealed class DemoScene : IDisposable
 
     public float CameraPitch { get; private set; } = 0.15f;
 
+    /// <summary>
+    /// 垂直画角(ラジアン。Day 40)。<see cref="Camera.FieldOfView"/> の既定は 60 度だが、
+    /// **デモの絵には広すぎる**。60 度は「机の前で操作するゲーム」の画角で、
+    /// 遠近が誇張されて壁が倒れて見える。35〜45 度あたりが落ち着く。
+    /// </summary>
+    public float CameraFieldOfView { get; private set; } = 40.0f * (MathF.PI / 180.0f);
+
+    /// <summary>
+    /// カメラワーク(Day 40)。<c>camera.shots</c> が無ければ <c>null</c> で、
+    /// そのときは決めの構図の1枚だけになる(Day 39 の挙動)。
+    /// </summary>
+    public CameraPath? Shots { get; private set; }
+
+    /// <summary>
+    /// カラーグレーディングの設定(Day 40)。
+    /// **絵づくりの最後の一枚**なので、シーンと一緒に書けるようにした。
+    /// </summary>
+    public GradeSettings Grade { get; private set; } = new(false, 0.0f, 0.0f, 1.0f, 1.0f);
+
+    /// <summary>グレーディングのつまみ(Day 38 の <see cref="ColorGrade"/> に流し込む)。</summary>
+    internal readonly record struct GradeSettings(
+        bool Enabled,
+        float Temperature,
+        float Tint,
+        float Contrast,
+        float Saturation);
+
     /// <summary>描くもの。**この順に描けばよい**。</summary>
     public IReadOnlyList<Item> Items => _items;
 
@@ -209,6 +244,16 @@ internal sealed class DemoScene : IDisposable
             scene.SunThreshold = GetFloat(lighting, "sunThreshold", 0.05f);
             scene.SunAzimuth = GetFloat(lighting, "sunAzimuth", 25.0f);
             scene.ShadowRadius = GetFloat(lighting, "shadowRadius", 18.0f);
+
+            if (lighting.TryGetProperty("grade", out JsonElement grade))
+            {
+                scene.Grade = new GradeSettings(
+                    Enabled: GetBool(grade, "enabled", true),
+                    Temperature: GetFloat(grade, "temperature", 0.0f),
+                    Tint: GetFloat(grade, "tint", 0.0f),
+                    Contrast: GetFloat(grade, "contrast", 1.0f),
+                    Saturation: GetFloat(grade, "saturation", 1.0f));
+            }
         }
 
         if (root.TryGetProperty("camera", out JsonElement camera))
@@ -220,6 +265,10 @@ internal sealed class DemoScene : IDisposable
             // ラジアンで書かせるのは親切ではない。
             scene.CameraYaw = GetFloat(camera, "yaw", 0.0f) * (MathF.PI / 180.0f);
             scene.CameraPitch = GetFloat(camera, "pitch", 10.0f) * (MathF.PI / 180.0f);
+            scene.CameraFieldOfView =
+                GetFloat(camera, "fov", 40.0f) * (MathF.PI / 180.0f);
+
+            scene.Shots = ReadCameraPath(camera, scene);
         }
 
         // --- 1. マテリアル(板に貼るぶん)---
@@ -520,6 +569,63 @@ internal sealed class DemoScene : IDisposable
             * Matrix4x4.CreateRotationY(rotation.Y)
             * Matrix4x4.CreateRotationZ(rotation.Z)
             * Matrix4x4.CreateTranslation(position);
+    }
+
+    /// <summary>
+    /// <c>camera.shots</c> を読んでカメラワークを作る(Day 40)。
+    ///
+    /// <para>
+    /// <b>書かなかった項目は前のショットを引き継ぐ</b>。
+    /// 1つ目は決めの構図(<c>camera</c> 直下の値)を土台にする。
+    /// カメラワークは「注視点だけずらす」「距離だけ寄る」のように
+    /// <b>1つの数字しか変わらないショットが大半</b>なので、
+    /// 5 項目を毎回全部書かせると、変えた場所が読み取れないファイルになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>ショットが1つしか無ければ <c>null</c> を返す</b>。
+    /// キーが1つのパスは補間するものが無く、決めの構図と同じものになる。
+    /// 「動かないカメラワーク」を持っていると、
+    /// HUD にも自己チェックにも意味の無い枝が増える。
+    /// </para>
+    /// </summary>
+    private static CameraPath? ReadCameraPath(JsonElement camera, DemoScene scene)
+    {
+        if (!camera.TryGetProperty("shots", out JsonElement shots)
+            || shots.ValueKind != JsonValueKind.Array
+            || shots.GetArrayLength() < 2)
+        {
+            return null;
+        }
+
+        var keys = new List<CameraPath.Key>();
+
+        Vector3 target = scene.CameraTarget;
+        float distance = scene.CameraDistance;
+        float yaw = scene.CameraYaw;
+        float pitch = scene.CameraPitch;
+        float fov = scene.CameraFieldOfView;
+
+        foreach (JsonElement shot in shots.EnumerateArray())
+        {
+            target = GetVector3(shot, "target", target);
+            distance = GetFloat(shot, "distance", distance);
+            yaw = GetFloat(shot, "yaw", yaw * (180.0f / MathF.PI)) * (MathF.PI / 180.0f);
+            pitch = GetFloat(shot, "pitch", pitch * (180.0f / MathF.PI)) * (MathF.PI / 180.0f);
+            fov = GetFloat(shot, "fov", fov * (180.0f / MathF.PI)) * (MathF.PI / 180.0f);
+
+            keys.Add(new CameraPath.Key(
+                Name: GetString(shot, "name", $"ショット{keys.Count + 1}"),
+                Target: target,
+                Distance: distance,
+                Yaw: yaw,
+                Pitch: pitch,
+                FieldOfView: fov,
+                Hold: MathF.Max(0.0f, GetFloat(shot, "hold", 2.0f)),
+                Travel: MathF.Max(0.0f, GetFloat(shot, "travel", 6.0f))));
+        }
+
+        return new CameraPath(keys);
     }
 
     /// <summary>借りたテクスチャを覚えておく。<see cref="Dispose"/> で同じ数だけ返す。</summary>
