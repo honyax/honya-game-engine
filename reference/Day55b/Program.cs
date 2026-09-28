@@ -1966,7 +1966,10 @@ internal static class Program
     {
         var options = WindowOptions.Default with
         {
-            Size = new Vector2D<int>(960, 640),
+            // **Day 41 から FullHD**。960x640 は 4K モニタだと画面の 1/13 ほどにしかならず、
+            // 毎回手で広げることになっていた。自己チェックやベンチマークが使う 960x640 は
+            // 結果を決定的にするための固定値で、窓の大きさとは関係ないのでそのまま。
+            Size = new Vector2D<int>(1920, 1080),
             Title = "Day38 - FXAAと簡易カラーグレーディング",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,

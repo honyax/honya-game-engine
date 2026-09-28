@@ -287,13 +287,29 @@ internal sealed class Ssao : IDisposable
     }
 
     /// <summary>幾何パスの1体ぶん。**モデル行列だけ渡す**(マテリアルは要らない)。</summary>
-    public void Draw(Mesh<Vertex> mesh, Matrix4x4 model)
+    /// <param name="joints">
+    /// スキニングの関節行列(Day 41)。**空ならスキニングしない**。
+    ///
+    /// 深度パスと SSAO の幾何パスは本描画とは別のシェーダを使うので、
+    /// **同じ関節行列を3回送ることになる**。冗長に見えるが、
+    /// 3つのパスが同じ頂点位置を見ることのほうがずっと大事——
+    /// 1つでも送り忘れると、影だけ・遮蔽だけがバインドポーズに取り残される。
+    /// </param>
+    public void Draw(Mesh<Vertex> mesh, Matrix4x4 model, ReadOnlySpan<Matrix4x4> joints = default)
     {
         Shader shader = _resources.GetShader(_geometryShader);
 
         Matrix4x4 modelView = model * _view;
         shader.SetMatrix4("uModelView", modelView);
         shader.SetMatrix3("uNormalMatrix", NormalMatrix(modelView));
+
+        // ShadowMap.Draw と同じ理由で毎回設定する。
+        shader.SetInt("uSkinned", joints.IsEmpty ? 0 : 1);
+
+        if (!joints.IsEmpty)
+        {
+            shader.SetMatrix4Array("uJoints", joints);
+        }
 
         mesh.Draw();
         DrawCalls++;

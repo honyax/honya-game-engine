@@ -3,16 +3,21 @@ using System.Numerics;
 namespace HonyaEngine;
 
 /// <summary>
-/// 読み込み済みのモデル1体。**「何を、どこに、どう描くか」の平らな一覧**。
+/// 読み込み済みのモデル1体。**「何を、どこに、どう描くか」の平らな一覧**
+/// と、**ノードの木**(Day 41 で戻ってきた)。
 ///
-/// glTF の中身はノードの木(親子)だが、描くときに木のままである必要は無い。
-/// ノードを1回歩いて**世界行列を確定させてしまえば**、
-/// あとは「メッシュ + マテリアル + 行列」の並びを順に描くだけになる。
+/// glTF の中身はノードの木(親子)で、Day 32 はそれを1回歩いて
+/// 世界行列を確定させ、木を捨てて平らな <see cref="Part"/> の並びにしていた。
+/// 静的なモデルにはそれで足りる——姿勢が二度と変わらないから。
 ///
-/// 木のまま持たないのは、静的なモデルには階層が要らないから。
-/// 階層が意味を持つのは、あとから関節を動かす場合
-/// (スキニング。Day 41)や、部品を付け外しする場合で、
-/// **今日読むのは動かないモデル**なので平らにしてよい。
+/// <b>Day 41 で木が要るようになった</b>。アニメーションはノードの TRS を
+/// 毎フレーム書き換えるので、そのたびに世界行列を作り直す必要がある。
+/// スキニングも「関節ノードの世界行列」を集めて作るので、やはり木が要る。
+///
+/// 平らな一覧のほうも残してある。<see cref="Part"/> の <c>Transform</c> は
+/// **ファイルを読んだ時点の姿勢での世界行列**で、アニメーションを持たないモデル
+/// (Day 39 のデモシーンの小物)はこれをそのまま使い続ける。
+/// 動かすときだけ <see cref="AnimationPlayer"/> が世界行列を計算し直す。
 ///
 /// <para>
 /// <b>何を所有するか</b>。<see cref="Mesh{TVertex}"/> は自分で作ったので所有する。
@@ -50,13 +55,30 @@ internal sealed class Model : IDisposable
     /// 「片方だけ拾ったときの大きさと足元」が分からない。
     /// </param>
     /// <param name="BoundsMax">同上。</param>
+    /// <param name="NodeIndex">
+    /// このパーツがぶら下がっているノードの番号(Day 41)。
+    ///
+    /// アニメーションで動くモデルは <c>Transform</c> が使えなくなる——
+    /// あれは読み込んだ時点の姿勢での値だから。
+    /// 代わりに <c>AnimationPlayer.GetNodeWorld(NodeIndex)</c> を毎フレーム引く。
+    /// </param>
+    /// <param name="SkinIndex">
+    /// 使うスキンの番号。**-1 ならスキン無し**(Day 41)。
+    ///
+    /// スキン付きのパーツは <c>Transform</c> が単位行列になっている。
+    /// glTF の仕様が「スキン付きメッシュのノードの変換は無視すること」と定めていて、
+    /// 関節行列のほうが最初から世界へ運ぶ役目を持っているため
+    /// (二重に掛けると、モデルがノードの分だけ余計にずれる)。
+    /// </param>
     internal readonly record struct Part(
         Mesh<Vertex> Mesh,
         Material Material,
         Matrix4x4 Transform,
         string Name,
         Vector3 BoundsMin,
-        Vector3 BoundsMax);
+        Vector3 BoundsMax,
+        int NodeIndex,
+        int SkinIndex);
 
     private readonly RenderResources _resources;
 
@@ -70,7 +92,11 @@ internal sealed class Model : IDisposable
         IReadOnlyList<Handle<Texture>> textures,
         Vector3 boundsMin,
         Vector3 boundsMax,
-        string sourcePath)
+        string sourcePath,
+        IReadOnlyList<ModelNode> nodes,
+        IReadOnlyList<int> nodeOrder,
+        IReadOnlyList<Skin> skins,
+        IReadOnlyList<AnimationClip> animations)
     {
         _resources = resources;
         _textures = textures;
@@ -79,10 +105,70 @@ internal sealed class Model : IDisposable
         BoundsMin = boundsMin;
         BoundsMax = boundsMax;
         SourcePath = sourcePath;
+        Nodes = nodes;
+        NodeOrder = nodeOrder;
+        Skins = skins;
+        Animations = animations;
     }
 
     /// <summary>描くものの一覧。**この順に描けばよい**。</summary>
     public IReadOnlyList<Part> Parts { get; }
+
+    /// <summary>ノードの木(Day 41)。番号は glTF の <c>nodes</c> の添字そのまま。</summary>
+    public IReadOnlyList<ModelNode> Nodes { get; }
+
+    /// <summary>
+    /// **親が必ず子より先に来るノード番号の並び**(Day 41)。
+    ///
+    /// 世界行列は「自分のローカル × 親の世界」で作るので、
+    /// 親を先に計算しておかないと 1 フレーム遅れた親の行列を掛けてしまう。
+    /// glTF の <c>nodes</c> の並びに順序の保証は無い——
+    /// 子が親より前に書かれているファイルは実在する。
+    ///
+    /// 毎フレーム木を再帰で降りてもよいが、
+    /// **順番は読み込みの時点で決まっている**ので、1回並べ替えて配列にしておく。
+    /// 再帰が消えて、キャッシュに乗る素直なループになる。
+    /// </summary>
+    public IReadOnlyList<int> NodeOrder { get; }
+
+    /// <summary>スキンの一覧(Day 41)。空ならスキン無しのモデル。</summary>
+    public IReadOnlyList<Skin> Skins { get; }
+
+    /// <summary>アニメーションクリップの一覧(Day 41)。Fox だけが3本持っている。</summary>
+    public IReadOnlyList<AnimationClip> Animations { get; }
+
+    /// <summary>スキン付きのパーツの数(Day 41)。HUD と自己チェック用。</summary>
+    public int SkinnedParts
+    {
+        get
+        {
+            int count = 0;
+            foreach (Part part in Parts)
+            {
+                if (part.SkinIndex >= 0)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    /// <summary>関節の総数(Day 41)。<c>AnimationPlayer.MaxJoints</c> と見比べるために出す。</summary>
+    public int JointCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (Skin skin in Skins)
+            {
+                count += skin.JointCount;
+            }
+
+            return count;
+        }
+    }
 
     /// <summary>マテリアルの一覧。パーツから共有されている。デバッグ表示と数え上げ用。</summary>
     public IReadOnlyList<Material> Materials { get; }
@@ -123,6 +209,14 @@ internal sealed class Model : IDisposable
 
     /// <summary>接線をローダ側で作ったパーツの数(Day 34)。</summary>
     public int GeneratedTangentParts { get; init; }
+
+    /// <summary>
+    /// 法線をローダ側で作ったパーツの数(Day 41)。
+    ///
+    /// **Fox が NORMAL を持っていない**。接線と同じで、
+    /// 「有名なサンプルなら全部揃っているはず」は成り立たない。
+    /// </summary>
+    public int GeneratedNormalParts { get; init; }
 
     /// <summary>このモデルが握っているテクスチャの枚数。</summary>
     public int TextureCount => _textures.Count;

@@ -12,6 +12,12 @@
 layout (location = 0) in vec3 aPosition;
 layout (location = 3) in vec3 aNormal;
 
+// Day 41。**SSAO も本描画と同じ形を見なければならない**。
+// ここを足さないと、キャラクタの遮蔽だけがバインドポーズの位置に出る
+// (足元の影が、歩いているキャラクタから 1 歩ぶんずれて置き去りになる)。
+layout (location = 5) in vec4 aJoints;
+layout (location = 6) in vec4 aWeights;
+
 // **ビュー行列とモデル行列を掛けたもの**を CPU 側で1つにして渡す。
 //
 // 本描画は uModel と uViewProjection の2本に分けているが、こちらは
@@ -26,6 +32,11 @@ uniform mat4 uProjection;
 // SSAO の計算がまるごとビュー空間で行われるため。
 uniform mat3 uNormalMatrix;
 
+// textured.vert とまったく同じ約束。値も同じものを送る(Ssao.Draw)。
+const int MAX_JOINTS = 64;
+uniform mat4 uJoints[MAX_JOINTS];
+uniform int uSkinned;
+
 out vec3 vViewNormal;
 
 // **カメラからの距離**(ビュー空間の -z)。正の値。
@@ -38,9 +49,23 @@ out float vViewDepth;
 
 void main()
 {
-    vec4 viewPosition = uModelView * vec4(aPosition, 1.0);
+    vec4 localPos = vec4(aPosition, 1.0);
+    vec3 localNormal = aNormal;
 
-    vViewNormal = uNormalMatrix * aNormal;
+    if (uSkinned == 1)
+    {
+        mat4 skin = (uJoints[int(aJoints.x)] * aWeights.x)
+            + (uJoints[int(aJoints.y)] * aWeights.y)
+            + (uJoints[int(aJoints.z)] * aWeights.z)
+            + (uJoints[int(aJoints.w)] * aWeights.w);
+
+        localPos = skin * localPos;
+        localNormal = mat3(skin) * localNormal;
+    }
+
+    vec4 viewPosition = uModelView * localPos;
+
+    vViewNormal = uNormalMatrix * localNormal;
 
     // OpenGL のビュー空間は **-Z 方向が前**。符号を反転して「距離」にする。
     vViewDepth = -viewPosition.z;

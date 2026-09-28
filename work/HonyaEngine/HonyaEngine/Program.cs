@@ -631,6 +631,20 @@ internal static class Program
     ///
     /// 「読めた」を確かめるには、**違う書かれ方のファイルを通す**しかない。
     /// 1個だけで通っても、それはそのファイルが通っただけになる。
+    ///
+    /// <b>Day 41 で5体増えた</b>。今度はリグとアニメーションの側で経路を分けてある。
+    ///
+    /// | | 何を試すか |
+    /// |---|---|
+    /// | CesiumMan | **今日の到達点**。19 関節の人型が歩く。skin + animation の定番 |
+    /// | Fox | **クリップが3本**(Survey / Walk / Run)。NORMAL を持たないので法線を生成する |
+    /// | RiggedSimple | 関節2本の曲がる棒。**壊れたときの切り分け**用 |
+    /// | SimpleSkin | 仕様の最小例。頂点 10 個・三角形8枚。**手で追える大きさ** |
+    /// | BoxAnimated | **スキン無し**のアニメーション。ノードの TRS だけが動く |
+    ///
+    /// 最後の1体が効く。「アニメーション」と「スキニング」は別の仕組みで、
+    /// **前者だけでも動くものは作れる**——ここを混ぜて憶えると、
+    /// スキンを持たないモデルが動かないときに骨のほうを疑って時間を落とす。
     /// </summary>
     private static readonly string[] ModelPaths =
     [
@@ -638,6 +652,11 @@ internal static class Program
         "models/WaterBottle.glb",
         "models/Lantern.glb",
         "models/BoxTextured/BoxTextured.gltf",
+        "models/CesiumMan.glb",
+        "models/Fox.glb",
+        "models/RiggedSimple.glb",
+        "models/SimpleSkin/SimpleSkin.gltf",
+        "models/BoxAnimated.glb",
     ];
 
     /// <summary>今表示しているモデル。null なら無し(Day 31 までの絵)。</summary>
@@ -652,10 +671,36 @@ internal static class Program
     /// <summary>読み込みにかかった時間(ミリ秒)。**同期で読むので、そのままフレームが飛ぶ**。</summary>
     private static double _modelLoadMilliseconds;
 
+    // --- Day 41: スキニングアニメーション ---
+
+    /// <summary>
+    /// 今のモデルの再生装置(Day 41)。**モデルと1対1**にしてあるが、本来は多対1。
+    ///
+    /// ここで1個しか持たないのは、画面に1体しか出さないから。
+    /// <see cref="AnimationPlayer"/> のコメントにあるとおり、同じモデルを
+    /// 100 体並べるならプレイヤーだけ 100 個作る——その形になっているかを
+    /// 確かめられるよう、モデル側には時刻を1つも持たせていない。
+    /// </summary>
+    private static AnimationPlayer? _animation;
+
+    /// <summary>再生速度の候補(Alt+F5 で巡回)。</summary>
+    private static readonly float[] PlaybackSpeeds = [0.25f, 0.5f, 1.0f, 2.0f];
+
+    private static int _playbackSpeedIndex = 2;
+
+    /// <summary>
+    /// コマ送り(Alt+F8)の1回ぶん。**1/30 秒**。
+    ///
+    /// アニメーションのキーは 24〜30fps 刻みで打たれていることが多いので、
+    /// この幅で送ると「キーとキーの間」がちょうど1〜2コマになる。
+    /// 補間が効いているかを目で確かめるのにこの粒度が要る。
+    /// </summary>
+    private const float AnimationStepSeconds = 1.0f / 30.0f;
+
     /// <summary>
     /// 画面に出す成分(Shift+9)。
     /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ
-    /// 8=影の係数(Day 33)。
+    /// 8=影の係数(Day 33)。22=骨の重み(Day 41)。
     /// </summary>
     private static int _debugChannel;
 
@@ -1085,7 +1130,10 @@ internal static class Program
     {
         var options = WindowOptions.Default with
         {
-            Size = new Vector2D<int>(960, 640),
+            // **Day 41 から FullHD**。960x640 は 4K モニタだと画面の 1/13 ほどにしかならず、
+            // 毎回手で広げることになっていた。自己チェックやベンチマークが使う 960x640 は
+            // 結果を決定的にするための固定値で、窓の大きさとは関係ないのでそのまま。
+            Size = new Vector2D<int>(1920, 1080),
             Title = "Day38 - FXAAと簡易カラーグレーディング",
             API = new GraphicsAPI(
                 ContextAPI.OpenGL,
@@ -1577,6 +1625,15 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
+        Console.WriteLine("--- Day 41: 頂点ブレンディングとスキニング(Alt+F1〜F12)---");
+        Console.WriteLine("Alt+F1:CesiumMan を出して歩かせる。**今日の到達点はこれ**");
+        Console.WriteLine("Alt+F2:アニメ付きの5体を巡回(人型 / キツネ / 棒 / 最小例 / スキン無し)");
+        Console.WriteLine("Alt+F3:次のクリップへ(**Fox だけが Survey / Walk / Run の3本**)");
+        Console.WriteLine("Alt+F5:再生 / 一時停止  Alt+F8:1/30 秒ずつコマ送り  Alt+F10:先頭へ戻す");
+        Console.WriteLine("Alt+F6:スキニング ON/OFF(**骨は動いたまま頂点だけ止まる**)");
+        Console.WriteLine("Alt+F7:再生速度 0.25/0.5/1/2 倍  Alt+F9:骨の重みを色で見る(成分 22)");
+        Console.WriteLine("Alt+F11:リグの内訳を出す  Alt+F12:今日の自己チェック");
+        Console.WriteLine();
         Console.WriteLine("--- Day 40: カメラワークと機能トグル(Ctrl+Alt+F1〜F11)---");
         Console.WriteLine("Ctrl+Alt+F1:デモ v1 を出して**カメラワークを再生**。**今日の到達点はこれ**");
         Console.WriteLine("Ctrl+Alt+F2:再生 / 一時停止(止めれば左ドラッグで手動に戻れる)");
@@ -2064,6 +2121,14 @@ internal static class Program
         if (!_paused)
         {
             UpdateDemoCamera(deltaSeconds);
+
+            // **アニメーションも可変 dt で回す**(Day 41)。
+            // 今日のところは見せ方だけの処理なので、カメラワークと同じ扱いでよい。
+            //
+            // ただし**これは今日までの話**。骨の位置を当たり判定に使い始めると
+            // (Day 45 のキャラクターコントローラ)決定性が要るので、
+            // そのときは FixedUpdate 側へ移すことになる。
+            _animation?.Update((float)deltaSeconds);
 
             string? tourMessage = _features.Update((float)deltaSeconds);
             if (tourMessage is not null)
@@ -2578,7 +2643,10 @@ internal static class Program
         {
             foreach (Model.Part part in _model.Parts)
             {
-                _ssao.Draw(part.Mesh, part.Transform * _modelTransform);
+                // **本描画とまったく同じ行列と関節行列を渡す**(Day 41)。
+                // ここだけ静的な Transform のままにすると、
+                // 遮蔽がバインドポーズの位置に residue として残る。
+                _ssao.Draw(part.Mesh, PartMatrix(part), PartJoints(part));
             }
 
             _ssao.Draw(_quad, FloorMatrix());
@@ -2674,7 +2742,8 @@ internal static class Program
         {
             foreach (Model.Part part in _model.Parts)
             {
-                _shadow.Draw(part.Mesh, part.Transform * _modelTransform);
+                // SSAO と同じ理由で、本描画と同じものを渡す(Day 41)。
+                _shadow.Draw(part.Mesh, PartMatrix(part), PartJoints(part));
             }
 
             _shadow.Draw(_quad, FloorMatrix());
@@ -2884,6 +2953,10 @@ internal static class Program
                 $"{ModelLabel()}  三角形:{_model.TriangleCount:N0}  パーツ:{_model.Parts.Count}  "
                 + $"マテリアル:{_model.Materials.Count}  テクスチャ:{_model.TextureCount}  "
                 + $"読込:{_modelLoadMilliseconds:F0}ms");
+
+            // **今日の1行**(Day 41)。アニメーションは「止まっているのか、
+            // クリップが無いのか、スキニングを切っているのか」が絵から区別できない。
+            lines.AppendLine(AnimationLabel());
         }
 
         // **今日の状態を1行で**。絵作りの機能は「今どの設定か」を見失いやすいので、
@@ -3101,6 +3174,7 @@ internal static class Program
         19 => "事前フィルタ（映り込み）",
         20 => "BRDF の表（R=A / G=B）",
         21 => "SSAO（画面から作った遮蔽）",
+        22 => "骨の重み",
         _ => "通常",
     };
 
@@ -3335,6 +3409,69 @@ internal static class Program
 
     private static string ModelLabel() =>
         _model is null ? "モデル無し" : Path.GetFileNameWithoutExtension(_model.SourcePath);
+
+    /// <summary>
+    /// アニメーションの状態を1行にまとめる(Day 41。HUD 用)。
+    ///
+    /// **「止まっている」の理由が3通りある**のがこの行を置く理由。
+    /// 一時停止しているのか、クリップを持たないモデルなのか、
+    /// スキニングを切っているのか——絵はどれも同じに見える。
+    /// </summary>
+    private static string AnimationLabel()
+    {
+        if (_animation is null || _model is null)
+        {
+            return "アニメ:なし";
+        }
+
+        string rig = $"ノード:{_model.Nodes.Count}  スキン:{_model.Skins.Count}  "
+            + $"関節:{_model.JointCount}/{AnimationPlayer.MaxJoints}  "
+            + $"スキン付き:{_model.SkinnedParts}/{_model.Parts.Count}";
+
+        if (_model.Animations.Count == 0)
+        {
+            return $"アニメ:クリップ無し  {rig}";
+        }
+
+        return $"アニメ:{_animation.ClipName}({_animation.ClipIndex + 1}/{_model.Animations.Count})  "
+            + $"{_animation.Time:F2}/{_animation.Duration:F2}s  {_animation.Speed:F2}倍  "
+            + $"{(_animation.Paused ? "一時停止" : "再生中")}  "
+            + $"スキニング:{OnOff(_animation.SkinningEnabled)}  {rig}";
+    }
+
+    /// <summary>
+    /// アニメーションを持つモデルだけを巡回する(Alt+F2)。
+    /// <see cref="ModelPaths"/> の後ろ5体で、**Day 41 で足したぶんそのもの**。
+    /// </summary>
+    private static readonly string[] AnimatedModelPaths =
+    [
+        "models/CesiumMan.glb",
+        "models/Fox.glb",
+        "models/RiggedSimple.glb",
+        "models/SimpleSkin/SimpleSkin.gltf",
+        "models/BoxAnimated.glb",
+    ];
+
+    /// <summary>アニメーション用のモデルへ切り替える下ごしらえ(Alt+F1 / Alt+F2 で共通)。</summary>
+    private static void ShowAnimatedModel(string relativePath)
+    {
+        // **デモ v1 は最優先で描かれる**(Render3D)ので、出したままだとモデルが見えない。
+        if (_demo is not null)
+        {
+            UnloadDemoScene();
+        }
+
+        StopTourIfRunning();
+
+        _materialGrid = false;
+        _surfaceDemo = false;
+        _draw3D = true;
+        _debugChannel = 0;
+        SetSpriteCount(0);
+
+        int index = Array.IndexOf(ModelPaths, relativePath);
+        SetModel(index >= 0 ? index : 0);
+    }
 
     private static string ToneMapLabel() => _post.ToneMap switch
     {
@@ -3737,11 +3874,45 @@ internal static class Program
             // C キーの設定より、モデルの指定を優先する。
             SetCap(EnableCap.CullFace, _culling && !part.Material.DoubleSided);
 
-            Draw(part.Mesh, part.Material, part.Transform * _modelTransform);
+            Draw(part.Mesh, part.Material, PartMatrix(part), PartJoints(part));
         }
 
         SetCap(EnableCap.CullFace, _culling);
     }
+
+    /// <summary>
+    /// パーツを置く行列(Day 41)。**3つの経路がある**。
+    ///
+    /// <list type="number">
+    /// <item>スキン付き … 単位行列(パーツ側が既に単位)。位置は関節行列が持つ</item>
+    /// <item>アニメーションを持つモデルのスキン無しパーツ … プレイヤーが計算した世界行列</item>
+    /// <item>静的なモデル … 読み込み時に畳んだ <c>Part.Transform</c></item>
+    /// </list>
+    ///
+    /// <b>3 を残してあるのは互換のため</b>。プレイヤーの世界行列は TRS から作り直すので、
+    /// <c>matrix</c> で書かれたノード(BoxTextured)ではわずかに値が変わりうる。
+    /// 動かないモデルは Day 32 からの経路をそのまま通しておくほうが、
+    /// **今日の変更で過去の絵が動かなかったことを保証しやすい**。
+    /// </summary>
+    private static Matrix4x4 PartMatrix(in Model.Part part)
+    {
+        bool animatedNode = _animation is not null
+            && part.SkinIndex < 0
+            && _model is not null
+            && _model.Animations.Count > 0;
+
+        Matrix4x4 local = animatedNode ? _animation!.GetNodeWorld(part.NodeIndex) : part.Transform;
+        return local * _modelTransform;
+    }
+
+    /// <summary>
+    /// パーツに送る関節行列(Day 41)。スキンを持たないパーツでは空になり、
+    /// 受け取った側は <c>uSkinned = 0</c> にする。
+    /// </summary>
+    private static ReadOnlySpan<Matrix4x4> PartJoints(in Model.Part part) =>
+        _animation is not null && part.SkinIndex >= 0
+            ? _animation.GetJointMatrices(part.SkinIndex)
+            : default;
 
     /// <summary>
     /// モデルを切り替える。<paramref name="index"/> が範囲外なら「無し」に戻す。
@@ -3759,6 +3930,11 @@ internal static class Program
         // 2K テクスチャが9枚になり、VRAM を 200MB 以上使う。
         _model?.Dispose();
         _model = null;
+
+        // **プレイヤーはモデルより先に捨てる**……のではなく、単に参照を切るだけでよい。
+        // 姿勢の配列しか持っておらず、GPU のものを一切握っていないため(Day 41)。
+        // 「捨てるものと、参照を切れば済むもの」の違いがはっきり出るところ。
+        _animation = null;
 
         if (index < 0 || index >= ModelPaths.Length)
         {
@@ -3778,6 +3954,15 @@ internal static class Program
         _model = GltfLoader.Load(_gl, _resources, path, _shader, _forceGeneratedTangents);
         _modelLoadMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
 
+        // **スキンもクリップも無いモデルでもプレイヤーを作る**(Day 41)。
+        // ノードの世界行列は静的なモデルでも意味を持つので、
+        // 「アニメーションがあるときだけ」にすると分岐が増える。
+        // 作る手間は姿勢の配列2本ぶん(ノード 26 個で 2KB 弱)。
+        _animation = new AnimationPlayer(_model)
+        {
+            Speed = PlaybackSpeeds[_playbackSpeedIndex],
+        };
+
         FrameModel(_model);
 
         Console.WriteLine();
@@ -3793,6 +3978,31 @@ internal static class Program
         Console.WriteLine(
             $"  接線: ファイル {_model.FileTangentParts} パーツ / 生成 {_model.GeneratedTangentParts} パーツ"
             + (_forceGeneratedTangents ? "(ファイルの TANGENT を無視中)" : string.Empty));
+
+        // **リグの内訳を必ず出す**(Day 41)。スキニングが動かないときの原因は
+        // だいたい「スキンを読めていない」「関節が0本」「クリップが0本」のどれかで、
+        // 絵を見ても区別が付かない。
+        Console.WriteLine(
+            $"  法線: 生成 {_model.GeneratedNormalParts} パーツ"
+            + $" / ノード {_model.Nodes.Count} / スキン {_model.Skins.Count}"
+            + $" / 関節 {_model.JointCount} / スキン付きパーツ {_model.SkinnedParts}"
+            + $" / クリップ {_model.Animations.Count}");
+
+        foreach (Skin skin in _model.Skins)
+        {
+            Console.WriteLine(
+                $"  [スキン {skin.Name}] 関節 {skin.JointCount} 本"
+                + $"(根 {(skin.SkeletonRoot >= 0 ? _model.Nodes[skin.SkeletonRoot].Name : "指定なし")})");
+        }
+
+        for (int i = 0; i < _model.Animations.Count; i++)
+        {
+            AnimationClip clip = _model.Animations[i];
+            Console.WriteLine(
+                $"  [クリップ {i}: {clip.Name}] {clip.Duration:F2}s"
+                + $" / チャンネル {clip.Channels.Count}");
+        }
+
         Console.WriteLine(
             $"  境界 ({_model.BoundsMin.X:F2}, {_model.BoundsMin.Y:F2}, {_model.BoundsMin.Z:F2})"
             + $"〜({_model.BoundsMax.X:F2}, {_model.BoundsMax.Y:F2}, {_model.BoundsMax.Z:F2})"
@@ -3831,11 +4041,28 @@ internal static class Program
     {
         const float targetRadius = 2.0f;
 
-        float radius = MathF.Max(model.BoundsRadius, 0.0001f);
+        // **スキン付きは「今のポーズ」で測り直す**(Day 41)。
+        //
+        // <see cref="Model.BoundsMin"/> はバインドポーズの箱で、
+        // スキン付きのパーツはメッシュ空間の座標そのままで入っている。
+        // CesiumMan は**メッシュ空間が Z 上向き**(高さが Z の 0〜1.51 に出る)で、
+        // 立たせる回転は関節行列の側が持っている——
+        // だからバインドポーズの箱で構図を決めると、
+        // **中心が足元の外に来て、モデルが画面の端で切れる**。
+        //
+        // 姿勢が変われば箱も変わるので、本当は「クリップ全体で最大の箱」が要る。
+        // ここでは読み込み直後の姿勢だけで測っている(改造課題1)。
+        (Vector3 boundsMin, Vector3 boundsMax) =
+            model.SkinnedParts > 0 && _animation is not null
+                ? MeasurePosedBounds(model, _animation)
+                : (model.BoundsMin, model.BoundsMax);
+
+        Vector3 center = (boundsMin + boundsMax) * 0.5f;
+        float radius = MathF.Max((boundsMax - boundsMin).Length() * 0.5f, 0.0001f);
         float scale = targetRadius / radius;
 
         _modelTransform =
-            Matrix4x4.CreateTranslation(-model.BoundsCenter)
+            Matrix4x4.CreateTranslation(-center)
             * Matrix4x4.CreateScale(scale)
 
             // 床(Y = -0.5)の上に立たせる。
@@ -10367,13 +10594,29 @@ internal static class Program
         }
     }
 
-    private static void Draw(Mesh<Vertex> mesh, Material material, Matrix4x4 model)
+    private static void Draw(
+        Mesh<Vertex> mesh, Material material, Matrix4x4 model, ReadOnlySpan<Matrix4x4> joints = default)
     {
         material.Apply(_resources);
 
         Shader shader = _resources.GetShader(material.Shader);
         shader.SetMatrix4("uModel", model);
         shader.SetMatrix3("uNormalMatrix", NormalMatrix(model));
+
+        // **スキニングの ON/OFF は描画ごと**(Day 41)。
+        // マテリアルの属性ではないのがポイントで、同じマテリアルを
+        // スキン付きのメッシュとそうでないメッシュが共有することがある。
+        //
+        // 既定引数を空にしてあるので、**Day 40 までの呼び出しはそのまま 0 が入る**。
+        // 「呼び出し側を1つも変えずに機能を足せる」形になっていて、
+        // 逆にいうと**送り忘れても静かに動く**——だから毎回明示的に 0 を送る。
+        shader.SetInt("uSkinned", joints.IsEmpty ? 0 : 1);
+
+        if (!joints.IsEmpty)
+        {
+            shader.SetMatrix4Array("uJoints", joints);
+        }
+
         mesh.Draw();
     }
 
@@ -10728,6 +10971,123 @@ internal static class Program
             // 自己チェックは Ctrl+Alt+F12(Day 39)。Ctrl+F12 は Day 38 が使っている。
             case Key.F12 when ctrl && alt:
                 RunSceneCheck();
+                break;
+
+            // --- 今日のスイッチ(スキニングアニメーション)---
+            //
+            // **素の Alt + ファンクションキー**。Ctrl+Alt(Day 40)、Ctrl+Shift(Day 39)、
+            // Shift(Day 38)、Ctrl(Day 37)が埋まって、ここだけが空いていた。
+            //
+            // <b>Alt+F4 は使わない</b>。Windows が窓を閉じるので、押した瞬間に終わる。
+            // Ctrl+Alt+F4(Day 40)は別のキーなので問題にならない。
+            //
+            // <b>ctrl && alt の塊より後に置くこと</b>。`case Key.F1 when alt:` は
+            // Ctrl+Alt+F1 でも成立してしまうので、**順番が仕様の一部**になっている
+            // (Day 39・Day 40 の但し書きと同じ話。段が増えるたびにこれが効いてくる)。
+            case Key.F1 when alt:
+                // **今日の到達点**。19 関節の人型を出して歩かせる。
+                ShowAnimatedModel("models/CesiumMan.glb");
+                Console.WriteLine(
+                    "CesiumMan が歩いています。"
+                    + "**Alt+F6 でスキニングを切ると、骨は動いたままバインドポーズに戻る**");
+                break;
+
+            case Key.F2 when alt:
+                {
+                    // アニメーション付きの5体を巡回する。
+                    string current = _modelIndex >= 0 && _modelIndex < ModelPaths.Length
+                        ? ModelPaths[_modelIndex]
+                        : string.Empty;
+
+                    int at = Array.IndexOf(AnimatedModelPaths, current);
+                    ShowAnimatedModel(AnimatedModelPaths[(at + 1) % AnimatedModelPaths.Length]);
+                }
+
+                break;
+
+            case Key.F3 when alt:
+                // クリップを次へ。**3本持っているのは Fox だけ**。
+                if (_animation is not null && _model is not null && _model.Animations.Count > 1)
+                {
+                    _animation.NextClip();
+                    Console.WriteLine(
+                        $"クリップ: {_animation.ClipName}"
+                        + $"({_animation.ClipIndex + 1}/{_model.Animations.Count})  {_animation.Duration:F2}s");
+                }
+                else
+                {
+                    Console.WriteLine("クリップが1本以下です(3本あるのは Fox。Alt+F2 で切り替え)");
+                }
+
+                break;
+
+            case Key.F5 when alt:
+                if (_animation is not null)
+                {
+                    _animation.Paused = !_animation.Paused;
+                    Console.WriteLine(
+                        _animation.Paused
+                            ? $"アニメ: 一時停止({_animation.Time:F2}s)。Alt+F8 で 1/30 秒ずつ送れる"
+                            : "アニメ: 再生");
+                }
+
+                break;
+
+            case Key.F6 when alt:
+                // **今日いちばん効く見比べ**。骨は動き続けるのに頂点が動かなくなる。
+                if (_animation is not null)
+                {
+                    _animation.SkinningEnabled = !_animation.SkinningEnabled;
+                    Console.WriteLine(
+                        _animation.SkinningEnabled
+                            ? "スキニング: ON"
+                            : "スキニング: OFF(**関節行列を全部単位行列にした = バインドポーズ**)");
+                }
+
+                break;
+
+            case Key.F7 when alt:
+                _playbackSpeedIndex = (_playbackSpeedIndex + 1) % PlaybackSpeeds.Length;
+                if (_animation is not null)
+                {
+                    _animation.Speed = PlaybackSpeeds[_playbackSpeedIndex];
+                }
+
+                Console.WriteLine($"再生速度: {PlaybackSpeeds[_playbackSpeedIndex]:F2} 倍");
+                break;
+
+            case Key.F8 when alt:
+                // コマ送り。**止めてから送る**——動いたまま送っても差が分からない。
+                if (_animation is not null)
+                {
+                    _animation.Paused = true;
+                    _animation.Advance(AnimationStepSeconds);
+                    Console.WriteLine($"コマ送り: {_animation.Time:F3}s / {_animation.Duration:F2}s");
+                }
+
+                break;
+
+            case Key.F9 when alt:
+                // 骨の重みを色で見る(成分 22)。もう一度押すと通常へ戻る。
+                _debugChannel = _debugChannel == 22 ? 0 : 22;
+                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+                break;
+
+            case Key.F10 when alt:
+                if (_animation is not null)
+                {
+                    _animation.SelectClip(_animation.ClipIndex);
+                    Console.WriteLine("アニメ: 先頭へ戻した");
+                }
+
+                break;
+
+            case Key.F11 when alt:
+                DescribeRig();
+                break;
+
+            case Key.F12 when alt:
+                RunSkinningCheck();
                 break;
 
             // --- 今日のスイッチ(FXAA と簡易カラーグレーディング)---
@@ -11550,9 +11910,10 @@ internal static class Program
 
             // --- 今日のスイッチ(glTF)---
             case Key.Number9 when shift:
-                // Day 35 で BRDF の5つ、Day 36 で IBL の3つ、Day 37 で SSAO が増えて 22 通りになった。
+                // Day 35 で BRDF の5つ、Day 36 で IBL の3つ、Day 37 で SSAO、
+                // Day 41 で骨の重みが増えて 23 通りになった。
                 // **多いので Alt+9 と Ctrl+Shift+9 で目当ての成分へ直接飛べる**ようにしてある。
-                _debugChannel = (_debugChannel + 1) % 22;
+                _debugChannel = (_debugChannel + 1) % 23;
                 Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
                 break;
 
@@ -12126,6 +12487,482 @@ internal static class Program
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// リグの内訳をコンソールに出す(Alt+F11)。**骨の名前と親子が見えると話が早い**。
+    ///
+    /// スキニングが妙なときの原因は、たいてい「思っていた骨と違う骨が動いている」。
+    /// 木の形と関節の並び(= JOINTS_0 の値の意味)を並べて出しておく。
+    /// </summary>
+    private static void DescribeRig()
+    {
+        if (_model is null || _animation is null)
+        {
+            Console.WriteLine("モデルがありません(Alt+F1 で CesiumMan を出す)");
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"=== {ModelLabel()} のリグ ===");
+        Console.WriteLine(
+            $"ノード {_model.Nodes.Count} / スキン {_model.Skins.Count} / "
+            + $"関節 {_model.JointCount} / クリップ {_model.Animations.Count}");
+
+        // ノードの木。**NodeOrder の順に出す**ので、親が必ず先に現れる。
+        foreach (int index in _model.NodeOrder)
+        {
+            ModelNode node = _model.Nodes[index];
+
+            // 深さぶんだけ字下げして、木の形をそのまま見せる。
+            int depth = 0;
+            for (int parent = node.Parent; parent >= 0; parent = _model.Nodes[parent].Parent)
+            {
+                depth++;
+            }
+
+            string mark = node.SkinIndex >= 0 ? " [skin]" : string.Empty;
+            if (node.MeshIndex >= 0)
+            {
+                mark += " [mesh]";
+            }
+
+            Console.WriteLine($"  {new string(' ', depth * 2)}{index,3}: {node.Name}{mark}");
+        }
+
+        for (int s = 0; s < _model.Skins.Count; s++)
+        {
+            Skin skin = _model.Skins[s];
+            Console.WriteLine($"  スキン {s} ({skin.Name}) の関節:");
+            for (int j = 0; j < skin.JointCount; j++)
+            {
+                Console.WriteLine($"    JOINTS_0 の {j,2} → ノード {skin.Joints[j],3} ({_model.Nodes[skin.Joints[j]].Name})");
+            }
+        }
+
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// 今日の自己チェック(Alt+F12)。
+    ///
+    /// スキニングは**間違っていても絵が出る**のがいちばんの厄介さで、
+    /// 「なんとなく動いているから合っている」が通用しない。
+    /// 関節の番号が全部 0 でも、重みの合計が 0.9 でも、
+    /// 逆バインド行列を掛け忘れても、**それらしく動いてしまう**。
+    /// だから数字で押さえる。
+    /// </summary>
+    private static void RunSkinningCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 41: スキニングアニメーションの自己チェック ---");
+        var checks = new CheckList();
+
+        // --- 1. 補間そのもの(ファイルに依存しない部分)---
+        //
+        // **手で作ったサンプラーで確かめる**。読み込んだデータで試すと、
+        // 「補間が間違っている」のか「読み込みが間違っている」のか切り分けられない。
+        float[] times = [0.0f, 1.0f];
+        Vector4[] line = [Vector4.Zero, new Vector4(10.0f, 0.0f, 0.0f, 0.0f)];
+
+        var linear = new AnimationClip.Sampler(times, line, AnimationInterpolation.Linear);
+        checks.Check(
+            "LINEAR: 中点が中間値",
+            MathF.Abs(linear.SampleVector3(0.5f).X - 5.0f) < 1e-5f,
+            $"{linear.SampleVector3(0.5f).X:F4}");
+        checks.Check("範囲外は前へ伸ばす", MathF.Abs(linear.SampleVector3(-3.0f).X) < 1e-6f);
+        checks.Check("範囲外は後ろへ伸ばす", MathF.Abs(linear.SampleVector3(9.0f).X - 10.0f) < 1e-6f);
+
+        var step = new AnimationClip.Sampler(times, line, AnimationInterpolation.Step);
+        checks.Check(
+            "STEP: 次のキーの直前まで前の値のまま",
+            MathF.Abs(step.SampleVector3(0.999f).X) < 1e-6f,
+            $"{step.SampleVector3(0.999f).X:F4}");
+
+        // 回転。**0 度と 90 度を混ぜる**。
+        Quaternion q0 = Quaternion.Identity;
+        Quaternion q1 = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI * 0.5f);
+        Vector4[] turn = [new Vector4(q0.X, q0.Y, q0.Z, q0.W), new Vector4(q1.X, q1.Y, q1.Z, q1.W)];
+        var rotation = new AnimationClip.Sampler(times, turn, AnimationInterpolation.Linear);
+
+        float quarter = Degrees(rotation.SampleRotation(0.25f));
+        checks.Check(
+            "slerp は等速で回る(1/4 の時刻で 22.5 度)",
+            MathF.Abs(quarter - 22.5f) < 1e-2f,
+            $"{quarter:F3}度");
+
+        // **成分ごとの線形補間と比べる**。これが slerp が要る理由そのもの。
+        Vector4 naive = Vector4.Lerp(turn[0], turn[1], 0.25f);
+        float naiveAngle = Degrees(Quaternion.Normalize(
+            new Quaternion(naive.X, naive.Y, naive.Z, naive.W)));
+        checks.Check(
+            "素の lerp は 22.5 度にならない(**回る速さが一定でない**)",
+            MathF.Abs(naiveAngle - 22.5f) > 0.1f,
+            $"{naiveAngle:F3}度  長さ {naive.Length():F4}");
+
+        // --- 2. 読み込んだデータ ---
+        int restore = _modelIndex;
+
+        Model cesium = LoadCheckModel("models/CesiumMan.glb");
+        Model fox = LoadCheckModel("models/Fox.glb");
+        Model simple = LoadCheckModel("models/SimpleSkin/SimpleSkin.gltf");
+        Model boxAnimated = LoadCheckModel("models/BoxAnimated.glb");
+        Model helmet = LoadCheckModel("models/DamagedHelmet.glb");
+
+        checks.Check(
+            "CesiumMan: スキン1・関節19・クリップ1",
+            cesium.Skins.Count == 1 && cesium.JointCount == 19 && cesium.Animations.Count == 1,
+            $"スキン {cesium.Skins.Count} / 関節 {cesium.JointCount} / クリップ {cesium.Animations.Count}");
+
+        checks.Check(
+            "Fox: クリップが3本(Survey / Walk / Run)",
+            fox.Animations.Count == 3,
+            string.Join(" / ", fox.Animations.Select(clip => $"{clip.Name} {clip.Duration:F2}s")));
+
+        checks.Check(
+            "Fox: NORMAL を持たないので法線を生成した",
+            fox.GeneratedNormalParts > 0,
+            $"生成 {fox.GeneratedNormalParts} パーツ");
+
+        checks.Check(
+            "BoxAnimated: **スキン無しでもクリップは動く**",
+            boxAnimated.Skins.Count == 0 && boxAnimated.Animations.Count == 1
+                && boxAnimated.SkinnedParts == 0,
+            $"スキン {boxAnimated.Skins.Count} / クリップ {boxAnimated.Animations.Count}");
+
+        checks.Check(
+            "SimpleSkin: 仕様の最小例(関節2・頂点10)",
+            simple.JointCount == 2 && simple.VertexCount == 10,
+            $"関節 {simple.JointCount} / 頂点 {simple.VertexCount}");
+
+        // --- 3. 頂点データの不変条件 ---
+        foreach ((string name, Model model) in
+            ((string, Model)[])[("CesiumMan", cesium), ("Fox", fox), ("SimpleSkin", simple)])
+        {
+            (float minSum, float maxSum, int outOfRange) = MeasureWeights(model);
+            checks.Check(
+                $"{name}: 重みの合計が 1(誤差 1e-4 未満)",
+                MathF.Abs(minSum - 1.0f) < 1e-4f && MathF.Abs(maxSum - 1.0f) < 1e-4f,
+                $"{minSum:F6}〜{maxSum:F6}");
+            checks.Check(
+                $"{name}: 関節の番号が関節数の中に収まっている",
+                outOfRange == 0,
+                $"はみ出し {outOfRange} 個");
+        }
+
+        (float helmetMin, float helmetMax, _) = MeasureWeights(helmet);
+        checks.Check(
+            "DamagedHelmet: スキンが無いので重みは全部 0",
+            helmetMin == 0.0f && helmetMax == 0.0f,
+            $"{helmetMin:F3}〜{helmetMax:F3}");
+
+        // --- 4. ノードの並び ---
+        foreach ((string name, Model model) in
+            ((string, Model)[])[("CesiumMan", cesium), ("Fox", fox), ("BoxAnimated", boxAnimated)])
+        {
+            checks.Check(
+                $"{name}: NodeOrder に全ノードがちょうど1回",
+                model.NodeOrder.Count == model.Nodes.Count
+                    && model.NodeOrder.Distinct().Count() == model.Nodes.Count,
+                $"{model.NodeOrder.Count} / {model.Nodes.Count}");
+
+            var seen = new HashSet<int>();
+            bool parentFirst = true;
+            foreach (int node in model.NodeOrder)
+            {
+                int parent = model.Nodes[node].Parent;
+                parentFirst &= parent < 0 || seen.Contains(parent);
+                seen.Add(node);
+            }
+
+            checks.Check($"{name}: 親が必ず子より先に来る", parentFirst);
+        }
+
+        // --- 5. 関節行列 ---
+        //
+        // **バインドポーズでは IBM * world(joint) が単位行列になる**(Skin のコメント)。
+        // ただし成り立つのは「ファイルのノードがバインドポーズに置かれている」ときだけ。
+        // Fox と SimpleSkin はそうなっていて、CesiumMan はそうなっていない——
+        // 書き出したときのフレームがそのまま入っているためで、**どちらも正しいファイル**。
+        var foxPlayer = new AnimationPlayer(fox);
+        var simplePlayer = new AnimationPlayer(simple);
+        var cesiumPlayer = new AnimationPlayer(cesium);
+
+        checks.Check(
+            "Fox: ファイルの姿勢がバインドポーズ(関節行列 = 単位行列)",
+            MaxJointDeviation(fox, foxPlayer) < 1e-4f,
+            $"最大ずれ {MaxJointDeviation(fox, foxPlayer):E2}");
+        checks.Check(
+            "SimpleSkin: 同上",
+            MaxJointDeviation(simple, simplePlayer) < 1e-4f,
+            $"最大ずれ {MaxJointDeviation(simple, simplePlayer):E2}");
+        checks.Check(
+            "CesiumMan: ファイルの姿勢はバインドポーズではない(**これも正常**)",
+            MaxJointDeviation(cesium, cesiumPlayer) > 0.1f,
+            $"最大ずれ {MaxJointDeviation(cesium, cesiumPlayer):E2}");
+
+        cesiumPlayer.SkinningEnabled = false;
+        cesiumPlayer.Advance(0.0f);
+        bool allIdentity = true;
+        foreach (Matrix4x4 matrix in cesiumPlayer.GetJointMatrices(0))
+        {
+            allIdentity &= matrix == Matrix4x4.Identity;
+        }
+
+        checks.Check("スキニングを切ると関節行列が全部単位行列", allIdentity);
+        cesiumPlayer.SkinningEnabled = true;
+
+        // --- 6. 再生 ---
+        cesiumPlayer.SelectClip(0);
+        checks.Check("クリップを選ぶと時刻が 0 に戻る", cesiumPlayer.Time == 0.0f);
+
+        cesiumPlayer.Update(0.5f);
+        checks.Check("Update で時刻が進む", MathF.Abs(cesiumPlayer.Time - 0.5f) < 1e-5f, $"{cesiumPlayer.Time:F3}s");
+
+        cesiumPlayer.Paused = true;
+        float held = cesiumPlayer.Time;
+        cesiumPlayer.Update(0.5f);
+        checks.Check("一時停止中は進まない", cesiumPlayer.Time == held);
+        cesiumPlayer.Paused = false;
+
+        cesiumPlayer.SelectClip(0);
+        cesiumPlayer.Advance(cesiumPlayer.Duration + 0.25f);
+        checks.Check(
+            "長さを超えたら折り返す",
+            MathF.Abs(cesiumPlayer.Time - 0.25f) < 1e-4f,
+            $"{cesiumPlayer.Time:F4}s(長さ {cesiumPlayer.Duration:F2}s)");
+
+        // **クリップを変えると姿勢が変わる**。Fox の Walk と Run を同じ時刻で比べる。
+        foxPlayer.SelectClip(1);
+        foxPlayer.Advance(0.3f);
+        Matrix4x4[] walk = foxPlayer.GetJointMatrices(0).ToArray();
+
+        foxPlayer.SelectClip(2);
+        foxPlayer.Advance(0.3f);
+        Matrix4x4[] run = foxPlayer.GetJointMatrices(0).ToArray();
+
+        float clipDifference = 0.0f;
+        for (int i = 0; i < walk.Length; i++)
+        {
+            clipDifference = MathF.Max(clipDifference, MaxAbsDifference(walk[i], run[i]));
+        }
+
+        checks.Check(
+            "Fox: 同じ時刻でも Walk と Run で姿勢が違う",
+            clipDifference > 1e-3f,
+            $"最大差 {clipDifference:F4}");
+
+        // --- 7. 頂点が実際に動くか(CPU でスキニングを再現)---
+        //
+        // ここまでは全部「行列が正しそう」の話。**頂点が動いて初めて仕事**なので、
+        // シェーダと同じ式を C# 側でもう一度計算して確かめる。
+        (float move, int broken) = MeasureSkinnedMotion(cesium, cesiumPlayer, 0.0f, 1.0f);
+        checks.Check("CesiumMan: 1秒でスキニング後の頂点が動く", move > 0.05f, $"最大 {move * 100.0f:F1}cm");
+        checks.Check("NaN / 無限大が1つも無い", broken == 0, $"{broken} 個");
+
+        cesium.Dispose();
+        fox.Dispose();
+        simple.Dispose();
+        boxAnimated.Dispose();
+        helmet.Dispose();
+
+        checks.Report("すべて合格(頂点ブレンディングとクリップ再生が仕様どおり)");
+        Console.WriteLine();
+
+        SetModel(restore);
+
+        // クォータニオンの回転角(度)。w = cos(θ/2) から戻す。
+        static float Degrees(Quaternion q) =>
+            2.0f * MathF.Acos(Math.Clamp(MathF.Abs(q.W), -1.0f, 1.0f)) * 180.0f / MathF.PI;
+    }
+
+    /// <summary>
+    /// 今のポーズでの境界箱を測る(Day 41)。**CPU でスキニングを1回やる**。
+    ///
+    /// 頂点を GPU から読み返す(<c>Mesh.ReadVertices</c>)ので安くはないが、
+    /// **モデルを切り替えたときの1回だけ**なので目に見える遅さにはならない
+    /// (CesiumMan の 3273 頂点で 1ms 未満)。
+    ///
+    /// 毎フレーム正確な箱が欲しくなるのは、視錐台カリングを入れるとき。
+    /// そのときは頂点を舐め直すのではなく、
+    /// **関節の位置だけから大まかな箱を作る**のが定石になる。
+    /// </summary>
+    private static (Vector3 Min, Vector3 Max) MeasurePosedBounds(Model model, AnimationPlayer player)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+
+        foreach (Model.Part part in model.Parts)
+        {
+            // **PartMatrix と同じ場合分け**にする。ここだけ違う行列を使うと、
+            // 「測った箱」と「実際に描かれる場所」がずれる。
+            Matrix4x4[]? joints = part.SkinIndex >= 0
+                ? player.GetJointMatrices(part.SkinIndex).ToArray()
+                : null;
+
+            Matrix4x4 world = part.SkinIndex >= 0
+                ? Matrix4x4.Identity
+                : model.Animations.Count > 0 ? player.GetNodeWorld(part.NodeIndex) : part.Transform;
+
+            foreach (Vertex vertex in part.Mesh.ReadVertices())
+            {
+                Vector3 posed = joints is not null
+                    ? SkinPosition(vertex, joints)
+                    : Vector3.Transform(vertex.Position, world);
+
+                min = Vector3.Min(min, posed);
+                max = Vector3.Max(max, posed);
+            }
+        }
+
+        // 頂点が1つも無い(ありえないが)ときはファイルの箱に戻す。
+        return min.X <= max.X ? (min, max) : (model.BoundsMin, model.BoundsMax);
+    }
+
+    /// <summary>自己チェック用にモデルを1体読む。**呼んだ側が Dispose する**。</summary>
+    private static Model LoadCheckModel(string relativePath) =>
+        GltfLoader.Load(_gl, _resources, ResolveAssetPath(relativePath), _shader);
+
+    /// <summary>重みの合計の最小・最大と、関節数からはみ出した番号の数を測る。</summary>
+    private static (float MinSum, float MaxSum, int OutOfRange) MeasureWeights(Model model)
+    {
+        float minSum = float.MaxValue;
+        float maxSum = float.MinValue;
+        int outOfRange = 0;
+
+        foreach (Model.Part part in model.Parts)
+        {
+            int jointCount = part.SkinIndex >= 0 ? model.Skins[part.SkinIndex].JointCount : 0;
+
+            foreach (Vertex vertex in part.Mesh.ReadVertices())
+            {
+                float sum = vertex.Weights.X + vertex.Weights.Y + vertex.Weights.Z + vertex.Weights.W;
+                minSum = MathF.Min(minSum, sum);
+                maxSum = MathF.Max(maxSum, sum);
+
+                if (jointCount == 0)
+                {
+                    continue;
+                }
+
+                foreach (float index in (ReadOnlySpan<float>)
+                    [vertex.Joints.X, vertex.Joints.Y, vertex.Joints.Z, vertex.Joints.W])
+                {
+                    if (index < 0.0f || index >= jointCount)
+                    {
+                        outOfRange++;
+                    }
+                }
+            }
+        }
+
+        return (minSum == float.MaxValue ? 0.0f : minSum, maxSum == float.MinValue ? 0.0f : maxSum, outOfRange);
+    }
+
+    /// <summary>ファイルの姿勢(クリップを外した状態)で、関節行列が単位行列からどれだけ離れているか。</summary>
+    private static float MaxJointDeviation(Model model, AnimationPlayer player)
+    {
+        int clip = player.ClipIndex;
+        player.SelectClip(-1);
+
+        float worst = 0.0f;
+        for (int s = 0; s < model.Skins.Count; s++)
+        {
+            foreach (Matrix4x4 matrix in player.GetJointMatrices(s))
+            {
+                worst = MathF.Max(worst, MaxAbsDifference(matrix, Matrix4x4.Identity));
+            }
+        }
+
+        player.SelectClip(clip);
+        return worst;
+    }
+
+    /// <summary>2つの行列の、成分ごとの差の最大値。</summary>
+    private static float MaxAbsDifference(in Matrix4x4 a, in Matrix4x4 b)
+    {
+        float worst = 0.0f;
+        worst = MathF.Max(worst, MathF.Abs(a.M11 - b.M11));
+        worst = MathF.Max(worst, MathF.Abs(a.M12 - b.M12));
+        worst = MathF.Max(worst, MathF.Abs(a.M13 - b.M13));
+        worst = MathF.Max(worst, MathF.Abs(a.M14 - b.M14));
+        worst = MathF.Max(worst, MathF.Abs(a.M21 - b.M21));
+        worst = MathF.Max(worst, MathF.Abs(a.M22 - b.M22));
+        worst = MathF.Max(worst, MathF.Abs(a.M23 - b.M23));
+        worst = MathF.Max(worst, MathF.Abs(a.M24 - b.M24));
+        worst = MathF.Max(worst, MathF.Abs(a.M31 - b.M31));
+        worst = MathF.Max(worst, MathF.Abs(a.M32 - b.M32));
+        worst = MathF.Max(worst, MathF.Abs(a.M33 - b.M33));
+        worst = MathF.Max(worst, MathF.Abs(a.M34 - b.M34));
+        worst = MathF.Max(worst, MathF.Abs(a.M41 - b.M41));
+        worst = MathF.Max(worst, MathF.Abs(a.M42 - b.M42));
+        worst = MathF.Max(worst, MathF.Abs(a.M43 - b.M43));
+        worst = MathF.Max(worst, MathF.Abs(a.M44 - b.M44));
+        return worst;
+    }
+
+    /// <summary>
+    /// 2つの時刻でスキニングした頂点の、移動量の最大値と壊れた値の数。
+    /// **シェーダの SkinMatrix() と同じ式**を C# で書き直したもの。
+    /// </summary>
+    private static (float MaxMove, int Broken) MeasureSkinnedMotion(
+        Model model, AnimationPlayer player, float timeA, float timeB)
+    {
+        float maxMove = 0.0f;
+        int broken = 0;
+
+        foreach (Model.Part part in model.Parts)
+        {
+            if (part.SkinIndex < 0)
+            {
+                continue;
+            }
+
+            player.SelectClip(player.ClipIndex);
+            player.Advance(timeA);
+            Matrix4x4[] a = player.GetJointMatrices(part.SkinIndex).ToArray();
+
+            player.SelectClip(player.ClipIndex);
+            player.Advance(timeB);
+            Matrix4x4[] b = player.GetJointMatrices(part.SkinIndex).ToArray();
+
+            foreach (Vertex vertex in part.Mesh.ReadVertices())
+            {
+                Vector3 before = SkinPosition(vertex, a);
+                Vector3 after = SkinPosition(vertex, b);
+
+                if (!IsFinite(before) || !IsFinite(after))
+                {
+                    broken++;
+                    continue;
+                }
+
+                maxMove = MathF.Max(maxMove, (after - before).Length());
+            }
+        }
+
+        return (maxMove, broken);
+
+        static bool IsFinite(Vector3 v) =>
+            float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
+    }
+
+    /// <summary>頂点1つをスキニングする。**シェーダと同じ「行列を混ぜてから掛ける」**。</summary>
+    private static Vector3 SkinPosition(in Vertex vertex, Matrix4x4[] joints)
+    {
+        Matrix4x4 skin =
+            (Joint(vertex.Joints.X) * vertex.Weights.X)
+            + (Joint(vertex.Joints.Y) * vertex.Weights.Y)
+            + (Joint(vertex.Joints.Z) * vertex.Weights.Z)
+            + (Joint(vertex.Joints.W) * vertex.Weights.W);
+
+        return Vector3.Transform(vertex.Position, skin);
+
+        Matrix4x4 Joint(float index)
+        {
+            int at = (int)index;
+            return (uint)at < (uint)joints.Length ? joints[at] : Matrix4x4.Identity;
+        }
     }
 
     /// <summary>

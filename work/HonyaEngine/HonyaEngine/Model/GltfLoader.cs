@@ -39,10 +39,14 @@ namespace HonyaEngine;
 /// </para>
 ///
 /// <para>
-/// <b>今日読まないもの</b>。仕様は広いので、静的メッシュに要らないものは落としてある。
-/// アニメーション、スキン、モーフターゲット、カメラ、ライト、
+/// <b>Day 41 で足したもの</b>。スキン(<c>skins</c>)、アニメーション(<c>animations</c>)、
+/// 頂点の <c>JOINTS_0</c> / <c>WEIGHTS_0</c>、そしてノードの木を捨てずに持ち帰ること。
+/// ノードを平らに畳んでいた Day 32 の判断が、ここで初めて足りなくなる。
+/// </para>
+///
+/// <para>
+/// <b>まだ読まないもの</b>。モーフターゲット、カメラ、ライト、
 /// sparse アクセサ、拡張(KHR_*)、TRIANGLES 以外の描画モード。
-/// アニメーションとスキンは Day 41 で戻ってくる。
 /// </para>
 /// </summary>
 internal static class GltfLoader
@@ -193,6 +197,9 @@ internal static class GltfLoader
         /// <summary>ファイルの TANGENT を捨てて作り直すか(Day 34。見比べ用)。</summary>
         private readonly bool _forceGenerateTangents;
 
+        /// <summary>1回だけ出す知らせの記録(Day 41)。</summary>
+        private readonly HashSet<string> _warned = [];
+
         /// <summary>material 番号 → できあがったマテリアル。**同じものを何度も作らない**。</summary>
         private readonly Dictionary<int, Material> _materials = [];
 
@@ -210,6 +217,21 @@ internal static class GltfLoader
 
         /// <summary>接線をこちらで作ったパーツの数(Day 34)。</summary>
         public int GeneratedTangentParts { get; private set; }
+
+        /// <summary>法線をこちらで作ったパーツの数(Day 41)。**Fox が NORMAL を持たない**。</summary>
+        public int GeneratedNormalParts { get; private set; }
+
+        /// <summary>ノードの木(Day 41)。<see cref="ReadNodes"/> が埋める。</summary>
+        private ModelNode[] _nodes = [];
+
+        /// <summary>親が子より先に来るノード番号の並び(Day 41)。</summary>
+        private int[] _nodeOrder = [];
+
+        /// <summary>スキン(Day 41)。<see cref="ReadSkins"/> が埋める。</summary>
+        private Skin[] _skins = [];
+
+        /// <summary>アニメーションクリップ(Day 41)。<see cref="ReadAnimations"/> が埋める。</summary>
+        private AnimationClip[] _animations = [];
 
         public LoadContext(
             GL gl,
@@ -238,6 +260,12 @@ internal static class GltfLoader
             int triangles = 0;
             int vertices = 0;
 
+            // **ノードとスキンを先に読む**(Day 41)。
+            // プリミティブを組むときに「このメッシュはどのスキンを使うか」が要るので、
+            // 木の形が確定していないと始まらない。
+            ReadNodes();
+            ReadSkins();
+
             // シーンは複数あることがあるが、既定のものだけ描く。
             // scene が無いファイルもあるので、そのときは 0 番。
             int sceneIndex = GetInt(_root, "scene", 0);
@@ -259,13 +287,190 @@ internal static class GltfLoader
                 throw new InvalidDataException($"描けるメッシュが1つもありません: {_path}");
             }
 
-            return new Model(_resources, parts, _materials.Values.ToArray(), _textures, min, max, _path)
+            // アニメーションは最後でよい。ノード番号しか参照しないので、
+            // メッシュを組む前でも後でも結果は同じ。
+            ReadAnimations();
+
+            return new Model(
+                _resources, parts, _materials.Values.ToArray(), _textures, min, max, _path,
+                _nodes, _nodeOrder, _skins, _animations)
             {
                 TriangleCount = triangles,
                 VertexCount = vertices,
                 FileTangentParts = FileTangentParts,
                 GeneratedTangentParts = GeneratedTangentParts,
+                GeneratedNormalParts = GeneratedNormalParts,
             };
+        }
+
+        // ===== ノードの木(Day 41)=====
+
+        /// <summary>
+        /// ノードを全部読んで、**親の番号と並べ替えの順**を確定させる。
+        ///
+        /// <para>
+        /// glTF のノードは <b>子の一覧しか持たない</b>(親へのリンクは無い)。
+        /// 世界行列の計算に要るのは逆向きなので、1回舐めて反転させる。
+        /// </para>
+        ///
+        /// <para>
+        /// <b>並べ替えが要る理由</b>。<c>world[i] = local(i) * world[parent]</c> を
+        /// 番号順に回すと、子が親より前に書かれているファイルで
+        /// **1フレーム古い親の行列**を掛けてしまう。
+        /// 絵としては「腕だけ1フレーム遅れてついてくる」というたちの悪い出方をする。
+        /// 根から深さ優先で降りた順に並べておけば、この問題が構造的に消える。
+        /// </para>
+        ///
+        /// <para>
+        /// <b>シーンに繋がっていないノードも読む</b>。関節がシーングラフの外に置かれた
+        /// ファイルは実在するし、アニメーションはノード番号で名指ししてくるので、
+        /// 「描かないノード」でも姿勢は要る。
+        /// </para>
+        /// </summary>
+        private void ReadNodes()
+        {
+            JsonElement nodes = Get(_root, "nodes");
+            int count = nodes.ValueKind == JsonValueKind.Array ? nodes.GetArrayLength() : 0;
+
+            var parents = new int[count];
+            Array.Fill(parents, -1);
+
+            for (int i = 0; i < count; i++)
+            {
+                if (!nodes[i].TryGetProperty("children", out JsonElement children))
+                {
+                    continue;
+                }
+
+                foreach (JsonElement child in children.EnumerateArray())
+                {
+                    int index = child.GetInt32();
+                    if ((uint)index < (uint)count)
+                    {
+                        parents[index] = i;
+                    }
+                }
+            }
+
+            var built = new ModelNode[count];
+            for (int i = 0; i < count; i++)
+            {
+                JsonElement node = nodes[i];
+                built[i] = new ModelNode(
+                    GetString(node, "name", $"node{i}"),
+                    parents[i],
+                    ReadNodePose(node, i),
+                    GetInt(node, "mesh", -1),
+                    GetInt(node, "skin", -1));
+            }
+
+            _nodes = built;
+            _nodeOrder = BuildNodeOrder(nodes, parents, count);
+        }
+
+        /// <summary>
+        /// 根から深さ優先で降りて、**親が必ず子より先に来る並び**を作る。
+        /// 木が forest(根が複数)であることは仕様が保証している。
+        /// </summary>
+        private static int[] BuildNodeOrder(JsonElement nodes, int[] parents, int count)
+        {
+            var order = new List<int>(count);
+            var stack = new Stack<int>();
+
+            for (int i = count - 1; i >= 0; i--)
+            {
+                if (parents[i] < 0)
+                {
+                    stack.Push(i);
+                }
+            }
+
+            while (stack.Count > 0)
+            {
+                int node = stack.Pop();
+                order.Add(node);
+
+                if (!nodes[node].TryGetProperty("children", out JsonElement children))
+                {
+                    continue;
+                }
+
+                foreach (JsonElement child in children.EnumerateArray())
+                {
+                    int index = child.GetInt32();
+                    if ((uint)index < (uint)count)
+                    {
+                        stack.Push(index);
+                    }
+                }
+            }
+
+            // **全ノードが並びに現れたことを確かめる**。現れないのは親子関係が輪になっている
+            // (仕様違反の)ファイルで、そのまま進むと姿勢が更新されないノードが残る。
+            if (order.Count == count)
+            {
+                return order.ToArray();
+            }
+
+            Console.WriteLine(
+                $"[glTF] ノードの親子関係が木になっていません({order.Count}/{count})。"
+                + "たどれなかったノードは根として扱います");
+
+            var seen = new bool[count];
+            foreach (int node in order)
+            {
+                seen[node] = true;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                if (!seen[i])
+                {
+                    order.Add(i);
+                }
+            }
+
+            return order.ToArray();
+        }
+
+        /// <summary>
+        /// ノードのローカル姿勢を <see cref="NodePose"/> として読む(Day 41)。
+        ///
+        /// <b><see cref="ReadNodeTransform"/> と二重に見えるが、必要な二重</b>。
+        /// あちらは Day 32 から使っている「行列に畳んだ形」で、
+        /// <c>matrix</c> で書かれたノードの値をそのまま(せん断も含めて)保てる。
+        /// こちらは分解された形で、**アニメーションが書き換えられる**代わりに
+        /// <c>matrix</c> のときは分解が要る。
+        ///
+        /// 分解は失敗しうる(せん断が入っていると解が無い)。
+        /// 失敗したら単位姿勢にして知らせる——静的な描画は
+        /// <c>Part.Transform</c>(畳んだ行列)を使うので、そちらは壊れない。
+        /// </summary>
+        private static NodePose ReadNodePose(JsonElement node, int index)
+        {
+            if (node.TryGetProperty("matrix", out _))
+            {
+                Matrix4x4 matrix = ReadNodeTransform(node);
+                if (Matrix4x4.Decompose(matrix, out Vector3 scale, out Quaternion rotation, out Vector3 translation))
+                {
+                    return new NodePose(translation, rotation, scale);
+                }
+
+                Console.WriteLine($"[glTF] node {index}: matrix を TRS に分解できません(単位姿勢で代用します)");
+                return NodePose.Identity;
+            }
+
+            var pose = NodePose.Identity;
+            pose.Translation = ReadVector3(node, "translation", Vector3.Zero);
+            pose.Scale = ReadVector3(node, "scale", Vector3.One);
+
+            if (node.TryGetProperty("rotation", out JsonElement r) && r.GetArrayLength() == 4)
+            {
+                pose.Rotation = new Quaternion(
+                    r[0].GetSingle(), r[1].GetSingle(), r[2].GetSingle(), r[3].GetSingle());
+            }
+
+            return pose;
         }
 
         /// <summary>
@@ -293,12 +498,18 @@ internal static class GltfLoader
                 string name = GetString(node, "name", $"node{index}");
                 JsonElement mesh = Get(_root, "meshes")[meshRef.GetInt32()];
 
+                // **このノードがスキンを使うか**(Day 41)。使うならプリミティブの
+                // JOINTS_0 / WEIGHTS_0 が意味を持ち、ノードの変換のほうは無視される。
+                int skinIndex = GetInt(node, "skin", -1);
+
                 // **1つのメッシュが複数のプリミティブを持つ**ことがある。
                 // 「マテリアルが違う面のかたまり」ごとに分かれていて、
                 // 描画としては別々のドローコールになる。
                 foreach (JsonElement primitive in Get(mesh, "primitives").EnumerateArray())
                 {
-                    Model.Part? part = ReadPrimitive(primitive, world, name, ref min, ref max, ref triangles, ref vertices);
+                    Model.Part? part = ReadPrimitive(
+                        primitive, world, name, index, skinIndex,
+                        ref min, ref max, ref triangles, ref vertices);
                     if (part is not null)
                     {
                         parts.Add(part.Value);
@@ -372,6 +583,8 @@ internal static class GltfLoader
             JsonElement primitive,
             Matrix4x4 world,
             string name,
+            int nodeIndex,
+            int skinIndex,
             ref Vector3 min,
             ref Vector3 max,
             ref int triangles,
@@ -413,6 +626,32 @@ internal static class GltfLoader
                 ? ReadVector4Accessor(tangentRef.GetInt32())
                 : null;
 
+            // **今日足した2本**(Day 41)。関節の番号と、その重み。
+            //
+            // JOINTS_0 は整数(unsigned byte か unsigned short)、
+            // WEIGHTS_0 は float(あるいは正規化された整数)で入っている。
+            // 末尾の _0 は「1組目」の意味で、5本以上の関節が要るモデルは
+            // JOINTS_1 / WEIGHTS_1 を足して 8 本にする。
+            // **今日のモデルは全部4本以内**なので 1 組目だけ読む。
+            Vector4[]? joints = attributes.TryGetProperty("JOINTS_0", out JsonElement jointRef)
+                ? ReadVector4Flexible(jointRef.GetInt32(), normalizeIntegers: false)
+                : null;
+
+            Vector4[]? weights = attributes.TryGetProperty("WEIGHTS_0", out JsonElement weightRef)
+                ? ReadVector4Flexible(weightRef.GetInt32(), normalizeIntegers: true)
+                : null;
+
+            // **スキン付きのメッシュはノードの変換を使わない**(Day 41)。
+            //
+            // glTF の仕様が「スキン付きメッシュのノードの変換は無視すること」と定めている。
+            // 関節行列 IBM * world(joint) のほうが、頂点をメッシュ空間からシーン空間へ
+            // 運ぶ役目を最初から持っているためで、ノードの変換をさらに掛けると
+            // **モデルがノードの分だけ二重にずれる**。
+            //
+            // CesiumMan はノードに Z-up → Y-up の回転が入っているので、
+            // ここを間違えると人が横倒しになる、という分かりやすい出方をする。
+            Matrix4x4 partWorld = skinIndex >= 0 ? Matrix4x4.Identity : world;
+
             // パーツ単位の境界箱(Day 39)。頂点を回すついでに取る。
             var partMin = new Vector3(float.MaxValue);
             var partMax = new Vector3(float.MinValue);
@@ -422,10 +661,11 @@ internal static class GltfLoader
             {
                 Vector3 position = positions[i];
 
-                // 法線が無いモデルもある。仕様上は「面法線を使え」となっているが、
-                // その場で計算すると頂点の共有をやめる必要がある。
-                // 今日読むモデルは全部持っているので、無いときは上向きで済ませる。
-                Vector3 normal = normals is not null ? normals[i] : Vector3.UnitY;
+                // **法線が無いモデルは実在する**(Day 41 で Fox に当たった)。
+                // Day 32 は「上向きで済ませる」としていたが、それだと
+                // 全面が同じ明るさになって、せっかくのスキニングが見えない。
+                // 下で三角形から作り直すので、ここではいったん 0 を置く。
+                Vector3 normal = normals is not null ? normals[i] : Vector3.Zero;
 
                 // **V を反転する**。Day 10 の OBJ で踏んだのとまったく同じ話。
                 // glTF の UV は「左上が (0,0)」で、OpenGL のテクスチャは「左下が (0,0)」。
@@ -454,9 +694,19 @@ internal static class GltfLoader
 
                 built[i] = new Vertex(position, uv, Vector4.One, normal, tangent);
 
+                // **関節と重み**(Day 41)。持っていなければ全部 0 のまま。
+                // シェーダは uSkinned で経路を分けるので、0 でも壊れない。
+                if (joints is not null && weights is not null)
+                {
+                    built[i].Joints = joints[i];
+                    built[i].Weights = NormalizeWeights(weights[i]);
+                }
+
                 // 境界箱は**世界行列を通したあと**で取る。
                 // ローカルのままだと、ノードの平行移動(街灯は 13m 上にある)が反映されない。
-                Vector3 worldPosition = Vector3.Transform(position, world);
+                // スキン付きは partWorld が単位行列なので、
+                // **バインドポーズでの大きさ**がそのまま出る(上のコメント)。
+                Vector3 worldPosition = Vector3.Transform(position, partWorld);
                 min = Vector3.Min(min, worldPosition);
                 max = Vector3.Max(max, worldPosition);
 
@@ -472,9 +722,17 @@ internal static class GltfLoader
                 // インデックスが無いときは 0,1,2,… と並んでいるものとして扱う(仕様どおり)。
                 : Enumerable.Range(0, built.Length).Select(i => (uint)i).ToArray();
 
+            // **法線が無ければ作る**(Day 41)。接線より先にやる——
+            // 接線の生成が法線を使う(グラム・シュミットで直交させる)ため。
+            if (normals is null)
+            {
+                GenerateNormals(built, indices);
+                GeneratedNormalParts++;
+            }
+
             // **接線が無ければ作る**(Day 34)。インデックスが要るので、ここまで来てから。
             // 作ったかどうかを覚えておくのは、HUD と自己チェックで区別を出すため。
-            if (tangents is null && uvs is not null && normals is not null)
+            if (tangents is null && uvs is not null)
             {
                 GenerateTangents(built, indices, uvs);
                 GeneratedTangentParts++;
@@ -491,7 +749,35 @@ internal static class GltfLoader
             Material material = GetOrCreateMaterial(materialIndex);
 
             var mesh = new Mesh<Vertex>(_gl, built, indices, Vertex.Attributes);
-            return new Model.Part(mesh, material, world, name, partMin, partMax);
+            return new Model.Part(mesh, material, partWorld, name, partMin, partMax, nodeIndex, skinIndex);
+        }
+
+        /// <summary>
+        /// 重みの合計を 1 に揃える(Day 41)。
+        ///
+        /// <para>
+        /// <b>合計が 1 でないファイルは普通に来る</b>。書き出し側の丸め、
+        /// 影響する関節を4本に切り詰めたときの取りこぼし、正規化忘れ——原因はいろいろある。
+        /// </para>
+        ///
+        /// <para>
+        /// 合計が 0.9 だと何が起きるか。スキニングの式は
+        /// <c>p' = Σ w[i] * M[i] * p</c> なので、
+        /// **その頂点だけ 10% ぶん原点へ引き寄せられる**。
+        /// モデル全体が縮むのではなく、特定の頂点だけがへこむので、
+        /// 「関節のあたりだけ妙にとがっている」という出方になり、
+        /// スキニングの実装ミスと区別が付きにくい。
+        /// </para>
+        ///
+        /// <para>
+        /// 合計が 0 の頂点(どの関節にも属していない)は、そのまま 0 にしておく。
+        /// 0 で割らないためと、**スキンを持たないメッシュと同じ扱い**にできるため。
+        /// </para>
+        /// </summary>
+        private static Vector4 NormalizeWeights(Vector4 weights)
+        {
+            float sum = weights.X + weights.Y + weights.Z + weights.W;
+            return sum > 1e-6f ? weights / sum : Vector4.Zero;
         }
 
         /// <summary>
@@ -607,6 +893,303 @@ internal static class GltfLoader
                     MathF.Abs(normal.Y) < 0.99f ? Vector3.UnitY : Vector3.UnitX));
         }
 
+        /// <summary>
+        /// **法線を三角形から作る**(Day 41)。NORMAL を持たないモデル用。
+        ///
+        /// <para>
+        /// 面の法線は外積1本で出る。<c>cross(e1, e2)</c> を
+        /// **正規化せずに**足し込むのが定石で、外積の長さは三角形の面積の2倍なので、
+        /// これで自動的に「大きい面ほど強く効く」重み付き平均になる。
+        /// 正規化してから足すと、細長い三角形が不相応に効いてくる。
+        /// </para>
+        ///
+        /// <para>
+        /// <b>作った法線は必ず滑らかになる</b>(頂点を共有している面の平均になる)。
+        /// 立方体の角のように**本当は折れているべき縁**も丸めてしまうが、
+        /// それを分けるには「同じ位置の頂点を、法線の違いで割る」処理が要る。
+        /// glTF の側は最初から割った状態で書き出すのが普通なので、
+        /// 「NORMAL が無いファイルは、そもそも滑らかな形」と考えてよい。
+        /// 実際 Fox はそれで問題なく見える。
+        /// </para>
+        /// </summary>
+        private static void GenerateNormals(Vertex[] vertices, uint[] indices)
+        {
+            var accumulated = new Vector3[vertices.Length];
+
+            for (int i = 0; i + 2 < indices.Length; i += 3)
+            {
+                uint i0 = indices[i];
+                uint i1 = indices[i + 1];
+                uint i2 = indices[i + 2];
+
+                Vector3 e1 = vertices[i1].Position - vertices[i0].Position;
+                Vector3 e2 = vertices[i2].Position - vertices[i0].Position;
+
+                // **正規化しない**(上のコメント)。長さが面積の重みになる。
+                Vector3 faceNormal = Vector3.Cross(e1, e2);
+
+                accumulated[i0] += faceNormal;
+                accumulated[i1] += faceNormal;
+                accumulated[i2] += faceNormal;
+            }
+
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                // どの三角形にも使われていない頂点(あるいは面積 0 の三角形だけ)は
+                // 長さ 0 になる。**上向きで埋める**——絵は狂うが NaN よりまし。
+                vertices[i].Normal = accumulated[i].LengthSquared() > 1e-20f
+                    ? Vector3.Normalize(accumulated[i])
+                    : Vector3.UnitY;
+            }
+        }
+
+        // ===== スキンとアニメーション(Day 41)=====
+
+        /// <summary>
+        /// <c>skins</c> を読む。**関節のノード番号と逆バインド行列の2本だけ**。
+        ///
+        /// <see cref="Skin"/> のコメントにあるとおり、
+        /// <c>inverseBindMatrices</c> は省略できる(その場合は全部単位行列)。
+        /// メッシュと関節が最初から同じ座標系にある、という意味になる——
+        /// SimpleSkin はまさにそれ……ではなく、ちゃんと持っている。
+        /// 省略するファイルは実際にはほとんど無いが、仕様が許すので受けておく。
+        /// </summary>
+        private void ReadSkins()
+        {
+            if (!_root.TryGetProperty("skins", out JsonElement skins)
+                || skins.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            var result = new List<Skin>();
+            int index = 0;
+
+            foreach (JsonElement skin in skins.EnumerateArray())
+            {
+                var joints = new List<int>();
+                foreach (JsonElement joint in Get(skin, "joints").EnumerateArray())
+                {
+                    joints.Add(joint.GetInt32());
+                }
+
+                int matrixAccessor = GetInt(skin, "inverseBindMatrices", -1);
+                Matrix4x4[] inverseBind;
+
+                if (matrixAccessor >= 0)
+                {
+                    inverseBind = ReadMatrix4Accessor(matrixAccessor);
+                }
+                else
+                {
+                    inverseBind = new Matrix4x4[joints.Count];
+                    Array.Fill(inverseBind, Matrix4x4.Identity);
+                }
+
+                // **数が合わないファイルを黙って通さない**。足りないぶんを単位行列で
+                // 埋めると、その関節に属する頂点だけが原点の周りに散らばる。
+                if (inverseBind.Length < joints.Count)
+                {
+                    Console.WriteLine(
+                        $"[glTF] skin {index}: 逆バインド行列が {inverseBind.Length} 個しかありません"
+                        + $"(関節は {joints.Count} 本)。足りないぶんは単位行列にします");
+
+                    Array.Resize(ref inverseBind, joints.Count);
+                    for (int i = 0; i < joints.Count; i++)
+                    {
+                        if (inverseBind[i] == default)
+                        {
+                            inverseBind[i] = Matrix4x4.Identity;
+                        }
+                    }
+                }
+
+                result.Add(new Skin(
+                    GetString(skin, "name", $"skin{index}"),
+                    joints.ToArray(),
+                    inverseBind,
+                    GetInt(skin, "skeleton", -1)));
+
+                index++;
+            }
+
+            _skins = result.ToArray();
+        }
+
+        /// <summary>
+        /// <c>animations</c> を読む。**channel と sampler を組み立てるだけ**。
+        ///
+        /// 難しいところは無く、面倒なだけの処理。難所は
+        /// 「どの accessor がどの型で入っているか」の場合分けで、
+        /// そこは <see cref="ReadAnimationValues"/> に押し込んである。
+        /// </summary>
+        private void ReadAnimations()
+        {
+            if (!_root.TryGetProperty("animations", out JsonElement animations)
+                || animations.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            var clips = new List<AnimationClip>();
+            int animationIndex = 0;
+
+            foreach (JsonElement animation in animations.EnumerateArray())
+            {
+                JsonElement samplers = Get(animation, "samplers");
+
+                // **同じ sampler を2つのチャンネルが指すことがある**ので、
+                // 番号で覚えて使い回す。読み直すと時間の配列が二重に確保される。
+                var built = new Dictionary<int, AnimationClip.Sampler>();
+                var channels = new List<AnimationClip.Channel>();
+
+                foreach (JsonElement channel in Get(animation, "channels").EnumerateArray())
+                {
+                    if (!channel.TryGetProperty("target", out JsonElement target))
+                    {
+                        continue;
+                    }
+
+                    // **node を持たないチャンネルは仕様上ありうる**(拡張が使う)。
+                    // 動かす相手がいないので飛ばす。
+                    int node = GetInt(target, "node", -1);
+                    if (node < 0 || node >= _nodes.Length)
+                    {
+                        continue;
+                    }
+
+                    string path = GetString(target, "path", string.Empty);
+                    AnimationPath which = path switch
+                    {
+                        "translation" => AnimationPath.Translation,
+                        "rotation" => AnimationPath.Rotation,
+                        "scale" => AnimationPath.Scale,
+                        "weights" => AnimationPath.Weights,
+                        _ => AnimationPath.Weights,
+                    };
+
+                    if (which == AnimationPath.Weights)
+                    {
+                        WarnOnce($"path '{path}' は未対応なので飛ばします(モーフターゲットは Day 41 の範囲外)");
+                        continue;
+                    }
+
+                    int samplerIndex = GetInt(channel, "sampler", -1);
+                    if (samplerIndex < 0 || samplerIndex >= samplers.GetArrayLength())
+                    {
+                        continue;
+                    }
+
+                    if (!built.TryGetValue(samplerIndex, out AnimationClip.Sampler? sampler))
+                    {
+                        sampler = ReadAnimationSampler(samplers[samplerIndex]);
+                        built[samplerIndex] = sampler;
+                    }
+
+                    channels.Add(new AnimationClip.Channel(node, which, sampler));
+                }
+
+                if (channels.Count > 0)
+                {
+                    clips.Add(new AnimationClip(
+                        GetString(animation, "name", $"anim{animationIndex}"), channels));
+                }
+
+                animationIndex++;
+            }
+
+            _animations = clips.ToArray();
+        }
+
+        /// <summary>sampler 1つ(時間の配列 + 値の配列 + 補間の種類)。</summary>
+        private AnimationClip.Sampler ReadAnimationSampler(JsonElement sampler)
+        {
+            int input = GetInt(sampler, "input", -1);
+            int output = GetInt(sampler, "output", -1);
+
+            if (input < 0 || output < 0)
+            {
+                throw new InvalidDataException("animation sampler に input / output がありません");
+            }
+
+            string interpolation = GetString(sampler, "interpolation", "LINEAR");
+            AnimationInterpolation mode = interpolation switch
+            {
+                "STEP" => AnimationInterpolation.Step,
+                "CUBICSPLINE" => AnimationInterpolation.CubicSpline,
+                "LINEAR" => AnimationInterpolation.Linear,
+                _ => AnimationInterpolation.Linear,
+            };
+
+            if (mode == AnimationInterpolation.CubicSpline)
+            {
+                WarnOnce("CUBICSPLINE は接線を捨てて直線で結びます(改造課題2)");
+            }
+            else if (interpolation is not ("LINEAR" or "STEP"))
+            {
+                WarnOnce($"補間 '{interpolation}' は未知なので LINEAR として扱います");
+            }
+
+            float[] times = ReadScalarAccessor(input);
+            Vector4[] values = ReadAnimationValues(output);
+
+            // **個数の検算**。CUBICSPLINE ならキー1つにつき値3つ。
+            // 合わないファイルをそのまま通すと、Key() の添字が配列をはみ出す。
+            int perKey = mode == AnimationInterpolation.CubicSpline ? 3 : 1;
+            int needed = times.Length * perKey;
+
+            if (values.Length < needed)
+            {
+                Console.WriteLine(
+                    $"[glTF] animation sampler: 値が {values.Length} 個しかありません"
+                    + $"(キー {times.Length} 個 × {perKey})。足りるところまでで打ち切ります");
+
+                Array.Resize(ref times, values.Length / perKey);
+            }
+
+            return new AnimationClip.Sampler(times, values, mode);
+        }
+
+        /// <summary>
+        /// アニメーションの出力値を読む。**VEC3(移動・拡大)か VEC4(回転)**。
+        /// どちらも <see cref="Vector4"/> に揃えて返す(VEC3 は W = 0)。
+        /// </summary>
+        private Vector4[] ReadAnimationValues(int index)
+        {
+            JsonElement accessor = Get(_root, "accessors")[index];
+            string type = GetString(accessor, "type", "?");
+
+            if (type == "VEC4")
+            {
+                // 回転は正規化された整数で入っていることがある(仕様が許している)。
+                return ReadVector4Flexible(index, normalizeIntegers: true);
+            }
+
+            if (type != "VEC3")
+            {
+                throw new InvalidDataException(
+                    $"accessor {index}: アニメーションの値が VEC3 でも VEC4 でもありません({type})");
+            }
+
+            Vector3[] source = ReadVector3Accessor(index);
+            var result = new Vector4[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                result[i] = new Vector4(source[i], 0.0f);
+            }
+
+            return result;
+        }
+
+        /// <summary>同じ知らせを何度も出さない。**チャンネルの数だけ出ると読めなくなる**。</summary>
+        private void WarnOnce(string message)
+        {
+            if (_warned.Add(message))
+            {
+                Console.WriteLine($"[glTF] {message}");
+            }
+        }
+
         // ===== アクセサ =====
         //
         // ここが glTF のいちばん機械的なところ。
@@ -646,6 +1229,115 @@ internal static class GltfLoader
             var result = new Vector2[count];
             ReadFloats(accessor, count, 2, result.AsSpan());
             return result;
+        }
+
+        /// <summary>
+        /// float 1個ずつの並び(SCALAR)。**アニメーションの時間軸**用(Day 41)。
+        /// </summary>
+        private float[] ReadScalarAccessor(int index)
+        {
+            JsonElement accessor = Get(_root, "accessors")[index];
+            RequireType(accessor, "SCALAR", index);
+            RequireComponent(accessor, ComponentFloat, index);
+
+            int count = GetInt(accessor, "count", 0);
+            var result = new float[count];
+            ReadFloats(accessor, count, 1, result.AsSpan());
+            return result;
+        }
+
+        /// <summary>
+        /// 4x4 行列の並び(MAT4)。**逆バインド行列**用(Day 41)。
+        ///
+        /// <b>転置は要らない</b>。glTF は列優先で 16 個並べ、
+        /// <see cref="Matrix4x4"/> は行優先で 16 個並ぶので、
+        /// バイト列をそのまま流し込むと**転置された形で入る**——
+        /// そしてそれが、行ベクトル規約の C# 側で欲しい形そのもの。
+        /// <c>ReadNodeTransform</c> の <c>matrix</c> と同じ話(Day 32)。
+        /// </summary>
+        private Matrix4x4[] ReadMatrix4Accessor(int index)
+        {
+            JsonElement accessor = Get(_root, "accessors")[index];
+            RequireType(accessor, "MAT4", index);
+            RequireComponent(accessor, ComponentFloat, index);
+
+            int count = GetInt(accessor, "count", 0);
+            var result = new Matrix4x4[count];
+            ReadFloats(accessor, count, 16, result.AsSpan());
+            return result;
+        }
+
+        /// <summary>
+        /// VEC4 を**成分の型を問わず**読む(Day 41)。JOINTS_0 / WEIGHTS_0 / 回転の値用。
+        ///
+        /// <para>
+        /// <see cref="ReadVector4Accessor"/> は float 決め打ちだが、こちらは
+        /// byte / short / float のどれでも受ける。glTF が型を選ばせているのは
+        /// **意味によって必要な精度が違う**から。
+        ///   - JOINTS_0 … 関節の番号。整数。255 本を超えるなら short
+        ///   - WEIGHTS_0 … 0〜1 の重み。byte で 1/255 刻みでも十分足りる
+        /// </para>
+        ///
+        /// <para>
+        /// <paramref name="normalizeIntegers"/> が **整数を 0〜1 に読み替えるかどうか**。
+        /// 重みは読み替える(255 → 1.0)、関節の番号は読み替えない(3 は 3 のまま)。
+        /// **ここを取り違えると、関節の番号が全部 0 になって
+        /// モデルが1本の骨にぶら下がる**という派手な壊れ方をする。
+        /// </para>
+        /// </summary>
+        private Vector4[] ReadVector4Flexible(int index, bool normalizeIntegers)
+        {
+            JsonElement accessor = Get(_root, "accessors")[index];
+            RequireType(accessor, "VEC4", index);
+
+            int componentType = GetInt(accessor, "componentType", 0);
+            int count = GetInt(accessor, "count", 0);
+
+            if (componentType == ComponentFloat)
+            {
+                var floats = new Vector4[count];
+                ReadFloats(accessor, count, 4, floats.AsSpan());
+                return floats;
+            }
+
+            (int size, float scale) = componentType switch
+            {
+                ComponentUnsignedByte => (1, 1.0f / 255.0f),
+                ComponentByte => (1, 1.0f / 127.0f),
+                ComponentUnsignedShort => (2, 1.0f / 65535.0f),
+                ComponentShort => (2, 1.0f / 32767.0f),
+                _ => throw new InvalidDataException(
+                    $"accessor {index}: componentType {componentType} は VEC4 として未対応です"),
+            };
+
+            (byte[] buffer, int start, int stride) = Locate(accessor, size * 4);
+            var result = new Vector4[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                int offset = start + (i * stride);
+                result[i] = new Vector4(
+                    Component(offset),
+                    Component(offset + size),
+                    Component(offset + (size * 2)),
+                    Component(offset + (size * 3)));
+            }
+
+            return result;
+
+            float Component(int at)
+            {
+                float raw = componentType switch
+                {
+                    ComponentUnsignedByte => buffer[at],
+                    ComponentByte => (sbyte)buffer[at],
+                    ComponentUnsignedShort => BinaryPrimitives.ReadUInt16LittleEndian(buffer.AsSpan(at)),
+                    _ => BinaryPrimitives.ReadInt16LittleEndian(buffer.AsSpan(at)),
+                };
+
+                // 符号付きの正規化は -1 で止める決まり(-128/127 が -1.0078 になるため)。
+                return normalizeIntegers ? MathF.Max(raw * scale, -1.0f) : raw;
+            }
         }
 
         /// <summary>
@@ -1082,7 +1774,8 @@ internal static class GltfLoader
             text.Append(isBinary ? "glb" : "gltf");
             text.Append($"  {bytes.Length / 1024.0:F0}KB");
 
-            foreach (string name in (string[])["nodes", "meshes", "materials", "textures", "images", "accessors"])
+            foreach (string name in (string[])
+                ["nodes", "meshes", "skins", "animations", "materials", "textures", "images", "accessors"])
             {
                 int count = root.TryGetProperty(name, out JsonElement array) ? array.GetArrayLength() : 0;
                 text.Append($"  {name}:{count}");
