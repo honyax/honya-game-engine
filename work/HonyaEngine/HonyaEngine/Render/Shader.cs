@@ -203,6 +203,50 @@ internal sealed class Shader : IDisposable
     }
 
     /// <summary>
+    /// <b>4x4 行列の配列</b>をまとめて送る(Day 41)。スキニングの関節行列用。
+    ///
+    /// <para>
+    /// 理屈は <see cref="SetVector3Array"/> と同じで、
+    /// <c>uniform mat4 uJoints[64];</c> の先頭の位置さえ分かれば
+    /// <c>glUniformMatrix4fv(location, count, false, data)</c> の1回で全部送れる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>ここが今日いちばん太いデータ経路</b>になる。関節 19 本(CesiumMan)なら
+    /// 19 × 64 バイト = 1.2KB を**毎フレーム、パスの数だけ**送る
+    /// (本描画・影・SSAO で3回)。1体なら誤差だが、
+    /// 100 体並べると 360KB/フレームになり、ここが素直に効いてくる。
+    /// 実際のエンジンが UBO やテクスチャに関節行列を置くのはこれが理由で、
+    /// **uniform 配列はいちばん素朴だが、いちばん台数に弱い**。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>個数の上限に注意</b>。GLSL の uniform には「頂点シェーダで使える float の総数」
+    /// という上限があり(<c>GL_MAX_VERTEX_UNIFORM_COMPONENTS</c>)、
+    /// OpenGL 3.3 が保証するのは 1024 個 = mat4 なら 64 個ぶん。
+    /// 他の uniform も同じ枠を食うので、実際に置けるのはもっと少ない。
+    /// リンクが通るかどうかは実行時にしか分からないので、
+    /// <c>AnimationPlayer.MaxJoints</c> で上限を持って、超えたら知らせる。
+    /// </para>
+    /// </summary>
+    public unsafe void SetMatrix4Array(string name, ReadOnlySpan<Matrix4x4> values)
+    {
+        int location = GetUniformLocation(name);
+        if (location < 0 || values.Length == 0)
+        {
+            return;
+        }
+
+        // Matrix4x4 は 16 個の float が隙間なく並んだ構造体なので、
+        // 配列の先頭アドレスをそのまま float* として渡せる(SetMatrix4 と同じ理屈)。
+        // transpose: false でよい理由も同じ。
+        fixed (Matrix4x4* pointer = values)
+        {
+            _gl.UniformMatrix4(location, (uint)values.Length, false, (float*)pointer);
+        }
+    }
+
+    /// <summary>
     /// 3x3 行列を送る。**法線行列専用**(Day 32)。
     ///
     /// <see cref="Matrix4x4"/> のような 3x3 の型が System.Numerics に無いので、

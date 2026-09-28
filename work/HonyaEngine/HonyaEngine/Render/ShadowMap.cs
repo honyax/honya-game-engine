@@ -256,10 +256,29 @@ internal sealed class ShadowMap : IDisposable
     }
 
     /// <summary>深度パスの1体ぶん。**モデル行列だけ送って描く**。マテリアルは要らない。</summary>
-    public void Draw(Mesh<Vertex> mesh, Matrix4x4 model)
+    /// <param name="joints">
+    /// スキニングの関節行列(Day 41)。**空ならスキニングしない**。
+    ///
+    /// 深度パスと SSAO の幾何パスは本描画とは別のシェーダを使うので、
+    /// **同じ関節行列を3回送ることになる**。冗長に見えるが、
+    /// 3つのパスが同じ頂点位置を見ることのほうがずっと大事——
+    /// 1つでも送り忘れると、影だけ・遮蔽だけがバインドポーズに取り残される。
+    /// </param>
+    public void Draw(Mesh<Vertex> mesh, Matrix4x4 model, ReadOnlySpan<Matrix4x4> joints = default)
     {
         Shader shader = _resources.GetShader(_depthShader);
         shader.SetMatrix4("uModel", model);
+
+        // **毎回設定する**。uniform はプログラムに残るので、
+        // 前に描いたスキン付きメッシュの 1 が残っていると、
+        // 次の地面が「重みが全部 0 の関節行列」で潰れて消える。
+        shader.SetInt("uSkinned", joints.IsEmpty ? 0 : 1);
+
+        if (!joints.IsEmpty)
+        {
+            shader.SetMatrix4Array("uJoints", joints);
+        }
+
         mesh.Draw();
         DrawCalls++;
     }

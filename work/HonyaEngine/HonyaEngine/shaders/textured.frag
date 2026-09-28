@@ -11,6 +11,9 @@ in vec3 vTangent;
 in vec3 vBitangent;
 in vec3 vTangentViewDir;
 
+// 骨の重みを混ぜた色(Day 41)。成分 22 でそのまま出す。
+in vec3 vSkinTint;
+
 out vec4 FragColor;
 
 // テクスチャユニットの割り当ては Material.Apply と two-way の約束。
@@ -648,6 +651,13 @@ void main()
     // **画面から作った遮蔽率だけ**(Day 37)。成分 5(焼いた AO)と見比べる窓。
     // 全画面で見たいときは Ctrl+F2 のほうが速い(こちらは物体の上にしか出ない)。
     if (uDebugChannel == 21) { FragColor = vec4(vec3(ssao), 1.0); return; }
+
+    // **骨の重み**(Day 41)。関節ごとの色を重みで混ぜたもの。
+    // 単色の帯が骨の受け持ち、色が混ざっている帯が「2本以上が奪い合っている」場所。
+    // グラデーションの幅がそのまま**曲がったときの滑らかさ**になる——
+    // 狭いと折り目が立ち、広いと関節がぐにゃりと伸びる。
+    // スキンを持たないものは灰色(0.15)で塗られる。
+    if (uDebugChannel == 22) { FragColor = vec4(vSkinTint, 1.0); return; }
 
     // **法線マップの生の中身**。接空間の法線が RGB に詰まっているので、
     // 平らなところは (0.5, 0.5, 1.0) = 薄い青紫になる。

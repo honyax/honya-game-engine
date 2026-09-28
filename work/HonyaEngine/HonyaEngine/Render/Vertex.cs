@@ -72,6 +72,41 @@ internal struct Vertex
     /// </summary>
     public Vector4 Tangent;
 
+    /// <summary>
+    /// この頂点を動かす関節の番号。**最大4本**。Day 41 で足した。
+    ///
+    /// glTF の <c>JOINTS_0</c> がそのまま入る。整数なのに <see cref="Vector4"/>(float)で
+    /// 持っているのは、**属性を float で通すほうが手数が少ない**から。
+    /// 正しくは <c>glVertexAttribIPointer</c> + <c>uvec4</c> で整数のまま送るのが筋で、
+    /// そのぶん頂点が 32 バイトから 8 バイトに縮む(unsigned byte 4個)。
+    /// ここでは <see cref="Mesh{TVertex}"/> の属性設定を触らずに済ませることを優先した。
+    ///
+    /// <b>関節が 24 個(Fox)なら float の精度は問題にならない</b>。
+    /// float が整数を正確に表せるのは 2^24 までなので、
+    /// 関節の番号がそこを超えることは無い。
+    ///
+    /// 重みが 0 の枠には 0 が入る。**0 番の関節を指したまま重みだけ 0**、というのが
+    /// glTF の書き方で、「使わない枠は -1」ではない。
+    /// </summary>
+    public Vector4 Joints;
+
+    /// <summary>
+    /// 上の4本それぞれの効き具合。**合計が 1 になる**。Day 41 で足した。
+    ///
+    /// これが「頂点ブレンディング」の全部で、
+    /// 頂点の最終位置は <c>Σ weight[i] * jointMatrix[joints[i]] * position</c> になる。
+    /// 肘の内側のように2本の骨が奪い合う場所で 0.5 / 0.5 のような値になり、
+    /// 骨の真ん中では 1.0 / 0 になる。
+    ///
+    /// <b>合計が 1 でないファイルも来る</b>(書き出し側の丸め、あるいは正規化忘れ)。
+    /// 合計が 0.9 なら**その頂点だけ原点に 10% 引き寄せられる**ので、
+    /// 読み込み時に正規化しておく(<c>GltfLoader.ReadPrimitive</c>)。
+    ///
+    /// スキンを持たないメッシュではここが全部 0 になる。
+    /// シェーダ側は <c>uSkinned</c> で経路を分けるので、0 のままでも壊れない。
+    /// </summary>
+    public Vector4 Weights;
+
     public Vertex(Vector3 position, Vector2 texCoord, Vector4 color)
         : this(position, texCoord, color, Vector3.UnitZ)
     {
@@ -98,6 +133,8 @@ internal struct Vertex
         VertexAttribute.Float(4),   // Color
         VertexAttribute.Float(3),   // Normal
         VertexAttribute.Float(4),   // Tangent(Day 34。xyz = 接線、w = 従接線の符号)
+        VertexAttribute.Float(4),   // Joints(Day 41。関節の番号4つ)
+        VertexAttribute.Float(4),   // Weights(Day 41。上の4つの重み)
     ];
 
     /// <summary>
@@ -110,13 +147,22 @@ internal struct Vertex
     /// 型情報を持つ <see cref="VertexAttribute"/> へ置き換えた。
     ///
     /// 3D 側は今のところ全部 float のままでよい。
-    /// **Day 34 で 1頂点 64 バイト**(位置12 + UV8 + 色16 + 法線12 + 接線16)。
-    /// DamagedHelmet の 14556 頂点なら 930KB。この規模なら詰める意味が無い。
-    /// 法線を byte に詰める、位置を half にする、といった圧縮が効いてくるのは
-    /// 数百万頂点を扱い始めてから。
+    /// **Day 41 で 1頂点 96 バイト**(位置12 + UV8 + 色16 + 法線12 + 接線16
+    /// + 関節16 + 重み16)。Day 34 の 64 バイトから 1.5 倍になった。
+    /// DamagedHelmet の 14556 頂点なら 1.4MB。この規模ならまだ詰める意味が無い。
+    ///
+    /// <b>ただし今回の 32 バイトは性質が悪い</b>。法線や接線は全部のメッシュが使うが、
+    /// **関節と重みを使うのはスキンを持つメッシュだけ**で、
+    /// デモシーンの地面も壁も小物も、全部 0 が詰まった 32 バイトを運ぶことになる。
+    /// 本来は「スキン付きの頂点型」を別に定義して、
+    /// <c>Mesh&lt;SkinnedVertex&gt;</c> として分けるのが正しい(改造課題3)。
+    /// ここで型を分けなかったのは、描く側(<c>Program.Draw</c> /
+    /// <see cref="ShadowMap"/> / <see cref="Ssao"/>)が全部
+    /// <c>Mesh&lt;Vertex&gt;</c> で書かれていて、
+    /// **型を1つ増やすと今日の主題と関係の無い差分が広がる**ため。
     ///
     /// なお**頂点色 16 バイトがいちばん無駄**で、glTF から読むモデルは全部 (1,1,1,1) が入る。
-    /// 消せば 48 バイトに戻るが、Day 15 からのデモ(面ごとに色を変えた立方体)が
+    /// 消せば 80 バイトに戻るが、Day 15 からのデモ(面ごとに色を変えた立方体)が
     /// 使っているので残してある。
     /// </summary>
     public static ReadOnlySpan<VertexAttribute> Attributes => AttributeList;
