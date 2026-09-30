@@ -688,6 +688,58 @@ internal static class Program
 
     private static int _playbackSpeedIndex = 2;
 
+    // --- Day 42: アニメーション制御 ---
+
+    /// <summary>ロコモーションの決め方(Shift+Alt+F2)。</summary>
+    private enum LocomotionMode
+    {
+        /// <summary>Day 41 と同じ。クリップを1本そのまま再生する。</summary>
+        Off,
+
+        /// <summary>速度から連続的に重みを決める(<see cref="BlendTree1D"/>)。</summary>
+        BlendTree,
+
+        /// <summary>状態を1つ持ち、切り替わるときだけ混ぜる(<see cref="AnimationStateMachine"/>)。</summary>
+        StateMachine,
+    }
+
+    private static LocomotionMode _locomotion;
+
+    /// <summary>速度 → 重み。クリップ名から組み立てる(<see cref="BuildLocomotion"/>)。</summary>
+    private static BlendTree1D? _locomotionTree;
+
+    /// <summary>同じクリップを状態として並べたもの。**ツリーと見比べるために両方持つ**。</summary>
+    private static AnimationStateMachine? _locomotionStates;
+
+    /// <summary>
+    /// 今の移動速度(m/s)。**ブレンドの入力そのもの**。
+    ///
+    /// Day 42 の時点ではキャラクタは1ミリも進まない——
+    /// この数字は「進んでいるつもり」の値でしかない。
+    /// 実際の移動と繋ぐのは Day 45(キャラクターコントローラ)以降で、
+    /// **先に見た目の側だけを作っておく**と、繋ぐときに片方だけを疑えばよくなる。
+    /// </summary>
+    private static float _moveSpeed;
+
+    /// <summary>速度を自動で上下させるか(Shift+Alt+F7)。**既定で ON**。</summary>
+    private static bool _speedSweep = true;
+
+    private static float _sweepPhase;
+
+    /// <summary>自動スイープの1往復にかける秒数。</summary>
+    private const float SweepSeconds = 12.0f;
+
+    /// <summary>速度の上限。Fox の走りのクリップが表している速さに合わせてある。</summary>
+    private const float MaxMoveSpeed = 3.2f;
+
+    /// <summary>クロスフェードの候補(Shift+Alt+F8)。**0 を先頭に置いてある**。</summary>
+    private static readonly float[] CrossFadeSeconds = [0.0f, 0.1f, 0.25f, 0.5f];
+
+    private static int _crossFadeIndex = 2;
+
+    /// <summary>ブレンドの重みを書き込む先。**毎フレーム確保しない**ための持ち回し。</summary>
+    private static readonly ClipWeight[] _blendScratch = new ClipWeight[AnimationPlayer.MaxBlendClips];
+
     /// <summary>
     /// コマ送り(Alt+F8)の1回ぶん。**1/30 秒**。
     ///
@@ -1625,6 +1677,14 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
+        Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
+        Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
+        Console.WriteLine("Shift+Alt+F2:決め方(OFF / ブレンドツリー / ステートマシン)");
+        Console.WriteLine("Shift+Alt+F3:位相同期 ON/OFF(**OFF にすると足が合わなくなる**)");
+        Console.WriteLine("Shift+Alt+F5 / F6:速度を 0.2m/s ずつ増減  Shift+Alt+F7:自動スイープ ON/OFF");
+        Console.WriteLine("Shift+Alt+F8:クロスフェード 0/0.1/0.25/0.5 秒(ステートマシンのとき)");
+        Console.WriteLine("Shift+Alt+F9:今の混合の内訳  Shift+Alt+F12:今日の自己チェック");
+        Console.WriteLine();
         Console.WriteLine("--- Day 41: 頂点ブレンディングとスキニング(Alt+F1〜F12)---");
         Console.WriteLine("Alt+F1:CesiumMan を出して歩かせる。**今日の到達点はこれ**");
         Console.WriteLine("Alt+F2:アニメ付きの5体を巡回(人型 / キツネ / 棒 / 最小例 / スキン無し)");
@@ -2128,6 +2188,9 @@ internal static class Program
             // ただし**これは今日までの話**。骨の位置を当たり判定に使い始めると
             // (Day 45 のキャラクターコントローラ)決定性が要るので、
             // そのときは FixedUpdate 側へ移すことになる。
+            // **重みを先に決めてから時刻を進める**(Day 42)。
+            // 逆にすると、速度が変わったフレームだけ1フレーム古い重みで描かれる。
+            UpdateLocomotion((float)deltaSeconds);
             _animation?.Update((float)deltaSeconds);
 
             string? tourMessage = _features.Update((float)deltaSeconds);
@@ -2957,6 +3020,11 @@ internal static class Program
             // **今日の1行**(Day 41)。アニメーションは「止まっているのか、
             // クリップが無いのか、スキニングを切っているのか」が絵から区別できない。
             lines.AppendLine(AnimationLabel());
+
+            // **今日の1行**(Day 42)。混ざっている比率は絵から絶対に読み取れない。
+            // 「歩き 0.42 + 走り 0.58」という数字が出ていないと、
+            // ブレンドが効いているのか単に走っているだけなのか区別が付かない。
+            lines.AppendLine(LocomotionLabel());
         }
 
         // **今日の状態を1行で**。絵作りの機能は「今どの設定か」を見失いやすいので、
@@ -3437,6 +3505,241 @@ internal static class Program
             + $"{_animation.Time:F2}/{_animation.Duration:F2}s  {_animation.Speed:F2}倍  "
             + $"{(_animation.Paused ? "一時停止" : "再生中")}  "
             + $"スキニング:{OnOff(_animation.SkinningEnabled)}  {rig}";
+    }
+
+    /// <summary>
+    /// クリップ名からロコモーションを組み立てる(Day 42)。
+    ///
+    /// <para>
+    /// <b>名前で探す</b>。Fox のクリップは Survey / Walk / Run で、
+    /// 「立ち止まり」に当たるものが <c>Survey</c>(周りを見回す)という名前になっている。
+    /// Mixamo から持ってくると <c>Idle</c> / <c>Walking</c> / <c>Running</c> のように付くので、
+    /// **部分一致で複数の綴りを拾う**ようにしてある。
+    /// </para>
+    ///
+    /// <para>
+    /// 名前で当たらなければ、**クリップを並び順のまま軸に等間隔で置く**。
+    /// 意味は合わないが「混ざることは確かめられる」ので、
+    /// 手持ちのモデルで試すときの入口になる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>速度の値は目分量</b>。本来は「1周期で足がどれだけ後ろへ流れるか」を測って
+    /// 決めるべきもので、ここがずれると足が地面を滑る(改造課題1)。
+    /// </para>
+    /// </summary>
+    private static void BuildLocomotion(Model model)
+    {
+        _locomotionTree = null;
+        _locomotionStates = null;
+        _locomotion = LocomotionMode.Off;
+
+        if (model.Animations.Count < 2)
+        {
+            return;
+        }
+
+        int idle = FindClip(model, "idle", "survey", "stand");
+        int walk = FindClip(model, "walk");
+        int run = FindClip(model, "run", "sprint", "jog");
+
+        var samples = new List<BlendTree1D.Sample>();
+
+        if (idle >= 0 && walk >= 0 && run >= 0)
+        {
+            samples.Add(new BlendTree1D.Sample("立ち止まり", idle, 0.0f));
+            samples.Add(new BlendTree1D.Sample("歩き", walk, 1.0f));
+            samples.Add(new BlendTree1D.Sample("走り", run, MaxMoveSpeed));
+        }
+        else
+        {
+            // 名前で当たらなかったモデル。**並び順のまま等間隔**に置く。
+            for (int i = 0; i < model.Animations.Count; i++)
+            {
+                samples.Add(new BlendTree1D.Sample(
+                    model.Animations[i].Name,
+                    i,
+                    MaxMoveSpeed * i / (model.Animations.Count - 1)));
+            }
+        }
+
+        _locomotionTree = new BlendTree1D("ロコモーション", samples);
+
+        // **同じクリップを状態としても並べる**。見比べるのが今日の眼目なので、
+        // 中身が違ってしまわないよう1か所から両方を作る。
+        //
+        // しきい値はツリーの点とは意図的にずらしてある。
+        // ツリーの点は「そのクリップが表す速さ」、
+        // ステートマシンのしきい値は「そこで切り替えたい速さ」で、**別の意味を持つ**。
+        _locomotionStates = new AnimationStateMachine(
+            samples.Select((sample, index) => new AnimationStateMachine.State(
+                sample.Name,
+                sample.Clip,
+                index == 0 ? float.NegativeInfinity : (sample.Parameter * 0.65f))))
+        {
+            FadeSeconds = CrossFadeSeconds[_crossFadeIndex],
+        };
+    }
+
+    /// <summary>クリップ名に <paramref name="keywords"/> のどれかを含むものを探す。無ければ -1。</summary>
+    private static int FindClip(Model model, params string[] keywords)
+    {
+        for (int i = 0; i < model.Animations.Count; i++)
+        {
+            string name = model.Animations[i].Name;
+            foreach (string keyword in keywords)
+            {
+                if (name.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// 速度からクリップの重みを決めて、プレイヤーへ渡す(Day 42)。
+    ///
+    /// <b>ここが今日の全部</b>。残りは「その重みをどう決めるか」の2通りと、
+    /// 決めた重みをどう混ぜるか(<c>AnimationPlayer.Evaluate</c>)の話になる。
+    /// </summary>
+    private static void UpdateLocomotion(float deltaSeconds)
+    {
+        if (_animation is null || _locomotion == LocomotionMode.Off)
+        {
+            return;
+        }
+
+        // **速度を自動で上下させる**。手で押さえていると、
+        // 切り替わりの瞬間だけを見ることになって連続性が分からない。
+        if (_speedSweep)
+        {
+            _sweepPhase = (_sweepPhase + (deltaSeconds / SweepSeconds)) % 1.0f;
+
+            // 三角波。0 → 最大 → 0 を1往復。
+            float ramp = _sweepPhase < 0.5f ? _sweepPhase * 2.0f : (1.0f - _sweepPhase) * 2.0f;
+            _moveSpeed = ramp * MaxMoveSpeed;
+        }
+
+        Span<ClipWeight> weights = _blendScratch;
+        int count = 0;
+
+        if (_locomotion == LocomotionMode.BlendTree && _locomotionTree is not null)
+        {
+            count = _locomotionTree.Evaluate(_moveSpeed, weights);
+        }
+        else if (_locomotion == LocomotionMode.StateMachine && _locomotionStates is not null)
+        {
+            count = _locomotionStates.Update(deltaSeconds, _moveSpeed, weights);
+        }
+
+        if (count > 0)
+        {
+            _animation.SetBlend(weights[..count]);
+        }
+    }
+
+    /// <summary>ロコモーションの状態を1行にまとめる(Day 42。HUD 用)。</summary>
+    private static string LocomotionLabel()
+    {
+        if (_animation is null || _locomotionTree is null)
+        {
+            return "ロコモーション:使えるモデルではない(Shift+Alt+F1 で Fox へ)";
+        }
+
+        string mode = _locomotion switch
+        {
+            LocomotionMode.BlendTree => "ブレンドツリー",
+            LocomotionMode.StateMachine => $"ステートマシン[{_locomotionStates?.CurrentName}]",
+            _ => "OFF(クリップ1本)",
+        };
+
+        return $"ロコモーション:{mode}  速度:{_moveSpeed:F2}m/s"
+            + $"{(_speedSweep ? "(自動)" : string.Empty)}  "
+            + $"位相同期:{OnOff(_animation.SyncPhase)}  "
+            + $"フェード:{CrossFadeSeconds[_crossFadeIndex]:F2}s  "
+            + $"周期:{_animation.Duration:F2}s  位相:{_animation.Phase:F2}  "
+            + $"混合:{BlendLabel()}";
+    }
+
+    /// <summary>今の重みを「歩き0.42+走り0.58」のような1つの文字列にする(Day 42)。</summary>
+    private static string BlendLabel()
+    {
+        if (_animation is null || _model is null)
+        {
+            return "-";
+        }
+
+        ReadOnlySpan<ClipWeight> blend = _animation.Blend;
+        if (blend.Length == 0)
+        {
+            return "なし";
+        }
+
+        var text = new System.Text.StringBuilder();
+        for (int i = 0; i < blend.Length; i++)
+        {
+            if (i > 0)
+            {
+                text.Append('+');
+            }
+
+            text.Append($"{_model.Animations[blend[i].Clip].Name}{blend[i].Weight:F2}");
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>今の混合の内訳をコンソールへ(Shift+Alt+F9)。</summary>
+    private static void DescribeBlend()
+    {
+        if (_animation is null || _model is null)
+        {
+            Console.WriteLine("モデルがありません(Shift+Alt+F1 で Fox を出す)");
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"=== {ModelLabel()} の混合 ===");
+        Console.WriteLine(
+            $"速度 {_moveSpeed:F2}m/s  位相 {_animation.Phase:F3}  "
+            + $"周期 {_animation.Duration:F3}s  位相同期 {OnOff(_animation.SyncPhase)}");
+
+        foreach (ClipWeight entry in _animation.Blend)
+        {
+            AnimationClip clip = _model.Animations[entry.Clip];
+
+            // **同期していれば、どのクリップも同じ位相を指す**。
+            // 秒で見ると違う値になるのが、位相で合わせるということ。
+            float seconds = _animation.SyncPhase
+                ? _animation.Phase * clip.Duration
+                : float.NaN;
+
+            Console.WriteLine(
+                $"  {clip.Name,-8} 重み {entry.Weight:F3}  長さ {clip.Duration:F3}s"
+                + (float.IsNaN(seconds) ? "  (各クリップが独立に進行中)" : $"  位置 {seconds:F3}s"));
+        }
+
+        if (_locomotionTree is not null)
+        {
+            Console.WriteLine("  ツリーの点: " + string.Join(" / ", _locomotionTree.Samples.Select(
+                sample => $"{sample.Name} {sample.Parameter:F2}m/s")));
+        }
+
+        if (_locomotionStates is not null)
+        {
+            Console.WriteLine(
+                "  状態: " + string.Join(" / ", _locomotionStates.States.Select(
+                    state => $"{state.Name} ≧{state.Threshold:F2}"))
+                + $"  今 {_locomotionStates.CurrentName}"
+                + (_locomotionStates.Previous >= 0
+                    ? $" ← {_locomotionStates.PreviousName}({_locomotionStates.Fade:P0})"
+                    : string.Empty));
+        }
+
+        Console.WriteLine();
     }
 
     /// <summary>
@@ -3936,6 +4239,11 @@ internal static class Program
         // 「捨てるものと、参照を切れば済むもの」の違いがはっきり出るところ。
         _animation = null;
 
+        // ロコモーションもモデルに紐づくので一緒に落とす(Day 42)。
+        _locomotionTree = null;
+        _locomotionStates = null;
+        _locomotion = LocomotionMode.Off;
+
         if (index < 0 || index >= ModelPaths.Length)
         {
             _modelIndex = ModelPaths.Length;
@@ -3962,6 +4270,10 @@ internal static class Program
         {
             Speed = PlaybackSpeeds[_playbackSpeedIndex],
         };
+
+        // **クリップが2本以上あればロコモーションを組む**(Day 42)。
+        // 組めるかどうかはモデル次第なので、失敗しても黙って Off のままにする。
+        BuildLocomotion(_model);
 
         FrameModel(_model);
 
@@ -4001,6 +4313,15 @@ internal static class Program
             Console.WriteLine(
                 $"  [クリップ {i}: {clip.Name}] {clip.Duration:F2}s"
                 + $" / チャンネル {clip.Channels.Count}");
+        }
+
+        if (_locomotionTree is not null)
+        {
+            Console.WriteLine(
+                "  ロコモーション: "
+                + string.Join(" → ", _locomotionTree.Samples.Select(
+                    sample => $"{sample.Name}({sample.Parameter:F1}m/s)"))
+                + "  (Shift+Alt+F1 で再生)");
         }
 
         Console.WriteLine(
@@ -10973,7 +11294,127 @@ internal static class Program
                 RunSceneCheck();
                 break;
 
-            // --- 今日のスイッチ(スキニングアニメーション)---
+            // --- 今日のスイッチ(アニメーション制御)---
+            //
+            // **Shift+Alt + ファンクションキー**。段はこれで6つ目
+            // (Ctrl+F / Shift+F / Ctrl+Shift+F / Ctrl+Alt+F / Alt+F / Shift+Alt+F)。
+            //
+            // <b>Day 41 の Alt+F の塊より前に置くこと</b>。
+            // `case Key.F1 when alt:` は **Shift+Alt+F1 でも成立する**ので、
+            // 下に置くと今日のキーが1つも届かない。
+            // 下にある `case Key.F1 when shift:`(Day 38)も同じ理由で後ろでなければならない。
+            // Day 39・40・41 と同じ話が、段が増えるたびに厳しくなっていく——
+            // **ガード付き case は「具体的なものほど上」**が唯一の守り方。
+            case Key.F1 when shift && alt:
+                // **今日の到達点**。キツネを出して、速度を自動で上下させる。
+                ShowAnimatedModel("models/Fox.glb");
+                if (_locomotionTree is not null)
+                {
+                    _locomotion = LocomotionMode.BlendTree;
+                    _speedSweep = true;
+                    _sweepPhase = 0.0f;
+                    _locomotionStates?.Reset(0);
+
+                    if (_animation is not null)
+                    {
+                        _animation.Paused = false;
+                        _animation.SyncPhase = true;
+                    }
+
+                    Console.WriteLine(
+                        "ロコモーション: ブレンドツリー。速度が 0 ↔ "
+                        + $"{MaxMoveSpeed:F1}m/s を {SweepSeconds:F0} 秒で往復します");
+                    Console.WriteLine(
+                        "  **Shift+Alt+F3 で位相同期を切ると、足が合わなくなる**");
+                }
+                else
+                {
+                    Console.WriteLine("このモデルではロコモーションを組めません(クリップが2本未満)");
+                }
+
+                break;
+
+            case Key.F2 when shift && alt:
+                _locomotion = _locomotion switch
+                {
+                    LocomotionMode.Off => LocomotionMode.BlendTree,
+                    LocomotionMode.BlendTree => LocomotionMode.StateMachine,
+                    _ => LocomotionMode.Off,
+                };
+
+                // ステートマシンへ移るときは、今の速度の状態から始める
+                // (前回の状態が残っていると、いきなりクロスフェードが走る)。
+                if (_locomotion == LocomotionMode.StateMachine)
+                {
+                    _locomotionStates?.Reset(0);
+                }
+
+                Console.WriteLine(_locomotion switch
+                {
+                    LocomotionMode.BlendTree =>
+                        "決め方: **ブレンドツリー**(常に隣り合う2本が混ざる。速度に対して連続)",
+                    LocomotionMode.StateMachine =>
+                        "決め方: **ステートマシン**(どれか1つ。移り変わる瞬間だけ混ざる)",
+                    _ => "決め方: OFF(Day 41 と同じ。クリップを1本そのまま再生)",
+                });
+                break;
+
+            case Key.F3 when shift && alt:
+                if (_animation is not null)
+                {
+                    _animation.SyncPhase = !_animation.SyncPhase;
+                    Console.WriteLine(
+                        _animation.SyncPhase
+                            ? "位相同期: ON(全クリップが同じ正規化位置を指す)"
+                            : "位相同期: OFF(**各クリップが自分の長さで勝手に回る**。足が合わなくなる)");
+                }
+
+                break;
+
+            case Key.F5 when shift && alt:
+                _speedSweep = false;
+                _moveSpeed = MathF.Max(0.0f, _moveSpeed - 0.2f);
+                Console.WriteLine($"速度: {_moveSpeed:F2}m/s  {BlendLabel()}");
+                break;
+
+            case Key.F6 when shift && alt:
+                _speedSweep = false;
+                _moveSpeed = MathF.Min(MaxMoveSpeed, _moveSpeed + 0.2f);
+                Console.WriteLine($"速度: {_moveSpeed:F2}m/s  {BlendLabel()}");
+                break;
+
+            case Key.F7 when shift && alt:
+                _speedSweep = !_speedSweep;
+                Console.WriteLine(
+                    _speedSweep
+                        ? $"速度: 自動({SweepSeconds:F0} 秒で往復)"
+                        : $"速度: 手動({_moveSpeed:F2}m/s。Shift+Alt+F5 / F6 で増減)");
+                break;
+
+            case Key.F8 when shift && alt:
+                _crossFadeIndex = (_crossFadeIndex + 1) % CrossFadeSeconds.Length;
+                if (_locomotionStates is not null)
+                {
+                    _locomotionStates.FadeSeconds = CrossFadeSeconds[_crossFadeIndex];
+                }
+
+                Console.WriteLine(
+                    $"クロスフェード: {CrossFadeSeconds[_crossFadeIndex]:F2}s"
+                    + (CrossFadeSeconds[_crossFadeIndex] <= 0.0f
+                        ? "(**0 秒。切り替わりで足がワープする**)"
+                        : string.Empty)
+                    + "  ※ステートマシンのときだけ効く");
+                break;
+
+            case Key.F9 when shift && alt:
+                DescribeBlend();
+                break;
+
+            case Key.F12 when shift && alt:
+                RunLocomotionCheck();
+                break;
+
+            // --- Day 41 のスイッチ(スキニングアニメーション)---
             //
             // **素の Alt + ファンクションキー**。Ctrl+Alt(Day 40)、Ctrl+Shift(Day 39)、
             // Shift(Day 38)、Ctrl(Day 37)が埋まって、ここだけが空いていた。
@@ -11076,7 +11517,8 @@ internal static class Program
             case Key.F10 when alt:
                 if (_animation is not null)
                 {
-                    _animation.SelectClip(_animation.ClipIndex);
+                    // **Day 42 で Rewind に変えた**。SelectClip だと混ぜているものが1本に潰れる。
+                    _animation.Rewind();
                     Console.WriteLine("アニメ: 先頭へ戻した");
                 }
 
@@ -12487,6 +12929,329 @@ internal static class Program
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 今日の自己チェック(Shift+Alt+F12)。
+    ///
+    /// ブレンドは**間違っていてもそれらしく動く**のが厄介なところで、
+    /// 重みが 0.4/0.4(合計 0.8)でも、位相がずれていても、
+    /// 符号を揃え忘れていても、キツネはそれなりに走って見える。
+    /// だから数字で押さえる。
+    /// </summary>
+    private static void RunLocomotionCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 42: アニメーション制御の自己チェック ---");
+        var checks = new CheckList();
+
+        Span<ClipWeight> scratch = stackalloc ClipWeight[AnimationPlayer.MaxBlendClips];
+
+        // --- 1. ブレンドツリー(ファイルに依存しない部分)---
+        var tree = new BlendTree1D("テスト",
+        [
+            new BlendTree1D.Sample("idle", 0, 0.0f),
+            new BlendTree1D.Sample("walk", 1, 1.0f),
+            new BlendTree1D.Sample("run", 2, 3.0f),
+        ]);
+
+        int count = tree.Evaluate(-5.0f, scratch);
+        checks.Check(
+            "軸の下端より下は端の1本だけ",
+            count == 1 && scratch[0].Clip == 0 && scratch[0].Weight == 1.0f,
+            $"{count} 本");
+
+        count = tree.Evaluate(99.0f, scratch);
+        checks.Check(
+            "軸の上端より上も端の1本だけ(**外挿しない**)",
+            count == 1 && scratch[0].Clip == 2 && scratch[0].Weight == 1.0f,
+            $"{count} 本");
+
+        count = tree.Evaluate(2.0f, scratch);
+        bool midpoint = count == 2
+            && scratch[0].Clip == 1 && scratch[1].Clip == 2
+            && MathF.Abs(scratch[0].Weight - 0.5f) < 1e-5f
+            && MathF.Abs(scratch[1].Weight - 0.5f) < 1e-5f;
+        checks.Check(
+            "walk(1.0)と run(3.0)の中点 2.0 で 50:50",
+            midpoint,
+            count == 2 ? $"{scratch[0].Weight:F3} / {scratch[1].Weight:F3}" : $"{count} 本");
+
+        count = tree.Evaluate(1.0f, scratch);
+        float sum = 0.0f;
+        for (int i = 0; i < count; i++)
+        {
+            sum += scratch[i].Weight;
+        }
+
+        checks.Check("重みの合計が 1", MathF.Abs(sum - 1.0f) < 1e-5f, $"{sum:F6}");
+
+        checks.Check(
+            "点の真上では隣が混ざらない",
+            count == 2 && scratch[1].Weight <= 1e-6f,
+            count == 2 ? $"隣の重み {scratch[1].Weight:E2}" : $"{count} 本");
+
+        // --- 2. 姿勢の合成 ---
+        var poseA = new NodePose(
+            new Vector3(0.0f, 0.0f, 0.0f), Quaternion.Identity, Vector3.One);
+        var poseB = new NodePose(
+            new Vector3(2.0f, 0.0f, 0.0f),
+            Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI * 0.5f),
+            new Vector3(3.0f, 3.0f, 3.0f));
+
+        var single = default(PoseAccumulator);
+        single.Add(poseB, 1.0f);
+        NodePose resolvedSingle = single.Resolve(poseA);
+        checks.Check(
+            "1本だけ足したら元のまま",
+            (resolvedSingle.Translation - poseB.Translation).Length() < 1e-6f
+                && MathF.Abs(resolvedSingle.Scale.X - 3.0f) < 1e-6f,
+            $"({resolvedSingle.Translation.X:F3}, 拡大 {resolvedSingle.Scale.X:F3})");
+
+        var half = default(PoseAccumulator);
+        half.Add(poseA, 0.5f);
+        half.Add(poseB, 0.5f);
+        NodePose resolvedHalf = half.Resolve(poseA);
+        NodePose viaLerp = NodePose.Lerp(poseA, poseB, 0.5f);
+        checks.Check(
+            "50:50 の合成が Lerp と一致(**中点では nlerp = slerp**)",
+            (resolvedHalf.Translation - viaLerp.Translation).Length() < 1e-5f
+                && Quaternion.Dot(resolvedHalf.Rotation, viaLerp.Rotation) > 0.99999f,
+            $"平行移動 {resolvedHalf.Translation.X:F4} / 内積 "
+            + $"{Quaternion.Dot(resolvedHalf.Rotation, viaLerp.Rotation):F6}");
+
+        // **符号を揃えていることの実証**。q と -q は同じ向きなので、
+        // 揃えて足せば元の向きに戻る。揃えないと打ち消し合って 0 になる。
+        Quaternion turn = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 2.0f);
+        var signed = default(PoseAccumulator);
+        signed.Add(poseA with { Rotation = turn }, 0.5f);
+        signed.Add(poseA with { Rotation = -turn }, 0.5f);
+        NodePose resolvedSigned = signed.Resolve(poseA);
+
+        Vector4 naive = (new Vector4(turn.X, turn.Y, turn.Z, turn.W) * 0.5f)
+            + (new Vector4(-turn.X, -turn.Y, -turn.Z, -turn.W) * 0.5f);
+
+        checks.Check(
+            "q と -q を混ぜても元の向きが出る(**符号を揃えている**)",
+            MathF.Abs(MathF.Abs(Quaternion.Dot(resolvedSigned.Rotation, turn)) - 1.0f) < 1e-5f,
+            $"内積 {Quaternion.Dot(resolvedSigned.Rotation, turn):F6}");
+        checks.Check(
+            "揃えずに足すと長さが 0 になる(**揃えないとこうなる**)",
+            naive.Length() < 1e-6f,
+            $"長さ {naive.Length():E2}");
+
+        // --- 3. ステートマシン ---
+        AnimationStateMachine.State[] states =
+        [
+            new AnimationStateMachine.State("idle", 0, float.NegativeInfinity),
+            new AnimationStateMachine.State("walk", 1, 0.65f),
+            new AnimationStateMachine.State("run", 2, 2.08f),
+        ];
+
+        var machine = new AnimationStateMachine(states) { FadeSeconds = 0.0f, Hysteresis = 0.25f };
+        machine.Reset(0);
+        machine.Update(0.0f, 1.0f, scratch);
+        checks.Check("しきい値を超えたら上がる", machine.Current == 1, machine.CurrentName);
+
+        machine.Update(0.0f, 3.0f, scratch);
+        checks.Check("2段まとめて上がれる", machine.Current == 2, machine.CurrentName);
+
+        machine.Update(0.0f, 1.9f, scratch);
+        checks.Check(
+            "ヒステリシスの中では下がらない(2.08 - 0.25 = 1.83 まで粘る)",
+            machine.Current == 2,
+            $"{machine.CurrentName}(速度 1.9)");
+
+        machine.Update(0.0f, 1.8f, scratch);
+        checks.Check("そこを割ったら下がる", machine.Current == 1, machine.CurrentName);
+
+        // **チャタリング**。しきい値をまたいで微小に振動させ、状態が変わった回数を数える。
+        static int ChatterCount(AnimationStateMachine.State[] states, float hysteresis)
+        {
+            // **ローカル関数の中では外の Span を触れない**(ref 構造体はクロージャに入らない)。
+            // 数行のことなので、こちらで用意する。
+            Span<ClipWeight> weights = stackalloc ClipWeight[AnimationPlayer.MaxBlendClips];
+
+            var target = new AnimationStateMachine(states)
+            {
+                FadeSeconds = 0.0f,
+                Hysteresis = hysteresis,
+            };
+
+            target.Reset(1);
+            int changes = 0;
+            int last = target.Current;
+
+            for (int i = 0; i < 100; i++)
+            {
+                target.Update(1.0f / 60.0f, 2.08f + (i % 2 == 0 ? -0.001f : 0.001f), weights);
+                if (target.Current != last)
+                {
+                    changes++;
+                    last = target.Current;
+                }
+            }
+
+            return changes;
+        }
+
+        int withoutHysteresis = ChatterCount(states, 0.0f);
+        int withHysteresis = ChatterCount(states, 0.25f);
+
+        checks.Check(
+            "ヒステリシス 0 だと境目でばたつく",
+            withoutHysteresis > 50,
+            $"100 フレームで {withoutHysteresis} 回");
+        checks.Check(
+            "ヒステリシスを入れると 1 回で収まる",
+            withHysteresis <= 1,
+            $"100 フレームで {withHysteresis} 回");
+
+        // クロスフェードの時間。
+        var fading = new AnimationStateMachine(states) { FadeSeconds = 0.2f, Hysteresis = 0.25f };
+        fading.Reset(0);
+        fading.Update(0.0f, 0.0f, scratch);
+        fading.Update(0.0f, 3.0f, scratch);
+        checks.Check("遷移した瞬間はまだ前の状態", fading.Fade < 1e-3f, $"{fading.Fade:F4}");
+
+        for (int i = 0; i < 6; i++)
+        {
+            fading.Update(0.2f / 12.0f, 3.0f, scratch);
+        }
+
+        checks.Check(
+            "半分の時間で 0.5 前後",
+            MathF.Abs(fading.Fade - 0.5f) < 0.02f,
+            $"{fading.Fade:F4}");
+
+        for (int i = 0; i < 7; i++)
+        {
+            fading.Update(0.2f / 12.0f, 3.0f, scratch);
+        }
+
+        checks.Check(
+            "FadeSeconds で終わり、前の状態が消える",
+            fading.Fade >= 1.0f && fading.Previous < 0,
+            $"{fading.Fade:F4}");
+
+        var instant = new AnimationStateMachine(states) { FadeSeconds = 0.0f, Hysteresis = 0.25f };
+        instant.Reset(0);
+        instant.Update(0.0f, 3.0f, scratch);
+        checks.Check("FadeSeconds 0 なら即座に移行済み", instant.Fade >= 1.0f, $"{instant.Fade:F4}");
+
+        // --- 4. プレイヤーの混合 ---
+        int restore = _modelIndex;
+        Model fox = LoadCheckModel("models/Fox.glb");
+        var player = new AnimationPlayer(fox);
+
+        int walkClip = FindClip(fox, "walk");
+        int runClip = FindClip(fox, "run");
+        checks.Check(
+            "Fox から walk / run のクリップを名前で引ける",
+            walkClip >= 0 && runClip >= 0,
+            $"walk={walkClip} run={runClip}");
+
+        // **合計が 1 でない重みを渡しても正規化される**。
+        player.SetBlend([new ClipWeight(walkClip, 2.0f), new ClipWeight(runClip, 2.0f)]);
+        float blendSum = 0.0f;
+        foreach (ClipWeight entry in player.Blend)
+        {
+            blendSum += entry.Weight;
+        }
+
+        checks.Check(
+            "SetBlend が重みを合計 1 に正規化する",
+            MathF.Abs(blendSum - 1.0f) < 1e-5f && player.Blend.Length == 2,
+            $"{blendSum:F6}({player.Blend.Length} 本)");
+
+        float expected = (fox.Animations[walkClip].Duration + fox.Animations[runClip].Duration) * 0.5f;
+        checks.Check(
+            "周期が重み付きの平均になる",
+            MathF.Abs(player.Duration - expected) < 1e-4f,
+            $"{player.Duration:F4}s(walk {fox.Animations[walkClip].Duration:F3} / "
+            + $"run {fox.Animations[runClip].Duration:F3})");
+
+        // 上限を超えたら弱いものから捨てる。
+        player.SetBlend(
+        [
+            new ClipWeight(0, 0.4f), new ClipWeight(1, 0.3f),
+            new ClipWeight(2, 0.2f), new ClipWeight(0, 0.05f),
+            new ClipWeight(1, 0.01f),
+        ]);
+        checks.Check(
+            $"同時に混ぜるのは {AnimationPlayer.MaxBlendClips} 本まで",
+            player.Blend.Length <= AnimationPlayer.MaxBlendClips,
+            $"{player.Blend.Length} 本");
+
+        // --- 5. 位相同期 ---
+        //
+        // **1周ぶん進めたら同じ姿勢に戻るか**を見る。
+        // 同期していれば位相が 1 周して元に戻る。
+        // 同期していないと、周期の違う2本のクリップが別々に回るので、
+        // 1周ごとに位相の関係がずれていく。
+        player.SetBlend([new ClipWeight(walkClip, 0.5f), new ClipWeight(runClip, 0.5f)]);
+
+        float syncedDrift = MeasureCycleDrift(player, syncPhase: true);
+        float freeDrift = MeasureCycleDrift(player, syncPhase: false);
+
+        checks.Check(
+            "位相同期 ON: 1周ごとに同じ姿勢へ戻る",
+            syncedDrift < 1e-2f,
+            $"ずれ {syncedDrift:E2}");
+        checks.Check(
+            "位相同期 OFF: **毎周期ちがう姿勢になる**",
+            freeDrift > syncedDrift * 10.0f,
+            $"ずれ {freeDrift:E2}(同期していれば {syncedDrift:E2})");
+
+        // Rewind が重みを壊さないこと(Alt+F10 の経路)。
+        player.SetBlend([new ClipWeight(walkClip, 0.5f), new ClipWeight(runClip, 0.5f)]);
+        player.Advance(0.3f);
+        player.Rewind();
+        checks.Check(
+            "Rewind は時刻だけ戻し、混合を壊さない",
+            player.Blend.Length == 2 && player.Phase == 0.0f,
+            $"{player.Blend.Length} 本 / 位相 {player.Phase:F3}");
+
+        // --- 6. 混ぜても頂点が動くこと ---
+        player.SetBlend([new ClipWeight(walkClip, 0.5f), new ClipWeight(runClip, 0.5f)]);
+        player.Rewind();
+        (float move, int broken) = MeasureSkinnedMotion(fox, player, 0.0f, player.Duration * 0.5f);
+        checks.Check("混合したままでも頂点が動く", move > 1.0f, $"最大 {move:F1}(Fox の単位)");
+        checks.Check("NaN / 無限大が1つも無い", broken == 0, $"{broken} 個");
+
+        fox.Dispose();
+
+        checks.Report("すべて合格(ブレンドツリー・ステートマシン・位相同期が仕様どおり)");
+        Console.WriteLine();
+
+        SetModel(restore);
+    }
+
+    /// <summary>
+    /// 1周ぶん進めたときに姿勢がどれだけずれるかを測る(Day 42)。
+    /// **位相同期が効いていれば 0 に近い**。
+    /// </summary>
+    private static float MeasureCycleDrift(AnimationPlayer player, bool syncPhase)
+    {
+        player.SyncPhase = syncPhase;
+        player.Rewind();
+
+        Matrix4x4[] baseline = player.GetJointMatrices(0).ToArray();
+        float cycle = player.Duration;
+        float worst = 0.0f;
+
+        for (int lap = 0; lap < 3; lap++)
+        {
+            player.Advance(cycle);
+
+            ReadOnlySpan<Matrix4x4> current = player.GetJointMatrices(0);
+            for (int i = 0; i < baseline.Length; i++)
+            {
+                worst = MathF.Max(worst, MaxAbsDifference(baseline[i], current[i]));
+            }
+        }
+
+        return worst;
     }
 
     /// <summary>
