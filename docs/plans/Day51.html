@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 51 プレイアブルデモ組み上げ(三人称カメラ・環境コリジョン・移動とアニメ)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render と Demo にしか触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 遅れて追う — <code>Lerp(a, b, 0.1f)</code> が壊れる理由</a></li><li class="l3"><a href="#s7">2. 遅らせてよいもの、遅らせてはいけないもの</a></li><li class="l3"><a href="#s8">3. 壁寄せ — スフィアキャストが無いときの代用</a></li><li class="l3"><a href="#s9">4. 物理を知らないカメラ — 関数を1つ受け取るだけ</a></li><li class="l3"><a href="#s10">5. 描画メッシュは当たり判定に使えない</a></li><li class="l3"><a href="#s11">6. 回した箱は必ず太る。厚み 0 の箱は当たらない</a></li><li class="l3"><a href="#s12">7. 名前で束ねる — パーツ 25 個から箱 8 個へ</a></li><li class="l3"><a href="#s13">8. モデルとカプセルは別物。合わせるのはカプセルのほう</a></li><li class="l3"><a href="#s14">9. ブレンド木の点は「実際に出る速さ」に置く</a></li><li class="l3"><a href="#s15">10. 出発点と、カメラを背中側に置くこと</a></li><li class="l3"><a href="#s16">11. 今日入れなかったもの</a></li><li class="l2"><a href="#s17">前Dayからの差分概要</a></li><li class="l3"><a href="#s18">新規ファイル</a></li><li class="l3"><a href="#s19">変更ファイル</a></li><li class="l3"><a href="#s20">写経する順番</a></li><li class="l2"><a href="#s21">設計書</a></li><li class="l3"><a href="#s22">今日の3つは、どこに繋がったか</a></li><li class="l3"><a href="#s23">カメラが1フレーム決まるまで — 遅らせる1つと、遅らせない3つ</a></li><li class="l3"><a href="#s24">環境コライダが組み上がるまで — 25 個から 9 個へ</a></li><li class="l3"><a href="#s25">キャラクターが1歩進んで、絵になるまで</a></li><li class="l3"><a href="#s26">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s27">完成条件</a></li><li class="l3"><a href="#s28">1. <code>F2</code>: 裏通りにキツネが立ち、カメラが背中側に付く</a></li><li class="l3"><a href="#s29">2. 矢印キーと <code>X</code>: 速度でアニメが混ざる</a></li><li class="l3"><a href="#s30">3. <code>F7</code>: ブレンドを切ると足が止まる</a></li><li class="l3"><a href="#s31">4. <code>F3</code>: 追従の速さ</a></li><li class="l3"><a href="#s32">5. <code>F4</code>: カメラの壁寄せ</a></li><li class="l3"><a href="#s33">6. <code>F5</code>: 肩越しの構え</a></li><li class="l3"><a href="#s34">7. <code>F6</code>: 当たり判定を出す</a></li><li class="l3"><a href="#s35">8. 環境コリジョン: ゴミ箱の手前で止まる</a></li><li class="l3"><a href="#s36">9. 足元の土埃</a></li><li class="l3"><a href="#s37">10. <code>F9</code>: 内訳</a></li><li class="l3"><a href="#s38">11. <code>F10</code>: 自己チェックが 21 項目すべて合格</a></li><li class="l3"><a href="#s39">12. Day 39〜50 の絵が1つも壊れていない</a></li><li class="l2"><a href="#s40">改造課題</a></li><li class="l3"><a href="#s41">課題1(易): 進行方向を先読みする</a></li><li class="l3"><a href="#s42">課題2(中): 環境コライダを OBB にする</a></li><li class="l3"><a href="#s43">課題3(難): ルートモーションで足の滑りを消す</a></li><li class="l2"><a href="#s44">動作確認済み環境</a></li><li class="l3"><a href="#s45">自己チェック(21 項目すべて合格)</a></li><li class="l3"><a href="#s46">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 51 / 計画書</p>
+  <h1>プレイアブルデモ組み上げ(三人称カメラ・環境コリジョン・移動とアニメ)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render と Demo にしか触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 遅れて追う — <code>Lerp(a, b, 0.1f)</code> が壊れる理由</a></li><li class="l3"><a href="#s7">2. 遅らせてよいもの、遅らせてはいけないもの</a></li><li class="l3"><a href="#s8">3. 壁寄せ — スフィアキャストが無いときの代用</a></li><li class="l3"><a href="#s9">4. 物理を知らないカメラ — 関数を1つ受け取るだけ</a></li><li class="l3"><a href="#s10">5. 描画メッシュは当たり判定に使えない</a></li><li class="l3"><a href="#s11">6. 回した箱は必ず太る。厚み 0 の箱は当たらない</a></li><li class="l3"><a href="#s12">7. 名前で束ねる — パーツ 25 個から箱 8 個へ</a></li><li class="l3"><a href="#s13">8. モデルとカプセルは別物。合わせるのはカプセルのほう</a></li><li class="l3"><a href="#s14">9. ブレンド木の点は「実際に出る速さ」に置く</a></li><li class="l3"><a href="#s15">10. 出発点と、カメラを背中側に置くこと</a></li><li class="l3"><a href="#s16">11. 今日入れなかったもの</a></li><li class="l2"><a href="#s17">前Dayからの差分概要</a></li><li class="l3"><a href="#s18">新規ファイル</a></li><li class="l3"><a href="#s19">変更ファイル</a></li><li class="l3"><a href="#s20">写経する順番</a></li><li class="l2"><a href="#s21">設計書</a></li><li class="l3"><a href="#s22">今日の3つは、どこに繋がったか</a></li><li class="l3"><a href="#s23">カメラが1フレーム決まるまで — 遅らせる1つと、遅らせない3つ</a></li><li class="l3"><a href="#s24">環境コライダが組み上がるまで — 25 個から 9 個へ</a></li><li class="l3"><a href="#s25">キャラクターが1歩進んで、絵になるまで</a></li><li class="l3"><a href="#s26">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s27">完成条件</a></li><li class="l3"><a href="#s28">1. <code>F2</code>: 裏通りにキツネが立ち、カメラが背中側に付く</a></li><li class="l3"><a href="#s29">2. 矢印キーと <code>X</code>: 速度でアニメが混ざる</a></li><li class="l3"><a href="#s30">3. <code>F7</code>: ブレンドを切ると足が止まる</a></li><li class="l3"><a href="#s31">4. <code>F3</code>: 追従の速さ</a></li><li class="l3"><a href="#s32">5. <code>F4</code>: カメラの壁寄せ</a></li><li class="l3"><a href="#s33">6. <code>F5</code>: 肩越しの構え</a></li><li class="l3"><a href="#s34">7. <code>F6</code>: 当たり判定を出す</a></li><li class="l3"><a href="#s35">8. 環境コリジョン: ゴミ箱の手前で止まる</a></li><li class="l3"><a href="#s36">9. 足元の土埃</a></li><li class="l3"><a href="#s37">10. <code>F9</code>: 内訳</a></li><li class="l3"><a href="#s38">11. <code>F10</code>: 自己チェックが 21 項目すべて合格</a></li><li class="l3"><a href="#s39">12. Day 39〜50 の絵が1つも壊れていない</a></li><li class="l2"><a href="#s40">改造課題</a></li><li class="l3"><a href="#s41">課題1(易): 進行方向を先読みする</a></li><li class="l3"><a href="#s42">課題2(中): 環境コライダを OBB にする</a></li><li class="l3"><a href="#s43">課題3(難): ルートモーションで足の滑りを消す</a></li><li class="l2"><a href="#s44">動作確認済み環境</a></li><li class="l3"><a href="#s45">自己チェック(21 項目すべて合格)</a></li><li class="l3"><a href="#s46">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>Phase 7 の最終日</strong>。Day 41 から 10 日かけて積んだもの——スキニング、アニメのブレンド、剛体、SAT、カプセル、地形、ソルバ、パーティクル、エフェクト——を、Day 39 で作った<strong>夕暮れの裏通り</strong>の中で1本に繋ぐ。</p>
+<p>今日の差分の性格は、これまでの 10 日とはっきり違う。<strong>新しい理論をほとんど足さない</strong>。足すクラスは3つだけで、そのうち本当に新しい考え方が入るのは <strong>三人称カメラ</strong> の 1 つ。残りの2つは「すでにあるものを別の形に言い換える」仕事になる。</p>
+<p>そのぶん、今日いちばん時間を食うのは<strong>繋ぎ目</strong>のほうになる。Day 39 以降、デモ v1 は<strong>他の全部と排他</strong>だった——<code>ShowCharacterDemo</code> も <code>ShowPhysicsDemo</code> も、冒頭で <code>UnloadDemoScene</code> を呼んでいる。今日はそこを1か所だけ崩す。<strong>シーンとキャラクターだけは同時に立つ</strong>。</p>
+<blockquote><p><strong>今日の実装でいちばん引っかかったのは境界箱の二重変換だった</strong></p>
+<p><code>Model.Part.BoundsMin</code> は<strong>すでに <code>Part.Transform</code> を通ったあと</strong>の値で、<code>Item.Transform</code>(= <code>Part.Transform * placement</code>)を掛けると 2 回掛かる。絵は正しく出たまま<strong>当たり判定だけが 3m の箱</strong>になり、「見えない壁に当たる」という形で出た。見つけたのは内訳(<code>F9</code>)を眺めていて「ゴミ箱の高さが 1.95m は変だ」と気づいたから——<strong>数字を並べて出しておいたことがそのまま効いた</strong>(要点5)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「プレイアブルデモ」ページを開いて <code>F2</code> を押すと、Day 39 の裏通りにキツネが立ち、矢印キーで歩き、<code>X</code> で走る。カメラは背中側から遅れて付いていき、壁際まで下がると自分から寄る。走ると足元から土埃が上がり、ゴミ箱の手前で止まる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「プレイアブルデモ」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>プレイアブルデモ ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>追従の速さ(即時 / 5 / 10 / 20)。<strong>即時が Day 45 の挙動</strong></td></tr>
+<tr><td><code>F4</code></td><td>カメラの壁寄せ ON/OFF</td></tr>
+<tr><td><code>F5</code></td><td>肩越しの構え(近 / 中 / 遠)</td></tr>
+<tr><td><code>F6</code></td><td>当たり判定を出す(環境の箱 + カプセル)</td></tr>
+<tr><td><code>F7</code></td><td>アニメのブレンド ON/OFF</td></tr>
+<tr><td><code>F8</code></td><td>出発点へ戻す</td></tr>
+<tr><td><code>F9</code></td><td>内訳(環境コライダを1つずつ並べる)</td></tr>
+<tr><td><code>F10</code></td><td>今日の自己チェック(21 項目)</td></tr>
+</tbody>
+</table></div>
+<p>操作は Day 45 のキャラクターデモと同じ。矢印キーで歩き、<code>X</code> で走り、<code>Space</code> で跳ぶ(<code>WASD</code> は割り当てられていない——<code>W</code>/<code>A</code>/<code>S</code> がデバッグ用に埋まっているため。<code>InputMap</code> のコメント参照)。マウスのドラッグでカメラが回り、ホイールで寄る。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「注視点だけを遅らせる」</strong>。三人称カメラを「それらしく」する要素はたくさんあるが、いちばん効くのはこの1行になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float t = 1.0f - MathF.Exp(-Smoothing * deltaSeconds);
+Target = Vector3.Lerp(Target, wanted, t);</code></pre></div>
+<p>よく書かれる <code>Lerp(now, wanted, 0.1f)</code> は<strong>フレームレートで速さが変わる</strong>——144fps では 60fps の 2.4 倍の回数だけ寄るので、同じ <code>0.1</code> でも追従が別物になる。指数の形にすると「1秒でどれだけ残るか」が dt によらず一定になる(要点1)。</p>
+<p><strong>遅らせるのは注視点だけ</strong>で、方位・仰角・距離は生のまま使う。マウスで回している最中に角度まで遅らせると、<strong>手の動きにカメラが付いてこない</strong>という、いちばん嫌な種類の遅れになる(要点2)。</p>
+<p><strong>2つ目は「描画メッシュを当たり判定に使わない」</strong>。裏通りの街灯は 1 体で 5 千枚の三角形を持つ。キャラクターは 1 ステップに 10 回以上カプセルの問い合わせを投げる(Day 45)ので、そのまま当てれば <strong>1 ステップ 5 万回</strong>の三角形判定になる。</p>
+<div class="code"><pre><code>  描画   街灯 = 5,178 枚の三角形(3 パーツ)
+  判定   街灯 = 0.70 x 3.87 x 0.39 m の箱 1 つ</code></pre></div>
+<p>置き換える形は<strong>世界軸に沿った箱</strong>にした。Day 44 の SAT がそのまま使えて、回転を持ち込まなくて済む。代償は<strong>斜めに置いたものが実物より太る</strong>こと(要点5・6)。</p>
+<p><strong>3つ目は「カプセルをモデルに合わせる」</strong>(逆ではない)。Day 45 のカプセルは全高 1.8m の人型だったが、今日操作するのは全高 70cm のキツネ。モデルをカプセルに合わせると<strong>1.8m のキツネ</strong>ができる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Scale  = targetHeight / (max.Y - min.Y);          // glTF に単位の約束は無い
+Radius = min(size.X, size.Z) * 0.5f * Scale;      // <strong>細いほうの辺</strong>から取る</code></pre></div>
+<p>半径を長いほうの辺(鼻から尻尾まで 1.1m)から取ると<strong>半径 55cm の樽</strong>になり、狭い場所へ入れなくなる。カプセルは「体の芯」を包むものなので細いほうに合わせる(要点8)。</p>
+<h3 id="s3">今日は Render と Demo にしか触らない</h3>
+<p>差分は <code>Render/</code> に新規1本、<code>Demo/</code> に新規2本と変更1本、<code>Physics/</code> に既定引数を1つ、そして <code>Program.cs</code>。<code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <code>Text/</code> も <code>Audio/</code> も1行も変わっていない。</p>
+<p><code>Physics/CharacterController.cs</code> の変更は<code>Teleport(footPosition)</code> に <code>facingYaw = 0.0f</code> を足しただけで、<strong>既定値があるので Day 45〜50 の呼び出しは1つも変わらない</strong>。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://www.gdcvault.com/play/1022646/50-Camera">Third-Person Camera Design(Game Programming Patterns 的な整理。GDC 2016 "50 Game Camera Mistakes")</a>— <strong>今日の一次資料にあたるもの</strong>。三人称カメラで「やってはいけない 50 個」の一覧。今日入れる3つ(遅れて追う・肩越し・壁寄せ)がなぜ要るのかが、失敗例の側から読める</li><li><a href="https://www.rorydriscoll.com/2016/03/07/frame-rate-independent-damping-using-lerp/">Frame rate independent damping using lerp(Rory Driscoll)</a>— <strong>要点1の根拠</strong>。<code>Lerp(a, b, 0.1f)</code> がなぜ壊れるか、<code>1 - exp(-k·dt)</code> がどこから来るか</li><li><a href="https://docs.unity3d.com/Manual/class-CharacterController.html">Character Controller と Collider の分離(Unity Manual: Character Controller)</a>— 実際のエンジンが「カプセル1本 + 描画メッシュ」をどう分けているか。<code>height</code> / <code>radius</code> / <code>stepOffset</code> / <code>slopeLimit</code> の4つは Day 45 で作ったものと同じ</li><li><a href="https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#coordinate-system-and-units">glTF 2.0 の単位(仕様 2.1 "Coordinate System and Units")</a>— メートルが「推奨」でしかないこと。Fox が cm で作られている理由(要点8)</li><li><strong>Day 45b の計画書 要点1</strong>(このリポジトリ)— 「入力をカメラ基準に直すのは呼ぶ側の仕事」。今日その呼ぶ側が三人称カメラになる</li><li><strong>Day 42 の計画書 要点2</strong>(このリポジトリ)— ブレンド木の点は「そのクリップが表す速さ」。今日それが実際に出る速さと一致する(要点9)</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 遅れて追う — <code>Lerp(a, b, 0.1f)</code> が壊れる理由</h3>
+<p>「毎フレーム、残りの 10% を詰める」は素直な書き方に見えて、<strong>1フレームがどれだけの時間かを一切見ていない</strong>。</p>
+<div class="code"><pre><code>  60fps  … 1 秒で 60 回詰める → 残りは 0.9^60  = 0.18%
+ 144fps  … 1 秒で 144 回詰める → 残りは 0.9^144 = 0.000026%</code></pre></div>
+<p>同じコードが、画面のリフレッシュレートで<strong>別の挙動になる</strong>。しかも「速いほうが気持ちいい」ので、開発機で調整すると遅い環境で<strong>カメラが付いてこない</strong>形で出る。</p>
+<p>直し方は「1秒でどれだけ残るか」を先に決めること。1秒で <code>e^(-k)</code> 倍だけ残ると決めれば、dt 秒ぶんでは <code>e^(-k·dt)</code> 倍が残る。詰める割合はその余り。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float t = 1.0f - MathF.Exp(-Smoothing * deltaSeconds);
+Target = Vector3.Lerp(Target, wanted, t);</code></pre></div>
+<p><code>Smoothing = 10</code> なら、1 秒後に残るのは <code>e^(-10)</code> = 0.0045%。自己チェックはこの数字を直接突き合わせている——<strong>60fps で 60 回回した結果と 144fps で 144 回回した結果が 0.002mm 以内で一致する</strong>。</p>
+<p><strong>この形には名前がついている</strong>(指数平滑 / exponential decay)。バネとダンパで書く流儀もあり、そちらは行き過ぎ(オーバーシュート)を作れるぶん「カメラがふわっと追い越して戻る」表現ができる。今日は行き過ぎが要らないので、1 行で済むほうを採った。</p>
+<div class="inject"><figure class="lab" id="smooth-lab">
+  <div class="lab-head">
+    <h3>10m 先へ注視点を寄せる(要点1)</h3>
+    <span class="tag">FollowCamera.Update の指数平滑と、素朴な Lerp(a, b, 0.1f) を同じ fps で回す。縦軸は残りの距離(対数)</span>
+  </div>
+  <div class="stage"><canvas id="smooth-canvas" style="height:260px" aria-label="残りの距離が時間とともに減っていくグラフ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">追従の速さ(F3)</span>
+      <div class="seg" id="smooth-k"><button data-v="0" aria-pressed="false">即時</button><button data-v="5" aria-pressed="false">5/s</button><button data-v="10" aria-pressed="true">10/s</button><button data-v="20" aria-pressed="false">20/s</button></div>
+    </div>
+    <div class="ctl"><span class="label">fps</span>
+      <div class="seg" id="smooth-fps"><button data-v="30" aria-pressed="false">30</button><button data-v="60" aria-pressed="true">60</button><button data-v="144" aria-pressed="false">144</button><button data-v="240" aria-pressed="false">240</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="smooth-stats"></div></div>
+</figure></div>
+<h3 id="s7">2. 遅らせてよいもの、遅らせてはいけないもの</h3>
+<p>同じ「滑らかにする」でも、<strong>入れる場所を1つ間違えると操作感が壊れる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>値</th><th>遅らせるか</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td>注視点(キャラクターの位置)</td><td><strong>遅らせる</strong></td><td>勝手に動くもの。段差を登った跳ねが均される</td></tr>
+<tr><td>方位・仰角(マウス)</td><td><strong>遅らせない</strong></td><td>手が直接動かしているもの。遅れると「重い」と感じる</td></tr>
+<tr><td>距離(ホイール)</td><td>遅らせない</td><td>同上</td></tr>
+<tr><td>壁寄せの距離</td><td>本当は遅らせたい</td><td>今日は入れていない(要点11)</td></tr>
+</tbody>
+</table></div>
+<p>線は「<strong>その値を誰が動かしているか</strong>」で引く。人が動かしているものを遅らせると、それは遅延であって滑らかさではない。</p>
+<p><strong>壁寄せだけは例外</strong>で、勝手に動くのに今日は遅らせていない。柱の陰を横切るとカメラが<strong>かくんと寄って、かくんと戻る</strong>。実際のエンジンは「寄るのは速く、戻るのは遅く」という非対称な平滑を入れる(要点11)。</p>
+<h3 id="s8">3. 壁寄せ — スフィアキャストが無いときの代用</h3>
+<p>三人称カメラが壁に潜るのを防ぐ本来のやり方は<strong>スフィアキャスト</strong> (球を線分に沿って掃引して、最初に当たる位置を求める)。うちの <code>PhysicsWorld</code> が持っているのは「その場所で埋まっているか」(<code>OverlapCapsule</code>。Day 45 で段差の天井用に作った)だけなので、<strong>刻んで何度も置く</strong>ことで代用する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>for (int i = 1; i &lt;= steps; i++)
+{
+    float sample = MinDistance + ((distance - MinDistance) * i / steps);
+    Vector3 point = OrbitCameraController.EyePosition(Target, sample, yaw, pitch);
+
+    if (blocked(point, CollisionRadius)) break;   // <strong>1つ手前まで</strong>
+    free = sample;
+}</code></pre></div>
+<p><strong>手前から順に見る</strong>のが大事なところ。奥から見て「当たっていない最初の点」を探すと、薄い壁を挟んだ<strong>向こう側の部屋</strong>を「空いている」と答えてしまう。</p>
+<p>刻み幅より細い柱はすり抜けるが、そのぶんは球の半径(25cm)が拾う。12 回で 6m を見ると 43cm 刻み——実測で 1 フレーム 12 回の問い合わせ、<code>OverlapCapsule</code> はブロードフェーズを通るので <strong>0.06ms</strong> で収まっている。</p>
+<p><strong>「1つも空いていない」ときの答えを用意しておく</strong>のを忘れないこと。キャラクターが箱にめり込んだフレームでは全部の点が埋まる。そのとき元の距離のままにすると、<strong>カメラが壁の中に残る</strong>。</p>
+<div class="inject"><figure class="lab" id="probe-lab">
+  <div class="lab-head">
+    <h3>壁寄せ — 刻んで球を置く(要点3)</h3>
+    <span class="tag">真上から見た図(仰角 0)。球の半径 0.25m、MinDistance 0.8m。キャンバスをドラッグすると方位が回る</span>
+  </div>
+  <div class="stage"><canvas id="probe-canvas" style="height:320px" aria-label="注視点のまわりの壁と、カメラの候補点" tabindex="0"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">方位</span>
+      <div class="range"><input type="range" id="probe-yaw" min="-180" max="180" step="1" value="0"><output id="probe-yaw-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">距離(F5 の構え / ホイール)</span>
+      <div class="seg" id="probe-dist"><button data-v="1.6" aria-pressed="false">近 1.6</button><button data-v="2.8" aria-pressed="true">中 2.8</button><button data-v="4.5" aria-pressed="false">遠 4.5</button><button data-v="6" aria-pressed="false">6.0</button></div>
+    </div>
+    <div class="ctl"><span class="label">刻み</span>
+      <div class="seg" id="probe-steps"><button data-v="4" aria-pressed="false">4 回</button><button data-v="12" aria-pressed="true">12 回</button><button data-v="24" aria-pressed="false">24 回</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="probe-on" checked> 壁寄せ(F4)</label>
+    <label class="check"><input type="checkbox" id="probe-far"> 奥から探す(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="stats" id="probe-stats"></div><p id="probe-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. 物理を知らないカメラ — 関数を1つ受け取るだけ</h3>
+<p><code>FollowCamera</code> は <code>Render/</code> に置いた。<code>Render/</code> から <code>Physics/</code> への矢印は今まで1本も無く、今日も引きたくない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public void Update(..., Func&lt;Vector3, float, bool&gt;? blocked, float deltaSeconds)</code></pre></div>
+<p>「その点に半径 r の球を置いたら何かに埋まるか」を<strong>関数で受け取る</strong>。<code>DemoScene.Load</code> が <code>Func&lt;string, string&gt; resolveAsset</code> を受け取って「<code>assets/</code> をどこから探すか」を持ち込まなかったのとまったく同じ形になる。</p>
+<p>配当は2つ。<strong>層の矢印が増えない</strong>ことと、<strong>自己チェックが窓を開かずに走る</strong>こと——壁寄せの検算は「2m より遠いところは全部塞がっている」という作り物の関数を渡すだけで書ける。</p>
+<h3 id="s10">5. 描画メッシュは当たり判定に使えない</h3>
+<p>裏通りの三角形は 215,350 枚。これをそのままカプセルに当てると、キャラクターが 1 歩動くたびに 20 万回の三角形判定が走る。Day 46 でブロードフェーズを入れてあるので実際にはもっと少ないが、<strong>桁が違う</strong>ことは変わらない。</p>
+<p>実際のエンジンも「描画用メッシュ」と「衝突用メッシュ」を別に持つ。うちは近似の形を1種類だけ用意した——<strong>世界軸に沿った箱(AABB)</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>三角形の数</th><th>判定の相手</th></tr></thead>
+<tbody>
+<tr><td>描画</td><td>街灯 5,178 / ゴミ箱 12,288 / バリア 3,072</td><td>—</td></tr>
+<tr><td>判定</td><td>0</td><td>箱 8 個 + 無限平面 1 枚</td></tr>
+</tbody>
+</table></div>
+<p>箱を選んだ理由は2つ。<strong>Day 44 の SAT がそのまま使える</strong>ことと、<strong>回転を持ち込まなくて済む</strong>こと。1 体が何個かのパーツに割れている(街灯 = 柱 + 笠 + ガラス)ので、OBB にすると<strong>パーツごとに違う行列を1つの向きにまとめる</strong>という厄介が出る。</p>
+<h3 id="s11">6. 回した箱は必ず太る。厚み 0 の箱は当たらない</h3>
+<p>AABB を選んだ代償が2つ出る。どちらも<strong>絵を見ても分からない</strong>種類のもの。</p>
+<p><strong>太る</strong>。境界箱を回して包み直すと、元より必ず大きくなる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 8 隅を全部通す。中心と大きさだけを回しても正しい箱にならない
+for (int corner = 0; corner &lt; 8; corner++) { ... }</code></pre></div>
+<p>これは Day 39 の <code>AlignToGround</code>(小物の足元を床に合わせる)がやっていたのとまったく同じ計算で、今日 <code>TransformBounds</code> として切り出した。14 度傾けて立てかけた古タイヤは、実物より一回り大きい箱になる——歩くと「見た目より手前で止まる」。</p>
+<p><strong>厚みが 0 になる</strong>。壁は XY 平面の 1x1 の板を回して置いたものなので、Z 方向の広がりが厳密に 0。そのまま箱にすると SAT の分離軸のうち 1 本が長さ 0 になり、<strong>「どんなに押しても離れられる」= すり抜ける</strong>面ができる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 half = Vector3.Max((max - min) * 0.5f, new Vector3(MinThickness * 0.5f));</code></pre></div>
+<p>10cm 与えておけば、壁の裏側に 5cm はみ出すだけで済む。</p>
+<div class="inject"><figure class="lab" id="aabb-lab">
+  <div class="lab-head">
+    <h3>回した箱を世界軸の箱で包む(要点6)</h3>
+    <span class="tag">真上から見た図。道路バリアは局所 1.55 x 0.64m(高さ 0.83m は回しても変わらない)</span>
+  </div>
+  <div class="stage"><canvas id="aabb-canvas" style="height:260px" aria-label="回した箱と、それを包む世界軸の箱"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">もの</span>
+      <div class="seg" id="aabb-shape"><button data-v="barrier" aria-pressed="true">道路バリア</button><button data-v="wall" aria-pressed="false">壁の板(厚み 0)</button></div>
+    </div>
+    <div class="ctl"><span class="label">Y 軸まわりの回転</span>
+      <div class="range"><input type="range" id="aabb-angle" min="0" max="180" step="1" value="84"><output id="aabb-angle-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="aabb-min" checked> 厚みの下限 MinThickness = 10cm</label>
+  </div>
+  <div class="readout"><div class="stats" id="aabb-stats"></div><p id="aabb-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s12">7. 名前で束ねる — パーツ 25 個から箱 8 個へ</h3>
+<p><code>DemoScene.Item</code> は glTF のパーツ単位に割れていて、名前が <code>"街灯/Lamp_Glass"</code> の形になっている(Day 39)。<strong><code>/</code> の手前で束ねる</strong>と、JSON に書いた小物 1 つが箱 1 つになる。</p>
+<div class="code"><pre><code>  描画 25 個(板 3 + glTF のパーツ 22)
+    ↓ collision: none を落とす(古タイヤ 1 個)
+    ↓ collision: plane を分ける(地面 1 枚)
+    ↓ 名前の / の手前で束ねる
+  箱 8 個 + 無限平面 1 枚</code></pre></div>
+<p>束ねずにパーツごとに箱を作ると、街灯だけで 3 つの箱が重なって立つ。動きはするが、内訳(<code>F9</code>)を読んでも何が起きているのか分からなくなる。</p>
+<p><strong>当たり判定の種類は JSON に書く</strong>。描画メッシュから自動で決めようとすると、「60m 角の地面は平面」「倒したタイヤは通り抜けたい」のような<strong>メッシュを見ても分からない判断</strong>が必ず要る。露出や太陽の方位と同じで、これは絵を作る人が書くほうへ寄せた。</p>
+<div class="code"><span class="lang">jsonc</span><pre><code>{ "name": "地面",         "collision": "plane" }   // 無限平面
+{ "name": "古タイヤ(倒し)", "collision": "none"  }   // 踏める
+// 書かなければ box(<strong>書き忘れたときは当たるほうが気づける</strong>)</code></pre></div>
+<h3 id="s13">8. モデルとカプセルは別物。合わせるのはカプセルのほう</h3>
+<p>Day 45 の <code>RenderCharacter</code> にはこう書いてあった——「描いているのは当たり判定の形そのもの。Day 51 でモデルを載せると、この一致は失われる」。今日それが起きる。</p>
+<p><strong>2つを結ぶ道は3本しかない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td>置く</td><td>足元 <code>Position</code> と向き <code>FacingYaw</code> から世界行列を作る</td></tr>
+<tr><td>混ぜる</td><td><code>HorizontalSpeed</code> をブレンド木に渡す</td></tr>
+<tr><td>合わせる</td><td>モデルの実寸をカプセルの高さに合わせる倍率を1回だけ測る</td></tr>
+</tbody>
+</table></div>
+<p><strong>逆向きの矢印は無い</strong>。キツネが尻尾を振っても前脚を伸ばしても、世界と当たるのはカプセルのまま。<code>F6</code> で当たり判定を出すと、<strong>頭と尻尾がカプセルからはみ出している</strong>のが見える。</p>
+<p>これは手抜きではなく<strong>意図した割り切り</strong>で、実際のアクションゲームもほぼこの形。次の段は「攻撃判定だけ骨に付ける」で、そこで初めて骨が判定に関わる。</p>
+<p><strong>倍率は高さで決める</strong>。glTF の単位は「メートルを推奨」でしかなく、Fox は cm(全高 70)で作られている。「目標の高さ ÷ 実寸の高さ」なら、どの単位のモデルでも同じ大きさに揃う。</p>
+<div class="code"><pre><code>  Fox.glb   実寸 74.5(単位不明) → 倍率 x0.0094 → 全高 0.70m
+  カプセル  半径 0.194m / 全高 0.700m / 乗り越え 0.245m</code></pre></div>
+<p><strong>乗り越えも縮める</strong>。1.8m の人型用の 35cm は、70cm のキツネには胸の高さになる。全高の 35% にしておけば、体の大きさが変わっても比が保たれる。</p>
+<h3 id="s14">9. ブレンド木の点は「実際に出る速さ」に置く</h3>
+<p>Day 42 では速度を手で振っていたので、木の点は <code>MaxMoveSpeed = 3.2</code> という<strong>見比べ用の定数</strong>だった。今日はキャラクターが実際に走るので、点は <code>WalkSpeed</code> と <code>RunSpeed</code> そのものになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>new BlendTree1D.Sample("立ち止まり", idle, 0.0f),
+new BlendTree1D.Sample("歩き",     walk, AvatarWalkSpeed),   // 2.0 m/s
+new BlendTree1D.Sample("走り",     run,  AvatarRunSpeed),    // 5.0 m/s</code></pre></div>
+<p>ここがずれていると、<strong>全速力で走っているのに歩きの重みが残る</strong>。絵としては「足が空回りしている」ように見えるが、原因はアニメーションではなく<strong>数字の食い違い</strong>なので探しにくい。</p>
+<div class="inject"><figure class="lab" id="blend-lab">
+  <div class="lab-head">
+    <h3>ブレンド木の点と、実際に出る速さ(要点9)</h3>
+    <span class="tag">BlendTree1D.Evaluate と同じ。挟む2点を探して内分する。キャラクターは歩き 2.0m/s・走り 5.0m/s で動く</span>
+  </div>
+  <div class="stage"><canvas id="blend-canvas" style="height:220px" aria-label="速さに対するクリップの重み"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">木の点</span>
+      <div class="seg" id="blend-points"><button data-v="today" aria-pressed="true">今日(0 / 2.0 / 5.0)</button><button data-v="day42" aria-pressed="false">Day 42 の見比べ用(0 / 1.0 / 3.2)</button></div>
+    </div>
+    <div class="ctl"><span class="label">いまの速さ</span>
+      <div class="range"><input type="range" id="blend-speed" min="0" max="6" step="0.05" value="2"><output id="blend-speed-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="blend-stats"></div><p id="blend-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>クリップを名前で探すのは1か所だけ</strong>にする。Day 42 の <code>BuildLocomotion</code> と今日で別々に探すと、見比べ用のデモと実プレイで<strong>違うクリップが選ばれうる</strong>——しかも絵は両方それらしく出るので、まず気づけない。</p>
+<p><strong>Fox がそのまま載る</strong>のは、クリップ名が <code>Survey</code> / <code>Walk</code> / <code>Run</code> だから。<code>FindClip(model, "idle", "survey", "stand")</code> の <code>survey</code> は Day 42 で入れてあった。</p>
+<h3 id="s15">10. 出発点と、カメラを背中側に置くこと</h3>
+<p>キャラクターの向きが <code>f</code> のとき、カメラは <code>f + π</code> の方角に立つ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_orbit.Yaw = _playableSpawnYaw + MathF.PI;</code></pre></div>
+<p><code>OrbitCameraController.EyePosition</code> は方位 <code>yaw</code> のとき<code>(sin yaw, cos yaw)</code> 側へ離れるので、真後ろに置くには半周ぶん足す。こうしておくと「上キー = 画面の奥」(Day 45b の要点1)と「キャラクターの正面」が最初から一致する。</p>
+<p><strong>瞬間移動と追従はいつも対で扱う</strong>。出発点へ戻すときに <code>FollowCamera.Snap</code> を呼ばないと、<strong>カメラだけが元居た場所から世界を横断してゆっくり飛んでくる</strong>。遅れて追う仕組みを入れると必ず出る種類の問題で、Day 50 で歩数の端数を <code>Reset</code> したのと同じ話になる。</p>
+<h3 id="s16">11. 今日入れなかったもの</h3>
+<p>三人称カメラの「気持ちよさ」に効くもののうち、今日入れていないもの。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td>進行方向の先読み</td><td>走ると画面の中央にキャラクターが居続ける(前が見えない)</td><td>改造課題1</td></tr>
+<tr><td>壁寄せの平滑</td><td>柱の陰を横切るとカメラがかくんと動く</td><td>要点2</td></tr>
+<tr><td>本物のスフィアキャスト</td><td>刻みより細い柱をすり抜ける</td><td><code>PhysicsWorld</code> に足す仕事</td></tr>
+<tr><td>OBB の環境コライダ</td><td>斜めのものが太る</td><td>改造課題2</td></tr>
+<tr><td>ルートモーション</td><td>走ると足が滑る</td><td>改造課題3</td></tr>
+<tr><td>動くものを <code>Scene/</code> に載せる</td><td>GameObject の階層が使えないまま</td><td>設計書「今日残した歪み」</td></tr>
+</tbody>
+</table></div>
+<p><strong>足が滑る</strong>のは今日いちばん目につく粗になる。歩く速さ(2.0 m/s)とクリップの歩幅が合っていないので、接地している足が地面の上を滑る。直し方は2つあって、「クリップの再生速度を速さに合わせる」が安いほう、「クリップの移動量から速さを決める」(ルートモーション)が正しいほう。</p>
+</section>
+<section class="part"><h2 id="s17">前Dayからの差分概要</h2>
+<h3 id="s18">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/FollowCamera.cs</code></td><td>226</td><td><strong>三人称の追従カメラ</strong>。遅れて追う・肩越し・壁寄せ(要点1〜4)</td></tr>
+<tr><td><code>Demo/SceneCollision.cs</code></td><td>214</td><td><strong>シーンから環境コライダを起こす</strong>。名前で束ねて AABB の静的な体に(要点5〜7)</td></tr>
+<tr><td><code>Demo/PlayableDemo.cs</code></td><td>232</td><td><strong>操作されるキャラクターの見た目</strong>。寸法合わせ・ブレンド・世界行列(要点8・9)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/CharacterController.cs</code></td><td><code>Teleport</code> に <code>facingYaw = 0.0f</code> を追加</td><td>+12 / -3</td></tr>
+<tr><td><code>Demo/DemoScene.cs</code></td><td><code>SceneCollisionKind</code>、<code>Item</code> に世界空間の境界箱と当たり判定の種類、<code>player</code> 節、<code>TransformBounds</code> の切り出し</td><td>+131 / -13</td></tr>
+<tr><td><code>Program.cs</code></td><td>プレイアブルデモ一式、メニュー 9 項目、HUD 1行、描画3パスの枝、自己チェック 21 項目</td><td>+874 / -4</td></tr>
+<tr><td><code>assets/scenes/demo-v1.json</code></td><td><code>player</code>(出発点)と <code>collision</code>(当たり判定の種類)。<strong>写経の対象外</strong></td><td>+35 / -3</td></tr>
+</tbody>
+</table></div>
+<p><code>assets/scenes/demo-v1.json</code> は Day 39〜50 と共有しているファイルだが、足したのは<strong>知らないキーは飛ばされる</strong>種類の追加だけなので、過去の Day の絵は 1 ピクセルも変わらない(<code>DemoScene.Load</code> は <code>TryGetProperty</code> でしか読まない)。</p>
+<h3 id="s20">写経する順番</h3>
+<div class="code"><pre><code>1. Physics/CharacterController.cs   Teleport に向きの引数(既定値つき)
+2. Render/FollowCamera.cs           三人称カメラ(新規)
+3. Demo/DemoScene.cs                Item の境界箱・collision・player・TransformBounds
+4. Demo/SceneCollision.cs           環境コライダ(新規。3 の Item を使う)
+5. Demo/PlayableDemo.cs             キャラクターの見た目(新規)
+6. Program.cs                       全部を繋ぐ
+7. Day51.csproj                     Day50.csproj からのリネームのみ</code></pre></div>
+<p><strong>依存順に並べてある</strong>。<code>SceneCollision</code> は <code>DemoScene.Item.BoundsMin</code> と<code>SceneCollisionKind</code> を使うので <code>DemoScene</code> より後、<code>Program</code> は 5 つ全部を使うのでいちばん最後。<code>FollowCamera</code> は <code>OrbitCameraController.EyePosition</code> しか使わないので、2 番でも 5 番でも構わない(読む順として、今日の主役から入るほうが分かりやすい)。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(_playable / _avatar / _follow / _sceneCollision / 構えの表)
+    → ShowPlayableDemo / HidePlayableDemo        繋ぎ目。ここがいちばん厄介
+    → LoadAvatarModel / BuildPlayableWorld       読む・組む
+    → RespawnAvatar / ApplyShoulderPreset        立たせる
+    → UpdateFollowCamera / ProbeCamera           毎フレーム
+    → RenderPlayable / RenderSceneColliders      描く
+    → PlayableLabel / DescribePlayable           出す
+    → RunPlayableCheck                           検算
+    → OnUpdate / Render3D / RenderShadowPass / RenderSsaoPass / DrawOverlayInfo   既存への差し込み
+    → BuildDebugMenu の末尾                       メニュー 1 ページ</code></pre></div>
+</section>
+<section class="part"><h2 id="s21">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が1つ、<code>Demo/</code> に型が3つ増えて、<code>Physics/CharacterController</code> の口が1つ広がっただけ。<code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <code>Text/</code> も <code>Audio/</code> も1行も変わっていない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/FollowCamera</code></td><td><code>Render/</code></td><td>三人称の追従カメラ。<strong>226 行</strong>(要点1〜4)</td></tr>
+<tr><td><code>Demo/SceneCollisionKind</code></td><td><code>Demo/</code></td><td>当たり判定としての扱い(none / box / plane)</td></tr>
+<tr><td><code>Demo/SceneCollision</code></td><td><code>Demo/</code></td><td>シーンから静的な体を起こす。<strong>214 行</strong>(要点5〜7)</td></tr>
+<tr><td><code>Demo/PlayableDemo</code></td><td><code>Demo/</code></td><td>操作されるキャラクターの見た目。<strong>232 行</strong>(要点8・9)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/CharacterController</code></td><td><code>Teleport</code> に <code>facingYaw = 0.0f</code>。<strong>既定値つきなので呼び出しは変わらない</strong></td><td>+12 / -3</td></tr>
+<tr><td><code>Demo/DemoScene</code></td><td><code>Item</code> に世界空間の境界箱と <code>Collision</code>、<code>player</code> 節、<code>TransformBounds</code> の切り出し</td><td>+131 / -13</td></tr>
+<tr><td><code>Program.cs</code></td><td>プレイアブルデモ一式、メニュー 9 項目、HUD 1行、描画3パスの枝、自己チェック 21 項目</td><td>+874 / -4</td></tr>
+</tbody>
+</table></div>
+<h3 id="s22">今日の3つは、どこに繋がったか</h3>
+<svg viewBox="0 0 950 450" role="img" aria-label="OrbitCameraController と CharacterController が FollowCamera と PlayableDemo へ、DemoScene が SceneCollision と描画へ、PhysicsWorld が壁寄せの問い合わせへ繋がる図。Render から Physics へは関数1本だけ" style="width:100%;max-width:950px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="220" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OrbitCameraController</text><text x="120" y="45.5" text-anchor="middle" fill="var(--ink)">Day 15。マウスを受ける</text><rect x="380" y="10" width="230" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="495" y="31.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FollowCamera</text><text x="495" y="48.5" text-anchor="middle" fill="var(--ink)">注視点を遅らせる・壁に寄る</text><rect x="760" y="16" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="40" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Camera</text><rect x="10" y="150" width="220" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="171.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CharacterController</text><text x="120" y="188.5" text-anchor="middle" fill="var(--ink)">Day 45。足元と向きと速さ</text><rect x="380" y="150" width="230" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="495" y="171.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PlayableDemo</text><text x="495" y="188.5" text-anchor="middle" fill="var(--ink)">世界行列とクリップの重み</text><rect x="760" y="150" width="180" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="171.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.Draw</text><text x="850" y="188.5" text-anchor="middle" fill="var(--ink)">本描画・影・SSAO の3パス</text><rect x="760" y="262" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="286" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.ProbeCamera</text><rect x="10" y="360" width="220" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="381.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DemoScene</text><text x="120" y="398.5" text-anchor="middle" fill="var(--ink)">Day 39。描くものの平らな並び</text><rect x="380" y="360" width="230" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="495" y="381.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SceneCollision</text><text x="495" y="398.5" text-anchor="middle" fill="var(--ink)">名前で束ねて箱にする</text><rect x="760" y="366" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="390" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PhysicsWorld</text><path d="M230 33 L378 33" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="305" y="25" fill="var(--muted)" font-size="12" text-anchor="middle">Yaw / Pitch / Distance</text><path d="M230 160 L420 64" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="250" y="110" fill="var(--muted)" font-size="12" text-anchor="start">Position</text><path d="M230 176 L378 176" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="325" y="154" fill="var(--muted)" font-size="12" text-anchor="middle">Position / FacingYaw /</text><text x="325" y="168" fill="var(--muted)" font-size="12" text-anchor="middle">HorizontalSpeed</text><path d="M610 36 L758 36" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="685" y="28" fill="var(--muted)" font-size="12" text-anchor="middle">Target / Eye</text><path d="M610 176 L758 176" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="685" y="168" fill="var(--muted)" font-size="12" text-anchor="middle">PartMatrix / PartJoints</text><path d="M230 386 L378 386" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="305" y="378" fill="var(--muted)" font-size="12" text-anchor="middle">Item(世界空間の境界箱)</text><path d="M120 360 L120 236 L850 236 L850 204" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="128" y="230" fill="var(--muted)" font-size="12" text-anchor="start">Item(Mesh / Material / Transform)</text><path d="M610 386 L758 386" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="685" y="378" fill="var(--muted)" font-size="12" text-anchor="middle">静的な RigidBody</text><path d="M850 366 L850 304" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="844" y="352" fill="var(--muted)" font-size="12" text-anchor="end">OverlapCapsule</text><path d="M760 282 L700 282 L700 120 L495 120 L495 64" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr1)"></path><text x="706" y="200" fill="var(--muted)" font-size="12" text-anchor="start">Func 1本</text><path d="M850 406 L850 436 L300 436 L300 194 L232 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="310" y="430" fill="var(--muted)" font-size="12" text-anchor="start">QueryCapsule</text></g></svg>
+<p><strong>出ていく矢印がどれも短い</strong>のが今日の姿になる。<code>FollowCamera</code> は <code>Camera</code> にしか書かず、<code>SceneCollision</code> は <code>PhysicsWorld</code> に足すだけ、<code>PlayableDemo</code> は行列と関節行列を返すだけ。<strong>今日足した3つは、どれも自分の外を1つしか知らない</strong>。</p>
+<p>点線の1本(<code>ProbeCamera</code> → <code>FollowCamera</code>)が要点4のところ。<code>Render/</code> から <code>Physics/</code> への実線を引かずに壁寄せを実現するために、<code>Func&lt;Vector3, float, bool&gt;</code> 1本で渡している。</p>
+<h3 id="s23">カメラが1フレーム決まるまで — 遅らせる1つと、遅らせない3つ</h3>
+<svg viewBox="0 0 796 817" role="img" aria-label="マウスの角度は遅らせず、注視点だけを指数平滑で寄せ、壁寄せで距離を決めて、最後に注視点を書き戻すまで" style="width:100%;max-width:796px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="28.5" text-anchor="middle" fill="var(--ink)">マウス(ドラッグ / ホイール)</text><rect x="20" y="67" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="87.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OrbitCameraController</text><text x="220" y="104.5" text-anchor="middle" fill="var(--ink)">Yaw / Pitch / Distance を書く</text><text x="220" y="121.5" text-anchor="middle" fill="var(--ink)" font-weight="700">ここは遅らせない</text><rect x="470" y="67" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="620" y="96" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CharacterController.Position</text><text x="620" y="113" text-anchor="middle" fill="var(--ink)">FixedUpdate が書いた足元</text><rect x="20" y="160" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OnUpdate → UpdateFollowCamera(dt)</text><text x="220" y="197.5" text-anchor="middle" fill="var(--ink)" font-weight="700">可変 dt</text><rect x="20" y="236" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="256.5" text-anchor="middle" fill="var(--ink)">注視点を寄せる</text><text x="220" y="273.5" text-anchor="middle" fill="var(--ink)">t = 1 - exp(-Smoothing x dt)</text><text x="220" y="290.5" text-anchor="middle" fill="var(--ink)">Target = Lerp(Target, 足元 + HeightOffset, t)</text><rect x="20" y="329" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="220" y="358" text-anchor="middle" fill="var(--ink)">壁寄せ ON?</text><rect x="470" y="329" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="620" y="349.5" text-anchor="middle" fill="var(--ink)">MinDistance から距離まで 12 回刻む</text><text x="620" y="366.5" text-anchor="middle" fill="var(--ink)">手前から順に球を置く</text><rect x="470" y="405" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="620" y="425.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">blocked(点, 0.25m) ?</text><rect x="470" y="464" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="620" y="484.5" text-anchor="middle" fill="var(--ink)">1つ手前で打ち切る</text><text x="620" y="501.5" text-anchor="middle" fill="var(--ink)">1つも空いていなければ MinDistance</text><rect x="20" y="540" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="560.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Eye = EyePosition(Target, 距離, Yaw, Pitch)</text><rect x="20" y="599" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="619.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Apply(camera)</text><text x="220" y="636.5" text-anchor="middle" fill="var(--ink)">Position / Target / OrthographicHeight</text><rect x="20" y="675" width="400" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="695.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_orbit.Target = _follow.Target</text><text x="220" y="712.5" text-anchor="middle" fill="var(--ink)" font-weight="700">書き戻す</text><rect x="20" y="751" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="771.5" text-anchor="middle" fill="var(--ink)">影の箱(Day 33)と AO が</text><text x="220" y="788.5" text-anchor="middle" fill="var(--ink)">この点を中心に置かれる</text><path d="M220 41 L220 65" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 134 L220 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M770 100.5 L784 100.5 L784 185 L422 185" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 210 L220 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 303 L220 327" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M420 354 L468 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="445" y="346" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M220 379 L220 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="228" y="395" fill="var(--muted)" font-size="12">No</text><path d="M620 379 L620 403" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M620 438 L620 462" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="628" y="454" fill="var(--muted)" font-size="12">埋まった</text><path d="M770 489 L784 489 L784 556.5 L422 556.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 573 L220 597" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 649 L220 673" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 725 L220 749" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M470 421.5 L448 421.5 L448 395 L500 395 L500 403" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="444" y="439.5" fill="var(--muted)" font-size="12" text-anchor="end">空いている: free = その距離</text><text x="444" y="455.5" fill="var(--muted)" font-size="12" text-anchor="end">次の刻みへ</text></g></svg>
+<p><strong>最後の書き戻しが落とし穴</strong>になる。<code>RenderShadowPass</code> は <code>_shadow.Begin(_lightDirection, _orbit.Target)</code> で影の箱を注視点に置いている(Day 33)。書き戻しを忘れると、キャラクターが歩いて離れた先で<strong>影だけが出発点に取り残される</strong>——しかも「影が消えた」ようにしか見えない。</p>
+<p><strong>遅らせているのは注視点だけ</strong>(要点2)。方位・仰角・距離は <code>_orbit</code> の値をそのまま使っていて、図の上でも <code>OB</code> から <code>UP</code> へ素通りしている。</p>
+<h3 id="s24">環境コライダが組み上がるまで — 25 個から 9 個へ</h3>
+<svg viewBox="0 0 816 876" role="img" aria-label="JSON から Item を作り、種類で振り分け、名前で束ねて箱にし、静的な体として世界に足すまで" style="width:100%;max-width:816px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">assets/scenes/demo-v1.json</text><text x="220" y="45.5" text-anchor="middle" fill="var(--ink)">surfaces[] と props[]</text><rect x="20" y="84" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="104.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DemoScene.Load</text><text x="220" y="121.5" text-anchor="middle" fill="var(--ink)">Day 39</text><rect x="20" y="160" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TransformBounds(局所の箱, 置く行列)</text><text x="220" y="197.5" text-anchor="middle" fill="var(--ink)" font-weight="700">8 隅を回して包み直す</text><text x="220" y="214.5" text-anchor="middle" fill="var(--ink)">板は ReadTransform / glTF は placement</text><rect x="20" y="253" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="273.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Item[] 25 個</text><text x="220" y="290.5" text-anchor="middle" fill="var(--ink)">世界空間の境界箱つき</text><rect x="20" y="329" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="349.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SceneCollision.Build</text><rect x="20" y="388" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="220" y="408.5" text-anchor="middle" fill="var(--ink)">Collision は?</text><rect x="470" y="388" width="320" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="630" y="408.5" text-anchor="middle" fill="var(--ink)">飛ばす(古タイヤ 1 個)</text><rect x="20" y="447" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="467.5" text-anchor="middle" fill="var(--ink)">名前の / の手前で束ねる</text><text x="220" y="484.5" text-anchor="middle" fill="var(--ink)">街灯/柱・街灯/笠・… → 街灯</text><rect x="470" y="447" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="630" y="467.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">法線 = TransformNormal(+Z, Transform)</text><text x="630" y="484.5" text-anchor="middle" fill="var(--ink)">AddPlane(1 枚)</text><rect x="20" y="523" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="543.5" text-anchor="middle" fill="var(--ink)">束ねた箱の Min / Max を取るだけ</text><text x="220" y="560.5" text-anchor="middle" fill="var(--ink)" font-weight="700">もう回すものは無い</text><rect x="20" y="599" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="619.5" text-anchor="middle" fill="var(--ink)">半分の大きさを MinThickness/2 で下から押さえる</text><text x="220" y="636.5" text-anchor="middle" fill="var(--ink)" font-weight="700">厚み 0 の板を通さない</text><rect x="20" y="675" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="695.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RigidBody.CreateStatic(Collider.Box)</text><text x="220" y="712.5" text-anchor="middle" fill="var(--ink)">Restitution = 0</text><rect x="20" y="751" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="771.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">world.AddBody + colors.Add</text><text x="220" y="788.5" text-anchor="middle" fill="var(--ink)" font-weight="700">並行配列なので必ず対で</text><rect x="20" y="827" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="847.5" text-anchor="middle" fill="var(--ink)">Result(箱 8 / 面 1 / 飛ばし 1 / 元 25)</text><path d="M220 58 L220 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 134 L220 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 227 L220 251" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 303 L220 327" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 362 L220 386" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M420 404.5 L468 404.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="445" y="396.5" fill="var(--muted)" font-size="12" text-anchor="middle">none</text><path d="M396 421 L494 445" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="428" y="433" fill="var(--muted)" font-size="12">plane</text><path d="M220 421 L220 445" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="228" y="437" fill="var(--muted)" font-size="12">box</text><path d="M220 497 L220 521" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 573 L220 597" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 649 L220 673" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 725 L220 749" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M790 472 L804 472 L804 776 L422 776" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M220 801 L220 825" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong><code>TransformBounds</code> に渡す行列が種類で違う</strong>のが、今日いちばん間違えたところ(要点5の囲み)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>もの</th><th>局所の箱</th><th>掛ける行列</th></tr></thead>
+<tbody>
+<tr><td>板(surfaces)</td><td>単位の板 (-0.5,-0.5,0)〜(0.5,0.5,0)</td><td><code>ReadTransform(entry)</code> = <code>Item.Transform</code></td></tr>
+<tr><td>glTF のパーツ(props)</td><td><code>Model.Part.BoundsMin/Max</code></td><td><strong><code>placement</code> だけ</strong>(<code>Item.Transform</code> ではない)</td></tr>
+</tbody>
+</table></div>
+<p><code>Part.BoundsMin</code> は <code>GltfLoader</code> が<strong><code>partWorld</code> を通したあとの座標で作っている</strong>ので、<code>Item.Transform</code>(= <code>Part.Transform * placement</code>)を掛けると <code>Part.Transform</code> が 2 回掛かる。使う側にこの区別を持ち出させないために、<strong><code>Item</code> は世界空間の箱を持つ</strong>ことにした——<code>SceneCollision</code> 側は最小・最大を取るだけで済む。</p>
+<h3 id="s25">キャラクターが1歩進んで、絵になるまで</h3>
+<svg viewBox="0 0 830 936" role="img" aria-label="固定ステップで入力をカメラ基準に直して動かし、可変 dt でブレンドと世界行列を作り、描画の3パスに同じ行列を渡すまで。カプセルへ戻る矢印は無い" style="width:100%;max-width:830px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="8" y="10" width="814" height="320" rx="10" fill="none" stroke="var(--line)" stroke-dasharray="6 5"></rect><text x="20" y="28" fill="var(--ink)" font-weight="700">FixedUpdate(固定 dt。状態)</text><rect x="290" y="34" width="250" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="56" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">InputSnapshot.MoveAxis</text><rect x="290" y="90" width="250" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="111.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_orbit.Yaw から前と右を作る</text><text x="415" y="128.5" text-anchor="middle" fill="var(--ink)" font-weight="700">入力をカメラ基準へ(Day 45b 要点1)</text><rect x="290" y="162" width="250" height="70" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="184" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Character.Move(Physics, wish, run, jump, dt)</text><text x="415" y="201" text-anchor="middle" fill="var(--ink)">水平 → 垂直 → 押し戻し</text><text x="415" y="218" text-anchor="middle" fill="var(--ink)">→ 段差 → 接地</text><rect x="20" y="254" width="240" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="275.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UpdateFootsteps(dt)</text><text x="140" y="292.5" text-anchor="middle" fill="var(--ink)" font-weight="700">距離で刻んで土埃(Day 50)</text><rect x="560" y="246" width="250" height="68" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="267" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FacingYaw を速度の向きへ寄せる</text><text x="685" y="284" text-anchor="middle" fill="var(--ink)">12 rad/s。</text><text x="685" y="301" text-anchor="middle" fill="var(--ink)" font-weight="700">絵のためだけの値</text><path d="M415 70 L415 88" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M415 142 L415 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M290 210 L140 210 L140 252" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M540 210 L685 210 L685 244" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="8" y="345" width="814" height="380" rx="10" fill="none" stroke="var(--line)" stroke-dasharray="6 5"></rect><text x="20" y="363" fill="var(--ink)" font-weight="700">OnUpdate(可変 dt。見せ方)</text><rect x="290" y="375" width="250" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="399" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UpdateFollowCamera(dt)</text><rect x="560" y="375" width="250" height="56" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="398.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PlayableDemo.Advance(</text><text x="685" y="415.5" text-anchor="middle" fill="var(--ink)">character, dt, blend)</text><rect x="560" y="449" width="250" height="86" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="470.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ブレンド木.Evaluate(</text><text x="685" y="487.5" text-anchor="middle" fill="var(--ink)">HorizontalSpeed) → ClipWeight[]</text><text x="685" y="504.5" text-anchor="middle" fill="var(--ink)">→ SetBlend</text><text x="685" y="521.5" text-anchor="middle" fill="var(--ink)" font-weight="700">重みが先</text><rect x="560" y="553" width="250" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="574.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Animation.Update(dt)</text><text x="685" y="591.5" text-anchor="middle" fill="var(--ink)">位相 → 混ぜる → 世界行列 → 関節行列</text><rect x="560" y="623" width="250" height="88" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="645.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Transform =</text><text x="685" y="662.5" text-anchor="middle" fill="var(--ink)">足元合わせ → 倍率 →</text><text x="685" y="679.5" text-anchor="middle" fill="var(--ink)">CreateRotationY(FacingYaw)</text><text x="685" y="696.5" text-anchor="middle" fill="var(--ink)">→ 位置</text><path d="M415 232 L415 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M685 314 L685 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M685 431 L685 447" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M685 535 L685 551" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M685 605 L685 621" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="8" y="740" width="814" height="186" rx="10" fill="none" stroke="var(--line)" stroke-dasharray="6 5"></rect><text x="20" y="758" fill="var(--ink)" font-weight="700">OnRender(描く)</text><rect x="20" y="770" width="240" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="791.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderParticles</text><text x="140" y="808.5" text-anchor="middle" fill="var(--ink)">不透明を全部描いたあと</text><rect x="290" y="770" width="250" height="70" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="792" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderShadowPass</text><text x="415" y="809" text-anchor="middle" fill="var(--ink)">_shadow.Draw(part.Mesh,</text><text x="415" y="826" text-anchor="middle" fill="var(--ink)">PartMatrix, PartJoints)</text><rect x="290" y="858" width="250" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="879.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="415" y="896.5" text-anchor="middle" fill="var(--ink)">_ssao.Draw(同じ行列と関節行列)</text><rect x="560" y="770" width="250" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="791.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D → RenderPlayable</text><text x="685" y="808.5" text-anchor="middle" fill="var(--ink)">Items → キャラクターのパーツ</text><path d="M140 306 L140 768" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M685 711 L685 768" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M590 711 L590 750 L415 750 L415 768" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M560 691 L552 691 L552 884 L542 884" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>同じ行列と関節行列を3回渡す</strong>のが、Day 41 から引いている約束になる。影・幾何・本描画のどれか1つでも違う姿勢を渡すと、<strong>影だけがバインドポーズの位置に残る</strong>ような壊れ方をする。Day 52 のディファードでこの3回が2回に減る。</p>
+<p><strong>カプセルは1本も動いていない</strong>のがこの図の読みどころ。<code>PlayableDemo</code> から <code>CharacterController</code> へ戻る矢印が無い——アニメーションは当たり判定に何の影響も与えない(要点8)。</p>
+<h3 id="s26">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 動くものが <code>Scene/</code> に載らなかった</strong>。Day 39 の設計書にはこう書いてあった——「<code>Scene/</code>(GameObject + Component)が本領を発揮するのは<strong>キャラクターが歩き回る Day 51</strong> で、そこで初めて『動くものだけが <code>Scene/</code> に載り、背景は <code>Demo/</code> のまま』という分業になる」。<strong>その予想は外れた</strong>。今日のキャラクターは <code>Demo/PlayableDemo</code> に居る。</p>
+<p>理由は2つある。1つは <code>Scene/</code> に<strong>メッシュを描くコンポーネントが無い</strong>こと——あるのは <code>SpriteRenderer</code> だけで、<code>MeshRenderer</code> も <code>SkinnedMeshRenderer</code> も居ない。もう1つは、キャラクターの<strong>本当の状態が <code>Physics/CharacterController</code> にある</strong>こと。<code>GameObject</code> を作っても、それは位置を写して回るだけの<strong>影</strong>になる。</p>
+<p><code>Transform</code> は Day 22 の時点で <code>Vector3</code> + <code>Quaternion</code> なので、器のほうは既に 3D を扱える。足りないのはコンポーネント2つと、<code>Scene</code> を走査して描くパスのほう。<strong>動くものが2つ以上になった日</strong>(NPC を置く、複数のキャラクターを出す)が、ここに手を付ける時期になる。</p>
+<p><strong>2つ目: 壁寄せが平滑されていない</strong>(要点2)。柱の陰を横切るとカメラが<strong>かくんと寄って、かくんと戻る</strong>。<code>FollowCamera</code> に「寄るのは速く、戻るのは遅い」という非対称な平滑を1つ足せば済むが、今日は<strong>壁寄せが効いていることが目で分かるほう</strong>を優先した。<code>F4</code> で切って壁に潜らせたときとの差が、平滑を入れると読み取りにくくなる。</p>
+<p><strong>3つ目: 足が滑る</strong>。歩く速さ(2.0 m/s)とクリップの歩幅が合っていないので、接地している足が地面の上を滑る。今日いちばん目につく粗で、直し方は改造課題3にした。<strong>これはアニメーションの問題ではなく数字の問題</strong>——クリップの移動量を測って速さのほうを決めれば消える。</p>
+</section>
+<section class="part"><h2 id="s27">完成条件</h2>
+<p><code>dotnet run --project reference/Day51 -c Release</code> で起動して、<code>F1</code> を 19 回押すか<code>Ctrl+F1</code> の目次から「プレイアブルデモ」ページ(19 枚目)を開く。</p>
+<h3 id="s28">1. <code>F2</code>: 裏通りにキツネが立ち、カメラが背中側に付く</h3>
+<p>コンソールに次の3行が出る。</p>
+<div class="code"><pre><code>プレイアブルデモ: <strong>ON</strong>「夕暮れの裏通り」
+  環境コライダ 8 箱 + 1 面(描画 25 個 / 当たらない 1 個)
+  キャラクター Fox.glb 全高 0.70m / 半径 0.19m / 倍率 x0.009 / 読込 179ms</code></pre></div>
+<p>画面は Day 39 の裏通りのまま、キツネが1体、通りの手前(<code>z = 5.5</code>)に突き当りの壁のほうを向いて立つ。<strong>カメラはその背中側</strong>。上キーを押すと画面の奥へ歩き出す——<strong>「上キー = 画面の奥」と「キツネの正面」が最初から一致している</strong>のが要点10。</p>
+<h3 id="s29">2. 矢印キーと <code>X</code>: 速度でアニメが混ざる</h3>
+<p>HUD の「プレイアブル」の行を読む。</p>
+<div class="code"><pre><code>プレイアブル[歩き]  速さ:2.00m/s  混合:Walk1.00  追従:10/s  構え:中  カメラ:3.00/3.00m  球:12回  環境:8箱+1面</code></pre></div>
+<p><code>X</code> を押しながら歩くと <code>速さ:5.00m/s  混合:Run1.00</code> になり、離した直後の減速中は <code>混合:Walk0.43+Run0.57</code> のような混ざった値が出る。<strong>歩きの点(2.0 m/s)でちょうど <code>Walk1.00</code> になる</strong>のが要点9で、ここがずれていると全速力でも歩きの重みが残る。</p>
+<h3 id="s30">3. <code>F7</code>: ブレンドを切ると足が止まる</h3>
+<p><code>混合:<strong>OFF</strong></code> になり、キツネは<strong>立ち止まりの姿勢のまま滑って移動する</strong>。アニメーションが絵のどこを支えているかが、切ってみるといちばんよく分かる。</p>
+<h3 id="s31">4. <code>F3</code>: 追従の速さ</h3>
+<p><code>即時</code> にすると Day 45 の1行と同じになる。段差を登った瞬間や、<code>F8</code> で出発点へ戻したときに<strong>絵が跳ねる</strong>。<code>5/s</code> まで落とすと、走り出したときにキツネが画面の端へ逃げていく。既定の <code>10/s</code> は「1秒で残り 0.0045%」で、跳ねが2〜3フレームで均される。</p>
+<h3 id="s32">5. <code>F4</code>: カメラの壁寄せ</h3>
+<p>左の壁(<code>x = -4</code>)に背中を付けて後ろへ下がると、ON のときは HUD が <code>カメラ:1.31/3.00m<strong>壁</strong></code> のように<strong>寄せられた距離</strong>を出す。OFF にすると <code>3.00/3.00m</code> のまま——そして<strong>画面が煉瓦のテクスチャで埋まる</strong>。カメラが壁の中に入って、外側から世界を見ている状態になる。</p>
+<p>消火栓(<code>-3.2, 0, 2.6</code>)の後ろに立つのがいちばん分かりやすい。背の低い障害物なので、<strong>寄っては戻る</strong>のが往復で見られる(要点2の「かくんと動く」)。</p>
+<h3 id="s33">6. <code>F5</code>: 肩越しの構え</h3>
+<p><code>近</code>(1.6m)/ <code>中</code>(2.8m)/ <code>遠</code>(4.5m)。距離だけでなく<strong>注視点の高さと仰角も一緒に変わる</strong>——遠くから見るときは少し見下ろさないと、キツネが地面に埋もれて見える。</p>
+<h3 id="s34">7. <code>F6</code>: 当たり判定を出す</h3>
+<p>キツネを<strong>水色のカプセルが包み</strong>、環境の箱が灰色で立つ。見どころは2つ。</p>
+<ul><li><strong>頭と尻尾がカプセルからはみ出している</strong>。モデルとカプセルは別物(要点8)</li><li><strong>道路バリアの箱が実物より太い</strong>。84 度回したものを世界軸の箱で包んだ結果(要点6)</li></ul>
+<p>足元の緑の板は接地の印(Day 45)。坂が無いので常に真上を向く。</p>
+<h3 id="s35">8. 環境コリジョン: ゴミ箱の手前で止まる</h3>
+<p>ゴミ箱(<code>-2.9, 0, -0.4</code>)へまっすぐ歩くと、<strong>触れる前に止まる</strong>。<code>F9</code> の内訳と突き合わせると理屈が合う。</p>
+<div class="code"><pre><code>    ゴミ箱                  中心 ( -2.90,  0.45,  -0.39)  大きさ  1.06 x  0.91 x  1.84 m</code></pre></div>
+<p>箱の手前の面は <code>z = -0.39 + 0.92 = 0.53</code>、カプセルの半径が 0.19 なので足元は <code>z = 0.72</code> で止まる。HUD の <code>キャラ[...]</code> の行に <code>壁</code> が出る。</p>
+<p><strong>古タイヤ(倒し)だけは踏める</strong>(<code>collision: none</code>)。上を歩いても引っかからない——JSON にそう書いたから(要点7)。</p>
+<h3 id="s36">9. 足元の土埃</h3>
+<p>歩き出すと足元から土埃が上がる。出ていなければ「エフェクト」ページ(18 枚目)の<code>F9</code>(足元の土埃)が OFF になっている。HUD の「効果」の行に <code>1/12本 粒:12</code> のように貸出中の放出口が出る。</p>
+<p><strong>走ると歩幅が広がる</strong>ので、土埃の数は速さに比例しては増えない(Day 50 の要点9)。</p>
+<h3 id="s37">10. <code>F9</code>: 内訳</h3>
+<p>環境コライダが 1 つずつ、中心と大きさつきで並ぶ。<strong>「見えない壁に当たる」ときの原因はここにしか無い</strong>——絵と数字を突き合わせられるように、名前・中心・大きさの3つを出してある。</p>
+<h3 id="s38">11. <code>F10</code>: 自己チェックが 21 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 51 自己チェック(三人称カメラ・環境コリジョン・寸法合わせ)===
+  [OK] 追従がフレームレートに依らない  60fps 9.9995m / 144fps 9.9995m  差 0.000mm
+  ...
+  すべて合格(三人称カメラ・環境コリジョン・寸法合わせが仕様どおり)</code></pre></div>
+<p><strong>窓を開かずに走る項目が 8 つある</strong>(追従と壁寄せ)。<code>FollowCamera</code> が <code>GL</code> も <code>PhysicsWorld</code> も知らないおかげで、作り物の関数を渡すだけで検算できる(要点4)。</p>
+<h3 id="s39">12. Day 39〜50 の絵が1つも壊れていない</h3>
+<p><code>F2</code> をもう一度押してプレイアブルデモを切ると、Day 39 の「眺めるだけのデモ v1」に戻る。<code>Ctrl+Alt+F1</code>(カメラワーク)も <code>Ctrl+Shift+F10</code>(JSON の読み直し)もそのまま動く。</p>
+<p>「カプセルとキャラクタ」ページ(14 枚目)の <code>F2</code> で Day 45 のデモへ移ると、<strong>カプセルが 1.8m の人型に戻っている</strong>——<code>HidePlayableDemo</code> が借りた寸法を返しているから(Day 49 からの作法)。</p>
+<p>Day 48・49・50 の自己チェックも通ることを確かめておく。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「プレイアブルデモ」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F3</code></td><td>10m 先へ注視点を寄せる「追従の速さ」</td><td>指数平滑は fps を変えても同じ線に乗る。Lerp 0.1 は fps で別物になる</td></tr>
+<tr><td><code>F4</code> / <code>F5</code> / マウス</td><td>壁寄せ「壁寄せ」「距離」「方位」</td><td>切ると壁の向こうから世界を見る。奥から探すと薄い壁の向こうを「空いている」と答える</td></tr>
+<tr><td><code>F6</code> / <code>F9</code></td><td>回した箱を世界軸の箱で包む</td><td>84 度の道路バリアが 0.80 x 1.60m の箱になる。厚み 0 の板は 10cm に押さえる</td></tr>
+<tr><td>矢印キー / <code>X</code> / <code>F7</code></td><td>ブレンド木の点と、実際に出る速さ</td><td>歩き 2.0m/s でちょうど歩き 1.0。見比べ用の点のままだと走りが混ざる</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day51 の FollowCamera(指数平滑・Sweep)、OrbitCameraController.EyePosition、DemoScene.TransformBounds と SceneCollision.MinThickness、BlendTree1D.Evaluate を JS に移したもの。壁寄せは真上から見た 2D(仰角 0)で、壁の配置はこのページの作り物。裏通りの実際の配置ではない。道路バリアの寸法は assets/models/concrete_road_barrier の頂点の範囲から取った。「奥から探す」はこのページで足した失敗の見本で、reference には無い。</p></div>
+</section>
+<section class="part"><h2 id="s40">改造課題</h2>
+<h3 id="s41">課題1(易): 進行方向を先読みする</h3>
+<p>いまのカメラは<strong>キャラクターの真後ろ</strong>に張り付くので、走っているときに画面の中央がキツネで埋まって前が見えない。注視点を進行方向へ少しずらす。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public float LookAhead { get; set; } = 0.0f;   // m
+
+// Update の中、wanted を作るところ
+Vector3 wanted = focus + new Vector3(0.0f, HeightOffset, 0.0f);
+
+if (LookAhead &gt; 0.0f &amp;&amp; velocity.LengthSquared() &gt; 0.01f)
+{
+    wanted += Vector3.Normalize(velocity) * LookAhead;   // ← 速度を引数で受け取る
+}</code></pre></div>
+<p><strong>速さに比例させると気持ちよくなる</strong>(止まっているときは 0、全速力で 1.5m 先)。ただし<strong>そのまま入れると急停止で注視点が跳ね返る</strong>ので、先読みの量そのものも指数平滑に通すこと——「遅らせてよいもの」がもう1つ増える、という形で要点2に戻ってくる。</p>
+<h3 id="s42">課題2(中): 環境コライダを OBB にする</h3>
+<p><code>SceneCollision</code> が作る箱を、世界軸に沿った AABB から<strong>向きを持った箱(OBB)</strong>に変える。<code>RigidBody.Orientation</code> にクォータニオンを入れるだけで、判定のほうは Day 44 の SAT がそのまま受ける。</p>
+<p>難しいのは<strong>向きをどこから取るか</strong>のほう。1 体が何個かのパーツに割れているので、<code>Item.Transform</code> を1つ選ぶわけにいかない。素直なのは JSON の <code>rotation</code> を <code>DemoScene</code> が覚えておいて、<code>SceneCollision</code> がそれを使う道——<code>Item</code> に <code>Orientation</code> を1つ足す。</p>
+<div class="code"><pre><code>  いま  道路バリア(84度) → 0.80 x 0.83 x 1.60 m の世界軸の箱
+  OBB   道路バリア(84度) → 1.55 x 0.83 x 0.64 m を 84 度回した箱</code></pre></div>
+<p><strong>測り方も変える</strong>必要がある。境界箱は「回す前の局所空間」で取り直さないと、太った箱を回すだけになって何も改善しない。</p>
+<h3 id="s43">課題3(難): ルートモーションで足の滑りを消す</h3>
+<p>いまは「速さを決めてから、その速さに合うクリップを混ぜる」。実際のゲームはしばしば逆で、<strong>クリップが持っている移動量から速さを決める</strong> (ルートモーション)。こうすると接地している足が地面の上を滑らない。</p>
+<p>手順は3段。</p>
+<ol><li><strong>クリップの移動量を測る</strong>。<code>Walk</code> の 1 周期で根の関節がどれだけ進むかを、<code>AnimationClip</code> のチャンネルから積分する(Fox は根が移動しないので、まず<strong>本当に移動量を持っているか</strong>を確かめるところから)</li><li><strong>歩幅から速さを逆算する</strong>。<code>移動量 ÷ 周期</code> がそのクリップの「素の速さ」になる</li><li><strong>再生速度で埋める</strong>。実際の速さと素の速さの比を <code>AnimationPlayer.Speed</code> に入れる</li></ol>
+<p>Fox のように<strong>その場で足踏みするクリップ</strong>(in-place)しか持たないモデルでは、1 が測れないので 3 だけを入れることになる。それでも「歩幅が合っていないぶんを再生速度で吸う」ので、滑りはほぼ消える。</p>
+<p><strong>混ぜているクリップが2本あるときにどうするか</strong>が本題になる。それぞれ素の速さが違うので、重み付き平均を取るのが素直だが、<strong>位相を同期させたまま再生速度を変える</strong>と Day 42 の <code>SyncPhase</code> と噛み合う。どちらが主かを決めるところが、この課題のいちばん面白い箇所。</p>
+</section>
+<section class="part"><h2 id="s44">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>fps</td><td>190〜590(裏通り + キツネ 576 三角形。<code>-c Release</code>)</td></tr>
+</tbody>
+</table></div>
+<p>キャラクターの計測(<code>中</code>の構え・壁寄せ ON)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>キャラクターの1ステップ</td><td>0.03〜0.13 ms</td></tr>
+<tr><td>カプセルの問い合わせ</td><td>17〜31 回 / 34〜101 体(ブロードフェーズ後)</td></tr>
+<tr><td>カメラの壁寄せ</td><td>12 回 / フレーム</td></tr>
+<tr><td>環境コライダ</td><td>箱 8 個 + 無限平面 1 枚(描画 25 個から)</td></tr>
+<tr><td>キャラクターの読み込み</td><td>179〜217 ms(Fox.glb)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s45">自己チェック(21 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 51 自己チェック(三人称カメラ・環境コリジョン・寸法合わせ)===
+  [OK] 追従がフレームレートに依らない  60fps 9.9995m / 144fps 9.9995m  差 0.000mm
+  [OK] 1秒後の残りが exp(-k) 倍  残り 0.00045m / 理論値 0.00045m
+  [OK] 平滑 0 は1フレームで届く(Day 45 の挙動)  10.0000m
+  [OK] 塞がれた側へは寄る  要求 6.00m → 実際 1.84m
+  [OK] 壁に寄せられたことが分かる
+  [OK] 壁寄せを切れば要求どおり  6.00m
+  [OK] どこも空いていなければ下限まで寄る  0.80m
+  [OK] 方位 f+π で目は背中側  内積 -1.000
+  [OK] 体の数と色の数が揃う(並行配列)  体 9 / 色 9
+  [OK] 地面は無限平面  平面 1 枚
+  [OK] パーツが名前で束ねられる  描画 25 個 → 箱 8 個
+  [OK] 厚み 0 の箱が無い(壁の板)  下限 10cm
+  [OK] 左の壁が板の寸法どおり  0.10 x 5.50 x 24.00 m
+  [OK] 出発点をシーンから読めている  (-0.50, 0.00, 5.50) / 180度
+  [OK] モデルの全高が目標どおり  0.700m(倍率 x0.0094)
+  [OK] カプセルがモデルに合っている  全高 0.700m / 半径 0.194m
+  [OK] 半径が全高より細い  直径 0.388m &lt; 全高 0.700m
+  [OK] 静止でクリップ1本  1 本
+  [OK] 歩きの速さでちょうど歩き 1.0  2 本  Walk 1.0000 + Run 0.0000
+  [OK] 歩きと走りの間は2本で合計 1.0  3.50m/s で 2 本  合計 1.0000
+  [OK] 右端より速くても走り 1.0 で頭打ち  1 本
+  すべて合格(三人称カメラ・環境コリジョン・寸法合わせが仕様どおり)</code></pre></div>
+<h3 id="s46">検証の途中で分かったこと</h3>
+<p><strong>1. 境界箱の二重変換</strong>(いちばん時間を食った)。<code>Model.Part.BoundsMin</code> を <code>Item.Transform</code> で運んだところ、ゴミ箱の当たり判定が <strong>1.43 x 1.95 x 2.98 m</strong> になった。<code>Part.BoundsMin</code> は <code>GltfLoader</code> が <code>partWorld</code> を通したあとの座標で作っているので、<code>Item.Transform</code>(= <code>Part.Transform * placement</code>)を掛けると <code>Part.Transform</code> が 2 回掛かる。<strong>絵は正しく出たまま当たり判定だけが壊れる</strong>ので、内訳(<code>F9</code>)の数字が無ければ見つからなかった。直した後は <strong>1.06 x 0.91 x 1.84 m</strong>(ゴミ箱 2 個ぶん)で、実物と一致する。</p>
+<p><strong>2. ブレンド木は点の上でも2本返す</strong>。<code>Evaluate(2.0f)</code>(歩きの点ちょうど)が <code>Walk 1.0 + Run 0.0</code> の 2 本を返す。挟む2点を探してから内分する作りなので、右側の重みが 0 になるだけで本数は 2。自己チェックを「本数が 1」で書いて落ちた——確かめるべきは<strong>本数ではなく重み</strong>だった。</p>
+<p><strong>3. <code>_player</code> という名前は取れなかった</strong>。Day 17 の <code>PlayerController _player</code>(GameObject 版のプレイヤー)が先客だった。22,000 行の <code>Program</code> に 17 Day ぶんのデモが同居していると、<strong>いちばん素直な名前はたいてい埋まっている</strong>。<code>_player2</code> にするより意味の違う語を選ぶほうがよいので <code>_avatar</code> にした。</p>
+<p><strong>4. Fox は <code>+Z</code> を向いている</strong>。<code>CharacterController.FacingYaw</code> は <code>atan2(vx, vz)</code> で作られていて、<code>Matrix4x4.CreateRotationY(FacingYaw)</code> は局所の <code>+Z</code> を進行方向へ回す。Fox のバインドポーズを順運動学で辿ると頭が <code>z = +36</code>、尻尾が <code>z = -67</code> なので、<strong>回転の補正なしでそのまま合う</strong>。Mixamo のモデルは <code>-Z</code> 向きが多いので、差し替えるときは 180 度の補正が要る。</p>
+<p><strong>5. 壁寄せの問い合わせは思ったより安い</strong>。1 フレーム 12 回の <code>OverlapCapsule</code> で <strong>0.06ms</strong>。Day 46 のブロードフェーズが効いていて、1 回あたり数体しか見ていない。刻みを 24 回に増やしても体感できる差は出なかったので、精度が要るなら刻みを増やすのが素直な道になる。</p>
+</section>
+<footer class="end">Day 51 プレイアブルデモ組み上げ(三人称カメラ・環境コリジョン・移動とアニメ) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat, arrow } = Lab;
+
+// ============================================================
+//  要点1: 指数平滑と素朴な Lerp
+// ============================================================
+const sm = { k: 10, fps: 60 };
+// 10m 先へ1秒寄せたときの残りの距離(フレームごと)。
+// reference は float だが、10m のそばでは float の刻みが 1e-6m ほどなので、線が途中で寝ないよう double で回す
+function run(fps, step) {
+  let x = 0; const out = [[0, 10]];
+  const dt = 1 / fps;
+  for (let i = 1; i <= fps; i++) { x += (10 - x) * step(dt); out.push([i / fps, Math.max(10 - x, 1e-12)]); }
+  return out;
+}
+const expStep = (k) => (dt) => (k <= 0 ? 1 : 1 - Math.exp(-k * dt));
+function drawSmooth() {
+  const { ctx, w, h } = fit($('smooth-canvas'));
+  const L = 58, R = w - 16, T = 12, B = h - 26;
+  const series = [
+    [run(sm.fps, expStep(sm.k)), tok('--semi'), `指数平滑(${sm.fps}fps)`],
+    [run(60, expStep(sm.k)), tok('--accent'), '指数平滑(60fps)'],
+    [run(sm.fps, () => 0.1), tok('--expl'), `Lerp 0.1(${sm.fps}fps)`],
+    [run(60, () => 0.1), tok('--warn'), 'Lerp 0.1(60fps)'],
+  ];
+  // 縦軸は残りの距離の対数。いちばん小さい値が入るところまで
+  const floor = Math.max(-12, Math.floor(Math.log10(Math.min(...series.flatMap(([pts]) => pts.map((p) => p[1]))))));
+  const X = (t) => L + t * (R - L), Y = (d) => T + (1 - Math.log10(Math.max(d, 1e-12))) / (1 - floor) * (B - T);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (let e = 1; e >= floor; e--) { const d = 10 ** e; ctx.beginPath(); ctx.moveTo(L, Y(d)); ctx.lineTo(R, Y(d)); ctx.stroke(); ctx.fillText(`${d >= 1 ? d : d.toExponential(0)}m`, 2, Y(d) + 4); }
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) ctx.fillText(`${t}秒`, X(t) - 10, h - 8);
+  series.forEach(([pts, color, label], k) => {
+    ctx.strokeStyle = color; ctx.lineWidth = k % 2 ? 1.5 : 2.5; ctx.setLineDash(k % 2 ? [5, 4] : []);
+    ctx.beginPath(); pts.forEach(([t, d], i) => { if (i === 0) ctx.moveTo(X(t), Y(d)); else ctx.lineTo(X(t), Y(d)); }); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle = color; ctx.fillText(label, L + 8, B - 8 - (3 - k) * 14);
+  });
+  const e1 = run(sm.fps, expStep(sm.k)).at(-1)[1], e60 = run(60, expStep(sm.k)).at(-1)[1];
+  const l1 = run(sm.fps, () => 0.1).at(-1)[1], l60 = run(60, () => 0.1).at(-1)[1];
+  $('smooth-stats').innerHTML =
+    stat('1秒後の残り(指数平滑)', sm.k <= 0 ? '0' : e1.toExponential(2), ` <small>m。理論 10·e^(−${sm.k}) = ${(10 * Math.exp(-sm.k)).toExponential(2)}</small>`) +
+    stat(`${sm.fps}fps と 60fps の差(指数平滑)`, `${(Math.abs(e1 - e60) * 1000).toFixed(3)}`, ' <small>mm</small>') +
+    stat('1秒後の残り(Lerp 0.1)', l1.toExponential(2), ` <small>m。60fps なら ${l60.toExponential(2)}</small>`);
+}
+seg('smooth-k', (v) => { sm.k = Number(v); drawSmooth(); });
+seg('smooth-fps', (v) => { sm.fps = Number(v); drawSmooth(); });
+drawSmooth();
+
+// ============================================================
+//  要点3: 壁寄せ(FollowCamera.Sweep)
+// ============================================================
+// 世界軸の箱(x0, z0, x1, z1)。注視点は原点
+const WALLS = [
+  [-3.2, 1.55, 3.2, 1.65],   // 背中側の薄い壁(厚み 10cm)。向こう側は空いている部屋
+  [-3.3, -2.5, -3.2, 3.5],   // 左の壁
+  [1.4, -1.4, 1.9, -0.9],    // 柱
+  [-1.2, -2.2, -0.6, -1.6],  // 消火栓くらいの小さいもの
+];
+const pr = { yaw: 0, dist: 2.8, steps: 12, on: true, far: false };
+const MIN = 0.8, RAD = 0.25;
+function blocked(p, r) {
+  for (const [x0, z0, x1, z1] of WALLS) {
+    const qx = Math.max(x0, Math.min(x1, p[0])), qz = Math.max(z0, Math.min(z1, p[1]));
+    if ((p[0] - qx) ** 2 + (p[1] - qz) ** 2 < r * r) return true;
+  }
+  return false;
+}
+// OrbitCameraController.EyePosition(仰角 0): (sin yaw, cos yaw) の側へ離れる
+const eyeAt = (d) => [d * Math.sin(pr.yaw), d * Math.cos(pr.yaw)];
+function sweep() {
+  const samples = [];
+  for (let i = 1; i <= pr.steps; i++) { const s = MIN + (pr.dist - MIN) * i / pr.steps; samples.push({ s, hit: blocked(eyeAt(s), RAD) }); }
+  let free = MIN;
+  if (!pr.far) { for (const q of samples) { if (q.hit) break; free = q.s; } }
+  else { for (let i = samples.length - 1; i >= 0; i--) if (!samples[i].hit) { free = samples[i].s; break; } }   // 奥から「空いている最初の点」を探す(誤り)
+  return { samples, free: pr.on ? free : pr.dist };
+}
+function drawProbe() {
+  const { ctx, w, h } = fit($('probe-canvas'));
+  const s = Math.min(w, h) / 9, cx = w / 2, cz = h / 2;
+  const X = (x) => cx + x * s, Z = (z) => cz + z * s;
+  ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 1.5;
+  for (const [x0, z0, x1, z1] of WALLS) { ctx.fillRect(X(x0), Z(z0), (x1 - x0) * s, (z1 - z0) * s); ctx.strokeRect(X(x0), Z(z0), (x1 - x0) * s, (z1 - z0) * s); }
+  const { samples, free } = sweep();
+  for (const q of samples) {
+    const p = eyeAt(q.s);
+    ctx.strokeStyle = q.hit ? tok('--expl') : tok('--semi'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(X(p[0]), Z(p[1]), RAD * s, 0, Math.PI * 2); ctx.stroke();
+  }
+  const e = eyeAt(free);
+  ctx.strokeStyle = tok('--muted'); ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(eyeAt(pr.dist)[0]), Z(eyeAt(pr.dist)[1])); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(0), Z(0), 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(X(e[0]), Z(e[1]), 7, 0, Math.PI * 2); ctx.fill();
+  arrow(ctx, X(e[0]), Z(e[1]), X(e[0] * 0.6), Z(e[1] * 0.6), tok('--ink'), 2);
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px ' + tok('--font-body');
+  ctx.fillText('注視点', X(0) + 8, Z(0) - 8); ctx.fillText('カメラ', X(e[0]) + 10, Z(e[1]) + 4);
+  ctx.fillText('向こう側の部屋(空いている)', X(-1.5), Z(2.4));
+  $('probe-yaw-out').textContent = `${Math.round(pr.yaw * 180 / Math.PI)}°`;
+  const inside = blocked(e, RAD);
+  $('probe-stats').innerHTML =
+    stat('カメラの距離', `${free.toFixed(2)} / ${pr.dist.toFixed(2)}`, ` <small>m</small>${free < pr.dist - 0.01 ? ' <span class="pill warn">壁</span>' : ''}`) +
+    stat('置いた球', `${samples.length}`, ` <small>回。刻み ${((pr.dist - MIN) / pr.steps).toFixed(2)}m</small>`) +
+    stat('カメラの球が埋まっているか', inside ? '埋まっている' : '空いている', inside ? ' <span class="pill bad">壁の中</span>' : '');
+  let note;
+  if (!pr.on) note = '壁寄せを切ると、要求どおりの距離にカメラを置く。背中側の壁の向こうに出ると、画面が壁のテクスチャで埋まる(カメラが壁の中か向こう側から世界を見ている)。';
+  else if (pr.far) note = '奥から「空いている最初の点」を探すと、薄い壁を挟んだ向こう側の部屋を「空いている」と答えてしまう。手前から順に見て、最初に埋まった点の1つ手前で止める。';
+  else if (pr.steps <= 4) note = '刻みが粗いと、刻み幅より細い障害物をすり抜ける。球の半径(25cm)が拾える範囲を超えると見落とす。';
+  else note = '手前から順に球を置き、最初に埋まった点の1つ手前で止める。方位を回して、薄い壁・柱・小さいものの後ろへ回り込ませてみる。';
+  $('probe-note').textContent = note;
+}
+$('probe-yaw').addEventListener('input', (e) => { pr.yaw = Number(e.target.value) * Math.PI / 180; drawProbe(); });
+seg('probe-dist', (v) => { pr.dist = Number(v); drawProbe(); });
+seg('probe-steps', (v) => { pr.steps = Number(v); drawProbe(); });
+$('probe-on').addEventListener('change', (e) => { pr.on = e.target.checked; drawProbe(); });
+$('probe-far').addEventListener('change', (e) => { pr.far = e.target.checked; drawProbe(); });
+{
+  const cv = $('probe-canvas'); let drag = null;
+  cv.addEventListener('pointerdown', (e) => { drag = e.clientX; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => {
+    if (drag === null) return;
+    pr.yaw -= (e.clientX - drag) * 0.01; drag = e.clientX;
+    pr.yaw = Math.atan2(Math.sin(pr.yaw), Math.cos(pr.yaw));
+    $('probe-yaw').value = Math.round(pr.yaw * 180 / Math.PI); drawProbe();
+  });
+  cv.addEventListener('pointerup', () => { drag = null; });
+}
+drawProbe();
+
+// ============================================================
+//  要点6: 回した箱は太る / 厚み 0 の板
+// ============================================================
+const ab = { shape: 'barrier', angle: 84, min: true };
+function drawAabb() {
+  const { ctx, w, h } = fit($('aabb-canvas'));
+  const [lx, lz] = ab.shape === 'barrier' ? [1.545, 0.639] : [1.0, 0.0];   // 壁は XY 平面の 1x1 の板(Z の厚み 0)
+  const a = ab.angle * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  // DemoScene.TransformBounds: 隅を全部回して最小・最大を取る
+  const corners = [[-lx / 2, -lz / 2], [lx / 2, -lz / 2], [lx / 2, lz / 2], [-lx / 2, lz / 2]].map(([x, z]) => [x * c + z * s, -x * s + z * c]);
+  const minX = Math.min(...corners.map((p) => p[0])), maxX = Math.max(...corners.map((p) => p[0]));
+  const minZ = Math.min(...corners.map((p) => p[1])), maxZ = Math.max(...corners.map((p) => p[1]));
+  let hx = (maxX - minX) / 2, hz = (maxZ - minZ) / 2;
+  if (ab.min) { hx = Math.max(hx, 0.05); hz = Math.max(hz, 0.05); }   // SceneCollision.MinThickness / 2
+  const sc = Math.min(w, h) / 2.4, ox = w / 2, oz = h / 2;
+  const X = (x) => ox + x * sc, Z = (z) => oz + z * sc;
+  ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  ctx.fillRect(X(-hx), Z(-hz), 2 * hx * sc, 2 * hz * sc); ctx.strokeRect(X(-hx), Z(-hz), 2 * hx * sc, 2 * hz * sc); ctx.setLineDash([]);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2.5; ctx.beginPath();
+  corners.forEach(([x, z], i) => { if (i === 0) ctx.moveTo(X(x), Z(z)); else ctx.lineTo(X(x), Z(z)); }); ctx.closePath(); ctx.stroke();
+  $('aabb-angle-out').textContent = `${ab.angle}°`;
+  const real = lx * lz, boxArea = 4 * hx * hz;
+  $('aabb-stats').innerHTML =
+    stat('世界軸の箱(x × z)', `${(2 * hx).toFixed(2)} × ${(2 * hz).toFixed(2)}`, ' <small>m</small>') +
+    (ab.shape === 'barrier'
+      ? stat('実物の足元の面積との比', `${(boxArea / real).toFixed(2)}`, ' <small>倍</small>')
+      : stat('いちばん薄い向きの厚み', `${(Math.min(hx, hz) * 2 * 100).toFixed(1)}`, ` <small>cm</small>${Math.min(hx, hz) < 1e-6 ? ' <span class="pill bad">分離軸が長さ 0</span>' : ''}`));
+  $('aabb-note').textContent = ab.shape === 'barrier'
+    ? '回した箱を世界軸の箱で包み直すと、元より必ず大きくなる(0 度・90 度・180 度のときだけ一致)。84 度の道路バリアは 0.80 x 1.60m の箱になり、歩くと見た目より手前で止まる。'
+    : (ab.min ? '厚み 0 の板でも、半分の大きさを 5cm で下から押さえておけば 10cm の箱になり、SAT が押し返せる。'
+      : '0 度や 90 度に置いた板は厚みが厳密に 0 になり、その向きの分離軸が長さ 0 になる——「どんなに押しても離れられる」面ができて、すり抜ける。');
+}
+seg('aabb-shape', (v) => { ab.shape = v; if (v === 'wall' && ab.angle === 84) { ab.angle = 90; $('aabb-angle').value = 90; } drawAabb(); });
+$('aabb-angle').addEventListener('input', (e) => { ab.angle = Number(e.target.value); drawAabb(); });
+$('aabb-min').addEventListener('change', (e) => { ab.min = e.target.checked; drawAabb(); });
+drawAabb();
+
+// ============================================================
+//  要点9: ブレンド木の点
+// ============================================================
+const bl = { points: 'today', speed: 2 };
+const POINTS = { today: [['立ち止まり', 0], ['歩き', 2.0], ['走り', 5.0]], day42: [['立ち止まり', 0], ['歩き', 1.0], ['走り', 3.2]] };
+// BlendTree1D.Evaluate
+function evaluate(samples, p) {
+  if (p <= samples[0][1]) return [[samples[0][0], 1]];
+  if (p >= samples.at(-1)[1]) return [[samples.at(-1)[0], 1]];
+  let upper = 1;
+  while (upper < samples.length - 1 && samples[upper][1] <= p) upper++;
+  const a = samples[upper - 1], b = samples[upper], span = b[1] - a[1], t = span > 1e-6 ? (p - a[1]) / span : 1;
+  return [[a[0], 1 - t], [b[0], t]];
+}
+const COLORS = () => ({ 立ち止まり: tok('--muted'), 歩き: tok('--semi'), 走り: tok('--expl') });
+function drawBlend() {
+  const { ctx, w, h } = fit($('blend-canvas'));
+  const samples = POINTS[bl.points], col = COLORS();
+  const L = 40, R = w - 16, T = 14, B = h - 30, X = (v) => L + v / 6 * (R - L), Y = (v) => B - v * (B - T);
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  for (const v of [0, 1, 2, 3, 4, 5, 6]) { ctx.beginPath(); ctx.moveTo(X(v), T); ctx.lineTo(X(v), B); ctx.stroke(); ctx.fillText(`${v}m/s`, X(v) - 12, h - 12); }
+  for (const name of Object.keys(col)) {
+    ctx.strokeStyle = col[name]; ctx.lineWidth = 2.5; ctx.beginPath();
+    for (let i = 0; i <= 240; i++) {
+      const v = i / 40, wgt = (evaluate(samples, v).find((x) => x[0] === name) || [name, 0])[1];
+      if (i === 0) ctx.moveTo(X(v), Y(wgt)); else ctx.lineTo(X(v), Y(wgt));
+    }
+    ctx.stroke();
+  }
+  // 実際に出る速さ(歩き 2.0 / 走り 5.0)
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--ink');
+  for (const [label, v] of [['歩きの速さ', 2.0], ['走りの速さ', 5.0]]) { ctx.beginPath(); ctx.moveTo(X(v), T); ctx.lineTo(X(v), B); ctx.stroke(); ctx.fillStyle = tok('--ink'); ctx.fillText(label, X(v) + 4, T + 10); }
+  ctx.setLineDash([]);
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(bl.speed), B, 6, 0, Math.PI * 2); ctx.fill();
+  $('blend-speed-out').textContent = `${bl.speed.toFixed(2)} m/s`;
+  const fmtW = (ws) => ws.map(([n, v]) => `${n} ${v.toFixed(2)}`).join(' + ');
+  $('blend-stats').innerHTML =
+    stat('いまの重み', fmtW(evaluate(samples, bl.speed))) +
+    stat('歩き(2.0m/s)のとき', fmtW(evaluate(samples, 2.0))) +
+    stat('走り(5.0m/s)のとき', fmtW(evaluate(samples, 5.0)));
+  $('blend-note').textContent = bl.points === 'today'
+    ? '木の点が実際に出る速さと同じなので、歩いているときはちょうど歩き 1.0、走っているときはちょうど走り 1.0 になる。'
+    : '見比べ用の点のままだと、2.0m/s で歩いているのに走りの重みが 0.45 混ざって足が速すぎる。点と実際の速さが食い違うと、原因はアニメーションではなく数字なので探しにくい。';
+}
+seg('blend-points', (v) => { bl.points = v; drawBlend(); });
+$('blend-speed').addEventListener('input', (e) => { bl.speed = Number(e.target.value); drawBlend(); });
+drawBlend();
+window.addEventListener('resize', () => { drawSmooth(); drawProbe(); drawAabb(); drawBlend(); });
+})();
+</script>
+</body>
+</html>

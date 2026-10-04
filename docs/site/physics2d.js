@@ -1,11 +1,14 @@
 // ============================================================
-//  2D 剛体物理(reference/Day44a〜45b の Physics/ を横から見た 2D に移したもの)
-//  Day 44a〜45b の計画書の実験台が共有する。window.Phys2D にまとめて置く。
+//  2D 剛体物理(reference/Day44a〜47 の Physics/ を横から見た 2D に移したもの)
+//  Day 44a〜47 の計画書の実験台が共有する。window.Phys2D にまとめて置く。
 //
 //  - 形: 円(球として慣性を持つ)/ 箱 / カプセル(軸は物体座標の y)/ 平面
 //  - 判定は「A を B から引き離す向き」の法線と、最大4点のマニフォールドを返す
 //  - 世界の1ステップは reference と同じ5段(積分 → 判定 → 速度 → 位置 → 溜め場)
 //  - 2D なので回転は z 軸まわりの角度1つ。箱どうしの分離軸は 4 本(3D は 15 本)
+//  - world.solver = 'day47' にすると Day 47 の8段(摩擦・蓄積インパルス・温存・眠り)で解く。
+//    既定は 'day44' で、Day 44a〜46b の実験台はこれまでどおりの5段で動く。
+//    2D なので接線は1本(3D は2本で、摩擦円で切る)
 // ============================================================
 (() => {
 'use strict';
@@ -50,7 +53,17 @@ class Body {
     this.linearDamping = 0;
     this.angularDamping = 0;
     this.normal = [0, 1];   // 平面の法線
+    // Day 47: 摩擦係数と眠り(world.solver = 'day47' のときだけ使う)
+    this.friction = 0.5;
+    this.sleeping = false;
+    this.sleepTimer = 0;
+    this.allowSleep = true;
   }
+  // 眠っている間は「一時的に無限に重い」= 静的な体と同じに見せる(RigidBody.SolverInverseMass)
+  get solverInvMass() { return this.sleeping ? 0 : this.invMass; }
+  get solverInvI() { return this.sleeping ? 0 : this.invI; }
+  wake() { this.sleeping = false; this.sleepTimer = 0; }
+  sleep() { this.sleeping = true; this.vx = 0; this.vy = 0; this.w = 0; }
   static plane(px, py, nx, ny) {
     const b = new Body(0, Shape.plane());
     b.x = px; b.y = py; b.normal = [nx, ny];
@@ -71,12 +84,13 @@ class Body {
   segment() { const a = this.axis(1), h = this.shape.hh; return [[this.x - a[0] * h, this.y - a[1] * h], [this.x + a[0] * h, this.y + a[1] * h]]; }
   velocityAt(px, py) { const rx = px - this.x, ry = py - this.y; return [this.vx - this.w * ry, this.vy + this.w * rx]; }
   applyImpulseAtPoint(jx, jy, px, py) {
+    if (this.sleeping) return;
     const rx = px - this.x, ry = py - this.y;
     this.vx += jx * this.invMass; this.vy += jy * this.invMass;
     this.w += this.invI * (rx * jy - ry * jx);
   }
   integrateVelocity(dt, gx, gy) {
-    if (this.isStatic) return;
+    if (this.isStatic || this.sleeping) return;
     this.vx += (this.fx * this.invMass + gx) * dt;
     this.vy += (this.fy * this.invMass + gy) * dt;
     this.w += this.torque * this.invI * dt;
@@ -85,7 +99,7 @@ class Body {
   }
   integratePosition(dt) {
     this.px = this.x; this.py = this.y; this.pa = this.angle;
-    if (this.isStatic) return;
+    if (this.isStatic || this.sleeping) return;
     this.x += this.vx * dt; this.y += this.vy * dt; this.angle += this.w * dt;
   }
 }
@@ -108,6 +122,13 @@ function reduce(m, limit) {
 }
 function maxDepth(m) { return m.points.reduce((d, p) => Math.max(d, p.depth), 0); }
 function flip(m) { m.normal = [-m.normal[0], -m.normal[1]]; return m; }
+const pairKey = (a, b) => (a < b ? `${a},${b}` : `${b},${a}`);
+// 箱と箱 / 箱と平面(3D なら面と面で4点になる組)
+const depthOf = (b) => (b.shape.kind === 'box' ? b.shape.hx : 0);
+const isFace = (a, b) => {
+  const ka = a.shape.kind, kb = b.shape.kind;
+  return (ka === 'box' && (kb === 'box' || kb === 'plane')) || (kb === 'box' && ka === 'plane');
+};
 
 // ---------------- 幾何の道具 ----------------
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
@@ -350,10 +371,35 @@ class World {
     this.manifolds = [];
     this.pairTests = 0;
     this.maxPenetration = 0;
+    // ---- Day 47(solver = 'day47' のときだけ効く)----
+    this.solver = 'day44';
+    this.accumulateImpulses = true;
+    this.warmStarting = true;
+    this.frictionEnabled = true;
+    this.frictionOverride = -1;
+    this.sleepEnabled = true;
+    this.sleepLinearThreshold = 0.05;
+    this.sleepAngularThreshold = 0.10;
+    this.sleepTime = 0.5;
+    // reference には無い切り替え。false で Day 43〜46 の順番(解く前の速度で位置を進める)に戻す
+    this.integrateAfterSolve = true;
+    // 箱の面の接触を奥行きぶん2倍の点数で解く(3D の4点と数字を揃えるため)
+    this.depthPoints = true;
+    // reference には無い切り替え。false で島を組まずに1体ずつ眠らせる(要点5の失敗を見るため)
+    this.islandSleep = true;
+    this.cache = new Map();       // ContactCache: 組 → 持ち越した点
+    this.warmStartedPoints = 0;
+    this.newContactPoints = 0;
+    this.islandCount = 0;
   }
+  // 素朴なクランプに温存を載せると発散するので、蓄積を切ったら温存も止める(WarmStartActive)
+  get warmStartActive() { return this.warmStarting && this.accumulateImpulses; }
+  get sleepingCount() { return this.bodies.reduce((n, b) => n + (b.sleeping ? 1 : 0), 0); }
   add(body) { body.px = body.x; body.py = body.y; body.pa = body.angle; this.bodies.push(body); return this.bodies.length - 1; }
+  clear() { this.bodies = []; this.contacts = []; this.manifolds = []; this.cache.clear(); this.islandCount = 0; }
   step(dt) {
     if (dt <= 0) return;
+    if (this.solver === 'day47') { this.step47(dt); return; }
     for (const b of this.bodies) b.integrateVelocity(dt, this.gx, this.gy);
     for (const b of this.bodies) b.integratePosition(dt);
     this.generate();
@@ -431,6 +477,207 @@ class World {
         b.x -= c.n[0] * k * b.invMass; b.y -= c.n[1] * k * b.invMass;
       }
     }
+  }
+  // ======================================================================
+  //  Day 47: Sequential Impulses(PhysicsWorld.Step の8段)
+  //  速度 → 判定 → 下ごしらえ → 速度の解決(摩擦 → 法線)→ 位置 → 補正 → 持ち越し → 眠り
+  // ======================================================================
+  step47(dt) {
+    for (const b of this.bodies) b.integrateVelocity(dt, this.gx, this.gy);
+    // Day 43〜46 の順番: 解く前の速度で位置を進めてしまう(要点4)
+    if (!this.integrateAfterSolve) for (const b of this.bodies) b.integratePosition(dt);
+    this.generate47();
+    this.prepareContacts();
+    for (let it = 0; it < this.velocityIterations; it++) {
+      for (const [start, count] of this.manifolds) {
+        if (this.frictionEnabled) this.solveFriction(start, count);
+        this.solveManifold47(start, count);
+      }
+    }
+    // 解いたあとの速度で位置を進める。速度が 0 に解けた物は 1mm も動かない
+    if (this.integrateAfterSolve) for (const b of this.bodies) b.integratePosition(dt);
+    if (this.positionCorrection) this.correctPositions47();
+    this.storeImpulses();
+    this.updateSleep(dt);
+    for (const b of this.bodies) { b.fx = 0; b.fy = 0; b.torque = 0; }
+  }
+  generate47() {
+    this.contacts = []; this.manifolds = []; this.pairTests = 0; this.maxPenetration = 0;
+    this.stamp = (this.stamp || 0) + 1; this.warmStartedPoints = 0; this.newContactPoints = 0;
+    const B = this.bodies;
+    for (let i = 0; i < B.length; i++) {
+      for (let j = i + 1; j < B.length; j++) {
+        const a = B[i], b = B[j];
+        if (a.isStatic && b.isStatic) continue;
+        this.pairTests++;
+        const m = collide(a, b);
+        if (!m.hit) continue;
+        reduce(m, this.maxContactsPerPair);
+        this.maxPenetration = Math.max(this.maxPenetration, maxDepth(m));
+        // 箱の面で支える接触は、3D では奥行きの手前と奥に2点ずつ並ぶ(4点)。
+        // 横から見ると重なって見えるだけなので、同じ点を2回並べて reference と同じ点数にする
+        const twice = this.depthPoints && isFace(a, b) ? 2 : 1;
+        this.manifolds.push([this.contacts.length, m.points.length * twice]);
+        for (const p of m.points) for (let k = 0; k < twice; k++) this.addContact47(i, j, m.normal, p, a, b);
+      }
+    }
+  }
+  addContact47(ia, ib, n, p, a, b) {
+    const va = a.velocityAt(p.x, p.y), vb = b.velocityAt(p.x, p.y);
+    const approach = (va[0] - vb[0]) * n[0] + (va[1] - vb[1]) * n[1];
+    const e = Math.min(a.restitution, b.restitution);
+    const bounce = approach < -this.restitutionThreshold ? -e * approach : 0;
+    // 片方が 0(氷)なら全体も 0、ざらざら同士は両方より大きくならない(相乗平均)
+    const friction = this.frictionOverride >= 0 ? this.frictionOverride : Math.sqrt(a.friction * b.friction);
+    const c = {
+      a: ia, b: ib, n, t: [n[1], -n[0]], x: p.x, y: p.y, la: a.toLocal(p.x, p.y), lb: b.toLocal(p.x, p.y),
+      sep: -p.depth, bounce, friction,
+      normalMass: 0, tangentMass: 0, normalImpulse: 0, tangentImpulse: 0, warm: false,
+    };
+    if (this.warmStartActive) {
+      // ContactCache.TryMatch: 物体座標で 2cm 以内のいちばん近い点を引く
+      const entry = this.cache.get(pairKey(ia, ib));
+      let best = -1, bestD = 0.02 * 0.02;
+      if (entry) {
+        entry.points.forEach((q, k) => {
+          const d = Math.max((q.la[0] - c.la[0]) ** 2 + (q.la[1] - c.la[1]) ** 2, (q.lb[0] - c.lb[0]) ** 2 + (q.lb[1] - c.lb[1]) ** 2);
+          if (d < bestD) { bestD = d; best = k; }
+        });
+      }
+      if (best < 0) this.newContactPoints++;
+      else {
+        c.normalImpulse = entry.points[best].normalImpulse; c.tangentImpulse = entry.points[best].tangentImpulse;
+        c.warm = true; this.warmStartedPoints++;
+      }
+    }
+    this.contacts.push(c);
+  }
+  effectiveMass(a, b, rA, rB, d) {
+    const ca = rA[0] * d[1] - rA[1] * d[0], cb = rB[0] * d[1] - rB[1] * d[0];
+    let den = a.solverInvMass + b.solverInvMass + a.solverInvI * ca * ca + b.solverInvI * cb * cb;
+    if (this.depthPoints) den += a.solverInvI * depthOf(a) ** 2 + b.solverInvI * depthOf(b) ** 2;
+    return den > 0 ? 1 / den : 0;
+  }
+  // 下ごしらえ: 実効質量を反復の外で1回だけ出し、前のステップの答えを掛けてから反復に入る
+  prepareContacts() {
+    for (const c of this.contacts) {
+      const a = this.bodies[c.a], b = this.bodies[c.b];
+      const rA = [c.x - a.x, c.y - a.y], rB = [c.x - b.x, c.y - b.y];
+      c.normalMass = this.effectiveMass(a, b, rA, rB, c.n);
+      c.tangentMass = this.effectiveMass(a, b, rA, rB, c.t);
+      if (!c.warm) continue;
+      if (!this.frictionEnabled) c.tangentImpulse = 0;
+      const jx = c.n[0] * c.normalImpulse + c.t[0] * c.tangentImpulse, jy = c.n[1] * c.normalImpulse + c.t[1] * c.tangentImpulse;
+      a.applyImpulseAtPoint(jx, jy, c.x, c.y);
+      b.applyImpulseAtPoint(-jx, -jy, c.x, c.y);
+    }
+  }
+  relVel(c) {
+    const va = this.bodies[c.a].velocityAt(c.x, c.y), vb = this.bodies[c.b].velocityAt(c.x, c.y);
+    return [va[0] - vb[0], va[1] - vb[1]];
+  }
+  solveManifold47(start, count) {
+    if (!this.solveTogether) { for (let k = 0; k < count; k++) this.solveNormal(this.contacts[start + k], 1); return; }
+    const v = [];
+    for (let k = 0; k < count; k++) v.push(dot(this.relVel(this.contacts[start + k]), this.contacts[start + k].n));
+    for (let k = 0; k < count; k++) this.solveNormal(this.contacts[start + k], count, v[k]);
+  }
+  solveNormal(c, share, vn = NaN) {
+    if (Number.isNaN(vn)) vn = dot(this.relVel(c), c.n);
+    const lambda = (c.bounce - vn) * c.normalMass / share;
+    let applied;
+    if (this.accumulateImpulses) {
+      // 合計を切る → 途中の周では負の補正も出せる(要点1)
+      const previous = c.normalImpulse;
+      c.normalImpulse = Math.max(previous + lambda, 0);
+      applied = c.normalImpulse - previous;
+    } else {
+      // 今掛けるぶんを切る → 掛けすぎを戻せない
+      applied = Math.max(lambda, 0);
+      c.normalImpulse += applied;
+    }
+    if (applied === 0) return;
+    this.bodies[c.a].applyImpulseAtPoint(c.n[0] * applied, c.n[1] * applied, c.x, c.y);
+    this.bodies[c.b].applyImpulseAtPoint(-c.n[0] * applied, -c.n[1] * applied, c.x, c.y);
+  }
+  // 摩擦は法線より先に解く。上限 μλn の λn はその時点で溜まっている値
+  solveFriction(start, count) {
+    for (let k = 0; k < count; k++) {
+      const c = this.contacts[start + k];
+      if (c.friction <= 0) continue;
+      const lambda = -dot(this.relVel(c), c.t) * c.tangentMass / count;
+      const old = c.tangentImpulse, limit = c.friction * c.normalImpulse;
+      let sum = old + lambda;
+      // 2D の接線は1本なので「円で切る」は ±limit で切るのと同じになる
+      if (sum * sum > limit * limit) sum = sum * sum > 1e-12 ? Math.sign(sum) * limit : 0;
+      c.tangentImpulse = sum;
+      const d = sum - old;
+      this.bodies[c.a].applyImpulseAtPoint(c.t[0] * d, c.t[1] * d, c.x, c.y);
+      this.bodies[c.b].applyImpulseAtPoint(-c.t[0] * d, -c.t[1] * d, c.x, c.y);
+    }
+  }
+  correctPositions47() {
+    for (let it = 0; it < this.positionIterations; it++) {
+      for (const c of this.contacts) {
+        const a = this.bodies[c.a], b = this.bodies[c.b];
+        const ima = a.solverInvMass, imb = b.solverInvMass, ims = ima + imb;
+        if (ims <= 0) continue;
+        const wa = a.toWorld(c.la[0], c.la[1]), wb = b.toWorld(c.lb[0], c.lb[1]);
+        const sep = c.sep + (wa[0] - wb[0]) * c.n[0] + (wa[1] - wb[1]) * c.n[1];
+        const overlap = Math.max(-sep - this.slop, 0);
+        if (overlap <= 0) continue;
+        const k = overlap * this.correctionRate / ims;
+        a.x += c.n[0] * k * ima; a.y += c.n[1] * k * ima;
+        b.x -= c.n[0] * k * imb; b.y -= c.n[1] * k * imb;
+      }
+    }
+  }
+  storeImpulses() {
+    if (!this.warmStartActive) { this.cache.clear(); return; }
+    for (const [start, count] of this.manifolds) {
+      const first = this.contacts[start], points = [];
+      for (let k = 0; k < count; k++) {
+        const c = this.contacts[start + k];
+        points.push({ la: c.la, lb: c.lb, normalImpulse: c.normalImpulse, tangentImpulse: c.tangentImpulse });
+      }
+      this.cache.set(pairKey(first.a, first.b), { stamp: this.stamp, points });
+    }
+    // このステップで触れなかった組は捨てる(ContactCache.Prune)
+    for (const [k, v] of this.cache) if (v.stamp !== this.stamp) this.cache.delete(k);
+  }
+  // 触れ合っているものはまとめて眠り、まとめて起きる(要点5)
+  updateSleep(dt) {
+    const B = this.bodies;
+    if (!this.sleepEnabled) { for (const b of B) if (b.sleeping) b.wake(); this.islandCount = 0; return; }
+    const parent = B.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    for (const [start] of this.islandSleep ? this.manifolds : []) {
+      const c = this.contacts[start];
+      // 静的な体は繋がない。床で全部が1つの島になると誰も眠れない
+      if (B[c.a].isStatic || B[c.b].isStatic) continue;
+      const ra = find(c.a), rb = find(c.b);
+      if (ra !== rb) parent[ra] = rb;
+    }
+    const timers = new Array(B.length).fill(Infinity);
+    let islands = 0;
+    B.forEach((b, i) => {
+      if (b.isStatic) return;
+      if (!b.sleeping) {
+        const slow = b.vx * b.vx + b.vy * b.vy < this.sleepLinearThreshold ** 2 && b.w * b.w < this.sleepAngularThreshold ** 2;
+        b.sleepTimer = slow ? b.sleepTimer + dt : 0;
+      }
+      const timer = b.allowSleep ? b.sleepTimer : 0, root = find(i);
+      if (timers[root] === Infinity) islands++;
+      // 島の中でいちばん眠りが浅い時計に合わせる
+      timers[root] = Math.min(timers[root], timer);
+    });
+    this.islandCount = islands;
+    B.forEach((b, i) => {
+      if (b.isStatic) return;
+      const should = timers[find(i)] >= this.sleepTime;
+      if (should && !b.sleeping) b.sleep();
+      else if (!should && b.sleeping) b.wake();
+    });
   }
   // 「今この形を置いたら何に当たるか」(PhysicsWorld.QueryCapsule)。法線はカプセルを押し出す向き
   queryCapsule(cap) {

@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 47 摩擦・Sequential Impulses・スリープ(ミニ物理エンジン完成)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. クランプを置く場所 — Sequential Impulses の核心</a></li><li class="l3"><a href="#s7">2. ウォームスタート(温存)— 良い初期値は反復回数を買う</a></li><li class="l3"><a href="#s8">3. クーロン摩擦 — 接線2本と、円で切ること</a></li><li class="l3"><a href="#s9">4. 段の順番 — 位置は「解いたあとの速度」で進める</a></li><li class="l3"><a href="#s10">5. 眠りと島 — 止まっている塊を計算から外す</a></li><li class="l3"><a href="#s11">6. 実効質量を先に出す — 反復の外へ出せるもの</a></li><li class="l3"><a href="#s12">7. 今日入れなかったもの</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">接触点が「結果」から「状態」になった日</a></li><li class="l3"><a href="#s19">持ち越しをどこに置くか</a></li><li class="l3"><a href="#s20">島は「眠りのため」だけに使っている</a></li><li class="l3"><a href="#s21">段を1つ増やしたこと</a></li><li class="l3"><a href="#s22">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. <code>Ctrl+F</code>: 摩擦の坂が出て、上の2つだけ止まる</a></li><li class="l3"><a href="#s25">2. <code>Shift+F</code>: 摩擦を切ると5つとも滑る</a></li><li class="l3"><a href="#s26">3. 眠りが見える</a></li><li class="l3"><a href="#s27">4. <code>Ctrl+Shift+F</code>: 温存を切ると柱が沈む</a></li><li class="l3"><a href="#s28">5. <code>Alt+F</code>: 蓄積を切ると温存も止まる</a></li><li class="l3"><a href="#s29">6. <code>Shift+Alt+F</code>: μ を上書きして一斉に変える</a></li><li class="l3"><a href="#s30">7. <code>Ctrl+Shift+Alt+6</code>: 接触の内訳に溜まったインパルスが出る</a></li><li class="l3"><a href="#s31">8. <code>Ctrl+Shift+Alt+F</code>: 自己チェックが 39 項目すべて合格</a></li><li class="l3"><a href="#s32">9. Day 43・44 の自己チェックも全項目合格</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): 温存の照合しきい値を掃引して、当たり率と沈み方を測る</a></li><li class="l3"><a href="#s35">課題2(中): 静止摩擦と動摩擦を分ける</a></li><li class="l3"><a href="#s36">課題3(難): 特徴 ID を通して、照合を添字1つにする</a></li><li class="l2"><a href="#s37">動作確認済み環境</a></li><li class="l3"><a href="#s38">自己チェック(39 項目すべて合格)</a></li><li class="l3"><a href="#s39">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 47 / 計画書</p>
+  <h1>摩擦・Sequential Impulses・スリープ(ミニ物理エンジン完成)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. クランプを置く場所 — Sequential Impulses の核心</a></li><li class="l3"><a href="#s7">2. ウォームスタート(温存)— 良い初期値は反復回数を買う</a></li><li class="l3"><a href="#s8">3. クーロン摩擦 — 接線2本と、円で切ること</a></li><li class="l3"><a href="#s9">4. 段の順番 — 位置は「解いたあとの速度」で進める</a></li><li class="l3"><a href="#s10">5. 眠りと島 — 止まっている塊を計算から外す</a></li><li class="l3"><a href="#s11">6. 実効質量を先に出す — 反復の外へ出せるもの</a></li><li class="l3"><a href="#s12">7. 今日入れなかったもの</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">接触点が「結果」から「状態」になった日</a></li><li class="l3"><a href="#s19">持ち越しをどこに置くか</a></li><li class="l3"><a href="#s20">島は「眠りのため」だけに使っている</a></li><li class="l3"><a href="#s21">段を1つ増やしたこと</a></li><li class="l3"><a href="#s22">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. <code>Ctrl+F</code>: 摩擦の坂が出て、上の2つだけ止まる</a></li><li class="l3"><a href="#s25">2. <code>Shift+F</code>: 摩擦を切ると5つとも滑る</a></li><li class="l3"><a href="#s26">3. 眠りが見える</a></li><li class="l3"><a href="#s27">4. <code>Ctrl+Shift+F</code>: 温存を切ると柱が沈む</a></li><li class="l3"><a href="#s28">5. <code>Alt+F</code>: 蓄積を切ると温存も止まる</a></li><li class="l3"><a href="#s29">6. <code>Shift+Alt+F</code>: μ を上書きして一斉に変える</a></li><li class="l3"><a href="#s30">7. <code>Ctrl+Shift+Alt+6</code>: 接触の内訳に溜まったインパルスが出る</a></li><li class="l3"><a href="#s31">8. <code>Ctrl+Shift+Alt+F</code>: 自己チェックが 39 項目すべて合格</a></li><li class="l3"><a href="#s32">9. Day 43・44 の自己チェックも全項目合格</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): 温存の照合しきい値を掃引して、当たり率と沈み方を測る</a></li><li class="l3"><a href="#s35">課題2(中): 静止摩擦と動摩擦を分ける</a></li><li class="l3"><a href="#s36">課題3(難): 特徴 ID を通して、照合を添字1つにする</a></li><li class="l2"><a href="#s37">動作確認済み環境</a></li><li class="l3"><a href="#s38">自己チェック(39 項目すべて合格)</a></li><li class="l3"><a href="#s39">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 43 から5日かけて、球・箱・カプセル・地形が落ちて跳ねて積めるところまで来た。<strong>今日はそこに「止まる」を入れる</strong>。</p>
+<p>止まるには3つ要る。<strong>摩擦</strong>(横に滑らない)、<strong>収束する解き方</strong>(沈まない)、<strong>眠り</strong>(止まったものを計算から外す)。どれも Box2D と Bullet の中核で、Erin Catto の Sequential Impulses という1本の枠組みの中に収まっている。</p>
+<p>もう1つ、今日は<strong>Day 43 から埋まっていた段の順番の間違いが表に出た</strong>。位置を「解く前の速度」で進めていたせいで、<strong>傾いた面の上にある物が、速度 0 のまま毎ステップ <code>g·dt²·sinθ</code> ずつ滑り落ちる</strong>。μ をいくら上げても止まらない。摩擦を入れてはじめて分かる種類の不具合で、Day 46 の「地形のおかげで逆慣性の抜けが表に出た」とまったく同じ形をしている。</p>
+<blockquote><p><strong>Day 43〜46 を写経済みの人へ</strong></p>
+<p>この直しは<strong>Day 47 の差分に入れてある</strong>(前の日には波及させていない)。<code>Physics/PhysicsWorld.cs</code> の <code>Step</code> で、<strong>位置の積分を速度の解決より後ろへ動かす</strong>——差し引き 10 行ほど。詳しくは要点4。Day 43〜46 の reference をそのままにしてあるのは、<strong>摩擦が無ければこの不具合は絵に出ない</strong>からで、直すと逆に「Day 43 のときは何が問題だったのか」が読めなくなる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+F</code> を押すと 26.57 度の坂に箱が5つ並ぶ。μ = 0.1 と 0.3 は滑り落ち、0.7 と 0.9 はぴたりと止まり、真ん中の 0.5 は 2cm だけずれて止まる——<code>tan 26.57° = 0.50</code> がちょうど境目。止まった箱は数秒後に色が沈んで眠る。<code>Shift+F</code> で摩擦を切ると、5つとも滑り落ちる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+F</code></td><td>摩擦デモ ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>Shift+F</code></td><td>摩擦 ON/OFF(<strong>切ると全部滑る</strong>)</td></tr>
+<tr><td><code>Alt+F</code></td><td>蓄積インパルス ON/OFF(切ると温存も止まる)</td></tr>
+<tr><td><code>Ctrl+Shift+F</code></td><td>温存(ウォームスタート)ON/OFF(<strong>切ると柱が沈む</strong>)</td></tr>
+<tr><td><code>Ctrl+Alt+F</code></td><td>眠り ON/OFF(<strong>色が沈んだ体が眠っている</strong>)</td></tr>
+<tr><td><code>Shift+Alt+F</code></td><td>μ の上書き(体ごと / 0 / 0.2 / 0.5 / 1.0)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+F</code></td><td>今日の自己チェック(39 項目)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+2</code></td><td>剛体の筋書きに<strong>「摩擦の坂」が増えた</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+6</code></td><td>接触の内訳に<strong>溜まったインパルス</strong>が出るようになった</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「クランプを置く場所」</strong>。Day 46 までは1周ごとに計算した値を 0 で切っていた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Day 46 まで: 今掛けるぶんを切る → <strong>掛けすぎを戻せない</strong>
+float applied = MathF.Max(lambda, 0.0f);
+
+// Day 47: 合計を切る → <strong>途中の周では負も許される</strong>
+float previous = contact.NormalImpulse;
+contact.NormalImpulse = MathF.Max(previous + lambda, 0.0f);
+float applied = contact.NormalImpulse - previous;</code></pre></div>
+<p>差は <code>MathF.Max</code> の位置だけ。それでも意味がまるで違う——<strong>接触の条件は「合計が押す向きであること」だけ</strong>で、途中の1周がどちら向きかは物理的に何も意味しない。この読み替えが Sequential Impulses の核心で、論文でもコードでも本当にこの数行しか変わらない。</p>
+<p><strong>2つ目は「前のステップの答えから始める」</strong>(ウォームスタート)。</p>
+<div class="code"><pre><code>  6段の柱・反復8周・3秒後の最上段の高さ(理想 2.750m)
+    温存なし  2.592m(<strong>16cm 沈む</strong>)
+    温存あり  2.746m(<strong>4mm</strong>)</code></pre></div>
+<p>反復法なので初期値がそのまま反復回数になる。床に置かれた箱は毎ステップ同じ答えを 0 から探し直していた——<strong>前の答えから始めれば1〜2周でほぼ正解に着く</strong>。</p>
+<p>そして<strong>1つ目と2つ目は切り離せない</strong>。素朴なクランプでは合計を減らせないので、持ち越した値が大きすぎても直せず、<strong>単調に増え続けて置いた箱が跳ね上がる</strong>。Erin Catto の資料でこの2つがいつも一組で説明されるのはそのため。</p>
+<p><strong>3つ目は「摩擦は接線2本で、円で切る」</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 2本を平面上のベクトルとして扱い、<strong>長さ</strong>でクランプする
+var sum = new Vector2(oldX + lambda1, oldY + lambda2);
+float limit = contact.Friction * contact.NormalImpulse;   // クーロン
+if (sum.LengthSquared() &gt; limit * limit)
+{
+    sum = Vector2.Normalize(sum) * limit;
+}</code></pre></div>
+<p>2本を別々に ±μλn で切ると、上限の形が円ではなく<strong>正方形</strong>になり、斜め 45 度に滑るときだけ √2 倍の摩擦が出る——<strong>斜めに押すと止まりやすい床</strong>ができる。自己チェックでは滑る向きを 64 通り振って、比が 1.02 を超えないことを確かめている。</p>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル2本(291 + 133 行)と既存2本の書き換え、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。<strong>4日連続でシェーダに触っていない</strong>——Phase 7 の前半がシミュレーションの回だということが、差分の形にそのまま出ている。次の Day 48 は入力の整理にあてるので、描画に戻るのは Day 49(パーティクル)から。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://box2d.org/files/ErinCatto_IterativeDynamics_GDC2005.pdf">Erin Catto, "Iterative Dynamics with Temporal Coherence" (2005)</a>— <strong>今日の原典</strong>。Sequential Impulses の導出と、蓄積クランプ・温存がなぜセットなのか</li><li><a href="https://box2d.org/files/ErinCatto_ModelingAndSolvingConstraints_GDC2009.pdf">Erin Catto, "Modeling and Solving Constraints" (GDC 2009)</a>— 実効質量と接触拘束の書き方。今日の <code>EffectiveMass</code> はこの資料の記法そのまま</li><li><a href="https://github.com/erincatto/box2d/blob/main/src/contact_solver.c">Box2D の <code>b2ContactSolver</code></a>— 温存・摩擦・クランプの実装。<strong>300 行ほどしかない</strong>ので通しで読める</li><li><strong>Game Physics Engine Development</strong>(Ian Millington)Chapter 15— 摩擦つきの接触解決。クーロン摩擦の扱いが丁寧</li><li><a href="https://github.com/bulletphysics/bullet3/blob/master/src/BulletCollision/NarrowPhaseCollision/btPersistentManifold.h">Bullet の <code>btPersistentManifold</code></a>— 接触点を<strong>位置で照合</strong>して持ち越すやり方(今日の <code>ContactCache</code> の下敷き)</li><li><strong>Real-Time Collision Detection</strong>(Christer Ericson)Chapter 12— 静止判定とスリープ。島(island)の考え方も出てくる</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. クランプを置く場所 — Sequential Impulses の核心</h3>
+<p>接触の拘束は「めり込む向きに近づかないこと」で、数式では</p>
+<div class="code"><pre><code>  v_n ≥ 0        (法線方向の相対速度)
+  λ  ≥ 0        (掛けるインパルス。接触は押すことしかできない)
+  v_n · λ = 0    (触れていないなら押さない)</code></pre></div>
+<p>3つ目まで含めて<strong>線形相補性問題(LCP)</strong>と呼ぶ。厳密に解くのは重いので、1つずつ順に直して何周もする(射影ガウス・ザイデル法)。</p>
+<p><strong>問題は「1つずつ直す」ときに λ ≥ 0 をどう守るか</strong>。</p>
+<div class="code"><pre><code>  Day 46 まで   1周ごとの λ を max(0, λ) で切る
+  Day 47        合計 Σλ を max(0, Σλ) で切る</code></pre></div>
+<p>前者では<strong>掛けすぎを戻す手が無い</strong>。柱の下のほうを解くと上が持ち上げられ、次の周でまた押し戻される——反復を増やしても振動するだけで答えに近づかない。</p>
+<p>後者なら途中の周で負の補正が出せる。合計さえ 0 以上なら、<strong>途中でどう行き来しても最後に正しい答えへ落ちる</strong>。「制約は最終的な合計に掛かっている」と読み替えるのがこの手の値打ちで、コードの差は本当に <code>MathF.Max</code> の位置だけになる。</p>
+<p><strong>正直に書くと、蓄積クランプ単体では絵が変わらない</strong>。柱がゆっくり落ち着くだけの場面では λ が常に正なので、負の補正を出す機会が来ない——自己チェックでも「蓄積 2.46257m / 素朴 2.46257m」と<strong>1ビットも違わない</strong>ことを確かめている。</p>
+<p>では何のためにあるのか。<strong>次の要点2を可能にするため</strong>。</p>
+<h3 id="s7">2. ウォームスタート(温存)— 良い初期値は反復回数を買う</h3>
+<p>反復法なので、初期値が良ければ少ない周回で収束する。そして<strong>接触の答えは前のステップとほとんど同じ</strong>——床に置かれた箱を支えるインパルスは、毎ステップ <code>m·g·dt</code> のままでよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 下ごしらえの段で、前のステップの答えをそのまま掛けてから反復に入る
+Vector3 impulse = (n * cached.NormalImpulse)
+                + (t1 * cached.TangentImpulse1)
+                + (t2 * cached.TangentImpulse2);
+a.ApplyImpulseAtPoint(impulse, point);
+b.ApplyImpulseAtPoint(-impulse, point);</code></pre></div>
+<p>効き目は<strong>反復回数を落としたときにいちばん出る</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>6段の柱の最上段(理想 2.750m)</th><th>めり込み</th></tr></thead>
+<tbody>
+<tr><td>反復8周 + 温存なし</td><td>2.592m</td><td>42.5mm</td></tr>
+<tr><td>反復4周 + 温存なし</td><td>2.460m</td><td>81.4mm</td></tr>
+<tr><td>反復2周 + 温存なし</td><td>2.212m</td><td>154.4mm</td></tr>
+<tr><td><strong>反復2周 + 温存あり</strong></td><td><strong>2.683m</strong></td><td>17.1mm</td></tr>
+<tr><td><strong>反復8周 + 温存あり</strong></td><td><strong>2.746m</strong></td><td>3.6mm</td></tr>
+</tbody>
+</table></div>
+<p><strong>温存ありの2周が、温存なしの8周を上回る</strong>。反復は掛け算の回数、温存は記憶の量——<strong>時間をメモリで買っている</strong>。</p>
+<p><strong>難しいのは「同じ接触点」をどう見分けるか</strong>。接触点は毎ステップ作り直されるので、番号も並び順も当てにならない。2通りある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>特徴 ID(Box2D)</th><th>位置で照合(Bullet)</th></tr></thead>
+<tbody>
+<tr><td>見分け方</td><td>「基準面3番 × 入射面の頂点2番」</td><td><strong>物体座標での距離が近い</strong></td></tr>
+<tr><td>正確さ</td><td>完全</td><td>しきい値しだい</td></tr>
+<tr><td>影響範囲</td><td><strong>クリップのコードを全部書き換える</strong>(交点にも ID が要る)</td><td><strong>判定に一切触らない</strong></td></tr>
+<tr><td>形が増えたら</td><td>形ごとに ID の振り方を決める</td><td>そのまま通る</td></tr>
+</tbody>
+</table></div>
+<p>今日は後者を採った。形が5種類(球・箱・カプセル・平面・地形)ある世界では<strong>1本の照合で全部通る</strong>ほうが圧倒的に安い。しきい値は 2cm——1ステップで接触点が動く距離より広く、接触点どうしの間隔より狭ければよい。</p>
+<p><strong>取り違えても壊れない</strong>のがこの手の強みでもある。初期値が少しずれるだけで、反復が正しい答えへ引き戻す。</p>
+<p>そして<strong>この2つは切り離せない</strong>。素朴なクランプでは1ステップに溜まる量が必ず 0 以上なので、持ち越しを続けると<strong>単調に増え続ける</strong>。置いてあるだけの箱が数秒後に跳ね上がるので、<code>AccumulateImpulses</code> を切ると温存も自動的に止まるようにしてある(<code>WarmStartActive</code>)。</p>
+<div class="inject"><figure class="lab" id="stack-lab">
+  <div class="lab-head">
+    <h3>柱を立てる(要点1・2・5)</h3>
+    <span class="tag">1辺 0.5m・1kg の箱、μ 0.6、跳ね返り 0、60Hz。6段の最上段の理想は 2.750m</span>
+  </div>
+  <div class="stage"><canvas id="stack-canvas" style="height:340px" aria-label="箱を積んだ柱。眠っている箱は色が沈む"></canvas></div>
+  <div class="hud" id="stack-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">段数</span>
+      <div class="seg" id="stack-n"><button data-v="4" aria-pressed="false">4段</button><button data-v="6" aria-pressed="true">6段</button></div>
+    </div>
+    <div class="ctl"><span class="label">反復(Ctrl+Shift+Alt+F5)</span>
+      <div class="seg" id="stack-it"><button data-v="1" aria-pressed="false">1周</button><button data-v="2" aria-pressed="false">2周</button><button data-v="4" aria-pressed="false">4周</button><button data-v="8" aria-pressed="true">8周</button></div>
+    </div>
+    <div class="ctl"><span class="label">操作</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn primary" id="stack-reset">最初から</button>
+        <button class="btn" id="stack-drop">上から箱を1つ落とす</button>
+        <button class="btn" id="stack-gravity">重力を消す</button>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="stack-warm" checked> 温存(Ctrl+Shift+F)</label>
+    <label class="check"><input type="checkbox" id="stack-acc" checked> 蓄積インパルス(Alt+F)</label>
+    <label class="check"><input type="checkbox" id="stack-sleep" checked> 眠り(Ctrl+Alt+F)</label>
+    <label class="check"><input type="checkbox" id="stack-island" checked> 触れ合うものは島でまとめて眠る(要点5)</label>
+  </div>
+  <div class="readout"><div class="stats" id="stack-stats"></div><p id="stack-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. クーロン摩擦 — 接線2本と、円で切ること</h3>
+<p>摩擦は接触面に沿った向きに、滑りを止めようとして掛かる。上限がクーロンの法則で決まる。</p>
+<div class="code"><pre><code>  |λ_t| ≤ μ · λ_n</code></pre></div>
+<p><strong>面積も速さも出てこない</strong>。レンガを立てて置いても寝かせて置いても滑り出す角度が同じ、という高校物理の結論がそのままモデルになっている。</p>
+<p>面は2次元なので、向きを表すには<strong>法線と直交する2本</strong>が要る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 法線の成分がいちばん小さい軸を選ぶ → 外積が 0 にならない
+Vector3 axis = MathF.Abs(normal.X) &lt; 0.57735f ? Vector3.UnitX
+             : MathF.Abs(normal.Y) &lt; 0.57735f ? Vector3.UnitY : Vector3.UnitZ;
+tangent1 = Vector3.Normalize(Vector3.Cross(normal, axis));
+tangent2 = Vector3.Cross(normal, tangent1);</code></pre></div>
+<p><code>0.57735</code> は <code>1/√3</code>。法線は長さ 1 なので、3成分のうち最小のものは必ずこれより小さい——<strong>選んだ軸が法線と平行になることがありえない</strong>。</p>
+<p><strong>2本をどう回して取ってもよい</strong>のは、上限を<strong>合成した長さ</strong>で決めるから(摩擦円錐)。別々に ±μλn で切ると上限が正方形になり、斜め 45 度で √2 倍の摩擦が出る。</p>
+<div class="code"><pre><code>    円で切る                正方形で切る
+       ___                   ┌─────┐
+     /     \                 │     │      ← 斜め 45 度だけ
+    |   ●   |  半径 μλn      │  ●  │        1.414 倍まで出る
+     \ ___ /                 └─────┘</code></pre></div>
+<div class="inject"><figure class="lab" id="cone-lab">
+  <div class="lab-head">
+    <h3>摩擦の上限の形 — 円で切るか、正方形で切るか</h3>
+    <span class="tag">接触面を真上から見た図。横軸が接線1、縦軸が接線2のインパルス。上限の半径は μλn</span>
+  </div>
+  <div class="stage"><canvas id="cone-canvas" style="height:300px" aria-label="摩擦の上限を円で切った場合と正方形で切った場合"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">滑る向き(接線1から測った角度)</span>
+      <div class="range"><input type="range" id="cone-angle" min="0" max="90" step="1" value="45"><output id="cone-angle-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">止めたい量(μλn の何倍か)</span>
+      <div class="range"><input type="range" id="cone-mag" min="0.2" max="3" step="0.05" value="2"><output id="cone-mag-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cone-stats"></div><p id="cone-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>摩擦は法線より先に解く</strong>。上限に使う <code>λ_n</code> はその時点で溜まっている値、つまり1周前のものになる。逆順にすると、その周で新しく増えた法線ぶんまで上限に入って、<strong>着地の瞬間だけ摩擦が過剰に効いて物が張り付く</strong>。(代償として、上限を 2% ほど超えることがある。Box2D も同じ性質を持っている)</p>
+<p><strong>2つの体の μ は相乗平均で混ぜる</strong> <code>√(μa · μb)</code>。反発係数が「小さいほう」なのと式が違うのは、<strong>片方が 0(氷)なら全体も 0 にしたい</strong>一方で、ざらざら同士が両方の値より大きくならないでほしいから。物性ではなくモデルの選択。</p>
+<p><strong>静止摩擦角</strong>が今日の実験になる。斜面に置いた物が滑り出す条件は</p>
+<div class="code"><pre><code>  m g sinθ &gt; μ m g cosθ    ⇔    tanθ &gt; μ</code></pre></div>
+<p>で、<strong>質量が両辺から消える</strong>。デモは <code>tan θ = 0.5</code>(26.57 度)にしてあるので、μ = 0.7 / 0.9 は止まり、0.1 / 0.3 は滑り、0.5 がちょうど境目になる。自己チェックでは 1kg と 20kg で滑る距離が 0.01% 以内に一致することも見ている。</p>
+<p><strong>転がり摩擦は入れていない</strong>。デモの黄色い球は μ = 1 でも転がり落ちる——転がっている物は接触点での相対速度が 0 なので(それが「転がる」の定義)、<strong>滑りに対する摩擦が仕事をする場面が無い</strong>。モデルに無いものは係数をいくら上げても出てこない、という実演として置いてある。</p>
+<div class="inject"><figure class="lab" id="ramp-lab">
+  <div class="lab-head">
+    <h3>坂に箱を5つ置く(要点3・4)</h3>
+    <span class="tag">傾き 26.57 度(tanθ = 0.50)、坂の μ = 1、箱 1kg・1辺 0.5m、球 半径 0.3m・μ 1、60Hz</span>
+  </div>
+  <div class="stage"><canvas id="ramp-canvas" style="height:380px" aria-label="μ を変えた5つの箱と球が、それぞれの坂に置かれている"></canvas></div>
+  <div class="hud" id="ramp-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">μ の上書き(Shift+Alt+F)</span>
+      <div class="seg" id="ramp-override"><button data-v="-1" aria-pressed="true">体ごと</button><button data-v="0" aria-pressed="false">0</button><button data-v="0.2" aria-pressed="false">0.2</button><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="1" aria-pressed="false">1.0</button></div>
+    </div>
+    <div class="ctl"><span class="label">操作</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><button class="btn primary" id="ramp-reset">最初から</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="ramp-friction" checked> 摩擦(Shift+F)</label>
+    <label class="check"><input type="checkbox" id="ramp-sleep" checked> 眠り(Ctrl+Alt+F)</label>
+    <label class="check"><input type="checkbox" id="ramp-order" checked> 位置は解いたあとの速度で進める(要点4)</label>
+  </div>
+  <div class="readout"><div class="stats" id="ramp-stats"></div><p id="ramp-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. 段の順番 — 位置は「解いたあとの速度」で進める</h3>
+<p><strong>今日いちばん地味で、いちばん効いた1行</strong>。Day 43 から Day 46 まで、<code>Step</code> の中はこうなっていた。</p>
+<div class="code"><pre><code>  1. 速度を進める(重力を足す)
+  2. 位置を進める      ← <strong>解く前の速度</strong>で進めている
+  3. 判定
+  4. 速度を解く
+  5. 位置を補正する</code></pre></div>
+<p>床に置いてある箱で何が起きるか。段1で <code>v = -g·dt</code>(下向き 0.16m/s)になり、段2でその速度のまま <code>g·dt² ≈ 2.7mm</code> 沈む。段4で速度が 0 に戻され、段5がめり込みを押し返す——<strong>沈んでは押し戻す、を毎ステップ繰り返している</strong>。</p>
+<p>平らな床ならこれで釣り合う。<strong>傾いた面では釣り合わない</strong>。</p>
+<div class="code"><pre><code>     沈むぶん(真下)          押し戻すぶん(法線)
+          ↓                        ↗
+     2.7mm                    2.7mm·cosθ
+                              ← 面に沿った成分 2.7mm·sinθ が戻らない</code></pre></div>
+<p>位置の補正は<strong>法線の向きにしか押さない</strong>ので、面に沿った成分が残る。結果、止まっているはずの箱が毎ステップ <code>g·dt²·sinθ</code> ずつ坂を下る——26.57 度なら 1.2mm/フレーム、<strong>1秒で 7cm</strong>。速度は 0 のままなので、μ をいくら上げても止まらない。</p>
+<p>直し方は順番を入れ替えるだけ。</p>
+<div class="code"><pre><code>  1. 速度を進める
+  2. 判定
+  3. 下ごしらえ(温存を掛ける)
+  4. 速度を解く
+  5. 位置を進める      ← <strong>解いたあとの速度</strong>で進める
+  6. 位置を補正する</code></pre></div>
+<p><strong>速度が 0 に解けている物は、位置も 1mm も動かない</strong>。実測で、坂に置いた μ = 0.7 の箱の滑りが<strong>1.5 秒で 111mm → 2.4mm</strong> になった(2.4mm は最初の1フレームぶんで、そこから増えない)。</p>
+<p>Box2D も Bullet もこの順で、Day 43 の並びのほうが例外だった。<strong>代償は「最初の接触が1フレーム遅れる」こと</strong>——判定が位置を進める前に走るので、浮いている物は次のステップまで接触を持たない。実測では地形に落とす筋書きですり抜けがむしろ減った(Day 46 で5体 → Day 47 で3体。残りは端から落ちたもの)ので、実害は無いと判断している。</p>
+<p><strong>この不具合は摩擦を入れるまで絵に出なかった</strong>。Day 46 までは坂に物を置いても滑り落ちるのが正しかったので、「毎フレーム 1.2mm 余分に滑っている」ことに気づきようがない。Day 46 の逆慣性テンソルと同じで、<strong>機能を足すと前の日の抜けが見える</strong>という形が続いている。</p>
+<h3 id="s10">5. 眠りと島 — 止まっている塊を計算から外す</h3>
+<p>止まった物を計算し続けるのは無駄で、しかも<strong>数値誤差でじりじり動く</strong>。一定時間ゆっくりだった体を眠らせる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>bool slow = 速度² &lt; 0.05² &amp;&amp; 角速度² &lt; 0.10²;
+body.SleepTimer = slow ? body.SleepTimer + dt : 0.0f;</code></pre></div>
+<p>眠った体は積分もされず、解くときは<strong>逆質量 0</strong>として扱う——つまり静的な体とまったく同じ振る舞いになる。違いは<strong>起きられること</strong>だけ。</p>
+<p><strong>厄介なのは「1体では決められない」</strong>。積み上げた6段の箱は上から順に止まる。1体ずつ判定すると、上だけ眠って下がまだ起きている状態が生まれ、そこへ7段目を落とすと<strong>塊の途中で力が伝わらなくなる</strong>。</p>
+<p>答えは<strong>「触れ合っているものはまとめて眠り、まとめて起きる」</strong>。接触で繋がった体を1つの塊(島)とみなす。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Union-Find。接触の組を union するだけ
+foreach (組 in _manifolds)
+{
+    if (a.IsStatic || b.IsStatic) continue;   // ← ここが肝
+    _islands.Union(contact.A, contact.B);
+}
+
+// 島の中で<strong>いちばん眠りが浅い</strong>時計に合わせる
+timers[root] = MathF.Min(timers[root], body.SleepTimer);</code></pre></div>
+<p><strong>静的な体を繋いではいけない</strong>。床は世界じゅうの物と触れているので、繋いだ瞬間に全部が1つの島になり、どこかで誰かが動いている限り誰も眠れない。静的な体は眠りも起きもしないので、島に入れる意味も無い。</p>
+<p>「いちばん浅いほうに合わせる」ので、島に1体でも動いているものが居ればその体の時計が 0 になり、<strong>島全体が起きたまま</strong>になる。6段の柱に7段目を落とすと、触れた瞬間に柱ぜんぶが一斉に起きる。</p>
+<p><strong>眠らない体</strong>(<code>AllowSleep = false</code>)も同じ仕掛けで扱える——時計を 0 として混ぜれば、最小値が 0 になって島ごと起きたままになる。分岐が1つも要らない。</p>
+<p><strong>眠っていても判定は走る</strong>。省いているのは積分と解決だけで、ブロードフェーズもナローフェーズも今までどおり動く——そうしないと、眠っている体に何かがぶつかっても気づけない。判定まで省くには「眠った体を格子から抜いて、動くものが近づいたら戻す」仕掛けが要るが、効いてくるのは体が数千個の規模から。</p>
+<h3 id="s11">6. 実効質量を先に出す — 反復の外へ出せるもの</h3>
+<p>Day 46 まで、インパルスの分母は反復のたびに計算し直していた。</p>
+<div class="code"><pre><code>  分母 = 1/mA + 1/mB + n·((IA⁻¹(rA×n))×rA) + n·((IB⁻¹(rB×n))×rB)</code></pre></div>
+<p><strong>この値は反復の間に変わらない</strong>。体の姿勢も接触点も、速度の解決の中では1ミリも動かないからで、8周 × 4点なら 32 回同じ答えを出していた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 下ごしらえの段で1回だけ。逆数で持つので割り算も1回で済む
+contact.NormalMass   = EffectiveMass(a, b, rA, rB, contact.Normal);
+contact.TangentMass1 = EffectiveMass(a, b, rA, rB, contact.Tangent1);
+contact.TangentMass2 = EffectiveMass(a, b, rA, rB, contact.Tangent2);</code></pre></div>
+<p><strong>「反復の外に出せるもの」を見つけるのは反復法を書くときの定石</strong>。物理そのものは1文字も変わらないのに、接線が2本増えて計算量が3倍になるはずのところが、先出しのおかげでほぼ据え置きになっている。</p>
+<h3 id="s12">7. 今日入れなかったもの</h3>
+<p><strong>連続衝突判定(CCD)</strong>。速い物は1ステップで薄い壁を通り抜ける。Day 46 の自己チェックで「落下速度 13m/s のカプセルが地形を抜けた」と書いたのがこれで、今日も直っていない。スイープ(移動の軌跡で判定する)か、投機的接触(Box2D の speculative contact)が要る。</p>
+<p><strong>静止摩擦と動摩擦の区別</strong>。本来は「動き出す前」のほうが係数が大きく、だから物は動き出した瞬間にがくんと加速する。2つ持つと「今この接触は滑っているのか」を毎ステップ判定することになり、判定が揺れるとがたつく。Box2D も Bullet も既定では1つしか持たない。</p>
+<p><strong>転がり摩擦</strong>(要点3)。球が永久に転がる。</p>
+<p><strong>位置の補正で向きを直さない</strong>。Day 44 から続いている割り切りで、めり込みを並進だけで押し戻している。回して直すほうが正しいが、回すと接触点も動くので反復が収束しにくくなる。</p>
+<p><strong>関節(ジョイント)</strong>。Sequential Impulses の枠組みはそのまま使えるので、接触を「ヒンジ」「距離」などの拘束に差し替えれば布や車が書ける。ここまで来ればあと一歩だが、デモに要らないので入れていない。</p>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/ContactCache.cs</code></td><td>接触インパルスの持ち越し(<code>CachedPoint</code> / <code>CachedManifold</code> / <code>ContactCache</code>)。<strong>291 行</strong>(要点2)</td></tr>
+<tr><td><code>Physics/IslandBuilder.cs</code></td><td>接触で繋がった塊を作る Union-Find。<strong>133 行</strong>(要点5)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/RigidBody.cs</code></td><td><code>Friction</code>、眠りの状態3つ、<code>Wake</code> / <code>Sleep</code>、解くとき用の逆質量</td><td>+127 / -2</td></tr>
+<tr><td><code>Physics/PhysicsWorld.cs</code></td><td><code>ContactPoint</code> の作り直し、<strong>段が5つから8つへ</strong>、摩擦・温存・眠り</td><td>+814 / -86</td></tr>
+<tr><td><code>Program.cs</code></td><td>摩擦の坂、<code>F</code> の段、HUD、眠りの色、自己チェック 39 項目、<strong>古くなった5項目の書き直し</strong></td><td>+1,059 / -34</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>shaders/</code> は1文字も変わっていない</strong>。<code>Collision3D</code> / <code>Sat</code> / <code>Shapes3D</code> / <code>HeightField</code> / <code>SpatialGrid3D</code> / <code>CharacterController</code> も<strong>1行も変わっていない</strong>——今日の差分は<strong>全部「解く側」に閉じている</strong>。</p>
+<h3 id="s16">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。1 と 2 は足すだけ、3 と 4 が今日の本体。</p>
+<ol><li><strong><code>Physics/RigidBody.cs</code></strong>(変更) — 次の順で<ul><li><code>Friction</code>(<code>AngularDamping</code> の直後)</li><li>眠りの3つ(<code>IsSleeping</code> / <code>SleepTimer</code> / <code>AllowSleep</code>)</li><li><code>IsMovable</code> / <code>SolverInverseMass</code> / <code>SolverInverseInertia</code>(<code>Mass</code> の直後)</li><li><code>Wake()</code> / <code>Sleep()</code>(<code>ApplyForce</code> の直前)</li><li><code>ApplyImpulseAtPoint</code> に眠りのガード1つ</li><li><code>IntegrateVelocity</code> / <code>IntegratePosition</code> の <code>IsStatic</code> に <code>|| IsSleeping</code> を足す(<strong>位置のほうは <code>Previous*</code> を控えたあとに置くこと</strong>)</li></ul></li><li><strong><code>Physics/ContactCache.cs</code></strong>(新規) — 次の順で<ul><li><code>CachedPoint</code> / <code>CachedManifold</code>(添字の読み書きは <code>switch</code> で素朴に)</li><li><code>ContactCache</code>(<code>MatchDistance</code> → <code>BeginStep</code> / <code>Clear</code> → <code>TryMatch</code> → <code>Store</code> → <code>Prune</code> → <code>Key</code>)</li></ul></li><li><strong><code>Physics/IslandBuilder.cs</code></strong>(新規) — <code>Begin</code> → <code>Union</code> → <code>Find</code> の3本だけ</li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(変更) — 次の順で<ul><li><strong><code>ContactPoint</code> を丸ごと書き直す</strong>。接線2本・摩擦・実効質量3つ・蓄積3つ・<code>WarmStarted</code>。<code>BuildTangents</code> は <code>static</code> メソッドとして中に置く</li><li>フィールド4つ(<code>_cache</code> / <code>_islands</code> / <code>_islandSleepTimers</code> / <code>_cacheScratch</code>)</li><li>プロパティ(<code>AccumulateImpulses</code> / <code>WarmStarting</code> / <code>WarmStartActive</code> / <code>FrictionEnabled</code> / <code>FrictionOverride</code> / <code>SleepEnabled</code> / <code>SleepLinearThreshold</code> / <code>SleepAngularThreshold</code> / <code>SleepTime</code>)</li><li>数字のプロパティ(<code>WarmStartedPoints</code> / <code>NewContactPoints</code> / <code>CachedPairs</code> / <code>IslandCount</code> / <code>SleepingCount</code>)</li><li><code>Clear</code> に <code>_cache.Clear()</code> と <code>IslandCount = 0</code></li><li><code>ContactSpan</code>(<code>CollectionsMarshal.AsSpan</code> の窓)</li><li><code>GenerateContacts</code> の頭に <code>_cache.BeginStep()</code></li><li><code>Add</code> に摩擦の混ぜ方と温存の照合</li><li><strong><code>PrepareContacts</code> と <code>EffectiveMass</code> を新しく書く</strong>(要点1・2・6)</li><li><strong><code>SolveManifold</code> を書き直し、<code>SolveNormal</code> / <code>NormalVelocity</code> を切り出す</strong>(要点1)</li><li><strong><code>SolveFriction</code> を書く</strong>(要点3)</li><li><code>AngularTerm</code> の <code>InverseInertiaWorld</code> を <code>SolverInverseInertia</code> へ</li><li><code>CorrectPositions</code> の <code>InverseMass</code> を <code>SolverInverseMass</code> へ(2箇所 + 変数2つ)</li><li><strong><code>StoreImpulses</code> と <code>UpdateSleep</code> を書く</strong>(要点2・5)</li><li><strong>最後に <code>Step</code> を組み替える</strong>(要点4。位置の積分を解決の後ろへ)</li></ul></li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す<ul><li><code>PhysicsScene</code> に <code>FrictionRamp</code>(<strong>末尾に</strong>)</li><li>Day 47 のフィールド(<code>RampTilt</code> / <code>RampFrictions</code> / <code>FrictionSteps</code> / <code>_frictionIndex</code>)</li><li><code>BuildPhysicsScene</code> の <code>switch</code> に枝1つ、<code>ShowPhysicsDemo</code> のカメラ(<strong><code>_orbit.Target</code> が <code>switch</code> 式になる</strong>)</li><li><code>Day 45 の節</code> の直前に Day 47 の塊(<code>BuildFrictionRampScene</code> / <code>CycleFrictionOverride</code> / <code>WakeAllBodies</code> / <code>SolverLabel</code> / <code>FrictionLabel</code>)</li><li><code>RenderPhysics</code> の <code>BaseColorFactor</code>(<strong>眠っている体を暗くする</strong>)</li><li><code>DrawOverlayInfo</code> に <code>SolverLabel()</code></li><li><code>DescribePhysics</code> に Day 47 の3行と、体ごとの行に μ と眠り</li><li><code>DescribeContacts</code> に溜まったインパルス</li><li><code>KickBodies</code> に <code>body.Wake()</code>(<strong>忘れると寝ている球が飛ばない</strong>)</li><li><code>PhysicsSceneLabel</code> に1行、<code>Ctrl+Shift+Alt+2</code> の巡回に1つ</li><li>ヘルプの Day 47 の段</li><li><code>RunSolverCheck</code> と補助7本(<code>BuildStackWorld</code> / <code>StackTopHeight</code> / <code>TopBoxHeight</code> / <code>TotalNormalImpulse</code> / <code>StepWorld</code> / <code>RampSlide</code> / <code>SlidingFrictionRatio</code> / <code>SlideDistance</code>)を <code>RandomPoint</code> の直前に</li><li><strong><code>RunRigidBodyCheck</code> / <code>RunBoxCollisionCheck</code> の5項目を書き直す</strong>(下記)</li><li>キー(<code>F</code> の段7つ)。<strong>素の <code>case Key.F:</code> より上に置くこと</strong></li></ul></li></ol>
+<p><strong>古くなった自己チェックの書き直し</strong>が今日はじめて必要になった。Day 43・44 が「まだできていないこと」として書いた項目が、今日できるようになったため。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこ</th><th>Day 46 まで</th><th>Day 47</th></tr></thead>
+<tbody>
+<tr><td>Day 43 の柱</td><td>反復1周だと沈む(64.4mm)</td><td><strong>1周でも沈まない</strong>(5.0mm)+ 温存が反復を買っている、を1項目追加</td></tr>
+<tr><td>Day 44a の1点接触</td><td>傾き 0.94 度</td><td>0.25 度。<strong>しきい値を 0.005 → 0.002 rad へ緩める</strong></td></tr>
+<tr><td>Day 44a の順番解き(床の箱1つ)</td><td>揺れが止まらない(0.118 rad/s)</td><td><strong>落ち着く</strong>(0.00000 rad/s)。蓄積インパルスが効いている</td></tr>
+<tr><td>Day 44b の順番解き(柱)</td><td>柱が崩れる(横ずれ 12.9m)</td><td><strong>崩れない</strong>(35mm)。摩擦が支えている</td></tr>
+<tr><td>Day 44b の沈み</td><td>段数ぶん沈む(96.2mm)= <strong>「Day 47 の宿題」</strong></td><td><strong>沈まない</strong>(5.0mm)。宿題が片付いた</td></tr>
+</tbody>
+</table></div>
+<p><strong>しきい値をいじって延命させないこと</strong>。主張が古くなったら書き換えるのが正しい。<code>Ctrl+Shift+Alt+F12</code>(Day 43)と <code>Ctrl+Shift+Alt+0</code>(Day 44)を押して、どちらも全項目合格になるところまでが今日の写経になる。</p>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が3つ増え、既存の2つが書き換わっただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/CachedPoint</code></td><td><code>Physics/</code></td><td>1点ぶんの持ち越し(印2つ + インパルス3つ)</td></tr>
+<tr><td><code>Physics/CachedManifold</code></td><td><code>Physics/</code></td><td>1組ぶんの持ち越し(最大4点 + 印)</td></tr>
+<tr><td><code>Physics/ContactCache</code></td><td><code>Physics/</code></td><td>組から持ち越しを引く辞書。<strong>291 行</strong>(要点2)</td></tr>
+<tr><td><code>Physics/IslandBuilder</code></td><td><code>Physics/</code></td><td>接触で繋がった塊を作る Union-Find。<strong>133 行</strong>(要点5)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/RigidBody</code></td><td><code>Friction</code> と眠りの状態、解くとき用の逆質量</td><td>+127 / -2</td></tr>
+<tr><td><code>Physics/PhysicsWorld</code></td><td><strong>段が5つから8つへ</strong>。<code>ContactPoint</code> が状態を持つようになった</td><td>+814 / -86</td></tr>
+<tr><td><code>Program.cs</code></td><td>摩擦の坂、<code>F</code> の段、HUD、自己チェック 39 項目</td><td>+1,059 / -34</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18">接触点が「結果」から「状態」になった日</h3>
+<p>Day 43 から Day 46 まで、<code>ContactPoint</code> は <code>readonly struct</code> だった。判定の結果を運ぶだけの入れ物で、<strong>解いている間に書き換わるものは何も無かった</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Day 46: 全部 readonly。作ったら最後まで変わらない
+internal readonly struct ContactPoint
+{
+    public readonly Vector3 Normal;
+    public readonly float Separation;
+    public readonly float Bounce;
+}</code></pre></div>
+<p>今日、後半が可変になった。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal struct ContactPoint
+{
+    public readonly Vector3 Normal;      // ← 判定が決めるもの(不変)
+    public readonly float Friction;
+    // ここから下は解いている間に書き換わる
+    public float NormalMass;             // 下ごしらえで1回
+    public float NormalImpulse;          // 反復のたびに
+    public float TangentImpulse1;
+}</code></pre></div>
+<p><strong>readonly と可変が1つの型に同居している</strong>のは気持ちのよい形ではない。分けるなら <code>ContactPoint</code>(判定の結果)と <code>ContactConstraint</code>(解くときの作業領域)の2つにするのが Box2D の形で、あちらは実際にそうなっている。</p>
+<p>今日1本のままにしたのは、<strong>2本にすると添字の対応を保つ責任が増える</strong>から。接触点は毎ステップ数百個生まれるので、2つの配列を並走させると「片方だけ <code>Clear</code> し忘れる」種類の事故が入り込む。<strong>型が 2 つ・配列が 2 本になる価値が出るのは、解くところを並列化するとき</strong>——そのとき作業領域だけをスレッドごとに分けたくなる。今日はまだ早い。</p>
+<p><strong><code>List&lt;T&gt;</code> の中身を書き換える</strong>のに <code>CollectionsMarshal.AsSpan</code> を使った。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private Span&lt;ContactPoint&gt; ContactSpan =&gt; CollectionsMarshal.AsSpan(_contacts);</code></pre></div>
+<p><code>_contacts[i].NormalImpulse += x</code> と書けないのは、<code>List&lt;T&gt;</code> の添字が<strong>値のコピー</strong>を返すため。<code>class</code> にすれば書けるが、毎ステップ数百個のゴミが出る。<code>AsSpan</code> は内部配列をそのまま指すので、添字で書き換えたものがリストに残る——<strong>要素を足したり消したりしている間に使ってはいけない</strong>(内部配列が作り直される)という制約付きの窓で、ここでは判定が終わってからしか使わないので安全。</p>
+<h3 id="s19">持ち越しをどこに置くか</h3>
+<p><code>ContactCache</code> を <code>PhysicsWorld</code> が1つ持つ形にした。組ごとに持たせる案もあったが、<strong>組は毎ステップ生まれては消えるので置き場所が無い</strong>。</p>
+<div class="code"><pre><code>  PhysicsWorld
+    ├─ _contacts    今ステップの接触点(毎回作り直す)
+    ├─ _manifolds   組の区切り(毎回作り直す)
+    └─ _cache       <strong>ステップをまたいで残る唯一のもの</strong></code></pre></div>
+<p><strong>鍵が体の番号</strong>なので、<code>Clear()</code> で必ず捨てないといけない。体を入れ替えたのにキャッシュが残っていると、<strong>まったく別の組のインパルスを引き継ぐ</strong>——筋書きを切り替えた1フレーム目だけ物が弾け飛ぶ、という形で出る。</p>
+<p>同じ性格の落とし穴が Day 46 にもあった(<code>_gridReady</code>)。<strong>ステップをまたいで残るものは、世界を組み直したら必ず捨てる</strong>。<code>PhysicsWorld</code> に「またぐもの」が2つになったので、3つ目が増えたら <code>ResetPersistentState()</code> のようにまとめる頃合いになる。</p>
+<h3 id="s20">島は「眠りのため」だけに使っている</h3>
+<p><code>IslandBuilder</code> は Union-Find そのもので、133 行のうち半分がコメント。使っているのは <code>UpdateSleep</code> の1箇所だけ。</p>
+<p><strong>Box2D は島をもっと使う</strong>。解くのも島ごとに分けていて、島どうしは干渉しないので<strong>並列に解ける</strong>。今日それをやらなかったのは、島を解くために必要なものが多いから——体・接触・拘束をそれぞれ島ごとに詰め直す配列が要り、<code>PhysicsWorld</code> の形が大きく変わる。</p>
+<p><strong>眠りだけなら Union-Find 1本で足りる</strong>。「触れ合っているかどうか」しか要らないので、接触の組を <code>Union</code> して、代表で引ければそれでいい。<strong>同じデータ構造でも、何に使うかで必要な作り込みが2桁変わる</strong>という例になっている。</p>
+<h3 id="s21">段を1つ増やしたこと</h3>
+<p><code>Step</code> の段が5つから8つになった。増えた3つはどれも「解く」ことそのものではない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えた段</th><th>何のためにあるか</th></tr></thead>
+<tbody>
+<tr><td>下ごしらえ(<code>PrepareContacts</code>)</td><td><strong>反復の外に出せるもの</strong>を出す。実効質量と温存</td></tr>
+<tr><td>持ち越し(<code>StoreImpulses</code>)</td><td>次のステップのための記憶</td></tr>
+<tr><td>眠り(<code>UpdateSleep</code>)</td><td>計算から外すものを決める</td></tr>
+</tbody>
+</table></div>
+<p><strong>反復法だという性格が、そのまま段の形に出ている</strong>。反復の前に「良い初期値を作る段」があり、反復の後に「次の初期値を残す段」がある——この前後の対称性は、反復法を書くとほぼ必ず現れる形になる。</p>
+<p>そして<strong>位置の積分が段2から段5へ動いた</strong>(要点4)。これは増えたのではなく<strong>動いた</strong>だけだが、今日いちばん効いた変更でもある。</p>
+<h3 id="s22">今日残した歪み(2つ)</h3>
+<p><strong>1つ目: <code>ContactPoint</code> が 100 バイトを超えた</strong>。Day 46 の 64 バイトから、接線2本(24)+ 実効質量3つ(12)+蓄積3つ(12)+ 摩擦(4)+ 印(1)で 116 バイト。接触が 1,000 点あれば 116KB で、<strong>L2 キャッシュには乗るが L1 には乗らない</strong>。反復のたびに全部を舐めるので、体が数千個になったら「解くのに要る値だけを詰めた配列」に組み替える価値が出る。それが上に書いた <code>ContactConstraint</code> の分離になる。</p>
+<p><strong>2つ目: 持ち越しの照合が O(点数)</strong>。<code>TryMatch</code> は組ごとに最大4点を線形に探す。組が数千なら数万回の距離計算になる。特徴 ID なら添字1つで引けるので、<strong>ここは正確さではなく速さのためにID へ移る日が来る</strong>(改造課題3)。</p>
+</section>
+<section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day47 -c Release</code> で起動して、次が確かめられること。</p>
+<h3 id="s24">1. <code>Ctrl+F</code>: 摩擦の坂が出て、上の2つだけ止まる</h3>
+<p>26.57 度の坂に箱が5つ、手前から μ = 0.1 / 0.3 / 0.5 / 0.7 / 0.9 で並ぶ。色は寒色(滑る側)から暖色(止まる側)へ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>μ</th><th>3秒後</th><th>10秒後</th></tr></thead>
+<tbody>
+<tr><td>0.1</td><td>坂を降り切って床へ</td><td>壁際で止まって眠る</td></tr>
+<tr><td>0.3</td><td>坂を降り切って床へ</td><td>壁際で止まって眠る</td></tr>
+<tr><td>0.5</td><td><strong>2.2cm ずれて止まる</strong></td><td>そのまま(眠っている)</td></tr>
+<tr><td>0.7</td><td><strong>2.4mm</strong></td><td>そのまま</td></tr>
+<tr><td>0.9</td><td><strong>2.4mm</strong></td><td>そのまま</td></tr>
+</tbody>
+</table></div>
+<p><strong>真ん中(0.5)がちょうど境目</strong>で、<code>tan 26.57° = 0.50</code> とぴったり合う。2.2cm だけずれるのは、最初の数フレームで温存が効き始めるまでの滑り。</p>
+<p>黄色い球は μ = 1 でも<strong>転がり落ちる</strong>(要点3)。</p>
+<h3 id="s25">2. <code>Shift+F</code>: 摩擦を切ると5つとも滑る</h3>
+<p>止まっていた箱が一斉に滑り出す。<strong>Day 46 までの世界がこれ</strong>。戻すと、坂の途中で止まったところからまた止まる。</p>
+<h3 id="s26">3. 眠りが見える</h3>
+<p>止まった箱は 0.5 秒後に<strong>色が沈む</strong>。HUD の「眠り」が <code>5/6体 島6</code> のように出る。<code>Ctrl+Alt+F</code> で眠りを切ると全部が元の色に戻り、物理の ms がわずかに増える。</p>
+<p><strong><code>Ctrl+Shift+Alt+F7</code>(球を降らせる)で眠っている箱の上に落とすと、触れた瞬間に色が戻る</strong>——島がまとめて起きている。</p>
+<h3 id="s27">4. <code>Ctrl+Shift+F</code>: 温存を切ると柱が沈む</h3>
+<p><code>Ctrl+Shift+Alt+2</code> を1回押して「箱を積む」へ。6段の柱が立つ。</p>
+<div class="code"><pre><code>  温存 ON    最上段 4.117m(理想 4.120m)  めり込み 4.5mm
+  温存 OFF   最上段 3.960m まで沈む        めり込み 77mm</code></pre></div>
+<p><code>Ctrl+Shift+Alt+F5</code> で反復を 1 まで落とすと差がはっきりする——<strong>温存 ON なら1周でも柱が持つ</strong>。</p>
+<h3 id="s28">5. <code>Alt+F</code>: 蓄積を切ると温存も止まる</h3>
+<p>コンソールに「<strong>温存も一緒に止まる</strong>」と出る。HUD の解法欄が<code>[素朴 <strong>温存は蓄積とセット</strong>]</code> になる。柱の沈み方は温存 OFF と同じになり、<strong>蓄積単体では絵が変わらない</strong>ことが確かめられる(要点1)。</p>
+<h3 id="s29">6. <code>Shift+Alt+F</code>: μ を上書きして一斉に変える</h3>
+<p><code>Ctrl+Shift+Alt+2</code> を6回押して「地形に落とす」へ。60 個が谷に集まる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>上書き</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td>体ごと(既定)</td><td>谷に集まって止まり、ほとんどが眠る</td></tr>
+<tr><td>μ = 0</td><td><strong>全部が谷底へ滑り落ちる</strong>。眠らない</td></tr>
+<tr><td>μ = 1.0</td><td>斜面の途中で止まったまま動かない</td></tr>
+</tbody>
+</table></div>
+<h3 id="s30">7. <code>Ctrl+Shift+Alt+6</code>: 接触の内訳に溜まったインパルスが出る</h3>
+<div class="code"><pre><code>  [ 0]平面 × [ 5]箱 1.00x1.00x1.00m  法線 (0.00, -1.00, 0.00)
+      点 (-0.50, -0.50, -0.50)  めり込み 3.03mm  跳ね返り目標 0.000m/s
+      法線J 0.0409  接線J 0.0000/0.0204(μ=0.50)  温存</code></pre></div>
+<p><strong>法線 J の合計が理屈と合う</strong>のを確かめられる。1kg の箱が4点で支えられているなら、<code>m g dt = 1 × 9.81 / 60 = 0.1635 N·s</code> を4点で分けて <strong>1点あたり 0.0409</strong>。上の数字と一致する。<strong>接線 J が 0 で、上限が 0.0204(= μ × 法線J)</strong>なのも読みどころ——止まっている物に摩擦は仕事をしていないが、上限だけは常に用意されている。</p>
+<h3 id="s31">8. <code>Ctrl+Shift+Alt+F</code>: 自己チェックが 39 項目すべて合格</h3>
+<p>窓を1枚も出さずに走る。いちばん大事なのは次の3つ。</p>
+<div class="code"><pre><code>[OK] <strong>停止距離が v²/(2μg) と 10% 以内で一致</strong>  実測 1.659m / 理論 1.631m
+[OK] <strong>接線インパルスの合成が μ λn を超えない</strong>(滑る向きを 64 通り)  最大 1.0204
+[OK] <strong>温存ありのほうが柱が沈まない</strong>  温存あり 2.746m / なし 2.592m(理論 2.750m)</code></pre></div>
+<h3 id="s32">9. Day 43・44 の自己チェックも全項目合格</h3>
+<p><code>Ctrl+Shift+Alt+F12</code> と <code>Ctrl+Shift+Alt+0</code>。<strong>書き直した5項目が新しい主張で通る</strong>ところまで確かめる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+F</code></td><td>坂に箱を5つ置く</td><td>0.1 と 0.3 は滑り、0.7 と 0.9 は止まり、0.5 は 2cm ほどずれて止まる。球は μ = 1 でも転がる</td></tr>
+<tr><td><code>Shift+F</code></td><td>同「摩擦」</td><td>切ると5つとも滑る</td></tr>
+<tr><td><code>Shift+Alt+F</code></td><td>同「μ の上書き」</td><td>0 で全部滑り、1.0 で全部止まる</td></tr>
+<tr><td><code>Ctrl+Alt+F</code></td><td>坂・柱の「眠り」</td><td>止まった体は 0.5 秒後に色が沈む</td></tr>
+<tr><td><code>Ctrl+Shift+F</code></td><td>柱を立てる「温存」</td><td>切ると柱が沈む(6段・8周で 2.746m → 2.592m)</td></tr>
+<tr><td><code>Alt+F</code></td><td>同「蓄積インパルス」</td><td>切ると温存も止まり、沈み方は温存なしと同じになる</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+F5</code></td><td>同「反復」</td><td>温存ありの2周が、温存なしの8周を上回る</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+F7</code>(球を降らせる)</td><td>同「上から箱を1つ落とす」</td><td>4段の眠った柱に落とすと、触れた瞬間に島ごと起きる</td></tr>
+<tr><td>(なし)</td><td>摩擦の上限の形</td><td>reference は円で切る。正方形はこのページだけの比較</td></tr>
+</tbody>
+</table></div>
+<p class="note">坂と柱の実験台は横から見た 2D で、reference/Day47 の PhysicsWorld.Step の8段(速度 → 判定 → 下ごしらえ → 摩擦・法線 → 位置 → 補正 → 持ち越し → 眠り)と既定値をそのまま移したもの。3D の箱が面で触れる4点は、横から見ると手前と奥の2点ずつが重なるので、同じ点を2回並べ、実効質量に奥行きぶんの腕(0.25m)を入れて 3D と同じ答えになるようにしてある。柱の 2.592m / 2.460m / 2.212m / 2.683m と坂の μ = 0.1 / 0.3 / 0.9 の 4.02m / 2.04m / 2.4mm、停止距離 1.659m は 3D と同じ数字が出る。温存ありの柱だけは、接していた組が一瞬離れて持ち越しが捨てられる瞬間が 3D と少しずれるので、3秒後の値が 2.733m(3D は 2.746m)になる。2D の接線は1本なので、摩擦円(接線2本を円で切る)は坂と柱では効かない。円と正方形の違いは「摩擦の上限の形」の図で見る。「位置は解いたあとの速度で進める」「島でまとめて眠る」の2つは、要点4・5の失敗を見るためにこのページで足した切り替えで、reference には無い。</p></div>
+</section>
+<section class="part"><h2 id="s33">改造課題</h2>
+<h3 id="s34">課題1(易): 温存の照合しきい値を掃引して、当たり率と沈み方を測る</h3>
+<p><code>ContactCache.MatchDistance</code> は 2cm。広すぎると隣の点のインパルスを引き継ぎ、狭すぎると照合に失敗して温存が効かなくなる。</p>
+<p><code>ContactCache</code> の定数を <code>PhysicsWorld</code> から差し替えられるようにして、<code>RunSolverCheck</code> の末尾で掃引する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>foreach (float distance in new[] { 0.0001f, 0.001f, 0.005f, 0.02f, 0.1f, 0.5f })
+{
+    PhysicsWorld world = BuildStackWorld(6, true, true, 2);
+    world.MatchDistance = distance;
+    StepWorld(world, 2.0f);
+    Console.WriteLine($"{distance * 1000,6:F1}mm  当たり {world.WarmStartedPoints}/{world.Contacts.Count}"
+        + $"  最上段 {TopBoxHeight(world):F4}m");
+}</code></pre></div>
+<p><strong>確かめてほしいこと</strong>。</p>
+<ul><li>当たり率が 100% になる下限はどこか(1ステップで接触点が動く距離のはず)</li><li>広げすぎると何が起きるか。箱を1つ回しながら落として、<strong>隣の角のインパルスを引き継いだ瞬間</strong>を探す</li><li>反復を8周にすると、しきい値の影響が減るのはなぜか</li></ul>
+<h3 id="s35">課題2(中): 静止摩擦と動摩擦を分ける</h3>
+<p>今は係数が1つしかないので、<strong>動き出す瞬間のがくんとした加速</strong>が出ない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public float StaticFriction = 0.6f;    // 動き出す前
+public float DynamicFriction = 0.4f;   // 滑っている間</code></pre></div>
+<p><code>SolveFriction</code> で「今この接触は滑っているか」を判定して係数を選ぶ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 接線方向の相対速度がしきい値より速ければ「滑っている」
+float slipSpeed = (relative - normal * Vector3.Dot(relative, normal)).Length();
+float mu = slipSpeed &gt; SlipThreshold ? contact.DynamicFriction : contact.StaticFriction;</code></pre></div>
+<p><strong>引っかかりどころが2つある</strong>。</p>
+<ul><li><strong>判定が毎ステップ揺れるとがたつく</strong>。しきい値のすぐ上を行き来する場面(境目の坂に置いた箱)で係数が振動し、箱が小刻みに震える。ヒステリシス(動き出すしきい値と止まるしきい値を別にする)が要るかもしれない</li><li>坂の実験で、<strong>静止摩擦角と動摩擦角が別々に測れる</strong>ようになる。<code>RampSlide</code> を「滑り出す傾き」を二分探索で求める形に書き換えると、2つの係数が数字で見える</li></ul>
+<p>Box2D も Bullet も既定では1つしか持たない理由が、書いてみると分かる。</p>
+<h3 id="s36">課題3(難): 特徴 ID を通して、照合を添字1つにする</h3>
+<p>今の照合は物体座標の距離で 2cm 以内を探す(要点2)。Box2D のように<strong>接触点に名前を付ける</strong>と、添字1つで引けるようになる。</p>
+<p>名前は「どの部品どうしが触れたか」で作る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 基準面の軸と符号 / 入射面の軸と符号 / 頂点の番号 を1つの int に詰める
+public readonly struct ContactId
+{
+    public readonly int Value;   // refAxis(2bit) refSign(1) incAxis(2) incSign(1) vertex(3)
+}</code></pre></div>
+<p><strong>山場は <code>Sat.cs</code> のクリップ</strong>。入射面の4頂点には素直に番号を振れるが、<strong>クリップで生まれる交点</strong>は元の頂点ではない。Box2D はここで「どの面で切られたか」を ID に混ぜている。</p>
+<div class="code"><pre><code>  頂点そのまま     → (入射面の頂点番号)
+  クリップの交点   → (切った面の番号) を混ぜる</code></pre></div>
+<p><strong>段階的に進めるのを勧める</strong>。</p>
+<ol><li>まず球・カプセル・平面(点が1つしか出ない判定)に ID を振る。ここは自明</li><li>次に箱と平面(<code>BoxPlane</code>)。角の番号がそのまま使える</li><li>最後に箱と箱(<code>Sat.BoxBox</code>)。クリップを ID 付きに書き換える</li></ol>
+<p>各段で<strong>距離での照合と結果を突き合わせる</strong>と、どこで食い違ったかが分かる。自己チェックに「ID 照合と距離照合で当たり率が一致する」を1項目足すとよい。</p>
+<p><strong>やってみると分かるのは、正確さより配管の量</strong>。ID を運ぶために <code>ManifoldPoint</code> / <code>ContactManifold</code> / <code>Sat</code> / <code>Collision3D</code> の4ファイルが書き換わる——<strong>判定に一切触らない位置照合を選んだ理由</strong>がここで腑に落ちる。</p>
+</section>
+<section class="part"><h2 id="s37">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070 / OpenGL 3.3</li></ul>
+<h3 id="s38">自己チェック(39 項目すべて合格)</h3>
+<p><code>Ctrl+Shift+Alt+F</code>。窓を1枚も出さずに走る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>範囲</th><th>何を確かめているか</th><th>項目数</th></tr></thead>
+<tbody>
+<tr><td>接線</td><td>法線と直交して長さ1、<strong>軸に平行でも NaN が出ない</strong></td><td>2</td></tr>
+<tr><td>摩擦係数</td><td>相乗平均、片方 0 なら 0、上書きが勝つ</td><td>3</td></tr>
+<tr><td>温存</td><td><strong>柱の沈み方、当たり率、キャッシュの剪定</strong></td><td>6</td></tr>
+<tr><td>蓄積</td><td><strong>単体では素朴版と同じ</strong>、素朴では温存が働かない、<strong>負の補正が出せる</strong></td><td>4</td></tr>
+<tr><td>摩擦</td><td><strong>静止摩擦角</strong>、単調性、<strong>質量によらないこと</strong>、切ったら滑ること</td><td>9</td></tr>
+<tr><td>摩擦円錐</td><td>滑る向きを 64 通り振って、上限を超えないこと</td><td>2</td></tr>
+<tr><td>停止距離</td><td><strong>v²/(2μg) と一致すること</strong>、摩擦を切ったら減速しないこと</td><td>3</td></tr>
+<tr><td>眠り</td><td>眠る/凍る/起きる、<strong>島でまとめて</strong>、<code>AllowSleep</code>、静的な体は繋がない</td><td>10</td></tr>
+</tbody>
+</table></div>
+<p>とくに強いのは次の4つ。</p>
+<ul><li><strong>停止距離を <code>v²/(2μg)</code> と突き合わせる</strong> — 実測 1.659m / 理論 1.631m。段の順番(要点4)が間違っていると、止まったあとも滑り続けてここが必ず落ちる</li><li><strong>静止摩擦角を μ 5通りで確かめる</strong> — <code>tanθ = 0.5</code> の坂で0.1 → 4.02m、0.3 → 2.04m、0.5 → 60mm、0.7 → 2.4mm、0.9 → 2.4mm</li><li><strong>滑る距離が質量によらない</strong> — 1kg と 20kg で 2.0368m が完全に一致。摩擦の上限が押し付けに比例していないと、ここは合わない</li><li><strong>摩擦円錐を 64 方向で確かめる</strong> — 最大 1.0204。接線を別々にクランプすると 45 度方向で 1.414 が出て落ちる</li></ul>
+<h3 id="s39">検証の途中で分かったこと</h3>
+<p><strong>1. 段の順番が Day 43 から間違っていた</strong>(要点4)。</p>
+<p>摩擦を入れて坂に箱を置いたら、μ = 0.9 でも 1.5 秒で 11cm 滑った。速度は 0 なのに位置だけが毎フレーム 1.22mm 動く——計算したら <code>g·dt²·sinθ = 9.81 × (1/60)² × 0.447 = 1.218mm</code> でぴったり一致した。<strong>位置を解く前の速度で進めていた</strong>のが原因で、位置の積分を速度の解決の後ろへ動かして直した。滑りは 2.4mm になり、そこから増えない。</p>
+<p><strong>この不具合は摩擦が無ければ絵に出ない</strong>。Day 46 までは坂に乗ったものが滑り落ちるのが正しかったので、余分に 1.2mm 滑っていることに気づきようがなかった。Day 46 の逆慣性テンソルと同じ形で、<strong>機能を足すと前の日の抜けが見える</strong>。</p>
+<p><strong>2. 蓄積クランプ単体では、柱の沈み方が1ビットも変わらなかった</strong>(要点1)。</p>
+<p>「蓄積クランプのほうが沈まない」を確かめる自己チェックを書いたら、2つの世界が<strong>完全に同じ数字</strong>を出した(2.46257m)。柱がゆっくり落ち着くだけの場面では λ が常に正なので、負の補正を出す機会が来ない——<strong>素朴版とまったく同じ道を通る</strong>。</p>
+<p>チェックの主張を「同じ結果になること」へ書き換えたうえで、負の補正が出せることは別の場面で確かめるようにした——落ち着いた柱から重力を消すと、持ち越したインパルスが<strong>全部余分</strong>になる。蓄積クランプなら合計を 0 まで減らせる(1.64 → 0.00 N·s)。</p>
+<p><strong>「効くはず」と思って書いたチェックが通らなかったときに、しきい値を緩めるのではなく主張を確かめ直す</strong>——今日はそれが2回あった。</p>
+<p><strong>3. 素朴なクランプに温存を載せると発散する</strong>(要点2)。</p>
+<p>つまみを2つ用意したので、素朴 + 温存の組み合わせも作れてしまう。これは<strong>必ず壊れる</strong>——1ステップに溜まる量が 0 以上なので、持ち越しを続けると単調に増え、置いた箱が数秒後に跳ね上がる。<code>WarmStartActive</code> という読み取り専用のプロパティを足して、<strong>蓄積を切ったら温存も止まる</strong>ようにした。Erin Catto の資料でこの2つがいつも一組で説明される理由が、実装して初めて分かった。</p>
+<p><strong>4. Day 43・44 の自己チェックが5項目、嘘になった</strong>。</p>
+<p>「反復1周だと沈む」「順番に解くと床の箱1つでも揺れが止まらない」「順番に解くと崩れる」「段数ぶん沈む」——どれも Day 47 の機能で解消したので、<strong>主張のほうを書き直した</strong>。とくに Day 44 の「ただし段数ぶん沈む(<strong>蓄積インパルスが無いから</strong>。Day 47 の宿題)」は、3日前の自分が今日への宿題として書いたもので、それが片付いた形になる。</p>
+<p><strong>しきい値をいじって延命させないこと</strong>が今日いちばんの教訓。Day 44 で1度しきい値を緩めているが(3.0 → 2.0)、それは「数字が良くなったが主張は生きている」場合の話で、今回のように<strong>主張そのものが古くなったら書き換える</strong>のが正しい。</p>
+<p><strong>5. 眠りは位置の補正も止めないといけない</strong>。</p>
+<p>眠った体の逆質量を 0 にするのを、速度の解決だけに入れて位置の補正に入れ忘れた。すると眠っている体が位置の補正でじりじり動き、<strong>眠っているのに沈んでいく</strong>という妙な状態になった。<code>SolverInverseMass</code> という1つのプロパティを通すようにして塞いだ——<strong>「一時的に無限に重い」を元の値を壊さずに表す</strong>1枚があると、入れ忘れる場所が減る。</p>
+<p><strong>6. 摩擦を入れたら、地形のすり抜けが減った</strong>。</p>
+<p>Day 46 の自己チェックで「200 体中1体がすり抜ける」と書いた。今日 60 体で測り直したら、Day 46 が5体・Day 47 が3体(どちらも端から落ちたもので、すり抜けではない)。段の順番を変えると最初の接触が1フレーム遅れるので<strong>増える</strong>と予想していたが、<strong>摩擦で速度が落ちるぶんのほうが効いた</strong>。連続衝突判定(要点7)が要ることに変わりはない。</p>
+</section>
+<footer class="end">Day 47 摩擦・Sequential Impulses・スリープ(ミニ物理エンジン完成) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/physics2d.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, setSeg, stat, arrow, rgb, animate } = Lab;
+const { Shape, Body, World, drawBody, drawContacts, drawPlanes } = Phys2D;
+const DT = 1 / 60;
+const TILT = 0.46365;   // RampTilt(tan = 0.5)
+
+function world47() { const w = new World(); w.solver = 'day47'; return w; }
+
+// ============================================================
+//  要点1・2・5: 柱(Program.BuildStackWorld と同じ置き方)
+// ============================================================
+const st = { n: 6, it: 8, warm: true, acc: true, sleep: true, island: true, gravity: true, acc3: null, t: 0, accum: 0 };
+function buildStack() {
+  const w = world47();
+  w.velocityIterations = st.it; w.warmStarting = st.warm; w.accumulateImpulses = st.acc;
+  w.sleepEnabled = st.sleep; w.islandSleep = st.island;
+  const floor = Body.plane(0, 0, 0, 1); floor.friction = 0.6; w.add(floor);
+  for (let i = 0; i < st.n; i++) {
+    const b = new Body(1, Shape.box(0.25, 0.25));
+    b.y = 0.25 + i * 0.5; b.restitution = 0; b.friction = 0.6; w.add(b);
+  }
+  st.world = w; st.t = 0; st.top3 = null; st.gravity = true; st.dropped = 0;
+  $('stack-gravity').textContent = '重力を消す';
+}
+function stepStack() {
+  const w = st.world;
+  w.step(DT); st.t += DT;
+  if (st.top3 === null && st.t >= 3 - 1e-9) st.top3 = w.bodies[st.n].y;
+}
+function drawStack() {
+  const w = st.world, { ctx, w: W, h: H } = fit($('stack-canvas'));
+  const s = Math.min((H - 40) / 4.6, W / 4.5), oy = H - 24;
+  const view = { X: (x) => W / 2 + x * s, Y: (y) => oy - y * s, s };
+  ctx.fillStyle = tok('--sunken'); ctx.fillRect(0, oy, W, H - oy);
+  drawPlanes(ctx, w, view, tok('--ink'), W, H);
+  // 理想の最上段の高さ
+  const ideal = 0.25 + (st.n - 1) * 0.5;
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(view.X(-1.2), view.Y(ideal)); ctx.lineTo(view.X(1.2), view.Y(ideal)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px ' + tok('--font-mono');
+  ctx.fillText(`理想 ${ideal.toFixed(3)}m`, view.X(1.25), view.Y(ideal) + 4);
+  w.bodies.forEach((b, i) => {
+    if (b.isStatic) return;
+    const t = (i - 1) / Math.max(st.n - 1, 1);
+    ctx.globalAlpha = b.sleeping ? 0.35 : 1;
+    drawBody(ctx, b, view, i > st.n ? tok('--warn') : rgb(0.85 - 0.4 * t, 0.55 + 0.3 * t, 0.25 + 0.5 * t));
+    ctx.globalAlpha = 1;
+  });
+  drawContacts(ctx, w, view, tok('--expl'));
+  const top = w.bodies[st.n].y;
+  const total = w.contacts.reduce((sum, c) => sum + c.normalImpulse, 0);
+  const dyn = w.bodies.filter((b) => !b.isStatic).length;
+  $('stack-hud').textContent =
+    `${st.t.toFixed(1)}秒  反復${w.velocityIterations}周  ${w.accumulateImpulses ? '蓄積' : '素朴'}  温存:${w.warmStartActive ? 'ON' : (w.warmStarting ? 'OFF(温存は蓄積とセット)' : 'OFF')}  ` +
+    `眠り:${w.sleepEnabled ? `${w.sleepingCount}/${dyn}体 島${w.islandCount}` : 'OFF'}${st.gravity ? '' : '  重力なし'}`;
+  $('stack-stats').innerHTML =
+    stat(`${st.n}段目の高さ`, top.toFixed(3), ` <small>m(理想 ${ideal.toFixed(3)})</small>`) +
+    stat('3秒後の高さ', st.top3 === null ? '—' : st.top3.toFixed(3), ' <small>m</small>') +
+    stat('いちばん深いめり込み', (w.maxPenetration * 1000).toFixed(1), ' <small>mm</small>') +
+    stat('温存が当たった点', `${w.warmStartedPoints} / ${w.contacts.length}`) +
+    stat('溜まった法線インパルスの合計', total.toFixed(4), ' <small>N·s</small>');
+  let note;
+  if (!st.gravity) note = '重力を消すと、持ち越したインパルスは全部余分になる。蓄積クランプなら合計を 0 まで戻せる(要点1)——数ステップで合計が 0 に落ちる。';
+  else if (!w.accumulateImpulses) note = '素朴なクランプでは合計を減らせないので、温存を載せると単調に増えて発散する。だから蓄積を切ると温存も止まり、沈み方は「温存なし」と同じになる。';
+  else if (!w.warmStartActive) note = '温存なしでは、毎ステップ 0 から答えを探し直す。反復を減らすほど沈む(要点2の表)。';
+  else if (!st.island && st.n === 4) note = '1体ずつ眠らせると、先に落ち着いた箱だけが眠り、塊の途中で「動ける体」と「無限に重い体」が混ざる。眠った箱は、上から箱を落としても起きない。';
+  else note = '温存ありなら2周でも温存なしの8周より沈まない(要点2)。6段の柱は高さ 2.70〜2.75m のあいだで周期的に上下し、眠らない。4段にすると 1 秒ほどで島ごと眠り、上から箱を落とすと触れた瞬間に柱ぜんぶが起きる。';
+  $('stack-note').textContent = note;
+}
+seg('stack-n', (v) => { st.n = Number(v); buildStack(); runAhead(); drawStack(); });
+seg('stack-it', (v) => { st.it = Number(v); buildStack(); runAhead(); drawStack(); });
+for (const [id, key] of [['stack-warm', 'warm'], ['stack-acc', 'acc'], ['stack-sleep', 'sleep'], ['stack-island', 'island']]) {
+  $(id).addEventListener('change', (e) => { st[key] = e.target.checked; buildStack(); runAhead(); drawStack(); });
+}
+$('stack-reset').addEventListener('click', () => { buildStack(); runAhead(); drawStack(); });
+$('stack-drop').addEventListener('click', () => {
+  const w = st.world, top = Math.max(...w.bodies.filter((b) => !b.isStatic).map((b) => b.y));
+  const b = new Body(1, Shape.box(0.25, 0.25));
+  b.x = 0.12; b.y = top + 1.2; b.restitution = 0; b.friction = 0.6; w.add(b); st.dropped++;
+  drawStack();
+});
+$('stack-gravity').addEventListener('click', () => {
+  st.gravity = !st.gravity; st.world.gy = st.gravity ? -9.81 : 0;
+  for (const b of st.world.bodies) b.wake();
+  $('stack-gravity').textContent = st.gravity ? '重力を消す' : '重力を戻す';
+  drawStack();
+});
+// 動きを止める設定では、3秒ぶん進めた結果を描いておく
+function runAhead() { if (reduceMotion) while (st.t < 3) stepStack(); }
+buildStack(); runAhead(); drawStack();
+animate($('stack-canvas'), (dt) => {
+  if (!reduceMotion) { st.accum += dt; while (st.accum >= DT) { stepStack(); st.accum -= DT; } }
+  drawStack();
+});
+window.addEventListener('resize', drawStack);
+
+// ============================================================
+//  要点3: 摩擦の上限の形(SolveFriction のクランプだけを取り出したもの)
+// ============================================================
+const cn = { angle: 45, mag: 2 };
+function drawCone() {
+  const { ctx, w: W, h: H } = fit($('cone-canvas'));
+  const R = Math.min(H * 0.3, W * 0.16), ox = Math.min(W * 0.32, R * 2.4), oy = H / 2 + R * 0.3;
+  const th = cn.angle * Math.PI / 180, want = [Math.cos(th) * cn.mag, Math.sin(th) * cn.mag];
+  // 円で切る: 合成した長さが μλn を超えたら、向きを保ったまま縮める
+  const len = Math.hypot(want[0], want[1]);
+  const circ = len > 1 ? [want[0] / len, want[1] / len] : want.slice();
+  // 正方形で切る: 2本を別々に ±μλn で切る
+  const sq = [Math.max(-1, Math.min(1, want[0])), Math.max(-1, Math.min(1, want[1]))];
+  const X = (x) => ox + x * R, Y = (y) => oy - y * R;
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(X(-1.6), Y(0)); ctx.lineTo(X(3.2), Y(0)); ctx.moveTo(X(0), Y(-1.4)); ctx.lineTo(X(0), Y(3.2)); ctx.stroke();
+  ctx.strokeStyle = tok('--semi'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X(0), Y(0), R, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = tok('--expl'); ctx.setLineDash([5, 4]); ctx.strokeRect(X(-1), Y(1), 2 * R, 2 * R); ctx.setLineDash([]);
+  arrow(ctx, X(0), Y(0), X(want[0]), Y(want[1]), tok('--muted'), 1.5);
+  arrow(ctx, X(0), Y(0), X(sq[0]), Y(sq[1]), tok('--expl'), 3);
+  arrow(ctx, X(0), Y(0), X(circ[0]), Y(circ[1]), tok('--semi'), 3);
+  ctx.font = '12px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  ctx.fillText('止めたい量', X(want[0]) + 6, Y(want[1]) - 4);
+  ctx.fillText('接線1', X(3.2) - 34, Y(0) + 16); ctx.fillText('接線2', X(0) + 6, Y(3.2) + 4);
+  // 右側: 向きごとの「上限の何倍まで出るか」(止めたい量は今の値で固定)
+  const gx = Math.max(ox + 3.5 * R, W * 0.58), gw = W - gx - 16, gy = 24, gh = H - 64;
+  if (gw > 80) {
+    const GX = (deg) => gx + deg / 90 * gw, GY = (r) => gy + gh - (r - 0) / 1.5 * gh;
+    ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+    for (const r of [0, 0.5, 1, 1.5]) { ctx.beginPath(); ctx.moveTo(gx, GY(r)); ctx.lineTo(gx + gw, GY(r)); ctx.stroke(); ctx.fillStyle = tok('--muted'); ctx.fillText(r.toFixed(1), gx - 28, GY(r) + 4); }
+    const ratio = (deg, square) => {
+      const t = deg * Math.PI / 180, v = [Math.cos(t) * cn.mag, Math.sin(t) * cn.mag];
+      if (square) return Math.hypot(Math.max(-1, Math.min(1, v[0])), Math.max(-1, Math.min(1, v[1])));
+      return Math.min(Math.hypot(v[0], v[1]), 1);
+    };
+    for (const [square, color] of [[false, tok('--semi')], [true, tok('--expl')]]) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      for (let d = 0; d <= 90; d++) { if (d === 0) ctx.moveTo(GX(d), GY(ratio(d, square))); else ctx.lineTo(GX(d), GY(ratio(d, square))); }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(GX(cn.angle), gy); ctx.lineTo(GX(cn.angle), gy + gh); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.fillText('0°', gx, gy + gh + 16); ctx.fillText('90°', gx + gw - 22, gy + gh + 16);
+    ctx.fillText('向きごとの「上限の何倍か」', gx, gy - 8);
+  }
+  const angleOf = (v) => Math.atan2(v[1], v[0]) * 180 / Math.PI;
+  $('cone-angle-out').textContent = `${cn.angle}°`; $('cone-mag-out').textContent = `${cn.mag.toFixed(2)} 倍`;
+  const rc = Math.hypot(circ[0], circ[1]), rs = Math.hypot(sq[0], sq[1]);
+  $('cone-stats').innerHTML =
+    stat('円で切る(reference)', rc.toFixed(3), ` <small>× μλn</small> <span class="pill good">向きのずれ ${Math.abs(angleOf(circ) - cn.angle).toFixed(1)}°</span>`) +
+    stat('正方形で切る', rs.toFixed(3), ` <small>× μλn</small> <span class="pill ${rs > 1.001 ? 'bad' : 'good'}">向きのずれ ${Math.abs(angleOf(sq) - cn.angle).toFixed(1)}°</span>`);
+  $('cone-note').textContent = rs > 1.001
+    ? '別々に切ると、斜めに滑るときだけ上限を超える(45 度で √2 = 1.414 倍)。しかも摩擦の向きが滑る向きの真逆からずれる。円で切れば、どの向きでも上限は μλn で、向きも保たれる。'
+    : '止めたい量が上限の内側なら、どちらで切っても同じ。違いが出るのは滑っているとき(上限に届いたとき)だけ。';
+}
+$('cone-angle').addEventListener('input', (e) => { cn.angle = Number(e.target.value); drawCone(); });
+$('cone-mag').addEventListener('input', (e) => { cn.mag = Number(e.target.value); drawCone(); });
+drawCone();
+window.addEventListener('resize', drawCone);
+
+// ============================================================
+//  要点3・4: 坂に5つの箱(Program.BuildFrictionRampScene)
+//  3D では奥行きに並んでいる5つの箱と球を、レーンごとの世界に分けて並べる
+// ============================================================
+const LANES = [0.1, 0.3, 0.5, 0.7, 0.9, 'ball'];
+const rp = { friction: true, sleep: true, after: true, override: -1, t: 0, accum: 0, lanes: [] };
+function buildRamp() {
+  rp.t = 0;
+  rp.lanes = LANES.map((mu) => {
+    const w = world47();
+    w.frictionEnabled = rp.friction; w.sleepEnabled = rp.sleep; w.integrateAfterSolve = rp.after; w.frictionOverride = rp.override;
+    // 床は y = -0.5、見えない壁は x = ±5(BuildPhysicsScene)
+    w.add(Body.plane(0, -0.5, 0, 1)); w.add(Body.plane(-5, 0, 1, 0)); w.add(Body.plane(5, 0, -1, 0));
+    const ramp = new Body(0, Shape.box(3.2, 0.15));
+    ramp.y = 1.6; ramp.angle = -TILT; ramp.restitution = 0; ramp.friction = 1; w.add(ramp);
+    let b;
+    if (mu === 'ball') {
+      b = new Body(1, Shape.circle(0.3)); b.friction = 1;
+      const p = ramp.toWorld(-2.1, 0.15 + 0.3 + 0.002); b.x = p[0]; b.y = p[1];
+    } else {
+      b = new Body(1, Shape.box(0.25, 0.25));
+      // 坂は μ = 1 なので、箱に μ² を持たせると相乗平均が μ になる
+      b.friction = mu * mu;
+      const p = ramp.toWorld(-2.1, 0.15 + 0.25 + 0.002); b.x = p[0]; b.y = p[1];
+    }
+    b.angle = -TILT; b.restitution = 0; w.add(b);
+    return { mu, w, b, sx: b.x, sy: b.y, t3: null };
+  });
+}
+const slideOf = (L) => (L.b.x - L.sx) * Math.cos(TILT) - (L.b.y - L.sy) * Math.sin(TILT);
+function stepRamp() {
+  for (const L of rp.lanes) L.w.step(DT);
+  rp.t += DT;
+  if (Math.abs(rp.t - 3) < DT / 2) for (const L of rp.lanes) L.t3 = slideOf(L);
+}
+function laneColor(i) { const t = i / 4; return rgb(0.20 + 0.75 * t, 0.55, 0.95 - 0.70 * t); }
+const fmtSlide = (d) => (Math.abs(d) < 1 ? `${(d * 1000).toFixed(1)}mm` : `${d.toFixed(2)}m`);
+function drawRamp() {
+  const { ctx, w: W, h: H } = fit($('ramp-canvas'));
+  const cols = W >= 560 ? 2 : 1, rows = Math.ceil(LANES.length / cols);
+  const cw = W / cols, ch = H / rows;
+  const s = Math.min((cw - 12) / 10.6, (ch - 18) / 4.1);
+  rp.lanes.forEach((L, i) => {
+    const cx = (i % cols) * cw, cy = Math.floor(i / cols) * ch;
+    const view = { X: (x) => cx + cw / 2 + x * s, Y: (y) => cy + ch - 10 - (y + 0.5) * s, s };
+    ctx.save(); ctx.beginPath(); ctx.rect(cx, cy, cw, ch); ctx.clip();
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(cx, view.Y(-0.5), cw, ch);
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(view.X(-5), view.Y(-0.5)); ctx.lineTo(view.X(-5), view.Y(3.4)); ctx.moveTo(view.X(5), view.Y(-0.5)); ctx.lineTo(view.X(5), view.Y(3.4)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(view.X(-5.3), view.Y(-0.5)); ctx.lineTo(view.X(5.3), view.Y(-0.5)); ctx.stroke();
+    drawBody(ctx, L.w.bodies[3], view, tok('--muted'));
+    ctx.globalAlpha = L.b.sleeping ? 0.35 : 1;
+    drawBody(ctx, L.b, view, L.mu === 'ball' ? rgb(0.95, 0.85, 0.25) : laneColor(i));
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-mono');
+    const label = L.mu === 'ball' ? '球 μ=1.0' : `箱 μ=${L.mu.toFixed(1)}`;
+    ctx.fillText(`${label}  ${fmtSlide(slideOf(L))}${L.b.sleeping ? '  眠り' : ''}`, cx + 8, cy + 16);
+    ctx.restore();
+  });
+  const sleeping = rp.lanes.filter((L) => L.b.sleeping).length;
+  $('ramp-hud').textContent = `${rp.t.toFixed(1)}秒  摩擦:${rp.friction ? 'ON' : 'OFF'}  μ:${rp.override < 0 ? '体ごと' : `全部 ${rp.override.toFixed(1)}`}  眠り:${rp.sleep ? `${sleeping}/6体` : 'OFF'}  段の順番:${rp.after ? 'Day 47' : 'Day 43〜46'}`;
+  $('ramp-stats').innerHTML = rp.lanes.slice(0, 5).map((L) =>
+    stat(`μ=${L.mu.toFixed(1)} の3秒後のずれ`, L.t3 === null ? '—' : fmtSlide(L.t3))).join('');
+  let note;
+  if (!rp.friction) note = '摩擦を切ると5つとも滑り落ちる。Day 46 までの世界がこれ。';
+  else if (!rp.after) note = '解く前の速度で位置を進めると、速度 0 のまま毎ステップ g·dt²·sinθ = 1.2mm ずつ坂を下る。μ = 0.9 でも 1 秒で 7cm 滑り、止まらない。';
+  else if (rp.override === 0) note = 'μ = 0 では球も箱も同じように滑り落ちる。';
+  else if (rp.override >= 0) note = `全部 μ = ${rp.override.toFixed(1)}。tanθ = 0.50 より${rp.override > 0.5 ? '大きいので止まる' : rp.override < 0.5 ? '小さいので滑る' : 'ちょうど境目'}。`;
+  else note = 'μ = 0.1 と 0.3 は滑り、0.7 と 0.9 は 2.4mm で止まる。0.5 は tanθ = 0.50 とちょうど同じで、2cm ほどずれて止まる。球は μ = 1 でも転がり落ちる(転がる物には滑りが無い)。止まった体は 0.5 秒後に色が沈む。';
+  $('ramp-note').textContent = note;
+}
+seg('ramp-override', (v) => { rp.override = Number(v); for (const L of rp.lanes) { L.w.frictionOverride = rp.override; for (const b of L.w.bodies) b.wake(); } drawRamp(); });
+$('ramp-friction').addEventListener('change', (e) => { rp.friction = e.target.checked; for (const L of rp.lanes) { L.w.frictionEnabled = rp.friction; for (const b of L.w.bodies) b.wake(); } drawRamp(); });
+$('ramp-sleep').addEventListener('change', (e) => { rp.sleep = e.target.checked; for (const L of rp.lanes) L.w.sleepEnabled = rp.sleep; drawRamp(); });
+$('ramp-order').addEventListener('change', (e) => { rp.after = e.target.checked; buildRamp(); runRampAhead(); drawRamp(); });
+$('ramp-reset').addEventListener('click', () => { buildRamp(); runRampAhead(); drawRamp(); });
+function runRampAhead() { if (reduceMotion) while (rp.t < 3 + DT) stepRamp(); }
+buildRamp(); runRampAhead(); drawRamp();
+animate($('ramp-canvas'), (dt) => {
+  if (!reduceMotion) { rp.accum += dt; while (rp.accum >= DT) { stepRamp(); rp.accum -= DT; } }
+  drawRamp();
+});
+window.addEventListener('resize', drawRamp);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 50 エフェクト応用(トレイル・ソフトパーティクル・土埃/ヒット/爆発)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日も物理には触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ソフトパーティクル — 手前の面に近い画素を薄くする</a></li><li class="l3"><a href="#s7">2. 深度バッファは線形ではない</a></li><li class="l3"><a href="#s8">3. 読むために写す — フィードバックループ</a></li><li class="l3"><a href="#s9">4. トレイルはリングバッファ — 順番が命だから</a></li><li class="l3"><a href="#s10">5. 先端だけは特別扱い — 節を置くのは距離、動かすのは毎フレーム</a></li><li class="l3"><a href="#s11">6. リボンの横方向 — ビルボードとの違い</a></li><li class="l3"><a href="#s12">7. 混ぜ方を切り替えると、そこがドローコールの境目になる</a></li><li class="l3"><a href="#s13">8. 一発ものはプールから借りて、自分で返す</a></li><li class="l3"><a href="#s14">9. 距離で刻む — 足取りとフレームレート</a></li><li class="l3"><a href="#s15">10. 明るさ倍率は加算のためのもの</a></li><li class="l3"><a href="#s16">11. 今日入れなかったもの</a></li><li class="l2"><a href="#s17">前Dayからの差分概要</a></li><li class="l3"><a href="#s18">新規ファイル</a></li><li class="l3"><a href="#s19">変更ファイル</a></li><li class="l3"><a href="#s20">写経する順番</a></li><li class="l2"><a href="#s21">設計書</a></li><li class="l3"><a href="#s22">今日の3つが、昨日のどこに乗ったか</a></li><li class="l3"><a href="#s23">「刺さり」が消えるまで</a></li><li class="l3"><a href="#s24">トレイルの節が1つ増えるまで</a></li><li class="l3"><a href="#s25">エフェクトが1つ出て、自分で片付くまで</a></li><li class="l3"><a href="#s26">設定の表をどちらに置いたか</a></li><li class="l3"><a href="#s27">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s28">完成条件</a></li><li class="l3"><a href="#s29">1. 「エフェクト」ページの <code>F2</code>: 床の上で土埃が舞い、跡にリボンが残る</a></li><li class="l3"><a href="#s30">2. <code>F3</code>: ソフトパーティクルを切ると、土埃が床に刺さる</a></li><li class="l3"><a href="#s31">3. <code>F4</code>: フェード距離を振ると、効きすぎる側も見える</a></li><li class="l3"><a href="#s32">4. <code>F5</code> / <code>F6</code>: トレイル</a></li><li class="l3"><a href="#s33">5. <code>F7</code> / <code>F8</code>: 着弾と爆発</a></li><li class="l3"><a href="#s34">6. <code>F9</code> + 「カプセルとキャラクタ」の <code>F2</code>: 歩くと足元から土埃</a></li><li class="l3"><a href="#s35">7. <code>F10</code>: 内訳</a></li><li class="l3"><a href="#s36">8. <code>F11</code>: 自己チェックが 37 項目すべて合格</a></li><li class="l3"><a href="#s37">9. Day 49 と Day 48 の自己チェックも合格</a></li><li class="l2"><a href="#s38">改造課題</a></li><li class="l3"><a href="#s39">課題1(易): 着地の強さを落下速度に応じて変える</a></li><li class="l3"><a href="#s40">課題2(中): トレイルを Catmull-Rom で滑らかにする</a></li><li class="l3"><a href="#s41">課題3(難): 粒を半解像度で描いて合成する</a></li><li class="l2"><a href="#s42">動作確認済み環境</a></li><li class="l3"><a href="#s43">自己チェック(37 項目すべて合格)</a></li><li class="l3"><a href="#s44">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 50 / 計画書</p>
+  <h1>エフェクト応用(トレイル・ソフトパーティクル・土埃/ヒット/爆発)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日も物理には触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ソフトパーティクル — 手前の面に近い画素を薄くする</a></li><li class="l3"><a href="#s7">2. 深度バッファは線形ではない</a></li><li class="l3"><a href="#s8">3. 読むために写す — フィードバックループ</a></li><li class="l3"><a href="#s9">4. トレイルはリングバッファ — 順番が命だから</a></li><li class="l3"><a href="#s10">5. 先端だけは特別扱い — 節を置くのは距離、動かすのは毎フレーム</a></li><li class="l3"><a href="#s11">6. リボンの横方向 — ビルボードとの違い</a></li><li class="l3"><a href="#s12">7. 混ぜ方を切り替えると、そこがドローコールの境目になる</a></li><li class="l3"><a href="#s13">8. 一発ものはプールから借りて、自分で返す</a></li><li class="l3"><a href="#s14">9. 距離で刻む — 足取りとフレームレート</a></li><li class="l3"><a href="#s15">10. 明るさ倍率は加算のためのもの</a></li><li class="l3"><a href="#s16">11. 今日入れなかったもの</a></li><li class="l2"><a href="#s17">前Dayからの差分概要</a></li><li class="l3"><a href="#s18">新規ファイル</a></li><li class="l3"><a href="#s19">変更ファイル</a></li><li class="l3"><a href="#s20">写経する順番</a></li><li class="l2"><a href="#s21">設計書</a></li><li class="l3"><a href="#s22">今日の3つが、昨日のどこに乗ったか</a></li><li class="l3"><a href="#s23">「刺さり」が消えるまで</a></li><li class="l3"><a href="#s24">トレイルの節が1つ増えるまで</a></li><li class="l3"><a href="#s25">エフェクトが1つ出て、自分で片付くまで</a></li><li class="l3"><a href="#s26">設定の表をどちらに置いたか</a></li><li class="l3"><a href="#s27">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s28">完成条件</a></li><li class="l3"><a href="#s29">1. 「エフェクト」ページの <code>F2</code>: 床の上で土埃が舞い、跡にリボンが残る</a></li><li class="l3"><a href="#s30">2. <code>F3</code>: ソフトパーティクルを切ると、土埃が床に刺さる</a></li><li class="l3"><a href="#s31">3. <code>F4</code>: フェード距離を振ると、効きすぎる側も見える</a></li><li class="l3"><a href="#s32">4. <code>F5</code> / <code>F6</code>: トレイル</a></li><li class="l3"><a href="#s33">5. <code>F7</code> / <code>F8</code>: 着弾と爆発</a></li><li class="l3"><a href="#s34">6. <code>F9</code> + 「カプセルとキャラクタ」の <code>F2</code>: 歩くと足元から土埃</a></li><li class="l3"><a href="#s35">7. <code>F10</code>: 内訳</a></li><li class="l3"><a href="#s36">8. <code>F11</code>: 自己チェックが 37 項目すべて合格</a></li><li class="l3"><a href="#s37">9. Day 49 と Day 48 の自己チェックも合格</a></li><li class="l2"><a href="#s38">改造課題</a></li><li class="l3"><a href="#s39">課題1(易): 着地の強さを落下速度に応じて変える</a></li><li class="l3"><a href="#s40">課題2(中): トレイルを Catmull-Rom で滑らかにする</a></li><li class="l3"><a href="#s41">課題3(難): 粒を半解像度で描いて合成する</a></li><li class="l2"><a href="#s42">動作確認済み環境</a></li><li class="l3"><a href="#s43">自己チェック(37 項目すべて合格)</a></li><li class="l3"><a href="#s44">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>昨日で粒を撒けるようになった。今日はそれを<strong>ゲームのエフェクトにする</strong>。</p>
+<p>Phase 7 で残っているのは今日と Day 51(プレイアブルデモの組み上げ)だけ。今日足す3つ——<strong>トレイル</strong>・<strong>ソフトパーティクル</strong>・<strong>一発もののエフェクト</strong>——は、どれも Day 51 で「キャラクターが走ると足元から土埃が上がる」を作るための部品になる。</p>
+<p>昨日との違いは、<strong>粒がシーンの一部として置かれる</strong>ことになる。Day 49 の焚き火は「箱の上で燃えているものを眺める」絵で、床とも箱とも交わっていなかった。地面に落ちる土埃はそうはいかない——<strong>必ず床を貫く</strong>。そこで初めて、パーティクルが<strong>板の集まりでしかない</strong>ことが絵に出る。</p>
+<blockquote><p><strong>今日の実装でいちばん引っかかったのは「深度を読めない」だった</strong></p>
+<p>ソフトパーティクルはシーンの深度を読む技法だが、その深度は<strong>いま描き込み先として挿さっている</strong>ものになる。挿さっているテクスチャを同じ描画で読むのは OpenGL では未定義で、しかも<strong>エラーは出ない</strong>。逃げ方は「読む用のコピーを1枚持つ」で、実際のエンジンもそうしている(要点3)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「エフェクト」ページを開いて <code>F2</code> を押すと、床すれすれを回る発生源が土埃を落とし、通った跡に青白いリボンが残る。<code>F3</code> でソフトパーティクルを切ると、土埃の丸が床を貫いた<strong>まっすぐな切り口</strong>が現れて、「地面に刺さった板」に見える。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「エフェクト」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>エフェクトデモ ON/OFF</td></tr>
+<tr><td><code>F3</code></td><td>ソフトパーティクル ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F4</code></td><td>フェード距離(0.1 / 0.35 / 0.8 / 2.0m)</td></tr>
+<tr><td><code>F5</code></td><td>トレイル ON/OFF</td></tr>
+<tr><td><code>F6</code></td><td>尾の長さ(0.15 / 0.35 / 0.7 / 1.2 秒)</td></tr>
+<tr><td><code>F7</code></td><td>着弾を1発(加算)</td></tr>
+<tr><td><code>F8</code></td><td>爆発を1発(<strong>閃光 + 煙で放出口2本</strong>)</td></tr>
+<tr><td><code>F9</code></td><td>足元の土埃 ON/OFF(「カプセルとキャラクタ」デモと連動)</td></tr>
+<tr><td><code>F10</code></td><td>内訳(貸出中の本数・節の数・深度の写しの代償)</td></tr>
+<tr><td><code>F11</code></td><td>今日の自己チェック(37 項目)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目はソフトパーティクル</strong>。粒は<strong>カメラを向いた四角形</strong>なので、床と交わったところに<strong>直線の切り口</strong>が出る。これが「板が地面に刺さっている」ように見える正体になる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float sceneDistance    = LinearizeDepth(texture(uSceneDepth, screenUv).r);
+float particleDistance = LinearizeDepth(gl_FragCoord.z);
+
+return clamp((sceneDistance - particleDistance) / uSoftFade, 0.0, 1.0);</code></pre></div>
+<p><strong>手前にある面に近い画素ほど薄くする</strong>。それだけで交線が消える。薄めるのは<strong>アルファだけ</strong>で、RGB を薄めるとアルファ合成の土埃が黒ずむ(要点1)。</p>
+<p><strong>2つ目は「読むために写す」</strong>。上の <code>uSceneDepth</code> は、いま描き込んでいるフレームバッファの深度<strong>そのものではない</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_post.CaptureDepth();   // glBlitFramebuffer で深度だけコピー
+_particles.SetSceneDepth(_post.SceneDepth, near, far, width, height);</code></pre></div>
+<p>挿さっているテクスチャを同じ描画で読むのは<strong>フィードバックループ</strong>で、OpenGL では結果が未定義になる。しかも<strong>エラーは出ない</strong>——ドライバによっては動いてしまうので、いちばん気づきにくい種類の間違いになる(要点3)。</p>
+<p><strong>3つ目はリングバッファ</strong>。トレイルは節を順に繋いでリボンを張るので、Day 49 の swap-remove(死んだ粒を末尾と入れ替える)が<strong>使えない</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 粒: 順番が壊れてよいので、末尾と入れ替えて O(1)
+_particles[i] = _particles[--Count];
+
+// 節: 順番が命なので、いちばん古いものを指す添字を進めて O(1)
+_start = (_start + 1) % _points.Length;</code></pre></div>
+<p>同じ「詰め直しを O(1) で」という目的でも、<strong>順番を保つという制約が1つ増えるだけで答えが別のものになる</strong>(要点4)。</p>
+<h3 id="s3">今日も物理には触らない</h3>
+<p>差分は <code>Render/</code> に新規2本と変更4本、<code>shaders/</code> に1本、そして <code>Program.cs</code>。<code>Physics/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も1行も変わっていない。</p>
+<p>足元の土埃は <code>Physics/CharacterController.cs</code> ではなく<code>Program.UpdateFootsteps</code> から出している。コントローラは<strong>接地しているか・どの面に立っているか</strong>を公開しているので、それを読んで撒く側は外に置ける——Day 45 で「カメラ基準に直すのは呼ぶ側の仕事」と決めたのと同じ線引きになる。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://developer.download.nvidia.com/whitepapers/2007/SDK10/SoftParticles_hi.pdf">Soft Particles(NVIDIA, Tristan Lorach 2007)</a>— <strong>今日の一次資料</strong>。深度差でアルファを落とす、という発想がここで整理された</li><li><a href="https://www.khronos.org/opengl/wiki/Framebuffer_Object#Feedback_Loops">Rendering Feedback Loops(OpenGL Wiki)</a>— <strong>要点3の根拠</strong>。「挿さっているテクスチャを読むと未定義」がどこに書いてあるか</li><li><a href="https://learnopengl.com/Advanced-OpenGL/Depth-testing">Learn OpenGL: Depth testing(深度の非線形性)</a>— 深度バッファがなぜ 1/z なのか、<code>LinearizeDepth</code> の式がどこから来るか(要点2)</li><li><a href="https://docs.unity3d.com/Manual/class-TrailRenderer.html">Catmull-Rom と押し出しリボン(Unity TrailRenderer のドキュメント)</a>— 実際のエンジンがトレイルに何を持たせているか(最小距離・寿命・幅カーブ)。今日作るものはこの最小構成にあたる</li><li><strong>Day 49 の計画書 要点1・2・4</strong>(このリポジトリ)— ビルボード・混ぜ方・深度を書かないこと。今日はこの3つの上に積む</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. ソフトパーティクル — 手前の面に近い画素を薄くする</h3>
+<p>粒はカメラを向いた四角形なので、床と斜めに交わる。交わったところは<strong>四角形と平面の交線</strong>——つまり<strong>直線</strong>になり、「もやもやした煙」の中に不自然にまっすぐな縁が現れる。これがパーティクルが板だと分かってしまう瞬間で、土埃・霧・煙のように<strong>地面に接するもの</strong>では必ず出る。</p>
+<p>直し方は拍子抜けするほど単純で、<strong>その画素の奥にある不透明な面までの距離</strong>を測り、近いほど薄くする。</p>
+<div class="code"><pre><code>  fade = clamp((面までの距離 − 粒までの距離) / フェード距離, 0, 1)</code></pre></div>
+<p>交線の上では両者が一致するので <code>fade = 0</code>、つまり<strong>ちょうど交わる線が消える</strong>。そこから離れるにつれて 1 に戻るので、境目がぼやけて溶ける。</p>
+<p><strong>薄めるのはアルファだけ</strong>にする。RGB を薄めると、加算合成では同じ結果になるが(<code>dst + src·a</code> の <code>src</code> を縮めても <code>a</code> を縮めても同じ)、アルファ合成では<strong>黒へ寄る</strong>ことになって土埃が床の手前で黒ずむ。アルファだけなら、どちらの混ぜ方でも「消える」に落ちる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>フェード距離</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>0.1m</td><td>切り口が消えきらない。よく見ると線が残る</td></tr>
+<tr><td>0.35m(既定)</td><td>交線が溶ける。粒の存在感はそのまま</td></tr>
+<tr><td>0.8m</td><td>床の近くが全体に薄い。「地面から離れたところにしか埃が無い」</td></tr>
+<tr><td>2.0m</td><td><strong>粒がほとんど見えない</strong>。カメラから 2m 以内の面がすべて消しゴムになる</td></tr>
+</tbody>
+</table></div>
+<p><strong>粒の大きさと同じくらい</strong>が目安になる。土埃の直径が 0.7m なら 0.3〜0.5m。</p>
+<div class="inject"><figure class="lab" id="soft-lab">
+  <div class="lab-head">
+    <h3>土埃を床に落とす(要点1・2)</h3>
+    <span class="tag">エフェクトデモと同じカメラ(注視点 y = -0.3・距離 4.4m・仰角 0.16rad・near 0.1 / far 100)をソフトウェア描画で再現。画角だけ 60 度を 25 度に絞って拡大している</span>
+  </div>
+  <div class="stage"><canvas id="soft-canvas" style="height:340px" aria-label="床の上を回る発生源が落とす土埃"></canvas></div>
+  <div class="hud" id="soft-hud"></div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="soft-on" checked> ソフトパーティクル(F3)</label>
+    <div class="ctl"><span class="label">フェード距離(F4)</span>
+      <div class="seg" id="soft-fade"><button data-v="0.1" aria-pressed="false">0.10m</button><button data-v="0.35" aria-pressed="true">0.35m</button><button data-v="0.8" aria-pressed="false">0.80m</button><button data-v="2" aria-pressed="false">2.00m</button></div>
+    </div>
+    <div class="ctl"><span class="label">薄める相手(要点1)</span>
+      <div class="seg" id="soft-target"><button data-v="alpha" aria-pressed="true">アルファ(reference)</button><button data-v="rgb" aria-pressed="false">RGB</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="soft-raw"> 深度を線形化せずに引く(要点2)</label>
+    <label class="check"><input type="checkbox" id="soft-big" checked> 床に半分埋まった大きな粒を置く(このページだけ)</label>
+    <label class="check"><input type="checkbox" id="soft-pause"> 止める</label>
+  </div>
+  <div class="readout"><div class="stats" id="soft-stats"></div><p id="soft-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">2. 深度バッファは線形ではない</h3>
+<p>上の式は<strong>距離の引き算</strong>なので、深度バッファの値をそのまま引いてはいけない。</p>
+<p>射影行列は z を 1/z に近い形へ潰して深度バッファへ書く。手前に精度を厚く配るための仕掛けで、そのぶん<strong>値の差が距離の差に比例しない</strong>。</p>
+<div class="code"><pre><code>  near = 0.1、far = 100 のとき
+    深度 0.0  →  0.100m
+    深度 0.5  →  0.200m     ← <strong>距離の真ん中(50m)ではない</strong>
+    深度 0.9  →  0.991m
+    深度 1.0  →  100.0m</code></pre></div>
+<p>深度の半分がもう near のすぐ先、というのが実感しにくいところで、自己チェックにそのまま項目として入れてある。</p>
+<div class="inject"><figure class="lab" id="depth-lab">
+  <div class="lab-head">
+    <h3>深度バッファの値と距離</h3>
+    <span class="tag">ParticleRenderer.LinearizeDepth と同じ式</span>
+  </div>
+  <div class="stage"><canvas id="depth-canvas" style="height:240px" aria-label="深度バッファの値と距離の関係"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">深度バッファの値</span>
+      <div class="range"><input type="range" id="depth-v" min="0" max="1" step="0.001" value="0.5"><output id="depth-v-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">near</span>
+      <div class="seg" id="depth-near"><button data-v="0.01" aria-pressed="false">0.01</button><button data-v="0.1" aria-pressed="true">0.1</button><button data-v="1" aria-pressed="false">1</button></div>
+    </div>
+    <div class="ctl"><span class="label">far</span>
+      <div class="seg" id="depth-far"><button data-v="100" aria-pressed="true">100</button><button data-v="1000" aria-pressed="false">1000</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="depth-stats"></div></div>
+</figure></div>
+<p>戻す式はこれ1本。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float LinearizeDepth(float depth01)
+{
+    float ndc = depth01 * 2.0 - 1.0;
+    return 2.0 * near * far / (far + near - ndc * (far - near));
+}</code></pre></div>
+<p><strong>同じ式を C# 側にも置いてある</strong>(<code>ParticleRenderer.LinearizeDepth</code>)。GPU の中身は読めないので、<strong>片方を CPU に持ってきて数で確かめる</strong>のが唯一の手になる。2箇所に同じ式があるのは重複だが、「シェーダの式が合っているか」を確かめる方法が他に無い以上、これは払う価値のある重複になる。</p>
+<p><strong>遠くでは効かない</strong>のも覚えておく。深度の精度が遠方でスカスカなので、カメラから 50m 先の煙に細かいフェードは掛からない。気になるなら深度を 32bit float にするか、ビュー空間の z を別のバッファへ書く(Day 52 の G-Buffer がそれになる)。</p>
+<h3 id="s8">3. 読むために写す — フィードバックループ</h3>
+<p><strong>今日いちばん危ない箇所</strong>。ソフトパーティクルが読みたい深度は、まさに<strong>いま描き込み先として挿さっている</strong>ものになる。</p>
+<div class="code"><pre><code>  [シーンバッファ]  カラー(RGBA16F) + 深度(レンダーバッファ)
+        ↑ 粒はここへ描く                ↑ 粒はここを読みたい</code></pre></div>
+<p>OpenGL では、<strong>描き込み先に挿さっているテクスチャを同じ描画で読む</strong>と結果が未定義になる。「深度は書いていない(<code>DepthMask(false)</code>)から大丈夫では?」と思うところだが、GL 3.3 の仕様ではそれでも未定義で、GL 4.4 で「書き込みマスクが 0 なら安全」という緩和が入った経緯がある。</p>
+<p>そして<strong>エラーは出ない</strong>。ドライバによっては動いてしまい、別の環境で真っ黒になる。いちばん見つけにくい種類の間違いになる。</p>
+<p>逃げ方は<strong>読む用のコピーを1枚持つ</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, シーン);
+_gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, コピー);
+_gl.BlitFramebuffer(0, 0, w, h, 0, 0, w, h,
+    ClearBufferMask.DepthBufferBit, BlitFramebufferFilter.Nearest);</code></pre></div>
+<p>これは実際のエンジンでもそうで、Unity の <code>_CameraDepthTexture</code> はまさにこれになる。<code>glBlitFramebuffer</code> は GPU の中のコピーなので CPU は待たないが、<strong>画面1枚ぶんの帯域</strong>は毎フレーム消える(1920x1080 の 24bit 深度で 5.9MB)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>制約</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td>フィルタは <code>Nearest</code> 必須</td><td><code>Linear</code> を指定すると <code>GL_INVALID_OPERATION</code>。深度の平均に意味が無い</td></tr>
+<tr><td>呼ぶのは<strong>不透明を全部描いたあと</strong></td><td>早いと床や箱が入っていない</td></tr>
+<tr><td>呼ぶのは<strong>半透明を描く前</strong></td><td>遅いと粒どうしが互いを消し合う</td></tr>
+<tr><td>終わったらシーンへ描き戻せる状態にする</td><td><code>BlitFramebuffer</code> は読み書きの割り当てを変える</td></tr>
+</tbody>
+</table></div>
+<p><strong>確保は遅延にしてある</strong>。ソフトパーティクルを一度も使わないなら 5.9MB を払う理由が無い。おかげで HUD の VRAM が<strong>切り替えた瞬間に増える</strong>のが目で見える。</p>
+<h3 id="s9">4. トレイルはリングバッファ — 順番が命だから</h3>
+<p>Day 49 の <code>ParticleEmitter</code> は、死んだ粒を<strong>末尾の生きた粒と入れ替えて</strong>詰めていた。詰め直しが O(1) で済み、生きている粒が常に先頭から連続する。代償は順番が保たれないことだが、加算合成では足し算の順番が結果を変えないので困らなかった。</p>
+<p>トレイルではこれが<strong>使えない</strong>。節を順に繋いでリボンを張るので、1つでも入れ替わると<strong>リボンがねじれて自分自身を横切る</strong>。</p>
+<p>順番を保ったまま O(1) で捨てるには、<strong>いちばん古いものを指す添字を進める</strong>——リングバッファになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public TrailPoint this[int index] =&gt; _points[(_start + index) % _points.Length];
+
+private void Push(Vector3 position)
+{
+    if (Count == _points.Length)
+    {
+        _start = (_start + 1) % _points.Length;   // いちばん古いものを捨てる
+        Count--;
+    }
+    _points[(_start + Count) % _points.Length] = new TrailPoint { Position = position };
+    Count++;
+}</code></pre></div>
+<p><strong>寿命で捨てるほうは <code>while</code> 1本で済む</strong>。節は置かれた順に並んでいるので、<strong>いちばん古いものが寿命内なら、その先も寿命内</strong>——全部を舐める必要が無い。粒は順番がバラバラなので、こちらは全部見なければならなかった。順番を保つ制約は、捨てるときには<strong>逆に効く</strong>。</p>
+<div class="inject"><figure class="lab" id="trail-lab">
+  <div class="lab-head">
+    <h3>リボンを引く(要点4〜6)</h3>
+    <span class="tag">真上から見たエフェクトデモの発生源(半径 1.4m の円、平均 1.88m/s)。実機に近い 480Hz で刻んでいる</span>
+  </div>
+  <div class="stage"><canvas id="trail-canvas" style="height:320px" aria-label="円を回る発生源と、その跡に残るリボン"></canvas></div>
+  <div class="hud" id="trail-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">尾の長さ(F6)</span>
+      <div class="seg" id="trail-life"><button data-v="0.15" aria-pressed="false">0.15秒</button><button data-v="0.35" aria-pressed="true">0.35秒</button><button data-v="0.7" aria-pressed="false">0.7秒</button><button data-v="1.2" aria-pressed="false">1.2秒</button></div>
+    </div>
+    <div class="ctl"><span class="label">節の間隔(MinDistance)</span>
+      <div class="seg" id="trail-min"><button data-v="0.02" aria-pressed="false">0.02m</button><button data-v="0.06" aria-pressed="true">0.06m</button><button data-v="0.15" aria-pressed="false">0.15m</button><button data-v="0.3" aria-pressed="false">0.3m</button></div>
+    </div>
+    <div class="ctl"><span class="label">容量</span>
+      <div class="seg" id="trail-cap"><button data-v="24" aria-pressed="false">24</button><button data-v="96" aria-pressed="true">96</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="trail-swap"> 詰め直しを swap-remove にする(要点4)</label>
+    <label class="check"><input type="checkbox" id="trail-notip"> 先端を貼り付けない(要点5)</label>
+    <label class="check"><input type="checkbox" id="trail-perseg"> 横方向を帯ごとに出す(要点6)</label>
+  </div>
+  <div class="readout"><div class="stats" id="trail-stats"></div><p id="trail-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">5. 先端だけは特別扱い — 節を置くのは距離、動かすのは毎フレーム</h3>
+<p>素朴に「毎フレーム節を1つ置く」と、fps でリボンの節の数が変わる。「一定距離ごとに置く」にすると、今度は<strong>ゆっくり動いているときにリボンの先が本体から遅れる</strong>——剣先とリボンの間に隙間が空くのがいちばん目に付く不具合になる。</p>
+<p>答えは両方で、<strong>最後の節は常に「いまの位置」に貼り付けておく</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 committed = this[Count - 2].Position;   // 直前に「固めた」節
+
+if (Vector3.DistanceSquared(position, committed) &gt;= MinDistance * MinDistance)
+{
+    Push(position);            // 離れた: 新しい先端を足す
+}
+else
+{
+    tip.Position = position;   // 近い: 先端を動かすだけ
+}</code></pre></div>
+<p><strong>距離を測る相手が「先端の1つ手前」</strong>なのが要点になる。先端から測ると、先端は毎フレーム動くので距離が常に 0 で、<strong>節が永久に増えない</strong>。</p>
+<p>節の数の見積もりは粒とまったく同じ形になる。</p>
+<div class="code"><pre><code>  釣り合いの節数 = 速さ ÷ 最小距離 × 寿命
+    2.2m/s ÷ 0.06m × 0.35秒 = 13 節</code></pre></div>
+<p>Day 49 の「放出 × 寿命」と同じで、<strong>容量を超えると尾が寿命より短くなる</strong>(HUD の「捨てた節」が増える)。</p>
+<h3 id="s11">6. リボンの横方向 — ビルボードとの違い</h3>
+<p>ビルボード(Day 49 の要点1)は<strong>カメラの右と上</strong>で四角形を張っていた。縦も横もカメラが決めてよかったからで、そのおかげで粒は常に正面を向く。</p>
+<p>リボンはそうはいかない。帯は<strong>進行方向に沿っていなければならない</strong>ので、縦(長さ方向)は動きが決めてしまう。選べるのは横だけになり、「進行方向に垂直」かつ「カメラから見ていちばん広く見える」向き——つまり<strong>進行方向 × カメラへの向き</strong>になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 side = Vector3.Normalize(Vector3.Cross(direction, toCamera));</code></pre></div>
+<p><strong>縮退点が1つある</strong>。剣先がカメラへ真っ直ぐ向かってくると2本が平行になり、外積が 0 に潰れる。正規化すると 0/0 で NaN が出て、<strong>リボンが丸ごと画面から消える</strong>(NaN の頂点はクリップ段で落ちる)。この1点のためだけに逃げ道が要る、というのがビルボードとの実装上の差になる。</p>
+<p><strong>横方向は節ごとに1回だけ出す</strong>。帯ごとに計算すると、隣り合う2枚が共有するはずの辺がわずかに違う場所に来て、継ぎ目に隙間が開く。節の向きは<strong>前後の節を結んだ向き</strong>にする(端は片側だけ)——曲がり角で入る向きと出る向きの中間を取ることになり、これが無いと<strong>急カーブの外側で帯が折れて尖る</strong>。</p>
+<h3 id="s12">7. 混ぜ方を切り替えると、そこがドローコールの境目になる</h3>
+<p>Day 49 の混ぜ方は <code>Begin</code> で1回決めるだけだった。筋書きごとに加算かアルファのどちらかを選べばよかったからで、「同じフレームに炎と煙を出す」は<strong>できない</strong>まま残してあった(Day 49 の歪み1つ目)。</p>
+<p>エフェクトを扱い始めるとこれが通らない。爆発は<strong>閃光(加算)と煙(アルファ)</strong>の両方で1つの出来事になる。</p>
+<p>混ぜ方は GL の状態なので、途中で変えるには<strong>それまでに積んだぶんを描き切ってから</strong>でないといけない。テクスチャの切り替えとまったく同じ理屈で、<strong>切り替えの回数がそのままドローコールの数</strong>になる。</p>
+<p>だから <code>EffectSystem.Draw</code> は<strong>混ぜ方でまとめて</strong>回す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>DrawGroup(renderer, ParticleBlend.Additive, dot, smoke);   // 光るものを全部
+DrawGroup(renderer, ParticleBlend.Alpha,    dot, smoke);   // 濁るものを全部</code></pre></div>
+<p>出た順に回すと、爆発と土埃が交互に並んだときに毎回フラッシュする。2周するだけで、<strong>何本出ていてもドローコールは 2 回</strong>に収まる。半透明どうしの前後関係は正しくならないが、<strong>光るものを先に敷いて濁るものを重ねる</strong>ほうが絵としても素直になる。</p>
+<p>なお Day 49 の改造課題2(事前乗算で1パスに畳む)は今日も有効な手で、そちらへ寄せるとドローコールは 1 回になる。今日は<strong>「切り替えると何回になるか」が数字で見えるほう</strong>を選んだ。</p>
+<h3 id="s13">8. 一発ものはプールから借りて、自分で返す</h3>
+<p><code>ParticleEmitter</code> は「1つの放出口をずっと出しっぱなし」の道具だった。ゲームで要るのはそうではなく、<strong>出来事のたびに1回だけ出て、勝手に片付くもの</strong>になる——足が着いた、弾が当たった、樽が爆発した。</p>
+<p>呼ばれるたびに <code>new ParticleEmitter</code> すると、256 個の構造体配列の確保が毎回走って GC が刻む。あらかじめ何本か作っておいて、空いているものを貸す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>やること</th></tr></thead>
+<tbody>
+<tr><td>借りる</td><td><code>Active</code> でない本を探す。<strong>無ければ数えて諦める</strong></td></tr>
+<tr><td>設定する</td><td><code>Configure</code> が種類ごとの設定を丸ごと入れる。<code>EmitRate = 0</code> / <code>Emitting = false</code></td></tr>
+<tr><td>撒く</td><td><code>Burst(n)</code> で一気に</td></tr>
+<tr><td>返す</td><td><code>Update</code> で <code>Count == 0</code> になったら <code>Active = false</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>空きが無いときに古いものを潰さない</strong>のが1つの判断になる。潰すと、いちばん見てほしい爆発が足音に横取りされて消える。出せなかったことを数えて HUD に出すほうが、あとから容量を決められる。</p>
+<p><strong><code>EmitRate = 0</code> と <code>Emitting = false</code> を忘れると本が永久に返らない</strong>。撒き続ける放出口は <code>Count</code> が 0 にならないので、プールが埋まって「しばらく遊んでいるとエフェクトが出なくなる」という形で出る。自己チェックに項目として入れてある。</p>
+<h3 id="s14">9. 距離で刻む — 足取りとフレームレート</h3>
+<p>「歩いている間ずっと土埃を出す」だと、止まっているときも出続けるし、走ると<strong>フレームレートのぶんだけ濃くなる</strong>。実際の足音がそうであるように、<strong>距離を刻んで一歩ごとに1回</strong>にする。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_carry += distance;
+int steps = (int)(_carry / Stride);
+_carry -= steps * Stride;
+return steps;</code></pre></div>
+<p>端数を持ち越すのは Day 49 の <code>ParticleEmitter._carry</code> とまったく同じ形になる。切り捨てると、1フレームで進む距離が歩幅より短いときに<strong>永久に一歩も出ない</strong>。</p>
+<p><strong>上限も要る</strong>。ブレークポイントで止めたあとの巨大な dt で何十歩ぶんも一度に出ないよう、1回の呼び出しで 4 歩までにしてある。</p>
+<p><strong>走ると歩幅を広げる</strong>のも見た目のうち。同じ歩幅のままだと、速いぶんだけ土埃の数が増えて煙幕になる。</p>
+<h3 id="s15">10. 明るさ倍率は加算のためのもの</h3>
+<p>Day 49 の <code>ParticleRenderer.Intensity</code> は<strong>加算のための倍率</strong>だった。RGB を持ち上げたぶんが素直に明るさになり、1.0 を超えればブルームのしきい値を越えてにじむ。</p>
+<p>ところが<strong>アルファ合成の粒に同じ倍率を掛けると色が飛ぶ</strong>。土埃の色 (0.62, 0.55, 0.44) を 2 倍すると (1.24, 1.10, 0.88) で、3成分とも 1.0 付近に張り付いて<strong>土の色が消える</strong>——おまけにブルームも拾うので、足元だけが白く光る。</p>
+<p>Day 49 は加算の粒しか同時に出さなかったので表に出なかった。<strong>加算とアルファが同居した今日、初めて症状が出た</strong>箇所になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private float IntensityFor(ParticleBlend blend) =&gt;
+    blend == ParticleBlend.Alpha ? 1.0f : Intensity;</code></pre></div>
+<p>アルファの粒を明るくしたいなら <code>StartColor</code> のほうを上げる。<strong>「明るさ」と「色」を混ぜない</strong>ための線引きになる。</p>
+<h3 id="s16">11. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>なぜ</th><th>いつ</th></tr></thead>
+<tbody>
+<tr><td>半解像度でのパーティクル描画</td><td>粒の塗り面積(オーバードロー)がまだ問題になっていない</td><td>必要になったら。深度のダウンサンプルとアップサンプルが要る</td></tr>
+<tr><td>ソフトパーティクルの深度を 32bit に</td><td>遠方の精度が問題になっていない</td><td>Day 52 の G-Buffer でビュー空間 z を持つようになれば自然に解決</td></tr>
+<tr><td>トレイルの Catmull-Rom 補間</td><td>最小距離 0.06m なら折れ線で十分滑らか</td><td>改造課題2</td></tr>
+<tr><td>粒どうしの正しい前後関係</td><td>放出口をまたいだ並べ替えが要る(Day 49 の歪み2つ目)</td><td>加算主体のうちは表に出ない</td></tr>
+<tr><td>GPU での更新</td><td>CPU で 0.02ms</td><td>教養編 Day 57</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s17">前Dayからの差分概要</h2>
+<h3 id="s18">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Trail.cs</code></td><td>節(<code>TrailPoint</code>)を溜めるリングバッファ。<strong>272 行</strong>(要点4・5・6)</td></tr>
+<tr><td><code>Render/EffectSystem.cs</code></td><td>一発もののエフェクトのプールと表、<code>FootstepTracker</code>。<strong>459 行</strong>(要点8・9)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何を足したか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Framebuffer.cs</code></td><td><code>Handle</code> と <code>BlitDepthTo</code>(深度だけ転送)</td><td>+52</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td>深度のコピー(遅延確保)、<code>CaptureDepth</code> / <code>SceneDepth</code> / <code>DepthCopyMilliseconds</code></td><td>+76 / -1</td></tr>
+<tr><td><code>shaders/particle.frag</code></td><td>ソフトパーティクル(uniform 4本 + <code>LinearizeDepth</code> + <code>SoftFadeFactor</code>)</td><td>+68 / -1</td></tr>
+<tr><td><code>Render/ParticleTextures.cs</code></td><td><code>CreateTrailStrip</code>(帯の断面)</td><td>+42</td></tr>
+<tr><td><code>Render/ParticleRenderer.cs</code></td><td>深度の受け口、混ぜ方の切り替え、トレイルの <code>Draw</code>、静的な検算用の2本</td><td>+326 / -13</td></tr>
+<tr><td><code>Program.cs</code></td><td>エフェクトデモ、メニュー 10 項目、HUD 1行、足元の土埃、自己チェック 37 項目</td><td>+851 / -6</td></tr>
+</tbody>
+</table></div>
+<p><code>Program.cs</code> の内訳(おおよそ)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>中身</th><th>行</th></tr></thead>
+<tbody>
+<tr><td>自己チェック(<code>RunEffectCheck</code>)</td><td>約 290</td></tr>
+<tr><td>メニューのページ1枚(10 項目)</td><td>約 95</td></tr>
+<tr><td>デモの出し入れ(<code>ShowEffectDemo</code> / <code>HideEffectDemo</code> / <code>ApplyTrailSettings</code>)</td><td>約 90</td></tr>
+<tr><td>更新と描画(<code>UpdateEffects</code> / <code>UpdateFootsteps</code> / <code>RenderParticles</code> の作り直し)</td><td>約 130</td></tr>
+<tr><td>内訳と HUD(<code>DescribeEffects</code> / <code>EffectLabel</code>)</td><td>約 75</td></tr>
+<tr><td>フィールドと初期化</td><td>約 70</td></tr>
+</tbody>
+</table></div>
+<h3 id="s20">写経する順番</h3>
+<p><strong>下から上へ積む</strong>。<code>Framebuffer</code> → <code>PostProcess</code> が深度のコピーの土台で、<code>Trail</code> は <code>ParticleRenderer</code> が使うので先に要る。<code>EffectSystem</code> は <code>ParticleRenderer.Draw(emitter, texture, blend)</code> を呼ぶので最後に近い。</p>
+<ol><li><strong><code>Render/Framebuffer.cs</code></strong>(変更) — <code>Handle</code> プロパティ(<code>Color</code> の直前)と<code>BlitDepthTo</code>(<code>Create</code> の直前)。<strong>次の <code>PostProcess</code> が呼ぶので先に置く</strong></li><li><strong><code>Render/PostProcess.cs</code></strong>(変更) — 4箇所<ul><li><code>_depthCopy</code> フィールド(<code>_scene</code> の直後。<strong>遅延確保なので <code>Framebuffer?</code></strong>)</li><li><code>SceneDepth</code> / <code>DepthCopyMilliseconds</code> プロパティと <code>ByteSize</code> の足し込み</li><li><code>CaptureDepth()</code>(<code>End</code> の直前)</li><li><code>Resize</code> と <code>Dispose</code> に1行ずつ</li></ul></li><li><strong><code>shaders/particle.frag</code></strong>(変更) — uniform 4本(<code>uSceneDepth</code> / <code>uSoftFade</code> / <code>uNearFar</code> / <code>uScreenSize</code>)、<code>LinearizeDepth</code> と <code>SoftFadeFactor</code>、<code>main</code> の <code>color.a *= SoftFadeFactor();</code>。<strong><code>uIntensity</code> を掛ける前</strong>に置くこと(要点1)</li><li><strong><code>Render/ParticleTextures.cs</code></strong>(変更) — <code>CreateTrailStrip</code> を<code>CreateSmokeFlipbook</code> の手前に足す</li><li><strong><code>Render/Trail.cs</code></strong>(新規) — 上から順に<ul><li><code>TrailPoint</code>(構造体。位置と経過秒だけ)</li><li><code>Trail</code>: リングバッファ(<code>_start</code> / <code>Count</code> / インデクサ)→ <code>Move</code> → <code>Update</code> → <code>WidthAt</code> / <code>ColorAt</code> → <code>Side</code>(static)→ <code>Push</code>(private)</li></ul></li><li><strong><code>Render/ParticleRenderer.cs</code></strong>(変更) — 上から順に<ul><li>フィールド: <code>_jointSide</code> / <code>_currentBlend</code> / <code>_sceneDepth</code> / <code>_near</code> / <code>_far</code> / <code>_screenSize</code></li><li>プロパティ: <code>SoftParticles</code> / <code>SoftFadeDistance</code> / <code>TrailSegmentCount</code></li><li><code>SetSceneDepth</code>(<code>Begin</code> の直前)</li><li><code>Begin</code>: <code>uIntensity</code> の行を消して、ソフトパーティクルの4つと <code>_currentBlend</code> を設定</li><li><code>Draw(emitter, texture)</code> を1行の転送にして、<code>Draw(emitter, texture, blend)</code> を新設</li><li><code>Draw(trail, texture, blend)</code>(<code>End</code> の直前)</li><li><code>SetState</code> と <code>Flush</code> の深度バインド、<code>IntensityFor</code></li><li><code>LinearizeDepth</code> / <code>SoftFade</code>(static)、<code>ApplyBlend</code> を引数付きに</li></ul></li><li><strong><code>Render/EffectSystem.cs</code></strong>(新規) — 上から順に<ul><li><code>EffectKind</code>(5つ)→ <code>FootstepTracker</code>(要点9)→ <code>EffectSystem</code></li><li><code>EffectSystem</code> は <code>Slot</code>(private)→ プロパティ → <code>Spawn</code> → <code>Update</code> → <code>Draw</code> → <code>ActiveEffects</code> → <code>Clear</code> → <code>Configure</code>(static。<strong>表</strong>)→ private 2本</li></ul></li><li><strong><code>Program.cs</code> のフィールド</strong>(変更) — <code>_particleMilliseconds</code> の直後に<code>_effectMilliseconds</code>、その下に Day 50 の 11 個</li><li><strong><code>Program.cs</code> の初期化</strong>(変更) — <code>ApplyParticleScene()</code> の直後にトレイルのテクスチャ・<code>EffectSystem</code>・<code>Trail</code>・<code>ApplyTrailSettings()</code></li><li><strong><code>Program.cs</code> の Day 50 の節</strong>(新規) — <code>ParticleLabel()</code> の直前にまとめて置く。<code>EffectSourcePosition</code> → <code>ShowEffectDemo</code> → <code>HideEffectDemo</code> → <code>ApplyTrailSettings</code> → <code>UpdateEffects</code> → <code>UpdateFootsteps</code> → <code>EffectSpawnPoint</code> → <code>EffectLabel</code></li><li><strong><code>Program.cs</code> の <code>RenderParticles</code></strong>(変更) — 丸ごと書き直し。早期 return の条件、深度の写し、トレイルとエフェクトの <code>Draw</code></li><li><strong><code>Program.cs</code> の <code>DescribeEffects</code> / <code>RunEffectCheck</code></strong>(新規) —<code>CheckList</code> クラスの直前に置く。37 項目</li><li><strong><code>Program.cs</code> のメニュー</strong>(変更) — <code>BuildDebugMenu</code> の <code>return menu;</code> の直前に「エフェクト」ページ(10 項目)</li><li><strong><code>Program.cs</code> の呼び出し口</strong>(変更) — 2箇所<ul><li><code>OnUpdate</code> の可変 dt 側、<code>UpdateParticles(...)</code> の直後に <code>UpdateEffects</code></li><li><code>UpdateCharacter</code> の <code>Character.Move(...)</code> の直後に <code>UpdateFootsteps(dt)</code>、落下時の <code>Teleport</code> の直後に <code>_footsteps.Reset()</code></li></ul></li><li><strong><code>Program.cs</code> の HUD</strong>(変更) — <code>ParticleLabel()</code> の直後に <code>EffectLabel()</code> を1行</li><li><strong><code>Program.cs</code> のデモの出し入れ</strong>(変更) — 3箇所に1〜2行ずつ<ul><li><code>ShowPhysicsDemo</code>: <code>_physicsDemo = true;</code> の直前に <code>HideEffectDemo();</code></li><li><code>ShowCharacterDemo</code>: <code>_physicsDemo = true;</code> の直前に <code>HideEffectDemo();</code> と<code>_footsteps.Reset(); _wasGrounded = true;</code></li><li><code>ShowParticleDemo</code>: <code>_materialGrid = false;</code> の直前に <code>HideEffectDemo();</code></li></ul></li></ol>
+</section>
+<section class="part"><h2 id="s21">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が5つ増えて、既存の3つに口が増えただけ。<code>Physics/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も1行も変わっていない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/TrailPoint</code></td><td><code>Render/</code></td><td>節1つ。位置と経過秒だけ(<strong>構造体</strong>)</td></tr>
+<tr><td><code>Render/Trail</code></td><td><code>Render/</code></td><td>節のリングバッファ。<strong>272 行</strong>(要点4・5・6)</td></tr>
+<tr><td><code>Render/EffectKind</code></td><td><code>Render/</code></td><td>出せるエフェクトの種類(足元 / 着地 / 着弾 / 爆発 / 煙)</td></tr>
+<tr><td><code>Render/FootstepTracker</code></td><td><code>Render/</code></td><td>一定距離ごとに1回だけ発火させる目盛り(<strong>構造体</strong>)</td></tr>
+<tr><td><code>Render/EffectSystem</code></td><td><code>Render/</code></td><td>放出口のプールと、種類ごとの設定の表。<strong>459 行</strong></td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Framebuffer</code></td><td><code>Handle</code> と <code>BlitDepthTo</code>。<strong>深度だけを別の FBO へ写す</strong></td><td>+52</td></tr>
+<tr><td><code>Render/PostProcess</code></td><td>深度のコピー(遅延確保)と <code>CaptureDepth</code></td><td>+76 / -1</td></tr>
+<tr><td><code>Render/ParticleRenderer</code></td><td>深度の受け口、混ぜ方の切り替え、トレイルの <code>Draw</code></td><td>+326 / -13</td></tr>
+<tr><td><code>Render/ParticleTextures</code></td><td><code>CreateTrailStrip</code></td><td>+42</td></tr>
+<tr><td><code>shaders/particle.frag</code></td><td>ソフトパーティクル</td><td>+68 / -1</td></tr>
+<tr><td><code>Program.cs</code></td><td>デモ1つ、メニュー 10 項目、HUD 1行、足元の土埃、自己チェック 37 項目</td><td>+851 / -6</td></tr>
+</tbody>
+</table></div>
+<h3 id="s22">今日の3つが、昨日のどこに乗ったか</h3>
+<svg viewBox="0 0 800 330" role="img" aria-label="Trail・EffectSystem・ParticleEmitter・PostProcess・Camera・ParticleTextures が ParticleRenderer へ入り、出ていくのはシェーダへの1本だけ" style="width:100%;max-width:800px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="290" y="150" width="220" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="400" y="171.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleRenderer</text><text x="400" y="188.5" text-anchor="middle" fill="var(--ink)">四角形を積んで描く</text><rect x="10" y="40" width="210" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="58.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Trail</text><text x="115" y="75.5" text-anchor="middle" fill="var(--ink)">節を溜める</text><path d="M220 63 L288 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="236" y="96" fill="var(--muted)" font-size="12">節の列</text><rect x="10" y="152" width="210" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="170.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">EffectSystem</text><text x="115" y="187.5" text-anchor="middle" fill="var(--ink)">放出口を貸す</text><path d="M220 175 L288 176" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="120" y="216" fill="var(--muted)" font-size="12" text-anchor="middle">ParticleEmitter + 混ぜ方</text><rect x="10" y="264" width="210" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="282.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleEmitter</text><text x="115" y="299.5" text-anchor="middle" fill="var(--ink)">Day 49。撒く・進める・捨てる</text><path d="M220 287 L288 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="236" y="262" fill="var(--muted)" font-size="12">Alive</text><rect x="270" y="8" width="150" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="345" y="26.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PostProcess</text><text x="345" y="43.5" text-anchor="middle" fill="var(--ink)">CaptureDepth</text><path d="M345 54 L345 148" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="353" y="112" fill="var(--muted)" font-size="12">深度のコピー</text><rect x="440" y="8" width="110" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="495" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Camera</text><path d="M495 48 L470 148" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="490" y="100" fill="var(--muted)" font-size="12">右と上 / near と far</text><rect x="290" y="264" width="220" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="400" y="282.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleTextures</text><text x="400" y="299.5" text-anchor="middle" fill="var(--ink)">丸 / 煙 / 帯</text><path d="M400 264 L400 204" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="408" y="240" fill="var(--muted)" font-size="12">Texture</text><rect x="610" y="154" width="180" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="700" y="180" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">particle.vert / .frag</text><path d="M510 176 L608 176" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="560" y="196" fill="var(--muted)" font-size="12" text-anchor="middle">uViewProjection / uSoftFade</text></g></svg>
+<p><strong><code>ParticleRenderer</code> に入る矢印が4本になった</strong>のが今日の姿になる。昨日は <code>ParticleEmitter</code> と <code>Camera</code> と <code>Texture</code> の3本だったところへ、<code>Trail</code>(別の形の四角形)と <code>PostProcess</code>(深度)が足された。</p>
+<p><strong>出ていく矢印は1本のまま</strong>なのが大事なところ。<code>Trail</code> も <code>EffectSystem</code> も <code>GL</code> を1行も知らず、<code>ParticleRenderer</code> だけが GL を触る——Day 49 で引いた線がそのまま通っている。おかげで今日の自己チェック 37 項目は<strong>全部が窓を開かずに走る</strong> (昨日は 27 項目中 20 項目だった)。</p>
+<h3 id="s23">「刺さり」が消えるまで</h3>
+<svg viewBox="0 0 776 943" role="img" aria-label="不透明を描き終えてから、深度を写し、粒の画素ごとに深度差でアルファを薄めるまで" style="width:100%;max-width:776px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="28.5" text-anchor="middle" fill="var(--ink)">不透明を全部描き終える</text><text x="235" y="45.5" text-anchor="middle" fill="var(--ink)">床・箱・キャラクター</text><rect x="20" y="84" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="113" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SoftParticles ?</text><rect x="500" y="84" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="625" y="104.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleRenderer.Begin</text><text x="625" y="121.5" text-anchor="middle" fill="var(--ink)">uSoftFade = 0</text><rect x="20" y="160" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_depthCopy を確保</text><text x="235" y="197.5" text-anchor="middle" fill="var(--ink)" font-weight="700">初回だけ。5.9MB</text><rect x="20" y="236" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="256.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BlitDepthTo</text><text x="235" y="273.5" text-anchor="middle" fill="var(--ink)">深度だけ GPU 内でコピー</text><rect x="20" y="312" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="332.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_scene.Bind()</text><text x="235" y="349.5" text-anchor="middle" fill="var(--ink)" font-weight="700">描き戻せる状態に返す</text><rect x="20" y="388" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="408.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SetSceneDepth(copy, near, far, w, h)</text><rect x="20" y="447" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="467.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleRenderer.Begin</text><text x="235" y="484.5" text-anchor="middle" fill="var(--ink)">uSoftFade = SoftFadeDistance</text><rect x="20" y="523" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="543.5" text-anchor="middle" fill="var(--ink)">particle.frag が1画素ぶん走る</text><rect x="20" y="582" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="602.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uSoftFade &gt; 0 ?</text><rect x="500" y="582" width="250" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="625" y="602.5" text-anchor="middle" fill="var(--ink)">fade = 1。Day 49 の絵</text><rect x="20" y="641" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="661.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">screenUv = gl_FragCoord.xy / uScreenSize</text><rect x="20" y="700" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="720.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">sceneZ = LinearizeDepth(深度テクスチャ)</text><rect x="20" y="759" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="779.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">particleZ = LinearizeDepth(gl_FragCoord.z)</text><rect x="20" y="818" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="838.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">fade = clamp((sceneZ - particleZ) / uSoftFade, 0, 1)</text><rect x="20" y="877" width="430" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="897.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">color.a *= fade</text><text x="235" y="914.5" text-anchor="middle" fill="var(--ink)" font-weight="700">アルファだけ。RGB は触らない</text><path d="M235 58 L235 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M450 109 L498 109" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="475" y="101" fill="var(--muted)" font-size="12" text-anchor="middle">いいえ</text><path d="M235 134 L235 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="243" y="150" fill="var(--muted)" font-size="12">はい</text><path d="M235 210 L235 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 286 L235 310" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 362 L235 386" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 421 L235 445" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 497 L235 521" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M750 109 L764 109 L764 539.5 L452 539.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 556 L235 580" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M450 598.5 L498 598.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="475" y="590.5" fill="var(--muted)" font-size="12" text-anchor="middle">いいえ</text><path d="M235 615 L235 639" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="243" y="631" fill="var(--muted)" font-size="12">はい</text><path d="M235 674 L235 698" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 733 L235 757" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 792 L235 816" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 851 L235 875" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong><code>_scene.Bind()</code> を忘れると症状が遠くに出る</strong>。<code>BlitFramebuffer</code> は読み書きの割り当てを変えるので、戻さないまま続きを描くと<strong>粒が画面へ直接描かれ</strong>、後処理を1つも通らない。「ソフトパーティクルを ON にしたらブルームが効かなくなった」という形で出るので、深度のコピーを疑うところまで辿り着きにくい。</p>
+<p><strong><code>LinearizeDepth</code> が2箇所にある</strong>(<code>particle.frag</code> と <code>ParticleRenderer</code>)。重複だが、<strong>シェーダの式が合っているかを確かめる方法が他に無い</strong>——GPU の中身は読めないので、片方を CPU に持ってきて数で確かめるしかない。自己チェックの1〜3項目がそれになる。</p>
+<h3 id="s24">トレイルの節が1つ増えるまで</h3>
+<svg viewBox="0 0 766 783" role="img" aria-label="Move で先端を書き換えるか節を足し、容量いっぱいなら古い節を捨て、Update で寿命の切れた先頭を捨てて描くまで" style="width:100%;max-width:766px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Move(position)</text><text x="210" y="45.5" text-anchor="middle" fill="var(--ink)" font-weight="700">毎フレーム呼ぶ</text><rect x="20" y="84" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="113" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Count &lt; 2 ?</text><rect x="450" y="84" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="104.5" text-anchor="middle" fill="var(--ink)">同じ位置に2つ置く</text><text x="595" y="121.5" text-anchor="middle" fill="var(--ink)">長さ 0 の帯から始める</text><rect x="20" y="160" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="180.5" text-anchor="middle" fill="var(--ink)">直前に固めた節から</text><text x="210" y="197.5" text-anchor="middle" fill="var(--ink)">MinDistance 離れたか</text><rect x="450" y="160" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="180.5" text-anchor="middle" fill="var(--ink)">先端の位置だけ書き換える</text><text x="595" y="197.5" text-anchor="middle" fill="var(--ink)" font-weight="700">節は増えない</text><rect x="20" y="236" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="256.5" text-anchor="middle" fill="var(--ink)">Push: 新しい先端を足す</text><rect x="20" y="295" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="332.5" text-anchor="middle" fill="var(--ink)">容量いっぱい ?</text><rect x="450" y="295" width="290" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="315.5" text-anchor="middle" fill="var(--ink)">_start を1つ進めて</text><text x="595" y="332.5" text-anchor="middle" fill="var(--ink)">いちばん古い節を捨てる</text><text x="595" y="349.5" text-anchor="middle" fill="var(--ink)" font-weight="700">swap-remove は使えない</text><rect x="20" y="388" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="408.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_start + Count の位置へ書く</text><rect x="20" y="447" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="467.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Update(dt): 全部の Age を進める</text><rect x="20" y="506" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="526.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">while: 先頭が寿命超過なら</text><text x="210" y="543.5" text-anchor="middle" fill="var(--ink)">_start を進めて Count--</text><rect x="20" y="582" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="602.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleRenderer.Draw(trail, ...)</text><rect x="20" y="641" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="661.5" text-anchor="middle" fill="var(--ink)">節ごとに Side を1回</text><text x="210" y="678.5" text-anchor="middle" fill="var(--ink)" font-weight="700">帯ごとではない</text><rect x="20" y="717" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="737.5" text-anchor="middle" fill="var(--ink)">節 i と i+1 で四角形1枚</text><text x="210" y="754.5" text-anchor="middle" fill="var(--ink)">幅と色は各節の Age から</text><path d="M210 58 L210 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M400 109 L448 109" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="425" y="101" fill="var(--muted)" font-size="12" text-anchor="middle">はい</text><path d="M210 134 L210 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="218" y="150" fill="var(--muted)" font-size="12">いいえ</text><path d="M400 185 L448 185" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="425" y="177" fill="var(--muted)" font-size="12" text-anchor="middle">いいえ</text><path d="M210 210 L210 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="218" y="226" fill="var(--muted)" font-size="12">はい</text><path d="M210 269 L210 293" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M400 328.5 L448 328.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="425" y="320.5" fill="var(--muted)" font-size="12" text-anchor="middle">はい</text><path d="M210 362 L210 386" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="218" y="378" fill="var(--muted)" font-size="12">いいえ</text><path d="M740 328.5 L754 328.5 L754 404.5 L402 404.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M740 109 L754 109 L754 463.5 L402 463.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M740 185 L754 185 L754 463.5 L402 463.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 421 L210 445" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 480 L210 504" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 556 L210 580" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 615 L210 639" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 691 L210 715" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong><code>while</code> 1本で捨てられる</strong>のがリングバッファの配当になる。節は置かれた順に並んでいるので、いちばん古いものが寿命内ならその先も寿命内——全部を舐める必要が無い。粒(Day 49)は順番がバラバラなので全部見る必要があった。<strong>順番を保つ制約は、捨てるときには逆に効く</strong>。</p>
+<p><strong><code>Side</code> を節ごとに出す</strong>のは継ぎ目のため。帯ごとに計算すると、隣り合う2枚が共有するはずの辺がわずかに違う場所に来て隙間が開く。節で1つに決めておけば、両側の帯が同じ2点を使うので必ず閉じる。</p>
+<h3 id="s25">エフェクトが1つ出て、自分で片付くまで</h3>
+<svg viewBox="0 0 766 690" role="img" aria-label="出来事でプールから本を借り、設定を入れて一気に撒き、粒が尽きたら本を返し、混ぜ方でまとめて描くまで" style="width:100%;max-width:766px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="28.5" text-anchor="middle" fill="var(--ink)">出来事</text><text x="210" y="45.5" text-anchor="middle" fill="var(--ink)">足が着いた / 当たった / 爆発した</text><rect x="20" y="84" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="104.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">EffectSystem.Spawn(kind, position, normal)</text><rect x="20" y="143" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="172" text-anchor="middle" fill="var(--ink)">Active でない本を探す</text><rect x="450" y="143" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="163.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DroppedSpawns++</text><text x="595" y="180.5" text-anchor="middle" fill="var(--ink)" font-weight="700">古いものを潰さない</text><rect x="20" y="219" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="239.5" text-anchor="middle" fill="var(--ink)">Configure: 種類ごとの設定を丸ごと入れる</text><text x="210" y="256.5" text-anchor="middle" fill="var(--ink)">EmitRate = 0 / Emitting = false</text><rect x="20" y="295" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="315.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Burst(n) で一気に撒く</text><rect x="20" y="354" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="383" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">kind == Explosion ?</text><rect x="450" y="354" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="374.5" text-anchor="middle" fill="var(--ink)">もう1本借りて Smoke を出す</text><text x="595" y="391.5" text-anchor="middle" fill="var(--ink)">閃光は加算、煙はアルファ</text><rect x="20" y="430" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="450.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Update(dt): 貸出中の本だけ進める</text><rect x="20" y="489" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="518" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Count == 0 ?</text><rect x="450" y="489" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="509.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Active = false</text><text x="595" y="526.5" text-anchor="middle" fill="var(--ink)" font-weight="700">呼んだ側は何もしない</text><rect x="20" y="565" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="585.5" text-anchor="middle" fill="var(--ink)">Draw: 加算をまとめて → アルファをまとめて</text><rect x="20" y="624" width="380" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="644.5" text-anchor="middle" fill="var(--ink)">混ぜ方が変わったところで Flush</text><text x="210" y="661.5" text-anchor="middle" fill="var(--ink)" font-weight="700">何本出ていても DC は 2</text><path d="M210 58 L210 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M210 117 L210 141" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M400 168 L448 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="425" y="160" fill="var(--muted)" font-size="12" text-anchor="middle">無い</text><path d="M210 193 L210 217" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="218" y="209" fill="var(--muted)" font-size="12">有る</text><path d="M210 269 L210 293" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M210 328 L210 352" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M400 379 L448 379" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="425" y="371" fill="var(--muted)" font-size="12" text-anchor="middle">はい</text><path d="M210 404 L210 428" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="218" y="420" fill="var(--muted)" font-size="12">いいえ</text><path d="M740 379 L754 379 L754 446.5 L402 446.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M210 463 L210 487" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M400 514 L448 514" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="425" y="506" fill="var(--muted)" font-size="12" text-anchor="middle">はい</text><path d="M210 539 L210 563" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="218" y="555" fill="var(--muted)" font-size="12">いいえ</text><path d="M210 598 L210 622" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong><code>EmitRate = 0</code> と <code>Emitting = false</code> が生命線</strong>になる。撒き続ける放出口は <code>Count</code> が 0 にならないので本が返らず、「しばらく遊んでいるとエフェクトが出なくなる」という形で出る。自己チェックの「一発ものは放出を止めてある」がこれを見ている。</p>
+<p><strong>爆発だけが2本使う</strong>のは、閃光(加算)と煙(アルファ)が1つの放出口に同居できないため。実際のエンジンでも1つのプレハブに ParticleSystem が何個もぶら下がるのは同じ理由になる。</p>
+<h3 id="s26">設定の表をどちらに置いたか</h3>
+<p>Day 49 は筋書きの設定を <code>Program.ApplyParticleScene</code>(使う側)に置いた。「火とはこういうものだ」という判断をエンジンに入れたくなかったからで、<code>ParticleEmitter</code> は<strong>撒いて進めて捨てるだけ</strong>にしてある。</p>
+<p>今日の <code>EffectSystem.Configure</code> は<strong>エンジン側</strong>に置いた。判断が逆に見えるが、分かれ目は<strong>誰が何度呼ぶか</strong>になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 49 の筋書き</th><th>Day 50 のエフェクト</th></tr></thead>
+<tbody>
+<tr><td>誰が呼ぶか</td><td>メニュー(人が押したとき)</td><td>ゲームのロジック(<strong>毎秒何度でも</strong>)</td></tr>
+<tr><td>いくつあるか</td><td>5つ(デモの都合)</td><td>5つ(ゲームの語彙)</td></tr>
+<tr><td>変わるか</td><td>デモを作り替えれば消える</td><td><strong>Day 51 以降ずっと使う</strong></td></tr>
+</tbody>
+</table></div>
+<p>「足が着いた」「当たった」はゲームの語彙であって、デモの都合ではない。呼ぶ側が毎回 12 行の設定を書くことになるなら、それは表にする頃合いになる——Day 48 で <code>OnKeyDown</code> の 159 個を表にしたのと同じ判断が、スケールを変えてもう一度出てきた形になる。</p>
+<h3 id="s27">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 深度のコピーが全画面のまま</strong>。<code>CaptureDepth</code> は毎フレーム画面1枚ぶんの帯域を使う。粒が1つも出ていないフレームでは呼ばないようにしてあるが、出ている間は解像度なりに掛かる。本気で削るなら<strong>粒を半解像度で描いて、深度も半分に落とす</strong>ことになり、そうすると今度は縁のアップサンプルが要る(bilateral upsample)。オーバードローが問題になった日に手を付ける。</p>
+<p><strong>2つ目: 混ぜ方の切り替えがドローコールを増やす</strong>。要点7で書いたとおり、加算とアルファの同居は 2 回で済ませてある。Day 49 の改造課題2(事前乗算に寄せる)を通せば 1 回になるが、今日は<strong>切り替えの代償が数字で見えるほう</strong>を残した。<code>EffectSystem.Draw</code> が混ぜ方でまとめている前提が崩れると(たとえば正しい前後関係のために出た順に描くと)ここは一気に増える。</p>
+<p><strong>3つ目: トレイルが1本しか無い</strong>。<code>Program</code> が <code>_trail</code> を1本だけ持っていて、複数のトレイルを扱う仕組みが無い。<code>EffectSystem</code> と同じようにプール化すればよいが、今日の時点で2本目が要る場面が無いので入れていない。Day 51 でキャラクターの手足に付けたくなったら、<strong><code>EffectSystem</code> とまったく同じ形</strong>で <code>TrailSystem</code> を書くことになる。</p>
+</section>
+<section class="part"><h2 id="s28">完成条件</h2>
+<p><code>dotnet run --project reference/Day50 -c Release</code> で起動して、次が確かめられること。<strong>メニューは 18 ページ 181 項目になっている</strong>(<code>Ctrl+F1</code> で目次)。</p>
+<h3 id="s29">1. 「エフェクト」ページの <code>F2</code>: 床の上で土埃が舞い、跡にリボンが残る</h3>
+<p>空が消えて背景が黒くなり、中央の箱の手前(z = 1.5 を中心とする半径 1.4m の円)を発生源が回り始める。</p>
+<ul><li>発生源の真下、床(y = -0.5)の上に<strong>土埃</strong>が 0.4m ごとに1回ずつ落ちる</li><li>発生源の軌跡に<strong>青白いリボン</strong>が残り、0.35 秒で消える</li><li>HUD に <code>効果:5/12本 粒:123  尾:12/96節 帯:11  DC:2  ソフト:ON 0.35m 深度写し:0.022ms</code></li></ul>
+<p><strong><code>DC:2</code> が要点</strong>。トレイル(加算)と土埃(アルファ)で混ぜ方が違うので、<strong>ドローコールが2回に分かれている</strong>(要点7)。<code>EffectSystem</code> が混ぜ方でまとめているので、土埃が何本出ていてもここは増えない。</p>
+<p><strong>空が消えるのは Day 49 と同じ理由</strong>。着弾と爆発が加算なので、明るい空の前では見えない。</p>
+<h3 id="s30">2. <code>F3</code>: ソフトパーティクルを切ると、土埃が床に刺さる</h3>
+<p><strong>今日の到達点</strong>。切った瞬間、土埃の丸が床を貫いたところに<strong>まっすぐな縁</strong>が現れ、「もや」だったものが「地面に刺さった板」に見える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ソフト ON</th><th>ソフト OFF</th></tr></thead>
+<tbody>
+<tr><td>床との交わり</td><td>溶けて見えない</td><td><strong>直線の切り口が出る</strong></td></tr>
+<tr><td>HUD の VRAM</td><td>14.1MB</td><td>12.3MB(<strong>深度のコピー 1.8MB ぶん減る</strong>)</td></tr>
+<tr><td><code>深度写し</code></td><td>0.02ms 前後</td><td>表示されない</td></tr>
+</tbody>
+</table></div>
+<p><strong>VRAM が動くのは遅延確保だから</strong>(要点3)。使わないなら1バイトも払わない、という判断が HUD の数字にそのまま出る。960x640 なら 1.8MB、1920x1080 なら 5.9MB になる。</p>
+<h3 id="s31">3. <code>F4</code>: フェード距離を振ると、効きすぎる側も見える</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>距離</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>0.10m</td><td>切り口が消えきらない。目を凝らすと線が残る</td></tr>
+<tr><td>0.35m</td><td>ちょうどよい。<strong>粒の大きさと同じくらい</strong>が目安</td></tr>
+<tr><td>0.80m</td><td>床の近くが全体に薄い</td></tr>
+<tr><td>2.00m</td><td><strong>土埃がほとんど見えなくなる</strong>。カメラから 2m 以内の面が消しゴムになる</td></tr>
+</tbody>
+</table></div>
+<p>「効かない」だけでなく<strong>「効きすぎると消える」</strong>を1回見ておくと、このつまみが何をしているのかが腑に落ちる。</p>
+<h3 id="s32">4. <code>F5</code> / <code>F6</code>: トレイル</h3>
+<ul><li><code>F5</code> で切ると、溜まっている節が寿命ぶんだけ残ってから消える(<strong>急に消えない</strong>)</li><li><code>F6</code> で尾の寿命を 1.2 秒にすると、リボンが円をほぼ一周ぶん残す</li><li>内訳(<code>F10</code>)の「尾の釣り合い」は <code>2.2m/s ÷ 0.06m × 1.20秒 = 44 節</code> と出るが、HUD の節の数は <code>尾:40/96節</code> 前後になる(発生源の平均の速さは 1.88m/s で、見積もりの 2.2m/s より遅い)</li></ul>
+<p><strong>寿命を 1.2 秒にしても「捨てた節」が 0 のまま</strong>であることを確かめる。容量 96 に対して釣り合いが 44 なので余裕がある——<code>MinDistance</code> を 0.02m まで下げると<strong>足りなくなって尾が短くなる</strong>。</p>
+<h3 id="s33">5. <code>F7</code> / <code>F8</code>: 着弾と爆発</h3>
+<ul><li><code>F7</code>(着弾): 発生源の位置でオレンジの火花が円錐 62 度に散り、0.3 秒で消える</li><li><code>F8</code>(爆発): 閃光が球状に飛び、そのあとに<strong>灰色の煙が昇る</strong></li></ul>
+<p><strong>爆発で <code>効果:</code> の本数が2つ増える</strong>のが要点(要点8)。閃光は加算、煙はアルファなので、1つの放出口には同居できない。</p>
+<p><code>F8</code> を連打して<strong>12 本を使い切る</strong>と、HUD に <code><strong>出せず:n</strong></code> が出る。古いものを潰していないので、いま出ている爆発は最後まで見える。</p>
+<h3 id="s34">6. <code>F9</code> + 「カプセルとキャラクタ」の <code>F2</code>: 歩くと足元から土埃</h3>
+<p>「エフェクト」の <code>F9</code> を ON(既定)にしたまま「カプセルとキャラクタ」ページへ移り、<code>F2</code> でキャラクターデモを出して <code>WASD</code> で歩く。</p>
+<ul><li><strong>一歩ごと</strong>(歩幅 0.85m)に足元から低い土埃が出る</li><li><code>Shift</code> で走ると歩幅が 1.3m に広がる——<strong>速いのに土埃は濃くならない</strong></li><li><code>Space</code> で跳んで着地すると、<strong>大きい土埃が1回</strong>出る(<code>Landing</code>)</li><li>坂の上では土埃が<strong>坂に沿って寝る</strong>(<code>GroundNormal</code> を渡しているため)</li></ul>
+<p><strong>止まると土埃も止まる</strong>ことを確かめる。時間ではなく距離で刻んでいるので、その場で向きだけ変えても出ない(要点9)。</p>
+<h3 id="s35">7. <code>F10</code>: 内訳</h3>
+<div class="code"><pre><code>--- エフェクトの内訳(Day 50)---
+  貸出中: 5 / 12 本  粒 123 個  累計 37 回  出せなかった 0 回
+    Landing: 30 粒
+    ...
+  トレイル: 12 / 96 節  寿命 0.35秒  間隔 0.060m  幅 0.26→0.02m  捨てた節 0
+  <strong>尾の釣り合い</strong>: 速さ 2.2m/s ÷ 間隔 0.060m × 寿命 0.35秒 = 13 節(容量を超えると尾が寿命より短くなる)
+  ソフトパーティクル: ON  フェード 0.35m  near/far 0.10/100
+  深度の写し: 1.8MB  0.024ms/フレーム(CPU 側の積み込みだけ)
+  ドローコール: 2 回  帯 11 枚  粒 123 個</code></pre></div>
+<h3 id="s36">8. <code>F11</code>: 自己チェックが 37 項目すべて合格</h3>
+<div class="code"><pre><code>--- Day 50: エフェクトの自己チェック ---
+  [OK] 深度 0 が near、深度 1 が far に戻る  0.1000m / 100.00m
+  [OK] <strong>深度の真ん中は距離の真ん中ではない</strong>(手前に精度が偏っている)  深度 0.5 = 0.200m(距離の真ん中なら 50m)
+  ...
+  [OK] <strong>溢れても並びが古い順のまま</strong>(リングバッファ)  先頭 3.6 → 先端 12.0
+  [OK] <strong>真正面から見ても NaN にならない</strong>(縮退の逃げ道)  (-1.00, 0.00, 0.00)
+  [OK] <strong>細かく進めても取りこぼさない</strong>(端数を持ち越している)  10m を 0.1m 刻みで 10 歩(理論 10)
+  [OK] <strong>空きが無ければ黙って潰さず数える</strong>  貸出 1 本 / 出せず 1 回
+  すべて合格</code></pre></div>
+<h3 id="s37">9. Day 49 と Day 48 の自己チェックも合格</h3>
+<ul><li>「パーティクル」の <code>1</code>: 27 項目すべて合格(<strong>昨日と同じ数字が出ること</strong>)</li><li>「メニュー」の <code>Alt+F1</code>: <strong>項目数が 171 から 181 に増えている</strong>ので、<code>RunDebugMenuCheck</code> の期待値を直していないとここで落ちる。18 ページ 181 項目で全項目合格になること</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「エフェクト」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>土埃を床に落とす / リボンを引く</td><td>同じ発生源の動き(<code>EffectSourcePosition</code>)と 0.4m ごとの土埃</td></tr>
+<tr><td><code>F3</code></td><td>土埃を床に落とす「ソフトパーティクル」</td><td>切ると床に直線の切り口が出る</td></tr>
+<tr><td><code>F4</code></td><td>同「フェード距離」</td><td>2.0m では土埃がほとんど消える</td></tr>
+<tr><td><code>F6</code></td><td>リボンを引く「尾の長さ」</td><td>1.2 秒でも捨てた節は 0。間隔 0.02m にすると容量を超える</td></tr>
+<tr><td><code>F11</code>(自己チェック)</td><td>深度バッファの値と距離</td><td>深度 0.5 が 0.200m</td></tr>
+<tr><td>(なし)</td><td>「薄める相手」「線形化せずに引く」「床に半分埋まった大きな粒」「swap-remove」「先端を貼り付けない」「横方向を帯ごとに」</td><td>要点1・2・4・5・6 の失敗を見るためにこのページで足した切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">土埃の実験台は reference/Day50 の EffectSystem(Landing の設定、12 本のプール)、FootstepTracker(歩幅 0.4m)、particle.frag の SoftFadeFactor と LinearizeDepth を JS に移し、エフェクトデモと同じカメラから見たところをソフトウェア描画で再現したもの。床だけを不透明として置き、中央の箱とリボンは省いている。reference の土埃は出た直後に 0.2〜0.4m 浮き上がるので切り口が小さく、見やすいように床に半分埋まった大きな粒を1つ足してある(切り替えで外せる)。リボンの実験台は Trail(リングバッファ・先端の書き換え・Side の縮退の逃げ道)を移し、真上から見ている。乱数の並びは reference と一致しない。<br>リボンを 480Hz で刻んでいるのは、実機が 330〜1100fps で回っているのに合わせるため。<code>Trail.Move</code> は節を足すとき直前の先端をその場に残すので、1フレームの移動が間隔の半分を超える低い fps(60fps など)では、間隔に関係なく毎フレーム節が増え、節の数が fps で変わる(寿命 0.35 秒で 60fps なら 17 節、500fps なら 12 節)。</p></div>
+</section>
+<section class="part"><h2 id="s38">改造課題</h2>
+<h3 id="s39">課題1(易): 着地の強さを落下速度に応じて変える</h3>
+<p>いまの <code>EffectKind.Landing</code> は<strong>いつも同じ大きさ</strong>で出る。1cm 落ちても 10m 落ちても同じ土埃なので、高さが伝わらない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// UpdateFootsteps の着地の枝
+float impact = MathF.Max(0.0f, -_previousVerticalVelocity);   // 着地直前の落下速度
+if (impact &gt; 1.0f)
+{
+    _effects.Spawn(EffectKind.Landing, Character.Position, Character.GroundNormal, impact);
+}</code></pre></div>
+<p><code>EffectSystem.Spawn</code> に強さ(0〜1)を足して、<code>Configure</code> の中で <code>Radius</code> / <code>SpeedMax</code> / バーストの数に掛ける。</p>
+<p><strong>確かめること</strong>: 段差(35cm)を降りたときはほとんど出ず、高いところから落ちたときだけ大きく出ること。そして<strong>坂を下っているだけでは出ない</strong>こと——接地が途切れていないので着地の枝に入らない(Day 45 の吸い付きが効いている)。</p>
+<h3 id="s40">課題2(中): トレイルを Catmull-Rom で滑らかにする</h3>
+<p><code>MinDistance</code> を 0.3m くらいまで上げると、リボンが<strong>目に見えて折れ線になる</strong>。節を減らしたいが角は丸めたい、というのがトレイルでは普通の要求になる。</p>
+<p>節の間に補間点を入れる。Day 40 のカメラワークで使った Catmull-Rom がそのまま使える(<code>Demo/CameraPath.cs</code> の要点を参照)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 節 i と i+1 の間を n 分割し、i-1 と i+2 を制御点に使う
+Vector3 CatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)</code></pre></div>
+<p><code>ParticleRenderer.Draw(trail, ...)</code> の中で、<strong>節の列を補間した列に置き換えてから</strong>帯を張る。<code>Side</code> と幅は補間後の点で出し直す。</p>
+<p><strong>確かめること</strong>: <code>MinDistance</code> を 0.3m にしても角が出ないこと。節の数は変わらないのに<strong>帯の枚数(HUD の <code>帯:</code>)だけが増える</strong>こと。そして端(最初と最後の節)で制御点が足りない場合に落ちないこと。</p>
+<h3 id="s41">課題3(難): 粒を半解像度で描いて合成する</h3>
+<p>土埃を画面いっぱいに出すと、<strong>塗る画素の数(オーバードロー)</strong>が効いてくる。1粒 0.7m を 30 個重ねると、同じ画素を何十回も塗ることになる。</p>
+<p>半分の大きさのバッファに粒だけを描いて、最後に拡大して合成する。</p>
+<ol><li>半解像度の <code>Framebuffer</code>(RGBA16F、深度なし)を1枚</li><li>深度も半分に落とす。<strong><code>Nearest</code> で間引くのではなく、2x2 のうち<strong>いちばん奥</strong>を採る</strong>——手前を採ると縁が欠ける</li><li>そこへ粒を描く(ソフトパーティクルは半分の深度を読む)</li><li>拡大してシーンへ加算 / アルファ合成</li></ol>
+<p><strong>難所は4段目</strong>になる。素直に bilinear で拡大すると、<strong>物の輪郭で半分の解像度が透ける</strong>(近くの床と遠くの空が混ざる)。実際のエンジンは <strong>bilateral upsample</strong>——深度が近い画素だけを重み付けして混ぜる——を使う。</p>
+<p><strong>確かめること</strong>: 塗る画素が 1/4 になっても絵がほぼ変わらないこと。そして<strong>箱の輪郭で粒がにじまない</strong>こと。にじむなら4段目の重み付けができていない。</p>
+<p><strong>手を出す前に読む</strong>: <a href="https://developer.nvidia.com/sites/default/files/akamai/gamedev/files/gdc12/GDC12_Bavoil_ByteWiseRendering.pdf">Bandwidth-Efficient Rendering(Bavoil, NVIDIA)</a>。「粒は帯域の問題」という見方が最初から最後まで通っている。</p>
+</section>
+<section class="part"><h2 id="s42">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070 / OpenGL 3.3</li><li>960x640 / Release で 330〜1100fps(粒の数と塗る面積で大きく振れる)</li></ul>
+<h3 id="s43">自己チェック(37 項目すべて合格)</h3>
+<p><code>F11</code>(「エフェクト」ページ)。<strong>37 項目すべてが窓を開かずに走る</strong>——<code>Trail</code> も <code>EffectSystem</code> も <code>FootstepTracker</code> も GL を知らず、深度の式は <code>ParticleRenderer</code> の static メソッドに置いてあるため。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>範囲</th><th>何を確かめているか</th><th>項目数</th></tr></thead>
+<tbody>
+<tr><td>深度の線形化</td><td>両端が near / far、<strong>真ん中が真ん中ではない</strong>、単調</td><td>3</td></tr>
+<tr><td>ソフトフェード</td><td>一致で 0、フェード距離で 1、半分で半分、<strong>負でクランプ</strong>、0 で切れる</td><td>5</td></tr>
+<tr><td>トレイルのリングバッファ</td><td>最初の2節、間隔未満で増えない、越えたら増える、容量、<strong>並びが古い順</strong>、溢れを数える、寿命で古いほうから</td><td>8</td></tr>
+<tr><td>リボンの横方向</td><td>長さ1、<strong>両方に垂直</strong>、<strong>縮退で NaN にならない</strong>、長さ 0、幅のテーパ</td><td>5</td></tr>
+<tr><td>足取りの目盛り</td><td><strong>端数を持ち越す</strong>、まとめて返る、0 歩、<strong>上限</strong>、Reset</td><td>5</td></tr>
+<tr><td>エフェクトのプール</td><td>借りる、返らない、<strong>自分で返る</strong>、<strong>爆発は2本</strong>、<strong>空きが無ければ数える</strong></td><td>5</td></tr>
+<tr><td>エフェクトの表</td><td>土埃はアルファ、着弾は加算、<strong>放出を止めてある</strong>、法線が軸</td><td>4</td></tr>
+<tr><td>トレイルの絵</td><td>中心が濃い、<strong>長さ方向に濃淡を持たない</strong></td><td>2</td></tr>
+</tbody>
+</table></div>
+<p>とくに強いのは次の4つ。</p>
+<ul><li><strong>深度 0.5 が 0.200m</strong> — 深度バッファの真ん中はもう near のすぐ先。線形化を忘れたまま引き算しても<strong>それらしくフェードする</strong>ので、絵では気づけない。数字で見ると桁が違う</li><li><strong>溢れても並びが古い順のまま</strong> — swap-remove で書いていたらここで落ちる。絵では、速く動かしたときだけリボンがねじれるという形で出る</li><li><strong>真正面から見ても NaN にならない</strong> — 剣先がカメラへ真っ直ぐ向かう1点だけの症状で、<strong>リボンが丸ごと消える</strong>。手で再現するのは難しく、数なら確実に踏める</li><li><strong>空きが無ければ黙って潰さず数える</strong> — 潰す実装にすると、見せたい爆発が足音に横取りされる。数が出ていれば容量を決められる</li></ul>
+<h3 id="s44">検証の途中で分かったこと</h3>
+<p><strong>1. 明るさ倍率がアルファの粒を白く飛ばしていた</strong>(要点10)。</p>
+<p>土埃を出したら<strong>足元だけが白く光った</strong>。色を暗くしても変わらない。原因は Day 49 から引き継いだ <code>uIntensity</code>(既定 2 倍)で、土の色 (0.62, 0.55, 0.44) が (1.24, 1.10, 0.88) になって 1.0 に張り付き、ついでにブルームのしきい値も越えていた。</p>
+<p>Day 49 は加算の粒しか同時に出していなかったので表に出ていない。<strong>加算とアルファが同居した今日、初めて症状が出た</strong>形になる。<code>IntensityFor(blend)</code> で分けて直した。</p>
+<p><strong>2. カメラを 34 度回しただけで、隅の箱の中に潜り込んでいた</strong>。</p>
+<p>最初、エフェクトデモのカメラを <code>Yaw = 0.6</code>(34 度)にしていたら、画面の右半分が<strong>市松模様で埋まった</strong>。Day 31 の背景の箱は (±3, 0, ±3) に置いてあるので、距離 5.2m・仰角 4 度で斜めから覗くと、カメラの座標がちょうど箱の中に入る。</p>
+<p>正面(<code>Yaw = 0</code>)へ直した。<strong>低い視点は「刺さり」を見るために要る</strong>ので、高さのほうは動かせない——見る向きのほうを譲った。</p>
+<p><strong>3. 「刺さり」を見せるには、粒を床に置くだけでは足りない</strong>。</p>
+<p>最初は発生源(高さ 0.2m あたりを回るもの)の位置にそのまま土埃を出していた。床から離れているので四角形が床と交わらず、ソフトパーティクルを切っても<strong>絵が1ピクセルも変わらなかった</strong>。</p>
+<p><strong>発生源の真下の床</strong>(y = -0.46)へ落とすように直したら、0.7m の粒が床を貫いて切り口が出た。<strong>技法の効き目を見せる</strong>には、その技法が効く状況を作りに行く必要がある、という当たり前のことを1回踏んだ。</p>
+</section>
+<footer class="end">Day 50 エフェクト応用(トレイル・ソフトパーティクル・土埃/ヒット/爆発) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/particles.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat, animate } = Lab;
+const { v3, add, mul, norm, cross, Emitter, texAlpha, softDot } = Particles;
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const FLOOR_Y = -0.5;
+
+// Program.EffectSourcePosition
+function sourceAt(t) {
+  const a = t * 1.25;
+  return v3(Math.cos(a) * 1.4, FLOOR_Y + 0.42 + Math.sin(a * 3) * 0.26, 1.5 + Math.sin(a) * 1.4);
+}
+// FootstepTracker(距離を刻んで一歩ごとに1回。端数は持ち越す、1回で 4 歩まで)
+class Footsteps {
+  constructor(stride) { this.stride = stride; this.carry = 0; }
+  advance(d) {
+    if (this.stride <= 0 || d <= 0) return 0;
+    this.carry = Math.min(this.carry + d, this.stride * 4);
+    const n = Math.trunc(this.carry / this.stride); this.carry -= n * this.stride; return n;
+  }
+}
+// EffectSystem の Landing だけ(プール 12 本、1本 256 粒、空きが無ければ数える)
+class Effects {
+  constructor() { this.slots = Array.from({ length: 12 }, (_, i) => ({ e: new Emitter(256, 5000 + i), active: false })); this.dropped = 0; }
+  spawnLanding(pos) {
+    const s = this.slots.find((x) => !x.active);
+    if (!s) { this.dropped++; return; }
+    const e = s.e; e.clear();
+    Object.assign(e, { position: pos, direction: v3(0, 1, 0), emitRate: 0, emitting: false, spinRange: 1.2, sizeJitter: 0.35, shape: 'disc', radius: 0.34,
+      speedMin: 0.9, speedMax: 2.1, lifeMin: 0.5, lifeMax: 1.0, gravity: v3(0, -0.6, 0), drag: 3.2, startSize: 0.18, endSize: 0.70,
+      startColor: [0.72, 0.66, 0.55, 0.75], endColor: [0.62, 0.58, 0.50, 0], cols: 4, rows: 4 });
+    s.active = true; e.burst(30);
+  }
+  update(dt) { for (const s of this.slots) if (s.active) { s.e.update(dt); if (s.e.p.length === 0) s.active = false; } }
+  get active() { return this.slots.filter((s) => s.active); }
+}
+
+// ============================================================
+//  要点1・2: ソフトパーティクル
+// ============================================================
+const NEAR = 0.1, FAR = 100, FOV = 25 * Math.PI / 180;   // 実機は 60 度。土埃を大きく見せるために絞っている
+const target = v3(0, FLOOR_Y + 0.2, 1.3), pitch = 0.16, dist = 4.4;
+const camPos = add(target, v3(0, Math.sin(pitch) * dist, Math.cos(pitch) * dist));
+const fwd = norm(sub(target, camPos)), right = norm(cross(fwd, v3(0, 1, 0))), up = cross(right, fwd);
+const sf = { big: true, soft: true, fade: 0.35, target: 'alpha', raw: false, pause: false, t: 0, effects: new Effects(), puffs: new Footsteps(0.4) };
+// 深度バッファに書かれる値(0〜1)。LinearizeDepth の逆
+const depth01 = (z) => ((FAR + NEAR) / (FAR - NEAR) - 2 * FAR * NEAR / ((FAR - NEAR) * z) + 1) / 2;
+function stepSoft(dt) {
+  const prev = sourceAt(sf.t); sf.t += dt; const cur = sourceAt(sf.t);
+  const n = sf.puffs.advance(Math.hypot(...sub(cur, prev)));
+  // 発生源の真下の床へ落とす(高いところに出すと床と交わらず、刺さりが見えない)
+  for (let i = 0; i < n; i++) sf.effects.spawnLanding(v3(cur[0], FLOOR_Y + 0.04, cur[2]));
+  sf.effects.update(dt);
+}
+let sbuf = null;
+function drawSoft() {
+  const { ctx, w, h } = fit($('soft-canvas'));
+  const W = Math.max(1, Math.round(w * 0.75)), H = Math.max(1, Math.round(h * 0.75));
+  if (!sbuf || sbuf.W !== W || sbuf.H !== H) sbuf = { W, H, rgb: new Float32Array(W * H * 3), zs: new Float32Array(W * H), img: new ImageData(W, H), off: document.createElement('canvas') };
+  const F = (H / 2) / Math.tan(FOV / 2), { rgb, zs } = sbuf;
+  // 不透明: 床と背景。zs は画素ごとの「奥の面までの距離」(ビュー空間の z)
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const d = norm(add(add(fwd, mul(right, (px + 0.5 - W / 2) / F)), mul(up, (H / 2 - py - 0.5) / F)));
+      const i = py * W + px;
+      if (d[1] < -1e-4) {
+        const t = (FLOOR_Y - camPos[1]) / d[1], p = add(camPos, mul(d, t));
+        // 無地の床に 1m の目盛り。市松模様だと切り口の線が模様に紛れる
+        const fx = p[0] - Math.floor(p[0]), fz = p[2] - Math.floor(p[2]);
+        const c = (fx < 0.015 || fz < 0.015) ? 0.24 : 0.16;
+        rgb[i * 3] = c; rgb[i * 3 + 1] = c * 0.95; rgb[i * 3 + 2] = c * 0.88; zs[i] = t * dot3(d, fwd);
+      } else { rgb[i * 3] = 0.03; rgb[i * 3 + 1] = 0.03; rgb[i * 3 + 2] = 0.035; zs[i] = FAR; }
+    }
+  }
+  let count = 0;
+  // 床に半分埋まった大きな粒(切り口がはっきり出る置き方。reference の土埃は出てすぐ浮くので切り口が小さい)
+  const big = { pos: v3(-0.35, FLOOR_Y + 0.05, 2.2), rot: 0.4, half: 0.55, col: [0.72, 0.66, 0.55, 0.85] };
+  const items = [];
+  if (sf.big) items.push({ q: big, half: big.half, col: big.col, alpha: (u, v) => softDot(u, v) });
+  for (const s of sf.effects.active) {
+    const e = s.e;
+    for (const q of e.p) {
+      const nrm = q.life <= 0 ? 1 : Math.min(Math.max(q.age / q.life, 0), 1), frame = e.frameAt(nrm);
+      items.push({ q, half: e.sizeAt(nrm, q.seed) * 0.5, col: e.colorAt(nrm), alpha: (u, v) => texAlpha(e, u, v, frame) });
+    }
+  }
+  {
+    for (const { q, half, col, alpha } of items) {
+      count++;
+      const v = sub(q.pos, camPos), zp = dot3(v, fwd);
+      if (zp <= NEAR) continue;
+      const cx = W / 2 + dot3(v, right) / zp * F, cy = H / 2 - dot3(v, up) / zp * F, hp = half / zp * F, ext = hp * 1.415;
+      const c = Math.cos(q.rot), sn = Math.sin(q.rot);
+      const x0 = Math.max(0, Math.floor(cx - ext)), x1 = Math.min(W - 1, Math.ceil(cx + ext));
+      const y0 = Math.max(0, Math.floor(cy - ext)), y1 = Math.min(H - 1, Math.ceil(cy + ext));
+      for (let py = y0; py <= y1; py++) {
+        for (let px = x0; px <= x1; px++) {
+          const dx = px + 0.5 - cx, dy = cy - (py + 0.5);
+          const u = (dx * c + dy * sn) / hp, vv = (-dx * sn + dy * c) / hp;
+          if (u < -1 || u > 1 || vv < -1 || vv > 1) continue;
+          const i = py * W + px;
+          if (!(zp < zs[i])) continue;   // 深度は読む(床の下に回った部分は落ちる = 直線の切り口)
+          let a = alpha(u, vv) * col[3];
+          let fade = 1;
+          if (sf.soft) {
+            fade = sf.raw
+              ? Math.min(Math.max((depth01(zs[i]) - depth01(zp)) / sf.fade, 0), 1)   // 深度バッファの値をそのまま引く(誤り)
+              : Math.min(Math.max((zs[i] - zp) / sf.fade, 0), 1);                    // ParticleRenderer.SoftFade
+          }
+          let r = col[0], g = col[1], b = col[2];
+          if (sf.target === 'alpha') a *= fade; else { r *= fade; g *= fade; b *= fade; }
+          const o = i * 3;
+          rgb[o] = r * a + rgb[o] * (1 - a); rgb[o + 1] = g * a + rgb[o + 1] * (1 - a); rgb[o + 2] = b * a + rgb[o + 2] * (1 - a);
+        }
+      }
+    }
+  }
+  const data = sbuf.img.data;
+  for (let i = 0; i < W * H; i++) { data[i * 4] = Math.min(255, rgb[i * 3] * 255); data[i * 4 + 1] = Math.min(255, rgb[i * 3 + 1] * 255); data[i * 4 + 2] = Math.min(255, rgb[i * 3 + 2] * 255); data[i * 4 + 3] = 255; }
+  sbuf.off.width = W; sbuf.off.height = H; sbuf.off.getContext('2d').putImageData(sbuf.img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(sbuf.off, 0, 0, w, h);
+  $('soft-hud').textContent = `効果:${sf.effects.active.length}/12本 粒:${count - (sf.big ? 1 : 0)}  ソフト:${sf.soft ? `ON ${sf.fade.toFixed(2)}m` : 'OFF'}${sf.raw ? '  深度を線形化していない' : ''}${sf.target === 'rgb' ? '  RGB を薄める' : ''}`;
+  $('soft-stats').innerHTML =
+    stat('貸出中の本', `${sf.effects.active.length} / 12`) +
+    stat('出せなかった', String(sf.effects.dropped)) +
+    stat('カメラから床の手前の端まで', `${(camPos[1] - FLOOR_Y).toFixed(2)}`, ' <small>m の高さから見下ろす</small>');
+  let note;
+  if (!sf.soft) note = '切ると、粒の四角形が床を貫いたところに直線の切り口が出る。もやだったものが「地面に刺さった板」に見える。';
+  else if (sf.raw) note = '深度バッファの値は 1/z に近い形で潰れているので、そのまま引くと差が桁違いに小さく、フェード距離で割っても 0 に近い——粒がほとんど消える。距離に戻してから引く(要点2)。';
+  else if (sf.target === 'rgb') note = 'RGB を薄めると、アルファ合成では src·a の色が黒へ寄るだけで覆う量は変わらない。床の手前で土埃が黒ずむ。薄めるのはアルファだけにする。';
+  else if (sf.fade >= 2) note = 'フェード距離 2m では、カメラから見て床まで 2m 以内の画素がすべて消しゴムになり、土埃がほとんど見えなくなる。';
+  else if (sf.fade <= 0.1) note = '0.10m では切り口が消えきらない。粒の大きさ(直径 0.7m 前後)と同じくらいが目安。';
+  else note = 'ソフトパーティクルは、その画素の奥にある床までの距離と粒までの距離の差でアルファを薄める。交わる線の上では差が 0 なので、ちょうど切り口が消える。';
+  $('soft-note').textContent = note;
+}
+$('soft-on').addEventListener('change', (e) => { sf.soft = e.target.checked; drawSoft(); });
+$('soft-raw').addEventListener('change', (e) => { sf.raw = e.target.checked; drawSoft(); });
+$('soft-big').addEventListener('change', (e) => { sf.big = e.target.checked; drawSoft(); });
+$('soft-pause').addEventListener('change', (e) => { sf.pause = e.target.checked; });
+seg('soft-fade', (v) => { sf.fade = Number(v); drawSoft(); });
+seg('soft-target', (v) => { sf.target = v; drawSoft(); });
+for (let i = 0; i < 90; i++) stepSoft(1 / 60);
+drawSoft();
+animate($('soft-canvas'), (dt) => { if (!reduceMotion && !sf.pause) stepSoft(dt); drawSoft(); });
+
+// ============================================================
+//  要点2: 深度バッファの非線形
+// ============================================================
+const dp = { v: 0.5, near: 0.1, far: 100 };
+const linearize = (d, n, f) => { const ndc = d * 2 - 1; return 2 * n * f / (f + n - ndc * (f - n)); };
+function drawDepth() {
+  const { ctx, w, h } = fit($('depth-canvas'));
+  const L = 48, R = w - 16, T = 12, B = h - 28;
+  const X = (d) => L + d * (R - L), Y = (z) => B - Math.log10(z / dp.near) / Math.log10(dp.far / dp.near) * (B - T);
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  for (let z = dp.near; z <= dp.far * 1.0001; z *= 10) { ctx.beginPath(); ctx.moveTo(L, Y(z)); ctx.lineTo(R, Y(z)); ctx.stroke(); ctx.fillText(`${z}m`, 2, Y(z) + 4); }
+  for (const d of [0, 0.25, 0.5, 0.75, 1]) ctx.fillText(d.toFixed(2), X(d) - 12, h - 10);
+  ctx.strokeStyle = tok('--semi'); ctx.lineWidth = 2; ctx.beginPath();
+  for (let i = 0; i <= 400; i++) { const d = i / 400, z = linearize(d, dp.near, dp.far); if (i === 0) ctx.moveTo(X(d), Y(z)); else ctx.lineTo(X(d), Y(z)); }
+  ctx.stroke();
+  const z = linearize(dp.v, dp.near, dp.far);
+  ctx.fillStyle = tok('--expl'); ctx.beginPath(); ctx.arc(X(dp.v), Y(z), 5, 0, Math.PI * 2); ctx.fill();
+  $('depth-v-out').textContent = dp.v.toFixed(3);
+  $('depth-stats').innerHTML =
+    stat('距離に戻すと', z < 1 ? `${(z).toFixed(3)}` : z.toFixed(2), ' <small>m(縦軸は対数)</small>') +
+    stat('距離の真ん中なら', ((dp.near + dp.far) / 2).toFixed(1), ' <small>m</small>') +
+    stat('深度 0.5 の距離', linearize(0.5, dp.near, dp.far).toFixed(3), ' <small>m</small>');
+}
+$('depth-v').addEventListener('input', (e) => { dp.v = Number(e.target.value); drawDepth(); });
+seg('depth-near', (v) => { dp.near = Number(v); drawDepth(); });
+seg('depth-far', (v) => { dp.far = Number(v); drawDepth(); });
+drawDepth();
+window.addEventListener('resize', drawDepth);
+
+// ============================================================
+//  要点4〜6: トレイル(reference/Day50 の Trail.cs の移植)
+// ============================================================
+class Trail {
+  constructor(capacity) { this.pts = new Array(Math.max(2, capacity)); this.start = 0; this.count = 0; this.dropped = 0; this.life = 0.35; this.min = 0.06; this.swap = false; this.noTip = false; this.list = []; }
+  get capacity() { return this.pts.length; }
+  at(i) { return this.swap ? this.list[i] : this.pts[(this.start + i) % this.pts.length]; }
+  get n() { return this.swap ? this.list.length : this.count; }
+  move(p) {
+    if (this.n < 2) { while (this.n < 2) this.push(p); return; }
+    if (this.noTip) {
+      // 素朴な「一定距離ごとに置く」: 先端が本体から遅れる
+      const last = this.at(this.n - 1).pos;
+      if (Math.hypot(...sub(p, last)) >= this.min) this.push(p);
+      return;
+    }
+    // 距離は「先端の1つ手前」(直前に固めた節)から測る
+    const committed = this.at(this.n - 2).pos;
+    if (Math.hypot(...sub(p, committed)) >= this.min) { this.push(p); return; }
+    const tip = this.at(this.n - 1); tip.pos = p; tip.age = 0;
+  }
+  update(dt) {
+    for (let i = 0; i < this.n; i++) this.at(i).age += dt;
+    if (this.swap) {
+      // 粒と同じ swap-remove: 寿命切れを末尾と入れ替える。順番が壊れる
+      for (let i = 0; i < this.list.length;) { if (this.list[i].age >= this.life) { this.list[i] = this.list[this.list.length - 1]; this.list.pop(); } else i++; }
+      return;
+    }
+    while (this.count > 0 && this.pts[this.start].age >= this.life) { this.start = (this.start + 1) % this.pts.length; this.count--; }
+  }
+  push(p) {
+    if (this.swap) {
+      if (this.list.length === this.pts.length) {
+        // いちばん古いものを探して末尾と入れ替える
+        let k = 0; for (let i = 1; i < this.list.length; i++) if (this.list[i].age > this.list[k].age) k = i;
+        this.list[k] = this.list[this.list.length - 1]; this.list.pop(); this.dropped++;
+      }
+      this.list.push({ pos: p, age: 0 }); return;
+    }
+    if (this.count === this.pts.length) { this.start = (this.start + 1) % this.pts.length; this.count--; this.dropped++; }
+    this.pts[(this.start + this.count) % this.pts.length] = { pos: p, age: 0 };
+    this.count++;
+  }
+}
+// Trail.Side。進行方向 × カメラへの向き。縮退したら逃げ道
+function side(dir, toCam) {
+  const f = Math.hypot(...dir) > 1e-6 ? norm(dir) : v3(1, 0, 0), v = Math.hypot(...toCam) > 1e-6 ? norm(toCam) : v3(0, 0, 1);
+  let s = cross(f, v);
+  if (Math.hypot(...s) < 1e-6) { s = cross(v, Math.abs(v[1]) < 0.99 ? v3(0, 1, 0) : v3(1, 0, 0)); if (Math.hypot(...s) < 1e-6) return v3(1, 0, 0); }
+  return norm(s);
+}
+const tr = { life: 0.35, min: 0.06, cap: 96, swap: false, noTip: false, perSeg: false, t: 0, trail: null };
+function buildTrail() {
+  tr.trail = new Trail(tr.cap); Object.assign(tr.trail, { life: tr.life, min: tr.min, swap: tr.swap, noTip: tr.noTip });
+  // 少し回しておく
+  for (let i = 0; i < 480; i++) stepTrail(1 / 480);
+}
+function stepTrail(dt) { tr.t += dt; tr.trail.move(sourceAt(tr.t)); tr.trail.update(dt); }
+function drawTrail() {
+  const { ctx, w, h } = fit($('trail-canvas'));
+  const s = Math.min(w, h) / 3.6, cx = w / 2, cz = h / 2;
+  const X = (p) => cx + p[0] * s, Y = (p) => cz + (p[2] - 1.5) * s;
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cz, 1.4 * s, 0, Math.PI * 2); ctx.stroke();
+  const T = tr.trail, n = T.n, camUp = v3(0, 1, 0);
+  const width = (a) => 0.26 + (0.02 - 0.26) * a;
+  const sides = [];
+  for (let i = 0; i < n; i++) {
+    const prev = T.at(Math.max(0, i - 1)).pos, next = T.at(Math.min(n - 1, i + 1)).pos;
+    sides.push(side(sub(next, prev), camUp));   // 真上から見ているのでカメラへの向きは +Y
+  }
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i + 1 < n; i++) {
+    const a = T.at(i), b = T.at(i + 1);
+    const na = Math.min(a.age / T.life, 1), nb = Math.min(b.age / T.life, 1);
+    let sa = sides[i], sb = sides[i + 1];
+    if (tr.perSeg) { sa = sb = side(sub(b.pos, a.pos), camUp); }   // 帯ごとに出すと、隣と共有する辺がずれる
+    const pa1 = add(a.pos, mul(sa, width(na) / 2)), pa2 = sub(a.pos, mul(sa, width(na) / 2));
+    const pb1 = add(b.pos, mul(sb, width(nb) / 2)), pb2 = sub(b.pos, mul(sb, width(nb) / 2));
+    const alpha = 1 - (na + nb) / 2;
+    ctx.fillStyle = `rgba(${Math.round(255 * (0.75 - 0.6 * na))},${Math.round(255 * (0.9 - 0.55 * na))},255,${(alpha * 0.85).toFixed(3)})`;
+    ctx.beginPath(); ctx.moveTo(X(pa1), Y(pa1)); ctx.lineTo(X(pb1), Y(pb1)); ctx.lineTo(X(pb2), Y(pb2)); ctx.lineTo(X(pa2), Y(pa2)); ctx.closePath(); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = tok('--ink');
+  for (let i = 0; i < n; i++) { const p = T.at(i).pos; ctx.fillRect(X(p) - 1.5, Y(p) - 1.5, 3, 3); }
+  const src = sourceAt(tr.t);
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(src), Y(src), 6, 0, Math.PI * 2); ctx.fill();
+  const est = 1.878 / T.min * T.life;
+  $('trail-hud').textContent = `尾:${n}/${T.capacity}節 帯:${Math.max(0, n - 1)}  寿命 ${T.life.toFixed(2)}秒  間隔 ${T.min.toFixed(2)}m  捨てた節 ${T.dropped}`;
+  $('trail-stats').innerHTML =
+    stat('節の数', `${n}`, ` <small>/ 容量 ${T.capacity}</small>`) +
+    stat('釣り合いの見積もり', est.toFixed(1), ' <small>節 = 1.88m/s ÷ 間隔 × 寿命</small>') +
+    stat('容量を超えて捨てた節', String(T.dropped), T.dropped > 0 ? ' <span class="pill bad">尾が寿命より短い</span>' : '');
+  let note;
+  if (tr.swap) note = '粒と同じ swap-remove で詰めると、節の並びが入れ替わり、リボンがねじれて自分自身を横切る。トレイルは順番が命なのでリングバッファにする。';
+  else if (tr.noTip) note = '一定距離ごとに置くだけだと、先端が本体から遅れて、発生源とリボンの間に隙間が空く(間隔を 0.3m にすると目立つ)。最後の節は常にいまの位置に貼り付けておく。';
+  else if (tr.perSeg) note = '横方向を帯ごとに出すと、隣り合う2枚が共有するはずの辺がずれて、曲がり角の外側で継ぎ目が開く・折れる。節ごとに前後の節を結んだ向きで1回だけ出す。';
+  else if (T.dropped > 0) note = '容量を超えると、いちばん古い節から捨てるので尾が寿命より短くなる。釣り合いの節数が容量に収まるように間隔と寿命を決める。';
+  else note = '節は「直前に固めた節」から間隔ぶん離れたら足し、そうでなければ先端だけを動かす。古い節は先頭の添字を進めて捨てるので、並びは常に古い順のまま。';
+  $('trail-note').textContent = note;
+}
+seg('trail-life', (v) => { tr.life = Number(v); buildTrail(); drawTrail(); });
+seg('trail-min', (v) => { tr.min = Number(v); buildTrail(); drawTrail(); });
+seg('trail-cap', (v) => { tr.cap = Number(v); buildTrail(); drawTrail(); });
+for (const [id, key] of [['trail-swap', 'swap'], ['trail-notip', 'noTip'], ['trail-perseg', 'perSeg']]) {
+  $(id).addEventListener('change', (e) => { tr[key] = e.target.checked; buildTrail(); drawTrail(); });
+}
+buildTrail(); drawTrail();
+animate($('trail-canvas'), (dt) => {
+  if (!reduceMotion) { const n = Math.max(1, Math.round(dt * 480)); for (let i = 0; i < n; i++) stepTrail(dt / n); }
+  drawTrail();
+});
+window.addEventListener('resize', () => { drawSoft(); drawTrail(); });
+})();
+</script>
+</body>
+</html>
