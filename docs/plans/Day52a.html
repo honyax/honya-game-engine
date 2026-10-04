@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 52a ディファードレンダリング(G-Buffer と、あとから光を当てる)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. G-Buffer — 光を当てるのに要るものの全部</a></li><li class="l3"><a href="#s7">2. 位置は持たない — 距離1つから戻す</a></li><li class="l3"><a href="#s8">3. 8bit に色を入れるなら平方根で</a></li><li class="l3"><a href="#s9">4. 深度を写す — あとから描く粒のために</a></li><li class="l3"><a href="#s10">5. SSAO が G-Buffer を借りる — 3回が2回に</a></li><li class="l3"><a href="#s11">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s18">1フレームが決まるまで — フォワードとディファードの分かれ道</a></li><li class="l3"><a href="#s19">textured.frag を真ん中で切る</a></li><li class="l3"><a href="#s20">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. <code>F2</code>: 描き方が変わっても、絵は変わらない</a></li><li class="l3"><a href="#s23">2. <code>F3</code>: G-Buffer を見る</a></li><li class="l3"><a href="#s24">3. <code>F4</code>: 内訳</a></li><li class="l3"><a href="#s25">4. <code>F5</code>: 自己チェックが 14 項目すべて合格</a></li><li class="l3"><a href="#s26">5. プレイアブルデモもディファードで動く</a></li><li class="l3"><a href="#s27">6. ウィンドウを広げても G-Buffer が付いてくる</a></li><li class="l3"><a href="#s28">7. Day 39〜51 の絵が1つも壊れていない</a></li><li class="l2"><a href="#s29">改造課題</a></li><li class="l3"><a href="#s30">課題1(易): G-Buffer の表示に「復元した位置」を足す</a></li><li class="l3"><a href="#s31">課題2(中): 位置を深度バッファから戻す</a></li><li class="l3"><a href="#s32">課題3(難): 法線を2成分に畳んで G-Buffer を1枚減らす</a></li><li class="l2"><a href="#s33">動作確認済み環境</a></li><li class="l3"><a href="#s34">自己チェック(14 項目すべて合格)</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 8 / Day 52a / 計画書</p>
+  <h1>ディファードレンダリング(G-Buffer と、あとから光を当てる)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. G-Buffer — 光を当てるのに要るものの全部</a></li><li class="l3"><a href="#s7">2. 位置は持たない — 距離1つから戻す</a></li><li class="l3"><a href="#s8">3. 8bit に色を入れるなら平方根で</a></li><li class="l3"><a href="#s9">4. 深度を写す — あとから描く粒のために</a></li><li class="l3"><a href="#s10">5. SSAO が G-Buffer を借りる — 3回が2回に</a></li><li class="l3"><a href="#s11">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s18">1フレームが決まるまで — フォワードとディファードの分かれ道</a></li><li class="l3"><a href="#s19">textured.frag を真ん中で切る</a></li><li class="l3"><a href="#s20">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. <code>F2</code>: 描き方が変わっても、絵は変わらない</a></li><li class="l3"><a href="#s23">2. <code>F3</code>: G-Buffer を見る</a></li><li class="l3"><a href="#s24">3. <code>F4</code>: 内訳</a></li><li class="l3"><a href="#s25">4. <code>F5</code>: 自己チェックが 14 項目すべて合格</a></li><li class="l3"><a href="#s26">5. プレイアブルデモもディファードで動く</a></li><li class="l3"><a href="#s27">6. ウィンドウを広げても G-Buffer が付いてくる</a></li><li class="l3"><a href="#s28">7. Day 39〜51 の絵が1つも壊れていない</a></li><li class="l2"><a href="#s29">改造課題</a></li><li class="l3"><a href="#s30">課題1(易): G-Buffer の表示に「復元した位置」を足す</a></li><li class="l3"><a href="#s31">課題2(中): 位置を深度バッファから戻す</a></li><li class="l3"><a href="#s32">課題3(難): 法線を2成分に畳んで G-Buffer を1枚減らす</a></li><li class="l2"><a href="#s33">動作確認済み環境</a></li><li class="l3"><a href="#s34">自己チェック(14 項目すべて合格)</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>Phase 8(デモ推奨編)の初日</strong>。Day 51 でプレイアブルデモが完成したので、ここからの5日間は「デモをワンランク上げる技術」を足していく。今日はその土台になる<strong>描き方の組み替え</strong>をする。</p>
+<p><strong>Day 52 は2日に分けてある。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何をするか</th><th>絵の変化</th></tr></thead>
+<tbody>
+<tr><td><strong>Day 52a(今日)</strong></td><td>描き方を2回に分ける。G-Buffer に表面を書き、<strong>全画面1枚で太陽を当てる</strong></td><td><strong>無し</strong>(幾何パスが 3 回 → 2 回)</td></tr>
+<tr><td>Day 52b</td><td><strong>光を 1024 個に増やす</strong>。点光源・光の球・夜・フォワードとの比較</td><td>床に色とりどりの光だまり</td></tr>
+</tbody>
+</table></div>
+<p>Day 32 から今日まで、本描画は<strong>フォワード</strong>だった——三角形を1つ描くたびに、その画素の色を最後まで(表面を決めて、光を当てて)決めてしまう。光は太陽1つだったので、それで何も困らなかった。</p>
+<p>今日やるのは、その1回を<strong>2回に切る</strong>ことだけ。1回目は表面(色・法線・材質)を G-Buffer に書いて帰り、2回目でその G-Buffer を読んで光を当てる。2回目は三角形を1つも見ず、<strong>画面に残った画素だけ</strong>を塗る。</p>
+<p><strong>今日は絵が1ピクセルも変わらない</strong>。それでいい——今日の配当は数字にしか出ない(HUD の「幾何パス」が 3 回から 2 回に減る)。何のためにこんな組み替えをするのかは Day 52b で分かる。表面を先に置いておくと<strong>光を当てる仕事が三角形の数から切り離される</strong>ので、光を 1024 個に増やしてもほとんど値段が変わらない。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「ディファード」ページで <code>F2</code> を押すと、描き方がディファードに変わる——けれど絵は1ピクセルも(ほぼ)変わらず、HUD の「幾何パス」が 3 回から 2 回に減る。<code>F3</code> で G-Buffer を1枚ずつ見ると、アルベドには陰影が1つも無く、法線はビュー空間の色で、距離は奥ほど白い。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「ディファード」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>ディファード ON/OFF。<strong>今日の到達点</strong>。絵は変わらず、描き方だけが変わる</td></tr>
+<tr><td><code>F3</code></td><td>G-Buffer を見る(アルベド / 法線 / 距離 / 金属度 / 粗さ / AO / 発光)</td></tr>
+<tr><td><code>F4</code></td><td>内訳(G-Buffer の4枚と、いまの描き方)</td></tr>
+<tr><td><code>F5</code></td><td>今日の自己チェック(14 項目)</td></tr>
+</tbody>
+</table></div>
+<p>デモ v1 を出していないときはフォワードのまま動く(材質グリッドやモデル単体など)。<strong>実際のエンジンも、半透明や特殊な材質のためにフォワードの道を必ず残している</strong>。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「本描画のシェーダを真ん中で切る」</strong>。<code>textured.frag</code> は「表面を決める」(視差 → ベースカラー → 法線マップ → 金属度・粗さ → AO → 発光)と「光を当てる」(影 → BRDF → IBL → SSAO)の2つを続けてやっていた。その切れ目に出口を1つ作り、<strong>前半だけ走らせて G-Buffer に書いて帰る</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>if (uGBufferPass == 1)
+{
+    FragColor    = vec4(sqrt(base.rgb), 1.0);               // 0: ベースカラー(平方根で詰める)
+    GMaterial    = vec4(occlusion, roughness, metallic, 1.0); // 1: glTF の ORM と同じ並び
+    GNormalDepth = vec4(viewNormal, viewDepth);             // 2: Day 37 の幾何バッファと同じ形
+    GEmissive    = vec4(emissive, 1.0);                     // 3: 発光
+    return;
+}</code></pre></div>
+<p>後半は <code>deferred.frag</code> へ移った。G-Buffer は<strong>切り口に置く中間データ</strong>で、中身は「光を当てるのに要るもの」の全部になる(要点1)。</p>
+<p><strong>2つ目は「位置を持たない」</strong>。G-Buffer の2枚目は Day 37 の SSAO が作っていた「ビュー空間の法線 + 距離」と<strong>まったく同じ形</strong>にした。位置は距離1つから戻せる(<code>ssao.frag</code> の <code>ViewPosition</code> と同じ式)ので持たず、同じ形なので SSAO は自前の幾何パスを描かずに<strong>それを借りる</strong>。</p>
+<div class="code"><pre><code>  Day 51  影 → SSAO の幾何 → 本描画       … ジオメトリを 3 回描く
+  Day 52a 影 → G-Buffer → (光は画面だけ)  … 2 回</code></pre></div>
+<p>Day 37 の設計書に「同じジオメトリを1フレームに3回描いている。正しい直し方は MRT / G バッファで、それが Day 52 の主題になる」と書いた、その回収になる。</p>
+<p><strong>3つ目は「光の形 = 描く形」</strong>。今日の光は太陽(平行光源)だけで、太陽はどこにでも当たるので<strong>全画面の三角形1枚</strong>を描く——環境光と発光もここで足す。この「光の形の分だけ描く」という考え方が、Day 52b で点光源の球になる。</p>
+<div class="code"><pre><code>  太陽    どこにでも当たる  → 全画面の三角形 1 枚
+  点光源  半径の中だけ      → その半径の球    (Day 52b)</code></pre></div>
+<h3 id="s3">今日は Render とシェーダが主役</h3>
+<p>差分は <code>Render/</code> に新規2本(<code>GBuffer</code> / <code>DeferredLighting</code>)と変更2本(<code>Framebuffer</code> / <code>Ssao</code>)、シェーダが新規2本と <code>textured.frag</code> の変更、そして <code>Program.cs</code>。<code>Demo/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <code>Physics/</code> も <code>Text/</code> も <code>Audio/</code> も <code>Game/</code> も1行も変わっていない。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-14: 遅延レンダリング</a>(<strong>後半</strong>)— <strong>今日の一次資料</strong>。Day 31 で前半(FBO)を読んだ回の続きで、G-Buffer に何を詰めるか、なぜ光源の数に強いのかが講義資料にまとまっている</li><li><a href="https://learnopengl.com/Advanced-Lighting/Deferred-Shading">LearnOpenGL: Deferred Shading</a>— <strong>コードで追うならここが最短</strong>。MRT → G-Buffer → ライティングパス → 深度を写す、の順に今日とほぼ同じ構成で進む(その先のライトボリュームが Day 52b)。ただしあちらは位置を G-Buffer にそのまま持つ(今日は距離から戻す。要点2)</li><li><a href="https://mynameismjp.wordpress.com/2009/03/10/reconstructing-position-from-depth/">Matt Pettineo, "Reconstructing Position From Depth"</a>— <strong>要点2の根拠</strong>。「位置を持たずに深度から戻す」がなぜ定石なのか、戻し方が何通りあるか</li><li><strong>Day 37 の計画書 設計書「今日残した歪み」</strong>(このリポジトリ)— 「同じジオメトリを1フレームに3回描く」。今日それが2回になる</li><li><strong>Day 50 の計画書 要点3</strong>(このリポジトリ)— <code>Framebuffer.BlitDepthTo</code>(深度を写す)。今日は G-Buffer の深度をシーンのバッファへ写すのに使う</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. G-Buffer — 光を当てるのに要るものの全部</h3>
+<p>光を当てる側(<code>deferred.frag</code>)が三角形を知らずに済むには、画素ごとに<strong>表面の性質を全部</strong>置いておく必要がある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>枚</th><th>形式</th><th>中身</th><th>バイト</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>RGBA8</td><td>ベースカラー(<strong>平方根で詰める</strong>。要点3)。A は空き</td><td>4</td></tr>
+<tr><td>1</td><td>RGBA8</td><td>R = AO / G = 粗さ / B = 金属度(<strong>glTF の ORM と同じ並び</strong>)</td><td>4</td></tr>
+<tr><td>2</td><td>RGBA16F</td><td>ビュー空間の法線 + 距離(<strong>Day 37 の幾何バッファと同じ形</strong>)</td><td>8</td></tr>
+<tr><td>3</td><td>RGBA16F</td><td>発光(1.0 を超えるので 16F)</td><td>8</td></tr>
+<tr><td>深度</td><td>24bit</td><td>深度テストのためと、あとでシーンのバッファへ写すため</td><td>3</td></tr>
+</tbody>
+</table></div>
+<p>1画素 27 バイト、960x640 で 15.8MB。<strong>全部を 16F にすると 35 バイト</strong>になるので、中身ごとに必要な精度を選んでいる。</p>
+<p>1回の描画で4枚へ同時に書くのが <strong>MRT</strong>(Multiple Render Targets)。画素シェーダが <code>layout(location = N) out vec4</code> で出口を分け、フレームバッファ側は <code>glDrawBuffers</code> で「出口 N → アタッチメント N」の対応表を持つ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Span&lt;DrawBufferMode&gt; buffers = [ColorAttachment0, ColorAttachment1, ColorAttachment2, ColorAttachment3];
+_gl.DrawBuffers(4, buffers);</code></pre></div>
+<p><strong>これを忘れると完全性チェックは通るのに、0 番のアルベドだけが書かれる</strong>。法線と材質が真っ黒のまま、エラーは1つも出ない(Day 33 の <code>glDrawBuffer(GL_NONE)</code> と同じ種類の呪文)。</p>
+<p><strong>番号は <code>Material</code> の表を引き継ぐ</strong>。読む側で G-Buffer を 0・1・2・4 番に刺す——0 がベースカラー、1 がメタリック・ラフネス、2 が法線、4 が発光で、<strong>その番号に居る値の意味までマテリアルと同じ</strong>になる。ライティングパスにはマテリアルが無いので 0〜4 は空いている。</p>
+<div class="inject"><figure class="lab" id="gb-lab">
+  <div class="lab-head">
+    <h3>G-Buffer を開く(要点1〜3)</h3>
+    <span class="tag">床・壁・箱3つの小さな場面を、画素ごとに視線を飛ばすソフトウェア描画で再現。G-Buffer の4枚の形式と、textured.frag / deferred.frag の書き方・読み方は reference と同じ</span>
+  </div>
+  <div class="stage"><canvas id="gb-canvas" style="height:330px;image-rendering:pixelated" aria-label="床と壁と箱の場面。G-Buffer の1枚ずつか、光を当てた絵を表示する"></canvas></div>
+  <div class="hud" id="gb-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">描き方(F2)</span>
+      <div class="seg" id="gb-path"><button data-v="fwd" aria-pressed="false">フォワード</button><button data-v="def" aria-pressed="true">ディファード</button></div>
+    </div>
+    <div class="ctl"><span class="label">見るもの(F3)</span>
+      <div class="seg" id="gb-view"><button data-v="lit" aria-pressed="true">通常</button><button data-v="albedo" aria-pressed="false">アルベド</button><button data-v="normal" aria-pressed="false">法線</button><button data-v="depth" aria-pressed="false">距離</button><button data-v="metal" aria-pressed="false">金属度</button><button data-v="rough" aria-pressed="false">粗さ</button><button data-v="emis" aria-pressed="false">発光</button><button data-v="diff" aria-pressed="false">フォワードとの差</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">太陽の方位</span>
+      <div class="range"><input type="range" id="gb-sun" min="0" max="360" step="1" value="110"><output id="gb-sun-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">ベースカラーの詰め方(要点3)</span>
+      <div class="seg" id="gb-albedo"><button data-v="sqrt" aria-pressed="true">平方根(reference)</button><button data-v="linear" aria-pressed="false">リニア</button></div>
+    </div>
+    <div class="ctl"><span class="label">距離の形式(要点2)</span>
+      <div class="seg" id="gb-depth"><button data-v="16" aria-pressed="true">16F(reference)</button><button data-v="32" aria-pressed="false">32F</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="gb-forget"> glDrawBuffers を忘れる(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="stats" id="gb-stats"></div><p id="gb-probe" style="margin:10px 0 0;font-family:var(--font-mono);font-size:var(--step--1)"></p><p id="gb-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">2. 位置は持たない — 距離1つから戻す</h3>
+<p>LearnOpenGL の作例は位置を RGBA16F のまま G-Buffer に持つ。今日は持たない。<strong>「どの画素か」は <code>gl_FragCoord</code> が知っている</strong>ので、距離が1つあれば位置は決まる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec2 ndc      = (gl_FragCoord.xy / uScreenSize) * 2.0 - 1.0;
+vec3 viewPos  = vec3(ndc * uProjScale * depth, -depth);   // ssao.frag の ViewPosition と同じ
+vec3 worldPos = (uInverseView * vec4(viewPos, 1.0)).xyz;</code></pre></div>
+<p>持たないぶん RGBA16F 1枚(8 バイト/画素)が浮く。G-Buffer は1フレームに「書く1回 + 読む1回(全画面)」通るので、<strong>帯域はそのまま速度に効く</strong>——Day 52b で光の球が覆った画素のぶんだけ、読む回数がさらに増える。</p>
+<p>代償は精度で、距離は 16F に入っている。<strong>半精度の刻みは距離に比例して粗くなる</strong> (4〜8m で 4mm、8〜16m で 8mm)。自己チェックは 6.3m の床で 3.1mm のずれを出していて、これが<strong>影の縁でだけ</strong>絵に出る——PCF の升目がたまに1つずれる(検証の途中で分かったこと 1)。深度バッファ(24bit)から戻せば手前ほど精度が上がる。それが改造課題2。</p>
+<div class="inject"><figure class="lab" id="prec-lab">
+  <div class="lab-head">
+    <h3>距離の刻み — 16F と 24bit の深度(要点2・改造課題2)</h3>
+    <span class="tag">半精度(仮数 10 bit)の刻みと、near / far の透視で 24bit に入れた深度の刻みを、距離ごとに並べる</span>
+  </div>
+  <div class="stage"><canvas id="prec-canvas" style="height:260px" aria-label="距離ごとの刻みの大きさ。横軸も縦軸も対数"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">距離</span>
+      <div class="range"><input type="range" id="prec-d" min="0" max="1" step="0.001" value="0.6"><output id="prec-d-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">near</span>
+      <div class="seg" id="prec-near"><button data-v="0.01" aria-pressed="false">0.01m</button><button data-v="0.1" aria-pressed="true">0.1m(reference)</button><button data-v="1" aria-pressed="false">1m</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="legend-row" id="prec-legend"></div><div class="stats" id="prec-stats" style="margin-top:8px"></div><p id="prec-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 8bit に色を入れるなら平方根で</h3>
+<p>ベースカラーは 0〜1 に収まるので RGBA8 で足りる……と言いたいが、<strong>リニアのまま入れると暗部が潰れる</strong>。8bit は 0〜1 を 256 段に均等に配るので、0.002 未満は全部 0 になり、0.02 のあたりでは1段が値の 10% を超える。</p>
+<div class="code"><pre><code>  0.02〜1 での最大の相対誤差   リニアの 8bit  8.8%   平方根で詰める  2.7%</code></pre></div>
+<p><strong>平方根にしてから入れ、読むときに2乗する</strong>。暗い側に段が寄るので誤差が 1/3 になる。これは sRGB の符号化(ガンマ 2.2)と同じ発想の簡易版で、本番のエンジンはsRGB 形式のテクスチャ(<code>GL_SRGB8_ALPHA8</code>)に書いてハードウェアに変換させる。</p>
+<div class="inject"><figure class="lab" id="q8-lab">
+  <div class="lab-head">
+    <h3>8bit にベースカラーを入れる(要点3)</h3>
+    <span class="tag">上の帯: 暗い側の階調を露出で持ち上げて並べたもの。下のグラフ: 0.02〜1 の相対誤差(自己チェックと同じ 0.0005 刻み)</span>
+  </div>
+  <div class="stage"><canvas id="q8-canvas" style="height:300px" aria-label="暗い階調を、正しい値・リニアの 8bit・平方根の 8bit で並べた帯と、相対誤差のグラフ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">帯の上限(暗い側を拡大)</span>
+      <div class="seg" id="q8-top"><button data-v="0.02" aria-pressed="false">0.02</button><button data-v="0.05" aria-pressed="true">0.05</button><button data-v="0.2" aria-pressed="false">0.2</button><button data-v="1" aria-pressed="false">1</button></div>
+    </div>
+    <div class="ctl"><span class="label">ビット数</span>
+      <div class="seg" id="q8-bits"><button data-v="8" aria-pressed="true">8bit(reference)</button><button data-v="6" aria-pressed="false">6bit(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="q8-stats"></div><p id="q8-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. 深度を写す — あとから描く粒のために</h3>
+<p>ライティングパスはシーンのバッファ(<code>_post.Scene</code>)に描く。ところがそのバッファの深度は<code>_post.Begin</code> でクリアされたままで、G-Buffer パスの深度は G-Buffer の側にある。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gbuffer.Target.BlitDepthTo(_post.Scene);   // Day 50 で足した口
+_post.Scene.Bind();                         // Blit は割り当てを 0 に戻して帰る</code></pre></div>
+<p>写さないと<strong>あとから描く粒(Day 49)が壁の向こうに透けて見え、ソフトパーティクル(Day 50)も効かない</strong>。LearnOpenGL の Deferred Shading の章が最後に <code>glBlitFramebuffer</code> を呼んでいるのと同じ理由になる。</p>
+<p><strong>Day 52b の光の球も、この深度と比べて塗る画素を選ぶ</strong>。写さないと比べる相手がいちばん奥のままなので、球が1つも通らない——今日のうちに写しておくことの値打ちは、明日もう1つ増える。</p>
+<h3 id="s10">5. SSAO が G-Buffer を借りる — 3回が2回に</h3>
+<p>SSAO の遮蔽の計算(<code>ssao.frag</code>)が読むのは「ビュー空間の法線 + 距離」の1枚だけで、G-Buffer の2枚目はそれとまったく同じ形にしてある。だから <code>Ssao.Compute</code> に渡すだけでよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_ssao.Compute(_camera, width, height, _gbuffer.NormalDepth);   // 幾何パスを描かない</code></pre></div>
+<p><strong><code>Ssao</code> は <code>GBuffer</code> を知らない</strong>。受け取るのは <code>Texture</code> 1枚で、自前か借り物かはシェーダからも区別が付かない。自己チェックは、法線マップの無い物で両者の遮蔽が<strong>完全に一致</strong>(平均の差 0.0000)することを見ている。</p>
+<p>1つだけ変わることがあり、G-Buffer の法線は<strong>法線マップを当てたあと</strong>のもの(Day 37 の幾何パスは頂点法線だった)。レンガの目地に細かい暗がりが乗るようになる。実際のエンジンもほとんどが G-Buffer の法線で SSAO を計算している。</p>
+<h3 id="s11">6. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td><strong>点光源</strong></td><td>光は太陽1つのまま。G-Buffer を作った甲斐がまだ数字にしか出ない</td><td><strong>Day 52b</strong>(光の球・1024 個・夜)</td></tr>
+<tr><td>半透明</td><td>ディファードは1画素に表面を1つしか持てない。<strong>半透明は描けない</strong></td><td>フォワードで後から重ねる(今日も粒はそうしている)</td></tr>
+<tr><td>MSAA</td><td>G-Buffer まで4倍になる(Day 38 の要点)</td><td>Day 54 の TAA で置き換える</td></tr>
+<tr><td>深度バッファからの位置の復元</td><td>影の縁で 0.2% の画素が 5% 以上ずれる</td><td>改造課題2</td></tr>
+<tr><td>法線を2成分に畳む(八面体)</td><td>法線に RGBA16F を1枚まるごと使っている</td><td>本番の G-Buffer はここを詰める</td></tr>
+<tr><td>SSAO の幾何バッファを捨てる</td><td>フォワードの絵のために 6.4MB を残してある</td><td>フォワードの道を捨てるまで消せない</td></tr>
+</tbody>
+</table></div>
+<p><strong>半透明が描けない</strong>のがディファードの最大の弱点で、どのエンジンもここでフォワードを残している。今日も粒(Day 49)はライティングパスのあとにフォワードで重ねていて、深度を写した(要点4)ので壁の向こうに透けずに済んでいる。</p>
+<p><strong>今日の差分だけを見ると「得が1つも無い組み替え」に見える</strong>。幾何パスが1回減ったぶんだけ速くなっているが、その代わり G-Buffer の 15.8MB を毎フレーム書いて読んでいるので、光が1つしか無いうちは<strong>ほぼ引き分け</strong>になる。配当が出るのは光が増えてからで、それが Day 52b。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/GBuffer.cs</code></td><td>322</td><td><strong>G-Buffer</strong>。4枚 + 深度の入れ物と、1枚ずつ見る表示(要点1・2)</td></tr>
+<tr><td><code>Render/DeferredLighting.cs</code></td><td>133</td><td><strong>ライティングパス</strong>。太陽・環境光・発光を全画面1枚で当てる</td></tr>
+<tr><td><code>shaders/deferred.frag</code></td><td>292</td><td>ライティングパスの画素シェーダ。<strong><code>textured.frag</code> の後半</strong></td></tr>
+<tr><td><code>shaders/gbuffer-view.frag</code></td><td>78</td><td>G-Buffer を1枚ずつ見る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Framebuffer.cs</code></td><td><strong>カラーを何枚も挿す</strong>(MRT)。<code>Colors</code>、<code>glDrawBuffers</code></td><td>+108 / -15</td></tr>
+<tr><td><code>Render/Ssao.cs</code></td><td><code>Compute</code> が借りた幾何バッファを受け取る。<code>BorrowsGeometry</code></td><td>+44 / -3</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>出口に番号、<strong>G-Buffer の枝で打ち切る</strong></td><td>+67 / -7</td></tr>
+<tr><td><code>Program.cs</code></td><td>描き方の切り替え、<code>ApplyLighting</code> の切り出し、メニュー 4 項目、HUD 1行、自己チェック 14 項目</td><td>+842 / -39</td></tr>
+<tr><td><code>Day52a.csproj</code></td><td><code>Day51.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Program.cs</code> の差分の半分は自己チェック</strong>(<code>RunDeferredCheck</code> と、確認用のシーンを描く道具)。描き方の本体は <code>RenderGBufferPass</code> と <code>RenderDeferredLighting</code> の 2 つで、合わせて 40 行ほどしかない——<strong>G-Buffer パスは <code>Render3D</code> をそのまま呼ぶ</strong>ので(設計書)、何を描くかを書き写していない。</p>
+<h3 id="s15">写経する順番</h3>
+<div class="code"><pre><code>1. Render/Framebuffer.cs         MRT(2 の GBuffer が使う)
+2. Render/GBuffer.cs             G-Buffer(新規。1 の MRT を使う)
+3. shaders/gbuffer-view.frag     G-Buffer の表示(新規。2 が読み込む)
+4. Render/DeferredLighting.cs    ライティングパス(新規。2 を使う)
+5. shaders/deferred.frag         ライティングパス(新規。4 が読み込む)
+6. shaders/textured.frag         G-Buffer の枝
+7. Render/Ssao.cs                借りた幾何バッファで遮蔽を計算する
+8. Program.cs                    全部を繋ぐ
+9. Day52a.csproj                 Day51.csproj からのリネームのみ</code></pre></div>
+<p><strong>依存順に並べてある</strong>。C# のビルドが通るのは 1・2・4・7・8 の順で、シェーダ(3・5・6)は実行時に読むのでビルドには効かない——ただし<strong>読み込むクラスの直後に置いておく</strong>と、「<code>GBuffer</code> を写したのに <code>gbuffer-view.frag</code> が無くて起動で落ちる」を踏まずに済む。6 の <code>textured.frag</code> は 5 の <code>deferred.frag</code> と<strong>同じ関数を持つ</strong>(<code>CookTorrance</code> と <code>ShadowFactor</code>)ので、並べて写すと見比べやすい。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(_deferred / _gbuffer / _deferredLighting)
+    → OnLoad / OnFramebufferResize / F5 / OnClosing       作る・作り直す・畳む
+    → OnRender の RenderGBufferPass と分岐                 <strong>今日の骨格</strong>
+    → RenderSsaoPass の頭                                  G-Buffer を借りる
+    → Render3D → ApplyLighting                            切り出したもの
+    → UseDeferred / RenderGBufferPass / RenderDeferredLighting
+    → DeferredLabel / DescribeDeferred
+    → RunDeferredCheck と道具(RenderProbe / ReadGBuffer / ReconstructWorld …)
+    → BuildDebugMenu の末尾(メニュー 1 ページ)と RunDebugMenuCheck の 194
+    → DrawOverlayInfo(HUD 1行)</code></pre></div>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が3つ(<code>GBuffer</code> / <code>GBufferView</code> / <code>DeferredLighting</code>)増えて、<code>Render/</code> の2クラスの口が広がっただけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/GBuffer</code></td><td><code>Render/</code></td><td>4枚 + 深度。<strong>5つ目の「自分でバッファを持ち、シェーダは借りる」クラス</strong></td></tr>
+<tr><td><code>Render/GBufferView</code></td><td><code>Render/</code></td><td>G-Buffer のどれを見るか(8 通り)</td></tr>
+<tr><td><code>Render/DeferredLighting</code></td><td><code>Render/</code></td><td>太陽・環境光・発光の全画面1枚。<strong>バッファを持たない</strong></td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Framebuffer</code></td><td>カラーを何枚も挿せる(MRT)。<code>Colors</code></td><td>+108 / -15</td></tr>
+<tr><td><code>Render/Ssao</code></td><td><code>Compute</code> が幾何バッファを借りられる</td><td>+44 / -3</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>G-Buffer の枝</td><td>+67 / -7</td></tr>
+<tr><td><code>Program.cs</code></td><td>描き方の切り替え、<code>ApplyLighting</code>、メニュー、自己チェック</td><td>+842 / -39</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">今日足したものは、どこに繋がったか</h3>
+<svg viewBox="0 0 950 432" role="img" aria-label="Render3D と ApplyLighting を、フォワードとディファードで共有している図" style="width:100%;max-width:950px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.Render3D</text><text x="115" y="47.5" text-anchor="middle" fill="var(--ink)">Day 39〜51。何を描くかの分岐</text><rect x="380" y="10" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag の前半</text><text x="490" y="47.5" text-anchor="middle" fill="var(--ink)">表面を決めて帰る</text><rect x="740" y="10" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="840" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.Compute</text><text x="840" y="47.5" text-anchor="middle" fill="var(--ink)">幾何パスを描かない</text><rect x="380" y="130" width="220" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="150.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GBuffer</text><text x="490" y="167.5" text-anchor="middle" fill="var(--ink)">4枚 + 深度</text><rect x="740" y="130" width="200" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="840" y="150.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DeferredLighting</text><text x="840" y="167.5" text-anchor="middle" fill="var(--ink)">全画面1枚</text><rect x="380" y="250" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="270.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Scene</text><text x="490" y="287.5" text-anchor="middle" fill="var(--ink)">あとから描く粒が比べる相手</text><rect x="10" y="370" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="390.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.ApplyLighting</text><text x="115" y="407.5" text-anchor="middle" fill="var(--ink)">太陽・影・IBL・SSAO</text><rect x="380" y="370" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="390.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag の後半</text><text x="490" y="407.5" text-anchor="middle" fill="var(--ink)">フォワードの本描画</text><path d="M220 35 L378 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="299" y="53" fill="var(--muted)" font-size="12" text-anchor="middle">uGBufferPass = 1</text><text x="299" y="68" fill="var(--muted)" font-size="12" text-anchor="middle">で呼ぶだけ</text><path d="M490 60 L490 128" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="498" y="98" fill="var(--muted)" font-size="12" text-anchor="start">layout location 0〜3</text><path d="M600 142 L770 62" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="614" y="112" fill="var(--muted)" font-size="12" text-anchor="start">2枚目(Texture 1枚)</text><path d="M600 160 L738 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="669" y="178" fill="var(--muted)" font-size="12" text-anchor="middle">Apply で</text><text x="669" y="193" fill="var(--muted)" font-size="12" text-anchor="middle">0・1・2・4 番に刺す</text><path d="M490 180 L490 248" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="498" y="218" fill="var(--muted)" font-size="12" text-anchor="start">深度を写す</text><path d="M770 180 L602 276" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M220 395 L378 395" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M115 370 L115 335 L880 335 L880 182" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr1)"></path><text x="872" y="327" fill="var(--muted)" font-size="12" text-anchor="end">Action 1本</text></g></svg>
+<p><strong>矢印の出どころが <code>Render3D</code> と <code>ApplyLighting</code> の2つに集まっている</strong>のが今日の姿になる。何を描くか(<code>Render3D</code>)と、どう照らすか(<code>ApplyLighting</code>)を<strong>フォワードとディファードで共有</strong>していて、違うのは「表面を決めたあと、その場で光を当てるか、G-Buffer に置いて後で当てるか」だけ。</p>
+<p>点線の1本(<code>ApplyLighting</code> → <code>DeferredLighting</code>)は Day 51 の <code>FollowCamera</code> と同じ形。<code>DeferredLighting</code> は太陽の向きも IBL も知らず、<strong><code>Action&lt;Shader&gt;</code> 1本</strong>で受け取る。2か所に書き写すと、片方だけ直したときに2つの絵が食い違う——しかも両方ともそれらしく見えるので、見比べるまで気づけない。</p>
+<p><strong><code>Ssao</code> から <code>GBuffer</code> への矢印は無い</strong>。借りるのは <code>Texture</code> 1枚で、<code>Ssao</code> は自分が G-Buffer を読んでいることを知らない。Day 37 の幾何バッファと同じ形にしておいたことが、そのまま「知らずに済む」になっている。</p>
+<h3 id="s18">1フレームが決まるまで — フォワードとディファードの分かれ道</h3>
+<svg viewBox="0 0 870 796" role="img" aria-label="影のあと UseDeferred で分かれ、左はフォワード、右は G-Buffer → SSAO → 深度を写す → 全画面1枚 と進み、RenderParticles で合流する図" style="width:100%;max-width:870px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="245" y="8" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderShadowPass</text><text x="445" y="45.5" text-anchor="middle" fill="var(--ink)">光の目から深度(Day 33)</text><rect x="245" y="80" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="445" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UseDeferred?</text><text x="445" y="117.5" text-anchor="middle" fill="var(--ink)">スイッチ ON・デモ v1 が出ている</text><text x="445" y="134.5" text-anchor="middle" fill="var(--ink)">ゲーム中でない・成分表示でない</text><rect x="20" y="200" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="220.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="185" y="237.5" text-anchor="middle" fill="var(--ink)">自前の幾何パス → 遮蔽(Day 37)</text><rect x="20" y="272" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="292.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Begin → 空</text><rect x="20" y="327" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="347.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D</text><text x="185" y="364.5" text-anchor="middle" fill="var(--ink)">表面を決めて、その場で光を当てる</text><rect x="470" y="200" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="220.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderGBufferPass</text><text x="660" y="237.5" text-anchor="middle" fill="var(--ink)">_gbuffer.Begin → uGBufferPass = 1</text><text x="660" y="254.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">Render3D をそのまま呼ぶ</tspan> → uGBufferPass = 0</text><rect x="470" y="289" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="309.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="660" y="326.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">G-Buffer の2枚目を借りる</tspan></text><text x="660" y="343.5" text-anchor="middle" fill="var(--ink)">幾何パスを描かない</text><rect x="470" y="378" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="398.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Begin → 空</text><rect x="470" y="433" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="453.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BlitDepthTo(_post.Scene)</text><text x="660" y="470.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">深度を写す</tspan></text><rect x="470" y="505" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="525.5" text-anchor="middle" fill="var(--ink)">全画面1枚: 太陽・環境光・発光</text><text x="660" y="542.5" text-anchor="middle" fill="var(--ink)">空の画素は discard で残す</text><rect x="245" y="590" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="610.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderParticles</text><text x="445" y="627.5" text-anchor="middle" fill="var(--ink)">深度の写し → 粒 → トレイル</text><rect x="245" y="662" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="682.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.End</text><text x="445" y="699.5" text-anchor="middle" fill="var(--ink)">ブルーム → トーンマップ → FXAA</text><rect x="245" y="734" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="754.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DrawDebug</text><text x="445" y="771.5" text-anchor="middle" fill="var(--ink)">影 / SSAO / <tspan font-weight="700">G-Buffer</tspan></text><path d="M445 58 L445 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M245 113.5 L185 113.5 L185 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="193" y="131.5" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M645 113.5 L660 113.5 L660 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="668" y="131.5" fill="var(--muted)" font-size="12" text-anchor="start">Yes</text><path d="M185 250 L185 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M185 305 L185 325" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 267 L660 287" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 356 L660 376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 411 L660 431" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 483 L660 503" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M185 377 L185 615 L243 615" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 555 L660 615 L647 615" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M445 640 L445 660" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M445 712 L445 732" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>ジオメトリを描く箱が、左の道には3つ、右の道には2つ</strong>ある(影・SSAO の幾何・本描画 と、影・G-Buffer)。これが HUD の「幾何パス」の数字になる。</p>
+<p><strong>右の道は <code>Render3D</code> を呼ぶ場所が前に移っただけ</strong>で、中身は1行も変わっていない。その代わり、左の道の <code>Render3D</code> があった位置には<strong>三角形を1つも描かない</strong>パスが2本並ぶ。</p>
+<p><strong><code>RenderParticles</code> が両方の道の合流点に居る</strong>のが大事なところ。半透明は G-Buffer に入れられない(1画素に表面を1つしか持てない)ので、どちらの道でも最後にフォワードで重ねる。深度を写してある(要点4)ので、ディファードの道でも粒は壁の向こうに透けない。</p>
+<h3 id="s19">textured.frag を真ん中で切る</h3>
+<svg viewBox="0 0 890 565" role="img" aria-label="textured.frag の前半(視差・ベースカラー・法線・金属度と粗さ・AO と発光)のあとに uGBufferPass で分かれ、G-Buffer パスは4つの出口に書いて帰り、フォワードは SSAO・成分表示・光へ進む図" style="width:100%;max-width:890px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParallaxUv</text><text x="210" y="45.5" text-anchor="middle" fill="var(--ink)">視差で UV をずらす(Day 34)</text><rect x="20" y="80" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="100.5" text-anchor="middle" fill="var(--ink)">ベースカラー × 頂点色 × Tint</text><rect x="20" y="135" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="155.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PerturbNormal</text><text x="210" y="172.5" text-anchor="middle" fill="var(--ink)">法線マップを世界へ(Day 34)</text><rect x="20" y="207" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="227.5" text-anchor="middle" fill="var(--ink)">金属度・粗さ + 上書き(Day 35)</text><rect x="20" y="262" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="282.5" text-anchor="middle" fill="var(--ink)">焼いた AO / 発光</text><text x="210" y="299.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">発光を SSAO より前へ上げた</tspan></text><rect x="20" y="334" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="354.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uGBufferPass == 1 ?</text><rect x="20" y="410" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="430.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ScreenSpaceOcclusion(Day 37)</text><rect x="20" y="465" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="485.5" text-anchor="middle" fill="var(--ink)">成分表示の窓(Day 32〜41)</text><rect x="20" y="520" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="540.5" text-anchor="middle" fill="var(--ink)">影 → Cook-Torrance → IBL</text><rect x="560" y="334" width="320" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="720" y="354.5" text-anchor="middle" fill="var(--ink)">4つの出口に書いて return</text><text x="720" y="371.5" text-anchor="middle" fill="var(--ink)">0: sqrt(ベース) / 1: ORM</text><text x="720" y="388.5" text-anchor="middle" fill="var(--ink)">2: ビュー法線 + 距離 / 3: 発光</text><rect x="560" y="480" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="720" y="500.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">deferred.frag</text><text x="720" y="517.5" text-anchor="middle" fill="var(--ink)">G-Buffer を開く → 影 → Cook-Torrance → IBL</text><path d="M210 58 L210 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 113 L210 133" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 185 L210 205" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 240 L210 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 312 L210 332" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M400 350.5 L558 350.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="479" y="342.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes(G-Buffer パス)</text><path d="M210 367 L210 408" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="218" y="383" fill="var(--muted)" font-size="12" text-anchor="start">No(フォワード)</text><path d="M210 443 L210 463" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 498 L210 518" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M720 401 L720 478" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr3)"></path><text x="728" y="425" fill="var(--muted)" font-size="12" text-anchor="start">次のパスで</text></g></svg>
+<p><strong>切る場所は SSAO の手前でなければならない</strong>。SSAO はディファードのとき G-Buffer から作るので、G-Buffer パスの時点ではまだ出来ていない。発光を SSAO の上へ移したのは、出口で書くものが全部、切れ目より前に揃っている必要があるから。</p>
+<p><strong>成分表示の窓(Shift+9 の類)が後半に居る</strong>ので、ディファードでは出せない。成分表示中は <code>UseDeferred</code> がフォワードに戻す——ディファードの側の同じ窓が「G-Buffer を見る」(<code>F3</code>)になる。</p>
+<p><strong>同じ関数が2本のシェーダにある</strong>(<code>CookTorrance</code>・<code>ShadowFactor</code>)。これが今日いちばん大きな歪みで、「今日残した歪み」の1つ目に書いた。</p>
+<h3 id="s20">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: 同じ BRDF が3か所にある</strong>。<code>Pbr.cs</code>(Day 35。検算用)と <code>textured.frag</code> に加えて、今日 <code>deferred.frag</code> にも <code>CookTorrance</code> 以下を書き写した。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場所</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Pbr.cs</code></td><td>定義と検算(自己チェックだけが呼ぶ)</td></tr>
+<tr><td><code>textured.frag</code></td><td>フォワード。<code>CookTorrance</code> は D・G・F を外へ出す版</td></tr>
+<tr><td><code>deferred.frag</code></td><td>ディファード。D・G・F の出口を外した版</td></tr>
+</tbody>
+</table></div>
+<p>GLSL には <code>#include</code> が無いので、書き写すしかなかった。自己チェックは<strong>文字列が揃っているか</strong>(<code>MIN_ROUGHNESS</code>、出口の番号)と、<strong>フォワードとディファードで同じ絵になるか</strong>(平均の相対差 0.33%)の2段で見張っている。直し方は <code>Shader</code> に <code>#include</code> を足して共通部分を1本のファイルへ出すこと——エンジンが文字列を差し込むだけの仕組みで、Unreal の <code>.ush</code> がまさにこれ。<strong>Day 52b で点光源の式が2本のシェーダに増え、Day 53 で Forward+ がもう一度書き換える</strong>ので、そのあたりが <code>#include</code> を入れる時期になる。</p>
+<p><strong>2つ目: 同じ並びを手で書き写すパスが1本残った</strong>。G-Buffer パスは <code>Render3D</code> をそのまま呼ぶ形にしたので、何を描くかを書き写していない。ところが<strong>影のパス(<code>RenderShadowPass</code>)は今日も手書きの分岐</strong>で、Day 51 でキャラクターを足したときに3か所を直すことになった、その形が1か所ぶん残っている。SSAO の自前の幾何パスと幾何バッファ(6.4MB)も、フォワードの絵のために残してある。影パスも「描くものの一覧を1つ持ち、パスごとに使うシェーダだけ変える」形にするのが筋で、Day 56 でシーンの光を整理するときにまとめて片付けるのがよさそう。</p>
+<p><strong>3つ目: 位置の精度が 16F</strong>(要点2)。影の縁の 0.2% の画素でフォワードと 5% 以上ずれる。見た目には判別できない量なので今日は残した。深度バッファ(24bit)から戻すほうが手前の精度は高く、それが改造課題2。</p>
+<p><strong>4つ目: ディファードに乗れない絵がある</strong>。材質グリッド(Day 35)は光の向きと強さを<strong>描画の分岐の中で</strong>差し替えるので、<code>ApplyLighting</code> の値とずれる。Day 35 の設計書に「分岐の中で全体設定を書き換えるのは本来まずい形」と書いた、その形がここで効いた。今日は <code>UseDeferred</code> がデモ v1 のときだけに絞って逃げている。加えて、Day 36 の設計書が「Day 52 で複数のカラーアタッチメントが要るときにまとめて整理する」と書いた<code>EnvironmentMap</code> の生の FBO は、<strong>今日も生のまま</strong>——MRT は足したが、「外のテクスチャ(キューブマップの1面)を挿す」口は足していない。2つとも、光の設定をパスごとに持つ形へ整理する Day 56 の仕事に回す。</p>
+</section>
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day52a -c Release</code> で起動する。先に「デモ v1」ページ(8 枚目)の <code>1</code>(決めの構図)でデモ v1 を出し、<code>F1</code> を 20 回押すか <code>Ctrl+F1</code> の目次から「ディファード」ページ(20 枚目)を開く。</p>
+<h3 id="s22">1. <code>F2</code>: 描き方が変わっても、絵は変わらない</h3>
+<p>コンソールに次の1行が出る。</p>
+<div class="code"><pre><code>ディファード: <strong>ON</strong>。G-Buffer 960x640 x4枚 15.8MB。<strong>絵が変わらないのが正しい</strong>——HUD の「幾何パス」が 3 回から 2 回に減る</code></pre></div>
+<p>HUD に今日の1行が出ていて、ON/OFF で次のように変わる。</p>
+<div class="code"><pre><code>描画:フォワード  幾何パス:3回
+描画:ディファード  G-Buffer:960x640x4枚 15.8MB  幾何パス:2回  G:0.26ms 光:0.26ms</code></pre></div>
+<p><strong><code>F2</code> を何度押しても絵が動かない</strong>のが今日の到達点。並べて差を取ると、違うのは<strong>影の縁の数画素だけ</strong>(検証の途中で分かったこと 1)。HUD の SSAO の行(Day 37)は <code>幾何:0回</code> になる——SSAO が G-Buffer を借りている(要点5)。</p>
+<h3 id="s23">2. <code>F3</code>: G-Buffer を見る</h3>
+<p>アルベド → 法線 → 距離 → 金属度 → 粗さ → AO → 発光 → 通常 と回る。見どころは4つ。</p>
+<ul><li><strong>アルベドに陰影が1つも無い</strong>。影も空の映り込みも消えて、材質の色だけになる</li><li><strong>法線はビュー空間</strong>。マウスでカメラを回すと色が変わる(床は薄緑、左の壁はピンク)</li><li><strong>金属度はゴミ箱と街灯だけが白い</strong></li><li><strong>発光は真っ黒</strong>。裏通りには光る材質が1つも無い(プレイアブルデモで当たり判定を出すと、カプセルだけが光る)</li></ul>
+<p>ディファードで描いていないと出ない(コンソールがそう言う)。フォワードのときは G-Buffer に何も書かれていないので、出しても前のフレームの残りが見えるだけになる。</p>
+<h3 id="s24">3. <code>F4</code>: 内訳</h3>
+<div class="code"><pre><code>--- ディファードの内訳 ---
+  0: ベースカラー(平方根)    Rgba8    4B/画素  2.3MB  読むときの番号 0
+  1: AO / 粗さ / 金属度  Rgba8    4B/画素  2.3MB  読むときの番号 1
+  2: ビュー法線 + 距離     Rgba16F  8B/画素  4.7MB  読むときの番号 2
+  3: 発光             Rgba16F  8B/画素  4.7MB  読むときの番号 4
+  深度: DepthComponent24 3B/画素  1.8MB(読まない。シーンのバッファへ写すだけ)
+  合計 960x640  15.8MB  ※SSAO の幾何バッファ 6.4MB はフォワードのために残してある
+
+  いまの描き方: ディファード  G-Buffer パス 0.24ms / ライティング 0.21ms(CPU が命令を積んだ時間。GPU の時間は測っていない)</code></pre></div>
+<p><strong>読むときの番号が 0・1・2・4</strong> なのが要点1(<code>Material</code> の表を引き継いでいる)。15.8MB を毎フレーム書いて読んでいるので、<strong>光が1つのうちは幾何パスが1回減ったぶんと相殺する</strong>。ここが黒字に変わるのが Day 52b。</p>
+<h3 id="s25">4. <code>F5</code>: 自己チェックが 14 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 52 自己チェック(G-Buffer・位置の復元・フォワードとの一致)===
+  [OK] <strong>平方根で詰めると暗部が潰れない</strong>(0.02〜1 での最大の相対誤差)  リニアの 8bit 8.8% / 平方根 2.7%
+  ...
+  すべて合格(G-Buffer・位置の復元・フォワードとの一致が仕様どおり)</code></pre></div>
+<p>柱は<strong>フォワードとディファードで同じ絵になるか</strong>の1項目。ディファードのいちばん厄介なところは<strong>間違っていても絵が出る</strong>ことで、位置の戻し方が少しずれていても影はそれらしく落ち、G-Buffer の1枚が真っ黒でも残りの3枚で絵になる。だから「それらしいか」ではなく「同じか」を見る。</p>
+<h3 id="s26">5. プレイアブルデモもディファードで動く</h3>
+<p>「プレイアブルデモ」ページ(19 枚目)の <code>F2</code> でキツネを出すと、ディファードのまま歩き回れる。<code>F6</code>(当たり判定を出す)の箱とカプセルも G-Buffer に入る——G-Buffer パスは <code>Render3D</code> をそのまま呼ぶので、何も足さずに乗る(設計書)。</p>
+<h3 id="s27">6. ウィンドウを広げても G-Buffer が付いてくる</h3>
+<p>ウィンドウの端をドラッグして大きくすると、HUD の <code>G-Buffer:</code> の大きさが追いかけて変わる(<code>OnFramebufferResize</code> の <code>_gbuffer.Resize</code>)。忘れると、ライティングパスが <code>gl_FragCoord</code> で引く画素と G-Buffer の画素がずれ、絵が左下に縮んで右上が空だけになる。</p>
+<h3 id="s28">7. Day 39〜51 の絵が1つも壊れていない</h3>
+<p><strong>既定はフォワード</strong>なので、起動した直後の絵は Day 51 とまったく同じになる。Day 48 の自己チェック(<code>Alt+F1</code>)は <strong>194 項目</strong>で通る(下の検証の途中で分かったこと 2)。Day 51 のプレイアブルデモの自己チェックも、Day 37 の SSAO・Day 35 の PBR の自己チェックも通る。</p>
+<p><strong>IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる</strong>こと。あのチェックは手焼きの空(<code>SkyImage</code>)と焼いたキューブを比べるので、HDRI の空を焼いたあとでは4項目が落ちる。これは Day 51 までと同じ振る舞いで、今日の変更とは関係ない。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「ディファード」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>G-Buffer を開く「描き方」</td><td>フォワードとディファードを切り替えても絵が変わらない</td></tr>
+<tr><td><code>F3</code></td><td>同「見るもの」</td><td>アルベドに陰影が無い、法線はビュー空間(床は薄緑・左の壁はピンク)、距離は奥ほど白い、金属度は金色の箱だけが白い</td></tr>
+<tr><td><code>F4</code></td><td>G-Buffer を開く「1画素」の欄</td><td>4枚 + 深度で 27 バイト / 画素</td></tr>
+<tr><td><code>F5</code>(自己チェック)</td><td>G-Buffer を開く「フォワードとの差」、8bit にベースカラーを入れる</td><td>床の画素のベースカラーが「0.549 → 2乗 0.301」、粗さが 0.698、最大の相対誤差がリニア 8.8% / 平方根 2.7%、差が出る画素は影の縁だけ</td></tr>
+<tr><td>(なし)</td><td>距離の刻み</td><td>改造課題2 の「どこで入れ替わるか」の答え合わせ</td></tr>
+<tr><td>(なし)</td><td>「リニア」「32F」「glDrawBuffers を忘れる」「6bit」</td><td>要点1〜3 の失敗と比べを見るためにこのページで足した切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">G-Buffer の実験台は、reference/Day52a の textured.frag の G-Buffer の枝(4つの出口と形式)と、deferred.frag の開き方(距離から位置を戻す式、2乗で戻すベースカラー、距離 0 の画素を捨てる)、CookTorrance、Program.CompareImages の比べ方を JS に移したもの。場面は実機の裏通りではなく、床・壁・箱3つの小さな場面を 288x192 で描いている。床の材質(ベースカラー 0.30・粗さ 0.7・金属度 0)だけは自己チェックの確認用シーンと揃えた。影はシャドウマップではなく太陽へ視線を飛ばして決めていて(PCF なし)、IBL と SSAO は一定の環境光に置き換えた。そのため差の数字は自己チェックの 0.33% / 0.03% とは一致しない。</p></div>
+</section>
+<section class="part"><h2 id="s29">改造課題</h2>
+<h3 id="s30">課題1(易): G-Buffer の表示に「復元した位置」を足す</h3>
+<p>要点2の「距離1つから位置が戻る」を、数字ではなく絵で確かめる。<code>GBufferView</code> に <code>Position</code> を足し、<code>gbuffer-view.frag</code> で距離から世界の位置を戻して色にする。いまの <code>gbuffer-view.frag</code> は uniform を6つしか持っていないので、<code>deferred.frag</code> と同じ3つ(<code>uScreenSize</code> / <code>uProjScale</code> / <code>uInverseView</code>)を送るところから始める(<code>GBuffer.DrawDebug</code> に <code>Camera</code> を渡す必要が出る——<code>Apply</code> はもう受け取っている)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// ndc と距離だけで、まずビュー空間の位置が決まる
+vec3 viewPosition = vec3(ndc * uProjScale * depth, -depth);
+vec3 worldPosition = (uInverseView * vec4(viewPosition, 1.0)).xyz;
+FragColor = vec4(fract(worldPosition), 1.0);   // 1m ごとに色が一周する</code></pre></div>
+<p><code>fract</code> を使うと<strong>1m ごとの等高線</strong>が床と壁に出る。カメラを動かしても<strong>模様が world に貼り付いたまま動かない</strong>のが正しい姿で、式を1文字間違えるとカメラと一緒に模様が滑る。自己チェックの「位置の復元」(3.1mm)が数字で言っていることの、絵の側になる。</p>
+<h3 id="s31">課題2(中): 位置を深度バッファから戻す</h3>
+<p>いまは G-Buffer の2枚目(16F の距離)から位置を戻していて、影の縁で 0.2% の画素がずれる(要点2)。深度バッファ(24bit)から戻すように変える。</p>
+<ol><li><code>GBuffer</code> の深度をレンダーバッファから<strong>深度テクスチャ</strong>に替える(<code>Framebuffer</code> に「カラー N 枚 + 深度テクスチャ」の形を足す。Day 33 の <code>CreateDepthOnly</code> の応用)</li><li><code>deferred.frag</code> で深度を読み、<strong>逆射影行列</strong>で戻す</li></ol>
+<div class="code"><span class="lang">glsl</span><pre><code>float depth = texelFetch(uGDepth, pixel, 0).r;                  // 0〜1
+vec4 clip = vec4(ndc, depth * 2.0 - 1.0, 1.0);                  // OpenGL の NDC は z も -1〜1
+vec4 view = uInverseProjection * clip;
+vec3 viewPosition = view.xyz / view.w;                          // 透視除算を自分でやる</code></pre></div>
+<p>自己チェックの「位置の復元」(いまは 6.3m で 3.1mm)と、フォワードとの一致(5% を超える画素)がどう変わるかを見る。<strong>手前ほど 24bit のほうがずっと細かい</strong> (24bit の深度は 1/z に比例した刻みなので、刻みは距離の2乗で粗くなる。16F は距離の1乗)——どこで入れ替わるかを計算してみるとよい(near 0.1m / far 100m では、遠クリップ面より奥で入れ替わる)。</p>
+<h3 id="s32">課題3(難): 法線を2成分に畳んで G-Buffer を1枚減らす</h3>
+<p>法線に RGBA16F を1枚まるごと使っている(8 バイト/画素)。単位ベクトルは自由度が2つしかないので、<strong>八面体マッピング</strong>で2成分に畳める。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// 書く側: 単位球 → 八面体 → 正方形
+vec2 OctEncode(vec3 n) {
+    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    return (n.z &gt;= 0.0) ? n.xy : (1.0 - abs(n.yx)) * sign(n.xy);
+}</code></pre></div>
+<p>2成分 + 距離で RGB16F 相当に収まるので、2枚目を RGBA16F から RG16F + R32F に分けるか、材質の1枚(RGBA8)の空きへ押し込むかを設計する。<strong>難しいのは畳み方ではなく、SSAO が借りている形を変えてしまうこと</strong>——<code>ssao.frag</code> は「RGB = 法線、A = 距離」を前提にしているので、そちらも同時に直さないと遮蔽が壊れる。自己チェックの「SSAO: G-Buffer から作った遮蔽が、自前の幾何パスとほぼ一致」が、まさにその見張りになっている。畳んだあとに平均の差がどこまで増えるかを見ること。</p>
+</section>
+<section class="part"><h2 id="s33">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>解像度</td><td>960 x 640(リサイズの確認で 1120 x 700)</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した(GPU への負荷を抑えるため。fps は 60 で頭打ち)</td></tr>
+</tbody>
+</table></div>
+<p>ディファードの計測(決めの構図)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>G-Buffer</td><td>960x640 x4枚 + 深度 = 15.8MB</td></tr>
+<tr><td>G-Buffer パス(CPU)</td><td>0.20〜0.29 ms</td></tr>
+<tr><td>ライティングパス(CPU)</td><td>0.18〜0.26 ms</td></tr>
+<tr><td>フォワードとディファードの差(自己チェックの確認用シーン)</td><td>平均 0.33% / 5% を超える画素 0.03%(<strong>全部が影の縁</strong>)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s34">自己チェック(14 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 52 自己チェック(G-Buffer・位置の復元・フォワードとの一致)===
+  [OK] <strong>平方根で詰めると暗部が潰れない</strong>(0.02〜1 での最大の相対誤差)  リニアの 8bit 8.8% / 平方根 2.7%
+  [OK] G-Buffer: カラー4枚が挿さっている(<strong>MRT が組めている</strong>)  4 枚
+  [OK] G-Buffer: 1画素 24B + 深度 3B  15.8MB
+  [OK] G-Buffer: 距離が CPU の計算と一致(2枚目の A)  焼いた 6.336m / 期待 6.344m
+  [OK] G-Buffer: 法線がビュー空間の床の法線と一致(2枚目の RGB)  内積 1.0000
+  [OK] G-Buffer: AO・粗さ・金属度が材質どおり(<strong>ORM の並び</strong>)  R 1.000 / G 0.698 / B 0.000
+  [OK] G-Buffer: ベースカラーは平方根で入り、2乗すると材質の色に戻る  入っている値 0.549(√0.30 = 0.548)→ 2乗 0.301
+  [OK] G-Buffer: 空は距離 0(何も描かれていない印)  0.000
+  [OK] <strong>位置の復元: 距離1つから世界の位置が戻る</strong>(1cm 以内)  ずれ 3.11mm(距離 6.34m)
+  [OK] SSAO: G-Buffer から作った遮蔽が、自前の幾何パスとほぼ一致  平均の差 0.0000
+  [OK] SSAO: 借りるときは<strong>幾何パスを1回も描かない</strong>(3回 → 2回)  幾何 0 回
+  [OK] <strong>フォワードとディファードで同じ絵</strong>(太陽・環境光・発光・影・IBL・SSAO 込み)  平均の相対差 0.33% / 5% を超える画素 0.03%
+  [OK] MIN_ROUGHNESS が textured.frag・deferred.frag・Pbr で一致  MIN_ROUGHNESS = 0.045
+  [OK] G-Buffer の出口の番号が GBuffer の定数と一致(layout の location)
+  すべて合格(G-Buffer・位置の復元・フォワードとの一致が仕様どおり)</code></pre></div>
+<h3 id="s35">検証の途中で分かったこと</h3>
+<p><strong>1. フォワードとの差は影の縁にしか無い</strong>。自己チェックの確認用シーン(床 + 立方体)を両方の描き方で描いて差を取ると、5% 以上ずれる画素が 0.03% あった。場所を塗って見ると<strong>全部が影の縁</strong>で、影を切るとちょうど 0 になる。</p>
+<p>原因は位置の精度で、16F の距離から戻した位置は数 mm ずれる(要点2)。フォワードは頂点シェーダで光の座標を作って補間しているので、<strong>影の縁で PCF の升目がたまに1つずれる</strong>。見た目には判別できない量なので設計はそのままにして、改造課題2に回した。SSAO を借りたことによる差(法線マップの有無)は 0.02% ぶんしか増えなかった。</p>
+<p><strong>2. Day 48 の自己チェックの期待値が Day 51 で直っていなかった</strong>。Day 51 でメニューに 9 項目足したのに、<code>RunDebugMenuCheck</code> の期待値は <code>181</code> のままで、実際は 190 項目あった(Day 51 のままだとこの1項目が落ちる)。<strong>Day 51 の reference も 190 に直してある</strong>(遡って直した)。今日さらに 4 項目足したので、今日の差分では <code>190 → 194</code> と見える。</p>
+</section>
+<footer class="end">Day 52a ディファードレンダリング(G-Buffer と、あとから光を当てる) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat } = Lab;
+
+// ============================================================
+//  共通: 数の詰め方
+// ============================================================
+// GPU と同じく float で丸める(0.7 は float では 0.69999999 なので 178 / 255 = 0.698 になる)
+const q8 = (v) => Math.round(Math.fround(Math.min(Math.max(v, 0), 1)) * 255) / 255;
+// 半精度(符号 1・指数 5・仮数 10)に丸める。非正規化数の刻みは 2^-24
+function half(x) {
+  if (x === 0 || !Number.isFinite(x)) return 0;
+  const a = Math.abs(x);
+  const step = a < 6.103515625e-5 ? 5.960464477539063e-8 : Math.pow(2, Math.floor(Math.log2(a)) - 10);
+  return Math.sign(x) * Math.round(a / step) * step;
+}
+const halfStep = (d) => Math.pow(2, Math.floor(Math.log2(d)) - 10);
+
+// ============================================================
+//  要点1〜3: G-Buffer を開く
+// ============================================================
+const v3 = (x, y, z) => [x, y, z];
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+// 材質: base(リニア)・粗さ・金属度・AO・発光。床は自己チェックの確認用シーンと同じ 0.30 / 0.7 / 0
+const MAT = {
+  floor: { base: [0.30, 0.30, 0.30], rough: 0.7, metal: 0, ao: 1, emis: [0, 0, 0] },
+  brick: { base: [0.42, 0.17, 0.12], rough: 0.85, metal: 0, ao: 1, emis: [0, 0, 0] },
+  wall: { base: [0.55, 0.50, 0.44], rough: 0.9, metal: 0, ao: 1, emis: [0, 0, 0] },
+  red: { base: [0.62, 0.10, 0.07], rough: 0.5, metal: 0, ao: 1, emis: [0, 0, 0] },
+  gold: { base: [1.0, 0.71, 0.29], rough: 0.35, metal: 1, ao: 1, emis: [0, 0, 0] },
+  lamp: { base: [0.04, 0.04, 0.04], rough: 0.6, metal: 0, ao: 1, emis: [4.0, 1.6, 0.5] },
+};
+const BOXES = [
+  { min: [-3.1, -0.1, -4.1], max: [3.5, 0, 5], m: MAT.floor },
+  { min: [-3.1, 0, -4.1], max: [3.5, 2.8, -4.0], m: MAT.brick },
+  { min: [-3.1, 0, -4.1], max: [-3.0, 2.8, 5], m: MAT.wall },
+  { min: [-1.7, 0, -1.9], max: [-0.5, 1.2, -0.7], m: MAT.red },
+  { min: [0.5, 0, -2.6], max: [1.3, 0.8, -1.8], m: MAT.gold },
+  { min: [-0.1, 0, 0.4], max: [0.25, 0.35, 0.75], m: MAT.lamp },
+];
+function trace(o, d, first) {
+  let best = null;
+  for (const b of BOXES) {
+    let t0 = -Infinity, t1 = Infinity, ax = -1, sg = 0, ok = true;
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(d[i]) < 1e-12) { if (o[i] < b.min[i] || o[i] > b.max[i]) { ok = false; break; } continue; }
+      const inv = 1 / d[i], ta = (b.min[i] - o[i]) * inv, tb = (b.max[i] - o[i]) * inv;
+      const en = Math.min(ta, tb), ex = Math.max(ta, tb);
+      if (en > t0) { t0 = en; ax = i; sg = d[i] > 0 ? -1 : 1; }
+      if (ex < t1) t1 = ex;
+      if (t0 > t1) { ok = false; break; }
+    }
+    if (!ok || t1 < 0 || t0 < 1e-6) continue;
+    if (first) return true;
+    if (!best || t0 < best.t) { const n = [0, 0, 0]; n[ax] = sg; best = { t: t0, n, m: b.m }; }
+  }
+  return first ? false : best;
+}
+const PI = Math.PI;
+// deferred.frag / textured.frag の CookTorrance(D・G・F の出口を外した版)。uPerceptualRoughness = 1、F0 = 0.04
+function cookTorrance(n, v, l, albedo, metal, rough) {
+  const nl = dot(n, l);
+  if (nl <= 0) return [[0, 0, 0], [0, 0, 0]];
+  const f0 = albedo.map((a) => 0.04 + (a - 0.04) * metal);
+  const nv = Math.max(dot(n, v), 1e-4), h = norm(add(v, l));
+  const nh = Math.max(dot(n, h), 0), vh = Math.max(dot(v, h), 0);
+  const r = Math.max(rough, 0.045), alpha = r * r, a2 = alpha * alpha;
+  const dd = nh * nh * (a2 - 1) + 1, D = a2 / (PI * dd * dd);
+  const k = (r + 1) * (r + 1) / 8, G = (nv / (nv * (1 - k) + k)) * (nl / (nl * (1 - k) + k));
+  const fw = Math.pow(Math.min(Math.max(1 - vh, 0), 1), 5);
+  const F = f0.map((x) => x + (1 - x) * fw);
+  const spec = F.map((x) => D * G * x / (4 * nv * nl));
+  const diff = F.map((x, i) => (1 - x) * (1 - metal) * albedo[i] / PI);
+  return [diff, spec];
+}
+const SUN_COLOR = [3.0, 2.6, 2.1], AMBIENT = [0.10, 0.12, 0.16];
+function shade(p, n, view, m, sun) {
+  const nl = Math.max(dot(n, sun), 0);
+  let shadow = 0;
+  // 影は太陽へ視線を飛ばして決める。1cm だけ法線の向きへ浮かせるのは、影のバイアス(Day 33)と同じ役目
+  if (nl > 0) shadow = trace(add(p, mul(n, 0.01)), sun, true) ? 0 : 1;
+  const [df, sp] = cookTorrance(n, view, sun, m.base, m.metal, m.rough);
+  return [0, 1, 2].map((i) => (df[i] + sp[i]) * SUN_COLOR[i] * nl * shadow + AMBIENT[i] * m.base[i] * m.ao + m.emis[i]);
+}
+const W = 288, H = 192, FOV = 60 * PI / 180;
+const EYE = [1.9, 1.7, 3.4], TARGET = [-0.4, 0.4, -1.6];
+const F = norm(sub(TARGET, EYE)), R = norm(cross(F, [0, 1, 0])), U = cross(R, F);
+const PS = [Math.tan(FOV / 2) * W / H, Math.tan(FOV / 2)];   // uProjScale
+const sky = (d) => { const t = Math.max(d[1], 0); return [0.30 + 0.25 * t, 0.42 + 0.25 * t, 0.62 + 0.3 * t]; };
+const gb = { path: 'def', view: 'lit', sunAz: 110, albedo: 'sqrt', depth: '16', forget: false, probe: null };
+let frame = null;
+function render() {
+  const az = gb.sunAz * PI / 180, el = 35 * PI / 180;
+  const sun = norm([Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)]);
+  const N = W * H;
+  const fw = new Float32Array(N * 3), df = new Float32Array(N * 3);
+  const g0 = new Float32Array(N * 3), g1 = new Float32Array(N * 3), g2 = new Float32Array(N * 4), g3 = new Float32Array(N * 3);
+  const exact = new Float32Array(N), errMm = new Float32Array(N), shadowFlip = new Uint8Array(N), skyMask = new Uint8Array(N);
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const i = py * W + px;
+      const nx = (px + 0.5) / W * 2 - 1, ny = 1 - (py + 0.5) / H * 2;
+      const d = norm(add(add(F, mul(R, nx * PS[0])), mul(U, ny * PS[1])));
+      const hit = trace(EYE, d, false);
+      if (!hit) {
+        const s = sky(d); fw.set(s, i * 3); df.set(s, i * 3); skyMask[i] = 1;
+        continue;   // G-Buffer は 0 のまま(距離 0 = 何も描かれていない)
+      }
+      const p = add(EYE, mul(d, hit.t)), m = hit.m, view = mul(d, -1);
+      // --- フォワード: 表面を決めて、その場で光を当てる
+      fw.set(shade(p, hit.n, view, m, sun), i * 3);
+      // --- G-Buffer パス: 4つの出口に書く
+      const depth = hit.t * dot(d, F);
+      exact[i] = depth;
+      const enc = gb.albedo === 'sqrt' ? m.base.map((c) => q8(Math.sqrt(c))) : m.base.map(q8);
+      g0.set(enc, i * 3);
+      if (!gb.forget) {
+        g1.set([q8(m.ao), q8(m.rough), q8(m.metal)], i * 3);
+        const vn = [dot(hit.n, R), dot(hit.n, U), -dot(hit.n, F)];
+        g2.set([half(vn[0]), half(vn[1]), half(vn[2]), gb.depth === '16' ? half(depth) : Math.fround(depth)], i * 4);
+        g3.set(m.emis.map(half), i * 3);
+      }
+    }
+  }
+  // --- ライティングパス: G-Buffer を開いて、位置を距離から戻す
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const i = py * W + px;
+      const dz = g2[i * 4 + 3];
+      if (dz <= 0) {   // discard。先に描いてある空が残る
+        if (!skyMask[i]) { const nx = (px + 0.5) / W * 2 - 1, ny = 1 - (py + 0.5) / H * 2; df.set(sky(norm(add(add(F, mul(R, nx * PS[0])), mul(U, ny * PS[1])))), i * 3); }
+        continue;
+      }
+      const nx = (px + 0.5) / W * 2 - 1, ny = 1 - (py + 0.5) / H * 2;
+      const vp = [nx * PS[0] * dz, ny * PS[1] * dz, -dz];                     // ssao.frag の ViewPosition と同じ
+      const wp = add(add(add(EYE, mul(R, vp[0])), mul(U, vp[1])), mul(F, -vp[2]));
+      const vn = [g2[i * 4], g2[i * 4 + 1], g2[i * 4 + 2]];
+      const n = norm(add(add(mul(R, vn[0]), mul(U, vn[1])), mul(F, -vn[2])));
+      const enc = [g0[i * 3], g0[i * 3 + 1], g0[i * 3 + 2]];
+      const base = gb.albedo === 'sqrt' ? enc.map((c) => c * c) : enc;
+      const m = { base, ao: g1[i * 3], rough: g1[i * 3 + 1], metal: g1[i * 3 + 2], emis: [g3[i * 3], g3[i * 3 + 1], g3[i * 3 + 2]] };
+      df.set(shade(wp, n, norm(sub(EYE, wp)), m, sun), i * 3);
+      // 復元した位置のずれ(正しい位置との差)
+      const t = exact[i] / dot(norm(add(add(F, mul(R, nx * PS[0])), mul(U, ny * PS[1]))), F);
+      const truth = add(EYE, mul(norm(add(add(F, mul(R, nx * PS[0])), mul(U, ny * PS[1]))), t));
+      errMm[i] = Math.hypot(...sub(wp, truth)) * 1000;
+      // 影の向こう側に転んだか(正しい位置と、戻した位置で、太陽が見えるかが違う)
+      if (dot(n, sun) > 0) shadowFlip[i] = trace(add(truth, mul(n, 0.01)), sun, true) !== trace(add(wp, mul(n, 0.01)), sun, true) ? 1 : 0;
+    }
+  }
+  // Program.CompareImages と同じ比べ方(明るさに対する相対差。分母に 0.05 の下駄)
+  let total = 0, out = 0, outEdge = 0;
+  const rel = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const la = fw[i * 3] + fw[i * 3 + 1] + fw[i * 3 + 2], lb = df[i * 3] + df[i * 3 + 1] + df[i * 3 + 2];
+    const r = Math.abs(la - lb) / Math.max(Math.max(la, lb), 0.05);
+    rel[i] = r; total += r;
+    if (r > 0.05) { out++; if (shadowFlip[i]) outEdge++; }
+  }
+  frame = { fw, df, g0, g1, g2, g3, exact, errMm, rel, mean: total / N, out: out / N, outCount: out, outEdge, skyMask };
+}
+const tone = (c) => Math.round(255 * Math.pow(c / (1 + c), 1 / 2.2));
+let off = null;
+function drawGb() {
+  if (!frame) render();
+  const { ctx, w, h } = fit($('gb-canvas'));
+  if (!off) { off = document.createElement('canvas'); off.width = W; off.height = H; }
+  const img = new ImageData(W, H), o = img.data, f = frame;
+  const lit = gb.path === 'fwd' ? f.fw : f.df;
+  for (let i = 0; i < W * H; i++) {
+    let r = 0, g = 0, b = 0;
+    const sq = gb.albedo === 'sqrt';
+    switch (gb.view) {
+      case 'lit': r = tone(lit[i * 3]); g = tone(lit[i * 3 + 1]); b = tone(lit[i * 3 + 2]); break;
+      case 'albedo': { const e = [f.g0[i * 3], f.g0[i * 3 + 1], f.g0[i * 3 + 2]].map((c) => (sq ? c * c : c)); [r, g, b] = e.map((c) => Math.round(255 * Math.pow(c, 1 / 2.2))); break; }
+      case 'normal': if (f.g2[i * 4 + 3] > 0 || f.g2[i * 4] || f.g2[i * 4 + 1] || f.g2[i * 4 + 2]) { r = (f.g2[i * 4] * 0.5 + 0.5) * 255; g = (f.g2[i * 4 + 1] * 0.5 + 0.5) * 255; b = (f.g2[i * 4 + 2] * 0.5 + 0.5) * 255; } break;
+      case 'depth': r = g = b = Math.min(f.g2[i * 4 + 3] / 14, 1) * 255; break;
+      case 'metal': r = g = b = f.g1[i * 3 + 2] * 255; break;
+      case 'rough': r = g = b = f.g1[i * 3 + 1] * 255; break;
+      case 'emis': r = tone(f.g3[i * 3]); g = tone(f.g3[i * 3 + 1]); b = tone(f.g3[i * 3 + 2]); break;
+      case 'diff': {
+        const base = 0.25 * (tone(f.fw[i * 3]) + tone(f.fw[i * 3 + 1]) + tone(f.fw[i * 3 + 2])) / 3;
+        const x = f.rel[i];
+        if (x > 0.05) { r = 255; g = 70; b = 50; } else if (x > 0.005) { r = 230; g = 170; b = 40; } else { r = g = b = base + Math.min(x / 0.005, 1) * 60; }
+        break;
+      }
+    }
+    o[i * 4] = r; o[i * 4 + 1] = g; o[i * 4 + 2] = b; o[i * 4 + 3] = 255;
+  }
+  off.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  const s = Math.min(w / W, h / H), dw = W * s, dh = H * s;
+  ctx.drawImage(off, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  gbGeom = { x: (w - dw) / 2, y: (h - dh) / 2, s };
+  if (gb.view === 'diff') {
+    // 5% を超える画素は数個しか無いので、丸で囲んで見つけやすくする
+    ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2;
+    for (let i = 0; i < W * H; i++) {
+      if (f.rel[i] <= 0.05) continue;
+      ctx.beginPath(); ctx.arc(gbGeom.x + ((i % W) + 0.5) * s, gbGeom.y + (Math.floor(i / W) + 0.5) * s, 9, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  if (gb.probe) {
+    const [px, py] = gb.probe;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(gbGeom.x + px * s - 3, gbGeom.y + py * s - 3, s + 6, s + 6);
+  }
+  const fmtMB = (bytes) => (bytes / 1048576).toFixed(1);
+  $('gb-hud').textContent = gb.path === 'fwd'
+    ? '描画:フォワード  幾何パス:3回'
+    : `描画:ディファード  G-Buffer:${W}x${H}x4枚 ${fmtMB(W * H * 27)}MB  幾何パス:2回`;
+  $('gb-sun-out').textContent = `${gb.sunAz}°`;
+  $('gb-stats').innerHTML =
+    stat('1画素', '27', ' <small>B(4 + 4 + 8 + 8 + 深度 3)。960x640 で 15.8MB</small>') +
+    stat('フォワードとの平均の相対差', (f.mean * 100).toFixed(2), ' <small>%</small>') +
+    stat('5% を超える画素', (f.out * 100).toFixed(2), ` <small>%(${f.outCount} 画素。うち影の境目をまたいだもの ${f.outEdge})</small>`);
+  let note;
+  if (gb.forget) note = 'glDrawBuffers を忘れると、出口 1〜3 の書き込みは捨てられ、0 番(アルベド)だけが入る。距離が 0 のままなので、ライティングパスは全画素を「何も描かれていない」として捨て、空しか残らない。エラーは1つも出ない。';
+  else if (gb.view === 'diff' && gb.albedo === 'linear') note = 'リニアのまま 8bit に入れると、暗い材質(レンガの目地のような 0.1 前後)の色が段で丸められ、差が面全体に薄く広がる。平方根に戻すと誤差は 1/3 になる。';
+  else if (gb.view === 'diff') note = 'オレンジは 0.5%〜5%、赤(丸で囲んだ画素)は 5% を超える差。赤は影の縁にしか出ない——16F の距離から戻した位置が数 mm ずれ、境目の画素が影の向こう側に転ぶ。32F にすると赤が消える。面に薄く広がる差は、粗さを 8bit に入れた丸め(0.7 → 0.698)と、平方根で詰めたベースカラーの丸め。';
+  else if (gb.view === 'albedo') note = 'アルベドには陰影が1つも無い。影も光の向きも入らず、材質の色だけになる——光を当てるのは次のパスの仕事。';
+  else if (gb.view === 'normal') note = '法線はビュー空間。床は上を向いているので薄緑、左の壁は右(+x)を向いているのでピンクになる。カメラを回せば色が変わる。';
+  else if (gb.view === 'depth') note = '距離は奥ほど白い(14m で白)。空は 0 のまま——「何も描かれていない」の印。';
+  else if (gb.view === 'metal') note = '金属度は金色の箱だけが白い。';
+  else if (gb.view === 'emis') note = '発光は小さな箱だけ。1.0 を超える値が入るので 16F にしてある。';
+  else note = gb.path === 'fwd' ? 'フォワード: 表面を決めたその場で光を当てる。ディファードに切り替えても、絵はほとんど変わらない。' : 'ディファード: G-Buffer に表面を置き、全画面の光のパスで当て直した絵。フォワードと見比べても違いは見えない。差は「フォワードとの差」で見る。';
+  $('gb-note').textContent = note;
+  drawProbe();
+}
+let gbGeom = { x: 0, y: 0, s: 1 };
+function drawProbe() {
+  const f = frame;
+  if (!gb.probe) { $('gb-probe').textContent = '絵の上にポインタを置くと、その画素の G-Buffer の中身が出る。'; return; }
+  const [px, py] = gb.probe, i = py * W + px;
+  if (f.skyMask[i]) { $('gb-probe').textContent = `画素 (${px}, ${py}): 空。G-Buffer は全部 0(距離 0 = 何も描かれていない)`; return; }
+  const e = f.g0[i * 3], dec = gb.albedo === 'sqrt' ? e * e : e;
+  $('gb-probe').textContent =
+    `画素 (${px}, ${py})  0: 入っている値 ${e.toFixed(3)} → ${gb.albedo === 'sqrt' ? '2乗' : 'そのまま'} ${dec.toFixed(3)}` +
+    `  1: R ${f.g1[i * 3].toFixed(3)} / G ${f.g1[i * 3 + 1].toFixed(3)} / B ${f.g1[i * 3 + 2].toFixed(3)}` +
+    `  2: 距離 ${f.g2[i * 4 + 3].toFixed(4)}m(正しくは ${f.exact[i].toFixed(4)}m)  戻した位置のずれ ${f.errMm[i].toFixed(2)}mm`;
+}
+$('gb-canvas').addEventListener('pointermove', (ev) => {
+  const r = $('gb-canvas').getBoundingClientRect();
+  const px = Math.floor((ev.clientX - r.left - gbGeom.x) / gbGeom.s), py = Math.floor((ev.clientY - r.top - gbGeom.y) / gbGeom.s);
+  gb.probe = px >= 0 && py >= 0 && px < W && py < H ? [px, py] : null;
+  drawGb();
+});
+seg('gb-path', (v) => { gb.path = v; drawGb(); });
+seg('gb-view', (v) => { gb.view = v; drawGb(); });
+seg('gb-albedo', (v) => { gb.albedo = v; render(); drawGb(); });
+seg('gb-depth', (v) => { gb.depth = v; render(); drawGb(); });
+$('gb-forget').addEventListener('change', (e) => { gb.forget = e.target.checked; render(); drawGb(); });
+let sunTimer = 0;
+$('gb-sun').addEventListener('input', (e) => {
+  gb.sunAz = Number(e.target.value); $('gb-sun-out').textContent = `${gb.sunAz}°`;
+  clearTimeout(sunTimer); sunTimer = setTimeout(() => { render(); drawGb(); }, 30);
+});
+gb.probe = [150, 150];
+render(); drawGb();
+
+// ============================================================
+//  要点2: 距離の刻み
+// ============================================================
+const pr = { t: 0.6, near: 0.1, far: 100 };
+const distOf = (t) => 0.1 * Math.pow(1000, t);
+// 24bit の深度の刻みを距離に直したもの: d(深度)/d(距離) = f·n / ((f − n)·d²)
+const depthStep = (d) => (pr.far - pr.near) * d * d / (pr.far * pr.near * 16777216);
+const f32Step = (d) => Math.pow(2, Math.floor(Math.log2(d)) - 23);
+function drawPrec() {
+  const { ctx, w, h } = fit($('prec-canvas'));
+  const L = 64, Rr = w - 14, T = 10, B = h - 30;
+  const X = (d) => L + Math.log10(d / 0.1) / 3 * (Rr - L);
+  const ymin = -9, ymax = 0;   // 1e-9m(1nm)〜1m
+  const Y = (s) => B - (Math.log10(s) - ymin) / (ymax - ymin) * (B - T);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.strokeStyle = tok('--grid'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1;
+  const labels = { '-9': '1nm', '-8': '10nm', '-7': '0.1µm', '-6': '1µm', '-5': '10µm', '-4': '0.1mm', '-3': '1mm', '-2': '1cm', '-1': '10cm', '0': '1m' };
+  for (let e = ymin; e <= ymax; e++) { ctx.beginPath(); ctx.moveTo(L, Y(10 ** e)); ctx.lineTo(Rr, Y(10 ** e)); ctx.stroke(); ctx.fillText(labels[e], 4, Y(10 ** e) + 4); }
+  for (const d of [0.1, 1, 10, 100]) { ctx.beginPath(); ctx.moveTo(X(d), T); ctx.lineTo(X(d), B); ctx.stroke(); ctx.fillText(`${d}m`, X(d) - 10, h - 12); }
+  const curve = (fn, color, wd = 2) => {
+    ctx.strokeStyle = color; ctx.lineWidth = wd; ctx.beginPath();
+    for (let k = 0; k <= 600; k++) { const d = 0.1 * Math.pow(1000, k / 600), s = fn(d); const x = X(d), y = Y(Math.max(s, 1e-9)); if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+    ctx.stroke();
+  };
+  curve(halfStep, tok('--expl'));
+  curve(depthStep, tok('--semi'));
+  curve(f32Step, tok('--muted'), 1.5);
+  const d = distOf(pr.t);
+  ctx.strokeStyle = tok('--ink'); ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(d), T); ctx.lineTo(X(d), B); ctx.stroke(); ctx.setLineDash([]);
+  $('prec-d-out').textContent = `${d < 1 ? d.toFixed(3) : d.toFixed(2)}m`;
+  $('prec-legend').innerHTML = `<span class="lg"><i class="chip" style="background:${tok('--expl')}"></i>16F の距離(reference)</span><span class="lg"><i class="chip" style="background:${tok('--semi')}"></i>24bit の深度(near ${pr.near} / far ${pr.far})</span><span class="lg"><i class="chip" style="background:${tok('--muted')}"></i>32F の距離</span>`;
+  const hs = halfStep(d), ds = depthStep(d);
+  $('prec-stats').innerHTML =
+    stat('16F の刻み', (hs * 1000).toFixed(hs < 0.001 ? 3 : 1), ' <small>mm(ずれは最大でこの半分)</small>') +
+    stat('24bit の深度の刻み', (ds * 1000).toFixed(ds < 0.001 ? 4 : 2), ' <small>mm</small>') +
+    stat('16F ÷ 24bit', (hs / ds).toFixed(hs / ds < 10 ? 2 : 0), ' <small>倍</small>');
+  // 入れ替わる距離: halfStep(d) = depthStep(d) を探す
+  let cross = null;
+  for (let k = 0; k <= 4000; k++) { const x = 0.01 * Math.pow(1e6, k / 4000); if (depthStep(x) > halfStep(x)) { cross = x; break; } }
+  $('prec-note').textContent = `16F の刻みは距離に比例して粗くなる(2倍ごとに段が1つ上がる。4〜8m で 3.9mm、8〜16m で 7.8mm)。24bit の深度は 1/z に比例して刻むので、刻みは距離の2乗で粗くなる——手前ほど 16F よりずっと細かい。` +
+    (cross && cross > pr.far ? ` near ${pr.near}m / far ${pr.far}m では、2本が入れ替わるのは約 ${cross.toFixed(0)}m で、遠クリップ面より奥になる。` : cross ? ` near ${pr.near}m / far ${pr.far}m では、約 ${cross.toFixed(1)}m より奥で 24bit のほうが粗くなる。` : '');
+}
+$('prec-d').addEventListener('input', (e) => { pr.t = Number(e.target.value); drawPrec(); });
+seg('prec-near', (v) => { pr.near = Number(v); drawPrec(); });
+drawPrec();
+
+// ============================================================
+//  要点3: 8bit にベースカラーを入れる
+// ============================================================
+const qa = { top: 0.05, bits: 8 };
+function quant(v, bits) { const m = (1 << bits) - 1; return Math.round(Math.min(Math.max(v, 0), 1) * m) / m; }
+// Program.AlbedoQuantizationError と同じ回し方(0.02 から 0.0005 刻み)
+function worst(bits) {
+  let lw = 0, sw = 0;
+  const f = Math.fround;
+  for (let v = f(0.02); v <= 1; v = f(v + f(0.0005))) {
+    lw = Math.max(lw, Math.abs(quant(v, bits) - v) / v);
+    const e = quant(Math.sqrt(v), bits); sw = Math.max(sw, Math.abs(e * e - v) / v);
+  }
+  return [lw, sw];
+}
+function drawQ8() {
+  const { ctx, w, h } = fit($('q8-canvas'));
+  const L = 120, Rr = w - 14, bandH = 34, gap = 6;
+  const rows = [['正しい値', (v) => v], ['リニアの 8bit', (v) => quant(v, qa.bits)], ['平方根で詰める', (v) => { const e = quant(Math.sqrt(v), qa.bits); return e * e; }]];
+  if (qa.bits !== 8) { rows[1][0] = `リニアの ${qa.bits}bit`; }
+  ctx.font = '12px ' + tok('--font-body'); ctx.fillStyle = tok('--muted');
+  const gain = 1 / qa.top;   // 帯の右端が白になる露出
+  rows.forEach(([name, fn], r) => {
+    const y = 8 + r * (bandH + gap);
+    ctx.fillStyle = tok('--muted'); ctx.fillText(name, 6, y + bandH / 2 + 4);
+    for (let x = L; x < Rr; x++) {
+      const v = (x - L + 0.5) / (Rr - L) * qa.top, c = Math.min(fn(v) * gain, 1);
+      const s = Math.round(255 * Math.pow(c, 1 / 2.2));
+      ctx.fillStyle = `rgb(${s},${s},${s})`; ctx.fillRect(x, y, 1, bandH);
+    }
+  });
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  const by = 8 + 3 * (bandH + gap);
+  ctx.fillText('0', L, by + 2); ctx.fillText(String(qa.top), Rr - 30, by + 2);
+  // 相対誤差のグラフ
+  const T2 = by + 18, B2 = h - 24;
+  const X = (v) => L + Math.log10(v / 0.02) / Math.log10(50) * (Rr - L);
+  const Y = (e) => B2 - Math.min(e / 0.2, 1) * (B2 - T2);
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (const e of [0, 0.05, 0.1, 0.15, 0.2]) { ctx.beginPath(); ctx.moveTo(L, Y(e)); ctx.lineTo(Rr, Y(e)); ctx.stroke(); ctx.fillText(`${(e * 100).toFixed(0)}%`, L - 34, Y(e) + 4); }
+  for (const v of [0.02, 0.05, 0.1, 0.2, 0.5, 1]) ctx.fillText(String(v), X(v) - 8, h - 8);
+  ctx.fillText('相対誤差', 6, T2 + 10);
+  const plot = (fn, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.2; ctx.beginPath();
+    for (let k = 0; k <= 1400; k++) { const v = 0.02 * Math.pow(50, k / 1400), e = Math.abs(fn(v) - v) / v; if (k === 0) ctx.moveTo(X(v), Y(e)); else ctx.lineTo(X(v), Y(e)); }
+    ctx.stroke();
+  };
+  plot(rows[1][1], tok('--expl'));
+  plot(rows[2][1], tok('--semi'));
+  const [lw, sw] = worst(qa.bits);
+  $('q8-stats').innerHTML =
+    stat(`リニアの ${qa.bits}bit`, (lw * 100).toFixed(1), ' <small>%(0.02〜1 での最大の相対誤差)</small>') +
+    stat('平方根で詰める', (sw * 100).toFixed(1), ' <small>%</small>') +
+    stat('0 に潰れる値', `&lt; ${(0.5 / ((1 << qa.bits) - 1)).toFixed(4)}`, ` <small>リニア / 平方根なら &lt; ${Math.pow(0.5 / ((1 << qa.bits) - 1), 2).toExponential(1)}</small>`);
+  $('q8-note').innerHTML = `赤がリニア、青が平方根。リニアは段の幅が 0〜1 で一定なので、値が小さいほど1段が値に対して大きくなり、暗い側で誤差が跳ね上がる。平方根で詰めると暗い側に段が寄り、誤差の山が 1/3 に下がる。帯の上限を 0.02 まで絞ると、リニアの帯は数段の階段になる。`;
+}
+seg('q8-top', (v) => { qa.top = Number(v); drawQ8(); });
+seg('q8-bits', (v) => { qa.bits = Number(v); drawQ8(); });
+drawQ8();
+window.addEventListener('resize', () => { drawGb(); drawPrec(); drawQ8(); });
+})();
+</script>
+</body>
+</html>

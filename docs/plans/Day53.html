@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 53 Forward+ / クラスタードライティング(升目で光を選り分けるフォワード)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. フォワードの無駄は「届かない光の距離を測ること」</a></li><li class="l3"><a href="#s7">2. タイルだけでは足りない — 視線に沿った光が全部入る</a></li><li class="l3"><a href="#s8">3. 奥行きは等比に切る — どの深さの升目も同じ形になる</a></li><li class="l3"><a href="#s9">4. 深度を使わないから、振り分けは CPU でできる</a></li><li class="l3"><a href="#s10">5. 振り分けは2段 — 粗い箱で絞り、升目の箱で確かめる</a></li><li class="l3"><a href="#s11">6. 升目の一覧は計数ソートで詰める — 絵が1ビットも変わらない理由</a></li><li class="l3"><a href="#s12">7. テクスチャバッファ — OpenGL 3.3 で大きな配列を画素シェーダに渡す道</a></li><li class="l3"><a href="#s13">8. 升目は光より小さくないと効かない — Forward+ の代償の形</a></li><li class="l3"><a href="#s14">9. 平行投影では使えない / 位置の精度の問題は無い</a></li><li class="l3"><a href="#s15">10. 今日入れなかったもの</a></li><li class="l2"><a href="#s16">前Dayからの差分概要</a></li><li class="l3"><a href="#s17">新規ファイル</a></li><li class="l3"><a href="#s18">変更ファイル</a></li><li class="l3"><a href="#s19">写経する順番</a></li><li class="l2"><a href="#s20">設計書</a></li><li class="l3"><a href="#s21">3つの描き方の設計比較 — どこで分かれ、どこで合流するか</a></li><li class="l3"><a href="#s22">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s23">1つの光が升目に入るまで — 2段の絞り込み</a></li><li class="l3"><a href="#s24">1画素が光を回すまで — 深度バッファを読まずに升目を引く</a></li><li class="l3"><a href="#s25">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. <code>F2</code>: 描き方を3つ回しても、絵は変わらない</a></li><li class="l3"><a href="#s28">2. 光を 1024 個にする: フォワードだけが光を落とす</a></li><li class="l3"><a href="#s29">3. <code>F3</code>: ヒートマップ — 画素ごとに回している光の数</a></li><li class="l3"><a href="#s30">4. <code>F4</code>: 切り身を 1 → 64 枚にする</a></li><li class="l3"><a href="#s31">5. <code>F3</code> をもう1回: 切り口</a></li><li class="l3"><a href="#s32">6. <code>F5</code>: タイルの大きさ</a></li><li class="l3"><a href="#s33">7. <code>F6</code>: 振り分けを止めて、カメラを回す</a></li><li class="l3"><a href="#s34">8. <code>F7</code>: 内訳</a></li><li class="l3"><a href="#s35">9. <code>F8</code>: 計測</a></li><li class="l3"><a href="#s36">10. <code>F9</code>: 自己チェックが 23 項目すべて合格</a></li><li class="l3"><a href="#s37">11. Forward+ はどの絵でも降りない</a></li><li class="l3"><a href="#s38">12. Day 39〜52 の絵が1つも壊れていない</a></li><li class="l2"><a href="#s39">改造課題</a></li><li class="l3"><a href="#s40">課題1(易): 奥行きを等間隔に切ってみる</a></li><li class="l3"><a href="#s41">課題2(中): クラスタードディファード — 光の球をやめる</a></li><li class="l3"><a href="#s42">課題3(難): 粒に点光源を当てる</a></li><li class="l2"><a href="#s43">動作確認済み環境</a></li><li class="l3"><a href="#s44">自己チェック(23 項目すべて合格)</a></li><li class="l3"><a href="#s45">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 8 / Day 53 / 計画書</p>
+  <h1>Forward+ / クラスタードライティング(升目で光を選り分けるフォワード)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. フォワードの無駄は「届かない光の距離を測ること」</a></li><li class="l3"><a href="#s7">2. タイルだけでは足りない — 視線に沿った光が全部入る</a></li><li class="l3"><a href="#s8">3. 奥行きは等比に切る — どの深さの升目も同じ形になる</a></li><li class="l3"><a href="#s9">4. 深度を使わないから、振り分けは CPU でできる</a></li><li class="l3"><a href="#s10">5. 振り分けは2段 — 粗い箱で絞り、升目の箱で確かめる</a></li><li class="l3"><a href="#s11">6. 升目の一覧は計数ソートで詰める — 絵が1ビットも変わらない理由</a></li><li class="l3"><a href="#s12">7. テクスチャバッファ — OpenGL 3.3 で大きな配列を画素シェーダに渡す道</a></li><li class="l3"><a href="#s13">8. 升目は光より小さくないと効かない — Forward+ の代償の形</a></li><li class="l3"><a href="#s14">9. 平行投影では使えない / 位置の精度の問題は無い</a></li><li class="l3"><a href="#s15">10. 今日入れなかったもの</a></li><li class="l2"><a href="#s16">前Dayからの差分概要</a></li><li class="l3"><a href="#s17">新規ファイル</a></li><li class="l3"><a href="#s18">変更ファイル</a></li><li class="l3"><a href="#s19">写経する順番</a></li><li class="l2"><a href="#s20">設計書</a></li><li class="l3"><a href="#s21">3つの描き方の設計比較 — どこで分かれ、どこで合流するか</a></li><li class="l3"><a href="#s22">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s23">1つの光が升目に入るまで — 2段の絞り込み</a></li><li class="l3"><a href="#s24">1画素が光を回すまで — 深度バッファを読まずに升目を引く</a></li><li class="l3"><a href="#s25">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. <code>F2</code>: 描き方を3つ回しても、絵は変わらない</a></li><li class="l3"><a href="#s28">2. 光を 1024 個にする: フォワードだけが光を落とす</a></li><li class="l3"><a href="#s29">3. <code>F3</code>: ヒートマップ — 画素ごとに回している光の数</a></li><li class="l3"><a href="#s30">4. <code>F4</code>: 切り身を 1 → 64 枚にする</a></li><li class="l3"><a href="#s31">5. <code>F3</code> をもう1回: 切り口</a></li><li class="l3"><a href="#s32">6. <code>F5</code>: タイルの大きさ</a></li><li class="l3"><a href="#s33">7. <code>F6</code>: 振り分けを止めて、カメラを回す</a></li><li class="l3"><a href="#s34">8. <code>F7</code>: 内訳</a></li><li class="l3"><a href="#s35">9. <code>F8</code>: 計測</a></li><li class="l3"><a href="#s36">10. <code>F9</code>: 自己チェックが 23 項目すべて合格</a></li><li class="l3"><a href="#s37">11. Forward+ はどの絵でも降りない</a></li><li class="l3"><a href="#s38">12. Day 39〜52 の絵が1つも壊れていない</a></li><li class="l2"><a href="#s39">改造課題</a></li><li class="l3"><a href="#s40">課題1(易): 奥行きを等間隔に切ってみる</a></li><li class="l3"><a href="#s41">課題2(中): クラスタードディファード — 光の球をやめる</a></li><li class="l3"><a href="#s42">課題3(難): 粒に点光源を当てる</a></li><li class="l2"><a href="#s43">動作確認済み環境</a></li><li class="l3"><a href="#s44">自己チェック(23 項目すべて合格)</a></li><li class="l3"><a href="#s45">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>Phase 8(デモ推奨編)の2日目</strong>。昨日(Day 52)は描き方を2回に分けるディファードで、光を最大 1024 個まで増やした。今日はもう1つの答え、<strong>Forward+</strong> を作って、同じ多光源を<strong>フォワードのまま</strong>描く。</p>
+<p>ロードマップの題は「Day 52 との設計比較」。だから今日は、ディファードと<strong>同じ光・同じ絵</strong>を別の段取りで描き、<strong>何を払って、何を払わずに済ませたか</strong>を並べる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 52 ディファード</th><th>Day 53 Forward+</th></tr></thead>
+<tbody>
+<tr><td>光を当てる場所</td><td>ライティングパス(三角形を見ない)</td><td><strong>いつもの本描画</strong>(<code>textured.frag</code>)</td></tr>
+<tr><td>光を選ぶ方法</td><td>光の球を描き、覆った画素だけ塗る</td><td>画面を升目に切り、升目ごとに光の一覧を作る</td></tr>
+<tr><td>中間データ</td><td>G-Buffer 15.8MB</td><td><strong>光の一覧 76KB</strong></td></tr>
+<tr><td>半透明・材質の分岐</td><td>描けない(1画素に表面が1つ)</td><td>そのまま描ける(フォワードなので)</td></tr>
+<tr><td>余分に払うもの</td><td>帯域(G-Buffer を書いて読む)、球のドローコール</td><td><strong>CPU の振り分け</strong>(1024 個で 0.2〜0.7ms)</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>今日いちばん意外だったのは、フォワードと1ビットも違わなかったこと</strong></p>
+<p>夜・64 個の光で、フォワードと Forward+ の絵を読み返して差を取ると、<strong>最大の差が 0</strong> だった(ディファードとは 0.30% 違う)。同じ関数(<code>PointLightContribution</code>)を、同じ順番(光の番号の小さい順)で足しているから——升目に入らなかった光は、フォワードでも「0 を足していた」だけなので、足さなくても和は1ビットも変わらない。「どの光を回すか」を選ぶことが、<strong>絵を1画素も変えない最適化</strong>になっている(要点6)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「Forward+」ページで <code>F2</code> を押すと、描き方が フォワード → ディファード → Forward+ と回る——3つとも絵は変わらない。Forward+ は 1024 個の光をフォワードのまま描き、<code>F3</code> のヒートマップで「画素ごとに何個の光を回しているか」が見える。<code>F4</code> で奥行きの切り身を 1 枚(タイルだけ)にすると画面が赤く焼け、64 枚にすると黄から緑へ下がる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「Forward+」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>描き方 フォワード → ディファード → Forward+。<strong>今日の到達点</strong>。3つとも同じ絵</td></tr>
+<tr><td><code>F3</code></td><td>クラスターを見る(通常 → 光の数 → 切り口)。<strong>Forward+ の代償そのもの</strong></td></tr>
+<tr><td><code>F4</code></td><td>奥行きの切り身(1 / 4 / 16 / 64 枚)。<strong>1 はタイルだけ</strong></td></tr>
+<tr><td><code>F5</code></td><td>タイルの大きさ(32 / 64 / 128 画素)</td></tr>
+<tr><td><code>F6</code></td><td>振り分けを止める。止めてカメラを回すと、光が<strong>タイルの形に四角く欠ける</strong></td></tr>
+<tr><td><code>F7</code></td><td>内訳(升目の数・切れ目の深さ・光の一覧の大きさ)</td></tr>
+<tr><td><code>F8</code></td><td>計測(光の数ごとに3つの描き方を測る。切り身の数ごとにも)</td></tr>
+<tr><td><code>F9</code></td><td>今日の自己チェック(23 項目)</td></tr>
+</tbody>
+</table></div>
+<p>光の数と夜は昨日のページ(「ディファード」の <code>F3</code> / <code>F4</code>)にある。<code>F1</code> を押せば1ページ先の Forward+ に戻れる。</p>
+<p><strong>Forward+ はどの絵でも使える</strong>。ディファードはデモ v1 のときだけだった(材質グリッドと成分表示が乗らない。Day 52a の「今日残した歪み」の4つ目)。Forward+ は材質グリッドでもモデル単体でも成分表示でもそのまま動く——表面を G-Buffer に書き出さない、<strong>ただのフォワード</strong>だから。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「光の一覧を升目に切って渡す」</strong>。Day 52 のフォワードは全部の光を uniform の配列で渡し、画素ごとに全部回していた。今日は画面を升目(クラスター)に切り、升目ごとに「ここに届きうる光」の一覧をCPU で先に作る。画素シェーダは<strong>自分の升目の一覧だけ</strong>を回す。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>uvec2 cluster = texelFetch(uClusters, ClusterIndex(clusterCoord)).rg;   // (始まり, 数)
+
+for (uint i = 0u; i &lt; cluster.y; i++)
+{
+    int light = int(texelFetch(uLightIndices, int(cluster.x + i)).r);    // 光の番号
+    pointLight += PointLightContribution(
+        texelFetch(uLightData, light * 2), texelFetch(uLightData, (light * 2) + 1).rgb, ...);
+}</code></pre></div>
+<p>1周の中身は Day 52 のループと1文字も違わない。変わったのは「どの光を回すか」だけで、<strong>BRDF は1つも増えていない</strong>——昨日ディファードのために書き写した3つ目の BRDF と、ここが対照的。</p>
+<p><strong>2つ目は「奥行きも切る」</strong>。画面のタイル(64 画素角)だけだと、タイルを覗く視線に沿って並ぶ光が全部入る——手前の床の画素でも、20m 先の光まで回すことになる。奥行きを<strong>等比に</strong>切ると、画素の深さの近くにある光だけに絞れる(要点2・3)。</p>
+<div class="code"><pre><code>  決めの構図・夜・光 1024 個          1升あたりの光(光の入った升目の平均 / 最大)
+  1 枚(タイルだけ)    150 升       70 個 / 234 個
+  16 枚                2400 升       37 個 / 178 個
+  64 枚                9600 升       19 個 /  72 個</code></pre></div>
+<p><strong>3つ目は「深度を使わないから、CPU で振り分けられる」</strong>。升目の形はカメラの射影だけで決まるので、何が描かれるかを知らなくても作れる。元祖の Forward+(タイルだけ)は、深度を先に描いてタイルごとの深さの範囲を測る必要があり、それは GPU でしかできない。奥行きを先に切ってしまうクラスタードなら、CPU で 1024 個を 0.2〜0.7ms で振り分けられる(要点4)。GPU へ移すのは Day 57(コンピュートシェーダ)の仕事になる。</p>
+<h3 id="s3">今日は Render とシェーダが主役</h3>
+<p>差分は <code>Render/</code> に新規4本(<code>LightingPath</code> / <code>BufferTexture</code> / <code>ClusterGrid</code> / <code>ClusteredLighting</code>)と<code>Shader</code> の1メソッド、<code>textured.frag</code> のループの分岐、そして <code>Program.cs</code>。<strong>新しいシェーダは1本も無い</strong>。<code>Demo/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <code>Physics/</code> も <code>Text/</code> も <code>Audio/</code> も <code>Game/</code> も1行も変わっていない。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://www.cse.chalmers.se/~uffe/clustered_shading_preprint.pdf">Ola Olsson, Markus Billeter, Ulf Assarsson, "Clustered Deferred and Forward Shading"(HPG 2012)</a>— <strong>今日の一次資料</strong>。クラスター(タイル × 奥行き)の元論文。奥行きを等比に切る理由(要点3)と、同じ升目がディファードにもフォワードにも使えること(改造課題2)</li><li><a href="http://www.humus.name/Articles/PracticalClusteredShading.pdf">Emil Persson, "Practical Clustered Shading"(SIGGRAPH 2013)</a>— <strong>CPU で振り分ける実例</strong>。Avalanche Studios(Just Cause の開発元)のエンジンでの実装で、光ごとに画面の範囲を出してから升目を回る——今日の <code>ClusterGrid.Assign</code> と同じ向きの手順(要点5)。スライドは作者のサイトの記事一覧(humus.name の Articles)から PowerPoint 版も取れる</li><li><a href="https://www.aortiz.me/2018/12/21/CG.html">Ángel Ortiz, "A Primer On Efficient Rendering Algorithms &amp; Clustered Shading"</a>— <strong>読み物として最短</strong>。フォワード → ディファード → タイル(Forward+)→ クラスタードの流れと、奥行きを切る式が図付きで追える。<strong>今日の全体を1本で見渡すならこれ</strong></li><li><a href="https://takahiroharada.wordpress.com/wp-content/uploads/2015/04/forward_plus.pdf">Takahiro Harada, Jay McKee, Jason C. Yang, "Forward+: Bringing Deferred Lighting to the Next Level"(Eurographics 2012)</a>— 名前の出どころ。2次元のタイル + Z プリパスでタイルの深さの範囲を測る、元祖の形(要点4)</li><li><strong>Day 52b の計画書 要点4・6</strong>(このリポジトリ)— フォワードの上限(uniform の枠)と「タイル / クラスターで光を選る」が、今日の予告になっている</li><li><strong>Day 52a の計画書 設計書「今日残した歪み」の1つ目</strong>(このリポジトリ)— 同じ BRDF が3か所にある。今日それを増やさずに済むかが見どころ</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. フォワードの無駄は「届かない光の距離を測ること」</h3>
+<p>Day 52 のフォワードは、画素ごとに全部の光を回した。届かない光は <code>PointLightContribution</code> の頭で帰るが、「届くかどうか」を確かめる距離の計算は全部の光ぶん走る(Day 52b の要点1)。</p>
+<div class="code"><pre><code>  1024 個の光 × 画素 60 万 = 6 億回の距離の計算   … 1画素に届くのは数個しかない</code></pre></div>
+<p>ディファードは「光の球が覆った画素だけを塗る」ことでこれを避けた。Forward+ は同じ選り分けを<strong>画素シェーダの外で先に済ませておく</strong>——画面を升目に切り、升目ごとに届きうる光を CPU で選り分ける。画素シェーダは自分の升目の一覧を回すだけで、届かない光の大半には触れもしない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>画素ごとに回す光</th><th>余分に払うもの</th></tr></thead>
+<tbody>
+<tr><td>フォワード</td><td>全部(64 個で打ち切り)</td><td>届かない光の距離の計算</td></tr>
+<tr><td>ディファード</td><td>その画素を覆った球の光</td><td>G-Buffer を書いて読む帯域、球のドローコール</td></tr>
+<tr><td>Forward+</td><td><strong>その画素の升目の一覧</strong></td><td>升目の一覧を作る CPU、升目に入ったが届かない光</td></tr>
+</tbody>
+</table></div>
+<h3 id="s7">2. タイルだけでは足りない — 視線に沿った光が全部入る</h3>
+<p>画面を 64 画素角のタイルに切っただけ(2次元)だと、1枚のタイルは<strong>目から奥へ伸びる細い四角錐</strong>になる。その中の光は、手前から遠クリップ面まで全部入る。</p>
+<div class="code"><pre><code>   目 ─┬──────────────────────────────── タイル1枚が覆う四角錐
+       │   ●     ●    ●      ●     ●      ← どれも同じタイルの一覧に入る
+   目 ─┴────────────────────────────────
+       手前の床の画素でも、20m 先の光まで回すことになる</code></pre></div>
+<p>そこで<strong>奥行きも切る</strong>。タイル × 奥行きの切り身 = クラスター(3次元の升目)。画素は自分の深さの切り身の一覧だけを回す。上の図の四角錐が、奥行き方向に何枚にも切れる。</p>
+<p>裏通りを見渡す構図(夜・1024 個)で比べると、切り身の効きがそのまま出る(<code>F4</code> とヒートマップ)。自己チェックでも、通りのような細長い空間に小さな光を 1024 個並べて、<strong>タイルだけの平均 29.2 個が 16 枚で 9.5 個</strong>になることを見ている。</p>
+<h3 id="s8">3. 奥行きは等比に切る — どの深さの升目も同じ形になる</h3>
+<p>タイルの幅は NDC で一定なので、世界での幅は<strong>深さに比例して広がる</strong>(遠くの 64 画素は広い)。切り身の厚みも深さに比例させると、どの深さの升目も同じ形になる。「深さに比例した厚み」は「隣どうしの比が一定」と同じことで、つまり等比(指数)に切る。</p>
+<div class="code"><pre><code>  k 枚目の切れ目   d_k = near × (far / near)^(k / 枚数)
+  深さ → 切り身    slice = floor( log(深さ / near) × 枚数 / log(far / near) )</code></pre></div>
+<p>対数を取ると等間隔になるので、シェーダでは<strong>掛け算1回</strong>で切り身が出る(<code>ClusterCoord</code>)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>int slice = int(log(viewDepth / uClusterNear) * uClusterSliceScale);   // scale = 枚数 / log(far / near)</code></pre></div>
+<p>0.1〜100m を 16 枚に切ると、1枚ごとに 1.54 倍。自己チェックは「厚み ÷ 幅」が全部の切り身で同じ(画角 60 度で 4.68)になることを見ている。<strong>等間隔に切ると、手前 541 / 奥 0.58</strong>——手前は奥行きに何メートルも伸びる針、奥は平たい板になる。手前の針は、タイルだけのときとほとんど同じ光を抱える。</p>
+<p>4.68 はまだ縦長で、ほぼ立方体にするには 64 枚要る(1.11 倍ずつ。画角 60 度で 0.99、デモの 40 度で 1.57)。<strong>何枚に切るかは、升目の数(= CPU の仕事とメモリ)と1升の光の数の取り引き</strong>になる(要点8)。</p>
+<div class="inject"><figure class="lab" id="slice-lab">
+  <div class="lab-head">
+    <h3>奥行きの切り方と、升目の形(要点3・改造課題1)</h3>
+    <span class="tag">ClusterGrid.SliceDepth と SliceAspect と同じ式。near 0.1m / far 100m、タイル 64 画素、画面 960x640</span>
+  </div>
+  <div class="stage"><canvas id="slice-canvas" style="height:300px" aria-label="切れ目の深さと、切り身ごとの升目の形(厚み ÷ 幅)"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">切り方</span>
+      <div class="seg" id="slice-mode"><button data-v="exp" aria-pressed="true">等比(reference)</button><button data-v="lin" aria-pressed="false">等間隔(改造課題1)</button></div>
+    </div>
+    <div class="ctl"><span class="label">切り身の数(F4)</span>
+      <div class="seg" id="slice-n"><button data-v="1" aria-pressed="false">1</button><button data-v="4" aria-pressed="false">4</button><button data-v="16" aria-pressed="true">16</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">縦の画角</span>
+      <div class="seg" id="slice-fov"><button data-v="60" aria-pressed="true">60 度(自己チェック)</button><button data-v="40" aria-pressed="false">40 度(デモ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="slice-stats"></div><p id="slice-depths" style="margin:10px 0 0;font-family:var(--font-mono);font-size:var(--step--1)"></p><p id="slice-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. 深度を使わないから、振り分けは CPU でできる</h3>
+<p>元祖の Forward+(Harada ら 2012)は2次元のタイルで、奥行きの問題を<strong>深度で</strong>解いた。先に深度だけを描き(Z プリパス)、タイルごとに「いちばん手前と奥の深さ」を測って、その範囲の光だけを残す。測るのはタイルの画素を全部読む仕事なので、GPU(コンピュートシェーダ)でしかできない。</p>
+<p>クラスタード(Olsson ら 2012)は<strong>奥行きを先に切ってしまう</strong>。升目の形はカメラの射影だけで決まり、何が描かれるかを知らなくてよい。だから CPU で作れる——深度を GPU から読み戻す(待たされる)必要が無い。Avalanche Studios の Persson(2013)が振り分けを CPU でやっていたのも、この性質による。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>元祖 Forward+(タイル)</th><th>クラスタード(今日)</th></tr></thead>
+<tbody>
+<tr><td>升目</td><td>2次元(タイル)</td><td>3次元(タイル × 切り身)</td></tr>
+<tr><td>奥行きの絞り方</td><td>Z プリパスで深さの範囲を測る</td><td><strong>先に切っておく</strong></td></tr>
+<tr><td>深度が要るか</td><td>要る(GPU でしか測れない)</td><td><strong>要らない</strong></td></tr>
+<tr><td>振り分け</td><td>GPU(コンピュート)</td><td><strong>CPU</strong>(Day 57 で GPU へ)</td></tr>
+</tbody>
+</table></div>
+<p>画素シェーダの側も深度バッファを読まない。深さは、頂点から補間してきた位置をビュー行列でビュー空間へ運べば分かる(<code>-(uView * vec4(vWorldPos, 1.0)).z</code>)。</p>
+<h3 id="s10">5. 振り分けは2段 — 粗い箱で絞り、升目の箱で確かめる</h3>
+<p>光1つが、どの升目にかかるか。総当たり(1024 個 × 2400 升)は 250 万回になるので、2段にする。</p>
+<ol><li><strong>粗い箱</strong>: 光の球を切り身ごとに箱で包み、画面へ写してタイルの範囲を出す。切り身の板で球を切った<strong>断面の半径</strong>を使うので、球の端にかかる切り身ほど箱が小さい</li><li><strong>升目の箱</strong>: 候補の升目1つずつ、球と升目の箱(ビュー空間の AABB)が交わるかを確かめる</li></ol>
+<p>画面へ写すところに1つだけ細工がある。板の中で深さが変わるので、画面の左端は「x が負なら手前(lo)で割る、正なら奥(hi)で割る」ほうが外側になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float left = ProjectMin(center.X - sectionRadius, lo, hi) * _key.ScaleX;   // 負なら /lo、正なら /hi</code></pre></div>
+<p>lo は近クリップ面より手前にならないので、<strong>近クリップ面をまたぐ球でも割り算が破綻しない</strong> (球を丸ごと画面へ写す方法は、カメラが球の中に入った瞬間に壊れる)。</p>
+<p><strong>どちらの段も「かかっていないのに入れる」ことはあっても、逆は無い</strong>。余分に入れた光は 0 を足すだけで済むが、入れ忘れた光は<strong>タイルの形に四角く欠ける</strong> (<code>F6</code> で振り分けを止めてカメラを回すと、わざとその状態を作れる)。自己チェックは升目 4 通り × 5000 点 × 光 300 個で、届く組 103 万のうち<strong>見落とし 0</strong> を見ている。</p>
+<p>升目の箱は<strong>ビュー空間で持つ</strong>ので、カメラが動いても作り直さなくてよい(射影や画面の大きさが変わったときだけ)。毎フレーム払うのは、光をビュー空間へ運ぶ行列の掛け算を光の数だけ。</p>
+<div class="inject"><figure class="lab" id="cl-lab">
+  <div class="lab-head">
+    <h3>升目で光を選り分ける — 真上から見た視錐台(要点2・5・6・8)</h3>
+    <span class="tag">「決めの構図」のカメラ(画角 40 度・960x640)を真上から見て、床の面を水平に切った 2D の升目(タイル × 切り身)にした。光の群れは reference と同じ並び。振り分けは ClusterGrid.AssignLight の2段をそのまま 2D に移した</span>
+  </div>
+  <div class="stage"><canvas id="cl-canvas" style="height:330px" aria-label="真上から見た裏通りの床とカメラの視錐台。升目ごとに光の数を色で示す"></canvas></div>
+  <div class="hud" id="cl-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">見るもの(F3)</span>
+      <div class="seg" id="cl-view"><button data-v="lit" aria-pressed="false">通常</button><button data-v="heat" aria-pressed="true">光の数</button><button data-v="slice" aria-pressed="false">切り口</button></div>
+    </div>
+    <div class="ctl"><span class="label">切り身(F4)</span>
+      <div class="seg" id="cl-slices"><button data-v="1" aria-pressed="false">1(タイルだけ)</button><button data-v="4" aria-pressed="false">4</button><button data-v="16" aria-pressed="true">16</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">タイル(F5)</span>
+      <div class="seg" id="cl-tile"><button data-v="32" aria-pressed="false">32</button><button data-v="64" aria-pressed="true">64</button><button data-v="128" aria-pressed="false">128</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">光の数(「ディファード」の F3)</span>
+      <div class="seg" id="cl-n"><button data-v="16" aria-pressed="false">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="true">256</button><button data-v="1024" aria-pressed="false">1024</button></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの向き</span>
+      <div class="range"><input type="range" id="cl-yaw" min="-30" max="30" step="1" value="0"><output id="cl-yaw-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="cl-freeze"> 振り分けを止める(F6)</label>
+    <label class="check"><input type="checkbox" id="cl-lin"> 奥行きを等間隔に切る(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="stats" id="cl-stats"></div><p id="cl-probe" style="margin:10px 0 0;font-family:var(--font-mono);font-size:var(--step--1)"></p><p id="cl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>2段目の効き目は小さい(決めの構図・1024 個で 6618 組 → 6568 組)。1段目がすでに断面の大きさで絞っているため。</p>
+<h3 id="s11">6. 升目の一覧は計数ソートで詰める — 絵が1ビットも変わらない理由</h3>
+<p>見つけた (升目, 光) の組は光の順に並んでいるが、GPU は升目の順に引きたい。升目ごとの数を数えれば、始まりの位置は足し算で決まる。並べ替えは1往復で済む(計数ソート)。</p>
+<div class="code"><pre><code>  組     (5, 0) (6, 0) (5, 1) (9, 2) (5, 2)        ← 光の順に見つけた
+  数     升 5 = 3 / 升 6 = 1 / 升 9 = 1
+  始まり 升 5 = 0 / 升 6 = 3 / 升 9 = 4            ← 数の足し上げ
+  並び   [0 1 2 | 0 | 2]                           ← 升 5 の光 | 升 6 | 升 9</code></pre></div>
+<p>光の順に書き込むので、<strong>升目の中は光の番号の小さい順</strong>になる。フォワードのループも番号の小さい順に足していたので、<strong>足し算の順番まで同じ</strong>。升目に入らなかった光は、フォワードでも <code>PointLightContribution</code> が <code>vec3(0.0)</code> を返していただけ——<code>x + 0.0</code> は <code>x</code> のままなので、<strong>和が1ビットも変わらない</strong>。自己チェック(確認用のシーン)とデモ(夜・64 個)の両方で、最大の差 0 を確かめている。</p>
+<p>同じ理由で、<strong>升目の切り方を変えても絵は1ビットも変わらない</strong>(タイルだけ / 32 画素 × 32 枚)。変わるのは「余分に 0 を足す回数」だけで、それが Forward+ の代償になる。</p>
+<h3 id="s12">7. テクスチャバッファ — OpenGL 3.3 で大きな配列を画素シェーダに渡す道</h3>
+<p>Day 52 のフォワードの壁は uniform の枠だった(float 1024 個 → 光 64 個)。光の一覧を画素シェーダまで届ける手段を 3.3 の中で並べると、残るのはテクスチャバッファ(TBO)だけになる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手段</th><th>保証される大きさ</th><th>光 1024 個(32KB)は</th></tr></thead>
+<tbody>
+<tr><td>uniform の配列</td><td>float 1024 個</td><td>入らない(Day 52 の 64 個が限度)</td></tr>
+<tr><td>uniform ブロック(UBO)</td><td>16KB</td><td>入らない</td></tr>
+<tr><td>シェーダストレージ(SSBO)</td><td>—</td><td>OpenGL 4.3 から。このエンジンは 3.3</td></tr>
+<tr><td><strong>テクスチャバッファ(TBO)</strong></td><td><strong>65536 テクセル</strong></td><td>入る(この GPU の上限は 1 億 3 千万テクセル)</td></tr>
+</tbody>
+</table></div>
+<p>中身はただのバッファで、それを「1次元のテクスチャ」として刺す。<strong>フィルタもミップも無く、UV ではなく整数の番号で引く</strong>(<code>texelFetch</code>)。形式とサンプラの型は対にする——整数(<code>RG32UI</code> / <code>R32UI</code>)は <code>usamplerBuffer</code>、小数(<code>RGBA32F</code>)は <code>samplerBuffer</code>。取り違えても <code>texelFetch</code> は黙って 0 を返すだけで、エラーは出ない。</p>
+<p>3本に分けたのは、<strong>同じ光が何十個もの升目に入る</strong>から。升目ごとに光の中身(32 バイト)を写すより、番号(4 バイト)で指すほうが小さい。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>番</th><th>形式</th><th>中身</th><th>決めの構図・1024 個</th></tr></thead>
+<tbody>
+<tr><td>11: 升目</td><td>RG32UI</td><td>升目ごとの (始まり, 数)</td><td>2400 × 8B = 18.8KB</td></tr>
+<tr><td>12: 番号</td><td>R32UI</td><td>光の番号の並び</td><td>6568 × 4B = 25.7KB</td></tr>
+<tr><td>13: 光</td><td>RGBA32F × 2</td><td>位置 + 届く距離 / 色</td><td>1024 × 32B = 32.0KB</td></tr>
+</tbody>
+</table></div>
+<p>合わせて 76KB。G-Buffer(15.8MB)の 200 分の 1 で、これが Forward+ の身軽さになる。中身は毎フレーム入れ替えるので、書く前にいったん捨てる(オーファニング。Day 18 のスプライトバッチと同じ)。</p>
+<h3 id="s13">8. 升目は光より小さくないと効かない — Forward+ の代償の形</h3>
+<p>ヒートマップ(<code>F3</code>)で光の数を 16 → 64 → 1024 と変えると、<strong>1升あたりの光が数とともに増える</strong> (光の入った升目の平均 3.0 → 7.1 → 37 個)。Day 52 は「個数 × 半径²」を一定にして、ディファードの代償(球が覆う面積)を揃えていた。それでも Forward+ の代償は揃わない。</p>
+<p>升目に入る光は「升目の箱から半径以内にある光」なので、数える範囲は<strong>升目の大きさ + 光の半径</strong>で決まる。</p>
+<div class="code"><pre><code>  1升の光 ≒ 光の密度 × (升目の幅 + 2 × 半径) × (升目の厚み + 2 × 半径)    … 床に並んだ光のとき
+
+  16 個 × 半径 4.0m    密度 0.12 個/m²、範囲は光の半径が決める    → 平均 3.0 個
+  1024 個 × 半径 0.5m  密度 8 個/m²、範囲は升目の大きさが決める  → 平均 37 個</code></pre></div>
+<p>光が大きいうちは範囲を決めるのは光の半径で、升目の大きさは効かない。光が升目より小さくなると、升目の大きさが残る——<strong>光をいくら小さくしても、升目より細かくは絞れない</strong>。ディファードの球は光と同じ大きさなので、この壁が無い。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>代償が比例するもの</th><th>小さな光を大量に置くと</th></tr></thead>
+<tbody>
+<tr><td>ディファード</td><td>球が覆う画素(≒ 個数 × 半径²)</td><td>Day 52 の並べ方なら揃ったまま</td></tr>
+<tr><td>Forward+</td><td>升目の数 × (升目 + 半径)の範囲にある光</td><td><strong>升目の大きさが下限になって増える</strong></td></tr>
+</tbody>
+</table></div>
+<p>升目を細かくすれば下がる(64 枚で 19 個、32 画素のタイルで 27 個)が、升目の数と CPU の振り分けが増える(32 画素 × 16 枚で 9600 升、振り分け 0.86ms)。<strong>光の大きさに合わせて升目を選ぶ</strong>のが Forward+ の設計の要になる。計測(<code>F8</code>)の後半は、光をいちばん多くしたまま切り身の数だけを変えて、この取り引きを数字で出す。</p>
+<h3 id="s14">9. 平行投影では使えない / 位置の精度の問題は無い</h3>
+<p>升目の箱の式は透視投影を前提にしている(タイルの側面が目から放射状に広がる)。平行投影ではタイルの側面が平行になって式が変わるので、今日は<strong>平行投影のときフォワードへ戻す</strong>(<code>UseForwardPlus</code>)。</p>
+<p>ディファードは位置を 16F の距離から戻したので、影の縁で数 mm ずれた(Day 52a の要点2)。Forward+ は位置を頂点から補間してくる(フォワードと同じ)ので、この問題は起きない。深さは切り身を選ぶのにだけ使い、<code>log</code> の丸めで切れ目の隣に転んでも、振り分けの側が切り身を1枚広めに見ているので取りこぼさない(<code>AssignLight</code>)。</p>
+<h3 id="s15">10. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td>GPU での振り分け</td><td>1024 個で CPU 0.2〜0.7ms を毎フレーム払う</td><td><strong>Day 57(コンピュートシェーダ)</strong></td></tr>
+<tr><td>タイルの深さの範囲で絞る(元祖 Forward+)</td><td>タイルだけのときは視線に沿った光が全部入る</td><td>深度を GPU で測る。Day 57</td></tr>
+<tr><td>Z プリパス</td><td>本描画のオーバードローで、隠れる画素にも光を回す</td><td>多光源シーン化(Day 56)で重ければ</td></tr>
+<tr><td>1升の光の上限</td><td>1升に何百個でも入る(タイルだけで最大 234 個)</td><td>本番は上限を決めて、明るい順に切る</td></tr>
+<tr><td>ディファードに升目を使う</td><td>光の球を今日も1個ずつ描いている</td><td>改造課題2(Olsson の論文の前半)</td></tr>
+<tr><td>半透明に光を当てる</td><td>粒(Day 49)は今日も光を受けない</td><td>改造課題3(Forward+ ならできる)</td></tr>
+<tr><td>平行投影</td><td>フォワードに戻る</td><td>升目の箱の式を変えれば入る</td></tr>
+<tr><td>16bit の光の番号</td><td>番号に 4 バイト使っている</td><td>1024 個なら 2 バイトで足りる(<code>R16UI</code>)</td></tr>
+</tbody>
+</table></div>
+<p><strong>半透明に光を当てられる</strong>のが、Forward+ がディファードに対して持ついちばん大きな強み。ディファードは半透明を G-Buffer に入れられないので、粒はフォワードで後から重ねるしかない——しかもそのフォワードには、1024 個の光を渡す手段が無かった。Forward+ の升目の一覧は、画素シェーダならどこからでも引ける(改造課題3)。</p>
+</section>
+<section class="part"><h2 id="s16">前Dayからの差分概要</h2>
+<h3 id="s17">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/LightingPath.cs</code></td><td>47</td><td><strong>光の当て方の3択</strong>(フォワード / ディファード / Forward+)。3つの比較表をコメントに持つ</td></tr>
+<tr><td><code>Render/BufferTexture.cs</code></td><td>196</td><td><strong>テクスチャバッファ</strong>(TBO)。バッファを1次元のテクスチャとして画素シェーダに見せる(要点7)</td></tr>
+<tr><td><code>Render/ClusterGrid.cs</code></td><td>487</td><td><strong>升目と CPU の振り分け</strong>。今日の主役。GL を知らない(要点2〜6)</td></tr>
+<tr><td><code>Render/ClusteredLighting.cs</code></td><td>209</td><td><strong>Forward+ の GPU 側</strong>。振り分けた一覧を TBO 3本に詰めて刺す。<code>ClusterView</code> もここ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader.cs</code></td><td><code>SetInt3</code>(ivec3 を送る)を追加</td><td>+20 / -0</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>TBO 3本の uniform、升目を引く関数、<strong>Forward+ のループ</strong>、ヒートマップと切り口</td><td>+169 / -4</td></tr>
+<tr><td><code>Program.cs</code></td><td>描き方の3択、振り分けのパス、<code>ApplyPointLights</code>、<code>uView</code> を毎回送る、メニュー 8 項目、HUD 1行、内訳・計測・自己チェック 23 項目</td><td>+1035 / -31</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Program.cs</code> の差分の半分強は自己チェック</strong>(<code>RunClusteredCheck</code> と道具で 560 行ほど)。描き方の本体は <code>AssignLightsToClusters</code> と <code>ApplyPointLights</code> の2つで、合わせて 30 行ほど——<strong>Forward+ は何を描くかを1行も書き換えない</strong>(<code>Render3D</code> の中で、点光源の渡し方の1行を替えるだけ)。</p>
+<p>Day 52 のコードに入った手直しは3種類ある(差分の -31 行はほぼこれ)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手直し</th><th>どこ</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td><code>bool _deferred</code> → <code>LightingPath _lightingPath</code></td><td>フィールド、<code>UseDeferred</code>、「ディファード」の F2、<code>DeferredLabel</code>、<code>BenchmarkDeferred</code>、<code>MeasureLitScene</code></td><td>描き方が3つになった</td></tr>
+<tr><td><code>RenderProbe(bool deferred, …)</code> → <code>RenderProbe(LightingPath path, …)</code></td><td>Day 52 の自己チェックの 9 か所</td><td>Forward+ でも確認用のシーンを描くため</td></tr>
+<tr><td><code>uView</code> を <code>Render3D</code> で毎回送る</td><td><code>Render3D</code>、<code>PrepareProbeShader</code></td><td>Day 52 は G-Buffer パスだけが送っていた。Forward+ は深さから切り身を選ぶのに使う(検証の途中で分かったこと 2)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">写経する順番</h3>
+<div class="code"><pre><code> 1. Render/Shader.cs              SetInt3(5 の Apply が使う)
+ 2. Render/LightingPath.cs        光の当て方の3択(新規。7 が使う)
+ 3. Render/BufferTexture.cs       テクスチャバッファ(新規。5 が使う)
+ 4. Render/ClusterGrid.cs         升目と CPU の振り分け(新規。5 が使う)
+ 5. Render/ClusteredLighting.cs   Forward+ の GPU 側(新規。1・3・4 を使う)
+ 6. shaders/textured.frag         TBO の uniform、升目を引く関数、Forward+ のループ、ヒートマップ
+ 7. Program.cs                    全部を繋ぐ
+ 8. Day53.csproj                  Day52.csproj からのリネームのみ</code></pre></div>
+<p><strong>依存順に並べてある</strong>。C# のビルドが通るのは 1〜5・7 の順で、シェーダ(6)は実行時に読むのでビルドには効かない——ただし<strong>7 より前に写しておく</strong>こと。<code>Program.cs</code> だけ先に写して起動すると、<code>uClusters</code> などの uniform が見つからないという警告が並び、Forward+ に切り替えても点光源が1つも当たらない(シェーダに Forward+ の枝がまだ無いので、Day 52 のループが光 0 個で回る)。</p>
+<p><code>ClusterGrid.cs</code> がいちばん長いが、半分はコメント。<code>Configure</code>(升目の箱を作る)→ <code>Assign</code>(振り分けと計数ソート)→ <code>AssignLight</code>(2段の絞り込み)の順に読む。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(_lightingPath / _clusters / SliceSteps / TileSteps)
+    → OnLoad / OnClosing                                     作る・畳む
+    → OnRender の AssignLightsToClusters                    <strong>今日の骨格</strong>(振り分けのパス)
+    → Render3D の uView と ApplyPointLights                  点光源の渡し方を1行替える
+    → ApplyPointLights                                       3つの渡し方
+    → UseDeferred / 「ディファード」の F2 / DeferredLabel      bool から3択へ(Day 52 の手直し)
+    → BenchmarkDeferred / MeasureLitScene / RenderLitScene   同上
+    → RenderProbe / PrepareProbeShader                       同上。Forward+ でも描けるように
+    → UseForwardPlus / ActivePath / AssignLightsToClusters   Day 53 の節の頭
+    → ClusteredLabel / DescribeClustered / BenchmarkLightingPaths
+    → RunClusteredCheck と道具(ViewPointAt / CountMisses / ScatterLights …)
+    → BuildDebugMenu の末尾(メニュー 1 ページ)と RunDebugMenuCheck の 207</code></pre></div>
+</section>
+<section class="part"><h2 id="s20">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が5つ(<code>LightingPath</code> / <code>BufferTexture</code> / <code>ClusterGrid</code> / <code>ClusteredLighting</code> / <code>ClusterView</code>)増えて、<code>Shader</code> の口が1つ広がっただけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/LightingPath</code></td><td><code>Render/</code></td><td>光の当て方の3択。<strong>使うのは <code>Program</code> だけ</strong></td></tr>
+<tr><td><code>Render/BufferTexture</code></td><td><code>Render/</code></td><td>テクスチャバッファ。<strong>GL しか知らない</strong>(<code>Texture</code> と並ぶ部品)</td></tr>
+<tr><td><code>Render/ClusterGrid</code></td><td><code>Render/</code></td><td>升目と振り分け。<strong>GL を知らない</strong>(<code>Camera</code> と <code>PointLight</code> だけ)</td></tr>
+<tr><td><code>Render/ClusteredLighting</code></td><td><code>Render/</code></td><td>TBO 3本を持ち、詰めて刺す。<strong>シェーダを持たない</strong></td></tr>
+<tr><td><code>Render/ClusterView</code></td><td><code>Render/</code></td><td>升目の見せ方(4 通り。うち1つは自己チェック専用)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader</code></td><td><code>SetInt3</code></td><td>+20 / -0</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>Forward+ のループ、升目を引く関数、ヒートマップ</td><td>+169 / -4</td></tr>
+<tr><td><code>Program.cs</code></td><td>描き方の3択、振り分けのパス、メニュー、自己チェック</td><td>+1035 / -31</td></tr>
+</tbody>
+</table></div>
+<h3 id="s21">3つの描き方の設計比較 — どこで分かれ、どこで合流するか</h3>
+<svg viewBox="0 0 960 532" role="img" aria-label="影のあと ActivePath で3つに分かれ、フォワードは SSAO → Render3D、Forward+ は SSAO → CPU で升目に振り分け → Render3D、ディファードは G-Buffer → SSAO → ライティングパスと進み、RenderParticles で合流する図" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="255" y="8" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderShadowPass</text><text x="480" y="45.5" text-anchor="middle" fill="var(--ink)">光の目から深度(Day 33)</text><rect x="255" y="80" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="480" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ActivePath</text><text x="480" y="117.5" text-anchor="middle" fill="var(--ink)">選んだ描き方が、この絵で使えるか</text><rect x="10" y="180" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="200.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="160" y="217.5" text-anchor="middle" fill="var(--ink)">自前の幾何パス → 遮蔽(Day 37)</text><rect x="10" y="255" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="275.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D</text><text x="160" y="292.5" text-anchor="middle" fill="var(--ink)">全部の光を uniform で渡す</text><text x="160" y="309.5" text-anchor="middle" fill="var(--ink)">画素ごとに全部回す(64 個まで)</text><rect x="330" y="180" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="200.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="480" y="217.5" text-anchor="middle" fill="var(--ink)">自前の幾何パス → 遮蔽</text><text x="480" y="234.5" text-anchor="middle" fill="var(--ink)">(フォワードと同じ)</text><rect x="330" y="272" width="300" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="292.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">AssignLightsToClusters</text><text x="480" y="309.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">CPU で升目に振り分けて TBO へ</tspan></text><text x="480" y="326.5" text-anchor="middle" fill="var(--ink)">GPU は何も描かない</text><rect x="330" y="364" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="384.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D</text><text x="480" y="401.5" text-anchor="middle" fill="var(--ink)">升目の一覧を刺す</text><text x="480" y="418.5" text-anchor="middle" fill="var(--ink)">画素ごとに自分の升目の光だけ回す</text><rect x="650" y="180" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="800" y="200.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderGBufferPass</text><text x="800" y="217.5" text-anchor="middle" fill="var(--ink)">Render3D を G-Buffer へ(Day 52)</text><rect x="650" y="255" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="800" y="275.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="800" y="292.5" text-anchor="middle" fill="var(--ink)">G-Buffer を借りる</text><rect x="650" y="330" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="800" y="350.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderDeferredLighting</text><text x="800" y="367.5" text-anchor="middle" fill="var(--ink)">深度を写す → 太陽の全画面 → 光の球</text><rect x="255" y="470" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="490.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderParticles</text><text x="480" y="507.5" text-anchor="middle" fill="var(--ink)">半透明はどの道でもフォワード</text><path d="M480 58 L480 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 130 L480 150 L160 150 L160 178" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="168" y="170" fill="var(--muted)" font-size="12" text-anchor="start">フォワード</text><path d="M480 130 L480 178" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="488" y="164" fill="var(--muted)" font-size="12" text-anchor="start">Forward+</text><path d="M480 130 L480 150 L800 150 L800 178" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="808" y="170" fill="var(--muted)" font-size="12" text-anchor="start">ディファード</text><path d="M160 230 L160 253" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 247 L480 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 339 L480 362" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M800 230 L800 253" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M800 305 L800 328" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M160 322 L160 450 L300 450 L300 468" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 431 L480 468" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M800 380 L800 450 L660 450 L660 468" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>Forward+ の道はフォワードの道に1段挟まっただけ</strong>。しかもその1段(<code>AssignLightsToClusters</code>)はCPU の仕事で、GPU のパスは1本も増えていない。<code>Render3D</code> の中身も同じで、変わるのは点光源の渡し方(<code>ApplyPointLights</code>)の1行だけ。<strong>ディファードの道が <code>Render3D</code> を呼ぶ場所ごと動かした</strong>(G-Buffer パスへ)のと比べると、差分の小ささが分かる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>フォワード</th><th>ディファード</th><th>Forward+</th></tr></thead>
+<tbody>
+<tr><td>ジオメトリを描く回数</td><td>3(影・SSAO・本描画)</td><td><strong>2</strong>(影・G-Buffer)</td><td>3(フォワードと同じ)</td></tr>
+<tr><td>画素ごとに回す光</td><td>全部(64 個まで)</td><td>覆った球の光</td><td>升目の一覧</td></tr>
+<tr><td>光の数の上限</td><td>64(uniform の枠)</td><td>なし</td><td>なし(TBO は 6万5千テクセル以上)</td></tr>
+<tr><td>中間データ</td><td>なし</td><td>G-Buffer 15.8MB</td><td>光の一覧 76KB</td></tr>
+<tr><td>CPU の仕事</td><td>光を 64 個詰める</td><td>球のドローコール(1024 個で 936 回)</td><td><strong>振り分け 0.2〜0.7ms</strong>(1024 個)</td></tr>
+<tr><td>半透明</td><td>描ける</td><td>描けない</td><td>描ける(光も当てられる)</td></tr>
+<tr><td>材質グリッド・成分表示</td><td>使える</td><td>使えない(フォワードに戻る)</td><td>使える</td></tr>
+<tr><td>BRDF の写し</td><td>1(<code>textured.frag</code>)</td><td>2(+ <code>deferred.frag</code>)</td><td>1(<code>textured.frag</code> のまま)</td></tr>
+<tr><td>小さな光を大量に</td><td>64 個で打ち切り</td><td>代償が揃う</td><td><strong>升目の大きさが下限</strong>(要点8)</td></tr>
+</tbody>
+</table></div>
+<p><strong>Forward+ はジオメトリを描く回数を減らさない</strong>。ディファードの配当の1つ(SSAO が G-Buffer を借りて 3 回 → 2 回)は Forward+ には無い。代わりに G-Buffer を持たないので、半透明も材質の分岐もそのまま描ける。表の下半分(半透明・材質・BRDF の写し)が、実際のエンジンで Forward+ が選ばれる理由のほうになる——速さだけで比べるなら、ディファードで足りる場面も多い(計測 <code>F8</code>)。</p>
+<h3 id="s22">今日足したものは、どこに繋がったか</h3>
+<svg viewBox="0 0 990 392" role="img" aria-label="LightSwarm と Camera から ClusterGrid が升目の一覧を作り、ClusteredLighting が光の中身と一緒に BufferTexture 3本へ詰め、textured.frag が texelFetch で引く図。ClusterGrid から GL への矢印は無い" style="width:100%;max-width:990px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="40" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="60.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">LightSwarm</text><text x="115" y="77.5" text-anchor="middle" fill="var(--ink)">GL を知らない(Day 52)</text><rect x="10" y="160" width="210" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Camera</text><rect x="10" y="330" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="350.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.ApplyPointLights</text><text x="115" y="367.5" text-anchor="middle" fill="var(--ink)">描き方ごとの渡し方</text><rect x="340" y="70" width="230" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="90.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ClusterGrid</text><text x="455" y="107.5" text-anchor="middle" fill="var(--ink)">GL を知らない</text><text x="455" y="124.5" text-anchor="middle" fill="var(--ink)">升目の箱と振り分け</text><rect x="690" y="78" width="280" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="98.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ClusteredLighting</text><text x="830" y="115.5" text-anchor="middle" fill="var(--ink)">TBO 3本に詰める</text><rect x="690" y="200" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="220.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BufferTexture x3</text><text x="830" y="237.5" text-anchor="middle" fill="var(--ink)">11: 升目 / 12: 番号 / 13: 光</text><rect x="690" y="300" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="320.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag</text><text x="830" y="337.5" text-anchor="middle" fill="var(--ink)">Forward+ のループ</text><text x="830" y="354.5" text-anchor="middle" fill="var(--ink)">(Day 52 の PointLightContribution)</text><path d="M220 85 L338 85" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 176.5 L290 176.5 L290 120 L338 120" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M570 103.5 L688 103.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="629" y="79.5" fill="var(--muted)" font-size="12" text-anchor="middle">(始まり, 数) と</text><text x="629" y="94.5" fill="var(--muted)" font-size="12" text-anchor="middle">番号の並び</text><path d="M115 40 L115 18 L730 18 L730 76" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="123" y="14" fill="var(--muted)" font-size="12" text-anchor="start">PointLight の並び(全部)</text><path d="M830 128 L830 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M115 330 L115 285 L655 285 L655 155 L720 155 L720 130" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr2)"></path><text x="123" y="279" fill="var(--muted)" font-size="12" text-anchor="start">Apply(shader)</text><path d="M830 250 L830 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="838" y="278" fill="var(--muted)" font-size="12" text-anchor="start">texelFetch</text><path d="M220 360 L688 360" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="454" y="352" fill="var(--muted)" font-size="12" text-anchor="middle">uClusteredLights</text><text x="230" y="78" fill="var(--muted)" font-size="12" text-anchor="start">PointLight の並び</text><text x="232" y="196" fill="var(--muted)" font-size="12" text-anchor="start">ビュー行列・</text><text x="232" y="211" fill="var(--muted)" font-size="12" text-anchor="start">射影の2つの数</text></g></svg>
+<p><strong><code>ClusterGrid</code> から GL への矢印が無い</strong>のが、今日いちばん大事な線。升目と振り分けは整数と <code>Vector3</code> の計算だけで、窓を開かずに確かめられる——自己チェック 23 項目のうち、<strong>升目と振り分けの 12 項目は GL を使わない</strong>(見落とし 0 の 103 万組もここ)。<code>PointLight</code> と <code>LightSwarm</code>(Day 52)も GL を知らないので、光を作る側から升目に振り分ける側まで、<strong>GPU に渡す直前まで一度も GL に触れない</strong>。</p>
+<p><strong><code>ClusteredLighting</code> はシェーダを持たない</strong>。Day 52 の <code>DeferredLighting</code> がシェーダ2本と光の球を持っていたのと対照的で、持っているのは TBO 3本だけ。光を当てるのは今までの <code>textured.frag</code> で、ここはその画素シェーダに一覧を刺すだけ——<strong>「どう当てるか」を1本のシェーダに残したまま、「どの光を当てるか」だけを外で決める</strong>形になっている。</p>
+<p><strong>升目の一覧を刺すのは <code>ApplyPointLights</code>(点線)で、<code>ApplyLighting</code> ではない</strong>。最初は <code>ApplyLighting</code> に入れた(どこで描いてもサンプラの番号がそろうように)が、<code>ApplyLighting</code> はディファードのライティングパスにも配るので、<code>deferred.frag</code> に無い uniform の警告が 16 行並んだ(検証の途中で分かったこと 4)。Day 52 で作った「同じ関数で配る」形は、<strong>配る相手が全員同じ名前を持っているときだけ</strong>成り立つ。</p>
+<h3 id="s23">1つの光が升目に入るまで — 2段の絞り込み</h3>
+<svg viewBox="0 0 920 837" role="img" aria-label="光1個をビュー空間へ運び、深さの範囲で切り身を決め(1枚広めに見る)、切り身ごとに断面の箱を画面へ写してタイルの範囲を出し、升目の箱と球が交わるものだけを組にして、最後に計数ソートする図" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PointLight 1個</text><text x="245" y="45.5" text-anchor="middle" fill="var(--ink)">世界の位置・届く距離</text><rect x="20" y="80" width="450" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="100.5" text-anchor="middle" fill="var(--ink)">ビュー空間へ</text><text x="245" y="117.5" text-anchor="middle" fill="var(--ink)">Vector3.Transform(位置, ビュー行列)</text><text x="245" y="134.5" text-anchor="middle" fill="var(--ink)">深さ = -z</text><rect x="20" y="170" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="245" y="190.5" text-anchor="middle" fill="var(--ink)">深さ ± 半径が</text><text x="245" y="207.5" text-anchor="middle" fill="var(--ink)">near〜far にかかるか</text><rect x="580" y="170" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="740" y="190.5" text-anchor="middle" fill="var(--ink)">どの升目にも入らない</text><text x="740" y="207.5" text-anchor="middle" fill="var(--ink)">(背後・遠クリップ面の奥)</text><rect x="20" y="245" width="450" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="265.5" text-anchor="middle" fill="var(--ink)">切り身の範囲</text><text x="245" y="282.5" text-anchor="middle" fill="var(--ink)">SliceOf(手前の端)〜SliceOf(奥の端)</text><text x="245" y="299.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">1枚広めに見る</tspan>(log の丸め)</text><rect x="20" y="337" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="357.5" text-anchor="middle" fill="var(--ink)">切り身1枚ずつ</text><text x="245" y="374.5" text-anchor="middle" fill="var(--ink)">板 lo〜hi で球を切った断面の半径</text><rect x="20" y="412" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="432.5" text-anchor="middle" fill="var(--ink)">断面を x・y の箱にして画面へ写す</text><text x="245" y="449.5" text-anchor="middle" fill="var(--ink)">x が負なら lo で、正なら hi で割る</text><rect x="20" y="487" width="450" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="245" y="507.5" text-anchor="middle" fill="var(--ink)">この切り身では画面の外?</text><rect x="580" y="487" width="320" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="740" y="507.5" text-anchor="middle" fill="var(--ink)">この切り身は飛ばす</text><rect x="20" y="545" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="565.5" text-anchor="middle" fill="var(--ink)">タイルの範囲 x0〜x1 / y0〜y1</text><text x="245" y="582.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">1段目: 粗い箱</tspan></text><rect x="20" y="620" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="245" y="640.5" text-anchor="middle" fill="var(--ink)">球と升目の箱が交わるか</text><text x="245" y="657.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">2段目</tspan></text><rect x="580" y="620" width="320" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="740" y="640.5" text-anchor="middle" fill="var(--ink)">入れない(箱の角)</text><rect x="20" y="700" width="450" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="720.5" text-anchor="middle" fill="var(--ink)">(升目, 光) の組を足す</text><text x="245" y="737.5" text-anchor="middle" fill="var(--ink)">升目の数を +1</text><rect x="20" y="775" width="450" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="245" y="795.5" text-anchor="middle" fill="var(--ink)">全部の光が済んだら計数ソート</text><text x="245" y="812.5" text-anchor="middle" fill="var(--ink)">升目の (始まり, 数) と番号の並び</text><path d="M245 58 L245 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M245 147 L245 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M470 195 L578 195" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="524" y="187" fill="var(--muted)" font-size="12" text-anchor="middle">かからない</text><path d="M245 220 L245 243" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="253" y="236" fill="var(--muted)" font-size="12" text-anchor="start">かかる</text><path d="M245 312 L245 335" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M245 387 L245 410" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M245 462 L245 485" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M470 503.5 L578 503.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="524" y="495.5" fill="var(--muted)" font-size="12" text-anchor="middle">外</text><path d="M245 520 L245 543" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="253" y="536" fill="var(--muted)" font-size="12" text-anchor="start">中</text><path d="M245 595 L245 618" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M470 645 L578 645" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="524" y="637" fill="var(--muted)" font-size="12" text-anchor="middle">交わらない</text><path d="M245 670 L245 698" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="253" y="686" fill="var(--muted)" font-size="12" text-anchor="start">交わる</text><path d="M245 750 L245 773" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong>関門が全部 CPU にある</strong>のが、Day 52 の「点光源が1画素を塗るまで — 5つの関門」との違い。あちらは CPU(視錐台)・GPU の固定機能(カリングと深度)・シェーダ(距離)の3か所に関門が散っていた。Forward+ は選り分けを全部 CPU で済ませ、画素シェーダは結果を引くだけ——その代わり、シェーダの中の「距離 ≥ 届く距離なら 0」(Day 52 の最後の関門)は今日も残っている。升目の箱は球よりずっと大きいので、升目に入った光の多くはここで 0 を足して帰る(要点8)。</p>
+<p><strong>「1枚広めに見る」は2行だけ</strong>だが、無いと切れ目ちょうどの深さの光を落としうる。<code>log</code> は丸めを含むので、切れ目の深さを渡しても隣の切り身の番号が返ることがある。余分な1枚は2段目で落ちるので、広めに見て損は無い。</p>
+<h3 id="s24">1画素が光を回すまで — 深度バッファを読まずに升目を引く</h3>
+<svg viewBox="0 0 860 437" role="img" aria-label="gl_FragCoord からタイルを、補間した世界の位置から深さと切り身を出し、通し番号で uClusters・uLightIndices・uLightData を順に引いて PointLightContribution に渡す図" style="width:100%;max-width:860px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="110" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gl_FragCoord.xy</text><text x="110" y="47.5" text-anchor="middle" fill="var(--ink)">画素の中心</text><rect x="250" y="18" width="250" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="375" y="38.5" text-anchor="middle" fill="var(--ink)">タイル = xy / 64</text><rect x="10" y="110" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="110" y="130.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">vWorldPos</text><text x="110" y="147.5" text-anchor="middle" fill="var(--ink)">頂点から補間</text><rect x="250" y="118" width="250" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="375" y="138.5" text-anchor="middle" fill="var(--ink)">深さ = -(uView × 位置).z</text><rect x="250" y="190" width="250" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="375" y="210.5" text-anchor="middle" fill="var(--ink)">切り身 = log(深さ / near) × 係数</text><rect x="560" y="60" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="705" y="80.5" text-anchor="middle" fill="var(--ink)">通し番号</text><text x="705" y="97.5" text-anchor="middle" fill="var(--ink)">x + 横 × (y + 縦 × 切り身)</text><rect x="560" y="150" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="705" y="170.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uClusters(11)</text><text x="705" y="187.5" text-anchor="middle" fill="var(--ink)">(始まり, 数)</text><rect x="560" y="225" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="705" y="245.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uLightIndices(12)</text><text x="705" y="262.5" text-anchor="middle" fill="var(--ink)">始まりから数個</text><rect x="560" y="300" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="705" y="320.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uLightData(13)</text><text x="705" y="337.5" text-anchor="middle" fill="var(--ink)">番号 × 2 と 番号 × 2 + 1</text><rect x="560" y="375" width="290" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="705" y="395.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PointLightContribution</text><text x="705" y="412.5" text-anchor="middle" fill="var(--ink)">Day 52 と同じ関数</text><path d="M210 35 L248 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M210 135 L248 135" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M375 151 L375 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M500 34.5 L530 34.5 L530 74 L558 74" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M500 206.5 L530 206.5 L530 96 L558 96" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M705 110 L705 148" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M705 200 L705 223" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M705 275 L705 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M705 350 L705 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>深度バッファを1回も読まない</strong>。深さは、頂点から補間してきた位置をビュー空間へ運べば分かる。これが「振り分けに深度が要らない」(要点4)の、画素シェーダの側の姿になる。</p>
+<p><strong>引き方の式が CPU と GPU に1本ずつある</strong>(<code>ClusterGrid.CoordOf</code> / <code>IndexOf</code> と<code>textured.frag</code> の <code>ClusterCoord</code> / <code>ClusterIndex</code>)。これが今日の歪みの1つ目で、自己チェックは文字列の突き合わせに加えて、<strong>GPU が引いた升目を読み返して</strong> (<code>ClusterView.Raw</code>。R・G・B にタイルと切り身、A に光の数)CPU の答えと比べている。</p>
+<h3 id="s25">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: 升目の引き方が CPU と GPU の2か所にある</strong>。切り身の式と通し番号の式。片方だけ直すと、GPU が別の升目の一覧を引く——光が四角く欠けるか、余分な光を回すだけで絵は変わらないかのどちらかで、<strong>後者は見た目では気づけない</strong>。Day 52 の BRDF の写し(3か所)と同じ種類の歪みで、見張り方も同じ(文字列の突き合わせ + 答えの比べ)。Day 57 で振り分けを GPU のコンピュートへ移すと、式はシェーダの側(<code>#include</code> できれば1か所)だけになる。</p>
+<p><strong>2つ目: 振り分けが毎フレーム CPU を食う</strong>(1024 個で 0.2〜0.7ms、32 画素のタイルなら 0.86ms)。光が止まっていても、カメラが動けば作り直す(升目はカメラに貼り付いている。<code>F6</code> で見える)。本番のエンジンはこれを GPU でやる。Day 57 の予告どおり。</p>
+<p><strong>3つ目: 1升に入る光に上限が無い</strong>。決めの構図・1024 個で最大 178 個(タイルだけなら 234 個)。GPU は近くの画素をまとめて動かすので、ループが長い升目があると、同じ組の画素が全員その升目を待つ。本番は上限を決めて、明るい順(または近い順)に切る——Day 52b の改造課題1で見た「何を捨てるか」の問題が、ここにも出てくる。</p>
+<p><strong>4つ目: 描き方の選択が <code>Program</code> の3つの関数に散っている</strong>(<code>UseDeferred</code> / <code>UseForwardPlus</code> / <code>ActivePath</code>)。条件がそれぞれ違う(ディファードはデモ v1 で成分表示でないとき、Forward+ は透視投影のとき)ので1つにしにくく、<code>ActivePath</code> の中の<strong>順番</strong>(ディファードを先に見る)が優先順位を握っている。Day 48 で片付けた「並び順が正しさを握る」の小さな再発で、Day 56 でシーンの光を整理するときに、描き方もシーンの設定の側へ寄せるのがよさそう。</p>
+<p><strong>Day 52a・52b の歪みのうち、今日動いたもの</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 52a・52b の歪み</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td>52a-1. 同じ BRDF が3か所</td><td><strong>増えなかった</strong>(Forward+ は <code>textured.frag</code> の関数をそのまま使う)</td></tr>
+<tr><td>52a-2. 影パスの手書きの分岐</td><td>そのまま</td></tr>
+<tr><td>52a-3. 位置の精度が 16F</td><td>Forward+ には無い(位置は頂点から補間)</td></tr>
+<tr><td>52b-2. 光1個 = ドローコール1回</td><td>Forward+ には無い(改造課題2でディファードからも消せる)</td></tr>
+<tr><td>52a-4. ディファードに乗れない絵がある</td><td>Forward+ なら全部乗る</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s26">完成条件</h2>
+<p><code>dotnet run --project reference/Day53 -c Release</code> で起動する。先に「デモ v1」ページ(8 枚目)の <code>1</code>(決めの構図)でデモ v1 を出す。次に「ディファード」ページ(20 枚目)の <code>F3</code> を2回押して光を 64 個にし、<code>F4</code> で夜にする。そこから <code>F1</code> を1回押すと「Forward+」ページ(21 枚目)が開く。</p>
+<h3 id="s27">1. <code>F2</code>: 描き方を3つ回しても、絵は変わらない</h3>
+<p><code>F2</code> を押すたびに、コンソールに次の行が順に出る。</p>
+<div class="code"><pre><code>描き方: <strong>ディファード</strong>(Day 52)。G-Buffer に表面を書き、光は球を描いて当てる
+描き方: <strong>Forward+</strong>(今日)。フォワードのまま、升目にかかる光だけを回す。<strong>絵は変わらない</strong>——HUD の「1升あたり」が画素ごとに回している光の数
+描き方: フォワード(Day 52 まで)。全部の光を回す(64 個で打ち切り)</code></pre></div>
+<p>HUD の今日の行は、描き方ごとに次のように変わる(夜・64 個)。</p>
+<div class="code"><pre><code>描画:フォワード  光:64個 半径2.00m  1画素で64個を回す  幾何パス:3回  夜
+描画:ディファード  光:64個 半径2.00m  球:64描画/0間引き  G-Buffer:960x640x4枚 15.8MB  幾何パス:2回  G:0.22ms 光:0.32ms  夜
+描画:Forward+  光:64個 半径2.00m  升目:15x10x16=2400  1升あたり 最大31個 平均7.1個  振り分け:0.09ms(CPU)  幾何パス:3回  夜</code></pre></div>
+<p><strong><code>F2</code> を何度押しても絵が動かない</strong>のが今日の到達点。並べて差を取ると、<strong>フォワードと Forward+ は1ビットも違わない</strong>(要点6)。ディファードとは 0.30% ずれる(Day 52a の要点2の、影の縁の数画素)。比べるときは <code>Space</code> で一時停止してから——止めないと、撮る間に光の群れが動いて差が出る(検証の途中で分かったこと 1)。</p>
+<h3 id="s28">2. 光を 1024 個にする: フォワードだけが光を落とす</h3>
+<p>「ディファード」の <code>F3</code> をもう2回押して 1024 個にする。Forward+ とディファードは同じ絵のまま(差 0.45%)で、フォワードにすると HUD が <code><strong>64個で打ち切り</strong></code> になり、<strong>床の光だまりが目に見えて減る</strong>。Forward+ の HUD は <code>升目:15x10x16=2400  1升あたり 最大178個 平均36.5個  振り分け:0.2〜0.4ms(CPU)</code> 前後になる。</p>
+<h3 id="s29">3. <code>F3</code>: ヒートマップ — 画素ごとに回している光の数</h3>
+<p>画面が色に変わり、升目の縁に線が引かれる。<strong>青 = 1、緑 = 4、黄 = 16、赤 = 64 以上</strong>(4倍ごとに1段)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>光の数</th><th>見え方</th><th>1升あたり(光の入った升目の平均 / 最大)</th></tr></thead>
+<tbody>
+<tr><td>16 個(半径 4m)</td><td>床は青〜緑</td><td>3.0 / 11</td></tr>
+<tr><td>64 個(半径 2m)</td><td>床は緑〜黄</td><td>7.1 / 31</td></tr>
+<tr><td>1024 個(半径 0.5m)</td><td>床は橙〜赤</td><td>36.5 / 178</td></tr>
+</tbody>
+</table></div>
+<p><strong>光の数を増やすと色が上がる</strong>のが見どころ(要点8)。Day 52 の「光の重なり」(ディファードの代償)は16 個と 1024 個でほぼ同じ明るさだったが、Forward+ の代償は揃わない——升目が光より大きくなるから。空と、光の届かない壁の上のほうは黒(0 個)になる。</p>
+<h3 id="s30">4. <code>F4</code>: 切り身を 1 → 64 枚にする</h3>
+<p>光 1024 個・ヒートマップのまま <code>F4</code> を回す(16 → 64 → 1 → 4 → 16)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>切り身</th><th>HUD の升目</th><th>1升あたり 平均 / 最大</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>1 枚(タイルだけ)</td><td>15x10x1=150</td><td>70.3 / 234</td><td>ほぼ赤一色</td></tr>
+<tr><td>16 枚</td><td>15x10x16=2400</td><td>36.5 / 178</td><td>橙。タイルの中に横の帯</td></tr>
+<tr><td>64 枚</td><td>15x10x64=9600</td><td>19.1 / 72</td><td>黄〜緑。手前の床が下がる</td></tr>
+</tbody>
+</table></div>
+<p><strong>16 枚でタイルの中に横の帯が見える</strong>のは、床の上を切り身の境目が横切っているところ。境目の手前と奥で、升目に入っている光が違う。</p>
+<h3 id="s31">5. <code>F3</code> をもう1回: 切り口</h3>
+<p>切り身ごとに色が変わり(水色 → 紫 → 桃 → 橙 …)、タイルは市松で明暗が付く。<strong>奥ほど色の帯が広い</strong>のが、等比に切っている姿(要点3)。決めの構図では、手前の床の水色が 9 枚目(4.9〜7.5m)、その先の紫が 10 枚目(7.5〜11.6m)、桃が 11 枚目(11.6〜17.8m)、奥の壁の橙が 12 枚目(17.8m より先)。色は切り身の番号を 6 で割った余りで決まるので、6 枚ごとに同じ色が戻る。</p>
+<h3 id="s32">6. <code>F5</code>: タイルの大きさ</h3>
+<p><code>F5</code> で 64 → 128 → 32 → 64 と回る。32 画素にすると <code>升目:30x20x16=9600</code>、1升あたりの平均が 36.5 → 27.2 個に下がり、振り分けは 0.2 → 0.86ms に上がる。<strong>細かくすると絞れるが、CPU が払う</strong>(要点8)。</p>
+<h3 id="s33">7. <code>F6</code>: 振り分けを止めて、カメラを回す</h3>
+<p><code>F6</code> で <code><strong>振り分け停止中</strong></code> になる。そのままマウスでカメラを回すと、<strong>光だまりが四角く欠けたり、何も無いところに四角い光が残ったりする</strong>——升目の一覧が前のカメラのまま止まっているので、画素が自分の升目を引いても、そこに入っているのは別の場所の光になる。升目がカメラに貼り付いていること(毎フレーム作り直す理由)が目で見える。もう一度 <code>F6</code> で直る。</p>
+<h3 id="s34">8. <code>F7</code>: 内訳</h3>
+<div class="code"><pre><code>--- Forward+ の内訳 ---
+  升目: タイル 64px → 15 x 10、奥行き 16 枚(0.10m 〜 100m を1枚ごとに 1.54 倍)= 2400 クラスター
+  切れ目の深さ [m]: 0.1 0.15 0.24 0.37 0.56 0.87 1.33 2.05 3.16 4.87 7.5 11.55 17.78 27.38 42.17 64.94 100
+  クラスターの形(厚み ÷ 幅): 手前 7.42 / 奥 7.42(<strong>等比に切ったので、どの深さでも同じ形</strong>)
+
+  光: 1024 個  振り分けた組: 粗い箱の候補 6618 → クラスターの箱で確かめて 6568
+  光の入ったクラスター: 180 / 2400  1クラスターあたり 最大 178 個 / 平均 36.5 個(光の入ったもの)
+
+  テクスチャバッファ: 升目 18.8KB / 番号 25.7KB / 光 32.0KB  合計 76.4KB(上限 134217728 テクセル)
+    ※ディファードの G-Buffer は 15.8MB。<strong>Forward+ が持つのは光の一覧だけ</strong>
+  振り分け(CPU): 0.210ms  詰め替え: 0.010ms  いまの描き方: Forward+</code></pre></div>
+<p><strong>切れ目の深さが 1.54 倍ずつ</strong>になっているのが要点3、<strong>合計 76.4KB</strong> が要点7。<strong>光の入ったクラスターが 2400 のうち 180</strong> しかないのは、光が裏通りの床の近く(高さ 0.15〜0.48m)に集まっているため——光の入った升目に 1024 個が詰め込まれている。厚み ÷ 幅の 7.42 は、デモの画角(40 度)で測った値(自己チェックの 4.68 は画角 60 度)。</p>
+<h3 id="s35">9. <code>F8</code>: 計測</h3>
+<div class="code"><pre><code>--- 3つの描き方の計測(960x640、24 回の平均。影と SSAO は含めない)---
+  光の数  届く距離   フォワード                 ディファード   Forward+(うち振り分け)  1升の最大
+      0    4.00m     1.28ms                   1.86ms        1.40ms(0.02ms)         0 個
+     16    4.00m     1.54ms                   1.13ms        0.57ms(0.35ms)        11 個
+     64    2.00m     0.57ms                   0.40ms        0.49ms(0.35ms)        31 個
+    256    1.00m     0.57ms(64個で打ち切り)         0.46ms        0.60ms(0.40ms)        72 個
+   1024    0.50m     0.53ms(64個で打ち切り)         0.93ms        1.18ms(0.67ms)       175 個
+
+  切り身の数ごと(Forward+、光 1024 個):
+     1 枚    0.83ms(振り分け 0.51ms)  1升の最大 237 個 / 平均 70.5 個  組 5712
+     4 枚    0.83ms(振り分け 0.59ms)  1升の最大 214 個 / 平均 61.5 個  組 5839
+    16 枚    0.78ms(振り分け 0.66ms)  1升の最大 175 個 / 平均 36.0 個  組 6523
+    64 枚    1.05ms(振り分け 0.94ms)  1升の最大  70 個 / 平均 19.0 個  組 8895</code></pre></div>
+<p><strong>比べてよいのは 64 個の行から下</strong>。最初の2行(光 0 個・16 個)は、直前まで VSync で休んでいた GPU のクロックが上がりきる前に測るので重く出る——光 0 個のディファード(太陽の全画面1枚だけ)が64 個より重いのは、仕事の量では説明が付かない。2回測って2回とも最初の2行だけが重かった(空回しで温めれば直るが、入れていない。検証の途中で分かったこと 5)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>光の数</th><th>速い順</th><th>読みどころ</th></tr></thead>
+<tbody>
+<tr><td>64 個</td><td>ディファード 0.40 &lt; Forward+ 0.49 &lt; フォワード 0.57</td><td>Forward+ はフォワードより速いが、ディファードには届かない</td></tr>
+<tr><td>1024 個</td><td>フォワード(64 個で打ち切り)を除くと ディファード 0.93 &lt; <strong>Forward+ 1.18</strong></td><td><strong>この場面ではディファードのほうが速い</strong></td></tr>
+</tbody>
+</table></div>
+<p>1024 個で Forward+ が遅れる理由は2つあって、どちらも今日の要点に書いたもの。</p>
+<ul><li><strong>CPU の振り分け</strong>(括弧の中。1024 個で 0.67ms)。CPU と GPU は並んで動くので単純な引き算はできないが、GPU が浮かせたぶんの多くを CPU が払っている。これを GPU へ移すのが Day 57。なお HUD の振り分け(1024 個で 0.2〜0.4ms)より重く出ている理由は、今日は突き止めていない(計測は GPU を待つ合間に振り分けだけを 24 回続けて測るので、CPU の条件が普段のフレームと違う可能性がある)</li><li><strong>升目が光より大きい</strong>(1升の最大 175 個)。半径 0.5m の光に対して、手前の床のあたり(9 枚目。深さ 4.9〜7.5m)の升目は奥行き 2.6m・幅 0.35〜0.55m ある(要点8)</li></ul>
+<p>後半の表は、要点8の取り引きがそのまま数字に出ている。切り身を 64 枚にすると1升の光は半分(平均 36 → 19 個)になるが、振り分けが 0.66 → 0.94ms に増えて、合計では 16 枚より遅い。<strong>今日の構成では 16 枚がいちばん速い</strong>。</p>
+<p><strong>速さだけで比べると、今日の Forward+ はディファードに勝てない</strong>——これが設計比較の正直な結果になる。Forward+ を選ぶ理由は速さより「半透明と材質の分岐を捨てずに済む」ほう(設計書の比較表の下半分)で、速さのほうは Day 57 で振り分けを GPU へ移してから、もう一度測ることになる。数字は GPU のクロックの上下で 0.1〜0.2ms ほどぶれるので、並びの傾向を読むこと。</p>
+<h3 id="s36">10. <code>F9</code>: 自己チェックが 23 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 53 自己チェック(升目・振り分け・GPU との一致・フォワードとの一致)===
+  [OK] 升目: 960x640 を 64 画素で切ると 15 x 10、奥行き 16 枚で 2400 クラスター  15 x 10 x 16 = 2400
+  ...
+  すべて合格(升目・振り分け・GPU との一致・フォワードとの一致が仕様どおり)</code></pre></div>
+<p><strong>窓を開かずに走る項目が 12 ある</strong>(升目と振り分け)。<code>ClusterGrid</code> が GL を知らないおかげで、見落とし 0 の 103 万組も数字だけで確かめられる。</p>
+<h3 id="s37">11. Forward+ はどの絵でも降りない</h3>
+<p>デモ v1 のまま「PBR」ページの成分表示(法線や粗さの窓)を出すと、ディファードはフォワードに戻った(HUD が <code>描画:フォワード(成分表示中はフォワード)</code>)。Forward+ は <code>描画:Forward+</code> のまま動く。「プレイアブルデモ」ページ(19 枚目)の <code>F2</code> でキツネを出しても、HUD は <code>描画:Forward+</code> のまま床に光だまりが並ぶ——<code>Render3D</code> の中身を1行も変えていないので、キャラクターも当たり判定の箱も、何も足さずに升目の一覧を引く。</p>
+<h3 id="s38">12. Day 39〜52 の絵が1つも壊れていない</h3>
+<p><strong>既定はフォワード・光 0 個</strong>なので、起動した直後の絵は Day 52 とまったく同じになる。Day 48 の自己チェック(<code>Alt+F1</code>)は <strong>207 項目</strong>で通る。Day 52 のディファードの自己チェック(31 項目)も、Day 33〜37 の影・PBR・IBL・SSAO の自己チェックも通る。</p>
+<p><strong>IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる</strong>こと(Day 52 と同じ注意。HDRI を焼いたあとでは4項目が落ちる)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーは、ことわりの無いものは「Forward+」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F3</code></td><td>真上から見た視錐台「見るもの」</td><td>光の数(青 1・緑 4・黄 16・赤 64 以上)、切り口(6 枚で色が一周、奥ほど帯が広い)</td></tr>
+<tr><td><code>F4</code></td><td>同「切り身」、奥行きの切り方と升目の形「切り身の数」</td><td>1 枚(タイルだけ)で 1升の光が跳ね上がり、64 枚で下がる。16 枚で 1 枚ごとに 1.540 倍</td></tr>
+<tr><td><code>F5</code></td><td>真上から見た視錐台「タイル」</td><td>32 画素で升目が倍になり、1升の光が下がる</td></tr>
+<tr><td><code>F6</code></td><td>同「振り分けを止める」+「カメラの向き」</td><td>止めたまま向きを変えると見落としが出て、光だまりが四角く欠ける</td></tr>
+<tr><td><code>F7</code>(内訳)</td><td>奥行きの切り方と升目の形</td><td>切れ目の深さ 0.1 0.15 0.24 … 100、厚み ÷ 幅がデモの画角で 7.42</td></tr>
+<tr><td><code>F9</code>(自己チェック)</td><td>同(画角 60 度)、真上から見た視錐台</td><td>どの深さでも 4.68(等間隔なら手前 541 / 奥 0.58)。見落とし 0。升目の中の光の番号が小さい順</td></tr>
+<tr><td>「ディファード」の <code>F3</code></td><td>真上から見た視錐台「光の数」</td><td>光を増やすと 1升あたりの光が増える(升目が光より大きくなる)</td></tr>
+<tr><td><code>F2</code>・<code>F8</code></td><td>(なし)</td><td>描き方の切り替え(絵は変わらない)と計測</td></tr>
+<tr><td>(なし)</td><td>「奥行きを等間隔に切る」</td><td>改造課題1 を先に見るためにこのページで足した切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">升目の実験台は reference/Day53 の ClusterGrid(SliceDepth・SliceOf・升目の箱・AssignLight の2段・計数ソート)を、床に平行な面の 2D に移したもの。カメラは「決めの構図」の位置と向き・画角 40 度・960x640 だが、高さを落としているので、タイルは横の 15 枚だけ(縦の 10 枚が無い)で、光の球は床の上の円になる。そのため升目の数・1升あたりの光の数・組の数は内訳(F7)の数字とは一致しない。光の群れは docs/site/lights.js(Day 52b と同じ移植)を時刻 0 で止めて使っている。通常の表示は、升目の一覧に入った光だけを床からの距離の減衰で足した色で、鏡面反射・高さ・影は省いた。切り身の形の実験台の数字(1.540 倍、4.68、7.42、0.99、1.57、541、0.58)は ClusterGrid.SliceAspect と同じ式で、自己チェックと内訳の値と一致する。</p></div>
+</section>
+<section class="part"><h2 id="s39">改造課題</h2>
+<h3 id="s40">課題1(易): 奥行きを等間隔に切ってみる</h3>
+<p><code>ClusterGrid.SliceDepth</code> / <code>SliceOf</code> と、<code>textured.frag</code> の <code>ClusterCoord</code> の切り身の式を等間隔に替える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public float SliceDepth(int k) =&gt; Near + ((Far - Near) * k / _key.Slices);
+
+public int SliceOf(float depth) =&gt;
+    Math.Clamp((int)((depth - Near) * SliceScale), 0, _key.Slices - 1);   // SliceScale = 枚数 / (far − near)</code></pre></div>
+<div class="code"><span class="lang">glsl</span><pre><code>int slice = int((viewDepth - uClusterNear) * uClusterSliceScale);</code></pre></div>
+<p><code>SliceScale</code> の中身を <code>枚数 / (far − near)</code> に替えれば、uniform を増やさずに済む。切り口(<code>F3</code> を2回)で、<strong>手前の床が1枚の太い帯になり、奥の帯が細かく刻まれる</strong>のを見る。ヒートマップの 1升あたりは、タイルだけのときに近づくはず(裏通りは全部 0.1〜18m の中にあり、100m を等間隔に 16 枚切ると、6m ずつなので最初の3枚しか使わない)。</p>
+<p>自己チェックは「等比」と「形が同じ」の2項目が落ちる——<strong>落ちるのが正しい</strong>。一方で「見落とし 0」と「CPU と GPU が同じ升目を指す」は、両側の式を揃えていれば通る。<strong>正しさの検査と効率の検査は別物</strong>、というのがこの課題の読みどころ。</p>
+<h3 id="s41">課題2(中): クラスタードディファード — 光の球をやめる</h3>
+<p>Day 52 のライティングパスは、光1個 = 球1個 = ドローコール1回(1024 個で 936 回)。同じ升目の一覧を <code>deferred.frag</code> の<strong>太陽のパス(全画面1枚)</strong>で回せば、全部の光を1回で当てられる。Olsson の論文の題の前半(Clustered Deferred)がこれ。</p>
+<ol><li><code>deferred.frag</code> に TBO 3本の uniform と <code>ClusterCoord</code> / <code>ClusterIndex</code> を足す(<code>textured.frag</code> から写す——<strong>写す関数が増える</strong>ことに注意。「今日残した歪み」の1つ目)</li><li>深さは G-Buffer の2枚目の w(距離)をそのまま使う。<code>uView</code> は要らない</li><li><code>DeferredLighting.Render</code> で点光源の球を描かず、太陽のパスで <code>_clusters.Apply(shader)</code> を呼ぶ(<code>ApplyLighting</code> は升目を配らないので、呼ぶ側で足す)</li><li><code>Program</code> 側は、ディファードのときも <code>AssignLightsToClusters</code> を走らせる(<code>UseForwardPlus</code> の条件を広げる)</li></ol>
+<p>HUD の「球:936描画」が 0 になり、ライティングパスの ms がどう動くかを見る。<strong>G-Buffer を1回しか読まない</strong>(球の数だけ読み直さない)のが、帯域の上での儲けになる。</p>
+<h3 id="s42">課題3(難): 粒に点光源を当てる</h3>
+<p>Day 49 の粒(土埃)は光を受けない。夜の裏通りで土埃を舞わせても、光だまりの色に染まらない。ディファードでは直せない——粒は半透明なので G-Buffer に入らず、フォワードで後から重ねるしかないうえ、そのフォワードには 1024 個の光を渡す手段が無かった。<strong>Forward+ の升目の一覧は、画素シェーダならどこからでも引ける</strong>。</p>
+<ol><li><code>particle.vert</code> から世界の位置を <code>particle.frag</code> へ渡す</li><li><code>particle.frag</code> に TBO 3本の uniform・升目を引く関数・<code>uView</code> を足し、升目の光を回す。粒には法線が無いので、BRDF の代わりに「減衰 × 色」だけを足す(どの向きにも同じだけ散らす、とみなす)</li><li><code>ParticleRenderer</code> が描く前に <code>_clusters.Apply(shader)</code> を呼べるようにする(Day 52 の <code>DeferredLighting.Render</code> が <code>Action&lt;Shader&gt;</code> で光の設定を受け取ったのと同じ形にするとよい)</li></ol>
+<p>夜・1024 個で土埃を舞わせ、<strong>光だまりを通る粒だけが色づく</strong>ことを確かめる。加算合成の粒(火花)に当てると明るくなりすぎるので、混ぜ方で当てる・当てないを分けることになる——「半透明に光を当てる」が、何を当ててよいかの判断まで含む仕事だと分かる。</p>
+</section>
+<section class="part"><h2 id="s43">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070(テクスチャバッファの上限 134217728 テクセル)</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。計測(<code>F8</code>)だけは電力上限を 150W に下げて回した(検証の途中で分かったこと 5)</td></tr>
+</tbody>
+</table></div>
+<p>Forward+ の数字(決めの構図・夜)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>升目</td><td>64 画素 × 16 枚 = 15 x 10 x 16 = 2400</td></tr>
+<tr><td>光の一覧</td><td>76.4KB(升目 18.8 / 番号 25.7 / 光 32.0)</td></tr>
+<tr><td>振り分け(CPU)</td><td>1024 個で HUD 0.2〜0.4ms / 計測の中では 0.67ms、64 個で 0.1ms、32 画素のタイルで 0.86ms</td></tr>
+<tr><td>1升あたり(1024 個)</td><td>1 枚 70.3 / 16 枚 36.5 / 64 枚 19.1(光の入った升目の平均)</td></tr>
+<tr><td>フォワードとの差(夜・64 個)</td><td><strong>最大の差 0</strong>(1ビットも違わない)</td></tr>
+<tr><td>ディファードとの差</td><td>夜・64 個で平均 0.30% / 1024 個で 0.45%</td></tr>
+<tr><td>GL のエラー</td><td>0(毎フレーム <code>glGetError</code> を見て確かめた)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s44">自己チェック(23 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 53 自己チェック(升目・振り分け・GPU との一致・フォワードとの一致)===
+  [OK] 升目: 960x640 を 64 画素で切ると 15 x 10、奥行き 16 枚で 2400 クラスター  15 x 10 x 16 = 2400
+  [OK] 升目: 端の半端なタイルも1枚に数える(1000x700 → 16 x 11)  16 x 11
+  [OK] 奥行き: 切れ目が等比(隣どうしの比が一定)で、両端が near と far  1枚ごとに 1.540 倍  0.10m 〜 100.0m
+  [OK] 奥行き: 深さから切り身が引ける(切れ目の 0.1% 奥と手前で分かれ、範囲の外は端に収まる)
+  [OK] <strong>等比に切ると、クラスターの形がどの深さでも同じ</strong>(厚み ÷ 幅)  4.68 〜 4.68(等間隔に切ると 手前 541 / 奥 0.58)
+  [OK] クラスターの箱が、そこに属する点を必ず含む(画素と深さを 2000 通り)
+  [OK] <strong>振り分けに見落としが無い</strong>(光が届く点なら、その点のクラスターに必ずその光が入っている)  升目 4 通り × 5000 点 × 光 300 個  届いた組 1031587 / 見落とし 0
+  [OK] 画面の外の光(背後・遠クリップ面の奥・真横)は、どのクラスターにも入らない  0 組
+  [OK] カメラが光の球の中でも、手前のクラスターには必ず入る(画面の中央と隅)  1260 クラスターに入った
+  [OK] 番号の並びが詰まっている(始まりは数の足し上げ、クラスターの中は番号の小さい順)  126061 組 / 光の入ったクラスター 1946
+  [OK] 同じ光なら同じ答え(間に別の光を振り分けても、前の結果が残らない)
+  [OK] <strong>奥行きを切ると、1クラスターの光が減る</strong>(光 1024 個。タイルだけ → 16 枚)  平均 29.2 → 9.5 個 / 最大 352 → 180 個
+  [OK] テクスチャバッファ3本に CPU の答えがそのまま入っている(読み返して一致)  升目 2400 / 番号 1346 / 光 3 x 2 テクセル
+  [OK] <strong>CPU と GPU が同じクラスターを指す</strong>(床の画素で、タイル・切り身・光の数が一致)  7 / 7 画素(切り身 7・8 / 光 2・3 個)
+  [OK] <strong>フォワードと Forward+ で同じ絵</strong>(光3個。回す光を選んだだけなので差が出ない)  最大の差 0.0E+000
+  [OK] Forward+ とディファードで同じ絵(Day 52 のフォワードとの差と同じ程度)  平均の相対差 0.33% / 5% を超える画素 0.01%
+  [OK] Forward+ に上限は無い(65 個目の光が見える)  画面の平均 0.0079 → 0.1988
+  [OK] 光 256 個でも Forward+ とディファードが同じ絵  平均の相対差 0.49% / 5% を超える画素 0.10%  1升の最大 45 個
+  [OK] <strong>升目の切り方を変えても絵は変わらない</strong>(タイルだけ / 32 画素 x 32 枚 と比べて)  最大の差 0.0E+000 / 0.0E+000
+  [OK] 切り身の式が textured.frag と ClusterGrid.SliceOf で同じ(log(深さ / near) × 係数 を切り捨て)
+  [OK] 通し番号の式が textured.frag と ClusterGrid.IndexOf で同じ(x がいちばん速く回る)
+  [OK] 光1個 = 2 テクセルの約束が同じ
+  [OK] <strong>BRDF は今日1つも増えていない</strong>(Forward+ はフォワードの PointLightContribution をそのまま使う)  textured.frag に 1 つ
+  すべて合格(升目・振り分け・GPU との一致・フォワードとの一致が仕様どおり)</code></pre></div>
+<h3 id="s45">検証の途中で分かったこと</h3>
+<p><strong>1. 最初はフォワードと 14% 違って見えた</strong>。デモの絵をフォワードと Forward+ で1枚ずつ撮って差を取ると、平均の相対差 13.8%、5% を超える画素が半分あった。原因は Forward+ ではなく<strong>撮る間隔</strong>で、2枚を 60 フレーム(1秒)離して撮っていたので、その間に光の群れが動いていた(最大 0.6m)。一時停止してから撮ると<strong>最大の差 0</strong>。1ビットも違わない理由は要点6に書いた。<strong>差を取るときは時間も止める</strong>——Day 52 の自己チェックが確認用のシーン(光が動かない)で比べていたのはこのため。</p>
+<p><strong>2. <code>uView</code> はフォワードの本描画では送られていなかった</strong>。Day 52 で <code>textured.frag</code> に足した <code>uView</code> はG-Buffer パスだけが送っていて、フォワードの本描画は読んでいなかった。Forward+ は画素の深さを <code>uView</code> で出して切り身を選ぶので、送らないと<strong>直前の G-Buffer パスのビュー行列</strong> (一度もディファードで描いていなければ零行列)で升目を引いてしまう。零行列なら深さが 0 になって全部の画素が手前の切り身を引き、奥の光がほとんど消える。実装しながら気づいて <code>Render3D</code> と <code>PrepareProbeShader</code> で毎回送るようにした。自己チェックの「CPU と GPU が同じ升目を指す」が見張っている。</p>
+<p><strong>3. ヒートマップが赤一色だった</strong>。最初は目盛りを「16 個以上は赤」にしていて、1024 個のときは切り身 1 枚でも 16 枚でも画面が真っ赤になり、奥行きを切る効き目が見えなかった。バグを疑ったが数字(平均 70 → 37)は下がっていて、<strong>光の密度が高すぎて目盛りが頭打ちになっていた</strong>だけだった。床のそばに 1m² あたり 8 個の光があり、升目 1 つが数十個を抱える(要点8)。目盛りを 64 個まで広げ、切り身の段に 64 枚(ほぼ立方体)を足した。<strong>Forward+ の代償は光の大きさと升目の大きさの両方で決まる</strong>、というのはこの見え方から整理した。</p>
+<p><strong>4. 升目の一覧を <code>ApplyLighting</code> に入れたら、警告が 16 行並んだ</strong>。サンプラの番号をどこで描いても揃えたかったので、最初は光の設定をまとめて配る <code>ApplyLighting</code> に入れた。ところが <code>ApplyLighting</code> はディファードのライティングパス(太陽と点光源の2本)にも配っていて、<code>deferred.frag</code> は TBO の uniform を宣言していない——<code>[警告] uniform 'uClusters' が見つかりません</code> が8 個 × 2 本並んだ。<code>textured.frag</code> にだけ届く <code>ApplyPointLights</code> へ移して消えた。Day 52 で作った「同じ関数で配る」形は、<strong>配る相手が全員同じ名前を持っているとき</strong>だけ成り立つ。</p>
+<p><strong>5. 計測で PC が2回落ちた</strong>(コードの不具合ではない)。検証の自動化で計測(<code>F8</code>)を回したところ、表の見出しを出した直後に PC が強制終了した。イベントログは Kernel-Power 41、BugcheckCode 0(ブルースクリーン無しの電源断)で、この開発機で以前から起きている GPU の電源の問題と同じ形だった。計測は VSync を無視して数百フレームを続けて描くので、GPU の負荷が一気に跳ね上がる——その瞬間に落ちている。</p>
+<p>電力上限を 150W に下げる(<code>nvidia-smi -pl 150</code>。管理者の PowerShell で。再起動すると元に戻る)と、計測は2回とも最後まで走った。上の表はそのときのもの。ところが、最初の2行が重く出る(クロックが上がりきっていない)のを直そうとして、計測の頭に<strong>0.5 秒間 GPU を途切れなく全開で回す空回し</strong>を足したら、150W のままでも空回しの最中に落ちた。断続的な全開は 150W で耐えるが、持続的な全開は耐えない。そこで空回しは入れず、「最初の2行は重く出る」ことをコメントと計画書に書いて済ませた。</p>
+<p><strong>写経のあとで <code>F8</code> を押すと、同じことが起きうる</strong>。押す前に電力上限を下げておき、それでも落ちたらコードではなく電源を疑うこと(Day 52 の計測も同じ形なので、同じ注意が要る)。</p>
+<p><strong>6. 自己チェックの床の点が画面の外に落ちた</strong>。「CPU と GPU が同じ升目を指す」は最初、床の上の世界の点を6つ選んで画面に写していた。デモ v1 を出したあとに走らせると、デモの画角(40 度)のまま確認用のシーンを撮るので、6 点のうち 4 点が画面の外に落ちて項目が落ちた。<strong>画面の画素から選んで床へ視線を飛ばす</strong>形に替えて、画角に依らず 7 画素とも画面に入るようにした。</p>
+</section>
+<footer class="end">Day 53 Forward+ / クラスタードライティング(升目で光を選り分けるフォワード) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/lights.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, stat } = Lab;
+const { attenuation, LightSwarm, BOUNDS_MIN, BOUNDS_MAX } = Lights;
+const NEAR = 0.1, FAR = 100, WIDTH = 960, HEIGHT = 640;
+
+// ============================================================
+//  要点3: 奥行きの切り方と、升目の形
+// ============================================================
+const sl = { mode: 'exp', n: 16, fov: 60 };
+const sliceDepth = (k, n, mode) => (mode === 'exp' ? NEAR * Math.pow(FAR / NEAR, k / n) : NEAR + (FAR - NEAR) * k / n);
+// ClusterGrid.SliceAspect: 厚み ÷(切り身の手前の端でのタイルの幅)
+function aspect(k, n, mode, fov) {
+  const scaleX = 1 / ((WIDTH / HEIGHT) * Math.tan(fov * Math.PI / 360));
+  const near = sliceDepth(k, n, mode), th = sliceDepth(k + 1, n, mode) - near, w = 2 * 64 / WIDTH / scaleX * near;
+  return th / w;
+}
+function drawSlice() {
+  const { ctx, w, h } = fit($('slice-canvas'));
+  const L = 56, R = w - 16, T1 = 26, B1 = 70, T2 = 118, B2 = h - 26;
+  const X = (d) => L + Math.log10(d / NEAR) / 3 * (R - L);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  ctx.fillText('切れ目', 4, (T1 + B1) / 2 + 4);
+  // 上: 切れ目の深さ(横軸は対数)
+  const pal = ['#e64d40', '#f2bf33', '#59cc4d', '#40b3e6', '#6666f2', '#d966d9'];   // textured.frag の SliceColor
+  for (let k = 0; k < sl.n; k++) {
+    const a = sliceDepth(k, sl.n, sl.mode), b = sliceDepth(k + 1, sl.n, sl.mode);
+    ctx.fillStyle = pal[k % 6]; ctx.globalAlpha = 0.85;
+    ctx.fillRect(X(a), T1, Math.max(X(b) - X(a), 1), B1 - T1);
+    ctx.globalAlpha = 1;
+  }
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (const d of [0.1, 1, 10, 100]) { ctx.beginPath(); ctx.moveTo(X(d), T1 - 4); ctx.lineTo(X(d), B2); ctx.stroke(); ctx.fillStyle = tok('--muted'); ctx.fillText(`${d}m`, X(d) - 10, h - 8); }
+  // 下: 切り身ごとの形(縦軸は対数。1 が立方体)
+  const Y = (v) => B2 - (Math.log10(v) + 1) / 4 * (B2 - T2);   // 0.1〜1000
+  for (const v of [0.1, 1, 10, 100, 1000]) { ctx.strokeStyle = v === 1 ? tok('--muted') : tok('--grid'); ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillStyle = tok('--muted'); ctx.fillText(String(v), 6, Y(v) + 4); }
+  ctx.fillText('厚み÷幅', 4, T2 - 18);
+  for (let k = 0; k < sl.n; k++) {
+    const a = sliceDepth(k, sl.n, sl.mode), b = sliceDepth(k + 1, sl.n, sl.mode), v = aspect(k, sl.n, sl.mode, sl.fov);
+    ctx.fillStyle = pal[k % 6];
+    const y = Y(Math.min(Math.max(v, 0.1), 1000));
+    ctx.fillRect(X(a) + 1, y, Math.max(X(b) - X(a) - 2, 1), Math.max(Y(0.1) - y, 1));
+  }
+  const first = aspect(0, sl.n, sl.mode, sl.fov), last = aspect(sl.n - 1, sl.n, sl.mode, sl.fov);
+  const ratio = Math.pow(FAR / NEAR, 1 / sl.n);
+  $('slice-stats').innerHTML =
+    stat('1枚ごとに', sl.mode === 'exp' ? ratio.toFixed(3) : ((FAR - NEAR) / sl.n).toFixed(2), sl.mode === 'exp' ? ' <small>倍</small>' : ' <small>m ずつ</small>') +
+    stat('手前の升目の形', first.toFixed(first < 10 ? 2 : 0), ' <small>(厚み ÷ 幅)</small>') +
+    stat('奥の升目の形', last.toFixed(2), '');
+  $('slice-depths').textContent = sl.n <= 16 ? `切れ目の深さ [m]: ${Array.from({ length: sl.n + 1 }, (_, k) => +sliceDepth(k, sl.n, sl.mode).toFixed(2)).join(' ')}` : `切れ目の深さ [m]: ${Array.from({ length: 9 }, (_, k) => +sliceDepth(k * sl.n / 8, sl.n, sl.mode).toFixed(2)).join(' … ')}(8 枚ごと)`;
+  let note;
+  if (sl.mode === 'lin') note = `等間隔に切ると、手前の升目は奥行きに何メートルも伸びる針(${first.toFixed(0)})、奥は平たい板(${last.toFixed(2)})になる。裏通りは全部 18m より手前にあるので、${sl.n} 枚のうち使うのは手前の数枚だけ。`;
+  else if (sl.n === 1) note = '1 枚(タイルだけ)では、升目は目から遠クリップ面まで伸びる四角錐そのもの。視線に沿った光が全部入る。';
+  else note = `等比に切ると、どの深さの升目も同じ形(${first.toFixed(2)})になる。深さに比例して広がるタイルの幅に、厚みも比例させているから。${sl.n === 64 ? 'ほぼ立方体(1)になるのは 64 枚。' : '1 に近いほど立方体で、光を細かく絞れる。'}`;
+  $('slice-note').textContent = note;
+}
+seg('slice-mode', (v) => { sl.mode = v; drawSlice(); });
+seg('slice-n', (v) => { sl.n = Number(v); drawSlice(); });
+seg('slice-fov', (v) => { sl.fov = Number(v); drawSlice(); });
+drawSlice();
+
+// ============================================================
+//  要点2・5・6・8: 真上から見た視錐台
+// ============================================================
+// 決めの構図(注視点 (-1.2, 1.3, -1.5)・距離 10.5m・方位 32 度・仰角 10 度・画角 40 度)。床に平行な面へ潰す
+const TARGET = [-1.2, -1.5], DIST = 10.5, YAW = 32 * Math.PI / 180, PITCH = 10 * Math.PI / 180;
+const FOV_Y = 40 * Math.PI / 180, SCALE_X = 1 / ((WIDTH / HEIGHT) * Math.tan(FOV_Y / 2));   // 射影行列の M11
+const cl = { view: 'heat', slices: 16, tile: 64, n: 256, yaw: 0, freeze: false, lin: false, frozen: null, probe: null };
+const swarm = new LightSwarm(1024); swarm.setCount(cl.n);
+function camera() {
+  const yaw = YAW + cl.yaw * Math.PI / 180;
+  const eye = [TARGET[0] + DIST * Math.cos(PITCH) * Math.sin(yaw), TARGET[1] + DIST * Math.cos(PITCH) * Math.cos(yaw)];
+  const f = [-Math.sin(yaw), -Math.cos(yaw)], r = [-f[1], f[0]];   // 前と右(x, z)
+  return { eye, f, r };
+}
+// ClusterGrid の 2D 版(y を落とした)。key: タイル・切り身・切り方
+class Grid2D {
+  constructor(tile, slices, lin) {
+    this.tile = tile; this.slices = slices; this.lin = lin;
+    this.tilesX = Math.ceil(WIDTH / tile); this.count = this.tilesX * slices;
+    this.scale = slices / Math.log(FAR / NEAR);
+    this.min = []; this.max = [];
+    for (let s = 0; s < slices; s++) for (let x = 0; x < this.tilesX; x++) {
+      const left = x * tile / WIDTH * 2 - 1, right = (x + 1) * tile / WIDTH * 2 - 1, n = this.depth(s), f = this.depth(s + 1);
+      this.min.push([Math.min(left / SCALE_X * n, left / SCALE_X * f), n]);
+      this.max.push([Math.max(right / SCALE_X * n, right / SCALE_X * f), f]);
+    }
+  }
+  depth(k) { return this.lin ? NEAR + (FAR - NEAR) * k / this.slices : NEAR * Math.pow(FAR / NEAR, k / this.slices); }
+  sliceOf(d) { const s = this.lin ? Math.floor((d - NEAR) * this.slices / (FAR - NEAR)) : Math.trunc(Math.log(d / NEAR) * this.scale); return Math.min(Math.max(s, 0), this.slices - 1); }
+  tileOf(ndc) { return Math.min(Math.max(Math.floor((ndc * 0.5 + 0.5) * WIDTH / this.tile), 0), this.tilesX - 1); }
+  index(x, s) { return x + this.tilesX * s; }
+  // ClusterGrid.Assign と AssignLight(2段)と計数ソート
+  assign(view) {
+    const counts = new Uint32Array(this.count), pairs = [];
+    let candidates = 0;
+    view.forEach((c, light) => {
+      const [x, depth, r] = c;
+      if (depth + r < NEAR || depth - r > FAR) return;
+      const nearEdge = Math.max(depth - r, NEAR), farEdge = Math.min(depth + r, FAR);
+      let first = this.sliceOf(nearEdge), last = this.sliceOf(farEdge);
+      if (first > 0 && this.depth(first) > nearEdge) first--;
+      if (last < this.slices - 1 && this.depth(last + 1) < farEdge) last++;
+      for (let s = first; s <= last; s++) {
+        const lo = Math.max(this.depth(s), nearEdge), hi = Math.min(this.depth(s + 1), farEdge);
+        const gap = depth < lo ? lo - depth : depth > hi ? depth - hi : 0;
+        const sec = Math.sqrt(Math.max(r * r - gap * gap, 0));
+        const pMin = (v) => (v >= 0 ? v / hi : v / lo), pMax = (v) => (v >= 0 ? v / lo : v / hi);
+        const left = pMin(x - sec) * SCALE_X, right = pMax(x + sec) * SCALE_X;
+        if (right < -1 || left > 1) continue;
+        for (let tx = this.tileOf(left); tx <= this.tileOf(right); tx++) {
+          candidates++;
+          const k = this.index(tx, s), mn = this.min[k], mx = this.max[k];
+          const ox = Math.max(mn[0] - x, 0) + Math.max(x - mx[0], 0), oz = Math.max(mn[1] - depth, 0) + Math.max(depth - mx[1], 0);
+          if (ox * ox + oz * oz > r * r) continue;
+          pairs.push([k, light]); counts[k]++;
+        }
+      }
+    });
+    const start = new Uint32Array(this.count), cursor = new Uint32Array(this.count);
+    let run = 0, max = 0, nonEmpty = 0;
+    for (let k = 0; k < this.count; k++) { start[k] = run; cursor[k] = run; run += counts[k]; max = Math.max(max, counts[k]); if (counts[k]) nonEmpty++; }
+    const indices = new Uint32Array(pairs.length);
+    for (const [k, light] of pairs) indices[cursor[k]++] = light;   // 光の順に書くので、升目の中は番号の小さい順
+    return { start, counts, indices, candidates, pairs: pairs.length, max, nonEmpty };
+  }
+}
+let grid = null, result = null;
+function rebuild() {
+  if (!grid || grid.tile !== cl.tile || grid.slices !== cl.slices || grid.lin !== cl.lin) { grid = new Grid2D(cl.tile, cl.slices, cl.lin); cl.frozen = null; }
+  const cam = camera();
+  const view = swarm.lights.map((l) => {
+    const dx = l.pos[0] - cam.eye[0], dz = l.pos[2] - cam.eye[1];
+    return [dx * cam.r[0] + dz * cam.r[1], dx * cam.f[0] + dz * cam.f[1], l.radius];
+  });
+  const fresh = grid.assign(view);
+  if (cl.freeze && cl.frozen) result = cl.frozen; else { result = fresh; cl.frozen = fresh; }
+  return cam;
+}
+// 表示する範囲(世界の x と z)。z を横に置く
+const VIEW = { z0: -13.2, z1: 9.6, x0: -4.6, x1: 6.0 }, PX = 0.05;
+const VW = Math.round((VIEW.z1 - VIEW.z0) / PX), VH = Math.round((VIEW.x1 - VIEW.x0) / PX);
+const HEAT = [[0.05, 0.25, 1.0], [0.1, 0.9, 0.2], [1.0, 0.85, 0.05], [1.0, 0.1, 0.05]];
+function heat(n) {   // textured.frag の HeatColor
+  if (n === 0) return [0.02, 0.02, 0.04];
+  const t = Math.min(Math.max(Math.log2(n) / 6, 0), 1) * 3, i = Math.min(Math.floor(t), 2), u = t - i;
+  return [0, 1, 2].map((c) => HEAT[i][c] + (HEAT[i + 1][c] - HEAT[i][c]) * u);
+}
+const SLICE_PAL = [[0.90, 0.30, 0.25], [0.95, 0.75, 0.20], [0.35, 0.80, 0.30], [0.25, 0.70, 0.90], [0.40, 0.40, 0.95], [0.85, 0.40, 0.85]];
+let clOff = null, clGeo = null, clFrame = null;
+// 升目を組み直して絵を作る(重い)。ポインタで升目を指すだけなら paintCl だけを呼ぶ
+function drawCl() {
+  const cam = rebuild();
+  if (!clOff) { clOff = document.createElement('canvas'); clOff.width = VW; clOff.height = VH; }
+  const img = new ImageData(VW, VH), o = img.data, lights = swarm.lights;
+  let floorPx = 0, loops = 0, missing = 0;
+  const cellOf = new Int32Array(VW * VH).fill(-1);
+  const sets = new Map();
+  for (let j = 0; j < VH; j++) {
+    const x = VIEW.x0 + (j + 0.5) * PX;
+    for (let i = 0; i < VW; i++) {
+      const z = VIEW.z0 + (i + 0.5) * PX, p = (j * VW + i) * 4;
+      const inAlley = x >= BOUNDS_MIN[0] && x <= BOUNDS_MAX[0] && z >= BOUNDS_MIN[2] && z <= BOUNDS_MAX[2];
+      const dx = x - cam.eye[0], dz = z - cam.eye[1];
+      const vx = dx * cam.r[0] + dz * cam.r[1], depth = dx * cam.f[0] + dz * cam.f[1];
+      const ndc = depth > NEAR ? vx / depth * SCALE_X : 9;
+      let c;
+      if (!inAlley) c = [0.07, 0.075, 0.09];
+      else if (Math.abs(ndc) > 1 || depth > FAR) c = [0.16, 0.16, 0.18];   // 画面の外
+      else {
+        const tx = grid.tileOf(ndc), s = grid.sliceOf(depth), k = grid.index(tx, s);
+        cellOf[j * VW + i] = k;
+        const n = result.counts[k], st = result.start[k];
+        floorPx++; loops += n;
+        if (cl.view === 'heat') c = heat(n);
+        else if (cl.view === 'slice') { const b = SLICE_PAL[s % 6]; c = (tx % 2) === 0 ? b : b.map((v) => v * 0.55); }
+        else {
+          // 通常: 升目の一覧の光だけを足す(2D なので高さは無視して床からの距離で減衰)
+          let r = 0.004, g = 0.004, bb = 0.005;
+          for (let q = 0; q < n; q++) {
+            const l = lights[result.indices[st + q]];
+            if (!l) continue;
+            const d = Math.hypot(x - l.pos[0], z - l.pos[2]), a = attenuation(d, l.radius) * 0.35;
+            r += l.color[0] * a; g += l.color[1] * a; bb += l.color[2] * a;
+          }
+          c = [r, g, bb].map((v) => Math.pow(v / (1 + v), 1 / 2.2));
+        }
+        // 見落とし: 届く光が升目の一覧に入っていない(粗く間引いて数える)
+        if ((i & 7) === 0 && (j & 7) === 0) {
+          let list = sets.get(k);
+          if (!list) { list = new Set(result.indices.subarray(st, st + n)); sets.set(k, list); }
+          for (let q = 0; q < lights.length; q++) {
+            const l = lights[q], ex = x - l.pos[0], ez = z - l.pos[2];
+            if (ex * ex + ez * ez < l.radius * l.radius && !list.has(q)) missing++;
+          }
+        }
+      }
+      o[p] = c[0] * 255; o[p + 1] = c[1] * 255; o[p + 2] = c[2] * 255; o[p + 3] = 255;
+    }
+  }
+  // 升目の縁
+  if (cl.view !== 'lit') for (let j = 1; j < VH; j++) for (let i = 1; i < VW; i++) {
+    const k = cellOf[j * VW + i];
+    if (k >= 0 && (k !== cellOf[j * VW + i - 1] || k !== cellOf[(j - 1) * VW + i])) { const p = (j * VW + i) * 4; o[p] *= 0.35; o[p + 1] *= 0.35; o[p + 2] *= 0.35; }
+  }
+  clOff.getContext('2d').putImageData(img, 0, 0);
+  clFrame = { cam, cellOf, floorPx, loops, missing };
+  paintCl();
+}
+function paintCl() {
+  const { cam, cellOf, floorPx, loops, missing } = clFrame, lights = swarm.lights;
+  const { ctx, w, h } = fit($('cl-canvas'));
+  const s = Math.min(w / VW, h / VH), dw = VW * s, dh = VH * s, ox = (w - dw) / 2, oy = (h - dh) / 2;
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(clOff, ox, oy, dw, dh);
+  const toC = (x, z) => [ox + (z - VIEW.z0) / PX * s, oy + (x - VIEW.x0) / PX * s];
+  clGeo = { ox, oy, s, cellOf };
+  // 視錐台の縁とカメラ
+  const tanH = 1 / SCALE_X, e = toC(cam.eye[0], cam.eye[1]);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.2; ctx.setLineDash([5, 4]);
+  for (const sd of [-1, 1]) {
+    const far = 30, px = cam.eye[0] + (cam.f[0] + cam.r[0] * sd * tanH) * far, pz = cam.eye[1] + (cam.f[1] + cam.r[1] * sd * tanH) * far;
+    const q = toC(px, pz); ctx.beginPath(); ctx.moveTo(e[0], e[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(e[0], e[1], 5, 0, Math.PI * 2); ctx.fill();
+  // 光の中心
+  if (cl.view === 'lit' || cl.n <= 64) for (const l of lights) { const q = toC(l.pos[0], l.pos[2]); ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(q[0] - 1, q[1] - 1, 2, 2); }
+  if (cl.probe != null) {
+    // 指した升目を囲む
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    for (let j = 0; j < VH; j += 1) for (let i = 0; i < VW; i += 1) {
+      if (cellOf[j * VW + i] !== cl.probe) continue;
+      if (cellOf[j * VW + i - 1] !== cl.probe || cellOf[(j - 1) * VW + i] !== cl.probe || cellOf[j * VW + i + 1] !== cl.probe || cellOf[(j + 1) * VW + i] !== cl.probe) ctx.fillStyle = '#fff', ctx.fillRect(ox + i * s, oy + j * s, Math.max(s, 1), Math.max(s, 1));
+    }
+  }
+  const r = result;
+  $('cl-yaw-out').textContent = `${cl.yaw > 0 ? '+' : ''}${cl.yaw}°`;
+  $('cl-hud').textContent = `描画:Forward+  光:${cl.n}個 半径${swarm.radius.toFixed(2)}m  升目:${grid.tilesX}x${grid.slices}=${grid.count}  1升あたり 最大${r.max}個 平均${(r.nonEmpty ? r.pairs / r.nonEmpty : 0).toFixed(1)}個${cl.freeze ? '  振り分け停止中' : ''}`;
+  $('cl-stats').innerHTML =
+    stat('光の入った升目', String(r.nonEmpty), ` <small>/ ${grid.count}</small>`) +
+    stat('1升あたり', (r.nonEmpty ? r.pairs / r.nonEmpty : 0).toFixed(1), ` <small>個(光の入った升目の平均)/ 最大 ${r.max}</small>`) +
+    stat('振り分けた組', String(r.pairs), ` <small>粗い箱の候補 ${r.candidates} から</small>`) +
+    stat('1画素で回す光', floorPx ? (loops / floorPx).toFixed(1) : '0', ` <small>個(床の平均。フォワードは ${cl.n > 64 ? '64 個で打ち切り' : `${cl.n} 個全部`})</small>`) +
+    stat('見落とし', String(missing), missing ? ' <span class="pill bad">光が欠ける</span>' : ' <small>(届く光は必ず升目に入っている)</small>');
+  let note;
+  if (cl.freeze && missing) note = '振り分けを止めたまま向きを変えると、升目はカメラに貼り付いて動くのに、中身は前のカメラのまま。届く光が一覧に無い升目で、光だまりがタイルの形に四角く欠ける(通常の表示で見るとよく分かる)。';
+  else if (cl.freeze) note = '振り分けを止めた。カメラの向きを動かすと、升目と一覧が食い違って光が欠ける。';
+  else if (cl.lin) note = '等間隔に切ると(100m を ' + cl.slices + ' 等分)、裏通り(カメラから 18m 以内)は手前の数枚にしか入らず、タイルだけのときに近い光の数になる。';
+  else if (cl.slices === 1) note = 'タイルだけ(切り身 1 枚)では、1枚のタイルが目から奥へ伸びる細い四角錐になり、その中の光が手前から奥まで全部入る。床の手前の画素でも、奥の光まで回すことになる。';
+  else if (cl.view === 'slice') note = '切り身ごとに色が変わり(6 枚で一周)、タイルは市松で明暗を付けた。奥ほど色の帯が広いのが、等比に切っている姿。';
+  else if (cl.n >= 1024) note = '光を 1024 個(半径 0.5m)にすると、升目が光よりずっと大きくなり、1升あたりの光が増える。光をいくら小さくしても、升目より細かくは絞れない(要点8)。切り身やタイルを細かくすると下がる。';
+  else note = '色は 1升に入った光の数(青 1・緑 4・黄 16・赤 64 以上)。升目に入った光でも、画素から届かない光は 0 を足すだけ——それが Forward+ の代償。';
+  $('cl-note').textContent = note;
+  drawProbe();
+}
+function drawProbe() {
+  if (cl.probe == null || !result) { $('cl-probe').textContent = '床の上にポインタを置くと、その升目の (始まり, 数) と光の番号の並びが出る。'; return; }
+  const k = cl.probe, st = result.start[k], n = result.counts[k], tx = k % grid.tilesX, s = Math.floor(k / grid.tilesX);
+  const ids = Array.from(result.indices.subarray(st, st + Math.min(n, 14)));
+  $('cl-probe').textContent = `升目 ${k}(タイル ${tx}・切り身 ${s}、深さ ${grid.depth(s).toFixed(2)}〜${grid.depth(s + 1).toFixed(2)}m): (始まり ${st}, 数 ${n})  光の番号 [${ids.join(' ')}${n > 14 ? ' …' : ''}](小さい順)`;
+}
+$('cl-canvas').addEventListener('pointermove', (ev) => {
+  if (!clGeo) return;
+  const rc = $('cl-canvas').getBoundingClientRect();
+  const i = Math.floor((ev.clientX - rc.left - clGeo.ox) / clGeo.s), j = Math.floor((ev.clientY - rc.top - clGeo.oy) / clGeo.s);
+  const k = i >= 0 && j >= 0 && i < VW && j < VH ? clGeo.cellOf[j * VW + i] : -1;
+  const next = k >= 0 ? k : null;
+  if (next !== cl.probe) { cl.probe = next; paintCl(); }
+});
+seg('cl-view', (v) => { cl.view = v; drawCl(); });
+seg('cl-slices', (v) => { cl.slices = Number(v); drawCl(); });
+seg('cl-tile', (v) => { cl.tile = Number(v); drawCl(); });
+seg('cl-n', (v) => { cl.n = Number(v); swarm.setCount(cl.n); cl.frozen = null; drawCl(); });
+$('cl-yaw').addEventListener('input', (e) => { cl.yaw = Number(e.target.value); drawCl(); });
+$('cl-freeze').addEventListener('change', (e) => { cl.freeze = e.target.checked; drawCl(); });
+$('cl-lin').addEventListener('change', (e) => { cl.lin = e.target.checked; drawCl(); });
+drawCl();
+window.addEventListener('resize', () => { drawSlice(); drawCl(); });
+})();
+</script>
+</body>
+</html>
