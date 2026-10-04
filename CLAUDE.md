@@ -1,11 +1,16 @@
 # honya-game-engine
 
-C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体計画は `docs/roadmap.md`(必読)。
+C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体計画は `docs/roadmap.html`(必読)。
 
 ## 構造と役割
 
-- `docs/roadmap.md`: ロードマップ全体(Day 1〜67)。Dayの内容・順序・進捗(Dayプラン表の「状態」列)はここが正
-- `docs/plans/DayXX.md`: 各Dayの計画書(create-day スキルで生成)
+- `docs/roadmap.html`: ロードマップ全体(Day 1〜67)。Dayの内容・順序・進捗(Dayプラン表の「状態」列)はここが正
+  - 写経が終わったDayは、表の「状態」セルを `<td></td>` から `<td>済</td>` に変える。冒頭の全体図と進捗バーは `docs/site/roadmap.js` が表から組み立てるので、触るのはこのセルだけ
+  - HTML の計画書があるDayは、Day のセルを `<a href="plans/DayXX.html">XX</a>` にする
+- `docs/plans/DayXX.html`: 各Dayの計画書(create-day スキルで生成)。図と、理論を動かして確かめる「実験台」を含む
+  - Day 43 より前と、先行作成済みの Day 44a 以降は `DayXX.md` のまま残っている。新しく作る計画書は HTML にする
+- `docs/site/`: 計画書とロードマップが共有する CSS / JS(`doc.css` / `lab.js` / `roadmap.js`)。外部ライブラリは使わず、ブラウザでファイルを直接開いて動くこと
+  - 1つの Day でしか使わない JS(その Day の物理の移植など)は、その Day の HTML の中に書く。2つ目の Day で要るようになったら `docs/site/` へ移す
 - `reference/DayXX/`: Claudeが作成するリファレンスコード(答え)。各Dayは独立してビルド・実行可能
 - `work/`: ユーザーが写経・改造するコード。**ユーザーの学習領域。明示的に依頼されない限り編集しないこと**(レビュー時に読むのは可)
   - Dayフォルダは作らず、`Framebuffer` / `SoftwareRasterizer` / `RawGL` / `HonyaEngine` / `Labs` の5系統を継続的に成長させる。区切りはgitのタグ/コミット(`day05` 等)

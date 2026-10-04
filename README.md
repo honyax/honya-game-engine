@@ -2,7 +2,7 @@
 
 C#による自作ゲームエンジン学習プロジェクト。ソフトウェアラスタライザから始めて、生OpenGL、Silk.NETベースのエンジン本体、AAA品質を目指すグラフィックスデモまでをDay制の写経形式で進める。
 
-全体計画と進捗: [docs/roadmap.md](docs/roadmap.md)
+全体計画と進捗: [docs/roadmap.html](docs/roadmap.html)(ブラウザで開く)
 
 ## 必要なもの
 
@@ -24,10 +24,12 @@ honya-game-engine/
 ├── .gitignore                   # `dotnet new gitignore` で生成
 ├── global.json                  # .NET SDKバージョン固定
 ├── docs/
-│   ├── roadmap.md               # 全体計画(Day一覧・進捗・参考資料)
-│   └── plans/
-│       ├── Day01.md             # 各Dayの計画書(ゴール/事前に読む資料/実装手順/改造課題)
-│       └── ... Day67.md
+│   ├── roadmap.html             # 全体計画(Day一覧・進捗・参考資料)。ブラウザで開く
+│   ├── plans/
+│   │   ├── Day01.md             # 各Dayの計画書(ゴール/事前に読む資料/実装手順/改造課題)
+│   │   ├── Day43.html           # Day 43 以降は HTML(図と動かせる実験台つき)
+│   │   └── ...
+│   └── site/                    # 計画書とロードマップが共有する CSS / JS
 ├── assets/                      # 複数Dayで共有する素材(テクスチャ、objモデル、フォント等)
 ├── reference/                   # リファレンスコード(AIが作成する「答え」)。Dayごとの完動スナップショット
 │   ├── Day01/
