@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 44a 箱を床に置く</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 箱の慣性テンソル — 軸ごとに違う、が全部の始まり</a></li><li class="l3"><a href="#s7">2. 形を体から切り離す — <code>Collider</code></a></li><li class="l3"><a href="#s9">3. 接触マニフォールド — なぜ1点では足りないのか</a></li><li class="l3"><a href="#s12">4. 位置の補正の測り直し — 体に貼り付けた印</a></li><li class="l3"><a href="#s13">5. 4点をどう解くか — 今日いちばん深い分岐</a></li><li class="l3"><a href="#s14">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s21">形が体から出たこと — 今日の設計の中心</a></li><li class="l3"><a href="#s22">判定の窓口を1つにしたこと</a></li><li class="l3"><a href="#s23">5段の順番は変わっていない</a></li><li class="l3"><a href="#s24">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s25">完成条件</a></li><li class="l3"><a href="#s26">1. <code>Ctrl+Shift+Alt+1</code>: 傾きを振った5つの箱が落ちて、面で落ち着く</a></li><li class="l3"><a href="#s27">2. <code>Ctrl+Shift+Alt+3</code>: 接触点を消して、また出す</a></li><li class="l3"><a href="#s28">3. <code>Ctrl+Shift+Alt+4</code>: 1組あたりの接触点を 1 にする</a></li><li class="l3"><a href="#s29">4. <code>Ctrl+Shift+Alt+7</code>: 解き方を「順番」にする</a></li><li class="l3"><a href="#s30">5. Day 43 までの機能が全部生きていること</a></li><li class="l3"><a href="#s31">6. <code>Ctrl+Shift+Alt+0</code>: 今日の自己チェック(24 項目すべて合格)</a></li><li class="l2"><a href="#s32">改造課題</a></li><li class="l3"><a href="#s33">課題1(易): 箱の重心をずらしてみる</a></li><li class="l3"><a href="#s34">課題2(中): 接触点を3点にしてみる</a></li><li class="l3"><a href="#s35">課題3(難): 位置の補正で向きも直す</a></li><li class="l2"><a href="#s36">動作確認済み環境</a></li><li class="l3"><a href="#s37">自己チェック(24 項目すべて合格)</a></li><li class="l3"><a href="#s38">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 44a / 計画書</p>
+  <h1>箱を床に置く</h1>
+  <p class="lede">形を体から切り離し、面で支える</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 箱の慣性テンソル — 軸ごとに違う、が全部の始まり</a></li><li class="l3"><a href="#s7">2. 形を体から切り離す — <code>Collider</code></a></li><li class="l3"><a href="#s9">3. 接触マニフォールド — なぜ1点では足りないのか</a></li><li class="l3"><a href="#s12">4. 位置の補正の測り直し — 体に貼り付けた印</a></li><li class="l3"><a href="#s13">5. 4点をどう解くか — 今日いちばん深い分岐</a></li><li class="l3"><a href="#s14">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s21">形が体から出たこと — 今日の設計の中心</a></li><li class="l3"><a href="#s22">判定の窓口を1つにしたこと</a></li><li class="l3"><a href="#s23">5段の順番は変わっていない</a></li><li class="l3"><a href="#s24">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s25">完成条件</a></li><li class="l3"><a href="#s26">1. <code>Ctrl+Shift+Alt+1</code>: 傾きを振った5つの箱が落ちて、面で落ち着く</a></li><li class="l3"><a href="#s27">2. <code>Ctrl+Shift+Alt+3</code>: 接触点を消して、また出す</a></li><li class="l3"><a href="#s28">3. <code>Ctrl+Shift+Alt+4</code>: 1組あたりの接触点を 1 にする</a></li><li class="l3"><a href="#s29">4. <code>Ctrl+Shift+Alt+7</code>: 解き方を「順番」にする</a></li><li class="l3"><a href="#s30">5. Day 43 までの機能が全部生きていること</a></li><li class="l3"><a href="#s31">6. <code>Ctrl+Shift+Alt+0</code>: 今日の自己チェック(24 項目すべて合格)</a></li><li class="l2"><a href="#s32">改造課題</a></li><li class="l3"><a href="#s33">課題1(易): 箱の重心をずらしてみる</a></li><li class="l3"><a href="#s34">課題2(中): 接触点を3点にしてみる</a></li><li class="l3"><a href="#s35">課題3(難): 位置の補正で向きも直す</a></li><li class="l2"><a href="#s36">動作確認済み環境</a></li><li class="l3"><a href="#s37">自己チェック(24 項目すべて合格)</a></li><li class="l3"><a href="#s38">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 44 の1日目で、reference は Day 43 の完全コピー + 差分。Day 44 は差分が大きい(判定と接触点の作成だけで 700 行を超える)ので、2日に分けてある。<strong>44a で箱を床に置き、44b で箱どうしを当てる</strong>(分離軸定理と面のクリップ)。</p>
+<p>Day 43 の形は球と平面の2つだけで、<code>RigidBody</code> が <code>Radius</code> を直に持っていた。今日は3つ目の形として<strong>箱(OBB)</strong>を入れる。ただし当てる相手は<strong>床(平面)だけ</strong>。それでも、球では起きなかったことが一気に出てくる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>球(Day 43)</th><th>箱(Day 44a)</th></tr></thead>
+<tbody>
+<tr><td>形の持ち方</td><td><code>RigidBody.Radius</code>(体が「球だ」と言い切っている)</td><td><code>RigidBody.Shape</code>(<strong>形を体から切り離した</strong>)</td></tr>
+<tr><td>慣性テンソル</td><td>等方。回しても変わらない</td><td><strong>軸ごとに違う</strong>。回すと世界での回しにくさが変わる</td></tr>
+<tr><td>床との接触</td><td>どこで触れても1点</td><td><strong>平らなら4点、辺なら2点、角なら1点</strong></td></tr>
+<tr><td>1点で支えると</td><td>落ち着く</td><td><strong>いつまでも揺れる</strong></td></tr>
+<tr><td>4点を順番に解くと</td><td>(点が1つなので問題にならない)</td><td><strong>揺れが止まらない</strong>。同時に解く</td></tr>
+</tbody>
+</table></div>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+Shift+Alt+1</code> を押すと、傾きを振った5つの箱が落ちてきて、角で跳ね、向きを変え、最後は全部が面で床に落ち着く。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+1</code></td><td>箱デモ ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+3</code></td><td>接触点の表示。<strong>光る玉がマニフォールドの点</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+4</code></td><td>1組あたりの接触点 1/2/4。<strong>1 にすると箱が落ち着かない</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+7</code></td><td>接触点の解き方(同時 / 順番)。<strong>順番にすると床の箱が揺れ止まない</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+0</code></td><td>今日の自己チェック(24 項目)</td></tr>
+</tbody>
+</table></div>
+<p><strong>箱どうしはまだ当たらない</strong>(Day 44b)。今日のデモが5つの箱を 1.7m ずつ離して並べているのはそのため。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「面で触れているものは面で支える」</strong>。床に平らに置いた箱は、4つの頂点が同時に沈む。その4点を全部、接触点として持つ(<strong>接触マニフォールド</strong>)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 箱と平面: 8つの頂点を平面に落として、沈んだものを全部拾う
+for (int i = 0; i &lt; 8; i++)
+{
+    Vector3 corner = box.Corner(i);
+    float distance = plane.SignedDistance(corner);
+    if (distance &lt; 0.0f) manifold.Add(corner - (plane.Normal * (distance * 0.5f)), -distance);
+}</code></pre></div>
+<p>1点だけで支えると、その点まわりにトルクが立って箱が傾き、傾いた先の角が次の最深点になり……を延々と繰り返す。<code>Ctrl+Shift+Alt+4</code> で上限を 1 にすると、落ち着いていた箱がその場で揺れ始める。</p>
+<p><strong>2つ目は「4点を同時に解く」</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 4点ぶんを<strong>同じ状態から</strong>決めてから、まとめて掛ける
+for (int k = 0; k &lt; count; k++) magnitudes[k] = NormalImpulse(_contacts[start + k]);
+for (int k = 0; k &lt; count; k++) ApplyNormalImpulse(start + k, magnitudes[k] / count);</code></pre></div>
+<p>Day 43 と同じく「順番に1点ずつ」解くと、<strong>1点目だけが箱の重さを全部背負う</strong>。点が4つあっても1点で支えているのと変わらないので、床に置いた箱1つでも揺れが止まらない(最後の1秒の角速度 0.118 rad/s。同時に解けば 0.00000)。<code>Ctrl+Shift+Alt+7</code> で切り替えて見られる。</p>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル2本(422 行)と、既存4本の書き換え、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。箱は Day 12 から使っている単位立方体をそのまま拡大して描いている。</p>
+<p><strong>物理は今日も絵を1ミリも知らない</strong>。おかげで自己チェック(24 項目)は窓を1枚も出さずに走る——Day 43 からの線がそのまま保たれている。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Game Physics Engine Development</strong>(Ian Millington)第 13〜14 章接触の生成(contact generation)の章。今日は「箱と平面」と「接触点を束で持つ」ところまで読めば足りる。箱と箱は Day 44b で読む</li><li>Dirk Gregorius, <em>Robust Contact Creation for Physics Simulations</em>(GDC 2015) <a href="https://box2d.org/files/ErinCatto_ContactManifolds_GDC2007.pdf">https://box2d.org/files/ErinCatto_ContactManifolds_GDC2007.pdf</a>(Erin Catto 版)接触マニフォールドをどう作り、どう4点に絞るかの決定版。<strong>なぜ点を束で持つのか</strong>の前半だけ今日読む</li><li>慣性モーメントの表(箱) <a href="https://en.wikipedia.org/wiki/List_of_moments_of_inertia">https://en.wikipedia.org/wiki/List_of_moments_of_inertia</a> Day 43 で「Day 44 の箱 <code>1/12 m (h²+d²)</code> はここから引く」と書いた、その日が来た。</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 箱の慣性テンソル — 軸ごとに違う、が全部の始まり</h3>
+<p>Day 43 の球は<strong>等方</strong>だった。どの軸まわりにも回りにくさが同じ(<code>2/5 m r²</code>)なので、慣性テンソルは「同じ数が3つ並んだ対角行列」で、回しても変わらなかった。</p>
+<p>箱は違う。</p>
+<div class="code"><pre><code>  I_x = 1/12 · m · (h² + d²)      h, d は y, z 方向の<strong>全長</strong>
+  I_y = 1/12 · m · (d² + w²)
+  I_z = 1/12 · m · (w² + h²)</code></pre></div>
+<p><strong>x 軸まわりの回しにくさに、x 方向の長さが出てこない</strong>のが要点。回転軸に沿った方向にいくら伸ばしても、質量は軸から離れないので回しやすさは変わらない。長い棒を軸まわりに回すのが簡単で、横に振るのが大変なのはこれ。</p>
+<p>半分の長さ e で書くと全長は 2e なので、コードは <code>1/3 m (e_y² + e_z²)</code> になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 e = HalfExtents * HalfExtents;
+return new Vector3(
+    third * mass * (e.Y + e.Z),
+    third * mass * (e.Z + e.X),
+    third * mass * (e.X + e.Y));</code></pre></div>
+<p><strong>3つの値が違うので、世界での慣性テンソルが向きによって変わる</strong>。Day 43 で「使わないうちから正しい形で書いておく」と言って<code>R^T · D · R</code>(<code>UpdateInertiaWorld</code>)を書いておいたのが、今日ようやく効く。球のときは入力と同じものが返るだけの、何もしない関数だった。</p>
+<div class="inject"><figure class="lab" id="inertia-lab">
+  <div class="lab-head">
+    <h3>箱の慣性テンソル(質量 1kg)</h3>
+    <span class="tag">I_x = 1/12 · m · (h² + d²)。x 軸まわりに x 方向の長さ w は出てこない</span>
+  </div>
+  <div class="stage"><canvas id="inertia-canvas" style="height:220px" aria-label="3軸の慣性モーメント"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">幅 w(x 方向の全長)</span>
+      <div class="range"><input type="range" id="inertia-w" min="0.1" max="3" step="0.05" value="2"><output id="inertia-w-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">高さ h(y 方向)</span>
+      <div class="range"><input type="range" id="inertia-h" min="0.1" max="3" step="0.05" value="0.4"><output id="inertia-h-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">奥行き d(z 方向)</span>
+      <div class="range"><input type="range" id="inertia-d" min="0.1" max="3" step="0.05" value="0.4"><output id="inertia-d-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-inertia="0.8,0.8,0.8">立方体(デモの箱)</button>
+        <button class="btn" data-inertia="2,0.4,0.4">x に長い棒</button>
+        <button class="btn" data-inertia="2,2,0.2">薄い板</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><p id="inertia-note" style="margin:0"></p></div>
+</figure></div>
+<h3 id="s7">2. 形を体から切り離す — <code>Collider</code></h3>
+<p>Day 43 の <code>RigidBody</code> は <code>Radius</code> を直接持っていた。形が球1つなら成立するが、箱に半径は無い。今日は形を <code>Collider</code> という構造体に切り出す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal readonly struct Collider
+{
+    public readonly ColliderKind Kind;      // Sphere / Box / Plane
+    public readonly float Radius;           // 球
+    public readonly Vector3 HalfExtents;    // 箱
+    public readonly Vector3 Normal;         // 平面
+}</code></pre></div>
+<p><strong>クラス階層にしない</strong>のがここの判断。<code>SphereCollider : Collider</code> のように書くと、判定のたびに仮想呼び出しと型チェックが入る——N² 組を回す内側のループでいちばん高いものを毎回踏むことになる。種類の札で分岐するほうが素直で速く、Box2D も Bullet も結局こうなっている。</p>
+<p>代償は<strong>使わないフィールドが眠ること</strong>。球のときに <code>HalfExtents</code> は 0 のまま。32 バイトなので気にしないことにした。</p>
+<h4 id="s8">Day 43 の歪みが2つ同時に片付く</h4>
+<p>Day 43 の設計書に、片付ける予定として2つ書いた。<strong>両方とも今日消えた</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 43 の歪み</th><th>どう消えたか</th></tr></thead>
+<tbody>
+<tr><td><code>RigidBody.Radius</code></td><td>形が <code>Shape</code> に移った。慣性の式も形の側(<code>Collider.InertiaLocal</code>)へ</td></tr>
+<tr><td><code>ContactPoint.B = -1</code>(相手が平面)</td><td>平面が「平面の形を持った静的な体」になり、相手は必ず体の番号で指せる</td></tr>
+</tbody>
+</table></div>
+<p>平面を体にすると <code>RigidBody.Position</code> が「重心」でなくなるが、逆質量が 0 なので重心が使われる場所が無い——ここでは「平面が通る点」の意味になる。Bullet の <code>btStaticPlaneShape</code> もまったく同じ割り切りをしている。</p>
+<p>おかげで <code>PhysicsWorld</code> の解決から <code>b?.</code> という書き方が全部消えた。</p>
+<h3 id="s9">3. 接触マニフォールド — なぜ1点では足りないのか</h3>
+<p>Day 43 の接触は点が1つだった。<strong>球はどこで触れても1点</strong>なので、それで足りていた。</p>
+<p>箱では足りない。床に置いた箱を1点で支えると、その点まわりにトルクが立って箱が傾く。次のステップでは傾いた先の角が最深点になり、そこを1点で押し戻すのでまた傾く——<strong>箱が永久にガタガタと揺れ続ける</strong>。</p>
+<p><code>Ctrl+Shift+Alt+4</code> で上限を 1 にすると、この状態がそのまま見られる。自己チェックでも数字で出る。</p>
+<div class="code"><pre><code>  4点: 最後の1秒の角速度 0.00000 rad/s、傾き 0.0000 度
+  1点: 最後の1秒の角速度 0.73 rad/s、傾き 0.94 度</code></pre></div>
+<p><strong>面で触れているものは面で支えないと落ち着かない</strong>、というのがマニフォールドが要る理由のすべて。</p>
+<h4 id="s10">箱と平面は、8つの頂点を落とすだけ</h4>
+<p>今日書く判定は「箱と平面」の1本だけで、中身は短い。平面は片側しか無いので、<strong>試すべき向きは平面の法線1本だけ</strong>だと最初から分かっている。8つの頂点それぞれの符号付き距離を測り、平面より下にあるものを全部接触点にする。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>置き方</th><th>平面より下の頂点</th><th>接触点</th></tr></thead>
+<tbody>
+<tr><td>箱を平らに置く</td><td>底面の4つ</td><td><strong>4点</strong></td></tr>
+<tr><td>45度傾けて辺で立てる</td><td>1本の辺の両端</td><td><strong>2点</strong></td></tr>
+<tr><td>角で立てる</td><td>角の1つ</td><td><strong>1点</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>接触点の数がそのまま支え方の数</strong>になっているのが、<code>Ctrl+Shift+Alt+3</code> の光る玉で目に見える。接触点は頂点そのものではなく、<strong>頂点とその真上の面上の点の中点</strong>(めり込んだ領域の真ん中)に置く。</p>
+<p>箱どうしになると話がまるで変わる。相手も向きを持っているので「試すべき向き」が決まっておらず、15 本の軸を調べることになる(Day 44b の分離軸定理)。今日の短い判定は、平面という相手に甘えている。</p>
+<h4 id="s11">点は4つまで、法線は1本</h4>
+<p>凸多面体どうしの接触面は凸多角形なので、理屈のうえでは頂点がいくつでも出うる(箱どうしなら最大8つ)。ただし<strong>凸多角形を支えるのに要るのは4点</strong>——外周から4つ取れば、残りはその内側に入る。Box2D も Bullet も同じ上限。</p>
+<p><strong>法線は1本だけ</strong>持つ。面どうしの接触では4点とも同じ向きに押し戻すのが正しく、点ごとに法線を持たせると、床の箱が場所によって違う向きに押されて震える。</p>
+<h3 id="s12">4. 位置の補正の測り直し — 体に貼り付けた印</h3>
+<p>Day 43 の位置補正は、周ごとに<strong>判定関数をもう一度呼んで</strong>めり込みを測り直していた。あれは「形が球しか無い」ことに寄りかかった書き方で、実際 <code>Measure</code> の中で <code>a.Radius</code> を直接読んでいた。</p>
+<p>形が増えると判定を呼び直すのが重くなる(箱どうしは Day 44b で 15 本の軸 + クリップになる)ので、4周 × 接触の数だけ呼び直すわけにはいかない。</p>
+<p>代わりに、接触点を<strong>両方の体に貼り付けた印</strong>として物体座標で覚えておく。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 localA = Transform(point - a.Position, Conjugate(a.Orientation));
+Vector3 localB = Transform(point - b.Position, Conjugate(b.Orientation));</code></pre></div>
+<p>体が動けば印も一緒に動くので、周ごとに</p>
+<div class="code"><pre><code>  今の隙間 = 最初の隙間 + (印A - 印B)·法線</code></pre></div>
+<p>で追いかけられる。<strong>判定を1回も呼ばずに測り直せる</strong>のがこの持ち方の値打ちで、しかも<strong>形を1つも知らない</strong>——箱どうし(Day 44b)でもカプセル(Day 45)でも地形(Day 46)でもこのまま動く。</p>
+<p>これは Box2D の位置ソルバとほぼ同じ手。</p>
+<h3 id="s13">5. 4点をどう解くか — 今日いちばん深い分岐</h3>
+<p>マニフォールドを入れると、<strong>その4点をどう解くか</strong>という問題が新しく生まれる。</p>
+<p>Day 43 と同じく「接触を順番に1つずつ」解くと、こうなる。</p>
+<ul><li>1点目を解いた時点で、その点の相対速度は 0 になる</li><li>残り3点は「もう離れている」と見て何もしない</li><li>つまり<strong>1点目だけが箱の重さを全部背負う</strong></li></ul>
+<p>角1つで支えているのと変わらないので、そこを中心にトルクが立つ。次のステップでは別の点が1点目になり、今度はそちらが全部を背負う——<strong>支える点が毎ステップ入れ替わって、床に置いた箱1つでも揺れが止まらない</strong>。</p>
+<div class="code"><pre><code>  同時に解く: 最後の1秒の角速度 0.00000 rad/s
+  順番に解く: 最後の1秒の角速度 0.118 rad/s</code></pre></div>
+<p>直し方は素直で、<strong>4点ぶんを同じ状態から計算してから、まとめて掛ける</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>for (int k = 0; k &lt; count; k++) magnitudes[k] = NormalImpulse(_contacts[start + k]);
+for (int k = 0; k &lt; count; k++) ApplyNormalImpulse(start + k, magnitudes[k] / count);</code></pre></div>
+<p>対称に置かれた箱なら4点の値が完全に一致するので、<strong>トルクが立ちようがない</strong>。</p>
+<p><strong>点の数で割る</strong>のは、「1点だけで速度差を消せる大きさ」を4点ぶん足すと4倍になってしまうから。割ったぶん1周で消せる量は減るが、反復回数で取り返す——<strong>ヤコビ法(同時に更新)とガウス・ザイデル法(順に更新)の古典的なトレードオフ</strong>で、ここでは「速く収束すること」より「偏らないこと」を採った。</p>
+<p><strong>組と組の間は今までどおり順番</strong>(ガウス・ザイデル)。そちらは偏りが問題にならず、むしろ「直前の組の結果を見る」ことで柱の下から上へ荷重が伝わる(Day 43 の要点7)。</p>
+<p><code>Ctrl+Shift+Alt+7</code> でこの2つを切り替えられる。Day 43 の積分法の切り替え(<code>Ctrl+Shift+Alt+F2</code>)と同じ性格のつまみで、<strong>正しい解き方と素朴な解き方を並べて見るため</strong>だけにある。床の箱1つでは「わずかに揺れ続ける」程度だが、<strong>積むと柱が崩れる</strong>——それは箱どうしが当たる Day 44b で見る。</p>
+<div class="inject"><figure class="lab" id="drop-lab">
+  <div class="lab-head">
+    <h3>傾きを振った5つの箱を床に落とす(横から見た 2D)</h3>
+    <span class="tag">一辺 0.8m・1kg、傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad、反発 0.25。床 y = −0.5m、60Hz</span>
+  </div>
+  <div class="stage"><canvas id="drop-canvas" style="height:340px" aria-label="箱を落とすシミュレーション"></canvas></div>
+  <div class="hud" id="drop-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">1組あたりの接触点(Ctrl+Shift+Alt+4)</span>
+      <div class="seg" id="drop-max"><button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="true">2(2D の面)</button></div>
+    </div>
+    <div class="ctl"><span class="label">接触点の解き方(Ctrl+Shift+Alt+7)</span>
+      <div class="seg" id="drop-solve"><button data-v="together" aria-pressed="true">同時</button><button data-v="seq" aria-pressed="false">順番</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="drop-show" checked> 接触点を表示(Ctrl+Shift+Alt+3)</label>
+    <button class="btn" id="drop-reset">最初から</button>
+  </div>
+  <div class="readout"><div class="stats" id="drop-stats"></div><p id="drop-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s14">6. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>無いもの</th><th>絵に出る症状</th><th>いつ入れるか</th></tr></thead>
+<tbody>
+<tr><td><strong>箱と箱の判定</strong>(分離軸定理)</td><td>箱どうしが重なっても素通りする。積めない</td><td>Day 44b</td></tr>
+<tr><td><strong>球と箱の判定</strong></td><td>球が箱をすり抜ける</td><td>Day 44b</td></tr>
+<tr><td><strong>摩擦</strong></td><td>落ち着いた箱も、縦軸まわりにゆっくり回ったり滑ったりし続ける</td><td>Day 47</td></tr>
+<tr><td><strong>ブロードフェーズ</strong></td><td>体が増えると N² 組</td><td>Day 46</td></tr>
+</tbody>
+</table></div>
+<p><code>Collide</code> の表に穴が2つ空いたまま、というのが今日の姿。穴に落ちた組は <code>default</code>(当たっていない)を返すので、<strong>すり抜けはするが壊れはしない</strong>。</p>
+</section>
+<section class="part"><h2 id="s15">前Dayからの差分概要</h2>
+<h3 id="s16">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Collider.cs</code></td><td>184</td><td><code>ColliderKind</code> と <code>Collider</code>。<strong>形を剛体から切り離した</strong>(要点2)</td></tr>
+<tr><td><code>Physics/ContactManifold.cs</code></td><td>238</td><td><code>ManifoldSource</code> / <code>ManifoldPoint</code> / <code>ManifoldPointArray</code> / <code>ContactManifold</code>。<strong>最大4点の束</strong>(要点3)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D.cs</code></td><td><code>Box3D</code> を追加(中心・半分の長さ・向きと、頂点を出す口だけ)。<code>Sphere3D</code> / <code>Plane3D</code> のコメント</td><td>+74 / -4</td></tr>
+<tr><td><code>Physics/RigidBody.cs</code></td><td><code>Radius</code> → <code>Shape</code>。<code>CreateBox</code> / <code>Create</code> / <code>CreateStatic</code> / <code>CreatePlane</code> / <code>ToBox</code> / <code>ToPlane</code></td><td>+137 / -24</td></tr>
+<tr><td><code>Physics/Collision3D.cs</code></td><td><code>BoxPlane</code> / <code>Collide</code>(形の組み合わせで振り分ける窓口)</td><td>+118 / -12</td></tr>
+<tr><td><code>Physics/PhysicsWorld.cs</code></td><td><code>ContactPoint</code> の作り直し、マニフォールド単位の解決、印による測り直し</td><td>+361 / -136</td></tr>
+<tr><td><code>Program.cs</code></td><td>箱を落とす筋書き、接触点の描画、<code>Ctrl+Shift+Alt+数字キー</code>、HUD、自己チェック</td><td>+641 / -28</td></tr>
+<tr><td><code>Day44a.csproj</code></td><td><code>Day43.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Render/</code> も <code>shaders/</code> も1文字も変わっていない</strong>。</p>
+<h3 id="s18">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。ただし今日は<strong>4 から 7 までが一続き</strong>で、<code>RigidBody.Radius</code> を消した時点で <code>PhysicsWorld</code> と <code>Program.cs</code> が壊れる。<strong>6・7 まで進めて初めてビルドが通る</strong>ので、途中の赤は気にしないでよい。</p>
+<ol><li><strong><code>Physics/Shapes3D.cs</code></strong>(変更) — 末尾に <code>Box3D</code> を足す。今日要るのは中心・半分の長さ・向きと、<code>ToWorld</code> / <code>Corner</code>(8つの頂点)だけ。<code>Sphere3D</code> と <code>Plane3D</code> の説明も少し直っている(<strong>コメントだけ</strong>)</li><li><strong><code>Physics/Collider.cs</code></strong>(新規) — <code>ColliderKind</code> と <code>Collider</code>。<code>InertiaLocal</code> が慣性の式を引き受ける(要点1)</li><li><strong><code>Physics/ContactManifold.cs</code></strong>(新規) — 次の順で
+<ul><li><code>ManifoldSource</code>(接触がどこから出たか。今日は面と点)</li><li><code>ManifoldPoint</code>(点と深さだけ)</li><li><code>ManifoldPointArray</code>(<code>[InlineArray]</code>。<strong>構造体の中に配列を持ちたいだけ</strong>)</li><li><code>ContactManifold</code>(<code>Add</code> / <code>Reduce</code> / <code>Flipped</code>)</li></ul></li><li><strong><code>Physics/RigidBody.cs</code></strong>(変更) — <strong>ここからビルドが通らなくなる</strong>
+<ul><li><code>Radius</code> フィールドを消して <code>Shape</code> を足す</li><li><code>CreateSphere</code> を <code>Create</code> 経由に書き換え、<code>CreateBox</code> を2本足す</li><li><code>CreateStaticSphere</code> を <code>CreateStatic</code> へ、<code>CreatePlane</code> を新設</li><li><code>ToSphere</code> を <code>Shape.Radius</code> 参照に直し、<code>ToBox</code> / <code>ToPlane</code> を足す</li><li>コメントの「Day 44 で…」が現在形に変わっている箇所が3つ</li></ul></li><li><strong><code>Physics/Collision3D.cs</code></strong>(変更) — クラスの説明を書き換えてから
+<ul><li><code>BoxPlane</code>(8つの頂点を落とすだけ。<strong>いちばん分かりやすいマニフォールド</strong>)</li><li><code>Collide</code> と <code>Wrap</code>(形の組み合わせで振り分ける窓口。<strong>球と箱・箱と箱の枝はまだ無い</strong>)</li></ul></li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(変更) — 次の順で
+<ul><li><code>ContactPoint</code> を作り直す(<code>Plane</code> を消し、<code>LocalA</code> / <code>LocalB</code> / <code>Separation</code> を足す)</li><li><code>_manifolds</code> / <code>_sourceCounts</code> と、つまみ2つ(<code>MaxContactsPerPair</code> / <code>SolveContactsTogether</code>)</li><li><code>ContactPairs</code> / <code>DynamicCount</code> / <code>PlaneCount</code> / <code>SourceCount</code></li><li><code>AddPlane</code> を「静的な体を足す」に書き換え、<code>_planes</code> を消す</li><li><code>Step</code> の3段目をマニフォールド単位の周回に</li><li><code>GenerateContacts</code> と <code>Add</code>(<strong>印をここで作る</strong>)</li><li><code>SolveManifold</code> / <code>ApplyNormalImpulse</code> / <code>NormalImpulse</code>(<strong>要点5</strong>)</li><li><code>CorrectPositions</code>(印で測り直す。<code>Measure</code> は消える)</li></ul></li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li><code>PhysicsScene</code> に <code>BoxDrop</code> を追加</li><li>フィールド(<code>_showContacts</code> / <code>_contactMaterial</code> / <code>ContactLimits</code> / <code>_contactLimitIndex</code>)</li><li><code>OnLoad</code> に <code>_contactMaterial</code> の生成(<code>_physicsMaterial</code> の直後。<strong><code>white</code> は同じ関数の中で作ってあるものを使う</strong>)</li><li><code>BuildPhysicsScene</code> の平面を <code>AddPhysicsPlane</code> 経由にし、<code>switch</code> に <code>BoxDrop</code> を足す。<code>MaxContactsPerPair</code> を入れる1行も</li><li><code>AddPhysicsPlane</code>(<strong>色の配列と添字を揃えるため</strong>)</li><li><code>BuildBoxDropScene</code>(<code>SpawnBall</code> の直前)</li><li><code>KickBodies</code> の <code>body.Radius</code> を <code>body.Shape.BoundingRadius</code> に</li><li><code>RenderPhysics</code> / <code>RenderContacts</code> / <code>BodyMesh</code> / <code>BodyMatrix</code></li><li><code>RenderShadowPass</code> の物理デモの枝(<strong>平面を飛ばす</strong>)</li><li><code>PhysicsSceneLabel</code> に1つ / <code>IsBoxScene</code> / <code>ShapeLabel</code></li><li><code>PhysicsLabel</code> の体の数を <code>DynamicCount</code> に / <code>ContactLabel</code> を新設</li><li><code>DrawOverlayInfo</code> に <code>ContactLabel()</code> の1行</li><li><code>DescribePhysics</code> の書き換え</li><li><strong><code>RunRigidBodyCheck</code>(Day 43 の自己チェック)のしきい値を1つ緩める</strong>— 「反復1周だと柱が沈む」の倍率が 3.0 から 2.0 へ。今日の位置補正で<strong>数字が良くなったせいで通らなくなった</strong>項目</li><li><code>RunBoxCollisionCheck</code>(<code>RunRigidBodyCheck</code> の直後)</li><li>キー(<code>Ctrl+Shift+Alt+1・3・4・7</code> と <code>0</code>)。<strong>switch のいちばん上</strong>に置くこと</li><li><code>OnLoad</code> のヘルプ</li></ul></li><li><strong><code>Day44a.csproj</code></strong> — <code>Day43.csproj</code> からのリネームのみ</li></ol>
+<p><strong>キーの位置は今日も間違えやすい</strong>。<code>Ctrl+Shift+Alt+1</code> は<code>case Key.Number1 when ctrl &amp;&amp; shift:</code> にも <code>case Key.Number1 when ctrl:</code> にも一致するので、今日の塊を下に置くと<strong>キーが1つも届かない</strong>。しかも警告は出ない。Day 39 から毎日書いている「ガード付き case は具体的なものほど上」がそのまま続く。</p>
+</section>
+<section class="part"><h2 id="s19">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が7つ増え、既存の4つが書き換わっただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/ColliderKind</code></td><td><code>Physics/</code></td><td>形の種類の札(球 / 箱 / 平面)</td></tr>
+<tr><td><code>Physics/Collider</code></td><td><code>Physics/</code></td><td>形。<strong>寸法と慣性の式を体から引き取った</strong>(要点2)</td></tr>
+<tr><td><code>Physics/Box3D</code></td><td><code>Physics/</code></td><td>向きを持った直方体(OBB)。今日は頂点を出せれば足りる</td></tr>
+<tr><td><code>Physics/ManifoldSource</code></td><td><code>Physics/</code></td><td>接触がどこから出たか(面 / 点)</td></tr>
+<tr><td><code>Physics/ManifoldPoint</code></td><td><code>Physics/</code></td><td>接触点1つ。位置と深さだけ</td></tr>
+<tr><td><code>Physics/ManifoldPointArray</code></td><td><code>Physics/</code></td><td><code>[InlineArray]</code>。<strong>構造体の中に4つ並べたいだけ</strong></td></tr>
+<tr><td><code>Physics/ContactManifold</code></td><td><code>Physics/</code></td><td>法線1本 + 最大4点(要点3)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D</code></td><td><code>Box3D</code> が入った</td><td>+74 / -4</td></tr>
+<tr><td><code>Physics/RigidBody</code></td><td><code>Radius</code> が消えて <code>Shape</code> に。生成が <code>Create(mass, shape)</code> 経由へ</td><td>+137 / -24</td></tr>
+<tr><td><code>Physics/Collision3D</code></td><td>箱と平面の判定と、<code>Collide</code> という窓口ができた</td><td>+118 / -12</td></tr>
+<tr><td><code>Physics/PhysicsWorld</code></td><td>平面が体になり、解決がマニフォールド単位になった</td><td>+361 / -136</td></tr>
+<tr><td><code>Program.cs</code></td><td>箱を落とす筋書き、接触点の描画、キー、HUD、自己チェック</td><td>+641 / -28</td></tr>
+</tbody>
+</table></div>
+<h3 id="s20"><code>Physics/</code> が今日も何も知らないままであること</h3>
+<p>Day 26 で <code>Physics/</code> を作ったとき、「<code>System.Numerics</code> しか使っていないのでそのまま別プロジェクトへ持ち出せる」と書いた。<strong>今日もそれが保たれている</strong>。</p>
+<div class="code"><pre><code>  Physics/  →  依存先なし(System.Numerics だけ)</code></pre></div>
+<p>今日いちばん誘惑が強かったのは<strong>接触点の描画</strong>で、<code>PhysicsWorld</code> に <code>DrawDebug</code> を生やせば3行で済む。そうしなかったので、<code>Program.RenderContacts</code> が<code>Physics.Contacts</code> を読んで光る玉を並べている——物理の側は「接触点を持っている」だけで、それが絵になるかは知らない。</p>
+<p>配当は今日も自己チェックに出る。<strong>24 項目が窓を1枚も出さずに走る</strong>。</p>
+<h3 id="s21">形が体から出たこと — 今日の設計の中心</h3>
+<p>Day 43 の設計書に「Day 44 で箱を足すときに、この2つは同時に片付く」と書いた。そのとおりになったので、変化を並べておく。</p>
+<div class="code"><pre><code>  Day 43:  RigidBody { float Radius; }          ← 形が球だと言い切っている
+           PhysicsWorld { List&lt;RigidBody&gt;; List&lt;Plane3D&gt;; }   ← 平面だけ別枠
+           ContactPoint { int A; int B; int Plane; }          ← B = -1 が「平面」
+
+  Day 44a: RigidBody { Collider Shape; }        ← 形は札 + 寸法
+           PhysicsWorld { List&lt;RigidBody&gt;; }    ← <strong>リストが1本になった</strong>
+           ContactPoint { int A; int B; }       ← <strong>必ず両方とも体の番号</strong></code></pre></div>
+<p>消えたコードのほうが分かりやすい。<code>SolveVelocity</code> にあった</p>
+<div class="code"><span class="lang">csharp</span><pre><code>RigidBody? b = contact.B &gt;= 0 ? _bodies[contact.B] : null;
+...
+- (b?.VelocityAt(contact.Point) ?? Vector3.Zero);</code></pre></div>
+<p>が、全部ただの <code>_bodies[contact.B]</code> になった。<code>b?.</code> は6箇所あった。</p>
+<p><strong>「形が1つしか無いうちに抽象化すると、たいてい間違った形の抽象になる」</strong>と Day 43 で書いて先送りしたのが正解だったと思う。球しか無い時点で <code>Collider</code> を作っていたら、おそらく「半径を持つ基底クラス」のような形になっていた——実際に要ったのは<strong>継承の無い、種類の札と数個の数だけの構造体</strong>だった。</p>
+<h3 id="s22">判定の窓口を1つにしたこと</h3>
+<p>Day 43 の <code>GenerateContacts</code> は、形の組み合わせを直に呼び分けていた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Contact3D contact = Collision3D.SphereSphere(a.ToSphere(), b.ToSphere());
+...
+Contact3D contact = Collision3D.SpherePlane(a.ToSphere(), _planes[planeIndex]);</code></pre></div>
+<p>形が5種類になると 15 通りになるので、今日から窓口を1つにした。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>ContactManifold manifold = Collision3D.Collide(a, b);</code></pre></div>
+<p><code>Collide</code> の中は <code>switch (a.Shape.Kind, b.Shape.Kind)</code> の表引きで、<strong>逆順の組は <code>Flipped()</code> で法線を裏返す</strong>。おかげで「平面と箱」を書かずに「箱と平面」だけ書けばよい。今日埋まったのは3通り(球と球・球と平面・箱と平面)で、<strong>球と箱・箱と箱の2つは穴のまま</strong>(Day 44b)。穴に落ちた組は <code>default</code> を返して素通りする。</p>
+<p><strong><code>Collision3D</code> が <code>RigidBody</code> を知ることになった</strong>のは、今日の小さな譲歩。Day 43 までは形しか知らない層だったが、「どの形を持っているか」を尋ねる相手が体しか無いので、同じ層の中で参照を1本足した。<code>Physics/</code> の外へは依然として出ていないので、層の線は破れていない。</p>
+<h3 id="s23">5段の順番は変わっていない</h3>
+<p><code>PhysicsWorld.Step</code> の5段は Day 43 のまま。<strong>2段目が返すものの形だけが変わった</strong>(1点 → 最大4点の束)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>やること</th><th>Day 44a で変わったか</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>積分(速度 → 位置)</td><td>変わらない</td></tr>
+<tr><td>2</td><td>判定(接触を集める)</td><td><strong>マニフォールドを返す。組の区切りも覚える</strong></td></tr>
+<tr><td>3</td><td>速度の解決</td><td><strong>組の中は同時、組の間は順番</strong>(要点5)</td></tr>
+<tr><td>4</td><td>位置の補正</td><td><strong>印で測り直す</strong>(要点4)。判定を呼ばなくなった</td></tr>
+<tr><td>5</td><td>力の溜め場を空にする</td><td>変わらない</td></tr>
+</tbody>
+</table></div>
+<h3 id="s24">今日残した歪み(2つ)</h3>
+<p><strong>1つ目: <code>BodyColors</code> という並行配列</strong>。色は <code>Program</code> 側の <code>List&lt;Vector4&gt;</code> で、添字を体の番号と揃えているだけ。平面が体になった途端に「平面のぶんも席を作らないと添字がずれる」という手当てが要った(<code>AddPhysicsPlane</code>)。<strong>並行配列の弱いところ</strong>が素直に出た箇所で、体の数が増えたら <code>Dictionary</code> か体側の付帯情報に移すことになる。</p>
+<p><strong>2つ目: <code>Collide</code> の表に穴が2つある</strong>。球と箱、箱と箱は <code>default</code>(当たっていない)に落ちる。壊れはしないが、<strong>近づけた箱どうしは素通りする</strong>。今日のデモが箱を離して並べているのはこのためで、Day 44b で2つとも埋まる。</p>
+</section>
+<section class="part"><h2 id="s25">完成条件</h2>
+<p>Day 43 のキー(<code>Ctrl+Shift+Alt+F1〜F12</code>)はそのまま使える。今日のキーは<strong>同じ修飾キー + 数字キー</strong>。</p>
+<h3 id="s26">1. <code>Ctrl+Shift+Alt+1</code>: 傾きを振った5つの箱が落ちて、面で落ち着く</h3>
+<p><strong>今日の到達点</strong>。傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5つの箱が同じ高さから落ちてくる。色は緑(まっすぐ)から紫(大きく傾いている)へ。</p>
+<ul><li>まっすぐな箱は<strong>4点で着地して、そのまま止まる</strong></li><li>少し傾いた箱は<strong>辺の2点で着地し、倒れて4点になる</strong></li><li>大きく傾いた箱は<strong>角の1点で着地し、跳ねて向きを変えてから落ち着く</strong></li></ul>
+<p>3秒ほどで5つとも<strong>面を下にして</strong>床に落ち着く。傾きの大きかった2つは、途中で 90 度転がって別の面で着地する。</p>
+<p><strong>摩擦が無いので、落ち着いたあともゆっくり滑ったり回ったりは続く</strong> (縦軸まわりの回転は接触に何の抵抗も受けない)。止めたければ Day 47 の摩擦を待つことになる。一方で<strong>ガタガタと上下に揺れているなら、それは別の話</strong>——接触点が1つしか出ていない。</p>
+<p>HUD の2行目(今日足した行)がこうなっていれば正しい。</p>
+<div class="code"><pre><code>接触[5組 20点 上限4]  面:5  点:0  解き方:同時  表示:ON</code></pre></div>
+<h3 id="s27">2. <code>Ctrl+Shift+Alt+3</code>: 接触点を消して、また出す</h3>
+<p>光る橙色の玉がマニフォールドの点。<strong>深いほど大きい</strong>。床に平らに乗った箱では、4つの玉が箱の底面の四隅に等間隔で並ぶ。</p>
+<p>角で着地している瞬間に止めて(<code>Ctrl+Shift+Alt+F10</code>)カメラを回すと、玉が1つしか無いことが確かめられる。</p>
+<h3 id="s28">3. <code>Ctrl+Shift+Alt+4</code>: 1組あたりの接触点を 1 にする</h3>
+<p><strong>今日いちばんの見どころ</strong>。押すと <code>4 → 1</code> に落ちる(次に押すと 2、その次に 4)。</p>
+<p>落ち着いていた箱が、<strong>その場でカタカタと揺れ始める</strong>。1点で支えられた箱がその点まわりに傾き、傾いた先の角が次の最深点になり…を延々と繰り返している。HUD の「接触」が <code>5組 5点 上限1</code> になる。<code>Ctrl+Shift+Alt+F9</code> の内訳で、5つの箱の角速度が 0.6〜0.9 rad/s を行き来しているのが見える。</p>
+<p>4 に戻すと、数フレームで静止に戻る。</p>
+<h3 id="s29">4. <code>Ctrl+Shift+Alt+7</code>: 解き方を「順番」にする</h3>
+<p>箱が落ち着いてから押す。HUD の「解き方」が <code>**順番**</code> に変わる。<strong>見た目ではほとんど分からない</strong>のがこのつまみの面白いところで、<code>Ctrl+Shift+Alt+F9</code> の内訳を出すと、5つの箱の角速度が <code>0.017rad/s</code> 前後から下がらない(「同時」なら <code>0.000rad/s</code>)。</p>
+<p>1点目が全部を背負う偏りは、床の箱1つではこの程度の揺れで済む。<strong>積むと偏りが段ごとに重なって柱が崩れる</strong>——それは Day 44b で見る。もう一度押して「同時」に戻しておく。</p>
+<h3 id="s30">5. Day 43 までの機能が全部生きていること</h3>
+<ul><li><code>Ctrl+Shift+Alt+F1</code>: 球の物理デモ(落下 / 積み上げ / 撞き玉)</li><li><code>Ctrl+Shift+Alt+F2</code>: 積分法の切り替え(数字キー <code>4</code> と併せて陽的オイラーの発散)</li><li><code>Ctrl+Shift+F1</code>: デモ v1 / <code>Alt+F1</code>: アニメーション / <code>2</code>: 材質グリッド</li><li><code>Ctrl+Shift+Alt+F12</code>: Day 43 の自己チェック(45 項目。<strong>今日の書き換えのあとも全部通る</strong>)</li></ul>
+<p>球の物理デモにも<strong>接触点の光る玉が出る</strong>ようになっている(<code>Ctrl+Shift+Alt+3</code> で消せる)。球は1点でしか触れないので、玉が1つずつしか出ないのが箱との違いとして見える。</p>
+<h3 id="s31">6. <code>Ctrl+Shift+Alt+0</code>: 今日の自己チェック(24 項目すべて合格)</h3>
+<p>コンソールに 24 行の <code>[OK]</code> が並び、最後に<code>すべて合格(箱は落ち、面で支えられる)</code> と出る。</p>
+<p><strong>窓は1枚も出ない</strong>——<code>Physics/</code> が GL を知らないので、このチェックはウィンドウを開かずに全部走る。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+1</code></td><td>箱を落とす</td><td>角で跳ね、向きを変え、最後は全部が面で床に落ち着く</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+3</code></td><td>同「接触点を表示」</td><td>平らに乗れば2点(実機では4点)、辺で立てば1点(実機では2点)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+4</code></td><td>同「1組あたりの接触点」</td><td>1 にすると、落ち着いていた箱が揺れ続ける</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+7</code></td><td>同「解き方」</td><td>実機の 3D では床の箱1つでも順番だと揺れ続ける(0.118 rad/s)。2D では差が出ない(下の注)</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台の物理は横から見た 2D で、reference/Day44a の式・順番・既定値(反復 8 周、位置の補正 4 周・0.6・5mm、印による測り直し)を移したもの。2D では面で触れる点が2つなので、3D の「4点」は「2点」になる。床に置いた箱1つの「順番に解くと揺れが止まらない」は、点が2つだとほぼ対称に解けてしまい 2D では再現しない。順番の解き方の害は、積み上げ(Day 44b)で派手に見える。</p></div>
+</section>
+<section class="part"><h2 id="s32">改造課題</h2>
+<h3 id="s33">課題1(易): 箱の重心をずらしてみる</h3>
+<p><code>RigidBody.Create</code> は慣性テンソルを「重心が箱の中心にある」前提で作っている。<code>Collider.InertiaLocal</code> の戻り値の1成分だけを 10 倍(あるいは 1/10)にして、<code>Ctrl+Shift+Alt+1</code> で落としてみる。</p>
+<ul><li>どの軸を重くすると、着地後の転がり方が変わるか</li><li>3つとも同じ値にすると(= 球と同じ等方にすると)何が起きるか</li></ul>
+<p><strong>慣性テンソルは「どの向きに回しにくいか」の表</strong>なので、値をいじると箱の性格が変わる。物理的に正しくない値でも動くのが確かめどころで、「それらしく動く」ことは正しさの証拠にならない、を体で覚えるための課題。</p>
+<h3 id="s34">課題2(中): 接触点を3点にしてみる</h3>
+<p><code>ContactLimits</code> に 3 を足して(<code>[1, 2, 3, 4]</code>)、<code>Ctrl+Shift+Alt+4</code> で 3 点にする。<strong>押す前に予想する</strong>——四隅のうち3点で支えれば、三角形で支えることになる。三脚は倒れない。</p>
+<p>実際には<strong>揺れが止まらない</strong>(最後の1秒の角速度 0.15 rad/s。4点なら 0.00000)。理由は重心の真下がどこにあるかを描いてみると分かる。</p>
+<ul><li>正方形の四隅から3つ選ぶと、残った三角形の斜辺は<strong>正方形の対角線</strong>になる</li><li>箱の重心の真下は正方形の中心で、<strong>ちょうどその対角線の上</strong>に乗る</li><li>支える三角形の「縁の上」に重心があるので、少しでも傾くと支えの外へ出る</li></ul>
+<p>三脚が倒れないのは、重心の真下が三角形の<strong>内側</strong>にあるから。「点が多いほど安定する」ではなく「<strong>重心の真下を囲めているか</strong>」が効いている——凸多角形を支えるのに4点を採る理由(要点3)を、裏側から確かめる課題。2点(辺で支える)と比べると、揺れ方の違いも分かる。</p>
+<h3 id="s35">課題3(難): 位置の補正で向きも直す</h3>
+<p><code>CorrectPositions</code> は<strong>位置だけ</strong>を動かして、向きは直していない(コメントに理由がある)。Box2D の位置ソルバは、めり込みを並進と回転の両方に配って戻す。</p>
+<ol><li>印(<code>LocalA</code> / <code>LocalB</code>)から今の接触点を出し、<code>rA</code> / <code>rB</code> を作る</li><li>速度の解決と同じ分母(並進 + 回転)で「戻す量」を決める</li><li>並進は <code>a.Position += n * (λ * InverseMass)</code>、回転は <code>I⁻¹ (r × n) λ</code> の角度ぶん <code>Orientation</code> を回す</li></ol>
+<p><strong>床の箱では差がほとんど出ない</strong>(4点で支えていれば並進だけで十分まっすぐ立つ)。差が出るのは、<code>Ctrl+Shift+Alt+4</code> で 1 点にしたときと、角から落ちた直後の深いめり込み。向きを直すと反復が収束しにくくなる、というコメントの主張も、周回数を変えて確かめてみる。</p>
+</section>
+<section class="part"><h2 id="s36">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070 / 1920x1080(DPI 100%)</li><li><code>dotnet run --project reference/Day44a -c Release</code></li></ul>
+<p>箱5個 + 平面5枚を影・SSAO・IBL・ブルーム・FXAA 込みで回して、HUD の表示は <strong>0.05〜0.2ms</strong>(移動平均なので、出した直後は高めに出る)。描画のほうが2桁重い。</p>
+<h3 id="s37">自己チェック(24 項目すべて合格)</h3>
+<p>数字の読み方をいくつか。</p>
+<ul><li><strong>箱の慣性が (13.000, 10.000, 5.000)</strong>。z 方向がいちばん長い箱なので、z 軸まわりがいちばん小さい(回しやすい)。順序が逆なら <code>InertiaLocal</code> の3成分の並びが1つずれている</li><li><strong>床に平らに置いた箱の4点の重心が (0.00000, -0.02500, 0.00000)</strong>。x と z がちょうど 0 なのが大事で、ずれているとその方向へトルクが立つ</li><li><strong>4点なら最後の1秒の角速度が 0.00000、1点だと 0.73</strong>。マニフォールドが要る理由がこの2行に出ている</li><li><strong>4点を順番に解くと 0.1179 rad/s、同時なら 0.00000</strong>。同じ4点、同じ反復回数で、違うのは「4点を同じ状態から決めるかどうか」だけ</li></ul>
+<h3 id="s38">検証の途中で分かったこと</h3>
+<p><strong>4点を順番に解くと、床の箱1つでも揺れが止まらなかった</strong>。「同時に解く」理由は箱を積んで初めて見えるものだと思っていたが、床に置いた箱1つでも、最後の1秒の角速度が 0.118 rad/s から下がらない。1点目を解いた時点で相対速度が 0 になり、残り3点が仕事をしないので、<strong>1点目だけが重さを全部背負う</strong>——その1点が毎ステップ入れ替わり、揺れが続く。摩擦も減衰も無い今日の世界では、この小さな揺れを止めるものが何も無い。デモの箱(減衰 0.25)でも 0.017 rad/s が残る。</p>
+<p><strong>平面を体にしたら、球が跳ねなくなった</strong>。Day 43 の自己チェックが2項目落ちて気づいた——跳ね返り目標が <code>2.0</code> のはずが <code>1.6</code> になっていた。</p>
+<p>原因は反発係数の採り方。<code>PhysicsWorld</code> は2つの体の<strong>小さいほう</strong>を採るが、<code>RigidBody</code> の既定値は <code>0.4</code>。Day 43 の平面は体ではなく反発係数も持たず、「ぶつけた側の値をそのまま使う」だった。平面を体にした途端、<strong>床の 0.4 が上限として効いてしまった</strong>。</p>
+<p>直し方は <code>CreatePlane</code> と <code>CreateStatic</code> で <code>Restitution = 1.0f</code> にすること。最小を採る規則のもとでは、1 は「相手の値をそのまま通す」を意味する。<strong>静的な体の既定値は 1</strong>、と覚えておくのが正しい。</p>
+<p><strong>Day 43 の自己チェックのしきい値を1つ緩めた</strong>。「反復1周だと柱が沈む」が <code>deep1 &gt; deep8 × 3.0</code> を求めていたが、今日の位置補正(印で測り直す)で1周のときのめり込みが<strong>64.4mm から 37.4mm へ改善</strong>したため、倍率が 2.9 に落ちて通らなくなった。8周のほうも 14.7 → 12.8mm と良くなっている。<strong>数字が良くなったせいで落ちるチェック</strong>という珍しい形なので、主張は変えずに倍率だけ 2.0 へ緩めた。</p>
+<p><strong>減衰は 1.0 を超えると NaN になる</strong>。<code>MathF.Pow(1.0f - damping, dt)</code> の底が負になるため。Day 43 から入っている性質で、<code>LinearDamping</code> / <code>AngularDamping</code> は「1秒あたりに失う割合」なので 1.0 を超える値に意味は無いが、<strong>知らずに 2.0 と書くと座標が全部 NaN になって物が画面から消える</strong>。今日は直していない(Day 47 で減衰まわりを触るときに <code>Clamp</code> を入れる)。</p>
+<p><strong>接触点を光る玉で描いたら、デバッグが一気に楽になった</strong>。「4点出ているはず」が数字では追えても、<strong>どこに出ているか</strong>は絵にしないと分からない。物理のデバッグ表示を <code>Physics/</code> の中に置きたくなる誘惑は強いが、<code>Program</code> 側に 20 行書けば済むと分かったのは収穫だった。</p>
+</section>
+<footer class="end">Day 44a 箱を床に置く / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/physics2d.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+const { Shape, Body, World, drawBody, drawContacts, drawPlanes } = Phys2D;
+
+// ============================================================
+//  要点1: 箱の慣性テンソル
+// ============================================================
+const box = { w: 2, h: 0.4, d: 0.4 };
+function drawInertia() {
+  const m = 1;
+  const I = [m / 12 * (box.h ** 2 + box.d ** 2), m / 12 * (box.d ** 2 + box.w ** 2), m / 12 * (box.w ** 2 + box.h ** 2)];
+  const { ctx, w, h } = fit($('inertia-canvas'));
+  const labels = ['I_x(x 軸まわり)', 'I_y(y 軸まわり)', 'I_z(z 軸まわり)'];
+  const cols = [tok('--expl'), tok('--semi'), tok('--accent')];
+  const maxI = Math.max(...I, 0.2);
+  const L = 150, R = 90, rowH = (h - 30) / 3;
+  ctx.font = '13px ' + tok('--font-body');
+  I.forEach((v, i) => {
+    const y = 18 + i * rowH;
+    ctx.fillStyle = tok('--ink'); ctx.fillText(labels[i], 10, y + rowH / 2);
+    ctx.fillStyle = cols[i]; ctx.fillRect(L, y + rowH * 0.2, (w - L - R) * v / maxI, rowH * 0.55);
+    ctx.fillStyle = tok('--ink'); ctx.font = '13px ' + tok('--font-mono');
+    ctx.fillText(`${v.toFixed(3)} kg·m²`, L + (w - L - R) * v / maxI + 8, y + rowH / 2 + 4);
+    ctx.font = '13px ' + tok('--font-body');
+  });
+  for (const k of ['w', 'h', 'd']) $(`inertia-${k}-out`).textContent = `${box[k].toFixed(2)} m`;
+  const ratio = Math.max(...I) / Math.max(Math.min(...I), 1e-9);
+  $('inertia-note').textContent = ratio < 1.01
+    ? '立方体は3軸とも同じ値になる。球と同じく、回しても世界での慣性テンソルは変わらない。'
+    : `いちばん回しやすい軸と回しにくい軸で ${ratio.toFixed(1)} 倍違う。3つが違うので、箱が回ると世界から見た回しにくさも変わる(R^T · D · R が初めて効く)。`;
+}
+for (const k of ['w', 'h', 'd']) $(`inertia-${k}`).addEventListener('input', (e) => { box[k] = Number(e.target.value); drawInertia(); });
+for (const btn of document.querySelectorAll('[data-inertia]')) {
+  btn.addEventListener('click', () => {
+    [box.w, box.h, box.d] = btn.dataset.inertia.split(',').map(Number);
+    for (const k of ['w', 'h', 'd']) $(`inertia-${k}`).value = box[k];
+    drawInertia();
+  });
+}
+drawInertia();
+window.addEventListener('resize', drawInertia);
+
+// ============================================================
+//  要点3・5: 箱を落とす
+// ============================================================
+const FLOOR = -0.5, TILTS = [0, 0.10, 0.35, 0.62, 0.95];
+const drop = { max: 2, together: true, show: true, world: null, acc: 0, steps: 0, wHist: [] };
+const tiltColor = (t) => rgb(0.30 + 0.55 * t, 0.75 - 0.45 * t, 0.35 + 0.55 * t);
+function buildDrop() {
+  const w = new World();
+  w.maxContactsPerPair = drop.max; w.solveTogether = drop.together;
+  w.add(Body.plane(0, FLOOR, 0, 1)); w.add(Body.plane(-5, 0, 1, 0)); w.add(Body.plane(5, 0, -1, 0));
+  TILTS.forEach((t, i) => {
+    const b = new Body(1, Shape.box(0.4, 0.4));
+    b.x = (i - 2) * 1.7; b.y = 3.2; b.angle = t; b.restitution = 0.25; b.angularDamping = 0.25;
+    w.add(b);
+  });
+  drop.world = w; drop.acc = 0; drop.steps = 0; drop.wHist = [];
+}
+const tiltDeg = (a) => { const q = Math.PI / 2; let r = ((a % q) + q) % q; return Math.min(r, q - r) * 180 / Math.PI; };
+function stepDrop() {
+  drop.world.step(1 / 60); drop.steps++;
+  const maxW = Math.max(...drop.world.bodies.filter((b) => !b.isStatic).map((b) => Math.abs(b.w)));
+  drop.wHist.push(maxW); if (drop.wHist.length > 60) drop.wHist.shift();
+}
+function drawDrop() {
+  const { ctx, w, h } = fit($('drop-canvas'));
+  const s = Math.min(w / 10.6, h / 4.6), ox = w / 2, oy = h - 22 - (0 - FLOOR) * s;
+  const view = { X: (x) => ox + x * s, Y: (y) => oy - y * s, s };
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (let y = 0; y <= 4; y++) { ctx.beginPath(); ctx.moveTo(0, view.Y(FLOOR + y)); ctx.lineTo(w, view.Y(FLOOR + y)); ctx.stroke(); }
+  drawPlanes(ctx, drop.world, view, tok('--ink'), w, h);
+  const alpha = drop.acc * 60;
+  drop.world.bodies.forEach((b, i) => { if (!b.isStatic) drawBody(ctx, b, view, tiltColor(TILTS[i - 3] / 0.95), alpha); });
+  if (drop.show) drawContacts(ctx, drop.world, view, tok('--warn'));
+  const bodies = drop.world.bodies.filter((b) => !b.isStatic);
+  const maxW = drop.wHist.length ? Math.max(...drop.wHist) : 0;
+  const tilt = Math.max(...bodies.map((b) => tiltDeg(b.angle)));
+  const ke = bodies.reduce((a, b) => a + b.kineticEnergy, 0);
+  $('drop-hud').textContent = `体:${bodies.length}  接触点:${drop.world.contacts.length}  組:${drop.world.pairTests}  点の上限:${drop.max}  解き方:${drop.together ? '同時' : '順番'}  めり込み:${(drop.world.maxPenetration * 100).toFixed(2)}cm  KE:${ke.toFixed(3)}J  経過:${(drop.steps / 60).toFixed(1)}s`;
+  const settled = drop.steps > 360;
+  $('drop-stats').innerHTML =
+    stat('最後の1秒の最大角速度', `${maxW.toFixed(4)}`, ` <small>rad/s</small> ${settled ? (maxW < 0.01 ? '<span class="pill good">落ち着いた</span>' : '<span class="pill bad">揺れ続けている</span>') : ''}`) +
+    stat('いちばん傾いている箱', `${tilt.toFixed(2)}°`) +
+    stat('接触点の数', `${drop.world.contacts.length}`, ` <small>組 ${drop.world.manifolds.length}</small>`);
+  let note;
+  if (drop.max === 1) note = '1点で支えると、その点まわりにトルクが立って箱が傾き、傾いた先の角が次の最深点になる。いつまでも揺れが止まらない(実機の 3D では最後の1秒で 0.73 rad/s)。';
+  else if (!drop.together) note = '順番に解いても、2D の床の箱1つでは揺れは出ない(点が2つでほぼ対称)。3D では4点のうち1点目が重さを全部背負い、0.118 rad/s で揺れ続ける。積み上げでの差は Day 44b の実験台で見る。';
+  else note = '面で触れている箱は2点(3D では4点)で支えられ、4点ぶんを同じ状態から決めてから点の数で割って掛けるので、偏らずに落ち着く。';
+  $('drop-note').textContent = note;
+}
+seg('drop-max', (v) => { drop.max = Number(v); buildDrop(); });
+seg('drop-solve', (v) => { drop.together = v === 'together'; buildDrop(); });
+$('drop-show').addEventListener('change', (e) => { drop.show = e.target.checked; drawDrop(); });
+$('drop-reset').addEventListener('click', () => { buildDrop(); drawDrop(); });
+buildDrop();
+if (reduceMotion) for (let i = 0; i < 600; i++) stepDrop();
+drawDrop();
+animate($('drop-canvas'), (dt) => {
+  if (!reduceMotion) {
+    drop.acc += dt;
+    while (drop.acc >= 1 / 60) { stepDrop(); drop.acc -= 1 / 60; }
+  }
+  drawDrop();
+});
+})();
+</script>
+</body>
+</html>

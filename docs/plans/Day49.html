@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 49 パーティクルシステム(ビルボード・加算合成・コマ送り)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は物理に触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ビルボード — カメラの基底で四角形を張る</a></li><li class="l3"><a href="#s7">2. 加算合成は「暗いところ」でしか効かない</a></li><li class="l3"><a href="#s8">3. 粒が見えないときに疑う3つ</a></li><li class="l3"><a href="#s9">4. 深度は読むが書かない</a></li><li class="l3"><a href="#s10">5. 並べ替えは「アルファのときだけ」要る</a></li><li class="l3"><a href="#s11">6. プールと swap-remove — 順番を捨てて O(1) を買う</a></li><li class="l3"><a href="#s12">7. 撒く向きは「一様」が難しい</a></li><li class="l3"><a href="#s13">8. 端数を持ち越す — fps で絵が変わらないために</a></li><li class="l3"><a href="#s14">9. 今日入れなかったもの</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20">「進める」と「描く」を分けた</a></li><li class="l3"><a href="#s21">粒が1つ描かれるまで</a></li><li class="l3"><a href="#s22">状態を借りて返す</a></li><li class="l3"><a href="#s23">絵を数式で作った</a></li><li class="l3"><a href="#s24">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s25">完成条件</a></li><li class="l3"><a href="#s26">1. 「パーティクル」ページの <code>F2</code>: 箱の上で焚き火が燃える</a></li><li class="l3"><a href="#s27">2. <code>F4</code>: 混ぜ方を変えると火が煙になる</a></li><li class="l3"><a href="#s28">3. <code>F3</code> で「煙」へ: コマ送りと並べ替え</a></li><li class="l3"><a href="#s29">4. <code>F6</code>: 深度を書くと粒が四角く消える</a></li><li class="l3"><a href="#s30">5. <code>F3</code> で「爆発」へ: バーストと抵抗</a></li><li class="l3"><a href="#s31">6. <code>F3</code> で「土埃」へ: 円盤から外へ</a></li><li class="l3"><a href="#s32">7. <code>F3</code> で「負荷」へ: 8192 粒で飽和する</a></li><li class="l3"><a href="#s33">8. <code>1</code>(数字): 自己チェックが 27 項目すべて合格</a></li><li class="l3"><a href="#s34">9. Day 48 の自己チェックも合格</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 色と大きさにカーブを入れる</a></li><li class="l3"><a href="#s37">課題2(中): 加算とアルファを1パスで混ぜる</a></li><li class="l3"><a href="#s38">課題3(難): 更新をコンピュートシェーダへ移す</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">自己チェック(27 項目すべて合格)</a></li><li class="l3"><a href="#s41">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 49 / 計画書</p>
+  <h1>パーティクルシステム(ビルボード・加算合成・コマ送り)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は物理に触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ビルボード — カメラの基底で四角形を張る</a></li><li class="l3"><a href="#s7">2. 加算合成は「暗いところ」でしか効かない</a></li><li class="l3"><a href="#s8">3. 粒が見えないときに疑う3つ</a></li><li class="l3"><a href="#s9">4. 深度は読むが書かない</a></li><li class="l3"><a href="#s10">5. 並べ替えは「アルファのときだけ」要る</a></li><li class="l3"><a href="#s11">6. プールと swap-remove — 順番を捨てて O(1) を買う</a></li><li class="l3"><a href="#s12">7. 撒く向きは「一様」が難しい</a></li><li class="l3"><a href="#s13">8. 端数を持ち越す — fps で絵が変わらないために</a></li><li class="l3"><a href="#s14">9. 今日入れなかったもの</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20">「進める」と「描く」を分けた</a></li><li class="l3"><a href="#s21">粒が1つ描かれるまで</a></li><li class="l3"><a href="#s22">状態を借りて返す</a></li><li class="l3"><a href="#s23">絵を数式で作った</a></li><li class="l3"><a href="#s24">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s25">完成条件</a></li><li class="l3"><a href="#s26">1. 「パーティクル」ページの <code>F2</code>: 箱の上で焚き火が燃える</a></li><li class="l3"><a href="#s27">2. <code>F4</code>: 混ぜ方を変えると火が煙になる</a></li><li class="l3"><a href="#s28">3. <code>F3</code> で「煙」へ: コマ送りと並べ替え</a></li><li class="l3"><a href="#s29">4. <code>F6</code>: 深度を書くと粒が四角く消える</a></li><li class="l3"><a href="#s30">5. <code>F3</code> で「爆発」へ: バーストと抵抗</a></li><li class="l3"><a href="#s31">6. <code>F3</code> で「土埃」へ: 円盤から外へ</a></li><li class="l3"><a href="#s32">7. <code>F3</code> で「負荷」へ: 8192 粒で飽和する</a></li><li class="l3"><a href="#s33">8. <code>1</code>(数字): 自己チェックが 27 項目すべて合格</a></li><li class="l3"><a href="#s34">9. Day 48 の自己チェックも合格</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 色と大きさにカーブを入れる</a></li><li class="l3"><a href="#s37">課題2(中): 加算とアルファを1パスで混ぜる</a></li><li class="l3"><a href="#s38">課題3(難): 更新をコンピュートシェーダへ移す</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">自己チェック(27 項目すべて合格)</a></li><li class="l3"><a href="#s41">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>昨日は入力を片付ける日にあてた。<strong>今日から描画に戻る</strong>。</p>
+<p>Phase 7 の残りは Day 49・50 のエフェクトと、Day 51 の組み上げ。今日はその土台になる<strong>パーティクルシステム</strong>を作る——点を撒いて、進めて、消して、それを<strong>カメラを向いた四角形</strong>として描く。</p>
+<p>技術としては新しいものがほとんど無い。ビルボードは Day 18 のスプライトバッチを3D に持っていっただけだし、粒の動きは Day 43 のセミインプリシット積分そのもの。それでも1日を使うのは、<strong>混ぜ方(ブレンド)と描く順番</strong>という、今まで一度も踏み込まなかった領域が丸ごと出てくるからになる。</p>
+<blockquote><p><strong>今日いちばん時間を取られたのは「見えない」だった</strong></p>
+<p>パーティクルは<strong>描けているのに画面に出ない</strong>ということが起きる。しかも原因が3つある——<strong>背景が明るい</strong>(加算は暗いところでしか効かない)、<strong>1粒が小さい</strong>(数を増やしても濃さが積み上がらない)、<strong>二重に薄れている</strong>(テクスチャと色のカーブが両方フェードしている)。実際にこの3つを順に踏んだので、要点2・3と設計書に残してある。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「パーティクル」ページを開いて <code>F2</code> を押すと、中央の箱の上で焚き火が燃える。オレンジの炎が上へ細くなりながら消え、火の粉が弧を描いて落ちる。<code>F4</code> で混ぜ方をアルファに変えると、同じ粒が濁った灰色の塊になって「火」に見えなくなる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「パーティクル」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>パーティクルデモ ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>筋書き(焚き火 / 煙 / 爆発 / 土埃 / 負荷)</td></tr>
+<tr><td><code>F4</code></td><td>混ぜ方(加算 / アルファ / 事前乗算)。<strong>火が煙になる</strong></td></tr>
+<tr><td><code>F5</code></td><td>奥行きで並べ替え ON/OFF</td></tr>
+<tr><td><code>F6</code></td><td>深度を書く ON/OFF(<strong>わざと間違える</strong>)</td></tr>
+<tr><td><code>F7</code></td><td>明るさ x1 / x2 / x4 / x8</td></tr>
+<tr><td><code>F8</code></td><td>放出量 x0.5 / x1 / x2 / x4</td></tr>
+<tr><td><code>F9</code></td><td>重力 ON/OFF</td></tr>
+<tr><td><code>F10</code></td><td>コマ送り(フリップブック)ON/OFF</td></tr>
+<tr><td><code>F11</code></td><td>一発撒く(バースト 400)</td></tr>
+<tr><td><code>F12</code></td><td>内訳(放出・寿命・釣り合いの数・転送量)</td></tr>
+<tr><td><code>1</code></td><td>今日の自己チェック(27 項目)</td></tr>
+</tbody>
+</table></div>
+<p>筋書きは5つ。<strong>どれも同じ <code>ParticleEmitter</code> の設定違いでしかない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>筋書き</th><th>混ぜ方</th><th>形</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>焚き火</td><td>加算</td><td>円錐</td><td>放出口が2つ(炎と火の粉)でも<strong>ドローコールは1回</strong></td></tr>
+<tr><td>煙</td><td>アルファ</td><td>円錐</td><td><strong>4x4 のコマ送り</strong>と、奥行きの並べ替え</td></tr>
+<tr><td>爆発</td><td>加算</td><td>球</td><td><strong>バースト</strong>。抵抗で止めると「弾けた」形になる</td></tr>
+<tr><td>土埃</td><td>アルファ</td><td>円盤</td><td>外へ広がる。Day 50 でキャラクターの足元に付ける</td></tr>
+<tr><td>負荷</td><td>加算</td><td>球</td><td><strong>8192 粒でプールを飽和</strong>させて ms を見る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目はビルボード</strong>。粒はただの点だが、画面には四角い絵として出したい。そこで<strong>カメラの右と上</strong>で四角形を張る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 axisX = ((_cameraRight * cos) + (_cameraUp * sin)) * half;
+Vector3 axisY = ((_cameraUp * cos) - (_cameraRight * sin)) * half;</code></pre></div>
+<p>カメラの右と上は<strong>ビュー行列から取れる</strong>。回転部分は正規直交なので転置が逆行列で、ビュー空間の <code>(1,0,0)</code> に対応するワールドのベクトルは<strong>1列目</strong>——<code>(M11, M21, M31)</code> がそれになる。<code>cos</code> / <code>sin</code> は粒ごとの回転で、<strong>回した結果を頂点の位置に焼き込んでしまう</strong>のでシェーダは何も知らなくてよい。</p>
+<p><strong>2つ目は混ぜ方</strong>。同じ粒が、混ぜ方1つで火にも煙にもなる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 加算    重なるほど明るい。<strong>暗いところでしか効かない</strong>
+glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+// アルファ 重ねても明るくならない。<strong>順番が要る</strong>
+glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);</code></pre></div>
+<p>加算は <code>dst + src·a</code> なので、<strong>背景が既に明るいと何も起きない</strong>。花火が夜にしか上がらないのと同じ話で、演出ではなく前提条件になる。今日のデモが空を消しているのはこのため(要点2)。</p>
+<p><strong>3つ目は深度を書かないこと</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.Enable(EnableCap.DepthTest);   // 読む: 箱の裏に回った粒は隠れてほしい
+_gl.DepthMask(DepthWrite);         // 書かない: 既定は false</code></pre></div>
+<p>半透明が深度を書くと、<strong>後から描く粒が深度テストで落ちる</strong>——手前の粒が壁になって、その裏の粒が四角く消える。<code>F6</code> でわざと ON にすると一目で分かる。</p>
+<h3 id="s3">今日は物理に触らない</h3>
+<p>差分は <code>Render/</code> に新しいファイル3本と <code>shaders/</code> に2本、そして <code>Program.cs</code>。<code>Physics/</code> も <code>Model/</code> も <code>Scene/</code> も1行も変わっていない。</p>
+<p>粒は<strong>当たり判定を持たない</strong>ので、<code>PhysicsWorld</code> とは無関係に動く。だから可変 dt でよく(カメラワークやアニメと同じ扱い)、決定性も要らない。<strong>粒に物を押させたくなった日に初めて固定ステップへ移る</strong>。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://www.khronos.org/opengl/wiki/Blending">Blend Function(OpenGL Wiki)</a>— <strong>今日の一次資料</strong>。<code>glBlendFunc</code> の係数と、事前乗算アルファがなぜ1式で済むか</li><li><a href="https://dl.acm.org/doi/10.1145/357318.357320">Particle Systems — A Technique for Modeling a Class of Fuzzy Objects(Reeves, 1982)</a>— パーティクルの原典。「境界のはっきりしないものを、多数の点で表す」という発想そのもの</li><li><strong>Day 18 の <code>Render/SpriteBatch.cs</code>(このリポジトリ)</strong>— ビルボードのバッチはこれの 3D 版になる。「差分を全部頂点に焼き込む」という判断がそのまま効いてくる</li><li><strong>Day 43 の計画書 要点1(セミインプリシット積分)</strong>— 粒の運動はこれと同じ。速度を先に進めてから位置に足す</li><li><a href="https://web.archive.org/web/20200121143148/http://home.comcast.net/~tom_forsyth/blog.wiki.html#%5B%5BPremultiplied%20alpha%5D%5D">Premultiplied alpha(Tom Forsyth)</a>— 事前乗算がなぜ「正しい」のか。今日は選択肢として置くだけだが、理屈は読む価値がある</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. ビルボード — カメラの基底で四角形を張る</h3>
+<p>粒は点だが、画面には絵として出したい。一番素直なのは<strong>常にカメラを向いた四角形</strong>を置くことで、これをビルボードと呼ぶ。</p>
+<p>四隅は中心から<strong>カメラの右と上</strong>へ半分ずつずらせば作れる。</p>
+<div class="code"><pre><code>        center + (-X + Y) ┌──────┐ center + (X + Y)
+                          │      │
+        center + (-X - Y) └──────┘ center + (X - Y)</code></pre></div>
+<p>カメラの右と上をどこから取るか、が唯一の技術的な点になる。ビュー行列 <code>V</code> はワールドからビューへの変換で、その回転部分 <code>R</code> は正規直交。正規直交行列は<strong>転置が逆行列</strong>なので、ビュー空間の <code>(1,0,0)</code> に戻るワールドのベクトルは<code>R</code> の1列目になる。System.Numerics は行ベクトル規約なので、これは <code>(M11, M21, M31)</code>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_cameraRight = new Vector3(view.M11, view.M21, view.M31);
+_cameraUp = new Vector3(view.M12, view.M22, view.M32);</code></pre></div>
+<p><strong>自己チェックで確かめているのはここ</strong>(要点7)。長さが1で、直交していて、外積が奥行き軸に一致すること——どれか1つでも崩れると四角形が歪むか裏を向く。</p>
+<p><strong>CPU で四隅を作る</strong>のは Day 18 と同じ判断になる。頂点シェーダで展開する手(インスタンシングやジオメトリシェーダ)もあるが、そちらは「粒ごとの uniform」か「追加の頂点属性」が要る。CPU で焼き込めば <strong>uniform はフレームに1本</strong>で済み、1万粒でもドローコールは1回のまま。</p>
+<p>代償は転送量で、1粒あたり4頂点 × 24 バイト = 96 バイト。8000 粒なら毎フレーム 750KB を送ることになる。<strong>そこが効いてくるのが GPU パーティクル</strong>で、教養編 Day 57 のコンピュートシェーダに繋がる。</p>
+<h3 id="s7">2. 加算合成は「暗いところ」でしか効かない</h3>
+<p>ブレンドは <code>結果 = src × S + dst × D</code> の形で、<code>S</code> と <code>D</code> を選ぶのが <code>glBlendFunc</code>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>混ぜ方</th><th>S</th><th>D</th><th>式</th><th>性格</th></tr></thead>
+<tbody>
+<tr><td>加算</td><td><code>SrcAlpha</code></td><td><code>One</code></td><td><code>dst + src·a</code></td><td><strong>重なるほど明るい</strong>。順番不問</td></tr>
+<tr><td>アルファ</td><td><code>SrcAlpha</code></td><td><code>OneMinusSrcAlpha</code></td><td><code>src·a + dst·(1-a)</code></td><td>重ねても明るくならない。<strong>順番が要る</strong></td></tr>
+<tr><td>事前乗算</td><td><code>One</code></td><td><code>OneMinusSrcAlpha</code></td><td><code>src + dst·(1-a)</code></td><td><strong>1式で両方</strong>。RGB に A を掛けておく</td></tr>
+</tbody>
+</table></div>
+<p>加算の式をよく見ると、<code>dst</code> に足すだけで<strong>引く手段が無い</strong>。つまり <strong><code>dst</code> が既に明るいと、何を足しても変わらない</strong>。</p>
+<p>これは理屈としては当たり前なのだが、実際にやると必ず一度は引っかかる。今日のデモも、最初は<strong>炎が1粒も見えなかった</strong>——空(スカイボックス)が白く、その前で足し算をしていたため。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// ShowParticleDemo。<strong>空を消す</strong>のは演出ではなく前提条件
+_env.SkyboxVisible = false;</code></pre></div>
+<p>花火が夜にしか上がらないのと同じ話になる。<strong>加算を使うなら背景を暗くする</strong>、あるいは明るい背景ではアルファ合成に切り替える、のどちらかしかない。</p>
+<p><strong>事前乗算</strong>はこの2つを1つの式に畳む手になる。RGB にあらかじめ A を掛けておくと、<code>a = 0</code> の粒は <code>src + dst</code> で加算そのもの、<code>a = 1</code> の粒は <code>src + 0</code> でアルファ合成そのものになる。<strong>1回のドローコールの中で火と煙を混ぜられる</strong>のが値打ちで、今日は選択肢として置くだけだが、Day 50 のエフェクト応用で効いてくる。</p>
+<h3 id="s8">3. 粒が見えないときに疑う3つ</h3>
+<p>要点2の背景の話も含めて、<strong>「描けているのに出ない」</strong>には決まった原因がある。今日はこの3つを順に踏んだので、順番に書いておく。</p>
+<p><strong>1つ目: 背景が明るい</strong>(要点2)。加算合成なら空を消す。</p>
+<p><strong>2つ目: 1粒が小さい</strong>。これがいちばん引っかかった。</p>
+<p>テクスチャの減衰が <code>(1-r)²</code> なので、四角形の中で実効的な不透明度はかなり低い。さらに寿命に沿ってアルファが 0 へ落ちるので、<strong>小さい粒はいくら数を増やしても濃さが積み上がらない</strong>。</p>
+<div class="code"><pre><code>  0.5m の粒を 200 個   →  画面には何も出ない
+  1.0m の粒を 130 個   →  はっきり煙に見える</code></pre></div>
+<p>画面に出るかどうかを決めているのは<strong>数ではなく1粒の面積</strong>になる。煙や埃のように「もや」を出したいときは、<strong>粒を大きくして数を減らす</strong>のが正しい。</p>
+<p><strong>3つ目: 二重に薄れている</strong>。</p>
+<p>コマ送りのテクスチャが最後のコマで透明になり、かつ色のカーブも <code>EndColor</code> のアルファを 0 にしていると、<strong>両方が掛かる</strong>。寿命の後半がまるごと消えることになり、「煙が続かない」という形で出る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// ParticleTextures.CreateSmokeFlipbook。0 まで落とさない
+float fade = 1.0f - (0.55f * t);</code></pre></div>
+<p><strong>コマ送りが持つのは形、消え方は色のカーブが持つ</strong>、と分けておく。どちらか一方に寄せないと、片方を調整したときにもう片方が効いて訳が分からなくなる。</p>
+<h3 id="s9">4. 深度は読むが書かない</h3>
+<p>半透明を描くときの原則になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.Enable(EnableCap.DepthTest);   // 読む
+_gl.DepthMask(false);              // 書かない</code></pre></div>
+<p><strong>読む</strong>のは、不透明な床や箱の裏に回った粒に隠れてほしいから。深度テストを切ると、粒が壁を突き抜けて手前に出てしまう。</p>
+<p><strong>書かない</strong>のは、半透明が深度を書くと<strong>後から描く粒が落ちる</strong>から。手前の粒が「壁」になって、その裏の粒が四角く消える——四角いのは、消えているのがビルボードの矩形そのものだからになる。</p>
+<p><code>F6</code> で ON にすると実演できる。焚き火の筋書きでいちばん分かりやすく、炎が<strong>四角い穴だらけ</strong>になる。</p>
+<p><strong>ここは「借りたら返す」も要点</strong>。<code>End()</code> で <code>DepthMask(true)</code> に戻し忘れると、次のフレームの<strong>不透明な描画が深度を書かなくなり</strong>、前後関係が崩れる。しかも症状はパーティクルではなく床や箱のほうに出るので、原因を探すのが難しい。Day 18 のスプライトバッチから続いている作法がここでも効く。</p>
+<div class="inject"><figure class="lab" id="pt-lab">
+  <div class="lab-head">
+    <h3>粒を焚く(要点2〜5)</h3>
+    <span class="tag">ParticleEmitter と ParticleRenderer の混ぜ方・深度・並べ替えを、正面から見たソフトウェア描画で再現</span>
+  </div>
+  <div class="stage"><canvas id="pt-canvas" style="height:360px" aria-label="パーティクルの描画結果"></canvas></div>
+  <div class="hud" id="pt-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">筋書き(F3)</span>
+      <div class="seg" id="pt-scene"><button data-v="fire" aria-pressed="true">焚き火</button><button data-v="smoke" aria-pressed="false">煙</button><button data-v="explosion" aria-pressed="false">爆発</button><button data-v="dust" aria-pressed="false">土埃</button></div>
+    </div>
+    <div class="ctl"><span class="label">混ぜ方(F4)</span>
+      <div class="seg" id="pt-blend"><button data-v="add" aria-pressed="true">加算</button><button data-v="alpha" aria-pressed="false">アルファ</button><button data-v="pre" aria-pressed="false">事前乗算</button></div>
+    </div>
+    <div class="ctl"><span class="label">明るさ(F7)</span>
+      <div class="seg" id="pt-int"><button data-v="1" aria-pressed="false">x1</button><button data-v="2" aria-pressed="false">x2</button><button data-v="4" aria-pressed="true">x4</button><button data-v="8" aria-pressed="false">x8</button></div>
+    </div>
+    <div class="ctl"><span class="label">放出量(F8)</span>
+      <div class="seg" id="pt-rate"><button data-v="0.5" aria-pressed="false">x0.5</button><button data-v="1" aria-pressed="true">x1</button><button data-v="2" aria-pressed="false">x2</button><button data-v="4" aria-pressed="false">x4</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">背景の明るさ(実機は空を消して暗くしている)</span>
+      <div class="range"><input type="range" id="pt-bg" min="0" max="1" step="0.01" value="0.04"><output id="pt-bg-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">粒の大きさ(このページだけ)</span>
+      <div class="range"><input type="range" id="pt-size" min="0.25" max="2" step="0.05" value="1"><output id="pt-size-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">操作</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><button class="btn" id="pt-burst">一発撒く(F11)</button><button class="btn primary" id="pt-reset">最初から</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="pt-sort"> 奥行きで並べ替え(F5)</label>
+    <label class="check"><input type="checkbox" id="pt-depth"> 深度を書く(F6)</label>
+    <label class="check"><input type="checkbox" id="pt-gravity" checked> 重力(F9)</label>
+    <label class="check"><input type="checkbox" id="pt-flip" checked> コマ送り(F10)</label>
+    <label class="check"><input type="checkbox" id="pt-double"> コマ送りでも消す(二重に薄れる。要点3)</label>
+  </div>
+  <div class="readout"><div class="stats" id="pt-stats"></div><p id="pt-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">5. 並べ替えは「アルファのときだけ」要る</h3>
+<p>加算合成は足し算なので、<strong>順番を変えても結果が同じ</strong>になる(交換法則)。アルファ合成はそうではない。<code>src·a + dst·(1-a)</code> は<code>dst</code> を上書きしていく形なので、<strong>奥から手前へ</strong>描かないと正しくならない。</p>
+<p>しかも <code>ParticleEmitter</code> は死んだ粒を末尾と入れ替えて詰めるので(要点6)、<strong>配列の順番は奥行きと何の関係も無い</strong>。だから描く直前に並べ替える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 負の距離にして昇順に並べると、そのまま「遠い順」になる
+_depths[i] = -Vector3.DistanceSquared(alive[i].Position, _cameraPosition);
+Array.Sort(_depths, _order, 0, alive.Length);</code></pre></div>
+<p>平方根を取らないのは、大小の比較にしか使わないため(平方根は単調増加なので、取っても順序は変わらない)。</p>
+<p><strong>代償は HUD に出る</strong>。<code>並替:ON 0.42ms</code> のように、掛かった時間をそのまま出してある——アルファに切り替えた瞬間に増えるので、出していないと気づけない。8000 粒だと数 ms 掛かるので、<strong>負荷の筋書きでは並べ替えを切ってある</strong>。</p>
+<h3 id="s11">6. プールと swap-remove — 順番を捨てて O(1) を買う</h3>
+<p>粒は毎フレーム生まれて死ぬ。<strong>毎回 <code>new</code> しない</strong>のが大前提で、配列を1本持って「生きている数」だけを動かす。</p>
+<p>死んだ粒は<strong>末尾の生きた粒と入れ替えて</strong>数を1つ減らす。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (particle.Age &gt;= particle.Lifetime)
+{
+    Count--;
+    _particles[i] = _particles[Count];
+    continue;   // <strong>添字を進めない</strong>。入れ替えた先はまだ進めていない
+}</code></pre></div>
+<p>詰め直しが O(1) で済み、<strong>生きている粒は常に配列の先頭から連続して並ぶ</strong>。描く側は <code>Alive</code> をそのまま舐めればよい。</p>
+<p>代償は<strong>順番が保たれないこと</strong>で、これが要点5の並べ替えに繋がっている。<code>continue</code> で添字を進めないのを忘れると、<strong>入れ替わってきた粒が1フレーム飛ばされる</strong>——症状は「たまに粒が1フレーム止まる」で、まず気づけない。</p>
+<h3 id="s12">7. 撒く向きは「一様」が難しい</h3>
+<p>球面上や円錐の中に<strong>一様に</strong>向きを撒くのは、素朴にやると必ず偏る。</p>
+<p><strong>球面</strong>: 緯度と経度を両方一様に振ると、<strong>極に密集する</strong>。地球儀の目盛りが極で詰まっているのと同じで、緯度が同じ幅でも、そこが表す面積は極に近いほど狭い。正しくは<strong>高さ(cos θ)を一様に振る</strong>(アルキメデスの定理)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float z = ((float)_random.NextDouble() * 2.0f) - 1.0f;   // 高さを一様に
+float r = MathF.Sqrt(MathF.Max(0.0f, 1.0f - (z * z)));</code></pre></div>
+<p><strong>円錐</strong>: 角度 θ を一様に振ると<strong>軸の近くに密集する</strong>。同じ理由になる。<code>cos θ</code> を <code>[cos θmax, 1]</code> で一様に振るのが正しい。</p>
+<p><strong>円盤</strong>: 半径を一様に振ると<strong>中心に寄る</strong>。面積は半径の2乗に比例するので、<code>√u</code> で振る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float radius = Radius * MathF.Sqrt((float)_random.NextDouble());</code></pre></div>
+<p>どれも<strong>「一様」がどの測度で一様か</strong>という話で、自己チェックでは統計量で確かめている——円錐なら平均 <code>cos</code> が <code>(1 + cos θmax) / 2</code> に一致すること、円盤なら半径 <code>1/√2</code> の内側にちょうど半分入ること。<strong>偏っていても絵はそれらしく見える</strong>ので、数で見るしかない。</p>
+<div class="inject"><figure class="lab" id="dist-lab">
+  <div class="lab-head">
+    <h3>撒く向きの偏り(要点7)</h3>
+    <span class="tag">面積を保つ地図(ランベルト正積方位図法)で描いている。一様なら点は円の中に均等に散る</span>
+  </div>
+  <div class="stage"><canvas id="dist-canvas" style="height:300px" aria-label="撒いた向きの散らばり"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">形</span>
+      <div class="seg" id="dist-shape"><button data-v="sphere" aria-pressed="false">球(上半分)</button><button data-v="cone" aria-pressed="true">円錐</button><button data-v="disc" aria-pressed="false">円盤</button></div>
+    </div>
+    <div class="ctl"><span class="label">円錐の半角</span>
+      <div class="range"><input type="range" id="dist-angle" min="5" max="90" step="1" value="20"><output id="dist-angle-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">操作</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><button class="btn" id="dist-again">撒き直す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dist-stats"></div><p id="dist-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s13">8. 端数を持ち越す — fps で絵が変わらないために</h3>
+<p>毎秒 200 個を 60fps で撒くと、1フレームあたり 3.33 個。切り捨てると毎秒 180 個にしかならず、144fps では 1.39 → 1 で毎秒 144 個。<strong>fps が変わると絵が変わる</strong>ことになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_carry += EmitRate * deltaSeconds;
+int toSpawn = (int)_carry;
+_carry -= toSpawn;</code></pre></div>
+<p>Day 19 の固定ステップが「溜まった時間を持ち越す」のとまったく同じ形になる。自己チェックでは 60fps と 144fps で 1 秒ぶん回し、<strong>どちらも 200 個</strong>になることを確かめている。</p>
+<p><strong>釣り合いの数</strong>も押さえておく価値がある。生きている粒の数は、放出が続いていれば <code>放出レート × 平均寿命</code> に落ち着く。</p>
+<div class="code"><pre><code>  焚き火   260 個/秒 × 0.75 秒 = 195 個
+  煙        80 個/秒 × 2.8 秒  = 224 個
+  負荷    6300 個/秒 × 1.3 秒  = 8190 個 ← 容量 8192 をわざと埋める</code></pre></div>
+<p><code>F12</code> の内訳がこの数字を出す。<strong>容量を超えると、超えたぶんは単に撒かれない</strong>——古いものを消したりはしないので、「粒が途中から出なくなる」という形で出る。</p>
+<div class="inject"><figure class="lab" id="carry-lab">
+  <div class="lab-head">
+    <h3>1秒で何個撒かれるか(要点8)</h3>
+    <span class="tag">EmitRate = 200 個/秒。float で数えている(reference と同じ)</span>
+  </div>
+  <div class="stage"><canvas id="carry-canvas" style="height:160px" aria-label="フレームごとに撒いた数"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">fps</span>
+      <div class="seg" id="carry-fps"><button data-v="30" aria-pressed="false">30</button><button data-v="60" aria-pressed="true">60</button><button data-v="144" aria-pressed="false">144</button><button data-v="240" aria-pressed="false">240</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="carry-stats"></div></div>
+</figure></div>
+<h3 id="s14">9. 今日入れなかったもの</h3>
+<ul><li><strong>ソフトパーティクル</strong>(深度フェード)。粒が床や壁に刺さったところで<strong>切り口が線になって見える</strong>のを、深度の差で薄めて消す手。<strong>Day 50 の主題</strong></li><li><strong>トレイル</strong>。粒の軌跡を帯として繋ぐ。これも Day 50</li><li><strong>GPU パーティクル</strong>。位置と速度をテクスチャかバッファに置いて、更新をコンピュートシェーダでやる。CPU からは「何個描け」しか言わなくなる。教養編 Day 57 で扱う</li><li><strong>粒に当たり判定</strong>。地面で跳ねる火花、壁で止まる煙。当たり判定を持たせた瞬間に<strong>決定性が要る</strong>ので、固定ステップへ移すことになる</li><li><strong>カーブ</strong>。今は始点と終点の線形補間だけで、途中に山を作れない(「出た瞬間だけ大きい」ができない)。改造課題1にしてある</li><li><strong>ライト</strong>。炎が周囲を照らさない。点光源を1つ置くだけでも効果は大きいが、そこは Day 52 のディファードで多光源を入れてからのほうが素直</li></ul>
+</section>
+<section class="part"><h2 id="s15">前Dayからの差分概要</h2>
+<h3 id="s16">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/ParticleEmitter.cs</code></td><td>粒1つ(<code>Particle</code>)と放出口。撒く・進める・捨てる。<strong>403 行</strong>(要点6〜8)</td></tr>
+<tr><td><code>Render/ParticleRenderer.cs</code></td><td>ビルボード化して1回で描くバッチ(<code>ParticleVertex</code> / <code>ParticleBlend</code> を含む)。<strong>471 行</strong>(要点1・4・5)</td></tr>
+<tr><td><code>Render/ParticleTextures.cs</code></td><td>粒の絵を数式で作る。丸1枚と煙の 4x4 コマ送り。<strong>141 行</strong></td></tr>
+<tr><td><code>shaders/particle.vert</code></td><td>ワールド座標に <code>uViewProjection</code> を掛けるだけ。<strong>28 行</strong></td></tr>
+<tr><td><code>shaders/particle.frag</code></td><td>テクスチャ × 頂点色 × 明るさ。事前乗算の分岐だけ持つ。<strong>43 行</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>筋書き5つ、放出口2つ、描画パス1つ、HUD 1行、メニュー 12 項目、自己チェック 27 項目</td><td>+979 / -4</td></tr>
+</tbody>
+</table></div>
+<p><code>Physics/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <strong>1行も変わっていない</strong>。<code>Render/</code> の既存ファイルも触っていない——<code>SpriteVertex.PackColor</code> と <code>VertexAttribute</code> を<strong>借りているだけ</strong>で、向こうに手を入れる必要は無かった。</p>
+<p><strong><code>Program.cs</code> の +979 行の内訳</strong>はこうなっている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>何</th><th>行数</th></tr></thead>
+<tbody>
+<tr><td>自己チェック(<code>RunParticleCheck</code>)</td><td>約 300</td></tr>
+<tr><td>筋書きの設定(<code>ApplyParticleScene</code>)</td><td>約 200</td></tr>
+<tr><td>メニューのページ(12 項目)</td><td>約 160</td></tr>
+<tr><td>デモの出し入れ・HUD・内訳</td><td>約 190</td></tr>
+<tr><td>フィールド・列挙・配線</td><td>約 130</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日は重い日</strong>になる。新規 1,086 行 + <code>Program.cs</code> 979 行で、写経は<strong>4〜5時間</strong>を見込んでほしい。コメントが4割ほどあるので、実際に打つ量はもう少し軽いはずだが、1日で終わらなければ<strong>「1〜4 まで」と「5 以降」で切る</strong>のが素直な分け方になる(4 まで終われば焚き火は出る)。</p>
+<h3 id="s18">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。1〜3 はエンジン側で、<code>Program.cs</code> を知らない。</p>
+<ol><li><strong><code>shaders/particle.vert</code></strong>(新規) — ワールド座標に行列を掛けるだけ。モデル行列が無いことと、その理由(差分を頂点に焼き込んである)を読む</li><li><strong><code>shaders/particle.frag</code></strong>(新規) — テクスチャ × 頂点色。<code>uIntensity</code> と <code>uPremultiply</code> の2つだけ分岐がある</li><li><strong><code>Render/ParticleEmitter.cs</code></strong>(新規) — 上から順に<ul><li><code>ParticleShape</code>(3つ)/ <code>Particle</code>(構造体。<code>Normalized</code> が全部の入力になる)</li><li>フィールドと設定のプロパティ(数が多いが、どれも1行)</li><li><code>Burst</code> / <code>Clear</code></li><li><strong><code>Update</code></strong> — 撒く → 進める → 捨てる。<strong><code>continue</code> で添字を進めない</strong>のが要点6</li><li><code>ColorAt</code> / <code>SizeAt</code> / <code>FrameAt</code></li><li><code>Spawn</code> と、その下の <code>RandomDirection</code> / <code>RandomInCone</code>(要点7)</li></ul></li><li><strong><code>Render/ParticleTextures.cs</code></strong>(新規) — <code>CreateSoftDot</code> → <code>CreateSmokeFlipbook</code>。<strong><code>fade</code> を 0 まで落とさない</strong>理由(要点3)を読んでおく</li><li><strong><code>Render/ParticleRenderer.cs</code></strong>(新規) — 上から順に<ul><li><code>ParticleBlend</code>(3つ)/ <code>ParticleVertex</code>(24 バイト)</li><li>コンストラクタ(<strong>Day 18 の <code>SpriteBatch</code> とほぼ同じ</strong>。見比べると早い)</li><li>プロパティ(<code>Blend</code> / <code>SortByDepth</code> / <code>DepthWrite</code> / <code>Intensity</code> と計測用)</li><li><strong><code>Begin</code></strong> — カメラの基底を取る(要点1)。GL の状態もここで作る</li><li><code>Draw</code> / <code>End</code> / <code>AppendSorted</code>(要点5)</li><li><strong><code>Append</code></strong> — 四隅を作る。フリップブックの UV もここ</li><li><code>Flush</code> / <code>ApplyBlend</code>(要点2)/ <code>Dispose</code></li></ul></li><li><strong><code>Program.cs</code> のフィールドと列挙</strong>(変更) — <code>ParticleScene</code>(5つ)を<code>PhysicsScene</code> の直前に。<code>_menu</code> の直後に <code>_particles</code> 以下 12 個</li><li><strong><code>Program.cs</code> の初期化</strong>(変更) — <code>_spriteShader</code> の読み込みの直後。シェーダ・テクスチャ2枚・<code>ParticleRenderer</code>・放出口2つ・<code>ApplyParticleScene()</code></li><li><strong><code>Program.cs</code> の <code>ShowParticleDemo</code> / <code>HideParticleDemo</code> / <code>ApplyParticleScene</code></strong>(新規)— 筋書き5つぶんの設定。<strong><code>_env.SkyboxVisible = false</code></strong> の理由(要点2)は読む価値がある</li><li><strong><code>Program.cs</code> の <code>ApplyParticleGravity</code> / <code>CurrentParticleTexture</code> / <code>UpdateParticles</code></strong>(新規)</li><li><strong><code>Program.cs</code> の <code>RenderParticles</code> / <code>ParticleLabel</code> / <code>DescribeParticles</code></strong>(新規)</li><li><strong><code>Program.cs</code> の更新と描画への差し込み</strong>(変更) — 2箇所だけ<ul><li><code>OnUpdate</code> の可変 dt 側、<code>_animation?.Update(...)</code> の直後に <code>UpdateParticles</code></li><li><code>OnRender</code> の <code>if (_uiThroughPost)</code> の直前に <code>RenderParticles</code>。<strong><code>_post.Begin</code> と <code>_post.End</code> の間</strong>であることが要る(ブルームに拾わせるため)</li></ul></li><li><strong><code>Program.cs</code> の HUD</strong>(変更) — <code>_menu.HudLine()</code> の直後に <code>ParticleLabel()</code> を1行</li><li><strong><code>Program.cs</code> の <code>RunParticleCheck</code></strong>(新規) — 27 項目。<code>CheckList</code> の直前に置く</li><li><strong><code>Program.cs</code> のメニューのページ</strong>(変更) — <code>BuildDebugMenu</code> の <code>return menu;</code> の直前。<strong>12 行足すだけ</strong>で、キーも一覧も HUD の案内も全部そこから起きる(Day 48 の値打ち)</li><li><strong><code>Program.cs</code> の <code>RunDebugMenuCheck</code></strong>(変更) — 項目数の期待値を<code>159</code> から <code>171</code> へ。<strong>ここを直さないと Day 48 の自己チェックが落ちる</strong></li></ol>
+</section>
+<section class="part"><h2 id="s19">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が5つ増えただけで、矢印は1本も足していない。<code>Physics/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も1行も変わっていない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Particle</code></td><td><code>Render/</code></td><td>粒1つ。位置・速度・寿命・回転・種(<strong>構造体</strong>)</td></tr>
+<tr><td><code>Render/ParticleShape</code></td><td><code>Render/</code></td><td>撒く形(円錐 / 球 / 円盤)</td></tr>
+<tr><td><code>Render/ParticleEmitter</code></td><td><code>Render/</code></td><td>放出口。撒く・進める・捨てる。<strong>403 行</strong></td></tr>
+<tr><td><code>Render/ParticleVertex</code></td><td><code>Render/</code></td><td>24 バイト。位置(3)+ UV(2)+ 色(4byte)</td></tr>
+<tr><td><code>Render/ParticleBlend</code></td><td><code>Render/</code></td><td>混ぜ方(加算 / アルファ / 事前乗算)</td></tr>
+<tr><td><code>Render/ParticleRenderer</code></td><td><code>Render/</code></td><td>ビルボードのバッチ。<strong>471 行</strong></td></tr>
+<tr><td><code>Render/ParticleTextures</code></td><td><code>Render/</code></td><td>粒の絵を数式で作る。<strong>141 行</strong>(static クラス)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>筋書き5つ、描画パス1つ、HUD 1行、メニュー 12 項目、自己チェック 27 項目</td><td>+979 / -4</td></tr>
+</tbody>
+</table></div>
+<h3 id="s20">「進める」と「描く」を分けた</h3>
+<p><code>ParticleEmitter</code> は <strong>GL を1行も触らない</strong>。逆に <code>ParticleRenderer</code> は<strong>粒を1つも持たない</strong>。この分け方は <code>PhysicsWorld</code> と <code>RenderPhysics</code> の関係と同じで、理由も同じになる——<strong>片方だけをテストしたい</strong>。</p>
+<p>実際、今日の自己チェック 27 項目のうち <strong>20 項目は窓を開かずに走る</strong>。端数の持ち越しも、円錐の分布も、抵抗の指数減衰も、<code>ParticleEmitter</code> が GL を知らないからこそ数で確かめられる。</p>
+<svg viewBox="0 0 820 250" role="img" aria-label="ParticleEmitter から ParticleRenderer、シェーダへの片方向の流れ。Camera と ParticleTextures も Renderer へ渡す" style="width:100%;max-width:820px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="95" width="190" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="105" y="116.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleEmitter</text><text x="105" y="133.5" text-anchor="middle" fill="var(--ink)">撒く・進める・捨てる</text><path d="M200 121 L328 121" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="264" y="88" fill="var(--muted)" font-size="12" text-anchor="middle">Alive: 生きている粒</text><rect x="330" y="95" width="220" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="116.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleRenderer</text><text x="440" y="133.5" text-anchor="middle" fill="var(--ink)">四隅を作って1回で描く</text><path d="M550 121 L658 121" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="604" y="92" fill="var(--muted)" font-size="12" text-anchor="middle">uViewProjection</text><rect x="660" y="99" width="150" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="735" y="125" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">particle.vert / .frag</text><rect x="330" y="8" width="220" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Camera</text><path d="M440 48 L440 93" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="448" y="76" fill="var(--muted)" font-size="12">ViewMatrix の列 = 右と上</text><rect x="330" y="196" width="220" height="48" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="215.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParticleTextures</text><text x="440" y="232.5" text-anchor="middle" fill="var(--ink)">数式で作った絵</text><path d="M440 196 L440 149" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="448" y="176" fill="var(--muted)" font-size="12">Texture</text></g></svg>
+<p>矢印が<strong>片方向だけ</strong>なのが要点になる。<code>ParticleEmitter</code> は <code>Camera</code> も <code>Texture</code> も <code>GL</code> も知らない。だから <strong>Day 57 で GPU へ移すときに置き換わるのは右半分だけ</strong>で、設定の意味(寿命・重力・色のカーブ)はそのまま持っていける。</p>
+<h3 id="s21">粒が1つ描かれるまで</h3>
+<svg viewBox="0 0 760 640" role="img" aria-label="粒が1つ描かれるまで。端数の持ち越し、生成、積分、寿命の判定と詰め直し、並べ替え、1回のドロー" style="width:100%;max-width:760px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="160" y="8" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="30" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Update(dt)</text><path d="M310 44 L310 60" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="62" width="300" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="80.5" text-anchor="middle" fill="var(--ink)">_carry += EmitRate × dt</text><text x="310" y="97.5" text-anchor="middle" fill="var(--ink)">端数を持ち越す</text><path d="M310 108 L310 124" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="126" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="148" text-anchor="middle" fill="var(--ink)">Spawn を int(_carry) 回</text><path d="M310 162 L310 178" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="180" width="300" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="198.5" text-anchor="middle" fill="var(--ink)">速度を進めて位置に足す</text><text x="310" y="215.5" text-anchor="middle" fill="var(--ink)">セミインプリシット</text><path d="M310 226 L310 242" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="244" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="310" y="268" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Age >= Lifetime ?</text><path d="M460 264 L508 264" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="476" y="256" fill="var(--muted)" font-size="12" text-anchor="middle">はい</text><rect x="510" y="240" width="240" height="48" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="630" y="259.5" text-anchor="middle" fill="var(--ink)">末尾と入れ替えて Count--</text><text x="630" y="276.5" text-anchor="middle" fill="var(--ink)" font-weight="700">添字は進めない</text><path d="M310 284 L310 300" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="318" y="296" fill="var(--muted)" font-size="12">いいえ</text><rect x="160" y="302" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="324" text-anchor="middle" fill="var(--ink)">次の粒へ</text><path d="M310 338 L310 362" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M630 288 L630 386 L462 386" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="364" width="300" height="46" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="382.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Begin(camera)</text><text x="310" y="399.5" text-anchor="middle" fill="var(--ink)">右と上をビュー行列から</text><path d="M310 410 L310 426" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="428" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="310" y="452" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SortByDepth ?</text><path d="M460 448 L508 448" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="476" y="440" fill="var(--muted)" font-size="12" text-anchor="middle">はい</text><rect x="510" y="428" width="240" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="630" y="452" text-anchor="middle" fill="var(--ink)">距離の2乗で並べ替え</text><path d="M310 468 L310 498" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="318" y="488" fill="var(--muted)" font-size="12">いいえ</text><path d="M630 468 L630 520 L462 520" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="500" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="524" text-anchor="middle" fill="var(--ink)">Append: 四隅 + UV + 色</text><path d="M310 540 L310 562" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="160" y="564" width="300" height="52" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="585.5" text-anchor="middle" fill="var(--ink)">Flush: BufferSubData → DrawElements</text><text x="310" y="602.5" text-anchor="middle" fill="var(--ink)" font-weight="700">1回</text></g></svg>
+<p><strong>並べ替えが <code>Append</code> の手前にしかない</strong>のが構造として大事なところ。<code>ParticleEmitter</code> 側は順番を保証しない(swap-remove で壊れる)ので、順番が要るのは<strong>描く直前だけ</strong>と決めてある。ここを逆にして「常に順番を保つプール」にすると、死んだ粒を消すたびに O(n) の詰め直しが要る——<strong>加算合成では必要ない仕事を、全部の筋書きに払わせる</strong>ことになる。</p>
+<h3 id="s22">状態を借りて返す</h3>
+<p><code>ParticleRenderer.Begin</code> は GL の状態を4つ変える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>状態</th><th>何にするか</th><th>戻すか</th></tr></thead>
+<tbody>
+<tr><td><code>Blend</code></td><td>有効 + <code>ApplyBlend()</code></td><td><strong><code>End</code> で無効に戻す</strong></td></tr>
+<tr><td><code>DepthTest</code></td><td>有効</td><td>戻さない(不透明の描画も有効のまま使う)</td></tr>
+<tr><td><code>DepthMask</code></td><td><code>DepthWrite</code>(既定 false)</td><td><strong><code>End</code> で true に戻す</strong></td></tr>
+<tr><td><code>CullFace</code></td><td>無効</td><td>戻さない(次の <code>Render3D</code> が自分で設定する)</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>DepthMask</code> を戻し忘れると症状が向こうに出る</strong>。次のフレームの不透明な描画が深度を書かなくなり、床と箱の前後関係が崩れる——パーティクルを疑うところまで辿り着けない種類の壊れ方になる。</p>
+<p>「戻すもの」と「戻さないもの」を分けているのは、<strong>次に描く人が必ず自分で設定するかどうか</strong>で決めている。<code>Render3D</code> は毎フレーム深度テストとカリングを設定し直すので、そこは戻さなくてよい。<code>DepthMask</code> は誰も設定し直さない(既定が true のまま使われている)ので、返す。</p>
+<h3 id="s23">絵を数式で作った</h3>
+<p><code>ParticleTextures</code> は素材を1枚も使わない。</p>
+<p>これは素材を増やさないための判断でもあるが、それ以上に<strong>パーティクルの絵は「形」ではなく「減衰の仕方」だ</strong>ということが、作ってみるといちばんよく分かる。中心が明るくて縁へ滑らかに落ちる——それだけで火にも煙にも埃にも見える。</p>
+<p><strong>縁を切り立たせない</strong>のが唯一にして最大のコツになる。<code>(1 - r)</code> と線形に落とすと粒が<strong>円板</strong>に見えて重なりが目立ち、<code>(1 - r)²</code> にするだけで「もや」になる。</p>
+<p>コマ送りのほうは、<strong>形だけを持たせて消え方は持たせない</strong>と決めてある(要点3)。最初は最後のコマを透明にしていて、色のカーブの <code>EndColor</code> アルファ 0 と<strong>二重に掛かり</strong>、寿命の後半がまるごと消えていた。「1つの見た目を2箇所で作らない」は Day 40 の <code>FeatureToggles</code> で「状態の置き場所は1つ」と決めたのと同じ形の判断になる。</p>
+<h3 id="s24">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 混ぜ方が1パスに1つしか無い</strong>。<code>ParticleRenderer.Blend</code> はレンダラ全体の設定なので、<strong>同じフレームに加算の炎とアルファの煙を同時に出せない</strong>。本当にやるなら「加算のものを全部描く → アルファのものを全部描く」と2パスに分けるか、事前乗算に寄せて1式に畳むことになる。今日は筋書きごとにどちらかを選ぶ形で逃げた。<strong>Day 50 で必要になる</strong>。</p>
+<p><strong>2つ目: 並べ替えが放出口ごと</strong>。<code>AppendSorted</code> は <code>Draw</code> の中で呼ばれるので、放出口が2つあると<strong>それぞれの中でしか並ばない</strong>。放出口をまたいだ正しい順序にはならない。今日は同時に出しているのが焚き火(加算・並べ替え不要)だけなので表に出ないが、アルファの放出口を2つ出した日に必ず気づくことになる。</p>
+<p><strong>3つ目: カーブが線形しかない</strong>。<code>ColorAt</code> も <code>SizeAt</code> も始点と終点の <code>Lerp</code> だけなので、<strong>「出た瞬間だけ大きい」「中盤で一番明るい」が作れない</strong>。本物のエンジンはここにカーブエディタを持っている。足すなら「制御点の配列 + 線形補間」で十分で、改造課題1にしてある。</p>
+</section>
+<section class="part"><h2 id="s25">完成条件</h2>
+<p><code>dotnet run --project reference/Day49 -c Release</code> で起動して、次が確かめられること。<strong>メニューは 17 ページになっている</strong>(<code>Ctrl+F1</code> で目次)。</p>
+<h3 id="s26">1. 「パーティクル」ページの <code>F2</code>: 箱の上で焚き火が燃える</h3>
+<p>空が消えて背景が黒くなり、中央の箱(y = -0.5〜1.0)の天面に炎が立つ。</p>
+<ul><li>オレンジ(<code>1.0, 0.72, 0.28</code>)から赤へ移りながら、上へ細くなって消える</li><li><strong>火の粉</strong>が円錐 35 度で飛び、重力 -3 で弧を描いて落ちる</li><li>HUD に <code>粒:240/8192  DC:1  加算  並替:OFF  深度書込:OFF  x4  更新:0.0xms</code></li></ul>
+<p><strong><code>DC:1</code> が要点</strong>。炎と火の粉で放出口は2つあるが、テクスチャが同じなので<strong>ドローコールは1回</strong>に畳まれている。</p>
+<p><strong>空が消えるのは正しい</strong>(要点2)。白い空の前だと、加算合成では1粒も見えない。</p>
+<h3 id="s27">2. <code>F4</code>: 混ぜ方を変えると火が煙になる</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>混ぜ方</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td>加算</td><td>重なったところが明るい。<strong>炎に見える</strong></td></tr>
+<tr><td>アルファ</td><td>重なっても明るくならない。<strong>濁った灰色の塊</strong>になり、火に見えない</td></tr>
+<tr><td>事前乗算</td><td><strong>アルファと同じ絵になる</strong>。シェーダで RGB に A を掛けてから <code>src + dst·(1-a)</code> で混ぜるので、式がアルファ合成と一致する(加算のように光らせるのは改造課題2)</td></tr>
+</tbody>
+</table></div>
+<p><strong>同じ粒がまったく違う物質に見える</strong>のが今日いちばん面白いところになる。</p>
+<h3 id="s28">3. <code>F3</code> で「煙」へ: コマ送りと並べ替え</h3>
+<ul><li>灰色の煙が箱の上からゆっくり広がる。<strong>1粒が 1.0m → 3.0m</strong> と大きい</li><li>HUD が <code>アルファ  並替:ON 0.0xms</code> になる</li><li><code>F10</code> でコマ送りを切ると、<strong>煙がずっと同じ形のまま薄れる</strong></li><li><code>F5</code> で並べ替えを切ると、粒の重なりが<strong>四角く抜ける</strong>ところが出る</li></ul>
+<p><strong>粒が小さいと見えない</strong>(要点3)。<code>F8</code> で放出量を増やしても濃くならないことを確かめておくと、要点3の「数ではなく面積」が腑に落ちる。</p>
+<h3 id="s29">4. <code>F6</code>: 深度を書くと粒が四角く消える</h3>
+<p>焚き火の筋書きに戻して <code>F6</code>。<strong>炎が四角い穴だらけ</strong>になる。</p>
+<p>手前の粒が深度を書き、その裏に来た粒が深度テストで落ちるため。四角いのは、消えているのがビルボードの矩形そのものだから。</p>
+<h3 id="s30">5. <code>F3</code> で「爆発」へ: バーストと抵抗</h3>
+<p>500 個が球状に一気に飛び出し、抵抗 2.5 で急に止まって落ちる。<code>F11</code> でもう一度撒ける。</p>
+<p><strong>箱の手前を通る粒は箱に隠れる</strong>——深度を読んでいることの確認になる。</p>
+<h3 id="s31">6. <code>F3</code> で「土埃」へ: 円盤から外へ</h3>
+<p>床の上(z = 2.4)に低い雲が広がる。円盤の上から<strong>外向き</strong>に撒いているので、真上ではなく横へ這う。Day 50 でキャラクターの足元に付けるのがこれになる。</p>
+<h3 id="s32">7. <code>F3</code> で「負荷」へ: 8192 粒で飽和する</h3>
+<ul><li>HUD が <code>粒:8150/8192</code> あたりで止まる。<strong>放出 × 寿命 = 6300 × 1.3 ≒ 8190</strong></li><li><code>更新</code> が 0.5〜1.5ms 程度。<strong>これが CPU パーティクルの上限の目安</strong>になる</li><li><code>F5</code> で並べ替えを ON にすると <code>並替:</code> の ms が跳ねる(8000 個のソート)</li></ul>
+<p><code>F12</code> の内訳で「釣り合いの目安」が出る。<code>F8</code> で放出量を x2 にすると<strong>容量を超えて撒かれなくなる</strong>ことも確かめる。</p>
+<h3 id="s33">8. <code>1</code>(数字): 自己チェックが 27 項目すべて合格</h3>
+<div class="code"><pre><code>--- Day 49: パーティクルの自己チェック ---
+  [OK] <strong>60fps でも 144fps でも 1 秒で同じ数</strong>(端数を持ち越している)  60fps:200 / 144fps:200(理論 200)
+  ...
+  [OK] <strong>軸のまわりに偏っていない</strong>(cos を一様に振っている)  平均 cos 0.9699(理論 0.9698)
+  [OK] <strong>面積で一様</strong>(半径 1/√2 の内側が半分)  50.2%
+  [OK] <strong>セミインプリシット</strong>(速度を先に進める)  Y = 0.9000(陽的オイラーなら 1.0)
+  [OK] <strong>抵抗で逆走しない</strong>(指数減衰にしてある)  v = 0.00045(1 - Drag·dt なら -90)
+  すべて合格</code></pre></div>
+<h3 id="s34">9. Day 48 の自己チェックも合格</h3>
+<p>「メニュー」は <code>Alt+F1</code>。<strong>項目数が 159 から 171 に増えている</strong>ので、<code>RunDebugMenuCheck</code> の期待値を直していないとここで落ちる。17 ページ 171 項目で全項目合格になること。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「パーティクル」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code> / <code>F3</code></td><td>粒を焚く「筋書き」</td><td>焚き火 / 煙 / 爆発 / 土埃(負荷の 8192 粒は実機だけ)</td></tr>
+<tr><td><code>F4</code></td><td>同「混ぜ方」</td><td>焚き火をアルファにすると濁った塊になる</td></tr>
+<tr><td><code>F5</code></td><td>同「奥行きで並べ替え」</td><td>アルファの煙で、切ると重なりの順が崩れる</td></tr>
+<tr><td><code>F6</code></td><td>同「深度を書く」</td><td>炎が四角い穴だらけになる</td></tr>
+<tr><td><code>F7</code> / <code>F8</code> / <code>F9</code> / <code>F10</code> / <code>F11</code></td><td>同「明るさ」「放出量」「重力」「コマ送り」「一発撒く」</td><td>小さい粒は放出量を増やしても濃くならない</td></tr>
+<tr><td>(なし。実機は空を消している)</td><td>同「背景の明るさ」</td><td>明るい背景では加算が効かない</td></tr>
+<tr><td><code>1</code>(自己チェック)</td><td>撒く向きの偏り / 1秒で何個撒かれるか</td><td>平均 cos が理論値に一致、円盤の内側が半分、60fps と 144fps で同じ 200 個</td></tr>
+</tbody>
+</table></div>
+<p class="note">粒を焚く実験台は reference/Day49 の ParticleEmitter(撒く・進める・捨てる・端数の持ち越し・指数減衰)と ApplyParticleScene の設定、ParticleRenderer の混ぜ方・深度・並べ替え、ParticleTextures の式を JS に移し、正面から見た正射影のソフトウェア描画で再現したもの。乱数の並びは reference と一致しない。実機は HDR に描いてトーンマップとブルームを通すが、ここでは 0〜1 で切って表示しているので、明るさ x4 以上では白飛びしやすい。「背景の明るさ」「粒の大きさ」「コマ送りでも消す」は、要点2・3 の失敗を見るためにこのページで足したつまみで、reference には無い。</p></div>
+</section>
+<section class="part"><h2 id="s35">改造課題</h2>
+<h3 id="s36">課題1(易): 色と大きさにカーブを入れる</h3>
+<p>いまの <code>ColorAt</code> / <code>SizeAt</code> は始点と終点の <code>Lerp</code> だけなので、<strong>「出た瞬間だけ大きい」「中盤で一番明るい」が作れない</strong>。</p>
+<p>制御点の配列を持たせて、区間ごとに線形補間する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>/// &lt;summary&gt;寿命に沿ったカーブ。制御点は 0〜1 の順に並んでいること。&lt;/summary&gt;
+internal sealed class ParticleCurve
+{
+    private readonly (float T, float Value)[] _keys;
+
+    public float Evaluate(float t)
+    {
+        // 区間を探して線形補間。両端は端の値で止める
+    }
+}</code></pre></div>
+<p><code>StartSize</code> / <code>EndSize</code> を <code>SizeCurve</code> に置き換えて、焚き火を <code>(0, 0.1) (0.15, 0.5) (1, 0.05)</code> にすると、<strong>火が「ぼっ」と立ち上がる</strong>ようになる。</p>
+<p><strong>確かめること</strong>: 制御点が1個・0個でも落ちないこと、<code>t</code> が 0 未満や 1 超でも端で止まること。自己チェックに「両端で止まる」を足しておくと、区間探索の境界がすぐ分かる。</p>
+<h3 id="s37">課題2(中): 加算とアルファを1パスで混ぜる</h3>
+<p>いまは <code>ParticleRenderer.Blend</code> がレンダラ全体の設定なので、<strong>炎(加算)と煙(アルファ)を同時に出せない</strong>。</p>
+<p>事前乗算(<code>ParticleBlend.Premultiplied</code>)に寄せると、1つの式で両方を扱える。</p>
+<div class="code"><pre><code>  src + dst·(1-a)    a = 0 なら 加算そのもの
+                     a = 1 なら アルファそのもの</code></pre></div>
+<p><code>ParticleEmitter</code> に「加算寄りか、アルファ寄りか」を 0〜1 で持たせて、<code>ColorAt</code> が返すアルファを掛け分ける。炎の粒はアルファを 0 に寄せ、煙の粒は 1 に寄せる。</p>
+<p><strong>確かめること</strong>: 焚き火の上に煙を足して、<strong>炎が光ったまま、煙が背景を隠す</strong>こと。1パスで済んでいるか(HUD の <code>DC:</code> が 1 のまま)も見る。</p>
+<p><strong>ここが今日と Day 50 の橋渡し</strong>になる。土埃・爆発・トレイルを同じシーンに置くと、混ぜ方の異なる粒が必ず同居することになる。</p>
+<h3 id="s38">課題3(難): 更新をコンピュートシェーダへ移す</h3>
+<p>負荷の筋書きで <code>更新</code> が 1ms を超える。8192 粒で 1ms なら、10 万粒なら 12ms で<strong>それだけで 1 フレームを使い切る</strong>。</p>
+<p>粒の状態(位置・速度・寿命)を <strong>SSBO</strong> に置いて、更新をコンピュートシェーダでやる。CPU からは「何個描け」しか言わなくなる。</p>
+<p>段取りはこうなる。</p>
+<ol><li><code>Particle</code> を GPU 側の構造体に合わせる(<code>std430</code> のアラインメントに注意)</li><li>更新のシェーダを書く。<strong>生死の判定と詰め直しが難所</strong>——<code>atomicCounter</code> で生きている数を数えるか、死んだ粒を「大きさ 0」で描く</li><li>描画は <code>glDrawArraysIndirect</code> にして、描く数も GPU が決める</li><li><strong>ビルボードは頂点シェーダへ移す</strong>(CPU で四隅を作れなくなるため)</li></ol>
+<p>3 と 4 まで行くと「CPU がドローコールの中身を知らない」形になり、これは教養編 Day 65 の GPU 駆動レンダリングと同じ発想になる。</p>
+<p><strong>確かめること</strong>: 10 万粒で <code>更新</code> が 0 に近づくこと。そして<strong>絵が CPU 版と同じに見えること</strong>——乱数の作り方が違うので粒の並びは一致しないが、「釣り合いの数」と見た目の濃さは合うはず。</p>
+<p><strong>手を出す前に読む</strong>: 教養編 Day 57(コンピュートシェーダ入門)。そこで GPGPU の実行モデル(ワークグループ・共有メモリ)を通してからのほうが早い。</p>
+</section>
+<section class="part"><h2 id="s39">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070 / OpenGL 3.3</li></ul>
+<h3 id="s40">自己チェック(27 項目すべて合格)</h3>
+<p><code>1</code>(「パーティクル」ページ)。<strong>27 項目のうち 20 項目は窓を開かずに走る</strong>——<code>ParticleEmitter</code> が GL を知らないので、数だけで確かめられる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>範囲</th><th>何を確かめているか</th><th>項目数</th></tr></thead>
+<tbody>
+<tr><td>端数の持ち越し</td><td><strong>60fps と 144fps で 1 秒あたりの数が同じ</strong></td><td>1</td></tr>
+<tr><td>プールと寿命</td><td>Burst の数、先頭から連続、寿命で消える、<strong>容量を超えない</strong></td><td>5</td></tr>
+<tr><td>寿命に沿った値</td><td>色の両端と中点、大きさ、コマ番号の両端と範囲</td><td>7</td></tr>
+<tr><td>撒く向きの分布</td><td><strong>円錐に収まる・偏らない</strong>、円盤が水平・<strong>面積で一様</strong></td><td>5</td></tr>
+<tr><td>積分と抵抗</td><td><strong>セミインプリシット</strong>、<strong>指数減衰で逆走しない</strong></td><td>2</td></tr>
+<tr><td>ビルボードの基底</td><td>長さ1、<strong>直交</strong>、外積が奥行き軸</td><td>3</td></tr>
+<tr><td>手続きテクスチャ</td><td>中心が濃い、コマ送りの大きさ、<strong>透明になりきらない</strong></td><td>4</td></tr>
+</tbody>
+</table></div>
+<p>とくに強いのは次の4つ。</p>
+<ul><li><strong>60fps と 144fps で同じ数</strong> — 端数を切り捨てていると 200 個が 180 個と 144 個に割れる。絵では気づけないが、数なら一発で出る</li><li><strong>円錐の平均 cos が理論値と一致</strong> — 実測 0.9699 / 理論 0.9698。角度を一様に振ると軸寄りに偏り、ここが 0.980 まで上がる。<strong>偏っていてもそれらしく見える</strong>ので、数で見るしかない</li><li><strong>円盤の半径 1/√2 の内側がちょうど半分</strong> — 実測 50.2%。半径を一様に振ると 70% ほどになり、土埃が中心に固まる</li><li><strong>抵抗で逆走しない</strong> — <code>(1 - Drag·dt)</code> にしていると<code>Drag=20, dt=0.5</code> で速度が -90 になり、<strong>粒が逆向きに吹き飛ぶ</strong>。dt が跳ねたフレームで一度でも起きると目に見える</li></ul>
+<h3 id="s41">検証の途中で分かったこと</h3>
+<p><strong>1. 「描けているのに見えない」を3回踏んだ</strong>(要点2・3)。</p>
+<p>最初は炎が1粒も出なかった。<code>ParticleCount</code> も <code>DrawCallCount</code> も正しく、粒の座標をクリップ空間まで出しても画面の中央に居る。原因は順に3つあった。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>症状</th><th>原因</th><th>直し方</th></tr></thead>
+<tbody>
+<tr><td>炎が1粒も見えない</td><td><strong>空が白い</strong>。加算は明るい背景では何も足せない</td><td>デモで <code>SkyboxVisible = false</code></td></tr>
+<tr><td>炎が箱に埋まっている</td><td>中央の箱が y = -0.5〜1.0 を占めていた</td><td>放出口を天面(y = 1.0)へ</td></tr>
+<tr><td>煙が出ない</td><td><strong>1粒が小さい</strong>。0.5m を 200 個出しても濃さが積み上がらない</td><td>1.0m → 3.0m に</td></tr>
+</tbody>
+</table></div>
+<p><strong>切り分けは「真っ赤・不透明・3m」に振ってみるのが早かった</strong>。それで出るなら経路は生きていて、あとは見た目の話でしかない。</p>
+<p><strong>2. コマ送りと色のカーブが二重にフェードしていた</strong>(要点3)。</p>
+<p>コマ送りの最後のコマを透明にし、かつ <code>EndColor</code> のアルファを 0 にしていたので、寿命の後半がまるごと消えていた。<strong>コマ送りが持つのは形、消え方は色のカーブが持つ</strong>と分けて直した。</p>
+<p>「1つの見た目を2箇所で作らない」は Day 40 で「状態の置き場所は1つ」と決めたのと同じ形の判断になる。</p>
+<p><strong>3. 500fps 出ているので、フレーム数で待つと足りない</strong>。</p>
+<p>検証中、決まったフレーム数でスクリーンショットを撮っていたら、寿命 3 秒の煙が育たなかった。この構成は 400〜600fps 出るので、<strong>400 フレームでも 1 秒未満</strong>になる。時間で待つように直したら、粒の数が理論値(放出 × 寿命)にぴたりと合った。</p>
+<p><code>GameLoop</code> の固定ステップ(Day 19)は物理を守っているが、<strong>パーティクルは可変 dt 側に置いてある</strong>ので、この速さで回っている。そのぶん端数の持ち越し(要点8)が効いているのが、実測 200 個で確かめられる。</p>
+</section>
+<footer class="end">Day 49 パーティクルシステム(ビルボード・加算合成・コマ送り) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/particles.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const fr = Math.fround;
+
+const { rng, v3, add, mul, norm, cross, lerp, Emitter, texAlpha: texAlphaOf } = Particles;
+
+// ============================================================
+//  筋書き(Program.ApplyParticleScene の設定そのまま)
+// ============================================================
+const pt = { scene: 'fire', blend: 'add', intensity: 4, rate: 1, bg: 0.04, size: 1, sort: false, depthWrite: false, gravity: true, flip: true, double: false, accum: 0, t: 0 };
+const emitter = new Emitter(8192, 4901), sparks = new Emitter(1024, 4902);
+function applyScene(noBurst = false) {
+  const e = emitter, k = pt.rate;
+  sparks.emitting = false; sparks.emitRate = 0; e.cols = 1; e.rows = 1; e.emitting = true;
+  if (pt.scene === 'smoke') {
+    Object.assign(e, { position: v3(0, 1.1, 0), shape: 'cone', direction: v3(0, 1, 0), coneAngle: 12, radius: 0.25, emitRate: 80 * k, lifeMin: 2.2, lifeMax: 3.4,
+      speedMin: 0.5, speedMax: 1.0, gravity: v3(0, 0.35, 0), drag: 0.5, startSize: 1.0, endSize: 3.0, sizeJitter: 0.35,
+      startColor: [0.85, 0.86, 0.90, 0.90], endColor: [0.32, 0.33, 0.40, 0.25], spinRange: 0.5 });
+    e.cols = e.rows = pt.flip ? 4 : 1;
+    pt.blend = 'alpha'; pt.sort = true; pt.intensity = 1;
+  } else if (pt.scene === 'explosion') {
+    Object.assign(e, { position: v3(0, 1.8, 0), shape: 'sphere', radius: 0.3, emitRate: 0, lifeMin: 0.6, lifeMax: 1.4, speedMin: 4, speedMax: 11,
+      gravity: v3(0, -6, 0), drag: 2.5, startSize: 0.5, endSize: 0.02, sizeJitter: 0.4, startColor: [1, 0.9, 0.55, 1], endColor: [0.8, 0.15, 0.02, 0], spinRange: 3 });
+    pt.blend = 'add'; pt.sort = false; pt.intensity = 2;
+    if (!noBurst) e.burst(500);
+  } else if (pt.scene === 'dust') {
+    Object.assign(e, { position: v3(0, -0.45, 2.4), shape: 'disc', radius: 0.45, emitRate: 140 * k, lifeMin: 0.7, lifeMax: 1.3, speedMin: 0.5, speedMax: 1.4,
+      gravity: v3(0, -1.2, 0), drag: 1.8, startSize: 0.6, endSize: 1.8, sizeJitter: 0.3, startColor: [0.86, 0.79, 0.66, 0.90], endColor: [0.62, 0.57, 0.50, 0.20], spinRange: 1 });
+    e.cols = e.rows = pt.flip ? 4 : 1;
+    pt.blend = 'alpha'; pt.sort = true; pt.intensity = 1;
+  } else {
+    Object.assign(e, { position: v3(0, 1.0, 0), shape: 'cone', direction: v3(0, 1, 0), coneAngle: 18, radius: 0.12, emitRate: 260 * k, lifeMin: 0.5, lifeMax: 1.0,
+      speedMin: 1.2, speedMax: 2.2, gravity: v3(0, 1.2, 0), drag: 1.2, startSize: 0.42, endSize: 0.05, sizeJitter: 0.3,
+      startColor: [1, 0.72, 0.28, 1], endColor: [0.9, 0.12, 0.02, 0], spinRange: 1.5 });
+    Object.assign(sparks, { emitting: true, position: v3(0, 1.05, 0), shape: 'cone', direction: v3(0, 1, 0), coneAngle: 35, radius: 0.1, emitRate: 40 * k,
+      lifeMin: 0.8, lifeMax: 1.6, speedMin: 2.5, speedMax: 4.5, gravity: v3(0, -3, 0), drag: 0.4, startSize: 0.06, endSize: 0.01, sizeJitter: 0.5,
+      startColor: [1, 0.95, 0.7, 1], endColor: [1, 0.4, 0.1, 0] });
+    pt.blend = 'add'; pt.sort = false; pt.intensity = 4;
+  }
+  if (!pt.gravity) { e.gravity = v3(0, 0, 0); sparks.gravity = v3(0, 0, 0); }
+  setSeg('pt-blend', pt.blend); setSeg('pt-int', pt.intensity); $('pt-sort').checked = pt.sort;
+}
+function resetScene() { emitter.clear(); sparks.clear(); pt.t = 0; applyScene(); }
+// 筋書きを変えずに設定だけ当て直す(放出量・重力・コマ送り)。粒と、混ぜ方などの手動の選択は残す
+function reapply() {
+  const keep = { blend: pt.blend, sort: pt.sort, intensity: pt.intensity };
+  applyScene(true);
+  Object.assign(pt, keep);
+  setSeg('pt-blend', pt.blend); setSeg('pt-int', pt.intensity); $('pt-sort').checked = pt.sort;
+}
+
+// ============================================================
+//  描画: 正面から見た正射影のソフトウェアラスタライザ(深度バッファつき)
+// ============================================================
+const VIEW = { fire: [1.5, 1.25], smoke: [2.6, 3.6], explosion: [1.8, 3.4], dust: [0.1, 1.5] };   // [注視点の y, 縦の半分の幅]
+const CAM_Z = 10;
+let buf = null;
+// 二重に薄れる(要点3)を切り替えるため、最後のコマの濃さだけページで決める
+const texAlpha = (e, tx, ty, frame) => texAlphaOf(e, tx, ty, frame, pt.double ? 0 : 0.45);
+function render() {
+  const cv = $('pt-canvas'), { ctx, w, h } = fit(cv);
+  const scale = 0.5, W = Math.max(1, Math.round(w * scale)), H = Math.max(1, Math.round(h * scale));
+  if (!buf || buf.W !== W || buf.H !== H) buf = { W, H, rgb: new Float32Array(W * H * 3), depth: new Float32Array(W * H), img: new ImageData(W, H), off: document.createElement('canvas') };
+  const [cy, hh] = VIEW[pt.scene], s = H / (2 * hh);
+  const SX = (x) => W / 2 + x * s, SY = (y) => H / 2 - (y - cy) * s;
+  const { rgb, depth } = buf;
+  // 背景と、不透明な床と箱(深度を書く)
+  const bg = pt.bg;
+  for (let i = 0; i < W * H; i++) { rgb[i * 3] = bg; rgb[i * 3 + 1] = bg; rgb[i * 3 + 2] = bg * 1.08; depth[i] = Infinity; }
+  const floorY = Math.round(SY(-0.5));
+  for (let y = Math.max(0, floorY); y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; rgb[i * 3] = 0.16; rgb[i * 3 + 1] = 0.15; rgb[i * 3 + 2] = 0.14; depth[i] = CAM_Z + 5; }
+  // 中央の箱(y = -0.5〜1.0)。手前の面は z = 0.5
+  const bx0 = Math.round(SX(-0.5)), bx1 = Math.round(SX(0.5)), by0 = Math.round(SY(1.0)), by1 = Math.round(SY(-0.5));
+  for (let y = Math.max(0, by0); y < Math.min(H, by1); y++) for (let x = Math.max(0, bx0); x < Math.min(W, bx1); x++) { const i = y * W + x; rgb[i * 3] = 0.42; rgb[i * 3 + 1] = 0.38; rgb[i * 3 + 2] = 0.33; depth[i] = CAM_Z - 0.5; }
+  // 粒(炎と火の粉は同じテクスチャなので同じパスで描く)
+  const camPos = [0, cy, CAM_Z];
+  for (const e of [emitter, sparks]) {
+    let list = e.p;
+    if (pt.sort) {
+      // 負の距離の2乗で昇順 = 遠い順(要点5)
+      list = list.map((q) => [-((q.pos[0] - camPos[0]) ** 2 + (q.pos[1] - camPos[1]) ** 2 + (q.pos[2] - camPos[2]) ** 2), q]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+    }
+    for (const q of list) {
+      const n = q.life <= 0 ? 1 : Math.min(Math.max(q.age / q.life, 0), 1);
+      const half = e.sizeAt(n, q.seed) * 0.5 * pt.size;
+      if (half <= 0) continue;
+      const col = e.colorAt(n), frame = e.frameAt(n), d = CAM_Z - q.pos[2];
+      const cx = SX(q.pos[0]), cyy = SY(q.pos[1]), hp = half * s, ext = hp * 1.415;
+      const c = Math.cos(q.rot), sn = Math.sin(q.rot);
+      const x0 = Math.max(0, Math.floor(cx - ext)), x1 = Math.min(W - 1, Math.ceil(cx + ext));
+      const y0 = Math.max(0, Math.floor(cyy - ext)), y1 = Math.min(H - 1, Math.ceil(cyy + ext));
+      for (let py = y0; py <= y1; py++) {
+        for (let px = x0; px <= x1; px++) {
+          const dx = px + 0.5 - cx, dy = cyy - (py + 0.5);
+          // 粒の回転を戻して、四角形の中の位置(-1〜1)にする
+          const u = (dx * c + dy * sn) / hp, v = (-dx * sn + dy * c) / hp;
+          if (u < -1 || u > 1 || v < -1 || v > 1) continue;
+          const i = py * W + px;
+          if (!(d < depth[i])) continue;              // 深度は読む
+          if (pt.depthWrite) depth[i] = d;            // 書くと、後から描く奥の粒が四角く落ちる
+          const a = texAlpha(e, u, v, frame) * col[3];
+          let r = col[0] * pt.intensity, g = col[1] * pt.intensity, b = col[2] * pt.intensity;
+          const o = i * 3;
+          if (pt.blend === 'add') { rgb[o] += r * a; rgb[o + 1] += g * a; rgb[o + 2] += b * a; }
+          else if (pt.blend === 'alpha') { rgb[o] = r * a + rgb[o] * (1 - a); rgb[o + 1] = g * a + rgb[o + 1] * (1 - a); rgb[o + 2] = b * a + rgb[o + 2] * (1 - a); }
+          else { r *= a; g *= a; b *= a; rgb[o] = r + rgb[o] * (1 - a); rgb[o + 1] = g + rgb[o + 1] * (1 - a); rgb[o + 2] = b + rgb[o + 2] * (1 - a); }
+        }
+      }
+    }
+  }
+  // 画面は 0〜1 で切る(加算は 1 を超えたぶんが飛ぶ)
+  const data = buf.img.data;
+  for (let i = 0; i < W * H; i++) {
+    data[i * 4] = Math.min(255, rgb[i * 3] * 255); data[i * 4 + 1] = Math.min(255, rgb[i * 3 + 1] * 255); data[i * 4 + 2] = Math.min(255, rgb[i * 3 + 2] * 255); data[i * 4 + 3] = 255;
+  }
+  buf.off.width = W; buf.off.height = H; buf.off.getContext('2d').putImageData(buf.img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(buf.off, 0, 0, w, h);
+  readout();
+}
+function readout() {
+  const names = { add: '加算', alpha: 'アルファ', pre: '事前乗算' };
+  const alive = emitter.p.length + sparks.p.length;
+  const balance = emitter.emitRate * (emitter.lifeMin + emitter.lifeMax) / 2 + sparks.emitRate * (sparks.lifeMin + sparks.lifeMax) / 2;
+  $('pt-hud').textContent = `粒:${alive}/8192  ${names[pt.blend]}  並替:${pt.sort ? 'ON' : 'OFF'}  深度書込:${pt.depthWrite ? 'ON' : 'OFF'}  x${pt.intensity}  ${pt.t.toFixed(1)}秒`;
+  $('pt-stats').innerHTML =
+    stat('生きている粒', String(alive)) +
+    stat('釣り合いの数(放出 × 平均寿命)', balance > 0 ? balance.toFixed(0) : '—') +
+    stat('撒いた累計', String(emitter.total + sparks.total));
+  let note;
+  if (pt.depthWrite) note = '深度を書くと、先に描いた粒の四角形が壁になり、その裏の粒が深度テストで落ちる。消えている形が四角いのは、ビルボードの矩形そのものだから。';
+  else if (pt.blend === 'add' && pt.bg > 0.6) note = '加算は dst に足すだけで引く手段が無い。背景が明るいと 1 で切られて何も変わらない——実機のデモが空を消しているのはこのため。';
+  else if (pt.double) note = 'コマ送りの最後のコマを透明にすると、色のカーブのアルファと二重に掛かって寿命の後半がまるごと消える。煙が続かなくなる。';
+  else if (pt.size < 0.7 && pt.blend !== 'add') note = '粒を小さくすると、放出量を増やしても濃さが積み上がらない。画面に出るかどうかを決めるのは数ではなく1粒の面積(要点3)。';
+  else if (pt.blend === 'pre') note = 'reference の事前乗算はシェーダで RGB に A を掛けてから src + dst·(1-a) で混ぜるので、式がアルファ合成と同じになり、絵も同じになる。加算のように光らせるには A を下げた粒を作る(改造課題2)。';
+  else if (pt.blend === 'alpha' && pt.scene === 'fire') note = '同じ粒でもアルファ合成では重なっても明るくならず、濁った塊になって火に見えない。';
+  else if (pt.blend === 'alpha' && !pt.sort) note = 'アルファ合成は順番が要る。並べ替えを切ると、配列の順(swap-remove で崩れた順)のまま描かれ、手前の粒の上に奥の粒が乗るところが出る。';
+  else note = '焚き火は加算。重なったところほど明るくなり、炎に見える。混ぜ方・背景・深度を書くかを切り替えて、要点2〜5 を確かめる。';
+  $('pt-note').textContent = note;
+}
+seg('pt-scene', (v) => { pt.scene = v; resetScene(); render(); });
+seg('pt-blend', (v) => { pt.blend = v; render(); });
+seg('pt-int', (v) => { pt.intensity = Number(v); render(); });
+seg('pt-rate', (v) => { pt.rate = Number(v); reapply(); render(); });
+$('pt-bg').addEventListener('input', (e) => { pt.bg = Number(e.target.value); $('pt-bg-out').textContent = pt.bg.toFixed(2); render(); });
+$('pt-size').addEventListener('input', (e) => { pt.size = Number(e.target.value); $('pt-size-out').textContent = `x${pt.size.toFixed(2)}`; render(); });
+$('pt-sort').addEventListener('change', (e) => { pt.sort = e.target.checked; render(); });
+$('pt-depth').addEventListener('change', (e) => { pt.depthWrite = e.target.checked; render(); });
+$('pt-gravity').addEventListener('change', (e) => { pt.gravity = e.target.checked; reapply(); render(); });
+$('pt-flip').addEventListener('change', (e) => { pt.flip = e.target.checked; reapply(); render(); });
+$('pt-double').addEventListener('change', (e) => { pt.double = e.target.checked; render(); });
+$('pt-burst').addEventListener('click', () => { emitter.burst(400); render(); });
+$('pt-reset').addEventListener('click', () => { resetScene(); runAhead(); render(); });
+$('pt-bg-out').textContent = pt.bg.toFixed(2); $('pt-size-out').textContent = 'x1.00';
+function stepPt(dt) { emitter.update(dt); sparks.update(dt); pt.t += dt; }
+function runAhead() { if (reduceMotion) for (let i = 0; i < 180; i++) stepPt(1 / 60); }
+resetScene(); runAhead(); render();
+animate($('pt-canvas'), (dt) => { if (!reduceMotion) stepPt(dt); render(); });
+
+// ============================================================
+//  要点7: 撒く向きの偏り
+// ============================================================
+const ds = { shape: 'cone', angle: 20, seed: 1 };
+function drawDist() {
+  const { ctx, w, h } = fit($('dist-canvas'));
+  const R = Math.min(h / 2 - 16, w / 4 - 16), N = 1500;
+  const panels = [[w / 4, '素朴に振る'], [w * 3 / 4, 'reference の振り方']];
+  const cosMax = Math.cos(ds.angle * Math.PI / 180);
+  const results = [];
+  panels.forEach(([cx, title], k) => {
+    const rand = rng(ds.seed * 7 + k), cy = h / 2 + 6;
+    ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(cx, cy, R / Math.SQRT2, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body'); ctx.textAlign = 'center'; ctx.fillText(title, cx, 14); ctx.textAlign = 'start';
+    ctx.fillStyle = k === 0 ? tok('--expl') : tok('--semi');
+    let inside = 0, sumCos = 0, polar = 0;
+    for (let i = 0; i < N; i++) {
+      let px, py;
+      if (ds.shape === 'disc') {
+        const a = rand() * Math.PI * 2, r = k === 0 ? rand() : Math.sqrt(rand());
+        px = Math.cos(a) * r; py = Math.sin(a) * r; if (r < 1 / Math.SQRT2) inside++;
+      } else {
+        let z;
+        if (ds.shape === 'sphere') z = k === 0 ? Math.sin(rand() * Math.PI / 2) : rand();                     // 緯度を一様 / 高さを一様(上半分)
+        else z = k === 0 ? Math.cos(rand() * ds.angle * Math.PI / 180) : 1 - rand() * (1 - cosMax);           // 角度を一様 / cos を一様
+        const phi = rand() * Math.PI * 2, th = Math.acos(Math.min(1, z));
+        const thMax = ds.shape === 'sphere' ? Math.PI / 2 : ds.angle * Math.PI / 180;
+        const r = Math.sin(th / 2) / Math.sin(thMax / 2);   // 正積の地図(端がちょうど円の縁)
+        px = Math.cos(phi) * r; py = Math.sin(phi) * r;
+        sumCos += z; if (z > 0.5) polar++;
+        if (r < 1 / Math.SQRT2) inside++;
+      }
+      ctx.fillRect(cx + px * R - 1, cy - py * R - 1, 2, 2);
+    }
+    results.push({ inside: inside / N, meanCos: sumCos / N, polar: polar / N });
+  });
+  $('dist-angle-out').textContent = `${ds.angle}°`;
+  const [naive, good] = results;
+  const pct = (v) => `${(v * 100).toFixed(1)}%`;
+  let stats = stat('点線(面積で半分)の内側', `${pct(naive.inside)} / ${pct(good.inside)}`, ' <small>素朴 / reference。一様なら 50%</small>');
+  if (ds.shape === 'cone') stats += stat('平均 cos', `${naive.meanCos.toFixed(4)} / ${good.meanCos.toFixed(4)}`, ` <small>理論 ${((1 + cosMax) / 2).toFixed(4)}</small>`);
+  if (ds.shape === 'sphere') stats += stat('高さ 0.5 より上', `${pct(naive.polar)} / ${pct(good.polar)}`, ' <small>一様なら 50%</small>');
+  $('dist-stats').innerHTML = stats;
+  $('dist-note').textContent = ds.shape === 'disc'
+    ? '半径を一様に振ると中心に寄る(70% が内側に入る)。面積は半径の2乗に比例するので √u で振る。'
+    : ds.shape === 'sphere'
+      ? '緯度と経度を一様に振ると極に密集する。高さ(cos θ)を一様に振ると、球面の面積で一様になる(アルキメデスの定理)。'
+      : '角度 θ を一様に振ると軸の近くに密集する。cos θ を [cos θmax, 1] で一様に振ると、平均 cos が (1 + cos θmax) / 2 に一致する。';
+}
+seg('dist-shape', (v) => { ds.shape = v; drawDist(); });
+$('dist-angle').addEventListener('input', (e) => { ds.angle = Number(e.target.value); drawDist(); });
+$('dist-again').addEventListener('click', () => { ds.seed++; drawDist(); });
+drawDist();
+window.addEventListener('resize', drawDist);
+
+// ============================================================
+//  要点8: 端数の持ち越し
+// ============================================================
+let fps = 60;
+function drawCarry() {
+  const dt = fr(1 / fps); let carry = fr(0), kept = 0, cut = 0; const perFrame = [];
+  for (let i = 0; i < fps; i++) {
+    carry = fr(carry + fr(fr(200) * dt)); const n = Math.trunc(carry); carry = fr(carry - n); kept += n; perFrame.push(n);
+    cut += Math.trunc(200 / fps);
+  }
+  const { ctx, w, h } = fit($('carry-canvas'));
+  const maxN = Math.max(...perFrame, 1), bw = Math.min(14, (w - 20) / perFrame.length);
+  perFrame.forEach((n, i) => {
+    const bh = n / maxN * (h - 30);
+    ctx.fillStyle = tok('--semi'); ctx.fillRect(10 + i * bw, h - 10 - bh, Math.max(1, bw - 1), bh);
+  });
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px ' + tok('--font-mono');
+  ctx.fillText(`フレームごとに撒いた数(持ち越しあり)。1フレームあたり ${(200 / fps).toFixed(2)} 個`, 10, 14);
+  $('carry-stats').innerHTML =
+    stat('端数を持ち越す(reference)', String(kept), ' <small>個 / 1秒</small>') +
+    stat('毎フレーム切り捨てる', String(cut), ` <small>個 / 1秒</small> <span class="pill ${cut === 200 ? 'good' : 'bad'}">${cut === 200 ? '一致' : 'fps で変わる'}</span>`);
+}
+seg('carry-fps', (v) => { fps = Number(v); drawCarry(); });
+drawCarry();
+window.addEventListener('resize', drawCarry);
+})();
+</script>
+</body>
+</html>

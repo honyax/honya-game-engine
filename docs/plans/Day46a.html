@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 46a Heightmap コライダ(地形)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 地形は「形」ではなく「高さの関数」</a></li><li class="l3"><a href="#s7">2. 点と三角形の最近接点 — 7つの領域</a></li><li class="l3"><a href="#s8">3. 内部エッジ問題 — 法線を面の向きに取り替える</a></li><li class="l3"><a href="#s9">4. マニフォールドの法線は1本 — でも三角形はそれぞれ違う向きを向く</a></li><li class="l3"><a href="#s10">5. 見つかった不具合 — 静的な体の逆慣性テンソル</a></li><li class="l3"><a href="#s11">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">形が値でなくなった日</a></li><li class="l3"><a href="#s18">外接箱を今日のうちに入れたこと</a></li><li class="l3"><a href="#s19">判定の窓口に、地形の枝が入った</a></li><li class="l3"><a href="#s20">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. <code>Ctrl+G</code>: 地形が出て、その上を歩ける</a></li><li class="l3"><a href="#s23">2. 緩い丘を登る</a></li><li class="l3"><a href="#s24">3. 急な丘に登れない</a></li><li class="l3"><a href="#s25">4. <code>Ctrl+Shift+Alt+2</code> を6回 → 「地形に落とす」</a></li><li class="l3"><a href="#s26">5. Day 45b までの機能が全部生きていること</a></li><li class="l3"><a href="#s27">6. <code>Ctrl+Shift+Alt+G</code>: 今日の自己チェック(44 項目すべて合格)</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): 丘の傾きを変えて、登れる境目を探す</a></li><li class="l3"><a href="#s30">課題2(中): 内部エッジ対策を外してみる</a></li><li class="l3"><a href="#s31">課題3(難): 箱と三角形の SAT を書いて、角だけの判定を置き換える</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">自己チェック(44 項目すべて合格)</a></li><li class="l3"><a href="#s34">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 46a / 計画書</p>
+  <h1>Heightmap コライダ(地形)</h1>
+  <p class="lede">形ではなく高さの関数</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 地形は「形」ではなく「高さの関数」</a></li><li class="l3"><a href="#s7">2. 点と三角形の最近接点 — 7つの領域</a></li><li class="l3"><a href="#s8">3. 内部エッジ問題 — 法線を面の向きに取り替える</a></li><li class="l3"><a href="#s9">4. マニフォールドの法線は1本 — でも三角形はそれぞれ違う向きを向く</a></li><li class="l3"><a href="#s10">5. 見つかった不具合 — 静的な体の逆慣性テンソル</a></li><li class="l3"><a href="#s11">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">形が値でなくなった日</a></li><li class="l3"><a href="#s18">外接箱を今日のうちに入れたこと</a></li><li class="l3"><a href="#s19">判定の窓口に、地形の枝が入った</a></li><li class="l3"><a href="#s20">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. <code>Ctrl+G</code>: 地形が出て、その上を歩ける</a></li><li class="l3"><a href="#s23">2. 緩い丘を登る</a></li><li class="l3"><a href="#s24">3. 急な丘に登れない</a></li><li class="l3"><a href="#s25">4. <code>Ctrl+Shift+Alt+2</code> を6回 → 「地形に落とす」</a></li><li class="l3"><a href="#s26">5. Day 45b までの機能が全部生きていること</a></li><li class="l3"><a href="#s27">6. <code>Ctrl+Shift+Alt+G</code>: 今日の自己チェック(44 項目すべて合格)</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): 丘の傾きを変えて、登れる境目を探す</a></li><li class="l3"><a href="#s30">課題2(中): 内部エッジ対策を外してみる</a></li><li class="l3"><a href="#s31">課題3(難): 箱と三角形の SAT を書いて、角だけの判定を置き換える</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">自己チェック(44 項目すべて合格)</a></li><li class="l3"><a href="#s34">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 46 の1日目で、reference は Day 45b の完全コピー + 差分。Day 46 は差分が大きい(3,900 行を超える)うえに、<strong>関係の無い2つ</strong>(地形の判定と候補の絞り込み)を1日に入れていたので、2日に分けてある。<strong>46a で地形を入れ、46b でブロードフェーズ(均一グリッド)を入れる</strong>。順番はこの向きがよい——地形という「世界じゅうを覆う形」が先にあると、46b で格子を作るときに「格子に入らないもの」の問題がそのまま目の前に出てくる。</p>
+<p>もう1つ、今日は<strong>Day 44 から埋まっていた不具合が地形のおかげで表に出た</strong>。静的な体の逆慣性テンソルが単位行列のままで、接触点が体の位置から離れているほど押し戻しが効かなくなっていた。壁(±5m)では 10 倍ほど弱まる程度で気づけなかったが、地形(隅が原点で、接触点が 30m 先)では<strong>物が地面をすり抜けて落ちていく</strong>形で出た。</p>
+<blockquote><p><strong>既に Day 44・Day 45 を写経した人へ</strong>この不具合は<strong>その4日(44a・44b・45a・45b)の reference を直してある</strong>(Day 46a の差分には出てこない)。<code>work/HonyaEngine/Physics/RigidBody.cs</code> の <code>CreateStatic</code> と <code>CreatePlane</code> が式形式(<code>=&gt; new() { ... };</code>)のままなら、ブロックに直して<code>body.UpdateInertiaWorld();</code> を呼ぶこと。<strong>4行</strong>で済む。詳しくは要点5。</p></blockquote>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+G</code> を押すと起伏のある地形が出て、その上をキャラクターが歩き回れる。緩い丘(29 度)は登れて、急な丘(58 度)は登れない。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+G</code></td><td>地形デモ ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td>矢印キー / <code>X</code> / <code>Space</code></td><td>歩く / 走る / ジャンプ(Day 45b と同じ)</td></tr>
+<tr><td><code>Alt+X</code></td><td>坂の上限(Day 45b)。<strong>切ると急な丘も登れる</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+G</code></td><td>今日の自己チェック(44 項目)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+2</code></td><td>剛体の筋書きに<strong>「地形に落とす」が増えた</strong>(60 個が谷に集まる)</td></tr>
+<tr><td><code>Shift+X</code></td><td>キャラクターの筋書きに<strong>「地形」が増えた</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>G の段は今日から使い始める</strong>。今日は2つだけで、残りは Day 46b のブロードフェーズが使う。素の <code>G</code>(3D 背景の ON/OFF)は今までどおり。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「地形は形ではなく関数」</strong>。高さの格子(ハイトマップ)が安いのは、容量でも描画でもなく<strong>問いへの答え方</strong>が違うから。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// この (x, z) の地面の高さは? → 割り算2回と補間1回で終わる
+terrain.TryHeightAt(x, z, out float ground);
+
+// この箱はどの三角形に触れうるか? → やはり割り算2回
+terrain.CellRange(bounds, out int x0, out int z0, out int x1, out int z1);</code></pre></div>
+<p>一般の三角形メッシュなら、前者はレイキャスト、後者は BVH を降りることになる。<strong>「1つの (x, z) に高さが1つ」という制約を受け入れた見返り</strong>がこれで、洞窟もオーバーハングも表せない代わりに、地形を使う側がいちばん欲しい問いが即答できる。</p>
+<p><strong>2つ目は「内部エッジ問題」</strong>。平らな地面を三角形2枚で作って球を転がすと、対角線をまたぐ瞬間だけ横へ蹴られる。最近接点が辺に乗ると、法線が「面の向き」ではなく「辺から球へ」の向きになるため。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 素直に書くと辺で横向きの法線が出る。<strong>面の法線に取り替える</strong>のが答え
+return Contact3D.Touching(
+    triangle.Normal, sphere.Radius - MathF.Sqrt(squared), closest);</code></pre></div>
+<p>三角形メッシュの地形を書いた人が必ず1度は踏む罠で、Bullet には <code>btInternalEdgeUtility</code> という専用の道具まである。<strong>高さの格子なら内部の縁しか無い</strong>ので、ここまで割り切ってよい。</p>
+<p><strong>3つ目は「マニフォールドの法線は1本、でも三角形はそれぞれ違う向き」</strong>。谷の底にはまった球は、左右の斜面から別の向きに押される。いちばん深いものを基準にして、<strong>向きの近いものだけを足す</strong>(要点4)。</p>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル1本(<code>HeightField.cs</code>、412 行)と既存5本の書き足し、<code>Render/Primitives.cs</code> に地形のメッシュ、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Real-Time Collision Detection</strong>(Christer Ericson)5.1.5 <code>ClosestPtPointTriangle</code>— 今日の <code>Triangle3D.ClosestPoint</code> そのもの。7つの領域に分けて解く</li><li><a href="https://github.com/bulletphysics/bullet3/blob/master/src/BulletCollision/CollisionDispatch/btInternalEdgeUtility.cpp">Bullet の内部エッジ対策</a>— 一般のメッシュで内部エッジをどう見分けるか。<strong>今日はここまでやらない</strong>理由が読むと分かる</li><li><a href="https://wickedengine.net/2020/04/capsule-collision-detection/">Wicked Engine: Capsule Collision Detection</a>— Day 45a と同じ記事。三角形との判定の節が今日の範囲</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 地形は「形」ではなく「高さの関数」</h3>
+<p>高さの格子(ハイトマップ)は、格子点ごとに高さを1つだけ持つ。</p>
+<div class="code"><pre><code>  h[z][x]   x = 0..Columns-1、z = 0..Rows-1
+  世界座標 = Origin + (x * CellSize, h[z][x], z * CellSize)</code></pre></div>
+<p>これだけで地形になる。<strong>1つの (x, z) に高さが1つに決まる</strong>——つまり洞窟もオーバーハングも表せない。その制約と引き換えに3つが手に入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>高さの格子</th><th>一般の三角形メッシュ</th></tr></thead>
+<tbody>
+<tr><td>容量(頂点1つ)</td><td><strong>4 バイト</strong>(float 1個)</td><td>30 バイト以上(位置 + 法線 + 索引)</td></tr>
+<tr><td>「どの面に触れうるか」</td><td><strong>割り算2回</strong></td><td>BVH を降りる</td></tr>
+<tr><td>「この (x, z) の高さは?」</td><td><strong>補間1回</strong></td><td>レイキャスト</td></tr>
+</tbody>
+</table></div>
+<p>3つ目がいちばん効く。地形を使う側がほしい問いは、たいてい「キャラクターの足元の地面の高さは」「ここに木を植えたい」「カメラが地面に潜らないように」で、<strong>どれも判定を1回も走らせずに答えが出る</strong>。</p>
+<p><strong>マスは必ず2枚の三角形に割る</strong>。4つの格子点が同じ平面に乗っている保証が無いから。</p>
+<div class="code"><pre><code>      (0,1) --- (1,1)        割り方: (0,0)-(1,1) の対角線
+        |  \      |          0 枚目: (0,0) (0,1) (1,1)
+        |    \    |          1 枚目: (0,0) (1,1) (1,0)
+      (0,0) --- (1,0)</code></pre></div>
+<p><strong>割り方を変えると地形の形が変わる</strong>。4隅の高さが同じでも、対角線の取り方しだいで尾根になったり谷になったりする。だから割り方は1箇所に決めて、判定(<code>Terrain3D.Triangle</code>)と描画(<code>Primitives.CreateHeightField</code>)の両方が同じ約束に従う。</p>
+<p><strong>高さの問い合わせを「双一次補間」で書いてはいけない</strong>、というのが今日いちばん地味な落とし穴。双一次補間の面は曲面(双曲放物面)で、実際に判定に使っている2枚の平らな三角形とは一致しない。正しくは「マス内の位置 (u, w) が <code>w &gt;= u</code> なら 0 枚目、そうでなければ 1 枚目」と先に決めてから、その平面の上で補間する。自己チェックでは 25,000 点を三角形の平面式と突き合わせて、差が 0.0002mm 以内であることを確かめてある。</p>
+<h3 id="s7">2. 点と三角形の最近接点 — 7つの領域</h3>
+<p>三角形のまわりの空間は、最近接点がどこになるかで<strong>7つに分かれる</strong>。頂点3つ・辺3つ・面1つ。</p>
+<div class="code"><pre><code>        \  A の頂点領域  /
+         \             /
+    ------ A --------- B ------
+   AB の辺 |   面の中   | ...</code></pre></div>
+<p>素直に書くと「3頂点と3辺と面に落として、いちばん近いものを選ぶ」で7回の計算になるが、<strong>領域を順に潰していけば1回で済む</strong>。判定に使うのは全部内積で、割り算は最後の1〜2回だけ(Ericson 5.1.5 <code>ClosestPtPointTriangle</code>)。</p>
+<p>戻り値のほかに<strong>「面の内側だったか」を返す</strong>のが今日の細工。これが false ということは「三角形の縁か角が最近接」——つまり<strong>隣の三角形の受け持ちかもしれない</strong>ということで、要点3の分かれ道になる。</p>
+<p><strong>線分との最近接点は Day 45 の三分探索がそのまま使える</strong>。三角形は凸なので「線分上の点から三角形までの距離」はパラメータ t について凸な関数になり、区間を3等分して詰めれば確実に収束する。箱のときと違って物体座標へ移す必要が無いのが少し楽なところ。</p>
+<div class="inject"><figure class="lab" id="tri-lab">
+  <div class="lab-head">
+    <h3>点と三角形の最近接点 — 7つの領域</h3>
+    <span class="tag">点はドラッグで動かせる。色は最近接点がどこに落ちるか(頂点3・辺3・面1)</span>
+  </div>
+  <div class="stage"><canvas id="tri-canvas" style="height:340px;touch-action:none;cursor:grab" aria-label="三角形と7つの領域"></canvas></div>
+  <div class="readout"><div class="stats" id="tri-stats"></div><p id="tri-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 内部エッジ問題 — 法線を面の向きに取り替える</h3>
+<p>平らな地面を三角形2枚で作って、その上を球を滑らせる。<strong>対角線をまたぐ瞬間だけ、球が横へ蹴られる</strong>。</p>
+<p>原因は法線の決め方にある。素直に書くと</p>
+<div class="code"><span class="lang">csharp</span><pre><code>normal = Vector3.Normalize(sphere.Center - closest);</code></pre></div>
+<p>だが、最近接点が<strong>辺の上</strong>に乗ったときは、これは「辺から球へ」の向きになる。球が辺の真上にあれば真上を向くが、わずかにずれていれば横向きの成分が混ざる。<strong>その辺は地面の内側の縁で、本当は壁でも何でもない</strong>のに、壁として押し返してしまう。</p>
+<p>これが有名な「内部エッジ問題」。一般の三角形メッシュでは「本当の縁(外周や崖)」と「内部の縁(平らな面を割っただけ)」を見分ける必要があり、Bullet には <code>btInternalEdgeUtility</code> という専用の道具がある。</p>
+<p><strong>高さの格子なら、端以外は全部内部の縁</strong>。だから見分けずに、いつでも面の法線を使ってよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 法線は必ず三角形の面の法線。深さは実際の距離から測る
+return Contact3D.Touching(triangle.Normal, sphere.Radius - distance, closest);</code></pre></div>
+<p>代償として「本当の縁」でも上向きに押してしまうが、地形の中ではそれはごく一部。自己チェックでは平らな地形を 401 点なめて、<strong>法線が一度も真上から傾かない</strong>ことを確かめている。</p>
+<p><strong>地面に潜った物体は別に扱う</strong>。深く潜ると最近接点までの距離が半径を超えて、素直に書くと「当たっていない」と答えてしまい、そのまま落ちていく。面の裏側にいるときは、<strong>真上から見てこの三角形の中にいるか</strong>で拾うかどうかを決める。「最近接点が面の内側か」で決めると、格子点の真下に潜った球が周りの4マス全部から「縁が最近接」と言われて<strong>どの三角形も受け持たない穴</strong>ができる。</p>
+<div class="inject"><figure class="lab" id="edge-lab">
+  <div class="lab-head">
+    <h3>平らな地面を滑る球(横から見た 2D)</h3>
+    <span class="tag">半径 0.3m、初速 3m/s、摩擦なし。地面は長さ 0.5m の線分を一直線に並べただけ(縦線が内部の縁)</span>
+  </div>
+  <div class="stage"><canvas id="edge-canvas" style="height:220px" aria-label="地面を滑る球"></canvas></div>
+  <div class="stage"><canvas id="edge-chart" style="height:160px" aria-label="速度の推移"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">接触の法線</span>
+      <div class="seg" id="edge-mode"><button data-v="face" aria-pressed="true">面の法線(Day 46a)</button><button data-v="closest" aria-pressed="false">最近接点から球へ(素直な書き方)</button></div>
+    </div>
+    <button class="btn" id="edge-reset">最初から</button>
+  </div>
+  <div class="readout"><div class="stats" id="edge-stats"></div><p id="edge-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. マニフォールドの法線は1本 — でも三角形はそれぞれ違う向きを向く</h3>
+<p>Day 44 で「マニフォールドは法線を1本しか持たない」と決めた。面と面が触れているとき、点ごとに違う向きへ押すと物が震えるからだった。</p>
+<p><strong>地形ではその前提が素直には成り立たない</strong>。谷の底にはまった球は、左の斜面と右の斜面から別の向きに押される。</p>
+<p>答えは「いちばん深いものを基準にして、向きの近いものだけを足す」。</p>
+<div class="code"><pre><code>1. 触れうるマスの三角形を全部当てて、当たったものを控える
+2. いちばん深いものを選ぶ。<strong>その法線がマニフォールドの法線</strong>
+3. 向きが 60 度以内(cos &gt; 0.5)の接触だけを足す
+4. 深さは法線に沿って測り直す(depth × cosθ)
+5. 近すぎる点は捨てる</code></pre></div>
+<p><strong>3 で捨てられた面は次のステップで拾われる</strong>。押し戻されて浅くなれば、今度は別の面がいちばん深くなるので、数ステップで谷の底に落ち着く。<strong>1ステップで完全に解こうとしない</strong>のは Day 43 から一貫している構えで、速度の反復も位置の補正も同じ考え方でできている。</p>
+<p><strong>5 は Day 45 で踏んだ落とし穴と同じ</strong>。隣り合う三角形は辺を共有しているので、球がその辺の上に乗っていると2枚とも同じ点を返す。まとめて解くときに点の数で割る(Day 44a の要点5)ので、同じ点が2つあると押し戻しがちょうど半分になって沈む。</p>
+<p><strong>箱だけはまったく違う解き方をしている</strong>。箱と三角形をまともに当てると分離軸が 13 本、さらに面のクリップが要る——Day 44 の SAT がもう1本要ることになる。地形が高さの関数であることを使えば、<strong>8つの角の下に地面があるかを見るだけ</strong>で済む。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>foreach (角) {
+    terrain.TryHeightAt(角.X, 角.Z, out float ground);
+    if (角.Y &lt; ground) { 押し上げる }
+}</code></pre></div>
+<p>床に置いた箱は4つの角が同時に沈むので、Day 44 で欲しかった「面で支える4点」が自然に出る。代償は「角が1つも沈んでいないのに、面の途中が尖った峰に刺さっている」配置を見逃すこと。<strong>地形のマスより小さい箱しか置かない</strong>という約束で回避してある(改造課題3で直す)。</p>
+<h3 id="s10">5. 見つかった不具合 — 静的な体の逆慣性テンソル</h3>
+<p><strong>今日いちばんの収穫は、地形を入れたら物が地面をすり抜けたこと</strong>。200 体を落として 188 体が地面の下へ消えた。</p>
+<p>原因は Day 44 から埋まっていた。<code>RigidBody.CreateStatic</code> と <code>CreatePlane</code> がオブジェクト初期化子で作られていて、<strong><code>UpdateInertiaWorld()</code> を呼んでいなかった</strong>。<code>InverseInertiaWorld</code> の初期値は単位行列なので、「回しにくさ 0」ではなく「回しにくさ 1」の体になっていた。</p>
+<p>インパルスの分母はこうなっている(Day 43 の要点6)。</p>
+<div class="code"><pre><code>  分母 = 1/mA + 1/mB + n·((I_A⁻¹(rA × n)) × rA) + n·((I_B⁻¹(rB × n)) × rB)</code></pre></div>
+<p><code>I⁻¹</code> が単位行列だと、第3項が <code>|r × n|²</code> をそのまま返す。<strong>接触点が体の位置から離れているほど分母が大きくなり、押し戻しが効かなくなる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>r</th><th>分母</th><th>押し戻しの強さ</th></tr></thead>
+<tbody>
+<tr><td>Day 43 の床(原点、球は近く)</td><td>0.5m</td><td>1.25</td><td>80%</td></tr>
+<tr><td>Day 44・45 の壁(±5m)</td><td>3〜5m</td><td>10〜26</td><td><strong>4〜10%</strong></td></tr>
+<tr><td>今日の地形(隅が原点)</td><td>最大 30m</td><td>900</td><td><strong>0.1%</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>壁では「なんとなく沈む」程度で気づけなかった</strong>ものが、地形では「すり抜けて落ちる」という形で表に出た。</p>
+<p>直し方は4行。<strong>不具合が入った Day 44 から直す</strong>ので、Day 46a の差分にはコメントの変更しか出てこない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 式形式(=&gt; new() { ... };)をブロックに直して、最後に1行足すだけ
+public static RigidBody CreateStatic(in Collider shape)
+{
+    var body = new RigidBody { ... };
+    body.UpdateInertiaWorld();   // ← これ
+    return body;
+}</code></pre></div>
+<p><code>reference/Day44a</code>・<code>Day44b</code>・<code>Day45a</code>・<code>Day45b</code> に同じ直しを当ててある(<code>CreateStatic</code> と <code>CreatePlane</code> の2箇所ずつ)。<strong>work 側が既にその2日を写経済みなら、そちらも直すこと</strong>。Day 44・45 の自己チェックは直した後も全項目合格する——<strong>壁の沈み込みを見ていた項目が無かった</strong>ということでもあり、自己チェックの穴が1つ見つかったことにもなる。</p>
+<p>教訓は2つ。<strong>初期値が「無害な値」でないと、初期化を忘れたときに静かに壊れる</strong>——<code>Matrix4x4.Identity</code> は行列としては自然な初期値だが、逆慣性テンソルとしては「回しにくさ 1」という意味を持ってしまう。もう1つは、<strong>症状が出る場所と原因の場所が離れていると、規模が変わるまで気づけない</strong>こと。</p>
+<div class="inject"><figure class="lab" id="inv-lab">
+  <div class="lab-head">
+    <h3>静的な体の逆慣性テンソルが単位行列だったら</h3>
+    <span class="tag">1kg の球を、静的な体(床・壁・地形)の「位置」から r だけ離れた点で押し戻す</span>
+  </div>
+  <div class="stage"><canvas id="inv-canvas" style="height:220px" aria-label="押し戻しの強さ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">接触点と静的な体の位置の距離 r</span>
+      <div class="range"><input type="range" id="inv-r" min="0" max="30" step="0.1" value="5"><output id="inv-r-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="inv-bug" checked> UpdateInertiaWorld を呼ばない(I⁻¹ = 単位行列のまま)</label>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-inv="0.5">Day 43 の床(0.5m)</button>
+        <button class="btn" data-inv="5">Day 44・45 の壁(5m)</button>
+        <button class="btn" data-inv="30">今日の地形(30m)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="inv-stats"></div></div>
+</figure></div>
+<h3 id="s11">6. 今日入れなかったもの</h3>
+<ul><li><strong>ブロードフェーズ</strong> … Day 46b。今日の判定はまだ<strong>全部の組を試す総当たり</strong>のままで、「地形に落とす」の 66 体なら毎ステップ 2,130 組を試している。地形は全部の体と毎回当てているが、<code>CellRange</code> で触れうるマスだけを見るので、それでも速い</li><li><strong>掃引(スイープ)</strong> … 地形には厚みが無いので、1ステップで自分の厚みより深く潜ると抜けうる。今日は要点3の「潜った物体は真上から見て拾い直す」で手当てしてある</li><li><strong>箱と三角形の SAT</strong> … 箱は8つの角だけで判定している。地形のマスより大きい箱を置くと、峰が面を突き抜ける(改造課題3)</li><li><strong>地形の LOD・テクスチャのブレンド</strong> … 描画側の話。今日は1枚のメッシュで済ませている</li><li><strong>地形の穴・複数レイヤー</strong> … 高さの格子では表せない。洞窟は別のメッシュを重ねることになる</li><li><strong>摩擦・スリープ</strong> … Day 47。今日の地形の上でも、坂の物は滑り続けて止まらない</li></ul>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/HeightField.cs</code></td><td>412</td><td>高さの格子(<code>HeightField</code>)と、世界に置いた地形(<code>Terrain3D</code>)(要点1)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D.cs</code></td><td><code>Aabb3D</code> / <code>Triangle3D</code> を追加。球・箱・カプセルに <code>Bounds</code></td><td>+345 / -0</td></tr>
+<tr><td><code>Physics/Collider.cs</code></td><td><code>ColliderKind.HeightField</code> と <code>Field</code>(<strong>はじめての参照型のフィールド</strong>)</td><td>+56 / -1</td></tr>
+<tr><td><code>Physics/RigidBody.cs</code></td><td><code>CreateTerrain</code> / <code>ToTerrain</code>(<strong>逆慣性の直しは Day 44・45 側へ</strong>。要点5)</td><td>+49 / -4</td></tr>
+<tr><td><code>Physics/Collision3D.cs</code></td><td>三角形と地形の判定5本、<code>Collide</code> と <code>CapsuleAgainst</code> に枝</td><td>+393 / -1</td></tr>
+<tr><td><code>Physics/PhysicsWorld.cs</code></td><td><code>AddTerrain</code> と <code>TerrainCount</code> だけ</td><td>+27 / -0</td></tr>
+<tr><td><code>Render/Primitives.cs</code></td><td><code>CreateHeightField</code>(地形のメッシュ)</td><td>+113 / -0</td></tr>
+<tr><td><code>Program.cs</code></td><td>地形デモ2つ、<code>G</code> の段(2つ)、自己チェック 44 項目</td><td>+1,084 / -11</td></tr>
+<tr><td><code>Day46a.csproj</code></td><td><code>Day45b.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>shaders/</code> は1文字も変わっていない</strong>。</p>
+<h3 id="s15">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。全部が足すだけなので、途中でビルドが壊れることはない。</p>
+<ol><li><strong><code>Physics/Shapes3D.cs</code></strong>(変更) — 次の順で
+<ul><li>先頭に <code>Aabb3D</code>(<code>Sphere3D</code> の直前。<strong>地形の三角形を探す窓</strong>)</li><li><code>Sphere3D.Bounds</code> / <code>Box3D.Bounds</code> / <code>Capsule3D.Bounds</code>— 箱のものは <code>ProjectedRadius</code> を使うので、その後ろに置く</li><li><code>Segment3D</code> の直前に <code>Triangle3D</code>(<strong>要点2の山場</strong>。<code>ClosestPoint</code> の7領域 → <code>ContainsColumn</code> → 線分との三分探索の順)</li></ul></li><li><strong><code>Physics/HeightField.cs</code></strong>(新規) — 次の順で
+<ul><li><code>HeightField</code>(データだけ。コンストラクタで最小・最大を1回だけ数える)</li><li><code>Terrain3D</code>(世界に置いた地形。<code>Bounds</code> → <code>Vertex</code> → <code>Triangle</code> →<code>CellRange</code> → <code>TryHeightAt</code> → <code>TryNormalAt</code>)</li><li><strong><code>Triangle</code> と <code>TryHeightAt</code> の割り方を一致させること</strong>(要点1)</li></ul></li><li><strong><code>Physics/Collider.cs</code></strong>(変更) — <code>ColliderKind.HeightField</code> を<strong>末尾に</strong>足してから
+<ul><li><code>Field</code> フィールド(<strong>この構造体で唯一の参照型</strong>)とコンストラクタの引数</li><li><code>Terrain(field)</code> / <code>BoundingRadius</code> のコメント</li></ul></li><li><strong><code>Physics/RigidBody.cs</code></strong>(変更) — 次の順で
+<ul><li><code>CreateTerrain</code> / <code>ToTerrain</code></li><li><code>CreateStatic</code> の説明のコメント(<strong>Day 44・45 側で直したので差分はコメントだけ</strong>。work 側がまだ式形式なら、そちらを先に直すこと。要点5)</li></ul></li><li><strong><code>Physics/Collision3D.cs</code></strong>(変更) — <code>CapsuleAgainst</code> の直前に Day 46 の塊を置いてから
+<ul><li><code>MaxTerrainTriangles</code> / <code>SphereTriangle</code>(<strong>要点3</strong>)/ <code>CapsuleTriangle</code></li><li><code>SphereTerrain</code> / <code>CapsuleTerrain</code> / <code>BoxTerrain</code></li><li><code>GatherTerrain</code> / <code>BuildTerrainManifold</code>(<strong>要点4</strong>)</li><li><code>CapsuleAgainst</code> に <code>HeightField</code> の枝を1つ</li><li><code>Collide</code> に地形の4つの枝。<strong>カプセルの2行より上に置くこと</strong></li></ul></li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(変更) — <code>TerrainCount</code>(<code>PlaneCount</code> の後)と <code>AddTerrain</code>(<code>AddPlane</code> の後)</li><li><strong><code>Render/Primitives.cs</code></strong>(変更) — <code>CreateHeightField</code>(<code>CreateCylinder</code> の直後)</li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li><code>PhysicsScene</code> に <code>Terrain</code>、<code>CharacterScene</code> に <code>Terrain</code>(どちらも<strong>末尾に</strong>)</li><li>Day 46 のフィールド(<code>TerrainCells</code> / <code>TerrainCellSize</code> / <code>TerrainSpan</code> / <code>_terrain</code> / <code>_terrainMesh</code> / <code>_terrainOrigin</code> / <code>_terrainMaterial</code> / <code>_terrainSpawnCount</code>)</li><li><code>OnLoad</code>: <code>_terrainMaterial</code>(<code>_characterMaterial</code> の直後)、ヘルプの Day 46 の段</li><li><code>DescribeCharacter</code> の直後に Day 46 の塊(<code>TerrainHeightAt</code> / <code>AddTerrain</code> / <code>DisposeTerrain</code> / <code>BuildTerrainScene</code> / <code>SpawnTerrainBodies</code> / <code>BuildTerrainCourse</code> / <code>RenderTerrain</code>)</li><li><code>BuildPhysicsScene</code> / <code>BuildCharacterScene</code> に地形の枝(<strong>床と縁石を張る前に return</strong>)</li><li><code>ShowPhysicsDemo</code> / <code>ShowCharacterDemo</code> のカメラ、OFF の3か所に <code>DisposeTerrain()</code></li><li><code>RenderPhysics</code>(地形の枝・<code>HeightField</code> を飛ばす)</li><li><code>RenderShadowPass</code>(<code>HeightField</code> を飛ばす・地形のメッシュを落とす)</li><li><code>PhysicsSceneLabel</code> / <code>CharacterSceneLabel</code> / <code>ShapeLabel</code></li><li><code>Ctrl+Shift+Alt+2</code> の巡回に <code>Terrain</code> を1つ</li><li><code>RunTerrainCheck</code> と <code>BuildTerrainOnlyWorld</code> / <code>BuildTestField</code> / <code>BuildTerrainDropWorld</code> / <code>WalkTowardHill</code>(<code>RandomPoint</code> の直前。<code>RandomPoint</code> にも要約コメントを付ける)</li><li>キー(<code>G</code> の段の <code>Ctrl+G</code> と <code>Ctrl+Shift+Alt+G</code>)。<strong>素の <code>case Key.G:</code> より上に置くこと</strong></li></ul></li><li><strong><code>Day46a.csproj</code></strong> — <code>Day45b.csproj</code> からのリネームのみ</li></ol>
+<p><strong>キーの位置は今日が今までよりも危ない</strong>。<code>case Key.G:</code>(3D 背景の ON/OFF)は<strong>ガードが付いていないので、下に置くと修飾キー付きが全部そちらに吸われる</strong>。Day 45 の <code>X</code> は素の case がまるごと無かったので事故らなかったが、今日は違う。Day 39 から毎日書いている「ガード付き case は具体的なものほど上」が、<strong>はじめて「既に使われている文字キー」に対して効く</strong>。</p>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が4つ増え、既存の5つが書き換わっただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Aabb3D</code></td><td><code>Physics/</code></td><td>軸に平行な直方体。<strong>外接箱</strong>。今日は地形の三角形を探す窓(要点1)</td></tr>
+<tr><td><code>Physics/Triangle3D</code></td><td><code>Physics/</code></td><td>三角形。地形を構成する面(要点2)</td></tr>
+<tr><td><code>Physics/HeightField</code></td><td><code>Physics/</code></td><td>高さの格子。<strong>この型だけが配列を持つ</strong>(要点1)</td></tr>
+<tr><td><code>Physics/Terrain3D</code></td><td><code>Physics/</code></td><td>世界に置いた地形。<code>HeightField</code> に位置を与えたもの</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D</code></td><td><code>Aabb3D</code> / <code>Triangle3D</code> が入り、3つの形に <code>Bounds</code></td><td>+345 / -0</td></tr>
+<tr><td><code>Physics/Collider</code></td><td>札に <code>HeightField</code> が増え、<strong>はじめて参照型のフィールドを持った</strong></td><td>+56 / -1</td></tr>
+<tr><td><code>Physics/RigidBody</code></td><td><code>CreateTerrain</code> / <code>ToTerrain</code></td><td>+49 / -4</td></tr>
+<tr><td><code>Physics/Collision3D</code></td><td>三角形と地形の判定が5本、窓口2つに枝</td><td>+393 / -1</td></tr>
+<tr><td><code>Physics/PhysicsWorld</code></td><td><code>AddTerrain</code> / <code>TerrainCount</code> だけ</td><td>+27 / -0</td></tr>
+<tr><td><code>Render/Primitives</code></td><td><code>CreateHeightField</code>(地形のメッシュ)</td><td>+113 / -0</td></tr>
+<tr><td><code>Program.cs</code></td><td>地形デモ2つ、<code>G</code> の段、自己チェック 44 項目</td><td>+1,084 / -11</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">形が値でなくなった日</h3>
+<p>Day 44a で <code>Collider</code> を作ったとき、こう書いた——「中身は数個の数だけで、継承したい振る舞いも無い。だから構造体にする」。<strong>今日その前提が崩れた</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal readonly struct Collider
+{
+    public readonly ColliderKind Kind;
+    public readonly float Radius;
+    public readonly Vector3 HalfExtents;
+    public readonly Vector3 Normal;
+    public readonly HeightField? Field;   // ← これだけが参照
+}</code></pre></div>
+<p>高さの格子は 49×49 = 2,401 個(デモの地形)の配列で、値では持てない。<strong>構造体の中に参照が1本入った</strong>ことで、次の3つが変わる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>前(Day 44〜45)</th><th>今日から</th></tr></thead>
+<tbody>
+<tr><td>大きさ</td><td>32 バイト</td><td>40 バイト(判定の内側でコピーされる)</td></tr>
+<tr><td>共有</td><td>起きない(値のコピー)</td><td><strong>同じ地形を複数の体が指せる</strong>(タイル状の世界)</td></tr>
+<tr><td>GC</td><td>一切関わらない</td><td>地形が生きている間だけ参照が残る</td></tr>
+</tbody>
+</table></div>
+<p>2つ目は積極的な値打ちでもある。高さの配列は読むだけなので、共有しても壊れない。</p>
+<p><strong><code>Terrain3D</code> を別に立てた</strong>のがこの日の設計の核。</p>
+<div class="code"><pre><code>  HeightField : 高さのデータだけ。「どこに置くか」を知らない
+  Terrain3D   : HeightField + 世界での隅の位置。世界座標で答える</code></pre></div>
+<p><code>Sphere3D</code> / <code>Box3D</code> / <code>Capsule3D</code> が世界座標の形で、<code>Collider</code> が物体座標の寸法だった——その分け方をそのまま踏襲している。<code>RigidBody.ToTerrain()</code> が2つを組み合わせるのも、他の <code>ToXxx</code> と揃っている。</p>
+<p><strong>この分け方をしないとどうなるか</strong>。<code>HeightField</code> に <code>Origin</code> を持たせると、同じ地形を2箇所に置けなくなる。実際のゲームでは地形をタイル状に並べるので、「データ1つ・置き場所いくつでも」は素直に効く。</p>
+<h3 id="s18">外接箱を今日のうちに入れたこと</h3>
+<p><code>Aabb3D</code> と、球・箱・カプセルの <code>Bounds</code> は、<strong>今日は地形のマス探しにしか使っていない</strong>。<code>Terrain3D.CellRange(bounds)</code> が外接箱の x と z をマスの大きさで割り、触れうるマスの三角形だけを当てる。</p>
+<div class="code"><pre><code>  球・カプセル・箱  →  Bounds(外接箱)  →  CellRange  →  そのマスの三角形だけ</code></pre></div>
+<p>同じ外接箱が、Day 46b のブロードフェーズの入口にもなる。<strong>「形を共通の粗い表現(外接箱)に落としてから扱う」</strong>という考え方を、今日は地形の内側で、明日は世界全体で使うことになる。</p>
+<h3 id="s19">判定の窓口に、地形の枝が入った</h3>
+<p>Day 44a で作った <code>Collide</code> の表と、Day 45a で作った <code>CapsuleAgainst</code> に、それぞれ地形の枝を足した。<strong>地形は静的な体の1つ</strong>(<code>RigidBody.CreateTerrain</code>)なので、<code>PhysicsWorld</code> の側は<code>AddTerrain</code> という薄い包みと <code>TerrainCount</code> を足しただけで、解決の段は1行も変わっていない。キャラクターの問い合わせ(<code>QueryCapsule</code>)も <code>CapsuleAgainst</code> 経由なので、<strong>何もしなくても地形の上を歩ける</strong>。</p>
+<p><code>Collide</code> の地形の枝は<strong>カプセルの2行より上</strong>に置く。カプセルの2行は <code>_</code>(何でもよい)で受けているので、下に置くと「カプセルと地形」が地形の枝に届く前にカプセルの枝へ吸われる(Day 45a の設計書)。</p>
+<h3 id="s20">今日残した歪み(2つ)</h3>
+<p><strong>1つ目: 箱と地形の判定が角だけ</strong>(要点4)。地形のマスより大きい箱を置くと、峰が面を突き抜ける。まともに直すには箱と三角形の SAT(13 軸)と面のクリップが要るので、<strong>Day 44b の <code>Sat.cs</code> がもう1本</strong>になる。改造課題3に置いた。</p>
+<p><strong>2つ目: まだ総当たり</strong>。「地形に落とす」の 66 体で、毎ステップ 2,130 組を試している。自己チェックが地形に落とす 200 体の世界なら 2 万組になる。地形のマス探しは速くても、<strong>組の数そのものが n² で増える</strong>のは Day 43 から変わっていない。これを片付けるのが Day 46b のブロードフェーズ。</p>
+</section>
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day46a -c Release</code> で起動して、次を順に確かめる。</p>
+<h3 id="s22">1. <code>Ctrl+G</code>: 地形が出て、その上を歩ける</h3>
+<p>起伏のある 24m 四方の地形が出て、水色のカプセルが手前の平らなところに立っている。矢印キーで歩くと、<strong>斜面を登り降りするたびに HUD の「傾き」が連続に変わる</strong>。Day 45b の坂(静的な箱4枚)は 15/30/45/60 度の4通りしか無かったが、地形では場所ごとに違う値が出る。</p>
+<p>コンソールに次が出ていること。</p>
+<div class="code"><pre><code>地形デモ: <strong>起伏の上を歩ける</strong>(矢印キー / X で走る / Space でジャンプ)
+  手前の緩い丘(<strong>29 度</strong>)は登れて、奥の急な丘(<strong>58 度</strong>)は登れない。Alt+X で坂の上限を切ると登れる</code></pre></div>
+<h3 id="s23">2. 緩い丘を登る</h3>
+<p>手前(カメラから見て左寄り)の丸い丘へ歩いていく。<strong>登れる</strong>。頂上に立つと HUD の「高さ」が 1.5m 前後、「傾き」が 0 度近くになる。登っている途中は 25〜32 度あたり。</p>
+<h3 id="s24">3. 急な丘に登れない</h3>
+<p>奥(右寄り)の尖った丘へ歩いていく。<strong>裾で止まる</strong>。HUD の「傾き」が 55 度前後を示し、「接地」のままなのに前へ進まない。</p>
+<p><code>Alt+X</code>(Day 45b の坂の上限)を切ると<strong>登れるようになる</strong>。物理が変わったわけではなく、<code>CharacterController</code> が「この面は壁として扱う」という判断をやめただけ——<strong>登れる坂かどうかは決めごと</strong>であることが、地形でも同じように確かめられる。</p>
+<h3 id="s25">4. <code>Ctrl+Shift+Alt+2</code> を6回 → 「地形に落とす」</h3>
+<p>球・箱・カプセルが 60 個、起伏の上に降ってくる。谷に転がり集まり、丘の斜面には残らない。<strong>地形をすり抜ける物が1つも無い</strong>こと。</p>
+<p><code>Ctrl+Shift+Alt+F9</code>(Day 43 の内訳)で「試した組」を見ると <strong>2,130 組</strong>。体 66 個(うち静的 6 個)の総当たりで、<code>n(n-1)/2 - 15</code> そのもの。<strong>今日はまだ全部の組を試している</strong>——この数字を減らすのが Day 46b。</p>
+<h3 id="s26">5. Day 45b までの機能が全部生きていること</h3>
+<ul><li><code>Ctrl+X</code> → 坂のコース(Day 45b)。<strong>地形が消えて平らな床に戻る</strong></li><li><code>Shift+X</code> を3回 → 坂 / 階段 / 障害物 / <strong>地形</strong>の4通りを巡回する</li><li><code>Ctrl+Shift+Alt+F1</code> → Day 43 の球のデモ。地形は下りている</li><li><code>Ctrl+Shift+Alt+1</code> → Day 44 の箱のデモ</li><li><code>Ctrl+Shift+Alt+F12</code> / <code>Ctrl+Shift+Alt+0</code> / <code>Ctrl+Shift+Alt+X</code> の自己チェックが全部合格する</li></ul>
+<p><strong>素の <code>G</code>(3D 背景の ON/OFF)が今までどおり効く</strong>ことも確かめる。修飾キー付きだけが今日のものになっている。</p>
+<h3 id="s27">6. <code>Ctrl+Shift+Alt+G</code>: 今日の自己チェック(44 項目すべて合格)</h3>
+<p>窓を1枚も出さずに走る。いちばん大事なのは次の2つ。</p>
+<div class="code"><pre><code>[OK] <strong>高さの問い合わせが三角形の平面とぴったり一致</strong>(双一次補間ではない。25,000 点)  最悪 0.0002mm
+[OK] <strong>内部エッジで蹴られない</strong>(平らな地形を 401 点なめて、法線は常に真上)  最悪の傾き 0.00000度</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>範囲</th><th>何を確かめているか</th><th>項目数</th></tr></thead>
+<tbody>
+<tr><td>AABB</td><td>重なり判定、3つの形の外接箱が形を包むこと</td><td>7</td></tr>
+<tr><td>三角形</td><td>法線の向き、7領域の最近接点、<strong>総当たりとの突き合わせ</strong>(点と線分)</td><td>7</td></tr>
+<tr><td>高さの格子</td><td>マスの数、外接箱、<strong>高さの問い合わせが三角形と一致すること</strong>、マスの範囲</td><td>10</td></tr>
+<tr><td>地形の判定</td><td>平地・坂・潜った球・<strong>内部エッジ</strong>・カプセル・箱の4点接触、デモの丘の角度</td><td>14</td></tr>
+<tr><td>通しで動かす</td><td>200 体を 400 ステップ落として<strong>すり抜けと爆発が無いこと</strong>、地形の上を歩けること</td><td>6</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+G</code>(自己チェック)</td><td>平らな地面を滑る球</td><td>平らな地形を 401 点なめて、法線が一度も真上から傾かない</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+2</code>(地形に落とす)</td><td>静的な体の逆慣性テンソル</td><td>直す前は 200 体のうち 188 体が地面をすり抜けた</td></tr>
+<tr><td><code>Ctrl+G</code>(地形デモ)</td><td>点と三角形の最近接点</td><td>キャラクターの足元の判定は、全部この最近接点から始まる</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day46a の Triangle3D.ClosestPoint(Ericson 5.1.5)の領域分けと、地形の法線の取り方を 2D で見せるもの。2D の「線分を並べた地面」は、3D の「三角形を並べた地形」を横から見た断面にあたる。</p></div>
+</section>
+<section class="part"><h2 id="s28">改造課題</h2>
+<h3 id="s29">課題1(易): 丘の傾きを変えて、登れる境目を探す</h3>
+<p><code>TerrainHeightAt</code> の緩い丘は円錐で、傾きは <code>atan(0.55)</code> ≒ 29 度。係数 <code>0.55</code> を変えて、坂の上限(50 度)の前後で登れるかどうかを確かめる。</p>
+<ul><li><code>1.0</code>(45 度)… 登れるか</li><li><code>1.2</code>(50.2 度)… 上限をわずかに超える。登れなくなるか</li><li><code>1.19</code>(49.96 度)… 上限をわずかに下回る。登れるか</li></ul>
+<p>自己チェックの「デモの緩い丘は坂の上限より緩い」が、どの値で落ちるかも見る。<strong>円錐にしてあるのは、傾きがどこでも一定だから</strong>(<code>TerrainHeightAt</code> のコメント)——ガウス型の丘では境目の実験ができない理由も、ここで分かる。</p>
+<h3 id="s30">課題2(中): 内部エッジ対策を外してみる</h3>
+<p><code>SphereTriangle</code> の法線を、面の法線ではなく<strong>「最近接点から球の中心へ」</strong>の向きに変える(要点3の「素直に書くと」の形)。</p>
+<ul><li>自己チェックの「内部エッジで蹴られない」が何度の傾きを出して落ちるか</li><li>平らなところに球を置いて転がしたとき、対角線の上で横へ蹴られるのが見えるか(<code>Ctrl+Shift+Alt+F8</code> で撃つと分かりやすい)</li><li>キャラクターを平らなところで歩かせたとき、足元が対角線で引っかかったり横へずれたりするか(カプセルの判定も <code>CapsuleTriangle</code> → <code>SphereTriangle</code> を通るので、同じ法線を使っている)</li></ul>
+<p><strong>「素直な式」がどこで破れるか</strong>を自分の目で見てから、面の法線に戻す。</p>
+<h3 id="s31">課題3(難): 箱と三角形の SAT を書いて、角だけの判定を置き換える</h3>
+<p><code>BoxTerrain</code> は8つの角の下に地面があるかを見るだけなので、<strong>地形のマスより大きい箱を置くと峰が面を突き抜ける</strong>(要点4)。</p>
+<p>確かめ方から入るとよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 1マス 0.5m の地形に、一辺 2m の箱を尖った丘の上へ落とす
+RigidBody big = RigidBody.CreateBox(5.0f, new Vector3(1.0f));</code></pre></div>
+<p>角が全部宙に浮いたまま、面の真ん中が丘に刺さって止まらないのが見える。</p>
+<p>直すには箱と三角形の SAT を書く。軸は 13 本。</p>
+<div class="code"><pre><code>  箱の面の法線     3本
+  三角形の面の法線 1本
+  辺 × 辺          3 × 3 = 9本</code></pre></div>
+<p>Day 44b の <code>Sat.BoxBox</code>(15 軸)がほぼそのまま下敷きになるが、<strong>接触点の作り方が違う</strong>——三角形は面が1枚しか無いので、基準面が三角形側に決まったときのクリップを別に書くことになる。</p>
+<p><strong>まず SAT の「当たったか」だけを書いて、深さと接触点は角の方式のまま使う</strong>、という段階的な進め方を勧める。当たり判定だけなら 60 行ほどで書けるので、「刺さっているのに当たっていないと答えている」ことを先に数字で確認できる。</p>
+</section>
+<section class="part"><h2 id="s32">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070 / OpenGL 3.3</li></ul>
+<h3 id="s33">自己チェック(44 項目すべて合格)</h3>
+<p><code>Ctrl+Shift+Alt+G</code>。窓を1枚も出さずに走る。とくに強いのは次の3つ。</p>
+<ul><li><strong>点と三角形の最近接点を、重心座標を 60 分割した総当たり(1,891 点)と突き合わせる</strong>— 400 通りで最悪 0.0002mm。7領域の場合分けを1つ間違えると必ず落ちる</li><li><strong>高さの問い合わせを、その点が乗っている三角形の平面式と突き合わせる</strong>— 25,000 点で最悪 0.0002mm。双一次補間で書くと 25cm ずれて落ちる</li><li><strong>平らな地形を 401 点なめて、法線が一度も傾かない</strong>— 内部エッジ対策を外すと、対角線をまたぐたびに横向きの成分が出て落ちる</li></ul>
+<p>200 体を 400 ステップ落とす項目は、今日は<strong>総当たりのまま</strong>走る(1.8 秒ほど)。すり抜け 0 個、最速 2.83m/s、めり込み 21.1mm。</p>
+<h3 id="s34">検証の途中で分かったこと</h3>
+<p><strong>1. 静的な体の逆慣性テンソルが単位行列のままだった</strong>(要点5)。</p>
+<p>200 体を地形に落としたら 188 体が地面をすり抜けた。原因は Day 44 から埋まっていて、<code>CreateStatic</code> / <code>CreatePlane</code> がオブジェクト初期化子で作られていて <code>UpdateInertiaWorld()</code> を呼んでいなかった。<strong>接触点が体の位置から離れているほど押し戻しが効かなくなる</strong>という形で出るので、壁(±5m)では気づけず、地形(隅が原点で接触点が 30m 先)ではじめて表に出た。Day 44a〜45b の reference にも同じ直しを当ててある。</p>
+<p><strong>2. 格子点の真下に潜った球を、どの三角形も受け持たなかった</strong>。</p>
+<p>「面の裏側にいる物体は、最近接点が面の内側なら押し上げる」と書いたら、<strong>格子点(4マスの角)の真下</strong>に潜った球だけが拾われなかった。周りの4マスすべてから見て「頂点がいちばん近い」= 面の内側ではない、になるため。真上から見た内外(<code>ContainsColumn</code>)で決めるように変えて塞いだ。</p>
+<p><strong>3. 摩擦が無いので、地形の上の物は止まらない</strong>。</p>
+<p>400 ステップ落としても、何体かは 1〜3m/s で滑り続けていた。斜面に乗った物は滑り、壁で跳ね返って戻ってくる。<strong>これは不具合ではなく、摩擦もスリープもまだ無い(Day 47)から</strong>。自己チェックの条件は「止まること」ではなく「吹き飛ばないこと」(6m/s 未満)にしてある。</p>
+</section>
+<footer class="end">Day 46a Heightmap コライダ(地形) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+function makeView(w, h, span) {
+  const s = Math.min(w, h) / span, ox = w / 2, oy = h / 2;
+  return { s, X: (x) => ox + x * s, Y: (y) => oy - y * s, inv: (px, py) => [(px - ox) / s, (oy - py) / s] };
+}
+
+// ============================================================
+//  要点2: 点と三角形の最近接点(Ericson 5.1.5 ClosestPtPointTriangle を 2D で)
+// ============================================================
+const TRI = [[-1.4, -0.9], [1.5, -0.6], [-0.2, 1.1]];
+const tri = { p: [0.9, 1.0], view: null };
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
+const dot2 = (a, b) => a[0] * b[0] + a[1] * b[1];
+function closestPointTriangle(p, a, b, c) {
+  const ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
+  const d1 = dot2(ab, ap), d2 = dot2(ac, ap);
+  if (d1 <= 0 && d2 <= 0) return { q: a, region: '頂点 A', inside: false };
+  const bp = sub(p, b), d3 = dot2(ab, bp), d4 = dot2(ac, bp);
+  if (d3 >= 0 && d4 <= d3) return { q: b, region: '頂点 B', inside: false };
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) { const v = d1 / (d1 - d3); return { q: [a[0] + ab[0] * v, a[1] + ab[1] * v], region: '辺 AB', inside: false }; }
+  const cp = sub(p, c), d5 = dot2(ab, cp), d6 = dot2(ac, cp);
+  if (d6 >= 0 && d5 <= d6) return { q: c, region: '頂点 C', inside: false };
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) { const w = d2 / (d2 - d6); return { q: [a[0] + ac[0] * w, a[1] + ac[1] * w], region: '辺 AC', inside: false }; }
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return { q: [b[0] + (c[0] - b[0]) * w, b[1] + (c[1] - b[1]) * w], region: '辺 BC', inside: false }; }
+  return { q: p, region: '面の中', inside: true };
+}
+const REGION_COLORS = { '頂点 A': 0, '頂点 B': 1, '頂点 C': 2, '辺 AB': 3, '辺 AC': 4, '辺 BC': 5, '面の中': 6 };
+function drawTri() {
+  const { ctx, w, h } = fit($('tri-canvas'));
+  const view = makeView(w, h, 4.2); tri.view = view;
+  const hues = [10, 50, 95, 160, 205, 260, 320];
+  const cell = 8;
+  for (let py = 0; py < h; py += cell) {
+    for (let px = 0; px < w; px += cell) {
+      const p = view.inv(px + cell / 2, py + cell / 2);
+      const r = closestPointTriangle(p, ...TRI);
+      ctx.fillStyle = `hsla(${hues[REGION_COLORS[r.region]]}, 55%, 55%, ${r.inside ? 0.28 : 0.16})`;
+      ctx.fillRect(px, py, cell, cell);
+    }
+  }
+  ctx.beginPath(); TRI.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(view.X(x), view.Y(y)); else ctx.lineTo(view.X(x), view.Y(y)); }); ctx.closePath();
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = tok('--ink'); ctx.font = '13px ' + tok('--font-body');
+  [['A', -18, 14], ['B', 8, 14], ['C', -4, -10]].forEach(([n, dx, dy], i) => ctx.fillText(n, view.X(TRI[i][0]) + dx, view.Y(TRI[i][1]) + dy));
+  const r = closestPointTriangle(tri.p, ...TRI);
+  ctx.setLineDash([4, 3]); ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(view.X(tri.p[0]), view.Y(tri.p[1])); ctx.lineTo(view.X(r.q[0]), view.Y(r.q[1])); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--accent'); ctx.beginPath(); ctx.arc(view.X(tri.p[0]), view.Y(tri.p[1]), 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(view.X(r.q[0]), view.Y(r.q[1]), 5, 0, Math.PI * 2); ctx.fill();
+  $('tri-stats').innerHTML =
+    stat('最近接点の領域', r.region) +
+    stat('面の内側か', r.inside ? 'はい' : 'いいえ', r.inside ? '' : ' <span class="pill warn">隣の三角形の受け持ちかも</span>') +
+    stat('距離', Math.hypot(tri.p[0] - r.q[0], tri.p[1] - r.q[1]).toFixed(3));
+  $('tri-note').textContent = '領域を順に潰していくので、判定に使うのは内積だけで、割り算は最後の1回で済む。3D でも同じ手順で、三角形を含む平面へ落とした位置で同じ7つに分かれる。「面の内側か」が false なら縁か角が最近接で、要点3の分かれ道になる。';
+}
+(() => {
+  const canvas = $('tri-canvas');
+  let drag = false;
+  const pos = (e) => { const r = canvas.getBoundingClientRect(); return tri.view.inv(e.clientX - r.left, e.clientY - r.top); };
+  canvas.addEventListener('pointerdown', (e) => { drag = true; canvas.setPointerCapture(e.pointerId); tri.p = pos(e); drawTri(); });
+  canvas.addEventListener('pointermove', (e) => { if (drag) { tri.p = pos(e); drawTri(); } });
+  canvas.addEventListener('pointerup', () => { drag = false; });
+})();
+drawTri();
+window.addEventListener('resize', drawTri);
+
+// ============================================================
+//  要点3: 内部エッジ問題
+// ============================================================
+const SEG_LEN = 0.5, R = 0.3, G = 9.81, SLOP = 0.005;
+const edge = { mode: 'face', x: 0, y: R, vx: 3, vy: 0, t: 0, hist: [], acc: 0, kicks: 0 };
+function resetEdge() { Object.assign(edge, { x: 0, y: R - 0.002, vx: 3, vy: 0, t: 0, hist: [], acc: 0, kicks: 0 }); }
+function stepEdge(dt) {
+  edge.vy -= G * dt;
+  edge.x += edge.vx * dt; edge.y += edge.vy * dt;
+  // 球に触れうる線分(左右1本ずつまで)を全部当てる
+  const i0 = Math.floor((edge.x - R) / SEG_LEN), i1 = Math.floor((edge.x + R) / SEG_LEN);
+  const contacts = [];
+  for (let i = i0; i <= i1; i++) {
+    const a = i * SEG_LEN, b = a + SEG_LEN;
+    const qx = Math.max(a, Math.min(b, edge.x)), dx = edge.x - qx, dy = edge.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist >= R) continue;
+    // 面の法線(真上)か、最近接点から球への向きか
+    const n = edge.mode === 'face' ? [0, 1] : [dx / dist, dy / dist];
+    contacts.push({ n, depth: R - dist });
+  }
+  for (const c of contacts) {
+    const vn = edge.vx * c.n[0] + edge.vy * c.n[1];
+    if (vn < 0) {
+      edge.vx -= c.n[0] * vn; edge.vy -= c.n[1] * vn;
+      if (Math.abs(c.n[0]) > 0.01) edge.kicks++;
+    }
+    const k = Math.max(c.depth - SLOP, 0) * 0.6;
+    edge.x += c.n[0] * k; edge.y += c.n[1] * k;
+  }
+  edge.t += dt;
+  edge.hist.push([edge.t, edge.vx, edge.vy]);
+  if (edge.hist.length > 360) edge.hist.shift();
+  if (edge.x > 40) { const keep = edge.mode; resetEdge(); edge.mode = keep; }
+}
+function drawEdge() {
+  {
+    const { ctx, w, h } = fit($('edge-canvas'));
+    const s = Math.min(160, h / 1.2), camX = edge.x, oy = h - 40;
+    const X = (x) => w * 0.4 + (x - camX) * s, Y = (y) => oy - y * s;
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.stroke();
+    ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1;
+    for (let i = Math.floor((camX - w / s) / SEG_LEN); i < (camX + w / s) / SEG_LEN; i++) {
+      ctx.beginPath(); ctx.moveTo(X(i * SEG_LEN), Y(0)); ctx.lineTo(X(i * SEG_LEN), Y(0) + 10); ctx.stroke();
+    }
+    ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(X(edge.x), Y(edge.y), R * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  {
+    const { ctx, w, h } = fit($('edge-chart'));
+    const L = 44, Rm = 8, T = 10, B = 18, pw = w - L - Rm, ph = h - T - B;
+    const t0 = edge.hist.length ? edge.hist[0][0] : 0, t1 = t0 + 6;
+    const X = (t) => L + (t - t0) / (t1 - t0) * pw, Y = (v) => T + ph / 2 - v / 3.2 * (ph / 2);
+    ctx.strokeStyle = tok('--grid'); ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono'); ctx.lineWidth = 1;
+    for (const v of [-3, 0, 3]) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(L + pw, Y(v)); ctx.stroke(); ctx.fillText(`${v}`, 8, Y(v) + 4); }
+    for (const [k, col] of [[1, tok('--semi')], [2, tok('--expl')]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath();
+      edge.hist.forEach((p, i) => { if (i === 0) ctx.moveTo(X(p[0]), Y(p[k])); else ctx.lineTo(X(p[0]), Y(p[k])); });
+      ctx.stroke();
+    }
+    ctx.fillStyle = tok('--semi'); ctx.fillText('横の速さ m/s', L + 6, T + 12);
+    ctx.fillStyle = tok('--expl'); ctx.fillText('縦の速さ', L + 110, T + 12);
+  }
+  const maxVy = edge.hist.reduce((m, p) => Math.max(m, Math.abs(p[2])), 0);
+  $('edge-stats').innerHTML =
+    stat('横の速さ', edge.vx.toFixed(3), ` <small>m/s(初速 3.000)</small> ${edge.vx > 2.999 ? '<span class="pill good">減らない</span>' : '<span class="pill bad">縁で蹴られて減る</span>'}`) +
+    stat('直近の縦の速さの最大', maxVy.toFixed(3), ' <small>m/s</small>') +
+    stat('縁で横向きに押された回数', `${edge.kicks}`);
+  $('edge-note').textContent = edge.mode === 'face'
+    ? '法線をいつでも線分(三角形)の面の向きにしているので、縁をまたいでも真上にしか押されない。高さの格子は端以外が全部内部の縁なので、見分けずにこうしてよい。'
+    : '重力ぶんわずかに沈んでいるので、隣の線分の端が最近接点になる瞬間があり、法線が「縁から球へ」の斜めの向きになる。平らな地面なのに縁ごとに後ろへ蹴られ、速さが減っていく。';
+}
+seg('edge-mode', (v) => { edge.mode = v; resetEdge(); edge.mode = v; drawEdge(); });
+$('edge-reset').addEventListener('click', () => { const m = edge.mode; resetEdge(); edge.mode = m; drawEdge(); });
+resetEdge();
+if (reduceMotion) for (let i = 0; i < 360; i++) stepEdge(1 / 60);
+drawEdge();
+animate($('edge-canvas'), (dt) => {
+  if (!reduceMotion) { edge.acc += dt; while (edge.acc >= 1 / 60) { stepEdge(1 / 60); edge.acc -= 1 / 60; } }
+  drawEdge();
+});
+
+// ============================================================
+//  要点5: 静的な体の逆慣性テンソル
+// ============================================================
+const inv = { r: 5, bug: true };
+// 分母 = 1/mA + 1/mB + 回転の項。球の側(接触点が中心の真下)は回転の項が 0、mB は無限大
+const denom = (r, bug) => 1 + (bug ? r * r : 0);
+function drawInv() {
+  const { ctx, w, h } = fit($('inv-canvas'));
+  const L = 54, Rm = 14, T = 12, B = 26, pw = w - L - Rm, ph = h - T - B;
+  const X = (r) => L + r / 30 * pw, Y = (v) => T + ph - v * ph;
+  ctx.strokeStyle = tok('--grid'); ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono'); ctx.lineWidth = 1;
+  for (const v of [0, 0.5, 1]) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(L + pw, Y(v)); ctx.stroke(); ctx.fillText(`${v * 100}%`, 6, Y(v) + 4); }
+  for (const r of [0, 5, 10, 20, 30]) ctx.fillText(`${r}m`, X(r) - 8, h - 8);
+  for (const [bug, col] of [[false, tok('--semi')], [true, tok('--expl')]]) {
+    ctx.strokeStyle = col; ctx.lineWidth = bug === inv.bug ? 2.5 : 1; ctx.globalAlpha = bug === inv.bug ? 1 : 0.4; ctx.beginPath();
+    for (let i = 0; i <= 300; i++) { const r = i / 10, v = 1 / denom(r, bug); if (i === 0) ctx.moveTo(X(r), Y(v)); else ctx.lineTo(X(r), Y(v)); }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const v = 1 / denom(inv.r, inv.bug);
+  ctx.fillStyle = inv.bug ? tok('--expl') : tok('--semi'); ctx.beginPath(); ctx.arc(X(inv.r), Y(v), 5, 0, Math.PI * 2); ctx.fill();
+  $('inv-r-out').textContent = `${inv.r.toFixed(1)} m`;
+  $('inv-stats').innerHTML =
+    stat('分母', denom(inv.r, inv.bug).toFixed(2), ' <small>= 1/m + |r × n|²(単位行列のとき)</small>') +
+    stat('押し戻しの強さ', `${(v * 100).toFixed(1)}`, ` <small>%</small> ${v < 0.2 ? '<span class="pill bad">すり抜ける</span>' : v < 0.99 ? '<span class="pill warn">なんとなく沈む</span>' : '<span class="pill good">正しい</span>'}`);
+}
+$('inv-r').addEventListener('input', (e) => { inv.r = Number(e.target.value); drawInv(); });
+$('inv-bug').addEventListener('change', (e) => { inv.bug = e.target.checked; drawInv(); });
+for (const btn of document.querySelectorAll('[data-inv]')) btn.addEventListener('click', () => { inv.r = Number(btn.dataset.inv); $('inv-r').value = inv.r; drawInv(); });
+drawInv();
+window.addEventListener('resize', drawInv);
+})();
+</script>
+</body>
+</html>

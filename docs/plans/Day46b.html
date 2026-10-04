@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 46b ブロードフェーズ(均一グリッド)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ブロードフェーズ — 「答えを変えずに速くする」層</a></li><li class="l3"><a href="#s7">2. 格子に入らないもの — 無限と巨大は別の問題</a></li><li class="l3"><a href="#s9">3. マスの大きさ — 3D では小さいほうへ外す罰が重い</a></li><li class="l3"><a href="#s10">4. 今日入れなかったもの</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">ブロードフェーズが形を1つも知らないこと</a></li><li class="l3"><a href="#s17">判定の層は1行も変わっていない</a></li><li class="l3"><a href="#s18">「設定した」と「組んだ」は別</a></li><li class="l3"><a href="#s19">今日残した歪み</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21">1. <code>Shift+G</code>: ブロードフェーズを総当たりに戻す</a></li><li class="l3"><a href="#s22">2. <code>Ctrl+Shift+Alt+2</code> を6回 → 「地形に落とす」</a></li><li class="l3"><a href="#s23">3. <code>Alt+G</code>: 格子のマスを描く</a></li><li class="l3"><a href="#s24">4. <code>Shift+Alt+G</code>: 内訳をコンソールへ</a></li><li class="l3"><a href="#s25">5. Day 46a までの機能が全部生きていること</a></li><li class="l3"><a href="#s26">6. <code>Ctrl+Shift+Alt+G</code>: 今日の自己チェック(59 項目すべて合格)</a></li><li class="l2"><a href="#s27">改造課題</a></li><li class="l3"><a href="#s28">課題1(易): マスの大きさを掃引して、谷の形を測る</a></li><li class="l3"><a href="#s29">課題2(中): 壁を有限の箱にして、はみ出し組を減らす</a></li><li class="l3"><a href="#s30">課題3(難): Sweep and Prune を書いて、格子と突き合わせる</a></li><li class="l2"><a href="#s31">動作確認済み環境</a></li><li class="l3"><a href="#s32">自己チェック(59 項目すべて合格)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 46b / 計画書</p>
+  <h1>ブロードフェーズ(均一グリッド)</h1>
+  <p class="lede">答えを変えずに速くする</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ブロードフェーズ — 「答えを変えずに速くする」層</a></li><li class="l3"><a href="#s7">2. 格子に入らないもの — 無限と巨大は別の問題</a></li><li class="l3"><a href="#s9">3. マスの大きさ — 3D では小さいほうへ外す罰が重い</a></li><li class="l3"><a href="#s10">4. 今日入れなかったもの</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">ブロードフェーズが形を1つも知らないこと</a></li><li class="l3"><a href="#s17">判定の層は1行も変わっていない</a></li><li class="l3"><a href="#s18">「設定した」と「組んだ」は別</a></li><li class="l3"><a href="#s19">今日残した歪み</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21">1. <code>Shift+G</code>: ブロードフェーズを総当たりに戻す</a></li><li class="l3"><a href="#s22">2. <code>Ctrl+Shift+Alt+2</code> を6回 → 「地形に落とす」</a></li><li class="l3"><a href="#s23">3. <code>Alt+G</code>: 格子のマスを描く</a></li><li class="l3"><a href="#s24">4. <code>Shift+Alt+G</code>: 内訳をコンソールへ</a></li><li class="l3"><a href="#s25">5. Day 46a までの機能が全部生きていること</a></li><li class="l3"><a href="#s26">6. <code>Ctrl+Shift+Alt+G</code>: 今日の自己チェック(59 項目すべて合格)</a></li><li class="l2"><a href="#s27">改造課題</a></li><li class="l3"><a href="#s28">課題1(易): マスの大きさを掃引して、谷の形を測る</a></li><li class="l3"><a href="#s29">課題2(中): 壁を有限の箱にして、はみ出し組を減らす</a></li><li class="l3"><a href="#s30">課題3(難): Sweep and Prune を書いて、格子と突き合わせる</a></li><li class="l2"><a href="#s31">動作確認済み環境</a></li><li class="l3"><a href="#s32">自己チェック(59 項目すべて合格)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 46 の2日目で、reference は Day 46a の完全コピー + 差分。Day 46a で地形を入れた。判定はまだ<strong>全部の組を試す総当たり</strong>のままで、「地形に落とす」の 66 体で毎ステップ 2,130 組、自己チェックの 200 体なら 2 万組を試している。<strong>今日はこれを格子で絞る</strong>——Day 26 の 2D の均一グリッドを 3D へ広げる。</p>
+<p>地形が先にあったのには意味がある。<strong>地形はブロードフェーズにとっていちばん厄介な客</strong>で、1枚で世界じゅうを覆う静的な形が来た瞬間に、Day 26 の 2D 格子をそのまま 3D にしただけでは足りないことが分かる。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Shift+G</code> でブロードフェーズを総当たりに戻すと、絵は1ピクセルも変わらないのに1ステップの時間だけが増える。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+G</code></td><td>ブロードフェーズ(<strong>均一グリッド / 総当たり</strong>)。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>Alt+G</code></td><td>格子のマスを線で描く</td></tr>
+<tr><td><code>Ctrl+Shift+G</code></td><td>マスの大きさ 0.5 / 1 / 2 / 4 / 8m</td></tr>
+<tr><td><code>Ctrl+Alt+G</code></td><td>体を 40 個降らせる(<strong>組の数の増え方を見る</strong>)</td></tr>
+<tr><td><code>Shift+Alt+G</code></td><td>地形とブロードフェーズの内訳をコンソールへ</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+G</code></td><td>今日の自己チェック(59 項目。Day 46a の 44 項目を含む)</td></tr>
+<tr><td><code>Ctrl+G</code></td><td>Day 46a のまま(地形デモ)</td></tr>
+</tbody>
+</table></div>
+<p>HUD に<strong>「広域」の1行</strong>が増える。ブロードフェーズは効いていても絵が1ピクセルも変わらないので、数字が出ていないと切り替えたことにすら気づけない。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「ブロードフェーズは形を1つも知らない」</strong>。渡すのは外接箱(Day 46a の <code>Aabb3D</code>)の列だけで、返ってくるのは番号の組だけ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_grid.Build(_bounds);                    // 外接箱だけを受け取る
+_grid.CollectPairs(_bounds);             // 番号の組だけを返す
+foreach (BroadPair pair in _grid.Pairs) { TestPair(pair.A, pair.B); }</code></pre></div>
+<p>だから形が増えても格子は1行も変わらない。<strong>「答えを変えずに速くする」層</strong>なので、格子と総当たりで接触の組がぴったり一致することを自己チェックが 200 体で確かめている。</p>
+<p><strong>2つ目は「格子に入らないものをどうするか」</strong>。Day 26 の 2D では、体は全部同じくらいの大きさの円と箱だった。3D の世界には<strong>無限に広い平面</strong>と<strong>世界じゅうを覆う地形</strong>がいる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 入れない。別の列に置いて、全部の相手と組にする
+if (!Fits(bounds[i], out ...)) { _oversized[_oversizedCount++] = i; continue; }</code></pre></div>
+<p><strong>ブロードフェーズは余計な候補を出すのは許されるが、取りこぼすのは許されない</strong>。迷ったら候補に入れる——この鉄則が、3D ではじめて具体的な設計判断になる。</p>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル1本(<code>SpatialGrid3D.cs</code>、652 行)と <code>PhysicsWorld</code> の書き換え、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。<strong>判定(<code>Collision3D</code>)も1行も変わらない</strong>。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Real-Time Collision Detection</strong>(Christer Ericson)7.1.2 Uniform Grids— 均一グリッド。Day 26 で 2D をやったので、読むのは「3D で何が変わるか」の観点で</li><li><strong>Game Physics Engine Development</strong>(Ian Millington)Chapter 12— ブロードフェーズ全般。BVH の章だが、格子との使い分けの議論が要点</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. ブロードフェーズ — 「答えを変えずに速くする」層</h3>
+<p>Day 43 から Day 46a まで、判定は全部の組を試す総当たりだった。</p>
+<div class="code"><pre><code>  n = 100 →   4,950 組
+  n = 200 →  19,900 組
+  n = 1000 → 499,500 組</code></pre></div>
+<p><strong>n² は 100 個までは平気で、その先で急に壁になる</strong>。Day 26 で 2D にやったことを 3D へ広げる。考え方は一言のまま——<strong>世界を格子に切り、同じマス(あるいは隣のマス)にいるものだけを調べる</strong>。</p>
+<p>肝は<strong>ブロードフェーズが形を1つも知らない</strong>こと。渡すのは外接箱(<code>Aabb3D</code>)の列だけで、返ってくるのは番号の組だけ。だから形が増えても格子は1行も変わらない。Day 46a で地形という5つ目の形が増えたが、<code>SpatialGrid3D</code> は「大きすぎて入らないもの」としてしか地形を知らない。</p>
+<p><strong>外接箱の作り方は形ごとに違う</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>形</th><th>外接箱</th></tr></thead>
+<tbody>
+<tr><td>球</td><td>中心 ± 半径</td></tr>
+<tr><td>カプセル</td><td>端の球2つを包む</td></tr>
+<tr><td>箱(OBB)</td><td>各世界軸への投影の絶対値の和(<strong>SAT の <code>ProjectedRadius</code> がそのまま使える</strong>)</td></tr>
+<tr><td>地形</td><td>格子の広がり × 高さの最小〜最大(下へ 2m 厚く)</td></tr>
+<tr><td>平面</td><td><strong>作れない</strong>(無限)</td></tr>
+</tbody>
+</table></div>
+<p><strong>回すと外接箱は太る</strong>。45 度回した立方体の外接箱は一辺が √2 倍、体積は 2.8 倍。「当たっていないのに候補に出てくる」原因の多くはこれで、箱を回しながら落とす筋書きでは候補の数が目に見えて増える。</p>
+<h3 id="s7">2. 格子に入らないもの — 無限と巨大は別の問題</h3>
+<p>3D ではじめて出てくる問題がこれ。2D の Day 26 では、体は全部同じくらいの大きさの円と箱だった。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何が起きるか</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td><strong>平面</strong></td><td>マス番号が inf になって壊れる</td><td>外接箱が有限でない</td></tr>
+<tr><td><strong>地形</strong></td><td>全部のマスに登録されて格子の意味が消える</td><td>またぐマスが 64 個を超える</td></tr>
+</tbody>
+</table></div>
+<p>答えは「入れない」。<strong>格子に入らないものは別の列に置き、全部の相手と組にする</strong>。数は数個(平面5 + 地形1)なので、n 個の体に対して 6n の候補が増えるだけで済む。</p>
+<p><strong>ブロードフェーズは余計な候補を出すのは許されるが、取りこぼすのは許されない</strong>。取りこぼした瞬間に物が床をすり抜けるので、迷ったら候補に入れる。<code>Query</code>(1点からの問い合わせ)でも、はみ出し組は<strong>いちばん最初に</strong>詰めてある——あふれて捨てられるのが床や地形になると致命的だから。</p>
+<p><strong>「無限」を値として持っておくと分岐が消える</strong>のが地味に効く。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public static Aabb3D Infinite =&gt; new(new Vector3(float.NegativeInfinity), ...);</code></pre></div>
+<p><code>Aabb3D.Overlap</code> は無限の箱に対して必ず true を返すので、はみ出し組の足切りを場合分け無しで書ける。「作れません」を例外や <code>null</code> ではなく値で表す、という設計の配当。</p>
+<h4 id="s8">地形の外接箱は下へ厚くしてある</h4>
+<p>地形ははみ出し組なので全部の相手と組になるが、<strong>組を作ったあと AABB で足切りする</strong>。ここで地形の外接箱が地面にぴったり張り付いていると、潜った物が足切りで落とされる。</p>
+<p>そこで<strong>地形の外接箱を下へ 2m 厚くしてある</strong>(<code>Terrain3D.RecoveryDepth</code>)。面には厚みが無いので、1ステップで自分の厚みより深く潜った物体はそのまま抜ける(60Hz で 13m/s なら1ステップ 22cm。直径 32cm のカプセルが山から落ちてくると実際に抜けた)。外接箱が地面にぴったり張り付いていると、抜けた瞬間に<strong>そもそも組にならなくなる</strong>ので、Day 46a の要点3の「潜った物体を押し上げる」枝が一度も走らない。本当の直し方は掃引(スイープ)だが、今日は<strong>「抜けさせない」ではなく「抜けても戻す」</strong>という安いほうで手当てしてある。</p>
+<h3 id="s9">3. マスの大きさ — 3D では小さいほうへ外す罰が重い</h3>
+<p>Day 26 で「小さすぎると1個が大量のマスにまたがり、大きすぎると1マスの中で総当たりになる」と書いた。3D でも同じだが、<strong>罰の重さが変わる</strong>。</p>
+<div class="code"><pre><code>  2D: セルを半分にすると、1個がまたぐマスは 4 倍
+  3D: セルを半分にすると、1個がまたぐマスは 8 倍</code></pre></div>
+<p>マスの総数も3乗で増える。32m 四方・高さ 24m を 0.5m で切ると 196,608 マス。中身が無くても<strong>構築のたびにこの配列をクリアし、混み具合を数えるためになめる</strong>ので、小さすぎる側では<strong>空のマスの走査だけで遅くなる</strong>。<code>Ctrl+Shift+G</code> で 0.5m まで落とすと、この谷の左側が実際に見える。</p>
+<p>目安は「物体の平均的な差し渡しの2〜3倍」。今日のデモは体が 0.4m 前後なので 2m を既定にしてある。<strong>迷ったら大きめに外すほうが安い</strong>、というのが 2D との違い。</p>
+<p><strong>格子は毎フレーム丸ごと作り直す</strong>(Day 26 と同じ)。3パスのカウンティングソートで <code>List&lt;int&gt;[]</code> を1本も作らないので、毎フレーム作り直しても割り当てがゼロ。差分更新(動いた物体だけマスを移す)は、全員が毎フレーム動く物理では意味がないうえに状態が増える。</p>
+<p><strong>1回組んだ格子を2通りに使う</strong>のが今日の配当。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>CollectPairs(bounds)      // 全部の組。Step が使う
+Query(box, results)       // 1つの箱の近く。QueryCapsule が使う</code></pre></div>
+<p>後者が効くのがキャラクター。Day 45 の <code>QueryCapsule</code> は1ステップに 10 回以上呼ばれ、そのたびに世界じゅうの体をなめていた。自己チェックでは 206 体の世界で <strong>206 体 → 6 体</strong>に減っている。</p>
+<div class="inject"><figure class="lab" id="grid-lab">
+  <div class="lab-head">
+    <h3>均一グリッドで候補の組を絞る(上から見た 2D)</h3>
+    <span class="tag">16m × 10m の世界。球と、回り続ける箱。床と地形は「格子に入らないもの」として別の列に置く</span>
+  </div>
+  <div class="stage"><canvas id="grid-canvas" style="height:360px" aria-label="均一グリッド"></canvas></div>
+  <div class="hud" id="grid-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ブロードフェーズ(Shift+G)</span>
+      <div class="seg" id="grid-mode"><button data-v="grid" aria-pressed="true">均一グリッド</button><button data-v="brute" aria-pressed="false">総当たり</button></div>
+    </div>
+    <div class="ctl"><span class="label">マスの大きさ(Ctrl+Shift+G)</span>
+      <div class="seg" id="grid-cell"><button data-v="0.25" aria-pressed="false">0.25m</button><button data-v="0.5" aria-pressed="false">0.5m</button><button data-v="1" aria-pressed="true">1m</button><button data-v="2" aria-pressed="false">2m</button><button data-v="4" aria-pressed="false">4m</button></div>
+    </div>
+    <div class="ctl"><span class="label">体の数</span>
+      <div class="seg" id="grid-n"><button data-v="40" aria-pressed="false">40</button><button data-v="120" aria-pressed="true">120</button><button data-v="300" aria-pressed="false">300</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="grid-lines" checked> マスを線で描く(Alt+G)</label>
+    <label class="check"><input type="checkbox" id="grid-aabb"> 外接箱を描く</label>
+  </div>
+  <div class="readout"><div class="stats" id="grid-stats"></div><p id="grid-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">4. 今日入れなかったもの</h3>
+<ul><li><strong>BVH / Sweep and Prune</strong> … 均一グリッドは「物の大きさが揃っている」ときに強い。大小が混ざると階層的な構造(BVH)か、軸ごとに区間を並べる SAP が要る(改造課題3)</li><li><strong>差分更新</strong> … 格子は毎ステップ丸ごと作り直している(要点3)。動いた物だけマスを移す作りは、全員が動く物理では割に合わないので入れていない</li><li><strong>壁を格子に入れる</strong> … 今日の壁は無限の平面なので、はみ出し組として全員と組になる(改造課題2)</li><li><strong>掃引(スイープ)</strong> … 地形には厚みが無いので、速い物は抜けうる。今日は地形の外接箱を下へ厚くして「抜けても戻す」で手当てしてある(要点2)</li><li><strong>摩擦・スリープ</strong> … Day 47。眠っている体を格子から外すと、候補はさらに減る</li></ul>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/SpatialGrid3D.cs</code></td><td>652</td><td>均一グリッドの 3D 版(要点1〜3)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D.cs</code></td><td><code>Aabb3D.Infinite</code> / <code>IsFinite</code>(<strong>無限を値で持つ</strong>)と、説明の書き換え</td><td>+36 / -6</td></tr>
+<tr><td><code>Physics/RigidBody.cs</code></td><td><code>Bounds()</code>(<strong>体を外接箱1つに落とす窓口</strong>)</td><td>+23 / -0</td></tr>
+<tr><td><code>Physics/PhysicsWorld.cs</code></td><td>ブロードフェーズの組み込み、<code>TestPair</code> の切り出し、問い合わせの高速化</td><td>+256 / -32</td></tr>
+<tr><td><code>Physics/HeightField.cs</code></td><td>コメントのみ(Day 46b を指していた言い回しを、今日の格子への参照に)</td><td>+3 / -3</td></tr>
+<tr><td><code>Program.cs</code></td><td>格子の可視化、<code>G</code> の段の残り5つ、HUD の「広域」、自己チェックの後半</td><td>+509 / -19</td></tr>
+<tr><td><code>Day46b.csproj</code></td><td><code>Day46a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>shaders/</code> も <code>Render/</code> も1文字も変わっていない</strong>。<strong><code>Collision3D</code> も1行も変わっていない</strong>。</p>
+<h3 id="s14">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。4 の <code>GenerateContacts</code> の書き換えまでは足すだけ。</p>
+<ol><li><strong><code>Physics/Shapes3D.cs</code></strong>(変更) — <code>Aabb3D</code> の説明の書き換えと、<code>Infinite</code>(<code>FromCenter</code> の後)/ <code>IsFinite</code>(<code>HalfSize</code> の後)。<strong>要点2の主役</strong></li><li><strong><code>Physics/RigidBody.cs</code></strong>(変更) — <code>Bounds()</code>(<code>ToTerrain</code> の直後)</li><li><strong><code>Physics/SpatialGrid3D.cs</code></strong>(新規) — Day 26 の <code>SpatialGrid</code> を横に置いて写すとよい
+<ul><li>定数2つ(<code>MaxCellsPerAxis</code> / <code>MaxCellsPerEntry</code>)とフィールド</li><li>プロパティ(<code>IsBuilt</code> を忘れると可視化で落ちる)</li><li><code>Configure</code> / <code>SuggestCellSize</code></li><li><code>Build</code>(3パス + はみ出しの仕分け)</li><li><code>CollectPairs</code>(<strong>最後のはみ出しループが 3D で足したところ</strong>)</li><li><code>Query</code> / <code>CellContents</code> / <code>CellBounds</code></li><li><code>AddPair</code> / <code>IsOversized</code> / <code>Fits</code> / <code>CellRange</code> / <code>EnsureCapacity</code> / <code>UpdateOccupancyStats</code></li></ul></li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(変更) — 次の順で
+<ul><li><code>BroadphaseMode</code>(<code>IntegratorMode</code> の直後)</li><li>定数2つ(<code>MaxQueryCandidates</code> / <code>QueryMargin</code>)とフィールド3つ(<code>_grid</code> / <code>_bounds</code> / <code>_gridReady</code>)</li><li>プロパティ(<code>Broadphase</code> / <code>CellSize</code> / <code>GridOrigin</code> / <code>GridSize</code> / <code>Grid</code> / <code>BruteForcePairs</code>)と、<code>PairTests</code> の説明の書き換え</li><li><code>QueryCapsule</code> / <code>OverlapCapsule</code> に格子の枝</li><li><code>Clear</code> に <code>BruteForcePairs = 0</code> と <code>_gridReady = false</code></li><li><strong><code>GenerateContacts</code> を書き換え、<code>TestPair</code> と <code>UpdateBounds</code> を切り出す</strong></li></ul></li><li><strong><code>Program.cs</code></strong> — 次の順に足す
+<ul><li>フィールド(<code>_showGridCells</code> / <code>GridCellSteps</code> / <code>_gridCellIndex</code>)。<code>_terrainSpawnCount</code> の説明の書き換え</li><li><code>OnLoad</code> のヘルプに <code>G</code> の段の残り</li><li><code>DrawOverlayInfo</code> に <code>BroadphaseLine()</code></li><li><code>BuildPhysicsScene</code> / <code>BuildCharacterScene</code> の頭に <code>ConfigureBroadphase()</code></li><li>Day 46 の塊に <code>ConfigureBroadphase</code>(<code>DisposeTerrain</code> の直後)と、<code>RenderTerrain</code> の直後へ <code>RenderGridCells</code> / <code>CycleGridCellSize</code> / <code>BroadphaseLine</code> / <code>DescribeBroadphase</code>。<code>BuildTerrainScene</code> / <code>SpawnTerrainBodies</code> / <code>BuildTerrainCourse</code> の説明の書き換え</li><li><code>RenderPhysics</code> の最後に <code>RenderGridCells()</code></li><li><code>RunTerrainCheck</code> の後半: 節1に無限の箱と平面の外接箱の3項目、節5「ブロードフェーズ」、節6(通しで動かす)の世界を格子で組む形に。説明と見出しの書き換え</li><li>補助関数: <code>BuildTerrainOnlyWorld</code> に格子の設定と1ステップ、<code>BuildTerrainDropWorld</code> を <code>BuildBroadphaseWorld(mode, cellSize)</code> に書き換え、<code>StepAndCollectPairs</code> / <code>ContainsPair</code>(<code>WalkTowardHill</code> の直前)</li><li>キー(<code>G</code> の段の <code>Shift+G</code> / <code>Alt+G</code> / <code>Ctrl+Shift+G</code> / <code>Ctrl+Alt+G</code> / <code>Shift+Alt+G</code>)と、<code>Ctrl+G</code> の案内文、<code>Ctrl+Shift+Alt+2</code> の「地形に落とす」の案内文</li></ul></li><li><strong><code>Physics/HeightField.cs</code></strong> — <strong>コメントのみ</strong>。差分0にしたいなら合わせておく</li><li><strong><code>Day46b.csproj</code></strong> — <code>Day46a.csproj</code> からのリネームのみ</li></ol>
+<p><strong><code>G</code> の段は Day 46a で作った塊の中</strong>に足す。素の <code>case Key.G:</code> より上にあること。</p>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が2つ増え(<code>SpatialGrid3D</code> / <code>BroadphaseMode</code>)、<code>PhysicsWorld</code> の判定の段が書き換わっただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/SpatialGrid3D</code></td><td><code>Physics/</code></td><td>均一グリッドの 3D 版。<strong>652 行</strong>(要点1〜3)</td></tr>
+<tr><td><code>Physics/BroadphaseMode</code></td><td><code>Physics/</code></td><td>候補の作り方(総当たり / 均一グリッド)の札</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D</code></td><td><code>Aabb3D</code> が<strong>無限を値で持てる</strong>ようになった(<code>Infinite</code> / <code>IsFinite</code>)</td><td>+36 / -6</td></tr>
+<tr><td><code>Physics/RigidBody</code></td><td><code>Bounds()</code>(体を外接箱1つに落とす)</td><td>+23 / -0</td></tr>
+<tr><td><code>Physics/PhysicsWorld</code></td><td><strong>候補の作り方が2通りになった</strong>。判定そのものは1行も変わらない</td><td>+256 / -32</td></tr>
+<tr><td><code>Program.cs</code></td><td>格子の可視化、<code>G</code> の段の残り、HUD、自己チェックの後半</td><td>+509 / -19</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">ブロードフェーズが形を1つも知らないこと</h3>
+<p>今日いちばんうまくいった線引きがこれ。</p>
+<div class="code"><pre><code>  SpatialGrid3D  →  受け取るのは ReadOnlySpan&lt;Aabb3D&gt; だけ
+                 →  返すのは番号の組だけ</code></pre></div>
+<p><strong>球も箱もカプセルも地形も平面も、1行も出てこない</strong>。おかげで、Day 46a で <code>ColliderKind</code> に5つ目の札が増えたのに <code>SpatialGrid3D</code> は無関係でいられる。形が6つ目・7つ目に増えても同じことが言える。</p>
+<p>この細さは Day 26 の設計書で予告してあった——「<code>SpatialGrid</code> から <code>Body</code> への線が無い。受け取るのは <code>ReadOnlySpan&lt;Aabb2D&gt;</code>、返すのは番号の組だけ。この細さのおかげで、Day 46 の 3D 版は<code>Aabb2D</code> を <code>Aabb3D</code> に変えるだけで済む」。</p>
+<p><strong>半分当たって、半分外れた</strong>。判定の中身は本当に型を変えるだけで済んだが、<strong>「格子に入らないもの」という問題が新しく生えた</strong>(要点2)。2D のときは体が全部同じくらいの大きさだったので気づけなかった。20 日前の予告が外れた理由が「次元」ではなく「世界に置くものの種類」だった、というのが今日の学び。</p>
+<h3 id="s17">判定の層は1行も変わっていない</h3>
+<p>もう1つ、意識して守った線。</p>
+<div class="code"><pre><code>  Collision3D / Sat / Shapes3D  →  ブロードフェーズを知らない</code></pre></div>
+<p><code>PhysicsWorld.GenerateContacts</code> の中で候補の作り方が2通りに分かれたが、<strong>その下(1組を実際に当てるところ)は共通のまま</strong>にしてある。そのために切り出したのが <code>TestPair(i, j)</code>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Day 46a: 二重ループの内側に判定・間引き・登録が直接書いてあった
+// Day 46b: 「候補をどう作るか」と「候補をどう当てるか」を分けた
+foreach (BroadPair pair in _grid.Pairs) { TestPair(pair.A, pair.B); }</code></pre></div>
+<p><strong>ブロードフェーズを足すときにいちばん先にやる整理がこれ</strong>になる。分けておかないと、総当たりと格子で同じ 30 行を2箇所に書くことになり、片方だけ直したときに「絵は同じなのに数字が違う」という追いにくい状態が生まれる。</p>
+<p>配当は自己チェックに出る。<strong>同じ状態から1ステップだけ切り替えて、接触の組がぴったり一致することを 200 体で確かめられる</strong>——<code>TestPair</code> が共通だから、違いは候補の作り方だけだと言い切れる。</p>
+<h3 id="s18">「設定した」と「組んだ」は別</h3>
+<p><code>SpatialGrid3D</code> で1つ躓いたところ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Configure(origin, size, cellSize);   // マスの数が決まる
+Build(bounds);                        // 中身の配列ができる</code></pre></div>
+<p><code>Configure</code> はマスの数だけを決めるので、<strong><code>Build</code> より先にマスの数が確定する</strong>。その隙間で <code>CellContents</code> を呼ぶと、まだ長さ 0 の配列を「マスの数ぶんある」つもりで引いて落ちる。可視化(<code>Alt+G</code>)を最初のフレームで有効にすると必ず踏んだ。</p>
+<p><code>IsBuilt</code> を足して塞いだが、<strong>そもそも <code>Configure</code> と <code>Build</code> を分けている</strong>のが原因でもある。1つにまとめれば起きない。分けてあるのは、マスの大きさを変えても次のステップまで再構築を遅らせたいから——<strong>遅延して用意する種類のオブジェクトには、たいていこの段差がある</strong>。</p>
+<p>同じ形の段差が <code>PhysicsWorld</code> にもある(<code>_gridReady</code>)。<code>QueryCapsule</code> は <code>Step</code> とは別の入口なので、格子がまだ無い状態で呼ばれうる。そのときは黙って総当たりに落ちる——<strong>速さのための仕掛けが、正しさの前提になってはいけない</strong>。</p>
+<h3 id="s19">今日残した歪み</h3>
+<p><strong>はみ出し組が増えるとブロードフェーズが鈍る</strong>。今日の世界には平面が5枚と地形が1枚あり、この6つは全部の相手と組になる。200 体なら 6 × 200 = 1,200 組で、候補全体(約 1,000 組)の大半がこれ。<strong>壁を有限の箱にすれば格子に入る</strong>ので、そこは直せる余地がある。無限の平面は「床だけ」にして、壁は箱にするのが実際のゲームでの作り方になる。</p>
+</section>
+<section class="part"><h2 id="s20">完成条件</h2>
+<p><code>dotnet run --project reference/Day46b -c Release</code> で起動して、<code>Ctrl+G</code> で地形デモを出してから、次を順に確かめる。</p>
+<h3 id="s21">1. <code>Shift+G</code>: ブロードフェーズを総当たりに戻す</h3>
+<p><strong>絵が1ピクセルも変わらない</strong>こと。変わるのは HUD の1行だけ。</p>
+<div class="code"><pre><code>広域[格子2.0m]  候補:(絞ったあと)/(総当たりなら)(割合)  登録:..  使用マス:../3,072  ...
+広域[<strong>総当たり</strong>]  候補:N/N(100.0%)  ...</code></pre></div>
+<p>格子の側は「候補 / 総当たりなら / その割合」の3つが並び、総当たりでは割合が 100% になる。<strong>マスの数 3,072 は 32x24x32m を 2m で切った 16x12x16</strong>。</p>
+<p>この筋書きは体が 30 個ほどしか無いので、時間の差はほとんど出ない。<strong>次の項目で増やす</strong>。</p>
+<h3 id="s22">2. <code>Ctrl+Shift+Alt+2</code> を6回 → 「地形に落とす」</h3>
+<p>球・箱・カプセルが 60 個、起伏の上に降ってくる。谷に転がり集まり、丘の斜面には残らない。<strong>HUD の「候補」が総当たりの 5% 前後</strong>になっていること。</p>
+<p><code>Ctrl+Alt+G</code> を3回押して体を 120 個足すと、総当たりの組はこう増える(体 n 個・うち静的 6 個なので <code>n(n-1)/2 - 15</code>)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>総当たりなら</th><th>格子の候補(実測の目安)</th></tr></thead>
+<tbody>
+<tr><td>66</td><td>2,130 組</td><td>400〜600 組</td></tr>
+<tr><td>186</td><td>17,190 組</td><td>900〜1,200 組</td></tr>
+<tr><td>206(自己チェックの世界)</td><td>21,100 組</td><td><strong>1,008 組(4.8%)</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>総当たりは2乗、格子はほぼ比例</strong>で増える。格子の側が体数にきれいに比例しないのは、<strong>はみ出し組(平面5 + 地形1)が 6n を占める</strong>ため——体が増えるほどこちらが支配的になる(設計書の「今日残した歪み」2つ目)。</p>
+<p><code>Shift+G</code> で切り替えると、物理の ms(HUD の右端)がはっきり変わる。</p>
+<h3 id="s23">3. <code>Alt+G</code>: 格子のマスを描く</h3>
+<p>中身のあるマスだけが水色の線で描かれる。体が散らばっているところに箱が並び、<strong>何も無いところには何も出ない</strong>。</p>
+<p><code>Ctrl+Shift+G</code> でマスの大きさを変える。</p>
+<ul><li><strong>0.5m</strong>: マスが細かくなり、1個の体が何マスにもまたがる。HUD の「登録」が跳ね上がり、「使用マス」も増える。<strong>物理の ms が増える</strong></li><li><strong>8.0m</strong>: マスが数個になり、全部が同じマスに入る。「最混雑」が体数に近づき、<strong>そのマスの中で総当たりに戻る</strong></li></ul>
+<p><strong>どちらへ外しても遅くなる</strong>のが目で見える。既定の 2m がその谷の底あたりにある。</p>
+<h3 id="s24">4. <code>Shift+Alt+G</code>: 内訳をコンソールへ</h3>
+<div class="code"><pre><code>--- 地形とブロードフェーズの内訳(Day 46)---
+  地形: 49x49 点  マス 48x48  1マス 0.50m  三角形 4,608 枚
+  広がり: x [-12.0, 12.0]  z [-12.0, 12.0]  高さ [-3.12, 2.10]
+  容量: 高さの配列 9.4KB(同じ形を三角形メッシュで持つと約 162KB)
+  キャラクターの足元: 地面 -0.50m  足元 -0.50m  傾き 0.0度
+  ...
+  はみ出し(格子に入らない): 6 個(<strong>平面と地形</strong>。全部の相手と組にする)
+  組: 同居 ... → AABB を通過 ...  (総当たりなら ...)
+  キャラクターの問い合わせ: 16 回 / 延べ 96 体</code></pre></div>
+<p><strong>「延べ 96 体」が Day 46a までは「延べ数千体」だった</strong>数字。<code>Shift+G</code> で総当たりに戻すと、その場で数十倍に跳ね上がるのが確かめられる。</p>
+<h3 id="s25">5. Day 46a までの機能が全部生きていること</h3>
+<ul><li><code>Ctrl+G</code> → 地形の上を歩ける。緩い丘は登れて、急な丘は登れない(Day 46a)</li><li><code>Ctrl+X</code> → 坂のコース(Day 45b)。<strong>地形が消えて平らな床に戻る</strong></li><li><code>Shift+X</code> を3回 → 坂 / 階段 / 障害物 / <strong>地形</strong>の4通りを巡回する</li><li><code>Ctrl+Shift+Alt+F1</code> → Day 43 の球のデモ。地形は下りている</li><li><code>Ctrl+Shift+Alt+1</code> → Day 44 の箱のデモ</li><li><code>Ctrl+Shift+Alt+F12</code> / <code>Ctrl+Shift+Alt+0</code> / <code>Ctrl+Shift+Alt+X</code> の自己チェックが全部合格する</li></ul>
+<p><strong>素の <code>G</code>(3D 背景の ON/OFF)が今までどおり効く</strong>ことも確かめる。修飾キー付きだけが今日のものになっている。</p>
+<h3 id="s26">6. <code>Ctrl+Shift+Alt+G</code>: 今日の自己チェック(59 項目すべて合格)</h3>
+<p>窓を1枚も出さずに走る。Day 46a の 44 項目に、今日の 15 項目を足したもの。いちばん大事なのは次の3つ。</p>
+<div class="code"><pre><code>[OK] <strong>高さの問い合わせが三角形の平面とぴったり一致</strong>(双一次補間ではない。25,000 点)  最悪 0.0002mm
+[OK] <strong>内部エッジで蹴られない</strong>(平らな地形を 401 点なめて、法線は常に真上)  最悪の傾き 0.00000度
+[OK] <strong>格子と総当たりで接触の組がぴったり一致する</strong>(200 体)  総当たり 96 組 / 格子 96 組</code></pre></div>
+<p>3つ目は<strong>同じ状態から1ステップだけ切り替えて</strong>比べている。90 ステップ進めるところまで両方とも総当たりで走らせるのがポイントで、そうしないと解く順番の違い(ガウス・ザイデル)で状態がずれて、「1組違う」のがブロードフェーズのせいなのか分からなくなる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+G</code></td><td>均一グリッド「ブロードフェーズ」</td><td>実際に当たっている組は1つも変わらず、試す組の数だけが変わる</td></tr>
+<tr><td><code>Alt+G</code></td><td>同「マスを線で描く」</td><td>体がどのマスに入っているか</td></tr>
+<tr><td><code>Ctrl+Shift+G</code></td><td>同「マスの大きさ」</td><td>小さすぎると空のマスの走査と、1体がまたぐマスが増える</td></tr>
+<tr><td><code>Ctrl+Alt+G</code>(40 個降らせる)</td><td>同「体の数」</td><td>総当たりは n² で増え、格子はほぼ n で増える</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day46b の SpatialGrid3D(外接箱だけを受け取る、同じマスにいる組を外接箱の重なりで足切りする、格子に入らないものは別の列で全員と組にする、64 マスを超えてまたぐものは入れない)を、上から見た 2D に移したもの。2D ではマスを半分にすると1体がまたぐマスは 4 倍、3D では 8 倍になる。</p></div>
+</section>
+<section class="part"><h2 id="s27">改造課題</h2>
+<h3 id="s28">課題1(易): マスの大きさを掃引して、谷の形を測る</h3>
+<p><code>Ctrl+Shift+G</code> を手で回す代わりに、<code>RunTerrainCheck</code> の末尾に掃引を足す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>foreach (float cellSize in new[] { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f })
+{
+    var world = BuildBroadphaseWorld(BroadphaseMode.UniformGrid, cellSize);
+    var stopwatch = Stopwatch.StartNew();
+    for (int i = 0; i &lt; 200; i++) { world.Step(1.0f / 60.0f); }
+    Console.WriteLine($"{cellSize,5:F2}m  {stopwatch.Elapsed.TotalMilliseconds / 200:F3}ms/step  "
+        + $"登録{world.Grid.EntryCount}  候補{world.PairTests}");
+}</code></pre></div>
+<p><strong>確かめてほしいこと</strong>。</p>
+<ul><li>谷の底が「体の平均的な差し渡しの何倍」のところにあるか</li><li>小さい側で遅くなる原因が<strong>登録数</strong>なのか<strong>空のマスの走査</strong>なのか(<code>OccupiedCells</code> と <code>CellCount</code> を並べて出すと切り分けられる)</li><li>体を 600 個に増やすと谷の底が動くか</li></ul>
+<h3 id="s29">課題2(中): 壁を有限の箱にして、はみ出し組を減らす</h3>
+<p>今の世界には無限の平面が5枚あり、この5枚が全部の相手と組になっている(設計書の「今日残した歪み」2つ目)。これを<strong>静的な箱</strong>に置き換えると、格子に入るぶんだけ候補が減る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 高さ 6m・厚さ 0.5m の壁を4枚。長さは 24m あるので、
+// MaxCellsPerEntry(64 マス)を超えないようにマスの大きさか壁の分割を考えること
+RigidBody wall = RigidBody.CreateStatic(Collider.Box(new Vector3(0.25f, 3.0f, 12.0f)));</code></pre></div>
+<p><strong>引っかかりどころが2つある</strong>。</p>
+<ul><li>24m の壁は 2m マスなら 12 マスにまたがる。1枚では 64 マスに収まるが、マスを 0.5m にすると 48 マス × 12 マス = 576 で<strong>はみ出し組に落ちる</strong>。「壁を4分割する」か「<code>MaxCellsPerEntry</code> を上げる」か——どちらが筋がよいか考える</li><li>有限の壁は<strong>飛び越えられる</strong>。無限の平面は高さの制限が無かった。ジャンプで越えられてしまうなら高さを増やすか、天井を張るか</li></ul>
+<p>候補の数が何%減ったかを HUD で確かめる。</p>
+<h3 id="s30">課題3(難): Sweep and Prune を書いて、格子と突き合わせる</h3>
+<p>均一グリッドは「物の大きさが揃っている」ときに強い(要点3)。大小が混ざる世界でよく使われるもう1つの定番が <strong>Sweep and Prune(SAP)</strong>——外接箱を x 軸に落とした区間を並べて、<strong>区間が重なっている組だけ</strong>を y・z で確かめる。</p>
+<div class="code"><pre><code>  1. 全員の外接箱の x 区間 [Min.X, Max.X] を、Min.X の小さい順に並べる
+  2. 左から順に見て、「まだ閉じていない区間」の列と今の区間を比べる
+  3. x で重なった組だけ、y と z でも重なっているか確かめる</code></pre></div>
+<p><code>BroadphaseMode</code> に <code>SweepAndPrune</code> を足し、<code>GenerateContacts</code> の分岐を1つ増やす。<strong><code>TestPair</code> へ合流させるだけで判定は1行も変わらない</strong>のが、要点1の線引きの配当になる。</p>
+<p>確かめ方は自己チェックの「格子と総当たりで接触の組がぴったり一致する」と同じ——<strong>同じ状態から1ステップだけ切り替えて、接触の組が一致する</strong>ことを見る。そのうえで、次を測って格子と比べる。</p>
+<ul><li>200 体の世界での候補の数と、1ステップの時間</li><li><strong>はみ出し組(平面と地形)をどう扱うか</strong>——SAP は無限の区間を並べられない。格子と同じく別の列に置くことになる</li><li>並べ替えを毎回やり直すか、前のステップの並びを使い回すか(使い回すと挿入ソートでほぼ O(n) になるのが SAP の値打ち)</li></ul>
+</section>
+<section class="part"><h2 id="s31">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070 / OpenGL 3.3</li></ul>
+<h3 id="s32">自己チェック(59 項目すべて合格)</h3>
+<p><code>Ctrl+Shift+Alt+G</code>。窓を1枚も出さずに走る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>範囲</th><th>何を確かめているか</th><th>項目数</th></tr></thead>
+<tbody>
+<tr><td>AABB</td><td>重なり判定、無限の扱い、5つの形の外接箱が形を包むこと</td><td>10</td></tr>
+<tr><td>三角形</td><td>法線の向き、7領域の最近接点、<strong>総当たりとの突き合わせ</strong>(点と線分)</td><td>7</td></tr>
+<tr><td>高さの格子</td><td>マスの数、外接箱、<strong>高さの問い合わせが三角形と一致すること</strong>、マスの範囲</td><td>10</td></tr>
+<tr><td>地形の判定</td><td>平地・坂・潜った球・<strong>内部エッジ</strong>・カプセル・箱の4点接触、デモの丘の角度</td><td>15</td></tr>
+<tr><td>ブロードフェーズ(<strong>今日</strong>)</td><td>はみ出しの扱い、重複の除去、<strong>総当たりとの一致</strong>、マスの大きさへの不変性、問い合わせ</td><td>12</td></tr>
+<tr><td>通しで動かす</td><td>400 ステップ落として<strong>すり抜けと爆発が無いこと</strong>、地形の上を歩けること</td><td>5</td></tr>
+</tbody>
+</table></div>
+<p>とくに強いのは次の4つ。</p>
+<ul><li><strong>点と三角形の最近接点を、重心座標を 60 分割した総当たり(1,891 点)と突き合わせる</strong>— 400 通りで最悪 0.0002mm。7領域の場合分けを1つ間違えると必ず落ちる</li><li><strong>高さの問い合わせを、その点が乗っている三角形の平面式と突き合わせる</strong>— 25,000 点で最悪 0.0002mm。双一次補間で書くと 25cm ずれて落ちる</li><li><strong>平らな地形を 401 点なめて、法線が一度も傾かない</strong>— 内部エッジ対策を外すと、対角線をまたぐたびに横向きの成分が出て落ちる</li><li><strong>格子と総当たりで接触の組が完全に一致する</strong>— 200 体、マスの大きさ 0.5m〜8m の5通りすべてで</li></ul>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong>1. 地形には厚みが無いので、速い物は素直に抜ける</strong>。</p>
+<p>Day 46a の2つ(逆慣性テンソルと格子点の真下)を直しても、格子で組んだ世界では 200 体のうち1体(カプセル、落下速度 13m/s)が抜けた。1ステップ 22cm 進むのに対して直径が 32cm しかないので、<strong>判定が1回も走らないまま通り抜ける</strong>。掃引(スイープ)を入れるのが本筋だが、今日は<strong>地形の外接箱を下へ 2m 厚くして「抜けても次のステップで戻す」</strong>ほうを採った。「潜った物体を押し上げる」枝は書いてあったのに、外接箱が地面に張り付いていたせいで<strong>一度も走っていなかった</strong>——書いたコードが動いていないことに気づくには、通しで動かすしかなかった。</p>
+<p><strong>2. マスを組む前に覗くと落ちる</strong>。</p>
+<p>可視化(<code>Alt+G</code>)を有効にしたまま筋書きを切り替えると、描画が物理より先に走って <code>CellContents</code> が空の配列を引いた。<code>Configure</code>(マスの数を決める)と <code>Build</code>(中身を作る)が分かれているせいで、<strong>「マスの数は決まっているのに中身が無い」瞬間</strong>がある。<code>IsBuilt</code> を足して塞いだ。</p>
+</section>
+<footer class="end">Day 46b ブロードフェーズ(均一グリッド) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+// ============================================================
+//  要点1〜3: 均一グリッド
+// ============================================================
+const WORLD_W = 16, WORLD_H = 10, MAX_CELLS = 64;
+const grid = { mode: 'grid', cell: 1, n: 120, lines: true, aabb: false, bodies: [], acc: 0, stats: null };
+function rand(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+function buildBodies() {
+  const r = rand(7);
+  grid.bodies = [];
+  for (let i = 0; i < grid.n; i++) {
+    const box = i % 3 === 0;
+    grid.bodies.push({
+      x: r() * WORLD_W, y: r() * WORLD_H, vx: (r() - 0.5) * 3, vy: (r() - 0.5) * 3,
+      box, size: box ? 0.18 + r() * 0.12 : 0.15 + r() * 0.15, angle: r() * Math.PI, spin: (r() - 0.5) * 3,
+    });
+  }
+}
+// 外接箱。回った箱は太る(各世界軸への投影の絶対値の和)
+function aabb(b) {
+  if (!b.box) return [b.x - b.size, b.y - b.size, b.x + b.size, b.y + b.size];
+  const c = Math.abs(Math.cos(b.angle)), s = Math.abs(Math.sin(b.angle)), e = b.size * (c + s);
+  return [b.x - e, b.y - e, b.x + e, b.y + e];
+}
+const overlap = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+// 「格子に入らないもの」: 無限の床と、世界じゅうを覆う地形(外接箱は全体)
+const OVERSIZED = [{ name: '床(無限の平面)', box: [-Infinity, -Infinity, Infinity, Infinity] }, { name: '地形', box: [0, 0, WORLD_W, WORLD_H] }];
+function broadphase() {
+  const boxes = grid.bodies.map(aabb);
+  const n = boxes.length;
+  let tested = 0, candidates = 0, cellsTouched = 0;
+  const pairs = new Set();
+  if (grid.mode === 'brute') {
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { tested++; if (overlap(boxes[i], boxes[j])) pairs.add(i * n + j); }
+  } else {
+    const cols = Math.ceil(WORLD_W / grid.cell), rows = Math.ceil(WORLD_H / grid.cell);
+    const cells = Array.from({ length: cols * rows }, () => []);
+    const ranges = boxes.map((b) => {
+      const x0 = Math.max(0, Math.floor(b[0] / grid.cell)), x1 = Math.min(cols - 1, Math.floor(b[2] / grid.cell));
+      const y0 = Math.max(0, Math.floor(b[1] / grid.cell)), y1 = Math.min(rows - 1, Math.floor(b[3] / grid.cell));
+      return [x0, y0, x1, y1];
+    });
+    ranges.forEach(([x0, y0, x1, y1], i) => {
+      const count = (x1 - x0 + 1) * (y1 - y0 + 1);
+      cellsTouched += count;
+      if (count > MAX_CELLS) return;   // 入らないものは別の列へ(ここでは体の側には出ない大きさ)
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) cells[y * cols + x].push(i);
+    });
+    // 同じマスにいる組を、番号の小さい側の番で1回だけ作る(_mark と同じ重複除去)
+    const mark = new Int32Array(n).fill(-1);
+    ranges.forEach(([x0, y0, x1, y1], i) => {
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        for (const j of cells[y * cols + x]) {
+          if (j <= i || mark[j] === i) continue;
+          mark[j] = i; tested++;
+          if (overlap(boxes[i], boxes[j])) pairs.add(i * n + j);
+        }
+      }
+    });
+    grid.cols = cols; grid.rows = rows; grid.cellCount = cols * rows;
+  }
+  // はみ出し組は全員と組にする(取りこぼすと床をすり抜ける)
+  let oversizedTests = 0, oversizedPairs = 0;
+  for (const o of OVERSIZED) for (let i = 0; i < n; i++) { oversizedTests++; if (overlap(o.box, boxes[i])) oversizedPairs++; }
+  // 狭域: 実際に当たっている組(円どうしの距離で近似)
+  let contacts = 0;
+  for (const key of pairs) {
+    const i = Math.floor(key / n), j = key % n, a = grid.bodies[i], b = grid.bodies[j];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < a.size + b.size) contacts++;
+  }
+  // 答えが変わっていないことの突き合わせ: 総当たりで数えた「当たっている組」
+  let truth = 0;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const a = grid.bodies[i], b = grid.bodies[j];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < a.size + b.size) truth++;
+  }
+  candidates = pairs.size;
+  grid.stats = { tested, candidates, contacts, truth, oversizedTests, oversizedPairs, cellsTouched, boxes };
+}
+function stepGrid(dt) {
+  for (const b of grid.bodies) {
+    b.x += b.vx * dt; b.y += b.vy * dt; b.angle += b.spin * dt;
+    if (b.x < b.size || b.x > WORLD_W - b.size) b.vx *= -1;
+    if (b.y < b.size || b.y > WORLD_H - b.size) b.vy *= -1;
+    b.x = Math.max(b.size, Math.min(WORLD_W - b.size, b.x)); b.y = Math.max(b.size, Math.min(WORLD_H - b.size, b.y));
+  }
+}
+function drawGrid() {
+  broadphase();
+  const st = grid.stats, n = grid.bodies.length;
+  const { ctx, w, h } = fit($('grid-canvas'));
+  const s = Math.min((w - 20) / WORLD_W, (h - 20) / WORLD_H), ox = (w - WORLD_W * s) / 2, oy = (h - WORLD_H * s) / 2;
+  const X = (x) => ox + x * s, Y = (y) => oy + y * s;
+  ctx.fillStyle = tok('--sunken'); ctx.fillRect(X(0), Y(0), WORLD_W * s, WORLD_H * s);
+  if (grid.lines && grid.mode === 'grid') {
+    ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+    for (let x = 0; x <= WORLD_W + 1e-6; x += grid.cell) { ctx.beginPath(); ctx.moveTo(X(x), Y(0)); ctx.lineTo(X(x), Y(WORLD_H)); ctx.stroke(); }
+    for (let y = 0; y <= WORLD_H + 1e-6; y += grid.cell) { ctx.beginPath(); ctx.moveTo(X(0), Y(y)); ctx.lineTo(X(WORLD_W), Y(y)); ctx.stroke(); }
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.strokeRect(X(0), Y(0), WORLD_W * s, WORLD_H * s);
+  grid.bodies.forEach((b, i) => {
+    ctx.fillStyle = b.box ? tok('--semi') : tok('--accent');
+    if (b.box) {
+      ctx.save(); ctx.translate(X(b.x), Y(b.y)); ctx.rotate(b.angle); ctx.fillRect(-b.size * s, -b.size * s, 2 * b.size * s, 2 * b.size * s); ctx.restore();
+    } else { ctx.beginPath(); ctx.arc(X(b.x), Y(b.y), b.size * s, 0, Math.PI * 2); ctx.fill(); }
+    if (grid.aabb) { const a = st.boxes[i]; ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 1; ctx.strokeRect(X(a[0]), Y(a[1]), (a[2] - a[0]) * s, (a[3] - a[1]) * s); }
+  });
+  const brute = n * (n - 1) / 2;
+  $('grid-hud').textContent =
+    `広域:${grid.mode === 'grid' ? `格子 ${grid.cell}m(${grid.cols}×${grid.rows} マス)` : '総当たり'}  体:${n}  試した組:${st.tested}  候補:${st.candidates}  はみ出し組 ${OVERSIZED.length}×${n}=${st.oversizedTests}  当たり:${st.contacts}`;
+  const avgCells = grid.mode === 'grid' ? st.cellsTouched / n : 0;
+  $('grid-stats').innerHTML =
+    stat('外接箱を比べた組', `${st.tested}`, ` <small>総当たりなら ${brute}</small>`) +
+    stat('実際に当たっている組', `${st.contacts}`, st.contacts === st.truth ? ' <span class="pill good">総当たりと一致</span>' : ` <span class="pill bad">取りこぼし ${st.truth - st.contacts}</span>`) +
+    stat('はみ出し組との組', `${st.oversizedTests}`, ` <small>= ${OVERSIZED.length} × ${n}</small>`) +
+    (grid.mode === 'grid'
+      ? stat('マスの数 / 1体がまたぐマス', `${grid.cellCount} / ${avgCells.toFixed(1)}`, '')
+      : stat('マスの数', '—'));
+  let note;
+  if (grid.mode === 'brute') note = '総当たりは n(n−1)/2 組。体を増やすと2乗で増える。当たっている組は格子のときと1つも変わらない(答えを変えずに速くする層)。';
+  else if (grid.cell <= 0.25) note = 'マスが小さすぎると、1体がまたぐマスが増え、空のマスを数えてなめるだけの手間も増える。3D ではマスを半分にすると8倍になるので、小さいほうへ外す罰が重い。';
+  else if (grid.cell >= 4) note = 'マスが大きすぎると1マスの中で総当たりになり、試す組が増える。目安は物体の平均的な差し渡しの2〜3倍。';
+  else note = '同じマス(またいだマス)にいる組だけを試し、外接箱が重なるものを候補にする。床と地形は格子に入らないので別の列に置き、全員と組にする。回った箱は外接箱が太る(「外接箱を描く」で見える)。';
+  $('grid-note').textContent = note;
+}
+seg('grid-mode', (v) => { grid.mode = v; drawGrid(); });
+seg('grid-cell', (v) => { grid.cell = Number(v); drawGrid(); });
+seg('grid-n', (v) => { grid.n = Number(v); buildBodies(); drawGrid(); });
+$('grid-lines').addEventListener('change', (e) => { grid.lines = e.target.checked; drawGrid(); });
+$('grid-aabb').addEventListener('change', (e) => { grid.aabb = e.target.checked; drawGrid(); });
+buildBodies();
+drawGrid();
+animate($('grid-canvas'), (dt) => {
+  if (!reduceMotion) { grid.acc += dt; while (grid.acc >= 1 / 60) { stepGrid(1 / 60); grid.acc -= 1 / 60; } }
+  drawGrid();
+});
+})();
+</script>
+</body>
+</html>

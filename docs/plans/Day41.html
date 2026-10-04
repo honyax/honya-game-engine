@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 41 頂点ブレンディングとスキニングアニメーション</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な1行</a></li><li class="l3"><a href="#s3">前提となる素材</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 頂点ブレンディングは、行列を重みで混ぜるだけ</a></li><li class="l3"><a href="#s7">2. 逆バインド行列は、「バインドポーズを打ち消す」ためにある</a></li><li class="l3"><a href="#s8">3. glTF のアニメーションには、行列が1つも出てこない</a></li><li class="l3"><a href="#s9">4. 回転の補間は slerp。lerp では等速にならない</a></li><li class="l3"><a href="#s10">5. スキン付きメッシュは、ノードの変換を無視する</a></li><li class="l3"><a href="#s11">6. モデルは共有、ポーズは個体ごと</a></li><li class="l3"><a href="#s12">7. スキニングは、頂点位置を使う全部のパスに入れる</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18"><code>AnimationPlayer</code> も GL を呼ばない</a></li><li class="l3"><a href="#s19"><code>Model</code> と <code>AnimationPlayer</code> を分けた線</a></li><li class="l3"><a href="#s20"><code>Part.Transform</code> を残した理由</a></li><li class="l3"><a href="#s21">頂点が 96 バイトになったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>Alt+F1</code>: CesiumMan が歩き出す</a></li><li class="l3"><a href="#s24">2. <code>Alt+F6</code>: スキニングを切る</a></li><li class="l3"><a href="#s25">3. <code>Alt+F9</code>: 骨の重みを色で見る</a></li><li class="l3"><a href="#s26">4. <code>Alt+F2</code>: 5体を巡回する</a></li><li class="l3"><a href="#s27">5. <code>Alt+F3</code>: Fox のクリップを切り替える</a></li><li class="l3"><a href="#s28">6. <code>Alt+F5</code> / <code>Alt+F8</code>: 止めてコマ送り</a></li><li class="l3"><a href="#s29">7. <code>Alt+F11</code>: リグの内訳</a></li><li class="l3"><a href="#s30">8. Day 40 までの機能が全部生きていること</a></li><li class="l3"><a href="#s31">9. <code>Alt+F12</code>: 自己チェック(35 項目すべて合格)</a></li><li class="l2"><a href="#s32">改造課題</a></li><li class="l3"><a href="#s33">課題1(易): クリップ全体で最大の境界箱を作る</a></li><li class="l3"><a href="#s34">課題2(中): CUBICSPLINE を実装する</a></li><li class="l3"><a href="#s35">課題3(難): スキン付きの頂点型を分ける</a></li><li class="l2"><a href="#s36">動作確認済み環境</a></li><li class="l3"><a href="#s37">自己チェック(35 項目すべて合格)</a></li><li class="l3"><a href="#s38">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 41 / 計画書</p>
+  <h1>頂点ブレンディングとスキニングアニメーション</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な1行</a></li><li class="l3"><a href="#s3">前提となる素材</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 頂点ブレンディングは、行列を重みで混ぜるだけ</a></li><li class="l3"><a href="#s7">2. 逆バインド行列は、「バインドポーズを打ち消す」ためにある</a></li><li class="l3"><a href="#s8">3. glTF のアニメーションには、行列が1つも出てこない</a></li><li class="l3"><a href="#s9">4. 回転の補間は slerp。lerp では等速にならない</a></li><li class="l3"><a href="#s10">5. スキン付きメッシュは、ノードの変換を無視する</a></li><li class="l3"><a href="#s11">6. モデルは共有、ポーズは個体ごと</a></li><li class="l3"><a href="#s12">7. スキニングは、頂点位置を使う全部のパスに入れる</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18"><code>AnimationPlayer</code> も GL を呼ばない</a></li><li class="l3"><a href="#s19"><code>Model</code> と <code>AnimationPlayer</code> を分けた線</a></li><li class="l3"><a href="#s20"><code>Part.Transform</code> を残した理由</a></li><li class="l3"><a href="#s21">頂点が 96 バイトになったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>Alt+F1</code>: CesiumMan が歩き出す</a></li><li class="l3"><a href="#s24">2. <code>Alt+F6</code>: スキニングを切る</a></li><li class="l3"><a href="#s25">3. <code>Alt+F9</code>: 骨の重みを色で見る</a></li><li class="l3"><a href="#s26">4. <code>Alt+F2</code>: 5体を巡回する</a></li><li class="l3"><a href="#s27">5. <code>Alt+F3</code>: Fox のクリップを切り替える</a></li><li class="l3"><a href="#s28">6. <code>Alt+F5</code> / <code>Alt+F8</code>: 止めてコマ送り</a></li><li class="l3"><a href="#s29">7. <code>Alt+F11</code>: リグの内訳</a></li><li class="l3"><a href="#s30">8. Day 40 までの機能が全部生きていること</a></li><li class="l3"><a href="#s31">9. <code>Alt+F12</code>: 自己チェック(35 項目すべて合格)</a></li><li class="l2"><a href="#s32">改造課題</a></li><li class="l3"><a href="#s33">課題1(易): クリップ全体で最大の境界箱を作る</a></li><li class="l3"><a href="#s34">課題2(中): CUBICSPLINE を実装する</a></li><li class="l3"><a href="#s35">課題3(難): スキン付きの頂点型を分ける</a></li><li class="l2"><a href="#s36">動作確認済み環境</a></li><li class="l3"><a href="#s37">自己チェック(35 項目すべて合格)</a></li><li class="l3"><a href="#s38">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 7(3Dゲーム編)の初日。描画は Day 40 でひととおり揃ったので、ここからは<strong>動くもの</strong>を足していく。今日はその土台になる「骨で頂点を動かす仕組み」。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Alt+F1</code> を押すと、リグ済みの人型モデルが歩き出す。</strong> <code>Alt+F6</code> でスキニングを切ると、骨は動き続けているのに頂点だけが止まる。</p>
+<p>見えるようになるものを1行ずつ並べるとこうなる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Alt+F1</code></td><td>CesiumMan(19 関節)が歩く。影も SSAO も一緒に動く</td></tr>
+<tr><td><code>Alt+F2</code></td><td>アニメ付きの5体を巡回(人型 / キツネ / 曲がる棒 / 仕様の最小例 / スキン無し)</td></tr>
+<tr><td><code>Alt+F3</code></td><td>Fox の Survey → Walk → Run を切り替える</td></tr>
+<tr><td><code>Alt+F6</code></td><td>スキニング ON/OFF。<strong>バインドポーズと見比べる</strong></td></tr>
+<tr><td><code>Alt+F9</code></td><td>骨の重みを色で見る。<strong>どの骨がどこを担当しているかが一目で分かる</strong></td></tr>
+</tbody>
+</table></div>
+<p>Day 42(アニメーション制御)で「歩き ↔ 走り」を滑らかに繋ぐので、今日はその手前——<strong>1本のクリップを正しく再生して、頂点を正しく変形させる</strong>ところまで。</p>
+<h3 id="s2">今日いちばん大事な1行</h3>
+<div class="code"><span class="lang">glsl</span><pre><code>mat4 skin = uJoints[j0] * w0 + uJoints[j1] * w1 + uJoints[j2] * w2 + uJoints[j3] * w3;</code></pre></div>
+<p>これが「頂点ブレンディング」の全部で、残りは<strong>この行に渡す <code>uJoints</code> を作る話</strong>になる。glTF を読むところも、ノードの木を歩くところも、クォータニオンを補間するところも、全部この4本の行列を揃えるための下ごしらえ。</p>
+<h3 id="s3">前提となる素材</h3>
+<p><code>assets/models/</code> に、リグとアニメーションを持つ5体を足した(すべて Khronos の<a href="https://github.com/KhronosGroup/glTF-Sample-Assets">glTF-Sample-Assets</a>。ライセンスは <code>assets/models/LICENSE.md</code>)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>何を試すためか</th></tr></thead>
+<tbody>
+<tr><td><code>CesiumMan.glb</code></td><td><strong>今日の主役</strong>。19 関節・57 チャンネル。人型の定番</td></tr>
+<tr><td><code>Fox.glb</code></td><td><strong>クリップが3本</strong>(Survey / Walk / Run)。Day 42 でも続けて使う</td></tr>
+<tr><td><code>RiggedSimple.glb</code></td><td>関節2本の曲がる棒。<strong>壊れたときの切り分け</strong>用</td></tr>
+<tr><td><code>SimpleSkin/SimpleSkin.gltf</code></td><td>仕様の最小例。頂点 10 個・三角形8枚・関節2本</td></tr>
+<tr><td><code>BoxAnimated.glb</code></td><td><strong>スキン無し</strong>のアニメーション。ノードの TRS だけが動く</td></tr>
+</tbody>
+</table></div>
+<p><code>.glb</code> は Git LFS なので、<code>git lfs pull</code> を一度実行しておくこと。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li>ゲームグラフィックス特論 A-5「変換(3) 座標値の生成とブレンディング」<a href="https://tokoik.github.io/gg/">https://tokoik.github.io/gg/</a>今日の理論はここに全部ある。頂点ブレンディングの式と、補間の扱い。</li><li>glTF 2.0 仕様の Skins / Animations の節<a href="https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#skins">https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#skins</a> <a href="https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#animations">https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#animations</a> <strong>「スキン付きメッシュのノードの変換は無視すること」</strong>という一文が今日の落とし穴。</li><li>glTF Tutorial の Simple Skin の回<a href="https://github.com/KhronosGroup/glTF-Tutorials/blob/master/gltfTutorial/gltfTutorial_019_SimpleSkin.md">https://github.com/KhronosGroup/glTF-Tutorials/blob/master/gltfTutorial/gltfTutorial_019_SimpleSkin.md</a> <code>SimpleSkin.gltf</code> の中身を1バイトずつ解説している。<strong>手で追えるのはここだけ</strong>。</li><li>特論 A-4「変換(2) 四元数による回転と補間」(Day 5 で読んだもの) slerp が要る理由の復習。今日ようやく「補間する」場面が来る。</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 頂点ブレンディングは、行列を重みで混ぜるだけ</h3>
+<p>スキニングの式は1本しかない。</p>
+<div class="code"><pre><code>p' = Σ w[i] * M[i] * p        (i = 0..3、Σ w[i] = 1)</code></pre></div>
+<p><code>p</code> は頂点の位置、<code>M[i]</code> は関節 <code>i</code> の<strong>関節行列</strong>、<code>w[i]</code> はその効き具合。「どの骨がこの頂点をどれだけ引っ張るか」を重みで表しているだけで、数学としてはこれ以上のものは出てこない。</p>
+<p>実装では、<strong>行列を先に混ぜてから頂点に掛ける</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>mat4 skin = M0 * w0 + M1 * w1 + M2 * w2 + M3 * w3;
+vec4 skinned = skin * vec4(aPosition, 1.0);</code></pre></div>
+<p>順番を入れ替えて「掛けてから混ぜる」でも結果は同じ(行列とベクトルの積は線形なので分配できる)。混ぜてから掛けるほうが行列とベクトルの積が1回で済むので速い。</p>
+<p><strong>この手法の弱点も式から読み取れる</strong>。混ぜた <code>skin</code> は回転行列ではない。90 度回転と 0 度回転を 0.5 ずつ混ぜると、45 度回転ではなく<strong>縮んだ行列</strong>になる。肘を大きく曲げると内側が潰れるのはこれで、アメの包み紙のように絞れることから <em>candy-wrapper artifact</em> と呼ばれる。直すには二重四元数スキニング(dual quaternion skinning)が要るが、実際のゲームは「潰れる前に関節を足す」で回避することが多い。</p>
+<p><strong>重みの合計が 1 でないと壊れる</strong>。合計 0.9 なら<code>p' = 0.9 * (混ぜた変換) * p</code> になり、<strong>その頂点だけ原点へ 10% 引き寄せられる</strong>。モデル全体が縮むのではなく特定の頂点だけがへこむので、実装ミスと区別が付きにくい。ファイル側の丸めで合計が 1 からずれることは普通にあるので、<strong>読み込み時に正規化しておく</strong>(<code>GltfLoader.NormalizeWeights</code>)。</p>
+<h3 id="s7">2. 逆バインド行列は、「バインドポーズを打ち消す」ためにある</h3>
+<p>関節行列の中身はこれ。</p>
+<div class="code"><pre><code>M[j] = IBM[j] * world(joint[j])         (行ベクトル規約。左から適用)</code></pre></div>
+<p>なぜ2段になるのか。ここが今日いちばんの引っかかりどころ。</p>
+<p>頂点 <code>p</code> は<strong>メッシュの座標系</strong>で書かれている。一方 <code>world(joint)</code> は「その関節が今どこにあるか」なので、いきなり掛けると<strong>メッシュを丸ごと関節の位置へ運んでしまう</strong>。</p>
+<p>欲しいのは「バインドポーズからの差分」だけ。だから先に<code>IBM = inverse(バインドポーズでの関節の世界行列)</code> を掛けて<strong>頂点を関節のローカル座標系へ持っていく</strong>。そのうえで今の世界行列を掛けると、関節が動いたぶんだけ頂点が動く。</p>
+<p>確かめ方が明快で、<strong>バインドポーズでは <code>IBM[j] * world(joint[j])</code> が単位行列になる</strong>。関節を1本も動かしていなければ、頂点は1ミリも動かない。スキニングが壊れたときは、まずここを測る(<code>Alt+F12</code> の自己チェックがこれをやる)。</p>
+<p><strong>ただし「ファイルのノードの姿勢」がバインドポーズとは限らない</strong>。書き出したときのフレームがそのまま入っていることが多く、今日の5体でも分かれる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>ファイルの姿勢での <code>IBM * world</code></th></tr></thead>
+<tbody>
+<tr><td>Fox</td><td>単位行列(誤差 1e-5)</td></tr>
+<tr><td>SimpleSkin</td><td>単位行列(誤差 0)</td></tr>
+<tr><td>CesiumMan</td><td>単位行列ではない(最大ずれ 1.0)</td></tr>
+<tr><td>RiggedSimple</td><td>単位行列ではない</td></tr>
+</tbody>
+</table></div>
+<p>どちらも正しいファイル。<strong>バインドポーズは <code>inverseBindMatrices</code> の側にしか無い</strong>、というのがここで押さえるところ。</p>
+<div class="inject"><figure class="lab" id="arm-lab">
+  <div class="lab-head">
+    <h3>関節2本の曲がる棒(RiggedSimple の2D版)</h3>
+    <span class="tag">p' = Σ w[j] · M[j] · p、M[j] = world(joint[j]) · IBM[j]</span>
+  </div>
+  <div class="stage"><canvas id="arm-canvas" style="height:340px" aria-label="スキニングされた棒"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">根元の角度</span>
+      <div class="range"><input type="range" id="arm-a0" min="-90" max="90" step="1" value="15"><output id="arm-a0-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">肘の角度</span>
+      <div class="range"><input type="range" id="arm-a1" min="0" max="170" step="1" value="90"><output id="arm-a1-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">重みが混ざる幅(肘の前後)</span>
+      <div class="range"><input type="range" id="arm-width" min="0.02" max="0.8" step="0.01" value="0.25"><output id="arm-width-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="arm-skin" checked> スキニング(Alt+F6)</label>
+    <label class="check"><input type="checkbox" id="arm-ibm" checked> 逆バインド行列を掛ける</label>
+    <label class="check"><input type="checkbox" id="arm-norm" checked> 重みの合計を 1 にする(切ると 0.9)</label>
+    <label class="check"><input type="checkbox" id="arm-color"> 骨の重みを色で見る(Alt+F9)</label>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-arm="0,0">バインドポーズ</button>
+        <button class="btn" data-arm="15,90">肘を 90 度</button>
+        <button class="btn" data-arm="15,165">肘を 165 度(つぶれる)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="arm-stats"></div><p id="arm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. glTF のアニメーションには、行列が1つも出てこない</h3>
+<p>構造は2階建て。</p>
+<div class="code"><pre><code>  channel … 「どのノードの、どの属性(translation/rotation/scale)を」+ どの sampler を使うか
+      ↓
+  sampler … 「いつ(input)」と「どんな値(output)」の2本のアクセサ + 補間の種類</code></pre></div>
+<p>分かれているのは、<strong>同じ時間軸を複数のチャンネルで共有できる</strong>ようにするため。CesiumMan は 19 関節 × 3 属性 = 57 チャンネルあるが、時間の配列は共有されている。</p>
+<p>入っているのは「時刻 t でのノードの平行移動・回転・拡大」だけ。<strong>行列に畳むのは再生する側の仕事</strong>で、これが分担として効いてくる。</p>
+<ul><li><strong>TRS は混ぜられる</strong>。歩きと走りを 30:70 で混ぜたければ、平行移動は lerp、回転は slerp、拡大は lerp で足りる(Day 42)</li><li><strong>行列は混ぜられない</strong>。回転行列を成分ごとに平均すると回転行列でなくなる</li></ul>
+<p>だから <code>NodePose</code>(平行移動・回転・拡大の3点セット)という型を作り、<code>Model</code> 側にはそれを持たせる。Day 32 のローダが「読んだそばから行列に畳んで捨てていた」のが、ここで足りなくなる。</p>
+<p><strong><code>Matrix4x4.Decompose</code> で戻せばよいのでは</strong>、と思うところだが、せん断が入ると失敗するし、回転の符号も一意に決まらない。<strong>分解された形で読み込む</strong>のが唯一の素直な道になる。</p>
+<h3 id="s9">4. 回転の補間は slerp。lerp では等速にならない</h3>
+<p>平行移動と拡大は素直に <code>Vector3.Lerp</code> でよい。回転だけが違う。</p>
+<p>クォータニオンを成分ごとに線形補間すると、途中の長さが 1 でなくなる。正規化し直せば向きとしては使えるが(nlerp と呼ぶ)、<strong>回る速さが一定にならない</strong>。</p>
+<p>自己チェックが測っている実際の数字がこれ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>0 度と 90 度を、時刻 1/4 で混ぜた結果</th></tr></thead>
+<tbody>
+<tr><td>slerp</td><td><strong>22.500 度</strong>(等速なら当然こうなる)</td></tr>
+<tr><td>成分ごとの lerp</td><td>21.598 度(長さ 0.9435)</td></tr>
+</tbody>
+</table></div>
+<p>0.9 度の差なので、1本の骨だけを見ていれば気づかない。<strong>関節を 20 本重ねると、足の接地がわずかに滑る</strong>といった形で出てくる。</p>
+<p>もう1つ、自作するときに必ず踏むのが<strong>遠回り問題</strong>。<code>q</code> と <code>-q</code> は同じ向きを表すのに、素直に補間すると 360 度近く回るほうを通ってしまう。<code>Quaternion.Slerp</code>(System.Numerics)は内積が負なら片方を反転してくれるので、<strong>標準ライブラリを使うぶんには自動的に面倒を見てもらえる</strong>。</p>
+<p>補間の種類は3つ。<code>LINEAR</code> / <code>STEP</code> / <code>CUBICSPLINE</code>。今日のリファレンスは前2つを実装し、<code>CUBICSPLINE</code> は<strong>接線を捨てて値だけを拾い、直線で結ぶ</strong>(知らせは出す)。改造課題2で埋める。</p>
+<div class="inject"><figure class="lab" id="slerp-lab">
+  <div class="lab-head">
+    <h3>slerp と成分ごとの lerp</h3>
+    <span>
+      <span class="legend"><i style="background:var(--semi)"></i>slerp</span>
+      <span class="legend"><i style="background:var(--expl)"></i>lerp して正規化(nlerp)</span>
+    </span>
+  </div>
+  <div class="split">
+    <div><canvas id="slerp-dial" style="height:280px" aria-label="向きの円"></canvas><div class="cap">向き(1本の軸まわりの回転として描く)</div></div>
+    <div><canvas id="slerp-chart" style="height:280px" aria-label="時刻と角度"></canvas><div class="cap">横 t / 縦 補間した角度[度]。等速なら直線</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">2つの向きの差</span>
+      <div class="range"><input type="range" id="slerp-theta" min="10" max="180" step="1" value="90"><output id="slerp-theta-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">時刻 t</span>
+      <div class="range"><input type="range" id="slerp-t" min="0" max="1" step="0.01" value="0.25"><output id="slerp-t-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="slerp-neg"> 終点を −q で持っている(同じ向き)</label>
+    <label class="check"><input type="checkbox" id="slerp-fix" checked> 内積が負なら反転する(Quaternion.Slerp の挙動)</label>
+    <button class="btn" id="slerp-play">t を動かす</button>
+  </div>
+  <div class="readout"><div class="stats" id="slerp-stats"></div></div>
+</figure></div>
+<h3 id="s10">5. スキン付きメッシュは、ノードの変換を無視する</h3>
+<p>glTF 仕様のこの一文が、今日いちばん見落としやすい落とし穴。</p>
+<blockquote><p>the transform of the skinned mesh node MUST be ignored</p></blockquote>
+<p>理由は式を見れば分かる。<code>M[j] = IBM[j] * world(joint[j])</code> の <code>world(joint)</code> は<strong>根からたどった世界行列</strong>なので、メッシュをシーン空間へ運ぶ役目を最初から持っている。そこにメッシュノードの変換をさらに掛けると、<strong>二重にずれる</strong>。</p>
+<p>見え方がはっきりしているので、間違えるとすぐ分かる。CesiumMan のメッシュノードには Z-up → Y-up の回転が入っているので、<strong>掛けてしまうと人が横倒しになる</strong>。</p>
+<p>リファレンスでは、<strong>読み込みの時点でスキン付きパーツの <code>Transform</code> を単位行列にしている</strong> (<code>GltfLoader.ReadPrimitive</code> の <code>partWorld</code>)。描画側に「スキンがあるときは行列を使わない」という分岐を残すより、データの側で確定させておくほうが読み違えにくい。</p>
+<p><strong>副作用が1つある</strong>。バインドポーズでの境界箱が「メッシュ空間の箱」になるので、CesiumMan では<strong>高さが Y ではなく Z の 0〜1.51 に出る</strong>。そのままカメラを合わせると画面の端でモデルが切れるので、<code>Program.MeasurePosedBounds</code> で<strong>今のポーズの箱を CPU で測り直して</strong>いる。</p>
+<h3 id="s11">6. モデルは共有、ポーズは個体ごと</h3>
+<p><code>Model</code> は読み込んだまま変わらない(頂点・マテリアル・骨格・クリップ)。変わるのは「今この個体がどのポーズか」だけなので、そちらを <code>AnimationPlayer</code> に閉じ込める。</p>
+<div class="code"><pre><code>  Model(1つ)  ←  AnimationPlayer(100 個)   キツネ 100 匹
+    頂点バッファ      時刻・ノードの姿勢・世界行列・関節行列
+    テクスチャ
+    骨格・クリップ</code></pre></div>
+<p><strong><code>Model</code> に <code>Time</code> を持たせてしまうと、同じモデルの2体目が作れない</strong>。Day 51 のプレイアブルデモで効いてくる形なので、ここで分けておく。</p>
+<p>1フレームの評価は4段。</p>
+<div class="code"><pre><code>  1. ファイルの姿勢へ戻す        _pose[i] ← Nodes[i].RestPose
+  2. クリップを当てる            clip.Apply(time, _pose)     触るノードだけ書き換わる
+  3. 木を降りて世界行列          _world[i] = local(i) * _world[parent]
+  4. 関節行列                    joint[j] = IBM[j] * _world[joints[j]]</code></pre></div>
+<p><strong>1 を毎回やるのが大事</strong>。クリップが触らないノードは「前フレームの値」ではなく「ファイルの値」でなければならない。戻さずに済ませると、クリップを切り替えたときに<strong>前のクリップが最後に書いた値が残る</strong>。</p>
+<p><strong>3 には並び順の保証が要る</strong>。<code>_world[parent]</code> が確定済みでなければならないのに、glTF の <code>nodes</code> の並びに順序の保証は無い(子が親より前に書かれているファイルは実在する)。読み込み時に根から深さ優先で降りた順(<code>Model.NodeOrder</code>)を作っておき、毎フレームはその順に1回舐めるだけにする。これを怠ると<strong>腕だけ1フレーム遅れてついてくる</strong>という気味の悪い出方をする。</p>
+<p><strong>関節行列をどう送るか</strong>も設計判断で、今日はいちばん素朴な <code>uniform mat4 uJoints[64]</code>。</p>
+<div class="code"><pre><code>  CesiumMan(19 関節)  19 × 64 バイト = 1.2KB を、毎フレーム × パス3回
+  100 体並べると       360KB/フレーム</code></pre></div>
+<p>1体なら誤差だが、<strong>台数に弱い</strong>のがこの方式。上限も 64 で、OpenGL 3.3 が保証する頂点 uniform の量(<code>GL_MAX_VERTEX_UNIFORM_COMPONENTS</code> = float 1024 個 = mat4 64 個)ぴったりに合わせてある。人型のフルリグ(指まで)は 60〜80 本になるので、<strong>実用ではここが最初に当たる壁</strong>。逃げ道は UBO/SSBO、関節行列のテクスチャ化、メッシュ分割の3つで、どれも先の話。</p>
+<div class="inject"><ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">ファイルの姿勢へ戻す</div>
+    <div class="rw"><span>読む <b>Nodes[i].RestPose</b></span><span>書く <b>_pose[i]</b></span></div>
+    <div class="swap">飛ばすと: クリップが触らないノードに、前のクリップが最後に書いた値が残る</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">クリップを当てる</div>
+    <div class="rw"><span>読む <b>time、clip</b></span><span>書く <b>_pose[i](触るノードだけ)</b></span></div>
+    <div class="swap">TRS のまま書く。行列には畳まない(混ぜられなくなる)</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">木を降りて世界行列</div>
+    <div class="rw"><span>読む <b>_pose、NodeOrder</b></span><span>書く <b>_world[i] = local(i) * _world[parent]</b></span></div>
+    <div class="swap">ファイルの並び順で回すと: 親より先に書かれた子が、1フレーム前の親を使う</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">関節行列</div>
+    <div class="rw"><span>読む <b>_world、Skin.InverseBindMatrices</b></span><span>書く <b>joint[j] = IBM[j] * _world[joints[j]]</b></span></div>
+    <div class="swap">これを uJoints[64] で本描画・影・SSAO の3パスに送る(要点7)</div>
+  </div></li>
+</ol>
+<figure class="lab" id="chain-lab">
+  <div class="lab-head">
+    <h3>4段の1と3を壊してみる</h3>
+    <span class="tag">関節4本のしっぽ。点線が正しい姿勢、実線が今の設定で評価した姿勢</span>
+  </div>
+  <div class="stage"><canvas id="chain-canvas" style="height:320px" aria-label="関節のしっぽ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">再生するクリップ</span>
+      <div class="seg" id="chain-clip"><button data-v="A" aria-pressed="true">A: 全部の関節を振る</button><button data-v="B" aria-pressed="false">B: 根元だけ振る</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="chain-reset" checked> 1. 毎フレーム、ファイルの姿勢へ戻す</label>
+    <div class="ctl"><span class="label">3. 木を降りる順</span>
+      <div class="seg" id="chain-order"><button data-v="good" aria-pressed="true">NodeOrder(根から)</button><button data-v="file" aria-pressed="false">ファイルの並び(子が先)</button></div>
+    </div>
+    <div class="ctl"><span class="label">更新レート</span>
+      <div class="seg" id="chain-hz"><button data-v="60" aria-pressed="true">60Hz</button><button data-v="10" aria-pressed="false">10Hz</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="chain-stats"></div><p id="chain-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s12">7. スキニングは、頂点位置を使う全部のパスに入れる</h3>
+<p>本描画だけに入れると、次のような壊れ方をする。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>入れ忘れたパス</th><th>どう見えるか</th></tr></thead>
+<tbody>
+<tr><td><code>depth.vert</code>(影)</td><td>キャラは動くのに<strong>影がバインドポーズのまま</strong>。自己遮蔽の縞も出る</td></tr>
+<tr><td><code>geometry.vert</code>(SSAO)</td><td><strong>足元の遮蔽だけが1歩ぶん置き去り</strong>になる</td></tr>
+</tbody>
+</table></div>
+<p>深度パスと SSAO の幾何パスは本描画とは別のシェーダなので、<strong>同じ関節行列を3回送る</strong>ことになる。冗長に見えるが、「3つのパスが同じ頂点位置を見る」ほうが桁違いに大事。</p>
+<p><strong>法線と接線もスキニングする</strong>のも同じ話。忘れると形は正しく曲がるのに陰影だけがバインドポーズのまま張り付き、「腕を上げたのに影が動かない」という絵になる。</p>
+<p>厳密には法線には逆転置が要るが、関節行列はほぼ回転と平行移動(非一様スケールを入れたリグは珍しい)なので <code>mat3(skin)</code> で足りる。</p>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Model/ModelNode.cs</code></td><td><code>NodePose</code>(TRS の3点セット)と <code>ModelNode</code>(名前・親・姿勢・メッシュ・スキン)</td></tr>
+<tr><td><code>Model/Skin.cs</code></td><td>スキン1つ。関節のノード番号と逆バインド行列</td></tr>
+<tr><td><code>Model/AnimationClip.cs</code></td><td>クリップ1本。<code>Channel</code> / <code>Sampler</code> と、時刻から姿勢を作る <code>Apply</code></td></tr>
+<tr><td><code>Model/AnimationPlayer.cs</code></td><td>再生装置。時刻・ノードの姿勢・世界行列・関節行列を持つ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Vertex.cs</code></td><td><code>Joints</code> / <code>Weights</code>(どちらも <code>Vector4</code>)を末尾に追加。<strong>1頂点 64 → 96 バイト</strong></td></tr>
+<tr><td><code>Render/Shader.cs</code></td><td><code>SetMatrix4Array</code>(関節行列をまとめて送る)</td></tr>
+<tr><td><code>Model/Model.cs</code></td><td><code>Nodes</code> / <code>NodeOrder</code> / <code>Skins</code> / <code>Animations</code>。<code>Part</code> に <code>NodeIndex</code> / <code>SkinIndex</code></td></tr>
+<tr><td><code>Model/GltfLoader.cs</code></td><td>ノードの木を捨てずに持ち帰る。<code>JOINTS_0</code> / <code>WEIGHTS_0</code> / <code>skins</code> / <code>animations</code> を読む。法線の生成</td></tr>
+<tr><td><code>Render/ShadowMap.cs</code></td><td><code>Draw</code> に関節行列の引数を追加</td></tr>
+<tr><td><code>Render/Ssao.cs</code></td><td>同上</td></tr>
+<tr><td><code>shaders/textured.vert</code></td><td>スキニング本体。<code>uJoints[64]</code> / <code>uSkinned</code> / 骨の重みの色</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>成分 22(骨の重み)を追加</td></tr>
+<tr><td><code>shaders/depth.vert</code></td><td>影にもスキニング</td></tr>
+<tr><td><code>shaders/geometry.vert</code></td><td>SSAO にもスキニング</td></tr>
+<tr><td><code>Program.cs</code></td><td>モデル5体を追加、<code>AnimationPlayer</code> の生成と更新、<code>Alt+F1〜F12</code>、HUD、自己チェック</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。上から順に写せば、途中でビルドが通らなくなることは無い。</p>
+<ol><li><strong><code>Render/Vertex.cs</code></strong> — <code>Joints</code> / <code>Weights</code> を末尾に足す。属性の配列にも <code>Float(4)</code> を2本足すのを忘れないこと(<code>Mesh</code> が合計バイト数を検算しているので、忘れると起動時に例外で気づける)</li><li><strong><code>Render/Shader.cs</code></strong> — <code>SetMatrix4Array</code>。<code>SetMatrix4</code> のすぐ下に置く</li><li><strong><code>Model/ModelNode.cs</code></strong>(新規) — <code>NodePose</code> と <code>ModelNode</code></li><li><strong><code>Model/Skin.cs</code></strong>(新規) — 短い。<strong>コメントのほうが本体より長い</strong></li><li><strong><code>Model/AnimationClip.cs</code></strong>(新規) — <code>Sampler.Locate</code> の二分探索と <code>SampleRotation</code> が山場</li><li><strong><code>Model/Model.cs</code></strong> — <code>Part</code> に2つ、<code>Model</code> に4つのプロパティ。コンストラクタの引数が4つ増えるので、<strong>この時点で <code>GltfLoader</code> はビルドが通らない</strong>(次で直る)</li><li><strong><code>Model/GltfLoader.cs</code></strong> — 今日いちばん量がある。次の順に足すとよい
+<ul><li><code>LoadContext</code> のフィールド(<code>_nodes</code> / <code>_nodeOrder</code> / <code>_skins</code> / <code>_animations</code> / <code>_warned</code>)</li><li><code>ReadNodes</code> / <code>BuildNodeOrder</code> / <code>ReadNodePose</code></li><li>アクセサ3本(<code>ReadScalarAccessor</code> / <code>ReadMatrix4Accessor</code> / <code>ReadVector4Flexible</code>)</li><li><code>ReadSkins</code> / <code>ReadAnimations</code> / <code>ReadAnimationSampler</code> / <code>ReadAnimationValues</code> / <code>WarnOnce</code></li><li><code>GenerateNormals</code></li><li><code>Visit</code> と <code>ReadPrimitive</code>(<code>partWorld</code> と <code>NormalizeWeights</code>)</li><li><code>Build</code> の頭と尻(<code>ReadNodes</code> / <code>ReadSkins</code> / <code>ReadAnimations</code> の呼び出し)</li><li><code>Describe</code> に <code>skins</code> / <code>animations</code> を足す</li></ul></li><li><strong><code>Model/AnimationPlayer.cs</code></strong>(新規) — <code>Evaluate</code> の4段が本体</li><li><strong><code>shaders/textured.vert</code></strong> — 属性2本、<code>uJoints</code> / <code>uSkinned</code>、<code>SkinMatrix()</code>、<code>main</code> の頭</li><li><strong><code>shaders/textured.frag</code></strong> — <code>vSkinTint</code> の受け取りと成分 22。<strong>2行だけ</strong></li><li><strong><code>shaders/depth.vert</code></strong> — 影のスキニング</li><li><strong><code>shaders/geometry.vert</code></strong> — SSAO のスキニング</li><li><strong><code>Render/ShadowMap.cs</code></strong> — <code>Draw</code> に <code>joints</code> を足す(既定引数なので呼び出し側は変えなくてよい)</li><li><strong><code>Render/Ssao.cs</code></strong> — 同上</li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li><code>ModelPaths</code> に5体、<code>_animation</code> / <code>PlaybackSpeeds</code> / <code>_playbackSpeedIndex</code> / <code>AnimationStepSeconds</code></li><li><code>Draw</code> に <code>joints</code> の引数、<code>PartMatrix</code> / <code>PartJoints</code></li><li><code>SetModel</code>(<code>_animation</code> の生成とリグの表示)、<code>FrameModel</code> と <code>MeasurePosedBounds</code></li><li><code>OnUpdate</code> の <code>_animation?.Update</code></li><li><code>RenderModel</code> / <code>RenderSsaoPass</code> / <code>RenderShadowPass</code> の3か所</li><li><code>AnimationLabel</code> / <code>AnimatedModelPaths</code> / <code>ShowAnimatedModel</code> / <code>DescribeRig</code></li><li>HUD の1行、<code>DebugChannelLabel</code> の 22、<code>% 22</code> → <code>% 23</code></li><li>キー(<code>Alt+F1〜F12</code>)。<strong><code>ctrl &amp;&amp; alt</code> の塊より後</strong>に置くこと</li><li><code>RunSkinningCheck</code> と、その助っ人4つ(<code>LoadCheckModel</code> / <code>MeasureWeights</code> / <code>MaxJointDeviation</code> / <code>MaxAbsDifference</code> / <code>MeasureSkinnedMotion</code> / <code>SkinPosition</code>)</li><li><code>OnLoad</code> のヘルプ</li></ul></li></ol>
+<p>なお <code>Program.cs</code> の <code>_player</code> は Day 22 の <code>PlayerController</code> が先に使っている。アニメーションの再生装置は <strong><code>_animation</code></strong> という名前にしてある。</p>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> の中にクラスが4つ増えて、<code>Render/</code> の3つと <code>shaders/</code> の4本に手が入っただけ。矢印の向きも数も Day 40 のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Model/NodePose</code></td><td><code>Model/</code></td><td>ノードのローカル姿勢(平行移動・回転・拡大)</td></tr>
+<tr><td><code>Model/ModelNode</code></td><td><code>Model/</code></td><td>ノード1つ。名前・親・姿勢・メッシュ番号・スキン番号</td></tr>
+<tr><td><code>Model/Skin</code></td><td><code>Model/</code></td><td>関節のノード番号と逆バインド行列</td></tr>
+<tr><td><code>Model/AnimationClip</code></td><td><code>Model/</code></td><td>クリップ1本。<code>Channel</code> と <code>Sampler</code> を内側に持つ</td></tr>
+<tr><td><code>Model/AnimationPlayer</code></td><td><code>Model/</code></td><td><strong>今日の主役</strong>。時刻から関節行列を作る。<strong>GL を1回も呼ばない</strong></td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Vertex</code></td><td><code>Joints</code> / <code>Weights</code>。<strong>1頂点 96 バイト</strong></td></tr>
+<tr><td><code>Render/Shader</code></td><td><code>SetMatrix4Array</code></td></tr>
+<tr><td><code>Render/ShadowMap</code> / <code>Render/Ssao</code></td><td><code>Draw</code> に関節行列の引数</td></tr>
+<tr><td><code>Model/Model</code></td><td><code>Nodes</code> / <code>NodeOrder</code> / <code>Skins</code> / <code>Animations</code> / <code>GeneratedNormalParts</code></td></tr>
+<tr><td><code>Model/Model.Part</code></td><td><code>NodeIndex</code> / <code>SkinIndex</code></td></tr>
+<tr><td><code>Model/GltfLoader</code></td><td>スキンとアニメーションの読み込み、法線の生成</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18"><code>AnimationPlayer</code> も GL を呼ばない</h3>
+<p>Day 39 の <code>SkyAnalysis</code>、Day 40 の <code>CameraPath</code> と同じ性格のクラスがもう1つ増えた。入口は <code>float</code>(秒)、出口は <code>Matrix4x4[]</code>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クラス</th><th>入口</th><th>出口</th><th>GL</th></tr></thead>
+<tbody>
+<tr><td><code>SurfaceMaps</code></td><td>パラメータ</td><td><code>byte[]</code> x3</td><td>呼ばない</td></tr>
+<tr><td><code>SkyImage</code></td><td>太陽の向き</td><td><code>float[]</code></td><td>呼ばない</td></tr>
+<tr><td><code>HdrImage</code></td><td>ファイルのパス</td><td><code>float[]</code></td><td>呼ばない</td></tr>
+<tr><td><code>SkyAnalysis</code></td><td><code>float[]</code></td><td><code>Sun</code> / <code>float[]</code></td><td>呼ばない</td></tr>
+<tr><td><code>CameraPath</code></td><td>時刻</td><td><code>Pose</code></td><td>呼ばない</td></tr>
+<tr><td><code>AnimationPlayer</code></td><td>時刻</td><td><code>Matrix4x4[]</code></td><td>呼ばない</td></tr>
+</tbody>
+</table></div>
+<p>配当はやはり<strong>自己チェック</strong>で、<code>RunSkinningCheck</code> の 35 項目のうち描画に触るのは頂点を読み返す2項目だけ。「slerp が等速か」「関節行列がバインドポーズで単位行列か」「重みの合計が 1 か」は<strong>絵にせずに確かめられる</strong>問いなので、そこを分けておくと検算が軽い。</p>
+<h3 id="s19"><code>Model</code> と <code>AnimationPlayer</code> を分けた線</h3>
+<p>Day 32 の <code>Model</code> は「読み込んだまま変わらないもの」だった。今日それを崩さずに動かすために、<strong>変わるもの側を丸ごと別のクラスへ出した</strong>。</p>
+<div class="code"><pre><code>  Model                          AnimationPlayer
+    Parts(頂点・マテリアル)  ←    _pose[]     ノードの今の姿勢
+    Nodes(木の形と初期姿勢)  ←    _world[]    ノードの世界行列
+    Skins(関節と IBM)        ←    _joints[][] スキンごとの関節行列
+    Animations(クリップ)     ←    _time       再生位置</code></pre></div>
+<p>左は読むだけ、右が毎フレーム書き換わる。この線を引いた配当は3つ。</p>
+<p>1つ目。<strong>同じモデルを何体でも置ける</strong>。プレイヤーだけ増やせばよい。</p>
+<p>2つ目。<strong><code>Model</code> を捨てる手順が変わらない</strong>。<code>AnimationPlayer</code> は GPU のものを1つも握っていないので、参照を切るだけでよい(<code>SetModel</code> の <code>_animation = null</code>)。「捨てるものと、参照を切れば済むもの」の違いがはっきり出る。</p>
+<p>3つ目。<strong>クリップの合成(Day 42)を足す場所が決まる</strong>。2本のクリップを混ぜるのは <code>_pose</code> を作る段の話で、<code>Model</code> にも <code>AnimationClip</code> にも手を入れずに済む。</p>
+<h3 id="s20"><code>Part.Transform</code> を残した理由</h3>
+<p>スキン付きのパーツの <code>Transform</code> は単位行列になり、使われない。アニメーション付きのモデルのスキン無しパーツも、<code>AnimationPlayer.GetNodeWorld</code> のほうを使う。<strong>では <code>Transform</code> は要らないのか</strong>というと、静的なモデルには要る。</p>
+<div class="code"><pre><code>  スキン付き              → 単位行列。位置は関節行列が持つ
+  アニメあり・スキン無し  → AnimationPlayer.GetNodeWorld(NodeIndex)
+  静的なモデル            → Part.Transform(Day 32 からの経路)</code></pre></div>
+<p>3つ目を残してあるのは<strong>互換のため</strong>。プレイヤーの世界行列は TRS から作り直すので、<code>matrix</code> で書かれたノード(BoxTextured)ではわずかに値が変わりうる。Day 39 のデモシーンの小物は全部この経路を通るので、<strong>今日の変更で過去の絵が1ピクセルも動かなかった</strong>ことを保証しやすい形にしてある。</p>
+<p><code>Program.PartMatrix</code> がこの3分岐を1か所に閉じ込めていて、本描画・影・SSAO の3か所が同じ関数を呼ぶ。<strong>ここを3か所に写すと、いつか1つだけ直し忘れる</strong>——そのときの症状が「影だけずれる」なので、原因にたどり着くのに時間がかかる。</p>
+<h3 id="s21">頂点が 96 バイトになったこと</h3>
+<p><code>Joints</code> と <code>Weights</code> で 32 バイト増えた。性質が悪いのは、<strong>これを使うのはスキンを持つメッシュだけ</strong>だという点。Day 39 のデモシーンの地面も壁も小物も、全部 0 が詰まった 32 バイトを運ぶ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day</th><th>1頂点</th><th>内訳</th></tr></thead>
+<tbody>
+<tr><td>Day 17</td><td>32 バイト</td><td>位置12 + UV8 + 色12</td></tr>
+<tr><td>Day 32</td><td>48 バイト</td><td>+ 法線12(色が Vector4 に)</td></tr>
+<tr><td>Day 34</td><td>64 バイト</td><td>+ 接線16</td></tr>
+<tr><td><strong>Day 41</strong></td><td><strong>96 バイト</strong></td><td><strong>+ 関節16 + 重み16</strong></td></tr>
+</tbody>
+</table></div>
+<p>本来は <code>SkinnedVertex</code> を別に定義して <code>Mesh&lt;SkinnedVertex&gt;</code> として分けるのが正しい。そうしなかったのは、描く側(<code>Program.Draw</code> / <code>ShadowMap</code> / <code>Ssao</code>)が全部 <code>Mesh&lt;Vertex&gt;</code> で書かれていて、<strong>型を1つ増やすと今日の主題と関係の無い差分が広がる</strong>ため。DamagedHelmet の 14556 頂点で 1.4MB なので、この規模ではまだ払える。改造課題3で分ける。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day41 -c Release</code> で起動する。<strong>必ず <code>-c Release</code></strong>——<code>.hdr</code> の復号も太陽の抽出も CPU の総なめなので、Debug だと読み込みが数倍かかる。</p>
+<p>起動直後は Day 40 までの絵(DamagedHelmet)。今日の主役は <code>Alt+F1</code> から。</p>
+<h3 id="s23">1. <code>Alt+F1</code>: CesiumMan が歩き出す</h3>
+<p>床の上に人型が立ち、<strong>歩き始める</strong>。コンソールに出る:</p>
+<div class="code"><pre><code>モデル: CesiumMan.glb  61ms
+  glb  428KB  nodes:22  meshes:1  skins:1  animations:1  materials:1  textures:1  images:1  accessors:83  generator:COLLADA2GLTF
+  パーツ 1 / 三角形 4,672 / 頂点 3,273 / マテリアル 1 / テクスチャ 1
+  接線: ファイル 0 パーツ / 生成 1 パーツ
+  法線: 生成 0 パーツ / ノード 22 / スキン 1 / 関節 19 / スキン付きパーツ 1 / クリップ 1
+  [スキン Armature] 関節 19 本(根 Skeleton_torso_joint_1)
+  [クリップ 0: anim0] 2.00s / チャンネル 57</code></pre></div>
+<p>HUD の2行目がこうなっていること:</p>
+<div class="code"><pre><code>アニメ:anim0(1/1)  0.43/2.00s  1.00倍  再生中  スキニング:ON
+  ノード:22  スキン:1  関節:19/64  スキン付き:1/1</code></pre></div>
+<p><strong>影も一緒に動いていること</strong>を必ず確かめる。床に落ちた影がモデルと同じ形で歩いていればよい。<strong>影だけ棒立ちなら <code>depth.vert</code> の写経漏れ</strong>。</p>
+<h3 id="s24">2. <code>Alt+F6</code>: スキニングを切る</h3>
+<p><strong>モデルが床に倒れる。</strong> これが正しい挙動。</p>
+<p>CesiumMan の<strong>メッシュ空間は Z 上向き</strong>で、立たせる回転は関節行列の側が持っている。関節行列を全部単位行列にすると、頂点はメッシュ空間の座標そのままになる——つまり寝た姿勢が出る(要点2の表で「CesiumMan はバインドポーズにない」と書いたのがこれ)。</p>
+<p>HUD の <code>スキニング:OFF</code> と、時刻が進み続けていることを確かめる。<strong>骨は動いているのに頂点が動かない</strong>、というのが今日の眼目。</p>
+<p><code>Alt+F2</code> で Fox に移ってから <code>Alt+F6</code> すると、こちらは<strong>立ったまま静止</strong>する。Fox はファイルの姿勢がバインドポーズなので、倒れない。<strong>同じ操作で見え方が変わるのは、ファイルの差</strong>であって実装の差ではない。</p>
+<h3 id="s25">3. <code>Alt+F9</code>: 骨の重みを色で見る</h3>
+<p>関節ごとに違う色が付き、腕・脚・胴が塗り分けられる。見るべきは<strong>色の境目</strong>で、単色の帯が「1本の骨が受け持っている範囲」、グラデーションになっている帯が「2本以上が奪い合っている範囲」。</p>
+<p>肩・肘・膝・股関節のあたりにグラデーションが集中していればよい。<strong>全体が1色ならスキンが読めていない</strong>(<code>JOINTS_0</code> が全部 0 になっている)。</p>
+<p>床は灰色(0.15)で塗られる。スキンを持たないものはこうなる。</p>
+<p>もう一度 <code>Alt+F9</code> で通常表示に戻る。</p>
+<h3 id="s26">4. <code>Alt+F2</code>: 5体を巡回する</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>見るべきところ</th></tr></thead>
+<tbody>
+<tr><td>CesiumMan</td><td>19 関節の人型。<strong>今日の到達点</strong></td></tr>
+<tr><td>Fox</td><td>低ポリゴンのキツネ。<code>法線: 生成 1 パーツ</code> が出ること(NORMAL を持たない)</td></tr>
+<tr><td>RiggedSimple</td><td>棒が曲がる。<code>Alt+F9</code> で<strong>関節2本の重みの混ざり方</strong>が真横から見える</td></tr>
+<tr><td>SimpleSkin</td><td>板が曲がる。<strong>真っ黒に見えるのが正しい</strong>(下記)</td></tr>
+<tr><td>BoxAnimated</td><td>箱が持ち上がって回る。HUD が <code>スキン:0 関節:0/64 スキン付き:0/2</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>SimpleSkin が黒いのはマテリアルを持たないから</strong>。glTF の既定マテリアルは<code>metallic = 1.0</code> / <code>roughness = 1.0</code>(仕様どおり)で、<strong>拡散のない真っ粗な金属</strong>になる。ここは仕様に従っているだけなので直さない。形が曲がっていることは <code>Alt+F9</code> で確かめられる。</p>
+<p><strong>BoxAnimated がいちばん大事</strong>。スキンが0本でクリップが動く——「アニメーション」と「スキニング」が別の仕組みだと分かる1体。</p>
+<h3 id="s27">5. <code>Alt+F3</code>: Fox のクリップを切り替える</h3>
+<p>Fox を出した状態で押すと、コンソールに出る:</p>
+<div class="code"><pre><code>クリップ: Walk(2/3)  0.71s
+クリップ: Run(3/3)   1.16s
+クリップ: Survey(1/3) 3.42s</code></pre></div>
+<p>Walk と Run で<strong>足の運びの速さと歩幅が変わる</strong>。Survey は周りを見回す。1本しか持たないモデルでは「クリップが1本以下です」と出る。</p>
+<h3 id="s28">6. <code>Alt+F5</code> / <code>Alt+F8</code>: 止めてコマ送り</h3>
+<p><code>Alt+F5</code> で止め、<code>Alt+F8</code> を連打すると 1/30 秒ずつ進む。</p>
+<div class="code"><pre><code>コマ送り: 0.033s / 2.00s
+コマ送り: 0.067s / 2.00s</code></pre></div>
+<p><strong>補間が効いているかはここで確かめる</strong>。キーは 24〜30fps 刻みで打たれているので、1/30 秒送りなら「キーとキーの間」を必ず通る。そこで姿勢が飛んでいれば、<code>Sampler.Locate</code> か <code>SampleRotation</code> が怪しい。</p>
+<p><code>Alt+F7</code> で 0.25 倍に落とすのも同じ目的に使える。</p>
+<h3 id="s29">7. <code>Alt+F11</code>: リグの内訳</h3>
+<p>木の形と、<code>JOINTS_0</code> の値がどのノードを指すかが出る。</p>
+<div class="code"><pre><code>=== CesiumMan のリグ ===
+ノード 22 / スキン 1 / 関節 19 / クリップ 1
+    0: Z_UP
+      1: Cesium_Man [mesh] [skin]
+      3: Skeleton_torso_joint_1
+        4: Skeleton_torso_joint_2
+   ...
+  スキン 0 (Armature) の関節:
+    JOINTS_0 の  0 → ノード   3 (Skeleton_torso_joint_1)
+    JOINTS_0 の  1 → ノード   4 (Skeleton_torso_joint_2)</code></pre></div>
+<p><strong><code>[mesh] [skin]</code> が付いたノードの下に骨がぶら下がっていない</strong>ことに注目。メッシュと骨格は兄弟であって親子ではない——だからメッシュノードの変換を掛けてはいけない(要点5)、という話が木の形として見える。</p>
+<h3 id="s30">8. Day 40 までの機能が全部生きていること</h3>
+<p><code>Ctrl+Alt+F1</code>(デモ v1 のカメラワーク)、<code>Ctrl+Shift+F12</code>(決めの構図)、<code>Shift+F12</code>(FXAA)、<code>Ctrl+F9</code>(SSAO)、数字キーの5段——全部そのまま動く。</p>
+<p><strong>デモ v1 の絵が1ピクセルも変わっていないこと</strong>が特に大事。<code>Part.Transform</code> の経路を残したのはこのためで、Day 39 の小物は全部 Day 32 からの道を通っている。</p>
+<p><code>Shift+0</code>(モデル切り替え)は 9 体 + 「無し」の 10 通りに増えている。</p>
+<h3 id="s31">9. <code>Alt+F12</code>: 自己チェック(35 項目すべて合格)</h3>
+<div class="code"><pre><code>--- Day 41: スキニングアニメーションの自己チェック ---
+  [OK] LINEAR: 中点が中間値  5.0000
+  [OK] slerp は等速で回る(1/4 の時刻で 22.5 度)  22.500度
+  [OK] 素の lerp は 22.5 度にならない(<strong>回る速さが一定でない</strong>)  21.598度  長さ 0.9435
+  [OK] Fox: クリップが3本(Survey / Walk / Run)  Survey 3.42s / Walk 0.71s / Run 1.16s
+  [OK] CesiumMan: 重みの合計が 1(誤差 1e-4 未満)  1.000000〜1.000000
+  [OK] Fox: ファイルの姿勢がバインドポーズ(関節行列 = 単位行列)  最大ずれ 9.54E-006
+  [OK] CesiumMan: ファイルの姿勢はバインドポーズではない(<strong>これも正常</strong>)  最大ずれ 1.00E+000
+  [OK] CesiumMan: 1秒でスキニング後の頂点が動く  最大 84.7cm
+  すべて合格(頂点ブレンディングとクリップ再生が仕様どおり)</code></pre></div>
+<p>最後の2項目が実質的な合否で、<strong>シェーダと同じ式を C# 側でもう一度計算</strong>して、頂点が実際に動くことと NaN が出ないことを見ている。行列が正しそうでも頂点が動かなければ意味が無い。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Alt+F2</code>(RiggedSimple)</td><td>曲がる棒</td><td>関節2本の棒。実機では3D、ここでは横から見た2D</td></tr>
+<tr><td><code>Alt+F6</code></td><td>曲がる棒「スキニング」</td><td>骨は動き続けるのに、頂点だけがバインドポーズに止まる</td></tr>
+<tr><td><code>Alt+F9</code></td><td>曲がる棒「骨の重みを色で見る」</td><td>肘のまわりで2本の重みが混ざる範囲が見える</td></tr>
+<tr><td><code>Alt+F12</code>(自己チェック)</td><td>slerp と lerp</td><td>90 度を t = 1/4 で混ぜて 22.500 度と 21.598 度(長さ 0.9435)</td></tr>
+<tr><td><code>Alt+F12</code>(自己チェック)</td><td>曲がる棒「バインドポーズ」</td><td>バインドポーズで IBM × world が単位行列になる</td></tr>
+<tr><td><code>Alt+F3</code>(Fox のクリップ切り替え)</td><td>4段「再生するクリップ」</td><td>切り替えても前のクリップの姿勢が残らないのは、1段目で戻しているから</td></tr>
+<tr><td><code>Alt+F5</code> / <code>Alt+F8</code></td><td>4段「更新レート」</td><td>止めてコマ送りすると、1フレームの遅れが見える</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は横から見た2Dで、回転は1本の軸まわりだけを扱う。式(頂点ブレンディング、関節行列、slerp の内積の扱い、評価の4段)は reference/Day41 と同じ。</p></div>
+</section>
+<section class="part"><h2 id="s32">改造課題</h2>
+<h3 id="s33">課題1(易): クリップ全体で最大の境界箱を作る</h3>
+<p>いまの <code>Program.MeasurePosedBounds</code> は<strong>読み込み直後の姿勢1つ</strong>しか測っていない。だから Fox の Survey(頭を大きく振る)では、途中でモデルが画面からはみ出す。</p>
+<p>直し方は素直で、クリップを一定間隔(たとえば 1/15 秒)で刻んで、各時刻の箱の和を取る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>for (float t = 0.0f; t &lt; player.Duration; t += 1.0f / 15.0f)
+{
+    player.SelectClip(clip);
+    player.Advance(t);
+    (Vector3 min, Vector3 max) = MeasurePosedBounds(model, player);
+    // 和を取る
+}</code></pre></div>
+<p>そのうえで確かめてほしいことが2つ。</p>
+<ul><li><strong>どれだけ大きくなるか</strong>。CesiumMan で数 % だが、Fox の Survey では1 割以上変わる。「アニメーションのある物体の境界箱」が静的なものより必ず大きくなる理由が実感できる</li><li><strong>1回の測定に何 ms かかるか</strong>。頂点を GPU から読み返すので、刻みを細かくすると読み込みが目に見えて遅くなる。実際のエンジンが<strong>関節の位置だけから大まかな箱を作る</strong>のはこれが理由</li></ul>
+<h3 id="s34">課題2(中): CUBICSPLINE を実装する</h3>
+<p>いまは接線を捨てて直線で結んでいる(読み込み時に知らせが出る)。glTF の CUBICSPLINE はキー1つにつき値が3つ並ぶ。</p>
+<div class="code"><pre><code>  [ 入り接線 a[0], 値 v[0], 出接線 b[0], 入り接線 a[1], 値 v[1], ... ]</code></pre></div>
+<p>補間は三次エルミート。仕様の付録にそのまま式がある。</p>
+<div class="code"><pre><code>  t2 = t*t, t3 = t2*t
+  p(t) = (2t3 - 3t2 + 1) * v[k]
+       + (t3 - 2t2 + t) * dt * b[k]
+       + (-2t3 + 3t2) * v[k+1]
+       + (t3 - t2) * dt * a[k+1]</code></pre></div>
+<p><code>dt</code> は<strong>その区間の秒数</strong>(<code>times[k+1] - times[k]</code>)。ここを 1 と決め打ちすると、区間の長さによって接線の強さが変わり、<strong>キーの上では合っているのに間で暴れる</strong>。</p>
+<p><code>AnimationClip.Sampler</code> に <code>SampleVector3</code> / <code>SampleRotation</code> の分岐を足す。回転はエルミートで補間したあと正規化する(球面上には乗らないので近似になる)。</p>
+<p><strong>確かめる素材が手元に無い</strong>のが難所で、今日の5体はすべて LINEAR。Blender で適当なモデルにベジエ補間のキーを打って書き出すか、<code>InterpolationTest.glb</code>(glTF-Sample-Assets)を取ってくると比較できる。</p>
+<h3 id="s35">課題3(難): スキン付きの頂点型を分ける</h3>
+<p><code>Vertex</code> は 96 バイトになったが、<code>Joints</code> / <code>Weights</code> を使うのは<strong>スキンを持つメッシュだけ</strong>。デモシーンの地面も壁も小物も、全部 0 が詰まった 32 バイトを運んでいる。</p>
+<p>分けるには、描く側が頂点の型を知らなくてよい形にする必要がある。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal interface IMesh : IDisposable
+{
+    void Draw();
+}
+
+internal sealed class Mesh&lt;TVertex&gt; : IMesh where TVertex : unmanaged { ... }</code></pre></div>
+<p>そのうえで <code>Model.Part.Mesh</code> を <code>IMesh</code> にし、<code>Program.Draw</code> / <code>ShadowMap.Draw</code> / <code>Ssao.Draw</code> の引数も <code>IMesh</code> にする。<code>Vertex</code> から <code>Joints</code> / <code>Weights</code> を落とし、<code>SkinnedVertex</code> を新設する。</p>
+<p>引っかかるのが3か所ある。</p>
+<ul><li><strong><code>ReadVertices()</code> が型を要求する</strong>。自己チェックが<code>part.Mesh.ReadVertices()</code> を呼んでいるので、<code>IMesh</code> 越しには取れない。<code>IMesh</code> に <code>ReadPositions()</code> だけを置くか、チェック側で型を判別するか</li><li><strong><code>Primitives</code> が作るのは <code>Mesh&lt;Vertex&gt;</code></strong>。立方体も板も球もスキンを持たないので、こちらは <code>Vertex</code> のままでよい</li><li><strong>シェーダは2本要るのか</strong>。属性 5・6 を宣言したシェーダに<code>SkinnedVertex</code> でないメッシュを流すと、属性が刺さっていない状態になる。<code>glVertexAttrib4f</code> で既定値を入れるか、シェーダを分けるか</li></ul>
+<p><strong>測ってから決めるのが本筋</strong>。デモ v1 の頂点数(21 万三角形ぶん)で何 MB 減るのかを先に計算して、それが払う複雑さに見合うかを判断する。</p>
+</section>
+<section class="part"><h2 id="s36">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070 / 1920x1080(DPI 100%)</li><li><code>dotnet run --project reference/Day41 -c Release</code></li></ul>
+<p>CesiumMan(4,672 三角形 / 19 関節)を影・SSAO・IBL・ブルーム・FXAA 込みで <strong>257 fps</strong>。Fox・BoxAnimated・SimpleSkin も同じ。<strong>スキニングの負荷はこの規模では見えない</strong>——1体ぶんの関節行列は 19 個で、頂点シェーダの掛け算が4回増えるだけ。</p>
+<p>読み込み時間は CesiumMan 61ms / Fox 23ms / BoxAnimated 5ms。DamagedHelmet の 300ms(2K テクスチャ5枚の復号)と比べると、<strong>アニメーションのデータは軽い</strong>ことが分かる。</p>
+<h3 id="s37">自己チェック(35 項目すべて合格)</h3>
+<p>上の「完成条件 9」のとおり。数字の読み方をいくつか。</p>
+<ul><li><strong>slerp 22.500 度 / lerp 21.598 度</strong>。「slerp が要る」という言葉が<strong>0.9 度という具体的な差</strong>になる。1本の骨では気づかないが、20 本重ねると足の接地が滑る</li><li><strong>Fox の関節行列のずれが 9.54E-006</strong>。float の精度の話しか残っていない。ここが <code>1E-3</code> くらいになるなら、逆バインド行列の転置を疑う</li><li><strong>CesiumMan のずれが 1.00E+000</strong>。<strong>これは異常ではない</strong>。ファイルのノードがバインドポーズに置かれていないだけで、ここを「0 でなければおかしい」と決めつけると、正常なファイルを疑い始める</li><li><strong>1秒で 84.7cm 動く</strong>。CesiumMan の身長が 1.5m ほどなので、歩幅としては妥当。ここが 0 なら重みか関節番号が読めていない</li></ul>
+<h3 id="s38">検証の途中で分かったこと</h3>
+<p><strong><code>SimpleSkin.gltf</code> は自己完結していなかった</strong>。<code>glTF-Sample-Assets</code> の <code>glTF/</code> 版は <code>SimpleSkin_geometry.bin</code> を外部参照していて、1ファイルだけ持ってきても読めない。<code>glTF-Embedded/</code> 版のほうがbase64 の data URI で全部入っているので、そちらを置いた。結果として <strong>data URI の経路を通す唯一のモデル</strong>にもなっている。</p>
+<p><strong>カメラ合わせが最初まったく成立しなかった</strong>。<code>FrameModel</code> は <code>Model.BoundsMin/Max</code> からカメラを決めていたが、スキン付きのパーツの境界箱は<strong>メッシュ空間の箱</strong>(要点5)。CesiumMan はメッシュ空間が Z 上向きなので、高さが Y ではなく Z の 0〜1.51 に出て、<strong>中心が足元の外に来る</strong>。モデルが画面の右上で切れた。</p>
+<p>直したのが <code>MeasurePosedBounds</code> で、<strong>今のポーズで頂点を CPU でスキニングして測り直す</strong>。「バインドポーズの箱」と「実際に描かれる場所」が違うというのは、スキニングを入れた日にしか起きない種類のずれで、絵を見るまで存在に気づけなかった。</p>
+<p><strong><code>_player</code> という名前が使えなかった</strong>。Day 22 の <code>PlayerController</code> が先に <code>Program._player</code> を使っていて、<code>AnimationPlayer</code> を同じ名前で置くと<code>CS0102: already contains a definition</code> になる。<code>_animation</code> に改名した。<code>DemoScene.Path</code>(Day 40)と同じ種類の衝突で、<strong>Program.cs が 12,000 行を超えると名前の取り合いが普通に起きる</strong>。</p>
+</section>
+<footer class="end">Day 41 頂点ブレンディングとスキニングアニメーション / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+// ============================================================
+//  2D のアフィン行列 [a, b, c, d, e, f]
+//  x' = a·x + c·y + e、y' = b·x + d·y + f(canvas と同じ並び)
+// ============================================================
+const I = () => [1, 0, 0, 1, 0, 0];
+const rot = (r) => [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0];
+const trans = (x, y) => [1, 0, 0, 1, x, y];
+// mul(A, B): B を先に、A を後に適用する
+const mul = (A, B) => [
+  A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1],
+  A[0] * B[2] + A[2] * B[3], A[1] * B[2] + A[3] * B[3],
+  A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5],
+];
+const apply = (M, x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]];
+const deg = (r) => r * 180 / Math.PI;
+const rad = (d) => d * Math.PI / 180;
+
+// ============================================================
+//  要点1・2: 曲がる棒
+// ============================================================
+const SEG = 40, HALF = 0.16;
+const arm = { a0: 15, a1: 90, width: 0.25, skin: true, ibm: true, norm: true, color: false };
+// バインドポーズ: 関節0 は原点、関節1 は (1, 0)。IBM はその逆
+const IBM = [I(), trans(-1, 0)];
+// トークンの色(#rrggbb)を t で混ぜる。canvas は color-mix() を解釈しないブラウザがあるので自前で混ぜる
+function mixHex(a, b, t) {
+  const p = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  const A = p(a), B = p(b);
+  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`;
+}
+function smooth(e0, e1, x) { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
+function armWeights(x) { const w1 = smooth(1 - arm.width, 1 + arm.width, x); return [1 - w1, w1]; }
+function armWorld() {
+  const W0 = rot(rad(arm.a0));
+  const W1 = mul(W0, mul(trans(1, 0), rot(rad(arm.a1))));
+  return [W0, W1];
+}
+function skinPoint(x, y, W) {
+  if (!arm.skin) return [x, y];
+  const [w0, w1] = armWeights(x).map((w) => w * (arm.norm ? 1 : 0.9));
+  const M0 = arm.ibm ? mul(W[0], IBM[0]) : W[0];
+  const M1 = arm.ibm ? mul(W[1], IBM[1]) : W[1];
+  // 行列を先に混ぜてから、頂点に1回だけ掛ける
+  const S = M0.map((v, k) => v * w0 + M1[k] * w1);
+  return apply(S, x, y);
+}
+function drawArm() {
+  const { ctx, w, h } = fit($('arm-canvas'));
+  const muted = tok('--muted'), grid = tok('--grid'), ink = tok('--ink');
+  const s = Math.min(w / 3.4, h / 2.9);
+  const ox = w * 0.36, oy = h * 0.62;
+  const X = (x) => ox + x * s, Y = (y) => oy - y * s;
+  ctx.strokeStyle = grid; ctx.lineWidth = 1;
+  for (let g = -2; g <= 3; g++) {
+    ctx.beginPath(); ctx.moveTo(X(g), 0); ctx.lineTo(X(g), h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, Y(g)); ctx.lineTo(w, Y(g)); ctx.stroke();
+  }
+  const W = armWorld();
+  // バインドポーズの輪郭
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = muted;
+  ctx.strokeRect(X(0), Y(HALF), 2 * s, 2 * HALF * s); ctx.setLineDash([]);
+  // 変形した帯(四角形を SEG 個)
+  const top = [], bot = [];
+  for (let i = 0; i <= SEG; i++) {
+    const x = 2 * i / SEG;
+    top.push(skinPoint(x, HALF, W)); bot.push(skinPoint(x, -HALF, W));
+  }
+  const cA = tok('--semi'), cB = tok('--expl');
+  for (let i = 0; i < SEG; i++) {
+    ctx.beginPath();
+    ctx.moveTo(X(top[i][0]), Y(top[i][1])); ctx.lineTo(X(top[i + 1][0]), Y(top[i + 1][1]));
+    ctx.lineTo(X(bot[i + 1][0]), Y(bot[i + 1][1])); ctx.lineTo(X(bot[i][0]), Y(bot[i][1])); ctx.closePath();
+    if (arm.color) {
+      const w1 = armWeights((2 * i + 1) / SEG)[1];
+      ctx.fillStyle = mixHex(cA, cB, w1);
+    } else {
+      ctx.fillStyle = tok('--accent-soft');
+    }
+    ctx.fill();
+    ctx.strokeStyle = arm.color ? 'rgba(0,0,0,0.15)' : tok('--accent'); ctx.lineWidth = 0.6; ctx.stroke();
+  }
+  // 骨
+  const j0 = apply(W[0], 0, 0), j1 = apply(W[1], 0, 0), tip = apply(W[1], 1, 0);
+  ctx.strokeStyle = ink; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(X(j0[0]), Y(j0[1])); ctx.lineTo(X(j1[0]), Y(j1[1])); ctx.lineTo(X(tip[0]), Y(tip[1])); ctx.stroke();
+  for (const [p, label] of [[j0, '関節0'], [j1, '関節1']]) {
+    ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = muted; ctx.font = '12px ' + tok('--font-body'); ctx.fillText(label, X(p[0]) + 8, Y(p[1]) - 8);
+  }
+  // 数値
+  const mid = SEG / 2;
+  const thick = Math.hypot(top[mid][0] - bot[mid][0], top[mid][1] - bot[mid][1]);
+  let area = 0;
+  const poly = top.concat(bot.slice().reverse());
+  for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; area += a[0] * b[1] - b[0] * a[1]; }
+  area = Math.abs(area) / 2;
+  const bindArea = 2 * 2 * HALF;
+  const sumW = arm.norm ? 1 : 0.9;
+  // バインドポーズで IBM × world が単位行列か
+  const M1bind = mul(trans(1, 0), IBM[1]);
+  const dev = Math.max(...M1bind.map((v, k) => Math.abs(v - I()[k])));
+  $('arm-a0-out').textContent = `${arm.a0}°`;
+  $('arm-a1-out').textContent = `${arm.a1}°`;
+  $('arm-width-out').textContent = `±${arm.width.toFixed(2)}`;
+  $('arm-stats').innerHTML =
+    stat('肘の太さ(バインド 0.32)', thick.toFixed(3), ` <small>${Math.round(thick / (2 * HALF) * 100)}%</small>`) +
+    stat('帯の面積(バインド比)', `${Math.round(area / bindArea * 100)}`, ' <small>%</small>') +
+    stat('重みの合計', sumW.toFixed(2), sumW === 1 ? ' <span class="pill good">1</span>' : ' <span class="pill bad">原点へ寄る</span>') +
+    stat('バインドポーズでの IBM × world', `ずれ ${dev.toFixed(3)}`, ' <span class="pill good">単位行列</span>');
+  let note = '';
+  if (!arm.skin) note = 'スキニングを切ると、骨は動いているのに頂点はバインドポーズのまま(実機の Alt+F6)。';
+  else if (!arm.ibm) note = '逆バインド行列を掛けないと、関節1 の世界行列がメッシュ全体を関節の位置ぶん運んでしまい、肘から先が (1, 0) だけ余分にずれる。バインドポーズでも元の形に戻らない。';
+  else if (!arm.norm) note = '重みの合計が 0.9 だと、変形した位置が原点へ 10% 引き寄せられる。全体が縮むのではなく、原点から遠い頂点ほど大きくずれる。';
+  else if (arm.a1 >= 120) note = '行列を混ぜた結果は回転行列ではないので、大きく曲げると肘の内側がつぶれて細くなる(candy-wrapper)。混ざる幅を狭めると折れ目が鋭くなり、広げるとつぶれる範囲が広がる。';
+  else note = '肘のまわりでは2本の関節行列を重みで混ぜている。角度を大きくすると肘の太さが減っていく。';
+  $('arm-note').textContent = note;
+}
+function bindArm(id, key, fmtv = Number) { $(id).addEventListener('input', (e) => { arm[key] = fmtv(e.target.value); drawArm(); }); }
+bindArm('arm-a0', 'a0'); bindArm('arm-a1', 'a1'); bindArm('arm-width', 'width');
+for (const [id, key] of [['arm-skin', 'skin'], ['arm-ibm', 'ibm'], ['arm-norm', 'norm'], ['arm-color', 'color']]) {
+  $(id).addEventListener('change', (e) => { arm[key] = e.target.checked; drawArm(); });
+}
+for (const btn of document.querySelectorAll('[data-arm]')) {
+  btn.addEventListener('click', () => {
+    const [a0, a1] = btn.dataset.arm.split(',').map(Number);
+    arm.a0 = a0; arm.a1 = a1; $('arm-a0').value = a0; $('arm-a1').value = a1; drawArm();
+  });
+}
+drawArm();
+window.addEventListener('resize', drawArm);
+
+// ============================================================
+//  要点4: slerp と lerp(1本の軸まわり。q = (cos φ/2, sin φ/2))
+// ============================================================
+const sl = { theta: 90, t: 0.25, neg: false, fix: true, playing: false, dir: 1 };
+const quat = (phi) => [Math.cos(phi / 2), Math.sin(phi / 2)];
+const angleOf = (q) => deg(2 * Math.atan2(q[1], q[0]));
+function endpoints() {
+  const q0 = quat(0);
+  let q1 = quat(rad(sl.theta));
+  if (sl.neg) q1 = [-q1[0], -q1[1]];
+  // System.Numerics の Slerp と同じく、内積が負なら片方を反転して近いほうを回る
+  if (sl.fix && q0[0] * q1[0] + q0[1] * q1[1] < 0) q1 = [-q1[0], -q1[1]];
+  return [q0, q1];
+}
+function slerp(q0, q1, t) {
+  const d = Math.max(-1, Math.min(1, q0[0] * q1[0] + q0[1] * q1[1]));
+  const o = Math.acos(d);
+  if (o < 1e-6) return q0;
+  const a = Math.sin((1 - t) * o) / Math.sin(o), b = Math.sin(t * o) / Math.sin(o);
+  return [a * q0[0] + b * q1[0], a * q0[1] + b * q1[1]];
+}
+function lerpRaw(q0, q1, t) { return [q0[0] + (q1[0] - q0[0]) * t, q0[1] + (q1[1] - q0[1]) * t]; }
+// 角度を連続にする(-180 と 180 の飛びを避ける)
+function unwrap(prev, a) { while (a - prev > 180) a -= 360; while (a - prev < -180) a += 360; return a; }
+function drawSlerp() {
+  const [q0, q1] = endpoints();
+  const qs = slerp(q0, q1, sl.t), ql = lerpRaw(q0, q1, sl.t);
+  const len = Math.hypot(ql[0], ql[1]);
+  const as = angleOf(qs), al = angleOf(ql);
+  const cS = tok('--semi'), cL = tok('--expl'), muted = tok('--muted'), ink = tok('--ink'), grid = tok('--grid');
+  {
+    const { ctx, w, h } = fit($('slerp-dial'));
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.38;
+    ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    const ray = (a, color, width, label) => {
+      const x = cx + Math.cos(rad(a)) * R, y = cy - Math.sin(rad(a)) * R;
+      arrow(ctx, cx, cy, x, y, color, width);
+      if (label) { ctx.fillStyle = color; ctx.font = '12px ' + tok('--font-body'); ctx.fillText(label, x + (Math.cos(rad(a)) >= 0 ? 6 : -40), y + (Math.sin(rad(a)) >= 0 ? -6 : 14)); }
+    };
+    ray(0, muted, 1.5, '始点');
+    ray(sl.theta, muted, 1.5, '終点');
+    ray(as, cS, 3);
+    ray(al, cL, 2);
+    ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+    ctx.fillText('反時計回りが正', 8, 16);
+  }
+  {
+    const { ctx, w, h } = fit($('slerp-chart'));
+    const L = 44, Rm = 10, T = 12, B = 24, pw = w - L - Rm, ph = h - T - B;
+    // 縦軸の範囲は、通る角度に合わせる
+    const samples = 60;
+    const pathS = [], pathL = [];
+    let ps = 0, pl = 0;
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      ps = unwrap(ps, angleOf(slerp(q0, q1, t))); pl = unwrap(pl, angleOf(lerpRaw(q0, q1, t)));
+      pathS.push(ps); pathL.push(pl);
+    }
+    const lo = Math.min(0, ...pathS, ...pathL), hi = Math.max(0, ...pathS, ...pathL, 10);
+    const X = (t) => L + t * pw, Y = (a) => T + ph - (a - lo) / (hi - lo) * ph;
+    ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono'); ctx.lineWidth = 1;
+    const step = (hi - lo) > 200 ? 90 : (hi - lo) > 90 ? 45 : 15;
+    for (let a = Math.ceil(lo / step) * step; a <= hi; a += step) {
+      ctx.beginPath(); ctx.moveTo(L, Y(a)); ctx.lineTo(L + pw, Y(a)); ctx.stroke(); ctx.fillText(`${a}°`, 4, Y(a) + 4);
+    }
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) ctx.fillText(t.toFixed(2), X(t) - 12, h - 6);
+    for (const [path, color, width] of [[pathL, cL, 2], [pathS, cS, 2.5]]) {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+      path.forEach((a, i) => { const x = X(i / samples), y = Y(a); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.stroke();
+    }
+    const i = Math.round(sl.t * samples);
+    ctx.fillStyle = cS; ctx.beginPath(); ctx.arc(X(sl.t), Y(pathS[i]), 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = cL; ctx.beginPath(); ctx.arc(X(sl.t), Y(pathL[i]), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, pw, ph);
+  }
+  const ideal = sl.theta * sl.t;
+  const longWay = Math.abs(as) > 180 || (sl.neg && !sl.fix);
+  $('slerp-theta-out').textContent = `${sl.theta}°`;
+  $('slerp-t-out').textContent = sl.t.toFixed(2);
+  $('slerp-stats').innerHTML =
+    stat('slerp', `${as.toFixed(3)}°`, longWay ? ' <span class="pill bad">遠回り</span>' : ` <small>等速なら ${ideal.toFixed(3)}°</small>`) +
+    stat('lerp して正規化(nlerp)', `${al.toFixed(3)}°`, ` <small>差 ${(al - as).toFixed(3)}°</small>`) +
+    stat('正規化する前の長さ', len.toFixed(4), len < 0.999 ? ' <small>1 より短い</small>' : '');
+}
+$('slerp-theta').addEventListener('input', (e) => { sl.theta = Number(e.target.value); drawSlerp(); });
+$('slerp-t').addEventListener('input', (e) => { sl.t = Number(e.target.value); sl.playing = false; drawSlerp(); });
+$('slerp-neg').addEventListener('change', (e) => { sl.neg = e.target.checked; drawSlerp(); });
+$('slerp-fix').addEventListener('change', (e) => { sl.fix = e.target.checked; drawSlerp(); });
+$('slerp-play').addEventListener('click', () => { if (!reduceMotion) sl.playing = !sl.playing; });
+drawSlerp();
+animate($('slerp-dial'), (dt) => {
+  if (sl.playing) {
+    sl.t += sl.dir * dt * 0.4;
+    if (sl.t >= 1) { sl.t = 1; sl.dir = -1; }
+    if (sl.t <= 0) { sl.t = 0; sl.dir = 1; }
+    $('slerp-t').value = sl.t;
+  }
+  drawSlerp();
+});
+
+// ============================================================
+//  要点6: 評価の4段(1 と 3 を壊す)
+// ============================================================
+const BONES = 4, BONE_LEN = 0.6;
+// file の並びでは子が親より先に書かれている(実在するファイルの形)
+const ORDER = { good: [0, 1, 2, 3], file: [3, 2, 1, 0] };
+const chain = { clip: 'A', reset: true, order: 'good', hz: 60, t: 0, acc: 0, pose: new Array(BONES).fill(0), world: null, truth: null };
+const restPose = () => new Array(BONES).fill(0);
+function clipApply(clip, t, pose) {
+  if (clip === 'A') {
+    for (let k = 0; k < BONES; k++) pose[k] = rad(32) * Math.sin(2 * Math.PI * t / 1.2 - k * 0.7);
+  } else {
+    pose[0] = rad(25) * Math.sin(2 * Math.PI * t / 1.6);   // 根元だけ。ほかは触らない
+  }
+}
+function local(k, angle) { return mul(k === 0 ? I() : trans(BONE_LEN, 0), rot(angle)); }
+function evalWorld(pose, order, world) {
+  for (const k of order) world[k] = k === 0 ? local(0, pose[0]) : mul(world[k - 1], local(k, pose[k]));
+}
+function chainStep(dt) {
+  chain.t += dt;
+  if (chain.reset) chain.pose = restPose();
+  clipApply(chain.clip, chain.t, chain.pose);
+  if (!chain.world) chain.world = Array.from({ length: BONES }, I);
+  evalWorld(chain.pose, ORDER[chain.order], chain.world);
+  // 正しい答え(毎回戻して、根から降りる)
+  const truthPose = restPose();
+  clipApply(chain.clip, chain.t, truthPose);
+  chain.truth = Array.from({ length: BONES }, I);
+  evalWorld(truthPose, ORDER.good, chain.truth);
+}
+function drawChain() {
+  const { ctx, w, h } = fit($('chain-canvas'));
+  const s = Math.min(w / 3.2, h / 4.2), ox = w / 2 - 1.2 * s, oy = h / 2;
+  const X = (x) => ox + x * s, Y = (y) => oy - y * s;
+  const pts = (world) => [[0, 0]].concat(world.map((M) => apply(M, BONE_LEN, 0)));
+  const draw = (world, color, dash, width) => {
+    const p = pts(world);
+    ctx.setLineDash(dash); ctx.strokeStyle = color; ctx.lineWidth = width;
+    ctx.beginPath(); p.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(X(x), Y(y)); else ctx.lineTo(X(x), Y(y)); }); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; for (const [x, y] of p) { ctx.beginPath(); ctx.arc(X(x), Y(y), width + 1.5, 0, Math.PI * 2); ctx.fill(); }
+    return p;
+  };
+  const truth = draw(chain.truth, tok('--muted'), [4, 4], 1.5);
+  const now = draw(chain.world, tok('--accent'), [], 3);
+  ctx.fillStyle = tok('--ink'); ctx.fillRect(X(0) - 10, Y(0) - 18, 6, 36);
+  const tipErr = Math.hypot(now[BONES][0] - truth[BONES][0], now[BONES][1] - truth[BONES][1]);
+  $('chain-stats').innerHTML =
+    stat('先端のずれ', tipErr.toFixed(3), ` <small>m</small> ${tipErr < 1e-6 ? '<span class="pill good">正しい</span>' : '<span class="pill bad">ずれている</span>'}`) +
+    stat('関節1〜3 の角度', chain.pose.slice(1).map((a) => deg(a).toFixed(0) + '°').join(' / '));
+  let note;
+  if (chain.order === 'file') note = '子が親より先に評価されるので、子は1フレーム前の親の世界行列を使う。先端ほど遅れが積み重なってついてくる。10Hz にすると遅れがはっきり見える。';
+  else if (!chain.reset && chain.clip === 'B') note = 'クリップ B は根元しか触らない。1段目で戻していないので、関節1〜3 に A が最後に書いた角度が残ったまま固まっている。';
+  else if (!chain.reset) note = '今は A が全関節を毎回書き換えるので壊れて見えない。この状態で B に切り替えると、A の名残が残る。';
+  else note = '毎フレーム ファイルの姿勢へ戻し、根から順に降りているので、点線(正しい姿勢)と重なる。';
+  $('chain-note').textContent = note;
+}
+function resetChain() { chain.pose = restPose(); chain.world = null; chainStep(0); }
+seg('chain-clip', (v) => { chain.clip = v; chainStep(0); drawChain(); });
+seg('chain-order', (v) => { chain.order = v; drawChain(); });
+seg('chain-hz', (v) => { chain.hz = Number(v); chain.acc = 0; });
+$('chain-reset').addEventListener('change', (e) => { chain.reset = e.target.checked; if (chain.reset) resetChain(); });
+resetChain();
+drawChain();
+animate($('chain-canvas'), (dt) => {
+  if (reduceMotion) { drawChain(); return; }
+  chain.acc += dt;
+  const step = 1 / chain.hz;
+  while (chain.acc >= step) { chainStep(step); chain.acc -= step; }
+  drawChain();
+});
+})();
+</script>
+</body>
+</html>

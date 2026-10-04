@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 45a カプセル</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. カプセルとは「線分から一定の距離」</a></li><li class="l3"><a href="#s7">2. 線分どうしの最近接点 — 端で場合分けが要る</a></li><li class="l3"><a href="#s8">3. 線分と箱の最近接点 — 距離が凸だから三分探索で詰まる</a></li><li class="l3"><a href="#s10">4. 寝かせたカプセルは2点で支える</a></li><li class="l3"><a href="#s11">5. カプセルの慣性テンソル — 円柱 + 半球を平行軸の定理で足す</a></li><li class="l3"><a href="#s12">6. 描き方も判定と同じ分解 — 球2つ + 円柱1本</a></li><li class="l3"><a href="#s13">7. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s20">判定はカプセルでも1つの窓口から入る</a></li><li class="l3"><a href="#s21">5段の順番は変わっていない</a></li><li class="l3"><a href="#s22">今日いちばん時間を溶かしたこと</a></li><li class="l3"><a href="#s23">今日残した歪み</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>Ctrl+Shift+Alt+1</code> → <code>Ctrl+Shift+Alt+2</code> を4回: カプセルを落とす</a></li><li class="l3"><a href="#s26">2. <code>Ctrl+Alt+X</code>: カプセルを降らせる</a></li><li class="l3"><a href="#s27">3. カプセルの描き方を確かめる</a></li><li class="l3"><a href="#s28">4. Day 44b までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">5. <code>Ctrl+Shift+Alt+X</code>: 今日の自己チェック(28 項目すべて合格)</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): 寸法を振って、転がりやすさを比べる</a></li><li class="l3"><a href="#s32">課題2(中): 慣性テンソルの間違いを、自己チェックで捕まえる</a></li><li class="l3"><a href="#s33">課題3(難): 交互射影で書いて、三分探索と比べる</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">自己チェック(28 項目すべて合格)</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 45a / 計画書</p>
+  <h1>カプセル</h1>
+  <p class="lede">球を線分に沿って滑らせた形</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. カプセルとは「線分から一定の距離」</a></li><li class="l3"><a href="#s7">2. 線分どうしの最近接点 — 端で場合分けが要る</a></li><li class="l3"><a href="#s8">3. 線分と箱の最近接点 — 距離が凸だから三分探索で詰まる</a></li><li class="l3"><a href="#s10">4. 寝かせたカプセルは2点で支える</a></li><li class="l3"><a href="#s11">5. カプセルの慣性テンソル — 円柱 + 半球を平行軸の定理で足す</a></li><li class="l3"><a href="#s12">6. 描き方も判定と同じ分解 — 球2つ + 円柱1本</a></li><li class="l3"><a href="#s13">7. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s20">判定はカプセルでも1つの窓口から入る</a></li><li class="l3"><a href="#s21">5段の順番は変わっていない</a></li><li class="l3"><a href="#s22">今日いちばん時間を溶かしたこと</a></li><li class="l3"><a href="#s23">今日残した歪み</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>Ctrl+Shift+Alt+1</code> → <code>Ctrl+Shift+Alt+2</code> を4回: カプセルを落とす</a></li><li class="l3"><a href="#s26">2. <code>Ctrl+Alt+X</code>: カプセルを降らせる</a></li><li class="l3"><a href="#s27">3. カプセルの描き方を確かめる</a></li><li class="l3"><a href="#s28">4. Day 44b までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">5. <code>Ctrl+Shift+Alt+X</code>: 今日の自己チェック(28 項目すべて合格)</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): 寸法を振って、転がりやすさを比べる</a></li><li class="l3"><a href="#s32">課題2(中): 慣性テンソルの間違いを、自己チェックで捕まえる</a></li><li class="l3"><a href="#s33">課題3(難): 交互射影で書いて、三分探索と比べる</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">自己チェック(28 項目すべて合格)</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 45 の1日目で、reference は Day 44b の完全コピー + 差分。Day 45 は差分が大きい(3,600 行を超える)ので、2日に分けてある。<strong>45a でカプセルを剛体の形として入れ、45b でそのカプセルをキャラクターにする</strong>(キネマティックなキャラクターコントローラ)。</p>
+<p>Day 44 は判定と接触点の生成だけで 700 行書いた。今日、判定はその半分も要らない——<strong>カプセルの判定4通りを足して 200 行に届かない</strong>。カプセルは「線分から一定の距離」でしかなく、<strong>全部いったん球の判定に落とせる</strong>から。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+Shift+Alt+1</code> で箱デモを出し、<code>Ctrl+Shift+Alt+2</code> を4回押すと「カプセルを落とす」になる。傾きを振った5本のカプセルが落ちて、傾いていた4本は倒れ、端の2点で支えられて横倒しで止まる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+2</code></td><td>筋書き。<strong>「カプセルを落とす」が5つ目に増えた</strong>。今日の到達点</td></tr>
+<tr><td><code>Ctrl+Alt+X</code></td><td>カプセルを1つ降らせる(寸法を毎回変える)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+X</code></td><td>今日の自己チェック(28 項目)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+3</code> / <code>4</code></td><td>Day 44a のまま。<strong>寝たカプセルは光る玉が2つ</strong>。上限を 1 にすると落ち着かない</td></tr>
+</tbody>
+</table></div>
+<p><strong>X の段は今日から使い始める</strong>。Day 44 で修飾キー3つの組み合わせを使い切ったので、唯一まるごと空いていた文字キー X に移った。今日は2つだけで、残りは Day 45b のキャラクターが使う。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「カプセルは球を滑らせたもの」</strong>。これ一言で、今日の判定4通りが全部片付く。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 球とカプセル: 線分の上へ球を滑らせて、球と球に落とす
+public static Contact3D SphereCapsule(in Sphere3D sphere, in Capsule3D capsule) =&gt;
+    SphereSphere(sphere, capsule.SphereNear(sphere.Center));</code></pre></div>
+<p>カプセルとカプセルなら線分どうしの最近接点、カプセルと箱なら線分と箱の最近接点。<strong>「どこへ滑らせるか」を決めれば、あとは Day 43 の球の判定がそのまま使える</strong>。</p>
+<p><strong>2つ目は「寝かせると接触点が2つになる」</strong>。Day 44a で「面で触れているものは面で支える」と書いたのが、同じ物体が転がる間に 1 点 → 2 点と変わる形で見える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// カプセルと平面: いちばん深いのは必ず線分の端のどちらか
+AddPlanePoint(ref manifold, capsule.Segment.Start, capsule.Radius, plane);
+AddPlanePoint(ref manifold, capsule.Segment.End, capsule.Radius, plane);</code></pre></div>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> の既存4本への書き足しと、<code>Render/Primitives.cs</code> に円柱1つ、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。</p>
+<p><strong>物理は今日も絵を1ミリも知らない</strong>。おかげで自己チェック(28 項目)は窓を1枚も出さずに走る——Day 43 からの線がそのまま保たれている。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>カプセル衝突の解説記事</strong>(Wicked Engine) <a href="https://wickedengine.net/2020/04/capsule-collision-detection/">https://wickedengine.net/2020/04/capsule-collision-detection/</a>ロードマップに挙げてある記事。カプセル同士・カプセルと三角形を図で説明していて、今日の <code>CapsuleCapsule</code> とほぼ同じ組み立て。図が分かりやすいので最初に読むとよい。</li><li>Christer Ericson, <em>Real-Time Collision Detection</em> 5.1.9 <code>ClosestPtSegmentSegment</code>。<strong>今日の <code>Segment3D.ClosestPoints</code> はこれそのもの</strong>。端で場合分けが要る理由(t を切り詰めたら s を求め直す)がきちんと書いてある。</li><li><strong>Game Physics Engine Development</strong>(Ian Millington)第 13 章接触の生成。カプセルは出てこないが、「形ごとに関数を足していく」構えは同じ。</li><li>慣性モーメントの表(カプセル) <a href="https://en.wikipedia.org/wiki/List_of_moments_of_inertia">https://en.wikipedia.org/wiki/List_of_moments_of_inertia</a>円柱と半球に割って平行軸の定理で足す、という要点5の出どころ。</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. カプセルとは「線分から一定の距離」</h3>
+<p>これが今日の全部の土台になる。</p>
+<div class="code"><pre><code>  カプセル = { x : dist(x, 線分) ≤ r }</code></pre></div>
+<p>球が「点から一定の距離」だったのを、点を線分に取り替えただけ。別の言い方をすると、<strong>球を線分に沿って滑らせた跡</strong>。</p>
+<p>この見方を採ると、判定が驚くほど簡単になる。相手にいちばん近い位置へ球を1つ滑らせれば、そこから先は Day 43 で書いた球の判定がそのまま使えるからで、</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public Sphere3D SphereNear(Vector3 point) =&gt; new(Segment.ClosestPoint(point), Radius);</code></pre></div>
+<p>これ1本で球・平面・箱・カプセルの4通りが片付く。</p>
+<p><strong>なぜカプセルなのか</strong>。人型を箱で囲うと角が地形に引っかかり、球で囲うと背が足りない。カプセルなら「立った人の形」に近いうえに、<strong>どの向きから当たっても丸い</strong>ので、階段でも坂でも段差でも引っかからずに滑る。Unity の <code>CharacterController</code> も Unreal の <code>UCapsuleComponent</code> も中身はこの形。</p>
+<p><strong>円柱ではない</strong>のはロードマップに書いたとおりで、円柱はフチ(側面と底面の境の円)の場合分けが多く工数対効果が悪い。</p>
+<p>Day 44 の <code>Box3D</code> に「球 → 箱 → カプセルは、向きの効き方が 0 → 3 → 1」と書いた。今日その 1 が来る——カプセルは<strong>軸1本ぶんだけ</strong>向きを持つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>球</th><th>箱(OBB)</th><th>カプセル</th></tr></thead>
+<tbody>
+<tr><td>向きの自由度</td><td>0</td><td>3</td><td><strong>1</strong></td></tr>
+<tr><td>判定の重さ</td><td>内積1回</td><td><strong>15 本の軸 + クリップ</strong></td><td>最近接点1回</td></tr>
+<tr><td>慣性テンソル</td><td>等方(1種類)</td><td>3種類</td><td><strong>2種類</strong>(軸方向と横)</td></tr>
+<tr><td>角・辺</td><td>無い</td><td>ある</td><td><strong>無い</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s7">2. 線分どうしの最近接点 — 端で場合分けが要る</h3>
+<p>カプセルとカプセルの判定は、<strong>2本の線分の距離</strong>を測るだけになる。中心線どうしの距離が半径の和より短ければ当たっている。</p>
+<p>直線どうしなら Day 44 の <code>Sat.ClosestPointsOnLines</code> と同じで、「最近接点を結ぶ線分はどちらの直線にも直交する」を連立方程式に書き下せば終わる。</p>
+<div class="code"><pre><code>  d1 = P1 - P0、d2 = Q1 - Q0、r = P0 - Q0
+  a = d1·d1、b = d1·d2、c = d1·r、e = d2·d2、f = d2·r
+
+  s = (b f - c e) / (a e - b²)      ← P 側のパラメータ
+  t = (b s + f) / e                 ← Q 側のパラメータ</code></pre></div>
+<p><strong>線分だと、解いた (s, t) が 0〜1 を出ることがある</strong>。そこは線分の外なので答えにならない。手順はこうなる。</p>
+<ol><li>s を 0〜1 に切り詰める</li><li>その s に対する最適な t を求め、t も 0〜1 に切り詰める</li><li><strong>t を切り詰めたなら、s を求め直す</strong></li></ol>
+<p><strong>3 を省くのがいちばんよくある間違い</strong>。t を端に留めた時点で「t を固定したときの最適な s」は変わっているので、求め直さないと答えがずれる。すれ違う2本のカプセルで接触点が端に寄りすぎる、という形で出る。</p>
+<p><strong>平行なとき</strong>は分母 <code>a e - b²</code> が 0 になり、最近接点が1つに決まらない。<code>s = 0</code> を選んで t を決める。距離としては正しいので、床に寝かせた2本のカプセルでも実害は無い(2点目は要点4で別に足す)。</p>
+<div class="inject"><figure class="lab" id="ss-lab">
+  <div class="lab-head">
+    <h3>2本のカプセル — 中心線どうしの最近接点</h3>
+    <span class="tag">端の4点はドラッグで動かせる。灰色の点線は 400×400 の総当たりで求めた正解</span>
+  </div>
+  <div class="stage"><canvas id="ss-canvas" style="height:320px;touch-action:none" aria-label="2本の線分"></canvas></div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="ss-recompute" checked> t を切り詰めたら s を求め直す(手順3)</label>
+    <div class="ctl"><span class="label">半径</span>
+      <div class="range"><input type="range" id="ss-r" min="0.05" max="0.5" step="0.01" value="0.25"><output id="ss-r-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-ss="-1.6,-0.2,0.4,0.6,0.6,-1.1,1.6,0.4">交差しかけ</button>
+        <button class="btn" data-ss="0.1,0.6,1.3,-1.6,-0.2,-0.2,-1.6,1.1">すれ違う(端に寄る)</button>
+        <button class="btn" data-ss="-1.5,0.3,1.5,0.3,-1.0,-0.4,1.0,-0.4">平行</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ss-stats"></div><p id="ss-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 線分と箱の最近接点 — 距離が凸だから三分探索で詰まる</h3>
+<p>カプセルと箱の判定には「線分と箱の最近接点」が要る。解析的に解こうとすると「線分の端 × 箱の 6 面 + 12 辺 + 8 頂点」の場合分けになって手に負えない。</p>
+<p><strong>線分のパラメータ t を1つの変数と見て、最小化する</strong>ほうが早い。</p>
+<div class="code"><pre><code>  f(t) = |seg(t) から箱までの距離|²      t ∈ [0, 1]</code></pre></div>
+<p><code>f</code> は <strong>t について凸</strong>。凸集合までの距離は点について凸な関数で、<code>t ↦ seg(t)</code> は一次(アフィン)なので、合成しても凸のまま。凸なら谷は1つしかない——だから<strong>三分探索</strong>が効く。区間を3等分して内側の2点を比べ、値の大きいほうを捨てるだけ。1回で区間が 2/3 になるので、32 回で 10⁻⁶ 以下まで詰まる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>for (int i = 0; i &lt; 32; i++)
+{
+    float third = (high - low) / 3.0f;
+    float a = low + third, b = high - third;
+    if (D2(a) &lt; D2(b)) high = b; else low = a;
+}</code></pre></div>
+<p><strong>物体座標で解く</strong>のが速さの肝。箱を軸に沿った箱に直してしまえば、距離の計算は <code>Clamp</code> 1回で済む。回転の変換は最初と最後の3回だけで、探索の内側には入らない。</p>
+<h4 id="s9">交互射影ではだめだった</h4>
+<p>最初はこう書いた——「片方の上の点をもう片方へ投げ、返ってきた点をまた投げる」を数回。凸どうしなら最近接点対に収束することが知られている(Cheney–Goldstein)ので、理屈としては正しい。</p>
+<p><strong>ところが収束が絶望的に遅い</strong>。実測すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>回数</th><th>最悪誤差</th><th>1mm 以上ずれた件数(2,000 通り中)</th></tr></thead>
+<tbody>
+<tr><td>4</td><td>227mm</td><td>581</td></tr>
+<tr><td>8</td><td>149mm</td><td>368</td></tr>
+<tr><td>16</td><td>111mm</td><td>201</td></tr>
+<tr><td>64</td><td>53mm</td><td>61</td></tr>
+</tbody>
+</table></div>
+<p>64 回まわしても 5cm ずれる配置が残る。箱と線分が浅い角度で向き合うと、1回あたりの縮み方が 1 に近づくため。<strong>「凸だから収束する」と「実用の回数で収束する」は別の話</strong>という、今日いちばん高くついた教訓になった(自己チェックの総当たり比較で落ちて気づいた)。</p>
+<p>三分探索なら回数ぶんだけ確実に区間が縮むので、<strong>打ち切り回数を事前に決められる</strong>。</p>
+<div class="inject"><figure class="lab" id="sbx-lab">
+  <div class="lab-head">
+    <h3>線分と箱 — 三分探索と交互射影</h3>
+    <span>
+      <span class="legend"><i style="background:var(--semi)"></i>三分探索</span>
+      <span class="legend"><i style="background:var(--expl)"></i>交互射影</span>
+    </span>
+  </div>
+  <div class="split">
+    <div><canvas id="sbx-canvas" style="height:300px;touch-action:none" aria-label="線分と箱"></canvas><div class="cap">端の2点はドラッグで動かせる</div></div>
+    <div><canvas id="sbx-chart" style="height:300px" aria-label="距離の関数"></canvas><div class="cap">f(t) = 線分上の点から箱までの距離²。谷は1つ(凸)</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">回数</span>
+      <div class="range"><input type="range" id="sbx-n" min="1" max="64" step="1" value="16"><output id="sbx-n-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">箱の向き</span>
+      <div class="range"><input type="range" id="sbx-angle" min="-90" max="90" step="1" value="-20"><output id="sbx-angle-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-sbx="1.92,-1.92,-0.96,-0.24,-20">浅い角度で向き合う</button>
+        <button class="btn" data-sbx="-1.4,1.8,1.6,1.1,0">斜め上</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sbx-stats"></div><p id="sbx-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">4. 寝かせたカプセルは2点で支える</h3>
+<p>Day 44a の要点3に「面で触れているものは面で支えないと落ち着かない」と書いた。カプセルでも同じことが起きる。</p>
+<ul><li><strong>立てたカプセル</strong> … 床と1点で触れる。これは正しい(実際に1点でしか触れない)</li><li><strong>寝かせたカプセル</strong> … 床と線で触れる。<strong>1点で支えると転がって震える</strong></li></ul>
+<p>カプセルと平面なら、いちばん深く沈むのは必ず<strong>線分の端のどちらか</strong>になる。平面は平らなので、線分上の深さは端から端へ一次に変わるだけ——中ほどが端より沈むことはない。だから端を2つ見れば漏れがなく、しかも過不足がない。</p>
+<p>箱やカプセルが相手のときは、まず最近接点で1点作ってから、<strong>端の球を実際に相手へ当ててみて</strong>、当たっていれば足す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 1. 端に球を置いて、本当に当たっているか確かめる(当たっていなければ足さない)
+// 2. 深さは端の球が返した値ではなく、<strong>基準の法線に沿って測り直す</strong>
+// 3. すでにある点に近すぎるものは捨てる</code></pre></div>
+<p><strong>2 が肝</strong>。マニフォールドの法線は1本しか持てない(Day 44)ので、端の球が別の向きの法線を返してもそれは使えない。基準面(<code>基準点 = 接触点 + 法線 × 深さ/2</code> が相手の表面)からの距離で測り直せば、点が何個あっても同じ向きの押し戻しになる。</p>
+<p><strong>1 を省くと、棚の縁に寝かせたカプセルで宙に浮いた接触点が立つ</strong>。基準面をどこまでも延長して測ってしまい、箱の外へはみ出した端にも「めり込み」が出る。</p>
+<p><strong>3 は立っているカプセルのため</strong>。最近接点と下の端がほぼ同じ場所になるので、そのまま足すと同じ点を2つ持つ。同じ場所に2点あると、まとめて解くときに点の数で割る(Day 44a の要点5)ぶん<strong>押し戻しが半分になって沈む</strong>。</p>
+<h3 id="s11">5. カプセルの慣性テンソル — 円柱 + 半球を平行軸の定理で足す</h3>
+<p>カプセルは1本の式で書ける形ではないので、<strong>円柱1本と半球2つに割って足す</strong>。質量は体積の比で分ける(密度が一様なので、これで正しい)。</p>
+<div class="code"><pre><code>  L = 2h(円柱の高さ)、r = 半径
+  V_c = π r² L、 V_s = 4/3 π r³
+  m_c = m · V_c/(V_c+V_s)、 m_s = m · V_s/(V_c+V_s)
+
+  I_y(軸まわり) = 1/2 m_c r²  +  2/5 m_s r²
+  I_x = I_z      = m_c (L²/12 + r²/4)  +  m_s (2/5 r² + L²/4 + 3/8 L r)</code></pre></div>
+<p><strong>半球の項の <code>L²/4 + 3/8 L r</code> が平行軸の定理</strong>。半球の重心は球の中心から <code>3r/8</code> ずれているので、「球の中心まわり → 半球の重心まわり → カプセルの中心まわり」と2段で運び直すと、ずれの2乗の差としてこの形が残る。ここを <code>L²/4</code> だけにすると、太くて短いカプセルで数 % 狂う——絵では気づけない種類の間違い。</p>
+<p><strong>確かめ方は「境界で既知の答えに戻るか」</strong>。h = 0 にすると円柱の体積が 0 になり、<code>I_y</code> も <code>I_x</code> も球の <code>2/5 m r²</code> にぴたりと戻る。逆に r を細くしていくと、細長い棒の <code>1/12 m L²</code> に近づく。どちらも自己チェックに入れてある——<strong>式を書き終えたらいちばん安い検算</strong>になる。</p>
+<p><strong>軸まわりだけが極端に小さい</strong>のがカプセルの性格で、落としたカプセルが必ず横倒しで止まるのはこのため。</p>
+<div class="inject"><figure class="lab" id="cap-lab">
+  <div class="lab-head">
+    <h3>傾きを振った5本のカプセルを落とす(横から見た 2D)</h3>
+    <span class="tag">半径 0.28m・半分の高さ 0.45m・1kg、傾き 0 / 0.25 / 0.6 / 1.1 / π/2 rad、反発 0.2</span>
+  </div>
+  <div class="stage"><canvas id="cap-canvas" style="height:320px" aria-label="カプセルを落とすシミュレーション"></canvas></div>
+  <div class="hud" id="cap-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">1組あたりの接触点(Ctrl+Shift+Alt+4)</span>
+      <div class="seg" id="cap-max"><button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="true">2</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="cap-show" checked> 接触点を表示(Ctrl+Shift+Alt+3)</label>
+    <button class="btn" id="cap-reset">最初から</button>
+  </div>
+  <div class="readout"><div class="stats" id="cap-stats"></div><p id="cap-note" style="margin:10px 0 0"></p></div>
+</figure>
+<figure class="lab" id="ci-lab">
+  <div class="lab-head">
+    <h3>カプセルの慣性 — 円柱 + 半球2つ(質量 1kg)</h3>
+    <span class="tag">境界で既知の答えに戻るかで検算する</span>
+  </div>
+  <div class="controls" style="border-top:0">
+    <div class="ctl"><span class="label">半径 r</span>
+      <div class="range"><input type="range" id="ci-r" min="0.01" max="0.6" step="0.01" value="0.28"><output id="ci-r-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">半分の高さ h(円柱は 2h)</span>
+      <div class="range"><input type="range" id="ci-h" min="0" max="1.5" step="0.01" value="0.45"><output id="ci-h-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="ci-naive"> 半球の項を L²/4 だけにする(平行軸の運び直しを1段省く)</label>
+  </div>
+  <div class="readout"><div class="stats" id="ci-stats"></div></div>
+</figure></div>
+<h3 id="s12">6. 描き方も判定と同じ分解 — 球2つ + 円柱1本</h3>
+<p>カプセルは寸法(半径・半分の高さ)ごとに形が変わるので、1本のメッシュを拡大して描くことができない。<strong>Y だけ引き伸ばすと半球が楕円に潰れる</strong>からで、非一様な拡大が使えない。</p>
+<p>そこで<strong>球2つ + 円柱1本</strong>に分けて描く。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>部品</th><th>拡大</th><th>正しく描ける理由</th></tr></thead>
+<tbody>
+<tr><td>端の球 ×2</td><td>一様(直径)</td><td>球は一様拡大なら球のまま</td></tr>
+<tr><td>胴の円柱</td><td>XZ に直径、Y に線分の長さ</td><td><strong>円柱は非一様でも円柱のまま</strong></td></tr>
+</tbody>
+</table></div>
+<p>これなら<strong>どんな寸法のカプセルでもメッシュ2本で描ける</strong>。ドローコールは1体あたり3回になるが、カプセルは画面に数本しか出ない。</p>
+<p>面白いのは、<strong>この分け方が判定とぴったり同じ</strong>であること。<code>Collision3D</code> がカプセルの判定を球に落として解いているのと、<code>Primitives</code> が円柱と球でカプセルを組み立てているのは、同じ「線分 + 半径」の言い換え。</p>
+<h3 id="s13">7. 今日入れなかったもの</h3>
+<ul><li><strong>キャラクターコントローラ</strong> … Day 45b。今日のカプセルは剛体として落ちて転がるだけ。同じカプセルを「力で動かさない」形で使うのが次の日の話になる</li><li><strong>地形(Heightmap)</strong> … Day 46。カプセルの判定は面ごとに凸なので、そのまま使い回せる</li><li><strong>摩擦・スリープ</strong> … Day 47。剛体として落としたカプセルは、止まって見えても細かく揺れ続けている(自己チェックが「ぴたりと 0 にはならない」と断っている)</li><li><strong>円柱</strong> … ロードマップのとおり対象外。フチの場合分けが多く、カプセルで近似する</li></ul>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<p><strong>今日は新しいファイルが無い</strong>。カプセルは既存のファイルへの書き足しだけで入る。</p>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D.cs</code></td><td><code>Segment3D</code> / <code>Capsule3D</code> を追加。<code>Box3D</code> に線分との最近接点(三分探索)</td><td>+384 / -3</td></tr>
+<tr><td><code>Physics/Collider.cs</code></td><td><code>ColliderKind.Capsule</code>、<code>Capsule</code> / <code>FromHeight</code>、カプセルの慣性テンソル</td><td>+130 / -2</td></tr>
+<tr><td><code>Physics/RigidBody.cs</code></td><td><code>CreateCapsule</code> / <code>ToCapsule</code></td><td>+23 / -0</td></tr>
+<tr><td><code>Physics/Collision3D.cs</code></td><td>カプセルの判定4通りと <code>CapsuleAgainst</code>、<code>Collide</code> に2行</td><td>+300 / -16</td></tr>
+<tr><td><code>Render/Primitives.cs</code></td><td><code>CreateCylinder</code>(カプセルの胴)</td><td>+136 / -0</td></tr>
+<tr><td><code>Program.cs</code></td><td>カプセルの筋書き、カプセルの描画と影、<code>X</code> の段(2つ)、自己チェック</td><td>+641 / -9</td></tr>
+<tr><td><code>Day45a.csproj</code></td><td><code>Day44b.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>shaders/</code> は1文字も変わっていない</strong>。</p>
+<h3 id="s17">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。今日は<strong>全部が足すだけ</strong>なので、途中でビルドが壊れることはない(Day 44a とはそこが違う)。</p>
+<ol><li><strong><code>Physics/Shapes3D.cs</code></strong>(変更) — 次の順で
+<ul><li><code>Sphere3D</code> / <code>Box3D</code> の説明が現在形に変わっている(<strong>コメントのみ</strong>)</li><li><code>Box3D.ClosestPoint(in Segment3D, out Vector3)</code> と <code>LocalDistanceSquared</code>— <strong>三分探索</strong>(要点3)。<code>ClosestPoint(Vector3)</code> の直後に置く</li><li>末尾に <code>Segment3D</code>(<code>ClosestPoint</code> と <code>ClosestPoints</code>。<strong>要点2の山場</strong>)</li><li>末尾に <code>Capsule3D</code>(<code>SphereNear</code> が今日の全部の入口)</li></ul></li><li><strong><code>Physics/Collider.cs</code></strong>(変更) — <code>ColliderKind.Capsule</code> を<strong>末尾に</strong>足してから
+<ul><li><code>HalfExtents</code> のコメント(カプセルと席を分け合う話)</li><li><code>Capsule(radius, halfHeight)</code> / <code>FromHeight(radius, totalHeight)</code></li><li><code>BoundingRadius</code> に1行、<code>HalfHeight</code> / <code>TotalHeight</code></li><li><code>InertiaLocal</code> に枝を1つと、<code>CapsuleInertia</code>(要点5)</li></ul></li><li><strong><code>Physics/RigidBody.cs</code></strong>(変更) — <code>CreateCapsule</code> と <code>ToCapsule</code> の2本だけ</li><li><strong><code>Physics/Collision3D.cs</code></strong>(変更) — クラスの説明を書き換えてから
+<ul><li><code>SphereCapsule</code>(<strong>4行</strong>)</li><li><code>CapsulePlane</code> と <code>AddPlanePoint</code>(要点4。ここで2点が出る)</li><li><code>CapsuleBox</code> / <code>CapsuleCapsule</code> / <code>AddCapsuleEnds</code></li><li><code>CapsuleAgainst</code>(カプセルを体1つに当てる窓口)</li><li><code>Collide</code> に<strong>カプセルの2行を、いちばん下に</strong>足す</li></ul></li><li><strong><code>Render/Primitives.cs</code></strong>(変更) — <code>CreateCylinder</code>(<code>CreateSphere</code> の直後)</li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li><code>PhysicsScene</code> に <code>CapsuleDrop</code> を<strong>末尾に</strong>追加</li><li>フィールド <code>_capsuleSpawnCount</code>(Day 45 の見出しの下)と <code>_cylinder</code></li><li><code>OnLoad</code>: <code>_cylinder</code> の生成(<code>_sphere</code> の直後)、ヘルプの Day 45 の段</li><li><code>BuildPhysicsScene</code> の <code>switch</code> に <code>CapsuleDrop</code></li><li><code>BuildBoxTumbleScene</code> の直後に Day 45 の塊(<code>BuildCapsuleDropScene</code> / <code>SpawnCapsule</code> / <code>DrawCapsule</code> / <code>RotationTo</code>)</li><li><code>RenderPhysics</code> にカプセルの枝と、<code>InterpolatedCapsule</code></li><li><code>RenderShadowPass</code> にカプセルの枝と、<code>ShadowCapsule</code></li><li><code>BodyMesh</code> のコメント、<code>PhysicsSceneLabel</code> / <code>IsBoxScene</code> / <code>ShapeLabel</code></li><li><code>Ctrl+Shift+Alt+2</code> の巡回に <code>CapsuleDrop</code> を1つ</li><li><code>RunCapsuleCheck</code> と <code>RandomPoint</code>(<code>RunBoxCollisionCheck</code> の直後)</li><li>キー(<code>X</code> の段の <code>Ctrl+Alt+X</code> と <code>Ctrl+Shift+Alt+X</code>)。<strong>switch のいちばん上</strong>に置くこと</li><li>Day 43・44 のヘルプの文言が「今日の到達点」から変わっている(<strong>文言のみ</strong>)</li></ul></li><li><strong><code>Day45a.csproj</code></strong> — <code>Day44b.csproj</code> からのリネームのみ</li></ol>
+<p><strong>キーの位置は今日も間違えやすい</strong>。<code>case Key.X:</code> は今のところどこにも無いので今日は事故らないが、<strong>塊はいちばん上に置くこと</strong>。下に素の <code>case Key.X:</code> を足した日に、修飾キー付きが全部そちらへ吸われる。Day 39 から毎日書いている「ガード付き case は具体的なものほど上」がそのまま続く。</p>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が2つ増え、既存の4つに書き足しただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Segment3D</code></td><td><code>Physics/</code></td><td>線分。<strong>カプセルの背骨</strong>であり、今日の判定の入口(要点2)</td></tr>
+<tr><td><code>Physics/Capsule3D</code></td><td><code>Physics/</code></td><td>カプセル。「線分から一定の距離」(要点1)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D</code></td><td><code>Segment3D</code> / <code>Capsule3D</code> が入り、<code>Box3D</code> に線分との最近接点</td><td>+384 / -3</td></tr>
+<tr><td><code>Physics/Collider</code></td><td>札に <code>Capsule</code> が増え、慣性テンソルが3つ目の枝を得た</td><td>+130 / -2</td></tr>
+<tr><td><code>Physics/RigidBody</code></td><td><code>CreateCapsule</code> / <code>ToCapsule</code> の2本だけ</td><td>+23 / -0</td></tr>
+<tr><td><code>Physics/Collision3D</code></td><td>判定が4通り増え、カプセルを体に当てる窓口ができた</td><td>+300 / -16</td></tr>
+<tr><td><code>Render/Primitives</code></td><td><code>CreateCylinder</code>(カプセルの胴)</td><td>+136 / -0</td></tr>
+<tr><td><code>Program.cs</code></td><td>カプセルの筋書き、描画と影、<code>X</code> の段、自己チェック</td><td>+641 / -9</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19"><code>Physics/</code> が今日も何も知らないままであること</h3>
+<p>Day 26 で <code>Physics/</code> を作ったとき、「<code>System.Numerics</code> しか使っていないのでそのまま別プロジェクトへ持ち出せる」と書いた。<strong>今日もそれが保たれている</strong>。</p>
+<div class="code"><pre><code>  Physics/  →  依存先なし(System.Numerics だけ)</code></pre></div>
+<p>カプセルをどう描くか(球2つ + 円柱1本)は <code>Program.DrawCapsule</code> の仕事で、<code>Capsule3D</code> は線分と半径を持っているだけ。<strong>描き方を知っているのは描く側</strong>、という線は Day 43 から変わらない。</p>
+<p>配当は今日も自己チェックに出る。<strong>28 項目が窓を1枚も出さずに走る</strong>。</p>
+<h3 id="s20">判定はカプセルでも1つの窓口から入る</h3>
+<p>Day 44a で <code>Collision3D.Collide(a, b)</code> に窓口を1つ作った。今日そこへカプセルを足すのに、<strong>枝は2行しか増えていない</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>case (ColliderKind.Capsule, _): return CapsuleAgainst(a.ToCapsule(), b);
+case (_, ColliderKind.Capsule): return CapsuleAgainst(b.ToCapsule(), a).Flipped();</code></pre></div>
+<p>カプセルの4組は <code>_</code>(何でもよい)で受けて、<code>CapsuleAgainst</code> が相手の形の札を見て振り分ける。<strong>この2行が下にあることに寄りかかっている</strong>。上の枝に <code>Capsule</code> は1つも出てこないので、ここまで落ちた時点で相手は球・箱・平面・カプセルのどれかに決まる。順番を入れ替えると球と箱の組み合わせがカプセル扱いになって静かに壊れる——Day 39 から書いている「具体的なものほど上」が、キーの <code>switch</code> 以外にも出てきた。</p>
+<p><code>CapsuleAgainst</code> が<strong>体ではなく形(<code>Capsule3D</code>)を受け取る</strong>のは、次の日のための布石。Day 45b のキャラクターは剛体ではない(体の皮をかぶせたくない)ので、「体になっていないカプセル」を世界の体に当てる入口が要る。今日のうちにその形にしておく。</p>
+<h3 id="s21">5段の順番は変わっていない</h3>
+<p><code>PhysicsWorld.Step</code> の5段は Day 43 のまま、中身も Day 44 のまま。<strong>2段目の判定でカプセルの4組が通るようになった</strong>だけで、3段目(4点の同時解法)も4段目(印で測り直す)も<strong>1行も変えずに</strong>カプセルを受け入れた。Day 44a で「形を1つも知らない解決」にしておいた値打ちが、ここで出ている。</p>
+<h3 id="s22">今日いちばん時間を溶かしたこと</h3>
+<p><strong>交互射影が収束しなかった</strong>(要点3)。線分と箱の最近接点を「投げ合って詰める」で書いたら、64 回まわしても 5cm ずれる配置が 2,000 通り中 61 件残った。凸集合どうしなら収束する、という定理は正しい。<strong>「収束する」と「実用の回数で収束する」は別</strong>というだけの話で、距離が t について凸なことに気づけば三分探索で確実に詰まる。</p>
+<p>見つけられたのは、<strong>自己チェックに総当たりとの突き合わせを入れてあった</strong>から。「線分を 400 等分して全部の点から箱への距離を測る」という、実装としては論外だが答えとしては疑いようのないものと比べている。<strong>遅くて正しいものを1つ持っておく</strong>のは、この種のアルゴリズムでは常に元が取れる。</p>
+<h3 id="s23">今日残した歪み</h3>
+<p><strong>カプセルは3回に分けて描く</strong>。1本のメッシュを拡大して描けないので、球2つ + 円柱1本のドローコール3回になる(要点6)。カプセルは画面に数本しか出ないので気にしていないが、<strong>「メッシュ1つ + 行列1つ」で表せない形</strong>が描画の側に初めて入った。影のパスにも同じ分け方(<code>ShadowCapsule</code>)を書き足す必要があり、描き方が2か所に割れている。</p>
+</section>
+<section class="part"><h2 id="s24">完成条件</h2>
+<p><code>dotnet run --project reference/Day45a -c Release</code> で起動して、順に確かめる。</p>
+<h3 id="s25">1. <code>Ctrl+Shift+Alt+1</code> → <code>Ctrl+Shift+Alt+2</code> を4回: カプセルを落とす</h3>
+<p><strong>今日の到達点</strong>。Day 44 の箱デモの筋書きに1つ増えている。傾き 0 / 0.25 / 0.6 / 1.1 / 90 度ぶん(π/2 rad)の5本のカプセルが落ちてくる。色は水色(立っている)から橙(寝ている)へ。</p>
+<ul><li>傾いていた4本は<strong>1点で着地して倒れ</strong>、倒れ切ると<strong>端2つで支えられて止まる</strong></li><li>まっすぐ立てた1本目だけは、<strong>倒れるきっかけが無いので立ったまま</strong>(1点で支えられている)</li><li><code>Ctrl+Shift+Alt+3</code> で接触点を出しておくと、<strong>光る玉が1つから2つに増える</strong>瞬間が見える</li><li><code>Ctrl+Shift+Alt+4</code> で上限を 1 にすると、寝たカプセルが<strong>転がって落ち着かなくなる</strong></li></ul>
+<p>止まったあとの HUD の2行目はこうなる(立った1本の1点 + 寝た4本の2点ずつ)。</p>
+<div class="code"><pre><code>接触[5組 9点 上限4]  面:5  辺:0  点:0  解き方:同時  表示:ON</code></pre></div>
+<h3 id="s26">2. <code>Ctrl+Alt+X</code>: カプセルを降らせる</h3>
+<p>寸法が毎回変わるカプセルが1本ずつ降ってくる。コンソールに半径・全高・質量が出る。<strong>細長いものほど転がりやすい</strong>——軸まわりの慣性だけが小さいため(要点5)。</p>
+<h3 id="s27">3. カプセルの描き方を確かめる</h3>
+<p>カメラを寄せると、カプセルが<strong>球2つ + 円柱1本</strong>でできているのが継ぎ目のなさで分かる(継ぎ目が見えたら、円柱の拡大か位置がずれている)。<strong>影も同じ形</strong>で落ちている——影だけ丸い棒や箱になっていたら <code>ShadowCapsule</code> の分け方がずれている(要点6)。</p>
+<h3 id="s28">4. Day 44b までの機能が全部生きていること</h3>
+<p><code>Ctrl+Shift+Alt+1</code>(箱デモ。<code>2</code> で箱を積む・球と箱・箱が転がる)、<code>Ctrl+Shift+Alt+F1</code>(球デモ)、<code>Shift+Alt+F1</code>(アニメーションのブレンド)、<code>Ctrl+Shift+F1</code>(デモ v1)、<code>Enter</code>(卒業制作)——どれも今までどおり動く。</p>
+<h3 id="s29">5. <code>Ctrl+Shift+Alt+X</code>: 今日の自己チェック(28 項目すべて合格)</h3>
+<p>窓を1枚も出さずに走る。内訳は次のとおり。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>節</th><th>何を確かめるか</th><th>項目</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>線分と最近接点(<strong>総当たりとの突き合わせ</strong>を含む)</td><td>6</td></tr>
+<tr><td>2</td><td>カプセルの形と慣性テンソル(球・棒の極限に戻るか)</td><td>6</td></tr>
+<tr><td>3</td><td>カプセルの判定4通り(<strong>寝ると2点</strong>)</td><td>12</td></tr>
+<tr><td>4</td><td>剛体としてのカプセル(横倒しで止まる)</td><td>4</td></tr>
+</tbody>
+</table></div>
+<p>Day 43(<code>Ctrl+Shift+Alt+F12</code>)と Day 44(<code>Ctrl+Shift+Alt+0</code>)の自己チェックも<strong>全項目そのまま合格</strong>することを確かめる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+2</code>(カプセルを落とす)</td><td>5本のカプセルを落とす</td><td>傾いていた4本は倒れ、横倒しで止まる</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+3</code></td><td>同「接触点を表示」</td><td>寝たカプセルは光る玉が2つ、立ったカプセルは1つ</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+4</code></td><td>同「1組あたりの接触点」</td><td>1 にすると、寝たカプセルが落ち着かない</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+X</code>(自己チェック)</td><td>線分と箱 / カプセルの慣性</td><td>総当たりとの突き合わせ。h = 0 で球の 2/5 m r² に戻る</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は横から見た 2D で、reference/Day45a の Segment3D.ClosestPoints(Ericson 5.1.9)、線分と箱の三分探索、カプセルと平面の端2点、カプセルの慣性の式を移したもの。交互射影の誤差の表(2,000 通り)は 3D の箱で測った値で、2D の実験台では同じ数字にはならない。</p></div>
+</section>
+<section class="part"><h2 id="s30">改造課題</h2>
+<h3 id="s31">課題1(易): 寸法を振って、転がりやすさを比べる</h3>
+<p><code>SpawnCapsule</code> の半径と半分の高さを極端な値にして、<code>Ctrl+Alt+X</code> で落とす。</p>
+<ul><li>半分の高さ 0(= 球)… 着地してから止まるまでの様子は、球のデモとどう違うか</li><li>半径 0.05・半分の高さ 1.0(細い棒)… 寝たあと、軸まわりにどれだけ転がり続けるか</li></ul>
+<p><strong>軸まわりの慣性 <code>I_y</code> だけが小さい</strong>のがカプセルの性格(要点5)。細い棒ほど <code>I_y</code> と <code>I_x</code> の差が開くので、少し押されただけで軸まわりに長く転がる。コンソールに出る寸法と、転がり方の差を並べて書き出してみる。</p>
+<h3 id="s32">課題2(中): 慣性テンソルの間違いを、自己チェックで捕まえる</h3>
+<p><code>CapsuleInertia</code> の半球の項 <code>L²/4 + 3/8 L r</code> を、わざと <code>L²/4</code> だけにしてみる。<strong>今の自己チェックは全部通ってしまう</strong>——球(h = 0)と細い棒(r → 0)の極限では、どちらも消える項だから。要点5で「絵では気づけない種類の間違い」と書いたのがこれ。</p>
+<p>捕まえる項目を1つ足す。</p>
+<ol><li>カプセルの中を細かい格子(1辺 1cm 程度)で埋め、カプセルに入る点だけを数える</li><li>点ごとに <code>m/N · (軸からの距離)²</code> を足して、<code>I_x</code> を<strong>数値積分</strong>で求める</li><li>太くて短いカプセル(半径 0.5・半分の高さ 0.3 など)で、式の値と 1% 以内で一致するかを見る</li></ol>
+<p><strong>遅くて正しいものを1つ持っておく</strong>(設計書の「時間を溶かしたこと」)の2つ目の実例になる。式を正しい形に戻して、足した項目が通ることまで確かめる。</p>
+<h3 id="s33">課題3(難): 交互射影で書いて、三分探索と比べる</h3>
+<p>要点3で「使えなかった」と書いた交互射影を、自分で書いて確かめる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 線分上の点 p と、箱の上の点 q を交互に投げ合う
+for (int i = 0; i &lt; iterations; i++)
+{
+    q = box.ClosestPoint(p);            // 線分上の点を箱へ
+    p = segment.ClosestPoint(q, out _); // 箱の上の点を線分へ
+}</code></pre></div>
+<p><code>iterations</code> を 4 / 8 / 16 / 64 と変えて、自己チェックの総当たり比較(節3の最後)と同じ 400 通りで<strong>最悪の誤差</strong>と<strong>1mm 以上ずれた件数</strong>を数える。要点3の表(64 回でも最悪 53mm)が再現できたら、<strong>どんな配置のときに収束が遅いか</strong>を1つ取り出して、2つの点の動きを毎回コンソールに出してみる。箱と線分が浅い角度で向き合うと、1回あたりの縮み方が 1 に近づくのが数字で見える。</p>
+</section>
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<ul><li>Windows 11 Home 26200 / .NET 10.0</li><li>ビルド: <code>dotnet build reference/Day45a</code>(警告 0・エラー 0)</li><li>整形: <code>dotnet format whitespace reference/Day45a/Day45a.csproj --verify-no-changes</code> 差分なし</li><li>実行: <code>dotnet run --project reference/Day45a -c Release</code></li></ul>
+<h3 id="s35">自己チェック(28 項目すべて合格)</h3>
+<p>窓を出さずに走るので、<code>Ctrl+Shift+Alt+X</code> を押すだけでコンソールに出る。主な数字を抜き出しておく。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>実測</th></tr></thead>
+<tbody>
+<tr><td>線分どうしの最近接点(2,000 通りの総当たりと比較)</td><td>最悪 0.0001mm</td></tr>
+<tr><td>線分と箱の三分探索(400 通りの総当たりと比較)</td><td>最悪 0.0024mm</td></tr>
+<tr><td>半分の高さ 0 のカプセルの慣性</td><td>(0.2, 0.2, 0.2)= 球の 2/5 m r²</td></tr>
+<tr><td>細いカプセルの横慣性</td><td>0.3424(全長 2m の棒なら 0.3333)</td></tr>
+<tr><td>寝かせたカプセルと床</td><td><strong>2点</strong>、深さは両方 0.05m</td></tr>
+<tr><td>落としたカプセル</td><td>軸の Y 成分 -0.0044(= 横倒し)、高さ 0.2971m、<strong>2点で支持</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s36">検証の途中で分かったこと</h3>
+<p><strong>交互射影は使えなかった</strong>(要点3)。線分と箱の最近接点を「投げ合って詰める」で書いたところ、自己チェックの総当たり比較が 2,000 通り中 581 件で落ちた(最悪 227mm)。回数を 64 まで増やしても 61 件残る。三分探索に置き換えて 0.0024mm になった。</p>
+<p><strong>まっすぐ立てたカプセルは倒れなかった</strong>。落とす筋書きの説明には最初「立てた1本は1点で着地して倒れる」と書いていたが、実際に走らせると傾き 0 の1本だけは立ったまま止まる。接触点が軸の真下に1つだけ立つので、押し戻しのインパルスが重心を通り、<strong>トルクが立たない</strong>。理屈どおりの挙動で、間違っていたのは説明のほうだった(Day 45 を2日に分けたときに直した)。自己チェックの「横倒しで止まる」がわざと 0.35 rad 傾けて落としているのも同じ理由。</p>
+</section>
+<footer class="end">Day 45a カプセル / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/physics2d.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+const { Shape, Body, World, segmentClosest, segmentBoxClosest, closestOnSegment, drawBody, drawContacts, drawPlanes } = Phys2D;
+const rad = (d) => d * Math.PI / 180;
+function makeView(w, h, span) {
+  const s = Math.min(w, h) / span, ox = w / 2, oy = h / 2;
+  return { s, X: (x) => ox + x * s, Y: (y) => oy - y * s, inv: (px, py) => [(px - ox) / s, (oy - py) / s] };
+}
+// 複数の点をドラッグする小道具
+function dragPoints(canvas, getView, points, onMove) {
+  let idx = -1;
+  const pos = (e) => { const r = canvas.getBoundingClientRect(); return getView().inv(e.clientX - r.left, e.clientY - r.top); };
+  canvas.addEventListener('pointerdown', (e) => {
+    const p = pos(e);
+    let best = 0.35;
+    idx = -1;
+    points().forEach((q, i) => { const d = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d < best) { best = d; idx = i; } });
+    if (idx >= 0) canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => { if (idx >= 0) { onMove(idx, pos(e)); } });
+  const end = () => { idx = -1; };
+  canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+}
+function handle(ctx, view, p, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(view.X(p[0]), view.Y(p[1]), 6, 0, Math.PI * 2); ctx.fill(); }
+function capsuleOutline(ctx, view, a, b, r, color) {
+  ctx.lineCap = 'round'; ctx.strokeStyle = color; ctx.globalAlpha = 0.18; ctx.lineWidth = 2 * r * view.s;
+  ctx.beginPath(); ctx.moveTo(view.X(a[0]), view.Y(a[1])); ctx.lineTo(view.X(b[0]), view.Y(b[1])); ctx.stroke();
+  ctx.globalAlpha = 1; ctx.lineWidth = 2.5; ctx.lineCap = 'butt';
+  ctx.beginPath(); ctx.moveTo(view.X(a[0]), view.Y(a[1])); ctx.lineTo(view.X(b[0]), view.Y(b[1])); ctx.stroke();
+}
+
+// ============================================================
+//  要点2: 線分どうしの最近接点
+// ============================================================
+const ss = { pts: [[0.1, 0.6], [1.3, -1.6], [-0.2, -0.2], [-1.6, 1.1]], recompute: true, r: 0.25, view: null };
+function bruteSegments(p0, p1, q0, q1) {
+  let best = Infinity, bs = 0, bt = 0;
+  const N = 400;
+  for (let i = 0; i <= N; i++) {
+    const s = i / N, px = p0[0] + (p1[0] - p0[0]) * s, py = p0[1] + (p1[1] - p0[1]) * s;
+    const q = closestOnSegment([px, py], q0, q1), d = Math.hypot(px - q[0], py - q[1]);
+    if (d < best) { best = d; bs = s; bt = q; }
+  }
+  return { d: best, p: [p0[0] + (p1[0] - p0[0]) * bs, p0[1] + (p1[1] - p0[1]) * bs], q: bt };
+}
+function drawSs() {
+  const [p0, p1, q0, q1] = ss.pts;
+  const c = segmentClosest(p0, p1, q0, q1, ss.recompute);
+  const truth = bruteSegments(p0, p1, q0, q1);
+  const d = Math.hypot(c.p[0] - c.q[0], c.p[1] - c.q[1]);
+  const { ctx, w, h } = fit($('ss-canvas'));
+  const view = makeView(w, h, 4.2); ss.view = view;
+  capsuleOutline(ctx, view, p0, p1, ss.r, tok('--semi'));
+  capsuleOutline(ctx, view, q0, q1, ss.r, tok('--expl'));
+  for (const [p, col] of [[p0, tok('--semi')], [p1, tok('--semi')], [q0, tok('--expl')], [q1, tok('--expl')]]) handle(ctx, view, p, col);
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(view.X(truth.p[0]), view.Y(truth.p[1])); ctx.lineTo(view.X(truth.q[0]), view.Y(truth.q[1])); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(view.X(c.p[0]), view.Y(c.p[1])); ctx.lineTo(view.X(c.q[0]), view.Y(c.q[1])); ctx.stroke();
+  handle(ctx, view, c.p, tok('--ink')); handle(ctx, view, c.q, tok('--ink'));
+  const err = d - truth.d;
+  const hit = d < 2 * ss.r;
+  $('ss-r-out').textContent = `${ss.r.toFixed(2)} m`;
+  $('ss-stats').innerHTML =
+    stat('s / t', `${c.s.toFixed(3)} / ${c.t.toFixed(3)}`) +
+    stat('求めた距離', d.toFixed(4), ` <small>正解 ${truth.d.toFixed(4)}</small>`) +
+    stat('正解との差', `${(err * 1000).toFixed(1)}`, ` <small>mm</small> ${err > 0.005 ? '<span class="pill bad">ずれている</span>' : '<span class="pill good">一致</span>'}`) +
+    stat('カプセルの判定', hit ? `当たっている 深さ ${(2 * ss.r - d).toFixed(3)}` : '離れている');
+  $('ss-note').textContent = !ss.recompute && err > 0.005
+    ? 't を端に留めた時点で「その t に対する最適な s」は変わっている。求め直さないと、すれ違うカプセルの接触点が端に寄りすぎる。'
+    : '解いた (s, t) が 0〜1 を出たら切り詰める。t を切り詰めたら s を求め直す。平行なときは分母が 0 になるので s = 0 を選ぶ(距離としては正しい)。';
+}
+$('ss-recompute').addEventListener('change', (e) => { ss.recompute = e.target.checked; drawSs(); });
+$('ss-r').addEventListener('input', (e) => { ss.r = Number(e.target.value); drawSs(); });
+for (const btn of document.querySelectorAll('[data-ss]')) {
+  btn.addEventListener('click', () => { const v = btn.dataset.ss.split(',').map(Number); ss.pts = [[v[0], v[1]], [v[2], v[3]], [v[4], v[5]], [v[6], v[7]]]; drawSs(); });
+}
+dragPoints($('ss-canvas'), () => ss.view, () => ss.pts, (i, p) => { ss.pts[i] = p; drawSs(); });
+drawSs();
+window.addEventListener('resize', drawSs);
+
+// ============================================================
+//  要点3: 線分と箱(三分探索 vs 交互射影)
+// ============================================================
+const sbx = { a: [1.92, -1.92], b: [-0.96, -0.24], angle: -20, n: 16, view: null };
+function sbxBox() { const B = new Body(0, Shape.box(1.0, 0.5)); B.angle = rad(sbx.angle); return B; }
+function boxPoint(B, p) { const l = B.toLocal(p[0], p[1]); return B.toWorld(Math.max(-1, Math.min(1, l[0])), Math.max(-0.5, Math.min(0.5, l[1]))); }
+function alternating(B, n) {
+  // 線分の中点から始め、箱へ投げ、返ってきた点を線分へ投げ返す……を n 回
+  let p = [(sbx.a[0] + sbx.b[0]) / 2, (sbx.a[1] + sbx.b[1]) / 2], q = boxPoint(B, p);
+  const path = [p];
+  for (let i = 0; i < n; i++) { q = boxPoint(B, p); p = closestOnSegment(q, sbx.a, sbx.b); path.push(p); }
+  return { p, q: boxPoint(B, p), d: Math.hypot(p[0] - boxPoint(B, p)[0], p[1] - boxPoint(B, p)[1]), path };
+}
+function drawSbx() {
+  const B = sbxBox();
+  const tern = segmentBoxClosest(B, sbx.a, sbx.b, sbx.n);
+  const alt = alternating(B, sbx.n);
+  const f = (t) => { const p = [sbx.a[0] + (sbx.b[0] - sbx.a[0]) * t, sbx.a[1] + (sbx.b[1] - sbx.a[1]) * t], q = boxPoint(B, p); return (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2; };
+  let truth = Infinity;
+  for (let i = 0; i <= 2000; i++) truth = Math.min(truth, f(i / 2000));
+  truth = Math.sqrt(truth);
+  {
+    const { ctx, w, h } = fit($('sbx-canvas'));
+    const view = makeView(w, h, 4.6); sbx.view = view;
+    const cs = B.corners();
+    ctx.beginPath(); cs.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(view.X(x), view.Y(y)); else ctx.lineTo(view.X(x), view.Y(y)); }); ctx.closePath();
+    ctx.fillStyle = tok('--accent-soft'); ctx.fill(); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(view.X(sbx.a[0]), view.Y(sbx.a[1])); ctx.lineTo(view.X(sbx.b[0]), view.Y(sbx.b[1])); ctx.stroke();
+    handle(ctx, view, sbx.a, tok('--ink')); handle(ctx, view, sbx.b, tok('--ink'));
+    ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 1; ctx.globalAlpha = 0.6;
+    ctx.beginPath(); alt.path.forEach((p, i) => { const q = boxPoint(B, p); if (i === 0) ctx.moveTo(view.X(p[0]), view.Y(p[1])); ctx.lineTo(view.X(q[0]), view.Y(q[1])); if (alt.path[i + 1]) ctx.lineTo(view.X(alt.path[i + 1][0]), view.Y(alt.path[i + 1][1])); }); ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (const [r, col] of [[{ p: alt.p, q: alt.q }, tok('--expl')], [{ p: tern.seg, q: tern.box }, tok('--semi')]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(view.X(r.p[0]), view.Y(r.p[1])); ctx.lineTo(view.X(r.q[0]), view.Y(r.q[1])); ctx.stroke();
+      handle(ctx, view, r.p, col);
+    }
+  }
+  {
+    const { ctx, w, h } = fit($('sbx-chart'));
+    const L = 40, R = 10, T = 12, Bm = 22, pw = w - L - R, ph = h - T - Bm;
+    let maxF = 0; for (let i = 0; i <= 200; i++) maxF = Math.max(maxF, f(i / 200));
+    const X = (t) => L + t * pw, Y = (v) => T + ph - v / (maxF || 1) * ph;
+    ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+    for (const t of [0, 0.5, 1]) { ctx.beginPath(); ctx.moveTo(X(t), T); ctx.lineTo(X(t), T + ph); ctx.stroke(); ctx.fillText(`t=${t}`, X(t) - 12, h - 6); }
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 200; i++) { const t = i / 200; if (i === 0) ctx.moveTo(X(t), Y(f(t))); else ctx.lineTo(X(t), Y(f(t))); }
+    ctx.stroke();
+    // 三分探索の区間が縮む様子
+    let lo = 0, hi = 1;
+    for (let i = 0; i < sbx.n; i++) {
+      const third = (hi - lo) / 3, m1 = lo + third, m2 = hi - third;
+      if (f(m1) < f(m2)) hi = m2; else lo = m1;
+      if (i < 12) { ctx.fillStyle = tok('--semi'); ctx.globalAlpha = 0.12 + i * 0.05; ctx.fillRect(X(lo), T + ph - 6 - i * 5, X(hi) - X(lo), 4); }
+    }
+    ctx.globalAlpha = 1;
+    const ta = ((alt.p[0] - sbx.a[0]) * (sbx.b[0] - sbx.a[0]) + (alt.p[1] - sbx.a[1]) * (sbx.b[1] - sbx.a[1])) / ((sbx.b[0] - sbx.a[0]) ** 2 + (sbx.b[1] - sbx.a[1]) ** 2);
+    for (const [t, col] of [[tern.t, tok('--semi')], [ta, tok('--expl')]]) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(t), Y(f(t)), 5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = tok('--ink'); ctx.strokeRect(L + 0.5, T + 0.5, pw, ph);
+  }
+  const eT = (tern.dist - truth) * 1000, eA = (alt.d - truth) * 1000;
+  $('sbx-n-out').textContent = `${sbx.n} 回`; $('sbx-angle-out').textContent = `${sbx.angle}°`;
+  $('sbx-stats').innerHTML =
+    stat('正解の距離(総当たり)', truth.toFixed(4), ' <small>m</small>') +
+    stat('三分探索の誤差', eT.toFixed(2), ` <small>mm</small> ${eT < 1 ? '<span class="pill good">1mm 未満</span>' : ''}`) +
+    stat('交互射影の誤差', eA.toFixed(2), ` <small>mm</small> ${eA >= 1 ? '<span class="pill bad">収束しきらない</span>' : '<span class="pill good">1mm 未満</span>'}`) +
+    stat('三分探索の区間', `${Math.pow(2 / 3, sbx.n).toExponential(1)}`, ' <small>(2/3)^回数</small>');
+  $('sbx-note').textContent = '三分探索は1回で区間が 2/3 になるので、打ち切り回数を先に決められる。交互射影も凸どうしなら最近接点へ収束するが、浅い角度で向き合うと1回あたりの縮み方が 1 に近づき、回数を増やしてもなかなか詰まらない。';
+}
+$('sbx-n').addEventListener('input', (e) => { sbx.n = Number(e.target.value); drawSbx(); });
+$('sbx-angle').addEventListener('input', (e) => { sbx.angle = Number(e.target.value); drawSbx(); });
+for (const btn of document.querySelectorAll('[data-sbx]')) {
+  btn.addEventListener('click', () => { const v = btn.dataset.sbx.split(',').map(Number); sbx.a = [v[0], v[1]]; sbx.b = [v[2], v[3]]; sbx.angle = v[4]; $('sbx-angle').value = v[4]; drawSbx(); });
+}
+dragPoints($('sbx-canvas'), () => sbx.view, () => [sbx.a, sbx.b], (i, p) => { if (i === 0) sbx.a = p; else sbx.b = p; drawSbx(); });
+drawSbx();
+window.addEventListener('resize', drawSbx);
+
+// ============================================================
+//  要点4: カプセルを落とす
+// ============================================================
+const FLOOR = -0.5, CAP_TILTS = [0, 0.25, 0.6, 1.1, Math.PI / 2];
+const cap = { max: 2, show: true, world: null, acc: 0, steps: 0, wHist: [] };
+function buildCap() {
+  const w = new World();
+  w.maxContactsPerPair = cap.max;
+  w.add(Body.plane(0, FLOOR, 0, 1)); w.add(Body.plane(-5, 0, 1, 0)); w.add(Body.plane(5, 0, -1, 0));
+  CAP_TILTS.forEach((t, i) => {
+    const b = new Body(1, Shape.capsule(0.28, 0.45));
+    b.x = (i - 2) * 1.7; b.y = 3.0; b.angle = t; b.restitution = 0.2; b.angularDamping = 0.3;
+    const k = t / (Math.PI / 2); b.color = rgb(0.30 + 0.60 * k, 0.65 - 0.10 * k, 0.90 - 0.65 * k);
+    w.add(b);
+  });
+  cap.world = w; cap.acc = 0; cap.steps = 0; cap.wHist = [];
+}
+function stepCap() {
+  cap.world.step(1 / 60); cap.steps++;
+  cap.wHist.push(Math.max(...cap.world.bodies.filter((b) => !b.isStatic).map((b) => Math.abs(b.w))));
+  if (cap.wHist.length > 60) cap.wHist.shift();
+}
+function drawCap() {
+  const { ctx, w, h } = fit($('cap-canvas'));
+  const s = Math.min(w / 10.6, h / 4.4), ox = w / 2, oy = h - 20 - (0 - FLOOR) * s;
+  const view = { X: (x) => ox + x * s, Y: (y) => oy - y * s, s };
+  drawPlanes(ctx, cap.world, view, tok('--ink'), w, h);
+  const alpha = cap.acc * 60;
+  for (const b of cap.world.bodies) if (!b.isStatic) drawBody(ctx, b, view, b.color, alpha);
+  if (cap.show) drawContacts(ctx, cap.world, view, tok('--warn'));
+  const bodies = cap.world.bodies.filter((b) => !b.isStatic);
+  const maxW = cap.wHist.length ? Math.max(...cap.wHist) : 0;
+  const lying = bodies.filter((b) => Math.abs(Math.cos(b.angle)) < 0.2).length;
+  $('cap-hud').textContent = `体:${bodies.length}  接触点:${cap.world.contacts.length}  点の上限:${cap.max}  めり込み:${(cap.world.maxPenetration * 100).toFixed(2)}cm  経過:${(cap.steps / 60).toFixed(1)}s`;
+  const settled = cap.steps > 420;
+  $('cap-stats').innerHTML =
+    stat('横倒しのカプセル', `${lying} / ${bodies.length}`) +
+    stat('最後の1秒の最大角速度', maxW.toFixed(4), ` <small>rad/s</small> ${settled ? (maxW < 0.01 ? '<span class="pill good">落ち着いた</span>' : '<span class="pill bad">揺れ続けている</span>') : ''}`) +
+    stat('接触点の数', `${cap.world.contacts.length}`);
+  $('cap-note').textContent = cap.max === 1
+    ? '寝たカプセルを1点で支えると、その点まわりに転がって震える。いちばん深く沈むのは必ず線分の端のどちらかなので、端を2つ見れば漏れなく支えられる。'
+    : '立てたカプセルは床と1点、寝かせたカプセルは端の2点で支えられる。軸まわりだけが極端に回しやすいので、傾いていたものは倒れて横倒しで止まる。';
+}
+seg('cap-max', (v) => { cap.max = Number(v); buildCap(); });
+$('cap-show').addEventListener('change', (e) => { cap.show = e.target.checked; drawCap(); });
+$('cap-reset').addEventListener('click', () => { buildCap(); drawCap(); });
+buildCap();
+if (reduceMotion) for (let i = 0; i < 600; i++) stepCap();
+drawCap();
+animate($('cap-canvas'), (dt) => {
+  if (!reduceMotion) { cap.acc += dt; while (cap.acc >= 1 / 60) { stepCap(); cap.acc -= 1 / 60; } }
+  drawCap();
+});
+
+// ============================================================
+//  要点5: カプセルの慣性
+// ============================================================
+const ci = { r: 0.28, h: 0.45, naive: false };
+function capInertia(m, r, hh, naive) {
+  const L = 2 * hh, vc = Math.PI * r * r * L, vs = (4 / 3) * Math.PI * r ** 3;
+  const mc = m * vc / (vc + vs), ms = m * vs / (vc + vs);
+  const axis = 0.5 * mc * r * r + 0.4 * ms * r * r;
+  const side = mc * (L * L / 12 + r * r / 4) + ms * (0.4 * r * r + L * L / 4 + (naive ? 0 : 0.375 * L * r));
+  return { axis, side };
+}
+function drawCi() {
+  const I = capInertia(1, ci.r, ci.h, ci.naive), ok = capInertia(1, ci.r, ci.h, false);
+  const sphere = 0.4 * ci.r * ci.r, rod = (2 * ci.h) ** 2 / 12;
+  $('ci-r-out').textContent = `${ci.r.toFixed(2)} m`; $('ci-h-out').textContent = `${ci.h.toFixed(2)} m`;
+  const diff = (I.side / ok.side - 1) * 100;
+  $('ci-stats').innerHTML =
+    stat('軸まわり I_y', I.axis.toFixed(4), ' <small>kg·m²</small>') +
+    stat('横 I_x = I_z', I.side.toFixed(4), ci.naive ? ` <small>正しい式との差 ${diff.toFixed(1)}%</small>` : ' <small>kg·m²</small>') +
+    stat('球の 2/5 m r²(h = 0 の答え)', sphere.toFixed(4), ci.h === 0 && Math.abs(I.side - sphere) < 1e-9 ? ' <span class="pill good">一致</span>' : '') +
+    stat('細い棒の 1/12 m L²(r → 0 の答え)', rod.toFixed(4), ci.r <= 0.02 && Math.abs(I.side / rod - 1) < 0.05 ? ' <span class="pill good">近づいた</span>' : '');
+}
+$('ci-r').addEventListener('input', (e) => { ci.r = Number(e.target.value); drawCi(); });
+$('ci-h').addEventListener('input', (e) => { ci.h = Number(e.target.value); drawCi(); });
+$('ci-naive').addEventListener('change', (e) => { ci.naive = e.target.checked; drawCi(); });
+drawCi();
+})();
+</script>
+</body>
+</html>

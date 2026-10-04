@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 45b キャラクターコントローラ</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. キャラクターは剛体ではない — キネマティックという選択</a></li><li class="l3"><a href="#s8">2. 坂の上限 — 「登れる坂」は物理ではなく決めごと</a></li><li class="l3"><a href="#s10">3. 段差の乗り越え — 「持ち上げて進んで落とす」ではだめだった</a></li><li class="l3"><a href="#s11">4. 接地判定と床への吸い付き — 今日いちばん細かい 30 行</a></li><li class="l3"><a href="#s14">5. 今日入れなかったもの</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s21">剛体でないものを、物理の層にどう置くか — 今日の設計の中心</a></li><li class="l3"><a href="#s22">判定の窓口が2つある理由が、今日はっきりする</a></li><li class="l3"><a href="#s23">5段の順番は変わっていない(6段目が外に増えた)</a></li><li class="l3"><a href="#s24">今日いちばん時間を溶かしたこと</a></li><li class="l3"><a href="#s25">今日残した歪み</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. <code>Ctrl+X</code>: 坂のコースが出て、歩ける</a></li><li class="l3"><a href="#s28">2. 坂を登ってみる</a></li><li class="l3"><a href="#s29">3. <code>Alt+X</code>: 坂の上限を切る</a></li><li class="l3"><a href="#s30">4. <code>Shift+X</code>(1回目): 階段</a></li><li class="l3"><a href="#s31">5. <code>Ctrl+Shift+X</code>: 段差の乗り越えを切る</a></li><li class="l3"><a href="#s32">6. <code>Shift+X</code>(2回目): 障害物</a></li><li class="l3"><a href="#s33">7. <code>Shift+Alt+X</code>: 内訳をコンソールへ</a></li><li class="l3"><a href="#s34">8. Day 45a までの機能が全部生きていること</a></li><li class="l3"><a href="#s35">9. <code>Ctrl+Shift+Alt+X</code>: 今日の自己チェック(53 項目すべて合格)</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): つまみを振って、手触りの違いを測る</a></li><li class="l3"><a href="#s38">課題2(中): しゃがみを入れる</a></li><li class="l3"><a href="#s39">課題3(難): キャラクターが物を押せるようにする</a></li><li class="l2"><a href="#s40">動作確認済み環境</a></li><li class="l3"><a href="#s41">自己チェック(53 項目すべて合格)</a></li><li class="l3"><a href="#s42">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 45b / 計画書</p>
+  <h1>キャラクターコントローラ</h1>
+  <p class="lede">力で動かさないカプセル</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. キャラクターは剛体ではない — キネマティックという選択</a></li><li class="l3"><a href="#s8">2. 坂の上限 — 「登れる坂」は物理ではなく決めごと</a></li><li class="l3"><a href="#s10">3. 段差の乗り越え — 「持ち上げて進んで落とす」ではだめだった</a></li><li class="l3"><a href="#s11">4. 接地判定と床への吸い付き — 今日いちばん細かい 30 行</a></li><li class="l3"><a href="#s14">5. 今日入れなかったもの</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s21">剛体でないものを、物理の層にどう置くか — 今日の設計の中心</a></li><li class="l3"><a href="#s22">判定の窓口が2つある理由が、今日はっきりする</a></li><li class="l3"><a href="#s23">5段の順番は変わっていない(6段目が外に増えた)</a></li><li class="l3"><a href="#s24">今日いちばん時間を溶かしたこと</a></li><li class="l3"><a href="#s25">今日残した歪み</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. <code>Ctrl+X</code>: 坂のコースが出て、歩ける</a></li><li class="l3"><a href="#s28">2. 坂を登ってみる</a></li><li class="l3"><a href="#s29">3. <code>Alt+X</code>: 坂の上限を切る</a></li><li class="l3"><a href="#s30">4. <code>Shift+X</code>(1回目): 階段</a></li><li class="l3"><a href="#s31">5. <code>Ctrl+Shift+X</code>: 段差の乗り越えを切る</a></li><li class="l3"><a href="#s32">6. <code>Shift+X</code>(2回目): 障害物</a></li><li class="l3"><a href="#s33">7. <code>Shift+Alt+X</code>: 内訳をコンソールへ</a></li><li class="l3"><a href="#s34">8. Day 45a までの機能が全部生きていること</a></li><li class="l3"><a href="#s35">9. <code>Ctrl+Shift+Alt+X</code>: 今日の自己チェック(53 項目すべて合格)</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): つまみを振って、手触りの違いを測る</a></li><li class="l3"><a href="#s38">課題2(中): しゃがみを入れる</a></li><li class="l3"><a href="#s39">課題3(難): キャラクターが物を押せるようにする</a></li><li class="l2"><a href="#s40">動作確認済み環境</a></li><li class="l3"><a href="#s41">自己チェック(53 項目すべて合格)</a></li><li class="l3"><a href="#s42">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 45 の2日目で、reference は Day 45a の完全コピー + 差分。Day 45a でカプセルを剛体の形として入れた(判定4通りで 200 行に届かない)。<strong>今日はそのカプセルをキャラクターにする</strong>。</p>
+<p>重心はがらりと移る。今日の 830 行は「当たったか」ではなく、<strong>「坂は登れるか」「段差は越えられるか」「今は接地しているか」</strong>に費やされる。どれも物理法則から出てくる答えではなく、<strong>ゲームの都合で決めること</strong>で、だからこそキャラクターは物理シミュレーションの外に置くことになる。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+X</code> を押すと、坂と階段が並んだコースが出て、矢印キーでキャラクターが歩き回れる。15cm と 30cm の段は自分で乗り越え、45 度の坂は登れて 60 度の坂は登れない。</strong></p>
+<p><code>Shift+X</code> で「坂 / 階段 / 障害物」へ切り替えられる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+X</code></td><td>キャラクターデモ ON/OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td>矢印キー</td><td>歩く(<strong>カメラ基準</strong>。視点を回すと進む向きも回る)</td></tr>
+<tr><td><code>X</code> 押しっぱなし</td><td>走る(歩き 3.2 → 走り 6.4 m/s)</td></tr>
+<tr><td><code>Space</code></td><td>ジャンプ(<strong>デモ中はポーズに落とさない</strong>)</td></tr>
+<tr><td><code>Shift+X</code></td><td>筋書き(坂 / 階段 / 障害物)</td></tr>
+<tr><td><code>Alt+X</code></td><td>坂の上限 ON/OFF。<strong>切ると 60 度の坂も壁もよじ登れる</strong></td></tr>
+<tr><td><code>Ctrl+Shift+X</code></td><td>段差の乗り越え ON/OFF。<strong>切ると 15cm の段で止まる</strong></td></tr>
+<tr><td><code>Shift+Alt+X</code></td><td>キャラクターの内訳をコンソールへ</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+X</code></td><td>今日の自己チェック(53 項目。Day 45a の 28 項目を含む)</td></tr>
+<tr><td><code>Ctrl+Alt+X</code></td><td>Day 45a のまま(カプセルを1つ降らせる)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「キャラクターは剛体ではない」</strong>。人間を剛体として物理に預けると、坂で滑り落ち、歩き出すと転び、15cm の縁石で止まり、止まりたいのに止まれない。どれも物理としては正しくて、<strong>操作としては全部間違っている</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 力もインパルスも使わない。<strong>行きたい場所へ動かしてから、押し戻す</strong>
+Position += displacement;
+foreach (接触) Position += normal * (depth + SkinWidth);</code></pre></div>
+<p><strong>2つ目は「床は真上へ押し出す」</strong>。押し戻しを法線の向きへ出すと、30 度の坂に立っているだけで横へ滑り落ちる。<strong>真上へ <code>深さ / 法線のY</code> だけ持ち上げれば</strong>、めり込みは同じだけ解けて横へは1ミリも動かない。「登れる坂」は物理ではなく決めごと(要点2)。</p>
+<p><strong>3つ目は「段は先に覗く」</strong>。Quake 以来の「持ち上げて・進んで・落とす」を書いて、<strong>動かなかった</strong>。丸い底が段の角に当たったときの法線が寝ているので、落とした先で「壁」と判定されて押し戻される。<strong>半径ぶん前・段差ぶん上を先に覗いて</strong>、段かどうかを決めてから持ち上げる(要点3)。</p>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル1本(830 行)と <code>PhysicsWorld</code> の問い合わせ、<code>Core/InputMap.cs</code> にジャンプの割り当て、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。</p>
+<p><strong>物理は今日も絵を1ミリも知らない</strong>。自己チェック(53 項目)は窓を1枚も出さずに走る——そのうち 20 項目以上は「実際に数百ステップ歩かせてみる」形で、<strong>窓を出さずに操作の手触りを測っている</strong>。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Quake / Quake III のプレイヤー移動</strong>(<code>bg_pmove.c</code> の <code>PM_SlideMove</code> / <code>PM_StepSlideMove</code>) <a href="https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/bg_pmove.c">https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/bg_pmove.c</a>今日のキャラクターコントローラの<strong>直系の先祖</strong>。「動かして、めり込んだぶんを押し戻して、速度を面に沿わせる」の原型がここにある。段差の処理(<code>PM_StepSlideMove</code>)も読んでおくと、今日ここを作り直した理由が分かる。</li><li>Unity の <code>CharacterController</code> のドキュメント<a href="https://docs.unity3d.com/ScriptReference/CharacterController.html">https://docs.unity3d.com/ScriptReference/CharacterController.html</a> <code>slopeLimit</code> / <code>stepOffset</code> / <code>skinWidth</code> / <code>isGrounded</code> という名前は全部ここから借りた。<strong>商用エンジンが同じつまみを持っている</strong>ことを見ておくと、今日の設計が特殊でないと分かる。</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. キャラクターは剛体ではない — キネマティックという選択</h3>
+<p><strong>なぜキャラクターを <code>RigidBody</code> にしないのか</strong>。</p>
+<p>人間を剛体として物理に預けると、次のことが全部「起きてしまう」。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>起きること</th><th>物理としては</th><th>操作としては</th></tr></thead>
+<tbody>
+<tr><td>坂に立つと滑り落ちる</td><td>正しい(摩擦しだいで必ず滑る)</td><td><strong>困る</strong></td></tr>
+<tr><td>歩き出すと転ぶ</td><td>正しい(足元の力にトルクが立つ)</td><td><strong>困る</strong></td></tr>
+<tr><td>15cm の縁石で止まる</td><td>正しい</td><td><strong>困る</strong></td></tr>
+<tr><td>キーを離しても止まらない</td><td>正しい(慣性)</td><td><strong>困る</strong></td></tr>
+</tbody>
+</table></div>
+<p>遊ぶ人が期待しているのは「45 度までの坂は登れて、30cm の段差は乗り越えられて、キーを離したらすぐ止まる」——これは<strong>ゲームの都合</strong>であって、物理法則から出てくる答えではない。</p>
+<p>だからキャラクターは物理シミュレーションの<strong>外</strong>に置く。「キネマティック」は<strong>力で動かさない</strong>という意味で、代わりに</p>
+<div class="code"><pre><code>  1. 行きたい場所へ位置を直に動かす(めり込んでよい)
+  2. 当たっている面を集めて、法線の向きへ押し戻す
+  3. 速度から「面へ食い込む成分」を抜く   ← これが「滑る」の正体
+  4. 2〜3 を数周する</code></pre></div>
+<p><strong>3 の1行が滑りを作る</strong>。<code>v -= n (v·n)</code> で、速度を消すのではなく面に垂直な成分だけを取り除くので、面に沿った成分がそのまま残る——壁に斜めに突っ込むと壁沿いに流れるのはこれ。<strong>Day 43 のインパルスの式から「跳ね返り」を抜いたもの</strong>と見ることもできる。</p>
+<p><strong>4 が要るのは押し戻しが打ち消し合うから</strong>。部屋の角では2枚の壁に同時に当たり、片方を押し戻すともう片方へ深く入る。Day 44 の <code>PositionIterations</code> と同じ事情で、<strong>周ごとに当たり直しから測り直す</strong>。</p>
+<p>代償もはっきりしている——<strong>押されない・押せない・回らない</strong>。動く床に乗っても運ばれず、箱を押しても箱は動かない。Unity の <code>CharacterController</code> も Unreal の <code>CharacterMovementComponent</code> もQuake 以来の <code>PM_Move</code> も、<strong>商用エンジンはどれもこの作り</strong>で、同じ代償を払っている。</p>
+<h4 id="s7">世界の側には「読むだけの入口」を作る</h4>
+<p>キャラクターは剛体ではないので <code>PhysicsWorld.Bodies</code> には並ばない。それでも「世界の形と当たっているか」は知りたいので、シミュレーションを進めるのとは別に<strong>問い合わせ(クエリ)</strong>を足した。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public int QueryCapsule(in Capsule3D capsule, Span&lt;ContactManifold&gt; results);
+public bool OverlapCapsule(in Capsule3D capsule);</code></pre></div>
+<p>Unity の <code>Physics.OverlapCapsule</code>、Unreal の <code>SweepMulti</code>、Bullet の <code>contactTest</code> が同じ役。<strong>「今この形を置いたら何に当たるか」を問える窓口</strong>は、キャラクターだけでなくカメラの遮蔽・銃弾・AI の視線にも要る。</p>
+<p>結果は呼ぶ側が用意した <code>Span</code> に書く。キャラクターは1ステップで 10 回以上これを呼ぶので、<code>List</code> を毎回作るとそのままゴミになる。</p>
+<div class="inject"><figure class="lab" id="cc-lab">
+  <div class="lab-head">
+    <h3>キャラクターを歩かせる(横から見た 2D)</h3>
+    <span class="tag">半径 0.35m・身長 1.8m、歩き 3.2m/s・走り 6.4m/s、坂の上限 50 度、段差 35cm、60Hz</span>
+  </div>
+  <div class="stage"><canvas id="cc-canvas" tabindex="0" style="height:340px" aria-label="キャラクターのコース。フォーカスして矢印キーで歩く"></canvas></div>
+  <div class="hud" id="cc-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">コース(Shift+X)</span>
+      <div class="seg" id="cc-course"><button data-v="slope" aria-pressed="true">坂</button><button data-v="stairs" aria-pressed="false">階段</button></div>
+    </div>
+    <div class="ctl"><span class="label">歩く(キャンバスを選んで ← → / Space でも動く)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" id="cc-left">◀ 左</button>
+        <button class="btn primary" id="cc-auto">自動で右へ: ON</button>
+        <button class="btn" id="cc-right">右 ▶</button>
+        <button class="btn" id="cc-jump">ジャンプ</button>
+        <button class="btn" id="cc-reset">最初から</button>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="cc-run"> 走る(X)</label>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="cc-slope" checked> 坂の上限(Alt+X)</label>
+    <label class="check"><input type="checkbox" id="cc-step" checked> 段差の乗り越え(Ctrl+Shift+X)</label>
+    <label class="check"><input type="checkbox" id="cc-up" checked> 床は真上へ押し出す(要点2)</label>
+    <label class="check"><input type="checkbox" id="cc-snap" checked> 床への吸い付き(要点4)</label>
+  </div>
+  <div class="readout"><div class="stats" id="cc-stats"></div><p id="cc-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">2. 坂の上限 — 「登れる坂」は物理ではなく決めごと</h3>
+<p>面が「床」か「壁」かは、<strong>法線と真上のなす角</strong>で決める。</p>
+<div class="code"><pre><code>  normal.Y ≥ cos(SlopeLimitDegrees)   → 床(登れる)
+  それ未満                             → 壁(登れない)</code></pre></div>
+<p>50 度なら <code>cos 50° = 0.643</code>。<strong>この数字はどこにも物理的な根拠がない</strong>——摩擦係数から出てくるわけでもなく、ただ「このくらいなら登れることにしよう」という決め。<code>Alt+X</code> で切ると 60 度の坂も、ほとんど垂直な壁もよじ登れるようになるので、決めごとであることが体感できる。</p>
+<h4 id="s9">床は「真上へ」押し出す</h4>
+<p>ここが今日いちばん間違えやすいところ。押し戻しは法線の向きへ出すのが素直だが、<strong>坂ではそれが横滑りになる</strong>。</p>
+<div class="code"><pre><code>  30 度の坂に立っているだけ
+    → 重力ぶん沈む
+    → 法線の向きへ押し戻す = 斜め上へ動く
+    → <strong>横成分のぶんだけ坂を滑り落ちる</strong>(摩擦を入れていないので止まらない)</code></pre></div>
+<p>代わりに<strong>真上へ <code>深さ / 法線のY</code> だけ持ち上げる</strong>と、めり込みは同じだけ解けて横へは1ミリも動かない。平らな床(法線の Y = 1)では今までと同じ式になるので、失うものもない。</p>
+<p>登れない急な面のほうは逆に、<strong>押し戻す向きから上向きの成分を抜く</strong>。抜かないと押し戻しの上向き成分が「登り」として効いてしまう——上限を切ったときにまさにそれが起きて、壁をよじ登る。</p>
+<h3 id="s10">3. 段差の乗り越え — 「持ち上げて進んで落とす」ではだめだった</h3>
+<p>半径 35cm のカプセルが 15cm の段に当たる場面を考える。丸い底が段の角に触れるので、接触の法線は</p>
+<div class="code"><pre><code>  upness = (半径 - 段の高さ) / 半径 = (0.35 - 0.15) / 0.35 = 0.571</code></pre></div>
+<p><code>cos 50° = 0.643</code> より小さいので、<strong>この段は「壁」に見える</strong>。逆に言うと、段差の処理が無くても登れるのは<code>h &lt; r (1 - cos θ)</code> = 12.5cm までで、それを超えると足を取られる。</p>
+<p>素直に思いつくのは Quake 以来の「持ち上げて・進んで・落とす」。<strong>これを書いて、動かなかった</strong>。</p>
+<div class="code"><pre><code>  1. 段差ぶん(35cm)持ち上げる
+  2. 1フレームぶん(5cm)進む
+  3. 落とす
+     → 丸い底が段の角に当たって止まる
+     → そのときの法線はやはり寝ている(57 度)ので「壁」
+     → 押し戻されて元の位置へ。<strong>進んだぶんが帳消し</strong></code></pre></div>
+<p>1フレームで進める 5cm では角を越えられないので、<strong>何フレームかけても越えられない</strong>。掃引(スイープ)を持っていれば「触れたところで止まる」ので少しはましだが、それでも角に乗った瞬間の法線が寝ていることは変わらない。</p>
+<p><strong>先に覗いてしまえばこれが起きない</strong>。</p>
+<div class="code"><pre><code>        覗く位置(半径ぶん前・段差ぶん上)
+          ↓
+   ○──→ ┃▓▓▓▓        ○ ← 段の高さまで持ち上げてから進む
+   ▔▔▔▔▔▔▔▔▔▔▔      ▔▔▔┃▓▓▓▓</code></pre></div>
+<ol><li><strong>半径ぶん前・段差ぶん上</strong>にカプセルを置いてみる。埋まっていたら段ではない</li><li>そこから<strong>小刻みに下ろして</strong>、最初に触れた面を探す</li><li>その面が<strong>歩ける床</strong>で、高さが段差の範囲なら「段」と認める</li><li>認めたら、<strong>その場で段の高さまで持ち上げてから</strong>もう一度進む</li></ol>
+<p><strong>1 が坂を弾く</strong>。急な坂では半径ぶん前方の地面が段差ぶんより高く上がっているので、覗いた位置が坂の中に埋まる。45 度ならちょうど境目——つまり「段差ぶん持ち上げても半径ぶん前へ進めない勾配は段ではない」という素直な基準になる。<strong>「段か坂か」を、法線ではなく覗いた先の形で決めている</strong>のが肝。</p>
+<p><strong>3 の「歩ける床か」でも坂が弾かれる</strong>(1 をすり抜けた緩い坂の場合)。もっとも、緩い坂ならそもそも段差を使わずに登れるので実害は無い。</p>
+<p>持ち上げたあと落とさないので、キャラクターは何フレームか<strong>段の上の空中を歩く</strong>。0.05 秒ほどで足が段の縁に乗るので、絵としては「滑らかに段を登った」ように見える。</p>
+<div class="inject"><figure class="lab" id="corner-lab">
+  <div class="lab-head">
+    <h3>丸い底が段の角に当たるとき</h3>
+    <span class="tag">upness = (半径 − 段の高さ) / 半径。これが cos(坂の上限) より小さいと「壁」に見える</span>
+  </div>
+  <div class="stage"><canvas id="corner-canvas" style="height:240px" aria-label="段の角とカプセルの底"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">段の高さ</span>
+      <div class="range"><input type="range" id="corner-h" min="0.01" max="0.34" step="0.01" value="0.15"><output id="corner-h-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">坂の上限</span>
+      <div class="range"><input type="range" id="corner-limit" min="20" max="80" step="1" value="50"><output id="corner-limit-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="corner-stats"></div></div>
+</figure></div>
+<h3 id="s11">4. 接地判定と床への吸い付き — 今日いちばん細かい 30 行</h3>
+<p><strong>押し戻しの結果だけで接地を判定すると、毎フレーム途切れる</strong>。<code>SkinWidth</code> ぶん浮かせているので、立っているだけのときは床とどこにも当たっていない。これでは「歩いているのに常に落下中」になってジャンプが出せない。</p>
+<p>そこで<strong>少し下げた位置のカプセル</strong>を当ててみる。当たった面のうち、登れる傾き以内の<strong>いちばん平らなもの</strong>を立っている床に採る。探るだけで位置は動かさない——形が値(<code>readonly struct</code>)であることの利き所で、本体を動かさずに何度でも試せる。</p>
+<p><strong>探る距離は状況で変える</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>状況</th><th>探る距離</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>普段</td><td>6cm</td><td>skin ぶんの浮きを拾えればよい</td></tr>
+<tr><td>直前まで接地していて落ちようとしている</td><td>35cm(段差ぶん)</td><td><strong>床への吸い付き</strong></td></tr>
+<tr><td>上へ動いている(ジャンプの出だし)</td><td>探らない</td><td><strong>拾うと何度でも跳べる</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>床への吸い付き</strong>が無いと、階段や坂を下るときに「一瞬浮いて、落ちて、着地する」を毎段繰り返してガタつく。自己チェックでは、切ると 180 ステップ中 22 ステップが空中になるのが測れる。</p>
+<p>見つけた床までは<strong>実際に下ろす</strong>。見つけただけで下ろさないと、坂を下る間じわじわ浮いていって、6cm 溜まったところで落ちる周期的なガタつきになる。</p>
+<h4 id="s12">「重力で床へ押し付ける」を書いてはいけない</h4>
+<p>接地中に <code>Velocity.Y = -2</code> のような小さな下向きを入れて床へ押し付ける、というのはよくある実装で、実際そう書きたくなる。<strong>これで丸一日はまった</strong>。</p>
+<div class="code"><pre><code>  押し付ける
+    → 段の縁にめり込む
+    → その接触は法線が寝ているので「壁」
+    → <strong>横へ押し戻される</strong>
+    → 前へ進んだぶんがちょうど帳消しになる
+    → しかも「押し戻された」ことが水平移動の側から見えないので、段差の処理も走らない</code></pre></div>
+<p>キャラクターは段の手前でぴくりとも動かなくなる。しかも速度も位置も完全に静止するので、「引っかかっている」のか「そういう仕様」なのか絵では区別が付かない。</p>
+<p>接地中は縦に動かさず、床へ張り付ける仕事は<strong>吸い付きに一本化する</strong>のが答えだった。</p>
+<h4 id="s13">吸い付きで後ろへ押し戻されたら、その吸い付きは取り消す</h4>
+<p>吸い付きは「離れかけた床へまっすぐ引き戻す」ためのもので、進んだぶんを取り消すためのものではない。進行方向と逆へ動いたなら、下ろす途中で<strong>段の側面に当たって押し返された</strong>ということ。</p>
+<p><strong>取り消すのは「動き」だけで、「接地している」という判断は残す</strong>。真下に床があることは探りが確かめているので、段の縁に引っかかって少し浮いているだけなら接地扱いのままでよい。ここを落とすと、段を登りかけたキャラクターが空中扱いになり、段差の処理が走らなくなって<strong>永久に登れない</strong>。</p>
+<h3 id="s14">5. 今日入れなかったもの</h3>
+<ul><li><strong>掃引(スイープ)</strong> … 動かしてから押し戻すだけなので、1ステップで自分の厚みより多く動くと薄い壁を抜ける。走る速さ 6.4m/s で 60Hz なら1ステップ 10.7cm、カプセルの直径 70cm なのでまだ余裕がある。</li><li><strong>動く床・押せる箱</strong> … キャラクターは押されるが押さない。直すには当たった相手にインパルスを掛けてやる(改造課題3)。</li><li><strong>しゃがみ・匍匐</strong> … 高さを変えるだけだが、「頭上が空いているか」の確認が要る(改造課題2)。</li><li><strong>三人称カメラの追従</strong> … 今日は注視点をキャラクターの位置に置き直しているだけ。滑らかに遅れる・壁に入ったら寄る・進行方向を先読みするのは Day 51。</li><li><strong>アニメーション</strong> … Day 42 のブレンド木に <code>HorizontalSpeed</code> を渡せば繋がるが、シーンの組み上げごと Day 51 でやる。</li><li><strong>地形(Heightmap)</strong> … Day 46。問い合わせ(<code>QueryCapsule</code>)は形を知らないので、地形の体が増えてもそのまま使える。</li></ul>
+</section>
+<section class="part"><h2 id="s15">前Dayからの差分概要</h2>
+<h3 id="s16">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/CharacterController.cs</code></td><td>830</td><td>キネマティックなキャラクターコントローラ。<strong>今日の主役</strong>(要点1〜4)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/PhysicsWorld.cs</code></td><td><code>QueryCapsule</code> / <code>OverlapCapsule</code>(<strong>読むだけの問い合わせ</strong>)</td><td>+104 / -1</td></tr>
+<tr><td><code>Core/InputMap.cs</code></td><td><code>GameAction.Jump</code> と <code>Space</code> の割り当て</td><td>+20 / -1</td></tr>
+<tr><td><code>Program.cs</code></td><td>キャラクターデモ3つ、<code>X</code> の段の残り5つと <code>Space</code>、HUD、描画、自己チェックの後半</td><td>+1,089 / -26</td></tr>
+<tr><td><code>Physics/Collision3D.cs</code></td><td>コメントのみ(キャラクターの話を <code>CharacterController</code> の参照に)</td><td>+13 / -5</td></tr>
+<tr><td><code>Physics/RigidBody.cs</code> / <code>Physics/Shapes3D.cs</code></td><td>コメントのみ(同上)</td><td>+1 / -1 ずつ</td></tr>
+<tr><td><code>Day45b.csproj</code></td><td><code>Day45a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>shaders/</code> も <code>Render/</code> も1文字も変わっていない</strong>。</p>
+<h3 id="s18">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。今日は<strong>1 から 3 までは足すだけ</strong>なので、途中でビルドが壊れることはない。</p>
+<ol><li><strong><code>Core/InputMap.cs</code></strong>(変更) — <code>GameAction.Jump</code> と <code>map.Bind(Key.Space, ...)</code></li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(変更) — クラスの説明に1段落と
+<ul><li><code>QueryCapsule</code> / <code>OverlapCapsule</code> / <code>CapsuleQueries</code> / <code>CapsuleQueryTests</code> / <code>ResetQueryStats</code>(<code>Clear</code> の直前)</li></ul></li><li><strong><code>Physics/CharacterController.cs</code></strong>(新規) — <strong>今日の山場</strong>。次の順で足すとよい
+<ul><li>定数5つ(<code>ResolvePasses</code> / <code>MaxQueryResults</code> / <code>GroundProbe</code> / <code>DropSteps</code> / <code>SteppingUpness</code>)と <code>_hits</code></li><li>プロパティ(形・動き方・つまみ・読むだけの状態)</li><li><code>ToCapsule()</code> / <code>ToCapsule(footPosition)</code></li><li><code>Move</code>(5段。要点1)</li><li><code>MoveHorizontal</code> と <code>TryFindStep</code>(要点3)</li><li><code>MoveAndSlide</code>(要点1・要点2。<strong>床は真上へ押す</strong>)</li><li><code>UpdateGround</code> と <code>Probe</code>(要点4)</li><li><code>UpdateFacing</code> / <code>Teleport</code></li></ul></li><li><strong><code>Program.cs</code></strong> — 次の順に足す
+<ul><li><code>CharacterScene</code> を新設(<code>PhysicsScene</code> の直後)</li><li>フィールド(<code>_characterDemo</code> / <code>Character</code> / <code>_characterScene</code> / <code>_characterMaterial</code> / <code>_characterMilliseconds</code> / <code>_characterSpawn</code>)。<code>_capsuleSpawnCount</code> を挟むように置く</li><li><code>OnLoad</code>: <code>_characterMaterial</code>(<code>_contactMaterial</code> の直後)、ヘルプの Day 45 の段の残り</li><li><code>OnUpdate</code>: 注視点をキャラクターに合わせる行(<code>UpdateDemoCamera</code> の直後)と、アニメーションのコメントの直し</li><li><code>FixedUpdate</code>: <code>_scene.Input</code> を <code>_characterDemo</code> で分ける行と、<code>UpdateCharacter(dt, input)</code>(<code>UpdatePhysics</code> の直後)</li><li><code>ShowPhysicsDemo</code> に <code>_characterDemo = false</code> の1行と、<code>Ctrl+Shift+Alt+1</code> / <code>Ctrl+Shift+Alt+F1</code> の OFF の枝にも同じ1行(<strong>世界を消すならキャラクターも下ろす</strong>)</li><li>Day 45 の塊に、<code>SpawnCapsule</code> の直後へ<code>ShowCharacterDemo</code> / <code>BuildCharacterScene</code> / <code>BuildSlopeCourse</code> / <code>BuildStepCourse</code> / <code>BuildObstacleCourse</code> / <code>UpdateCharacter</code> / <code>RenderCharacter</code>、<code>RotationTo</code> の直後へ <code>CharacterMatrix</code> / <code>CharacterLabel</code> / <code>CharacterSceneLabel</code> / <code>DescribeCharacter</code></li><li><code>RenderPhysics</code> に <code>RenderCharacter()</code>、<code>RenderShadowPass</code> にキャラクターの影</li><li><code>PhysicsSceneLabel</code> をキャラクターの筋書きでも答える形に</li><li><code>DrawOverlayInfo</code> に <code>CharacterLabel()</code> の枝</li><li><code>RunCapsuleCheck</code> の後半(節 5〜9。キャラクターと問い合わせ)と、説明・見出し・合格メッセージ</li><li>キー(<code>X</code> の段の <code>Ctrl+X</code> / <code>Shift+X</code> / <code>Alt+X</code> / <code>Ctrl+Shift+X</code> / <code>Shift+Alt+X</code> と <code>Space</code> の横取り)。<strong>Day 45a で作った X の塊の中</strong>に置くこと</li></ul></li><li><strong><code>Physics/Collision3D.cs</code> / <code>Physics/RigidBody.cs</code> / <code>Physics/Shapes3D.cs</code></strong> — <strong>コメントのみ</strong>。Day 45a で「Day 45b のキャラクター」と書いておいた箇所が、<code>CharacterController</code> の参照に変わる。差分0にしたいなら合わせておく</li><li><strong><code>Day45b.csproj</code></strong> — <code>Day45a.csproj</code> からのリネームのみ</li></ol>
+<p><strong><code>Space</code> の横取りは X の塊の最後</strong>に置く。<code>case Key.Space:</code>(一時停止)より上にないと、ジャンプするたびに世界が止まる。</p>
+</section>
+<section class="part"><h2 id="s19">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が1つ増え(<code>CharacterController</code>)、<code>PhysicsWorld</code> に読むだけの入口が付いただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/CharacterController</code></td><td><code>Physics/</code></td><td>キネマティックなキャラクター。<strong>今日の主役 830 行</strong>(要点1〜4)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/PhysicsWorld</code></td><td><strong>読むだけの問い合わせ</strong>が入った</td><td>+104 / -1</td></tr>
+<tr><td><code>Core/InputMap</code></td><td><code>GameAction.Jump</code> と <code>Space</code> の割り当て</td><td>+20 / -1</td></tr>
+<tr><td><code>Program.cs</code></td><td>キャラクターデモ3つ、<code>X</code> の段の残り、HUD、自己チェックの後半</td><td>+1,089 / -26</td></tr>
+<tr><td><code>Physics/Collision3D</code> / <code>RigidBody</code> / <code>Shapes3D</code></td><td>コメントのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<h3 id="s20"><code>Physics/</code> が今日も何も知らないままであること</h3>
+<p>Day 26 で <code>Physics/</code> を作ったとき、「<code>System.Numerics</code> しか使っていないのでそのまま別プロジェクトへ持ち出せる」と書いた。<strong>今日もそれが保たれている</strong>。</p>
+<div class="code"><pre><code>  Physics/  →  依存先なし(System.Numerics だけ)</code></pre></div>
+<p>今日いちばん誘惑が強かったのは <code>CharacterController</code> で、「入力を受け取る」「向きを持つ」「アニメーションの重みを返す」を足したくなる。実際に入れたのは<strong>「どちらへ行きたいか」の水平ベクトル1本</strong>だけで、キーもカメラも知らない——カメラ基準に直すのは <code>Program</code> の仕事にした。Day 18 の <code>InputSnapshot</code> が「どのキーか」を知らなかったのと同じ線を引いている。</p>
+<p>配当は今日も自己チェックに出る。<strong>53 項目が窓を1枚も出さずに走る</strong>。そのうち 20 項目以上は「実際に数百ステップ歩かせてみる」という形をしていて、<strong>窓を出さずに操作の手触りを測っている</strong>ことになる。</p>
+<h3 id="s21">剛体でないものを、物理の層にどう置くか — 今日の設計の中心</h3>
+<p><code>CharacterController</code> は <code>Physics/</code> にあるのに <code>RigidBody</code> ではない。<code>PhysicsWorld.Bodies</code> にも並ばない。<strong>この非対称が今日の設計そのもの</strong>になる。</p>
+<div class="code"><pre><code>  RigidBody         : 世界に置かれ、Step(dt) が動かす。力とインパルスで動く
+  CharacterController: 世界の外に居て、自分で動く。世界には「問い合わせ」だけする</code></pre></div>
+<p>これを成り立たせるために足したのが、<code>PhysicsWorld</code> の<strong>読むだけの入口</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public int QueryCapsule(in Capsule3D capsule, Span&lt;ContactManifold&gt; results);
+public bool OverlapCapsule(in Capsule3D capsule);</code></pre></div>
+<p><code>Step</code> が「世界を1歩進める」のに対し、こちらは「今この形を置いたら何に当たるか」を問うだけ。<strong>世界の側は『キャラクター』という言葉を1度も知らない</strong>ままでいられる。</p>
+<p>この分け方の値打ちは、要る場面がキャラクター以外にもあること——カメラの遮蔽、銃弾、AI の視線、設置可能かの判定。Unity・Unreal・Bullet がどれも同じ形の API を持っているのは偶然ではない。</p>
+<p><strong>代償は非対称</strong>。キャラクターは押されるが押さない。「障害物」の筋書きで転がってきた箱に当たると押し戻されるのに、箱を押しても箱は動かない。直すには当たった相手にインパルスを掛けてやることになる(改造課題3)。</p>
+<h3 id="s22">判定の窓口が2つある理由が、今日はっきりする</h3>
+<p>Day 45a で、カプセルの判定の窓口を2つにしておいた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Collide(RigidBody a, RigidBody b)                       // 体どうし。Day 44a
+CapsuleAgainst(in Capsule3D capsule, RigidBody body)    // 形と体。Day 45a</code></pre></div>
+<p>2つ目が<strong>体ではなく形を受け取る</strong>のは、<strong>キャラクターのカプセルが体ではない</strong>から。今日 <code>QueryCapsule</code> がこの窓口を使う。<code>RigidBody</code> を1つでっち上げて <code>Collide</code> を呼ぶ形にはしたくなかった——質量も速度も持たないものに体の皮をかぶせると、「静的な体が1つ増えている」ように見えて <code>DynamicCount</code> も <code>PairTests</code> も嘘になる。</p>
+<h3 id="s23">5段の順番は変わっていない(6段目が外に増えた)</h3>
+<p><code>PhysicsWorld.Step</code> の5段は Day 43 のまま、中身も Day 44・45a のまま。<strong>今日変わったのは <code>FixedUpdate</code> の側</strong>で、物理のあとにキャラクターが1段入った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>やること</th><th>Day 45b で変わったか</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>積分(速度 → 位置)</td><td>変わらない</td></tr>
+<tr><td>2</td><td>判定(接触を集める)</td><td>変わらない(カプセルの4組は Day 45a から)</td></tr>
+<tr><td>3</td><td>速度の解決</td><td>変わらない</td></tr>
+<tr><td>4</td><td>位置の補正</td><td>変わらない</td></tr>
+<tr><td>5</td><td>力の溜め場を空にする</td><td>変わらない</td></tr>
+<tr><td>—</td><td><strong>キャラクターを動かす</strong></td><td><strong><code>Physics.Step</code> の後</strong>。世界に問い合わせながら自分で動く</td></tr>
+</tbody>
+</table></div>
+<p><strong>物理より後</strong>にしてあるのが大事なところ。箱や球が動き終わった世界に対して当たりを取るので、転がってきた物にめり込んだまま次のステップへ進むことがない。</p>
+<h3 id="s24">今日いちばん時間を溶かしたこと</h3>
+<p>書き上げたコードを読んでも分からない類のものなので、残しておく。</p>
+<p><strong>接地中に床へ押し付けたら、段差が越えられなくなった</strong>(要点4)。<code>Velocity.Y = -2</code> で床へ軽く押し付ける、というよくある実装をそのまま書いた。すると段の縁に少しめり込み、その接触は法線が寝ているので「壁」として横へ押し返され、<strong>前へ進んだぶんがちょうど帳消しになる</strong>。しかも押し戻されたことが水平移動の側から見えないので、段差の処理も走らない。</p>
+<p>症状は「段の手前で完全に静止する」。速度も位置も1ミリも動かないので、絵を見ても「引っかかっている」のか「そういうものなのか」が分からない。<strong>フレームごとの位置と速度をコンソールに出して初めて</strong>、水平には進んでいるのに縦の移動で押し戻されていることが見えた。</p>
+<p>答えは「接地中は縦に動かさず、床へ張り付ける仕事は吸い付きに一本化する」。つまみを1つ足すのではなく、<strong>役目が重なっていた2つを1つに寄せる</strong>のが直し方だった。</p>
+<h3 id="s25">今日残した歪み</h3>
+<p><strong>段を登る間、キャラクターが少し浮く</strong>。要点3のとおり「段の高さまで持ち上げてから進む」ので、足が段の縁に乗るまでの数フレーム(0.05 秒ほど)は空中を歩いている。掃引(スイープ)を入れれば「触れたところで止まる」形にできるが、そのぶん判定が重くなるので今日は入れなかった。</p>
+</section>
+<section class="part"><h2 id="s26">完成条件</h2>
+<p><code>dotnet run --project reference/Day45b -c Release</code> で起動して、順に確かめる。</p>
+<h3 id="s27">1. <code>Ctrl+X</code>: 坂のコースが出て、歩ける</h3>
+<p><strong>今日の到達点</strong>。傾き 15 / 30 / 45 / 60 度の坂が z 方向に4本並び、その手前にキャラクター(水色のカプセル)が立っている。</p>
+<ul><li>矢印キーで歩く。<strong>カメラ基準</strong>なので、マウスで視点を回すと進む向きも一緒に回る</li><li><code>X</code> を押しっぱなしで走る。HUD の「速さ」が 3.2 → 6.4 m/s に変わる</li><li><code>Space</code> でジャンプ。1.1m ほど上がる(<strong>世界は止まらない</strong>)</li><li>足元に<strong>緑の円板</strong>が出ていれば接地。坂の上では円板も傾く</li></ul>
+<p>HUD の2行目(<code>キャラ[...]</code>)に、接地・傾き・速さ・高さが出る。</p>
+<h3 id="s28">2. 坂を登ってみる</h3>
+<p>15 / 30 / 45 度は登れる。<strong>60 度は登れない</strong>——坂に体を押し付けても、その場で足踏みするだけになる。</p>
+<p>HUD の「傾き」が、立っている坂の角度と一致していることを確かめる(15 度の坂の上なら <code>傾き:15度</code>)。60 度の坂に押し付けている間は<code>傾き:0度</code>(床の上)のまま、<code>壁</code> の表示が出る。</p>
+<h3 id="s29">3. <code>Alt+X</code>: 坂の上限を切る</h3>
+<p><strong>今日の見どころ その1</strong>。同じ 60 度の坂が登れるようになる。それどころか、押し戻しの上向き成分がそのまま登りになるので、<strong>ほとんど垂直な面もよじ登れる</strong>。</p>
+<p>「登れる坂かどうかは物理ではなく決めごと」が体で分かる。もう一度押すと戻る。</p>
+<h3 id="s30">4. <code>Shift+X</code>(1回目): 階段</h3>
+<p>段差 15 / 30 / 45cm の階段が3本、z 方向に並ぶ。手前(+x 側)から -x へ登る。</p>
+<ul><li><strong>15cm と 30cm は登れる</strong>。HUD に <code>**段 15cm**</code> のような表示が一瞬出る</li><li><strong>45cm は登れない</strong>(既定の乗り越えは 35cm まで)</li><li>登った先から引き返して<strong>降りる</strong>。1段ごとに跳ねずに、滑らかに降りられる</li></ul>
+<h3 id="s31">5. <code>Ctrl+Shift+X</code>: 段差の乗り越えを切る</h3>
+<p><strong>今日の見どころ その2</strong>。<strong>15cm の段でも止まる</strong>ようになる。半径 35cm のカプセルは、丸い底が段の角に当たったときの法線が真上から 55 度傾く——坂の上限(50 度)を超えているので「壁」に見える。</p>
+<p>降りるときも変わる。吸い付きが切れるので、<strong>1段ごとに宙に浮いて落ちる</strong>のが分かる(HUD の「接地」が点滅する)。</p>
+<h3 id="s32">6. <code>Shift+X</code>(2回目): 障害物</h3>
+<p>箱・球・カプセルが降ってくる中を歩く。</p>
+<ul><li>転がってきた箱に当たると<strong>押し戻される</strong></li><li>こちらから箱を押しても<strong>箱は動かない</strong>(キネマティックの代償)</li><li>手前の低い台(段差 30cm を2段)には登れる</li></ul>
+<h3 id="s33">7. <code>Shift+Alt+X</code>: 内訳をコンソールへ</h3>
+<p>形・位置・速度・接地・坂の上限・段差・問い合わせの回数が並ぶ。坂が登れない・段差が越えられないときは、まずここを見る——<strong>「上限の設定」か「引っかかり」のどちらか</strong>しかないので、切り分けが1回で済む。</p>
+<h3 id="s34">8. Day 45a までの機能が全部生きていること</h3>
+<p><code>Ctrl+Shift+Alt+1</code> → <code>2</code> を4回(カプセルを落とす)と <code>Ctrl+Alt+X</code>(カプセルを降らせる)、<code>Ctrl+Shift+Alt+1</code>(箱デモ)、<code>Ctrl+Shift+Alt+F1</code>(球デモ)、<code>Shift+Alt+F1</code>(アニメーションのブレンド)、<code>Ctrl+Shift+F1</code>(デモ v1)、<code>Enter</code>(卒業制作)——どれも今までどおり動く。</p>
+<p><code>Space</code> がポーズに戻っていることも確かめる(<strong>キャラクターデモを消してから</strong>押す)。</p>
+<h3 id="s35">9. <code>Ctrl+Shift+Alt+X</code>: 今日の自己チェック(53 項目すべて合格)</h3>
+<p>窓を1枚も出さずに走る。節 1〜4 は Day 45a の 28 項目で、今日足したのは節 5〜9 の 25 項目。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>節</th><th>何を確かめるか</th><th>項目</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>線分と最近接点(<strong>総当たりとの突き合わせ</strong>を含む)</td><td>6</td></tr>
+<tr><td>2</td><td>カプセルの形と慣性テンソル(球・棒の極限に戻るか)</td><td>6</td></tr>
+<tr><td>3</td><td>カプセルの判定4通り(<strong>寝ると2点</strong>)</td><td>12</td></tr>
+<tr><td>4</td><td>剛体としてのカプセル(横倒しで止まる)</td><td>4</td></tr>
+<tr><td>5</td><td>キャラクター: 落ちて、立って、歩いて、跳ぶ</td><td>7</td></tr>
+<tr><td>6</td><td>キャラクター: 坂(<strong>上限を切ると登れる</strong>)</td><td>4</td></tr>
+<tr><td>7</td><td>キャラクター: 段差(<strong>切ると 15cm で止まる</strong>)</td><td>6</td></tr>
+<tr><td>8</td><td>キャラクター: 滑り・部屋の角・天井</td><td>5</td></tr>
+<tr><td>9</td><td>問い合わせが世界を書き換えないこと</td><td>3</td></tr>
+</tbody>
+</table></div>
+<p>Day 43(<code>Ctrl+Shift+Alt+F12</code>)と Day 44(<code>Ctrl+Shift+Alt+0</code>)の自己チェックも<strong>全項目そのまま合格</strong>することを確かめる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+X</code> / 矢印キー / <code>X</code> / <code>Space</code></td><td>キャラクターを歩かせる</td><td>45 度の坂は登れて 60 度は登れない。15cm と 30cm の段は乗り越える</td></tr>
+<tr><td><code>Shift+X</code></td><td>同「コース」</td><td>坂 / 階段(実機には障害物もある)</td></tr>
+<tr><td><code>Alt+X</code></td><td>同「坂の上限」</td><td>切ると 60 度の坂もよじ登れる</td></tr>
+<tr><td><code>Ctrl+Shift+X</code></td><td>同「段差の乗り越え」</td><td>切ると 15cm の段で止まる</td></tr>
+<tr><td><code>Shift+Alt+X</code>(内訳)</td><td>同 HUD</td><td>接地・床の傾き・段を登ったか・壁に当たったか</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は横から見た 2D で、reference/Day45b の CharacterController(MoveHorizontal / TryFindStep / MoveAndSlide / UpdateGround / Probe)の手順と既定値をそのまま移したもの。「床は真上へ押し出す」「床への吸い付き」の2つは、計画書に書かれた失敗を見るためにこのページで足した切り替えで、reference には無い。</p></div>
+</section>
+<section class="part"><h2 id="s36">改造課題</h2>
+<h3 id="s37">課題1(易): つまみを振って、手触りの違いを測る</h3>
+<p><code>CharacterController</code> の数字を変えて、自己チェックの結果がどう動くかを見る。</p>
+<ul><li><code>SlopeLimitDegrees</code> を 30 度にすると、45 度の坂が登れなくなる</li><li><code>StepOffset</code> を 0.5 にすると 45cm の段も登れる。<strong>では 0.8 にすると何が起きるか</strong></li><li><code>SkinWidth</code> を 0.05(1フレームの移動量に近い値)にすると、<strong>壁際で速度が削られなくなる</strong>——なぜかは <code>SkinWidth</code> のコメントに書いてある</li></ul>
+<p>数字を1つ変えるたびに <code>Ctrl+Shift+Alt+X</code> を走らせると、<strong>どの項目が落ちるか</strong>で、そのつまみが何を支えているかが分かる。</p>
+<h3 id="s38">課題2(中): しゃがみを入れる</h3>
+<p><code>Height</code> を 1.8 → 1.0 に縮める。難しいのは<strong>戻るとき</strong>で、頭上が塞がっていたら立ち上がれないようにする必要がある。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 立ち上がれるか = 立った高さのカプセルがどこにも埋まっていないか
+bool canStand = !world.OverlapCapsule(ToCapsule(Position, standingHeight));</code></pre></div>
+<p><code>OverlapCapsule</code> が「当たったかどうかだけ」を返すよう作ってあるのが、ここで効いてくる(要点1)。</p>
+<p>確かめるには、天井のある通路が要る——<code>BuildObstacleCourse</code> に、床から 1.2m のところに静的な箱を1枚渡す。</p>
+<h3 id="s39">課題3(難): キャラクターが物を押せるようにする</h3>
+<p>キネマティックの代償(押されるが押さない)を埋める。</p>
+<p><code>CharacterController.MoveAndSlide</code> で押し戻した相手が動的な体なら、<strong>その体にインパルスを掛けてやる</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 押した向きへ、押した強さに応じたインパルスを掛ける
+body.ApplyImpulseAtPoint(-normal * pushStrength, contactPoint);</code></pre></div>
+<p>考えどころが3つある。</p>
+<ul><li><strong><code>QueryCapsule</code> が体を返していない</strong>。今は <code>ContactManifold</code> しか返さないので、「誰に当たったか」を持ち回る必要がある——戻り値の形を変えることになる</li><li><strong>押す強さをどう決めるか</strong>。物理的に正しくやるなら質量比だが、それだと重い箱がびくともせず「押せない」のと変わらない。ゲームでは上限付きの定数にすることが多い</li><li><strong>押し返されないこと</strong>。相手が動けば接触が消えるので、次のフレームでまた押すことになる。振動しないか確かめる</li></ul>
+<p>うまく動いたら「箱を押して段差の代わりにする」ができるようになり、パズル要素が1つ生まれる。</p>
+</section>
+<section class="part"><h2 id="s40">動作確認済み環境</h2>
+<ul><li>Windows 11 Home 26200 / .NET 10.0</li><li>ビルド: <code>dotnet build reference/Day45b</code>(警告 0・エラー 0)</li><li>整形: <code>dotnet format whitespace reference/Day45b/Day45b.csproj --verify-no-changes</code> 差分なし</li><li>実行: <code>dotnet run --project reference/Day45b -c Release</code></li></ul>
+<h3 id="s41">自己チェック(53 項目すべて合格)</h3>
+<p>窓を出さずに走るので、<code>Ctrl+Shift+Alt+X</code> を押すだけでコンソールに出る。主な数字を抜き出しておく。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>実測</th></tr></thead>
+<tbody>
+<tr><td>線分どうしの最近接点(2,000 通り × 201² 組の総当たりと比較)</td><td>最悪 0.0001mm</td></tr>
+<tr><td>線分と箱の三分探索(400 通りの総当たりと比較)</td><td>最悪 0.0024mm</td></tr>
+<tr><td>半分の高さ 0 のカプセルの慣性</td><td>(0.2, 0.2, 0.2)= 球の 2/5 m r²</td></tr>
+<tr><td>細いカプセルの横慣性</td><td>0.3424(全長 2m の棒なら 0.3333)</td></tr>
+<tr><td>寝かせたカプセルと床</td><td><strong>2点</strong>、深さは両方 0.05m</td></tr>
+<tr><td>落としたカプセル</td><td>軸の Y 成分 0.008(= 横倒し)、高さ 0.2988m、<strong>2点で支持</strong></td></tr>
+<tr><td>キャラクターの着地高さ</td><td>2.00mm(= <code>SkinWidth</code>)</td></tr>
+<tr><td>ジャンプの到達点</td><td>1.160m(設定 1.10m)</td></tr>
+<tr><td>30 度の坂を5秒</td><td><strong>4.51m 登る</strong></td></tr>
+<tr><td>60 度の坂を5秒</td><td><strong>0.00m</strong>(上限を切ると 7.99m)</td></tr>
+<tr><td>15cm の段</td><td><strong>越える</strong>(x = 12.80 まで進む) / 乗り越えを切ると x = 0.19 で停止</td></tr>
+<tr><td>45cm の段</td><td><strong>越えない</strong>(x = 0.15 で停止)</td></tr>
+<tr><td>階段を降りる 180 ステップ</td><td>空中 <strong>0 ステップ</strong> / 吸い付きを切ると 22 ステップ</td></tr>
+<tr><td>壁へ斜めに突っ込む</td><td>x は 1.648 で止まり、z へ 6.61m 滑る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s42">検証の途中で分かったこと</h3>
+<p><strong>「持ち上げて進んで落とす」では段差が越えられなかった</strong>(要点3)。Quake 以来の定石をそのまま書いたが、カプセルの丸い底が段の角に当たったときの法線が寝ているため、落とした先で「壁」と判定されて押し戻される。先に前方を覗いて段かどうかを決める形に変えた。</p>
+<p><strong>接地中に床へ押し付けると、段差が越えられなくなった</strong>(要点4)。<code>Velocity.Y = -2</code> で軽く押し付ける実装にしたところ、押し付けたぶんだけ段の縁にめり込み、横へ押し戻されて前進が帳消しになった。症状は「段の手前で完全に静止」で、<strong>絵からはまったく原因が読めない</strong>。接地中は縦に動かさず、床への張り付けは吸い付きに一本化して直した。</p>
+<p><strong>坂の置き方でも一度詰まった</strong>。傾けた箱を素直に持ち上げて置くと、坂の切り口(下を向いた法線の面)が床から飛び出し、キャラクターは坂ではなくその壁にぶつかって止まる。「坂が登れない」のに坂の上限は無関係、という分かりにくい詰まり方をした。上面が床と滑らかにつながるように置き直してある(<code>BuildSlopeCourse</code> と自己チェックの <code>SlopeWorld</code> の両方)。</p>
+<p><strong>坂を横に並べたら互いにめり込んだ</strong>。緩い坂ほど水平方向に長いので、x 方向に等間隔で並べると重なる。z のレーンに分けて解決した。</p>
+</section>
+<footer class="end">Day 45b キャラクターコントローラ / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/physics2d.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+const { Shape, Body, World, drawPlanes } = Phys2D;
+const rad = (d) => d * Math.PI / 180;
+
+// ============================================================
+//  コース(静的な体だけの世界)
+// ============================================================
+function ramp(world, x0, angleDeg, height, thick = 0.6) {
+  const th = rad(angleDeg), len = height / Math.sin(th), u = [Math.cos(th), Math.sin(th)], n = [-Math.sin(th), Math.cos(th)];
+  const ext = 0.4;   // 下の端だけ床の下へ伸ばして隙間を無くす
+  const b = new Body(0, Shape.box(len / 2 + ext / 2, thick / 2));
+  const mid = [x0 + u[0] * len / 2 - u[0] * ext / 2, u[1] * len / 2 - u[1] * ext / 2];
+  b.x = mid[0] - n[0] * thick / 2; b.y = mid[1] - n[1] * thick / 2; b.angle = th;
+  world.add(b);
+  return x0 + height / Math.tan(th);
+}
+function block(world, x0, x1, top, bottom = -1) {
+  const b = new Body(0, Shape.box((x1 - x0) / 2, (top - bottom) / 2));
+  b.x = (x0 + x1) / 2; b.y = (top + bottom) / 2; world.add(b);
+}
+const COURSES = {
+  slope(w) {
+    const labels = [];
+    let x = 2;
+    for (const a of [30, 45, 60]) {
+      const top = ramp(w, x, a, 0.9);
+      block(w, top, top + 2.2, 0.9);
+      labels.push([x + 0.2, `${a}°`]);
+      x = top + 4.5;
+    }
+    return { labels, end: x };
+  },
+  stairs(w) {
+    const labels = [];
+    let x = 2;
+    for (const hgt of [0.15, 0.30, 0.45]) {
+      block(w, x, x + 2.0, hgt);
+      labels.push([x + 0.1, `${Math.round(hgt * 100)}cm`]);
+      x += 4.0;
+    }
+    return { labels, end: x };
+  },
+};
+
+// ============================================================
+//  CharacterController(reference/Day45b の移植。2D なので水平は x だけ)
+// ============================================================
+const RESOLVE_PASSES = 4, GROUND_PROBE = 0.06, DROP_STEPS = 6, STEPPING_UPNESS = 0.1;
+class Controller {
+  constructor() {
+    this.pos = [0, 0]; this.vel = [0, 0];
+    this.radius = 0.35; this.height = 1.8; this.skin = 0.002;
+    this.walkSpeed = 3.2; this.runSpeed = 6.4; this.accel = 40; this.airAccel = 8;
+    this.jumpHeight = 1.1; this.gravity = 22; this.slopeLimit = 50; this.stepOffset = 0.35;
+    this.useSlopeLimit = true; this.useStepOffset = true;
+    // このページで足した切り替え(reference には無い)
+    this.floorUp = true; this.snap = true;
+    this.grounded = false; this.groundNormal = [0, 1];
+    this.steppedUp = false; this.touchedWall = false; this.lastStep = 0;
+  }
+  get slopeCos() { return Math.cos(rad(this.slopeLimit)); }
+  capsule(foot = this.pos) {
+    const b = new Body(0, Shape.capsule(this.radius, this.height / 2 - this.radius));
+    b.x = foot[0]; b.y = foot[1] + this.height / 2;
+    return b;
+  }
+  query(world, foot) { return world.queryCapsule(this.capsule(foot)); }
+  move(world, wish, run, jump, dt) {
+    this.steppedUp = false; this.touchedWall = false; this.lastStep = 0;
+    const target = wish * (run ? this.runSpeed : this.walkSpeed);
+    const acc = this.grounded ? this.accel : this.airAccel;
+    const delta = target - this.vel[0];
+    if (Math.abs(delta) > 1e-6) this.vel[0] += Math.sign(delta) * Math.min(acc * dt, Math.abs(delta));
+    if (jump && this.grounded) { this.vel[1] = Math.sqrt(2 * this.gravity * this.jumpHeight); this.grounded = false; }
+    else if (this.grounded && this.vel[1] <= 0) this.vel[1] = 0;
+    else this.vel[1] -= this.gravity * dt;
+    this.moveHorizontal(world, this.vel[0] * dt);
+    this.moveAndSlide(world, [0, this.vel[1] * dt]);
+    this.updateGround(world);
+  }
+  moveHorizontal(world, dx) {
+    const start = this.pos.slice(), startVel = this.vel.slice();
+    this.moveAndSlide(world, [dx, 0]);
+    const plain = this.pos.slice(), plainVel = this.vel.slice();
+    const wanted = dx * dx, advanced = (plain[0] - start[0]) ** 2;
+    if (advanced >= wanted - 1e-8 || wanted < 1e-10) return;
+    this.touchedWall = true;
+    if (!this.useStepOffset || !this.grounded) return;
+    const top = this.findStep(world, start, Math.sign(dx));
+    if (top === null) return;
+    this.pos = [start[0], top + this.skin]; this.vel = startVel;
+    this.moveAndSlide(world, [dx, 0]);
+    const stepped = (this.pos[0] - start[0]) ** 2;
+    if (stepped <= advanced + 1e-6) { this.pos = plain; this.vel = plainVel; return; }
+    this.steppedUp = true; this.lastStep = top - start[1];
+    if (this.vel[1] < 0) this.vel[1] = 0;
+  }
+  // 半径ぶん前・段差ぶん上を先に覗いて、段かどうかを決める(要点3)
+  findStep(world, start, dir) {
+    const probe = [start[0] + dir * (this.radius + this.skin), start[1] + this.stepOffset];
+    if (this.query(world, probe).length) return null;
+    const drop = this.stepOffset / DROP_STEPS, walkable = this.useSlopeLimit ? this.slopeCos : STEPPING_UPNESS;
+    for (let i = 0; i < DROP_STEPS; i++) {
+      probe[1] -= drop;
+      const hits = this.query(world, probe);
+      if (!hits.length) continue;
+      let best = hits[0];
+      for (const h of hits) if (h.normal[1] > best.normal[1]) best = h;
+      const up = best.normal[1];
+      if (up < walkable) return null;
+      const top = probe[1] + Phys2D.maxDepth(best) / up;
+      return top > start[1] + 1e-4 && top <= start[1] + this.stepOffset + 1e-4 ? top : null;
+    }
+    return null;
+  }
+  moveAndSlide(world, d) {
+    this.pos = [this.pos[0] + d[0], this.pos[1] + d[1]];
+    const walkable = this.useSlopeLimit ? this.slopeCos : 0.3;
+    for (let pass = 0; pass < RESOLVE_PASSES; pass++) {
+      const hits = this.query(world, this.pos);
+      if (!hits.length) return;
+      for (const m of hits) {
+        let n = m.normal.slice();
+        const depth = Phys2D.maxDepth(m);
+        if (n[1] >= walkable) {
+          if (this.floorUp) {
+            // 床は真上へ「深さ / 法線の Y」だけ持ち上げる。横へは1ミリも動かない
+            this.pos[1] += (depth + this.skin) / n[1];
+          } else {
+            this.pos = [this.pos[0] + n[0] * (depth + this.skin), this.pos[1] + n[1] * (depth + this.skin)];
+          }
+          if (this.vel[1] < 0) this.vel[1] = 0;
+          continue;
+        }
+        if (this.useSlopeLimit && n[1] > 0) {
+          // 登れない面: 押し戻す向きから上向きを抜く
+          this.touchedWall = true;
+          n = [Math.sign(n[0]) || 0, 0];
+          if (n[0] === 0) continue;
+        }
+        this.pos = [this.pos[0] + n[0] * (depth + this.skin), this.pos[1] + n[1] * (depth + this.skin)];
+        const into = this.vel[0] * n[0] + this.vel[1] * n[1];
+        if (into < 0) { this.vel[0] -= n[0] * into; this.vel[1] -= n[1] * into; }
+      }
+    }
+  }
+  updateGround(world) {
+    const was = this.grounded;
+    this.grounded = false; this.groundNormal = [0, 1];
+    if (this.vel[1] > 0.01) return;
+    const reach = was && this.useStepOffset && this.snap ? this.stepOffset : GROUND_PROBE;
+    const n = this.probe(world, reach);
+    if (!n) return;
+    this.grounded = true; this.groundNormal = n;
+    const before = this.pos.slice(), beforeVel = this.vel.slice();
+    this.moveAndSlide(world, [0, -reach]);
+    // 吸い付きで後ろへ押し戻されたら、動きだけ取り消す(接地の判断は残す)
+    if ((this.pos[0] - before[0]) * beforeVel[0] < -1e-6) { this.pos = before; this.vel = beforeVel; }
+  }
+  probe(world, dist) {
+    const hits = this.query(world, [this.pos[0], this.pos[1] - dist]);
+    let flattest = this.useSlopeLimit ? this.slopeCos : 0.05, found = null;
+    for (const h of hits) if (h.normal[1] > flattest) { flattest = h.normal[1]; found = h.normal; }
+    return found;
+  }
+}
+
+// ============================================================
+//  実験台
+// ============================================================
+const cc = { course: 'slope', world: null, ctrl: null, info: null, auto: true, left: false, right: false, run: false, jump: false, acc: 0, air: [], trail: [] };
+function buildCourse() {
+  const w = new World();
+  w.add(Body.plane(0, 0, 0, 1));
+  cc.info = COURSES[cc.course](w);
+  cc.world = w;
+  const keep = cc.ctrl;
+  cc.ctrl = new Controller();
+  if (keep) for (const k of ['useSlopeLimit', 'useStepOffset', 'floorUp', 'snap']) cc.ctrl[k] = keep[k];
+  cc.ctrl.pos = [0, 0.01];
+  cc.acc = 0; cc.air = []; cc.trail = [];
+}
+function stepCc() {
+  const wish = cc.left && !cc.right ? -1 : cc.right && !cc.left ? 1 : cc.auto ? 1 : 0;
+  cc.ctrl.move(cc.world, wish, cc.run, cc.jump, 1 / 60);
+  cc.jump = false;
+  cc.air.push(cc.ctrl.grounded ? 0 : 1); if (cc.air.length > 180) cc.air.shift();
+  cc.trail.push(cc.ctrl.pos.slice()); if (cc.trail.length > 240) cc.trail.shift();
+  if (cc.auto && cc.ctrl.pos[0] > cc.info.end) buildCourse();
+}
+function drawCc() {
+  const { ctx, w, h } = fit($('cc-canvas'));
+  const s = Math.min(110, h / 3.4), camX = Math.max(cc.ctrl.pos[0], 2.5), oy = h - 34;
+  const view = { X: (x) => w * 0.35 + (x - camX) * s, Y: (y) => oy - y * s, s };
+  ctx.fillStyle = tok('--surface');
+  for (const b of cc.world.bodies) {
+    if (b.shape.kind !== 'box') continue;
+    const cs = b.corners();
+    ctx.beginPath(); cs.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(view.X(x), view.Y(y)); else ctx.lineTo(view.X(x), view.Y(y)); }); ctx.closePath();
+    ctx.fillStyle = tok('--accent-soft'); ctx.fill(); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.fillStyle = tok('--sunken'); ctx.fillRect(0, view.Y(0), w, h - view.Y(0));
+  drawPlanes(ctx, cc.world, view, tok('--ink'), w, h);
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px ' + tok('--font-mono');
+  for (const [x, label] of cc.info.labels) ctx.fillText(label, view.X(x), view.Y(0) + 18);
+  // 足跡
+  ctx.fillStyle = tok('--muted');
+  cc.trail.forEach((p, i) => { if (i % 4 === 0) { ctx.globalAlpha = i / cc.trail.length * 0.6; ctx.fillRect(view.X(p[0]) - 1, view.Y(p[1]) - 1, 2, 2); } });
+  ctx.globalAlpha = 1;
+  // キャラクター(カプセル)
+  const c = cc.ctrl, r = c.radius, a = [c.pos[0], c.pos[1] + r], b = [c.pos[0], c.pos[1] + c.height - r];
+  ctx.lineCap = 'round'; ctx.lineWidth = 2 * r * s; ctx.strokeStyle = c.grounded ? tok('--semi') : tok('--warn');
+  ctx.beginPath(); ctx.moveTo(view.X(a[0]), view.Y(a[1])); ctx.lineTo(view.X(b[0]), view.Y(b[1])); ctx.stroke(); ctx.lineCap = 'butt';
+  if (c.grounded) arrow(ctx, view.X(c.pos[0]), view.Y(c.pos[1]), view.X(c.pos[0] + c.groundNormal[0] * 0.6), view.Y(c.pos[1] + c.groundNormal[1] * 0.6), tok('--ink'), 2);
+  const slope = Math.acos(Math.max(-1, Math.min(1, c.groundNormal[1]))) * 180 / Math.PI;
+  const airCount = cc.air.reduce((p, q) => p + q, 0);
+  $('cc-hud').textContent =
+    `位置:(${c.pos[0].toFixed(2)}, ${c.pos[1].toFixed(3)})  速度:${c.vel[0].toFixed(2)}m/s  ${c.grounded ? `接地 床の傾き:${slope.toFixed(1)}°` : '空中'}` +
+    `${c.steppedUp ? `  段を登った:${(c.lastStep * 100).toFixed(1)}cm` : ''}${c.touchedWall ? '  壁に当たった' : ''}`;
+  $('cc-stats').innerHTML =
+    stat('直近 3 秒で空中だったフレーム', `${airCount} / ${cc.air.length}`) +
+    stat('水平の速さ', `${Math.abs(c.vel[0]).toFixed(2)}`, ' <small>m/s</small>') +
+    stat('いま立っている床', c.grounded ? `${slope.toFixed(1)}°` : '—');
+  let note;
+  if (!c.floorUp) note = '床を法線の向きへ押し戻すと、坂では押し戻しの横成分のぶんだけ下へ滑る。キーを離して坂の途中に立たせると、ずるずる下っていく。';
+  else if (!c.snap) note = '床への吸い付きが無いと、段や坂を下るたびに一瞬浮いて、落ちて、着地するのを繰り返す。階段のコースで「空中だったフレーム」が増える。';
+  else if (!c.useStepOffset) note = '段差の乗り越えを切ると、丸い底が段の角に当たった法線が寝ているので「壁」になり、15cm の段で止まる。';
+  else if (!c.useSlopeLimit) note = '坂の上限を切ると、60 度の坂も「床」として真上へ押し上げられ、よじ登れてしまう。登れる坂は物理ではなく決めごと。';
+  else note = '45 度までの坂は登れて、60 度の坂は壁として押し返される。段は半径ぶん前・段差ぶん上を先に覗いて、35cm までなら持ち上げてから進む。';
+  $('cc-note').textContent = note;
+}
+seg('cc-course', (v) => { cc.course = v; buildCourse(); drawCc(); });
+for (const [id, key] of [['cc-slope', 'useSlopeLimit'], ['cc-step', 'useStepOffset'], ['cc-up', 'floorUp'], ['cc-snap', 'snap']]) {
+  $(id).addEventListener('change', (e) => { cc.ctrl[key] = e.target.checked; });
+}
+$('cc-run').addEventListener('change', (e) => { cc.run = e.target.checked; });
+$('cc-auto').addEventListener('click', () => { cc.auto = !cc.auto; $('cc-auto').textContent = `自動で右へ: ${cc.auto ? 'ON' : 'OFF'}`; $('cc-auto').classList.toggle('primary', cc.auto); });
+$('cc-jump').addEventListener('click', () => { cc.jump = true; });
+$('cc-reset').addEventListener('click', () => { buildCourse(); drawCc(); });
+for (const [id, key] of [['cc-left', 'left'], ['cc-right', 'right']]) {
+  const el = $(id);
+  el.addEventListener('pointerdown', () => { cc[key] = true; });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, () => { cc[key] = false; });
+}
+const canvasEl = $('cc-canvas');
+canvasEl.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') { cc.left = true; e.preventDefault(); }
+  if (e.key === 'ArrowRight') { cc.right = true; e.preventDefault(); }
+  if (e.key === ' ') { cc.jump = true; e.preventDefault(); }
+  if (e.key === 'x' || e.key === 'X') { cc.run = true; $('cc-run').checked = true; }
+});
+canvasEl.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowLeft') cc.left = false;
+  if (e.key === 'ArrowRight') cc.right = false;
+  if (e.key === 'x' || e.key === 'X') { cc.run = false; $('cc-run').checked = false; }
+});
+buildCourse();
+if (reduceMotion) for (let i = 0; i < 120; i++) stepCc();
+drawCc();
+animate(canvasEl, (dt) => {
+  if (!reduceMotion) { cc.acc += dt; while (cc.acc >= 1 / 60) { stepCc(); cc.acc -= 1 / 60; } }
+  drawCc();
+});
+
+// ============================================================
+//  要点3: 段の角に当たる丸い底
+// ============================================================
+const cr = { h: 0.15, limit: 50 };
+function drawCorner() {
+  const R = 0.35, up = (R - cr.h) / R, lim = Math.cos(rad(cr.limit));
+  const { ctx, w, h } = fit($('corner-canvas'));
+  const s = Math.min(w / 1.8, h / 0.9), ox = w / 2 - 0.1 * s, oy = h - 30;
+  const X = (x) => ox + x * s, Y = (y) => oy - y * s;
+  ctx.fillStyle = tok('--accent-soft'); ctx.fillRect(X(0), Y(cr.h), w - X(0), Y(0) - Y(cr.h));
+  ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.strokeRect(X(0), Y(cr.h), w - X(0), Y(0) - Y(cr.h));
+  ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.stroke();
+  // 底の円が床に立ったまま段の角に触れる位置
+  const cx = -Math.sqrt(Math.max(R * R - (R - cr.h) ** 2, 0)), cy = R;
+  ctx.strokeStyle = tok('--semi'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X(cx), Y(cy), R * s, 0, Math.PI * 2); ctx.stroke();
+  const n = [(cx - 0) / R, (cy - cr.h) / R];
+  arrow(ctx, X(0), Y(cr.h), X(n[0] * 0.3), Y(cr.h + n[1] * 0.3), up >= lim ? tok('--semi') : tok('--expl'), 2.5);
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(X(0), Y(cr.h), 4, 0, Math.PI * 2); ctx.fill();
+  $('corner-h-out').textContent = `${Math.round(cr.h * 100)} cm`; $('corner-limit-out').textContent = `${cr.limit}°`;
+  const maxH = R * (1 - lim);
+  $('corner-stats').innerHTML =
+    stat('upness(法線の Y)', up.toFixed(3), ` <small>cos ${cr.limit}° = ${lim.toFixed(3)}</small>`) +
+    stat('判定', up >= lim ? '床(そのまま登れる)' : '壁', up >= lim ? ' <span class="pill good">床</span>' : ' <span class="pill bad">段差の処理が要る</span>') +
+    stat('段差の処理なしで登れる高さ', `${(maxH * 100).toFixed(1)}`, ' <small>cm = r (1 − cos θ)</small>');
+}
+$('corner-h').addEventListener('input', (e) => { cr.h = Number(e.target.value); drawCorner(); });
+$('corner-limit').addEventListener('input', (e) => { cr.limit = Number(e.target.value); drawCorner(); });
+drawCorner();
+window.addEventListener('resize', drawCorner);
+})();
+</script>
+</body>
+</html>

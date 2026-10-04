@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 48 入力とデバッグメニューの整理(キー割り当てをデータにする)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は描画にも物理にも触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. なぜ 17 日で使い切ったのか — 数えてみる</a></li><li class="l3"><a href="#s7">2. <code>when</code> ガードの罠 — 「一致」ではなく「最初に成立したもの」</a></li><li class="l3"><a href="#s8">3. モードには必ず表示が要る</a></li><li class="l3"><a href="#s9">4. 閉じた状態を1つ挟む — 素のキーを取り上げない</a></li><li class="l3"><a href="#s10">5. 表は「値を持たない」— Day 40 からの引き継ぎ</a></li><li class="l3"><a href="#s11">6. 行数はほとんど減らない — それでも表にする理由</a></li><li class="l3"><a href="#s12">7. 表は検算できる — 自己チェックが 15 項目に化ける</a></li><li class="l3"><a href="#s13">8. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">差分は大きいが、書く量はそれほどでもない</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20">入力が「分岐」から「表」になった日</a></li><li class="l3"><a href="#s21">表の形 — 3つのクラスだけ</a></li><li class="l3"><a href="#s22">席を書かせないという判断</a></li><li class="l3"><a href="#s23">モードの表示を3か所に置いた</a></li><li class="l3"><a href="#s24">今日消えたもの</a></li><li class="l3"><a href="#s25">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動すると目次が出る</a></li><li class="l3"><a href="#s28">2. <code>F1</code>: ページが送れて、中身が出る</a></li><li class="l3"><a href="#s29">3. ページによって <code>F3</code> の意味が変わる</a></li><li class="l3"><a href="#s30">4. <code>Ctrl+F1</code> で目次、<code>Shift+F1</code> で逆送り</a></li><li class="l3"><a href="#s31">5. <code>F1</code> を押し続けると必ず元に戻る</a></li><li class="l3"><a href="#s32">6. 昨日までの機能が全部そのまま動く</a></li><li class="l3"><a href="#s33">7. <code>\</code>: オーディオの自己チェック</a></li><li class="l3"><a href="#s34">8. <code>Alt+F1</code>: 自己チェックが 15 項目すべて合格</a></li><li class="l3"><a href="#s35">9. 昨日までの自己チェックも全部そのまま合格</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): 純粋な ON/OFF を <code>Toggle</code> にまとめる</a></li><li class="l3"><a href="#s38">課題2(中): ページ番号で飛べるようにする</a></li><li class="l3"><a href="#s39">課題3(難): 割り当てをファイルから読む</a></li><li class="l2"><a href="#s40">動作確認済み環境</a></li><li class="l3"><a href="#s41">自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s42">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 48 / 計画書</p>
+  <h1>入力とデバッグメニューの整理(キー割り当てをデータにする)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は描画にも物理にも触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. なぜ 17 日で使い切ったのか — 数えてみる</a></li><li class="l3"><a href="#s7">2. <code>when</code> ガードの罠 — 「一致」ではなく「最初に成立したもの」</a></li><li class="l3"><a href="#s8">3. モードには必ず表示が要る</a></li><li class="l3"><a href="#s9">4. 閉じた状態を1つ挟む — 素のキーを取り上げない</a></li><li class="l3"><a href="#s10">5. 表は「値を持たない」— Day 40 からの引き継ぎ</a></li><li class="l3"><a href="#s11">6. 行数はほとんど減らない — それでも表にする理由</a></li><li class="l3"><a href="#s12">7. 表は検算できる — 自己チェックが 15 項目に化ける</a></li><li class="l3"><a href="#s13">8. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">差分は大きいが、書く量はそれほどでもない</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20">入力が「分岐」から「表」になった日</a></li><li class="l3"><a href="#s21">表の形 — 3つのクラスだけ</a></li><li class="l3"><a href="#s22">席を書かせないという判断</a></li><li class="l3"><a href="#s23">モードの表示を3か所に置いた</a></li><li class="l3"><a href="#s24">今日消えたもの</a></li><li class="l3"><a href="#s25">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動すると目次が出る</a></li><li class="l3"><a href="#s28">2. <code>F1</code>: ページが送れて、中身が出る</a></li><li class="l3"><a href="#s29">3. ページによって <code>F3</code> の意味が変わる</a></li><li class="l3"><a href="#s30">4. <code>Ctrl+F1</code> で目次、<code>Shift+F1</code> で逆送り</a></li><li class="l3"><a href="#s31">5. <code>F1</code> を押し続けると必ず元に戻る</a></li><li class="l3"><a href="#s32">6. 昨日までの機能が全部そのまま動く</a></li><li class="l3"><a href="#s33">7. <code>\</code>: オーディオの自己チェック</a></li><li class="l3"><a href="#s34">8. <code>Alt+F1</code>: 自己チェックが 15 項目すべて合格</a></li><li class="l3"><a href="#s35">9. 昨日までの自己チェックも全部そのまま合格</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): 純粋な ON/OFF を <code>Toggle</code> にまとめる</a></li><li class="l3"><a href="#s38">課題2(中): ページ番号で飛べるようにする</a></li><li class="l3"><a href="#s39">課題3(難): 割り当てをファイルから読む</a></li><li class="l2"><a href="#s40">動作確認済み環境</a></li><li class="l3"><a href="#s41">自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s42">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>昨日でミニ物理エンジンが一通り揃った。<strong>今日は描画にも物理にも1行も触らない</strong>。Day 31 から 17 日ぶん積み上げてきた <code>Program.OnKeyDown</code> を片付ける日にあてる。</p>
+<p>昨日の時点で、この関数は <strong>2424 行・<code>case</code> 225 個</strong>。そのうち 159 個が修飾キー付きで、本文だけで 1990 行ある。Day 43 で修飾キー3つの組み合わせを使い切り、Day 45 からは<strong>まるごと空いている文字キー</strong>(X → G → F)へ逃げていた。次に空いている文字キーはもう無い。</p>
+<p>ただし、キーが足りないことは今日の主題ではない。もっと重かったのはこちらだ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// C# の switch は上から順に照合する。だから これは Ctrl+Shift+Alt+F1 でも成立する
+case Key.F1 when ctrl:</code></pre></div>
+<p>新しい段を足すたびに「既存の段より<strong>上</strong>に置く」必要があり、ガードには <code>!shift &amp;&amp; !alt</code> という否定が並んでいった。<strong>switch の並び順が仕様の一部</strong>になっていて、間違えた日は「今日のキーが1つも効かない」という形でしか気づけない。Day 39 から毎日、reference のコメントに同じ警告を書き足していたのがその証拠になっている。</p>
+<blockquote><p><strong>Day 31〜47 を写経中の人へ</strong></p>
+<p>今日の差分は<strong>キーの押し方が全部変わる</strong>。昨日まで <code>Ctrl+Shift+Alt+F5</code> だったものは「剛体力学」ページの <code>F6</code> になる。対応は起動時に出る目次(<code>Ctrl+F1</code>)と、各ページを開いたときの一覧で分かるので、<strong>憶え直す必要は無い</strong>——むしろ今日から憶えなくてよくなる、というのが今日の成果になる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>F1</code> を押すたびにメニューのページが変わる。ページを開くとその割り当てがコンソールに一覧で出て、HUD にページ名が出る。<code>F2</code>〜<code>F12</code> と数字キーの意味がページごとに入れ替わり、最後のページの次で閉じると、素のキーに戻る。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F1</code></td><td>次のページへ。<strong>最後の次で閉じる</strong>。今日の到達点</td></tr>
+<tr><td><code>Shift+F1</code></td><td>前のページへ(閉じているときは最後のページへ)</td></tr>
+<tr><td><code>Ctrl+F1</code></td><td>ページの目次(16 枚)</td></tr>
+<tr><td><code>Alt+F1</code></td><td>今日の自己チェック(15 項目)</td></tr>
+<tr><td>ページを開いている間の <code>F2</code>〜<code>F12</code> / <code>1</code>〜<code>0</code></td><td><strong>そのページの項目</strong>(席の順番で決まる)</td></tr>
+<tr><td><code>\</code></td><td>オーディオの自己チェック。<strong><code>F1</code> から引っ越した</strong></td></tr>
+</tbody>
+</table></div>
+<p>昨日までの 159 個は、16 ページに次のように収まった。<strong>ページの並びは Day 31 から Day 47 の順</strong>で、1ページが1日ぶんになっている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ページ</th><th>元の押し方</th><th>項目</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>HDR とブルーム</td><td><code>Shift</code> + 数字</td><td>11</td></tr>
+<tr><td>2</td><td>シャドウマップ</td><td><code>Ctrl</code> + 数字</td><td>10</td></tr>
+<tr><td>3</td><td>法線マップと視差</td><td><code>Alt</code> + 数字</td><td>10</td></tr>
+<tr><td>4</td><td>PBR</td><td><code>Ctrl+Shift</code> + 数字</td><td>10</td></tr>
+<tr><td>5</td><td>IBL と環境マップ</td><td><code>Ctrl+Alt</code> + 数字</td><td>10</td></tr>
+<tr><td>6</td><td>SSAO</td><td><code>Ctrl</code> + F キー</td><td>12</td></tr>
+<tr><td>7</td><td>FXAA と色調整</td><td><code>Shift</code> + F キー</td><td>11</td></tr>
+<tr><td>8</td><td>デモ v1</td><td><code>Ctrl+Shift</code> + F キー</td><td>12</td></tr>
+<tr><td>9</td><td>カメラワークと機能</td><td><code>Ctrl+Alt</code> + F キー</td><td>12</td></tr>
+<tr><td>10</td><td>スキニング</td><td><code>Alt</code> + F キー</td><td>11</td></tr>
+<tr><td>11</td><td>アニメのブレンド</td><td><code>Shift+Alt</code> + F キー</td><td>9</td></tr>
+<tr><td>12</td><td>剛体力学</td><td><code>Ctrl+Shift+Alt</code> + F キー</td><td>12</td></tr>
+<tr><td>13</td><td>箱の衝突</td><td><code>Ctrl+Shift+Alt</code> + 数字</td><td>8</td></tr>
+<tr><td>14</td><td>カプセルとキャラクタ</td><td>各修飾 + <code>X</code></td><td>7</td></tr>
+<tr><td>15</td><td>地形とブロードフェーズ</td><td>各修飾 + <code>G</code></td><td>7</td></tr>
+<tr><td>16</td><td>摩擦とソルバ</td><td>各修飾 + <code>F</code></td><td>7</td></tr>
+</tbody>
+</table></div>
+<p><strong>この表は作ったのではなく、見つけたもの</strong>だというのが今日いちばん面白いところ。修飾キーの組み合わせは、<strong>たまたま Day ごとのテーマと1対1に対応していた</strong>。つまり分類は最初からあって、それを「Ctrl を押しながら」という形で表現していただけだった。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「並び順が仕様になっている」ことの危うさ</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Day 43 の段。ここより下に Day 37 の `case Key.F1 when ctrl:` があると、
+// Ctrl+Shift+Alt+F1 がそちらに吸われて <strong>今日のキーが1つも届かない</strong>
+case Key.F1 when ctrl &amp;&amp; shift &amp;&amp; alt:</code></pre></div>
+<p>ガード付きの <code>case</code> は、<strong>具体的なものほど上</strong>に置かなければならない。これは C# の仕様であって間違いではないのだが、「正しさが行の位置に宿っている」状態は、コンパイラも警告してくれないし、テストも書きにくい。実際 Day 39 以降の reference には、毎日のように「<strong>この塊はいちばん上に置くこと</strong>」というコメントが足されている。</p>
+<p>表にすると、この危うさが構造ごと消える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 引くのは「今のページの、このキー」。完全一致なので、並び順はどこにも効かない
+if (_menu.TryInvoke(key))
+{
+    return;
+}</code></pre></div>
+<p><strong>2つ目は「キーを書かせない」こと</strong>。</p>
+<p><code>Add</code> にキーの引数は無い。登録した順に <code>F2, F3, … F12, 1, 2, … 9, 0</code> が割り当たる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_entries.Add(new Entry(Slots[_entries.Count], name, effect, action));</code></pre></div>
+<p>書かせると必ず重複する。しかも<strong>重複しても動いてしまう</strong>——先に見つかったほうが実行され、後ろのほうは押しても何も起きない。昨日までの switch で起きていたのと同じ壊れ方で、「押しても何も起きないキー」は原因を探すのがいちばん面倒な種類だ。順番で決まるなら重複はあり得ないし、割り当ては一覧を読めば分かる。</p>
+<p><strong>3つ目は「一覧を手で書かない」こと</strong>。</p>
+<p>昨日まで、起動時のコンソールには <strong>140 行のキー一覧</strong>が手で並んでいた。その日の到達点の <code>case</code> も、<code>"  Shift+F:摩擦 ON/OFF  Alt+F:蓄積インパルス  …"</code> のような行を自分で書いて出していた。どちらも<strong>項目を足すたびに書き足す必要があり、書き忘れても動く</strong>。だから必ずずれていく。</p>
+<p>実際、消す前の一覧を読むと Day 40 の行は <code>Ctrl+Alt+F11</code> で終わっていて、<code>Ctrl+Alt+F12</code>(シーンの自己チェック)が抜けていた。<strong>8日間、誰にも気づかれずに抜けていた</strong>わけで、これが手書きの一覧の実力になる。今日からは <code>DebugMenu.PrintIndex()</code> と <code>PrintCurrent()</code> が表から起こすので、ずれようが無い。</p>
+<h3 id="s3">今日は描画にも物理にも触らない</h3>
+<p>差分は <code>Demo/DebugMenu.cs</code>(新規 279 行)と <code>Program.cs</code> だけ。<code>.vert</code> も <code>.frag</code> も、<code>Physics/</code> も <code>Render/</code> も 1 行も変わらない。<strong>Phase 7 で描画にも物理にも触らない日は今日だけ</strong>で、エンジンの機能は1つも増えない。増えるのは「触り方」だけになる。</p>
+<p>Day 49(パーティクル)からは新しいスイッチが増える。そのとき足すのは <strong><code>Add</code> を1行</strong>であって、「まだ空いている修飾キーの組み合わせ」を探す作業ではなくなる。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Day 40 の <code>Demo/FeatureToggles.cs</code>(このリポジトリ)</strong>— <strong>今日の下敷き</strong>。「表は状態を持たない」「本当の状態は向こうにあり、ここが持つのは読み書きの手順だけ」という判断をそのまま引き継ぐ</li><li><a href="https://learn.microsoft.com/ja-jp/dotnet/csharp/language-reference/statements/selection-statements#the-switch-statement">switch ステートメント — C# リファレンス</a>— <strong><code>case</code> は上から順に照合される</strong>、<code>when</code> を付けると評価順が意味を持つ、の一次資料</li><li><a href="https://gameprogrammingpatterns.com/command.html">Command パターン(Game Programming Patterns)</a>— 入力を「キー → 処理」の<strong>対応表</strong>にする話。今日やっているのはこの最小形</li><li>テーブル駆動(table-driven)という言い方も同じものを指す。「分岐で書けることを、データで書く」——<code>switch</code> を消すのが目的ではなく、<strong>分岐の構造そのものをデータにして、検算できるようにする</strong>のが目的</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. なぜ 17 日で使い切ったのか — 数えてみる</h3>
+<p>修飾キーは Ctrl / Shift / Alt の3つ。<strong>組み合わせは 2³ − 1 = 7 通り</strong> (全部押さないのは「素のキー」なので別枠)。これにキーの束を掛けると席の数になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>束</th><th>キー数</th><th>7 通りを掛けて</th></tr></thead>
+<tbody>
+<tr><td>ファンクションキー</td><td>12</td><td>84</td></tr>
+<tr><td>数字キー</td><td>10</td><td>70</td></tr>
+</tbody>
+</table></div>
+<p>理屈のうえでは 154 席あるので、159 個は<strong>そもそも入らない</strong>。実際には <code>Alt+F4</code>(窓が閉じる)を避け、Day 24 の <code>Shift+F3</code> のような先客もあり、<code>F4</code> を飛ばした日もあったので、使えたのはもっと少ない。</p>
+<p>一方<strong>ページにすると、1ページ 21 席</strong>(<code>F2</code>〜<code>F12</code> の 11 と数字 10)。足りなくなったらページを1枚足せばよく、上限は無い。<strong>掛け算だったものが足し算になった</strong>、というのが構造として起きたこと。</p>
+<p>昨日までのやり方が悪かったわけではない。Day 31 の時点でスイッチは 9 個しかなく、<code>Shift+1</code>〜<code>Shift+8</code> で足りていた。<strong>足りているうちは表にする理由が無い</strong>——表のほうが、そのときは行数が多い。17 日積んではじめて元が取れる、という順番になっている。</p>
+<h3 id="s7">2. <code>when</code> ガードの罠 — 「一致」ではなく「最初に成立したもの」</h3>
+<p>C# の <code>switch</code> 文は、<strong>上から順に</strong>それぞれの <code>case</code> を評価して、<strong>最初に成立したもの</strong>を実行する。<code>when</code> ガードが付いていても同じで、「いちばん具体的なもの」を選んではくれない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>switch (key)
+{
+    case Key.F1 when ctrl:               // ← Ctrl+Shift+Alt+F1 でも成立する
+        RunSsaoCheck();
+        break;
+
+    case Key.F1 when ctrl &amp;&amp; shift &amp;&amp; alt:   // ← ここには永遠に来ない
+        RunRigidBodyCheck();
+        break;
+}</code></pre></div>
+<p>これが<strong>警告されない</strong>のが厄介なところ。<code>case 1:</code> を2回書けば「到達できない」とコンパイラが教えてくれるが、<code>when</code> が付いた瞬間、成立するかどうかは実行時にしか分からないので、コンパイラは黙る。</p>
+<p>昨日までの reference が採っていた守り方は2つあった。</p>
+<ol><li><strong>具体的なものほど上に置く</strong>(Day 39 から毎日コメントで念押ししていた)</li><li><strong>否定を書き足す</strong> — <code>case Key.F when ctrl &amp;&amp; !shift &amp;&amp; !alt:</code></li></ol>
+<p>2 のほうは効くのだが、<strong>書き忘れても半分は動く</strong>のが質が悪い。<code>Ctrl+F</code> は正しく動き、<code>Ctrl+Shift+F</code> を押したときだけ間違ったほうが走る。</p>
+<p>表にすると、この話が丸ごと無くなる。<code>TryInvoke</code> が引くのは「今のページの、このキー」で、<strong>キーは席の順番で決まっていて重複し得ない</strong>。「どちらが先か」を考える場所が、コードのどこにも無い。</p>
+<div class="inject"><figure class="lab" id="sw-lab">
+  <div class="lab-head">
+    <h3>F1 を押したとき、どの case が走るか</h3>
+    <span class="tag">Day 47 の OnKeyDown にあった F1 の case 8 つ(並びは reference のまま)</span>
+  </div>
+  <div class="stage" style="padding:12px 16px"><div class="code" style="margin:0"><pre><code id="sw-code"></code></pre></div></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">押しながら F1</span>
+      <div style="display:flex;flex-wrap:wrap;gap:12px">
+        <label class="check"><input type="checkbox" id="sw-ctrl" checked> Ctrl</label>
+        <label class="check"><input type="checkbox" id="sw-shift" checked> Shift</label>
+        <label class="check"><input type="checkbox" id="sw-alt" checked> Alt</label>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">case の並べ方</span>
+      <div class="seg" id="sw-order"><button data-v="ref" aria-pressed="true">Day 47 のまま(具体的なものほど上)</button><button data-v="day" aria-pressed="false">足した日の順</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="sw-neg"> 否定を書き足す(<code>!shift &amp;&amp; !alt</code> など)</label>
+  </div>
+  <div class="readout"><div class="stats" id="sw-stats"></div><p id="sw-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. モードには必ず表示が要る</h3>
+<p>ページ切り替えは<strong>モーダルな入力</strong>だ。同じ <code>F3</code> が、いま開いているページによって「SSAO の半径」にも「反発係数」にもなる。</p>
+<p>モーダルな入力には決まった弱点がある。<strong>いまどのモードに居るかが分からなくなる</strong>。vi の insert / normal がそうであるように、これは「憶えておく」で解決すべきものではなく、<strong>表示で解決すべきもの</strong>になる。</p>
+<p>だから今日は3か所から出している。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこ</th><th>何を出すか</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>HUD の1行</td><td><code>メニュー[12/16]:剛体力学  12項目</code></td><td><strong>絵からは1ピクセルも読めない</strong>のに、キーの意味が丸ごと入れ替わる</td></tr>
+<tr><td>ページを切り替えた瞬間</td><td>そのページの割り当て一覧</td><td>送った先に何があるかを、押す前に知りたい</td></tr>
+<tr><td><code>Ctrl+F1</code></td><td>ページの目次</td><td>16 枚あると順送りだけでは探せない</td></tr>
+</tbody>
+</table></div>
+<p><strong>HUD の行がいちばん効く</strong>。これが無いと、「F3 を押したのに半径が変わらない」の原因が「別のページを開いていた」なのか「そもそも壊れている」なのかが切り分けられない。Day 46 のブロードフェーズで「絵が変わらないものは数字を出す」と書いたのと同じ判断になる。</p>
+<h3 id="s9">4. 閉じた状態を1つ挟む — 素のキーを取り上げない</h3>
+<p><code>Index</code> は <code>-1</code> を「閉じている」に使っている。ページを 0 番から数えて、輪の中に<strong>閉じた状態を1つ挟んである</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public void Next() =&gt; Index = Index + 1 &gt;= _pages.Count ? -1 : Index + 1;</code></pre></div>
+<p>これには2つ理由がある。</p>
+<p><strong>1つ目は、素のキーを取り上げないため</strong>。<code>F5</code> のシェーダ再読込も、数字キーのスプライト数も、<code>Space</code> の一時停止も、Day 14 から手が憶えている。メニューが常に F2〜F12 を持っていると、これらが押せなくなる。開いている間だけ席として借りて、閉じれば元に戻る、という形にした。</p>
+<p><strong>2つ目は、閉じ方を別のキーにしないため</strong>。<code>Esc</code> で閉じる作りにすると、「<code>Esc</code> で閉じる」を憶えていないと戻れない。輪に閉じた状態が挟まっていれば、<strong><code>F1</code> を押し続ければいつか必ず元に戻る</strong>。出口を1つのキーに集めておくのは、デバッグ用の道具では特に効く——道具の使い方でつまずくと、本当に見たいものから遠ざかる。</p>
+<p><code>F1</code> だけはメニューが常に取っているのも同じ理由になる。どのページに居ても <code>F1</code> は必ずページ送りなので、<strong>開き方も閉じ方も1つ</strong>で済む。自己チェック(要点7)がこの不可侵を確かめている。</p>
+<div class="inject"><figure class="lab" id="menu-lab">
+  <div class="lab-head">
+    <h3>メニューを送ってみる(閉じた状態が1つ挟まった輪)</h3>
+    <span class="tag">reference/Day48 の BuildDebugMenu から抜き出した 16 ページ・159 項目</span>
+  </div>
+  <div class="stage"><canvas id="menu-canvas" style="height:260px" aria-label="17 の状態が並んだ輪。閉じた状態と 16 枚のページ"></canvas></div>
+  <div class="hud" id="menu-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">メニューの操作(F1 だけはメニューが常に取る)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn primary" id="menu-next">F1(次へ)</button>
+        <button class="btn" id="menu-prev">Shift+F1(前へ)</button>
+        <button class="btn" id="menu-index">Ctrl+F1(目次)</button>
+      </div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">席のキーを押す(F2〜F12・1〜0)</span>
+      <div id="menu-slots" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="menu-stats"></div><p id="menu-result" style="margin:10px 0 0"></p>
+    <div class="code" style="margin:10px 0 0"><pre><code id="menu-console"></code></pre></div></div>
+</figure></div>
+<h3 id="s10">5. 表は「値を持たない」— Day 40 からの引き継ぎ</h3>
+<p><code>DebugMenu</code> は ON/OFF の状態を1つも持っていない。持っているのは<code>Action</code>(そこへの書き込み手順)だけで、本当の状態は<code>_ssao.Enabled</code> や <code>Physics.FrictionEnabled</code> のほうにある。</p>
+<p>これは Day 40 の <code>FeatureToggles</code> がした判断とまったく同じで、理由も同じ。<strong>二重に持つと必ずずれる</strong>。キー以外の経路——たとえば<code>Ctrl+F1</code> の「決めの構図」がフラグをまとめて倒す——で触られた瞬間、表の言う ON と絵の中の OFF が食い違う。</p>
+<p>「状態の置き場所は1つ」は Day 22 のコンポーネント設計から続いている判断で、Day 40、そして今日と、<strong>層が変わっても同じ形で出てくる</strong>。</p>
+<h3 id="s11">6. 行数はほとんど減らない — それでも表にする理由</h3>
+<p>今日の差分を数えると、<code>Program.cs</code> は 20,639 行から 20,726 行と、<strong>むしろ少し増える</strong>。<code>OnKeyDown</code> から出ていった 1990 行が <code>BuildDebugMenu</code> に入っただけで、そこにラムダの包み(159 個 × 3 行)と <code>DebugMenu.cs</code> の 279 行が乗るからだ。</p>
+<p><strong>行数を減らすのは今日の目的ではない</strong>。変わったのは形のほうになる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>昨日</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td><code>OnKeyDown</code></td><td>2424 行 / <code>case</code> 225 個</td><td><strong>458 行</strong>(うち switch 405 行)/ <code>case</code> 66 個</td></tr>
+<tr><td>正しさの拠り所</td><td><strong>行の位置</strong>(具体的なものほど上)</td><td><strong>完全一致</strong>(席は登録順)</td></tr>
+<tr><td>新しいスイッチを足す</td><td>空いている修飾キーの組み合わせを探す</td><td><code>Add</code> を1行</td></tr>
+<tr><td>割り当ての一覧</td><td>手書き 140 行(<strong>8日間ずれていた</strong>)</td><td>表から生成</td></tr>
+<tr><td>検算</td><td>できない</td><td><strong>自己チェック 15 項目</strong>(要点7)</td></tr>
+</tbody>
+</table></div>
+<p>「行数が減ること」と「良くなること」は別の話で、今日はその2つがはっきり分かれている珍しい日になっている。むしろ <code>DebugMenu.cs</code> の 279 行のうち 170 行ほどはコメントで、<strong>なぜこの形なのかを書き残すために増やした行</strong>が入っている。</p>
+<h3 id="s12">7. 表は検算できる — 自己チェックが 15 項目に化ける</h3>
+<p>昨日までの switch は、<strong>検算のしようが無かった</strong>。「Ctrl+Shift+Alt+F5 を押したら反復回数が変わる」を確かめるには押すしかなく、押さないと分からないなら、押し忘れたところは壊れたままになる。</p>
+<p>表になると、<strong>押さずに分かることが一気に増える</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>確かめること</th><th>なぜ大事か</th></tr></thead>
+<tbody>
+<tr><td>159 項目すべて入っている</td><td>移し忘れが1つあっても絵は出る</td></tr>
+<tr><td>どのページも席(21)に収まっている</td><td>溢れると<strong>登録時に例外</strong>になる(黙って落とさない)</td></tr>
+<tr><td>同じページにキーの重複が無い</td><td>重複しても動いてしまう。押しても効かないキーになる</td></tr>
+<tr><td><strong><code>F1</code> はどのページも取っていない</strong></td><td>取られると、そのページから<strong>出られなくなる</strong></td></tr>
+<tr><td>名前と効果がすべて埋まっている</td><td>一覧が読めないと、ページを開いた意味が無い</td></tr>
+<tr><td>閉じている間は何も引き当てない</td><td>素のキーを取り上げていないことの確認</td></tr>
+<tr><td>送り続けると閉じる / 戻ると最後のページ</td><td><strong>押し続ければ元に戻る</strong>ことの確認</td></tr>
+</tbody>
+</table></div>
+<p>とくに <code>F1</code> の不可侵は、<strong>押して確かめようとすると気づきにくい</strong>種類のものになる。うっかり <code>F1</code> を席に入れてしまったページは、そのページを開くまで何も起きず、開いた瞬間に出られなくなる。起動時に分かる間違いなので、起動時に落としておきたい。</p>
+<p>引き当ての確認だけは、<code>_menu</code> ではなく<strong>使い捨ての <code>DebugMenu</code> を作って</strong>やっている。本物の表は SSAO を切ったりデモを出したりするので、<strong>チェックが世界を書き換える</strong>のは筋が悪い。</p>
+<h3 id="s13">8. 今日入れなかったもの</h3>
+<ul><li><strong><code>Program.cs</code> の分割</strong>。<code>BuildDebugMenu</code> を <code>Demo/DemoKeys.cs</code> へ、自己チェック群を <code>Demo/SelfChecks.cs</code> へ出す話は、Day 46 のコメントで予告したまま今日も見送った。今日の差分だけで 2400 行動いているので、<strong>ファイルの引っ越しまで乗せると差分が読めない</strong>。Day 51(プレイアブルデモの組み上げ)で一緒にやる</li><li><strong><code>Toggle</code> のような ON/OFF 専用の登録</strong>。159 個のうち 34 個は <code>X = !X;</code> と <code>Console.WriteLine(X ? "…" : "…")</code> だけの同じ形をしている。文言をデータにすれば 3 行ほど短くなるが、今日は<strong>本文をそのまま移す</strong>ことを優先した——移動と書き換えが混ざると、差分の読み方が一気に難しくなる。改造課題1 にしてある</li><li><strong>キーの再割り当て</strong>。設定ファイルから読む、押しながら覚えさせる、といった話。席が登録順で決まる今の形はそこへ素直に伸ばせるが、デバッグ用の道具に設定ファイルを足すのは重い</li><li><strong>ページのジャンプ</strong>。16 枚を順送りするのは正直まだるっこしい。<code>Ctrl+F1</code> の目次で番号は見えるので、「番号で飛ぶ」を足すのは自然な次の一手になる(改造課題2)</li></ul>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Demo/DebugMenu.cs</code></td><td>割り当て表(<code>Entry</code> / <code>Page</code> / <code>DebugMenu</code>)。<strong>279 行</strong>(うち 170 行ほどはコメント)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td><code>OnKeyDown</code> の解体、<code>BuildDebugMenu</code>、<code>ChangeExposure</code>、HUD 1行、自己チェック 15 項目、<strong>古いキー表記 227 箇所の書き直し</strong></td><td>+2,443 / -2,356</td></tr>
+</tbody>
+</table></div>
+<p><code>shaders/</code> も <code>Physics/</code> も <code>Render/</code> も <code>Model/</code> も <strong>1文字も変わっていない</strong>。<code>Demo/</code> に増えたのは <code>DebugMenu.cs</code> 1本だけで、<code>FeatureToggles.cs</code> / <code>CameraPath.cs</code> / <code>DemoScene.cs</code> も<strong>そのまま</strong>になっている。</p>
+<h3 id="s17">差分は大きいが、書く量はそれほどでもない</h3>
+<p><code>Program.cs</code> の +2,443 行を中身で分けると、こうなる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>行数</th><th>何をする作業か</th></tr></thead>
+<tbody>
+<tr><td>昨日の本文をそのまま移しただけ</td><td><strong>1,445</strong></td><td><code>case</code> の中身を切って、ラムダの中へ貼る。<strong>インデントが4つ浅くなるだけ</strong></td></tr>
+<tr><td>ラムダの包み</td><td>約 480</td><td><code>page.Add("名前", "効果", () =&gt;</code> / <code>{</code> / <code>});</code> が 159 組</td></tr>
+<tr><td>本当に新しく書く行</td><td>約 480</td><td><code>OnKeyDown</code> の3段、<code>BuildDebugMenu</code> の骨、ページ宣言 16 行、自己チェック、コメント</td></tr>
+</tbody>
+</table></div>
+<p>つまり<strong>手で考えて書くのは 480 行ほど</strong>で、残りは移動と定型になる。とはいえ移動そのものに時間がかかるので、1Day としては重いほう(<strong>3〜4時間</strong>)だと思って取りかかってほしい。</p>
+<p><code>git diff --no-index reference/Day47 reference/Day48</code> はこの日に限って読みにくい。<strong>関数まるごとが動いているので、差分が「行の対応」にならない</strong>。下の順番どおりに進めるほうが早い。</p>
+<h3 id="s18">写経する順番</h3>
+<p><strong>1 を先に書く</strong>。2 以降は <code>DebugMenu</code> が無いとコンパイルが通らない。</p>
+<ol><li><strong><code>Demo/DebugMenu.cs</code></strong>(新規) — 上から順に<ul><li><code>Slots</code>(F2〜F12 と数字。<strong>F1 を入れないこと</strong>)/ <code>SlotCount</code></li><li><code>Entry</code>(キー・名前・効果・<code>Action</code> の4つだけ)</li><li><code>Page</code>(<code>Name</code> / <code>Summary</code> / <code>Entries</code> / <code>Add</code>)。<strong><code>Add</code> にキーの引数は無い</strong>——<code>Slots[_entries.Count]</code> で席が決まる</li><li><code>Index</code>(<code>-1</code> が「閉じている」)/ <code>Pages</code> / <code>Current</code> / <code>Add</code></li><li><code>Next</code> / <code>Previous</code>(<strong>輪に閉じた状態が1つ挟まる</strong>)</li><li><code>TryInvoke</code>(閉じているときは必ず <code>false</code>)</li><li><code>PrintCurrent</code> / <code>PrintIndex</code> / <code>HudLine</code> / <code>KeyLabel</code></li></ul></li></ol>
+<ol start="2"><li><strong><code>Program.cs</code> のフィールド</strong>(変更) — <code>_features</code> の直後に <code>_menu</code> を1つ。</li></ol>
+<ol start="3"><li><strong><code>Program.cs</code> の <code>OnKeyDown</code></strong>(変更) — <strong>ここが今日の山</strong>。次の手順が早い。<ul><li>昨日の <code>OnKeyDown</code> から、<strong><code>case Key.Escape:</code> より上を丸ごと切り取って別の場所へ退避</strong>する(修飾キー付き 159 個ぶん。<code>case Key.Space when _characterDemo:</code> の塊だけは残す)</li><li>空いたところに3段を書く。<code>F1</code> の振り分け → <code>_menu.TryInvoke</code> → <code>switch (key)</code></li><li><code>switch</code> に残るのは<strong>素のキーだけ</strong>。<code>alt</code> は <code>F1</code> の自己チェックでしか使わない</li></ul></li></ol>
+<ol start="4"><li><strong><code>Program.cs</code> の <code>BuildDebugMenu</code></strong>(新規メソッド) — 退避しておいた 159 個を<strong>ページ順に</strong>移す。1ページぶんずつ進めるとよい(HDR → シャドウ → 法線 → PBR → IBL → SSAO → FXAA →デモ v1 → カメラ → スキニング → ブレンド → 剛体 → 箱 → カプセル → 地形 → 摩擦)。1項目あたりの作業はこれだけになる。<div class="code"><span class="lang">csharp</span><pre><code>// 昨日                                    // 今日
+case Key.F when shift &amp;&amp; !ctrl &amp;&amp; !alt:    friction.Add("摩擦", "切ると坂の箱が全部滑り出す", () =&gt;
+    Physics.FrictionEnabled = ...;         {
+    ...                                        Physics.FrictionEnabled = ...;
+    break;                                     ...
+                                           });</code></pre></div><ul><li><strong><code>break;</code> は消す</strong>。途中で抜けていた <code>break;</code> は <code>return;</code> になる</li><li><code>case</code> の中が <code>{ }</code> で囲まれていたものは、囲みを外してよい(ラムダが囲みになる)</li><li><code>Shift+5</code> / <code>Shift+6</code> の露出だけは<strong>フォールスルーしていた</strong>ので、2項目に割って <code>ChangeExposure(float)</code> を呼ぶ形にする(5 を参照)</li></ul></li></ol>
+<ol start="5"><li><strong><code>Program.cs</code> の <code>ChangeExposure</code></strong>(新規メソッド) — 露出の上下を倍率で受ける 5 行。昨日は <code>case</code> の中で <code>key == Key.Number6</code> を見ていた。表には「どのキーで入ってきたか」が無いので、素直に引数にする。</li></ol>
+<ol start="6"><li><strong><code>Program.cs</code> の起動時</strong>(変更) — 2箇所<ul><li><code>_features = BuildFeatureToggles();</code> の直後に <code>_menu = BuildDebugMenu();</code></li><li><strong>手書きのキー一覧 140 行を消して</strong> <code>_menu.PrintIndex();</code> に置き換える(<code>--- Day 43: 剛体力学の基礎 ---</code> から <code>G で 3D 背景を出すと…</code> までが対象。<code>J:更新方式…</code> から下の素のキーの案内は<strong>残す</strong>)</li></ul></li></ol>
+<ol start="7"><li><strong><code>Program.cs</code> の HUD</strong>(変更) — <code>DrawOverlayInfo</code> の先頭に <code>lines.AppendLine(_menu.HudLine());</code> を1行。</li></ol>
+<ol start="8"><li><strong><code>Program.cs</code> のオーディオ自己チェック</strong>(変更) — <code>case Key.F1:</code> を <code>case Key.BackSlash:</code> へ。<strong><code>F1</code> はメニューが常に取るので、ここに置いても二度と届かない</strong>。素のキーの案内の <code>F1:オーディオの自己チェック</code> も <code>\ :</code> に直す。</li></ol>
+<ol start="9"><li><strong><code>Program.cs</code> の <code>RunDebugMenuCheck</code></strong>(新規メソッド) — 15 項目。<code>CheckList</code> の直前に置く。</li></ol>
+<ol start="10"><li><strong>本文中の古いキー表記</strong>(変更・227 箇所) — コメントや <code>Console.WriteLine</code> に<code>Ctrl+Shift+Alt+F5</code> のような<strong>昨日までの押し方</strong>が散らばっている。reference では <code>「剛体力学」の F6</code> の形に直してある。<strong>差分をゼロにしたいなら合わせる</strong>。急ぐなら後回しでよい(動作には影響しない)。ただし次の3種類は<strong>消す</strong>のが正しい。表が同じものを出すようになったため。<ul><li>その日の到達点が出していた <code>"  Shift+F:摩擦 ON/OFF  Alt+F:…"</code> の並び(5箇所)</li><li><code>Alt+F4</code> のような<strong>押してはいけないキー</strong>の但し書き(修飾キーを使わなくなった)</li><li>「この塊はいちばん上に置くこと」という警告(<strong>並び順が効かなくなった</strong>)</li></ul></li></ol>
+</section>
+<section class="part"><h2 id="s19">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Demo/</code> にクラスが1つ増えただけで、矢印は1本も足していない。エンジン側(<code>Core</code> / <code>Render</code> / <code>Scene</code> / <code>Ecs</code> / <code>Physics</code> / <code>Model</code> / <code>Audio</code> / <code>Text</code>)は<strong>1文字も変わっていない</strong>——今日の差分は<strong>全部「エンジンを使う側」に閉じている</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Demo/DebugMenu</code></td><td><code>Demo/</code></td><td>割り当て表。ページの輪と引き当て。<strong>279 行</strong></td></tr>
+<tr><td><code>Demo/DebugMenu.Page</code></td><td><code>Demo/</code></td><td>ページ1枚。<strong>席は登録順</strong>で決まる</td></tr>
+<tr><td><code>Demo/DebugMenu.Entry</code></td><td><code>Demo/</code></td><td>割り当て1つ(キー・名前・効果・<code>Action</code>)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td><code>OnKeyDown</code> が 2424 → 458 行。<code>BuildDebugMenu</code> が生えた</td><td>+2,443 / -2,356</td></tr>
+</tbody>
+</table></div>
+<h3 id="s20">入力が「分岐」から「表」になった日</h3>
+<p>Day 14 から昨日まで、キー入力は<strong>分岐</strong>だった。<code>switch</code> の枝が仕様そのもので、枝を読む以外に「何が割り当たっているか」を知る方法が無い。だから起動時の一覧は<strong>手で書き写す</strong>しかなく、書き写した以上ずれていった。</p>
+<p>今日から、キー入力は<strong>データ</strong>になった。<code>_menu.Pages</code> を舐めれば割り当てが全部出るので、一覧も HUD も自己チェックも<strong>同じ1つの表から起こせる</strong>。</p>
+<svg viewBox="0 0 720 330" role="img" aria-label="OnKeyDown が F1 か、表で引き当たるか、素の switch かの3段に振り分ける図" style="width:100%;max-width:720px;display:block;margin:8px 0 16px">
+<defs><marker id="d48arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13">
+<rect x="150" y="12" width="200" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="36" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OnKeyDown(key)</text>
+<line x1="250" y1="52" x2="250" y2="88" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#d48arr)"></line>
+<rect x="150" y="90" width="200" height="44" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="250" y="116" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">key == F1 ?</text>
+<line x1="350" y1="112" x2="440" y2="112" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#d48arr)"></line><text x="380" y="104" fill="var(--muted)" font-size="12">はい</text>
+<rect x="442" y="86" width="262" height="52" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="573" y="107.5" text-anchor="middle" fill="var(--ink)">ページ送り / 目次 / 自己チェック</text><text x="573" y="124.5" text-anchor="middle" fill="var(--ink)">メニューが常に取る</text>
+<line x1="250" y1="134" x2="250" y2="172" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#d48arr)"></line><text x="258" y="158" fill="var(--muted)" font-size="12">いいえ</text>
+<rect x="130" y="174" width="240" height="44" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="250" y="200" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_menu.TryInvoke(key)</text>
+<line x1="370" y1="196" x2="440" y2="196" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#d48arr)"></line><text x="374" y="188" fill="var(--muted)" font-size="12">引き当たった</text>
+<rect x="442" y="174" width="262" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="573" y="200" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Entry.Action() を実行</text>
+<line x1="250" y1="218" x2="250" y2="256" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#d48arr)"></line><text x="258" y="242" fill="var(--muted)" font-size="12">引き当たらない</text>
+<rect x="130" y="258" width="240" height="56" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="281.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">switch (key)</text><text x="250" y="298.5" text-anchor="middle" fill="var(--ink)">素のキーだけ 66 個</text>
+</g></svg>
+<p><strong>2段目の <code>TryInvoke</code> が、昨日までの 1990 行を置き換えている</strong>。閉じているときは必ず <code>false</code> を返すので、素のキーはそのまま3段目へ流れる。</p>
+<p>昨日までの1段構成と並べると、変わったのは「どこで正しさが決まるか」になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>昨日</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td>何を見て枝を選ぶか</td><td>キー + 修飾3つの <code>when</code> ガード</td><td><strong>ページ + キーの完全一致</strong></td></tr>
+<tr><td>選び方</td><td>上から順に、<strong>最初に成立したもの</strong></td><td>表を引く。並び順は効かない</td></tr>
+<tr><td>間違えたときの症状</td><td>押しても効かない。<strong>警告は出ない</strong></td><td>起動時に例外(席溢れ)/ 自己チェックで落ちる</td></tr>
+<tr><td>割り当ての一覧</td><td>手書き 140 行</td><td>表から生成</td></tr>
+</tbody>
+</table></div>
+<h3 id="s21">表の形 — 3つのクラスだけ</h3>
+<svg viewBox="0 0 730 276" role="img" aria-label="DebugMenu が Page を 16 枚、Page が Entry を 7〜12 個持つクラス図" style="width:100%;max-width:730px;display:block;margin:8px 0 16px">
+<g font-size="13"><rect x="10" y="10" width="250" height="256" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="30" text-anchor="middle" fill="var(--ink)" font-weight="700">DebugMenu</text><line x1="10" y1="40" x2="260" y2="40" stroke="var(--line)"></line><text x="22" y="60" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+Key[] Slots (static)</text><text x="22" y="78" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+int SlotCount (static)</text><text x="22" y="96" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+int Index</text><text x="22" y="114" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+IReadOnlyList&lt;Page&gt; Pages</text><text x="22" y="132" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+Page Current</text><text x="22" y="150" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+Page Add(name, summary)</text><text x="22" y="168" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+void Next()</text><text x="22" y="186" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+void Previous()</text><text x="22" y="204" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+bool TryInvoke(key)</text><text x="22" y="222" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+void PrintCurrent()</text><text x="22" y="240" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+void PrintIndex()</text><text x="22" y="258" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+string HudLine()</text><rect x="300" y="40" width="220" height="112" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="60" text-anchor="middle" fill="var(--ink)" font-weight="700">Page</text><line x1="300" y1="70" x2="520" y2="70" stroke="var(--line)"></line><text x="312" y="90" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+string Name</text><text x="312" y="108" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+string Summary</text><text x="312" y="126" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+IReadOnlyList&lt;Entry&gt; Entries</text><text x="312" y="144" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+Page Add(name, effect, action)</text><rect x="560" y="40" width="160" height="112" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="640" y="60" text-anchor="middle" fill="var(--ink)" font-weight="700">Entry</text><line x1="560" y1="70" x2="720" y2="70" stroke="var(--line)"></line><text x="572" y="90" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+Key Key</text><text x="572" y="108" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+string Name</text><text x="572" y="126" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+string Effect</text><text x="572" y="144" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">+Action Action</text><path d="M260 90 l10 -6 l10 6 l-10 6 Z" fill="var(--ink)"></path><line x1="280" y1="90" x2="300" y2="90" stroke="var(--ink)" stroke-width="1.5"></line><text x="266" y="80" fill="var(--muted)" font-size="12">1</text><text x="292" y="80" text-anchor="end" fill="var(--muted)" font-size="12">16</text><path d="M520 90 l10 -6 l10 6 l-10 6 Z" fill="var(--ink)"></path><line x1="540" y1="90" x2="560" y2="90" stroke="var(--ink)" stroke-width="1.5"></line><text x="526" y="80" fill="var(--muted)" font-size="12">1</text><text x="552" y="80" text-anchor="end" fill="var(--muted)" font-size="12">7..12</text></g></svg>
+<p><code>Entry</code> が持つ <code>Action</code> の先は <code>Program</code> の中のラムダで、そこから <code>_ssao</code> や <code>Physics</code> を触る。<strong>逆向きの矢印は無い</strong>——<code>DebugMenu</code> は <code>Ssao</code> も <code>PhysicsWorld</code> も知らないので、<code>Demo/</code> の中だけで完結している。<code>FeatureToggles</code> とまったく同じ形になっている。</p>
+<h3 id="s22">席を書かせないという判断</h3>
+<p><code>Page.Add</code> にキーの引数は無い。ここが今日いちばん設計上の決断が入っているところで、<strong>「書ける」ようにすると必ず重複する</strong>という読みに賭けている。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_entries.Add(new Entry(Slots[_entries.Count], name, effect, action));</code></pre></div>
+<p>代償はある。<strong>項目を途中に挿すと、以降のキーが1つずつずれる</strong>。昨日まで <code>Ctrl+F3</code> が SSAO の半径だったように、「このキーはこれ」という結び付きが弱くなる。</p>
+<p>それでも順番で決めたのは、次の3つが揃っているため。</p>
+<ol><li><strong>ページを開くたびに一覧が出る</strong>ので、憶えている必要が無い</li><li><strong>HUD にページ名が出ている</strong>ので、いま何が押せるかは常に見えている</li><li><strong>デバッグ用の道具</strong>であって、ゲームの操作ではない。手が憶えるほど押すもの(<code>Space</code> / 矢印 / <code>F5</code>)は素のキーに残してある</li></ol>
+<p>3 が効いている。ゲームの操作を席順で決めたら暴挙だが、「SSAO の下駄を振る」を月に何度押すかを考えると、<strong>憶えていることより、探せることのほうが値打ちがある</strong>。</p>
+<h3 id="s23">モードの表示を3か所に置いた</h3>
+<p>ページ切り替えはモーダルな入力なので、<strong>いまどこに居るかが見えないと使えない</strong>(要点3)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこ</th><th>いつ出るか</th><th>何のため</th></tr></thead>
+<tbody>
+<tr><td><code>DebugMenu.HudLine()</code></td><td>毎フレーム</td><td><strong>押す前に</strong>、いま何が押せるかを知る</td></tr>
+<tr><td><code>DebugMenu.PrintCurrent()</code></td><td>ページを切り替えた瞬間</td><td>送った先の中身を見る</td></tr>
+<tr><td><code>DebugMenu.PrintIndex()</code></td><td>起動時と <code>Ctrl+F1</code></td><td>16 枚のどこに何があるかを探す</td></tr>
+</tbody>
+</table></div>
+<p>HUD の行は <code>DrawOverlayInfo</code> の<strong>2行目</strong>(fps の次)に置いた。Day 40 の機能トグルの行や Day 43 の物理の行より上にしてあるのは、<strong>これがナビゲーションだから</strong>。下の行が読めない原因が上の行にある、という並びにしてある。</p>
+<h3 id="s24">今日消えたもの</h3>
+<p>足したものより、<strong>消えたもの</strong>のほうが今日の成果を表している。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>消えたもの</th><th>量</th><th>なぜ消せたか</th></tr></thead>
+<tbody>
+<tr><td>手書きのキー一覧(起動時)</td><td>140 行</td><td><code>PrintIndex</code> が表から起こす</td></tr>
+<tr><td>その日の到達点が出していたキーの並び</td><td>5箇所</td><td><code>PrintCurrent</code> が表から起こす</td></tr>
+<tr><td>「この塊はいちばん上に置くこと」の警告</td><td>各所</td><td><strong>並び順が効かなくなった</strong></td></tr>
+<tr><td><code>!shift &amp;&amp; !alt</code> のような否定ガード</td><td>159 個ぶん</td><td>ページで分かれているので要らない</td></tr>
+<tr><td><code>Alt+F4</code> を避ける但し書き</td><td>数箇所</td><td>修飾キーを使わなくなった</td></tr>
+</tbody>
+</table></div>
+<p>最後の2つは、<strong>昨日まで「気をつけて書く」で守っていたもの</strong>だった。気をつけて書くしかないものが構造で消えたときは、たいてい設計が1段良くなっている。</p>
+<h3 id="s25">今日残した歪み(2つ)</h3>
+<p><strong>1つ目: 素のキーの 66 個は手つかず</strong>。<code>Space</code> / 矢印 / <code>F5</code> のように常用するものはそれでよいのだが、Day 29 のオーディオ(<code>5</code>〜<code>0</code> / <code>[</code> / <code>]</code> / <code>\</code>)やDay 26 の衝突デモ(<code>F6</code>〜<code>F12</code>)は、<strong>性格としてはページに入るべきもの</strong>になっている。入れなかったのは、それらが<strong>修飾キーを使っていないので今日の問題を起こしていない</strong>ため。困っていないものを動かすと、差分が「今日の主題」からぼやける。</p>
+<p><strong>2つ目: ページのジャンプが無い</strong>。16 枚を <code>F1</code> で順送りするのは正直まだるっこしく、いちばん奥の「摩擦とソルバ」に行くには 16 回押すことになる(<code>Shift+F1</code> で戻れば1回だが)。<code>Ctrl+F1</code> の目次に番号が出ているので、<strong>番号で飛ぶ</strong>を足すのが自然な次の一手になる(改造課題2)。</p>
+</section>
+<section class="part"><h2 id="s26">完成条件</h2>
+<p><code>dotnet run --project reference/Day48 -c Release</code> で起動して、次が確かめられること。</p>
+<h3 id="s27">1. 起動すると目次が出る</h3>
+<p>コンソールに <strong>16 枚のページ</strong>が並ぶ。昨日までの 140 行のキー一覧はもう出ない。</p>
+<div class="code"><pre><code>メニューのページ(16 枚。F1 で送る / Shift+F1 で戻る)
+      1. HDR とブルーム              Day 31-32。露出・トーンマップ・glTF の読み込み
+      2. シャドウマップ              Day 33。深度パスとバイアスの詰め
+      ...
+     16. 摩擦とソルバ                Day 47。クーロン摩擦・Sequential Impulses・眠り
+
+  F1:次のページ  Shift+F1:前のページ  Ctrl+F1:この目次  Alt+F1:今日の自己チェック</code></pre></div>
+<h3 id="s28">2. <code>F1</code>: ページが送れて、中身が出る</h3>
+<p>押すたびに1枚進み、<strong>そのページの割り当てが一覧で出る</strong>。</p>
+<div class="code"><pre><code>メニュー [16/16] <strong>摩擦とソルバ</strong> — Day 47。クーロン摩擦・Sequential Impulses・眠り
+  F2   摩擦の坂           μ を振った5箱を 26.57 度の坂に並べる
+  F3   摩擦             切ると坂の箱が全部滑り出す
+  F4   蓄積インパルス        Sequential Impulses。負の補正が出せる
+  F5   温存             前のステップのインパルスから始める
+  F6   眠り             接触で繋がった島ごとに眠らせる
+  F7   μ の上書き          全部の体の摩擦係数を揃える
+  F8   自己チェック          収束と摩擦円を検算する</code></pre></div>
+<p><strong>HUD の2行目</strong>にも <code>メニュー[16/16]:摩擦とソルバ  7項目</code> が出ている。</p>
+<h3 id="s29">3. ページによって <code>F3</code> の意味が変わる</h3>
+<ul><li>「摩擦とソルバ」を開いて <code>F3</code> → <strong>摩擦が ON/OFF する</strong></li><li><code>Shift+F1</code> を数回押して「SSAO」へ → <code>F3</code> は <strong>遮蔽バッファの全画面表示</strong>になる</li><li><code>F1</code> を押して閉じる(HUD が <code>メニュー:閉</code> になる)→ <code>F3</code> は<strong>シーンの読み込み</strong>(Day 24)に戻る</li></ul>
+<p><strong>3つ目がいちばん大事</strong>。素のキーを取り上げていないことの確認になる。<code>F5</code>(シェーダの再読込)と <code>Space</code>(一時停止)でも同じことを確かめておく。</p>
+<h3 id="s30">4. <code>Ctrl+F1</code> で目次、<code>Shift+F1</code> で逆送り</h3>
+<p>目次では<strong>いま開いているページに <code>▸</code> が付く</strong>。<code>Shift+F1</code> は閉じている状態から押すと最後のページ(摩擦とソルバ)へ飛ぶので、奥のページへは順送りより速い。</p>
+<h3 id="s31">5. <code>F1</code> を押し続けると必ず元に戻る</h3>
+<p>16 回押せば閉じた状態に戻る。<strong>閉じ方を憶えている必要が無い</strong>のがこの形の値打ちで、自己チェックの「もう1回送ると閉じる」がこれを確かめている。</p>
+<h3 id="s32">6. 昨日までの機能が全部そのまま動く</h3>
+<p>抜き取りで次を確かめる。<strong>キーの押し方が変わっただけで、中身は1つも変わっていない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ページ</th><th>キー</th><th>昨日までの押し方</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td>摩擦とソルバ</td><td><code>F2</code></td><td><code>Ctrl+F</code></td><td>26.57 度の坂に μ を振った5箱</td></tr>
+<tr><td>剛体力学</td><td><code>F2</code></td><td><code>Ctrl+Shift+Alt+F1</code></td><td>球が落ちて跳ねて積まれる</td></tr>
+<tr><td>デモ v1</td><td><code>1</code></td><td><code>Ctrl+Shift+F12</code></td><td>デモ v1 の決めの構図。<strong>12 個目なので席が数字キーへ回る</strong></td></tr>
+<tr><td>SSAO</td><td><code>F2</code></td><td><code>Ctrl+F1</code></td><td>SSAO の ON/OFF</td></tr>
+<tr><td>HDR とブルーム</td><td><code>F6</code> / <code>F7</code></td><td><code>Shift+5</code> / <code>Shift+6</code></td><td>露出が 1.3 倍ずつ増減する</td></tr>
+</tbody>
+</table></div>
+<p><strong>最後の1つは要注意</strong>。昨日はフォールスルーで1つの <code>case</code> だったものが、今日は2項目に割れている。上下が逆になっていないか確かめる。</p>
+<h3 id="s33">7. <code>\</code>: オーディオの自己チェック</h3>
+<p><code>F1</code> から引っ越した。<strong><code>F1</code> を押してもオーディオの自己チェックは走らない</strong> (メニューのページ送りになる)ことも併せて確かめる。</p>
+<h3 id="s34">8. <code>Alt+F1</code>: 自己チェックが 15 項目すべて合格</h3>
+<div class="code"><pre><code>--- Day 48: 割り当て表の自己チェック ---
+  [OK] ページがある  16 枚
+  [OK] <strong>Day 31〜47 のスイッチが全部入っている</strong>  159 項目
+  [OK] どのページも席(21)に収まっている  最大 12 項目
+  ...
+  すべて合格
+  昨日の OnKeyDown は 2424 行・case 225 個。今日は 458 行と、16 ページ 159 項目の表になった</code></pre></div>
+<h3 id="s35">9. 昨日までの自己チェックも全部そのまま合格</h3>
+<p>「剛体力学」の <code>1</code>、「箱の衝突」の <code>F9</code>、「摩擦とソルバ」の <code>F8</code> を順に走らせて、<strong>Day 43・44・47 が全項目合格</strong>であること。(自己チェックの席がページごとにばらばらなのは、<strong>ページの項目数が違う</strong>ため。どのページも最後の項目が自己チェックなので、一覧の末尾を見れば分かる。)今日はエンジンに触っていないので、1項目でも落ちたら移し間違えている。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F1</code> / <code>Shift+F1</code> / <code>Ctrl+F1</code></td><td>メニューを送ってみる</td><td>16 回送ると閉じる。閉じた状態から <code>Shift+F1</code> で最後のページへ。HUD の行がページ名を出す</td></tr>
+<tr><td>ページを開いて <code>F2</code>〜<code>F12</code> / <code>1</code>〜<code>0</code></td><td>同「席のキーを押す」</td><td>同じ <code>F3</code> がページで意味を変える。閉じれば素のキーへ流れる</td></tr>
+<tr><td><code>Alt+F1</code></td><td>(なし)</td><td>表の形を押さずに確かめる自己チェック 15 項目</td></tr>
+<tr><td>Day 47 までの <code>Ctrl</code> / <code>Shift</code> / <code>Alt</code> + <code>F1</code></td><td>F1 を押したとき、どの case が走るか</td><td>並び順を変えると吸われる。今日の reference にはもう無い形</td></tr>
+</tbody>
+</table></div>
+<p class="note">メニューの実験台は reference/Day48 の DebugMenu(Next / Previous / TryInvoke / HudLine / PrintCurrent / PrintIndex)を JS に移し、ページ名・要約・項目名・効果は BuildDebugMenu から抜き出したもの。項目を引き当てても、ここでは中身(Action)は走らない。case の実験台は Day 47 の OnKeyDown にあった F1 の case 8 つを、reference の並び順のまま並べたもの。</p></div>
+</section>
+<section class="part"><h2 id="s36">改造課題</h2>
+<h3 id="s37">課題1(易): 純粋な ON/OFF を <code>Toggle</code> にまとめる</h3>
+<p>159 項目のうち <strong>34 個</strong>は、まったく同じ形をしている。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>page.Add("摩擦", "切ると坂の箱が全部滑り出す", () =&gt;
+{
+    Physics.FrictionEnabled = !Physics.FrictionEnabled;
+    WakeAllBodies();
+    Console.WriteLine(
+        Physics.FrictionEnabled
+            ? "摩擦: <strong>ON</strong>(クーロン摩擦。上限は μ × 押し付けている強さ)"
+            : "摩擦: <strong>OFF</strong>(Day 46 までの世界。<strong>坂の箱が全部滑り出す</strong>)");
+});</code></pre></div>
+<p><code>Page</code> に <code>Toggle</code> を足して、<strong>文言のほうを表に預ける</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public Page Toggle(string name, string onText, string offText, Func&lt;bool&gt; get, Action&lt;bool&gt; set)
+{
+    return Add(name, $"ON:{onText} / OFF:{offText}", () =&gt;
+    {
+        bool next = !get();
+        set(next);
+        Console.WriteLine($"{name}: <strong>{(next ? "ON" : "OFF")}</strong>({(next ? onText : offText)})");
+    });
+}</code></pre></div>
+<p>呼ぶ側はこうなる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>page.Toggle("摩擦",
+    "クーロン摩擦。上限は μ × 押し付けている強さ",
+    "Day 46 までの世界。<strong>坂の箱が全部滑り出す</strong>",
+    () =&gt; Physics.FrictionEnabled,
+    value =&gt; { Physics.FrictionEnabled = value; WakeAllBodies(); });</code></pre></div>
+<p><strong>確かめること</strong>: 34 個を移して、<code>ON</code>/<code>OFF</code> の文言が入れ替わっていないこと。<code>Get</code> と <code>Set</code> を取り違えると<strong>押すたびに同じ側へ倒れる</strong>ので、自己チェックに「2回押すと元に戻る」を足しておくと早く気づける。</p>
+<p><code>FeatureToggles.Feature</code> が <code>Get</code> / <code>Set</code> を持っているのと同じ形で、Day 40 の判断がもう一段先まで効くのが見どころになる。</p>
+<h3 id="s38">課題2(中): ページ番号で飛べるようにする</h3>
+<p>16 枚を順送りするのはまだるっこしい。<strong>目次から番号で飛ぶ</strong>を足す。</p>
+<p>素直なのは「<code>Ctrl+F1</code> で目次を出したあと、次に押した数字キーをページ番号として読む」形になるが、これは<strong>2打鍵のモード</strong>を1つ増やすことになる。要点3のとおり、モードを増やすなら表示も増やさなければならない——「いま番号待ちです」が HUD に出ていないと、数字キーが効かない理由が分からなくなる。</p>
+<p>もう1つの手は <code>Ctrl</code> + 数字キーをページ番号に使う形。修飾キーを1つ復活させることになるが、<strong>メニュー自身の操作は <code>F1</code> に集めてある</strong>ので、<code>Ctrl+1</code>〜<code>Ctrl+0</code> を「ページ 1〜10 へ」に当てても今日の話とは衝突しない。</p>
+<p><strong>確かめること</strong>: どちらを選んでも、「<code>F1</code> を押し続ければ必ず閉じる」が壊れていないこと。出口が1つであることは、道具として譲れない性質になっている(要点4)。</p>
+<h3 id="s39">課題3(難): 割り当てをファイルから読む</h3>
+<p><code>BuildDebugMenu</code> は 1,960 行ある。中身はほとんどデータなので、<strong>JSON に出して起動時に読む</strong>ようにできる。</p>
+<div class="code"><span class="lang">json</span><pre><code>{
+  "pages": [
+    {
+      "name": "摩擦とソルバ",
+      "summary": "Day 47。クーロン摩擦・Sequential Impulses・眠り",
+      "entries": [
+        { "name": "摩擦", "effect": "切ると坂の箱が全部滑り出す", "action": "toggle:Physics.FrictionEnabled" }
+      ]
+    }
+  ]
+}</code></pre></div>
+<p>ここで<strong>必ず突き当たる壁</strong>がある。<code>Action</code> はコードなので、JSON には入らない。つまり「<code>action</code> の文字列から実際の処理を引く表」がどこかに要る——結局 <code>Program.cs</code> の中に <code>{"toggle:Physics.FrictionEnabled", () =&gt; ...}</code> の辞書が生まれて、<strong>同じ量のコードが名前付きで残る</strong>。</p>
+<p>だから課題としては「やってみて、割に合わないことを確かめる」ほうに値打ちがある。割に合うのは次のどちらかになったときで、そこまでは今の形が正しい。</p>
+<ul><li><strong>並び順や名前だけを外に出す</strong>(処理はコードのまま、順番と文言だけ JSON)——これは割に合う</li><li><strong>スクリプト言語を積む</strong>(Lua など)——処理そのものを外に出せるが、エンジンに言語処理系が1つ増える</li></ul>
+<p>Day 24 でシーンを JSON にしたときは、シーンが<strong>データしか持っていなかった</strong>から素直に外へ出せた。入力の割り当てが出せないのは、<strong>処理を持っているから</strong>になる。「何がデータで、何がコードか」の線引きが、同じリポジトリで2回目に出てくる場面になっている。</p>
+</section>
+<section class="part"><h2 id="s40">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070 / OpenGL 3.3</li></ul>
+<h3 id="s41">自己チェック(15 項目すべて合格)</h3>
+<p><code>Alt+F1</code>。<strong>窓を1枚も出さずに走る</strong>——というより、今日のチェックは<strong>押さなくても分かることばかり</strong>を確かめている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>範囲</th><th>何を確かめているか</th><th>項目数</th></tr></thead>
+<tbody>
+<tr><td>表の形</td><td>159 項目ある、席に収まる、<strong>キーが重複しない</strong>、名前が埋まっている</td><td>5</td></tr>
+<tr><td><code>F1</code> の不可侵</td><td><strong>どのページも <code>F1</code> を取っていない</strong>、席の先頭が <code>F2</code></td><td>2</td></tr>
+<tr><td>ページの輪</td><td>最後まで送れる、<strong>もう1回で閉じる</strong>、戻ると最後のページ</td><td>3</td></tr>
+<tr><td>引き当て</td><td>閉じていると引かない、開けば引く、席にないキーは流す、<code>F1</code> は引かない</td><td>4</td></tr>
+<tr><td>名前と効果</td><td>一覧が読める形になっている</td><td>1</td></tr>
+</tbody>
+</table></div>
+<p>とくに強いのは次の3つ。</p>
+<ul><li><strong><code>F1</code> はどのページも取っていない</strong> — 取られていると、そのページを開くまで何も起きず、<strong>開いた瞬間に出られなくなる</strong>。押して確かめようとすると最後まで気づけない種類の間違いになる</li><li><strong>閉じている間は何も引き当てない</strong> — 素のキーを取り上げていないことの確認。ここが壊れると <code>Space</code> も <code>F5</code> も効かなくなり、「メニューが原因だ」と気づくまでに時間がかかる</li><li><strong>引き当ての確認は使い捨ての表でやる</strong> — 本物の表は SSAO を切ったりデモを出したりする。<strong>チェックが世界を書き換える</strong>と、走らせた後の画面が信用できなくなる</li></ul>
+<h3 id="s42">検証の途中で分かったこと</h3>
+<p><strong>1. 手書きの一覧は、8日間ずれたままだった</strong>。</p>
+<p>消す前の起動時一覧を読み返したら、Day 40 の行が <code>Ctrl+Alt+F11</code> で終わっていて、<code>Ctrl+Alt+F12</code>(シーンの自己チェック)が<strong>抜けていた</strong>。Day 40 で足したときに書き忘れ、以来7日ぶんの写経を経ても誰も気づいていない。</p>
+<p><strong>書き忘れても動く</strong>からで、これが手書きの一覧の実力になる。要点6の「行数は減らないが形が変わる」の、いちばん具体的な例がこれ。</p>
+<p><strong>2. <code>_menu</code> を組み立て中に使って NullReference を出した</strong>。</p>
+<p><code>BuildDebugMenu</code> の中でページを足すのに、ローカルの <code>menu</code> ではなくフィールドの <code>_menu</code> を書いてしまった。<code>_menu</code> に代入されるのは<strong>この関数が返った後</strong>なので、起動した瞬間に落ちる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private static DebugMenu BuildDebugMenu()
+{
+    var menu = new DebugMenu();
+    DebugMenu.Page hdr = _menu.Add(...);   // ← まだ null</code></pre></div>
+<p><strong>ビルドは通る</strong>(<code>_menu</code> は <code>null!</code> で初期化してあるので警告も出ない)。<code>BuildFeatureToggles</code> が同じ形をしていて、あちらは <code>features</code> ローカルを使っているので、<strong>並べて書くと気づける</strong>種類の間違いになっている。写経のときは<code>BuildFeatureToggles</code> を隣に開いておくとよい。</p>
+<p><strong>3. <code>F1</code> を明け渡すと、素の <code>F1</code> が到達不能になる</strong>。</p>
+<p>Day 29 のオーディオ自己チェックが <code>case Key.F1:</code> に居た。メニューが <code>F1</code> を先に飲むので、この <code>case</code> には<strong>二度と来ない</strong>。コンパイラは何も言わない——到達可能性の解析は <code>switch</code> の中の話であって、その手前の <code>return</code> までは見てくれない。</p>
+<p><code>\</code>(音量の <code>[</code> <code>]</code> の隣)へ移した。<strong>キーを1つ明け渡すと、そこに居た先客を探す作業が必ず付いてくる</strong>。今日は1つで済んだが、<code>F2</code> や <code>F3</code> をメニュー専用にしていたら、Day 24 のシーン保存・読み込みまで巻き添えになっていた。</p>
+</section>
+<footer class="end">Day 48 入力とデバッグメニューの整理(キー割り当てをデータにする) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, stat } = Lab;
+
+// ============================================================
+//  要点2: when ガードは「最初に成立したもの」
+// ============================================================
+// Day 47 の OnKeyDown に並んでいた順(行番号の順)。day はその段を足した日
+const CASES = [
+  { c: true, s: true, a: true, day: 43, what: '剛体力学' },
+  { c: true, s: false, a: true, day: 40, what: 'カメラワークと機能' },
+  { c: true, s: true, a: false, day: 39, what: 'デモ v1' },
+  { c: false, s: true, a: true, day: 42, what: 'アニメのブレンド' },
+  { c: false, s: false, a: true, day: 41, what: 'スキニング' },
+  { c: false, s: true, a: false, day: 38, what: 'FXAA と色調整' },
+  { c: true, s: false, a: false, day: 37, what: 'SSAO' },
+  { c: false, s: false, a: false, day: 29, what: 'オーディオの自己チェック' },
+];
+const sw = { order: 'ref', neg: false };
+function guardText(k, neg) {
+  const on = [k.c && 'ctrl', k.s && 'shift', k.a && 'alt'].filter(Boolean);
+  const off = neg ? [!k.c && '!ctrl', !k.s && '!shift', !k.a && '!alt'].filter(Boolean) : [];
+  const all = on.concat(off);
+  return all.length ? `case Key.F1 when ${all.join(' && ')}:` : 'case Key.F1:';
+}
+// ガードが成立するか。否定を書かないと「押していない修飾キー」は見ていない
+const holds = (k, p, neg) => (!k.c || p.c) && (!k.s || p.s) && (!k.a || p.a) && (!neg || ((k.c || !p.c) && (k.s || !p.s) && (k.a || !p.a)));
+const ordered = () => (sw.order === 'ref' ? CASES : CASES.slice().sort((x, y) => x.day - y.day));
+function firstHit(p) { return ordered().find((k) => holds(k, p, sw.neg)); }
+const exact = (p) => CASES.find((k) => k.c === p.c && k.s === p.s && k.a === p.a);
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function drawSw() {
+  const p = { c: $('sw-ctrl').checked, s: $('sw-shift').checked, a: $('sw-alt').checked };
+  const hit = firstHit(p), want = exact(p);
+  $('sw-code').innerHTML = 'switch (key)\n{\n' + ordered().map((k) => {
+    const line = `    ${esc(guardText(k, sw.neg))}`;
+    const tail = `   // Day ${k.day} ${k.what}`;
+    if (k === hit) return `<strong>${line}${tail}  ← 走る</strong>`;
+    if (k === want) return `${line}${tail}  ← 押したかったのはこれ`;
+    return line + tail;
+  }).join('\n') + '\n}';
+  // 8 通りの押し方のうち、意図と違う case に吸われるもの
+  let wrong = 0;
+  for (let m = 0; m < 8; m++) {
+    const q = { c: !!(m & 1), s: !!(m & 2), a: !!(m & 4) };
+    if (firstHit(q) !== exact(q)) wrong++;
+  }
+  const keyName = [p.c && 'Ctrl', p.s && 'Shift', p.a && 'Alt'].filter(Boolean).concat('F1').join('+');
+  $('sw-stats').innerHTML =
+    stat('押したキー', keyName) +
+    stat('走る case', `Day ${hit.day} ${hit.what}`, hit === want ? ' <span class="pill good">意図どおり</span>' : ' <span class="pill bad">吸われた</span>') +
+    stat('8 通りの押し方のうち吸われるもの', `${wrong} / 8`);
+  let note;
+  if (sw.neg) note = '否定を書き足すと、どのガードも「押した組み合わせと完全に一致したとき」だけ成立するので、並び順が効かなくなる。ただし1つ書き忘れても半分は動くので、書き忘れに気づきにくい。';
+  else if (sw.order === 'day') note = '足した日の順に並べると、ガードの無い case Key.F1:(Day 29)がいちばん上に来て、どの修飾キーで押してもオーディオの自己チェックが走る。コンパイラは何も言わない。';
+  else note = '具体的なもの(修飾キーの多いもの)ほど上に置いてあるので、8 通りとも意図どおり走る。正しさが「行の位置」に宿っている状態で、新しい段を足すたびに置き場所を考える必要がある。';
+  $('sw-note').textContent = note;
+}
+for (const id of ['sw-ctrl', 'sw-shift', 'sw-alt', 'sw-neg']) $(id).addEventListener('change', () => { sw.neg = $('sw-neg').checked; drawSw(); });
+seg('sw-order', (v) => { sw.order = v; drawSw(); });
+drawSw();
+
+// ============================================================
+//  要点3・4: ページの輪(DebugMenu の Next / Previous / TryInvoke / HudLine / PrintCurrent)
+// ============================================================
+const PAGES = [{"name":"HDR とブルーム","summary":"Day 31-32。露出・トーンマップ・glTF の読み込み","entries":[["シーンバッファ","16F と 8bit を往復する。8bit だと明るい側が潰れる"],["ブルーム","明るいところがにじむ"],["トーンマップ","HDR を画面の 0〜1 に落とす曲線"],["表示する段","合成の途中経過をそのまま出す"],["露出 −","1.3 分の1 ずつ暗く"],["露出 +","1.3 倍ずつ明るく"],["ブルームのしきい値","どこからを「明るい」とみなすか"],["自己チェック","浮動小数バッファと露出の往復を検算する"],["表示する成分","法線・粗さ・金属度などを直に見る"],["モデルを切り替え","glTF を順に読み込む(Day 32)"],["自己チェック(glTF)","読み込んだモデルの構造を検算する"]]},{"name":"シャドウマップ","summary":"Day 33。深度パスとバイアスの詰め","entries":[["影","深度パスを丸ごと切る"],["解像度","1024〜4096。輪郭のギザギザと VRAM が入れ替わる"],["PCF","取る点を増やして輪郭をぼかす"],["深度バイアス","小さいとアクネ、大きいと影が浮く"],["傾きバイアス","浅く当たる面ほど下駄を増やす"],["深度パスのカリング","表を捨てて裏だけ焼く"],["マップの表示","焼いた深度を画面の隅に出す"],["光の届く範囲","正射影の箱の大きさ"],["光の向き","太陽を回す"],["自己チェック","行列と深度の往復を検算する"]]},{"name":"法線マップと視差","summary":"Day 34。接空間と、面を押し込んで見せる工夫","entries":[["法線マップ","凹凸の向きをテクスチャから取る"],["視差マッピング","オフセット → 急峻 → 遮蔽 と段を上げる"],["視差の深さ","面をどれだけ押し込むか"],["レイマーチの刻み","視線の角度で本数を変える"],["材質テスト","レンガの板を出す"],["板の繰り返し","タイリングの数"],["接線","ファイルの TANGENT と自前生成を入れ替える"],["法線マップの緑","OpenGL 流と DirectX 流"],["決めの構図","法線マップの違いが出る並びにする"],["自己チェック","接空間の直交性を検算する"]]},{"name":"PBR","summary":"Day 35。Cook-Torrance と材質グリッド","entries":[["陰影","Cook-Torrance と Blinn-Phong"],["金属度の上書き","全部を金属/非金属に倒す"],["粗さの上書き","つるつる〜ざらざらを固定する"],["非金属の F0","垂直に入ったときの反射率"],["材質グリッド","金属度 × 粗さの一覧を並べる"],["α の作り方","roughness² を通すかどうか"],["環境鏡面","IBL までの粗いつなぎ"],["ベースカラー","グリッドの下地の色"],["決めの構図","材質グリッド + 成分の表示"],["自己チェック","エネルギー保存とフレネルを検算する"]]},{"name":"IBL と環境マップ","summary":"Day 36。まわりの景色を光として使う","entries":[["IBL","まわりの景色を光として使う"],["空の表示","見た目だけ。照明とは無関係"],["環境光の強さ","IBL の倍率"],["空に出すもの","環境マップと事前フィルタの段"],["太陽を回す","30 度ずつ。影と映り込みが一緒に回る"],["空を LDR に潰す","1.0 で頭打ちにして焼き直す"],["表示する成分","拡散と鏡面の内訳を出す"],["事前フィルタ","粗さに応じた段を引くかどうか"],["決めの構図","材質グリッドに景色を映す"],["自己チェック","積分の総和を検算する"]]},{"name":"SSAO","summary":"Day 37。画面空間の遮蔽で接地感を出す","entries":[["SSAO","物と物が接するところに暗がりを出す"],["AO の表示","遮蔽バッファそのものを見る"],["半径","どれだけ離れた遮蔽まで拾うか"],["標本数","多いほど滑らかで重い"],["ぼかし","4x4 平均。ノイズのタイルを消す"],["解像度","半分にして速さを買う"],["強さ","暗がりの濃さ"],["下駄","自分自身を遮蔽と数えないための余裕"],["決めの構図","立方体の根元に暗がりの帯が出る並び"],["自己チェック","半球サンプルの分布を検算する"],["直接光にも掛ける","**誤用の実演**。日向の壁際まで暗くなる"],["自己チェック(AA)","FXAA の輝度計算を検算する"]]},{"name":"FXAA と色調整","summary":"Day 38。縁のぼかしとカラーグレーディング","entries":[["FXAA","縁を見つけてぼかす"],["FXAA の表示","どこを縁と見たかを出す"],["FXAA の効き","品質の段を回す"],["UI を後処理へ","通すと露出を上げたとき文字が白飛びする"],["カラーグレーディング","色の調整を丸ごと切る"],["下敷き","プリセットを順に回す"],["コントラスト","明暗の開き"],["彩度","色の濃さ"],["色温度","青寄り〜赤寄り"],["左右比較","画面を割って加工前後を並べる"],["決めの構図","左が加工前、右が加工後"]]},{"name":"デモ v1","summary":"Day 39。HDRI・太陽の抽出・決めの構図","entries":[["デモの読み込み","シーンを出す / しまう"],["空","HDRI と手焼きを往復する"],["HDRI を切り替え","3枚。太陽の写り方が違う"],["平行光源","HDRI から取るか手書きか"],["太陽を環境から抜く","抜かないと平行光源と二重に足される"],["太陽のしきい値","どこからを太陽とみなすか"],["シーンの影","castShadow の指定を効かせる"],["スクリーンショット","PNG に落とす"],["デモの内訳","何が読み込まれているか"],["光の内訳","抽出した太陽の向きと色"],["空の回転","方位をシーンの指定に合わせる"],["決めの構図","必須構成を全部入れる"]]},{"name":"カメラワークと機能","summary":"Day 40。ショットの補間と、機能の一括切り替え","entries":[["決めの構図","シーン + 必須構成 + カメラ再生"],["カメラワーク","再生 / 一時停止"],["次のショットへ","並びを飛ばす"],["補間","Catmull-Rom と線形"],["イージング","smoothstep の有無"],["再生速度","倍率を回す"],["機能を選ぶ","カーソルを1つ進める"],["選んだ機能を反転","1つだけ切って絵を比べる"],["全部 ON / OFF","素の絵と必須構成の絵を往復する"],["機能ツアー","1つずつ切っては戻す"],["自己チェック","補間とイージングを検算する"],["自己チェック(シーン)","シーンの読み込みを検算する"]]},{"name":"スキニング","summary":"Day 41。glTF のアニメーションと関節行列","entries":[["人型を出す","CesiumMan を読む"],["モデルを切り替え","リグ済みモデルを順に"],["クリップを切り替え","モデルが持つアニメを順に"],["再生 / 一時停止","止めて姿勢を確かめる"],["スキニング","切ると束ねる前の姿勢が出る"],["再生速度","倍率を回す"],["コマ送り","1/30 秒ずつ進める"],["重みを見る","表示する成分をボーン重みに切り替える"],["先頭へ戻す","時刻を 0 に"],["リグの内訳","関節の数と木の深さ"],["自己チェック","関節行列の合成を検算する"]]},{"name":"アニメのブレンド","summary":"Day 42。歩き↔走りを速度で混ぜる","entries":[["四足を出す","Fox を読む"],["決め方","ブレンドツリーと閾値の切り替え"],["位相同期","全クリップを同じ正規化位置に揃える"],["速度 −","遅くする"],["速度 +","速くする"],["速度を自動で振る","往復させて繋ぎ目を見る"],["クロスフェード","切り替えにかける秒数"],["ブレンドの内訳","いまどの2本が何割か"],["自己チェック","重みの合計と連続性を検算する"]]},{"name":"剛体力学","summary":"Day 43。積分・反発・インパルス解決","entries":[["物理デモ","球を落として、跳ねさせて、積む"],["積分","セミインプリシットと陽的オイラー"],["反発係数","跳ね返り方を振る"],["筋書き","落下 / 積み上げ / 撞き玉"],["速度の反復","1ステップに何周解くか"],["位置補正","めり込みを押し戻すかどうか"],["球を追加","1つ落とす"],["撃つ","中心と、中心を外したのを交互に"],["物理の内訳","体・接触・エネルギーの数字"],["一時停止","カメラは動かせる"],["コマ送り","1ステップだけ進める"],["自己チェック","運動量と角運動量の保存を検算する"]]},{"name":"箱の衝突","summary":"Day 44。分離軸定理と接触マニフォールド","entries":[["箱デモ","傾きを振った5つの箱を落とす"],["筋書き","積む / 球と箱 / 転がる / カプセル / 地形 / 摩擦の坂"],["接触点の表示","マニフォールドの点を光る玉で出す"],["1組あたりの接触点","1 点に減らすと床の箱が震え出す"],["箱を追加","1つ落とす"],["接触の内訳","面 / 辺 / 点の内訳"],["接触点の解き方","同時に決めるか、順番に決めるか"],["自己チェック","分離軸とマニフォールドを検算する"]]},{"name":"カプセルとキャラクタ","summary":"Day 45。坂・段差・接地判定","entries":[["キャラクターデモ","坂と階段の上を歩き回る"],["筋書き","坂 / 階段 / 障害物"],["坂の上限","切ると垂直に近い壁もよじ登る"],["段差の乗り越え","切ると 15cm の段でも止まる"],["カプセルを追加","1つ落とす"],["キャラクタの内訳","接地・傾き・段差の数字"],["自己チェック","線分間距離を検算する"]]},{"name":"地形とブロードフェーズ","summary":"Day 46。Heightmap と均一グリッド","entries":[["地形デモ","起伏の上を歩き回る"],["ブロードフェーズ","均一グリッドと総当たり。**絵は変わらない**"],["マスを描く","中身のあるマスだけ線で出す"],["マスの大きさ","格子の目を変える"],["体を 40 個追加","総当たりの組は2乗で増える"],["ブロードフェーズの内訳","候補の数とマスの使われ方"],["自己チェック","高さの補間を検算する"]]},{"name":"摩擦とソルバ","summary":"Day 47。クーロン摩擦・Sequential Impulses・眠り","entries":[["摩擦の坂","μ を振った5箱を 26.57 度の坂に並べる"],["摩擦","切ると坂の箱が全部滑り出す"],["蓄積インパルス","Sequential Impulses。負の補正が出せる"],["温存","前のステップのインパルスから始める"],["眠り","接触で繋がった島ごとに眠らせる"],["μ の上書き","全部の体の摩擦係数を揃える"],["自己チェック","収束と摩擦円を検算する"]]}];
+const SLOTS = ['F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+const mn = { index: -1, shown: 'index', result: '' };
+const next = () => { mn.index = mn.index + 1 >= PAGES.length ? -1 : mn.index + 1; };
+const previous = () => { mn.index = mn.index - 1 < -1 ? PAGES.length - 1 : mn.index - 1; };
+const current = () => (mn.index >= 0 ? PAGES[mn.index] : null);
+function hudLine() {
+  const p = current();
+  return p ? `メニュー[${mn.index + 1}/${PAGES.length}]:${p.name}  ${p.entries.length}項目` : `メニュー:閉  F1で開く(${PAGES.length}ページ)`;
+}
+function printCurrent() {
+  const p = current();
+  if (!p) return 'メニュー: 閉じた(F2〜F12・数字キーは素の割り当てに戻る)\n  F1:次へ  Shift+F1:前へ  Ctrl+F1:目次  Alt+F1:自己チェック';
+  return [`メニュー [${mn.index + 1}/${PAGES.length}] ${p.name} — ${p.summary}`]
+    .concat(p.entries.map(([name, effect], i) => `  ${SLOTS[i].padEnd(4)} ${name.padEnd(16)} ${effect}`)).join('\n');
+}
+function printIndex() {
+  return [`メニューのページ(${PAGES.length} 枚。F1 で送る / Shift+F1 で戻る)`]
+    .concat(PAGES.map((p, i) => `  ${i === mn.index ? '▸' : ' '} ${String(i + 1).padStart(2)}. ${p.name.padEnd(22)} ${p.summary}`)).join('\n');
+}
+function press(slot) {
+  const p = current(), i = SLOTS.indexOf(slot);
+  if (!p) mn.result = `${slot}: 閉じているので表は何も引き当てない。素の switch (key) へ流れる(F3 ならシーンの読み込み、F5 ならシェーダの再読込)。`;
+  else if (i < p.entries.length) mn.result = `${slot}: 「${p.name}」の「${p.entries[i][0]}」を引き当てた — ${p.entries[i][1]}`;
+  else mn.result = `${slot}: 「${p.name}」は ${p.entries.length} 項目なのでこの席は空き。表は引き当てず、素の switch (key) へ流れる。`;
+  drawMenu();
+}
+function drawMenu() {
+  const { ctx, w, h } = fit($('menu-canvas'));
+  const n = PAGES.length + 1, cx = w / 2, cy = h / 2, R = Math.min(h / 2 - 28, w / 2 - 60);
+  ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  for (let k = 0; k < n; k++) {
+    const idx = k - 1, ang = -Math.PI / 2 + k / n * Math.PI * 2;
+    const x = cx + Math.cos(ang) * R, y = cy + Math.sin(ang) * R, on = idx === mn.index;
+    ctx.fillStyle = on ? tok('--accent') : (idx < 0 ? tok('--sunken') : tok('--surface'));
+    ctx.strokeStyle = idx < 0 ? tok('--warn') : tok('--line'); ctx.lineWidth = idx < 0 ? 2 : 1;
+    ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = on ? tok('--bg') : tok('--ink');
+    ctx.fillText(idx < 0 ? '閉' : String(idx + 1), x, y + 1);
+  }
+  const p = current();
+  ctx.fillStyle = tok('--ink'); ctx.font = '14px ' + tok('--font-body');
+  ctx.fillText(p ? p.name : '閉じている', cx, cy - 10);
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px ' + tok('--font-body');
+  ctx.fillText(p ? `${p.entries.length} 項目(F2〜${SLOTS[p.entries.length - 1]})` : '素のキーがそのまま効く', cx, cy + 12);
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+  $('menu-hud').textContent = hudLine();
+  const toClose = mn.index < 0 ? PAGES.length + 1 : PAGES.length - mn.index;
+  $('menu-stats').innerHTML =
+    stat('いまの状態', mn.index < 0 ? '閉じている' : `${mn.index + 1} / ${PAGES.length}`) +
+    stat('F1 をあと何回押すと閉じるか', mn.index < 0 ? '—' : String(toClose)) +
+    stat('表の項目', `${PAGES.reduce((s, q) => s + q.entries.length, 0)}`, ' <small>/ 16 ページ</small>');
+  $('menu-result').textContent = mn.result;
+  $('menu-console').textContent = mn.shown === 'index' ? printIndex() : printCurrent();
+  for (const b of $('menu-slots').querySelectorAll('button')) {
+    const i = SLOTS.indexOf(b.dataset.v);
+    b.classList.toggle('primary', !!p && i < p.entries.length);
+  }
+}
+$('menu-slots').innerHTML = SLOTS.map((s) => `<button class="btn" data-v="${s}">${s}</button>`).join('');
+$('menu-slots').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) press(b.dataset.v); });
+$('menu-next').addEventListener('click', () => { next(); mn.shown = 'current'; mn.result = ''; drawMenu(); });
+$('menu-prev').addEventListener('click', () => { previous(); mn.shown = 'current'; mn.result = ''; drawMenu(); });
+$('menu-index').addEventListener('click', () => { mn.shown = 'index'; drawMenu(); });
+drawMenu();
+window.addEventListener('resize', drawMenu);
+})();
+</script>
+</body>
+</html>
