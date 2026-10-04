@@ -13,7 +13,7 @@ const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>'
 // Phase の見出し(h3)ごとに、その下の最初の表を読む
 const phases = [];
 for (const h3 of document.querySelectorAll('main h3')) {
-  const m = h3.textContent.trim().match(/^(Phase \d+|教養編)[:：]?\s*(.*)$/);
+  const m = h3.textContent.trim().match(/^(Phase \d+|教養編|VRM編)[:：]?\s*(.*)$/);
   if (!m) continue;
   let table = null;
   for (let el = h3.nextElementSibling; el && !/^H[23]$/.test(el.tagName); el = el.nextElementSibling) {
