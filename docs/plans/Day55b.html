@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 55b モーションブラー(シャッターの時間を、カメラに戻す)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日も Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. モーションブラー — 速度バッファを読み、シャッターが開いている割合を掛ける</a></li><li class="l3"><a href="#s7">2. 尾の混ぜ方 — 手前・奥・両方の3つの場合(McGuire 2012)</a></li><li class="l3"><a href="#s8">3. 並び — 被写界深度の後ろ、ブルームの前、HDR のまま</a></li><li class="l3"><a href="#s9">4. 今日入れなかったもの</a></li><li class="l2"><a href="#s10">前Dayからの差分概要</a></li><li class="l3"><a href="#s11">新規ファイル</a></li><li class="l3"><a href="#s12">変更ファイル</a></li><li class="l3"><a href="#s13">写経する順番</a></li><li class="l2"><a href="#s14">設計書</a></li><li class="l3"><a href="#s15">後処理の並び — TAA の後ろ、ブルームの前</a></li><li class="l3"><a href="#s16">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s17">ぼけの地図ができるまで — 地図・横・縦・近所</a></li><li class="l3"><a href="#s18">1画素の尾が決まるまで(モーションブラー)</a></li><li class="l3"><a href="#s19">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21">1. <code>F7</code>: モーションブラー — カメラを素早く振る</a></li><li class="l3"><a href="#s22">2. <code>F11</code> / <code>F10</code>: 升目</a></li><li class="l3"><a href="#s23">3. <code>F9</code> と L キー: シャッターの決め方</a></li><li class="l3"><a href="#s24">4. キツネを歩かせる</a></li><li class="l3"><a href="#s25">5. <code>F12</code>: 内訳</a></li><li class="l3"><a href="#s26">6. <code>1</code>: 自己チェックが 19 項目すべて合格</a></li><li class="l3"><a href="#s27">7. Day 38〜55a の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): 読む位置のずらしを切って、縞を見る</a></li><li class="l3"><a href="#s30">課題2(中): 露出を F 値とシャッターから決める(物理カメラ)</a></li><li class="l3"><a href="#s31">課題3(難): カメラのブラーを切って、物のブラーだけにする</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">自己チェック(19 項目すべて合格)</a></li><li class="l3"><a href="#s34">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 8 / Day 55b / 計画書</p>
+  <h1>モーションブラー(シャッターの時間を、カメラに戻す)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日も Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. モーションブラー — 速度バッファを読み、シャッターが開いている割合を掛ける</a></li><li class="l3"><a href="#s7">2. 尾の混ぜ方 — 手前・奥・両方の3つの場合(McGuire 2012)</a></li><li class="l3"><a href="#s8">3. 並び — 被写界深度の後ろ、ブルームの前、HDR のまま</a></li><li class="l3"><a href="#s9">4. 今日入れなかったもの</a></li><li class="l2"><a href="#s10">前Dayからの差分概要</a></li><li class="l3"><a href="#s11">新規ファイル</a></li><li class="l3"><a href="#s12">変更ファイル</a></li><li class="l3"><a href="#s13">写経する順番</a></li><li class="l2"><a href="#s14">設計書</a></li><li class="l3"><a href="#s15">後処理の並び — TAA の後ろ、ブルームの前</a></li><li class="l3"><a href="#s16">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s17">ぼけの地図ができるまで — 地図・横・縦・近所</a></li><li class="l3"><a href="#s18">1画素の尾が決まるまで(モーションブラー)</a></li><li class="l3"><a href="#s19">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21">1. <code>F7</code>: モーションブラー — カメラを素早く振る</a></li><li class="l3"><a href="#s22">2. <code>F11</code> / <code>F10</code>: 升目</a></li><li class="l3"><a href="#s23">3. <code>F9</code> と L キー: シャッターの決め方</a></li><li class="l3"><a href="#s24">4. キツネを歩かせる</a></li><li class="l3"><a href="#s25">5. <code>F12</code>: 内訳</a></li><li class="l3"><a href="#s26">6. <code>1</code>: 自己チェックが 19 項目すべて合格</a></li><li class="l3"><a href="#s27">7. Day 38〜55a の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): 読む位置のずらしを切って、縞を見る</a></li><li class="l3"><a href="#s30">課題2(中): 露出を F 値とシャッターから決める(物理カメラ)</a></li><li class="l3"><a href="#s31">課題3(難): カメラのブラーを切って、物のブラーだけにする</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">自己チェック(19 項目すべて合格)</a></li><li class="l3"><a href="#s34">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 55 の2日目で、reference は Day 55a の完全コピー + 差分。Day 55a でカメラの穴を点でなくした(被写界深度)。今日はもう1つの嘘、<strong>シャッターが一瞬</strong>をやめる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 55a までのカメラ</th><th>Day 55b のカメラ</th></tr></thead>
+<tbody>
+<tr><td>光を溜める時間</td><td>一瞬。動いていても写らない</td><td>シャッターが開いている間。<strong>動いた道のりに沿って線(尾)に伸びる</strong></td></tr>
+<tr><td>描き方</td><td>1回描いた絵を、深度を手がかりにぼかす</td><td>さらに<strong>速度を手がかりに</strong>、動いた向きへ流す(後処理の近似)</td></tr>
+<tr><td>手がかり</td><td>深度(ぼけの地図)</td><td><strong>Day 54 の速度バッファをそのまま</strong>。ぼけの地図と升目は Day 55a のものを読む</td></tr>
+<tr><td>払うもの</td><td>全画面 7 パス(地図 4 + 被写界深度 3)</td><td>ブラーは全画面 1 パス + 原寸 1枚(4.7MB)。ブラーだけなら地図の 4 パスも要る</td></tr>
+</tbody>
+</table></div>
+<p><strong>新しく作るものは少ない</strong>。ぼけの地図(<code>BlurField</code>)は Day 55a で速度の口を空けたまま作ってあり、升目は「近所でいちばん速い速度」をすでに記録できる形になっている。速度バッファは Day 54 からある。今日足すのは、それを読んで尾を集める1パス(<code>MotionBlur</code>)と、<strong>速度を描く条件の1行</strong>だけ。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、ゆっくりのカメラワークではモーションブラーが目で拾えなかったこと</strong></p>
+<p>カメラワークの移動中に撮った ON と OFF は、見比べてもほとんど同じだった。升目を見ると尾の半分の長さは 1〜2 画素で、60fps・180° では「1秒に 60 画素動く物の尾は 0.5 画素」にしかならない。<strong>モーションブラーが見えるのは、1フレームに何画素も動くとき</strong>(カメラを素早く振る、走る)。30fps のゲームで効き目が大きいのは、1フレームの動きが倍になるから(要点1、検証の途中で分かったこと 1)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「被写界深度とモーションブラー」ページで <code>F7</code> を押してモーションブラーを入れ、カメラを素早く振ると、画面が振った向きに流れ、縦の目地だけがにじむ。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「被写界深度とモーションブラー」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code>〜<code>F6</code></td><td>被写界深度・F 値・ピント・ボケの集め方・錯乱円を見る(Day 55a のまま)</td></tr>
+<tr><td><code>F7</code></td><td>モーションブラー ON / OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F8</code></td><td>シャッター角(180° → 360° → 90°)</td></tr>
+<tr><td><code>F9</code></td><td>シャッターの決め方(角度 → 秒)。<strong>L キーで処理落ちさせると差が出る</strong></td></tr>
+<tr><td><code>F10</code></td><td>升目で広げる(ON / OFF)。<strong>OFF にすると尾が物の輪郭の中に閉じ込められる</strong></td></tr>
+<tr><td><code>F11</code></td><td>ぼけの升目を見る(16 画素の升目ごとの速度)</td></tr>
+<tr><td><code>F12</code></td><td>内訳(レンズの数字・錯乱円・シャッター・VRAM・GPU の時間)</td></tr>
+<tr><td><code>1</code></td><td>今日の自己チェック(19 項目)</td></tr>
+</tbody>
+</table></div>
+<p>ページの名前が「被写界深度」から「被写界深度とモーションブラー」に変わり、<strong>内訳と自己チェックは <code>F7</code>・<code>F8</code> から <code>F12</code>・<code>1</code> へ移った</strong> (今日の5項目を被写界深度の後ろに差し込んだため)。<strong>既定はどちらも OFF</strong> なので、起動した直後の絵は Day 55a と1ビットも変わらない(完成条件7 で画素ごとに確かめた)。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「Day 54 の速度バッファを、そのまま読む」</strong>。TAA のために作った「この画素は前のフレームでどこに居たか」は、そのまま「1フレームの間にどれだけ動いたか」でもある。Day 54 の設計書が予告したとおり、<strong>速度を作る側で変わったのは条件の1行だけ</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (!UseTaa() &amp;&amp; !UseMotionBlur())   // Program.RenderMotionVectors(Day 55。Day 54 は !UseTaa() だけ)</code></pre></div>
+<p>尾の長さは「1フレームの動き × シャッターが開いている割合」。割合をシャッター角で決めると、フレームレートが落ちたときに尾が伸びる(要点1)。</p>
+<p><strong>2つ目は「尾も、散らすものを集めるで書く」</strong>。Day 55a のボケと同じく、尾も本来は「1つの点が道のりに沿って光を配る」処理。裏返して集めるとき、<strong>読む向きを自分の速度ではなく、近所の升目でいちばん速い速度にする</strong>のが要——止まった背景の画素にも、すぐ隣を横切る物の尾は伸びてくるから。Day 55a の升目が速度も記録していたのはこのため(要点2)。</p>
+<h3 id="s3">今日も Render とシェーダが主役</h3>
+<p>差分は <code>Render/</code> に新規1本(<code>MotionBlur</code>)、シェーダ1本(<code>motion-blur.frag</code>)、<code>PostProcess</code> のもう1段、そして <code>Program.cs</code>。<strong><code>BlurField</code> とぼけの地図のシェーダ3本は1行も変わっていない</strong>——Day 55a で空けておいた速度の口に、速度を挿すだけ。<strong><code>MotionVectors</code>(Day 54)も1行も変わっていない</strong>——読む側を足しただけで済んだ。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://casual-effects.com/research/McGuire2012Blur/McGuire12Blur.pdf">Morgan McGuire, Padraic Hennessy, Michael Bukowski, Brian Osman, "A Reconstruction Filter for Plausible Motion Blur"(I3D 2012)</a>— <strong>今日のモーションブラーの一次資料</strong>。升目の最大(TileMax)と近所の最大(NeighborMax)、手前・奥・両方の3つの場合で混ぜる重み(要点2)。論文の擬似コードがほぼそのまま <code>motion-blur.frag</code> になっている</li><li><a href="https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare">Jorge Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare"(SIGGRAPH 2014, Advances in Real-Time Rendering)</a>— <strong>被写界深度とモーションブラーを同じ枠組みで扱った資料</strong>(Day 55a でも読んだ)。画素ごとに読む位置をずらすノイズ(interleaved gradient noise)の出どころ(要点2)</li><li><a href="https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-27-motion-blur-post-processing-effect">Gilberto Rosado, "Motion Blur as a Post-Processing Effect"(GPU Gems 3 第 27 章)</a>— <strong>一世代前の定番</strong>。深度からカメラの動きだけで速度を作るモーションブラー(Day 54a の速度と同じ発想)。今日のものと比べると、升目と「手前・奥の3つの場合」が無いぶん何を取りこぼすかが見える</li><li><strong>Day 54a の計画書 要点4</strong>・<strong>Day 54b の計画書 要点1</strong> — 速度バッファの中身(向きと単位)、自分で動いた物の速度</li><li><strong>Day 55a の計画書 要点4・5</strong> — 散らすものを集めるで書くこと、升目</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. モーションブラー — 速度バッファを読み、シャッターが開いている割合を掛ける</h3>
+<p>Day 54 の速度バッファは「この画素は前のフレームで画面のどこに居たか」(UV、前 → 今)。これはそのまま<strong>1フレームの間の動き</strong>でもある。</p>
+<div class="code"><pre><code>  尾の長さ [画素] = 1フレームの動き [画素] × シャッターが開いている割合
+  尾は今の位置を真ん中にして前後に伸ばす(片側は半分)。半分の長さの上限は 16 画素(升目の大きさ。Day 55a の要点5)</code></pre></div>
+<p>割合の決め方は2通り(<code>F9</code>)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>決め方</th><th>割合</th><th>フレームレートが半分になると</th></tr></thead>
+<tbody>
+<tr><td><strong>シャッター角</strong>(映画の決め方。180° が定番)</td><td>角度 / 360(0.5)</td><td>1フレームの動きが倍になるので、<strong>尾も倍</strong></td></tr>
+<tr><td>シャッター速度(1/120 秒)</td><td>1/120 ÷ 1フレームの時間</td><td>1フレームの動きは倍、割合は半分で、<strong>尾は同じ</strong></td></tr>
+</tbody>
+</table></div>
+<div class="code"><pre><code>  画面を 600 画素/秒 で横切る物(自己チェック):
+    180°       → 30fps 10.0 / 60fps 5.0 / 144fps 2.1 画素
+    1/120 秒   → 30fps  5.0 / 60fps 5.0 / 144fps 5.0 画素</code></pre></div>
+<p>L キーで1ステップ 20ms の負荷を掛けて 6.2fps(1フレーム 161ms)まで落とすと、HUD の「開いている割合」は角度で 50%、秒で 5% になった。<strong>フレームレートが揺れるゲームでは、秒で決めるほうが尾の長さが揃う</strong>。映画のように一定のフレームレートなら、どちらでも同じ。</p>
+<div class="inject"><figure class="lab" id="sh-lab">
+  <div class="lab-head">
+    <h3>シャッターの決め方と、尾の長さ(要点1)</h3>
+    <span class="tag">MotionBlur.OpenFraction と同じ式。尾の長さ = 1フレームの動き × 開いている割合。横軸はフレームレート</span>
+  </div>
+  <div class="stage"><canvas id="sh-canvas" style="height:260px" aria-label="フレームレートごとの尾の長さ。シャッター角で決めたものと、秒で決めたもの"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">画面を横切る速さ</span>
+      <div class="seg" id="sh-speed"><button data-v="60" aria-pressed="false">60 画素/秒</button><button data-v="600" aria-pressed="true">600 画素/秒(自己チェック)</button><button data-v="2400" aria-pressed="false">2400 画素/秒</button></div>
+    </div>
+    <div class="ctl"><span class="label">シャッター角(F8)</span>
+      <div class="seg" id="sh-angle"><button data-v="90" aria-pressed="false">90°</button><button data-v="180" aria-pressed="true">180°</button><button data-v="360" aria-pressed="false">360°</button></div>
+    </div>
+    <div class="ctl"><span class="label">フレームレート</span>
+      <div class="range"><input type="range" id="sh-fps" min="0" max="1" step="0.001" value="0.5"><output id="sh-fps-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="legend-row" id="sh-legend"></div><div class="stats" id="sh-stats" style="margin-top:8px"></div><p id="sh-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">2. 尾の混ぜ方 — 手前・奥・両方の3つの場合(McGuire 2012)</h3>
+<p>尾も「点が道のりに沿って光を配る」処理なので、Day 55a のボケと同じく裏返して集める(Day 55a の要点4)。読む向きは<strong>近所の升目でいちばん速い速度</strong>。自分が止まった背景の画素でも、すぐ隣を速い物が横切れば、その尾が自分の上まで伸びてくるから。</p>
+<p>向きに沿って 15 点を読み、読んだ点 Y を自分 X に混ぜてよい度合いを3つの場合の和で決める。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場合</th><th>混ぜる度合い</th><th>絵の上では</th></tr></thead>
+<tbody>
+<tr><td>Y が手前</td><td>Y の尾が X まで届く分(円錐: 尾の先ほど薄い)</td><td>手前の物の尾が、背景の上へ伸びる</td></tr>
+<tr><td>Y が奥</td><td>X の尾が伸びている範囲の分</td><td>X が動いているので、後ろの物が透けて見える</td></tr>
+<tr><td>両方とも動いている</td><td>互いの尾の中にいれば(円柱)</td><td>同じ物の中の尾</td></tr>
+</tbody>
+</table></div>
+<p>自分の色は重み <code>1 / 自分の尾の長さ</code> で始める(長い尾ほど1画素あたりに置いていく光は薄い)。<strong>奥で動く物の尾は、手前で止まっている物には掛からない</strong>——手前が隠しているから(自己チェック: 手前の板の最大 0.0000 / 反対側の背景 0.200)。</p>
+<p>15 点を等間隔に読むと、明るい物が 15 枚の写しになって縞に見える。<strong>読む位置を画素ごとに少しずらす</strong>(Jimenez 2014 の interleaved gradient noise)と、縞が細かいざらつきに変わる。</p>
+<p>升目で広げないと(<code>F10</code>)、止まった背景の画素は自分の速度(0)で読むので何も集めず、<strong>尾が物の輪郭の中に閉じ込められる</strong> (自己チェック: 1フレーム 16 画素で動く棒の外へ、升目ありは 3 画素、なしは 0 画素)。</p>
+<div class="inject"><figure class="lab" id="mb-lab">
+  <div class="lab-head">
+    <h3>尾を集める — 近所の升目と、手前・奥の3つの場合(要点2)</h3>
+    <span class="tag">自己チェックの作り物の絵(128 x 64、幅 4 画素の明るい棒が右へ動く。奥行き 10m)に、blur-field・升目・motion-blur.frag を移した JS で尾を付ける</span>
+  </div>
+  <div class="stage"><canvas id="mb-canvas" style="height:300px;image-rendering:pixelated" aria-label="作り物の絵にモーションブラーを掛けた結果と、真ん中の行の明るさ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">場面</span>
+      <div class="seg" id="mb-case"><button data-v="bar" aria-pressed="true">動く棒(自己チェック)</button><button data-v="occ" aria-pressed="false">手前に止まった板</button><button data-v="pan" aria-pressed="false">カメラを横に振る(目地)</button></div>
+    </div>
+    <div class="ctl"><span class="label">1フレームの動き</span>
+      <div class="seg" id="mb-v"><button data-v="4" aria-pressed="false">4 画素</button><button data-v="16" aria-pressed="true">16 画素</button><button data-v="48" aria-pressed="false">48 画素</button></div>
+    </div>
+    <div class="ctl"><span class="label">シャッター角(F8)</span>
+      <div class="seg" id="mb-angle"><button data-v="90" aria-pressed="false">90°</button><button data-v="180" aria-pressed="true">180°</button><button data-v="360" aria-pressed="false">360°</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="mb-tiles" checked> 升目で広げる(F10)</label>
+    <label class="check"><input type="checkbox" id="mb-show"> ぼけの升目を見る(F11)</label>
+    <label class="check"><input type="checkbox" id="mb-nojit"> 読む位置をずらさない(改造課題1)</label>
+  </div>
+  <div class="readout"><div class="stats" id="mb-stats"></div><p id="mb-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 並び — 被写界深度の後ろ、ブルームの前、HDR のまま</h3>
+<p>モーションブラーは Day 55a の被写界深度のすぐ後ろに置く。TAA の後ろ・ブルームの前・HDR のままという理由は被写界深度と同じ(Day 55a の要点7)で、尾も「近所の光の量を混ぜる」処理なので、明るい点はまず線に伸ばしてからにじませる。</p>
+<p>2つの並びは 被写界深度 → モーションブラー。本物のカメラでは同じ露光の中で同時に起きることなので、どちらを先にしても近似になる(どちらの段も、ぼける前の輪郭について測った奥行きと速度を読んでいる。今日残した歪みの3つ目)。</p>
+<p><strong>地図は2人ぶんを1回だけ作る</strong>。被写界深度だけのフレームは速度を読まず(Day 55a のまま)、ブラーだけのフレームはレンズの係数を 0 にする(錯乱円が全部 0)。両方なら、速度もレンズの係数も入れて1回。別々に作ると、地図の4パスが2回になる。</p>
+<p><strong>モーションブラーも「このフレームのカメラの数字」と速度が挿さっているときだけ掛かる</strong>(<code>PostProcess.Frame</code> と <code>Velocity</code>)。自己チェックが後処理を単独で回しても割り込まない(挿さない 1 パス / 挿す 9 パス)ので、Day 38〜55a の自己チェックは入れたままでも全部通る。</p>
+<h3 id="s9">4. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td>カメラのブラーを切って物のブラーだけ</td><td>乗り物酔い対策で切れるゲームが多い。今日は両方まとめて</td><td>改造課題3</td></tr>
+<tr><td>半透明の尾</td><td>粒・トレイルは速度を持たないので、後ろの物の尾を借りる(火花が横切っても火花自身は流れない)</td><td>今日残した歪みの1つ目</td></tr>
+<tr><td>露出との連動</td><td>本物のカメラは F 値とシャッターで明るさも変わる。今日は尾だけで、明るさは露出(Day 31)が別に決める</td><td>改造課題2(物理カメラの EV100)</td></tr>
+<tr><td>機能ツアーへの登録</td><td>「カメラワークと機能」の一括切り替え(Day 40)には入っていない</td><td>Day 56(最終デモの統合)</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s10">前Dayからの差分概要</h2>
+<h3 id="s11">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/MotionBlur.cs</code></td><td>210</td><td><strong>モーションブラー</strong>。シャッター(角度と秒)と、尾を集める1パス</td></tr>
+<tr><td><code>shaders/motion-blur.frag</code></td><td>141</td><td><strong>モーションブラーの本体</strong>。近所の升目の向きに 15 点、3つの場合で混ぜる</td></tr>
+</tbody>
+</table></div>
+<h3 id="s12">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/PostProcess.cs</code></td><td><code>MotionBlur</code> を持ち、被写界深度の後ろで掛ける。地図はどちらか片方でも作る(要らない側を 0 に)</td><td>+54 / -26</td></tr>
+<tr><td><code>Render/DepthOfField.cs</code></td><td>コメントのページ名(「被写界深度」→「被写界深度とモーションブラー」)と、後ろの段の名前</td><td>+6 / -6</td></tr>
+<tr><td><code>Program.cs</code></td><td>速度を描く条件、<code>PrepareCameraBlur</code> の条件、HUD、メニュー 5 項目、内訳のシャッター、自己チェック 5 項目</td><td>+294 / -57</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Program.cs</code> の差分の4割は自己チェック</strong>(尾の4項目とシャッターの式で 120 行ほど)。本番の流れで変わったのは、<code>PrepareCameraBlur</code> の条件と、速度を描く2つの条件だけ——<strong>何を描くかは今日も1行も書き換えていない</strong>。</p>
+<p>Day 55a のコードに入った手直し(差分の -89 行はこれで、どれも「被写界深度だけ」だった条件や文面に「モーションブラー」を足したもの)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手直し</th><th>どこ</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>速度を描く条件に「モーションブラー」</td><td><code>RenderMotionVectors</code></td><td>モーションブラーだけを入れたときも速度が要る</td></tr>
+<tr><td>描いたものを記録する条件に「モーションブラー」</td><td><code>BeginTemporalFrame</code></td><td>同上(ずらすのは TAA のときだけのまま)</td></tr>
+<tr><td>カメラの数字を挿す条件</td><td><code>PrepareCameraBlur</code></td><td>ブラーだけでも挿す。深度を写すのは「TAA でもブラーでもない」ときだけ(どちらかなら <code>RenderMotionVectors</code> が写してある)</td></tr>
+<tr><td>地図を作る条件</td><td><code>PostProcess.EndCore</code></td><td>ブラーだけでも地図を作る(レンズの係数を 0 に)。速度の口に <code>Velocity</code> を挿す</td></tr>
+<tr><td>ページの名前、内訳と自己チェックの席、件数 224 → 229</td><td><code>BuildDebugMenu</code> / <code>RunDebugMenuCheck</code></td><td>今日の5項目を被写界深度の後ろに差し込んだ</td></tr>
+<tr><td>自己チェックの「挿す」パスの数 8 → 9、控えるつまみ</td><td><code>RunCameraBlurCheck</code> / <code>CameraBlurSettings</code></td><td>ブラーの1パスとシャッターのつまみ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">写経する順番</h3>
+<div class="code"><pre><code> 1. shaders/motion-blur.frag       尾を集める(新規。2 が読む)
+ 2. Render/MotionBlur.cs           モーションブラー(新規。Day 55a の BlurField を使う)
+ 3. Render/PostProcess.cs          被写界深度の後ろにもう1段を置く(2 を使う)
+ 4. Render/DepthOfField.cs         コメントのページ名だけ
+ 5. Program.cs                     全部を繋ぐ
+ 6. Day55b.csproj                  Day55a.csproj からのリネームのみ</code></pre></div>
+<p><strong>依存順に並べてある</strong>。シェーダ(1)は実行時に読むのでビルドには効かないが、<strong>5 より前に写しておく</strong>こと(<code>PostProcess</code> のコンストラクタが <code>MotionBlur</code> を作るときに読むので、写し忘れると起動の時点で落ちる)。<code>MotionBlur.cs</code> は <code>OpenFraction</code>(シャッターが開いている割合)が要。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(ShutterAngleSteps / _renderSeconds)
+    → BeginTemporalFrame と RenderMotionVectors の条件           速度を読むのが2人になった
+    → Day 55 の節の頭(UseMotionBlur / ShutterLabel / PrepareCameraBlur の条件)
+    → CameraBlurLabel と DescribeCameraBlur のブラーの行          HUD と内訳
+    → RunCameraBlurCheck の「尾」の節とシャッターの式             自己チェック
+    → BuildDebugMenu の末尾(5 項目を差し込む)と RunDebugMenuCheck の 229</code></pre></div>
+</section>
+<section class="part"><h2 id="s14">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が2つ(<code>MotionBlur</code> と列挙1つ)増えて、<code>PostProcess</code> の段が1つ増えただけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/MotionBlur</code></td><td><code>Render/</code></td><td>シャッターと1パス。<strong><code>MotionVectors</code> を知らない</strong>(速度はテクスチャで受け取る)</td></tr>
+<tr><td><code>Render/ShutterMode</code></td><td><code>Render/</code></td><td>シャッターの決め方の列挙</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/PostProcess</code></td><td><code>MotionBlur</code>、被写界深度の後ろの1段、地図を片方でも作る</td><td>+54 / -26</td></tr>
+<tr><td><code>Render/DepthOfField</code></td><td>コメントのページ名</td><td>+6 / -6</td></tr>
+<tr><td><code>Program.cs</code></td><td>速度を描く条件、<code>PrepareCameraBlur</code> の条件、メニュー、自己チェック</td><td>+294 / -57</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">後処理の並び — TAA の後ろ、ブルームの前</h3>
+<svg viewBox="0 0 910 705" role="img" aria-label="TAA のあと、カメラの数字が挿さっていればぼけの地図を1回作り、被写界深度とモーションブラーを順に掛けてから、明部・合成・FXAA へ進む図" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="28.5" text-anchor="middle" fill="var(--ink)">シーンバッファ RGBA16F</text><text x="240" y="45.5" text-anchor="middle" fill="var(--ink)">TAA ならずらして描いてある</text><rect x="20" y="80" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="100.5" text-anchor="middle" fill="var(--ink)">TAA を掛けるか</text><text x="240" y="117.5" text-anchor="middle" fill="var(--ink)">速度が挿さっているか(Day 54)</text><rect x="560" y="80" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="100.5" text-anchor="middle" fill="var(--ink)">TAA の解決</text><text x="725" y="117.5" text-anchor="middle" fill="var(--ink)">履歴と混ぜる</text><rect x="20" y="160" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="180.5" text-anchor="middle" fill="var(--ink)">カメラの数字が挿さっているか(Day 55)</text><text x="240" y="197.5" text-anchor="middle" fill="var(--ink)">被写界深度かブラーを入れているか</text><rect x="20" y="240" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="260.5" text-anchor="middle" fill="var(--ink)">ぼけの地図</text><text x="240" y="277.5" text-anchor="middle" fill="var(--ink)">奥行きと錯乱円 → 升目の横 → 縦 → 近所</text><text x="240" y="294.5" text-anchor="middle" fill="var(--ink)">4パス。2人ぶんを1回だけ作る</text><rect x="20" y="329" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="349.5" text-anchor="middle" fill="var(--ink)">被写界深度を入れているか</text><rect x="560" y="329" width="330" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="349.5" text-anchor="middle" fill="var(--ink)">被写界深度</text><text x="725" y="366.5" text-anchor="middle" fill="var(--ink)">半分の大きさで2層を集め、原寸で重ねる</text><text x="725" y="383.5" text-anchor="middle" fill="var(--ink)">3パス</text><rect x="20" y="423" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="443.5" text-anchor="middle" fill="var(--ink)">ブラーを入れているか</text><text x="240" y="460.5" text-anchor="middle" fill="var(--ink)">速度が挿さっているか</text><rect x="560" y="423" width="330" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="443.5" text-anchor="middle" fill="var(--ink)">モーションブラー</text><text x="725" y="460.5" text-anchor="middle" fill="var(--ink)">近所の升目の向きに 15 点</text><text x="725" y="477.5" text-anchor="middle" fill="var(--ink)">1パス</text><rect x="20" y="523" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="543.5" text-anchor="middle" fill="var(--ink)">後ろの段が読む絵</text><rect x="560" y="523" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="543.5" text-anchor="middle" fill="var(--ink)">明部 → ぼかし(Day 31)</text><rect x="20" y="588" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="608.5" text-anchor="middle" fill="var(--ink)">合成: 露出 → ブルーム → グレーディング</text><text x="240" y="625.5" text-anchor="middle" fill="var(--ink)">→ トーンマップ → ガンマ</text><rect x="20" y="660" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="680.5" text-anchor="middle" fill="var(--ink)">FXAA(Day 38)→ 画面</text><path d="M240 58 L240 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 105 L558 105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="509" y="97" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M240 130 L240 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="248" y="146" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M725 130 L725 185 L462 185" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 210 L240 238" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="248" y="226" fill="var(--muted)" font-size="12" text-anchor="start">Yes</text><path d="M20 185 L8 185 L8 539.5 L18 539.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="10" y="179" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M240 307 L240 327" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 345.5 L558 345.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="509" y="337.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M240 362 L240 421" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="248" y="378" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M725 396 L725 413 L300 413 L300 421" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 448 L558 448" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="509" y="440" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M240 473 L240 521" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="248" y="489" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M725 490 L725 513 L300 513 L300 521" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 539.5 L558 539.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 556 L240 586" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M725 556 L725 613 L462 613" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 638 L240 658" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong>TAA と FXAA の間に、HDR のまま差し込んだ</strong>。Day 54a で「TAA は入口、FXAA は出口」と置いた並びの、入口側に2段が続く形(被写界深度は Day 55a、ブラーは今日)。被写界深度もブラーも「近所の光の量を混ぜる」処理なので、光の量として足し算が効く HDR のうちに置く(要点3)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>被写界深度</th><th>モーションブラー</th></tr></thead>
+<tbody>
+<tr><td>カメラの何をやめるか</td><td>穴が点(ピンホール)</td><td>シャッターが一瞬</td></tr>
+<tr><td>手がかり</td><td>奥行き(深度の写しから)</td><td>速度(Day 54 の速度バッファ)と奥行き</td></tr>
+<tr><td>1つの点の広がり</td><td>円(錯乱円)</td><td>線(尾)</td></tr>
+<tr><td>大きさの決まり方</td><td>L × (1/S − 1/z)</td><td>1フレームの動き × シャッターが開いている割合</td></tr>
+<tr><td>近所の升目で知りたいこと</td><td>いちばん手前の錯乱円(手前のボケは外へ広がる)</td><td>いちばん速い速度(尾は輪郭の外へ伸びる)</td></tr>
+<tr><td>大きさ</td><td>半分(48 点)</td><td>原寸(15 点)</td></tr>
+<tr><td>全画面パス</td><td>3</td><td>1</td></tr>
+<tr><td>持つバッファ(960x640)</td><td>半分 3枚 + 原寸 1枚 = 8.2MB</td><td>原寸 1枚 = 4.7MB</td></tr>
+<tr><td>GPU の時間(VSync で休みながら)</td><td>0.45〜0.58ms</td><td>0.19〜0.28ms</td></tr>
+<tr><td>共通の下ごしらえ</td><td>地図 + 升目 3枚 = 2.7MB、4 パス、0.09〜0.18ms</td><td>← 同じもの</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">今日足したものは、どこに繋がったか</h3>
+<svg viewBox="0 0 1000 422" role="img" aria-label="PrepareCameraBlur が CameraFrame を、MotionVectors が速度を PostProcess に挿し、PostProcess が TemporalAA・BlurField・DepthOfField・MotionBlur を順に呼ぶ図。DepthOfField と MotionBlur は BlurField の地図を読む" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.PrepareCameraBlur</text><text x="135" y="47.5" text-anchor="middle" fill="var(--ink)">注視点までの距離 = ピント</text><rect x="380" y="10" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="545" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CameraFrame</text><text x="545" y="47.5" text-anchor="middle" fill="var(--ink)">near / far / 画角 / ピント / 1フレームの時間</text><rect x="10" y="130" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="150.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">MotionVectors(Day 54)</text><text x="135" y="167.5" text-anchor="middle" fill="var(--ink)">速度バッファ</text><rect x="380" y="138" width="330" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="545" y="158.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PostProcess.EndCore</text><rect x="770" y="138" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="880" y="158.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TemporalAA(Day 54)</text><rect x="770" y="240" width="220" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="880" y="260.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BlurField</text><text x="880" y="277.5" text-anchor="middle" fill="var(--ink)">奥行き・錯乱円・近所の升目</text><rect x="380" y="248" width="240" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="500" y="268.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DepthOfField</text><rect x="10" y="248" width="250" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="268.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GpuTimer</text><rect x="770" y="350" width="220" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="880" y="370.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">MotionBlur</text><path d="M260 35 L378 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="319" y="27" fill="var(--muted)" font-size="12" text-anchor="middle">CameraFrame.From</text><path d="M545 60 L545 136" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="553" y="88" fill="var(--muted)" font-size="12" text-anchor="start">Frame(このフレームだけ)</text><path d="M260 155 L378 155" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="319" y="133" fill="var(--muted)" font-size="12" text-anchor="middle">Velocity</text><text x="319" y="148" fill="var(--muted)" font-size="12" text-anchor="middle">(このフレームだけ)</text><path d="M710 154.5 L768 154.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="739" y="146.5" fill="var(--muted)" font-size="12" text-anchor="middle">Resolve</text><path d="M710 165 L735 165 L735 265 L768 265" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="729" y="183" fill="var(--muted)" font-size="12" text-anchor="end">Build</text><path d="M500 171 L500 246" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="508" y="201" fill="var(--muted)" font-size="12" text-anchor="start">Render</text><path d="M620 270 L768 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="626" y="262" fill="var(--muted)" font-size="12" text-anchor="start">地図と升目を読む</text><path d="M260 264.5 L378 264.5" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr4)"></path><text x="319" y="256.5" fill="var(--muted)" font-size="12" text-anchor="middle">測る</text><path d="M135 281 L135 320 L750 320 L750 282 L768 282" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr4)"></path><text x="141" y="314" fill="var(--muted)" font-size="12" text-anchor="start">測る</text><path d="M690 171 L690 366.5 L768 366.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="696" y="358.5" fill="var(--muted)" font-size="12" text-anchor="start">Render</text><path d="M920 350 L920 292" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="914" y="332" fill="var(--muted)" font-size="12" text-anchor="end">奥行きと升目を読む</text><path d="M95 281 L95 410 L880 410 L880 385" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr4)"></path><text x="101" y="404" fill="var(--muted)" font-size="12" text-anchor="start">測る</text></g></svg>
+<p><strong><code>MotionBlur</code> は <code>MotionVectors</code> を知らない</strong>。速度は <code>PostProcess.Velocity</code> にテクスチャで挿さっているだけで、それを TAA も読み、ブラーも読む。Day 54a の設計書に「速度を作る側を1行も変えずに、読む側を足すだけで済む形になっている」と書いた、その形になった。</p>
+<p><strong><code>DepthOfField</code> と <code>MotionBlur</code> は <code>Camera</code> を知らない</strong>。数字は <code>CameraFrame</code> で届く。<code>TemporalAA</code> がずらしを <code>Vector2</code> で返して <code>Camera</code> を知らずに済ませたのと同じ線で、自己チェックは 128x64 の作り物の絵に「ピント 2m、無限遠のボケ 8 画素」「1 フレーム 16 画素で動く棒」のような数字を直接並べて、ボケと尾の式を確かめられる。</p>
+<p><strong><code>BlurField</code> の地図は、2人が1回作ったものを読む</strong>(Day 55a で速度の口を空けておいたのがここで効く)。被写界深度だけのフレームは速度を読まず(<code>uHasVelocity = 0</code>)、ブラーだけのフレームはレンズの係数を 0 にする(錯乱円が全部 0)。<strong>奥行きに戻す式が1か所で済んだ</strong>のが、共通にした値打ち。</p>
+<h3 id="s17">ぼけの地図ができるまで — 地図・横・縦・近所</h3>
+<svg viewBox="0 0 910 403" role="img" aria-label="深度の写しから地図を作り、速度バッファと一緒に升目の横・縦・近所の最大を取り、被写界深度は近所のいちばん手前の錯乱円を、ブラーはいちばん速い速度を読む図" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="30.5" text-anchor="middle" fill="var(--ink)">深度の写し</text><text x="120" y="47.5" text-anchor="middle" fill="var(--ink)">0〜1(1/z に並ぶ)</text><rect x="10" y="120" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="140.5" text-anchor="middle" fill="var(--ink)">速度バッファ RG16F</text><text x="120" y="157.5" text-anchor="middle" fill="var(--ink)">UV / フレーム</text><rect x="300" y="10" width="260" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="30.5" text-anchor="middle" fill="var(--ink)">地図 blur-field.frag</text><text x="430" y="47.5" text-anchor="middle" fill="var(--ink)">原寸 RG16F</text><text x="430" y="64.5" text-anchor="middle" fill="var(--ink)">x: 奥行き [m] / y: 錯乱円 [画素]</text><rect x="300" y="120" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="140.5" text-anchor="middle" fill="var(--ink)">升目の横 blur-tiles.frag</text><text x="430" y="157.5" text-anchor="middle" fill="var(--ink)">60 x 640</text><text x="430" y="174.5" text-anchor="middle" fill="var(--ink)">横 16 画素の最大</text><rect x="300" y="222" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="242.5" text-anchor="middle" fill="var(--ink)">升目の縦 blur-max.frag</text><text x="430" y="259.5" text-anchor="middle" fill="var(--ink)">60 x 40</text><text x="430" y="276.5" text-anchor="middle" fill="var(--ink)">縦 16 画素の最大</text><rect x="300" y="324" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="344.5" text-anchor="middle" fill="var(--ink)">近所 blur-max.frag</text><text x="430" y="361.5" text-anchor="middle" fill="var(--ink)">60 x 40</text><text x="430" y="378.5" text-anchor="middle" fill="var(--ink)">3x3 升の最大</text><rect x="640" y="120" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="770" y="140.5" text-anchor="middle" fill="var(--ink)">被写界深度</text><text x="770" y="157.5" text-anchor="middle" fill="var(--ink)">いちばん手前の錯乱円 = 探す半径</text><rect x="640" y="324" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="770" y="344.5" text-anchor="middle" fill="var(--ink)">ブラー</text><text x="770" y="361.5" text-anchor="middle" fill="var(--ink)">いちばん速い速度 = 読む向き</text><path d="M230 35 L298 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M230 145 L298 145" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 77 L430 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 187 L430 220" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 289 L430 322" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M560 347.5 L600 347.5 L600 160 L638 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M560 43.5 L770 43.5 L770 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M560 357.5 L638 357.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M560 22 L880 22 L880 322" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>深度をそのまま 16F に入れず、奥行きに戻してから入れる</strong>。透視投影の深度は 1/z に並ぶので、5m 先から 100m 先までが 0.98〜1.0 に押し込まれている。16F は 1.0 のそばで 0.0005 刻みしか持てず、1刻みで 67m から 100m までが同じ値になる。奥行きに戻してから入れれば、10m 先で 8mm 刻みが残る。</p>
+<p><strong>今日から速度が流れ込む</strong>(Day 55a では <code>uHasVelocity = 0</code> で閉じていた口)。<strong>速度は長さで比べて、向きごと覚える</strong>。x と y を別々に最大にすると、どの物も動いていない斜めの向きができあがる(<code>blur-tiles.frag</code> / <code>blur-max.frag</code>)。</p>
+<p><strong>同じ <code>blur-max.frag</code> を2回使う</strong>。「窓の中の最大」を、窓の大きさと歩幅を uniform で変えて、升目の縦の段((1, 16) の窓)と近所の段((3, 3) の窓)に使い回す。これが Day 55a で <code>Shader.SetInt2</code> を足した理由。</p>
+<h3 id="s18">1画素の尾が決まるまで(モーションブラー)</h3>
+<svg viewBox="0 0 920 535" role="img" aria-label="原寸の1画素で近所の升目のいちばん速い速度を読む向きにし、0.5 画素に満たなければそのまま、そうでなければ自分の色から始めて 14 点を読み、手前・奥・両方の3つの場合の和を重みにして平均する図" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="28.5" text-anchor="middle" fill="var(--ink)">原寸の1画素 X</text><text x="255" y="45.5" text-anchor="middle" fill="var(--ink)">自分の速度 → 尾の半分の長さ</text><rect x="20" y="80" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="100.5" text-anchor="middle" fill="var(--ink)">読む向き = 近所の升目でいちばん速い速度</text><text x="255" y="117.5" text-anchor="middle" fill="var(--ink)">升目で広げないなら自分の速度</text><rect x="20" y="152" width="470" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="255" y="172.5" text-anchor="middle" fill="var(--ink)">0.5 画素に満たないか</text><rect x="570" y="145" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="735" y="165.5" text-anchor="middle" fill="var(--ink)">そのまま</text><text x="735" y="182.5" text-anchor="middle" fill="var(--ink)">止まった絵はほぼ全部ここで帰る</text><rect x="20" y="218" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="238.5" text-anchor="middle" fill="var(--ink)">自分の色から始める</text><text x="255" y="255.5" text-anchor="middle" fill="var(--ink)">重み 1 / 自分の尾の長さ</text><rect x="20" y="290" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="310.5" text-anchor="middle" fill="var(--ink)">読む向きに沿って 14 点</text><text x="255" y="327.5" text-anchor="middle" fill="var(--ink)">全体を画素ごとに少しずらす</text><rect x="20" y="375" width="150" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="95" y="395.5" text-anchor="middle" fill="var(--ink)">読んだ点が手前:</text><text x="95" y="412.5" text-anchor="middle" fill="var(--ink)">その点の尾が</text><text x="95" y="429.5" text-anchor="middle" fill="var(--ink)">X まで届く分</text><text x="95" y="446.5" text-anchor="middle" fill="var(--ink)">(円錐)</text><rect x="180" y="375" width="150" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="395.5" text-anchor="middle" fill="var(--ink)">読んだ点が奥:</text><text x="255" y="412.5" text-anchor="middle" fill="var(--ink)">X の尾が</text><text x="255" y="429.5" text-anchor="middle" fill="var(--ink)">伸びている範囲の分</text><rect x="340" y="375" width="150" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="415" y="395.5" text-anchor="middle" fill="var(--ink)">両方とも</text><text x="415" y="412.5" text-anchor="middle" fill="var(--ink)">動いている:</text><text x="415" y="429.5" text-anchor="middle" fill="var(--ink)">互いの尾の中なら</text><text x="415" y="446.5" text-anchor="middle" fill="var(--ink)">(円柱)</text><rect x="20" y="490" width="470" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="510.5" text-anchor="middle" fill="var(--ink)">3つの和を重みにして平均</text><path d="M255 58 L255 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M255 130 L255 150" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M490 168.5 L568 168.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="529" y="160.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M255 185 L255 216" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="263" y="201" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M255 268 L255 288" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M255 340 L255 356.5 L95 356.5 L95 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M255 340 L255 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M255 340 L255 356.5 L415 356.5 L415 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M95 459 L95 488" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M255 442 L255 488" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M415 459 L415 488" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>関門が早い</strong>のがモーションブラーの安さ。止まった絵では近所の升目の速度が 0 なので、ほとんどの画素が1回読んで帰る(自己チェック: 止まった絵は1画素も変わらない)。カメラを振ると全部の画素が 15 点を読むので、GPU の時間は動きの量で変わる。</p>
+<p><strong>手前・奥は「なめらかに」決める</strong>(<code>SoftDepth</code> = 0.1m)。同じ面の上の2画素は、深度の精度の都合で少しずれることがあるので、0 か 1 かで切るとちらつく。</p>
+<h3 id="s19">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 半透明は速度も持たない</strong>。粒・トレイルは深度を書かず、<code>Program.Draw</code> を通らないので記録もされない。被写界深度で後ろにある物のボケ方を借りていた(Day 55a の歪みの2つ目)のと同じく、モーションブラーでは<strong>後ろにある物の尾を借りる</strong>(火花が横切っても火花自身は流れない)。Day 54b の歪みの3つ目の効き目が増えた。本物は半透明を別の層に描いて、ボケと尾を後から重ねる。</p>
+<p><strong>2つ目: 原寸の RGBA16F がもう1枚増えた</strong>。TAA の履歴2枚、被写界深度の出力、ブラーの出力で、TAA と両方を入れると後処理の VRAM が 39.0MB になった(Day 54 は TAA で 23.4MB)。被写界深度の出力とブラーの出力は同時に要らないので、使い回せば1枚減る。段ごとに「自分の出力を持つ」形のほうが、どの段を切っても他が壊れないので、今日も分かりやすさを取った。</p>
+<p><strong>3つ目: 2つの段は、ぼける前の輪郭で測った奥行きと速度を読む</strong>。被写界深度のあとの絵では、手前の物のボケが輪郭の外の背景に被さっているが、その画素の速度は背景の速度のまま。モーションブラーはそこを背景の動きで流す。逆の並びでも別の食い違いが出るので、後処理を2段に分けた以上は避けられない(本物のカメラでは同じ露光の中で同時に起きる)。</p>
+<p><strong>Day 55a・54b の歪みのうち、今日動いたもの</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>歪み</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td>深度を写す場所が3つ(Day 55a の1つ目)</td><td>そのまま。ブラーを入れていれば <code>RenderMotionVectors</code> が写すので、<code>PrepareCameraBlur</code> は写さない</td></tr>
+<tr><td>半透明は奥行きを持たない(Day 55a の2つ目)</td><td><strong>尾も借りるようになった</strong>(今日の歪みの1つ目)</td></tr>
+<tr><td>ピントの手がかりが注視点だけ(Day 55a の3つ目)</td><td>そのまま</td></tr>
+<tr><td>原寸の RGBA16F が段ごとに増える(Day 55a の4つ目)</td><td><strong>もう1枚増えた</strong>(今日の歪みの2つ目)</td></tr>
+<tr><td>記録の鍵が「メッシュと何回目か」(Day 54b の1つ目)</td><td>そのまま。<strong>モーションブラーでは、嘘の速度が1フレームだけ尾として見えうる</strong>(TAA では疑いが隠していた)</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s20">完成条件</h2>
+<p><code>dotnet run --project reference/Day55b -c Release</code> で起動する。先に「デモ v1」ページ(8 枚目)の <code>1</code>(決めの構図)でデモ v1 を出し、<code>Space</code> で一時停止する。「カメラワークと機能」ページ(9 枚目)の <code>F4</code>(次のショットへ)で、2番目のショット『ゴミ箱の金属』へ飛ぶ(一時停止のままでよい)。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「被写界深度とモーションブラー」(23 枚目)が開く。</p>
+<h3 id="s21">1. <code>F7</code>: モーションブラー — カメラを素早く振る</h3>
+<p><code>F7</code> でモーションブラーを入れ、マウスの左ドラッグでカメラを素早く横に回す。<strong>画面が振った向きに流れる</strong>。</p>
+<ul><li><strong>縦の目地だけがにじみ、横の目地はくっきり残る</strong>。尾は向きのあるぼけで、動きと平行な線は流れても変わらない</li><li><strong>缶はほとんど流れない</strong>。軌道カメラは注視点(缶)のまわりを回るので、注視点の奥行きの物は画面の上でほとんど動かない。奥の壁は同じ向き、手前の路面は逆の向きに流れる</li><li><code>F8</code> でシャッター角を 360° にすると、尾が倍に伸びる</li></ul>
+<p>同じ姿勢・同じ速さ(1 フレーム 1.5 度)で OFF と比べた差は、180° で平均 0.81%(2% を超える画素 9.4%)、360° で 1.59%(22.4%)。カメラワーク(「カメラワークと機能」の <code>F2</code>)は動きがゆっくりなので、流れは細かいところでしか分からない(検証の途中で分かったこと 1)。</p>
+<h3 id="s22">2. <code>F11</code> / <code>F10</code>: 升目</h3>
+<p><code>Space</code> で一時停止を解き、「アニメのブレンド」ページ(11 枚目)の <code>F2</code>(四足を出す)で、止まったカメラの前でキツネをその場で歩かせる(デモ v1 は下ろされる。キツネは速さを自動で上げ下げしながら、歩きと走りを行き来する)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>操作</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td><code>F11</code>(ぼけの升目を見る)</td><td><strong>脚と尻尾のまわりの升目だけが光り、1升ぶん外まで広がる</strong>(近所の最大)。止まっている地面の升目は暗いまま</td></tr>
+<tr><td><code>F10</code>(升目で広げる OFF)</td><td>脚の尾が脚の輪郭の中に閉じ込められ、地面の上へ伸びない</td></tr>
+</tbody>
+</table></div>
+<p>升目の差は、止まった背景の前を物が動くときに出る。カメラを振っているときは、どの画素も自分で動いているので差がほとんど出ない。数字は自己チェックが見ている(1 フレーム 16 画素で動く棒の外へ、升目ありは 3 画素、なしは 0 画素)。</p>
+<h3 id="s23">3. <code>F9</code> と L キー: シャッターの決め方</h3>
+<p>2 のキツネのまま(升目は ON に戻す)、メニューを閉じて L を3回押す(1ステップ 20ms の負荷。1フレーム 161ms、6.2fps まで落ちる)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>シャッター</th><th>HUD の「開いている割合」</th><th>尾</th></tr></thead>
+<tbody>
+<tr><td>180°(角度)</td><td>50%</td><td>1フレームの動きが 10 倍になった分、<strong>脚の尾が 10 倍に伸びる</strong>(半分の長さは上限 16 画素で切れる)</td></tr>
+<tr><td>1/120 秒(<code>F9</code>)</td><td>5%</td><td>60fps のときと同じ長さ</td></tr>
+</tbody>
+</table></div>
+<p>L をもう1回押すと負荷が戻る。</p>
+<h3 id="s24">4. キツネを歩かせる</h3>
+<p>「プレイアブルデモ」ページ(19 枚目)の <code>F2</code> でキツネを出し、矢印キーの上で歩かせる。カメラはキツネの後ろに付く。</p>
+<ul><li>モーションブラー: <strong>地面が後ろへ流れ、キツネは止まって見える</strong>(カメラがキツネを追っているので、画面の上でキツネは動かない)</li><li><code>F2</code> で被写界深度も入れると、奥の突き当たりの壁と、画面の端の缶がぼける(Day 55a の完成条件6)</li><li>「TAA」ページの <code>F2</code> で TAA も入れると、3つが同時に掛かる(全画面 19 パス: TAA 1 + 地図 4 + 被写界深度 3 + ブラー 1 + 明部 1 + ぼかし 8 + 合成 1)</li></ul>
+<h3 id="s25">5. <code>F12</code>: 内訳</h3>
+<div class="code"><pre><code>--- 被写界深度とモーションブラーの内訳 ---
+  レンズ: 画角 35.0° → 焦点距離 38.1mm(フルサイズ 24mm 判)  f/1.4 → 口径 27.2mm
+  ピント: 3.20m(注視点)  ピント面で画面に写る高さ 2.02m  → 口径 ÷ 高さ = 1.35%(これが無限遠のボケの直径。画面の高さに対する割合)
+  ボケの半径 [画素](画面の高さ 640): 無限遠 +4.3 / 2倍の奥 +2.2 / 半分の手前 -4.3 / 1m -9.5  (±16 で切る)
+  集め方: 散らしとして集める  円盤 48 点  半分の大きさ 480x320
+
+  シャッター: 180°  いまのフレーム 16.0ms → 開いている割合 50%(露光 8.0ms)
+  尾: 近所の升目の向きに 15 点  半分の長さの上限 16 画素  升目で広げる: ON
+
+  地図: 960 x 640 RG16F(奥行きと錯乱円)+ 升目 16 画素 → 60 x 40 升(横の段 60 x 640 → 升目 → 近所)
+  VRAM: 地図 2.7MB / 被写界深度 8.2MB / ブラー 0.0MB  後処理の合計 24.9MB
+  GPU の時間(タイマークエリの移動平均): 地図 0.098ms + 被写界深度 0.517ms + ブラー 0.000ms</code></pre></div>
+<p>(『ゴミ箱の金属』で被写界深度だけを入れたときのもの。ブラーの行はまだ作っていないので 0。) Day 55a の内訳に、<strong>シャッターの2行</strong>が増えた。「いまのフレーム」は <code>OnRender</code> の間隔で、開いている割合と露光の時間がそこから出る——角度で決めるときは割合が固定で露光の時間がフレームに連れて伸び、秒で決めるときは露光の時間が固定で割合が動く(要点1)。</p>
+<h3 id="s26">6. <code>1</code>: 自己チェックが 19 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 55 自己チェック(錯乱円・ボケの集め方・尾の長さ・後処理への差し込み)===
+  [OK] <strong>錯乱円はピントで 0、奥は L/S で頭打ち、手前は際限なく大きい</strong>(ピントの半分の奥行きは無限遠と同じ大きさ)  ...
+  ...
+  すべて合格(錯乱円の式・ボケの集め方・尾の長さ・後処理への差し込みが仕様どおり)</code></pre></div>
+<p>Day 55a の 14 項目に、<strong>GL を使わない項目が 1 つ</strong>(シャッターとフレームレート)、<strong>作り物の絵で走る項目が 4 つ</strong>(尾)増えた。<code>MotionBlur</code> が <code>Camera</code> も <code>MotionVectors</code> も知らず、速度をテクスチャで受け取るだけの部品なので、尾の式も本物のシーンを描かずに入力を作って確かめられる(1 フレーム 16 画素で右へ動く幅 4 画素の棒を、速度バッファに直接書く)。</p>
+<h3 id="s27">7. Day 38〜55a の絵と自己チェックが1つも壊れていない</h3>
+<p><strong>既定はどちらも OFF</strong> なので、起動した直後の絵は Day 55a とまったく同じ。決めの構図と『ゴミ箱の金属』を同じ手順で撮った2枚ずつを比べ、<strong>違う画素は 0</strong>(被写界深度だけを入れた絵も同じ)。Day 48 の自己チェック(<code>Alt+F1</code>)は <strong>229 項目</strong>で通る。<strong>被写界深度とモーションブラーを入れたままでも</strong>、Day 54 の TAA(26 項目)、Day 53 の Forward+、Day 52 のディファード、Day 38 の FXAA(「SSAO」ページの「自己チェック(AA)」)の自己チェックは全部通る——2つの段は「このフレームのカメラの数字」が挿さっているときだけ掛かるので、キーで呼ぶ自己チェックには割り込まない(要点3)。</p>
+<p><strong>IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる</strong>こと(Day 52〜55a と同じ注意)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「被写界深度とモーションブラー」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F7</code></td><td>尾を集める「カメラを横に振る」</td><td>縦の目地だけがにじみ、横の目地はくっきり残る</td></tr>
+<tr><td><code>F8</code></td><td>シャッターの決め方「シャッター角」、尾を集める「シャッター角」</td><td>360° で尾が倍(棒の外へ 3 → 7 画素)</td></tr>
+<tr><td><code>F9</code>・L キー</td><td>シャッターの決め方「フレームレート」</td><td>6fps 前後まで落とすと、角度で決めた尾は何倍にも伸び、1/120 秒は 60fps のときと同じ</td></tr>
+<tr><td><code>F10</code></td><td>尾を集める「升目で広げる」</td><td>切ると尾が棒の輪郭の中に閉じ込められる(0 画素)</td></tr>
+<tr><td><code>F11</code></td><td>同「ぼけの升目を見る」</td><td>棒の升目から 1 升ぶん外まで、近所の最大が広がる</td></tr>
+<tr><td><code>1</code>(自己チェック)</td><td>シャッターの決め方、尾を集める</td><td>10.0 / 5.0 / 2.1 と 5.0 / 5.0 / 5.0、棒の外へ 3 / 7 / 0 画素、手前の板 0.0000 / 0.200</td></tr>
+<tr><td><code>F2</code>〜<code>F6</code>・<code>F12</code></td><td>(なし)</td><td>被写界深度(Day 55a の実験台)と内訳</td></tr>
+<tr><td>(なし)</td><td>「読む位置をずらさない」</td><td>改造課題1 を先に見る切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">シャッターの決め方は reference/Day55b の MotionBlur.OpenFraction、尾を集める台は BlurField(速度の口を開けたもの)と motion-blur.frag を JS に移したもの(docs/site/camerablur.js)。自己チェックと同じ作り物の絵(幅 4 画素の棒、奥行き 10m、手前の板は 1m)を同じ手順で描くので、自己チェックの数字が出る。「カメラを横に振る」は、全部の画素に同じ速度を書いた作り物で、実機のカメラの動きから作った速度ではない。</p></div>
+</section>
+<section class="part"><h2 id="s28">改造課題</h2>
+<h3 id="s29">課題1(易): 読む位置のずらしを切って、縞を見る</h3>
+<p><code>motion-blur.frag</code> は尾に沿って 15 点を読むとき、読む位置を画素ごとに少しずらしている(interleaved gradient noise。要点2)。<strong>このずらし(<code>jitter</code>)を 0 にする</strong>と、明るい物の尾が 15 枚の写しになって縞に見える。カメラを素早く振り、壁のレンガの明るい目地や、「ディファード」ページで撒いた光(<code>F4</code> で夜、<code>F3</code> で点光源 64 個)の尾を見比べる。ずらしは縞を細かいざらつきに変えているだけで、<strong>光の量は変えていない</strong>——ON と OFF で絵全体の平均がほとんど変わらないことも確かめる。</p>
+<h3 id="s30">課題2(中): 露出を F 値とシャッターから決める(物理カメラ)</h3>
+<p>いまの明るさは露出(Day 31)が別に決めていて、F 値を絞っても、シャッターを速くしても絵は暗くならない。本物のカメラは、<strong>F 値の2乗に反比例し、露光の時間に比例して</strong>光を溜める。写真の露出値 EV100 は</p>
+<div class="code"><pre><code>  EV100 = log2(F 値² / 露光の時間[秒])        (感度 ISO 100 のとき)</code></pre></div>
+<p>で、露出を <code>1 / (1.2 × 2^EV100)</code> にすると、F 値とシャッターから明るさが決まる(Frostbite の物理カメラの式)。<code>MotionBlur.OpenFraction</code> × フレームの時間が露光の時間なので、それと <code>DepthOfField.FNumber</code> から露出を出して合成の段に渡す。確かめ方: F 値を 1.4 → 2.8 にすると絵が 1/4 の明るさになり、シャッター角を 180° → 360° にすると 2 倍になる。<strong>「よくボケる絵は明るく、よく流れる絵も明るい」</strong>——被写界深度とモーションブラーが、露出という同じ財布から払っていることが見える。</p>
+<h3 id="s31">課題3(難): カメラのブラーを切って、物のブラーだけにする</h3>
+<p>乗り物酔いを避けるため、多くのゲームは「カメラのモーションブラー」を別に切れる。速度バッファの中身は「カメラの動き」と「物の動き」の和なので、<strong>カメラの動きだけの速度を引けば、物の動きだけが残る</strong>。</p>
+<p>カメラの動きだけの速度は、Day 54a の速度(<code>camera-velocity.frag</code>)と同じ式——深度から戻した点を前のフレームの行列で写し直したもの。<code>MotionVectors</code> に前のフレームのビュー射影を読む口を足し、<code>CameraFrame</code> に再投影の行列を入れて、<code>motion-blur.frag</code> で同じ計算をして引く(升目の最大もこの「引いたあとの速度」で取り直さないと、読む向きがカメラの動きのままになる。<code>blur-tiles.frag</code> にも同じ引き算が要る)。確かめ方は、プレイアブルデモでキツネを歩かせたとき、<strong>地面は流れず、キツネの脚だけが流れる</strong>こと。</p>
+</section>
+<section class="part"><h2 id="s32">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。計測(<code>glFinish</code> を挟んで連続で描く)は今日も無く、GPU の時間はタイマークエリで普段のフレームの中で測った</td></tr>
+</tbody>
+</table></div>
+<p>モーションブラーの数字。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>モーションブラー(1 フレーム 1.5 度で振る)</td><td>180°: OFF との差 平均 0.81% / 360°: 1.59%</td></tr>
+<tr><td>シャッター(6.2fps に落としたとき)</td><td>角度 180°: 開いている割合 50% / 1/120 秒: 5%</td></tr>
+<tr><td>全画面パス</td><td>FXAA + 被写界深度 18 / FXAA + ブラー 16 / FXAA + 両方 19 / TAA + 両方 19</td></tr>
+<tr><td>VRAM</td><td>地図 2.7MB / 被写界深度 8.2MB / ブラー 4.7MB。後処理の合計は TAA と両方で 39.0MB</td></tr>
+<tr><td>GPU の時間</td><td>地図 0.09〜0.18ms / 被写界深度 0.45〜0.58ms / ブラー 0.19〜0.28ms(走行ごとにぶれる)</td></tr>
+<tr><td>Day 55a との一致(両方 OFF、被写界深度だけ ON)</td><td>決めの構図・『ゴミ箱の金属』とも、違う画素 0</td></tr>
+<tr><td>GL のエラー</td><td>0(毎フレーム <code>glGetError</code> を見て確かめた)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s33">自己チェック(19 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 55 自己チェック(錯乱円・ボケの集め方・尾の長さ・後処理への差し込み)===
+  [OK] <strong>錯乱円はピントで 0、奥は L/S で頭打ち、手前は際限なく大きい</strong>(ピントの半分の奥行きは無限遠と同じ大きさ)  L = 10, S = 2m: ピント 0.000 / 無限遠 +5.000 / S/2 -5.000 / S/4 -15.000 画素
+  [OK] <strong>ボケの大きさ = 口径 ÷ ピント面で画面に写る高さ</strong>(センサーも焦点距離も残らない。薄レンズの式との差は f / S だけ)  画角 35° f/1.4 ピント 3.2m 奥行き 10m: 口径 27.2mm ÷ 高さ 2.02m → 半径 2.93 画素 / 薄レンズの式 2.97 画素(差 1.2%)
+  [OK] <strong>F 値を倍にするとボケは半分、同じ F 値で画角を半分にするとボケは約4倍</strong>(望遠ほどボケる)  画角 40° f/1.4 を 1 として: f/2.8 → 0.50 / 画角 20° → 4.26(tan² の比)
+  [OK] 錯乱円は深度バッファの値の1次式(深度は 1/z に並ぶ。Day 7)——手前ほど深度の刻みが細かいのと、手前ほどボケが急に変わるのが同じ形  0.5〜50m の5点で、直線からのずれ 最大 4.4E-015 画素
+  [OK] <strong>尾の長さ: 角度で決めるとフレームレートで変わり、秒で決めると変わらない</strong>(60fps ではどちらも同じ)  600 画素/秒: 180° → 30fps 10.0 / 60fps 5.0 / 144fps 2.1 画素、1/120 秒 → 5.0 / 5.0 / 5.0 画素
+  [OK] <strong>ピントの合った絵は1画素も変わらない</strong>(錯乱円 0 の画素は原寸の絵をそのまま出す)  4 画素の市松模様で、最大の差 0.0E+000
+  [OK] <strong>HDR のままぼかすから、明るい点が丸いボケになる</strong>(光の量は保たれ、1.0 で切ってからぼかすと消える)  50 の点 → 半径 7.8 画素の円(半径 5 の内側の最小 0.23、12 の外側の最大 0.004)、光の総量 49.8 / 50  1.0 で切った点は 0.0053
+  [OK] <strong>ピントの合った物は、奥のボケににじまない</strong>(奥の層は「自分と相手の小さいほうの半径」で集める)  四角の縁から 4.5 画素: 散らし 0.013 / 素朴 0.164(四角の中は 1.000)
+  [OK] <strong>手前のボケは、ピントの合った背景の上へ広がる</strong>(素朴に集めると、切り抜いたような輪郭が残る)  四角の縁から 4.5 画素: 散らし 0.149 / 素朴 0.000(円の欠けた部分の面積の割合は 0.16)
+  [OK] <strong>止まった絵は1画素も変わらない</strong>(近所の升目が止まっていれば、読まずに帰る)  最大の差 0.0E+000
+  [OK] <strong>尾は 速度 × シャッターの割合 だけ伸びる</strong>(1 フレーム 16 画素、尾の先は薄い)  棒の外へ 180° で 3 画素 / 360° で 7 画素(尾の半分の長さは 4 / 8 画素)
+  [OK] <strong>升目で広げないと、尾が物の輪郭の中に閉じ込められる</strong>(止まった背景の画素は何も集めない)  棒の外へ 0 画素(升目ありは 3 画素)
+  [OK] <strong>手前で止まっている物は、奥で動く物の尾に隠されない</strong>(読んだ点が奥なら、自分の尾の中しか混ぜない)  手前の板の最大 0.0000 / 反対側の背景 0.200
+  [OK] <strong>深度から戻した奥行きと錯乱円が、CPU で計った値と一致</strong>(地図は1回作って、被写界深度とブラーが読む)  箱の上面 4.41m / -0.32px(期待 4.43 / -0.31)  手前の床 4.79m / +0.18px(期待 4.79 / +0.19)  奥の床 6.86m / +2.00px(期待 6.86 / +2.00)
+  [OK] <strong>カメラの数字を挿したフレームだけ掛かる</strong>(自己チェックが後処理を単独で回しても割り込まない)  挿さない 1 パス / 挿す 9 パス(地図 4 + 被写界深度 3 + ブラー 1)
+  [OK] 代償: 地図は原寸の RG16F と升目3枚(横・縦・近所)、被写界深度は半分の大きさ3枚と原寸1枚、ブラーは原寸1枚  地図 2.7MB / 被写界深度 8.2MB / ブラー 4.7MB(TAA の履歴は 9.4MB)
+  [OK] 錯乱円の式が C# と GLSL で同じ形(L × (1/S − 1/z))
+  [OK] <strong>奥行きに戻すのは blur-field.frag の1か所だけ</strong>(被写界深度とブラーは地図を読む。Day 50 の particle.frag にもう1つある)  今日のシェーダ 7 本のうち blur-field.frag
+  [OK] 撒く点の数が C# とシェーダで同じ  被写界深度 48 点 / ブラー 15 点
+  すべて合格(錯乱円の式・ボケの集め方・尾の長さ・後処理への差し込みが仕様どおり)</code></pre></div>
+<h3 id="s34">検証の途中で分かったこと</h3>
+<p><strong>1. ゆっくりのカメラワークでは、モーションブラーが目で拾えなかった</strong>(今日の冒頭の話)。カメラワークの移動中に撮った ON と OFF は、見比べてもほとんど同じだった。升目を見ると尾の半分の長さは 1〜2 画素で、60fps・180° では「1秒に 60 画素動く物の尾は 0.5 画素」にしかならない。<strong>モーションブラーが見えるのは、1フレームに何画素も動くとき</strong>(カメラを素早く振る、走る)。30fps のゲームで効き目が大きいのは、1フレームの動きが倍になるから(要点1)。完成条件では、同じ姿勢・同じ速さ(1 フレーム 1.5 度)で ON と OFF を撮るために、カメラを1フレームおきに行き来させた。</p>
+</section>
+<footer class="end">Day 55b モーションブラー(シャッターの時間を、カメラに戻す) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/camerablur.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, stat } = Lab;
+const CB = CameraBlur;
+
+// ============================================================
+//  要点1: シャッターの決め方
+// ============================================================
+const sh = { speed: 600, angle: 180, t: 0.5 };
+const fpsOf = (t) => 5 * Math.pow(240 / 5, t);   // 5〜240fps(対数)
+function drawSh() {
+  const { ctx, w, h } = fit($('sh-canvas'));
+  const L = 50, R = w - 14, T = 12, B = h - 26;
+  const X = (f) => L + Math.log(f / 5) / Math.log(48) * (R - L);
+  const streak = (mode, sec, fps) => sh.speed / fps * CB.openFraction(mode, sh.angle, sec, 1 / fps);
+  const top = Math.max(streak('angle', 0, 5), streak('time', 1 / 60, 5)) * 1.05;
+  const Y = (v) => B - Math.min(v / top, 1) * (B - T);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) { const v = top * k / 4; ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillText(v.toFixed(v < 10 ? 1 : 0), 4, Y(v) + 4); }
+  for (const f of [5, 10, 30, 60, 144, 240]) { ctx.beginPath(); ctx.moveTo(X(f), T); ctx.lineTo(X(f), B); ctx.stroke(); ctx.fillText(`${f}fps`, X(f) - 14, h - 8); }
+  const curve = (fn, color, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); for (let i = 0; i <= 300; i++) { const f = 5 * Math.pow(48, i / 300), v = fn(f); if (i === 0) ctx.moveTo(X(f), Y(v)); else ctx.lineTo(X(f), Y(v)); } ctx.stroke(); ctx.setLineDash([]); };
+  curve((f) => streak('angle', 0, f), tok('--expl'));
+  curve((f) => streak('time', 1 / 120, f), tok('--semi'));
+  curve((f) => streak('time', 1 / 60, f), tok('--good'), [4, 4]);
+  const fps = fpsOf(sh.t);
+  ctx.strokeStyle = tok('--ink'); ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(X(fps), T); ctx.lineTo(X(fps), B); ctx.stroke(); ctx.setLineDash([]);
+  $('sh-fps-out').textContent = `${fps.toFixed(fps < 10 ? 1 : 0)}fps`;
+  $('sh-legend').innerHTML = [['--expl', `シャッター角 ${sh.angle}°`], ['--semi', '1/120 秒'], ['--good', '1/60 秒']].map(([c, t]) => `<span class="lg"><i class="chip" style="background:${tok(c)}"></i>${t}</span>`).join('') + '<span class="lg">縦軸: 尾の長さ [画素]</span>';
+  const row = (mode, sec) => [30, 60, 144].map((f) => streak(mode, sec, f).toFixed(1)).join(' / ');
+  $('sh-stats').innerHTML =
+    stat(`${sh.angle}°(30 / 60 / 144fps)`, row('angle', 0), ' <small>画素</small>') +
+    stat('1/120 秒(30 / 60 / 144fps)', row('time', 1 / 120), ' <small>画素</small>') +
+    stat(`${fps.toFixed(fps < 10 ? 1 : 0)}fps で開いている割合`, `${Math.round(sh.angle / 3.6)}% / ${Math.min(100 * (1 / 120) * fps, 9999).toFixed(fps < 10 ? 1 : 0)}%`, ' <small>(角度 / 1/120 秒)</small>');
+  let note;
+  if (sh.speed <= 60) note = '1秒に 60 画素動く物は、60fps・180° で尾がたった 0.5 画素。ゆっくりのカメラワークでモーションブラーが目で拾えなかったのはこのため。';
+  else if (fps < 10) note = '処理落ちで 6fps 前後まで落ちると、角度で決めた尾は 1フレームの動きに連れて何倍にも伸び、秒で決めた尾は 60fps のときと同じ長さのまま(開いている割合が下がる)。';
+  else note = '角度で決めると、フレームレートが半分になれば1フレームの動きが倍になるので尾も倍になる。秒で決めると、割合が半分になって打ち消し合い、尾の長さが揃う。60fps ではどちらも同じ(180° = 1/120 秒)。';
+  $('sh-note').textContent = note;
+}
+seg('sh-speed', (v) => { sh.speed = Number(v); drawSh(); });
+seg('sh-angle', (v) => { sh.angle = Number(v); drawSh(); });
+$('sh-fps').addEventListener('input', (e) => { sh.t = Number(e.target.value); drawSh(); });
+sh.t = Math.log(60 / 5) / Math.log(48); $('sh-fps').value = sh.t;
+drawSh();
+
+// ============================================================
+//  要点2: 尾を集める
+// ============================================================
+const W = 128, H = 64, ROW = 32, FOCUS = 2;
+const mb = { kase: 'bar', v: 16, angle: 180, tiles: true, show: false, nojit: false };
+const onBar = (x) => x >= 60 && x <= 63;
+const onOcc = (x) => x >= 64 && x <= 71;
+let off = null;
+function drawMb() {
+  const scene = new Float32Array(W * H * 3), depth = new Float32Array(W * H), vel = new Float32Array(W * H * 2);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    let c = 0, d = 10, v = 0;
+    if (mb.kase === 'pan') {
+      // 縦と横の目地。カメラを振るので、全部の画素が同じだけ動く
+      c = (x % 16 === 0 || y % 16 === 0) ? 1 : 0.08; v = mb.v;
+    } else {
+      c = onBar(x) ? 1 : 0; v = onBar(x) ? mb.v : 0;
+      if (mb.kase === 'occ' && onOcc(x)) { d = 1; c = 0; }   // 手前で止まっている暗い板
+    }
+    scene.fill(CB.half(c), i * 3, i * 3 + 3); depth[i] = d; vel[i * 2] = v / W;
+  }
+  const bf = CB.buildField(W, H, depth, vel, 0, FOCUS);
+  const out = CB.renderMotionBlur(scene, vel, bf, { open: mb.angle / 360, useTiles: mb.tiles, jitter: !mb.nojit, debug: mb.show });
+  const { ctx, w, h } = fit($('mb-canvas'));
+  if (!off) { off = document.createElement('canvas'); off.width = W; off.height = H; }
+  const img = new ImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, o = ((H - 1 - y) * W + x) * 4;
+    for (let c = 0; c < 3; c++) img.data[o + c] = Math.round(255 * Math.pow(Math.min(Math.max(out[i * 3 + c], 0), 1), 1 / 2.2));
+    if (mb.kase === 'occ' && onOcc(x) && !mb.show) { img.data[o] += 40; img.data[o + 1] += 25; }   // 板の場所に色を付けて見せる
+    img.data[o + 3] = 255;
+  }
+  off.getContext('2d').putImageData(img, 0, 0);
+  const plotH = 70, s = Math.min(w / W, (h - plotH - 8) / H), ox = (w - W * s) / 2;
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, ox, 0, W * s, H * s);
+  // 真ん中の行の明るさ
+  const py0 = H * s + 8, Y = (v) => py0 + plotH - Math.min(v, 1) * (plotH - 6);
+  ctx.strokeStyle = tok('--grid'); ctx.strokeRect(ox, py0, W * s, plotH);
+  ctx.strokeStyle = tok('--semi'); ctx.lineWidth = 2; ctx.beginPath();
+  for (let x = 0; x < W; x++) { const v = out[(ROW * W + x) * 3], px = ox + (x + 0.5) * s; if (x === 0) ctx.moveTo(px, Y(v)); else ctx.lineTo(px, Y(v)); }
+  ctx.stroke();
+  const R = (x) => out[(ROW * W + x) * 3];
+  let reach = 0; for (let x = 64; x < W; x++) if (R(x) > 0.01) reach = x - 63;
+  const halfLen = Math.min(mb.v * mb.angle / 360 / 2, 16);
+  let html = stat('尾の半分の長さ', halfLen.toFixed(1), ' <small>画素(1フレームの動き × 開いている割合 ÷ 2、上限 16)</small>');
+  if (mb.kase === 'bar') html += stat('棒の外へ伸びた尾', String(reach), ' <small>画素(右)</small>') + stat('棒の左の画素', R(59).toFixed(3));
+  else if (mb.kase === 'occ') { let om = 0; for (let x = 64; x <= 71; x++) om = Math.max(om, R(x)); html += stat('手前の板の最大', om.toFixed(4)) + stat('反対側の背景(棒の2つ左)', R(58).toFixed(3)); }
+  $('mb-stats').innerHTML = html;
+  let note;
+  if (mb.show) note = 'ぼけの升目(16 画素)ごとの、近所でいちばん速い速度(赤が横の速さ)。棒の升目から 1 升ぶん外まで広がっている——止まった背景の画素も、この速度の向きに読みに行く。';
+  else if (!mb.tiles && mb.kase !== 'pan') note = '升目で広げないと、止まった背景の画素は自分の速度(0)で読むので何も集めず、尾が棒の輪郭の中に閉じ込められる(棒の外へ 0 画素)。';
+  else if (mb.kase === 'occ') note = '手前で止まっている板の画素は、読んだ点(棒)が奥なので「自分の尾の中」しか混ぜない。自分は止まっているので何も混ざらず、板は流れない(0.0000)。反対側の背景には棒の尾が伸びる。';
+  else if (mb.kase === 'pan') note = '画面全体が横に流れると、縦の目地だけがにじみ、横の目地はくっきり残る。尾は向きのあるぼけなので、動きと平行な線は流れても変わらない。';
+  else if (mb.nojit) note = '読む位置をずらさないと、15 点が等間隔に並ぶので、尾が何枚かの写しの縞に見える。ずらすと縞が細かいざらつきに変わる(光の量は変わらない)。';
+  else note = '尾の先ほど薄い(円錐)。読む向きは近所の升目でいちばん速い速度なので、止まった背景の画素にも棒の尾が伸びてくる。360° にすると尾が倍に伸びる。';
+  $('mb-note').textContent = note;
+}
+seg('mb-case', (v) => { mb.kase = v; drawMb(); });
+seg('mb-v', (v) => { mb.v = Number(v); drawMb(); });
+seg('mb-angle', (v) => { mb.angle = Number(v); drawMb(); });
+$('mb-tiles').addEventListener('change', (e) => { mb.tiles = e.target.checked; drawMb(); });
+$('mb-show').addEventListener('change', (e) => { mb.show = e.target.checked; drawMb(); });
+$('mb-nojit').addEventListener('change', (e) => { mb.nojit = e.target.checked; drawMb(); });
+drawMb();
+window.addEventListener('resize', () => { drawSh(); drawMb(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 52b 多光源</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日も Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. フォワードの代償は「描いた画素 × 光の数」</a></li><li class="l3"><a href="#s7">2. 光の形 = 描く形。窓があるから球が有限になる</a></li><li class="l3"><a href="#s8">3. 球の裏面を描く — 深度は「奥なら通す」</a></li><li class="l3"><a href="#s9">4. フォワードの壁 — uniform の枠が光の数の上限になる</a></li><li class="l3"><a href="#s10">5. 光の数を比べるための並べ方</a></li><li class="l3"><a href="#s11">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s18">1フレームが決まるまで — フォワードとディファードの分かれ道</a></li><li class="l3"><a href="#s19">textured.frag を真ん中で切る</a></li><li class="l3"><a href="#s20">点光源が1画素を塗るまで — 5つの関門</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>F3</code> と <code>F4</code>: 光を増やして、夜にする</a></li><li class="l3"><a href="#s24">2. フォワードの壁: 64 個を超えると光が消える</a></li><li class="l3"><a href="#s25">3. <code>F6</code>: 光の重なり</a></li><li class="l3"><a href="#s26">4. <code>F7</code>: 画面外の光を落とす</a></li><li class="l3"><a href="#s27">5. <code>F8</code>: 内訳</a></li><li class="l3"><a href="#s28">6. <code>F9</code>: 計測</a></li><li class="l3"><a href="#s29">7. <code>F10</code>: 自己チェックが 31 項目すべて合格</a></li><li class="l3"><a href="#s30">8. Day 52a の絵と機能が1つも壊れていない</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 街灯に光を灯す</a></li><li class="l3"><a href="#s33">課題2(中): ステンシルで壁の裏の光を弾く</a></li><li class="l3"><a href="#s34">課題3(難): 光の球をインスタンシングで1回に描く</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">自己チェック(31 項目すべて合格)</a></li><li class="l3"><a href="#s37">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 8 / Day 52b / 計画書</p>
+  <h1>多光源</h1>
+  <p class="lede">光の形 = 描く形(点光源・光の球・1024 個)</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日も Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. フォワードの代償は「描いた画素 × 光の数」</a></li><li class="l3"><a href="#s7">2. 光の形 = 描く形。窓があるから球が有限になる</a></li><li class="l3"><a href="#s8">3. 球の裏面を描く — 深度は「奥なら通す」</a></li><li class="l3"><a href="#s9">4. フォワードの壁 — uniform の枠が光の数の上限になる</a></li><li class="l3"><a href="#s10">5. 光の数を比べるための並べ方</a></li><li class="l3"><a href="#s11">6. 今日入れなかったもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s18">1フレームが決まるまで — フォワードとディファードの分かれ道</a></li><li class="l3"><a href="#s19">textured.frag を真ん中で切る</a></li><li class="l3"><a href="#s20">点光源が1画素を塗るまで — 5つの関門</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>F3</code> と <code>F4</code>: 光を増やして、夜にする</a></li><li class="l3"><a href="#s24">2. フォワードの壁: 64 個を超えると光が消える</a></li><li class="l3"><a href="#s25">3. <code>F6</code>: 光の重なり</a></li><li class="l3"><a href="#s26">4. <code>F7</code>: 画面外の光を落とす</a></li><li class="l3"><a href="#s27">5. <code>F8</code>: 内訳</a></li><li class="l3"><a href="#s28">6. <code>F9</code>: 計測</a></li><li class="l3"><a href="#s29">7. <code>F10</code>: 自己チェックが 31 項目すべて合格</a></li><li class="l3"><a href="#s30">8. Day 52a の絵と機能が1つも壊れていない</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 街灯に光を灯す</a></li><li class="l3"><a href="#s33">課題2(中): ステンシルで壁の裏の光を弾く</a></li><li class="l3"><a href="#s34">課題3(難): 光の球をインスタンシングで1回に描く</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">自己チェック(31 項目すべて合格)</a></li><li class="l3"><a href="#s37">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 52 の2日目で、reference は Day 52a の完全コピー + 差分。Day 52a で描き方を2回に分けた。G-Buffer に表面が置いてあり、光は全画面1枚で当てている。<strong>絵は1ピクセルも変わらず、幾何パスが 3 回から 2 回に減っただけ</strong>で終わっていた。</p>
+<p>今日はその配当を取りに行く。光を<strong>最大 1024 個</strong>に増やす。フォワードのままでは2つの壁にぶつかる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>壁</th><th>どう出るか</th></tr></thead>
+<tbody>
+<tr><td><strong>代償</strong></td><td>描いた画素ごとに全部の光を回す。手前の物に上書きされる画素(オーバードロー)のぶんも払う</td></tr>
+<tr><td><strong>上限</strong></td><td>全部の光を1本のシェーダに uniform で渡すので、<strong>枠が光の数の上限になる</strong>(今日のフォワードは 64 個)</td></tr>
+</tbody>
+</table></div>
+<p>ディファードにはどちらの壁も無い。表面はもう G-Buffer に置いてあるので、<strong>光を当てる仕事は「その光が画面をどれだけ覆うか」だけで決まる</strong>。1024 個を 16 個とほぼ同じ代償で描く。</p>
+<blockquote><p><strong>今日の実装でいちばん引っかかったのは、Day 35 から居た潜在バグだった</strong></p>
+<p>自己チェックが光の球の頂点を読み戻した(<code>Mesh.ReadIndices</code>)直後に、次の光の球を描いたところで<strong>アクセス違反で落ちた</strong>。<code>ReadIndices</code> はインデックスバッファを <code>ElementArrayBuffer</code> に結び付けて読み、最後に 0 へ戻していた——ところがこの結び付けは<strong>いま結び付いている VAO の記録そのもの</strong>で、直前に描いた光の球の VAO からインデックスバッファを外していた。Day 35〜52a で落ちなかったのは、読み戻す前に別の VAO(文字のバッチ)が結び付いていたから。<strong>どの VAO が結び付いているかで結果が変わる</strong>、GL の状態機械らしい壊れ方だった。Day 35〜52a の <code>Mesh.cs</code> まで遡って直してあるので、今日の差分には出てこない(検証の途中で分かったこと 1)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>「ディファード」ページの <code>F3</code> で点光源を 16 → 64 → 256 → 1024 個に増やし、<code>F4</code> で夜にすると、裏通りの床に色とりどりの光だまりが並ぶ。<code>F2</code> でフォワードに戻すと、64 個を超えたぶんの光だまりが<strong>目に見えて消える</strong>。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「ディファード」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>ディファード ON/OFF(Day 52a)。<strong>今日は絵が変わる</strong>——フォワードは 64 個で打ち切る</td></tr>
+<tr><td><code>F3</code></td><td>点光源の数(0 / 16 / 64 / 256 / 1024)。<strong>球が塗る量は揃えたまま</strong>。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F4</code></td><td>夜にする(太陽と空を 3% に落とす)。点光源が主役になる</td></tr>
+<tr><td><code>F5</code></td><td>G-Buffer を見る(Day 52a。席が1つ後ろへずれた)</td></tr>
+<tr><td><code>F6</code></td><td>光の重なり(1画素を何個の球が塗ったか)。<strong>ディファードの代償そのもの</strong></td></tr>
+<tr><td><code>F7</code></td><td>画面外の光を CPU で落とす。<strong>絵は変わらない</strong>(ドローコールだけが変わる)</td></tr>
+<tr><td><code>F8</code></td><td>内訳(G-Buffer の4枚と、光の数・描いた数)</td></tr>
+<tr><td><code>F9</code></td><td>計測(光の数ごとにフォワードとディファードを測る)</td></tr>
+<tr><td><code>F10</code></td><td>今日の自己チェック(31 項目。Day 52a の 14 項目を含む)</td></tr>
+</tbody>
+</table></div>
+<p><strong>メニューの席が5つ増えるので、Day 52a の <code>F3</code>〜<code>F5</code> が <code>F5</code>・<code>F8</code>・<code>F10</code> へずれる</strong>。点光源まわりを「ディファード」と「G-Buffer を見る」の間に差し込んだため。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「光の形 = 描く形」</strong>。Day 52a の太陽はどこにでも当たるので全画面の三角形1枚だった。点光源は半径の中にしか当たらないので<strong>その半径の球</strong>を描く。球が覆った画素だけでシェーダが走るので、<strong>光1個の代償は「画面をどれだけ覆うか」</strong>で決まる。</p>
+<div class="code"><pre><code>  フォワード   代償 ≒ 描いた画素(オーバードロー込み)× 光の数
+  ディファード 代償 ≒ 画面の画素 + 光の球が覆った画素の合計</code></pre></div>
+<p>球が有限でいられるのは、<strong>半径ちょうどで 0 に落ちる窓</strong>を減衰に掛けてあるから(要点2)。物理の 1/d² は 0 にならないので、そのままだと「どの画素に効くか」が全画面になり、球を描く意味が無い。</p>
+<p><strong>2つ目は「球は裏面を描く」</strong>(要点3)。表面を描くと、カメラが球の中に入った瞬間に光が消える。深度の比べ方も <code>GEQUAL</code>(奥なら通す)に変え、深度は書かない——<strong>ふだんの本描画と GL の状態が3か所違う</strong>のが、この日いちばん手が滑るところ。</p>
+<h3 id="s3">今日も Render とシェーダが主役</h3>
+<p>差分は <code>Render/</code> に新規1本(<code>PointLight</code>)と変更2本(<code>DeferredLighting</code> / <code>Shader</code>)、<code>Demo/</code> に新規1本(<code>LightSwarm</code>)、シェーダが新規1本(<code>light-volume.vert</code>)と<code>deferred.frag</code> / <code>textured.frag</code> の変更、そして <code>Program.cs</code>。<code>Framebuffer</code> も <code>Ssao</code> も <code>GBuffer</code> も(コメント以外は)1行も変わっていない。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://learnopengl.com/Advanced-Lighting/Deferred-Shading">LearnOpenGL: Deferred Shading</a>(<strong>ライトボリュームの節</strong>)— Day 52a で前半を読んだ回の続き。最後の "Light volumes" が今日そのもので、あちらが「実際にはやらない」と書いて終わっているところを、今日は最後までやる</li><li><a href="https://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf">Brian Karis, "Real Shading in Unreal Engine 4"(SIGGRAPH 2013 の講義ノート)</a>— <strong>要点2の減衰の式</strong>の出どころ。<code>saturate(1 - (d/r)⁴)² / (d² + 1)</code>。Day 35 の PBR を読んだときと同じ資料の、ライトの章</li><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-14: 遅延レンダリング</a>(<strong>後半</strong>)— Day 52a の一次資料の続き。なぜ光源の数に強いのかが講義資料にまとまっている</li><li><strong>Day 52a の計画書 要点1〜5</strong>(このリポジトリ)— G-Buffer の中身・位置の復元・深度の写し。今日の球は全部その上に立つ</li><li><strong>Day 26 の計画書</strong>(このリポジトリ)— 「答えを変えずに速くする層」の考え方。視錐台での間引き(<code>F7</code>)がまさにそれ</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. フォワードの代償は「描いた画素 × 光の数」</h3>
+<p>フォワードの画素シェーダは、三角形が画素を覆うたびに1回走り、その中で全部の光について「届くか」を確かめて足す(<code>textured.frag</code> のループ)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>for (int i = 0; i &lt; uPointLightCount; i++)
+{
+    pointLight += PointLightContribution(uPointLightPositions[i], ...);
+}</code></pre></div>
+<p>払っているものは2つある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何に比例するか</th><th>今日の数字</th></tr></thead>
+<tbody>
+<tr><td>距離を測って捨てる</td><td><strong>全部の光の数</strong> × 描いた画素</td><td>64 個なら 64 回。届かない光でも距離の計算は走る</td></tr>
+<tr><td>BRDF を計算する</td><td>届いた光の数 × 描いた画素</td><td>半径の中にある光だけ</td></tr>
+</tbody>
+</table></div>
+<p><strong>「描いた画素」はオーバードローを含む</strong>。道路バリアの向こうの床は、床を描いたあとにバリアで上書きされる——床の画素に払った光の計算は丸ごと捨てられる。</p>
+<p>ディファードはこれを2つに分ける。1回目(G-Buffer)は光を1つも計算しないので、オーバードローしても安い。2回目は<strong>画面に残った画素だけ</strong>を見る。</p>
+<h3 id="s7">2. 光の形 = 描く形。窓があるから球が有限になる</h3>
+<p>点光源の明るさは物理では 1/d²——<strong>0 にならない</strong>。そのままだと「どの画素に効くか」は全画面になり、球を描く意味が無い。そこで<strong>半径ちょうどで 0 に落ちる窓</strong>を掛ける(Karis 2013)。</p>
+<div class="code"><pre><code>  減衰 = saturate(1 - (d / r)⁴)² / (d² + 1)</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>部分</th><th>何のため</th></tr></thead>
+<tbody>
+<tr><td><code>1 / (d² + 1)</code></td><td>物理の 1/d²。<strong>+1 は d → 0 で無限大に飛ぶのを止める</strong></td></tr>
+<tr><td><code>(1 - (d/r)⁴)²</code></td><td>窓。近くではほぼ 1(1/d² の形を崩さない)、半径で滑らかに 0</td></tr>
+</tbody>
+</table></div>
+<p><strong>4乗してから2乗する</strong>のは、近くでは窓を効かせず(半径の 1 割で 0.9998)、端でだけ滑らかに落とすため。<code>1 - d/r</code> を素朴に掛けると、近くまで一様に暗くなって光が小さく見える。</p>
+<p>窓があるので、<strong>半径の外の画素は1つも塗らなくてよい</strong>。球を描き、その球が覆った画素でだけシェーダを走らせる——これがライトボリューム。</p>
+<p>分割した球は面が内側へ入り込む(弦は弧の内側を通る)ので、<strong>外接するように膨らませて描く</strong>。16x12 分割で 1.028 倍。自己チェックは、いちばん内側に入り込む面でも届く距離の 1.0003 倍の外にあることを見ている。</p>
+<div class="inject"><figure class="lab" id="att-lab">
+  <div class="lab-head">
+    <h3>減衰の窓と、分割した球(要点2)</h3>
+    <span class="tag">PointLight.Attenuation と同じ式。右は光の球を赤道で切った断面(16 x 12 分割の球の赤道は 16 角形)</span>
+  </div>
+  <div class="stage"><canvas id="att-canvas" style="height:300px" aria-label="距離ごとの減衰の曲線と、光の球の断面"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">届く距離</span>
+      <div class="seg" id="att-r"><button data-v="0.5" aria-pressed="false">0.5m</button><button data-v="1" aria-pressed="false">1m</button><button data-v="2" aria-pressed="false">2m</button><button data-v="3" aria-pressed="true">3m(自己チェック)</button><button data-v="4" aria-pressed="false">4m</button></div>
+    </div>
+    <div class="ctl"><span class="label">距離 ÷ 届く距離</span>
+      <div class="range"><input type="range" id="att-d" min="0" max="1.2" step="0.001" value="0.1"><output id="att-d-out"></output></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">球の横の分割</span>
+      <div class="seg" id="att-slices"><button data-v="8" aria-pressed="false">8</button><button data-v="16" aria-pressed="true">16(reference)</button><button data-v="32" aria-pressed="false">32</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="att-noinflate"> 外接させない(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="legend-row" id="att-legend"></div><div class="stats" id="att-stats" style="margin-top:8px"></div><p id="att-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 球の裏面を描く — 深度は「奥なら通す」</h3>
+<p>点光源の球を描くときの GL の状態は、ふだんの本描画と3か所違う。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>状態</th><th>本描画</th><th>光の球</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>カリング</td><td>裏面を捨てる</td><td><strong>表面を捨てる</strong></td><td>カメラが球の中に入ると表面が全部後ろへ回って光が消える</td></tr>
+<tr><td>深度テスト</td><td>手前なら通す(<code>LESS</code>)</td><td><strong>奥なら通す(<code>GEQUAL</code>)</strong></td><td>裏面が面より奥 = 面は球の中か手前</td></tr>
+<tr><td>深度の書き込み</td><td>書く</td><td><strong>書かない</strong></td><td>球どうしが隠し合うと、後から描いた光が消える</td></tr>
+<tr><td>ブレンド</td><td>しない</td><td><strong>加算(<code>One, One</code>)</strong></td><td>光の寄与は足し算で重なる。描く順を気にしなくてよい</td></tr>
+</tbody>
+</table></div>
+<p><strong>裏面が G-Buffer の面より手前にある</strong>(深度テストで落ちる)のは、面が球よりずっと奥にあるとき——そこには光が届かないので塗らなくてよい。逆に<strong>面が球より手前にある</strong>(光が壁の裏に隠れている)ときは通ってしまうが、シェーダの中で距離を測って 0 を足すだけで済む。「光の重なり」(<code>F6</code>)はこの<strong>無駄に通った画素も含めて</strong>数えるので、払っている量がそのまま見える。</p>
+<p>完全に弾くにはステンシルを使った2パスにするが、今日は入れていない(要点6・改造課題2)。</p>
+<div class="inject"><figure class="lab" id="vol-lab">
+  <div class="lab-head">
+    <h3>光の球を描く — カリングと深度の比べ方(要点3)</h3>
+    <span class="tag">横から見た断面。カメラから出る 40 本の線が画面の 40 画素。左端の帯がその画面で、画素ごとに光の球のシェーダが走ったかを色で示す。光はドラッグで動かせる</span>
+  </div>
+  <div class="stage"><canvas id="vol-canvas" style="height:360px;touch-action:none" aria-label="カメラ・床・低い壁・奥の壁と、光の球の断面。視線ごとに球の表面か裏面が深度テストを通るかを示す"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">カリング</span>
+      <div class="seg" id="vol-cull"><button data-v="front" aria-pressed="true">表面を捨てる(reference)</button><button data-v="back" aria-pressed="false">裏面を捨てる(本描画と同じ)</button><button data-v="none" aria-pressed="false">捨てない</button></div>
+    </div>
+    <div class="ctl"><span class="label">深度テスト</span>
+      <div class="seg" id="vol-depth"><button data-v="gequal" aria-pressed="true">奥なら通す GEQUAL(reference)</button><button data-v="less" aria-pressed="false">手前なら通す LESS(本描画と同じ)</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">置き場所</span>
+      <div class="seg" id="vol-preset"><button data-v="floor" aria-pressed="true">床の上</button><button data-v="behind" aria-pressed="false">低い壁の裏</button><button data-v="inside" aria-pressed="false">カメラが球の中</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="legend-row" id="vol-legend"></div><div class="stats" id="vol-stats" style="margin-top:8px"></div><p id="vol-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. フォワードの壁 — uniform の枠が光の数の上限になる</h3>
+<p>フォワードは全部の光を1本のシェーダに渡す。今日は uniform の配列にした。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>const int MAX_FORWARD_LIGHTS = 64;
+uniform vec4 uPointLightPositions[MAX_FORWARD_LIGHTS];   // xyz 位置 / w 届く距離
+uniform vec4 uPointLightColors[MAX_FORWARD_LIGHTS];</code></pre></div>
+<p>位置と色で vec4 を2本ずつ、64 個で float 512 個。OpenGL 3.3 が画素シェーダに保証するuniform の枠は float 1024 個で、<code>textured.frag</code> の他の uniform がすでに百個近く使っている。<strong>保証の範囲で置けるのはこのあたりが限度</strong>で、65 個目からは捨てるしかない。</p>
+<p>自己チェックは「64 個の光を床の下(どこにも届かない)に置き、65 個目だけを床の上に置く」形で、フォワードでは<strong>65 個目が消える</strong>(絵が1画素も変わらない)こと、ディファードでは見えることを確かめている。</p>
+<p>この壁を越えるもう1つの道が、光の一覧を uniform ではなくバッファに置き、<strong>画面のタイルごとに効く光だけを選り分けて渡す</strong>やり方——明日の Forward+ になる。</p>
+<h3 id="s10">5. 光の数を比べるための並べ方</h3>
+<p>「光を増やすとどうなるか」を見たいのに、半径を同じまま 16 個を 1024 個にすると、通りが光の球で埋まって1画素を何百個もの球が塗る。それは<strong>数の比べではなく重なりの比べ</strong>になる。</p>
+<p>ディファードの代償は球が画面を覆う面積 ∝ 半径² なので、<strong>個数 × 半径² を一定</strong>にする。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>個数</th><th>届く距離</th><th>高さの上限</th><th>1個の強さ</th></tr></thead>
+<tbody>
+<tr><td>16</td><td>4.0m</td><td>2.4m</td><td>8.0</td></tr>
+<tr><td>64</td><td>2.0m</td><td>1.3m</td><td>4.0</td></tr>
+<tr><td>256</td><td>1.0m</td><td>0.75m</td><td>2.0</td></tr>
+<tr><td>1024</td><td>0.5m</td><td>0.48m</td><td>1.0</td></tr>
+</tbody>
+</table></div>
+<p><strong>高さも半径に合わせて下げる</strong>。半径 0.5m の光が高さ 2m を飛んでも床にも壁にも届かず、球の代償だけ払って絵に何も出ない。<strong>強さは半径に比例</strong>させた——床に降る光の総量を並べて測ると、この比でおおむね揃った(検証の途中で分かったこと 2)。</p>
+<p>「光の重なり」(<code>F6</code>)で 16 個と 1024 個を見比べると、<strong>大きな球 16 個と小さな球 1024 個で、塗られる量がほぼ同じ</strong>になっているのが見える。</p>
+<div class="inject"><figure class="lab" id="swarm-lab">
+  <div class="lab-head">
+    <h3>裏通りを真上から見る — 光の群れ(要点1・4・5)</h3>
+    <span class="tag">LightSwarm(乱数の種 20520101)をそのまま移したので、光の位置と色は reference と同じ。裏通りの床(6.6 x 19.5m)を真上から見て、点光源の拡散だけで塗っている</span>
+  </div>
+  <div class="stage"><canvas id="swarm-canvas" style="height:270px" aria-label="真上から見た裏通りの床と、漂う点光源の光だまり"></canvas></div>
+  <div class="hud" id="swarm-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">描き方(F2)</span>
+      <div class="seg" id="swarm-path"><button data-v="fwd" aria-pressed="false">フォワード</button><button data-v="def" aria-pressed="true">ディファード</button></div>
+    </div>
+    <div class="ctl"><span class="label">点光源の数(F3)</span>
+      <div class="seg" id="swarm-n"><button data-v="0" aria-pressed="false">0</button><button data-v="16" aria-pressed="false">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="true">256</button><button data-v="1024" aria-pressed="false">1024</button></div>
+    </div>
+    <div class="ctl"><span class="label">見るもの</span>
+      <div class="seg" id="swarm-view"><button data-v="lit" aria-pressed="true">通常</button><button data-v="over" aria-pressed="false">光の重なり(F6)</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="swarm-night" checked> 夜(F4)</label>
+    <label class="check"><input type="checkbox" id="swarm-pause"> 止める</label>
+  </div>
+  <div class="readout"><div class="stats" id="swarm-stats"></div><p id="swarm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">6. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td>半透明</td><td>ディファードは1画素に表面を1つしか持てない。<strong>半透明は描けない</strong></td><td>フォワードで後から重ねる(今日も粒はそうしている)</td></tr>
+<tr><td>MSAA</td><td>G-Buffer まで4倍になる(Day 38 の要点)</td><td>Day 54 の TAA で置き換える</td></tr>
+<tr><td>インスタンシング</td><td>光1個 = ドローコール1回。1024 個で 940 回</td><td>改造課題3</td></tr>
+<tr><td>ステンシルで弾く光の球</td><td>壁の裏の光も壁の手前の画素を塗る(要点3)</td><td>改造課題2。Forward+ のほうが筋がよい</td></tr>
+<tr><td>タイル / クラスターで光を選る</td><td>光1個ずつの粗いカリングしかない</td><td><strong>Day 53(Forward+ / クラスタード)</strong></td></tr>
+<tr><td>深度バッファからの位置の復元</td><td>影の縁で 0.2% の画素が 5% 以上ずれる</td><td>Day 52a の改造課題2</td></tr>
+<tr><td>法線を2成分に畳む(八面体)</td><td>法線に RGBA16F を1枚まるごと使っている</td><td>本番の G-Buffer はここを詰める</td></tr>
+<tr><td>点光源の影</td><td>点光源は影を落とさない(壁を突き抜けて照らす)</td><td>キューブのシャドウマップが要る。デモの規模では重い</td></tr>
+<tr><td>スポットライト</td><td>光の形が球しかない</td><td>円錐を描けば同じ仕組みで入る</td></tr>
+<tr><td>GPU の時間の計測</td><td>HUD の ms は CPU が命令を積んだ時間</td><td>計測(<code>F9</code>)は <code>glFinish</code> で待って測る</td></tr>
+</tbody>
+</table></div>
+<p><strong>半透明が描けない</strong>のがディファードの最大の弱点で、どのエンジンもここでフォワードを残している。今日も粒(Day 49)はライティングパスのあとにフォワードで重ねていて、深度を写した(Day 52a の要点4)ので壁の向こうに透けずに済んでいる。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/PointLight.cs</code></td><td>90</td><td><strong>点光源1つ</strong>。位置・届く距離・色と、減衰の式の CPU 版(要点2)</td></tr>
+<tr><td><code>Demo/LightSwarm.cs</code></td><td>215</td><td><strong>通りを漂う光の群れ</strong>。数を変えても球が塗る量を揃える(要点5)</td></tr>
+<tr><td><code>shaders/light-volume.vert</code></td><td>27</td><td>光の球を置く頂点シェーダ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/DeferredLighting.cs</code></td><td><strong>光の球</strong>(メッシュ1本・外接倍率・視錐台・<code>DrawPointLights</code>)</td><td>+250 / -10</td></tr>
+<tr><td><code>Render/Shader.cs</code></td><td><code>SetVector4Array</code> を追加</td><td>+24 / -0</td></tr>
+<tr><td><code>shaders/deferred.frag</code></td><td>点光源の枝、<code>PointAttenuation</code> / <code>PointLightContribution</code>、光の重なりの表示</td><td>+79 / -3</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td><strong>フォワードの点光源ループ</strong>(64 個まで)</td><td>+82 / -1</td></tr>
+<tr><td><code>Render/GBuffer.cs</code></td><td>コメントのみ(メニューの席が <code>F3</code> から <code>F5</code> へずれた)</td><td>+4 / -5</td></tr>
+<tr><td><code>shaders/gbuffer-view.frag</code></td><td>コメントのみ(同上)</td><td>+1 / -1</td></tr>
+<tr><td><code>Program.cs</code></td><td>光の群れ、夜、メニュー 5 項目、HUD、自己チェック 17 項目、計測</td><td>+502 / -42</td></tr>
+<tr><td><code>Day52b.csproj</code></td><td><code>Day52a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Framebuffer</code> も <code>Ssao</code> も1行も変わっていない</strong>。Day 52a で作った G-Buffer の形は、光が 1024 個になっても何も変える必要が無い——<strong>「表面を置く場所」と「光を当てる回数」が切れている</strong>ことの、いちばん分かりやすい証拠になる。</p>
+<h3 id="s15">写経する順番</h3>
+<div class="code"><pre><code>1. Render/Shader.cs              SetVector4Array(7 の ApplyForwardLights が使う)
+2. Render/PointLight.cs          点光源(新規。3・6・7 が使う)
+3. Demo/LightSwarm.cs            光の群れ(新規。2 を使う)
+4. shaders/light-volume.vert     光の球(新規。6 が読み込む)
+5. shaders/deferred.frag         点光源の枝(変更。6 が読み込む)
+6. Render/DeferredLighting.cs    光の球を描く(変更。2・4・5 を使う)
+7. shaders/textured.frag         フォワードの点光源ループ(変更)
+8. Program.cs                    全部を繋ぐ
+9. Day52b.csproj                 Day52a.csproj からのリネームのみ</code></pre></div>
+<p><strong>5 と 7 は同じ関数を2つ持つ</strong>(<code>PointAttenuation</code> と <code>PointLightContribution</code>)ので、並べて写すと見比べやすい。文字まで揃っているかは自己チェックが見張っている。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(_swarm / _night / ForwardLightPositions / ForwardLightColors)
+    → OnUpdate の _swarm.Update                            光を漂わせる
+    → Render3D の ApplyForwardLights                       フォワードの点光源
+    → ApplyDemoLighting / UnloadDemoScene                  夜
+    → CurrentLights / RenderDeferredLighting の引数         ディファードの点光源
+    → DeferredLabel / DescribeDeferred / BenchmarkDeferred
+    → RunDeferredCheck の節1・3と、節4の 65 個の塊
+    → BuildDebugMenu の「ディファード」ページ(5 項目を差し込む)と RunDebugMenuCheck の 199</code></pre></div>
+<p><strong>メニューの5項目は「ディファード」と「G-Buffer を見る」の間に差し込む</strong>。順番を変えると席(<code>F</code> キー)がずれて、コード中の「メニューの F8」といったコメントが全部嘘になる。</p>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が1つ(<code>PointLight</code>)、<code>Demo/</code> に型が1つ(<code>LightSwarm</code>)増えて、<code>Render/DeferredLighting</code> の口が広がっただけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/PointLight</code></td><td><code>Render/</code></td><td>点光源1つ。<strong>GL を知らない</strong>(<code>Pbr</code> と同じ置き方)</td></tr>
+<tr><td><code>Demo/LightSwarm</code></td><td><code>Demo/</code></td><td>光の群れ。<strong>GL を知らない</strong></td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/DeferredLighting</code></td><td>光の球(メッシュ1本・外接倍率・視錐台の判定)</td><td>+250 / -10</td></tr>
+<tr><td><code>Render/Shader</code></td><td><code>SetVector4Array</code></td><td>+24 / -0</td></tr>
+<tr><td><code>shaders/deferred.frag</code></td><td>点光源の枝と減衰</td><td>+79 / -3</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>フォワードの点光源ループ</td><td>+82 / -1</td></tr>
+<tr><td><code>Program.cs</code></td><td>光の群れ、夜、メニュー、自己チェック、計測</td><td>+502 / -42</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">今日足したものは、どこに繋がったか</h3>
+<svg viewBox="0 0 980 532" role="img" aria-label="Day 52a の図に LightSwarm が加わり、PointLight の並びを DeferredLighting の光の球へ、64 個までをフォワードの点光源ループへ渡す図" style="width:100%;max-width:980px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.Render3D</text><text x="115" y="47.5" text-anchor="middle" fill="var(--ink)">Day 39〜51。何を描くかの分岐</text><rect x="380" y="10" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag の前半</text><text x="490" y="47.5" text-anchor="middle" fill="var(--ink)">表面を決めて帰る</text><rect x="740" y="10" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="840" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.Compute</text><text x="840" y="47.5" text-anchor="middle" fill="var(--ink)">幾何パスを描かない</text><rect x="380" y="130" width="220" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="150.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GBuffer</text><text x="490" y="167.5" text-anchor="middle" fill="var(--ink)">4枚 + 深度</text><rect x="740" y="130" width="200" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="840" y="150.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DeferredLighting</text><text x="840" y="167.5" text-anchor="middle" fill="var(--ink)">全画面1枚 + 光の球</text><rect x="380" y="250" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="270.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Scene</text><text x="490" y="287.5" text-anchor="middle" fill="var(--ink)">光の球と粒が比べる相手</text><rect x="10" y="370" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="390.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.ApplyLighting</text><text x="115" y="407.5" text-anchor="middle" fill="var(--ink)">太陽・影・IBL・SSAO</text><rect x="380" y="370" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="390.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag の後半</text><text x="490" y="407.5" text-anchor="middle" fill="var(--ink)">フォワードの点光源ループ</text><rect x="740" y="470" width="200" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="840" y="490.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">LightSwarm</text><text x="840" y="507.5" text-anchor="middle" fill="var(--ink)">GL を知らない</text><path d="M220 35 L378 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="299" y="53" fill="var(--muted)" font-size="12" text-anchor="middle">uGBufferPass = 1</text><text x="299" y="68" fill="var(--muted)" font-size="12" text-anchor="middle">で呼ぶだけ</text><path d="M490 60 L490 128" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="498" y="98" fill="var(--muted)" font-size="12" text-anchor="start">layout location 0〜3</text><path d="M600 142 L770 62" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="614" y="112" fill="var(--muted)" font-size="12" text-anchor="start">2枚目(Texture 1枚)</text><path d="M600 160 L738 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="669" y="178" fill="var(--muted)" font-size="12" text-anchor="middle">Apply で</text><text x="669" y="193" fill="var(--muted)" font-size="12" text-anchor="middle">0・1・2・4 番に刺す</text><path d="M490 180 L490 248" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="498" y="218" fill="var(--muted)" font-size="12" text-anchor="start">深度を写す</text><path d="M770 180 L602 276" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M220 395 L378 395" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M115 370 L115 335 L880 335 L880 182" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr1)"></path><text x="872" y="327" fill="var(--muted)" font-size="12" text-anchor="end">Action 1本</text><path d="M940 495 L962 495 L962 155 L942 155" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="956" y="455" fill="var(--muted)" font-size="12" text-anchor="end">PointLight の並び</text><path d="M740 495 L490 495 L490 422" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="730" y="487" fill="var(--muted)" font-size="12" text-anchor="end">64 個まで</text></g></svg>
+<p><strong>今日増えたのは <code>LightSwarm</code> から出る2本</strong>(ディファードの球へ、フォワードのループへ)。残りの線は Day 52a で引いたものがそのまま生きている。</p>
+<p><strong>矢印の出どころが <code>Render3D</code> と <code>ApplyLighting</code> の2つに集まっている</strong>のが Day 52a からの姿になる。何を描くか(<code>Render3D</code>)と、どう照らすか(<code>ApplyLighting</code>)を<strong>フォワードとディファードで共有</strong>していて、違うのは「表面を決めたあと、その場で光を当てるか、G-Buffer に置いて後で当てるか」だけ。</p>
+<p>点線の1本(<code>ApplyLighting</code> → <code>DeferredLighting</code>)は Day 51 の <code>FollowCamera</code> と同じ形。<code>DeferredLighting</code> は太陽の向きも IBL も知らず、<strong><code>Action&lt;Shader&gt;</code> 1本</strong>で受け取る。2か所に書き写すと、片方だけ直したときに2つの絵が食い違う——しかも両方ともそれらしく見えるので、見比べるまで気づけない。</p>
+<p><strong><code>Ssao</code> から <code>GBuffer</code> への矢印は無い</strong>。借りるのは <code>Texture</code> 1枚で、<code>Ssao</code> は自分が G-Buffer を読んでいることを知らない。Day 37 の幾何バッファと同じ形にしておいたことが、そのまま「知らずに済む」になっている。</p>
+<h3 id="s18">1フレームが決まるまで — フォワードとディファードの分かれ道</h3>
+<svg viewBox="0 0 870 868" role="img" aria-label="影のあと UseDeferred で分かれ、左はフォワード(点光源は 64 個まで)、右は G-Buffer → SSAO → 深度を写す → 全画面1枚 → 光の球と進み、RenderParticles で合流する図" style="width:100%;max-width:870px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="245" y="8" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderShadowPass</text><text x="445" y="45.5" text-anchor="middle" fill="var(--ink)">光の目から深度(Day 33)</text><rect x="245" y="80" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="445" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UseDeferred?</text><text x="445" y="117.5" text-anchor="middle" fill="var(--ink)">スイッチ ON・デモ v1 が出ている</text><text x="445" y="134.5" text-anchor="middle" fill="var(--ink)">ゲーム中でない・成分表示でない</text><rect x="20" y="200" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="220.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="185" y="237.5" text-anchor="middle" fill="var(--ink)">自前の幾何パス → 遮蔽(Day 37)</text><rect x="20" y="272" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="292.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Begin → 空</text><rect x="20" y="327" width="330" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="347.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D</text><text x="185" y="364.5" text-anchor="middle" fill="var(--ink)">表面を決めて、その場で光を当てる</text><text x="185" y="381.5" text-anchor="middle" fill="var(--ink)">点光源は 64 個まで</text><rect x="470" y="200" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="220.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderGBufferPass</text><text x="660" y="237.5" text-anchor="middle" fill="var(--ink)">_gbuffer.Begin → uGBufferPass = 1</text><text x="660" y="254.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">Render3D をそのまま呼ぶ</tspan> → uGBufferPass = 0</text><rect x="470" y="289" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="309.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSsaoPass</text><text x="660" y="326.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">G-Buffer の2枚目を借りる</tspan></text><text x="660" y="343.5" text-anchor="middle" fill="var(--ink)">幾何パスを描かない</text><rect x="470" y="378" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="398.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Begin → 空</text><rect x="470" y="433" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="453.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BlitDepthTo(_post.Scene)</text><text x="660" y="470.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">深度を写す</tspan></text><rect x="470" y="505" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="525.5" text-anchor="middle" fill="var(--ink)">全画面1枚: 太陽・環境光・発光</text><text x="660" y="542.5" text-anchor="middle" fill="var(--ink)">空の画素は discard で残す</text><rect x="470" y="577" width="380" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="597.5" text-anchor="middle" fill="var(--ink)">光の球を1個ずつ</text><text x="660" y="614.5" text-anchor="middle" fill="var(--ink)">表面カリング・GEQUAL・加算</text><rect x="245" y="662" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="682.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderParticles</text><text x="445" y="699.5" text-anchor="middle" fill="var(--ink)">深度の写し → 粒 → トレイル</text><rect x="245" y="734" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="754.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.End</text><text x="445" y="771.5" text-anchor="middle" fill="var(--ink)">ブルーム → トーンマップ → FXAA</text><rect x="245" y="806" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="826.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DrawDebug</text><text x="445" y="843.5" text-anchor="middle" fill="var(--ink)">影 / SSAO / <tspan font-weight="700">G-Buffer</tspan></text><path d="M445 58 L445 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M245 113.5 L185 113.5 L185 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="193" y="131.5" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M645 113.5 L660 113.5 L660 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="668" y="131.5" fill="var(--muted)" font-size="12" text-anchor="start">Yes</text><path d="M185 250 L185 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M185 305 L185 325" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 267 L660 287" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 356 L660 376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 411 L660 431" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 483 L660 503" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 555 L660 575" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M185 394 L185 687 L243 687" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M660 627 L660 687 L647 687" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M445 712 L445 732" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M445 784 L445 804" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>Day 52a から変わったのは、右の道の最後に光の球が1つ増えたこと</strong>だけ(<code>PT</code>)。道の形そのものは昨日のまま。</p>
+<p><strong>ジオメトリを描く箱が、左の道には3つ、右の道には2つ</strong>ある(影・SSAO の幾何・本描画 と、影・G-Buffer)。これが HUD の「幾何パス」の数字になる。光の球はジオメトリだが、G-Buffer に書かないので「幾何パス」には数えない。</p>
+<p><strong>右の道は <code>Render3D</code> を呼ぶ場所が前に移っただけ</strong>で、中身は1行も変わっていない。その代わり、左の道の <code>Render3D</code> があった位置には<strong>三角形を1つも描かない</strong>パスが2本並ぶ。</p>
+<p><strong><code>RenderParticles</code> が両方の道の合流点に居る</strong>のが大事なところ。半透明は G-Buffer に入れられない(1画素に表面を1つしか持てない)ので、どちらの道でも最後にフォワードで重ねる。深度を写してある(Day 52a の要点4)ので、ディファードの道でも粒は壁の向こうに透けない。</p>
+<h3 id="s19">textured.frag を真ん中で切る</h3>
+<svg viewBox="0 0 890 582" role="img" aria-label="textured.frag の前半のあと uGBufferPass で分かれ、フォワードは影・Cook-Torrance・IBL に点光源のループを足し、G-Buffer パスの続きの deferred.frag は点光源を球ごとに1個ずつ当てる図" style="width:100%;max-width:890px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParallaxUv</text><text x="210" y="45.5" text-anchor="middle" fill="var(--ink)">視差で UV をずらす(Day 34)</text><rect x="20" y="80" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="100.5" text-anchor="middle" fill="var(--ink)">ベースカラー × 頂点色 × Tint</text><rect x="20" y="135" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="155.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PerturbNormal</text><text x="210" y="172.5" text-anchor="middle" fill="var(--ink)">法線マップを世界へ(Day 34)</text><rect x="20" y="207" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="227.5" text-anchor="middle" fill="var(--ink)">金属度・粗さ + 上書き(Day 35)</text><rect x="20" y="262" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="282.5" text-anchor="middle" fill="var(--ink)">焼いた AO / 発光</text><text x="210" y="299.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">発光を SSAO より前へ上げた</tspan></text><rect x="20" y="334" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="354.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uGBufferPass == 1 ?</text><rect x="20" y="410" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="430.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ScreenSpaceOcclusion(Day 37)</text><rect x="20" y="465" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="485.5" text-anchor="middle" fill="var(--ink)">成分表示の窓(Day 32〜41)</text><rect x="20" y="520" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="540.5" text-anchor="middle" fill="var(--ink)">影 → Cook-Torrance → IBL</text><text x="210" y="557.5" text-anchor="middle" fill="var(--ink)">+ <tspan font-weight="700">点光源のループ</tspan>(Day 52)</text><rect x="560" y="334" width="320" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="720" y="354.5" text-anchor="middle" fill="var(--ink)">4つの出口に書いて return</text><text x="720" y="371.5" text-anchor="middle" fill="var(--ink)">0: sqrt(ベース) / 1: ORM</text><text x="720" y="388.5" text-anchor="middle" fill="var(--ink)">2: ビュー法線 + 距離 / 3: 発光</text><rect x="560" y="480" width="320" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="720" y="500.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">deferred.frag</text><text x="720" y="517.5" text-anchor="middle" fill="var(--ink)">G-Buffer を開く → 影 → Cook-Torrance → IBL</text><text x="720" y="534.5" text-anchor="middle" fill="var(--ink)">点光源は球ごとに1個</text><path d="M210 58 L210 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 113 L210 133" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 185 L210 205" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 240 L210 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 312 L210 332" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M400 350.5 L558 350.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="479" y="342.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes(G-Buffer パス)</text><path d="M210 367 L210 408" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="218" y="383" fill="var(--muted)" font-size="12" text-anchor="start">No(フォワード)</text><path d="M210 443 L210 463" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M210 498 L210 518" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M720 401 L720 478" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr3)"></path><text x="728" y="425" fill="var(--muted)" font-size="12" text-anchor="start">次のパスで</text></g></svg>
+<p><strong>この図の切れ目は Day 52a で入れたもの</strong>。今日足したのは、後半のいちばん下に並ぶ<strong>点光源のループ</strong>(フォワード)と、<code>deferred.frag</code> 側の球1個ぶんの計算になる。</p>
+<p><strong>切る場所は SSAO の手前でなければならない</strong>。SSAO はディファードのとき G-Buffer から作るので、G-Buffer パスの時点ではまだ出来ていない。発光を SSAO の上へ移したのは、出口で書くものが全部、切れ目より前に揃っている必要があるから。</p>
+<p><strong>成分表示の窓(Shift+9 の類)が後半に居る</strong>ので、ディファードでは出せない。成分表示中は <code>UseDeferred</code> がフォワードに戻す——ディファードの側の同じ窓が「G-Buffer を見る」(<code>F5</code>)になる。</p>
+<p><strong>同じ関数が2本のシェーダにある</strong>(<code>CookTorrance</code>・<code>ShadowFactor</code>・<code>PointAttenuation</code>・<code>PointLightContribution</code>)。これが今日いちばん大きな歪みで、「今日残した歪み」の1つ目に書いた。</p>
+<h3 id="s20">点光源が1画素を塗るまで — 5つの関門</h3>
+<svg viewBox="0 0 910 644" role="img" aria-label="PointLight 1個が、視錐台・表面カリング・深度 GEQUAL・距離の4つで落とされずに残ったときだけ、Cook-Torrance を計算して加算で重なる図" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PointLight 1個</text><text x="235" y="45.5" text-anchor="middle" fill="var(--ink)">位置・届く距離・色</text><rect x="20" y="80" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CullLights ?</text><text x="235" y="117.5" text-anchor="middle" fill="var(--ink)">IsVisible(視錐台, 中心, 半径)</text><rect x="560" y="80" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="100.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">描かない</tspan>(ドローコール 0)</text><text x="725" y="117.5" text-anchor="middle" fill="var(--ink)">絵は変わらない</text><rect x="20" y="160" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">light-volume.vert</text><text x="235" y="197.5" text-anchor="middle" fill="var(--ink)">normalize(頂点) × 半径 × 1.028 + 位置</text><rect x="20" y="232" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="252.5" text-anchor="middle" fill="var(--ink)">表面カリング</text><text x="235" y="269.5" text-anchor="middle" fill="var(--ink)">(裏面だけ残す)</text><rect x="20" y="304" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="324.5" text-anchor="middle" fill="var(--ink)">深度 GEQUAL</text><text x="235" y="341.5" text-anchor="middle" fill="var(--ink)">裏面が G-Buffer の面より奥?</text><rect x="560" y="304" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="324.5" text-anchor="middle" fill="var(--ink)">塗らない</text><text x="725" y="341.5" text-anchor="middle" fill="var(--ink)">面は球よりずっと奥</text><rect x="20" y="384" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="404.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">deferred.frag(uPointLightPass = 1)</text><text x="235" y="421.5" text-anchor="middle" fill="var(--ink)">G-Buffer を開いて位置を戻す</text><rect x="20" y="456" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="476.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">距離 &gt;= 届く距離 ?</text><rect x="560" y="448" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="468.5" text-anchor="middle" fill="var(--ink)">0 を足す</text><text x="725" y="485.5" text-anchor="middle" fill="var(--ink)">(壁の裏に隠れた光。代償は払っている)</text><rect x="20" y="527" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="547.5" text-anchor="middle" fill="var(--ink)">Cook-Torrance × 色 × 減衰 × N・L</text><rect x="20" y="582" width="430" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="602.5" text-anchor="middle" fill="var(--ink)">加算で重ねる</text><text x="235" y="619.5" text-anchor="middle" fill="var(--ink)">One, One</text><path d="M235 58 L235 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 105 L558 105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="504" y="97" fill="var(--muted)" font-size="12" text-anchor="middle">外</text><path d="M235 130 L235 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="243" y="146" fill="var(--muted)" font-size="12" text-anchor="start">かかる</text><path d="M235 210 L235 230" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M235 282 L235 302" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 329 L558 329" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="504" y="321" fill="var(--muted)" font-size="12" text-anchor="middle">手前</text><path d="M235 354 L235 382" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="243" y="370" fill="var(--muted)" font-size="12" text-anchor="start">奥</text><path d="M235 434 L235 454" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 472.5 L558 472.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="504" y="464.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M235 489 L235 525" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="243" y="505" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M235 560 L235 580" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>関門が CPU・GPU の固定機能・シェーダの3か所に分かれている</strong>。1つ目(視錐台)は落としても絵が変わらない最適化で、<code>F7</code> で切ると確かめられる。2つ目と3つ目(カリングと深度)は GPU がシェーダを走らせる前に落とすので、ほぼ無料。4つ目(距離)だけがシェーダの中で、ここまで来た画素は<strong>0 を足すだけでも代償を払っている</strong>。</p>
+<p><strong>3つ目を「奥なら通す」にしたせいで、壁の裏の光も通る</strong>(<code>X3</code>)。床の下に光を置いても1画素も明るくならないことは自己チェックが確かめているが、その球が塗った画素のぶんは払っている。「光の重なり」(<code>F6</code>)に出ているのはこの全部。</p>
+<h3 id="s21">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 同じ式が2本のシェーダにもう2組増えた</strong>。Day 52a で <code>CookTorrance</code> と <code>ShadowFactor</code> を <code>textured.frag</code> と <code>deferred.frag</code> に書き写したのに加えて、今日は <code>PointAttenuation</code> と <code>PointLightContribution</code> が<strong>そっくり同じ形で2本に載った</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場所</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Pbr.cs</code></td><td>BRDF の定義と検算(自己チェックだけが呼ぶ)</td></tr>
+<tr><td><code>PointLight.Attenuation</code></td><td>減衰の CPU 版。<strong>検算用</strong>(窓の形・単調性・半径で 0)</td></tr>
+<tr><td><code>textured.frag</code></td><td>フォワード。全部の光を1画素の中でループする</td></tr>
+<tr><td><code>deferred.frag</code></td><td>ディファード。球1個につき1回</td></tr>
+</tbody>
+</table></div>
+<p>GLSL には <code>#include</code> が無いので、書き写すしかなかった。自己チェックは<strong>文字列が揃っているか</strong>(<code>MIN_ROUGHNESS</code>、窓の式、<code>MAX_FORWARD_LIGHTS</code>、出口の番号)と、<strong>フォワードとディファードで同じ絵になるか</strong>(平均の相対差 0.33%)の2段で見張っている。直し方は <code>Shader</code> に <code>#include</code> を足して共通部分を1本のファイルへ出すこと——エンジンが文字列を差し込むだけの仕組みで、Unreal の <code>.ush</code> がまさにこれ。<strong>Day 53 で Forward+ がフォワードの点光源ループを書き換える</strong>ので、そのときに2か所を同時に直すことになったら、先に <code>#include</code> を入れる時期になる。</p>
+<p><strong>2つ目: 光1個 = ドローコール1回</strong>。1024 個で 940 回(画面外の 84 個は落とす)で、1回ごとに uniform を3つ送り直している。球はどれも同じメッシュなので、位置と色を頂点バッファに並べて1回で描ける(インスタンシング)。それが改造課題3。</p>
+<p><strong>3つ目: 壁の裏の光が、壁の手前の画素を塗る</strong>(要点3)。深度の比べ方を「奥なら通す」にしたので、球の裏面が G-Buffer の面より奥にあれば必ずシェーダが走る。壁1枚を挟んだ向こうの光でも、球が壁の手前の画素を覆っていれば代償を払う——シェーダの中で距離を測って 0 を足すだけになるが、その画素ぶんは確かに払っている。「光の重なり」(<code>F6</code>)で壁の上のほうが焼けているのは全部これ。完全に弾くにはステンシルを使った2パスにする(改造課題2)。</p>
+<p><strong>Day 52a の歪みは3つともそのまま残っている</strong>。影のパス(<code>RenderShadowPass</code>)は今日も手書きの分岐、位置の精度は 16F のまま(Day 52a の要点2)、材質グリッドと <code>EnvironmentMap</code> の生 FBO も手付かず。どれも「光の設定をパスごとに持つ形」へ整理する Day 56 の仕事に回してある。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day52b -c Release</code> で起動する。先に「デモ v1」ページ(8 枚目)の <code>1</code>(決めの構図)でデモ v1 を出し、<code>F1</code> を 20 回押すか <code>Ctrl+F1</code> の目次から「ディファード」ページ(20 枚目)を開く。<code>F2</code> でディファードに切り替えてから下を試す。</p>
+<h3 id="s23">1. <code>F3</code> と <code>F4</code>: 光を増やして、夜にする</h3>
+<p><code>F3</code> で 16 → 64 → 256 → 1024 → 0 と回る。</p>
+<div class="code"><pre><code>点光源: <strong>64 個</strong>  届く距離 2.00m
+点光源: <strong>256 個</strong>  届く距離 1.00m  ※フォワードは 64 個で打ち切る(uniform の枠)</code></pre></div>
+<p>夕暮れのままだと、日の当たる床の上では光がほとんど見えない(太陽が強い)。<code>F4</code> で夜にすると、裏通りの床に色とりどりの光だまりが並ぶ。1024 個まで上げると、床が<strong>小さな光の粒の敷石</strong>のようになる。</p>
+<p><strong>ここが今日の到達点</strong>。Day 52a では数字にしか出なかった組み替えの配当が、はじめて絵に出る。</p>
+<h3 id="s24">2. フォワードの壁: 64 個を超えると光が消える</h3>
+<p>256 個か 1024 個のまま <code>F2</code> でフォワードに戻すと、HUD が<code><strong>64個で打ち切り</strong></code> になり、<strong>床の光だまりが目に見えて減る</strong>。64 個以下なら、ON/OFF で絵はほぼ同じ(夜・64 個で全画素の 0.07% が 5% 以上ずれる程度)。</p>
+<p><strong>Day 52a では <code>F2</code> で絵が1ピクセルも変わらなかった</strong>。今日はじめて「描き方を変えると絵が変わる」状態になるが、変わるのは<strong>フォワードが描けていないぶん</strong>だけで、ディファードの側は何も足していない。</p>
+<h3 id="s25">3. <code>F6</code>: 光の重なり</h3>
+<p>画面が暗くなり、光の球が塗った画素だけが橙に焼ける。<strong>光の数を 16 ↔ 1024 で切り替えても、焼け方の総量がほぼ変わらない</strong>——大きな球 16 個と小さな球 1024 個で、塗る量を揃えてある(要点5)。壁の上のほうにも焼けが出るのは、<strong>壁の手前の画素を、壁の裏の球が塗っている</strong>から(要点3)。</p>
+<h3 id="s26">4. <code>F7</code>: 画面外の光を落とす</h3>
+<p>1024 個・決めの構図で <code>球:940描画/84間引き</code>。OFF にすると <code>1024描画/0間引き</code> になるが、<strong>絵は1画素も変わらない</strong>——GPU が球をクリップするので、落としても落とさなくても同じ絵になる。変わるのはドローコールの数だけ。</p>
+<h3 id="s27">5. <code>F8</code>: 内訳</h3>
+<p>Day 52a の4枚の表の下に、点光源の段が増える。</p>
+<div class="code"><pre><code>  点光源: 1024 個  届く距離 0.50m  強さ 8.0(16 個のとき。数に合わせて半径に比例して弱める)
+  光の球: 三角形 384 枚 x 倍率 1.028(外接させるため)  描いた 940 / 間引いた 84
+  フォワードの上限: 64 個(uniform の枠)  <strong>いまフォワードで描くと 960 個が消える</strong></code></pre></div>
+<p><strong>倍率 1.028</strong> が要点2の最後に書いた「分割した球は面が内側へ入り込む」の手当て。自己チェックが、いちばん内側に入り込む面でも届く距離の 1.0003 倍の外にあることを見ている。</p>
+<h3 id="s28">6. <code>F9</code>: 計測</h3>
+<div class="code"><pre><code>--- 光の数ごとの計測(960x640、24 回の平均。影と SSAO は含めない)---
+  光の数  届く距離   フォワード                    ディファード
+      0    4.00m     0.71ms                      0.72ms(球 0 個)
+     16    4.00m     0.96ms                      0.84ms(球 16 個)
+     64    2.00m     1.42ms                      0.80ms(球 64 個)
+    256    1.00m     0.80ms(64個で打ち切り)            0.57ms(球 249 個)
+   1024    0.50m     0.74ms(64個で打ち切り)            0.92ms(球 940 個)</code></pre></div>
+<p><strong>比べてよいのは 64 個まで</strong>。フォワードは 0 → 64 個で倍になり、ディファードはほぼ横ばい。256 個から先のフォワードは、打ち切った 64 個が小さな光なので<strong>かえって安く</strong>出る——フォワードの代償は「全部の光の距離を測る」ぶんと「届いた光の BRDF」ぶんの和で、小さな光ほど届く画素が少ないため(要点1)。数字は 0.2ms ほどぶれる(GPU のクロックが負荷で上下する)ので、並びの傾向を読むこと。</p>
+<h3 id="s29">7. <code>F10</code>: 自己チェックが 31 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 52 自己チェック(G-Buffer・位置の復元・光の球・フォワードとの一致)===
+  [OK] 減衰: 中心で 1(分母の +1 が無限大を止める)  1.0000
+  ...
+  すべて合格(G-Buffer・位置の復元・光の球・フォワードとの一致が仕様どおり)</code></pre></div>
+<p>Day 52a の 14 項目に 17 項目足して 31 項目。<strong>窓を開かずに走る項目が 11 ある</strong>(減衰・群れ・視錐台)。<code>PointLight</code> と <code>LightSwarm</code> が GL を知らないおかげで、数字だけで確かめられる。</p>
+<h3 id="s30">8. Day 52a の絵と機能が1つも壊れていない</h3>
+<ul><li><strong><code>F2</code>(光 0 個)で絵が1ピクセルも変わらない</strong>。Day 52a の到達点はそのまま生きている</li><li><strong><code>F5</code>: G-Buffer を見る</strong>。席が <code>F3</code> から <code>F5</code> へずれただけで、中身は同じ</li><li><strong>プレイアブルデモもディファードで動く</strong>。「プレイアブルデモ」ページ(19 枚目)の <code>F2</code> でキツネを出すと、ディファードのまま歩き回れる。夜にすると<strong>キツネが光だまりを通るたびに照らされる</strong></li><li><strong>ウィンドウを広げても G-Buffer が付いてくる</strong>(<code>OnFramebufferResize</code> の <code>_gbuffer.Resize</code>)</li><li>Day 48 の自己チェック(<code>Alt+F1</code>)は <strong>199 項目</strong>で通る(Day 52a の 194 に今日の5項目)</li></ul>
+<p><strong>既定はフォワード・光 0 個</strong>なので、起動した直後の絵は Day 52a とまったく同じになる。</p>
+<p><strong>IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる</strong>こと。あのチェックは手焼きの空(<code>SkyImage</code>)と焼いたキューブを比べるので、HDRI の空を焼いたあとでは4項目が落ちる。これは Day 51 までと同じ振る舞いで、今日の変更とは関係ない。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「ディファード」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>裏通りを真上から見る「描き方」</td><td>256 個・1024 個でフォワードにすると、65 個目から後ろ(白抜き)の光だまりが消える</td></tr>
+<tr><td><code>F3</code></td><td>同「点光源の数」</td><td>数を変えると半径・高さ・強さが一緒に変わり、個数 × 半径² は 256 のまま</td></tr>
+<tr><td><code>F4</code></td><td>同「夜」</td><td>夕暮れのままだと光だまりがほとんど見えない</td></tr>
+<tr><td><code>F6</code></td><td>同「光の重なり」、光の球を描く</td><td>16 個でも 1024 個でも重なりの平均がほぼ同じ。低い壁の裏の球が手前の画素を塗る</td></tr>
+<tr><td><code>F8</code>(内訳)</td><td>減衰の窓と、分割した球</td><td>外接させる倍率 1.0284(16 x 12 分割)</td></tr>
+<tr><td><code>F10</code>(自己チェック)</td><td>減衰の窓と、分割した球 / 光の球を描く / 裏通りを真上から見る</td><td>中心で 1、届く距離の 1 割で窓 0.9998、半径ちょうどで 0。カメラが球の中でも光が消えない。数を変えても個数 × 半径² が一定</td></tr>
+<tr><td><code>F5</code>・<code>F7</code>・<code>F9</code></td><td>(なし)</td><td>G-Buffer を見る(Day 52a の実験台)、画面外の光を落とす(絵が変わらない)、計測</td></tr>
+<tr><td>(なし)</td><td>「外接させない」「裏面を捨てる」「捨てない」「LESS」</td><td>要点2・3 の失敗を見るためにこのページで足した切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">減衰の実験台は reference/Day52b の PointLight.Attenuation と DeferredLighting.VolumeScale を、光の群れの実験台は LightSwarm(.NET の乱数ごと)を JS に移したもの(docs/site/lights.js。Day 53 の実験台も使う)。光の位置・色・半径・高さ・強さは reference と同じだが、床は真上から見て点光源の拡散(アルベド 0.3)だけで塗っていて、鏡面反射・影・壁は省いた。太陽と空は床に一様に当たる明るさに置き換え、夜はそれを 3% にしている。「床に降る光の総量」はこのページの数え方(床だけ・拡散だけ)で、16〜256 個はおおむね揃うが、1024 個は 4 割ほどに落ちる。光の球の実験台は横から見た断面(2D)で、球は円、画面は 40 画素に縮めてある。</p></div>
+</section>
+<section class="part"><h2 id="s31">改造課題</h2>
+<h3 id="s32">課題1(易): 街灯に光を灯す</h3>
+<p>いまの点光源は通りを漂う群れだけで、<strong>街灯は光っていない</strong>。街灯のガラスの位置に点光源を1つ置く。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// デモ v1 を読んだあと、Items から街灯のガラスを探して位置を覚える
+foreach (DemoScene.Item item in _demo.Items)
+{
+    if (item.Name.StartsWith("街灯/", StringComparison.Ordinal) &amp;&amp; item.Name.Contains("Glass"))
+    {
+        _lampPosition = (item.BoundsMin + item.BoundsMax) * 0.5f;
+    }
+}
+
+// CurrentLights で、群れの後ろに1つ足した並びを返す
+_lightBuffer[count++] = new PointLight(_lampPosition, 6.0f, new Vector3(18.0f, 10.0f, 4.0f));</code></pre></div>
+<p>パーツの名前は「デモ v1」の <code>F10</code>(デモの内訳)で見られる。やってみると<strong>フォワードで光を 64 個以上にしたとき、街灯だけが消える</strong>——並びのいちばん後ろに足したので、打ち切りで最初に捨てられる。<strong>フォワードの上限は「何を捨てるか」を決める仕事を生む</strong>、というのがこの課題の読みどころ。本番のエンジンは明るさや距離で並べ替えてから切る。</p>
+<h3 id="s33">課題2(中): ステンシルで壁の裏の光を弾く</h3>
+<p>いまの深度テストは「奥なら通す」だけなので、<strong>壁の裏の光も壁の手前の画素を塗る</strong> (今日残した歪みの3つ目)。正しく弾くには、球1個につき2パスに分ける。</p>
+<div class="code"><pre><code>  1パス目  深度だけ・カラー書かない・両面
+           表面が深度より奥  → ステンシルを +1(Z-fail)
+           裏面が深度より手前 → ステンシルを -1
+  2パス目  ステンシルが 0 でない画素だけ塗る</code></pre></div>
+<p><strong>「球の内側に面がある画素」だけが残る</strong>という、影のボリューム(Stencil Shadow Volume)とまったく同じ手口になる。<code>glStencilOpSeparate</code> で表裏それぞれの動きを決める。</p>
+<p>代償は<strong>ドローコールが倍になる</strong>こと。「光の重なり」(<code>F6</code>)の焼けがどれだけ減るか、計測(<code>F9</code>)の ms がどう動くかを並べて、<strong>弾いた得と2パスの損のどちらが大きいか</strong>を見る。今日の規模(半径 0.5〜4m の球)ではたいてい割に合わず、本番のエンジンがタイル / クラスター(Day 53)へ行った理由がここで腑に落ちる。</p>
+<h3 id="s34">課題3(難): 光の球をインスタンシングで1回に描く</h3>
+<p>いまは光1個 = ドローコール1回で、1024 個なら 940 回。位置と色を頂点バッファに並べ、<code>glDrawElementsInstanced</code> の1回で描く。</p>
+<div class="code"><pre><code>  いま      uniform 3 つ + DrawElements  × 940 回
+  課題      頂点バッファ 1 本に 940 個ぶん詰める + DrawElementsInstanced × 1 回</code></pre></div>
+<p><code>glVertexAttribDivisor(location, 1)</code> で「この属性は頂点ごとではなく球ごとに進む」と指定する。<strong>難しいのは GL の手順ではなく <code>deferred.frag</code> の約束のほう</strong>で、球ごとの位置と色を頂点シェーダから画素シェーダへ渡す(<code>flat out</code>)と、いまの「入力を1つも宣言しない」(全画面の三角形とプログラムを共有するため)が崩れる。全画面のほうにも同じ名前の出力を足すか、画素シェーダを分けて <code>#include</code> を入れるか——「今日残した歪み」の1つ目と、ここで正面から向き合うことになる。HUD の「光」の ms と、計測(<code>F9</code>)の数字がどう動くかを並べること。</p>
+</section>
+<section class="part"><h2 id="s35">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>解像度</td><td>960 x 640(リサイズの確認で 1120 x 700)</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した(GPU への負荷を抑えるため。fps は 60 で頭打ち)</td></tr>
+</tbody>
+</table></div>
+<p>ディファードの計測(決めの構図・夜)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>G-Buffer</td><td>960x640 x4枚 + 深度 = 15.8MB</td></tr>
+<tr><td>G-Buffer パス(CPU)</td><td>0.08〜0.21 ms</td></tr>
+<tr><td>ライティングパス(CPU)</td><td>0.19〜0.35 ms(光の重なりを出すと 0.9 ms)</td></tr>
+<tr><td>光の球</td><td>1024 個で 940 描画 / 84 間引き、256 個で 249 / 7</td></tr>
+<tr><td>フォワードとディファードの差(夕暮れ・光 0)</td><td>平均 0.34% / 5% を超える画素 0.24%(<strong>全部が影の縁</strong>)</td></tr>
+<tr><td>フォワードとディファードの差(夜・光 64)</td><td>平均 0.31% / 5% を超える画素 0.07%</td></tr>
+</tbody>
+</table></div>
+<h3 id="s36">自己チェック(31 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 52 自己チェック(G-Buffer・位置の復元・光の球・フォワードとの一致)===
+  [OK] 減衰: 中心で 1(分母の +1 が無限大を止める)  1.0000
+  [OK] 減衰: <strong>半径ちょうどで 0</strong>(球の外は塗らなくてよい)  2.999m で 1.8E-007
+  [OK] 減衰: 距離とともに単調に減る(途中で明るくならない)  0〜3m を 1cm 刻み
+  [OK] 減衰: 半径の 1 割の距離では窓がほぼ効かない(<strong>1/d² の形を崩さない</strong>)  窓 0.9998
+  [OK] <strong>平方根で詰めると暗部が潰れない</strong>(0.02〜1 での最大の相対誤差)  リニアの 8bit 8.8% / 平方根 2.7%
+  [OK] 群れ: 3秒を1回で進めても 60 回で進めても同じ位置(<strong>位置は時刻の関数</strong>)  最大のずれ 0.0014mm
+  [OK] 群れ: 全部が裏通りの箱の中  64 個
+  [OK] 群れ: 数を変えても球が塗る量(個数 × 半径²)が一定  256.0〜256.0 m²
+  [OK] 視錐台: 目の前の光は描き、背後と真横の光は落とす
+  [OK] 視錐台: 中心が画面の外でも、<strong>縁にかかる球は描く</strong>
+  [OK] 視錐台: カメラが球の中なら必ず描く
+  [OK] G-Buffer: カラー4枚が挿さっている(<strong>MRT が組めている</strong>)  4 枚
+  [OK] G-Buffer: 1画素 24B + 深度 3B  15.8MB
+  [OK] G-Buffer: 距離が CPU の計算と一致(2枚目の A)  焼いた 6.336m / 期待 6.344m
+  [OK] G-Buffer: 法線がビュー空間の床の法線と一致(2枚目の RGB)  内積 1.0000
+  [OK] G-Buffer: AO・粗さ・金属度が材質どおり(<strong>ORM の並び</strong>)  R 1.000 / G 0.698 / B 0.000
+  [OK] G-Buffer: ベースカラーは平方根で入り、2乗すると材質の色に戻る  入っている値 0.549(√0.30 = 0.548)→ 2乗 0.301
+  [OK] G-Buffer: 空は距離 0(何も描かれていない印)  0.000
+  [OK] <strong>位置の復元: 距離1つから世界の位置が戻る</strong>(1cm 以内)  ずれ 3.11mm(距離 6.34m)
+  [OK] SSAO: G-Buffer から作った遮蔽が、自前の幾何パスとほぼ一致  平均の差 0.0000
+  [OK] SSAO: 借りるときは<strong>幾何パスを1回も描かない</strong>(3回 → 2回)  幾何 0 回
+  [OK] 光の球: <strong>床の下の光は1画素も明るくしない</strong>(球は写っても届かない)  描いた球 1 個 / 最大の差 0.0E+000
+  [OK] 光の球: <strong>カメラが球の中に入っても光が消えない</strong>(裏面を描いている)  画面の平均 0.008 → 0.037
+  [OK] 光の球: 分割した球の面が届く距離の外にある(<strong>光の縁が欠けない</strong>)  いちばん内側 1.0003 x 届く距離(倍率 1.0284)
+  [OK] <strong>フォワードとディファードで同じ絵</strong>(光3個・影・IBL・SSAO 込み)  平均の相対差 0.33% / 5% を超える画素 0.01%
+  [OK] フォワードは 64 個で打ち切る(<strong>65 個目の光が消える</strong>)  最大の差 0.0E+000
+  [OK] ディファードに上限は無い(65 個目の光が見える)  画面の平均 0.0079 → 0.1995
+  [OK] MIN_ROUGHNESS が textured.frag・deferred.frag・Pbr で一致  MIN_ROUGHNESS = 0.045
+  [OK] MAX_FORWARD_LIGHTS が PointLight.MaxForward と一致  64 個
+  [OK] 減衰の窓が2本のシェーダで同じ式
+  [OK] G-Buffer の出口の番号が GBuffer の定数と一致(layout の location)
+  すべて合格(G-Buffer・位置の復元・光の球・フォワードとの一致が仕様どおり)</code></pre></div>
+<h3 id="s37">検証の途中で分かったこと</h3>
+<p><strong>1. <code>Mesh.ReadIndices</code> が VAO を壊していた</strong>(いちばん時間を食った)。自己チェックの「光の縁が欠けない」を足したところ、次の項目(フォワードとの一致)で<strong>アクセス違反で落ちた</strong>。落ちたのは <code>Mesh.Draw</code> の中の <code>DrawElements</code>。</p>
+<p>原因は Day 35 の <code>ReadIndices</code> にあった。インデックスバッファを <code>ElementArrayBuffer</code> に結び付けて読み、最後に 0 へ戻す——ところが <code>ElementArrayBuffer</code> の結び付けは<strong>いま結び付いている VAO の記録そのもの</strong>で、直前に描いた光の球の VAO(<code>Mesh.Draw</code> は描いたあと VAO を外さない)からインデックスバッファを外していた。次にその球を描いた瞬間、<code>DrawElements</code> はオフセット 0 を CPU のメモリの 0 番地として読みに行く。</p>
+<div class="code"><pre><code>  Day 35〜52a  ReadIndices の直前に結び付いていた VAO = 文字のバッチ(フレームの最後に描く)
+  Day 52b      ReadIndices の直前に結び付いていた VAO = 光の球(自己チェックが直前に描いた)</code></pre></div>
+<p><strong>Day 35〜52a で落ちなかったのは、たまたま</strong>だった。直し方は、どの VAO にも属さない <code>CopyReadBuffer</code> に結び付けて読むこと。<code>ReadVertices</code> のほうは <code>ArrayBuffer</code> を使っていて、こちらは VAO の記録ではないので無事だった。<strong>GL の結び付けには「グローバルなもの」と「VAO が持つもの」が混ざっている</strong>、というのが教訓。<code>Mesh</code> のコンストラクタの末尾には、元から「VAO を付けたまま <code>ElementArrayBuffer</code> に 0 を入れると外れる」と書いてあった——<strong>作るときは避けていた罠を、読み戻すときに踏んでいた</strong>。</p>
+<p><strong>Day 35〜52a の <code>Mesh.cs</code> まで遡って同じ直しを入れてある</strong>。だから今日の差分(<code>git diff --no-index Day52a Day52b</code>)には <code>Mesh.cs</code> が出てこない。</p>
+<p><strong>2. 1024 個が暗すぎた</strong>。最初は「個数 × 半径³ を一定」(光が覆う<strong>体積</strong>を揃える)にして、高さは全部 0.3〜2.6m、強さは半径² で弱めていた。1024 個(半径 1m)にすると床がほぼ真っ暗になった——<strong>高さ 1m より上の光は床に届かない</strong>ので、半分以上の光が何も照らしていなかった。</p>
+<p>ディファードの代償は球が画面を覆う<strong>面積</strong>で決まるので、揃えるべきは 個数 × 半径²。高さを半径に合わせて下げ、強さを半径の1乗で弱めると、どの数でも床に同じくらいの光が降るようになった(要点5)。「光の重なり」(<code>F6</code>)を出して 16 個と 1024 個を並べたのが決め手になった。</p>
+<p><strong>3. 点光源を足してもフォワードとの差は増えなかった</strong>。Day 52a の時点で、差は<strong>影の縁の数画素だけ</strong>(位置を 16F の距離から戻しているため。Day 52a の要点2)だった。</p>
+<div class="code"><pre><code>  夕暮れ・光 0    平均 0.34%   5% を超える画素 0.24%
+  夜・光 64       平均 0.31%   5% を超える画素 0.07%</code></pre></div>
+<p><strong>光を 64 個足しても増えない</strong>のが大事なところ。減衰も BRDF も2本のシェーダで同じ式を書いたので、点光源のぶんはぴったり一致している——差はもとから影の縁にしか無く、そこはフォワードもディファードも同じ影マップを引いている。文字列が揃っているかを見る自己チェック(節5)が、この一致を支えている。</p>
+<p><strong>4. フォワードの代償は「届く光」にも比例する</strong>。計測(<code>F9</code>)で、64 個で打ち切った 1024 個(半径 0.5m)のほうが、64 個ちょうど(半径 2m)より 0.7ms 安かった。どちらもループは 64 周だが、半径の外なら BRDF の前に帰る——<strong>距離を測るぶんは光の数に、BRDF のぶんは届いた光の数に比例する</strong>(要点1の表)。フォワードの多光源が「光を増やすと重い」だけでなく「光が大きいと重い」のは、この2つ目のため。</p>
+</section>
+<footer class="end">Day 52b 多光源 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/lights.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat, animate } = Lab;
+const { attenuation, LightSwarm, MAX_FORWARD, BOUNDS_MIN, BOUNDS_MAX, radiusFor, heightRange } = Lights;
+
+// ============================================================
+//  要点2: 減衰の窓と、分割した球
+// ============================================================
+const at = { r: 3, q: 0.1, slices: 16, inflate: true };
+const STACKS = 12;
+const volumeScale = (s) => 1 / (Math.cos(Math.PI / s) * Math.cos(Math.PI / (2 * STACKS)));   // DeferredLighting.VolumeScale
+function drawAtt() {
+  const { ctx, w, h } = fit($('att-canvas'));
+  const split = Math.max(w * 0.62, w - 300);
+  const L = 44, R = split - 16, T = 12, B = h - 26;
+  const r = at.r, X = (d) => L + d / (1.25 * r) * (R - L), Y = (v) => B - v * (B - T);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.strokeStyle = tok('--grid'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1;
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillText(v.toFixed(2), 4, Y(v) + 4); }
+  for (const k of [0, 0.25, 0.5, 0.75, 1, 1.25]) { ctx.beginPath(); ctx.moveTo(X(k * r), T); ctx.lineTo(X(k * r), B); ctx.stroke(); ctx.fillText(`${+(k * r).toFixed(2)}m`, X(k * r) - 12, h - 8); }
+  const curve = (fn, color, dash) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath();
+    for (let i = 0; i <= 400; i++) { const d = i / 400 * 1.25 * r, v = fn(d); if (i === 0) ctx.moveTo(X(d), Y(v)); else ctx.lineTo(X(d), Y(v)); }
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  const win = (d) => { const q = d / r, w4 = Math.min(Math.max(1 - q ** 4, 0), 1); return w4 * w4; };
+  curve((d) => 1 / (d * d + 1), tok('--muted'));
+  curve(win, tok('--good'), [5, 4]);
+  curve((d) => Math.max(1 - d / r, 0) / (d * d + 1), tok('--expl'));
+  curve((d) => attenuation(d, r), tok('--semi'));
+  const d = at.q * r;
+  ctx.strokeStyle = tok('--ink'); ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(X(d), T); ctx.lineTo(X(d), B); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--semi'); ctx.beginPath(); ctx.arc(X(d), Y(attenuation(d, r)), 4.5, 0, Math.PI * 2); ctx.fill();
+  // 右: 赤道の断面。真の届く距離の円と、分割した球の多角形
+  const cx = (split + w) / 2, cy = h / 2, rad = Math.min(w - split, h) * 0.36, S = at.slices;
+  const scale = at.inflate ? volumeScale(S) : 1;
+  ctx.fillStyle = 'rgba(255,170,80,0.18)'; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
+  // 多角形の外にはみ出した「光が届くのに塗られない」部分
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = 'rgba(230,60,50,0.75)'; ctx.beginPath(); ctx.rect(cx - rad * 2, cy - rad * 2, rad * 4, rad * 4);
+  for (let i = 0; i <= S; i++) { const a = i / S * Math.PI * 2, x = cx + Math.cos(a) * rad * scale, y = cy + Math.sin(a) * rad * scale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+  ctx.fill('evenodd'); ctx.restore();
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 0; i <= S; i++) { const a = i / S * Math.PI * 2, x = cx + Math.cos(a) * rad * scale, y = cy + Math.sin(a) * rad * scale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+  ctx.stroke();
+  ctx.strokeStyle = tok('--warn'); ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px ' + tok('--font-body'); ctx.fillText(`赤道の断面(${S} 角形)`, split + 8, 16);
+  $('att-d-out').textContent = `${at.q.toFixed(3)}(${d.toFixed(3)}m)`;
+  $('att-legend').innerHTML = [['--semi', '減衰(Karis 2013)'], ['--muted', '1 / (d² + 1)(物理)'], ['--good', '窓だけ'], ['--expl', '素朴な (1 - d/r) / (d² + 1)']]
+    .map(([c, t]) => `<span class="lg"><i class="chip" style="background:${tok(c)}"></i>${t}</span>`).join('');
+  const inner = scale * Math.cos(Math.PI / S) * Math.cos(Math.PI / (2 * STACKS));
+  $('att-stats').innerHTML =
+    stat('窓', win(d).toFixed(4)) +
+    stat('減衰', attenuation(d, r) < 1e-3 && attenuation(d, r) > 0 ? attenuation(d, r).toExponential(1) : attenuation(d, r).toFixed(4), ` <small>物理だけなら ${(1 / (d * d + 1)).toFixed(4)}</small>`) +
+    stat('外接させる倍率', scale.toFixed(4), ` <small>面の中心は届く距離の ${inner.toFixed(4)} 倍</small>`);
+  let note;
+  if (!at.inflate) note = `外接させないと、分割した球の面は頂点のあいだで内側へ入り込む(弦は弧の内側を通る)。赤い部分は光が届くのに球が覆わない画素で、光だまりの縁が ${S} 角形に欠ける。`;
+  else if (at.q >= 1) note = '届く距離の外では窓が 0 になり、減衰もちょうど 0。だから球の外の画素は1つも塗らなくてよい。物理の 1/(d²+1) は 0 にならない(灰色の線)。';
+  else if (at.q <= 0.15) note = '近くでは窓がほぼ 1(届く距離の 1 割で 0.9998)で、減衰は物理の 1/(d²+1) と重なる。素朴な (1 - d/r) を掛けると、ここですでに 1 割暗くなる。';
+  else note = '4乗してから2乗した窓は、近くではほとんど効かず、端でだけ滑らかに 0 へ落ちる。素朴な (1 - d/r) は近くまで一様に暗くするので、光が小さく見える。';
+  $('att-note').textContent = note;
+}
+seg('att-r', (v) => { at.r = Number(v); drawAtt(); });
+seg('att-slices', (v) => { at.slices = Number(v); drawAtt(); });
+$('att-d').addEventListener('input', (e) => { at.q = Number(e.target.value); drawAtt(); });
+$('att-noinflate').addEventListener('change', (e) => { at.inflate = !e.target.checked; drawAtt(); });
+drawAtt();
+
+// ============================================================
+//  要点3: 光の球を描く(横から見た断面)
+// ============================================================
+// 床・低い壁・奥の壁(x が奥行き、y が高さ)
+const RECTS = [[-1, -1.8, 13, 0], [5.0, 0, 5.3, 1.4], [11, 0, 11.4, 4.6]];
+const NRAYS = 40, NEAR = 0.1;
+const PRESETS = { floor: { cam: [0.6, 1.7], light: [3.4, 0.5], r: 1.6 }, behind: { cam: [0.6, 1.7], light: [6.4, 0.5], r: 1.6 }, inside: { cam: [0.6, 1.7], light: [1.8, 1.0], r: 2.0 } };
+const vl = { cull: 'front', depth: 'gequal', cam: [0.6, 1.7], light: [3.4, 0.5], r: 1.6, pitch: -14 * Math.PI / 180, fov: 56 * Math.PI / 180 };
+function hitRects(o, d) {
+  let best = Infinity;
+  for (const [x0, y0, x1, y1] of RECTS) {
+    let t0 = -Infinity, t1 = Infinity, ok = true;
+    for (const [oo, dd, lo, hi] of [[o[0], d[0], x0, x1], [o[1], d[1], y0, y1]]) {
+      if (Math.abs(dd) < 1e-12) { if (oo < lo || oo > hi) ok = false; continue; }
+      const a = (lo - oo) / dd, b = (hi - oo) / dd;
+      t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
+    }
+    if (ok && t0 <= t1 && t0 > 1e-6 && t0 < best) best = t0;
+  }
+  return best;
+}
+function classify() {
+  const rays = [];
+  for (let i = 0; i < NRAYS; i++) {
+    // i = 0 が画面の上端
+    const a = vl.pitch + vl.fov / 2 - (i + 0.5) / NRAYS * vl.fov;
+    const d = [Math.cos(a), Math.sin(a)], o = vl.cam;
+    const ts = hitRects(o, d);   // G-Buffer の面(無ければ空 = 深度 1)
+    // 円との交点(表面 t0 と裏面 t1)
+    const oc = [o[0] - vl.light[0], o[1] - vl.light[1]], b = oc[0] * d[0] + oc[1] * d[1], c = oc[0] * oc[0] + oc[1] * oc[1] - vl.r * vl.r;
+    const disc = b * b - c;
+    const frags = [];
+    if (disc > 0) {
+      const s = Math.sqrt(disc), t0 = -b - s, t1 = -b + s;
+      if (vl.cull !== 'back' && t1 > NEAR) frags.push(t1);    // 裏面
+      if (vl.cull !== 'front' && t0 > NEAR) frags.push(t0);   // 表面
+    }
+    const passed = frags.filter((t) => (vl.depth === 'gequal' ? (Number.isFinite(ts) && t >= ts) : t < ts));
+    const p = Number.isFinite(ts) ? [o[0] + d[0] * ts, o[1] + d[1] * ts] : null;
+    const inRange = p && Math.hypot(p[0] - vl.light[0], p[1] - vl.light[1]) < vl.r;
+    let kind = 'none';
+    if (passed.length > 0 && inRange) kind = 'lit';
+    else if (passed.length > 0) kind = 'waste';
+    else if (inRange) kind = 'miss';
+    rays.push({ d, ts, p, passed, kind });
+  }
+  return rays;
+}
+const KIND = { lit: ['塗った', '#f0a040'], waste: ['走ったが 0 を足した', '#e05050'], miss: ['取りこぼし(届くのに走らない)', '#5aa0ff'], none: ['走らない', null] };
+let volView = null;
+function drawVol() {
+  const { ctx, w, h } = fit($('vol-canvas'));
+  const strip = 22, L = strip + 18;
+  // 床の下も 1.8m 見せる(裏面は床より下に来ることが多い)
+  const s = Math.min((w - L - 10) / 12.4, (h - 16) / 6.4), X = (x) => L + (x + 0.2) * s, Y = (y) => h - 8 - (y + 1.8) * s;
+  volView = { s, X0: L + 0.2 * s, Y0: h - 8 - 1.8 * s };
+  const rays = classify();
+  // 床と壁
+  ctx.fillStyle = tok('--line');
+  for (const [x0, y0, x1, y1] of RECTS) ctx.fillRect(X(Math.max(x0, -0.2)), Y(y1), (Math.min(x1, 12.2) - Math.max(x0, -0.2)) * s, (y1 - y0) * s);
+  // 光の球の断面
+  ctx.fillStyle = 'rgba(255,170,80,0.16)'; ctx.strokeStyle = 'rgba(255,170,80,0.8)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(X(vl.light[0]), Y(vl.light[1]), vl.r * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffd38a'; ctx.beginPath(); ctx.arc(X(vl.light[0]), Y(vl.light[1]), 5, 0, Math.PI * 2); ctx.fill();
+  // 視線
+  for (const r of rays) {
+    const end = Number.isFinite(r.ts) ? r.ts : 14;
+    const col = KIND[r.kind][1];
+    ctx.strokeStyle = col || tok('--grid'); ctx.lineWidth = col ? 1.6 : 1; ctx.globalAlpha = col ? 0.9 : 0.6;
+    ctx.beginPath(); ctx.moveTo(X(vl.cam[0]), Y(vl.cam[1])); ctx.lineTo(X(vl.cam[0] + r.d[0] * end), Y(vl.cam[1] + r.d[1] * end)); ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (const t of r.passed) { ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(X(vl.cam[0] + r.d[0] * t), Y(vl.cam[1] + r.d[1] * t), 3, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+  }
+  // カメラ
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(X(vl.cam[0]), Y(vl.cam[1]), 5, 0, Math.PI * 2); ctx.fill();
+  // 左端の画面
+  const ch = (h - 16) / NRAYS;
+  rays.forEach((r, i) => { ctx.fillStyle = KIND[r.kind][1] || tok('--sunken'); ctx.fillRect(6, 8 + i * ch, strip, ch - 1); });
+  ctx.strokeStyle = tok('--line'); ctx.strokeRect(6, 8, strip, NRAYS * ch);
+  const n = (k) => rays.filter((r) => r.kind === k).length;
+  $('vol-legend').innerHTML = Object.entries(KIND).filter(([, v]) => v[1]).map(([, [t, c]]) => `<span class="lg"><i class="chip" style="background:${c}"></i>${t}</span>`).join('') + '<span class="lg">白い点 = 深度テストを通った球の面</span>';
+  const inside = Math.hypot(vl.cam[0] - vl.light[0], vl.cam[1] - vl.light[1]) < vl.r;
+  $('vol-stats').innerHTML =
+    stat('塗った画素', String(n('lit')), ` <small>/ ${NRAYS}</small>`) +
+    stat('0 を足しただけの画素', String(n('waste')), ' <small>代償は払っている</small>') +
+    stat('取りこぼした画素', String(n('miss')), n('miss') ? ' <span class="pill bad">光が欠ける</span>' : '') +
+    stat('カメラ', inside ? '球の中' : '球の外');
+  let note;
+  if (vl.cull === 'none' && vl.depth === 'less') note = '捨てずに「手前なら通す」と、面が球より奥の画素では表面と裏面の両方が通り、届かない光のシェーダが2回走る。';
+  else if (vl.cull === 'back' && inside) note = '表面を描く(本描画と同じ)と、カメラが球の中に入った瞬間に表面が全部カメラの後ろへ回り、光が丸ごと消える。裏面ならカメラの前に残る。';
+  else if (vl.cull === 'back' && vl.depth === 'gequal') note = '表面を描いて「奥なら通す」を組み合わせると、表面が床より奥になることはまず無いので、ほとんど何も塗らない。';
+  else if (vl.depth === 'less' && vl.cull === 'front') note = '裏面を「手前なら通す」で比べると、床が球の中にある画素(本来塗るべき画素)で落ち、床が球より奥にある画素(届かない画素)で通る——ちょうど逆になる。';
+  else if (vl.depth === 'less') note = '表面と「手前なら通す」(本描画と同じ状態)。床の上では塗れているように見えるが、床が球よりずっと奥の画素(届かない)まで通るので 0 を足すだけの画素が多く、カメラが球の中に入ると光が消える。';
+  else if (n('waste') > 0) note = '赤い線は、低い壁の手前の画素を、壁の裏にある球の裏面が通ってしまったところ。シェーダは距離を測って 0 を足すだけだが、その画素ぶんの代償は払っている(今日残した歪みの3つ目)。';
+  else note = '表面を捨てて裏面を描き、「奥なら通す」で比べる。裏面が床より奥 = 床は球の中か手前なので、そこだけシェーダが走る。床が球よりずっと奥の画素は深度テストで落ちる。';
+  $('vol-note').textContent = note;
+}
+function volPointer(ev) {
+  if (!volView) return;
+  const r = $('vol-canvas').getBoundingClientRect();
+  const x = (ev.clientX - r.left - volView.X0) / volView.s, y = (volView.Y0 - (ev.clientY - r.top)) / volView.s;
+  vl.light = [Math.min(Math.max(x, -0.5), 12.5), Math.min(Math.max(y, -1.5), 4.5)];
+  drawVol();
+}
+let volDrag = false;
+$('vol-canvas').addEventListener('pointerdown', (ev) => { volDrag = true; $('vol-canvas').setPointerCapture?.(ev.pointerId); volPointer(ev); });
+$('vol-canvas').addEventListener('pointermove', (ev) => { if (volDrag) volPointer(ev); });
+$('vol-canvas').addEventListener('pointerup', () => { volDrag = false; });
+seg('vol-cull', (v) => { vl.cull = v; drawVol(); });
+seg('vol-depth', (v) => { vl.depth = v; drawVol(); });
+seg('vol-preset', (v) => { const p = PRESETS[v]; vl.cam = [...p.cam]; vl.light = [...p.light]; vl.r = p.r; drawVol(); });
+drawVol();
+
+// ============================================================
+//  要点1・4・5: 裏通りを真上から見る
+// ============================================================
+const STEP = 0.05;   // 1画素 = 5cm
+const GW = Math.round((BOUNDS_MAX[2] - BOUNDS_MIN[2]) / STEP), GH = Math.round((BOUNDS_MAX[0] - BOUNDS_MIN[0]) / STEP);
+const ALBEDO = 0.3, SUN_DAY = 0.45, NIGHT_DIM = 0.03;   // 太陽は床に一様に当たる明るさに置き換えた(値はこのページで決めたもの)
+const sw = { path: 'def', n: 256, view: 'lit', night: true, pause: false, swarm: new LightSwarm(1024), ref: new LightSwarm(1024) };
+sw.swarm.setCount(sw.n); sw.ref.setCount(16);
+const irr = new Float32Array(GW * GH * 3), cover = new Uint16Array(GW * GH);
+// 床の1点に降る光(拡散だけ。N・L = 高さ / 距離)
+// mode: 'cover' は覆った画素を数えるだけ、'light' は明るさを足す、'sum' は総量だけ返す
+function splat(l, mode) {
+  const r = l.radius, [lx, ly, lz] = l.pos;
+  const i0 = Math.max(0, Math.floor((lz - r - BOUNDS_MIN[2]) / STEP)), i1 = Math.min(GW - 1, Math.ceil((lz + r - BOUNDS_MIN[2]) / STEP));
+  const j0 = Math.max(0, Math.floor((lx - r - BOUNDS_MIN[0]) / STEP)), j1 = Math.min(GH - 1, Math.ceil((lx + r - BOUNDS_MIN[0]) / STEP));
+  let flux = 0;
+  for (let j = j0; j <= j1; j++) {
+    const x = BOUNDS_MIN[0] + (j + 0.5) * STEP, dx = x - lx;
+    for (let i = i0; i <= i1; i++) {
+      const z = BOUNDS_MIN[2] + (i + 0.5) * STEP, dz = z - lz, flat2 = dx * dx + dz * dz;
+      if (flat2 >= r * r) continue;
+      const k = j * GW + i;
+      if (mode === 'cover') { cover[k]++; continue; }
+      const d = Math.sqrt(flat2 + ly * ly), a = attenuation(d, r) * (ly / d);
+      if (a <= 0) continue;
+      flux += a * (l.color[0] + l.color[1] + l.color[2]) / 3;
+      if (mode === 'light') { irr[k * 3] += l.color[0] * a; irr[k * 3 + 1] += l.color[1] * a; irr[k * 3 + 2] += l.color[2] * a; }
+    }
+  }
+  return flux;
+}
+let swOff = null, swStats = { flux: 0, ref: 1 };
+function drawSwarm() {
+  const { ctx, w, h } = fit($('swarm-canvas'));
+  irr.fill(0); cover.fill(0);
+  const lights = sw.swarm.lights, used = sw.path === 'fwd' ? lights.slice(0, MAX_FORWARD) : lights;
+  // 光の重なりはディファードの代償(球が覆った画素)なので、描き方によらず全部の球で数える。
+  // 明るさはフォワードなら先頭の 64 個だけ
+  let flux = 0;
+  for (const l of lights) splat(l, 'cover');
+  for (const l of used) flux += splat(l, 'light');
+  sw.ref.setTime(sw.swarm.time);
+  let ref = 0; for (const l of sw.ref.lights) ref += splat(l, 'sum');
+  swStats = { flux, ref };
+  if (!swOff) { swOff = document.createElement('canvas'); swOff.width = GW; swOff.height = GH; }
+  const img = new ImageData(GW, GH), o = img.data, sun = SUN_DAY * (sw.night ? NIGHT_DIM : 1);
+  let covered = 0;
+  for (let k = 0; k < GW * GH; k++) {
+    covered += cover[k];
+    let r, g, b;
+    if (sw.view === 'over') {
+      const c = Math.min(cover[k] / 12, 1);
+      r = 255 * Math.min(c * 1.6, 1); g = 255 * Math.max(0, c * 1.4 - 0.35); b = 255 * Math.max(0, c * 2 - 1.4);
+    } else {
+      const t = (v) => { const x = (v * ALBEDO / Math.PI) * 2.2 + sun * ALBEDO; return Math.round(255 * Math.pow(x / (1 + x), 1 / 2.2)); };
+      r = t(irr[k * 3]); g = t(irr[k * 3 + 1]); b = t(irr[k * 3 + 2]);
+    }
+    // 1m ごとの目地
+    const i = k % GW, j = Math.floor(k / GW);
+    if (sw.view === 'lit' && (i % 20 === 0 || j % 20 === 0)) { r *= 0.8; g *= 0.8; b *= 0.8; }
+    o[k * 4] = r; o[k * 4 + 1] = g; o[k * 4 + 2] = b; o[k * 4 + 3] = 255;
+  }
+  swOff.getContext('2d').putImageData(img, 0, 0);
+  const s = Math.min(w / GW, h / GH), dw = GW * s, dh = GH * s, ox = (w - dw) / 2, oy = (h - dh) / 2;
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(swOff, ox, oy, dw, dh);
+  // 光の中心。フォワードで捨てた光は白抜き
+  for (let i = 0; i < lights.length; i++) {
+    const l = lights[i], px = ox + (l.pos[2] - BOUNDS_MIN[2]) / STEP * s, py = oy + (l.pos[0] - BOUNDS_MIN[0]) / STEP * s;
+    const dropped = sw.path === 'fwd' && i >= MAX_FORWARD;
+    const rr = lights.length > 256 ? 1.4 : 2.4;
+    if (dropped) { ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px, py, rr + 0.6, 0, Math.PI * 2); ctx.stroke(); }
+    else { ctx.fillStyle = `rgb(${l.color.map((c) => Math.round(255 * Math.min(c / (l.radius * 2) * 1.2, 1))).join(',')})`; ctx.beginPath(); ctx.arc(px, py, rr, 0, Math.PI * 2); ctx.fill(); }
+  }
+  const n = lights.length, r = sw.swarm.radius, px = GW * GH;
+  const hud = sw.path === 'fwd'
+    ? `描画:フォワード  光:${n}個 半径${r.toFixed(2)}m  ${n > MAX_FORWARD ? '64個で打ち切り' : `1画素で${n}個を回す`}${sw.night ? '  夜' : ''}`
+    : `描画:ディファード  光:${n}個 半径${r.toFixed(2)}m  球:${n}${sw.night ? '  夜' : ''}`;
+  $('swarm-hud').textContent = hud;
+  $('swarm-stats').innerHTML =
+    stat('個数 × 半径²', (n * r * r).toFixed(0), ' <small>m²(どの数でも 256)</small>') +
+    stat('1画素を覆った球', n ? (covered / px).toFixed(2) : '0', ' <small>個(床の平均。ディファードの代償)</small>') +
+    stat('1画素で回す光', String(sw.path === 'fwd' ? Math.min(n, MAX_FORWARD) : 0), sw.path === 'fwd' ? ' <small>個(フォワードの代償。届かなくても距離は測る)</small>' : ' <small>個(ディファードは回さない)</small>') +
+    stat('床に降る光の総量', n ? (swStats.flux / swStats.ref).toFixed(2) : '0', ' <small>(同じ時刻の 16 個を 1 として)</small>');
+  let note;
+  if (sw.view === 'over') note = '光の重なりは「1画素を何個の球が覆ったか」。真上から見ているので球は半径の円に写る。16 個でも 1024 個でも、床の平均は 5〜6 個でほぼ揃う——個数 × 半径² を一定にした並べ方の効き目。(実機の F6 はカメラから見た画面で数えるので、壁の裏の球も入る)';
+  else if (sw.path === 'fwd' && n > MAX_FORWARD) note = `フォワードは uniform の枠で 64 個までしか渡せないので、65 個目から後ろの ${n - MAX_FORWARD} 個(白抜き)が消える。光だまりが目に見えて減る。`;
+  else if (!sw.night) note = '夕暮れのままだと、日の当たる床の上では点光源がほとんど見えない。夜にすると(太陽と空を 3% に)光だまりが主役になる。';
+  else if (n >= 1024) note = '1024 個(半径 0.5m・高さ 0.48m まで)。床が小さな光の粒の敷石のようになる。このページの数え方(床だけ・拡散だけ)では、床に降る光の総量は 16 個のときの 4 割ほどに落ちる。';
+  else note = '数を増やすと半径・高さ・強さを一緒に縮める。フォワードは数に比例して代償が増え、ディファードは球が覆う量(ほぼ一定)で決まる。';
+  $('swarm-note').textContent = note;
+}
+seg('swarm-path', (v) => { sw.path = v; drawSwarm(); });
+seg('swarm-n', (v) => { sw.n = Number(v); sw.swarm.setCount(sw.n); drawSwarm(); });
+seg('swarm-view', (v) => { sw.view = v; drawSwarm(); });
+$('swarm-night').addEventListener('change', (e) => { sw.night = e.target.checked; drawSwarm(); });
+$('swarm-pause').addEventListener('change', (e) => { sw.pause = e.target.checked; });
+drawSwarm();
+animate($('swarm-canvas'), (dt) => { if (reduceMotion || sw.pause) return; sw.swarm.update(dt); drawSwarm(); });
+window.addEventListener('resize', () => { drawAtt(); drawVol(); drawSwarm(); });
+})();
+</script>
+</body>
+</html>
