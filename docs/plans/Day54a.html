@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 54a TAA(1画素未満ずらして描き、前のフレームと混ぜる)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. FXAA が直せないもの — 1画素より細いもの</a></li><li class="l3"><a href="#s7">2. ずらす — 射影の後ろに平行移動</a></li><li class="l3"><a href="#s8">3. 混ぜる — 指数移動平均と、8 点の限界</a></li><li class="l3"><a href="#s9">4. 引き戻す — 深度から、カメラの動きを速度にする</a></li><li class="l3"><a href="#s10">5. 疑う — ゴーストの正体と、近所の色の箱</a></li><li class="l3"><a href="#s11">6. HDR のまま、入口で</a></li><li class="l3"><a href="#s12">7. 繋がっていないフレーム — カットと、速度を挿したときだけ掛かる約束</a></li><li class="l3"><a href="#s13">8. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">FXAA と TAA の設計比較 — 出口と入口</a></li><li class="l3"><a href="#s20">TAA の1フレーム — 揺らして描き、速度を描き、入口で混ぜる</a></li><li class="l3"><a href="#s21">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s22">1画素の色が決まるまで(TAA)— 引き戻して、疑って、混ぜる</a></li><li class="l3"><a href="#s23">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>F2</code>: アンチエイリアスを FXAA → TAA → なし と回す</a></li><li class="l3"><a href="#s26">2. 止めた絵で縁を比べる</a></li><li class="l3"><a href="#s27">3. <code>F3</code>: TAA の表示</a></li><li class="l3"><a href="#s28">4. <code>F4</code>: 今の絵の割合</a></li><li class="l3"><a href="#s29">5. <code>F5</code>: 履歴を疑うのをやめるとゴーストが出る</a></li><li class="l3"><a href="#s30">6. <code>F6</code>: ジッターを切る</a></li><li class="l3"><a href="#s31">7. <code>F7</code>: 内訳</a></li><li class="l3"><a href="#s32">8. <code>F8</code>: 自己チェックが 20 項目すべて合格</a></li><li class="l3"><a href="#s33">9. どの描き方でも TAA は同じ絵</a></li><li class="l3"><a href="#s34">10. Day 38〜53 の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 揺らし方を変える</a></li><li class="l3"><a href="#s37">課題2(中): 履歴を捨てる条件を絵で見る</a></li><li class="l3"><a href="#s38">課題3(難): 位置の復元をずらしに合わせる</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">自己チェック(20 項目すべて合格)</a></li><li class="l3"><a href="#s41">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 8 / Day 54a / 計画書</p>
+  <h1>TAA(1画素未満ずらして描き、前のフレームと混ぜる)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. FXAA が直せないもの — 1画素より細いもの</a></li><li class="l3"><a href="#s7">2. ずらす — 射影の後ろに平行移動</a></li><li class="l3"><a href="#s8">3. 混ぜる — 指数移動平均と、8 点の限界</a></li><li class="l3"><a href="#s9">4. 引き戻す — 深度から、カメラの動きを速度にする</a></li><li class="l3"><a href="#s10">5. 疑う — ゴーストの正体と、近所の色の箱</a></li><li class="l3"><a href="#s11">6. HDR のまま、入口で</a></li><li class="l3"><a href="#s12">7. 繋がっていないフレーム — カットと、速度を挿したときだけ掛かる約束</a></li><li class="l3"><a href="#s13">8. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">FXAA と TAA の設計比較 — 出口と入口</a></li><li class="l3"><a href="#s20">TAA の1フレーム — 揺らして描き、速度を描き、入口で混ぜる</a></li><li class="l3"><a href="#s21">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s22">1画素の色が決まるまで(TAA)— 引き戻して、疑って、混ぜる</a></li><li class="l3"><a href="#s23">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>F2</code>: アンチエイリアスを FXAA → TAA → なし と回す</a></li><li class="l3"><a href="#s26">2. 止めた絵で縁を比べる</a></li><li class="l3"><a href="#s27">3. <code>F3</code>: TAA の表示</a></li><li class="l3"><a href="#s28">4. <code>F4</code>: 今の絵の割合</a></li><li class="l3"><a href="#s29">5. <code>F5</code>: 履歴を疑うのをやめるとゴーストが出る</a></li><li class="l3"><a href="#s30">6. <code>F6</code>: ジッターを切る</a></li><li class="l3"><a href="#s31">7. <code>F7</code>: 内訳</a></li><li class="l3"><a href="#s32">8. <code>F8</code>: 自己チェックが 20 項目すべて合格</a></li><li class="l3"><a href="#s33">9. どの描き方でも TAA は同じ絵</a></li><li class="l3"><a href="#s34">10. Day 38〜53 の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 揺らし方を変える</a></li><li class="l3"><a href="#s37">課題2(中): 履歴を捨てる条件を絵で見る</a></li><li class="l3"><a href="#s38">課題3(難): 位置の復元をずらしに合わせる</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">自己チェック(20 項目すべて合格)</a></li><li class="l3"><a href="#s41">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>Phase 8(デモ推奨編)の3日目</strong>。Day 52・53 で光を増やす2つの答え(ディファードと Forward+)を並べた。今日は絵の縁に戻って、Day 38 の FXAA を <strong>TAA(Temporal Anti-Aliasing)</strong>に置き換える。</p>
+<p><strong>Day 54 は2日に分けてある。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><strong>Day 54a(今日)</strong></td><td><strong>TAA の骨格</strong>。ずらして描き、カメラの動きで履歴を引き戻し、近所の色で疑って混ぜる</td></tr>
+<tr><td>Day 54b</td><td><strong>動く物のための3つ</strong>。物の速度・Catmull-Rom での履歴の読み・明るさの重み</td></tr>
+</tbody>
+</table></div>
+<p>ロードマップの題は「FXAA からの置き換え」。だから今日は、同じ AA という仕事を<strong>1枚の絵の中で解くか(FXAA)、時間の方向に解くか(TAA)</strong> で並べ、何が変わって何を払ったかを見る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 38 FXAA</th><th>Day 54a TAA</th></tr></thead>
+<tbody>
+<tr><td>見るもの</td><td>出来上がった1枚の絵(8bit、ガンマのあと)</td><td><strong>今の絵 + 前のフレームまでの結果(履歴)+ 速度</strong></td></tr>
+<tr><td>置き場所</td><td>後処理の<strong>出口</strong>(合成のあと)</td><td>後処理の<strong>入口</strong>(HDR のまま、ブルームより前)</td></tr>
+<tr><td>直せるもの</td><td>段差の見た目(輝度で縁を探して均す)</td><td><strong>1画素の中を何十点も取ったのと同じ値</strong>(スーパーサンプリング)</td></tr>
+<tr><td>1画素より細いもの</td><td>直せない(写るか写らないかの二択)</td><td>写る割合として出る</td></tr>
+<tr><td>払うもの</td><td>全画面 1 パス、8bit 1枚(2.3MB)</td><td>全画面 1 パス + 速度 1 パス、<strong>RGBA16F 2枚(9.4MB)+ 速度(2.3MB)</strong></td></tr>
+<tr><td>壊れ方</td><td>細い線が滲む</td><td><strong>カメラが追いかけている物の輪郭が揺れる</strong>(Day 54b で直す)、止めても 8 フレームの周期でわずかに揺れる</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>今日いちばん意外だったのは、ジッターを切った TAA が「AA なし」と一致しなかったこと</strong></p>
+<p>ずらさずに止めた絵を何十フレーム混ぜても、同じ絵を混ぜているのだから出力は今の絵と同じになるはず——ところが差が残った(平均 0.20%、2% を超える画素が 3%)。原因は履歴を疑う箱の側で、<strong>平均 ± 標準偏差の箱が、今の画素そのものを含まないことがある</strong>。レンガの目地のような近所から浮いた1画素は、止まっていても履歴を毎フレーム箱の縁まで切られ、細部が薄まっていた(暗い地の明るい1画素なら 1.0 が 0.54 まで沈む)。箱に今の画素を必ず入れる1行で、差は 0.015% に消えた(要点5、検証の途中で分かったこと 2)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「TAA」ページで <code>F2</code> を押すと、アンチエイリアスが FXAA → TAA → なし と回る。止めた絵では TAA の輪郭が FXAA より滑らかになり、カメラワークを再生しても前の絵が尾を引かない。<code>F5</code> で履歴を疑うのをやめると、カメラが回り込むたびに物の縁から尾が伸びる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「TAA」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>アンチエイリアス FXAA → TAA → なし。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>TAA の表示(通常 → 揺れの素 → 速度 → 履歴を疑った量)</td></tr>
+<tr><td><code>F4</code></td><td>今の絵の割合(10% / 5% / 20% / 50%)</td></tr>
+<tr><td><code>F5</code></td><td>履歴の疑い方(分散で切る → 最小最大に押し込む → 疑わない)。<strong>疑わないとゴースト</strong></td></tr>
+<tr><td><code>F6</code></td><td>ジッター(ON / OFF)。<strong>OFF にすると AA が効かない</strong></td></tr>
+<tr><td><code>F7</code></td><td>内訳(揺らし方・履歴・速度バッファ・GPU の時間)</td></tr>
+<tr><td><code>F8</code></td><td>今日の自己チェック(20 項目)</td></tr>
+</tbody>
+</table></div>
+<p><strong>既定は FXAA のまま</strong>なので、起動した直後の絵は Day 53 と1ビットも変わらない。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ(TAA、22 枚目)が直接開く。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「ずらして、混ぜる」</strong>。毎フレーム、カメラを<strong>1画素に満たない量だけ</strong>ずらして描き、前のフレームまでの結果と 9:1 で混ぜる。同じ画素が毎フレーム少しずつ違う点を標本にするので、混ぜ続けると1画素の中を何点も取ったのと同じ値に近づく——スーパーサンプリングの代金を、1フレームで払わずに時間へ割り振る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Camera.ProjectionMatrix(Day 54a)。ずらしは投影の「後ろ」に掛ける
+public Matrix4x4 ProjectionMatrix =&gt; Jitter == Vector2.Zero
+    ? UnjitteredProjectionMatrix
+    : UnjitteredProjectionMatrix * Matrix4x4.CreateTranslation(Jitter.X, Jitter.Y, 0.0f);</code></pre></div>
+<p>射影行列に入れるので、<strong>このカメラで描くパスは全部が同じだけずれる</strong>(本描画・空・粒・SSAO・G-Buffer)。影だけは光の目で描くのでずれない。ずらしは Halton(2, 3) の 8 点を繰り返す(要点2)。</p>
+<p><strong>2つ目は「前にどこに居たかを知る」</strong>。カメラが動くので、履歴を同じ画素の場所から読むと別の物の色を拾う。読むべきは「この画素に今写っている点が、前のフレームで写っていた場所」で、その差を<strong>速度バッファ</strong>(RG16F)に書く。</p>
+<div class="code"><pre><code>  深度 → 世界の点 → 前のフレームの行列で写し直す      … 全画面1枚。<strong>止まっている物は全部これで正しい</strong></code></pre></div>
+<p>深度に入っているのは「今どこにあるか」だけなので、<strong>自分で動いた物の「前の位置」はこの1段では出てこない</strong>。それを直す2段目は Day 54b。</p>
+<p><strong>3つ目は「履歴を疑う」</strong>。カメラが回り込んで、それまで隠れていた場所が見えるようになると、そこの履歴は隠していた物の色になっている。そのまま混ぜると、物の後ろに影(ゴースト)が尾を引く。そこで<strong>今の絵の近所 3x3 の色の範囲</strong>を「この画素がとりうる色」とみなし、履歴がそこから外れていたら範囲まで引き戻す(要点5)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 low = max(mean - (uVarianceGamma * sigma), boxMin);    // 平均 ± 標準偏差の箱(YCoCg)
+vec3 high = min(mean + (uVarianceGamma * sigma), boxMax);
+low = min(low, currentColor);                               // 今の画素は必ず入れる(今日見つけた穴)
+high = max(high, currentColor);
+rectified = ClipTowardCenter(historyColor, low, high);      // 箱の中心へ向かって切る</code></pre></div>
+<h3 id="s3">今日は Render とシェーダが主役</h3>
+<p>差分は <code>Render/</code> に新規3本(<code>TemporalAA</code> / <code>MotionVectors</code> / <code>GpuTimer</code>)、シェーダ2本(<code>taa.frag</code> / <code>camera-velocity.frag</code>)、<code>Camera</code> のずらし、<code>PostProcess</code> の入口、<code>Texture</code> の RG16F、そして <code>Program.cs</code>。<code>Demo/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <code>Physics/</code> も <code>Text/</code> も <code>Audio/</code> も <code>Game/</code> も1行も変わっていない。</p>
+<p><strong>GPU の時間は GPU に測らせる</strong>(<code>GpuTimer</code>。タイマークエリ)。Day 53 の計測(<code>glFinish</code> を挟んで連続で全開にする)で開発機の電源が落ちたので、今日の数字は普段のフレームの中で測っている。今日は「計測」の項目が無い。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://advances.realtimerendering.com/s2014/index.html">Brian Karis, "High Quality Temporal Supersampling"(SIGGRAPH 2014, Advances in Real-Time Rendering)</a>— <strong>今日の一次資料</strong>。UE4 の TAA。ずらし(Halton)、近所の色の箱を YCoCg で作ること(要点5)。スライドはこのページの一覧から取れる</li><li><a href="https://github.com/playdeadgames/temporal">Lasse Jon Fuglsang Pedersen, "Temporal Reprojection Anti-Aliasing in INSIDE"(GDC 2016)</a>— <strong>いちばん短い実物</strong>。Playdead のゲーム INSIDE の TAA のソース(Unity)。箱の中心へ向かって切る <code>clip_aabb</code> と、近所でいちばん手前の画素の速度を使う工夫(要点4・5)がそのまま読める</li><li><a href="https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf">Marco Salvi, "An Excursion in Temporal Supersampling"(GDC 2016)</a>— <strong>分散で箱を作る</strong>(平均 ± 標準偏差)の出どころ(要点5)</li><li><a href="http://behindthepixels.io/assets/files/TemporalAA.pdf">Lei Yang, Shiqiu Liu, Marco Salvi, "A Survey of Temporally Antialiasing Techniques"(Eurographics 2020 STAR)</a>— <strong>全体の地図</strong>。ずらし・再投影・疑い方・速度・アップスケーリングまで、TAA の部品を一覧にした総説。Day 66b(DLSS / FSR の原理)の予習にもなる</li><li><a href="https://www.elopezr.com/temporal-aa-and-the-quest-for-the-holy-trail/">Emilio López, "Temporal AA and the quest for the Holy Trail"</a>— <strong>読み物として最短</strong>。ゴースト・ぼけ・ちらつきの3つの壊れ方と、それぞれの手当てが図付きで追える</li><li><strong>Day 38 の計画書 要点1・3・5</strong>(このリポジトリ)— ジャギーが「1画素につき1回しか色を決めていない」ことの帰結であること、FXAA がガンマのあとの輝度だけで段差を探すこと、FXAA が苦手なもの。今日の比較の相手で、TAA は要点1の「1回しか」を時間の方向でほどく</li><li><strong>Day 31 の計画書 設計書「HDR パイプラインの中身」</strong>(このリポジトリ)— 今日 TAA を差し込む場所。ping-pong の2枚の考え方もここ</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. FXAA が直せないもの — 1画素より細いもの</h3>
+<p>FXAA は出来上がった1枚の絵を見て、輝度の段差を縁とみなして均す。だから<strong>絵に写っていないものは直せない</strong>。1画素より細い電線や手すりの縁は、画素の中心に掛かれば写り、外れれば消える——1枚の絵では「写った / 写らない」の二択で、カメラが少し動くたびにちらちら点滅する。均す以前に、情報が1枚の中に無い。</p>
+<p>直す方法は、1画素の中を何点も取って平均すること(スーパーサンプリング)。16 点取れば 16 倍描くことになるので、そのままでは払えない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1画素の中の点</th><th>払うもの</th></tr></thead>
+<tbody>
+<tr><td>AA なし</td><td>1 点(画素の中心)</td><td>なし</td></tr>
+<tr><td>FXAA</td><td>1 点(均すだけ)</td><td>全画面 1 パス</td></tr>
+<tr><td>スーパーサンプリング</td><td>N 点</td><td><strong>N 倍描く</strong></td></tr>
+<tr><td>TAA</td><td>毎フレーム 1 点、<strong>違う場所を</strong></td><td>全画面 1 パス + 速度 + 履歴</td></tr>
+</tbody>
+</table></div>
+<p>TAA は N 倍を<strong>時間に割り振る</strong>。1フレームには1点しか取らないが、毎フレーム違う点を取り、前のフレームまでの結果と混ぜる。止まった絵なら、8 フレームで 8 点取ったのと同じになる。</p>
+<h3 id="s7">2. ずらす — 射影の後ろに平行移動</h3>
+<p>毎フレーム、画面全体を1画素未満ずらす。ずらす場所は<strong>射影行列の後ろ</strong>。</p>
+<div class="code"><pre><code>  clip' = clip × 平行移動(jx, jy)     → x' = x + jx × w
+  NDC   = clip' / w                    → x/w + jx          … w で割ると jx だけ残る</code></pre></div>
+<p>透視除算で w が消えるので、<strong>手前でも奥でも同じ画素数だけずれる</strong>(自己チェック: 0.5m / 5m / 50m で差 7.4×10⁻⁵ 画素)。ビュー空間でずらすと、奥ほどずれが小さくなって画素単位の話にならない。</p>
+<p>ずらす点は <strong>Halton(2, 3)</strong> の 8 点。x を 2 進、y を 3 進の van der Corput 数列(整数の桁を小数点の右へ鏡に映す)にしたもの。</p>
+<div class="code"><pre><code>  番号   1       2       3       4       5       6       7       8
+  x     +0.000  -0.250  +0.250  -0.375  +0.125  -0.125  +0.375  -0.438     [画素。中心を 0 に]
+  y     -0.167  +0.167  -0.389  -0.056  +0.278  -0.278  +0.056  +0.389</code></pre></div>
+<p><strong>どこで打ち切っても点が満遍なく散る</strong>のが性質で、乱数のように固まらず、格子のように縞を作らない。8 点は 4 つの象限に 2 点ずつ入る。</p>
+<p><strong>ずらす前の行列も別に持つ</strong>(<code>UnjitteredProjectionMatrix</code>)。「前のフレームのどこに居たか」をずらした行列で計算すると、毎フレーム変わるずらしの差が<strong>動きに化ける</strong>——カメラも物も止まっているのに、画面全体が半画素ずつ震えて見える。自己チェックは、ずらしを毎フレーム変えながら止まった絵の速度が 0(最大 0.0003 画素)であることを見ている。</p>
+<h3 id="s8">3. 混ぜる — 指数移動平均と、8 点の限界</h3>
+<p>混ぜ方は指数移動平均。今の絵を 1 割、履歴を 9 割。</p>
+<div class="code"><pre><code>  結果 = 履歴 × 0.9 + 今 × 0.1       … N フレーム前の絵は 0.9^N の重さで残る</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>今の絵の割合(<code>F4</code>)</th><th>前の絵が半分になるまで</th><th>1% まで</th></tr></thead>
+<tbody>
+<tr><td>5%</td><td>13.5 フレーム</td><td>90 フレーム</td></tr>
+<tr><td><strong>10%</strong></td><td><strong>6.6 フレーム</strong></td><td><strong>44 フレーム</strong></td></tr>
+<tr><td>20%</td><td>3.1 フレーム</td><td>21 フレーム</td></tr>
+<tr><td>50%</td><td>1.0 フレーム</td><td>7 フレーム</td></tr>
+</tbody>
+</table></div>
+<p><strong>小さいほど滑らかで、変化への追従が遅い</strong>。50% はほとんど AA にならない(直近 2〜3 点しか効いていない)。</p>
+<p>止めた絵に混ぜ続けたとき、どこまで答え(1画素の中を 64 点取った平均)に近づくか。自己チェックの物差し(縁の画素の平均誤差。AA なしを 100%)で測ると、</p>
+<div class="code"><pre><code>  FXAA 60%  /  TAA 21%(疑わなければ 22%)  /  ずらしの 8 点をただ平均 20%</code></pre></div>
+<p>(確認用のシーン(床と立方体)は、自己チェックが決めた光——起動直後の手書きの光、IBL・影・SSAO なし——で照らして測る。Day 56 で直すまでは画面に出ている光を借りていて、押したときの光で数字と合否が変わっていた。検証の途中で分かったこと 6)</p>
+<p><strong>TAA が近づけるのは「ずらしの 8 点の平均」まで</strong>。残りは点が 8 つしか無いことと、指数移動平均の重みの偏り(直近ほど重い)。点を 16 に増やしても良くならなかった理由は「検証の途中で分かったこと」3(Halton の平均が中心からずれている)。</p>
+<div class="inject"><figure class="lab" id="cv-lab">
+  <div class="lab-head">
+    <h3>止めた絵に混ぜ続ける — ずらしの 8 点と、答えの 64 点(要点1〜3)</h3>
+    <span class="tag">48 x 28 画素の作り物の絵(傾いた四角と、幅 0.35 画素の線)。taa.frag の解決をそのまま移し、止めた絵に毎フレーム違うずらしで1点ずつ取って混ぜる。物差しは自己チェックと同じ(縁の画素の、64 点の答えとの平均誤差。AA なしを 100%)</span>
+  </div>
+  <div class="stage"><canvas id="cv-canvas" style="height:300px;image-rendering:pixelated" aria-label="傾いた四角と細い線を、AA なし・TAA・8 点の平均・64 点の答えのどれかで描いたもの"></canvas></div>
+  <div class="hud" id="cv-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">見るもの</span>
+      <div class="seg" id="cv-view"><button data-v="plain" aria-pressed="false">AA なし</button><button data-v="taa" aria-pressed="true">TAA</button><button data-v="cur" aria-pressed="false">揺れの素(F3)</button><button data-v="avg" aria-pressed="false">ずらしの点をただ平均</button><button data-v="ref" aria-pressed="false">答え(64 点)</button></div>
+    </div>
+    <div class="ctl"><span class="label">今の絵の割合(F4)</span>
+      <div class="seg" id="cv-w"><button data-v="0.1" aria-pressed="true">10%</button><button data-v="0.05" aria-pressed="false">5%</button><button data-v="0.2" aria-pressed="false">20%</button><button data-v="0.5" aria-pressed="false">50%</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ずらしの点(改造課題1)</span>
+      <div class="seg" id="cv-n"><button data-v="8" aria-pressed="true">Halton 8 点(reference)</button><button data-v="16" aria-pressed="false">Halton 16 点</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="cv-center"> 点の平均を中心へ寄せる(改造課題1)</label>
+    <label class="check"><input type="checkbox" id="cv-jit" checked> ジッター(F6)</label>
+    <label class="check"><input type="checkbox" id="cv-pause"> 止める</label>
+  </div>
+  <div class="readout"><div class="stats" id="cv-stats"></div><p id="cv-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>止めても 8 フレームの周期でわずかに揺れる</strong>。直近ほど重く数えるので、「どの点を最後に取ったか」で結果が少し変わる。同じ位相(8 フレーム離れた2枚)なら差 0.003%、隣り合う2枚なら 0.109%。</p>
+<h3 id="s9">4. 引き戻す — 深度から、カメラの動きを速度にする</h3>
+<p>履歴は「この画素が前のフレームに居た場所」から読む。</p>
+<div class="code"><pre><code>  履歴の場所 = 今の UV − 速度        … 速度は UV 単位(画面を 1)、向きは「前 → 今」</code></pre></div>
+<p>速度を画素ごとに持つのが<strong>速度バッファ</strong>(RG16F。負の値が要るので 8bit には入らず、2成分なので RGBA16F は過剰)。</p>
+<p><strong>描くのは全画面1枚</strong>(<code>camera-velocity.frag</code>)。止まっている物の画素は、その点が前のフレームでどこに写っていたかがカメラの動きだけで決まる。深度から世界の点を戻し(Day 52a の位置の復元と同じ発想)、前のフレームの行列で写し直す。2つの行列は CPU で1本に掛けておく。</p>
+<div class="code"><pre><code>  再投影行列 = (ずらした VP)⁻¹ × (前のフレームの VP)      … 今の画面の点 → 前のクリップ座標
+  速度 = (今の NDC − ずらし − 前の NDC) × 0.5</code></pre></div>
+<p>逆行列は<strong>ずらした</strong>ほうを使う(深度はずらして描いたものなので、同じずらしで戻す)。今の位置からはずらしを引く(ずらしは動きではない)。</p>
+<p><strong>自分で動いた物は、この1段では出てこない</strong>。深度には「今どこにあるか」しか入っていないので、キャラクターのように自分で動いた物の「前の位置」はどこにも書かれていない。その画素は「止まっている物」として扱われ、背景と同じ速度で履歴を引く——疑い(要点5)が色を引き戻すので残像は出ないが、履歴が溜まらないので輪郭が階段に戻って揺れる。<strong>前のモデル行列と前の関節行列で描き直す2段目は Day 54b</strong>。</p>
+<p><strong>TAA は近所 3x3 でいちばん手前の画素の速度を使う</strong>。動く物の輪郭の画素は、半分が物で半分が背景。ジッターでたまたま背景を取ったフレームに背景の速度で履歴を引くと、輪郭がちぎれて残る。手前(= 物)の速度に寄せると、輪郭が物と一緒に動く。</p>
+<p><strong>前のフレームで画面の外に居た画素</strong>(カメラを振った瞬間の画面の端)は、履歴が無いので今の絵をそのまま出す。</p>
+<h3 id="s10">5. 疑う — ゴーストの正体と、近所の色の箱</h3>
+<p><strong>ゴーストは「隠れていた場所が見えるようになった」ときに出る</strong>。カメラワークがゴミ箱の横を回り込むと、それまでゴミ箱に隠れていた壁が毎フレーム現れる。その壁の画素が前のフレームの自分の場所を引くと、そこはゴミ箱だった——履歴がゴミ箱の色になっている。疑わずに混ぜると、そのゴミ箱の色が壁と一緒に流れ、<strong>物の縁から尾が伸びる</strong>(<code>F5</code> で「疑わない」にすると見える)。速度が正しくても起きる。前のフレームに<strong>そもそも写っていなかった</strong>ものの色は、どこから読んでも手に入らない。</p>
+<p>そこで、<strong>今の絵の近所 3x3 の色の範囲</strong>を「この画素がとりうる色」とみなし、履歴がそこから外れていたら範囲まで引き戻す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>疑い方(<code>F5</code>)</th><th>箱</th><th>引き戻し方</th><th>自己チェック</th></tr></thead>
+<tbody>
+<tr><td>最小最大に押し込む(Karis 2014)</td><td>9 画素の最小〜最大</td><td>成分ごとに箱へ(clamp)</td><td>赤 4.0 の履歴 → 0.100(ゴースト 0)</td></tr>
+<tr><td><strong>分散で切る</strong>(Salvi 2016)</td><td>平均 ± 標準偏差(と最小最大の内側)</td><td><strong>箱の中心へ向かって</strong>(Playdead)</td><td>同じく 0.100</td></tr>
+<tr><td>疑わない</td><td>—</td><td>—</td><td>3.609(9 割残る)</td></tr>
+</tbody>
+</table></div>
+<p><strong>分散の箱は締まる</strong>。近所に明るい点が1つあると、最小最大の箱は 0.1〜1.0 に伸びるが、平均 ± 標準偏差は 0.1〜0.48 に収まる。履歴 0.8 は前者では信じられ(0.729)、後者では切られる(0.444)。</p>
+<p><strong>ただし締まりすぎて、今の画素そのものを箱の外に置くことがある</strong>。明るい点の画素から見ると、平均 ± 標準偏差の箱は 0.1〜0.48 で、自分(1.0)が箱の外にいる。止まっていても履歴(= 前のフレームの自分)が毎フレーム 0.48 まで切られ、<code>0.9 × 0.48 + 0.1 × 1.0 = 0.54</code> に沈む。<strong>今の画素は疑う理由が無いので、必ず箱に入れる</strong>。今日の冒頭の話。</p>
+<p><strong>YCoCg で箱を作る</strong>。RGB の3軸は互いに似た動きをする(明るくなると全部上がる)ので、箱が斜めに伸びた雲を軸で囲むことになり、隙間だらけの大きな箱になる。明るさ(Y)と色味(Co・Cg)に分けると雲が軸に沿い、箱が締まる。</p>
+<p><strong>中心へ向かって切る</strong>。成分ごとに押し込むと3つの成分が別々に動いて色味が変わる(青い履歴が紫になる、など)。中心と結んだ線の上を動かせば、色味の向きは保たれる。</p>
+<div class="inject"><figure class="lab" id="box-lab">
+  <div class="lab-head">
+    <h3>履歴を疑う箱(要点5)</h3>
+    <span class="tag">自己チェックの作り物の絵(64 x 8)を taa.frag と同じ式で解決し、真ん中の画素の近所 3x3 と箱を明るさ(YCoCg の Y)の軸に並べる</span>
+  </div>
+  <div class="stage"><canvas id="box-canvas" style="height:250px" aria-label="近所 3x3 の色と、最小最大の箱・平均 ± 標準偏差の箱・履歴・引き戻した値を、明るさの軸に並べた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">作り物の絵</span>
+      <div class="seg" id="box-case"><button data-v="ghost" aria-pressed="true">灰 0.1 に赤 4.0 の履歴</button><button data-v="leak" aria-pressed="false">明るい点の隣(履歴 0.8)</button><button data-v="dot" aria-pressed="false">明るい点そのもの(40 フレーム)</button></div>
+    </div>
+    <div class="ctl"><span class="label">疑い方(F5)</span>
+      <div class="seg" id="box-rect"><button data-v="variance" aria-pressed="true">分散で切る</button><button data-v="minmax" aria-pressed="false">最小最大に押し込む</button><button data-v="none" aria-pressed="false">疑わない</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="box-noinc"> 箱に今の画素を入れない(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="stats" id="box-stats"></div><p id="box-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<div class="inject"><figure class="lab" id="pan-lab">
+  <div class="lab-head">
+    <h3>カメラを振る — 引き戻して、疑って、混ぜる(要点4・5)</h3>
+    <span class="tag">作り物の場面(奥の壁・床・手前の柱と細い棒)を 120 x 68 画素で描き、カメラを左右に振る。速度は深度とカメラの動きから(camera-velocity.frag と同じ考え方)、解決は taa.frag の移植</span>
+  </div>
+  <div class="stage"><canvas id="pan-canvas" style="height:330px;image-rendering:pixelated" aria-label="左右に振るカメラから見た壁と柱。TAA の結果か、揺れの素・速度・疑った量を表示する"></canvas></div>
+  <div class="hud" id="pan-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">アンチエイリアス(F2)</span>
+      <div class="seg" id="pan-aa"><button data-v="taa" aria-pressed="true">TAA</button><button data-v="none" aria-pressed="false">なし</button></div>
+    </div>
+    <div class="ctl"><span class="label">TAA の表示(F3)</span>
+      <div class="seg" id="pan-view"><button data-v="lit" aria-pressed="true">通常</button><button data-v="cur" aria-pressed="false">揺れの素</button><button data-v="vel" aria-pressed="false">速度</button><button data-v="moved" aria-pressed="false">履歴を疑った量</button></div>
+    </div>
+    <div class="ctl"><span class="label">疑い方(F5)</span>
+      <div class="seg" id="pan-rect"><button data-v="variance" aria-pressed="true">分散で切る</button><button data-v="minmax" aria-pressed="false">最小最大</button><button data-v="none" aria-pressed="false">疑わない</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">カメラの振れ幅</span>
+      <div class="seg" id="pan-amp"><button data-v="0" aria-pressed="false">止める</button><button data-v="1.5" aria-pressed="true">1.5m</button><button data-v="3" aria-pressed="false">3m</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="pan-novel"> 速度を使わない(このページだけ)</label>
+    <label class="check"><input type="checkbox" id="pan-pause"> 一時停止</label>
+  </div>
+  <div class="readout"><div class="stats" id="pan-stats"></div><p id="pan-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">6. HDR のまま、入口で</h3>
+<p>FXAA は後処理の<strong>出口</strong>(ガンマのあとの 8bit)に置いた。出来上がった絵を見て均す手法だから。TAA は逆に<strong>入口</strong>に置く。</p>
+<ul><li><strong>ブルームより前</strong> … ブルームの元になる明るい点は、ジッターで画素の中を動く。TAA の前で抜くと、にじみまで一緒に揺れる</li><li><strong>トーンマップより前</strong> … 混ぜる(平均する)なら、光の量として足し算が効く値(リニアな HDR)で混ぜるのが筋</li></ul>
+<p>ただし HDR のまま混ぜると、<strong>明るすぎる点が勝ちすぎる</strong>。太陽の映り込みのような 50 を超える画素がジッターで出たり消えたりすると、1 割しか混ぜなくても 5 足されるので、まわりの暗い画素ごと白くちらつく。<strong>その手当て(混ぜる前に明るさで畳む)は Day 54b</strong>。今日は HDR のまま混ぜる。</p>
+<h3 id="s12">7. 繋がっていないフレーム — カットと、速度を挿したときだけ掛かる約束</h3>
+<p><strong>前のフレームと絵が繋がっていなければ、履歴を捨てる</strong>。疑いがあるので捨てなくても数フレームで消えるが、その数フレームは前の絵が薄く重なる。<code>MotionVectors</code> が次の2つを見て「カット」と判定し、<code>Program</code> が <code>TemporalAA.Reset</code> を呼ぶ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>カット</th><th>例</th></tr></thead>
+<tbody>
+<tr><td>前のフレームの行列が無い</td><td>TAA を入れた直後、画面の大きさが変わった</td></tr>
+<tr><td>カメラが 1 フレームで 2m 以上動いた</td><td>プレイアブルデモに入った瞬間(追従カメラが位置を置き換える)。カメラワークは補間で繋がっているのでカットにならない</td></tr>
+</tbody>
+</table></div>
+<p><strong>「絵が丸ごと切り替わった」を見る3つ目の条件は Day 54b</strong>(描いたものの記録が要る)。今日はデモ v1 から材質グリッドへ切り替えると、数フレームだけ前の絵が薄く重なる。</p>
+<p><strong>TAA は「このフレームの速度」が挿さっているときだけ掛かる</strong>(<code>PostProcess.Velocity</code>)。挿すのは本番のフレームだけで、<code>_post.End</code> が使い切って外す。自己チェックが後処理を単独で回しても(<code>EndToTarget</code>)TAA は割り込まない——Day 38 の FXAA の自己チェックも、Day 52・53 の自己チェックも、TAA を入れたまま通る。同じ理由で、ずらしは <code>OnRender</code> の頭で入れて最後に 0 に戻す(キーで呼ぶ自己チェックが、ずれた射影行列を見ないように)。</p>
+<h3 id="s13">8. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td><strong>自分で動いた物の速度</strong></td><td>深度には「今どこにあるか」しか無いので、動く物の履歴は背景の速度で引かれる。疑いが色を引き戻すので残像は出ないが、<strong>履歴が溜まらず輪郭が揺れる</strong></td><td><strong>Day 54b</strong></td></tr>
+<tr><td><strong>履歴を Catmull-Rom で読む</strong></td><td>双線形で読むので、カメラが動いているあいだ<strong>ぼけが積もって絵が眠くなる</strong></td><td><strong>Day 54b</strong></td></tr>
+<tr><td><strong>明るさで重み</strong></td><td>HDR のまま混ぜるので、50 を超える明るい点がジッターで見え隠れすると、まわりごと白くちらつく</td><td><strong>Day 54b</strong></td></tr>
+<tr><td>鮮鋭化(シャープネス)</td><td>TAA は FXAA よりわずかに柔らかい(1画素の中を平均するので、テクスチャの細部も平均される)</td><td>Day 54b の改造課題</td></tr>
+<tr><td>反応マスク(responsive AA)</td><td>粒・トレイルは速度を持たないので、後ろの床の速度で履歴を引く(疑いに任せている)</td><td>本番は粒の画素だけ今の絵の割合を上げる</td></tr>
+<tr><td>速度に応じた今の絵の割合</td><td>速く動く場面でも 1 割のまま</td><td>動きが大きいほど割合を上げるのが定番</td></tr>
+<tr><td>ずらしを知らない位置の復元</td><td>SSAO・ディファードの位置の復元と Forward+ の升目が、半画素ずれた点を扱う</td><td>改造課題3(設計書「今日残した歪み」の1つ目)</td></tr>
+<tr><td>16 点・中心合わせのずらし</td><td>止めた絵の答えに 8 点の平均までしか近づかない</td><td>改造課題1</td></tr>
+<tr><td>アップスケーリング(TAAU / DLSS / FSR)</td><td>画面と同じ解像度で描いている</td><td>Day 66b(講読)</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日の TAA は「カメラだけが動く絵」には完全に効く</strong>。決めの構図もカメラワークも、止めた絵も、これで FXAA よりずっと滑らかになる。崩れるのは<strong>カメラが物を追いかけたとき</strong>——画面の上で止まって見える物の画素が「背景と同じだけ動いた」とみなされる。それが Day 54b の出発点になる。</p>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/GpuTimer.cs</code></td><td>151</td><td><strong>GPU に測らせるストップウォッチ</strong>(タイマークエリの輪)。待たずに、数フレーム遅れて届いた結果を拾う</td></tr>
+<tr><td><code>Render/TemporalAA.cs</code></td><td>417</td><td><strong>今日の主役</strong>。揺らし方(Halton)・履歴の2枚・解決パス・つまみ。後処理が持つ</td></tr>
+<tr><td><code>Render/MotionVectors.cs</code></td><td>234</td><td><strong>速度バッファ</strong>。カメラの動きから、全画面1枚で速度を描く</td></tr>
+<tr><td><code>shaders/taa.frag</code></td><td>227</td><td>解決のシェーダ。近所の箱・引き戻し・疑い・表示</td></tr>
+<tr><td><code>shaders/camera-velocity.frag</code></td><td>52</td><td>速度(深度から、カメラの動きを全画面に)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Texture.cs</code></td><td><code>RenderTargetFormat.Rg16F</code> とその作り方</td><td>+18 / -0</td></tr>
+<tr><td><code>Render/Framebuffer.cs</code></td><td>RG16F のバイト数</td><td>+5 / -0</td></tr>
+<tr><td><code>Render/Camera.cs</code></td><td><code>Jitter</code>・<code>UnjitteredProjectionMatrix</code>・<code>UnjitteredViewProjection</code>。<code>ProjectionMatrix</code> にずらしが入る</td><td>+57 / -2</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td>TAA を持ち、入口で掛ける。<code>Velocity</code>(このフレームだけ挿す)、FXAA の GPU の時間。明部と合成が読むテクスチャが引数に</td><td>+97 / -10</td></tr>
+<tr><td><code>Program.cs</code></td><td>ずらしの下ごしらえ、速度のパス、メニュー 7 項目、HUD 1行、内訳・自己チェック 20 項目</td><td>+1141 / -2</td></tr>
+<tr><td><code>Day54a.csproj</code></td><td><code>Day53.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Program.cs</code> の差分の7割は自己チェック</strong>(<code>RunTaaCheck</code> と道具)。TAA の本体は <code>BeginTemporalFrame</code> と <code>RenderMotionVectors</code> の2つで、合わせて 30 行ほど——<strong>TAA も何を描くかを1行も書き換えない</strong>。ずらしはカメラに、解決は後処理に入ったので、<code>Render3D</code> 以下の描画の分岐はどれも Day 53 のまま。</p>
+<p>Day 53 のコードに入った手直しは2か所だけ(差分の -2 行はこれ)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手直し</th><th>どこ</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>FXAA を切っているときの HUD の文言</td><td><code>AaLabel</code></td><td>「切っている」のか「TAA に置き換えた」のかを言い分ける</td></tr>
+<tr><td>メニューの自己チェックの件数 207 → 214</td><td><code>RunDebugMenuCheck</code></td><td>「TAA」ページの 7 項目</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">写経する順番</h3>
+<div class="code"><pre><code>1. Render/Texture.cs              RenderTargetFormat.Rg16F(7 が使う)
+2. Render/Framebuffer.cs          Rg16F のバイト数(1 の続き)
+3. Render/Camera.cs               ずらし(Jitter)と、ずらす前の行列
+4. Render/GpuTimer.cs             GPU に測らせるストップウォッチ(新規。5・6・7 が使う)
+5. shaders/taa.frag               解決のシェーダ(新規。6 が読む)
+6. Render/TemporalAA.cs           揺らし方・履歴・解決(新規。4 を使う)
+7. Render/PostProcess.cs          TAA を入口に置く(4・6 を使う)
+8. shaders/camera-velocity.frag   速度(新規。9 が読む)
+9. Render/MotionVectors.cs        速度バッファ(新規。1・3・4 を使う)
+10. Program.cs                    全部を繋ぐ
+11. Day54a.csproj                 Day53.csproj からのリネームのみ</code></pre></div>
+<p><strong>依存順に並べてある</strong>。C# のビルドが通るのは 1〜4・6・7・9・10 の順で、シェーダ(5・8)は実行時に読むのでビルドには効かない——ただし<strong>10 より前に写しておく</strong>こと。シェーダは起動時に読む(<code>TemporalAA</code> と <code>MotionVectors</code> のコンストラクタ)ので、写し忘れると TAA を入れる前、起動の時点で落ちる。</p>
+<p><code>TemporalAA.cs</code> は半分がコメント。<code>NextJitter</code>(揺らす)→ <code>Resolve</code>(混ぜる)→ <code>Reset</code>(捨てる)の順に読む。<code>MotionVectors</code> は <code>BeginFrame</code> → <code>Render</code> → <code>RenderCameraMotion</code>。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(_motion / CurrentWeightSteps)
+    → OnLoad / OnFramebufferResize / OnClosing                作る・畳む
+    → OnRender の BeginTemporalFrame と RenderMotionVectors    <strong>今日の骨格</strong>(頭と尻の2か所)
+    → OnRender の最後の _camera.Jitter = 0                     ずらすのは描いている間だけ
+    → DrawOverlayInfo の TaaLabel、AaLabel                     HUD
+    → Day 54 の節の頭(UseTaa / BeginTemporalFrame / RenderMotionVectors / TaaLabel / DescribeTaa)
+    → RunTaaCheck と道具(RenderTaaProbe / EdgeError / ReadTexture / Upload… / TaaSettings)
+    → BuildDebugMenu の末尾(メニュー 1 ページ)と RunDebugMenuCheck の 214</code></pre></div>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が5つ(<code>TemporalAA</code> / <code>MotionVectors</code> / <code>GpuTimer</code> と列挙2つ)増えて、<code>Camera</code> と <code>PostProcess</code> の口が広がっただけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/TemporalAA</code></td><td><code>Render/</code></td><td>揺らし方・履歴の2枚・解決。<strong><code>Camera</code> も速度の出どころも知らない</strong>(テクスチャを受け取って返すだけ)</td></tr>
+<tr><td><code>Render/MotionVectors</code></td><td><code>Render/</code></td><td>速度バッファ。カメラの動きを全画面1枚で描く。<strong><code>TemporalAA</code> も <code>PostProcess</code> も知らない</strong></td></tr>
+<tr><td><code>Render/GpuTimer</code></td><td><code>Render/</code></td><td>タイマークエリの輪。<strong>GL しか知らない</strong></td></tr>
+<tr><td><code>Render/TaaRectify</code> ほか1つ</td><td><code>Render/</code></td><td>疑い方・表示の列挙</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Camera</code></td><td><code>Jitter</code> と、ずらす前の行列2つ</td><td>+57 / -2</td></tr>
+<tr><td><code>Render/PostProcess</code></td><td><code>Taa</code> と <code>Velocity</code>、入口の解決</td><td>+97 / -10</td></tr>
+<tr><td><code>Render/Texture</code>・<code>Framebuffer</code></td><td><code>Rg16F</code></td><td>+23 / -0</td></tr>
+<tr><td><code>Program.cs</code></td><td>頭と尻の2か所、メニュー、自己チェック</td><td>+1141 / -2</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">FXAA と TAA の設計比較 — 出口と入口</h3>
+<svg viewBox="0 0 900 535" role="img" aria-label="シーンバッファから TAA の解決(履歴と速度を読む)を通るか通らないかで後ろの段が読む絵が決まり、明部・ぼかし・合成のあと、FXAA を掛けるかで画面に出る図" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="28.5" text-anchor="middle" fill="var(--ink)">シーンバッファ RGBA16F</text><text x="220" y="45.5" text-anchor="middle" fill="var(--ink)">ずらして描いてある(Day 54a)</text><rect x="20" y="80" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="220" y="100.5" text-anchor="middle" fill="var(--ink)">TAA を掛けるか</text><text x="220" y="117.5" text-anchor="middle" fill="var(--ink)">このフレームの速度が挿さっているか</text><rect x="500" y="110" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="665" y="130.5" text-anchor="middle" fill="var(--ink)">履歴 x2 RGBA16F</text><text x="665" y="147.5" text-anchor="middle" fill="var(--ink)">前のフレームの結果</text><rect x="500" y="182" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="665" y="202.5" text-anchor="middle" fill="var(--ink)">速度 RG16F</text><text x="665" y="219.5" text-anchor="middle" fill="var(--ink)">カメラの動き</text><rect x="20" y="170" width="400" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="190.5" text-anchor="middle" fill="var(--ink)">TAA の解決 taa.frag</text><text x="220" y="207.5" text-anchor="middle" fill="var(--ink)">引き戻す → 疑う → 混ぜる</text><rect x="20" y="262" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="282.5" text-anchor="middle" fill="var(--ink)">後ろの段が読む絵</text><rect x="500" y="262" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="665" y="282.5" text-anchor="middle" fill="var(--ink)">明部 → ぼかし(Day 31)</text><rect x="20" y="330" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="350.5" text-anchor="middle" fill="var(--ink)">合成: 露出 → ブルーム → グレーディング</text><text x="220" y="367.5" text-anchor="middle" fill="var(--ink)">→ トーンマップ → ガンマ</text><rect x="20" y="412" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="220" y="432.5" text-anchor="middle" fill="var(--ink)">FXAA を掛けるか(Day 38)</text><rect x="500" y="405" width="330" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="665" y="425.5" text-anchor="middle" fill="var(--ink)">FXAA fxaa.frag</text><text x="665" y="442.5" text-anchor="middle" fill="var(--ink)">8bit の1枚から段差を探して均す</text><rect x="20" y="490" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="510.5" text-anchor="middle" fill="var(--ink)">画面</text><path d="M220 58 L220 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M220 130 L220 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="228" y="146" fill="var(--muted)" font-size="12" text-anchor="start">Yes</text><path d="M500 135 L460 135 L460 186 L422 186" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M500 207 L422 207" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M420 178 L480 178 L480 120 L498 120" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr1)"></path><text x="496" y="104" fill="var(--muted)" font-size="12" text-anchor="start">書いたものが次の履歴</text><path d="M220 220 L220 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M20 105 L6 105 L6 278.5 L18 278.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="10" y="99" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M420 278.5 L498 278.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M220 295 L220 328" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M665 295 L665 355 L422 355" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M220 380 L220 410" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M420 428.5 L498 428.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="459" y="420.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M220 445 L220 488" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="228" y="461" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M665 455 L665 506.5 L422 506.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>FXAA は出口に、TAA は入口にいる</strong>。同じ AA という仕事でも、FXAA は「出来上がった絵」を見る手法なのでガンマのあとの 8bit にしか置けず(Day 38 の要点3)、TAA は「光の量」を平均する手法なので HDR のうちに置く。<strong>両方を掛けることもできる</strong>(「FXAA と色調整」の F2 で FXAA を足し直す)が、TAA が均した縁を FXAA がもう一度ぼかすだけになりやすいので、「TAA」の <code>F2</code> は TAA に入れるときに FXAA を切る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>FXAA(Day 38)</th><th>TAA(Day 54a)</th></tr></thead>
+<tbody>
+<tr><td>置き場所</td><td>出口(合成のあと)</td><td>入口(ブルームより前)</td></tr>
+<tr><td>読むもの</td><td>8bit の絵1枚</td><td>今の絵・履歴・速度・深度</td></tr>
+<tr><td>持つバッファ</td><td>LDR 1枚 2.3MB</td><td>履歴 2枚 9.4MB(表示を使うと +4.7MB)+ 速度 2.3MB</td></tr>
+<tr><td>全画面パス</td><td>1</td><td>1(解決)+ 1(速度)</td></tr>
+<tr><td>シーンを知っているか</td><td>知らない</td><td><strong>知らない</strong>(速度はテクスチャで受け取る)</td></tr>
+<tr><td>前のフレームを覚えているか</td><td>いない</td><td>履歴と、前の行列(速度の側)</td></tr>
+<tr><td>GPU の時間(VSync で休みながら)</td><td>0.04ms</td><td>速度 0.02ms + 解決 0.05ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>GPU の時間は走行ごとに倍以上ぶれる</strong>。VSync で休みながら測るので、GPU のクロックが上下するため。並びの傾向(TAA は FXAA の数倍、どちらも 1ms に届かない)で読むこと。</p>
+<h3 id="s20">TAA の1フレーム — 揺らして描き、速度を描き、入口で混ぜる</h3>
+<svg viewBox="0 0 980 518" role="img" aria-label="BeginTemporalFrame でずらしを決め、全部のパスが同じずらしで描かれ、RenderMotionVectors が速度を描き、カットなら履歴を捨て、速度を挿して _post.End、最後にずらしを 0 に戻す図" style="width:100%;max-width:980px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BeginTemporalFrame</text><text x="280" y="45.5" text-anchor="middle" fill="var(--ink)">ずらしを決めて Camera.Jitter へ</text><rect x="20" y="80" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="100.5" text-anchor="middle" fill="var(--ink)">影 → G-Buffer → SSAO → 本描画 → 粒</text><text x="280" y="117.5" text-anchor="middle" fill="var(--ink)"><tspan font-weight="700">全部が同じずらしで描かれる</tspan>(影は光の目なのでずれない)</text><rect x="20" y="152" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="172.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderMotionVectors</text><text x="280" y="189.5" text-anchor="middle" fill="var(--ink)">深度を写す → カメラの速度を全画面に</text><rect x="20" y="224" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="280" y="244.5" text-anchor="middle" fill="var(--ink)">前のフレームと</text><text x="280" y="261.5" text-anchor="middle" fill="var(--ink)">繋がっているか</text><rect x="720" y="224" width="240" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="840" y="244.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TemporalAA.Reset</text><text x="840" y="261.5" text-anchor="middle" fill="var(--ink)">履歴を捨てる</text><rect x="20" y="312" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="332.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Velocity = 速度</text><text x="280" y="349.5" text-anchor="middle" fill="var(--ink)">このフレームだけ挿す</text><rect x="20" y="384" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="404.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.End</text><text x="280" y="421.5" text-anchor="middle" fill="var(--ink)">TAA → 明部・ぼかし → 合成 → 画面</text><rect x="20" y="456" width="520" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="476.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Camera.Jitter = 0</text><text x="280" y="493.5" text-anchor="middle" fill="var(--ink)">ずらすのは描いている間だけ</text><path d="M280 58 L280 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M280 130 L280 150" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M280 202 L280 222" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M540 249 L718 249" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="629" y="241" fill="var(--muted)" font-size="12" text-anchor="middle">繋がっていない(カット)</text><path d="M280 274 L280 310" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="288" y="290" fill="var(--muted)" font-size="12" text-anchor="start">繋がっている</text><path d="M840 274 L840 337 L542 337" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M280 362 L280 382" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M280 434 L280 454" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>TAA のために <code>OnRender</code> に入ったのは頭と尻の2か所だけ</strong>。頭の <code>BeginTemporalFrame</code> はどのパスよりも前——ずらしは射影行列に入るので、影より後ろに置くと SSAO の幾何パスと本描画が別々のずらしで描かれる。尻の <code>RenderMotionVectors</code> は <code>_post.End</code> の直前——速度はシーンの深度から作るので、不透明なものが全部描かれてからでないと描けない。その間の描画の分岐(デモ・プレイアブル・物理・材質グリッド・モデル)は1行も変わっていない。</p>
+<h3 id="s21">今日足したものは、どこに繋がったか</h3>
+<svg viewBox="0 0 940 345" role="img" aria-label="TemporalAA が Camera.Jitter にずらしを渡し、MotionVectors が速度を描いて PostProcess.Velocity 経由で TemporalAA へ届く図。TemporalAA と MotionVectors は互いを知らない" style="width:100%;max-width:940px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="30" width="220" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="50.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TemporalAA</text><text x="120" y="67.5" text-anchor="middle" fill="var(--ink)">揺らし方・履歴・解決</text><rect x="350" y="30" width="240" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="50.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Camera.Jitter</text><text x="470" y="67.5" text-anchor="middle" fill="var(--ink)">射影の後ろに平行移動</text><rect x="690" y="30" width="230" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="805" y="50.5" text-anchor="middle" fill="var(--ink)">全部のパス</text><text x="805" y="67.5" text-anchor="middle" fill="var(--ink)">本描画・空・粒・SSAO・G-Buffer</text><rect x="10" y="170" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PostProcess</text><rect x="350" y="160" width="240" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">MotionVectors</text><text x="470" y="197.5" text-anchor="middle" fill="var(--ink)">深度から、カメラの動きを描く</text><rect x="690" y="160" width="230" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="805" y="180.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PostProcess.Velocity</text><text x="805" y="197.5" text-anchor="middle" fill="var(--ink)">このフレームだけ</text><rect x="10" y="300" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="320.5" text-anchor="middle" fill="var(--ink)">明部・合成(Day 31)</text><rect x="350" y="300" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="320.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GpuTimer</text><path d="M230 55 L348 55" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="289" y="47" fill="var(--muted)" font-size="12" text-anchor="middle">NextJitter</text><path d="M590 55 L688 55" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="639" y="47" fill="var(--muted)" font-size="12" text-anchor="middle">ずらした行列</text><path d="M470 80 L470 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="478" y="104" fill="var(--muted)" font-size="12" text-anchor="start">ずらした VP と</text><text x="478" y="119" fill="var(--muted)" font-size="12" text-anchor="start">ずらす前の VP</text><path d="M230 196 L348 196" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="289" y="188" fill="var(--muted)" font-size="12" text-anchor="middle">深度の写し</text><path d="M590 185 L688 185" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="639" y="177" fill="var(--muted)" font-size="12" text-anchor="middle">Velocity</text><path d="M805 160 L805 140 L220 140 L220 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M80 170 L80 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M24 80 L24 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M350 316 L290 316 L290 72 L232 72" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr3)"></path><text x="284" y="310" fill="var(--muted)" font-size="12" text-anchor="end">測る</text><path d="M470 300 L470 212" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr3)"></path><text x="476" y="280" fill="var(--muted)" font-size="12" text-anchor="start">測る</text><text x="98" y="128" fill="var(--muted)" font-size="12" text-anchor="start">シーンバッファ</text><text x="98" y="143" fill="var(--muted)" font-size="12" text-anchor="start">と深度</text><text x="42" y="250" fill="var(--muted)" font-size="12" text-anchor="start">結果 = 次の履歴</text></g></svg>
+<p><strong><code>TemporalAA</code> と <code>MotionVectors</code> は互いを知らない</strong>。<code>MotionVectors</code> は速度を RG16F に描くだけで、誰が読むかを知らず、<code>TemporalAA</code> は速度をテクスチャで受け取るだけで、それがカメラの動きなのか物の動きなのかを知らない。繋いでいるのは <code>Program</code> の2行(<code>_post.Velocity = _motion.Velocity</code> と、カットのときの <code>Reset</code>)。この形にしてあるので、Day 54b で速度に2段目が増えても <code>TemporalAA</code> は1行も変わらないし、<strong>Day 55 のモーションブラーは、この速度バッファをそのまま読める</strong>。</p>
+<p><strong><code>TemporalAA</code> は <code>Camera</code> を知らない</strong>。ずらしは <code>NextJitter</code> が NDC の <code>Vector2</code> を返し、それを <code>Program</code> がカメラに入れる。<code>TemporalAA</code> から見れば「今の絵・履歴・速度・深度」の4枚のテクスチャを混ぜるだけの部品で、自己チェックが 64x8 の作り物の絵で解決の式を確かめられる(要点3・5の数字)のはこのおかげ。</p>
+<h3 id="s22">1画素の色が決まるまで(TAA)— 引き戻して、疑って、混ぜる</h3>
+<svg viewBox="0 0 910 852" role="img" aria-label="履歴があるか、画面の外かの2つの関門を通った画素だけ、履歴を読んで疑い方で直し、今の絵と 1:9 で混ぜる図" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="28.5" text-anchor="middle" fill="var(--ink)">今の画素</text><text x="230" y="45.5" text-anchor="middle" fill="var(--ink)">ずらして描いた</text><rect x="20" y="80" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="100.5" text-anchor="middle" fill="var(--ink)">履歴があるか</text><rect x="580" y="80" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="100.5" text-anchor="middle" fill="var(--ink)">今の絵をそのまま</text><rect x="20" y="140" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="160.5" text-anchor="middle" fill="var(--ink)">近所 3x3 を見る</text><text x="230" y="177.5" text-anchor="middle" fill="var(--ink)">YCoCg へ</text><text x="230" y="194.5" text-anchor="middle" fill="var(--ink)">和・二乗和・最小・最大 + いちばん手前の画素</text><rect x="20" y="229" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="249.5" text-anchor="middle" fill="var(--ink)">速度 = いちばん手前の画素の速度</text><rect x="20" y="284" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="304.5" text-anchor="middle" fill="var(--ink)">履歴の場所 = 今の UV − 速度</text><rect x="20" y="339" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="359.5" text-anchor="middle" fill="var(--ink)">画面の外か</text><rect x="20" y="400" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="420.5" text-anchor="middle" fill="var(--ink)">履歴を双線形で読む</text><text x="230" y="437.5" text-anchor="middle" fill="var(--ink)">(読むたびに少しぼける)</text><rect x="20" y="472" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="492.5" text-anchor="middle" fill="var(--ink)">疑い方</text><rect x="580" y="520" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="540.5" text-anchor="middle" fill="var(--ink)">箱へ成分ごとに押し込む</text><rect x="580" y="575" width="300" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="595.5" text-anchor="middle" fill="var(--ink)">平均 ± σ の箱</text><text x="730" y="612.5" text-anchor="middle" fill="var(--ink)">+ 今の画素を必ず入れる</text><text x="730" y="629.5" text-anchor="middle" fill="var(--ink)">中心へ向かって切る</text><rect x="580" y="664" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="684.5" text-anchor="middle" fill="var(--ink)">そのまま</text><rect x="20" y="720" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="740.5" text-anchor="middle" fill="var(--ink)">今の絵 1 割 : 履歴 9 割</text><rect x="20" y="790" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="810.5" text-anchor="middle" fill="var(--ink)">出力 = 次の履歴</text><text x="230" y="827.5" text-anchor="middle" fill="var(--ink)">ブルームと合成が読む</text><path d="M230 58 L230 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M440 96.5 L578 96.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="509" y="88.5" fill="var(--muted)" font-size="12" text-anchor="middle">無い(捨てた直後)</text><path d="M230 113 L230 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="238" y="129" fill="var(--muted)" font-size="12" text-anchor="start">ある</text><path d="M230 207 L230 227" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M230 262 L230 282" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M230 317 L230 337" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M440 355.5 L730 355.5 L730 115" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="454" y="349.5" fill="var(--muted)" font-size="12" text-anchor="start">外</text><path d="M230 372 L230 398" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="238" y="388" fill="var(--muted)" font-size="12" text-anchor="start">中</text><path d="M230 450 L230 470" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M440 488.5 L500 488.5 L500 536.5 L578 536.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="506" y="530.5" fill="var(--muted)" font-size="12" text-anchor="start">最小最大</text><path d="M380 505 L380 608.5 L578 608.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="374" y="600.5" fill="var(--muted)" font-size="12" text-anchor="end">分散(既定)</text><path d="M320 505 L320 680.5 L578 680.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="314" y="672.5" fill="var(--muted)" font-size="12" text-anchor="end">疑わない</text><path d="M880 536.5 L894 536.5 L894 736.5 L442 736.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M880 608.5 L894 608.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M880 680.5 L894 680.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M230 753 L230 788" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>関門は3つ</strong>(履歴が無い・画面の外・疑い)。前の2つは「履歴を使わない」で、3つ目だけが「履歴を直して使う」。疑いが TAA の品質を握っているのはそのためで、今日の冒頭の話(箱が今の画素を含まない)も、ここの1行の抜けが止まった絵の細部を削っていた。</p>
+<h3 id="s23">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: ずらしを知らない場所が3つある</strong>。ずらしを射影行列に入れたので、<code>ProjectionMatrix</code> を丸ごと使う場所は全部同じだけずれる。ところが、射影行列から<strong>対角の2つの数だけ</strong>(M11・M22)を取り出していた場所は、非対角に入ったずらし(M31・M32)を知らない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場所</th><th>何をしているか</th><th>ずらしを知らないと</th></tr></thead>
+<tbody>
+<tr><td><code>ssao.frag</code>(Day 37)</td><td>深度からビュー空間の位置を戻す</td><td>戻した点が半画素ずれる(10m 先で 6mm)</td></tr>
+<tr><td><code>deferred.frag</code>(Day 52)</td><td>G-Buffer の距離から位置を戻す</td><td>同じ。影の縁の見え方がずらしぶん揺れる</td></tr>
+<tr><td><code>ClusterGrid</code>(Day 53)</td><td>升目の箱をずらす前の射影で作る</td><td>画素が引くタイルと升目の箱が半画素食い違う(光の球の縁でしか効かない)</td></tr>
+</tbody>
+</table></div>
+<p>どれも半画素以内で、TAA が平均してしまう大きさなので絵には出ない。<strong>「対角の2つの数だけで位置が戻る」は Day 37 の前提</strong>で、今日その前提が崩れた。直すなら非対角(平行投影なら M41・M42)も送る(改造課題3)。</p>
+<p><strong>2つ目: 深度を2回写している</strong>。ソフトパーティクル(Day 50)のために粒の前で1回、速度のために <code>_post.End</code> の前でもう1回。粒は深度を書かないので中身は同じ。「フレームに1回、不透明を描き終えたところで写す」持ち主を1つ決めれば減るが、Day 50 のコードの置き場所を動かすことになるので今日は見送った。</p>
+<p><strong>3つ目: 速度を持たないものがある</strong>。粒・トレイル・2D のスプライト・後処理を通す文字(「FXAA と色調整」の F5)、そして<strong>自分で動いた物すべて</strong>。どれも後ろにある物の速度で履歴を引く。疑いが色を引き戻すので残像は出ないが、履歴が溜まらずに揺れる。自分で動いた物は Day 54b で直す。粒・文字は本物でも「反応マスク」で粒の画素だけ今の絵の割合を上げるか、TAA のあとに描く。</p>
+<p><strong>4つ目: 履歴を双線形で読んでいる</strong>(要点3)。前に居た場所は画素の中心から外れているので、読むたびに少しぼける。止めた絵では中心をちょうど読むので差が無く、<strong>カメラが動いているあいだだけ絵が眠くなる</strong>。Day 54b の Catmull-Rom で直す。</p>
+<p><strong>Day 53 の歪み4つのうち、今日動いたもの</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 53 の歪み</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td>1. 升目の引き方が CPU と GPU の2か所</td><td>そのまま(ずらしぶんの半画素の食い違いが1つ増えた。今日の歪みの1つ目)</td></tr>
+<tr><td>2. 振り分けが毎フレーム CPU を食う</td><td>そのまま</td></tr>
+<tr><td>3. 1升の光に上限が無い</td><td>そのまま</td></tr>
+<tr><td>4. 描き方の選択が <code>Program</code> の関数に散る</td><td><strong>1つ増えた</strong>(<code>UseTaa</code>)。条件が「ゲーム中でない」だけなので、並び順には依らない</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s24">完成条件</h2>
+<p><code>dotnet run --project reference/Day54a -c Release</code> で起動する。先に「デモ v1」ページ(8 枚目)の <code>1</code>(決めの構図)でデモ v1 を出し、<code>Space</code> で一時停止する。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「TAA」(22 枚目)が開く。</p>
+<h3 id="s25">1. <code>F2</code>: アンチエイリアスを FXAA → TAA → なし と回す</h3>
+<p><code>F2</code> を押すたびに、コンソールに次の行が順に出る。</p>
+<div class="code"><pre><code>アンチエイリアス: <strong>TAA</strong>(今日)。毎フレーム1画素未満ずらして描き、前のフレームと 9:1 で混ぜる。<strong>止めて見ると輪郭が滑らかになり、細い線のちらつきが消える</strong>——FXAA との差はカメラを動かすと出る
+アンチエイリアス: なし(Day 37 まで)。輪郭が階段になる
+アンチエイリアス: FXAA(Day 38)。出来上がった1枚から段差を探して均す</code></pre></div>
+<p>TAA のとき、HUD の FXAA の行が <code>FXAA:OFF(TAA に置き換え。Day 54)</code> になり、その下に今日の行が出る。</p>
+<div class="code"><pre><code>TAA:ON  揺らし:1/8(+0.00,-0.17)px  今の絵:10%  疑い方:分散で切る  速度:カメラだけ  GPU 速度:0.01ms 解決:0.05ms  捨てた:0回</code></pre></div>
+<p><strong>「揺らし」の番号が 1〜8 を回り続ける</strong>のが、毎フレームずらしている証拠。</p>
+<h3 id="s26">2. 止めた絵で縁を比べる</h3>
+<p>手前の壁の上端(空との境目の斜めの縁)を拡大して比べると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>なし</th><th>FXAA</th><th>TAA</th></tr></thead>
+<tbody>
+<tr><td>1画素の階段</td><td>階段の角が埋まるが、段は残る</td><td><strong>斜めの線になる</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>TAA のほうが多くの画素を動かしている</strong>——FXAA は縁と判定したところだけを均すが、TAA は1画素の中を平均し直すので、階段の縁だけでなく、テクスチャの細部もわずかに平均される。レンガの模様が FXAA より少し柔らかく見えるのはそのため。</p>
+<h3 id="s27">3. <code>F3</code>: TAA の表示</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>何が見えるか</th></tr></thead>
+<tbody>
+<tr><td>揺れの素</td><td>履歴を混ぜない今の絵。<strong>止めていても輪郭が震える</strong></td></tr>
+<tr><td>速度</td><td>止めていれば真っ黒。「カメラワークと機能」の <code>F3</code> でカメラワークを再生すると、<strong>回り込みの中心の1点だけが黒く</strong>、離れるほど赤・緑が濃くなる</td></tr>
+<tr><td>履歴を疑った量</td><td>カメラが動いていると、ゴミ箱や街灯の縁(回り込んで隠れていた所が現れる場所)が赤く光る。止めていても、レンガの目地には赤い点が散る</td></tr>
+</tbody>
+</table></div>
+<p><strong>止めていても目地に点が散る</strong>のは、ずらすたびに近所の色の範囲が変わるので、細かい模様では履歴がときどき範囲から出るため。TAA が細かい模様でわずかにちらつく理由でもある。表示を戻す(もう一度 <code>F3</code>)と、HUD の VRAM に表示用の1枚(4.7MB)が残る(表示を使ったときにだけ作る)。</p>
+<h3 id="s28">4. <code>F4</code>: 今の絵の割合</h3>
+<p><code>F4</code> を押すたびに 10% → 5% → 20% → 50% と回り、前の絵が半分に薄まるまでのフレーム数が出る(要点3の表)。<strong>50% にするとほとんど AA にならない</strong>(直近 2〜3 点しか効いていない)。小さくしても、動かしたときに前の絵が尾を引くことはない——引き戻しと疑いが先に効くので、割合が決めるのは「止めた絵がどれだけ滑らかになるか」と「光の変化にどれだけ遅れるか」のほう。</p>
+<h3 id="s29">5. <code>F5</code>: 履歴を疑うのをやめるとゴーストが出る</h3>
+<p>「カメラワークと機能」ページ(9 枚目)の <code>F3</code> でカメラワークを再生し、「TAA」ページに戻って <code>F5</code> を2回押す(<code>疑わない</code>)。カメラが回り込むと、<strong>ゴミ箱や街灯の縁から、隠れていた所の色が尾を引く</strong>(要点5)。もう一度 <code>F5</code> で <code>分散で切る</code> に戻すと、尾がぴたりと消える。</p>
+<p><code>F5</code> の3つは自己チェックが数字で見ている(赤 4.0 の履歴に灰 0.1 の今の絵 → 疑わない 3.609 / 最小最大 0.100 / 分散 0.100)。</p>
+<h3 id="s30">6. <code>F6</code>: ジッターを切る</h3>
+<p><code>F6</code> で <code>ジッター: <strong>OFF</strong></code> にすると、<strong>TAA を掛けたまま、絵が「なし」とほとんど同じになる</strong>(差 0.015%)。同じ画素が毎フレーム同じ点を取るので、何枚混ぜても1点ぶんの情報しか無い。<strong>TAA の AA の正体はジッター</strong>で、混ぜるのはそれを溜めるだけ。もう一度 <code>F6</code> で戻る。</p>
+<h3 id="s31">7. <code>F7</code>: 内訳</h3>
+<div class="code"><pre><code>--- TAA の内訳 ---
+  揺らし方: Halton(2, 3) の 8 点 [画素]  いま 1 番
+    1:(+0.000,-0.167) 2:(-0.250,+0.167) 3:(+0.250,-0.389) 4:(-0.375,-0.056) 5:(+0.125,+0.278) 6:(-0.125,-0.278) 7:(+0.375,+0.056) 8:(-0.438,+0.389)
+    平均 (-0.055, +0.000) 画素(偏りが無いほど 0 に近い)
+
+  履歴: 960 x 640 RGBA16F x2 = 9.4MB(+ 表示用の1枚 4.7MB)
+  今の絵の割合 10%: 前の絵が半分に薄まるまで 6.6 フレーム、1% まで 44 フレーム
+  疑い方: 分散で切る(YCoCg、分散の箱は ±1.0σ)  履歴を捨てた回数: 0
+
+  速度バッファ: 960 x 640 RG16F = 2.3MB(<strong>カメラの動きだけ</strong>。物の速度は Day 54b)
+
+  GPU の時間(タイマークエリの移動平均): 速度 0.015ms + 解決 0.052ms = 0.067ms
+    ※FXAA は 0.038ms(最後に FXAA を掛けていたときの値)。TAA はこれに深度のコピーが1回乗る
+  後処理の VRAM 合計: 28.1MB  いまのアンチエイリアス: TAA</code></pre></div>
+<p><strong>x の平均が -0.055 画素</strong>なのが、要点3で書いた「Halton の平均が中心からずれている」の正体(改造課題1)。<strong>GPU の時間は走行ごとに倍以上ぶれる</strong>(VSync で休みながら測るので、GPU のクロックが上下する)。並びの傾向(TAA は FXAA の数倍)で読むこと。</p>
+<h3 id="s32">8. <code>F8</code>: 自己チェックが 20 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 54 自己チェック(ずらし・解決の式・カメラの速度・スーパーサンプリングへの収束)===
+  [OK] Halton(2, 3) の最初の4点が (1/2, 1/3) (1/4, 2/3) (3/4, 1/9) (1/8, 4/9)
+  ...
+  すべて合格(ずらし・解決の式・カメラの速度・スーパーサンプリングへの収束が仕様どおり)</code></pre></div>
+<p><strong>GL を使わない項目が 4 つ</strong>(ずらし)、<strong>64x8 の作り物の絵で走る項目が 6 つ</strong>(解決の式)。<code>TemporalAA</code> がテクスチャを受け取って返すだけの部品なので、解決の式は本物のシーンを描かずに入力を作って確かめられる。</p>
+<p>柱は<strong>収束の1項目</strong>——64 点のスーパーサンプリングを答えとして、縁の画素の誤差が<code>FXAA 60% / TAA 21% / 8 点をただ平均 20%</code>(AA なしを 100%)。<strong>TAA が近づけるのは「ずらしの 8 点の平均」まで</strong>で、そこにはほぼ届いている。</p>
+<h3 id="s33">9. どの描き方でも TAA は同じ絵</h3>
+<p>TAA を入れたまま「Forward+」ページの <code>F2</code> で描き方を回しても、絵は変わらない。<strong>同じずらしの番号のフレームどうし</strong>で比べること——ずらしの番号が違うフレームどうしで比べると、同じ描き方でも 0.109% 違う。<strong>TAA の絵は止めても 8 フレームの周期で揺れている</strong>(要点3)。</p>
+<h3 id="s34">10. Day 38〜53 の絵と自己チェックが1つも壊れていない</h3>
+<p><strong>既定は FXAA のまま</strong>なので、起動した直後の絵は Day 53 とまったく同じ(ずらしが 0 のとき、射影行列は1ビットも変わらない)。Day 48 の自己チェック(<code>Alt+F1</code>)は <strong>214 項目</strong>で通る。<strong>TAA を入れたままでも</strong>、Day 53 の Forward+(23 項目)、Day 52 のディファード(31 項目)、Day 38 の FXAA(「SSAO」ページの「自己チェック(AA)」)の自己チェックは全部通る——TAA は「このフレームの速度」が挿さっているときだけ掛かり、ずらしは描いている間だけ入るので、キーで呼ぶ自己チェックには割り込まない(要点7)。</p>
+<p><strong>IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる</strong>こと(Day 52・53 と同じ注意)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「TAA」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>カメラを振る「アンチエイリアス」、止めた絵に混ぜ続ける「AA なし」</td><td>AA なしでは細い棒・細い線が途切れて点滅する(FXAA はこのページに無い)</td></tr>
+<tr><td><code>F3</code></td><td>カメラを振る「TAA の表示」、止めた絵の「揺れの素」</td><td>揺れの素は止めていても震える。速度は手前の柱ほど大きい。疑った量は柱の縁に出る</td></tr>
+<tr><td><code>F4</code></td><td>止めた絵に混ぜ続ける「今の絵の割合」</td><td>半分になるまで 6.6 フレーム(10%)、50% ではほとんど AA にならない</td></tr>
+<tr><td><code>F5</code></td><td>カメラを振る「疑い方」、履歴を疑う箱</td><td>疑わないと柱の縁から尾が伸びる。箱の数字は 3.609 / 0.100 / 0.100、0.730 / 0.445</td></tr>
+<tr><td><code>F6</code></td><td>止めた絵の「ジッター」</td><td>切ると縁の誤差が AA なしと同じ 100% になる</td></tr>
+<tr><td><code>F7</code>(内訳)</td><td>止めた絵の「点の平均」</td><td>Halton 8 点の平均 (-0.055, 0.000) 画素</td></tr>
+<tr><td><code>F8</code>(自己チェック)</td><td>履歴を疑う箱、止めた絵に混ぜ続ける</td><td>疑い方3つと「今の画素を必ず入れる」の数字。TAA はずらしの点をただ平均した絵まで近づく</td></tr>
+<tr><td>(なし)</td><td>「点の平均を中心へ寄せる」「Halton 16 点」</td><td>改造課題1 を先に見る切り替え</td></tr>
+<tr><td>(なし)</td><td>「箱に今の画素を入れない」「速度を使わない」</td><td>要点4・5 の失敗を見るためにこのページで足した切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">3つの実験台は、reference/Day54a の taa.frag(近所 3x3・YCoCg・最小最大と分散の箱・中心へ向かって切る・いちばん手前の画素の速度・画面の外)と TemporalAA の Halton を JS に移したもの(docs/site/taa.js。Day 54b の実験台も使う)。履歴と今の絵は RGBA16F と同じく半精度に丸めて持つので、箱の実験台は自己チェックの作り物の絵(64 x 8)と同じ数字を出す(GPU の丸めとの差で最後の桁が ±0.001 ずれる)。止めた絵とカメラを振る場面は実機の裏通りではなく、このページで作った絵で、収束の数字は自己チェックの確認用のシーン(FXAA 60% / TAA 21% / ただ平均 20%)とは一致しない。カメラを振る場面の速度は、深度とカメラの移動から出していて(camera-velocity.frag と同じ考え方)、射影行列は使っていない。</p></div>
+</section>
+<section class="part"><h2 id="s35">改造課題</h2>
+<h3 id="s36">課題1(易): 揺らし方を変える</h3>
+<p><code>TemporalAA.SampleCount</code> を 16 にして、自己チェックの収束の項目(「8 点をただ平均」の数字も一緒に 16 点になる)を見る。<strong>思ったほど良くならない</strong>はず。計画書を書いたときの実験(答えを 64 点、デモの露出で測った物差し)では、</p>
+<div class="code"><pre><code>  格子 4x4 をただ平均          12.1%
+  Halton 8 点をただ平均        16.9%    → 平均を中心へ寄せると 15.2%
+  Halton 16 点をただ平均       17.1%    → 平均を中心へ寄せると 11.4%</code></pre></div>
+<p>16 点は、Halton の点の平均が中心から (-0.029, -0.037) 画素ずれているせいで、点を増やした分が相殺されていた。<code>JitterPixels</code> で 8 点(16 点)の平均を引いて中心へ寄せると、数字が下がる。<strong>「どこで打ち切っても満遍なく散る」Halton でも、少ない点の平均は中心に来ない</strong>——ずらしは平均と散らばりの両方を見て選ぶ。</p>
+<p>余力があれば、4x4 の格子(規則的なずらし)や乱数も試す。格子は止めた絵の数字は良いが、1周する前の数フレームは点が偏る(Halton はどこで打ち切っても散っている)。乱数は点が固まるので、止めても揺れが大きい。</p>
+<h3 id="s37">課題2(中): 履歴を捨てる条件を絵で見る</h3>
+<p>いまカットになるのは2つ(前の行列が無い・カメラが 1 フレームで 2m 以上動いた)。<code>MotionVectors.CutDistance</code> を 0.01m まで下げて、<strong>カメラワークの再生中に毎フレーム履歴が捨てられる</strong>様にしてみる。HUD の <code>捨てた:N回</code> が毎フレーム増え、絵は「AA なし」に戻る——<strong>TAA は履歴が続いていることが前提の手法</strong>だと分かる。</p>
+<p>逆に、プレイアブルデモに入る瞬間(追従カメラが位置を置き換える)にカットを掛けないとどうなるかも見る(<code>CutDistance</code> を 100m にする)。前の構図の絵が薄く数フレーム残る。<strong>「疑いがあるから捨てなくてもいい」の限界</strong>がここに出る——疑いは近所の色でしか判断できないので、たまたま似た色のところは信じてしまう。</p>
+<h3 id="s38">課題3(難): 位置の復元をずらしに合わせる</h3>
+<p>設計書「今日残した歪み」の1つ目を片付ける。<code>ssao.frag</code> と <code>deferred.frag</code> は、深度からビュー空間の位置を対角の2つの数(<code>uProjScale</code> = 1 / M11, 1 / M22)だけで戻している。ずらしを入れた射影行列では、</p>
+<div class="code"><pre><code>  透視投影:  x_view = (NDC.x + M31) / M11 × 深さ          … M31 = -jx(ずらし)</code></pre></div>
+<p>になる。<code>GBuffer.Apply</code> と <code>Ssao</code> の <code>ComputeOcclusion</code> から M31・M32(平行投影なら M41・M42)を <code>uProjOffset</code> として送り、2本のシェーダの位置の復元に足す。確かめ方は、Day 52 の自己チェックの「位置の復元」を、確認用のシーンを描く前に <code>_camera.Jitter</code> を入れて走らせること——直す前は半画素ぶんずれ、直すと Day 52 の数字に戻るはず。Forward+ の升目(<code>ClusterGrid</code>)も同じ話で、こちらは画素シェーダがタイルを引くときに <code>gl_FragCoord</code> からずらしを引けばよい。</p>
+</section>
+<section class="part"><h2 id="s39">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。計測(<code>glFinish</code> を挟んで連続で描く)は今日は無く、GPU の時間はタイマークエリで普段のフレームの中で測った</td></tr>
+</tbody>
+</table></div>
+<p>TAA の数字(決めの構図)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>ずらし</td><td>Halton(2, 3) 8 点。平均 (-0.055, +0.000) 画素</td></tr>
+<tr><td>履歴</td><td>RGBA16F x2 = 9.4MB(表示を使うと +4.7MB)</td></tr>
+<tr><td>速度バッファ</td><td>RG16F = 2.3MB</td></tr>
+<tr><td>後処理の VRAM 合計</td><td>23.4MB(表示を使うと 28.1MB)。うち TAA の履歴 9.4MB、深度の写し 1.8MB</td></tr>
+<tr><td>GPU の時間</td><td>速度 0.02ms / 解決 0.05ms / FXAA 0.04ms(走行ごとにぶれる)</td></tr>
+<tr><td>収束(64 点の答えとの縁の誤差。AA なし 100%。確認用の光で測るので構図に依らない)</td><td>FXAA 60% / <strong>TAA 21%</strong> / 8 点をただ平均 20%</td></tr>
+<tr><td>ジッターを切った TAA となし</td><td>0.015%(箱に今の画素を入れる前は 0.204%)</td></tr>
+<tr><td>GL のエラー</td><td>0(毎フレーム <code>glGetError</code> を見て確かめた)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s40">自己チェック(20 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 54 自己チェック(ずらし・解決の式・カメラの速度・スーパーサンプリングへの収束)===
+  [OK] Halton(2, 3) の最初の4点が (1/2, 1/3) (1/4, 2/3) (3/4, 1/9) (1/8, 4/9)
+  [OK] <strong>8 点が1画素の中に満遍なく散る</strong>(4つの象限に2点ずつ、平均はほぼ中心)  象限 2/2/2/2 点  平均 (-0.055, +0.000) 画素
+  [OK] <strong>ずらしは深さによらず同じ画素数</strong>(0.5m / 5m / 50m、透視と平行投影)  (+0.3, -0.2) 画素を入れて、最大のずれ 7.4E-005 画素
+  [OK] <strong>ずらし 0 なら射影行列は Day 53 と1ビットも同じ</strong>(TAA を切れば絵が変わらない)
+  [OK] 履歴を捨てた直後の1フレームは、今の絵がそのまま出る  (0.200, 0.400, 0.600)
+  [OK] <strong>混ぜ方は指数移動平均</strong>(0.2 のあと 1.0 を 10 フレーム: 1 − 0.8 × 0.9^10)  0.7197 / 期待 0.7211
+  [OK] <strong>疑わないとゴーストが 9 割残り、疑うと消える</strong>(赤 4.0 の履歴に灰 0.1 の今の絵)  疑わない 3.609 / 最小最大 0.100 / 分散 0.100
+  [OK] <strong>分散で切る箱は、最小最大の箱より締まる</strong>(近所に明るい点が1つあっても甘くならない)  履歴 0.8 → 最小最大 0.729 / 分散 0.444(箱の上限 0.48 まで切られる)
+  [OK] <strong>止まった絵の光の点を削らない</strong>(締まった箱にも今の画素は必ず入れる)  1.0 の点 → 1.000(入れないと 0.54 に沈む)
+  [OK] 前のフレームで画面の外に居た画素は、履歴を使わず今の絵を出す  0.100(疑わない設定でも 4.0 の履歴が混ざらない)
+  [OK] <strong>止まった絵の速度は 0</strong>(ずらしは毎フレーム変えている。ずらしが動きに化けない)  全画素の最大 0.0003 画素
+  [OK] 別の絵から切り替えた最初のフレームは「繋がっていない」(カット)
+  [OK] <strong>カメラの動き</strong>: 床の速度が、前と今の行列で写した位置の差と一致(深度から戻して写し直す)  (-3.655, +1.390) / 期待 (-3.667, +1.397) 画素
+  [OK] <strong>カメラが止まっていれば、動いた箱の速度も 0</strong>(自分で動いた物は今日は拾えない。Day 54b)  箱の上面 0.0003 画素  全画素の最大 0.0008 画素
+  [OK] カメラが 1 フレームで 2m 以上動いたら「繋がっていない」(カット)
+  [OK] <strong>TAA はずらしの 8 点の平均まで近づく。FXAA より近い</strong>(64 点の答えとの、縁の画素の平均誤差。AA なしを 100%)  縁 1482 画素  FXAA 60% / TAA 21%(疑わなければ 22%)/ 8 点をただ平均 20%
+  [OK] <strong>速度を挿したフレームだけ TAA が掛かる</strong>(自己チェックが後処理を単独で回しても割り込まない)  挿さない 1 パス / 挿す 2 パス
+  [OK] 代償: 履歴は画面と同じ大きさの RGBA16F が2枚、速度は RG16F が1枚  履歴 9.4MB / 速度 2.3MB(FXAA の LDR バッファは 2.3MB)
+  [OK] 速度の向きは「前 → 今」、単位は UV(camera-velocity.frag)
+  [OK] 履歴は「今の UV − 速度」から読む(速度の向きの約束と合っている)
+  すべて合格(ずらし・解決の式・カメラの速度・スーパーサンプリングへの収束が仕様どおり)</code></pre></div>
+<h3 id="s41">検証の途中で分かったこと</h3>
+<p><strong>1. 床の速度が 1/20 に縮んで出た</strong>。自己チェックの「カメラの動き」が最初に落ちたとき、床の速度は (-0.176, +0.067) 画素で、期待の (-3.667, +1.397) 画素の約 1/21 だった。原因は自己チェックの側で、作り物の絵で解決を試すために切った深度テストを、戻さないまま確認用のシーンを描いていた——<strong>深度を1画素も書かないまま描いた</strong>ので、深度バッファはクリアした 1.0(遠クリップ面)のまま。速度は、床の画素を 100m 先の点として写し直していた(遠い点ほど、カメラの平行移動で動かない)。<strong>速度は深度に全部を預けている</strong>。深度が壊れると、エラーは出ずに、それらしい小さな速度が静かに出る。確認用のシーンを描く関数(<code>RenderTaaProbe</code>)が深度テストを自分で入れるように直した。</p>
+<p><strong>2. ジッターを切った TAA が「AA なし」と一致しなかった</strong>(今日の冒頭の話)。ずらさずに止めた絵を何十フレーム混ぜても、同じ絵を混ぜているのだから出力は今の絵と同じになるはず——ところが HUD を消して撮った2枚が、平均 0.204%、2% を超える画素 3.09% 違った。差の地図を作ると、レンガの目地や輪郭の細部に沿って全体に薄く出ていた。TAA 無しの絵どうし(時刻違い)は1ビットも違わず、ジッター無しの TAA どうしもほぼ同じ(最大 0.024)だったので、<strong>TAA が安定した状態で今の絵とずれた値に落ち着いている</strong>ことになる。原因は分散の箱で、平均 ± 標準偏差の箱は、近所から浮いた1画素にとっては自分自身を含まない。止まっていても履歴(= 前のフレームの自分)が毎フレーム箱の縁まで切られ、<code>0.9 × 箱の縁 + 0.1 × 今の値</code> に落ち着く。暗い地(0.1)に明るい1画素(1.0)を置いた作り物の絵で確かめると、1.0 が <strong>0.534</strong> に沈んだ(計算は 0.54)。箱を今の画素まで広げる2行を足すと 1.000 になり、「なし」との差は 0.015% に消えた。<strong>疑いは「今の絵を信じる」ことの上に立っている</strong>——疑う箱が今の絵を外に出したら、それはもう疑いではなく削りになる。止めた絵でも TAA が FXAA より柔らかく見えたのは、半分はこれのせいだった(残りの半分は、1画素の中を平均することそのもの)。</p>
+<p><strong>3. 16 点にしても収束が良くならなかった</strong>。自己チェックの収束の数字の内訳を見るため、答え(1画素の中を取った点の平均)と比べる相手を並べた。最初は答えを 4x4 の 16 点にしていて、Halton 8 点をただ平均しても 16%、16 点でも 17% と、ほとんど変わらなかった。答えを 8x8 の 64 点にしても、Halton 8 点 16.9% / 16 点 17.1% のまま。<strong>点を倍にして誤差が減らないなら、点の数ではなく偏りが効いている</strong>。Halton を 1 番から使うと、点の平均が中心からずれる(8 点で (-0.055, 0)、16 点で (-0.029, -0.037) 画素)。絵全体がそのぶんずれるので、答えとの差になる。平均を引いて中心へ寄せると 8 点 15.2%、16 点 11.4%(4x4 の格子の 12.1% と同じ程度)まで下がった。TAA が近づけるのは「ずらしの点の平均」までなので、自己チェックはその数字を並べて出すようにした(改造課題1)。</p>
+<p><strong>4. <code>EndToTarget</code> を続けて呼ぶと、パスの数が積み上がった</strong>。自己チェックの「速度を挿したフレームだけ TAA が掛かる」が最初に落ちたとき、挿さない 7 パス / 挿す 9 パスと出た(期待は 1 / 2)。<code>PostProcess</code> はパスを <code>Begin</code> で 0 に戻し、<code>End</code> の最後で <code>PassCount</code> に移す。<code>Begin</code> を挟まずに <code>EndToTarget</code> を5回呼んでいたので、5回ぶんが足し上がっていた。Day 38 の自己チェックが毎回 <code>DrawStaircase</code>(中で <code>Begin</code> を呼ぶ)を挟んでいるのはこのため。<strong>数えるのは <code>Begin</code> から <code>End</code> まで</strong>。</p>
+<p><strong>5. 今日は計測で PC が落ちなかった</strong>。Day 53 は <code>glFinish</code> を挟んで数百フレームを連続で描く計測で GPU を全開にし、開発機の電源が落ちた。今日は GPU の時間をタイマークエリ(<code>GpuTimer</code>)で、VSync で休んでいる普段のフレームの中で測ったので、ハーネスで全部の数字を取っても落ちなかった。代わりに<strong>数字が走行ごとに倍以上ぶれる</strong>(GPU のクロックが負荷に合わせて上下するため)。全開で測ると安定した数字が出るが、それは「全開で回したときの速さ」で、普段のフレームの速さではない——どちらを知りたいかで測り方を選ぶ。</p>
+<p><strong>6.(Day 56 で追記)収束の項目が、押したときの光でしか通らなかった</strong>。Day 56 の検証で、自己チェックを状態を変えて押し比べて見つかった。確認用のシーン(床と立方体)を、いま画面に出ている空・太陽・影・SSAO を借りて照らしていたのが原因で、起動直後に押すと数字が変わって落ちていた。</p>
+<p>直し方は2つで、Day 54a・54b・55・56 に同じ文面で入れた。</p>
+<ul><li><strong>節4の頭で、確認用の光を決める</strong>: 起動直後の手書きの光(<code>_manualLightDirection</code> など)に揃え、IBL・影・SSAO を切る。終わったら戻す</li><li><strong>節3の頭で、TAA のつまみを既定に揃える</strong>: 今の絵の割合 10%・分散で切る・表示なし。節2の最後で本番のつまみに戻していたので、今の絵の割合を 50% にしたまま押すと数字が変わっていた。戻すのは節4の <code>saved.Restore</code></li></ul>
+</section>
+<footer class="end">Day 54a TAA(1画素未満ずらして描き、前のフレームと混ぜる) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/taa.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat, animate } = Lab;
+const { jitterPixels, toYCoCg, TemporalResolve, renderPan } = Taa;
+const tone = (c) => Math.round(255 * Math.pow(Math.max(c, 0) / (1 + Math.max(c, 0)), 1 / 2.2));
+// RGB の配列を W x H の画像にして、比を保って canvas に描く
+function blit(canvas, W, H, fn) {
+  const { ctx, w, h } = fit(canvas);
+  const off = document.createElement('canvas'); off.width = W; off.height = H;
+  const img = new ImageData(W, H);
+  for (let i = 0; i < W * H; i++) { const c = fn(i); img.data[i * 4] = c[0]; img.data[i * 4 + 1] = c[1]; img.data[i * 4 + 2] = c[2]; img.data[i * 4 + 3] = 255; }
+  off.getContext('2d').putImageData(img, 0, 0);
+  const s = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * s) / 2, (h - H * s) / 2, W * s, H * s);
+  return { ctx, w, h, s, ox: (w - W * s) / 2, oy: (h - H * s) / 2 };
+}
+
+// ============================================================
+//  要点1〜3: 止めた絵に混ぜ続ける
+// ============================================================
+const CW = 48, CH = 28;
+const cosA = Math.cos(18 * Math.PI / 180), sinA = Math.sin(18 * Math.PI / 180);
+function onLine(x, y) {
+  // 幅 0.35 画素の線(1画素より細い)
+  const ax = 27, ay = 2.5, bx = 46, by = 25.5, t = Math.min(Math.max(((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2), 0), 1);
+  return Math.hypot(x - (ax + (bx - ax) * t), y - (ay + (by - ay) * t)) < 0.175;
+}
+function scene(x, y) {
+  if (onLine(x, y)) return 1.0;
+  // 18 度傾いた四角
+  const dx = x - 13.5, dy = y - 14, u = dx * cosA + dy * sinA, v = -dx * sinA + dy * cosA;
+  if (Math.abs(u) < 8 && Math.abs(v) < 8) return 0.85;
+  return 0.12;
+}
+const toRGB = (a) => { const o = new Float32Array(a.length * 3); a.forEach((v, i) => o.fill(v, i * 3, i * 3 + 3)); return o; };
+const plain = Array.from({ length: CW * CH }, (_, i) => scene((i % CW) + 0.5, Math.floor(i / CW) + 0.5));
+const ref = Array.from({ length: CW * CH }, (_, i) => { let s = 0; for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) s += scene((i % CW) + (a + 0.5) / 8, Math.floor(i / CW) + (b + 0.5) / 8); return s / 64; });
+// 線に掛かる画素(64 点のどれかが線に当たる)。物差しは四角の縁と線とで分ける
+const lineMask = Array.from({ length: CW * CH }, (_, i) => { for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) if (onLine((i % CW) + (a + 0.5) / 8, Math.floor(i / CW) + (b + 0.5) / 8)) return true; return false; });
+// Program.EdgeError: AA なしと答えの差が 0.02 を超える画素だけで、答えとの平均誤差。line: 線の画素だけ / 四角の縁だけ
+function edgeError(img, line = false) { let t = 0, n = 0; for (let i = 0; i < CW * CH; i++) { if (lineMask[i] !== line || Math.abs(plain[i] - ref[i]) < 0.02) continue; t += Math.abs(img[i] - ref[i]); n++; } return [t / Math.max(n, 1), n]; }
+const plainErr = edgeError(plain)[0], plainLineErr = edgeError(plain, true)[0];
+const cv = { view: 'taa', w: 0.1, n: 8, center: false, jit: true, pause: false, frame: 0, taa: new TemporalResolve(CW, CH), last: null, cur: null, acc: 0 };
+function points() {
+  const p = Array.from({ length: cv.n }, (_, k) => jitterPixels(k + 1));
+  if (cv.center) { const m = [0, 1].map((d) => p.reduce((s, q) => s + q[d], 0) / p.length); return p.map((q) => [q[0] - m[0], q[1] - m[1]]); }
+  return p;
+}
+const avgImg = () => { const p = points(); return Array.from({ length: CW * CH }, (_, i) => p.reduce((s, q) => s + scene((i % CW) + 0.5 + q[0], Math.floor(i / CW) + 0.5 + q[1]), 0) / p.length); };
+let avgCache = null;
+function stepCv() {
+  const p = points(), k = cv.frame % cv.n, j = cv.jit ? p[k] : [0, 0];
+  cv.cur = Array.from({ length: CW * CH }, (_, i) => scene((i % CW) + 0.5 + j[0], Math.floor(i / CW) + 0.5 + j[1]));
+  const out = cv.taa.resolve(toRGB(cv.cur), () => [0, 0], () => 0.5, { weight: cv.w, rectify: 'variance', filter: 'bilinear', toneWeighted: false });
+  cv.last = Array.from({ length: CW * CH }, (_, i) => out[i * 3]);
+  cv.frame++;
+}
+function restartCv() { cv.taa.reset(); cv.frame = 0; avgCache = avgImg(); for (let i = 0; i < 64; i++) stepCv(); }
+function drawCv() {
+  const img = { plain, taa: cv.last, cur: cv.cur, avg: avgCache, ref }[cv.view];
+  blit($('cv-canvas'), CW, CH, (i) => { const v = Math.round(255 * Math.pow(img[i], 1 / 2.2)); return [v, v, v]; });
+  const p = points(), k = (cv.frame - 1) % cv.n, j = cv.jit ? p[k] : [0, 0];
+  const [eT, n] = edgeError(cv.last), [eA] = edgeError(avgCache), [lT] = edgeError(cv.last, true), [lA] = edgeError(avgCache, true);
+  const halfLife = Math.log(0.5) / Math.log(1 - cv.w), one = Math.log(0.01) / Math.log(1 - cv.w);
+  $('cv-hud').textContent = `TAA:ON  揺らし:${k + 1}/${cv.n}(${j[0] >= 0 ? '+' : ''}${j[0].toFixed(2)},${j[1] >= 0 ? '+' : ''}${j[1].toFixed(2)})px  今の絵:${Math.round(cv.w * 100)}%  混ぜたフレーム:${cv.frame}`;
+  $('cv-stats').innerHTML =
+    stat('四角の縁の誤差 TAA', (eT / plainErr * 100).toFixed(0), ` <small>%(AA なし 100%、縁 ${n} 画素)/ ずらしの点をただ平均 ${(eA / plainErr * 100).toFixed(0)}%</small>`) +
+    stat('細い線の誤差 TAA', (lT / plainLineErr * 100).toFixed(0), ` <small>% / ただ平均 ${(lA / plainLineErr * 100).toFixed(0)}%</small>`) +
+    stat('前の絵が半分になるまで', halfLife.toFixed(1), ` <small>フレーム / 1% まで ${Math.round(one)}</small>`) +
+    stat('点の平均', p.reduce((s, q) => s + q[0], 0) / p.length >= 0 ? '+' + (p.reduce((s, q) => s + q[0], 0) / p.length).toFixed(3) : (p.reduce((s, q) => s + q[0], 0) / p.length).toFixed(3), ` <small>, ${(p.reduce((s, q) => s + q[1], 0) / p.length).toFixed(3)} 画素</small>`);
+  let note;
+  if (!cv.jit) note = 'ジッターを切ると、同じ画素が毎フレーム同じ点を取るので、何枚混ぜても1点ぶんの情報しか無い。TAA の絵が AA なしと同じになる——TAA の AA の正体はジッター。';
+  else if (cv.view === 'cur') note = '揺れの素(混ぜる前の今の絵)。止めていても、ずらしのたびに縁と細い線が震える。細い線は画素の中心に掛かったときだけ写る。';
+  else if (cv.view === 'plain') note = 'AA なし。幅 0.35 画素の線は、画素の中心に掛かったところだけ写って途切れ途切れになる。1枚の絵には情報が無いので、FXAA でも直せない(要点1)。';
+  else if (cv.w >= 0.5) note = '今の絵が 50% だと、直近 2〜3 点しか効かず、ほとんど AA にならない。止めた絵でも縁がちらつく。';
+  else if (cv.n === 16 && !cv.center) note = '16 点にしても、点の平均が中心からずれている(Halton を 1 番から使うため)ので、思ったほど良くならない。「中心へ寄せる」で数字が下がる(改造課題1)。';
+  else note = 'TAA は止めた絵に混ぜ続けると、四角の縁はずらしの点をただ平均した絵に近づく。そこが限界で、残りは点が 8 つしか無いことと、指数移動平均が直近を重く数えること。細い線も写る割合として出るが、答えより薄い——線はずらしのたびに写ったり消えたりするので、近所の色の箱が履歴を毎フレーム削る(疑う代わりに払うもの)。';
+  $('cv-note').textContent = note;
+}
+seg('cv-view', (v) => { cv.view = v; drawCv(); });
+seg('cv-w', (v) => { cv.w = Number(v); restartCv(); drawCv(); });
+seg('cv-n', (v) => { cv.n = Number(v); restartCv(); drawCv(); });
+$('cv-center').addEventListener('change', (e) => { cv.center = e.target.checked; restartCv(); drawCv(); });
+$('cv-jit').addEventListener('change', (e) => { cv.jit = e.target.checked; restartCv(); drawCv(); });
+$('cv-pause').addEventListener('change', (e) => { cv.pause = e.target.checked; });
+restartCv(); drawCv();
+animate($('cv-canvas'), (dt) => { if (reduceMotion || cv.pause) return; cv.acc += dt; if (cv.acc < 0.12) return; cv.acc = 0; stepCv(); drawCv(); });
+
+// ============================================================
+//  要点5: 履歴を疑う箱(自己チェックの作り物の絵)
+// ============================================================
+const SW = 64, SH = 8, PX = 32, PY = 4;
+const bx = { kase: 'ghost', rect: 'variance', inc: true };
+const fill = (f) => { const a = new Float32Array(SW * SH * 3); for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) { const v = f(x, y); a.set(Array.isArray(v) ? v : [v, v, v], (y * SW + x) * 3); } return a; };
+function runBox(rect) {
+  const t = new TemporalResolve(SW, SH), o = { weight: 0.1, rectify: rect, filter: 'bilinear', toneWeighted: false, includeCurrent: bx.inc };
+  const go = (f) => t.resolve(fill(f), () => [0, 0], () => 0.5, o);
+  const dot = (x, y) => (x === PX && y === PY ? 1 : 0.1);
+  let out, probe = [PX, PY], cur, hist;
+  if (bx.kase === 'ghost') { go(() => [4, 0, 0]); hist = [4, 0, 0]; out = go(() => 0.1); cur = (x, y) => 0.1; }
+  else if (bx.kase === 'leak') { go(() => 0.8); hist = [0.8, 0.8, 0.8]; out = go(dot); cur = dot; probe = [PX - 1, PY]; }
+  else { for (let i = 0; i < 39; i++) out = go(dot); const k = (PY * SW + PX) * 3; hist = [out[k], out[k + 1], out[k + 2]]; out = go(dot); cur = dot; }
+  const k = (probe[1] * SW + probe[0]) * 3;
+  return { value: [out[k], out[k + 1], out[k + 2]], probe, cur, hist };
+}
+function drawBox() {
+  const { ctx, w, h } = fit($('box-canvas'));
+  const r = runBox(bx.rect), all = { none: runBox('none'), minmax: runBox('minmax'), variance: runBox('variance') };
+  const [px, py] = r.probe;
+  // 近所 3x3
+  const cell = 34, gx = 16, gy = 30;
+  ctx.font = '12px ' + tok('--font-body'); ctx.fillStyle = tok('--muted'); ctx.fillText('近所 3x3(今の絵)', gx, 18);
+  const ys = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const v = r.cur(px + dx, py + dy), c = Array.isArray(v) ? v : [v, v, v];
+    ys.push(toYCoCg(c)[0]);
+    ctx.fillStyle = `rgb(${c.map(tone).join(',')})`; ctx.fillRect(gx + (dx + 1) * cell, gy + (dy + 1) * cell, cell - 2, cell - 2);
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.strokeRect(gx + cell - 1, gy + cell - 1, cell, cell);
+  const hc = r.hist; ctx.fillStyle = tok('--muted'); ctx.fillText('履歴', gx, gy + 3 * cell + 22);
+  ctx.fillStyle = `rgb(${hc.map(tone).join(',')})`; ctx.fillRect(gx + 40, gy + 3 * cell + 8, cell - 2, 20);
+  // 明るさの軸
+  const L = 290, R = w - 20, top = 40, maxY = bx.kase === 'ghost' ? 1.1 : 1.1, X = (v) => L + Math.min(Math.max(v, 0), maxY) / maxY * (R - L);
+  const mean = ys.reduce((s, v) => s + v, 0) / 9, sig = Math.sqrt(Math.max(ys.reduce((s, v) => s + v * v, 0) / 9 - mean * mean, 0));
+  const mn = Math.min(...ys), mx = Math.max(...ys), curY = ys[4];
+  let lo = Math.max(mean - sig, mn), hi = Math.min(mean + sig, mx); if (bx.inc) { lo = Math.min(lo, curY); hi = Math.max(hi, curY); }
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (let v = 0; v <= maxY + 1e-6; v += 0.1) { ctx.beginPath(); ctx.moveTo(X(v), top); ctx.lineTo(X(v), h - 30); ctx.stroke(); }
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) ctx.fillText(v.toFixed(2), X(v) - 12, h - 12);
+  const band = (y, a, b, color, label) => { ctx.fillStyle = color; ctx.globalAlpha = 0.35; ctx.fillRect(X(a), y, Math.max(X(b) - X(a), 2), 22); ctx.globalAlpha = 1; ctx.strokeStyle = color; ctx.strokeRect(X(a), y, Math.max(X(b) - X(a), 2), 22); ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body'); ctx.fillText(label, 140, y + 15); };
+  band(top, mn, mx, tok('--warn'), '最小最大の箱');
+  band(top + 32, lo, hi, tok('--semi'), bx.inc ? '平均 ± σ + 今の画素' : '平均 ± σ の箱');
+  const mark = (v, y, color, label) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X(v), y, 6, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = tok('--ink'); ctx.font = '11px ' + tok('--font-mono'); ctx.fillText(`${label} ${v.toFixed(3)}${v > maxY ? '(軸の外)' : ''}`, Math.min(X(v) + 10, R - 150), y + 4); };
+  for (const v of ys) { ctx.fillStyle = tok('--muted'); ctx.fillRect(X(v) - 1, top + 70, 2, 10); }
+  ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body'); ctx.fillText('近所の明るさ', 140, top + 80);
+  mark(toYCoCg(r.hist)[0], top + 104, tok('--expl'), '履歴の Y');
+  mark(curY, top + 130, tok('--good'), '今の画素の Y');
+  mark(toYCoCg(r.value)[0], top + 156, tok('--ink'), '結果の Y');
+  $('box-stats').innerHTML =
+    stat('疑わない', all.none.value[0].toFixed(3), ' <small>(R)</small>') +
+    stat('最小最大', all.minmax.value[0].toFixed(3), ' <small>(R)</small>') +
+    stat('分散で切る', all.variance.value[0].toFixed(3), ` <small>(R)${bx.inc ? '' : ' 今の画素を入れない'}</small>`);
+  let note;
+  if (bx.kase === 'ghost') note = '近所が全部灰 0.1 なので、箱は 0.1 の1点に縮む。赤 4.0 の履歴は、疑えば 0.1 まで引き戻され(ゴースト 0)、疑わなければ 9 割残る(0.9 × 4.0 + 0.1 × 0.1 = 3.609)。';
+  else if (bx.kase === 'leak') note = '近所に明るい点(1.0)が1つあると、最小最大の箱は 0.1〜1.0 に伸び、履歴 0.8 を信じてしまう(0.729)。平均 ± 標準偏差の箱は 0.1〜0.48 に収まり、0.48 まで切る(0.444)。';
+  else if (!bx.inc) note = '箱に今の画素を入れないと、明るい点の画素から見た箱は 0.1〜0.48 で、自分(1.0)が箱の外にいる。止まっていても履歴が毎フレーム 0.48 まで切られ、0.9 × 0.48 + 0.1 × 1.0 = 0.54 に沈む。';
+  else note = '箱に今の画素を必ず入れる1行で、止まった絵の明るい点は 1.000 のまま残る。疑いは「今の絵を信じる」ことの上に立っている。';
+  $('box-note').textContent = note;
+}
+seg('box-case', (v) => { bx.kase = v; drawBox(); });
+seg('box-rect', (v) => { bx.rect = v; drawBox(); });
+$('box-noinc').addEventListener('change', (e) => { bx.inc = !e.target.checked; drawBox(); });
+drawBox();
+
+// ============================================================
+//  要点4・5: カメラを振る
+// ============================================================
+const PW = 120, PH = 68;
+const pn = { aa: 'taa', view: 'lit', rect: 'variance', amp: 1.5, novel: false, pause: false, t: 0, k: 0, prevCam: 0, taa: new TemporalResolve(PW, PH), frame: null, out: null, acc: 0 };
+const camAt = (t) => 0.3 + pn.amp * Math.sin(t * 0.9);
+function stepPan(dt) {
+  pn.t += dt;
+  const cam = camAt(pn.t);
+  pn.k = (pn.k % 8) + 1;
+  const jitter = pn.aa === 'taa' ? jitterPixels(pn.k) : [0, 0];
+  const fr = renderPan(PW, PH, { cam, prevCam: pn.prevCam, jitter });
+  pn.prevCam = cam;
+  pn.frame = fr;
+  if (pn.aa === 'taa') pn.out = pn.taa.resolve(fr.color, pn.novel ? () => [0, 0] : (i) => [fr.vel[i * 2], fr.vel[i * 2 + 1]], (i) => fr.depth[i], { weight: 0.1, rectify: pn.rect, filter: 'bilinear', toneWeighted: false });
+  else { pn.out = fr.color; pn.taa.reset(); }
+}
+function drawPan() {
+  const f = pn.frame, o = pn.out;
+  blit($('pan-canvas'), PW, PH, (i) => {
+    if (pn.view === 'cur') return [tone(f.color[i * 3]), tone(f.color[i * 3 + 1]), tone(f.color[i * 3 + 2])];
+    if (pn.view === 'vel') { const v = Math.abs(f.vel[i * 2] * PW) * 0.25 * 255; return [Math.min(v, 255), 0, 0]; }   // taa.frag の VelocityColor(|画素| × 0.25)
+    if (pn.view === 'moved') { const m = Math.min(pn.taa.moved[i] * 2, 1), y = Math.round(255 * 0.4 * toYCoCg([f.color[i * 3], f.color[i * 3 + 1], f.color[i * 3 + 2]])[0]); return [y + (255 - y) * m, y * (1 - m) + 20 * m, y * (1 - m)]; }
+    return [tone(o[i * 3]), tone(o[i * 3 + 1]), tone(o[i * 3 + 2])];
+  });
+  let maxV = 0; for (let i = 0; i < PW * PH; i++) maxV = Math.max(maxV, Math.abs(f.vel[i * 2] * PW));
+  let moved = 0; for (let i = 0; i < PW * PH; i++) if (pn.taa.moved[i] > 0.05) moved++;
+  const j = jitterPixels(pn.k);
+  $('pan-hud').textContent = pn.aa === 'taa'
+    ? `TAA:ON  揺らし:${pn.k}/8(${j[0] >= 0 ? '+' : ''}${j[0].toFixed(2)},${j[1] >= 0 ? '+' : ''}${j[1].toFixed(2)})px  今の絵:10%  疑い方:${{ variance: '分散で切る', minmax: '最小最大に押し込む', none: '疑わない' }[pn.rect]}  速度:${pn.novel ? '使わない' : 'カメラだけ'}`
+    : 'アンチエイリアス: なし';
+  $('pan-stats').innerHTML =
+    stat('いちばん速い画素', maxV.toFixed(2), ' <small>画素 / フレーム(手前の柱ほど速い)</small>') +
+    stat('履歴を疑って直した画素', String(moved), ` <small>/ ${PW * PH}</small>`);
+  let note;
+  if (pn.aa === 'none') note = 'AA なし。柱の縁は階段になり、細い棒は途切れ途切れに点滅する。';
+  else if (pn.novel) note = '速度を使わずに同じ画素の場所から履歴を読むと、カメラが動くたびに別の物の色を拾う。疑いが色を引き戻すので尾は短いが、動いている間は履歴が溜まらず、縁が揺れて眠い。';
+  else if (pn.rect === 'none' && pn.amp > 0) note = '疑わないと、カメラが振れるたびに柱の縁から尾が伸びる。柱に隠れていた壁が現れると、そこの履歴は柱の色——速度が正しくても、前のフレームに写っていなかったものの色はどこからも読めない。';
+  else if (pn.view === 'vel') note = '速度(|画素| × 0.25 を赤に)。止まっている物はカメラの動きだけで決まり、手前ほど大きい(奥の壁は小さく、柱は大きい)。';
+  else if (pn.view === 'moved') note = '赤いところが、履歴を疑って直した画素。柱の縁(隠れていた所が現れる場所)に出る。止めていても細い棒には点が散る。';
+  else note = '速度で前のフレームの場所から履歴を引き、近所の色の箱で疑ってから混ぜる。カメラを振っても尾は出ず、細い棒も写る割合として残る。';
+  $('pan-note').textContent = note;
+}
+seg('pan-aa', (v) => { pn.aa = v; pn.taa.reset(); stepPan(0); drawPan(); });
+seg('pan-view', (v) => { pn.view = v; drawPan(); });
+seg('pan-rect', (v) => { pn.rect = v; drawPan(); });
+seg('pan-amp', (v) => { pn.amp = Number(v); drawPan(); });
+$('pan-novel').addEventListener('change', (e) => { pn.novel = e.target.checked; });
+$('pan-pause').addEventListener('change', (e) => { pn.pause = e.target.checked; });
+pn.prevCam = camAt(0);
+for (let i = 0; i < 24; i++) stepPan(1 / 30);
+drawPan();
+animate($('pan-canvas'), (dt) => { if (reduceMotion || pn.pause) return; pn.acc += dt; if (pn.acc < 1 / 30) return; stepPan(1 / 30); pn.acc = 0; drawPan(); });
+window.addEventListener('resize', () => { drawCv(); drawBox(); drawPan(); });
+})();
+</script>
+</body>
+</html>
