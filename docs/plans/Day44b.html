@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 44b 箱と箱</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 分離軸定理 — 無限の向きが 15 本に減る</a></li><li class="l3"><a href="#s9">2. 面と面のクリップ — 接触点はこう作る</a></li><li class="l3"><a href="#s10">3. 球と箱 — 最近接点で済む</a></li><li class="l3"><a href="#s11">4. 積むと、4点を同時に解く意味がもう一度出る</a></li><li class="l3"><a href="#s12">5. 今日入れなかったもの</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s19"><code>Collide</code> の表が埋まったこと</a></li><li class="l3"><a href="#s20">5段の順番は変わっていない</a></li><li class="l3"><a href="#s21">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>Ctrl+Shift+Alt+1</code>: 箱を落とす(Day 44a のまま)</a></li><li class="l3"><a href="#s24">2. <code>Ctrl+Shift+Alt+2</code>(1回目): 箱を積む</a></li><li class="l3"><a href="#s25">3. <code>Ctrl+Shift+Alt+7</code>: 解き方を「順番」にする</a></li><li class="l3"><a href="#s26">4. <code>Ctrl+Shift+Alt+2</code>(2回目): 球と箱</a></li><li class="l3"><a href="#s27">5. <code>Ctrl+Shift+Alt+2</code>(3回目): 箱が転がる</a></li><li class="l3"><a href="#s28">6. <code>Ctrl+Shift+Alt+5</code>: 箱を降らせる</a></li><li class="l3"><a href="#s29">7. Day 44a までの機能が全部生きていること</a></li><li class="l3"><a href="#s30">8. <code>Ctrl+Shift+Alt+0</code>: 今日の自己チェック(48 項目すべて合格)</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 辺×辺の下駄を外してみる</a></li><li class="l3"><a href="#s33">課題2(中): マニフォールドの点の選び方を直す</a></li><li class="l3"><a href="#s34">課題3(難): GJK で置き換えてみる</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">自己チェック(48 項目すべて合格)</a></li><li class="l3"><a href="#s37">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 44b / 計画書</p>
+  <h1>箱と箱</h1>
+  <p class="lede">分離軸定理と面のクリップ</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日もシェーダには触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 分離軸定理 — 無限の向きが 15 本に減る</a></li><li class="l3"><a href="#s9">2. 面と面のクリップ — 接触点はこう作る</a></li><li class="l3"><a href="#s10">3. 球と箱 — 最近接点で済む</a></li><li class="l3"><a href="#s11">4. 積むと、4点を同時に解く意味がもう一度出る</a></li><li class="l3"><a href="#s12">5. 今日入れなかったもの</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s19"><code>Collide</code> の表が埋まったこと</a></li><li class="l3"><a href="#s20">5段の順番は変わっていない</a></li><li class="l3"><a href="#s21">今日残した歪み(2つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>Ctrl+Shift+Alt+1</code>: 箱を落とす(Day 44a のまま)</a></li><li class="l3"><a href="#s24">2. <code>Ctrl+Shift+Alt+2</code>(1回目): 箱を積む</a></li><li class="l3"><a href="#s25">3. <code>Ctrl+Shift+Alt+7</code>: 解き方を「順番」にする</a></li><li class="l3"><a href="#s26">4. <code>Ctrl+Shift+Alt+2</code>(2回目): 球と箱</a></li><li class="l3"><a href="#s27">5. <code>Ctrl+Shift+Alt+2</code>(3回目): 箱が転がる</a></li><li class="l3"><a href="#s28">6. <code>Ctrl+Shift+Alt+5</code>: 箱を降らせる</a></li><li class="l3"><a href="#s29">7. Day 44a までの機能が全部生きていること</a></li><li class="l3"><a href="#s30">8. <code>Ctrl+Shift+Alt+0</code>: 今日の自己チェック(48 項目すべて合格)</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 辺×辺の下駄を外してみる</a></li><li class="l3"><a href="#s33">課題2(中): マニフォールドの点の選び方を直す</a></li><li class="l3"><a href="#s34">課題3(難): GJK で置き換えてみる</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">自己チェック(48 項目すべて合格)</a></li><li class="l3"><a href="#s37">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 44 の2日目で、reference は Day 44a の完全コピー + 差分。Day 44a で箱を床に置いた。形を体から切り離し、接触点を束(マニフォールド)で持ち、4点を同時に解くところまでできている。<strong>今日は箱どうしを当てる</strong>。</p>
+<p>Day 44a の判定は「箱と平面」の1本で、中身は8つの頂点を落とすだけだった。平面は片側しか無いので、試すべき向きが法線1本と最初から分かっていたからだ。相手も向きを持った箱になると、その甘えが効かなくなる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>箱と平面(Day 44a)</th><th>箱と箱(Day 44b)</th></tr></thead>
+<tbody>
+<tr><td>試す向き</td><td>平面の法線 <strong>1本</strong></td><td><strong>15 本</strong>(面の法線 6 + 辺×辺 9)</td></tr>
+<tr><td>接触点の作り方</td><td>平面より下の頂点を拾うだけ</td><td><strong>基準面の枠で入射面を切る</strong>(クリップ)</td></tr>
+<tr><td>判定の長さ</td><td>20 行ほど</td><td><strong>524 行</strong>(<code>Sat.cs</code>)</td></tr>
+<tr><td>積めるか</td><td>積めない(箱どうしが素通りする)</td><td><strong>6段積める</strong>。4点を同時に解く意味がここで効く</td></tr>
+</tbody>
+</table></div>
+<p>物理エンジンでいちばん歯応えがあると言われるのがここで、「当たったか」を答えるより「<strong>どこで、何点で触れているか</strong>」を答えるほうがずっと難しい。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+Shift+Alt+1</code> で箱デモを出してから <code>Ctrl+Shift+Alt+2</code> を押すと、一辺 0.84m の箱が6段に積まれ、崩れずに立つ。<code>Ctrl+Shift+Alt+7</code> で解き方を「順番」にすると、数秒で柱が滑り出して崩れる。</strong></p>
+<p><code>Ctrl+Shift+Alt+2</code> を押すたびに「箱を積む → 球と箱 → 箱が転がる → 箱を落とす」と巡る(箱の筋書きを出していないときに押すと「箱を落とす」から始まる)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+2</code></td><td>筋書き(箱を落とす / <strong>箱を積む</strong> / 球と箱 / 箱が転がる)。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+5</code></td><td>箱を1つ降らせる</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+6</code></td><td>接触の内訳(どの組が、どの軸で、何点で触れているか)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+7</code></td><td>接触点の解き方(同時 / 順番)。<strong>切ると積んだ箱が崩れる</strong></td></tr>
+<tr><td><code>Ctrl+Shift+Alt+0</code></td><td>今日の自己チェック(48 項目。Day 44a の 24 項目を含む)</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+1</code> / <code>3</code> / <code>4</code></td><td>Day 44a のまま(箱デモ / 接触点の表示 / 1組の接触点)</td></tr>
+</tbody>
+</table></div>
+<p>HUD の「接触」の行に <strong><code>辺:</code></strong> が増える。面で触れているか、辺と辺がすれ違っているかが数字で見える。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「15 本の軸」</strong>。箱と箱が離れているかどうかは、たった 15 通りの向きに投影して確かめれば決着する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>for (int i = 0; i &lt; 3; i++) TryAxis(a.Axis(i));            // A の面の法線 3 本
+for (int i = 0; i &lt; 3; i++) TryAxis(b.Axis(i));            // B の面の法線 3 本
+for (int i = 0; i &lt; 3; i++)
+    for (int j = 0; j &lt; 3; j++)
+        TryAxis(Cross(a.Axis(i), b.Axis(j)));              // 辺 × 辺 9 本</code></pre></div>
+<p><strong>面の法線 6 本だけでは足りない</strong>。角どうしが斜めに擦れ違う配置では、どちらの面から見ても重なって見えるのに実際は離れている——自己チェックはこの配置を<strong>ランダム探索で実際に探し当てて</strong>見せる(6 回目の試行で見つかる)。</p>
+<p><strong>2つ目は「入射面を基準面の枠で切る」</strong>。面どうしが触れているとき、触れているのは2つの面の重なりで、凸どうしなのでそれは凸多角形になる。相手の面(入射面)の4頂点を、こちらの面(基準面)の側面4枚で切り落とすと、まさにその重なりが出てくる。</p>
+<div class="code"><pre><code>  床の上に箱をまるごと置く  → 4頂点がそのまま残る                → 4点
+  台から半分はみ出して置く  → はみ出した2点が切り落とされ、
+                              代わりに台の縁の上に新しい2点が生まれる → 4点(縁の上に並び直す)</code></pre></div>
+<p><strong>Day 8 で視錐台に三角形をクリップしたのと同じ手続き</strong>(Sutherland-Hodgman)が、ここでもう一度出てくる。</p>
+<h3 id="s3">今日もシェーダには触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル1本(<code>Sat.cs</code>、524 行)と、既存4本の書き足し、そして <code>Program.cs</code>。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。</p>
+<p><strong>物理は今日も絵を1ミリも知らない</strong>。自己チェック(48 項目)は窓を1枚も出さずに走る。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Game Physics Engine Development</strong>(Ian Millington)第 13〜14 章接触の生成(contact generation)の章。箱と箱、箱と点、箱と球が一通り出てくる。この本は SAT を「最小重なりの軸を探す」形で書いていて、今日のコードと同じ構成。</li><li>Erin Catto, <em>Box2D Lite</em> のソースと GDC 資料<a href="https://box2d.org/publications/">https://box2d.org/publications/</a> 2D だが、<strong>基準面を選んで入射面をクリップする</strong>という接触点の作り方は 3D と同じ。<code>Collide</code> 関数(200 行ほど)を読んでおくと、今日の <code>Sat.BuildFaceContact</code> が短く感じる。</li><li>Christer Ericson, <em>Real-Time Collision Detection</em> 4.4 節(OBB) 15 本の軸の一覧と、平行な辺で外積が退化する話。今日 <code>ParallelEpsilon</code> で外している場合分けの出どころ。</li><li>Dirk Gregorius, <em>Robust Contact Creation for Physics Simulations</em>(GDC 2015) <a href="https://box2d.org/files/ErinCatto_ContactManifolds_GDC2007.pdf">https://box2d.org/files/ErinCatto_ContactManifolds_GDC2007.pdf</a>(Erin Catto 版) Day 44a で前半を読んだ資料の後半。<strong>今日入れなかった「点の選び方(広がりを見る)」</strong>はここに書いてある(改造課題2)。</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 分離軸定理 — 無限の向きが 15 本に減る</h3>
+<p><strong>2つの凸形状が離れているなら、その2つを分けてしまう平面が必ず1枚ある。</strong></p>
+<p>裏を返すと、<strong>どの向きに投影しても重なっているなら当たっている</strong>。これが分離軸定理(SAT)で、証明は「凸集合の分離超平面定理」そのもの。</p>
+<p>実用にするには「どの向きを試せばよいか」が要る。向きは無限にあるが、凸多面体どうしなら候補は有限個で足りる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>候補</th><th>箱と箱では</th><th>なぜ要るか</th></tr></thead>
+<tbody>
+<tr><td>それぞれの<strong>面の法線</strong></td><td>3 + 3 = 6 本</td><td>面と面、面と頂点で分かれる場合を捕まえる</td></tr>
+<tr><td>それぞれの<strong>辺の向きの外積</strong></td><td>3 × 3 = 9 本</td><td><strong>辺と辺</strong>が擦れ違う場合を捕まえる</td></tr>
+</tbody>
+</table></div>
+<p>1本の軸を試すのは、<strong>線分どうしの重なりを見るだけ</strong>。</p>
+<div class="code"><pre><code>  重なり = r_A(n) + r_B(n) - |(中心間ベクトル)·n|</code></pre></div>
+<p><code>r(n)</code> は箱を軸 n に落としたときの長さの半分で、これは各軸の寄与の<strong>絶対値の和</strong>になる(<code>Box3D.ProjectedRadius</code>)。</p>
+<div class="code"><pre><code>  r(n) = |e_x (a_x · n)| + |e_y (a_y · n)| + |e_z (a_z · n)|</code></pre></div>
+<p>絶対値なのは、「どの角がいちばん n の側に突き出るか」を場合分けせずに済ませるため。</p>
+<p><strong>1本でも重なりが負なら、その時点で離れている</strong>——残りは調べなくてよい。これが SAT が実用になる理由で、離れている組(大多数)は数本で抜ける。</p>
+<h4 id="s7">辺×辺の 9 本は本当に要るのか</h4>
+<p>要る。<strong>角どうしが斜めに擦れ違う配置</strong>では、面の法線 6 本のどれで見ても重なって見えるのに、実際には離れている。面の法線だけで済ませると、<strong>斜めに置いた箱がすり抜ける</strong>。</p>
+<p>自己チェックはこれを理屈ではなく実物で見せる——ランダムな配置を試して「面の法線だけなら当たったと答えてしまうが、辺の軸を見れば離れている」配置を探し当てる。<strong>6 回目の試行で見つかる</strong>ので、珍しい配置でもない。</p>
+<h4 id="s8">いちばん浅い軸を採る</h4>
+<p>15 本すべてで重なっていたら当たっている。押し戻す向きは<strong>重なりがいちばん浅かった軸</strong>を採る——そこがいちばん抜けやすい向きだから。深い軸で押し戻すと、床にわずかに沈んだ箱が真横へ吹っ飛ぶ。</p>
+<p>ただし<strong>辺×辺の軸には 5% の下駄を履かせる</strong>。ほぼ平行な2つの辺の外積は長さがほとんど 0 で、正規化すると向きが数値誤差でぐらぐら揺れる。その軸がわずかな差で最小になると、面で触れているのに「辺どうし」と判定されて接触点が1つに落ち、箱が震え出す。</p>
+<div class="inject"><figure class="lab" id="sat-lab">
+  <div class="lab-head">
+    <h3>分離軸を1本ずつ試す(2D なので軸は 4 本)</h3>
+    <span class="tag">箱 B はドラッグで動かせる。帯は各軸への投影(上が A、下が B)</span>
+  </div>
+  <div class="split">
+    <div><canvas id="sat-canvas" style="height:340px;touch-action:none;cursor:grab" aria-label="2つの箱"></canvas></div>
+    <div><canvas id="sat-axes" style="height:340px" aria-label="軸ごとの投影"></canvas></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">A の向き</span>
+      <div class="range"><input type="range" id="sat-aa" min="-90" max="90" step="1" value="0"><output id="sat-aa-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">B の向き</span>
+      <div class="range"><input type="range" id="sat-ab" min="-90" max="90" step="1" value="8"><output id="sat-ab-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-sat="0,0,0,0.86">床に箱をまるごと置く</button>
+        <button class="btn" data-sat="0,0,1.3,0.86">台から半分はみ出す</button>
+        <button class="btn" data-sat="0,40,0.3,1.0">角で触れる</button>
+        <button class="btn" data-sat="0,45,1.6,1.2">離れている</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sat-stats"></div><p id="sat-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">2. 面と面のクリップ — 接触点はこう作る</h3>
+<p>SAT が「面の軸」を選んだとき、接触点は多角形クリップで作る。手順は4段。</p>
+<ol><li><strong>基準面</strong>を決める … 重なりが最小だった軸を持っていたほうの箱の、相手を向いた面</li><li><strong>入射面</strong>を決める … 相手の面のうち、外向き法線が基準面と最も逆を向いているもの(= いちばん正面から当たっている面)</li><li><strong>クリップ</strong> … 入射面の4頂点を、基準面の側面4枚で切り落とす</li><li><strong>ふるい</strong> … 残った点のうち、基準面より内側(めり込んでいる)ものだけを採る</li></ol>
+<p><strong>なぜ「入射面を基準面の枠で切る」のか</strong>。触れているのは2つの面の重なっている部分で、凸どうしなのでそれは凸多角形になる。入射面(4角形)を基準面の枠(側面4枚)で切ると、まさにその重なりが出てくる。</p>
+<p>床の上に箱を置けば4点。<strong>床から半分はみ出せば</strong>、はみ出した側の2点が切り落とされて、代わりに<strong>床の縁の上に新しい2点が生まれる</strong>。自己チェックはこれを「いちばん外の点の x 座標が台の縁とぴったり一致する」で確かめている。</p>
+<p>クリップの中身は Sutherland-Hodgman——頂点を順にたどって</p>
+<ul><li>今の点が内側なら、その点を残す</li><li>今の点と次の点で内外が入れ替わるなら、<strong>境界との交点</strong>を足す</li></ul>
+<p>の2つを繰り返すだけ。<strong>Day 8 で視錐台に三角形をクリップしたのと同じ手続き</strong>で、2D でも 3D でも形は変わらない。</p>
+<p><strong>点の数は減るとは限らない</strong>。交点が新しく増えるので、4角形を4枚で切ると最大8つ。そこから4つに絞るのは Day 44a の <code>ContactManifold.Add</code>(深い順に4つ)にそのまま任せる。素朴なやり方で、これを直すのが改造課題2。</p>
+<p>辺×辺が選ばれたときは話が簡単で、<strong>接触点は1つだけ</strong>。角と角がすれ違っている場面なので、触れているのは1点しかない。2つの辺の最近接点を求めればそこが接触点になる。</p>
+<h3 id="s10">3. 球と箱 — 最近接点で済む</h3>
+<p>箱どうしが 500 行を超えるのに対し、<strong>球と箱は 50 行ほど</strong>で済む。球は「中心から一定の距離」なので、<strong>箱の上でいちばん近い点</strong>までの距離を半径と比べればよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector3 local = box.ToLocal(sphere.Center);                                   // 箱の物体座標へ
+Vector3 clamped = Vector3.Clamp(local, -box.HalfExtents, box.HalfExtents);    // 各成分を切り詰める</code></pre></div>
+<p>傾いた箱でも物体座標へ持ち込めば軸に沿った箱になるので、<strong>Day 25 の 2D の円と箱(<code>Collision2D.CircleBox</code>)とほとんど同じ形</strong>になる。</p>
+<p>1つだけ別扱いが要るのは、<strong>球の中心が箱の中に入ったとき</strong>。最近接点が中心そのものになり距離が 0 なので、法線が決められない。3つの軸それぞれについて「面までどれだけ余裕があるか」を測り、<strong>いちばん余裕の少ない面へ押し出す</strong>。</p>
+<p>これで <code>Collide</code> の表の穴(Day 44a で空けたままだった2つ)が両方埋まる。15 通りのうち、今日で5通り。</p>
+<div class="inject"><figure class="lab" id="sb-lab">
+  <div class="lab-head">
+    <h3>球と箱 — 箱の物体座標で切り詰めるだけ</h3>
+    <span class="tag">球はドラッグで動かせる。中心が箱の中に入ると、余裕のいちばん少ない面へ押し出す</span>
+  </div>
+  <div class="stage"><canvas id="sb-canvas" style="height:280px;touch-action:none;cursor:grab" aria-label="球と箱"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">箱の向き</span>
+      <div class="range"><input type="range" id="sb-angle" min="-90" max="90" step="1" value="25"><output id="sb-angle-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">球の半径</span>
+      <div class="range"><input type="range" id="sb-r" min="0.1" max="0.8" step="0.01" value="0.35"><output id="sb-r-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sb-stats"></div></div>
+</figure></div>
+<h3 id="s11">4. 積むと、4点を同時に解く意味がもう一度出る</h3>
+<p>Day 44a の要点5で、4点を順番に解くと床の箱1つでも揺れが止まらない(0.118 rad/s)と書いた。<strong>積むと、この偏りが段ごとに重なる</strong>。</p>
+<ul><li>1段目の箱は、1点目で床を強く押し、残り3点は仕事をしない</li><li>わずかに傾いた1段目の上面が、2段目を斜めに押す</li><li>摩擦の無い世界では、傾いた接触は<strong>横向きにも押す</strong>ので、上の段ほど横へ流れていく</li></ul>
+<p>実測で6段の柱が 5 秒で崩れ落ち、<strong>横ずれは 10m を超える</strong>。同時に解けば横ずれは<strong>測定できないほど 0</strong>(0.00mm)。</p>
+<p><code>Ctrl+Shift+Alt+7</code> の意味が、床の箱1つ(Day 44a)より<strong>ずっと派手に</strong>見えるのが今日。同じつまみ、同じ偏りでも、積み重ねると物の運命が変わる。</p>
+<p><strong>組と組の間は順番</strong>(ガウス・ザイデル)のままなのも効いている。下の組を先に解くと、その結果を見て上の組が解かれるので、柱の下から上へ荷重が伝わる。</p>
+<div class="inject"><figure class="lab" id="stack-lab">
+  <div class="lab-head">
+    <h3>一辺 0.84m の箱を6段積む(横から見た 2D)</h3>
+    <span class="tag">1kg、反発 0、摩擦なし、60Hz。床 y = −0.5m</span>
+  </div>
+  <div class="stage"><canvas id="stack-canvas" style="height:400px" aria-label="箱の積み上げ"></canvas></div>
+  <div class="hud" id="stack-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">接触点の解き方(Ctrl+Shift+Alt+7)</span>
+      <div class="seg" id="stack-solve"><button data-v="together" aria-pressed="true">同時</button><button data-v="seq" aria-pressed="false">順番</button></div>
+    </div>
+    <div class="ctl"><span class="label">段数</span>
+      <div class="seg" id="stack-n"><button data-v="3" aria-pressed="false">3</button><button data-v="6" aria-pressed="true">6</button><button data-v="8" aria-pressed="false">8</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="stack-show"> 接触点を表示</label>
+    <button class="btn" id="stack-drop">箱を1つ降らせる(Ctrl+Shift+Alt+5)</button>
+    <button class="btn" id="stack-reset">最初から</button>
+  </div>
+  <div class="readout"><div class="stats" id="stack-stats"></div><p id="stack-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s12">5. 今日入れなかったもの</h3>
+<p>3つある。どれも「入れないと何が起きるか」が今日の絵に出ている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>無いもの</th><th>絵に出る症状</th><th>いつ入れるか</th></tr></thead>
+<tbody>
+<tr><td><strong>摩擦</strong></td><td>傾けた台に乗せた箱が必ず滑り落ちる。ドミノは倒れず滑る</td><td>Day 47</td></tr>
+<tr><td><strong>蓄積インパルス / 温存</strong></td><td>柱が段数ぶん沈む(6段で 57mm)</td><td>Day 47</td></tr>
+<tr><td><strong>ブロードフェーズ</strong></td><td>体が増えると N² 組。箱は 15 軸ぶん球より重い</td><td>Day 46</td></tr>
+</tbody>
+</table></div>
+<p><strong>沈むことと崩れることは別の話</strong>なのが今日の学び。4点を同時に解いたことで<strong>崩れなく</strong>なったが、<strong>沈む</strong>のは直っていない。沈みは「1周ごとにインパルスをゼロから決め直している」ことが原因で、そこは蓄積インパルスと温存(warm starting)の担当になる——Day 43 の改造課題3で予告したとおり。</p>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Sat.cs</code></td><td>524</td><td>分離軸定理と面のクリップ。<strong>今日いちばん長い</strong>(要点1・要点2)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D.cs</code></td><td><code>Box3D</code> に軸・投影半径・最近接点・支持点など、<strong>判定に要る道具</strong>を足した</td><td>+97 / -5</td></tr>
+<tr><td><code>Physics/ContactManifold.cs</code></td><td><code>ManifoldSource.EdgeEdge</code> と、クリップの話を踏まえたコメント</td><td>+11 / -8</td></tr>
+<tr><td><code>Physics/Collision3D.cs</code></td><td><code>SphereBox</code>(要点3)と、<code>Collide</code> に球と箱・箱と箱の枝</td><td>+89 / -14</td></tr>
+<tr><td><code>Physics/PhysicsWorld.cs</code></td><td>出どころ別の数え場所を5つに。コメント</td><td>+9 / -7</td></tr>
+<tr><td><code>Program.cs</code></td><td>箱の筋書き3つ、箱を降らせる、接触の内訳、HUD の「辺」、自己チェックの追加</td><td>+641 / -19</td></tr>
+<tr><td><code>Day44b.csproj</code></td><td><code>Day44a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。今日は<strong>足すだけ</strong>なので、途中でビルドが壊れることはない(Day 44a の <code>RigidBody</code> の書き換えのような一続きの区間が無い)。</p>
+<ol><li><strong><code>Physics/Shapes3D.cs</code></strong>(変更) — <code>Box3D</code> に判定の道具を足す。次の順で
+<ul><li><code>Box3D</code> の説明(分離軸定理の段落)と、<code>Sphere3D</code> / <code>Plane3D</code> の説明の書き換え(<strong>コメントのみ</strong>)</li><li><code>AxisX</code> / <code>AxisY</code> / <code>AxisZ</code> / <code>Axis</code> / <code>Extent</code>(<code>ToWorld</code> の直前。<strong>SAT のループが添字で回る</strong>)</li><li><code>ToLocal</code> / <code>ClosestPoint</code>(<code>ToWorld</code> の直後。球と箱が使う)</li><li><code>ProjectedRadius</code>(<code>Corner</code> の直前。<strong>要点1の式</strong>)</li><li><code>Support</code>(末尾。辺の接触と、改造課題3の GJK が使う)</li></ul></li><li><strong><code>Physics/ContactManifold.cs</code></strong>(変更) — <code>ManifoldSource.EdgeEdge</code> を<strong>末尾に</strong>足し、<code>ManifoldSource</code> と <code>Add</code> と <code>Flipped</code> のコメントを直す</li><li><strong><code>Physics/Sat.cs</code></strong>(新規) — <strong>今日の山場</strong>。次の順で足すとよい
+<ul><li><code>EdgeBias</code> / <code>ParallelEpsilon</code> と <code>TryAxis</code>(<strong>1本の軸を試すだけ</strong>)</li><li><code>BoxBox</code>(15 本の軸を回して、いちばん浅い1本を採る)</li><li><code>MostAlignedAxis</code> / <code>EdgeMidpoint</code> / <code>SignedExtent</code>(小さい道具)</li><li><code>Clip</code> と <code>Swap</code>(Sutherland-Hodgman。<strong><code>Span</code> はタプルで入れ替えられない</strong>)</li><li><code>BuildFaceContact</code>(要点2)/ <code>ClosestPointsOnLines</code> / <code>BuildEdgeContact</code></li></ul></li><li><strong><code>Physics/Collision3D.cs</code></strong>(変更) — クラスの説明を書き換えてから
+<ul><li><code>SphereBox</code>(<code>BoxPlane</code> の直前。<strong>中心が箱の中に入ったときだけ別扱い</strong>)</li><li><code>Collide</code> に球と箱の2枝と、箱と箱の1枝。コメントの「箱と球」「5 通り」</li></ul></li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(変更) — <code>_sourceCounts</code> を 5 つに(<strong><code>EdgeEdge</code> の席</strong>)。クラスと <code>SourceCount</code> / <code>SolveContactsTogether</code> / <code>SolveManifold</code> / <code>CorrectPositions</code> のコメント</li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li><code>PhysicsScene</code> に <code>BoxStack</code> / <code>BoxMix</code> / <code>BoxTumble</code> を追加</li><li>フィールド <code>_boxSpawnCount</code></li><li><code>OnLoad</code> のヘルプに <code>2</code>・<code>5</code>・<code>6</code> の行、<code>7</code> の説明の書き換え</li><li><code>ShowPhysicsDemo</code> のカメラ(柱の筋書きだけ引いて上げる)</li><li><code>BuildPhysicsScene</code> の <code>switch</code> に3つ。「有限の床」のコメント</li><li><code>BuildBoxStackScene</code> / <code>BuildBoxMixScene</code> / <code>BuildBoxTumbleScene</code> / <code>SpawnBox</code>(<code>BuildBoxDropScene</code> の直後)</li><li><code>PhysicsSceneLabel</code> に3つ</li><li><code>ContactLabel</code> に <code>辺:</code> の1行とコメント</li><li><code>DescribeContacts</code>(<code>DescribePhysics</code> の直後)</li><li>キー: <code>Ctrl+Shift+Alt+1</code> の案内文、<code>2</code>・<code>5</code>・<code>6</code> の case、<code>7</code> の案内文</li><li><code>RunBoxCollisionCheck</code> に Day 44b の項目を足す — 次の順で
+<ul><li>関数の説明(ランダム探索の段落)</li><li>「2. 箱の形そのもの」「3. 分離軸定理」(<code>FaceOnlyOverlap</code> などのローカル関数を含む)</li><li>「4. 接触マニフォールド」の見出しの書き換えと、台からはみ出した箱のクリップ</li><li>「5. 球と箱」</li><li>節の番号の振り直し(6・7・8)</li><li>「7. 落として、支えられて、積む」に箱の柱(<code>BoxStack</code>)と、箱2つのめり込み(<code>BoxPenetrationAfter</code>)</li><li>最後の合格メッセージ</li></ul></li></ul></li><li><strong><code>Day44b.csproj</code></strong> — <code>Day44a.csproj</code> からのリネームのみ</li></ol>
+<p><strong>キーの位置は Day 44a で決めた塊の中</strong>に足す。<code>Ctrl+Shift+Alt+2</code>・<code>5</code>・<code>6</code> も<strong>switch のいちばん上の塊</strong>の中に置くこと。下の <code>case Key.Number2 when ctrl &amp;&amp; shift:</code> などに吸われる。</p>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Physics/</code> の中で型が1つ増え(<code>Sat</code>)、既存の5つに書き足しただけ——矢印は1本も足していない。<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Sat</code></td><td><code>Physics/</code></td><td>分離軸定理と面のクリップ。<strong>今日いちばん長い 524 行</strong></td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes3D</code></td><td><code>Box3D</code> に判定の道具(軸・投影半径・最近接点・支持点)が入った</td><td>+97 / -5</td></tr>
+<tr><td><code>Physics/ContactManifold</code></td><td><code>ManifoldSource.EdgeEdge</code> が増えた</td><td>+11 / -8</td></tr>
+<tr><td><code>Physics/Collision3D</code></td><td><code>SphereBox</code> と、<code>Collide</code> の球と箱・箱と箱の枝</td><td>+89 / -14</td></tr>
+<tr><td><code>Physics/PhysicsWorld</code></td><td>出どころ別の数え場所が5つになった(ほかはコメント)</td><td>+9 / -7</td></tr>
+<tr><td><code>Program.cs</code></td><td>箱の筋書き3つ、降らせる、接触の内訳、HUD、自己チェック</td><td>+641 / -19</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18"><code>Physics/</code> が今日も何も知らないままであること</h3>
+<p>Day 26 で <code>Physics/</code> を作ったとき、「<code>System.Numerics</code> しか使っていないのでそのまま別プロジェクトへ持ち出せる」と書いた。<strong>今日もそれが保たれている</strong>。</p>
+<div class="code"><pre><code>  Physics/  →  依存先なし(System.Numerics だけ)</code></pre></div>
+<p><code>Sat</code> も同じ性格で、<code>BoxBox(a, b)</code> は箱2つを受け取って束を返すだけ。体も世界も時間も知らない。接触点の描画は Day 44a のまま <code>Program.RenderContacts</code> が受け持つ。</p>
+<p>配当は今日も自己チェックに出る。<strong>48 項目が窓を1枚も出さずに走る</strong>。</p>
+<h3 id="s19"><code>Collide</code> の表が埋まったこと</h3>
+<p>Day 44a で <code>Collide</code> という窓口を作り、<code>switch (a.Shape.Kind, b.Shape.Kind)</code> の表引きにした。そのとき穴のまま残した2つが、今日埋まった。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>組み合わせ</th><th>Day 44a</th><th>Day 44b</th></tr></thead>
+<tbody>
+<tr><td>球 × 球 / 球 × 平面</td><td>Day 43 から</td><td>そのまま</td></tr>
+<tr><td>箱 × 平面</td><td><strong>8つの頂点を落とす</strong></td><td>そのまま</td></tr>
+<tr><td>球 × 箱</td><td>穴(<code>default</code>。素通り)</td><td><strong><code>SphereBox</code></strong>(箱の上の最近接点)</td></tr>
+<tr><td>箱 × 箱</td><td>穴(<code>default</code>。素通り)</td><td><strong><code>Sat.BoxBox</code></strong>(15 本の軸 + クリップ)</td></tr>
+</tbody>
+</table></div>
+<p><strong>逆順の組は <code>Flipped()</code> で法線を裏返す</strong>ので、「箱と球」は書かずに「球と箱」だけ書けばよい。15 通りのうち実際に書くのは5通りで済んでいる。<strong>窓口の形は1文字も変わっていない</strong>——表の行が2つ増えただけで、<code>PhysicsWorld</code> は今日も判定の中身を知らない。</p>
+<p><strong>判定が重くなったのに、<code>PhysicsWorld</code> は1行も困っていない</strong>のも見どころ。Day 44a で位置の補正を「印で測り直す」形にしておいたので、箱どうしの判定(15 本の軸 + クリップ)を周ごとに呼び直さずに済んでいる。</p>
+<h3 id="s20">5段の順番は変わっていない</h3>
+<p><code>PhysicsWorld.Step</code> の5段は Day 43 のまま。Day 44a で「2段目がマニフォールドを返す」「3段目は組の中を同時に解く」「4段目は印で測り直す」になったものが、今日もそのまま動く。<strong>今日の差分は2段目の中(<code>Collide</code> の先)にしか無い</strong>。</p>
+<h3 id="s21">今日残した歪み(2つ)</h3>
+<p><strong>1つ目: <code>BodyColors</code> という並行配列</strong>(Day 44a から)。色は <code>Program</code> 側の <code>List&lt;Vector4&gt;</code> で、添字を体の番号と揃えているだけ。体の数が増えたら <code>Dictionary</code> か体側の付帯情報に移すことになる。</p>
+<p><strong>2つ目: 柱が沈む</strong>。4点を同時に解いたことで<strong>崩れなく</strong>なったが、6段の柱は 57mm 沈む(許容は 5mm)。1周ごとにインパルスをゼロから決め直しているのが原因で、蓄積インパルスと温存(warm starting)が Day 47 の担当になる。Day 43 の改造課題3で予告したとおりの場所に、予告どおりの症状が出ている。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p>Day 43 のキー(<code>Ctrl+Shift+Alt+F1〜F12</code>)と、Day 44a のキー(<code>Ctrl+Shift+Alt+1・3・4・7・0</code>)はそのまま使える。今日のキーは同じ段の <code>2</code>・<code>5</code>・<code>6</code>。</p>
+<h3 id="s23">1. <code>Ctrl+Shift+Alt+1</code>: 箱を落とす(Day 44a のまま)</h3>
+<p>傾きを振った5つの箱が落ちて、面で落ち着く。Day 44a と同じ絵になる。HUD の2行目に <strong><code>辺:</code> が増えている</strong>。</p>
+<div class="code"><pre><code>接触[5組 20点 上限4]  面:5  辺:0  点:0  解き方:同時  表示:ON</code></pre></div>
+<h3 id="s24">2. <code>Ctrl+Shift+Alt+2</code>(1回目): 箱を積む</h3>
+<p><strong>今日の到達点</strong>。一辺 0.84m の箱を6段。カメラが少し引いて上がる。</p>
+<p><strong>崩れない</strong>。球の積み上げ(<code>Ctrl+Shift+Alt+F4</code> の2番目)と見比べると、球は下が少しずれると転がり落ちるのに対し、箱は4点で支えるので横ずれに強い。</p>
+<p>ただし<strong>段数ぶん沈む</strong>。HUD の「めり込み」が 4〜6cm まで増える。これが Day 47(蓄積インパルスと温存)の宿題。</p>
+<h3 id="s25">3. <code>Ctrl+Shift+Alt+7</code>: 解き方を「順番」にする</h3>
+<p>柱を出したまま押す。<strong>数秒で柱が滑り出して崩れる</strong>。HUD の「解き方」が <code>**順番**</code> に変わっている。</p>
+<p>Day 44a で床の箱1つに押したときは、揺れが少し残るだけだった。<strong>同じ偏りでも、積むと柱が崩れる</strong>のがこの差(要点4)。</p>
+<p>もう一度押して「同時」に戻し、<code>Ctrl+Shift+Alt+2</code> を4回押して(1周して)柱に戻ると、また崩れなくなる。</p>
+<h3 id="s26">4. <code>Ctrl+Shift+Alt+2</code>(2回目): 球と箱</h3>
+<p>傾けた静的な箱(台)の上へ、球と箱が交互に落ちてくる。<strong>今日までに書いた判定が全部走る</strong>——球×箱、箱×箱(今日)、箱×平面(Day 44a)、そして Day 43 の2本。</p>
+<p>HUD の「面 / 辺 / 点」の内訳が刻々と変わる。<code>点</code> が球の接触(1点しか出ない)で、<code>面</code> が箱の接触。</p>
+<p>摩擦が無いので、乗ったものは必ず台から滑り落ちる。<strong>台には端がある</strong>ので、平面と違って縁から落ちていく——Day 43 で「平面には端が無い」と書いた話への答えになっている。</p>
+<h3 id="s27">5. <code>Ctrl+Shift+Alt+2</code>(3回目): 箱が転がる</h3>
+<p>細長い箱(1.5 × 0.32 × 0.48m)を回しながら落とす。角と角がすれ違うように当たると HUD の <code>辺</code> が 0 でなくなる。</p>
+<p><code>Ctrl+Shift+Alt+6</code> で内訳をコンソールへ出すと、どの組が辺×辺で解かれているかまで見える。</p>
+<h3 id="s28">6. <code>Ctrl+Shift+Alt+5</code>: 箱を降らせる</h3>
+<p>押すたびに1つ増える。縦横比が3通りで巡回するので、<strong>細長いものほど倒れやすい</strong>のが見える。</p>
+<p>20 個ほど降らせても HUD の <code>ms</code> は 0.1ms 前後のまま。箱は 15 本の軸を試すぶん球より重いが、まだブロードフェーズは要らない。</p>
+<h3 id="s29">7. Day 44a までの機能が全部生きていること</h3>
+<ul><li><code>Ctrl+Shift+Alt+3</code> / <code>4</code>: 接触点の表示 / 1組の接触点 1/2/4</li><li><code>Ctrl+Shift+Alt+F1</code>: 球の物理デモ(落下 / 積み上げ / 撞き玉)</li><li><code>Ctrl+Shift+F1</code>: デモ v1 / <code>Alt+F1</code>: アニメーション / <code>2</code>: 材質グリッド</li><li><code>Ctrl+Shift+Alt+F12</code>: Day 43 の自己チェック(45 項目)</li></ul>
+<h3 id="s30">8. <code>Ctrl+Shift+Alt+0</code>: 今日の自己チェック(48 項目すべて合格)</h3>
+<p>Day 44a の 24 項目に、今日の 24 項目(箱の形・分離軸定理・クリップ・球と箱・柱)を足したもの。コンソールに 48 行の <code>[OK]</code> が並び、最後に<code>すべて合格(箱は落ち、面で支えられ、積める)</code> と出る。</p>
+<p><strong>窓は1枚も出ない</strong>——<code>Physics/</code> が GL を知らないので、このチェックはウィンドウを開かずに全部走る。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+Alt+2</code>(箱を積む)</td><td>6段の積み上げ</td><td>同時に解けば崩れずに立つ</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+7</code></td><td>同「解き方」</td><td>順番にすると数秒で柱が横へ流れて崩れる</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+5</code></td><td>同「箱を1つ降らせる」</td><td>落ちてきた箱を柱が受け止める</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+6</code>(接触の内訳)</td><td>分離軸を1本ずつ試す</td><td>どの軸で、何点で触れているか</td></tr>
+<tr><td><code>Ctrl+Shift+Alt+2</code>(球と箱)</td><td>球と箱</td><td>最近接点の1点で決まる</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は横から見た 2D で、reference/Day44b の Sat.BoxBox(いちばん浅い軸を採る、基準面と入射面、側面で切る、めり込んだ点だけ残す)と、マニフォールドの解き方を移したもの。2D の箱どうしの分離軸は面の法線 4 本だけで、3D の辺×辺 9 本に当たるものは無い(2D では辺の外積が作れない)。面で触れる点は 2 つ(3D では 4 つ)。</p></div>
+</section>
+<section class="part"><h2 id="s31">改造課題</h2>
+<h3 id="s32">課題1(易): 辺×辺の下駄を外してみる</h3>
+<p><code>Sat.EdgeBias</code> は 1.05(辺×辺の軸に 5% の下駄)。これを <strong>1.0</strong> にして、<code>Ctrl+Shift+Alt+2</code> で「箱を積む」と「箱が転がる」を出す。</p>
+<ul><li>HUD の <code>辺:</code> が、面で触れているはずの場面で増えるか</li><li>積んだ箱の接触点(<code>Ctrl+Shift+Alt+3</code>)が、4点から1点へ飛ぶ瞬間があるか</li><li><code>Ctrl+Shift+Alt+6</code> の内訳で、辺×辺になった組の法線がどちらを向いているか</li></ul>
+<p><strong>下駄は「迷ったら面のほうが正しい」という経験則を数にしたもの</strong>(要点1)。理論上の根拠は無いので、外すと何が壊れるかを自分の目で確かめるための課題。逆に 1.5 のように大きくしすぎると、本当に辺どうしが当たっている場面で面が選ばれ、何が起きるかも見てみる。</p>
+<h3 id="s33">課題2(中): マニフォールドの点の選び方を直す</h3>
+<p><code>ContactManifold.Add</code> は満杯のとき「いちばん浅い点」を捨てている。<strong>深さだけで選ぶと、面のごく狭い一角に4点が固まることがある</strong>——そうなると面で支えているつもりが実質1点になり、また箱が揺れる。</p>
+<p>Box2D と Bullet は<strong>広がりを見て</strong>選んでいる。</p>
+<ol><li>いちばん深い点を1つ採る</li><li>そこから<strong>いちばん遠い</strong>点を採る</li><li>その2点が作る線分から<strong>いちばん遠い</strong>点を採る</li><li>できた三角形の外にある点のうち、<strong>面積がいちばん増える</strong>点を採る</li></ol>
+<p>これを <code>Add</code> の代わりに「全部溜めてから4つ選ぶ」形で書き直す(<code>Sat.BuildFaceContact</code> が最大8点をいったん配列に溜めるように変える)。</p>
+<p><strong>効果が見えるのは、箱を台の角にわずかに載せたとき</strong>。今のやり方だと4点が角に固まるので、<code>Ctrl+Shift+Alt+3</code> で並びを見比べるとよい。</p>
+<h3 id="s34">課題3(難): GJK で置き換えてみる</h3>
+<p>SAT は「凸多面体どうし」でしか使えない。面と辺を列挙できる形でないと軸の候補が作れないからで、円柱や凸包には向かない。</p>
+<p>GJK(Gilbert-Johnson-Keerthi)は<strong>支持関数だけ</strong>で距離を求めるアルゴリズムで、<code>Box3D.Support</code> が既にある(今日の <code>BuildEdgeContact</code> で使っている考え方と同じ)。</p>
+<ol><li><code>Support(direction)</code> だけを使って、2つの形のミンコフスキー差が原点を含むかを判定する</li><li>含んでいたら EPA(Expanding Polytope Algorithm)で最小の押し戻し方向を求める</li><li><code>Sat.BoxBox</code> と答えを突き合わせる自己チェックを書く</li></ol>
+<p><strong>接触点の生成は SAT のまま使える</strong>——EPA が返す法線から基準面を選べば、今日書いたクリップがそのまま動く。ロードマップで「厳密に必要になったら convex hull + GJK を発展課題として」と書いてあるのがこれ。</p>
+</section>
+<section class="part"><h2 id="s35">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070 / 1920x1080(DPI 100%)</li><li><code>dotnet run --project reference/Day44b -c Release</code></li></ul>
+<p>箱5個 + 平面5枚を影・SSAO・IBL・ブルーム・FXAA 込みで回して、HUD の表示は <strong>0.05〜0.2ms</strong>(移動平均なので、出した直後は高めに出る)。描画のほうが2桁重い。</p>
+<p>窓を出さずに <code>PhysicsWorld.Step</code> だけを測ると、体の数に対してこうなる(平面5枚込み、速度の反復 8 周、Release)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の数</th><th>箱</th><th>球</th><th>総当たりの組</th></tr></thead>
+<tbody>
+<tr><td>5</td><td>0.012ms</td><td>0.006ms</td><td>35</td></tr>
+<tr><td>20</td><td>0.044ms</td><td>0.029ms</td><td>290</td></tr>
+<tr><td>40</td><td>0.109ms</td><td>0.068ms</td><td>980</td></tr>
+<tr><td>80</td><td>0.321ms</td><td>0.149ms</td><td>3,560</td></tr>
+</tbody>
+</table></div>
+<p><strong>箱は球のおよそ2倍</strong>。15 本の軸を試し、当たったらクリップまで走るぶん重い。ただし増え方を決めているのは<strong>組の数 N(N-1)/2</strong> のほうで、80 体で 3,560 組を毎ステップ舐めている。<strong>ここがブロードフェーズ(Day 46)の出番</strong>で、形のコストより組の数のほうが先に効いてくるのが数字で見える。</p>
+<h3 id="s36">自己チェック(48 項目すべて合格)</h3>
+<p>数字の読み方をいくつか(Day 44a の項目は Day 44a の計画書を参照)。</p>
+<ul><li><strong>面の法線6本だけでは足りない配置が「6 回目の試行」で見つかる</strong>。ランダムに置いた立方体2つのうち、「面から見れば重なっているが、辺の軸で分離している」ものを探している。ここが「見つからなかった」になるなら、<code>Sat.BoxBox</code> の辺×辺のループが効いていない</li><li><strong>中心がほぼ重なった箱 20,000 通りで取りこぼし 0</strong>。逆向きの確認で、深く重なっているのに「離れている」と答えないこと。<code>ParallelEpsilon</code> を大きくしすぎるとここが落ちる</li><li><strong>台から半分はみ出した箱の「いちばん外の点」が x = 1.0000</strong>。台の縁とぴったり一致する。ここが 1.5(= 箱の角)になっているなら、クリップが効いていない</li><li><strong>6段の柱: 同時に解けば横ずれ 0.00mm、順番に解くと 10.85m</strong>。同じ柱、同じ反復回数、違うのは「4点を同時に決めるかどうか」だけ</li></ul>
+<h3 id="s37">検証の途中で分かったこと</h3>
+<p><strong>最初に書いた解き方では、箱が3段で崩れた</strong>。接触を Day 43 と同じく1点ずつ順番に解いていたのが原因で、反復を 50 周に増やしても、角速度の減衰を 0.9/秒 まで上げても直らなかった。</p>
+<p>原因を追うと、<strong>接触を作った最初のステップで既に角速度が 0.0013 rad/s 立っていた</strong>。完全に対称な配置なのに回り始めている——1点目を解いた時点で相対速度が 0 になり、残り3点が仕事をしないので、<strong>1点目だけが重さを全部背負っていた</strong>。</p>
+<p>摩擦が無い世界では、少し傾いた接触は横向きに押す。0.01 rad/s の傾きでも 5 秒あれば 3 度になり、<code>mg·sin(3°)</code> の横向きの力が効いて柱が流れていく。<strong>物理的には正しい挙動</strong>で、間違っていたのは解き方のほうだった。(このとき直した「同時に解く」は、Day 44 を2日に分けたときに Day 44a へ移した。床の箱1つでも揺れが止まらないことが数字で出たので)</p>
+<p><strong>蓄積インパルスを先に試したが、ほとんど効かなかった</strong>。Day 43 の改造課題3(そして Day 47)の内容を先に入れてみたところ、3段の柱はやはり崩れた——<strong>偏りの原因は反復のクランプではなく、点を順番に解いていること</strong>だったので、当然といえば当然だった。蓄積インパルスは「沈み」には効くので、Day 47 の担当のままにしてある。</p>
+<p><strong>Span はタプルで入れ替えられない</strong>。クリップの入れ物を <code>(polygon, scratch) = (scratch, polygon)</code> で交換しようとしたら<code>CS9244</code> で弾かれた。<code>Span&lt;T&gt;</code> は ref 構造体なのでタプルに入れられない(タプルはヒープに載りうる)。一時変数で書くしかない。</p>
+<p><strong>接触点の光る玉は、クリップの確認にも効いた</strong>。クリップが効いていないときは玉が箱の角に飛び出るので一目で分かる。Day 44a で「<code>Program</code> 側に 20 行書けば済む」と書いた道具が、今日いちばん働いた。</p>
+</section>
+<footer class="end">Day 44b 箱と箱 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/physics2d.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+const { Shape, Body, World, sat, circleBox, drawBody, drawContacts, drawPlanes } = Phys2D;
+const rad = (d) => d * Math.PI / 180;
+
+// 画面座標 ↔ 世界座標(中心が原点、縦は上が正)
+function makeView(w, h, span) {
+  const s = Math.min(w, h) / span, ox = w / 2, oy = h / 2;
+  return { s, X: (x) => ox + x * s, Y: (y) => oy - y * s, inv: (px, py) => [(px - ox) / s, (oy - py) / s] };
+}
+function poly(ctx, pts, view, fill, stroke, width = 1.5) {
+  ctx.beginPath(); pts.forEach(([x, y], i) => { if (i === 0) ctx.moveTo(view.X(x), view.Y(y)); else ctx.lineTo(view.X(x), view.Y(y)); });
+  ctx.closePath(); if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = width; ctx.stroke(); }
+}
+// ドラッグで点を動かす小道具
+function draggable(canvas, getView, hitTest, onMove) {
+  let dragging = false;
+  const pos = (e) => { const r = canvas.getBoundingClientRect(); return getView().inv(e.clientX - r.left, e.clientY - r.top); };
+  canvas.addEventListener('pointerdown', (e) => { if (hitTest(pos(e))) { dragging = true; canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing'; } });
+  canvas.addEventListener('pointermove', (e) => { if (dragging) onMove(pos(e)); });
+  const end = () => { dragging = false; canvas.style.cursor = 'grab'; };
+  canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+}
+
+// ============================================================
+//  要点1・2: 分離軸と面のクリップ
+// ============================================================
+const satS = { aa: 0, ab: 8, bx: 0.5, by: 0.9, view: null };
+function satBoxes() {
+  const A = new Body(0, Shape.box(1.2, 0.45)); A.angle = rad(satS.aa);
+  const B = new Body(0, Shape.box(0.42, 0.42)); B.x = satS.bx; B.y = satS.by; B.angle = rad(satS.ab);
+  return [A, B];
+}
+function drawSat() {
+  const [A, B] = satBoxes();
+  const detail = {};
+  // 法線は「A を B から引き離す向き」
+  const m = sat(A, B, detail);
+  const cA = tok('--semi'), cB = tok('--expl'), ink = tok('--ink'), muted = tok('--muted'), warn = tok('--warn');
+  {
+    const { ctx, w, h } = fit($('sat-canvas'));
+    const view = makeView(w, h, 4.2); satS.view = view;
+    poly(ctx, A.corners(), view, tok('--accent-soft'), cA, 2);
+    poly(ctx, B.corners(), view, tok('--accent-soft'), cB, 2);
+    ctx.fillStyle = ink; ctx.font = '12px ' + tok('--font-body');
+    ctx.fillText('A', view.X(A.x) - 4, view.Y(A.y) + 4); ctx.fillText('B', view.X(B.x) - 4, view.Y(B.y) + 4);
+    if (m.hit && detail.refN) {
+      // 基準面(太線)・入射面(破線)・切ったあとの点
+      const rb = detail.refBox, side = 1 - detail.refAxis, sa = rb.axis(side), ext = rb.extent(side);
+      const c = detail.refCenter;
+      ctx.strokeStyle = ink; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(view.X(c[0] - sa[0] * ext), view.Y(c[1] - sa[1] * ext)); ctx.lineTo(view.X(c[0] + sa[0] * ext), view.Y(c[1] + sa[1] * ext)); ctx.stroke();
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = muted; ctx.lineWidth = 1;
+      for (const sgn of [-1, 1]) {
+        const p = [c[0] + sa[0] * ext * sgn, c[1] + sa[1] * ext * sgn];
+        ctx.beginPath(); ctx.moveTo(view.X(p[0] - detail.refN[0] * 2), view.Y(p[1] - detail.refN[1] * 2)); ctx.lineTo(view.X(p[0] + detail.refN[0] * 2), view.Y(p[1] + detail.refN[1] * 2)); ctx.stroke();
+      }
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = warn; ctx.lineWidth = 3;
+      const [i0, i1] = detail.incident;
+      ctx.beginPath(); ctx.moveTo(view.X(i0[0]), view.Y(i0[1])); ctx.lineTo(view.X(i1[0]), view.Y(i1[1])); ctx.stroke();
+      ctx.setLineDash([]);
+      for (const p of m.points) {
+        ctx.fillStyle = warn; ctx.beginPath(); ctx.arc(view.X(p.x), view.Y(p.y), 5, 0, Math.PI * 2); ctx.fill();
+      }
+      const p0 = m.points[0];
+      arrow(ctx, view.X(p0.x), view.Y(p0.y), view.X(p0.x + m.normal[0] * 0.6), view.Y(p0.y + m.normal[1] * 0.6), ink, 2);
+    }
+  }
+  {
+    const { ctx, w, h } = fit($('sat-axes'));
+    const axes = detail.axes || [];
+    const rowH = (h - 10) / 4;
+    const pr = (bx, n) => Math.abs(bx.shape.hx * (bx.axis(0)[0] * n[0] + bx.axis(0)[1] * n[1])) + Math.abs(bx.shape.hy * (bx.axis(1)[0] * n[0] + bx.axis(1)[1] * n[1]));
+    const sc = (w - 30) / 5;
+    axes.forEach((ax, i) => {
+      const y = 8 + i * rowH;
+      const n = ax.axis;
+      const ca = A.x * n[0] + A.y * n[1], cb = B.x * n[0] + B.y * n[1];
+      const ra = pr(A, n), rb = pr(B, n);
+      const mid = (ca + cb) / 2, X = (v) => w / 2 + (v - mid) * sc;
+      const isBest = i === detail.best && m.hit;
+      ctx.fillStyle = isBest ? tok('--accent-soft') : 'transparent';
+      if (isBest) ctx.fillRect(0, y, w, rowH - 4);
+      ctx.fillStyle = ink; ctx.font = '12px ' + tok('--font-body');
+      ctx.fillText(`${ax.owner} の面の法線 ${i % 2 === 0 ? 'x' : 'y'}`, 8, y + 14);
+      ctx.fillStyle = cA; ctx.fillRect(X(ca - ra), y + 22, (2 * ra) * sc, 8);
+      ctx.fillStyle = cB; ctx.fillRect(X(cb - rb), y + 34, (2 * rb) * sc, 8);
+      ctx.fillStyle = ax.overlap > 0 ? ink : tok('--expl'); ctx.font = '12px ' + tok('--font-mono');
+      ctx.fillText(ax.overlap > 0 ? `重なり ${ax.overlap.toFixed(3)}${isBest ? '  ← いちばん浅い' : ''}` : `離れている(${(-ax.overlap).toFixed(3)})→ ここで打ち切り`, 8, y + rowH - 10);
+    });
+    if (axes.length < 4) { ctx.fillStyle = muted; ctx.font = '12px ' + tok('--font-body'); ctx.fillText('残りの軸は調べない', 8, 8 + axes.length * rowH + 16); }
+  }
+  $('sat-aa-out').textContent = `${satS.aa}°`; $('sat-ab-out').textContent = `${satS.ab}°`;
+  $('sat-stats').innerHTML =
+    stat('判定', m.hit ? '当たっている' : '離れている', m.hit ? ' <span class="pill warn">接触</span>' : '') +
+    stat('試した軸', `${(detail.axes || []).length} / 4 本`) +
+    stat('接触点', m.hit ? `${m.points.length} 点` : '—', m.hit ? ` <small>深さ ${Math.max(...m.points.map((p) => p.depth)).toFixed(3)}m</small>` : '');
+  let note;
+  if (!m.hit) note = '1本でも重なりが負なら、その時点で離れていると決まり、残りの軸は調べない。離れている組(大多数)は数本で抜ける。';
+  else if (m.points.length === 2) note = '入射面(破線)を基準面(太線)の側面2枚(点線)で切り、めり込んでいる点だけを残した。はみ出した側は切り落とされ、代わりに縁の上に新しい点ができる。';
+  else note = '入射面を切って残った点のうち、めり込んでいるのは1つだけ。角で触れている。';
+  $('sat-note').textContent = note;
+}
+$('sat-aa').addEventListener('input', (e) => { satS.aa = Number(e.target.value); drawSat(); });
+$('sat-ab').addEventListener('input', (e) => { satS.ab = Number(e.target.value); drawSat(); });
+for (const btn of document.querySelectorAll('[data-sat]')) {
+  btn.addEventListener('click', () => {
+    [satS.aa, satS.ab, satS.bx, satS.by] = btn.dataset.sat.split(',').map(Number);
+    $('sat-aa').value = satS.aa; $('sat-ab').value = satS.ab; drawSat();
+  });
+}
+draggable($('sat-canvas'), () => satS.view, (p) => Math.hypot(p[0] - satS.bx, p[1] - satS.by) < 0.6, (p) => { satS.bx = p[0]; satS.by = p[1]; drawSat(); });
+drawSat();
+window.addEventListener('resize', drawSat);
+
+// ============================================================
+//  要点3: 球と箱
+// ============================================================
+const sb = { angle: 25, r: 0.35, cx: 0.9, cy: 0.7, view: null };
+function drawSb() {
+  const B = new Body(0, Shape.box(0.7, 0.4)); B.angle = rad(sb.angle);
+  const m = circleBox([sb.cx, sb.cy], sb.r, B);
+  const { ctx, w, h } = fit($('sb-canvas'));
+  const view = makeView(w, h, 3.6); sb.view = view;
+  poly(ctx, B.corners(), view, tok('--accent-soft'), tok('--semi'), 2);
+  const local = B.toLocal(sb.cx, sb.cy);
+  const q = [Math.max(-0.7, Math.min(0.7, local[0])), Math.max(-0.4, Math.min(0.4, local[1]))];
+  const qw = B.toWorld(q[0], q[1]);
+  const inside = Math.abs(local[0]) <= 0.7 && Math.abs(local[1]) <= 0.4;
+  ctx.strokeStyle = m.hit ? tok('--expl') : tok('--muted'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(view.X(sb.cx), view.Y(sb.cy), sb.r * view.s, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(view.X(sb.cx), view.Y(sb.cy), 3, 0, Math.PI * 2); ctx.fill();
+  if (!inside) {
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(view.X(sb.cx), view.Y(sb.cy)); ctx.lineTo(view.X(qw[0]), view.Y(qw[1])); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(view.X(qw[0]), view.Y(qw[1]), 4, 0, Math.PI * 2); ctx.fill();
+  }
+  if (m.hit) {
+    const p = m.points[0];
+    arrow(ctx, view.X(p.x), view.Y(p.y), view.X(p.x + m.normal[0] * 0.5), view.Y(p.y + m.normal[1] * 0.5), tok('--expl'), 2);
+  }
+  $('sb-angle-out').textContent = `${sb.angle}°`; $('sb-r-out').textContent = `${sb.r.toFixed(2)} m`;
+  const dist = Math.hypot(sb.cx - qw[0], sb.cy - qw[1]);
+  $('sb-stats').innerHTML =
+    stat('箱の物体座標での中心', `(${local[0].toFixed(2)}, ${local[1].toFixed(2)})`) +
+    stat('最近接点までの距離', inside ? '0(中に入った)' : dist.toFixed(3), inside ? ' <span class="pill warn">余裕の少ない面へ</span>' : '') +
+    stat('判定', m.hit ? `当たっている 深さ ${m.points[0].depth.toFixed(3)}` : '離れている');
+}
+$('sb-angle').addEventListener('input', (e) => { sb.angle = Number(e.target.value); drawSb(); });
+$('sb-r').addEventListener('input', (e) => { sb.r = Number(e.target.value); drawSb(); });
+draggable($('sb-canvas'), () => sb.view, (p) => Math.hypot(p[0] - sb.cx, p[1] - sb.cy) < Math.max(sb.r, 0.3), (p) => { sb.cx = p[0]; sb.cy = p[1]; drawSb(); });
+drawSb();
+window.addEventListener('resize', drawSb);
+
+// ============================================================
+//  要点4: 積み上げ
+// ============================================================
+const FLOOR = -0.5, HALF = 0.42;
+const stack = { together: true, n: 6, show: false, world: null, acc: 0, steps: 0, spawned: 0 };
+const stackColor = (t) => rgb(0.85 - 0.4 * t, 0.55 + 0.3 * t, 0.25 + 0.5 * t);
+function buildStack() {
+  const w = new World();
+  w.solveTogether = stack.together;
+  w.add(Body.plane(0, FLOOR, 0, 1)); w.add(Body.plane(-5, 0, 1, 0)); w.add(Body.plane(5, 0, -1, 0));
+  for (let i = 0; i < stack.n; i++) {
+    const b = new Body(1, Shape.box(HALF, HALF));
+    b.y = FLOOR + HALF + i * HALF * 2; b.restitution = 0; b.angularDamping = 0.4;
+    b.color = stackColor(i / Math.max(stack.n - 1, 1));
+    w.add(b);
+  }
+  stack.world = w; stack.acc = 0; stack.steps = 0; stack.spawned = 0;
+}
+function spawnBox() {
+  const b = new Body(1, Shape.box(0.3, 0.3));
+  b.x = Math.sin(stack.spawned * 2.4) * 0.6; b.y = FLOOR + stack.n * HALF * 2 + 2.5; b.angle = stack.spawned * 0.7;
+  b.restitution = 0.1; b.angularDamping = 0.4; b.color = `hsl(${(stack.spawned * 137) % 360} 55% 55%)`;
+  stack.world.add(b); stack.spawned++;
+}
+function drawStack() {
+  const { ctx, w, h } = fit($('stack-canvas'));
+  const top = FLOOR + stack.n * HALF * 2 + 1.5;
+  const s = Math.min(w / 10.6, (h - 30) / (top - FLOOR + 0.3)), ox = w / 2, oy = h - 18 - (0 - FLOOR) * s;
+  const view = { X: (x) => ox + x * s, Y: (y) => oy - y * s, s };
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (let y = 0; y <= top - FLOOR; y++) { ctx.beginPath(); ctx.moveTo(0, view.Y(FLOOR + y)); ctx.lineTo(w, view.Y(FLOOR + y)); ctx.stroke(); }
+  // 理想の位置
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--muted');
+  for (let i = 0; i < stack.n; i++) ctx.strokeRect(view.X(-HALF), view.Y(FLOOR + (i + 1) * HALF * 2), 2 * HALF * s, 2 * HALF * s);
+  ctx.setLineDash([]);
+  drawPlanes(ctx, stack.world, view, tok('--ink'), w, h);
+  const alpha = stack.acc * 60;
+  for (const b of stack.world.bodies) if (!b.isStatic) drawBody(ctx, b, view, b.color, alpha);
+  if (stack.show) drawContacts(ctx, stack.world, view, tok('--warn'));
+  const tower = stack.world.bodies.filter((b) => !b.isStatic).slice(0, stack.n);
+  const drift = Math.max(...tower.map((b) => Math.abs(b.x)));
+  const ideal = FLOOR + HALF + (stack.n - 1) * HALF * 2;
+  const topY = tower[tower.length - 1].y;
+  $('stack-hud').textContent = `体:${stack.world.bodies.length - 3}  接触点:${stack.world.contacts.length}  解き方:${stack.together ? '同時' : '順番'}  めり込み:${(stack.world.maxPenetration * 100).toFixed(2)}cm  経過:${(stack.steps / 60).toFixed(1)}s`;
+  $('stack-stats').innerHTML =
+    stat('柱の横ずれ(最大)', `${(drift * 1000).toFixed(1)}`, ` <small>mm</small> ${drift < 0.01 ? '<span class="pill good">立っている</span>' : drift > 0.3 ? '<span class="pill bad">崩れた</span>' : ''}`) +
+    stat('いちばん上の箱の高さ', topY.toFixed(3), ` <small>m / 理想 ${ideal.toFixed(3)}</small>`) +
+    stat('沈み', `${Math.max(0, (ideal - topY) * 1000).toFixed(0)}`, ' <small>mm</small>');
+  $('stack-note').textContent = stack.together
+    ? '同時に解くと横ずれは 0 のまま立つ。それでも上の段ほど沈むのは、1周ごとにインパルスをゼロから決め直しているからで、蓄積インパルスと温存(Day 47)の担当。沈むことと崩れることは別の話。'
+    : '順番に解くと、1点目が重さを全部背負って箱がわずかに傾き、傾いた上面が上の段を横へ押す。摩擦が無いので上の段ほど横へ流れていく。';
+}
+seg('stack-solve', (v) => { stack.together = v === 'together'; buildStack(); drawStack(); });
+seg('stack-n', (v) => { stack.n = Number(v); buildStack(); drawStack(); });
+$('stack-show').addEventListener('change', (e) => { stack.show = e.target.checked; drawStack(); });
+$('stack-drop').addEventListener('click', spawnBox);
+$('stack-reset').addEventListener('click', () => { buildStack(); drawStack(); });
+buildStack();
+if (reduceMotion) for (let i = 0; i < 300; i++) { stack.world.step(1 / 60); stack.steps++; }
+drawStack();
+animate($('stack-canvas'), (dt) => {
+  if (!reduceMotion) {
+    stack.acc += dt;
+    while (stack.acc >= 1 / 60) { stack.world.step(1 / 60); stack.steps++; stack.acc -= 1 / 60; }
+  }
+  drawStack();
+});
+})();
+</script>
+</body>
+</html>
