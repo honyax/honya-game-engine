@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 68 VRM と MToon</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+/* この Day にしかない部品: MToon の球の色見本 */
+.swatch { display: inline-block; width: 0.9em; height: 0.9em; border-radius: 3px; vertical-align: -0.1em; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model と Render とシェーダと Program</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. VRM は glTF。足しているのは「人型の約束」と「利用条件」</a></li><li class="l3"><a href="#s7">2. MToon の影 — N・L にずらしを足して、2色のどちらかを選ぶ</a></li><li class="l3"><a href="#s8">3. リムとマットキャップ — 光と関係なく「縁」と「向き」で色を足す</a></li><li class="l3"><a href="#s9">4. 比べる描き方 — 同じマテリアルを3通りに読む</a></li><li class="l3"><a href="#s10">5. アウトラインは背面法 — 膨らませた裏面を描くだけ</a></li><li class="l3"><a href="#s11">6. キャラだけ別のフォワードパス — 深度を借り、灯りを選び、プローブを引く</a></li><li class="l3"><a href="#s12">7. 関節 91 本と、uniform の枠 64 本</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">MToon は VRM を知らず、VRM は MToon の値を運ぶだけ</a></li><li class="l3"><a href="#s19">1フレームの中のキャラの居場所</a></li><li class="l3"><a href="#s20">キャラの3回 — 順番がそのまま設計</a></li><li class="l3"><a href="#s21">今日残した歪み</a></li><li class="l3"><a href="#s22">試して分かったこと</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">素材: AvatarSample_A を VRM 1.0 で書き出す</a></li><li class="l3"><a href="#s25">1. F2: 床の上に立つ</a></li><li class="l3"><a href="#s26">2. F3 / F4: 3通りに読む・成分を見る</a></li><li class="l3"><a href="#s27">3. F6 / F5: 顔に寄って線を見る</a></li><li class="l3"><a href="#s28">4. F7: 光を回す</a></li><li class="l3"><a href="#s29">5. F8: 裏通りに立たせる</a></li><li class="l3"><a href="#s30">6. Day 66a までの機能が全部生きていること</a></li><li class="l3"><a href="#s31">7. F12: 自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s32">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): アウトラインを「画面の割合」に切り替える</a></li><li class="l3"><a href="#s35">課題2(中): UV アニメーションを読む</a></li><li class="l3"><a href="#s36">課題3(難): 影パスでアルファを見る</a></li><li class="l2"><a href="#s37">動作確認済み環境</a></li><li class="l3"><a href="#s38">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 68 / 計画書</p>
+  <h1>VRM 1.0 の読み込みと MToon</h1>
+  <p class="lede">トゥーンのキャラを、フォトリアルの夜の裏通りに1人だけ混ぜる</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model と Render とシェーダと Program</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. VRM は glTF。足しているのは「人型の約束」と「利用条件」</a></li><li class="l3"><a href="#s7">2. MToon の影 — N・L にずらしを足して、2色のどちらかを選ぶ</a></li><li class="l3"><a href="#s8">3. リムとマットキャップ — 光と関係なく「縁」と「向き」で色を足す</a></li><li class="l3"><a href="#s9">4. 比べる描き方 — 同じマテリアルを3通りに読む</a></li><li class="l3"><a href="#s10">5. アウトラインは背面法 — 膨らませた裏面を描くだけ</a></li><li class="l3"><a href="#s11">6. キャラだけ別のフォワードパス — 深度を借り、灯りを選び、プローブを引く</a></li><li class="l3"><a href="#s12">7. 関節 91 本と、uniform の枠 64 本</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">MToon は VRM を知らず、VRM は MToon の値を運ぶだけ</a></li><li class="l3"><a href="#s19">1フレームの中のキャラの居場所</a></li><li class="l3"><a href="#s20">キャラの3回 — 順番がそのまま設計</a></li><li class="l3"><a href="#s21">今日残した歪み</a></li><li class="l3"><a href="#s22">試して分かったこと</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">素材: AvatarSample_A を VRM 1.0 で書き出す</a></li><li class="l3"><a href="#s25">1. F2: 床の上に立つ</a></li><li class="l3"><a href="#s26">2. F3 / F4: 3通りに読む・成分を見る</a></li><li class="l3"><a href="#s27">3. F6 / F5: 顔に寄って線を見る</a></li><li class="l3"><a href="#s28">4. F7: 光を回す</a></li><li class="l3"><a href="#s29">5. F8: 裏通りに立たせる</a></li><li class="l3"><a href="#s30">6. Day 66a までの機能が全部生きていること</a></li><li class="l3"><a href="#s31">7. F12: 自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s32">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): アウトラインを「画面の割合」に切り替える</a></li><li class="l3"><a href="#s35">課題2(中): UV アニメーションを読む</a></li><li class="l3"><a href="#s36">課題3(難): 影パスでアルファを見る</a></li><li class="l2"><a href="#s37">動作確認済み環境</a></li><li class="l3"><a href="#s38">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 67 まで、絵はフォトリアル(PBR)一本だった。今日から5日間は、ノンフォトリアルの代表として <strong>VRM 1.0 のアバターと MToon</strong> を扱う。</p>
+<p>トゥーンの作り方はタイトルごとにまったく違う。だから今日は手法を自由に組むのではなく、<strong>仕様で式まで決まっている MToon を、仕様どおりに書く</strong>。アバターの作者は UniVRM や three-vrm の上の MToon で見た目を調整して書き出しているので、式を自分の好みで変えると、同じ値を読んでも「なんか違う」絵になる。</p>
+<p>もう1つの主題は、<strong>MToon をディファードのエンジンにどう混ぜるか</strong>。G-Buffer には「影の色」も「境目の硬さ」も書く欄が無い。そこでキャラだけを別のフォワードパスで描く。夜の灯り・焼いたプローブ・TAA の速度バッファとの付き合い方も、ここで決める。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「VRMビューア」ページで <code>F2</code> を押すと、床の上に VRoid のアバターが立ち、MToon で描かれる。<code>F8</code> を押すと、完成版の夜の裏通りで街灯の手前に立ち、灯りに半身を照らされる。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「VRMビューア」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>VRMビューア ON / OFF。<strong>今日の到達点</strong>。初回だけアバター(18MB)を読む(0.7 秒)</td></tr>
+<tr><td><code>F3</code></td><td>描き方: MToon → ベースカラーだけ → N・L の陰影だけ。<strong>同じマテリアルを3通りに読む</strong></td></tr>
+<tr><td><code>F4</code></td><td>成分: 通常 → 影の度合い → 直接光 → 環境光 → リム。<strong>体と服は影の度合いが真っ白</strong></td></tr>
+<tr><td><code>F5</code></td><td>アウトライン ON / OFF。線を持つのは顔・体・服の5枚だけ</td></tr>
+<tr><td><code>F6</code></td><td>顔に寄る。ヒューマノイドの <code>head</code> を引いて寄る(<strong>ノードの名前ではなく骨の名前で引く</strong>)</td></tr>
+<tr><td><code>F7</code></td><td>光を回す(45 度ずつ。床の上だけ)。<strong>境目が動くのは顔と髪だけ</strong></td></tr>
+<tr><td><code>F8</code></td><td>裏通りに立たせる / 床の上に戻す。<strong>今日の設計の主題</strong></td></tr>
+<tr><td><code>F9</code></td><td>シーンの描き方: Forward+ ↔ ディファード。<strong>キャラの絵は変わらない</strong></td></tr>
+<tr><td><code>F10</code></td><td>キャラに届く灯り: 8 → 0 個。0 にすると、街灯の下でもキャラだけ照らされない</td></tr>
+<tr><td><code>F11</code></td><td>内訳(メタ情報・ヒューマノイド・マテリアルの値・関節を詰めた結果・選んだ灯り)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(15 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「VRMビューア」(30 枚目)が直接開く。<strong>VRMビューアを出さない限り、今日の差分は1行も通らない</strong>(どの枝も <code>_vrmDemo</code> と、64 本を超える関節・MToon の拡張の有無で守ってある)。</p>
+
+<figure class="lab" id="ball-lab">
+  <div class="lab-head">
+    <h3>実験台: MToon の球</h3>
+    <span class="tag">要点2・3。式・既定値は reference/Day68 の MToon.cs / mtoon.frag と同じ</span>
+  </div>
+  <div class="split">
+    <div><canvas id="ball-canvas" style="height:300px" aria-label="MToon で塗った球"></canvas><div class="cap">球(正面から見る。光は斜め上から、0° が正面・負が左)</div></div>
+    <div><canvas id="ball-curve" style="height:300px" aria-label="影の度合いのグラフ"></canvas><div class="cap">影の度合い shading(縦)と N・L(横)。点線が境目</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">マテリアル(AvatarSample_A の値)</span>
+      <div class="seg" id="ball-preset">
+        <button data-v="face" aria-pressed="true">顔</button><button data-v="hair" aria-pressed="false">髪</button><button data-v="body" aria-pressed="false">体と服</button><button data-v="soft" aria-pressed="false">toony 0</button><button data-v="step" aria-pressed="false">toony 1</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">描き方(F3 / F4)</span>
+      <div class="seg" id="ball-view">
+        <button data-v="mtoon" aria-pressed="true">MToon</button><button data-v="unlit" aria-pressed="false">ベースカラーだけ</button><button data-v="lambert" aria-pressed="false">N・L だけ</button><button data-v="shading" aria-pressed="false">影の度合い</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">shadingShift</span><div class="range"><input type="range" id="ball-shift" min="-1" max="1" step="0.01" value="-0.05"><output id="ball-shift-out"></output></div></div>
+    <div class="ctl"><span class="label">shadingToony</span><div class="range"><input type="range" id="ball-toony" min="0" max="1" step="0.01" value="0.05"><output id="ball-toony-out"></output></div></div>
+    <div class="ctl"><span class="label">光の向き(F7)</span><div class="range"><input type="range" id="ball-light" min="-180" max="180" step="1" value="-40"><output id="ball-light-out"></output></div></div>
+    <div class="ctl"><span class="label">GI 均し(giEqualization)</span><div class="range"><input type="range" id="ball-gi" min="0" max="1" step="0.01" value="0.9"><output id="ball-gi-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="ball-stats"></div><p id="ball-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「MToon は N・L を掛けない」</strong>。PBR(Day 35)の拡散は「光の強さ x N・L」で明るさが決まり、暗い側は黒へ沈む。MToon は N・L を<strong>2色のどちらを選ぶかの物差し</strong>にしか使わない。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// mtoon.frag(Day 68)。影の度合い → 2色を混ぜる → 光の色を掛ける
+float shading = LinearStep(-1.0 + toony, 1.0 - toony, dot(n, l) + shift) * ShadowFactor(n, l);
+vec3 direct   = mix(shadeColor, baseColor, shading) * lightColor;   // <strong>N・L は掛けない</strong></code></pre></div>
+<p>暗い側は黒ではなく<strong>作者が塗った影の色</strong>になる。VRoid の体と服は <code>shift 1 / toony 1</code> で書き出されていて、この式に入れると<strong>真後ろ以外ぜんぶ明るい側</strong>になる(自己チェック1)。影が出ないのは不具合ではなく、作者の設定だ。</p>
+<p><strong>2つ目は「VRM は glTF そのもの」</strong>。拡張子が .vrm なだけで、中身は glb。Day 32 のローダーで、メッシュ・PBR の値・スキンまでは読める。VRM が足しているのは <strong>人型の約束(ヒューマノイドの骨の表)</strong>と<strong>利用条件</strong>と、MToon のような<strong>拡張</strong>だけ。</p>
+<p><strong>3つ目は「キャラだけ別のフォワードパス」</strong>。ディファードの G-Buffer には MToon の値を書く欄が無い。だからシーンを描き終えたあと、深度だけ借りて、キャラを同じバッファに描き足す(要点6)。<strong>灯りは届く8個だけを CPU で選んで渡し、環境光は焼いたプローブをそのまま引く</strong>。</p>
+
+<h3 id="s3">今日は Model と Render とシェーダと Program</h3>
+<p>新規は <code>Model/VrmAvatar.cs</code>・<code>Render/MToon.cs</code>・シェーダ2本(<code>mtoon.vert</code> / <code>mtoon.frag</code>)。変更は <code>GltfLoader</code>(MToon の拡張・関節を詰める・JSON だけ読む口)、<code>Material</code>(MToon を指す欄1つ)、そして <code>Program.cs</code>。</p>
+<p><strong>textured.frag と deferred.frag は1文字も変わっていない</strong>。MToon は別のシェーダで、別のパスで描く。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://github.com/vrm-c/vrm-specification/tree/master/specification/VRMC_vrm-1.0">VRMC_vrm-1.0</a>(vrm-specification)— <strong>要点1の一次資料</strong>。<code>README.ja.md</code> の全体像、<code>humanoid.md</code> の骨の表(必須の 15 本と親子)、<code>meta.md</code> の利用条件。0.x との違い(+Z 向き、拡張の名前)もここ</li>
+<li><a href="https://github.com/vrm-c/vrm-specification/tree/master/specification/VRMC_materials_mtoon-1.0">VRMC_materials_mtoon-1.0</a> — <strong>要点2〜5の一次資料</strong>。各つまみの意味と既定値(<code>shadingToonyFactor</code> と <code>giEqualizationFactor</code> の既定は 0.9)。<strong>既定値を 0 で埋めると絵が変わる</strong>ので、表を見ながら読む</li>
+<li><a href="https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm-materials-mtoon">three-vrm の three-vrm-materials-mtoon</a> — <strong>式の手本</strong>。<code>src/shaders/mtoon.frag</code> / <code>mtoon.vert</code>。仕様の文章で曖昧なところ(リムに掛ける光、マットキャップの引き方、アウトラインの押し出し)は、ここに合わせた</li>
+<li><a href="https://github.com/vrm-c/UniVRM">UniVRM</a> — Unity 版。作者が見た目を決めるのは多くがこちら。今日は読まなくてよいが、半透明の描く順(<code>renderQueueOffsetNumber</code>)の扱いはここの考え方</li>
+<li><strong>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch11</strong> — トゥーン・シェーディング。<strong>段を付ける陰影</strong>と<strong>輪郭線(背面法)</strong>の2本立てが、そのまま要点2と要点5になる</li>
+<li><strong>Day 41 の計画書</strong>(スキニング)— 関節行列 = 逆バインド行列 x 関節の世界行列。要点7で関節を詰めても絵が変わらない理由</li>
+<li><strong>Day 52 の計画書</strong>(ディファード)— ライティングパスの頭で G-Buffer の深度をシーンのバッファへ写していること。キャラのフォワードパスはこの深度を借りる</li>
+<li><strong>Day 66a の計画書 要点1</strong>(放射照度は9係数で足りる)— MToon の環境光は「その向きの放射照度」を3回引くだけなので、焼いたプローブがそのまま使える(要点6)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. VRM は glTF。足しているのは「人型の約束」と「利用条件」</h3>
+<p>VRM 1.0 は glTF 2.0 の拡張の束になっている。今日のアバター(AvatarSample_A)の <code>extensionsUsed</code> はこの5つ。</p>
+<div class="table-wrap"><table><thead><tr><th>拡張</th><th>何を足すか</th><th>読む日</th></tr></thead><tbody>
+<tr><td><code>VRMC_vrm</code></td><td><strong>メタ情報</strong>(名前・作者・利用条件)・<strong>ヒューマノイド</strong>(骨 → ノード番号)・表情・視線・一人称</td><td>今日(メタ・ヒューマノイド)、Day 69(表情)</td></tr>
+<tr><td><code>VRMC_materials_mtoon</code></td><td>マテリアルごとの MToon のつまみ</td><td><strong>今日</strong></td></tr>
+<tr><td><code>VRMC_springBone</code></td><td>揺れもの(髪・服の骨のばね)と当たり判定の球・カプセル</td><td>Day 70</td></tr>
+<tr><td><code>KHR_materials_unlit</code></td><td>「陰影を付けずに描け」。MToon を知らないビューアへの代わりの指示</td><td>今日(F3 の「ベースカラーだけ」)</td></tr>
+<tr><td><code>KHR_texture_transform</code></td><td>UV のずらし・拡大。今日のアバターは全部「ずらし 0・拡大 1」</td><td>読まない</td></tr>
+</tbody></table></div>
+<p><strong>ヒューマノイドの骨の表が VRM の心臓</strong>。ノードの名前はツールごとに違う(VRoid は <code>J_Bip_C_Hips</code>、Blender なら <code>Hips</code> や <code>pelvis</code>)が、VRM は「<code>hips</code> はノード 1」という表を必ず持つ。<code>head</code> を骨の名前で引けるから、F6 は<strong>どの VRM でも顔に寄れる</strong>。Day 71 で別のアバター用に作ったアニメーションを当てられるのも、この表のおかげ。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>AvatarSample_A</th></tr></thead><tbody>
+<tr><td>割り当てた骨</td><td>54 本(指まで全部)</td></tr>
+<tr><td>必須の 15 本</td><td>腰・背骨・頭・両脚3本ずつ・両腕3本ずつ。<strong>胸と首は任意</strong>(無いアバターもある)</td></tr>
+<tr><td>親子の約束</td><td>「左の前腕の祖先に左の上腕が居る」など 14 組。間に肩や胸が挟まってもよい(自己チェック9)</td></tr>
+</tbody></table></div>
+<p><strong>利用条件がファイルの中に入っている</strong>のも VRM の特徴だ。アプリはこれを読んで表示する(あるいは使わせない)責任を負う。今日のアバターは、最初に VRoid Studio から書き出したとき、ここが既定の「作者のみ・再配布禁止」のままだった。公開リポジトリに置けないファイルになるので、VRoid Hub の利用条件に合わせて書き出し直した(完成条件の前に「素材」の節)。自己チェック10 が、置いてよいファイルかを確かめる。</p>
+<blockquote><p><strong>VRM 0.x は読まない</strong>。0.x は拡張の名前(<code>VRM</code>)も、向き(-Z 向き)も、MToon の持ち方も違う。VRoid Hub に上がっているファイルの多くは 0.x なので、<code>VrmAvatar.Load</code> は 0.x を見つけると「VRoid Studio で VRM 1.0 に書き出し直す」と言って止まる。</p></blockquote>
+
+<h3 id="s7">2. MToon の影 — N・L にずらしを足して、2色のどちらかを選ぶ</h3>
+<p>MToon の陰影は3段でできている。</p>
+<div class="code"><pre><code>  1. 物差し     x = N・L + shift                      shift で境目を光の側へ / 影の側へずらす
+  2. 段を付ける shading = linearstep(-1 + toony, 1 - toony, x)   toony で境目の幅を狭める(1 なら段差)
+  3. 2色を混ぜる color = mix(影の色, ベースカラー, shading) x 光の色</code></pre></div>
+<p><strong>足してから段を付ける</strong>のが順番の肝。境目(shading = 0.5)は <code>N・L = -shift</code> の所に来て、幅は <code>2 - 2 x toony</code> になる。今日のアバターは3通りの値を持っている。</p>
+<div class="table-wrap"><table><thead><tr><th>マテリアル</th><th>shift</th><th>toony</th><th>境目の N・L</th><th>幅(N・L で)</th><th>見え方</th></tr></thead><tbody>
+<tr><td>顔・目</td><td>-0.05</td><td>0.05</td><td>0.05</td><td>1.9</td><td><strong>なだらか</strong>。ほぼ半ランバート</td></tr>
+<tr><td>髪</td><td>-0.35</td><td>0.35</td><td>0.35</td><td>1.3</td><td><strong>光の側へ寄った境目</strong>。N・L が -0.3 以下は影の色だけ</td></tr>
+<tr><td>体・服・靴</td><td><strong>1.00</strong></td><td><strong>1.00</strong></td><td>-1(真後ろ)</td><td>0</td><td><strong>影が出ない</strong>。真後ろの1点以外ぜんぶ明るい側</td></tr>
+</tbody></table></div>
+<p>実験台の「体と服」を押して光を回すと、球が1色のまま変わらない。「影の度合い」にすると真っ白で、実機の F4 と同じ絵になる。</p>
+<p><strong>影(シャドウマップ)は shading に掛ける</strong>。光が遮られた所は「明るい側」から「影の側」へ寄る——黒くなるのではなく影の色になる。トゥーンの影がにごらないのはこのため。点光源にも同じ式を使う。灯りに背を向けた面は、影の色 x 灯りの色で照らされる。</p>
+<p><strong>環境光は影の色を使わない</strong>。<code>環境光 x ベースカラー</code> を足すだけ。ただし向きの環境光と「真上と真下の平均」を <code>giEqualizationFactor</code>(既定 0.9)で混ぜる。1 に近いほど向きによらない一様な明るさになり、<strong>環境光が作る陰影が消える</strong>。トゥーンの陰影は直接光の2色で決めたいので、環境光の陰影は邪魔になる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 giDirectional = Irradiance(n);
+vec3 giUniform     = (Irradiance(vec3(0, 1, 0)) + Irradiance(vec3(0, -1, 0))) * 0.5;
+vec3 gi = mix(giDirectional, giUniform, uGiEqualizationFactor);
+vec3 indirect = gi * base.rgb;   // 影の色は使わない</code></pre></div>
+<blockquote><p><strong>光の強さは 1 前後の約束で作られている</strong>。MToon の作者は「白い平行光 1 + 環境光わずか」で見た目を決めている(three-vrm の見本がそう)。N・L を掛けないぶん、同じ光でも PBR より明るく出る。Day 36 の昼の光(太陽 1.15 + 空 1.0 前後)の床の上に立たせたら、白い服がベースカラーの2倍になって真っ白に飛んだ。<strong>床の上で見るときだけ、太陽を白の 1.0、空を 1/4 に差し替えている</strong>(Day 35 の材質グリッドが光を差し替えたのと同じ扱い。下ろすと戻す)。</p></blockquote>
+
+<h3 id="s8">3. リムとマットキャップ — 光と関係なく「縁」と「向き」で色を足す</h3>
+<p>直接光と環境光のほかに、MToon には3つ目の足し算がある。</p>
+<div class="code"><pre><code>  rim  = リムの色 x pow(saturate(1 - N・V + lift), power)        縁の光(フレネル風)
+  rim += マットキャップの色 x matcap(ビュー空間の法線)            「こちらを向いた面ほど何色」
+  rim *= リムの掛け算テクスチャ x mix(1, 届いている光, rimLightingMix)</code></pre></div>
+<p><strong>N・V は面がこちらを向いているほど 1、縁ほど 0</strong>。<code>1 - N・V</code> を power 乗すると縁の細い帯に縮み、lift を足すと正面寄りの面にも乗る。AvatarSample_A は lift 0.1・power 8 で、正面では 1e-8、<code>N・V = 0.5</code> で 0.017、縁で 1 になる(自己チェック5)。</p>
+<p><strong>マットキャップ</strong>は「球を1枚撮った絵」で、ビュー空間の法線の xy で引く。光源と関係なく決められるので、髪の天使の輪や金属の照り返しに使う。引くときの基底は<strong>画面の軸ではなく視線の軸</strong>で作る(three-vrm と同じ)。画面の端にある物は斜めから見ているので、画面の軸で引くとマットキャップが横へずれるからだ。今日のアバターは髪と体が <code>MatcapWarp</code> を、顔と目は黒い絵(<code>Shader_NoneBlack</code>)を指している。</p>
+<p><code>rimLightingMix</code> が 1 なら、リムに<strong>届いている光</strong>(直接光の色 + 環境光)を掛ける。暗い所では縁も暗くなる。0 にすると暗闇でも縁が光る(わざとそう作るアバターもある)。</p>
+
+<figure class="lab" id="rim-lab">
+  <div class="lab-head">
+    <h3>実験台: リム</h3>
+    <span class="tag">要点3。MToon.Rim と同じ式</span>
+  </div>
+  <div class="split">
+    <div><canvas id="rim-canvas" style="height:260px" aria-label="リムだけを足した球"></canvas><div class="cap">暗い球にリムだけを足したもの</div></div>
+    <div><canvas id="rim-curve" style="height:260px" aria-label="リムの明るさのグラフ"></canvas><div class="cap">リムの明るさ(縦)と N・V(横、右が正面)</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">lift(parametricRimLift)</span><div class="range"><input type="range" id="rim-lift" min="0" max="0.6" step="0.01" value="0.1"><output id="rim-lift-out"></output></div></div>
+    <div class="ctl"><span class="label">power(parametricRimFresnelPower)</span><div class="range"><input type="range" id="rim-power" min="0.5" max="16" step="0.1" value="8"><output id="rim-power-out"></output></div></div>
+    <div class="ctl"><span class="label">届いている光(rimLightingMix = 1 のとき掛かる)</span><div class="range"><input type="range" id="rim-light" min="0" max="1.5" step="0.01" value="1"><output id="rim-light-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="rim-stats"></div></div>
+</figure>
+
+<h3 id="s9">4. 比べる描き方 — 同じマテリアルを3通りに読む</h3>
+<p>VRM のマテリアルは、MToon の値と一緒に glTF の値(ベースカラー・PBR の金属度と粗さ・<code>KHR_materials_unlit</code>)を持っている。<strong>MToon を知らないビューアのための代わりの見た目</strong>で、<code>GltfLoader</code> は両方を残す(<code>Material</code> に PBR、<code>Material.MToon</code> に MToon)。</p>
+<div class="table-wrap"><table><thead><tr><th>F3</th><th>式</th><th>見え方</th></tr></thead><tbody>
+<tr><td>MToon</td><td><code>mix(影の色, ベース, shading) x 光 + 環境光 x ベース + リム</code></td><td>暗い側も作者の塗った色</td></tr>
+<tr><td>ベースカラーだけ</td><td><code>ベース</code></td><td>KHR_materials_unlit の見た目。陰影がまったく無い</td></tr>
+<tr><td>N・L の陰影だけ</td><td><code>ベース x (光 x N・L x 影 + 環境光)</code></td><td>写実の素朴な陰影。暗い側が黒く沈み、影の色は出ない</td></tr>
+</tbody></table></div>
+<p>3つとも <code>mtoon.frag</code> の中で分けている。<code>textured.frag</code> で比べなかったのは、<strong>あちらはアルファを見ていない</strong>から(MASK も BLEND も無視する。Day 32 から)。髪の毛先が四角いまま描かれ、比べたいもの以外の差が混ざる。</p>
+<p>F4 の成分表示は MToon のときだけ効く。<code>uMToonView</code> の番号 3〜6 が「影の度合い / 直接光 / 環境光 / リム」で、実験台の「影の度合い」と同じ絵が実機で出る。</p>
+
+<h3 id="s10">5. アウトラインは背面法 — 膨らませた裏面を描くだけ</h3>
+<p>線の描き方には大きく2系統ある。画面の深度や法線の段差を探す<strong>画像処理</strong>と、ポリゴンを膨らませて描く<strong>背面法</strong>。MToon は背面法で、手順はこうなる。</p>
+<ol>
+<li>ふつうに描く(表を描き、裏は捨てる)</li>
+<li>同じメッシュを、頂点を<strong>法線の向きへ太さぶん押し出して</strong>、<strong>表を捨てて裏だけ</strong>描く</li>
+</ol>
+<p>膨らんだ裏面は、元の形より一回り大きい「裏返しの殻」になる。手前は1回目の表面が深度で勝つので、<strong>殻のうち元の形からはみ出した縁だけ</strong>が残る。それが線になる。ポリゴンを描くだけなので、ディファードにもフォワードにも、どの後処理にも依存しない。</p>
+<div class="table-wrap"><table><thead><tr><th>outlineWidthMode</th><th>太さの単位</th><th>距離による見え方</th></tr></thead><tbody>
+<tr><td><code>worldCoordinates</code></td><td><strong>メートル</strong></td><td>遠いほど細い(遠くの人の線は細い)。<strong>今日のアバターはこれ</strong>(0.75mm)</td></tr>
+<tr><td><code>screenCoordinates</code></td><td>画面の高さに対する割合</td><td>距離によらず同じ太さ。押し出しに「その距離で画面の縦半分が何メートルか」を掛ける(three-vrm の式)</td></tr>
+</tbody></table></div>
+<p><strong>0.75mm は思ったより細い</strong>。画角 60 度・高さ 1080 画素で、カメラから 0.75m(F6 で顔に寄った距離)なら約 0.9 画素、全身が入る 2.3m なら 0.3 画素で、ほぼ見えない。VRoid の線は「顔に寄ったときに輪郭が締まる」程度の太さで作ってある。下の実験台で距離を動かすと確かめられる。</p>
+<p>細かい作法が3つある。</p>
+<ul>
+<li><strong>押し出すのはスキニングの後、世界空間で</strong>。前に押し出すと、関節の行列で太さが伸び縮みする</li>
+<li><strong>太さのテクスチャ(G)で場所ごとに消す</strong>。顔は目の周りや口の中の線を、<code>outlineWidthMultiplyTexture</code> で 0 にしてある。頂点シェーダでテクスチャを読むので、ミップは選べない(<code>textureLod</code> で 0 段目)</li>
+<li><strong>線をほんの少し奥へ</strong>(<code>gl_Position.z += 1e-6 * w</code>)。押し出しが 0 の頂点は1回目の面と同じ深度になり、どちらが勝つかが画素ごとに揺れて、面に線の色が斑に出る</li>
+</ul>
+
+<figure class="lab" id="outline-lab">
+  <div class="lab-head">
+    <h3>実験台: 背面法のアウトライン(断面)</h3>
+    <span class="tag">要点5。太さは見やすいように大きく描いている</span>
+  </div>
+  <div class="split">
+    <div><canvas id="outline-canvas" style="height:280px" aria-label="断面で見た背面法"></canvas><div class="cap">断面。灰 = 元の形、色の線 = 押し出した殻、太線 = 見える線(殻の縁)</div></div>
+    <div><canvas id="outline-curve" style="height:280px" aria-label="距離と線の太さ"></canvas><div class="cap">カメラからの距離(横)と、線の太さ [画素](縦)。画角 60 度・高さ 1080</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">法線</span>
+      <div class="seg" id="outline-normals"><button data-v="smooth" aria-pressed="true">滑らか(頂点で共有)</button><button data-v="split" aria-pressed="false">角で分かれる</button></div>
+    </div>
+    <div class="ctl"><span class="label">太さの単位</span>
+      <div class="seg" id="outline-mode"><button data-v="world" aria-pressed="true">メートル(0.75mm)</button><button data-v="screen" aria-pressed="false">画面の割合(0.1%)</button></div>
+    </div>
+    <div class="ctl"><span class="label">押し出し(断面の図)</span><div class="range"><input type="range" id="outline-width" min="0" max="0.25" step="0.005" value="0.08"><output id="outline-width-out"></output></div></div>
+    <div class="ctl"><span class="label">カメラからの距離</span><div class="range"><input type="range" id="outline-distance" min="0.3" max="6" step="0.05" value="0.75"><output id="outline-distance-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="outline-stats"></div><p id="outline-note"></p></div>
+</figure>
+
+<h3 id="s11">6. キャラだけ別のフォワードパス — 深度を借り、灯りを選び、プローブを引く</h3>
+<p>ディファード(Day 52)は「表面を G-Buffer に書く → 画面の画素ごとに光を当てる」。G-Buffer に書けるのはベースカラー・法線・金属度・粗さ・AO・発光だけで、<strong>MToon の影の色・境目のずらしと硬さ・リム・マットキャップを書く欄が無い</strong>。欄を足せば全員の G-Buffer が太り、ライティングパスに MToon の枝が入る。</p>
+<p>そこでキャラだけを、<strong>半透明と同じ扱い</strong>で後から描く。</p>
+<ul>
+<li><strong>どこで</strong> … シーンを描き終えたあと(ディファードなら光を当て終えたあと)、粒の手前。ライティングパスは頭で G-Buffer の深度をシーンのバッファへ写している(Day 52)ので、キャラは壁の陰に入れば隠れる</li>
+<li><strong>灯りは届く8個だけ</strong> … フォワードは光を uniform の配列で渡すしかない。シーンの全部(群れを出せば 1000 個)は渡せない。<strong>キャラは小さい</strong>ので、キャラを包む球に届く光だけを CPU で選び、明るい順に8個まで渡す(<code>MToon.SelectLights</code>)。Unity のフォワードが「1つの物に効く光の数」に上限を持つのと同じ考え方。比べる明るさは<strong>キャラのいちばん近い点で</strong>測る。中心で測ると、肩には当たっているのに中心には届かない大きな光が落ちる(自己チェック6)</li>
+<li><strong>環境光はプローブをそのまま</strong> … MToon の環境光は「その向きの放射照度」を3回(法線・真上・真下)引くだけなので、空1枚(IBL)でも格子(Day 66a のプローブ)でも同じ関数で済む。<code>ProbeSh</code> / <code>ProbeIrradiance</code> は textured.frag から1文字も変えずに写した(自己チェック15)</li>
+<li><strong>速度バッファにも載せる</strong> … <code>Program.Draw</code> を通らないので、<code>_motion.Record</code> を自分で呼ぶ。載せないと、キャラが動いたとき(Day 72)に TAA が「カメラの動きだけ」で前のフレームを引き、残像が出る</li>
+<li><strong>影は落とす、SSAO には入れない</strong> … 影パスは G-Buffer と無関係なので、キャラも焼く(床と壁に影が落ち、髪の影が顔に落ちる)。SSAO はディファードでは G-Buffer から作るので、キャラが居ない。フォワードのときだけ入れると、描き方を切り替えたときに足元の暗がりが出たり消えたりするので、<strong>どちらでも入れない</strong>(今日残した歪みの1つ目)</li>
+</ul>
+<p>結果、F9 でシーンを Forward+ ↔ ディファードに切り替えても、<strong>キャラの描き方は1行も変わらない</strong>。変わるのは背景だけだ。</p>
+<div class="table-wrap"><table><thead><tr><th>裏通り(夜・露出 1.3)</th><th>キャラに届いた灯り</th><th>見え方</th></tr></thead><tbody>
+<tr><td>F10 で 8 個</td><td>1 個(街灯。(-3.4, 3.3, -4.0)、届く距離 9m)</td><td>暖色の街灯に半身が照らされる</td></tr>
+<tr><td>F10 で 0 個</td><td>0 個</td><td>月(5%)と空(7%)だけ。<strong>街灯の下なのにキャラだけ暗い</strong>——シーンとキャラが別々に描かれていることが分かる</td></tr>
+<tr><td>「プローブGI」の F2</td><td>1 個 + 照り返し</td><td>環境光が「その場所から見えた路面や壁」の色になり、わずかに暖色が増す</td></tr>
+</tbody></table></div>
+
+<h3 id="s12">7. 関節 91 本と、uniform の枠 64 本</h3>
+<p>Day 41 から、頂点シェーダの関節行列は 64 本まで(<code>AnimationPlayer.MaxJoints</code>)。OpenGL 3.3 が頂点シェーダに保証する uniform は 1024 成分(float 1024 個)で、4x4 行列ならちょうど 64 個だからだ。</p>
+<p><strong>VRoid のアバターは、1つのスキンに 91 本を並べてくる</strong>(体・髪・揺れものの骨を全部)。Day 66a のままなら <code>AnimationPlayer</code> が「多すぎる」と言ってバインドポーズで描く(今日はまだ動かさないので、それでも見た目は同じになる)。</p>
+<p>ところが<strong>メッシュごとに数えると、使っている関節はずっと少ない</strong>。</p>
+<div class="table-wrap"><table><thead><tr><th>メッシュ</th><th>重みが 0 より大きい関節</th><th>中身</th></tr></thead><tbody>
+<tr><td>顔</td><td><strong>3 本</strong></td><td>頭・左目・右目</td></tr>
+<tr><td>体</td><td>60 本</td><td>腰から指先まで・フード・胸の揺れもの</td></tr>
+<tr><td>髪</td><td>18 本</td><td>頭・髪の揺れもの</td></tr>
+<tr><td>3つを合わせると</td><td>79 本</td><td>1つのスキンには詰めきれない</td></tr>
+</tbody></table></div>
+<p>だから <code>GltfLoader.CompactJoints</code> は、関節が 64 本を超えるスキンのときだけ、<strong>プリミティブが使う関節だけを並べたスキンを作り、頂点の関節番号を付け替える</strong>。上限を上げる道(シェーダ5本の配列を全部広げる)より差分が小さく、<strong>シェーダは1行も変えずに</strong>済む。</p>
+<p><strong>詰めても絵は変わらない</strong>。関節行列は関節ごとに独立している(<code>逆バインド行列 x 関節の世界行列</code>)。並びから使わない関節を抜き、頂点の番号を新しい並びへ付け替えれば、頂点が掛け合わせる行列は元と同じになる。自己チェック13 は GPU から頂点を読み返し、<strong>体のいちばん左の頂点(x = 0.69m)が左手の中指、いちばん右が右手の中指</strong>に付いていることを確かめる。付け替えを間違えると番号が別の骨を指すので、名前が合わなくなる。</p>
+</section>
+
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>役割</th></tr></thead><tbody>
+<tr><td><code>Render/MToon.cs</code></td><td><strong>MToon のつまみ一式</strong>(ファイルに書かれた値だけ)。シェーダへ送る <code>Apply</code>、C# 版の式(<code>Shading</code> / <code>Rim</code>)、キャラに届く灯りを選ぶ <code>SelectLights</code>。<strong>VRM も JSON も知らない</strong></td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td><strong>VRM 1.0 のアバター1体</strong>。<code>Model</code> + メタ情報 + ヒューマノイドの骨の表 + <code>AnimationPlayer</code>。0.x なら止める</td></tr>
+<tr><td><code>shaders/mtoon.vert</code></td><td>スキニング(textured.vert と同じ)と、<strong>アウトラインの回の押し出し</strong></td></tr>
+<tr><td><code>shaders/mtoon.frag</code></td><td>MToon の式。影・点光源の減衰・プローブは textured.frag から写した。比べる描き方と成分表示もここ</td></tr>
+</tbody></table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Render/Material.cs</code></td><td><code>MToon</code> を指す欄を1つ</td><td>+11 / −0</td></tr>
+<tr><td><code>Model/GltfLoader.cs</code></td><td>説明、<code>_skins</code> を List に、<code>ReadMToon</code>、<code>CompactJoints</code>、<code>ReadJson</code></td><td>+229 / −4</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>OnLoad</code>・<code>OnRender</code>・<code>Render3D</code>・影パス・SSAO・HUD に1か所ずつ、ページ1枚(11 項目)、<code>OnClosing</code>、<code>RunDebugMenuCheck</code> の項目数</td><td>+1,103 / −2</td></tr>
+<tr><td><code>Day68.csproj</code></td><td><code>Day66a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p><strong>今日の差分は Day 66a と同じくらい重い</strong>(新規 1,101 行 + 変更 1,343 行。どれもコメント込み)。<code>Program.cs</code> の今日の関数は、<strong>絵が出るまでの前半が約 520 行、内訳と自己チェックの後半が約 330 行</strong>。1日で重ければ、下の順番の <strong>9 の (i) まで</strong>(絵が出るまで)と<strong>10 から</strong>(内訳・自己チェック)で2回に分けるとよい。9 の (i) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+<h3 id="s16">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>この順に写せば、途中でビルドが通らない状態を作らずに済む</strong>。</p>
+<ol>
+<li><strong><code>Render/MToon.cs</code></strong>(新規) — <code>Shader</code> / <code>RenderResources</code> / <code>Texture</code> / <code>PointLight</code> / <code>Material</code> しか使わない。<code>Material.MToon</code> はまだ無いが、こちらは <code>Material</code> の既存の欄(ベースカラー・法線・発光・アルファ)しか読まないので先に写せる</li>
+<li><strong><code>Render/Material.cs</code></strong>(変更) — <code>AlphaCutoff</code> の直後に <code>public MToon? MToon { get; set; }</code> と説明</li>
+<li><strong><code>Model/GltfLoader.cs</code></strong>(変更) — 順に、(a) クラスの説明の「Day 68 で足したもの」と「まだ読まないもの」、(b) フィールドの <code>_skins</code> を <code>List&lt;Skin&gt;</code> にし、<code>_sourceSkins</code> と <code>_compactedSkins</code> を足す、(c) <code>ReadPrimitive</code> の <code>triangles += ...</code> の直前に <code>CompactJoints</code> の呼び出し、(d) <code>ReadSkins</code> の最後を <code>_skins = result; _sourceSkins = result.ToArray();</code> に、(e) <code>ReadAnimations</code> の直前に <code>CompactJoints</code>、(f) <code>GetOrCreateMaterial</code> の <code>AlphaCutoff</code> の直後に MToon の拡張を読む5行、(g) <code>ReadTexture</code> の直前に <code>ReadMToon</code>、(h) <code>Describe</code> の直前に <code>ReadJson</code>。<strong>(b) と (d) は続けて写す</strong>(配列のままだと <code>List</code> に代入できない)</li>
+<li><strong><code>Model/VrmAvatar.cs</code></strong>(新規) — <code>GltfLoader.ReadJson</code> と <code>AnimationPlayer</code> を使う</li>
+<li><strong><code>shaders/mtoon.vert</code></strong>(新規) — <code>MAX_JOINTS = 64</code> は textured.vert と同じ</li>
+<li><strong><code>shaders/mtoon.frag</code></strong>(新規) — <strong><code>ProbeSh</code> から <code>ProbeIrradiance</code> の <code>return</code> の手前まで、<code>PointAttenuation</code> の本体は textured.frag から1文字も違えない</strong>(自己チェック15 が突き合わせる)。<code>MAX_MTOON_LIGHTS = 8</code> は <code>MToon.MaxLights</code> と同じ</li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 66a」のフィールド(<code>_probeBounceMeans</code>)の直後に「Day 68」の 18 個(<code>_vrm</code> / <code>_vrmLoadFailed</code> / <code>_mtoonShader</code> / <code>_vrmDemo</code> / <code>_vrmShading</code> / <code>_vrmComponent</code> / <code>VrmComponents</code> / <code>_vrmOutline</code> / <code>_vrmFaceCamera</code> / <code>_vrmInAlley</code> / <code>_vrmLightLimit</code> / <code>VrmLights</code> / <code>_vrmLightsUsed</code> / <code>VrmAlleySpot</code> / <code>VrmAlleyYaw</code> / <code>VrmStageLight</code> / <code>VrmStageLightColor</code> / <code>VrmStageSky</code>)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunProbeGiCheck</code> の直後に、<code>VrmPath</code> / <code>VrmMinDistance</code> / <code>_savedOrbitMinDistance</code> / <code>ToggleVrmViewer</code> / <code>EnsureVrmLoaded</code> / <code>ShowVrmViewer</code> / <code>HideVrmViewer</code> / <code>VrmVisible</code> / <code>VrmPlacement</code> / <code>FrameVrm</code> / <code>ToggleVrmAlley</code> / <code>ToggleVrmPath</code> / <code>SelectVrmLights</code> / <code>ApplyMToonFrame</code> / <code>DefaultMToon</code> / <code>MToonOf</code> / <code>RenderVrm</code> / <code>DrawMToonPart</code> / <code>DrawVrmShadow</code> / <code>VrmJointText</code> / <code>VrmShadingName</code> / <code>VrmComponentName</code> / <code>VrmLabel</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — 順に、
+(a) <code>OnLoad</code> の <code>_probes.Configure(...)</code> の直後に <code>_mtoonShader = _resources.LoadShader(...)</code>、
+(b) <code>OnRender</code> の空を描く条件に <code>|| _vrmDemo</code>、
+(c) <code>OnRender</code> の分岐の最後の <code>else</code> の手前に <code>else if (_vrmDemo) { Render3D(); }</code>、
+(d) <code>OnRender</code> の <code>RenderProbeSpheres();</code> の直前に <code>RenderVrm();</code>、
+(e) <code>Render3D</code> の <code>RenderModel</code> の枝の直後に「VRMビューアは床だけ」の枝、
+(f) <code>RenderShadowPass</code> の <code>else if (_draw3D)</code> の手前に <code>_vrmDemo</code> の枝、<code>_shadow.End</code> の直前に <code>DrawVrmShadow();</code>、
+(g) <code>RenderSsaoPass</code> の <code>else if (_draw3D)</code> の手前に <code>_vrmDemo</code> の枝、
+(h) <code>DrawOverlayInfo</code> のプローブの行(<code>ProbeGiLabel</code>)の直後に HUD の1行、
+(i) <code>BuildMenu</code> の「プローブGI」ページの直後に「VRMビューア」ページ(11 項目。<strong>F11・F12 の2項目は 10 で足す関数を指すので、分けて写すなら後回しにする</strong>)、
+(j) <code>OnClosing</code> の <code>_probes.Dispose();</code> の直後に <code>_vrm?.Dispose();</code>、
+(k) <code>RunDebugMenuCheck</code> の項目数を <strong>289 → 300</strong> へ</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 8 の続きに <code>DescribeVrm</code> / <code>RunVrmCheck</code></li>
+<li><strong><code>Day68.csproj</code></strong> — <code>Day66a.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+<p>素材の <code>assets/models/AvatarSample_A.vrm</code> と <code>assets/models/LICENSE.md</code> の追記は写経の対象外(リポジトリに入っている)。</p>
+</section>
+
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> に1本、<code>Render/</code> に1本。矢印の向きも Day 32 から同じ <code>Model/ → Render/</code> のまま。</p>
+
+<h3 id="s18">MToon は VRM を知らず、VRM は MToon の値を運ぶだけ</h3>
+<svg viewBox="0 0 720 230" role="img" aria-label="Program から VrmAvatar と MToon への依存の図" style="width:100%;max-width:720px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow68" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <rect x="280" y="8" width="160" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="33" text-anchor="middle">Program</text>
+    <rect x="30" y="100" width="250" height="56" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="155" y="122" text-anchor="middle">Model/VrmAvatar(今日)</text><text x="155" y="142" text-anchor="middle" font-size="11" fill="var(--muted)">メタ情報・骨の表・AnimationPlayer</text>
+    <rect x="30" y="180" width="250" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="155" y="197" text-anchor="middle">Model/GltfLoader</text><text x="155" y="213" text-anchor="middle" font-size="11" fill="var(--muted)">ReadMToon・CompactJoints</text>
+    <rect x="440" y="100" width="250" height="56" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="565" y="122" text-anchor="middle">Render/MToon(今日)</text><text x="565" y="142" text-anchor="middle" font-size="11" fill="var(--muted)">つまみ・Shading・Rim・SelectLights</text>
+    <rect x="440" y="180" width="250" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="565" y="205" text-anchor="middle">Render/Material(.MToon の欄)</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#arrow68)">
+    <path d="M330,48 L190,98"/><path d="M390,48 L530,98"/>
+    <path d="M155,156 L155,178"/>
+    <path d="M280,200 L438,200"/>
+    <path d="M565,180 L565,158"/>
+  </g>
+  <g font-size="11" fill="var(--muted)"><text x="298" y="192">MToon を作って欄へ</text><text x="572" y="172">指す</text></g>
+</svg>
+<p>コメントを落としてから型名を拾って確かめた。</p>
+<div class="table-wrap"><table><thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Render/MToon</code></td><td><code>Shader</code> / <code>RenderResources</code> / <code>Texture</code> / <code>PointLight</code> / <code>Material</code>(ベースカラーなど glTF の欄を読むだけ)</td><td><strong>VRM・JSON・<code>Model/</code> の全部</strong>。値がどこから来たかを知らない</td></tr>
+<tr><td><code>Model/VrmAvatar</code></td><td><code>GltfLoader</code> / <code>Model</code> / <code>AnimationPlayer</code> / JSON。<code>Material.MToon</code> は数えるだけ</td><td>描き方(シェーダ・パス・灯り)。描くのは <code>Program</code></td></tr>
+<tr><td><code>Model/GltfLoader</code></td><td><code>MToon</code> を<strong>作って</strong> <code>Material.MToon</code> へ入れる</td><td><code>VRMC_vrm</code>(メタ情報・骨)。それは <code>VrmAvatar</code> が外で読む</td></tr>
+</tbody></table></div>
+<p><strong>VRM の拡張のうち MToon だけローダーの中で読む</strong>のは、MToon のテクスチャが <code>{"index": 3}</code> の形で glTF の <code>textures</code> を指していて、それを絵にするのは <code>ReadTexture</code>(<code>LoadContext</code> の中にしか無い)の仕事だから。メタ情報と骨の表はノード番号と文字列しか持たないので、外で読める——<code>GltfLoader</code> は「glTF のローダー + マテリアルの拡張1つ」のまま、人型のことを知らずに済んでいる。そのために <code>ReadJson</code> を足し、JSON をもう一度開く(18MB の glb でも JSON のチャンクは数百 KB)。</p>
+<p><strong><code>Material</code> に MToon の値を直接並べなかった</strong>のは、1つのマテリアルが「PBR の見た目」と「MToon の見た目」を同時に持つから。<code>Material.Apply</code> は今日も PBR の値だけを送り、MToon を知らない。</p>
+
+<h3 id="s19">1フレームの中のキャラの居場所</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">影パス(<code>RenderShadowPass</code>)</div>
+    <div class="rw"><span>書く <b>シャドウマップ。キャラも焼く(半透明は除く)</b></span></div>
+    <div class="swap">キャラを焼かないと: 足元に影が無く、浮いて見える。髪の影も顔に落ちない</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">G-Buffer パス / SSAO(ディファード)</div>
+    <div class="rw"><span>書く <b>シーンの表面だけ。キャラは居ない</b></span></div>
+    <div class="swap">ここでキャラを描くと: MToon のキャラが PBR の表面として書かれる。<code>Render3D</code> はこのパスでも呼ばれるので、キャラは <code>Render3D</code> の中に置けない</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">シーンを描く(ライティングパス、またはフォワードの本描画)</div>
+    <div class="rw"><span>読む <b>G-Buffer</b></span><span>書く <b>シーンのバッファ。ディファードは頭で深度を写す</b></span></div>
+    <div class="swap">深度を写さないと: キャラが壁を透けて手前に出る</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what"><strong>キャラ(<code>RenderVrm</code>)</strong></div>
+    <div class="rw"><span>読む <b>シーンの深度・届く灯り8個・プローブ</b></span><span>書く <b>色・深度・速度の記録</b></span></div>
+    <div class="swap">粒より後ろに置くと: 粒は深度を書かないので、キャラより手前の粒まで塗り潰される</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">プローブの球・粒・速度・後処理(TAA・被写界深度・ブルーム)</div>
+    <div class="rw"><span>読む <b>キャラを含む深度と速度</b></span></div>
+    <div class="swap">キャラを速度に載せないと: 動いたときに TAA の残像が出る(Day 72 で効く)</div>
+  </div></li>
+</ol>
+
+<h3 id="s20">キャラの3回 — 順番がそのまま設計</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">不透明と MASK(顔・白目・体・服・髪)</div>
+    <div class="rw"><span>書く <b>色と深度</b></span><span>カリング <b>両面のマテリアルは切る</b></span></div>
+    <div class="swap">MASK は光を計算する前に捨てる。両面の裏は、シェーダが法線を裏返して照らす(textured.frag はしていない)</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">アウトライン(線を持つ5枚)</div>
+    <div class="rw"><span>読む <b>1 の深度</b></span><span>カリング <b>表を捨てる(両面でも)</b></span></div>
+    <div class="swap">1 より先に描くと: 1 の面が殻を上書きできず、全身が線の色で塗られる</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">半透明(瞳 -2・まつ毛 -2 → ハイライト -1 → 眉 0)</div>
+    <div class="rw"><span>読む <b>1 と 2 の深度</b></span><span>書く <b>色だけ(深度は書かない)</b></span></div>
+    <div class="swap">深度を書くと: 先に描いた瞳が、後のまつ毛の隙間を隠す。順番を作者の値と逆にすると、ハイライトが瞳の下に潜る</div>
+  </div></li>
+</ol>
+<p>半透明の順番は<strong>作者が <code>renderQueueOffsetNumber</code> で決めた値</strong>をそのまま使う(同じ値どうしはファイルの並び。<code>OrderBy</code> は安定)。カメラからの距離で並べ替えないのは、顔に貼り付いた薄い板どうしは距離がほとんど同じで、並べ替えるとフレームごとに順番が入れ替わってちらつくから。</p>
+
+<h3 id="s21">今日残した歪み</h3>
+<p><strong>1つ目: SSAO にキャラが居ない</strong>。足元と服の重なりに暗がりが出ない。ディファードの SSAO は G-Buffer から作り、キャラは G-Buffer に居ないため。直すなら、キャラの法線と距離だけを SSAO の入力に描き足す(G-Buffer の2枚目と同じ形式で、キャラのパスの前に)。</p>
+<p><strong>2つ目: 影パスはアルファを見ない</strong>(<code>depth.frag</code> は空っぽ)。髪の毛先は四角いまま影に落ちる(改造課題3)。</p>
+<p><strong>3つ目: 置き場所と光の差し替えが <code>Program.cs</code> に直書き</strong>(<code>VrmAlleySpot</code> / <code>VrmAlleyYaw</code> / <code>VrmStageLight*</code>)。Day 72 でデモの主役に差し替えるときは、<code>demo-final.json</code> の <code>player</code> の出現位置を使うことになる。</p>
+<p><strong>4つ目: 頂点を4倍持っている</strong>。VRoid は1つのメッシュの全プリミティブで同じ頂点の並び(顔 4,060 個・体 7,964 個・髪 8,435 個)を共有するが、ローダーはプリミティブごとに <code>Mesh</code> を作るので、15 本のバッファに 94,016 頂点(1頂点 96 バイトで 9.0MB)を持つ。共有すれば 20,459 頂点(2.0MB)で済む。glTF は「同じアクセサを複数のプリミティブが指す」のを許しているので、アクセサの番号で頂点バッファを使い回せばよい。</p>
+<p><strong>5つ目: UV アニメーションと <code>KHR_texture_transform</code> を読まない</strong>。今日のアバターは全部 0 / 単位なので絵は変わらない(改造課題2)。</p>
+<p><strong>6つ目: 選ぶ灯りが入れ替わる瞬間に明るさが飛ぶ</strong>。8個の枠からあふれた9番目の灯りは、キャラが近づいて順位が上がった瞬間に 0 から全部へ跳ねる。今日の裏通りは届く灯りが1個なので起きない。群れ(Day 52)の中を歩かせると見える。</p>
+
+<h3 id="s22">試して分かったこと</h3>
+<ul>
+<li><strong>体と服に影が出ないのは不具合ではない</strong>。最初は式の誤りを疑ったが、ファイルの値が <code>shift 1 / toony 1</code> だった。F4 の「影の度合い」で真っ白なら正しい</li>
+<li><strong>昼の光では MToon が飛ぶ</strong>。要点2の最後の囲み。MToon は「光 1 のとき明るい側 = ベースカラー」の約束で作られている</li>
+<li><strong>関節を全部合わせると 79 本</strong>で、1つのスキンには詰めきれない。メッシュごとに詰めたので、スキンは元の3つのまま、中身だけが 3 / 60 / 18 本になった</li>
+<li><strong>VRoid Studio の書き出しは、ライセンス欄の既定が「作者のみ・再配布禁止」</strong>。そのまま書き出すと、元のモデルが再配布可でも、ファイルの中の利用条件は再配布禁止になる</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day68 -c Release</code> で起動する。起動直後は Day 66a までの絵のまま。今日の主役は「VRMビューア」のページ(<code>Shift+F1</code> で直接開く)から。</p>
+
+<h3 id="s24">素材: AvatarSample_A を VRM 1.0 で書き出す</h3>
+<p>リポジトリには <code>assets/models/AvatarSample_A.vrm</code>(18.5MB)が入っている。自分で作り直すときの手順:</p>
+<ol>
+<li>VRoid Studio(v1.20 以降。今日のファイルは v2.14.0)を入れ、同梱のサンプルから <strong>AvatarSample_A</strong> を開く(VRoid Hub から落とした .vrm は 0.x なので使わない)</li>
+<li>「撮影・エクスポート」→「エクスポート」→「VRMエクスポート」で <strong>VRM 1.0</strong> を選ぶ。ポリゴン削減・マテリアル削減は既定のまま</li>
+<li>ライセンス欄を <a href="https://hub.vroid.com/characters/2843975675147313744/models/5644550979324015604">VRoid Hub の AvatarSample_A</a> の利用条件に合わせる。<strong>アバター利用: すべてのユーザー / 再配布: 再配布OK / 改変: 改変したモデルの再配布OK / クレジット: 不要</strong>。表現の4つと商用は既定(厳しい側)のままでよい</li>
+</ol>
+<p>F11 の内訳で「再配布 可 / 改変 allowModificationRedistribution」と出ること(自己チェック10)。</p>
+
+<h3 id="s25">1. F2: 床の上に立つ</h3>
+<p>初回だけコンソールに読み込みの1行が出る。</p>
+<div class="code"><pre><code>VRM: AvatarSample_A.vrm を読んだ(715ms)  VRM 1.0 / メッシュのパーツ 15 / MToon 15/15 / 骨 54
+VRMビューア: <strong>ON</strong>  「AvatarSample_A」(作者 pixiv VRoid Project)  MToon 15 枚 / 線を持つマテリアル 5 枚 / 関節 3/60/18 本(パーツごとに詰めた)</code></pre></div>
+<p>Day 31 の床の上に、T ポーズのアバターがこちらを向いて立つ(VRM 1.0 は T ポーズ・+Z 向きで書き出す決まり)。光はカメラの左上から。床に影が落ちる。HUD の行:</p>
+<div class="code"><pre><code>VRM:AvatarSample_A 1.0  描き方:MToon  線:ON  灯り:0/8個  関節:3/60/18本  床の上</code></pre></div>
+
+<h3 id="s26">2. F3 / F4: 3通りに読む・成分を見る</h3>
+<ul>
+<li>F3「ベースカラーだけ」… 陰影がまったく無い。MToon とほとんど同じ明るさに見えるのは、<strong>体と服が MToon でも影を持たない</strong>から</li>
+<li>F3「N・L の陰影だけ」… 顔の右側(光と反対)と腕の下側が暗く沈む。<strong>MToon との違いが出るのは顔と髪の暗い側だけ</strong></li>
+<li>F4「影の度合い」… 体・服・靴は真っ白。顔はなだらかに、髪は境目を付けて灰色へ</li>
+<li>F4「環境光だけ」… 均してある(0.9)ので、向きによる陰影がほとんど無い</li>
+</ul>
+
+<h3 id="s27">3. F6 / F5: 顔に寄って線を見る</h3>
+<p>F6 で <code>head</code>(ノード 18「J_Bip_C_Head」)の 6cm 上に寄る。F5 で線を切ると、あごの下と輪郭の線が消える。<strong>差は1画素ほど</strong>(要点5の実験台で距離 0.75m)。瞳・ハイライト・まつ毛が正しい順に重なっていること(ハイライトが瞳の上)。</p>
+
+<h3 id="s28">4. F7: 光を回す</h3>
+<p>押すたびに 45 度回る。真後ろから当てても<strong>体と服は明るいまま</strong>。顔はなだらかに影の色(桃色がかった肌)へ、髪は段を付けて暗い色へ移る。</p>
+
+<h3 id="s29">5. F8: 裏通りに立たせる</h3>
+<p>完成版の夜(Forward+・TAA・被写界深度・灯り 7 個)が出て、カメラワークは止まり、アバターが街灯の手前(-1.8, 0, -2.6)で決めの構図のカメラのほうを向く。<strong>暖色の街灯に半身が照らされ、背景は被写界深度でぼける</strong>。HUD:</p>
+<div class="code"><pre><code>VRM:AvatarSample_A 1.0  描き方:MToon  線:ON  灯り:1/8個  関節:3/60/18本  裏通り(Forward+・IBL)</code></pre></div>
+<ul>
+<li><strong>F9</strong> でディファードにしても、キャラの絵は同じ(HUD の「裏通り」の括弧だけ変わる)</li>
+<li><strong>F10</strong> で灯りを 0 個にすると、キャラだけ暗くなる(街灯の下なのに)</li>
+<li>「プローブGI」の <strong>F2</strong> で焼くと、HUD が「プローブ」になり、キャラの暗い側にわずかに暖色が増す</li>
+<li>F6 で顔に寄れる。夜の顔は、線・瞳・髪の段がいちばんきれいに見える場面</li>
+</ul>
+
+<h3 id="s30">6. Day 66a までの機能が全部生きていること</h3>
+<p>VRMビューアを出していなければ、今日の差分は1行も通らない(<code>_vrmDemo</code> の枝と、64 本を超える関節・MToon の拡張があるときだけ通る経路)。「プローブGI」「最終デモ」「テッセレーション」などのページが今までどおり動くこと。VRMビューアを F2 で下ろすと、太陽の向き・色・空の強さが元に戻る。</p>
+<p class="note">開発機の電源の都合で、Day 66a との画素の突き合わせはしていない(検証中に一度、電源断が起きた)。差分の経路から「通らない」ことは確かめてある。</p>
+
+<h3 id="s31">7. F12: 自己チェック(15 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 68 自己チェック(MToon の式・灯りの選び方・VRM の読み込み・関節の詰め方・シェーダの写し)===
+  [OK] <strong>体と服(shift 1 / toony 1)は、ほぼ真後ろ(N・L = -0.99)でも明るい側</strong>(VRoid の体には影が出ない)  N・L = -0.99 で 1.00 / 正面で 1.00
+  [OK] toony 0 / shift 0 は (N・L + 1) / 2(真横で 0.5、真後ろで 0)。<strong>N・L が -1 から 1 をかけて滑らかに変わる</strong>  真横 0.500 / 真後ろ 0.000
+  [OK] toony 1 / shift 0 は N・L = 0 で段差(0 で割らない形にしてある)  N・L = -0.001 で 0 / +0.001 で 1
+  [OK] <strong>髪の境目は N・L = 0.35、顔は 0.05</strong>(shift の符号を変えた所。髪は N・L = -0.3 で影の色だけになる)  髪 0.500(-0.3 で 0.000)/ 顔 0.500
+  [OK] リム(lift 0.1 / power 8)は正面でほぼ 0、縁で 1。<strong>べき乗で縁の細い帯に縮む</strong>  正面 1.0E-008 / N・V = 0.5 で 0.0168 / 縁 1.00
+  [OK] <strong>灯りは届くものだけを明るい順に 8 個</strong>(遠い光は落ち、中心に届かなくても肩に届く光は残る)  12 個から 8 個  遠い光 落とした / 肩に届く光 残した
+  [OK] 灯りが1つも無いときは 0 個(床の上はこれ)
+  [OK] <strong>VRM 1.0 で、必須の骨 15 本がそろっている</strong>  specVersion 1.0 / 骨 54 本
+  [OK] 骨の親子の約束 14 組が、ノードの木の上で成り立つ(<strong>骨の名前で引いてから木を登る</strong>)  子の骨の祖先に、必ず親の骨が居る
+  [OK] <strong>リポジトリに置いてよいファイル</strong>(メタ情報が 再配布 可・改変 可)  再配布 可 / 改変 allowModificationRedistribution / アバター利用 everyone
+  [OK] MToon の値がファイルのとおり(全 15 枚が MToon、体 shift 1 / toony 1、髪 toony 0.35、線はメートル単位で 5 枚、半透明 4 枚)  MToon 15/15 / 線 5 枚 / 半透明の順番 -2,-1,0,-2
+  [OK] <strong>91 本の関節を、パーツごとに使っている分だけに詰めた</strong>(どれも 64 本以内。顔は頭と両目の 3 本)  3 / 60 / 18 本  顔: J_Bip_C_Head, J_Adj_L_FaceEye, J_Adj_R_FaceEye
+  [OK] <strong>付け替えた関節の番号が元と同じ骨を指す</strong>(体のいちばん左の頂点は左手、いちばん右は右手の骨に付いている)  x = 0.69m は J_Bip_L_Middle3 / x = -0.69m は J_Bip_R_Middle3
+  [OK] <strong>プローブと点光源の減衰は textured.frag と1文字も違わない</strong>、灯りと関節の上限が C# と同じ  灯り 8 個 / 関節 64 本
+  すべて合格(MToon の式・灯りの選び方・VRM の読み込み・関節の詰め方・シェーダの写しが仕様どおり)</code></pre></div>
+<p>14 項目は GL を通らない(13 だけ GPU から頂点を読み返す)。どの状態で押しても同じ数字になる。</p>
+
+<h3 id="s32">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>MToon の球: 描き方「MToon / ベースカラーだけ / N・L だけ」</td><td>「VRMビューア」の F3</td></tr>
+<tr><td>MToon の球: 描き方「影の度合い」</td><td>F4(1回目)</td></tr>
+<tr><td>MToon の球: マテリアル「顔 / 髪 / 体と服」</td><td>F6 で顔に寄り、顔・髪・服を見比べる(F4 の影の度合いが分かりやすい)</td></tr>
+<tr><td>MToon の球: 光の向き</td><td>F7(45 度ずつ)</td></tr>
+<tr><td>MToon の球: shift / toony / GI 均し / toony 0・1 のプリセット</td><td>実機に対応するキーは無い(ファイルの値で描く)。改造課題1</td></tr>
+<tr><td>リム: lift / power</td><td>実機に対応するキーは無い。F4 の「リムとマットキャップだけ」で、髪と体の縁を見る</td></tr>
+<tr><td>アウトライン: 距離</td><td>F6(0.75m)と全身(2.3m)を F5 で ON / OFF して見比べる</td></tr>
+<tr><td>アウトライン: 画面の割合</td><td>改造課題1</td></tr>
+</tbody></table></div>
+<p class="note">MToon の球は、光の色 1・環境光は上 0.25 / 下 0.10 の空、ベースカラーと影の色は顔のマテリアルの値(影の色 = ベースカラー x (0.93, 0.62, 0.71))で塗っている。トーンマップは掛けず、0〜1 で切ってからガンマ 2.2 で表示する。実機の床の上は露出とトーンマップを通るので、明るさはそろわない。式・順番(足してから段を付ける・影は shading に掛ける・環境光は影の色を使わない)は同じ。</p>
+</section>
+
+<section class="part"><h2 id="s33">改造課題</h2>
+<h3 id="s34">課題1(易): アウトラインを「画面の割合」に切り替える</h3>
+<p>「VRMビューア」に1項目足し、線を持つ5枚の <code>OutlineWidthMode</code> を <code>Screen</code>、<code>OutlineWidthFactor</code> を 0.002 にする(元の値は覚えておいて戻せるように)。F6 で寄ったときと全身のときで、<strong>線の太さが画素で同じになる</strong>ことを確かめる。<code>mtoon.vert</code> の画面の割合の枝(<code>uTanHalfFov</code>)は、今日のアバターでは一度も通っていない。ついでに全マテリアルの <code>ShadingToonyFactor</code> を 0.9 に上書きする項目も足すと、実験台の「toony 1」に近い絵が実機で見られる。</p>
+<h3 id="s35">課題2(中): UV アニメーションを読む</h3>
+<p>MToon の <code>uvAnimationScrollXSpeedFactor</code> / <code>uvAnimationScrollYSpeedFactor</code> / <code>uvAnimationRotationSpeedFactor</code> と <code>uvAnimationMaskTexture</code>(B)を読み、<code>mtoon.frag</code> の先頭で UV を時刻でずらす(マスクが 1 の所だけ)。今日のアバターは全部 0 なので、自分で値を入れて(例えば髪だけ X に 0.1)確かめる。<strong>時刻をどこから送るか</strong>(一時停止で止めたいか)と、ずらした UV をどのテクスチャに使うか(仕様は全部のテクスチャ)を決めるのが課題。</p>
+<h3 id="s36">課題3(難): 影パスでアルファを見る</h3>
+<p>髪の毛先が四角いまま影に落ちる(今日残した歪みの2つ目)。<code>depth.vert</code> に UV を通し、<code>depth.frag</code> でベースカラーのアルファを読んで <code>discard</code> する。<code>ShadowMap.Draw</code> はマテリアルを受け取らないので、<strong>MASK のパーツだけテクスチャとしきい値を渡す口</strong>を足すことになる。既存の呼び出し(デモの小物・キツネ)を1つも書き換えずに済む形(既定引数)にできるかが鍵。Day 33 の「影を落とすかどうかはフラグで選ぶ」と同じく、<strong>描く側がどこまで知るべきか</strong>を考える。</p>
+</section>
+
+<section class="part"><h2 id="s37">動作確認済み環境</h2>
+<ul>
+<li>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり</li>
+<li>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)</li>
+<li>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 15 項目と Day 48 の割り当て表(300 項目)、床の上の4つの描き方・成分の絵、顔のアップ、裏通り(Forward+ / ディファード / 灯り 0 / プローブ)の絵</li>
+</ul>
+<h3 id="s38">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>床の上が真っ白に飛んだ</strong>(要点2の囲み)。昼の光(太陽 1.15 + 空 1.0 前後)のままだと、MToon の明るい側はベースカラーの2倍になる。比べると、ベースカラーだけ(陰影なし)の絵より、MToon のほうが明らかに明るかった。太陽を白の 1.0、空を 1/4 にして揃えた</li>
+<li><strong>灯りの選び方の自己チェックを一度間違えた</strong>。「中心に届かず肩に届く光」を暗くしすぎて(明るさ 50)、近くの光 8 個より暗くなり、正しく落とされていた。肩での明るさが近くの光より大きくなるように直した(明るさ 1000)</li>
+<li><strong>関節は全部合わせると 79 本</strong>。1つのスキンに詰める案は成り立たず、メッシュごとに詰めた</li>
+</ul>
+</section>
+<footer class="end"><a href="../roadmap.html">ロードマップへ戻る</a></footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, animate } = Lab;
+
+// ============================================================
+//  MToon の式(reference/Day68/Render/MToon.cs と mtoon.frag の移植)
+//  この Day の実験台だけが使う。ほかの Day でも要るようになったら docs/site/ へ移す。
+// ============================================================
+function linearStep(a, b, x) {
+  const width = b - a;
+  if (width <= 1e-6) return x >= a ? 1 : 0;
+  return Math.min(Math.max((x - a) / width, 0), 1);
+}
+// shading = linearstep(-1 + toony, 1 - toony, N・L + shift)。足してから段を付ける
+function shading(nDotL, shift, toony) { return linearStep(-1 + toony, 1 - toony, nDotL + shift); }
+function rim(nDotV, lift, power) { return Math.pow(Math.min(Math.max(1 - nDotV + lift, 0), 1), power); }
+window.MToonLab = { linearStep, shading, rim };
+
+const srgbToLinear = (c) => Math.pow(c, 2.2);
+const toDisplay = (c) => Math.round(255 * Math.pow(Math.min(Math.max(c, 0), 1), 1 / 2.2));
+
+// ============================================================
+//  実験台1: MToon の球
+// ============================================================
+// AvatarSample_A の値。顔の影の色は shadeColorFactor (0.933, 0.621, 0.711) x ベースカラー
+const PRESETS = {
+  face: { shift: -0.05, toony: 0.05, base: [1.0, 0.88, 0.82], shadeFactor: [0.9331, 0.6209, 0.7106], name: '顔・目' },
+  hair: { shift: -0.35, toony: 0.35, base: [0.55, 0.30, 0.28], shadeFactor: [0.55, 0.45, 0.55], name: '髪(影の色はこのページで仮に決めた)' },
+  body: { shift: 1.0, toony: 1.0, base: [0.95, 0.94, 0.90], shadeFactor: [1, 1, 1], name: '体と服' },
+  soft: { shift: 0.0, toony: 0.0, base: [1.0, 0.88, 0.82], shadeFactor: [0.9331, 0.6209, 0.7106], name: 'toony 0 / shift 0' },
+  step: { shift: 0.0, toony: 1.0, base: [1.0, 0.88, 0.82], shadeFactor: [0.9331, 0.6209, 0.7106], name: 'toony 1 / shift 0' },
+};
+const SKY_UP = 0.25, SKY_DOWN = 0.10;   // 環境光(上と下)。床の上の空を 1/4 にした絵に寄せた値
+const ball = { preset: 'face', view: 'mtoon', shift: -0.05, toony: 0.05, light: -40, gi: 0.9 };
+
+function skyIrradiance(ny) { return SKY_DOWN + (SKY_UP - SKY_DOWN) * (ny * 0.5 + 0.5); }
+
+function lightDir(deg) {
+  // 光は球の前方(カメラ側)斜め上から、角度で左右に回る。z がカメラ向き
+  const t = deg * Math.PI / 180, e = 0.45;
+  return [Math.sin(t) * Math.cos(e), Math.sin(e), Math.cos(t) * Math.cos(e)];
+}
+
+function drawBall() {
+  const canvas = $('ball-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const img = ctx.createImageData(W, H);
+  const p = PRESETS[ball.preset];
+  const base = p.base.map(srgbToLinear);
+  const shade = base.map((c, i) => c * p.shadeFactor[i]);
+  const l = lightDir(ball.light);
+  const r = Math.min(W, H) * 0.42, cx = W / 2, cy = H / 2;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const nx = (x + 0.5 - cx) / r, ny = -(y + 0.5 - cy) / r, d2 = nx * nx + ny * ny;
+      const k = (y * W + x) * 4;
+      if (d2 > 1) { img.data[k + 3] = 0; continue; }
+      const nz = Math.sqrt(1 - d2);
+      const ndl = nx * l[0] + ny * l[1] + nz * l[2];
+      const s = shading(ndl, ball.shift, ball.toony);
+      const giDir = skyIrradiance(ny), giUni = (SKY_UP + SKY_DOWN) * 0.5;
+      const gi = giDir + (giUni - giDir) * ball.gi;
+      let c = [0, 0, 0];
+      for (let i = 0; i < 3; i++) {
+        if (ball.view === 'unlit') c[i] = base[i];
+        else if (ball.view === 'lambert') c[i] = base[i] * (Math.max(ndl, 0) + giDir);
+        else if (ball.view === 'shading') c[i] = srgbToLinear(s);
+        else c[i] = (shade[i] + (base[i] - shade[i]) * s) * 1.0 + gi * base[i];
+      }
+      img.data[k] = toDisplay(c[0]); img.data[k + 1] = toDisplay(c[1]); img.data[k + 2] = toDisplay(c[2]); img.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+function drawCurve() {
+  const { ctx, w, h } = fit($('ball-curve'));
+  const pad = 34, x0 = pad, x1 = w - 12, y0 = h - 28, y1 = 14;
+  const X = (v) => x0 + (v + 1) / 2 * (x1 - x0), Y = (v) => y0 - v * (y0 - y1);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [-1, -0.5, 0, 0.5, 1]) { ctx.fillText(v.toFixed(1), X(v) - 9, y0 + 16); }
+  ctx.fillText('1', x0 - 14, Y(1) + 4); ctx.fillText('0', x0 - 14, Y(0) + 4);
+  // 境目(shading = 0.5)は N・L = -shift
+  const edge = -ball.shift;
+  if (edge >= -1 && edge <= 1) {
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--warn');
+    ctx.beginPath(); ctx.moveTo(X(edge), y0); ctx.lineTo(X(edge), y1); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // 半ランバート(toony 0 / shift 0)を薄く
+  ctx.strokeStyle = tok('--muted'); ctx.globalAlpha = 0.4; ctx.beginPath();
+  for (let i = 0; i <= 200; i++) { const v = -1 + i / 100; const s = shading(v, 0, 0); i ? ctx.lineTo(X(v), Y(s)) : ctx.moveTo(X(v), Y(s)); }
+  ctx.stroke(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2.5; ctx.beginPath();
+  for (let i = 0; i <= 400; i++) { const v = -1 + i / 200; const s = shading(v, ball.shift, ball.toony); i ? ctx.lineTo(X(v), Y(s)) : ctx.moveTo(X(v), Y(s)); }
+  ctx.stroke();
+}
+
+function updateBall() {
+  $('ball-shift-out').textContent = ball.shift.toFixed(2);
+  $('ball-toony-out').textContent = ball.toony.toFixed(2);
+  $('ball-light-out').textContent = ball.light + '°';
+  $('ball-gi-out').textContent = ball.gi.toFixed(2);
+  drawBall(); drawCurve();
+  const width = Math.max(0, 2 - 2 * ball.toony);
+  $('ball-stats').innerHTML =
+    stat('境目の N・L', (-ball.shift).toFixed(2)) +
+    stat('境目の幅(N・L で)', width.toFixed(2)) +
+    stat('真横(N・L = 0)', shading(0, ball.shift, ball.toony).toFixed(3)) +
+    stat('ほぼ真後ろ(N・L = -0.99)', shading(-0.99, ball.shift, ball.toony).toFixed(3));
+  $('ball-note').textContent = ball.preset === 'body' && ball.shift === 1 && ball.toony === 1
+    ? '体と服: 光をどこへ回しても球は1色のまま。「影の度合い」にすると真っ白(実機の F4 と同じ)。'
+    : '点線が境目(shading = 0.5)。薄い線は toony 0 / shift 0(半ランバート)。shift を正にすると境目が影の側(左)へ逃げ、toony を上げると傾きが急になる。';
+}
+
+seg('ball-preset', (v) => {
+  ball.preset = v;
+  ball.shift = PRESETS[v].shift; ball.toony = PRESETS[v].toony;
+  $('ball-shift').value = ball.shift; $('ball-toony').value = ball.toony;
+  updateBall();
+});
+seg('ball-view', (v) => { ball.view = v; updateBall(); });
+for (const [id, key] of [['ball-shift', 'shift'], ['ball-toony', 'toony'], ['ball-light', 'light'], ['ball-gi', 'gi']]) {
+  $(id).addEventListener('input', (e) => { ball[key] = parseFloat(e.target.value); updateBall(); });
+}
+
+// ============================================================
+//  実験台2: リム
+// ============================================================
+const rimState = { lift: 0.1, power: 8, light: 1 };
+function drawRim() {
+  const canvas = $('rim-canvas');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(canvas.clientWidth * dpr); canvas.height = Math.round(canvas.clientHeight * dpr);
+  const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+  const img = ctx.createImageData(W, H);
+  const r = Math.min(W, H) * 0.42, cx = W / 2, cy = H / 2;
+  const base = srgbToLinear(0.12), rimColor = [0.6, 0.75, 1.0];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const nx = (x + 0.5 - cx) / r, ny = (y + 0.5 - cy) / r, d2 = nx * nx + ny * ny, k = (y * W + x) * 4;
+    if (d2 > 1) { img.data[k + 3] = 0; continue; }
+    const ndv = Math.sqrt(1 - d2);   // 正面から見るので N・V = nz
+    const v = rim(ndv, rimState.lift, rimState.power) * rimState.light;
+    img.data[k] = toDisplay(base + rimColor[0] * v); img.data[k + 1] = toDisplay(base + rimColor[1] * v);
+    img.data[k + 2] = toDisplay(base + rimColor[2] * v); img.data[k + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const g = fit($('rim-curve'));
+  const pad = 34, x0 = pad, x1 = g.w - 12, y0 = g.h - 28, y1 = 14;
+  const X = (v) => x0 + v * (x1 - x0), Y = (v) => y0 - v * (y0 - y1);
+  g.ctx.strokeStyle = tok('--line'); g.ctx.beginPath(); g.ctx.moveTo(x0, y0); g.ctx.lineTo(x1, y0); g.ctx.moveTo(x0, y0); g.ctx.lineTo(x0, y1); g.ctx.stroke();
+  g.ctx.fillStyle = tok('--muted'); g.ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) g.ctx.fillText(v.toFixed(2), X(v) - 12, y0 + 16);
+  g.ctx.fillText('縁', x0, y0 - 4); g.ctx.fillText('正面', x1 - 26, y0 - 4);
+  g.ctx.strokeStyle = tok('--accent'); g.ctx.lineWidth = 2.5; g.ctx.beginPath();
+  for (let i = 0; i <= 200; i++) { const v = i / 200; const y = rim(v, rimState.lift, rimState.power); i ? g.ctx.lineTo(X(v), Y(y)) : g.ctx.moveTo(X(v), Y(y)); }
+  g.ctx.stroke();
+
+  $('rim-lift-out').textContent = rimState.lift.toFixed(2);
+  $('rim-power-out').textContent = rimState.power.toFixed(1);
+  $('rim-light-out').textContent = rimState.light.toFixed(2);
+  $('rim-stats').innerHTML =
+    stat('正面(N・V = 1)', rim(1, rimState.lift, rimState.power).toExponential(1)) +
+    stat('N・V = 0.5', rim(0.5, rimState.lift, rimState.power).toFixed(4)) +
+    stat('縁(N・V = 0.1)', rim(0.1, rimState.lift, rimState.power).toFixed(2));
+}
+for (const [id, key] of [['rim-lift', 'lift'], ['rim-power', 'power'], ['rim-light', 'light']]) {
+  $(id).addEventListener('input', (e) => { rimState[key] = parseFloat(e.target.value); drawRim(); });
+}
+
+// ============================================================
+//  実験台3: 背面法のアウトライン(断面)
+// ============================================================
+// 断面の形: 丸みのある側と、角が1つある側(あごのような形)
+const SHAPE = (() => {
+  const pts = [];
+  for (let i = 0; i <= 24; i++) { const t = Math.PI * (0.05 + 0.9 * i / 24); pts.push([Math.cos(t), Math.sin(t) * 0.9 + 0.1]); }
+  pts.push([-0.55, -0.55]); pts.push([0.0, -0.95]); pts.push([0.55, -0.55]);
+  return pts;
+})();
+const outline = { normals: 'smooth', mode: 'world', width: 0.08, distance: 0.75 };
+
+function polygonNormals(pts, split) {
+  const n = pts.length, edges = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+    edges.push([dy / len, -dx / len]);   // 反時計回りの外向き
+  }
+  // 滑らか: 頂点で隣の2辺の法線を平均。角で分かれる: 辺ごとに頂点を2つに分ける
+  if (!split) return pts.map((p, i) => { const e0 = edges[(i + n - 1) % n], e1 = edges[i]; const x = e0[0] + e1[0], y = e0[1] + e1[1], l = Math.hypot(x, y); return [[p, [x / l, y / l]]]; });
+  return pts.map((p, i) => [[p, edges[(i + n - 1) % n]], [p, edges[i]]]);
+}
+
+function drawOutline() {
+  const { ctx, w, h } = fit($('outline-canvas'));
+  const s = Math.min(w, h) * 0.36, cx = w / 2, cy = h / 2 + 6;
+  const P = (p) => [cx + p[0] * s, cy - p[1] * s];
+  // 元の形
+  ctx.fillStyle = tok('--sunken'); ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); SHAPE.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+  const fillBand = (quad) => { ctx.beginPath(); quad.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.closePath(); ctx.fill(); };
+  const n = SHAPE.length, wdt = outline.width;
+  const verts = polygonNormals(SHAPE, outline.normals === 'split');
+  ctx.fillStyle = tok('--ink'); ctx.globalAlpha = 0.85;
+  if (outline.normals === 'smooth') {
+    // 頂点で法線を共有: 押し出した頂点も共有されるので、殻は1枚につながる
+    const shell = verts.map((g) => [g[0][0][0] + g[0][1][0] * wdt, g[0][0][1] + g[0][1][1] * wdt]);
+    for (let i = 0; i < n; i++) fillBand([SHAPE[i], SHAPE[(i + 1) % n], shell[(i + 1) % n], shell[i]]);
+    ctx.globalAlpha = 1; ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 1.2;
+    ctx.beginPath(); shell.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.closePath(); ctx.stroke();
+  } else {
+    // 角で法線が分かれる: 辺ごとに別の頂点なので、辺ごとに自分の法線で押し出され、角で殻が割れる
+    ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 1.2;
+    for (let i = 0; i < n; i++) {
+      const e = verts[(i + 1) % n][0][1];   // 辺 i の法線(頂点 i+1 の1つ目 = 辺 i の側)
+      const a = SHAPE[i], b = SHAPE[(i + 1) % n];
+      const a2 = [a[0] + e[0] * wdt, a[1] + e[1] * wdt], b2 = [b[0] + e[0] * wdt, b[1] + e[1] * wdt];
+      ctx.globalAlpha = 0.85; fillBand([a, b, b2, a2]); ctx.globalAlpha = 1;
+      const qa = P(a2), qb = P(b2); ctx.beginPath(); ctx.moveTo(qa[0], qa[1]); ctx.lineTo(qb[0], qb[1]); ctx.stroke();
+    }
+    if (wdt > 0) {
+      ctx.fillStyle = tok('--warn'); ctx.font = '12px ' + tok('--font-body');
+      const q = P([0.0, -0.95]); ctx.fillText('角で殻が割れ、線が途切れる', q[0] - 80, q[1] + 22);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // 距離と線の太さ
+  const g = fit($('outline-curve'));
+  const pad = 36, x0 = pad, x1 = g.w - 12, y0 = g.h - 28, y1 = 14, dMax = 6, pxMax = 4;
+  const X = (d) => x0 + d / dMax * (x1 - x0), Y = (px) => y0 - Math.min(px, pxMax) / pxMax * (y0 - y1);
+  g.ctx.strokeStyle = tok('--line'); g.ctx.beginPath(); g.ctx.moveTo(x0, y0); g.ctx.lineTo(x1, y0); g.ctx.moveTo(x0, y0); g.ctx.lineTo(x0, y1); g.ctx.stroke();
+  g.ctx.fillStyle = tok('--muted'); g.ctx.font = '11px ' + tok('--font-mono');
+  for (const d of [0, 1, 2, 3, 4, 5, 6]) g.ctx.fillText(d + 'm', X(d) - 8, y0 + 16);
+  for (const px of [1, 2, 3, 4]) g.ctx.fillText(px + 'px', x0 - 32, Y(px) + 4);
+  g.ctx.setLineDash([3, 4]); g.ctx.strokeStyle = tok('--line'); g.ctx.beginPath(); g.ctx.moveTo(x0, Y(1)); g.ctx.lineTo(x1, Y(1)); g.ctx.stroke(); g.ctx.setLineDash([]);
+  g.ctx.strokeStyle = tok('--accent'); g.ctx.lineWidth = 2.5; g.ctx.beginPath();
+  for (let i = 1; i <= 300; i++) { const d = i / 300 * dMax; const px = linePixels(d); i > 1 ? g.ctx.lineTo(X(d), Y(px)) : g.ctx.moveTo(X(d), Y(px)); }
+  g.ctx.stroke();
+  const here = linePixels(outline.distance);
+  g.ctx.fillStyle = tok('--expl'); g.ctx.beginPath(); g.ctx.arc(X(outline.distance), Y(here), 4, 0, Math.PI * 2); g.ctx.fill();
+
+  $('outline-width-out').textContent = outline.width.toFixed(3);
+  $('outline-distance-out').textContent = outline.distance.toFixed(2) + 'm';
+  $('outline-stats').innerHTML =
+    stat('線の太さ(この距離)', here.toFixed(2), ' px') +
+    stat('顔に寄った 0.75m', linePixels(0.75).toFixed(2), ' px') +
+    stat('全身の 2.3m', linePixels(2.3).toFixed(2), ' px');
+  $('outline-note').textContent = outline.mode === 'world'
+    ? 'メートル: 押し出しは 0.75mm のまま。遠いほど画面の上では細くなり、全身では 1 画素を大きく割る。'
+    : '画面の割合: 押し出しに「その距離で画面の縦半分が何メートルか」を掛けるので、距離によらず同じ太さになる。';
+}
+
+// 画角 60 度・高さ 1080 画素の画面で、線が何画素になるか
+const FOV = Math.PI / 3, SCREEN_H = 1080;
+function linePixels(distance) {
+  const halfHeight = distance * Math.tan(FOV / 2);   // その距離で画面の縦半分が何メートルか
+  const widthMeters = outline.mode === 'world' ? 0.00075 : 0.001 * halfHeight;
+  return widthMeters / (2 * halfHeight) * SCREEN_H;
+}
+window.MToonLab.linePixels = (d, mode) => { const saved = outline.mode; outline.mode = mode; const v = linePixels(d); outline.mode = saved; return v; };
+
+seg('outline-normals', (v) => { outline.normals = v; drawOutline(); });
+seg('outline-mode', (v) => { outline.mode = v; drawOutline(); });
+for (const [id, key] of [['outline-width', 'width'], ['outline-distance', 'distance']]) {
+  $(id).addEventListener('input', (e) => { outline[key] = parseFloat(e.target.value); drawOutline(); });
+}
+
+function redrawAll() { updateBall(); drawRim(); drawOutline(); }
+redrawAll();
+let resizeTimer = 0;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(redrawAll, 120); });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll);
+
+// 光をゆっくり回す(動きを減らす設定のときは回さず、決めた角度のまま描く)
+if (!reduceMotion) {
+  let auto = true, t = 0;
+  $('ball-light').addEventListener('input', () => { auto = false; });
+  animate($('ball-canvas'), (dt) => {
+    if (!auto) return;
+    t += dt;
+    if (t < 0.25) return;
+    t = 0;
+    ball.light = ((ball.light + 185 + 5) % 360) - 180;
+    $('ball-light').value = ball.light;
+    updateBall();
+  });
+}
+})();
+</script>
+</body>
+</html>
