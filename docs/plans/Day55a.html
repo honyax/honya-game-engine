@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 55a 被写界深度(レンズの口径を、カメラに戻す)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ピンホールと一瞬 — Day 54 までのカメラが持たなかった2つ</a></li><li class="l3"><a href="#s7">2. 錯乱円 — 1/奥行き の1次式と、過焦点距離</a></li><li class="l3"><a href="#s8">3. ボケの大きさ = 口径 ÷ ピント面で画面に写る高さ</a></li><li class="l3"><a href="#s9">4. 散らすものを、集めるで書く — 相手の半径で届くかを決める</a></li><li class="l3"><a href="#s10">5. 升目 — 近所でいちばん大きく配っている物を、先に記録する</a></li><li class="l3"><a href="#s11">6. 半分の大きさで集め、原寸で重ねる</a></li><li class="l3"><a href="#s12">7. 並び — TAA の後ろ、ブルームの前、HDR のまま</a></li><li class="l3"><a href="#s13">8. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">後処理の並び — TAA の後ろ、ブルームの前</a></li><li class="l3"><a href="#s20">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s21">ぼけの地図ができるまで — 地図・横・縦・近所</a></li><li class="l3"><a href="#s22">1画素のボケが決まるまで(被写界深度)</a></li><li class="l3"><a href="#s23">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>F2</code>: 被写界深度を入れる — 決めの構図では1画素も変わらない</a></li><li class="l3"><a href="#s26">2. 『ゴミ箱の金属』で F 値を回す</a></li><li class="l3"><a href="#s27">3. <code>F6</code>: 錯乱円を見る</a></li><li class="l3"><a href="#s28">4. <code>F4</code>: ピントを外す</a></li><li class="l3"><a href="#s29">5. <code>F5</code>: 素朴に集める</a></li><li class="l3"><a href="#s30">6. キツネを歩かせる</a></li><li class="l3"><a href="#s31">7. <code>F7</code>: 内訳</a></li><li class="l3"><a href="#s32">8. <code>F8</code>: 自己チェックが 14 項目すべて合格</a></li><li class="l3"><a href="#s33">9. Day 38〜54b の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ボケを六角形にする</a></li><li class="l3"><a href="#s36">課題2(中): オートフォーカス — 画面の真ん中にピントを合わせる</a></li><li class="l3"><a href="#s37">課題3(難): 画面の端のボケを猫目にする</a></li><li class="l2"><a href="#s38">動作確認済み環境</a></li><li class="l3"><a href="#s39">自己チェック(14 項目すべて合格)</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 8 / Day 55a / 計画書</p>
+  <h1>被写界深度(レンズの口径を、カメラに戻す)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. ピンホールと一瞬 — Day 54 までのカメラが持たなかった2つ</a></li><li class="l3"><a href="#s7">2. 錯乱円 — 1/奥行き の1次式と、過焦点距離</a></li><li class="l3"><a href="#s8">3. ボケの大きさ = 口径 ÷ ピント面で画面に写る高さ</a></li><li class="l3"><a href="#s9">4. 散らすものを、集めるで書く — 相手の半径で届くかを決める</a></li><li class="l3"><a href="#s10">5. 升目 — 近所でいちばん大きく配っている物を、先に記録する</a></li><li class="l3"><a href="#s11">6. 半分の大きさで集め、原寸で重ねる</a></li><li class="l3"><a href="#s12">7. 並び — TAA の後ろ、ブルームの前、HDR のまま</a></li><li class="l3"><a href="#s13">8. 今日入れなかったもの</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">後処理の並び — TAA の後ろ、ブルームの前</a></li><li class="l3"><a href="#s20">今日足したものは、どこに繋がったか</a></li><li class="l3"><a href="#s21">ぼけの地図ができるまで — 地図・横・縦・近所</a></li><li class="l3"><a href="#s22">1画素のボケが決まるまで(被写界深度)</a></li><li class="l3"><a href="#s23">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>F2</code>: 被写界深度を入れる — 決めの構図では1画素も変わらない</a></li><li class="l3"><a href="#s26">2. 『ゴミ箱の金属』で F 値を回す</a></li><li class="l3"><a href="#s27">3. <code>F6</code>: 錯乱円を見る</a></li><li class="l3"><a href="#s28">4. <code>F4</code>: ピントを外す</a></li><li class="l3"><a href="#s29">5. <code>F5</code>: 素朴に集める</a></li><li class="l3"><a href="#s30">6. キツネを歩かせる</a></li><li class="l3"><a href="#s31">7. <code>F7</code>: 内訳</a></li><li class="l3"><a href="#s32">8. <code>F8</code>: 自己チェックが 14 項目すべて合格</a></li><li class="l3"><a href="#s33">9. Day 38〜54b の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ボケを六角形にする</a></li><li class="l3"><a href="#s36">課題2(中): オートフォーカス — 画面の真ん中にピントを合わせる</a></li><li class="l3"><a href="#s37">課題3(難): 画面の端のボケを猫目にする</a></li><li class="l2"><a href="#s38">動作確認済み環境</a></li><li class="l3"><a href="#s39">自己チェック(14 項目すべて合格)</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>Phase 8(デモ推奨編)の4日目</strong>。Day 54 で絵の縁を時間の方向に均した。今日はその後ろに、<strong>被写界深度</strong>(ピントの外れた物がぼける)の段を足す。</p>
+<p><strong>Day 55 は2日に分けてある。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><strong>Day 55a(今日)</strong></td><td><strong>被写界深度</strong>。錯乱円の式、散らすものを集めるで書く2つの層、半分の大きさで集めて原寸で重ねる。<strong>ぼけの地図と升目</strong>(明日も使う共通の下ごしらえ)</td></tr>
+<tr><td>Day 55b</td><td><strong>モーションブラー</strong>。Day 54 の速度バッファを読み、シャッターが開いている割合だけ尾を伸ばす。地図と升目は今日のものをそのまま読む</td></tr>
+</tbody>
+</table></div>
+<p>Day 54 までのカメラは<strong>穴が点(ピンホール)で、シャッターが一瞬</strong>という、現実には作れないカメラだった。今日は穴のほうをやめる(シャッターは Day 55b)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 54 までのカメラ</th><th>Day 55a のカメラ</th></tr></thead>
+<tbody>
+<tr><td>光が通る穴</td><td>点(口径 0)。<strong>どの奥行きにもピントが合っている</strong></td><td>口径 A のレンズ。ピントの奥行きの点だけが1点に集まり、<strong>ほかは円(錯乱円)に広がる</strong></td></tr>
+<tr><td>描き方</td><td>1回描いて終わり</td><td>1回描いた絵を、<strong>深度を手がかりに</strong>ぼかす(後処理の近似)</td></tr>
+<tr><td>手がかり</td><td>—</td><td>深度(Day 50 の写し)。奥行きに戻して錯乱円にする</td></tr>
+<tr><td>払うもの</td><td>—</td><td>全画面 7 パス(地図 4 + 被写界深度 3)、VRAM 10.9MB(960x640)、GPU 0.5〜0.8ms</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>今日いちばん意外だったのは、決めの構図に被写界深度を入れても1画素も変わらなかったこと</strong></p>
+<p>壊れているのではなかった。10.5m 先にピントを合わせた画角 40 度・f/1.4 のレンズは、無限遠の点でも半径 1.0 画素にしかぼけない。ピントを <strong>L [画素・m] ÷ 1 画素</strong> より遠くに合わせると、その半分の奥行きから無限遠までが全部1画素の中に収まる——写真で言う<strong>過焦点距離</strong>で、決めの構図はちょうどそこにピントを合わせた絵だった(要点2、検証の途中で分かったこと 1)。本物のカメラでも、広角で遠くを写した風景はボケない。映画の絵がボケて見えるのは、寄っているか、望遠で撮っているから。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「被写界深度」ページで <code>F2</code> を押すと被写界深度が入る。『ゴミ箱の金属』のショットでは缶にピントが合い、奥の通りと手前の路面がぼける。<code>F4</code> を2回押してピントを奥へ外すと、缶がぼけて壁にピントが来る。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「被写界深度」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>被写界深度 ON / OFF。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>F 値(1.4 → 2.8 → 8 → 0.7)。<strong>小さいほど口径が大きく、よくボケる</strong></td></tr>
+<tr><td><code>F4</code></td><td>ピント(注視点 → 手前に外す → 奥に外す)</td></tr>
+<tr><td><code>F5</code></td><td>ボケの集め方(散らしとして集める → 自分の半径で素朴に集める)。<strong>素朴だと手前のボケが輪郭で切れる</strong></td></tr>
+<tr><td><code>F6</code></td><td>錯乱円を見る(手前は青、奥は橙、ピントの帯だけ元の絵)</td></tr>
+<tr><td><code>F7</code></td><td>内訳(レンズの数字・錯乱円・VRAM・GPU の時間)</td></tr>
+<tr><td><code>F8</code></td><td>今日の自己チェック(14 項目)</td></tr>
+</tbody>
+</table></div>
+<p><strong>既定は OFF</strong> なので、起動した直後の絵は Day 54b と1ビットも変わらない(完成条件9 で画素ごとに確かめた)。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ(被写界深度、23 枚目)が直接開く。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「錯乱円は 1/奥行き の1次式」</strong>。ピントの奥行きを S、画素の奥行きを z とすると、ボケの半径は</p>
+<div class="code"><pre><code>  錯乱円の半径 [画素] = L × (1/S − 1/z)        L = 口径 × 画面の高さ[画素] / (4 tan(画角/2))</code></pre></div>
+<p>z = S で 0、z → ∞ で L / S に頭打ち、z → 0 で際限なく大きくなる。<strong>奥のボケには上限があり、手前のボケには上限が無い</strong>。L は「口径 ÷ ピント面で画面に写る高さ」と読み直せて、センサーの大きさも焦点距離も式に残らない(要点2・3)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float coc = uLensScale * ((1.0 / uFocusDistance) - (1.0 / viewDepth));   // blur-field.frag(Day 55)</code></pre></div>
+<p><strong>2つ目は「散らすものを、集めるで書く」</strong>。ボケは、本来は「1つの点がまわりへ光を配る」処理(scatter)。画素シェーダは自分の色しか決められないので、「まわりの誰の光が自分まで届いているか」を集める(gather)形に裏返す。このとき<strong>届くかどうかを相手の半径で決める</strong>のが要で、自分の半径で決めると、ピントの合った物が奥のボケににじみ出し(ハロー)、手前のボケは物の輪郭で切り抜いたように止まる(要点4)。そして「相手が届く」可能性がある範囲を知るために、<strong>画面を 16 画素の升目に切って、近所でいちばん大きく配っている物を先に記録しておく</strong>(要点5)。この地図と升目(<code>BlurField</code>)は、Day 55b のモーションブラーもそのまま読む共通の下ごしらえとして作る。</p>
+<h3 id="s3">今日は Render とシェーダが主役</h3>
+<p>差分は <code>Render/</code> に新規2本(<code>BlurField</code> / <code>DepthOfField</code>)、シェーダ6本、<code>PostProcess</code> の1段、<code>Shader</code> の <code>SetInt2</code>、そして <code>Program.cs</code>。<code>Demo/</code> も <code>Model/</code> も <code>Scene/</code> も <code>Ecs/</code> も <code>Physics/</code> も <code>Text/</code> も <code>Audio/</code> も <code>Game/</code> も1行も変わっていない。<strong><code>TemporalAA</code> と <code>MotionVectors</code>(Day 54)も1行も変わっていない</strong>——後処理の入口の TAA の後ろに、1段を差し込んだだけ。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare">Jorge Jimenez, "Next Generation Post Processing in Call of Duty: Advanced Warfare"(SIGGRAPH 2014, Advances in Real-Time Rendering)</a>— <strong>今日の被写界深度の一次資料</strong>。散らしとして集める(scatter-as-gather)、手前と奥の層、半分の大きさで集めて原寸で重ねる(要点4・6)。被写界深度とモーションブラーを同じ枠組みで扱っているので、Day 55b でもう一度読む</li><li><a href="https://blog.voxagon.se/2018/05/04/bokeh-depth-of-field-in-single-pass.html">Dennis Gustafsson, "Bokeh depth of field in a single pass"(2018)</a>— <strong>いちばん短い実物</strong>。錯乱円を <code>(1/ピント − 1/奥行き) × 係数</code> で出し、黄金角の渦で円盤を撒く、というところまでが1画面に収まっている。今日の <code>blur-field.frag</code> と <code>dof-gather.frag</code> はこの2つを分けて、手前と奥の層を足したもの</li><li><a href="https://casual-effects.com/research/McGuire2012Blur/McGuire12Blur.pdf">Morgan McGuire, Padraic Hennessy, Michael Bukowski, Brian Osman, "A Reconstruction Filter for Plausible Motion Blur"(I3D 2012)</a>— <strong>升目の出どころ</strong>。升目の最大(TileMax)と近所の最大(NeighborMax)(要点5)。本題のモーションブラーは Day 55b で読む</li><li><a href="https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-28-practical-post-process-depth-field">Earl Hammon Jr., "Practical Post-Process Depth of Field"(GPU Gems 3 第 28 章)</a>— <strong>一世代前の定番</strong>。Call of Duty 4 の被写界深度。今日のものと比べると、升目と「相手の半径で決める」が無いぶん何を取りこぼすかが見える</li><li><strong>Day 7 の計画書</strong>(このリポジトリ) — 深度バッファの値が 1/z に比例して並ぶこと。錯乱円が深度の値の1次式になる理由(要点2)</li><li><strong>Day 31 の計画書 設計書「HDR パイプラインの中身」</strong>・<strong>Day 53 の計画書 要点</strong>・<strong>Day 54a の計画書 要点6</strong> — 今日の段を差し込む場所、升目という発想、TAA が入口で HDR のまま混ぜている理由</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. ピンホールと一瞬 — Day 54 までのカメラが持たなかった2つ</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>理想のカメラ(Day 54 まで)</th><th>本物のカメラ</th></tr></thead>
+<tbody>
+<tr><td>穴</td><td>点。どの奥行きの点も画面の1点に写る</td><td>口径のあるレンズ。<strong>ピントの奥行きの点だけ</strong>が1点に集まる</td></tr>
+<tr><td>露光</td><td>一瞬</td><td>シャッターが開いている時間(24fps の映画なら 1/48 秒が定番)</td></tr>
+<tr><td>1つの点の写り方</td><td>1画素</td><td>円(錯乱円)に広がる / 動いた道のりに沿って線に伸びる</td></tr>
+</tbody>
+</table></div>
+<p>どちらも「1つの点が、画面の1点ではなく広がりに写る」話で、<strong>本当に作るなら何回も描いて平均する</strong> (レンズの上の何十か所から見た絵、シャッターが開いている間の何十の時刻の絵。Cook ほか 1984 年の分散レイトレーシング)。今日はそれを払わず、<strong>1回描いた絵と、その深度・速度から「どれだけ広がるはずか」を出してぼかす</strong>。代わりに、1回の絵に写っていないもの(手前の物の縁の向こう側)は出せない——後処理の近似の限界(要点8)。</p>
+<p><strong>今日は穴のほう(被写界深度)を入れる</strong>。露光のほう(モーションブラー)は Day 55b で、今日作る地図と升目をそのまま読む。</p>
+<h3 id="s7">2. 錯乱円 — 1/奥行き の1次式と、過焦点距離</h3>
+<p>薄レンズの式から、奥行き z の点がセンサーの上に作る円(錯乱円)の直径は</p>
+<div class="code"><pre><code>  c = A f (z − S) / (z (S − f))          A: 口径、f: 焦点距離、S: ピントの奥行き</code></pre></div>
+<p>S が f よりずっと大きい(3.2m と 38mm)とみなし、センサーの高さで割って画面の画素に直すと、今日の式になる。</p>
+<div class="code"><pre><code>  錯乱円の半径 [画素] = L × (1/S − 1/z)
+  L = A × 画面の高さ[画素] / (4 tan(画角/2))           … レンズの係数 [画素・m]</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>z</th><th>錯乱円</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td>S</td><td>0</td><td>ピントの面</td></tr>
+<tr><td>∞</td><td>+L / S</td><td><strong>奥のボケには上限がある</strong>(どれだけ遠くても L / S まで)</td></tr>
+<tr><td>S / 2</td><td>−L / S</td><td>ピントの半分の奥行きの物は、<strong>無限遠と同じ大きさ</strong>にぼける</td></tr>
+<tr><td>S / 4</td><td>−3 L / S</td><td>手前は近づくほど際限なく大きい</td></tr>
+</tbody>
+</table></div>
+<p>自己チェックは L = 10、S = 2m で「ピント 0 / 無限遠 +5 / S/2 −5 / S/4 −15 画素」を見ている。近似の誤差は f / S で、画角 35 度・f/1.4・ピント 3.2m・奥行き 10m では「2.93 画素 / 薄レンズの式 2.97 画素(差 1.2%)」。</p>
+<p><strong>錯乱円は深度バッファの値の1次式でもある</strong>。深度は 1/z に比例して並ぶ(Day 7)ので、1/z の1次式はそのまま深度の値の1次式になる(自己チェック: 0.5〜50m の5点で直線からのずれ 4.4E-15 画素)。「手前ほど深度の刻みが細かい」のと「手前ほどボケが急に変わる」のが、同じ形をしている。</p>
+<p><strong>過焦点距離</strong>。無限遠のボケ L / S が 1 画素になるのは S = L のとき。そこにピントを合わせると、S / 2 から無限遠までが全部1画素以内に収まる。</p>
+<div class="code"><pre><code>  決めの構図: 画角 40°・f/1.4・画面の高さ 640 → L = 10.35 [画素・m]  → ピント 10.5m は過焦点距離そのもの</code></pre></div>
+<p>今日の冒頭の話で、決めの構図に被写界深度を入れても1画素も変わらない(完成条件1)。</p>
+<h3 id="s8">3. ボケの大きさ = 口径 ÷ ピント面で画面に写る高さ</h3>
+<p>L をもう一度読み直すと、<strong>無限遠のボケの直径(画面の高さに対する割合)は <code>A ÷ (2 S tan(画角/2))</code></strong>——口径を、ピントの奥行きで画面に写る範囲の高さで割ったもの。センサーの大きさも焦点距離も残らない。</p>
+<p>F 値は「焦点距離 ÷ 口径」なので、焦点距離を画角から決めれば口径が出る(フルサイズ 24mm 判のセンサーで、画角 40 度なら 33mm)。</p>
+<div class="code"><pre><code>  口径 A = 焦点距離 / F 値 = 0.012 / (F 値 × tan(画角/2))   [m]
+  L ∝ 1 / (F 値 × tan²(画角/2))</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ボケ</th></tr></thead>
+<tbody>
+<tr><td>F 値を倍にする(f/1.4 → f/2.8)</td><td>半分(自己チェック 0.50)</td></tr>
+<tr><td>同じ F 値で画角を半分にする(40° → 20°)</td><td><strong>約4倍</strong>(4.26。tan² の比)。<strong>望遠ほどボケる</strong></td></tr>
+</tbody>
+</table></div>
+<p>デモの3つの構図(画面の高さ 640、f/1.4)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>構図</th><th>画角</th><th>ピント</th><th>口径</th><th>無限遠のボケ(半径)</th></tr></thead>
+<tbody>
+<tr><td>決めの構図</td><td>40°</td><td>10.5m</td><td>24mm</td><td><strong>1.0 画素</strong>(過焦点距離)</td></tr>
+<tr><td>ゴミ箱の金属(カメラワークの2番目)</td><td>35°</td><td>3.2m</td><td>27mm</td><td><strong>4.3 画素</strong>(f/0.7 で 8.6 画素)</td></tr>
+<tr><td>キツネの後ろ(プレイアブルデモ)</td><td>41°</td><td>2.8m</td><td>23mm</td><td>3.5 画素</td></tr>
+</tbody>
+</table></div>
+<p>スマホのカメラがボケないのも同じ理由で、焦点距離が数 mm しかないので、同じ画角・同じ F 値でも口径が数分の1になる。写真アプリの「ポートレート」は、今日と同じく深度からぼかしを後で足している。</p>
+<div class="inject"><figure class="lab" id="coc-lab">
+  <div class="lab-head">
+    <h3>錯乱円の曲線 — どの奥行きがどれだけぼけるか(要点2・3)</h3>
+    <span class="tag">DepthOfField のレンズの式(焦点距離 → 口径 → 係数 L → 錯乱円)と同じ。画面の高さ 640、センサーはフルサイズ 24mm 判。横軸は奥行き(対数)</span>
+  </div>
+  <div class="stage"><canvas id="coc-canvas" style="height:290px" aria-label="奥行きごとの錯乱円の半径の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">構図</span>
+      <div class="seg" id="coc-shot"><button data-v="key" aria-pressed="false">決めの構図(40°・10.5m)</button><button data-v="bin" aria-pressed="true">ゴミ箱の金属(35°・3.2m)</button><button data-v="fox" aria-pressed="false">キツネの後ろ(41°・2.8m)</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">F 値(F3)</span>
+      <div class="seg" id="coc-f"><button data-v="1.4" aria-pressed="true">f/1.4</button><button data-v="2.8" aria-pressed="false">f/2.8</button><button data-v="8" aria-pressed="false">f/8</button><button data-v="0.7" aria-pressed="false">f/0.7</button></div>
+    </div>
+    <div class="ctl"><span class="label">ピント(F4)</span>
+      <div class="seg" id="coc-focus"><button data-v="1" aria-pressed="true">注視点</button><button data-v="0.5" aria-pressed="false">手前に外す</button><button data-v="2" aria-pressed="false">奥に外す</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="coc-thin"> 薄レンズの式も描く</label>
+  </div>
+  <div class="readout"><div class="legend-row" id="coc-legend"></div><div class="stats" id="coc-stats" style="margin-top:8px"></div><p id="coc-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. 散らすものを、集めるで書く — 相手の半径で届くかを決める</h3>
+<p>ピントの外れた点は、画面の上で錯乱円に広がる——「点がまわりへ光を配る」処理(scatter)。点ごとに円を描けば素直だが、画素の数だけ円を描くことになる。そこで画素シェーダで裏返し、<strong>「まわりの点のうち、誰の円が自分まで届いているか」を集める</strong>(gather)。</p>
+<p>素朴な集め方は「自分の錯乱円の中を平均する」。これは2つの場面で壊れる(<code>F5</code> で見られる)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>素朴に集めると</th><th>本当は</th></tr></thead>
+<tbody>
+<tr><td>ぼけた背景の画素の隣に、ピントの合った物</td><td>背景の円の中に物が入るので、<strong>物の色が背景ににじみ出す</strong>(ハロー)</td><td>物は点なので背景まで光を配らない</td></tr>
+<tr><td>ピントの合った背景の画素の隣に、手前のぼけた物</td><td>自分の半径は 0 なので何も集めない。<strong>手前のボケが物の輪郭で切り抜いたように止まる</strong></td><td>手前の物の大きな円が、背景の上まで被さる</td></tr>
+</tbody>
+</table></div>
+<p>どちらも「自分の半径で決めた」のが原因で、正しくは<strong>相手の円が自分まで届くか</strong>で決める。そこで2つの層に分ける。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>混ぜる条件</th><th>重み</th><th>何になるか</th></tr></thead>
+<tbody>
+<tr><td>奥の層</td><td>自分と相手の<strong>小さいほう</strong>の半径が、距離に届く</td><td>1(平均)</td><td>その画素の背景。ピントの合った相手(半径 0)は混ざらない</td></tr>
+<tr><td>手前の層</td><td><strong>相手の</strong>半径が距離に届く</td><td>(R / 相手の半径)²</td><td>上に被さる半透明の膜。重みの和 ÷ 点の数 = どれだけ覆うか</td></tr>
+</tbody>
+</table></div>
+<p>手前の層の2乗は<strong>光の量の保存</strong>。半径 rs の円に配られる光は、1画素あたり 1 / (π rs²) に薄まる。撒いた1点は π R² / N の面積を代表しているので、1点ぶんの重みが (R / rs)² / N になる——大きくぼけた物ほど薄く広く被さる。手前の層は色 × 覆いの「前掛けのアルファ」で書いておく(双線形で読んでも、覆いの無い画素の意味の無い色が混ざらない)。</p>
+<p>自己チェック(128x64 の作り物の絵。無限遠のボケ半径 8 画素、16x16 の明るい四角の縁から 4.5 画素の画素を見る):</p>
+<div class="code"><pre><code>  ピントの合った四角が、ぼけた奥の前   … 散らし 0.013 / 素朴 0.164       (ハローが出ない)
+  手前にぼけた四角が、ピントの合った奥の前 … 散らし 0.149 / 素朴 0.000   (円の欠けた部分の面積の割合は 0.16)</code></pre></div>
+<div class="inject"><figure class="lab" id="dof-lab">
+  <div class="lab-head">
+    <h3>ボケを集める — 散らしとして集めるか、素朴に集めるか(要点4〜7)</h3>
+    <span class="tag">自己チェックの作り物の絵(128 x 64、ピント 2m、係数 L = 16 で無限遠のボケは半径 7.8 画素)を、blur-field から dof-combine までの7パスを移した JS で描く。丸い印は自己チェックが見る画素(四角の縁から 4.5 画素)</span>
+  </div>
+  <div class="stage"><canvas id="dof-canvas" style="height:320px;image-rendering:pixelated" aria-label="作り物の絵に被写界深度を掛けた結果"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">作り物の絵</span>
+      <div class="seg" id="dof-case"><button data-v="halo" aria-pressed="true">ピントの合った四角が、ぼけた奥の前</button><button data-v="spread" aria-pressed="false">手前にぼけた四角が、ピントの合った奥の前</button><button data-v="dot" aria-pressed="false">明るい点(50)を奥に</button><button data-v="check" aria-pressed="false">ピントの合った市松</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ボケの集め方(F5)</span>
+      <div class="seg" id="dof-gather"><button data-v="scatter" aria-pressed="true">散らしとして集める</button><button data-v="naive" aria-pressed="false">自分の半径で素朴に集める</button></div>
+    </div>
+    <div class="ctl"><span class="label">係数 L</span>
+      <div class="seg" id="dof-l"><button data-v="8" aria-pressed="false">8</button><button data-v="16" aria-pressed="true">16(自己チェック)</button><button data-v="32" aria-pressed="false">32</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="dof-debug"> 錯乱円を見る(F6)</label>
+    <label class="check"><input type="checkbox" id="dof-tiles"> 升目を見る</label>
+    <label class="check"><input type="checkbox" id="dof-notiles"> 近所の升目を見ない(このページだけ)</label>
+    <label class="check"><input type="checkbox" id="dof-clip"> 1.0 で切ってからぼかす(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="stats" id="dof-stats"></div><p id="dof-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">5. 升目 — 近所でいちばん大きく配っている物を、先に記録する</h3>
+<p>集めるには「どこまで探すか」が要る。自分がぼけていなくても、隣の手前の物の大きな円が自分まで届く。探す範囲を画面全体の最大に固定すると、ほとんどぼけていない画素でも遠くまで探すことになり、決まった数の点(48 点)がまばらに散る。</p>
+<p>そこで<strong>画面を 16 画素の升目に切り、升目ごとに「いちばん手前の錯乱円」と「いちばん速い速度」を記録し、さらに 3x3 の近所で最大を取る</strong> (McGuire 2012 の TileMax / NeighborMax)。Day 53 で光を升目に振り分けたのと同じ発想で、今度は升目に「ぼけの届く範囲」を振り分ける。<strong>速度を記録するのは Day 55b のモーションブラーのため</strong>。動く物の尾も、隣の升目から自分まで伸びてくることがある。今日は速度を渡さないので、その欄は 0 のまま。</p>
+<p><strong>ぼけの半径の上限を升目の大きさ(16 画素)にしてある</strong>のが肝。3x3 の近所は自分の升目からどの向きにも 16 画素以上を含むので、半径 16 画素までのぼけなら、自分に届く物を必ず近所の最大に数えている。これを超えると、ぼけが升目の形に切れる。</p>
+<p><strong>升目の最大は、横と縦の2段で取る</strong>。1段で 16x16 をなめると、1画素が 256 回読む。升目は 960x640 で 2400 個しかないので、GPU が同時に走らせる画素が足りず、待ち時間を隠せない。最大は「横の最大の、縦の最大」に分けても同じ答えになる(Day 31 のぼかしを縦横に分けたのと同じ理屈)。同じ構図で <strong>0.35ms → 0.09ms</strong>(検証の途中で分かったこと 2)。</p>
+<h3 id="s11">6. 半分の大きさで集め、原寸で重ねる</h3>
+<p><strong>ぼけたものは縮めても分からない</strong>(Day 31 のブルームと同じ)。被写界深度は1画素あたり 48 点を読むので、集める仕事は半分の大きさでやる。</p>
+<ol><li><strong>下ごしらえ</strong>(半分): 2x2 画素の平均の色と、<strong>いちばん手前の</strong>錯乱円(ピントの合った物と奥が同じ 2x2 に入ったら、ピントの合った物が勝つ——奥のボケににじまない)</li><li><strong>集める</strong>(半分、2枚同時。Day 52a の MRT): Vogel の円盤(i 番目の点を半径 √((i + 0.5) / 48)、角度 i × 黄金角に置く)に 48 点を撒き、奥の層と手前の層</li><li><strong>重ねる</strong>(原寸): 原寸の絵 → 奥がぼけた分だけ奥の層に差し替え → 手前の層を被せる</li></ol>
+<p><strong>半径 1〜2 画素でなめらかに切り替え、1 画素より小さいボケは原寸の絵のまま</strong>にする。半分の大きさの絵は 2 画素より細かいものを持っていないので、そこで差し替えると逆にぼけすぎる。切り替えに使う錯乱円は<strong>原寸</strong>(半分の大きさの錯乱円だと、ピントの帯の縁が 2x2 のギザギザになる)。</p>
+<p>Day 55b のモーションブラーは原寸のまま走らせる。尾は向きのあるぼけで、横に流れる絵でも縦の目地はくっきり残る——縮めると、残るべき縦の細部まで失う。</p>
+<h3 id="s12">7. 並び — TAA の後ろ、ブルームの前、HDR のまま</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>置き場所</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td><strong>TAA の後ろ</strong></td><td>被写界深度は近所の色を混ぜる処理。ずらして描いた揺れる絵ではなく、TAA で落ち着いた絵を混ぜる。前に置くと、TAA が「近所の色の範囲」で履歴を疑うとき、ぼかした色の範囲で疑うことになる</td></tr>
+<tr><td><strong>ブルームの前</strong></td><td>明るい点をまず丸いボケに広げ、それからにじませる。後ろに置くと、ぼける前の鋭い点から出たにじみが、ぼけた絵の上に浮く</td></tr>
+<tr><td><strong>HDR のまま</strong></td><td>50 の明るい点を半径 8 画素の円に広げても、1画素あたり 0.25 残る。<strong>1.0 で切ってからぼかすと 0.005 になって消える</strong>——明るい点が丸いボケとして見えるのは HDR のおかげ</td></tr>
+</tbody>
+</table></div>
+<p>自己チェック(50 の点を奥に置いてぼかす): 半径 7.8 画素の円になり、半径 5 の内側の最小 0.23、光の総量 49.8 / 50。1.0 で切った点は 0.0053。</p>
+<p><strong>被写界深度は「このフレームのカメラの数字」が挿さっているときだけ掛かる</strong>(<code>PostProcess.Frame</code>)。Day 54a の <code>Velocity</code> と TAA の関係と同じで、挿すのは本番のフレーム(<code>Program.PrepareCameraBlur</code>)だけ、<code>_post.End</code> が使い切って外す。自己チェックが後処理を単独で回しても割り込まない(挿さない 1 パス / 挿す 8 パス)ので、Day 38〜54 の自己チェックは入れたままでも全部通る。</p>
+<h3 id="s13">8. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td>モーションブラー</td><td>動いている物も一瞬で写る。地図の升目は速度の口を空けたまま作る(今日は速度を渡さない)</td><td><strong>Day 55b</strong>(Day 54 の速度バッファをそのまま読む)</td></tr>
+<tr><td>オートフォーカス(画面の真ん中の深度にピント)</td><td>ピントは注視点まで。注視点が何も無い空間にあると、見ている物がぼける</td><td>改造課題2(深度を GPU から読むと待たされるので、数フレーム遅れで拾う)</td></tr>
+<tr><td>ボケの形(絞り羽根の多角形、画面の端の猫目)</td><td>どのボケも丸</td><td>改造課題1(六角形)・改造課題3(猫目)</td></tr>
+<tr><td>手前のボケの向こう側</td><td>本物のレンズは口径の端から手前の物の向こうが少し見える。1回の絵には写っていないので出せない</td><td>何枚も描いて平均する(オフラインの手法)</td></tr>
+<tr><td>半透明のボケ</td><td>粒・トレイルは深度を書かないので、後ろの物のボケ方を借りる</td><td>今日残した歪みの2つ目</td></tr>
+<tr><td>露出との連動</td><td>本物のカメラは F 値で明るさも変わる。今日はボケだけで、明るさは露出(Day 31)が別に決める</td><td>Day 55b の改造課題2(F 値とシャッターから露出を決める)</td></tr>
+<tr><td>機能ツアーへの登録</td><td>「カメラワークと機能」の一括切り替え(Day 40)には入っていない</td><td>Day 56(最終デモの統合)</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/BlurField.cs</code></td><td>288</td><td><strong>ぼけの地図</strong>。奥行きと錯乱円(原寸)、升目の横・縦、近所の最大。<code>CameraFrame</code>(このフレームのカメラの数字)もここ</td></tr>
+<tr><td><code>Render/DepthOfField.cs</code></td><td>318</td><td><strong>被写界深度</strong>。レンズの式(焦点距離・口径・係数・錯乱円・薄レンズの式)と、半分の大きさで集めて原寸で重ねる3パス</td></tr>
+<tr><td><code>shaders/blur-field.frag</code></td><td>60</td><td>深度 → 奥行き → 錯乱円。<strong>Day 55 で奥行きに戻すのはここだけ</strong></td></tr>
+<tr><td><code>shaders/blur-tiles.frag</code></td><td>57</td><td>升目の横の段(横 16 画素の最大)</td></tr>
+<tr><td><code>shaders/blur-max.frag</code></td><td>53</td><td>窓の中の最大(升目の縦の段と、近所の 3x3 で使い回す)</td></tr>
+<tr><td><code>shaders/dof-prepare.frag</code></td><td>41</td><td>半分の大きさの色といちばん手前の錯乱円</td></tr>
+<tr><td><code>shaders/dof-gather.frag</code></td><td>120</td><td><strong>被写界深度の本体</strong>。48 点で奥の層と手前の層を集める(MRT)</td></tr>
+<tr><td><code>shaders/dof-combine.frag</code></td><td>85</td><td>原寸で重ねる。錯乱円の表示</td></tr>
+</tbody>
+</table></div>
+<p><strong>地図と升目の3本(<code>BlurField.cs</code> / <code>blur-tiles.frag</code> / <code>blur-max.frag</code>)は、速度を読む口も持っている</strong>。升目ごとに「いちばん手前の錯乱円」と一緒に「いちばん速い速度」も記録する形で、今日は速度を渡さない(<code>uHasVelocity = 0</code>)。Day 55b のモーションブラーはこの3本を1文字も変えずに読むので、写すのは今日1回で済む。コメントに出てくる「モーションブラー」「尾」はその予告。</p>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader.cs</code></td><td><code>SetInt2</code>(ivec2 を送る)</td><td>+10 / -0</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td>地図と被写界深度を持ち、TAA のすぐ後ろで掛ける。<code>Frame</code>(このフレームだけ挿す)、VRAM の合計</td><td>+87 / -2</td></tr>
+<tr><td><code>Program.cs</code></td><td><code>PrepareCameraBlur</code>、HUD 1行、メニュー 7 項目、内訳、自己チェック 14 項目</td><td>+663 / -1</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Program.cs</code> の差分の6割は自己チェック</strong>(<code>RunCameraBlurCheck</code> と道具で 400 行ほど)。本番の流れに入ったのは <code>PrepareCameraBlur</code>(15 行ほど)と、それを呼ぶ1行だけ——<strong>何を描くかは1行も書き換えていない</strong>。<code>Render3D</code> 以下の描画の分岐はどれも Day 54b のまま。</p>
+<p>Day 54b のコードに入った手直しは2か所(差分の -3 行はこれ)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手直し</th><th>どこ</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>メニューの自己チェックの件数 217 → 224</td><td><code>RunDebugMenuCheck</code></td><td>「被写界深度」ページの 7 項目</td></tr>
+<tr><td>VRAM の合計に地図と被写界深度(コメントと式の2行)</td><td><code>PostProcess.ByteSize</code></td><td>どちらも入れたときに初めて作るので、入れる前は 0</td></tr>
+</tbody>
+</table></div>
+<p>もう1つ、<strong>プレイアブルデモに入るときカメラワークを止める</strong>手直しを <code>ShowPlayableDemo</code> に入れた(Day 51 からの不備。検証の途中で分かったこと 3)。こちらは <strong>Day 51 まで遡って同じ場所・同じ文面で直した</strong>ので、Day 54b と今日の差分には出ない。</p>
+<h3 id="s17">写経する順番</h3>
+<div class="code"><pre><code> 1. Render/Shader.cs               SetInt2(4 が使う)
+ 2. shaders/blur-field.frag        奥行きと錯乱円の地図(新規。4 が読む)
+ 3. shaders/blur-tiles.frag        升目の横の段(新規。4 が読む)
+ 4. shaders/blur-max.frag          窓の中の最大(新規。5 が読む)
+ 5. Render/BlurField.cs            ぼけの地図と CameraFrame(新規。1 を使う)
+ 6. shaders/dof-prepare.frag       半分の大きさの下ごしらえ(新規。8 が読む)
+ 7. shaders/dof-gather.frag        ボケを集める(新規。8 が読む)
+ 8. shaders/dof-combine.frag       原寸で重ねる(新規。9 が読む)
+ 9. Render/DepthOfField.cs         被写界深度(新規。5 を使う)
+10. Render/PostProcess.cs          TAA のすぐ後ろに1段を置く(5・9 を使う)
+11. Program.cs                     全部を繋ぐ
+12. Day55a.csproj                  Day54b.csproj からのリネームのみ</code></pre></div>
+<p><strong>依存順に並べてある</strong>。C# のビルドが通るのは 1・5・9〜11 の順で、シェーダ(2〜4・6〜8)は実行時に読むのでビルドには効かない——ただし<strong>11 より前に写しておく</strong>こと。シェーダは起動時に読む(<code>PostProcess</code> のコンストラクタが2つのクラスを作る)ので、写し忘れると被写界深度を入れる前、起動の時点で落ちる。</p>
+<p><code>BlurField.cs</code> の頭にある <code>CameraFrame</code> は、<code>DepthOfField</code> と <code>PostProcess</code> が使う小さな構造体。<code>DepthOfField.cs</code> は静的なレンズの式(<code>FocalLength</code> → <code>Aperture</code> → <code>LensScale</code> → <code>CircleOfConfusion</code>)を先に読み、それから <code>Render</code> を読む。</p>
+<p><code>Program.cs</code> の中は次の順で読むとよい。</p>
+<div class="code"><pre><code>  フィールド(FNumberSteps / FocusSteps / _focusScale)
+    → OnRender の PrepareCameraBlur                              <strong>今日の1行</strong>(RenderMotionVectors の直後)
+    → DrawOverlayInfo の CameraBlurLabel                          HUD
+    → Day 55 の節の頭(UseDepthOfField / FocusDistance / PrepareCameraBlur / CameraBlurLabel / DescribeCameraBlur)
+    → RunCameraBlurCheck と道具(UploadDepth / CameraBlurSettings)
+    → BuildDebugMenu の末尾(メニュー 1 ページ)と RunDebugMenuCheck の 224</code></pre></div>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層は今日も増えていない</strong>。<code>Render/</code> に型が4つ(<code>BlurField</code> / <code>DepthOfField</code> / <code>CameraFrame</code> と列挙1つ)増えて、<code>PostProcess</code> の口が広がっただけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/BlurField</code></td><td><code>Render/</code></td><td>奥行きと錯乱円の地図、升目、近所の最大。<strong>Day 55b のモーションブラーも同じものを読む</strong></td></tr>
+<tr><td><code>Render/DepthOfField</code></td><td><code>Render/</code></td><td>レンズの式と3パス。<strong><code>Camera</code> も <code>BlurField</code> の作り方も知らない</strong>(地図を受け取るだけ)</td></tr>
+<tr><td><code>Render/CameraFrame</code></td><td><code>Render/</code>(<code>BlurField.cs</code>)</td><td>このフレームのカメラの数字。<code>Camera</code> から <code>From</code> で数字だけを抜く</td></tr>
+<tr><td><code>Render/DofGather</code></td><td><code>Render/</code></td><td>ボケの集め方の列挙</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/PostProcess</code></td><td><code>DepthOfField</code> / <code>BlurField</code> / <code>Frame</code>、TAA の後ろの1段</td><td>+87 / -2</td></tr>
+<tr><td><code>Render/Shader</code></td><td><code>SetInt2</code></td><td>+10 / -0</td></tr>
+<tr><td><code>Program.cs</code></td><td><code>PrepareCameraBlur</code>、メニュー、自己チェック</td><td>+663 / -1</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">後処理の並び — TAA の後ろ、ブルームの前</h3>
+<svg viewBox="0 0 910 600" role="img" aria-label="TAA のあと、カメラの数字が挿さっていて被写界深度を入れていれば、ぼけの地図(4パス)と被写界深度(3パス)を掛けてから、明部・合成・FXAA へ進む図" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="28.5" text-anchor="middle" fill="var(--ink)">シーンバッファ RGBA16F</text><text x="240" y="45.5" text-anchor="middle" fill="var(--ink)">TAA ならずらして描いてある</text><rect x="20" y="80" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="100.5" text-anchor="middle" fill="var(--ink)">TAA を掛けるか</text><text x="240" y="117.5" text-anchor="middle" fill="var(--ink)">速度が挿さっているか(Day 54)</text><rect x="560" y="80" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="100.5" text-anchor="middle" fill="var(--ink)">TAA の解決</text><text x="725" y="117.5" text-anchor="middle" fill="var(--ink)">履歴と混ぜる</text><rect x="20" y="160" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="180.5" text-anchor="middle" fill="var(--ink)">カメラの数字が挿さっているか(Day 55a)</text><text x="240" y="197.5" text-anchor="middle" fill="var(--ink)">被写界深度を入れているか</text><rect x="20" y="240" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="260.5" text-anchor="middle" fill="var(--ink)">ぼけの地図</text><text x="240" y="277.5" text-anchor="middle" fill="var(--ink)">奥行きと錯乱円 → 升目の横 → 縦 → 近所</text><text x="240" y="294.5" text-anchor="middle" fill="var(--ink)">4パス</text><rect x="20" y="329" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="349.5" text-anchor="middle" fill="var(--ink)">被写界深度</text><text x="240" y="366.5" text-anchor="middle" fill="var(--ink)">半分の大きさで2層を集め、原寸で重ねる</text><text x="240" y="383.5" text-anchor="middle" fill="var(--ink)">3パス</text><rect x="20" y="418" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="438.5" text-anchor="middle" fill="var(--ink)">後ろの段が読む絵</text><rect x="560" y="418" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="438.5" text-anchor="middle" fill="var(--ink)">明部 → ぼかし(Day 31)</text><rect x="20" y="483" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="503.5" text-anchor="middle" fill="var(--ink)">合成: 露出 → ブルーム → グレーディング</text><text x="240" y="520.5" text-anchor="middle" fill="var(--ink)">→ トーンマップ → ガンマ</text><rect x="20" y="555" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="575.5" text-anchor="middle" fill="var(--ink)">FXAA(Day 38)→ 画面</text><path d="M240 58 L240 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 105 L558 105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="509" y="97" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M240 130 L240 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="248" y="146" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M725 130 L725 185 L462 185" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 210 L240 238" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="248" y="226" fill="var(--muted)" font-size="12" text-anchor="start">Yes</text><path d="M20 185 L8 185 L8 434.5 L18 434.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="10" y="179" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M240 307 L240 327" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 396 L240 416" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 434.5 L558 434.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 451 L240 481" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M725 451 L725 508 L462 508" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 533 L240 553" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong>TAA と FXAA の間に、HDR のまま差し込んだ</strong>。Day 54a で「TAA は入口、FXAA は出口」と置いた並びの、入口側に1段が続く形。被写界深度は「近所の光の量を混ぜる」処理なので、光の量として足し算が効く HDR のうちに置く(要点7)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>被写界深度</th></tr></thead>
+<tbody>
+<tr><td>カメラの何をやめるか</td><td>穴が点(ピンホール)</td></tr>
+<tr><td>手がかり</td><td>奥行き(深度の写しから)</td></tr>
+<tr><td>1つの点の広がり</td><td>円(錯乱円)</td></tr>
+<tr><td>大きさの決まり方</td><td>L × (1/S − 1/z)</td></tr>
+<tr><td>近所の升目で知りたいこと</td><td>いちばん手前の錯乱円(手前のボケは外へ広がる)</td></tr>
+<tr><td>大きさ</td><td>半分(48 点)</td></tr>
+<tr><td>全画面パス</td><td>地図 4 + 被写界深度 3</td></tr>
+<tr><td>持つバッファ(960x640)</td><td>地図 + 升目 3枚 = 2.7MB、半分 3枚 + 原寸 1枚 = 8.2MB</td></tr>
+<tr><td>GPU の時間(VSync で休みながら)</td><td>地図 0.08〜0.18ms、被写界深度 0.45〜0.58ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>地図を被写界深度から切り離してある</strong>のは、Day 55b のモーションブラーも同じ地図を読むから。升目が「近所でいちばん手前の錯乱円」と「近所でいちばん速い速度」を一緒に持つので、明日は地図を作る4パスを1回で2人ぶんにできる。</p>
+<h3 id="s20">今日足したものは、どこに繋がったか</h3>
+<svg viewBox="0 0 1000 336" role="img" aria-label="PrepareCameraBlur が CameraFrame を、MotionVectors が速度を PostProcess に挿し、PostProcess が TemporalAA・BlurField・DepthOfField を順に呼ぶ図。DepthOfField は BlurField の地図を読み、Camera を知らない" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.PrepareCameraBlur</text><text x="135" y="47.5" text-anchor="middle" fill="var(--ink)">注視点までの距離 = ピント</text><rect x="380" y="10" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="545" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CameraFrame</text><text x="545" y="47.5" text-anchor="middle" fill="var(--ink)">near / far / 画角 / ピント / 1フレームの時間</text><rect x="10" y="130" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="150.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">MotionVectors(Day 54)</text><text x="135" y="167.5" text-anchor="middle" fill="var(--ink)">速度バッファ</text><rect x="380" y="138" width="330" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="545" y="158.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PostProcess.EndCore</text><rect x="770" y="138" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="880" y="158.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TemporalAA(Day 54)</text><rect x="770" y="240" width="220" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="880" y="260.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BlurField</text><text x="880" y="277.5" text-anchor="middle" fill="var(--ink)">奥行き・錯乱円・近所の升目</text><rect x="380" y="248" width="240" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="500" y="268.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DepthOfField</text><rect x="10" y="248" width="250" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="268.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GpuTimer</text><path d="M260 35 L378 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="319" y="27" fill="var(--muted)" font-size="12" text-anchor="middle">CameraFrame.From</text><path d="M545 60 L545 136" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="553" y="88" fill="var(--muted)" font-size="12" text-anchor="start">Frame(このフレームだけ)</text><path d="M260 155 L378 155" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="319" y="133" fill="var(--muted)" font-size="12" text-anchor="middle">Velocity</text><text x="319" y="148" fill="var(--muted)" font-size="12" text-anchor="middle">(このフレームだけ)</text><path d="M710 154.5 L768 154.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="739" y="146.5" fill="var(--muted)" font-size="12" text-anchor="middle">Resolve</text><path d="M710 165 L735 165 L735 265 L768 265" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="729" y="183" fill="var(--muted)" font-size="12" text-anchor="end">Build(速度は渡さない)</text><path d="M500 171 L500 246" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="508" y="201" fill="var(--muted)" font-size="12" text-anchor="start">Render</text><path d="M620 270 L768 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="626" y="262" fill="var(--muted)" font-size="12" text-anchor="start">地図と升目を読む</text><path d="M260 264.5 L378 264.5" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr4)"></path><text x="319" y="256.5" fill="var(--muted)" font-size="12" text-anchor="middle">測る</text><path d="M135 281 L135 320 L750 320 L750 282 L768 282" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr4)"></path><text x="141" y="314" fill="var(--muted)" font-size="12" text-anchor="start">測る</text></g></svg>
+<p><strong><code>DepthOfField</code> は <code>Camera</code> を知らない</strong>。数字は <code>CameraFrame</code> で届く。<code>TemporalAA</code> がずらしを <code>Vector2</code> で返して <code>Camera</code> を知らずに済ませたのと同じ線で、自己チェックは 128x64 の作り物の絵に「ピント 2m、無限遠のボケ 8 画素」のような数字を直接並べて、ボケの式を確かめられる。</p>
+<p><strong><code>CameraFrame</code> は1フレームの時間も持っている</strong>が、今日は誰も読まない。Day 55b のモーションブラーがシャッターを秒で決めるときに読む。<code>PostProcess.Frame</code> は <code>Velocity</code> と同じ「このフレームだけ挿す」口で、今日は被写界深度だけがこれを見る。</p>
+<h3 id="s21">ぼけの地図ができるまで — 地図・横・縦・近所</h3>
+<svg viewBox="0 0 910 403" role="img" aria-label="深度の写しから地図(奥行きと錯乱円)を作り、升目の横・縦・近所の最大を取って、被写界深度が近所のいちばん手前の錯乱円を探す半径にする図。速度バッファの口は点線(Day 55b から)" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="30.5" text-anchor="middle" fill="var(--ink)">深度の写し</text><text x="120" y="47.5" text-anchor="middle" fill="var(--ink)">0〜1(1/z に並ぶ)</text><rect x="10" y="120" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="140.5" text-anchor="middle" fill="var(--ink)">速度バッファ RG16F</text><text x="120" y="157.5" text-anchor="middle" fill="var(--ink)">(Day 55b から読む)</text><rect x="300" y="10" width="260" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="30.5" text-anchor="middle" fill="var(--ink)">地図 blur-field.frag</text><text x="430" y="47.5" text-anchor="middle" fill="var(--ink)">原寸 RG16F</text><text x="430" y="64.5" text-anchor="middle" fill="var(--ink)">x: 奥行き [m] / y: 錯乱円 [画素]</text><rect x="300" y="120" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="140.5" text-anchor="middle" fill="var(--ink)">升目の横 blur-tiles.frag</text><text x="430" y="157.5" text-anchor="middle" fill="var(--ink)">60 x 640</text><text x="430" y="174.5" text-anchor="middle" fill="var(--ink)">横 16 画素の最大</text><rect x="300" y="222" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="242.5" text-anchor="middle" fill="var(--ink)">升目の縦 blur-max.frag</text><text x="430" y="259.5" text-anchor="middle" fill="var(--ink)">60 x 40</text><text x="430" y="276.5" text-anchor="middle" fill="var(--ink)">縦 16 画素の最大</text><rect x="300" y="324" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="344.5" text-anchor="middle" fill="var(--ink)">近所 blur-max.frag</text><text x="430" y="361.5" text-anchor="middle" fill="var(--ink)">60 x 40</text><text x="430" y="378.5" text-anchor="middle" fill="var(--ink)">3x3 升の最大</text><rect x="640" y="120" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="770" y="140.5" text-anchor="middle" fill="var(--ink)">被写界深度</text><text x="770" y="157.5" text-anchor="middle" fill="var(--ink)">いちばん手前の錯乱円 = 探す半径</text><path d="M230 35 L298 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M230 145 L298 145" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arr5)"></path><path d="M430 77 L430 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 187 L430 220" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 289 L430 322" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M560 347.5 L600 347.5 L600 160 L638 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M560 43.5 L770 43.5 L770 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>深度をそのまま 16F に入れず、奥行きに戻してから入れる</strong>。透視投影の深度は 1/z に並ぶので、5m 先から 100m 先までが 0.98〜1.0 に押し込まれている。16F は 1.0 のそばで 0.0005 刻みしか持てず、1刻みで 67m から 100m までが同じ値になる。奥行きに戻してから入れれば、10m 先で 8mm 刻みが残る。</p>
+<p><strong>速度の口は今日は閉じてある</strong>(<code>uHasVelocity = 0</code>)。升目は速度の欄を 0 のまま書く。速度を長さで比べて向きごと覚える処理(<code>blur-tiles.frag</code> / <code>blur-max.frag</code>)は、Day 55b で速度が流れ込んだときに初めて効く。</p>
+<p><strong>同じ <code>blur-max.frag</code> を2回使う</strong>。「窓の中の最大」を、窓の大きさと歩幅を uniform で変えて、升目の縦の段((1, 16) の窓)と近所の段((3, 3) の窓)に使い回す。これが <code>Shader.SetInt2</code> を足した理由。</p>
+<h3 id="s22">1画素のボケが決まるまで(被写界深度)</h3>
+<svg viewBox="0 0 920 567" role="img" aria-label="半分の大きさの1画素で探す半径を決め、0.5 画素に満たなければ何もせず、そうでなければ Vogel の円盤に 48 点を撒いて奥の層と手前の層を集め、原寸で重ねる図" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="28.5" text-anchor="middle" fill="var(--ink)">半分の大きさの1画素</text><text x="255" y="45.5" text-anchor="middle" fill="var(--ink)">2x2 の平均の色 + いちばん手前の錯乱円 c</text><rect x="20" y="80" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="100.5" text-anchor="middle" fill="var(--ink)">探す半径 R = max(c の大きさ, 近所の手前のボケ)</text><text x="255" y="117.5" text-anchor="middle" fill="var(--ink)">16 画素で切る</text><rect x="20" y="152" width="470" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="255" y="172.5" text-anchor="middle" fill="var(--ink)">R が 0.5 画素に満たないか</text><rect x="570" y="145" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="735" y="165.5" text-anchor="middle" fill="var(--ink)">何もしない</text><text x="735" y="182.5" text-anchor="middle" fill="var(--ink)">奥の層は無効、手前の層は覆い 0</text><rect x="20" y="218" width="470" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="238.5" text-anchor="middle" fill="var(--ink)">Vogel の円盤に 48 点</text><text x="255" y="255.5" text-anchor="middle" fill="var(--ink)">半径 √((i+0.5)/48) × R、黄金角ずつ回す</text><rect x="20" y="300" width="225" height="101" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="132.5" y="320.5" text-anchor="middle" fill="var(--ink)">奥の層</text><text x="132.5" y="337.5" text-anchor="middle" fill="var(--ink)">min(c, 相手) が</text><text x="132.5" y="354.5" text-anchor="middle" fill="var(--ink)">距離に届けば混ぜる</text><text x="132.5" y="371.5" text-anchor="middle" fill="var(--ink)">ピントの合った物は</text><text x="132.5" y="388.5" text-anchor="middle" fill="var(--ink)">混ざらない</text><rect x="265" y="300" width="225" height="84" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="377.5" y="320.5" text-anchor="middle" fill="var(--ink)">手前の層</text><text x="377.5" y="337.5" text-anchor="middle" fill="var(--ink)">相手の半径 rs が届けば</text><text x="377.5" y="354.5" text-anchor="middle" fill="var(--ink)">(R/rs)² の重み</text><text x="377.5" y="371.5" text-anchor="middle" fill="var(--ink)">重みの和 ÷ 48 = 覆い</text><rect x="20" y="430" width="470" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="450.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">原寸で重ねる dof-combine.frag</text><rect x="20" y="488" width="470" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="508.5" text-anchor="middle" fill="var(--ink)">原寸の絵 → 奥がぼけた分だけ奥の層へ</text><text x="255" y="525.5" text-anchor="middle" fill="var(--ink)">(半径 1〜2 画素でなめらかに)</text><text x="255" y="542.5" text-anchor="middle" fill="var(--ink)">→ 手前の層を前掛けのアルファで被せる</text><path d="M255 58 L255 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M255 130 L255 150" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 168.5 L568 168.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="529" y="160.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M255 185 L255 216" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="263" y="201" fill="var(--muted)" font-size="12" text-anchor="start">No</text><path d="M255 268 L255 283 L132.5 283 L132.5 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M255 268 L255 283 L377.5 283 L377.5 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M132.5 401 L132.5 414.5 L255 414.5 L255 428" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M377.5 384 L377.5 406 L255 406 L255 428" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M735 195 L735 446.5 L492 446.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M255 463 L255 486" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>関門は1つ</strong>(探す半径が 0.5 画素に満たない)。ピントの合った画素でも、近所に手前の大きなボケがあれば探す——手前のボケが上に被さってくるかもしれないから。この「近所に手前のボケがあるか」を知るのが升目の仕事。</p>
+<p><strong>奥の層は「有効」の印(a)を持つ</strong>。ピントの合った画素・手前の画素の奥の層は a = 0 で書き、重ねるときは a で割って有効な画素だけを平均する。こうしないと、ピントの合った物の画素の「奥の層(意味の無い色)」が双線形で隣の奥のボケに混ざり、物のまわりに 1〜2 画素のにじみが出る。</p>
+<h3 id="s23">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: 深度を写す場所が3つになった</strong>。ソフトパーティクル(Day 50)のために粒の前で1回、速度(Day 54a)のために <code>_post.End</code> の前でもう1回、そして今日、TAA を入れずに被写界深度だけを入れたときに <code>PrepareCameraBlur</code> で1回。中身はどれも同じ(粒は深度を書かない)。Day 54a の歪みの2つ目が1つ増えた形で、「フレームに1回、不透明を描き終えたところで写す」持ち主を1つ決めれば片付く。</p>
+<p><strong>2つ目: 半透明は奥行きを持たない</strong>。粒・トレイルは深度を書かないので、被写界深度では<strong>後ろにある物のボケ方を借りる</strong>(ピントの合った粒でも、後ろの壁がぼけていれば一緒にぼける)。Day 54b の歪みの3つ目(速度を持たないもの)と同じ種類の話。本物は半透明を別の層に描いて、ボケを後から重ねる。</p>
+<p><strong>3つ目: ピントの手がかりが注視点だけ</strong>。<code>FocusDistance</code> はカメラから注視点までの距離で、カメラワークのショットとプレイアブルデモの追従カメラは写したい物を注視点に置いているので合う。ただ、注視点が何も無い空間にある構図(マウスで回して寄った直後など)では、見ている物がぼける。画面の真ん中の深度を読むオートフォーカスは、GPU から読み戻すと<strong>描き終わるまで CPU が待たされる</strong>(<code>GpuTimer</code> の要点と同じ話)。数フレーム遅れて届いたものを拾えば待たずに済む(改造課題2)。</p>
+<p><strong>4つ目: 原寸の RGBA16F が段ごとに1枚ずつ増える</strong>。TAA の履歴2枚に、今日は被写界深度の出力が1枚足された。後処理の VRAM は FXAA と被写界深度で 24.9MB。段ごとに「自分の出力を持つ」形のほうが、どの段を切っても他が壊れないので、今日は分かりやすさを取った(Day 55b でモーションブラーの出力がもう1枚増える)。</p>
+<p><strong>Day 54a・54b の歪みのうち、今日動いたもの</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 54a・54b の歪み</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td>ずらしを知らない場所が3つ(Day 54a の1つ目)</td><td>そのまま。TAA を入れているときは、錯乱円の地図が「ずらして描いた深度」から作られる(半画素以内なので絵には出ない)</td></tr>
+<tr><td>深度を2回写している(Day 54a の2つ目)</td><td><strong>1つ増えた</strong>(今日の歪みの1つ目)</td></tr>
+<tr><td>記録の鍵が「メッシュと何回目か」(Day 54b の1つ目)</td><td>そのまま</td></tr>
+<tr><td>スキニングの式が4か所(Day 54b の2つ目)</td><td>そのまま</td></tr>
+<tr><td>速度を持たないものが残っている(Day 54b の3つ目)</td><td>そのまま。同じ種類の歪みが被写界深度にも出た(今日の歪みの2つ目)</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s24">完成条件</h2>
+<p><code>dotnet run --project reference/Day55a -c Release</code> で起動する。先に「デモ v1」ページ(8 枚目)の <code>1</code>(決めの構図)でデモ v1 を出し、<code>Space</code> で一時停止する。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「被写界深度」(23 枚目)が開く。</p>
+<h3 id="s25">1. <code>F2</code>: 被写界深度を入れる — 決めの構図では1画素も変わらない</h3>
+<p>コンソールに次の行が出る。</p>
+<div class="code"><pre><code>被写界深度: <strong>ON</strong>。ピント 10.50m(注視点)に合わせ、無限遠のボケは半径 1.0 画素。<strong>ほとんどボケないのが正しい</strong>——遠くにピントを合わせた絵は、本物のカメラでもボケない。「カメラワークと機能」の F4 で『ゴミ箱の金属』(3.2m・画角 35°)へ飛ぶか、ホイールで寄ると効く</code></pre></div>
+<p>HUD の FXAA の行の下に今日の行が出る。</p>
+<div class="code"><pre><code>被写界深度:ON f/1.4 ピント:10.50m(注視点) 無限遠のボケ:1.0px  GPU 地図:0.15ms 被写界深度:0.17ms</code></pre></div>
+<p>HUD を消して(<code>;</code> で表示を回す)撮った ON と OFF の2枚は、<strong>1画素も違わない</strong>(差の最大 0)。10.5m 先にピントを合わせた画角 40 度・f/1.4 は過焦点距離そのもので、5.25m から無限遠までが半径 1 画素の中に収まり、重ねる段は半径 1 画素未満のボケを原寸の絵のまま出す(要点2・6)。<strong>壊れているのではなく、これが正しい絵</strong>。</p>
+<h3 id="s26">2. 『ゴミ箱の金属』で F 値を回す</h3>
+<p>「カメラワークと機能」ページ(9 枚目)の <code>F4</code>(次のショットへ)で、2番目のショット『ゴミ箱の金属』へ飛ぶ(一時停止のままでよい)。「被写界深度」ページに戻ると、HUD は <code>ピント:3.20m(注視点) 無限遠のボケ:4.3px</code>。</p>
+<p><strong>2つの缶がくっきり残り、右奥の通りと画面の下の路面がぼける</strong>。缶のすぐ後ろの壁は缶から 1m ほど奥なので、f/1.4 ではほとんどぼけない。<code>F3</code> を押すたびに F 値が回り、口径が出る。</p>
+<div class="code"><pre><code>F 値: <strong>f/2.8</strong>。焦点距離 38mm → 口径 13.6mm
+F 値: <strong>f/8.0</strong>。焦点距離 38mm → 口径 4.8mm
+F 値: <strong>f/0.7</strong>。焦点距離 38mm → 口径 54.4mm(実在するいちばん明るい部類のレンズ)</code></pre></div>
+<p>f/0.7 で <code>無限遠のボケ:8.6px</code>。壁のレンガの目地も柔らかくなる。HUD を消して OFF と比べた差は、f/1.4 で平均 0.53%、f/0.7 で平均 1.27%。</p>
+<h3 id="s27">3. <code>F6</code>: 錯乱円を見る</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>場所</th><th>色</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>缶と、缶の足元の路面</td><td>元の絵を暗く</td><td>ピントの帯(f/0.7 で 2.9〜3.6m ほど。錯乱円が 1 画素未満)</td></tr>
+<tr><td>壁</td><td>淡い橙</td><td>奥。<strong>どこまで奥でも淡いまま</strong>(奥のボケは L / S で頭打ち)</td></tr>
+<tr><td>画面の下の路面</td><td>青。下へ行くほど濃い</td><td>手前。<strong>近づくほど際限なく濃くなる</strong></td></tr>
+<tr><td>左の缶の胴の真ん中</td><td>青い V 字</td><td>缶の胴はこちらへ膨らんでいるので、真ん中の縦の帯だけがピントの帯より手前に出る</td></tr>
+</tbody>
+</table></div>
+<p>もう一度 <code>F6</code> で戻す。</p>
+<h3 id="s28">4. <code>F4</code>: ピントを外す</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ピント</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>手前に外す(1.6m)</td><td>缶も壁も大きくぼける(HUD <code>無限遠のボケ:17.2px(上限 16 で切る)</code>)。<strong>見ている物がぼけると、絵がどれだけ落ち着かないか</strong>が分かる</td></tr>
+<tr><td>奥に外す(6.4m)</td><td><strong>壁のレンガがくっきりし、缶がぼける</strong>。缶の縁が壁の上へ柔らかく被さる(手前のボケが輪郭の外へ広がる)</td></tr>
+</tbody>
+</table></div>
+<p>「奥に外す」のまま次へ進む。</p>
+<h3 id="s29">5. <code>F5</code>: 素朴に集める</h3>
+<p><strong>缶の縁が、壁の上で切り抜いたように止まる</strong>。散らしとして集めているときは、ぼけた缶の縁が半透明になって壁の上へ被さっていた。差は缶の輪郭のまわりにしか出ない(平均 0.17%)が、拡大すると一目で分かる——「手前のボケの縁が硬い」のは、後処理の被写界深度でいちばんよく見かける失敗。もう一度 <code>F5</code> で戻し、<code>F4</code> でピントを注視点に戻す。</p>
+<h3 id="s30">6. キツネを歩かせる</h3>
+<p>「プレイアブルデモ」ページ(19 枚目)の <code>F2</code> でキツネを出し、矢印キーの上で歩かせる。カメラはキツネの後ろに付く。</p>
+<ul><li>ピントは追従カメラの注視点(キツネの少し上、2.8m)。決めの構図から入ると HUD <code>無限遠のボケ:3.7px</code>(画角は直前のショットのものを引き継ぐので、入る前の構図で少し変わる)。奥の突き当たりの壁と、画面の端の缶がぼける</li><li>「TAA」ページの <code>F2</code> で TAA も入れると、2つが同時に掛かる(全画面 18 パス: TAA 1 + 地図 4 + 被写界深度 3 + 明部 1 + ぼかし 8 + 合成 1)</li></ul>
+<p><strong>カメラワークを再生したまま入っても、カメラワークは止まる</strong>(Day 55 の検証で見つかった不備で、Day 51 まで遡って直した。検証の途中で分かったこと 3)。</p>
+<h3 id="s31">7. <code>F7</code>: 内訳</h3>
+<div class="code"><pre><code>--- 被写界深度の内訳 ---
+  レンズ: 画角 35.0° → 焦点距離 38.1mm(フルサイズ 24mm 判)  f/1.4 → 口径 27.2mm
+  ピント: 3.20m(注視点)  ピント面で画面に写る高さ 2.02m  → 口径 ÷ 高さ = 1.35%(これが無限遠のボケの直径。画面の高さに対する割合)
+  ボケの半径 [画素](画面の高さ 640): 無限遠 +4.3 / 2倍の奥 +2.2 / 半分の手前 -4.3 / 1m -9.5  (±16 で切る)
+  集め方: 散らしとして集める  円盤 48 点  半分の大きさ 480x320
+
+  地図: 960 x 640 RG16F(奥行きと錯乱円)+ 升目 16 画素 → 60 x 40 升(横の段 60 x 640 → 升目 → 近所)
+  VRAM: 地図 2.7MB / 被写界深度 8.2MB  後処理の合計 24.9MB
+  GPU の時間(タイマークエリの移動平均): 地図 0.090ms + 被写界深度 0.538ms</code></pre></div>
+<p>(『ゴミ箱の金属』で被写界深度を入れたときのもの。)<strong>レンズの数字を順にたどる</strong>のが眼目で、画角 → 焦点距離 → 口径 → ピント面の高さ → 錯乱円の、どの段で数字が小さくなっているかが分かれば「ボケない」の理由が分かる。「半分の手前」と「無限遠」が同じ大きさ(符号だけ逆)なのが要点2の表。<strong>GPU の時間は走行ごとにぶれる</strong>(VSync で休みながら測るので、GPU のクロックが上下する。Day 54a と同じ注意)。</p>
+<h3 id="s32">8. <code>F8</code>: 自己チェックが 14 項目すべて合格</h3>
+<div class="code"><pre><code>=== Day 55 自己チェック(錯乱円・ボケの集め方・後処理への差し込み)===
+  [OK] <strong>錯乱円はピントで 0、奥は L/S で頭打ち、手前は際限なく大きい</strong>(ピントの半分の奥行きは無限遠と同じ大きさ)  ...
+  ...
+  すべて合格(錯乱円の式・ボケの集め方・後処理への差し込みが仕様どおり)</code></pre></div>
+<p><strong>GL を使わない項目が 4 つ</strong>(レンズの式)、<strong>128x64 の作り物の絵で走る項目が 4 つ</strong>(ボケの集め方)。<code>DepthOfField</code> が <code>Camera</code> を知らず、地図とテクスチャを受け取るだけの部品なので、ボケの式は本物のシーンを描かずに入力を作って確かめられる。</p>
+<h3 id="s33">9. Day 38〜54b の絵と自己チェックが1つも壊れていない</h3>
+<p><strong>既定は OFF</strong> なので、起動した直後の絵は Day 54b とまったく同じ。決めの構図と『ゴミ箱の金属』を同じ手順で撮った2枚ずつを比べ、<strong>違う画素は 0</strong>(被写界深度を入れて切ったあとの絵も同じ)。Day 48 の自己チェック(<code>Alt+F1</code>)は <strong>224 項目</strong>で通る。<strong>被写界深度を入れたままでも</strong>、Day 54 の TAA(<code>RunTaaCheck</code>)、Day 53 の Forward+、Day 52 のディファード、Day 38 の FXAA(「SSAO」ページの「自己チェック(AA)」)の自己チェックは全部通る——被写界深度は「このフレームのカメラの数字」が挿さっているときだけ掛かるので、キーで呼ぶ自己チェックには割り込まない(要点7)。</p>
+<p><strong>IBL の自己チェック(Day 36)はデモ v1 を出す前に走らせる</strong>こと(Day 52〜54 と同じ注意)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「被写界深度」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>錯乱円の曲線「構図」</td><td>決めの構図は過焦点距離(L = 10.35、ピント 10.5m)で、無限遠でも 1.0 画素</td></tr>
+<tr><td><code>F3</code></td><td>同「F 値」</td><td>f/0.7 で無限遠のボケ 8.6 画素、ピントの帯 2.87〜3.62m</td></tr>
+<tr><td><code>F4</code></td><td>同「ピント」</td><td>手前に外す(1.6m)と f/0.7 で 17.2 画素(上限 16 で切る)</td></tr>
+<tr><td><code>F5</code></td><td>ボケを集める「ボケの集め方」</td><td>素朴だとハロー(0.164)が出て、手前のボケが輪郭で止まる(0.000)</td></tr>
+<tr><td><code>F6</code></td><td>同「錯乱円を見る」</td><td>手前は青、奥は橙、1 画素未満は元の絵を暗く</td></tr>
+<tr><td><code>F7</code>(内訳)</td><td>錯乱円の曲線の数字の欄</td><td>焦点距離 38.1mm → 口径 27.2mm、係数 L、無限遠のボケ</td></tr>
+<tr><td><code>F8</code>(自己チェック)</td><td>ボケを集める</td><td>作り物の絵の数字(0.013 / 0.164、0.149 / 0.000、50 の点の円、市松の差 0)がそのまま出る</td></tr>
+<tr><td>(なし)</td><td>「近所の升目を見ない」「1.0 で切ってからぼかす」</td><td>要点5・7 の失敗を見るためにこのページで足した切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">錯乱円の曲線は reference/Day55a の DepthOfField のレンズの式(FocalLength・Aperture・LensScale・CircleOfConfusion・ThinLensCircleOfConfusion)、ボケを集める台は BlurField と blur-field・blur-tiles・blur-max・dof-prepare・dof-gather・dof-combine の各シェーダを JS に移したもの(docs/site/camerablur.js。Day 55b の実験台も使う)。地図・升目・半分の大きさの絵は RG16F / RGBA16F と同じく半精度に丸めて持ち、自己チェックと同じ作り物の絵を同じ手順で描くので、自己チェックの数字が出る(光の総量だけは 49.8 に対して 50.0)。</p></div>
+</section>
+<section class="part"><h2 id="s34">改造課題</h2>
+<h3 id="s35">課題1(易): ボケを六角形にする</h3>
+<p>本物のレンズの穴は絞り羽根で作る多角形なので、明るい点のボケは多角形になる(6枚羽根なら六角形)。<code>dof-gather.frag</code> の円盤の点を六角形の中に撒き直し、届くかどうかも六角形で判定する。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// 角度 angle の向きの、半径 1 の六角形の縁までの距離(内接円の半径は cos(π/6))
+float Hexagon(float angle)
+{
+    const float Sector = 3.14159265 / 3.0;
+    return cos(Sector * 0.5) / cos(mod(angle, Sector) - (Sector * 0.5));
+}</code></pre></div>
+<p>撒く点は <code>r × Hexagon(angle)</code> に置き直し、<code>Cover(radius, r)</code> の半径にも同じ向きの <code>Hexagon</code> を掛ける(相手の円が六角形になる)。「ディファード」ページの <code>F4</code>(夜にする)と <code>F3</code>(点光源 64 個)で光を撒いてから、ピントを手前に外すと、<strong>光が六角形のボケになる</strong>。六角形の角が画面に対して回らないのは、本物のレンズと同じ(羽根はレンズに固定されている)。</p>
+<h3 id="s36">課題2(中): オートフォーカス — 画面の真ん中にピントを合わせる</h3>
+<p>いまのピントは注視点まで。<strong>画面の真ん中の深度を読んでピントにする</strong>(カメラのオートフォーカス)。素直に <code>glReadPixels</code> で深度の写しの真ん中を1画素読むと、GPU がこのフレームを描き終わるまで CPU が待たされる(<code>GpuTimer</code> が避けた待ち方そのもの)。</p>
+<p><code>GpuTimer</code> と同じ輪の考え方で、読み戻しをピクセルバッファ(<code>GL_PIXEL_PACK_BUFFER</code>)に数本積み、<strong>数フレーム遅れて届いたもの</strong>を拾う。届いた奥行きにそのまま合わせると、カメラが揺れるたびにピントが跳ねるので、<code>FollowCamera</code> の追従と同じ指数平滑(Day 51 の要点1)でゆっくり寄せる——映画の「ピント送り」になる。GPU の時間(HUD)に、待ちが乗っていないことも確かめる。</p>
+<h3 id="s37">課題3(難): 画面の端のボケを猫目にする</h3>
+<p>本物のレンズは、画面の端へ行くほど斜めに入る光が鏡筒の縁で削られ、丸いボケが<strong>レモン形(猫目)</strong>に欠ける(口径食)。点のボケの形を「半径 rs の円」と「同じ半径の円を、画面の中心の向きに <code>k × (画面の中心からの距離) × rs</code> だけずらしたもの」の重なりにする。</p>
+<p><code>dof-gather.frag</code> の「相手の円が自分まで届くか」(<code>Cover</code>)を、「自分が相手の形(2つの円の重なり)の中にいるか」に置き換える。<strong>判定するのは相手の形</strong>なので、ずらす向きと量は自分ではなく相手の画面の位置で決めること(散らしを集めるで書いた裏返しがここでも効く。要点4)。円盤に撒く点の範囲は今日のままでよい(重なりは元の円より小さいので、探す半径は足りている)。</p>
+<p>確かめ方は2つ。<code>k = 0</code> で今日の絵と1画素も変わらないこと。課題1と同じ手順で光を撒いてピントを手前に外すと、<strong>画面の真ん中のボケは丸いまま、四隅のボケが中心を囲むように細くなる</strong>こと(レモンの長い向きが、中心からの向きと直角になる)。</p>
+</section>
+<section class="part"><h2 id="s38">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><strong>VSync を入れて</strong>確認した。計測(<code>glFinish</code> を挟んで連続で描く)は今日も無く、GPU の時間はタイマークエリで普段のフレームの中で測った</td></tr>
+</tbody>
+</table></div>
+<p>被写界深度の数字。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>被写界深度(決めの構図、f/1.4)</td><td>無限遠のボケ 1.0 画素、OFF との差 0 画素(過焦点距離)</td></tr>
+<tr><td>被写界深度(『ゴミ箱の金属』)</td><td>f/1.4: 無限遠 4.3 画素、OFF との差 平均 0.53% / f/0.7: 8.6 画素、1.27%</td></tr>
+<tr><td>素朴に集める(『ゴミ箱の金属』、ピントを奥に外す)</td><td>散らしとして集めたときとの差 平均 0.17%</td></tr>
+<tr><td>全画面パス</td><td>FXAA だけ 11 / FXAA + 被写界深度 18</td></tr>
+<tr><td>VRAM</td><td>地図 2.7MB / 被写界深度 8.2MB。後処理の合計は FXAA と被写界深度で 24.9MB</td></tr>
+<tr><td>GPU の時間</td><td>地図 0.08〜0.18ms / 被写界深度 0.45〜0.58ms(走行ごとにぶれる)</td></tr>
+<tr><td>升目を縦横に分けた効き目(同じ構図)</td><td>地図 0.35ms → 0.09ms</td></tr>
+<tr><td>Day 54b との一致(OFF)</td><td>決めの構図・『ゴミ箱の金属』とも、違う画素 0</td></tr>
+<tr><td>GL のエラー</td><td>0(毎フレーム <code>glGetError</code> を見て確かめた)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s39">自己チェック(14 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 55 自己チェック(錯乱円・ボケの集め方・後処理への差し込み)===
+  [OK] <strong>錯乱円はピントで 0、奥は L/S で頭打ち、手前は際限なく大きい</strong>(ピントの半分の奥行きは無限遠と同じ大きさ)  L = 10, S = 2m: ピント 0.000 / 無限遠 +5.000 / S/2 -5.000 / S/4 -15.000 画素
+  [OK] <strong>ボケの大きさ = 口径 ÷ ピント面で画面に写る高さ</strong>(センサーも焦点距離も残らない。薄レンズの式との差は f / S だけ)  画角 35° f/1.4 ピント 3.2m 奥行き 10m: 口径 27.2mm ÷ 高さ 2.02m → 半径 2.93 画素 / 薄レンズの式 2.97 画素(差 1.2%)
+  [OK] <strong>F 値を倍にするとボケは半分、同じ F 値で画角を半分にするとボケは約4倍</strong>(望遠ほどボケる)  画角 40° f/1.4 を 1 として: f/2.8 → 0.50 / 画角 20° → 4.26(tan² の比)
+  [OK] 錯乱円は深度バッファの値の1次式(深度は 1/z に並ぶ。Day 7)——手前ほど深度の刻みが細かいのと、手前ほどボケが急に変わるのが同じ形  0.5〜50m の5点で、直線からのずれ 最大 4.4E-015 画素
+  [OK] <strong>ピントの合った絵は1画素も変わらない</strong>(錯乱円 0 の画素は原寸の絵をそのまま出す)  4 画素の市松模様で、最大の差 0.0E+000
+  [OK] <strong>HDR のままぼかすから、明るい点が丸いボケになる</strong>(光の量は保たれ、1.0 で切ってからぼかすと消える)  50 の点 → 半径 7.8 画素の円(半径 5 の内側の最小 0.23、12 の外側の最大 0.004)、光の総量 49.8 / 50  1.0 で切った点は 0.0053
+  [OK] <strong>ピントの合った物は、奥のボケににじまない</strong>(奥の層は「自分と相手の小さいほうの半径」で集める)  四角の縁から 4.5 画素: 散らし 0.013 / 素朴 0.164(四角の中は 1.000)
+  [OK] <strong>手前のボケは、ピントの合った背景の上へ広がる</strong>(素朴に集めると、切り抜いたような輪郭が残る)  四角の縁から 4.5 画素: 散らし 0.149 / 素朴 0.000(円の欠けた部分の面積の割合は 0.16)
+  [OK] <strong>深度から戻した奥行きと錯乱円が、CPU で計った値と一致</strong>(地図は1回作って、被写界深度が読む)  箱の上面 4.41m / -0.32px(期待 4.43 / -0.31)  手前の床 4.79m / +0.18px(期待 4.79 / +0.19)  奥の床 6.86m / +2.00px(期待 6.86 / +2.00)
+  [OK] <strong>カメラの数字を挿したフレームだけ掛かる</strong>(自己チェックが後処理を単独で回しても割り込まない)  挿さない 1 パス / 挿す 8 パス(地図 4 + 被写界深度 3)
+  [OK] 代償: 地図は原寸の RG16F と升目3枚(横・縦・近所)、被写界深度は半分の大きさ3枚と原寸1枚  地図 2.7MB / 被写界深度 8.2MB(TAA の履歴は 9.4MB)
+  [OK] 錯乱円の式が C# と GLSL で同じ形(L × (1/S − 1/z))
+  [OK] <strong>奥行きに戻すのは blur-field.frag の1か所だけ</strong>(被写界深度は地図を読む。Day 50 の particle.frag にもう1つある)  今日のシェーダ 6 本のうち blur-field.frag
+  [OK] 撒く点の数が C# とシェーダで同じ  被写界深度 48 点
+  すべて合格(錯乱円の式・ボケの集め方・後処理への差し込みが仕様どおり)</code></pre></div>
+<h3 id="s40">検証の途中で分かったこと</h3>
+<p><strong>1. 決めの構図に被写界深度を入れても、1画素も変わらなかった</strong>(今日の冒頭の話)。最初に疑ったのは「掛かっていない」ことで、HUD は <code>被写界深度:ON</code>、パスの数も 11 → 18 に増えていた。錯乱円を見ると、ピントの帯に何も無い構図の中で、奥の壁でも半径 1 画素に届いていない。計算すると、画角 40 度・f/1.4・画面の高さ 640 のレンズの係数は L = 10.35 [画素・m] で、<strong>無限遠のボケが 1 画素になるピントの奥行きがちょうど 10.35m</strong>——決めの構図のピント(10.5m)はほぼ過焦点距離だった。重ねる段は半径 1 画素未満を原寸の絵のまま出すので、差は 0 になる。<strong>物理に合わせたボケは、思ったよりボケない</strong>。映画の絵がボケて見えるのは、寄っているか、望遠で撮っているか(同じ F 値で画角を半分にすると約4倍)。デモの絵づくりでボケを使うなら、ショットごとに画角と F 値を決めることになる(Day 56 の仕事)。</p>
+<p><strong>2. 升目の最大を1段で取ると、地図が被写界深度と同じくらい重かった</strong>。GPU の時間を見ると、奥行きと錯乱円を出すだけのはずの「地図」が 0.35ms で、48 点を読む被写界深度の本体(0.5ms)と変わらなかった。原因は升目の段で、16x16 を1画素で全部なめるので1画素が 512 回読む(速度と錯乱円)。升目は 960x640 で 2400 個しかなく、GPU が同時に走らせて待ち時間を隠すには少なすぎる。<strong>横 16 → 縦 16 の2段に分ける</strong>と、1段目は 60x640 = 38400 画素がそれぞれ 16 画素ずつ読むだけになり、同じ構図で 0.35ms → 0.09ms になった。<strong>「読む回数の合計」より「同時に走る画素の数」が効く</strong>場面で、GPU の書き方としていちばん大事な勘所の1つ。</p>
+<p><strong>3. カメラワークを再生したままプレイアブルデモに入ると、追従カメラが勝手に回った</strong>(Day 51 からの不備。Day 51 まで遡って直した)。検証用の手順で、カメラワークを回したあとにキツネを出したら、内訳のピントが 3.20m(『ゴミ箱の金属』の距離)になっていた。追従カメラの距離のはずが、カメラワークのショットの距離になっていた。<code>UpdateDemoCamera</code> は再生中なら <code>_orbit</code> の方位・仰角・距離を毎フレーム書き、<code>UpdateFollowCamera</code> はそれを借りて目の位置を決めるので、<strong>追従カメラがショットの並びに引きずられてキツネのまわりを回っていた</strong>。設計書は Day 51 から「プレイアブルデモとカメラワークは排他」と書いていたが、<code>ShowPlayableDemo</code> が止めていたのは機能ツアーだけだった。<code>_cameraPlaying = false</code> の1行を足し、<strong>Day 51〜54b の reference にも同じ場所・同じ文面で入れた</strong>(<code>Mesh.ReadIndices</code> を Day 35 まで遡って直したのと同じ扱い)。文面を揃えてあるので、Day 54b と今日の差分には出ない。すでに Day 51〜54b を写経していれば、その1行を足し直すこと。</p>
+<p><strong>4. 「ピントの合った絵は変わらない」が 2E-4 で落ちた</strong>。被写界深度は何もしていないのに、出てきた絵が作った絵と 0.0002 違った。0.2 と 0.8 の市松模様を RGBA16F に流し込んだ時点で、0.8 が 0.7998 に丸まっていた(16F は 0.5〜1.0 で 0.0005 刻み)。比べる相手を「流し込んだ絵を読み返したもの」にすると差は 0 になった。<strong>確かめたいものの手前で、入力が丸まっていないか</strong>——Day 54a で深度テストを切ったまま描いていた話と同じ種類の、検査側の穴。</p>
+<p><strong>5. 明るい点のボケの縁が、半径より 4 画素外まで広がっていた</strong>。「半径 7.8 の円の外は真っ暗」を半径 11 で見ると 0.013 残っていた。半分の大きさの絵を双線形で2回読む(集めるときと、原寸で重ねるときのテント)ので、縁が 1 回につき 2 画素ずつなだらかになる。半径 12 の外では 0.004。<strong>半分の大きさで集める代金は、ボケの縁の甘さ</strong>で払っている。ボケは縁が柔らかいほうが自然に見えるので、実害は無い。</p>
+</section>
+<footer class="end">Day 55a 被写界深度(レンズの口径を、カメラに戻す) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/camerablur.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, stat } = Lab;
+const CB = CameraBlur;
+const deg = Math.PI / 180;
+
+// ============================================================
+//  要点2・3: 錯乱円の曲線
+// ============================================================
+const SHOTS = { key: { fov: 40, focus: 10.5 }, bin: { fov: 35, focus: 3.2 }, fox: { fov: 41, focus: 2.8 } };
+const cc = { shot: 'bin', f: 1.4, k: 1, thin: false };
+function drawCoc() {
+  const { ctx, w, h } = fit($('coc-canvas'));
+  const s = SHOTS[cc.shot], fov = s.fov * deg, S = s.focus * cc.k, L = CB.lensScale(fov, cc.f, 640);
+  const Lm = 52, R = w - 14, T = 12, B = h - 26, X = (z) => Lm + Math.log10(z / 0.3) / Math.log10(100 / 0.3) * (R - Lm), Y = (c) => (T + B) / 2 - c / 20 * ((B - T) / 2);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (const c of [-20, -16, -8, 0, 8, 16, 20]) { ctx.beginPath(); ctx.moveTo(Lm, Y(c)); ctx.lineTo(R, Y(c)); ctx.stroke(); ctx.fillText(`${c > 0 ? '+' : ''}${c}`, 6, Y(c) + 4); }
+  for (const z of [0.3, 1, 3, 10, 30, 100]) { ctx.beginPath(); ctx.moveTo(X(z), T); ctx.lineTo(X(z), B); ctx.stroke(); ctx.fillText(`${z}m`, X(z) - 10, h - 8); }
+  // 1 画素の帯(ここに入る奥行きは原寸の絵のまま)と ±16 の上限
+  ctx.fillStyle = 'rgba(120,200,120,0.18)'; ctx.fillRect(Lm, Y(1), R - Lm, Y(-1) - Y(1));
+  ctx.strokeStyle = tok('--warn'); ctx.setLineDash([4, 4]); for (const c of [-16, 16]) { ctx.beginPath(); ctx.moveTo(Lm, Y(c)); ctx.lineTo(R, Y(c)); ctx.stroke(); } ctx.setLineDash([]);
+  const curve = (fn, color, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); for (let i = 0; i <= 500; i++) { const z = 0.3 * Math.pow(100 / 0.3, i / 500), c = Math.max(Math.min(fn(z), 20), -20); if (i === 0) ctx.moveTo(X(z), Y(c)); else ctx.lineTo(X(z), Y(c)); } ctx.stroke(); ctx.setLineDash([]); };
+  curve((z) => CB.coc(z, S, L), tok('--semi'));
+  if (cc.thin) curve((z) => CB.thinLensCoc(z, S, fov, cc.f, 640), tok('--expl'), [5, 4]);
+  ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(X(S), T); ctx.lineTo(X(S), B); ctx.stroke(); ctx.fillStyle = tok('--ink'); ctx.fillText(`ピント ${S.toFixed(2)}m`, X(S) + 4, T + 12);
+  const inf = L / S, near1 = 1 / (1 / S + 1 / L), far1 = L > S ? 1 / (1 / S - 1 / L) : Infinity;
+  $('coc-legend').innerHTML = `<span class="lg"><i class="chip" style="background:${tok('--semi')}"></i>錯乱円 L × (1/S − 1/z)</span><span class="lg"><i class="chip" style="background:rgba(120,200,120,0.6)"></i>1 画素未満(原寸の絵のまま)</span><span class="lg"><i class="chip" style="background:${tok('--warn')}"></i>上限 ±16 画素</span>${cc.thin ? `<span class="lg"><i class="chip" style="background:${tok('--expl')}"></i>薄レンズの式</span>` : ''}`;
+  $('coc-stats').innerHTML =
+    stat('焦点距離 → 口径', `${(CB.focalLength(fov) * 1000).toFixed(1)} → ${(CB.aperture(fov, cc.f) * 1000).toFixed(1)}`, ' <small>mm</small>') +
+    stat('係数 L', L.toFixed(2), ' <small>画素・m(= 過焦点距離 [m])</small>') +
+    stat('無限遠のボケ', inf.toFixed(1), ` <small>画素(半径)${inf > 16 ? '。上限 16 で切る' : ''}</small>`) +
+    stat('1 画素未満の帯', `${near1.toFixed(2)}〜${Number.isFinite(far1) ? far1.toFixed(2) : '∞'}`, ' <small>m</small>');
+  let note;
+  if (cc.shot === 'key' && cc.k === 1 && cc.f === 1.4) note = '決めの構図はピント 10.5m が係数 L(10.35)とほぼ同じ——過焦点距離。半分の奥行き(5.25m)から無限遠までが半径 1 画素の中に収まるので、被写界深度を入れても1画素も変わらない。';
+  else if (cc.k === 0.5) note = 'ピントを手前に外すと、無限遠のボケ L / S が倍になり、見ている物(注視点)もぼける。';
+  else if (cc.k === 2) note = 'ピントを奥に外すと、奥のボケは半分になり、注視点の物が手前側(負)へぼける。手前のボケは上限が無いので、近い物ほど急に大きくなる。';
+  else note = `奥のボケは L / S(${inf.toFixed(1)} 画素)で頭打ちになり、手前のボケには上限が無い。ピントの半分の奥行き(${(S / 2).toFixed(2)}m)は無限遠と同じ大きさにぼける。F 値を倍にするとボケは半分。`;
+  $('coc-note').textContent = note;
+}
+seg('coc-shot', (v) => { cc.shot = v; drawCoc(); });
+seg('coc-f', (v) => { cc.f = Number(v); drawCoc(); });
+seg('coc-focus', (v) => { cc.k = Number(v); drawCoc(); });
+$('coc-thin').addEventListener('change', (e) => { cc.thin = e.target.checked; drawCoc(); });
+drawCoc();
+
+// ============================================================
+//  要点4〜7: 作り物の絵でボケを集める
+// ============================================================
+const W = 128, H = 64, FOCUS = 2, FAR = 100, ROW = 32, BESIDE = 76;
+const dl = { kase: 'halo', scatter: true, L: 16, debug: false, tiles: false, noTiles: false, clip: false };
+const sq = (x, y) => x >= 56 && x < 72 && y >= 24 && y < 40;
+const CASES = {
+  halo: { c: (x, y) => (sq(x, y) ? 1 : 0), d: (x, y) => (sq(x, y) ? FOCUS : FAR) },
+  spread: { c: (x, y) => (sq(x, y) ? 1 : 0), d: (x, y) => (sq(x, y) ? 1 : FOCUS) },
+  dot: { c: (x, y) => (x === 64 && y === 32 ? (dl.clip ? 1 : 50) : 0.02), d: () => FAR },
+  check: { c: (x, y) => (((x >> 2) + (y >> 2)) % 2 === 0 ? 0.2 : 0.8), d: () => FOCUS },
+};
+let off = null;
+function drawDof() {
+  const k = CASES[dl.kase];
+  const scene = new Float32Array(W * H * 3), depth = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { scene.fill(CB.half(k.c(x, y)), (y * W + x) * 3, (y * W + x) * 3 + 3); depth[y * W + x] = k.d(x, y); }
+  const bf = CB.buildField(W, H, depth, null, dl.L, FOCUS);
+  const out = CB.renderDof(scene, bf, { scatter: dl.scatter, debug: dl.debug, noTiles: dl.noTiles });
+  const { ctx, w, h } = fit($('dof-canvas'));
+  if (!off) { off = document.createElement('canvas'); off.width = W; off.height = H; }
+  const img = new ImageData(W, H);
+  // 行 0 が GL の下の行なので、上下を返して描く
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, o = ((H - 1 - y) * W + x) * 4;
+    for (let c = 0; c < 3; c++) img.data[o + c] = Math.round(255 * Math.pow(Math.min(Math.max(out[i * 3 + c], 0), 1), 1 / 2.2));
+    img.data[o + 3] = 255;
+  }
+  off.getContext('2d').putImageData(img, 0, 0);
+  const s = Math.min(w / W, h / H), ox = (w - W * s) / 2, oy = (h - H * s) / 2;
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, ox, oy, W * s, H * s);
+  if (dl.tiles) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = '#fff';
+    for (let ty = 0; ty < bf.ty; ty++) for (let tx = 0; tx < bf.tx; tx++) {
+      const x0 = ox + tx * 16 * s, y0 = oy + (H - (ty + 1) * 16) * s;
+      ctx.strokeRect(x0, y0, 16 * s, 16 * s);
+      const near = bf.neighbors[(ty * bf.tx + tx) * 4 + 2];
+      if (near < -0.5) ctx.fillText(near.toFixed(1), x0 + 3, y0 + 13);
+    }
+  }
+  const probe = (x, y) => { ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ox + (x + 0.5) * s, oy + (H - 1 - y + 0.5) * s, 6, 0, Math.PI * 2); ctx.stroke(); };
+  const R = (x, y = ROW) => out[(y * W + x) * 3];
+  let html;
+  if (dl.kase === 'dot') {
+    let e = 0, mn = 1e9, mx = 0; const dark = 0.02;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const v = R(x, y); e += v - dark; const r = Math.hypot(x - 64, y - 32); if (r <= 5) mn = Math.min(mn, v - dark); else if (r >= 12) mx = Math.max(mx, v - dark); }
+    html = stat('光の総量', e.toFixed(1), ` <small>/ ${dl.clip ? 1 : 50}</small>`) + stat('半径 5 の内側の最小', mn.toFixed(dl.clip ? 4 : 2)) + stat('半径 12 の外側の最大', mx.toFixed(3)) + stat('ボケの半径', CB.coc(FAR, FOCUS, dl.L).toFixed(1), ' <small>画素</small>');
+  } else if (dl.kase === 'check') {
+    let worst = 0; for (let i = 0; i < W * H * 3; i++) worst = Math.max(worst, Math.abs(out[i] - scene[i]));
+    html = stat('元の絵との最大の差', worst.toExponential(1));
+  } else {
+    probe(BESIDE, ROW);
+    html = stat('四角の縁から 4.5 画素', R(BESIDE).toFixed(3)) + stat('四角の中', R(64).toFixed(3)) + stat('ボケの半径', (dl.kase === 'halo' ? CB.coc(FAR, FOCUS, dl.L) : CB.coc(1, FOCUS, dl.L)).toFixed(1), ' <small>画素</small>');
+  }
+  $('dof-stats').innerHTML = html;
+  let note;
+  if (dl.debug) note = '錯乱円の表示。手前(負)は青、奥(正)は橙、1 画素未満は元の絵を暗く。';
+  else if (dl.kase === 'halo') note = dl.scatter ? '散らしとして集めると、奥の層は「自分と相手の小さいほうの半径」で混ぜるので、ピントの合った四角(半径 0)は奥のボケに混ざらない。印の画素は 0.013。' : '自分の半径で素朴に集めると、ぼけた奥の画素の円の中に四角が入るので、四角の色が奥へにじみ出す(ハロー)。印の画素は 0.164。';
+  else if (dl.kase === 'spread') note = dl.noTiles ? '近所の升目を見ないと、ピントの合った背景の画素は自分の半径(0)で帰ってしまい、手前のボケが届かない——散らしとして集めても、升目が無いと手前のボケは輪郭で止まる(要点5)。' : dl.scatter ? '手前の層は「相手の半径」が届けば混ぜるので、ピントの合った背景の上にも手前の四角のボケが被さる。背景の画素は近所の升目(いちばん手前の錯乱円 −8)を見て、探す半径を広げている。' : '素朴に集めると、ピントの合った背景の画素は自分の半径 0 で何も集めず、手前のボケが四角の輪郭で切り抜いたように止まる。';
+  else if (dl.kase === 'dot') note = dl.clip ? '1.0 で切ってからぼかすと、点の光は円に薄まって 0.005 しか残らず、ボケが見えなくなる。HDR のまま(50)ぼかすから丸いボケになる。' : '50 の明るい点を奥に置くと、半径 7.8 画素の丸いボケになり、光の総量はほぼ保たれる。縁は半分の大きさの絵を双線形で2回読むぶん、少し外まで柔らかい。';
+  else note = 'ピントの合った絵(錯乱円 0)は、重ねる段が原寸の絵をそのまま出すので1画素も変わらない。';
+  $('dof-note').textContent = note;
+}
+seg('dof-case', (v) => { dl.kase = v; drawDof(); });
+seg('dof-gather', (v) => { dl.scatter = v === 'scatter'; drawDof(); });
+seg('dof-l', (v) => { dl.L = Number(v); drawDof(); });
+for (const [id, key] of [['dof-debug', 'debug'], ['dof-tiles', 'tiles'], ['dof-notiles', 'noTiles'], ['dof-clip', 'clip']]) $(id).addEventListener('change', (e) => { dl[key] = e.target.checked; drawDof(); });
+drawDof();
+window.addEventListener('resize', () => { drawCoc(); drawDof(); });
+})();
+</script>
+</body>
+</html>
