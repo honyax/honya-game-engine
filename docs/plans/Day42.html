@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 42 アニメーション制御</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2行</a></li><li class="l3"><a href="#s3">今日はシェーダに1文字も触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. クリップの合成は、必ず TRS の段でやる</a></li><li class="l3"><a href="#s7">2. 3本以上を混ぜるときは、slerp ではなく weighted nlerp</a></li><li class="l3"><a href="#s8">3. 位相同期 — 長さの違うクリップを、同じ物差しに乗せる</a></li><li class="l3"><a href="#s9">4. ブレンドツリーとステートマシンは、別のものを表している</a></li><li class="l3"><a href="#s10">5. クロスフェードとヒステリシス — 状態機械の2つの必需品</a></li><li class="l3"><a href="#s11">6. 重みの合計は、ここでも 1 でなければならない</a></li><li class="l3"><a href="#s12">7. <code>ClipWeight</code> — 決め方を知らない型を1つ挟む</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">「決める側」と「混ぜる側」を分けた線</a></li><li class="l3"><a href="#s19"><code>_time</code> を <code>_phase</code> に変えたこと</a></li><li class="l3"><a href="#s20"><code>PoseAccumulator</code> を struct にした理由</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. <code>Shift+Alt+F1</code>: キツネが歩き出し、走り出す</a></li><li class="l3"><a href="#s23">2. <code>Shift+Alt+F3</code>: 位相同期を切る</a></li><li class="l3"><a href="#s24">3. <code>Shift+Alt+F2</code>: ブレンドツリーとステートマシンを見比べる</a></li><li class="l3"><a href="#s25">4. <code>Shift+Alt+F8</code>: クロスフェードを 0 秒にする</a></li><li class="l3"><a href="#s26">5. <code>Shift+Alt+F5</code> / <code>F6</code> / <code>F7</code>: 速度を手で置く</a></li><li class="l3"><a href="#s27">6. <code>Shift+Alt+F9</code>: 内訳を出す</a></li><li class="l3"><a href="#s28">7. Day 41 までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">8. <code>Shift+Alt+F12</code>: 自己チェック(28 項目すべて合格)</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): ツリーの点の速度を、実測で決める</a></li><li class="l3"><a href="#s32">課題2(中): クロスフェードを「今のポーズから」始める</a></li><li class="l3"><a href="#s33">課題3(難): 部位マスク付きレイヤーを足す</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">自己チェック(28 項目すべて合格)</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 42 / 計画書</p>
+  <h1>アニメーション制御</h1>
+  <p class="lede">ブレンドと簡易ステートマシン</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2行</a></li><li class="l3"><a href="#s3">今日はシェーダに1文字も触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. クリップの合成は、必ず TRS の段でやる</a></li><li class="l3"><a href="#s7">2. 3本以上を混ぜるときは、slerp ではなく weighted nlerp</a></li><li class="l3"><a href="#s8">3. 位相同期 — 長さの違うクリップを、同じ物差しに乗せる</a></li><li class="l3"><a href="#s9">4. ブレンドツリーとステートマシンは、別のものを表している</a></li><li class="l3"><a href="#s10">5. クロスフェードとヒステリシス — 状態機械の2つの必需品</a></li><li class="l3"><a href="#s11">6. 重みの合計は、ここでも 1 でなければならない</a></li><li class="l3"><a href="#s12">7. <code>ClipWeight</code> — 決め方を知らない型を1つ挟む</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">「決める側」と「混ぜる側」を分けた線</a></li><li class="l3"><a href="#s19"><code>_time</code> を <code>_phase</code> に変えたこと</a></li><li class="l3"><a href="#s20"><code>PoseAccumulator</code> を struct にした理由</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. <code>Shift+Alt+F1</code>: キツネが歩き出し、走り出す</a></li><li class="l3"><a href="#s23">2. <code>Shift+Alt+F3</code>: 位相同期を切る</a></li><li class="l3"><a href="#s24">3. <code>Shift+Alt+F2</code>: ブレンドツリーとステートマシンを見比べる</a></li><li class="l3"><a href="#s25">4. <code>Shift+Alt+F8</code>: クロスフェードを 0 秒にする</a></li><li class="l3"><a href="#s26">5. <code>Shift+Alt+F5</code> / <code>F6</code> / <code>F7</code>: 速度を手で置く</a></li><li class="l3"><a href="#s27">6. <code>Shift+Alt+F9</code>: 内訳を出す</a></li><li class="l3"><a href="#s28">7. Day 41 までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">8. <code>Shift+Alt+F12</code>: 自己チェック(28 項目すべて合格)</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): ツリーの点の速度を、実測で決める</a></li><li class="l3"><a href="#s32">課題2(中): クロスフェードを「今のポーズから」始める</a></li><li class="l3"><a href="#s33">課題3(難): 部位マスク付きレイヤーを足す</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">自己チェック(28 項目すべて合格)</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 41 で「クリップを1本、正しく再生する」ところまで来た。今日はその上に<strong>複数のクリップを混ぜる仕組み</strong>を載せる。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Shift+Alt+F1</code> を押すと、キツネの移動速度が 0 ↔ 3.2m/s を往復し、それに応じて立ち止まり → 歩き → 走りが連続的に混ざる。</strong></p>
+<p><code>Shift+Alt+F3</code> で位相同期を切ると、同じ重みのまま<strong>足が合わなくなる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+Alt+F1</code></td><td>Fox を出して、速度を自動で上下させながらブレンド</td></tr>
+<tr><td><code>Shift+Alt+F2</code></td><td>決め方(OFF / ブレンドツリー / ステートマシン)を切り替える</td></tr>
+<tr><td><code>Shift+Alt+F3</code></td><td><strong>位相同期 ON/OFF</strong>。今日いちばん効く見比べ</td></tr>
+<tr><td><code>Shift+Alt+F8</code></td><td>クロスフェード 0 / 0.1 / 0.25 / 0.5 秒。<strong>0 秒だと足がワープする</strong></td></tr>
+<tr><td><code>Shift+Alt+F9</code></td><td>今の混合の内訳(重み・各クリップの再生位置)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な2行</h3>
+<div class="code"><span class="lang">csharp</span><pre><code>// 「どのクリップを、どれだけ」——決め方はブレンドツリーでもステートマシンでもよい
+_animation.SetBlend([new ClipWeight(walk, 0.5f), new ClipWeight(run, 0.5f)]);
+
+// 混ぜるのは TRS の段。行列にしてしまうと、もうこれができない
+_accumulator[i].Add(_scratch[i], entry.Weight);</code></pre></div>
+<p>Day 41 で <code>NodePose</code>(平行移動・回転・拡大の3点セット)という型をわざわざ作った。<strong>その配当を回収するのが今日</strong>になる。</p>
+<h3 id="s3">今日はシェーダに1文字も触らない</h3>
+<p>差分は <code>Model/</code> と <code>Program.cs</code> だけ。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。</p>
+<p>混ぜる場所を<strong>姿勢の段</strong>に置いたので、下流(世界行列 → 関節行列 → 頂点ブレンディング)から見ると「ポーズが1つ決まった」以上のことは起きていない。Day 41 の設計がここで効いていて、<strong>上流で混ぜる形にしておくと、何本混ぜても GPU 側は何も知らなくてよい</strong>。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li>ゲームグラフィックス特論 A-5「変換(3) 座標値の生成とブレンディング」<a href="https://tokoik.github.io/gg/">https://tokoik.github.io/gg/</a> Day 41 と同じ回。<strong>後半のブレンディングの節が今日の範囲</strong>。</li><li>特論 A-4「変換(2) 四元数による回転と補間」<a href="https://tokoik.github.io/gg/">https://tokoik.github.io/gg/</a> slerp と nlerp の違い。今日は「3本以上を混ぜる」ので nlerp 側の話になる。</li><li>glTF 2.0 仕様の Animations の節<a href="https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#animations">https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#animations</a> <strong>仕様にブレンドの話は1行も無い</strong>。「複数のアニメーションを同時に動かしてよいか、どう混ぜるか」は実装に任されている、という確認のために読む。</li><li>Fox のクリップ構成(Survey / Walk / Run) <a href="https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox">https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox</a> README に「これらは同じ関節を動かすので、一度に1本だけ再生すること」と書いてある。<strong>今日はそれをあえて破る</strong>——だから位相を合わせる必要が出る。</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. クリップの合成は、必ず TRS の段でやる</h3>
+<p>Day 41 の要点3で書いたことの回収。</p>
+<div class="code"><pre><code>  TRS(平行移動・回転・拡大)  →  混ぜられる
+  行列                        →  混ぜられない</code></pre></div>
+<p>回転行列を成分ごとに平均すると、<strong>回転行列でなくなる</strong>。90 度回転と 0 度回転を 50:50 で足すと、45 度回転ではなく縮んだ行列が出る。クォータニオンなら slerp で 45 度が出る。</p>
+<p>だから <code>AnimationPlayer.Evaluate</code> の段取りは、混ぜる段を<strong>行列を作る前</strong>に置く。</p>
+<div class="code"><pre><code>  1. クリップごとに姿勢を評価      NodePose[]
+  2. 重み付きで足し込む            ← ここが Day 42 で増えた段
+  3. 姿勢を確定
+  4. 行列にして木を降りる          ← ここから先は Day 41 と1文字も同じ
+  5. 関節行列</code></pre></div>
+<p><strong>4 と 5 に手を入れずに済んだ</strong>のが、この順番にしておいた配当。逆に「行列を混ぜる」設計にしていたら、今日は全部書き直しになっていた。</p>
+<div class="inject"><ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">クリップごとに姿勢を評価</div>
+    <div class="rw"><span>読む <b>位相 × 各クリップの長さ</b></span><span>書く <b>_scratch[i](NodePose)</b></span></div>
+    <div class="swap">位相同期を切っていれば、各クリップは自分の秒(_clipTimes)で回る</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">重み付きで足し込む(Day 42 で増えた段)</div>
+    <div class="rw"><span>読む <b>_scratch、ClipWeight.Weight</b></span><span>書く <b>_accumulator[i](PoseAccumulator)</b></span></div>
+    <div class="swap">回転は符号を揃えてから足す(要点2)</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">姿勢を確定</div>
+    <div class="rw"><span>読む <b>_accumulator</b></span><span>書く <b>_pose[i]</b></span></div>
+    <div class="swap">重みの合計で割り、回転は正規化する(要点6)</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">行列にして木を降りる</div>
+    <div class="rw"><span>読む <b>_pose、NodeOrder</b></span><span>書く <b>_world[i]</b></span></div>
+    <div class="swap">Day 41 と1文字も同じ。混ぜる段を行列より前に置いたので触らずに済んだ</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">関節行列</div>
+    <div class="rw"><span>読む <b>_world、IBM</b></span><span>書く <b>joint[j]</b></span></div>
+    <div class="swap">同上。シェーダも1文字も変わらない</div>
+  </div></li>
+</ol></div>
+<h3 id="s7">2. 3本以上を混ぜるときは、slerp ではなく weighted nlerp</h3>
+<p>2本なら slerp で足りる。問題は3本以上で、<strong>ブレンドツリーの2本 + クロスフェード中の前の状態の2本 = 4本</strong>が同時に効くことがある。</p>
+<p>slerp を入れ子にすると2つ困る。</p>
+<ul><li><strong>混ぜる順番で答えが変わる</strong>(slerp は結合的でない)</li><li>「重み 0.3」が何に対する 0.3 なのかが分からなくなる</li></ul>
+<p>そこで実際のエンジンと同じ手を使う。</p>
+<div class="code"><pre><code>  平行移動・拡大 … 重み付きの和 ÷ 重みの合計
+  回転           … 重み付きで足してから正規化(weighted nlerp)</code></pre></div>
+<p>nlerp は slerp と厳密には違う——<strong>回る速さが一定にならない</strong>——が、差が出るのは元の2つが大きく離れているときで、<strong>中点(t = 0.5)では slerp と完全に一致する</strong>。歩きと走りのように似た歩容を混ぜるぶんには、この近似で十分。自己チェックが「50:50 の合成が Lerp と一致」で確かめている。</p>
+<p><strong>符号を揃えるのが肝</strong>。クォータニオンは <code>q</code> と <code>-q</code> が同じ向きを表すので、揃えずに足すと<strong>打ち消し合って長さが 0 に近づく</strong>。そのまま正規化すると、まったく関係のない向きが出る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (Quaternion.Dot(_reference, rotation) &lt; 0.0f) { rotation = -rotation; }</code></pre></div>
+<p>最初に足したものを基準にして、内積が負なら裏返してから足す。自己チェックの「揃えずに足すと長さが 0 になる」がこの実演。</p>
+<div class="inject"><figure class="lab" id="mix-lab">
+  <div class="lab-head">
+    <h3>3本の回転を混ぜる</h3>
+    <span>
+      <span class="legend"><i style="background:var(--semi)"></i>weighted nlerp</span>
+      <span class="legend"><i style="background:var(--expl)"></i>slerp の入れ子</span>
+    </span>
+  </div>
+  <div class="stage"><canvas id="mix-canvas" style="height:280px" aria-label="回転の合成"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">A の向き / 重み</span>
+      <div class="range"><input type="range" id="mix-aa" min="-180" max="180" step="1" value="0"><input type="range" id="mix-wa" min="0" max="1" step="0.01" value="0.4" style="width:100px"><output id="mix-a-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">B の向き / 重み</span>
+      <div class="range"><input type="range" id="mix-ab" min="-180" max="180" step="1" value="80"><input type="range" id="mix-wb" min="0" max="1" step="0.01" value="0.4" style="width:100px"><output id="mix-b-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">C の向き / 重み</span>
+      <div class="range"><input type="range" id="mix-ac" min="-180" max="180" step="1" value="150"><input type="range" id="mix-wc" min="0" max="1" step="0.01" value="0.2" style="width:100px"><output id="mix-c-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="mix-neg" checked> B を −q で持っている(同じ向き)</label>
+    <label class="check"><input type="checkbox" id="mix-align" checked> 符号を揃えてから足す(PoseAccumulator.Add)</label>
+    <div class="ctl"><span class="label">例</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="btn" data-mix="0,0.5,80,0.5,150,0">2本を 50:50(slerp と一致)</button>
+        <button class="btn" data-mix="0,0.4,80,0.4,150,0.2">3本</button>
+        <button class="btn" data-mix="10,0.5,10,0.5,0,0">同じ向きを ±q で</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="mix-stats"></div><p id="mix-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 位相同期 — 長さの違うクリップを、同じ物差しに乗せる</h3>
+<p><strong>今日いちばん大事な考え方</strong>。Fox のクリップの長さはこうなっている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クリップ</th><th>長さ</th></tr></thead>
+<tbody>
+<tr><td>Survey(立ち止まり)</td><td>3.417s</td></tr>
+<tr><td>Walk</td><td>0.708s</td></tr>
+<tr><td>Run</td><td>1.158s</td></tr>
+</tbody>
+</table></div>
+<p>歩きと走りを 50:50 で混ぜるとき、<strong>秒で合わせてはいけない</strong>。0.3 秒の時点で、歩きは1周の 42%、走りは 26% を指す——つまり「歩きの左足が前に出ている瞬間」と「走りの右足が前に出ている瞬間」を混ぜることになる。結果は足が地面をこすり、歩幅が縮み、体が沈む。</p>
+<p>正しくは<strong>正規化した位置(位相)で合わせる</strong>。</p>
+<div class="code"><pre><code>  位相 0.37  →  歩き 0.37 × 0.708 = 0.261s
+                走り 0.37 × 1.158 = 0.427s</code></pre></div>
+<p>こうすれば「1周のうち同じところ」どうしが混ざる。リファレンスでは <strong>再生位置そのものを秒から位相(0〜1)へ変えた</strong>——Day 41 の <code>_time</code> が <code>_phase</code> になったのがこの日の中心的な変更。</p>
+<p>周期のほうは<strong>重み付きの平均</strong>にする。</p>
+<div class="code"><pre><code>  0.708 × 0.5 + 1.158 × 0.5 = 0.933 秒</code></pre></div>
+<p>走りに寄せるほど周期が短くなる、という当たり前のことが、この1行で手に入る。</p>
+<p><strong>同期を切るとどうなるか</strong>は <code>Shift+Alt+F3</code> で見られる。2本の周期は 0.708 と 1.158 で約分できないので、位相の関係が毎周期ずれていき、<strong>同じ歩容の瞬間なのに毎回ちがう姿勢になる</strong>。自己チェックがこれを数字で出していて、「1周ぶん進めたときの姿勢のずれ」が同期時 0、非同期時 70 になる。</p>
+<div class="inject"><figure class="lab" id="sync-lab">
+  <div class="lab-head">
+    <h3>歩き 0.708 秒と走り 1.158 秒を混ぜる(脚の振りの模式図)</h3>
+    <span class="tag">各クリップの脚の角度を sin で近似。歩き ±22°、走り ±38°</span>
+  </div>
+  <div class="split">
+    <div><canvas id="sync-fox" style="height:240px" aria-label="脚の振り"></canvas><div class="cap" id="sync-cap"></div></div>
+    <div><canvas id="sync-chart" style="height:240px" aria-label="混ぜた脚の角度"></canvas><div class="cap">混ぜた前脚の角度[度] / 直近 6 秒</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">走りの重み(残りが歩き)</span>
+      <div class="range"><input type="range" id="sync-w" min="0" max="1" step="0.01" value="0.5"><output id="sync-w-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="sync-on" checked> 位相同期(Shift+Alt+F3)</label>
+    <div class="ctl"><span class="label">再生速度</span>
+      <div class="seg" id="sync-speed"><button data-v="1" aria-pressed="false">1 倍</button><button data-v="0.5" aria-pressed="true">0.5 倍</button><button data-v="0.25" aria-pressed="false">0.25 倍</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sync-stats"></div></div>
+</figure></div>
+<h3 id="s9">4. ブレンドツリーとステートマシンは、別のものを表している</h3>
+<p>同じ入力(移動速度)を受けて、同じクリップを混ぜるのに、性格がまるで違う。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>速度 2.1m/s のとき</th><th>いつ混ざるか</th></tr></thead>
+<tbody>
+<tr><td>ブレンドツリー</td><td>歩き 0.50 / 走り 0.50</td><td><strong>常に</strong></td></tr>
+<tr><td>ステートマシン</td><td>走り 1.00</td><td><strong>移り変わる瞬間だけ</strong></td></tr>
+</tbody>
+</table></div>
+<p>どちらが正しいというものではなく、<strong>題材で決まる</strong>。</p>
+<ul><li><strong>移動の歩容は連続量</strong>。0.5m/s と 0.6m/s の違いは連続的に見えるべきなので、ブレンドツリーが向く</li><li><strong>攻撃・被弾・ジャンプは離散</strong>。「半分だけ攻撃している状態」に意味は無いので、ステートマシンが向く</li></ul>
+<p>実際のゲームは<strong>両方を重ねる</strong>。「ロコモーション」という1つの状態の中身がブレンドツリーになっていて、そこから「ジャンプ」状態へクロスフェードする、という形。今日は見比べるために2つを並列に置いてあるが、<strong>そのまま入れ子にできる形</strong>(どちらも出口が <code>ClipWeight</code> の並び)にしてある。</p>
+<h3 id="s10">5. クロスフェードとヒステリシス — 状態機械の2つの必需品</h3>
+<p>ステートマシンには、素朴に作ると必ず出る問題が2つある。</p>
+<p><strong>1つ目: 切り替えが飛ぶ</strong>。歩きから走りへ瞬間で切り替えると、足の位置が別の場所へワープする。だから<strong>クロスフェード</strong>で「前の状態の重みを 1 → 0、次の状態を 0 → 1」と時間をかけて移す。</p>
+<p><code>Shift+Alt+F8</code> で 0 秒にすると、この飛びをわざと見られる。長すぎる(0.5 秒)と今度は<strong>走り出しているのに歩きの脚が残る</strong>ので締まりが無い。実務では 0.1〜0.3 秒あたりに落ち着く。</p>
+<p><strong>2つ目: しきい値の上でばたつく</strong>。速度がちょうど境目にあると、毎フレーム状態が行き来し、クロスフェードが始まっては打ち切られる。絵がぶるぶる震えるので、すぐ分かるが原因は分かりにくい。</p>
+<p>直し方は<strong>上がるときと下がるときでしきい値をずらす</strong>(ヒステリシス)。</p>
+<div class="code"><pre><code>  歩き → 走り  … 速度 ≧ 2.08 で上がる
+  走り → 歩き  … 速度 &lt; 2.08 - 0.25 = 1.83 で下がる</code></pre></div>
+<p>自己チェックがこれを数えていて、しきい値をまたいで微小に振動させたとき、<strong>ヒステリシス 0 なら 100 フレームで 99 回、0.25 なら 1 回</strong>しか状態が変わらない。</p>
+<div class="inject"><figure class="lab" id="loco-lab">
+  <div class="lab-head">
+    <h3>速度から重みを決める2通り</h3>
+    <span>
+      <span class="legend"><i style="background:var(--muted)"></i>立ち止まり(Survey)</span>
+      <span class="legend"><i style="background:var(--semi)"></i>歩き(Walk)</span>
+      <span class="legend"><i style="background:var(--expl)"></i>走り(Run)</span>
+    </span>
+  </div>
+  <div class="stage"><canvas id="loco-canvas" style="height:300px" aria-label="重みの推移"></canvas></div>
+  <div class="hud" id="loco-hud"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">決め方(Shift+Alt+F2)</span>
+      <div class="seg" id="loco-mode"><button data-v="tree" aria-pressed="true">ブレンドツリー</button><button data-v="sm" aria-pressed="false">ステートマシン</button></div>
+    </div>
+    <div class="ctl"><span class="label">速度の動かし方</span>
+      <div class="seg" id="loco-drive"><button data-v="sweep" aria-pressed="true">自動(12 秒で往復)</button><button data-v="manual" aria-pressed="false">手で置く</button><button data-v="chatter" aria-pressed="false">2.08 の上で揺らす</button></div>
+    </div>
+    <div class="ctl"><span class="label">速度(手で置くとき)</span>
+      <div class="range"><input type="range" id="loco-speed" min="0" max="3.2" step="0.01" value="1.9"><output id="loco-speed-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">クロスフェード(Shift+Alt+F8)</span>
+      <div class="seg" id="loco-fade"><button data-v="0" aria-pressed="false">0s</button><button data-v="0.1" aria-pressed="false">0.1s</button><button data-v="0.25" aria-pressed="true">0.25s</button><button data-v="0.5" aria-pressed="false">0.5s</button></div>
+    </div>
+    <div class="ctl"><span class="label">ヒステリシス</span>
+      <div class="seg" id="loco-hys"><button data-v="0" aria-pressed="false">0</button><button data-v="0.25" aria-pressed="true">0.25</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="loco-stats"></div><p id="loco-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">6. 重みの合計は、ここでも 1 でなければならない</h3>
+<p>Day 41 の要点1(頂点の重み)とまったく同じ話が、クリップの階層でも出る。</p>
+<p>合計が 0.9 のまま混ぜると、平行移動と拡大が 0.9 倍になる——つまり<strong>モデル全体がわずかに縮み、原点へ寄る</strong>。1フレームだけなら気づかないが、重みが動くたびに大きさが揺れるので、「なんとなく息をしているように見える」という妙な症状になる。</p>
+<p>リファレンスでは2か所で守っている。</p>
+<ul><li><code>AnimationPlayer.SetBlend</code> が受け取った重みを<strong>合計 1 に正規化する</strong></li><li><code>PoseAccumulator.Resolve</code> が<strong>重みの合計で割る</strong></li></ul>
+<p>二重に見えるが、後者は「呼ぶ側が 0.9999 を渡してきたとき」の保険。<strong>同じ不変条件を、作る側と使う側の両方で守る</strong>のは、値が層をまたいで運ばれるときの定石になる。</p>
+<h3 id="s12">7. <code>ClipWeight</code> — 決め方を知らない型を1つ挟む</h3>
+<p>ブレンドツリーもステートマシンも、出口は同じ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal readonly record struct ClipWeight(int Clip, float Weight);</code></pre></div>
+<p><code>AnimationPlayer</code> は「なぜその重みなのか」を一切知らない。速度で決めたのか、状態遷移の途中なのか、手で置いたのかは呼ぶ側の都合。</p>
+<p>Day 40 の <code>FeatureToggles</code> が <code>Func&lt;bool&gt;</code> と <code>Action&lt;bool&gt;</code> しか知らなかったのと同じ形で、<strong>知識を持たない側に置くほうが、あとから別の決め方を足せる</strong>。Day 45 でキャラクターコントローラを繋ぐとき、「接地しているか」「壁に当たっているか」で重みを決める経路が増えるが、そのとき <code>AnimationPlayer</code> には手が入らない。</p>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Model/BlendTree1D.cs</code></td><td>1次元ブレンドツリー。<strong>速度 → 隣り合う2本の重み</strong>。状態を持たない</td></tr>
+<tr><td><code>Model/AnimationStateMachine.cs</code></td><td>簡易ステートマシン。状態・しきい値・ヒステリシス・クロスフェード</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th></tr></thead>
+<tbody>
+<tr><td><code>Model/ModelNode.cs</code></td><td><code>NodePose.Lerp</code> と <code>PoseAccumulator</code>(重み付き合成)</td></tr>
+<tr><td><code>Model/AnimationPlayer.cs</code></td><td><code>ClipWeight</code> / <code>SetBlend</code> / <code>SyncPhase</code> / <code>Phase</code> / <code>Rewind</code>。<strong>時刻が秒から位相へ</strong></td></tr>
+<tr><td><code>Program.cs</code></td><td>ロコモーションの組み立てと更新、<code>Shift+Alt+F1〜F12</code>、HUD、自己チェック</td></tr>
+</tbody>
+</table></div>
+<p><strong>シェーダは1本も変わっていない</strong>。<code>.vert</code> も <code>.frag</code> も Day 41 のまま。</p>
+<h3 id="s16">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。上から順に写せば、途中でビルドが通らなくなることは無い。</p>
+<ol><li><strong><code>Model/ModelNode.cs</code></strong> — <code>NodePose.Lerp</code> を足し、ファイル末尾に <code>PoseAccumulator</code> を新設。<strong>符号を揃える <code>Add</code> が今日の要点2そのもの</strong></li><li><strong><code>Model/AnimationPlayer.cs</code></strong> — いちばん変更が大きい。次の順に手を入れるとよい
+<ul><li>ファイル先頭に <code>ClipWeight</code>(<code>AnimationPlayer</code> の外側、名前空間の直下)</li><li>フィールド: <code>MaxBlendClips</code> / <code>_scratch</code> / <code>_accumulator</code> / <code>_blend</code> / <code>_blendCount</code> / <code>_clipTimes</code> / <code>_warnedTooManyClips</code>。<strong><code>_time</code> を <code>_phase</code> に置き換える</strong></li><li><code>ClipIndex</code> をフィールドから導出プロパティへ</li><li><code>Blend</code> / <code>Phase</code> / <code>Time</code> / <code>SyncPhase</code> / <code>Duration</code></li><li><code>SetBlend</code> / <code>Rewind</code>。<code>SelectClip</code> は <code>SetBlend</code> を呼ぶ形へ</li><li><code>Advance</code> に <code>_clipTimes</code> の更新を足し、<code>TimeOf</code> / <code>Wrap</code> を新設</li><li><code>Evaluate</code> の 1〜3 段を差し替え(<strong>4 と 5 は触らない</strong>)</li></ul></li><li><strong><code>Model/BlendTree1D.cs</code></strong>(新規) — 短い。<code>Evaluate</code> の場合分けだけ</li><li><strong><code>Model/AnimationStateMachine.cs</code></strong>(新規) — <code>Update</code> の while 2本がヒステリシス</li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li>フィールド(<code>LocomotionMode</code> / <code>_locomotion</code> / <code>_locomotionTree</code> / <code>_locomotionStates</code> / <code>_moveSpeed</code> / <code>_speedSweep</code> / <code>_sweepPhase</code> / <code>SweepSeconds</code> / <code>MaxMoveSpeed</code> / <code>CrossFadeSeconds</code> / <code>_crossFadeIndex</code> / <code>_blendScratch</code>)</li><li><code>BuildLocomotion</code> / <code>FindClip</code> / <code>UpdateLocomotion</code></li><li><code>LocomotionLabel</code> / <code>BlendLabel</code> / <code>DescribeBlend</code></li><li><code>SetModel</code> の2か所(捨てるところ / <code>BuildLocomotion</code> の呼び出しとクリップ一覧の表示)</li><li><code>OnUpdate</code> の <code>UpdateLocomotion</code> 呼び出し</li><li>HUD に <code>LocomotionLabel()</code> の1行</li><li><code>Alt+F10</code> を <code>SelectClip</code> から <code>Rewind</code> へ</li><li>キー(<code>Shift+Alt+F1〜F12</code>)。<strong><code>Alt+F</code> の塊より前</strong>に置くこと</li><li><code>RunLocomotionCheck</code> と <code>MeasureCycleDrift</code></li><li><code>OnLoad</code> のヘルプ</li></ul></li></ol>
+<p><strong>キーの位置がいちばん間違えやすい</strong>。<code>case Key.F1 when alt:</code>(Day 41)はShift+Alt+F1 でも成立するので、今日の塊を下に置くと<strong>キーが1つも届かない</strong>。</p>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> の中にクラスが2つ増えて、既存の2つに手が入っただけ。<code>Render/</code> も <code>shaders/</code> も1文字も変わっていない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Model/ClipWeight</code></td><td><code>Model/</code></td><td>「どのクリップを、どれだけ」。<strong>ブレンドの共通語</strong></td></tr>
+<tr><td><code>Model/PoseAccumulator</code></td><td><code>Model/</code></td><td>姿勢を重み付きで足し合わせる。<strong>符号を揃える</strong></td></tr>
+<tr><td><code>Model/BlendTree1D</code></td><td><code>Model/</code></td><td>速度 → 隣り合う2本の重み。<strong>状態を持たない</strong></td></tr>
+<tr><td><code>Model/AnimationStateMachine</code></td><td><code>Model/</code></td><td>状態・ヒステリシス・クロスフェード。<strong>状態を持つ</strong></td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Model/NodePose</code></td><td><code>Lerp</code>(2つの姿勢を混ぜる)</td></tr>
+<tr><td><code>Model/AnimationPlayer</code></td><td><code>SetBlend</code> / <code>Blend</code> / <code>SyncPhase</code> / <code>Phase</code> / <code>Rewind</code>。時刻が秒から位相へ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18">「決める側」と「混ぜる側」を分けた線</h3>
+<p>今日の設計はこの1本に尽きる。</p>
+<div class="code"><pre><code>  BlendTree1D          ─┐
+                        ├→  ClipWeight[]  →  AnimationPlayer  →  NodePose[]  →  関節行列
+  AnimationStateMachine ─┘
+      (決める側)                              (混ぜる側)</code></pre></div>
+<p>決める側は<strong>姿勢を1ミリも触らない</strong>。ノードも関節も骨格も知らず、知っているのは「クリップの番号」と「重み」だけ。混ぜる側は<strong>なぜその重みなのかを知らない</strong>。</p>
+<p>この線を引いた配当は3つ。</p>
+<p>1つ目。<strong>決め方を並べて見比べられる</strong>。ブレンドツリーとステートマシンは同じ口に刺さるので、<code>Shift+Alt+F2</code> で切り替えるだけで比較できる。片方を <code>AnimationPlayer</code> の中に書いていたら、こうはならない。</p>
+<p>2つ目。<strong>自己チェックが軽い</strong>。決める側は入力も出力もただの数値なので、28 項目のうち 19 項目が<strong>モデルを1体も読まずに走る</strong>。Day 40 の <code>CameraPath</code>、Day 39 の <code>SkyAnalysis</code> と同じ性格で、「GL を呼ばないクラス」がまた2つ増えたことになる。</p>
+<p>3つ目。<strong>入れ子にできる</strong>。ステートマシンの1つの状態の中身をブレンドツリーにする、という実際のゲームでよくある形が、どちらの型にも手を入れずに書ける。出口が同じ <code>ClipWeight[]</code> だから。</p>
+<h3 id="s19"><code>_time</code> を <code>_phase</code> に変えたこと</h3>
+<p>Day 41 の <code>AnimationPlayer</code> は再生位置を<strong>秒</strong>で持っていた。今日それを<strong>位相(0〜1)</strong>に変えている。これが今日いちばん深い変更で、理由は要点3のとおり——長さの違うクリップを同じ物差しに乗せるため。</p>
+<p>副作用が2つある。</p>
+<ul><li><code>Duration</code> が<strong>混ぜる重みで変わる</strong>。歩き 0.708 と走り 1.158 を 50:50 なら 0.933 秒。つまり <code>Time</code>(= <code>Phase × Duration</code>)は、重みを動かすと<strong>飛ぶ</strong></li><li>位相同期を切っている間は、<code>Phase</code> が「代表値」でしかなくなる。各クリップは <code>_clipTimes[]</code> の自分の秒で回っている</li></ul>
+<p>2つ目のために <code>_phase</code> と <code>_clipTimes</code> を<strong>両方とも常に進めて</strong>ある。片方だけにすると、<code>Shift+Alt+F3</code> で切り替えた瞬間に姿勢が飛ぶ。使わない値を進めておくのは無駄に見えるが、<strong>切り替えを連続にするための代償</strong>として払っている。</p>
+<h3 id="s20"><code>PoseAccumulator</code> を struct にした理由</h3>
+<p>ノードの数だけ(Fox なら 26 個)必要で、<strong>毎フレーム作り直す</strong>。class にすると 26 個のオブジェクトが毎フレーム GC のゴミになる。</p>
+<p>配列に入れておいて <code>Array.Clear</code> で初期化すれば、確保は起動時の1回だけになる。Day 26 の均一グリッドで「毎フレーム List を作らない」と書いたのと同じ判断で、<strong>1フレームに何度も使い捨てるものは、struct の配列にして使い回す</strong>。</p>
+<p><code>Add</code> が <code>in NodePose</code> を取るのも同じ理由(40 バイトの構造体をコピーしない)。</p>
+</section>
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day42 -c Release</code> で起動する。<strong>必ず <code>-c Release</code></strong>——<code>.hdr</code> の復号も太陽の抽出も CPU の総なめなので、Debug だと読み込みが数倍かかる。</p>
+<p>起動直後は Day 40 までの絵(DamagedHelmet)。今日の主役は <code>Shift+Alt+F1</code> から。</p>
+<h3 id="s22">1. <code>Shift+Alt+F1</code>: キツネが歩き出し、走り出す</h3>
+<p>床の上にキツネが出て、<strong>速度が 12 秒かけて 0 → 3.2m/s → 0 を往復する</strong>。それに合わせて立ち止まり → 歩き → 走り → 歩き → 立ち止まりと連続的に変わる。</p>
+<p>コンソールに出る:</p>
+<div class="code"><pre><code>  ロコモーション: 立ち止まり(0.0m/s) → 歩き(1.0m/s) → 走り(3.2m/s)  (Shift+Alt+F1 で再生)
+ロコモーション: ブレンドツリー。速度が 0 ↔ 3.2m/s を 12 秒で往復します
+  <strong>Shift+Alt+F3 で位相同期を切ると、足が合わなくなる</strong></code></pre></div>
+<p>HUD の3行目がこうなっていること:</p>
+<div class="code"><pre><code>ロコモーション:ブレンドツリー  速度:2.10m/s(自動)  位相同期:ON  フェード:0.25s
+  周期:0.93s  位相:0.37  混合:Walk0.50+Run0.50</code></pre></div>
+<p><strong><code>混合:</code> の数字が連続に動いている</strong>ことを確かめる。<code>Walk1.00</code> から <code>Run1.00</code> へ飛んでいたら、ブレンドツリーではなくステートマシンになっている(<code>Shift+Alt+F2</code> を押しすぎ)。</p>
+<p><strong>周期が動く</strong>のも見どころ。走りに寄るほど <code>周期:</code> が短くなる(0.708s ↔ 1.158s の重み付き平均)。</p>
+<h3 id="s23">2. <code>Shift+Alt+F3</code>: 位相同期を切る</h3>
+<p><strong>足の運びが合わなくなる。</strong> 重みも速度も何も変えていないのに、脚がばらばらに動き、体が沈んだり跳ねたりする。</p>
+<p><code>Shift+Alt+F9</code> で内訳を出すと違いが分かる。</p>
+<div class="code"><pre><code>（同期 ON）
+速度 2.10m/s  位相 0.369  周期 0.933s  位相同期 ON
+  Walk     重み 0.500  長さ 0.708s  位置 0.261s
+  Run      重み 0.500  長さ 1.158s  位置 0.427s
+
+（同期 OFF）
+速度 2.10m/s  位相 0.684  周期 0.933s  位相同期 OFF
+  Walk     重み 0.500  長さ 0.708s  (各クリップが独立に進行中)
+  Run      重み 0.500  長さ 1.158s  (各クリップが独立に進行中)</code></pre></div>
+<p>ON のときは <code>0.261 / 0.708 = 0.369</code> と <code>0.427 / 1.158 = 0.369</code> で<strong>位相が一致している</strong>。これが「同じ物差しに乗せる」ということ。</p>
+<p>もう一度 <code>Shift+Alt+F3</code> で戻す。<strong>戻した瞬間に姿勢が飛ばない</strong>ことも確かめておく(<code>_phase</code> と <code>_clipTimes</code> を両方進めてあるため)。</p>
+<h3 id="s24">3. <code>Shift+Alt+F2</code>: ブレンドツリーとステートマシンを見比べる</h3>
+<p>同じ速度スイープで、混ざり方がまったく違う。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>HUD の <code>混合:</code></th></tr></thead>
+<tbody>
+<tr><td>ブレンドツリー</td><td><code>Survey0.42+Walk0.58</code> のように<strong>常に2本</strong></td></tr>
+<tr><td>ステートマシン</td><td>ふだんは <code>Walk1.00</code> の<strong>1本</strong>。切り替わる瞬間だけ2本</td></tr>
+</tbody>
+</table></div>
+<p>ステートマシンのときは <code>ロコモーション:ステートマシン[歩き]</code> のように今の状態が出る。速度が 2.08 を超えると <code>[走り]</code> へ移り、<strong>1.83 を下回るまで戻らない</strong>(ヒステリシス)。</p>
+<p>もう一度押すと <code>OFF</code>(Day 41 と同じ。クリップを1本そのまま再生)。</p>
+<h3 id="s25">4. <code>Shift+Alt+F8</code>: クロスフェードを 0 秒にする</h3>
+<p>ステートマシンにしてから押していくと、<code>0.00s</code> のとき<strong>歩き → 走りの瞬間に脚がワープする</strong>。0.25s に戻すと滑らかに繋がる。</p>
+<p>0.50s まで伸ばすと、今度は<strong>走り出しているのに歩きの脚が半分残る</strong>ので、締まりが無くなる。「長ければよい」ものではないことが目で分かる。</p>
+<p>※このキーはステートマシンのときだけ効く(ブレンドツリーには遷移が無い)。</p>
+<h3 id="s26">5. <code>Shift+Alt+F5</code> / <code>F6</code> / <code>F7</code>: 速度を手で置く</h3>
+<p><code>F7</code> で自動スイープを止め、<code>F5</code> / <code>F6</code> で 0.2m/s ずつ動かす。しきい値の前後(1.9 と 1.8)を往復させると、<strong>ステートマシンが 1.83 まで戻らない</strong>ことを手で確かめられる。</p>
+<h3 id="s27">6. <code>Shift+Alt+F9</code>: 内訳を出す</h3>
+<p>上の 2 で使ったもの。ツリーの点と状態のしきい値も一緒に出る。</p>
+<div class="code"><pre><code>  ツリーの点: 立ち止まり 0.00m/s / 歩き 1.00m/s / 走り 3.20m/s
+  状態: 立ち止まり ≧-∞ / 歩き ≧0.65 / 走り ≧2.08  今 歩き ← 立ち止まり(48%)</code></pre></div>
+<p>最後の <code>← 立ち止まり(48%)</code> がクロスフェードの途中を表す。</p>
+<h3 id="s28">7. Day 41 までの機能が全部生きていること</h3>
+<p><code>Alt+F1</code>(CesiumMan が歩く)、<code>Alt+F6</code>(スキニング ON/OFF)、<code>Alt+F9</code>(骨の重み)、<code>Ctrl+Alt+F1</code>(デモ v1)、<code>Shift+F12</code>(FXAA)——全部そのまま動く。</p>
+<p><strong><code>Alt+F10</code>(先頭へ戻す)だけ中身が変わっている</strong>。Day 41 は<code>SelectClip(ClipIndex)</code> だったが、それだと混ぜているものが1本に潰れるので <code>Rewind()</code> にした。挙動は「混ぜていないときは同じ」なので、Day 41 の使い方では違いが出ない。</p>
+<p>CesiumMan はクリップが1本なので、<code>Shift+Alt+F1</code> 以外ではロコモーションが組まれない(HUD に <code>使えるモデルではない</code> と出る)。</p>
+<h3 id="s29">8. <code>Shift+Alt+F12</code>: 自己チェック(28 項目すべて合格)</h3>
+<div class="code"><pre><code>--- Day 42: アニメーション制御の自己チェック ---
+  [OK] walk(1.0)と run(3.0)の中点 2.0 で 50:50  0.500 / 0.500
+  [OK] 50:50 の合成が Lerp と一致(<strong>中点では nlerp = slerp</strong>)  平行移動 1.0000 / 内積 1.000000
+  [OK] q と -q を混ぜても元の向きが出る(<strong>符号を揃えている</strong>)  内積 1.000000
+  [OK] 揃えずに足すと長さが 0 になる(<strong>揃えないとこうなる</strong>)  長さ 0.00E+000
+  [OK] ヒステリシス 0 だと境目でばたつく  100 フレームで 99 回
+  [OK] ヒステリシスを入れると 1 回で収まる  100 フレームで 1 回
+  [OK] 周期が重み付きの平均になる  0.9333s(walk 0.708 / run 1.158)
+  [OK] 位相同期 ON: 1周ごとに同じ姿勢へ戻る  ずれ 0.00E+000
+  [OK] 位相同期 OFF: <strong>毎周期ちがう姿勢になる</strong>  ずれ 7.01E+001(同期していれば 0.00E+000)
+  すべて合格(ブレンドツリー・ステートマシン・位相同期が仕様どおり)</code></pre></div>
+<p><strong>28 項目のうち 19 項目はモデルを1体も読まずに走る</strong>。ブレンドツリーもステートマシンも <code>PoseAccumulator</code> も、入口と出口がただの数値なので、絵にせずに確かめられる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+Alt+F1</code></td><td>速度から重みを決める「自動」</td><td>0 ↔ 3.2m/s を 12 秒で往復し、立ち止まり → 歩き → 走りが混ざる</td></tr>
+<tr><td><code>Shift+Alt+F2</code></td><td>同「決め方」</td><td>ツリーは常に2本、ステートマシンは切り替わる瞬間だけ2本</td></tr>
+<tr><td><code>Shift+Alt+F3</code></td><td>位相同期</td><td>切ると、同じ重みのまま脚の振れ幅が周期的にしぼむ</td></tr>
+<tr><td><code>Shift+Alt+F5</code> / <code>F6</code> / <code>F7</code></td><td>同「手で置く」</td><td>1.9 と 1.8 を往復させると、ステートマシンが 1.83 まで戻らない</td></tr>
+<tr><td><code>Shift+Alt+F8</code></td><td>同「クロスフェード」</td><td>0 秒だと重みが段で切り替わる(実機では脚がワープする)</td></tr>
+<tr><td><code>Shift+Alt+F9</code></td><td>同 HUD の行</td><td>今の混合の内訳、状態、クロスフェードの進み</td></tr>
+<tr><td><code>Shift+Alt+F12</code>(自己チェック)</td><td>同「2.08 の上で揺らす」</td><td>100 フレームで状態が変わる回数。ヒステリシス 0 なら 99 回、0.25 なら 1 回</td></tr>
+<tr><td><code>Shift+Alt+F12</code>(自己チェック)</td><td>3本の回転を混ぜる「同じ向きを ±q で」</td><td>符号を揃えずに足すと長さが 0 になる</td></tr>
+</tbody>
+</table></div>
+<p class="note">「速度から重みを決める2通り」の BlendTree1D と AnimationStateMachine は reference/Day42 の式・しきい値(ツリーの点 0 / 1.0 / 3.2m/s、状態のしきい値 0.65 / 2.08m/s)・既定値をそのまま移したもの。位相同期の脚の振りは sin で近似した模式図で、Fox のクリップそのものではない。</p></div>
+</section>
+<section class="part"><h2 id="s30">改造課題</h2>
+<h3 id="s31">課題1(易): ツリーの点の速度を、実測で決める</h3>
+<p><code>Program.BuildLocomotion</code> の速度(歩き 1.0、走り 3.2)は<strong>目分量</strong>。実際にクリップが表している速さとずれていると、<strong>足が地面を滑る</strong>。</p>
+<p>測り方は素直で、<strong>1周期のあいだに足が後ろへどれだけ流れるか</strong>を見る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 接地している足の骨(Fox なら b_LeftLeg / b_RightLeg の先)の
+// 世界位置を1周ぶんサンプルして、後ろへ動いた総量 ÷ 周期</code></pre></div>
+<p><code>Alt+F11</code> で骨の名前が出るので、そこから足の骨を選ぶ。</p>
+<p>そのうえで確かめてほしいことが2つ。</p>
+<ul><li><strong>測った値は目分量とどれだけ違うか</strong>。Fox は 100 倍スケールのモデルなので、そのままでは「m/s」にならない。<strong>単位を揃えるところがいちばん引っかかる</strong></li><li>直したあと、速度を手動(<code>Shift+Alt+F5</code> / <code>F6</code>)で動かしながら足の接地点を見る。滑りが減っているか</li></ul>
+<h3 id="s32">課題2(中): クロスフェードを「今のポーズから」始める</h3>
+<p>いまの <code>AnimationStateMachine</code> は<strong>直前の状態を1つ覚えるだけ</strong>。走り出してすぐ止まると、混ざりかけの姿勢が捨てられて少し飛ぶ。</p>
+<p>本物は<strong>ポーズを1枚保存してから</strong>フェードする。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// AnimationPlayer 側に足す
+public void SnapshotPose();                    // 今の _pose を控える
+public void SetBlendFromSnapshot(float weight, ReadOnlySpan&lt;ClipWeight&gt; clips);</code></pre></div>
+<p><code>Evaluate</code> の 3 段目で、控えたポーズと混ぜた結果をさらに <code>weight</code> で混ぜる。</p>
+<p>引っかかるのが2か所ある。</p>
+<ul><li><strong>控えたポーズは時間とともに古くなる</strong>。フェード中に元のクリップは進まないので、0.5 秒もかけると「途中で止まった姿勢」から繋ぐことになる。実際のエンジンは短いフェード(0.1〜0.2 秒)を前提にしてこれを許している</li><li><strong>ブレンドツリーとの併用</strong>。ツリーの2本 + 控えたポーズ1枚で、<code>MaxBlendClips</code> の勘定が変わる</li></ul>
+<h3 id="s33">課題3(難): 部位マスク付きレイヤーを足す</h3>
+<p>「下半身は走り、上半身は手を振る」を作れるようにする。実際のゲームでいちばん使われている仕組みで、必要なのは<strong>ノードごとの重み</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal sealed class AnimationLayer
+{
+    public float[] NodeWeights;             // ノードごとの効き具合(0〜1)
+    public ClipWeight[] Blend;
+}</code></pre></div>
+<p><code>AnimationPlayer.Evaluate</code> を「レイヤーを下から順に適用する」形に変え、各レイヤーの寄与を <code>NodeWeights[i]</code> で重み付けする。</p>
+<p>設計で悩むところが3つある。</p>
+<ul><li><strong>マスクをどう作るか</strong>。骨の名前で選ぶ(<code>Spine</code> 以下を上半身とする)のが定番だが、<code>Model.Nodes[].Parent</code> をたどって<strong>部分木ごと</strong>に塗るほうが確実</li><li><strong>重みが 1 にならない境目</strong>。腰のあたりで上半身レイヤーの重みが 0.5 になると、そこだけ2つのクリップの中間になる。<strong>滑らかに落とすほうが自然</strong></li><li><strong><code>PoseAccumulator</code> は使い回せるか</strong>。レイヤーは「足す」ではなく「上書きに近い」ので、素直に足すと下のレイヤーが薄まる。<strong>Resolve のあとに Lerp する</strong>ほうが素直</li></ul>
+<p>まず1レイヤー(全身マスク = 今と同じ)で動くことを確かめてから、マスクを入れるとよい。</p>
+</section>
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070 / 1920x1080(DPI 100%)</li><li><code>dotnet run --project reference/Day42 -c Release</code></li></ul>
+<p>Fox(576 三角形 / 24 関節)を影・SSAO・IBL・ブルーム・FXAA 込みで <strong>658 fps</strong>。ブレンドしていないとき(Day 41 相当)と<strong>差が測れない</strong>。</p>
+<p>理由は計算量を数えれば分かる。クリップを2本混ぜると、姿勢の評価が 26 ノード × 2 回、足し込みが 26 回増えるだけ——<strong>1フレームあたり 100 回に満たない浮動小数点演算</strong>で、描画の 0.17ms(影パス)に対して桁が3つ違う。</p>
+<p><strong>ブレンドは安い</strong>。高いのは頂点スキニング(GPU)とドローコールのほうで、そこは Day 41 から1文字も変わっていない。</p>
+<h3 id="s35">自己チェック(28 項目すべて合格)</h3>
+<p>上の「完成条件 8」のとおり。数字の読み方をいくつか。</p>
+<ul><li><strong>チャタリング 99 回 対 1 回</strong>。「ヒステリシスが要る」という言葉が、<strong>100 フレームで 99 回</strong>という具体的な数字になる。ここが 0 回なら、しきい値を跨げていない(テストの速度が間違っている)</li><li><strong>周期 0.9333s</strong>。walk 0.708 と run 1.158 の平均そのもの。ここが 0.708 や 1.158 に張り付くなら、重みが片方に寄っている</li><li><strong>位相同期 OFF のずれ 7.01E+001</strong>。Fox は 100 倍スケールなので、世界単位で 70 = 実寸で 70cm 相当。<strong>関節1本ぶんの長さより大きい</strong></li><li><strong>同期 ON のずれが厳密に 0</strong>。<code>Advance(Duration)</code> で位相がちょうど 1 周する。float の丸めが乗って 1e-7 くらいになるかと思ったが、<code>((1.0f % 1.0f) + 1.0f) % 1.0f</code> が正確に 0 を返すので誤差も出なかった</li></ul>
+<h3 id="s36">検証の途中で分かったこと</h3>
+<p><strong>キーの段が6つ目になって、順番の制約が効いてきた</strong>。<code>Shift+Alt+F1</code> は <code>case Key.F1 when alt:</code>(Day 41)にも<code>case Key.F1 when shift:</code>(Day 38)にも一致してしまう。</p>
+<p>C# の <code>switch</code> はガード付き <code>case</code> を<strong>上から順に</strong>照合するので、今日の塊を Day 41 の下に置くと<strong>キーが1つも届かない</strong>——しかもコンパイルは通るし、警告も出ない。押しても何も起きないだけ。</p>
+<p>Day 39 から「具体的なものほど上」と書き続けてきたが、段が6つになると<strong>書く前に「自分より一般的な case がどこにあるか」を探す</strong>のが先になった。次に段を足すとき(Ctrl+Shift+Alt しか残っていない)は、そろそろキー割り当ての表を別ファイルに出すべき時期だと思う。</p>
+<p><strong><code>Span&lt;ClipWeight&gt;</code> をローカル関数から触れなかった</strong>。チャタリングを数えるところで、外側の <code>stackalloc</code> した Span をローカル関数の中で使おうとして <code>CS8175</code> になった。ref 構造体はクロージャに入らないので、当然といえば当然。<code>static</code> なローカル関数にして中で <code>stackalloc</code> し直した。</p>
+<p><strong><code>Program.cs</code> が 13,752 行になった</strong>。設計書に書いたとおり、今日足した 530 行のうち 300 行以上が自己チェックとキー操作で、エンジンの機能そのものは 200 行ほど。Phase 7 が終わったら切り出す。</p>
+</section>
+<footer class="end">Day 42 アニメーション制御 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, rgb, animate } = Lab;
+const deg = (r) => r * 180 / Math.PI;
+const rad = (d) => d * Math.PI / 180;
+
+// ============================================================
+//  要点2: 3本の回転を混ぜる(1本の軸まわり。q = (cos φ/2, sin φ/2))
+// ============================================================
+const quat = (phi) => [Math.cos(phi / 2), Math.sin(phi / 2)];
+const angleOf = (q) => deg(2 * Math.atan2(q[1], q[0]));
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+function slerp(q0, q1, t) {
+  if (dot(q0, q1) < 0) q1 = [-q1[0], -q1[1]];
+  const o = Math.acos(Math.max(-1, Math.min(1, dot(q0, q1))));
+  if (o < 1e-6) return q0;
+  const a = Math.sin((1 - t) * o) / Math.sin(o), b = Math.sin(t * o) / Math.sin(o);
+  return [a * q0[0] + b * q1[0], a * q0[1] + b * q1[1]];
+}
+const mix = { aa: 0, wa: 0.4, ab: 80, wb: 0.4, ac: 150, wc: 0.2, neg: true, align: true };
+function mixCompute() {
+  const qs = [quat(rad(mix.aa)), quat(rad(mix.ab)), quat(rad(mix.ac))];
+  if (mix.neg) qs[1] = [-qs[1][0], -qs[1][1]];
+  const ws = [mix.wa, mix.wb, mix.wc];
+  const total = ws.reduce((a, b) => a + b, 0) || 1;
+  // PoseAccumulator.Add と同じ: 最初に足したものを基準に、内積が負なら裏返す
+  let acc = [0, 0], ref = null;
+  qs.forEach((q, i) => {
+    if (ws[i] <= 0) return;
+    let r = q;
+    if (ref === null) ref = q;
+    else if (mix.align && dot(ref, q) < 0) r = [-q[0], -q[1]];
+    acc = [acc[0] + r[0] * ws[i], acc[1] + r[1] * ws[i]];
+  });
+  const len = Math.hypot(acc[0], acc[1]) / total;
+  const nl = len > 1e-9 ? angleOf(acc) : NaN;
+  // slerp を入れ子にする: (A, B) を混ぜてから C、と (C, B) を混ぜてから A
+  const nest = (i, j, k) => {
+    const wij = ws[i] + ws[j];
+    const first = wij > 0 ? slerp(qs[i], qs[j], ws[j] / wij) : qs[i];
+    return angleOf(slerp(first, qs[k], ws[k] / total));
+  };
+  return { len, nl, s1: nest(0, 1, 2), s2: nest(2, 1, 0), ws, total };
+}
+function normAngle(a) { while (a > 180) a -= 360; while (a <= -180) a += 360; return a; }
+function drawMix() {
+  const r = mixCompute();
+  const { ctx, w, h } = fit($('mix-canvas'));
+  const cx = w * 0.5, cy = h / 2, R = Math.min(w * 0.4, h * 0.42);
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+  const ray = (a, color, width, label, len = 1) => {
+    if (!Number.isFinite(a)) return;
+    const x = cx + Math.cos(rad(a)) * R * len, y = cy - Math.sin(rad(a)) * R * len;
+    arrow(ctx, cx, cy, x, y, color, width);
+    if (label) { ctx.fillStyle = color; ctx.font = '12px ' + tok('--font-body'); ctx.fillText(label, x + (Math.cos(rad(a)) >= 0 ? 6 : -46), y + (Math.sin(rad(a)) >= 0 ? -6 : 14)); }
+  };
+  const muted = tok('--muted');
+  ray(mix.aa, muted, 1.5, `A ${r.ws[0].toFixed(2)}`, 0.95);
+  ray(mix.ab, muted, 1.5, `B ${r.ws[1].toFixed(2)}`, 0.95);
+  ray(mix.ac, muted, 1.5, `C ${r.ws[2].toFixed(2)}`, 0.95);
+  ray(r.s1, tok('--expl'), 1.5, '', 0.8);
+  ray(r.nl, tok('--semi'), 3, '', Math.max(0.05, r.len));
+  ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillText('緑の矢印の長さ = 足し合わせた長さ(正規化前)', 8, 16);
+  $('mix-a-out').textContent = `${mix.aa}° / ${mix.wa.toFixed(2)}`;
+  $('mix-b-out').textContent = `${mix.ab}° / ${mix.wb.toFixed(2)}`;
+  $('mix-c-out').textContent = `${mix.ac}° / ${mix.wc.toFixed(2)}`;
+  const bad = r.len < 0.2;
+  $('mix-stats').innerHTML =
+    stat('weighted nlerp の角度', Number.isFinite(r.nl) ? `${normAngle(r.nl).toFixed(2)}°` : '不定') +
+    stat('正規化する前の長さ', r.len.toFixed(3), bad ? ' <span class="pill bad">打ち消し合った</span>' : '') +
+    stat('slerp の入れ子 (A,B)→C', `${normAngle(r.s1).toFixed(2)}°`, Number.isFinite(r.nl) ? ` <small>nlerp との差 ${Math.abs(normAngle(r.nl - r.s1)).toFixed(2)}°</small>` : '');
+  let note;
+  if (bad && !mix.align) note = '符号を揃えずに足したので、q と −q が打ち消し合って長さが 0 に近い。このまま正規化すると、どれとも関係のない向きが出る。';
+  else if (r.ws[2] === 0 && Math.abs(r.ws[0] - r.ws[1]) < 1e-6) note = '2本を 50:50 で混ぜると、weighted nlerp は slerp の中点と完全に一致する(自己チェックの「50:50 の合成が Lerp と一致」)。';
+  else note = 'weighted nlerp は slerp と厳密には一致しないが、向きが近いほど差は小さい。なお、ここは1本の軸まわりだけなので slerp を入れ子にしても順番で答えは変わらない。順番で答えが変わるのは軸の違う3次元の回転を混ぜるときで、weighted nlerp はそこでも順番に依らない。';
+  $('mix-note').textContent = note;
+}
+for (const k of ['aa', 'wa', 'ab', 'wb', 'ac', 'wc']) {
+  $('mix-' + k).addEventListener('input', (e) => { mix[k] = Number(e.target.value); drawMix(); });
+}
+$('mix-neg').addEventListener('change', (e) => { mix.neg = e.target.checked; drawMix(); });
+$('mix-align').addEventListener('change', (e) => { mix.align = e.target.checked; drawMix(); });
+for (const btn of document.querySelectorAll('[data-mix]')) {
+  btn.addEventListener('click', () => {
+    const [aa, wa, ab, wb, ac, wc] = btn.dataset.mix.split(',').map(Number);
+    Object.assign(mix, { aa, wa, ab, wb, ac, wc });
+    for (const k of ['aa', 'wa', 'ab', 'wb', 'ac', 'wc']) $('mix-' + k).value = mix[k];
+    drawMix();
+  });
+}
+drawMix();
+window.addEventListener('resize', drawMix);
+
+// ============================================================
+//  要点3: 位相同期(脚の振りの模式図)
+// ============================================================
+const WALK = { T: 0.708, amp: 22 }, RUN = { T: 1.158, amp: 38 };
+const sync = { w: 0.5, on: true, speed: 0.5, t: 0, phase: 0, hist: [], acc: 0 };
+const legOf = (clip, p) => clip.amp * Math.sin(2 * Math.PI * p);
+function syncPeriod() { return WALK.T * (1 - sync.w) + RUN.T * sync.w; }
+function syncAngle() {
+  const pw = sync.on ? sync.phase : sync.t / WALK.T;
+  const pr = sync.on ? sync.phase : sync.t / RUN.T;
+  return { pw: pw % 1, pr: pr % 1, angle: legOf(WALK, pw) * (1 - sync.w) + legOf(RUN, pr) * sync.w };
+}
+function syncStep(dt) {
+  sync.t += dt;
+  // 位相は混ぜた周期(重み付きの平均)で進める。非同期でも両方を常に進めておく
+  sync.phase = (sync.phase + dt / syncPeriod()) % 1;
+  sync.hist.push([sync.t, syncAngle().angle]);
+  while (sync.hist.length && sync.hist[0][0] < sync.t - 6) sync.hist.shift();
+}
+function drawSync() {
+  const cur = syncAngle();
+  {
+    const { ctx, w, h } = fit($('sync-fox'));
+    const ink = tok('--ink');
+    const s = Math.min(w / 3, h / 1.6);
+    const cx = w / 2, gy = h - 24;
+    ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(10, gy); ctx.lineTo(w - 10, gy); ctx.stroke();
+    const bodyY = gy - 0.62 * s;
+    ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(cx - 0.55 * s, bodyY - 0.16 * s, 1.1 * s, 0.3 * s, 0.12 * s); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx + 0.68 * s, bodyY - 0.2 * s, 0.13 * s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const leg = (hx, a, color, width) => {
+      const L = 0.58 * s;
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(hx, bodyY); ctx.lineTo(hx + Math.sin(rad(a)) * L, bodyY + Math.cos(rad(a)) * L); ctx.stroke();
+    };
+    // 前脚と後脚は逆位相
+    leg(cx + 0.4 * s, cur.angle, ink, 5);
+    leg(cx + 0.4 * s, -cur.angle, tok('--muted'), 4);
+    leg(cx - 0.4 * s, -cur.angle, ink, 5);
+    leg(cx - 0.4 * s, cur.angle, tok('--muted'), 4);
+    ctx.lineCap = 'butt';
+  }
+  {
+    const { ctx, w, h } = fit($('sync-chart'));
+    const L = 38, Rm = 8, T = 10, B = 18, pw = w - L - Rm, ph = h - T - B;
+    const X = (t) => L + (t - (sync.t - 6)) / 6 * pw, Y = (a) => T + ph / 2 - a / 40 * (ph / 2);
+    ctx.strokeStyle = tok('--grid'); ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono'); ctx.lineWidth = 1;
+    for (const a of [-30, 0, 30]) { ctx.beginPath(); ctx.moveTo(L, Y(a)); ctx.lineTo(L + pw, Y(a)); ctx.stroke(); ctx.fillText(`${a}°`, 2, Y(a) + 4); }
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.beginPath();
+    sync.hist.forEach(([t, a], i) => { if (i === 0) ctx.moveTo(X(t), Y(a)); else ctx.lineTo(X(t), Y(a)); });
+    ctx.stroke();
+    ctx.strokeStyle = tok('--ink'); ctx.strokeRect(L + 0.5, T + 0.5, pw, ph);
+  }
+  // 1周期ぶん進めたときの姿勢のずれ(MeasureCycleDrift と同じ考え方)
+  const T = syncPeriod();
+  const at = (t) => {
+    const pw = sync.on ? t / T : t / WALK.T, pr = sync.on ? t / T : t / RUN.T;
+    return legOf(WALK, pw) * (1 - sync.w) + legOf(RUN, pr) * sync.w;
+  };
+  let drift = 0;
+  for (let i = 0; i < 40; i++) { const t = i * T / 40 + 5 * T; drift = Math.max(drift, Math.abs(at(t + T) - at(t))); }
+  let amp = 0;
+  for (const [, a] of sync.hist) amp = Math.max(amp, Math.abs(a));
+  $('sync-w-out').textContent = `走り ${sync.w.toFixed(2)} / 歩き ${(1 - sync.w).toFixed(2)}`;
+  $('sync-cap').textContent = sync.on
+    ? `位相 ${cur.pw.toFixed(2)}(両方同じ)`
+    : `歩き ${cur.pw.toFixed(2)} / 走り ${cur.pr.toFixed(2)}(ばらばら)`;
+  $('sync-stats').innerHTML =
+    stat('混ぜた周期', sync.on ? `${T.toFixed(3)}` : '—', sync.on ? ' <small>秒 = 0.708 × 歩き + 1.158 × 走り</small>' : ' <small>周期が揃わない</small>') +
+    stat('1周期進めたときの姿勢のずれ', `${drift.toFixed(2)}°`, drift < 0.01 ? ' <span class="pill good">同じ姿勢に戻る</span>' : ' <span class="pill bad">毎周ちがう姿勢</span>') +
+    stat('直近 6 秒の最大の振れ', `${amp.toFixed(1)}°`, ` <small>重み付きの振れ幅 ${(WALK.amp * (1 - sync.w) + RUN.amp * sync.w).toFixed(1)}°</small>`);
+}
+$('sync-w').addEventListener('input', (e) => { sync.w = Number(e.target.value); drawSync(); });
+$('sync-on').addEventListener('change', (e) => { sync.on = e.target.checked; drawSync(); });
+seg('sync-speed', (v) => { sync.speed = Number(v); });
+if (reduceMotion) { for (let i = 0; i < 360; i++) syncStep(1 / 60); }
+drawSync();
+animate($('sync-fox'), (dt) => {
+  if (!reduceMotion) {
+    sync.acc += dt * sync.speed;
+    while (sync.acc >= 1 / 60) { syncStep(1 / 60); sync.acc -= 1 / 60; }
+  }
+  drawSync();
+});
+
+// ============================================================
+//  要点4・5: BlendTree1D と AnimationStateMachine(reference/Day42 の移植)
+// ============================================================
+const CLIPS = ['Survey', 'Walk', 'Run'];
+const MAX_SPEED = 3.2;
+const treeSamples = [{ name: '立ち止まり', clip: 0, p: 0 }, { name: '歩き', clip: 1, p: 1.0 }, { name: '走り', clip: 2, p: MAX_SPEED }];
+// しきい値はツリーの点の 0.65 倍(「そこで切り替えたい速さ」)
+const states = treeSamples.map((s, i) => ({ name: s.name, clip: s.clip, threshold: i === 0 ? -Infinity : s.p * 0.65 }));
+
+function treeEvaluate(p) {
+  const S = treeSamples;
+  if (p <= S[0].p) return [[S[0].clip, 1]];
+  if (p >= S[S.length - 1].p) return [[S[S.length - 1].clip, 1]];
+  let upper = 1;
+  while (upper < S.length - 1 && S[upper].p <= p) upper++;
+  const a = S[upper - 1], b = S[upper];
+  const t = (p - a.p) / (b.p - a.p);
+  return [[a.clip, 1 - t], [b.clip, t]];
+}
+class StateMachine {
+  constructor() { this.current = 1; this.previous = -1; this.fade = 1; this.fadeSeconds = 0.25; this.hysteresis = 0.25; }
+  update(dt, p) {
+    let target = this.current;
+    while (target + 1 < states.length && p >= states[target + 1].threshold) target++;
+    while (target > 0 && p < states[target].threshold - this.hysteresis) target--;
+    if (target !== this.current) {
+      this.previous = this.current; this.current = target;
+      this.fade = this.fadeSeconds > 1e-4 ? 0 : 1;
+    }
+    if (this.fade < 1) this.fade = Math.min(1, this.fade + dt / Math.max(this.fadeSeconds, 1e-4));
+    const out = [];
+    if (this.fade < 1 && this.previous >= 0 && this.previous !== this.current) out.push([states[this.previous].clip, 1 - this.fade]);
+    out.push([states[this.current].clip, Math.max(this.fade, 1e-3)]);
+    return out;
+  }
+}
+const loco = { mode: 'tree', drive: 'sweep', manual: 1.9, sweep: 0, speed: 0, step: 0, sm: new StateMachine(), hist: [], changes: [], acc: 0, t: 0, last: 1 };
+const STEP = 1 / 60;
+function locoStep() {
+  loco.t += STEP; loco.step++;
+  if (loco.drive === 'sweep') {
+    loco.sweep = (loco.sweep + STEP / 12) % 1;
+    loco.speed = (loco.sweep < 0.5 ? loco.sweep * 2 : (1 - loco.sweep) * 2) * MAX_SPEED;
+  } else if (loco.drive === 'manual') {
+    loco.speed = loco.manual;
+  } else {
+    // 自己チェックと同じく 1 フレーム目は -0.001(i = 0 が偶数)
+    loco.speed = 2.08 + ((loco.step - 1) % 2 === 0 ? -0.001 : 0.001);
+  }
+  // ステートマシンは常に回しておく(切り替えた瞬間に状態が飛ばないように)
+  const smOut = loco.sm.update(STEP, loco.speed);
+  const raw = loco.mode === 'tree' ? treeEvaluate(loco.speed) : smOut;
+  // SetBlend と同じく合計 1 に正規化する
+  const sum = raw.reduce((a, [, w]) => a + w, 0);
+  const weights = [0, 0, 0];
+  for (const [c, w] of raw) weights[c] += w / sum;
+  loco.weights = weights; loco.count = raw.length;
+  const changed = loco.sm.current !== loco.last;
+  loco.last = loco.sm.current;
+  // 揺らすときは自己チェックと同じく「歩きから始めて最初の 100 フレーム」を数える。ほかは直近 100 フレーム
+  if (loco.drive !== 'chatter' || loco.changes.length < 100) loco.changes.push(changed ? 1 : 0);
+  if (loco.drive !== 'chatter' && loco.changes.length > 100) loco.changes.shift();
+  loco.hist.push({ t: loco.t, w: weights, v: loco.speed });
+  while (loco.hist.length && loco.hist[0].t < loco.t - 12) loco.hist.shift();
+}
+function drawLoco() {
+  const { ctx, w, h } = fit($('loco-canvas'));
+  const L = 40, Rm = 46, T = 12, B = 22, pw = w - L - Rm, ph = h - T - B;
+  const X = (t) => L + (t - (loco.t - 12)) / 12 * pw;
+  const Yw = (v) => T + ph - v * ph;
+  const Yv = (v) => T + ph - v / MAX_SPEED * ph;
+  const muted = tok('--muted');
+  const cols = [muted, tok('--semi'), tok('--expl')];
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = muted; ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (const v of [0, 0.5, 1]) { ctx.beginPath(); ctx.moveTo(L, Yw(v)); ctx.lineTo(L + pw, Yw(v)); ctx.stroke(); ctx.fillText(v.toFixed(1), 8, Yw(v) + 4); }
+  for (const v of [0, 1, 2, 3]) ctx.fillText(`${v}m/s`, L + pw + 4, Yv(v) + 4);
+  // 重みの積み上げ
+  const H = loco.hist;
+  if (H.length > 1) {
+    for (let c = 2; c >= 0; c--) {
+      ctx.fillStyle = cols[c]; ctx.globalAlpha = c === 0 ? 0.35 : 0.5;
+      ctx.beginPath();
+      H.forEach((p, i) => { const top = p.w.slice(0, c + 1).reduce((a, b) => a + b, 0); const x = X(p.t), y = Yw(top); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      for (let i = H.length - 1; i >= 0; i--) { const p = H[i]; const bot = p.w.slice(0, c).reduce((a, b) => a + b, 0); ctx.lineTo(X(p.t), Yw(bot)); }
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // しきい値と速度
+  if (loco.mode === 'sm') {
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1;
+    for (const [v, label] of [[2.08, '走りへ 2.08'], [2.08 - loco.sm.hysteresis, `歩きへ ${(2.08 - loco.sm.hysteresis).toFixed(2)}`], [0.65, '歩きへ 0.65']]) {
+      ctx.beginPath(); ctx.moveTo(L, Yv(v)); ctx.lineTo(L + pw, Yv(v)); ctx.stroke();
+      ctx.fillStyle = tok('--ink'); ctx.fillText(label, L + 4, Yv(v) - 3);
+    }
+    ctx.setLineDash([]);
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath();
+  H.forEach((p, i) => { if (i === 0) ctx.moveTo(X(p.t), Yv(p.v)); else ctx.lineTo(X(p.t), Yv(p.v)); });
+  ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, pw, ph);
+  ctx.fillStyle = muted; ctx.fillText('黒線 = 速度(右の目盛り)', L + 4, h - 6);
+
+  const wts = loco.weights || [0, 1, 0];
+  const mixText = wts.map((v, i) => [CLIPS[i], v]).filter(([, v]) => v > 0.005).map(([n, v]) => `${n}${v.toFixed(2)}`).join('+');
+  const sm = loco.sm;
+  const fading = sm.fade < 1 && sm.previous >= 0;
+  $('loco-hud').textContent =
+    `ロコモーション:${loco.mode === 'tree' ? 'ブレンドツリー' : `ステートマシン[${states[sm.current].name}]`}  速度:${loco.speed.toFixed(2)}m/s  混合:${mixText}` +
+    (loco.mode === 'sm' && fading ? `  ← ${states[sm.previous].name}(${Math.round(sm.fade * 100)}%)` : '');
+  const ch = loco.changes.reduce((a, b) => a + b, 0);
+  $('loco-speed-out').textContent = `${loco.manual.toFixed(2)} m/s`;
+  $('loco-stats').innerHTML =
+    stat('同時に効いているクリップ', `${loco.count || 1} 本`) +
+    stat(loco.drive === 'chatter' ? `揺らし始めてから ${loco.changes.length} フレームの状態の変化` : '直近 100 フレームの状態の変化', `${ch} 回`, loco.drive === 'chatter' ? (ch > 10 ? ' <span class="pill bad">ばたついている</span>' : ' <span class="pill good">落ち着いている</span>') : '');
+  let note;
+  if (loco.drive === 'chatter') note = 'しきい値 2.08 の上で ±0.001m/s ずつ揺らしている(自己チェックと同じ入力)。ヒステリシス 0 だと毎フレーム状態が行き来する。ステートマシンは表示中でなくても裏で回しているので、ツリーを選んでいても回数は数えられる。';
+  else if (loco.mode === 'tree') note = 'ブレンドツリーは常に隣り合う2本を混ぜる。速度 2.1m/s で歩き 0.50 / 走り 0.50。';
+  else if (sm.fadeSeconds === 0) note = 'クロスフェード 0 秒では重みが段で切り替わる。実機ではこの瞬間に脚がワープする。';
+  else note = 'ステートマシンはふだん1本だけで、切り替わる瞬間だけ前の状態と混ざる。上がるときは 2.08、下がるときは 2.08 − ヒステリシスで切り替わる。';
+  $('loco-note').textContent = note;
+}
+seg('loco-mode', (v) => { loco.mode = v; });
+function restartChatter() { loco.sm.current = 1; loco.sm.previous = -1; loco.sm.fade = 1; loco.last = 1; loco.step = 0; loco.changes = []; }
+seg('loco-drive', (v) => { loco.drive = v; loco.changes = []; if (v === 'chatter') restartChatter(); });
+seg('loco-fade', (v) => { loco.sm.fadeSeconds = Number(v); });
+seg('loco-hys', (v) => { loco.sm.hysteresis = Number(v); loco.changes = []; if (loco.drive === 'chatter') restartChatter(); });
+$('loco-speed').addEventListener('input', (e) => {
+  loco.manual = Number(e.target.value);
+  if (loco.drive !== 'manual') { loco.drive = 'manual'; setSeg('loco-drive', 'manual'); }
+});
+if (reduceMotion) { for (let i = 0; i < 12 * 60; i++) locoStep(); }
+else { for (let i = 0; i < 2; i++) locoStep(); }
+drawLoco();
+animate($('loco-canvas'), (dt) => {
+  if (!reduceMotion) {
+    loco.acc += dt;
+    while (loco.acc >= STEP) { locoStep(); loco.acc -= STEP; }
+  }
+  drawLoco();
+});
+})();
+</script>
+</body>
+</html>
