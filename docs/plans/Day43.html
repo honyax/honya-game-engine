@@ -1,0 +1,1596 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 43 剛体力学の基礎</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2行</a></li><li class="l3"><a href="#s3">今日はシェーダにも <code>Render/</code> にも触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. セミインプリシット積分 — 2行の順番が全部を決める</a></li><li class="l3"><a href="#s7">2. 力とトルク — 同じ力でも「どこに」掛けるかで変わる</a></li><li class="l3"><a href="#s8">3. 逆数で持つ — 逆質量と、球だけ楽ができる慣性テンソル</a></li><li class="l3"><a href="#s9">4. 向きの積分 — <code>q += ½ ω q dt</code> の見慣れない式</a></li><li class="l3"><a href="#s10">5. インパルス — 衝突は「力」ではなく「運動量の受け渡し」</a></li><li class="l3"><a href="#s11">6. 反発係数 — 目標は1回だけ決める。しきい値が無いと震える</a></li><li class="l3"><a href="#s12">7. 位置の補正 — インチキだが必要。そして素朴なインパルスの限界</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s20">5段の順番が、そのまま今日の設計</a></li><li class="l3"><a href="#s21"><code>B = -1</code> という分岐 — 今日わざと残した歪み</a></li><li class="l3"><a href="#s22">位置の補正を反復にしたこと</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. <code>Ctrl+Shift+Alt+F1</code>: 5つの球が落ちて、違う高さまで跳ね返る</a></li><li class="l3"><a href="#s25">2. <code>Ctrl+Shift+Alt+F4</code>(1回目): 積み上げ</a></li><li class="l3"><a href="#s26">3. <code>Ctrl+Shift+Alt+F4</code>(2回目): 撞き玉</a></li><li class="l3"><a href="#s27">4. <code>Ctrl+Shift+Alt+F8</code>: 撃つ</a></li><li class="l3"><a href="#s28">5. <code>Ctrl+Shift+Alt+F2</code> + 数字キー <code>4</code>: 陽的オイラーが壊れるところ</a></li><li class="l3"><a href="#s29">6. <code>Ctrl+Shift+Alt+F10</code> / <code>F11</code>: 止めてコマ送り</a></li><li class="l3"><a href="#s30">7. <code>Ctrl+Shift+Alt+F7</code>: 球を降らせる</a></li><li class="l3"><a href="#s31">8. Day 42 までの機能が全部生きていること</a></li><li class="l3"><a href="#s32">9. <code>Ctrl+Shift+Alt+F12</code>: 自己チェック(45 項目すべて合格)</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): 反発係数を「跳ね返る高さ」から逆算する</a></li><li class="l3"><a href="#s35">課題2(中): 重力を「力」で掛けてみる</a></li><li class="l3"><a href="#s36">課題3(難): 蓄積インパルスを入れて、積み上げを持たせる</a></li><li class="l2"><a href="#s37">動作確認済み環境</a></li><li class="l3"><a href="#s38">自己チェック(45 項目すべて合格)</a></li><li class="l3"><a href="#s39">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 7 / Day 43 / 計画書</p>
+  <h1>剛体力学の基礎</h1>
+  <p class="lede">セミインプリシット積分とインパルス解決</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2行</a></li><li class="l3"><a href="#s3">今日はシェーダにも <code>Render/</code> にも触らない</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. セミインプリシット積分 — 2行の順番が全部を決める</a></li><li class="l3"><a href="#s7">2. 力とトルク — 同じ力でも「どこに」掛けるかで変わる</a></li><li class="l3"><a href="#s8">3. 逆数で持つ — 逆質量と、球だけ楽ができる慣性テンソル</a></li><li class="l3"><a href="#s9">4. 向きの積分 — <code>q += ½ ω q dt</code> の見慣れない式</a></li><li class="l3"><a href="#s10">5. インパルス — 衝突は「力」ではなく「運動量の受け渡し」</a></li><li class="l3"><a href="#s11">6. 反発係数 — 目標は1回だけ決める。しきい値が無いと震える</a></li><li class="l3"><a href="#s12">7. 位置の補正 — インチキだが必要。そして素朴なインパルスの限界</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19"><code>Physics/</code> が今日も何も知らないままであること</a></li><li class="l3"><a href="#s20">5段の順番が、そのまま今日の設計</a></li><li class="l3"><a href="#s21"><code>B = -1</code> という分岐 — 今日わざと残した歪み</a></li><li class="l3"><a href="#s22">位置の補正を反復にしたこと</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. <code>Ctrl+Shift+Alt+F1</code>: 5つの球が落ちて、違う高さまで跳ね返る</a></li><li class="l3"><a href="#s25">2. <code>Ctrl+Shift+Alt+F4</code>(1回目): 積み上げ</a></li><li class="l3"><a href="#s26">3. <code>Ctrl+Shift+Alt+F4</code>(2回目): 撞き玉</a></li><li class="l3"><a href="#s27">4. <code>Ctrl+Shift+Alt+F8</code>: 撃つ</a></li><li class="l3"><a href="#s28">5. <code>Ctrl+Shift+Alt+F2</code> + 数字キー <code>4</code>: 陽的オイラーが壊れるところ</a></li><li class="l3"><a href="#s29">6. <code>Ctrl+Shift+Alt+F10</code> / <code>F11</code>: 止めてコマ送り</a></li><li class="l3"><a href="#s30">7. <code>Ctrl+Shift+Alt+F7</code>: 球を降らせる</a></li><li class="l3"><a href="#s31">8. Day 42 までの機能が全部生きていること</a></li><li class="l3"><a href="#s32">9. <code>Ctrl+Shift+Alt+F12</code>: 自己チェック(45 項目すべて合格)</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): 反発係数を「跳ね返る高さ」から逆算する</a></li><li class="l3"><a href="#s35">課題2(中): 重力を「力」で掛けてみる</a></li><li class="l3"><a href="#s36">課題3(難): 蓄積インパルスを入れて、積み上げを持たせる</a></li><li class="l2"><a href="#s37">動作確認済み環境</a></li><li class="l3"><a href="#s38">自己チェック(45 項目すべて合格)</a></li><li class="l3"><a href="#s39">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 5 で 2D の当たり判定を書いたが、<strong>当たったあとどうするかは書かなかった</strong>。押し戻すだけで、跳ね返りも回転も無い。</p>
+<p>今日から物理エンジンに入る。扱う形は球と平面の2つだけで、判定のコードは全部で 30 行しかない。<strong>残りの 500 行は「当たったあと」の話</strong>になる。</p>
+
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>Ctrl+Shift+Alt+F1</code> を押すと、反発係数を振った5つの球が落ちてきて、それぞれ違う高さまで跳ね返り、やがて床に落ち着く。</strong></p>
+<p><code>Ctrl+Shift+Alt+F4</code> で積み上げ・撞き玉へ切り替えられる。</p>
+<div class="table-wrap"><table><thead><tr><th>キー</th><th>何が起きるか</th></tr></thead><tbody><tr><td><code>Ctrl+Shift+Alt+F1</code></td><td>物理デモ ON/OFF。<strong>今日の到達点</strong></td></tr><tr><td><code>Ctrl+Shift+Alt+F2</code></td><td>積分法(セミインプリシット / 陽的オイラー)</td></tr><tr><td><code>Ctrl+Shift+Alt+F4</code></td><td>筋書き(落下 / 積み上げ / 撞き玉)</td></tr><tr><td><code>Ctrl+Shift+Alt+F5</code></td><td>速度の反復 1/2/4/8。<strong>積み上げでいちばん効く</strong></td></tr><tr><td><code>Ctrl+Shift+Alt+F6</code></td><td>位置補正 ON/OFF。<strong>切ると沈む</strong></td></tr><tr><td><code>Ctrl+Shift+Alt+F8</code></td><td>撃つ。<strong>中心 / 中心を外す が交互</strong>——回るかどうかが変わる</td></tr></tbody></table></div>
+<div class="inject" data-lab="main"><figure class="lab" id="main-lab">
+    <div class="lab-head">
+      <h3>物理デモ</h3>
+      <span class="tag">床 y = −0.5m、見えない壁 x = ±5m、重力 9.81m/s²</span>
+    </div>
+    <div class="stage"><canvas id="main-canvas" style="height:380px" aria-label="物理デモのシミュレーション"></canvas></div>
+    <div class="hud" id="main-hud">物理[落下]</div>
+    <div class="controls">
+      <div class="ctl"><span class="label">筋書き(F4)</span>
+        <div class="seg" id="main-scene">
+          <button data-v="drop" aria-pressed="true">落下</button><button data-v="stack" aria-pressed="false">積み上げ</button><button data-v="cradle" aria-pressed="false">撞き玉</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">積分法(F2)</span>
+        <div class="seg" id="main-integrator">
+          <button data-v="semi" aria-pressed="true">セミインプリシット</button><button data-v="explicit" aria-pressed="false">陽的オイラー</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">シミュレーションレート(数字キー)</span>
+        <div class="seg" id="main-hz">
+          <button data-v="120" aria-pressed="false">120Hz</button><button data-v="60" aria-pressed="true">60Hz</button><button data-v="20" aria-pressed="false">20Hz</button><button data-v="5" aria-pressed="false">5Hz</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">速度の反復(F5)</span>
+        <div class="seg" id="main-iters">
+          <button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="false">4</button><button data-v="8" aria-pressed="true">8</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="main-poscorr" checked> 位置補正(F6)</label>
+      <div class="ctl"><span class="label">操作</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <button class="btn primary" id="main-kick">撃つ(F8)</button>
+          <button class="btn" id="main-spawn">球を追加(F7)</button>
+          <button class="btn" id="main-pause">停止(F10)</button>
+          <button class="btn" id="main-step">コマ送り(F11)</button>
+          <button class="btn" id="main-reset">最初から</button>
+        </div>
+      </div>
+    </div>
+    <div class="readout" id="main-note"><p>青(e=0)は着地した瞬間に止まり、赤(e=0.95)はいつまでも跳ねる。球に描いた線は向きの目印で、ぶつかっただけでは回らない(要点5)。「撃つ」は中心を外す/中心に当てるが交互になる(要点2)。</p></div>
+  </figure></div>
+<h3 id="s2">今日いちばん大事な2行</h3>
+<div class="code"><span class="lang">csharp</span><pre><code>// セミインプリシット(ゲームの標準)
+IntegrateVelocities(dt);
+IntegratePositions(dt);</code></pre></div>
+<div class="code"><span class="lang">csharp</span><pre><code>// 陽的オイラー(素朴。エネルギーが増え続ける)
+IntegratePositions(dt);
+IntegrateVelocities(dt);</code></pre></div>
+<p><strong>中身は同じ2つの呼び出しで、順番だけが逆</strong>。それだけで「いつまでも振動し続ける振り子」と「勝手に振幅が大きくなる振り子」に分かれる。自己チェックが 10 秒のばねで測っていて、セミインプリシットは 50J のまま、陽的オイラーは <strong>6.9 億 J</strong> になる。</p>
+<h3 id="s3">今日はシェーダにも <code>Render/</code> にも触らない</h3>
+<p>差分は <code>Physics/</code> に新しいファイル4本と、<code>Program.cs</code> だけ。<code>.vert</code> も <code>.frag</code> も 1 行も変わらない。</p>
+<p><strong>物理は絵を1ミリも知らない</strong>。球の色すら <code>Physics/</code> の外(<code>Program</code>)に置いてある——Day 29 で <code>SurvivorGame</code> が <code>GameView</code> を知らなかったのと同じ線で、おかげで自己チェック(45 項目)は<strong>窓を1枚も出さずに走る</strong>。</p>
+</section><section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><strong>Game Physics Engine Development</strong>(Ian Millington)第2〜9章剛体1体を組み上げるまでの順番が、今日のファイル構成とほぼ同じ。第6章(剛体)と第7章(慣性テンソル)、第14〜15章(接触の解決)が今日の範囲。</li><li>Erin Catto, <em>Modern Rigid Body Physics</em>(GDC) <a href="https://box2d.org/publications/">https://box2d.org/publications/</a> Box2D の作者による資料群。<strong>今日はインパルスの式だけ</strong>を読む。Sequential Impulses の本体は Day 47 で読む。</li><li>Erin Catto, <em>Soft Constraints / Solver2D</em> <a href="https://box2d.org/posts/">https://box2d.org/posts/</a>「なぜ位置を直接動かすのか」「なぜそれが気持ち悪いのか」の議論。今日書く位置補正は、ここで批判されている素朴なやり方そのもの。</li><li>慣性テンソルの表(球・箱・カプセル) <a href="https://en.wikipedia.org/wiki/List_of_moments_of_inertia">https://en.wikipedia.org/wiki/List_of_moments_of_inertia</a>今日は球の <code>2/5 m r²</code> しか使わないが、<strong>Day 44 の箱 <code>1/12 m (h²+d²)</code> はここから引く</strong>ことになる。導出(積分)は追わなくてよい。</li></ul>
+</section><section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. セミインプリシット積分 — 2行の順番が全部を決める</h3>
+<p>微分方程式を数値で解くとき、いちばん素朴なのが<strong>陽的オイラー法</strong>。</p>
+<div class="code"><pre><code>  x(t+dt) = x(t) + v(t)·dt      ← 「今の速度」で位置を進める
+  v(t+dt) = v(t) + a(t)·dt</code></pre></div>
+<p>これを1行入れ替えたのが<strong>セミインプリシット(シンプレクティック)オイラー法</strong>。</p>
+<div class="code"><pre><code>  v(t+dt) = v(t) + a(t)·dt
+  x(t+dt) = x(t) + v(t+dt)·dt   ← 「更新後の速度」で位置を進める</code></pre></div>
+<p>数値解析の言葉では「どちらも1次精度」で、<strong>誤差の大きさは同じ</strong>。違うのは誤差の<strong>貯まり方</strong>になる。</p>
+<p>自由落下1秒(60 ステップ)で確かめると、こうなる。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>落ちた距離</th><th>解析解との差</th></tr></thead><tbody><tr><td>陽的オイラー</td><td>4.8232m</td><td><strong>−81.75mm</strong></td></tr><tr><td>解析解 <code>½gt²</code></td><td>4.9050m</td><td>—</td></tr><tr><td>セミインプリシット</td><td>4.9867m</td><td><strong>+81.75mm</strong></td></tr></tbody></table></div>
+<p><strong>符号が逆で、大きさがぴったり同じ</strong>。だから2つの平均は解析解と一致する(自己チェックの3項目目がこれを見ている)。</p>
+<p>これだけなら引き分けだが、<strong>振動する系</strong>にすると差が本質的になる。ばね(ω = 10 rad/s、初期エネルギー 50J)を回すと:</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>10 秒後の上限</th><th>100 秒後の上限</th></tr></thead><tbody><tr><td>セミインプリシット</td><td>54.55J</td><td><strong>54.55J</strong></td></tr><tr><td>陽的オイラー</td><td>6.89 × 10⁸ J</td><td>(とっくに数値が壊れている)</td></tr></tbody></table></div>
+<p>セミインプリシットの側は<strong>上限が時間で増えない</strong>。これは偶然ではなく、この積分器が「本当のエネルギーに似た別の量」を厳密に保存する(シンプレクティックである)ことの帰結で、<strong>誤差が無いのではなく、誤差が溜まらない</strong>のが値打ちになる。</p>
+<p>ゲームの物理エンジンがほぼ全部これを使っているのは、この一点に尽きる。1行入れ替えるだけで、<strong>放っておいた物が勝手に暴れ出さない</strong>ようになる。</p>
+<blockquote><p><code>Ctrl+Shift+Alt+F2</code> で陽的オイラーに切り替えても、60Hz ではなかなか差が見えない。増える量は 1 ステップあたり <code>g²dt²/2</code> で <strong>dt の2乗に比例</strong>するので、<strong>数字キーの <code>4</code>(5Hz)</strong>でシミュレーションレートを落とすと一目で分かる。</p></blockquote>
+<div class="inject" data-lab="spring"><figure class="lab" id="spring-lab">
+    <div class="lab-head">
+      <h3>ばねを 10 秒回す</h3>
+      <span>
+        <span class="legend"><i style="background:var(--semi)"></i>セミインプリシット</span>
+        <span class="legend"><i style="background:var(--expl)"></i>陽的オイラー</span>
+      </span>
+    </div>
+    <div class="split">
+      <div><canvas id="spring-phase" style="height:300px" aria-label="位相図"></canvas><div class="cap">位相図: 横 x[m] / 縦 v/ω[m]</div></div>
+      <div><canvas id="spring-energy" style="height:300px" aria-label="エネルギーの推移"></canvas><div class="cap">エネルギー[J] 対数目盛 / 横 時間[s]</div></div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="label">刻み幅 dt</span>
+        <div class="seg" id="spring-dt">
+          <button data-v="240" aria-pressed="false">1/240</button><button data-v="120" aria-pressed="false">1/120</button><button data-v="60" aria-pressed="true">1/60</button><button data-v="20" aria-pressed="false">1/20</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">表示する時間</span>
+        <div class="range"><input type="range" id="spring-t" min="0" max="10" step="0.01" value="10"><output id="spring-t-out">10.00 s</output></div>
+      </div>
+      <button class="btn" id="spring-play">0 秒から再生</button>
+    </div>
+    <div class="readout">
+      <div class="stats" id="spring-stats"></div>
+    </div>
+  </figure>
+<div class="table-wrap"><table id="fall-table"></table></div></div>
+<h3 id="s7">2. 力とトルク — 同じ力でも「どこに」掛けるかで変わる</h3>
+<p>並進と回転は、きれいに1対1で対応する。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>並進</th><th>回転</th></tr></thead><tbody><tr><td>位置</td><td><code>Position</code></td><td><code>Orientation</code>(クォータニオン)</td></tr><tr><td>速度</td><td><code>LinearVelocity</code></td><td><code>AngularVelocity</code></td></tr><tr><td>動かしにくさ</td><td>質量 <code>m</code></td><td>慣性テンソル <code>I</code></td></tr><tr><td>動かす原因</td><td>力 <code>F</code></td><td>トルク <code>τ</code></td></tr><tr><td>法則</td><td><code>a = F/m</code></td><td><code>α = I⁻¹τ</code></td></tr></tbody></table></div>
+<p><strong>対応していないのは3行目だけ</strong>。質量はスカラー1つで済むのに、慣性は軸によって違うので 3x3 の行列になる(要点3)。</p>
+<p>トルクは外積で決まる。</p>
+<div class="code"><pre><code>  τ = r × F        r は重心から作用点へのベクトル</code></pre></div>
+<p>外積なので、次の2つが自動的に出る。</p>
+<ul><li><strong>力が重心を向いていれば(r と F が平行)トルクは 0</strong>。押しても回らない</li><li>重心から遠いほど、また力が r と直交するほどトルクが大きい</li></ul>
+<p>ドアの取っ手が蝶番から遠いところに付いているのは、この式そのもの。</p>
+<p><code>Ctrl+Shift+Alt+F8</code> は、まったく同じ大きさの撃力を<strong>中心に掛けた場合と、中心を外して掛けた場合</strong>で交互に撃つ。片方は真上に飛ぶだけ、もう片方は飛びながら回る。</p>
+<div class="inject" data-lab="kick"><figure class="lab" id="kick-lab">
+    <div class="lab-head">
+      <h3>同じ撃力を、違う場所に</h3>
+      <span class="tag">球: 半径 0.4m / 質量 1kg / I = ⅖mr² = 0.064</span>
+    </div>
+    <div class="stage"><canvas id="kick-canvas" style="height:300px" aria-label="撃力と回転"></canvas></div>
+    <div class="controls">
+      <div class="ctl"><span class="label">作用点の横ずれ r.x</span>
+        <div class="range"><input type="range" id="kick-offset" min="-0.4" max="0.4" step="0.01" value="0.14"><output id="kick-offset-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">撃つ向き(0° = 真上)</span>
+        <div class="range"><input type="range" id="kick-angle" min="-90" max="90" step="1" value="0"><output id="kick-angle-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">よく使う設定</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <button class="btn" data-kick="0.14,0">実機の「中心を外す」(0.35r)</button>
+          <button class="btn" data-kick="0,0">中心に撃つ</button>
+          <button class="btn" data-kick="0.3,90">真横から押す</button>
+        </div>
+      </div>
+      <button class="btn primary" id="kick-fire">撃つ</button>
+    </div>
+    <div class="readout"><div class="stats" id="kick-stats"></div></div>
+  </figure></div>
+<h3 id="s8">3. 逆数で持つ — 逆質量と、球だけ楽ができる慣性テンソル</h3>
+<p>物理エンジンは質量ではなく<strong>質量の逆数</strong>を持つ。理由が3つある。</p>
+<ol><li><strong>式に出てくるのが必ず逆数のほう</strong>(<code>a = F/m</code>、<code>Δv = J/m</code>)。割り算が掛け算になる</li><li><strong><code>0</code> が「無限の質量」になる</strong>。動かない床や壁を、分岐なしで書ける</li><li>0 除算の心配が消える</li></ol>
+<div class="code"><span class="lang">csharp</span><pre><code>public bool IsStatic =&gt; InverseMass &lt;= 0.0f;</code></pre></div>
+<p>静的な体にインパルスを掛けても <code>Δv = J × 0 = 0</code>。<strong>式のまま動かない</strong>ので、解決のコードに <code>if (isStatic)</code> が1つも要らない。</p>
+<p>慣性テンソルも同じで、逆行列のほうを持つ。ただしこちらは<strong>物体座標で</strong>持つ。物体が回っても、物体から見た回りにくさは変わらないからで、世界座標での値は毎ステップ作り直す。</p>
+<div class="code"><pre><code>  I⁻¹_world = Rᵀ · D · R        D は対角(主軸まわりの逆慣性)</code></pre></div>
+<p>(System.Numerics は行ベクトル規約なので、教科書の <code>R · D · Rᵀ</code> と左右が逆に見える。指しているものは同じ)</p>
+<p><strong>球はここで例外的に楽ができる</strong>。3つの主軸の値が全部同じ <code>1/(2/5 m r²)</code> なので、回転で挟んでも元に戻る——つまり<strong>回しても慣性テンソルが変わらない</strong>。デモの球はこの行列が定数のままで、<code>UpdateInertiaWorld</code> は毎ステップ無駄に回っている。</p>
+<p>それでも一般形で書いてあるのは、Day 44 の箱でここが効いてくるから。使わないうちから正しい形で書いておくと、後で足すのが 0 行で済む(自己チェックは「対角が違えば 90 度回すと x と y の回りやすさが入れ替わる」でその形を先に検証してある)。</p>
+<div class="inject" data-lab="invmass"><svg viewBox="0 0 640 150" role="img" aria-label="逆質量と速度変化の関係" style="width:100%;max-width:640px;display:block;margin:4px 0 16px">
+    <g font-size="13">
+      <text x="0" y="22" fill="var(--muted)">Δv = J × (1/m)</text>
+      <g transform="translate(0,40)">
+        <circle cx="40" cy="40" r="28" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></circle>
+        <text x="40" y="45" text-anchor="middle" fill="var(--ink)">1kg</text>
+        <line x1="72" y1="40" x2="190" y2="40" stroke="var(--semi)" stroke-width="3"></line>
+        <path d="M190 33 L204 40 L190 47 Z" fill="var(--semi)"></path>
+        <text x="80" y="92" fill="var(--muted)">1/m = 1 → よく動く</text>
+      </g>
+      <g transform="translate(220,40)">
+        <circle cx="40" cy="40" r="38" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></circle>
+        <text x="40" y="45" text-anchor="middle" fill="var(--ink)">1000kg</text>
+        <line x1="82" y1="40" x2="96" y2="40" stroke="var(--semi)" stroke-width="3"></line>
+        <path d="M96 33 L110 40 L96 47 Z" fill="var(--semi)"></path>
+        <text x="0" y="98" fill="var(--muted)">1/m = 0.001 → ほとんど動かない</text>
+      </g>
+      <g transform="translate(450,40)">
+        <rect x="0" y="0" width="180" height="78" fill="var(--sunken)" stroke="var(--line)"></rect>
+        <path d="M0 78 L180 78" stroke="var(--ink)" stroke-width="2"></path>
+        <g stroke="var(--muted)" stroke-width="1">
+          <path d="M10 78 l-8 10 M30 78 l-8 10 M50 78 l-8 10 M70 78 l-8 10 M90 78 l-8 10 M110 78 l-8 10 M130 78 l-8 10 M150 78 l-8 10 M170 78 l-8 10"></path>
+        </g>
+        <text x="90" y="34" text-anchor="middle" fill="var(--ink)">床・壁</text>
+        <text x="90" y="54" text-anchor="middle" fill="var(--muted)">1/m = 0 → Δv = 0</text>
+      </g>
+    </g>
+  </svg></div>
+<h3 id="s9">4. 向きの積分 — <code>q += ½ ω q dt</code> の見慣れない式</h3>
+<p>位置は <code>x += v·dt</code> で済むのに、向きはこうなる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>var spin = new Quaternion(AngularVelocity, 0.0f);   // 実部 0 の「純クォータニオン」
+Orientation += spin * Orientation * (0.5f * dt);
+Orientation = Quaternion.Normalize(Orientation);</code></pre></div>
+<p><strong>½ はどこから来るか</strong>。クォータニオンは「半角」で回転を表す(角度 θ の回転が <code>cos(θ/2), sin(θ/2)·axis</code>)。角速度は実角度の変化率なので、クォータニオンの世界へ持ち込むときに半分になる。</p>
+<p><strong>足し算をしていること</strong>が引っかかりどころで、これは「回転を合成する」のではなく「4次元のベクトルとして微分方程式を1歩進める」操作。だから足した時点で長さが 1 からずれる。</p>
+<p><strong>必ず正規化する</strong>。忘れると向きに拡大縮小が混ざり、モデルが少しずつ膨らんだり潰れたりする。しかも1フレームでは気づけない。</p>
+<p>近似の誤差はごく小さい(角速度 2rad/s を 240Hz で1秒回して 1.99999rad)。気になるほど速く回るものがあるなら、正確な指数写像(<code>Quaternion.CreateFromAxisAngle(ω/|ω|, |ω|dt)</code> を掛ける)に差し替えればよい。</p>
+<div class="inject" data-lab="quat"><figure class="lab" id="quat-lab">
+    <div class="lab-head">
+      <h3>正規化を忘れたモデル</h3>
+      <span class="tag">点線の円が元の大きさ。1ステップごとに |q|² が (1 + (ω·dt/2)²) 倍になる</span>
+    </div>
+    <div class="split">
+      <div><canvas id="quat-a" style="height:240px" aria-label="正規化する場合"></canvas><div class="cap" id="quat-a-cap"></div></div>
+      <div><canvas id="quat-b" style="height:240px" aria-label="正規化しない場合"></canvas><div class="cap" id="quat-b-cap"></div></div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="label">角速度 ω</span>
+        <div class="range"><input type="range" id="quat-w" min="0.5" max="12" step="0.1" value="4"><output id="quat-w-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">シミュレーションレート</span>
+        <div class="seg" id="quat-hz">
+          <button data-v="240" aria-pressed="false">240Hz</button><button data-v="60" aria-pressed="false">60Hz</button><button data-v="20" aria-pressed="true">20Hz</button><button data-v="5" aria-pressed="false">5Hz</button>
+        </div>
+      </div>
+      <button class="btn" id="quat-reset">向きを戻す</button>
+    </div>
+    <div class="readout"><p id="quat-note"></p></div>
+  </figure></div>
+<h3 id="s10">5. インパルス — 衝突は「力」ではなく「運動量の受け渡し」</h3>
+<p>衝突は「非常に大きな力が、非常に短い時間だけ」掛かる現象。力 [N] と時間を別々に持っても意味が無いので、<strong>掛け算の結果だけ</strong>を扱う。</p>
+<div class="code"><pre><code>  インパルス J [N·s = kg·m/s]      Δv = J/m 、 Δω = I⁻¹ (r × J)</code></pre></div>
+<p>単位が運動量と同じなのがポイントで、<strong>インパルスとは運動量そのもの</strong>。2つの体に <code>+J</code> と <code>−J</code> を掛ければ、合計運動量は必ず保存する。自己チェックが「質量が違っても運動量は保存する」で見ているのはこれ。</p>
+<p>大きさはこう決まる。</p>
+<div class="code"><pre><code>                    - (1 + e) · v_n
+       j = ─────────────────────────────────────
+            1/mA + 1/mB + n·((IA⁻¹(rA×n))×rA) + n·((IB⁻¹(rB×n))×rB)</code></pre></div>
+<ul><li><strong>分子</strong>は「相対速度をどれだけ変えたいか」。<code>e</code> は反発係数(要点6)</li><li><strong>分母</strong>は「この向きに単位インパルスを掛けたら、接触点の相対速度がどれだけ変わるか」</li></ul>
+<p>分母は導出も難しくない。単位インパルス <code>n</code> を点 <code>r</code> に掛けると<code>Δω = I⁻¹(r × n)</code>、接触点の速度変化は <code>Δω × r</code>。それを <code>n</code> に投影したものを足せばいい。<strong>動かしやすいものほど分母が大きく、同じ速度差を作るのに要るインパルスが小さい</strong>。</p>
+<blockquote><p><strong>球どうしの衝突では、分母の回転の項が必ず 0 になる</strong>。接触法線は必ず両方の中心を通るので <code>r</code> と <code>n</code> が平行、外積が消える。つまり<strong>今日の球はぶつかっても回らない</strong>。ぶつかった球が回り始めるには摩擦(Day 47)が要る。回転の項が本当に効いてくるのは Day 44 の箱から。</p></blockquote>
+<div class="inject" data-lab="impulse"><svg viewBox="0 0 700 200" role="img" aria-label="球どうしでは r と n が平行になり回転の項が消える。箱では消えない" style="width:100%;max-width:700px;display:block;margin:8px 0 8px">
+    <defs>
+      <marker id="arrN" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--expl)"></path></marker>
+      <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--accent)"></path></marker>
+    </defs>
+    <g font-size="13">
+      <text x="10" y="20" fill="var(--ink)" font-weight="700">今日: 球どうし</text>
+      <circle cx="90" cy="105" r="55" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></circle>
+      <circle cx="196" cy="105" r="55" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></circle>
+      <circle cx="90" cy="105" r="3" fill="var(--ink)"></circle><circle cx="196" cy="105" r="3" fill="var(--ink)"></circle>
+      <text x="80" y="128" fill="var(--ink)">A</text><text x="200" y="128" fill="var(--ink)">B</text>
+      <line x1="90" y1="105" x2="141" y2="105" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrR)"></line>
+      <line x1="196" y1="105" x2="145" y2="105" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrR)"></line>
+      <line x1="143" y1="80" x2="108" y2="80" stroke="var(--expl)" stroke-width="2.5" marker-end="url(#arrN)"></line>
+      <text x="106" y="72" fill="var(--expl)">n</text>
+      <text x="100" y="98" fill="var(--accent)">rA</text><text x="168" y="98" fill="var(--accent)">rB</text>
+      <circle cx="143" cy="105" r="4" fill="var(--expl)"></circle>
+      <text x="10" y="188" fill="var(--muted)">n は両方の中心を通る → r × n = 0 → 回転の項が消える</text>
+
+      <text x="380" y="20" fill="var(--ink)" font-weight="700">Day 44: 箱と床</text>
+      <line x1="380" y1="160" x2="690" y2="160" stroke="var(--ink)" stroke-width="2"></line>
+      <g transform="rotate(-20 530 110)">
+        <rect x="470" y="60" width="120" height="80" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></rect>
+      </g>
+      <circle cx="530" cy="110" r="3" fill="var(--ink)"></circle>
+      <circle cx="489" cy="160" r="4" fill="var(--expl)"></circle>
+      <line x1="530" y1="110" x2="494" y2="155" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrR)"></line>
+      <text x="520" y="142" fill="var(--accent)">r</text>
+      <line x1="489" y1="160" x2="489" y2="112" stroke="var(--expl)" stroke-width="2.5" marker-end="url(#arrN)"></line>
+      <text x="474" y="108" fill="var(--expl)">n</text>
+      <text x="380" y="188" fill="var(--muted)">角が当たると r と n が平行でない → 当たると回り出す</text>
+    </g>
+  </svg>
+<figure class="lab" id="imp-lab">
+    <div class="lab-head">
+      <h3>インパルス計算機(正面衝突)</h3>
+      <span class="tag">右向きが正。n は B → A(A を B から引き離す向き)</span>
+    </div>
+    <div class="stage"><canvas id="imp-canvas" style="height:210px" aria-label="衝突前後の速度"></canvas></div>
+    <div class="controls">
+      <div class="ctl"><span class="label">A の質量</span>
+        <div class="range"><input type="range" id="imp-ma" min="-2" max="3" step="0.01" value="0"><output id="imp-ma-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">B の質量</span>
+        <div class="range"><input type="range" id="imp-mb" min="-2" max="3" step="0.01" value="0"><output id="imp-mb-out"></output></div>
+      </div>
+      <label class="check"><input type="checkbox" id="imp-static"> B を動かない壁にする(1/m = 0)</label>
+      <div class="ctl"><span class="label">A の速度</span>
+        <div class="range"><input type="range" id="imp-va" min="-6" max="6" step="0.1" value="5"><output id="imp-va-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">B の速度</span>
+        <div class="range"><input type="range" id="imp-vb" min="-6" max="6" step="0.1" value="0"><output id="imp-vb-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">反発係数 e</span>
+        <div class="range"><input type="range" id="imp-e" min="0" max="1" step="0.01" value="1"><output id="imp-e-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">例</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <button class="btn" data-imp="0,0,5,0,1,0">等質量・完全弾性</button>
+          <button class="btn" data-imp="0,3,5,0,1,0">1000倍重い相手</button>
+          <button class="btn" data-imp="0,0,5,0,0.5,1">動かない壁</button>
+          <button class="btn" data-imp="0,0,0.8,0,0.9,0">ゆっくり当たる</button>
+        </div>
+      </div>
+    </div>
+    <div class="readout" id="imp-out"></div>
+  </figure></div>
+<h3 id="s11">6. 反発係数 — 目標は1回だけ決める。しきい値が無いと震える</h3>
+<p><code>e = 0</code> なら跳ねずにくっつき、<code>e = 1</code> ならエネルギーを失わずに跳ね返る。落とした高さに対して、跳ね返る高さは <strong><code>e²</code> 倍</strong>になる。</p>
+<p>実装で引っかかるところが2つある。</p>
+<p><strong>1つ目: 反復すると跳ね返りが重ね掛けされる</strong>。速度の解決は複数回まわす(要点7)ので、そのたびに <code>-e·v_n</code> を計算し直すと、2周目は「1周目で跳ね返った速度」にさらに <code>e</code> を掛けることになり、<strong>球が天井まで飛ぶ</strong>。</p>
+<p>だから<strong>目標の離れる速度を、接触を作った瞬間に1回だけ決めて固定する</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float bounce = approach &lt; -RestitutionThreshold ? -restitution * approach : 0.0f;</code></pre></div>
+<p>自己チェックの「反復を8周にしても跳ね返りが増えない」がこれの確認で、1周でも8周でも跳ね返り速度は 2.0000 m/s(= 0.5 × 4.0)で一致する。</p>
+<p><strong>2つ目: しきい値が無いと、置いてある球が永久に震える</strong>。重力は毎ステップ <code>9.81 × dt ≈ 0.16 m/s</code> を足すので、床に乗っているだけの球にも常に小さな接近速度がある。それに <code>e</code> を掛けると、いつまでも 0.1 m/s で跳ね続けてしまう。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public float RestitutionThreshold { get; set; } = 1.0f;   // これより遅ければ e = 0</code></pre></div>
+<p><strong>「ゆっくりぶつかったものは跳ねない」は物理的にも正しい</strong> (ボールを床に置いても跳ねない)ので、これは誤魔化しではない。</p>
+<div class="inject" data-lab="bounce"><figure class="lab" id="bounce-lab">
+    <div class="lab-head">
+      <h3>1つの球を 3m から落とす</h3>
+      <span class="tag">半径 0.5m、球の下端の高さを描く。点線は理想の e²ⁿ × 3m</span>
+    </div>
+    <div class="stage"><canvas id="bounce-canvas" style="height:280px" aria-label="跳ね返りの高さの推移"></canvas></div>
+    <div class="controls">
+      <div class="ctl"><span class="label">反発係数 e</span>
+        <div class="range"><input type="range" id="bounce-e" min="0" max="1" step="0.01" value="0.5"><output id="bounce-e-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">しきい値 RestitutionThreshold</span>
+        <div class="seg" id="bounce-thr">
+          <button data-v="1" aria-pressed="true">1.0 m/s(既定)</button><button data-v="0" aria-pressed="false">0(無し)</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">シミュレーションレート</span>
+        <div class="seg" id="bounce-hz">
+          <button data-v="240" aria-pressed="false">240Hz</button><button data-v="120" aria-pressed="false">120Hz</button><button data-v="60" aria-pressed="true">60Hz</button><button data-v="20" aria-pressed="false">20Hz</button>
+        </div>
+      </div>
+    </div>
+    <div class="readout"><div class="stats" id="bounce-stats"></div></div>
+  </figure></div>
+<h3 id="s12">7. 位置の補正 — インチキだが必要。そして素朴なインパルスの限界</h3>
+<p>インパルスは<strong>速度</strong>を直す。「これ以上めり込まない」ようにはできるが、<strong>既にめり込んだぶんは戻らない</strong>。</p>
+<p>放っておくとどうなるか。重力は毎ステップ速度を足し、その速度で位置が進んでから接触が解決されるので、1ステップあたり <code>9.81 × dt² ≈ 2.7mm</code> ずつ沈んでいく。何もしないと球は床の中へ消える。</p>
+<p>そこで<strong>位置を直接動かす</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float overlap = MathF.Max(depth - Slop, 0.0f);
+Vector3 correction = normal * (overlap * CorrectionRate / inverseMassSum);
+a.Position += correction * a.InverseMass;
+b.Position -= correction * b.InverseMass;</code></pre></div>
+<p><strong>これは物理ではない</strong>。位置を勝手に動かせばエネルギーが湧く。それでもやるのは、代案(位置の拘束をきちんと解く)が桁違いに重いから。</p>
+<p>3つのつまみが要る。</p>
+<div class="table-wrap"><table><thead><tr><th>つまみ</th><th>既定</th><th>無いとどうなるか</th></tr></thead><tbody><tr><td><code>CorrectionRate</code></td><td>0.6</td><td>1 にすると一気に戻して弾ける</td></tr><tr><td><code>Slop</code>(許すめり込み)</td><td>5mm</td><td>0 にすると接触が付いたり消えたりして震える</td></tr><tr><td><code>PositionIterations</code></td><td>4</td><td>1 だと柱が沈む(下を上げると上が浮く)</td></tr></tbody></table></div>
+<p><strong>周ごとにめり込みを測り直す</strong>のがここでいちばん大事なところ。判定した時点の深さを使い回すと、1周目で解消した重なりを2周目も押し戻して、<strong>柱が上へ弾け飛ぶ</strong>。</p>
+<div class="inject" data-lab="stack"><figure class="lab" id="stack-lab">
+    <div class="lab-head">
+      <h3>積み上げ</h3>
+      <span class="tag">半径 0.45m、質量 1kg、e = 0、60Hz。数値は 300 ステップ(5秒)後</span>
+    </div>
+    <div class="split">
+      <div><canvas id="stack-canvas" style="height:420px" aria-label="積み上げた球の柱"></canvas></div>
+      <div style="padding:12px 16px">
+        <div class="stats" id="stack-stats"></div>
+        <h3 style="font-size:0.9375rem;margin:16px 0 4px">速度の反復を変えると(ほかのつまみは今の設定)</h3>
+        <div class="table-wrap"><table id="stack-table"></table></div>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="label">段数</span>
+        <div class="seg" id="stack-n">
+          <button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="true">4</button><button data-v="6" aria-pressed="false">6</button><button data-v="8" aria-pressed="false">8</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">速度の反復 VelocityIterations</span>
+        <div class="seg" id="stack-vi">
+          <button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="false">4</button><button data-v="8" aria-pressed="true">8</button><button data-v="16" aria-pressed="false">16</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="stack-pc" checked> 位置補正</label>
+      <div class="ctl"><span class="label">位置の反復 PositionIterations</span>
+        <div class="seg" id="stack-pi">
+          <button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="true">4</button><button data-v="8" aria-pressed="false">8</button>
+        </div>
+      </div>
+      <div class="ctl"><span class="label">CorrectionRate</span>
+        <div class="range"><input type="range" id="stack-rate" min="0.1" max="1" step="0.05" value="0.6"><output id="stack-rate-out"></output></div>
+      </div>
+      <div class="ctl"><span class="label">Slop(許すめり込み)</span>
+        <div class="range"><input type="range" id="stack-slop" min="0" max="0.02" step="0.001" value="0.005"><output id="stack-slop-out"></output></div>
+      </div>
+      <label class="check"><input type="checkbox" id="stack-reuse"> 深さを測り直さない(判定時の値を使い回す)</label>
+      <label class="check"><input type="checkbox" id="stack-acc"> 蓄積インパルス + 温存(Day 47 の先取り・改造課題3)</label>
+      <button class="btn" id="stack-reset">最初から</button>
+    </div>
+  </figure>
+<p class="note">このページの「蓄積インパルス + 温存」は、改造課題3の2つ(蓄積インパルスと温存)を両方入れたもの。検証すると、<strong>蓄積インパルスだけでは今日の積み上げのめり込みは変わらず</strong>(各周のインパルスが負にならないため)、温存を足して初めて 4段・反復1周のめり込みが 6.44cm から 1.12cm に下がった。</p></div>
+<h4 id="s13">そして、これでも足りない</h4>
+<p>積み上げの筋書きを反復1周でやると、<strong>柱は目に見えて沈む</strong>。</p>
+<div class="table-wrap"><table><thead><tr><th>速度の反復</th><th>残っためり込み</th><th>4段目の高さ(理想 3.150m)</th></tr></thead><tbody><tr><td>1 周</td><td>64.4mm</td><td>3.052m</td></tr><tr><td>8 周</td><td>14.7mm</td><td>3.114m</td></tr></tbody></table></div>
+<p>段を増やすとさらに悪くなる。6段だと 16 周まわしても 2cm 以上めり込む。</p>
+<p><strong>原因は素朴な反復のやり方にある</strong>。今日のコードは「めり込む向きの相対速度があれば、正のインパルスを足す」しかしていない。一度掛けたインパルスを<strong>後から減らす</strong>ことができないので、接触どうしが押し合う積み上げでは収束が遅い。</p>
+<p>これを直すのが Day 47 の <strong>Sequential Impulses</strong> で、要るのは2つ。</p>
+<ul><li><strong>蓄積インパルス</strong>: 接触ごとの合計を覚えておき、「合計が 0 以上」という条件で各周は増減どちらもできるようにする</li><li><strong>温存(warm starting)</strong>: 前フレームの解を初期値として使う。積み上げは毎フレームほぼ同じ答えなので、1周目からほぼ正解にいる</li></ul>
+<p>今日は<strong>この限界を数字で見えるところまで</strong>にしておく。「なぜ Sequential Impulses が要るのか」が体で分かっていないと、Day 47 は式を写すだけの日になってしまう。</p>
+</section><section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>役割</th></tr></thead><tbody><tr><td><code>Physics/Shapes3D.cs</code></td><td><code>Sphere3D</code> と <code>Plane3D</code>。<strong>4つの数で書ける形</strong>が2つ</td></tr><tr><td><code>Physics/Collision3D.cs</code></td><td><code>Contact3D</code> と判定2本。<strong>全部で 30 行</strong></td></tr><tr><td><code>Physics/RigidBody.cs</code></td><td>剛体1体。状態・質量・力の溜め場・積分</td></tr><tr><td><code>Physics/PhysicsWorld.cs</code></td><td>1ステップの5段。<strong>インパルス解決はここ</strong></td></tr></tbody></table></div>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th></tr></thead><tbody><tr><td><code>Program.cs</code></td><td>物理デモの組み立て・更新・描画、<code>Ctrl+Shift+Alt+F1〜F12</code>、HUD、自己チェック</td></tr></tbody></table></div>
+<p><strong><code>Render/</code> も <code>shaders/</code> も1文字も変わっていない</strong>。球のメッシュ(Day 35 の材質グリッド用)と <code>uv-test.png</code>(Day 15)を借りているだけ。</p>
+<h3 id="s17">写経する順番</h3>
+<p><strong>依存の順に並べてある</strong>。上から順に写せば、途中でビルドが通らなくなることは無い。</p>
+<ol><li><strong><code>Physics/Shapes3D.cs</code></strong>(新規) — <code>Sphere3D</code> と <code>Plane3D</code>。<strong>いちばん短い</strong>。<code>SignedDistance</code> が今日の判定の土台になる</li><li><strong><code>Physics/Collision3D.cs</code></strong>(新規) — <code>Contact3D</code> と <code>Collision3D</code>。判定そのものは短いが、<strong>法線の向きの約束</strong>(A を B から引き離す向き)をコメントごと写しておくこと。取り違えると物がめり込む方向へ飛ぶ</li><li><strong><code>Physics/RigidBody.cs</code></strong>(新規) — 今日いちばん長い。次の順で足すとよい
+<ul><li>状態(<code>Position</code> / <code>Orientation</code> / 速度2本 / <code>Previous*</code>)</li><li>質量まわり(<code>InverseMass</code> / <code>InverseInertiaLocal</code> / <code>InverseInertiaWorld</code>)</li><li><code>Force</code> / <code>Torque</code> / 材質(<code>Restitution</code> / 減衰 / <code>Radius</code>)</li><li>導出プロパティ(<code>IsStatic</code> / <code>Mass</code> / <code>KineticEnergy</code> / <code>Momentum</code>)</li><li><code>CreateSphere</code> / <code>CreateStaticSphere</code> / <code>ToSphere</code> / <code>UpdateInertiaWorld</code></li><li><code>ApplyForce</code> / <code>ApplyForceAtPoint</code> / <code>ApplyTorque</code>(<strong>要点2</strong>)</li><li><code>ApplyImpulse</code> / <code>ApplyImpulseAtPoint</code> / <code>VelocityAt</code>(<strong>要点5</strong>)</li><li><code>IntegrateVelocity</code> / <code>IntegratePosition</code>(<strong>要点1・要点4</strong>)</li></ul></li><li><strong><code>Physics/PhysicsWorld.cs</code></strong>(新規) — 今日の心臓部。次の順で
+<ul><li><code>IntegratorMode</code> と <code>ContactPoint</code>(どちらも <code>PhysicsWorld</code> の外、名前空間の直下)</li><li>つまみ(<code>Gravity</code> / <code>Integrator</code> / <code>VelocityIterations</code> / <code>PositionIterations</code> / <code>CorrectionRate</code> / <code>Slop</code> / <code>RestitutionThreshold</code>)と計測用のプロパティ</li><li><code>AddBody</code> / <code>AddPlane</code> / <code>Clear</code></li><li><code>Step</code>(<strong>5段の順番がそのまま今日の設計</strong>)/ <code>IntegrateVelocities</code> / <code>IntegratePositions</code></li><li><code>GenerateContacts</code> と <code>Add</code>(<strong>跳ね返り目標をここで1回だけ決める</strong>)</li><li><code>SolveVelocity</code> と <code>AngularTerm</code>(<strong>要点5の式そのもの</strong>)</li><li><code>CorrectPositions</code> と <code>Measure</code>(<strong>要点7</strong>)</li></ul></li><li><strong><code>Program.cs</code></strong> — 最後。次の順に足す
+<ul><li>フィールド(<code>PhysicsScene</code> / <code>_physicsDemo</code> / <code>Physics</code> / <code>_physicsScene</code> / <code>BodyColors</code> / <code>_physicsMaterial</code> / <code>RestitutionSteps</code> / <code>_restitutionIndex</code> / <code>IterationSteps</code> / <code>_iterationIndex</code> / <code>_physicsPaused</code> / <code>_physicsStepsRequested</code> / <code>_physicsMilliseconds</code> / <code>PhysicsFloorY</code> / <code>PhysicsWallDistance</code> / <code>_spawnCount</code> / <code>_kickOffCenter</code>)</li><li><code>Interpolate</code> の <code>Vector3</code> / <code>Quaternion</code> 版(<code>Vector2</code> 版の直後)</li><li><code>ShowPhysicsDemo</code> / <code>BuildPhysicsScene</code> / <code>BuildDropScene</code> / <code>BuildStackScene</code> / <code>BuildCradleScene</code> / <code>SpawnBall</code> / <code>KickBodies</code> / <code>UpdatePhysics</code> / <code>RenderPhysics</code> / <code>WallMatrices</code> / <code>BodyMatrix</code> / <code>PhysicsSceneLabel</code> / <code>PhysicsLabel</code> / <code>DescribePhysics</code> (<code>ToneMapLabel</code> の直前にまとめて置いてある)。<strong>呼ぶ側より先に足す</strong></li><li><code>OnLoad</code> に <code>_physicsMaterial</code> の生成(<code>_gridMaterial</code> の直後)</li><li><code>FixedUpdate</code> に <code>UpdatePhysics(dt)</code>(<strong><code>_collisionDemo</code> の直後</strong>)</li><li><code>Render3D</code> の先頭に <code>_physicsDemo</code> の分岐(<strong><code>_demo</code> の分岐より前</strong>)</li><li><code>RenderShadowPass</code> に <code>_physicsDemo</code> の枝(<code>_demo</code> の枝より前)</li><li><code>DrawOverlayInfo</code> に <code>PhysicsLabel()</code> の1行</li><li><code>RunRigidBodyCheck</code>(<code>RunLocomotionCheck</code> の直後)</li><li>キー(<code>Ctrl+Shift+Alt+F1〜F12</code>)。<strong>switch のいちばん上</strong>に置くこと</li><li><code>OnLoad</code> のヘルプ</li></ul></li></ol>
+<p><strong>キーの位置がいちばん間違えやすい</strong>。<code>Ctrl+Shift+Alt+F1</code> は<code>case Key.F1 when ctrl &amp;&amp; alt:</code>(Day 40)にも<code>case Key.F1 when ctrl &amp;&amp; shift:</code>(Day 39)にも一致するので、今日の塊を下に置くと<strong>キーが1つも届かない</strong>。しかも警告は出ない。</p>
+</section><section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Physics/</code> の中にクラスが4つ増えただけで、矢印は1本も足していない——<code>Physics/</code> は今日も<strong>どこにも依存しない層</strong>のまま。</p>
+<div class="table-wrap"><table><thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead><tbody><tr><td><code>Physics/Sphere3D</code></td><td><code>Physics/</code></td><td>中心と半径。<strong>回転を考えなくてよい形</strong></td></tr><tr><td><code>Physics/Plane3D</code></td><td><code>Physics/</code></td><td>法線と距離。<strong>無限に広い床・壁</strong></td></tr><tr><td><code>Physics/Contact3D</code></td><td><code>Physics/</code></td><td>法線・深さ・<strong>接触点</strong>。2D になかったのは接触点</td></tr><tr><td><code>Physics/Collision3D</code></td><td><code>Physics/</code></td><td>判定2本。<strong>全部で 30 行</strong></td></tr><tr><td><code>Physics/RigidBody</code></td><td><code>Physics/</code></td><td>剛体1体。状態・質量・力の溜め場・積分</td></tr><tr><td><code>Physics/IntegratorMode</code></td><td><code>Physics/</code></td><td>セミインプリシット / 陽的オイラー</td></tr><tr><td><code>Physics/ContactPoint</code></td><td><code>Physics/</code></td><td>接触 + どの体どうしか + 跳ね返り目標</td></tr><tr><td><code>Physics/PhysicsWorld</code></td><td><code>Physics/</code></td><td>1ステップの5段。<strong>インパルス解決</strong></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead><tbody><tr><td><code>Program.cs</code></td><td>物理デモの組み立て・更新・描画、キー、HUD、自己チェック</td></tr></tbody></table></div>
+<h3 id="s19"><code>Physics/</code> が今日も何も知らないままであること</h3>
+<p>Day 26 で <code>Physics/</code> を作ったとき、「<code>System.Numerics</code> しか使っていないのでそのまま別プロジェクトへ持ち出せる」と書いた。<strong>今日もそれが保たれている</strong>。</p>
+<div class="code"><pre><code>  Physics/  →  依存先なし(System.Numerics だけ)</code></pre></div>
+<p>物理エンジンは「エンジンの中でいちばん外の世界を知りたがる層」になりがちで、放っておくと描画のメッシュを覗き、シーングラフを辿り、入力を読みに行く。今日それを止めているのは2つの線。</p>
+<p><strong>1つ目: 色は <code>Physics/</code> の外に置いた</strong>。<code>RigidBody</code> に <code>Color</code> を持たせるのがいちばん楽だが、色は描画の都合であって物理の状態ではない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Program.cs 側
+private static readonly List&lt;Vector4&gt; BodyColors = [];</code></pre></div>
+<p>添字を体の番号と揃えるだけの雑な持ち方だが、<strong>線は正しい向きに引けている</strong>。Day 29 で <code>SurvivorGame</code> が <code>GameView</code> を知らなかったのと同じ判断で、配当は自己チェックにそのまま出る——45 項目が<strong>窓を1枚も出さずに走る</strong>。</p>
+<p><strong>2つ目: <code>PhysicsWorld</code> は「いつ呼ばれるか」を知らない</strong>。<code>Step(dt)</code> を受け取るだけで、固定ステップかどうかも、一時停止しているかも知らない。決めているのは <code>Program.FixedUpdate</code> の側。</p>
+<h3 id="s20">5段の順番が、そのまま今日の設計</h3>
+<p><code>PhysicsWorld.Step</code> の中身は 5 段しかない。<strong>この順番を入れ替えると、どこかが必ず壊れる</strong>。</p>
+<div class="table-wrap"><table><thead><tr><th>段</th><th>やること</th><th>入れ替えるとどうなるか</th></tr></thead><tbody><tr><td>1</td><td>積分(速度 → 位置)</td><td><strong>要点1</strong>。逆にすると陽的オイラーになる</td></tr><tr><td>2</td><td>判定(接触を集める)</td><td>積分の前に判定すると、1ステップ古い位置で解くことになる</td></tr><tr><td>3</td><td>速度の解決(インパルス)</td><td>—</td></tr><tr><td>4</td><td>位置の補正</td><td>速度より先にやると、補正した位置で速度を解くことになり震える</td></tr><tr><td>5</td><td>力の溜め場を空にする</td><td>忘れると力が積み上がって物が飛んでいく</td></tr></tbody></table></div>
+<p><strong>2 が 1 のあと</strong>なのが、討論の余地のあるところ。「めり込んでから直す」ので、原理的に<strong>必ず1ステップぶんめり込む</strong>。先に判定しておけばめり込まないが、それには「このステップで動いたらどこで当たるか」を予測する必要があり、それが連続衝突判定(CCD)になる。今日は扱わない。</p>
+<div class="inject" data-lab="pipeline"><ol class="pipeline">
+    <li><span class="no">1</span><div>
+      <div class="what">積分(速度 → 位置)</div>
+      <div class="rw"><span>読む <b>Force / Torque / Gravity</b></span><span>書く <b>速度、位置、向き、Previous*</b></span></div>
+      <div class="swap">入れ替えると: 速度と位置の順を逆にすると陽的オイラーになる(要点1)</div>
+    </div></li>
+    <li><span class="no">2</span><div>
+      <div class="what">判定(接触を集める)と跳ね返り目標の決定</div>
+      <div class="rw"><span>読む <b>位置、半径、速度</b></span><span>書く <b>接触の配列(bounce を含む)</b></span></div>
+      <div class="swap">入れ替えると: 積分の前に判定すると、1ステップ古い位置で解くことになる。「めり込んでから直す」ので必ず1ステップぶんめり込むが、それを避けるには CCD が要る</div>
+    </div></li>
+    <li><span class="no">3</span><div>
+      <div class="what">速度の解決 × VelocityIterations</div>
+      <div class="rw"><span>読む <b>接触、速度</b></span><span>書く <b>速度だけ</b></span></div>
+      <div class="swap">delta ≤ 0(もう離れている)なら何もしない。接触は押すことしかできない</div>
+    </div></li>
+    <li><span class="no">4</span><div>
+      <div class="what">位置の補正 × PositionIterations</div>
+      <div class="rw"><span>読む <b>接触、位置</b></span><span>書く <b>位置だけ</b></span></div>
+      <div class="swap">入れ替えると: 速度より先にやると、補正した位置で速度を解くことになり震える</div>
+    </div></li>
+    <li><span class="no">5</span><div>
+      <div class="what">力の溜め場を空にする</div>
+      <div class="rw"><span>書く <b>Force / Torque = 0</b></span></div>
+      <div class="swap">忘れると: 力が積み上がって物が飛んでいく</div>
+    </div></li>
+  </ol></div>
+<h3 id="s21"><code>B = -1</code> という分岐 — 今日わざと残した歪み</h3>
+<p><code>ContactPoint</code> は相手を体の番号で持つが、<strong>相手が平面のときだけ <code>-1</code></strong> になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>RigidBody a = _bodies[contact.A];
+RigidBody? b = contact.B &gt;= 0 ? _bodies[contact.B] : null;</code></pre></div>
+<p>この <code>b?.</code> が、速度の解決と位置の補正で合わせて 6 箇所出てくる。きれいではない。</p>
+<p><strong>逆質量 0 の体を置けば分岐は消える</strong>——実際 Box2D も Bullet もそうしている(静的な剛体)。そうしなかったのは、平面が<strong>無限に広い</strong>からで、<code>RigidBody.Position</code> が「重心の位置」であるという意味が保てない。</p>
+<p>正しい直し方は、体から形を切り離すこと。</p>
+<div class="code"><pre><code>  今日:  RigidBody が Radius を直接持っている(形が球しか無いので成立している)
+  Day 44: 形が箱・カプセル・地形と増える → Collider という型が要る
+          → 静的な体も「動かない Collider を持った RigidBody」で書ける
+          → B = -1 の分岐が消える</code></pre></div>
+<p><strong>Day 44 で箱を足すときに、この2つ(<code>B = -1</code> と <code>RigidBody.Radius</code>)は同時に片付く</strong>。今日先回りして <code>Collider</code> を作らなかったのは、形が1つしか無いうちに抽象化すると、たいてい間違った形の抽象になるため。</p>
+<p><code>CorrectPositions</code> の中の <code>Measure</code> に、その痕跡がはっきり残っている——めり込みを測り直すのに <code>a.Radius</code> を直接読んでいて、これは球以外では成り立たない。</p>
+<h3 id="s22">位置の補正を反復にしたこと</h3>
+<p>素朴に書くと、位置の補正は「接触を1周なめて押し戻す」1パスになる。これだと<strong>柱が沈んで戻らない</strong>。</p>
+<p>理由は接触どうしが打ち消し合うから。柱の下を押し上げると、その上の接触が深くなり、次にそれを解くと下が押し戻される。1周では平衡が出ない。</p>
+<p>反復にするとき、<strong>周ごとにめり込みを測り直す</strong>のが肝になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>(Vector3 normal, float depth) = Measure(contact, a, b);   // 今の位置から</code></pre></div>
+<p>判定した時点の深さを使い回すと、1周目で解消した重なりを2周目も押し戻して、<strong>柱が上へ弾け飛ぶ</strong>。速度の解決が毎周相対速度を読み直しているのと同じ理由で、Gauss-Seidel 型の反復では「今の状態を見る」ことが収束の条件になっている。</p>
+</section><section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day43 -c Release</code> で起動する。<strong>必ず <code>-c Release</code></strong>——<code>.hdr</code> の復号も太陽の抽出も CPU の総なめなので、Debug だと読み込みが数倍かかる。</p>
+<p>起動直後は Day 40 までの絵(DamagedHelmet)。今日の主役は <code>Ctrl+Shift+Alt+F1</code> から。</p>
+<h3 id="s24">1. <code>Ctrl+Shift+Alt+F1</code>: 5つの球が落ちて、違う高さまで跳ね返る</h3>
+<p>床の上に半径 40cm の球が5つ、横一列に高さ 3.5m から落ちてくる。反発係数が左から <code>0 / 0.25 / 0.5 / 0.75 / 0.95</code> に振ってあり、<strong>色が青→赤のグラデーションでその目盛りになっている</strong>。</p>
+<p>見どころは3つ。</p>
+<ul><li><strong>青(e=0)は跳ねない</strong>。着地した瞬間に止まる</li><li><strong>赤(e=0.95)はいつまでも跳ねている</strong>。1回ごとに <code>e² = 0.90</code> 倍ずつしか減らない</li><li>途中の3つは、<strong>跳ね返る高さが目に見えて階段状になる</strong></li></ul>
+<p>床には<strong>影が落ちる</strong>(Day 33 のシャドウマップ)ので、どのくらいの高さにいるかが影の大きさで読める。球には <code>uv-test</code> の格子が貼ってあるので、回っていれば分かる——<strong>ぶつかっただけでは回らない</strong>のが今日の球(要点5)。</p>
+<p>コンソール:</p>
+<div class="code"><pre><code>物理デモ: 落下(5 体)。<strong>Ctrl+Shift+Alt+F4 で筋書きを切り替え</strong>
+  F2:積分法  F3:反発係数  F5:反復回数  F6:位置補正  F7:球を追加  F8:撃つ  F9:内訳  F10:停止  F11:コマ送り</code></pre></div>
+<p>HUD の2行目がこうなっていること:</p>
+<div class="code"><pre><code>物理[落下]  体:5  接触:4  組:35  セミインプリシット  反復:8  既定e:0.60  補正:ON  めり込み:0.78cm  KE:5.42J  0.01ms</code></pre></div>
+<ul><li><strong>組:35</strong> は総当たりの数。体5個で 10 組、それに平面5枚 × 5体 = 25 組</li><li><strong>接触</strong>は落ち着くにつれて 1 → 4 と増える(床に乗った球のぶん)</li><li><strong>めり込み</strong> が 0.8cm(<code>Slop</code> の 0.5cm + 1ステップぶんの沈み)前後で落ち着くこと。ここが 2cm を超えて増え続けるなら、反復か位置補正が効いていない</li></ul>
+<h3 id="s25">2. <code>Ctrl+Shift+Alt+F4</code>(1回目): 積み上げ</h3>
+<p>球が縦に4つ積まれ、<strong>そのまま静止する</strong>。</p>
+<p>ここで <code>Ctrl+Shift+Alt+F5</code> を押して反復を 1 にすると、<strong>柱が目に見えて沈み込み、球どうしが重なる</strong>。4 → 8 と戻していくと、そのぶん持ち上がる。</p>
+<p>HUD の「めり込み」の数字で追える:</p>
+<div class="table-wrap"><table><thead><tr><th>反復</th><th>めり込み</th><th>最上段の高さ(理想 3.150m)</th></tr></thead><tbody><tr><td>1</td><td>6.44cm</td><td>3.052m</td></tr><tr><td>2</td><td>3.55cm</td><td>3.088m</td></tr><tr><td>4</td><td>2.14cm</td><td>3.106m</td></tr><tr><td>8</td><td><strong>1.47cm</strong></td><td><strong>3.114m</strong></td></tr></tbody></table></div>
+<p><code>Ctrl+Shift+Alt+F6</code> で位置補正を切ると、<strong>沈んだきり戻らない</strong>。速度は解けているので落ちてはいかないが、めり込みが残ったままになる。</p>
+<h3 id="s26">3. <code>Ctrl+Shift+Alt+F4</code>(2回目): 撞き玉</h3>
+<p>左から来た赤い球が、並んだ5つの銀の球に当たる。<strong>手前の4つはほとんど動かず、いちばん奥の1つだけが飛び出す</strong>。</p>
+<p>理屈は運動量とエネルギーの保存で、等質量・完全弾性の正面衝突は「速度が入れ替わる」(自己チェックの項目)。それが数珠つなぎに起きるので、端まで伝わる。</p>
+<p>飛び出した球は見えない壁で跳ね返り、逆向きに同じことが起きる。</p>
+<blockquote><p><strong>わざと 1cm ずつ隙間を空けてある</strong>。ぴったり接して並べると5つの接触が同時に立ち、素朴なインパルスでは端の1個だけが飛ぶ形にならない。<strong>同時接触は今日の解法の弱点</strong>で、要点7に書いた Day 47 の宿題そのもの。</p></blockquote>
+<h3 id="s27">4. <code>Ctrl+Shift+Alt+F8</code>: 撃つ</h3>
+<p>押すたびに「中心を外して撃つ」「中心に撃つ」が交互になる。</p>
+<div class="code"><pre><code><strong>中心を外して</strong>撃った(r × J のトルクが立つ): 5 個  最大角速度 8.75 rad/s
+中心に撃った(<strong>トルクは 0</strong>。回らない): 5 個  最大角速度 0.00 rad/s</code></pre></div>
+<p><strong>同じ大きさの撃力で、上がる高さは同じ</strong>(どちらも <code>Δv = 4m/s</code> → 0.82m)。違うのは回るかどうかだけ。8.75 rad/s は毎秒 1.4 回転で、滞空している 0.8 秒の間にちょうど1回転あまり——<code>uv-test</code> の格子で数えられる速さになっている。</p>
+<p>半径いっぱいまで外せば 20rad/s を超えるが、そこまでいくとただのブレになって「回っている」以上のことが読めない。<code>KickBodies</code> が <code>Radius * 0.35f</code> を狙っているのはそのため。</p>
+<h3 id="s28">5. <code>Ctrl+Shift+Alt+F2</code> + 数字キー <code>4</code>: 陽的オイラーが壊れるところ</h3>
+<p>積分法を陽的オイラーに切り替えても、60Hz では差がなかなか見えない。<strong>数字キーの <code>4</code>(5Hz)</strong>でシミュレーションレートを落とすと一目で分かる。</p>
+<ul><li>セミインプリシット … カクつくが、跳ね返る高さは減っていく</li><li><strong>陽的オイラー … 跳ね返るたびに高くなり、やがて画面外へ飛ぶ</strong></li></ul>
+<p>増える量は 1 ステップあたり <code>g²dt²/2</code> なので、<code>dt</code> が 12 倍(1/60 → 1/5)になると 144 倍になる。</p>
+<h3 id="s29">6. <code>Ctrl+Shift+Alt+F10</code> / <code>F11</code>: 止めてコマ送り</h3>
+<p><code>F10</code> で物理だけ止まる。<strong>カメラは動かせる</strong>ので、めり込んでいる箇所を回り込んで確かめられる。<code>F11</code> で 1 ステップだけ進む——衝突の瞬間を1コマずつ見られる。</p>
+<h3 id="s30">7. <code>Ctrl+Shift+Alt+F7</code>: 球を降らせる</h3>
+<p>押すたびに1つ増える。半径と質量がばらけているので、<strong>軽いものが重いものに弾かれる</strong>のが見える。30 個くらいまでは何も感じない(総当たり 435 組 + 平面 150 組 = <strong>585 組</strong>)。</p>
+<p>HUD の「組」が二次で増えていくのが読める——これを直すのが Day 46 のブロードフェーズ。</p>
+<h3 id="s31">8. Day 42 までの機能が全部生きていること</h3>
+<ul><li><code>Shift+Alt+F1</code> … Fox のロコモーション(Day 42)</li><li><code>Alt+F1</code> … CesiumMan のスキニング(Day 41)</li><li><code>Ctrl+Alt+F1</code> … デモ v1 のカメラワーク(Day 40)</li><li><code>F6</code> … 2D の衝突デモ(Day 26)。<strong>3D の物理とは別物</strong></li></ul>
+<p>物理デモを出したまま他のデモを出すと、<code>Render3D</code> の優先順位で物理だけが描かれる。<code>Ctrl+Shift+Alt+F1</code> でいったん消してから切り替える。</p>
+<h3 id="s32">9. <code>Ctrl+Shift+Alt+F12</code>: 自己チェック(45 項目すべて合格)</h3>
+<div class="code"><pre><code>--- Day 43: 剛体力学の自己チェック ---
+  [OK] 1秒後の落下速度が -9.81m/s(積分法によらない)  セミ -9.8100 / 陽的 -9.8100
+  [OK] セミインプリシットは<strong>行き過ぎる</strong>(解析解より深く落ちる)  4.9867m &gt; 4.9050m
+  [OK] 陽的オイラーは<strong>足りない</strong>(解析解より浅い)  4.8232m &lt; 4.9050m
+  [OK] 2つの平均が解析解と一致(誤差の符号が逆で大きさが同じ)  平均 4.904999 / 解析 4.905000
+  [OK] dt を半分にすると誤差も半分(1次精度)  81.75mm → 40.87mm(比 2.000)
+  [OK] ばね: セミインプリシットのエネルギーの上限は<strong>時間が経っても同じ</strong>  10秒 54.55J / 100秒 54.55J(初期 50.00J)
+  [OK] その上限も初期値の数%以内(<strong>誤差が溜まらない</strong>)  1.0909 倍
+  [OK] ばね10秒: <strong>陽的オイラーは発散する</strong>(1000 倍以上)  50.00J → 6.89E+008J(1.38E+007 倍)
+  ...
+  [OK] 反復1周だと柱が沈む(<strong>素朴版の限界</strong>)  めり込み 64.4mm(高さ 3.052m)
+  [OK] 反復8周なら持つ(めり込みが許容量の数倍以内)  めり込み 14.7mm(高さ 3.114m / 理想 3.150m)
+  [OK] 跳ね返るたびに頂点が低くなる(e &lt; 1)  0.593m → 0.122m → 0.020m
+  [OK] 1回目の頂点が、落とした高さの e² 倍前後(0.25)  0.593m / 3.000m = 0.198
+  [OK] 10秒後には落ち着いている(<strong>跳ね返りのしきい値が効いている</strong>)  0.0000J
+  [OK] 落ち着いた球の高さが半径ぶん(床にちょうど乗っている)  0.4949m(期待 0.5000m)
+  [OK] 1秒の自由落下: セミは<strong>減り</strong>、陽的は<strong>増える</strong>。大きさは同じ  セミ -0.8020J / 陽的 +0.8019J
+  すべて合格(球は落ち、跳ね、積める)</code></pre></div>
+<p><strong>45 項目のうち 1 つも GL を呼ばない</strong>。窓を出さずに全部走るので、写経の途中でも「物理だけ先に確かめる」ことができる。</p>
+<div class="inject" data-lab="keys"><h3>実験台と実機のキーの対応</h3><div class="table-wrap"><table>
+    <thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+    <tbody>
+      <tr><td><code>Ctrl+Shift+Alt+F1</code></td><td>物理デモ</td><td>5つの球が違う高さまで跳ねる</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F2</code></td><td>物理デモ「積分法」、要点1</td><td>数字キー <code>4</code>(5Hz)と組み合わせると陽的オイラーが跳ねるたびに高くなる</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F4</code></td><td>物理デモ「筋書き」</td><td>積み上げは静止する。撞き玉は奥の1つだけが飛び出す</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F5</code></td><td>物理デモ「速度の反復」、要点7</td><td>積み上げで 1 にすると柱が沈む</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F6</code></td><td>物理デモ「位置補正」、要点7</td><td>切ると沈んだきり戻らない</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F7</code></td><td>物理デモ「球を追加」</td><td>HUD の「組」が二次で増える(Day 46 のブロードフェーズの動機)</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F8</code></td><td>物理デモ「撃つ」、要点2</td><td>中心を外すと 8.75 rad/s で回る。上がる高さは同じ</td></tr>
+      <tr><td><code>Ctrl+Shift+Alt+F10</code> / <code>F11</code></td><td>物理デモ「停止」「コマ送り」</td><td>衝突の瞬間を1コマずつ見る</td></tr>
+      <tr><td>数字キー <code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>シミュレーションレート 120 / 60 / 20 / 5Hz</td><td>dt を変えると陽的オイラーの壊れ方と実測の e が変わる</td></tr>
+    </tbody>
+  </table></div><p class="note">実験台の物理は横から見た2Dで、奥行き方向の壁2枚を省いている。そのため HUD の「組」は実機より少ない(体5個で実機 35 組、このページ 25 組)。それ以外の式・つまみ・既定値は <code>reference/Day43/Physics/</code> と同じ。</p></div>
+</section><section class="part"><h2 id="s33">改造課題</h2>
+<h3 id="s34">課題1(易): 反発係数を「跳ね返る高さ」から逆算する</h3>
+<p><code>e² = 跳ね返る高さ / 落とした高さ</code> なので、<strong>高さを測れば <code>e</code> が求まる</strong>。自己チェックが頂点を拾っているコードを流用して、実測の <code>e</code> を出してみる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float measured = MathF.Sqrt(peaks[0] / 3.0f);   // 期待は 0.5</code></pre></div>
+<p>実際には 0.44 前後になるはず。<strong>設定値より小さい</strong>。</p>
+<p>なぜか考えるのが課題の本体になる。手掛かりは3つ。</p>
+<ul><li>跳ね返りの瞬間、球は既に <code>Slop</code> ぶん(5mm)めり込んでいる</li><li>接触が立つのは「めり込んだあと」なので、<strong>接近速度は真の値より少し大きい</strong></li><li>位置補正で持ち上げたぶんのエネルギーはどこへ行ったか</li></ul>
+<p><strong><code>dt</code> を小さくすると 0.5 に近づく</strong>(数字キーの <code>1</code> で 120Hz)。ここまで確かめられれば、離散化の誤差だと納得できる。</p>
+<h3 id="s35">課題2(中): 重力を「力」で掛けてみる</h3>
+<p>いま重力は <code>IntegrateVelocity</code> の中で<strong>加速度として</strong>足している。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>LinearVelocity += ((Force * InverseMass) + gravity) * dt;</code></pre></div>
+<p>これを、毎ステップ <code>body.ApplyForce(gravity * body.Mass)</code> で掛ける形に変えてみる。<strong>結果は完全に一致するはず</strong>——<code>F = mg</code> を <code>a = F/m</code> で割り戻すと <code>m</code> が消えるから。</p>
+<p>一致することを確かめたうえで、次の2つを考える。</p>
+<ul><li><strong>静的な体(逆質量 0)で何が起きるか</strong>。<code>Mass</code> は <code>+∞</code> なので <code>gravity * ∞</code> = NaN。加速度で足す形なら <code>IsStatic</code> で早期 return しているので問題にならない</li><li><strong>どちらが速いか</strong>。力の形は体の数だけ乗算が増え、溜め場への書き込みも増える</li></ul>
+<p>「物理的に等価な2つの書き方のうち、<strong>特異点が無いほう</strong>を選ぶ」というのが逆数で持つ話(要点3)と同じ判断で、ここでもう一度出てくる。</p>
+<h3 id="s36">課題3(難): 蓄積インパルスを入れて、積み上げを持たせる</h3>
+<p>要点7で書いた Day 47 の先取り。<strong>今日のコードに 10 行足すだけ</strong>で、柱のめり込みが桁で改善する。</p>
+<p>やることは2つ。</p>
+<ol><li><code>ContactPoint</code> を <code>struct</code>(可変)にして、<code>float AccumulatedImpulse</code> を持たせる</li><li><code>SolveVelocity</code> で、<strong>合計が 0 以上</strong>という条件でクリップする</li></ol>
+<div class="code"><span class="lang">csharp</span><pre><code>float delta = contact.Bounce - normalVelocity;
+float magnitude = delta / denominator;
+
+// <strong>合計が負にならない範囲で、減らすこともできるようにする</strong>
+float previous = contact.AccumulatedImpulse;
+contact.AccumulatedImpulse = MathF.Max(previous + magnitude, 0.0f);
+magnitude = contact.AccumulatedImpulse - previous;   // 実際に掛けるのはこの差分</code></pre></div>
+<p>いまのコードは <code>delta &lt;= 0</code> で何もしないので、<strong>一度掛けたインパルスを減らせない</strong>。合計で見れば「押す向き」のままで各周は増減できる、という形にすると、Gauss-Seidel の収束が劇的に速くなる。</p>
+<p>確かめ方は自己チェックの <code>Stack</code> を流用する。6段の柱で、反復 8 周のめり込みが 32mm から何mmになるか測る。</p>
+<p><strong>難しいのは <code>List&lt;ContactPoint&gt;</code> の要素を書き換えるところ</strong>。<code>readonly struct</code> を返す <code>Contacts</code> プロパティのままでは書けないので、配列にして <code>ref</code> で触るか、<code>CollectionsMarshal.AsSpan</code> を使うことになる。「値型を配列に置いて使い回す」ときに毎回出てくる話(Day 42 の <code>PoseAccumulator</code> と同じ)。</p>
+<p>余力があれば<strong>温存(warm starting)</strong>も。前フレームの <code>AccumulatedImpulse</code> を初期値として使うには、接触に「前フレームのどれと同じか」を教える識別子(体の番号の組)が要る。</p>
+</section><section class="part"><h2 id="s37">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070 / 1920x1080(DPI 100%)</li><li><code>dotnet run --project reference/Day43 -c Release</code></li></ul>
+<p>球5体 + 平面5枚を影・SSAO・IBL・ブルーム・FXAA 込みで回して、<strong>1ステップ 0.01ms 前後</strong>。描画のほうが3桁重い。</p>
+<p>球を 30 個まで増やしても(総当たり 435 組 + 平面 150 組)0.05ms 程度で、<strong>ブロードフェーズが要るのはまだ先</strong>というのが素直な結論になる。Day 46 で足すのは、地形の判定が入って1組あたりのコストが上がるのと、数百体を扱いたいから。</p>
+<h3 id="s38">自己チェック(45 項目すべて合格)</h3>
+<p>上の「完成条件 9」のとおり。数字の読み方をいくつか。</p>
+<ul><li><strong>誤差 ±81.75mm</strong>。陽的とセミインプリシットで符号が逆で、大きさが同じ。これが「1次の積分器」ということの実物で、<code>dt</code> を半分にすると 40.87mm(ちょうど半分)になる</li><li><strong>ばねの上限が 10 秒でも 100 秒でも 54.55J</strong>。ここが増えていくなら、<code>IntegrateVelocity</code> と <code>IntegratePosition</code> の順番が逆になっている</li><li><strong>陽的オイラーの 6.89 × 10⁸ J</strong>。1ステップあたり <code>(1 + ω²dt²)</code> 倍= 1.0278 倍で、600 ステップで 1.38 × 10⁷ 倍。<strong>指数で増える</strong></li><li><strong>球を回しても慣性テンソルが (5.0000, -0.0000, -0.0000)</strong>。等方なので回転で挟んでも変わらない。ここが変わるなら <code>Rᵀ · D · R</code> の左右が逆になっている(対角が違う体のほうのチェックが、その場合に落ちる)</li><li><strong>1000 倍重い相手に当てて -4.990 / 0.0100</strong>。質量比が大きいと「壁で跳ね返った」のと区別が付かなくなる、の実演</li><li><strong>反復 1周でも 8周でも跳ね返りが 2.0000</strong>。ここが 8周のときだけ大きくなるなら、跳ね返り目標を毎周計算し直している(要点6の1つ目の罠)</li></ul>
+<h3 id="s39">検証の途中で分かったこと</h3>
+<p><strong>位置の補正を1パスで書いたら、柱が 68mm 沈んだ</strong>。反復にしても、深さを判定時の値のまま使うと今度は弾け飛ぶ。<strong>周ごとに測り直す</strong>ようにして初めて落ち着いた。</p>
+<p>速度の解決が毎周相対速度を読み直しているのは当たり前に見えるのに、位置のほうを1回で済ませようとしてしまうのは、「位置は状態、速度は変化率」という感覚に引きずられているからだと思う。<strong>どちらも Gauss-Seidel の反復で、条件は同じ</strong>。</p>
+<p><strong>積み上げを6段から4段に減らした</strong>。6段だと反復 16 周でも 22mm めり込む。素朴なインパルスの収束の遅さが段数に対して急なので、「反復を増やせば持つ」と言い切れるのは4段まで、というのが実測。要点7と設計書に、この数字をそのまま書いてある。</p>
+<p><strong>反発係数の HUD 表示を「既定e」に直した</strong>。落下の筋書きは球ごとに <code>e</code> を振っているので、<code>e:0.60</code> と出ていると「全部 0.6 なのか」と読めてしまう。実際は「これから作る球の既定値」で、<code>Ctrl+Shift+Alt+F3</code> を押すと<strong>今ある球にも一括で適用される</strong>——そこまで含めて分かる表示にした。</p>
+<p><strong><code>LinearDamping</code> / <code>AngularDamping</code> が最初は未使用で警告になった</strong>。使い道が「数値的な保険」なので、デモで必要になるまで書きたくなかったが、摩擦が無いせいで<strong>撃った球が永久に回り続ける</strong>ことに気づいて<code>AngularDamping = 0.4</code> を入れた。<code>LinearDamping</code> のほうは自己チェック(「シミュレーションレートを変えても同じ」)でだけ使っている。</p>
+<p><strong>キーの段が7つ目(Ctrl+Shift+Alt)で打ち止めになった</strong>。修飾キー3つの組み合わせはこれで最後で、Day 44 以降は数字キーの段を使うか、Day 40 の <code>FeatureToggles</code> のように<strong>キー割り当てそのものをデータにする</strong>必要がある。</p></section>
+<footer class="end">Day 43 剛体力学の基礎 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// ============================================================
+//  2D 剛体物理(reference/Day43/Physics/PhysicsWorld.cs の移植)
+//  この Day の実験台だけが使う。ほかの Day でも要るようになったら docs/site/ へ移す。
+// ============================================================
+// 球(円)と平面だけの剛体シミュレーション。式・順番・つまみは C# 版と同じ。
+// 2D なので向きは角度1つ、角速度は z 軸まわりのスカラーで持つ。
+// 慣性は球の ⅖mr² のまま(横から見た球、として扱う)。
+class Body {
+  constructor(mass, radius) {
+    const inertia = 0.4 * mass * radius * radius;
+    this.invMass = mass > 0 ? 1 / mass : 0;
+    this.invInertia = inertia > 0 ? 1 / inertia : 0;
+    this.radius = radius;
+    this.x = 0; this.y = 0; this.angle = 0;
+    this.vx = 0; this.vy = 0; this.w = 0;
+    this.px = 0; this.py = 0; this.pangle = 0;
+    this.fx = 0; this.fy = 0; this.torque = 0;
+    this.restitution = 0.5;
+    this.linearDamping = 0;
+    this.angularDamping = 0;
+  }
+  get isStatic() { return this.invMass <= 0; }
+  get mass() { return this.invMass > 0 ? 1 / this.invMass : Infinity; }
+  get kineticEnergy() {
+    if (this.isStatic) return 0;
+    const inertia = this.invInertia > 0 ? 1 / this.invInertia : 0;
+    return 0.5 * this.mass * (this.vx * this.vx + this.vy * this.vy) + 0.5 * inertia * this.w * this.w;
+  }
+  // 点の速度 = v + ω × r
+  velocityAt(px, py) {
+    const rx = px - this.x, ry = py - this.y;
+    return [this.vx - this.w * ry, this.vy + this.w * rx];
+  }
+  applyImpulseAtPoint(jx, jy, px, py) {
+    const rx = px - this.x, ry = py - this.y;
+    this.vx += jx * this.invMass;
+    this.vy += jy * this.invMass;
+    this.w += this.invInertia * (rx * jy - ry * jx);
+  }
+  integrateVelocity(dt, gx, gy) {
+    if (this.isStatic) return;
+    this.vx += (this.fx * this.invMass + gx) * dt;
+    this.vy += (this.fy * this.invMass + gy) * dt;
+    this.w += this.torque * this.invInertia * dt;
+    if (this.linearDamping > 0) {
+      const k = Math.pow(1 - this.linearDamping, dt);
+      this.vx *= k; this.vy *= k;
+    }
+    if (this.angularDamping > 0) this.w *= Math.pow(1 - this.angularDamping, dt);
+  }
+  integratePosition(dt) {
+    this.px = this.x; this.py = this.y; this.pangle = this.angle;
+    if (this.isStatic) return;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.angle += this.w * dt;
+  }
+  clearAccumulators() { this.fx = 0; this.fy = 0; this.torque = 0; }
+}
+
+class World {
+  constructor() {
+    this.gx = 0; this.gy = -9.81;
+    this.integrator = 'semi';
+    this.velocityIterations = 8;
+    this.positionCorrection = true;
+    this.positionIterations = 4;
+    this.correctionRate = 0.6;
+    this.slop = 0.005;
+    this.restitutionThreshold = 1.0;
+    // 以下はこのページだけの実験用スイッチ(C# 版には無い)
+    this.reuseDepth = false;   // 位置補正で判定時の深さを使い回す(わざと壊す)
+    this.accumulate = false;   // 蓄積インパルス + 温存(Day 47 の先取り)
+    this.previousImpulses = null;
+    this.bodies = [];
+    this.planes = [];
+    this.contacts = [];
+    this.pairTests = 0;
+    this.maxPenetration = 0;
+  }
+  addBody(b) { this.bodies.push(b); return this.bodies.length - 1; }
+  // Plane3D.FromPointNormal: SignedDistance(p) = n·p - d
+  addPlane(px, py, nx, ny) { this.planes.push({ nx, ny, d: nx * px + ny * py }); }
+  get totalKineticEnergy() { let t = 0; for (const b of this.bodies) t += b.kineticEnergy; return t; }
+
+  step(dt) {
+    if (dt <= 0) return;
+    if (this.integrator === 'semi') {
+      this.integrateVelocities(dt);
+      this.integratePositions(dt);
+    } else {
+      this.integratePositions(dt);
+      this.integrateVelocities(dt);
+    }
+    this.generateContacts();
+    if (this.accumulate) this.warmStart();
+    for (let it = 0; it < this.velocityIterations; it++) {
+      for (const c of this.contacts) this.solveVelocity(c);
+    }
+    if (this.positionCorrection) this.correctPositions();
+    for (const b of this.bodies) b.clearAccumulators();
+  }
+  integrateVelocities(dt) { for (const b of this.bodies) b.integrateVelocity(dt, this.gx, this.gy); }
+  integratePositions(dt) { for (const b of this.bodies) b.integratePosition(dt); }
+
+  generateContacts() {
+    this.contacts = [];
+    this.pairTests = 0;
+    this.maxPenetration = 0;
+    const bodies = this.bodies;
+    for (let i = 0; i < bodies.length; i++) {
+      const a = bodies[i];
+      for (let j = i + 1; j < bodies.length; j++) {
+        const b = bodies[j];
+        if (a.isStatic && b.isStatic) continue;
+        this.pairTests++;
+        // Collision3D.SphereSphere
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const rs = a.radius + b.radius;
+        const sq = dx * dx + dy * dy;
+        if (sq >= rs * rs) continue;
+        const dist = Math.sqrt(sq);
+        const nx = dist > 1e-6 ? dx / dist : 0, ny = dist > 1e-6 ? dy / dist : 1;
+        const depth = rs - dist;
+        const k = a.radius - depth * 0.5;
+        this.add(i, j, -1, nx, ny, depth, a.x - nx * k, a.y - ny * k, a, b);
+      }
+      if (a.isStatic) continue;
+      for (let p = 0; p < this.planes.length; p++) {
+        this.pairTests++;
+        // Collision3D.SpherePlane
+        const pl = this.planes[p];
+        const dist = pl.nx * a.x + pl.ny * a.y - pl.d;
+        if (dist >= a.radius) continue;
+        this.add(i, -1, p, pl.nx, pl.ny, a.radius - dist, a.x - pl.nx * dist, a.y - pl.ny * dist, a, null);
+      }
+    }
+  }
+  // 跳ね返り目標はここで1回だけ決める
+  add(ia, ib, ip, nx, ny, depth, px, py, a, b) {
+    this.maxPenetration = Math.max(this.maxPenetration, depth);
+    const va = a.velocityAt(px, py);
+    const vb = b ? b.velocityAt(px, py) : [0, 0];
+    const approach = (va[0] - vb[0]) * nx + (va[1] - vb[1]) * ny;
+    const e = b ? Math.min(a.restitution, b.restitution) : a.restitution;
+    const bounce = approach < -this.restitutionThreshold ? -e * approach : 0;
+    this.contacts.push({ a: ia, b: ib, plane: ip, nx, ny, depth, px, py, bounce, acc: 0 });
+  }
+  // 温存(warm starting): 前ステップの同じ組の合計を初期値にして、先に掛けておく
+  warmStart() {
+    const prev = this.previousImpulses || new Map();
+    const next = new Map();
+    for (const c of this.contacts) {
+      const key = `${c.a}:${c.b}:${c.plane}`;
+      const old = prev.get(key);
+      c.acc = old ? old.acc : 0;
+      if (c.acc > 0) {
+        const a = this.bodies[c.a];
+        const b = c.b >= 0 ? this.bodies[c.b] : null;
+        a.applyImpulseAtPoint(c.nx * c.acc, c.ny * c.acc, c.px, c.py);
+        if (b) b.applyImpulseAtPoint(-c.nx * c.acc, -c.ny * c.acc, c.px, c.py);
+      }
+      next.set(key, c);
+    }
+    this.previousImpulses = next;   // c.acc はこのあとの反復で更新される
+  }
+  angularTerm(body, rx, ry, nx, ny) {
+    const ang = (rx * ny - ry * nx) * body.invInertia;   // I⁻¹(r × n)
+    return -ang * ry * nx + ang * rx * ny;                  // n · ((…) × r)
+  }
+  solveVelocity(c) {
+    const a = this.bodies[c.a];
+    const b = c.b >= 0 ? this.bodies[c.b] : null;
+    const rAx = c.px - a.x, rAy = c.py - a.y;
+    const rBx = b ? c.px - b.x : 0, rBy = b ? c.py - b.y : 0;
+    const va = a.velocityAt(c.px, c.py);
+    const vb = b ? b.velocityAt(c.px, c.py) : [0, 0];
+    const vn = (va[0] - vb[0]) * c.nx + (va[1] - vb[1]) * c.ny;
+    const delta = c.bounce - vn;
+    if (!this.accumulate && delta <= 0) return;   // 接触は押すことしかできない
+    let den = a.invMass + (b ? b.invMass : 0);
+    den += this.angularTerm(a, rAx, rAy, c.nx, c.ny);
+    if (b) den += this.angularTerm(b, rBx, rBy, c.nx, c.ny);
+    if (den <= 0) return;
+    let mag = delta / den;
+    if (this.accumulate) {
+      const prev = c.acc;
+      c.acc = Math.max(prev + mag, 0);
+      mag = c.acc - prev;
+    }
+    a.applyImpulseAtPoint(c.nx * mag, c.ny * mag, c.px, c.py);
+    if (b) b.applyImpulseAtPoint(-c.nx * mag, -c.ny * mag, c.px, c.py);
+  }
+  correctPositions() {
+    for (let it = 0; it < this.positionIterations; it++) {
+      for (const c of this.contacts) {
+        const a = this.bodies[c.a];
+        const b = c.b >= 0 ? this.bodies[c.b] : null;
+        const ims = a.invMass + (b ? b.invMass : 0);
+        if (ims <= 0) continue;
+        const m = this.reuseDepth ? { nx: c.nx, ny: c.ny, depth: c.depth } : this.measure(c, a, b);
+        const overlap = Math.max(m.depth - this.slop, 0);
+        if (overlap <= 0) continue;
+        const k = overlap * this.correctionRate / ims;
+        a.x += m.nx * k * a.invMass; a.y += m.ny * k * a.invMass;
+        if (b) { b.x -= m.nx * k * b.invMass; b.y -= m.ny * k * b.invMass; }
+      }
+    }
+  }
+  // 周ごとにめり込みを測り直す
+  measure(c, a, b) {
+    if (!b) {
+      const pl = this.planes[c.plane];
+      return { nx: pl.nx, ny: pl.ny, depth: a.radius - (pl.nx * a.x + pl.ny * a.y - pl.d) };
+    }
+    const dx = a.x - b.x, dy = a.y - b.y;
+    const dist = Math.hypot(dx, dy);
+    const nx = dist > 1e-6 ? dx / dist : c.nx, ny = dist > 1e-6 ? dy / dist : c.ny;
+    return { nx, ny, depth: a.radius + b.radius - dist };
+  }
+}
+</script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fmt, fit, seg, setSeg, segValue, stat, arrow, drawBall, rgb, animate } = Lab;
+
+// ============================================================
+//  物理デモ(Program.cs の BuildPhysicsScene 相当)
+// ============================================================
+const FLOOR_Y = -0.5, WALL = 5.0;
+const main = {
+  scene: 'drop', integrator: 'semi', hz: 60, iters: 8, posCorr: true,
+  eDefault: 0.6, world: null, colors: [], acc: 0, paused: false, kickOff: true, spawnCount: 0, ms: 0,
+};
+function buildMain() {
+  const w = new World();
+  w.integrator = main.integrator;
+  w.velocityIterations = main.iters;
+  w.positionCorrection = main.posCorr;
+  w.addPlane(0, FLOOR_Y, 0, 1);
+  w.addPlane(-WALL, 0, 1, 0);
+  w.addPlane(WALL, 0, -1, 0);
+  main.colors = [];
+  main.spawnCount = 0;
+  if (main.scene === 'drop') {
+    const es = [0, 0.25, 0.5, 0.75, 0.95];
+    es.forEach((e, i) => {
+      const b = new Body(1, 0.4);
+      b.x = (i - 2) * 1.6; b.y = 3.5; b.restitution = e; b.angularDamping = 0.4;
+      w.addBody(b);
+      main.colors.push(rgb(0.2 + 0.7 * e, 0.35, 0.9 - 0.7 * e));
+    });
+  } else if (main.scene === 'stack') {
+    const r = 0.45;
+    for (let i = 0; i < 4; i++) {
+      const b = new Body(1, r);
+      b.y = FLOOR_Y + r + i * r * 2; b.restitution = main.eDefault; b.angularDamping = 0.4;
+      w.addBody(b);
+      const t = i / 3;
+      main.colors.push(rgb(0.85 - 0.4 * t, 0.55 + 0.3 * t, 0.25 + 0.5 * t));
+    }
+  } else {
+    const r = 0.4, gap = 0.01;
+    for (let i = 0; i < 5; i++) {
+      const b = new Body(1, r);
+      b.x = (i - 2) * (r * 2 + gap); b.y = FLOOR_Y + r; b.restitution = 0.95; b.angularDamping = 0.4;
+      w.addBody(b);
+      main.colors.push(rgb(0.75, 0.75, 0.8));
+    }
+    const s = new Body(1, r);
+    s.x = -4.2; s.y = FLOOR_Y + r; s.vx = 6; s.restitution = 0.95; s.angularDamping = 0.4;
+    w.addBody(s);
+    main.colors.push(rgb(0.95, 0.35, 0.25));
+  }
+  for (const b of w.bodies) { b.px = b.x; b.py = b.y; b.pangle = b.angle; }
+  main.world = w;
+  main.acc = 0;
+  updateMainNote();
+}
+const sceneLabel = { drop: '落下', stack: '積み上げ', cradle: '撞き玉' };
+const sceneNote = {
+  drop: '青(e=0)は着地した瞬間に止まり、赤(e=0.95)はいつまでも跳ねる。球に描いた線は向きの目印で、ぶつかっただけでは回らない(要点5)。「撃つ」は中心を外す/中心に当てるが交互になる(要点2)。',
+  stack: '球が縦に4つ積まれて静止する。「速度の反復」を 1 にすると柱が沈み、球どうしが重なる。「位置補正」を切ると沈んだきり戻らない(要点7)。',
+  cradle: '左から来た赤い球が、並んだ5つに当たる。等質量・ほぼ完全弾性の正面衝突は「速度が入れ替わる」ので、奥の1つだけが飛び出す。わざと 1cm ずつ隙間を空けてある。ぴったり並べると5つの接触が同時に立ち、素朴なインパルスでは端の1個だけが飛ぶ形にならない。',
+};
+function updateMainNote() { $('main-note').innerHTML = `<p>${sceneNote[main.scene]}</p>`; }
+
+function stepMain() {
+  const t0 = performance.now();
+  main.world.step(1 / main.hz);
+  main.ms = performance.now() - t0;
+}
+function kick() {
+  const off = main.kickOff;
+  let maxSpin = 0;
+  for (const b of main.world.bodies) {
+    if (b.isStatic) continue;
+    const px = off ? b.x + b.radius * 0.35 : b.x;
+    b.applyImpulseAtPoint(0, 4 * b.mass, px, b.y);
+    maxSpin = Math.max(maxSpin, Math.abs(b.w));
+  }
+  $('main-kick').textContent = off ? '撃つ(次は中心)' : '撃つ(次は中心を外す)';
+  $('main-note').innerHTML = off
+    ? `<p><strong>中心を外して</strong>撃った(r × J のトルクが立つ)。最大角速度 ${fmt(maxSpin)} rad/s。毎秒 1.4 回転で、滞空中に1回転あまりする。</p>`
+    : `<p>中心に撃った(<strong>トルクは 0</strong>。回らない)。最大角速度 ${fmt(maxSpin)} rad/s。上がる高さはどちらも Δv = 4m/s → 0.82m で同じ。</p>`;
+  main.kickOff = !off;
+}
+function spawn() {
+  const n = main.spawnCount++;
+  const ang = n * 2.399963;   // 黄金角
+  const r = 0.25 + 0.1 * (n % 3);
+  const b = new Body(r * r * r * 20, r);
+  b.x = Math.cos(ang) * 3.2; b.y = 4.5; b.restitution = main.eDefault; b.angularDamping = 0.4;
+  b.px = b.x; b.py = b.y;
+  main.world.addBody(b);
+  const h = (n * 137.5) % 360;
+  main.colors.push(`hsl(${h} 55% 55%)`);
+}
+
+function drawMain() {
+  const { ctx, w, h } = fit($('main-canvas'));
+  const ink = tok('--ink'), muted = tok('--muted'), grid = tok('--grid');
+  const xmin = -5.6, xmax = 5.6, ymin = -0.9, ymax = 4.7;
+  const s = Math.min(w / (xmax - xmin), h / (ymax - ymin));
+  const ox = w / 2, oy = h - (0 - ymin) * s - (h - (ymax - ymin) * s) / 2;
+  const X = (x) => ox + x * s, Y = (y) => oy - y * s;
+  // 1m の格子
+  ctx.strokeStyle = grid; ctx.lineWidth = 1;
+  for (let x = -5; x <= 5; x++) { ctx.beginPath(); ctx.moveTo(X(x), Y(FLOOR_Y)); ctx.lineTo(X(x), Y(ymax)); ctx.stroke(); }
+  for (let y = 0; y <= 4; y++) { ctx.beginPath(); ctx.moveTo(X(-WALL), Y(y + FLOOR_Y)); ctx.lineTo(X(WALL), Y(y + FLOOR_Y)); ctx.stroke(); }
+  ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+  for (let y = 1; y <= 4; y++) ctx.fillText(`${y}m`, X(-WALL) + 4, Y(y + FLOOR_Y) - 3);
+  // 床と壁
+  ctx.strokeStyle = ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(X(xmin), Y(FLOOR_Y)); ctx.lineTo(X(xmax), Y(FLOOR_Y)); ctx.stroke();
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = muted; ctx.lineWidth = 1;
+  for (const wx of [-WALL, WALL]) { ctx.beginPath(); ctx.moveTo(X(wx), Y(FLOOR_Y)); ctx.lineTo(X(wx), Y(ymax)); ctx.stroke(); }
+  ctx.setLineDash([]);
+  const alpha = main.paused ? 1 : main.acc * main.hz;
+  const bodies = main.world.bodies;
+  // 影(高いほど小さく薄く)
+  for (const b of bodies) {
+    const x = b.px + (b.x - b.px) * alpha, y = b.py + (b.y - b.py) * alpha;
+    const hgt = Math.max(0, y - b.radius - FLOOR_Y);
+    const k = 1 / (1 + hgt * 0.5);
+    ctx.fillStyle = `rgba(0,0,0,${0.18 * k})`;
+    ctx.beginPath(); ctx.ellipse(X(x), Y(FLOOR_Y) + 2, b.radius * s * k, 4 * k + 1, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  bodies.forEach((b, i) => {
+    const x = b.px + (b.x - b.px) * alpha, y = b.py + (b.y - b.py) * alpha;
+    const a = b.pangle + (b.angle - b.pangle) * alpha;
+    drawBall(ctx, X(x), Y(y), b.radius * s, a, main.colors[i] || '#888');
+    if (main.scene === 'drop' && i < 5) {
+      ctx.fillStyle = muted; ctx.textAlign = 'center';
+      ctx.fillText(`e=${b.restitution}`, X(b.x), Y(FLOOR_Y) + 16);
+      ctx.textAlign = 'left';
+    }
+  });
+  const wld = main.world;
+  $('main-hud').textContent =
+    `物理[${sceneLabel[main.scene]}]  体:${wld.bodies.length}  接触:${wld.contacts.length}  組:${wld.pairTests}  ` +
+    `${main.integrator === 'semi' ? 'セミインプリシット' : '陽的オイラー'}  ${main.hz}Hz  反復:${wld.velocityIterations}  ` +
+    `既定e:${main.eDefault.toFixed(2)}  補正:${wld.positionCorrection ? 'ON' : 'OFF'}  ` +
+    `めり込み:${(wld.maxPenetration * 100).toFixed(2)}cm  KE:${wld.totalKineticEnergy.toFixed(2)}J  ${main.ms.toFixed(2)}ms` +
+    (main.paused ? '  [停止中]' : '');
+}
+function tickMain(dt) {
+  if (!main.paused) {
+    main.acc += dt;
+    const h = 1 / main.hz;
+    let n = 0;
+    while (main.acc >= h && n < 50) { stepMain(); main.acc -= h; n++; }
+  }
+  drawMain();
+}
+seg('main-scene', (v) => { main.scene = v; buildMain(); });
+seg('main-integrator', (v) => { main.integrator = v; main.world.integrator = v; });
+seg('main-hz', (v) => { main.hz = Number(v); main.acc = 0; });
+seg('main-iters', (v) => { main.iters = Number(v); main.world.velocityIterations = main.iters; });
+$('main-poscorr').addEventListener('change', (e) => { main.posCorr = e.target.checked; main.world.positionCorrection = main.posCorr; });
+$('main-kick').addEventListener('click', kick);
+$('main-spawn').addEventListener('click', spawn);
+$('main-pause').addEventListener('click', () => {
+  main.paused = !main.paused; main.acc = 0;
+  $('main-pause').textContent = main.paused ? '再開(F10)' : '停止(F10)';
+});
+$('main-step').addEventListener('click', () => {
+  if (!main.paused) { main.paused = true; $('main-pause').textContent = '再開(F10)'; }
+  stepMain(); drawMain();
+});
+$('main-reset').addEventListener('click', buildMain);
+buildMain();
+animate($('main-canvas'), tickMain);
+
+// ============================================================
+//  要点1: ばねと自由落下
+// ============================================================
+const OMEGA = 10;
+function springRun(mode, dt, seconds) {
+  let x = 1, v = 0;   // k = ω² = 100、m = 1 → E0 = ½kx² = 50J
+  const n = Math.round(seconds / dt);
+  const xs = new Float64Array(n + 1), vs = new Float64Array(n + 1), es = new Float64Array(n + 1);
+  const energy = () => 0.5 * v * v + 0.5 * OMEGA * OMEGA * x * x;
+  xs[0] = x; vs[0] = v; es[0] = energy();
+  for (let i = 1; i <= n; i++) {
+    if (mode === 'semi') { v += -OMEGA * OMEGA * x * dt; x += v * dt; }
+    else { const x0 = x; x += v * dt; v += -OMEGA * OMEGA * x0 * dt; }
+    xs[i] = x; vs[i] = v; es[i] = energy();
+  }
+  return { xs, vs, es, dt, n };
+}
+const spring = { hz: 60, t: 10, runs: null, playing: false };
+function springCompute() {
+  const dt = 1 / spring.hz;
+  spring.runs = { semi: springRun('semi', dt, 10), expl: springRun('expl', dt, 10) };
+}
+function drawSpring() {
+  const t = spring.t;
+  const muted = tok('--muted'), grid = tok('--grid'), ink = tok('--ink');
+  const cols = { semi: tok('--semi'), expl: tok('--expl') };
+  // 位相図
+  {
+    const { ctx, w, h } = fit($('spring-phase'));
+    const R = 2.4;
+    const s = Math.min(w, h) / (2 * R) * 0.95;
+    const cx = w / 2, cy = h / 2;
+    ctx.strokeStyle = grid; ctx.lineWidth = 1;
+    for (let g = -2; g <= 2; g++) {
+      ctx.beginPath(); ctx.moveTo(cx + g * s, cy - R * s); ctx.lineTo(cx + g * s, cy + R * s); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - R * s, cy + g * s); ctx.lineTo(cx + R * s, cy + g * s); ctx.stroke();
+    }
+    ctx.strokeStyle = muted; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.arc(cx, cy, s, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+    ctx.fillText('E = 50J の円', cx + s * 0.72, cy - s * 0.78);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(cx - R * s, cy - R * s, 2 * R * s, 2 * R * s); ctx.clip();
+    for (const key of ['expl', 'semi']) {
+      const r = spring.runs[key];
+      const n = Math.min(r.n, Math.round(t / r.dt));
+      ctx.strokeStyle = cols[key]; ctx.lineWidth = key === 'semi' ? 2.2 : 1.4;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const px = cx + r.xs[i] * s, py = cy - (r.vs[i] / OMEGA) * s;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        if (Math.abs(r.xs[i]) > 50) break;
+      }
+      ctx.stroke();
+      const xi = r.xs[n], vi = r.vs[n] / OMEGA;
+      if (Math.abs(xi) < R && Math.abs(vi) < R) {
+        ctx.fillStyle = cols[key]; ctx.beginPath(); ctx.arc(cx + xi * s, cy - vi * s, 4.5, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+  // エネルギー(対数)
+  {
+    const { ctx, w, h } = fit($('spring-energy'));
+    const L = 44, Rm = 12, T = 12, B = 26;
+    const pw = w - L - Rm, ph = h - T - B;
+    const lmin = 1, lmax = 10;   // 10J 〜 1e10J
+    const X = (tt) => L + (tt / 10) * pw;
+    const Y = (e) => T + ph - ((Math.log10(Math.max(e, 1e-3)) - lmin) / (lmax - lmin)) * ph;
+    ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono'); ctx.lineWidth = 1;
+    for (let l = lmin; l <= lmax; l += 1) {
+      ctx.beginPath(); ctx.moveTo(L, Y(10 ** l)); ctx.lineTo(L + pw, Y(10 ** l)); ctx.stroke();
+      if (l % 3 === 1 || l === lmax) ctx.fillText(`1e${l}`, 4, Y(10 ** l) + 4);
+    }
+    for (let s2 = 0; s2 <= 10; s2 += 2) {
+      ctx.beginPath(); ctx.moveTo(X(s2), T); ctx.lineTo(X(s2), T + ph); ctx.stroke();
+      ctx.fillText(`${s2}s`, X(s2) - 8, h - 8);
+    }
+    ctx.strokeStyle = muted; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(L, Y(50)); ctx.lineTo(L + pw, Y(50)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+    for (const key of ['expl', 'semi']) {
+      const r = spring.runs[key];
+      const n = Math.min(r.n, Math.round(t / r.dt));
+      ctx.strokeStyle = cols[key]; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const px = X(i * r.dt), py = Y(r.es[i]);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = ink; ctx.lineWidth = 1;
+    ctx.strokeRect(L + 0.5, T + 0.5, pw, ph);
+  }
+  // 数値
+  const r = spring.runs;
+  const n = Math.min(r.semi.n, Math.round(t / r.semi.dt));
+  let maxS = 0, maxE = 0;
+  for (let i = 0; i <= n; i++) { maxS = Math.max(maxS, r.semi.es[i]); maxE = Math.max(maxE, r.expl.es[i]); }
+  const big = (e) => (e >= 1e5 ? e.toExponential(2).replace('e+', ' × 10^') : e.toFixed(2));
+  $('spring-stats').innerHTML =
+    stat(`セミインプリシットの上限(〜${t.toFixed(1)}s)`, `${big(maxS)} J`, ` <small>初期の ${(maxS / 50).toFixed(4)} 倍</small>`) +
+    stat(`陽的オイラーの上限(〜${t.toFixed(1)}s)`, `${big(maxE)} J`, ` <small>${(maxE / 50).toExponential(2)} 倍</small>`) +
+    stat('陽的の1ステップあたりの増え方', `× ${(1 + (OMEGA / spring.hz) ** 2).toFixed(4)}`, ' <small>= 1 + ω²dt²</small>');
+  $('spring-t-out').textContent = `${t.toFixed(2)} s`;
+}
+function drawFallTable() {
+  const g = 9.81, dt = 1 / spring.hz, n = spring.hz;
+  const semi = g * dt * dt * n * (n + 1) / 2;
+  const expl = g * dt * dt * n * (n - 1) / 2;
+  const exact = 0.5 * g;
+  const mm = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 1000).toFixed(2)}mm`;
+  $('fall-table').innerHTML =
+    `<thead><tr><th>1秒の自由落下(dt = 1/${spring.hz})</th><th class="num">落ちた距離</th><th class="num">解析解との差</th></tr></thead><tbody>` +
+    `<tr><td style="color:var(--expl)">陽的オイラー</td><td class="num">${expl.toFixed(4)}m</td><td class="num">${mm(expl - exact)}</td></tr>` +
+    `<tr><td>解析解 ½gt²</td><td class="num">${exact.toFixed(4)}m</td><td class="num">—</td></tr>` +
+    `<tr><td style="color:var(--semi)">セミインプリシット</td><td class="num">${semi.toFixed(4)}m</td><td class="num">${mm(semi - exact)}</td></tr>` +
+    `<tr><td>2つの平均</td><td class="num">${((semi + expl) / 2).toFixed(6)}m</td><td class="num">${mm((semi + expl) / 2 - exact)}</td></tr></tbody>`;
+}
+seg('spring-dt', (v) => { spring.hz = Number(v); springCompute(); drawSpring(); drawFallTable(); });
+$('spring-t').addEventListener('input', (e) => { spring.t = Number(e.target.value); spring.playing = false; drawSpring(); });
+$('spring-play').addEventListener('click', () => {
+  if (reduceMotion) { spring.t = 10; $('spring-t').value = 10; drawSpring(); return; }
+  spring.t = 0; spring.playing = true;
+});
+springCompute(); drawFallTable();
+animate($('spring-phase'), (dt) => {
+  if (spring.playing) {
+    spring.t = Math.min(10, spring.t + dt * 2);
+    $('spring-t').value = spring.t;
+    if (spring.t >= 10) spring.playing = false;
+  }
+  drawSpring();
+});
+
+// ============================================================
+//  要点2: 撃力とトルク
+// ============================================================
+const kickLab = { offset: 0.14, angle: 0, world: null, maxH: 0, fired: false, acc: 0 };
+function buildKick() {
+  const w = new World();
+  w.addPlane(0, 0, 0, 1);
+  w.addPlane(-3.2, 0, 1, 0);
+  w.addPlane(3.2, 0, -1, 0);
+  const b = new Body(1, 0.4);
+  b.y = 0.4; b.restitution = 0.3; b.angularDamping = 0.4;
+  b.px = b.x; b.py = b.y;
+  w.addBody(b);
+  kickLab.world = w; kickLab.maxH = 0; kickLab.fired = false; kickLab.acc = 0;
+}
+function kickNumbers() {
+  const b = kickLab.world.bodies[0];
+  const phi = kickLab.angle * Math.PI / 180;
+  const J = 4 * b.mass;
+  const jx = Math.sin(phi) * J, jy = Math.cos(phi) * J;
+  const rx = kickLab.offset, ry = 0;
+  const tau = rx * jy - ry * jx;
+  return { jx, jy, rx, ry, tau, dw: tau * b.invInertia, dvx: jx * b.invMass, dvy: jy * b.invMass };
+}
+function updateKickStats() {
+  const k = kickNumbers();
+  $('kick-offset-out').textContent = `${k.rx >= 0 ? '+' : ''}${k.rx.toFixed(2)} m`;
+  $('kick-angle-out').textContent = `${kickLab.angle}°`;
+  const parallel = Math.abs(k.tau) < 1e-6;
+  $('kick-stats').innerHTML =
+    stat('撃力 J', `(${k.jx.toFixed(2)}, ${k.jy.toFixed(2)})`, ' <small>N·s</small>') +
+    stat('トルクのインパルス r × J', `${k.tau.toFixed(3)}`, parallel ? ' <span class="pill good">0: 回らない</span>' : '') +
+    stat('Δv = J / m', `${Math.hypot(k.dvx, k.dvy).toFixed(2)}`, ' <small>m/s</small>') +
+    stat('Δω = I⁻¹ (r × J)', `${k.dw.toFixed(2)}`, ` <small>rad/s(${(Math.abs(k.dw) / (2 * Math.PI)).toFixed(2)} 回転/秒)</small>`) +
+    stat('最高到達(上がった高さ)', kickLab.fired ? `${kickLab.maxH.toFixed(2)}` : '—', kickLab.fired ? ' <small>m</small>' : '');
+}
+function drawKick() {
+  const { ctx, w, h } = fit($('kick-canvas'));
+  const ink = tok('--ink'), muted = tok('--muted'), grid = tok('--grid');
+  const s = Math.min(w / 6.8, h / 1.75);
+  const X = (x) => w / 2 + x * s, Y = (y) => h - 18 - y * s;
+  ctx.strokeStyle = grid; ctx.lineWidth = 1;
+  for (let y = 0.5; y <= 1.5; y += 0.5) { ctx.beginPath(); ctx.moveTo(X(-3.2), Y(y)); ctx.lineTo(X(3.2), Y(y)); ctx.stroke(); }
+  ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+  for (let y = 0.5; y <= 1.5; y += 0.5) ctx.fillText(`${y}m`, X(-3.2) + 4, Y(y) - 3);
+  ctx.strokeStyle = ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.stroke();
+  const b = kickLab.world.bodies[0];
+  const a = kickLab.acc * 120;
+  const bx = b.px + (b.x - b.px) * a, by = b.py + (b.y - b.py) * a;
+  const ang = b.pangle + (b.angle - b.pangle) * a;
+  drawBall(ctx, X(bx), Y(by), b.radius * s, ang, tok('--accent'));
+  if (!kickLab.fired) {
+    const k = kickNumbers();
+    const px = X(b.x + k.rx), py = Y(b.y + k.ry);
+    // r
+    arrow(ctx, X(b.x), Y(b.y), px, py, tok('--semi'), 2.5);
+    // J(作用点に向かって押し込む矢印)
+    const L = 0.55 * s;
+    const ux = k.jx / Math.hypot(k.jx, k.jy), uy = k.jy / Math.hypot(k.jx, k.jy);
+    arrow(ctx, px - ux * L, py + uy * L, px, py, tok('--expl'), 3);
+    // 力の作用線
+    ctx.setLineDash([3, 4]); ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px - ux * 3 * s, py + uy * 3 * s); ctx.lineTo(px + ux * 3 * s, py - uy * 3 * s); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = tok('--expl'); ctx.fillText('J', px - ux * L - 14, py + uy * L + 4);
+    ctx.fillStyle = tok('--semi'); ctx.fillText('r', (X(b.x) + px) / 2 - 3, py - 8);
+    ctx.fillStyle = muted;
+    ctx.fillText('点線 = 力の作用線。重心を通れば回らない', 10, 16);
+  }
+}
+function tickKick(dt) {
+  if (kickLab.fired) {
+    kickLab.acc += dt;
+    while (kickLab.acc >= 1 / 120) {
+      kickLab.world.step(1 / 120);
+      kickLab.acc -= 1 / 120;
+      kickLab.maxH = Math.max(kickLab.maxH, kickLab.world.bodies[0].y - 0.4);
+    }
+  }
+  drawKick();
+}
+function syncKickInputs() {
+  $('kick-offset').value = kickLab.offset; $('kick-angle').value = kickLab.angle;
+  buildKick(); updateKickStats(); drawKick();
+}
+$('kick-offset').addEventListener('input', (e) => { kickLab.offset = Number(e.target.value); syncKickInputs(); });
+$('kick-angle').addEventListener('input', (e) => { kickLab.angle = Number(e.target.value); syncKickInputs(); });
+for (const btn of document.querySelectorAll('[data-kick]')) {
+  btn.addEventListener('click', () => {
+    const [o, a] = btn.dataset.kick.split(',').map(Number);
+    kickLab.offset = o; kickLab.angle = a; syncKickInputs();
+  });
+}
+$('kick-fire').addEventListener('click', () => {
+  buildKick();
+  const b = kickLab.world.bodies[0];
+  const k = kickNumbers();
+  b.applyImpulseAtPoint(k.jx, k.jy, b.x + k.rx, b.y + k.ry);
+  kickLab.fired = true;
+  updateKickStats();
+});
+buildKick(); updateKickStats();
+animate($('kick-canvas'), (dt) => { tickKick(dt); if (kickLab.fired) updateKickStats(); });
+
+// ============================================================
+//  要点4: クォータニオンの積分
+// ============================================================
+const quat = { w: 4, hz: 20, acc: 0, a: [1, 0], b: [1, 0], t: 0 };   // [qw, qz](z 軸まわりだけ)
+function quatStep(q, omega, dt, normalize) {
+  // q += ½ (0, ω) q dt。z 軸まわりなら (qw, qz) += ½ dt (−ω qz, ω qw)
+  const qw = q[0], qz = q[1];
+  q[0] = qw - 0.5 * dt * omega * qz;
+  q[1] = qz + 0.5 * dt * omega * qw;
+  if (normalize) { const l = Math.hypot(q[0], q[1]); q[0] /= l; q[1] /= l; }
+}
+function drawQuat(canvasId, q, capId, label) {
+  const { ctx, w, h } = fit($(canvasId));
+  const muted = tok('--muted');
+  const cx = w / 2, cy = h / 2, base = Math.min(w, h) * 0.22;
+  ctx.strokeStyle = muted; ctx.setLineDash([3, 4]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, base * 1.05, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  // 長さ |q| のクォータニオンでベクトルを回すと |q|² 倍になる
+  const len2 = q[0] * q[0] + q[1] * q[1];
+  const ang = 2 * Math.atan2(q[1], q[0]);
+  const shape = [[-0.55, -0.8], [0.25, -0.8], [0.25, -0.35], [0.95, 0], [0.25, 0.35], [0.25, 0.8], [-0.55, 0.8]];
+  ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+  ctx.beginPath();
+  shape.forEach(([x, y], i) => {
+    const rx = (x * Math.cos(ang) - y * Math.sin(ang)) * len2 * base;
+    const ry = (x * Math.sin(ang) + y * Math.cos(ang)) * len2 * base;
+    if (i === 0) ctx.moveTo(cx + rx, cy - ry); else ctx.lineTo(cx + rx, cy - ry);
+  });
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = tok('--ink'); ctx.font = '13px ' + tok('--font-body');
+  ctx.fillText(label, 10, 20);
+  $(capId).textContent = `|q| = ${Math.sqrt(len2).toFixed(5)}   大きさ |q|² = ${len2.toFixed(4)} 倍`;
+}
+function tickQuat(dt) {
+  quat.acc += dt;
+  const h = 1 / quat.hz;
+  while (quat.acc >= h) {
+    quatStep(quat.a, quat.w, h, true);
+    quatStep(quat.b, quat.w, h, false);
+    quat.acc -= h; quat.t += h;
+  }
+  if (quat.b[0] * quat.b[0] + quat.b[1] * quat.b[1] > 2.6) { quat.a = [1, 0]; quat.b = [1, 0]; quat.t = 0; }
+  drawQuat('quat-a', quat.a, 'quat-a-cap', '正規化する');
+  drawQuat('quat-b', quat.b, 'quat-b-cap', '正規化しない');
+  const grow = 1 + (quat.w / quat.hz / 2) ** 2;
+  $('quat-note').innerHTML = `1ステップごとに右の大きさが <strong>${grow.toFixed(5)} 倍</strong>、1秒で <strong>${(grow ** quat.hz).toFixed(3)} 倍</strong>になる(2.6 倍を超えたら戻す)。経過 ${quat.t.toFixed(1)} 秒。`;
+}
+$('quat-w').addEventListener('input', (e) => { quat.w = Number(e.target.value); $('quat-w-out').textContent = `${quat.w.toFixed(1)} rad/s`; });
+$('quat-w-out').textContent = `${quat.w.toFixed(1)} rad/s`;
+seg('quat-hz', (v) => { quat.hz = Number(v); quat.acc = 0; });
+$('quat-reset').addEventListener('click', () => { quat.a = [1, 0]; quat.b = [1, 0]; quat.t = 0; });
+if (reduceMotion) {
+  // 動かさない場合は 1 秒ぶん進めた状態を見せる
+  for (let i = 0; i < quat.hz; i++) { quatStep(quat.a, quat.w, 1 / quat.hz, true); quatStep(quat.b, quat.w, 1 / quat.hz, false); }
+  quat.t = 1;
+  const draw = () => { tickQuat(0); };
+  animate($('quat-a'), draw);
+} else {
+  animate($('quat-a'), tickQuat);
+}
+
+// ============================================================
+//  要点5: インパルス計算機(1D の正面衝突)
+// ============================================================
+const imp = { ma: 0, mb: 0, va: 5, vb: 0, e: 1, wall: false };
+const THRESHOLD = 1.0;
+function impCompute() {
+  const mA = 10 ** imp.ma, mB = imp.wall ? Infinity : 10 ** imp.mb;
+  const imA = 1 / mA, imB = imp.wall ? 0 : 1 / mB;
+  const vB = imp.wall ? 0 : imp.vb;
+  // A が左、B が右。n は B → A なので -x 向き
+  const n = -1;
+  const vn = (imp.va - vB) * n;
+  const bounce = vn < -THRESHOLD ? -imp.e * vn : 0;
+  const delta = bounce - vn;
+  const den = imA + imB;
+  const j = delta > 0 ? delta / den : 0;
+  const va2 = imp.va + j * n * imA;
+  const vb2 = vB - j * n * imB;
+  const p0 = mA * imp.va + (imp.wall ? 0 : mB * vB);
+  const p1 = mA * va2 + (imp.wall ? 0 : mB * vb2);
+  const ke0 = 0.5 * mA * imp.va ** 2 + (imp.wall ? 0 : 0.5 * mB * vB ** 2);
+  const ke1 = 0.5 * mA * va2 ** 2 + (imp.wall ? 0 : 0.5 * mB * vb2 ** 2);
+  return { mA, mB, imA, imB, vB, vn, bounce, delta, den, j, va2, vb2, p0, p1, ke0, ke1 };
+}
+const kg = (m) => (!Number.isFinite(m) ? '∞' : m >= 100 ? m.toFixed(0) : m >= 1 ? m.toFixed(2) : m.toFixed(3));
+function drawImp() {
+  const r = impCompute();
+  $('imp-ma-out').textContent = `${kg(r.mA)} kg`;
+  $('imp-mb-out').textContent = imp.wall ? '∞(壁)' : `${kg(r.mB)} kg`;
+  $('imp-va-out').textContent = `${imp.va.toFixed(1)} m/s`;
+  $('imp-vb-out').textContent = imp.wall ? '0(壁)' : `${imp.vb.toFixed(1)} m/s`;
+  $('imp-e-out').textContent = imp.e.toFixed(2);
+  const { ctx, w, h } = fit($('imp-canvas'));
+  const muted = tok('--muted'), ink = tok('--ink');
+  const rows = [['衝突前', imp.va, r.vB], ['衝突後', r.va2, r.vb2]];
+  const sv = Math.min(18, (w / 2 - 70) / 6);
+  rows.forEach(([label, va, vb], k) => {
+    const y = 60 + k * 95;
+    ctx.fillStyle = muted; ctx.font = '12px ' + tok('--font-body');
+    ctx.fillText(label, 10, y - 36);
+    const xa = w / 2 - 40, xb = w / 2 + 40;
+    const ra = 12 + 4 * (imp.ma + 2), rb = imp.wall ? 0 : 12 + 4 * (imp.mb + 2);
+    if (imp.wall) {
+      ctx.fillStyle = tok('--sunken'); ctx.strokeStyle = ink; ctx.lineWidth = 2;
+      ctx.fillRect(xa + ra, y - 34, 40, 68); ctx.beginPath(); ctx.moveTo(xa + ra, y - 34); ctx.lineTo(xa + ra, y + 34); ctx.stroke();
+    } else {
+      ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(xb + rb - 12, y, rb, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = ink; ctx.textAlign = 'center'; ctx.fillText('B', xb + rb - 12, y + 4);
+      arrow(ctx, xb + rb - 12, y + rb + 10, xb + rb - 12 + vb * sv, y + rb + 10, tok('--semi'), 2.5);
+      ctx.fillStyle = tok('--semi'); ctx.fillText(`${vb.toFixed(3)} m/s`, xb + rb - 12, y - rb - 6);
+    }
+    ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(xa - ra + 12, y, ra, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = ink; ctx.textAlign = 'center'; ctx.fillText('A', xa - ra + 12, y + 4);
+    arrow(ctx, xa - ra + 12, y + ra + 10, xa - ra + 12 + va * sv, y + ra + 10, tok('--expl'), 2.5);
+    ctx.fillStyle = tok('--expl'); ctx.fillText(`${va.toFixed(3)} m/s`, xa - ra + 12, y - ra - 6);
+    ctx.textAlign = 'left';
+  });
+  let verdict;
+  if (r.vn >= 0) verdict = '<span class="pill warn">離れている</span> v<sub>n</sub> ≥ 0 なので delta ≤ 0。何もしない(接触は押すことしかできない)';
+  else if (r.bounce === 0 && imp.e > 0) verdict = `<span class="pill warn">しきい値</span> 接近速度 ${(-r.vn).toFixed(2)} m/s が RestitutionThreshold(1.0)より遅いので e = 0 扱い。くっつくだけ`;
+  else verdict = '<span class="pill good">衝突</span> 跳ね返り目標 bounce = −e · v<sub>n</sub>';
+  const pOk = Math.abs(r.p1 - r.p0) < 1e-6 * Math.max(1, Math.abs(r.p0));
+  $('imp-out').innerHTML =
+    `<p>${verdict}</p>` +
+    `<div class="formula" style="margin-bottom:12px">` +
+    `<span>j =</span><span class="frac"><span class="hl-num">bounce − v<sub>n</sub> = ${r.bounce.toFixed(3)} − (${r.vn.toFixed(3)})</span>` +
+    `<span class="hl-den">1/m<sub>A</sub> + 1/m<sub>B</sub> = ${r.imA.toPrecision(4)} + ${r.imB.toPrecision(4)}${imp.wall ? '' : ''}</span></span>` +
+    `<span>= ${r.j.toFixed(4)} N·s</span><span class="hl-zero" title="球の正面衝突では r と n が平行">+ 回転の項 0 + 0</span></div>` +
+    `<div class="stats">` +
+    stat('A の速度 前 → 後', `${imp.va.toFixed(3)} → ${r.va2.toFixed(3)}`) +
+    stat('B の速度 前 → 後', imp.wall ? '0 → 0' : `${r.vB.toFixed(3)} → ${r.vb2.toFixed(4)}`) +
+    stat('合計運動量 前 → 後', imp.wall ? `${r.p0.toFixed(3)} → ${r.p1.toFixed(3)}` : `${r.p0.toFixed(3)} → ${r.p1.toFixed(3)}`, imp.wall ? ' <span class="pill warn">壁が受け取る</span>' : (pOk ? ' <span class="pill good">保存</span>' : '')) +
+    stat('運動エネルギー 前 → 後', `${r.ke0.toFixed(2)} → ${r.ke1.toFixed(2)}`, ' <small>J</small>') +
+    `</div>`;
+}
+function bindImp(id, key) {
+  $(id).addEventListener('input', (e) => { imp[key] = Number(e.target.value); drawImp(); });
+}
+bindImp('imp-ma', 'ma'); bindImp('imp-mb', 'mb'); bindImp('imp-va', 'va'); bindImp('imp-vb', 'vb'); bindImp('imp-e', 'e');
+$('imp-static').addEventListener('change', (e) => { imp.wall = e.target.checked; drawImp(); });
+for (const btn of document.querySelectorAll('[data-imp]')) {
+  btn.addEventListener('click', () => {
+    const [ma, mb, va, vb, e, wall] = btn.dataset.imp.split(',').map(Number);
+    Object.assign(imp, { ma, mb, va, vb, e, wall: wall === 1 });
+    $('imp-ma').value = ma; $('imp-mb').value = mb; $('imp-va').value = va; $('imp-vb').value = vb; $('imp-e').value = e;
+    $('imp-static').checked = imp.wall;
+    drawImp();
+  });
+}
+drawImp();
+window.addEventListener('resize', drawImp);
+
+// ============================================================
+//  要点6: 跳ね返り
+// ============================================================
+const bounce = { e: 0.5, thr: 1, hz: 60, data: null, play: 0 };
+function bounceCompute() {
+  const w = new World();
+  w.restitutionThreshold = bounce.thr;
+  w.addPlane(0, 0, 0, 1);
+  const b = new Body(1, 0.5);
+  b.y = 3.5; b.restitution = bounce.e;
+  w.addBody(b);
+  const dt = 1 / bounce.hz;
+  const steps = Math.round(10 / dt);
+  const ys = new Float64Array(steps + 1);
+  ys[0] = b.y - b.radius;
+  const peaks = [];
+  let prevVy = 0, touched = false;
+  for (let i = 1; i <= steps; i++) {
+    w.step(dt);
+    ys[i] = b.y - b.radius;
+    if (w.contacts.length > 0) touched = true;
+    if (touched && prevVy > 0 && b.vy <= 0 && peaks.length < 6) peaks.push(ys[i]);
+    prevVy = b.vy;
+  }
+  // 最後の2秒の揺れ幅
+  let lo = Infinity, hi = -Infinity;
+  for (let i = steps - Math.round(2 / dt); i <= steps; i++) { lo = Math.min(lo, ys[i]); hi = Math.max(hi, ys[i]); }
+  bounce.data = { ys, dt, steps, peaks, ke: w.totalKineticEnergy, jitter: hi - lo };
+}
+function drawBounce() {
+  const d = bounce.data;
+  const { ctx, w, h } = fit($('bounce-canvas'));
+  const muted = tok('--muted'), grid = tok('--grid'), ink = tok('--ink');
+  const L = 44, R = 12, T = 14, B = 26;
+  const pw = w - L - R, ph = h - T - B;
+  const tmax = 6;
+  const X = (t) => L + (t / tmax) * pw, Y = (y) => T + ph - (y / 3.2) * ph;
+  ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+  for (let y = 0; y <= 3; y += 0.5) { ctx.beginPath(); ctx.moveTo(L, Y(y)); ctx.lineTo(L + pw, Y(y)); ctx.stroke(); ctx.fillText(`${y}m`, 6, Y(y) + 4); }
+  for (let t = 0; t <= tmax; t++) { ctx.fillText(`${t}s`, X(t) - 6, h - 8); }
+  // 理想の頂点 3 × e^(2k)
+  ctx.setLineDash([3, 4]); ctx.strokeStyle = muted;
+  for (let k = 1; k <= 4; k++) {
+    const hh = 3 * bounce.e ** (2 * k);
+    if (hh < 0.02) break;
+    ctx.beginPath(); ctx.moveTo(L, Y(hh)); ctx.lineTo(L + pw, Y(hh)); ctx.stroke();
+    ctx.fillText(`e^${2 * k}×3m`, L + pw - 64, Y(hh) - 3);
+  }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+  ctx.beginPath();
+  const n = Math.min(d.steps, Math.round(tmax / d.dt));
+  for (let i = 0; i <= n; i++) { const px = X(i * d.dt), py = Y(d.ys[i]); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+  ctx.stroke();
+  // 再生カーソル
+  const t = bounce.play % tmax;
+  const idx = Math.min(n, Math.round(t / d.dt));
+  ctx.fillStyle = tok('--accent');
+  ctx.beginPath(); ctx.arc(X(idx * d.dt), Y(d.ys[idx]), 5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.strokeRect(L + 0.5, T + 0.5, pw, ph);
+}
+function bounceStats() {
+  const d = bounce.data;
+  const p = d.peaks;
+  const measured = p.length ? Math.sqrt(p[0] / 3) : 0;
+  const settled = d.ke < 1e-4;
+  $('bounce-stats').innerHTML =
+    stat('頂点(1 → 2 → 3回目)', p.length ? p.slice(0, 3).map((v) => v.toFixed(3)).join(' → ') : 'なし', p.length ? ' <small>m</small>' : '') +
+    stat('1回目 / 3m(理想 e²)', p.length ? `${(p[0] / 3).toFixed(3)}` : '—', ` <small>e² = ${(bounce.e ** 2).toFixed(3)}</small>`) +
+    stat('実測の e = √(h₁/h₀)', p.length ? measured.toFixed(3) : '—', ` <small>設定 ${bounce.e.toFixed(2)}</small>`) +
+    stat('10秒後の運動エネルギー', `${d.ke.toExponential(1)} J`, settled ? ' <span class="pill good">落ち着いた</span>' : ' <span class="pill bad">震えている</span>') +
+    stat('最後の2秒の揺れ幅', `${(d.jitter * 1000).toFixed(2)}`, ' <small>mm</small>');
+  $('bounce-e-out').textContent = bounce.e.toFixed(2);
+}
+function refreshBounce() { bounceCompute(); bounceStats(); drawBounce(); }
+$('bounce-e').addEventListener('input', (e) => { bounce.e = Number(e.target.value); refreshBounce(); });
+seg('bounce-thr', (v) => { bounce.thr = Number(v); refreshBounce(); });
+seg('bounce-hz', (v) => { bounce.hz = Number(v); refreshBounce(); });
+refreshBounce();
+animate($('bounce-canvas'), (dt) => { if (!reduceMotion) bounce.play += dt; drawBounce(); });
+
+// ============================================================
+//  要点7: 積み上げ
+// ============================================================
+const stack = { n: 4, vi: 8, pc: true, pi: 4, rate: 0.6, slop: 0.005, reuse: false, acc: false, world: null, t: 0, fixedAcc: 0, steps: 0 };
+const STACK_R = 0.45;
+function makeStack(vi) {
+  const w = new World();
+  w.velocityIterations = vi;
+  w.positionCorrection = stack.pc;
+  w.positionIterations = stack.pi;
+  w.correctionRate = stack.rate;
+  w.slop = stack.slop;
+  w.reuseDepth = stack.reuse;
+  w.accumulate = stack.acc;
+  w.addPlane(0, 0, 0, 1);
+  for (let i = 0; i < stack.n; i++) {
+    const b = new Body(1, STACK_R);
+    b.y = STACK_R + i * STACK_R * 2; b.restitution = 0;
+    b.px = b.x; b.py = b.y;
+    w.addBody(b);
+  }
+  return w;
+}
+function runStack(vi, steps = 300) {
+  const w = makeStack(vi);
+  const ideal = STACK_R + (stack.n - 1) * STACK_R * 2;
+  let highest = 0;
+  for (let i = 0; i < steps; i++) {
+    w.step(1 / 60);
+    for (const b of w.bodies) highest = Math.max(highest, b.y);
+  }
+  const top = w.bodies[w.bodies.length - 1];
+  // 一度でも理想より 5cm 以上高く跳ねたら「弾けた」
+  return { pen: w.maxPenetration, top: top.y, blown: !Number.isFinite(top.y) || highest > ideal + 0.05 };
+}
+function stackTable() {
+  const ideal = STACK_R + (stack.n - 1) * STACK_R * 2;
+  let rows = '';
+  for (const vi of [1, 2, 4, 8, 16]) {
+    const r = runStack(vi);
+    const cur = vi === stack.vi ? ' style="font-weight:700"' : '';
+    rows += `<tr${cur}><td class="num">${vi}</td><td class="num">${r.blown ? '—' : (r.pen * 100).toFixed(2) + 'cm'}</td><td class="num">${r.blown ? r.top.toFixed(3) + 'm(弾けた)' : r.top.toFixed(3) + 'm'}</td></tr>`;
+  }
+  $('stack-table').innerHTML = `<thead><tr><th class="num">反復</th><th class="num">めり込み</th><th class="num">最上段(理想 ${ideal.toFixed(3)}m)</th></tr></thead><tbody>${rows}</tbody>`;
+  const r = runStack(stack.vi);
+  const deep = r.pen > 0.02;
+  $('stack-stats').innerHTML =
+    stat('最大めり込み(5秒後)', r.blown ? '—' : `${(r.pen * 100).toFixed(2)}`, r.blown ? ' <span class="pill bad">弾け飛んだ</span>' : ` <small>cm</small> ${deep ? '<span class="pill bad">沈む</span>' : '<span class="pill good">持つ</span>'}`) +
+    stat('最上段の高さ', `${r.top.toFixed(3)}`, ` <small>m / 理想 ${ideal.toFixed(3)}</small>`);
+}
+function resetStack() {
+  stack.world = makeStack(stack.vi); stack.fixedAcc = 0; stack.steps = 0;
+  stackTable();
+}
+function drawStack() {
+  const { ctx, w, h } = fit($('stack-canvas'));
+  const ink = tok('--ink'), muted = tok('--muted'), grid = tok('--grid');
+  const height = stack.n * STACK_R * 2 + 0.3;
+  const s = Math.min((h - 30) / height, w / 2.4);
+  const X = (x) => w / 2 + x * s, Y = (y) => h - 14 - y * s;
+  ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.fillStyle = muted; ctx.font = '11px ' + tok('--font-mono');
+  for (let y = 1; y <= height; y++) { ctx.beginPath(); ctx.moveTo(8, Y(y)); ctx.lineTo(w - 8, Y(y)); ctx.stroke(); ctx.fillText(`${y}m`, 10, Y(y) - 3); }
+  ctx.strokeStyle = ink; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, Y(0)); ctx.lineTo(w, Y(0)); ctx.stroke();
+  // 理想の位置
+  ctx.setLineDash([3, 4]); ctx.strokeStyle = muted; ctx.lineWidth = 1;
+  for (let i = 0; i < stack.n; i++) { ctx.beginPath(); ctx.arc(X(0), Y(STACK_R + i * STACK_R * 2), STACK_R * s, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.setLineDash([]);
+  const wld = stack.world;
+  wld.bodies.forEach((b, i) => {
+    if (!Number.isFinite(b.y)) return;
+    const t = stack.n > 1 ? i / (stack.n - 1) : 0;
+    ctx.globalAlpha = 0.85;
+    drawBall(ctx, X(b.x), Y(b.y), b.radius * s, b.angle + Math.PI / 2, rgb(0.85 - 0.4 * t, 0.55 + 0.3 * t, 0.25 + 0.5 * t));
+    ctx.globalAlpha = 1;
+  });
+  // 重なりを赤で
+  ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 3;
+  for (const c of wld.contacts) {
+    if (c.depth <= 0.002) continue;
+    ctx.beginPath(); ctx.moveTo(X(c.px) - STACK_R * s * 0.6, Y(c.py)); ctx.lineTo(X(c.px) + STACK_R * s * 0.6, Y(c.py)); ctx.stroke();
+  }
+  ctx.fillStyle = muted;
+  ctx.fillText(`${(stack.steps / 60).toFixed(1)}s  めり込み ${(wld.maxPenetration * 100).toFixed(2)}cm`, 10, 16);
+}
+function tickStack(dt) {
+  stack.fixedAcc += dt;
+  while (stack.fixedAcc >= 1 / 60) {
+    if (stack.steps < 60 * 30) { stack.world.step(1 / 60); stack.steps++; }
+    stack.fixedAcc -= 1 / 60;
+  }
+  drawStack();
+}
+seg('stack-n', (v) => { stack.n = Number(v); resetStack(); });
+seg('stack-vi', (v) => { stack.vi = Number(v); resetStack(); });
+seg('stack-pi', (v) => { stack.pi = Number(v); resetStack(); });
+$('stack-pc').addEventListener('change', (e) => { stack.pc = e.target.checked; resetStack(); });
+$('stack-reuse').addEventListener('change', (e) => { stack.reuse = e.target.checked; resetStack(); });
+$('stack-acc').addEventListener('change', (e) => { stack.acc = e.target.checked; resetStack(); });
+$('stack-rate').addEventListener('input', (e) => { stack.rate = Number(e.target.value); $('stack-rate-out').textContent = stack.rate.toFixed(2); resetStack(); });
+$('stack-slop').addEventListener('input', (e) => { stack.slop = Number(e.target.value); $('stack-slop-out').textContent = `${(stack.slop * 1000).toFixed(0)}mm`; resetStack(); });
+$('stack-rate-out').textContent = stack.rate.toFixed(2);
+$('stack-slop-out').textContent = `${(stack.slop * 1000).toFixed(0)}mm`;
+$('stack-reset').addEventListener('click', resetStack);
+resetStack();
+if (reduceMotion) {
+  for (let i = 0; i < 300; i++) { stack.world.step(1 / 60); stack.steps++; }
+  animate($('stack-canvas'), () => drawStack());
+} else {
+  animate($('stack-canvas'), tickStack);
+}
+})();
+</script>
+</body>
+</html>
