@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 62c レイトレーシングパイプラインと SBT</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 入口が2つある — ray query と RT パイプライン</a></li><li class="l3"><a href="#s6">2. 段(stage)とグループ(group)</a></li><li class="l3"><a href="#s7">3. SBT — 「どのシェーダを呼ぶか」の表を自分で並べる</a></li><li class="l3"><a href="#s8">4. 再帰 — for ループが消える</a></li><li class="l3"><a href="#s9">5. RT パイプラインは「どのシェーダが呼ばれるか」が見えない</a></li><li class="l3"><a href="#s10">6. ワークグループの大きさを書く場所が無い</a></li><li class="l3"><a href="#s11">7. 床は miss シェーダで拾う</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Vulkan — 8つのクラス</a></li><li class="l3"><a href="#s19">シェーダ6本の呼ばれ方</a></li><li class="l3"><a href="#s20">SBT の番号の決まり方</a></li><li class="l3"><a href="#s21">Render の中 — 探し方で何が変わるか</a></li><li class="l3"><a href="#s22">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. 起動: 球 120 個、RT パイプライン</a></li><li class="l3"><a href="#s25">2. <code>B</code> を3回押して一周する(今日の目)</a></li><li class="l3"><a href="#s26">3. <code>M</code>: 表示を切り替える</a></li><li class="l3"><a href="#s27">4. シェーダを1本だけ壊す</a></li><li class="l3"><a href="#s28">5. SBT の中身を数える</a></li><li class="l2"><a href="#s29">検証の途中で分かったこと</a></li><li class="l3"><a href="#s30">検証1: 3つの探し方の絵を突き合わせる</a></li><li class="l3"><a href="#s31">検証2: 打ち切り方をそろえないと 0.1% ずれた</a></li><li class="l3"><a href="#s32">検証3: SBT の大きさは「確保した大きさ」ではない</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): SBT の並びをわざと入れ替える</a></li><li class="l3"><a href="#s35">課題2(中): 影の光線に専用の hit グループを当てる</a></li><li class="l3"><a href="#s36">課題3(難): 再帰をやめて、raygen のループにする</a></li><li class="l2"><a href="#s37">Day 62 の3日をふりかえって</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 62c / 計画書</p>
+  <h1>レイトレーシングパイプラインと SBT</h1>
+  <p class="lede">分岐がシェーダの分割になる</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 入口が2つある — ray query と RT パイプライン</a></li><li class="l3"><a href="#s6">2. 段(stage)とグループ(group)</a></li><li class="l3"><a href="#s7">3. SBT — 「どのシェーダを呼ぶか」の表を自分で並べる</a></li><li class="l3"><a href="#s8">4. 再帰 — for ループが消える</a></li><li class="l3"><a href="#s9">5. RT パイプラインは「どのシェーダが呼ばれるか」が見えない</a></li><li class="l3"><a href="#s10">6. ワークグループの大きさを書く場所が無い</a></li><li class="l3"><a href="#s11">7. 床は miss シェーダで拾う</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Vulkan — 8つのクラス</a></li><li class="l3"><a href="#s19">シェーダ6本の呼ばれ方</a></li><li class="l3"><a href="#s20">SBT の番号の決まり方</a></li><li class="l3"><a href="#s21">Render の中 — 探し方で何が変わるか</a></li><li class="l3"><a href="#s22">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. 起動: 球 120 個、RT パイプライン</a></li><li class="l3"><a href="#s25">2. <code>B</code> を3回押して一周する(今日の目)</a></li><li class="l3"><a href="#s26">3. <code>M</code>: 表示を切り替える</a></li><li class="l3"><a href="#s27">4. シェーダを1本だけ壊す</a></li><li class="l3"><a href="#s28">5. SBT の中身を数える</a></li><li class="l2"><a href="#s29">検証の途中で分かったこと</a></li><li class="l3"><a href="#s30">検証1: 3つの探し方の絵を突き合わせる</a></li><li class="l3"><a href="#s31">検証2: 打ち切り方をそろえないと 0.1% ずれた</a></li><li class="l3"><a href="#s32">検証3: SBT の大きさは「確保した大きさ」ではない</a></li><li class="l2"><a href="#s33">改造課題</a></li><li class="l3"><a href="#s34">課題1(易): SBT の並びをわざと入れ替える</a></li><li class="l3"><a href="#s35">課題2(中): 影の光線に専用の hit グループを当てる</a></li><li class="l3"><a href="#s36">課題3(難): 再帰をやめて、raygen のループにする</a></li><li class="l2"><a href="#s37">Day 62 の3日をふりかえって</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の8日目</strong>。Day 62 の3日目(最終日)で、reference は Day 62b の完全コピー + 差分。</p>
+<p>Day 62b で「探す仕事を RT コアに渡す」ところまで来た。今日変えるのは<strong>速さではなく形</strong>。同じ絵を、<strong>もう1つの入口</strong>から出す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 62b: ray query</th><th><strong>Day 62c: RT パイプライン</strong></th></tr></thead>
+<tbody>
+<tr><td>入口</td><td>コンピュートシェーダの中で<strong>関数を呼ぶ</strong></td><td><strong>専用のパイプライン</strong>を組んで <code>vkCmdTraceRaysKHR</code></td></tr>
+<tr><td>シェーダの本数</td><td>1本</td><td><strong>6本</strong>(raygen / miss x2 / closest-hit x2 / intersection)</td></tr>
+<tr><td>材質の切り替え</td><td><code>if (hit.kind == 1)</code> の<strong>分岐</strong></td><td><strong>SBT がどのシェーダを呼ぶか決める</strong></td></tr>
+<tr><td>反射</td><td><code>for</code> ループ + <code>throughput</code> の掛け算</td><td><strong>本物の再帰</strong>(シェーダが自分を呼び直す)</td></tr>
+<tr><td>ワークグループの大きさ</td><td><code>local_size_x = 8</code> と自分で書く</td><td><strong>書く場所が無い</strong>(ドライバが決める)</td></tr>
+<tr><td>速さ(球 5000 個。連続計測)</td><td>0.21 ms</td><td><strong>0.20 ms</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>速さはほとんど変わらない</strong>——同じ RT コアを違う呼び方で使っているだけだから。Day 62b の x150 のような派手な数字は今日は出ない。今日の収穫は<strong>コードの形が変わること</strong>。</p>
+<p>今日の差分は<strong>新規 9 ファイル</strong>(C# 422 行 + GLSL 474 行)と<strong>変更 10 ファイル</strong>(+553 / −342 行)。<code>shaders/trace.comp</code> が 224 行減っているのは、共通部分を <code>common.glsl</code> に追い出したため。</p>
+<blockquote><p><strong><code>if</code> が消えて、代わりに「表」が増えた</strong></p>
+<p>Day 62b の <code>trace.comp</code> にあった <code>if (hit.kind == 1)</code> という1行が、今日は<code>diffuse.rchit</code> と <code>metal.rchit</code> という<strong>2本のシェーダ</strong>になる。どちらが呼ばれるかはコードのどこにも書いていない——<strong>BLAS のジオメトリ番号</strong>と<strong>SBT の並び</strong>が決める。これは「分かりにくくなった」でもあるし、「材質が 50 種類あっても1本のシェーダが太らない」でもある。現代の RT 対応ゲームがこの形をしている理由は、後者のほう。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると Day 62a・62b とまったく同じ絵が出る。HUD の「探し方」が「RT パイプライン + SBT」になっていて、<code>B</code> を押すと ray query → 総当たり → RT パイプライン と回る。<code>4</code> で球を 5000 個にしても、RT パイプラインと ray query はどちらも 2ms 足らずのまま(総当たりだけが 42ms に跳ね上がる)。HUD の「SBT」の行に </strong>192 バイト<strong>と出ている。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>B</code></td><td><strong>探し方(RT パイプライン → 総当たり → ray query)。今日の目</strong></td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>球の数(8 / 120 / 720 / 5000)</td></tr>
+<tr><td><code>M</code></td><td>表示(陰影 → 法線 → 交差判定の回数 → 同・細かい目盛り)</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>Day 62a のまま</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong><code>M</code> の3つ目・4つ目は RT パイプラインでは意味を持たない</strong>(真っ黒になる)。交差判定の回数を数えている <code>gTests</code> は <code>trace.comp</code> の中の変数で、RT パイプライン側には数える場所が無い。その事実自体が要点5 の話になる。</p></blockquote>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「段(stage)とグループ(group)は別物」</strong>(要点2)。レイトレーシングパイプラインには<strong>シェーダが6本</strong>入るが、SBT に並ぶのは<strong>5つ</strong>。</p>
+<div class="code"><pre><code>  段 0: raytrace.rgen      →  グループ 0: general       → SBT raygen 区画
+  段 1: sky.rmiss          →  グループ 1: general       → SBT miss 区画 [0]
+  段 2: shadow.rmiss       →  グループ 2: general       → SBT miss 区画 [1]
+  段 3: diffuse.rchit   ┐
+  段 5: sphere.rint     ┴─→  グループ 3: procedural    → SBT hit 区画 [0]
+  段 4: metal.rchit     ┐
+  段 5: sphere.rint     ┴─→  グループ 4: procedural    → SBT hit 区画 [1]</code></pre></div>
+<p><code>sphere.rint</code> は<strong>単独では呼べない</strong>——箱の中で球を解く仕事は、「当たったら何をするか(closest-hit)」とセットでないと意味が無いので、<strong>2つのグループに同じものが入る</strong>。</p>
+<p><strong>2つ目は「どのシェーダが呼ばれるかは、3つの数の足し算で決まる」</strong>(要点3)。</p>
+<div class="code"><pre><code>  hit グループの番号 = instanceShaderBindingTableRecordOffset   ← TLAS の実体が持つ(今日は 0)
+                     + geometryIndex * sbtRecordStride          ← BLAS のジオメトリ番号(0 か 1)
+                     + sbtRecordOffset                          ← traceRayEXT の引数(今日は 0)</code></pre></div>
+<p>今日は <code>sbtRecordStride = 1</code> にしてあるので、<strong>ジオメトリ番号がそのままグループの番号</strong>になる。だから Day 62c では <strong>BLAS のジオメトリを材質で2つに割った</strong>——0 番に拡散の球、1 番に金属の球。場面の作り方が、シェーダの分割に引きずられる。</p>
+<p><strong>3つ目は「再帰が書ける」</strong>(要点4)。コンピュート版では GPU に再帰が無いので、for ループと <code>throughput</code> の掛け算にしていた。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// Day 62a/62b (trace.comp)              // Day 62c (metal.rchit)
+for (int bounce = 0; ...) {              reflected.depth = payload.depth - 1;
+    throughput *= hit.albedo;            traceRayEXT(..., 2);      // 自分が呼ばれうる
+    origin = ...; direction = reflect(); payload.color = f0 * reflected.color;
+    continue;
+}</code></pre></div>
+<p>レイトレーシングパイプラインは<strong>ハードウェアがスタックを持っている</strong>ので、素直な再帰で書ける。深さの上限はパイプラインを作るときに宣言する(<code>maxPipelineRayRecursionDepth</code>。今日は 5、手元の RTX 3070 の上限は 31)。<strong>宣言より深く潜ると未定義動作</strong>なので、シェーダ側でも <code>payload.depth</code> を数えて止める義務がある。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/">NVIDIA Vulkan Ray Tracing Tutorial</a></strong>の本編(BLAS/TLAS の次の章)— raygen / miss / closest-hit と SBT の組み立て。<strong>今日書くコードとほぼ1対1</strong>に並ぶ。続けて<a href="https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/vkrt_tuto_intersection.html">Intersection Shader の章</a>も(procedural の hit グループ)</li><li><strong><a href="https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html">Vulkan 1.3 仕様</a></strong> の<strong>40. Ray Tracing</strong>(とくに <strong>40.3 Shader Binding Table</strong> の「hit グループの番号の決まり方」の式と、<strong>40.1.1</strong> の各シェーダ段の役割)</li><li><strong><a href="https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_ray_tracing.txt">GLSL_EXT_ray_tracing 拡張仕様</a></strong>— <code>rayPayloadEXT</code> / <code>rayPayloadInEXT</code> / <code>hitAttributeEXT</code> / <code>traceRayEXT</code> / <code>reportIntersectionEXT</code> の<strong>どのシェーダで何が使えるか</strong>の表。今日いちばん引く資料</li><li><strong><a href="https://www.willusher.io/graphics/2019/11/20/the-sbt-three-ways">Will Usher, "The RTX Shader Binding Table Three Ways"</a></strong>— SBT を <strong>DXR / OptiX / Vulkan の3つの言い方</strong>で並べて説明している記事。「なぜこんな仕組みなのか」がいちばんよく分かる</li><li><strong><a href="https://www.realtimerendering.com/raytracinggems/">Ray Tracing Gems</a></strong>(無料 PDF)の<strong>第 3 章 "Introduction to DirectX Raytracing"</strong> — DXR の話だが、raygen / miss / hit の分け方は Vulkan と同じ。用語の対応表として便利</li><li><strong><a href="https://www.realtimerendering.com/raytracinggems/rtg2/index.html">Ray Tracing Gems II</a></strong> の<strong>第 13〜14 章</strong>(シェーダの分割とコヒーレンス)— <strong>なぜ分けると速くなるのか</strong>。今日の場面(材質2種類)では差が出ないが、そこが分かると 62c の意味が見える</li><li><strong>Day 62b の計画書</strong> — 今日の土台。加速構造まわりは 62b のまま</li><li><strong>Day 57 の計画書</strong>(コンピュートシェーダ入門)の<strong>ワークグループ</strong>の節 —今日は <code>local_size</code> を書く場所が無くなる。<strong>なぜ無くてよいのか</strong>を考える材料に</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. 入口が2つある — ray query と RT パイプライン</h3>
+<p>ハードウェア RT を使う入口は2つあって、<strong>どちらも同じ RT コアを叩く</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ray query(62b)</th><th>RT パイプライン(62c)</th></tr></thead>
+<tbody>
+<tr><td>拡張</td><td><code>VK_KHR_ray_query</code></td><td><code>VK_KHR_ray_tracing_pipeline</code></td></tr>
+<tr><td>どこから撃てるか</td><td><strong>どのシェーダからでも</strong>(compute / fragment / …)</td><td><strong>専用のパイプラインの中だけ</strong></td></tr>
+<tr><td>呼び出し</td><td><code>rayQueryEXT</code> の関数群</td><td><code>traceRayEXT</code></td></tr>
+<tr><td>当たった後</td><td><strong>その場で続きを書く</strong></td><td><strong>別のシェーダが呼ばれる</strong></td></tr>
+<tr><td>再帰</td><td>できない(自分でループ)</td><td><strong>できる</strong>(ハードウェアのスタック)</td></tr>
+<tr><td>向いている使い方</td><td><strong>既存のシェーダに1本足す</strong>(影、AO、反射)</td><td><strong>レイトレーシングが主役</strong>のレンダラ</td></tr>
+</tbody>
+</table></div>
+<p>実際のゲームは<strong>両方使う</strong>。ラスタライズした G-Buffer からフラグメントシェーダで影の光線を1本撃つ(ray query)のがいちばん多く、パストレーシング丸ごと(Cyberpunk の Path Tracing モードなど)はRT パイプライン。</p>
+<p>今日の差分は「<strong>62b のコードを一切壊さずに、3つ目の道を足す</strong>」形になっている。<code>B</code> キーで3つを行き来できるのはそのため。</p>
+<h3 id="s6">2. 段(stage)とグループ(group)</h3>
+<p>パイプラインに渡すものが2種類あって、混同しやすい。</p>
+<ul><li><strong>段(<code>VkPipelineShaderStageCreateInfo</code>)</strong> … シェーダのモジュール1本。今日は6本</li><li><strong>グループ(<code>VkRayTracingShaderGroupCreateInfoKHR</code>)</strong> … <strong>SBT に並ぶ単位</strong>。今日は5つ</li></ul>
+<p>グループは2種類しかない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>グループの型</th><th>中身</th><th>使い道</th></tr></thead>
+<tbody>
+<tr><td><code>GeneralKhr</code></td><td>段を1本だけ</td><td>raygen、miss、callable</td></tr>
+<tr><td><code>TrianglesHitGroupKhr</code></td><td>closest-hit + any-hit</td><td>三角形。交差判定は RT コアがやる</td></tr>
+<tr><td><code>ProceduralHitGroupKhr</code></td><td>closest-hit + any-hit + <strong>intersection</strong></td><td>箱。交差判定は intersection が書く</td></tr>
+</tbody>
+</table></div>
+<p>使わない欄には <code>Vk.ShaderUnusedKhr</code> を入れる。<strong>0 を入れてはいけない</strong>——0 は「0 番の段」という意味になってしまう(そして 0 番は raygen なので、盛大に壊れる)。</p>
+<p><code>sphere.rint</code> が<strong>2つのグループに同じ番号で入る</strong>のがこの構造の分かりやすい例。段は1本だが、グループとしては2回使われる。</p>
+<h3 id="s7">3. SBT — 「どのシェーダを呼ぶか」の表を自分で並べる</h3>
+<p><code>vkGetRayTracingShaderGroupHandlesKHR</code> が返すのは<strong>取っ手</strong>(handle)。手元の RTX 3070 では 32 バイトの不透明なバイト列で、<strong>中身に意味を求めてはいけない</strong>。アプリがやるのは「取っ手を、決められた境界に沿って、決められた順に並べる」ことだけ。</p>
+<div class="code"><pre><code>   0 +--------------------+  raygen 区画(size 64)
+     | raygen の取っ手     |  ← Stride == Size でなければならない(仕様)
+  64 +--------------------+  miss 区画(stride 32, size 64)
+     | [0] sky.rmiss      |  ← traceRayEXT の missIndex = 0
+     | [1] shadow.rmiss   |  ← missIndex = 1
+ 128 +--------------------+  hit 区画(stride 32, size 64)
+     | [0] diffuse + rint |  ← ジオメトリ 0(拡散の球)
+     | [1] metal   + rint |  ← ジオメトリ 1(金属の球)
+ 192 +--------------------+  合計 192 バイト</code></pre></div>
+<p>境界の決まりが2つある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>値</th><th>手元の RTX 3070</th><th>何に効くか</th></tr></thead>
+<tbody>
+<tr><td><code>shaderGroupHandleSize</code></td><td>32</td><td>取っ手そのものの大きさ</td></tr>
+<tr><td><code>shaderGroupHandleAlignment</code></td><td>32</td><td><strong>レコードの刻み幅</strong>はこの倍数</td></tr>
+<tr><td><code>shaderGroupBaseAlignment</code></td><td>64</td><td><strong>区画の先頭</strong>はこの倍数</td></tr>
+</tbody>
+</table></div>
+<p><code>baseAlignment</code>(64)が <code>handleSize</code>(32)より大きいので、<strong>区画の間には必ず隙間ができる</strong>。raygen は取っ手1つ(32 バイト)しか無いのに区画は 64 バイト取る。</p>
+<div class="inject"><figure class="lab" id="sb-lab">
+  <div class="lab-head">
+    <h3>SBT を並べる — 取っ手の大きさと2つの境界(要点3)</h3>
+    <span class="tag">ShaderBindingTable.Create と同じ計算(刻み幅 = 取っ手を handleAlignment に切り上げ、区画の大きさ = 刻み幅 × 個数を baseAlignment に切り上げ)。初期値は手元の RTX 3070 が返した値(取っ手 32 / 刻み 32 / 区画 64)と reference の個数(miss 2、hit 2)。「レコードに詰める自前のデータ」は reference に無い、このページだけの切り替え(要点5 の「取っ手の後ろに好きなデータを詰められる」)</span>
+  </div>
+  <div class="stage"><canvas id="sb-canvas" style="height:170px" aria-label="SBT のバイトの並び"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">shaderGroupHandleSize</span>
+      <div class="seg" id="sb-handle"><button data-v="16" aria-pressed="false">16</button><button data-v="32" aria-pressed="true">32</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">shaderGroupHandleAlignment</span>
+      <div class="seg" id="sb-halign"><button data-v="16" aria-pressed="false">16</button><button data-v="32" aria-pressed="true">32</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">shaderGroupBaseAlignment</span>
+      <div class="seg" id="sb-base"><button data-v="32" aria-pressed="false">32</button><button data-v="64" aria-pressed="true">64</button><button data-v="128" aria-pressed="false">128</button></div>
+    </div>
+    <div class="ctl"><span class="label">miss シェーダの数</span>
+      <div class="range"><input type="range" id="sb-miss" min="1" max="4" step="1" value="2"><output id="sb-miss-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">hit グループの数(改造課題2 では 4)</span>
+      <div class="range"><input type="range" id="sb-hit" min="1" max="8" step="1" value="2"><output id="sb-hit-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">レコードに詰める自前のデータ(このページだけ)</span>
+      <div class="range"><input type="range" id="sb-data" min="0" max="64" step="4" value="0"><output id="sb-data-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sb-stats"></div><p id="sb-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>そして<strong>hit グループの番号の決まり方</strong>がこの仕組みの核心。</p>
+<div class="code"><pre><code>  番号 = instanceShaderBindingTableRecordOffset   ← TLAS の実体が持つ(GpuInstance の下位 24 ビット)
+       + geometryIndex * sbtRecordStride          ← BLAS のジオメトリ番号
+       + sbtRecordOffset                          ← traceRayEXT の引数</code></pre></div>
+<p>3つの数のどこで切り替えるかは設計の選択で、</p>
+<ul><li><strong>実体ごとに変えたい</strong>(この建物は木、あの建物は石)→ <code>instanceSBTOffset</code></li><li><strong>ジオメトリごとに変えたい</strong>(1つのメッシュの中で材質が違う)→ <code>geometryIndex</code>(今日はこれ)</li><li><strong>光線の種類ごとに変えたい</strong>(一次光線と影の光線で別の hit シェーダ)→ <code>sbtRecordOffset</code></li></ul>
+<p>3つ目がいちばん面白くて、実際のエンジンは <code>stride = 2</code> にして「偶数番 = 一次光線用、奇数番 = 影用」のように並べる。影の光線にはテクスチャのアルファ抜きだけを見る軽い hit シェーダを当てる、といった使い方になる。</p>
+<h3 id="s8">4. 再帰 — for ループが消える</h3>
+<p><code>metal.rchit</code> の中心はこの3行。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>reflected.depth = payload.depth - 1;
+traceRayEXT(topLevel, gl_RayFlagsOpaqueEXT, 0xFF, 0, 1, 0, origin, 1e-4, direction, tMax, 2);
+payload.color = f0 * reflected.color;</code></pre></div>
+<p>反射した先でまた金属に当たれば、<strong>このシェーダが自分を呼び直す</strong>。コンピュート版の</p>
+<div class="code"><span class="lang">glsl</span><pre><code>for (int bounce = 0; bounce &lt;= MaxBounces; bounce++) {
+    ...
+    throughput *= hit.albedo;      // 反射率を掛けながら降りていく
+    continue;
+}</code></pre></div>
+<p>と比べると、<strong>状態を自分で運ばなくてよい</strong>のが違い。<code>throughput</code> に当たるものは呼び出しの戻り値の掛け算として自然に出てくる。</p>
+<p>払う代償は2つ。</p>
+<ul><li><strong>荷物(payload)の番号を自分で管理する</strong>。入ってきた荷物と、撃つ光線の荷物は<strong>別の番号</strong>でなければならない(<code>location 0</code> で受けて <code>location 2</code> で撃つ)</li><li><strong>深さの上限を宣言する</strong>。<code>maxPipelineRayRecursionDepth</code> を小さくするほどドライバが確保するスタックが減って速くなるので、「足りるだけの最小」を書く。今日は 5(一次 1 → 反射 3 回で 4 → その先の影で 5)</li></ul>
+<div class="inject"><figure class="lab" id="rd-lab">
+  <div class="lab-head">
+    <h3>再帰の深さ — 画素ごとに何段潜るか(要点4)</h3>
+    <span class="tag">一次光線が 1 段目、金属で反射するたびに 1 段、最後に撃つ影の光線で 1 段(空で終わったときは影を撃たない)。画素ごとの必要な深さを色で塗り、宣言した maxPipelineRayRecursionDepth を超える画素を赤くする(超えると未定義動作)。320x180、docs/site/hwraytracer.js の追い方で数えた。reference を RTX 3070 で走らせた 960x540 の絵と同じ追い方で、陰影のずれは 0.07〜0.26%</span>
+  </div>
+  <div class="stage"><canvas id="rd-canvas" style="height:300px" aria-label="画素ごとの再帰の深さ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">反射の回数(payload.depth の初期値。reference は MaxBounces = 3)</span>
+      <div class="range"><input type="range" id="rd-bounce" min="0" max="6" step="1" value="3"><output id="rd-bounce-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">宣言する maxPipelineRayRecursionDepth(reference は 5、RTX 3070 の上限は 31)</span>
+      <div class="range"><input type="range" id="rd-decl" min="1" max="8" step="1" value="5"><output id="rd-decl-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">球の数</span>
+      <div class="seg" id="rd-count"><button data-v="120" aria-pressed="false">120</button><button data-v="720" aria-pressed="true">720</button><button data-v="5000" aria-pressed="false">5000</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="rd-stats"></div><p id="rd-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<blockquote><p><strong>再帰は「速い」から使うのではない</strong>。むしろ深い再帰はレジスタとスタックを食うので、実戦のパストレーサは <strong>RT パイプラインでもループで書く</strong>(raygen の中で<code>traceRayEXT</code> を繰り返す)。再帰が嬉しいのは<strong>書きやすさ</strong>で、Whitted 風の「反射と屈折で枝分かれする」ような構造にはよく合う。</p></blockquote>
+<h3 id="s9">5. RT パイプラインは「どのシェーダが呼ばれるか」が見えない</h3>
+<p>今日のコードを読んでも、<strong>拡散の球に当たったときに <code>diffuse.rchit</code> が呼ばれる</strong>とはどこにも書いていない。決めているのは、</p>
+<ol><li><code>SceneData.Create</code> が球を<strong>拡散が先・金属が後ろ</strong>に並べたこと</li><li><code>AccelerationStructure.Build</code> が BLAS の<strong>ジオメトリを2つに割った</strong>こと</li><li><code>RayTracingPipeline.Create</code> が<strong>グループ 3 に diffuse、グループ 4 に metal</strong> を入れたこと</li><li><code>raytrace.rgen</code> が <code>sbtRecordStride = 1</code> で撃っていること</li></ol>
+<p>の4つの合わせ技。<strong>1つでもずれると、静かに別のシェーダが呼ばれる</strong> (絵が全部金属になる、など)。</p>
+<div class="inject"><figure class="lab" id="hg-lab">
+  <div class="lab-head">
+    <h3>どの hit シェーダが呼ばれるか — 4つの値の足し算(要点3・5)</h3>
+    <span class="tag">raytrace.rgen が撃つ一次光線について、番号 = instanceSBTOffset + geometryIndex × sbtRecordStride + sbtRecordOffset を計算し、その番号の hit グループで塗る(docs/site/hwraytracer.js の追い方を使う)。metal.rchit が撃つ反射の光線は reference の値のまま。球 120 個、240x135。初期値は reference と同じ。番号が hit 区画の外に出たときの動きは未定義で、このページでは黒く塗る</span>
+  </div>
+  <div class="stage"><canvas id="hg-canvas" style="height:300px" aria-label="選んだ hit グループで塗った絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">hit 区画の並び(RayTracingPipeline.Create)</span>
+      <div class="seg" id="hg-order"><button data-v="dm" aria-pressed="true">0 = diffuse / 1 = metal(reference)</button><button data-v="md" aria-pressed="false">0 = metal / 1 = diffuse(改造課題1)</button></div>
+    </div>
+    <div class="ctl"><span class="label">instanceSBTOffset(TLAS の実体)</span>
+      <div class="range"><input type="range" id="hg-inst" min="0" max="2" step="1" value="0"><output id="hg-inst-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">sbtRecordStride(traceRayEXT)</span>
+      <div class="range"><input type="range" id="hg-stride" min="0" max="2" step="1" value="1"><output id="hg-stride-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">sbtRecordOffset(traceRayEXT)</span>
+      <div class="range"><input type="range" id="hg-off" min="0" max="2" step="1" value="0"><output id="hg-off-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">missIndex(traceRayEXT)</span>
+      <div class="seg" id="hg-miss"><button data-v="0" aria-pressed="true">0 = sky.rmiss</button><button data-v="1" aria-pressed="false">1 = shadow.rmiss(改造課題1)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="hg-table"></div><p id="hg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>これは ray query と比べて明確に<strong>分かりにくい</strong>。代わりに得るものは、</p>
+<ul><li><strong>シェーダが太らない</strong>。材質が 50 種類でも、1本のシェーダに 50 分岐を抱えなくてよい(GPU では分岐が多いシェーダは、実際に通らない枝のぶんまでレジスタを確保する)</li><li><strong>材質ごとに別のリソースを渡せる</strong>。SBT のレコードは取っ手の後ろに好きなデータを詰められるので、「この材質はこのテクスチャ」を表に埋め込める</li><li><strong>ドライバがまとめられる</strong>。同じ hit シェーダを呼ぶ光線を束ねて走らせる余地がある</li></ul>
+<p>もう1つ、今日ぶつかる実際的な不便がある。<strong><code>gTests</code> が数えられない</strong>。<code>M</code> の3つ目・4つ目(交差判定の回数)は <code>trace.comp</code> の中のグローバル変数を数えていたが、RT パイプラインではシェーダが分かれているので、数を持ち回る場所が無い(やるなら SSBO に <code>atomicAdd</code> する)。<strong>シェーダを割ると、シェーダをまたぐ情報は自分で運ぶ必要がある</strong>——これは分割の代償として一般的に効いてくる。</p>
+<h3 id="s10">6. ワークグループの大きさを書く場所が無い</h3>
+<p><code>vkCmdTraceRaysKHR</code> に渡すのは<strong>幅・高さ・奥行き</strong>で、<strong>ワークグループの数ではない</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_api.CmdTraceRays(cmd, &amp;raygen, &amp;miss, &amp;hit, &amp;callable, 960, 540, 1);   // 画素の数そのまま</code></pre></div>
+<p>シェーダ側にも <code>local_size_x</code> を書く場所が無い。束ね方は<strong>ドライバが決める</strong>。</p>
+<p>理由ははっきりしていて、<strong>レイトレーシングは隣の画素と協調しない</strong>から。コンピュートシェーダのワークグループは「共有メモリとバリアで協調する単位」で、Day 57 のパーティクルはそれを使い倒した。レイトレーシングにはその必要が無く、むしろ<strong>当たり先が同じ光線どうしを束ねたい</strong>(コヒーレンス)ので、アプリが画面の格子で束ねるより、ドライバに任せたほうがよい。</p>
+<h3 id="s11">7. 床は miss シェーダで拾う</h3>
+<p>無限の平面は箱で囲めないので BLAS に入らない(Day 62b の要点2)。ray query 版は「球を探した後に床を手で撃つ」で済んだが、RT パイプラインでは<strong>球に当たったら closest-hit が呼ばれて終わってしまう</strong>——後から床を足す場所が無い。</p>
+<p>そこで、光線を撃つ前に<strong>床までの距離を tMax にしておく</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// raytrace.rgen
+float tMax = 1e30;
+float floorT = floorDistance(origin, direction);
+if (floorT &gt; 1e-4) { tMax = floorT; }
+traceRayEXT(..., origin, 1e-4, direction, tMax, 0);</code></pre></div>
+<p>こうすると、</p>
+<ul><li>床より手前に球があれば → closest-hit が呼ばれる(床は見えないので正しい)</li><li>球が無ければ → <strong>miss シェーダが呼ばれ、<code>gl_RayTmaxEXT</code> が床までの距離</strong>になっている</li></ul>
+<p><code>sky.rmiss</code> はそれを見て「床か、空か」を決める。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>if (gl_RayTmaxEXT &gt;= 1e29) { payload.color = sky(direction); }   // 空
+else { /* 床を塗る。影の光線もここから撃つ */ }</code></pre></div>
+<p><strong>BLAS に入らないものを miss で拾うのは実戦でもよくやる手</strong>で、スカイボックスや解析的な地面・霧はだいたいこの形になる。miss シェーダから <code>traceRayEXT</code> を呼べる(床の影)のも、この設計が成り立つ理由。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Vulkan/RayTracingPipeline.cs</code></td><td>240</td><td>6段 → 5グループのパイプライン。<code>vkCmdTraceRaysKHR</code></td></tr>
+<tr><td><code>Vulkan/ShaderBindingTable.cs</code></td><td>182</td><td><strong>今日いちばん分かりにくいところ</strong>。取っ手を境界に沿って並べる</td></tr>
+<tr><td><code>shaders/common.glsl</code></td><td>172</td><td>7本のシェーダが <code>#include</code> する共通部分</td></tr>
+<tr><td><code>shaders/raytrace.rgen</code></td><td>63</td><td>光線を作る。1画素に1回</td></tr>
+<tr><td><code>shaders/sky.rmiss</code></td><td>52</td><td>何にも当たらなかったとき。<strong>床もここで塗る</strong>(要点7)</td></tr>
+<tr><td><code>shaders/shadow.rmiss</code></td><td>19</td><td>影の光線が抜けたとき。<strong>今日いちばん短い</strong>(1行)</td></tr>
+<tr><td><code>shaders/diffuse.rchit</code></td><td>48</td><td>拡散の球に当たったとき(SBT の hit グループ 0)</td></tr>
+<tr><td><code>shaders/metal.rchit</code></td><td>79</td><td>金属の球に当たったとき(hit グループ 1)。<strong>再帰する</strong></td></tr>
+<tr><td><code>shaders/sphere.rint</code></td><td>41</td><td>箱の中で球の式を解く。2つの hit グループで共有</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何を足したか</th></tr></thead>
+<tbody>
+<tr><td><code>Day62c.csproj</code></td><td>コメントのみ</td><td>shaders が 1 本から 7 本になったことの説明</td></tr>
+<tr><td><code>Vulkan/VulkanDevice.cs</code></td><td>+74 / −6</td><td>拡張1つ・機能1つ・<strong>SBT に要る3つの数</strong>と <code>maxRayRecursionDepth</code></td></tr>
+<tr><td><code>Vulkan/ShaderCompiler.cs</code></td><td>+61 / −3</td><td><code>#include</code> の解決、種類を指定する <code>CompileFile</code></td></tr>
+<tr><td><code>Scene/SceneData.cs</code></td><td>+46 / −3</td><td>球を<strong>材質で並べ替える</strong>。<code>SceneSpheres</code> レコード</td></tr>
+<tr><td><code>Vulkan/AccelerationStructure.cs</code></td><td>+105 / −52</td><td>BLAS の<strong>ジオメトリを2つに割る</strong>。<code>BuildOne</code> が配列を取る形へ</td></tr>
+<tr><td><code>Vulkan/VulkanImage.cs</code></td><td>+8 / −2</td><td>バリアの「書いた段」を引数に(RT では <code>RayTracingShaderBitKhr</code>)</td></tr>
+<tr><td><code>Vulkan/ComputeRenderer.cs</code></td><td>+149 / −27</td><td><code>TraceMode</code> 3値、<code>StageFlags</code> に RT の段、bind point の切り替え</td></tr>
+<tr><td><code>shaders/trace.comp</code></td><td>+49 / −224</td><td><strong>共通部分を <code>common.glsl</code> へ追い出した</strong>。<code>sphereIndex</code> で引き直す</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+41 / −11</td><td><code>B</code> キーが3値に、HUD に SBT の行</td></tr>
+<tr><td><code>Program.cs</code></td><td>+20 / −14</td><td>説明の差し替え</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">写経する順番</h3>
+<p><strong>GLSL を先に片付けると C# が読みやすい</strong>。シェーダが何を要求しているかが分かってからパイプラインを組むほうが、SBT の並びの意味が入りやすい。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Day62c.csproj</code></td><td>Day62b からリネーム + コメント。<strong>パッケージは変わらない</strong></td></tr>
+<tr><td>2</td><td><code>Vulkan/VulkanDevice.cs</code></td><td>拡張1つ・機能1つを既存の鎖に足す。<code>ShaderGroupHandleSize</code> ほか3つを聞く</td></tr>
+<tr><td>3</td><td><code>Vulkan/ShaderCompiler.cs</code></td><td><code>CompileFile</code> と <code>ResolveIncludes</code>。<strong>入れ子は許さない</strong>1段だけの実装</td></tr>
+<tr><td>4</td><td><code>Scene/SceneData.cs</code></td><td><code>SceneSpheres</code> レコードを足し、<code>Create</code> の返り値を変える</td></tr>
+<tr><td>5</td><td><code>Vulkan/AccelerationStructure.cs</code></td><td>4 を使う。<code>BuildOne</code> が<strong>配列を取る形</strong>に変わる。<code>Finish</code> を切り出す</td></tr>
+<tr><td>6</td><td><code>shaders/common.glsl</code></td><td><strong>新規</strong>。<code>trace.comp</code> から切り出した共通部分 + <code>sphereIndex</code></td></tr>
+<tr><td>7</td><td><code>shaders/trace.comp</code></td><td>6 を <code>#include</code> して、重複を消す。<code>sphereIndex</code> で球を引き直す</td></tr>
+<tr><td>8</td><td><code>shaders/sphere.rint</code></td><td>6 を使う。<code>hitAttributeEXT</code> に法線を入れる</td></tr>
+<tr><td>9</td><td><code>shaders/shadow.rmiss</code></td><td>依存なし(1行)</td></tr>
+<tr><td>10</td><td><code>shaders/diffuse.rchit</code></td><td>6・8 を前提に。<code>rayPayloadInEXT</code> と <code>rayPayloadEXT</code> の番号に注意</td></tr>
+<tr><td>11</td><td><code>shaders/metal.rchit</code></td><td>10 とほぼ同じ形 + <strong>再帰</strong>。荷物は <code>location 2</code></td></tr>
+<tr><td>12</td><td><code>shaders/sky.rmiss</code></td><td>6 を使う。<code>gl_RayTmaxEXT</code> で床か空かを決める(要点7)</td></tr>
+<tr><td>13</td><td><code>shaders/raytrace.rgen</code></td><td>6 を使う。tMax を床までにしておくのを忘れない</td></tr>
+<tr><td>14</td><td><code>Vulkan/ShaderBindingTable.cs</code></td><td><strong>新規</strong>。2 の3つの数を使う。境界の切り上げが全部</td></tr>
+<tr><td>15</td><td><code>Vulkan/RayTracingPipeline.cs</code></td><td><strong>新規</strong>。3・8〜13・14 を使う。段の並びとグループの番号を合わせる</td></tr>
+<tr><td>16</td><td><code>Vulkan/VulkanImage.cs</code></td><td><code>RecordCopyToBuffer</code> に引数を1つ足すだけ</td></tr>
+<tr><td>17</td><td><code>Vulkan/ComputeRenderer.cs</code></td><td>4・5・15・16 を使う。<code>TraceMode</code> と bind point</td></tr>
+<tr><td>18</td><td><code>App/ViewerWindow.cs</code></td><td>17 を使う。<code>B</code> キーと HUD</td></tr>
+<tr><td>19</td><td><code>Program.cs</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>途中で動かしたいなら</strong>: 7 まで写した時点で Day 62b と同じ状態に戻る(総当たりと ray query が動き、絵も変わらない)。<strong>共通部分の切り出しが正しくできたか</strong>をここで確かめておくと、15 以降で詰まったときに切り分けが楽になる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p>Day 62b から<strong>クラスが2つ増えた</strong>(<code>RayTracingPipeline</code> と <code>ShaderBindingTable</code>)。層の形は変わっていない。</p>
+<h3 id="s17">全体構成と依存の向き</h3>
+<svg viewBox="0 0 955 561" role="img" aria-label="Program.cs が ViewerWindow を使い、ViewerWindow は ComputeRenderer・VulkanDevice・ShaderCompiler・SceneData・Camera を使う。ComputeRenderer は VulkanDevice・VulkanBuffer・VulkanImage・AccelerationStructure・RayTracingPipeline・SceneData・Camera を使う。RayTracingPipeline(今日追加)は VulkanDevice・ShaderCompiler・ShaderBindingTable を使い、ShaderBindingTable(今日追加)は VulkanDevice と VulkanBuffer を使う。AccelerationStructure は VulkanDevice・VulkanBuffer・SceneData を使う。VulkanBuffer と VulkanImage は VulkanDevice を使い、VulkanImage は VulkanBuffer も使う" style="width:100%;max-width:955px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="330" y="10" width="240" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="34" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.cs</text><rect x="300" y="80" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">App/ViewerWindow.cs</text><text x="450" y="117.5" text-anchor="middle" fill="var(--ink)">窓・ループ・HUD・入力</text><rect x="10" y="170" width="225" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="122.5" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ShaderCompiler.cs</text><text x="122.5" y="207.5" text-anchor="middle" fill="var(--ink)">GLSL to SPIR-V + include</text><rect x="300" y="170" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ComputeRenderer.cs</text><text x="450" y="207.5" text-anchor="middle" fill="var(--ink)">ディスクリプタ・3つの探し方・コマンド</text><rect x="680" y="170" width="220" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="790" y="194" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/Camera.cs</text><rect x="10" y="280" width="225" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="122.5" y="300.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/RayTracingPipeline.cs</text><text x="122.5" y="317.5" text-anchor="middle" fill="var(--ink)">6段 5グループ(今日追加)</text><rect x="268" y="280" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="358" y="304" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanImage.cs</text><rect x="470" y="275" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="600" y="295.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/AccelerationStructure.cs</text><text x="600" y="312.5" text-anchor="middle" fill="var(--ink)">BLAS 2ジオメトリ / TLAS</text><rect x="752" y="275" width="175" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="839.5" y="295.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/SceneData.cs</text><text x="839.5" y="312.5" text-anchor="middle" fill="var(--ink)">SceneSpheres</text><rect x="10" y="380" width="225" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="122.5" y="400.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ShaderBindingTable.cs</text><text x="122.5" y="417.5" text-anchor="middle" fill="var(--ink)">取っ手を並べる(今日追加)</text><rect x="390" y="375" width="200" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="399" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanBuffer.cs</text><rect x="300" y="465" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="485.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanDevice.cs</text><text x="450" y="502.5" text-anchor="middle" fill="var(--ink)">instance / device / 拡張4つ</text><path d="M450 50 L450 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 130 L450 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 98 L120 98 L120 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 98 L790 98 L790 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 116 L940 116 L940 300 L929 300" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 116 L246 116 L246 500 L298 500" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 188 L678 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M590 220 L590 248 L840 248 L840 273" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 210 L256 210 L256 484 L298 484" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M310 220 L310 256 L180 256 L180 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M350 220 L350 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M455 220 L455 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M560 220 L560 273" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M730 300 L750 300" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M500 325 L500 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M720 325 L720 490 L602 490" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M540 415 L540 463" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M350 320 L350 463" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M410 320 L410 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M60 280 L60 222" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M122.5 330 L122.5 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M10 305 L4 305 L4 545 L380 545 L380 517" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M60 430 L60 531 L330 531 L330 517" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M235 405 L388 405" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>Day 62b からの変化</th></tr></thead>
+<tbody>
+<tr><td><code>Scene/</code></td><td><code>SceneSpheres</code> になった。依然として<strong>誰も知らない</strong>ただの数</td></tr>
+<tr><td><code>Vulkan/VulkanDevice</code></td><td>RT パイプラインの API と、SBT に要る3つの数を持つ</td></tr>
+<tr><td><code>Vulkan/ShaderCompiler</code></td><td><code>#include</code> を解決するようになった(<strong>ファイルを読む</strong>ので IO を知る)</td></tr>
+<tr><td><strong><code>Vulkan/ShaderBindingTable</code></strong></td><td><strong>新規</strong>。<code>VulkanDevice</code> と <code>VulkanBuffer</code> だけを知る</td></tr>
+<tr><td><strong><code>Vulkan/RayTracingPipeline</code></strong></td><td><strong>新規</strong>。<code>ShaderBindingTable</code> を所有する</td></tr>
+<tr><td><code>Vulkan/ComputeRenderer</code></td><td><code>RayTracingPipeline</code> も所有するようになった</td></tr>
+</tbody>
+</table></div>
+<p><strong>循環は依然として無い</strong>。<code>RayTracingPipeline</code> が <code>ComputeRenderer</code> を知らないので、パイプラインだけを作って SBT の中身を検算する、といったことができる。</p>
+<p><strong>入れ替えると何が壊れるか</strong>を2つ。</p>
+<ul><li><code>ShaderBindingTable</code> が <code>RayTracingPipeline</code> を知らない(<code>Pipeline</code> ハンドルを引数で受け取る)のは、<strong>SBT の並べ方がパイプラインの作り方と独立</strong>だから。パイプラインライブラリ(<code>VkPipelineLibrary</code>)で段を後から足す作りにしても、SBT 側は変わらない</li><li><code>RayTracingPipeline</code> が <code>ShaderCompiler</code> を知っているのは、<strong>6本の翻訳をまとめて面倒見る</strong>ため。ここを外に出すと、呼び出し側が「どのファイルがどの種類か」を知ることになって、段の並びとグループの番号の対応が2か所に散る</li></ul>
+<h3 id="s18">Vulkan — 8つのクラス</h3>
+<svg viewBox="0 0 1310 698" role="img" aria-label="Vulkan のクラス図。VulkanBuffer・VulkanImage・AccelerationStructure・ShaderBindingTable・RayTracingPipeline は VulkanDevice を持つ。ShaderBindingTable は VulkanBuffer を所有する。RayTracingPipeline は ShaderCompiler を持ち、ShaderBindingTable を所有する。ComputeRenderer は VulkanImage・VulkanBuffer・AccelerationStructure・RayTracingPipeline を所有する" style="width:100%;max-width:1310px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="40" width="400" height="233" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanDevice</text><line x1="10" y1="68" x2="410" y2="68" stroke="var(--line)"></line><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Device Handle</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool RayQuerySupported</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool RayTracingPipelineSupported</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+KhrAccelerationStructure AccelerationStructureApi</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+KhrRayTracingPipeline RayTracingPipelineApi</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ScratchOffsetAlignment</text><text x="20" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ShaderGroupHandleSize</text><text x="20" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ShaderGroupHandleAlignment</text><text x="20" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ShaderGroupBaseAlignment</text><text x="20" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxRayRecursionDepth</text><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float TimestampPeriod</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SubmitAndWait(Action) void</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindMemoryType(uint, MemoryPropertyFlags) uint</text><rect x="1000" y="40" width="280" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1140" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanBuffer</text><line x1="1000" y1="68" x2="1280" y2="68" stroke="var(--line)"></line><text x="1010" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Buffer Handle</text><text x="1010" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Size</text><text x="1010" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong DeviceAddress</text><text x="1010" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanBuffer</text><text x="1010" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDeviceLocal(...) VulkanBuffer</text><rect x="430" y="40" width="550" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="705" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanImage</text><line x1="430" y1="68" x2="980" y2="68" stroke="var(--line)"></line><text x="440" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Image Handle</text><text x="440" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="440" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyToBuffer(CommandBuffer, VulkanBuffer, PipelineStageFlags) void</text><rect x="10" y="360" width="360" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="190" y="379" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderCompiler</text><line x1="10" y1="388" x2="370" y2="388" stroke="var(--line)"></line><text x="20" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CompileComputeFile(string, string[]) uint[]</text><text x="20" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CompileFile(string, ShaderKind, string[]) uint[]</text><text x="20" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-ResolveIncludes(string) string</text><rect x="430" y="360" width="440" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="650" y="379" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">AccelerationStructure</text><line x1="430" y1="388" x2="870" y2="388" stroke="var(--line)"></line><text x="440" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AccelerationStructureKHR Handle</text><text x="440" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong BlasBytes</text><text x="440" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong TlasBytes</text><text x="440" y="450" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double BuildMilliseconds</text><text x="440" y="465" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Build(VulkanDevice, SceneSpheres) AccelerationStructure</text><rect x="430" y="180" width="640" height="143" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="750" y="199" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderBindingTable</text><line x1="430" y1="208" x2="1070" y2="208" stroke="var(--line)"></line><text x="440" y="225" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StridedDeviceAddressRegionKHR Raygen</text><text x="440" y="240" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StridedDeviceAddressRegionKHR Miss</text><text x="440" y="255" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StridedDeviceAddressRegionKHR Hit</text><text x="440" y="270" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StridedDeviceAddressRegionKHR Callable</text><text x="440" y="285" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong SizeBytes</text><text x="440" y="300" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, KhrRayTracingPipeline, Pipeline, uint, uint) ShaderBindingTable</text><text x="440" y="315" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-Align(uint, uint) uint</text><rect x="10" y="530" width="600" height="128" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="549" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RayTracingPipeline</text><line x1="10" y1="558" x2="610" y2="558" stroke="var(--line)"></line><text x="20" y="575" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="20" y="590" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ShaderBindingTable Table</text><text x="20" y="605" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, ShaderCompiler, PipelineLayout, string) RayTracingPipeline</text><text x="20" y="620" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordTraceRays(CommandBuffer, uint, uint) void</text><text x="20" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-General(uint) RayTracingShaderGroupCreateInfoKHR</text><text x="20" y="650" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-Procedural(uint, uint) RayTracingShaderGroupCreateInfoKHR</text><rect x="900" y="360" width="330" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1065" y="379" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputeRenderer</text><line x1="900" y1="388" x2="1230" y2="388" stroke="var(--line)"></line><text x="910" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool RayQueryAvailable</text><text x="910" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool PipelineAvailable</text><text x="910" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong ShaderBindingTableBytes</text><text x="910" y="450" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastTraceMilliseconds</text><text x="910" y="465" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, int, TraceMode, int[]) void</text><path d="M431.1 123 L411.9774310084495 125.89735893811371" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M1041.021897810219 153 L1020 165 L420 165 L411.9983636883343 164.6761242445278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M430 240.34848484848484 L420 240 L411.85847530552826 236.7627747048172" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M1070.8163265306123 153 L1050 170 L1028.8235593191866 175.75293305162097" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M1013.1901840490798 180 L1021.9433673156068 182.0932708144412 L1028.8235593191866 175.75293305162097 L1019.6809758053682 173.76544930436057 Z" fill="var(--muted)"></path><path d="M430 391.1521739130435 L420 390 L420 262 L411.7871490963352 257.8740201412541" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M206.2162162162162 530 L190 520 L190 445" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M379.18918918918916 530 L390 520 L390 280 L381.4467232648095 274.13150179557766" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M872.9617834394904 323 L885 330 L885 560 L640 560 L626.1146950806731 561.4306071735065" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M610 563.0909090909091 L618.2988702966531 566.5735448455249 L626.1146950806731 561.4306071735065 L617.414435695546 557.9893266583091 Z" fill="var(--muted)"></path><path d="M870 416.5 L883.8 416.5" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M900 416.5 L892.1017569429866 412.1851701525622 L883.8 416.5 L892.1017569429866 420.8148298474378 Z" fill="var(--muted)"></path><path d="M1148.8976377952756 153 L1150 160 L1150 350 L1149.9772097556672 350.01783001468385" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M1137.218045112782 360 L1146.0974493441893 358.5316061511756 L1149.9772097556672 350.01783001468385 L1140.7799968756906 351.7348623944478 Z" fill="var(--muted)"></path><path d="M701.3274336283185 40 L700 25 L1300 25 L1300 380 L1240 380 L1245.8587284658665 378.77803663426215" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M1230 382.0857142857143 L1238.6128492749863 384.6970027351904 L1245.8587284658665 378.77803663426215 L1236.850865786568 376.24913669482834 Z" fill="var(--muted)"></path><path d="M610 599.8064516129032 L620 600 L1000 600 L1000 485 L1000.2358848300508 484.7514136791002" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M1011.3868613138686 473 L1002.8202889012512 475.7593182309007 L1000.2358848300508 484.7514136791002 L1009.0802087150994 481.69938812725303 Z" fill="var(--muted)"></path><text x="10" y="688" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー。黒い菱形は所有(持ち主が壊れると一緒に壊れる)</text></g></svg>
+<h3 id="s19">シェーダ6本の呼ばれ方</h3>
+<svg viewBox="0 0 1000 568" role="img" aria-label="シェーダ6本の呼ばれ方。vkCmdTraceRaysKHR が1画素に1回 raytrace.rgen を呼ぶ。raygen は床までの距離を tMax にして traceRayEXT(荷物 0)を撃つ。RT コアは箱に当たるたびに sphere.rint を呼び、sphere.rint は reportIntersectionEXT(t) で返す。いちばん近い交点が決まると diffuse / metal .rchit が呼ばれ、影の光線(荷物 1)を撃つ。当たらなければ shadow.rmiss が false を書く。closest-hit は荷物 0 に色を入れて戻る。球に当たらなかった場合は sky.rmiss が呼ばれ、gl_RayTmaxEXT で床か空かを決めて荷物 0 に色を入れて戻る。raygen は toneMap して imageStore する" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><line x1="80" y1="38" x2="80" y2="558" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="250" y1="38" x2="250" y2="558" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="420" y1="38" x2="420" y2="558" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="580" y1="38" x2="580" y2="558" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="750" y1="38" x2="750" y2="558" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="920" y1="38" x2="920" y2="558" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="2" y="4" width="156" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="80" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">vkCmdTraceRaysKHR</text><rect x="172" y="4" width="156" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">raytrace.rgen</text><rect x="342" y="4" width="156" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="420" y="25" text-anchor="middle" fill="var(--ink)">RT コア</text><rect x="502" y="4" width="156" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">sphere.rint</text><rect x="672" y="4" width="156" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="750" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">diffuse / metal .rchit</text><rect x="842" y="4" width="156" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="920" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">sky.rmiss</text><path d="M80 60 L246 60" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="165" y="54" fill="var(--muted)" font-size="12" text-anchor="middle">1画素に1回</text><path d="M250 96 L284 96 L284 110 L254 110" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="292" y="107" fill="var(--muted)" font-size="12" text-anchor="start">床までの距離を tMax にする</text><path d="M250 142 L416 142" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="335" y="136" fill="var(--muted)" font-size="12" text-anchor="middle">traceRayEXT(荷物 0)</text><path d="M420 178 L576 178" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="500" y="172" fill="var(--muted)" font-size="12" text-anchor="middle">箱に当たった(何度でも)</text><path stroke-dasharray="5 4" d="M580 214 L424 214" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="500" y="208" fill="var(--muted)" font-size="12" text-anchor="middle">reportIntersectionEXT(t)</text><path d="M420 250 L746 250" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="585" y="244" fill="var(--muted)" font-size="12" text-anchor="middle">いちばん近い交点が決まった</text><path d="M750 286 L424 286" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="585" y="280" fill="var(--muted)" font-size="12" text-anchor="middle">影の光線 traceRayEXT(荷物 1)</text><path stroke-dasharray="5 4" d="M420 322 L746 322" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="585" y="316" fill="var(--muted)" font-size="12" text-anchor="middle">当たらなければ shadow.rmiss が false を書く</text><path stroke-dasharray="5 4" d="M750 358 L254 358" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="500" y="352" fill="var(--muted)" font-size="12" text-anchor="middle">荷物 0 に色を入れて戻る</text><path d="M420 394 L916 394" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="670" y="388" fill="var(--muted)" font-size="12" text-anchor="middle">球に当たらなかった場合はこちら</text><path d="M920 430 L886 430 L886 444 L916 444" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="878" y="441" fill="var(--muted)" font-size="12" text-anchor="end">gl_RayTmaxEXT で床か空かを決める</text><path stroke-dasharray="5 4" d="M920 476 L254 476" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="585" y="470" fill="var(--muted)" font-size="12" text-anchor="middle">荷物 0 に色を入れて戻る</text><path d="M250 512 L284 512 L284 526 L254 526" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="292" y="523" fill="var(--muted)" font-size="12" text-anchor="start">toneMap して imageStore</text></g></svg>
+<p><strong><code>Chit</code> から <code>Rt</code> への矢印が2本ある</strong>のが見どころ。<code>metal.rchit</code> は影の光線だけでなく<strong>反射の光線</strong>も撃ち、その先でまた自分が呼ばれる(図では省略してある)。この「シェーダから光線が生えている」形が、ray query との最大の違い。</p>
+<h3 id="s20">SBT の番号の決まり方</h3>
+<svg viewBox="0 0 950 476" role="img" aria-label="SBT の番号の決まり方。traceRayEXT(sbtRecordOffset=0, sbtRecordStride=1, missIndex) で、当たらなければ miss 区画の missIndex 番(0 = sky.rmiss / 1 = shadow.rmiss)。当たれば番号 = instanceSBTOffset + geometryIndex * stride + offset。instanceSBTOffset は 0(GpuInstance.SbtOffsetAndFlags の下位 24 ビット)、geometryIndex は 0 なら拡散、1 なら金属(BLAS のジオメトリを材質で割ってある)。stride = 1、offset = 0 なので番号 = geometryIndex で、hit 区画の 0 番が diffuse.rchit + sphere.rint、1 番が metal.rchit + sphere.rint" style="width:100%;max-width:950px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="150" y="10" width="600" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">traceRayEXT(..., sbtRecordOffset=0, sbtRecordStride=1, missIndex, ...)</text><rect x="330" y="70" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="92" text-anchor="middle" fill="var(--ink)">当たった?</text><rect x="10" y="136" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="156.5" text-anchor="middle" fill="var(--ink)">miss 区画の missIndex 番</text><text x="175" y="173.5" text-anchor="middle" fill="var(--ink)">0 = sky.rmiss / 1 = shadow.rmiss</text><rect x="400" y="136" width="480" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="640" y="158" text-anchor="middle" fill="var(--ink)">番号 = instanceSBTOffset + geometryIndex * stride + offset</text><rect x="400" y="196" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="640" y="216.5" text-anchor="middle" fill="var(--ink)">instanceSBTOffset = 0</text><text x="640" y="233.5" text-anchor="middle" fill="var(--ink)">(GpuInstance.SbtOffsetAndFlags の下位 24 ビット)</text><rect x="400" y="270" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="640" y="290.5" text-anchor="middle" fill="var(--ink)">geometryIndex = 0 なら拡散、1 なら金属</text><text x="640" y="307.5" text-anchor="middle" fill="var(--ink)">(BLAS のジオメトリを材質で割ってある)</text><rect x="400" y="344" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="640" y="364.5" text-anchor="middle" fill="var(--ink)">stride = 1, offset = 0 なので</text><text x="640" y="381.5" text-anchor="middle" fill="var(--ink)">番号 = geometryIndex</text><rect x="260" y="428" width="330" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="425" y="450" text-anchor="middle" fill="var(--ink)">hit 区画の 0 番 = diffuse.rchit + sphere.rint</text><rect x="610" y="428" width="330" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="775" y="450" text-anchor="middle" fill="var(--ink)">hit 区画の 1 番 = metal.rchit + sphere.rint</text><path d="M450 46 L450 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M330 88 L175 88 L175 134" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="183" y="82" fill="var(--muted)" font-size="12">いいえ</text><path d="M570 88 L640 88 L640 134" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="648" y="82" fill="var(--muted)" font-size="12">はい</text><path d="M640 172 L640 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M640 246 L640 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M640 320 L640 342" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M580 394 L580 408 L425 408 L425 426" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M700 394 L700 408 L775 408 L775 426" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>4つの値が別々の場所で決まっている</strong>のがこの仕組みの難しさ(TLAS の実体 / BLAS のジオメトリ / <code>traceRayEXT</code> の引数 / SBT の並べ方)。どれか1つずれても検証レイヤは何も言わず、<strong>静かに別のシェーダが呼ばれる</strong>。</p>
+<h3 id="s21">Render の中 — 探し方で何が変わるか</h3>
+<svg viewBox="0 0 900 894" role="img" aria-label="Render の中。PushConstants を組み(diffuseCount が増えた)、コマンドバッファを始めてクエリを reset しタイムスタンプ 0 を書く。trace が Pipeline なら RayTracingKhr の bind point で RT パイプラインとディスクリプタをつなぎ、そうでなければ Compute で総当たりか ray query のパイプラインをつなぐ。プッシュ定数を全段に積み、Pipeline なら CmdTraceRaysKHR(SBT 4区画, 960, 540, 1)、そうでなければ CmdDispatch(120, 68, 1)。タイムスタンプ 1 を書き、書いた段が Pipeline なら RayTracingShaderKhr から、それ以外は ComputeShader から Transfer へのバリアを張り、画像を写して、提出・待ち・目盛りを読む・写す" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="260" y="10" width="400" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render(camera, mode, trace, dest)</text><rect x="260" y="70" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="90.5" text-anchor="middle" fill="var(--ink)">PushConstants を組む</text><text x="460" y="107.5" text-anchor="middle" fill="var(--ink)">(diffuseCount が増えた)</text><rect x="220" y="144" width="480" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="166" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ResetCommandBuffer / Begin / ResetQueryPool / Timestamp 0</text><rect x="340" y="206" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="460" y="228" text-anchor="middle" fill="var(--ink)">trace は Pipeline?</text><rect x="10" y="272" width="400" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="294" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindPipeline(RayTracingKhr, rtPipeline)</text><rect x="470" y="272" width="420" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="294" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindPipeline(Compute, brute or rayQuery)</text><rect x="10" y="332" width="400" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="354" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindDescriptorSets(RayTracingKhr)</text><rect x="470" y="332" width="420" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="354" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindDescriptorSets(Compute)</text><rect x="260" y="398" width="400" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="420" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdPushConstants(全段)</text><rect x="340" y="460" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="460" y="482" text-anchor="middle" fill="var(--ink)">trace は Pipeline?</text><rect x="10" y="526" width="400" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="548" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdTraceRaysKHR(SBT 4区画, 960, 540, 1)</text><rect x="470" y="526" width="420" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="548" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdDispatch(120, 68, 1)</text><rect x="260" y="592" width="400" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="614" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Timestamp 1</text><rect x="340" y="654" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="460" y="676" text-anchor="middle" fill="var(--ink)">書いた段は?</text><rect x="10" y="720" width="400" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="742" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">barrier: RayTracingShaderKhr -&gt; Transfer</text><rect x="470" y="720" width="420" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="742" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">barrier: ComputeShader -&gt; Transfer</text><rect x="260" y="786" width="400" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="808" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdCopyImageToBuffer</text><rect x="200" y="846" width="520" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="868" text-anchor="middle" fill="var(--ink)">End / Submit / WaitForFences / 目盛りを読む / 写す</text><path d="M460 46 L460 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M460 120 L460 142" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M460 180 L460 204" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M340 224 L210 224 L210 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="218" y="218" fill="var(--muted)" font-size="12">はい</text><path d="M580 224 L680 224 L680 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="688" y="218" fill="var(--muted)" font-size="12">いいえ</text><path d="M210 308 L210 330" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M680 308 L680 330" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M210 368 L210 416 L258 416" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M680 368 L680 416 L662 416" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M460 434 L460 458" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M340 478 L210 478 L210 524" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="218" y="472" fill="var(--muted)" font-size="12">はい</text><path d="M580 478 L680 478 L680 524" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="688" y="472" fill="var(--muted)" font-size="12">いいえ</text><path d="M210 562 L210 610 L258 610" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M680 562 L680 610 L662 610" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M460 628 L460 652" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M340 672 L210 672 L210 718" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="218" y="666" fill="var(--muted)" font-size="12">Pipeline</text><path d="M580 672 L680 672 L680 718" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="688" y="666" fill="var(--muted)" font-size="12">それ以外</text><path d="M210 756 L210 804 L258 804" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M680 756 L680 804 L662 804" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M460 822 L460 844" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>分岐が3か所</strong>ある。bind point、撃ち方、そしてバリアの「書いた段」。3つ目を間違えても<strong>大抵は動いてしまう</strong>のが怖いところで、「書き終わる前に読む」が起きるのは GPU が混んだときだけ(Day 62a の要点5 と同じ話)。</p>
+<h3 id="s22">今日残した歪み(3つ)</h3>
+<p><strong>1. クラス名が実態と合っていない</strong>。<code>ComputeRenderer</code> はもう「コンピュート」だけではなく、レイトレーシングパイプラインも抱えている。名前を変えると<code>git diff --no-index</code> が 500 行の削除 + 追加になって、その日の変更が読めなくなるので据え置いた。<strong>Day 62 の3日が終わったら <code>Renderer</code> に直す</strong>のが素直。</p>
+<p><strong>2. <code>M</code> の3つ目・4つ目が RT パイプラインでは真っ黒</strong>。<code>gTests</code> は <code>trace.comp</code> の中のグローバル変数で、シェーダを割ると数える場所が無くなる(要点5)。直すなら SSBO に <code>atomicAdd</code> するが、<strong>そのために全シェーダにバッファを1本通す</strong>ことになるので、今日は「割ると情報が運べなくなる」という事実を見るだけにしてある。</p>
+<p><strong>3. <code>#include</code> が1段しか効かない</strong>。入れ子を許すと循環の検出が要る。今日は <code>common.glsl</code> 1本しかないので足りているが、本気でやるなら shaderc の include コールバックを使う(C の関数ポインタ2本、60 行ほど)。</p>
+</section>
+<section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day62c -c Release</code> で確かめる。</p>
+<h3 id="s24">1. 起動: 球 120 個、RT パイプライン</h3>
+<ul><li>Day 62a・62b とまったく同じ絵</li><li>HUD の「探し方」が「<strong>RT パイプライン + SBT</strong>」</li><li>HUD の「SBT」の行が「<strong>192 バイト (取っ手 32 B x 5 グループ / 区画の境界 64 B)</strong>」</li><li>「うち光線追跡」が <strong>0.15 ms 前後</strong></li></ul>
+<h3 id="s25">2. <code>B</code> を3回押して一周する(今日の目)</h3>
+<p>球 5000 個(<code>4</code>)で回すと、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>探し方</th><th>1枚</th><th>光線追跡(アプリ内)</th><th>参考: 連続で描いたとき</th></tr></thead>
+<tbody>
+<tr><td>RT パイプライン</td><td>10.9 ms</td><td><strong>1.5 ms 前後</strong></td><td>0.20 ms</td></tr>
+<tr><td>総当たり</td><td>51.8 ms</td><td><strong>42 ms 前後</strong></td><td>30 ms</td></tr>
+<tr><td>ray query</td><td>9.2 ms</td><td><strong>0.7〜1.8 ms</strong></td><td>0.21 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>RT パイプラインと ray query はほとんど同じ</strong>——同じ RT コアを違う呼び方で使っているだけ。そして<strong>絵が3つとも同じ</strong>であることを、押しながら見比べて確かめる。</p>
+<blockquote><p><strong>アプリ内の数は右端の列より大きく、しかも揺れる</strong>。1枚が 1ms で終わると GPU は残りの 15ms を寝て過ごし、クロックが下がったまま次のフレームを迎えるため。<strong>直前に総当たりを走らせた後は速く出る</strong>(GPU が温まっている)のが分かりやすい例で、上の表の ray query が 0.7ms なのは総当たりの直後に測ったから。比べるときは<strong>同じ順番で押して、10 秒ほど待ってから読む</strong>。</p></blockquote>
+<h3 id="s26">3. <code>M</code>: 表示を切り替える</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>RT パイプライン</th><th>ray query</th></tr></thead>
+<tbody>
+<tr><td>陰影</td><td>同じ</td><td>同じ</td></tr>
+<tr><td>法線</td><td>同じ</td><td>同じ</td></tr>
+<tr><td>交差判定の回数</td><td><strong>真っ黒</strong>(数える場所が無い)</td><td>ほぼ真っ黒</td></tr>
+<tr><td>同・細かい目盛り</td><td><strong>真っ黒</strong></td><td>箱の形が浮かぶ</td></tr>
+</tbody>
+</table></div>
+<p>3つ目・4つ目が真っ黒になるのは<strong>壊れているのではない</strong>。要点5 のとおり、<code>gTests</code> を数えているのは <code>trace.comp</code> の中だけなので、RT パイプライン側には数える場所が無い(<code>heatColor(0)</code> = いちばん暗い青が出る)。</p>
+<h3 id="s27">4. シェーダを1本だけ壊す</h3>
+<p><code>shaders/metal.rchit</code> の中をわざと壊して保存し、<code>3</code> → <code>2</code> と押して作り直させる。</p>
+<ul><li><strong>総当たりと ray query は動いたまま</strong>(それらは <code>trace.comp</code> しか使わない)</li><li>HUD にエラーが出て、<code>B</code> を押しても RT パイプラインには切り替わらない</li></ul>
+<p>6本が別々に翻訳されていることが、これで確かめられる。</p>
+<h3 id="s28">5. SBT の中身を数える</h3>
+<p>HUD の 192 バイトを、自分で計算して合わせてみる。</p>
+<div class="code"><pre><code>  raygen 区画 : 取っ手 32 B を 区画境界 64 B に切り上げ → 64
+  miss   区画 : 32 B x 2 = 64 B を 64 に切り上げ        → 64
+  hit    区画 : 32 B x 2 = 64 B を 64 に切り上げ        → 64
+                                                  合計 → 192</code></pre></div>
+<p><strong>シェーダ6本ぶんの「どれを呼ぶか」が、192 バイトに収まっている</strong>。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>(なし。HUD の SBT の行)</td><td>SBT を並べる</td><td>取っ手 32 B × 5 グループ、区画の境界 64 B で合計 192 B</td></tr>
+<tr><td>(なし。シェーダや C# を書き換える。改造課題1)</td><td>どの hit シェーダが呼ばれるか</td><td>hit 区画の並び、stride、missIndex をずらすと、エラーなしに別のシェーダが呼ばれる</td></tr>
+<tr><td>(なし。<code>maxPipelineRayRecursionDepth</code>)</td><td>再帰の深さ</td><td>深さ 5 が要るのは、反射を 3 回してから影を撃つ画素だけ</td></tr>
+<tr><td><code>B</code></td><td>(なし。Day 62b の「箱の木で探す」)</td><td>3つの探し方で絵が同じことは実機で。速さの比べ方は Day 62a・62b のページ</td></tr>
+<tr><td><code>1</code>〜<code>4</code></td><td>再帰の深さの「球の数」</td><td>球が増えると、金属に映った金属が増えて深い画素が増える</td></tr>
+<tr><td><code>M</code>・シェーダを1本だけ壊す(完成条件4)・左ドラッグ / ホイール / <code>R</code></td><td>(なし)</td><td>実機で</td></tr>
+</tbody>
+</table></div>
+<p class="note">絵を描く実験台は、Day 62a・62b と共有の docs/site/hwraytracer.js に「一次光線の hit グループの付け替え」「一次光線の miss の差し替え」「反射の回数」「再帰の深さの数え上げ」を足して使っている。場面は reference の Scene/SceneData.cs と同じく材質で並べ替えた球(拡散が先)。reference/Day62c を RTX 3070 で走らせた 960x540 の RT パイプラインの絵と比べると、陰影のずれは 0.07〜0.26%(地平線と市松の境目)、法線は 0〜0.01%。再帰の深さ 5 が要る画素は、960x540 で球 120 個のとき 16 個、720 個のとき 98 個だった。同じ GPU で SBT は 192 バイト、取っ手 32 / handleAlignment 32 / baseAlignment 64、maxRayRecursionDepth 31。hit グループの付け替えで「区画の外」を黒く塗るのと、レコードに自前のデータを詰めるのは、このページだけの扱い。</p></div>
+</section>
+<section class="part"><h2 id="s29">検証の途中で分かったこと</h2>
+<h3 id="s30">検証1: 3つの探し方の絵を突き合わせる</h3>
+<p>Day 62b と同じやり方で、3つの絵を 518,400 画素すべて突き合わせた(基準は総当たり)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>球</th><th>表示</th><th>ray query</th><th>RT パイプライン</th></tr></thead>
+<tbody>
+<tr><td>8</td><td>陰影</td><td><strong>完全一致</strong></td><td>0.001% 不一致(maxDelta 57)</td></tr>
+<tr><td>8</td><td>法線</td><td><strong>完全一致</strong></td><td><strong>完全一致</strong></td></tr>
+<tr><td>120</td><td>陰影</td><td>0.003%</td><td>0.007%</td></tr>
+<tr><td>120</td><td>法線</td><td><strong>完全一致</strong></td><td>0.001%(<strong>maxDelta 1</strong>)</td></tr>
+<tr><td>720</td><td>陰影</td><td>0.007%</td><td>0.025%</td></tr>
+<tr><td>720</td><td>法線</td><td><strong>完全一致</strong></td><td>0.005%(maxDelta 1)</td></tr>
+<tr><td>5000</td><td>陰影</td><td>0.012%</td><td>0.033%</td></tr>
+<tr><td>5000</td><td>法線</td><td><strong>完全一致</strong></td><td>0.010%(maxDelta 1)</td></tr>
+</tbody>
+</table></div>
+<p><strong>法線の不一致が maxDelta 1 しかない</strong>のが手がかりになった。法線は <code>sphere.rint</code> が <code>(position - center) / radius</code> で作り、コンピュート版は <code>fillSphereHit</code> が<strong>同じ式</strong>で作る。同じ式なのに最下位ビットが違う。</p>
+<p><code>common.glsl</code> から同じソースを読ませているので、<strong>式そのものは1文字も違わない</strong>。違うのは<strong>別々に翻訳されたこと</strong>で、ドライバが乗算と加算をどう縮約(FMA)するかはコンパイル単位ごとに変わりうる(Day 61 の要点5 で読んだ「同じ式でも同じ答えにならない」)。</p>
+<p>陰影の不一致(0.025〜0.033%)が法線の不一致(0.005〜0.010%)より多いのは、その最下位ビットの差が<strong>影の境目で在/不在に増幅される</strong>から。Day 62b の残り 0.007% も足し合わさっている。</p>
+<h3 id="s31">検証2: 打ち切り方をそろえないと 0.1% ずれた</h3>
+<p>最初に書いた <code>metal.rchit</code> は、深さを使い切ったときに</p>
+<div class="code"><span class="lang">glsl</span><pre><code>if (payload.depth &lt;= 0) { payload.color = f0 * sky(direction); return; }   // 空で打ち切る</code></pre></div>
+<p>としていた。ところがコンピュート版(<code>trace.comp</code>)の for ループは、</p>
+<div class="code"><span class="lang">glsl</span><pre><code>if (hit.kind == 1 &amp;&amp; bounce &lt; MaxBounces) { ...; continue; }
+color += throughput * shadeSurface(hit.albedo, ...);   // ← 最後の1回は「拡散として塗る」</code></pre></div>
+<p>で、<strong>金属を拡散として塗って終わる</strong>。この食い違いで、4回目の反射が当たった画素だけ色が変わり、不一致が <strong>0.095%</strong> になっていた。</p>
+<p>打ち切り方をコンピュート版にそろえたら <strong>0.025%</strong> に下がった。差の 0.07% が「4回目の反射が金属に当たった画素」の数だったことになる。</p>
+<p><strong>どちらの打ち切り方が正しいということはない</strong>(どちらも打ち切りの嘘)。大事なのは、<strong>3つの探し方を突き合わせるなら、嘘のつき方までそろえる必要がある</strong>こと。そうしないと「移植の間違い」と「仕様の違い」が見分けられない。</p>
+<h3 id="s32">検証3: SBT の大きさは「確保した大きさ」ではない</h3>
+<p>HUD に最初 <strong>256 バイト</strong>と出ていた。計算では 192 のはずで、しばらく悩んだ。</p>
+<p>原因は <code>VulkanBuffer.Size</code> が <code>vkGetBufferMemoryRequirements</code> の返した<strong><code>requirements.Size</code></strong> だったこと。Vulkan は要求した大きさをそのまま確保するとは限らず、境界に切り上げる。192 を頼んで 256 が返っていた。</p>
+<p>SBT の話をするときに出したいのは「並べた結果の大きさ」なので、<code>ShaderBindingTable</code> 側で合計を持つようにした。<strong>「確保した大きさ」と「使う大きさ」は違う</strong>——メモリを自分で確保する API ではずっと付いて回る区別で、Day 62a の要点3 の続きにあたる。</p>
+</section>
+<section class="part"><h2 id="s33">改造課題</h2>
+<h3 id="s34">課題1(易): SBT の並びをわざと入れ替える</h3>
+<p><code>RayTracingPipeline.Create</code> のグループ 3 と 4 を入れ替える(diffuse と metal)。</p>
+<ol><li>何が起きるか予想してから走らせる</li><li><strong>検証レイヤは何も言わない</strong>ことを確かめる(入っていれば)。なぜ言えないのか</li><li>元に戻して、今度は <code>raytrace.rgen</code> の <code>traceRayEXT</code> の <code>sbtRecordStride</code> を 1 から 0 にする。何が起きるか。<strong>式に戻って</strong>説明できるか</li><li><code>missIndex</code> を 0 から 1 にすると何が起きるか(空が真っ黒になるはず。なぜ)</li></ol>
+<p><strong>4つの値が別々の場所で決まっている</strong>ことを体で覚えるための課題。</p>
+<h3 id="s35">課題2(中): 影の光線に専用の hit グループを当てる</h3>
+<p>いまは影の光線に <code>gl_RayFlagsSkipClosestHitShaderEXT</code> を立てて、当たったら何も呼ばないようにしている。これを<strong>専用の hit グループ</strong>に変える。</p>
+<ol><li><code>sbtRecordStride</code> を <strong>2</strong> にして、hit 区画を4レコードにする(拡散・一次 / 拡散・影 / 金属・一次 / 金属・影)</li><li>影の光線を <code>sbtRecordOffset = 1</code> で撃つ</li><li>影用の closest-hit(<code>shadow.rchit</code>)を作り、<code>shadowed = true</code> を書くだけにする。<code>SkipClosestHitShader</code> は外す</li><li>SBT は何バイトになったか。速さは変わったか</li><li>これができると何が嬉しいか考える(ヒント: 葉っぱのアルファ抜き。<strong>影の光線だけテクスチャを見たい</strong>場面がある)</li></ol>
+<h3 id="s36">課題3(難): 再帰をやめて、raygen のループにする</h3>
+<p>実戦のパストレーサは RT パイプラインでも<strong>再帰を使わない</strong>(要点4)。同じことをやってみる。</p>
+<ol><li><code>metal.rchit</code> から <code>traceRayEXT</code> を消す。代わりに <code>payload</code> に「次に撃つべき光線の始点と向き、掛けるべき反射率」を入れて戻る</li><li><code>raytrace.rgen</code> で <code>for</code> ループを回し、<code>payload</code> を見て次の光線を撃つ</li><li><code>maxPipelineRayRecursionDepth</code> を <strong>1</strong> に下げる。それでも動くことを確かめる</li><li><strong>速くなったか、遅くなったか</strong>。球 5000 個の金属だらけの場面(<code>SceneData</code> の金属の割合を 4 個に 1 個から 2 個に 1 個へ変える)で比べる</li><li>荷物(payload)が太ったぶん、レジスタの使用量はどうなったか(<code>VK_KHR_pipeline_executable_properties</code> で覗けるが、手っ取り早くは速さで見る)</li><li><strong>どちらの書き方が読みやすいか</strong>。答えは一つではない</li></ol>
+<blockquote><p><strong>測るときは Release で、かつ何回か走らせて最小値を取る</strong>。そして長く回しっぱなしにしない(電源に対して厳しい負荷になる)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s37">Day 62 の3日をふりかえって</h2>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>62a</th><th>62b</th><th>62c</th></tr></thead>
+<tbody>
+<tr><td>何を足したか</td><td>Vulkan 一式</td><td>BLAS/TLAS + ray query</td><td>RT パイプライン + SBT</td></tr>
+<tr><td>C# の行数</td><td>1,274</td><td>+660</td><td>+553</td></tr>
+<tr><td>球 5000 個の光線追跡</td><td>(総当たり 30 ms)</td><td><strong>0.21 ms</strong></td><td><strong>0.20 ms</strong></td></tr>
+<tr><td>一番の収穫</td><td>「準備を前に寄せる」設計</td><td><strong>RT コアは木の探索を肩代わりする</strong></td><td><strong>分岐がシェーダの分割になる</strong></td></tr>
+</tbody>
+</table></div>
+<p>ロードマップの問い「<strong>BLAS/TLAS とは何か、RT コアが何を肩代わりするか</strong>」の答えは、</p>
+<ul><li><strong>BLAS/TLAS</strong> は2階建ての加速構造。下が図形、上が「実体 = 図形 + 置き方」。動くものに強くするために分かれている</li><li><strong>RT コアが肩代わりするのは、木をたどること・箱(と三角形)との交差・近い順の管理</strong>。三角形以外の図形の式は肩代わりしてくれない</li><li>そして<strong>肩代わりの効き目は、図形が増えるほど大きい</strong>(8 個では逆に遅い)</li></ul>
+<p>次の Day 63(ジオメトリシェーダ + テッセレーション)は、今日までとは逆に<strong>「もう主流ではないが教養として知っておく」技術</strong>に入る。GPU に仕事を任せるという点では同じ方向を向いていて、Day 64(メッシュシェーダ)でそれが現代の形に合流する。</p>
+</section>
+<footer class="end">Day 62c レイトレーシングパイプラインと SBT / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/hwraytracer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat } = Lab;
+const R = window.HwRayTracer;
+const align = (v, a) => Math.ceil(v / a) * a;
+const toByte = (v) => Math.round(Math.min(Math.max(v, 0), 1) * 255);
+
+// ============================================================
+//  要点3: SBT を並べる
+// ============================================================
+const sb = { handle: 32, halign: 32, base: 64 };
+function drawSbt() {
+  const miss = Number($('sb-miss').value), hit = Number($('sb-hit').value), data = Number($('sb-data').value);
+  const stride = align(sb.handle + data, sb.halign), raygen = align(stride, sb.base), missSize = align(stride * miss, sb.base), hitSize = align(stride * hit, sb.base);
+  const total = raygen + missSize + hitSize, used = (1 + miss + hit) * (sb.handle + data);
+  $('sb-miss-out').textContent = String(miss); $('sb-hit-out').textContent = String(hit); $('sb-data-out').textContent = data + ' バイト';
+  const { ctx, w, h } = fit($('sb-canvas'));
+  const L = 10, Rr = w - 10, scale = (Rr - L) / Math.max(total, 192), y0 = 40, bh = 50;
+  const regions = [['raygen', 0, raygen, 1], ['miss', raygen, missSize, miss], ['hit', raygen + missSize, hitSize, hit]];
+  const colors = { raygen: [90, 140, 220], miss: [70, 170, 120], hit: [220, 140, 50] };
+  ctx.font = '11px ' + tok('--font-mono');
+  for (const [name, start, size, n] of regions) {
+    const [r, g, b] = colors[name];
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(L + start * scale, y0, size * scale, bh);
+    for (let i = 0; i < n; i++) {
+      const at = start + i * stride;
+      ctx.fillStyle = `rgba(${r},${g},${b},0.9)`; ctx.fillRect(L + at * scale + 1, y0 + 1, sb.handle * scale - 2, bh - 2);
+      if (data) { ctx.fillStyle = `rgba(${r},${g},${b},0.4)`; ctx.fillRect(L + (at + sb.handle) * scale, y0 + 1, data * scale - 1, bh - 2); }
+    }
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(L + start * scale, y0 - 8); ctx.lineTo(L + start * scale, y0 + bh + 8); ctx.stroke();
+    ctx.fillStyle = tok('--ink'); ctx.fillText(`${name}(${size} B)`, L + start * scale + 4, y0 - 12);
+    ctx.fillStyle = tok('--muted'); ctx.fillText(String(start), L + start * scale + 2, y0 + bh + 18);
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(L + total * scale, y0 - 8); ctx.lineTo(L + total * scale, y0 + bh + 8); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.textAlign = 'right'; ctx.fillText(String(total), L + total * scale - 2, y0 + bh + 18); ctx.textAlign = 'left';
+  ctx.fillText('濃い色 = 取っ手、薄い色 = 自前のデータ、灰色 = 境界に合わせた隙間', L, h - 6);
+  $('sb-stats').innerHTML = stat('刻み幅(stride)', `${stride} B`) + stat('raygen / miss / hit 区画', `${raygen} / ${missSize} / ${hitSize} B`) +
+    stat('合計', `${total} B`) + stat('うち取っ手とデータ', `${used} B(隙間 ${total - used} B)`);
+  const isRef = sb.handle === 32 && sb.halign === 32 && sb.base === 64 && miss === 2 && hit === 2 && data === 0;
+  let note = isRef ? 'reference と同じ並び。区画の先頭は 64 の倍数でなければならないので、取っ手が1つしか無い raygen 区画も 64 バイト取り、合計は HUD と同じ 192 バイトになる。' : `取っ手 ${1 + miss + hit} 個を並べるのに ${total} バイト。`;
+  if (sb.halign > sb.handle + data) note += ' 刻み幅は handleAlignment の倍数なので、取っ手より刻みのほうが大きくなり、レコードの間にも隙間ができる。';
+  if (data) note += ` レコードの後ろに ${data} バイトずつ詰めると、hit シェーダが shaderRecordEXT で読める(材質ごとのテクスチャの番号などを表に埋め込める)。`;
+  $('sb-note').textContent = note;
+}
+seg('sb-handle', (v) => { sb.handle = Number(v); drawSbt(); });
+seg('sb-halign', (v) => { sb.halign = Number(v); drawSbt(); });
+seg('sb-base', (v) => { sb.base = Number(v); drawSbt(); });
+for (const id of ['sb-miss', 'sb-hit', 'sb-data']) $(id).addEventListener('input', drawSbt);
+window.addEventListener('resize', drawSbt);
+drawSbt();
+
+// 少しずつ描く(15ms ごとに手を離す)
+function progressive(state, w, h, shade, onRow, onDone) {
+  if (state.job) state.job.alive = false;
+  const job = { alive: true, row: 0 };
+  state.job = job;
+  const tick = () => {
+    if (!job.alive) return;
+    const t0 = performance.now();
+    while (job.row < h && performance.now() - t0 < 15) { for (let x = 0; x < w; x++) shade(x, job.row); job.row++; }
+    onRow(job.row);
+    if (job.row < h) setTimeout(tick, 0); else onDone();
+  };
+  setTimeout(tick, 0);
+}
+
+// ============================================================
+//  要点3・5: どの hit シェーダが呼ばれるか
+// ============================================================
+const HW = 240, HH = 135;
+const hgScene = R.createScene(120, '62c'), hgAccel = R.boxTreeAccel(hgScene), hgCam = R.camera(R.DEFAULT_VIEW, HW, HH);
+const hg = { order: 'dm', miss: 0 };
+const hgImg = new ImageData(HW, HH), hgOff = document.createElement('canvas');
+const SHADER = ['diffuse.rchit', 'metal.rchit'];
+function groupOf(geom) {
+  const inst = Number($('hg-inst').value), stride = Number($('hg-stride').value), off = Number($('hg-off').value);
+  const idx = inst + geom * stride + off;
+  return { idx, group: idx < 2 ? (hg.order === 'dm' ? idx : 1 - idx) : -1 };
+}
+function drawHgImage() {
+  const { ctx, w, h } = fit($('hg-canvas'));
+  const s = Math.min(w / HW, h / HH);
+  hgOff.width = HW; hgOff.height = HH; hgOff.getContext('2d').putImageData(hgImg, 0, 0);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(hgOff, (w - HW * s) / 2, 0, HW * s, HH * s);
+}
+function drawHg() {
+  for (const [id, out] of [['hg-inst', 'hg-inst-out'], ['hg-stride', 'hg-stride-out'], ['hg-off', 'hg-off-out']]) $(out).textContent = $(id).value;
+  const g0 = groupOf(0), g1 = groupOf(1);
+  const tr = R.tracer(hgScene, hgAccel, { primaryGroup: (sp) => groupOf(sp.kind).group, primaryMissBlack: hg.miss === 1 });
+  const nd = hgScene.filter((s) => s.kind === 0).length, nm = hgScene.length - nd;
+  const row = (name, n, g) => `<tr><td>${name}(${n} 個)</td><td>${g.idx}</td><td>${g.group < 0 ? '<strong>hit 区画の外(未定義動作)</strong>' : SHADER[g.group] + ' + sphere.rint'}</td></tr>`;
+  $('hg-table').innerHTML = `<table><thead><tr><th>BLAS のジオメトリ</th><th>番号</th><th>呼ばれる hit グループ</th></tr></thead><tbody>${row('0: 拡散の球', nd, g0)}${row('1: 金属の球', nm, g1)}<tr><td>当たらなかった</td><td>missIndex ${hg.miss}</td><td>${hg.miss === 0 ? 'sky.rmiss(床か空かを決めて塗る)' : 'shadow.rmiss(shadowed = false を書くだけ。荷物 0 に色が入らない)'}</td></tr></tbody></table>`;
+  const ok = g0.group === 0 && g1.group === 1 && hg.miss === 0;
+  const notes = [];
+  if (ok) notes.push(Number($('hg-inst').value) || Number($('hg-off').value) || Number($('hg-stride').value) !== 1 ? 'たまたま正しい組み合わせになっている。' : 'reference の値。ジオメトリ番号がそのまま hit グループの番号になる。');
+  if (g0.group === 1 && g1.group === 0) notes.push('拡散と金属が入れ替わる——赤い大玉が鏡になり、2つの金属の玉が塗りの球になる。検証レイヤには何も言えない(どのグループを呼んでも仕様上は正しい)。');
+  else if (g0.group === g1.group && g0.group >= 0) notes.push(`2つのジオメトリが同じ番号(${g0.idx})に落ちるので、全部の球が ${SHADER[g0.group]} で塗られる。stride を 0 にすると、ジオメトリ番号が式から消える。`);
+  if (g0.group < 0 || g1.group < 0) notes.push('番号が hit 区画(2 レコード)の外に出ると、SBT の外のバイト列を取っ手として読む。何が起きるかは決まっていない。');
+  if (hg.miss === 1) notes.push('一次光線が球に当たらないと shadow.rmiss が呼ばれ、荷物 0 は raygen が入れた黒のまま——空も床も黒くなる。床は sky.rmiss が塗っていたので(要点7)、床まで消える。金属に映った空と床は、反射の光線が missIndex 0 で撃つので残る。');
+  $('hg-note').textContent = notes.join(' ');
+  progressive(hg, HW, HH, (x, y) => {
+    const c = tr.pixel(hgCam, x, y, 0).color, i = (y * HW + x) * 4;
+    hgImg.data[i] = toByte(c[0]); hgImg.data[i + 1] = toByte(c[1]); hgImg.data[i + 2] = toByte(c[2]); hgImg.data[i + 3] = 255;
+  }, drawHgImage, drawHgImage);
+}
+seg('hg-order', (v) => { hg.order = v; drawHg(); });
+seg('hg-miss', (v) => { hg.miss = Number(v); drawHg(); });
+for (const id of ['hg-inst', 'hg-stride', 'hg-off']) $(id).addEventListener('input', drawHg);
+window.addEventListener('resize', drawHgImage);
+drawHg();
+
+// ============================================================
+//  要点4: 再帰の深さ
+// ============================================================
+const DW = 320, DH = 180;
+const rd = { count: 720 };
+const rdScenes = {};
+const depth = new Uint8Array(DW * DH), rdImg = new ImageData(DW, DH), rdOff = document.createElement('canvas');
+let rdRows = 0, rdDone = false;
+const DEPTH_COLORS = [[0, 0, 0], [40, 60, 120], [60, 130, 200], [80, 190, 160], [200, 200, 80], [240, 150, 60], [250, 90, 60], [255, 60, 120], [255, 120, 220], [255, 255, 255]];
+function rdScene(n) { if (!rdScenes[n]) { const sp = R.createScene(n, '62c'); rdScenes[n] = { sp, acc: R.boxTreeAccel(sp) }; } return rdScenes[n]; }
+function computeRd() {
+  const sc = rdScene(rd.count), tr = R.tracer(sc.sp, sc.acc, { maxBounces: Number($('rd-bounce').value) }), cam = R.camera(R.DEFAULT_VIEW, DW, DH);
+  rdDone = false;
+  progressive(rd, DW, DH, (x, y) => { depth[y * DW + x] = tr.pixel(cam, x, y, 0).depth; }, (row) => { rdRows = row; drawRd(); }, () => { rdDone = true; drawRd(); });
+}
+function drawRd() {
+  const decl = Number($('rd-decl').value), bounces = Number($('rd-bounce').value);
+  $('rd-bounce-out').textContent = String(bounces); $('rd-decl-out').textContent = String(decl);
+  const hist = new Array(10).fill(0);
+  for (let i = 0; i < rdRows * DW; i++) {
+    const d = depth[i], c = d > decl ? [230, 40, 40] : DEPTH_COLORS[Math.min(d, 9)];
+    rdImg.data[i * 4] = c[0]; rdImg.data[i * 4 + 1] = c[1]; rdImg.data[i * 4 + 2] = c[2]; rdImg.data[i * 4 + 3] = 255;
+    hist[Math.min(d, 9)]++;
+  }
+  const { ctx, w, h } = fit($('rd-canvas'));
+  const s = Math.min((w - 150) / DW, h / DH);
+  rdOff.width = DW; rdOff.height = DH; rdOff.getContext('2d').putImageData(rdImg, 0, 0);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(rdOff, 0, 0, DW * s, DH * s);
+  // 凡例
+  ctx.font = '12px ' + tok('--font-body');
+  const lx = DW * s + 16;
+  for (let d = 1; d <= Math.min(bounces + 2, 9); d++) {
+    const y = 10 + (d - 1) * 22, c = d > decl ? [230, 40, 40] : DEPTH_COLORS[d];
+    ctx.fillStyle = `rgb(${c.join(',')})`; ctx.fillRect(lx, y, 16, 16);
+    ctx.fillStyle = tok('--ink'); ctx.fillText(`深さ ${d}: ${hist[d].toLocaleString()}`, lx + 22, y + 13);
+  }
+  const need = hist.reduce((m, n, d) => (n ? d : m), 0), over = hist.reduce((a, n, d) => (d > decl ? a + n : a), 0);
+  $('rd-stats').innerHTML = stat('必要な深さの最大', rdDone ? String(need) : '数えている途中') + stat('宣言した深さ', String(decl)) +
+    stat('宣言を超える画素', rdDone ? `${over.toLocaleString()} 個` : '…') + stat('理屈の上の最大(一次 + 反射 + 影)', `1 + ${bounces} + 1 = ${bounces + 2}`);
+  $('rd-note').textContent = !rdDone ? '' : over
+    ? `宣言(${decl})より深く潜る画素が ${over} 個ある(赤)。そこから先は未定義動作で、落ちるか、黙って違う色になる。だからシェーダ側でも payload.depth を数えて止める。`
+    : need < decl
+      ? `この場面で実際に必要なのは ${need} 段まで。宣言を小さくするほどドライバが確保するスタックが減るので、「足りるだけの最小」(${bounces + 2})を書く。`
+      : `宣言 ${decl} は、この場面で必要な深さちょうど。反射を 3 回まで追う reference の 5 はこの形(深さ 5 の画素は、反射を 3 回してから影を撃つ画素)。`;
+}
+$('rd-bounce').addEventListener('input', computeRd);
+$('rd-decl').addEventListener('input', drawRd);
+seg('rd-count', (v) => { rd.count = Number(v); computeRd(); });
+window.addEventListener('resize', drawRd);
+computeRd();
+})();
+</script>
+</body>
+</html>
