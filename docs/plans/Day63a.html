@@ -1,0 +1,1065 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 63a ジオメトリシェーダ(図形を丸ごと作り直す段)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 段が1つ増えると、段の間の受け渡しが問題になる</a></li><li class="l3"><a href="#s6">2. 面法線は、この段でしか作れない</a></li><li class="l3"><a href="#s7">3. 隣接付き三角形 — 6つで1枚</a></li><li class="l3"><a href="#s8">4. 隣を見つけるには、先に位置で溶接する</a></li><li class="l3"><a href="#s9">5. 輪郭は「表と裏の境目」。だから毎フレーム変わる</a></li><li class="l3"><a href="#s10">6. この段が遅い理由は、計算量ではない</a></li><li class="l3"><a href="#s11">7. GS を測るには、画素の仕事を揃える</a></li><li class="l3"><a href="#s12">8. 線は面に埋もれる。クリップ空間で手前へ引く</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">三角形1枚が線4本になるまで — この段の実行モデル</a></li><li class="l3"><a href="#s19">隣接付きインデックスが組み上がるまで — 2周して、辺の表を1つ作る</a></li><li class="l3"><a href="#s20">輪郭の辺が選ばれるまで — 表の側から1回だけ</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>F2</code>: ジオメトリシェーダ</a></li><li class="l3"><a href="#s24">2. <code>F3</code>: 題材を回す</a></li><li class="l3"><a href="#s25">3. <code>F4</code> と <code>F7</code>: 立方体で溶接を切る</a></li><li class="l3"><a href="#s26">4. <code>F10</code>: 内訳</a></li><li class="l3"><a href="#s27">5. <code>F9</code>: GS の値段</a></li><li class="l3"><a href="#s28">6. <code>F11</code>: 自己チェック(11 項目)</a></li><li class="l3"><a href="#s29">7. メニューの自己チェック</a></li><li class="l3"><a href="#s30">8. 起動して何もしなければ、絵は Day 58 のまま</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 面ごとの番号を画素シェーダで受け取る</a></li><li class="l3"><a href="#s33">課題2(中): シャドウボリュームの「柱」を出す</a></li><li class="l3"><a href="#s34">課題3(難): 頂点バッファを3重に持つのをやめる</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 63a / 計画書</p>
+  <h1>ジオメトリシェーダ(図形を丸ごと作り直す段)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 段が1つ増えると、段の間の受け渡しが問題になる</a></li><li class="l3"><a href="#s6">2. 面法線は、この段でしか作れない</a></li><li class="l3"><a href="#s7">3. 隣接付き三角形 — 6つで1枚</a></li><li class="l3"><a href="#s8">4. 隣を見つけるには、先に位置で溶接する</a></li><li class="l3"><a href="#s9">5. 輪郭は「表と裏の境目」。だから毎フレーム変わる</a></li><li class="l3"><a href="#s10">6. この段が遅い理由は、計算量ではない</a></li><li class="l3"><a href="#s11">7. GS を測るには、画素の仕事を揃える</a></li><li class="l3"><a href="#s12">8. 線は面に埋もれる。クリップ空間で手前へ引く</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">三角形1枚が線4本になるまで — この段の実行モデル</a></li><li class="l3"><a href="#s19">隣接付きインデックスが組み上がるまで — 2周して、辺の表を1つ作る</a></li><li class="l3"><a href="#s20">輪郭の辺が選ばれるまで — 表の側から1回だけ</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>F2</code>: ジオメトリシェーダ</a></li><li class="l3"><a href="#s24">2. <code>F3</code>: 題材を回す</a></li><li class="l3"><a href="#s25">3. <code>F4</code> と <code>F7</code>: 立方体で溶接を切る</a></li><li class="l3"><a href="#s26">4. <code>F10</code>: 内訳</a></li><li class="l3"><a href="#s27">5. <code>F9</code>: GS の値段</a></li><li class="l3"><a href="#s28">6. <code>F11</code>: 自己チェック(11 項目)</a></li><li class="l3"><a href="#s29">7. メニューの自己チェック</a></li><li class="l3"><a href="#s30">8. 起動して何もしなければ、絵は Day 58 のまま</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 面ごとの番号を画素シェーダで受け取る</a></li><li class="l3"><a href="#s33">課題2(中): シャドウボリュームの「柱」を出す</a></li><li class="l3"><a href="#s34">課題3(難): 頂点バッファを3重に持つのをやめる</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の3日目</strong>。Day 57(コンピュート)・Day 58(レイマーチング)と同じく <code>Sandbox/</code> に置くが、<strong>今日は <code>Render/</code> も3か所だけ触る</strong>——パイプラインに段が1つ増えるのは、エンジンの形そのものの話だから。</p>
+<p>今日やることは1つ。<strong>頂点シェーダと画素シェーダの間に、図形を丸ごと受け取って作り直す段を挟む</strong>。この段(ジオメトリシェーダ)は、三角形1枚を受け取って線を4本出したり、点1つを受け取って板を1枚出したり、<strong>隣の三角形まで見て、表と裏の境目の辺だけを選んで出したり</strong>できる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>頂点シェーダ(Day 14〜)</th><th>ジオメトリシェーダ(Day 63a)</th></tr></thead>
+<tbody>
+<tr><td>受け取るもの</td><td>頂点1つ</td><td><strong>図形1つ</strong>(点1・線2・三角形3・隣接付き三角形6)</td></tr>
+<tr><td>出すもの</td><td>頂点1つ(<strong>必ず1つ</strong>)</td><td><strong>0 個から max_vertices 個まで</strong></td></tr>
+<tr><td>出す図形の種類</td><td>入れたものと同じ</td><td><strong>別でよい</strong>(三角形を入れて線を出せる)</td></tr>
+<tr><td>隣の頂点</td><td>見えない</td><td><strong>同じ図形の全部が見える</strong>(だから面法線が作れる)</td></tr>
+<tr><td>隣の三角形</td><td>見えない</td><td><strong>隣接付きで入れれば見える</strong>(だから輪郭が出せる)</td></tr>
+<tr><td>何枚目の図形か</td><td>分からない</td><td><code>gl_PrimitiveIDIn</code> で分かる</td></tr>
+<tr><td>値段</td><td>1入れて1出るので、GPU は素直に並べられる</td><td><strong>素通しでも 4.89 倍</strong>(下の枠)</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は <code>Sandbox/</code> に新規3本、シェーダ9本、<code>Render/</code> に3か所、そして <code>Program.cs</code>。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、「何もしないジオメトリシェーダ」が 4.89 倍になったこと</strong></p>
+<p>三角形 24,576 枚の球を 64 回描いて、1回ぶんの GPU の時間を測った。<strong>GS 無し 44.3us に対し、受け取った三角形をそのまま1枚出すだけの GS を挟むと 216.4us</strong>。絵は1成分も変わっていない(同じ <code>.vert</code> と同じ <code>.frag</code> で、自己チェックが 245 万成分を突き合わせて確かめている)。増えたのは<strong>「図形を1枚この段に通す」ことそのものの値段</strong>だけ。理由は2つあって、<strong>出る数が実行してみるまで分からない</strong>ので出力を溜める場所が要ることと、<strong>出た順を守らなければならない</strong>(GL は描いた順にラスタライズすると約束している)ので待ち合わせが要ること。頂点シェーダはどちらも要らない——だから「1入れて1出る」に固定されている。Day 64 のメッシュシェーダが「GS をやめて作り直した」のは、まさにこの2つを外すため。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「ジオメトリシェーダ」ページで <code>F2</code> を押すと、ゆっくり回る球の三角形すべてから法線の線が生える。青い線が頂点法線3本、橙の線が面法線1本で、三角形 384 枚から線が 1,536 本出る。<code>F3</code> で題材が変わり、面が弾けて三角形ごとに色が変わり、頂点が板になり、最後に</strong>輪郭の線<strong>だけが残る。<code>F7</code> で溶接を切ると、立方体の辺が1本残らず輪郭になる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「ジオメトリシェーダ」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>ジオメトリシェーダ ON / OFF。<strong>今日の到達点</strong>。他のデモは全部下ろす</td></tr>
+<tr><td><code>F3</code></td><td>題材(法線を見せる / 面を押し出す / 点を板にする / <strong>輪郭を出す</strong>)</td></tr>
+<tr><td><code>F4</code></td><td>形(球 16x12 / 立方体 / 細かい球 128x96)。<strong>立方体は 8 隅を 24 頂点で持っている</strong></td></tr>
+<tr><td><code>F5</code></td><td>量(法線の長さ・押し出す距離・板の大きさ。題材ごとに効き先が変わる)</td></tr>
+<tr><td><code>F6</code></td><td>下地(素通しの GS で元の形も描く)。切ると線だけになる</td></tr>
+<tr><td><code>F7</code></td><td>溶接する。<strong>輪郭の題材で効く</strong>。切ると隣が見つからず、辺が全部輪郭になる</td></tr>
+<tr><td><code>F8</code></td><td>面ごとの色。押し出しで <code>gl_PrimitiveIDIn</code> を色にする</td></tr>
+<tr><td><code>F9</code></td><td>GS の値段(GS 無し / 素通しの GS / 今の題材)。<strong>細かい球で押すこと</strong></td></tr>
+<tr><td><code>F10</code></td><td>内訳(溶接・辺・隣接の大きさ・出した図形の数・GL の上限)</td></tr>
+<tr><td><code>F11</code></td><td>今日の自己チェック(11 項目)</td></tr>
+</tbody>
+</table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「ジオメトリシェーダ」(27 枚目)が直接開く。<strong>実験台を出さない限り、絵は Day 58 と1ビットも変わらない</strong>(<code>Render/</code> に足したのは口だけで、既存の呼び出しは1つも書き換えていない)。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「この段にしか見えないものがある」</strong>。頂点シェーダは自分の頂点1個しか見えないので、「この三角形はどっちを向いているか」を知る手段が無い——隣の2点が分からないと外積が取れないから。面法線・面ごとの番号・隣の三角形は、全部この段で初めて見える(要点2・3)。</p>
+<p><strong>2つ目は「隣接は CPU が組む」</strong>。<code>GL_TRIANGLES_ADJACENCY</code> はインデックスを6つずつ束ねて読むだけで、<strong>「隣」を探してくれるわけではない</strong>。誰が隣かは CPU 側が組んで渡す。そして素直に組むと、<strong>たいてい隣が見つからない</strong>——立方体は 8 隅を 24 頂点で持っているし、UV 球は継ぎ目が2重だから(要点4)。</p>
+<p><strong>3つ目は「出る数が決まらないことの値段」</strong>。この段が遅いのは計算が重いからではなく、<strong>何個出るか実行するまで分からない</strong>から。出力を溜める場所と、順番を守るための待ち合わせが要る(要点6)。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-15「ジオメトリシェーダ」</a>— <strong>今日の一次資料</strong>。入出力の型、<code>max_vertices</code>、<code>EmitVertex</code> / <code>EndPrimitive</code>、隣接付きの並び。講義は C++ / GLFW だが、GLSL はそのまま読める</li><li><strong>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch5</strong>— ジオメトリシェーダが何のために入り、何に使われ、<strong>なぜ期待ほど使われなかったか</strong>。今日の要点6の背景</li><li><a href="https://www.khronos.org/opengl/wiki/Geometry_Shader">OpenGL Wiki: Geometry Shader</a>— 入出力の対応表(<code>points</code> / <code>lines</code> / <code>triangles</code> / <code>lines_adjacency</code> / <code>triangles_adjacency</code>)と、<code>gl_PrimitiveIDIn</code> / <code>gl_Layer</code> / <code>invocations</code>。<strong>隣接付き三角形の6頂点の並び方の図</strong>はここがいちばん分かりやすい</li><li><a href="https://www.khronos.org/opengl/wiki/Interface_Block_(GLSL">OpenGL Wiki: Interface Block (GLSL)</a>)— 要点1。<strong>段をまたぐ受け渡しをブロックにする理由</strong>。今日の <code>Varying</code> ブロックがそれで、これのおかげで画素シェーダが「GS があるかどうか」を知らずに済む</li><li><a href="https://learnopengl.com/Advanced-OpenGL/Geometry-Shader">LearnOpenGL: Geometry Shader</a>— 法線の可視化と「爆発」の2題。今日の題材のうち2つと同じ</li><li><strong>Day 33 の計画書 要点4</strong>(シャドウマップの深度バイアス) — 今日の線が面に埋もれないようクリップ空間の z をずらす話は、あれとまったく同じ「深度の刻みの細かさ」の問題</li><li><strong>Day 57 の計画書 要点1・8</strong>(<code>#define</code> の差し込みと、VSync でクロックが上下する罠) —今日の「GS の値段」も同じ読み方をする</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. 段が1つ増えると、段の間の受け渡しが問題になる</h3>
+<p>ジオメトリシェーダは<strong>入口が配列</strong>になる。<code>triangles</code> を受けるなら3つ、<code>triangles_adjacency</code> なら6つ。そして<strong>出口は画素シェーダへの1つ</strong>。つまりこの段は、同じ名前の変数を <code>in</code> と <code>out</code> の両方で宣言したくなる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>in  vec3 vWorldPosition[];   // 手前の段から(配列)
+out vec3 vWorldPosition;     // ← 同じ名前は再宣言エラー</code></pre></div>
+<p>これを避けるために名前を変える(<code>gWorldPosition</code> にする)と、今度は<strong>画素シェーダの入口の名前が変わる</strong>。GS を挟むかどうかで画素シェーダを2本用意することになり、「GS を挟むと何 ms 増えるか」を<strong>同じ画素シェーダで</strong>比べられなくなる。</p>
+<p>インターフェースブロックがこれを解く。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// gs.vert
+out Varying { vec3 worldPosition; vec3 normal; vec4 color; vec2 texCoord; } OUT;
+// gs-passthrough.geom
+in  Varying { ... } IN[];
+out Varying { ... } OUT;
+// gs-surface.frag
+in  Varying { ... } IN;</code></pre></div>
+<p>段どうしの突き合わせは<strong>ブロック名(<code>Varying</code>)と中身の並び</strong>で決まり、手前に付ける名前(<code>IN</code> / <code>OUT</code>)は<strong>そのシェーダの中だけの呼び名</strong>になる。おかげで <code>in</code> と <code>out</code> に同じ <code>Varying</code> を使えて、<strong>画素シェーダは GS があるかどうかを知らずに済む</strong>。今日の「GS の値段」が成り立つのはこの1点のおかげで、自己チェックの10項目めが「素通しの GS を挟んでも 245 万成分が1つも変わらない」ことを確かめている。</p>
+<h3 id="s6">2. 面法線は、この段でしか作れない</h3>
+<p><code>cross(b - a, c - a)</code> は3点が要る。頂点シェーダには1点しか来ないので、どうやっても書けない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこで作るか</th><th>何ができるか</th><th>できないこと</th></tr></thead>
+<tbody>
+<tr><td>CPU</td><td>面ごとに頂点を分ければ持てる</td><td><strong>頂点が3倍に増える</strong>(立方体が 8 → 24 頂点になるのと同じ話)</td></tr>
+<tr><td>頂点シェーダ</td><td>頂点法線で代用</td><td>丸い形だと面がばらけず、ただ膨らむ</td></tr>
+<tr><td><strong>ジオメトリシェーダ</strong></td><td><strong>3点から作る</strong>。押し出す向きにも、平らな陰影にも使える</td><td>—</td></tr>
+<tr><td>画素シェーダ</td><td><code>dFdx</code> / <code>dFdy</code> で近い値</td><td>あれは<strong>画面の上での傾き</strong>。面の向きそのものではない</td></tr>
+</tbody>
+</table></div>
+<p>平らな陰影だけが目的なら、今は <code>flat</code> 補間子(provoking vertex の値をそのまま配る)のほうがずっと安い。<strong>GS が要るのは、頂点を動かすほう</strong>——今日の「面を押し出す」は、面法線の向きへ三角形ごと動かしている。</p>
+<p><code>gl_PrimitiveIDIn</code>(何枚目の三角形か)も同じ性質を持つ。頂点シェーダには「何枚目の三角形か」という概念が無い(同じ頂点が何枚もの三角形に使われるので、決めようがない)。押し出しの題材で三角形ごとに色が変わるのは、この番号を使っている。</p>
+<div class="inject"><figure class="lab" id="tp-lab">
+  <div class="lab-head">
+    <h3>題材を切り替える — 三角形1枚から何が出るか(要点2・設計書)</h3>
+    <span class="tag">reference の gs-normals / gs-explode / gs-billboard.geom と Primitives.cs の球・立方体を JS に移して、2D のキャンバスにソフトウェアで描いたもの(GPU ではない)。式・つまみ・既定値は GeometryLab.cs と同じ。「出した図形」は reference が GL_PRIMITIVES_GENERATED で数えるのと同じ数を、式で出している</span>
+  </div>
+  <div class="stage"><canvas id="tp-canvas" style="height:380px;background:#12151c" aria-label="球または立方体に、法線の線・押し出した三角形・板を出した絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">題材(F3)</span>
+      <div class="seg" id="tp-topic"><button data-v="normals" aria-pressed="true">法線を見せる</button><button data-v="explode" aria-pressed="false">面を押し出す</button><button data-v="billboard" aria-pressed="false">点を板にする</button></div>
+    </div>
+    <div class="ctl"><span class="label">形(F4)</span>
+      <div class="seg" id="tp-shape"><button data-v="sphere" aria-pressed="true">球 16x12</button><button data-v="cube" aria-pressed="false">立方体</button><button data-v="dense" aria-pressed="false">細かい球 128x96</button></div>
+    </div>
+    <div class="ctl"><span class="label">量(F5)</span>
+      <div class="range"><input type="range" id="tp-amount" min="0" max="1" step="0.25" value="0.5"><output id="tp-amount-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">時刻(秒)。球の向きと、押し出しの出入りが決まる</span>
+      <div class="range"><input type="range" id="tp-time" min="0" max="60" step="0.1" value="2.2"><output id="tp-time-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="tp-base" checked> 下地(F6)</label>
+    <label class="check"><input type="checkbox" id="tp-prim"> 面ごとの色(F8)</label>
+    <label class="check"><input type="checkbox" id="tp-play"> 時間を進める</label>
+  </div>
+  <div class="readout"><div class="stats" id="tp-stats"></div><p id="tp-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">3. 隣接付き三角形 — 6つで1枚</h3>
+<p><code>GL_TRIANGLES_ADJACENCY</code> はインデックスを<strong>6つずつ</strong>束ねて1枚の三角形として読む。</p>
+<div class="code"><pre><code>      1
+     / \
+    0---2
+   / \ / \
+  5---4---3</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>添字</th><th>何か</th></tr></thead>
+<tbody>
+<tr><td>0, 2, 4</td><td><strong>真ん中の三角形</strong>そのもの</td></tr>
+<tr><td>1</td><td>辺 0-2 の向こう側の頂点</td></tr>
+<tr><td>3</td><td>辺 2-4 の向こう側の頂点</td></tr>
+<tr><td>5</td><td>辺 4-0 の向こう側の頂点</td></tr>
+</tbody>
+</table></div>
+<p>隣の三角形は (0,1,2) / (2,3,4) / (4,5,0) になる。<strong>共有する辺を逆向きに辿る並び</strong>で、これは「隣り合う2枚は辺を逆向きに共有する」= 巻き順が揃っている、という約束そのもの。</p>
+<p><strong>この並びは GL が作ってくれるものではない</strong>。誰が隣かは CPU 側が組んで渡す(要点4)。インデックスバッファは三角形1枚につき6つになるので、<strong>ふつうの索引の2倍</strong>の大きさになる(細かい球なら 72,960 個 → 145,920 個 = 570KB)。</p>
+<h3 id="s8">4. 隣を見つけるには、先に位置で溶接する</h3>
+<p>素直に組むと、たいてい隣が見つからない。頂点が重複しているから。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>形</th><th>頂点</th><th>なぜ重複するか</th></tr></thead>
+<tbody>
+<tr><td>立方体</td><td>8 隅を <strong>24 頂点</strong></td><td>面ごとに法線が違う。1つの頂点は1つの法線しか持てない</td></tr>
+<tr><td>UV 球(16x12)</td><td>221 頂点</td><td>継ぎ目の1列が2重(U が 0 と 1 で違う)。極は 17 個が同じ場所</td></tr>
+</tbody>
+</table></div>
+<p>インデックスだけを突き合わせると、隣り合う面が「別の頂点」を使っているので<strong>辺が共有されていないことになる</strong>。だから先に<strong>位置で溶接</strong>して、その上で辺をたどる。</p>
+<div class="code"><pre><code>                溶接あり            溶接なし
+  立方体   8 頂点 / 18 辺 / 境界 0    24 頂点 / 30 辺 / <strong>境界 24</strong>
+  球       178 頂点 / 528 辺 / 境界 0  221 頂点 / 604 辺 / <strong>境界 56</strong></code></pre></div>
+<p><strong>ぴったり一致は見ない</strong>。位置は計算で作られるので、UV 球の継ぎ目は φ = 0 と φ = 2π で作られ、<code>sin(0) = 0</code> に対して <code>sin(2π)</code> は +1.7e-7 になる——同じ点のつもりでも同じ float にならない。0.1mm の升目で丸めてから突き合わせる(<code>MeshAdjacency.WeldGrid</code>)。</p>
+<div class="inject"><figure class="lab" id="wg-lab">
+  <div class="lab-head">
+    <h3>0.1mm の升目で丸める — 同じ点とみなされる条件(要点4)</h3>
+    <span class="tag">MeshAdjacency.Quantize と同じ計算(位置を WeldGrid で割り、float で偶数丸めして整数にする)。2点の位置は計算で作った値で、継ぎ目の例は reference の球と同じ φ = 0 と φ = 2π(float の Tau)から出した値</span>
+  </div>
+  <div class="stage"><canvas id="wg-canvas" style="height:150px" aria-label="数直線の上の2点と、升目の境目"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">例</span>
+      <div class="seg" id="wg-preset"><button data-v="seam" aria-pressed="true">球の継ぎ目(0 と sin 2π)</button><button data-v="pole" aria-pressed="false">極の頂点(列ごとの x)</button><button data-v="cross" aria-pressed="false">0.09mm 離れて境目をまたぐ</button><button data-v="free" aria-pressed="false">自分で動かす</button></div>
+    </div>
+    <div class="ctl"><span class="label">升目の幅 WeldGrid(今日は 1.0e-4 m)</span>
+      <div class="seg" id="wg-grid"><button data-v="1e-3" aria-pressed="false">1mm</button><button data-v="1e-4" aria-pressed="true">0.1mm(reference)</button><button data-v="1e-7" aria-pressed="false">0.0001mm</button></div>
+    </div>
+    <div class="ctl"><span class="label">A の位置(升目の幅を単位に)</span>
+      <div class="range"><input type="range" id="wg-a" min="-1.5" max="1.5" step="0.01" value="0"><output id="wg-a-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">B は A からどれだけ離れているか(mm)</span>
+      <div class="range"><input type="range" id="wg-d" min="0" max="0.3" step="0.005" value="0"><output id="wg-d-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="wg-stats"></div><p id="wg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>溶接すると潰れる三角形が出る</strong>。UV 球の極に接する四角形は、2枚のうち1枚が「3頂点のうち2つが極」になるため(16x12 の球で 32 枚)。面積 0 なので絵には出ないが、辺として数えると帳尻が合わなくなるので、組むときに外す。</p>
+<p><strong>隣が無い辺</strong>は、その辺の始点をもう一度書く。すると隣の三角形が潰れて面積 0 になり、シェーダ側の外積が 0 ベクトルになる——つまり<strong>必ず「裏を向いている」と判定される</strong>ので、表の面から見た端の辺は必ず輪郭として出る。「隣が無い」を番兵の番号で表さないのは、<strong>シェーダ側に分岐を足したくない</strong>から。</p>
+<div class="inject"><figure class="lab" id="ad-lab">
+  <div class="lab-head">
+    <h3>隣接付きインデックスの6つ組を見る — 溶接のあり・なし(要点3・4)</h3>
+    <span class="tag">reference の Primitives.CreateCube / CreateSphere と Sandbox/MeshAdjacency.cs(Weld・Build)を JS に移したもの。下の数は reference の自己チェックと同じ値(立方体 24 → 8、球 221 → 178、V - E + F = 2)。6つ組の番号は、隣接付きインデックス配列の 6 つずつの何組目か</span>
+  </div>
+  <div class="stage"><canvas id="ad-canvas" style="height:400px;background:#12151c" aria-label="隣接付きインデックスの6つ組を、頂点の番号つきで重ねた絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">形(F4)</span>
+      <div class="seg" id="ad-shape"><button data-v="cube" aria-pressed="true">立方体</button><button data-v="sphere" aria-pressed="false">球 16x12</button></div>
+    </div>
+    <div class="ctl"><span class="label">溶接する(F7)</span>
+      <div class="seg" id="ad-weld"><button data-v="1" aria-pressed="true">する</button><button data-v="0" aria-pressed="false">しない</button></div>
+    </div>
+    <div class="ctl"><span class="label">見る6つ組(0 で見ない)</span>
+      <div class="range"><input type="range" id="ad-tuple" min="0" max="12" step="1" value="3"><output id="ad-tuple-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの向き(Yaw)</span>
+      <div class="range"><input type="range" id="ad-yaw" min="-3.14" max="3.14" step="0.02" value="0.6"><output id="ad-yaw-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ad-stats"></div><div class="table-wrap" id="ad-table" style="margin-top:10px"></div><p id="ad-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">5. 輪郭は「表と裏の境目」。だから毎フレーム変わる</h3>
+<p>三角形が表を向いているかは、巻き順から作った法線と「面からカメラへ向かうベクトル」の内積の符号で決まる(Day 10 の背面カリングと同じ式)。<strong>輪郭(シルエット)の辺とは、片側が表・片側が裏の辺</strong>のこと。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>if (!isFrontFacing(v0, v2, v4)) return;        // 真ん中が裏なら何も出さない
+if (!isFrontFacing(v0, v1, v2)) emitEdge(v0, v2);
+if (!isFrontFacing(v2, v3, v4)) emitEdge(v2, v4);
+if (!isFrontFacing(v4, v5, v0)) emitEdge(v4, v0);</code></pre></div>
+<p><strong>表の側からだけ出す</strong>のが要点。輪郭の辺は必ず「表の三角形」と「裏の三角形」で共有されているので、表の側からだけ出せば<strong>1本の辺がちょうど1回</strong>出る。両側から出すと同じ線を2回描くことになる。</p>
+<p>カメラが動けば表裏が変わるので、<strong>輪郭は事前に焼いておけない</strong>。これが「見る側で決まる量を GPU で出す」という、この段のいちばん正当な使い道になる。シャドウボリューム(特論 B-12 の前半)は、この輪郭の辺を光と反対へ引き伸ばして「影の柱」を作る技法で、GS が入った頃いちばん期待されていた使い道だった。</p>
+<p><strong>出る本数はごくわずか</strong>。細かい球(24,320 枚)で輪郭になるのは 36,480 本の辺のうち <strong>270 本(0.7%)</strong>。三角形が細かくなるほど、輪郭の辺の割合は下がっていく(輪郭は形の「縁」なので、面の数の平方根でしか増えない)。</p>
+<div class="inject"><figure class="lab" id="sl-lab">
+  <div class="lab-head">
+    <h3>輪郭の辺 — 見る側で決まる(要点5)</h3>
+    <span class="tag">gs-silhouette.geom の判定(表なら出す、隣が裏なら辺を出す)を、MeshAdjacency.CountSilhouetteEdges と同じ式で JS に移したもの。カメラの初期値は reference の起動時(Yaw 0.6 / Pitch 0.4 / 距離 9)。球の向きは GeometryLab.ModelMatrix と同じ(Y 軸まわりに時刻 x 0.35 ラジアン)</span>
+  </div>
+  <div class="stage"><canvas id="sl-canvas" style="height:400px;background:#12151c" aria-label="球または立方体と、輪郭として選ばれた辺"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">形(F4)</span>
+      <div class="seg" id="sl-shape"><button data-v="sphere" aria-pressed="true">球 16x12</button><button data-v="cube" aria-pressed="false">立方体</button><button data-v="dense" aria-pressed="false">細かい球 128x96</button></div>
+    </div>
+    <div class="ctl"><span class="label">溶接する(F7)</span>
+      <div class="seg" id="sl-weld"><button data-v="1" aria-pressed="true">する</button><button data-v="0" aria-pressed="false">しない</button></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの向き(Yaw)</span>
+      <div class="range"><input type="range" id="sl-yaw" min="-3.14" max="3.14" step="0.02" value="0.6"><output id="sl-yaw-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの高さ(Pitch)</span>
+      <div class="range"><input type="range" id="sl-pitch" min="-1.2" max="1.2" step="0.02" value="0.4"><output id="sl-pitch-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの距離(m)</span>
+      <div class="range"><input type="range" id="sl-dist" min="4" max="40" step="0.5" value="9"><output id="sl-dist-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">時刻(秒)。球の向きが回る</span>
+      <div class="range"><input type="range" id="sl-time" min="0" max="60" step="0.1" value="0"><output id="sl-time-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="sl-base" checked> 下地(F6)</label>
+    <label class="check"><input type="checkbox" id="sl-play"> 時間を進める</label>
+  </div>
+  <div class="readout"><div class="stats" id="sl-stats"></div><p id="sl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">6. この段が遅い理由は、計算量ではない</h3>
+<p>「何もしない GS」が 4.89 倍になる(下の表)。計算は <code>gl_Position</code> を写すだけなのに。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>頂点シェーダ</th><th>ジオメトリシェーダ</th></tr></thead>
+<tbody>
+<tr><td>出る数</td><td><strong>必ず1つ</strong></td><td>0 〜 <code>max_vertices</code></td></tr>
+<tr><td>出力の置き場所</td><td>要らない(そのまま次へ流せる)</td><td><strong>溜める場所が要る</strong>(何個来るか分からないので)</td></tr>
+<tr><td>順番</td><td>入力の順がそのまま出力の順</td><td><strong>出た順を守らせる待ち合わせが要る</strong></td></tr>
+</tbody>
+</table></div>
+<p>GL は「描いた順にラスタライズされる」と約束しているので、あとの三角形が先に終わっても先へ出せない。並列に走らせながら順番を保つには待ち合わせが要り、そのぶん並列度が落ちる。</p>
+<p><code>max_vertices</code> の上限にもこれが出ている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>GL に聞いた上限(RTX 3070)</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>1回に出せる頂点</td><td>1024</td></tr>
+<tr><td>1頂点あたりの成分</td><td>128</td></tr>
+<tr><td><strong>総成分</strong></td><td><strong>1024</strong></td></tr>
+<tr><td>同時実行(<code>invocations</code>)</td><td>32</td></tr>
+</tbody>
+</table></div>
+<p><strong>総成分が「1回に出せる頂点数 x 1頂点の成分数」に掛かる</strong>。今日の <code>Varying</code> は 12 成分 + <code>gl_Position</code> の4成分 = 16 成分なので、出せるのは 1024 / 16 = 64 頂点まで。<strong><code>max_vertices</code> を大きく書くほど、1頂点に持てる情報が減る</strong>——出力を溜める場所が要る、という性質がそのまま数字に出ている。</p>
+<div class="inject"><figure class="lab" id="bg-lab">
+  <div class="lab-head">
+    <h3>出力の予算 — max_vertices と 1頂点の成分数(要点6)</h3>
+    <span class="tag">上限の 1024 / 128 / 1024 は reference が RTX 3070(driver 596.49)の GL に聞いた値。成分数の数え方は GeometryLab の設計書と同じ(Varying 12 成分 + gl_Position 4 成分)。GPU の時間はこのページでは測れないので、出していない</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">題材(reference の max_vertices)</span>
+      <div class="seg" id="bg-topic"><button data-v="3" aria-pressed="false">素通し(3)</button><button data-v="8" aria-pressed="true">法線(8)</button><button data-v="3x" aria-pressed="false">押し出し(3)</button><button data-v="4" aria-pressed="false">板(4)</button><button data-v="6" aria-pressed="false">輪郭(6)</button></div>
+    </div>
+    <div class="ctl"><span class="label">max_vertices に書く値(このページだけ動かせる)</span>
+      <div class="range"><input type="range" id="bg-max" min="1" max="200" step="1" value="8"><output id="bg-max-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">Varying の成分数(今日は 12。このページだけ動かせる)</span>
+      <div class="range"><input type="range" id="bg-var" min="4" max="60" step="1" value="12"><output id="bg-var-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bg-stats"></div><div class="table-wrap" id="bg-table" style="margin-top:10px"></div><p id="bg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">7. GS を測るには、画素の仕事を揃える</h3>
+<p>今日の値段の表は3行あるが、<strong>値段として読めるのは上2行の差だけ</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>測ったもの(細かい球 24,576 枚 x 64 回)</th><th>GPU の時間</th><th>出した図形</th></tr></thead>
+<tbody>
+<tr><td>GS 無し</td><td>44.3us</td><td>24,576</td></tr>
+<tr><td>素通しの GS</td><td><strong>216.4us(4.89 倍)</strong></td><td>24,576</td></tr>
+<tr><td>輪郭を出す</td><td>44.0us</td><td>270</td></tr>
+</tbody>
+</table></div>
+<p>上2行は<strong>同じ <code>.vert</code> と同じ <code>.frag</code></strong> で、絵も1成分も変わらない(自己チェックの10項目め)。だから差は段そのものの値段になる。</p>
+<p>3行目は<strong>画素の仕事が違う</strong>。線は面よりずっと塗る画素が少ないので、GS を通っているのに GS 無しと同じ時間になる。「GS を通すと必ず遅くなる」ではなく、<strong>「図形を1枚通すのが高い」のであって、出す図形が減れば取り返せる</strong>、というのが正しい読み方。輪郭のように「入力 24,576 → 出力 270」なら、段の値段よりラスタライズの節約のほうが大きい。</p>
+<p>VSync を入れたまま測っているので GPU のクロックは上下する。順番を入れ替えて2周してから平均を取っているが、それでも走行ごとにぶれる(Day 57 の要点8)。<strong>同じ条件で何度か押して、落ち着いた値を読むこと</strong>。</p>
+<h3 id="s12">8. 線は面に埋もれる。クリップ空間で手前へ引く</h3>
+<p>法線の線の根元も、輪郭の線も、<strong>面のちょうど上</strong>にある。そのまま描くと深度が同じ値の取り合いになり、線が虫食いになる。Day 33 のシャドウアクネとまったく同じ「深度の刻みの細かさ」の問題。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>clip.z -= uDepthBias * clip.w;</code></pre></div>
+<p><code>w</code> を掛けるのは、クリップ空間の z が w に比例する量だから。こうしておくと、遠くでも近くでも「画面の奥行きで」同じだけ引ける。今日は 0.0012 にしてある。</p>
+<div class="inject"><figure class="lab" id="db-lab">
+  <div class="lab-head">
+    <h3>深度バイアスは何メートル引くか — clip.z -= bias * clip.w(要点8)</h3>
+    <span class="tag">near 0.1 / far 100 は reference のカメラ、深度は 24 ビット(Framebuffer の DepthComponent24)、bias は GeometryLab.DepthBias の 0.0012。式は OpenGL の標準の透視投影から出した(ndc.z = (f+n)/(f-n) - 2fn/((f-n)d))。線が面に埋もれて虫食いになる現象そのものは 2D では再現できないので、ここでは「何メートル手前へ引くか」だけを出す</span>
+  </div>
+  <div class="stage"><canvas id="db-canvas" style="height:250px" aria-label="カメラからの距離と、バイアスで手前へ引く距離のグラフ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">バイアス(uDepthBias)</span>
+      <div class="range"><input type="range" id="db-bias" min="0" max="0.01" step="0.0001" value="0.0012"><output id="db-bias-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">面までの距離(m)</span>
+      <div class="range"><input type="range" id="db-dist" min="1" max="40" step="0.5" value="9"><output id="db-dist-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="db-now"> w を掛けない(clip.z -= bias だけ。このページだけの間違い)</label>
+  </div>
+  <div class="readout"><div class="stats" id="db-stats"></div><p id="db-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>線の太さも同じく実装任せの部分がある。<strong>コアプロファイルでは 1.0 しか保証されていない</strong>ので、<code>GL_ALIASED_LINE_WIDTH_RANGE</code> を聞いてから、その範囲に収めて渡す(超えた値を渡すと <code>GL_INVALID_VALUE</code> になり、<strong>絵は出るので気付きにくい</strong>)。</p>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/MeshAdjacency.cs</code></td><td><strong>今日の C# 側の主役</strong>。位置で溶接し、隣接付きインデックス(三角形1枚につき6つ)を組む。<code>Report</code>(溶接・辺・境界・オイラーの式)と、輪郭を数える C# の鏡</td></tr>
+<tr><td><code>Sandbox/PrimitiveCounter.cs</code></td><td><code>GL_PRIMITIVES_GENERATED</code> の薄い皮。<strong>GS が何個の図形を出したかを GL に数えさせる</strong>。毎フレーム用(待たない)と自己チェック用(待つ)の2通り</td></tr>
+<tr><td><code>Sandbox/GeometryLab.cs</code></td><td><strong>GL の側</strong>。<code>GeometryTopic</code> / <code>GeometryShape</code> / <code>GeometryPass</code>。シェーダ6本・形3つ(それぞれ三角形/溶接あり隣接/溶接なし隣接の3メッシュ)・タイマー・カウンタ</td></tr>
+<tr><td><code>shaders/gs.vert</code></td><td>今日の5通りに共通の頂点シェーダ。<strong><code>Varying</code> ブロック</strong>でワールド位置を後ろへ渡す</td></tr>
+<tr><td><code>shaders/gs-passthrough.geom</code></td><td>素通し。受け取った三角形をそのまま1枚出すだけ。<strong>値段を測るためのもの</strong></td></tr>
+<tr><td><code>shaders/gs-normals.geom</code></td><td>三角形 → 線分4本(頂点法線3 + 面法線1)。<code>max_vertices = 8</code></td></tr>
+<tr><td><code>shaders/gs-explode.geom</code></td><td>三角形 → 三角形。面法線の向きへ押し出し、<code>gl_PrimitiveIDIn</code> で色を変える</td></tr>
+<tr><td><code>shaders/gs-billboard.geom</code></td><td>点 → 四角形。ビュー行列の行からカメラの右と上を取る</td></tr>
+<tr><td><code>shaders/gs-silhouette.geom</code></td><td><strong>今日の本題</strong>。隣接付き三角形 → 線分0〜3本。表と裏の境目の辺だけを出す</td></tr>
+<tr><td><code>shaders/gs-surface.frag</code></td><td>面を塗る(ランバート + 環境光)。<strong>GS の有無を知らない</strong></td></tr>
+<tr><td><code>shaders/gs-line.frag</code></td><td>線を塗る。陰影を付けない</td></tr>
+<tr><td><code>shaders/gs-sprite.frag</code></td><td>板を丸く抜く。四隅に入れた 0〜1 の座標で判定</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader.cs</code></td><td><strong>頂点 + ジオメトリ + 画素</strong>の3段のコンストラクタ。中身は1行も要らなかった(Day 57 で段が配列になっているので)</td><td>+29</td></tr>
+<tr><td><code>Render/RenderResources.cs</code></td><td><code>LoadShader(vert, geom, frag)</code>。キーに3本目のパスが入る</td><td>+29</td></tr>
+<tr><td><code>Render/Mesh.cs</code></td><td><code>Draw(PrimitiveType)</code>(<code>Points</code> / <code>TrianglesAdjacency</code> で描く)と <code>DrawVertices(PrimitiveType)</code>(索引を使わない)</td><td>+49 / −2</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド2つ、今日の関数一式、<code>OnLoad</code> で <code>GeometryLab</code> を作る、<code>OnRender</code> に1行、HUD に1行、ページ1枚(10 項目)、<code>OnClosing</code>、既存 <code>Show*</code> 7か所に1行ずつ、<code>RunDebugMenuCheck</code> の項目数</td><td>+783 / −1</td></tr>
+<tr><td><code>Day63a.csproj</code></td><td><code>Day58.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日の差分は Day 58 と同じくらい</strong>(新規 1,799 行(C# 1,101 行 + GLSL 698 行)+ <code>Program.cs</code> 783 行 + <code>Render/</code> 107 行。どれもコメントと空行込み)。1日で重ければ、下の順番の <strong>18 まで</strong>(絵が出るまで)と <strong>19 から</strong>(値段・内訳・自己チェック)で2回に分けるとよい。18 の (d) でメニューの F9〜F11 の3行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F8</code> が全部動く。</p>
+<h3 id="s16">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>この順に写せば、途中でビルドが通らない状態を作らずに済む</strong>。</p>
+<ol><li><strong><code>Render/Shader.cs</code></strong>(変更) — <code>Shader(gl, computePath, defines)</code> の手前に、3段のコンストラクタを足す。<code>_stages</code> は Day 57 のまま。<strong>中身は1行も足さない</strong></li><li><strong><code>Render/RenderResources.cs</code></strong>(変更) — <code>LoadComputeShader</code> の手前に <code>LoadShader(vert, geom, frag)</code></li><li><strong><code>Render/Mesh.cs</code></strong>(変更) — <code>Draw()</code> を <code>Draw(PrimitiveType)</code> へのくぐり戸にし、<code>DrawVertices(PrimitiveType)</code> を <code>Dispose</code> の手前に</li><li><strong><code>Sandbox/MeshAdjacency.cs</code></strong>(新規) — <code>Vertex</code> しか使わない。GL を1行も知らない</li><li><strong><code>Sandbox/PrimitiveCounter.cs</code></strong>(新規) — GL のクエリだけ。<code>GpuTimer</code> と同じ作り</li><li><strong><code>shaders/gs.vert</code></strong>(新規) — <code>Varying</code> ブロックを決める。以下の8本はこの中身と1文字ずつ揃える。シェーダの読み込みは実行時なので、ビルドの順番には効かない</li><li><strong><code>shaders/gs-surface.frag</code></strong>(新規) — 面を塗る。<strong>GS の有無を知らない</strong>のが要点1</li><li><strong><code>shaders/gs-line.frag</code></strong>(新規) — 線を塗る。陰影を付けない</li><li><strong><code>shaders/gs-sprite.frag</code></strong>(新規) — 板を丸く抜く</li><li><strong><code>shaders/gs-passthrough.geom</code></strong>(新規) — 素通し。<strong>この段の型を掴むならここから</strong></li><li><strong><code>shaders/gs-normals.geom</code></strong>(新規) — 三角形 → 線分4本</li><li><strong><code>shaders/gs-explode.geom</code></strong>(新規) — 三角形 → 三角形。<strong><code>centroid</code> は GLSL の予約語</strong>なので変数名に使えない</li><li><strong><code>shaders/gs-billboard.geom</code></strong>(新規) — 点 → 四角形</li><li><strong><code>shaders/gs-silhouette.geom</code></strong>(新規) — 隣接付き三角形 → 線分0〜3本。<strong>いちばん難しいので最後に</strong></li><li><strong><code>Sandbox/GeometryLab.cs</code></strong>(新規) — 1〜14 の全部を使う</li><li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 58」のフィールドの直後に「Day 63a」の2つ(<code>_geometryLab</code> / <code>_geometryDemo</code>)</li><li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunRaymarchCheck</code> の直後に、<code>ShowGeometryLab</code> / <code>HideGeometryLab</code> / <code>GeometryLabVisible</code> / <code>RenderGeometryLab</code> / <code>GeometryLabLabel</code> / <code>GeometryTopicName</code> / <code>GeometryTopicNote</code> / <code>GeometryExpectedText</code> / <code>GeometryShapeName</code></li><li><strong><code>Program.cs</code> の組み込み</strong> — 順に、(a) <code>OnLoad</code> の <code>_raymarcher = new Raymarcher(...)</code> の直後に <code>_geometryLab = new GeometryLab(...)</code>、(b) <code>OnRender</code> の <code>RenderRaymarch(deltaSeconds);</code> の直後に <code>RenderGeometryLab(deltaSeconds);</code>、(c) <code>DrawOverlayInfo</code> のレイマーチングの行の直後に HUD の1行、(d) <code>BuildMenu</code> の「レイマーチング」ページの直後に「ジオメトリシェーダ」ページ(10 項目。<strong>このページの F9〜F11 の3項目は 19 で足す関数を指すので、分けて写すなら後回しにする</strong>)、(e) <code>OnClosing</code> の <code>_raymarcher.Dispose();</code> の直後に <code>_geometryLab.Dispose();</code>、(f) <strong>既存の <code>Show*</code> 7か所</strong>(<code>HideRaymarch();</code> を書いた6か所の直後と、<code>ShowRaymarch</code> の <code>HideGpuParticles();</code> の直後)に<code>HideGeometryLab();</code> を1行ずつ、(g) <code>RunDebugMenuCheck</code> の項目数を <strong>255 → 265</strong> へ</li><li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 17 の続きに <code>DescribeGeometryLab</code> / <code>MeasureGeometryCost</code> / <code>RunGeometryLabCheck</code> / <code>ReadScenePixels</code></li><li><strong><code>Day63a.csproj</code></strong> — <code>Day58.csproj</code> をリネームするだけ(中身は同じ)</li></ol>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。Day 57 で作った <code>Sandbox/</code> にクラスが3つ増えた。ただし<strong><code>Render/</code> が久しぶりに変わった</strong>——Day 56 から Day 58 まで3日続けて1行も触らずに済んでいたが、今日は<strong>パイプラインに段が1つ増える</strong>話なので、<code>Shader</code> に3段の入口、<code>RenderResources</code> に窓口、<code>Mesh</code> に「図形の種類を指定して描く」口が要った。どれも既にある形の上に口を1つ足しただけで、中身は書き換えていない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/MeshAdjacency</code></td><td><code>Sandbox/MeshAdjacency.cs</code></td><td>溶接と隣接付きインデックス。静的クラス。<strong><code>Vertex</code> と <code>System.Numerics</code> しか使わない</strong></td></tr>
+<tr><td><code>Sandbox/MeshAdjacency.Report</code></td><td><code>Sandbox/MeshAdjacency.cs</code></td><td>溶接・辺・境界・潰れた三角形・オイラーの式</td></tr>
+<tr><td><code>Sandbox/PrimitiveCounter</code></td><td><code>Sandbox/PrimitiveCounter.cs</code></td><td><code>GL_PRIMITIVES_GENERATED</code> の薄い皮。<code>GpuTimer</code> と同じ輪 + 待つ口が1つ</td></tr>
+<tr><td><code>Sandbox/GeometryLab</code></td><td><code>Sandbox/GeometryLab.cs</code></td><td>GL の側。シェーダ6本・形3つ・タイマー・カウンタ</td></tr>
+<tr><td><code>Sandbox/GeometryTopic</code> / <code>GeometryShape</code> / <code>GeometryPass</code></td><td><code>Sandbox/GeometryLab.cs</code></td><td>題材 / 形 / 値段を比べる3通り</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader</code></td><td>3段(頂点 + ジオメトリ + 画素)のコンストラクタ</td><td>+29</td></tr>
+<tr><td><code>Render/RenderResources</code></td><td><code>LoadShader(vert, geom, frag)</code></td><td>+29</td></tr>
+<tr><td><code>Render/Mesh</code></td><td><code>Draw(PrimitiveType)</code> と <code>DrawVertices(PrimitiveType)</code></td><td>+49 / −2</td></tr>
+<tr><td><code>Program.cs</code></td><td>ページ1枚、<code>OnRender</code> に1行、HUD に1行、出す/下ろす、値段・内訳・自己チェック</td><td>+783 / −1</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18">三角形1枚が線4本になるまで — この段の実行モデル</h3>
+<svg viewBox="0 0 900 814" role="img" aria-label="gs-normals.geom が三角形1枚から線を4本出すまで。インデックスバッファを3つずつ束ね、gs.vert が頂点ごとに1回(3回)走ってワールド位置・法線・色を Varying へ、gl_Position も入れる。プリミティブ組み立てで3つの出力を1つの三角形にまとめ、gs-normals.geom が三角形ごとに1回走る。頂点法線3本(emitLine で2頂点ずつ、EndPrimitive で1本ずつ切る)と、面法線1本(cross(b-a, c-a) を重心から。この段でしか作れない)に分かれ、どちらも出力を溜める場所(何個来るか分からないので必要。max_vertices = 8 が上限)に入る。次に順番の待ち合わせ(描いた順を守るという GL の約束。あとの三角形が先に終わっても出せない)を通り、ラスタライズ(線分4本 x 三角形 384 枚 = 1,536 本)され、gs-line.frag が色をそのまま出す" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="8" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)">インデックスバッファ</text><text x="450" y="45.5" text-anchor="middle" fill="var(--ink)">3つずつ束ねる</text><rect x="250" y="84" width="400" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="104.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gs.vert</text><text x="450" y="121.5" text-anchor="middle" fill="var(--ink)">頂点ごとに1回。3回走る</text><text x="450" y="138.5" text-anchor="middle" fill="var(--ink)">ワールド位置・法線・色を Varying へ</text><text x="450" y="155.5" text-anchor="middle" fill="var(--ink)">gl_Position も入れておく</text><rect x="250" y="194" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="214.5" text-anchor="middle" fill="var(--ink)">プリミティブ組み立て</text><text x="450" y="231.5" text-anchor="middle" fill="var(--ink)">3つの出力を1つの三角形にまとめる</text><rect x="250" y="270" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="290.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gs-normals.geom</text><text x="450" y="307.5" text-anchor="middle" fill="var(--ink)">三角形ごとに1回。1回だけ走る</text><text x="450" y="324.5" text-anchor="middle" fill="var(--ink)">gl_in[0..2] と IN[0..2] が見える</text><rect x="30" y="381" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="401.5" text-anchor="middle" fill="var(--ink)">頂点法線3本</text><text x="230" y="418.5" text-anchor="middle" fill="var(--ink)">emitLine で 2 頂点ずつ</text><text x="230" y="435.5" text-anchor="middle" fill="var(--ink)">EndPrimitive で1本ずつ切る</text><rect x="470" y="381" width="400" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="670" y="401.5" text-anchor="middle" fill="var(--ink)">面法線1本</text><text x="670" y="418.5" text-anchor="middle" fill="var(--ink)">cross(b-a, c-a) を重心から</text><text x="670" y="435.5" text-anchor="middle" fill="var(--ink)">この段でしか作れない</text><rect x="250" y="492" width="400" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="512.5" text-anchor="middle" fill="var(--ink)">出力を溜める場所</text><text x="450" y="529.5" text-anchor="middle" fill="var(--ink)">何個来るか分からないので必要</text><text x="450" y="546.5" text-anchor="middle" fill="var(--ink)">max_vertices = 8 が上限</text><rect x="250" y="585" width="400" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="605.5" text-anchor="middle" fill="var(--ink)">順番の待ち合わせ</text><text x="450" y="622.5" text-anchor="middle" fill="var(--ink)">描いた順を守るという GL の約束</text><text x="450" y="639.5" text-anchor="middle" fill="var(--ink)">あとの三角形が先に終わっても出せない</text><rect x="250" y="678" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="698.5" text-anchor="middle" fill="var(--ink)">ラスタライズ</text><text x="450" y="715.5" text-anchor="middle" fill="var(--ink)">線分4本 x 三角形 384 枚 = 1,536 本</text><rect x="250" y="754" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="774.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gs-line.frag</text><text x="450" y="791.5" text-anchor="middle" fill="var(--ink)">色をそのまま出す</text><path d="M450 58 L450 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 168 L450 192" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 244 L450 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M370 337 L370 357 L230 357 L230 379" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M530 337 L530 357 L670 357 L670 379" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 448 L230 474 L320 474 L320 490" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M670 448 L670 474 L580 474 L580 490" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 559 L450 583" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 652 L450 676" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 728 L450 752" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong><code>EmitVertex</code> は「いま <code>OUT</code> に入っている値で頂点を1つ出す」</strong>。代入の時点では何も起きず、この行で初めて1つ確定する。出し終えた <code>OUT</code> の中身は<strong>未定義</strong>になるので、次の頂点で全部入れ直す。<code>EndPrimitive</code> は「ここでひと繋がりを切る」で、<code>line_strip</code> なら切らずに出した頂点が1本の折れ線になる——<strong>法線の線で切り忘れると、法線の先から次の頂点へ戻る線が余分に描かれる</strong>。</p>
+<p><code>max_vertices</code> を小さく書くと、超えたぶんは<strong>エラーも警告も無く捨てられる</strong>。絵は「なんとなく足りない」だけなので睨んでも気付けない。だから <code>PrimitiveCounter</code> で数える(自己チェックの7項目め: 三角形 384 枚 → 線分 1,536 本)。</p>
+<p><strong>出力を溜める場所と順番の待ち合わせが、この段の値段の正体</strong>(要点6)。素通しの GS を挟むだけで 4.89 倍になるのは、計算が増えたからではなく、この2つが要るから。</p>
+<h3 id="s19">隣接付きインデックスが組み上がるまで — 2周して、辺の表を1つ作る</h3>
+<svg viewBox="0 0 900 915" role="img" aria-label="隣接付きインデックスを組む流れ。Mesh.ReadVertices() / ReadIndices() で GPU から読み返す(起動時に1回だけ)。溶接するかを分け、はいなら位置を 0.1mm の升目で丸めて鍵にし、同じ鍵の頂点は最初に出てきた番号を代表にする(立方体 24 → 8、球 221 → 178)。いいえなら remap[i] = i で何もしない。1周目で向きのある辺の表を作る(三角形 a,b,c から a→b の向かいは c、b→c の向かいは a、c→a の向かいは b)。溶接して潰れたか(a==b or b==c or c==a)を調べ、はいなら数えて捨てる(UV 球の極に 32 枚)、いいえなら表に足して辺の使用回数も数える。2周目で6つ組を書き出す(偶数番は元の番号のまま、奇数番は逆向きの辺を引いた答え)。逆向きの辺が表にあれば、その向かい側の頂点を書く。無ければ辺の始点をもう一度書く(隣が潰れて外積が 0、必ず裏と判定される)。最後に uint[] の三角形 x 6 と Report(溶接・辺・境界・オイラー)になる" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="8" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Mesh.ReadVertices() / ReadIndices()</text><text x="450" y="45.5" text-anchor="middle" fill="var(--ink)">GPU から読み返す</text><text x="450" y="62.5" text-anchor="middle" fill="var(--ink)">起動時に1回だけ</text><rect x="310" y="101" width="280" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="123" text-anchor="middle" fill="var(--ink)">溶接するか</text><rect x="10" y="173" width="430" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="193.5" text-anchor="middle" fill="var(--ink)">位置を 0.1mm の升目で丸めて鍵にする</text><text x="225" y="210.5" text-anchor="middle" fill="var(--ink)">同じ鍵の頂点は最初に出てきた番号を代表にする</text><text x="225" y="227.5" text-anchor="middle" fill="var(--ink)">立方体 24 → 8 / 球 221 → 178</text><rect x="460" y="173" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="193.5" text-anchor="middle" fill="var(--ink)">remap[i] = i</text><text x="675" y="210.5" text-anchor="middle" fill="var(--ink)">何もしない</text><rect x="250" y="280" width="400" height="101" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="300.5" text-anchor="middle" fill="var(--ink)">1周目: 向きのある辺の表</text><text x="450" y="317.5" text-anchor="middle" fill="var(--ink)">三角形 a,b,c から</text><text x="450" y="334.5" text-anchor="middle" fill="var(--ink)">a→b の向かい = c</text><text x="450" y="351.5" text-anchor="middle" fill="var(--ink)">b→c の向かい = a</text><text x="450" y="368.5" text-anchor="middle" fill="var(--ink)">c→a の向かい = b</text><rect x="290" y="407" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="427.5" text-anchor="middle" fill="var(--ink)">溶接して潰れたか</text><text x="450" y="444.5" text-anchor="middle" fill="var(--ink)">a==b or b==c or c==a</text><rect x="10" y="493" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="513.5" text-anchor="middle" fill="var(--ink)">数えて捨てる</text><text x="225" y="530.5" text-anchor="middle" fill="var(--ink)">UV 球の極に 32 枚</text><rect x="460" y="493" width="430" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="515" text-anchor="middle" fill="var(--ink)">表に足す。辺の使用回数も数える</text><rect x="220" y="583" width="460" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="603.5" text-anchor="middle" fill="var(--ink)">2周目: 6つ組を書き出す</text><text x="450" y="620.5" text-anchor="middle" fill="var(--ink)">偶数番 = 元の番号のまま(法線と UV が要るので)</text><text x="450" y="637.5" text-anchor="middle" fill="var(--ink)">奇数番 = 逆向きの辺を引いた答え</text><rect x="290" y="676" width="320" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="698" text-anchor="middle" fill="var(--ink)">逆向きの辺が表にあるか</text><rect x="10" y="748" width="430" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="770" text-anchor="middle" fill="var(--ink)">その向かい側の頂点を書く</text><rect x="460" y="748" width="430" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="768.5" text-anchor="middle" fill="var(--ink)">辺の始点をもう一度書く</text><text x="675" y="785.5" text-anchor="middle" fill="var(--ink)">隣が潰れる → 外積が 0</text><text x="675" y="802.5" text-anchor="middle" fill="var(--ink)">→ 必ず裏と判定される</text><rect x="250" y="855" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="875.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uint[] 三角形 x 6</text><text x="450" y="892.5" text-anchor="middle" fill="var(--ink)">+ Report(溶接・辺・境界・オイラー)</text><path d="M450 75 L450 99" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M310 119 L225 119 L225 171" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="302" y="113" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M590 119 L675 119 L675 171" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="598" y="113" fill="var(--muted)" font-size="12">いいえ</text><path d="M225 240 L225 260 L320 260 L320 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M675 223 L675 260 L580 260 L580 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M450 381 L450 405" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M290 432 L225 432 L225 491" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="282" y="426" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M610 432 L675 432 L675 491" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="618" y="426" fill="var(--muted)" font-size="12">いいえ</text><path d="M225 543 L225 563 L290 563 L290 581" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M675 529 L675 563 L610 563 L610 581" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M450 650 L450 674" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M290 694 L225 694 L225 746" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="282" y="688" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M610 694 L675 694 L675 746" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="618" y="688" fill="var(--muted)" font-size="12">いいえ</text><path d="M225 784 L225 835 L320 835 L320 853" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M675 815 L675 835 L580 835 L580 853" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>偶数番を元の番号のままにする</strong>のが効きどころ。ここを代表に置き換えると、継ぎ目の反対側の法線と UV がやってきて、<strong>球の継ぎ目に縦の筋が出る</strong>。奇数番は位置しか読まれない(<code>gs-silhouette.geom</code> が <code>IN[1].worldPosition</code> しか見ない)ので、代表でよい。</p>
+<p><strong>向きを付けて持つ</strong>のも効きどころ。「隣り合う2枚は辺を逆向きに共有する」= 巻き順が揃っている、という約束がそのまま検査になる。向きを無視して持つと、裏返った面が混じっていても気付けない。</p>
+<p>検算はオイラーの多面体定理に任せてある。穴の無い閉じた面なら <strong>V - E + F = 2</strong>。細かさにも形にもよらないので、<strong>絵を見ずに「ちゃんと閉じたか」を1つの数で言える</strong>(自己チェックの4項目め)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>V</th><th>E</th><th>F</th><th>V - E + F</th></tr></thead>
+<tbody>
+<tr><td>立方体(溶接あり)</td><td>8</td><td>18</td><td>12</td><td><strong>2</strong></td></tr>
+<tr><td>立方体(溶接なし)</td><td>24</td><td>30</td><td>12</td><td>6</td></tr>
+<tr><td>球(溶接あり)</td><td>178</td><td>528</td><td>352</td><td><strong>2</strong></td></tr>
+<tr><td>球(溶接なし)</td><td>221</td><td>604</td><td>384</td><td>1</td></tr>
+<tr><td>細かい球(溶接あり)</td><td>12,162</td><td>36,480</td><td>24,320</td><td><strong>2</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s20">輪郭の辺が選ばれるまで — 表の側から1回だけ</h3>
+<svg viewBox="0 0 840 505" role="img" aria-label="gs-silhouette.geom が輪郭の辺を選ぶ流れ。gl_in[0..5](真ん中は 0,2,4、隣の向かいは 1,3,5)を受け取り、isFrontFacing(v0, v2, v4) で真ん中が表かを調べる。いいえなら何も出さない(裏からは出さない)。はいなら isFrontFacing(v0, v1, v2) で辺 0-2 の隣が表かを調べ、いいえなら辺 v0-v2 を出す。次に isFrontFacing(v2, v3, v4) を調べ、いいえなら辺 v2-v4 を出す。次に isFrontFacing(v4, v5, v0) を調べ、いいえなら辺 v4-v0 を出す。どれも終わったらおわり" style="width:100%;max-width:840px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="90" y="8" width="340" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="260" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gl_in[0..5]</text><text x="260" y="45.5" text-anchor="middle" fill="var(--ink)">真ん中 = 0,2,4</text><text x="260" y="62.5" text-anchor="middle" fill="var(--ink)">隣の向かい = 1,3,5</text><rect x="110" y="101" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="260" y="121.5" text-anchor="middle" fill="var(--ink)">isFrontFacing(v0, v2, v4)</text><text x="260" y="138.5" text-anchor="middle" fill="var(--ink)">真ん中は表か</text><rect x="520" y="101" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="670" y="121.5" text-anchor="middle" fill="var(--ink)">何も出さない</text><text x="670" y="138.5" text-anchor="middle" fill="var(--ink)">裏からは出さない</text><rect x="110" y="187" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="260" y="207.5" text-anchor="middle" fill="var(--ink)">isFrontFacing(v0, v1, v2)</text><text x="260" y="224.5" text-anchor="middle" fill="var(--ink)">辺 0-2 の隣は表か</text><rect x="520" y="187" width="300" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="670" y="209" text-anchor="middle" fill="var(--ink)">辺 v0-v2 を出す</text><rect x="110" y="287" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="260" y="309" text-anchor="middle" fill="var(--ink)">isFrontFacing(v2, v3, v4)</text><rect x="520" y="287" width="300" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="670" y="309" text-anchor="middle" fill="var(--ink)">辺 v2-v4 を出す</text><rect x="110" y="373" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="260" y="395" text-anchor="middle" fill="var(--ink)">isFrontFacing(v4, v5, v0)</text><rect x="520" y="373" width="300" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="670" y="395" text-anchor="middle" fill="var(--ink)">辺 v4-v0 を出す</text><rect x="180" y="459" width="160" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="260" y="481" text-anchor="middle" fill="var(--ink)">おわり</text><path d="M260 75 L260 99" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M410 126 L518 126" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="418" y="120" fill="var(--muted)" font-size="12">いいえ</text><path d="M260 151 L260 185" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="268" y="168" fill="var(--muted)" font-size="12">はい</text><path d="M410 212 L518 212" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="418" y="206" fill="var(--muted)" font-size="12">いいえ</text><path d="M260 237 L260 285" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="268" y="254" fill="var(--muted)" font-size="12">はい</text><path d="M670 223 L670 271 L310 271 L310 285" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M410 305 L518 305" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="418" y="299" fill="var(--muted)" font-size="12">いいえ</text><path d="M260 323 L260 371" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="268" y="340" fill="var(--muted)" font-size="12">はい</text><path d="M670 323 L670 357 L310 357 L310 371" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M410 391 L518 391" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="418" y="385" fill="var(--muted)" font-size="12">いいえ</text><path d="M260 409 L260 457" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="268" y="426" fill="var(--muted)" font-size="12">はい</text><path d="M670 409 L670 443 L300 443 L300 457" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong>表の側からだけ出すので、1本の辺がちょうど1回出る</strong>。輪郭の辺は必ず「表の三角形」と「裏の三角形」で共有されているから。両側から出すと同じ線を2回描くうえに、裏側から見ると隣の判定が逆になって辻褄が合わなくなる。</p>
+<p><strong>隣が無い辺は必ず出る</strong>。隣接を組むときに潰れた三角形を書いてあるので、外積が 0 ベクトルになり、<code>dot(0, eye - a) &gt; 0</code> が偽 = 裏、と判定されるため。これが「溶接を切ると立方体の辺が全部出る」の正体(<code>F7</code>。12 枚の三角形のうち表の6枚が、自分の3辺を全部出して 12 本になる)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>見ているもの</th><th>辺の総数</th><th>輪郭になる辺</th><th>割合</th></tr></thead>
+<tbody>
+<tr><td>立方体(溶接あり)</td><td>18</td><td>6</td><td>33.3%</td></tr>
+<tr><td>立方体(溶接なし)</td><td>30</td><td>12</td><td>40.0%</td></tr>
+<tr><td>球(溶接あり)</td><td>528</td><td>34</td><td>6.4%</td></tr>
+<tr><td>細かい球(溶接あり)</td><td>36,480</td><td>270</td><td><strong>0.7%</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>細かくするほど割合が下がる</strong>。輪郭は形の「縁」なので、面の数の平方根でしか増えないため。これが要点7の「入力 24,576 → 出力 270 なら、段の値段よりラスタライズの節約のほうが大きい」の中身になる。</p>
+<p>同じ式を C# にも写してある(<code>MeshAdjacency.CountSilhouetteEdges</code>)。GPU に数えさせた本数(<code>PrimitiveCounter</code>)と突き合わせると、<strong>両方が同じ辺を選んでいる</strong>ことまで言える(自己チェックの9項目め。姿勢を4通り変えて 34:34 / 32:32 / 27:27 / 34:34)。Day 58 の <code>SdfScene</code> と同じ「C# の鏡」の作法で、<strong>今日は鏡のほうが本物より短い</strong>(30 行ほど)。</p>
+<h3 id="s21">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 同じ頂点バッファが3重に置かれている</strong>。<code>Mesh&lt;TVertex&gt;</code> は VBO と EBO を組で持つ形なので、「同じ頂点を別の索引で読む」ができない。形1つにつき三角形用・溶接あり隣接用・溶接なし隣接用の3つを作っていて、細かい球なら 12,513 頂点 x 96 バイト x 3 = 3.4MB を持っていて、1つで済むはずのところの余分は 2 つぶんの 2.3MB ある。本来は VAO だけ差し替えて VBO を共有したいところ(改造課題3)。</p>
+<p><strong>2つ目: 板の題材だけ <code>DrawVertices</code> を使っている</strong>。索引を使わずに頂点を順に描くので、「板1枚 = 頂点1つ」の対応が保たれて数えられる——が、<strong>メッシュの意味では正しくない</strong>。UV 球の極の 17 頂点は同じ位置にあるので、そこだけ板が 17 枚重なっている。溶接した頂点の配列を別に持てばきれいになるが、今日の主題ではないので置いた。</p>
+<p><strong>3つ目: <code>MeshAdjacency</code> の溶接が升目の丸めだけ</strong>。升目の境目をまたぐ2点(0.09mm しか離れていないのに別の升)は溶接されない。自分で作ったメッシュには効くが、外から読んだモデル(Day 39 の glTF)では取りこぼしうる。本気でやるなら格子の 27 近傍を見るか、空間分割で近傍を探す。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day63a -c Release</code> で起動する。起動直後のコンソールは Day 58 と同じ(今日は起動時に何も足していない)。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「ジオメトリシェーダ」(27 枚目)が開く。</p>
+<h3 id="s23">1. <code>F2</code>: ジオメトリシェーダ</h3>
+<p>コンソールに次の行が出る。</p>
+<div class="code"><pre><code>ジオメトリシェーダ: <strong>ON</strong>  法線を見せる  球(16 x 12)  頂点 221 / 三角形 384  → この段が出す図形は 1,536 個</code></pre></div>
+<p>Day 31 の床と箱が消え、暗い背景の真ん中に<strong>ゆっくり回る球</strong>が出る。球の表面は薄い灰色に塗られ(素通しの GS で描いた下地)、そこから線が<strong>針山のように</strong>生えている。</p>
+<ul><li><strong>青 → 水色の線が3本ずつ</strong> … 頂点法線。球なので放射状にまっすぐ外を向く</li><li><strong>橙 → 黄の線が1本ずつ</strong> … 面法線。三角形の重心から生え、<strong>頂点法線より少し寝ている</strong>(平らな面の向きなので)</li></ul>
+<p>HUD に今日の行が出る。</p>
+<div class="code"><pre><code>GS 法線を見せる  球(16 x 12)  三角形 384  出した図形 1,536 (見積もり 1,536)  GPU 0.03ms</code></pre></div>
+<p><strong>「出した図形」と「見積もり」が一致すること</strong>が今日の1つ目の関門。出した図形は <code>GL_PRIMITIVES_GENERATED</code> でGL に数えさせた実測、見積もりは C# が「三角形 x 4」で出した数。<strong><code>F6</code> で下地を切っても数が変わらない</strong>(下地は数えていない)。</p>
+<h3 id="s24">2. <code>F3</code>: 題材を回す</h3>
+<ul><li><strong>面を押し出す</strong> … 球の表面が三角形ごとにばらけて外へ膨らみ、<strong>息をするように出入りする</strong>。三角形は <code>gl_PrimitiveIDIn</code> で色が変わるので、384 枚が全部違う色になる。中に下地の球が残っているので、どれだけ離れたかが見える。出した図形は <strong>384</strong>(1枚入れて1枚出る)</li><li><strong>点を板にする</strong> … 球の頂点 221 個が、それぞれカメラを向いた丸い板になる。色は法線から作っているので、球の向きに沿って色が回る。出した図形は <strong>442</strong>(頂点 x 2 枚)。<strong>極では板が 17 枚重なっている</strong>(UV 球の極は 17 頂点が同じ位置。設計書の「今日残した歪み」2つ目)</li><li><strong>輪郭を出す</strong> … 線が全部消え、<strong>球の縁に1本の輪</strong>だけが残る。回っても輪の位置は変わらない(球なので)。出した図形は 30〜40 本で、HUD の見積もりは「カメラ次第」になる</li></ul>
+<h3 id="s25">3. <code>F4</code> と <code>F7</code>: 立方体で溶接を切る</h3>
+<p><code>F3</code> を押して「輪郭を出す」にし、<code>F4</code> で立方体にする。</p>
+<ul><li><strong>溶接 ON</strong> … 立方体の<strong>外周6辺</strong>だけに線が出る。見えている3面の境目には線が出ない</li><li><strong><code>F7</code> で溶接 OFF</strong> … <strong>見えている3面の境目にも線が出て、12 本になる</strong></li></ul>
+<p>これが今日の2つ目の関門。立方体は 8 隅を 24 頂点で持っているので、隣り合う面が別の頂点を使っており、インデックスだけでは辺が共有されていないことになる(要点4)。コンソールにその数が出る。</p>
+<div class="code"><pre><code>溶接する: <strong>OFF</strong>  頂点 24 → 24  <strong>隣が無い辺 24 / 30</strong>  隣が見つからない辺は必ず輪郭として出る。<strong>立方体は全部の辺が出る</strong></code></pre></div>
+<p><code>F4</code> をもう一度押して<strong>細かい球</strong>(128 x 96)にすると、輪郭が滑らかな1本の円になる。このとき出している線は <strong>270 本</strong>で、辺 36,480 本の 0.7% しかない。</p>
+<h3 id="s26">4. <code>F10</code>: 内訳</h3>
+<div class="code"><pre><code>--- ジオメトリシェーダの内訳 ---
+  題材: 輪郭を出す  形: 細かい球(128 x 96)  出している: ON
+  形: 頂点 12513 / 三角形 24576
+  溶接あり: 頂点 12513 → <strong>12162</strong>  (潰れた三角形 256 を除いて 24320 枚)  辺 36480  <strong>隣が無い辺 0</strong>  V - E + F = 2
+  溶接なし: 頂点 12513(そのまま)  三角形 24576 枚  辺 37088  <strong>隣が無い辺 448</strong>  V - E + F = 1
+  隣接付きインデックス: 145,920 個 = 570.0KB (ふつうの索引の <strong>2 倍</strong>。72,960 個 → 145,920 個)
+  この段が出した図形(GL_PRIMITIVES_GENERATED): <strong>270</strong>
+  いまのカメラでの輪郭(C# の鏡): <strong>270 本</strong>  表を向いている三角形 9574 / 24320  → 辺のうち <strong>0.7%</strong> だけが輪郭
+  この GL が許す上限: 1回に出せる頂点 1024  1頂点あたりの成分 128  <strong>総成分 1024</strong>  同時実行 32</code></pre></div>
+<p><strong>GL に数えさせた値と C# の鏡の値が一致する</strong>のが今日の3つ目の関門。溶接あり側の <strong>V - E + F = 2</strong>(オイラーの多面体定理)も見どころで、これが 2 でなければ形が閉じていない。</p>
+<h3 id="s27">5. <code>F9</code>: GS の値段</h3>
+<p><strong>細かい球にしてから押すこと</strong>(三角形が少ないと描画1回ぶんの固定費に埋もれる。押すと注意が出る)。</p>
+<div class="code"><pre><code>--- GS の値段(細かい球(128 x 96)  三角形 24,576 枚を 64 回 x 2 周)---
+  GS 無し                        44.3us  出した図形   24,576  GS 無しの <strong>1.00 倍</strong>
+  素通しの GS                     216.4us  出した図形   24,576  GS 無しの <strong>4.89 倍</strong>
+  今の題材(輪郭を出す)                  44.0us  出した図形      270  GS 無しの <strong>0.99 倍</strong></code></pre></div>
+<p><strong>上2行は絵が1成分も変わらない</strong>(同じ <code>.vert</code> と同じ <code>.frag</code>)。それでも 4.89 倍になるのが今日の到達点で、差は「図形を1枚この段に通す」ことそのものの値段(要点6)。3行目は画素の仕事が違うので、倍率は段の値段として読まないこと(要点7)。</p>
+<p>VSync を入れたまま測っているので、走行ごとに 4.3〜5.0 倍の間でぶれる。何度か押して落ち着いた値を読む。</p>
+<h3 id="s28">6. <code>F11</code>: 自己チェック(11 項目)</h3>
+<p>全部 <code>[OK]</code> になる。</p>
+<div class="code"><pre><code>=== Day 63a 自己チェック(溶接・隣接・出した図形の数・素通しで絵が変わらないこと)===
+  [OK] <strong>位置で溶接すると頂点が減る</strong>(立方体 24 → 8。面ごとに法線を分けたぶんが戻る)  立方体 24 → 8 / 球 221 → 178
+  [OK] <strong>溶接すれば隣が全部見つかり、溶接しなければ1つも見つからない</strong>(立方体)  立方体 溶接あり 0 本 / 溶接なし 24 本(全 30 辺)
+  [OK] <strong>球も溶接すれば閉じる</strong>(継ぎ目と極のぶんが残らない)  球 溶接あり 0 本 / 溶接なし 56 本(全 604 辺)
+  [OK] <strong>V - E + F = 2</strong>(球も立方体も、溶接したあとなら成り立つ)  立方体 8 - 18 + 12 = 2 / 球 178 - 528 + 352 = 2
+  [OK] <strong>隣接の奇数番が、本当に隣の三角形を指している</strong>(球なら隣り合う面のなす角は 23° 以下)  1,056 組で、面どうしのなす角は最大 22.31°
+  [OK] <strong>素通しの GS は、入れた三角形の数をそのまま出す</strong>  三角形 384 枚 → 出した図形 384
+  [OK] <strong>法線の題材は、三角形1枚につき線分4本</strong>  三角形 384 枚 → 線分 1536(見積もり 1536)
+  [OK] <strong>板の題材は、頂点1つにつき三角形2枚</strong>  頂点 221 個 → 三角形 442(見積もり 442)
+  [OK] <strong>GPU が出した輪郭の本数と、C# の鏡が数えた本数が一致する</strong>  GPU 34 : C# 34 / GPU 32 : C# 32 / GPU 27 : C# 27 / GPU 34 : C# 34
+  [OK] <strong>素通しの GS を挟んでも、絵が1成分も変わらない</strong>  違った成分 0 / 2,457,600(最大の差 0.0E+000)
+  [OK] <strong>いちばん多く出す題材(法線の8頂点)が、この GL の上限に収まっている</strong>  上限 頂点 1024 / 1頂点の成分 128 / 総成分 1024</code></pre></div>
+<p>前半5項目は<strong>窓を開かずに走る</strong>(<code>MeshAdjacency</code> が GL を1行も知らないので)。後半6項目はシーンのバッファを借りて描き、<code>GL_PRIMITIVES_GENERATED</code> と <code>glReadPixels</code> で確かめる。</p>
+<h3 id="s29">7. メニューの自己チェック</h3>
+<p><code>Alt+F1</code> で Day 48 の割り当て表のチェックが走り、<strong>27 ページ 265 項目</strong>になっている。</p>
+<h3 id="s30">8. 起動して何もしなければ、絵は Day 58 のまま</h3>
+<p><code>F2</code> を押さない限り、<code>GeometryLab</code> は1回も描かない。<code>Render/</code> に足したのは口だけで、既存の呼び出し(<code>LoadShader(vert, frag)</code> / <code>Draw()</code>)は1つも書き換えていない(<code>Draw()</code> は <code>Draw(PrimitiveType.Triangles)</code> へのくぐり戸になった)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー(「ジオメトリシェーダ」ページ)</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>(なし。実験台は常に出している)</td><td>実機では ON / OFF</td></tr>
+<tr><td><code>F3</code></td><td>「題材を切り替える」の題材</td><td>三角形1枚から、線4本(法線)・三角形1枚(押し出し)・板(点1つ)が出る。輪郭は「輪郭の辺」の実験台</td></tr>
+<tr><td><code>F4</code></td><td>どの実験台も「形」</td><td>立方体は 24 頂点なので頂点法線と面法線が重なる。細かい球は輪郭が 0.7% しか出ない</td></tr>
+<tr><td><code>F5</code></td><td>「量」</td><td>題材ごとに法線の長さ・押し出す距離・板の大きさへ効く</td></tr>
+<tr><td><code>F6</code></td><td>「下地」</td><td>切ると線や板だけが残る</td></tr>
+<tr><td><code>F7</code></td><td>「溶接する」</td><td>立方体で切ると辺が全部出る(12 本。3 本は同じ辺を2回)</td></tr>
+<tr><td><code>F8</code></td><td>「面ごとの色」</td><td>押し出しの題材で効く(gl_PrimitiveIDIn を色にする)</td></tr>
+<tr><td><code>F9</code></td><td>(なし)</td><td>GPU の時間は 2D では出せない。実機で</td></tr>
+<tr><td><code>F10</code></td><td>各実験台の数字</td><td>溶接・辺・隣が無い辺・V - E + F・輪郭の本数</td></tr>
+<tr><td><code>F11</code></td><td>(なし)</td><td>実機で。このページの数字は同じ式で出している</td></tr>
+<tr><td>マウスのドラッグ(カメラ)</td><td>「輪郭の辺」の Yaw / Pitch / 距離</td><td>カメラを動かすと輪郭が変わる</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day63a の Render/Primitives.cs(立方体・UV 球)、Sandbox/MeshAdjacency.cs、shaders/gs-*.geom を JS に移したもの(このページの中に書いてある。カメラと陰影の部品だけ docs/site/softview.js で Day 63b と共有)。Node で、立方体 24 → 8 頂点・辺 18・V - E + F = 2、球 221 → 178・辺 528・潰れた三角形 32・V - E + F = 2、細かい球 12,513 → 12,162・辺 36,480・隣が無い辺(溶接なし)448、隣接付きインデックス 72 / 2,112 / 145,920 個、隣の面のなす角が 1,056 組で最大 22.31° になることを確かめた。輪郭の本数はカメラ次第で、球 16x12 は姿勢を変えると 30〜35 本前後、立方体は溶接ありで 6 本・溶接なしで 12 本になる。GPU の時間(F9)と GL の上限は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s31">改造課題</h2>
+<h3 id="s32">課題1(易): 面ごとの番号を画素シェーダで受け取る</h3>
+<p><code>gl_PrimitiveIDIn</code>(ジオメトリシェーダの入口)と <code>gl_PrimitiveID</code>(画素シェーダの入口)は別物。<strong>ジオメトリシェーダがある場合、画素シェーダの <code>gl_PrimitiveID</code> は「この段が <code>gl_PrimitiveID</code> に入れた値」になる</strong>。</p>
+<ol><li><code>gs-explode.geom</code> で <code>gl_PrimitiveID = gl_PrimitiveIDIn;</code> を書く(<code>EmitVertex</code> の前)</li><li><code>gs-surface.frag</code> で <code>gl_PrimitiveID</code> を読み、色を作る(<code>primitiveColor</code> を画素シェーダへ写す)</li><li><code>.geom</code> の代入を<strong>消して</strong>みる。何色になるか。なぜそうなるか</li><li><code>F3</code> で素通しの下地(<code>ShowBase</code>)を見る。下地の三角形にも番号が付いているか</li></ol>
+<p><strong>「段を挟むと、組み込み変数の出どころが変わる」</strong>ことの手触りを掴むのが目的。3 で何が起きるかは実装によって違う(未定義)ので、<strong>手元の答えが仕様ではない</strong>ことも確かめておくとよい。</p>
+<h3 id="s33">課題2(中): シャドウボリュームの「柱」を出す</h3>
+<p>今日の輪郭は線だが、<strong>輪郭の辺を光と反対へ引き伸ばすと影の柱になる</strong>(特論 B-12 の前半)。</p>
+<ol><li><code>gs-silhouette.geom</code> を写して <code>gs-shadowvolume.geom</code> を作る。出すものを <code>line_strip</code> から <code>triangle_strip</code> へ、<code>max_vertices</code> を 6 から 12 へ</li><li>輪郭の辺 <code>a</code>-<code>b</code> を出す代わりに、4点 <code>a</code> / <code>b</code> / <code>a + L*d</code> / <code>b + L*d</code> で四角形を1枚出す(<code>d</code> は光の向き、<code>L</code> は 20m ほど)。<strong>巻き順に注意</strong>——<code>triangle_strip</code> の Z 字の順に並べること</li><li>半透明(<code>glEnable(GL_BLEND)</code>、アルファ 0.15)で描き、深度は書かない。カメラを回すと、球から光と反対へ伸びる<strong>影の柱</strong>が見える</li><li><code>F7</code> で溶接を切る。柱がどう壊れるか(隣が無い辺も柱を出すので、<strong>全部の辺から柱が生える</strong>)</li></ol>
+<p>見どころは<strong>「柱の側面だけでは閉じていない」</strong>こと。本物のシャドウボリュームは前面(表の三角形をそのまま)と後面(裏の三角形を L だけ伸ばしたもの)も要る。なぜ要るのかは、柱の中にカメラを入れてみれば分かる。</p>
+<h3 id="s34">課題3(難): 頂点バッファを3重に持つのをやめる</h3>
+<p>設計書の「今日残した歪み」の1つ目。形1つにつき <code>Mesh</code> を3つ作っているので、細かい球で 3.4MB(3つぶん)を持っていて、2.3MB が余分になっている。索引だけ差し替えられるようにする。</p>
+<ol><li><code>Mesh&lt;TVertex&gt;</code> に、<strong>VAO と EBO だけを追加で作る</strong>口を足す(<code>CreateIndexView(ReadOnlySpan&lt;uint&gt; indices)</code>。VBO は使い回し、頂点属性の設定も同じものを繰り返す)</li><li>返り値は「VAO とインデックス数」を持つ小さな型にする。<code>Mesh</code> 本体の <code>Dispose</code> で一緒に畳む</li><li><code>GeometryLab.Shape</code> の <code>WeldedAdjacency</code> / <code>RawAdjacency</code> をこれに置き換える</li><li><code>F10</code> の内訳に、頂点バッファのバイト数を出して 1/3 になったことを確かめる</li></ol>
+<p>見どころは<strong>「VAO はインデックスバッファの結び付けを記録する」</strong>こと(Day 13 の要点3)。VAO を差し替えれば EBO も一緒に切り替わるので、描く側は <code>BindVertexArray</code> を変えるだけでよい。ここでつまずくなら、<code>Mesh</code> のコンストラクタの最後で <strong>VAO を先に外している</strong>理由を読み直すこと——同じ罠がここでも待っている。</p>
+</section>
+<section class="part"><h2 id="s35">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>OpenGL</td><td>4.3 コアプロファイル(ドライバ 596.49)。<strong>ジオメトリシェーダは 3.2 の機能</strong>(<code>#version 430 core</code> で書いてあるが、330 でも動く)</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。値段の測定は 64 回 x 2 周をタイマークエリで挟んだもので、<code>glFinish</code> の連続描画(計測)は今日も無い</td></tr>
+</tbody>
+</table></div>
+<p>形ごとの数字。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>球(16x12)</th><th>立方体</th><th>細かい球(128x96)</th></tr></thead>
+<tbody>
+<tr><td>頂点</td><td>221</td><td>24</td><td>12,513</td></tr>
+<tr><td>三角形</td><td>384</td><td>12</td><td>24,576</td></tr>
+<tr><td>溶接後の頂点</td><td><strong>178</strong></td><td><strong>8</strong></td><td><strong>12,162</strong></td></tr>
+<tr><td>潰れた三角形</td><td>32</td><td>0</td><td>256</td></tr>
+<tr><td>辺(溶接あり)</td><td>528</td><td>18</td><td>36,480</td></tr>
+<tr><td>隣が無い辺(溶接なし)</td><td>56</td><td>24</td><td>448</td></tr>
+<tr><td>V - E + F(溶接あり)</td><td>2</td><td>2</td><td>2</td></tr>
+<tr><td>隣接付きインデックス</td><td>2,112 個 / 8.2KB</td><td>72 個 / 0.3KB</td><td>145,920 個 / 570KB</td></tr>
+</tbody>
+</table></div>
+<p>題材ごとの数字(球 16x12、下地 ON、960x640)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>題材</th><th>出した図形</th><th>GPU の時間</th></tr></thead>
+<tbody>
+<tr><td>法線を見せる</td><td>1,536(三角形 x 4)</td><td>0.03ms</td></tr>
+<tr><td>面を押し出す</td><td>384(三角形 x 1)</td><td>0.05ms</td></tr>
+<tr><td>点を板にする</td><td>442(頂点 x 2)</td><td>0.04ms</td></tr>
+<tr><td>輪郭を出す</td><td>27〜40(カメラ次第)</td><td>0.03ms</td></tr>
+<tr><td>輪郭を出す(細かい球)</td><td>270</td><td>0.35ms</td></tr>
+</tbody>
+</table></div>
+<p>GS の値段(細かい球 24,576 枚 x 64 回 x 2 周)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>GPU の時間</th><th>比</th></tr></thead>
+<tbody>
+<tr><td>GS 無し</td><td>44.3us</td><td>1.00</td></tr>
+<tr><td>素通しの GS</td><td><strong>216.4us</strong></td><td><strong>4.89</strong>(走行ごとに 4.3〜5.0 でぶれる)</td></tr>
+<tr><td>輪郭を出す</td><td>44.0us</td><td>0.99(<strong>画素の仕事が違うので段の値段ではない</strong>)</td></tr>
+</tbody>
+</table></div>
+</section>
+<footer class="end">Day 63a ジオメトリシェーダ(図形を丸ごと作り直す段) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softview.js"></script>
+<script>
+const GS63A = (() => {
+// ============================================================
+//  reference/Day63a の Render/Primitives.cs(立方体・UV 球)と Sandbox/MeshAdjacency.cs の移植
+//  Node でも動くよう、DOM には触らない。位置は float32 に丸めて C# と同じ値にする
+// ============================================================
+const F = Math.fround;
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+// 立方体: 面ごとに4頂点(8 隅を 24 頂点で持つ)。Primitives.CreateCube と同じ並び
+function makeCube() {
+  const h = 0.5, p = [], idx = [];
+  const face = (bl, br, tr, tl) => {
+    const base = p.length;
+    p.push(bl, br, tr, tl);
+    idx.push(base, base + 1, base + 2, base + 2, base + 3, base);
+  };
+  face([-h, -h, h], [h, -h, h], [h, h, h], [-h, h, h]);
+  face([h, -h, -h], [-h, -h, -h], [-h, h, -h], [h, h, -h]);
+  face([h, -h, h], [h, -h, -h], [h, h, -h], [h, h, h]);
+  face([-h, -h, -h], [-h, -h, h], [-h, h, h], [-h, h, -h]);
+  face([-h, h, h], [h, h, h], [h, h, -h], [-h, h, -h]);
+  face([-h, -h, -h], [h, -h, -h], [h, -h, h], [-h, -h, h]);
+  return { p, idx };
+}
+
+// UV 球: 半径 0.5。継ぎ目は φ = 0 と φ = 2π で別の頂点(slices+1 列)。Primitives.CreateSphere と同じ
+function makeSphere(slices, stacks) {
+  const p = [], idx = [];
+  for (let y = 0; y <= stacks; y++) {
+    const v = F(y / stacks), theta = F(F(1 - v) * F(Math.PI));
+    const sinT = F(Math.sin(theta)), cosT = F(Math.cos(theta));
+    for (let x = 0; x <= slices; x++) {
+      const u = F(x / slices), phi = F(u * F(Math.PI * 2));
+      const sinP = F(Math.sin(phi)), cosP = F(Math.cos(phi));
+      p.push([F(F(sinT * cosP) * 0.5), F(cosT * 0.5), F(F(sinT * sinP) * 0.5)]);
+    }
+  }
+  const stride = slices + 1;
+  for (let y = 0; y < stacks; y++) for (let x = 0; x < slices; x++) {
+    const bl = y * stride + x, br = bl + 1, tl = bl + stride, tr = tl + 1;
+    idx.push(bl, tl, tr, tr, br, bl);
+  }
+  return { p, idx };
+}
+
+// MeshAdjacency.WeldGrid。C# の MathF.Round は偶数丸め
+const WELD_GRID = 1.0e-4;
+function roundEven(x) {
+  const r = Math.round(x);
+  return (Math.abs(x % 1) === 0.5 && r % 2 !== 0) ? r - 1 : r;
+}
+const quant = (q) => roundEven(F(q / F(WELD_GRID))) | 0;
+
+// 位置で溶接する。remap[i] = i 番の代表(最初に出てきた元の番号)
+function weld(p) {
+  const rep = new Map(), remap = new Array(p.length);
+  for (let i = 0; i < p.length; i++) {
+    const key = quant(p[i][0]) + ',' + quant(p[i][1]) + ',' + quant(p[i][2]);
+    if (!rep.has(key)) rep.set(key, i);
+    remap[i] = rep.get(key);
+  }
+  return { remap, count: rep.size };
+}
+
+// 隣接付きインデックスを組む。MeshAdjacency.Build と同じ2周
+function buildAdjacency(p, idx, doWeld) {
+  const tris = idx.length / 3;
+  let remap, welded;
+  if (doWeld) { const w = weld(p); remap = w.remap; welded = w.count; } else { remap = p.map((_, i) => i); welded = p.length; }
+  const opposite = new Map(), edgeUse = new Map();
+  let degenerate = 0;
+  const addEdge = (from, to, third) => {
+    const k = from + ',' + to;
+    if (!opposite.has(k)) opposite.set(k, third);
+    const key = from < to ? from + ',' + to : to + ',' + from;
+    edgeUse.set(key, (edgeUse.get(key) || 0) + 1);
+  };
+  for (let t = 0; t < tris; t++) {
+    const a = remap[idx[t * 3]], b = remap[idx[t * 3 + 1]], c = remap[idx[t * 3 + 2]];
+    if (a === b || b === c || c === a) { degenerate++; continue; }
+    addEdge(a, b, c); addEdge(b, c, a); addEdge(c, a, b);
+  }
+  const adj = [];
+  let boundary = 0;
+  const neighbor = (from, to, fallback) => {
+    const k = from + ',' + to;
+    if (opposite.has(k)) return opposite.get(k);
+    boundary++;
+    return fallback;
+  };
+  for (let t = 0; t < tris; t++) {
+    const i0 = idx[t * 3], i1 = idx[t * 3 + 1], i2 = idx[t * 3 + 2];
+    const a = remap[i0], b = remap[i1], c = remap[i2];
+    if (a === b || b === c || c === a) continue;
+    adj.push(i0, neighbor(b, a, i0), i1, neighbor(c, b, i1), i2, neighbor(a, c, i2));
+  }
+  let nonManifold = 0;
+  for (const u of edgeUse.values()) if (u > 2) nonManifold++;
+  const live = tris - degenerate, edges = edgeUse.size;
+  return { adj, report: { vertexCount: p.length, welded, tris, degenerate, edges, boundary, nonManifold, live, euler: welded - edges + live, adjacencyCount: live * 6 } };
+}
+
+// シェーダの isFrontFacing と同じ式
+const isFront = (a, b, c, eye) => dot(cross(sub(b, a), sub(c, a)), sub(eye, a)) > 0;
+
+// 輪郭の辺を集める(MeshAdjacency.CountSilhouetteEdges と gs-silhouette.geom と同じ判定)。world はモデル行列を掛けた位置
+function silhouette(world, adj, eye) {
+  const edges = [];
+  let front = 0;
+  for (let i = 0; i + 5 < adj.length; i += 6) {
+    const v = [0, 1, 2, 3, 4, 5].map((k) => world[adj[i + k]]);
+    if (!isFront(v[0], v[2], v[4], eye)) continue;
+    front++;
+    if (!isFront(v[0], v[1], v[2], eye)) edges.push([v[0], v[2]]);
+    if (!isFront(v[2], v[3], v[4], eye)) edges.push([v[2], v[4]]);
+    if (!isFront(v[4], v[5], v[0], eye)) edges.push([v[4], v[0]]);
+  }
+  return { edges, front };
+}
+
+// System.Numerics の行ベクトル規約: v * Scale * RotX * RotY
+function modelPoint(p, scale, rx, ry) {
+  let x = p[0] * scale, y = p[1] * scale, z = p[2] * scale;
+  let c = Math.cos(rx), s = Math.sin(rx);
+  [y, z] = [y * c - z * s, y * s + z * c];
+  c = Math.cos(ry); s = Math.sin(ry);
+  [x, z] = [x * c + z * s, -x * s + z * c];
+  return [x, y, z];
+}
+
+const GS63A = { makeCube, makeSphere, weld, buildAdjacency, silhouette, modelPoint, isFront, quant, roundEven, WELD_GRID, F };
+if (typeof module !== 'undefined') module.exports = GS63A;
+
+return GS63A;
+})();
+(() => {
+'use strict';
+const { $, fit, seg, setSeg, segValue, stat, animate, reduceMotion } = Lab;
+const G = GS63A;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const { norm3, sub3, cross3, makeView, shade } = SoftView;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+
+// ------------------------------------------------------------
+//  形(reference の GeometryLab.CreateShape と同じ。隣接は呼ばれたときに組む)
+// ------------------------------------------------------------
+const CUBE_FACE_NORMAL = [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]];
+const SHAPES = {};
+function shape(kind) {
+  if (SHAPES[kind]) return SHAPES[kind];
+  const mesh = kind === 'cube' ? G.makeCube() : kind === 'sphere' ? G.makeSphere(16, 12) : G.makeSphere(128, 96);
+  const normals = mesh.p.map((p, i) => (kind === 'cube' ? CUBE_FACE_NORMAL[Math.floor(i / 4)] : norm3(p)));
+  const s = { kind, p: mesh.p, idx: mesh.idx, normals, scale: kind === 'cube' ? 2.2 : 3.0, adj: {},
+    name: kind === 'cube' ? '立方体' : kind === 'sphere' ? '球 16x12' : '細かい球 128x96' };
+  return (SHAPES[kind] = s);
+}
+function adjacency(s, weld) {
+  const k = weld ? 'w' : 'r';
+  return s.adj[k] || (s.adj[k] = G.buildAdjacency(s.p, s.idx, weld));
+}
+
+const BASE = [0.28, 0.30, 0.36];
+// gs-explode.geom の primitiveColor
+function primColor(id) {
+  const fract = (x) => x - Math.floor(x);
+  const hue = fract(id * 0.61803399);
+  return [0, 2 / 3, 1 / 3].map((o) => clamp(Math.abs(fract(hue + o) * 6 - 3) - 1, 0, 1));
+}
+
+// ------------------------------------------------------------
+//  描く(題材ごと)。返り値は出した図形の数など
+// ------------------------------------------------------------
+function draw(canvas, st) {
+  const { ctx, w, h } = fit(canvas);
+  ctx.fillStyle = '#12151c'; ctx.fillRect(0, 0, w, h);
+  const s = shape(st.shape);
+  const ry = st.time * 0.35;
+  const world = s.p.map((p) => G.modelPoint(p, s.scale, 0.22, ry));
+  const nWorld = s.normals.map((n) => G.modelPoint(n, 1, 0.22, ry));
+  const view = makeView(w, h, st.yaw, st.pitch, st.dist);
+  const P = world.map(view.project);
+  const eye = view.eye;
+  const tris = s.idx.length / 3;
+  const out = { tris, verts: s.p.length, emitted: 0, extra: {} };
+  const tri = (t) => [s.idx[t * 3], s.idx[t * 3 + 1], s.idx[t * 3 + 2]];
+  const fnorm = (t) => { const [a, b, c] = tri(t); return norm3(cross3(sub3(world[b], world[a]), sub3(world[c], world[a]))); };
+  const front = (t) => { const [a, b, c] = tri(t); return G.isFront(world[a], world[b], world[c], eye); };
+  const poly = (pts, fill, stroke) => {
+    ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 0.6; ctx.stroke(); }
+  };
+  const baseFill = () => {
+    for (let t = 0; t < tris; t++) {
+      if (!front(t)) continue;
+      const [a, b, c] = tri(t);
+      const col = shade(fnorm(t), BASE, 0.5, 0.9);
+      poly([P[a], P[b], P[c]], col, tris < 1000 ? 'rgba(255,255,255,0.10)' : col);
+    }
+  };
+
+  if (st.topic === 'normals') {
+    const len = 0.15 + st.amount * 0.85;
+    const blue = [], orange = [];
+    const lines = (backSide) => {
+      ctx.lineWidth = 1.2;
+      for (const [col, list] of [['#4fb8ff', blue], ['#ffa63a', orange]]) { ctx.strokeStyle = col; ctx.beginPath(); for (const l of list) { ctx.moveTo(l[0], l[1]); ctx.lineTo(l[2], l[3]); } ctx.stroke(); list.length = 0; }
+    };
+    const collect = (back) => {
+      for (let t = 0; t < tris; t++) {
+        if (st.base && front(t) === back) continue;
+        const [a, b, c] = tri(t);
+        for (const i of [a, b, c]) {
+          const n = norm3(nWorld[i]), q = world[i];
+          const e = view.project([q[0] + n[0] * len, q[1] + n[1] * len, q[2] + n[2] * len]);
+          blue.push([P[i][0], P[i][1], e[0], e[1]]);
+        }
+        const fn = fnorm(t), m = [(world[a][0] + world[b][0] + world[c][0]) / 3, (world[a][1] + world[b][1] + world[c][1]) / 3, (world[a][2] + world[b][2] + world[c][2]) / 3];
+        const mp = view.project(m), e = view.project([m[0] + fn[0] * len, m[1] + fn[1] * len, m[2] + fn[2] * len]);
+        orange.push([mp[0], mp[1], e[0], e[1]]);
+      }
+    };
+    if (st.base) { collect(true); lines(); baseFill(); collect(false); lines(); } else { collect(true); collect(false); lines(); }
+    out.emitted = tris * 4; out.extra.len = len;
+  } else if (st.topic === 'explode') {
+    const dist = st.amount * 1.6 * (0.5 * Math.sin(st.time * 0.7) + 0.5);
+    const items = [];
+    for (let t = 0; t < tris; t++) {
+      const [a, b, c] = tri(t);
+      const dir = fnorm(t);
+      if (st.base && front(t)) items.push({ pts: [P[a], P[b], P[c]], z: (P[a][2] + P[b][2] + P[c][2]) / 3 + 0.001, col: shade(dir, BASE, 0.5, 0.9) });
+      const moved = [a, b, c].map((i) => view.project([world[i][0] + dir[0] * dist, world[i][1] + dir[1] * dist, world[i][2] + dir[2] * dist]));
+      const base = st.prim ? primColor(t) : (s.kind === 'cube' ? [0.9, 0.9, 0.9] : [0.85, 0.85, 0.85]);
+      items.push({ pts: moved, z: (moved[0][2] + moved[1][2] + moved[2][2]) / 3, col: shade(dir, base, 0.35, 0.75) });
+    }
+    items.sort((p, q) => q.z - p.z);
+    for (const it of items) poly(it.pts, it.col, tris < 1000 ? 'rgba(0,0,0,0.25)' : it.col);
+    out.emitted = tris; out.extra.dist = dist;
+  } else if (st.topic === 'billboard') {
+    const size = 0.08 + st.amount * 0.42;
+    const items = world.map((q, i) => {
+      const n = nWorld[i];
+      return { x: P[i][0], y: P[i][1], z: P[i][2], r: (size / 2) * view.focal / P[i][2], col: `rgb(${Math.round((n[0] * 0.5 + 0.5) * 255)},${Math.round((n[1] * 0.5 + 0.5) * 255)},${Math.round((n[2] * 0.5 + 0.5) * 255)})` };
+    });
+    if (st.base) baseFill();
+    // 手前の板が後ろの板と面を隠すよう、奥から手前へ。下地は面の手前にある板だけを残せないので、全部の板を重ねる
+    items.sort((p, q) => q.z - p.z);
+    for (const it of items) { ctx.fillStyle = it.col; ctx.beginPath(); ctx.arc(it.x, it.y, Math.max(0.6, it.r), 0, Math.PI * 2); ctx.fill(); }
+    out.emitted = s.p.length * 2; out.extra.size = size;
+  } else if (st.topic === 'silhouette') {
+    const a = adjacency(s, st.weld);
+    const sil = G.silhouette(world, a.adj, eye);
+    if (st.base) baseFill();
+    ctx.strokeStyle = '#ffb83a'; ctx.lineWidth = tris < 1000 ? 2.4 : 1.6; ctx.beginPath();
+    for (const [p, q] of sil.edges) { const u = view.project(p), v = view.project(q); ctx.moveTo(u[0], u[1]); ctx.lineTo(v[0], v[1]); }
+    ctx.stroke();
+    out.emitted = sil.edges.length; out.front = sil.front; out.report = a.report;
+    out.silEdges = sil.edges;
+  }
+  out.world = world; out.P = P; out.s = s; out.ctx = ctx; out.w = w; out.h = h; out.view = view;
+  return out;
+}
+
+// 時間を進めるチェックボックスを持つ実験台の共通部品
+function timer(prefix, getTime, setTime, redraw) {
+  const box = $(prefix + '-play');
+  if (reduceMotion) { box.disabled = true; return; }
+  animate($(prefix + '-canvas'), (dt) => { if (!box.checked) return; setTime((getTime() + dt) % 60); redraw(); });
+}
+window.addEventListener('resize', () => { for (const f of REDRAW) f(); });
+const REDRAW = [];
+
+// ============================================================
+//  題材を切り替える
+// ============================================================
+{
+  const st = { topic: 'normals', shape: 'sphere', amount: 0.5, time: 2.2, base: true, prim: false, yaw: 0.6, pitch: 0.4, dist: 6 };
+  const NOTE = {
+    normals: '三角形1枚につき線分4本(頂点法線3 + 面法線1)。gs-normals.geom は 1回の呼び出しで頂点を 8 個出すので max_vertices = 8。青が頂点法線、橙が面法線。球では面法線のほうが少し寝ている(平らな面の向きなので)。立方体は 24 頂点で面ごとに法線が違うので、青と橙が重なる。',
+    explode: '三角形1枚につき三角形1枚。面法線の向きへ、距離は 量 x 1.6 x (0.5 sin(時刻 x 0.7) + 0.5) メートル。下地の三角形が残っているので、どれだけ離れたかが見える。面ごとの色は gl_PrimitiveIDIn(何枚目の三角形か)から作る。',
+    billboard: '頂点1つにつき板1枚 = 三角形2枚。索引を使わず頂点を順に描くので、UV 球の極(17 頂点が同じ位置)は板が重なる。板の色は頂点法線から作るので、球の向きに沿って色が回る。',
+  };
+  function redraw() {
+    $('tp-amount-out').textContent = st.amount.toFixed(2);
+    $('tp-time-out').textContent = st.time.toFixed(1) + ' 秒';
+    const o = draw($('tp-canvas'), st);
+    const per = { normals: [4, '三角形 x 4'], explode: [1, '三角形 x 1'], billboard: [2, '頂点 x 2'] }[st.topic];
+    const unit = st.topic === 'billboard' ? o.verts : o.tris;
+    const extra = st.topic === 'normals' ? stat('法線の長さ', o.extra.len.toFixed(2) + ' m') : st.topic === 'explode' ? stat('いまの押し出し', o.extra.dist.toFixed(2) + ' m', '<small> (最大 ' + (st.amount * 1.6).toFixed(2) + ' m)</small>') : stat('板の1辺', o.extra.size.toFixed(2) + ' m');
+    $('tp-stats').innerHTML = stat('三角形 / 頂点', `${comma(o.tris)} / ${comma(o.verts)}`) + stat('出した図形', comma(o.emitted), `<small> (${per[1]} = ${comma(unit)} x ${per[0]})</small>`) + extra;
+    $('tp-note').textContent = NOTE[st.topic] + (st.topic === 'explode' && !st.prim ? ' 「面ごとの色」を入れると、384 枚が全部違う色になる。' : '');
+  }
+  REDRAW.push(redraw);
+  seg('tp-topic', (v) => { st.topic = v; redraw(); });
+  seg('tp-shape', (v) => { st.shape = v; redraw(); });
+  $('tp-amount').addEventListener('input', (e) => { st.amount = Number(e.target.value); redraw(); });
+  $('tp-time').addEventListener('input', (e) => { st.time = Number(e.target.value); redraw(); });
+  $('tp-base').addEventListener('change', (e) => { st.base = e.target.checked; redraw(); });
+  $('tp-prim').addEventListener('change', (e) => { st.prim = e.target.checked; redraw(); });
+  timer('tp', () => st.time, (t) => { st.time = t; $('tp-time').value = t; }, redraw);
+  redraw();
+}
+
+// ============================================================
+//  0.1mm の升目で丸める
+// ============================================================
+{
+  const st = { grid: 1e-4, a: 0, d: 0, preset: 'seam' };
+  const F = G.F;
+  const TAU = F(Math.PI * 2);
+  const SEAM_B = F(Math.sin(TAU));      // φ = 2π の x 座標は 0 にならない
+  const PRESETS = {
+    seam: { text: '球の継ぎ目(赤道)。φ = 0 の z は 0、φ = 2π(float の Tau)の z は ' + F(SEAM_B * 0.5).toExponential(2) + '(半径 0.5 を掛けた値。sin 2π がちょうど 0 にならない)', a: 0, b: F(SEAM_B * 0.5) },
+    pole: { text: '極の頂点。sin(π) が float では 0 にならず、極の頂点の x が ' + F(F(Math.sin(F(Math.PI))) * 0.5).toExponential(2) + '(経度ごとに cos φ を掛けた値)になる。0 の頂点と同じ点のつもり', a: 0, b: F(F(Math.sin(F(Math.PI))) * 0.5) },
+    cross: { text: '0.09mm 離れた2点が、升目の境目(丸めの切り替わり 0.05mm)の両側にある例', a: 0.0499e-3, b: 0.1399e-3 },
+  };
+  function posA() { return st.preset === 'free' ? st.a * st.grid : PRESETS[st.preset].a; }
+  function posB() { return st.preset === 'free' ? st.a * st.grid + st.d * 1e-3 : PRESETS[st.preset].b; }
+  const key = (x) => G.roundEven(F(F(x) / F(st.grid)));
+  function redraw() {
+    $('wg-a-out').textContent = st.a.toFixed(2) + ' 升';
+    $('wg-d-out').textContent = st.d.toFixed(3) + ' mm';
+    const free = st.preset === 'free';
+    $('wg-a').disabled = !free; $('wg-d').disabled = !free;
+    const a = posA(), b = posB();
+    const ka = key(a), kb = key(b), same = ka === kb;
+    const { ctx, w, h } = fit($('wg-canvas'));
+    const g = st.grid, span = 3.2 * g, c = (a + b) / 2;
+    const X = (x) => w / 2 + ((x - Math.round(c / g) * g) / span) * (w - 40);
+    const cell = Math.round(c / g);
+    ctx.font = '12px ' + Lab.tok('--font-mono');
+    for (let k = cell - 3; k <= cell + 3; k++) {
+      const bx = X((k + 0.5) * g);
+      ctx.strokeStyle = Lab.tok('--line'); ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(bx, 14); ctx.lineTo(bx, h - 36); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = Lab.tok('--muted'); ctx.textAlign = 'center'; ctx.fillText('升 ' + k, X(k * g), h - 18);
+      ctx.fillStyle = Lab.tok('--accent'); ctx.beginPath(); ctx.arc(X(k * g), h / 2 + 14, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.strokeStyle = Lab.tok('--muted'); ctx.beginPath(); ctx.moveTo(20, h / 2 + 14); ctx.lineTo(w - 20, h / 2 + 14); ctx.stroke();
+    for (const [x, name, col, dy] of [[a, 'A', Lab.tok('--ink'), 0], [b, 'B', same ? Lab.tok('--ink') : '#d6563a', -24]]) {
+      const px = X(x);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px, h / 2 + 14, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.textAlign = 'center'; ctx.fillText(name, px, h / 2 - 8 + dy);
+    }
+    $('wg-stats').innerHTML = stat('A の位置', (a * 1e3).toPrecision(4) + ' mm', `<small> → 升 ${ka}</small>`) + stat('B の位置', (b * 1e3).toPrecision(4) + ' mm', `<small> → 升 ${kb}</small>`) + stat('溶接', same ? '同じ頂点とみなす' : '別の頂点のまま', '');
+    $('wg-note').textContent = (free ? '自由に動かす。点線(丸めの切り替わり)をまたぐと、近くても別の升になる。' : PRESETS[st.preset].text) + (same ? '' : ' 溶接されないので、その辺は隣が見つからず輪郭として出る。');
+  }
+  REDRAW.push(redraw);
+  seg('wg-preset', (v) => { st.preset = v; redraw(); });
+  seg('wg-grid', (v) => { st.grid = Number(v); redraw(); });
+  $('wg-a').addEventListener('input', (e) => { st.a = Number(e.target.value); redraw(); });
+  $('wg-d').addEventListener('input', (e) => { st.d = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  隣接付きインデックスの6つ組
+// ============================================================
+{
+  const st = { topic: 'silhouette', shape: 'cube', weld: true, tuple: 3, yaw: 0.6, pitch: 0.4, dist: 6, time: 0, base: true };
+  function redraw() {
+    const s = shape(st.shape), a = adjacency(s, st.weld), r = a.report;
+    const max = a.adj.length / 6;
+    const tup = $('ad-tuple');
+    tup.max = String(max);
+    st.tuple = Math.min(st.tuple, max);
+    tup.value = String(st.tuple);
+    $('ad-tuple-out').textContent = st.tuple === 0 ? '見ない' : `${st.tuple} / ${max} 組目`;
+    $('ad-yaw-out').textContent = st.yaw.toFixed(2);
+    const o = draw($('ad-canvas'), st);
+    const { ctx, P } = o;
+    let rows = '';
+    if (st.tuple > 0) {
+      const i = (st.tuple - 1) * 6, v = [0, 1, 2, 3, 4, 5].map((k) => a.adj[i + k]);
+      const tri = (p, q, w) => { ctx.beginPath(); ctx.moveTo(P[p][0], P[p][1]); ctx.lineTo(P[q][0], P[q][1]); ctx.lineTo(P[w][0], P[w][1]); ctx.closePath(); };
+      ctx.lineWidth = 1.5; ctx.strokeStyle = '#7fe0a0';
+      for (const [p, q, w] of [[v[0], v[1], v[2]], [v[2], v[3], v[4]], [v[4], v[5], v[0]]]) { tri(p, q, w); ctx.stroke(); }
+      tri(v[0], v[2], v[4]); ctx.fillStyle = 'rgba(255,184,58,0.45)'; ctx.fill(); ctx.strokeStyle = '#ffb83a'; ctx.lineWidth = 2.2; ctx.stroke();
+      ctx.font = 'bold 13px ' + Lab.tok('--font-mono'); ctx.textAlign = 'center';
+      const labelled = [];
+      v.forEach((vi, k) => {
+        const px = P[vi][0], py = P[vi][1];
+        const same = labelled.filter((q) => Math.hypot(q[0] - px, q[1] - py) < 4).length;
+        labelled.push([px, py]);
+        const ox = same * 14;
+        ctx.fillStyle = k % 2 === 0 ? '#ffb83a' : '#7fe0a0';
+        ctx.beginPath(); ctx.arc(px + ox, py - 14, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#12151c'; ctx.fillText(String(k), px + ox, py - 9.5);
+      });
+      const names = ['三角形の頂点', '辺 0-2 の向こう', '三角形の頂点', '辺 2-4 の向こう', '三角形の頂点', '辺 4-0 の向こう'];
+      rows = '<table><thead><tr><th>添字</th><th>何か</th><th>頂点番号</th><th></th></tr></thead><tbody>' + v.map((vi, k) => `<tr><td>${k}</td><td>${names[k]}</td><td>${vi}</td><td>${k % 2 === 1 && v[k] === v[k - 1] ? '<strong>隣が無い</strong>(辺の始点をもう一度書いている)' : ''}</td></tr>`).join('') + '</tbody></table>';
+    }
+    $('ad-table').innerHTML = rows;
+    $('ad-stats').innerHTML = stat('頂点', `${r.vertexCount} → ${r.welded}`) + stat('辺', String(r.edges)) + stat('隣が無い辺', String(r.boundary)) + stat('V - E + F', `${r.welded} - ${r.edges} + ${r.live} = ${r.euler}`) + stat('隣接付きインデックス', comma(r.adjacencyCount) + ' 個');
+    const base = st.weld ? '溶接ありは隣が全部見つかり(隣が無い辺 0)、V - E + F = 2 になる。' : `溶接なしは、面の境目の辺で隣が見つからない(隣が無い辺 ${r.boundary})。V - E + F が 2 にならないのは形が閉じていないという意味で、見つからない辺には始点をもう一度書いてある。`;
+    $('ad-note').textContent = base + (st.shape === 'sphere' && st.weld ? ` 極に接する四角形は溶接で潰れた三角形が出る(${r.degenerate} 枚)。` : '');
+  }
+  REDRAW.push(redraw);
+  seg('ad-shape', (v) => { st.shape = v; st.tuple = v === 'cube' ? 3 : 20; redraw(); });
+  seg('ad-weld', (v) => { st.weld = v === '1'; redraw(); });
+  $('ad-tuple').addEventListener('input', (e) => { st.tuple = Number(e.target.value); redraw(); });
+  $('ad-yaw').addEventListener('input', (e) => { st.yaw = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  輪郭の辺
+// ============================================================
+{
+  const st = { topic: 'silhouette', shape: 'sphere', weld: true, yaw: 0.6, pitch: 0.4, dist: 9, time: 0, base: true };
+  function redraw() {
+    $('sl-yaw-out').textContent = st.yaw.toFixed(2);
+    $('sl-pitch-out').textContent = st.pitch.toFixed(2);
+    $('sl-dist-out').textContent = st.dist.toFixed(1) + ' m';
+    $('sl-time-out').textContent = st.time.toFixed(1) + ' 秒';
+    const o = draw($('sl-canvas'), st);
+    const r = o.report, pct = (o.emitted * 100 / r.edges);
+    $('sl-stats').innerHTML = stat('輪郭として出した辺', String(o.emitted), `<small> / 辺 ${comma(r.edges)} (${pct.toFixed(1)}%)</small>`) + stat('表を向いた三角形', comma(o.front), `<small> / ${comma(r.live)}</small>`) + stat('隣が無い辺', String(r.boundary)) + stat('V - E + F', String(r.euler));
+    let note;
+    if (!st.weld && st.shape === 'cube') note = '溶接なし: 見えている3面の境目も輪郭になり、12 本になる(外周6本 + 境目3本を両側の面から2回ずつ。同じ辺を2回出している)。';
+    else if (!st.weld) note = `溶接なし: 継ぎ目と極に、隣が見つからない辺(${r.boundary})が出る。見つからない辺は必ず輪郭になり、球の面の上に縦線が出る。`;
+    else if (st.shape === 'cube') note = '溶接あり: 外周の6本だけが輪郭になる。カメラをどこへ動かしても、見える面が3つのときは 6 本(見える面が1つか2つなら 4 本・6 本)。';
+    else note = '溶接あり: 球の縁に輪が1本残る。カメラを動かしても輪の位置は縁に付いてくるので、輪郭は事前に焼けない。三角形を細かくすると、辺のうち輪郭になる割合が下がる。';
+    $('sl-note').textContent = note;
+  }
+  REDRAW.push(redraw);
+  seg('sl-shape', (v) => { st.shape = v; redraw(); });
+  seg('sl-weld', (v) => { st.weld = v === '1'; redraw(); });
+  for (const [id, key] of [['sl-yaw', 'yaw'], ['sl-pitch', 'pitch'], ['sl-dist', 'dist'], ['sl-time', 'time']]) $(id).addEventListener('input', (e) => { st[key] = Number(e.target.value); redraw(); });
+  $('sl-base').addEventListener('change', (e) => { st.base = e.target.checked; redraw(); });
+  timer('sl', () => st.time, (t) => { st.time = t; $('sl-time').value = t; }, redraw);
+  redraw();
+}
+
+// ============================================================
+//  出力の予算
+// ============================================================
+{
+  const TOPICS = { '3': { max: 3, name: '素通し', need: 3 }, '8': { max: 8, name: '法線', need: 8 }, '3x': { max: 3, name: '押し出し', need: 3 }, '4': { max: 4, name: '板', need: 4 }, '6': { max: 6, name: '輪郭', need: 6 } };
+  const ORDER = ['3', '8', '3x', '4', '6'];
+  const LIMIT = { vertices: 1024, components: 128, total: 1024 };
+  const st = { topic: '8', max: 8, vary: 12 };
+  function redraw() {
+    $('bg-max-out').textContent = String(st.max);
+    $('bg-var-out').textContent = st.vary + ' 成分';
+    const per = st.vary + 4, total = st.max * per;
+    const ok = st.max <= LIMIT.vertices && per <= LIMIT.components && total <= LIMIT.total;
+    const best = Math.min(LIMIT.vertices, Math.floor(LIMIT.total / per));
+    const t = TOPICS[st.topic];
+    $('bg-stats').innerHTML = stat('1頂点の成分', `${per}`, `<small> (Varying ${st.vary} + gl_Position 4)</small>`) + stat('総成分', `${st.max} x ${per} = ${total}`, `<small> / 上限 ${LIMIT.total}</small>`) + stat('リンク', ok ? 'できる' : '失敗する') + stat('この成分数で書ける最大の max_vertices', String(best));
+    $('bg-table').innerHTML = '<table><thead><tr><th>題材</th><th>1回に出す頂点</th><th>reference の max_vertices</th><th>総成分(今の成分数)</th><th>上限に対する割合</th></tr></thead><tbody>' +
+      ORDER.map((k) => TOPICS[k]).map((x) => `<tr${x === t ? ' style="background:var(--accent-soft)"' : ''}><td>${x.name}</td><td>${x.name === '輪郭' ? '0〜6' : x.need}</td><td>${x.max}</td><td>${x.max * per}</td><td>${(x.max * per * 100 / LIMIT.total).toFixed(1)}%</td></tr>`).join('') + '</tbody></table>';
+    const short = st.max < t.need;
+    $('bg-note').textContent = (ok ? '' : `総成分が ${total} で上限 ${LIMIT.total} を超えるので、GL はこのシェーダのリンクを失敗させる。`) +
+      (short ? ` 「${t.name}」は 1回に ${t.need} 頂点出すので、${st.max} では足りない。計画書の記述では、超えたぶんはエラーも警告も無く捨てられ、絵が「なんとなく足りない」だけになる(この実験台は絵にしていない)。` : '') +
+      (ok && !short ? ` 今日の成分数(Varying 12)なら、max_vertices は ${Math.floor(LIMIT.total / 16)} まで書ける。大きく書くほど、1頂点に持てる情報が減る。` : '');
+  }
+  seg('bg-topic', (v) => { st.topic = v; st.max = TOPICS[v].max; $('bg-max').value = String(st.max); redraw(); });
+  $('bg-max').addEventListener('input', (e) => { st.max = Number(e.target.value); redraw(); });
+  $('bg-var').addEventListener('input', (e) => { st.vary = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  深度バイアス
+// ============================================================
+{
+  const N = 0.1, Fa = 100;
+  const k0 = (Fa - N) / (2 * Fa * N);                 // 1/d の ndc 上の係数
+  const st = { bias: 0.0012, dist: 9, noW: false };
+  // 面までの距離 d にある点を、ndc.z で shift だけ手前へ引いたときの、メートルでの移動量
+  const pulled = (d, shift) => d - 1 / (1 / d + shift * k0);
+  const shiftOf = (d) => (st.noW ? st.bias / d : st.bias);    // ndc.z をどれだけ下げるか
+  function redraw() {
+    $('db-bias-out').textContent = st.bias.toFixed(4);
+    $('db-dist-out').textContent = st.dist.toFixed(1) + ' m';
+    const d = st.dist, p = pulled(d, shiftOf(d));
+    const stepM = d - 1 / (1 / d + (2 / 16777216) * k0);   // 24 ビットの深度1段(ndc で 2 / 2^24)ぶんの距離
+    const steps = (shiftOf(d) / 2) * 16777216;
+    $('db-stats').innerHTML = stat('手前へ引く距離', (p < 1 ? (p * 1000).toFixed(1) + ' mm' : p.toFixed(3) + ' m')) + stat('深度の1段(24 ビット)', (stepM * 1000).toPrecision(2) + ' mm') + stat('何段ぶん手前か', comma(steps) + ' 段');
+    $('db-note').textContent = st.noW ? 'w を掛けないと、ndc.z を下げる量が 1/距離 になる。近くでは大きく引きすぎて線が面の前に飛び出し、遠くでは引く段数が減って埋もれる。' : 'w を掛けると、ndc.z を距離によらず bias だけ(深度では bias / 2)下げる。深度の刻みは距離の2乗で粗くなるので、メートルで見た引く距離も距離の2乗で伸びるが、段数は距離によらず一定になる。';
+    const { ctx, w, h } = fit($('db-canvas'));
+    const L = 56, R = w - 16, T = 14, B = h - 30;
+    const maxD = 40, maxY = Math.max(1, ...[1, 10, 20, 30, 40].map((x) => pulled(x, (st.noW ? st.bias / x : st.bias)))) * 1.1;
+    const X = (x) => L + (x / maxD) * (R - L), Y = (y) => B - (y / maxY) * (B - T);
+    ctx.font = '11px ' + Lab.tok('--font-mono'); ctx.fillStyle = Lab.tok('--muted'); ctx.textAlign = 'center';
+    for (let x = 0; x <= maxD; x += 10) { ctx.strokeStyle = Lab.tok('--grid'); ctx.beginPath(); ctx.moveTo(X(x), T); ctx.lineTo(X(x), B); ctx.stroke(); ctx.fillText(x + ' m', X(x), h - 10); }
+    ctx.textAlign = 'right';
+    const stepY = maxY > 8 ? 5 : maxY > 3 ? 2 : 1;
+    for (let y = 0; y <= maxY; y += stepY) { ctx.strokeStyle = Lab.tok('--grid'); ctx.beginPath(); ctx.moveTo(L, Y(y)); ctx.lineTo(R, Y(y)); ctx.stroke(); ctx.fillText(y + ' m', L - 6, Y(y) + 4); }
+    ctx.strokeStyle = Lab.tok('--accent'); ctx.lineWidth = 2; ctx.beginPath();
+    for (let x = 0.5; x <= maxD; x += 0.5) { const y = pulled(x, shiftOf(x)); x === 0.5 ? ctx.moveTo(X(x), Y(y)) : ctx.lineTo(X(x), Y(y)); }
+    ctx.stroke();
+    ctx.fillStyle = Lab.tok('--ink'); ctx.beginPath(); ctx.arc(X(d), Y(p), 5, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = 'left'; ctx.fillText('手前へ引く距離', L + 6, T + 12);
+  }
+  REDRAW.push(redraw);
+  $('db-bias').addEventListener('input', (e) => { st.bias = Number(e.target.value); redraw(); });
+  $('db-dist').addEventListener('input', (e) => { st.dist = Number(e.target.value); redraw(); });
+  $('db-now').addEventListener('change', (e) => { st.noW = e.target.checked; redraw(); });
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
