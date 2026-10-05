@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 63b テッセレーション(4隅だけ送って、GPU に割らせる)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. パッチは三角形ではない</a></li><li class="l3"><a href="#s6">2. 制御シェーダが書くのは6つの数だけ</a></li><li class="l3"><a href="#s7">3. 評価シェーダは「升目の (u,v) を、形の上の点に翻訳する」</a></li><li class="l3"><a href="#s8">4. 割り方は3つ。<strong>uniform にできない</strong></a></li><li class="l3"><a href="#s9">5. 亀裂 — パッチは隣を知らない</a></li><li class="l3"><a href="#s10">6. 距離 LOD — 「画面での三角形の大きさ」を揃える</a></li><li class="l3"><a href="#s11">7. 値段は「三角形の数」ではなく「パッチの数」で決まる</a></li><li class="l3"><a href="#s12">8. <code>Varying</code> ブロックは段が増えても効く</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">四角形1枚が三角形 8,192 枚になるまで — 段2つと回路1つ</a></li><li class="l3"><a href="#s19">亀裂が出るまで / 出ないまで — 「共有しているものから決める」</a></li><li class="l3"><a href="#s20">値段はパッチの数で決まる</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>F2</code>: テッセレーション</a></li><li class="l3"><a href="#s24">2. <code>F9</code>: 線で描く</a></li><li class="l3"><a href="#s25">3. <code>F5</code>: 距離で決める</a></li><li class="l3"><a href="#s26">4. <code>F7</code>: 辺を隣と揃えるのをやめる(<strong>今日の見どころ</strong>)</a></li><li class="l3"><a href="#s27">5. <code>F3</code>: 球</a></li><li class="l3"><a href="#s28">6. <code>F12</code>: 内訳</a></li><li class="l3"><a href="#s29">7. <code>F11</code>: 値段</a></li><li class="l3"><a href="#s30">8. <code>1</code>: 自己チェック(12 項目)</a></li><li class="l3"><a href="#s31">9. メニューの自己チェック</a></li><li class="l2"><a href="#s32">改造課題</a></li><li class="l3"><a href="#s33">課題1(易): 変位を 0 にして、割る意味を確かめる</a></li><li class="l3"><a href="#s34">課題2(中): 三角パッチにする</a></li><li class="l3"><a href="#s35">課題3(難): パッチを型として分ける</a></li><li class="l2"><a href="#s36">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 63b / 計画書</p>
+  <h1>テッセレーション(4隅だけ送って、GPU に割らせる)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. パッチは三角形ではない</a></li><li class="l3"><a href="#s6">2. 制御シェーダが書くのは6つの数だけ</a></li><li class="l3"><a href="#s7">3. 評価シェーダは「升目の (u,v) を、形の上の点に翻訳する」</a></li><li class="l3"><a href="#s8">4. 割り方は3つ。<strong>uniform にできない</strong></a></li><li class="l3"><a href="#s9">5. 亀裂 — パッチは隣を知らない</a></li><li class="l3"><a href="#s10">6. 距離 LOD — 「画面での三角形の大きさ」を揃える</a></li><li class="l3"><a href="#s11">7. 値段は「三角形の数」ではなく「パッチの数」で決まる</a></li><li class="l3"><a href="#s12">8. <code>Varying</code> ブロックは段が増えても効く</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">四角形1枚が三角形 8,192 枚になるまで — 段2つと回路1つ</a></li><li class="l3"><a href="#s19">亀裂が出るまで / 出ないまで — 「共有しているものから決める」</a></li><li class="l3"><a href="#s20">値段はパッチの数で決まる</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>F2</code>: テッセレーション</a></li><li class="l3"><a href="#s24">2. <code>F9</code>: 線で描く</a></li><li class="l3"><a href="#s25">3. <code>F5</code>: 距離で決める</a></li><li class="l3"><a href="#s26">4. <code>F7</code>: 辺を隣と揃えるのをやめる(<strong>今日の見どころ</strong>)</a></li><li class="l3"><a href="#s27">5. <code>F3</code>: 球</a></li><li class="l3"><a href="#s28">6. <code>F12</code>: 内訳</a></li><li class="l3"><a href="#s29">7. <code>F11</code>: 値段</a></li><li class="l3"><a href="#s30">8. <code>1</code>: 自己チェック(12 項目)</a></li><li class="l3"><a href="#s31">9. メニューの自己チェック</a></li><li class="l2"><a href="#s32">改造課題</a></li><li class="l3"><a href="#s33">課題1(易): 変位を 0 にして、割る意味を確かめる</a></li><li class="l3"><a href="#s34">課題2(中): 三角パッチにする</a></li><li class="l3"><a href="#s35">課題3(難): パッチを型として分ける</a></li><li class="l2"><a href="#s36">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の4日目</strong>。Day 63a の続きで、同じく <code>Sandbox/</code> に置き、<code>Render/</code> は2か所だけ触る。</p>
+<p>今日やることは1つ。<strong>頂点シェーダの後ろに段を2つ挟んで、四角形1枚を GPU の中で何千枚にも割る</strong>。CPU から送るのは<strong>パッチの4隅だけ</strong>で、割った点がどこへ行くかは評価シェーダの式が決める。</p>
+<div class="code"><pre><code>  頂点   →  制御(tesc)  →  [テッセレータ]  →  評価(tese)  →  [ジオメトリ]  →  画素
+  4回       4回              <strong>固定機能</strong>        4,225回         今日は無し</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ジオメトリシェーダ(Day 63a)</th><th>テッセレーション(Day 63b)</th></tr></thead>
+<tbody>
+<tr><td>増やすのは誰か</td><td><strong>自分</strong>(<code>EmitVertex</code> を呼ぶ)</td><td><strong>固定機能の回路</strong>(6つの数を渡すだけ)</td></tr>
+<tr><td>出せる量の上限</td><td>1回に 1024 頂点(総成分 1024)</td><td><strong>1パッチから三角形 8,192 枚</strong>(レベル 64)</td></tr>
+<tr><td>何を決めるか</td><td>出す図形そのもの</td><td><strong>どれだけ細かく割るか</strong>と、<strong>割った点の居場所</strong></td></tr>
+<tr><td>隣のパッチ</td><td>隣接付きで渡せば見える</td><td><strong>見えない</strong>。だから「隣と同じ答えになる決め方」が要る(要点5)</td></tr>
+<tr><td>値段</td><td>素通しでも 4.89 倍</td><td>レベル 1 なら三角形1万枚あたり 573us、レベル 64 なら <strong>6.8us</strong></td></tr>
+<tr><td>今の立ち位置</td><td>メッシュシェーダに置き換わりつつある</td><td><strong>地形・水面・曲面で現役</strong>(西川本 Ch6)</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は <code>Sandbox/</code> に新規2本、シェーダ3本、<code>Render/</code> に2か所、そして <code>Program.cs</code>。<strong>画素シェーダは Day 63a の <code>gs-surface.frag</code> をそのまま使う</strong>——<code>Varying</code> ブロックを揃えてあるので、間に何段挟まっていても同じ1本で受けられる(Day 63a の要点1がここで効く)。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、割れば割るほど1枚あたりが安くなったこと</strong></p>
+<p>パッチ 64 枚を 32 回描いて、三角形1万枚あたりの GPU の時間を測った。レベル 1(三角形 128 枚)で <strong>573us</strong>、レベル 64(524,288 枚)で <strong>6.8us</strong>。<strong>84 倍の開き</strong>がある。三角形の数はレベルの2乗で増えるのに、時間はそこまで増えない——パッチあたりの固定費(制御シェーダ4回・テッセレータのセットアップ)が薄まるから。<strong>「細かく割るのは高い」より「パッチを細かく分けるのが高い」</strong>ほうが実態に近い。同じ三角形の数なら、<strong>パッチを減らしてレベルを上げる</strong>ほうが安い、ということでもある。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「テッセレーション」ページで <code>F2</code> を押すと、8x8 のパッチでできた波打つ地形が出る。CPU が送った頂点は 256 個(24KB)だけで、GPU が作った三角形は 8,192 枚。<code>F9</code> で線にすると、四角形1枚が細かい格子に割られているのが見える。<code>F5</code> で距離に応じて割り方を変えると、手前が細かく奥が粗くなる。<code>F7</code> で辺を隣と揃えるのをやめると、パッチの継ぎ目に</strong>亀裂<strong>が走る。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「テッセレーション」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>テッセレーション ON / OFF。<strong>今日の到達点</strong>。他のデモは全部下ろす</td></tr>
+<tr><td><code>F3</code></td><td>題材(平らな格子に高さを付ける / 球(立方体を膨らませる))</td></tr>
+<tr><td><code>F4</code></td><td>レベル(1 → 2 → 4 → 8 → 16 → 32 → 64)。<strong>2倍にすると三角形は4倍</strong></td></tr>
+<tr><td><code>F5</code></td><td>距離で決める。近いパッチほど細かく。<strong>2 の冪へ落とす</strong>ので隣と2倍違いうる</td></tr>
+<tr><td><code>F6</code></td><td>割り方(equal / fractional_odd / fractional_even)。<strong>uniform にできないので3本焼いてある</strong></td></tr>
+<tr><td><code>F7</code></td><td>辺を隣と揃える(既定 ON)。<strong>切ると亀裂が出る</strong></td></tr>
+<tr><td><code>F8</code></td><td>変位の強さ。<strong>0 にすると平らなまま</strong>(割っても絵が1画素も変わらない)</td></tr>
+<tr><td><code>F9</code></td><td>線で描く。<strong>今日はこれが主な見方</strong></td></tr>
+<tr><td><code>F10</code></td><td>パッチごとの色(<code>gl_PrimitiveID</code>)。どこまでが1パッチかが見える</td></tr>
+<tr><td><code>F11</code></td><td>値段(レベルごとの三角形の数と GPU の時間・距離 LOD で何%に減るか)</td></tr>
+<tr><td><code>F12</code></td><td>内訳(送った頂点と出た三角形の比・辺の合意・GL の上限)</td></tr>
+<tr><td><code>1</code></td><td>今日の自己チェック(12 項目)</td></tr>
+</tbody>
+</table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「テッセレーション」(28 枚目)が直接開く。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「割るのは自分ではない」</strong>。この段が書くのは <strong><code>gl_TessLevelOuter[4]</code> と <code>gl_TessLevelInner[2]</code> の6つの数</strong>だけ。実際に点と三角形を作るのは、プログラムできない回路(テッセレータ)。Day 63a のジオメトリシェーダが「出力を溜める場所」の制約を抱えていたのは自分で出すからで、回路に任せればその制約が消える——<strong>レベル 64 なら1パッチから 8,192 枚</strong>(GS の上限は 1024 頂点)。</p>
+<p><strong>2つ目は「隣が見えない」</strong>。パッチは互いを知らないので、共有する辺のレベルが食い違うと<strong>そこに隙間が開く</strong>(亀裂)。直し方は<strong>「共有しているものから決める」</strong>の一言——辺の中点は両側で同じ点なので、そこから決めれば必ず同じ値になる(要点5)。</p>
+<p><strong>3つ目は「割っただけでは何も変わらない」</strong>。レベルを 64 にしても、評価シェーダが4隅を双一次補間するだけなら<strong>絵は1画素も変わらない</strong>(平らな四角形が細かい平らな四角形になるだけ)。細かくする意味は、<strong>変位</strong>(高さを付ける)や<strong>曲面へ写す</strong>(球にする)といった「割った点を動かす」式があって初めて出る(<code>F8</code> で変位を 0 にすると手触りが分かる)。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論</a>— B-15 の続きとしてのテッセレーション。<strong>パッチ・制御点・レベル</strong>の言葉遣いをここで揃える</li><li><strong>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch6</strong>— 「DirectX 11 のテッセレーション」。<strong>何のために入り、どこで現役なのか</strong>(地形・水面・キャラクタの曲面化)。今日の題材2つはここから取っている</li><li><a href="https://www.khronos.org/opengl/wiki/Tessellation">OpenGL Wiki: Tessellation</a>— 要点2・3・4の一次資料。<strong><code>quads</code> / <code>triangles</code> / <code>isolines</code> それぞれの <code>gl_TessCoord</code> の意味</strong>と、outer / inner レベルがどの辺に対応するかの図。<strong>ここを読み違えると特定の向きの辺にだけ亀裂が出る</strong></li><li><a href="https://www.khronos.org/opengl/wiki/Tessellation_Control_Shader">OpenGL Wiki: Tessellation Control Shader</a> と<a href="https://www.khronos.org/opengl/wiki/Tessellation_Evaluation_Shader">Tessellation Evaluation Shader</a>— <code>gl_InvocationID</code> / <code>barrier()</code> / <code>gl_TessCoord</code> / <code>gl_PatchVerticesIn</code> の扱い</li><li><a href="https://learnopengl.com/Guest-Articles/2021/Tessellation/Height-map">LearnOpenGL: Tessellation(CPU tessellation / GPU tessellation)</a>— 高さマップから地形を作る実例。今日の「変位」と同じ筋道</li><li><strong>Day 63a の計画書 要点1</strong>(インターフェースブロック) — 今日の <code>Varying</code> ブロックがそのまま効いている。<strong>Day 63a の要点6・7</strong>(段の値段と、測るときに画素の仕事を揃える話)も今日そのまま使う</li><li><strong>Day 33 の計画書 要点2</strong>(シャドウマップの解像度と、見えているものに合わせる話) —距離 LOD の考え方は「見えている大きさに合わせて解像度を配る」で、あれと同じ</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. パッチは三角形ではない</h3>
+<p><code>GL_PATCHES</code> で描くと、GL は<strong>インデックスを n 個ずつ束ねて1つのパッチ</strong>にする。n は <code>glPatchParameteri(GL_PATCH_VERTICES, n)</code> で決める GL 側の状態で、<strong>シェーダの layout ではない</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.PatchParameter(GLEnum.PatchVertices, 4);   // 4つで1パッチ
+mesh.Draw(PrimitiveType.Patches);</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>三角形(Day 14〜)</th><th>パッチ(Day 63b)</th></tr></thead>
+<tbody>
+<tr><td>インデックスの束ね方</td><td>3つ</td><td><strong>n 個</strong>(今日は4。上限は 32 以上)</td></tr>
+<tr><td>頂点の意味</td><td><strong>形の点</strong>。そのまま画面に出る</td><td><strong>形を決める数</strong>。そのままでは画面に出ない</td></tr>
+<tr><td>頂点シェーダ</td><td>出した <code>gl_Position</code> がラスタライザへ</td><td>出した値は<strong>制御シェーダが読むだけ</strong></td></tr>
+<tr><td>描いたあと</td><td>ラスタライズ</td><td><strong>制御 → テッセレータ → 評価</strong>を通ってからラスタライズ</td></tr>
+</tbody>
+</table></div>
+<p><code>glPatchParameteri</code> の数と、制御シェーダの <code>layout (vertices = 4) out;</code> は<strong>別のもの</strong>。前者は<strong>入れる</strong>制御点の数、後者は<strong>出す</strong>制御点の数で、食い違うと <code>GL_INVALID_OPERATION</code> になるが——<strong>絵が出ないだけで理由は言ってくれない</strong>。</p>
+<h3 id="s6">2. 制御シェーダが書くのは6つの数だけ</h3>
+<div class="code"><span class="lang">glsl</span><pre><code>gl_TessLevelOuter[0..3]   // 4つの辺を、それぞれ何等分するか
+gl_TessLevelInner[0..1]   // 内側を、横と縦に何等分するか</code></pre></div>
+<p>外側の4つが<strong>どの辺に対応するか</strong>は GL が決めている。四角パッチなら:</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>対応する辺</th></tr></thead>
+<tbody>
+<tr><td><code>Outer[0]</code></td><td><strong>u = 0</strong> の辺</td></tr>
+<tr><td><code>Outer[1]</code></td><td><strong>v = 0</strong> の辺</td></tr>
+<tr><td><code>Outer[2]</code></td><td><strong>u = 1</strong> の辺</td></tr>
+<tr><td><code>Outer[3]</code></td><td><strong>v = 1</strong> の辺</td></tr>
+</tbody>
+</table></div>
+<p><strong>ここを1つでも取り違えると、特定の向きの辺にだけ亀裂が出る</strong>——「なぜか縦の継ぎ目だけ割れる」という、原因の見当が付きにくい壊れ方をする。</p>
+<p>内側は外側からはみ出さない値にしておく。辺に置く点の数は外側で決まっているので、内側だけ細かくしても「中だけ細かい歪んだ割り方」になるだけ。</p>
+<p><strong>この段はパッチの制御点1つにつき1回走る</strong>(四角パッチなら4回)。レベルを決めるのは1回でよいので、<code>gl_InvocationID == 0</code> の回だけが書く。4回走るのは「制御点を作り変える」使い方(ベジエの制御点を計算する等)のためで、今日は使わない。</p>
+<h3 id="s7">3. 評価シェーダは「升目の (u,v) を、形の上の点に翻訳する」</h3>
+<p>テッセレータが 0〜1 の升目の上に点を作り、その点1つにつき1回、評価シェーダが呼ばれる。受け取るのは <strong><code>gl_TessCoord</code></strong>(四角パッチなら (u, v)、三角パッチなら重心座標)で、<strong>制御点は <code>gl_in[]</code> で全部見える</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 base = mix(mix(p00, p10, u), mix(p01, p11, u), v);   // 双一次補間
+world = base + up * height(base.xz) * uDisplacement;      // ここが変位</code></pre></div>
+<p><strong>レベル 64 の四角パッチなら 65 x 65 = 4,225 回</strong>走る。CPU が送った頂点は4つだけ。投影(<code>uViewProjection</code>)を掛けるのはこの段——割る前の制御点は画面に出ないので、クリップ空間へ写すのはいちばん後ろで1回でよい。</p>
+<p><strong>割っただけでは絵が変わらない</strong>。双一次補間しかしないなら、平らな四角形が細かい平らな四角形になるだけで1画素も変わらない。細かくする意味は<strong>割った点を動かす式</strong>(変位・球面への写像)があって初めて出る。</p>
+<h3 id="s8">4. 割り方は3つ。<strong>uniform にできない</strong></h3>
+<div class="code"><span class="lang">glsl</span><pre><code>layout (quads, fractional_odd_spacing, ccw) in;</code></pre></div>
+<p>割り方は <strong>layout 修飾子</strong>なので、コンパイル時に決まる。3通りを見比べるには<strong>同じソースを3回コンパイルする</strong>しかない——Day 57 でコンピュートのワークグループの大きさに使った <code>#define</code> の差し込みが、そのまま効く。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>割り方</th><th>丸め方</th><th>レベル 4.3 →</th><th>特徴</th></tr></thead>
+<tbody>
+<tr><td><code>equal_spacing</code></td><td>整数へ切り上げ</td><td>5</td><td><strong>1 刻みでしか変われない</strong>。変わる瞬間に面全体の頂点が一斉に動く(ポッピング)</td></tr>
+<tr><td><code>fractional_odd_spacing</code></td><td>奇数へ切り上げ</td><td>5</td><td>端の2本だけを伸び縮みさせる。<strong>1 から連続に変えられる</strong>。LOD の定石</td></tr>
+<tr><td><code>fractional_even_spacing</code></td><td>偶数へ切り上げ</td><td>6</td><td>同じく連続。<strong>レベル 1 が作れない</strong>(最低 2)</td></tr>
+</tbody>
+</table></div>
+<p><code>fractional_odd</code> は<strong>レベル 4 でも 5 等分</strong>になる(奇数へ切り上げるので)。自己チェックの10項目めがこれを GPU に数えさせている(レベル 4 も 5 も 3,200 枚で同じ)。</p>
+<div class="inject"><figure class="lab" id="ts-lab">
+  <div class="lab-head">
+    <h3>パッチ1枚を割る — 6つの数と、割り方(要点2・3・4)</h3>
+    <span class="tag">GL のテッセレータ(四角パッチ)の点の置き方を JS に移したもの。点の位置は仕様どおり(equal は一様、fractional は端の2本が伸び縮みして間の本数は 1/レベル の長さ)。三角形のつなぎ方は GPU ごとに違うので、外周の帯と内側の升目に分けた一例。三角形の数は reference の実測(2n^2)と合う。小数のレベルは reference では作れず(F4 は 1・2・4…の2倍刻み)、このページだけ動かせる</span>
+  </div>
+  <div class="stage"><canvas id="ts-canvas" style="height:420px" aria-label="四角パッチ1枚を割った点と三角形"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">割り方(F6)</span>
+      <div class="seg" id="ts-spacing"><button data-v="equal" aria-pressed="true">equal</button><button data-v="odd" aria-pressed="false">fractional_odd</button><button data-v="even" aria-pressed="false">fractional_even</button></div>
+    </div>
+    <div class="ctl"><span class="label">6つの数の決め方</span>
+      <div class="seg" id="ts-mode"><button data-v="uniform" aria-pressed="true">全部同じレベル</button><button data-v="edges" aria-pressed="false">外側を辺ごとに</button></div>
+    </div>
+    <div class="ctl" id="ts-all-ctl"><span class="label">レベル</span>
+      <div class="range"><input type="range" id="ts-level" min="1" max="16" step="0.1" value="4.3"><output id="ts-level-out"></output></div>
+    </div>
+    <div class="ctl ts-edge"><span class="label">Outer[0](u = 0 の辺。左)</span>
+      <div class="range"><input type="range" id="ts-o0" min="1" max="16" step="0.1" value="8"><output id="ts-o0-out"></output></div>
+    </div>
+    <div class="ctl ts-edge"><span class="label">Outer[1](v = 0 の辺。下)</span>
+      <div class="range"><input type="range" id="ts-o1" min="1" max="16" step="0.1" value="4"><output id="ts-o1-out"></output></div>
+    </div>
+    <div class="ctl ts-edge"><span class="label">Outer[2](u = 1 の辺。右)</span>
+      <div class="range"><input type="range" id="ts-o2" min="1" max="16" step="0.1" value="2"><output id="ts-o2-out"></output></div>
+    </div>
+    <div class="ctl ts-edge"><span class="label">Outer[3](v = 1 の辺。上)</span>
+      <div class="range"><input type="range" id="ts-o3" min="1" max="16" step="0.1" value="16"><output id="ts-o3-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ts-stats"></div><p id="ts-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">5. 亀裂 — パッチは隣を知らない</h3>
+<p>隣り合う2枚のパッチは辺を共有している。その辺に置く点の数が両側で違うと、<strong>辺の上の点が一致せず、隙間が開く</strong>。これがテッセレーションでいちばん有名な落とし穴。</p>
+<p>直し方は<strong>「共有しているものから決める」</strong>の一言に尽きる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>決め方</th><th>隣と一致するか</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td><strong>辺の中点から</strong></td><td><strong>必ずする</strong></td><td>中点は両側で<strong>同じ点</strong>。同じ入力に同じ式なら同じ答え</td></tr>
+<tr><td>パッチの中心から</td><td>しない</td><td>中心は両側で<strong>違う点</strong>。距離が違えばレベルも違う</td></tr>
+</tbody>
+</table></div>
+<p>今日は距離レベルを<strong>2 の冪へ落として</strong>いる(1, 2, 4, 8, 16, 32, 64)。実務でよくやる形で、段を粗く刻むと<strong>カメラが少し動いただけでレベルが揺れない</strong>。代わりに<strong>隣り合うパッチのレベルが 2 倍違いうる</strong>ので、揃えなかったときの亀裂がはっきり出る。</p>
+<p><strong>「亀裂が出ないこと」は絵では言えない</strong>——カメラを動かせばいつか出るかもしれない、を否定できない。だから C# の鏡で、<strong>すべての内部の辺(112 本)を4通りのカメラで調べて食い違い 0</strong> を数で言う(自己チェック5・6)。</p>
+<p>隙間の大きさは、辺の等分の数の食い違いで決まる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>等分の組</th><th>辺の上の点のずれ(辺の長さに対して)</th></tr></thead>
+<tbody>
+<tr><td>4 と 5</td><td><strong>10.0%</strong></td></tr>
+<tr><td>8 と 16</td><td><strong>0.0%</strong>(割り切れるので、片方の点が全部もう片方に含まれる)</td></tr>
+</tbody>
+</table></div>
+<p>直線の辺なら点がずれても同じ線の上に乗るので隙間は開かない。<strong>開くのは変位したあと</strong>——辺の上の違う場所の高さを取るので、片方が山の上、片方が谷の途中になる。</p>
+<div class="inject"><figure class="lab" id="cr-lab">
+  <div class="lab-head">
+    <h3>亀裂 — 辺のレベルを中点から決めるか、中心から決めるか(要点5)</h3>
+    <span class="tag">tess.tesc(levelAt・辺のレベルと内側の決め方)と tess.tese(双一次補間 → 変位 or 球面)を JS に移して、割った三角形を、奥行きの比較(z バッファ)つきで1画素ずつ塗ったもの(GPU ではなく、このページの JS。画素の中心が三角形に入るかで塗るので、隣り合う三角形のあいだには隙間が出ない)。カメラは reference の起動時と同じ(平らな格子は目の高さ約 1.8m、球は距離 7)、レベルを決める距離の基準は 8m。隙間が見えるよう背景を桃色にしてある。陰影は三角形ごとの面法線。「内部の辺」の数は reference の CheckEdgeAgreement と同じ式で、辺の端の頂点の番号で数える(球は6面のあいだの辺を数えない)</span>
+  </div>
+  <div class="stage"><canvas id="cr-canvas" style="height:440px" aria-label="割ったパッチの絵。辺のレベルが隣と食い違うと、継ぎ目に隙間が開く"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">題材(F3)</span>
+      <div class="seg" id="cr-topic"><button data-v="terrain" aria-pressed="true">平らな格子に高さを付ける</button><button data-v="sphere" aria-pressed="false">球(立方体を膨らませる)</button></div>
+    </div>
+    <div class="ctl"><span class="label">辺のレベルを決める元(F7)</span>
+      <div class="seg" id="cr-match"><button data-v="1" aria-pressed="false">辺の中点(揃える)</button><button data-v="0" aria-pressed="true">パッチの中心(揃えない)</button></div>
+    </div>
+    <div class="ctl"><span class="label">距離で決める(F5)</span>
+      <div class="seg" id="cr-lod"><button data-v="1" aria-pressed="true">決める</button><button data-v="0" aria-pressed="false">全部同じレベル</button></div>
+    </div>
+    <div class="ctl"><span class="label">レベル(F4)。距離で決めるときは 8m でのレベル</span>
+      <div class="seg" id="cr-level"><button data-v="4" aria-pressed="true">4</button><button data-v="8" aria-pressed="false">8</button><button data-v="16" aria-pressed="false">16</button></div>
+    </div>
+    <div class="ctl"><span class="label">変位の強さ(F8)</span>
+      <div class="range"><input type="range" id="cr-disp" min="0" max="1.2" step="0.3" value="1.2"><output id="cr-disp-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの向き(Yaw)</span>
+      <div class="range"><input type="range" id="cr-yaw" min="-1.5" max="1.5" step="0.05" value="0.35"><output id="cr-yaw-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">拡大(このページだけ。画角を狭めて隙間を大きく見る)</span>
+      <div class="seg" id="cr-zoom"><button data-v="1" aria-pressed="false">x 1</button><button data-v="3" aria-pressed="true">x 3</button><button data-v="6" aria-pressed="false">x 6</button></div>
+    </div>
+    <div class="ctl"><span class="label">時刻(秒)。波の形が決まる</span>
+      <div class="range"><input type="range" id="cr-time" min="0" max="20" step="0.5" value="0"><output id="cr-time-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="cr-wire"> 線で描く(F9)</label>
+    <label class="check"><input type="checkbox" id="cr-patch"> パッチごとの色(F10)</label>
+  </div>
+  <div class="readout"><div class="stats" id="cr-stats"></div><p id="cr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">6. 距離 LOD — 「画面での三角形の大きさ」を揃える</h3>
+<div class="code"><span class="lang">glsl</span><pre><code>level = clamp(uLevel * uLodDistance / distance, 1.0, 64.0);</code></pre></div>
+<p>距離に反比例させるのは、画面に写る大きさが距離に反比例するから。「割ったあとの三角形が、画面でだいたい同じ大きさになる」ようにしたい。</p>
+<p>値打ちは<strong>何と比べるか</strong>で決まる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>三角形</th><th>備考</th></tr></thead>
+<tbody>
+<tr><td>全体をレベル 32 で固定</td><td>131,072 枚</td><td><strong>いちばん細かいパッチに合わせた場合</strong></td></tr>
+<tr><td>距離で決める</td><td><strong>48,176 枚(36.8%)</strong></td><td>遠いパッチが粗くなるぶん</td></tr>
+</tbody>
+</table></div>
+<p>基準のレベル(8m でレベル 16)とそのまま比べると、<strong>距離で決めたほうが多くなる</strong>——近いパッチはそれより細かくなるので当然。「同じ細かさを全体に配るより、距離で配るほうが少なくて済む」が正しい言い方になる。</p>
+<div class="inject"><figure class="lab" id="lm-lab">
+  <div class="lab-head">
+    <h3>距離 LOD の地図 — どのパッチが何等分されるか(要点6)</h3>
+    <span class="tag">平らな格子(8 x 8 パッチ、1辺 6m)を真上から見た図。式は tess.tesc の levelAt(レベル x 基準の距離 8m / 距離、2 の冪へ落とす)と同じ。三角形の数は、reference が RTX 3070 で数えた値(基準レベル 16 で 48,176 枚)と同じ数になる。色と数字は、パッチの4辺のレベルのうち大きいもの</span>
+  </div>
+  <div class="stage"><canvas id="lm-canvas" style="height:400px" aria-label="パッチを真上から見て、辺のレベルで色分けした地図とカメラの位置"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">レベル(F4)。8m でのレベル</span>
+      <div class="seg" id="lm-level"><button data-v="4" aria-pressed="false">4</button><button data-v="8" aria-pressed="false">8</button><button data-v="16" aria-pressed="true">16</button><button data-v="32" aria-pressed="false">32</button></div>
+    </div>
+    <div class="ctl"><span class="label">割り方(F6)</span>
+      <div class="seg" id="lm-spacing"><button data-v="equal" aria-pressed="true">equal</button><button data-v="odd" aria-pressed="false">fractional_odd</button><button data-v="even" aria-pressed="false">fractional_even</button></div>
+    </div>
+    <div class="ctl"><span class="label">辺のレベルを決める元(F7)</span>
+      <div class="seg" id="lm-match"><button data-v="1" aria-pressed="true">辺の中点</button><button data-v="0" aria-pressed="false">パッチの中心</button></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの向き(Yaw)</span>
+      <div class="range"><input type="range" id="lm-yaw" min="-3.14" max="3.14" step="0.02" value="0.35"><output id="lm-yaw-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの高さ(Pitch)</span>
+      <div class="range"><input type="range" id="lm-pitch" min="0.05" max="1.4" step="0.01" value="0.28"><output id="lm-pitch-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラの距離(m)</span>
+      <div class="range"><input type="range" id="lm-dist" min="2" max="16" step="0.1" value="5.5"><output id="lm-dist-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="lm-stats"></div><p id="lm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">7. 値段は「三角形の数」ではなく「パッチの数」で決まる</h3>
+<p>パッチ 64 枚を 32 回描いた測定。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>レベル</th><th>三角形</th><th>GPU</th><th>三角形1万枚あたり</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>128</td><td>7.3us</td><td><strong>573us</strong></td></tr>
+<tr><td>4</td><td>2,048</td><td>12.7us</td><td>61.9us</td></tr>
+<tr><td>8</td><td>8,192</td><td>22.6us</td><td>27.5us</td></tr>
+<tr><td>16</td><td>32,768</td><td>54.8us</td><td>16.7us</td></tr>
+<tr><td>32</td><td>131,072</td><td>129.4us</td><td>9.9us</td></tr>
+<tr><td>64</td><td>524,288</td><td>355.5us</td><td><strong>6.8us</strong></td></tr>
+</tbody>
+</table></div>
+<p>三角形の数はレベルの<strong>2乗</strong>で増えるのに、時間は<strong>2乗まで増えない</strong>。パッチあたりの固定費(制御シェーダ4回・テッセレータのセットアップ)が薄まるから。</p>
+<p><strong>同じ三角形の数なら、パッチを減らしてレベルを上げるほうが安い</strong>、ということでもある。「テッセレーションは細かくすると高い」より、<strong>「パッチを細かく分けると高い」</strong>ほうが実態に近い。</p>
+<p>なお実際のゲームでは、<strong>細かすぎる三角形はラスタライザの側で高くつく</strong> (1画素より小さい三角形は 2x2 の画素の塊で処理されるので、4倍近く無駄になる)。これが Nanite(Day 65)や、そもそもメッシュシェーダ(Day 64)が解こうとしている問題の1つ。</p>
+<div class="inject"><figure class="lab" id="pc-lab">
+  <div class="lab-head">
+    <h3>値段 — 三角形の数と GPU の時間(要点7)</h3>
+    <span class="tag">パッチ 64 枚を 32 回描いた GPU の時間は、RTX 3070(driver 596.49)で reference の F11 が測った値。三角形の数は 2 x レベル^2 x パッチ数 で、このページで計算している。GPU の時間はこのページでは測れない(2D のキャンバスでは GPU の固定費は再現できない)ので、表の値を並べて見るだけ</span>
+  </div>
+  <div class="stage"><canvas id="pc-canvas" style="height:270px" aria-label="レベル 1 を 1 としたときの、三角形の数と GPU の時間の伸び"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">レベル(F4)</span>
+      <div class="seg" id="pc-level"><button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="false">4</button><button data-v="8" aria-pressed="true">8</button><button data-v="16" aria-pressed="false">16</button><button data-v="32" aria-pressed="false">32</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">パッチの数(題材 F3)</span>
+      <div class="seg" id="pc-patches"><button data-v="64" aria-pressed="true">平らな格子 64</button><button data-v="24" aria-pressed="false">球 24</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="pc-stats"></div><p id="pc-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s12">8. <code>Varying</code> ブロックは段が増えても効く</h3>
+<p>今日の画素シェーダは <strong>Day 63a の <code>gs-surface.frag</code> をそのまま使っている</strong>。ブロック名(<code>Varying</code>)と中身の並びが揃っていれば、間に何段挟まっていても繋がるから。</p>
+<div class="code"><pre><code>  gs.vert   →                                      → gs-surface.frag   (Day 63a・GS 無し)
+  gs.vert   → gs-passthrough.geom                  → gs-surface.frag   (Day 63a)
+  tess.vert → tess.tesc → [回路] → tess.tese       → gs-surface.frag   (Day 63b)</code></pre></div>
+<p>Day 63a の要点1で「画素シェーダが GS の有無を知らずに済む」と書いた仕掛けが、<strong>段が2つ増えてもそのまま効いた</strong>。<code>tess.vert</code> → <code>tess.tesc</code> の間だけブロック名を <code>Control</code> に分けてあるのは、あそこだけ<strong>制御点の受け渡し</strong>という別の役割だから(画素シェーダへは行かない)。</p>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/TessellationMath.cs</code></td><td><strong>今日の C# の鏡</strong>。高さの関数・双一次補間・変位と法線・距離からレベル・割り方の丸め・辺のずれ</td></tr>
+<tr><td><code>Sandbox/TessellationLab.cs</code></td><td><strong>GL の側</strong>。<code>TessellationTopic</code> / <code>TessellationSpacing</code>。シェーダ3本(割り方ごと)・パッチの並び2つ・タイマー・カウンタ。辺の合意を調べる鏡も持つ</td></tr>
+<tr><td><code>shaders/tess.vert</code></td><td>制御点をワールドへ持ち上げるだけ。<strong>投影しない</strong></td></tr>
+<tr><td><code>shaders/tess.tesc</code></td><td><strong>制御シェーダ</strong>。6つのレベルを決める。距離 LOD と、亀裂の出る/出ない決め方</td></tr>
+<tr><td><code>shaders/tess.tese</code></td><td><strong>評価シェーダ</strong>。双一次補間 → 変位 or 球面へ。ここで初めてクリップ空間へ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader.cs</code></td><td><strong>4段(頂点 + 制御 + 評価 + 画素)のコンストラクタ</strong>。<code>#define</code> も受け取る</td><td>+37</td></tr>
+<tr><td><code>Render/RenderResources.cs</code></td><td><code>LoadShader(vert, tesc, tese, frag, defines)</code>。キーに4本のパスと <code>#define</code></td><td>+36</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド2つ、今日の関数一式、<code>OnLoad</code> で <code>TessellationLab</code> を作る、<code>OnRender</code> に1行、HUD に1行、ページ1枚(12 項目)、<code>OnClosing</code>、既存 <code>Show*</code> 8か所に1行ずつ、<code>RunDebugMenuCheck</code> の項目数</td><td>+781 / −1</td></tr>
+<tr><td><code>Day63b.csproj</code></td><td><code>Day63a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日の差分は Day 63a より少し軽い</strong>(新規 1,106 行 + <code>Program.cs</code> 781 行 + <code>Render/</code> 73 行。どちらもコメント込み)。画素シェーダを1本も書かずに済んだのと、<code>Render/</code> に足したのが口2つだけなのが効いている。1日で重ければ、下の順番の <strong>10 まで</strong>(絵が出るまで)と <strong>11 から</strong>(値段・内訳・自己チェック)で2回に分けるとよい。10 の (d) でメニューの F11・F12・<code>1</code> の3行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+<h3 id="s16">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>この順に写せば、途中でビルドが通らない状態を作らずに済む</strong>。</p>
+<ol><li><strong><code>Render/Shader.cs</code></strong>(変更) — Day 63a の3段のコンストラクタの隣に、4段のものを足す。<strong><code>params string[] defines</code> を受け取る</strong>のがここだけの違い(割り方が uniform にできないため)</li><li><strong><code>Render/RenderResources.cs</code></strong>(変更) — Day 63a の <code>LoadShader(vert, geom, frag)</code> の隣に、<code>LoadShader(vert, tesc, tese, frag, defines)</code>。<strong>キーに <code>#define</code> を混ぜ忘れない</strong></li><li><strong><code>Sandbox/TessellationMath.cs</code></strong>(新規) — <code>System.Numerics</code> しか使わない。<code>TessellationSpacing</code> を参照するので、<strong>4 を先に写しても、5 を先に写してもよい</strong>(同じアセンブリ内)</li><li><strong><code>shaders/tess.vert</code></strong>(新規) — <code>Control</code> ブロックを決める。5・6 はこの中身と1文字ずつ揃える</li><li><strong><code>shaders/tess.tesc</code></strong>(新規) — レベルを決める6つの数。<strong>Outer の番号と辺の対応に注意</strong>(要点2)</li><li><strong><code>shaders/tess.tese</code></strong>(新規) — 双一次補間 → 変位 or 球面。<strong>出口は Day 63a の <code>Varying</code> ブロック</strong></li><li><strong><code>Sandbox/TessellationLab.cs</code></strong>(新規) — 1〜6 の全部を使う。パッチの並びを作るのもここ</li><li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 63a」のフィールドの直後に「Day 63b」の2つ(<code>_tessellation</code> / <code>_tessellationDemo</code>)</li><li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunGeometryLabCheck</code> の直後に、<code>ShowTessellationLab</code> / <code>HideTessellationLab</code> / <code>ApplyTessellationCamera</code> / <code>TessellationVisible</code> / <code>RenderTessellationLab</code> / <code>TessellationLabLabel</code> / <code>TessellationTopicName</code> / <code>TessellationSpacingName</code> / <code>TessellationSpacingNote</code> / <code>TessellationExpectedText</code></li><li><strong><code>Program.cs</code> の組み込み</strong> — 順に、(a) <code>OnLoad</code> の <code>_geometryLab = new GeometryLab(...)</code> の直後に <code>_tessellation = new TessellationLab(...)</code>、(b) <code>OnRender</code> の <code>RenderGeometryLab(deltaSeconds);</code> の直後に <code>RenderTessellationLab(deltaSeconds);</code>、(c) <code>DrawOverlayInfo</code> のジオメトリシェーダの行の直後に HUD の1行、(d) <code>BuildMenu</code> の「ジオメトリシェーダ」ページの直後に「テッセレーション」ページ(12 項目。<strong>F11・F12・<code>1</code> の3項目は 11 で足す関数を指すので、分けて写すなら後回しにする</strong>)、(e) <code>OnClosing</code> の <code>_geometryLab.Dispose();</code> の直後に <code>_tessellation.Dispose();</code>、(f) <strong>既存の <code>Show*</code> 8か所</strong>(<code>HideGeometryLab();</code> を書いた7か所の直後と、<code>ShowGeometryLab</code> の <code>HideRaymarch();</code> の直後)に<code>HideTessellationLab();</code> を1行ずつ、(g) <code>RunDebugMenuCheck</code> の項目数を <strong>265 → 277</strong> へ</li><li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 9 の続きに <code>DescribeTessellationLab</code> / <code>MeasureTessellationCost</code> / <code>RunTessellationCheck</code></li><li><strong><code>Day63b.csproj</code></strong> — <code>Day63a.csproj</code> をリネームするだけ(中身は同じ)</li></ol>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Sandbox/</code> にクラスが2つ増え、<code>Render/</code> に口が2つ増えた。Day 63a が「段が1つ増える」話だったのに対し、今日は<strong>段が2つと固定機能の回路が1つ</strong>増える。足したものの形は昨日とまったく同じ(コンストラクタと窓口)で、<strong>中身は1行も書き換えていない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/TessellationMath</code></td><td><code>Sandbox/TessellationMath.cs</code></td><td>C# の鏡。静的クラス。<strong><code>System.Numerics</code> しか使わない</strong></td></tr>
+<tr><td><code>Sandbox/TessellationLab</code></td><td><code>Sandbox/TessellationLab.cs</code></td><td>GL の側。シェーダ3本・パッチの並び2つ・タイマー・カウンタ</td></tr>
+<tr><td><code>Sandbox/TessellationTopic</code> / <code>TessellationSpacing</code></td><td><code>Sandbox/TessellationLab.cs</code></td><td>題材 / 割り方</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader</code></td><td>4段(頂点 + 制御 + 評価 + 画素)のコンストラクタ。<code>#define</code> 付き</td><td>+37</td></tr>
+<tr><td><code>Render/RenderResources</code></td><td><code>LoadShader(vert, tesc, tese, frag, defines)</code></td><td>+36</td></tr>
+<tr><td><code>Program.cs</code></td><td>ページ1枚、<code>OnRender</code> に1行、HUD に1行、出す/下ろす、値段・内訳・自己チェック</td><td>+781 / −1</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18">四角形1枚が三角形 8,192 枚になるまで — 段2つと回路1つ</h3>
+<svg viewBox="0 0 900 829" role="img" aria-label="テッセレーションの流れ。インデックスバッファを4つずつ束ねる(glPatchParameteri(GL_PATCH_VERTICES, 4))。tess.vert が制御点ごとに1回(4回)走り、ワールドへ持ち上げるだけで投影しない。tess.tesc が出す制御点ごとに1回(4回)走り、gl_InvocationID == 0 の回だけが6つのレベルを書く。gl_TessLevelOuter[0..3] と gl_TessLevelInner[0..1] の6つだけがこの段の成果。テッセレータ(固定機能でプログラムできない)が 0〜1 の升目に点と三角形を作り、割り方(equal / odd / even)で丸める。tess.tese が割った点ごとに1回(レベル 64 なら 4,225 回)走り、gl_TessCoord(u,v)と gl_in[] が見える。双一次補間 → 変位 or 球面へ。ここで初めてクリップ空間へ。ラスタライズ(レベル 64 なら三角形 8,192 枚)。gs-surface.frag は Day 63a のものをそのまま使う" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="230" y="8" width="440" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)">インデックスバッファ</text><text x="450" y="45.5" text-anchor="middle" fill="var(--ink)">4つずつ束ねる</text><text x="450" y="62.5" text-anchor="middle" fill="var(--ink)">glPatchParameteri(GL_PATCH_VERTICES, 4)</text><rect x="230" y="101" width="440" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="121.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">tess.vert</text><text x="450" y="138.5" text-anchor="middle" fill="var(--ink)">制御点ごとに1回。4回走る</text><text x="450" y="155.5" text-anchor="middle" fill="var(--ink)">ワールドへ持ち上げるだけ</text><text x="450" y="172.5" text-anchor="middle" fill="var(--ink)">投影しない</text><rect x="230" y="211" width="440" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="231.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">tess.tesc</text><text x="450" y="248.5" text-anchor="middle" fill="var(--ink)">出す制御点ごとに1回。4回走る</text><text x="450" y="265.5" text-anchor="middle" fill="var(--ink)">gl_InvocationID == 0 の回だけが</text><text x="450" y="282.5" text-anchor="middle" fill="var(--ink)">6つのレベルを書く</text><rect x="230" y="321" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="341.5" text-anchor="middle" fill="var(--ink)">gl_TessLevelOuter[0..3]</text><text x="450" y="358.5" text-anchor="middle" fill="var(--ink)">gl_TessLevelInner[0..1]</text><text x="450" y="375.5" text-anchor="middle" fill="var(--ink)">この6つだけがこの段の成果</text><rect x="230" y="414" width="440" height="84" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="434.5" text-anchor="middle" fill="var(--ink)">テッセレータ</text><text x="450" y="451.5" text-anchor="middle" fill="var(--ink)">固定機能。プログラムできない</text><text x="450" y="468.5" text-anchor="middle" fill="var(--ink)">0〜1 の升目に点と三角形を作る</text><text x="450" y="485.5" text-anchor="middle" fill="var(--ink)">割り方(equal / odd / even)で丸める</text><rect x="230" y="524" width="440" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="544.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">tess.tese</text><text x="450" y="561.5" text-anchor="middle" fill="var(--ink)">割った点ごとに1回。レベル 64 なら 4,225 回</text><text x="450" y="578.5" text-anchor="middle" fill="var(--ink)">gl_TessCoord(u,v)と gl_in[] が見える</text><rect x="230" y="617" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="637.5" text-anchor="middle" fill="var(--ink)">双一次補間 → 変位 or 球面へ</text><text x="450" y="654.5" text-anchor="middle" fill="var(--ink)">ここで初めてクリップ空間へ</text><rect x="230" y="693" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="713.5" text-anchor="middle" fill="var(--ink)">ラスタライズ</text><text x="450" y="730.5" text-anchor="middle" fill="var(--ink)">レベル 64 なら三角形 8,192 枚</text><rect x="230" y="769" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="789.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gs-surface.frag</text><text x="450" y="806.5" text-anchor="middle" fill="var(--ink)">Day 63a のものをそのまま</text><path d="M450 75 L450 99" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 185 L450 209" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 295 L450 319" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 388 L450 412" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 498 L450 522" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 591 L450 615" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 667 L450 691" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 743 L450 767" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>CPU が送るのは 4 隅だけ</strong>。パッチ 64 枚なら制御点 256 個(24KB)で、そこから三角形が 8,192 枚出る(レベル 8 のとき。レベル 64 なら 524,288 枚)。同じ形を頂点バッファで持つなら、<strong>その3倍の頂点を送って VRAM に置く</strong>ことになる。</p>
+<p><strong>割るのは回路</strong>というのが Day 63a との決定的な違い。ジオメトリシェーダは「何個出すか」を自分で決めて自分で出すので、<strong>出力を溜める場所</strong>と<strong>順番の待ち合わせ</strong>が要った。テッセレータは 6 つの数を見て決まったやり方で割るだけなので、そのどちらも要らない——だから GS の上限(1回に 1024 頂点)をはるかに超えた量を出せる。</p>
+<p><strong>制御シェーダが4回走るのに、レベルを書くのは1回</strong>。4回走るのは「制御点を作り変える」使い方(ベジエの制御点を計算する等)のためで、今日は使わない。<code>gl_InvocationID != 0</code> で早く返るのは、<strong>1回でよいものを4回書いている</strong>と読まれないため。</p>
+<h3 id="s19">亀裂が出るまで / 出ないまで — 「共有しているものから決める」</h3>
+<svg viewBox="0 0 900 430" role="img" aria-label="亀裂が出るまで・出ないまで。辺のレベルを何から決めるかで分かれる。辺の中点からなら、パッチ A から見た中点とパッチ B から見た中点は同じ点で、同じ入力なら同じ距離、同じレベルになり、辺の上の点が一致して隙間が開かない。パッチの中心からなら、パッチ A の中心とパッチ B の中心は違う点で、違う距離は違うレベルになる(2 の冪へ落としてあるので 2 倍違いうる)。片方が 8 等分・もう片方が 16 等分になって辺の上の点が食い違い、変位すると、そこが穴になる(直線のままなら同じ線に乗るので開かない)" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="8" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)">辺のレベルを</text><text x="450" y="45.5" text-anchor="middle" fill="var(--ink)">何から決めるか</text><rect x="20" y="108" width="400" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="128.5" text-anchor="middle" fill="var(--ink)">パッチ A から見た中点</text><text x="220" y="145.5" text-anchor="middle" fill="var(--ink)">= パッチ B から見た中点</text><text x="220" y="162.5" text-anchor="middle" fill="var(--ink)">同じ点</text><rect x="480" y="108" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="128.5" text-anchor="middle" fill="var(--ink)">パッチ A の中心</text><text x="680" y="145.5" text-anchor="middle" fill="var(--ink)">≠ パッチ B の中心</text><text x="680" y="162.5" text-anchor="middle" fill="var(--ink)">違う点</text><rect x="20" y="201" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="221.5" text-anchor="middle" fill="var(--ink)">同じ入力 → 同じ距離</text><text x="220" y="238.5" text-anchor="middle" fill="var(--ink)">→ 同じレベル</text><rect x="480" y="201" width="400" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="221.5" text-anchor="middle" fill="var(--ink)">違う距離 → 違うレベル</text><text x="680" y="238.5" text-anchor="middle" fill="var(--ink)">2 の冪へ落としてあるので</text><text x="680" y="255.5" text-anchor="middle" fill="var(--ink)">2 倍違いうる</text><rect x="20" y="294" width="400" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="314.5" text-anchor="middle" fill="var(--ink)">辺の上の点が一致する</text><text x="220" y="331.5" text-anchor="middle" fill="var(--ink)">隙間が開かない</text><rect x="480" y="294" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="314.5" text-anchor="middle" fill="var(--ink)">片方が 8 等分・もう片方が 16 等分</text><text x="680" y="331.5" text-anchor="middle" fill="var(--ink)">→ 辺の上の点が食い違う</text><rect x="480" y="370" width="400" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="390.5" text-anchor="middle" fill="var(--ink)">変位すると、そこが穴になる</text><text x="680" y="407.5" text-anchor="middle" fill="var(--ink)">直線のままなら同じ線に乗るので開かない</text><path d="M300 33 L220 33 L220 106" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="292" y="27" fill="var(--muted)" font-size="12" text-anchor="end">辺の中点</text><path d="M600 33 L680 33 L680 106" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="608" y="27" fill="var(--muted)" font-size="12">パッチの中心</text><path d="M220 175 L220 199" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 251 L220 292" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M680 175 L680 199" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M680 268 L680 292" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M680 344 L680 368" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>「共有しているものから決める」の一言に尽きる</strong>のがこの問題の面白いところ。パッチは隣を知らないし、知る手段も無い(隣接付き三角形のような仕掛けはパッチには無い)。知らないまま同じ答えを出すには、<strong>両側から見て同じものを入力にする</strong>しかない。</p>
+<p><strong>「亀裂が出ないこと」は絵では言えない</strong>。カメラを動かせばいつか出るかもしれない、を否定できないから。C# の鏡で、内部の辺 112 本をカメラ4通りで調べて<strong>食い違い 0</strong> を数で言う(自己チェック5)。同じ条件で中心から決めると <strong>33 本</strong>食い違う(同6)。</p>
+<p>隙間の大きさは、辺の等分の数の食い違いで決まる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>等分の組</th><th>辺の上の点のずれ</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>4 と 5</td><td><strong>10.0%</strong></td><td>互いに素なので、いちばん離れた点が 1/(4x5) x 2 ぶんずれる</td></tr>
+<tr><td>8 と 16</td><td><strong>0.0%</strong></td><td>割り切れるので、8 等分の点が全部 16 等分の点に含まれる</td></tr>
+</tbody>
+</table></div>
+<p><strong>2 の冪へ落としているのは実務どおり</strong>。段を粗く刻むと、カメラが少し動いただけでレベルが揺れない(連続だと毎フレーム 12.3 → 12.4 と変わり、<code>equal_spacing</code> ではそのたびに頂点が一斉に動いてチラつく)。代わりに隣との差が 2 倍になりうるので、<strong>辺を揃えることがいっそう効く</strong>。</p>
+<h3 id="s20">値段はパッチの数で決まる</h3>
+<svg viewBox="0 0 1000 300" role="img" aria-label="値段の分解。パッチ 1 枚には、レベルによらず一定の固定費(制御シェーダ 4 回、テッセレータのセットアップ)と、レベルに比例する費用(評価シェーダ (n+1)^2 回、三角形 2n^2 枚のラスタライズ)がかかり、足して 1 パッチの時間になる。三角形 1 枚あたりの時間は、固定費が薄まるので、レベルを上げるほど下がる" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="120" width="150" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="85" y="140.5" text-anchor="middle" fill="var(--ink)">パッチ 1 枚</text><rect x="230" y="20" width="230" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="345" y="40.5" text-anchor="middle" fill="var(--ink)">固定費</text><text x="345" y="57.5" text-anchor="middle" fill="var(--ink)">制御シェーダ 4 回</text><text x="345" y="74.5" text-anchor="middle" fill="var(--ink)">テッセレータのセットアップ</text><text x="345" y="91.5" text-anchor="middle" fill="var(--ink)">レベルによらず一定</text><rect x="230" y="220" width="230" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="345" y="240.5" text-anchor="middle" fill="var(--ink)">レベルに比例する費用</text><text x="345" y="257.5" text-anchor="middle" fill="var(--ink)">評価シェーダ (n+1)^2 回</text><text x="345" y="274.5" text-anchor="middle" fill="var(--ink)">三角形 2n^2 枚のラスタライズ</text><rect x="530" y="140" width="170" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="615" y="160.5" text-anchor="middle" fill="var(--ink)">1 パッチの時間</text><rect x="750" y="120" width="240" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="870" y="140.5" text-anchor="middle" fill="var(--ink)">三角形 1 枚あたりの時間</text><text x="870" y="157.5" text-anchor="middle" fill="var(--ink)">レベルを上げるほど下がる</text><text x="870" y="174.5" text-anchor="middle" fill="var(--ink)">固定費が薄まるので</text><path d="M160 136.5 L195 136.5 L195 62 L228 62" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M160 136.5 L195 136.5 L195 253.5 L228 253.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 62 L495 62 L495 156.5 L528 156.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 253.5 L495 253.5 L495 156.5 L528 156.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M700 156.5 L748 156.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>レベル</th><th>三角形</th><th>GPU(パッチ 64 枚)</th><th>三角形1万枚あたり</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>128</td><td>7.3us</td><td><strong>573us</strong></td></tr>
+<tr><td>8</td><td>8,192</td><td>22.6us</td><td>27.5us</td></tr>
+<tr><td>64</td><td>524,288</td><td>355.5us</td><td><strong>6.8us</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>同じ三角形の数なら、パッチを減らしてレベルを上げるほうが安い</strong>。「テッセレーションは細かくすると高い」より、<strong>「パッチを細かく分けると高い」</strong>ほうが実態に近い。</p>
+<p>ただし実際のゲームでは、<strong>細かすぎる三角形はラスタライザの側で高くつく</strong> (1画素より小さい三角形は 2x2 の画素の塊で処理されるので、4倍近く無駄になる)。この表は三角形がまだ十分大きい範囲での話で、<strong>レベルを上げ続ければどこかで折り返す</strong>。Day 64(メッシュシェーダ)と Day 65(GPU 駆動レンダリング)が解こうとしている問題の1つがこれ。</p>
+<h3 id="s21">今日残した歪み(3つ)</h3>
+<p><strong>1つ目: 割り方が3本のプログラムになっている</strong>。<code>equal</code> / <code>odd</code> / <code>even</code> を見比べるために同じソースを3回コンパイルしていて、起動時に 3 本ぶんのリンクを払う。実際のエンジンは「シェーダバリアント」として何百通りも焼くので、これはその最小形だが、<strong>切り替えのたびに焼き直す</strong>(<code>SetDefines</code>)形にすれば1本で済む。どちらが良いかは焼く時間と本数次第。</p>
+<p><strong>2つ目: パッチの並びが専用のメッシュになっている</strong>。<code>TessellationLab</code> が自分で格子と立方体を作っていて、<code>Primitives</code> には足していない。理由は<strong>並びの約束が違う</strong>から——パッチは (0,0) (1,0) (0,1) (1,1) の順で4つ、三角形は3つ。同じ <code>Mesh&lt;Vertex&gt;</code> に両方入れると、「この索引は何個ずつ読むのか」が型から読めなくなる。本来は <code>PatchMesh</code> のような別の型にしたいところ(改造課題3)。</p>
+<p><strong>3つ目: 距離 LOD が世界の距離だけを見ている</strong>。画面での大きさを揃えたいなら、本当は<strong>画角とパッチの世界での大きさ</strong>も要る(近くの小さいパッチと遠くの大きいパッチが同じ扱いになる)。今日は格子が均一なので問題にならないが、大きさの違うパッチが混じると破綻する。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day63b -c Release</code> で起動する。起動直後のコンソールは Day 63a と同じ。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「テッセレーション」(28 枚目)が開く。</p>
+<h3 id="s23">1. <code>F2</code>: テッセレーション</h3>
+<p>コンソールに次の行が出る。</p>
+<div class="code"><pre><code>テッセレーション: <strong>ON</strong>  平らな格子に高さを付ける  パッチ 64 枚(制御点 256 個)  レベル 8  equal  → 出る三角形は 8,192 枚(1パッチ 128 枚)</code></pre></div>
+<p>Day 31 の床と箱が消え、<strong>波打つ地形</strong>が画面いっぱいに広がる。目の高さは約 1.8m で、手前のパッチが約 3m・奥が約 9mのところにある。HUD に今日の行が出る。</p>
+<div class="code"><pre><code>TESS 平らな格子に高さを付ける  パッチ 64  レベル 8  equal  三角形 8,192 (見積もり 8,192)  辺を揃える ON  GPU 0.05ms</code></pre></div>
+<p><strong>「三角形」と「見積もり」が一致すること</strong>が今日の1つ目の関門。三角形は <code>GL_PRIMITIVES_GENERATED</code> で GL に数えさせた実測、見積もりは <code>2 x レベル^2 x パッチ数</code>。</p>
+<h3 id="s24">2. <code>F9</code>: 線で描く</h3>
+<p>四角形1枚が細かい格子に割られているのが見える。<strong>1つのパッチの中で、対角線が全部同じ向きを向いている</strong>のがテッセレータの割り方で、外周の1列だけ三角形の形が違う(内側の升目と外側の辺をつなぐ帯)。</p>
+<p><code>F4</code> でレベルを上げると格子が細かくなり、下げると粗くなる。<strong>レベル 1 で三角形2枚</strong>(ただの四角形2分割)。</p>
+<h3 id="s25">3. <code>F5</code>: 距離で決める</h3>
+<p>手前が細かく、奥が粗くなる。<strong>パッチの境目で細かさが段になっている</strong>のが分かる——距離レベルを 2 の冪(1, 2, 4, 8, 16, 32, 64)に落としているため。</p>
+<div class="code"><pre><code>距離で決める: <strong>ON</strong>  8m でレベル 8、近いほど細かい。<strong>2 の冪へ落とす</strong>ので隣と 2 倍違いうる</code></pre></div>
+<h3 id="s26">4. <code>F7</code>: 辺を隣と揃えるのをやめる(<strong>今日の見どころ</strong>)</h3>
+<p>線で描いたまま切ると、<strong>パッチの継ぎ目に T 字の頂点</strong>ができる(片方が 8 等分、もう片方が 16 等分)。<code>F9</code> で面に戻すと、<strong>継ぎ目に点線状の亀裂</strong>が走る。</p>
+<div class="code"><pre><code>辺を隣と揃える: <strong>OFF</strong>  パッチの<strong>中心</strong>からレベルを決める。中心は両側で違う点なので、<strong>食い違って隙間が開く</strong>  → 内部の辺 112 本のうち食い違い <strong>13 本</strong>(最大の差 16)</code></pre></div>
+<p>隙間が点線状になるのは正しい姿で、<strong>辺を共有している点では一致し、その間で最大にずれる</strong>から。<code>F8</code> で変位を 0 にすると亀裂が消える——<strong>直線の辺なら点がずれても同じ線の上に乗る</strong>ので隙間が開かない。</p>
+<h3 id="s27">5. <code>F3</code>: 球</h3>
+<p>立方体の6面を 2x2 に割った <strong>24 枚のパッチ</strong>が、評価シェーダの <code>normalize</code> だけで球になる。<code>F10</code> でパッチごとに色を付けると、24 枚の区画が見える。レベルを上げると滑らかになるが、<strong>制御点は 96 個のまま</strong>(24 パッチ x 4 隅)。</p>
+<h3 id="s28">6. <code>F12</code>: 内訳</h3>
+<div class="code"><pre><code>--- テッセレーションの内訳 ---
+  題材: 平らな格子に高さを付ける  出している: ON
+  割り方: <strong>equal</strong>  レベルを<strong>整数へ切り上げ</strong>て等分。1 刻みでしか変われないので、<strong>変わる瞬間に面全体の頂点が一斉に動く</strong>
+  CPU が送った頂点: <strong>256 個</strong>(パッチ 64 枚 x 4 隅)  = 24.0KB。<strong>割る前の数しか送らない</strong>
+  テッセレータが作った三角形(GL_PRIMITIVES_GENERATED): <strong>8,192 枚</strong>  見積もり 8,192(レベル 8 → 丸めて 8、1パッチ 2 x 8^2)
+  → 送った頂点1つにつき三角形 <strong>32.0 枚</strong>。同じ形を頂点バッファで持つなら、その3倍の頂点を送ることになる
+  辺のレベル(C# の鏡。<strong>中点から</strong>決めている): 内部の辺 112 本のうち<strong>食い違い 0 本</strong>
+  この GL が許す上限: レベル 64  1パッチの制御点 32  制御シェーダの出力成分 128  評価シェーダの出力成分 128
+  レベル 64 の四角パッチ1枚は三角形 8,192 枚。<strong>ジオメトリシェーダの上限(1回に 1024 頂点)ではまったく届かない</strong>。</code></pre></div>
+<h3 id="s29">7. <code>F11</code>: 値段</h3>
+<div class="code"><pre><code>--- テッセレーションの値段(平らな格子に高さを付ける  パッチ 64 枚を 32 回  equal)---
+    レベル     三角形      GPU        1万枚あたり
+         1          128       7.3us    572.50us
+         2          512       7.9us    153.75us
+         4        2,048      12.7us     61.87us
+         8        8,192      22.6us     27.54us
+        16       32,768      54.8us     16.74us
+        32      131,072     129.4us      9.87us
+        64      524,288     355.5us      6.78us
+  距離で決める(基準 8m でレベル 16。<strong>いちばん細かいパッチはレベル 32</strong>): 三角形 48,176 / 全体をレベル 32 で固定すると 131,072  → <strong>36.8%</strong>  GPU 63.3us / 129.9us</code></pre></div>
+<p><strong>三角形1万枚あたりが 573us から 6.8us へ、84 倍下がる</strong>のが今日の到達点(要点7)。VSync を入れたまま測っているので走行ごとにぶれる。何度か押して落ち着いた値を読む。</p>
+<h3 id="s30">8. <code>1</code>: 自己チェック(12 項目)</h3>
+<p>全部 <code>[OK]</code> になる。</p>
+<div class="code"><pre><code>=== Day 63b 自己チェック(パッチ・双一次補間・変位の法線・割り方・辺の合意・三角形の数)===
+  [OK] <strong>インデックスは4つで1パッチ</strong>(三角形の3つではない)  インデックス 256 個 / パッチ 64 枚 = 4.0 個/枚
+  [OK] <strong>双一次補間が四隅を再現する</strong>  256 隅で、ずれは最大 0.0E+000m
+  [OK] <strong>変位のあとの法線が、面の上の向きと直交する</strong>  2,000 点 x 2 方向で、内積の絶対値は最大 0.0144
+  [OK] <strong>割り方ごとの丸め</strong>  equal 4.3→5 / odd 4.0→5 / even 1.0→2
+  [OK] <strong>辺の中点からレベルを決めると、隣り合うパッチが必ず一致する</strong>  内部の辺 112 本 x カメラ4通りで、食い違い 0 本
+  [OK] <strong>パッチの中心から決めると食い違う</strong>(これが亀裂の正体)  同じ条件で食い違い 33 本
+  [OK] <strong>等分の数が違うと、辺の上の点がずれる</strong>  4 と 5 → 辺の長さの 10.0% / 8 と 16 → 0.0%
+  [OK] <strong>レベル 1 の四角パッチは三角形2枚</strong>  パッチ 64 枚 → 三角形 128(見積もり 128)
+  [OK] <strong>レベル n の四角パッチは三角形 2n^2 枚</strong>  n=2: 512 / n=4: 2,048 / n=8: 8,192 / n=16: 32,768
+  [OK] <strong>fractional_odd はレベル 4 でも 5 等分になる</strong>  レベル 4 → 3,200 / レベル 5 → 3,200
+  [OK] <strong>距離で決めると、いちばん細かいパッチに合わせるより少なくて済む</strong>  レベル 32 で固定すると 131,072 枚 / 距離で決めると 48,176 枚(36.8%)
+  [OK] <strong>この GL の上限が仕様の保証(レベル 64・制御点 32)を満たしている</strong>  レベル 64 / 1パッチの制御点 32</code></pre></div>
+<p>前半7項目は<strong>窓を開かずに走る</strong>(<code>TessellationMath</code> が GL を1行も知らないので)。後半5項目はシーンのバッファを借りて描き、<code>GL_PRIMITIVES_GENERATED</code> で数える。</p>
+<h3 id="s31">9. メニューの自己チェック</h3>
+<p><code>Alt+F1</code> で Day 48 の割り当て表のチェックが走り、<strong>28 ページ 277 項目</strong>になっている。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー(「テッセレーション」ページ)</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>(なし。実験台は常に出している)</td><td>実機では ON / OFF</td></tr>
+<tr><td><code>F3</code></td><td>「亀裂」の題材、「値段」のパッチの数</td><td>球は 24 パッチ・制御点 96 個。立方体の面が評価シェーダの normalize だけで球になる</td></tr>
+<tr><td><code>F4</code></td><td>「亀裂」「距離 LOD の地図」「値段」のレベル</td><td>2倍にすると三角形は4倍(2n^2)。距離で決めるときは 8m でのレベル</td></tr>
+<tr><td><code>F5</code></td><td>「亀裂」の距離で決める、「距離 LOD の地図」</td><td>手前が細かく奥が粗い。2 の冪へ落とすので隣と 2 倍違いうる</td></tr>
+<tr><td><code>F6</code></td><td>「パッチ1枚を割る」「距離 LOD の地図」の割り方</td><td>odd は 2 の冪の 4 でも 5 等分。even はレベル 1 が作れない</td></tr>
+<tr><td><code>F7</code></td><td>「亀裂」「距離 LOD の地図」の辺のレベルを決める元</td><td>中心から決めると食い違い、変位のある絵では隙間になる</td></tr>
+<tr><td><code>F8</code></td><td>「亀裂」の変位の強さ</td><td>0 にすると亀裂が消える(直線の辺は点がずれても同じ線の上)</td></tr>
+<tr><td><code>F9</code></td><td>「亀裂」の線で描く</td><td>継ぎ目の T 字の頂点が見える</td></tr>
+<tr><td><code>F10</code></td><td>「亀裂」のパッチごとの色</td><td>どこまでが1パッチか</td></tr>
+<tr><td><code>F11</code></td><td>「値段」の表と、「距離 LOD の地図」の三角形の数</td><td>GPU の時間は 2D では測れないので表の値。距離 LOD の三角形は同じ式で出している</td></tr>
+<tr><td><code>F12</code></td><td>各実験台の数字</td><td>送った頂点 256 個に対して三角形が出る数、辺の合意</td></tr>
+<tr><td><code>1</code></td><td>(なし)</td><td>実機で。このページの数字は同じ式で出している</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day63b の Sandbox/TessellationMath.cs・TessellationLab.cs(パッチの並び・辺の合意)・shaders/tess.tesc・tess.tese を JS に移したもの(このページの中に書いてある。カメラと陰影の部品だけ docs/site/softview.js で Day 63a と共有)。同じ式を C# の検証用プロジェクトでも走らせて、平らな格子(8 x 8)の内部の辺 112 本について、中点から決めると4通りのカメラ(F2 の姿勢・(6,3,6)・(0,12,0.1)・(-9,1,2)、レベル 8)で食い違い 0 本、中心から決めると 13 + 10 + 0 + 10 = 33 本になること、F2 の姿勢でレベル 16 の距離 LOD は三角形 48,176 枚(最もレベルの高いパッチは 32、全体を 32 で固定すると 131,072 枚で 36.8%)になることを確かめた(48,176 枚は reference が GPU で数えた値と同じ)。4 と 5 等分で 10.0%、8 と 16 等分で 0.0% のずれも同じ。GPU の時間(F11)と GL の上限は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s32">改造課題</h2>
+<h3 id="s33">課題1(易): 変位を 0 にして、割る意味を確かめる</h3>
+<p><code>F8</code> で変位を 0 にし、<code>F4</code> でレベルを 1 から 64 まで上げてみる。</p>
+<ol><li><strong>絵が1画素も変わらない</strong>ことを確かめる(平らな四角形が細かい平らな四角形になるだけ)</li><li><code>F11</code> で値段を測る。レベル 64 は 355us 払っているのに、絵は何も変わっていない</li><li>球のほうで同じことをする。<strong>こちらは変わる</strong>——なぜか</li><li><code>F9</code> で線にすれば違いは見える。<strong>「絵が変わる」と「三角形が増える」は別</strong></li></ol>
+<p>見どころは 3 で、球は評価シェーダが <code>normalize</code> して<strong>割った点を動かしている</strong>から変わる。「割ること」自体には意味が無く、<strong>割った点をどう動かすかに意味がある</strong>というのが要点3。</p>
+<h3 id="s34">課題2(中): 三角パッチにする</h3>
+<p>四角パッチ(<code>quads</code>)を三角パッチ(<code>triangles</code>)に変えると、<code>gl_TessCoord</code> が<strong>(u, v) から重心座標 (a, b, c)</strong> に変わる。</p>
+<ol><li><code>TessellationLab</code> に、三角形のパッチを作る <code>CreateTriangleGrid</code> を足す(制御点は3つ)。<code>glPatchParameteri(GL_PATCH_VERTICES, 3)</code> も忘れずに</li><li><code>tess.tesc</code> の <code>layout (vertices = 3) out;</code>、外側のレベルは<strong>3つ</strong>(<code>Outer[0..2]</code>)、内側は<strong>1つ</strong>(<code>Inner[0]</code>)</li><li><code>tess.tese</code> の <code>layout (triangles, ...)</code>。位置は<code>p0 * gl_TessCoord.x + p1 * gl_TessCoord.y + p2 * gl_TessCoord.z</code></li><li><code>F11</code> で三角形の数を測る。<strong>レベル n の三角パッチは三角形 n^2 枚</strong>(四角の半分)。合うか</li></ol>
+<p>見どころは<strong>外側のレベルがどの辺に対応するか</strong>。四角と三角で約束が違う(三角は <code>Outer[i]</code> が「<code>gl_TessCoord[i]</code> が 0 になる辺」)。ここを間違えると、やはり特定の向きの辺にだけ亀裂が出る。</p>
+<h3 id="s35">課題3(難): パッチを型として分ける</h3>
+<p>設計書の「今日残した歪み」の2つ目。<code>Mesh&lt;Vertex&gt;</code> に三角形の索引とパッチの索引の両方が入るので、「この索引は何個ずつ読むのか」が型から読めない。</p>
+<ol><li><code>Render/</code> に <code>PatchMesh&lt;TVertex&gt;</code> を足す。<strong>コンストラクタで制御点の数を受け取り</strong>、<code>Draw()</code> の中で <code>glPatchParameteri</code> も自分で呼ぶ</li><li><code>Mesh&lt;TVertex&gt;</code> から <code>Draw(PrimitiveType.Patches)</code> を呼べないようにする(<code>PrimitiveType</code> を受ける <code>Draw</code> から <code>Patches</code> を弾く、あるいは専用の列挙型にする)</li><li><code>TessellationLab</code> の <code>PatchMesh</code> を、この新しい型に置き換える</li><li>Day 63a の隣接付きインデックス(<code>TrianglesAdjacency</code>)も同じ問題を抱えている。<strong>あちらは 6 つずつ</strong>。同じ型で扱えるか、別の型が要るかを考える</li></ol>
+<p>見どころは<strong>「索引の束ね方」は誰の責任か</strong>という線引き。GL は描くときの引数で決める形にしているが、バッファを作った側がいちばんよく知っている。4 を考えると、「束ね方をメッシュが持つ」のが素直だと分かるはず。</p>
+</section>
+<section class="part"><h2 id="s36">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>OpenGL</td><td>4.3 コアプロファイル(ドライバ 596.49)。<strong>テッセレーションは 4.0 の機能</strong></td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。値段の測定は 32 回ぶんをタイマークエリで挟んだもので、<code>glFinish</code> の連続描画(計測)は今日も無い</td></tr>
+</tbody>
+</table></div>
+<p>題材ごとの数字。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>平らな格子</th><th>球(立方体)</th></tr></thead>
+<tbody>
+<tr><td>パッチ</td><td>64(8 x 8)</td><td>24(6 面 x 2 x 2)</td></tr>
+<tr><td>制御点</td><td>256 個(24.0KB)</td><td>96 個</td></tr>
+<tr><td>内部の辺</td><td>112</td><td>—</td></tr>
+<tr><td>レベル 8 の三角形</td><td>8,192</td><td>3,072</td></tr>
+<tr><td>レベル 64 の三角形</td><td>524,288</td><td>196,608</td></tr>
+</tbody>
+</table></div>
+<p>GL が許す上限(RTX 3070)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>値</th></tr></thead>
+<tbody>
+<tr><td><code>GL_MAX_TESS_GEN_LEVEL</code></td><td>64</td></tr>
+<tr><td><code>GL_MAX_PATCH_VERTICES</code></td><td>32</td></tr>
+<tr><td><code>GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS</code></td><td>128</td></tr>
+<tr><td><code>GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS</code></td><td>128</td></tr>
+</tbody>
+</table></div>
+<p>値段(平らな格子 64 パッチ x 32 回、equal)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>レベル</th><th>三角形</th><th>GPU</th><th>三角形1万枚あたり</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>128</td><td>7.3us</td><td>572.5us</td></tr>
+<tr><td>2</td><td>512</td><td>7.9us</td><td>153.8us</td></tr>
+<tr><td>4</td><td>2,048</td><td>12.7us</td><td>61.9us</td></tr>
+<tr><td>8</td><td>8,192</td><td>22.6us</td><td>27.5us</td></tr>
+<tr><td>16</td><td>32,768</td><td>54.8us</td><td>16.7us</td></tr>
+<tr><td>32</td><td>131,072</td><td>129.4us</td><td>9.9us</td></tr>
+<tr><td>64</td><td>524,288</td><td>355.5us</td><td><strong>6.8us</strong></td></tr>
+</tbody>
+</table></div>
+<p>距離 LOD(基準 8m でレベル 16、いちばん細かいパッチはレベル 32)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>三角形</th><th>GPU</th></tr></thead>
+<tbody>
+<tr><td>全体をレベル 32 で固定</td><td>131,072</td><td>129.9us</td></tr>
+<tr><td>距離で決める</td><td><strong>48,176(36.8%)</strong></td><td>63.3us</td></tr>
+</tbody>
+</table></div>
+</section>
+<footer class="end">Day 63b テッセレーション(4隅だけ送って、GPU に割らせる) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softview.js"></script>
+<script>
+const T63 = (() => {
+// ============================================================
+//  reference/Day63b の Sandbox/TessellationMath.cs と TessellationLab.cs(パッチの並び・辺の合意・三角形の数)の移植
+//  Node でも動くよう DOM には触らない。float32 は Math.fround で C# と同じ値にする
+// ============================================================
+const T63 = (() => {
+  const F = Math.fround;
+  const MAX_LEVEL = 64, NORMAL_STEP = 0.01;
+  const dist3 = (a, b) => F(Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+
+  // 高さの関数(tess.tese / TessellationMath.Height)
+  function height(x, z, t) {
+    let h = F(F(Math.sin(F(F(x * 1.1) + t))) * F(Math.cos(F(F(z * 1.1) - F(t * 0.7)))));
+    h = F(h + F(0.45 * F(Math.sin(F(F(F(x * 2.4) + F(z * 1.9)) + F(t * 1.3))))));
+    h = F(h + F(0.20 * F(Math.sin(F(F(x * 5.0) - F(z * 4.1))))));
+    return h;
+  }
+  const lerp = (a, b, t) => F(a + F(F(b - a) * t));
+  const bilinear = (p00, p10, p01, p11, u, v) => [0, 1, 2].map((k) => lerp(lerp(p00[k], p10[k], u), lerp(p01[k], p11[k], u), v));
+
+  // 距離からレベル(2 の冪へ落とす)。tess.tesc の levelAt と同じ
+  function levelAt(p, eye, level, lodDistance) {
+    const d = Math.max(0.001, dist3(eye, p));
+    const raw = Math.min(MAX_LEVEL, Math.max(1, F(level * lodDistance / d)));
+    return Math.pow(2, Math.floor(Math.log2(raw)));
+  }
+  const ceil = Math.ceil;
+  const oddCeil = (l) => (ceil(l) % 2 === 0 ? ceil(l) + 1 : ceil(l));
+  const evenCeil = (l) => (ceil(l) % 2 === 0 ? ceil(l) : ceil(l) + 1);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  // 割り方ごとの丸め(TessellationMath.Round)。spacing: 'equal' | 'odd' | 'even'
+  function round(level, spacing) {
+    if (spacing === 'equal') return ceil(clamp(level, 1, MAX_LEVEL));
+    if (spacing === 'odd') return oddCeil(clamp(level, 1, MAX_LEVEL));
+    return evenCeil(clamp(level, 2, MAX_LEVEL));
+  }
+  // a 等分の点のうち、b 等分のどれからもいちばん遠いものまでの距離(辺の長さに対する割合)
+  function worstEdgeMismatch(a, b) {
+    let worst = 0;
+    for (let i = 0; i <= a; i++) {
+      const t = i / a; let nearest = Infinity;
+      for (let j = 0; j <= b; j++) nearest = Math.min(nearest, Math.abs(t - j / b));
+      worst = Math.max(worst, nearest);
+    }
+    return worst;
+  }
+
+  // 平らな格子(cells x cells のパッチ、1辺 size)。パッチの制御点は (0,0) (1,0) (0,1) (1,1) の順
+  function makeGrid(cells, size) {
+    const v = [], idx = [], half = size * 0.5;
+    for (let z = 0; z <= cells; z++) for (let x = 0; x <= cells; x++) v.push([F(-half + F(F(x / cells) * size)), 0, F(-half + F(F(z / cells) * size))]);
+    for (let z = 0; z < cells; z++) for (let x = 0; x < cells; x++) {
+      const at = z * (cells + 1) + x;
+      idx.push(at, at + 1, at + cells + 1, at + cells + 2);
+    }
+    return { v, idx, kind: 'grid' };
+  }
+  // 立方体の6面を cells x cells に割ったパッチ(球になる)
+  function makeCubePatches(cells, size) {
+    const h = size * 0.5, v = [], idx = [];
+    const faces = [
+      [[-h, -h, h], [1, 0, 0], [0, 1, 0]], [[h, -h, -h], [-1, 0, 0], [0, 1, 0]], [[h, -h, h], [0, 0, -1], [0, 1, 0]],
+      [[-h, -h, -h], [0, 0, 1], [0, 1, 0]], [[-h, h, h], [1, 0, 0], [0, 0, -1]], [[-h, -h, -h], [1, 0, 0], [0, 0, 1]],
+    ];
+    for (const [o, u, w] of faces) {
+      const first = v.length;
+      for (let y = 0; y <= cells; y++) for (let x = 0; x <= cells; x++) {
+        const a = F(x / cells) * size, b = F(y / cells) * size;
+        v.push([0, 1, 2].map((k) => F(o[k] + F(u[k] * a) + F(w[k] * b))));
+      }
+      for (let y = 0; y < cells; y++) for (let x = 0; x < cells; x++) {
+        const at = first + y * (cells + 1) + x;
+        idx.push(at, at + 1, at + cells + 1, at + cells + 2);
+      }
+    }
+    return { v, idx, kind: 'cube' };
+  }
+
+  // 1パッチの4辺の端点(Outer[0..3] = u=0 / v=0 / u=1 / v=1)
+  function patchEdges(mesh, patch) {
+    const at = patch * 4, i = [0, 1, 2, 3].map((k) => mesh.idx[at + k]);
+    const p = i.map((k) => mesh.v[k]);
+    return {
+      i, p, center: [0, 1, 2].map((k) => F(F(F(F(p[0][k] + p[1][k]) + p[2][k]) + p[3][k]) * 0.25)),
+      edges: [[i[0], i[2], p[0], p[2]], [i[0], i[1], p[0], p[1]], [i[1], i[3], p[1], p[3]], [i[2], i[3], p[2], p[3]]],
+    };
+  }
+  const mid = (p, q) => [0, 1, 2].map((k) => F(F(p[k] + q[k]) * 0.5));
+  // 4辺のレベル(丸める前の 2 の冪)
+  function patchLevels(mesh, patch, eye, level, lodDistance, matchEdges) {
+    const e = patchEdges(mesh, patch);
+    return e.edges.map(([, , p, q]) => levelAt(matchEdges ? mid(p, q) : e.center, eye, level, lodDistance));
+  }
+  // 辺の合意(TessellationLab.CheckEdgeAgreement)
+  function checkEdgeAgreement(mesh, eye, level, lodDistance, spacing, matchEdges) {
+    const levels = new Map();
+    let internal = 0, mismatched = 0, worst = 0;
+    const patches = mesh.idx.length / 4;
+    for (let patch = 0; patch < patches; patch++) {
+      const e = patchEdges(mesh, patch);
+      for (const [a, b, p, q] of e.edges) {
+        const from = matchEdges ? mid(p, q) : e.center;
+        const r = round(levelAt(from, eye, level, lodDistance), spacing);
+        const key = a < b ? a + ',' + b : b + ',' + a;
+        if (!levels.has(key)) { levels.set(key, r); continue; }
+        internal++;
+        if (r !== levels.get(key)) { mismatched++; worst = Math.max(worst, Math.abs(r - levels.get(key))); }
+      }
+    }
+    return { internal, mismatched, worst };
+  }
+
+  // ------------------------------------------------------------
+  //  テッセレータ(固定機能)が作る点と三角形
+  //  点の位置は GL の仕様どおり: equal は一様。fractional は端の2本が伸び縮みし、間の (n-2) 本は長さ 1/レベル
+  //  三角形のつなぎ方は GPU ごとに違うので、外周の帯と内側の升目に分けた一例。数は実機の GL_PRIMITIVES_GENERATED と合う
+  // ------------------------------------------------------------
+  function edgePoints(level, spacing) {
+    const l = spacing === 'even' ? clamp(level, 2, MAX_LEVEL) : clamp(level, 1, MAX_LEVEL);
+    const n = round(l, spacing);
+    if (spacing === 'equal' || n === 1) return Array.from({ length: n + 1 }, (_, i) => i / n);
+    const full = 1 / l, partial = (l - (n - 2)) / 2 / l;
+    const t = [0];
+    t.push(partial);
+    for (let i = 0; i < n - 2; i++) t.push(t[t.length - 1] + full);
+    t.push(1);
+    return t;
+  }
+  // outer = [u=0, v=0, u=1, v=1] の4辺のレベル、inner = [横, 縦]。返り値 {pts: [[u, v]], tris: [[a, b, c]]}
+  // 外周の4辺それぞれと、内側の升目の4辺の間(台形)を、1本ずつ進めてつなぐ。内側の升目は2枚ずつに割る
+  function quadTess(outer, inner, spacing) {
+    const e = outer.map((l) => edgePoints(l, spacing));
+    const tu = edgePoints(inner[0], spacing), tv = edgePoints(inner[1], spacing);
+    const n0 = tu.length - 1, n1 = tv.length - 1;
+    const pts = [], tris = [];
+    const add = (u, v) => { pts.push([u, v]); return pts.length - 1; };
+    const c00 = add(0, 0), c10 = add(1, 0), c11 = add(1, 1), c01 = add(0, 1);
+    if (n0 < 2 || n1 < 2) {
+      // 全部 1 のときは四角形を2つに割るだけ。外側が 1 でないのに内側が 1 の組は、このページでは 2 として扱う(GL の挙動は確かめていない)
+      if (n0 < 2 && n1 < 2 && e.every((x) => x.length === 2)) { tris.push([c00, c10, c11], [c11, c01, c00]); return { pts, tris }; }
+      return quadTess(outer, [Math.max(2, inner[0]), Math.max(2, inner[1])], spacing);
+    }
+    const lat = {};
+    const at = (j, k) => lat[j + ',' + k] ?? (lat[j + ',' + k] = add(tu[j], tv[k]));
+    // 外周の1辺の点(両端の角を含む)。t は辺の上の位置、place(t) は (u, v)
+    const outerSide = (t, from, to, place) => [from, ...t.slice(1, -1).map((x) => add(...place(x))), to];
+    const O = [
+      outerSide(e[1], c00, c10, (x) => [x, 0]),   // v = 0(下)
+      outerSide(e[2], c10, c11, (x) => [1, x]),   // u = 1(右)
+      outerSide(e[3], c01, c11, (x) => [x, 1]),   // v = 1(上)。左から右へ
+      outerSide(e[0], c00, c01, (x) => [0, x]),   // u = 0(左)。下から上へ
+    ];
+    // 内側の升目の4辺(角の格子点を含む)
+    const range = (a, b) => { const r = []; const st = Math.sign(b - a) || 1; for (let x = a; st > 0 ? x <= b : x >= b; x += st) r.push(x); return r; };
+    const I = [
+      range(1, n0 - 1).map((j) => at(j, 1)),
+      range(1, n1 - 1).map((k) => at(n0 - 1, k)),
+      range(1, n0 - 1).map((j) => at(j, n1 - 1)),
+      range(1, n1 - 1).map((k) => at(1, k)),
+    ];
+    // 4つの台形。下 = 下の外周と下の升目、右 = 右と右、上 = 上と上、左 = 左と左(向きは外周と升目で同じ)
+    for (let s = 0; s < 4; s++) {
+      const P = O[s], Q = I[s], o = P.length - 1, m = Q.length - 1;
+      let ip = 0, iq = 0;
+      while (ip < o || iq < m) {
+        if (iq >= m || (ip < o && (ip + 1) / o <= (iq + 1) / m)) { tris.push([P[ip], P[ip + 1], Q[iq]]); ip++; }
+        else { tris.push([P[ip], Q[iq + 1], Q[iq]]); iq++; }
+      }
+    }
+    for (let j = 1; j <= n0 - 2; j++) for (let k = 1; k <= n1 - 2; k++) {
+      const p = at(j, k), q = at(j + 1, k), r = at(j + 1, k + 1), s = at(j, k + 1);
+      tris.push([p, q, r], [r, s, p]);
+    }
+    return { pts, tris };
+  }
+  // tess.tesc と同じ: 4辺のレベルから内側を決める(内側は向かい合う外側の大きいほう)
+  const innerOf = (o) => [Math.max(o[1], o[3]), Math.max(o[0], o[2])];
+  function maxRoundedLevel(mesh, eye, level, lodDistance, spacing) {
+    let worst = 1;
+    const patches = mesh.idx.length / 4;
+    for (let patch = 0; patch < patches; patch++) for (const l of patchLevels(mesh, patch, eye, level, lodDistance, true)) worst = Math.max(worst, round(l, spacing));
+    return worst;
+  }
+  return { edgePoints, quadTess, innerOf, F, MAX_LEVEL, NORMAL_STEP, height, bilinear, levelAt, round, worstEdgeMismatch, makeGrid, makeCubePatches, patchEdges, patchLevels, checkEdgeAgreement, maxRoundedLevel, mid, dist3 };
+})();
+if (typeof module !== 'undefined') module.exports = T63;
+
+return T63;
+})();
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const { norm3, sub3, cross3, makeView, shade, shadeRGB } = SoftView;
+const T = T63;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+const REDRAW = [];
+window.addEventListener('resize', () => { for (const f of REDRAW) f(); });
+const SPACING_NAME = { equal: 'equal_spacing', odd: 'fractional_odd_spacing', even: 'fractional_even_spacing' };
+const GRID = T.makeGrid(8, 6.0), CUBE = T.makeCubePatches(2, 2.0);
+const LOD_DISTANCE = 8.0, RADIUS = 2.4;
+
+// 割った結果は同じ(4辺のレベル・割り方)なら同じなので、作ったものを取っておく
+const tessCache = new Map();
+function tess(outer, inner, spacing) {
+  const key = outer.join(',') + '|' + inner.join(',') + '|' + spacing;
+  let t = tessCache.get(key);
+  if (!t) { if (tessCache.size > 400) tessCache.clear(); t = T.quadTess(outer, inner, spacing); tessCache.set(key, t); }
+  return t;
+}
+// パッチの4辺のレベル(tess.tesc)と、内側(向かい合う外側の大きいほう)
+function levelsOf(mesh, patch, st, eye) {
+  const o = st.lod ? T.patchLevels(mesh, patch, eye, st.level, LOD_DISTANCE, st.match) : [st.level, st.level, st.level, st.level];
+  return { outer: o, inner: st.lod ? T.innerOf(o) : [st.level, st.level] };
+}
+const roundN = (l, sp) => T.round(l, sp);
+
+// ============================================================
+//  パッチ1枚を割る
+// ============================================================
+{
+  const st = { spacing: 'equal', mode: 'uniform', level: 4.3, o: [8, 4, 2, 16] };
+  const EDGE_COL = ['#4fb8ff', '#7fe0a0', '#ffb83a', '#ff7aa8'];
+  function redraw() {
+    const edges = st.mode === 'edges';
+    for (const el of document.querySelectorAll('#ts-lab .ts-edge')) el.style.display = edges ? '' : 'none';
+    $('ts-all-ctl').style.display = edges ? 'none' : '';
+    $('ts-level-out').textContent = st.level.toFixed(1);
+    st.o.forEach((v, i) => { $('ts-o' + i + '-out').textContent = v.toFixed(1); });
+    const outer = edges ? st.o.slice() : [st.level, st.level, st.level, st.level];
+    const inner = T.innerOf(outer);
+    const q = tess(outer, inner, st.spacing);
+    const { ctx, w, h } = fit($('ts-canvas'));
+    const S = Math.min(h - 56, w - 140), X0 = (w - S) / 2, Y0 = 28;
+    const P = ([u, v]) => [X0 + u * S, Y0 + (1 - v) * S];
+    ctx.fillStyle = tok('--surface'); ctx.fillRect(X0, Y0, S, S);
+    ctx.lineWidth = 1; ctx.strokeStyle = tok('--muted');
+    for (const [a, b, c] of q.tris) {
+      const A = P(q.pts[a]), B = P(q.pts[b]), C = P(q.pts[c]);
+      ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(C[0], C[1]); ctx.closePath(); ctx.stroke();
+    }
+    // 辺ごとに色を変えた点。内側の升目の点は小さく
+    const ep = [0, 1, 2, 3].map((i) => T.edgePoints(outer[i], st.spacing));
+    const place = [(t) => [0, t], (t) => [t, 0], (t) => [1, t], (t) => [t, 1]];
+    ep.forEach((tt, i) => { ctx.fillStyle = EDGE_COL[i]; for (const t of tt) { const p = P(place[i](t)); ctx.beginPath(); ctx.arc(p[0], p[1], 4.5, 0, Math.PI * 2); ctx.fill(); } });
+    ctx.fillStyle = tok('--ink');
+    q.pts.forEach(([u, v]) => { if (u > 0 && u < 1 && v > 0 && v < 1) { const p = P([u, v]); ctx.beginPath(); ctx.arc(p[0], p[1], 2.5, 0, Math.PI * 2); ctx.fill(); } });
+    ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'center';
+    const lab = (i, text, x, y) => { ctx.fillStyle = EDGE_COL[i]; ctx.fillText(text, x, y); };
+    lab(0, 'Outer[0] ' + outer[0].toFixed(1), X0 - 52, Y0 + S / 2); lab(2, 'Outer[2] ' + outer[2].toFixed(1), X0 + S + 52, Y0 + S / 2);
+    lab(3, 'Outer[3] ' + outer[3].toFixed(1), X0 + S / 2, Y0 - 10); lab(1, 'Outer[1] ' + outer[1].toFixed(1), X0 + S / 2, Y0 + S + 18);
+    const n = (l) => roundN(l, st.spacing);
+    const seg4 = outer.map(n);
+    const innerN = [n(Math.max(2, inner[0])), n(Math.max(2, inner[1]))];
+    let ratio = '—';
+    if (st.spacing !== 'equal' && !edges) {
+      const nn = n(outer[0]), lv = clampN(outer[0], st.spacing === 'even' ? 2 : 1, 64);
+      ratio = nn === 1 ? '割らない' : (((lv - (nn - 2)) / 2)).toFixed(2) + ' 倍';
+    }
+    $('ts-stats').innerHTML = stat('外側の等分数 [0 / 1 / 2 / 3]', seg4.join(' / ')) + stat('内側(横 x 縦)', `${innerN[0]} x ${innerN[1]}`) +
+      stat('三角形', comma(q.tris.length), edges ? '' : `<small> (2 x n^2 = ${2 * seg4[0] * seg4[0]})</small>`) + stat('端の2本 / 間の1本の長さ', ratio);
+    const equalSteps = st.spacing === 'equal';
+    $('ts-note').textContent = edges
+      ? '外側のレベルは辺ごとに決まる(隣のパッチと共有する辺は隣と同じ数にしておく。要点5)。内側は向かい合う外側の大きいほう(Inner[0] = max(Outer[1], Outer[3])、Inner[1] = max(Outer[0], Outer[2]))。外周の帯が、辺ごとに違う等分の数を内側の升目へつないでいる。'
+      : equalSteps
+        ? 'equal は整数へ切り上げる。レベルを 4.0 から 4.1 へ動かすと 4 等分から 5 等分へ一斉に変わる(面全体の点が動く)。'
+        : `${st.spacing === 'odd' ? '奇数' : '偶数'}へ切り上げ、端の2本だけを伸び縮みさせる。レベルを連続に動かしても、動くのは端の2本の点だけで、間の点は動かない。` + (st.spacing === 'even' ? ' レベル 1 は作れず、2 になる。' : '');
+  }
+  REDRAW.push(redraw);
+  seg('ts-spacing', (v) => { st.spacing = v; redraw(); });
+  seg('ts-mode', (v) => { st.mode = v; redraw(); });
+  $('ts-level').addEventListener('input', (e) => { st.level = Number(e.target.value); redraw(); });
+  for (let i = 0; i < 4; i++) $('ts-o' + i).addEventListener('input', (e) => { st.o[i] = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  亀裂
+// ============================================================
+{
+  const st = { topic: 'terrain', match: false, lod: true, level: 4, disp: 1.2, yaw: 0.35, time: 0, wire: false, byPatch: false, zoom: 3 };
+  const POSE = { terrain: { target: [0, 0.3, 0], dist: 5.5, yaw: 0.35, pitch: 0.28 }, sphere: { target: [0, 0, 0], dist: 7.0, yaw: 0.5, pitch: 0.22 } };
+  const fract = (x) => x - Math.floor(x);
+  const patchColor = (id) => {
+    const hue = fract(id * 0.61803399);
+    return [0, 2 / 3, 1 / 3].map((o) => clampN(Math.abs(fract(hue + o) * 6 - 3) - 1, 0, 1) * 0.55 + 0.35);
+  };
+  // tess.tese の世界座標(題材ごと)
+  function worldOf(base, st) {
+    if (st.topic === 'terrain') return [base[0], base[1] + T.height(base[0], base[2], st.time) * st.disp, base[2]];
+    const d = norm3(base);
+    const wave = 1 + st.disp * 0.12 * T.height(d[0] * 2, d[2] * 2, st.time);
+    return [d[0] * RADIUS * wave, d[1] * RADIUS * wave, d[2] * RADIUS * wave];
+  }
+  function redraw() {
+    $('cr-disp-out').textContent = st.disp.toFixed(1) + ' m';
+    $('cr-yaw-out').textContent = st.yaw.toFixed(2);
+    $('cr-time-out').textContent = st.time.toFixed(1) + ' 秒';
+    const mesh = st.topic === 'sphere' ? CUBE : GRID, pose = POSE[st.topic];
+    const { ctx, w, h } = fit($('cr-canvas'));
+    const view = makeView(w, h, st.yaw, pose.pitch, pose.dist, pose.target, st.zoom);
+    const patches = mesh.idx.length / 4;
+    const tris = [];
+    let total = 0;
+    for (let p = 0; p < patches; p++) {
+      const { outer, inner } = levelsOf(mesh, p, st, view.eye);
+      const q = tess(outer, inner, 'equal');
+      const at = p * 4, c = [0, 1, 2, 3].map((k) => mesh.v[mesh.idx[at + k]]);
+      const W = q.pts.map(([u, v]) => worldOf(T.bilinear(c[0], c[1], c[2], c[3], u, v), st));
+      const P = W.map(view.project);
+      const col = st.byPatch ? patchColor(p) : (st.topic === 'sphere' ? [0.75, 0.8, 0.95] : [0.55, 0.75, 1.0]);
+      for (const [a, b, d] of q.tris) {
+        const n = norm3(cross3(sub3(W[b], W[a]), sub3(W[d], W[a])));
+        const toEye = sub3(view.eye, W[a]);
+        const s = n[0] * toEye[0] + n[1] * toEye[1] + n[2] * toEye[2] < 0 ? -1 : 1;
+        tris.push({ a: P[a], b: P[b], c: P[d], rgb: shadeRGB([n[0] * s, n[1] * s, n[2] * s], col, 0.45, 0.85) });
+      }
+      total += q.tris.length;
+    }
+    if (st.wire) {
+      ctx.fillStyle = '#12151c'; ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(220,230,255,0.75)'; ctx.lineWidth = 0.6; ctx.beginPath();
+      for (const t of tris) { ctx.moveTo(t.a[0], t.a[1]); ctx.lineTo(t.b[0], t.b[1]); ctx.lineTo(t.c[0], t.c[1]); ctx.closePath(); }
+      ctx.stroke();
+    } else {
+      // z バッファ付きで1画素ずつ塗る。画素の中心が三角形の中にあれば塗るので、辺を共有する2枚のあいだには隙間が出ず、
+      // 隙間(桃色)が出るのは、本当に三角形が届いていないところだけ
+      const W0 = Math.max(1, Math.round(w)), H0 = Math.max(1, Math.round(h));
+      const img = ctx.createImageData(W0, H0), px = img.data, zbuf = new Float32Array(W0 * H0).fill(Infinity);
+      for (let i = 0; i < W0 * H0; i++) { px[i * 4] = 255; px[i * 4 + 1] = 79; px[i * 4 + 2] = 147; px[i * 4 + 3] = 255; }
+      for (const t of tris) {
+        const [A, B, C] = [t.a, t.b, t.c];
+        if (A[2] <= 0.05 || B[2] <= 0.05 || C[2] <= 0.05) continue;
+        const area = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
+        if (Math.abs(area) < 1e-12) continue;
+        const x0 = Math.max(0, Math.floor(Math.min(A[0], B[0], C[0]))), x1 = Math.min(W0 - 1, Math.ceil(Math.max(A[0], B[0], C[0])));
+        const y0 = Math.max(0, Math.floor(Math.min(A[1], B[1], C[1]))), y1 = Math.min(H0 - 1, Math.ceil(Math.max(A[1], B[1], C[1])));
+        const iz = [1 / A[2], 1 / B[2], 1 / C[2]];
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const X = x + 0.5, Y = y + 0.5;
+          const w0 = ((B[0] - X) * (C[1] - Y) - (B[1] - Y) * (C[0] - X)) / area;
+          const w1 = ((C[0] - X) * (A[1] - Y) - (C[1] - Y) * (A[0] - X)) / area;
+          const w2 = 1 - w0 - w1;
+          if (w0 < -1e-9 || w1 < -1e-9 || w2 < -1e-9) continue;
+          const z = 1 / (w0 * iz[0] + w1 * iz[1] + w2 * iz[2]);
+          const k = y * W0 + x;
+          if (z < zbuf[k]) { zbuf[k] = z; px[k * 4] = t.rgb[0]; px[k * 4 + 1] = t.rgb[1]; px[k * 4 + 2] = t.rgb[2]; }
+        }
+      }
+      const tmp = document.createElement('canvas'); tmp.width = W0; tmp.height = H0;
+      tmp.getContext('2d').putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, 0, 0, w, h);
+    }
+    const ag = T.checkEdgeAgreement(mesh, view.eye, st.level, LOD_DISTANCE, 'equal', st.match);
+    const bad = st.lod ? ag.mismatched : 0;
+    $('cr-stats').innerHTML = stat('三角形', comma(total), `<small> (パッチ ${patches} 枚)</small>`) + stat('内部の辺', String(ag.internal)) +
+      stat('レベルが食い違う辺', st.lod ? String(bad) : '0', st.lod && bad > 0 ? `<small> (最大の差 ${ag.worst})</small>` : '');
+    let note;
+    if (!st.lod) note = '全部同じレベルなので、隣と食い違いようがない。距離で決めるときだけ亀裂の話になる。';
+    else if (st.match) note = '辺の中点から決めている。中点は両側で同じ点なので、隣り合うパッチの辺のレベルが必ず同じになり、隙間は開かない。';
+    else if (st.disp === 0) note = `パッチの中心から決めているので ${bad} 本の辺で食い違っているが、変位が 0 なので辺は直線のまま。点がずれても同じ線の上に乗り、隙間は開かない。`;
+    else note = `パッチの中心から決めているので、中心が違う距離にある隣どうしでレベルが食い違う(${bad} 本)。片方が 8 等分、もう片方が 16 等分の辺では、変位した高さが辺の上で違う場所の値になり、桃色の隙間(亀裂)になる。隙間は細く、レベルが高いほど細くなる(辺の曲がりは等分の幅の2乗で小さくなる)。レベル 16 で拡大なしなら、1画素に満たない点の列になる。球は面どうしの継ぎ目の辺を数えていないが、絵には出る。`;
+    $('cr-note').textContent = note;
+  }
+  REDRAW.push(redraw);
+  seg('cr-topic', (v) => { st.topic = v; st.yaw = POSE[v].yaw; $('cr-yaw').value = st.yaw; redraw(); });
+  seg('cr-match', (v) => { st.match = v === '1'; redraw(); });
+  seg('cr-lod', (v) => { st.lod = v === '1'; redraw(); });
+  seg('cr-level', (v) => { st.level = Number(v); redraw(); });
+  seg('cr-zoom', (v) => { st.zoom = Number(v); redraw(); });
+  $('cr-disp').addEventListener('input', (e) => { st.disp = Number(e.target.value); redraw(); });
+  $('cr-yaw').addEventListener('input', (e) => { st.yaw = Number(e.target.value); redraw(); });
+  $('cr-time').addEventListener('input', (e) => { st.time = Number(e.target.value); redraw(); });
+  $('cr-wire').addEventListener('change', (e) => { st.wire = e.target.checked; redraw(); });
+  $('cr-patch').addEventListener('change', (e) => { st.byPatch = e.target.checked; redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  距離 LOD の地図
+// ============================================================
+{
+  const st = { level: 16, spacing: 'equal', match: true, yaw: 0.35, pitch: 0.28, dist: 5.5 };
+  const COL = { 1: '#2b3a67', 2: '#2f5d8a', 4: '#2e8c8c', 8: '#52a35c', 16: '#c5b53a', 32: '#e88a3a', 64: '#d6453a' };
+  function redraw() {
+    $('lm-yaw-out').textContent = st.yaw.toFixed(2);
+    $('lm-pitch-out').textContent = st.pitch.toFixed(2);
+    $('lm-dist-out').textContent = st.dist.toFixed(1) + ' m';
+    const target = [0, 0.3, 0], cp = Math.cos(st.pitch);
+    const eye = [target[0] + st.dist * cp * Math.sin(st.yaw), target[1] + st.dist * Math.sin(st.pitch), target[2] + st.dist * cp * Math.cos(st.yaw)];
+    const { ctx, w, h } = fit($('lm-canvas'));
+    const S = Math.min(h - 24, w - 40), X0 = (w - S) / 2, Y0 = 12, cell = S / 8;
+    const toX = (x) => X0 + ((x + 3) / 6) * S, toZ = (z) => Y0 + ((z + 3) / 6) * S;
+    let lodTris = 0, worstLevel = 1;
+    const maxLv = [];
+    for (let p = 0; p < 64; p++) {
+      const o = T.patchLevels(GRID, p, eye, st.level, LOD_DISTANCE, st.match).map((l) => roundN(l, st.spacing));
+      const raw = T.patchLevels(GRID, p, eye, st.level, LOD_DISTANCE, st.match);
+      lodTris += tess(raw, T.innerOf(raw), st.spacing).tris.length;
+      worstLevel = Math.max(worstLevel, ...o);
+      maxLv.push(Math.max(...raw));
+    }
+    ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'center';
+    for (let p = 0; p < 64; p++) {
+      const x = p % 8, z = Math.floor(p / 8);
+      ctx.fillStyle = COL[maxLv[p]] || '#888'; ctx.fillRect(X0 + x * cell, Y0 + z * cell, cell - 1, cell - 1);
+      ctx.fillStyle = '#fff'; ctx.fillText(String(maxLv[p]), X0 + (x + 0.5) * cell, Y0 + (z + 0.5) * cell + 4);
+    }
+    // 食い違った辺(隣り合うパッチの、共有する辺のレベルが違うもの)
+    const levels = new Map(); let internal = 0, mism = 0, worst = 0;
+    for (let p = 0; p < 64; p++) {
+      const e = T.patchEdges(GRID, p), raw = T.patchLevels(GRID, p, eye, st.level, LOD_DISTANCE, st.match);
+      e.edges.forEach(([a, b, P0, P1], k) => {
+        const r = roundN(raw[k], st.spacing), key = a < b ? a + ',' + b : b + ',' + a;
+        if (!levels.has(key)) { levels.set(key, r); return; }
+        internal++;
+        if (levels.get(key) !== r) {
+          mism++; worst = Math.max(worst, Math.abs(levels.get(key) - r));
+          ctx.strokeStyle = '#ff2d55'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(toX(P0[0]), toZ(P0[2])); ctx.lineTo(toX(P1[0]), toZ(P1[2])); ctx.stroke();
+        }
+      });
+    }
+    // カメラの位置(真上から)
+    const ex = toX(eye[0]), ez = toZ(eye[2]);
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ez, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(ex, ez); ctx.lineTo(ex - Math.sin(st.yaw) * 26, ez - Math.cos(st.yaw) * 26); ctx.stroke();
+    const fixed = 2 * worstLevel * worstLevel * 64;
+    $('lm-stats').innerHTML = stat('距離で決めた三角形', comma(lodTris)) + stat('いちばん細かいパッチのレベル', String(worstLevel), `<small> → 全体を固定すると ${comma(fixed)} 枚</small>`) +
+      stat('距離で決めると', (lodTris * 100 / fixed).toFixed(1) + '%') + stat('レベルが食い違う辺', String(mism), `<small> / 内部の辺 ${internal}${mism ? `(最大の差 ${worst})` : ''}</small>`);
+    $('lm-note').textContent = mism === 0 && !st.match ? '食い違いは出ていない(このカメラでは、隣り合うパッチの中心が同じレベルの帯に入っている)。カメラを動かすと出る。' : (st.match ? '辺の中点から決めているので、赤い辺(隣と食い違う辺)は出ない。' : '赤い辺は、隣り合うパッチの中心が違うレベルの帯にあって、共有する辺のレベルが両側で食い違うところ。');
+  }
+  REDRAW.push(redraw);
+  seg('lm-level', (v) => { st.level = Number(v); redraw(); });
+  seg('lm-spacing', (v) => { st.spacing = v; redraw(); });
+  seg('lm-match', (v) => { st.match = v === '1'; redraw(); });
+  for (const [id, key] of [['lm-yaw', 'yaw'], ['lm-pitch', 'pitch'], ['lm-dist', 'dist']]) $(id).addEventListener('input', (e) => { st[key] = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  値段
+// ============================================================
+{
+  // reference の F11(平らな格子 64 パッチ x 32 回、equal)が RTX 3070 で測った GPU の時間(us)
+  const LEVELS = [1, 2, 4, 8, 16, 32, 64];
+  const US = [7.3, 7.9, 12.7, 22.6, 54.8, 129.4, 355.5];
+  const PER10K = [572.50, 153.75, 61.87, 27.54, 16.74, 9.87, 6.78];
+  const st = { level: 8, patches: 64 };
+  function redraw() {
+    const { ctx, w, h } = fit($('pc-canvas'));
+    const L = 70, R = w - 150, T0 = 14, B = h - 36;
+    const tri = (lv) => 2 * lv * lv * 64;
+    const rel = (v, base) => v / base;
+    // 縦軸は対数。レベル 1 のときの値を 1 とする
+    const ymax = Math.log10(tri(64) / tri(1)) + 0.1;
+    const X = (i) => L + (i / 6) * (R - L), Y = (v) => B - (Math.log10(v) / ymax) * (B - T0);
+    ctx.font = '11px ' + tok('--font-mono'); ctx.textAlign = 'right'; ctx.fillStyle = tok('--muted');
+    for (const v of [1, 10, 100, 1000, 10000, 100000]) { if (Math.log10(v) > ymax) continue; ctx.strokeStyle = tok('--grid'); ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillText(comma(v) + ' 倍', L - 6, Y(v) + 4); }
+    ctx.textAlign = 'center';
+    LEVELS.forEach((lv, i) => { ctx.fillText('レベル ' + lv, X(i), h - 16); });
+    const line = (vals, color, label) => {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      vals.forEach((v, i) => (i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)))); ctx.stroke();
+      vals.forEach((v, i) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X(i), Y(v), LEVELS[i] === st.level ? 6 : 3, 0, Math.PI * 2); ctx.fill(); });
+      ctx.textAlign = 'left'; ctx.fillStyle = color; ctx.fillText(label, R + 10, Y(vals[vals.length - 1]) + 4);
+    };
+    line(LEVELS.map((lv) => rel(tri(lv), tri(1))), tok('--muted'), '三角形の数');
+    line(US.map((u) => rel(u, US[0])), tok('--accent'), 'GPU の時間');
+    const i = LEVELS.indexOf(st.level), n = 2 * st.level * st.level * st.patches;
+    const us = st.patches === 64 ? US[i] : null;
+    $('pc-stats').innerHTML = stat('三角形', comma(n), `<small> (2 x ${st.level}^2 x ${st.patches})</small>`) + stat('GPU の時間', us === null ? '測っていない' : us.toFixed(1) + ' us', us === null ? '<small> (球の時間は reference の F11 の表に無い)</small>' : '') + stat('三角形1万枚あたり', us === null ? '—' : PER10K[i].toFixed(2) + ' us') +
+      stat('レベル 1 に対して', `三角形 ${comma(n / (2 * st.patches))} 倍 / 時間 ${(US[i] / US[0]).toFixed(1)} 倍`);
+    $('pc-note').textContent = 'レベルを2倍にすると三角形は4倍になるが、時間はそこまで増えない(パッチあたりの固定費が薄まる)。だから三角形1万枚あたりはレベルを上げるほど下がり、レベル 1 の 573us からレベル 64 の 6.8us まで 84 倍開く。';
+  }
+  REDRAW.push(redraw);
+  seg('pc-level', (v) => { st.level = Number(v); redraw(); });
+  seg('pc-patches', (v) => { st.patches = Number(v); redraw(); });
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
