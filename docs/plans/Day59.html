@@ -1,0 +1,1073 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 59 CPU レイトレーサ(1)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日から Labs — 新しいプロジェクトを始める</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 画素から光線を作る — ピンホールカメラ</a></li><li class="l3"><a href="#s7">2. 交差を解く — 球は2次方程式、平面は1次方程式</a></li><li class="l3"><a href="#s8">3. 光線の木 — Whitted 法(1980)</a></li><li class="l3"><a href="#s9">4. 屈折 — スネルの法則をベクトルで書く</a></li><li class="l3"><a href="#s10">5. フレネル — 跳ね返る割合は角度で変わる</a></li><li class="l3"><a href="#s11">6. アンチエイリアス — 1画素の中の何か所も通して平均する</a></li><li class="l3"><a href="#s12">7. 浮動小数との付き合い — 始点を浮かせる、向きを正規化し直す</a></li><li class="l3"><a href="#s13">8. 光線の数 — 画素の数 × 木の大きさ × 形の数</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">全体構成と依存の向き</a></li><li class="l3"><a href="#s19">Geometry — 光線と形</a></li><li class="l3"><a href="#s20">Shading — 材質・光源・光学の式</a></li><li class="l3"><a href="#s21">Tracing — カメラ・場面・光線の木・積み重ね</a></li><li class="l3"><a href="#s22">App — 窓と自己チェック</a></li><li class="l3"><a href="#s23">1フレームの流れ — UI スレッドは光線を1本も追わない</a></li><li class="l3"><a href="#s24">描き直しが始まってから絵が出るまで — 2つのスレッドの受け渡し</a></li><li class="l3"><a href="#s25">1本の光線を追うまで — Trace の中身</a></li><li class="l3"><a href="#s26">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s27">完成条件</a></li><li class="l3"><a href="#s28">1. 起動: 場面1「Whitted 1980」</a></li><li class="l3"><a href="#s29">2. 右クリック: 1画素を追う</a></li><li class="l3"><a href="#s30">3. <code>V</code>: 表示を回す</a></li><li class="l3"><a href="#s31">4. <code>S</code>: 影を切る</a></li><li class="l3"><a href="#s32">5. <code>E</code>: 始点を浮かせるのを切る</a></li><li class="l3"><a href="#s33">6. <code>J</code>: 画素内のずらしを切る</a></li><li class="l3"><a href="#s34">7. <code>2</code>: 場面2「屈折率と金属」、そして <code>F</code></a></li><li class="l3"><a href="#s35">8. <code>3</code>: 場面3「合わせ鏡」と、深さの上限</a></li><li class="l3"><a href="#s36">9. <code>2</code> のまま深さを上げる: 木が指数で茂る</a></li><li class="l3"><a href="#s37">10. <code>C</code>: 自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s38">11. その他</a></li><li class="l3"><a href="#s39">検証の途中で分かったこと</a></li><li class="l2"><a href="#s40">改造課題</a></li><li class="l3"><a href="#s41">課題1(易): ガラスの影を透かす</a></li><li class="l3"><a href="#s42">課題2(中): 重みで木を刈る</a></li><li class="l3"><a href="#s43">課題3(難): 薄レンズでボケを出す</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 59 / 計画書</p>
+  <h1>CPU レイトレーサ(1)</h1>
+  <p class="lede">球と平面、反射・屈折(光線の木で1画素を決める)</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日から Labs — 新しいプロジェクトを始める</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 画素から光線を作る — ピンホールカメラ</a></li><li class="l3"><a href="#s7">2. 交差を解く — 球は2次方程式、平面は1次方程式</a></li><li class="l3"><a href="#s8">3. 光線の木 — Whitted 法(1980)</a></li><li class="l3"><a href="#s9">4. 屈折 — スネルの法則をベクトルで書く</a></li><li class="l3"><a href="#s10">5. フレネル — 跳ね返る割合は角度で変わる</a></li><li class="l3"><a href="#s11">6. アンチエイリアス — 1画素の中の何か所も通して平均する</a></li><li class="l3"><a href="#s12">7. 浮動小数との付き合い — 始点を浮かせる、向きを正規化し直す</a></li><li class="l3"><a href="#s13">8. 光線の数 — 画素の数 × 木の大きさ × 形の数</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">全体構成と依存の向き</a></li><li class="l3"><a href="#s19">Geometry — 光線と形</a></li><li class="l3"><a href="#s20">Shading — 材質・光源・光学の式</a></li><li class="l3"><a href="#s21">Tracing — カメラ・場面・光線の木・積み重ね</a></li><li class="l3"><a href="#s22">App — 窓と自己チェック</a></li><li class="l3"><a href="#s23">1フレームの流れ — UI スレッドは光線を1本も追わない</a></li><li class="l3"><a href="#s24">描き直しが始まってから絵が出るまで — 2つのスレッドの受け渡し</a></li><li class="l3"><a href="#s25">1本の光線を追うまで — Trace の中身</a></li><li class="l3"><a href="#s26">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s27">完成条件</a></li><li class="l3"><a href="#s28">1. 起動: 場面1「Whitted 1980」</a></li><li class="l3"><a href="#s29">2. 右クリック: 1画素を追う</a></li><li class="l3"><a href="#s30">3. <code>V</code>: 表示を回す</a></li><li class="l3"><a href="#s31">4. <code>S</code>: 影を切る</a></li><li class="l3"><a href="#s32">5. <code>E</code>: 始点を浮かせるのを切る</a></li><li class="l3"><a href="#s33">6. <code>J</code>: 画素内のずらしを切る</a></li><li class="l3"><a href="#s34">7. <code>2</code>: 場面2「屈折率と金属」、そして <code>F</code></a></li><li class="l3"><a href="#s35">8. <code>3</code>: 場面3「合わせ鏡」と、深さの上限</a></li><li class="l3"><a href="#s36">9. <code>2</code> のまま深さを上げる: 木が指数で茂る</a></li><li class="l3"><a href="#s37">10. <code>C</code>: 自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s38">11. その他</a></li><li class="l3"><a href="#s39">検証の途中で分かったこと</a></li><li class="l2"><a href="#s40">改造課題</a></li><li class="l3"><a href="#s41">課題1(易): ガラスの影を透かす</a></li><li class="l3"><a href="#s42">課題2(中): 重みで木を刈る</a></li><li class="l3"><a href="#s43">課題3(難): 薄レンズでボケを出す</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の3日目</strong>で、<strong><code>Labs</code> の最初の日</strong>。Day 57・58 と違ってエンジン(HonyaEngine)には一切触れず、新しいプロジェクト <code>CpuRayTracer</code> をゼロから始める。<strong>GPU は1行も使わない</strong>。</p>
+<p>今日やることは1つ。<strong>画素から光線を出し、当たった面から影・反射・屈折の光線を枝分かれさせて、画素の色を「光線の木」で決める</strong> (Turner Whitted, 1980)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ラスタライズ(Day 1〜56)</th><th>レイマーチング(Day 58)</th><th>レイトレース(Day 59)</th></tr></thead>
+<tbody>
+<tr><td>向き</td><td>物体 → 画素(三角形を画面へ写す)</td><td>画素 → 物体(距離関数を頼りに歩く)</td><td><strong>画素 → 物体(式を解いて一発で当てる)</strong></td></tr>
+<tr><td>形の持ち方</td><td>三角形の並び</td><td>距離関数1本</td><td><strong>交差の式を持つ形</strong>(球・平面)</td></tr>
+<tr><td>影</td><td>シャドウマップ(Day 33。光の目からもう1回描く)</td><td>光へ向けてもう1本歩く</td><td><strong>光へ向けてもう1本撃つ</strong>(影の光線)</td></tr>
+<tr><td>映り込み</td><td>環境マップ(Day 36。周りを先に焼いておく)</td><td>(やっていない)</td><td><strong>反射の向きへもう1本撃つ</strong>。映り込みの中の映り込みも出る</td></tr>
+<tr><td>屈折</td><td>描けない(画面に写っていないものは見えない)</td><td>(やっていない)</td><td><strong>スネルの法則で曲げた向きへもう1本撃つ</strong></td></tr>
+<tr><td>どこで動くか</td><td>GPU</td><td>GPU(画素シェーダ1枚)</td><td><strong>CPU</strong>(C# の <code>Parallel.For</code>)</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>新規 17 ファイル</strong>(C# 16 本と csproj)。コメント込みで 2,678 行、コメントと空行を除くと 1,543 行。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、「向きの長さは 1」という約束が、ガラス玉の中で反射を繰り返すと 1回ごとに約 17 倍ずつ崩れていくこと</strong></p>
+<p>場面3(合わせ鏡)で深さの上限を 16 に上げたら、<strong>ガラス玉だけが真っ白に飛んだ</strong>。1画素を追うと、深さ 10 で色が <strong>3.8×10¹⁶</strong> になっていた。原因は浮動小数の丸め誤差で、光線の向きの長さが 1 から 1e-7 ずれると、球の交差の式(長さ 1 を前提に解いている)が<strong>面から少し外れた点</strong>を返し、その点から作った法線の長さが <strong>4 倍</strong>ずれ、その法線で反射した向きの長さがさらに <strong>4 倍</strong>ずれる。ほぼ垂直に往復する光線では、これが1回の反射ごとに掛かる。1e-7 から始まったずれは <strong>5 回目で 1% を超え</strong>、6 回目で 24% になり、その先は光線が玉の外へ出てしまう。直し方は1行で、<strong>反射・屈折の光線を作るたびに向きを正規化し直す</strong>(<code>WhittedTracer.SpawnRay</code>)。自己チェックの10項目めがこれを確かめている(要点7)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると、赤と黄の市松の床にガラス玉と鏡の玉と青い玉が並ぶ(Whitted の論文の1枚のまね)。1〜2 秒で 64 サンプルが重なり、地平線まで滑らかになる。ガラス玉の中に床が逆さまに映り、鏡の玉にガラス玉と空が映る。右クリックした画素の「光線の木」が、枝の1本ずつまで文字で出る。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>場面(Whitted 1980 / 屈折率と金属 / 合わせ鏡)</td></tr>
+<tr><td><code>[</code> / <code>]</code>(<code>↓</code> / <code>↑</code> でも可)</td><td>深さの上限(反射・屈折を何段まで追うか。0〜32、既定 5)。<strong>場面3で上げ下げすると、鏡の奥の何枚目から黒くなるかが変わる</strong></td></tr>
+<tr><td><code>S</code></td><td>影の光線 ON / OFF</td></tr>
+<tr><td><code>F</code></td><td>フレネル(正確 / シュリック / なし)。<strong>場面2の「屈折率 1.00」の玉が、シュリックでだけ見える</strong></td></tr>
+<tr><td><code>E</code></td><td>次の光線の始点を面から浮かせる ON / OFF。<strong>切ると影のにきびが出る</strong></td></tr>
+<tr><td><code>J</code></td><td>画素内のずらし ON / OFF。<strong>切ると 64 サンプル重ねてもギザギザが消えない</strong></td></tr>
+<tr><td><code>V</code></td><td>表示(陰影 / 法線 / 光線の数)。<strong>光線の数が今日の目</strong></td></tr>
+<tr><td>右クリック</td><td><strong>1画素を追う</strong>。その画素の光線の木を全部、字下げした行で出す</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code></td><td>カメラを回す / 寄る / 戻す</td></tr>
+<tr><td><code>C</code></td><td>今日の自己チェック(10 項目)</td></tr>
+<tr><td><code>P</code></td><td>PNG で保存(実行ファイルの隣の <code>captures/</code>)</td></tr>
+<tr><td><code>X</code> / <code>H</code> / <code>Esc</code></td><td>下の欄を消す / 文字を消す / 終了</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「画素の色は、光線の木の葉を足したもの」</strong>。カメラから出た1本の光線は、面に当たるたびに枝分かれする。拡散面なら光源へ影の光線を出して終わり、金属なら反射の光線を1本、ガラスなら反射と屈折の2本。<strong>枝ごとに「その向きからやって来る光」を同じ関数(<code>Trace</code>)で聞き直す</strong>ので、映り込みの中の映り込みも、ガラスの中の床も、特別なことをせずに出る(要点3)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// WhittedTracer.ShadeGlass。<strong>1本の光線が2本に分かれる場所</strong>
+bool canRefract = Optics.TryRefract(ray.Direction, hit.Normal, n1 / n2, out Vector3 refracted);
+float reflectance = canRefract ? DielectricFresnel(cosI, n1, n2) : 1.0f;   // 跳ね返る割合 F(全反射なら 1)
+
+if (reflectance &gt; 0.0f)
+{
+    Ray reflectedRay = SpawnRay(hit.Point, hit.Normal, Optics.Reflect(ray.Direction, hit.Normal));
+    color += reflectance * Trace(reflectedRay, depth + 1, ...);             // ← 自分自身を呼ぶ
+}
+
+if (canRefract &amp;&amp; reflectance &lt; 1.0f)
+{
+    Ray refractedRay = SpawnRay(hit.Point, -hit.Normal, refracted);         // ← 始点は面の向こう側へ浮かせる
+    color += (1.0f - reflectance) * Trace(refractedRay, depth + 1, ...);
+}</code></pre></div>
+<p><strong>2つ目は「当たりは、式を解けば一発で出る」</strong>。Day 58 のレイマーチングは距離関数を頼りに何十歩も歩いたが、球と平面は<strong>光線の式を代入すると2次方程式・1次方程式になる</strong>ので、解の公式1回で当たる距離が出る(要点2)。その代わり、<strong>形ごとに式を用意しなければならない</strong>(Day 58 は距離関数さえ書ければどんな形でも歩けた)。</p>
+<p><strong>3つ目は「浮動小数の誤差は、放っておくと光線の木を伝って増える」</strong>。今日は2か所でそれを踏んだ(要点7)。</p>
+<ul><li><strong>影のにきび</strong> … 当たった点が面の内側にずれると、そこから出た影の光線が<strong>自分の面に当たる</strong>。光の側を向いた点の 26.4% がこうなる。始点を法線の向きへ 1mm 浮かせると 0 になる</li><li><strong>向きの長さの崩れ</strong> … 上の囲みのとおり。反射・屈折のたびに正規化し直すと、30 回反射しても 1.2×10⁻⁷ に留まる</li></ul>
+<h3 id="s3">今日から Labs — 新しいプロジェクトを始める</h3>
+<p>CLAUDE.md の取り決め(「エンジンと独立した題材(Day 59〜62・67)は <code>Labs</code> に置く」)どおり、今日の reference は <strong>Day 58 のコピーではない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>どうするか</th></tr></thead>
+<tbody>
+<tr><td>reference</td><td><code>reference/Day59/</code> を新しく作った。<strong>Day 60・61 は Day 59 の完全コピー + 差分</strong>になる(同じ題材の中でつなぐ)</td></tr>
+<tr><td>work</td><td><strong><code>work/Labs/CpuRayTracer/</code></strong> を作る。csproj は <code>reference/Day59/Day59.csproj</code> を <code>CpuRayTracer.csproj</code> という名前でコピーする</td></tr>
+<tr><td>名前空間</td><td><code>CpuRayTracer</code>(Day 59〜61 で固定。Day 61 で GPU 版が入っても変えない)</td></tr>
+<tr><td>表示</td><td>Day 1〜10 と同じ <strong>WinForms + LockBits</strong>。GPU を使わない構成にしておくと「絵の全部を CPU が計算した」ことが疑いようもなくなり、Day 61 の比べる基準になる</td></tr>
+<tr><td>差分の確認</td><td><code>reference/diff.sh Day59</code> が <code>work/Labs/CpuRayTracer</code> と比べるように直した(Day 59〜61)</td></tr>
+<tr><td>実行</td><td><code>dotnet run --project reference/Day59 -c Release</code>。<strong>Debug は約 8 倍遅い</strong>(1パス 15ms → 120ms)</td></tr>
+</tbody>
+</table></div>
+<p>README の <code>Labs/</code> の Day 番号(ロードマップの番号が1つずれる前のままだった)と、CLAUDE.md の名前空間の一覧・コピーの例外も合わせて直してある。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://raytracing.github.io/books/RayTracingInOneWeekend.html">Peter Shirley ほか「Ray Tracing in One Weekend」</a>— <strong>今日の骨組みの一次資料</strong>。読むのは「Rays, a Simple Camera, and Background」「Adding a Sphere」「Surface Normals and Multiple Objects」「Antialiasing」「Metal」「Dielectrics」と、「Diffuse Materials」の中の <strong>shadow acne の節だけ</strong>。<strong>Diffuse Materials の本体(乱数で跳ね返す拡散)は今日は読み飛ばす</strong>——あれは Day 60 のパストレーシングそのものだから(要点3)。RTIOW の Dielectrics のシュリック近似は、ガラスの内側からでも入射角の cos を使っていて、臨界角の手前で大きく外れる(要点5。今日のコードは直してある)</li><li><a href="https://doi.org/10.1145/358876.358882">Turner Whitted, "An Improved Illumination Model for Shaded Display", Communications of the ACM 23(6), 1980</a>— 要点3の元の論文。<strong>光線の木</strong>(反射・屈折・影の光線)を初めて書いたもの。図の市松模様の床とガラス玉が場面1の元ネタ。論文の明るさの式にも、周りから届く光を一定値で済ませる環境光の項がある(要点3のごまかしの1つ目)</li><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection.html">Scratchapixel: Ray-Sphere Intersection</a>— 要点2。幾何で解く方法と、2次方程式で解く方法の両方。今日は後者(RTIOW の half-b の形)</li><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel.html">Scratchapixel: Reflection, Refraction and Fresnel</a>— 要点3〜5。反射・屈折の向きの式、フレネルの式、導体と誘電体の違い</li><li><a href="https://graphics.stanford.edu/courses/cs148-10-summer/docs/2006--degreve--reflection_refraction.pdf">Bram de Greve, "Reflections and Refractions in Ray Tracing"(2006, PDF)</a>— <strong>要点4・5をいちばん短く正確に書いた資料</strong>。スネルの法則のベクトル形の導き方、全反射、フレネルの式、シュリック近似で <strong>n1 &amp;gt; n2 のときは透過角を使う</strong>ことまで、数ページにまとまっている</li><li><a href="https://www.realtimerendering.com/raytracinggems/rtg/index.html">Ray Tracing Gems(2019)</a> の6章「A Fast and Robust Method for Avoiding Self-Intersection」と 7章「Precision Improvements for Ray/Sphere Intersection」— 要点7。始点を浮かせる幅を場面の大きさに合わせて決める方法と、球の交差の式の丸め誤差。無料で PDF が読める</li><li><strong>Day 33 の計画書</strong>(シャドウマップの影のアクネと深度バイアス)・<strong>Day 35 の計画書</strong>(Cook-Torrance のフレネル項)・<strong>Day 54 の計画書 要点2</strong>(Halton のずらし) — 今日は「同じ問題を光線で解くとどうなるか」の見比べになる</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 画素から光線を作る — ピンホールカメラ</h3>
+<p>ラスタライズは、点にビュー行列と射影行列を掛けて<strong>画面へ写した</strong>(Day 6)。レイトレースは逆に、<strong>画面の点から世界へ向かう向き</strong>を作る。行列は要らず、カメラの3つの軸(前・右・上)を組み合わせるだけで済む。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Camera.GetRay。(px, py) は画素の座標(左上の角が整数、真ん中は +0.5)
+float ndcX = px / Width * 2.0f - 1.0f;                    // -1〜+1
+float ndcY = 1.0f - py / Height * 2.0f;                   // y は画面では下向き、世界では上向き
+Vector3 direction = _forward + _right * (ndcX * _halfWidth) + _up * (ndcY * _halfHeight);
+return new Ray(Position, Vector3.Normalize(direction));</code></pre></div>
+<p><code>_halfHeight = tan(縦の画角 / 2)</code> は、<strong>前へ 1 進んだところに置いた画面</strong>の半分の高さ。<code>_halfWidth</code> はそれに縦横比を掛けたもの。3軸は Day 6 の <code>LookAt</code> と同じく外積2回で作る(ワールドの上と前から右を作り、右と前から「本当の上」を作り直す)。</p>
+<p>座標を小数で受け取るのは、<strong>1画素の中のどこを通すかをずらして何本も撃つ</strong>ため(要点6)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ラスタライズ</th><th>レイトレース</th></tr></thead>
+<tbody>
+<tr><td>1画素に対してやること</td><td>覆っている三角形を塗る</td><td><strong>光線を1本撃って、当たったものを聞く</strong></td></tr>
+<tr><td>画面に写っていないもの</td><td>存在しないのと同じ</td><td><strong>光線が届けば見える</strong>(鏡の中の、カメラの後ろ)</td></tr>
+<tr><td>手間を決めるもの</td><td>三角形の数 × 塗る画素</td><td><strong>画素の数 × 1画素の光線の数 × 1本の光線が聞く形の数</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s7">2. 交差を解く — 球は2次方程式、平面は1次方程式</h3>
+<p><strong>光線</strong> <code>P(t) = O + tD</code>(t ≥ 0)。<strong>D は必ず長さ 1</strong>にしておく約束で、そうすると t がそのまま距離(m)になる。</p>
+<p><strong>球</strong>(中心 C、半径 r)は <code>|P − C|² = r²</code>。光線を代入し、<code>oc = O − C</code> と置くと</p>
+<div class="code"><pre><code>(D·D) t² + 2 (oc·D) t + (oc·oc − r²) = 0</code></pre></div>
+<p>D が長さ 1 なので <code>D·D = 1</code>。1次の係数を <code>2b</code>(<code>b = oc·D</code>)と置くと、解の公式の 2 と 4 が消えて <strong><code>t = −b ± √(b² − c)</code></strong>(RTIOW の half-b)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>判別式・解</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td><code>b² − c &lt; 0</code></td><td>光線の直線が球をかすりもしない</td></tr>
+<tr><td>小さいほうの解 <code>−b − √</code></td><td>球に<strong>入る</strong>点。普通はこちら</td></tr>
+<tr><td>大きいほうの解 <code>−b + √</code></td><td>球から<strong>出る</strong>点。<strong>始点が球の中にある</strong>(ガラスの中を進む屈折の光線)ときはこちら</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>D·D = 1</code> を仮定している</strong>ことを覚えておくこと。要点7の2つ目の罠はここから始まる。</p>
+<p><strong>平面</strong>(<code>N·P = d</code>)は <code>t = (d − N·O) / (N·D)</code>。分母 <code>N·D</code> は「光線が面に向かう速さ」で、0 なら平行で当たらない。ラスタライズでは無限の床を描けなかった(大きな板で代用した)が、<strong>式1本で本当に無限</strong>になる。</p>
+<p>場面には形が何個もあるので、<strong>いちばん近いもの</strong>を探す。当たるたびに探す範囲の上限を縮めていくのが要点で、奥の形は範囲の外の解をすぐ捨てられる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Scene.Intersect(カメラ・反射・屈折の光線)
+float closest = float.PositiveInfinity;
+foreach (Shape candidate in Shapes)
+{
+    if (candidate.Intersect(ray, 0.0f, closest, out float hitT)) { closest = hitT; shape = candidate; }
+}</code></pre></div>
+<p><strong>影の光線は別の問い合わせ</strong>(<code>FindOccluder</code>)にしてある。知りたいのは「光源までの間に何か1つでもあるか」だけなので、<strong>最初に見つかった時点で抜けてよい</strong>。上限を光源までの距離にしておくのは、<strong>光源より向こうの物体を影にしない</strong>ため。</p>
+<p>形のほうは聞き方を2段に分けてある(<code>Shape.Intersect</code> は t だけ、<code>OutwardNormal</code> は法線だけ)。法線は<strong>いちばん近かった1つにだけ</strong>聞けばよいので、形が N 個あっても法線の計算は1本の光線につき1回で済む。</p>
+<h3 id="s8">3. 光線の木 — Whitted 法(1980)</h3>
+<p>1本の光線が面に当たったら、<strong>材質で枝の出し方を決める</strong>。</p>
+<svg viewBox="0 0 980 330" role="img" aria-label="カメラの光線が何に当たったかで枝の出し方が決まる。何にも当たらなければ空の色、拡散面なら環境光と影の光線で終わり、金属は反射の光線を1本、ガラスは反射と屈折の2本を出し、金属とガラスの先は深さを1つ増やして同じことを繰り返す" style="width:100%;max-width:980px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="380" y="10" width="200" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="34" text-anchor="middle" fill="var(--ink)">カメラの光線</text><rect x="380" y="80" width="200" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="480" y="102" text-anchor="middle" fill="var(--ink)">何に当たった?</text><rect x="10" y="170" width="150" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="85" y="194" text-anchor="middle" fill="var(--ink)">空の色</text><rect x="190" y="160" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="340" y="180.5" text-anchor="middle" fill="var(--ink)">環境光 + 光源ごとに影の光線を1本</text><text x="340" y="197.5" text-anchor="middle" fill="var(--ink)">見えた光源の分だけ明るくする</text><text x="340" y="214.5" text-anchor="middle" fill="var(--ink)">(ここで枝は終わり)</text><rect x="520" y="165" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="625" y="185.5" text-anchor="middle" fill="var(--ink)">反射の光線を1本</text><text x="625" y="202.5" text-anchor="middle" fill="var(--ink)">返ってきた色 × 反射色 F</text><rect x="750" y="165" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="860" y="185.5" text-anchor="middle" fill="var(--ink)">反射の光線と屈折の光線の2本</text><text x="860" y="202.5" text-anchor="middle" fill="var(--ink)">F と 1 - F で混ぜる</text><rect x="560" y="280" width="330" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="304" text-anchor="middle" fill="var(--ink)">同じことを繰り返す(深さ + 1)</text><path d="M480 50 L480 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M380 98 L85 98 L85 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="60" y="92" fill="var(--muted)" font-size="12">何にも</text><path d="M430 116 L430 140 L340 140 L340 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="280" y="136" fill="var(--muted)" font-size="12">拡散面</text><path d="M530 116 L530 140 L625 140 L625 163" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="631" y="136" fill="var(--muted)" font-size="12">金属</text><path d="M580 98 L860 98 L860 163" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="790" y="92" fill="var(--muted)" font-size="12">ガラス</text><path d="M625 215 L625 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M860 215 L860 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>金属とガラスの反射の向き</strong>は <code>r = d − 2(d·n)n</code>(<code>Optics.Reflect</code>)。d を「面に沿う成分」と「面に垂直な成分 <code>(d·n)n</code>」に分けると、反射は<strong>垂直な成分だけを反転する</strong>ことで、反転 = 2回引く、なので係数が 2 になる(Day 9 のスペキュラで使った <code>Vec3.Reflect</code> と同じ式)。</p>
+<p><strong>拡散面</strong>の色は、見えた光源ごとに</p>
+<div class="code"><pre><code>(albedo / π + ハイライト) × 光の色 × 強さ / 距離² × cosθ</code></pre></div>
+<p>を足したもの。<code>1/π</code> は、半球の全部の向きへ均等に散らした光を合計するとちょうど albedo 倍になる割り方で、<strong>点光源の強さ(W/sr)と単位が揃う</strong>。Day 60 のパストレーシングも同じ BRDF を使うので、同じ場面の直接光の明るさが今日と揃う。<code>/ 距離²</code> は逆2乗則(場面1の地平線の近くの床が暗いのはこれ。光源から遠い)。</p>
+<p>右クリックで場面1のガラス玉(画素 (560, 300))を追うと、こう出る。<strong>光線は 17 本</strong>(カメラ 1 / 影 6 / 反射 5 / 屈折 5)。</p>
+<div class="code"><pre><code>カメラ → ガラス玉  5.465m 先
+   屈折率 1.00 → 1.50  入射角 66.4度  反射 0.133 / 透過 0.867
+   影 → 光1: 届いた                                ← ハイライト(下の「ごまかし」の2つ目)
+   影: 光2 は面の裏側。光線は出さない
+   反射 → 床(市松)  2.922m 先                      ← 13.3% はここから
+      影 → 光1: 届いた
+      影 → 光2: 届いた
+   屈折 → ガラス玉  1.583m 先(内側から)             ← 86.7% はガラスの中へ
+      屈折率 1.50 → 1.00  入射角 37.6度  反射 0.132 / 透過 0.868
+      反射 → ガラス玉  1.584m 先(内側から)          ← 玉の中で跳ね返り続ける
+         屈折率 1.50 → 1.00  入射角 37.6度  反射 0.130 / 透過 0.870
+         反射 → ガラス玉  1.585m 先(内側から)
+            ...(あと2回、玉の中で跳ね返る)
+                  反射・屈折: 深さの上限なので追わない(黒)
+               屈折 → 鏡の玉  2.011m 先
+            屈折 → 床(市松)  6.530m 先
+         屈折 → 空
+      屈折 → 空</code></pre></div>
+<p><strong>玉の中の反射は、入射角が毎回ほぼ同じ</strong>(37.6 → 37.4 度)になっている。球の中の弦は、どこで跳ね返っても面と同じ角度を作るから(わずかに減っていくのは、始点を 1mm 内側へ浮かせているぶん)。</p>
+<div class="inject"><figure class="lab" id="tr-lab">
+  <div class="lab-head">
+    <h3>ガラス玉の光線の木を、断面で追う(要点3・4・5)</h3>
+    <span class="tag">半径 1m のガラス玉を、中心を通る面で切った図。この面に入った光線は、反射しても屈折してもこの面から出ない。線の太さと濃さが、その枝が画素の色に効く割合(F と 1 − F を掛け合わせたもの)</span>
+  </div>
+  <div class="stage"><canvas id="tr-canvas" style="height:330px" aria-label="ガラス玉の断面と、枝分かれする光線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">光線の高さ(玉の中心からのずれ)</span>
+      <div class="range"><input type="range" id="tr-b" min="-0.99" max="0.99" step="0.001" value="0.917"><output id="tr-b-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">屈折率(場面2の5つ)</span>
+      <div class="seg" id="tr-ior"><button data-v="1" aria-pressed="false">1.00</button><button data-v="1.1" aria-pressed="false">1.10</button><button data-v="1.33" aria-pressed="false">1.33</button><button data-v="1.5" aria-pressed="true">1.50</button><button data-v="2.42" aria-pressed="false">2.42</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">深さの上限([ ])</span>
+      <div class="range"><input type="range" id="tr-depth" min="0" max="12" step="1" value="5"><output id="tr-depth-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">フレネル(F)</span>
+      <div class="seg" id="tr-fr"><button data-v="exact" aria-pressed="true">正確</button><button data-v="schlick" aria-pressed="false">シュリック</button><button data-v="off" aria-pressed="false">なし</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tr-stats"></div><p id="tr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>この方法には「ごまかし」が3つある</strong>。どれも「光線1本では聞けないもの」を一定値で埋めている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ごまかし</th><th>なぜ要るか</th><th>今日の見え方</th><th>本当は(Day 60)</th></tr></thead>
+<tbody>
+<tr><td><strong>環境光</strong>(一定の色を足す)</td><td>拡散面は光をあらゆる向きへ散らすので、反射の光線1本では周りから届く光を聞けない</td><td>影の中が一様な暗さ</td><td>散らばる向きを乱数で選んで何本も平均する</td></tr>
+<tr><td><strong>金属・ガラスのハイライト</strong></td><td>点光源は大きさが 0 なので、反射の光線がちょうど光源に当たる確率も 0</td><td>鏡の玉に光源が小さな白い点として映る</td><td>面光源にすると、反射の光線が本当に光源に当たる</td></tr>
+<tr><td><strong>ガラスも影を落とす</strong></td><td>影の光線はまっすぐ光源へ向かうので、ガラスで曲がって届く光は聞けない</td><td><strong>ガラス玉の影が真っ黒</strong>。<strong>屈折率 1.00 の見えない玉にも影だけ落ちる</strong>(場面2)</td><td>ガラスを通って床に集まる光(集光・コースティクス)が出る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s9">4. 屈折 — スネルの法則をベクトルで書く</h3>
+<p>スネルの法則は <code>n1 sinθi = n2 sinθt</code>(n は屈折率。空気 1.00 / 水 1.33 / ガラス 1.5 / ダイヤモンド 2.42)。角度を使わずベクトルで書くために、<strong>向きを「面に沿う成分」と「面に垂直な成分」に分ける</strong>。</p>
+<ul><li><strong>面に沿う成分</strong>の長さは sin。入射の沿う成分 <code>d + cosθi n</code> を <strong><code>eta = n1/n2</code> 倍</strong>すれば、sin が eta 倍になる——スネルの法則の直訳</li><li><strong>面に垂直な成分</strong>は、長さ 1 に足りない分(<code>cosθt = √(1 − sin²θt)</code>)を面の奥へ補う</li></ul>
+<div class="code"><span class="lang">csharp</span><pre><code>// Optics.TryRefract。d は面へ向かう入射方向、n は入射側を向いた法線(どちらも長さ 1)
+float cosI = -Vector3.Dot(d, n);
+float sin2T = eta * eta * (1.0f - cosI * cosI);
+if (sin2T &gt; 1.0f) { return false; }                        // ← 全反射。透過の角度が存在しない
+float cosT = MathF.Sqrt(1.0f - sin2T);
+refracted = d * eta + n * (eta * cosI - cosT);</code></pre></div>
+<p><strong>全反射</strong>は <code>sin²θt &gt; 1</code>、つまり n1 &amp;gt; n2(ガラスから空気へ出る)でしか起きない。ガラス(1.5)の臨界角は <code>asin(1/1.5) = 41.81°</code>。自己チェックの5項目めは、<strong>41.7° は屈折し(反射率 0.690)、41.9° は全反射する</strong>ことを確かめている。臨界角の直前で反射率が急に 1 へ駆け上がる。</p>
+<p><strong>内側から当たった光線では n1 と n2 を入れ替える</strong>。<code>Trace</code> は「光線と外向きの法線の内積が正なら内側から」と判定し、法線を光線の側へ裏返したうえで <code>FrontFace = false</code> を残す。<code>ShadeGlass</code> はそれを見て屈折率の比を逆にする。<strong>法線を裏返しておくおかげで、<code>TryRefract</code> も <code>Reflect</code> も表裏を気にしない1通りの式で済む</strong>。</p>
+<h3 id="s10">5. フレネル — 跳ね返る割合は角度で変わる</h3>
+<p>光は面に当たると、一部が跳ね返り(F)、残りが中へ入る(1 − F)。<strong>消えも増えもしない</strong>ので、ガラスの2本の枝は F と 1 − F で混ぜる。</p>
+<p><strong>正確な式</strong>(偏光していない光)は、S 波と P 波の反射率の平均。</p>
+<div class="code"><pre><code>rs = (n1 cosθi − n2 cosθt) / (n1 cosθi + n2 cosθt)
+rp = (n2 cosθi − n1 cosθt) / (n2 cosθi + n1 cosθt)
+F  = (rs² + rp²) / 2</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>性質</th><th>自己チェック6項目めの値</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>垂直に見ると <strong>4%</strong>(1.00 ↔ 1.50)</td><td>外 0.0400 / 内 0.0400</td><td>ガラス玉の真ん中はほとんど素通し</td></tr>
+<tr><td><strong>かすめる角度で 100% に近づく</strong></td><td>cosθ = 0.001 で 0.9942</td><td><strong>ガラス玉の縁が空を映して明るい</strong>。水面を遠くまで見渡すと空が映るのと同じ</td></tr>
+<tr><td><strong>行きと帰りで同じ</strong>(θi で入る光と θt で出る光)</td><td>差 1.7×10⁻⁵</td><td>—</td></tr>
+<tr><td><strong>屈折率が同じなら 0</strong></td><td>0.0000</td><td><strong>場面2の「屈折率 1.00」の玉は完全に見えない</strong>(影だけ落ちる)</td></tr>
+</tbody>
+</table></div>
+<p><strong>シュリック近似</strong> <code>F = F0 + (1 − F0)(1 − cosθ)⁵</code>(<code>F0 = ((n1 − n2)/(n1 + n2))²</code>)は、Day 35 の Cook-Torrance でも使った式。今日のコードで気をつけているのは <strong>cosθ にどちらの角度を使うか</strong>で、<strong>屈折率の低い側(空気側)の角度</strong>を使う。ガラスの内側からなら、入射角ではなく<strong>透過角</strong>。反射率は行きと帰りで同じなので、空気側の角度で聞けば同じ近似が外からも内からも使える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>シュリックの cosθ</th><th>正確な式との差の最大(自己チェック7)</th><th>ガラスの内から 41.5°(臨界角の直前)</th></tr></thead>
+<tbody>
+<tr><td>外から(入射角)</td><td>0.036</td><td>—</td></tr>
+<tr><td><strong>内から、透過角</strong>(今日のコード)</td><td><strong>0.036</strong></td><td>0.576(正確には 0.542)</td></tr>
+<tr><td>内から、入射角(RTIOW の書き方)</td><td><strong>0.849</strong></td><td><strong>0.041</strong></td></tr>
+</tbody>
+</table></div>
+<p>RTIOW の書き方だと、臨界角の手前で「ほぼ素通し」と答えたあと、臨界角を越えた瞬間に全反射(1.0)へ跳ぶ。<strong>ガラス玉の縁の内側の明るい輪が、細く途切れた線になる</strong>。</p>
+<div class="inject"><figure class="lab" id="fr-lab">
+  <div class="lab-head">
+    <h3>跳ね返る割合 F と、シュリックの cos(要点5)</h3>
+    <span class="tag">Optics.FresnelDielectric(正確)・SchlickDielectric(空気側の角度)と、RTIOW の書き方(入射角の cos)。横軸は入射角</span>
+  </div>
+  <div class="stage"><canvas id="fr-canvas" style="height:280px" aria-label="入射角に対する反射率の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">どちらから当たるか</span>
+      <div class="seg" id="fr-side"><button data-v="out" aria-pressed="false">空気からガラスへ</button><button data-v="in" aria-pressed="true">ガラスの内から空気へ</button></div>
+    </div>
+    <div class="ctl"><span class="label">ガラスの屈折率</span>
+      <div class="seg" id="fr-ior"><button data-v="1" aria-pressed="false">1.00</button><button data-v="1.1" aria-pressed="false">1.10</button><button data-v="1.33" aria-pressed="false">1.33</button><button data-v="1.5" aria-pressed="true">1.50</button><button data-v="2.42" aria-pressed="false">2.42</button></div>
+    </div>
+    <div class="ctl"><span class="label">入射角</span>
+      <div class="range"><input type="range" id="fr-angle" min="0" max="89.9" step="0.1" value="41.5"><output id="fr-angle-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fr-stats"></div><p id="fr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>もう1つのシュリックの弱点は、<strong>n1 = n2 を知らない</strong>こと。F0 = 0 でも <code>(1 − cosθ)⁵</code> の項が残るので、<code>F</code> キーでシュリックにすると<strong>屈折率 1.00 の玉の縁がうっすら光って見えてしまう</strong>(自己チェック9: 空とのずれ 正確 6.0×10⁻⁷ / シュリック 0.142)。</p>
+<p><strong>金属</strong>は光を中へ通さないので屈折の枝が無く、代わりに<strong>反射の色 F0</strong> を持つ。金・銅が色づいて見えるのは、色ごとに跳ね返る割合が違うから。正確な式には複素屈折率が要るので、金属はシュリックだけにしてある。<strong>かすめる角度ではどの金属も白に近づく</strong>(場面2の金の玉の縁)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>金属</th><th>F0(線形の RGB)</th></tr></thead>
+<tbody>
+<tr><td>金</td><td>(1.00, 0.71, 0.29)</td></tr>
+<tr><td>銅</td><td>(0.95, 0.64, 0.54)</td></tr>
+<tr><td>アルミ</td><td>(0.91, 0.92, 0.92)</td></tr>
+</tbody>
+</table></div>
+<p><code>F</code> キーで「なし」にすると、角度によらず F0 を使う。場面2では <strong>8.1% の画素</strong>の色が変わる(ガラスの縁が暗くなり、金属の縁が白くならない)。</p>
+<h3 id="s11">6. アンチエイリアス — 1画素の中の何か所も通して平均する</h3>
+<p>1画素に光線1本だと、その画素の<strong>真ん中の1点だけ</strong>を見て色を決めることになる(点で標本を取る)。面の境目はギザギザになり、<strong>地平線の近くの市松模様</strong>は1画素に何十マスも入るのに1点しか見ないので、でたらめな模様(モアレ)になる。</p>
+<p>直し方は、<strong>1画素の中の違う場所を何回も通して平均する</strong>こと。今日はこれを<strong>積み重ね</strong>(プログレッシブレンダリング)でやる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// ProgressiveRenderer.RenderLoop。1パス = 全画素に1本ずつ
+for (int sample = 0; sample &lt; settings.MaxSamples; sample++)
+{
+    Vector2 offset = settings.Jitter ? SampleOffset(sample) : new Vector2(0.5f);   // 0 番は真ん中、1 番から Halton(2, 3)
+    Parallel.For(0, Height, options, y =&gt;
+    {
+        for (int x = 0; x &lt; Width; x++)
+        {
+            _accumulated[row + x] += tracer.Sample(camera, x + offset.X, y + offset.Y, ref rays);
+        }
+    });
+    Publish(sample + 1, ...);                                   // 合計 / サンプル数 を sRGB にして画面へ
+}</code></pre></div>
+<ul><li><strong>ずらしは Day 54 の TAA と同じ Halton(2, 3) 列</strong>。TAA は毎フレーム動く絵にずらしを重ねたので、前のフレームを動きに合わせて引き寄せる(再投影)手間があった。今日は<strong>止まった絵</strong>に重ねるので、足して割るだけで済む</li><li><strong>全部の画素が同じずらしを使う</strong>。平均したいのは「1画素の中の位置」だけなので、画素ごとに違う点にする必要は無い</li><li><strong>足し算は線形のまま、sRGB の曲線は画面に出す直前に1回だけ</strong>。先に曲線を掛けてから平均すると、明るい画素と暗い画素の境目(アンチエイリアスした縁)が暗く沈む</li></ul>
+<p><code>J</code> でずらしを切ると、64 サンプル重ねても<strong>毎回同じ光線</strong>になる。64 サンプルの絵と1サンプルの絵を比べると、<strong>違う画素は 38 個</strong> (518,400 画素中。合計を 64 で割るときの丸めの差だけ)——つまり<strong>本数を増やしても、通す場所が同じなら1本と何も変わらない</strong>。</p>
+<div class="inject"><figure class="lab" id="rd-lab">
+  <div class="lab-head">
+    <h3>3つの場面を JS で積み重ねる(要点6・8)</h3>
+    <span class="tag">WhittedTracer・SceneLibrary・Camera・ProgressiveRenderer(Halton のずらし・sRGB)を JS に移して、960x540 の 1/3(320x180)で描いたもの。絵をクリックすると、その画素を 960x540 の座標で追う(右クリックの代わり)</span>
+  </div>
+  <div class="stage"><canvas id="rd-canvas" style="height:auto;aspect-ratio:16/9;image-rendering:pixelated;cursor:crosshair" aria-label="レイトレースした絵。クリックした画素の光線の木を下に出す"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">場面(1 / 2 / 3)</span>
+      <div class="seg" id="rd-scene"><button data-v="0" aria-pressed="true">Whitted 1980</button><button data-v="1" aria-pressed="false">屈折率と金属</button><button data-v="2" aria-pressed="false">合わせ鏡</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(V)</span>
+      <div class="seg" id="rd-view"><button data-v="shade" aria-pressed="true">陰影</button><button data-v="normal" aria-pressed="false">法線</button><button data-v="rays" aria-pressed="false">光線の数</button></div>
+    </div>
+    <div class="ctl"><span class="label">フレネル(F)</span>
+      <div class="seg" id="rd-fr"><button data-v="exact" aria-pressed="true">正確</button><button data-v="schlick" aria-pressed="false">シュリック</button><button data-v="off" aria-pressed="false">なし</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">深さの上限([ ]。このページは 16 まで)</span>
+      <div class="range"><input type="range" id="rd-depth" min="0" max="16" step="1" value="5"><output id="rd-depth-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="rd-shadow" checked> 影(S)</label>
+    <label class="check"><input type="checkbox" id="rd-jitter" checked> 画素内のずらし(J)</label>
+    <label class="check"><input type="checkbox" id="rd-run" checked> 積み重ねる(64 サンプルまで)</label>
+  </div>
+  <div class="readout"><div class="stats" id="rd-stats"></div><pre id="rd-log" style="margin:10px 0 0;font-size:12px;line-height:1.45;max-height:320px;overflow:auto"></pre></div>
+</figure></div>
+<h3 id="s12">7. 浮動小数との付き合い — 始点を浮かせる、向きを正規化し直す</h3>
+<p><strong>(a) 影のにきび(shadow acne)</strong></p>
+<p>当たった点 <code>O + tD</code> は浮動小数で計算するので、本当の面から 10⁻⁷ m ほどずれる。<strong>面の内側にずれた点</strong>から影の光線を出すと、出てすぐ<strong>自分の面に当たって</strong>「影の中」と判定される。自己チェック8は、床と球の上の光の側を向いた 16,798 点のうち<strong>4,442 点(26.4%)が自分に当たる</strong>ことを数えている。画面では、<code>E</code> を切った直後の1パス目で <strong>11.4% の画素</strong>が変わり、ざらざらの黒い点になる。</p>
+<p>直し方は2通りあり、今日は2つ目を使っている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>やり方</th><th>中身</th><th>弱点</th></tr></thead>
+<tbody>
+<tr><td><strong>tMin を 0 より大きくする</strong>(RTIOW は 0.001)</td><td>始点のすぐ近くの当たりを無視する</td><td><strong>かすめる光線に効かない</strong>。面に対して角度 θ で出た光線は、誤差の幅 δ を抜けるまでに <code>δ / sinθ</code> 進むので、θ が小さいと tMin を超えてから自分に当たる</td></tr>
+<tr><td><strong>法線の向きへ始点を浮かせる</strong>(今日のコード。1mm)</td><td>面から ε だけ離れた点から出す。どの向きへ出ても、面からの高さは <code>ε + t sinθ</code> で ε を下回らない</td><td><strong>1mm より薄い物や隙間</strong>を飛び越える。場面の大きさが桁で変わるなら ε も変える(Ray Tracing Gems 6章)</td></tr>
+</tbody>
+</table></div>
+<p><strong>屈折の光線だけは、法線の逆向き(面の向こう側)へ浮かせる</strong>。手前側へ浮かせると、出てすぐ同じ面に当たり、ガラスの中へ入れないまま跳ね返り続ける。</p>
+<p>なお、<code>E</code> を切ったまま 64 サンプル重ねると、<strong>ざらざらは均されて「なんとなく暗い」に化ける</strong>(サンプルごとに光線の位置がずれ、どの点が自分に当たるかも変わるため)。<strong>1パス目の絵を見る</strong>か、<code>J</code> も切って比べること。Day 33 のシャドウマップのアクネと深度バイアスも、形は違うが同じ問題だった。</p>
+<p><strong>(b) 向きの長さの崩れ</strong></p>
+<p>冒頭の囲みの件。<strong><code>Ray</code> の約束「Direction は長さ 1」は、反射・屈折の式の上では保たれるのに、浮動小数では保たれない</strong>。しかもずれは次の反射で増幅される。</p>
+<ol><li>向きの長さが <code>1 + e</code> だと、球の交差(<code>D·D = 1</code> を仮定)は<strong>少し違う方程式</strong>を解くことになり、当たった点が面から外れる</li><li>外れた点から <code>(p − C) / r</code> で作った法線は、長さが <code>1 + 4e</code> 前後になる(実測で 4 倍)</li><li>長さ <code>1 + δ</code> の法線で <code>d − 2(d·n)n</code> と反射すると、ほぼ垂直な入射では向きの長さが <code>1 + 4δ</code> 前後になる(実測で 4 倍)</li></ol>
+<p>2と3で1回の反射ごとに<strong>約 17 倍</strong>。double で測ると 16.8 倍が綺麗に並び、float では 1e-7 から始まったずれが 5 回目の反射で 1.5%、6 回目で 24% になった。直し方は <code>SpawnRay</code> で<strong>反射・屈折の光線を作るたびに <code>Vector3.Normalize</code></strong> するだけ。自己チェック10は、同じ状況で<strong>正規化すれば 30 回反射してもずれ 1.2×10⁻⁷、しなければ 5 回目で 1% を超える</strong>ことを確かめている。</p>
+<p><strong>場面1・2の既定(深さ 5)では出なかった</strong>のがこの罠の嫌なところで、深さ 5 までなら 1.5% のずれは絵に出ない。深さを上げて初めて爆発する。</p>
+<div class="inject"><figure class="lab" id="dr-lab">
+  <div class="lab-head">
+    <h3>反射のたびに崩れる向きの長さ(要点7)</h3>
+    <span class="tag">自己チェック10と同じ形(半径 0.35 の玉の中で、ほぼ垂直に 30 回反射)。float(32 ビット)の丸めは Math.fround で真似ていて、C# の Vector3 と同じ数字が出る。縦軸は |長さ − 1|(対数)</span>
+  </div>
+  <div class="stage"><canvas id="dr-canvas" style="height:250px" aria-label="反射の回数に対する、向きの長さのずれ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">精度</span>
+      <div class="seg" id="dr-prec"><button data-v="f32" aria-pressed="true">float(C# と同じ)</button><button data-v="f64" aria-pressed="false">double</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dr-stats"></div><p id="dr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s13">8. 光線の数 — 画素の数 × 木の大きさ × 形の数</h3>
+<p><code>V</code> で「光線の数」にすると、1画素のために飛ばした光線の数(カメラ・影・反射・屈折の合計)が色になる。<strong>2倍ごとに1段</strong> (1 紺 / 2 青 / 4 水色 / 8 緑 / 16 黄 / 32 赤 / 64 以上 白)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面1のどこ</th><th>光線</th><th>内訳</th></tr></thead>
+<tbody>
+<tr><td>空</td><td>1</td><td>カメラだけ</td></tr>
+<tr><td>床</td><td>3</td><td>カメラ 1 + 影 2(光源が2つ)</td></tr>
+<tr><td>青い玉の、片方の光源に背を向けた縁</td><td>2</td><td>裏を向いた光源には影の光線を出さない</td></tr>
+<tr><td>鏡の玉</td><td>4〜10</td><td>反射の先で、また影の光線</td></tr>
+<tr><td>ガラス玉</td><td>15〜30</td><td>2本ずつ分かれ、玉の中で跳ね返り続ける</td></tr>
+</tbody>
+</table></div>
+<p><strong>深さの上限を上げたときの、1画素あたりの光線</strong>(Release。1パス目 = 画素の真ん中を通したとき。HUD は最後のパスの値なので、ずらしのぶん 0.01 ほど違うことがある)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>深さの上限</th><th>0</th><th>1</th><th>5(既定)</th><th>10</th><th>16</th><th>20</th><th>32</th></tr></thead>
+<tbody>
+<tr><td>場面1 Whitted 1980</td><td>2.55</td><td>2.86</td><td><strong>4.11</strong></td><td>5.61</td><td>7.45</td><td>8.69</td><td>12.45</td></tr>
+<tr><td>場面2 屈折率と金属</td><td>2.69</td><td>3.01</td><td><strong>4.47</strong></td><td>7.06</td><td>14.30</td><td>26.44</td><td><strong>342.71</strong></td></tr>
+<tr><td>場面3 合わせ鏡</td><td>1.92</td><td>3.03</td><td><strong>5.30</strong></td><td>7.57</td><td>10.51</td><td>12.73</td><td>21.67</td></tr>
+</tbody>
+</table></div>
+<p>場面1と3は<strong>深さに比例して</strong>増えるのに、<strong>場面2だけは深さ 12 を過ぎると4段ごとに倍になる</strong>。ガラス玉1つなら、玉の中で跳ね返る枝は1本のまま続き、外へ出た枝はたいてい床か空で終わる。ところが場面2は<strong>ガラス玉が5つ並び</strong>、外へ出た枝が<strong>隣のガラス玉に入って、また2本に分かれる</strong>。木が指数で茂る。深さ 32 では1パスに <strong>12 秒</strong>かかる(深さ 5 の 400 倍)。これが Whitted 法の木の弱点で、Day 60 のパストレーシングは<strong>枝を1本しか出さない</strong>(どちらへ進むかを F の割合で乱数で選ぶ)ことでこれを避ける。</p>
+<p><strong>形の数も効く</strong>。深さ 5 の1パスは、場面1(形 4 個)が 15ms・毎秒 1.4 億本、場面2(形 11 個)が 32ms・毎秒 0.7 億本。1本の光線が全部の形に聞く(総当たり)ので、形が 3 倍近くになると1本の手間がほぼ倍になる。<strong>Day 60 の BVH はここを削る</strong>。</p>
+<p>その他の数字。</p>
+<ul><li><strong>1パス目だけ遅い</strong>(場面1で 130ms、2パス目から 15ms)。.NET の JIT が、最初は手早いコードを作り、よく呼ばれるメソッドを後から最適化し直す(段階的コンパイル)ため</li><li><strong>Debug ビルドは約 8 倍遅い</strong>(場面1で 1パス 120ms、毎秒 1,800 万本)</li><li><strong>行ごとに分けて並列にしている</strong>。画素どうしが互いの結果を読まないので、どう分けても答えが変わらず、鍵も要らない。<strong>この「画素ごとに独立」が、Day 61 でそのままコンピュートシェーダの1回の呼び出しになる</strong></li></ul>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<p><strong>Day 58 からの差分は無い</strong>(新しいプロジェクト)。reference の中身は全部が新規で、Day 60 からは Day 59 のコピー + 差分になる。</p>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うちコード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Day59.csproj</code></td><td>36</td><td>WinExe / net10.0-windows / WinForms / PerMonitorV2。名前空間 <code>CpuRayTracer</code>。<strong>NuGet パッケージは使わない</strong></td></tr>
+<tr><td><code>Geometry/Ray.cs</code></td><td>29(6)</td><td>光線。<code>Origin</code> / <code>Direction</code>(長さ 1 の約束)/ <code>At(t)</code></td></tr>
+<tr><td><code>Shading/Material.cs</code></td><td>112(54)</td><td><code>MaterialKind</code>(拡散 / 金属 / ガラス)と <code>Material</code>。市松模様。作ったら変えない</td></tr>
+<tr><td><code>Shading/PointLight.cs</code></td><td>21(3)</td><td>点光源。逆2乗で届く</td></tr>
+<tr><td><code>Shading/Optics.cs</code></td><td>162(64)</td><td><strong>反射・屈折・フレネル(正確 / シュリック / 金属)の純粋な関数</strong>。形も場面も知らない</td></tr>
+<tr><td><code>Geometry/Shape.cs</code></td><td>53(14)</td><td>形の基底。<code>Intersect</code>(t だけ)と <code>OutwardNormal</code>(法線だけ)の2段</td></tr>
+<tr><td><code>Geometry/Sphere.cs</code></td><td>72(33)</td><td>球。half-b の2次方程式</td></tr>
+<tr><td><code>Geometry/Plane.cs</code></td><td>60(25)</td><td>無限の平面(両面)</td></tr>
+<tr><td><code>Tracing/Camera.cs</code></td><td>88(38)</td><td><code>OrbitView</code>(注視点・回転・距離・画角)と、画素から光線を作る <code>Camera</code></td></tr>
+<tr><td><code>Tracing/Scene.cs</code></td><td>116(49)</td><td>形・光源・環境光・空。<code>Intersect</code>(いちばん近い)と <code>FindOccluder</code>(何か1つ)</td></tr>
+<tr><td><code>Tracing/SceneLibrary.cs</code></td><td>150(90)</td><td>3つの場面</td></tr>
+<tr><td><code>Tracing/RenderSettings.cs</code></td><td>67(23)</td><td><code>FresnelMode</code> / <code>ViewMode</code> / 設定の record(不変)</td></tr>
+<tr><td><code>Tracing/WhittedTracer.cs</code></td><td>451(248)</td><td><strong>今日の主役</strong>。<code>RayCounters</code> / <code>TraceLog</code> / <code>SurfaceHit</code> と、光線の木を追う <code>WhittedTracer</code></td></tr>
+<tr><td><code>Tracing/ProgressiveRenderer.cs</code></td><td>327(192)</td><td>別スレッドで積み重ねる。下見・Halton のずらし・sRGB・取り消し</td></tr>
+<tr><td><code>App/SelfCheck.cs</code></td><td>445(336)</td><td>自己チェック 10 項目。窓も描画スレッドも使わない</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>489(355)</td><td>窓。ループ・転送・HUD・キーとマウス・1画素を追う・PNG 保存</td></tr>
+<tr><td><code>Program.cs</code></td><td>36(13)</td><td>エントリポイント</td></tr>
+</tbody>
+</table></div>
+<p>リポジトリの側で直したもの(<strong>写経の対象ではない</strong>): <code>reference/diff.sh</code>(Day 59〜61 を <code>work/Labs/CpuRayTracer</code> と比べる)、<code>README.md</code>(<code>Labs/</code> の Day 番号)、<code>CLAUDE.md</code>(名前空間の一覧と、Labs の初日はコピーにしない例外)。</p>
+<p><strong>今日の量は多い</strong>(コードだけで 1,543 行)。重ければ、下の順番の <strong>8 まで</strong>(交差と光学の式)と <strong>9 から</strong>(光線の木・積み重ね・窓)で2回に分けるとよい。<strong><code>App/SelfCheck.cs</code>(コード 336 行)は、写すより reference からコピーして読むだけにしてもよい</strong>——式の答え合わせが役目で、今日の理論は全部ほかのファイルにある。</p>
+<h3 id="s16">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong><code>Program.cs</code>(<code>Main</code>)を写すまでは、ビルドすると CS5001(エントリポイントが無い)だけが出る</strong>。それ以外のエラーが出ないことを確かめながら進める。</p>
+<ol start="0"><li><strong><code>work/Labs/CpuRayTracer/</code> を作り、<code>reference/Day59/Day59.csproj</code> を <code>CpuRayTracer.csproj</code> という名前でコピーする</strong>。以降のファイルはこのフォルダの中に、reference と同じサブフォルダ(<code>Geometry/</code> <code>Shading/</code> <code>Tracing/</code> <code>App/</code>)で置く</li><li><strong><code>Geometry/Ray.cs</code></strong> — どこにも依存しない</li><li><strong><code>Shading/Material.cs</code></strong> — どこにも依存しない</li><li><strong><code>Shading/PointLight.cs</code></strong> — どこにも依存しない</li><li><strong><code>Shading/Optics.cs</code></strong> — どこにも依存しない。<strong>要点4・5の式の全部</strong></li><li><strong><code>Geometry/Shape.cs</code></strong> — 1・2 を使う</li><li><strong><code>Geometry/Sphere.cs</code></strong> — 5 を継ぐ。要点2</li><li><strong><code>Geometry/Plane.cs</code></strong> — 5 を継ぐ</li><li><strong><code>Tracing/Camera.cs</code></strong> — 1 を使う(<code>OrbitView</code> もこのファイル)</li><li><strong><code>Tracing/Scene.cs</code></strong> — 3・5・8(<code>OrbitView</code>)を使う</li><li><strong><code>Tracing/SceneLibrary.cs</code></strong> — 2・3・6・7・8・9 を使う</li><li><strong><code>Tracing/RenderSettings.cs</code></strong> — どこにも依存しない(ここで写すのは、次の 12 が使うから)</li><li><strong><code>Tracing/WhittedTracer.cs</code></strong> — 4・8・9・11 を使う。<strong>今日の主役</strong></li><li><strong><code>Tracing/ProgressiveRenderer.cs</code></strong> — 12 を使う</li><li><strong><code>App/SelfCheck.cs</code></strong> — 4・6・7・9・12(<code>SpawnRay</code>)を使う</li><li><strong><code>App/ViewerWindow.cs</code></strong> — 10・13・14 を使う</li><li><strong><code>Program.cs</code></strong> — 15 を使う。<strong>ここで初めてビルドが通る</strong></li></ol>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>今日から <code>CpuRayTracer</code> の設計書を新しく始める</strong>。HonyaEngine の設計書は Day 58 の計画書にある(エンジンは今日1行も変わっていない)。Day 60・61 はこの設計書をコピーして差分を当てる。</p>
+<h3 id="s18">全体構成と依存の向き</h3>
+<svg viewBox="0 0 860 380" role="img" aria-label="Program.cs が App を、App が Tracing・Geometry・Shading を、Tracing が Geometry・Shading を、Geometry が Shading を使う。Shading はどこも知らない" style="width:100%;max-width:860px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="230" y="10" width="380" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="420" y="36" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.cs</text><rect x="230" y="88" width="380" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="420" y="114" text-anchor="middle" fill="var(--ink)">App/ 窓・自己チェック</text><rect x="230" y="166" width="380" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="420" y="192" text-anchor="middle" fill="var(--ink)">Tracing/ カメラ・場面・光線の木・積み重ね</text><rect x="230" y="244" width="380" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="420" y="270" text-anchor="middle" fill="var(--ink)">Geometry/ 光線と形</text><rect x="230" y="322" width="380" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="420" y="348" text-anchor="middle" fill="var(--ink)">Shading/ 材質・光源・光学の式</text><path d="M420 54 L420 86" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M420 132 L420 164" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M420 210 L420 242" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M420 288 L420 320" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M610 102 L660 102 L660 266 L612 266" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M610 118 L700 118 L700 344 L612 344" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M230 188 L180 188 L180 344 L228 344" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っている層</th><th>知らない層</th><th>中身</th></tr></thead>
+<tbody>
+<tr><td><code>Shading/</code></td><td><strong>どこも知らない</strong></td><td>形・場面・窓</td><td><code>Material</code> / <code>MaterialKind</code> / <code>PointLight</code> / <code>Optics</code></td></tr>
+<tr><td><code>Geometry/</code></td><td>Shading(形が材質を持つ)</td><td>場面・窓</td><td><code>Ray</code> / <code>Shape</code> / <code>Sphere</code> / <code>Plane</code></td></tr>
+<tr><td><code>Tracing/</code></td><td>Geometry・Shading</td><td><strong>窓(WinForms)</strong></td><td><code>OrbitView</code> / <code>Camera</code> / <code>Scene</code> / <code>SceneLibrary</code> / <code>RenderSettings</code> / <code>FresnelMode</code> / <code>ViewMode</code> / <code>WhittedTracer</code> / <code>RayCounters</code> / <code>TraceLog</code> / <code>SurfaceHit</code> / <code>ProgressiveRenderer</code> / <code>RenderStatus</code></td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td><td><code>ViewerWindow</code> / <code>SelfCheck</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>循環参照は無い</strong>(コメントを落として型名を拾い、確かめた)。いちばん大事なのは <strong><code>Tracing/</code> が WinForms を知らない</strong>こと。光線を追う側は <code>int[]</code> の画素を作るところまでで、それをどう画面に出すかは <code>App/</code> の仕事。だから:</p>
+<ul><li><strong>自己チェックが窓なしで走る</strong>(実際、検証では窓を開かないコンソールのプログラムから <code>Tracing/</code> をそのまま呼んで 3 つの場面を PNG にした)</li><li><strong>Day 61 で GPU 版を足すとき</strong>、<code>Tracing/</code> の横に並べるだけで、窓の作りを変えずに済む</li></ul>
+<p><code>Shading/Optics</code> がどこにも依存しないのも意図してある。反射・屈折・フレネルは <code>Vector3</code> と <code>float</code> だけの式で、<strong>Day 61 で GLSL へそのまま写す</strong>。</p>
+<h3 id="s19">Geometry — 光線と形</h3>
+<svg viewBox="0 0 900 320" role="img" aria-label="Geometry のクラス図。Shape(抽象)を Sphere と Plane が継ぎ、Shape は Material を持ち、Ray を使う" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="20" width="200" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="39" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Ray</text><line x1="20" y1="48" x2="220" y2="48" stroke="var(--line)"></line><text x="30" y="65" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Origin</text><text x="30" y="80" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Direction</text><text x="30" y="95" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+At(t) Vector3</text><rect x="320" y="20" width="300" height="110" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="35" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;abstract&gt;&gt;</text><text x="470" y="51" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Shape</text><line x1="320" y1="60" x2="620" y2="60" stroke="var(--line)"></line><text x="330" y="77" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="330" y="92" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Material Material</text><text x="330" y="107" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Intersect(ray, tMin, tMax, t) bool</text><text x="330" y="122" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+OutwardNormal(point) Vector3</text><rect x="220" y="230" width="200" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="320" y="249" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Sphere</text><line x1="220" y1="258" x2="420" y2="258" stroke="var(--line)"></line><text x="230" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Center</text><text x="230" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Radius</text><rect x="460" y="230" width="200" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="560" y="249" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Plane</text><line x1="460" y1="258" x2="660" y2="258" stroke="var(--line)"></line><text x="470" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Normal</text><text x="470" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Distance</text><rect x="720" y="40" width="160" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="800" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Material</text><path d="M419.6319661296162 138.46372267668357 L346.984126984127 230" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M426.3492063492064 130 L415.5435220166703 135.21892576164714 L423.72041024256214 141.70851959172003 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M500.836065550497 139.75573765604372 L543.8095238095239 230" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M496.1904761904762 130 L496.1235070569187 141.99981312917623 L505.5486240440753 137.51166218291118 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M620 65.45454545454545 L718.0040373287717 59.21792489725999" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M320 69.21428571428571 L221.99851390290394 65.43422839339773" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><code>Shape</code> が2つのメソッドに分かれているのは要点2のとおり(t はすべての形に、法線はいちばん近い1つにだけ聞く)。<strong>法線は「外向き」を返し、表か裏かは決めない</strong>。決めるのは光線の向きを知っている <code>WhittedTracer</code> で、形の側は「自分はどちらが外か」だけを知っていればよい。平面は両面なので、外向きは作ったときの <code>Normal</code> のまま。</p>
+<h3 id="s20">Shading — 材質・光源・光学の式</h3>
+<svg viewBox="0 0 960 330" role="img" aria-label="Shading のクラス図。静的な Optics、Material と MaterialKind(Diffuse / Metal / Glass)、PointLight。Material が MaterialKind を持つ" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="360" height="140" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="190" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="190" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Optics</text><line x1="10" y1="50" x2="370" y2="50" stroke="var(--line)"></line><text x="20" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Reflect(d, n) Vector3</text><text x="20" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryRefract(d, n, eta, refracted) bool</text><text x="20" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+FresnelDielectric(cosI, n1, n2) float</text><text x="20" y="112" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+SchlickDielectric(cosI, n1, n2) float</text><text x="20" y="127" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+NormalIncidenceReflectance(n1, n2) float</text><text x="20" y="142" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+SchlickConductor(cosI, f0) Vector3</text><rect x="400" y="10" width="340" height="218" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="570" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Material</text><line x1="400" y1="38" x2="740" y2="38" stroke="var(--line)"></line><text x="410" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+MaterialKind Kind</text><text x="410" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Albedo</text><text x="410" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 CheckerAlbedo</text><text x="410" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float CheckerSize</text><text x="410" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Specular</text><text x="410" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Shininess</text><text x="410" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Ior</text><text x="410" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Diffuse(albedo, specular, shininess) Material</text><text x="410" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Checker(albedo, checkerAlbedo, size) Material</text><text x="410" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Metal(f0, shininess) Material</text><text x="410" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Glass(ior, shininess) Material</text><text x="410" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AlbedoAt(point) Vector3</text><rect x="770" y="40" width="180" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="860" y="55" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="860" y="71" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MaterialKind</text><line x1="770" y1="80" x2="950" y2="80" stroke="var(--line)"></line><text x="780" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Diffuse</text><text x="780" y="112" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Metal</text><text x="780" y="127" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Glass</text><rect x="10" y="200" width="220" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PointLight</text><line x1="10" y1="228" x2="230" y2="228" stroke="var(--line)"></line><text x="20" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="20" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Color</text><text x="20" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Intensity</text><path d="M740 100.5344827586207 L768.0116950675854 97.49183312196918" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="10" y="320" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー</text></g></svg>
+<p><code>Material</code> は<strong>種類ごとのクラスに分けず、1つのクラスに <code>Kind</code> を持たせた</strong>。RTIOW は <code>lambertian</code> / <code>metal</code> / <code>dielectric</code> を別クラスにして「散らし方」を仮想関数にしているが、今日の枝の出し方は <code>WhittedTracer</code> の <code>switch</code> に集めてある。理由は Day 61 で、GPU には仮想関数が無く、材質は「種類の番号 + 数値の並び」で SSBO に置くことになるから。<strong>今のうちから同じ形にしておく</strong>。</p>
+<p><code>Albedo</code> が材質の種類によって意味を変える(拡散面の色 / 金属の F0 / ガラスでは使わない)のは、この割り切りの代償。</p>
+<h3 id="s21">Tracing — カメラ・場面・光線の木・積み重ね</h3>
+<svg viewBox="0 0 990 740" role="img" aria-label="Tracing のクラス図。WhittedTracer が Scene と RenderSettings を持ち、RayCounters・TraceLog・SurfaceHit を使う。ProgressiveRenderer は WhittedTracer を使い RenderStatus を持つ。Camera と Scene は OrbitView、SceneLibrary は Scene、RenderSettings は FresnelMode と ViewMode につながる" style="width:100%;max-width:990px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="190" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="105" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">OrbitView</text><line x1="10" y1="38" x2="200" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Target</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Yaw</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Pitch</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Distance</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float FovYDegrees</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><rect x="10" y="200" width="190" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="105" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Camera</text><line x1="10" y1="228" x2="200" y2="228" stroke="var(--line)"></line><text x="20" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="20" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="20" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GetRay(px, py) Ray</text><rect x="230" y="10" width="330" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="395" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Scene</text><line x1="230" y1="38" x2="560" y2="38" stroke="var(--line)"></line><text x="240" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="240" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+OrbitView DefaultView</text><text x="240" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+List~Shape~ Shapes</text><text x="240" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+List~PointLight~ Lights</text><text x="240" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Ambient</text><text x="240" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Sky(direction) Vector3</text><text x="240" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Intersect(ray, t, shape) bool</text><text x="240" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindOccluder(ray, maxDistance) Shape</text><rect x="600" y="10" width="170" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="685" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SceneLibrary</text><line x1="600" y1="50" x2="770" y2="50" stroke="var(--line)"></line><text x="610" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Count int</text><text x="610" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(index) Scene</text><rect x="800" y="10" width="180" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="890" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderSettings</text><line x1="800" y1="38" x2="980" y2="38" stroke="var(--line)"></line><text x="810" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxDepth</text><text x="810" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Shadows</text><text x="810" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FresnelMode Fresnel</text><text x="810" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool OffsetOrigin</text><text x="810" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Jitter</text><text x="810" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ViewMode View</text><text x="810" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxSamples</text><rect x="800" y="200" width="85" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="842.5" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">FresnelMode</text><rect x="895" y="200" width="85" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="937.5" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ViewMode</text><rect x="230" y="250" width="420" height="203" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="269" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">WhittedTracer</text><line x1="230" y1="278" x2="650" y2="278" stroke="var(--line)"></line><text x="240" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+float SurfaceOffset</text><text x="240" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Sample(camera, px, py, counters) Vector3</text><text x="240" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TracePixel(camera, x, y, color, counters) TraceLog</text><text x="240" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Trace(ray, depth, counters, log, label) Vector3</text><text x="240" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SpawnRay(point, side, direction) Ray</text><text x="240" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+HeatColor(rayCount) Vector3</text><text x="240" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ShadeDiffuse(hit) Vector3</text><text x="240" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ShadeMetal(ray, hit) Vector3</text><text x="240" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ShadeGlass(ray, hit) Vector3</text><text x="240" y="430" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SpecularHighlights(hit) Vector3</text><text x="240" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-TryReachLight(hit, light, toLight, irradiance) bool</text><rect x="680" y="300" width="150" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="755" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RayCounters</text><line x1="680" y1="328" x2="830" y2="328" stroke="var(--line)"></line><text x="690" y="345" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Camera</text><text x="690" y="360" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Shadow</text><text x="690" y="375" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Reflection</text><text x="690" y="390" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Refraction</text><text x="690" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Total</text><text x="690" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(other)</text><rect x="850" y="300" width="130" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="915" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">TraceLog</text><line x1="850" y1="328" x2="980" y2="328" stroke="var(--line)"></line><text x="860" y="345" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+List~string~ Lines</text><text x="860" y="360" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(depth, text)</text><rect x="680" y="450" width="180" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="770" y="469" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SurfaceHit</text><line x1="680" y1="478" x2="860" y2="478" stroke="var(--line)"></line><text x="690" y="495" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Point</text><text x="690" y="510" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Normal</text><text x="690" y="525" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 ToViewer</text><text x="690" y="540" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool FrontFace</text><text x="690" y="555" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Material Material</text><rect x="10" y="560" width="360" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="190" y="579" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ProgressiveRenderer</text><line x1="10" y1="588" x2="370" y2="588" stroke="var(--line)"></line><text x="20" y="605" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="20" y="620" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="20" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RenderStatus Status</text><text x="20" y="650" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Start(scene, camera, settings)</text><text x="20" y="665" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Stop()</text><text x="20" y="680" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CopyDisplay(destination, version) bool</text><text x="20" y="695" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+SampleOffset(sample) Vector2</text><text x="20" y="710" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+ToPixel(color, encodeSrgb) int</text><rect x="420" y="590" width="230" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="535" y="609" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderStatus</text><line x1="420" y1="618" x2="650" y2="618" stroke="var(--line)"></line><text x="430" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Samples</text><text x="430" y="650" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxSamples</text><text x="430" y="665" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double PassSeconds</text><text x="430" y="680" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double TotalSeconds</text><text x="430" y="695" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RayCounters PassRays</text><text x="430" y="710" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Finished</text><path stroke-dasharray="5 4" d="M105 200 L105 140" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M230 80.4655172413793 L201.99732996988422 79.01710327430435" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path stroke-dasharray="5 4" d="M600 61.43103448275862 L561.9821560649794 66.54377901195105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M422.6 250 L408.88078477307886 169.97124450962653" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M609.1666666666667 250 L798.2850141485749 136.52899151085506" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path stroke-dasharray="5 4" d="M650 359.8333333333333 L678.0015728466234 360.944506858993" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path stroke-dasharray="5 4" d="M560 250 L560 250 L560 280 L915 280 L915 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path stroke-dasharray="5 4" d="M650 450.1363636363636 L678.189741476332 463.3769997843378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path stroke-dasharray="5 4" d="M258.69565217391306 560 L350.42677300493307 454.509211044327" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M370 646.8260869565217 L418.0018876832899 648.9131255514474" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M864.3679245283018 153 L848.1937905161874 198.11732119168772" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M915.6320754716982 153 L931.8062094838126 198.11732119168772" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="10" y="730" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー</text></g></svg>
+<p><strong><code>Camera</code> / <code>Scene</code> / <code>RenderSettings</code> / <code>WhittedTracer</code> は、どれも作ったら変えない</strong>。描画スレッド(CPU の論理コア数 − 1 本)が同じものを読むので、途中で書き換わると1枚の絵の中で視点や設定が混ざる。キーを押したら<strong>新しい設定を作って、描画を止めてやり直す</strong> (<code>RenderSettings</code> が record で、<code>_settings with { Shadows = !_settings.Shadows }</code> と書けるのはこのため)。スレッドごとに書き換わるのは <code>RayCounters</code>(呼ぶ側が <code>ref</code> で渡す)と、<code>_accumulated</code> の自分の行だけ。</p>
+<p><code>WhittedTracer</code> の public なメソッドは入口が3つある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>入口</th><th>呼ぶ人</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Sample</code></td><td><code>ProgressiveRenderer</code>(描画スレッド)</td><td>1サンプル。表示が法線・光線の数ならその色を返す。<strong>文字列を1つも作らない</strong>(<code>log</code> は null)</td></tr>
+<tr><td><code>TracePixel</code></td><td><code>ViewerWindow</code>(UI スレッド、右クリック)</td><td>画素の真ん中を1本だけ追い、木を <code>TraceLog</code> に全部書く</td></tr>
+<tr><td><code>Trace</code> / <code>SpawnRay</code></td><td>自分自身(再帰)と <code>SelfCheck</code></td><td>光線1本を追う / 反射・屈折の光線を作る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s22">App — 窓と自己チェック</h3>
+<svg viewBox="0 0 960 360" role="img" aria-label="App のクラス図。ViewerWindow は Form を継ぎ、Program に使われ、ProgressiveRenderer を持ち、SelfCheck・SceneLibrary・WhittedTracer を使う" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="60" y="10" width="150" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Form</text><rect x="60" y="140" width="150" height="65" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="155" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="135" y="171" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Program</text><line x1="60" y1="180" x2="210" y2="180" stroke="var(--line)"></line><text x="70" y="197" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-Main()</text><rect x="300" y="10" width="290" height="248" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ViewerWindow</text><line x1="300" y1="38" x2="590" y2="38" stroke="var(--line)"></line><text x="310" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ProgressiveRenderer _renderer</text><text x="310" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-int[] _pixels</text><text x="310" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Bitmap _backBuffer</text><text x="310" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Scene _scene</text><text x="310" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-OrbitView _view</text><text x="310" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RenderSettings _settings</text><text x="310" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-bool _restartRequested</text><text x="310" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Run()</text><text x="310" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Restart()</text><text x="310" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Present()</text><text x="310" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DrawHud(g)</text><text x="310" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-TracePixel(x, y)</text><text x="310" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RunSelfCheck()</text><text x="310" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SaveImage()</text><rect x="680" y="10" width="260" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ProgressiveRenderer</text><rect x="680" y="110" width="260" height="65" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="125" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="810" y="141" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SelfCheck</text><line x1="680" y1="150" x2="940" y2="150" stroke="var(--line)"></line><text x="690" y="167" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Run(summary) IReadOnlyList~string~</text><rect x="680" y="240" width="260" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="259" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SceneLibrary</text><rect x="680" y="300" width="260" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">WhittedTracer</text><path d="M184.6378214456897 41.61342051298667 L300 82.5483870967742" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M174.45454545454544 38 L182.89234036268863 46.53250356508059 L186.38330252869076 36.694337460892754 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><path stroke-dasharray="5 4" d="M210 163.18548387096774 L298.0152478746051 152.25455792525065" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M590 90.3013698630137 L761.6305254657352 38.577101914435936" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M590 137.37671232876713 L678.0005420951514 139.42604002139393" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M590 181.67123287671234 L765.5167134607719 239.37535785011684" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M590 205.5068493150685 L779.8173693699559 299.1154150317591" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path></g></svg>
+<h3 id="s23">1フレームの流れ — UI スレッドは光線を1本も追わない</h3>
+<svg viewBox="0 0 920 447" role="img" aria-label="1フレームの流れ。Application.DoEvents でイベントを受け、描き直しの依頼が立っていれば Restart し、CopyDisplay で画素を受け取って Present し、30fps まで Sleep して頭へ戻る" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="10" width="440" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Application.DoEvents</text><text x="240" y="47.5" text-anchor="middle" fill="var(--ink)">キー・マウスのイベントが届く</text><text x="240" y="64.5" text-anchor="middle" fill="var(--ink)">(設定やカメラを変え、描き直しの依頼を立てるだけ)</text><rect x="80" y="107" width="320" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="129" text-anchor="middle" fill="var(--ink)">描き直しの依頼が立っている?</text><rect x="520" y="163" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="710" y="183.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Restart</text><text x="710" y="200.5" text-anchor="middle" fill="var(--ink)">新しい Camera を作って ProgressiveRenderer.Start</text><rect x="20" y="243" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="263.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CopyDisplay</text><text x="240" y="280.5" text-anchor="middle" fill="var(--ink)">版が進んでいれば画素を受け取る</text><rect x="20" y="319" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="339.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Present</text><text x="240" y="356.5" text-anchor="middle" fill="var(--ink)">LockBits で写す → HUD を重ねる → DrawImage</text><rect x="20" y="395" width="440" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="419" text-anchor="middle" fill="var(--ink)">次のフレームまで Sleep(30fps)</text><path d="M240 77 L240 105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M400 125 L710 125 L710 161" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="408" y="119" fill="var(--muted)" font-size="12">はい</text><path d="M240 143 L240 241" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="248" y="161" fill="var(--muted)" font-size="12">いいえ</text><path d="M710 213 L710 268 L462 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M240 293 L240 317" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M240 369 L240 393" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M20 415 L8 415 L8 43.5 L18 43.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path></g></svg>
+<p>Day 1〜10 の GameWindow と同じ「自前のループ + LockBits で転送」だが、<strong><code>Render</code> にあたる段が無い</strong>。ラスタライザは毎フレーム全部を描き直したが、レイトレーサの絵は1パスごと(Release で 15〜35ms)にしか変わらないので、描くのは別スレッドに任せ、UI スレッドは「できたところまで」を見せ続けるだけにした。</p>
+<p><strong>描き直しの依頼をフラグにしてある</strong>のは、マウスを動かすと1秒に何百回もイベントが来るから。イベントのたびに <code>Start</code> すると、止めて始め直すことだけを繰り返して下見すら終わらない。<strong>ループの頭で1フレームに1回だけ</strong>やり直す。</p>
+<p>Day 1 のスピン待ち(最後の数 ms を CPU を回して待つ)はしていない。ぴったり 30fps に合わせるより、描画スレッドに CPU を譲るほうが大事。</p>
+<h3 id="s24">描き直しが始まってから絵が出るまで — 2つのスレッドの受け渡し</h3>
+<svg viewBox="0 0 960 524" role="img" aria-label="UI スレッドが Start を呼ぶと、ProgressiveRenderer は走っている描画を止めて合計を 0 に戻し、Task.Run で RenderLoop を始める。描画スレッド群は下見を作って版を進め、サンプルごとに Parallel.For で足し込んで Publish と Status の差し替えをする。UI スレッドは 30fps で CopyDisplay と Status を読む" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><line x1="120" y1="38" x2="120" y2="514" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="470" y1="38" x2="470" y2="514" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="820" y1="38" x2="820" y2="514" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="15" y="4" width="210" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="25" text-anchor="middle" fill="var(--ink)">UIスレッド</text><rect x="365" y="4" width="210" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ProgressiveRenderer</text><rect x="715" y="4" width="210" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="820" y="25" text-anchor="middle" fill="var(--ink)">描画スレッド群</text><path d="M120 56 L466 56" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="295" y="50" fill="var(--muted)" font-size="12" text-anchor="middle">Start</text><path d="M470 90 L816 90" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="645" y="84" fill="var(--muted)" font-size="12" text-anchor="middle">走っていれば Cancel して終わるまで待つ</text><path d="M470 124 L504 124 L504 138 L474 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="512" y="135" fill="var(--muted)" font-size="12" text-anchor="start">合計を 0 に戻す</text><path d="M470 158 L816 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="645" y="152" fill="var(--muted)" font-size="12" text-anchor="middle">Task.Run で RenderLoop</text><path d="M820 192 L786 192 L786 206 L816 206" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="778" y="203" fill="var(--muted)" font-size="12" text-anchor="end">下見 4x4 画素に1本</text><path d="M820 226 L474 226" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="645" y="220" fill="var(--muted)" font-size="12" text-anchor="middle">CommitStaging で版を1つ進める</text><path d="M820 286 L786 286 L786 300 L816 300" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="778" y="297" fill="var(--muted)" font-size="12" text-anchor="end">Parallel.For 行ごとに Sample を足し込む</text><path d="M820 320 L474 320" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="645" y="314" fill="var(--muted)" font-size="12" text-anchor="middle">Publish 平均を sRGB にして版を進める</text><path d="M820 354 L474 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="645" y="348" fill="var(--muted)" font-size="12" text-anchor="middle">Status を丸ごと差し替える</text><rect x="20" y="260" width="920" height="132" rx="6" fill="none" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="4 3"></rect><text x="28" y="275" fill="var(--accent)" font-size="12">loop  サンプルごと 最大 64 回</text><path d="M120 430 L466 430" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="295" y="424" fill="var(--muted)" font-size="12" text-anchor="middle">CopyDisplay 版が進んでいれば写す</text><path d="M120 464 L466 464" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="295" y="458" fill="var(--muted)" font-size="12" text-anchor="middle">Status を読んで HUD に出す</text><rect x="20" y="404" width="920" height="98" rx="6" fill="none" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="4 3"></rect><text x="28" y="419" fill="var(--accent)" font-size="12">loop  30fps</text></g></svg>
+<p>受け渡しは3か所で、それぞれ守り方が違う。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>何を</th><th>どう守るか</th><th>なぜそれで足りるか</th></tr></thead>
+<tbody>
+<tr><td>画素(<code>_display</code>)</td><td><strong>鍵</strong>(<code>lock</code>)の中で丸ごとコピー</td><td>描画スレッドは作業場(<code>_staging</code>)で作ってから写すので、鍵を持つのはコピーの一瞬だけ</td></tr>
+<tr><td>進み具合(<code>RenderStatus</code>)</td><td><strong>参照の差し替え</strong>(<code>Volatile.Write</code>)</td><td>record を毎回作り直すので、読む側には古いか新しいかのどちらか一方が丸ごと届く</td></tr>
+<tr><td>取り消し</td><td><code>CancellationToken</code></td><td><code>Parallel.For</code> が<strong>行の切れ目</strong>で見る。止まるまで最大1行ぶん待つ(普段は 1ms 足らず)</td></tr>
+</tbody>
+</table></div>
+<p><strong>下見(4x4 画素に1本)</strong>は積み重ねに入れない。カメラを回している最中の描き直しで、1パス目が終わる前に次の描き直しが来ても、何かが見えるようにするためのもの。</p>
+<h3 id="s25">1本の光線を追うまで — Trace の中身</h3>
+<svg viewBox="0 0 1000 768" role="img" aria-label="Trace の中身。Scene.Intersect で当たらなければ空の色、当たれば法線を表へ向け、材質で分かれる。拡散は環境光と光源ごとの TryReachLight、金属はハイライトのあと深さが上限未満なら反射の光線、ガラスは表裏で屈折率を決めて TryRefract とフレネルのあと、深さが上限未満なら反射と屈折の光線を出す" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="240" y="10" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="390" y="34" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Trace(ray, depth)</text><rect x="240" y="76" width="300" height="46" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="390" y="94.5" text-anchor="middle" fill="var(--ink)">Scene.Intersect</text><text x="390" y="111.5" text-anchor="middle" fill="var(--ink)">何かに当たる?</text><rect x="640" y="82" width="200" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="740" y="106" text-anchor="middle" fill="var(--ink)">空の色を返す</text><rect x="160" y="152" width="460" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="390" y="172.5" text-anchor="middle" fill="var(--ink)">当たった点と外向きの法線</text><text x="390" y="189.5" text-anchor="middle" fill="var(--ink)">光線と同じ向きなら内側から → 法線を裏返す</text><rect x="290" y="228" width="200" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="390" y="250" text-anchor="middle" fill="var(--ink)">材質の種類</text><rect x="40" y="314" width="270" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="338" text-anchor="middle" fill="var(--ink)">環境光 × albedo</text><rect x="40" y="380" width="270" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="404" text-anchor="middle" fill="var(--ink)">光源ごとに TryReachLight</text><rect x="40" y="446" width="270" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="466.5" text-anchor="middle" fill="var(--ink)">届いた光源の分だけ</text><text x="175" y="483.5" text-anchor="middle" fill="var(--ink)">(albedo / π + ハイライト) × E を足して返す</text><rect x="340" y="314" width="280" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="338" text-anchor="middle" fill="var(--ink)">ハイライト</text><rect x="340" y="380" width="280" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="480" y="402" text-anchor="middle" fill="var(--ink)">深さが上限未満?</text><rect x="340" y="446" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="466.5" text-anchor="middle" fill="var(--ink)">SpawnRay で反射の光線</text><text x="480" y="483.5" text-anchor="middle" fill="var(--ink)">Trace(depth + 1) × F を足して返す</text><rect x="340" y="546" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="566.5" text-anchor="middle" fill="var(--ink)">ハイライトだけ返す</text><text x="480" y="583.5" text-anchor="middle" fill="var(--ink)">(映り込みは黒)</text><rect x="650" y="314" width="320" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="338" text-anchor="middle" fill="var(--ink)">表裏で n1 と n2 を決め、TryRefract</text><rect x="650" y="380" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="400.5" text-anchor="middle" fill="var(--ink)">全反射なら F = 1</text><text x="810" y="417.5" text-anchor="middle" fill="var(--ink)">そうでなければ F をフレネルで</text><rect x="650" y="466" width="320" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="810" y="488" text-anchor="middle" fill="var(--ink)">深さが上限未満?</text><rect x="650" y="532" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="552.5" text-anchor="middle" fill="var(--ink)">F が 0 より大きければ</text><text x="810" y="569.5" text-anchor="middle" fill="var(--ink)">反射 → Trace × F</text><rect x="650" y="618" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="638.5" text-anchor="middle" fill="var(--ink)">屈折できて F が 1 未満なら</text><text x="810" y="655.5" text-anchor="middle" fill="var(--ink)">屈折 → Trace × (1 - F)</text><rect x="650" y="714" width="320" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="738" text-anchor="middle" fill="var(--ink)">ハイライトだけ返す</text><path d="M390 50 L390 74" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M540 99 L638 99" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="550" y="93" fill="var(--muted)" font-size="12">いいえ</text><path d="M390 122 L390 150" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="398" y="140" fill="var(--muted)" font-size="12">はい</text><path d="M390 202 L390 226" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M390 264 L390 290 L175 290 L175 312" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="181" y="306" fill="var(--muted)" font-size="12">拡散</text><path d="M390 264 L390 290 L480 290 L480 312" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="486" y="306" fill="var(--muted)" font-size="12">金属</text><path d="M390 264 L390 290 L810 290 L810 312" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="816" y="306" fill="var(--muted)" font-size="12">ガラス</text><path d="M175 354 L175 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M175 420 L175 444" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M480 354 L480 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M810 354 L810 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M810 430 L810 464" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M810 582 L810 616" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M480 416 L480 444" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="488" y="434" fill="var(--muted)" font-size="12">はい</text><path d="M620 398 L638 398 L638 571 L622 571" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="642" y="438" fill="var(--muted)" font-size="12">いいえ</text><path d="M810 502 L810 530" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="818" y="520" fill="var(--muted)" font-size="12">はい</text><path d="M970 484 L986 484 L986 734 L972 734" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="982" y="478" fill="var(--muted)" font-size="12" text-anchor="end">いいえ</text></g></svg>
+<p>光源が見えるかどうかは、拡散面もハイライトも同じ <code>TryReachLight</code> で聞く。</p>
+<svg viewBox="0 0 800 442" role="img" aria-label="TryReachLight。法線と光源への向きの内積が 0 以下なら影の光線を出さずに届かない。影を追わない設定なら届いたものとして E を計算し、追う設定なら始点を 1mm 浮かせて影の光線を出し、FindOccluder で光源より手前に何かあれば影、無ければ E を計算する" style="width:100%;max-width:800px;display:block;margin:8px 0 16px">
+<defs><marker id="arr10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="10" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="34" text-anchor="middle" fill="var(--ink)">光源への向き l と距離 d</text><rect x="20" y="76" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="170" y="98" text-anchor="middle" fill="var(--ink)">法線と l の内積が 0 以下?</text><rect x="20" y="152" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="170" y="174" text-anchor="middle" fill="var(--ink)">影を追う設定?</text><rect x="20" y="228" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="248.5" text-anchor="middle" fill="var(--ink)">始点を法線の向きへ 1mm 浮かせて</text><text x="170" y="265.5" text-anchor="middle" fill="var(--ink)">影の光線を1本</text><rect x="20" y="304" width="300" height="46" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="170" y="322.5" text-anchor="middle" fill="var(--ink)">FindOccluder</text><text x="170" y="339.5" text-anchor="middle" fill="var(--ink)">d より手前に何かある?</text><rect x="20" y="390" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="414" text-anchor="middle" fill="var(--ink)">影の中</text><rect x="440" y="70" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="590" y="90.5" text-anchor="middle" fill="var(--ink)">届かない</text><text x="590" y="107.5" text-anchor="middle" fill="var(--ink)">影の光線は出さない</text><rect x="440" y="150" width="300" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="590" y="174" text-anchor="middle" fill="var(--ink)">E = 色 × 強さ / d² × cosθ</text><path d="M170 50 L170 74" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M320 94 L438 94" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="330" y="88" fill="var(--muted)" font-size="12">はい</text><path d="M170 112 L170 150" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="178" y="130" fill="var(--muted)" font-size="12">いいえ</text><path d="M320 170 L438 170" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="330" y="164" fill="var(--muted)" font-size="12">いいえ</text><path d="M170 188 L170 226" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="178" y="206" fill="var(--muted)" font-size="12">はい</text><path d="M170 278 L170 302" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M170 350 L170 388" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="178" y="368" fill="var(--muted)" font-size="12">ある</text><path d="M320 327 L590 327 L590 192" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="330" y="321" fill="var(--muted)" font-size="12">無い</text></g></svg>
+<p><strong>内積の判定が影の光線より先にある</strong>のが小さな工夫。面が光源に背を向けていれば遮るものが無くても光は届かないので、光線を1本節約できる(場面1の青い玉の縁で光線が2本になるのはこれ。要点8)。</p>
+<h3 id="s26">今日残した歪み(4つ)</h3>
+<p><strong>1. 形が材質を参照で持っている</strong>(<code>Geometry</code> → <code>Shading</code>)。RTIOW と同じ形で、C# では素直だが、<strong>Day 61 で GPU に移すと参照が持てない</strong>。形の配列と材質の配列を分け、形には「材質の番号」を持たせることになる。そのとき <code>Geometry</code> から <code>Shading</code> への矢印が消える。直すのは Day 61。</p>
+<p><strong>2. <code>WhittedTracer</code> が、光線の木のほかに「表示の切り替え」と「1画素の記録」を抱えている</strong>。Day 60 でパストレーサを足すと、<code>Sample</code> の中の表示の切り替え(法線・光線の数)と <code>HeatColor</code> は両方に要る。<strong>光線の木の追い方(Whitted / パストレース)だけを差し替えられる形</strong>に、Day 60 で分ける。</p>
+<p><strong>3. <code>ProgressiveRenderer</code> が <code>WhittedTracer</code> を直接 <code>new</code> している</strong>。2と同じ理由で、Day 60 で「どちらの追い方で描くか」を受け取るようにする。</p>
+<p><strong>4. <code>Scene</code> の問い合わせが総当たり</strong>。要点8のとおり、形 4 個 → 11 個で毎秒の光線が半分になった。<code>Scene.Intersect</code> と <code>FindOccluder</code> の中だけを BVH に替えれば、呼ぶ側(<code>WhittedTracer</code>)は何も変わらない。これが Day 60 の後半。</p>
+</section>
+<section class="part"><h2 id="s27">完成条件</h2>
+<p><code>dotnet run --project reference/Day59 -c Release</code> で起動する(Debug でも動くが、1パスが約 8 倍遅い)。960x540 の窓が開き、左上に HUD が出る。</p>
+<h3 id="s28">1. 起動: 場面1「Whitted 1980」</h3>
+<p>一瞬だけ 4x4 画素のブロックの絵(下見)が出て、すぐ滑らかになる。<strong>1〜2 秒で 64 サンプルが重なって止まる</strong>。</p>
+<div class="code"><pre><code>場面 1/3: Whitted 1980    サンプル 64 / 64(完了)
+1パス 0.016 秒   合計 1.6 秒   毎秒 13212 万本
+1パスの光線: カメラ 51.8万 / 影 108.9万 / 反射 26.5万 / 屈折 25.4万   1画素あたり 4.10 本
+深さの上限 5 ([ ])   影 ON (S)   フレネル 正確 (F)   始点を浮かせる ON (E)   画素内のずらし ON (J)   表示 陰影 (V)</code></pre></div>
+<p>(1パスの時間・毎秒の本数は機械で変わる。上は 12 スレッドの CPU で、描画に 11 本を使ったとき)</p>
+<ul><li>赤と黄の市松の床が地平線まで続き、<strong>地平線の近くの模様が細かい灰色に溶けている</strong>(アンチエイリアス)</li><li>手前の<strong>ガラス玉の中に、床の市松が逆さまに小さく映る</strong>。縁は空を映して白っぽく明るい</li><li>右奥の<strong>鏡の玉に、ガラス玉・床・空が映る</strong></li><li>左の青い玉に白いハイライトが2つ(光源が2つ)</li><li><strong>ガラス玉の影は、ほかの玉の影と同じように暗い</strong>(要点3のごまかしの3つ目)</li></ul>
+<h3 id="s29">2. 右クリック: 1画素を追う</h3>
+<ul><li><strong>床</strong>を右クリック → <code>光線 3 本(カメラ 1 / 影 2 / 反射 0 / 屈折 0)</code>。木は3行(床に当たり、光1・光2 に届いた)</li><li><strong>ガラス玉の真ん中より右寄り</strong>を右クリック → 光線 15〜30 本。要点3の木が出る。<code>屈折 → ガラス玉 …(内側から)</code> の行が続き、<code>反射・屈折: 深さの上限なので追わない(黒)</code> で終わる枝がある。入りきらない行は <code>…(あと N 行)</code> になる</li></ul>
+<p>右クリックした画素に赤い十字が付く。<code>X</code> で欄と十字が消える。</p>
+<h3 id="s30">3. <code>V</code>: 表示を回す</h3>
+<ul><li><strong>法線</strong> … 床が一面の淡い緑(上向き)、玉は赤・緑・青のグラデーション。空は黒</li><li><strong>光線の数</strong> … 空が紺、床が青と水色の間(3本)。<strong>ガラス玉が黄〜橙</strong>(16〜32本)、鏡の玉が水色〜緑。青い玉は床と同じ色で見えなくなり、<strong>光源に背を向けた三日月形の縁だけが</strong>浮かぶ(片方に背を向けていれば青の2本、両方なら紺の1本)</li></ul>
+<p>もう1回押すと陰影に戻る。</p>
+<h3 id="s31">4. <code>S</code>: 影を切る</h3>
+<p>すべての影が消え、HUD の <code>1画素あたり</code> が <strong>4.10 → 2.00 本</strong>になる(影の光線が 0 に)。</p>
+<h3 id="s32">5. <code>E</code>: 始点を浮かせるのを切る</h3>
+<p><strong>押した直後、玉と床の全体にざらざらの黒い点</strong>が出る(影のにきび。1パス目で 11.4% の画素が変わる)。ガラス玉と青い玉がとくに目立つ。サンプルが重なると点は均されて、<strong>全体がうっすら暗い</strong>絵に落ち着く(要点7)。もう一度 <code>E</code> で戻す。</p>
+<h3 id="s33">6. <code>J</code>: 画素内のずらしを切る</h3>
+<p>64 サンプル重なっても、<strong>地平線の近くの市松がモアレのまま</strong>残り、玉の輪郭がギザギザのままになる。もう一度 <code>J</code> で戻す。</p>
+<h3 id="s34">7. <code>2</code>: 場面2「屈折率と金属」、そして <code>F</code></h3>
+<p>手前にガラス玉が<strong>左から屈折率 1.00 / 1.10 / 1.33 / 1.50 / 2.42</strong>、奥に<strong>白(つや消し)/ 赤(つや)/ 金 / 銅 / アルミ</strong>の玉が並ぶ。</p>
+<ul><li><strong>いちばん左の手前(屈折率 1.00)には玉が見えない</strong>。床に影だけが落ちている</li><li>屈折率 1.10 の玉は<strong>縁の細い輪</strong>のように見え、屈折率が上がるほど玉の中の床が小さく逆さまになる</li><li>2.42(ダイヤモンド)は玉の中で全反射を繰り返し、細かくきらめく</li><li>金・銅の玉は、<strong>縁へ行くほど白っぽくなる</strong></li></ul>
+<p><code>F</code> を1回押す(シュリック)と、<strong>屈折率 1.00 の玉の輪郭がうっすら現れる</strong>(下半分に床の暗い映り込み)。もう1回(なし)で、ガラスの縁の明るい輪が消え、金属の縁が白くならなくなる。もう1回で正確に戻る。</p>
+<h3 id="s35">8. <code>3</code>: 場面3「合わせ鏡」と、深さの上限</h3>
+<p>床と天井と、左右の鏡に挟まれた廊下。手前に赤い玉、左にガラス玉、右に金の玉。<strong>画面の左半分は、鏡(x=+1.6)に映った廊下</strong>で、赤い玉とガラス玉が奥へ並んで小さくなっていく(カメラは −Z 側から +Z の向きを見ているので、+X が画面の左になる)。</p>
+<ul><li><code>[</code> を4回押して<strong>深さ 1</strong> → 鏡の中の鏡が黒くなり、映り込みが1段だけになる。ガラス玉も黒っぽくなる(中を追えない)</li><li><code>]</code> を 15 回押して<strong>深さ 16</strong> → 映り込みが遠くまで続き、奥の消失点へ向かって暗い緑に沈む。<code>1画素あたり</code> が <strong>5.30(深さ 5)→ 10.51 本</strong></li><li><code>V</code> で光線の数にすると、<strong>鏡に映った部分の奥ほど赤〜白</strong>、手前の本物の赤い玉は紺と青</li></ul>
+<h3 id="s36">9. <code>2</code> のまま深さを上げる: 木が指数で茂る</h3>
+<p>場面2で深さを 5 → 12 → 16 → 20 と上げると、<code>1画素あたり</code> がおよそ <strong>4.5 → 8.7 → 14.3 → 26.4 本</strong>、1パスが 32ms → 87ms → 235ms → 628ms 前後になる(要点8)。<strong>深さ 32 にすると1パス 12 秒</strong>かかる(止めたいときは <code>[</code> を押せば、1行ぶん待ってすぐ描き直しになる)。</p>
+<h3 id="s37">10. <code>C</code>: 自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>自己チェック: 10 項目中 10 項目 OK   (X で消す)
+OK  1. 球との交差(中心 z = 5、半径 1)
+        正面から t = 4.00000(期待 4) / 中心から奥の解 t = 1.00000(期待 1) / 1mm 外: 外れ / 後ろ: 外れ / tMax 3.9 で打ち切り: 外れ
+OK  2. 平面に当たる距離
+        高さ 1 から 45 度下へ t = 1.41421(期待 1.41421) / 床と平行: 外れ / 上向き: 外れ
+OK  3. 反射(1万本)
+        長さのずれ 5.4E-007 / cos(入射角) と cos(反射角) の差 4.2E-007 / 入射面からのはみ出し 9.7E-008
+OK  4. スネルの法則(空気からガラス 1.5 へ 1万本。屈折 10000 本)
+        n1 sin(入射角) と n2 sin(透過角) の差 3.0E-007 / 長さのずれ 1.8E-007 / 入射面からのはみ出し 1.2E-007
+OK  5. 全反射(ガラスから空気へ。臨界角 41.81 度)
+        41.7 度は屈折する(反射 0.690) / 41.9 度は全反射(反射 1.000)
+OK  6. 正確なフレネル
+        垂直 外 0.0400 / 内 0.0400(期待 0.04) / かすめる 0.9942 / 屈折率が同じなら最大 0.0000 / 行きと帰りの差 1.7E-005
+OK  7. シュリックと正確な式の差の最大: 外から 0.036 / 内から(透過角の cos)0.036 / 内から(入射角の cos)0.849
+        ガラスの内から 41.5 度: 正確 0.542 / 透過角の cos 0.576 / 入射角の cos 0.041
+OK  8. 影のにきび(光の側を向いた点から、光源へ影の光線を出す)
+        16798 点のうち、浮かせないと 4442 本(26.4%)が自分に当たる / 1mm 浮かせると 0 本
+OK  9. 屈折率 1.00 の玉は見えない(玉を通した 5000 本の色を、空の色と比べる)
+        ずれ 正確 6.0E-007(反射の枝 0 本・屈折 9996 本) / シュリック 0.142(反射の枝 24990 本)
+OK  10. 向きの長さ(半径 0.35 のガラス玉の中で、ほぼ垂直に 30 回反射させる)
+        作るたびに正規化: 長さのずれ最大 1.2E-007 / 正規化しない: 5 回目で 1% を超えた(30 回の中の最大 9.1E-001)</code></pre></div>
+<p><strong>どれも窓も描画スレッドも使わない</strong>(式を、答えの分かっている入力で呼んで比べるだけ)。乱数の種を固定しているので、何度押しても同じ数字が出る。</p>
+<p>いちばん値打ちがあるのは <strong>7項目めと10項目め</strong>。どちらも「それらしい絵が出てしまう」間違いを数字で捕まえている。7 はシュリックの cos を入射角にしても、ガラス玉は普通に描ける(縁の内側の輪が少し細くなるだけ)。10 は深さ 5 の既定の場面では絵に出ない(深さを上げて初めて爆発する)。</p>
+<h3 id="s38">11. その他</h3>
+<ul><li><strong>左ドラッグで回す / ホイールで寄る</strong>: 動かしている間は粗い絵(4x4 のブロックか、1サンプルだけのギザギザの絵)になり、止めると滑らかになる。<code>R</code> で元のカメラに戻る</li><li><strong><code>P</code></strong>: <code>PNG を保存した</code> と、保存先(<code>reference/Day59/bin/Release/net10.0-windows/captures/day59-scene1-64spp-….png</code>)が出る。HUD は写らない</li><li><strong><code>H</code></strong>: 文字が全部消える</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>積み重ねの「場面」</td><td>同じ3つの場面。1画素あたりの光線は 960x540 の実機とほぼ同じ数になる</td></tr>
+<tr><td><code>[</code> / <code>]</code></td><td>光線の木の「深さの上限」、積み重ねの「深さの上限」</td><td>玉の中で跳ね返る枝が上限で止まる。場面2で上げると光線の数が茂る(このページは 16 まで)</td></tr>
+<tr><td><code>S</code></td><td>積み重ねの「影」</td><td>1画素あたりの光線が場面1で 4 本ほどから 2 本ほどへ</td></tr>
+<tr><td><code>F</code></td><td>光線の木・フレネル・積み重ねの「フレネル」</td><td>屈折率 1.00 の玉は、シュリックでだけ縁に反射の枝が出る</td></tr>
+<tr><td><code>J</code></td><td>積み重ねの「画素内のずらし」</td><td>切ると 64 サンプル重ねても地平線の市松がモアレのまま</td></tr>
+<tr><td><code>V</code></td><td>積み重ねの「表示」</td><td>光線の数はガラス玉が黄〜橙、床が青と水色の間</td></tr>
+<tr><td>右クリック</td><td>積み重ねの絵をクリック</td><td>960x540 の座標で1画素を追う。場面1の (559, 301) のあたりで、ガラス玉の 17 本の木が出る</td></tr>
+<tr><td><code>C</code>(自己チェック 5〜7・10)</td><td>フレネルの曲線、向きの長さの崩れ</td><td>41.5° で 0.542 / 0.576 / 0.041、差の最大 0.036。正規化しなければ 5 回目で 1% を超える</td></tr>
+<tr><td><code>E</code></td><td>(なし)</td><td>影のにきびは float の丸めで面の内側へ落ちた点から出る。このページの積み重ねは double で計算するので出ない</td></tr>
+<tr><td>(なし)</td><td>フレネルの「入射角の cos」、向きの長さの「double」</td><td>比べるための線。前者は自己チェック7の相手(RTIOW の書き方)、後者はこのページだけの見本</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day59 の Optics・Sphere・Plane・Material・SceneLibrary・Camera・WhittedTracer・ProgressiveRenderer(Halton のずらし・sRGB)を JS に移したもの。Node で 960x540 の画素の真ん中を全部追い、要点8の表の「1画素あたりの光線」(場面1〜3、深さ 0〜20)と、要点3の画素 (560, 300) の木(17 本・入射角 66.4° / 37.6°・反射 0.133)が一致することを確かめた(場面2の深さ 16 だけ 14.29 と 14.30 で、double と float の差)。積み重ねの絵は 960x540 のカメラのまま 3x3 画素に1本ずつ撃っていて、ずらしはその大きい画素の中で動かす。向きの長さの実験台は float の丸めを Math.fround で1演算ごとに真似ていて、反射1回ごとのずれ(2.4e-7 / 3.2e-6 / … / 1.5e-2 / 2.4e-1)は reference の C# と同じ値になる。光線の木の断面は半径 1m のガラス玉で、影の光線は描いていない。</p></div>
+<h3 id="s39">検証の途中で分かったこと</h3>
+<p><strong>1. 場面3で深さを 16 にしたら、ガラス玉が真っ白に飛んだ</strong>。要点7(b)と冒頭の囲みの件。最初は <code>SpawnRay</code> が無く、反射・屈折の向きを正規化せずに <code>new Ray(...)</code> していた。画素 (250, 380) を深さを変えて追うと、深さ 8 までは色 (0.51, 0.55, 0.53) で変わらないのに、<strong>深さ 10 で 3.8×10¹⁶</strong> になった。木を出すと、玉の中の反射が数回続いたあと<code>反射 → ガラス玉 0.000m 先</code>(<strong>内側を進んでいたはずの光線が、外から玉に当たっている</strong>)の行があり、そこから先の枝がでたらめだった。光線の向きの長さを1回ごとに出したら 1.000004 → 1.000060 → 1.000986 → 1.016 → 1.12 → 2.14 と増えていて、原因が分かった。場面1・2の深さ 5 で気づかなかったのは、5 回ではまだ 1.5% のずれで、絵に出ないから。</p>
+<p><strong>2. 屈折率 1.00 の玉で、反射の枝が 11,022 本出ていた</strong>。自己チェック9の最初の版で「反射の枝 0 本」を条件にしたら落ちた。正確なフレネルの式に n1 = n2 を入れると、平方根の丸めで 10⁻¹⁵ ほどの値が残り、<code>reflectance &gt; 0</code> を満たしてしまう。絵には何も足されない(10⁻¹⁵ 倍)のに、光線だけは飛んでいた。<code>FresnelDielectric</code> の頭で <strong>n1 = n2 なら 0 を返す</strong>ようにした。</p>
+<p><strong>3. 最初の場面3は、空が真っ黒だった</strong>。最初は天井が無く、無限に高い2枚の鏡の間に玉を置いていた。<strong>上を向いた光線は2枚の鏡の間を往復し続け、鏡が上へ無限に続くので空へ抜けられない</strong>。どれだけ往復しても深さの上限で黒になる。正しい振る舞いだが、上限の話より「なぜ空が黒いのか」が先に気になる絵になるので、天井を足して廊下にした。</p>
+<p><strong>4. 深さ 32 の場面2は、1パスに 12 秒かかった</strong>。深さを全部の場面で 32 まで回して絵が壊れないか確かめていて見つけた。場面1・3は1パス 50〜160ms なのに、場面2だけ 250 倍。要点8の表を作るきっかけになった。</p>
+</section>
+<section class="part"><h2 id="s40">改造課題</h2>
+<h3 id="s41">課題1(易): ガラスの影を透かす</h3>
+<p>要点3のごまかしの3つ目を、<strong>別のごまかし</strong>に置き換えてみる。</p>
+<ol><li><code>Scene.FindOccluder</code> で、<code>Material.Kind == MaterialKind.Glass</code> の形を<strong>遮るものとして数えない</strong>ようにする</li><li>場面2で、屈折率 1.00 の玉の影が消えることを確かめる。自己チェックは全部通るか</li><li>場面1のガラス玉の影も消えて、<strong>床が玉の真下まで明るくなる</strong>ことを見る</li></ol>
+<p>これは正しいか。現実のガラス玉の影は、真っ黒でも無くもなく、<strong>縁が暗く、真ん中に光が集まって明るい点ができる</strong>(虫眼鏡)。今日の方法ではどちらのごまかしも正解にならず、その理由(影の光線はまっすぐ光源へ向かうので、曲がって届く光を聞けない)を説明できれば要点3は読めている。Day 60 のパストレーシングで、この明るい点が(ノイズまみれで)出てくる。</p>
+<h3 id="s42">課題2(中): 重みで木を刈る</h3>
+<p>要点8のとおり、場面2で深さを上げると木が指数で茂る。ところが<strong>枝の先ほど、画素の色への影響は小さい</strong> (ガラスの内側の反射は F ≒ 0.04 なので、2回跳ね返った枝は 0.0016 倍しか効かない)。</p>
+<ol><li><code>Trace</code> に <code>float weight</code>(カメラの光線は 1)を足し、反射の枝には <code>weight × F</code>、屈折の枝には <code>weight × (1 − F)</code>、金属には <code>weight × F の最大の成分</code> を渡す</li><li>枝を出す前に、<strong>渡す重みが 0.01 未満なら出さない</strong></li><li>場面2・深さ 20 で <code>1画素あたり</code> がいくつになるか、<code>P</code> で保存した絵が刈る前とどれだけ違うかを見る(違いを数えるなら、2枚の PNG を読んで画素を引き算する小さなプログラムを書く)</li><li>閾値を 0.1 / 0.001 に変えて、光線の数と絵の違いの関係を見る</li></ol>
+<p>古くからある「木の深さを適応的に決める」(adaptive tree depth)考え方のいちばん小さい形。<strong>刈った枝のぶん、絵はわずかに暗くなる</strong>(刈った枝が運ぶはずだった光が消える)。Day 60 のロシアンルーレットは、刈った枝のぶんを<strong>生き残った枝を重くして補い、平均では暗くならない</strong>ようにする——その差を体感しておくのが目的。</p>
+<h3 id="s43">課題3(難): 薄レンズでボケを出す</h3>
+<p>RTIOW の「Defocus Blur」の章。<strong>積み重ねの仕組みがあるので、カメラに数行足すだけで被写界深度が出る</strong>。</p>
+<ol><li><code>OrbitView</code> に絞りの大きさ(<code>Aperture</code>)を足し、ピントの距離は注視点までの距離(<code>Distance</code>)にする</li><li><code>Camera.GetRay</code> に「レンズの上のどこを通すか」(0〜1 の2つの数)を受け取る引数を足す。始点をレンズ(カメラの右・上の軸が張る円板)の上の点にずらし、向きは<strong>ピント面の上の同じ点</strong>へ向け直す</li><li><code>ProgressiveRenderer</code> で、レンズの上の位置もサンプル番号から決める(画素内のずらしが Halton(2, 3) なので、<strong>Halton(5, 7)</strong> を使う。同じ基数を使うと、画素内の位置とレンズの位置が連動してボケが筋になる)</li><li>場面1で注視点をガラス玉に置き、奥の鏡の玉と地平線がボケることを見る。<code>[</code> <code>]</code> の代わりに絞りを変えるキーを足してもよい</li></ol>
+<p><strong>Day 55 の被写界深度と見比べる</strong>。Day 55 は描き終わった絵と深度バッファから「ボケていそうな絵」を作ったので、<strong>1回の絵に写っていないもの(手前の物の縁の向こう側)は出せない</strong>(Day 55a の要点8)。深度バッファにはガラスの面の深さしか無いので、ガラスの中に映った像も、ガラスの面と同じだけしかボケない。光線でレンズを通すと、手前の物の縁の向こうも見え、ガラス玉の中に映った床まで、その像までの本当の距離でボケる。</p>
+</section>
+<footer class="end">Day 59 CPU レイトレーサ(1) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day59 の光線の木の移植(このページの実験台が使う)
+(() => {
+// reference/Day59 の光線の木(WhittedTracer・形・光学・場面・カメラ)の移植。倍精度で計算する
+const RT = {};
+{
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const mulv = (a, b) => [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const len = (a) => Math.sqrt(dot(a, a));
+const norm = (a) => mul(a, 1 / len(a));
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+Object.assign(RT, { add, sub, mul, mulv, dot, len, norm, cross, clamp });
+
+// ---- 光学(Optics.cs)----
+RT.reflect = (d, n) => sub(d, mul(n, 2 * dot(d, n)));
+RT.refract = (d, n, eta) => {
+  const cosI = -dot(d, n), sin2T = eta * eta * (1 - cosI * cosI);
+  if (sin2T > 1) return null;
+  const cosT = Math.sqrt(1 - sin2T);
+  return add(mul(d, eta), mul(n, eta * cosI - cosT));
+};
+RT.fresnel = (cosI, n1, n2) => {
+  if (n1 === n2) return 0;
+  cosI = clamp(cosI, 0, 1);
+  const sinT = n1 / n2 * Math.sqrt(1 - cosI * cosI);
+  if (sinT >= 1) return 1;
+  const cosT = Math.sqrt(1 - sinT * sinT);
+  const rs = (n1 * cosI - n2 * cosT) / (n1 * cosI + n2 * cosT), rp = (n2 * cosI - n1 * cosT) / (n2 * cosI + n1 * cosT);
+  return 0.5 * (rs * rs + rp * rp);
+};
+RT.r0 = (n1, n2) => { const r = (n1 - n2) / (n1 + n2); return r * r; };
+RT.schlick = (cosI, n1, n2) => {
+  const r0 = RT.r0(n1, n2);
+  let c = clamp(cosI, 0, 1);
+  if (n1 > n2) { const s2 = (n1 / n2) ** 2 * (1 - c * c); if (s2 >= 1) return 1; c = Math.sqrt(1 - s2); }
+  return r0 + (1 - r0) * (1 - c) ** 5;
+};
+// RTIOW の書き方(内側からでも入射角の cos)。自己チェック7の比べる相手
+RT.schlickNaive = (cosI, n1, n2) => { const r0 = RT.r0(n1, n2); return r0 + (1 - r0) * (1 - cosI) ** 5; };
+RT.schlickConductor = (cosI, f0) => { const m5 = (1 - clamp(cosI, 0, 1)) ** 5; return f0.map((f) => f + (1 - f) * m5); };
+
+// ---- 材質と形 ----
+const diffuse = (albedo, specular = 0, shininess = 64) => ({ kind: 'diffuse', albedo, specular, shininess, checker: 0 });
+const checker = (albedo, alt, size) => ({ kind: 'diffuse', albedo, alt, checker: size, specular: 0, shininess: 64 });
+const metal = (f0, shininess = 4000) => ({ kind: 'metal', albedo: f0, shininess });
+const glass = (ior, shininess = 4000) => ({ kind: 'glass', ior, shininess });
+const albedoAt = (m, p) => (m.checker > 0 ? (((Math.floor(p[0] / m.checker) + Math.floor(p[2] / m.checker)) & 1) === 0 ? m.albedo : m.alt) : m.albedo);
+const sphere = (name, c, r, m) => ({
+  name, m, c, r,
+  hit(o, d, tMin, tMax) {
+    const oc = sub(o, c), b = dot(oc, d), cc = dot(oc, oc) - r * r, disc = b * b - cc;
+    if (disc < 0) return -1;
+    const root = Math.sqrt(disc);
+    let t = -b - root;
+    if (t <= tMin) t = -b + root;
+    return t > tMin && t < tMax ? t : -1;
+  },
+  normal: (p) => mul(sub(p, c), 1 / r),
+});
+const plane = (name, n, dist, m) => ({
+  name, m,
+  hit(o, d, tMin, tMax) {
+    const den = dot(n, d);
+    if (Math.abs(den) < 1e-8) return -1;
+    const t = (dist - dot(n, o)) / den;
+    return t > tMin && t < tMax ? t : -1;
+  },
+  normal: () => n,
+});
+RT.sphere = sphere; RT.glass = glass;
+
+// ---- 場面(SceneLibrary.cs)----
+const orbit = (target, yaw, pitch, distance, fov) => ({ target, yaw, pitch, distance, fov });
+const mirror = metal([0.86, 0.92, 0.88]);
+RT.scenes = [
+  {
+    name: 'Whitted 1980', view: orbit([-0.3, 0.8, 0.9], 0.35, 0.22, 7.0, 40), ambient: [0.06, 0.07, 0.09], horizon: [0.80, 0.86, 0.95], zenith: [0.18, 0.36, 0.78],
+    shapes: [
+      plane('床(市松)', [0, 1, 0], 0, checker([0.75, 0.08, 0.05], [0.80, 0.70, 0.08], 1)),
+      sphere('ガラス玉', [0.3, 1, 0], 1, glass(1.5)),
+      sphere('鏡の玉', [-1.6, 0.8, 2.4], 0.8, metal([0.9, 0.9, 0.9])),
+      sphere('青い玉', [2, 0.5, 2.2], 0.5, diffuse([0.10, 0.25, 0.75], 0.3)),
+    ],
+    lights: [{ name: '光1', p: [-4, 6, -3], c: [1, 1, 1], i: 180 }, { name: '光2', p: [4, 4, -2], c: [1, 0.95, 0.85], i: 50 }],
+  },
+  {
+    name: '屈折率と金属', view: orbit([0, 0.4, 0.7], 0, 0.30, 5.6, 45), ambient: [0.06, 0.06, 0.07], horizon: [0.85, 0.87, 0.90], zenith: [0.30, 0.42, 0.70],
+    shapes: [
+      plane('床(市松)', [0, 1, 0], 0, checker([0.7, 0.7, 0.7], [0.08, 0.08, 0.08], 0.5)),
+      ...[1.00, 1.10, 1.33, 1.50, 2.42].map((n, i) => sphere(`ガラス玉(屈折率 ${n.toFixed(2)})`, [2.2 - 1.1 * i, 0.45, 0], 0.45, glass(n))),
+      sphere('白い玉(つや消し)', [2.2, 0.45, 1.4], 0.45, diffuse([0.75, 0.75, 0.75])),
+      sphere('赤い玉(つや)', [1.1, 0.45, 1.4], 0.45, diffuse([0.70, 0.08, 0.06], 0.5, 200)),
+      sphere('金の玉', [0, 0.45, 1.4], 0.45, metal([1, 0.71, 0.29])),
+      sphere('銅の玉', [-1.1, 0.45, 1.4], 0.45, metal([0.95, 0.64, 0.54])),
+      sphere('アルミの玉', [-2.2, 0.45, 1.4], 0.45, metal([0.91, 0.92, 0.92])),
+    ],
+    lights: [{ name: '光1', p: [-3, 5, -4], c: [1, 1, 1], i: 150 }, { name: '光2', p: [4, 3, -1], c: [1, 0.9, 0.8], i: 40 }],
+  },
+  {
+    name: '合わせ鏡', view: orbit([0.4, 0.7, 0.6], -0.9, 0.12, 2.2, 60), ambient: [0.05, 0.05, 0.06], horizon: [0.80, 0.85, 0.92], zenith: [0.25, 0.40, 0.75],
+    shapes: [
+      plane('床(市松)', [0, 1, 0], 0, checker([0.72, 0.72, 0.72], [0.06, 0.06, 0.06], 0.5)),
+      plane('天井', [0, 1, 0], 2.4, diffuse([0.60, 0.58, 0.55])),
+      plane('鏡(x=-1.6)', [1, 0, 0], -1.6, mirror),
+      plane('鏡(x=+1.6)', [-1, 0, 0], -1.6, mirror),
+      sphere('赤い玉', [0, 0.5, 0.6], 0.5, diffuse([0.75, 0.10, 0.08], 0.3)),
+      sphere('ガラス玉', [0.7, 0.35, -0.3], 0.35, glass(1.5)),
+      sphere('金の玉', [-0.7, 0.3, 1.6], 0.3, metal([1, 0.71, 0.29])),
+    ],
+    lights: [{ name: '光1', p: [0, 1.9, 0.4], c: [1, 1, 1], i: 15 }],
+  },
+];
+RT.sky = (s, d) => { const u = Math.sqrt(clamp(d[1], 0, 1)); return s.horizon.map((h, k) => h + (s.zenith[k] - h) * u); };
+
+// ---- カメラ(Camera.cs)----
+RT.camera = (view, w, h) => {
+  const pos = add(view.target, mul([Math.sin(view.yaw) * Math.cos(view.pitch), Math.sin(view.pitch), -Math.cos(view.yaw) * Math.cos(view.pitch)], view.distance));
+  const f = norm(sub(view.target, pos)), r = norm(cross(f, [0, 1, 0])), u = cross(r, f);
+  const hh = Math.tan(view.fov * Math.PI / 360), hw = hh * w / h;
+  return { pos, w, h, ray(px, py) { const nx = px / w * 2 - 1, ny = 1 - py / h * 2; return norm(add(f, add(mul(r, nx * hw), mul(u, ny * hh)))); } };
+};
+
+// ---- 光線の木(WhittedTracer.cs)----
+// opt: { maxDepth, shadows, fresnel: 'exact' | 'schlick' | 'off' }。cnt は光線の数、L は字下げした行の配列(要らなければ null)
+const EPS = 1e-3;
+RT.tracer = (scene, opt) => {
+  const intersect = (o, d) => {
+    let best = Infinity, shape = null;
+    for (const s of scene.shapes) { const t = s.hit(o, d, 0, best); if (t >= 0) { best = t; shape = s; } }
+    return shape ? { t: best, shape } : null;
+  };
+  const occluder = (o, d, maxD) => { for (const s of scene.shapes) if (s.hit(o, d, 0, maxD) >= 0) return s; return null; };
+  const off = (p, n) => add(p, mul(n, EPS));
+  const dielectric = (c, n1, n2) => (opt.fresnel === 'schlick' ? RT.schlick(c, n1, n2) : opt.fresnel === 'off' ? RT.r0(n1, n2) : RT.fresnel(c, n1, n2));
+  const metalF = (c, f0) => (opt.fresnel === 'off' ? f0 : RT.schlickConductor(c, f0));
+  const blinn = (n, hv, sh) => (sh + 8) / (8 * Math.PI) * Math.max(dot(n, hv), 0) ** sh;
+  const log = (L, depth, s) => { if (L) L.push('   '.repeat(depth) + s); };
+  function reach(hit, light, depth, cnt, L) {
+    const offv = sub(light.p, hit.p), dist = len(offv), toL = mul(offv, 1 / dist), cos = dot(hit.n, toL);
+    if (cos <= 0) { log(L, depth + 1, `影: ${light.name} は面の裏側。光線は出さない`); return null; }
+    if (opt.shadows !== false) {
+      cnt.shadow++;
+      const occ = occluder(off(hit.p, hit.n), toL, dist);
+      if (occ) { log(L, depth + 1, `影 → ${light.name}: ${occ.name} に遮られた`); return null; }
+      log(L, depth + 1, `影 → ${light.name}: 届いた`);
+    }
+    return { toL, e: mul(light.c, light.i / (dist * dist) * cos) };
+  }
+  function highlights(hit, depth, cnt, L) {
+    let sum = [0, 0, 0];
+    for (const light of scene.lights) {
+      const r = reach(hit, light, depth, cnt, L);
+      if (!r) continue;
+      const hv = norm(add(hit.v, r.toL)), cosH = dot(hit.v, hv);
+      const f = hit.m.kind === 'metal' ? metalF(cosH, hit.m.albedo) : [1, 1, 1].map(() => dielectric(cosH, 1, hit.m.ior));
+      sum = add(sum, mulv(f, mul(r.e, blinn(hit.n, hv, hit.m.shininess))));
+    }
+    return sum;
+  }
+  function trace(o, d, depth, cnt, L, label) {
+    const h = intersect(o, d);
+    if (!h) { log(L, depth, `${label} → 空`); return RT.sky(scene, d); }
+    const p = add(o, mul(d, h.t));
+    let n = h.shape.normal(p);
+    const front = dot(d, n) < 0;
+    if (!front) n = mul(n, -1);
+    log(L, depth, `${label} → ${h.shape.name}  ${h.t.toFixed(3)}m 先${front ? '' : '(内側から)'}`);
+    const hit = { p, n, v: mul(d, -1), front, m: h.shape.m };
+    const m = hit.m;
+    if (m.kind === 'diffuse') {
+      const a = albedoAt(m, p);
+      let c = mulv(a, scene.ambient);
+      for (const light of scene.lights) {
+        const r = reach(hit, light, depth, cnt, L);
+        if (!r) continue;
+        const hv = norm(add(hit.v, r.toL)), spec = m.specular * blinn(n, hv, m.shininess);
+        c = add(c, mulv(add(mul(a, 1 / Math.PI), [spec, spec, spec]), r.e));
+      }
+      return c;
+    }
+    if (m.kind === 'metal') {
+      const c = highlights(hit, depth, cnt, L);
+      if (depth >= opt.maxDepth) { log(L, depth + 1, '反射: 深さの上限なので追わない(黒)'); return c; }
+      const f = metalF(dot(n, hit.v), m.albedo);
+      cnt.reflection++;
+      log(L, depth + 1, `反射の割合 (${f.map((x) => x.toFixed(2)).join(', ')})`);
+      return add(c, mulv(f, trace(off(p, n), norm(RT.reflect(d, n)), depth + 1, cnt, L, '反射')));
+    }
+    const n1 = front ? 1 : m.ior, n2 = front ? m.ior : 1, cosI = dot(n, hit.v);
+    const refr = RT.refract(d, n, n1 / n2), F = refr ? dielectric(cosI, n1, n2) : 1;
+    const ang = Math.acos(clamp(cosI, 0, 1)) * 180 / Math.PI;
+    log(L, depth + 1, refr
+      ? `屈折率 ${n1.toFixed(2)} → ${n2.toFixed(2)}  入射角 ${ang.toFixed(1)}度  反射 ${F.toFixed(3)} / 透過 ${(1 - F).toFixed(3)}`
+      : `屈折率 ${n1.toFixed(2)} → ${n2.toFixed(2)}  入射角 ${ang.toFixed(1)}度  全反射(透過の角度が無い)`);
+    let c = front ? highlights(hit, depth, cnt, L) : [0, 0, 0];
+    if (depth >= opt.maxDepth) { log(L, depth + 1, '反射・屈折: 深さの上限なので追わない(黒)'); return c; }
+    if (F > 0) { cnt.reflection++; c = add(c, mul(trace(off(p, n), norm(RT.reflect(d, n)), depth + 1, cnt, L, refr ? '反射' : '全反射'), F)); }
+    if (refr && F < 1) { cnt.refraction++; c = add(c, mul(trace(off(p, mul(n, -1)), norm(refr), depth + 1, cnt, L, '屈折'), 1 - F)); }
+    return c;
+  }
+  return { trace };
+};
+RT.counters = () => ({ camera: 0, shadow: 0, reflection: 0, refraction: 0 });
+RT.total = (c) => c.camera + c.shadow + c.reflection + c.refraction;
+// HeatColor(光線の数を 2倍ごとに1段)
+RT.heat = (n) => {
+  const stops = [[0, 0, 0.3], [0, 0.3, 1], [0, 0.9, 0.9], [0.2, 0.9, 0.1], [1, 0.9, 0], [1, 0.2, 0], [1, 1, 1]];
+  const level = clamp(Math.log2(Math.max(n, 1)), 0, stops.length - 1), i = Math.min(Math.floor(level), stops.length - 2), f = level - i;
+  return stops[i].map((a, k) => a + (stops[i + 1][k] - a) * f);
+};
+RT.radicalInverse = (index, radix) => { let r = 0, f = 1 / radix; while (index > 0) { r += (index % radix) * f; index = Math.floor(index / radix); f /= radix; } return r; };
+RT.sampleOffset = (s) => (s === 0 ? [0.5, 0.5] : [RT.radicalInverse(s, 2), RT.radicalInverse(s, 3)]);
+RT.linearToSrgb = (v) => (!(v > 0) ? 0 : v >= 1 ? 1 : v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
+}
+if (typeof module !== 'undefined') module.exports = RT; else window.RT59 = RT;
+})();
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat, animate, reduceMotion } = Lab;
+const RT = window.RT59;
+
+// ============================================================
+//  要点3・4・5: 光線の木を断面で
+// ============================================================
+const tr = { b: 0.917, ior: 1.5, depth: 5, fr: 'exact' };
+const BALL = RT.sphere('ガラス玉', [0, 0, 0], 1, RT.glass(1.5));
+// ShadeGlass と同じ枝の出し方を、線分を集めながら回す。返り値は [線分, 数]
+function growTree() {
+  const segs = [], st = { rays: 1, refl: 0, refr: 0, escaped: 0, cut: 0, angles: [] };
+  const dielectric = (c, n1, n2) => (tr.fr === 'schlick' ? RT.schlick(c, n1, n2) : tr.fr === 'off' ? RT.r0(n1, n2) : RT.fresnel(c, n1, n2));
+  (function go(o, d, depth, w, kind) {
+    const t = BALL.hit(o, d, 0, Infinity);
+    if (t < 0) { segs.push({ a: o, b: RT.add(o, RT.mul(d, 4)), w, kind, out: true }); st.escaped += w; return; }
+    const p = RT.add(o, RT.mul(d, t));
+    segs.push({ a: o, b: p, w, kind });
+    let n = BALL.normal(p);
+    const front = RT.dot(d, n) < 0;
+    if (!front) n = RT.mul(n, -1);
+    const n1 = front ? 1 : tr.ior, n2 = front ? tr.ior : 1, cosI = -RT.dot(d, n);
+    const refr = RT.refract(d, n, n1 / n2), F = refr ? dielectric(cosI, n1, n2) : 1;
+    st.angles.push([depth, Math.acos(RT.clamp(cosI, 0, 1)) * 180 / Math.PI, front, F]);
+    if (depth >= tr.depth) { st.cut += w; segs.push({ dot: p, w }); return; }
+    if (F > 0) { st.rays++; st.refl++; go(RT.add(p, RT.mul(n, 1e-3)), RT.norm(RT.reflect(d, n)), depth + 1, w * F, refr ? 'refl' : 'tir'); }
+    if (refr && F < 1) { st.rays++; st.refr++; go(RT.add(p, RT.mul(n, -1e-3)), RT.norm(refr), depth + 1, w * (1 - F), 'refr'); }
+  })([-4, tr.b, 0], [1, 0, 0], 0, 1, 'cam');
+  return { segs, st };
+}
+function drawTree() {
+  const { ctx, w, h } = fit($('tr-canvas'));
+  const sc = Math.min(w / 8.4, h / 3.2), cx = w / 2, cy = h / 2;
+  const X = (x) => cx + x * sc, Y = (y) => cy - y * sc;
+  ctx.fillStyle = 'rgba(120,170,220,0.12)'; ctx.strokeStyle = 'rgba(160,200,240,0.7)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(X(0), Y(0), sc, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const { segs, st } = growTree();
+  const colors = { cam: tok('--ink'), refl: tok('--warn'), tir: tok('--expl'), refr: tok('--accent') };
+  for (const s of segs) {
+    if (s.dot) { ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(X(s.dot[0]), Y(s.dot[1]), 3 + 3 * Math.sqrt(s.w), 0, Math.PI * 2); ctx.fill(); continue; }
+    ctx.strokeStyle = colors[s.kind]; ctx.globalAlpha = 0.2 + 0.8 * Math.sqrt(s.w); ctx.lineWidth = 0.8 + 4 * s.w;
+    ctx.beginPath(); ctx.moveTo(X(s.a[0]), Y(s.a[1])); ctx.lineTo(X(s.b[0]), Y(s.b[1])); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.font = '11px ' + tok('--font-body');
+  let lx = 10;
+  for (const [k, label] of [['cam', 'カメラ'], ['refl', '反射'], ['tir', '全反射'], ['refr', '屈折'], ['dot', '深さの上限で止めた枝(黒)']]) {
+    ctx.fillStyle = k === 'dot' ? tok('--muted') : colors[k]; ctx.fillRect(lx, h - 16, 10, 10);
+    ctx.fillStyle = tok('--muted'); ctx.fillText(label, lx + 14, h - 7); lx += 14 + ctx.measureText(label).width + 14;
+  }
+  const outer = st.angles.find((a) => a[2]), inner = st.angles.filter((a) => !a[2]);
+  $('tr-b-out').textContent = tr.b.toFixed(3);
+  $('tr-depth-out').textContent = String(tr.depth);
+  $('tr-stats').innerHTML =
+    stat('光線', String(st.rays), ` <small>本(反射 ${st.refl} / 屈折 ${st.refr})。影の光線はこの図に無い</small>`) +
+    stat('外から当たる入射角', `${outer[1].toFixed(1)}°`, ` <small>F = ${outer[3].toFixed(3)}</small>`) +
+    stat('中で当たる入射角', inner.length ? inner.map((a) => a[1].toFixed(1)).slice(0, 4).join(' / ') + '°' : '—') +
+    stat('外へ出た光 / 深さで捨てた光', `${(st.escaped * 100).toFixed(st.cut < 0.001 ? 3 : 1)}% / ${(st.cut * 100).toFixed(st.cut < 0.001 ? 3 : 1)}%`);
+  const crit = Math.asin(1 / tr.ior) * 180 / Math.PI;
+  $('tr-note').textContent = tr.ior === 1
+    ? (tr.fr === 'schlick' ? 'シュリックは n1 = n2 を知らないので、F0 = 0 でも (1 − cosθ)⁵ が残り、縁でだけ反射の枝が出る(場面2で「屈折率 1.00」の玉の輪郭がうっすら出る)' : '屈折率が同じなら F = 0。光線は曲がらずに素通りし、反射の枝も出ない(玉は見えない)')
+    : `中で当たる角度はどこで跳ね返っても同じ(弦は両端で面と同じ角度を作る)。ガラス(${tr.ior.toFixed(2)})の臨界角は ${crit.toFixed(2)}° で、中の入射角がそれより小さいので、毎回 ${(inner[0] ? inner[0][3] * 100 : 0).toFixed(1)}% ずつ中へ跳ね返る`;
+}
+$('tr-b').addEventListener('input', (e) => { tr.b = Number(e.target.value); drawTree(); });
+$('tr-depth').addEventListener('input', (e) => { tr.depth = Number(e.target.value); drawTree(); });
+seg('tr-ior', (v) => { tr.ior = Number(v); BALL.m.ior = tr.ior; drawTree(); });
+seg('tr-fr', (v) => { tr.fr = v; drawTree(); });
+window.addEventListener('resize', drawTree);
+drawTree();
+
+// ============================================================
+//  要点5: フレネルの曲線
+// ============================================================
+const fr = { side: 'in', ior: 1.5, angle: 41.5 };
+function drawFresnel() {
+  const { ctx, w, h } = fit($('fr-canvas'));
+  const n1 = fr.side === 'in' ? fr.ior : 1, n2 = fr.side === 'in' ? 1 : fr.ior;
+  const L = 44, R = w - 16, T = 12, B = h - 28;
+  const X = (deg) => L + deg / 90 * (R - L), Y = (v) => B - v * (B - T);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid');
+  for (const v of [0, 0.25, 0.5, 0.75, 1]) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillText(v.toFixed(2), 4, Y(v) + 4); }
+  for (const d of [0, 15, 30, 45, 60, 75, 90]) ctx.fillText(`${d}°`, X(d) - 8, h - 10);
+  const curves = [
+    [(c) => RT.fresnel(c, n1, n2), tok('--accent'), '正確', []],
+    [(c) => RT.schlick(c, n1, n2), tok('--good'), 'シュリック(空気側の角度。今日のコード)', [6, 4]],
+  ];
+  if (fr.side === 'in') curves.push([(c) => RT.schlickNaive(c, n1, n2), tok('--expl'), 'シュリック(入射角の cos。RTIOW)', [2, 3]]);
+  curves.forEach(([fn, color, label, dash], k) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash); ctx.beginPath();
+    for (let px = 0; px <= R - L; px++) { const deg = px / (R - L) * 90, v = fn(Math.cos(deg * Math.PI / 180)); if (px) ctx.lineTo(L + px, Y(v)); else ctx.moveTo(L + px, Y(v)); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '11px ' + tok('--font-body'); ctx.fillText(label, L + 10, T + 14 + k * 15); ctx.font = '11px ' + tok('--font-mono');
+  });
+  const crit = n1 > n2 ? Math.asin(n2 / n1) * 180 / Math.PI : null;
+  if (crit) { ctx.strokeStyle = tok('--warn'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(crit), T); ctx.lineTo(X(crit), B); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = tok('--warn'); ctx.fillText(`臨界角 ${crit.toFixed(2)}°`, X(crit) + 4, B - 8); }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(fr.angle), T); ctx.lineTo(X(fr.angle), B); ctx.stroke();
+  // 差の最大(自己チェック7と同じく 0.1° 刻み、内からは全反射の手前だけ)
+  let eSch = 0, eNaive = 0;
+  for (let deg = 0; deg < 90; deg += 0.1) {
+    const c = Math.cos(deg * Math.PI / 180), ex = RT.fresnel(c, n1, n2);
+    if (ex >= 1) continue;
+    eSch = Math.max(eSch, Math.abs(RT.schlick(c, n1, n2) - ex)); eNaive = Math.max(eNaive, Math.abs(RT.schlickNaive(c, n1, n2) - ex));
+  }
+  const c = Math.cos(fr.angle * Math.PI / 180);
+  $('fr-angle-out').textContent = `${fr.angle.toFixed(1)}°`;
+  $('fr-stats').innerHTML =
+    stat('この角度の F(正確)', RT.fresnel(c, n1, n2).toFixed(3)) +
+    stat('シュリック(空気側の角度)', RT.schlick(c, n1, n2).toFixed(3)) +
+    (fr.side === 'in' ? stat('シュリック(入射角の cos)', RT.schlickNaive(c, n1, n2).toFixed(3)) : '') +
+    stat('差の最大', eSch.toFixed(3), fr.side === 'in' ? ` <small>入射角の cos なら ${eNaive.toFixed(3)}</small>` : '');
+  $('fr-note').textContent = fr.ior === 1
+    ? '屈折率が同じなら正確な式は 0。シュリックは (1 − cosθ)⁵ の項が残り、かすめる角度で 0 から離れる'
+    : fr.side === 'in'
+      ? '入射角の cos を使うと、臨界角の手前で「ほぼ素通し」と答え、臨界角を越えた瞬間に 1.0 へ跳ぶ。空気側(透過角)の cos なら、正確な式と同じく臨界角へ向かって 1 に駆け上がる'
+      : '空気から当たるときは、入射角がそのまま空気側の角度。垂直で F0、かすめる角度で 1 に近づく';
+}
+seg('fr-side', (v) => { fr.side = v; drawFresnel(); });
+seg('fr-ior', (v) => { fr.ior = Number(v); drawFresnel(); });
+$('fr-angle').addEventListener('input', (e) => { fr.angle = Number(e.target.value); drawFresnel(); });
+window.addEventListener('resize', drawFresnel);
+drawFresnel();
+
+// ============================================================
+//  要点6・8: 3つの場面を積み重ねる
+// ============================================================
+const RW = 320, RH = 180, FULL = 3;
+const rd = { scene: 0, view: 'shade', fr: 'exact', depth: 5, shadows: true, jitter: true, run: !reduceMotion, sample: 0, acc: new Float32Array(RW * RH * 3), rays: 0, ms: 0, picked: null };
+const rdImg = new ImageData(RW, RH);
+let rdTracer = null, rdCam = null;
+function rdReset() {
+  const sc = RT.scenes[rd.scene];
+  rdTracer = RT.tracer(sc, { maxDepth: rd.depth, shadows: rd.shadows, fresnel: rd.fr });
+  // 960x540 のカメラのまま、3x3 画素に1本ずつ撃つ(画素の座標は 960x540 のもの)
+  rdCam = RT.camera(sc.view, RW * FULL, RH * FULL);
+  rd.acc.fill(0); rd.sample = 0;
+}
+function rdPass() {
+  if (rd.sample >= 64) return;
+  const t0 = performance.now();
+  const off = rd.jitter ? RT.sampleOffset(rd.sample) : [0.5, 0.5];
+  const sc = RT.scenes[rd.scene], cnt = RT.counters();
+  for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
+    // 小さい画素1つ = 960x540 の 3x3。ずらしは小さい画素の中で
+    const px = (x + off[0]) * FULL, py = (y + off[1]) * FULL, d = rdCam.ray(px, py);
+    const before = RT.total(cnt);
+    cnt.camera++;
+    let c;
+    if (rd.view === 'normal') {
+      let best = Infinity, shape = null;
+      for (const s of sc.shapes) { const t = s.hit(rdCam.pos, d, 0, best); if (t >= 0) { best = t; shape = s; } }
+      if (shape) { let n = shape.normal(RT.add(rdCam.pos, RT.mul(d, best))); if (RT.dot(d, n) > 0) n = RT.mul(n, -1); c = n.map((v) => v * 0.5 + 0.5); } else c = [0, 0, 0];
+    } else {
+      c = rdTracer.trace(rdCam.pos, d, 0, cnt, null, 'カメラ');
+      if (rd.view === 'rays') c = RT.heat(RT.total(cnt) - before);
+    }
+    const k = (y * RW + x) * 3;
+    rd.acc[k] += c[0]; rd.acc[k + 1] += c[1]; rd.acc[k + 2] += c[2];
+  }
+  rd.sample++;
+  rd.rays = RT.total(cnt) / (RW * RH);
+  rd.ms = performance.now() - t0;
+}
+function rdDraw() {
+  const cv = $('rd-canvas');
+  cv.width = RW; cv.height = RH;
+  const ctx = cv.getContext('2d'), n = Math.max(rd.sample, 1), enc = rd.view === 'shade';
+  for (let i = 0; i < RW * RH; i++) for (let k = 0; k < 3; k++) {
+    let v = rd.acc[i * 3 + k] / n;
+    v = enc ? RT.linearToSrgb(v) : Math.min(Math.max(v, 0), 1);
+    rdImg.data[i * 4 + k] = Math.round(v * 255);
+    rdImg.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(rdImg, 0, 0);
+  if (rd.picked) { ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 1; const [x, y] = rd.picked; ctx.beginPath(); ctx.moveTo(x - 4, y + 0.5); ctx.lineTo(x + 5, y + 0.5); ctx.moveTo(x + 0.5, y - 4); ctx.lineTo(x + 0.5, y + 5); ctx.stroke(); }
+  $('rd-depth-out').textContent = String(rd.depth);
+  $('rd-stats').innerHTML =
+    stat('サンプル', `${rd.sample} / 64`) +
+    stat('1画素あたりの光線', rd.view === 'normal' ? '1.00' : rd.rays.toFixed(2), ' <small>(最後のパス)</small>') +
+    stat('1パス', `${rd.ms.toFixed(0)}ms`, ` <small>このページの JS(${RW}x${RH})</small>`);
+}
+function rdRestart() { rdReset(); rdPass(); rdDraw(); }
+seg('rd-scene', (v) => { rd.scene = Number(v); rd.picked = null; $('rd-log').textContent = ''; rdRestart(); });
+seg('rd-view', (v) => { rd.view = v; rdRestart(); });
+seg('rd-fr', (v) => { rd.fr = v; rdRestart(); });
+$('rd-depth').addEventListener('input', (e) => { rd.depth = Number(e.target.value); rdRestart(); });
+$('rd-shadow').addEventListener('change', (e) => { rd.shadows = e.target.checked; rdRestart(); });
+$('rd-jitter').addEventListener('change', (e) => { rd.jitter = e.target.checked; rdRestart(); });
+$('rd-run').checked = rd.run;
+$('rd-run').addEventListener('change', (e) => { rd.run = e.target.checked; });
+$('rd-canvas').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const x = Math.min(RW - 1, Math.floor((e.clientX - r.left) / r.width * RW)), y = Math.min(RH - 1, Math.floor((e.clientY - r.top) / r.height * RH));
+  rd.picked = [x, y];
+  // 960x540 の画素 (X, Y) の真ん中を1本だけ追う(TracePixel と同じ)
+  const X = x * FULL + 1, Y = y * FULL + 1, L = [], cnt = RT.counters();
+  cnt.camera++;
+  const c = rdTracer.trace(rdCam.pos, rdCam.ray(X + 0.5, Y + 0.5), 0, cnt, L, 'カメラ');
+  const shown = L.length > 40 ? [...L.slice(0, 40), `…(あと ${L.length - 40} 行)`] : L;
+  $('rd-log').textContent = `--- 1画素を追う(画素 ${X}, ${Y})  色 (${c.map((v) => v.toFixed(3)).join(', ')}) ---\n` +
+    `光線 ${RT.total(cnt)} 本(カメラ ${cnt.camera} / 影 ${cnt.shadow} / 反射 ${cnt.reflection} / 屈折 ${cnt.refraction})\n` + shown.join('\n');
+  rdDraw();
+});
+animate($('rd-canvas'), () => { if (rd.run && rd.sample < 64) { rdPass(); rdDraw(); } });
+rdRestart();
+
+// ============================================================
+//  要点7: 向きの長さの崩れ(float の丸めを真似る)
+// ============================================================
+const dr = { prec: 'f32' };
+function bounce(normalize, prec, n = 30) {
+  const f = prec === 'f32' ? Math.fround : (x) => x;
+  const v = (x, y, z) => [f(x), f(y), f(z)];
+  const add = (a, b) => v(a[0] + b[0], a[1] + b[1], a[2] + b[2]), sub = (a, b) => v(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const mul = (a, s) => v(a[0] * s, a[1] * s, a[2] * s), div = (a, s) => v(a[0] / s, a[1] / s, a[2] / s);
+  const dot = (a, b) => f(f(f(a[0] * b[0]) + f(a[1] * b[1])) + f(a[2] * b[2]));
+  const len = (a) => f(Math.sqrt(dot(a, a))), norm = (a) => div(a, len(a));
+  const R = f(0.35), EPS = f(1e-3);
+  let o = v(0.02, 0.01, 0), d = norm(v(0.1, 0.05, 1));
+  const out = [];
+  for (let i = 1; i <= n; i++) {
+    // Sphere.Intersect(half-b)。外へ出てしまったら打ち切る
+    const b = dot(o, d), c = f(dot(o, o) - f(R * R)), disc = f(f(b * b) - c);
+    if (disc < 0) break;
+    const root = f(Math.sqrt(disc));
+    let t = f(-b - root);
+    if (t <= 0) t = f(-b + root);
+    if (!(t > 0)) break;
+    const p = add(o, mul(d, t)), nIn = mul(div(p, R), -1);
+    const r = sub(d, mul(nIn, f(f(2) * dot(d, nIn))));
+    o = add(p, mul(nIn, EPS));
+    d = normalize ? norm(r) : r;
+    out.push(Math.abs(len(d) - 1));
+  }
+  return out;
+}
+function drawDrift() {
+  const { ctx, w, h } = fit($('dr-canvas'));
+  const L = 52, R = w - 16, T = 12, B = h - 26, lo = -17, hi = 1;
+  const X = (i) => L + (i - 1) / 29 * (R - L), Y = (e) => B - (Math.log10(Math.max(e, 1e-17)) - lo) / (hi - lo) * (B - T);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid');
+  for (let e = lo; e <= hi; e += 3) { ctx.beginPath(); ctx.moveTo(L, Y(10 ** e)); ctx.lineTo(R, Y(10 ** e)); ctx.stroke(); ctx.fillText(`1e${e}`, 4, Y(10 ** e) + 4); }
+  for (const i of [1, 5, 10, 15, 20, 25, 30]) ctx.fillText(`${i}回`, X(i) - 10, h - 8);
+  ctx.strokeStyle = tok('--warn'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(L, Y(0.01)); ctx.lineTo(R, Y(0.01)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--warn'); ctx.fillText('1%', R - 22, Y(0.01) - 4);
+  const raw = bounce(false, dr.prec), nrm = bounce(true, dr.prec);
+  for (const [arr, color, label, k] of [[raw, tok('--expl'), '正規化しない', 0], [nrm, tok('--accent'), '作るたびに正規化(SpawnRay)', 1]]) {
+    // ずれがちょうど 0 の回(丸めで 1 ぴったりに戻った回)は対数に載らないので描かない
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    let pen = false;
+    arr.forEach((e, i) => { if (!(e > 0)) { pen = false; return; } const px = X(i + 1), py = Y(e); if (pen) ctx.lineTo(px, py); else ctx.moveTo(px, py); pen = true; }); ctx.stroke();
+    arr.forEach((e, i) => { if (e > 0) { ctx.beginPath(); ctx.arc(X(i + 1), Y(e), 2.5, 0, Math.PI * 2); ctx.fill(); } });
+    ctx.font = '11px ' + tok('--font-body'); ctx.fillText(label, L + 10, T + 14 + k * 15); ctx.font = '11px ' + tok('--font-mono');
+  }
+  const broken = raw.findIndex((e) => !(e < 0.01));
+  const ratio = raw.length > 3 ? (raw[3] / raw[2]) : NaN;
+  $('dr-stats').innerHTML =
+    stat('1回目の反射のあと', raw[0].toExponential(2)) +
+    stat('1% を超えた回', broken >= 0 ? `${broken + 1} 回目` : '30 回では超えない', raw.length < 30 ? ` <small>${raw.length + 1} 回目で玉の外へ出た</small>` : '') +
+    stat('1回ごとに', `約 ${ratio.toFixed(1)} 倍`) +
+    stat('正規化したときの最大', Math.max(...nrm).toExponential(1));
+  $('dr-note').textContent = dr.prec === 'f32'
+    ? '1回目のずれは 2.4e-7。法線で 4 倍、反射で 4 倍、合わせて約 17 倍ずつ増え、5 回目で 1.5%、6 回目で 24% になる。その先は向きの長さが 30〜90% 狂ったまま跳ね返り続ける(自己チェック10の「5 回目で 1% を超えた / 最大 9.1E-001」)'
+    : 'double でも同じ増え方をする。始まりが 2.2e-16 と小さいぶん、1% を超えるのが 13 回目まで遅れるだけで、正規化しなければいずれ崩れる';
+}
+seg('dr-prec', (v) => { dr.prec = v; drawDrift(); });
+window.addEventListener('resize', drawDrift);
+drawDrift();
+})();
+</script>
+</body>
+</html>
