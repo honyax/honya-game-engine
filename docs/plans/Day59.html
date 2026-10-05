@@ -554,7 +554,7 @@ OK  10. 向きの長さ(半径 0.35 のガラス玉の中で、ほぼ垂直に 3
 <tr><td>(なし)</td><td>フレネルの「入射角の cos」、向きの長さの「double」</td><td>比べるための線。前者は自己チェック7の相手(RTIOW の書き方)、後者はこのページだけの見本</td></tr>
 </tbody>
 </table></div>
-<p class="note">実験台は reference/Day59 の Optics・Sphere・Plane・Material・SceneLibrary・Camera・WhittedTracer・ProgressiveRenderer(Halton のずらし・sRGB)を JS に移したもの。Node で 960x540 の画素の真ん中を全部追い、要点8の表の「1画素あたりの光線」(場面1〜3、深さ 0〜20)と、要点3の画素 (560, 300) の木(17 本・入射角 66.4° / 37.6°・反射 0.133)が一致することを確かめた(場面2の深さ 16 だけ 14.29 と 14.30 で、double と float の差)。積み重ねの絵は 960x540 のカメラのまま 3x3 画素に1本ずつ撃っていて、ずらしはその大きい画素の中で動かす。向きの長さの実験台は float の丸めを Math.fround で1演算ごとに真似ていて、反射1回ごとのずれ(2.4e-7 / 3.2e-6 / … / 1.5e-2 / 2.4e-1)は reference の C# と同じ値になる。光線の木の断面は半径 1m のガラス玉で、影の光線は描いていない。</p></div>
+<p class="note">実験台は reference/Day59 の Optics・Sphere・Plane・Material・SceneLibrary・Camera・WhittedTracer・ProgressiveRenderer(Halton のずらし・sRGB)を JS に移したもの(docs/site/cpuraytracer.js。Day 60a・60b の実験台も使う)。Node で 960x540 の画素の真ん中を全部追い、要点8の表の「1画素あたりの光線」(場面1〜3、深さ 0〜20)と、要点3の画素 (560, 300) の木(17 本・入射角 66.4° / 37.6°・反射 0.133)が一致することを確かめた(場面2の深さ 16 だけ 14.29 と 14.30 で、double と float の差)。積み重ねの絵は 960x540 のカメラのまま 3x3 画素に1本ずつ撃っていて、ずらしはその大きい画素の中で動かす。向きの長さの実験台は float の丸めを Math.fround で1演算ごとに真似ていて、反射1回ごとのずれ(2.4e-7 / 3.2e-6 / … / 1.5e-2 / 2.4e-1)は reference の C# と同じ値になる。光線の木の断面は半径 1m のガラス玉で、影の光線は描いていない。</p></div>
 <h3 id="s39">検証の途中で分かったこと</h3>
 <p><strong>1. 場面3で深さを 16 にしたら、ガラス玉が真っ白に飛んだ</strong>。要点7(b)と冒頭の囲みの件。最初は <code>SpawnRay</code> が無く、反射・屈折の向きを正規化せずに <code>new Ray(...)</code> していた。画素 (250, 380) を深さを変えて追うと、深さ 8 までは色 (0.51, 0.55, 0.53) で変わらないのに、<strong>深さ 10 で 3.8×10¹⁶</strong> になった。木を出すと、玉の中の反射が数回続いたあと<code>反射 → ガラス玉 0.000m 先</code>(<strong>内側を進んでいたはずの光線が、外から玉に当たっている</strong>)の行があり、そこから先の枝がでたらめだった。光線の向きの長さを1回ごとに出したら 1.000004 → 1.000060 → 1.000986 → 1.016 → 1.12 → 2.14 と増えていて、原因が分かった。場面1・2の深さ 5 で気づかなかったのは、5 回ではまだ 1.5% のずれで、絵に出ないから。</p>
 <p><strong>2. 屈折率 1.00 の玉で、反射の枝が 11,022 本出ていた</strong>。自己チェック9の最初の版で「反射の枝 0 本」を条件にしたら落ちた。正確なフレネルの式に n1 = n2 を入れると、平方根の丸めで 10⁻¹⁵ ほどの値が残り、<code>reflectance &gt; 0</code> を満たしてしまう。絵には何も足されない(10⁻¹⁵ 倍)のに、光線だけは飛んでいた。<code>FresnelDielectric</code> の頭で <strong>n1 = n2 なら 0 を返す</strong>ようにした。</p>
@@ -579,230 +579,14 @@ OK  10. 向きの長さ(半径 0.35 のガラス玉の中で、ほぼ垂直に 3
 </main>
 </div>
 <script src="../site/lab.js"></script>
+<script src="../site/cpuraytracer.js"></script>
 <script>
-// reference/Day59 の光線の木の移植(このページの実験台が使う)
-(() => {
-// reference/Day59 の光線の木(WhittedTracer・形・光学・場面・カメラ)の移植。倍精度で計算する
-const RT = {};
-{
-const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
-const mulv = (a, b) => [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const len = (a) => Math.sqrt(dot(a, a));
-const norm = (a) => mul(a, 1 / len(a));
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-Object.assign(RT, { add, sub, mul, mulv, dot, len, norm, cross, clamp });
-
-// ---- 光学(Optics.cs)----
-RT.reflect = (d, n) => sub(d, mul(n, 2 * dot(d, n)));
-RT.refract = (d, n, eta) => {
-  const cosI = -dot(d, n), sin2T = eta * eta * (1 - cosI * cosI);
-  if (sin2T > 1) return null;
-  const cosT = Math.sqrt(1 - sin2T);
-  return add(mul(d, eta), mul(n, eta * cosI - cosT));
-};
-RT.fresnel = (cosI, n1, n2) => {
-  if (n1 === n2) return 0;
-  cosI = clamp(cosI, 0, 1);
-  const sinT = n1 / n2 * Math.sqrt(1 - cosI * cosI);
-  if (sinT >= 1) return 1;
-  const cosT = Math.sqrt(1 - sinT * sinT);
-  const rs = (n1 * cosI - n2 * cosT) / (n1 * cosI + n2 * cosT), rp = (n2 * cosI - n1 * cosT) / (n2 * cosI + n1 * cosT);
-  return 0.5 * (rs * rs + rp * rp);
-};
-RT.r0 = (n1, n2) => { const r = (n1 - n2) / (n1 + n2); return r * r; };
-RT.schlick = (cosI, n1, n2) => {
-  const r0 = RT.r0(n1, n2);
-  let c = clamp(cosI, 0, 1);
-  if (n1 > n2) { const s2 = (n1 / n2) ** 2 * (1 - c * c); if (s2 >= 1) return 1; c = Math.sqrt(1 - s2); }
-  return r0 + (1 - r0) * (1 - c) ** 5;
-};
-// RTIOW の書き方(内側からでも入射角の cos)。自己チェック7の比べる相手
-RT.schlickNaive = (cosI, n1, n2) => { const r0 = RT.r0(n1, n2); return r0 + (1 - r0) * (1 - cosI) ** 5; };
-RT.schlickConductor = (cosI, f0) => { const m5 = (1 - clamp(cosI, 0, 1)) ** 5; return f0.map((f) => f + (1 - f) * m5); };
-
-// ---- 材質と形 ----
-const diffuse = (albedo, specular = 0, shininess = 64) => ({ kind: 'diffuse', albedo, specular, shininess, checker: 0 });
-const checker = (albedo, alt, size) => ({ kind: 'diffuse', albedo, alt, checker: size, specular: 0, shininess: 64 });
-const metal = (f0, shininess = 4000) => ({ kind: 'metal', albedo: f0, shininess });
-const glass = (ior, shininess = 4000) => ({ kind: 'glass', ior, shininess });
-const albedoAt = (m, p) => (m.checker > 0 ? (((Math.floor(p[0] / m.checker) + Math.floor(p[2] / m.checker)) & 1) === 0 ? m.albedo : m.alt) : m.albedo);
-const sphere = (name, c, r, m) => ({
-  name, m, c, r,
-  hit(o, d, tMin, tMax) {
-    const oc = sub(o, c), b = dot(oc, d), cc = dot(oc, oc) - r * r, disc = b * b - cc;
-    if (disc < 0) return -1;
-    const root = Math.sqrt(disc);
-    let t = -b - root;
-    if (t <= tMin) t = -b + root;
-    return t > tMin && t < tMax ? t : -1;
-  },
-  normal: (p) => mul(sub(p, c), 1 / r),
-});
-const plane = (name, n, dist, m) => ({
-  name, m,
-  hit(o, d, tMin, tMax) {
-    const den = dot(n, d);
-    if (Math.abs(den) < 1e-8) return -1;
-    const t = (dist - dot(n, o)) / den;
-    return t > tMin && t < tMax ? t : -1;
-  },
-  normal: () => n,
-});
-RT.sphere = sphere; RT.glass = glass;
-
-// ---- 場面(SceneLibrary.cs)----
-const orbit = (target, yaw, pitch, distance, fov) => ({ target, yaw, pitch, distance, fov });
-const mirror = metal([0.86, 0.92, 0.88]);
-RT.scenes = [
-  {
-    name: 'Whitted 1980', view: orbit([-0.3, 0.8, 0.9], 0.35, 0.22, 7.0, 40), ambient: [0.06, 0.07, 0.09], horizon: [0.80, 0.86, 0.95], zenith: [0.18, 0.36, 0.78],
-    shapes: [
-      plane('床(市松)', [0, 1, 0], 0, checker([0.75, 0.08, 0.05], [0.80, 0.70, 0.08], 1)),
-      sphere('ガラス玉', [0.3, 1, 0], 1, glass(1.5)),
-      sphere('鏡の玉', [-1.6, 0.8, 2.4], 0.8, metal([0.9, 0.9, 0.9])),
-      sphere('青い玉', [2, 0.5, 2.2], 0.5, diffuse([0.10, 0.25, 0.75], 0.3)),
-    ],
-    lights: [{ name: '光1', p: [-4, 6, -3], c: [1, 1, 1], i: 180 }, { name: '光2', p: [4, 4, -2], c: [1, 0.95, 0.85], i: 50 }],
-  },
-  {
-    name: '屈折率と金属', view: orbit([0, 0.4, 0.7], 0, 0.30, 5.6, 45), ambient: [0.06, 0.06, 0.07], horizon: [0.85, 0.87, 0.90], zenith: [0.30, 0.42, 0.70],
-    shapes: [
-      plane('床(市松)', [0, 1, 0], 0, checker([0.7, 0.7, 0.7], [0.08, 0.08, 0.08], 0.5)),
-      ...[1.00, 1.10, 1.33, 1.50, 2.42].map((n, i) => sphere(`ガラス玉(屈折率 ${n.toFixed(2)})`, [2.2 - 1.1 * i, 0.45, 0], 0.45, glass(n))),
-      sphere('白い玉(つや消し)', [2.2, 0.45, 1.4], 0.45, diffuse([0.75, 0.75, 0.75])),
-      sphere('赤い玉(つや)', [1.1, 0.45, 1.4], 0.45, diffuse([0.70, 0.08, 0.06], 0.5, 200)),
-      sphere('金の玉', [0, 0.45, 1.4], 0.45, metal([1, 0.71, 0.29])),
-      sphere('銅の玉', [-1.1, 0.45, 1.4], 0.45, metal([0.95, 0.64, 0.54])),
-      sphere('アルミの玉', [-2.2, 0.45, 1.4], 0.45, metal([0.91, 0.92, 0.92])),
-    ],
-    lights: [{ name: '光1', p: [-3, 5, -4], c: [1, 1, 1], i: 150 }, { name: '光2', p: [4, 3, -1], c: [1, 0.9, 0.8], i: 40 }],
-  },
-  {
-    name: '合わせ鏡', view: orbit([0.4, 0.7, 0.6], -0.9, 0.12, 2.2, 60), ambient: [0.05, 0.05, 0.06], horizon: [0.80, 0.85, 0.92], zenith: [0.25, 0.40, 0.75],
-    shapes: [
-      plane('床(市松)', [0, 1, 0], 0, checker([0.72, 0.72, 0.72], [0.06, 0.06, 0.06], 0.5)),
-      plane('天井', [0, 1, 0], 2.4, diffuse([0.60, 0.58, 0.55])),
-      plane('鏡(x=-1.6)', [1, 0, 0], -1.6, mirror),
-      plane('鏡(x=+1.6)', [-1, 0, 0], -1.6, mirror),
-      sphere('赤い玉', [0, 0.5, 0.6], 0.5, diffuse([0.75, 0.10, 0.08], 0.3)),
-      sphere('ガラス玉', [0.7, 0.35, -0.3], 0.35, glass(1.5)),
-      sphere('金の玉', [-0.7, 0.3, 1.6], 0.3, metal([1, 0.71, 0.29])),
-    ],
-    lights: [{ name: '光1', p: [0, 1.9, 0.4], c: [1, 1, 1], i: 15 }],
-  },
-];
-RT.sky = (s, d) => { const u = Math.sqrt(clamp(d[1], 0, 1)); return s.horizon.map((h, k) => h + (s.zenith[k] - h) * u); };
-
-// ---- カメラ(Camera.cs)----
-RT.camera = (view, w, h) => {
-  const pos = add(view.target, mul([Math.sin(view.yaw) * Math.cos(view.pitch), Math.sin(view.pitch), -Math.cos(view.yaw) * Math.cos(view.pitch)], view.distance));
-  const f = norm(sub(view.target, pos)), r = norm(cross(f, [0, 1, 0])), u = cross(r, f);
-  const hh = Math.tan(view.fov * Math.PI / 360), hw = hh * w / h;
-  return { pos, w, h, ray(px, py) { const nx = px / w * 2 - 1, ny = 1 - py / h * 2; return norm(add(f, add(mul(r, nx * hw), mul(u, ny * hh)))); } };
-};
-
-// ---- 光線の木(WhittedTracer.cs)----
-// opt: { maxDepth, shadows, fresnel: 'exact' | 'schlick' | 'off' }。cnt は光線の数、L は字下げした行の配列(要らなければ null)
-const EPS = 1e-3;
-RT.tracer = (scene, opt) => {
-  const intersect = (o, d) => {
-    let best = Infinity, shape = null;
-    for (const s of scene.shapes) { const t = s.hit(o, d, 0, best); if (t >= 0) { best = t; shape = s; } }
-    return shape ? { t: best, shape } : null;
-  };
-  const occluder = (o, d, maxD) => { for (const s of scene.shapes) if (s.hit(o, d, 0, maxD) >= 0) return s; return null; };
-  const off = (p, n) => add(p, mul(n, EPS));
-  const dielectric = (c, n1, n2) => (opt.fresnel === 'schlick' ? RT.schlick(c, n1, n2) : opt.fresnel === 'off' ? RT.r0(n1, n2) : RT.fresnel(c, n1, n2));
-  const metalF = (c, f0) => (opt.fresnel === 'off' ? f0 : RT.schlickConductor(c, f0));
-  const blinn = (n, hv, sh) => (sh + 8) / (8 * Math.PI) * Math.max(dot(n, hv), 0) ** sh;
-  const log = (L, depth, s) => { if (L) L.push('   '.repeat(depth) + s); };
-  function reach(hit, light, depth, cnt, L) {
-    const offv = sub(light.p, hit.p), dist = len(offv), toL = mul(offv, 1 / dist), cos = dot(hit.n, toL);
-    if (cos <= 0) { log(L, depth + 1, `影: ${light.name} は面の裏側。光線は出さない`); return null; }
-    if (opt.shadows !== false) {
-      cnt.shadow++;
-      const occ = occluder(off(hit.p, hit.n), toL, dist);
-      if (occ) { log(L, depth + 1, `影 → ${light.name}: ${occ.name} に遮られた`); return null; }
-      log(L, depth + 1, `影 → ${light.name}: 届いた`);
-    }
-    return { toL, e: mul(light.c, light.i / (dist * dist) * cos) };
-  }
-  function highlights(hit, depth, cnt, L) {
-    let sum = [0, 0, 0];
-    for (const light of scene.lights) {
-      const r = reach(hit, light, depth, cnt, L);
-      if (!r) continue;
-      const hv = norm(add(hit.v, r.toL)), cosH = dot(hit.v, hv);
-      const f = hit.m.kind === 'metal' ? metalF(cosH, hit.m.albedo) : [1, 1, 1].map(() => dielectric(cosH, 1, hit.m.ior));
-      sum = add(sum, mulv(f, mul(r.e, blinn(hit.n, hv, hit.m.shininess))));
-    }
-    return sum;
-  }
-  function trace(o, d, depth, cnt, L, label) {
-    const h = intersect(o, d);
-    if (!h) { log(L, depth, `${label} → 空`); return RT.sky(scene, d); }
-    const p = add(o, mul(d, h.t));
-    let n = h.shape.normal(p);
-    const front = dot(d, n) < 0;
-    if (!front) n = mul(n, -1);
-    log(L, depth, `${label} → ${h.shape.name}  ${h.t.toFixed(3)}m 先${front ? '' : '(内側から)'}`);
-    const hit = { p, n, v: mul(d, -1), front, m: h.shape.m };
-    const m = hit.m;
-    if (m.kind === 'diffuse') {
-      const a = albedoAt(m, p);
-      let c = mulv(a, scene.ambient);
-      for (const light of scene.lights) {
-        const r = reach(hit, light, depth, cnt, L);
-        if (!r) continue;
-        const hv = norm(add(hit.v, r.toL)), spec = m.specular * blinn(n, hv, m.shininess);
-        c = add(c, mulv(add(mul(a, 1 / Math.PI), [spec, spec, spec]), r.e));
-      }
-      return c;
-    }
-    if (m.kind === 'metal') {
-      const c = highlights(hit, depth, cnt, L);
-      if (depth >= opt.maxDepth) { log(L, depth + 1, '反射: 深さの上限なので追わない(黒)'); return c; }
-      const f = metalF(dot(n, hit.v), m.albedo);
-      cnt.reflection++;
-      log(L, depth + 1, `反射の割合 (${f.map((x) => x.toFixed(2)).join(', ')})`);
-      return add(c, mulv(f, trace(off(p, n), norm(RT.reflect(d, n)), depth + 1, cnt, L, '反射')));
-    }
-    const n1 = front ? 1 : m.ior, n2 = front ? m.ior : 1, cosI = dot(n, hit.v);
-    const refr = RT.refract(d, n, n1 / n2), F = refr ? dielectric(cosI, n1, n2) : 1;
-    const ang = Math.acos(clamp(cosI, 0, 1)) * 180 / Math.PI;
-    log(L, depth + 1, refr
-      ? `屈折率 ${n1.toFixed(2)} → ${n2.toFixed(2)}  入射角 ${ang.toFixed(1)}度  反射 ${F.toFixed(3)} / 透過 ${(1 - F).toFixed(3)}`
-      : `屈折率 ${n1.toFixed(2)} → ${n2.toFixed(2)}  入射角 ${ang.toFixed(1)}度  全反射(透過の角度が無い)`);
-    let c = front ? highlights(hit, depth, cnt, L) : [0, 0, 0];
-    if (depth >= opt.maxDepth) { log(L, depth + 1, '反射・屈折: 深さの上限なので追わない(黒)'); return c; }
-    if (F > 0) { cnt.reflection++; c = add(c, mul(trace(off(p, n), norm(RT.reflect(d, n)), depth + 1, cnt, L, refr ? '反射' : '全反射'), F)); }
-    if (refr && F < 1) { cnt.refraction++; c = add(c, mul(trace(off(p, mul(n, -1)), norm(refr), depth + 1, cnt, L, '屈折'), 1 - F)); }
-    return c;
-  }
-  return { trace };
-};
-RT.counters = () => ({ camera: 0, shadow: 0, reflection: 0, refraction: 0 });
-RT.total = (c) => c.camera + c.shadow + c.reflection + c.refraction;
-// HeatColor(光線の数を 2倍ごとに1段)
-RT.heat = (n) => {
-  const stops = [[0, 0, 0.3], [0, 0.3, 1], [0, 0.9, 0.9], [0.2, 0.9, 0.1], [1, 0.9, 0], [1, 0.2, 0], [1, 1, 1]];
-  const level = clamp(Math.log2(Math.max(n, 1)), 0, stops.length - 1), i = Math.min(Math.floor(level), stops.length - 2), f = level - i;
-  return stops[i].map((a, k) => a + (stops[i + 1][k] - a) * f);
-};
-RT.radicalInverse = (index, radix) => { let r = 0, f = 1 / radix; while (index > 0) { r += (index % radix) * f; index = Math.floor(index / radix); f /= radix; } return r; };
-RT.sampleOffset = (s) => (s === 0 ? [0.5, 0.5] : [RT.radicalInverse(s, 2), RT.radicalInverse(s, 3)]);
-RT.linearToSrgb = (v) => (!(v > 0) ? 0 : v >= 1 ? 1 : v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
-}
-if (typeof module !== 'undefined') module.exports = RT; else window.RT59 = RT;
-})();
 (() => {
 'use strict';
 const { $, tok, fit, seg, setSeg, stat, animate, reduceMotion } = Lab;
-const RT = window.RT59;
+const RT = window.CpuRayTracer;
+// Day 59 の3つの場面(場面への問い合わせは総当たり)
+const SCENES59 = RT.library(59).map((sc) => RT.prepare(sc, 'brute'));
 
 // ============================================================
 //  要点3・4・5: 光線の木を断面で
@@ -930,8 +714,8 @@ const rd = { scene: 0, view: 'shade', fr: 'exact', depth: 5, shadows: true, jitt
 const rdImg = new ImageData(RW, RH);
 let rdTracer = null, rdCam = null;
 function rdReset() {
-  const sc = RT.scenes[rd.scene];
-  rdTracer = RT.tracer(sc, { maxDepth: rd.depth, shadows: rd.shadows, fresnel: rd.fr });
+  const sc = SCENES59[rd.scene];
+  rdTracer = RT.tracer(sc, { algorithm: 'whitted', maxDepth: rd.depth, shadows: rd.shadows, fresnel: rd.fr });
   // 960x540 のカメラのまま、3x3 画素に1本ずつ撃つ(画素の座標は 960x540 のもの)
   rdCam = RT.camera(sc.view, RW * FULL, RH * FULL);
   rd.acc.fill(0); rd.sample = 0;
@@ -940,7 +724,7 @@ function rdPass() {
   if (rd.sample >= 64) return;
   const t0 = performance.now();
   const off = rd.jitter ? RT.sampleOffset(rd.sample) : [0.5, 0.5];
-  const sc = RT.scenes[rd.scene], cnt = RT.counters();
+  const sc = SCENES59[rd.scene], cnt = RT.counters();
   for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
     // 小さい画素1つ = 960x540 の 3x3。ずらしは小さい画素の中で
     const px = (x + off[0]) * FULL, py = (y + off[1]) * FULL, d = rdCam.ray(px, py);
@@ -952,7 +736,7 @@ function rdPass() {
       for (const s of sc.shapes) { const t = s.hit(rdCam.pos, d, 0, best); if (t >= 0) { best = t; shape = s; } }
       if (shape) { let n = shape.normal(RT.add(rdCam.pos, RT.mul(d, best))); if (RT.dot(d, n) > 0) n = RT.mul(n, -1); c = n.map((v) => v * 0.5 + 0.5); } else c = [0, 0, 0];
     } else {
-      c = rdTracer.trace(rdCam.pos, d, 0, cnt, null, 'カメラ');
+      c = rdTracer.whitted(rdCam.pos, d, 0, cnt, null, 'カメラ');
       if (rd.view === 'rays') c = RT.heat(RT.total(cnt) - before);
     }
     const k = (y * RW + x) * 3;
@@ -996,7 +780,7 @@ $('rd-canvas').addEventListener('click', (e) => {
   // 960x540 の画素 (X, Y) の真ん中を1本だけ追う(TracePixel と同じ)
   const X = x * FULL + 1, Y = y * FULL + 1, L = [], cnt = RT.counters();
   cnt.camera++;
-  const c = rdTracer.trace(rdCam.pos, rdCam.ray(X + 0.5, Y + 0.5), 0, cnt, L, 'カメラ');
+  const c = rdTracer.whitted(rdCam.pos, rdCam.ray(X + 0.5, Y + 0.5), 0, cnt, L, 'カメラ');
   const shown = L.length > 40 ? [...L.slice(0, 40), `…(あと ${L.length - 40} 行)`] : L;
   $('rd-log').textContent = `--- 1画素を追う(画素 ${X}, ${Y})  色 (${c.map((v) => v.toFixed(3)).join(', ')}) ---\n` +
     `光線 ${RT.total(cnt)} 本(カメラ ${cnt.camera} / 影 ${cnt.shadow} / 反射 ${cnt.reflection} / 屈折 ${cnt.refraction})\n` + shown.join('\n');
