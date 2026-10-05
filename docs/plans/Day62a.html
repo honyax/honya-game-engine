@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 62a Vulkan を立ち上げる</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. Vulkan は画面と無関係に立ち上がる — 5段の儀式</a></li><li class="l3"><a href="#s6">2. ドライバは GLSL を受け取らない — SPIR-V と shaderc</a></li><li class="l3"><a href="#s7">3. メモリは自分で選ぶ — 「入れ物」と「メモリ」の分離</a></li><li class="l3"><a href="#s8">4. 準備を前に寄せる — ディスクリプタとパイプライン</a></li><li class="l3"><a href="#s9">5. 画像は「レイアウト」という状態を持つ</a></li><li class="l3"><a href="#s11">6. 同期は自分で書く — そして時間は GPU に測らせる</a></li><li class="l3"><a href="#s12">7. 総当たりの費用 — Day 62b が潰しに行くもの</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Vulkan — 5つのクラス</a></li><li class="l3"><a href="#s19">Scene — GPU に渡せる形</a></li><li class="l3"><a href="#s20">1フレームの流れ</a></li><li class="l3"><a href="#s21">Render の中 — コマンドバッファに何を積むか</a></li><li class="l3"><a href="#s22">trace.comp の中 — 1画素の流れ</a></li><li class="l3"><a href="#s23">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. 起動: 球 120 個、陰影</a></li><li class="l3"><a href="#s26">2. <code>1</code> / <code>3</code>: 球の数を変える(今日の目)</a></li><li class="l3"><a href="#s27">3. <code>M</code>: 表示を切り替える(3つ)</a></li><li class="l3"><a href="#s28">4. カメラ</a></li><li class="l3"><a href="#s29">5. シェーダを書き換えて、落ちないことを確かめる</a></li><li class="l2"><a href="#s30">検証の途中で分かったこと</a></li><li class="l3"><a href="#s31">検証1: CPU の Stopwatch では総当たりの費用が見えなかった</a></li><li class="l3"><a href="#s32">検証2: 検証レイヤはドライバに付いてこない</a></li><li class="l3"><a href="#s33">検証3: 一様乱数の色は灰色になる</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ワークグループの大きさを食い違わせる</a></li><li class="l3"><a href="#s36">課題2(中): 地平線のちらつきを消す(スーパーサンプリング)</a></li><li class="l3"><a href="#s37">課題3(難): 引き取りの 8ms を削る</a></li><li class="l2"><a href="#s38">次(Day 62b)でやること</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 62a / 計画書</p>
+  <h1>Vulkan を立ち上げる</h1>
+  <p class="lede">ハードウェアRTへの下ごしらえ</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. Vulkan は画面と無関係に立ち上がる — 5段の儀式</a></li><li class="l3"><a href="#s6">2. ドライバは GLSL を受け取らない — SPIR-V と shaderc</a></li><li class="l3"><a href="#s7">3. メモリは自分で選ぶ — 「入れ物」と「メモリ」の分離</a></li><li class="l3"><a href="#s8">4. 準備を前に寄せる — ディスクリプタとパイプライン</a></li><li class="l3"><a href="#s9">5. 画像は「レイアウト」という状態を持つ</a></li><li class="l3"><a href="#s11">6. 同期は自分で書く — そして時間は GPU に測らせる</a></li><li class="l3"><a href="#s12">7. 総当たりの費用 — Day 62b が潰しに行くもの</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Vulkan — 5つのクラス</a></li><li class="l3"><a href="#s19">Scene — GPU に渡せる形</a></li><li class="l3"><a href="#s20">1フレームの流れ</a></li><li class="l3"><a href="#s21">Render の中 — コマンドバッファに何を積むか</a></li><li class="l3"><a href="#s22">trace.comp の中 — 1画素の流れ</a></li><li class="l3"><a href="#s23">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. 起動: 球 120 個、陰影</a></li><li class="l3"><a href="#s26">2. <code>1</code> / <code>3</code>: 球の数を変える(今日の目)</a></li><li class="l3"><a href="#s27">3. <code>M</code>: 表示を切り替える(3つ)</a></li><li class="l3"><a href="#s28">4. カメラ</a></li><li class="l3"><a href="#s29">5. シェーダを書き換えて、落ちないことを確かめる</a></li><li class="l2"><a href="#s30">検証の途中で分かったこと</a></li><li class="l3"><a href="#s31">検証1: CPU の Stopwatch では総当たりの費用が見えなかった</a></li><li class="l3"><a href="#s32">検証2: 検証レイヤはドライバに付いてこない</a></li><li class="l3"><a href="#s33">検証3: 一様乱数の色は灰色になる</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ワークグループの大きさを食い違わせる</a></li><li class="l3"><a href="#s36">課題2(中): 地平線のちらつきを消す(スーパーサンプリング)</a></li><li class="l3"><a href="#s37">課題3(難): 引き取りの 8ms を削る</a></li><li class="l2"><a href="#s38">次(Day 62b)でやること</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の6日目</strong>。ロードマップの Day 62(ハードウェアレイトレーシング)は分量が1日に収まらないので、<strong>62a / 62b / 62c の3日に割った</strong>。今日はその1日目。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>今日やること</th><th>絵として何が出るか</th></tr></thead>
+<tbody>
+<tr><td><strong>62a(今日)</strong></td><td><strong>Vulkan を立ち上げる</strong>。device・メモリ・ディスクリプタ・コマンド・SPIR-V</td><td>球と市松の床。探し方は<strong>総当たり</strong></td></tr>
+<tr><td>62b</td><td><strong>BLAS/TLAS を建てて ray query に差し替える</strong></td><td>同じ絵。<strong>総当たりの費用が消える</strong></td></tr>
+<tr><td>62c</td><td><strong>レイトレーシングパイプラインと SBT</strong></td><td>同じ絵。材質ごとに hit シェーダが分かれる</td></tr>
+</tbody>
+</table></div>
+<p>今日書くコードは、<strong>レイトレーシングとは何の関係も無い</strong>。Vulkan が動いていないとハードウェア RT の話に入れないので、そこだけを片付ける日。ロードマップの狙い(BLAS/TLAS と RT コアが何を肩代わりするか)は 62b で回収する。</p>
+<p><strong>Labs の新しいプロジェクト</strong>として始める。Day 59〜61 の <code>CpuRayTracer</code>(CPU → OpenGL)とはコードを1行も共有しない——コンテキストの作り方もメモリの持ち方もシェーダの渡し方も別物だから。持ってくるのは<strong>場面とカメラの式だけ</strong>。</p>
+<ul><li>置き場所: <code>reference/Day62a/</code> / 写経先は <code>work/Labs/HardwareRayTracer/</code></li><li>名前空間: <code>HardwareRayTracer</code>(62a / 62b / 62c で共通)</li></ul>
+<p>今日の差分は<strong>新規 11 ファイル</strong>(2,498 行、うち C# のコード 1,274 行、GLSL 283 行)。<strong>1日ぶんとしては重い</strong>ので、<code>Vulkan/</code> の5ファイルを先に写して harness で動かし、窓を後回しにしても構わない(下の「写経する順番」はその順に並べてある)。</p>
+<blockquote><p><strong>Vulkan の長さは、ほぼ全部が「起動時の儀式」に寄っている</strong></p>
+<p>今日書く 1,274 行のうち、<strong>毎フレーム走るのは 60 行ほど</strong>(<code>ComputeRenderer.Render</code>)。残りは全部、起動時に1回だけ通る道。OpenGL が「ドローのたびに状態の組み合わせを検証して、必要ならシェーダを作り直す」ことでやっていた仕事を、<strong>Vulkan は事前に固めさせる</strong>。長さの正体はそこにある。そしてこの 1,200 行は、<strong>Day 62b でも 62c でもほぼ 1 行も変わらない</strong>。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると 960x540 の窓に、市松の床と 120 個の球が出る。<code>3</code> を押すと 720 個に増える。<code>M</code> を押すと「法線」「交差判定の回数」に切り替わる。HUD の「1枚」の行に2つの数が並んでいて、球を 8 → 720 個に増やすと、</strong>右の数(光線追跡)だけが 0.4ms → 7ms に伸びる<strong> (左の「1枚」は 10ms のままほとんど動かない)。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>球の数(8 / 120 / 720)。<strong>今日の目</strong>——総当たりの費用が伸びるのを見る</td></tr>
+<tr><td><code>M</code></td><td>表示の種類(陰影 → 法線 → <strong>交差判定の回数</strong>)。3つ目が Day 62b の比較の土台</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code></td><td>カメラを回す / 寄る / 戻す</td></tr>
+<tr><td><code>H</code> / <code>Esc</code></td><td>文字を消す / 終了</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「Vulkan は画面と無関係に立ち上がる」</strong>(要点1)。Day 61 の <code>GpuDevice</code> は、GPGPU しかしないのに<strong>見えない 16x16 の窓を作った</strong>。OpenGL のコンテキストは窓(描画先)の上にしか作れないからで、あれは OpenGL の歴史的な都合だった。今日の <code>VulkanDevice.cs</code> には、<strong>窓の話が1つも出てこない</strong>。</p>
+<div class="code"><pre><code>OpenGL: 窓を作る → コンテキストを作る → そのスレッドに貼り付く → GL 関数が使える
+Vulkan: インスタンス → 物理デバイスを選ぶ → 論理デバイス → キュー   (画面は一切関係しない)</code></pre></div>
+<p>画面に出したくなったときだけ <code>VkSurfaceKHR</code> と <code>VkSwapchainKHR</code> を足す、という足し算の構造になっている。今日はそれを足さない(窓には Day 1 と同じ LockBits で貼る)。</p>
+<p><strong>2つ目は「Vulkan は決めごとを全部こちらに書かせる」</strong>(要点2〜5)。OpenGL が黙ってやっていた4つが、それぞれ明示的な API になっている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>OpenGL が黙ってやっていたこと</th><th>Vulkan で自分が書くこと</th><th>ファイル</th></tr></thead>
+<tbody>
+<tr><td>GLSL をドライバが翻訳する</td><td><strong>SPIR-V を渡す</strong>。GLSL → SPIR-V は自分で(shaderc)</td><td><code>ShaderCompiler.cs</code></td></tr>
+<tr><td><code>glBufferData</code> が置き場所を決める</td><td><strong>メモリの種類を選んで確保して貼る</strong>の3段</td><td><code>VulkanBuffer.cs</code></td></tr>
+<tr><td>テクスチャの内部の並べ方を切り替える</td><td><strong>レイアウトを追跡して宣言する</strong>(バリア)</td><td><code>VulkanImage.cs</code></td></tr>
+<tr><td>ドローのたびに状態の組み合わせを検証する</td><td><strong>事前にレイアウトとパイプラインに固める</strong></td><td><code>ComputeRenderer.cs</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>3つ目は「GPU の時間は GPU に測らせる」</strong>(要点6)。今日いちばん引っかかったのがここ。CPU 側の <code>Stopwatch</code> で測ると、球 8 個でも 720 個でも<strong>8ms と 13ms</strong> にしかならない——2MB の引き取りと提出の往復が 8ms あって、光線を追う時間(0.05ms)を覆い隠してしまう。<code>vkCmdWriteTimestamp</code> でディスパッチだけを囲むと、</p>
+<div class="code"><pre><code>球   8 個:  frame 8.31 ms   trace 0.05 ms
+球 120 個:  frame 8.89 ms   trace 0.67 ms    ( 球 15 倍 → 13 倍)
+球 720 個:  frame 12.64 ms  trace 4.30 ms    ( 球 90 倍 → 86 倍)</code></pre></div>
+<p><strong>総当たりは球の数にきれいに比例する</strong>、が数字で出る。Day 62b はこの <code>trace</code> の列を潰しに行く。</p>
+<blockquote><p><strong>この表は「休みなく連続で描いたときの最小値」</strong>(窓を出さない計測用の走らせ方)。<strong>窓のアプリで見える数はこれより大きく、揺れる</strong>——1枚が 1ms で終わるとGPU は残りの 15ms を寝て過ごすので、クロックが下がったまま次のフレームを迎える。アプリ側の実測は下の「完成条件」に載せてある。比べるのは<strong>同じ測り方どうし</strong>にすること。</p></blockquote>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://vulkan-tutorial.com/">Vulkan Tutorial</a></strong> の<strong>Drawing a triangle → Setup</strong>(Instance / Validation layers / Physical devices / Logical device)と<strong>Vertex buffers → Vertex buffer creation / Staging buffer</strong>。C++ だが、<strong>今日書く C# はこの章立てとほぼ1対1</strong>に並んでいる</li><li><strong><a href="https://docs.vulkan.org/guide/latest/index.html">Vulkan Guide (KhronosGroup)</a></strong> の<strong>Memory Allocation</strong>、<strong>Synchronization</strong>、<strong>Descriptor Sets</strong> — 「なぜその形なのか」が書いてある。チュートリアルより短く、今日の要点3〜5 の背景が全部ここにある</li><li><strong><a href="https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html">Vulkan 1.3 仕様</a></strong> の<strong>7. Synchronization and Cache Control</strong>(とくに 7.4 Memory Barriers の「実行の依存」と「メモリの依存」が別物だという説明)と <strong>12.5 Image Layouts</strong> — 要点5</li><li><strong><a href="https://github.com/SaschaWillems/Vulkan">Sascha Willems, Vulkan examples</a></strong> の<code>examples/computeheadless</code> — <strong>窓を作らずに計算だけする</strong>最小の例。今日の構成とほぼ同じ</li><li><strong><a href="https://zeux.io/2020/02/27/writing-an-efficient-vulkan-renderer/">Arseny Kapoulkine, "Writing an efficient Vulkan renderer"(GPU Zen 2)</a></strong>— メモリ確保とディスクリプタの現実的な扱い。<strong>今日のコードがどこで手を抜いているか</strong>が分かる</li><li><strong><a href="https://github.com/google/shaderc">shaderc</a></strong> の README — GLSL → SPIR-V。本来はビルド時に <code>glslc</code> を叩く道具で、今日は実行時に呼んでいる(要点2)</li><li><strong><a href="https://github.com/dotnet/Silk.NET">Silk.NET</a></strong> の <code>examples/CSharp/OpenGL Demos</code> ではなく<strong><code>src/Vulkan</code> の XML ドキュメント</strong> — Silk.NET の Vulkan 束縛は<strong>ほぼ生の C API</strong>なので、上の C++ の資料がそのまま読める</li><li><strong>Day 61 の計画書</strong>(GPU パストレーサ化)— 要点1(GPGPU の実行モデル)と要点4(std430 の詰め方)は今日もそのまま効く。<strong>GLSL 側の作法は Day 57・61 で済ませてあるので、今日は C# 側だけが新しい</strong></li><li><strong><a href="https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/">NVIDIA Vulkan Ray Tracing Tutorial</a></strong>— <strong>今日はまだ読まなくてよい</strong>。62b・62c の本体。今日の <code>VulkanDevice</code> / <code>VulkanBuffer</code> は、この資料の <code>nvvk</code> が用意しているものを自前で書いているのだと思って読むと位置づけが分かる</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. Vulkan は画面と無関係に立ち上がる — 5段の儀式</h3>
+<p>OpenGL で GPGPU をするには窓が要った(Day 61 の <code>GpuDevice</code> は見えない窓を1つ作った)。Vulkan にその制約は無い。代わりに、<strong>OpenGL が黙って1つに畳んでいたものが5つに分かれている</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>何を決めるか</th><th>間違えるとどうなるか</th></tr></thead>
+<tbody>
+<tr><td><strong>インスタンス</strong></td><td>ローダとの接点。<strong>使う拡張とレイヤ</strong>をここで宣言する</td><td>拡張を宣言し忘れると、後で関数ポインタが null になる</td></tr>
+<tr><td><strong>物理デバイス</strong></td><td>刺さっている GPU の一覧から1つ選ぶ</td><td>素直に先頭を取ると、ノート PC では内蔵 GPU を掴む</td></tr>
+<tr><td><strong>キューファミリ</strong></td><td>仕事の受け口の種類(描画 / 計算 / 転送)</td><td>計算できない口に計算を投げると未定義動作</td></tr>
+<tr><td><strong>論理デバイス</strong></td><td>選んだ GPU への自分専用の窓口。<strong>使う機能を明示的に有効化する</strong></td><td>有効化していない機能を使うシェーダは未定義動作</td></tr>
+<tr><td><strong>コマンドプール</strong></td><td>コマンドバッファを切り出す元</td><td>同じプールのバッファを同時に触ると壊れる</td></tr>
+</tbody>
+</table></div>
+<p><strong>「聞いてから使う」が徹底している</strong>のが Vulkan の性格。物理デバイスが何をできるかは<code>vkGetPhysicalDeviceFeatures</code> / <code>...Properties</code> / <code>...QueueFamilyProperties</code> で<strong>聞かないと分からない</strong>し、使うと決めたものは <code>VkDeviceCreateInfo</code> で<strong>明示的に有効化する</strong>。Day 62b で <code>VK_KHR_ray_tracing_pipeline</code> を足すのも、この同じ場所に1行足すだけになる。</p>
+<p><strong>検証レイヤ</strong>(<code>VK_LAYER_KHRONOS_validation</code>)は、この「聞いてから使う」の見張り番。API 呼び出しの間に割り込んで仕様違反を教えてくれる、<strong>Vulkan を書くときの実質的なコンパイラ</strong>にあたる。ただし<strong>ドライバには付いてこない</strong>——<a href="https://vulkan.lunarg.com/sdk/home">LunarG の Vulkan SDK</a>を入れると使えるようになる。今日のコードは「あれば使う、無ければ黙って諦める」にしてあり、どちらかは HUD の1行目に出る。</p>
+<blockquote><p><strong>入っていなくても今日は動く。が、自分で書き換えて詰まったら入れるべき。</strong></p>
+<p>Vulkan の失敗のほとんどは例外ではなく<strong>画面が真っ黒</strong>という形で出る。<code>SType</code> を1つ書き忘れた、バリアの段を間違えた、ディスクリプタの型が合っていない——どれも検証レイヤなら1行で教えてくれるが、無いと数時間溶ける。</p></blockquote>
+<h3 id="s6">2. ドライバは GLSL を受け取らない — SPIR-V と shaderc</h3>
+<p>OpenGL では <code>glShaderSource</code> に GLSL の文字列をそのまま渡せた。<strong>ドライバの中に GLSL コンパイラが入っていた</strong>からで、それは裏返すと「ベンダごとに別のコンパイラが別の解釈をする」ということでもあった。同じシェーダが NVIDIA で通って AMD で通らない、という事故はここから来ていた。</p>
+<p>Vulkan はそこを切った。ドライバが受け取るのは <strong>SPIR-V</strong>(32 ビット語の並びでできた中間表現)だけ。</p>
+<div class="code"><pre><code>  GLSL  --[glslang / shaderc]--&gt;  SPIR-V  --[ドライバ]--&gt;  その GPU の機械語
+        ^ アプリ側の責任                   ^ ここから先がドライバ</code></pre></div>
+<p><strong>文法の解釈がアプリ側に移った</strong>ので、「手元で通れば、どの GPU でも同じ形が届く」。代わりに翻訳する道具が要る。本来は<strong>ビルド時に</strong> <code>glslc</code> を叩いて <code>.spv</code> を作り、実行時はそれを読むだけにする。今日は <code>Silk.NET.Shaderc</code> + <code>...Shaderc.Native</code>(glslang を包んだ .dll がNuGet で付いてくる)を使って<strong>実行時に翻訳</strong>している。理由は2つ:</p>
+<ul><li><strong>Vulkan SDK を入れなくても動く</strong>(手元の環境では実際に SDK は入っていない)</li><li><strong>シェーダを書き換えて再実行するだけで試せる</strong>(Day 61 と同じ方針。改造課題で効く)</li></ul>
+<p>翻訳するときに指定する2つは間違えやすい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_api.CompileOptionsSetTargetEnv(_options, TargetEnv.Vulkan, (uint)EnvVersion.Vulkan12);
+_api.CompileOptionsSetTargetSpirv(_options, SpirvVersion.Shaderc15);   // SPIR-V 1.5</code></pre></div>
+<p><code>TargetEnv</code> を OpenGL にすると <code>set = 0</code> の書き方が通らない。<code>SpirvVersion</code> は、<strong>Day 62b で使う ray query が SPIR-V 1.4 以上</strong>を要求するので、今から 1.5 にしておく。</p>
+<h3 id="s7">3. メモリは自分で選ぶ — 「入れ物」と「メモリ」の分離</h3>
+<p><code>glBufferData</code> は、入れ物を作ることとメモリを確保することと中身を書くことを1回でやっていた。Vulkan はこれを3つに割る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>vkCreateBuffer      // 大きさと使い道だけ宣言する。メモリはまだ1バイトも無い
+vkAllocateMemory    // メモリを確保する。どの種類かはこちらが選ぶ
+vkBindBufferMemory  // 入れ物とメモリを貼り合わせる</code></pre></div>
+<p>面倒に見えるが、これは<strong>1つの大きなメモリを何本ものバッファで分け合う</strong>ためにこの形になっている(<code>vkAllocateMemory</code> の呼べる回数には上限があり、数千回しかない。実際のエンジンは 64MB 単位で確保して自前で切り分ける。VulkanMemoryAllocator がやっているのはこれ)。今日は本数が少ないので <strong>1本につき1回確保する</strong>という、素直だが実戦的でない形にしてある。</p>
+<p>選ぶ「種類」でいちばん効くのは2つの性質の組み合わせ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>性質</th><th>意味</th><th>向き不向き</th></tr></thead>
+<tbody>
+<tr><td><code>DeviceLocal</code></td><td>GPU の直近(VRAM)</td><td>GPU から読むのが速い。CPU からは触れないことが多い</td></tr>
+<tr><td><code>HostVisible</code></td><td>CPU から <code>vkMapMemory</code> できる</td><td>GPU からは PCIe 越しで遅い</td></tr>
+</tbody>
+</table></div>
+<p>両方立っている種類(ReBAR / Smart Access Memory)があれば理想だが、大きさが限られる。ふつうは <strong>「HostVisible に書いて、転送コマンドで DeviceLocal へ移す」の2段</strong>を踏む(ステージング)。今日の球の配列(<code>VulkanBuffer.CreateDeviceLocal</code>)がそれ。</p>
+<p><strong>どの種類を選べるかは資源ごとに違う</strong>。<code>vkGetBufferMemoryRequirements</code> が返す <code>MemoryTypeBits</code> が「この資源はこの種類になら置ける」という GPU 側の制約で、そこに入っていない種類を選ぶと確保に失敗する。だから探し方は必ず「<strong>許された種類の中から、欲しい性質を全部持つ最初のもの</strong>」になる。</p>
+<div class="inject"><figure class="lab" id="mt-lab">
+  <div class="lab-head">
+    <h3>メモリの種類を選ぶ — 許された種類 × 欲しい性質(要点3)</h3>
+    <span class="tag">表は手元の RTX 3070(driver 596.49)で vkGetPhysicalDeviceMemoryProperties が返した 6 種類と 3 つのヒープ。資源ごとの MemoryTypeBits も同じ GPU で reference と同じ使い道の資源を作って聞いた値。選び方は VulkanDevice.FindMemoryType と同じ(番号の小さい順に見て、最初に条件を満たしたもの)</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">資源(reference の使い道)</span>
+      <div class="seg" id="mt-res"><button data-v="staging" aria-pressed="true">ステージング(転送元)</button><button data-v="readback" aria-pressed="false">引き取り用(転送先)</button><button data-v="spheres" aria-pressed="false">球の配列</button><button data-v="image" aria-pressed="false">ストレージ画像</button></div>
+    </div>
+    <div class="ctl"><span class="label">欲しい性質(required)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 14px">
+        <label class="check"><input type="checkbox" id="mt-dl"> DeviceLocal</label>
+        <label class="check"><input type="checkbox" id="mt-hv"> HostVisible</label>
+        <label class="check"><input type="checkbox" id="mt-hc"> HostCoherent</label>
+        <label class="check"><input type="checkbox" id="mt-cached"> HostCached</label>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="mt-ignore"> MemoryTypeBits を見ずに選ぶ(このページだけの間違い)</label>
+  </div>
+  <div class="readout"><div class="stats" id="mt-stats"></div><div class="table-wrap" id="mt-table" style="margin-top:10px"></div><p id="mt-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">4. 準備を前に寄せる — ディスクリプタとパイプライン</h3>
+<p>OpenGL でコンピュートを走らせるのは3行だった。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>gl.UseProgram(program);
+gl.BindBufferBase(GLEnum.ShaderStorageBuffer, 0, ssbo);
+gl.DispatchCompute(gx, gy, 1);</code></pre></div>
+<p>Vulkan は同じことに<strong>5つの物</strong>を要求する。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>物</th><th>何か</th><th>いつ作るか</th></tr></thead>
+<tbody>
+<tr><td>ディスクリプタ<strong>セットレイアウト</strong></td><td>「0 番に画像、1 番にバッファが来る」という<strong>型の宣言</strong></td><td>起動時</td></tr>
+<tr><td>ディスクリプタ<strong>プール</strong></td><td>セットを切り出す元。何個・何種類かを先に申告</td><td>起動時</td></tr>
+<tr><td>ディスクリプタ<strong>セット</strong></td><td>レイアウトに沿って実際の資源を挿した<strong>実体</strong></td><td>起動時</td></tr>
+<tr><td><strong>パイプラインレイアウト</strong></td><td>セットの並び + プッシュ定数の大きさ。シェーダとの契約</td><td>起動時</td></tr>
+<tr><td><strong>パイプライン</strong></td><td>シェーダとレイアウトを束ねた、GPU が実行できる形</td><td>起動時</td></tr>
+</tbody>
+</table></div>
+<p><strong>これが Vulkan が速い理由でもある</strong>。OpenGL はドローのたびに「今バインドされているものの組み合わせ」を検証していて、組み合わせによってはシェーダを作り直していた(ゲーム開始直後のカクつきの正体)。Vulkan は組み合わせを事前に固めさせるので、実行時には検証も再コンパイルも起きない。</p>
+<p>毎フレーム変わる少量の値(カメラ、画面の大きさ、表示の種類)は、バッファを作って転送するより<strong>プッシュ定数</strong>が速い。コマンドバッファに値を直接埋め込む仕組みで、転送も同期も要らない。ただし<strong>保証される大きさは 128 バイトしかない</strong>。今日は 80 バイト使っている。</p>
+<div class="code"><pre><code>vec4 positionHalfWidth   0..15    vec4 rightHalfHeight  16..31
+vec4 up                 32..47    vec4 forward          48..63
+int  width/height/sphereCount/mode  64..79</code></pre></div>
+<p><strong>C# 側の構造体と GLSL 側のブロックが1バイトも違ってはいけない</strong>。<code>vec3</code> を混ぜると 16 バイト境界に揃えられて詰め物が入るので、<strong>常に <code>vec4</code> で並べて端数を <code>w</code> に詰める</strong>のが事故の少ない書き方(Day 61 の要点4 と同じ作法)。</p>
+<h3 id="s9">5. 画像は「レイアウト」という状態を持つ</h3>
+<p>バッファと画像の決定的な違いはここ。GPU は画像を用途ごとに違う並べ方(タイル状、圧縮あり/なし、深度用の特殊な形)で持っていて、<strong>いまどの並べ方かをアプリが追跡して宣言する</strong>のが Vulkan の決まり。OpenGL ではドライバが裏で切り替えていた(そしてその切り替えが、予期しない待ちを生んでいた)。</p>
+<p>今日は<strong>ずっと <code>General</code> のまま</strong>にしてある。</p>
+<ul><li><code>General</code> は「何にでも使える代わりに、どれにも最適ではない」レイアウト</li><li><strong>ストレージ画像は <code>General</code> でしか読み書きできない</strong>ので、「シェーダが書く → 転送で引き取る」だけの今日は移し替える意味が無い</li><li>実際のハードウェア RT のコードでも、出力画像は <code>General</code> に置きっぱなしにするのがふつう</li></ul>
+<p>ただしバリアは要る。<strong>バリアはレイアウトの宣言だけではなく、2つのことを同時に言っている</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>CmdPipelineBarrier(cmd,
+    PipelineStageFlags.ComputeShaderBit,   // この段が終わってから
+    PipelineStageFlags.TransferBit,        //   この段を始めよ          ... 実行の依存
+    ... SrcAccessMask = ShaderWriteBit,    // シェーダが書いた値を
+        DstAccessMask = TransferReadBit);  //   転送から読めるようにせよ ... メモリの依存</code></pre></div>
+<p><strong>片方でも欠けると、たいていの場合は正しく動いてしまう</strong>のが厄介なところ。GPU が空いていれば順番どおりに走るので、負荷が上がったときだけ絵が1フレーム古くなる、という形で出る。検証レイヤの同期チェックが拾ってくれる領域。</p>
+<h4 id="s10">RGBA と BGRA — 画素の並びをどこで入れ替えるか</h4>
+<p>ストレージ画像として<strong>必ず使える</strong>形式は仕様で決まっていて、<code>R8G8B8A8_UNORM</code> はその1つ。<code>B8G8R8A8_UNORM</code> は必須ではない。一方 WinForms の <code>Format32bppRgb</code> が欲しいバイトの並びは B, G, R, X。差を埋める場所は2つある。</p>
+<ul><li>CPU 側で 50 万画素ぶん入れ替える … 毎フレーム数 ms。もったいない</li><li><strong>シェーダが書くときに入れ替える</strong> … <code>imageStore(img, p, vec4(color.bgr, 1.0))</code> の1行</li></ul>
+<p>後者を採った。GPU 側では並べ替えの費用がほぼ 0 で、しかも「どこで入れ替えたか」がシェーダの1行に閉じる。<code>shaders/trace.comp</code> のいちばん最後の行がそれ。</p>
+<h3 id="s11">6. 同期は自分で書く — そして時間は GPU に測らせる</h3>
+<p>OpenGL の <code>glFinish</code> が暗黙にやっていたこと(投げた仕事が全部終わるまで待つ)を、Vulkan は<strong>フェンス</strong>という形で明示する。「どの提出を待つか」を選べるぶん細かい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>vk.ResetFences(device, 1, &amp;fence);
+vk.QueueSubmit(queue, 1, &amp;submit, fence);
+vk.WaitForFences(device, 1, &amp;fence, true, ulong.MaxValue);   // ここで待つ</code></pre></div>
+<p><strong>待たずに読むと前のフレームの絵が混ざる</strong>。しかもこれは検証レイヤも黙っている(メモリの読み書きとしては合法なので)。</p>
+<p>そして今日いちばんの落とし穴が<strong>測り方</strong>。CPU 側の <code>Stopwatch</code> で <code>Render</code> を囲むと、</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>CPU の Stopwatch</th><th>GPU のタイムスタンプ</th></tr></thead>
+<tbody>
+<tr><td>球 8 個</td><td>8.31 ms</td><td><strong>0.05 ms</strong></td></tr>
+<tr><td>球 120 個</td><td>8.89 ms</td><td><strong>0.67 ms</strong></td></tr>
+<tr><td>球 720 個</td><td>12.64 ms</td><td><strong>4.30 ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>(連続で描いたときの最小値。窓のアプリではもっと大きくなる——完成条件2を参照)</p>
+<p>左の列は<strong>2MB の引き取りと提出の往復</strong>が 8ms あって、光線を追う時間を覆い隠している。「球を 90 倍にしたら 86 倍重くなった」を見るには、<strong>GPU の時計を読むしかない</strong>。</p>
+<div class="inject"><figure class="lab" id="tm-lab">
+  <div class="lab-head">
+    <h3>Stopwatch とタイムスタンプ — 何を測っているか(要点6)</h3>
+    <span class="tag">上の帯が CPU の Stopwatch で囲んだ1枚(提出・待ち・2MB の引き取りを含む)、下の帯が vkCmdWriteTimestamp で囲んだディスパッチだけ。数字は計画書の実測(球 8 / 120 / 720 個)で、その間は直線でつないだ。時間はこのページでは測っていない</span>
+  </div>
+  <div class="stage"><canvas id="tm-canvas" style="height:190px" aria-label="球の数ごとの、Stopwatch で測った1枚と、タイムスタンプで測った光線追跡の時間"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">球の数</span>
+      <div class="range"><input type="range" id="tm-n" min="8" max="720" step="1" value="120"><output id="tm-n-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">走らせ方</span>
+      <div class="seg" id="tm-run"><button data-v="batch" aria-pressed="true">休みなく連続で描いた最小値(要点6)</button><button data-v="app" aria-pressed="false">窓のアプリ(完成条件2)</button></div>
+    </div>
+    <div class="ctl"><span class="label">GPU の目盛り(TimestampPeriod)</span>
+      <div class="seg" id="tm-period"><button data-v="1" aria-pressed="true">NVIDIA(1.0 ns)</button><button data-v="40" aria-pressed="false">AMD(40 ns 前後)</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="tm-forget"> TimestampPeriod を掛け忘れる(このページだけの間違い)</label>
+  </div>
+  <div class="readout"><div class="stats" id="tm-stats"></div><p id="tm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<div class="code"><span class="lang">csharp</span><pre><code>vk.CmdResetQueryPool(cmd, pool, 0, 2);                                     // 使う前に必ず reset
+vk.CmdWriteTimestamp(cmd, PipelineStageFlags.TopOfPipeBit, pool, 0);
+// ... CmdDispatch ...
+vk.CmdWriteTimestamp(cmd, PipelineStageFlags.BottomOfPipeBit, pool, 1);
+// フェンスを待った後で GetQueryPoolResults。目盛り数 x TimestampPeriod でナノ秒になる</code></pre></div>
+<p><code>TimestampPeriod</code> は GPU ごとの「1目盛り何ナノ秒か」(NVIDIA は 1.0、AMD は 40 前後)。これを掛け忘れると、AMD で 40 分の1 の値が出る。</p>
+<h3 id="s12">7. 総当たりの費用 — Day 62b が潰しに行くもの</h3>
+<p>今日のシェーダは球を<strong>先頭から1個ずつ</strong>試す。Day 59 と同じ総当たりで、Day 60 で CPU 版に BVH を入れたのと同じ問題がここにもある。</p>
+<p><code>M</code> を2回押した「交差判定の回数」の絵がいちばん雄弁で、<strong>空の部分にも色が付いている</strong>。何にも当たらない光線でも、720 個の球を全部試しているということ。<strong>総当たりは「当たらなかったこと」を確かめるのにも満額の費用がかかる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>球の数</th><th>光線追跡</th><th>1画素あたりの交差判定(一次光線のみ)</th></tr></thead>
+<tbody>
+<tr><td>8</td><td>0.05 ms</td><td>8 回</td></tr>
+<tr><td>120</td><td>0.67 ms</td><td>120 回</td></tr>
+<tr><td>720</td><td>4.30 ms</td><td>720 回</td></tr>
+</tbody>
+</table></div>
+<p>Day 62b でこれを <strong>BLAS(加速構造)</strong> に入れ替えると、この表の右の列が<strong>log に落ちて、しかも数え方そのものがシェーダから見えなくなる</strong> (RT コアの中で何回試されたかは分からない)。そこが「RT コアが何を肩代わりするか」の答えになる。</p>
+<div class="inject"><figure class="lab" id="bf-lab">
+  <div class="lab-head">
+    <h3>総当たりのレイトレーサ — 当たらない光線にも満額かかる(要点7)</h3>
+    <span class="tag">shaders/trace.comp と Scene/SceneData.cs を JS に移したもの(docs/site/hwraytracer.js)。320x180 で、カメラは reference の起動時と同じ。ドラッグで回る、ホイールで寄る。絵の上にマウスを載せると、その画素で何回 hitSphere を呼んだかを出す。下の「1枚の時間」はこのページの JS(CPU)のもので、GPU の速さではない</span>
+  </div>
+  <div class="stage"><canvas id="bf-canvas" style="height:340px;cursor:grab;touch-action:none" aria-label="総当たりのレイトレーサの絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">球の数(1 / 2 / 3)</span>
+      <div class="seg" id="bf-count"><button data-v="8" aria-pressed="false">8</button><button data-v="120" aria-pressed="true">120</button><button data-v="720" aria-pressed="false">720</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(M)</span>
+      <div class="seg" id="bf-mode"><button data-v="0" aria-pressed="true">陰影</button><button data-v="1" aria-pressed="false">法線</button><button data-v="2" aria-pressed="false">交差判定の回数</button></div>
+    </div>
+    <div class="ctl"><span class="label">カメラ(R)</span>
+      <div class="seg" id="bf-reset"><button data-v="reset" aria-pressed="false">戻す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bf-stats"></div><p id="bf-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+<p><strong>新規プロジェクト</strong>なので、11 ファイルすべてが新規。</p>
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Day62a.csproj</code></td><td>76</td><td>Silk.NET.Vulkan / ...Extensions.KHR / ...EXT / Shaderc(+Native)。<strong>Windowing は入れない</strong></td></tr>
+<tr><td><code>Scene/Camera.cs</code></td><td>67</td><td><code>OrbitView</code> と <code>Camera</code>。Day 59〜61 から<strong>式だけ</strong>持ってきた</td></tr>
+<tr><td><code>Scene/SceneData.cs</code></td><td>128</td><td><code>GpuSphere</code>(std430 の 32 バイト)と場面の生成。8 / 120 / 720 個</td></tr>
+<tr><td><code>Vulkan/ShaderCompiler.cs</code></td><td>125</td><td>shaderc で GLSL → SPIR-V(要点2)</td></tr>
+<tr><td><code>Vulkan/VulkanDevice.cs</code></td><td>548</td><td>インスタンス・物理/論理デバイス・キュー・コマンドプール・検証レイヤ(要点1)</td></tr>
+<tr><td><code>Vulkan/VulkanBuffer.cs</code></td><td>191</td><td>入れ物 + メモリ + ステージング転送(要点3)</td></tr>
+<tr><td><code>Vulkan/VulkanImage.cs</code></td><td>238</td><td>ストレージ画像・レイアウト・バリア・引き取り(要点5)</td></tr>
+<tr><td><code>Vulkan/ComputeRenderer.cs</code></td><td>446</td><td>ディスクリプタ・パイプライン・コマンド・タイムスタンプ(要点4・6)</td></tr>
+<tr><td><code>shaders/trace.comp</code></td><td>283</td><td>総当たりのレイトレーサ。3つの表示(要点7)</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>342</td><td>窓・ループ・HUD・キー・マウス。<strong>Vulkan の話は出てこない</strong></td></tr>
+<tr><td><code>Program.cs</code></td><td>54</td><td>エントリポイント</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">写経する順番</h3>
+<p><strong><code>Vulkan/</code> の5ファイルを先に片付けると、残りは軽い</strong>。5ファイル目(<code>ComputeRenderer.cs</code>)まで来ると、<code>shaders/trace.comp</code> と合わせて「窓なしで1枚描いて PNG に保存する」ところまで届く。窓はその後でよい。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Day62a.csproj</code></td><td><strong>先に作る</strong>。NuGet が 5 つ。<code>Windowing</code> を入れないのが Day 61 との違い</td></tr>
+<tr><td>2</td><td><code>Scene/Camera.cs</code></td><td>依存なし。Day 61 の <code>Tracing/Camera.cs</code> から <code>OrbitView</code> と3軸だけ抜いたもの</td></tr>
+<tr><td>3</td><td><code>Scene/SceneData.cs</code></td><td>2 の <code>OrbitView</code> を使う。<code>GpuSphere</code> は <strong>32 バイトちょうど</strong>(<code>vec4</code> x 2)</td></tr>
+<tr><td>4</td><td><code>Vulkan/ShaderCompiler.cs</code></td><td>依存なし。<code>TargetEnv.Vulkan12</code> と <code>SpirvVersion.Shaderc15</code> を間違えない</td></tr>
+<tr><td>5</td><td><code>Vulkan/VulkanDevice.cs</code></td><td><strong>今日いちばん長い</strong>。上から順に「インスタンス → 検証レイヤ → 物理 → キュー → 論理 → プール」</td></tr>
+<tr><td>6</td><td><code>Vulkan/VulkanBuffer.cs</code></td><td>5 の <code>FindMemoryType</code> / <code>SubmitAndWait</code> / <code>Check</code> を使う。<code>using Buffer = Silk.NET.Vulkan.Buffer;</code> を忘れない</td></tr>
+<tr><td>7</td><td><code>Vulkan/VulkanImage.cs</code></td><td>5 と 6 を使う。<code>using Image = ...</code> と <code>using ImageLayout = ...</code> の2本が要る</td></tr>
+<tr><td>8</td><td><code>shaders/trace.comp</code></td><td>C# に依存しない。ただし <code>local_size</code> と <code>rgba8</code> と push 定数の並びは<strong>後の 9 と一致させる</strong></td></tr>
+<tr><td>9</td><td><code>Vulkan/ComputeRenderer.cs</code></td><td>5〜8 のすべてを使う。<code>using ImageLayout = ...</code> が要る。1〜6 の番号付きコメントの順に読む</td></tr>
+<tr><td>10</td><td><code>App/ViewerWindow.cs</code></td><td>9 を使う。中身は Day 1 の GameWindow とほぼ同じ</td></tr>
+<tr><td>11</td><td><code>Program.cs</code></td><td>10 を呼ぶだけ</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>途中で動かしたいなら</strong>: 9 まで写した時点で、<code>Program.cs</code> の代わりに「<code>VulkanDevice.TryCreate</code> → <code>ShaderCompiler</code> → <code>ComputeRenderer</code> → <code>Render</code> → PNG 保存」だけの 30 行の <code>Main</code> を書けば、窓なしで絵が出る。<strong>Vulkan は窓が要らない</strong>ので、これができる(これが要点1 の実感としていちばん効く)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>Day 59〜61 の <code>CpuRayTracer</code> とは別のプロジェクト</strong>なので、設計書もここから新しく始める。</p>
+<h3 id="s17">全体構成と依存の向き</h3>
+<svg viewBox="0 0 910 452" role="img" aria-label="Program.cs が ViewerWindow を使い、ViewerWindow は ComputeRenderer・VulkanDevice・ShaderCompiler・SceneData・Camera を使う。ComputeRenderer は VulkanDevice・VulkanBuffer・VulkanImage・SceneData・Camera を使い、ShaderCompiler から SPIR-V を受け取る。VulkanBuffer と VulkanImage は VulkanDevice を使い、VulkanImage は VulkanBuffer も使う。ShaderCompiler は shaders/trace.comp を読む" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="330" y="10" width="240" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="34" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.cs</text><rect x="300" y="80" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">App/ViewerWindow.cs</text><text x="450" y="117.5" text-anchor="middle" fill="var(--ink)">窓・ループ・HUD・入力</text><rect x="10" y="170" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="110" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/SceneData.cs</text><text x="110" y="207.5" text-anchor="middle" fill="var(--ink)">GpuSphere の配列</text><rect x="300" y="170" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ComputeRenderer.cs</text><text x="450" y="207.5" text-anchor="middle" fill="var(--ink)">ディスクリプタ・パイプライン・コマンド</text><rect x="680" y="170" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="785" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ShaderCompiler.cs</text><text x="785" y="207.5" text-anchor="middle" fill="var(--ink)">GLSL to SPIR-V</text><rect x="10" y="270" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="110" y="290.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/Camera.cs</text><text x="110" y="307.5" text-anchor="middle" fill="var(--ink)">OrbitView / Camera</text><rect x="268" y="300" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="358" y="324" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanBuffer.cs</text><rect x="462" y="300" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="552" y="324" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanImage.cs</text><rect x="680" y="300" width="210" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="785" y="324" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">shaders/trace.comp</text><rect x="300" y="390" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="410.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanDevice.cs</text><text x="450" y="427.5" text-anchor="middle" fill="var(--ink)">instance / device / queue / pool</text><path d="M450 50 L450 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M450 130 L450 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 98 L110 98 L110 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 116 L228 116 L228 287 L212 287" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 98 L785 98 L785 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 116 L666 116 L666 423 L602 423" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 188 L212 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 206 L256 206 L256 305 L212 305" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M358 220 L358 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M552 220 L552 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 208 L654 208 L654 407 L602 407" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M358 340 L358 388" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M552 340 L552 388" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M462 320 L450 320" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path stroke-dasharray="5 4" d="M785 220 L785 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="793" y="238" fill="var(--muted)" font-size="12">読む</text><path stroke-dasharray="5 4" d="M600 186 L678 186" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="640" y="162" fill="var(--muted)" font-size="12" text-anchor="middle">SPIR-V を受け取る</text></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>誰を知っているか</th><th>誰に知られているか</th></tr></thead>
+<tbody>
+<tr><td><code>Scene/</code></td><td><strong>誰も知らない</strong>。ただの数</td><td><code>ComputeRenderer</code> と <code>ViewerWindow</code></td></tr>
+<tr><td><code>Vulkan/VulkanDevice</code></td><td>Silk.NET だけ</td><td><code>Vulkan/</code> の全員と <code>ViewerWindow</code></td></tr>
+<tr><td><code>Vulkan/VulkanBuffer</code> <code>VulkanImage</code></td><td><code>VulkanDevice</code></td><td><code>ComputeRenderer</code></td></tr>
+<tr><td><code>Vulkan/ComputeRenderer</code></td><td><code>Vulkan/</code> の全員 + <code>Scene/</code></td><td><code>ViewerWindow</code></td></tr>
+<tr><td><code>App/ViewerWindow</code></td><td>全員</td><td><code>Program</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>向きが一方通行で、循環が1つも無い</strong>。Day 25 で <code>Core</code> と <code>Render</code> の相互参照を見つけたときと違って、今日は層が薄い(5層)ので素直に収まっている。</p>
+<p><strong>入れ替えると何が壊れるか</strong>を1つずつ見ると、この形にした理由が分かる。</p>
+<ul><li><code>Scene/</code> が <code>Vulkan/</code> を知ってしまうと、<strong>場面を CPU 側で検算できなくなる</strong>。<code>GpuSphere</code> はただの 32 バイトの構造体なので、Day 62b で BLAS に入れるときも同じ配列をそのまま渡せる</li><li><code>VulkanDevice</code> が <code>ComputeRenderer</code> を知ると循環になる。実際、<strong>コマンドプールを2つ持っている</strong> (<code>VulkanDevice</code> の使い回し用と <code>ComputeRenderer</code> の毎フレーム用)のは、この向きを守るため。1つにまとめると <code>VulkanDevice</code> が「誰がいつ使うか」を知る必要が出る</li><li><code>ViewerWindow</code> から <code>Vulkan/</code> を全部剥がすと、<strong>窓なしのバッチ描画</strong>になる。実際に harness はそうやって動かしている(写経メモの「途中で動かしたいなら」)</li></ul>
+<h3 id="s18">Vulkan — 5つのクラス</h3>
+<svg viewBox="0 0 1085 517" role="img" aria-label="Vulkan のクラス図。VulkanBuffer と VulkanImage は VulkanDevice を持ち、VulkanImage は VulkanBuffer を使う。ComputeRenderer は VulkanDevice を持ち、VulkanImage と VulkanBuffer を所有し(菱形)、PushConstants を使う。ShaderCompiler は独立している" style="width:100%;max-width:1085px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="40" width="360" height="248" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="190" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanDevice</text><line x1="10" y1="68" x2="370" y2="68" stroke="var(--line)"></line><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vk Api</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Instance Instance</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PhysicalDevice PhysicalDevice</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Device Handle</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Queue Queue</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint QueueFamilyIndex</text><text x="20" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PhysicalDeviceMemoryProperties MemoryProperties</text><text x="20" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float TimestampPeriod</text><text x="20" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool ValidationEnabled</text><text x="20" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TryCreate(out string) VulkanDevice</text><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SubmitAndWait(Action) void</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindMemoryType(uint, MemoryPropertyFlags) uint</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Check(Result, string) void</text><text x="20" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-DebugCallback(...) uint</text><rect x="382" y="40" width="275" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="519.5" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanBuffer</text><line x1="382" y1="68" x2="657" y2="68" stroke="var(--line)"></line><text x="392" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Buffer Handle</text><text x="392" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DeviceMemory Memory</text><text x="392" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Size</text><text x="392" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanBuffer</text><text x="392" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateStaging(...) VulkanBuffer</text><text x="392" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDeviceLocal(...) VulkanBuffer</text><text x="392" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Write(ReadOnlySpan) void</text><text x="392" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Read(int[]) void</text><rect x="667" y="40" width="410" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="872" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanImage</text><line x1="667" y1="68" x2="1077" y2="68" stroke="var(--line)"></line><text x="677" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Format PixelFormat</text><text x="677" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Image Handle</text><text x="677" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="677" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="677" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="677" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanImage</text><text x="677" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyToBuffer(CommandBuffer, VulkanBuffer) void</text><text x="677" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-TransitionToGeneral() void</text><rect x="10" y="340" width="370" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="195" y="359" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderCompiler</text><line x1="10" y1="368" x2="380" y2="368" stroke="var(--line)"></line><text x="20" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CompileComputeFile(string) uint[]</text><text x="20" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Compile(string, string, ShaderKind) uint[]</text><rect x="400" y="280" width="300" height="203" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="299" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputeRenderer</text><line x1="400" y1="308" x2="700" y2="308" stroke="var(--line)"></line><text x="410" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="410" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="410" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastFrameMilliseconds</text><text x="410" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastTraceMilliseconds</text><text x="410" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, int, int[]) void</text><text x="410" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DescriptorSetLayout _setLayout</text><text x="410" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DescriptorPool _pool</text><text x="410" y="430" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DescriptorSet _set</text><text x="410" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-PipelineLayout _pipelineLayout</text><text x="410" y="460" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Pipeline _pipeline</text><text x="410" y="475" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-QueryPool _queryPool</text><rect x="745" y="280" width="240" height="170" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="865" y="295" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="865" y="311" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PushConstants</text><line x1="745" y1="320" x2="985" y2="320" stroke="var(--line)"></line><text x="755" y="337" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 PositionHalfWidth</text><text x="755" y="352" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 RightHalfHeight</text><text x="755" y="367" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Up</text><text x="755" y="382" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Forward</text><text x="755" y="397" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="755" y="412" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="755" y="427" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int SphereCount</text><text x="755" y="442" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Mode</text><path d="M382 137.7784522003035 L371.98160540088753 139.14666997559956" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M872 40 L872 20 L190 20 L190 38" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M667 119 L659 119" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M400 307.4090909090909 L385 300 L385 200 L371.96676436077445 197.59386418968143" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M872 198 L872 255 L620 255 L614.0096277323256 265.8254584551544" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M606.1660079051384 280 L613.7654863479397 275.17838954317153 L614.0096277323256 265.8254584551544 L606.2147783317116 271.0001321428872 Z" fill="var(--muted)"></path><path d="M528.6790476190477 198 L536.3369593779869 263.9082569416903" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M538.2066666666667 280 L541.5810944835699 271.6565452653886 L536.3369593779869 263.9082569416903 L533.0091027248916 272.6525290697303 Z" fill="var(--muted)"></path><path stroke-dasharray="5 4" d="M700 373.64285714285717 L743.0027381308698 371.3903327645735" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="10" y="507" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー。黒い菱形は所有(持ち主が壊れると一緒に壊れる)</text></g></svg>
+<p><code>ComputeRenderer</code> が <code>VulkanImage</code> と <code>VulkanBuffer</code> を<strong>所有</strong>している(菱形)のが要点。球の数を変えると <code>ViewerWindow</code> は <code>ComputeRenderer</code> を丸ごと作り直すが、<code>VulkanDevice</code> は生きたまま——<strong>デバイスは一度作ったら最後まで使う</strong>、という Vulkan の普通の形。</p>
+<p><code>PushConstants</code> に <code>&lt;&lt;struct&gt;&gt;</code> と書いてあるのは、<strong>参照ではなく値</strong>であることが効くから。この 80 バイトはコマンドバッファに直接埋め込まれる(要点4)。</p>
+<h3 id="s19">Scene — GPU に渡せる形</h3>
+<svg viewBox="0 0 690 380" role="img" aria-label="Scene のクラス図。Camera は OrbitView を使う。SceneData は GpuSphere と OrbitView を使う" style="width:100%;max-width:690px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="230" height="140" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="125" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record struct&gt;&gt;</text><text x="125" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">OrbitView</text><line x1="10" y1="50" x2="240" y2="50" stroke="var(--line)"></line><text x="20" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Target</text><text x="20" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Yaw</text><text x="20" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Pitch</text><text x="20" y="112" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Distance</text><text x="20" y="127" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float FovYDegrees</text><text x="20" y="142" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><rect x="10" y="190" width="230" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="125" y="209" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Camera</text><line x1="10" y1="218" x2="240" y2="218" stroke="var(--line)"></line><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Forward</text><text x="20" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Right</text><text x="20" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Up</text><text x="20" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float HalfWidth</text><text x="20" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float HalfHeight</text><rect x="330" y="10" width="260" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="460" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SceneData</text><line x1="330" y1="50" x2="590" y2="50" stroke="var(--line)"></line><text x="340" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int[] Presets</text><text x="340" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+OrbitView DefaultView</text><text x="340" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(int) GpuSphere[]</text><rect x="330" y="190" width="340" height="110" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="500" y="205" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="500" y="221" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuSphere</text><line x1="330" y1="230" x2="670" y2="230" stroke="var(--line)"></line><text x="340" y="247" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CenterRadius</text><text x="340" y="262" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 AlbedoKind</text><text x="340" y="277" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Diffuse(Vector3, float, Vector3) GpuSphere</text><text x="340" y="292" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Metal(Vector3, float, Vector3) GpuSphere</text><path stroke-dasharray="5 4" d="M125 190 L125 152" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M470.1333333333333 105 L487.8493897231256 188.0440143271514" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M330 66.23134328358209 L241.99550417792108 72.14209300297544" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="10" y="372" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー</text></g></svg>
+<p>Day 59〜61 の <code>Shape</code> / <code>Sphere</code> / <code>Plane</code> / <code>Material</code> の<strong>継承の木がまるごと消えている</strong>。GPU 側に継承も仮想関数も無いので(Day 61 の要点2)、最初から平らな構造体だけにした。床の平面は配列にすら入れず、<strong>シェーダに直接書いてある</strong>——無限に広がるものは箱で囲めないので、Day 62b で BLAS に入れられないから。</p>
+<h3 id="s20">1フレームの流れ</h3>
+<svg viewBox="0 0 620 526" role="img" aria-label="1フレームの流れ。ViewerWindow.Run のループで Application.DoEvents がキーとマウスを処理し、レンダラがあれば Camera を作り直して ComputeRenderer.Render で1枚描かせ、移動平均を更新する。どちらの場合も Present で LockBits で貼って HUD を重ね、Thread.Sleep で 60fps に合わせて頭へ戻る" style="width:100%;max-width:620px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="160" y="10" width="340" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ViewerWindow.Run のループ</text><rect x="160" y="70" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="90.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Application.DoEvents</text><text x="330" y="107.5" text-anchor="middle" fill="var(--ink)">キーとマウスを処理</text><rect x="200" y="144" width="260" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="330" y="166" text-anchor="middle" fill="var(--ink)">レンダラはある?</text><rect x="160" y="210" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="230.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">new Camera(_view, W, H)</text><text x="330" y="247.5" text-anchor="middle" fill="var(--ink)">3軸を作り直す</text><rect x="160" y="284" width="340" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="304.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ComputeRenderer.Render</text><text x="330" y="321.5" text-anchor="middle" fill="var(--ink)">GPU に1枚描かせて int[] で受け取る</text><rect x="160" y="358" width="340" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="380" text-anchor="middle" fill="var(--ink)">移動平均を更新</text><rect x="160" y="418" width="340" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="440" text-anchor="middle" fill="var(--ink)">Present: LockBits で貼る + HUD</text><rect x="160" y="478" width="340" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="330" y="500" text-anchor="middle" fill="var(--ink)">Thread.Sleep で 60fps に合わせる</text><path d="M330 46 L330 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M330 120 L330 142" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M330 180 L330 208" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="338" y="197" fill="var(--muted)" font-size="12">ある</text><path d="M460 162 L560 162 L560 436 L502 436" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="468" y="156" fill="var(--muted)" font-size="12">ない</text><path d="M330 260 L330 282" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M330 334 L330 356" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M330 394 L330 416" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M330 454 L330 476" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M160 496 L120 496 L120 28 L158 28" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong><code>Render</code> が返ってきた時点で絵は完成している</strong>(中でフェンスを待っている)のが、Day 59〜61 の <code>ProgressiveRenderer</code>(別スレッドが積んだものを見に行く)との違い。1枚が 10ms 前後で終わるので、UI スレッドから投げて待つので足りる。</p>
+<h3 id="s21">Render の中 — コマンドバッファに何を積むか</h3>
+<svg viewBox="0 0 900 574" role="img" aria-label="Render の中。Stopwatch を始め、PushConstants を組み、コマンドバッファを始めて、クエリプールを reset し、TopOfPipe でタイムスタンプ 0 を書き、パイプラインとディスクリプタセットをつなぎ、プッシュ定数 80 バイトを積み、CmdDispatch する。BottomOfPipe でタイムスタンプ 1 を書き、ComputeShader から Transfer へのバリアを張り、画像を引き取り用バッファへ写して、コマンドバッファを閉じる。フェンスを reset して提出し、WaitForFences で待ち、タイムスタンプを読み、MapMemory で int[] へ写して Stopwatch を止める" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="10" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="30.5" text-anchor="middle" fill="var(--ink)">Stopwatch 開始</text><rect x="20" y="63" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="83.5" text-anchor="middle" fill="var(--ink)">PushConstants を組む</text><text x="225" y="100.5" text-anchor="middle" fill="var(--ink)">カメラ3軸 + 画面 + 球の数 + mode</text><rect x="20" y="133" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="153.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ResetCommandBuffer / BeginCommandBuffer</text><rect x="20" y="186" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="206.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdResetQueryPool(0..1)</text><rect x="20" y="239" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="259.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdWriteTimestamp TopOfPipe -&gt; 0</text><rect x="20" y="292" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="312.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindPipeline(Compute)</text><rect x="20" y="345" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="365.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindDescriptorSets</text><text x="225" y="382.5" text-anchor="middle" fill="var(--ink)">画像とバッファを挿したセット</text><rect x="20" y="415" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="435.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdPushConstants 80 バイト</text><rect x="20" y="468" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="488.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdDispatch(ceil(W/8), ceil(H/8), 1)</text><rect x="470" y="10" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdWriteTimestamp BottomOfPipe -&gt; 1</text><rect x="470" y="63" width="410" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="83.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdPipelineBarrier</text><text x="675" y="100.5" text-anchor="middle" fill="var(--ink)">ComputeShader -&gt; Transfer</text><text x="675" y="117.5" text-anchor="middle" fill="var(--ink)">ShaderWrite -&gt; TransferRead</text><rect x="470" y="150" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="170.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdCopyImageToBuffer</text><text x="675" y="187.5" text-anchor="middle" fill="var(--ink)">画像 -&gt; 引き取り用バッファ</text><rect x="470" y="220" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="240.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">EndCommandBuffer</text><rect x="470" y="273" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="293.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ResetFences / QueueSubmit</text><rect x="470" y="326" width="410" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="346.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">WaitForFences</text><text x="675" y="363.5" text-anchor="middle" fill="var(--ink)">ここで初めて GPU と足並みが揃う</text><rect x="470" y="396" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="416.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GetQueryPoolResults</text><text x="675" y="433.5" text-anchor="middle" fill="var(--ink)">目盛り差 x TimestampPeriod = 光線追跡の時間</text><rect x="470" y="466" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="486.5" text-anchor="middle" fill="var(--ink)">MapMemory して int[] へ写す</text><rect x="470" y="519" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="539.5" text-anchor="middle" fill="var(--ink)">Stopwatch 停止 = 1枚の時間</text><path d="M225 43 L225 61" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 113 L225 131" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 166 L225 184" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 219 L225 237" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 272 L225 290" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 325 L225 343" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 395 L225 413" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 448 L225 466" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 43 L675 61" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 130 L675 148" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 200 L675 218" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 253 L675 271" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 306 L675 324" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 376 L675 394" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 446 L675 464" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M675 499 L675 517" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M225 501 L225 515 L445 515 L445 6 L675 6 L675 8" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>4つの Cmd と1つのバリアしか積んでいない</strong>のが見どころ。Vulkan の長さは全部この前(起動時)に寄っていて、毎フレームの仕事は短い。</p>
+<p>順番で効くのは2か所。</p>
+<ul><li><strong><code>CmdWriteTimestamp(Bottom, 1)</code> はバリアより前</strong>。バリアより後ろに置くと、引き取りの転送まで測ってしまって「光線追跡だけ」にならない</li><li><strong><code>CmdPipelineBarrier</code> は <code>CmdCopyImageToBuffer</code> の前</strong>。省くと、GPU が空いているときは正しく動き、混んだときだけ古い絵が出る(要点5)</li></ul>
+<h3 id="s22">trace.comp の中 — 1画素の流れ</h3>
+<svg viewBox="0 0 900 778" role="img" aria-label="trace.comp の1画素の流れ。gl_GlobalInvocationID から画素を決め、画面の外なら何も書かずに return。中なら画素の中心を通る光線を作り、bounce ループ 0..3 で traceScene(球を全部試す + 床)を呼ぶ。当たらなければ sky を足して抜け、mode が 1 なら法線を色にして抜ける。金属でまだ跳ねられるなら throughput に F0 を掛けて reflect し、次の bounce へ戻る。そうでなければ shadeDiffuse(影の光線 + 環境光)で色を足して抜ける。最後に mode が 2 なら gTests を heatColor で色にし、そうでなければトーンマップとガンマをかけて、imageStore で color.bgr を書く" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="305" y="10" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="32" text-anchor="middle" fill="var(--ink)">gl_GlobalInvocationID から画素を決める</text><rect x="335" y="70" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="92" text-anchor="middle" fill="var(--ink)">画面の外?</text><rect x="650" y="70" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="760" y="92" text-anchor="middle" fill="var(--ink)">何も書かずに return</text><rect x="305" y="136" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="156.5" text-anchor="middle" fill="var(--ink)">画素の中心を通る光線を作る</text><text x="455" y="173.5" text-anchor="middle" fill="var(--ink)">forward + right*a + up*b</text><rect x="305" y="210" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="232" text-anchor="middle" fill="var(--ink)">bounce ループ 0..3</text><rect x="305" y="270" width="300" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="292" text-anchor="middle" fill="var(--ink)">traceScene: 球を全部試す + 床</text><rect x="355" y="330" width="200" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="352" text-anchor="middle" fill="var(--ink)">当たった?</text><rect x="20" y="330" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="352" text-anchor="middle" fill="var(--ink)">sky を足して抜ける</text><rect x="355" y="396" width="200" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="418" text-anchor="middle" fill="var(--ink)">mode == 1?</text><rect x="20" y="396" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="418" text-anchor="middle" fill="var(--ink)">法線を色にして抜ける</text><rect x="315" y="462" width="280" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="484" text-anchor="middle" fill="var(--ink)">金属 かつ まだ跳ねられる?</text><rect x="650" y="455" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="760" y="475.5" text-anchor="middle" fill="var(--ink)">throughput に F0 を掛けて</text><text x="760" y="492.5" text-anchor="middle" fill="var(--ink)">reflect して次の bounce へ</text><rect x="305" y="528" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="550" text-anchor="middle" fill="var(--ink)">shadeDiffuse: 影の光線 + 環境光</text><rect x="305" y="588" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="610" text-anchor="middle" fill="var(--ink)">色を足して抜ける</text><rect x="355" y="654" width="200" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="676" text-anchor="middle" fill="var(--ink)">mode == 2?</text><rect x="20" y="654" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="676" text-anchor="middle" fill="var(--ink)">gTests を heatColor で色に</text><rect x="650" y="654" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="760" y="676" text-anchor="middle" fill="var(--ink)">トーンマップ + ガンマ</text><rect x="305" y="730" width="300" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="752" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">imageStore(pixel, color.bgr)</text><path d="M455 46 L455 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M575 88 L648 88" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="583" y="82" fill="var(--muted)" font-size="12">はい</text><path d="M455 106 L455 134" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="463" y="123" fill="var(--muted)" font-size="12">いいえ</text><path d="M455 186 L455 208" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M455 246 L455 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M455 306 L455 328" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M355 348 L262 348" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="347" y="342" fill="var(--muted)" font-size="12" text-anchor="end">いいえ</text><path d="M455 366 L455 394" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="463" y="383" fill="var(--muted)" font-size="12">はい</text><path d="M355 414 L262 414" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="347" y="408" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M455 432 L455 460" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="463" y="449" fill="var(--muted)" font-size="12">いいえ</text><path d="M595 480 L648 480" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="603" y="474" fill="var(--muted)" font-size="12">はい</text><path d="M870 480 L888 480 L888 228 L607 228" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M455 498 L455 526" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="463" y="515" fill="var(--muted)" font-size="12">いいえ</text><path d="M455 564 L455 586" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M455 624 L455 652" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M20 348 L8 348 L8 642 L415 642 L415 652" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M140 432 L140 632 L435 632 L435 652" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M355 672 L262 672" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="347" y="666" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M555 672 L648 672" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="563" y="666" fill="var(--muted)" font-size="12">いいえ</text><path d="M140 690 L140 748 L303 748" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M760 690 L760 748 L607 748" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path></g></svg>
+<p>再帰の代わりに <code>bounce</code> のループにしてあるのは Day 60・61 と同じ理由(GPU に再帰が無い)。<strong><code>traceScene</code> が今日いちばん素朴な関数</strong>で、Day 62b で <code>rayQueryEXT</code> の数行に置き換わる。そのとき <code>gTests</code> は数えられなくなる——RT コアの中で何回試されたかはシェーダから見えないので、<code>mode == 2</code> の絵は 62b では別の意味を持つことになる。</p>
+<h3 id="s23">今日残した歪み(3つ)</h3>
+<p><strong>1. メモリを1本につき1回確保している</strong>(<code>VulkanBuffer.Create</code>)。<code>vkAllocateMemory</code> の回数には上限があり(数千)、実際のエンジンでは必ず自前で切り分ける。今日はバッファが3本しか無いので問題にならないが、<strong>Day 62b で BLAS を建てると一気に増える</strong>ので、そこで気になるようなら直す。</p>
+<p><strong>2. 毎フレーム画像をまるごと CPU へ引き取っている</strong>(2MB / フレーム)。frame 時間の 8ms はほぼこれと提出の往復。スワップチェーンを使えば消えるが、儀式が 300 行増えるので今日は踏み込まない。<strong>62b・62c も同じままで進める</strong>——比べたいのは <code>trace</code> の列であって <code>frame</code> の列ではないので。</p>
+<p><strong>3. <code>ViewerWindow</code> が Vulkan の資源の寿命を握っている</strong>。<code>Dispose</code> の順番(レンダラ → コンパイラ → デバイス)を間違えると落ちる。Vulkan は参照を数えてくれないので、<strong>誰が何を先に壊すか</strong>は書いた人の責任。層が増える 62c までにこれ以上ややこしくなるようなら、資源をまとめて持つクラスを1つ挟む。</p>
+</section>
+<section class="part"><h2 id="s24">完成条件</h2>
+<p><code>dotnet run --project reference/Day62a -c Release</code> で確かめる。<strong>FPS を見るときは必ず <code>-c Release</code></strong>(Debug は C# 側の往復が目に見えて遅い)。</p>
+<h3 id="s25">1. 起動: 球 120 個、陰影</h3>
+<ul><li>960x540 の窓に、<strong>市松の床</strong>と<strong>大きい球3つ(鏡・赤・金)</strong>、まわりに小さい球が 117 個</li><li>地平線まで床が続いている(無限の平面)</li><li>球の右下に<strong>硬い影</strong>が落ちている</li><li>HUD の1行目に GPU の機種名。末尾に「検証レイヤ あり / なし」</li><li>HUD の「1枚」の行が <strong>9 ms 前後、うち光線追跡 0.7 ms 前後</strong></li></ul>
+<blockquote><p><strong>HUD の1行目が「Vulkan のローダが見つかりません」になる場合</strong>: GPU ドライバが古いか、Vulkan に対応していない。<code>vulkaninfo --summary</code> をコマンドラインで叩いて、Vulkan が入っているか確かめる。</p></blockquote>
+<h3 id="s26">2. <code>1</code> / <code>3</code>: 球の数を変える(今日の目)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>球</th><th>1枚</th><th><strong>うち光線追跡</strong></th></tr></thead>
+<tbody>
+<tr><td><code>1</code></td><td>8</td><td>10.5 ms</td><td><strong>0.4 ms 前後</strong></td></tr>
+<tr><td><code>2</code></td><td>120</td><td>10.7 ms</td><td><strong>0.7 ms 前後</strong></td></tr>
+<tr><td><code>3</code></td><td>720</td><td>16.5 ms</td><td><strong>7 ms 前後</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>左の数はほとんど動かず、右の数だけが 15〜20 倍になる</strong>のを確かめる。これが確かめられれば、今日の測り方(要点6)が正しく動いている。</p>
+<p>押した直後は数が揺れるので、<strong>5〜10 秒ほど待ってから読む</strong>。</p>
+<blockquote><p><strong>要点6 の表(0.05 / 0.67 / 4.30 ms)より大きい数が出るのは正常</strong>。あちらは「休みなく連続で描いたときの最小値」で、こちらは窓のアプリの1フレーム。<strong>1枚が 1ms で終わると GPU は残りの 15ms を寝て過ごす</strong>ので、クロックが下がったまま次のフレームを迎える。球 8 個で 0.4ms も掛かるのはそのため(計算そのものは 0.05ms で終わる)。休みを削れば数字は近づくが、<strong>GPU を 100% に張り付かせない</strong>という今日の方針を崩すことになる。</p>
+<p><strong>倍率が 86 倍ではなく 15〜20 倍にしか見えない</strong>のも同じ理由。球が少ないほど「寝ている時間」の割合が大きく、下限に張り付く。</p></blockquote>
+<h3 id="s27">3. <code>M</code>: 表示を切り替える(3つ)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>見えるもの</th></tr></thead>
+<tbody>
+<tr><td>陰影</td><td>1 のとおり</td></tr>
+<tr><td>法線</td><td>球が赤・緑・青に塗り分けられる。床は<strong>一様な緑</strong>(法線が全部 (0,1,0) なので)</td></tr>
+<tr><td>交差判定の回数</td><td><strong>空が青一色</strong>(= 720 回)、床が緑(= 1440 回前後)、金属の球が<strong>赤</strong>(= 2160 回以上)</td></tr>
+</tbody>
+</table></div>
+<p>3つ目で<strong>空にも色が付いている</strong>ことを必ず見ておく。「何にも当たらない光線も、球を全部試している」が今日の最後の要点(要点7)で、Day 62b で最初に消えるのがこの費用。</p>
+<h3 id="s28">4. カメラ</h3>
+<ul><li>左ドラッグで回る。<strong>真上・真下の手前で止まる</strong>(越えるとカメラの右方向を作る外積が壊れるので、±1.45 rad で止めてある)</li><li>ホイールで寄る / 離れる(2〜60m)</li><li><code>R</code> で戻る</li></ul>
+<h3 id="s29">5. シェーダを書き換えて、落ちないことを確かめる</h3>
+<p><code>reference/Day62a/bin/Release/net10.0-windows/shaders/trace.comp</code> を開いて、わざと構文を壊して(<code>vec3</code> を <code>vec4</code> にするなど)保存し、<code>3</code> → <code>2</code> と押して作り直させる。</p>
+<ul><li><strong>窓は落ちず</strong>、HUD にエラーが3行出る(<code>trace.comp:123: error: ...</code> の形)</li><li>絵は最後に成功したもののまま……ではなく<strong>真っ黒</strong>になる(レンダラごと捨てているので)</li><li>直して押し直すと戻る</li></ul>
+<p>これが動くと、改造課題がずっと楽になる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>総当たりの「球の数」、Stopwatch の「球の数」</td><td>1画素あたりの交差判定が球の数に比例する。Stopwatch の1枚はほとんど動かず、タイムスタンプだけが伸びる</td></tr>
+<tr><td><code>M</code></td><td>総当たりの「表示」</td><td>交差判定の回数で、空にも色が付く(= 球の数ぶん試している)</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code></td><td>総当たりの絵をドラッグ / ホイール / 「戻す」</td><td>ドラッグ中は 4 画素に1本で荒く描き、離すと描き直す</td></tr>
+<tr><td>(なし。起動時に1回)</td><td>メモリの種類</td><td>資源ごとに許された種類の中から、欲しい性質を全部持つ最初の番号を選ぶ</td></tr>
+<tr><td><code>H</code> / <code>Esc</code>、シェーダを壊す(完成条件5)</td><td>(なし)</td><td>実機で</td></tr>
+</tbody>
+</table></div>
+<p class="note">総当たりの実験台は reference/Day62a の Scene/SceneData.cs(.NET の Random(20260919) ごと)・Scene/Camera.cs・shaders/trace.comp を JS に移したもの(docs/site/hwraytracer.js。Day 62b・62c の実験台と共有)。Node で、球の位置・半径・色が C# と同じ値になること、そして reference の ComputeRenderer が RTX 3070 で描いた 960x540 の絵と1画素ずつ比べて、法線の表示はほぼ全部(球 720 個でずれ 0.01%)、陰影はずれ 0.07〜0.32%(地平線の1行と市松の境目だけ。GPU は float、JS は double)で一致することを確かめた。1画素あたりの交差判定の平均(960x540)は 13.8 / 205.2 / 1217.8 回。メモリの表と MemoryTypeBits は同じ GPU で聞いた値。Stopwatch とタイムスタンプの図は計画書の実測から組み立てたもので、reference を同じ GPU で走らせ直した値(8.21 / 0.05、8.83 / 0.68、12.70 / 4.43 ms)とも近い。</p></div>
+</section>
+<section class="part"><h2 id="s30">検証の途中で分かったこと</h2>
+<h3 id="s31">検証1: CPU の Stopwatch では総当たりの費用が見えなかった</h3>
+<p>最初は <code>Render</code> を <code>Stopwatch</code> で囲んだだけだった。球 8 個で 8.4ms、720 個で 12.7ms。<strong>90 倍にして 1.5 倍</strong>にしかならず、「GPU すごい」で済ませてしまうところだった。</p>
+<p>タイムスタンプを入れて分かったのは、<strong>8ms はほぼ全部が引き取りと提出の往復</strong>だということ。2MB の <code>CmdCopyImageToBuffer</code> と <code>MapMemory</code>、そして <code>QueueSubmit</code> → <code>WaitForFences</code> の往復の待ち時間で、<strong>光線の本数とは何の関係も無い</strong>。</p>
+<p>教訓は Day 60b の要点9 と同じ形をしている——<strong>測っているつもりのものを測れているか、別の手段で確かめる</strong>。ここでは「球を 90 倍にしたら 90 倍になるはず」という<strong>予測</strong>があったから気づけた。</p>
+<h3 id="s32">検証2: 検証レイヤはドライバに付いてこない</h3>
+<p><code>VK_LAYER_KHRONOS_validation</code> は<strong>Vulkan SDK を入れないと存在しない</strong>。手元の環境(RTX 3070 / driver 596.49)で <code>vkEnumerateInstanceLayerProperties</code> が返したのはNVIDIA Optimus、Steam のオーバーレイ、OBS のフックなど7つで、検証レイヤは無かった。</p>
+<p>そこで「無ければ黙って諦める」形にした(<code>HasInstanceLayer</code> で聞いてから決める)。<strong>レイヤが無いのに <code>EnabledLayerCount = 1</code> で渡すと <code>vkCreateInstance</code> が<code>ErrorLayerNotPresent</code> を返して、そこで終わる</strong>——検証レイヤを前提に書かれたサンプルをそのまま持ってくると、まずここで止まる。</p>
+<h3 id="s33">検証3: 一様乱数の色は灰色になる</h3>
+<p>小さい球の色を <code>rng.NextDouble() * 0.7 + 0.2</code> の3成分で作ったら、<strong>全部が灰色がかった</strong>。3つの独立な一様乱数は値が近くなりやすく、R ≈ G ≈ B になる確率が高いため。</p>
+<p>RTIOW と同じく<strong>2つの乱数を掛ける</strong>形(<code>NextDouble() * NextDouble()</code>)に変えると、値が小さいほうに寄って成分ごとの差が開き、色が付いた。ノイズの話ではなく<strong>見た目の話</strong>だが、場面の写真写りは比較のときに効く。</p>
+</section>
+<section class="part"><h2 id="s34">改造課題</h2>
+<h3 id="s35">課題1(易): ワークグループの大きさを食い違わせる</h3>
+<p><code>shaders/trace.comp</code> の <code>local_size_x/y</code> を 8 から 16 に変えて、<strong>C# 側の <code>ComputeRenderer.WorkGroupSize</code> は 8 のまま</strong>にして走らせる。</p>
+<ol><li>何が起きるか予想してから走らせる(ヒント: <code>CmdDispatch</code> に渡すのはワークグループの<strong>個数</strong>)</li><li>逆に GLSL を 4、C# を 8 にすると何が起きるか</li><li>両方を 16 に揃えると、光線追跡の時間はどう変わるか(球 720 個で比べる)</li><li><code>32x32</code> にすると <code>vkCreateComputePipelines</code> が失敗することがある。なぜか(ヒント: <code>VkPhysicalDeviceLimits.maxComputeWorkGroupInvocations</code> の保証値は 1024)</li></ol>
+<p><strong>この2つは人間が揃えるしかない</strong>——GLSL と C# の間に型検査は無い、というのがDay 57・61 から続く一貫したつらさで、Vulkan でも変わらない。</p>
+<h3 id="s36">課題2(中): 地平線のちらつきを消す(スーパーサンプリング)</h3>
+<p>地平線の近くの床がざらついているのは、<strong>1画素につき光線を1本しか撃っていない</strong>から(Day 59 の要点6 と同じ問題)。1画素の中に 2x2 の光線を撃って平均する。</p>
+<ol><li><code>main</code> の中で、画素の中を <code>(0.25, 0.25)</code> <code>(0.75, 0.25)</code> <code>(0.25, 0.75)</code> <code>(0.75, 0.75)</code> の4か所ずらして4本撃ち、色を平均する</li><li>光線追跡の時間はどれだけ伸びるか。<strong>4 倍ぴったりになるか</strong>を球 720 個で確かめる</li><li>4 倍にならないとしたら、なぜか(ヒント: 隣の画素は同じ球に当たる。キャッシュ)</li><li>プッシュ定数に「1辺あたりの本数」を足して、キーで 1 / 2 / 4 を切り替えられるようにする(<strong>80 バイトに 4 バイト足すだけ</strong>なので 128 バイトに収まる)</li></ol>
+<h3 id="s37">課題3(難): 引き取りの 8ms を削る</h3>
+<p><code>frame</code> の 8ms のうち、どこまでが何なのかを分解して、減らせるところを減らす。</p>
+<ol><li><code>VulkanBuffer.Read</code> の <code>MapMemory</code> / <code>UnmapMemory</code> を<strong>起動時に1回だけ</strong>にして、毎フレームは <code>Marshal.Copy</code> だけにする。何 ms 減ったか</li><li>引き取り用バッファを2本にして、<strong>前のフレームの結果を読みながら次のフレームを投げる</strong> (フェンスも2本要る)。1枚あたりの時間はどうなるか。<strong>絵は1フレーム古くなる</strong>が、静止画で見分けがつくか</li><li><code>CmdCopyImageToBuffer</code> をやめて、シェーダが<strong>直接 HostVisible なバッファに書く</strong>ようにしたらどうなるか(ストレージ画像をやめてストレージバッファにする)。速くなるか、遅くなるか、なぜか</li><li>ここまでやっても消えない待ち時間が残る。それは何か(ヒント: <code>QueueSubmit</code> から GPU が実際に走り出すまでの時間は、GPU の時計では測れない)</li></ol>
+<blockquote><p><strong>測るときは Release で、かつ何回か走らせて最小値を取る</strong>。そして<strong>長く回しっぱなしにしない</strong>——1枚が数 ms で終わる設定は、電源に対してかなり厳しい負荷になる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s38">次(Day 62b)でやること</h2>
+<p>今日作った <code>Vulkan/</code> の5ファイルは<strong>ほぼそのまま</strong>使い、以下を足す。</p>
+<ul><li><code>VulkanDevice</code> に拡張を3つ(<code>VK_KHR_acceleration_structure</code> / <code>ray_query</code> / <code>deferred_host_operations</code>)と機能を2つ(<code>bufferDeviceAddress</code> / <code>accelerationStructure</code>)足す。<strong>足す場所は今日作った1か所</strong></li><li><code>Vulkan/AccelerationStructure.cs</code> を新設して、球の AABB から <strong>BLAS</strong> を建て、<strong>TLAS</strong> で束ねる</li><li><code>shaders/trace.comp</code> の <code>traceScene</code> を <strong><code>rayQueryEXT</code> の数行</strong>に置き換える</li></ul>
+<p>そして今日の表の <code>trace</code> の列がどうなるかを見る。</p>
+</section>
+<footer class="end">Day 62a Vulkan を立ち上げる / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/hwraytracer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat } = Lab;
+const R = window.HwRayTracer;
+
+// ============================================================
+//  要点3: メモリの種類を選ぶ
+// ============================================================
+const HEAPS = [{ size: '8,018 MiB', dl: true }, { size: '16,319 MiB', dl: false }, { size: '214 MiB', dl: true }];
+const TYPES = [
+  { heap: 1, f: [] }, { heap: 0, f: ['DeviceLocal'] }, { heap: 0, f: ['DeviceLocal'] },
+  { heap: 1, f: ['HostVisible', 'HostCoherent'] }, { heap: 1, f: ['HostVisible', 'HostCoherent', 'HostCached'] },
+  { heap: 2, f: ['DeviceLocal', 'HostVisible', 'HostCoherent'] },
+];
+const RES = {
+  staging: { name: 'ステージング(TransferSrc)', bits: 0x3B, want: ['HostVisible', 'HostCoherent'], code: 'VulkanBuffer.CreateStaging' },
+  readback: { name: '引き取り用(TransferDst)', bits: 0x3B, want: ['HostVisible', 'HostCoherent'], code: 'VulkanBuffer.CreateStaging' },
+  spheres: { name: '球の配列(StorageBuffer | TransferDst)', bits: 0x3B, want: ['DeviceLocal'], code: 'VulkanBuffer.CreateDeviceLocal' },
+  image: { name: 'ストレージ画像(R8G8B8A8、Optimal)', bits: 0x3, want: ['DeviceLocal'], code: 'VulkanImage.Create' },
+};
+const FLAG_IDS = { DeviceLocal: 'mt-dl', HostVisible: 'mt-hv', HostCoherent: 'mt-hc', HostCached: 'mt-cached' };
+const mt = { res: 'staging', ignore: false };
+function setWant() { const w = RES[mt.res].want; for (const [f, id] of Object.entries(FLAG_IDS)) $(id).checked = w.includes(f); }
+function drawMem() {
+  const r = RES[mt.res], want = Object.keys(FLAG_IDS).filter((f) => $(FLAG_IDS[f]).checked);
+  let chosen = -1;
+  const rows = TYPES.map((t, i) => {
+    const allowed = (r.bits & (1 << i)) !== 0, has = want.every((f) => t.f.includes(f));
+    if (chosen < 0 && (allowed || mt.ignore) && has) chosen = i;
+    return { t, i, allowed, has };
+  });
+  const yes = '○', no = '—';
+  $('mt-table').innerHTML = `<table><thead><tr><th>番号</th><th>ヒープ</th><th>性質(PropertyFlags)</th><th>この資源に許されている</th><th>欲しい性質を全部持つ</th><th></th></tr></thead><tbody>` +
+    rows.map(({ t, i, allowed, has }) => `<tr${i === chosen ? ' style="background:var(--accent-soft)"' : ''}><td>${i}</td><td>${t.heap}(${HEAPS[t.heap].size}${HEAPS[t.heap].dl ? '、DeviceLocal' : ''})</td><td>${t.f.join(' | ') || '(なし)'}</td><td>${allowed ? yes : no}</td><td>${has ? yes : no}</td><td>${i === chosen ? '<strong>選ばれる</strong>' : ''}</td></tr>`).join('') + '</tbody></table>';
+  const bitsText = '0x' + r.bits.toString(16).toUpperCase();
+  const allowedList = rows.filter((x) => x.allowed).map((x) => x.i).join(', ');
+  $('mt-stats').innerHTML = stat('MemoryTypeBits', `${bitsText}(${allowedList} 番)`) + stat('欲しい性質', want.join(' | ') || '(なし)') +
+    stat('選ばれる種類', chosen < 0 ? 'なし(例外)' : `${chosen} 番`);
+  let note;
+  const isRef = want.length === r.want.length && r.want.every((f) => want.includes(f));
+  if (chosen < 0) note = `条件に合うメモリの種類がありません(typeBits=${bitsText}, required=${want.join(', ')})——FindMemoryType はこの例外を投げる。${mt.res === 'image' ? '画像(タイル状の並び)は 0 番と 1 番にしか置けないので、CPU から見える種類はそもそも選べない。' : ''}`;
+  else if (!rows[chosen].allowed) note = `MemoryTypeBits を見ないと ${chosen} 番を選ぶが、この資源には許されていない(${bitsText} の ${chosen} ビット目は 0)。vkBindImageMemory / vkBindBufferMemory の仕様違反で、検証レイヤが無いと黙って壊れる。`;
+  else if (chosen === 5) note = '5 番は DeviceLocal と HostVisible を両方持つ種類(ReBAR)。CPU から直接 VRAM に書けるが、このヒープは 214 MiB しかない。ふつうは 3 番に書いて、転送で 1 番へ移す(ステージング)。';
+  else if (chosen === 4) note = '4 番は HostCached も持つ。CPU が読むときにキャッシュが効くので、引き取り用にはこちらのほうが向いている(reference は HostVisible | HostCoherent だけを頼むので 3 番になる)。';
+  else if (isRef) note = `${r.code} が頼む性質。${chosen === 1 ? '1 番と 2 番はどちらも DeviceLocal だが、小さい番号から見るので 1 番になる。' : '3 番は CPU から見えるメインメモリ(ヒープ 1)。GPU からは PCIe 越しに読む。'}`;
+  else note = `欲しい性質を変えると、許された種類(${allowedList} 番)の中で選び直す。`;
+  $('mt-note').textContent = note;
+}
+seg('mt-res', (v) => { mt.res = v; setWant(); drawMem(); });
+for (const id of Object.values(FLAG_IDS)) $(id).addEventListener('change', drawMem);
+$('mt-ignore').addEventListener('change', (e) => { mt.ignore = e.target.checked; drawMem(); });
+setWant();
+drawMem();
+
+// ============================================================
+//  要点6: Stopwatch とタイムスタンプ
+// ============================================================
+const MEASURED = {
+  batch: [[8, 8.31, 0.05], [120, 8.89, 0.67], [720, 12.64, 4.30]],
+  app: [[8, 10.5, 0.4], [120, 10.7, 0.7], [720, 16.5, 7.0]],
+};
+const tm = { n: 120, run: 'batch', period: 1, forget: false };
+function lerp(run, n) {
+  const pts = MEASURED[run];
+  let i = 0;
+  while (i < pts.length - 2 && n > pts[i + 1][0]) i++;
+  const [n0, f0, t0] = pts[i], [n1, f1, t1] = pts[i + 1], k = (n - n0) / (n1 - n0);
+  return { frame: f0 + (f1 - f0) * k, trace: t0 + (t1 - t0) * k };
+}
+function drawTm() {
+  const m = lerp(tm.run, tm.n), base = lerp(tm.run, 8);
+  const shown = tm.forget ? m.trace / tm.period : m.trace, shownBase = tm.forget ? base.trace / tm.period : base.trace;
+  const { ctx, w, h } = fit($('tm-canvas'));
+  const L = 120, Rr = w - 16, maxMs = 18, X = (ms) => L + Math.min(ms, maxMs) / maxMs * (Rr - L);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  for (let ms = 0; ms <= maxMs; ms += 2) { ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(ms), 8); ctx.lineTo(X(ms), h - 22); ctx.stroke(); ctx.fillText(ms + 'ms', X(ms) - 10, h - 6); }
+  const bar = (y, parts, label) => {
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body'); ctx.fillText(label, 4, y + 20);
+    let x = 0;
+    for (const [ms, color, text] of parts) {
+      ctx.fillStyle = color; ctx.fillRect(X(x), y, Math.max(X(x + ms) - X(x), 1.5), 30);
+      if (text && X(x + ms) - X(x) > 90) { ctx.fillStyle = '#fff'; ctx.font = '11px ' + tok('--font-body'); ctx.fillText(text, X(x) + 6, y + 19); }
+      x += ms;
+    }
+  };
+  bar(20, [[m.frame - m.trace, 'rgba(150,150,160,0.75)', '提出・待ち・2MB の引き取り'], [m.trace, tok('--accent'), '光線追跡']], 'Stopwatch');
+  bar(90, [[shown, tok('--accent'), '']], 'タイムスタンプ');
+  $('tm-n-out').textContent = tm.n + ' 個';
+  $('tm-stats').innerHTML = stat('Stopwatch(1枚)', `${m.frame.toFixed(2)} ms`) + stat('タイムスタンプ(光線追跡)', `${shown.toFixed(tm.forget ? 4 : 2)} ms`) +
+    stat('球 8 個からの倍率', `${(tm.n / 8).toFixed(1)} 倍`) + stat('Stopwatch の倍率', `${(m.frame / base.frame).toFixed(2)} 倍`) + stat('タイムスタンプの倍率', `${(shown / shownBase).toFixed(1)} 倍`);
+  let note = tm.run === 'batch'
+    ? `Stopwatch には球の数と関係の無い ${(m.frame - m.trace).toFixed(1)} ms が乗っていて、球を ${(tm.n / 8).toFixed(0)} 倍にしても ${(m.frame / base.frame).toFixed(2)} 倍にしかならない。タイムスタンプで光線追跡だけを囲むと ${(m.trace / base.trace).toFixed(0)} 倍になり、総当たりが球の数に比例するのが見える。`
+    : '窓のアプリでは、1枚が早く終わると GPU が残りの時間を寝てクロックが下がるので、球 8 個でも 0.4 ms かかり、倍率は 15〜20 倍にしか見えない。比べるのは同じ走らせ方どうしにする。';
+  if (tm.forget) note += tm.period === 1 ? ' NVIDIA は1目盛りがちょうど 1 ns なので、掛け忘れても同じ値になる——手元で気づけない種類の間違い。' : ` 目盛りの数 = ナノ秒 ÷ ${tm.period} なので、掛け忘れると ${tm.period} 分の1 の値が出る。`;
+  $('tm-note').textContent = note;
+}
+$('tm-n').addEventListener('input', (e) => { tm.n = Number(e.target.value); drawTm(); });
+seg('tm-run', (v) => { tm.run = v; drawTm(); });
+seg('tm-period', (v) => { tm.period = Number(v); drawTm(); });
+$('tm-forget').addEventListener('change', (e) => { tm.forget = e.target.checked; drawTm(); });
+window.addEventListener('resize', drawTm);
+drawTm();
+
+// ============================================================
+//  要点7: 総当たりのレイトレーサ
+// ============================================================
+const BW = 320, BH = 180;
+const scenes = {};
+const bf = { count: 120, mode: 0, view: { ...R.DEFAULT_VIEW }, job: null, hover: null };
+const img = { data: new ImageData(BW, BH), tests: new Int32Array(BW * BH), kind: new Uint8Array(BW * BH), w: BW, h: BH, done: false, ms: 0, row: 0 };
+const off = document.createElement('canvas');
+function sceneOf(n) { if (!scenes[n]) { const sp = R.createScene(n, '62a'); scenes[n] = { spheres: sp, tr: R.tracer(sp) }; } return scenes[n]; }
+// 描き直し。ドラッグ中は 4 画素に1本で荒く描く
+function restart(coarse = false) {
+  if (bf.job) bf.job.alive = false;
+  const step = coarse ? 4 : 1, sc = sceneOf(bf.count), cam = R.camera(bf.view, BW, BH);
+  const job = { alive: true, row: 0, ms: 0, coarse };
+  bf.job = job; img.done = false; img.coarse = coarse;
+  const tick = () => {
+    if (!job.alive) return;
+    const t0 = performance.now();
+    while (job.row < BH && performance.now() - t0 < 15) {
+      const y = job.row;
+      for (let x = 0; x < BW; x += step) {
+        const p = sc.tr.pixel(cam, x + (step - 1) / 2, y + (step - 1) / 2, bf.mode);
+        const c = p.color.map((v) => Math.round(Math.min(Math.max(v, 0), 1) * 255));
+        for (let yy = y; yy < Math.min(y + step, BH); yy++) for (let xx = x; xx < Math.min(x + step, BW); xx++) {
+          const i = yy * BW + xx;
+          img.data.data[i * 4] = c[0]; img.data.data[i * 4 + 1] = c[1]; img.data.data[i * 4 + 2] = c[2]; img.data.data[i * 4 + 3] = 255;
+          img.tests[i] = p.tests;
+          img.kind[i] = p.rays === 1 && p.tests === sc.spheres.length ? 0 : 1;
+        }
+      }
+      job.row += step;
+    }
+    job.ms += performance.now() - t0;
+    img.row = job.row;
+    drawBf();
+    if (job.row < BH) setTimeout(tick, 0); else { img.done = true; img.ms = job.ms; drawBf(); }
+  };
+  setTimeout(tick, 0);
+}
+function drawBf() {
+  const { ctx, w, h } = fit($('bf-canvas'));
+  const s = Math.min(w / BW, h / BH), iw = BW * s, ih = BH * s, x0 = (w - iw) / 2;
+  bf.rect = { x0, s };
+  off.width = BW; off.height = BH; off.getContext('2d').putImageData(img.data, 0, 0);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, x0, 0, iw, ih);
+  const n = bf.count, rows = img.done ? BH : img.row;
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < rows * BW; i++) { sum += img.tests[i]; cnt++; }
+  let hov = '';
+  if (bf.hover && img.done) {
+    const [hx, hy] = bf.hover, t = img.tests[hy * BW + hx];
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + hx * s - 2, hy * s - 2, s + 4, s + 4);
+    hov = `画素 (${hx}, ${hy}): hitSphere を ${t.toLocaleString()} 回(球 ${n} 個の ${(t / n).toFixed(2)} 倍)`;
+  }
+  $('bf-stats').innerHTML = stat('球の数', `${n} 個`) + stat('1画素あたりの交差判定(平均)', cnt ? (sum / cnt).toFixed(1) : '—') +
+    stat('うち一次光線', `${n} 回`) + stat('このページの JS で1枚', img.done && !img.coarse ? `${img.ms.toFixed(0)} ms` : '描いている途中');
+  $('bf-note').textContent = hov || (bf.mode === 2
+    ? `目盛りは球の数の3倍(${n * 3} 回)で振り切る。空は ${n} 回(一次光線が全部の球を試して、何にも当たらなかった)、日の当たる床は ${n * 2} 回前後(一次光線 + 影の光線)、金属の球は反射のぶんだけ増える。何にも当たらない光線にも満額かかる。`
+    : '球の数を 8 → 120 → 720 と増やすと、1画素あたりの交差判定もほぼ同じ倍率で増える。マウスを載せた画素の回数も出す。');
+}
+seg('bf-count', (v) => { bf.count = Number(v); restart(); });
+seg('bf-mode', (v) => { bf.mode = Number(v); restart(); });
+seg('bf-reset', () => { bf.view = { ...R.DEFAULT_VIEW }; setSeg('bf-reset', ''); restart(); });
+{
+  const cv = $('bf-canvas');
+  let drag = null;
+  cv.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; });
+  cv.addEventListener('pointermove', (e) => {
+    if (drag) {
+      bf.view.yaw += (e.clientX - drag[0]) * 0.01;
+      bf.view.pitch = Math.min(Math.max(bf.view.pitch + (e.clientY - drag[1]) * 0.01, -1.45), 1.45);
+      drag = [e.clientX, e.clientY]; restart(true); return;
+    }
+    const r = cv.getBoundingClientRect(), q = bf.rect;
+    if (!q) return;
+    const x = Math.floor((e.clientX - r.left - q.x0) / q.s), y = Math.floor((e.clientY - r.top) / q.s);
+    bf.hover = x >= 0 && y >= 0 && x < BW && y < BH ? [x, y] : null;
+    drawBf();
+  });
+  cv.addEventListener('pointerup', () => { if (drag) { drag = null; cv.style.cursor = 'grab'; restart(); } });
+  cv.addEventListener('pointerleave', () => { bf.hover = null; drawBf(); });
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); bf.view.distance = Math.min(Math.max(bf.view.distance * (e.deltaY > 0 ? 1.1 : 1 / 1.1), 2), 60); restart(true); clearTimeout(bf.wheelT); bf.wheelT = setTimeout(() => restart(), 250); }, { passive: false });
+}
+window.addEventListener('resize', drawBf);
+restart();
+})();
+</script>
+</body>
+</html>

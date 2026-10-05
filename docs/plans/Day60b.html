@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 60b CPU レイトレーサ(2)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">7. AABB とスラブ法 — 箱に当たるかを掛け算だけで</a></li><li class="l3"><a href="#s6">8. BVH — 形のほうを木に入れる</a></li><li class="l3"><a href="#s7">9. ノイズとの付き合い — 何で正しさを確かめるか</a></li><li class="l3"><a href="#s8">10. 今日入れなかったもの</a></li><li class="l2"><a href="#s9">前Dayからの差分概要</a></li><li class="l3"><a href="#s10">新規ファイル</a></li><li class="l3"><a href="#s11">変更ファイル</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">設計書</a></li><li class="l3"><a href="#s14">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l3"><a href="#s16">1. <code>5</code>: 場面5「球がたくさん」と <code>B</code>(BVH)</a></li><li class="l3"><a href="#s17">2. 場面4で <code>V</code> と <code>B</code> — 形が少ないと BVH は損</a></li><li class="l3"><a href="#s18">3. <code>6</code>: 場面6「ガラスの集光」</a></li><li class="l3"><a href="#s19">4. <code>C</code>: 自己チェック(18 項目すべて合格、1.8 秒)</a></li><li class="l3"><a href="#s20">5. Day 60a の絵と機能が1つも壊れていない</a></li><li class="l2"><a href="#s21">検証の途中で分かったこと</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): 葉の大きさと木の形</a></li><li class="l3"><a href="#s24">課題2(中): 近い子から辿るのをやめてみる</a></li><li class="l3"><a href="#s25">課題3(難): 動く玉のために、木を作り直さず箱だけ直す(refit)</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 60b / 計画書</p>
+  <h1>CPU レイトレーサ(2)</h1>
+  <p class="lede">BVH(形のほうを木に入れる)</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な2つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">7. AABB とスラブ法 — 箱に当たるかを掛け算だけで</a></li><li class="l3"><a href="#s6">8. BVH — 形のほうを木に入れる</a></li><li class="l3"><a href="#s7">9. ノイズとの付き合い — 何で正しさを確かめるか</a></li><li class="l3"><a href="#s8">10. 今日入れなかったもの</a></li><li class="l2"><a href="#s9">前Dayからの差分概要</a></li><li class="l3"><a href="#s10">新規ファイル</a></li><li class="l3"><a href="#s11">変更ファイル</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">設計書</a></li><li class="l3"><a href="#s14">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l3"><a href="#s16">1. <code>5</code>: 場面5「球がたくさん」と <code>B</code>(BVH)</a></li><li class="l3"><a href="#s17">2. 場面4で <code>V</code> と <code>B</code> — 形が少ないと BVH は損</a></li><li class="l3"><a href="#s18">3. <code>6</code>: 場面6「ガラスの集光」</a></li><li class="l3"><a href="#s19">4. <code>C</code>: 自己チェック(18 項目すべて合格、1.8 秒)</a></li><li class="l3"><a href="#s20">5. Day 60a の絵と機能が1つも壊れていない</a></li><li class="l2"><a href="#s21">検証の途中で分かったこと</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): 葉の大きさと木の形</a></li><li class="l3"><a href="#s24">課題2(中): 近い子から辿るのをやめてみる</a></li><li class="l3"><a href="#s25">課題3(難): 動く玉のために、木を作り直さず箱だけ直す(refit)</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 60 の2日目で、reference は Day 60a の完全コピー + 差分。Day 60a でパストレーサができた。場面への問い合わせは Day 59 からずっと<strong>総当たり</strong>——光線1本につき、場面の全部の形に聞いている。形が 11 個までなら困らなかったが、今日の場面5「球がたくさん」は<strong>形が 466 個</strong>あり、総当たりでは1パスが 0.4 秒かかる。</p>
+<p>今日は形を<strong>箱の木(BVH)</strong>に入れて、「通らない箱の中身を丸ごと飛ばす」。これはレイトレースに固有の話ではなく、<strong>当たり判定・カリング・物理で同じ木が出てくる</strong>(Day 46b のブロードフェーズは、同じ問題を「空間を区切る」側で解いたもの)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>総当たり(Day 60a まで)</th><th>BVH(Day 60b)</th></tr></thead>
+<tbody>
+<tr><td>光線1本の問い合わせ</td><td>形を全部調べる(場面5で 458 回)</td><td>箱を辿り、通る箱の中の形だけ調べる(<strong>箱 12.1 + 形 3.3 回</strong>)</td></tr>
+<tr><td>場面5の1パス</td><td><strong>399 ms</strong></td><td><strong>53 ms</strong>(SAH)</td></tr>
+<tr><td>無限の平面</td><td>全部と一緒に調べる</td><td><strong>箱で囲めない</strong>ので、BVH の外で総当たり</td></tr>
+<tr><td>絵</td><td>—</td><td><strong>1画素も変わらない</strong>(変わったら BVH の不具合)</td></tr>
+</tbody>
+</table></div>
+<p><strong>要点の番号は Day 60 の通し番号</strong>にしてある(今日は 7〜9)。コードのコメントが「要点4」(NEE)や「要点7」(AABB)のようにDay 60 の番号で指しているため。<strong>要点1〜6 は Day 60a の計画書</strong>を見ること(Day 60a の要点7「ノイズとの付き合い」は、今日の要点9 に1行足したもの)。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、交差判定が 30 分の1 になったのに、速さは 7.5 倍にしかならなかったこと</strong></p>
+<p>場面5の1パスが 399ms → 53ms。交差判定は 458 回 → 15.4 回なので 30 倍を期待したが、そうはならない。残りの時間(乱数・散乱の向き作り・色の足し算・画素への書き込み)は BVH では減らないから(<strong>アムダールの法則</strong>。要点8、検証の途中で分かったこと 1)。逆に、<strong>形が 9 個しかないコーネルボックスでは BVH のほうが遅い</strong>(76ms → 89ms)。木を辿る手間が、9 個に総当たりする手間より高い。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong><code>5</code> で場面5「球がたくさん」を出す。<code>V</code> を3回押して「交差判定の数」の表示にし、<code>B</code> で探し方を回すと、総当たりでは画面がほぼ真っ白(1画素に 1000 回以上)、BVH では緑〜黄になる。陰影の表示に戻すと、3つとも1画素も違わない。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>1</code>〜<code>6</code></td><td>場面(Whitted 1980 / 屈折率と金属 / 合わせ鏡 / コーネルボックス / <strong>球がたくさん</strong> / ガラスの集光)。<strong>集光は 5 から 6 へ移った</strong></td></tr>
+<tr><td><code>B</code></td><td>探し方(BVH(SAH) / 総当たり / BVH(中央分割))。<strong>場面5で 1パス 53ms が 399ms になる。絵は1画素も変わらない</strong></td></tr>
+<tr><td><code>V</code></td><td>表示(陰影 / 法線 / 光線の数 / <strong>交差判定の数</strong>)。最後のが今日の目</td></tr>
+<tr><td><code>C</code></td><td>自己チェック(<strong>18 項目</strong>)。<code>PageUp</code> / <code>PageDown</code> でめくる(36 行ある)</td></tr>
+<tr><td>そのほか</td><td>Day 60a のまま(<code>A</code> <code>N</code> <code>U</code> <code>K</code> <code>[</code> <code>]</code> <code>S</code> <code>F</code> <code>E</code> <code>J</code>、右クリック、ドラッグ・ホイール・<code>R</code>、<code>P</code> <code>X</code> <code>H</code> <code>Esc</code>)</td></tr>
+</tbody>
+</table></div>
+<p>HUD に<strong>探し方の行</strong>が1行増える(<code>探し方 BVH(SAH) (B)   形 466 個(BVH 465 / 外 1) 節点 301 深さ 9 作成 4.0ms   1光線あたり 箱 12.1 / 形 3.3 回</code>)。</p>
+<h3 id="s2">今日いちばん大事な2つ</h3>
+<p><strong>1つ目は「空間ではなく、形のほうを木に入れる」</strong>(要点8)。形を箱で囲み、その箱をさらに大きな箱で囲む、を繰り返す。光線は根から辿り、<strong>通らない箱に出会ったら中身を丸ごと飛ばす</strong>。空間を区切る木(kd 木・八分木。Day 46b の均一グリッドもこちら側)と違って、<strong>どの形も必ずどれか1つの葉に入る</strong>ので、節点の数が形の数から決まり、配列1本に平らに詰められる。どこで割るかは、<strong>割った後の費用を見積もって決める</strong>(SAH)。</p>
+<div class="code"><pre><code>  費用(割る)   = 箱を辿る手間 + (左の箱の表面積 × 左の数 + 右の箱の表面積 × 右の数) / 親の箱の表面積
+  費用(葉にする) = 形の数</code></pre></div>
+<p><strong>2つ目は「速くするための仕掛けは、答えを変えてはいけない」</strong>(要点9)。BVH の取りこぼし(当たるはずの形を飛ばす)は、<strong>絵ではほとんど見えない</strong>——ノイズの中の1画素が少し違っても誰も気づかない。だから数で確かめる。自己チェック18 は、466 個の場面へ 2万本の光線を撃って<strong>総当たりと1本ずつ突き合わせ、食い違い 0 件</strong>を見ている。分割の検証では、Day 60a(総当たり)で描いた 5 つの場面の絵と、今日の BVH で描いた絵を画素ごとに比べ、<strong>全部 1画素も違わなかった</strong>。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><a href="https://raytracing.github.io/books/RayTracingTheNextWeek.html">Peter Shirley ほか「Ray Tracing: The Next Week」</a> の<strong>「Bounding Volume Hierarchies」</strong> — 要点7・8。今日の BVH の骨組み(ただし本書は中央分割で、SAH は扱っていない)</li><li><a href="https://raytracing.github.io/books/RayTracingInOneWeekend.html">同「Ray Tracing in One Weekend」</a> の <strong>「A Final Render」</strong> — 今日の場面5のもとになった絵</li><li><a href="https://pbr-book.org/4ed/contents">PBRT 4th edition(全文が無料で読める)</a> の<strong>7.3 Bounding Volume Hierarchies</strong>(SAH の費用の式)と <strong>6.8.2 Ray–Bounds Intersections</strong>(スラブ法と NaN)</li><li><a href="https://doi.org/10.1145/1276377.1276406">Ingo Wald ほか, "Ray Tracing Deformable Scenes using Dynamic Bounding Volume Hierarchies"(2007)</a>— 要点8。BVH をどう作るか(SAH、ビン化)と、<strong>動く形のために木を作り直さず箱だけ直す</strong>話(改造課題3)</li><li><strong>Day 53 の計画書</strong>(ライトカリング)・<strong>Day 46b の計画書</strong>(ブロードフェーズの均一グリッド) — 空間を区切る話の比較対象</li><li><strong>Day 60a の計画書</strong> — 要点1〜6(レンダリング方程式・モンテカルロ積分・重点サンプリング・NEE・ロシアンルーレット・乱数)</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">7. AABB とスラブ法 — 箱に当たるかを掛け算だけで</h3>
+<p>BVH の箱は<strong>軸に平行な直方体</strong>(AABB)にする。ぴったり囲むことより、<strong>1回の判定が安いこと</strong>が効くから(光線1本につき十数回も聞く)。</p>
+<p>箱を「3対の平行な板(スラブ)の重なり」と見て、軸ごとに<strong>板に入る t と出る t</strong> を求め、3軸ぶんの「入る」のいちばん遅いものと「出る」のいちばん早いものを比べる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Aabb.Slab。<strong>MathF.Min / MathF.Max ではなく比較で書いてある</strong>のが肝
+float t0 = (low - origin) * invDirection;
+float t1 = (high - origin) * invDirection;
+if (t0 &gt; t1) { (t0, t1) = (t1, t0); }
+if (t0 &gt; enter) { enter = t0; }      // NaN なら false → その軸の制約を無視する
+if (t1 &lt; exit) { exit = t1; }</code></pre></div>
+<p>割り算ではなく <code>invDirection</code>(向きの逆数)を光線1本につき1回だけ作って掛ける。向きの成分が 0 なら ±∞ になるが、それでよい。</p>
+<p><strong>踏む罠</strong>: 光線が板と平行(<code>invDirection</code> が ±∞)で、しかも<strong>始点がちょうど板の上</strong>にあると <code>0 × ∞ = NaN</code> が出る。<code>MathF.Max(NaN, x)</code> は NaN を返すので、素朴に書くと <code>enter</code> が NaN になり、最後の <code>enter &lt;= exit</code> が false ——<strong>箱の中にいるのに「外れ」</strong>になる。比較で書けば NaN との比較は全部 false なので、その軸を無視することになり答えが正しくなる(PBRT と同じ書き方。自己チェック17 が、Min/Max 版だと外れることまで確かめている)。</p>
+<p><strong>無限の平面は箱で囲めない</strong>。巨大な箱で囲むことはできるが、その箱は場面の全部と重なるので、BVH のどの枝を辿っても必ず葉まで降りることになり、木の意味が無くなる。だから <code>Shape.TryGetBounds</code> が false を返す形は BVH に入れず、毎回総当たりで聞く(今日の場面ではせいぜい6枚)。</p>
+<div class="inject"><figure class="lab" id="sl-lab">
+  <div class="lab-head">
+    <h3>スラブ法 — 入る t のいちばん遅いものと、出る t のいちばん早いもの(要点7)</h3>
+    <span class="tag">Aabb.Intersect と同じ式。一辺 2 の箱を z = 0 で切った図で、光線もこの面の中を進む(z の板は向きの成分が 0 なので ±∞ になり、制約にならない)。右の帯が軸ごとの [入る t, 出る t]</span>
+  </div>
+  <div class="stage"><canvas id="sl-canvas" style="height:280px;touch-action:none" aria-label="箱と光線と、軸ごとの入る t と出る t。ドラッグで光線の向きが変わる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">例(自己チェック17)</span>
+      <div class="seg" id="sl-pre"><button data-v="front" aria-pressed="true">正面</button><button data-v="inside" aria-pressed="false">中から</button><button data-v="behind" aria-pressed="false">後ろ</button><button data-v="nan" aria-pressed="false">板の上を板と平行に</button><button data-v="parallel" aria-pressed="false">箱の外を平行に</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="sl-mm"> Math.Min / Math.Max で書く(比べる相手。自己チェック17)</label>
+  </div>
+  <div class="readout"><div class="stats" id="sl-stats"></div><p id="sl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">8. BVH — 形のほうを木に入れる</h3>
+<p>形を箱で囲み、その箱をさらに大きな箱で囲む、を繰り返した木。光線は根から辿り、<strong>通らない箱に出会ったら中身を丸ごと飛ばす</strong>。</p>
+<p>「空間を区切る」方法(BSP・kd 木・八分木。Day 53 のライトカリングもこちら側)と違い、BVH は<strong>形のほうを木に入れる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>空間を区切る</th><th><strong>BVH</strong></th></tr></thead>
+<tbody>
+<tr><td>境目にまたがる形</td><td>複数の区画に<strong>重複して</strong>入る</td><td><strong>必ずどれか1つの葉</strong>に入る</td></tr>
+<tr><td>兄弟の領域</td><td>重ならない</td><td><strong>重なってよい</strong>(そのぶん両方の子を見ることがある)</td></tr>
+<tr><td>節点の数</td><td>事前に読めない</td><td><strong>形の数から決まる</strong>(葉が最大 N、内側が N−1)ので配列で確保できる</td></tr>
+</tbody>
+</table></div>
+<p>木は<strong>配列1本</strong>に平らに詰める。<strong>左の子は必ず自分の次</strong>に置く決まりにすると、節点が覚えるのは右の子の番号だけでよい。</p>
+<p><strong>どこで割るか</strong>の決め方を2つ入れてある(<code>B</code> キー)。</p>
+<ul><li><strong>中央分割</strong> … いちばん長い軸で、重心の中央値で半分ずつ。作るのは速いが<strong>形の疎密を見ていない</strong></li><li><strong>SAH</strong>(表面積ヒューリスティック) … 割った後の費用を見積もって、いちばん安い割り方を選ぶ</li></ul>
+<div class="code"><pre><code>  費用(割る)   = 箱を辿る手間 + (左の箱の表面積 × 左の数 + 右の箱の表面積 × 右の数) / 親の箱の表面積
+  費用(葉にする) = 形の数</code></pre></div>
+<p>「でたらめな光線が子の箱に入る確率は、表面積の比」という見積もりに基づく(凸な立体に対する Cauchy の公式)。<strong>葉にするほうが安ければ割らない</strong>ので、木の深さも自動で決まる。</p>
+<p>場面5(形 466 個、うち BVH に入るのは 465 個。無限の床だけが外)での実測:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>探し方</th><th>1パス</th><th>1光線あたりの交差判定</th><th>節点(葉)深さ</th><th>作成</th></tr></thead>
+<tbody>
+<tr><td>総当たり</td><td><strong>399 ms</strong></td><td>形 458.0 回</td><td>—</td><td>—</td></tr>
+<tr><td>BVH(中央分割)</td><td><strong>63 ms</strong></td><td>箱 14.1 + 形 4.4 = 18.4 回</td><td>255(128)深さ 8</td><td>3.6 ms</td></tr>
+<tr><td>BVH(SAH)</td><td><strong>53 ms</strong></td><td>箱 12.1 + 形 3.3 = <strong>15.4 回</strong></td><td>301(151)深さ 9</td><td>4.0 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>交差判定は 30 分の1 になったのに、全体は 7.5 倍にしかならない</strong>。これがアムダールの法則で、残りの時間(乱数・散乱の向き作り・色の足し算・画素への書き込み)は BVH では減らないから。「30 倍速くなるはず」と思って測ると必ずこの差に出会う。</p>
+<p><strong>形が少ないと BVH は損</strong>。場面4(形 9 個、うち BVH に入るのは球 3 個)では <strong>76 ms → 89 ms</strong> と遅くなる。木を辿る手間が、9 個に総当たりする手間より高い。</p>
+<div class="inject"><figure class="lab" id="bv-lab">
+  <div class="lab-head">
+    <h3>場面5の BVH — 箱の木と、1画素の交差判定の数(要点8)</h3>
+    <span class="tag">Bvh.Build(中央分割 / SAH)と Bvh.Intersect を JS に移したもの。左は「交差判定の数」の表示(960x540 のカメラのまま 4x4 画素に1本。1パス)、右は場面を真上から見た図と、選んだ深さの箱。左の絵の上でマウスを動かすと、その画素のカメラの光線が開けた箱を右に出す</span>
+  </div>
+  <div class="stage"><canvas id="bv-canvas" style="height:340px;cursor:crosshair" aria-label="交差判定の数の絵と、真上から見た BVH の箱"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">探し方(B)</span>
+      <div class="seg" id="bv-mode"><button data-v="sah" aria-pressed="true">BVH(SAH)</button><button data-v="brute" aria-pressed="false">総当たり</button><button data-v="median" aria-pressed="false">BVH(中央分割)</button></div>
+    </div>
+    <div class="ctl"><span class="label">右の図に描く箱の深さ</span>
+      <div class="range"><input type="range" id="bv-depth" min="1" max="9" step="1" value="3"><output id="bv-depth-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bv-stats"></div><p id="bv-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">9. ノイズとの付き合い — 何で正しさを確かめるか</h3>
+<p>パストレーシングの絵は<strong>常に間違っている</strong>(サンプルが有限なので)。だから「絵を見て正しそう」は根拠にならない。(Day 60a の要点7 と同じ表に、今日の1行「BVH と総当たりが完全一致」を足したもの。)今日の自己チェックで使った、<strong>答えが解析的に分かっている入力</strong>を並べておく。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>確かめ方</th><th>何が捕まるか</th></tr></thead>
+<tbody>
+<tr><td><strong>白い炉</strong>(反射率 1 の面を一様な明るさの空に置く)</td><td>BRDF × cos / pdf の打ち消しのずれ。<strong>1本ごとに厳密に一致</strong>するので最強</td></tr>
+<tr><td><strong>既知の積分</strong>(∫cos²θ dω = 2π/3)</td><td>サンプリングと pdf の食い違い。1/√N の確認も同時にできる</td></tr>
+<tr><td><strong>深さ 0 で Whitted と一致</strong></td><td>NEE の式(BRDF・逆2乗則・cos)が Day 59 と同じか</td></tr>
+<tr><td><strong>NEE あり/なしで同じ平均</strong></td><td>2重に数えていないか、pdf の割り忘れが無いか</td></tr>
+<tr><td><strong>RR あり/なしで同じ平均</strong></td><td>打ち切りの補正(1/q)が正しいか</td></tr>
+<tr><td><strong>BVH と総当たりが完全一致</strong></td><td>箱の取りこぼし。<strong>絵ではほとんど見えない</strong>ので数で見るしかない</td></tr>
+</tbody>
+</table></div>
+<p>ノイズの量そのものも測れる。自己チェック16 では <strong>1画素の平均の標準誤差(σ/√N)を全画素で平均</strong>した値を使っている。サンプル数が違う設定どうしを比べられるよう、1サンプルあたりに揃えてある。NEE を入れると <strong>0.32 倍</strong>。</p>
+<p><strong>firefly</strong>(たまに1画素だけ極端に明るい点)は、確率の小さい経路が大きな重みで当たったときに出る。不偏だが目に付くので、実務ではクランプ(ある値を超えた寄与を切る)で潰すことが多い——ただしそれは<strong>偏り</strong>を入れる(Day 60a の改造課題3)。</p>
+<h3 id="s8">10. 今日入れなかったもの</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>入れなかったもの</th><th>何が起きるか</th><th>どこでやるか</th></tr></thead>
+<tbody>
+<tr><td>動く形のための木の更新</td><td>形が動いたら <code>Scene.Prepare</code> で木を丸ごと作り直す(場面5で 4ms)。毎フレーム動かすなら重い</td><td>改造課題3(木の形はそのままで、箱だけを下から直す「refit」)</td></tr>
+<tr><td>ビン化した SAH</td><td>SAH は割る候補を全部試している(重心で並べ替えて、すべての境目の費用を出す)。形が数万個になると作るのが遅い</td><td>候補を十数個の区間(ビン)に丸める(Wald 2007)</td></tr>
+<tr><td>近い子の順に辿る工夫を影の光線にも</td><td><code>FindOccluder</code> は左の子から辿るだけ</td><td>改造課題2(なぜ要らないのかを考える)</td></tr>
+<tr><td>BVH を作って辿る仕事を GPU に任せる</td><td>今日は CPU が木を作り、CPU が辿る</td><td>Day 61(同じ木を配列のまま GPU へ送って辿る)・Day 62b(加速構造 BLAS/TLAS。作るのも辿るのもドライバと RT コアが肩代わりする)</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s9">前Dayからの差分概要</h2>
+<h3 id="s10">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うちコード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Geometry/Aabb.cs</code></td><td>152(71)</td><td>AABB と<strong>スラブ法</strong>(要点7)。NaN を無視する書き方</td></tr>
+<tr><td><code>Geometry/Bvh.cs</code></td><td>448(278)</td><td><code>AccelerationMode</code> と <strong>BVH</strong>(中央分割 / SAH の構築、スタックで辿る走査)(要点7・8)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s11">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何をした</th></tr></thead>
+<tbody>
+<tr><td><code>Geometry/Shape.cs</code></td><td>+15 −3</td><td><code>TryGetBounds</code>(BVH 用の外接箱)を追加</td></tr>
+<tr><td><code>Geometry/Sphere.cs</code></td><td>+8 −0</td><td><code>TryGetBounds</code> を実装(中心から半径ぶん広げるだけ)</td></tr>
+<tr><td><code>Geometry/Plane.cs</code></td><td>+10 −0</td><td><code>TryGetBounds</code> は false(無限は囲めない)</td></tr>
+<tr><td><code>Geometry/RayCounters.cs</code></td><td>+12 −3</td><td>箱と形の判定の回数(<code>BoxTests</code> / <code>ShapeTests</code>)を追加。置き場所の理由が「BVH も数える」に変わった</td></tr>
+<tr><td><code>Tracing/Scene.cs</code></td><td>+55 −13</td><td><code>Prepare(mode)</code>(形を仕分けて BVH を作る)、問い合わせに <code>RayCounters</code></td></tr>
+<tr><td><code>Tracing/RenderSettings.cs</code></td><td>+9 −0</td><td>探し方(<code>Acceleration</code>)と <code>ViewMode.Cost</code></td></tr>
+<tr><td><code>Tracing/Tracer.cs</code></td><td>+21 −9</td><td>交差判定の数の表示。<code>TryHit</code> に <code>RayCounters</code> を渡す</td></tr>
+<tr><td><code>Tracing/WhittedTracer.cs</code> / <code>PathTracer.cs</code></td><td>+4 −3 / +5 −5</td><td>場面への問い合わせに <code>RayCounters</code> を渡すだけ。場面の番号(集光は 6)</td></tr>
+<tr><td><code>Tracing/SceneLibrary.cs</code></td><td>+99 −6</td><td>場面5「球がたくさん」。集光は場面6へ</td></tr>
+<tr><td><code>App/SelfCheck.cs</code></td><td>+146 −13</td><td>項目 17・18 を追加(要点7・8)。<code>Prepare</code> に探し方を渡す</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+46 −8</td><td><code>B</code> キー、探し方の行、交差判定の数の表示、場面 1〜6</td></tr>
+<tr><td><code>Program.cs</code></td><td>+4 −0</td><td>コメントだけ(後半の BVH の説明)</td></tr>
+</tbody>
+</table></div>
+<p><strong>Day 60a のコードに入った手直しは、ほぼ全部「問い合わせに <code>RayCounters</code> を渡す」</strong>(差分の −63 行の大半)。BVH が箱と形を何回調べたかを数えるので、<code>Scene.Intersect</code> と <code>FindOccluder</code> が <code>ref RayCounters</code> を受け取るようになり、それを呼ぶ <code>Tracer.TryHit</code>・<code>WhittedTracer</code>・<code>PathTracer</code>・自己チェックが1行ずつ変わる。<strong>追い方の中身は1行も変わっていない</strong>。</p>
+<h3 id="s12">写経する順番</h3>
+<ol><li><strong><code>Geometry/Aabb.cs</code></strong> — 新規。どこにも依存しない。要点7</li><li><strong><code>Geometry/Shape.cs</code></strong> — <code>TryGetBounds</code> を足す(1 を使う)。<strong>抽象メソッドが増えるので、3・4 を写すまで <code>Sphere</code> と <code>Plane</code> がエラーになる</strong></li><li><strong><code>Geometry/Sphere.cs</code></strong> — 2 を実装</li><li><strong><code>Geometry/Plane.cs</code></strong> — 2 を false で実装(無限は囲めない)— <strong>ここまでは足すだけなので、4 を写し終えるとビルドが通る</strong></li><li><strong><code>Geometry/RayCounters.cs</code></strong> — <code>BoxTests</code> / <code>ShapeTests</code> を足す</li><li><strong><code>Geometry/Bvh.cs</code></strong> — 新規。1・2・5 を使う。要点7・8。<strong>今日いちばん長い(278 行)</strong></li><li><strong><code>Tracing/Scene.cs</code></strong> — 5・6 を使う。<code>Prepare(mode)</code> / 問い合わせの引数。<strong>ここから 13 までビルドは通らない</strong>(呼ぶ側の引数が足りない)</li><li><strong><code>Tracing/RenderSettings.cs</code></strong> — 6(<code>AccelerationMode</code>)を使う。つまみの追加</li><li><strong><code>Tracing/Tracer.cs</code></strong> — 交差判定の数の表示と、<code>TryHit</code> の引数</li><li><strong><code>Tracing/WhittedTracer.cs</code></strong> / <strong><code>Tracing/PathTracer.cs</code></strong> — 問い合わせの引数(1行ずつ)</li><li><strong><code>Tracing/SceneLibrary.cs</code></strong> — 場面5「球がたくさん」。集光を 6 へ</li><li><strong><code>App/SelfCheck.cs</code></strong> — 項目 17・18。<code>Prepare</code> の引数</li><li><strong><code>App/ViewerWindow.cs</code></strong> — <code>B</code> キーと探し方の行 — <strong>ここでビルドが戻る</strong></li><li><strong><code>Program.cs</code></strong> — コメントのみ</li></ol>
+<p><strong>区切るなら 4 まで</strong>(足すだけで、ビルドが通る状態で止められる)。6(<code>Bvh.cs</code>)は要点7・8 を読んだあとで写すと、<code>FindSahSplit</code> の掃引がそのまま SAH の式に見える。</p>
+</section>
+<section class="part"><h2 id="s13">設計書</h2>
+<p><strong>Day 60a の設計書に差分を当てたもの</strong>。変わったのは2か所。</p>
+<ul><li><strong><code>Geometry/</code> に <code>Aabb</code> と <code>Bvh</code> が増えた</strong>(<code>Shape</code> に <code>TryGetBounds</code>、<code>RayCounters</code> に箱と形の判定の回数)</li><li><strong><code>Scene</code> が形を2つに仕分けるようになった</strong>(囲める形は BVH へ、囲めない形は総当たりのまま)</li></ul>
+<h3 id="s14">今日残した歪み(3つ)</h3>
+<p><strong>1. 形が材質を参照で持っている</strong>(<code>Geometry</code> → <code>Shading</code>)。Day 59 から持ち越し。<strong>Day 61 で GPU に移すと参照が持てない</strong>ので、形の配列と材質の配列を分け、形には「材質の番号」を持たせることになる。そのとき <code>Geometry</code> から <code>Shading</code> への矢印が消える。直すのは Day 61。</p>
+<p><strong>2. <code>Scene.Prepare</code> が場面を書き換える</strong>。BVH を作り直すのに、不変のはずの <code>Scene</code> を後から書き換えている。いまは「<code>ViewerWindow.Restart</code> が <code>Stop()</code> してから呼ぶ」という<strong>約束</strong>でしか守られておらず、型では守られていない。<code>Scene</code> を「形の一覧」と「探し方を組んだ結果」の2つに分ければ型で守れるが、Day 61 で場面を GPU のバッファへ送る形に作り直すので、そこでまとめて直す。</p>
+<p><strong>3. <code>PathTracer</code> が拡散面と鏡面を <code>switch</code> で分けている</strong>。RTIOW のように材質ごとに「散らし方」を仮想関数にすれば<code>PathTracer</code> はもっと短くなる。それをしないのは Day 59 と同じ理由(GPU には仮想関数が無い)だが、<strong>ざらざらした金属(GGX)を足そうとすると、この <code>switch</code> が破綻する</strong>——鏡面と拡散の中間が要るので。今日の形のままで足すなら、<code>Material</code> に「散らし方」を表す小さな構造体を持たせることになる(改造課題ではない。Day 61 の GPU 版で向き合う)。</p>
+</section>
+<section class="part"><h2 id="s15">完成条件</h2>
+<p><code>dotnet run --project reference/Day60b -c Release</code> で起動する(<strong>Debug は使わない</strong>)。起動時の場面は Day 60a と同じコーネルボックス。</p>
+<h3 id="s16">1. <code>5</code>: 場面5「球がたくさん」と <code>B</code>(BVH)</h3>
+<p>小さな玉が 465 個並ぶ。空(と点光源1つ)で照らしているので、影が上から柔らかく落ちる。</p>
+<p><code>V</code> を3回押して<strong>交差判定の数</strong>の表示にしてから、<code>B</code> で探し方を回す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>探し方</th><th>1パス</th><th>1光線あたり</th><th>交差判定の数の絵</th></tr></thead>
+<tbody>
+<tr><td>BVH(SAH)</td><td><strong>0.053 秒</strong></td><td>箱 12.1 / 形 3.3 回</td><td>緑〜黄</td></tr>
+<tr><td>総当たり</td><td><strong>0.399 秒</strong></td><td>箱 0.0 / <strong>形 458.1 回</strong></td><td><strong>ほぼ真っ白</strong>(1000 回以上の色)</td></tr>
+<tr><td>BVH(中央分割)</td><td>0.063 秒</td><td>箱 14.1 / 形 4.4 回</td><td>SAH よりわずかに黄が多い</td></tr>
+</tbody>
+</table></div>
+<p>(1パスは窓を開かないハーネスでの実測。窓の HUD では 1〜1.4 倍遅く出る——UI スレッドが1コア使うので)</p>
+<p><strong>陰影の表示に戻すと、3つとも1画素も違わない絵になる</strong>(検証で画素を1つずつ突き合わせて確かめた。差 0.0%)。BVH は「速くするための仕掛け」であって、答えを変えてはいけない——それが目で確かめられる。</p>
+<p>HUD の <code>探し方</code> の行に、節点の数(SAH は 301、葉 151、深さ 9)と作成にかかった時間(4.0ms)も出る。<strong><code>形 466 個(BVH 465 / 外 1)</code> の「外 1」が無限の床</strong>。箱で囲めないので BVH に入らない(要点7)。</p>
+<h3 id="s17">2. 場面4で <code>V</code> と <code>B</code> — 形が少ないと BVH は損</h3>
+<p><code>4</code> でコーネルボックスに戻り、<code>V</code> で交差判定の数を出す。<strong>床と壁(BVH に入らない平面6枚)がどこも同じ色</strong>になり、玉のあたりだけ少し高い。HUD の探し方の行は <code>形 9 個(BVH 3 / 外 6)</code>。BVH に入るのは球 3 個だけ。</p>
+<p><code>B</code> で総当たりにすると、1パスは <strong>89 ms → 76 ms と速くなる</strong>(要点8)。木を辿る手間が、9 個に総当たりする手間より高い。</p>
+<h3 id="s18">3. <code>6</code>: 場面6「ガラスの集光」</h3>
+<p>Day 60a の場面5 が、番号だけ 6 に移った。絵は Day 60a と同じ(ガラス玉の影の真ん中の明るい点と、その周りのひどいノイズ)。</p>
+<h3 id="s19">4. <code>C</code>: 自己チェック(18 項目すべて合格、1.8 秒)</h3>
+<p>1〜16 は Day 60a のまま。17・18 が今日ぶん。<code>PageUp</code> / <code>PageDown</code> でめくる。</p>
+<div class="code"><pre><code>自己チェック: 18 項目中 18 項目 OK
+OK  17. AABB のスラブ法(一辺 2 の箱)。正面 当たり / 中から 当たり / 後ろ 外れ / 1mm 内 当たり / 1mm 外 外れ / tMax 3.9 外れ
+        板の上を板と平行に進む光線(0 かける無限大 = NaN): 当たり。Min/Max で書くと 外れ / 箱の外を平行に: 外れ
+OK  18. BVH と総当たりが一致(形 466 個の場面へ 20000 本。当たり 15948 本、食い違い 0 件)
+        1本あたりの交差判定: 総当たり 466.0 → 中央分割 18.3(25.5 分の1)→ SAH 14.9(31.3 分の1)/ 節点 中央分割 255 深さ 8 / SAH 301 深さ 9</code></pre></div>
+<p>17 は、スラブ法の「板の上を板と平行に進む光線」で <code>0 × ∞ = NaN</code> が出たとき、<strong>比較で書けば正しく当たり、Min/Max で書くと外れる</strong>ことまで確かめている(要点7)。18 は、466 個の場面へ 2万本を撃って、<strong>総当たりと BVH の答え(当たる形と距離)が1本残らず一致する</strong>ことを見ている。BVH の取りこぼしは絵ではほとんど見えないので、ここで捕まえるしかない(要点9)。</p>
+<h3 id="s20">5. Day 60a の絵と機能が1つも壊れていない</h3>
+<p>場面1〜4 と集光(Day 60a の場面5、今日の場面6)を、Day 60a(総当たり)と今日(BVH(SAH))で同じサンプル数ずつ描いて画素ごとに比べ、<strong>違う画素は 0</strong>(検証の途中で分かったこと 3)。<code>A</code> <code>N</code> <code>U</code> <code>K</code> <code>[</code> <code>]</code> と右クリックは Day 60a のまま効く。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>5</code> と <code>V</code>(交差判定の数)</td><td>BVH の左の絵</td><td>総当たりはほぼ真っ白、BVH は緑〜黄。マウスの下の光線が開けた箱を右に出す</td></tr>
+<tr><td><code>B</code></td><td>BVH の「探し方」</td><td>1光線あたり 箱 12.1 / 形 3.3 回(SAH)、箱 14.1 / 形 4.4 回(中央分割)、形 458 回(総当たり)</td></tr>
+<tr><td>(なし。<code>Bvh.MaxDepth</code>)</td><td>BVH の「右の図に描く箱の深さ」</td><td>SAH は深さ 9・葉 151、中央分割は深さ 8・葉 128。疎密を見て割るので、SAH の箱は玉の固まりに沿う</td></tr>
+<tr><td><code>C</code>(自己チェック17)</td><td>スラブ法の例と「Math.Min / Math.Max で書く」</td><td>板の上を板と平行に進む光線で、比較で書けば当たり、Min/Max で書くと外れ</td></tr>
+<tr><td><code>C</code>(自己チェック18)・<code>4</code>・<code>6</code></td><td>(なし)</td><td>総当たりとの突き合わせ、形が少ない場面で BVH が損になること、集光は実機で</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day60b の Aabb(スラブ法)・Bvh(中央分割 / SAH の構築と、近い子から辿る走査)・SceneLibrary の場面5(.NET の Random(60) ごと)を JS に移したもの(docs/site/cpuraytracer.js。Day 59・60a の実験台と共有)。Node で、木の形(SAH 301 節点・葉 151・深さ 9、中央分割 255・128・8)と、960x540 の1パスの「1光線あたり 箱 12.06 / 形 3.35」「14.07 / 4.35」「形 458.09」が reference の C# と一致することを確かめた。このページの左の絵は 960x540 のカメラのまま 4x4 画素に1本ずつ撃つ1パスなので、1光線あたりの数は近い値になる。並べ替えは JS の安定な sort で、.NET の Array.Sort(安定でない)と順番が違いうるが、場面5では同じ木になった。スラブ法の図は箱を z = 0 で切ったもので、光線もその面の中を進む。</p></div>
+</section>
+<section class="part"><h2 id="s21">検証の途中で分かったこと</h2>
+<p><strong>1. BVH で交差判定が 30 分の1 になったのに、速さは 7.5 倍にしかならなかった</strong>(今日の冒頭の話)。場面5の1パスが 399ms → 53ms。交差判定は 458 回 → 15.4 回なので 30 倍を期待したが、そうはならない。残りの時間(乱数・散乱の向き作り・色の足し算・画素への書き込み)は BVH では減らないから(アムダールの法則)。要点8の表にした。</p>
+<p><strong>2. 形が 9 個しかない場面では、BVH のほうが遅かった</strong>。場面4(コーネルボックス)で 76ms → 89ms。木を辿る手間が、9 個に総当たりする手間より高い。BVH を「常に入れるもの」と思っていると見落とす。</p>
+<p><strong>3. Day 60a(総当たり)と Day 60b(BVH)の絵は、1画素も違わなかった</strong>。Day 60 を2日に分けたときの確かめ。窓を開かないハーネスで、場面1〜3(256 サンプル)・場面4 と集光(512 サンプル)・Whitted 法の場面4 と集光(64 サンプル)を両方で描き、PNG を画素ごとに比べて<strong>違う画素 0</strong>。乱数を (画素, サンプル番号) から作り直す形(Day 60a の要点6)なので、同じ光線が同じ形に当たれば同じ道を歩く——探し方を変えても1ビットも変わらないのは、この作り方のおかげでもある。</p>
+</section>
+<section class="part"><h2 id="s22">改造課題</h2>
+<h3 id="s23">課題1(易): 葉の大きさと木の形</h3>
+<p><code>Bvh.MaxShapesPerLeaf</code>(既定 4)と <code>Bvh.TraversalCost</code>(既定 0.125)を変えて、場面5で測る。</p>
+<ol><li><code>MaxShapesPerLeaf</code> を 1 / 2 / 8 / 16 にして、HUD の「節点」「深さ」「1光線あたり 箱 / 形」「1パス」を記録する</li><li><strong>箱の判定と形の判定は、どちらを減らすと速いか</strong>。1 にすると形の判定は減るのに遅くなるのはなぜか</li><li><code>TraversalCost</code> を 0.01 / 1.0 にすると木の形がどう変わるか(SAH のときだけ効く)</li><li>中央分割(<code>B</code> で切り替え)では 1・3 の結果がどう違うか</li></ol>
+<p>SAH の費用の式が「箱を辿る手間」と「形を調べる手間」の比を入力に持っていることが、数字で分かる。<strong>表を作って、いちばん速い組み合わせを探す</strong>のが目的。</p>
+<h3 id="s24">課題2(中): 近い子から辿るのをやめてみる</h3>
+<p><code>Bvh.Intersect</code> は、光線の向きの符号と節点を割った軸から<strong>手前の子を先に辿る</strong>(<code>rightFirst</code>)。これを外して、いつも左の子から辿るようにするとどうなるか。</p>
+<ol><li><code>rightFirst</code> を常に false にして、場面5で「1光線あたり 箱 / 形」と「1パス」を測る</li><li>絵が変わらないことを確かめる(変わったら、それは別のバグ)</li><li><code>FindOccluder</code> のほうには、はじめからこの工夫を入れていない。<strong>なぜ入れなくてよいのか</strong>を説明する</li><li>余力があれば、節点に「入る t」も積んで、<strong>スタックから取り出したときに <code>closest</code> より遠ければ捨てる</strong>ようにしてみる</li></ol>
+<p>手前から辿ると <code>closest</code> が早く縮み、奥の箱は入る前に捨てられる。「答えが同じで速さだけ変わる工夫」がどれだけ効くかを測る練習で、3 が分かれば影の光線の性質(Day 59 の要点3)も押さえられている。</p>
+<h3 id="s25">課題3(難): 動く玉のために、木を作り直さず箱だけ直す(refit)</h3>
+<p>場面5の玉を毎フレーム少しずつ動かす(例えば、小さな玉を上下に揺らす)。素直には毎回 <code>Scene.Prepare</code> で木を作り直すが、作るのに 4ms かかり、描画の途中では書き換えられない(設計書「今日残した歪み」の2つ目)。</p>
+<ol><li><code>Bvh</code> に <code>Refit()</code> を足す。<strong>木の形(どの形がどの葉に入るか)はそのまま</strong>で、葉の箱を形の今の外接箱から作り直し、内側の節点の箱を子の箱の和で作り直す。「左の子は必ず自分の次」の並びなので、<strong>配列を後ろから1回なめれば子が先に直る</strong></li><li>玉を動かしたあと、作り直した木と refit した木で<strong>当たりが一致する</strong>ことを自己チェック18 と同じ突き合わせで確かめる(一致しなければ、箱の直し漏れ)</li><li>玉を大きく動かしていくと、refit した木の「1光線あたり 箱 / 形」がじわじわ増える。<strong>なぜ増えるのか</strong>(兄弟の箱の重なり)を説明し、何フレームかに1回だけ作り直す、という折衷を試す</li></ol>
+<p>物理のブロードフェーズ(Day 46b)で毎ステップ格子を組み直していたのと同じ問題で、ゲームエンジンの BVH(当たり判定やカリング)はほぼ必ずこの「refit と時々の作り直し」を持っている。</p>
+</section>
+<footer class="end">Day 60b CPU レイトレーサ(2) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/cpuraytracer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat, animate } = Lab;
+const C = window.CpuRayTracer;
+
+// ============================================================
+//  要点7: スラブ法
+// ============================================================
+const BOX = { min: [-1, -1, -1], max: [1, 1, 1] };
+// 自己チェック17の例(z = 0 の面の中)
+const PRESETS = {
+  front: { o: [-3, 0.2, 0], ang: 0 },
+  inside: { o: [0.3, -0.4, 0], ang: 30 },
+  behind: { o: [3, 0.2, 0], ang: 0 },
+  nan: { o: [-3, 1, 0], ang: 0 },        // 始点がちょうど y = 1 の板の上で、板と平行
+  parallel: { o: [-3, 1.5, 0], ang: 0 },
+};
+const sl = { o: [-3, 0.2, 0], ang: 0, mm: false };
+function slabDetail(o, d, minMax) {
+  const inv = [1 / d[0], 1 / d[1], 1 / d[2]];
+  let enter = 0, exit = Infinity;
+  const axes = [];
+  for (let k = 0; k < 2; k++) {
+    let t0 = (BOX.min[k] - o[k]) * inv[k], t1 = (BOX.max[k] - o[k]) * inv[k];
+    if (minMax) { const lo = Math.min(t0, t1), hi = Math.max(t0, t1); axes.push([lo, hi]); enter = Math.max(enter, lo); exit = Math.min(exit, hi); continue; }
+    if (t0 > t1) [t0, t1] = [t1, t0];
+    axes.push([t0, t1]);
+    if (t0 > enter) enter = t0;
+    if (t1 < exit) exit = t1;
+  }
+  return { axes, enter, exit, hit: C.slabHit(BOX, o, inv, 0, Infinity, minMax) };
+}
+const fmtT = (v) => (Number.isNaN(v) ? 'NaN' : v === Infinity ? '+∞' : v === -Infinity ? '−∞' : v.toFixed(2));
+function drawSlab() {
+  const { ctx, w, h } = fit($('sl-canvas'));
+  const mid = Math.floor(w * 0.55), sc = Math.min(mid / 8, h / 5), cx = mid / 2, cy = h / 2;
+  const X = (x) => cx + x * sc, Y = (y) => cy - y * sc;
+  // 板(スラブ)
+  ctx.fillStyle = 'rgba(120,160,230,0.12)'; ctx.fillRect(X(-1), 0, 2 * sc, h);
+  ctx.fillStyle = 'rgba(230,160,90,0.12)'; ctx.fillRect(0, Y(1), mid, 2 * sc);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.strokeRect(X(-1), Y(1), 2 * sc, 2 * sc);
+  const a = sl.ang * Math.PI / 180, d = [Math.cos(a), Math.sin(a), 0];
+  const r = slabDetail(sl.o, d, sl.mm);
+  // 光線
+  ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(sl.o[0]), Y(sl.o[1])); ctx.lineTo(X(sl.o[0] + d[0] * 10), Y(sl.o[1] + d[1] * 10)); ctx.stroke();
+  if (r.hit && Number.isFinite(r.enter)) {
+    ctx.strokeStyle = tok('--good'); ctx.lineWidth = 4;
+    const e = Math.min(r.exit, 20);
+    ctx.beginPath(); ctx.moveTo(X(sl.o[0] + d[0] * r.enter), Y(sl.o[1] + d[1] * r.enter)); ctx.lineTo(X(sl.o[0] + d[0] * e), Y(sl.o[1] + d[1] * e)); ctx.stroke();
+  }
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(sl.o[0]), Y(sl.o[1]), 6, 0, Math.PI * 2); ctx.fill();
+  // 右: 軸ごとの区間
+  const L2 = mid + 60, R2 = w - 16, T0 = -1, T1 = 7, TX = (t) => L2 + (Math.min(Math.max(t, T0), T1) - T0) / (T1 - T0) * (R2 - L2);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  for (let t = 0; t <= 7; t++) { ctx.fillText(String(t), TX(t) - 3, h - 10); ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(TX(t), 20); ctx.lineTo(TX(t), h - 24); ctx.stroke(); }
+  const rows = [['x の板', r.axes[0], 'rgba(120,160,230,0.9)'], ['y の板', r.axes[1], 'rgba(230,160,90,0.9)'], ['重なり', [r.enter, r.exit], tok('--good')]];
+  rows.forEach(([label, [t0, t1], color], i) => {
+    const y = 40 + i * 60;
+    ctx.fillStyle = tok('--ink'); ctx.fillText(label, mid + 6, y + 4);
+    if (Number.isNaN(t0) || Number.isNaN(t1)) { ctx.fillStyle = tok('--expl'); ctx.fillText(`[${fmtT(t0)}, ${fmtT(t1)}]`, L2, y + 4); return; }
+    if (t1 >= t0) { ctx.fillStyle = color; ctx.fillRect(TX(t0), y - 8, Math.max(TX(t1) - TX(t0), 2), 16); }
+    ctx.fillStyle = tok('--muted'); ctx.fillText(`[${fmtT(t0)}, ${fmtT(t1)}]`, L2, y + 24);
+  });
+  $('sl-stats').innerHTML =
+    stat('入る t(いちばん遅い)', fmtT(r.enter)) + stat('出る t(いちばん早い)', fmtT(r.exit)) +
+    stat('判定', r.hit ? '当たり' : '外れ');
+  const nanCase = r.axes.some(([t0, t1]) => Number.isNaN(t0) || Number.isNaN(t1));
+  $('sl-note').textContent = nanCase
+    ? (sl.mm ? 'y の板と平行で、始点がちょうど板の上にあるので (1 − 1) × ∞ = NaN が出る。Math.Max(NaN, x) は NaN を返し、入る t が NaN になって最後の比較が false——箱の中を通るのに「外れ」'
+      : 'y の板では (1 − 1) × ∞ = NaN が出るが、比較で書いてあるので NaN との比較は全部 false になり、その軸の制約を無視する。答えは正しく「当たり」')
+    : r.hit ? '3軸の「入る」のいちばん遅いものが「出る」のいちばん早いもの以下なら、箱を通っている'
+    : '入る t が出る t より遅い——ある軸の板を出てから、別の軸の板に入っている。箱は通らない';
+}
+function applyPreset(k) { const p = PRESETS[k]; sl.o = p.o.slice(); sl.ang = p.ang; setSeg('sl-pre', k); drawSlab(); }
+seg('sl-pre', applyPreset);
+$('sl-mm').addEventListener('change', (e) => { sl.mm = e.target.checked; drawSlab(); });
+{
+  const cv = $('sl-canvas');
+  let down = false;
+  const aim = (e) => {
+    const r = cv.getBoundingClientRect(), mid = Math.floor(r.width * 0.55), sc = Math.min(mid / 8, r.height / 5);
+    const x = (e.clientX - r.left - mid / 2) / sc, y = -(e.clientY - r.top - r.height / 2) / sc;
+    if (e.clientX - r.left > mid) return;
+    sl.ang = Math.atan2(y - sl.o[1], x - sl.o[0]) * 180 / Math.PI; setSeg('sl-pre', ''); drawSlab();
+  };
+  cv.addEventListener('pointerdown', (e) => { down = true; cv.setPointerCapture(e.pointerId); aim(e); });
+  cv.addEventListener('pointermove', (e) => { if (down) aim(e); });
+  cv.addEventListener('pointerup', () => { down = false; });
+}
+window.addEventListener('resize', drawSlab);
+drawSlab();
+
+// ============================================================
+//  要点8: 場面5の BVH
+// ============================================================
+const BW = 240, BH = 135, BLK = 4;
+const PATH = { algorithm: 'path', maxDepth: 8, shadows: true, fresnel: 'exact', nee: true, rr: true, decorrelate: true, view: 'cost' };
+const scenes = {}, passes = {};
+for (const m of ['sah', 'brute', 'median']) scenes[m] = C.prepare(C.scene('sphereField'), m);
+const bv = { mode: 'sah', depth: 3, hover: null, row: 0, ms: 0 };
+const camBig = C.camera(scenes.sah.view, BW * BLK, BH * BLK);
+function passOf(m) {
+  if (!passes[m]) passes[m] = { acc: new Float32Array(BW * BH * 3), row: 0, cnt: C.counters(), ms: 0, done: false, tracer: C.tracer(scenes[m], PATH) };
+  return passes[m];
+}
+// 1パスを少しずつ描く(総当たりは重いので、20ms ごとに手を離す)
+function bvWork() {
+  const ps = passOf(bv.mode);
+  if (ps.done) return false;
+  const t0 = performance.now();
+  while (performance.now() - t0 < 20 && ps.row < BH) {
+    const y = ps.row;
+    for (let x = 0; x < BW; x++) {
+      const rng = C.Rng.create(x * BLK + 2, y * BLK + 2, 0, true);
+      const c = ps.tracer.sample(camBig, (x + 0.5) * BLK, (y + 0.5) * BLK, rng, ps.cnt);
+      const k = (y * BW + x) * 3;
+      ps.acc[k] = c[0]; ps.acc[k + 1] = c[1]; ps.acc[k + 2] = c[2];
+    }
+    ps.row++;
+  }
+  ps.ms += performance.now() - t0;
+  if (ps.row >= BH) ps.done = true;
+  return true;
+}
+const bvImg = new ImageData(BW, BH), bvOff = document.createElement('canvas');
+function drawBvh() {
+  const { ctx, w, h } = fit($('bv-canvas'));
+  const ps = passOf(bv.mode), sc = scenes[bv.mode];
+  // 左: 交差判定の数の絵
+  const iw = Math.min(w * 0.5, h * BW / BH), ih = iw * BH / BW, iy = (h - ih) / 2;
+  for (let i = 0; i < BW * BH; i++) { for (let k = 0; k < 3; k++) bvImg.data[i * 4 + k] = Math.round(Math.min(Math.max(ps.acc[i * 3 + k], 0), 1) * 255); bvImg.data[i * 4 + 3] = 255; }
+  bvOff.width = BW; bvOff.height = BH; bvOff.getContext('2d').putImageData(bvImg, 0, 0);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(bvOff, 0, iy, iw, ih);
+  bv.imgRect = { x: 0, y: iy, w: iw, h: ih };
+  // 右: 真上から(x が右、z が上)
+  const L2 = iw + 20, R2 = w - 8, wv = R2 - L2, s = Math.min(wv / 13, h / 13), cx2 = L2 + wv / 2, cy2 = h / 2;
+  const X = (x) => cx2 + x * s, Z = (z) => cy2 - z * s;
+  ctx.fillStyle = tok('--sunken'); ctx.fillRect(L2, 0, wv, h);
+  for (const shp of sc.shapes) if (shp.c) { ctx.fillStyle = shp.r > 0.3 ? 'rgba(200,200,210,0.85)' : 'rgba(150,160,180,0.7)'; ctx.beginPath(); ctx.arc(X(shp.c[0]), Z(shp.c[2]), Math.max(shp.r * s, 1.2), 0, Math.PI * 2); ctx.fill(); }
+  // 選んだ光線が開けた箱
+  let visited = null, rayCnt = null;
+  if (bv.hover && sc.bvh) {
+    const [hx, hy] = bv.hover, d = camBig.ray((hx + 0.5) * BLK, (hy + 0.5) * BLK);
+    visited = new Set(); rayCnt = C.counters();
+    let best = { t: Infinity, shape: null };
+    rayCnt.shapeTests += sc.unbounded.length;
+    for (const u of sc.unbounded) { const t = u.hit(camBig.pos, d, 0, best.t); if (t >= 0) best = { t, shape: u }; }
+    best = C.bvhIntersect(sc.bvh, camBig.pos, d, rayCnt, best, (i) => visited.add(i));
+    ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(camBig.pos[0]), Z(camBig.pos[2]));
+    const tEnd = Math.min(best.t, 30); ctx.lineTo(X(camBig.pos[0] + d[0] * tEnd), Z(camBig.pos[2] + d[2] * tEnd)); ctx.stroke();
+    bv.hoverHit = best.shape ? best.shape.name : '空';
+  } else if (bv.hover) {
+    const [hx, hy] = bv.hover, d = camBig.ray((hx + 0.5) * BLK, (hy + 0.5) * BLK);
+    rayCnt = C.counters(); const h2 = C.intersect(sc, camBig.pos, d, rayCnt); bv.hoverHit = h2 ? h2.shape.name : '空';
+  }
+  if (sc.bvh) {
+    sc.bvh.nodes.forEach((nd, i) => {
+      const at = nd.depth === bv.depth || (nd.count > 0 && nd.depth < bv.depth);
+      const opened = visited && visited.has(i);
+      if (!at && !opened) return;
+      ctx.strokeStyle = opened ? tok('--warn') : tok('--accent'); ctx.lineWidth = opened ? 1.6 : 1;
+      ctx.strokeRect(X(nd.box.min[0]), Z(nd.box.max[2]), (nd.box.max[0] - nd.box.min[0]) * s, (nd.box.max[2] - nd.box.min[2]) * s);
+    });
+  }
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-body');
+  ctx.fillText(sc.bvh ? `真上から(深さ ${bv.depth} の箱${visited ? '・橙は光線が開けた箱' : ''})` : '総当たり: 箱は無い', L2 + 6, 14);
+  if (bv.hover) { const [hx, hy] = bv.hover; ctx.strokeStyle = '#ff3030'; ctx.strokeRect(hx / BW * iw - 3, iy + hy / BH * ih - 3, 7, 7); }
+  const tot = C.total(ps.cnt) || 1;
+  $('bv-depth-out').textContent = String(bv.depth);
+  $('bv-stats').innerHTML =
+    stat('節点(葉)深さ', sc.bvh ? `${sc.bvh.nodeCount}(${sc.bvh.leafCount})${sc.bvh.maxDepth}` : '—', ` <small>形 ${sc.shapes.length} 個(BVH ${sc.bvh ? sc.bvh.shapes.length : 0} / 外 ${sc.unbounded.length})</small>`) +
+    stat('1光線あたり', ps.done ? `箱 ${(ps.cnt.boxTests / tot).toFixed(1)} / 形 ${(ps.cnt.shapeTests / tot).toFixed(1)}` : '描画中…', ' <small>回(1パス)</small>') +
+    stat('このページの JS で1パス', ps.done ? `${ps.ms.toFixed(0)}ms` : '…', ` <small>${BW}x${BH}</small>`) +
+    (rayCnt ? stat('マウスの下の光線', `箱 ${rayCnt.boxTests} / 形 ${rayCnt.shapeTests}`, ` <small>→ ${bv.hoverHit}</small>`) : '');
+  const done = ['sah', 'brute', 'median'].filter((m) => passes[m] && passes[m].done);
+  const t = Object.fromEntries(done.map((m) => [m, passes[m].ms]));
+  $('bv-note').textContent = bv.mode === 'brute'
+    ? '総当たりは光線1本につき場面の全部(466 個)に聞く。絵はほぼ真っ白(1000 回以上の色)'
+    : (t.sah && t.brute ? `交差判定は 30 分の1 近くまで減るのに、このページの JS でも1パスは ${(t.brute / t.sah).toFixed(1)} 倍しか速くならない(乱数・散乱・色の計算は BVH では減らない。アムダールの法則)` : '探し方を切り替えると、絵の色(交差判定の数)だけが変わる。陰影の絵は1画素も変わらない');
+}
+seg('bv-mode', (v) => { bv.mode = v; drawBvh(); });
+$('bv-depth').addEventListener('input', (e) => { bv.depth = Number(e.target.value); drawBvh(); });
+$('bv-canvas').addEventListener('pointermove', (e) => {
+  const r = e.currentTarget.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, ir = bv.imgRect;
+  if (!ir || x > ir.w || y < ir.y || y > ir.y + ir.h) return;
+  bv.hover = [Math.min(BW - 1, Math.floor(x / ir.w * BW)), Math.min(BH - 1, Math.floor((y - ir.y) / ir.h * BH))];
+  drawBvh();
+});
+animate($('bv-canvas'), () => { if (bvWork()) drawBvh(); });
+drawBvh();
+})();
+</script>
+</body>
+</html>

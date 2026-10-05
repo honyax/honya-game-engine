@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 57 コンピュートシェーダ入門(GPU に 100 万粒を動かさせる)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Sandbox とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. コンピュートシェーダ — 出口の無いシェーダと、ワークグループ</a></li><li class="l3"><a href="#s7">2. 切り上げと番人 — ディスパッチの数え違いは静かに壊れる</a></li><li class="l3"><a href="#s8">3. SSBO と std430 — C# の構造体と1バイトずつ合わせる</a></li><li class="l3"><a href="#s9">4. バッファは型を持たない — SSBO のまま頂点として読む</a></li><li class="l3"><a href="#s10">5. メモリバリア — 「書いた」と「読める」は別</a></li><li class="l3"><a href="#s11">6. 共有メモリとアトミック — 畳み込みと、測ってみたら差がほとんど無かった話</a></li><li class="l3"><a href="#s13">7. 読み戻しが同期を呼ぶ — 8 バイトで数ミリ秒</a></li><li class="l3"><a href="#s14">8. 並列にすると設計が変わる — 4つの作り直し</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20">粒が1フレーム進むまで — CPU が出す4つの命令</a></li><li class="l3"><a href="#s21">数え上げが1つの数になるまで — 2段の畳み込み</a></li><li class="l3"><a href="#s22">同じ1本のバッファが、2つの口に挿さっている</a></li><li class="l3"><a href="#s23">Sandbox — 教養編の実験台(Day 57 で増えた)</a></li><li class="l3"><a href="#s24">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s25">完成条件</a></li><li class="l3"><a href="#s26">1. <code>F2</code>: GPU パーティクル</a></li><li class="l3"><a href="#s27">2. <code>F3</code>: 粒を 100 万にする</a></li><li class="l3"><a href="#s28">3. <code>F4</code>: 筋書きを回す</a></li><li class="l3"><a href="#s29">4. <code>F5</code>: ワークグループの大きさを変える</a></li><li class="l3"><a href="#s30">5. <code>F6</code> → <code>F9</code>: 数え上げの2通りを見比べる</a></li><li class="l3"><a href="#s31">6. <code>F7</code> → <code>F8</code>: 読み戻しと、CPU との勝負</a></li><li class="l3"><a href="#s32">7. <code>F10</code>: 自己チェックが 10 項目すべて合格</a></li><li class="l3"><a href="#s33">8. Day 38〜56 の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): 番人を外して、何が起きるか見る</a></li><li class="l3"><a href="#s36">課題2(中): 読み戻しを非同期にする</a></li><li class="l3"><a href="#s37">課題3(難): Day 53 のライトカリングを GPU へ移す</a></li><li class="l2"><a href="#s38">動作確認済み環境</a></li><li class="l3"><a href="#s39">自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 57 / 計画書</p>
+  <h1>コンピュートシェーダ入門(GPU に 100 万粒を動かさせる)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Sandbox とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. コンピュートシェーダ — 出口の無いシェーダと、ワークグループ</a></li><li class="l3"><a href="#s7">2. 切り上げと番人 — ディスパッチの数え違いは静かに壊れる</a></li><li class="l3"><a href="#s8">3. SSBO と std430 — C# の構造体と1バイトずつ合わせる</a></li><li class="l3"><a href="#s9">4. バッファは型を持たない — SSBO のまま頂点として読む</a></li><li class="l3"><a href="#s10">5. メモリバリア — 「書いた」と「読める」は別</a></li><li class="l3"><a href="#s11">6. 共有メモリとアトミック — 畳み込みと、測ってみたら差がほとんど無かった話</a></li><li class="l3"><a href="#s13">7. 読み戻しが同期を呼ぶ — 8 バイトで数ミリ秒</a></li><li class="l3"><a href="#s14">8. 並列にすると設計が変わる — 4つの作り直し</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">変更ファイル</a></li><li class="l3"><a href="#s18">写経する順番</a></li><li class="l2"><a href="#s19">設計書</a></li><li class="l3"><a href="#s20">粒が1フレーム進むまで — CPU が出す4つの命令</a></li><li class="l3"><a href="#s21">数え上げが1つの数になるまで — 2段の畳み込み</a></li><li class="l3"><a href="#s22">同じ1本のバッファが、2つの口に挿さっている</a></li><li class="l3"><a href="#s23">Sandbox — 教養編の実験台(Day 57 で増えた)</a></li><li class="l3"><a href="#s24">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s25">完成条件</a></li><li class="l3"><a href="#s26">1. <code>F2</code>: GPU パーティクル</a></li><li class="l3"><a href="#s27">2. <code>F3</code>: 粒を 100 万にする</a></li><li class="l3"><a href="#s28">3. <code>F4</code>: 筋書きを回す</a></li><li class="l3"><a href="#s29">4. <code>F5</code>: ワークグループの大きさを変える</a></li><li class="l3"><a href="#s30">5. <code>F6</code> → <code>F9</code>: 数え上げの2通りを見比べる</a></li><li class="l3"><a href="#s31">6. <code>F7</code> → <code>F8</code>: 読み戻しと、CPU との勝負</a></li><li class="l3"><a href="#s32">7. <code>F10</code>: 自己チェックが 10 項目すべて合格</a></li><li class="l3"><a href="#s33">8. Day 38〜56 の絵と自己チェックが1つも壊れていない</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): 番人を外して、何が起きるか見る</a></li><li class="l3"><a href="#s36">課題2(中): 読み戻しを非同期にする</a></li><li class="l3"><a href="#s37">課題3(難): Day 53 のライトカリングを GPU へ移す</a></li><li class="l2"><a href="#s38">動作確認済み環境</a></li><li class="l3"><a href="#s39">自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編(Day 57〜67)の初日</strong>。ロードマップ本編(Day 1〜56)は昨日で終わっている。ここから先はデモに載せない題材を、<strong>理解のためだけに</strong>手で確かめる。置き場所も別で、エンジン本体ではなく <code>Sandbox/</code> に置く。</p>
+<p>今日やることは1つ。<strong>粒の配列を VRAM に置きっぱなしにして、CPU が1フレームに「ディスパッチ3回と描画1回」しか出さない状態を作る</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 49 の粒(CPU)</th><th>Day 57 の粒(GPU)</th></tr></thead>
+<tbody>
+<tr><td>粒の住まい</td><td>C# の <code>Particle[]</code>(主記憶)</td><td><strong>SSBO</strong>(VRAM)。生まれてから死ぬまで動かない</td></tr>
+<tr><td>進める</td><td>CPU が全部を舐める。1万粒で 0.1ms</td><td><strong><code>glDispatchCompute</code> 1回</strong>。100 万粒で <strong>0.2ms</strong></td></tr>
+<tr><td>撒く</td><td><code>ParticleEmitter</code> が空きを探して詰める</td><td><strong>死んだ粒が自分で生まれ直す</strong>(空き探しが要らない)</td></tr>
+<tr><td>描く</td><td>CPU が四隅を作って 960KB を毎フレーム送る</td><td><strong>1バイトも送らない</strong>。同じバッファを頂点として読む</td></tr>
+<tr><td>数を数える</td><td><code>foreach</code> で足す</td><td><strong>共有メモリで畳んでから <code>atomicAdd</code></strong></td></tr>
+<tr><td>出せる数</td><td>1万粒(それ以上は CPU が保たない)</td><td><strong>100 万粒で 60fps</strong>(GPU の時間は合計 0.7ms)</td></tr>
+<tr><td>乱数</td><td><code>Random</code> を1つ持って順に引く</td><td><strong>番号を混ぜて散らす</strong>(状態を持てない)</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は <code>Sandbox/</code> に新規1本、シェーダ4本、そして <code>Shader</code> / <code>RenderResources</code> / <code>Program.cs</code>。<strong><code>Render/</code> の描画パス(Day 52〜56)には1本も線が伸びていない</strong>——教養編の題材はエンジン本体から切り離しておく。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、「共有メモリで畳んだほうが速い」が、このカードでは出なかったこと</strong></p>
+<p>100 万個の <code>atomicAdd</code> を2つの番地にぶつける素朴な書き方と、共有メモリで畳んでから 4096 回だけぶつける書き方を、<strong>同じフレームの中で続けて</strong> 7 通りの条件で測ったら、差は <strong>±7% の中</strong>に収まり、<strong>どちらが速いかも測るたびに入れ替わった</strong>。VRAM を叩く回数は 256 倍違うのに、である。理由は2つあって、(1) 最近の GPU はワープの中の atomic をまとめてから1回だけ発行する、(2) そもそも<strong>どちらも 32MB を読むところで頭打ち</strong>になっている(実測 373〜399GB/s。RTX 3070 の帯域は 448GB/s)。しかも<strong>最初は「共有 1.22ms ↔ atomic 0.63ms で2倍」という数字を出していた</strong>——片方ずつ切り替えて測っていて、その間に GPU のクロックが変わっていた(検証の途中で分かったこと 1)。畳み込みの値打ちは「速いから」ではなく「<strong>VRAM を叩く回数を設計で決められるから</strong>」のほうにある(要点6)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「コンピュート」ページで <code>F2</code> を押すと、床の上に 100 万粒の噴水が立つ。<code>F3</code> で粒を 100 万(既定は 26 万)にしても </strong>fps は 60 のまま<strong>。<code>F4</code> で引力と渦に切り替わり、<code>F5</code> でワークグループの大きさを変えても</strong>絵は1ピクセルも変わらない<strong>。<code>F8</code> を押すと、同じ 100 万個を C# で1ステップ回した時間(4.6ms)が出て、GPU の 23 倍だと分かる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「コンピュート」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>GPU パーティクル ON / OFF。<strong>今日の到達点</strong>。VRAM に粒を置いて、毎フレーム dispatch する</td></tr>
+<tr><td><code>F3</code></td><td>粒の数(26万 → 100万 → 6.5万 → …。既定は 26 万)。<strong>CPU 側の仕事は1つも増えない</strong></td></tr>
+<tr><td><code>F4</code></td><td>筋書き(噴水 / 引力 / 渦)。3つとも同じ1本のシェーダの中の分岐</td></tr>
+<tr><td><code>F5</code></td><td>ワークグループの大きさ(64 / 128 / 256 / 1024)。<strong>シェーダを焼き直す</strong>(<code>#define</code>)</td></tr>
+<tr><td><code>F6</code></td><td>数え上げ(両方 / 共有メモリだけ / atomic だけ)。<strong>既定は両方</strong>——同じフレームで測らないと比べられない</td></tr>
+<tr><td><code>F7</code></td><td>毎フレーム読み戻す。<strong>8 バイト読むだけで並走が切れる</strong></td></tr>
+<tr><td><code>F8</code></td><td>CPU で同じ数を1ステップ回して時間を測る(1回だけ)</td></tr>
+<tr><td><code>F9</code></td><td>内訳(実行モデルの上限・バッファ・ディスパッチ・GPU の時間・集計)</td></tr>
+<tr><td><code>F10</code></td><td>今日の自己チェック(10 項目)</td></tr>
+</tbody>
+</table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「コンピュート」(25 枚目)が直接開く。<strong>GPU パーティクルを出さない限り、絵は Day 56 と1ビットも変わらない</strong> (起動直後・デモ v1・決めの構図・完成版の4枚を画素で突き合わせた。完成条件 8)。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「コンピュートは、出口の無いシェーダ」</strong>。頂点シェーダには「次の段へ渡す頂点」、画素シェーダには「フレームバッファの画素」という決まった出口があった。コンピュートシェーダには<strong>出口が無い</strong>。代わりに、自分で書いた場所がそのまま結果になる。だから GL は「どこに何を書いたか」を知らず、<strong>書いたものを別の経路で読む前に <code>glMemoryBarrier</code> が要る</strong>(要点5)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// particle-sim.comp。<strong>この1本が 100 万回走る</strong>
+layout (local_size_x = 256) in;                    // ← 塊の大きさ(コンパイル時に決まる)
+layout (std430, binding = 0) buffer Particles { Particle particles[]; };
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;          // 自分は通しで何番目か
+    if (index &gt;= uCount) { return; }               // ← 切り上げたぶんの番人(要点2)
+    ...
+    particles[index] = p;                          // ← 出口はこれだけ
+}</code></pre></div>
+<p><strong>2つ目は「バッファは型を持たない」</strong>。OpenGL のバッファオブジェクトは<strong>ただのバイト列</strong>で、何であるかは挿した口が決める。<code>GL_SHADER_STORAGE_BUFFER</code> に挿せば SSBO、<code>GL_ARRAY_BUFFER</code> に挿せば頂点バッファ。<strong>同じ1本を両方に挿せる</strong>ので、コンピュートが書いた結果を、写し替え無しでそのまま描ける(要点4)。これが無いと 100 万粒 = <strong>32MB を毎フレーム CPU へ往復</strong>することになり、GPU で計算した意味がそこで消える。</p>
+<p><strong>3つ目は「速いのは計算。高いのは持って帰ること」</strong>。100 万粒を進めるのが 0.18ms、数えるのが 0.09ms なのに対して、<strong>その結果の 8 バイトを CPU が読むと 0.1〜3.5ms 止まる</strong>(要点7)。理由はバイト数ではなく、<code>glGetBufferSubData</code> が「その時点の中身」を約束するために<strong>GPU が追いつくまで CPU を待たせる</strong>から。Day 54 の <code>GpuTimer</code> がクエリを輪にして「数フレーム前の結果」を拾っていたのと、まったく同じ形の問題になる。</p>
+<h3 id="s3">今日は Sandbox とシェーダが主役</h3>
+<p>差分は <code>Sandbox/</code> に新規1本(<code>GpuParticles</code>)、<code>shaders/</code> に新規4本、そして <code>Render/Shader.cs</code> の作り直しと <code>Program.cs</code>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこ</th><th>何をしたか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader.cs</code></td><td><strong>段を配列にした</strong>(頂点+画素の2本固定をやめた)。コンピュート用の入口、<code>#define</code> の差し込み、<code>Dispatch</code> / <code>Barrier</code></td></tr>
+<tr><td><code>Render/RenderResources.cs</code></td><td><code>LoadComputeShader</code>。<strong>キーに <code>#define</code> を混ぜる</strong>(同じファイルの違うバリアントを別物として数える)</td></tr>
+<tr><td><code>Sandbox/GpuParticles.cs</code></td><td>SSBO・VAO・3本のシェーダ・タイマー4本。<strong>GL を触るのはここだけ</strong></td></tr>
+<tr><td><code>Program.cs</code></td><td>文脈を <strong>4.3</strong> へ、ページ1枚、1フレームに3行、内訳と自己チェック</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Render/</code> の描画パスもシェーダも、既存のものは1行も変わっていない</strong>。GPU パーティクルは <code>_post.Begin</code> と <code>_post.End</code> の間に自分で描くだけで、G-Buffer にも影にも SSAO にも関係しない。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://www.khronos.org/opengl/wiki/Compute_Shader">OpenGL Wiki: Compute Shader</a>— <strong>今日の要点1・2の一次資料</strong>。<code>local_size</code> と <code>gl_GlobalInvocationID</code> の定義、<code>glDispatchCompute</code> の引数の意味、<code>shared</code> と <code>barrier()</code> の制約(「ワークグループの全員が同じ回数通ること」)</li><li><a href="https://www.khronos.org/opengl/wiki/Shader_Storage_Buffer_Object">OpenGL Wiki: Shader Storage Buffer Object</a>— 要点3・4。<code>std430</code> の詰め方(<strong><code>vec3</code> は 16 バイトに整列する</strong>)と、末尾の可変長配列</li><li><a href="https://www.khronos.org/opengl/wiki/Memory_Model">OpenGL Wiki: Memory Model</a>— 要点5。<code>glMemoryBarrier</code> のビットが何と何の間の順序を保証するのか。<strong>「書いた」と「他の経路から読める」が別である</strong>という前提そのものがここに書いてある</li><li><a href="https://developer.download.nvidia.com/assets/cuda/files/reduction.pdf">Mark Harris, "Optimizing Parallel Reduction in CUDA"</a>— 要点6の教科書。共有メモリで木のように畳む形と、その段階的な速度改善。CUDA だが考え方はそのまま GLSL に載る</li><li><a href="https://developer.nvidia.com/blog/cuda-pro-tip-optimized-filtering-warp-aggregated-atomics/">NVIDIA, "CUDA Pro Tip: Optimized Filtering with Warp-Aggregated Atomics"</a>— <strong>今日の測定結果の答え合わせ</strong>。ワープの中の atomic をハードウェアとコンパイラがまとめる話。「素朴な atomicAdd が思ったより遅くない」のはこれが理由</li><li><strong>Day 49 の計画書</strong>(CPU のパーティクル)・<strong>Day 53 の計画書 要点</strong>(TBO を選び、SSBO を選ばなかった理由)・<strong>Day 54 の計画書</strong>(<code>GpuTimer</code> と、GPU の時間を測る作法) — 今日はこの3つの続きになる</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. コンピュートシェーダ — 出口の無いシェーダと、ワークグループ</h3>
+<p>描画のシェーダには<strong>決まった入口と出口</strong>がある。頂点シェーダは頂点属性を受け取って <code>gl_Position</code> を返し、画素シェーダは補間された値を受け取ってフレームバッファへ色を返す。間の段(ラスタライズ・深度テスト・ブレンド)は GPU の固定機能。</p>
+<p>コンピュートシェーダには、その入口も出口も無い。<strong>あるのは「自分が何番目か」だけ</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>頂点 / 画素</th><th>コンピュート</th></tr></thead>
+<tbody>
+<tr><td>入口</td><td>頂点属性 / 補間された値</td><td><strong>番号(<code>gl_GlobalInvocationID</code>)だけ</strong></td></tr>
+<tr><td>出口</td><td><code>gl_Position</code> / <code>FragColor</code></td><td><strong>無い</strong>。自分で書いた場所が結果</td></tr>
+<tr><td>何個走るか</td><td>頂点の数 / 画素の数(GPU が決める)</td><td><strong><code>glDispatchCompute</code> で人が決める</strong></td></tr>
+<tr><td>走る単位</td><td>ワープ/ウェーブ(見えない)</td><td><strong>ワークグループ</strong>(見える。大きさを決められる)</td></tr>
+</tbody>
+</table></div>
+<p>呼び出しは「ワークグループ」という塊に分かれて走る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>決まるところ</th><th>今日の値</th></tr></thead>
+<tbody>
+<tr><td>ワークグループの大きさ</td><td><code>layout (local_size_x = N) in;</code>。<strong>コンパイル時の定数</strong></td><td>64 / 128 / 256 / 1024(<code>F5</code>)</td></tr>
+<tr><td>ワークグループの数</td><td><code>glDispatchCompute(x, y, z)</code>。<strong>実行時</strong></td><td>100 万 ÷ 256 = 4096</td></tr>
+<tr><td>呼び出しの総数</td><td>大きさ × 数</td><td>1,048,576</td></tr>
+</tbody>
+</table></div>
+<p>塊に分かれているのは<strong>GPU の作りがそうだから</strong>。1つのワークグループは必ず1つの演算ユニット(NVIDIA なら SM、AMD なら CU)に載り、<strong>その中でだけ共有メモリと <code>barrier()</code> が使える</strong>。別のワークグループどうしは、走る順番も、同時に走るかどうかも決まっていない——だから<strong>グループをまたいで待ち合わせる手段は無い</strong>。</p>
+<p><strong>大きさを uniform にできない</strong>のは、<code>shared</code> 配列の大きさとして使うから。配列の大きさはコンパイル時に決まっていなければならないので、64 と 256 を見比べるには<strong>焼き直すしかない</strong>。そこで <code>#version</code> の次の行に <code>#define LOCAL_SIZE 64</code> を差し込んでコンパイルし直す(<code>Shader.InjectDefines</code>)。本物のエンジンが「シェーダバリアント」と呼んでいるものの、いちばん小さい形になる。</p>
+<h3 id="s7">2. 切り上げと番人 — ディスパッチの数え違いは静かに壊れる</h3>
+<p><code>glDispatchCompute</code> に渡すのは<strong>ワークグループの数</strong>であって、呼び出しの数ではない。100 万粒を 256 ずつ処理するなら、渡すのは 3907(= ⌈1,000,000 / 256⌉)。</p>
+<p><strong>ワークグループは丸ごとしか走らせられない</strong>ので、3907 × 256 = 1,000,192 呼び出しになり、<strong>192 個が余る</strong>。余ったぶんが <code>particles[1000000]</code> 以降を書かないように、シェーダの先頭で弾く。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>uint index = gl_GlobalInvocationID.x;
+if (index &gt;= uCount) { return; }     // ← これが無いと配列の外を書く</code></pre></div>
+<p>書き忘れたときの壊れ方が厄介で、<strong>SSBO の範囲外アクセスは落ちない</strong>。仕様は「書き込みが捨てられるか、バッファの中のどこかに落ちる」と決めていて、後者なら<strong>関係ない粒が壊れる</strong>。落ちてくれないぶん、原因が「粒が数個だけ変な方向に飛ぶ」という形でしか出てこない。</p>
+<p>逆方向の間違い——<strong>粒の数をそのままディスパッチに渡す</strong>——もよく起きる。これは 256 倍のワークグループが走るだけで<strong>答えは合う</strong>ので、絵を見ても気づけない。今日の数(6.5万・26万・100万)はどれも 256 の倍数なので余りが 0 になる。自己チェックが 1,000,000 という割り切れない数をわざわざ持ち出しているのはそのため(完成条件 7 の3項目め)。</p>
+<div class="inject"><figure class="lab" id="dp-lab">
+  <div class="lab-head">
+    <h3>グループの数を切り上げて、余りを番人で弾く(要点2)</h3>
+    <span class="tag">GpuParticles.GroupCount と WastedInvocations と同じ式。図は配列の終わりの近く(最後の2グループ)。1マスが呼び出し1つ</span>
+  </div>
+  <div class="stage"><canvas id="dp-canvas" style="height:220px" aria-label="最後の2つのワークグループの呼び出しと、配列の終わり"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">粒の数(F3)</span>
+      <div class="seg" id="dp-count"><button data-v="65536" aria-pressed="false">65,536</button><button data-v="262144" aria-pressed="false">262,144</button><button data-v="1048576" aria-pressed="false">1,048,576</button><button data-v="1000000" aria-pressed="true">1,000,000(自己チェック)</button></div>
+    </div>
+    <div class="ctl"><span class="label">ワークグループの大きさ(F5)</span>
+      <div class="seg" id="dp-ls"><button data-v="64" aria-pressed="false">64</button><button data-v="128" aria-pressed="false">128</button><button data-v="256" aria-pressed="true">256</button><button data-v="1024" aria-pressed="false">1024</button></div>
+    </div>
+    <div class="ctl"><span class="label">確保</span>
+      <div class="seg" id="dp-cap"><button data-v="max" aria-pressed="true">最大数ぶん(reference)</button><button data-v="count" aria-pressed="false">粒の数ぶん(改造課題1)</button></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="dp-guard" checked> 番人 <code>if (index &gt;= uCount) return;</code></label>
+    <label class="check"><input type="checkbox" id="dp-raw"> 粒の数をそのままディスパッチに渡す(このページだけ)</label>
+  </div>
+  <div class="readout"><div class="stats" id="dp-stats"></div><p id="dp-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. SSBO と std430 — C# の構造体と1バイトずつ合わせる</h3>
+<p>SSBO(シェーダストレージバッファ)は <strong>OpenGL 4.3 で入った、シェーダから読み書きできる大きなバッファ</strong>。Day 53 で光の一覧を渡すのに TBO(テクスチャバッファ)を選んだのは、あのときのエンジンが 3.3 だったからで、<strong>4.3 に上げた今は SSBO がそのまま使える</strong>(Day 53 の計画書の表の3行目)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>UBO</th><th>TBO(Day 53)</th><th>SSBO(今日)</th></tr></thead>
+<tbody>
+<tr><td>入った版</td><td>3.1</td><td>3.1</td><td><strong>4.3</strong></td></tr>
+<tr><td>大きさ</td><td>16KB(保証)</td><td>65536 テクセル(保証)</td><td><strong>実質 VRAM いっぱい</strong></td></tr>
+<tr><td>書けるか</td><td>読むだけ</td><td>読むだけ</td><td><strong>読み書きできる</strong></td></tr>
+<tr><td>詰め方</td><td>std140</td><td>テクセル形式</td><td><strong>std430</strong></td></tr>
+</tbody>
+</table></div>
+<p><code>std430</code> は詰め方の決まりで、<strong>std140 との違いが落とし穴になる</strong>。std140 は配列の要素を必ず 16 バイト境界に丸めるので、<code>float</code> の配列が4倍に膨らむ。std430 はそれをしないので、C# の構造体とそのまま突き合わせられる。</p>
+<p>ただし <strong><code>vec3</code> が 16 バイトに整列する</strong>(12 ではない)という規則は std430 にも残る。今日の粒はそこを踏まえて組んである。</p>
+<div class="code"><pre><code>   0    4    8   12   16   20   24   28   32
+   +----+----+----+----+----+----+----+----+
+   |  position (vec3)  |age |  velocity (vec3) |life|
+   +----+----+----+----+----+----+----+----+</code></pre></div>
+<p><code>vec3</code> のうしろに <code>float</code> を置いて 16 バイトぴったりにする、という組み方。<strong><code>age</code> を抜くと <code>velocity</code> の前に 4 バイトの穴が空いて、C# 側と 4 バイトずれる</strong>。ずれると「速度を位置として読む」ことになり、粒が明後日の方向へ飛ぶだけで<strong>エラーは1つも出ない</strong>。自己チェックが <code>Marshal.OffsetOf</code> で 12 / 16 / 28 を確かめているのはこのため。</p>
+<div class="inject"><figure class="lab" id="sl-lab">
+  <div class="lab-head">
+    <h3>std430 の並びと C# の並びを1バイトずつ比べる(要点3)</h3>
+    <span class="tag">上が GLSL の std430(vec3 は 16 バイト境界、構造体は 16 の倍数)、下が C# の LayoutKind.Sequential(Vector3 は 4 バイト境界)。粒2つぶん、64 バイト</span>
+  </div>
+  <div class="stage"><canvas id="sl-canvas" style="height:220px" aria-label="粒2つぶんのバイトの並び。上が std430、下が C#"></canvas></div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="sl-age" checked> <code>float age</code> を置く</label>
+    <label class="check"><input type="checkbox" id="sl-life" checked> <code>float lifetime</code> を置く</label>
+  </div>
+  <div class="readout"><div class="stats" id="sl-stats"></div><p id="sl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">4. バッファは型を持たない — SSBO のまま頂点として読む</h3>
+<p><strong>今日いちばん効く1手</strong>。OpenGL のバッファオブジェクトは中身に型を持たない<strong>ただのバイト列</strong>で、「何であるか」は挿した口(ターゲット)が決める。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// GpuParticles.CreateVertexArray。<strong>同じ _particleBuffer を GL_ARRAY_BUFFER へ挿す</strong>
+_gl.BindVertexArray(array);
+_gl.BindBuffer(BufferTargetARB.ArrayBuffer, _particleBuffer);   // ← SSBO と同じ1本
+
+_gl.VertexAttribPointer(0, 3, Float, false, 32, (void*)0);      // position
+_gl.VertexAttribPointer(1, 1, Float, false, 32, (void*)12);     // age
+_gl.VertexAttribPointer(2, 3, Float, false, 32, (void*)16);     // velocity
+_gl.VertexAttribPointer(3, 1, Float, false, 32, (void*)28);     // lifetime</code></pre></div>
+<p><code>std430</code> の並びが、そのまま<strong>歩幅 32 バイトの頂点配列</strong>として読める。写し替えは1バイトも要らない。もしこれが無ければ、コンピュートの結果を CPU へ戻して頂点バッファへ詰め直すことになる——<strong>100 万粒で毎フレーム 32MB の往復</strong>(実測で片道 10.3ms)。GPU で 0.2ms かけて計算したものを、運ぶのに 50 倍かけることになる。</p>
+<p>描くのは <code>GL_POINTS</code>。<strong>粒1つにつき頂点1つ</strong>で、四角形を張らない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 49(四角形)</th><th>Day 57(点)</th></tr></thead>
+<tbody>
+<tr><td>1粒あたりの頂点</td><td>4(+ 索引6)</td><td><strong>1</strong></td></tr>
+<tr><td>ビルボードの向き</td><td>CPU がカメラの右と上で焼き込む</td><td><strong>不要</strong>(点は常に画面に平行)</td></tr>
+<tr><td>大きさ</td><td>四隅の位置で決める</td><td><code>gl_PointSize</code>(画素数)。<code>GL_PROGRAM_POINT_SIZE</code> を有効にする</td></tr>
+<tr><td>UV</td><td>頂点属性</td><td><strong><code>gl_PointCoord</code></strong>(ラスタライザがくれる)</td></tr>
+</tbody>
+</table></div>
+<p>代償は2つ。<strong>点は中心で視錐台判定される</strong>(大きな点は中心が画面外に出た瞬間まるごと消える)ことと、<code>gl_PointSize</code> に実装依存の上限があること(今日は 64 画素で自分から頭打ちにしてある)。Day 49 の四角形はどちらの制限も受けないので、<strong>点が四角形の上位互換というわけではない</strong>。</p>
+<h3 id="s10">5. メモリバリア — 「書いた」と「読める」は別</h3>
+<p>コンピュートが SSBO へ書いた値を、そのあとの描画が頂点属性として読む。この2つの間には<strong>順序の保証が無い</strong>。</p>
+<p>GL は命令を積んだ順に実行するが、<strong>シェーダが自分で書いたメモリが他の経路から見えるようになる時期</strong>までは約束していない。画素シェーダの出力のような「決まった出口」は GL が面倒を見てくれるが(要点1の裏返し)、コンピュートが <code>particles[i] = p;</code> と書いた場所は<strong>書いた本人にしか分からない</strong>ので、面倒の見ようがない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>shader.Dispatch((uint)GroupCount);
+
+// <strong>このあと誰が読むか</strong>をビットで伝える
+shader.Barrier(
+    MemoryBarrierMask.ShaderStorageBarrierBit          // 次のコンピュートが SSBO として読む
+    | MemoryBarrierMask.VertexAttribArrayBarrierBit);  // 描画が頂点属性として読む</code></pre></div>
+<p><strong>外しても動いてしまうことが多い</strong>のが、この手の間違いのいちばん厄介なところ。GPU もドライバも世代で違うので、手元で動いたことは何の保証にもならない。「絵が出ているから合っている」が通じない種類の間違いで、Day 34 の接空間や Day 54 のずらしとは質が違う——あちらは間違えれば必ず絵に出た。</p>
+<h3 id="s11">6. 共有メモリとアトミック — 畳み込みと、測ってみたら差がほとんど無かった話</h3>
+<p>「生きている粒が何個か」を GPU に数えさせる。C# なら <code>foreach</code> で <code>sum++</code> するだけだが、GPU では 100 万個が同時に走るので、その <code>sum++</code> が全部ぶつかる。「読んで、足して、書く」の間に割り込まれると、<strong>足したはずの値が消える</strong>。</p>
+<p>割り込まれない足し算が <code>atomicAdd</code>。ただし<strong>同じ番地への atomic は順番待ちになる</strong>ので、100 万回ぶつけると、そこが1本の行列になって並列性が消える……<strong>というのが教科書の話</strong>。</p>
+<p>そこで2段にするのが定番(リダクション)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>shared uint sAlive[LOCAL_SIZE];        // ワークグループの中だけで見えるメモリ
+
+sAlive[local] = alive;
+barrier();                             // 全員が書き終わるまで待つ
+
+for (uint stride = LOCAL_SIZE / 2u; stride &gt; 0u; stride &gt;&gt;= 1u)
+{
+    if (local &lt; stride) { sAlive[local] += sAlive[local + stride]; }
+    barrier();                         // ← if の外。<strong>全員が同じ回数通る</strong>
+}
+
+if (local == 0u) { atomicAdd(aliveCount, sAlive[0]); }   // グループにつき1回</code></pre></div>
+<p><strong><code>barrier()</code> の置き場所が制約そのもの</strong>になっている。<code>barrier()</code> はワークグループの全員が同じ回数通ることが条件なので、<code>if</code> の中に入れてはいけない。同じ理由で、このシェーダは<strong>範囲外の呼び出しを早期 <code>return</code> させられない</strong>——帰ってしまうと残りが永久に待つ。だから「帰る」のではなく「0 を持って参加する」と書いてある(要点2の番人とは書き方が変わる)。</p>
+<p>もう1つの制約は <strong>GLSL 4.3 の <code>atomicAdd</code> が整数にしか無い</strong>こと(<code>float</code> 版は <code>NV_shader_atomic_float</code> などの拡張)。高さの合計は <code>uint(clamp(y, 0, 20) * 100)</code> と固定小数にしてから足している。上限を決めてあるのは桁あふれのためで、1個あたり最大 2000 × 100 万個 = 2.1e9 が <code>uint</code> の 4.29e9 に収まる。<strong>外すと静かに一周する</strong>(エラーは出ない)。</p>
+<h4 id="s12">測ってみた</h4>
+<p>同じフレームの中で続けて走らせ、粒の数とワークグループの大きさを変えて 7 通り測った(単位 ms)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>共有メモリで畳む</th><th>全部 <code>atomicAdd</code></th><th>比</th></tr></thead>
+<tbody>
+<tr><td>26 万粒 / WG 256</td><td>0.305</td><td>0.311</td><td>1.02</td></tr>
+<tr><td>100 万粒 / WG 256(クロックが低い)</td><td>0.968</td><td>1.026</td><td>1.06</td></tr>
+<tr><td>100 万粒 / WG 1024</td><td>0.128</td><td>0.125</td><td>0.98</td></tr>
+<tr><td>100 万粒 / WG 64</td><td>0.131</td><td>0.125</td><td>0.95</td></tr>
+<tr><td>100 万粒 / WG 256</td><td>0.134</td><td>0.127</td><td>0.95</td></tr>
+<tr><td>100 万粒 / WG 256(毎フレーム読み戻し中)</td><td><strong>0.090</strong></td><td><strong>0.084</strong></td><td>0.93</td></tr>
+<tr><td>100 万粒 / WG 256(最後)</td><td>0.293</td><td>0.280</td><td>0.96</td></tr>
+</tbody>
+</table></div>
+<p><strong>VRAM を叩く回数が 256 倍違うのに、時間は ±7% の中に収まる</strong>。しかも向きが一定しない。理由は2つ。</p>
+<ol><li><strong>ワープの中の atomic はまとめられる</strong>。最近の GPU とコンパイラは、32 呼び出しぶんの <code>atomicAdd</code> をレジスタで足してから1回だけ発行する(warp-aggregated atomics)。「100 万回」は実際には 3 万回ほどしか発行されていない</li><li><strong>そもそも両方とも 32MB を読むところで頭打ち</strong>。いちばん速い行(0.084ms)で33.5MB ÷ 0.084ms = <strong>399 GB/s</strong>。RTX 3070 のメモリ帯域 448 GB/s の <strong>89%</strong> で、もう読むこと以外にはほとんど時間を使っていない。共有メモリの木(8段の <code>barrier()</code>)と atomic の発行の差は、その残り 1 割の中の話になる</li></ol>
+<p><strong>同じ表の3行目と6行目を見比べる</strong>と、条件を揃えることの大事さが分かる。どちらも 100 万粒・WG 256 なのに 0.134 と 0.090——<strong>VSync で休んでいる間に GPU のクロックが落ちる</strong>ので、同じ処理でも 1.5 倍ぶれる。だから既定を「同じフレームで両方走らせる」にしてある(この揺れは両方に等しく乗るので、比のほうは信用できる)。</p>
+<p><strong>ここで大事なのは「じゃあ畳み込みは要らない」ではない</strong>。測り方を間違えると逆の結論も簡単に出る——実際、最初は<strong>片方ずつ切り替えて</strong>測っていて、そのときは「共有 1.22ms ↔ atomic 0.63ms」と<strong>2倍の差</strong>が出ていた。クロックの違いを実力の違いと読み違えた形で、<strong>そのまま計画書に「共有メモリのほうが速い」と書きかねなかった</strong> (検証の途中で分かったこと 1)。</p>
+<p>畳み込みの値打ちは速さではなく、<strong>VRAM を叩く回数を設計で決められること</strong>にある。出力の番地が1つしかない場合、入力がもっと多い場合、ワープをまたいで値を共有したい場合(接頭辞和・ソート・ビットニックなど)には、共有メモリでしか書けない。今日ここで書いた形は、その入口になる。</p>
+<div class="inject"><figure class="lab" id="rd-lab">
+  <div class="lab-head">
+    <h3>共有メモリの木で畳む(要点6)</h3>
+    <span class="tag">上は 16 呼び出しのワークグループを縮めて描いた畳み込み(particle-reduce.comp の for と同じ)。下の数字は選んだ粒の数とワークグループの大きさで数えたもの</span>
+  </div>
+  <div class="stage"><canvas id="rd-canvas" style="height:262px" aria-label="16 個の値を stride を半分ずつにして足していく木"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">段(barrier を何回くぐったか)</span>
+      <div class="range"><input type="range" id="rd-step" min="0" max="5" step="1" value="5"><output id="rd-step-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">粒の数</span>
+      <div class="seg" id="rd-count"><button data-v="65536" aria-pressed="false">65,536</button><button data-v="262144" aria-pressed="false">262,144</button><button data-v="1048576" aria-pressed="true">1,048,576</button></div>
+    </div>
+    <div class="ctl"><span class="label">ワークグループの大きさ(F5)</span>
+      <div class="seg" id="rd-ls"><button data-v="64" aria-pressed="false">64</button><button data-v="128" aria-pressed="false">128</button><button data-v="256" aria-pressed="true">256</button><button data-v="1024" aria-pressed="false">1024</button></div>
+    </div>
+    <button type="button" class="btn" id="rd-shuffle">値を引き直す</button>
+  </div>
+  <div class="readout"><div class="stats" id="rd-stats"></div><p id="rd-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s13">7. 読み戻しが同期を呼ぶ — 8 バイトで数ミリ秒</h3>
+<p>集計は <code>uint</code> 2つ、<strong>たった 8 バイト</strong>。それを CPU が読むのに <strong>0.1〜3.5ms</strong> かかる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.GetBufferSubData(BufferTargetARB.ShaderStorageBuffer, 0, 8, pointer);</code></pre></div>
+<p><code>glGetBufferSubData</code> は「その時点の中身」を返す約束なので、<strong>GPU が積まれた命令を全部こなすまで CPU が待つ</strong>。高いのはバイト数ではなく、<strong>CPU と GPU の並走が切れること</strong>そのもの。GPU は普段 CPU より1〜2フレーム後ろを走っているので、ここで待つと<strong>そのぶん丸ごと止まる</strong>。</p>
+<p>だから既定では読み戻さない(<code>F9</code> の内訳を出したときだけ)。HUD の「生存」に <code>(古)</code> と付くのはそのためで、<strong>止まっている数字を新しい数字だと思わせない</strong>ための印になる。</p>
+<p>本物のエンジンは、ここを「数フレーム前の結果を拾う」形にして避ける。<strong>Day 54 の <code>GpuTimer</code> がクエリを4本の輪にしていたのとまったく同じ解決</strong>で、<code>glGetQueryObject</code> に <code>GL_QUERY_RESULT_AVAILABLE</code> を先に聞いていたあの作法を、バッファでもやればよい(OpenGL ならフェンス <code>glFenceSync</code> とピクセルバッファ。改造課題2)。</p>
+<h3 id="s14">8. 並列にすると設計が変わる — 4つの作り直し</h3>
+<p>今日いちばん学びが濃いのはここ。<strong>同じ「粒を撒いて進めて捨てる」でも、並列だと書き方が変わる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 49(CPU)</th><th>Day 57(GPU)</th><th>なぜ変わるか</th></tr></thead>
+<tbody>
+<tr><td>死んだ粒を末尾と入れ替えて前に詰める(swap-remove)</td><td><strong>番号は最初から最後まで変わらない。死んだらその場で生まれ直す</strong></td><td>「空きを探して詰める」は<strong>取り合い</strong>になる。並列に書けない</td></tr>
+<tr><td><code>Random</code> を1つ持って順に引く</td><td><strong>番号を混ぜて散らす</strong>(整数ハッシュ)</td><td>100 万個が同時に走るので「次の値」という概念が無い</td></tr>
+<tr><td><code>EmitRate</code> と端数の持ち越しで撒く</td><td><strong>撒く仕事そのものが消えた</strong></td><td>撒く = 空きを探すこと。上と同じ理由</td></tr>
+<tr><td>明るさは1粒いくらで決める</td><td><strong>群れ全体でいくら、を個数で割って配る</strong></td><td>加算合成は重なったぶん足し算になる。個数を 16 倍すると絵が 16 倍明るくなる</td></tr>
+</tbody>
+</table></div>
+<p>いちばん効いたのは1行目。<strong>「前に詰める」をやめた瞬間に、撒く側のコードが丸ごと消えた</strong>。<code>ParticleEmitter</code> の 400 行のうち、GPU 側に写ったのは「どう撒くか」の数式だけで、プールの管理(<code>Count</code> / <code>Alive</code> / <code>_carry</code>)は1行も要らなくなった。代わりに払っているのが「死んだ粒も配列に居座る」ことで、<strong>生きている粒が半分でも 100 万個ぶんのメモリと 100 万回の呼び出しを払う</strong>。</p>
+<p>4行目は絵の話だが、同じくらい大事になる。粒を 16 倍にしたのに同じ絵に見えるのは、1粒の明るさを 1/16 にしているから(<code>GpuParticles.ParticleIntensity</code>)。本物のエンジンもエフェクトの明るさを「1粒いくら」ではなく「この炎ぜんぶでいくら」で決めていて、理由はこれ。</p>
+<p>もう1つ、<strong>切り替えた直後に定常の形を出す</strong>工夫がある。全員 <code>age = 0</code> で撒くと、(1) 寿命ぶんの時間ごとに全員が同時に生まれ直して脈打ち、(2) 形になるまで数秒待たされる。寿命の途中の齢を配り、<strong>そのぶん先へ進めた位置</strong>から始めればどちらも消える(噴水は放物運動の式で厳密に、渦は上向きのぶんだけ、引力は殻がそのまま定常なので送らない)。</p>
+<div class="inject"><figure class="lab" id="pt-lab">
+  <div class="lab-head">
+    <h3>粒の数と、1粒の明るさの配り方(要点8)</h3>
+    <span class="tag">particle-sim.comp(撒き直し・整数ハッシュ・3つの筋書き)と gpu-particle.vert の色を JS に移して、横から見た図に加算で足したもの。1粒は1画素</span>
+  </div>
+  <div class="stage"><canvas id="pt-canvas" style="height:320px;image-rendering:pixelated" aria-label="噴水・引力・渦の粒を加算合成で描いた絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">筋書き(F4)</span>
+      <div class="seg" id="pt-mode"><button data-v="0" aria-pressed="true">噴水</button><button data-v="1" aria-pressed="false">引力</button><button data-v="2" aria-pressed="false">渦</button></div>
+    </div>
+    <div class="ctl"><span class="label">粒の数(このページは 26 万まで)</span>
+      <div class="seg" id="pt-count"><button data-v="16384" aria-pressed="false">16,384</button><button data-v="65536" aria-pressed="true">65,536</button><button data-v="262144" aria-pressed="false">262,144</button></div>
+    </div>
+    <button type="button" class="btn" id="pt-reset">撒き直す</button>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="pt-div" checked> 1粒の明るさを個数で割る(ParticleIntensity)</label>
+    <label class="check"><input type="checkbox" id="pt-pre" checked> 撒き直しで寿命の途中の齢を配り、そのぶん進める</label>
+    <label class="check"><input type="checkbox" id="pt-run" checked> 進める</label>
+  </div>
+  <div class="readout"><div class="stats" id="pt-stats"></div><p id="pt-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s15">前Dayからの差分概要</h2>
+<h3 id="s16">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/GpuParticles.cs</code></td><td><strong>今日の主役</strong>。SSBO 2本・VAO 1本・シェーダ3本・タイマー4本。進める / 数える / 読み戻す / 描く。<code>GpuParticle</code>(32 バイト)と <code>ReductionMode</code> もここ</td></tr>
+<tr><td><code>shaders/particle-sim.comp</code></td><td>粒を1フレーム進めるコンピュート。撒き直し・整数ハッシュ・3つの筋書き</td></tr>
+<tr><td><code>shaders/particle-reduce.comp</code></td><td>数え上げのコンピュート。共有メモリの畳み込みと、比べるための素朴な <code>atomicAdd</code></td></tr>
+<tr><td><code>shaders/gpu-particle.vert</code></td><td>SSBO をそのまま頂点として読み、<code>gl_PointSize</code> を決める</td></tr>
+<tr><td><code>shaders/gpu-particle.frag</code></td><td><code>gl_PointCoord</code> で点を丸くする</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader.cs</code></td><td><strong>段を配列に</strong>。コンピュート用の入口、<code>#define</code> の差し込み、<code>Dispatch</code> / <code>Barrier</code> / <code>SetDefines</code> / <code>SetUInt</code></td><td>+243 / −30</td></tr>
+<tr><td><code>Render/RenderResources.cs</code></td><td><code>LoadComputeShader</code>(キーに <code>#define</code> を混ぜる)</td><td>+27 / −0</td></tr>
+<tr><td><code>Program.cs</code></td><td>文脈を 4.3 へ、フィールド、<code>OnLoad</code> の上限の問い合わせ、<code>OnRender</code> の3行、HUD、ページ1枚、内訳、自己チェック、既存 <code>Show*</code> に1行ずつ</td><td>+813 / −2</td></tr>
+<tr><td><code>Day57.csproj</code></td><td><code>Day56.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<h3 id="s18">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>この順に写せば、途中でビルドが通らない状態を作らずに済む</strong>。</p>
+<ol><li><strong><code>Render/Shader.cs</code></strong> — 今日の土台。<code>_vertexPath</code> / <code>_fragmentPath</code> の2本を <code>_stages</code> の配列にし、コンピュート用のコンストラクタ(<code>Shader(gl, computePath, params defines)</code>)を足す。<code>TryCreateProgram</code> は段の数だけ回る形に。<code>InjectDefines</code>(<code>#version</code> の次の行 + <code>#line 2</code>)、<code>Dispatch</code> / <code>Barrier</code> / <code>SetDefines</code> / <code>SetUInt</code> / <code>IsCompute</code> もここ。<strong><code>GpuParticles</code> がこれを全部使う</strong>ので、いちばん先に置く</li><li><strong><code>Render/RenderResources.cs</code></strong> — <code>LoadComputeShader</code>。<code>LoadShader</code> のすぐ下に置く</li><li><strong><code>shaders/particle-sim.comp</code></strong>(新規) — 粒を進めるコンピュート。<strong><code>struct Particle</code> の並びが今日の要</strong></li><li><strong><code>shaders/particle-reduce.comp</code></strong>(新規) — 数え上げ。<code>struct Particle</code> は 3 と同じものを書く(<code>#include</code> が無いので写す。設計書「今日残した歪み」の1つ目)</li><li><strong><code>shaders/gpu-particle.vert</code></strong>(新規) — 3 の並びと<strong>1バイトずつ同じ</strong>頂点属性</li><li><strong><code>shaders/gpu-particle.frag</code></strong>(新規) — <code>gl_PointCoord</code> で丸くする</li><li><strong><code>Sandbox/GpuParticles.cs</code></strong>(新規) — 3〜6 を使う。<code>GpuParticle</code> の並びは 3 と揃える</li><li><strong><code>Program.cs</code></strong> — 7 を使う。順に、(a) <code>Main</code> の <code>new APIVersion(3, 3)</code> を <strong><code>(4, 3)</code></strong> へ、(b) 「Day 57」のフィールド群(<code>_gpuParticles</code> / <code>_gpuDemo</code> / <code>_computeLimits</code> / <code>_computeAvailable</code> ほか)、(c) <code>OnLoad</code> の <code>ApplyTrailSettings()</code> の直後(版の確認 → 上限の問い合わせ → 生成)、(d) <code>OnRender</code> の <code>RenderParticles()</code> の直後に <code>RenderGpuParticles(deltaSeconds)</code>、(e) <code>DrawOverlayInfo</code> に HUD の1行、(f) <code>BuildMenu</code> の末尾に「コンピュート」ページ(9項目)、(g) 末尾に今日の関数一式(<code>RequireCompute</code> / <code>ShowGpuParticles</code> / <code>HideGpuParticles</code> / <code>ApplyGpuParticleScene</code> / <code>RenderGpuParticles</code> / <code>GpuParticleLabel</code> / <code>ReductionName</code> / <code>GpuModeName</code> / <code>GpuModeNote</code> / <code>MeasureCpuParticleStep</code> / <code>DescribeGpuParticles</code> / <code>RunComputeCheck</code>)、(h) <code>OnClosing</code> に <code>_gpuParticles?.Dispose()</code>、(i) <strong>既存の <code>Show*</code> 5か所</strong>(<code>ShowPhysicsDemo</code> / <code>ShowCharacterDemo</code> / <code>ShowParticleDemo</code> / <code>ShowEffectDemo</code> / <code>ShowPlayableDemo</code>)に <code>HideGpuParticles();</code> を1行ずつ、(j) <code>RunDebugMenuCheck</code> の項目数を <strong>237 → 246</strong> へ</li><li><strong><code>Day57.csproj</code></strong> — <code>Day56.csproj</code> をリネームするだけ(中身は同じ)</li></ol>
+</section>
+<section class="part"><h2 id="s19">設計書</h2>
+<p><strong>層が1つ増えた</strong>。<code>Sandbox/</code> ——教養編の実験台。<code>Demo/</code> や <code>Game/</code> と同じ「エンジンを使う側」の位置に、3つ目の箱が並んだ形になる。Phase 6 の初日(Day 39)に <code>Demo/</code> を作って以来の構造の変化で、本編が終わってから増えた最初の層でもある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/GpuParticles</code></td><td><code>Sandbox/</code></td><td>SSBO 2本・VAO 1本・シェーダ3本・タイマー4本。進める / 数える / 読み戻す / 描く</td></tr>
+<tr><td><code>Sandbox/GpuParticle</code></td><td><code>Sandbox/</code>(<code>GpuParticles.cs</code>)</td><td>粒1つ。<strong>32 バイト</strong>。シェーダの <code>struct Particle</code> と1バイトずつ同じ</td></tr>
+<tr><td><code>Sandbox/GpuParticleMode</code></td><td><code>Sandbox/</code>(<code>GpuParticles.cs</code>)</td><td>筋書き(噴水 / 引力 / 渦)。シェーダの <code>uMode</code> と同じ番号</td></tr>
+<tr><td><code>Sandbox/ReductionMode</code></td><td><code>Sandbox/</code>(<code>GpuParticles.cs</code>)</td><td>数え上げのやり方(共有 / atomic / 両方)</td></tr>
+<tr><td><code>Sandbox/GpuParticles.ComputeLimits</code></td><td><code>Sandbox/</code>(<code>GpuParticles.cs</code>)</td><td>ドライバに聞いたコンピュートの上限</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Shader</code></td><td><strong>段が配列になった</strong>。コンピュート用の入口、<code>#define</code> の差し込み、<code>Dispatch</code> / <code>Barrier</code> / <code>SetDefines</code> / <code>SetUInt</code></td><td>+243 / −30</td></tr>
+<tr><td><code>Render/RenderResources</code></td><td><code>LoadComputeShader</code></td><td>+27 / −0</td></tr>
+<tr><td><code>Program.cs</code></td><td>文脈を 4.3 へ、ページ1枚、1フレームに3行、内訳と自己チェック</td><td>+813 / −2</td></tr>
+</tbody>
+</table></div>
+<h3 id="s20">粒が1フレーム進むまで — CPU が出す4つの命令</h3>
+<svg viewBox="0 0 1012 626" role="img" aria-label="CPU の Program.RenderGpuParticles が Simulate・Reduce・Draw を順に呼び、GPU には glDispatchCompute 3回と glDrawArrays 1回が積まれる。粒の SSBO はバリアのあとで数え上げと描画が読み、集計の SSBO は F7 が ON のときだけ glGetBufferSubData で CPU が読む" style="width:100%;max-width:1012px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="4" y="8" width="986" height="148" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="14" y="24" fill="var(--muted)" font-size="12" text-anchor="start">CPU(Program.RenderGpuParticles)</text><rect x="10" y="34" width="320" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="58" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_gpuTime += dt</text><rect x="10" y="94" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="114.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Simulate(dt, time)</text><text x="170" y="131.5" text-anchor="middle" fill="var(--ink)">uniform 10 本 + BindBufferBase</text><rect x="360" y="94" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="114.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Reduce()</text><text x="510" y="131.5" text-anchor="middle" fill="var(--ink)">集計を 0 に戻す + uniform 2 本</text><rect x="690" y="94" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="835" y="114.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Draw(camera, 高さ)</text><text x="835" y="131.5" text-anchor="middle" fill="var(--ink)">uniform 6 本 + 状態</text><path d="M170 74 L170 92" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M330 119 L358 119" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M660 119 L688 119" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><rect x="10" y="196" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="216.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glDispatchCompute(4096)</text><text x="170" y="233.5" text-anchor="middle" fill="var(--ink)">particle-sim.comp</text><rect x="10" y="280" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="300.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glMemoryBarrier</text><text x="170" y="317.5" text-anchor="middle" fill="var(--ink)">SHADER_STORAGE | VERTEX_ATTRIB_ARRAY</text><path d="M10 371 L10 415 A160 7 0 0 0 330 415 L330 371" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></path><ellipse cx="170" cy="371" rx="160" ry="7" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></ellipse><text x="170" y="392" text-anchor="middle" fill="var(--ink)">粒の SSBO</text><text x="170" y="409" text-anchor="middle" fill="var(--ink)">1,048,576 x 32 バイト = 32MB</text><rect x="360" y="196" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="216.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glDispatchCompute(4096)</text><text x="510" y="233.5" text-anchor="middle" fill="var(--ink)">particle-reduce.comp(共有)</text><rect x="360" y="280" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="300.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glDispatchCompute(4096)</text><text x="510" y="317.5" text-anchor="middle" fill="var(--ink)">particle-reduce.comp(atomic)</text><rect x="360" y="364" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="384.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glMemoryBarrier</text><text x="510" y="401.5" text-anchor="middle" fill="var(--ink)">BUFFER_UPDATE | SHADER_STORAGE</text><path d="M360 455 L360 499 A150 7 0 0 0 660 499 L660 455" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></path><ellipse cx="510" cy="455" rx="150" ry="7" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></ellipse><text x="510" y="476" text-anchor="middle" fill="var(--ink)">集計の SSBO</text><text x="510" y="493" text-anchor="middle" fill="var(--ink)">uint 2 個 = 8 バイト</text><rect x="360" y="538" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="558.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glGetBufferSubData(8 バイト)</text><text x="510" y="575.5" text-anchor="middle" fill="var(--ink)" font-weight="700">ここで CPU が止まる</text><rect x="690" y="196" width="290" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="835" y="220" text-anchor="middle" fill="var(--ink)">glDrawArrays(GL_POINTS, 0, 1048576)</text><rect x="690" y="280" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="835" y="300.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_post.Scene(RGBA16F)</text><text x="835" y="317.5" text-anchor="middle" fill="var(--ink)">加算合成。1.0 超はブルームへ</text><path d="M170 144 L170 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M510 144 L510 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M835 144 L835 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 246 L170 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 330 L170 362" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M510 246 L510 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M510 330 L510 362" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M510 414 L510 446" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path stroke-dasharray="5 4" d="M510 506 L510 536" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="518" y="526" fill="var(--muted)" font-size="12">F7 が ON のときだけ</text><path d="M835 236 L835 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M330 394 L345 394 L345 221 L358 221" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 422 L170 614 L998 614 L998 216 L982 216" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>CPU が出しているのは 4 つの GL 命令と uniform だけ</strong>で、粒の数に比例するものが1つも無い。6.5 万でも 100 万でも、この図はまったく同じ形になる——変わるのは <code>glDispatchCompute</code> の引数と <code>glDrawArrays</code> の個数。Day 49 の CPU パーティクルは、この位置に「全部を舐める <code>for</code>」と「頂点バッファへの 960KB の転送」があった。</p>
+<p><strong><code>Reduce</code> が2回ディスパッチしているのが既定</strong>。同じ答えを2通りの書き方で出して、時間だけを見比べる(要点6)。片方だけにすると、切り替えの前後で GPU のクロックが変わって比べられなくなる。</p>
+<p><strong>破線が1本だけある</strong>のが今日の要点7。<code>glGetBufferSubData</code> は「その時点の中身」を約束するので、この線を引いた瞬間に CPU が GPU を待つ。だから既定では引かない。</p>
+<h3 id="s21">数え上げが1つの数になるまで — 2段の畳み込み</h3>
+<svg viewBox="0 0 954 618" role="img" aria-label="1つのワークグループの中で、各呼び出しが alive と height を共有メモリへ書き、barrier で待ってから stride を半分ずつにして畳む。local が 0 の呼び出しだけが atomicAdd で集計の SSBO へ足す。比べるための素朴な形では、各呼び出しが直接 atomicAdd を2回する" style="width:100%;max-width:954px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="6" width="600" height="502" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="20" y="22" fill="var(--muted)" font-size="12" text-anchor="start">1つのワークグループ(256 呼び出し)</text><rect x="30" y="32" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="52.5" text-anchor="middle" fill="var(--ink)">各呼び出し</text><text x="220" y="69.5" text-anchor="middle" fill="var(--ink)">alive = 0 か 1</text><text x="220" y="86.5" text-anchor="middle" fill="var(--ink)">height = uint(clamp(y,0,20) * 100)</text><rect x="30" y="125" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="145.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">shared sAlive[256] / sHeight[256]</text><text x="220" y="162.5" text-anchor="middle" fill="var(--ink)">自分の番地へ書く</text><rect x="30" y="201" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="221.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">barrier()</text><text x="220" y="238.5" text-anchor="middle" fill="var(--ink)" font-weight="700">全員が書き終わるまで待つ</text><rect x="30" y="277" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="297.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">stride = 128, 64, 32, ... 1</text><text x="220" y="314.5" text-anchor="middle" fill="var(--ink)">if (local &lt; stride) 足す</text><text x="220" y="331.5" text-anchor="middle" fill="var(--ink)">barrier() は if の外</text><rect x="120" y="370" width="200" height="40" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="220" y="394" text-anchor="middle" fill="var(--ink)">local == 0 か</text><rect x="30" y="444" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="464.5" text-anchor="middle" fill="var(--ink)">atomicAdd(aliveCount, sAlive[0])</text><text x="220" y="481.5" text-anchor="middle" fill="var(--ink)">atomicAdd(heightFixed, sHeight[0])</text><rect x="450" y="370" width="130" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="515" y="394" text-anchor="middle" fill="var(--ink)">何もしない</text><path d="M220 99 L220 123" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 175 L220 199" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 251 L220 275" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 344 L220 368" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M220 410 L220 442" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="228" y="430" fill="var(--muted)" font-size="12">Yes</text><path d="M320 390 L448 390" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="414" y="384" fill="var(--muted)" font-size="12" text-anchor="middle">No</text><rect x="640" y="6" width="310" height="100" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="650" y="22" fill="var(--muted)" font-size="12" text-anchor="start">比べるための素朴な形(uNaive = 1)</text><rect x="650" y="32" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="795" y="52.5" text-anchor="middle" fill="var(--ink)">各呼び出しが直接</text><text x="795" y="69.5" text-anchor="middle" fill="var(--ink)">atomicAdd を2回</text><path d="M30 555 L30 599 A190 7 0 0 0 410 599 L410 555" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></path><ellipse cx="220" cy="555" rx="190" ry="7" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></ellipse><text x="220" y="576" text-anchor="middle" fill="var(--ink)">集計の SSBO</text><text x="220" y="593" text-anchor="middle" fill="var(--ink)">aliveCount / heightFixed</text><path d="M220 494 L220 546" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M795 82 L795 578 L412 578" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>共有メモリで畳む</th><th>全部 atomicAdd</th></tr></thead>
+<tbody>
+<tr><td>VRAM への atomic</td><td><strong>4,096 回</strong></td><td>1,048,576 回</td></tr>
+<tr><td><code>barrier()</code></td><td>9 回(1 + log2 256)</td><td>0 回</td></tr>
+<tr><td>共有メモリ</td><td>2KB/グループ</td><td>0</td></tr>
+<tr><td>実測(100 万粒)</td><td>0.090ms</td><td><strong>0.084ms</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>答えはどちらも同じ</strong>(自己チェックの6項目め)。にもかかわらず<strong>素朴なほうがわずかに速い</strong>のは、ワープの中の atomic がまとめて発行されることと、両方とも 32MB を読むところで頭打ちになっているため(要点6)。</p>
+<p><strong><code>barrier()</code> が <code>if</code> の外にあること</strong>が、この図でいちばん壊れやすい。中に入れると「ワークグループの全員が同じ回数通る」が破れて未定義になる。同じ理由で、このシェーダの先頭には要点2のような早期 <code>return</code> を置けない——範囲外の呼び出しも <strong>0 を持って畳み込みに参加する</strong>。</p>
+<h3 id="s22">同じ1本のバッファが、2つの口に挿さっている</h3>
+<svg viewBox="0 0 950 271" role="img" aria-label="1本のバッファオブジェクトが、BindBufferBase で SSBO として、BindBuffer と VertexAttribPointer で頂点バッファとして挿さっている。SSBO から頂点バッファへの順序は glMemoryBarrier の破線1本だけが保証する" style="width:100%;max-width:950px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><path d="M330 17 L330 78 A140 7 0 0 0 610 78 L610 17" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></path><ellipse cx="470" cy="17" rx="140" ry="7" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></ellipse><text x="470" y="38" text-anchor="middle" fill="var(--ink)">バッファオブジェクト</text><text x="470" y="55" text-anchor="middle" fill="var(--ink)">1,048,576 x 32 バイト</text><text x="470" y="72" text-anchor="middle" fill="var(--ink)" font-weight="700">型を持たないバイト列</text><rect x="10" y="190" width="320" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="210.5" text-anchor="middle" fill="var(--ink)">SSBO として</text><text x="170" y="227.5" text-anchor="middle" fill="var(--ink)">particle-sim.comp が読み書き</text><text x="170" y="244.5" text-anchor="middle" fill="var(--ink)">particle-reduce.comp が読む</text><rect x="610" y="190" width="330" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="775" y="210.5" text-anchor="middle" fill="var(--ink)">頂点バッファとして</text><text x="775" y="227.5" text-anchor="middle" fill="var(--ink)">gpu-particle.vert が読む</text><text x="775" y="244.5" text-anchor="middle" fill="var(--ink)">歩幅 32 / オフセット 0,12,16,28</text><path d="M390 85 L390 128 L170 128 L170 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="178" y="120" fill="var(--muted)" font-size="12">BindBufferBase(SHADER_STORAGE, 0)</text><path d="M550 85 L550 128 L775 128 L775 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="767" y="150" fill="var(--muted)" font-size="12" text-anchor="end">BindBuffer(ARRAY_BUFFER)</text><text x="767" y="165" fill="var(--muted)" font-size="12" text-anchor="end">+ VertexAttribPointer x4</text><path stroke-dasharray="5 4" d="M330 223.5 L608 223.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="470" y="241.5" fill="var(--muted)" font-size="12" text-anchor="middle">glMemoryBarrier(VERTEX_ATTRIB_ARRAY)</text></g></svg>
+<p><strong>写し替えが1バイトも無い</strong>のがこの形の値打ち(要点4)。<code>std430</code> の並びと頂点属性の並びが同じになるように <code>GpuParticle</code> を組んであるので、口を変えるだけで読み方が変わる。</p>
+<p><strong>破線がバリア</strong>。順序を保証するのはこの1本だけで、外しても手元では絵が出てしまう(要点5)。</p>
+<h3 id="s23">Sandbox — 教養編の実験台(Day 57 で増えた)</h3>
+<svg viewBox="0 0 1020 598" role="img" aria-label="Sandbox のクラス図。GpuParticles が GpuParticle・ComputeLimits・GpuParticleMode・ReductionMode を使い、Render 側の Shader と Camera を使い、GpuTimer 4本を持ち、RenderResources をシェーダの窓口として借りる" style="width:100%;max-width:1020px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="600" height="413" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="310" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuParticles</text><line x1="10" y1="38" x2="610" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int StrideBytes</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int[] CountSteps</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int[] LocalSizeSteps</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int ReferenceCount</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+long CapacityBytes</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Count</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GpuParticleMode Mode</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int LocalSize</text><text x="20" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ReductionMode Reduction</text><text x="20" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool ReadBackEveryFrame</text><text x="20" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Size</text><text x="20" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Intensity</text><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float ParticleIntensity</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Origin</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Attractor</text><text x="20" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float AttractorStrength</text><text x="20" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int GroupCount</text><text x="20" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int WastedInvocations</text><text x="20" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int AliveCount</text><text x="20" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float AverageHeight</text><text x="20" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double ReadBackMilliseconds</text><text x="20" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double SimGpuMilliseconds</text><text x="20" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double SharedGpuMilliseconds</text><text x="20" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double NaiveGpuMilliseconds</text><text x="20" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double DrawGpuMilliseconds</text><text x="320" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Reset()</text><text x="320" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetMode(mode)</text><text x="320" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetLocalSize(size) bool</text><text x="320" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Simulate(dt, time)</text><text x="320" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Reduce()</text><text x="320" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ReadStats()</text><text x="320" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Draw(camera, viewportHeight)</text><text x="320" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ReadParticles(destination)</text><text x="320" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+StepFountainOnCpu(particles, dt, origin) int</text><text x="320" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+QueryLimits(gl) ComputeLimits</text><text x="320" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-CreateParticleBuffer() uint</text><text x="320" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-CreateStatsBuffer() uint</text><text x="320" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-CreateVertexArray() uint</text><text x="320" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RunReduce(naive, timer)</text><rect x="780" y="10" width="230" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="895" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuParticle</text><line x1="780" y1="38" x2="1010" y2="38" stroke="var(--line)"></line><text x="790" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="790" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Age</text><text x="790" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Velocity</text><text x="790" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Lifetime</text><rect x="780" y="124" width="230" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="895" y="143" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputeLimits</text><line x1="780" y1="152" x2="1010" y2="152" stroke="var(--line)"></line><text x="790" y="169" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxInvocations</text><text x="790" y="184" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxSharedBytes</text><text x="790" y="199" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxGroupCountX</text><text x="790" y="214" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxGroupSizeX</text><rect x="780" y="238" width="230" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="895" y="253" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="895" y="269" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuParticleMode</text><line x1="780" y1="278" x2="1010" y2="278" stroke="var(--line)"></line><text x="790" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Fountain</text><text x="790" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Attractor</text><text x="790" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Vortex</text><rect x="780" y="349" width="230" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="895" y="364" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="895" y="380" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ReductionMode</text><line x1="780" y1="389" x2="1010" y2="389" stroke="var(--line)"></line><text x="790" y="406" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Shared</text><text x="790" y="421" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Naive</text><text x="790" y="436" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Both</text><path stroke-dasharray="5 4" d="M610 59 L778 59" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="695" y="53" fill="var(--muted)" font-size="12" text-anchor="middle">読み戻す / CPU で1ステップ</text><path stroke-dasharray="5 4" d="M610 173 L778 173" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M610 285.5 L778 285.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M610 396.5 L778 396.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="10" y="540" width="210" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="559" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Shader</text><path stroke-dasharray="5 4" d="M80 423 L80 510 L115 510 L115 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="121" y="532" fill="var(--muted)" font-size="12" text-anchor="start">Dispatch / Barrier / uniform</text><rect x="265" y="540" width="210" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="559" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuTimer</text><path d="M230 423 L224 432 L230 441 L236 432 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M230 441 L230 496 L370 496 L370 538" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><text x="376" y="532" fill="var(--muted)" font-size="12" text-anchor="start">4本</text><rect x="520" y="540" width="210" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="625" y="559" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Camera</text><path stroke-dasharray="5 4" d="M380 423 L380 482 L625 482 L625 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="631" y="532" fill="var(--muted)" font-size="12" text-anchor="start">Draw の引数</text><rect x="775" y="540" width="210" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="880" y="559" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderResources</text><path d="M530 423 L524 432 L530 441 L536 432 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M530 441 L530 468 L880 468 L880 538" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><text x="886" y="532" fill="var(--muted)" font-size="12" text-anchor="start">シェーダの窓口</text><text x="10" y="590" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー</text></g></svg>
+<p><strong><code>Sandbox/</code> が <code>Render/</code> に対して持っている線は4本だけ</strong>(<code>Shader</code> / <code>RenderResources</code> / <code>Camera</code> / <code>GpuTimer</code>)。どれも「借りる」側で、<strong><code>Render/</code> の誰も <code>Sandbox/</code> を知らない</strong>。教養編の題材を足してもエンジン本体の描画パス(Day 52〜56)が1行も動かないのは、この向きが守られているから。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>持ち方</th><th>何を</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td><code>*--</code>(所有)</td><td><code>GpuTimer</code> 4本</td><td>進める / 共有 / atomic / 描く。<strong>タイマークエリは入れ子にできない</strong>ので、測る区間の数だけ要る</td></tr>
+<tr><td><code>o--</code>(集約)</td><td><code>RenderResources</code></td><td>シェーダの寿命は窓口が持つ(Day 31 の約束)。<code>Dispose</code> でシェーダを返さないのはこのため</td></tr>
+<tr><td><code>..&gt;</code>(使う)</td><td><code>Shader</code> / <code>Camera</code> / <code>GpuParticle</code></td><td>状態を持たない使い方</td></tr>
+</tbody>
+</table></div>
+<p><strong>GL のハンドル3本(SSBO 2本と VAO 1本)は <code>uint</code> で直に持っている</strong>。<code>Render/</code> の <code>Framebuffer</code> や <code>BufferTexture</code> のような包みを作らなかったのは、教養編の題材が<strong>エンジンの部品になる前提ではない</strong>から——ここで作った包みが <code>Render/</code> に上がるのは、本編にコンピュートを入れると決めた日(Day 61 や Day 65)になる。</p>
+<p><strong><code>GpuParticle</code> は2つの顔を持つ</strong>。SSBO の中身(std430)としての顔と、頂点配列の歩幅としての顔。<code>StrideBytes</code> が <code>Unsafe.SizeOf&lt;GpuParticle&gt;()</code> から取られていて、<code>CreateVertexArray</code> のオフセット(0 / 12 / 16 / 28)と <code>particle-sim.comp</code> の <code>struct Particle</code> が<strong>3か所で同じ並びを言っている</strong>——今日残した歪みの1つ目がここに出る。</p>
+<h3 id="s24">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: <code>struct Particle</code> が3か所にある</strong>。<code>particle-sim.comp</code> と <code>particle-reduce.comp</code> の GLSL 2つと、C# の <code>GpuParticle</code>。GLSL に <code>#include</code> が無いので写すしかなく、<strong>1つ直して2つ忘れると、絵は出るが数が合わない</strong>という壊れ方をする。行き先は Day 52a の歪みの1つ目(BRDF が3か所)とまったく同じで、<strong>シェーダの読み込みに <code>#include</code> を足す</strong> (エンジンがファイルを読んで文字列を差し込むだけ。今日 <code>InjectDefines</code> で <code>#version</code> の次の行に割り込む口は作ってある)。</p>
+<p><strong>2つ目: 死んだ粒も配列に居座る</strong>。番号を固定した代償で、<strong>生きている粒が半分でも 100 万個ぶんの呼び出しを払う</strong>(要点8)。本物の GPU パーティクルは、生きている粒の番号だけを別の SSBO に集め(コンパクション)、<code>glDrawArraysIndirect</code> で「GPU が決めた個数」を描く。Day 65(GPU 駆動レンダリング)の題材そのものなので、そこまで持っていく。</p>
+<p><strong>3つ目: 集計を読み戻すのが同期式</strong>。<code>glGetBufferSubData</code> は GPU が追いつくまで CPU を止める(要点7)。Day 54 の <code>GpuTimer</code> が輪を作って避けたのと同じことを、バッファでもやればよい(<code>glFenceSync</code> とピクセルバッファ。改造課題2)。今日は「代償を見るための項目」(<code>F7</code>)として、わざと同期のまま残してある。</p>
+<p><strong>4つ目: Day 53 のライトカリングは CPU のまま</strong>。ロードマップは Day 57 に「Day 53 のライトカリングの GPU 化もここで」と書いている。今日はそこまでやらなかった——升目の振り分けを移すには、升目の式を GLSL へ写し、TBO を SSBO へ替え、<code>ClusteredLighting</code> の3人の受け取り手を全部差し替えることになり、1日の差分に収まらない。<strong>今日作った道具はそのまま使える</strong>(SSBO・ディスパッチ・切り上げ・バリア)ので、改造課題3に置いた。</p>
+</section>
+<section class="part"><h2 id="s25">完成条件</h2>
+<p><code>dotnet run --project reference/Day57 -c Release</code> で起動する。起動直後のコンソールに、今日から1行増えている。</p>
+<div class="code"><pre><code>GL_RENDERER : NVIDIA GeForce RTX 3070/PCIe/SSE2
+GL_VERSION  : 4.3.0 NVIDIA 596.49            ← <strong>3.3 ではなく 4.3</strong>
+...
+コンピュート: OpenGL 4.3  1グループ最大 1024 呼び出し / x の上限 1024 / グループ数の上限 2,147,483,647 / 共有メモリ 48KB</code></pre></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「コンピュート」(25 枚目)が開く。</p>
+<h3 id="s26">1. <code>F2</code>: GPU パーティクル</h3>
+<p>コンソールに次の行が出る。</p>
+<div class="code"><pre><code>GPU パーティクル: <strong>ON</strong>  262,144 個 / 8.0MB を VRAM に置きっぱなし。1フレームの CPU の仕事は <strong>dispatch 3 回 + draw 1 回</strong>(進める1回 + 数える2回)</code></pre></div>
+<p>Day 31 の床と立方体の上に、<strong>オレンジ色の噴水が立つ</strong>。空は消してある(加算合成の粒は明るい背景の上では見えない)。HUD に今日の行が出る。</p>
+<div class="code"><pre><code>GPU粒 262,144  噴水  WG 256x1,024  GPU 進 0.55ms / 数 共有 0.31 / atomic 0.31ms / 描 0.37ms  生存 ?</code></pre></div>
+<p><strong>生存が <code>?</code> なのは、まだ一度も読み戻していないから</strong>(要点7)。<code>F9</code> を押すと数字が入り、以後は <code>(古)</code> が付く。</p>
+<h3 id="s27">2. <code>F3</code>: 粒を 100 万にする</h3>
+<p>既定は 26 万なので、<strong>1回押すと 100 万</strong>(もう1回で 6.5 万、その次で 26 万に戻る)。<strong>fps は 60 のまま落ちない</strong>。</p>
+<div class="code"><pre><code>粒: <strong>1,048,576 個</strong>  32.0MB  ディスパッチ 4,096 グループ x 256 (余分な呼び出し 0 個)</code></pre></div>
+<p>絵の明るさはほとんど変わらない——<strong>粒が 4 倍になっても明るさは同じ</strong>(1粒の明るさを個数で割っている。要点8)。変わるのは粒の細かさで、6.5 万だと粒が1つずつ見え、100 万だと連続した霧に見える。</p>
+<p><strong>CPU 側の HUD(<code>更新:0.00ms</code>)は動かない</strong>。粒を進めているのは GPU なので、CPU の仕事は uniform を送ることだけ。</p>
+<h3 id="s28">3. <code>F4</code>: 筋書きを回す</h3>
+<ul><li><strong>噴水</strong> … 床から噴き上がり、床で跳ねる。上ほど赤く、生まれたては白い</li><li><strong>引力</strong> … 中心から 3〜9m の殻を回る球。速い粒(近い粒)が白く光る。<strong>中心はゆっくり回る</strong></li><li><strong>渦</strong> … 床から立ち上がる青緑の柱。位置から速度を作るので、粒が同じ流れに乗って筋になる</li></ul>
+<p>切り替えた瞬間から定常の形が出る(寿命の途中の齢を配って、そのぶん先へ進めた位置から始める。要点8)。</p>
+<h3 id="s29">4. <code>F5</code>: ワークグループの大きさを変える</h3>
+<p><code>[リロード成功]</code> が2回(進めるシェーダと数えるシェーダ)出て、次の行が出る。</p>
+<div class="code"><pre><code>ワークグループ: <strong>1024 呼び出し</strong>  ディスパッチ 1,024 グループ(余分 0 個)  共有メモリ 8.0KB / 48KB
+ワークグループ: <strong>64 呼び出し</strong>  ディスパッチ 16,384 グループ(余分 0 個)  共有メモリ 0.5KB / 48KB</code></pre></div>
+<p><strong>絵は1ピクセルも変わらない</strong>。HUD の <code>WG 256x4,096</code> が <code>WG 64x16,384</code> に変わるだけ。GPU の時間もほとんど動かない(100 万粒で 0.125〜0.134ms の間)——<strong>この規模では、ワークグループの大きさは速度をほとんど決めていない</strong>。</p>
+<h3 id="s30">5. <code>F6</code> → <code>F9</code>: 数え上げの2通りを見比べる</h3>
+<p><code>F9</code>(内訳)を押すと、同じフレームで測った2つが並ぶ。</p>
+<div class="code"><pre><code>  共有メモリの使用: 2048 バイト/グループ (uint 2本 x 256)  数え上げ: <strong>両方</strong>(同じフレームで続けて)  VRAM を叩く回数 共有 4,096 回 ↔ atomic 1,048,576 回
+  GPU(タイマークエリ): 進める 0.178ms / 数える 共有 0.090ms ↔ atomic 0.084ms(<strong>0.93 倍</strong>) / 描く 0.389ms</code></pre></div>
+<p><strong>VRAM を叩く回数が 256 倍違うのに、時間はほとんど同じ</strong>(要点6)。<code>F6</code> で片方だけに切り替えると、走らせていないほうの数字が古いまま止まる。</p>
+<h3 id="s31">6. <code>F7</code> → <code>F8</code>: 読み戻しと、CPU との勝負</h3>
+<p><code>F7</code> で毎フレーム読み戻すと、HUD の「生存」から <code>(古)</code> が消えて毎フレーム動く。<code>F9</code> の内訳で <code>読み戻し 0.15ms</code> が出る(<strong>8 バイトを読むのに、粒を進める時間に近い時間がかかる</strong>)。</p>
+<p><code>F7</code> でもう一度切ってから <code>F8</code>。</p>
+<div class="code"><pre><code>--- CPU で1ステップ(1,048,576 個)---
+  CPU(C# / 1スレッド): <strong>4.59ms</strong>  1個あたり 4.4ns  寿命切れ 21,143 個は進めていない
+  GPU(タイマークエリ): <strong>0.203ms</strong>  <strong>23 倍</strong>
+  参考: 粒を読み戻すのに 10.3ms (32.0MB)。<strong>CPU で回すなら毎フレームこれを往復する</strong>
+  ※ C# 側は撒き直し(寿命が尽きた粒を作り直す)を省いてあるので、わずかに CPU に有利</code></pre></div>
+<p><strong>「23 倍」より「10.3ms」のほうが効く</strong>。仮に CPU が GPU と同じ速さで計算できたとしても、粒を運ぶだけで 60fps の予算(16.6ms)の 6 割が消える。</p>
+<h3 id="s32">7. <code>F10</code>: 自己チェックが 10 項目すべて合格</h3>
+<p><code>F2</code> を押す前に <code>F10</code> を押すと、<strong>GL を使わない5項目だけ</strong>が走る(構造体の並び・切り上げ・上限)。GPU パーティクルを出してから押すと 10 項目全部。<strong>押したあと、筋書きと粒の数は元に戻っている</strong>(粒は撒き直される)。</p>
+<h3 id="s33">8. Day 38〜56 の絵と自己チェックが1つも壊れていない</h3>
+<p>文脈を 3.3 から 4.3 に上げたので、<strong>既存の絵が変わっていないことを画素で確かめる</strong>。Day 56 と Day 57 に同じ台本を流して4枚を突き合わせた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>撮った絵</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>起動直後(スプライトと立方体。一時停止して撮る)</td><td><strong>バイト単位で一致</strong></td></tr>
+<tr><td>デモ v1 を読み込んだだけ</td><td><strong>バイト単位で一致</strong></td></tr>
+<tr><td>デモ v1 の決めの構図</td><td><strong>バイト単位で一致</strong></td></tr>
+<tr><td>最終デモ(完成版。Day 56 の到達点)</td><td><strong>バイト単位で一致</strong></td></tr>
+</tbody>
+</table></div>
+<p>自己チェックも、Day 56 の 227 項目がすべて同じ数字で通る。違うのは<strong>メニューの枚数と項目数だけ</strong>(24 枚 237 項目 → <strong>25 枚 246 項目</strong>)で、これは今日ページを1枚足したぶん(<code>RunDebugMenuCheck</code> の期待値も 246 に直してある)。</p>
+<div class="code"><pre><code>  [OK] ページがある  25 枚
+  [OK] <strong>Day 31 以降のスイッチが全部入っている</strong>  246 項目
+  [OK] 最後のページまで送れる  25 枚目</code></pre></div>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「コンピュート」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F3</code></td><td>切り上げの「粒の数」、粒の数と明るさの「粒の数」</td><td>どの数も 256 の倍数なので余りは 0。粒を 16 倍にしても、明るさは変わらず細かさだけが変わる</td></tr>
+<tr><td><code>F4</code></td><td>粒の数と明るさの「筋書き」</td><td>噴水・引力・渦。切り替えた直後から定常の形が出る</td></tr>
+<tr><td><code>F5</code></td><td>切り上げと畳み込みの「ワークグループの大きさ」</td><td>グループの数は 4,096 ↔ 16,384 と変わるが、答えは変わらない。共有メモリは 0.5〜8.0KB</td></tr>
+<tr><td><code>F6</code> / <code>F9</code></td><td>畳み込みの数字</td><td>VRAM への atomic は 4,096 回と 1,048,576 回。どちらも粒を読むだけの下限(0.075ms)のすぐ上で、実測は 0.090ms と 0.084ms</td></tr>
+<tr><td><code>F10</code>(自己チェック)</td><td>std430 の並び、切り上げの「1,000,000」</td><td>age 12 / velocity 16 / lifetime 28 で 32 バイト。1,000,000 / 256 → 3,907 グループ = 1,000,192 呼び出し(余分 192)</td></tr>
+<tr><td><code>F2</code>・<code>F7</code>・<code>F8</code></td><td>(なし)</td><td>実機の GPU の時間・読み戻しの代償・CPU との勝負は実機で</td></tr>
+<tr><td>(なし)</td><td>切り上げの「番人」と「確保: 粒の数ぶん」</td><td>改造課題1 を先に見る切り替え。余った 192 個が確保の外を書く</td></tr>
+<tr><td>(なし)</td><td>「粒の数をそのままディスパッチに渡す」、「撒き直しで寿命の途中の齢を配る」を外す、「1粒の明るさを個数で割る」を外す</td><td>このページだけの失敗の見本。前の2つは reference に無い作り、最後の1つは検証の途中で分かったこと 2 の最初の作り</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day57 の GpuParticles(GroupCount・WastedInvocations・ParticleIntensity)、particle-sim.comp(整数ハッシュ・撒き直し・3つの筋書き。刻みは 1/30 秒で頭打ち)、particle-reduce.comp の畳み込み、gpu-particle.vert の色を JS に移したもの。粒は横から見た平行投影で、1粒を1画素に足し、ACES とガンマを通した。点の大きさ・丸いぼかし・ブルーム・床と立方体は省き、明るさの目盛りはこのページで決めた。粒の数は 26 万まで(100 万は JS では重い)で、「JS で1ステップ」はこのページの CPU の時間。噴水を 15 秒回したときの平均の高さは 1.69〜1.81m を行き来し、自己チェックの 1.7586m(100 万粒)・1.7605m(65,536 粒)はこの範囲に入る。畳み込みの木は 16 呼び出しに縮めて描いた。「粒を読むだけの下限」は粒のバイト数を RTX 3070 の帯域 448GB/s で割ったもの。std430 の並びは vec3 を 16 バイト境界・構造体を 16 の倍数に丸める規則で計算している。</p></div>
+</section>
+<section class="part"><h2 id="s34">改造課題</h2>
+<h3 id="s35">課題1(易): 番人を外して、何が起きるか見る</h3>
+<p><code>particle-sim.comp</code> の先頭の <code>if (index &gt;= uCount) { return; }</code> をコメントにして、粒の数を <strong>1,000,000</strong> (<code>GpuParticles.CountSteps</code> に足す)にしてみる。<code>1,000,000 / 256 = 3907 グループ = 1,000,192 呼び出し</code>で、<strong>192 個が余る</strong>。</p>
+<ul><li>絵はどうなるか。<strong>何も起きないように見えるはず</strong>(SSBO の範囲外は、仕様上「捨てられるか、バッファの中のどこかに落ちる」)</li><li><code>GpuParticles.Count</code> の上限(<code>CountSteps[^1]</code>)を 1,000,000 にして、確保するバイト数も 1,000,000 x 32 に縮めてみる。<strong>今度は余った 192 個が確保の外を書く</strong>。手元の GPU で何が起きるか</li><li>自己チェックの「切り上げ」の項目が、なぜ 1,000,000 という割り切れない数をわざわざ持ち出しているのか</li></ul>
+<p><strong>落ちない間違い</strong>をひとつ手で作っておくのが目的。次に同じことをしたとき、絵ではなく数から疑えるようになる。</p>
+<h3 id="s36">課題2(中): 読み戻しを非同期にする</h3>
+<p>要点7の代償(<code>glGetBufferSubData</code> が CPU を止める)を、Day 54 の <code>GpuTimer</code> と同じ手で避ける。</p>
+<ol><li>集計用の SSBO を<strong>3本の輪</strong>にする(<code>_statsBuffer[3]</code>)</li><li>書き終えたら <code>glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0)</code> でしるしを置く</li><li>次のフレーム以降、<code>glClientWaitSync(sync, 0, 0)</code> で<strong>待たずに</strong>聞き、<code>GL_ALREADY_SIGNALED</code> か<code>GL_CONDITION_SATISFIED</code> が返ったものだけ <code>glGetBufferSubData</code> で読む</li></ol>
+<p><code>F7</code> を ON にしたまま <code>F9</code> の <code>読み戻し</code> が <strong>0.00ms</strong> になり、生存の数は2〜3フレーム遅れる。<strong>「遅れた正しい数」と「今の数を待って取る」のどちらが要るか</strong>を決めるのが、この手の設計の分かれ目になる。</p>
+<h3 id="s37">課題3(難): Day 53 のライトカリングを GPU へ移す</h3>
+<p>ロードマップが Day 57 に挙げているもう1つの題材(設計書「今日残した歪み」の4つ目)。</p>
+<ol><li><code>ClusterGrid.Assign</code>(CPU)の升目の式を <code>light-cull.comp</code> へ写す。<strong>ワークグループの割り当ては升目1つにつき1グループ</strong>(<code>glDispatchCompute(15, 10, 16)</code>)にすると、<code>gl_WorkGroupID.xyz</code> がそのまま升目の座標になる——今日の1次元とは違う使い方が見られる</li><li>光の一覧を SSBO に置き、升目ごとの番号の並びも SSBO に書く。TBO(Day 53)を3本まとめて SSBO 2本にできる</li><li>画素シェーダ側(<code>textured.frag</code> の <code>PointLightContribution</code>)の <code>texelFetch</code> を SSBO の添字に替える</li><li><strong>絵が1ピクセルも変わらないこと</strong>を、Day 56 の「フォワードと Forward+ で同じ絵」の自己チェックで確かめる</li></ol>
+<p>見どころは<strong>升目に入る光の数を数える <code>atomicAdd</code></strong> で、今日の数え上げと同じ形が出てくる。「1升に入る光に上限が無い」(Day 53 の歪みの3つ目)も、GPU 側なら <code>atomicMin</code> で明るい順に切れる。</p>
+</section>
+<section class="part"><h2 id="s38">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070(メモリ帯域 448 GB/s)</td></tr>
+<tr><td>OpenGL</td><td><strong>4.3 コアプロファイル</strong>(ドライバは 4.6 に対応。文脈で頼んだ版で決まる)</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。計測(<code>glFinish</code> を挟んで連続で描く)は今日も無く、GPU の時間はタイマークエリで普段のフレームの中で測った</td></tr>
+</tbody>
+</table></div>
+<p>100 万粒のときの数字。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>粒</td><td>1,048,576 個 x 32 バイト = <strong>32.0MB</strong>(確保は常に最大数ぶん)</td></tr>
+<tr><td>ディスパッチ</td><td>4,096 グループ x 256 = 1,048,576 呼び出し(余分 0 個)</td></tr>
+<tr><td>CPU が出す GL 命令</td><td><strong>ディスパッチ3回 + 描画1回</strong>(粒の数に比例するものは無い)</td></tr>
+<tr><td>ドライバの上限</td><td>1グループ 1024 呼び出し / x の上限 1024 / グループ数 2,147,483,647 / 共有メモリ 48KB</td></tr>
+<tr><td>GPU の時間(進める)</td><td>0.18〜2.13ms(<strong>VSync でクロックが上下するので走行ごとに1桁ぶれる</strong>)</td></tr>
+<tr><td>GPU の時間(数える)</td><td>共有 0.090〜0.968 / atomic 0.084〜1.026ms。<strong>同じフレームで測った比は 0.93〜1.06</strong></td></tr>
+<tr><td>GPU の時間(描く)</td><td>0.37〜1.70ms(カメラの寄り方で変わる。点の面積そのもの)</td></tr>
+<tr><td>集計の読み戻し</td><td>0.07〜3.47ms(<strong>8 バイト</strong>。バイト数ではなく同期の代償)</td></tr>
+<tr><td>粒の読み戻し</td><td>10.3ms(32.0MB)</td></tr>
+<tr><td>CPU で1ステップ</td><td>4.59ms(1個あたり 4.4ns。C# / 1スレッド。撒き直しは省く)</td></tr>
+<tr><td>fps</td><td><strong>60(VSync)</strong>。100 万粒・3つの筋書きのどれでも落ちない</td></tr>
+<tr><td>Day 56 との一致</td><td>違う画素 <strong>0</strong>(起動直後・デモ v1・決めの構図・完成版の4枚)</td></tr>
+<tr><td>GL のエラー</td><td>0(毎フレーム <code>glGetError</code> を見て確かめた)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s39">自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 57 自己チェック(構造体の並び・切り上げ・畳み込み・CPU との一致)===
+  [OK] <strong>OpenGL 4.3 以上の文脈が取れている</strong>(コンピュートと SSBO の下限)  4.3.0 NVIDIA 596.49
+  [OK] <strong>C# の構造体が std430 の並びと一致する</strong>(32 バイト、穴なし)  32 バイト  age 12 / velocity 16 / lifetime 28
+  [OK] <strong>切り上げが全部の組み合わせで足りていて、1グループも余らない</strong>  1,000,000 / 256 → 3,907 グループ = 1,000,192 呼び出し(余分 192)
+  [OK] いま使っているワークグループが、このドライバの上限に収まっている  256 呼び出し x 4,096 グループ
+  [OK] <strong>共有メモリが仕様の保証(32KB)に収まっている</strong>(別の GPU でも動く)  最大 8KB(uint 2本 x 1024)
+  [OK] <strong>共有メモリで畳んでも、全部 atomicAdd しても、答えは同じ</strong>(道筋が違うだけ)  共有 1,048,576 個 / 平均 1.7586m  ↔  atomic 1,048,576 個 / 平均 1.7586m
+  [OK] 撒き直した直後は<strong>全部の粒が生きている</strong>(寿命の途中からばらけて生まれる)  1,048,576 / 1,048,576 個
+  [OK] <strong>ワークグループを 256 → 64 に変えても答えが変わらない</strong>(絵も数も同じ。時間だけ違う)  1,048,576 個 / 平均 1.7586m  グループ 16,384(さっきは 4,096)
+  [OK] <strong>GPU の1ステップと C# の1ステップが同じ答えになる</strong>(積分も床の跳ね返りも)  65,108 個を比べて、いちばん離れた粒で 4.8E-007m
+  [OK] <strong>GPU が畳んだ合計と、C# が素直に舐めた合計が一致する</strong>  GPU 65,536 個 / 1.7605m  ↔  CPU 65,536 個 / 1.7605m
+  すべて合格(並び・切り上げ・畳み込み・CPU との一致が仕様どおり)
+  ※ 自己チェックは粒を撒き直す(筋書きと数は元に戻してある)</code></pre></div>
+<p><strong>GL を使わない項目が5つ</strong>(構造体の並び・切り上げ・上限2つ、と版の確認)。<strong>残り5つは GPU に走らせないと確かめられない</strong>——ここが Day 56 までの自己チェックといちばん違うところで、コンピュートの答えは「シェーダを走らせて読み戻す」以外に知る方法が無い。</p>
+<p>いちばん値打ちがあるのは下から2つめ。<strong>同じ1ステップを GPU と C# で回して位置を比べる</strong>(いちばん離れた粒で 4.8e-7m)。GLSL の四則演算は IEEE の丸めが決まっているので、足し算と掛け算だけで書かれた積分は<strong>C# と同じ答えになる</strong>。<code>normalize</code> や <code>length</code> を通した式は精度の保証が緩いので、比べるのは噴水(重力と床の跳ね返りだけ)に限ってある。</p>
+<h3 id="s40">検証の途中で分かったこと</h3>
+<p><strong>1. 「共有メモリのほうが2倍速い」という嘘の数字を、危うくそのまま書くところだった</strong>(今日の冒頭の話)。最初は <code>F6</code> で片方ずつ切り替えて測っていて、次の数字が出た。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>測った順</th><th>数え上げ</th><th>GPU の時間</th><th>そのときの「進める」</th></tr></thead>
+<tbody>
+<tr><td>1回目</td><td>共有メモリ</td><td>1.221ms</td><td>2.175ms</td></tr>
+<tr><td>2回目</td><td>全部 atomicAdd</td><td>0.633ms</td><td><strong>1.158ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>「共有メモリのほうが2倍遅い」と読めるが、<strong>同じフレームで測っていない</strong>。右端の「進める」(どちらのときもまったく同じ処理)が 2.175 → 1.158 と半分になっていることが、そのしるしになる。VSync を入れていると GPU は1フレームのうち 1ms しか働かないので深く休み、<strong>負荷が続くとクロックが上がる</strong>。切り替えの前後で、GPU が別の速さで走っていた。</p>
+<p>直し方は「<strong>同じフレームの中で、続けて両方走らせる</strong>」。クロックの揺れは両方に等しく乗るので、比のほうは信用できる。<code>ReductionMode.Both</code> を既定にして、タイマーも2本に分けた。測り直すと差は ±7% の中に収まり、向きも一定しない(要点6)。</p>
+<p><strong>Day 54 の計画書が「VSync 中はクロックが上下して走行ごとに倍以上ぶれる」と書いていたのと同じ罠</strong>だが、あのときは「絶対値がぶれる」話だった。今日は<strong>2つを比べる</strong>話で、ぶれが片方にだけ乗ると<strong>結論そのものが逆になる</strong>。</p>
+<p><strong>2. 加算合成は、粒の数をそのまま明るさにする</strong>。最初は1粒の明るさを固定していて、26 万粒で既に画面の半分が真っ白、100 万粒では床も立方体も見えない白い塊になった。加算合成は重なったぶんが足し算なので、<strong>個数を4倍にすると絵が4倍明るくなる</strong>——考えれば当たり前だが、Day 49 の1万粒では気づけない(重なりが浅いので飽和しない)。直し方は「<strong>群れ全体の明るさを決めて、個数で割って配る</strong>」(<code>GpuParticles.ParticleIntensity</code>)。基準を 65,536 個に置くと、6.5 万・26 万・100 万のどれで見ても同じ明るさになり、変わるのは粒の細かさだけになる。本物のエンジンがエフェクトの明るさを「1粒いくら」ではなく「この炎ぜんぶでいくら」で持っているのは、これが理由。</p>
+<p><strong>3. 筋書きを切り替えた直後、数秒間だけ形が違った</strong>。渦に切り替えると、最初の数秒は<strong>床に貼り付いた平たい円盤</strong>で、柱になるのは 6 秒後(寿命ぶん)だった。撒き直し(<code>uReset</code>)が全員を撒き口に置いていたため。<strong>寿命の途中の齢を配るだけでは足りない</strong>——齢を配っても位置は撒き口のままなので、脈打ちは消えても形は出ない。そこで<strong>そのぶん先へ進めた位置</strong>から始めるようにした(噴水は放物運動の式で厳密に、渦は上向きのぶんだけ、引力は殻がそのまま定常なので送らない)。3つで扱いが違うのは、<strong>「だいたい定常の形」で始められればよい</strong>から。</p>
+<p><strong>4. 引力の粒が、全部まとめて中心の1点に落ちた</strong>。最初は接線方向へ「適当な速さ(2〜3.5 m/s)」で蹴り出していて、1秒後には直径 1m ほどの真っ白な玉になっていた。円軌道の速さは距離で決まる(<code>v = sqrt(GM / r)</code>)ので、半径 3m の粒には 4.5 m/s が要る——遅い粒は全部まっすぐ落ちる。<strong>距離から速さを出す</strong>ようにし(0.8〜1.3 倍に散らして楕円にする)、減速も 0.15/s から 0.02/s に下げたら、殻のまま回り続けるようになった。<strong>物理を並列にしても物理は物理</strong>で、初期値の与え方を間違えれば同じように壊れる。</p>
+<p><strong>5. <code>#define</code> を差し込むと、コンパイルエラーの行番号がずれる</strong>(先に潰した)。<code>InjectDefines</code> は <code>#version</code> の次の行に割り込むので、素直に書くとログの行番号がファイルより差し込んだ行数ぶん大きくなる。Day 14 で「ログの行番号はファイルの行番号と一致するので、ファイル名を添えておくとエディタからそのまま飛べる」と書いた性質が、そこで壊れる。<strong>差し込みの最後に <code>#line 2</code> を置いて数え直させる</strong>と一致したまま保てる(GLSL の <code>#line N</code> は「次の行は N 行目」の意味)。ワークグループを切り替えるたびに焼き直す作りなので、<strong>ずれたまま運用すると効いてくる</strong>のは間違いない——シェーダを書き換えている最中に、ログの行番号だけが1つずれているのがいちばん気づきにくい。</p>
+</section>
+<footer class="end">Day 57 コンピュートシェーダ入門(GPU に 100 万粒を動かさせる) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat, animate, reduceMotion } = Lab;
+const N = (v) => v.toLocaleString('en-US');
+
+// ============================================================
+//  要点2: 切り上げと番人
+// ============================================================
+const MAX_COUNT = 1048576;
+const dp = { count: 1000000, ls: 256, cap: 'max', guard: true, raw: false };
+function drawDispatch() {
+  const { ctx, w, h } = fit($('dp-canvas'));
+  const groups = dp.raw ? dp.count : Math.ceil(dp.count / dp.ls);
+  const total = groups * dp.ls, extra = total - dp.count;
+  const capacity = dp.cap === 'max' ? Math.max(MAX_COUNT, dp.count) : dp.count;
+  const L = 16, R = w - 16, rowH = 34, T = 34;
+  ctx.font = '11px ' + tok('--font-mono');
+  // 最後の2グループ
+  const first = Math.max(0, groups - 2);
+  let outside = 0, inside = 0;
+  for (let g = first; g < groups; g++) {
+    const y = T + (g - first) * (rowH + 30);
+    ctx.fillStyle = tok('--muted');
+    ctx.fillText(`グループ ${N(g)}${g === groups - 1 ? '(最後)' : ''}  呼び出し ${N(g * dp.ls)}〜${N(g * dp.ls + dp.ls - 1)}`, L, y - 8);
+    const cw = (R - L) / dp.ls;
+    for (let k = 0; k < dp.ls; k++) {
+      const idx = g * dp.ls + k;
+      let c;
+      if (idx < dp.count) c = tok('--accent');
+      else if (dp.guard) c = tok('--line');
+      else if (idx < capacity) c = tok('--warn');
+      else c = tok('--expl');
+      ctx.fillStyle = c;
+      ctx.fillRect(L + k * cw + (cw > 3 ? 0.5 : 0), y, Math.max(cw - (cw > 3 ? 1 : 0), 0.6), rowH);
+    }
+    // 配列の終わり(粒の数)と、確保の終わり
+    for (const [at, color, label] of [[dp.count, tok('--ink'), 'uCount'], [capacity, tok('--expl'), '確保の終わり']]) {
+      if (at > g * dp.ls && at < (g + 1) * dp.ls) {
+        const x = L + (at - g * dp.ls) * cw;
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + rowH + 4); ctx.stroke();
+        ctx.fillStyle = color; ctx.fillText(label, Math.min(x + 4, R - 70), y + rowH + 16);
+      }
+    }
+  }
+  if (extra > 0 && !dp.guard) {
+    const beyond = Math.max(0, total - capacity);
+    outside = beyond; inside = extra - beyond;
+  }
+  // 凡例。色の四角と文字を順に並べる
+  let lx = L;
+  for (const [c, label] of [[tok('--accent'), '粒を進める'], [tok('--line'), '番人で帰る'], [tok('--warn'), '使っていない粒を書く'], [tok('--expl'), '確保の外を書く']]) {
+    ctx.fillStyle = c; ctx.fillRect(lx, h - 17, 10, 10);
+    ctx.fillStyle = tok('--muted'); ctx.fillText(label, lx + 14, h - 8);
+    lx += 14 + ctx.measureText(label).width + 16;
+  }
+  $('dp-stats').innerHTML =
+    stat('glDispatchCompute に渡す数', N(groups), ' <small>グループ</small>') +
+    stat('呼び出しの総数', N(total)) +
+    stat('余分な呼び出し', N(extra), dp.raw ? ` <small>(${dp.ls} 倍走っている)</small>` : '') +
+    stat('配列の外を書く呼び出し', dp.guard ? '0' : N(inside + outside), dp.guard ? '' : ` <small>うち確保の外 ${N(outside)}</small>`);
+  $('dp-note').textContent =
+    dp.raw ? `粒の数をそのまま渡すと ${dp.ls} 倍のワークグループが走る。番人が全部弾くので答えは合い、絵を見ても気づけない`
+    : extra === 0 ? '割り切れるので余りは 0。6.5 万・26 万・100 万はどれも 256 の倍数なので、番人が無くても壊れない(だから自己チェックは 1,000,000 を持ち出す)'
+    : dp.guard ? `${N(dp.count)} を ${dp.ls} ずつ切り上げると ${N(extra)} 個が余る。番人がそれを弾く`
+    : outside > 0 ? `番人が無いと、余った ${N(extra)} 個が確保の外を書く。SSBO の範囲外は落ちない(捨てられるか、どこかに落ちる)`
+    : `番人が無いと、余った ${N(extra)} 個が particles[${N(dp.count)}] 以降を書く。確保は最大数ぶんあるので、何も起きないように見える(改造課題1)`;
+}
+seg('dp-count', (v) => { dp.count = Number(v); drawDispatch(); });
+seg('dp-ls', (v) => { dp.ls = Number(v); drawDispatch(); });
+seg('dp-cap', (v) => { dp.cap = v; drawDispatch(); });
+$('dp-guard').addEventListener('change', (e) => { dp.guard = e.target.checked; drawDispatch(); });
+$('dp-raw').addEventListener('change', (e) => { dp.raw = e.target.checked; drawDispatch(); });
+window.addEventListener('resize', drawDispatch);
+drawDispatch();
+
+// ============================================================
+//  要点3: std430 と C# の並び
+// ============================================================
+const sl = { age: true, life: true };
+function layout(fields, std430) {
+  let off = 0, maxAlign = 4;
+  const out = [];
+  for (const f of fields) {
+    const align = std430 && f.type === 'vec3' ? 16 : 4, size = f.type === 'vec3' ? 12 : 4;
+    off = Math.ceil(off / align) * align;
+    out.push({ ...f, off, size });
+    off += size; maxAlign = Math.max(maxAlign, align);
+  }
+  return { fields: out, size: Math.ceil(off / maxAlign) * maxAlign };
+}
+const FIELD_COLORS = { position: '--accent', age: '--warn', velocity: '--semi', lifetime: '--good' };
+function drawLayout() {
+  const { ctx, w, h } = fit($('sl-canvas'));
+  const fields = [{ name: 'position', type: 'vec3' }];
+  if (sl.age) fields.push({ name: 'age', type: 'float' });
+  fields.push({ name: 'velocity', type: 'vec3' });
+  if (sl.life) fields.push({ name: 'lifetime', type: 'float' });
+  const g = layout(fields, true), c = layout(fields, false);
+  const L = 70, R = w - 12, BYTES = 64, X = (b) => L + b / BYTES * (R - L);
+  ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillStyle = tok('--muted');
+  for (let b = 0; b <= BYTES; b += 4) { ctx.fillText(String(b), X(b) - (b > 9 ? 7 : 3), 16); ctx.strokeStyle = tok('--grid'); ctx.beginPath(); ctx.moveTo(X(b), 22); ctx.lineTo(X(b), h - 30); ctx.stroke(); }
+  const rows = [['std430', g, 34], ['C#', c, 110]];
+  for (const [label, lay, y] of rows) {
+    ctx.fillStyle = tok('--ink'); ctx.fillText(label, 6, y + 26);
+    // 穴(何も置いていないバイト)
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(X(0), y, X(BYTES) - X(0), 46);
+    for (let p = 0; p * lay.size < BYTES; p++) {
+      for (const f of lay.fields) {
+        const s = p * lay.size + f.off;
+        if (s >= BYTES) continue;
+        const e = Math.min(s + f.size, BYTES);
+        ctx.fillStyle = tok(FIELD_COLORS[f.name]); ctx.globalAlpha = p ? 0.55 : 0.9;
+        ctx.fillRect(X(s) + 1, y + 1, X(e) - X(s) - 2, 44); ctx.globalAlpha = 1;
+        // 名前は枠の中に収まるぶんだけ描く
+        ctx.save(); ctx.beginPath(); ctx.rect(X(s) + 1, y + 1, X(e) - X(s) - 2, 44); ctx.clip();
+        ctx.fillStyle = '#fff'; ctx.fillText(`${f.name}${p ? '[1]' : ''}`, X(s) + 4, y + 18);
+        ctx.fillText(String(s), X(s) + 4, y + 36); ctx.restore();
+      }
+      ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2;
+      if (p * lay.size < BYTES) { ctx.beginPath(); ctx.moveTo(X(p * lay.size), y - 4); ctx.lineTo(X(p * lay.size), y + 50); ctx.stroke(); }
+    }
+  }
+  ctx.fillStyle = tok('--muted'); ctx.fillText('灰色は何も置いていないバイト(穴)。太線は粒の頭', L, h - 10);
+  const diffs = g.fields.map((f, i) => [f.name, f.off, c.fields[i].off]).filter(([, a, b]) => a !== b);
+  $('sl-stats').innerHTML =
+    stat('std430 のオフセット', g.fields.map((f) => `${f.name} ${f.off}`).join(' / ')) +
+    stat('C# のオフセット', c.fields.map((f) => `${f.name} ${f.off}`).join(' / ')) +
+    stat('歩幅(1粒のバイト数)', `${g.size} / ${c.size}`, ' <small>std430 / C#</small>');
+  $('sl-note').textContent =
+    !diffs.length && g.size === c.size ? '一致する。vec3 のうしろに float を置いて 16 バイトぴったりにしてあるので、穴が無い(自己チェック: age 12 / velocity 16 / lifetime 28)'
+    : diffs.length ? `${diffs.map(([n, a, b]) => `${n} が ${a - b} バイト`).join('、')}ずれる。std430 では vec3 の前に穴が空き、C# は詰める。C# が書いた値を GLSL はずれた場所から読むので、粒が明後日の方向へ飛ぶだけでエラーは1つも出ない`
+    : `オフセットは揃っているが、歩幅が ${g.size} と ${c.size} で食い違う。2粒目から ${g.size - c.size} バイトずつずれていく`;
+}
+$('sl-age').addEventListener('change', (e) => { sl.age = e.target.checked; drawLayout(); });
+$('sl-life').addEventListener('change', (e) => { sl.life = e.target.checked; drawLayout(); });
+window.addEventListener('resize', drawLayout);
+drawLayout();
+
+// ============================================================
+//  要点6: 共有メモリの畳み込み
+// ============================================================
+const MINI = 16;
+const rd = { step: 5, count: 1048576, ls: 256, values: [] };
+function shuffle() { rd.values = Array.from({ length: MINI }, () => (Math.random() < 0.8 ? 1 : 0)); }
+// step 0: 共有メモリへ書いた直後(barrier 1回)。step k: stride = 8, 4, 2, 1 を k 段終えたところ
+function stateAt(step) {
+  const s = rd.values.slice();
+  for (let k = 1, stride = MINI / 2; k <= step && stride > 0; k++, stride >>= 1) for (let l = 0; l < stride; l++) s[l] += s[l + stride];
+  return s;
+}
+function drawReduce() {
+  const { ctx, w, h } = fit($('rd-canvas'));
+  // 左に箱、右に段の説明。線は上の段の箱の下から、下の段の箱の上へ
+  const side = Math.min(250, w * 0.34);
+  const L = 16, R = w - side - 12, cw = (R - L) / MINI, top = 14, boxH = 24, gap = 18;
+  const steps = Math.log2(MINI);
+  for (let k = 0; k <= Math.min(rd.step, steps); k++) {
+    const s = stateAt(k), y = top + k * (boxH + gap), stride = k === 0 ? 0 : MINI >> k;
+    for (let l = 0; l < MINI; l++) {
+      const active = k === 0 || l < stride;
+      ctx.fillStyle = active ? (k === rd.step ? tok('--accent-soft') : tok('--surface')) : tok('--sunken');
+      ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+      ctx.fillRect(L + l * cw + 2, y, cw - 4, boxH); ctx.strokeRect(L + l * cw + 2, y, cw - 4, boxH);
+      ctx.fillStyle = active ? tok('--ink') : tok('--muted');
+      ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'center';
+      ctx.fillText(String(s[l]), L + l * cw + cw / 2, y + 16); ctx.textAlign = 'left';
+      if (k > 0 && l < stride) {
+        // local + stride の値を local へ足す
+        ctx.strokeStyle = tok('--semi'); ctx.globalAlpha = 0.7;
+        ctx.beginPath(); ctx.moveTo(L + (l + stride) * cw + cw / 2, y - gap); ctx.lineTo(L + l * cw + cw / 2, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(L + l * cw + cw / 2, y - gap); ctx.lineTo(L + l * cw + cw / 2, y); ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    }
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+    ctx.fillText(k === 0 ? 'sAlive[local] = alive; barrier()' : `stride ${stride}: local < ${stride} が足す`, R + 14, y + 16);
+  }
+  if (rd.step > steps) {
+    const y = top + (steps + 1) * (boxH + gap) - 4;
+    ctx.fillStyle = tok('--expl'); ctx.font = '12px ' + tok('--font-mono');
+    ctx.fillText(`local == 0 だけが atomicAdd(aliveCount, ${stateAt(steps)[0]})`, L, y);
+  }
+  const groups = Math.ceil(rd.count / rd.ls), barriers = 1 + Math.log2(rd.ls);
+  const bytes = rd.count * 32, bound = bytes / 448e9 * 1000;
+  $('rd-step-out').textContent = rd.step > steps ? 'atomicAdd' : `${rd.step} 段`;
+  $('rd-stats').innerHTML =
+    stat('VRAM への atomic(共有)', N(groups), ' <small>回 / 番地</small>') +
+    stat('VRAM への atomic(素朴)', N(rd.count), ` <small>回。ワープでまとめると ${N(rd.count / 32)} 回</small>`) +
+    stat('barrier()', `${barriers}`, ` <small>回(1 + log2 ${rd.ls})</small>`) +
+    stat('共有メモリ', `${(rd.ls * 8 / 1024).toFixed(1)}KB`, ' <small>/ グループ(uint 2本)</small>') +
+    stat('粒を読むだけの下限', `${bound.toFixed(3)}ms`, ` <small>${(bytes / 1048576).toFixed(1)}MB ÷ 448GB/s</small>`);
+  $('rd-note').textContent = rd.count === 1048576 && rd.ls === 256
+    ? 'VRAM を叩く回数は 256 倍違う。それでも実測は 0.090ms と 0.084ms で、どちらも「読むだけの下限」のすぐ上にいる'
+    : 'グループを大きくすると atomic は減り、barrier と共有メモリが増える。どちらの形も、粒を読む時間の下には潜れない';
+}
+const rdSteps = Math.log2(MINI) + 1;
+$('rd-step').max = String(rdSteps);
+$('rd-step').addEventListener('input', (e) => { rd.step = Number(e.target.value); drawReduce(); });
+seg('rd-count', (v) => { rd.count = Number(v); drawReduce(); });
+seg('rd-ls', (v) => { rd.ls = Number(v); drawReduce(); });
+$('rd-shuffle').addEventListener('click', () => { shuffle(); drawReduce(); });
+window.addEventListener('resize', drawReduce);
+shuffle();
+drawReduce();
+
+// ============================================================
+//  要点8: GPU パーティクルを JS で(particle-sim.comp と gpu-particle.vert の移植)
+// ============================================================
+// uint のハッシュ。GLSL の uint の掛け算(桁あふれは捨てる)を Math.imul で真似る
+function hash(x) {
+  x >>>= 0;
+  x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
+  x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
+  x ^= x >>> 16;
+  return x >>> 0;
+}
+const rnd = (seed) => (hash(seed) & 0x00ffffff) / 16777216;
+function randomDirection(seed, out) {
+  const z = rnd(seed) * 2 - 1, a = rnd((seed + 7919) >>> 0) * 6.2831853, r = Math.sqrt(Math.max(0, 1 - z * z));
+  out[0] = r * Math.cos(a); out[1] = z; out[2] = r * Math.sin(a);
+}
+const REFERENCE_COUNT = 65536, GRAVITY = -9.81;
+const SCENES = [
+  { intensity: 0.9, origin: [0, -0.48, 0], view: [-4.5, 4.5, -0.6, 7.2] },
+  { intensity: 4.5, origin: [0, -0.48, 0], view: [-12, 12, -7, 13] },
+  { intensity: 2.5, origin: [0, -0.48, 0], view: [-7.5, 7.5, -0.6, 11] },
+];
+const pt = { mode: 0, count: 65536, div: true, pre: true, run: !reduceMotion, time: 0, salt: 0, reset: true, attractor: [0, 3, 0], cpuMs: 0 };
+const CAP = 262144;
+const P = { pos: new Float32Array(CAP * 3), vel: new Float32Array(CAP * 3), age: new Float32Array(CAP), life: new Float32Array(CAP) };
+const tmp = [0, 0, 0], tmp2 = [0, 0, 0];
+function spawn(i, startAge) {
+  const seed = hash((i + Math.imul(pt.salt, 2654435761)) >>> 0);
+  const o = SCENES[pt.mode].origin, j = i * 3;
+  if (pt.mode === 0) {
+    const a = rnd(seed) * 6.2831853, r = Math.sqrt(rnd(seed + 1)) * 0.35;
+    P.pos[j] = o[0] + Math.cos(a) * r; P.pos[j + 1] = o[1]; P.pos[j + 2] = o[2] + Math.sin(a) * r;
+    randomDirection(seed + 2, tmp);
+    let vx = tmp[0] * 0.18, vy = 1, vz = tmp[2] * 0.18; const n = Math.hypot(vx, vy, vz), sp = 7 + rnd(seed + 3) * 4;
+    P.vel[j] = vx / n * sp; P.vel[j + 1] = vy / n * sp; P.vel[j + 2] = vz / n * sp;
+    P.life[i] = 1.8 + rnd(seed + 4) * 1.2;
+  } else if (pt.mode === 1) {
+    randomDirection(seed, tmp);
+    const orbit = 3 + rnd(seed + 1) * 6, c = pt.attractor;
+    P.pos[j] = c[0] + tmp[0] * orbit; P.pos[j + 1] = c[1] + tmp[1] * orbit; P.pos[j + 2] = c[2] + tmp[2] * orbit;
+    randomDirection(seed + 11, tmp2);
+    const d = tmp2[0] * tmp[0] + tmp2[1] * tmp[1] + tmp2[2] * tmp[2];
+    let tx = tmp2[0] - tmp[0] * d, ty = tmp2[1] - tmp[1] * d, tz = tmp2[2] - tmp[2] * d;
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl > 1e-3) { tx /= tl; ty /= tl; tz /= tl; } else { tx = tmp[1] + 1e-3; ty = -tmp[0] + 1e-3; tz = 1e-3; const q = Math.hypot(tx, ty, tz); tx /= q; ty /= q; tz /= q; }
+    const s = Math.sqrt(60 / orbit) * (0.8 + rnd(seed + 2) * 0.5);
+    P.vel[j] = tx * s; P.vel[j + 1] = ty * s; P.vel[j + 2] = tz * s;
+    P.life[i] = 10 + rnd(seed + 3) * 8;
+  } else {
+    const a = rnd(seed) * 6.2831853, r = Math.sqrt(rnd(seed + 1)) * 5;
+    P.pos[j] = o[0] + Math.cos(a) * r; P.pos[j + 1] = o[1] + rnd(seed + 2) * 0.4; P.pos[j + 2] = o[2] + Math.sin(a) * r;
+    P.vel[j] = 0; P.vel[j + 1] = 0.8 + rnd(seed + 3) * 0.6; P.vel[j + 2] = 0;
+    P.life[i] = 6 + rnd(seed + 4) * 4;
+  }
+  P.age[i] = startAge;
+}
+function simulate(dt) {
+  const o = SCENES[pt.mode].origin;
+  if (pt.mode === 1) pt.attractor = [Math.cos(pt.time * 0.35) * 2.5, 3 + Math.sin(pt.time * 0.55) * 0.8, Math.sin(pt.time * 0.35) * 2.5];
+  dt = pt.reset ? 0 : Math.min(dt, 1 / 30);
+  for (let i = 0; i < pt.count; i++) {
+    const j = i * 3;
+    if (pt.reset) {
+      spawn(i, 0);
+      // 「齢を配らない」はこのページだけの見本(全員 age = 0 で撒き口から)
+      const age = pt.pre ? rnd((hash(i) + 12345) >>> 0) * P.life[i] : 0;
+      if (pt.mode === 0) {
+        P.pos[j] += P.vel[j] * age; P.pos[j + 1] += P.vel[j + 1] * age + 0.5 * GRAVITY * age * age; P.pos[j + 2] += P.vel[j + 2] * age;
+        P.vel[j + 1] += GRAVITY * age;
+        if (P.pos[j + 1] < o[1]) { P.pos[j + 1] = o[1]; P.vel[j + 1] = Math.abs(P.vel[j + 1]) * 0.35; }
+      } else if (pt.mode === 2) {
+        P.pos[j + 1] += P.vel[j + 1] * age;
+      }
+      P.age[i] = age;
+      continue;
+    }
+    P.age[i] += dt;
+    if (P.age[i] >= P.life[i]) { spawn(i, 0); continue; }
+    if (pt.mode === 0) {
+      P.vel[j + 1] += GRAVITY * dt;
+      P.pos[j] += P.vel[j] * dt; P.pos[j + 1] += P.vel[j + 1] * dt; P.pos[j + 2] += P.vel[j + 2] * dt;
+      if (P.pos[j + 1] < o[1]) { P.pos[j + 1] = o[1]; P.vel[j + 1] = Math.abs(P.vel[j + 1]) * 0.35; P.vel[j] *= 0.75; P.vel[j + 2] *= 0.75; }
+    } else if (pt.mode === 1) {
+      const c = pt.attractor;
+      const dx = c[0] - P.pos[j], dy = c[1] - P.pos[j + 1], dz = c[2] - P.pos[j + 2];
+      const d2 = dx * dx + dy * dy + dz * dz + 0.5, len = Math.hypot(dx, dy, dz) || 1, k = 60 / d2 * dt / len;
+      const damp = 1 - 0.02 * dt;
+      P.vel[j] = (P.vel[j] + dx * k) * damp; P.vel[j + 1] = (P.vel[j + 1] + dy * k) * damp; P.vel[j + 2] = (P.vel[j + 2] + dz * k) * damp;
+      P.pos[j] += P.vel[j] * dt; P.pos[j + 1] += P.vel[j + 1] * dt; P.pos[j + 2] += P.vel[j + 2] * dt;
+    } else {
+      const ax = P.pos[j] - o[0], az = P.pos[j + 2] - o[2], r = Math.max(0.3, Math.hypot(ax, az));
+      const rise = 0.6 + 0.5 * Math.sin(P.pos[j + 1] * 0.7 + pt.time * 0.8);
+      const tx = -az / r * (3 / r) - ax / r * 0.35, ty = rise, tz = ax / r * (3 / r) - az / r * 0.35;
+      const m = Math.min(Math.max(dt * 3, 0), 1);
+      P.vel[j] += (tx - P.vel[j]) * m; P.vel[j + 1] += (ty - P.vel[j + 1]) * m; P.vel[j + 2] += (tz - P.vel[j + 2]) * m;
+      P.pos[j] += P.vel[j] * dt; P.pos[j + 1] += P.vel[j + 1] * dt; P.pos[j + 2] += P.vel[j + 2] * dt;
+    }
+  }
+  pt.reset = false;
+  pt.salt = (pt.salt + 1) >>> 0;
+}
+// 色は gpu-particle.vert と同じ。明るさの目盛り(EXPOSURE)はこのページの絵に合わせた値
+const EXPOSURE = 0.06;
+let buf = null, bw = 0, bh = 0, img = null;
+const aces = (x) => Math.min(Math.max(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14), 0), 1);
+const mix = (a, b, t) => a + (b - a) * t;
+function drawParticles() {
+  const cv = $('pt-canvas');
+  const { ctx, w, h } = fit(cv);
+  // 2 CSS 画素で 1 画素(粒1つが1画素に落ちる)
+  const W = Math.max(1, Math.floor(w / 2)), Hh = Math.max(1, Math.floor(h / 2));
+  if (W !== bw || Hh !== bh) { bw = W; bh = Hh; buf = new Float32Array(W * Hh * 3); img = new ImageData(W, Hh); }
+  buf.fill(0);
+  const sc = SCENES[pt.mode], [x0, x1, y0, y1] = sc.view;
+  const aspect = (x1 - x0) / (y1 - y0), fitW = Math.min(W, Hh * aspect), ox = (W - fitW) / 2, s = fitW / (x1 - x0);
+  const intensity = pt.div ? sc.intensity * REFERENCE_COUNT / pt.count : sc.intensity;
+  const k = intensity * EXPOSURE;
+  for (let i = 0; i < pt.count; i++) {
+    const j = i * 3;
+    if (P.age[i] >= P.life[i]) continue;
+    const px = Math.floor(ox + (P.pos[j] - x0) * s), py = Math.floor(Hh - (P.pos[j + 1] - y0) * s);
+    if (px < 0 || py < 0 || px >= W || py >= Hh) continue;
+    const t = Math.min(Math.max(P.age[i] / P.life[i], 0), 1);
+    let r, g, b, a;
+    if (pt.mode === 0) { const tt = t * t; r = mix(1.6, 1.2, tt); g = mix(1.2, 0.18, tt); b = mix(0.6, 0.05, tt); a = 1 - tt; }
+    else if (pt.mode === 1) { const heat = Math.min(Math.hypot(P.vel[j], P.vel[j + 1], P.vel[j + 2]) / 9, 1); r = mix(0.12, 1.5, heat); g = mix(0.35, 1.1, heat); b = mix(1.2, 1.6, heat); a = 0.35 + 0.65 * heat; }
+    else { const hh = Math.min(Math.max(P.pos[j + 1] / 7, 0), 1); r = mix(0.2, 0.15, hh); g = mix(0.85, 0.2, hh); b = mix(0.75, 0.55, hh); a = (1 - t * t) * 0.7; }
+    const q = (py * W + px) * 3, f = a * k;
+    buf[q] += r * f; buf[q + 1] += g * f; buf[q + 2] += b * f;
+  }
+  // 床(y = -0.5)の線
+  const floorY = Math.floor(Hh - (-0.5 - y0) * s);
+  let sum = 0;
+  for (let p = 0, n = W * Hh; p < n; p++) {
+    const q = p * 3, d = p * 4;
+    const y = (p / W) | 0;
+    const base = y === floorY ? 0.03 : 0.004;
+    sum += buf[q] + buf[q + 1] + buf[q + 2];
+    img.data[d] = 255 * aces(buf[q] + base) ** (1 / 2.2);
+    img.data[d + 1] = 255 * aces(buf[q + 1] + base) ** (1 / 2.2);
+    img.data[d + 2] = 255 * aces(buf[q + 2] + base) ** (1 / 2.2);
+    img.data[d + 3] = 255;
+  }
+  const off = drawParticles.off || (drawParticles.off = document.createElement('canvas'));
+  off.width = W; off.height = Hh; off.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, 0, 0, W * 2, Hh * 2);
+  $('pt-stats').innerHTML =
+    stat('粒', N(pt.count), ` <small>${(pt.count * 32 / 1048576).toFixed(1)}MB(GPU なら)</small>`) +
+    stat('1粒の明るさ', intensity.toFixed(pt.div ? 4 : 2), pt.div ? ` <small>= ${sc.intensity} × 65,536 ÷ ${N(pt.count)}</small>` : ' <small>(個数で割らない)</small>') +
+    stat('足した光の総量', (sum / 1000).toFixed(1), ' <small>(このページの目盛り)</small>') +
+    stat('JS で1ステップ', `${pt.cpuMs.toFixed(2)}ms`, ' <small>このページの CPU</small>');
+  $('pt-note').textContent = !pt.div
+    ? '1粒の明るさを固定すると、加算合成は重なったぶん足し算なので、個数を4倍にすると絵も4倍明るくなる(検証の途中で分かったこと 2)'
+    : !pt.pre ? '全員 age = 0 で撒き口から撒くと、形になるまで寿命ぶん待たされ、そのあとも同時に生まれ直して脈打つ(このページだけの見本)'
+    : '群れ全体の明るさを決めて個数で割るので、粒を 16 倍にしても明るさは変わらず、細かさだけが変わる';
+}
+function stepAndDraw(dt) {
+  const t0 = performance.now();
+  if (pt.run || pt.reset) { if (!pt.reset) pt.time += dt; simulate(dt); }
+  pt.cpuMs = pt.cpuMs * 0.9 + (performance.now() - t0) * 0.1;
+  drawParticles();
+}
+seg('pt-mode', (v) => { pt.mode = Number(v); pt.reset = true; stepAndDraw(0); });
+seg('pt-count', (v) => { pt.count = Number(v); pt.reset = true; stepAndDraw(0); });
+$('pt-reset').addEventListener('click', () => { pt.reset = true; stepAndDraw(0); });
+$('pt-div').addEventListener('change', (e) => { pt.div = e.target.checked; drawParticles(); });
+$('pt-pre').addEventListener('change', (e) => { pt.pre = e.target.checked; pt.reset = true; stepAndDraw(0); });
+$('pt-run').checked = pt.run;
+$('pt-run').addEventListener('change', (e) => { pt.run = e.target.checked; });
+animate($('pt-canvas'), (dt) => { if (pt.run) stepAndDraw(dt); });
+window.addEventListener('resize', drawParticles);
+stepAndDraw(0);
+})();
+</script>
+</body>
+</html>

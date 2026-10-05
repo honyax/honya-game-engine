@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 62b 加速構造(BLAS/TLAS)と ray query</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 拡張を有効にする — 増えるのは C# の 30 行だけ</a></li><li class="l3"><a href="#s6">2. RT コアは三角形と箱しか知らない — procedural(AABB)で球を入れる</a></li><li class="l3"><a href="#s7">3. 2階建て — BLAS と TLAS</a></li><li class="l3"><a href="#s8">4. 建てる手順は BLAS も TLAS も同じ4段</a></li><li class="l3"><a href="#s9">5. 「RT コアの仕事量」はシェーダから見えない</a></li><li class="l3"><a href="#s10">6. 加速構造は小さい — 38 バイト / 球</a></li><li class="l3"><a href="#s11">7. 少ない図形では加速構造のほうが遅い</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Vulkan — 6つのクラス</a></li><li class="l3"><a href="#s19">加速構造を建てる流れ</a></li><li class="l3"><a href="#s20">1フレームの流れ</a></li><li class="l3"><a href="#s21">trace.comp の中 — 2通りの traceScene</a></li><li class="l3"><a href="#s22">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. 起動: 球 120 個、ray query</a></li><li class="l3"><a href="#s25">2. <code>4</code> → <code>B</code>: 今日の山場</a></li><li class="l3"><a href="#s26">3. <code>M</code> を2回: 交差判定の回数(共通の目盛り)</a></li><li class="l3"><a href="#s27">4. <code>M</code> を3回: 細かい目盛り(48 回で振り切る)</a></li><li class="l3"><a href="#s28">5. 加速構造の大きさと構築時間</a></li><li class="l3"><a href="#s29">6. シェーダを壊しても落ちない</a></li><li class="l2"><a href="#s30">検証の途中で分かったこと</a></li><li class="l3"><a href="#s31">検証1: <code>rayQueryGenerateIntersectionEXT</code> は「いまの区間の中」でしか呼べない</a></li><li class="l3"><a href="#s32">検証2: 残った 0.007% を段階で切り分ける</a></li><li class="l3"><a href="#s33">検証3: 検証レイヤが無いまま拡張を触るのは危うかった</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): 実体を増やして、階層の効き方を見る</a></li><li class="l3"><a href="#s36">課題2(中): 三角形の BLAS を作って、procedural と比べる</a></li><li class="l3"><a href="#s37">課題3(難): 残った 0.007% を追い詰める</a></li><li class="l2"><a href="#s38">次(Day 62c)でやること</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 62b / 計画書</p>
+  <h1>加速構造(BLAS/TLAS)と ray query</h1>
+  <p class="lede">探す仕事を RT コアに渡す</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 拡張を有効にする — 増えるのは C# の 30 行だけ</a></li><li class="l3"><a href="#s6">2. RT コアは三角形と箱しか知らない — procedural(AABB)で球を入れる</a></li><li class="l3"><a href="#s7">3. 2階建て — BLAS と TLAS</a></li><li class="l3"><a href="#s8">4. 建てる手順は BLAS も TLAS も同じ4段</a></li><li class="l3"><a href="#s9">5. 「RT コアの仕事量」はシェーダから見えない</a></li><li class="l3"><a href="#s10">6. 加速構造は小さい — 38 バイト / 球</a></li><li class="l3"><a href="#s11">7. 少ない図形では加速構造のほうが遅い</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Vulkan — 6つのクラス</a></li><li class="l3"><a href="#s19">加速構造を建てる流れ</a></li><li class="l3"><a href="#s20">1フレームの流れ</a></li><li class="l3"><a href="#s21">trace.comp の中 — 2通りの traceScene</a></li><li class="l3"><a href="#s22">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. 起動: 球 120 個、ray query</a></li><li class="l3"><a href="#s25">2. <code>4</code> → <code>B</code>: 今日の山場</a></li><li class="l3"><a href="#s26">3. <code>M</code> を2回: 交差判定の回数(共通の目盛り)</a></li><li class="l3"><a href="#s27">4. <code>M</code> を3回: 細かい目盛り(48 回で振り切る)</a></li><li class="l3"><a href="#s28">5. 加速構造の大きさと構築時間</a></li><li class="l3"><a href="#s29">6. シェーダを壊しても落ちない</a></li><li class="l2"><a href="#s30">検証の途中で分かったこと</a></li><li class="l3"><a href="#s31">検証1: <code>rayQueryGenerateIntersectionEXT</code> は「いまの区間の中」でしか呼べない</a></li><li class="l3"><a href="#s32">検証2: 残った 0.007% を段階で切り分ける</a></li><li class="l3"><a href="#s33">検証3: 検証レイヤが無いまま拡張を触るのは危うかった</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): 実体を増やして、階層の効き方を見る</a></li><li class="l3"><a href="#s36">課題2(中): 三角形の BLAS を作って、procedural と比べる</a></li><li class="l3"><a href="#s37">課題3(難): 残った 0.007% を追い詰める</a></li><li class="l2"><a href="#s38">次(Day 62c)でやること</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の7日目</strong>。Day 62 の2日目で、reference は Day 62a の完全コピー + 差分。ロードマップの Day 62 が狙っていた「<strong>BLAS/TLAS とは何か、RT コアが何を肩代わりするか</strong>」を、今日ぜんぶ回収する。</p>
+<p>Day 62a で立ち上げた Vulkan に足すのは3つだけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>何を足すか</th><th>どこに</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>拡張3つと機能3つを有効にする</td><td><code>Vulkan/VulkanDevice.cs</code>(+175 行)</td></tr>
+<tr><td>2</td><td><strong>BLAS と TLAS を建てる</strong></td><td><code>Vulkan/AccelerationStructure.cs</code>(新規 433 行。今日の主役)</td></tr>
+<tr><td>3</td><td><code>traceScene</code> を <code>rayQueryEXT</code> に差し替える</td><td><code>shaders/trace.comp</code>(+160 / −27 行)</td></tr>
+</tbody>
+</table></div>
+<p><strong>絵は変わらない</strong>。変わるのは「どう探すか」だけで、光線の作り方も材質も影もトーンマップも1文字も触っていない。<code>B</code> キーで総当たりと ray query を行き来しながら、速さだけが変わるのを見る。</p>
+<p>今日の差分は<strong>新規 1 ファイル</strong>(433 行)と<strong>変更 8 ファイル</strong>(+660 / −136 行)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>球の数</th><th>総当たり</th><th><strong>ray query</strong></th><th>倍率</th><th>BLAS の大きさ</th><th>構築</th></tr></thead>
+<tbody>
+<tr><td>8</td><td><strong>0.05 ms</strong></td><td>0.10 ms</td><td><strong>x0.5</strong>(遅い!)</td><td>1 KB(144 B/球)</td><td>2.2 ms</td></tr>
+<tr><td>120</td><td>0.61 ms</td><td>0.13 ms</td><td>x4.9</td><td>6 KB(53 B/球)</td><td>2.2 ms</td></tr>
+<tr><td>720</td><td>4.03 ms</td><td>0.19 ms</td><td>x21.6</td><td>28 KB(40 B/球)</td><td>2.3 ms</td></tr>
+<tr><td>5000</td><td>29.82 ms</td><td><strong>0.20 ms</strong></td><td><strong>x146.8</strong></td><td>185 KB(38 B/球)</td><td>11.8 ms</td></tr>
+</tbody>
+</table></div>
+<p>(連続で描いたときの最小値。<strong>窓のアプリではもっと大きく、倍率も小さく出る</strong>——完成条件2を参照)</p>
+<blockquote><p><strong>ray query 側の列がほとんど動かない</strong>のが今日の絵になる数字。球を 8 個から 5000 個へ 625 倍にして、光線を追う時間は 0.10ms → 0.20ms の<strong>2倍</strong>。総当たりは 0.05ms → 29.82ms の <strong>600 倍</strong>で、球の数にきれいに比例している。そして <strong>8 個のときは加速構造のほうが遅い</strong>——木をたどる手間が、8 回の球の判定より高くつく。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると Day 62a とまったく同じ絵が出る。<code>4</code> を押して球を 5000 個にしても、HUD の「うち光線追跡」は 2ms 足らずのまま。<code>B</code> を押して総当たりに切り替えると、同じ絵のまま 35ms に跳ね上がる(x20)。<code>M</code> を2回押した「交差判定の回数」は、総当たりでは真っ赤、ray query ではほぼ真っ黒になる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>B</code></td><td><strong>探し方(ray query / 総当たり)。今日の目</strong></td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>球の数(8 / 120 / 720 / <strong>5000</strong>)。4 は今日追加</td></tr>
+<tr><td><code>M</code></td><td>表示(陰影 → 法線 → 交差判定の回数 → <strong>同・細かい目盛り</strong>)。4つ目は今日追加</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>Day 62a のまま</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「加速構造は2階建て」</strong>(要点3)。Day 60 で書いた BVH は1階建てだった。</p>
+<div class="code"><pre><code>  TLAS (top level)          … 「実体」の集まり。実体 = BLAS + 置き方(3x4 の行列)
+    └ BLAS (bottom level)   … 図形そのものの集まり(三角形 or 箱)</code></pre></div>
+<p>分けてある理由は<strong>動くものに強くするため</strong>。物が動いても BLAS は建て直さず、TLAS の行列を書き換えて TLAS だけ建て直す(実体が数千でも 1ms 程度)。同じ BLAS を 1000 個の実体で使い回せば、木が 1000 本の森が<strong>木1本ぶんのメモリ</strong>で建つ。今日の場面は動かないので、<strong>実体1つ・単位行列</strong>という階層を使わない使い方にしてある。</p>
+<p><strong>2つ目は「RT コアは三角形と箱しか知らない」</strong>(要点2)。球を加速構造に入れる方法は1つしかなくて、<strong>球を囲む箱(AABB)を登録する</strong>。そして<strong>球との交差判定は自分で書く</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>RT コアがやること</th><th>自分で書くこと</th></tr></thead>
+<tbody>
+<tr><td>三角形</td><td>木をたどる + <strong>三角形と光線の交差</strong> + 近い順の管理</td><td>なし</td></tr>
+<tr><td><strong>箱(procedural)</strong></td><td>木をたどる + 箱と光線の交差 + 近い順の管理</td><td><strong>球の式</strong>(<code>rayQueryGenerateIntersectionEXT</code> で返す)</td></tr>
+</tbody>
+</table></div>
+<p>これが「RT コアが何を肩代わりするか」の答えで、<strong>肩代わりの中身は木の探索</strong>であって交差判定そのものではない(三角形だけはおまけで付いてくる)。</p>
+<p><strong>3つ目は「絵が同じかどうかは、目ではなく数で確かめる」</strong>(検証2)。総当たりと ray query の絵を 518,400 画素すべて突き合わせると、<strong>720 個の場面で 38 画素(0.007%)が違っていた</strong>。目では絶対に分からない。段階を切り分けて測ったところ、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>何を比べたか</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>一次光線の <code>t</code>(32 ビットそのまま)</td><td><strong>完全一致</strong></td></tr>
+<tr><td>影の光線の判定(影か否か)</td><td><strong>完全一致</strong></td></tr>
+<tr><td>最初に当たった球の材質と色</td><td><strong>完全一致</strong></td></tr>
+<tr><td><strong>反射した先の <code>t</code></strong></td><td><strong>0.002% が不一致</strong></td></tr>
+</tbody>
+</table></div>
+<p>つまり食い違うのは「曲面から出発した2本目以降の光線」だけ。Day 61 の <code>-0.0</code> と同じで、<strong>絵が合っていることは移植できている証拠にならない</strong>。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/">NVIDIA Vulkan Ray Tracing Tutorial</a></strong>の <strong>Acceleration Structures</strong> の章と、<strong><a href="https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/vkrt_tuto_intersection.html">Intersection Shader の章</a></strong>— 今日の本体。後者が <strong>AABB で球を入れる</strong>話で、今日の <code>GpuAabb</code> と<code>rayQueryGenerateIntersectionEXT</code> に直接対応する</li><li><strong><a href="https://registry.khronos.org/vulkan/specs/1.3-extensions/html/vkspec.html">Vulkan 1.3 仕様</a></strong> の<strong>34. Acceleration Structures</strong>(とくに 34.1 の BLAS/TLAS の定義と、34.3 の <code>VkAccelerationStructureInstanceKHR</code> の<strong>ビットフィールドの並び</strong>)</li><li><strong><a href="https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_ray_query.txt">GLSL_EXT_ray_query 拡張仕様</a></strong>— <code>rayQueryProceedEXT</code> / <code>rayQueryGenerateIntersectionEXT</code> の<strong>呼んでよい条件</strong>が書いてある。今日踏んだ落とし穴(検証3)はここに書いてある</li><li><strong><a href="https://docs.vulkan.org/guide/latest/extensions/ray_tracing.html">Vulkan Guide: Ray Tracing</a></strong>— <code>ray_query</code> と <code>ray_tracing_pipeline</code> の<strong>どちらを使うか</strong>の整理。62c の位置づけが分かる</li><li><strong>Day 60b の計画書</strong>(BVH)の<strong>要点7〜9</strong> — 今日 GPU に渡すのは、Day 60 で自分で書いたあの木。「SAH で切る」「葉に何個入れる」をドライバがどう決めているか想像しながら読むと面白い</li><li><strong><a href="https://research.nvidia.com/publication/2012-06_maximizing-parallelism-construction-bvhs-octrees-and-k-d-trees">Tero Karras, "Maximizing Parallelism in the Construction of BVHs, Octrees, and k-d Trees"(HPG 2012)</a></strong>— <strong>GPU で BVH を建てる</strong>方法(LBVH / Morton コード)。<code>vkCmdBuildAccelerationStructures</code> の中で起きていることの原型</li><li><strong><a href="https://research.nvidia.com/publication/2009-08_understanding-efficiency-ray-traversal-gpus">Aila &amp; Laine, "Understanding the Efficiency of Ray Traversal on GPUs"(HPG 2009)</a></strong>— RT コアが生まれる前に、<strong>同じことをシェーダでやるとどこまで行けたか</strong>。今日の x146 という数字の意味が分かる</li><li><strong><a href="https://docs.vulkan.org/samples/latest/samples/extensions/buffer_device_address/README.html">Vulkan Memory Model / bufferDeviceAddress</a></strong>— 加速構造の入力を「ハンドル」ではなく「アドレス」で渡す理由(要点1)</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. 拡張を有効にする — 増えるのは C# の 30 行だけ</h3>
+<p><strong>NuGet は1つも増えない</strong>。<code>VK_KHR_acceleration_structure</code> の関数は<code>Silk.NET.Vulkan.Extensions.KHR</code> に最初から入っていて(Day 62a で既に参照済み)、増えるのは「その拡張を使う」という宣言だけ。これは Vulkan の拡張の仕組みそのもので、<strong>拡張は別のライブラリではなく、同じローダから引く別の関数ポインタ</strong>でしかない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private static readonly string[] RayTracingExtensions =
+[
+    KhrAccelerationStructure.ExtensionName,   // BLAS/TLAS を作る API 一式。本体
+    "VK_KHR_ray_query",                       // どのシェーダからでも rayQueryEXT でたどれるようにする
+    KhrDeferredHostOperations.ExtensionName,  // それ自体は使わないが、上が依存として要求する
+];</code></pre></div>
+<p><code>VK_KHR_ray_query</code> だけ名前を直に書いているのは、<strong>関数を1つも増やさない拡張</strong>だから(増えるのは GLSL 側の <code>rayQueryEXT</code> だけ)。Silk.NET が包みのクラスを生成していない。</p>
+<p>機能(features)のほうは <strong>PNext で数珠つなぎ</strong>にして渡す。</p>
+<div class="code"><pre><code>rayQueryFeatures  →  asFeatures  →  features12  →  DeviceCreateInfo
+   rayQuery=true     accelerationStructure=true    bufferDeviceAddress=true</code></pre></div>
+<p><code>bufferDeviceAddress</code> が要るのは、<strong>加速構造の入力も出力も「GPU のアドレス」で指す</strong>から。AABB のバッファも、実体のバッファも、作業用のスクラッチも、全部アドレス。ディスクリプタを経由しないのは、加速構造の中身が <strong>GPU 側から作られる</strong> (<code>vkCmdBuildAccelerationStructures</code>)ため——GPU の中にはディスクリプタの概念が無い場所がある。</p>
+<p>そして<strong>宣言する前に聞く</strong>。持っていない拡張を宣言すると <code>vkCreateDevice</code> が<code>ErrorExtensionNotPresent</code> を返してそこで終わる。今日のコードは<code>HasDeviceExtensions</code> で聞いてから決めるので、対応していない GPU では総当たりだけで動き続ける。</p>
+<h3 id="s6">2. RT コアは三角形と箱しか知らない — procedural(AABB)で球を入れる</h3>
+<p>Day 60 の BVH には <code>Sphere</code> も <code>Plane</code> も入れられた(<code>TryGetBounds</code> が箱を返せば何でもよかった)。RT コアはそうではなく、BLAS に入れられる図形は<strong>2種類しかない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>種類</th><th>入れるもの</th><th>交差判定は誰が</th></tr></thead>
+<tbody>
+<tr><td><code>GeometryTypeKHR.TrianglesKhr</code></td><td>頂点と添字</td><td><strong>RT コアが全部やる</strong></td></tr>
+<tr><td><code>GeometryTypeKHR.AabbsKhr</code></td><td>箱(min 3つ + max 3つ = 24 バイト)</td><td><strong>箱まで RT コア、中身はシェーダ</strong></td></tr>
+</tbody>
+</table></div>
+<p>球は後者。<code>GpuAabb.FromSphere</code> が球を囲む箱を作り、シェーダ側がこうなる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>while (rayQueryProceedEXT(query)) {
+    if (rayQueryGetIntersectionTypeEXT(query, false) == gl_RayQueryCandidateIntersectionAABBEXT) {
+        int index = rayQueryGetIntersectionPrimitiveIndexEXT(query, false);   // 何番目の箱か
+        float upper = rayQueryGetIntersectionTEXT(query, true);               // いまの確定値
+        if (hitSphere(origin, direction, center, radius, tMin, upper, t)) {
+            rayQueryGenerateIntersectionEXT(query, t);                        // この t で確定候補に
+        }
+    }
+}</code></pre></div>
+<p><strong><code>while</code> が回るのが procedural ならではの往復</strong>。三角形だけの BLAS なら<code>rayQueryProceedEXT</code> を呼ぶだけで <code>while</code> が終わる(中身は空でよい)。箱に当たるたびにシェーダへ戻ってくるので、<strong>箱に当たって球には当たらなかった往復</strong>が持ち出しになる。</p>
+<p>その持ち出しは <code>M</code> を3回押した「細かい目盛り」の絵で<strong>目に見える</strong>。ray query で見ると、<strong>球のまわりに箱の形が浮かび上がる</strong>——箱の角の部分、つまり「箱には入ったが球には当たらなかった」領域が明るく光る。</p>
+<blockquote><p><strong>三角形なら絶対に速い、というわけでもない</strong>。球を 1000 三角形で近似すると、BLAS は 38 B/球 ではなく数十 KB/球 になり、交差判定の精度も落ちる。<strong>解析的に解ける形は procedural のほうが有利</strong>なことが多く、だから髪の毛(カーブ)やボリュームは procedural で入れる。</p></blockquote>
+<h3 id="s7">3. 2階建て — BLAS と TLAS</h3>
+<svg viewBox="0 0 840 220" role="img" aria-label="光線は TLAS(実体の木)に入る。TLAS には実体 0・実体 1・実体 2 があり、実体 0 と 1 は行列と BLAS のアドレスを持ってどちらも BLAS A(箱 5000 個)を指し、実体 2 は BLAS B(三角形 12 万個)を指す" style="width:100%;max-width:840px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="92" width="90" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="55" y="114" text-anchor="middle" fill="var(--ink)">光線</text><rect x="140" y="84" width="150" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="215" y="104.5" text-anchor="middle" fill="var(--ink)">TLAS</text><text x="215" y="121.5" text-anchor="middle" fill="var(--ink)">実体の木</text><rect x="340" y="10" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="30.5" text-anchor="middle" fill="var(--ink)">実体 0</text><text x="450" y="47.5" text-anchor="middle" fill="var(--ink)">行列 + BLAS のアドレス</text><rect x="340" y="84" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="104.5" text-anchor="middle" fill="var(--ink)">実体 1</text><text x="450" y="121.5" text-anchor="middle" fill="var(--ink)">行列 + BLAS のアドレス</text><rect x="340" y="158" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="178.5" text-anchor="middle" fill="var(--ink)">実体 2</text><text x="450" y="195.5" text-anchor="middle" fill="var(--ink)">…</text><rect x="620" y="40" width="200" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="720" y="60.5" text-anchor="middle" fill="var(--ink)">BLAS A</text><text x="720" y="77.5" text-anchor="middle" fill="var(--ink)">箱 5000 個</text><rect x="620" y="158" width="200" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="720" y="178.5" text-anchor="middle" fill="var(--ink)">BLAS B</text><text x="720" y="195.5" text-anchor="middle" fill="var(--ink)">三角形 12 万個</text><path d="M100 110 L138 110" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M290 99 L315 99 L315 35 L338 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M290 109 L338 109" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M290 119 L315 119 L315 183 L338 183" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M560 35 L590 35 L590 57 L618 57" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M560 109 L590 109 L590 73 L618 73" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M560 183 L618 183" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>実体が指す BLAS は共有できる</strong>。同じ木の BLAS を位置違いで 1000 個並べても、図形のメモリは1本ぶん。これが「TLAS を挟む」いちばんの理由。</p>
+<p>もう1つの理由は<strong>更新の粒度</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>何が起きた</th><th>建て直すもの</th><th>かかる時間(今日の場面)</th></tr></thead>
+<tbody>
+<tr><td>物が動いた・回った</td><td><strong>TLAS だけ</strong></td><td>1ms 未満</td></tr>
+<tr><td>形そのものが変わった(スキニング、破壊)</td><td>その BLAS</td><td>球 5000 個で 12ms</td></tr>
+<tr><td>何も変わらない</td><td>なし</td><td>0</td></tr>
+</tbody>
+</table></div>
+<p>今日の場面は動かないので、両方を起動時に1回だけ建てる。<code>GpuInstance</code> が1つで、変換は単位行列——<strong>階層を使わない使い方</strong>。</p>
+<p><code>GpuInstance</code>(= <code>VkAccelerationStructureInstanceKHR</code>)の 64 バイトは、<strong>ビットフィールドを手で詰める</strong>ことになる。</p>
+<div class="code"><pre><code>float[12] transform                      // 48 バイト。3x4、行優先
+uint  instanceCustomIndex:24 | mask:8    //  4 バイト
+uint  sbtRecordOffset:24     | flags:8   //  4 バイト
+ulong accelerationStructureReference     //  8 バイト。BLAS の<strong>アドレス</strong></code></pre></div>
+<p>Silk.NET はこのビットフィールドを公開していないので、自分で並びを定義する。気持ちは悪いが、<strong>この 64 バイトの並びは仕様で固定されていてドライバが直接読む</strong> (ディスクリプタ越しではなく、GPU のアドレスで渡す)。1バイトずれると加速構造が丸ごと無意味になる。</p>
+<div class="inject"><figure class="lab" id="in-lab">
+  <div class="lab-head">
+    <h3>GpuInstance の 64 バイト — ビットフィールドを手で詰める(要点3)</h3>
+    <span class="tag">VkAccelerationStructureInstanceKHR の並び。下の値を変えると、C# が書く 64 バイト(リトルエンディアン)と、GPU がそこから読む値が変わる。初期値は reference と同じ(単位行列、custom index 0、mask 0xFF、SBT のずらし 0、flags = TriangleFacingCullDisable)。BLAS のアドレスは例の値</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">instanceCustomIndex(24 ビット)</span>
+      <div class="range"><input type="range" id="in-custom" min="0" max="16777215" step="1" value="0"><output id="in-custom-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">実体の mask(8 ビット)</span>
+      <div class="range"><input type="range" id="in-mask" min="0" max="255" step="1" value="255"><output id="in-mask-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">光線の cullMask(rayQueryInitializeEXT の引数)</span>
+      <div class="range"><input type="range" id="in-ray" min="0" max="255" step="1" value="255"><output id="in-ray-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">sbtRecordOffset(24 ビット。Day 62c で効く)</span>
+      <div class="range"><input type="range" id="in-sbt" min="0" max="16" step="1" value="0"><output id="in-sbt-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">flags(8 ビット)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:4px 14px">
+        <label class="check"><input type="checkbox" id="in-f1" checked> TriangleFacingCullDisable</label>
+        <label class="check"><input type="checkbox" id="in-f2"> TriangleFlipFacing</label>
+        <label class="check"><input type="checkbox" id="in-f4"> ForceOpaque</label>
+        <label class="check"><input type="checkbox" id="in-f8"> ForceNoOpaque</label>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="in-wrong"> mask を下位 8 ビットに、custom index をその上に詰める(このページだけの間違い)</label>
+  </div>
+  <div class="readout"><div id="in-dump" style="font-family:var(--font-mono);font-size:13px;line-height:1.9;overflow-x:auto"></div><div class="stats" id="in-stats" style="margin-top:10px"></div><p id="in-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><code>mask</code> は光線側のマスクと AND を取って 0 なら当たらない仕組み(影だけ無視する物などに使う)。<code>sbtRecordOffset</code> は ray query では使われないが、<strong>Day 62c ではここが「どの hit シェーダを呼ぶか」を決める</strong>。</p>
+<h3 id="s8">4. 建てる手順は BLAS も TLAS も同じ4段</h3>
+<div class="code"><pre><code>1. 入力(AABB の配列 / 実体の配列)を、GPU のアドレスで指せるバッファに置く
+2. vkGetAccelerationStructureBuildSizes で <strong>必要な大きさを聞く</strong>
+3. その大きさのバッファを確保して vkCreateAccelerationStructure
+4. vkCmdBuildAccelerationStructures を投げる</code></pre></div>
+<p><strong>2 が Vulkan らしいところ</strong>。加速構造が何バイトになるかは「ドライバがどう分割するか」で決まるので、<strong>自分で計算できない</strong>。聞くしかない。返ってくるのは2つの大きさで、</p>
+<ul><li><code>AccelerationStructureSize</code> … 加速構造そのもの。ずっと持っておく</li><li><code>BuildScratchSize</code> … <strong>構築中だけ要る作業用</strong>。建て終わったら捨ててよい</li></ul>
+<p>スクラッチには GPU ごとの境界の要求がある(<code>minAccelerationStructureScratchOffsetAlignment</code>。手元の RTX 3070 は 128)。守らないと構築がそのまま壊れる。</p>
+<p>建てるときに1つだけ方針を伝える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>フラグ</th><th>意味</th><th>使い分け</th></tr></thead>
+<tbody>
+<tr><td><code>PreferFastTraceBitKhr</code></td><td><strong>たどるのが速い</strong>ように建てる。建てるのは遅い</td><td>1回建てて何万フレームも使うもの(今日)</td></tr>
+<tr><td><code>PreferFastBuildBitKhr</code></td><td>建てるのが速い。たどるのは少し遅い</td><td>毎フレーム建て直すもの(破壊、群衆)</td></tr>
+<tr><td><code>AllowUpdateBitKhr</code></td><td>後で「更新」できるようにする</td><td>頂点が少し動くだけのもの(スキニング)</td></tr>
+</tbody>
+</table></div>
+<p>これが Day 60 で自分で選んだ「SAH か中央分割か」に当たる。<strong>方針だけ伝えて、中身は任せる</strong>。</p>
+<h3 id="s9">5. 「RT コアの仕事量」はシェーダから見えない</h3>
+<p>Day 62a の <code>M</code> 2回目(交差判定の回数)は、<code>gTests</code> というグローバル変数を<code>hitSphere</code> の中で増やして数えていた。ray query に替えると、この数え方の意味が変わる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何を数えているか</th><th>5000 個の場面での絵</th></tr></thead>
+<tbody>
+<tr><td>総当たり</td><td><strong>シェーダがやった球の判定の回数</strong>(= ほぼ球の数)</td><td>空まで真っ赤</td></tr>
+<tr><td>ray query</td><td><strong>RT コアがシェーダに投げ返してきた回数</strong>(箱に当たった回数)</td><td>ほぼ真っ黒</td></tr>
+</tbody>
+</table></div>
+<p><strong>木をたどるのに何回箱と交差したかは、原理的にシェーダから見えない</strong>。RT コアの中で起きていることで、シェーダに戻ってこないから。だから ray query 側のこの絵は「RT コアの仕事量」ではなく<strong>「肩代わりされなかった残り」</strong>を見ている——それがほぼ真っ黒だというのが今日の結論。</p>
+<p><code>M</code> の4つ目(細かい目盛り)は、その「残り」を 48 回で振り切る目盛りに切り替えて見るためのもの。<strong>球のまわりに箱の形が浮かぶ</strong>絵になる。</p>
+<div class="inject"><figure class="lab" id="rq-lab">
+  <div class="lab-head">
+    <h3>箱の木で探す — シェーダに戻ってくる回数と、RT コアの中の仕事(要点2・5)</h3>
+    <span class="tag">球を囲む箱を2分木に入れ、近い子から辿って ray query の代わりにしたもの(docs/site/hwraytracer.js)。RT コアが実際にどう木を作り、どの順に箱を返すかは公開されていないので、ここは近似。「シェーダに戻ってきた回数」は葉の箱に当たって hitSphere を呼んだ回数で、実機の交差判定の回数(gTests)にあたる。「箱の判定の回数」は木の節点の箱を試した回数で、実機ではシェーダから見えない。320x180、絵の上にマウスを載せるとその画素の数を出す</span>
+  </div>
+  <div class="stage"><canvas id="rq-canvas" style="height:340px" aria-label="箱の木で探した絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">探し方(B)</span>
+      <div class="seg" id="rq-accel"><button data-v="tree" aria-pressed="true">ray query(箱の木で近似)</button><button data-v="brute" aria-pressed="false">総当たり</button></div>
+    </div>
+    <div class="ctl"><span class="label">球の数(1 / 2 / 3 / 4)</span>
+      <div class="seg" id="rq-count"><button data-v="8" aria-pressed="false">8</button><button data-v="120" aria-pressed="true">120</button><button data-v="720" aria-pressed="false">720</button><button data-v="5000" aria-pressed="false">5000</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(M)</span>
+      <div class="seg" id="rq-mode"><button data-v="0" aria-pressed="false">陰影</button><button data-v="1" aria-pressed="false">法線</button><button data-v="2" aria-pressed="false">交差判定の回数</button><button data-v="3" aria-pressed="true">細かい目盛り(48 回)</button><button data-v="4" aria-pressed="false">箱の判定の回数(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="rq-stats"></div><p id="rq-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">6. 加速構造は小さい — 38 バイト / 球</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>球の数</th><th>BLAS</th><th>1球あたり</th><th>参考: Day 60 の自前 BVH</th></tr></thead>
+<tbody>
+<tr><td>8</td><td>1 KB</td><td>144 B</td><td>節点 1つ 32 B(<code>Bvh.cs</code>)</td></tr>
+<tr><td>120</td><td>6 KB</td><td>53 B</td><td></td></tr>
+<tr><td>720</td><td>28 KB</td><td>40 B</td><td></td></tr>
+<tr><td>5000</td><td>185 KB</td><td><strong>38 B</strong></td><td></td></tr>
+</tbody>
+</table></div>
+<p>球 1 個ぶんの入力(AABB)が 24 バイトなので、<strong>木の分は 14 バイト / 球</strong>しかない。Day 60 の自前 BVH(節点 1 つ 32 バイト、葉 1 個につきおよそ節点 2 つ = 64 バイト)よりかなり詰まっていて、これは NVIDIA が<strong>木をたどる専用回路に合わせて圧縮した形</strong>で持っているため(公開されている形式ではない)。</p>
+<p>TLAS は実体1つなので 2.0 KB で頭打ち。<strong>実体が増えても数十バイトずつしか増えない</strong>ので、TLAS のメモリを気にする場面はまず無い。</p>
+<h3 id="s11">7. 少ない図形では加速構造のほうが遅い</h3>
+<p>表のいちばん上の行が今日いちばん地味だが大事な数字。</p>
+<div class="code"><pre><code>球   8 個: 総当たり 0.05 ms   ray query 0.10 ms   ← <strong>2倍遅い</strong></code></pre></div>
+<p>木をたどる手間(TLAS → 実体 → BLAS → 箱 → シェーダに戻る)が、8 回の球の判定より高くつく。加速構造は<strong>図形が増えたときに効く</strong>道具で、少ないうちは素直に総当たりのほうが速い。</p>
+<p>Day 60 で CPU の BVH を作ったときにも同じことが起きていた(<code>Day60b.md</code> の要点8。総当たりと BVH が入れ替わるのはおよそ 30 個のあたり)。<strong>加速構造を入れれば無条件に速くなる、ではない</strong>ことは、GPU でも変わらない。</p>
+<div class="inject"><figure class="lab" id="cr-lab">
+  <div class="lab-head">
+    <h3>球の数と探す手間 — 数では勝っても、時間では負ける(要点7)</h3>
+    <span class="tag">左: 一次光線1本あたりの仕事の数。総当たりは球の数ぶんの hitSphere、箱の木は「節点の箱の判定 + 葉で呼んだ hitSphere」。このページで 96x54 本を撃って数えた(場面は reference の作り方で、720 個を超えると広がる範囲が 10 → 26 になる)。右: 実機(RTX 3070)の光線追跡の時間で、冒頭の表の値。どちらも横軸は球の数(対数)</span>
+  </div>
+  <div class="stage"><canvas id="cr-canvas" style="height:300px" aria-label="球の数ごとの、1本あたりの仕事の数と、実機の時間"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">球の数</span>
+      <div class="range"><input type="range" id="cr-n" min="0" max="10" step="1" value="0"><output id="cr-n-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cr-stats"></div><p id="cr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>実戦では「図形が少ないから総当たり」という分岐は書かない(場面は増える方向にしか動かないので)。ただし<strong>シャドウマップと RT シャドウの選択</strong>のような形では、いまでも現役の判断になる。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Vulkan/AccelerationStructure.cs</code></td><td>433</td><td><strong>今日の主役</strong>。<code>GpuAabb</code> / <code>GpuInstance</code> / <code>Matrix3x4</code> と、BLAS/TLAS の構築</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何を足したか</th></tr></thead>
+<tbody>
+<tr><td><code>Day62b.csproj</code></td><td>コメントのみ</td><td><strong>NuGet は1つも増えない</strong>ことの説明</td></tr>
+<tr><td><code>Vulkan/VulkanDevice.cs</code></td><td>+175 / −16</td><td>拡張3つ・機能3つ・<code>HasDeviceExtensions</code>・<code>RayQuerySupported</code>・スクラッチの境界</td></tr>
+<tr><td><code>Vulkan/VulkanBuffer.cs</code></td><td>+39 / −0</td><td><code>DeviceAddress</code> と <code>MemoryAllocateFlagsInfo</code>(要点1)</td></tr>
+<tr><td><code>Vulkan/ShaderCompiler.cs</code></td><td>+41 / −4</td><td>マクロ定義(1本の GLSL を2通りに翻訳する)</td></tr>
+<tr><td><code>shaders/trace.comp</code></td><td>+160 / −27</td><td><code>#ifdef USE_RAY_QUERY</code> の2系統。<code>traceScene</code> と <code>inShadow</code></td></tr>
+<tr><td><code>Vulkan/ComputeRenderer.cs</code></td><td>+165 / −53</td><td>TLAS のディスクリプタ、パイプライン2本、<code>Render</code> に <code>useRayQuery</code></td></tr>
+<tr><td><code>Scene/SceneData.cs</code></td><td>+17 / −7</td><td>5000 個のプリセット</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+48 / −10</td><td><code>B</code> キー、<code>4</code> キー、HUD に加速構造の行</td></tr>
+<tr><td><code>Program.cs</code></td><td>+15 / −19</td><td>説明の差し替え</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">写経する順番</h3>
+<p><strong>下から上へ積む</strong>。<code>VulkanDevice</code> の拡張を先に通さないと、その後が何も動かない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Day62b.csproj</code></td><td>Day62a からリネームしただけ + コメント。<strong>パッケージは変わらない</strong></td></tr>
+<tr><td>2</td><td><code>Vulkan/VulkanDevice.cs</code></td><td>拡張の定数 → <code>HasDeviceExtensions</code> → 機能の鎖 → <code>KhrAccelerationStructure</code> を引く → <code>ScratchOffsetAlignment</code>。<code>using Silk.NET.Vulkan.Extensions.KHR;</code> と <code>using System.Diagnostics.CodeAnalysis;</code> を忘れない</td></tr>
+<tr><td>3</td><td><code>Vulkan/VulkanBuffer.cs</code></td><td>2 を使う。<code>MemoryAllocateFlags.DeviceAddressBit</code> と <code>DeviceAddress</code> プロパティ</td></tr>
+<tr><td>4</td><td><code>Vulkan/AccelerationStructure.cs</code></td><td><strong>新規</strong>。2 と 3 を使う。<code>GpuAabb</code> → <code>GpuInstance</code> → <code>Matrix3x4</code> → <code>Build</code> → <code>BuildOne</code> → <code>RecordBuild</code> の順に読む</td></tr>
+<tr><td>5</td><td><code>Vulkan/ShaderCompiler.cs</code></td><td>依存なし。<code>CompileOptionsClone</code> を忘れると2回目も総当たりになる</td></tr>
+<tr><td>6</td><td><code>shaders/trace.comp</code></td><td>C# に依存しない。<code>#ifdef</code> の入れ子を間違えやすいので、<code>traceScene</code> は<strong>丸ごと差し替える</strong>つもりで</td></tr>
+<tr><td>7</td><td><code>Vulkan/ComputeRenderer.cs</code></td><td>2〜6 のすべてを使う。ディスクリプタが3本、パイプラインが2本、<code>CreatePipeline</code> を切り出す</td></tr>
+<tr><td>8</td><td><code>Scene/SceneData.cs</code></td><td>7 とは独立。プリセットに 5000 を足し、<code>extent</code> を導入</td></tr>
+<tr><td>9</td><td><code>App/ViewerWindow.cs</code></td><td>5・7・8 を使う。<code>B</code> キーと HUD の2行</td></tr>
+<tr><td>10</td><td><code>Program.cs</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>途中で動かしたいなら</strong>: 4 まで写せば、<code>AccelerationStructure.Build</code> を呼んでBLAS/TLAS の大きさと構築時間を出すところまでは動く(絵は総当たりのまま)。<strong>加速構造は建つが誰も使っていない</strong>という状態で、ここまでの 3 ファイルの検算ができる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p>Day 62a から<strong>クラスが1つ増えた</strong>(<code>AccelerationStructure</code> と、その中の3つの構造体)。それ以外の層の形は変わっていない。</p>
+<h3 id="s17">全体構成と依存の向き</h3>
+<svg viewBox="0 0 955 527" role="img" aria-label="Program.cs が ViewerWindow を使い、ViewerWindow は ComputeRenderer・VulkanDevice・ShaderCompiler・SceneData・Camera を使う。ComputeRenderer は VulkanDevice・VulkanBuffer・VulkanImage・AccelerationStructure・SceneData・Camera を使い、ShaderCompiler から SPIR-V を 2 本受け取る。AccelerationStructure(今日追加)は VulkanDevice・VulkanBuffer・SceneData を使う。VulkanBuffer と VulkanImage は VulkanDevice を使い、VulkanImage は VulkanBuffer も使う。ShaderCompiler は shaders/trace.comp を読む" style="width:100%;max-width:955px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="330" y="10" width="240" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="34" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.cs</text><rect x="300" y="80" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="100.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">App/ViewerWindow.cs</text><text x="450" y="117.5" text-anchor="middle" fill="var(--ink)">窓・ループ・HUD・入力</text><rect x="10" y="170" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ShaderCompiler.cs</text><text x="120" y="207.5" text-anchor="middle" fill="var(--ink)">GLSL to SPIR-V + マクロ</text><rect x="300" y="170" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="190.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/ComputeRenderer.cs</text><text x="450" y="207.5" text-anchor="middle" fill="var(--ink)">ディスクリプタ・パイプライン2本・コマンド</text><rect x="680" y="170" width="220" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="790" y="194" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/Camera.cs</text><rect x="10" y="280" width="220" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="300.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">shaders/trace.comp</text><text x="120" y="317.5" text-anchor="middle" fill="var(--ink)">2通りに翻訳される</text><rect x="258" y="280" width="180" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="348" y="304" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanImage.cs</text><rect x="460" y="275" width="270" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="295.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/AccelerationStructure.cs</text><text x="595" y="312.5" text-anchor="middle" fill="var(--ink)">BLAS / TLAS(今日追加)</text><rect x="752" y="275" width="175" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="839.5" y="295.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/SceneData.cs</text><text x="839.5" y="312.5" text-anchor="middle" fill="var(--ink)">GpuSphere の配列</text><rect x="380" y="375" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="395.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanBuffer.cs</text><text x="480" y="412.5" text-anchor="middle" fill="var(--ink)">+ DeviceAddress</text><rect x="300" y="465" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="485.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vulkan/VulkanDevice.cs</text><text x="450" y="502.5" text-anchor="middle" fill="var(--ink)">instance / device / queue / pool / 拡張</text><path d="M450 50 L450 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M450 130 L450 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M300 98 L120 98 L120 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M600 98 L790 98 L790 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M600 116 L940 116 L940 300 L929 300" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M300 116 L245 116 L245 500 L298 500" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M600 188 L678 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M590 220 L590 248 L840 248 L840 273" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M300 210 L255 210 L255 484 L298 484" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M345 220 L345 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M440 220 L440 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M560 220 L560 273" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M730 300 L750 300" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M490 325 L490 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M720 325 L720 490 L602 490" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M530 425 L530 463" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M345 320 L345 463" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M400 320 L400 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M120 220 L120 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="128" y="238" fill="var(--muted)" font-size="12">読む</text><path stroke-dasharray="5 4" d="M300 186 L232 186" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="265" y="162" fill="var(--muted)" font-size="12" text-anchor="middle">SPIR-V を 2 本</text></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>Day 62a からの変化</th></tr></thead>
+<tbody>
+<tr><td><code>Scene/</code></td><td>変わらず。<strong>誰も知らない</strong>ただの数</td></tr>
+<tr><td><code>Vulkan/VulkanDevice</code></td><td>拡張の関数ポインタ(<code>KhrAccelerationStructure</code>)を持つようになった</td></tr>
+<tr><td><code>Vulkan/VulkanBuffer</code></td><td><code>DeviceAddress</code> が生えた</td></tr>
+<tr><td><strong><code>Vulkan/AccelerationStructure</code></strong></td><td><strong>新規</strong>。<code>VulkanDevice</code> と <code>VulkanBuffer</code> と <code>Scene/</code> を知る</td></tr>
+<tr><td><code>Vulkan/ComputeRenderer</code></td><td><code>AccelerationStructure</code> を<strong>所有する</strong>ようになった</td></tr>
+<tr><td><code>App/ViewerWindow</code></td><td>変わらず</td></tr>
+</tbody>
+</table></div>
+<p><strong>循環は依然として無い</strong>。<code>AccelerationStructure</code> が <code>ComputeRenderer</code> を知らないのが効いていて、おかげで harness から「加速構造だけ建てて大きさを測る」ことができる(写経メモの「途中で動かしたいなら」)。</p>
+<p><code>AccelerationStructure</code> が <code>Scene/</code> を知っている(<code>GpuSphere</code> を受け取る)のは少し気になるところ。<strong>本当は「AABB の配列」だけを受け取るべき</strong>で、球であることを知る必要は無い。Day 62c で材質ごとに扱いを変えるようになったら、そこで切る。</p>
+<h3 id="s18">Vulkan — 6つのクラス</h3>
+<svg viewBox="0 0 1260 624" role="img" aria-label="Vulkan のクラス図。VulkanBuffer・VulkanImage・AccelerationStructure・ComputeRenderer は VulkanDevice を持つ。AccelerationStructure は VulkanBuffer を所有し(菱形)、GpuAabb と GpuInstance を使う。ComputeRenderer は VulkanImage・VulkanBuffer・AccelerationStructure を所有する" style="width:100%;max-width:1260px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="40" width="410" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="215" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanImage</text><line x1="10" y1="68" x2="420" y2="68" stroke="var(--line)"></line><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Image Handle</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyToBuffer(CommandBuffer, VulkanBuffer) void</text><rect x="440" y="40" width="380" height="203" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="630" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanDevice</text><line x1="440" y1="68" x2="820" y2="68" stroke="var(--line)"></line><text x="450" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Device Handle</text><text x="450" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Queue Queue</text><text x="450" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float TimestampPeriod</text><text x="450" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool RayQuerySupported</text><text x="450" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+KhrAccelerationStructure AccelerationStructureApi</text><text x="450" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ScratchOffsetAlignment</text><text x="450" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong MaxPrimitiveCount</text><text x="450" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryCreate(out string) VulkanDevice</text><text x="450" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SubmitAndWait(Action) void</text><text x="450" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindMemoryType(uint, MemoryPropertyFlags) uint</text><text x="450" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-HasDeviceExtensions(...) bool</text><rect x="10" y="150" width="410" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="215" y="169" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputeRenderer</text><line x1="10" y1="178" x2="420" y2="178" stroke="var(--line)"></line><text x="20" y="195" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool RayQueryAvailable</text><text x="20" y="210" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastFrameMilliseconds</text><text x="20" y="225" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastTraceMilliseconds</text><text x="20" y="240" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AccelerationStructure Acceleration</text><text x="20" y="255" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, int, bool, int[]) void</text><text x="20" y="270" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Pipeline _brutePipeline</text><text x="20" y="285" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Pipeline _rayQueryPipeline</text><text x="20" y="300" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-CreatePipeline(...) tuple</text><rect x="845" y="40" width="405" height="188" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1047.5" y="59" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">AccelerationStructure</text><line x1="845" y1="68" x2="1250" y2="68" stroke="var(--line)"></line><text x="855" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AccelerationStructureKHR Handle</text><text x="855" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong BlasBytes</text><text x="855" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong TlasBytes</text><text x="855" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong ScratchBytes</text><text x="855" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double BuildMilliseconds</text><text x="855" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int PrimitiveCount</text><text x="855" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Build(VulkanDevice, GpuSphere[]) AccelerationStructure</text><text x="855" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-BuildOne(...) tuple</text><text x="855" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-RecordBuild(...) void</text><text x="855" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-GetDeviceAddress(...) ulong</text><rect x="440" y="300" width="290" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="585" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanBuffer</text><line x1="440" y1="328" x2="730" y2="328" stroke="var(--line)"></line><text x="450" y="345" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Buffer Handle</text><text x="450" y="360" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DeviceMemory Memory</text><text x="450" y="375" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Size</text><text x="450" y="390" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong DeviceAddress</text><text x="450" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanBuffer</text><text x="450" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateStaging(...) VulkanBuffer</text><text x="450" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDeviceLocal(...) VulkanBuffer</text><rect x="850" y="300" width="180" height="155" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="940" y="315" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="940" y="331" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuAabb</text><line x1="850" y1="340" x2="1030" y2="340" stroke="var(--line)"></line><text x="860" y="357" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MinX</text><text x="860" y="372" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MinY</text><text x="860" y="387" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MinZ</text><text x="860" y="402" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MaxX</text><text x="860" y="417" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MaxY</text><text x="860" y="432" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MaxZ</text><text x="860" y="447" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+FromSphere(Vector4) GpuAabb</text><rect x="900" y="480" width="330" height="110" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1065" y="495" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="1065" y="511" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuInstance</text><line x1="900" y1="520" x2="1230" y2="520" stroke="var(--line)"></line><text x="910" y="537" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix3x4 Transform</text><text x="910" y="552" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint CustomIndexAndMask</text><text x="910" y="567" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint SbtOffsetAndFlags</text><text x="910" y="582" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong AccelerationStructureReference</text><path d="M420 111.13855421686748 L438.02058079631814 113.74393939223877" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M598.9891304347826 300 L609.7572811350548 244.96278530972003" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M845 137.6377245508982 L821.9996773702067 138.0509039993376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M420 200.55502392344496 L424 200 L438.0760734971812 196.00266844861602" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M215 123 L215 133.8" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M215 150 L219.31482984743784 142.10175694298664 L215 133.8 L210.68517015256216 142.10175694298664 Z" fill="var(--muted)"></path><path d="M440 370.9121621621622 L215 370 L215 324.2" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M215 308 L210.68517015256216 315.89824305701336 L215 324.2 L219.31482984743784 315.89824305701336 Z" fill="var(--muted)"></path><path d="M1047.5 40 L1047.5 20 L5 20 L5 229 L-6.199999999999999 229" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M10 229 L2.101756942986645 224.68517015256216 L-6.199999999999999 229 L2.101756942986646 233.31482984743784 Z" fill="var(--muted)"></path><path d="M630.7881773399015 300 L650 270 L880 270 L919.1514500805425 238.2113599346043" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M931.7279411764706 228 L922.87655450309 229.62878910798804 L919.1514500805425 238.2113599346043 L928.3160953214556 236.3282235717839 Z" fill="var(--muted)"></path><path stroke-dasharray="5 4" d="M958.859649122807 228 L940 248 L940 298" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M1173.2456140350878 228 L1200 248 L1200 470 L1181.0327725702875 479.1323687624542" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="10" y="614" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー。黒い菱形は所有(持ち主が壊れると一緒に壊れる)</text></g></svg>
+<p><code>AccelerationStructure</code> が <code>VulkanBuffer</code> を<strong>4本所有している</strong>のが目立つ(AABB / BLAS 本体 / 実体 / TLAS 本体)。スクラッチは5本目だが、<strong>構築が終わったら捨てる</strong>ので <code>using</code> で囲ってあり、フィールドには残っていない。</p>
+<h3 id="s19">加速構造を建てる流れ</h3>
+<svg viewBox="0 0 900 487" role="img" aria-label="加速構造を建てる流れ。Build が球を GpuAabb の配列にし、アドレスで指せるバッファに置き、AabbsKhr の geometry を作って BuildOne(BottomLevel) を呼ぶ。BuildOne は必要な大きさを聞き、本体を確保して作り、スクラッチを確保して境界に切り上げ、CmdBuildAccelerationStructures とバリアを投げて待つ。BLAS ができたらスクラッチを解放し、単位行列・mask 0xFF・BLAS のアドレスを持つ GpuInstance を1つ作ってバッファに置き、InstancesKhr の geometry で BuildOne(TopLevel) を呼ぶ。できた TLAS をディスクリプタに挿す" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="10" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">AccelerationStructure.Build(device, spheres)</text><rect x="20" y="63" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="83.5" text-anchor="middle" fill="var(--ink)">球 -&gt; GpuAabb の配列</text><rect x="20" y="116" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="136.5" text-anchor="middle" fill="var(--ink)">aabbBuffer: DeviceLocal + ShaderDeviceAddress</text><text x="225" y="153.5" text-anchor="middle" fill="var(--ink)">+ AccelerationStructureBuildInputReadOnly</text><rect x="20" y="186" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="206.5" text-anchor="middle" fill="var(--ink)">geometry: GeometryTypeKHR.AabbsKhr</text><text x="225" y="223.5" text-anchor="middle" fill="var(--ink)">data = aabbBuffer のアドレス, stride = 24</text><rect x="20" y="256" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="276.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BuildOne(BottomLevel, geometry, 球の数)</text><rect x="20" y="309" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="329.5" text-anchor="middle" fill="var(--ink)">GetAccelerationStructureBuildSizes</text><text x="225" y="346.5" text-anchor="middle" fill="var(--ink)">= 本体の大きさ + スクラッチの大きさ</text><rect x="20" y="379" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="399.5" text-anchor="middle" fill="var(--ink)">本体のバッファを確保 -&gt; CreateAccelerationStructure</text><rect x="20" y="432" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="452.5" text-anchor="middle" fill="var(--ink)">スクラッチを確保して境界に切り上げる</text><rect x="470" y="10" width="410" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="30.5" text-anchor="middle" fill="var(--ink)">CmdBuildAccelerationStructures + バリア</text><text x="675" y="47.5" text-anchor="middle" fill="var(--ink)">(SubmitAndWait で待つ)</text><rect x="470" y="80" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="100.5" text-anchor="middle" fill="var(--ink)">BLAS 完成。スクラッチは using で解放</text><rect x="470" y="133" width="410" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="153.5" text-anchor="middle" fill="var(--ink)">GpuInstance を1つ作る</text><text x="675" y="170.5" text-anchor="middle" fill="var(--ink)">行列 = 単位, mask = 0xFF</text><text x="675" y="187.5" text-anchor="middle" fill="var(--ink)">reference = BLAS のアドレス</text><rect x="470" y="220" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="240.5" text-anchor="middle" fill="var(--ink)">instanceBuffer に置く</text><rect x="470" y="273" width="410" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="293.5" text-anchor="middle" fill="var(--ink)">geometry: GeometryTypeKHR.InstancesKhr</text><rect x="470" y="326" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="346.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BuildOne(TopLevel, geometry, 1)</text><rect x="470" y="379" width="410" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="675" y="399.5" text-anchor="middle" fill="var(--ink)">TLAS 完成。これをディスクリプタに挿す</text><path d="M225 43 L225 61" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 96 L225 114" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 166 L225 184" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 236 L225 254" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 289 L225 307" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 359 L225 377" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 412 L225 430" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M675 60 L675 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M675 113 L675 131" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M675 200 L675 218" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M675 253 L675 271" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M675 306 L675 324" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M675 359 L675 377" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M225 465 L225 477 L445 477 L445 4 L675 4 L675 8" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>BLAS と TLAS で <code>BuildOne</code> を共有している</strong>のが要点。手順が同じで、違うのは「何を入れるか(<code>geometry</code>)」と「型(<code>Type</code>)」だけ。</p>
+<p>順番で効くのは1か所。<strong>TLAS を建てる前に BLAS のアドレスを取る</strong>必要があるので、BLAS の構築が終わっていなければならない。今日は <code>SubmitAndWait</code> が毎回待つので自然に守られるが、1本のコマンドバッファにまとめるなら <code>RecordBuild</code> のバリアが必須になる。</p>
+<h3 id="s20">1フレームの流れ</h3>
+<svg viewBox="0 0 860 524" role="img" aria-label="1フレームの流れ。ViewerWindow.Run のループで DoEvents、Camera を作り、ComputeRenderer.Render を呼ぶ。useRayQuery かつ rayQueryPipeline があれば ray query のパイプラインを、なければ総当たりのパイプラインを CmdBindPipeline する。以降は Day 62a とまったく同じで、Present して頭へ戻る" style="width:100%;max-width:860px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="10" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ViewerWindow.Run のループ</text><rect x="250" y="70" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="92" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Application.DoEvents</text><rect x="250" y="130" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="152" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">new Camera(_view, W, H)</text><rect x="200" y="190" width="460" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="212" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ComputeRenderer.Render(camera, mode, useRayQuery, pixels)</text><rect x="300" y="252" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="430" y="272.5" text-anchor="middle" fill="var(--ink)">useRayQuery かつ</text><text x="430" y="289.5" text-anchor="middle" fill="var(--ink)">rayQueryPipeline がある?</text><rect x="20" y="332" width="360" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="200" y="354" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindPipeline(_rayQueryPipeline)</text><rect x="480" y="332" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="354" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">CmdBindPipeline(_brutePipeline)</text><rect x="200" y="402" width="460" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="422.5" text-anchor="middle" fill="var(--ink)">以降は Day 62a とまったく同じ</text><text x="430" y="439.5" text-anchor="middle" fill="var(--ink)">push -&gt; dispatch -&gt; barrier -&gt; copy -&gt; fence</text><rect x="250" y="476" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="498" text-anchor="middle" fill="var(--ink)">Present: LockBits で貼る + HUD</text><path d="M430 46 L430 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 106 L430 128" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 166 L430 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 226 L430 250" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M300 277 L200 277 L200 330" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="208" y="271" fill="var(--muted)" font-size="12">はい</text><path d="M560 277 L660 277 L660 330" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="668" y="271" fill="var(--muted)" font-size="12">いいえ</text><path d="M200 368 L200 427 L198 427" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M660 368 L660 427 L662 427" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M430 452 L430 474" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M250 494 L8 494 L8 28 L248 28" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>切り替えで起きるのは <code>CmdBindPipeline</code> に渡すハンドルが変わることだけ</strong>。作り直しも、ディスクリプタの挿し直しも、加速構造の建て直しも起きない——2本のパイプラインは起動時に両方できている。これが Day 62a の要点4(準備を前に寄せる)の利き方。</p>
+<h3 id="s21">trace.comp の中 — 2通りの traceScene</h3>
+<svg viewBox="0 0 800 690" role="img" aria-label="trace.comp の traceScene。USE_RAY_QUERY でなければ球を 0 から N-1 まで全部試していちばん近いものを残す。USE_RAY_QUERY なら rayQueryInitializeEXT で TLAS・光線・区間を申し込み、rayQueryProceedEXT で候補がある間、候補が AABB なら PrimitiveIndex で球を引いて upper を現在の確定 t にし、hitSphere が当たれば rayQueryGenerateIntersectionEXT(t) で区間を縮める。候補がなくなったら、確定の型が Generated なら fillSphereHit で Hit に詰め、そうでなければ球には当たらなかった。どちらの場合も最後に床(y = 0)を撃って found を返す" style="width:100%;max-width:800px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="10" width="380" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">traceScene(origin, direction, tMin, tMax)</text><rect x="330" y="70" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="440" y="92" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">USE_RAY_QUERY?</text><rect x="20" y="136" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="156.5" text-anchor="middle" fill="var(--ink)">球を 0..N-1 まで全部試す</text><text x="150" y="173.5" text-anchor="middle" fill="var(--ink)">いちばん近いものを残す</text><rect x="380" y="136" width="360" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="560" y="156.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">rayQueryInitializeEXT</text><text x="560" y="173.5" text-anchor="middle" fill="var(--ink)">TLAS・光線・区間を申し込む</text><rect x="450" y="216" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="560" y="238" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">rayQueryProceedEXT</text><rect x="450" y="286" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="560" y="308" text-anchor="middle" fill="var(--ink)">候補の型は AABB?</text><rect x="420" y="352" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="560" y="372.5" text-anchor="middle" fill="var(--ink)">PrimitiveIndex で球を引く</text><text x="560" y="389.5" text-anchor="middle" fill="var(--ink)">upper = 現在の確定 t</text><rect x="450" y="432" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="560" y="454" text-anchor="middle" fill="var(--ink)">hitSphere が当たった?</text><rect x="420" y="498" width="280" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="560" y="518.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">rayQueryGenerateIntersectionEXT(t)</text><text x="560" y="535.5" text-anchor="middle" fill="var(--ink)">区間がここまで縮む</text><rect x="140" y="216" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="250" y="238" text-anchor="middle" fill="var(--ink)">確定の型は Generated?</text><rect x="20" y="286" width="160" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="100" y="308" text-anchor="middle" fill="var(--ink)">fillSphereHit で Hit に詰める</text><rect x="200" y="286" width="160" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="280" y="308" text-anchor="middle" fill="var(--ink)">球には当たらなかった</text><rect x="300" y="582" width="380" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="604" text-anchor="middle" fill="var(--ink)">床(y = 0)を撃つ。両方共通</text><rect x="380" y="642" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="664" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">return found</text><path d="M440 46 L440 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M330 88 L150 88 L150 134" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="158" y="82" fill="var(--muted)" font-size="12">いいえ</text><path d="M550 88 L560 88 L560 134" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="568" y="82" fill="var(--muted)" font-size="12">はい</text><path d="M560 186 L560 214" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M560 252 L560 284" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="568" y="269" fill="var(--muted)" font-size="12">候補あり</text><path d="M560 322 L560 350" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="568" y="339" fill="var(--muted)" font-size="12">はい</text><path d="M560 402 L560 430" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M560 468 L560 496" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="568" y="485" fill="var(--muted)" font-size="12">はい</text><path d="M670 304 L760 304 L760 228 L672 228" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="676" y="298" fill="var(--muted)" font-size="12">いいえ</text><path d="M670 450 L775 450 L775 236 L672 236" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="676" y="444" fill="var(--muted)" font-size="12">いいえ</text><path d="M700 523 L790 523 L790 244 L672 244" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 234 L362 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="444" y="228" fill="var(--muted)" font-size="12" text-anchor="end">候補なし</text><path d="M200 252 L200 266 L100 266 L100 284" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="108" y="280" fill="var(--muted)" font-size="12">はい</text><path d="M280 252 L280 284" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="288" y="272" fill="var(--muted)" font-size="12">いいえ</text><path d="M40 186 L40 206 L8 206 L8 608 L298 608" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M100 322 L100 594 L298 594" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M330 322 L330 580" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M490 618 L490 640" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path></g></svg>
+<p><strong>床の扱いが両方で共通</strong>なのが大事なところ。無限の平面は箱で囲めないのでBLAS に入れられず、ray query でも<strong>手で撃つ</strong>しかない(Day 60 の <code>Scene.Prepare</code> が平面を「囲めない側」に置いたのとまったく同じ線引き)。</p>
+<h3 id="s22">今日残した歪み(3つ)</h3>
+<p><strong>1. <code>AccelerationStructure</code> が <code>GpuSphere</code> を知っている</strong>。本当は AABB の配列だけ受け取れば足りる。Day 62c で材質ごとの hit シェーダを作るときに「どの図形がどの材質か」の対応が要るので、そこで整理する。</p>
+<p><strong>2. 圧縮(compaction)をしていない</strong>。<code>AllowCompactionBitKhr</code> を立てて建て、<code>vkCmdCopyAccelerationStructure</code> で詰め直すと、BLAS が 3〜5 割小さくなるのがふつう。手順が2段増える(建てる → 大きさを聞く → 詰め直す)ので今日は踏み込まない。185 KB が 100 KB になっても今日の話は変わらない。</p>
+<p><strong>3. スクラッチの境界を「確保の先頭が十分に揃っている」ことに頼っている</strong>。正式には <code>BuildScratchSize + alignment</code> を確保して先頭をずらす(今日のコードはそうしている)が、<code>vkAllocateMemory</code> が返すアドレスの揃い方には仕様上の保証がある(256 バイト以上)ので、実際には切り上げが効いたことはない。<strong>保証に頼らず切り上げてある</strong>のはそのため。</p>
+</section>
+<section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day62b -c Release</code> で確かめる。</p>
+<h3 id="s24">1. 起動: 球 120 個、ray query</h3>
+<ul><li>Day 62a とまったく同じ絵</li><li>HUD の1行目の末尾が「<strong>ハードウェアRT あり</strong>」</li><li>HUD に「探し方: ray query (BLAS/TLAS)」</li><li>HUD に「加速構造: BLAS 6 KB / TLAS 2.0 KB / 構築 2.2 ms (53 B/球)」</li></ul>
+<blockquote><p><strong>「ハードウェアRT なし」になる場合</strong>: GPU が対応していない(NVIDIA RTX 2000 系以降 / AMD RX 6000 系以降 / Intel Arc が必要)。その場合 <code>B</code> を押しても総当たりのままで、HUD にその旨が出る。<strong>アプリは落ちない</strong>——Day 62a の絵はそのまま出る。</p></blockquote>
+<h3 id="s25">2. <code>4</code> → <code>B</code>: 今日の山場</h3>
+<p><code>4</code> を押して球を 5000 個にしてから、<code>B</code> を何度か押して行き来する。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>探し方</th><th>1枚</th><th><strong>うち光線追跡</strong></th></tr></thead>
+<tbody>
+<tr><td>ray query</td><td>11.8 ms 前後</td><td><strong>1.8 ms 前後</strong></td></tr>
+<tr><td>総当たり</td><td>51.0 ms 前後</td><td><strong>35 ms 前後</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>絵はまったく変わらない</strong>ことを確かめる(押した直後に見比べる)。x20 前後の差になる。</p>
+<blockquote><p><strong>冒頭の表(0.20 ms / x146.8)より小さい差に見えるのは正常</strong>。あちらは「休みなく連続で描いたときの最小値」で、こちらは窓のアプリの1フレーム。<strong>1枚が 1ms で終わると GPU は残りの 15ms を寝て過ごす</strong>ので、ray query 側がクロックの下がったまま走って下限(1ms 前後)に張り付く。総当たりは 35ms も掛かって GPU が常に忙しいので、クロックが上がって表の値に近づく。<strong>速い側ほど損をする測り方</strong>になっている、ということ。</p></blockquote>
+<p><code>1</code> に戻して <code>B</code> を押し比べると、今度は<strong>総当たりのほうが速い</strong>(要点7)。アプリ内では 8 個で 総当たり 0.3 ms 前後 / ray query 0.9 ms 前後。</p>
+<h3 id="s26">3. <code>M</code> を2回: 交差判定の回数(共通の目盛り)</h3>
+<p>球 5000 個で、<code>B</code> を押しながら見比べる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>探し方</th><th>見えるもの</th></tr></thead>
+<tbody>
+<tr><td>総当たり</td><td>空まで真っ赤。<strong>何にも当たらない光線も 5000 個試している</strong></td></tr>
+<tr><td>ray query</td><td><strong>ほぼ真っ黒</strong>。シェーダに戻ってきた仕事がほとんど無い</td></tr>
+</tbody>
+</table></div>
+<h3 id="s27">4. <code>M</code> を3回: 細かい目盛り(48 回で振り切る)</h3>
+<p>ray query のまま見る。<strong>球のまわりに四角い箱の形が浮かび上がる</strong>。</p>
+<p>これが「箱には入ったが球には当たらなかった」費用で、<strong>procedural(AABB)を使うかぎり避けられない持ち出し</strong>(要点2)。三角形の BLAS ならここは 0 になる。</p>
+<h3 id="s28">5. 加速構造の大きさと構築時間</h3>
+<p><code>1</code> → <code>2</code> → <code>3</code> → <code>4</code> と押して、HUD の「加速構造」の行を読む。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>球</th><th>BLAS</th><th>1球あたり</th><th>構築</th></tr></thead>
+<tbody>
+<tr><td>8</td><td>1 KB</td><td>144 B</td><td>2.2 ms</td></tr>
+<tr><td>120</td><td>6 KB</td><td>53 B</td><td>2.2 ms</td></tr>
+<tr><td>720</td><td>28 KB</td><td>40 B</td><td>2.3 ms</td></tr>
+<tr><td>5000</td><td>185 KB</td><td>38 B</td><td>11.8 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>1球あたりが 144 B → 38 B に下がる</strong>のは、木の根に近い部分の固定費が薄まるから。構築時間が 720 個まで頭打ちなのは、<strong>GPU が空いている時間のほうが支配的</strong>だから(実際に建てている時間は 1ms 未満で、残りは提出と待ちの往復)。</p>
+<h3 id="s29">6. シェーダを壊しても落ちない</h3>
+<p>Day 62a と同じ。<code>shaders/trace.comp</code> の <code>#ifdef USE_RAY_QUERY</code> の中だけを壊して保存し、<code>3</code> → <code>2</code> と押して作り直させると、HUD にエラーが出る。<strong>総当たり版の翻訳は通るのに ray query 版だけ落ちる</strong>ので、「2回翻訳している」ことが実感できる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>B</code></td><td>箱の木の「探し方」</td><td>絵は変わらず、シェーダに戻ってくる回数だけが桁で変わる</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>箱の木の「球の数」、球の数と探す手間の「球の数」</td><td>総当たりは球の数に比例し、箱の木は木の深さぶんしか増えない</td></tr>
+<tr><td><code>M</code>(交差判定の回数 / 細かい目盛り)</td><td>箱の木の「表示」</td><td>細かい目盛りで、球のまわりに箱の角が浮かぶ</td></tr>
+<tr><td>(なし。RT コアの中)</td><td>箱の木の「箱の判定の回数」</td><td>実機ではシェーダから見えない仕事を、このページでは数えて見せる</td></tr>
+<tr><td>(なし。起動時に1回)</td><td>GpuInstance の 64 バイト</td><td>mask と cullMask の AND が 0 だと、何も当たらない</td></tr>
+<tr><td>加速構造の行(完成条件5)・シェーダを壊す(完成条件6)・左ドラッグ / ホイール / <code>R</code></td><td>(なし)</td><td>大きさと構築時間、翻訳エラー、カメラは実機で</td></tr>
+</tbody>
+</table></div>
+<p class="note">箱の木の実験台は、Day 62a と共有の docs/site/hwraytracer.js に「球を囲む箱の2分木(葉は箱1つ、重心の広がりがいちばん大きい軸の真ん中で割る、近い子から辿る)」を足したもの。RT コアの木の作り方と辿る順は公開されていないので近似で、reference/Day62b を RTX 3070 で走らせた 960x540 の絵と比べると、陰影と法線は総当たりと同じだけ一致し(ずれは地平線と市松の境目の 0.1〜0.3%)、細かい目盛りの絵は色の平均が近い(球 720 個で JS 24.3 / 実機 25.8、5000 個で 25.2 / 27.4)が、画素ごとには 12〜16% が違う。球の位置は reference の Scene/SceneData.cs(Day 62b で広がる範囲が変わった)と同じ値。同じ GPU で reference を走らせ直すと、BLAS は 1,152 / 6,400 / 28,800 / 189,056 バイト、TLAS は 2,048 バイト、総当たりと ray query の絵の食い違いは 0 / 14 / 38 / 60 画素だった。</p></div>
+</section>
+<section class="part"><h2 id="s30">検証の途中で分かったこと</h2>
+<h3 id="s31">検証1: <code>rayQueryGenerateIntersectionEXT</code> は「いまの区間の中」でしか呼べない</h3>
+<p>いちばん最初に書いたコードは、候補の球を</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float upper = tMax;   // 光線の上限そのまま
+if (hitSphere(origin, direction, cr.xyz, cr.w, tMin, upper, t)) {
+    rayQueryGenerateIntersectionEXT(query, t);
+}</code></pre></div>
+<p>としていた。<strong>画素の 5.0% が壊れた</strong>(球 720 個)。絵の上では、手前の球の向こう側にあるはずの球が、手前に出てきているように見える。</p>
+<p>原因は、確定済みの t より<strong>遠い</strong> t で <code>rayQueryGenerateIntersectionEXT</code> を呼んでいたこと。拡張の仕様は「いまの区間の中の t」しか受け付けないと書いていて、外の t の振る舞いは未定義。NVIDIA の実装は<strong>そのまま上書きしてしまう</strong>ので、近い交点が後から消える。</p>
+<p>正しくは、上限に<strong>いまの確定値</strong>を使う。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float upper = rayQueryGetIntersectionTEXT(query, true);   // 確定が無ければ光線の tMax が返る</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>上限</th><th>不一致の画素(球 720 個)</th></tr></thead>
+<tbody>
+<tr><td><code>tMax</code>(間違い)</td><td><strong>4.97%</strong></td></tr>
+<tr><td><code>rayQueryGetIntersectionTEXT(query, true)</code>(正しい)</td><td>0.007%</td></tr>
+</tbody>
+</table></div>
+<p><strong>「近い順に管理するのは RT コアの仕事」だと思い込んでいたのが間違い</strong>で、procedural では<strong>こちらが区間を守る責任を持つ</strong>。三角形なら RT コアが全部やるので、この落とし穴は procedural にしか無い。</p>
+<h3 id="s32">検証2: 残った 0.007% を段階で切り分ける</h3>
+<p>上を直しても、総当たりと ray query で <strong>38 画素(0.007%)</strong>が違ったままだった(5000 個なら 60 画素、0.012%)。目で見ても分からない——だから段階を切って測った。</p>
+<p>シェーダに一時的なモードを足して、<strong>8ビットの色に潰さずビットのまま</strong>比べる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>何を出したか</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>一次光線の <code>t</code> を <code>floatBitsToUint</code> で3バイトに</td><td><strong>完全一致</strong></td></tr>
+<tr><td><code>inShadow</code> の結果だけ(反射なし)</td><td><strong>完全一致</strong></td></tr>
+<tr><td>最初に当たった球の材質と色</td><td><strong>完全一致</strong></td></tr>
+<tr><td><strong>反射した先(bounce == 1)の <code>t</code></strong></td><td><strong>0.002% が不一致</strong></td></tr>
+</tbody>
+</table></div>
+<p>つまり食い違うのは<strong>曲面から出発した2本目以降の光線だけ</strong>。一次光線は 51 万画素すべてで1ビットも違わない。</p>
+<p>ここから先(どの浮動小数の演算で分かれるのか)は詰められなかった。確かめたのは2つ:</p>
+<ul><li><strong>AABB を 1.0001 倍に膨らませても変わらない</strong> → 箱の判定が grazing な光線を取りこぼしているのではない</li><li><strong><code>hitSphere</code> の <code>t</code> に <code>precise</code> を付けても変わらない</strong> → FMA の縮約で式がずれているのでもない(総当たり側が 1.5 倍遅くなるだけだった)</li></ul>
+<p>いちばんありそうなのは、<strong>確定した t より先の箱を RT コアが切り捨てるときの比較</strong>がRT コア側の精度で行われることで、<code>t</code> がちょうど境界に乗る光線でだけ判断が分かれる、という筋。<strong>改造課題3</strong>にしてあるので、追いかけたい人は追える。</p>
+<p>教訓は Day 61 の <code>-0.0</code> と同じ形をしている。<strong>絵が合っていることは、移植できている証拠にならない</strong>。</p>
+<h3 id="s33">検証3: 検証レイヤが無いまま拡張を触るのは危うかった</h3>
+<p>Day 62a で「検証レイヤは SDK を入れないと存在しない」と書いた。今日それが効いてきて、<strong>検証1 のバグは検証レイヤがあれば一発で出た</strong> (<code>rayQueryGenerateIntersectionEXT</code> の引数の範囲は検証の対象)。</p>
+<p>加速構造まわりは「静かに壊れる」ことが Day 62a までよりずっと多い。</p>
+<ul><li><code>MemoryAllocateFlagsInfo</code> を忘れる → <code>vkGetBufferDeviceAddress</code> が未定義動作</li><li><code>GpuInstance</code> のビットを1つずらす → 加速構造が空になる(絵が全部空になる)</li><li>スクラッチの境界を守らない → 構築が壊れる</li></ul>
+<p>どれも例外にならず、<strong>絵が真っ黒になるか、何も起きない</strong>。自分で書き換えて詰まったら、まず SDK を入れるのが近道。</p>
+</section>
+<section class="part"><h2 id="s34">改造課題</h2>
+<h3 id="s35">課題1(易): 実体を増やして、階層の効き方を見る</h3>
+<p>いまの TLAS には実体が1つしか入っていない(単位行列)。これを<strong>9つ</strong>にして、同じ BLAS を 3x3 のグリッドに並べる。</p>
+<ol><li><code>AccelerationStructure.Build</code> で <code>GpuInstance</code> の配列を9つにする。<code>Transform</code> の <code>M03</code> / <code>M23</code>(平行移動の x と z)を ±30 ずらす</li><li>TLAS の <code>BuildOne</code> に渡す <code>primitiveCount</code> を 9 にする</li><li><strong>BLAS の大きさは変わらない</strong>ことを HUD で確かめる。TLAS はどれだけ増えたか</li><li>球の見かけの数は 9 倍になったのに、光線追跡の時間はどれだけ増えるか</li><li><code>CustomIndexAndMask</code> の下位 24 ビットに実体の番号を入れ、シェーダで <code>rayQueryGetIntersectionInstanceCustomIndexEXT</code> を読んで、<strong>実体ごとに色を変える</strong></li></ol>
+<blockquote><p><strong>注意</strong>: 実体が違っても <code>PrimitiveIndex</code> は同じ(BLAS の中の番号なので)。球の色は同じになる。それを変えたいなら 5 の <code>CustomIndex</code> が要る。</p></blockquote>
+<h3 id="s36">課題2(中): 三角形の BLAS を作って、procedural と比べる</h3>
+<p>球を三角形で近似して BLAS に入れ、<strong><code>while</code> の中身が空になる</strong>のを確かめる。</p>
+<ol><li>球を経緯度で分割して三角形にする C# のコード(緯度 16 / 経度 32 で 1024 三角形)</li><li><code>GeometryTypeKHR.TrianglesKhr</code> の <code>AccelerationStructureGeometryTrianglesDataKHR</code> を組む(頂点の形式は <code>Format.R32G32B32Sfloat</code>、添字は <code>IndexType.Uint32</code>)</li><li>シェーダ側の <code>while</code> の中身を空にして、確定の型を<code>gl_RayQueryCommittedIntersectionTriangleEXT</code> で受ける。法線は<code>rayQueryGetIntersectionPrimitiveIndexEXT</code> から三角形を引いて計算する</li><li><strong>BLAS の大きさは何倍になったか</strong>(38 B/球 と比べる)</li><li><strong>速くなったか、遅くなったか</strong>。球 720 個で比べる</li><li>絵はどう変わったか(球の輪郭を拡大して見る)</li></ol>
+<p>これが「解析的に解ける形は procedural のほうが有利」の実地検分になる。</p>
+<h3 id="s37">課題3(難): 残った 0.007% を追い詰める</h3>
+<p>検証2 で残った「反射した先の <code>t</code> が 0.002% 違う」を、<strong>どの1本の光線で何が起きているか</strong>まで詰める。</p>
+<ol><li>不一致の画素の座標を CPU 側で拾う(harness の <code>Compare</code> を書き換える)</li><li>その画素だけプッシュ定数で指定して、<strong>シェーダから中間値をバッファに書き出す</strong> (<code>gTests</code> と同じ要領で、デバッグ用の SSBO を1本足す)</li><li>反射した光線の <code>origin</code> / <code>direction</code> を両方の版で出して、<strong>ビットまで一致するか</strong>確かめる</li><li>一致するなら、次は「どの球が選ばれたか」を出す。<strong>違う球なのか、同じ球の違う根なのか</strong></li><li><code>gl_RayFlagsCullBackFacingTrianglesEXT</code> は三角形にしか効かないが、<strong><code>gl_RayFlagsNoOpaqueEXT</code> を立てると何が変わるか</strong>も試す価値がある</li><li>分かったことを Day 62b の計画書に足す</li></ol>
+<blockquote><p><strong>これは「正解が用意されていない課題」</strong>。実測から仮説を立てて潰していく練習として置いてある。途中で「そもそも一致させる必要があるのか」に行き着くのも正解のうち——実際の RT 対応ゲームは、ラスタライズの絵と RT の絵を<strong>一致させないまま</strong>混ぜている。</p></blockquote>
+</section>
+<section class="part"><h2 id="s38">次(Day 62c)でやること</h2>
+<p>今日の <code>Vulkan/</code> は<strong>ほぼそのまま</strong>使い、探し方ではなく<strong>シェーダの呼ばれ方</strong>を変える。</p>
+<ul><li><code>VK_KHR_ray_tracing_pipeline</code> を足す(拡張1つと機能1つ。今日と同じ場所に1行)</li><li><code>shaders/</code> を <strong>5本に割る</strong>: <code>raygen</code> / <code>miss</code> / <code>closesthit</code>(材質ごとに2本)/ <code>intersection</code></li><li><code>Vulkan/RayTracingPipeline.cs</code> と <code>Vulkan/ShaderBindingTable.cs</code> を新設して、<strong>「どの図形に当たったらどのシェーダを呼ぶか」の表</strong>を GPU のメモリの上に作る(今日の <code>GpuInstance.SbtOffsetAndFlags</code> の下位 24 ビットが、そこで初めて効く)</li><li><code>vkCmdTraceRaysKHR</code> に替える</li></ul>
+<p>絵はまた変わらない。変わるのは<strong>コードの形</strong>で、<code>if (kind == 1)</code> の分岐が<strong>シェーダの分割</strong>になる。</p>
+</section>
+<footer class="end">Day 62b 加速構造(BLAS/TLAS)と ray query / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/hwraytracer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat } = Lab;
+const R = window.HwRayTracer;
+const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
+
+// ============================================================
+//  要点3: GpuInstance の 64 バイト
+// ============================================================
+const ADDRESS = 0x0000000412A0C000n;   // BLAS のアドレス(例)
+const FLAG_NAMES = [[1, 'in-f1'], [2, 'in-f2'], [4, 'in-f4'], [8, 'in-f8']];
+function drawInst() {
+  const custom = Number($('in-custom').value), mask = Number($('in-mask').value), ray = Number($('in-ray').value), sbt = Number($('in-sbt').value);
+  const flags = FLAG_NAMES.reduce((a, [b, id]) => a | ($(id).checked ? b : 0), 0), wrong = $('in-wrong').checked;
+  const dv = new DataView(new ArrayBuffer(64));
+  const M = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  M.forEach((v, i) => dv.setFloat32(i * 4, v, true));
+  const word0 = wrong ? ((custom << 8) | mask) >>> 0 : ((mask << 24) | custom) >>> 0;
+  const word1 = ((flags << 24) | sbt) >>> 0;
+  dv.setUint32(48, word0, true); dv.setUint32(52, word1, true); dv.setBigUint64(56, ADDRESS, true);
+  // GPU は仕様どおりに読む: 下位 24 ビットが custom index、上位 8 ビットが mask
+  const gpuCustom = word0 & 0xFFFFFF, gpuMask = word0 >>> 24, gpuSbt = word1 & 0xFFFFFF, gpuFlags = word1 >>> 24;
+  const hit = (gpuMask & ray) !== 0;
+  const color = (off) => (off < 48 ? 'rgba(90,140,220,0.30)' : off < 51 ? 'rgba(70,170,120,0.35)' : off < 52 ? 'rgba(220,140,50,0.45)' : off < 55 ? 'rgba(170,120,220,0.35)' : off < 56 ? 'rgba(220,90,90,0.35)' : 'rgba(150,150,160,0.35)');
+  let html = '';
+  for (let row = 0; row < 4; row++) {
+    html += `<div style="white-space:nowrap"><span style="color:var(--muted)">${hex(row * 16, 2)}:</span> `;
+    for (let k = 0; k < 16; k++) { const o = row * 16 + k; html += `<span style="background:${color(o)};padding:1px 3px;margin-right:2px">${hex(dv.getUint8(o), 2)}</span>`; }
+    html += '</div>';
+  }
+  html += '<div style="color:var(--muted);font-size:12px">青 = 3x4 の行列(48 バイト)/ 緑 = custom index(3 バイト)/ 橙 = mask / 紫 = sbtRecordOffset(3 バイト)/ 赤 = flags / 灰 = BLAS のアドレス(8 バイト)。仕様どおりの位置で色を付けてある</div>';
+  $('in-dump').innerHTML = html;
+  $('in-custom-out').textContent = custom.toLocaleString();
+  $('in-mask-out').textContent = '0x' + hex(mask, 2);
+  $('in-ray-out').textContent = '0x' + hex(ray, 2);
+  $('in-sbt-out').textContent = String(sbt);
+  $('in-stats').innerHTML = stat('CustomIndexAndMask', '0x' + hex(word0, 8)) + stat('SbtOffsetAndFlags', '0x' + hex(word1, 8)) +
+    stat('GPU が読む custom index / mask', `${gpuCustom.toLocaleString()} / 0x${hex(gpuMask, 2)}`) + stat('GPU が読む SBT / flags', `${gpuSbt} / 0x${hex(gpuFlags, 2)}`) +
+    stat('mask & cullMask', `0x${hex(gpuMask & ray, 2)} → ${hit ? '当たる' : '当たらない'}`);
+  let note = hit ? '実体の mask と光線の cullMask の AND が 0 でないので、この実体は光線から見える。' : '実体の mask と光線の cullMask の AND が 0 なので、この実体は丸ごと見えない——加速構造は建っているのに、絵が全部空になる。エラーは出ない。';
+  if (wrong) note += ` 詰め方を間違えると、GPU は custom index の上位 8 ビット(0x${hex(gpuMask, 2)})を mask として読む。custom index が 0 なら mask も 0 で、何も当たらなくなる。`;
+  else if (mask !== 0xFF && hit) note += ' 影の光線だけ別の cullMask にすると、「影を落とさない物」が作れる。';
+  $('in-note').textContent = note;
+}
+for (const id of ['in-custom', 'in-mask', 'in-ray', 'in-sbt']) $(id).addEventListener('input', drawInst);
+for (const id of ['in-f1', 'in-f2', 'in-f4', 'in-f8', 'in-wrong']) $(id).addEventListener('change', drawInst);
+drawInst();
+
+// ============================================================
+//  要点2・5: 箱の木で探す
+// ============================================================
+const BW = 320, BH = 180;
+const cache = {};
+function sceneOf(n) {
+  if (!cache[n]) { const sp = R.createScene(n, '62b'), acc = R.boxTreeAccel(sp); cache[n] = { sp, acc, tree: R.tracer(sp, acc), brute: R.tracer(sp) }; }
+  return cache[n];
+}
+const rq = { accel: 'tree', count: 120, mode: 3, hover: null };
+const img = { data: new ImageData(BW, BH), tests: new Int32Array(BW * BH), boxes: new Int32Array(BW * BH), row: 0, done: false, ms: 0 };
+const off = document.createElement('canvas');
+let job = null;
+function restart() {
+  if (job) job.alive = false;
+  const sc = sceneOf(rq.count), tr = rq.accel === 'tree' ? sc.tree : sc.brute, cam = R.camera(R.DEFAULT_VIEW, BW, BH);
+  const me = { alive: true, row: 0, ms: 0 };
+  job = me; img.done = false; img.row = 0;
+  const tick = () => {
+    if (!me.alive) return;
+    const t0 = performance.now();
+    while (me.row < BH && performance.now() - t0 < 15) {
+      const y = me.row;
+      for (let x = 0; x < BW; x++) {
+        const p = tr.pixel(cam, x, y, rq.mode === 4 ? 2 : rq.mode), i = y * BW + x;
+        const c = rq.mode === 4 ? R.heatColor(p.boxes, 96) : p.color;
+        for (let k = 0; k < 3; k++) img.data.data[i * 4 + k] = Math.round(Math.min(Math.max(c[k], 0), 1) * 255);
+        img.data.data[i * 4 + 3] = 255; img.tests[i] = p.tests; img.boxes[i] = p.boxes;
+      }
+      me.row++;
+    }
+    me.ms += performance.now() - t0;
+    img.row = me.row;
+    drawRq();
+    if (me.row < BH) setTimeout(tick, 0); else { img.done = true; img.ms = me.ms; drawRq(); }
+  };
+  setTimeout(tick, 0);
+}
+function drawRq() {
+  const { ctx, w, h } = fit($('rq-canvas'));
+  const s = Math.min(w / BW, h / BH), x0 = (w - BW * s) / 2;
+  rq.rect = { x0, s };
+  off.width = BW; off.height = BH; off.getContext('2d').putImageData(img.data, 0, 0);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, x0, 0, BW * s, BH * s);
+  const rows = img.row;
+  let st = 0, sb = 0, mt = 0;
+  for (let i = 0; i < rows * BW; i++) { st += img.tests[i]; sb += img.boxes[i]; mt = Math.max(mt, img.tests[i]); }
+  const n = rows * BW || 1;
+  let hov = '';
+  if (rq.hover && img.done) {
+    const [hx, hy] = rq.hover, i = hy * BW + hx;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.strokeRect(x0 + hx * s - 2, hy * s - 2, s + 4, s + 4);
+    hov = `画素 (${hx}, ${hy}): シェーダに戻ってきた回数 ${img.tests[i]} / 箱の判定 ${img.boxes[i]}`;
+  }
+  $('rq-stats').innerHTML = stat('1画素あたり シェーダに戻った回数', (st / n).toFixed(2)) + stat('1画素あたり 箱の判定(実機では見えない)', rq.accel === 'tree' ? (sb / n).toFixed(1) : '0(木が無い)') +
+    stat('いちばん多い画素', `${mt} 回`) + stat('このページの JS で1枚', img.done ? `${img.ms.toFixed(0)} ms` : `描いている途中 ${Math.round(rows / BH * 100)}%`);
+  const notes = {
+    3: rq.accel === 'tree' ? '48 回で振り切る目盛り。光ったところは「葉の箱には入ったが、球には当たらなかった」往復——球のまわりに箱の角の形が浮かぶ。procedural(AABB)で球を入れるかぎり避けられない持ち出し。' : '総当たりは1本ごとに球の数だけ hitSphere を呼ぶので、48 回の目盛りでは全部が振り切れて赤になる。',
+    2: rq.accel === 'tree' ? '球の数の3倍で振り切る目盛り。ray query 側は、シェーダに戻ってくる仕事が数回しか無いのでほぼ真っ黒。' : '総当たりは、何にも当たらない空の光線でも球を全部試すので、空まで色が付く。',
+    4: '木の節点の箱を試した回数(96 回で振り切る)。実機ではこれが RT コアの中で起き、シェーダからは数えられない。総当たりの数と比べると、球の数が増えてもゆっくりしか増えない(木の深さぶん)。',
+    0: '探し方を切り替えても絵は変わらない(このページでは double なので、ずれも出ない)。',
+    1: '法線の表示。床は一様な緑。',
+  };
+  $('rq-note').textContent = hov || (rq.mode === 4 && rq.accel === 'brute' ? '総当たりには木が無いので、箱の判定は 0。' : notes[rq.mode]);
+}
+seg('rq-accel', (v) => { rq.accel = v; restart(); });
+seg('rq-count', (v) => { rq.count = Number(v); restart(); });
+seg('rq-mode', (v) => { rq.mode = Number(v); restart(); });
+{
+  const cv = $('rq-canvas');
+  cv.addEventListener('pointermove', (e) => {
+    const r = cv.getBoundingClientRect(), q = rq.rect;
+    if (!q) return;
+    const x = Math.floor((e.clientX - r.left - q.x0) / q.s), y = Math.floor((e.clientY - r.top) / q.s);
+    rq.hover = x >= 0 && y >= 0 && x < BW && y < BH ? [x, y] : null;
+    drawRq();
+  });
+  cv.addEventListener('pointerleave', () => { rq.hover = null; drawRq(); });
+}
+window.addEventListener('resize', drawRq);
+restart();
+
+// ============================================================
+//  要点7: 球の数と探す手間
+// ============================================================
+const NS = [8, 16, 32, 64, 120, 256, 512, 720, 1500, 3000, 5000];
+const GPU = { 8: [0.05, 0.10], 120: [0.61, 0.13], 720: [4.03, 0.19], 5000: [29.82, 0.20] };
+const work = NS.map(() => null);
+{
+  let k = 0;
+  const step = () => {
+    if (k >= NS.length) return;
+    const sp = R.createScene(NS[k], '62b'), acc = R.boxTreeAccel(sp), cam = R.camera(R.DEFAULT_VIEW, 96, 54);
+    let boxes = 0, tests = 0;
+    for (let y = 0; y < 54; y++) for (let x = 0; x < 96; x++) {
+      const cnt = { tests: 0, boxes: 0 };
+      acc.closest(cam.pos, cam.ray(x, y), 1e-4, 1e30, cnt);
+      boxes += cnt.boxes; tests += cnt.tests;
+    }
+    work[k] = { boxes: boxes / 5184, tests: tests / 5184, depth: acc.tree.depth };
+    k++;
+    drawCr();
+    setTimeout(step, 0);
+  };
+  setTimeout(step, 0);
+}
+const cr = { k: 0 };
+function drawCr() {
+  const { ctx, w, h } = fit($('cr-canvas'));
+  const half = w < 640 ? w : w / 2, two = w >= 640;
+  const panel = (px, py, pw, ph, yMin, yMax, title, series, unit) => {
+    const L = px + 46, Rr = px + pw - 10, T = py + 22, Bt = py + ph - 26;
+    const X = (n) => L + Math.log(n / 8) / Math.log(5000 / 8) * (Rr - L), Y = (v) => Bt - Math.log(v / yMin) / Math.log(yMax / yMin) * (Bt - T);
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body'); ctx.fillText(title, L, py + 12);
+    ctx.font = '10px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+    for (let v = yMin; v <= yMax * 1.001; v *= 10) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(Rr, Y(v)); ctx.stroke(); ctx.fillText(String(v < 1 ? v.toFixed(2) : v) + unit, px, Y(v) + 3); }
+    for (const n of [8, 120, 720, 5000]) { ctx.beginPath(); ctx.moveTo(X(n), T); ctx.lineTo(X(n), Bt); ctx.stroke(); ctx.fillText(String(n), X(n) - 8, Bt + 14); }
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(NS[cr.k]), T); ctx.lineTo(X(NS[cr.k]), Bt); ctx.stroke(); ctx.setLineDash([]);
+    for (const [pts, color, label] of series) {
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      pts.forEach(([n, v], i) => { if (i) ctx.lineTo(X(n), Y(v)); else ctx.moveTo(X(n), Y(v)); });
+      ctx.stroke();
+      for (const [n, v] of pts) { ctx.beginPath(); ctx.arc(X(n), Y(v), 3, 0, Math.PI * 2); ctx.fill(); }
+      if (pts.length) { const [n, v] = pts[pts.length - 1]; ctx.font = '11px ' + tok('--font-body'); ctx.fillText(label, Math.min(X(n) - 60, Rr - 70), Y(v) - 8); }
+    }
+  };
+  const done = work.map((v, i) => [NS[i], v]).filter(([, v]) => v);
+  const ph = two ? h : h / 2;
+  panel(0, 0, half, ph, 1, 10000, '一次光線1本あたりの仕事(このページで数えた)', [
+    [NS.map((n) => [n, n]), 'rgba(220,90,70,0.9)', '総当たり'],
+    [done.map(([n, v]) => [n, v.boxes + v.tests]), tok('--accent'), '箱の木'],
+  ], '');
+  panel(two ? half : 0, two ? 0 : ph, half, ph, 0.01, 100, '実機の光線追跡の時間(冒頭の表)', [
+    [Object.entries(GPU).map(([n, v]) => [Number(n), v[0]]), 'rgba(220,90,70,0.9)', '総当たり'],
+    [Object.entries(GPU).map(([n, v]) => [Number(n), v[1]]), tok('--accent'), 'ray query'],
+  ], 'ms');
+  const n = NS[cr.k], wv = work[cr.k], g = GPU[n];
+  $('cr-n-out').textContent = n + ' 個';
+  $('cr-stats').innerHTML = stat('総当たり(1本あたり)', `${n} 回`) +
+    stat('箱の木(箱 + hitSphere)', wv ? `${wv.boxes.toFixed(1)} + ${wv.tests.toFixed(2)} 回` : '数えている途中') +
+    stat('木の深さ', wv ? String(wv.depth) : '—') + stat('実機 総当たり / ray query', g ? `${g[0]} / ${g[1]} ms` : '(測っていない)');
+  $('cr-note').textContent = n === 8
+    ? `球 8 個でも、数の上では箱の木のほうが少ない(${wv ? (wv.boxes + wv.tests).toFixed(1) : '…'} 回 対 8 回。空の光線は根の箱で外れるので)。それでも実機では ray query が 2 倍遅い——1回あたりの手間が違うから。TLAS → 実体 → BLAS → 箱 → シェーダへ戻る往復は、8 回の球の判定より重い。`
+    : `総当たりは球の数に比例して増え、箱の木は木の深さ(球の数の対数)ぶんしか増えない。実機の ray query の時間がほとんど動かないのはこのため。`;
+}
+$('cr-n').addEventListener('input', (e) => { cr.k = Number(e.target.value); drawCr(); });
+window.addEventListener('resize', drawCr);
+drawCr();
+})();
+</script>
+</body>
+</html>

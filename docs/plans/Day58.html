@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 58 レイマーチング(距離関数だけで場面を描く)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Sandbox とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 符号付き距離関数 — 形を「点に聞く関数」で持つ</a></li><li class="l3"><a href="#s7">2. 球面追跡 — 返った距離だけ進めば、踏み越えない</a></li><li class="l3"><a href="#s8">3. 画素から光線を作る — ビュー射影の逆行列</a></li><li class="l3"><a href="#s9">4. 形を組む — min / max / smin と、点を動かすこと</a></li><li class="l3"><a href="#s10">5. 距離の約束が破れるとき — ねじれと、傾きの上限 L</a></li><li class="l3"><a href="#s11">6. 法線・影・AO — 距離関数にもう何回か聞くだけ</a></li><li class="l3"><a href="#s12">7. 深度を書いてラスタと混ぜる — gl_FragDepth</a></li><li class="l3"><a href="#s13">8. 重さ — 画素の数 × 歩数、そして影がいちばん高い</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">1画素の色が決まるまで — 光線は2本、距離関数は約 50 回</a></li><li class="l3"><a href="#s20">球面追跡の3つの出口</a></li><li class="l3"><a href="#s21">深度が橋になる — SDF の形とラスタの形が同じバッファに並ぶまで</a></li><li class="l3"><a href="#s22">同じ式が2か所にある — C# の鏡と、その使い道</a></li><li class="l3"><a href="#s23">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>F2</code>: レイマーチング</a></li><li class="l3"><a href="#s26">2. <code>F4</code>: 表示を回す</a></li><li class="l3"><a href="#s27">3. <code>F3</code>: 場面を回す</a></li><li class="l3"><a href="#s28">4. <code>F5</code>: ねじれの場面で、歩幅を縮めるのを切る</a></li><li class="l3"><a href="#s29">5. <code>F9</code> → <code>F6</code> → <code>F9</code>: 影がいちばん高い</a></li><li class="l3"><a href="#s30">6. <code>F7</code>: ラスタと混ぜる</a></li><li class="l3"><a href="#s31">7. <code>F8</code>: 1画素を追う</a></li><li class="l3"><a href="#s32">8. <code>F10</code>: 自己チェックが 10 項目すべて合格</a></li><li class="l3"><a href="#s33">9. Day 38〜57 の絵と自己チェックが1つも壊れていない</a></li><li class="l3"><a href="#s34">10. TAA と被写界深度が、SDF の形にもそのまま掛かる</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 形を1つ足して、鏡も合わせる</a></li><li class="l3"><a href="#s37">課題2(中): ねじれの近くでだけ歩幅を縮める</a></li><li class="l3"><a href="#s38">課題3(難): SDF の形に、ラスタの床へ影を落とさせる</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s41">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 58 / 計画書</p>
+  <h1>レイマーチング(距離関数だけで場面を描く)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Sandbox とシェーダが主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 符号付き距離関数 — 形を「点に聞く関数」で持つ</a></li><li class="l3"><a href="#s7">2. 球面追跡 — 返った距離だけ進めば、踏み越えない</a></li><li class="l3"><a href="#s8">3. 画素から光線を作る — ビュー射影の逆行列</a></li><li class="l3"><a href="#s9">4. 形を組む — min / max / smin と、点を動かすこと</a></li><li class="l3"><a href="#s10">5. 距離の約束が破れるとき — ねじれと、傾きの上限 L</a></li><li class="l3"><a href="#s11">6. 法線・影・AO — 距離関数にもう何回か聞くだけ</a></li><li class="l3"><a href="#s12">7. 深度を書いてラスタと混ぜる — gl_FragDepth</a></li><li class="l3"><a href="#s13">8. 重さ — 画素の数 × 歩数、そして影がいちばん高い</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">1画素の色が決まるまで — 光線は2本、距離関数は約 50 回</a></li><li class="l3"><a href="#s20">球面追跡の3つの出口</a></li><li class="l3"><a href="#s21">深度が橋になる — SDF の形とラスタの形が同じバッファに並ぶまで</a></li><li class="l3"><a href="#s22">同じ式が2か所にある — C# の鏡と、その使い道</a></li><li class="l3"><a href="#s23">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. <code>F2</code>: レイマーチング</a></li><li class="l3"><a href="#s26">2. <code>F4</code>: 表示を回す</a></li><li class="l3"><a href="#s27">3. <code>F3</code>: 場面を回す</a></li><li class="l3"><a href="#s28">4. <code>F5</code>: ねじれの場面で、歩幅を縮めるのを切る</a></li><li class="l3"><a href="#s29">5. <code>F9</code> → <code>F6</code> → <code>F9</code>: 影がいちばん高い</a></li><li class="l3"><a href="#s30">6. <code>F7</code>: ラスタと混ぜる</a></li><li class="l3"><a href="#s31">7. <code>F8</code>: 1画素を追う</a></li><li class="l3"><a href="#s32">8. <code>F10</code>: 自己チェックが 10 項目すべて合格</a></li><li class="l3"><a href="#s33">9. Day 38〜57 の絵と自己チェックが1つも壊れていない</a></li><li class="l3"><a href="#s34">10. TAA と被写界深度が、SDF の形にもそのまま掛かる</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 形を1つ足して、鏡も合わせる</a></li><li class="l3"><a href="#s37">課題2(中): ねじれの近くでだけ歩幅を縮める</a></li><li class="l3"><a href="#s38">課題3(難): SDF の形に、ラスタの床へ影を落とさせる</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s41">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の2日目</strong>。Day 57 と同じく <code>Sandbox/</code> に置き、エンジン本体の描画パスには1本も線を伸ばさない。</p>
+<p>今日やることは1つ。<strong>頂点を1つも持たない場面を、画面を覆う三角形1枚の画素シェーダだけで描く</strong>。形は全部 <code>raymarch.frag</code> の中の関数 <code>map(p)</code> にあり、画素ごとに光線を1本飛ばして、その関数を頼りに歩かせる(Shadertoy の作品と同じ形)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ラスタライズ(Day 14〜57)</th><th>レイマーチング(Day 58)</th></tr></thead>
+<tbody>
+<tr><td>形の持ち方</td><td>三角形の並び(頂点バッファと索引)</td><td><strong>距離関数1本</strong>(点を渡すと、いちばん近い面までの距離が返る)</td></tr>
+<tr><td>描く単位</td><td>三角形を画面へ写す</td><td><strong>画素ごとに光線を飛ばして歩く</strong></td></tr>
+<tr><td>重さを決めるもの</td><td>三角形の数・ドローコールの数</td><td><strong>画素の数 × 歩数</strong>(形の数は1歩の重さに効く)</td></tr>
+<tr><td>法線</td><td>頂点の属性</td><td><strong>距離関数の傾き</strong>(4点で聞く)</td></tr>
+<tr><td>影</td><td>シャドウマップ(Day 33。光の目からもう1回描く)</td><td><strong>光へ向けてもう1本歩く</strong>。柔らかい影もそのまま出る</td></tr>
+<tr><td>AO</td><td>SSAO(Day 37。画面に写っているものだけ)</td><td><strong>法線の向きに5回聞く</strong>。画面の外のものも拾う</td></tr>
+<tr><td>無限に並べる</td><td>並べたぶんだけ描く</td><td><strong>点を升目に畳むだけ</strong>。何本見えても1本ぶんの手間</td></tr>
+<tr><td>角を丸める・滑らかにつなぐ</td><td>頂点を足す</td><td><strong>距離から引くだけ</strong></td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は <code>Sandbox/</code> に新規3本、シェーダ1本、そして <code>Program.cs</code>。<strong><code>Render/</code> は1行も変わっていない</strong>——Day 57 で整えた <code>Shader</code> / <code>RenderResources</code> / <code>Camera</code> / <code>GpuTimer</code> を借りるだけで済んだ。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、「見えている形を探す」より「影を探す」ほうが高かったこと</strong></p>
+<p>基本形の場面で、1画素が距離関数を何回呼んでいるかを C# の鏡で数えると、平均 48.4 回のうちカメラからの光線が面を探すのが <strong>21.0 回</strong>、<strong>影の光線が 20.1 回</strong>、法線・材質・AO が 7.3 回だった。影を切ると 28.3 回まで減る。理由は影の光線の歩き方にあって、細いものを飛び越えないよう<strong>1歩を最大 0.5m に抑えてある</strong>ので、何にも当たらずに 12m 先まで抜けるだけで最低 24 歩かかる。カメラからの光線は形に当たれば数歩〜20 歩で止まるのに、<strong>光が当たっている画素ほど、影の光線は最後まで歩き切る</strong>。GPU の時間も 2.76ms → 1.29ms と半分近くになったが、こちらは別のフレームどうしの比べなので、Day 57 で踏んだ「VSync でクロックが上下する」罠のぶん割り引いて読むこと(要点8)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「レイマーチング」ページで <code>F2</code> を押すと、市松模様の床の上に4つの形(くっつく2つの球・くり抜いた箱・箱と球の積・回るトーラス)が柔らかい影と一緒に立つ。頂点は画面を覆う三角形の3つだけ。<code>F3</code> で柱が地平線まで並び、次にねじれた柱に変わる。<code>F4</code> で歩数を色にすると、形の縁と地平線だけが赤く光る。<code>F7</code> で Day 31 の床と箱の中に形を置くと、回る星の箱が SDF の形に刺さる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「レイマーチング」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>レイマーチング ON / OFF。<strong>今日の到達点</strong>。他のデモは全部下ろす</td></tr>
+<tr><td><code>F3</code></td><td>場面(基本形と演算 / 無限の繰り返し / ねじれ)</td></tr>
+<tr><td><code>F4</code></td><td>表示(陰影 / 歩数 / 距離の断面 / 法線)。<strong>歩数と断面が今日の目</strong></td></tr>
+<tr><td><code>F5</code></td><td>歩幅を縮める(既定 ON)。<strong>ねじれの場面だけ効く</strong>。OFF にすると柱の縁が崩れる</td></tr>
+<tr><td><code>F6</code></td><td>影(柔らかい / 硬い / なし)。<strong>影を切ると距離関数の呼び出しが4割減る</strong></td></tr>
+<tr><td><code>F7</code></td><td>ラスタと混ぜる。SDF の床を外し、外れた画素を捨て、<strong>深度を書いて</strong> Day 31 の床と箱と重ねる</td></tr>
+<tr><td><code>F8</code></td><td>1画素を追う。<strong>マウスの下の画素</strong>の光線を C# で1歩ずつ進めて見せる</td></tr>
+<tr><td><code>F9</code></td><td>内訳(1画素で距離関数を何回呼んでいるか・GPU の時間・C# なら何倍)</td></tr>
+<tr><td><code>F10</code></td><td>今日の自己チェック(10 項目)</td></tr>
+</tbody>
+</table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「レイマーチング」(26 枚目)が直接開く。<strong>レイマーチングを出さない限り、絵は Day 57 と1ビットも変わらない</strong> (起動直後・デモ v1・決めの構図・完成版の4枚を画素で突き合わせた。完成条件 9)。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「返った距離だけ進めば、踏み越えない」</strong>。距離関数が h を返したということは、<strong>半径 h の球の中には何も無い</strong>ということ。だから光線を h 進めても、途中で面を通り過ぎることはない。これを繰り返すのが球面追跡(sphere tracing)で、レイマーチングの安全の全部はこの1行にある(要点2)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// raymarch.frag の march。<strong>この for が画素ごとに走る</strong>
+for (int i = 0; i &lt; MAX_STEPS; i++)
+{
+    float h = map(origin + direction * t).x;   // いちばん近い面までの距離
+    if (h &lt; uHitEpsilon * t) { return ...; }     // 1画素より十分近づいた = 当たり
+    t += h * uStepScale;                         // ← 返った距離だけ進む。uStepScale は普段 1
+    if (t &gt; uMaxDistance) { break; }             // 空へ抜けた
+}</code></pre></div>
+<p>裏返すと、<strong>距離関数が本当の距離より長い値を返すと壊れる</strong>。ねじった柱がまさにそれで、<code>F5</code> を切ると光線が面の中へ踏み込んで止まり、柱の縁がガタガタに崩れる(要点5)。</p>
+<p><strong>2つ目は「形は、点のほうを動かして作る」</strong>。SDF は「点に聞く関数」なので、形を回したければ<strong>聞く点を逆に回す</strong>。形を無限に並べたければ、<strong>聞く点を升目1つに畳む</strong>。形どうしは <code>min</code>(和)・<code>max</code>(積)・<code>smin</code>(滑らかな和)で組む。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 carved = rotateY(p - vec3(-1.5, 0.15, 0.0), -uTime * 0.5);    // 形を +θ 回す = 点を −θ 回す
+float carvedBox = max(sdRoundBox(carved, vec3(0.55), 0.05),        // 箱の中で、
+                      -sdSphere(carved, 0.72));                     // かつ球の外 = くり抜き
+
+vec3 q = repeatXZ(p, CELL_SIZE);                                    // 1本ぶんの式で、柱が地平線まで並ぶ</code></pre></div>
+<p>メッシュなら頂点を足し、モデル行列を掛け、インスタンスを並べていたものが、<strong>全部「点の座標をいじる」と「距離を比べる」になる</strong>(要点4)。</p>
+<p><strong>3つ目は「深度を書けば、エンジンの一員になる」</strong>。当たった点をビュー射影で写し、ラスタライズと同じ約束で <code>gl_FragDepth</code> に入れる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec4 clip = uViewProjection * vec4(p, 1.0);
+gl_FragDepth = (clip.z / clip.w) * 0.5 + 0.5;    // ← ラスタライザが頂点にやっていることと同じ</code></pre></div>
+<p>これだけで、<strong>Day 31 の回る箱が SDF の形に刺さり、粒は SDF の形の裏に隠れ、TAA の速度も被写界深度も SDF の形を普通に扱う</strong>——どれも深度バッファしか見ていないので、そこに正しい値があれば、形が三角形から来たか関数から来たかを知る必要が無い(要点7)。自己チェックは、<strong>SDF の床と Day 31 の床(ラスタ)を同じ画素で描き比べて</strong>、深度の約束が揃っていることを確かめている。</p>
+<h3 id="s3">今日は Sandbox とシェーダが主役</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>どこ</th><th>何をしたか</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/Sdf.cs</code></td><td><strong>形の部品</strong>(球・箱・角の丸い箱・トーラス・カプセル・smin・回転・ねじれ・繰り返し)。<code>raymarch.frag</code> と1行ずつ同じ式。GL を知らない</td></tr>
+<tr><td><code>Sandbox/SdfScene.cs</code></td><td><strong>場面の鏡</strong>。3つの場面・球面追跡・法線・影・AO・傾きの測定。GL を知らない</td></tr>
+<tr><td><code>Sandbox/Raymarcher.cs</code></td><td><strong>GL の側</strong>。シェーダ1本・空の VAO・タイマー1本。uniform を送って三角形を1枚描き、深度の状態を借りて返す</td></tr>
+<tr><td><code>shaders/raymarch.frag</code></td><td><strong>今日の主役</strong>。場面・歩き方・色の全部。頂点シェーダは後処理の <code>fullscreen.vert</code> をそのまま使う</td></tr>
+<tr><td><code>Program.cs</code></td><td>ページ1枚、<code>OnRender</code> に1行、HUD に1行、出す/下ろす、1画素を追う・内訳・自己チェック</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Render/</code> の描画パスもシェーダも、既存のものは1行も変わっていない</strong>。レイマーチングは <code>_post.Begin</code> と <code>_post.End</code> の間(不透明なものの最後、粒の手前)に自分で描くだけ。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://iquilezles.org/articles/distfunctions/">Inigo Quilez: distance functions</a>— <strong>今日の要点1・4の一次資料</strong>。球・箱・トーラス・カプセルの式と、和・差・積、繰り返し、ねじれ(<code>opTwist</code>)。<code>Sdf.cs</code> の式はほぼここからそのまま取っている</li><li><a href="https://iquilezles.org/articles/raymarchingdf/">Inigo Quilez: Raymarching SDFs</a>— 要点2。距離関数のレイマーチングの成り立ちと作例。Shadertoy の作品がなぜ「画素シェーダ1枚」なのかが分かる</li><li><a href="https://graphics.stanford.edu/courses/cs348b-20-spring-content/uploads/hart.pdf">John C. Hart, "Sphere Tracing: A Geometric Method for the Antialiased Ray Tracing of Implicit Surfaces"(PDF)</a>— 要点2・5の元の論文(1996)。<strong>「距離の見積もりが本当の距離を超えなければ、踏み越えない」</strong>を、リプシッツ定数で定式化している</li><li><a href="https://iquilezles.org/articles/smin/">Inigo Quilez: smooth minimum</a>— 要点4。滑らかな和の何通りもの形。<strong>記事の今の版は k を4倍してから使う</strong>(k を「膨らむ厚み」の意味に揃えるため)。今日のコードは4倍しない古い形なので、同じ見た目にするには k を読み替えること</li><li><a href="https://iquilezles.org/articles/sdfrepetition/">Inigo Quilez: domain repetition</a>— 要点4。<strong>繰り返した形が升目からはみ出したり非対称だと、隣の升目の形のほうが近いのに見落とす</strong>話。今日の繰り返しの場面が回転対称な形だけで組んであるのは、これを避けるため</li><li><a href="https://iquilezles.org/articles/normalsSDF/">Inigo Quilez: normals for an SDF</a> と<a href="https://iquilezles.org/articles/rmshadows/">soft shadows in raymarched SDFs</a>— 要点6。四面体の4点で法線を取る方法と、<code>k × h / t</code> の柔らかい影</li><li><strong>Day 33 の計画書</strong>(シャドウマップ)・<strong>Day 37 の計画書</strong>(SSAO)・<strong>Day 52 の計画書 要点3</strong>(位置は持たず、深度から戻す)・<strong>Day 54 の計画書 要点2・4</strong>(ずらしと、速度バッファの2段) — 今日は「同じことを距離関数でやるとどうなるか」の見比べになる</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 符号付き距離関数 — 形を「点に聞く関数」で持つ</h3>
+<p>SDF(signed distance function)は、<strong>点 p を渡すと、いちばん近い面までの距離を返す関数</strong>。外なら正、中なら負、面の上で 0。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float sdSphere(vec3 p, float radius) { return length(p) - radius; }</code></pre></div>
+<p>球ならこれだけで、中心からの距離から半径を引けば、そのまま面までの距離になる。箱も1行の式で書ける(<code>Sdf.Box</code>)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>メッシュ</th><th>SDF</th></tr></thead>
+<tbody>
+<tr><td>形の置き場所</td><td>頂点バッファ(VRAM)</td><td><strong>関数の中</strong>(シェーダのコード)</td></tr>
+<tr><td>「ここは中か外か」</td><td>分からない(聞く手段が無い)</td><td><strong>符号を見れば分かる</strong></td></tr>
+<tr><td>「いちばん近い面までどれだけか」</td><td>全部の三角形と比べる</td><td><strong>1回呼べば分かる</strong></td></tr>
+<tr><td>角を丸める</td><td>頂点を足す</td><td><strong>距離から半径を引く</strong>(<code>sdRoundBox</code>)</td></tr>
+</tbody>
+</table></div>
+<p><strong>「本当の距離」を返す SDF は、傾きがどこでもちょうど 1</strong> になる(1m 動けば、距離はちょうど 1m 変わる向きがあり、それより速くは変わらない)。自己チェックの1項目めは、球・箱・トーラスの外側の 11,796 点で傾きを測り、<strong>1 からのずれが最大 7.3e-4</strong>(差分の誤差ぶん)だと確かめている。</p>
+<p>ただし<strong>本当の距離である必要は無い</strong>。要るのは「本当の距離を超えない」ことだけで、短めに見積もるぶんには光線が少し余計に歩くだけで済む(要点2・5)。この3種類を区別しておくと、今日の話が全部読める。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>返す値</th><th>傾き</th><th>球面追跡</th><th>今日の例</th></tr></thead>
+<tbody>
+<tr><td>本当の距離(exact)</td><td>ちょうど 1</td><td>最短の歩数で当たる</td><td>球・箱・トーラス</td></tr>
+<tr><td>短めの見積もり(bound)</td><td>1 以下</td><td><strong>安全</strong>。歩数が少し増える</td><td>滑らかな和・差・積</td></tr>
+<tr><td>長めの見積もり</td><td><strong>1 を超える</strong></td><td><strong>踏み越える</strong>。歩幅を縮めないと壊れる</td><td>ねじれ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s7">2. 球面追跡 — 返った距離だけ進めば、踏み越えない</h3>
+<p>光線の上の点 <code>origin + direction × t</code> で距離関数を呼び、返った h だけ t を進める——を繰り返す。<strong>半径 h の球の中には何も無い</strong>ので、h 進んでも面を通り過ぎない。面に近づくほど h が小さくなり、歩幅も縮んでいく。</p>
+<p>終わり方は3通り。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>出口</th><th>条件</th><th>画素の色</th></tr></thead>
+<tbody>
+<tr><td><strong>当たり</strong></td><td><code>h &lt; ε × t</code>(ε = 0.0005)</td><td>陰影を付ける</td></tr>
+<tr><td><strong>外れ</strong></td><td><code>t &gt; 80m</code></td><td>空(ラスタと混ぜるときは捨てる)</td></tr>
+<tr><td><strong>歩数切れ</strong></td><td>128 歩</td><td>空。<strong>当たったとは言えない</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>当たりの幅を t に比例させている</strong>のが1つ目の工夫。960x640・画角 60° なら、1画素の幅は距離 t のところで <code>t × 2tan(30°) / 640 ≒ 0.0018t</code>。その4分の1(0.0005t)まで寄れば画素の中では区別がつかないので、<strong>遠い画素ほど粗く止めてよい</strong>。決まった幅(1mm)にすると、遠くの画素ほど必要以上に面へ寄ってから止まることになり、そのぶん余計に歩く。</p>
+<p><strong>かすめる光線が高い</strong>のが2つ目の要点。<code>F8</code> で面の真正面の画素を追うと数歩で当たるが、形の縁の画素は h が縮まないまま少しずつしか進めない。自己チェックの6項目めは、「積」の形に正面から当てる光線が <strong>2 歩</strong>、その上の面の 2cm 上をかすめて抜ける光線が <strong>66 歩</strong>だと確かめている。<code>F4</code> の歩数の表示で<strong>形の縁と地平線だけが赤くなる</strong>のはこのため(地平線は、床とほぼ平行な光線が床をかすめ続ける場所)。</p>
+<p><code>F8</code> で画面の真ん中(床)を追うと、こう出る。</p>
+<div class="code"><pre><code>    歩   進んだ距離 t   返った距離 h   当たりの幅 εt
+     1       0.0000m       3.33022m      0.00000m
+     2       3.3302m       2.34894m      0.00167m
+     3       5.6792m       1.65680m      0.00284m
+     ...
+    18      11.2692m       0.00964m      0.00563m
+    19      11.2788m       0.00680m      0.00564m
+    20      11.2857m       0.00480m      0.00564m
+  → <strong>当たり</strong>: 11.286m 先で 20 歩。材質 床</code></pre></div>
+<p>h が毎歩およそ 0.7 倍ずつ縮んでいる。床に角度 θ で入る光線は、1歩ごとに床までの高さが (1 − sinθ) 倍になるので、<strong>当たりに近づくほど1歩が小さくなる</strong>。最後の h(4.8mm)が当たりの幅(5.6mm)を割ったところで止まる——つまり<strong>球面追跡は必ず面の手前で止まる</strong>。どれだけ手前かは「当たりの幅 ÷ 床に入る角度の sin」まで広がりうる(自己チェックの9項目め。完成条件)。</p>
+<div class="inject"><figure class="lab" id="mt-lab">
+  <div class="lab-head">
+    <h3>断面の上で光線を歩かせる(要点2・5)</h3>
+    <span class="tag">raymarch.frag の場面を z = 0 の縦の断面で切り、その面の中を進む光線で march を回したもの。円は「中に何も無い」と分かった球の断面。色は F4 の距離の断面と同じ塗り分け(白い線が面、橙が外、青が中)</span>
+  </div>
+  <div class="stage"><canvas id="mt-canvas" style="height:340px;touch-action:none" aria-label="場面の断面と、光線の歩み。カメラの近くをドラッグするとカメラが動き、それ以外をドラッグすると狙う先が動く" tabindex="0"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">場面(F3)</span>
+      <div class="seg" id="mt-scene"><button data-v="0" aria-pressed="true">基本形と演算</button><button data-v="1" aria-pressed="false">無限の繰り返し</button><button data-v="2" aria-pressed="false">ねじれ</button></div>
+    </div>
+    <div class="ctl"><span class="label">例</span>
+      <div class="seg" id="mt-pre"></div>
+    </div>
+    <div class="ctl"><span class="label">時刻</span>
+      <div class="range"><input type="range" id="mt-time" min="0" max="10" step="0.01" value="0.67"><output id="mt-time-out"></output></div>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="check"><input type="checkbox" id="mt-safe" checked> 歩幅を縮める(F5。ねじれの場面だけ 1/L)</label>
+    <label class="check"><input type="checkbox" id="mt-fan"> 扇に 161 本飛ばして、歩数を色にする(F4 の歩数)</label>
+  </div>
+  <div class="readout"><div class="stats" id="mt-stats"></div><pre id="mt-trace" style="margin:10px 0 0;font-size:12px;line-height:1.45;overflow-x:auto"></pre><p id="mt-note" style="margin:6px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">3. 画素から光線を作る — ビュー射影の逆行列</h3>
+<p>画素の中心 <code>gl_FragCoord.xy</code> を NDC(−1〜1)に直し、<strong>ビュー射影の逆行列</strong>で近クリップ面(z = −1)と遠クリップ面(z = +1)の点へ戻す。その2点を結んだものが、その画素の光線になる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec2 ndc = (gl_FragCoord.xy / uResolution) * 2.0 - 1.0;
+vec4 nearClip = uInverseViewProjection * vec4(ndc, -1.0, 1.0);
+vec4 farClip  = uInverseViewProjection * vec4(ndc,  1.0, 1.0);
+vec3 origin    = nearClip.xyz / nearClip.w;
+vec3 direction = normalize(farClip.xyz / farClip.w - origin);</code></pre></div>
+<p>Shadertoy の作品はカメラの位置と向きと画角から光線を組み立てることが多いが、<strong>エンジンの中では逆行列のほうが素直</strong>になる。理由は3つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>位置・向き・画角から組む</th><th>逆行列から戻す(今日)</th></tr></thead>
+<tbody>
+<tr><td>TAA のずらし(Day 54)</td><td>別に足す必要がある</td><td><strong>行列に入っているのでそのまま効く</strong></td></tr>
+<tr><td>平行投影(<code>P</code> キー)</td><td>別の式が要る</td><td><strong>同じ式で動く</strong>(光線が平行になる)</td></tr>
+<tr><td>ラスタと揃うか</td><td>画角の定義を合わせないとずれる</td><td><strong>ラスタライズと同じ行列なので必ず揃う</strong></td></tr>
+</tbody>
+</table></div>
+<p>始点を<strong>カメラの位置ではなく近クリップ面の上の点</strong>にしてあるのも、ラスタライズとの約束を揃えるため。ラスタライズは近クリップ面より手前を切り捨てるので、同じ位置から歩き始めておけば、混ぜたときに手前の形の出方が揃う。Day 54 の <code>MotionVectors</code>(<code>camera-velocity.frag</code>)が「深度から世界の点を戻した」のと同じ逆行列の使い方を、今日は深度の値を決め打ち(−1 と +1)にして2回やっていることになる。</p>
+<h3 id="s9">4. 形を組む — min / max / smin と、点を動かすこと</h3>
+<p>形どうしの組み合わせは、<strong>距離の比べ方</strong>で書く。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>演算</th><th>式</th><th>意味</th><th>傾き</th></tr></thead>
+<tbody>
+<tr><td>和</td><td><code>min(a, b)</code></td><td>どちらかの中</td><td>1 以下</td></tr>
+<tr><td>積</td><td><code>max(a, b)</code></td><td>両方の中</td><td>1 以下</td></tr>
+<tr><td>差</td><td><code>max(a, -b)</code></td><td>a の中で、かつ b の外</td><td>1 以下</td></tr>
+<tr><td>滑らかな和</td><td><code>smin(a, b, k)</code></td><td>差が k より小さいところで min から少し引く</td><td><strong>1 以下</strong>(つなぎ目では 1 を割る)</td></tr>
+</tbody>
+</table></div>
+<p><code>min</code> も <code>max</code> も傾きを増やさないので、<strong>本当の距離の形をいくつ組んでも「長く見積もらない」は保たれる</strong>。差と積は中身がもう本当の距離ではない(くり抜いた穴の中での距離は短めに出る)が、安全側にずれるだけ。</p>
+<p><strong>滑らかな和は、距離から引いている</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float smin(float a, float b, float k)
+{
+    float h = max(k - abs(a - b), 0.0) / k;     // 差が 0 で 1、差が k で 0
+    return min(a, b) - h * h * k * 0.25;         // 差が 0 のとき k/4 だけ膨らむ
+}</code></pre></div>
+<p>a と b の傾きを 0〜1 の重みで混ぜた形になるので、傾きは 1 を超えない。むしろ<strong>2つの球のつなぎ目では向きの違う傾きが打ち消し合って 0.1 まで下がる</strong> (自己チェックの2項目め)——短めに見積もるので、つなぎ目の近くでは光線が余計に歩く。</p>
+<div class="inject"><figure class="lab" id="sm-lab">
+  <div class="lab-head">
+    <h3>滑らかな和 — k と、つなぎ目で落ちる傾き(要点4)</h3>
+    <span class="tag">基本形の場面の左端、くっつく2つの球(半径 0.55)を z = 0 で切ったもの。smin は raymarch.frag と同じ式</span>
+  </div>
+  <div class="stage"><canvas id="sm-canvas" style="height:260px" aria-label="2つの円を滑らかにつないだ形の距離の断面"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">k(場面では 0.6)</span>
+      <div class="range"><input type="range" id="sm-k" min="0.01" max="1.5" step="0.01" value="0.6"><output id="sm-k-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">中心から左右へのずれ swing(場面では 0.25〜0.70 を行き来)</span>
+      <div class="range"><input type="range" id="sm-swing" min="0.25" max="0.7" step="0.01" value="0.7"><output id="sm-swing-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="sm-grad"> 傾きの大きさを色にする</label>
+  </div>
+  <div class="readout"><div class="stats" id="sm-stats"></div><p id="sm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>形を動かすのは点のほう</strong>。SDF は「点に聞く関数」なので、形を +θ 回したければ、聞く点を −θ 回して渡す。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 ring = rotateY(p - vec3(4.5, 0.15, 0.0), -uTime * 0.7);   // 平行移動も回転も逆向きに
+float torus = sdTorus(ring.xzy, 0.5, 0.18);                    // 成分を入れ替えて輪を立てる</code></pre></div>
+<p>メッシュでは「モデル行列を頂点に掛ける」だった。SDF では「<strong>モデル行列の逆行列を点に掛ける</strong>」になる。回転と平行移動は距離を変えない(剛体の動き)ので、傾きも 1 のまま。</p>
+<p><strong>繰り返しも点のほう</strong>で、点を「いちばん近い升目の中心から見た座標」に畳む。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 repeatXZ(vec3 p, float cellSize)
+{
+    return vec3(p.x - cellSize * floor(p.x / cellSize + 0.5), p.y, p.z - cellSize * floor(p.z / cellSize + 0.5));
+}</code></pre></div>
+<p>これで柱が地平線まで並ぶが、<strong>1歩の手間は1本ぶん</strong>のまま(<code>F3</code> の2つ目の場面)。ただし条件が1つあって、<strong>形が升目の半分に収まり、升目の境目に対して左右対称でなければならない</strong>。そうでないと、隣の升目の形のほうが近いのに自分の升目の形までの距離を返し、<strong>長く見積もる</strong>。今日の柱・玉・輪が全部 y 軸まわりに回転対称で、輪の高さも全部の升目で同じなのはそのため(升目ごとに輪の高さをずらすと絵は楽しくなるが、隣の輪のほうが近い点ができる)。</p>
+<p>丸めを <code>round</code> ではなく <code>floor(x + 0.5)</code> で書いているのは、GLSL の <code>round</code> が「ちょうど半分」の向きを実装に任せていて、C# の <code>MathF.Round</code>(偶数へ丸める)と食い違いうるから。<strong>鏡を持つなら、丸め方まで揃える</strong>。</p>
+<h3 id="s10">5. 距離の約束が破れるとき — ねじれと、傾きの上限 L</h3>
+<p>点を<strong>高さに比例して</strong>回すと、柱がねじれる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 twistY(vec3 p, float rate) { return rotateY(p, rate * p.y); }</code></pre></div>
+<p>回転そのものは距離を変えないが、<strong>高さごとに回す角度が違う</strong>と空間が伸び縮みする。柱の面を向いて、軸から横に w 離れた点を真上へ 1m 動かすと、ねじった側の座標では面に沿って <code>τw</code> 余分に動いたことになる(τ = 1m あたりの角度)。距離の変わり方は「縦の 1」と「横の τw」の合成になり、傾きが最大</p>
+<div class="code"><pre><code>L = √(1 + (τw)²) = √(1 + (2.5 × 0.6)²) = 1.80</code></pre></div>
+<p>まで伸びる。<strong>返った距離が本当の距離の最大 1.8 倍</strong>になりうるので、そのまま進むと面の中へ踏み込む。</p>
+<p><code>raymarch.frag</code> の当たりの判定は <code>h &lt; ε × t</code> で、<strong>負になった(中に入った)ときもここで止まる</strong>。踏み込んだ先で止まるので、深さも法線もずれ、柱の縁が縞と欠けになって崩れる。<code>F5</code> を切って画素を2つおきに C# で追うと、当たった 98,462 画素のうち <strong>2,637 画素が h &lt; 0(面の中)で止まっていた</strong>(完成条件7に1本の例)。</p>
+<p>直し方は<strong>歩幅に 1/L を掛ける</strong>こと(<code>F5</code>)。L 倍長く見積もっていても、1/L 倍しか進まなければ本当の距離を超えない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>歩幅 x1.00</th><th>歩幅 x0.55(= 1/L)</th></tr></thead>
+<tbody>
+<tr><td>見た目</td><td>柱の縁がガタガタ</td><td>滑らか</td></tr>
+<tr><td>深さが1画素の幅以上狂った画素(自己チェック)</td><td><strong>7,145</strong></td><td><strong>47</strong></td></tr>
+<tr><td>平均の歩数(C# で 60x40 本)</td><td>20.3</td><td><strong>37.8(1.86 倍)</strong></td></tr>
+<tr><td>歩数切れの画素(<code>F9</code>)</td><td>0.0%</td><td><strong>3.3%</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>安全の代償は歩数</strong>で、1.86 倍歩く。しかも歩幅を縮めたぶん、地平線近くの光線が 128 歩の上限に届かなくなり、3.3% が歩数切れで空になる(霧で空と同じ色に溶けているので目立たない)。<strong>歩幅を縮めたら、歩数の上限も見直す</strong>のが本来の手順。</p>
+<p>L は式で出したが、<strong>測って確かめている</strong>(自己チェックの4・5項目め)。箱の中からばらばらに点を取り、傾きの向きへ実際に動かして距離の変わり方を割る。基本形と繰り返しは <strong>1.0003</strong>(1 と差分の誤差)、ねじれは <strong>1.718</strong>(式の上限 1.803 の 95%)。</p>
+<h3 id="s11">6. 法線・影・AO — 距離関数にもう何回か聞くだけ</h3>
+<p><strong>法線は距離関数の傾き</strong>。四面体の4つの頂点の向きに少しずつずらして聞き、向きごとに重みを付けて足す。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>const vec2 k = vec2(1.0, -1.0);
+return normalize(k.xyy * map(p + k.xyy * h).x + k.yyx * map(p + k.yyx * h).x
+               + k.yxy * map(p + k.yxy * h).x + k.xxx * map(p + k.xxx * h).x);</code></pre></div>
+<p>4つの向きを足すと 0 になり、向きどうしの外積の和が単位行列の 4 倍になるので、<code>Σ kᵢ f(p + kᵢh) ≒ 4h ∇f</code> と傾きだけが残る。素直な中心差分(±x ±y ±z)なら 6 回呼ぶところが 4 回で済む。<strong>形の式を知らなくても法線が出る</strong>のがこの方法の値打ちで、自己チェックの3項目めは「積」の形の丸い面で、<strong>本当の法線とのずれが最大 0.034°</strong> だと確かめている。</p>
+<p><strong>影は、当たった点から光のほうへもう1本歩く</strong>。何かに当たれば影。柔らかい影は、当たらなかった光線についても<strong>途中でいちばん際どく外れたとき</strong>の <code>k × h / t</code> を覚えておく。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>result = min(result, PENUMBRA * h / t);   // h = どれだけ際どいか、t = どれだけ遠くで際どかったか
+t += clamp(h, 0.02, 0.5);                 // 歩幅の下限と上限</code></pre></div>
+<p>h / t は「光線から見て、遮るものが何度の角度にあるか」に近い値で、<strong>遠くの遮るものほど少しの外れで暗くなる</strong>——半影が遮るものから離れるほど広がるのは、本物の太陽の影と同じ。Day 33 のシャドウマップで PCF を何点も取って作っていたものが、1本の光線から出てくる。</p>
+<div class="inject"><figure class="lab" id="sh-lab">
+  <div class="lab-head">
+    <h3>影の光線 — 半影の広がりと、歩数(要点6・8)</h3>
+    <span class="tag">基本形の場面を z = 0 で切り、床の各点から光のほうへ softShadow を歩かせたもの。光の向きはこの断面の中に置いた(既定の 54° は reference の光の向きを断面に写した角度)。上が場面と床の明るさ、下が影の光線の歩数</span>
+  </div>
+  <div class="stage"><canvas id="sh-canvas" style="height:330px" aria-label="床に落ちる柔らかい影と、影の光線の歩数"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">影(F6)</span>
+      <div class="seg" id="sh-mode"><button data-v="soft" aria-pressed="true">柔らかい(k = 8)</button><button data-v="hard" aria-pressed="false">硬い</button></div>
+    </div>
+    <div class="ctl"><span class="label">光の高さ(地平からの角度)</span>
+      <div class="range"><input type="range" id="sh-elev" min="10" max="85" step="1" value="54"><output id="sh-elev-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">時刻</span>
+      <div class="range"><input type="range" id="sh-time" min="0" max="10" step="0.01" value="0.83"><output id="sh-time-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sh-stats"></div><p id="sh-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>AO は、法線の向きに離れた高さ h で距離を聞く</strong>。距離が h より短ければ、そのぶん近くに何かある。Day 37 の SSAO が画面に写っているものしか拾えなかったのに対して、<strong>距離関数は場面全体を知っているので、画面の外のものも拾う</strong>。</p>
+<p>代わりに払うのは呼び出しの回数で、その内訳が要点8になる。</p>
+<h3 id="s12">7. 深度を書いてラスタと混ぜる — gl_FragDepth</h3>
+<p>当たった点を <code>uViewProjection</code> で写し、w で割って 0〜1 に直したものを <code>gl_FragDepth</code> に書く。<strong>ラスタライザが頂点にやっていることとまったく同じ</strong>なので、同じ深度バッファの上で三角形の形と区別がつかなくなる。</p>
+<p><code>F7</code>(ラスタと混ぜる)で変わるのは3つだけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>混ぜない(Shadertoy と同じ)</th><th>混ぜる</th></tr></thead>
+<tbody>
+<tr><td>SDF の床</td><td>置く</td><td><strong>置かない</strong>(Day 31 の床がある)</td></tr>
+<tr><td>外れた画素</td><td>空を塗る</td><td><strong>捨てる</strong>(<code>discard</code>。後ろの空・床・箱が残る)</td></tr>
+<tr><td>Day 31 の床と箱と空</td><td>描かない(<code>_draw3D = false</code>)。どうせ上から塗られる</td><td>描く</td></tr>
+</tbody>
+</table></div>
+<p>深度テストは <strong>LEQUAL</strong> にしてある。外れた画素は深度 1.0 を書くが、Clear した値も 1.0 なので、LESS だと「何も無いところ」にすら描けなくなる(歩数・断面の表示で空の画素が抜ける)。</p>
+<p>深度が正しければ、<strong>あとから深度を読む段は SDF の形を特別扱いしなくてよい</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>深度を読む段</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td>Day 31 の回る箱(ラスタ)</td><td>SDF の形に<strong>刺さって見える</strong>(画素ごとに手前が勝つ)</td></tr>
+<tr><td>粒(Day 49・57)</td><td>SDF の形の裏に隠れる。<strong>だから粒より手前に描く</strong></td></tr>
+<tr><td>TAA の速度(Day 54)</td><td>深度から世界の点を戻して前のフレームへ写すので、<strong>止まっている SDF の形には正しい速度が付く</strong></td></tr>
+<tr><td>被写界深度(Day 55)</td><td>SDF の形の奥行きでボケる</td></tr>
+</tbody>
+</table></div>
+<p>逆に、<strong>深度を書くことで失うもの</strong>が1つある。GPU は画素シェーダを走らせる前に深度で弾く最適化(早期深度テスト)を持っているが、<strong>深度をシェーダが決めるなら、その前には判定できない</strong>。画面を覆う三角形なので、ラスタの床の裏に隠れる画素も、全部の歩数を払ってから捨てられる(設計書「今日残した歪み」の4つ目)。</p>
+<p>自己チェックの9項目めは、<strong>SDF の床と Day 31 の床を同じカメラで描き比べる</strong>。287 画素で、SDF の床がラスタの床より<strong>奥に出た画素は 0</strong>、手前へのずれは最大で「球面追跡が止まる幅(εt / sinθ)」の <strong>1.00 倍</strong>——止まる幅いっぱいまでずれうる、という要点2の理屈どおりの数字になる。</p>
+<h3 id="s13">8. 重さ — 画素の数 × 歩数、そして影がいちばん高い</h3>
+<p>レイマーチングの GPU の時間は、<strong>画素の数 × 1画素で距離関数を呼ぶ回数 × 1回の重さ</strong>でほぼ決まる。GPU の中では回数を数えられないので、<code>F9</code>(内訳)は画素を 4 つおきに間引いて同じ光線を C# でも追い、数えている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面 / 設定</th><th>進む</th><th>材質・法線・AO</th><th>影</th><th>合計(平均)</th><th>GPU の時間</th></tr></thead>
+<tbody>
+<tr><td>基本形(影 柔らかい)</td><td>21.0</td><td>7.3</td><td><strong>20.1</strong></td><td><strong>48.4</strong></td><td>2.76ms</td></tr>
+<tr><td>基本形(影 なし)</td><td>21.1</td><td>7.3</td><td>0.0</td><td>28.3</td><td>1.29ms</td></tr>
+<tr><td>無限の繰り返し</td><td>21.2</td><td>6.6</td><td>11.9</td><td>39.7</td><td>2.33ms</td></tr>
+<tr><td>ねじれ(歩幅 x0.55)</td><td><strong>37.0</strong></td><td>6.1</td><td>16.2</td><td>59.4</td><td>3.60ms</td></tr>
+<tr><td>ねじれ(歩幅 x1.00)</td><td>20.6</td><td>6.4</td><td>16.8</td><td>43.8</td><td>2.18ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>影の光線がカメラからの光線と同じくらい高い</strong>(冒頭の話)。理由は <code>t += clamp(h, 0.02, 0.5)</code> の上限で、細いものを飛び越えないために 1 歩を 0.5m に抑えているので、何も無い空へ抜けるにも 12m ÷ 0.5m = 最低 24 歩かかる。<strong>光が当たっている画素ほど、影の光線は最後まで歩き切る</strong>(<code>F8</code> で床の画素を追うと影に 29 回)。</p>
+<p>全画面では 1 フレームに約 3,000 万回、60fps なら 1 秒に 18 億回呼んでいる。C#(1スレッド)で同じ画素をなぞると 4.9 秒かかる計算になり、GPU(2.76ms)の <strong>約 1,800 倍</strong>。Day 57 の粒(23 倍)よりずっと差が開くのは、画素どうしが<strong>まったく独立</strong>で、共有メモリもアトミックも要らない——GPU がいちばん得意な形そのものだから。</p>
+<p><strong>GPU の時間の列は、別々のフレームで測った値</strong>。Day 57 の計画書 要点6で「VSync で休んでいる間にクロックが落ちて、同じ処理でも走行ごとに倍ぶれる」と書いたとおりなので、<strong>比べるのは回数の列</strong>にすること(回数は C# で数えているのでぶれない)。</p>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/Sdf.cs</code></td><td>形の部品(球・箱・角の丸い箱・トーラス・縦のカプセル・smin・y 軸回転・ねじれ・xz の繰り返し)。<strong><code>raymarch.frag</code> と同じ名前・同じ式</strong></td></tr>
+<tr><td><code>Sandbox/SdfScene.cs</code></td><td>場面の鏡。<code>SdfSceneKind</code>(3つの場面)と <code>MarchResult</code>。距離関数・球面追跡・法線・影・AO・傾きの測定・画素から光線・深度の式</td></tr>
+<tr><td><code>Sandbox/Raymarcher.cs</code></td><td><strong>GL の側</strong>。<code>SdfView</code> と <code>SdfShadow</code>。シェーダ1本・空の VAO・タイマー1本。<code>Draw</code> と <code>CreateMirror</code></td></tr>
+<tr><td><code>shaders/raymarch.frag</code></td><td><strong>今日の主役</strong>。部品・場面・球面追跡・法線・影・AO・陰影・歩数/断面/法線の表示・深度の書き込み</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>OnLoad</code> で <code>Raymarcher</code> を作る、<code>OnRender</code> に1行、HUD に1行、ページ1枚(9項目)、<code>OnClosing</code>、既存 <code>Show*</code> 6か所に1行ずつ、<code>RunDebugMenuCheck</code> の項目数</td><td>+1083 / −1</td></tr>
+<tr><td><code>Day58.csproj</code></td><td><code>Day57.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日の差分は Day 57 より3割ほど多い</strong>(新規 1,297 行 + <code>Program.cs</code> 1,083 行。どちらもコメント込み)。1日で重ければ、下の順番の <strong>7 まで</strong>(絵が出るまで)と <strong>8 から</strong>(1画素を追う・内訳・自己チェック)で2回に分けるとよい。7 まで写した時点でビルドが通り、<code>F2</code>〜<code>F7</code> が全部動く。</p>
+<h3 id="s17">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>この順に写せば、途中でビルドが通らない状態を作らずに済む</strong>。</p>
+<ol><li><strong><code>Sandbox/Sdf.cs</code></strong>(新規) — どこにも依存しない。<strong>形の式の全部</strong></li><li><strong><code>Sandbox/SdfScene.cs</code></strong>(新規) — 1 を使う。場面の数字(位置・半径)は 3 と1文字ずつ揃える</li><li><strong><code>shaders/raymarch.frag</code></strong>(新規) — 1・2 と同じ式を GLSL で。<strong>C# を先に写しておくと、見比べながら書ける</strong>。ファイルの読み込みは実行時なので、ビルドの順番には効かない</li><li><strong><code>Sandbox/Raymarcher.cs</code></strong>(新規) — 2(<code>SdfScene.HitEpsilon</code> と <code>CreateMirror</code>)と 3 を使う</li><li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 57」のフィールドの直後に「Day 58」の3つ(<code>_raymarcher</code> / <code>_raymarchDemo</code> / <code>_raymarchSafeStep</code>)</li><li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunComputeCheck</code> の直後に、<code>ShowRaymarch</code> / <code>HideRaymarch</code> / <code>ApplyRaymarchComposite</code> / <code>ApplyRaymarchScene</code> / <code>RaymarchStepScale</code> / <code>RaymarchVisible</code> / <code>RenderRaymarch</code> / <code>RaymarchSliceHeight</code> / <code>RaymarchLabel</code> / <code>SdfSceneName</code> / <code>SdfSceneNote</code> / <code>SdfViewName</code> / <code>SdfShadowName</code> / <code>SdfMaterialName</code></li><li><strong><code>Program.cs</code> の組み込み</strong> — 順に、(a) <code>OnLoad</code> のコンピュートの準備(<code>if (_computeAvailable) ... else ...</code>)の直後に <code>_raymarcher = new Raymarcher(...)</code>、(b) <code>OnRender</code> の分岐の直後(<code>RenderResourceStrip();</code> の <code>}</code> のあと、「UI を後処理に通すか」のコメントの前)に <code>RenderRaymarch(deltaSeconds);</code>、(c) <code>DrawOverlayInfo</code> の GPU パーティクルの行の直後に HUD の1行、(d) <code>BuildMenu</code> の「コンピュート」ページの直後に「レイマーチング」ページ(9項目。<strong>このページの F8〜F10 の3項目は 8 で足す関数を指すので、分けて写すなら後回しにする</strong>)、(e) <code>OnClosing</code> の <code>_gpuParticles?.Dispose();</code> の直後に <code>_raymarcher.Dispose();</code>、(f) <strong>既存の <code>Show*</code> 6か所</strong>(<code>ShowPhysicsDemo</code> / <code>ShowCharacterDemo</code> / <code>ShowParticleDemo</code> / <code>ShowEffectDemo</code> / <code>ShowPlayableDemo</code> の <code>HideGpuParticles();</code> の直後と、<code>ShowGpuParticles</code> の <code>HideEffectDemo();</code> の直後)に <code>HideRaymarch();</code> を1行ずつ、(g) <code>RunDebugMenuCheck</code> の項目数を <strong>246 → 255</strong> へ</li><li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 6 の続きに <code>CountShadeEvaluations</code> / <code>TraceRaymarchPixel</code> / <code>TraceRaymarchPixelAt</code> / <code>DescribeRaymarch</code> / <code>ReadSceneDepth</code> / <code>RenderRaymarchDepth</code> / <code>LinearDepth</code> / <code>RunRaymarchCheck</code></li><li><strong><code>Day58.csproj</code></strong> — <code>Day57.csproj</code> をリネームするだけ(中身は同じ)</li></ol>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層は増えていない</strong>。Day 57 で作った <code>Sandbox/</code> にクラスが3つ増えた。<strong><code>Render/</code> は1行も変わっていない</strong>。Day 57 の設計書が「この細さを保つのが、教養編を足し続けるための条件になる」と書いた、その2日目で細さが保たれた形になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Sandbox/Sdf</code></td><td><code>Sandbox/Sdf.cs</code></td><td>形の部品。静的クラス。<strong><code>System.Numerics</code> しか使わない</strong></td></tr>
+<tr><td><code>Sandbox/SdfScene</code></td><td><code>Sandbox/SdfScene.cs</code></td><td>場面の鏡。距離関数・球面追跡・法線・影・AO・傾きの測定。<strong><code>System.Numerics</code> しか使わない</strong></td></tr>
+<tr><td><code>Sandbox/SdfSceneKind</code> / <code>MarchResult</code></td><td><code>Sandbox/SdfScene.cs</code></td><td>場面の番号(シェーダの <code>uScene</code>)/ 光線1本の結果</td></tr>
+<tr><td><code>Sandbox/Raymarcher</code></td><td><code>Sandbox/Raymarcher.cs</code></td><td>GL の側。シェーダ1本・空の VAO・タイマー1本</td></tr>
+<tr><td><code>Sandbox/SdfView</code> / <code>SdfShadow</code></td><td><code>Sandbox/Raymarcher.cs</code></td><td>表示の番号(<code>uView</code>)/ 影の番号(<code>uShadow</code>)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>ページ1枚、<code>OnRender</code> に1行、HUD に1行、出す/下ろす、1画素を追う・内訳・自己チェック</td><td>+1083 / −1</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">1画素の色が決まるまで — 光線は2本、距離関数は約 50 回</h3>
+<svg viewBox="0 0 960 968" role="img" aria-label="1画素の色が決まるまで。gl_FragCoord から逆ビュー射影で光線を作り、march で歩く。当たれば材質・法線・影・AO・霧と陰影を付けて深度を書き、外れればラスタと混ぜるときは discard、そうでなければ空の色を塗る" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="10" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gl_FragCoord(画素の中心)</text><rect x="20" y="69" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="89.5" text-anchor="middle" fill="var(--ink)">NDC へ直す → 逆ビュー射影で</text><text x="230" y="106.5" text-anchor="middle" fill="var(--ink)">近クリップ面と遠クリップ面へ戻す</text><text x="230" y="123.5" text-anchor="middle" fill="var(--ink)" font-weight="700">TAA のずらしも入っている</text><rect x="20" y="162" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="182.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">march()</text><text x="230" y="199.5" text-anchor="middle" fill="var(--ink)">h = map(p) → t += h × 歩幅</text><text x="230" y="216.5" text-anchor="middle" fill="var(--ink)" font-weight="700">平均 21 回</text><rect x="20" y="255" width="420" height="29" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="273.5" text-anchor="middle" fill="var(--ink)">どの出口か</text><rect x="20" y="310" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="330.5" text-anchor="middle" fill="var(--ink)">材質 map(p).y</text><text x="230" y="347.5" text-anchor="middle" fill="var(--ink)" font-weight="700">1 回</text><rect x="20" y="386" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="406.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">calcNormal()</text><text x="230" y="423.5" text-anchor="middle" fill="var(--ink)">四面体の4点</text><text x="230" y="440.5" text-anchor="middle" fill="var(--ink)" font-weight="700">4 回</text><rect x="20" y="479" width="420" height="46" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="497.5" text-anchor="middle" fill="var(--ink)">光のほうを向いていて</text><text x="230" y="514.5" text-anchor="middle" fill="var(--ink)">影を切っていないか</text><rect x="20" y="551" width="420" height="84" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="571.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">softShadow()</text><text x="230" y="588.5" text-anchor="middle" fill="var(--ink)">光へもう1本歩く</text><text x="230" y="605.5" text-anchor="middle" fill="var(--ink)">1歩は最大 0.5m</text><text x="230" y="622.5" text-anchor="middle" fill="var(--ink)" font-weight="700">平均 20 回。いちばん高い</text><rect x="20" y="661" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="681.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">occlusion()</text><text x="230" y="698.5" text-anchor="middle" fill="var(--ink)">法線の向きに 5 点</text><text x="230" y="715.5" text-anchor="middle" fill="var(--ink)" font-weight="700">5 回</text><rect x="20" y="754" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="774.5" text-anchor="middle" fill="var(--ink)">太陽 × 影 + 空 × AO</text><text x="230" y="791.5" text-anchor="middle" fill="var(--ink)">+ 霧</text><rect x="20" y="830" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="850.5" text-anchor="middle" fill="var(--ink)">gl_FragDepth = 当たった点を</text><text x="230" y="867.5" text-anchor="middle" fill="var(--ink)">ビュー射影で写した深度</text><rect x="20" y="906" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="926.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FragColor</text><text x="230" y="943.5" text-anchor="middle" fill="var(--ink)">_post.Scene(RGBA16F)へ</text><rect x="590" y="247" width="320" height="46" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="750" y="265.5" text-anchor="middle" fill="var(--ink)">ラスタと混ぜる</text><text x="750" y="282.5" text-anchor="middle" fill="var(--ink)">かつ陰影の表示か</text><rect x="590" y="320" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="750" y="340.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">discard</text><text x="750" y="357.5" text-anchor="middle" fill="var(--ink)">後ろの空・床・箱が残る</text><rect x="590" y="416" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="750" y="436.5" text-anchor="middle" fill="var(--ink)">空の色</text><text x="750" y="453.5" text-anchor="middle" fill="var(--ink)">深度 1.0</text><path d="M230 43 L230 67" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 136 L230 160" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 229 L230 253" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 284 L230 308" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="238" y="301" fill="var(--muted)" font-size="12">h &lt; ε × t</text><path d="M230 360 L230 384" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 453 L230 477" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 525 L230 549" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="238" y="542" fill="var(--muted)" font-size="12">Yes</text><path d="M230 635 L230 659" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 728 L230 752" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 804 L230 828" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M230 880 L230 904" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 269.5 L588 269.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="515" y="261.5" fill="var(--muted)" font-size="12" text-anchor="middle">t &gt; 80m / 128 歩</text><path d="M750 293 L750 318" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="758" y="309" fill="var(--muted)" font-size="12">Yes</text><path d="M910 270 L932 270 L932 441 L912 441" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="936" y="288" fill="var(--muted)" font-size="12">No</text><path d="M750 466 L750 931 L442 931" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 502 L515 502 L515 694.5 L442 694.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="448" y="496" fill="var(--muted)" font-size="12">No</text></g></svg>
+<p><strong>頂点シェーダの仕事は三角形1枚を画面に広げるだけ</strong>で、形に関わる計算は全部この図の中にある。ラスタライズでは「頂点シェーダ → 三角形の内側の画素」と2段に分かれていたものが、1段になっている。</p>
+<p><strong>影の枝がいちばん太い</strong>(要点8)。光に背を向けている面では飛ばさない(<code>LIT</code> の No)のでそのぶんは払わないが、光が当たっている床はほぼ全部この枝を通り、しかも何にも当たらずに 12m 先まで歩き切る。</p>
+<p><strong>外れた画素の行き先が2つある</strong>のが <code>F7</code> の要点。混ぜないときは空を塗って深度 1.0 を書き、混ぜるときは捨てる。捨てた画素も <code>march</code> のぶんは払っている——ここが今日残した歪みの4つ目。</p>
+<h3 id="s20">球面追跡の3つの出口</h3>
+<svg viewBox="0 0 870 411" role="img" aria-label="球面追跡の3つの出口。t = 0 から h = map を聞き、h が ε × t を割れば当たり、そうでなければ t を h × 歩幅だけ進め、80m を超えれば外れ、128 歩なら歩数切れ、どちらでもなければ h を聞き直す" style="width:100%;max-width:870px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="70" y="10" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="30.5" text-anchor="middle" fill="var(--ink)">t = 0</text><text x="235" y="47.5" text-anchor="middle" fill="var(--ink)">近クリップ面の上</text><rect x="70" y="90" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="110.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">h = map(origin + direction × t)</text><rect x="70" y="153" width="330" height="46" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="171.5" text-anchor="middle" fill="var(--ink)">h &lt; ε × t ?</text><text x="235" y="188.5" text-anchor="middle" fill="var(--ink)">ε = 0.0005</text><rect x="70" y="229" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="249.5" text-anchor="middle" fill="var(--ink)">t += h × 歩幅</text><text x="235" y="266.5" text-anchor="middle" fill="var(--ink)">歩幅はねじれで 1/L</text><rect x="70" y="309" width="330" height="29" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="327.5" text-anchor="middle" fill="var(--ink)">t &gt; 80m ?</text><rect x="70" y="368" width="330" height="29" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="235" y="386.5" text-anchor="middle" fill="var(--ink)">128 歩 ?</text><rect x="520" y="151" width="330" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="171.5" text-anchor="middle" fill="var(--ink)">当たり</text><text x="685" y="188.5" text-anchor="middle" fill="var(--ink)">負のとき = 踏み込んだときもここ</text><path d="M400 176 L518 176" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="460" y="168" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><rect x="520" y="307" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="327.5" text-anchor="middle" fill="var(--ink)">外れ(空)</text><path d="M400 323.5 L518 323.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="460" y="315.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><rect x="520" y="357.5" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="378" text-anchor="middle" fill="var(--ink)">歩数切れ</text><text x="685" y="395" text-anchor="middle" fill="var(--ink)">外れとして扱う</text><path d="M400 382.5 L518 382.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="460" y="374.5" fill="var(--muted)" font-size="12" text-anchor="middle">Yes</text><path d="M235 60 L235 88" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 123 L235 151" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 199 L235 227" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="243" y="217" fill="var(--muted)" font-size="12">No</text><path d="M235 279 L235 307" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M235 338 L235 366" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="243" y="356" fill="var(--muted)" font-size="12">No</text><path d="M70 382.5 L40 382.5 L40 106.5 L68 106.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="34" y="374.5" fill="var(--muted)" font-size="12" text-anchor="end">No</text></g></svg>
+<p><strong>当たりの判定に「負になったとき」も入っている</strong>のが、ねじれの場面の壊れ方を決めている。距離を長く見積もる関数で h 進むと面の中へ入り、次の h が負になって、そこで当たりとして止まる——<strong>本当の面より奥で止まる</strong>。歩幅を 1/L に縮めれば、そもそも中へ入らない(要点5)。</p>
+<p><strong>歩数切れを外れとして扱う</strong>のは「当たったとは言えない」から。面すれすれを延々と歩いている光線で、当たりにすると、そこに存在しない面が描かれる。</p>
+<h3 id="s21">深度が橋になる — SDF の形とラスタの形が同じバッファに並ぶまで</h3>
+<svg viewBox="0 0 960 456" role="img" aria-label="ラスタライズの空と床と箱のあとに RenderRaymarch が深度を書き、_post.Scene の深度に三角形の形と SDF の形が区別なく並ぶ。粒・速度・被写界深度はその深度を読む。影パスと SSAO の幾何パスには SDF の形が描かれない" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="8" width="620" height="107" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="20" y="24" fill="var(--muted)" font-size="12" text-anchor="start">ラスタライズ(F7 が ON のとき)</text><rect x="20" y="36" width="270" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="56.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_env.DrawSkybox()</text><text x="155" y="73.5" text-anchor="middle" fill="var(--ink)">深度を書かない</text><rect x="330" y="36" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="56.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D()</text><text x="470" y="73.5" text-anchor="middle" fill="var(--ink)">Day 31 の床と箱</text><text x="470" y="90.5" text-anchor="middle" fill="var(--ink)">深度を書く(LESS)</text><path d="M290 61 L328 61" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><rect x="330" y="153" width="300" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="173.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderRaymarch()</text><text x="480" y="190.5" text-anchor="middle" fill="var(--ink)">三角形1枚。深度テスト LEQUAL</text><text x="480" y="207.5" text-anchor="middle" fill="var(--ink)">当たり → gl_FragDepth / 外れ → discard</text><path d="M470 103 L470 151" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M330 263 L330 324 A150 7 0 0 0 630 324 L630 263" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></path><ellipse cx="480" cy="263" rx="150" ry="7" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></ellipse><text x="480" y="284" text-anchor="middle" fill="var(--ink)">_post.Scene の深度</text><text x="480" y="301" text-anchor="middle" fill="var(--ink)">三角形の形と SDF の形が</text><text x="480" y="318" text-anchor="middle" fill="var(--ink)" font-weight="700">区別なく並ぶ</text><path d="M480 220 L480 254" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><rect x="10" y="377" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="397.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderParticles()</text><text x="160" y="414.5" text-anchor="middle" fill="var(--ink)">CaptureDepth で写して読む</text><text x="160" y="431.5" text-anchor="middle" fill="var(--ink)">SDF の形の裏の粒が隠れる</text><path d="M480 331 L480 357 L160 357 L160 375" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><rect x="330" y="377" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="397.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderMotionVectors()(TAA のとき)</text><text x="480" y="414.5" text-anchor="middle" fill="var(--ink)">深度から点を戻して前のフレームへ</text><text x="480" y="431.5" text-anchor="middle" fill="var(--ink)">止まった SDF の形に正しい速度</text><path d="M480 331 L480 357 L480 357 L480 375" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><rect x="650" y="377" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="800" y="397.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">被写界深度(Day 55)</text><text x="800" y="414.5" text-anchor="middle" fill="var(--ink)">SDF の形の奥行きでボケる</text><path d="M480 331 L480 357 L800 357 L800 375" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><rect x="670" y="36" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="56.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderShadowPass()</text><text x="810" y="73.5" text-anchor="middle" fill="var(--ink)">SSAO の幾何パス</text><rect x="670" y="153" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="173.5" text-anchor="middle" fill="var(--ink)">SDF は影を落とさず</text><text x="810" y="190.5" text-anchor="middle" fill="var(--ink)">ラスタの箱は SDF に影を落とさない</text><path stroke-dasharray="5 4" d="M810 86 L810 151" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="818" y="123.5" fill="var(--muted)" font-size="12">SDF の形は描かれない</text></g></svg>
+<p><strong>深度バッファだけが2つの世界の接点</strong>になっている。後ろの段(粒・速度・ボケ)はどれも深度しか読まないので、SDF の形が来ても1行も変わらない——<strong>「深度を書く」という1つの約束を守るだけで、エンジンの一員として扱ってもらえる</strong>。</p>
+<p><strong>破線が今日つながらなかったところ</strong>。影パスと SSAO の幾何パスは <code>OnRender</code> の頭で三角形を描き直しているので、SDF の形はそこに入らない。ラスタの床に SDF の形の影は落ちず、SDF の形の影の光線はラスタの箱を知らない(今日残した歪みの2つ目。改造課題3)。</p>
+<h3 id="s22">同じ式が2か所にある — C# の鏡と、その使い道</h3>
+<svg viewBox="0 0 990 361" role="img" aria-label="raymarch.frag の部品・場面・歩き方と、Sandbox の Sdf・SdfScene が同じ式を持つ。SdfScene.Map は自己チェック 1〜7 に、March などは自己チェック 8〜10・F9 の内訳・F8 の1画素を追うに使われ、Raymarcher.CreateMirror が場面・時刻・床の有無を写す" style="width:100%;max-width:990px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="4" y="8" width="312" height="251" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="14" y="24" fill="var(--muted)" font-size="12" text-anchor="start">shaders/raymarch.frag</text><rect x="424" y="8" width="342" height="251" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="434" y="24" fill="var(--muted)" font-size="12" text-anchor="start">Sandbox/(C#)</text><rect x="10" y="36" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="56.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">sdSphere / sdBox / sdRoundBox</text><text x="160" y="73.5" text-anchor="middle" fill="var(--ink)">sdTorus / sdVerticalCapsule</text><text x="160" y="90.5" text-anchor="middle" fill="var(--ink)">smin / rotateY / twistY / repeatXZ</text><rect x="430" y="36" width="330" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="56.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Sdf.Sphere / Box / RoundBox</text><text x="595" y="73.5" text-anchor="middle" fill="var(--ink)">Torus / VerticalCapsule</text><text x="595" y="90.5" text-anchor="middle" fill="var(--ink)">SmoothMin / RotateY / TwistY / RepeatXZ</text><path d="M310 69.5 L430 69.5" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" fill="none"></path><text x="370" y="63.5" fill="var(--muted)" font-size="12" text-anchor="middle">1行ずつ同じ</text><rect x="10" y="125" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="145.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">mapPrimitives / mapRepetition</text><text x="160" y="162.5" text-anchor="middle" fill="var(--ink)">mapTwist / map</text><rect x="430" y="125" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="154" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SdfScene.Evaluate / Map</text><path d="M310 150 L430 150" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" fill="none"></path><text x="370" y="144" fill="var(--muted)" font-size="12" text-anchor="middle">数字も同じ</text><rect x="10" y="197" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="217.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">march / calcNormal</text><text x="160" y="234.5" text-anchor="middle" fill="var(--ink)">softShadow / occlusion</text><rect x="430" y="197" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="217.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SdfScene.March / Normal</text><text x="595" y="234.5" text-anchor="middle" fill="var(--ink)">Shadow / Occlusion</text><path d="M310 222 L430 222" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 4" fill="none"></path><text x="370" y="216" fill="var(--muted)" font-size="12" text-anchor="middle">同じ手順</text><rect x="790" y="36" width="190" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="885" y="56.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Raymarcher.CreateMirror()</text><text x="885" y="73.5" text-anchor="middle" fill="var(--ink)">場面・時刻・床の有無を写す</text><path d="M885 86 L885 135 L762 135" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="10" y="299" width="230" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="125" y="319.5" text-anchor="middle" fill="var(--ink)">自己チェック 8〜10</text><text x="125" y="336.5" text-anchor="middle" fill="var(--ink)">GPU の深度と突き合わせる</text><path d="M535 247 L535 283 L125 283 L125 297" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="255" y="299" width="230" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="319.5" text-anchor="middle" fill="var(--ink)">F9 内訳</text><text x="370" y="336.5" text-anchor="middle" fill="var(--ink)">距離関数の呼び出しを数える</text><path d="M595 247 L595 275 L370 275 L370 297" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="500" y="299" width="230" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="615" y="328" text-anchor="middle" fill="var(--ink)">F8 1画素を追う</text><path d="M655 247 L655 267 L615 267 L615 297" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><rect x="750" y="299" width="230" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="865" y="319.5" text-anchor="middle" fill="var(--ink)">自己チェック 1〜7</text><text x="865" y="336.5" text-anchor="middle" fill="var(--ink)">傾き・smin・法線・歩数</text><path d="M760 165 L780 165 L780 269 L865 269 L865 297" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>鏡が要るのは、シェーダの中を覗く手段が画素の色しか無いから</strong>。傾きが 1 を超えているか、1画素で何回呼んでいるか、どこで止まったか——どれも GPU からは読めないが、同じ式を C# に持っていれば数字で出せる。Day 57 の <code>StepFountainOnCpu</code> と同じ役回り。</p>
+<p><strong>共有しているのは当たりの幅(<code>SdfScene.HitEpsilon</code> を uniform で送る)だけ</strong>で、形の数字(位置・半径・ねじれの強さ)は両方に書いてある。片方だけ直すと、絵はそれらしく出るのに自己チェックの8項目め(GPU と C# の深さ)が落ちる——今日残した歪みの1つ目。</p>
+<h3 id="s23">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: 式と数字が2か所にある</strong>。<code>raymarch.frag</code> と <code>Sdf.cs</code> / <code>SdfScene.cs</code>。GLSL と C# は別の言語なので、Day 57 の歪み(<code>struct Particle</code> が3か所)と違って <strong><code>#include</code> を足しても解けない</strong>。本物のエンジンの行き先は2つで、(1) 1つの記述(ノードグラフや専用の言語)から GLSL と C# の両方を生成する、(2) 鏡を持たず、確かめたいことを全部 GPU に計算させて読み戻す。今日は「数字で確かめられる」ことを優先して鏡を残した。</p>
+<p><strong>2つ目: 影が片道ずつしか落ちない</strong>(<code>F7</code> で混ぜたとき)。SDF の形はシャドウマップにも SSAO の幾何パスにも入らず、ラスタの箱は SDF の影の光線にも AO にも入らない。直し方は<strong>影パスでも同じシェーダを光の目から描き、<code>gl_FragDepth</code> を書く</strong>こと——逆ビュー射影で光線を作っているので、光の正射影の行列を渡せば平行な光線がそのまま出る(改造課題3)。UE の Distance Field Shadows のように「メッシュのほうを距離場に焼いて SDF の側へ寄せる」逆向きの解き方もある。</p>
+<p><strong>3つ目: 動く SDF の形は速度バッファに載らない</strong>。TAA の速度はカメラの動きを深度から計算するだけ(Day 54 の1段目)なので、回るトーラスやくっつく球には「止まっている」速度が付く。TAA は履歴を動いていない場所から読むので、動く形の縁で履歴を読み違える(今日は止めた絵でしか TAA を確かめていない)。直すには、シェーダの中で <strong>1フレーム前の時刻でも同じ点の位置を計算し</strong>、速度を2枚目の出力に書く(Day 54 の2段目がメッシュでやっていることを、距離関数でやる)。</p>
+<p><strong>4つ目: 画面の全画素をなぞる</strong>。形が画面の一部にしか写っていなくても、三角形1枚が全画素を覆うので全部の画素が歩く。しかも <code>gl_FragDepth</code> を書くので早期深度テストが効かず、<code>F7</code> でラスタの床の裏に隠れる画素も、歩き切ってから捨てられる。本物の SDF 描画は、形ごとの<strong>境界の箱をラスタライズしてそこからだけ歩き始める</strong>か、<strong>解像度を落として歩いてから拡大する</strong>。改造課題2(ねじれの近くでだけ歩幅を縮める)は、この「形の外側では手を抜く」考え方のいちばん小さい形になる。</p>
+</section>
+<section class="part"><h2 id="s24">完成条件</h2>
+<p><code>dotnet run --project reference/Day58 -c Release</code> で起動する。起動直後のコンソールは Day 57 と同じ(今日は起動時に何も足していない)。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「レイマーチング」(26 枚目)が開く。</p>
+<h3 id="s25">1. <code>F2</code>: レイマーチング</h3>
+<p>コンソールに次の行が出る。</p>
+<div class="code"><pre><code>レイマーチング: <strong>ON</strong>  基本形と演算  960x640 = 614,400 画素に光線を1本ずつ。<strong>頂点は 3 つ</strong>(画面を覆う三角形1枚)で、形は全部 raymarch.frag の中の関数</code></pre></div>
+<p>市松模様の床の上に、左から次の4つが並ぶ。奥の床は霧で空に溶ける。</p>
+<ul><li><strong>橙のくっつく2つの球</strong>(滑らかな和)… 近づいたり離れたりし、くっつくところが膨らんでつながる</li><li><strong>青緑のくり抜いた箱</strong>(差)… 6つの面に丸い穴が開いた枠。ゆっくり回る</li><li><strong>象牙色の箱と球の積</strong> … 平らな丸い面が6つある、角の取れた立方体</li><li><strong>赤いトーラス</strong>(立てた輪)… コインのように回る</li></ul>
+<p>4つとも床に柔らかい影を落とし、<strong>影は形から離れるほどぼける</strong>(要点6)。HUD に今日の行が出る。</p>
+<div class="code"><pre><code>SDF 基本形と演算  陰影  影 柔らかい(k = 8)  歩幅 x1.00  全画素  GPU 2.76ms</code></pre></div>
+<p>GPU の時間は VSync でクロックが上下するので、1.9〜2.8ms の間で揺れる。</p>
+<h3 id="s26">2. <code>F4</code>: 表示を回す</h3>
+<ul><li><strong>歩数</strong> … 画面の大半が青で、<strong>形の縁に水色の輪郭</strong>、<strong>地平線に黄〜赤の帯</strong>が出る(要点2。かすめる光線ほど歩く)。影と AO を払わないぶん、GPU の時間は 1.2〜2.0ms に下がる</li><li><strong>距離の断面</strong> … 16m 四方の板がゆっくり上下し、板が形を切ったところに白い線、形の外に橙の等高線、形の中に青が出る。<strong>等高線は形から離れるほど丸くなる</strong>——遠くから見れば、どんな形も1点に見えるから</li><li><strong>法線</strong> … 形が赤・緑・青の淡い色で塗り分けられ、床は上向きなので一面の淡い緑になる(後処理を通るので色が淡い)</li></ul>
+<p>もう1回押すと陰影に戻る。</p>
+<h3 id="s27">3. <code>F3</code>: 場面を回す</h3>
+<ul><li><strong>無限の繰り返し</strong> … 柱の列の間の通路から奥を見る構図になり、玉を載せた白い柱と上下する橙の輪が<strong>地平線まで並ぶ</strong>。<code>F4</code> で歩数にすると、柱の縁と地平線だけが赤い——柱が何本見えていても、1歩の手間は1本ぶん(要点4)</li><li><strong>ねじれ</strong> … 3本のねじれた柱(真ん中の太い青緑と、左右で向きの逆な橙の2本)。HUD の歩幅が <strong>x0.55</strong> になる</li></ul>
+<div class="code"><pre><code>場面: <strong>ねじれ</strong>  高さに比例して回す。<strong>傾きが最大 1.80 まで伸びる</strong>ので、歩幅を縮めないと表面が崩れる(このページの F5)</code></pre></div>
+<h3 id="s28">4. <code>F5</code>: ねじれの場面で、歩幅を縮めるのを切る</h3>
+<div class="code"><pre><code>歩幅を縮める: <strong>OFF</strong>  ねじれの傾きの上限 L = 1.80 → 歩幅 x1.00。<strong>返った距離を信じて進むので、面の中へ踏み込んで止まる</strong>(縞と欠け)</code></pre></div>
+<p><strong>柱の縁、とくに光に背を向けた溝のあたりがガタガタに欠ける</strong>(要点5)。もう一度 <code>F5</code> で滑らかに戻る。<code>F4</code> で歩数にして <code>F5</code> を切り替えると、縮めたときのほうが柱の面の色が一段明るくなり(歩数が増える)、<strong>地平線の赤い帯が太くなる</strong>(128 歩の上限に届かない光線が増える)。</p>
+<h3 id="s29">5. <code>F9</code> → <code>F6</code> → <code>F9</code>: 影がいちばん高い</h3>
+<p>基本形の場面・陰影の表示で <code>F9</code>(内訳)を押す。</p>
+<div class="code"><pre><code>--- レイマーチングの内訳 ---
+  場面: 基本形と演算  表示: 陰影  影: 柔らかい(k = 8)  ラスタと混ぜる: OFF  出している: ON
+  歩き方: 歩幅 x1.00  歩数の上限 128  光線の長さ 80m  当たりの幅 0.0005 x t(10m 先で 5mm。1画素の幅は 18mm)
+  画面: 960x640 = 614,400 画素。頂点 3 つの三角形1枚で、<strong>全部の画素が光線を1本ずつ飛ばす</strong>
+  C# で 1/16 の画素(38,400 本)をなぞった: 当たり 72.7% / 外れ 27.3% / 歩数切れ 0.0%
+  1画素あたり距離関数を <strong>平均 48.4 回</strong>: 進む 21.0 + 材質・法線・AO 7.3 + <strong>影 20.1</strong>(いちばん多い画素で 144 回)
+  → 全画面なら1フレームに 29.8M 回。60fps なら1秒に 1.79G 回
+  GPU(タイマークエリ): <strong>2.76ms</strong>   C#(1スレッド)なら全画面で 4942ms(1/16 から推定)  → <strong>1793 倍</strong></code></pre></div>
+<p><code>F6</code> を2回押して影を「なし」にしてから、もう一度 <code>F9</code>。</p>
+<div class="code"><pre><code>  1画素あたり距離関数を <strong>平均 28.3 回</strong>: 進む 21.1 + 材質・法線・AO 7.3 + <strong>影 0.0</strong>(いちばん多い画素で 117 回)
+  GPU(タイマークエリ): <strong>1.29ms</strong>   C#(1スレッド)なら全画面で 1519ms(1/16 から推定)  → <strong>1180 倍</strong></code></pre></div>
+<p><strong>影を切ると、距離関数の呼び出しが 4 割減る</strong>(冒頭の話と要点8)。C# の数字は画素を間引いて数えているので、カメラを動かさなければ何度押しても同じになる。GPU の時間は別のフレームの値なので揺れる。</p>
+<p><code>F6</code> の途中の「硬い」では、影の縁がくっきり切れる(呼び出しの回数は変わらない——<code>softShadow</code> の歩き方は同じで、<code>k × h / t</code> を覚えておくかどうかだけが違う)。</p>
+<h3 id="s30">6. <code>F7</code>: ラスタと混ぜる</h3>
+<div class="code"><pre><code>ラスタと混ぜる: <strong>ON</strong>  SDF の床を外し、外れた画素は捨てる。<strong>深度を書くので、回る箱が SDF の形に刺さる</strong></code></pre></div>
+<p>Day 31 の床と箱、明るさの階段、空が戻り、その中に4つの形が立つ。<strong>真ん中の回る星の箱が、くり抜いた箱と積の形に食い込み</strong>、食い込んだところの境目が画素ごとに切り替わる(要点7)。HUD の GPU は <strong>0.5〜0.8ms</strong> まで下がる——空と床の画素は、SDF の形に当たらずに捨てられて陰影を払わないから。</p>
+<p>SDF の形はラスタの床に影を落とさない(今日残した歪みの2つ目)。</p>
+<h3 id="s31">7. <code>F8</code>: 1画素を追う</h3>
+<p>マウスを画面の真ん中あたりの床に置いて <code>F8</code>。</p>
+<div class="code"><pre><code>--- 1画素を追う(画素 480, 320  基本形と演算  時刻 0.83s  歩幅 x1.00)---
+    歩   進んだ距離 t   返った距離 h   当たりの幅 εt
+     1       0.0000m       3.33022m      0.00000m
+     2       3.3302m       2.34894m      0.00167m
+     3       5.6792m       1.65680m      0.00284m
+     4       7.3360m       1.03655m      0.00367m
+     5       8.3725m       0.77079m      0.00419m
+     6       9.1433m       0.63606m      0.00457m
+     7       9.7794m       0.44864m      0.00489m
+     8      10.2280m       0.31644m      0.00511m
+     9      10.5444m       0.22320m      0.00527m
+    10      10.7676m       0.15743m      0.00538m
+    …(6 歩ぶん省略)
+    17      11.2555m       0.01367m      0.00563m
+    18      11.2692m       0.00964m      0.00563m
+    19      11.2788m       0.00680m      0.00564m
+    20      11.2857m       0.00480m      0.00564m
+  → <strong>当たり</strong>: 11.286m 先で 20 歩。材質 床  位置 (-0.77, -0.50, -2.15)  法線 (0.00, 1.00, 0.00)
+  色を決めるのに: 材質 1 + 法線 4 + 影 29 + AO 5 = 39 回  → この画素で距離関数を <strong>59 回</strong></code></pre></div>
+<p>時刻とカメラで数字は変わる。<strong>形の縁にマウスを置くと歩数が数十に跳ね上がり</strong>、空に置くと「外れ」になる。</p>
+<p>ねじれの場面で <code>F5</code> を切り、右の柱の根元あたりを追うと、<strong>最後の h が負になって止まる</strong>画素が見つかる(踏み込んだ)。</p>
+<div class="code"><pre><code>--- 1画素を追う(画素 670, 166  ねじれ  時刻 0.67s  歩幅 x1.00)---
+     ...
+     7       6.8317m       0.10427m      0.00342m
+     8       6.9360m       0.04869m      0.00347m
+     9       6.9847m      -0.00583m      0.00349m
+  → <strong>当たり</strong>: 6.985m 先で 9 歩。材質 橙  位置 (2.84, -0.46, 0.54)  法線 (0.44, 0.54, 0.72)</code></pre></div>
+<p>8歩目で 4.9cm と返ったので 4.9cm 進んだら、距離関数が <strong>−5.8mm</strong>(面の中)を返す位置に来ている——<strong>返った距離が本当の距離より長かった</strong>。画素を2つおきに数えると、当たった 98,462 画素のうち 2,637 画素がこう止まっていた。</p>
+<h3 id="s32">8. <code>F10</code>: 自己チェックが 10 項目すべて合格</h3>
+<p><code>F2</code> を押す前でも後でも、ラスタと混ぜていても 10 項目全部が走る(シーンのバッファを借りて自分で描くので)。<strong>押したあと、場面・表示・カメラは元に戻っている</strong>。結果は「動作確認済み環境」の節。</p>
+<h3 id="s33">9. Day 38〜57 の絵と自己チェックが1つも壊れていない</h3>
+<p><strong>レイマーチングを出さない限り、絵は Day 57 と1ビットも変わらない</strong>。Day 57 と Day 58 に同じ台本を流して4枚を突き合わせた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>撮った絵</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>起動直後(スプライトと立方体。一時停止して撮る)</td><td><strong>バイト単位で一致</strong></td></tr>
+<tr><td>デモ v1 を読み込んだだけ</td><td><strong>バイト単位で一致</strong></td></tr>
+<tr><td>デモ v1 の決めの構図</td><td><strong>バイト単位で一致</strong></td></tr>
+<tr><td>最終デモ(完成版)</td><td><strong>バイト単位で一致</strong></td></tr>
+</tbody>
+</table></div>
+<p>Day 57 のコンピュートの自己チェックと Day 56 の最終デモの自己チェックも、同じ数字で通る。違うのは<strong>メニューの枚数と項目数だけ</strong>(25 枚 246 項目 → <strong>26 枚 255 項目</strong>)で、これは今日ページを1枚足したぶん(<code>RunDebugMenuCheck</code> の期待値も 255 に直してある)。</p>
+<div class="code"><pre><code>  [OK] ページがある  26 枚
+  [OK] <strong>Day 31 以降のスイッチが全部入っている</strong>  255 項目
+  [OK] 最後のページまで送れる  26 枚目</code></pre></div>
+<h3 id="s34">10. TAA と被写界深度が、SDF の形にもそのまま掛かる</h3>
+<p>レイマーチングを出したまま、「TAA」の <code>F2</code> で TAA にすると、形の縁が均される(一時停止して撮った絵で、FXAA のときと縁と床の 5,281 画素が違った)。光線を<strong>ずらしの入った逆ビュー射影</strong>から作っているので、Raymarcher の側は1行も TAA を知らない(要点3)。「被写界深度とモーションブラー」の <code>F2</code> で被写界深度も掛かる(注視点 9m にピントが合うので、Day 55 のとおりほとんどボケない)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<p>実機のキーはすべて「レイマーチング」ページの席。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F3</code></td><td>断面の「場面」</td><td>基本形・繰り返し・ねじれ。繰り返しは柱が何本並んでも、1歩の手間は1本ぶん</td></tr>
+<tr><td><code>F4</code>(歩数・距離の断面)</td><td>断面の絵の塗り分けと「扇に 161 本飛ばして、歩数を色にする」</td><td>白い線が面、橙が外、青が中。形の縁と地平線へ向かう光線だけが赤くなる</td></tr>
+<tr><td><code>F5</code></td><td>断面の「歩幅を縮める」</td><td>「踏み込む」の例は、x1.00 だと 8 歩目で面の中(h = −4.8cm)に止まり、x0.55 だと 20 歩で面の手前に当たる</td></tr>
+<tr><td><code>F6</code></td><td>影の「影」</td><td>硬い影でも呼び出しの回数は同じ。光が当たる床ほど影の光線は歩き切る(最低 24 歩)</td></tr>
+<tr><td><code>F8</code></td><td>断面の歩みの一覧</td><td>F8 と同じ並び(歩・t・h・εt)。最後の h が εt を割って止まる</td></tr>
+<tr><td>(なし。場面の <code>smin</code> の k)</td><td>滑らかな和の「k」「swing」</td><td>つなぎ目の外側で傾きが 1 を大きく割る(自己チェックの2項目めは3次元で 0.106)</td></tr>
+<tr><td><code>F2</code>・<code>F7</code>・<code>F9</code>・<code>F10</code></td><td>(なし)</td><td>陰影の絵・ラスタと混ぜる・内訳・自己チェックは実機で</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day58 の raymarch.frag(部品・3つの場面・march・softShadow・sliceColor・heat)を JS に移し、場面を z = 0 の縦の断面で切ったもの。光線もその断面の中を進むので、断面の上の歩みは3次元の球面追跡そのままになる(断面から外れる光線は見せていない)。当たりの幅 0.0005t・歩数の上限 128・光線の長さ 80m・歩幅 1/L(L = 1.80)は reference と同じ。「面の中で止まった」は最後の h が −0.1mm より深いもの。影の実験台の光は断面の中に置いた向きで、床の明るさは太陽 × 影だけ(空の光・AO・霧は省いた)。滑らかな和の傾きは断面の上で差分を取って測っている。</p></div>
+</section>
+<section class="part"><h2 id="s35">改造課題</h2>
+<h3 id="s36">課題1(易): 形を1つ足して、鏡も合わせる</h3>
+<p>IQ の記事から形を1つ選び(例: 八面体 <code>sdOctahedron</code> の見積もり版、<code>sdCappedCylinder</code>)、基本形の場面の手前(<code>(0, 0.15, 2.5)</code> あたり)に置く。</p>
+<ol><li><code>raymarch.frag</code> の <code>mapPrimitives</code> と、<code>SdfScene.MapPrimitives</code> の<strong>両方</strong>に足す(部品は <code>Sdf.cs</code> にも足す)</li><li><code>F10</code> を押し、4項目め(傾きが 1 以下)と8項目め(GPU と C# が同じ深さ)が通ることを確かめる</li><li><strong>わざと GLSL の側だけ半径を 0.05 変えて</strong> <code>F10</code> を押す。8項目めが落ちるか。落ちなければ、なぜか(新しい形は 640 画素の格子のどこに写っているか)</li></ol>
+<p><strong>2か所に同じ式がある</strong>(今日残した歪みの1つ目)ことの手触りを掴むのが目的。見積もり版の形(本当の距離より短く返す)を選ぶと、4項目めは通るのに <code>F4</code> の歩数が周りより増えるのも見られる。</p>
+<h3 id="s37">課題2(中): ねじれの近くでだけ歩幅を縮める</h3>
+<p>今日は <code>F5</code> で<strong>場面全体の</strong>歩幅を 0.55 倍にしていて、柱から遠い空や床を歩く光線まで 1.86 倍歩いている(要点5)。距離を長く見積もるのは柱の近くだけなので、そこでだけ縮めればよい。</p>
+<ol><li><code>mapTwist</code> で、柱ごとに<strong>ねじる前の外接円柱</strong>までの距離を先に出す(半径は <code>√2 × 横の半分</code>)</li><li>外接円柱まで 0.2m 以上あるなら、その距離をそのまま返す(外接円柱までの距離は、柱までの本当の距離より短いので安全)</li><li>近ければ、ねじった箱の距離を <strong>L で割って</strong>返す(L 倍長く見積もる関数を L で割れば、本当の距離を超えない)</li><li>C# の鏡も同じにし、<code>F5</code> を切った(歩幅 x1.00)まま柱の縁が崩れないこと、<code>F9</code> の「進む」が 37.0 からどこまで減るかを見る</li></ol>
+<p><strong>自己チェックの5項目めと10項目めが落ちる</strong>はず。なぜそれで正しいのかを説明できれば、要点5は読めている(ヒント: 「距離関数の傾きが 1 以下」は安全のための十分条件で、必要なのは「本当の距離を超えない」ことだけ)。Day 58 の設計書「今日残した歪み」の4つ目にある「形の外側では手を抜く」の、いちばん小さい形になる。</p>
+<h3 id="s38">課題3(難): SDF の形に、ラスタの床へ影を落とさせる</h3>
+<p>今日残した歪みの2つ目。影パスでも同じシェーダを<strong>光の目から</strong>描く。</p>
+<ol><li><code>Raymarcher</code> に、カメラではなく行列を受け取って<strong>深度だけ</strong>書く入口を足す(<code>DrawDepth(Matrix4x4 viewProjection, int width, int height)</code>)。色は書かないので、陰影を飛ばす uniform(<code>uView</code> に新しい番号)を足す</li><li><code>RenderShadowPass</code> の <code>_shadow.Begin</code> と <code>_shadow.End</code> の間で、<code>_shadow.LightSpaceMatrix</code> を渡して描く。光は正射影なので、<strong>逆行列から作った光線はそのまま平行な光線になる</strong>(要点3。平行投影でも同じ式が動く)</li><li>「シャドウマップ」の <code>F8</code> で焼いたシャドウマップを隅に出し、SDF の形の影が写っていることを確かめる</li><li><code>F7</code> で混ぜた状態で、Day 31 の床に SDF の形の影が落ちることを見る</li></ol>
+<p>見どころは<strong>深度バイアス</strong>。シャドウマップの比べ方(Day 33 の落とし穴)は三角形でも SDF でも同じ。球面追跡は「面の手前で止まる」(要点7。止まる幅 εt / sinθ)ので、光の目から焼いた深度も少し手前に出る——これが影のアクネを防ぐ下駄として効くのか、影が浮くほど大きすぎるのかを、バイアスを 0 にして確かめてみること。t は近クリップ面から測っているので、光の目の行列で ε × t がどのくらいの長さになるかを先に見積もっておくとよい。逆向き(ラスタの箱の影を SDF の形に落とす)は、<code>raymarch.frag</code> の <code>shade</code> でシャドウマップを引けばよい。</p>
+</section>
+<section class="part"><h2 id="s39">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>OpenGL</td><td>4.3 コアプロファイル(ドライバ 596.49)。<strong>レイマーチングは 3.30 の機能だけで動く</strong>(<code>#version 330 core</code>)</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。計測(<code>glFinish</code> を挟んで連続で描く)は今日も無く、GPU の時間はタイマークエリで普段のフレームの中で測った</td></tr>
+</tbody>
+</table></div>
+<p>基本形の場面の数字。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>頂点</td><td><strong>3 つ</strong>(画面を覆う三角形1枚。<code>fullscreen.vert</code>)</td></tr>
+<tr><td>光線</td><td>614,400 本 / フレーム(1画素に1本)</td></tr>
+<tr><td>距離関数の呼び出し</td><td>平均 48.4 回 / 画素(進む 21.0 + 材質・法線・AO 7.3 + 影 20.1)。全画面で 2,980 万回 / フレーム</td></tr>
+<tr><td>GPU の時間(陰影・柔らかい影)</td><td>1.9〜2.8ms(<strong>VSync でクロックが上下するので走行ごとにぶれる</strong>)</td></tr>
+<tr><td>GPU の時間(影なし / 歩数 / 法線)</td><td>1.2〜1.5ms / 1.2〜2.0ms / 1.1〜1.5ms</td></tr>
+<tr><td>GPU の時間(ラスタと混ぜる)</td><td>0.5〜0.8ms(外れた画素は陰影を払わない)</td></tr>
+<tr><td>GPU の時間(繰り返し / ねじれ x0.55 / ねじれ x1.00)</td><td>1.2〜2.3ms / 2.6〜3.6ms / 2.0〜2.2ms</td></tr>
+<tr><td>C#(1スレッド)で同じ画素</td><td>4.9 秒 / フレーム(1/16 から推定)。GPU の約 1,800 倍</td></tr>
+<tr><td>fps</td><td><strong>60(VSync)</strong>。どの場面・表示でも落ちない</td></tr>
+<tr><td>Day 57 との一致</td><td>違う画素 <strong>0</strong>(起動直後・デモ v1・決めの構図・完成版の4枚)</td></tr>
+<tr><td>GL のエラー</td><td>0(毎フレーム <code>glGetError</code> を見て確かめた)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s40">自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 58 自己チェック(距離の約束・球面追跡・GPU と C# の一致・ラスタと同じ深度)===
+  [OK] <strong>球・箱・トーラスは本当の距離を返す</strong>(面の外のどこで測っても傾きがちょうど 1)  11,796 点で、1 からのずれは最大 7.3E-004
+  [OK] <strong>滑らかな和は min より短く、離れていれば min と同じ</strong>(つなぎ目では傾きが 1 を割る = 短めに見積もる)  min 以下 はい / 差が k 以上で一致 はい / 傾き 最小 0.106 / 最大 1.0001
+  [OK] <strong>四面体の4点で聞いた傾きが、球の本当の法線と一致する</strong>(形の式を知らずに出している)  500 点で、ずれは最大 0.0343°
+  [OK] <strong>基本形と繰り返しは、距離を長く見積もらない</strong>(傾きの最大が 1 以下。和・差・積・回転・畳み込みでは破れない)  基本形 1.0003 / 繰り返し 1.0003
+  [OK] <strong>ねじれは距離を長く見積もる</strong>(傾きの最大が 1 を超え、式の上限 √(1 + (τw)^2) に届く)  測った傾き 1.718 / 式の上限 1.803 → 歩幅を x0.55 にする
+  [OK] <strong>正面から当たる光線は数歩、面をかすめる光線は数十歩</strong>(返る距離が縮まないまま、少しずつしか進めない)  正面 2 歩(当たり 9.450m)/ 2cm 上をかすめる 66 歩(外れ)
+  [OK] <strong>ねじれで歩幅を 1/L に縮めると、そのぶん歩数が増える</strong>(踏み越えない代わりに払うもの)  平均 20.3 歩 → 37.8 歩(1.86 倍)
+  [OK] <strong>GPU の球面追跡と C# の球面追跡が同じ深さに当たる</strong>(当たり外れも、深さも)  640 画素中 640 で当たり外れが一致、両方当たった 464 画素の深さのずれは最大で1画素の幅の 0.05 倍
+  [OK] <strong>SDF の床とラスタの床が同じ深度を書く</strong>(gl_FragDepth の式がラスタライズと同じ約束。SDF は必ず手前で止まる)  床の 287 画素で、ラスタより奥に出た画素 0 / ずれは最大で球面追跡が止まる幅(εt / sinθ)の 1.00 倍
+  [OK] <strong>ねじれは歩幅 1 だと深さの狂った画素が出て、1/L に縮めるとほぼ消える</strong>  狂った画素 歩幅 x1.00: 7,145 / x0.55: 47(全 614,400 画素)
+  すべて合格(距離の約束・球面追跡・GPU と C# の一致・ラスタと同じ深度が仕様どおり)
+  ※ 自己チェックはシーンのバッファを借りて描く(次のフレームで消える。カメラと設定は元に戻してある)</code></pre></div>
+<p><strong>GL を使わない項目が7つ</strong>、<strong>GPU に描かせる項目が3つ</strong>。Day 57 と違って前半の7つが多いのは、距離関数の性質(傾き・符号・法線・歩数)が<strong>数学の話で、GPU が無くても確かめられる</strong>から。</p>
+<p>いちばん値打ちがあるのは9項目め。<strong>SDF の床とラスタの床を同じ画素で描き比べる</strong>ので、<code>gl_FragDepth</code> の式を1か所でも間違えると(<code>* 0.5 + 0.5</code> を忘れる、ずらしの無い行列を使う、など)メートル単位でずれて必ず落ちる。しかも「奥に出た画素 0 / 止まる幅の 1.00 倍」という数字そのものが、要点2の「球面追跡は面の手前で止まり、どれだけ手前かは εt / sinθ まで」を言っている。</p>
+<h3 id="s41">検証の途中で分かったこと</h3>
+<p><strong>1. 本当の距離しか組んでいない場面なのに、傾きの最大が 1.014 と出た</strong>。最初の <code>MaxGradient</code> は、x・y・z の3方向の中心差分でベクトルを作り、その長さを傾きにしていた。自己チェックの4項目めが「基本形 1.0141 / 繰り返し 1.0138」で落ち、<code>min</code> と <code>max</code> しか使っていないのに距離を長く見積もっているように見えた。</p>
+<p>原因は測り方で、<strong><code>min</code> / <code>max</code> の折れ目のそばでは、x の差分は片方の形、y の差分はもう片方の形……と別々の枝の傾きを拾う</strong>。どの方向の傾きも 1 以下なのに、別々の枝の 1 を寄せ集めたベクトルは長さが 1 を超える(極端な場合 √3)。<strong>中心差分で向きだけを出し、その向きに実際に動かして距離の変わり方を割る</strong>(1本の線に沿った変わり方は折れ目をまたいでも本当の傾きを超えない)ように直したら、1.0003 になった。ねじれの 1.718 はこの測り方で出した値。</p>
+<p><strong>式ではなく物差しが間違っていた</strong>、という Day 57 の「クロックの違いを実力の違いと読み違えた」と同じ形の罠で、しかも「距離の約束が破れている」という<strong>それらしい結論が出てしまう</strong>のが厄介だった。</p>
+<p><strong>2. ねじれの「狂った画素」が、歩幅 1 でも 1/L でも2万画素あった</strong>。最初は床を入れたまま数えていて、「歩幅 x1.00: 20,099 / x0.55: 18,587」と、縮めても1割しか減らなかった。</p>
+<p>数が多いのは<strong>遠くの床を浅い角度で見ている画素</strong>で、当たりの幅(面からの距離 εt)が光線の向きには 1/sinθ 倍に伸びるので、<strong>歩幅によらず基準の絵(1/(2L) で丁寧に歩いた絵)と少しずつずれる</strong>。数えたいのは柱の踏み越えだけなので、自己チェックでは床を外して(ラスタと混ぜるときと同じ <code>uGround = 0</code>)柱だけを数えるようにした。<strong>7,145 / 47</strong> になり、効き目がそのまま数字に出た。</p>
+<p><strong>3. 床の深度の比べ方を「1画素の幅」で決めていたら、窓を広げると落ちる作りだった</strong>。最初は「SDF の床とラスタの床のずれが、1画素の幅(0.0018t)より小さい」で比べていて、0.85 倍で通っていた。ところが1画素の幅は解像度で縮む(1920x1080 なら 0.0011t)のに、球面追跡が止まる幅(0.0005t / sinθ)は解像度によらない——<strong>窓を広げるだけで落ちる</strong>比べ方になっていた。止まる幅そのもので割るように直したら、<strong>ちょうど 1.00 倍</strong>が出た。最後の1歩が幅ぎりぎりで止まった画素があれば幅いっぱいまでずれうる、という理屈どおりの数字なので、「奥に出た画素が無い」と「止まる幅の2倍以内」(深度バッファの丸めのぶんの余裕)を合わせて合格の条件にした。</p>
+<p><strong>4. Day 57 との突き合わせで、完成版だけ8万画素違った</strong>。最初の台本は「完成版で遊ぶ」を押してから 59 フレーム走らせて止めていて、その間の可変 dt が走行ごとに違っていた(Day 57 どうしで2回流しても同じだけ違う)。<strong>押した直後のフレームで止める</strong>台本にしたら、Day 57 と Day 58 の4枚とも、Day 57 どうしの4枚とも、違う画素 0 になった。</p>
+<p><strong>5. コンソールに出す文字のうち4種類が化けた</strong>。コンソールは CP932 で、<code>—</code>(全角ダッシュ)・<code>−</code>(マイナス記号)・<code>²</code>・<code>〜</code> が CP932 に無いので <code>?</code> になる。コードのコメントには使ってよいが、<strong><code>Console.WriteLine</code> と自己チェックの文字列では使わない</strong>(<code>(かすめる光線ほど歩く)</code>、<code>箱 - 球</code>、<code>^2</code>、<code>最小 / 最大</code> に置き換えた)。</p>
+</section>
+<footer class="end">Day 58 レイマーチング(距離関数だけで場面を描く) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// raymarch.frag の距離関数と歩き方の移植(このページの実験台が使う)
+(() => {
+// raymarch.frag の移植(実験台と検算で共有)
+const S = {};
+S.GROUND_Y = -0.5; S.CELL = 3; S.TWIST_RATE = 2.5; S.TWIST_HALF = 0.6;
+const len3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
+S.sphere = (x, y, z, r) => len3(x, y, z) - r;
+S.box = (x, y, z, hx, hy, hz) => { const qx = Math.abs(x) - hx, qy = Math.abs(y) - hy, qz = Math.abs(z) - hz; return len3(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, Math.max(qy, qz)), 0); };
+S.roundBox = (x, y, z, hx, hy, hz, r) => S.box(x, y, z, hx - r, hy - r, hz - r) - r;
+S.torus = (x, y, z, R, r) => { const qx = Math.hypot(x, z) - R; return Math.hypot(qx, y) - r; };
+S.capsule = (x, y, z, h, r) => { y -= Math.min(Math.max(y, 0), h); return len3(x, y, z) - r; };
+S.smin = (a, b, k) => { const h = Math.max(k - Math.abs(a - b), 0) / k; return Math.min(a, b) - h * h * k * 0.25; };
+// rotateY(p, a) = (c x - s z, y, s x + c z)
+const rotY = (x, y, z, a) => { const c = Math.cos(a), s = Math.sin(a); return [c * x - s * z, y, s * x + c * z]; };
+S.rotY = rotY;
+const U = (d, m, best) => (d < best[0] ? [d, m] : best);
+S.primitives = (x, y, z, time) => {
+  const swing = 0.25 + 0.45 * (0.5 + 0.5 * Math.sin(time * 0.9));
+  const bx = x + 4.5, by = y - 0.15, bz = z;
+  let r = [S.smin(S.sphere(bx - swing, by, bz, 0.55), S.sphere(bx + swing, by, bz, 0.55), 0.6), 1];
+  const c = rotY(x + 1.5, y - 0.15, z, -time * 0.5);
+  r = U(Math.max(S.roundBox(c[0], c[1], c[2], 0.55, 0.55, 0.55, 0.05), -S.sphere(c[0], c[1], c[2], 0.72)), 2, r);
+  const ix = x - 1.5, iy = y - 0.15;
+  r = U(Math.max(S.roundBox(ix, iy, z, 0.55, 0.55, 0.55, 0.05), S.sphere(ix, iy, z, 0.75)), 3, r);
+  const g = rotY(x - 4.5, y - 0.15, z, -time * 0.7);
+  return U(S.torus(g[0], g[2], g[1], 0.5, 0.18), 4, r);
+};
+S.repetition = (x, y, z, time) => {
+  const qx = x - S.CELL * Math.floor(x / S.CELL + 0.5), qz = z - S.CELL * Math.floor(z / S.CELL + 0.5);
+  let r = [S.smin(S.capsule(qx, y - S.GROUND_Y, qz, 1.9, 0.28), S.sphere(qx, y - 1.75, qz, 0.42), 0.25), 3];
+  const ringY = 0.45 + 0.5 * Math.sin(time * 1.2);
+  return U(S.torus(qx, y - ringY, qz, 0.6, 0.1), 1, r);
+};
+const twist = (x, y, z, rate) => rotY(x, y, z, rate * y);
+S.twist = (x, y, z, time) => {
+  const a = rotY(x, y - 1, z, -time * 0.4), c = twist(a[0], a[1], a[2], S.TWIST_RATE);
+  let r = [S.roundBox(c[0], c[1], c[2], S.TWIST_HALF, 1.5, S.TWIST_HALF, 0.04), 2];
+  const l = twist(x + 2.8, y - 0.5, z, S.TWIST_RATE);
+  r = U(S.roundBox(l[0], l[1], l[2], 0.4, 1.0, 0.4, 0.03), 1, r);
+  const q = twist(x - 2.8, y - 0.5, z, -S.TWIST_RATE);
+  return U(S.roundBox(q[0], q[1], q[2], 0.4, 1.0, 0.4, 0.03), 1, r);
+};
+S.map = (scene, x, y, z, time, ground = true) => {
+  let r = scene === 0 ? S.primitives(x, y, z, time) : scene === 1 ? S.repetition(x, y, z, time) : S.twist(x, y, z, time);
+  if (ground) r = U(y - S.GROUND_Y, 0, r);
+  return r;
+};
+// march。trace に1歩ずつ [t, h] を積む
+S.march = (scene, o, d, time, opt = {}) => {
+  const eps = opt.eps ?? 0.0005, scale = opt.scale ?? 1, maxSteps = opt.maxSteps ?? 128, maxDist = opt.maxDist ?? 80, ground = opt.ground ?? true;
+  let t = 0; const trace = [];
+  for (let i = 0; i < maxSteps; i++) {
+    const h = S.map(scene, o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t, time, ground)[0];
+    trace.push([t, h]);
+    if (h < eps * t) return { hit: true, t, steps: i + 1, trace, h };
+    t += h * scale;
+    if (t > maxDist) return { hit: false, t, steps: i + 1, trace, exit: 'far' };
+  }
+  return { hit: false, t, steps: maxSteps, trace, exit: 'steps' };
+};
+// softShadow。cost は呼び出しの回数
+S.softShadow = (scene, o, l, time, soft = true, ground = true) => {
+  let res = 1, t = 0.02, calls = 0;
+  for (let i = 0; i < 64; i++) {
+    const h = S.map(scene, o[0] + l[0] * t, o[1] + l[1] * t, o[2] + l[2] * t, time, ground)[0]; calls++;
+    if (h < 0.001) return { s: 0, calls };
+    if (soft) res = Math.min(res, 8 * h / t);
+    t += Math.min(Math.max(h, 0.02), 0.5);
+    if (t > 12) break;
+  }
+  return { s: Math.min(Math.max(res, 0), 1), calls };
+};
+if (typeof module !== 'undefined') module.exports = S; else window.Sdf58 = S;
+})();
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat } = Lab;
+const S = window.Sdf58;
+const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
+const L_TWIST = Math.sqrt(1 + (S.TWIST_RATE * S.TWIST_HALF) ** 2);
+
+// raymarch.frag の sliceColor(F4 の距離の断面)
+function sliceColor(d) {
+  let c = d > 0 ? [0.9, 0.6, 0.3] : [0.65, 0.85, 1.0];
+  const k = (1 - Math.exp(-6 * Math.abs(d))) * (0.8 + 0.2 * Math.cos(40 * d));
+  const e = clamp01(Math.abs(d) / 0.02), w = 1 - e * e * (3 - 2 * e);
+  return c.map((v) => v * k * (1 - w) + w);
+}
+// raymarch.frag の heat(歩数の表示)
+const heat = (x) => { x = clamp01(x); return [clamp01(1.5 - Math.abs(4 * x - 3)), clamp01(1.5 - Math.abs(4 * x - 2)), clamp01(1.5 - Math.abs(4 * x - 1))]; };
+// 断面を画素で塗る。view = [x0, x1, y0, y1]
+function paintSlice(ctx, w, h, view, fn, dim = 1) {
+  const dpr = window.devicePixelRatio || 1, W = Math.round(w * dpr), H = Math.round(h * dpr);
+  const img = ctx.createImageData(W, H);
+  const [x0, x1, y0, y1] = view;
+  for (let j = 0; j < H; j++) {
+    const y = y1 - (j + 0.5) / H * (y1 - y0);
+    for (let i = 0; i < W; i++) {
+      const x = x0 + (i + 0.5) / W * (x1 - x0);
+      const c = fn(x, y), k = (j * W + i) * 4;
+      img.data[k] = 255 * clamp01(c[0] * dim) ** (1 / 2.2); img.data[k + 1] = 255 * clamp01(c[1] * dim) ** (1 / 2.2); img.data[k + 2] = 255 * clamp01(c[2] * dim) ** (1 / 2.2); img.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+// 断面の絵は重いので、場面と時刻が同じなら描き直さない
+function cachedSlice(cache, key, w, h, view, fn) {
+  const dpr = window.devicePixelRatio || 1;
+  if (cache.key !== key || cache.w !== w || cache.h !== h) {
+    const off = cache.canvas || (cache.canvas = document.createElement('canvas'));
+    off.width = Math.round(w * dpr); off.height = Math.round(h * dpr);
+    paintSlice(off.getContext('2d'), w, h, view, fn);
+    Object.assign(cache, { key, w, h });
+  }
+  return cache.canvas;
+}
+
+// ============================================================
+//  要点2・5: 断面の上の球面追跡
+// ============================================================
+const VIEWS = [[-7.5, 7.5, -1.4, 4.2], [-7.5, 7.5, -1.4, 4.2], [-6.5, 6.5, -1.2, 3.6]];
+// 例。カメラ(断面の上の点)と、光線の向き(度。+x から反時計回り)
+const PRESETS = {
+  0: [['正面から当たる', [-7, 0.15], 0], ['形の上をかすめる', [-7, 0.73], 0], ['床へ', [-7, 3.6], -20]],
+  1: [['柱へ', [-7.5, 1.0], 0], ['玉の上をかすめる', [-7.5, 2.3], -0.5], ['地平線へ', [-7.5, 2.25], 0]],
+  2: [['踏み込む(歩幅 x1.00 のとき)', [-4, 2], -8.95], ['床へ', [-6, 3.2], -25]],
+};
+const mt = { scene: 0, time: 0.67, safe: true, fan: false, cam: [-7, 0.15], ang: 0, cache: {} };
+const mtScale = () => (mt.safe && mt.scene === 2 ? 1 / L_TWIST : 1);
+function buildPresets() {
+  $('mt-pre').innerHTML = PRESETS[mt.scene].map(([name], i) => `<button data-v="${i}" aria-pressed="false">${name}</button>`).join('');
+}
+function applyPreset(i) {
+  const p = PRESETS[mt.scene][i];
+  mt.cam = p[1].slice(); mt.ang = p[2];
+  if (mt.scene === 2 && i === 0) { mt.time = 0.67; $('mt-time').value = mt.time; }
+  setSeg('mt-pre', String(i)); drawMarch();
+}
+function marchFrom(cam, angDeg) {
+  const a = angDeg * Math.PI / 180, d = [Math.cos(a), Math.sin(a), 0];
+  return S.march(mt.scene, [cam[0], cam[1], 0], d, mt.time, { scale: mtScale() });
+}
+function drawMarch() {
+  const { ctx, w, h } = fit($('mt-canvas'));
+  const view = VIEWS[mt.scene], [x0, x1, y0, y1] = view;
+  // 横と縦の縮尺を揃える(はみ出すぶんは縦を広げる)
+  const sx = w / (x1 - x0), syv = h / (y1 - y0), sc = Math.min(sx, syv);
+  const cx0 = (x0 + x1) / 2 - w / sc / 2, cy1 = (y0 + y1) / 2 + h / sc / 2;
+  const fullView = [cx0, cx0 + w / sc, cy1 - h / sc, cy1];
+  const X = (x) => (x - fullView[0]) * sc, Y = (y) => (fullView[3] - y) * sc;
+  const img = cachedSlice(mt.cache, `${mt.scene}:${mt.time}`, w, h, fullView, (x, y) => sliceColor(S.map(mt.scene, x, y, 0, mt.time)[0]));
+  ctx.drawImage(img, 0, 0, w, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, 0, w, h);
+  // 扇(歩数を色に)
+  if (mt.fan) {
+    for (let k = 0; k <= 160; k++) {
+      const a = mt.ang - 40 + k * 0.5, r = marchFrom(mt.cam, a);
+      const c = heat(r.steps / 128).map((v) => Math.round(v * 0.8 * 255));
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},0.85)`; ctx.lineWidth = 1.5;
+      const rad = a * Math.PI / 180, t = Math.min(r.t, 30);
+      ctx.beginPath(); ctx.moveTo(X(mt.cam[0]), Y(mt.cam[1])); ctx.lineTo(X(mt.cam[0] + Math.cos(rad) * t), Y(mt.cam[1] + Math.sin(rad) * t)); ctx.stroke();
+    }
+  }
+  const r = marchFrom(mt.cam, mt.ang);
+  const rad = mt.ang * Math.PI / 180, d = [Math.cos(rad), Math.sin(rad)];
+  // 歩みの円と点
+  r.trace.forEach(([t, hh], i) => {
+    const px = X(mt.cam[0] + d[0] * t), py = Y(mt.cam[1] + d[1] * t);
+    if (hh > 0 && i < 60) { ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px, py, hh * sc, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 2.2, 0, Math.PI * 2); ctx.fill();
+  });
+  const tEnd = Math.min(r.t, 40);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(mt.cam[0]), Y(mt.cam[1])); ctx.lineTo(X(mt.cam[0] + d[0] * tEnd), Y(mt.cam[1] + d[1] * tEnd)); ctx.stroke();
+  if (r.hit) {
+    const inside = r.h < -1e-4;
+    ctx.fillStyle = inside ? tok('--expl') : tok('--good');
+    ctx.beginPath(); ctx.arc(X(mt.cam[0] + d[0] * r.t), Y(mt.cam[1] + d[1] * r.t), 6, 0, Math.PI * 2); ctx.fill();
+  }
+  // カメラ
+  ctx.fillStyle = tok('--warn'); ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(X(mt.cam[0]), Y(mt.cam[1]), 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  mt.toWorld = (px, py) => [fullView[0] + px / sc, fullView[3] - py / sc];
+  mt.camPx = [X(mt.cam[0]), Y(mt.cam[1])];
+  $('mt-time-out').textContent = `${mt.time.toFixed(2)}s`;
+  const last = r.trace[r.trace.length - 1];
+  const exit = r.hit ? (r.h < -1e-4 ? '当たり(面の中で止まった)' : '当たり') : r.exit === 'far' ? '外れ(80m を超えた)' : '歩数切れ(128 歩)';
+  $('mt-stats').innerHTML =
+    stat('出口', exit) +
+    stat('歩数', String(r.steps)) +
+    stat('進んだ距離 t', `${r.t.toFixed(4)}m`) +
+    stat('最後に返った距離 h', `${(last[1] * 1000).toFixed(2)}mm`, ` <small>当たりの幅 εt = ${(0.0005 * last[0] * 1000).toFixed(2)}mm</small>`) +
+    stat('歩幅', `x${mtScale().toFixed(2)}`);
+  // F8 と同じ形の一覧(長いときは途中を省く)
+  const rows = r.trace.map(([t, hh], i) => `${String(i + 1).padStart(5)}  ${t.toFixed(4).padStart(11)}m  ${hh.toFixed(5).padStart(11)}m  ${(0.0005 * t).toFixed(5).padStart(10)}m`);
+  const shown = rows.length > 14 ? [...rows.slice(0, 8), `   …(${rows.length - 13} 歩ぶん省略)`, ...rows.slice(-5)] : rows;
+  $('mt-trace').textContent = '   歩   進んだ距離 t   返った距離 h   当たりの幅 εt\n' + shown.join('\n');
+  $('mt-note').textContent =
+    r.hit && r.h < -1e-4 ? `最後の h が負: 返った距離を信じて進んだら面の中へ入っていた。ねじれは距離を最大 ${L_TWIST.toFixed(2)} 倍長く見積もる。「歩幅を縮める」を入れると面の手前で止まる`
+    : r.hit ? `h が εt を割ったところで止まった。球面追跡は必ず面の手前で止まる${r.steps > 30 ? '。面をかすめる光線は h が縮まないまま少しずつしか進めないので、歩数が跳ね上がる' : ''}`
+    : r.exit === 'steps' ? '128 歩で歩数切れ。当たったとは言えないので、外れとして空を塗る'
+    : '80m を超えて外れた(空)';
+}
+seg('mt-scene', (v) => { mt.scene = Number(v); buildPresets(); applyPreset(0); });
+$('mt-pre').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) applyPreset(Number(b.dataset.v)); });
+$('mt-time').addEventListener('input', (e) => { mt.time = Number(e.target.value); drawMarch(); });
+$('mt-safe').addEventListener('change', (e) => { mt.safe = e.target.checked; drawMarch(); });
+$('mt-fan').addEventListener('change', (e) => { mt.fan = e.target.checked; drawMarch(); });
+{
+  const cv = $('mt-canvas');
+  let dragCam = false, down = false;
+  const pos = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const aim = (p) => { const wpt = mt.toWorld(...p); mt.ang = Math.atan2(wpt[1] - mt.cam[1], wpt[0] - mt.cam[0]) * 180 / Math.PI; };
+  cv.addEventListener('pointerdown', (e) => {
+    const p = pos(e); down = true; cv.setPointerCapture(e.pointerId);
+    dragCam = Math.hypot(p[0] - mt.camPx[0], p[1] - mt.camPx[1]) < 14;
+    if (!dragCam) aim(p);
+    setSeg('mt-pre', ''); drawMarch();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const p = pos(e);
+    if (dragCam) mt.cam = mt.toWorld(...p); else aim(p);
+    drawMarch();
+  });
+  cv.addEventListener('pointerup', () => { down = false; });
+}
+window.addEventListener('resize', drawMarch);
+buildPresets(); applyPreset(0);
+
+// ============================================================
+//  要点4: 滑らかな和
+// ============================================================
+const sm = { k: 0.6, swing: 0.7, grad: false };
+// 2つの球の中心は (-4.5 ± swing, 0.15)。ここでは中心を原点に寄せて描く
+const blob = (x, y) => S.smin(S.sphere(x - sm.swing, y, 0, 0.55), S.sphere(x + sm.swing, y, 0, 0.55), sm.k);
+function gradAt(x, y) { const e = 1e-3; return Math.hypot(blob(x + e, y) - blob(x - e, y), blob(x, y + e) - blob(x, y - e)) / (2 * e); }
+function drawSmin() {
+  const { ctx, w, h } = fit($('sm-canvas'));
+  const sc = Math.min(w / 4.4, h / 2.4), view = [-w / sc / 2, w / sc / 2, -h / sc / 2, h / sc / 2];
+  const dpr = window.devicePixelRatio || 1;
+  const off = document.createElement('canvas'); off.width = Math.round(w * dpr); off.height = Math.round(h * dpr);
+  paintSlice(off.getContext('2d'), w, h, view, sm.grad ? (x, y) => { const g = gradAt(x, y), d = blob(x, y); const c = heat(1 - g); return Math.abs(d) < 0.012 ? [1, 1, 1] : c.map((v) => v * 0.8); } : (x, y) => sliceColor(blob(x, y)));
+  ctx.drawImage(off, 0, 0, w, h);
+  // min(k → 0)の輪郭を破線で
+  const X = (x) => (x - view[0]) * sc, Y = (y) => (view[3] - y) * sc;
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  for (const c of [sm.swing, -sm.swing]) { ctx.beginPath(); ctx.arc(X(c), Y(0), 0.55 * sc, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.setLineDash([]);
+  // 傾きの最小(外側。自己チェックの2項目めは3次元で数えている)
+  let gmin = Infinity, gmax = 0, at = [0, 0];
+  for (let j = 0; j <= 120; j++) for (let i = 0; i <= 220; i++) {
+    const x = -2.2 + i * 0.02, y = -1.2 + j * 0.02;
+    if (blob(x, y) <= 0.01) continue;
+    const g = gradAt(x, y); if (g < gmin) { gmin = g; at = [x, y]; } gmax = Math.max(gmax, g);
+  }
+  ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X(at[0]), Y(at[1]), 6, 0, Math.PI * 2); ctx.stroke();
+  const gap = Math.abs(S.sphere(sm.swing, 0, 0, 0.55) - S.sphere(-sm.swing, 0, 0, 0.55));
+  const bulge = Math.min(S.sphere(-sm.swing, 0, 0, 0.55), S.sphere(sm.swing, 0, 0, 0.55)) - blob(0, 0);
+  $('sm-k-out').textContent = sm.k.toFixed(2);
+  $('sm-swing-out').textContent = `${sm.swing.toFixed(2)}m`;
+  $('sm-stats').innerHTML =
+    stat('外側の傾きの最小', gmin.toFixed(3), ` <small>(${at[0].toFixed(2)}, ${at[1].toFixed(2)})。赤い丸</small>`) +
+    stat('外側の傾きの最大', gmax.toFixed(4)) +
+    stat('真ん中で min から引いた量', `${(bulge * 100).toFixed(1)}cm`, ` <small>上限 k/4 = ${(sm.k * 25).toFixed(1)}cm</small>`);
+  $('sm-note').textContent = gmin < 0.5
+    ? 'つなぎ目の外側では、2つの球の傾きが向きの違うまま混ざって打ち消し合い、傾きが 1 を大きく割る。短めに見積もるので安全だが、光線はそこで余計に歩く'
+    : '離れているか k が小さいので、つなぎ目の影響が小さい。傾きはほぼ 1 のまま';
+  void gap;
+}
+$('sm-k').addEventListener('input', (e) => { sm.k = Number(e.target.value); drawSmin(); });
+$('sm-swing').addEventListener('input', (e) => { sm.swing = Number(e.target.value); drawSmin(); });
+$('sm-grad').addEventListener('change', (e) => { sm.grad = e.target.checked; drawSmin(); });
+window.addEventListener('resize', drawSmin);
+drawSmin();
+
+// ============================================================
+//  要点6・8: 柔らかい影と、影の光線の歩数
+// ============================================================
+const sh = { soft: true, elev: 54, time: 0.83, cache: {} };
+function drawShadow() {
+  const { ctx, w, h } = fit($('sh-canvas'));
+  const top = h * 0.62, view0 = [-7.5, 7.5, -1.0, 2.0];
+  const sc = Math.min(w / (view0[1] - view0[0]), top / (view0[3] - view0[2]));
+  const vw = w / sc, view = [-vw / 2, vw / 2, view0[2], view0[2] + top / sc];
+  const X = (x) => (x - view[0]) * sc, Y = (y) => (view[3] - y) * sc;
+  const img = cachedSlice(sh.cache, `${sh.time}:${w}`, w, top, view, (x, y) => { const d = S.map(0, x, y, 0, sh.time, false)[0]; return y < S.GROUND_Y ? [0.05, 0.05, 0.06] : d < 0 ? [0.55, 0.55, 0.6] : [0.09, 0.1, 0.13]; });
+  ctx.drawImage(img, 0, 0, w, top);
+  // 光(断面の中の向き。+x の上から)
+  const a = sh.elev * Math.PI / 180, toLight = [Math.cos(a), Math.sin(a), 0];
+  const N = Math.floor(w / 2), shade = [], calls = [];
+  for (let i = 0; i < N; i++) {
+    const x = view[0] + (i + 0.5) / N * (view[1] - view[0]);
+    // 床の点。shade と同じく法線(上)へ 2mm 浮かせる
+    const r = S.softShadow(0, [x, S.GROUND_Y + 0.002, 0], toLight, sh.time, sh.soft, true);
+    shade.push(r.s); calls.push(r.calls);
+  }
+  // 床の明るさ(太陽 × 影。空の光と AO は省いた)
+  for (let i = 0; i < N; i++) {
+    const v = Math.round(255 * (0.08 + 0.85 * shade[i] * Math.sin(a)) ** (1 / 2.2));
+    ctx.fillStyle = `rgb(${v},${Math.round(v * 0.97)},${Math.round(v * 0.9)})`;
+    ctx.fillRect(i * w / N, Y(S.GROUND_Y) - 1, w / N + 0.5, 8);
+  }
+  // 光の向きの矢印
+  ctx.strokeStyle = tok('--warn'); ctx.fillStyle = tok('--warn');
+  // 光は toLight の逆へ進む(右上から左下へ)
+  Lab.arrow(ctx, w - 24, 14, w - 24 - Math.cos(a) * 44, 14 + Math.sin(a) * 44, tok('--warn'));
+  ctx.font = '11px ' + tok('--font-body'); ctx.textAlign = 'right'; ctx.fillText('光の進む向き', w - 36 - Math.cos(a) * 44, 18 + Math.sin(a) * 44); ctx.textAlign = 'left';
+  // 下: 影の光線の歩数
+  const gT = top + 18, gB = h - 18, maxC = 64;
+  const GY = (c) => gB - c / maxC * (gB - gT);
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--grid');
+  for (const c of [0, 24, 48, 64]) { ctx.beginPath(); ctx.moveTo(0, GY(c)); ctx.lineTo(w, GY(c)); ctx.stroke(); ctx.fillText(String(c), 4, GY(c) - 2); }
+  ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.beginPath();
+  calls.forEach((c, i) => { const px = (i + 0.5) * w / N; if (i) ctx.lineTo(px, GY(c)); else ctx.moveTo(px, GY(c)); }); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.fillText('影の光線が距離関数を呼んだ回数(床の各点)', 34, gT + 2);
+  const lit = calls.filter((_, i) => shade[i] > 0.99), dark = calls.filter((_, i) => shade[i] < 0.01);
+  const mean = (v) => (v.length ? v.reduce((p, q) => p + q, 0) / v.length : 0);
+  $('sh-elev-out').textContent = `${sh.elev}°`;
+  $('sh-time-out').textContent = `${sh.time.toFixed(2)}s`;
+  $('sh-stats').innerHTML =
+    stat('影の光線の呼び出し(床の平均)', mean(calls).toFixed(1), ' <small>回</small>') +
+    stat('光が当たる点', mean(lit).toFixed(1), ` <small>回(最低 12 ÷ 0.5 = 24 歩)</small>`) +
+    stat('影の中の点', mean(dark).toFixed(1), ' <small>回</small>') +
+    stat('半影の点', String(shade.filter((s) => s > 0.01 && s < 0.99).length), ` <small>/ ${N}</small>`);
+  $('sh-note').textContent = sh.soft
+    ? '半影は、遮るものから離れるほど広がる(h / t は遮るものを見込む角度に近い)。光が当たる点ほど、影の光線は何にも当たらず 12m 先まで歩き切る'
+    : '硬い影は k × h / t を覚えないだけで、歩き方は同じ。呼び出しの回数は柔らかい影と変わらない';
+}
+seg('sh-mode', (v) => { sh.soft = v === 'soft'; drawShadow(); });
+$('sh-elev').addEventListener('input', (e) => { sh.elev = Number(e.target.value); drawShadow(); });
+$('sh-time').addEventListener('input', (e) => { sh.time = Number(e.target.value); drawShadow(); });
+window.addEventListener('resize', drawShadow);
+drawShadow();
+})();
+</script>
+</body>
+</html>
