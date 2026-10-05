@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 61 GPU パストレーサ化</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. GPGPU の実行モデル — 行の for ループが消える</a></li><li class="l3"><a href="#s6">2. GLSL に無いもの — 参照・継承・仮想関数</a></li><li class="l3"><a href="#s7">3. 乱数を揃える — 移植の検証はここから始まる</a></li><li class="l3"><a href="#s8">4. 場面を平らにする — std430 と「番号でつなぐ」</a></li><li class="l3"><a href="#s9">5. 同じ式でも同じ答えにならない — 浮動小数の3つの落とし穴</a></li><li class="l3"><a href="#s10">6. 積み重ねと非同期 — ディスパッチは「投げる」だけ</a></li><li class="l3"><a href="#s11">7. 何が速くなって、何が速くならなかったか</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Gpu — コンテキスト・シェーダ・場面の転送</a></li><li class="l3"><a href="#s19">App — 2つの描き手</a></li><li class="l3"><a href="#s20">1フレームの流れ</a></li><li class="l3"><a href="#s21">1パスの中身 — C# と GLSL の分担</a></li><li class="l3"><a href="#s22">1つの呼び出しの中 — pathtrace.comp</a></li><li class="l3"><a href="#s23">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. 起動: 場面4「コーネルボックス」、GPU</a></li><li class="l3"><a href="#s26">2. <code>G</code>: CPU に切り替える(今日いちばんの見比べ)</a></li><li class="l3"><a href="#s27">3. <code>A</code>: Whitted に切り替える</a></li><li class="l3"><a href="#s28">4. <code>B</code>: 探し方を変える(GPU でも BVH は効く)</a></li><li class="l3"><a href="#s29">5. <code>C</code>: 自己チェック(23 項目すべて合格、2.2 秒)</a></li><li class="l3"><a href="#s30">6. <code>V</code>: 交差判定の数 / 光線の数(GPU 側でも同じ絵)</a></li><li class="l3"><a href="#s31">7. 右クリック: 1画素を追う(GPU モードでも CPU が追う)</a></li><li class="l3"><a href="#s32">8. その他</a></li><li class="l2"><a href="#s33">検証の途中で分かったこと</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ワークグループの形とスタックの深さ</a></li><li class="l3"><a href="#s36">課題2(中): わざと1か所ずらして、自己チェック20 と 22 の役割を確かめる</a></li><li class="l3"><a href="#s37">課題3(難): <code>glFinish</code> をやめる</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 61 / 計画書</p>
+  <h1>GPU パストレーサ化</h1>
+  <p class="lede">Day 60 をコンピュートシェーダに移す</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. GPGPU の実行モデル — 行の for ループが消える</a></li><li class="l3"><a href="#s6">2. GLSL に無いもの — 参照・継承・仮想関数</a></li><li class="l3"><a href="#s7">3. 乱数を揃える — 移植の検証はここから始まる</a></li><li class="l3"><a href="#s8">4. 場面を平らにする — std430 と「番号でつなぐ」</a></li><li class="l3"><a href="#s9">5. 同じ式でも同じ答えにならない — 浮動小数の3つの落とし穴</a></li><li class="l3"><a href="#s10">6. 積み重ねと非同期 — ディスパッチは「投げる」だけ</a></li><li class="l3"><a href="#s11">7. 何が速くなって、何が速くならなかったか</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Gpu — コンテキスト・シェーダ・場面の転送</a></li><li class="l3"><a href="#s19">App — 2つの描き手</a></li><li class="l3"><a href="#s20">1フレームの流れ</a></li><li class="l3"><a href="#s21">1パスの中身 — C# と GLSL の分担</a></li><li class="l3"><a href="#s22">1つの呼び出しの中 — pathtrace.comp</a></li><li class="l3"><a href="#s23">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s24">完成条件</a></li><li class="l3"><a href="#s25">1. 起動: 場面4「コーネルボックス」、GPU</a></li><li class="l3"><a href="#s26">2. <code>G</code>: CPU に切り替える(今日いちばんの見比べ)</a></li><li class="l3"><a href="#s27">3. <code>A</code>: Whitted に切り替える</a></li><li class="l3"><a href="#s28">4. <code>B</code>: 探し方を変える(GPU でも BVH は効く)</a></li><li class="l3"><a href="#s29">5. <code>C</code>: 自己チェック(23 項目すべて合格、2.2 秒)</a></li><li class="l3"><a href="#s30">6. <code>V</code>: 交差判定の数 / 光線の数(GPU 側でも同じ絵)</a></li><li class="l3"><a href="#s31">7. 右クリック: 1画素を追う(GPU モードでも CPU が追う)</a></li><li class="l3"><a href="#s32">8. その他</a></li><li class="l2"><a href="#s33">検証の途中で分かったこと</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ワークグループの形とスタックの深さ</a></li><li class="l3"><a href="#s36">課題2(中): わざと1か所ずらして、自己チェック20 と 22 の役割を確かめる</a></li><li class="l3"><a href="#s37">課題3(難): <code>glFinish</code> をやめる</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の5日目</strong>。Day 60 の <code>CpuRayTracer</code> の続きで、reference は Day 60b の完全コピー + 差分。ついに GPU を使う——ただし<strong>絵を描かせるためではなく、計算させるため</strong>に。</p>
+<p>今日やることは1つだけ。<strong>Day 60 で書いたパストレーサを、式を1行も変えずに GLSL へ写す</strong>。場面も、つまみも、画面に出す道筋も Day 60 のまま。<code>G</code> キーで CPU 版と GPU 版を行き来して、<strong>同じ絵が 15〜30 倍の速さで出る</strong>のを見る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>CPU(Day 60)</th><th>GPU(Day 61)</th></tr></thead>
+<tbody>
+<tr><td>1画素を担当するのは</td><td><code>Parallel.For</code> が配った<strong>行</strong>の中の for ループ</td><td><strong>1回の呼び出し</strong>(invocation)。行も for も無い</td></tr>
+<tr><td>同時に動く数</td><td>11 スレッド</td><td><strong>数万</strong>(いまの GPU なら、走っている状態の呼び出しが数万本)</td></tr>
+<tr><td>誰が仕事を回すか</td><td>描画スレッドが黙々と積む</td><td><strong>UI スレッドが投げる</strong>。GPU が勝手に進める</td></tr>
+<tr><td>場面の持ち方</td><td><code>Shape</code> が <code>Material</code> を<strong>参照</strong>で持つ</td><td>形の配列と材質の配列を分け、<strong>番号</strong>でつなぐ</td></tr>
+<tr><td>乱数</td><td>64 ビット PCG</td><td><strong>32 ビット PCG</strong>(GLSL に 64 ビット整数が無い)</td></tr>
+<tr><td>1画素を追う(右クリック)</td><td>木を文字列で記録できる</td><td><strong>できない</strong>(文字列も例外も無い)。CPU に残す</td></tr>
+<tr><td>場面4の1パス</td><td><strong>86.4 ms</strong></td><td><strong>2.90 ms</strong></td></tr>
+<tr><td>4096 サンプル</td><td><strong>5.9 分</strong></td><td><strong>20 秒</strong></td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>新規 5 ファイル</strong>(1,978 行、うちコード 1,297 行。<strong>うち GLSL が 1,008 行</strong>)と<strong>変更 8 ファイル</strong>(+617 / −85 行)。</p>
+<blockquote><p><strong>今日いちばん厄介だったのは、CPU と GPU の絵が「合っているのに合っていない」状態</strong></p>
+<p>平均の明るさは小数第4位まで一致し、収束した絵も見分けがつかないのに、<strong>1サンプル目を1画素ずつ突き合わせると半分(50%)がずれていた</strong>(自己チェック20)。原因は <code>-0.0</code>。C# の <code>MathF.CopySign(1, -0.0f)</code> は <strong>−1</strong> を返すが、GLSL で素直に書いた<code>n.z &gt;= 0.0 ? 1.0 : -1.0</code> は <code>-0.0 &gt;= 0.0</code> が true なので <strong>+1</strong> を返す。コーネルボックスの横の壁を内側から見たときの法線がちょうど <code>(-1, -0.0, -0.0)</code> で、<strong>CPU と GPU が別の正規直交基底を作り、散る向きが丸ごと変わっていた</strong>。どちらの基底も正しいので、<strong>平均は合う。合わないのは1本ごとの道だけ</strong>。「絵が合っているから移植できている」がいかに当てにならないかが、この1文字で分かる(検証1)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると Day 60 とまったく同じコーネルボックスが出る。ただし 1パスが 86ms ではなく 2.9ms で、20 秒待たずに 4096 サンプルまで積み終わって止まる。HUD の「計算」の行に GPU の機種名が出ている。<code>G</code> を押すと同じ絵のまま CPU に戻り、ノイズの減り方が目に見えて遅くなる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>G</code></td><td><strong>計算する場所(GPU / CPU)。今日の目</strong></td></tr>
+<tr><td><code>1</code>〜<code>6</code></td><td>場面(Day 60 と同じ6つ)</td></tr>
+<tr><td><code>A</code></td><td>追い方(パストレーシング / Whitted)。<strong>Whitted は GPU に無い</strong>ので、押すと CPU に落ちる</td></tr>
+<tr><td><code>B</code></td><td>探し方(BVH(SAH) / 総当たり / BVH(中央分割))。<strong>GPU でも 458 回 → 15.4 回に減る</strong></td></tr>
+<tr><td><code>N</code> <code>U</code> <code>K</code> <code>[</code> <code>]</code> <code>S</code> <code>F</code> <code>E</code> <code>J</code> <code>V</code></td><td>Day 60 のまま。<strong>GPU 側も同じ uniform で効く</strong></td></tr>
+<tr><td>右クリック</td><td>1画素を追う。<strong>GPU モードでも CPU が追う</strong>(GLSL から文字列は返せない)</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code></td><td>カメラを回す / 寄る / 戻す</td></tr>
+<tr><td><code>C</code> / <code>P</code> / <code>X</code> / <code>H</code> / <code>PageUp</code> / <code>PageDown</code> / <code>Esc</code></td><td>自己チェック(<strong>23 項目</strong>)/ PNG 保存 / 下の欄を消す / 文字を消す / めくる / 終了</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「レイトレーサは GPU に載せやすい」</strong>。Day 60 の <code>ProgressiveRenderer</code> の説明に「画素どうしが互いを見ないので、どう分けても答えが変わらず、鍵(lock)も要らない」と書いた。<strong>その性質がそのままコンピュートシェーダの実行モデル</strong>になっている(要点1)。<code>Parallel.For</code> で行を配っていたところが <code>gl_GlobalInvocationID</code> になるだけで、中の for ループは<strong>丸ごと消える</strong>——1回の呼び出しが1画素を受け持つので。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// pathtrace.comp の main。Day 60 の RenderLoop の二重ループがここに畳まれている
+ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+rngCreate(pixel.x, pixel.y, uSample, uDecorrelate);
+vec3 color = pathTrace(uCameraPosition, direction);
+imageStore(uAccum, pixel, vec4(imageLoad(uAccum, pixel).rgb + color, 1.0));</code></pre></div>
+<p><strong>2つ目は「移すときに困るのは理屈ではなく、言語の制約」</strong>(要点2〜4)。レンダリング方程式も BVH も1文字も変わらない。変わるのは<strong>C# にあって GLSL に無いもの</strong>の回し方。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>C# にあって GLSL に無いもの</th><th>どう回したか</th></tr></thead>
+<tbody>
+<tr><td><strong>参照 / 継承 / 仮想関数</strong></td><td>形の配列と材質の配列に分け、<strong>番号</strong>でつなぐ(<code>GpuScene</code>)。<code>Shape</code> の仮想関数は球用・平面用の関数に展開</td></tr>
+<tr><td><strong>64 ビット整数</strong></td><td>乱数器を 32 ビット PCG に替えた。<strong>CPU 側も揃えた</strong>のが今日の検証の土台(要点3)</td></tr>
+<tr><td><strong>再帰</strong></td><td>Day 60 の時点で <code>Trace</code> はループ、BVH は自前スタック。<strong>そのまま写せた</strong></td></tr>
+<tr><td><strong>例外 / 文字列 / <code>List</code></strong></td><td>1画素を追う機能は CPU に残した。配列の長さは uniform で渡す</td></tr>
+</tbody>
+</table></div>
+<p><strong>3つ目は「同じかどうかを、絵ではなく数で確かめる」</strong>(要点5・7)。Day 60b の要点9 と同じ話が、GPU でさらに効いてくる——<strong>ノイズと移植の間違いは見分けがつかない</strong>。今日は<strong>乱数を CPU と GPU で1ビットまで揃えて</strong>あるので、</p>
+<div class="code"><pre><code>同じ画素の、同じサンプル番号の色は、CPU でも GPU でもほぼ同じ値になるはず</code></pre></div>
+<p>が言える。自己チェック20 がこれを 14400 画素で突き合わせて、<strong>差の平均 1.4×10⁻⁴</strong>、0.01 を超えた画素 <strong>12 個(0.08%)</strong> を出す。冒頭の <code>-0.0</code> の1文字は、この数字が<strong>0.064 と 50%</strong> だったことで見つかった。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong>Day 57 の計画書</strong>(コンピュートシェーダ入門)— 今日の前提。ワークグループ、共有メモリ、<code>glMemoryBarrier</code>、std430 の詰め方、共有メモリで畳んでから <code>atomicAdd</code>。<strong>今日はそこで作った道具を、そっくりそのまま別の題材に使う</strong></li><li><strong>Day 60a・60b の計画書</strong>(パストレーシングと BVH)— 移す元。60a の要点1〜6 と 60b の要点7〜9 が今日のシェーダの中身そのもの</li><li><strong>Day 11〜13 の計画書</strong>(生 OpenGL バインディング)— 「窓を作ってコンテキストを作る儀式」を自分で書いた回。今日はそこを Silk.NET に任せるが、<strong>何を任せているかは分かっている</strong>状態で任せる</li><li><a href="https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf">OpenGL 4.6 Core Profile 仕様</a> の<strong>7.6.2.2 Standard Uniform Block Layout</strong>(std140 / std430 の詰め方の規則)と<strong>7.12 Shader Memory Access</strong>(メモリバリアが何を保証するか)</li><li><a href="https://registry.khronos.org/OpenGL/specs/gl/GLSLangSpec.4.60.pdf">GLSL 4.60 仕様</a> の<strong>4.4.5 Shader Storage Blocks</strong>、<strong>8.1 Angle and Trigonometry Functions</strong> (<strong>組み込み関数の精度が「実装依存」としか書かれていない</strong>ことを確かめる。要点5)</li><li><a href="https://www.pcg-random.org/paper.html">Melissa E. O'Neill, "PCG: A Family of Simple Fast Space-Efficient Statistically Good Algorithms for Random Number Generation"(2014)</a> の<strong>32 ビット版(RXS-M-XS)</strong> — 要点3</li><li><a href="https://nullprogram.com/blog/2018/07/31/">Chris Wellons, "Prospecting for Hash Functions"(2018)</a>— <code>triple32</code>。<code>SplitMix64</code> の 32 ビット版にあたる混ぜ関数(要点3)</li><li><a href="https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html">David Goldberg, "What Every Computer Scientist Should Know About Floating-Point Arithmetic"</a>の <strong>符号付きゼロ</strong>の節 — 要点5。今日の <code>-0.0</code> はここに書いてあるとおりのことが起きた</li><li><a href="https://research.nvidia.com/publication/2013-07_megakernels-considered-harmful-wavefront-path-tracing-gpus">Samuli Laine ほか, "Megakernels Considered Harmful: Wavefront Path Tracing on GPUs"(HPG 2013)</a>— <strong>今日作るのがまさに「メガカーネル」</strong>。なぜそれが良くないのか、次に何をするのかが書いてある(要点7)</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. GPGPU の実行モデル — 行の for ループが消える</h3>
+<p>Day 60 の1パスはこうだった。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Parallel.For(0, Height, options, y =&gt;      // 行を 11 スレッドに配る
+{
+    for (int x = 0; x &lt; Width; x++)        // 1行を1スレッドが順に舐める
+    {
+        var rng = Rng.Create(x, y, sample, ...);
+        _accumulated[row + x] += tracer.Sample(camera, x + offset.X, y + offset.Y, ref rng, ref rays);
+    }
+});</code></pre></div>
+<p>GPU では<strong>両方の入れ子が消える</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>layout(local_size_x = 8, local_size_y = 8) in;     // 8x8 = 64 呼び出しで1グループ
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy); // 「自分は何番目か」だけが降ってくる
+    ...
+}</code></pre></div>
+<p>C# 側は「何グループ走らせるか」だけを言う。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_program.Dispatch((uint)((Width + 7) / 8), (uint)((Height + 7) / 8));   // 120 x 68 グループ</code></pre></div>
+<p><code>(Height + 7) / 8</code> の切り上げに意味がある。540 は 8 で割り切れないので <strong>68 グループ = 544 行ぶん</strong>走り、はみ出した4行は <code>if (pixel.y &lt; uResolutionY)</code> で何もしない。<strong><code>return</code> ではなく <code>if</code> で囲む</strong>のが肝で、<code>return</code> すると後ろにある <code>barrier()</code> を通らない呼び出しが出る(全員が揃うのを待つ命令なので、1人でも来ないと永久に待つ)。</p>
+<p><strong>GPU が同時に抱えられる呼び出しの数</strong>は、いまの GPU なら数万本(SM の数 × SM あたりの上限)。960x540 = 518400 画素なので、<strong>何回かに分けて全部を流す</strong>ことになる。CPU の 11 スレッドとは3桁違う。</p>
+<p>ただし<strong>同時に走る呼び出しは、32 本(NVIDIA の warp)ずつ同じ命令を実行する</strong>。枝分かれすると、片方の枝を実行している間もう片方は休むことになる(<strong>発散</strong>)。パストレーシングは「隣の画素が別の材質に当たる」「道の長さが画素ごとに違う」ので発散しやすい——それでも 15〜30 倍出るのは、GPU の演算器の数がそれを補って余りあるから(要点7)。</p>
+<div class="inject"><figure class="lab" id="wg-lab">
+  <div class="lab-head">
+    <h3>ワークグループの格子と warp — はみ出しと発散を数える(要点1)</h3>
+    <span class="tag">GpuRenderer の Dispatch と同じ切り上げで格子を切り、1グループを 32 本ずつの warp に分けて数える。下の絵はカメラの光線が最初に当たったもの(960x540 の1パス目と同じ向き)。赤く塗った warp は、32 本の中で当たった材質(拡散 / 金属 / ガラス / 光る面 / 空)が混ざるもの。速さそのものはブラウザでは測れないので出さない。マウスを載せたグループは warp ごとに枠で示す</span>
+  </div>
+  <div class="stage"><canvas id="wg-canvas" style="height:400px;cursor:crosshair" aria-label="画面をワークグループの格子で切った図。はみ出した呼び出しと、材質が混ざる warp に色を付けてある"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ワークグループの形(local_size_x / y。改造課題1)</span>
+      <div class="seg" id="wg-shape"><button data-v="8x8" aria-pressed="true">8x8</button><button data-v="16x16" aria-pressed="false">16x16</button><button data-v="32x2" aria-pressed="false">32x2</button><button data-v="64x1" aria-pressed="false">64x1</button></div>
+    </div>
+    <div class="ctl"><span class="label">解像度</span>
+      <div class="seg" id="wg-res"><button data-v="960" aria-pressed="true">960x540</button><button data-v="320" aria-pressed="false">320x180(自己チェック22)</button><button data-v="160" aria-pressed="false">160x90(自己チェック20)</button></div>
+    </div>
+    <div class="ctl"><span class="label">場面</span>
+      <div class="seg" id="wg-scene"><button data-v="cornell" aria-pressed="true">4 コーネルボックス</button><button data-v="sphereField" aria-pressed="false">5 球がたくさん</button></div>
+    </div>
+    <div class="ctl"><span class="label">はみ出した呼び出しの扱い</span>
+      <div class="seg" id="wg-exit"><button data-v="if" aria-pressed="true">if で囲む(reference)</button><button data-v="return" aria-pressed="false">return で抜ける(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="wg-stats"></div><p id="wg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">2. GLSL に無いもの — 参照・継承・仮想関数</h3>
+<p>Day 60 の <code>Scene</code> は、形の一覧(<code>List&lt;Shape&gt;</code>)と、<code>Shape</code> から <code>Material</code> への参照でできていた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal abstract class Shape { public Material Material { get; } ... }
+internal sealed class Sphere : Shape { public override bool Intersect(...) }</code></pre></div>
+<p>GLSL には<strong>クラスも参照も仮想関数も無い</strong>。あるのは構造体と配列だけ。ほどき方は2つ。</p>
+<p><strong>形の種類ごとに配列を分ける</strong>。<code>Shape.Intersect</code> の仮想呼び出しは、「球の配列を舐める関数」と「平面の配列を舐める関数」に展開する。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// Scene.Intersect の GLSL 版。Day 60 の「囲めない形 → BVH」という二段構えはそのまま
+for (int i = 0; i &lt; uPlaneCount; i++) { if (planeHit(i, ...)) { ... } }
+if (uNodeCount == 0) { for (...) sphereHit(i, ...); } else { /* BVH を辿る */ }</code></pre></div>
+<p><strong>参照を番号に変える</strong>(<code>GpuScene</code>)。材質の配列を1本作り、形には材質の<strong>番号</strong>を持たせる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>struct Sphere { vec4 centerRadius; ivec4 info; };   // info.x = 材質の番号
+...
+vec3 albedo = uMaterials[uSpheres[index].info.x].albedo.rgb;</code></pre></div>
+<p>これは Day 60b の設計書で「今日残した歪み1」として挙げたものの解消にあたる。ただし<strong>直したのは GPU 側だけ</strong>で、CPU 側の <code>Shape</code> は参照を持ったまま——番号でつなぐ形は書くのが面倒で、CPU では得が無いから(設計書の「今日残した歪み」を参照)。</p>
+<h3 id="s7">3. 乱数を揃える — 移植の検証はここから始まる</h3>
+<p><strong>今日の検証の土台がこれ</strong>。CPU と GPU で違う乱数を使うと、出てくる絵は「同じ設定・違うノイズ」になり、<strong>移植の間違いとノイズの区別がつかなくなる</strong>。絵を引き算しても、ノイズが残るだけで何も分からない。</p>
+<p>そこで<strong>乱数列を1ビットまで揃える</strong>。Day 60 の PCG は状態が 64 ビットで、種を散らす <code>SplitMix64</code> も 64 ビットの掛け算を使っていたので、そのままでは写せない(GLSL に 64 ビット整数は、拡張なしでは無い)。32 ビット版に替える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 60</th><th>Day 61</th></tr></thead>
+<tbody>
+<tr><td>本体</td><td>PCG-XSH-RR 64/32</td><td><strong>PCG-RXS-M-XS 32</strong></td></tr>
+<tr><td>種を散らす</td><td>SplitMix64</td><td><strong>triple32</strong>(Wellons)</td></tr>
+<tr><td><code>NextInt(n)</code></td><td><code>(ulong)v * n &gt;&gt; 32</code>(偏り 0)</td><td><strong><code>v % n</code></strong>(偏り <code>n/2³²</code> ≒ 7×10⁻¹⁰)</td></tr>
+<tr><td>画素の混ぜ方</td><td><code>(y &lt;&lt; 32) | x</code> を SplitMix64</td><td><strong><code>(y &lt;&lt; 16) ^ x</code></strong> を triple32(画面は 65536 画素四方まで)</td></tr>
+</tbody>
+</table></div>
+<div class="code"><span class="lang">glsl</span><pre><code>// Sampling/Rng.cs と1行ずつ同じ。C# 側の uint 演算も GLSL の uint 演算も同じように巡回する
+uint nextUint()
+{
+    uint old = gRngState;
+    gRngState = old * 747796405u + 2891336453u;
+    uint word = ((old &gt;&gt; ((old &gt;&gt; 28u) + 4u)) ^ old) * 277803737u;
+    return (word &gt;&gt; 22u) ^ word;
+}</code></pre></div>
+<p><strong>引く順番と回数まで合わせる</strong>こと。<code>SampleDirectLight</code> は光源を選ぶのに必ず1個引き、面光源なら円錐サンプリングで2個引く。<strong>面の裏側だと分かって寄与 0 を返す場合も、引いた後に返す</strong>——ここで1個ずれると、その先の乱数が全部ずれて、絵が別物になる。</p>
+<p>揃えたことの確認は自己チェック(乱数そのもので 4096 個、生成した向きで 1024 本)で行い、<strong>1ビットも違わない</strong>ことを確かめてある。</p>
+<h3 id="s8">4. 場面を平らにする — std430 と「番号でつなぐ」</h3>
+<p>送るのは6本の SSBO。<strong>材質 / 球 / 平面 / BVH の節点 / 点光源 / 面光源の番号</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>[StructLayout(LayoutKind.Sequential)]
+internal struct GpuMaterial
+{
+    public Vector4 Albedo;    // rgb = 反射率、w = 市松の1マスの大きさ
+    public Vector4 Checker;   // rgb = 市松のもう一方、w = 屈折率
+    public Vector4 Emission;  // rgb = 発光、w = 種類(0 拡散 / 1 金属 / 2 ガラス)
+}</code></pre></div>
+<p><strong><code>vec4</code> を並べる形に詰め直す</strong>のが std430 との付き合い方(Day 57 の <code>GpuParticle</code> と同じ手)。std430 では <code>vec3</code> が 16 バイトに整列するので、<code>vec3</code> の後ろに <code>float</code> を置くと穴が空かない。<code>MaterialKind</code> の enum も <code>float</code> に詰める——GLSL に enum は無い。</p>
+<p><strong>ずれても絵は出る</strong>。ずれたぶんだけ「半径を材質の番号として読む」ことになり、真っ黒な玉が並ぶだけで、GL のエラーは1つも出ない。だから自己チェック19 が<code>glGetProgramResource(GL_BUFFER_DATA_SIZE)</code> で<strong>GPU 自身が思っている1要素のバイト数</strong>を聞き、C# の <code>Unsafe.SizeOf&lt;T&gt;()</code> と突き合わせる。</p>
+<div class="code"><pre><code>std430 のバイト数(C# = GPU): Material 48=48 / Sphere 32=32 / Plane 32=32 / Node 48=48 / PointLight 32=32</code></pre></div>
+<div class="inject"><figure class="lab" id="st-lab">
+  <div class="lab-head">
+    <h3>std430 の詰め方 — ずれても絵は出る(要点4)</h3>
+    <span class="tag">コーネルボックスの球3つを C# の構造体の並びでバイト列に書き、それを GLSL の構造体の並びで読む。上の段が C# の書いた4バイトずつ、下の段が GPU が「ここに何がある」と思っている4バイトずつ。色は欄の種類、濃淡は何番目の球か。今日の形以外は、このページで並びを変えてみたもの</span>
+  </div>
+  <div class="stage"><canvas id="st-canvas" style="height:230px" aria-label="C# が書いたバイト列と、GPU が読むつもりの欄の並び"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">球の構造体の書き方</span>
+      <div class="seg" id="st-layout"><button data-v="today" aria-pressed="true">vec4 + ivec4(今日の形)</button><button data-v="nopad" aria-pressed="false">C# の詰め物を忘れる</button><button data-v="vec3" aria-pressed="false">vec3 + float + int</button><button data-v="radius" aria-pressed="false">半径を先頭に</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="st-stats"></div><div class="table-wrap" id="st-table" style="margin-top:10px"></div><p id="st-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>球は BVH が並べ替えた順で送る</strong>。葉が「何番目から何個」で指しているので、順が1つでも狂うとまったく別の形を調べることになる。<code>Bvh.OrderedShapes</code> を Day 61 で公開したのはこのため。</p>
+<p>そして <strong>BVH の節点は配列そのまま</strong>。Day 60 で「配列1本に平らに詰める」「左の子は必ず自分の次」という決まりにしておいたおかげで、GPU へは<strong>コピーするだけ</strong>で済んだ。ポインタで繋いだ木にしていたら、ここで組み直すことになっていた。</p>
+<h3 id="s9">5. 同じ式でも同じ答えにならない — 浮動小数の3つの落とし穴</h3>
+<p><strong>移植が正しくても、CPU と GPU の答えはぴったり同じにはならない</strong>。原因は3つある。</p>
+<p><strong>(1) 組み込み関数の精度が違う</strong>。GLSL 仕様は <code>sin</code> / <code>cos</code> / <code>sqrt</code> / <code>normalize</code> の精度を「実装依存」としか決めていない。NVIDIA の <code>inversesqrt</code> は専用ハードウェア(SFU)で、相対誤差が 2⁻²² 程度。C# の <code>Vector3.Normalize</code> は正確な平方根と除算なので 10⁻⁷ 程度。<strong>1回では 10⁻⁷ の差でも、跳ね返るたびに育つ</strong>。</p>
+<p><strong>(2) 演算の順番が変わる</strong>。GLSL の組み込み <code>reflect(d, n)</code> は <code>d - 2*dot(n,d)*n</code>、C# 側は <code>d - n * (2*dot(d,n))</code>。数学的には同じだが、掛ける順番が違うと最後の1ビットが変わる。<strong>だから GLSL 側でも組み込みを使わず、C# と同じ形で書いてある</strong>。<code>Vector3.Lerp(a,b,t)</code> = <code>a + (b-a)t</code> と GLSL の <code>mix(a,b,t)</code> = <code>a(1-t) + bt</code> も同じ理由で、空の色は <code>mix</code> を使わず手で書いてある(<strong>a と b が等しいとき、ぴったり a を返す保証が要る</strong>——白い炉のテストがそこを突く)。</p>
+<div class="inject"><figure class="lab" id="mx-lab">
+  <div class="lab-head">
+    <h3>mix(a, a, t) は a を返すとは限らない(要点5の (2))</h3>
+    <span class="tag">float(32 ビット)で、空の地平線と天頂が同じ色 a のときに、t を 0〜1 の 1001 通りに振って計算する。棒は a からのずれを「a の最後の1ビット(ULP)」で数えたもの。掛け算と足し算は1回ずつ丸める(GPU のコンパイラが fma にまとめると、ずれる t の場所は機種で変わる)</span>
+  </div>
+  <div class="stage"><canvas id="mx-canvas" style="height:170px" aria-label="t ごとの、a からのずれ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">空の色 a(白い炉は 0.6)</span>
+      <div class="range"><input type="range" id="mx-a" min="0.01" max="1" step="0.01" value="0.6"><output id="mx-a-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">書き方</span>
+      <div class="seg" id="mx-form"><button data-v="mix" aria-pressed="true">mix: a(1 − t) + bt</button><button data-v="lerp" aria-pressed="false">a + (b − a)t(C# の Lerp。reference)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="mx-stats"></div><p id="mx-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>(3) <code>-0.0</code> がある</strong>。これが今日いちばん高くついた。</p>
+<div class="code"><pre><code>  C#   : MathF.CopySign(1.0f, -0.0f)  -&gt;  -1.0f   (符号ビットを見る)
+  GLSL : -0.0 &gt;= 0.0 ? 1.0 : -1.0     -&gt;  +1.0    (値として比べると -0.0 == +0.0)</code></pre></div>
+<p>正規直交基底(Duff ほか, 2017)はこの符号で式を切り替えるので、<strong>基底が丸ごと入れ替わる</strong>。コーネルボックスの横の壁を内側から見たときの法線が <code>(-1, -0.0, -0.0)</code> でまさにこれに当たり、<strong>散る向きが CPU と GPU で完全に別物</strong>になっていた。直し方は符号ビットを直接見ること。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float s = (floatBitsToUint(n.z) &amp; 0x80000000u) != 0u ? -1.0 : 1.0;</code></pre></div>
+<p><strong>どちらの基底も正しいので、絵も収束先も合う</strong>。合わないのは1本ごとの道だけ——自己チェック20 が無ければ、まず見つからなかった(検証1)。</p>
+<div class="inject"><figure class="lab" id="cc-lab">
+  <div class="lab-head">
+    <h3>CPU と GPU を1画素ずつ突き合わせる(要点3・5、自己チェック20・22)</h3>
+    <span class="tag">コーネルボックス 160x90 を、Day 61 の 32 ビットの乱数で、CPU 側と「GPU 側」の2回描いて引き算する。このページではどちらも同じ JS(double)で計算するので、GPU 側は下で選んだ書き方の違いだけを持つ。左から CPU、GPU、差(0.01 を超えた画素は赤、それより小さい差は灰色、差 0 は黒)。絵の上をクリックすると、その画素の道(右クリックの木と同じ書式)を両側で並べ、最初に食い違った行に印を付ける</span>
+  </div>
+  <div class="stage"><canvas id="cc-canvas" style="height:190px;cursor:crosshair" aria-label="CPU の絵、GPU の絵、その差"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">GPU 側の書き方</span>
+      <div class="seg" id="cc-variant"><button data-v="ok" aria-pressed="true">符号ビットを見る(reference)</button><button data-v="compare" aria-pressed="false">n.z &gt;= 0.0 で比べる(検証1・改造課題2)</button><button data-v="skip" aria-pressed="false">光源が1つなら乱数を引かない(このページだけ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">サンプル数</span>
+      <div class="seg" id="cc-samples"><button data-v="1" aria-pressed="true">1(自己チェック20)</button><button data-v="24" aria-pressed="false">24(自己チェック22)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cc-stats"></div><p id="cc-note" style="margin:10px 0 0"></p>
+    <div id="cc-logs" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:10px"></div></div>
+</figure></div>
+<h3 id="s10">6. 積み重ねと非同期 — ディスパッチは「投げる」だけ</h3>
+<p>積算バッファは <strong><code>rgba32f</code> の image</strong>(<code>imageLoad</code> / <code>imageStore</code>)。画素ごとに自分の1つしか触らないので、同時に書き合うことは無い。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 sum = color;
+if (uSample &gt; 0) { sum += imageLoad(uAccum, pixel).rgb; }
+imageStore(uAccum, pixel, vec4(sum, 1.0));
+uPixels[pixel.y * uResolutionX + pixel.x] = packPixel(sum / float(uSample + 1), ...);</code></pre></div>
+<p><code>uSample == 0</code> のときに読まないことで、<strong>8MB のバッファを消す手間が丸ごと要らなくなる</strong>。16 ビット(<code>rgba16f</code>)にしないのは、何千サンプルも足し込むうちに「足しても増えない」(丸めで消える)点が出るから(改造課題3)。</p>
+<p><strong>平均して sRGB に直して 8 ビットに詰めるところまで GPU にやらせる</strong>のも要点。積算バッファを毎パス読み戻すと 8MB、画素だけなら 2MB。計算より転送が重くなるのを避ける。</p>
+<p>そして<strong>いちばん引っかかるのが、<code>glDispatchCompute</code> は仕事を積むだけで、すぐ返ってくる</strong>こと。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// これは動かない。elapsed はほぼ 0 のまま、何百パスも積んでしまう
+while (clock.Elapsed.TotalSeconds &lt; budget) { _program.Dispatch(...); }</code></pre></div>
+<p>だから <strong>1フレームに投げる本数を、前のフレームで測った1パスの時間から見積もる</strong>。そして<strong>時間を測るには <code>glFinish()</code> が要る</strong>(積んだ仕事が終わるまで待つ)。普段は使わない大鉈だが、これを外すと HUD の「1パス」が転送待ちの時間になってしまう。</p>
+<p><code>glMemoryBarrier</code> は<strong>3か所</strong>で要る(Day 57 の要点4)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこで</th><th>何のために</th></tr></thead>
+<tbody>
+<tr><td>パスとパスの間</td><td>次のパスが、前のパスの書いた積算バッファを読むから</td></tr>
+<tr><td>読み戻す前</td><td>CPU が SSBO を読むと宣言する(<code>BufferUpdateBarrierBit</code>)。忘れると<strong>たまに1パス古い絵</strong>が返る</td></tr>
+<tr><td>数え上げを 0 に戻す前</td><td><code>glBufferSubData</code> が、走っているシェーダの <code>atomicAdd</code> を追い越さないように</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><figure class="lab" id="fr-lab">
+  <div class="lab-head">
+    <h3>1フレームに何パス投げるか、と数え上げの溢れ(要点6、検証3)</h3>
+    <span class="tag">GpuRenderer.RunPasses の見積もり(予算 26.7ms ÷ 前のフレームで測った1パスの時間、1〜64 本)を6フレームぶん回す。1パスの時間は計画書の実測(RTX 3070。場面4は要点7、場面5は完成条件4)、交差判定の数は reference の C# で数えた 960x540 の1パス目。右の帯は uint の数え上げ(42 億 9497 万で一周)。時間はこのページでは測らず、表の数字から組み立てている</span>
+  </div>
+  <div class="stage"><canvas id="fr-canvas" style="height:300px" aria-label="フレームごとのパス数と GPU の時間、数え上げの値"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">場面と探し方</span>
+      <div class="seg" id="fr-mode"><button data-v="c4" aria-pressed="true">4 コーネル(2.90ms)</button><button data-v="sah" aria-pressed="false">5 SAH(4.0ms)</button><button data-v="median" aria-pressed="false">5 中央分割(5.0ms)</button><button data-v="brute" aria-pressed="false">5 総当たり(25.3ms)</button></div>
+    </div>
+    <div class="ctl"><span class="label">最初のフレームの見積もりに使う1パスの時間</span>
+      <div class="seg" id="fr-start"><button data-v="init" aria-pressed="true">2ms(起動直後の初期値)</button><button data-v="sah" aria-pressed="false">4.0ms(5 SAH から B で切り替えた直後)</button><button data-v="same" aria-pressed="false">今の場面の1パス(落ち着いたあと)</button></div>
+    </div>
+    <div class="ctl"><span class="label">時間の測り方</span>
+      <div class="seg" id="fr-finish"><button data-v="finish" aria-pressed="true">glFinish で待ってから測る(reference)</button><button data-v="none" aria-pressed="false">待たずに測る(このページだけ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">数え上げを 0 に戻す場所</span>
+      <div class="seg" id="fr-reset"><button data-v="last" aria-pressed="true">最後の1パスの直前(reference)</button><button data-v="frame" aria-pressed="false">フレームの頭で1回だけ(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fr-stats"></div><p id="fr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">7. 何が速くなって、何が速くならなかったか</h3>
+<p>同じ場面・同じ設定・同じサンプル数で測った(960x540、256 サンプル、RTX 3070 / 12 スレッドの CPU)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>CPU 1パス</th><th>GPU 1パス</th><th>倍率</th><th>1画素あたりの光線</th><th>明るさの平均(CPU / GPU)</th></tr></thead>
+<tbody>
+<tr><td>1 Whitted 1980</td><td>18.0 ms</td><td><strong>0.69 ms</strong></td><td>26</td><td>2.93</td><td>0.6435 / 0.6435</td></tr>
+<tr><td>2 屈折率と金属</td><td>26.4 ms</td><td><strong>1.17 ms</strong></td><td>22</td><td>3.21</td><td>0.6517 / 0.6517</td></tr>
+<tr><td>3 合わせ鏡</td><td>53.0 ms</td><td><strong>2.16 ms</strong></td><td>25</td><td>7.92</td><td>0.4405 / 0.4405</td></tr>
+<tr><td>4 コーネルボックス</td><td>86.4 ms</td><td><strong>2.90 ms</strong></td><td><strong>30</strong></td><td>8.79</td><td>0.5542 / 0.5542</td></tr>
+<tr><td>5 球がたくさん</td><td>56.3 ms</td><td><strong>3.71 ms</strong></td><td><strong>15</strong></td><td>3.09</td><td>0.6720 / 0.6720</td></tr>
+<tr><td>6 ガラスの集光</td><td>25.0 ms</td><td><strong>0.80 ms</strong></td><td>31</td><td>3.21</td><td>0.4428 / 0.4428</td></tr>
+</tbody>
+</table></div>
+<p><strong>明るさの平均が6場面すべて小数第4位まで一致している</strong>のが、この表のいちばん大事なところ。速さの話をする前に、<strong>同じものを計算していることが先</strong>。</p>
+<p>倍率が場面によって2倍も違うことに、GPU の性格が出ている。</p>
+<ul><li><strong>場面4(30 倍)が最良</strong>。形が 9 個しかなく、道が長い(8.79 本)ので、<strong>演算器を使う時間の割合が高い</strong>。GPU がいちばん得意な形</li><li><strong>場面5(15 倍)が最悪</strong>。形が 466 個で BVH を辿る。木を辿るスタックは<strong>呼び出しごとの局所メモリ</strong>に載るので、同時に飛ばせる呼び出しの数(占有率)が落ちる。さらに隣の画素が別の枝を辿るので<strong>メモリアクセスがばらける</strong></li></ul>
+<p><strong>アムダールの法則は GPU 側にもある</strong>。Day 60 で「交差判定が 30 分の1 になったのに全体は 7.5 倍」と測ったのと同じことが、ここでは「演算は 100 倍速いのに全体は 15〜30 倍」という形で出る。残っているのは、メモリ待ちと、発散と、1フレームに1回の 2MB の読み戻し。</p>
+<p><strong>ここから先へ行くには、カーネルの作り方そのものを変える</strong>ことになる。今日書いたのは全部入りの<strong>メガカーネル</strong>——1つのシェーダが交差判定も材質も乱数も抱えている。レジスタを最も多く使う枝(ガラス)に全体が引きずられ、占有率が上がらない。Laine ほか (2013) の<strong>ウェーブフロント方式</strong>は、道を「交差判定」「材質ごとの散乱」の段に分け、段ごとに別のカーネルとキューで回す。それが Day 62(ハードウェア RT)と Day 65(GPU 駆動)への道筋になる。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うちコード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Gpu/GpuDevice.cs</code></td><td>125(58)</td><td><strong>見えない窓</strong>の上に OpenGL 4.3 のコンテキストを作る(要点1)</td></tr>
+<tr><td><code>Gpu/ComputeProgram.cs</code></td><td>159(79)</td><td>GLSL を組み立てて uniform を渡す薄い皮。std430 のバイト数を GPU に聞く口も</td></tr>
+<tr><td><code>Gpu/GpuScene.cs</code></td><td>330(193)</td><td>場面を<strong>番号でつないだ配列</strong>に平らにする(要点4)</td></tr>
+<tr><td><code>Gpu/GpuRenderer.cs</code></td><td>356(217)</td><td>積算バッファ・ディスパッチ・読み戻し・数え上げ(要点6)</td></tr>
+<tr><td><code>shaders/pathtrace.comp</code></td><td><strong>1008(750)</strong></td><td><strong>今日の主役</strong>。<code>PathTracer</code> + <code>Tracer</code> + <code>Scene</code> + <code>Bvh</code> + <code>Sampler</code> + <code>Optics</code> の GLSL 版</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何をした</th></tr></thead>
+<tbody>
+<tr><td><code>Day61.csproj</code></td><td>+31 −8</td><td>Silk.NET の2つ、<code>AllowUnsafeBlocks</code>、<code>shaders/</code> のコピー</td></tr>
+<tr><td><code>Sampling/Rng.cs</code></td><td>+75 −48</td><td><strong>32 ビット PCG に載せ替え</strong>(要点3)。<code>NextInt</code> を剰余に</td></tr>
+<tr><td><code>Geometry/Bvh.cs</code></td><td>+28 −0</td><td><code>OrderedShapes</code> と <code>GetNode</code>(GPU へ写すための読み出し口)</td></tr>
+<tr><td><code>Tracing/Camera.cs</code></td><td>+14 −0</td><td>3軸と画面の半分の大きさを公開(シェーダへ渡すため)</td></tr>
+<tr><td><code>Tracing/RenderSettings.cs</code></td><td>+26 −0</td><td><code>RenderDevice</code> と <code>Device</code>。<code>WithAlgorithm</code> が Whitted で CPU に落とす</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+96 −8</td><td><code>G</code> キー、GPU の描画経路、HUD の「計算」の行</td></tr>
+<tr><td><code>App/SelfCheck.cs</code></td><td>+326 −6</td><td>項目 19〜23(要点5)。隣接画素の相関の測り方も直した</td></tr>
+<tr><td><code>Program.cs</code></td><td>+21 −15</td><td>コメントのみ</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日の量は多い</strong>(新規だけで 1,978 行)。ただし<strong>その半分が GLSL で、中身は Day 60 の写し</strong>なので、「考えながら書く」量は行数ほどではない。区切り方は下の「写経する順番」の末尾に書いた。</p>
+<h3 id="s15">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>今日は途中でビルドが通らない区間がほとんど無い</strong>——GPU 側は既存のコードをほとんど触らない足し算なので、6 まではいつでも止められる。</p>
+<ol><li><strong><code>Day61.csproj</code></strong> — Silk.NET の参照、<code>AllowUnsafeBlocks</code>、<code>shaders/</code> のコピー設定。<strong>ここを先に入れないと以降が1行も通らない</strong></li><li><strong><code>Sampling/Rng.cs</code></strong> — 32 ビット PCG に載せ替える(要点3)。<strong>中身は全面的に書き換わる</strong>が、外から見える形(<code>Create</code> / <code>NextFloat</code> / <code>NextInt</code> / <code>NextVector2</code>)は変わらないので、ここだけ写してもビルドは通るし、絵も出る(<strong>ノイズの模様が変わるだけ</strong>)</li><li><strong><code>Geometry/Bvh.cs</code></strong> — <code>OrderedShapes</code> と <code>GetNode</code> を足す(足すだけ)</li><li><strong><code>Tracing/Camera.cs</code></strong> — <code>Forward</code> / <code>Right</code> / <code>Up</code> / <code>HalfWidth</code> / <code>HalfHeight</code> を公開(足すだけ)</li><li><strong><code>Tracing/RenderSettings.cs</code></strong> — <code>RenderDevice</code> の enum と <code>Device</code>、<code>WithAlgorithm</code> の1行</li><li><strong><code>App/SelfCheck.cs</code> の <code>NeighborCorrelation</code></strong> — サンプル番号を <code>0</code> から <code>i</code> に変える2行だけ。<strong>2 を写した時点でここが落ちる</strong>(下の「検証の途中で分かったこと」の5を読んでから直すと面白い)— <strong>ここまでは既存のコードの中だけ。GPU はまだ1行も出てこない</strong></li><li><strong><code>Gpu/GpuDevice.cs</code></strong> — 新規。どこにも依存しない。要点1</li><li><strong><code>Gpu/ComputeProgram.cs</code></strong> — 新規。7 を使う</li><li><strong><code>Gpu/GpuScene.cs</code></strong> — 新規。3(<code>Bvh.OrderedShapes</code> / <code>GetNode</code>)を使う。要点4。<strong><code>GpuMaterial</code> ほか5つの構造体の並びが、次に写す GLSL と1バイトずつ同じ</strong>であること</li><li><strong><code>shaders/pathtrace.comp</code></strong> — 新規。<strong>今日いちばん長い(1008 行)</strong>。Day 60 の <code>Sampler</code> → <code>Optics</code> → <code>Sphere</code>/<code>Plane</code>/<code>Aabb</code> → <code>Scene</code>/<code>Bvh</code> → <code>Tracer</code> → <code>PathTracer</code>の順に並べてあるので、<strong>Day 60 のファイルを横に開いて上から突き合わせる</strong>のがよい</li><li><strong><code>Gpu/GpuRenderer.cs</code></strong> — 新規。7・8・9・10 を使う。要点6</li><li><strong><code>App/ViewerWindow.cs</code></strong> — 11 を使う。<code>G</code> キーと HUD — <strong>ここで GPU の絵が出る</strong></li><li><strong><code>App/SelfCheck.cs</code></strong> — 項目 19〜23。<strong>11 を使う</strong>(小さな <code>GpuRenderer</code> を自分で作る)。<code>Run</code> の引数が増えるので、12 の呼び出し側も合わせる</li><li><strong><code>Program.cs</code></strong> — コメントのみ。差分0にしたいなら合わせておく</li></ol>
+<p><strong>区切るなら 6 まで</strong>(既存のコードだけで完結し、絵も出る)。<strong>10(GLSL)は一気に写す</strong>こと——途中で止めるとコンパイルエラーの山になり、どれが本物の間違いか分からなくなる。<strong>13(<code>App/SelfCheck.cs</code>)は reference からコピーして読むだけにしてもよい</strong>——式の答え合わせが役目で、今日の理論は全部ほかのファイルにある。</p>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>Day 60b の設計書に差分を当てたもの</strong>。変わったのは3か所。</p>
+<ul><li><strong><code>Gpu/</code> と <code>shaders/</code> が増えた</strong>(今日の主役)</li><li><strong><code>Sampling/Rng.cs</code> の中身が 32 ビットになった</strong>(型としての姿は変わらない)</li><li><strong><code>ViewerWindow</code> が「2つの描き手」を持つようになった</strong>(<code>ProgressiveRenderer</code> と <code>GpuRenderer</code>)</li></ul>
+<h3 id="s17">全体構成と依存の向き</h3>
+<svg viewBox="0 0 910 412" role="img" aria-label="Program.cs が App を使い、App は Gpu・Tracing・Geometry・Shading・Sampling を使う。Gpu は Tracing・Geometry・Shading と shaders を使う。Tracing は Geometry・Shading・Sampling を、Geometry は Shading・Sampling を使う。Shading と Sampling と shaders はどこも知らない。Tracing と Geometry は Gpu を知らない" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="10" width="300" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="34" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.cs</text><rect x="250" y="78" width="400" height="40" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="102" text-anchor="middle" fill="var(--ink)">App/ 窓・自己チェック</text><rect x="40" y="160" width="340" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="186" text-anchor="middle" fill="var(--ink)">Gpu/ コンテキスト・シェーダ・場面の転送</text><rect x="500" y="160" width="360" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="186" text-anchor="middle" fill="var(--ink)">Tracing/ カメラ・場面・追い方・積み重ね</text><rect x="40" y="256" width="150" height="40" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="280" text-anchor="middle" fill="var(--ink)">shaders/ GLSL</text><rect x="560" y="256" width="260" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="690" y="282" text-anchor="middle" fill="var(--ink)">Geometry/ 光線・形・箱・BVH</text><rect x="300" y="356" width="260" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="382" text-anchor="middle" fill="var(--ink)">Shading/ 材質・光源・光学の式</text><rect x="600" y="356" width="260" height="44" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="382" text-anchor="middle" fill="var(--ink)">Sampling/ 乱数とサンプリング</text><path d="M450 50 L450 76" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 118 L300 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 118 L600 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M250 98 L16 98 L16 378 L298 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M650 90 L882 90 L882 278 L822 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M650 106 L898 106 L898 378 L862 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M380 176 L498 176" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M380 192 L470 192 L470 278 L558 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M340 204 L340 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M115 204 L115 254" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M700 204 L700 254" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M520 204 L520 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M840 204 L840 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M600 300 L600 330 L540 330 L540 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M760 300 L760 354" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っている層</th><th>知らない層</th><th>中身</th></tr></thead>
+<tbody>
+<tr><td><code>Sampling/</code></td><td><strong>どこも知らない</strong></td><td>形・材質・場面・窓・GPU</td><td><code>Rng</code> / <code>Sampler</code></td></tr>
+<tr><td><code>Shading/</code></td><td><strong>どこも知らない</strong></td><td>形・場面・窓・GPU</td><td><code>Material</code> / <code>MaterialKind</code> / <code>PointLight</code> / <code>Optics</code></td></tr>
+<tr><td><code>Geometry/</code></td><td>Shading・Sampling</td><td>場面・窓・<strong>GPU</strong></td><td><code>Ray</code> / <code>RayCounters</code> / <code>Shape</code> / <code>Sphere</code> / <code>Plane</code> / <code>Aabb</code> / <code>Bvh</code> / <code>AccelerationMode</code></td></tr>
+<tr><td><code>Tracing/</code></td><td>Geometry・Shading・Sampling</td><td>窓・<strong>GPU</strong></td><td><code>OrbitView</code> / <code>Camera</code> / <code>Scene</code> / <code>SceneLibrary</code> / <code>RenderSettings</code> ほか enum / <code>Tracer</code> / <code>WhittedTracer</code> / <code>PathTracer</code> / <code>TraceLog</code> / <code>SurfaceHit</code> / <code>ProgressiveRenderer</code> / <code>RenderStatus</code></td></tr>
+<tr><td><strong><code>Gpu/</code></strong></td><td>Tracing・Geometry・Shading</td><td>窓(WinForms)</td><td><code>GpuDevice</code> / <code>ComputeProgram</code> / <code>GpuScene</code> / <code>GpuRenderer</code> / <code>GpuMaterial</code> ほか5つの構造体</td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td><td><code>ViewerWindow</code> / <code>SelfCheck</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>循環参照は無い</strong>(コメントを落として型名を拾い、確かめた)。ここでいちばん大事なのは<strong><code>Tracing/</code> と <code>Geometry/</code> が <code>Gpu/</code> を1つも知らない</strong>こと。矢印は片方向で、<strong>GPU 側が既存の層を読む</strong>だけになっている。おかげで</p>
+<ul><li><code>Scene</code> も <code>Bvh</code> も <code>Camera</code> も、GPU のために1行も変えずに済んだ(<code>Bvh</code> に読み出し口を2つ足しただけ)</li><li><strong>GPU が使えない環境でも、<code>Gpu/</code> を丸ごと消せば Day 60 のまま動く</strong></li></ul>
+<p><code>Gpu/</code> が <code>Tracing/</code> を知っているのは、<code>Scene</code> / <code>Camera</code> / <code>RenderSettings</code> を読むため。逆向きにしようとすると、<code>Scene</code> が「自分を GPU へ送る方法」を知ることになり、<strong>場面の定義に OpenGL が混ざる</strong>。それは避けたい。</p>
+<h3 id="s18">Gpu — コンテキスト・シェーダ・場面の転送</h3>
+<svg viewBox="0 0 1000 635" role="img" aria-label="Gpu のクラス図。GpuRenderer は GpuDevice・ComputeProgram・GpuScene を持ち、Scene・Camera・RenderSettings・RenderStatus を使う。GpuScene は GpuMaterial・GpuSphere・GpuPlane・GpuNode・GpuPointLight の5つの構造体と、Bvh・Shape を使う" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="270" height="173" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="145" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuDevice</text><line x1="10" y1="38" x2="280" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GL Gl</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Vendor</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Renderer</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Version</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxWorkGroupInvocations</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxSharedMemoryBytes</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxStorageBindings</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryCreate(message) GpuDevice</text><text x="20" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Dispose()</text><rect x="300" y="10" width="385" height="218" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="492.5" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuRenderer</text><line x1="300" y1="38" x2="685" y2="38" stroke="var(--line)"></line><text x="310" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="310" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="310" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GpuDevice Device</text><text x="310" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RenderStatus Status</text><text x="310" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Start(scene, camera, settings)</text><text x="310" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RunPasses(budgetSeconds) bool</text><text x="310" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CopyDisplay(destination, version) bool</text><text x="310" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RenderLinear(scene, camera, settings, samples) float</text><text x="310" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StorageBlockStride(blockName) int</text><text x="310" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DispatchPass(sampleIndex, settings)</text><text x="310" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadPixels()</text><text x="310" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadCounters()</text><rect x="705" y="10" width="290" height="173" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputeProgram</text><line x1="705" y1="38" x2="995" y2="38" stroke="var(--line)"></line><text x="715" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+MissingUniforms IReadOnlyList</text><text x="715" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Compile(gl, source) ComputeProgram</text><text x="715" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Load(gl, relativePath) ComputeProgram</text><text x="715" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Use()</text><text x="715" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Set(name, value)</text><text x="715" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Dispatch(groupsX, groupsY)</text><text x="715" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Barrier(mask)</text><text x="715" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StorageBlockStride(blockName) int</text><text x="715" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Location(name) int</text><rect x="10" y="262" width="80" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="50" y="281" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Scene</text><rect x="100" y="262" width="80" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="281" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Camera</text><rect x="190" y="262" width="130" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="255" y="281" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderSettings</text><rect x="330" y="262" width="120" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="390" y="281" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderStatus</text><rect x="480" y="262" width="300" height="173" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="630" y="281" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuScene</text><line x1="480" y1="290" x2="780" y2="290" stroke="var(--line)"></line><text x="490" y="307" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaterialCount</text><text x="490" y="322" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int SphereCount</text><text x="490" y="337" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int PlaneCount</text><text x="490" y="352" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int NodeCount</text><text x="490" y="367" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int PointLightCount</text><text x="490" y="382" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int AreaLightCount</text><text x="490" y="397" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Build(gl, scene) GpuScene</text><text x="490" y="412" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Bind()</text><text x="490" y="427" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-Upload(gl, buffer, items)</text><rect x="830" y="300" width="120" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="890" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Bvh</text><rect x="830" y="350" width="120" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="890" y="369" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Shape</text><rect x="10" y="480" width="180" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="100" y="495" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="100" y="511" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuMaterial</text><line x1="10" y1="520" x2="190" y2="520" stroke="var(--line)"></line><text x="20" y="537" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Albedo</text><text x="20" y="552" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Checker</text><text x="20" y="567" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Emission</text><rect x="205" y="480" width="180" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="295" y="495" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="295" y="511" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuSphere</text><line x1="205" y1="520" x2="385" y2="520" stroke="var(--line)"></line><text x="215" y="537" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CenterRadius</text><text x="215" y="552" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Material</text><rect x="400" y="480" width="180" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="495" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="490" y="511" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuPlane</text><line x1="400" y1="520" x2="580" y2="520" stroke="var(--line)"></line><text x="410" y="537" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 NormalDistance</text><text x="410" y="552" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Material</text><rect x="595" y="480" width="190" height="125" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="690" y="495" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="690" y="511" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuNode</text><line x1="595" y1="520" x2="785" y2="520" stroke="var(--line)"></line><text x="605" y="537" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 BoundsMin</text><text x="605" y="552" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 BoundsMax</text><text x="605" y="567" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Index</text><text x="605" y="582" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Count</text><text x="605" y="597" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Axis</text><rect x="800" y="480" width="190" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="895" y="495" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;struct&gt;&gt;</text><text x="895" y="511" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuPointLight</text><line x1="800" y1="520" x2="990" y2="520" stroke="var(--line)"></line><text x="810" y="537" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Position</text><text x="810" y="552" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 ColorIntensity</text><path d="M300 106.53597122302159 L281.9958208062475 105.37023300184336" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M685 106.88461538461539 L703.0039493450207 105.75149969157212" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M557.8050108932462 228 L577.1474893138538 260.2843548911232" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M300 198 L50 198 L50 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M300 208 L140 208 L140 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M300 218 L255 218 L255 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M390 228 L390 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M780 328.59615384615387 L828.0173780969518 322.2246171371352" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M780 357.4423076923077 L828.0035445488967 360.3040574634919" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M480 399.16037735849056 L191.8948491107503 496.46381511165225" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M480 425.2910447761194 L374.9143815506976 479.0886076538966" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M559.3877551020408 435 L523.9178142043143 478.45067759971494" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M656.7525773195877 435 L670.0791636469394 478.0892957917706" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M763.6588921282798 435 L831.5133645118036 478.91336608971443" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="10" y="627" fill="var(--muted)" font-size="12" text-anchor="start">下線は静的(static)なメンバー</text></g></svg>
+<p>4つのクラスの役割分担は、<strong>寿命で分けてある</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クラス</th><th>いつ作る</th><th>いつ捨てる</th><th>なぜそこで切ったか</th></tr></thead>
+<tbody>
+<tr><td><code>GpuDevice</code></td><td>起動時に1回</td><td>終了時</td><td>OpenGL のコンテキストは<strong>作ったスレッドに貼り付く</strong>。作り直すものではない</td></tr>
+<tr><td><code>ComputeProgram</code></td><td><code>GpuRenderer</code> を作るとき</td><td>一緒に</td><td>GLSL の組み立ては 10〜50ms かかる。毎フレームやるものではない</td></tr>
+<tr><td><code>GpuScene</code></td><td><strong>描き直すたび</strong></td><td>次を作るとき</td><td>場面5(形 466 個)で 51KB。「いつ作り直すべきか」を判定する仕掛けを持つより、毎回送るほうが安くて間違いが無い</td></tr>
+<tr><td><code>GpuRenderer</code></td><td>解像度ごとに1つ</td><td>使い終わったら</td><td>積算バッファの大きさが解像度で決まる。<strong>自己チェックが小さいものを別に作る</strong>ので、複数あってよい</td></tr>
+</tbody>
+</table></div>
+<p><code>GpuRenderer.RenderLinear</code> だけ毛色が違う——<strong>画面に出す 8 ビットではなく、積算バッファの生の float を返す</strong>。自己チェック20 が 1e-4 の桁で CPU と突き合わせるためで、8 ビットに落とすと 1/255 = 0.004 より細かい差が全部消える。</p>
+<h3 id="s19">App — 2つの描き手</h3>
+<svg viewBox="0 0 960 300" role="img" aria-label="App のクラス図。ViewerWindow は ProgressiveRenderer・GpuRenderer・GpuDevice を持ち、Tracer と SelfCheck を使う。SelfCheck は GpuRenderer と GpuDevice を使う" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="280" height="263" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ViewerWindow</text><line x1="10" y1="38" x2="290" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ProgressiveRenderer _renderer</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-GpuDevice _device</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-GpuRenderer _gpu</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-string _gpuMessage</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RenderSettings _settings</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Scene _scene</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-OrbitView _view</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Run()</text><text x="20" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-UseGpu bool</text><text x="20" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Restart()</text><text x="20" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Present()</text><text x="20" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DrawHud(g)</text><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DeviceLine() string</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-TracePixel(x, y)</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RunSelfCheck()</text><rect x="440" y="10" width="200" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="540" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ProgressiveRenderer</text><rect x="440" y="70" width="200" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="540" y="89" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Tracer</text><rect x="440" y="140" width="200" height="28" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="540" y="159" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuRenderer</text><rect x="440" y="200" width="200" height="28" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="540" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuDevice</text><rect x="780" y="170" width="160" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="860" y="189" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SelfCheck</text><path d="M290 24 L290 24 L438 24" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M290 84 L290 84 L438 84" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M290 154 L290 154 L438 154" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M290 214 L290 214 L438 214" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M290 262 L290 262 L860 262 L860 200" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M816.9230769230769 170 L780 158 L641.9997222800793 155.69999537133464" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M822.6666666666666 198 L780 214 L642 214" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong><code>ViewerWindow</code> が2つの描き手を <code>if</code> で振り分けている</strong>のが、今日いちばん気になる形(下の「今日残した歪み」の1つ目)。<code>UseGpu</code> という1つのプロパティに判断を集めてあるので、散らばってはいないが、共通の型でくくってはいない。</p>
+<p><code>_gpu</code> が <code>null</code> になりうるのも大事な点。<strong>GPU が用意できなくても落とさない</strong>——<code>GpuDevice.TryCreate</code> が <code>null</code> を返したら、理由を <code>_gpuMessage</code> に入れて CPU に倒し、HUD の「計算 CPU」の行にその理由を出す。Day 60 のコードはそのまま動くので、これで困らない。</p>
+<h3 id="s20">1フレームの流れ</h3>
+<p><strong>Day 60 から、ここがいちばん変わった</strong>。</p>
+<svg viewBox="0 0 1000 588" role="img" aria-label="1フレームの流れ。Application.DoEvents のあと、描き直しの依頼があれば renderer.Stop と scene.Prepare をして、GPU なら gpu.Start で場面を GPU へ送り直し、CPU なら Tracer.Create と renderer.Start で描画スレッドを起こす。次に GPU なら gpu.RunPasses で 26ms ぶんをこの場で投げて受け取り、CPU なら renderer.CopyDisplay で別スレッドが積んだものを見に行く。どちらも Present して 30fps に合わせて寝て、頭へ戻る" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="80" y="10" width="340" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="32" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Application.DoEvents</text><rect x="110" y="72" width="280" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="250" y="94" text-anchor="middle" fill="var(--ink)">描き直しの依頼?</text><rect x="560" y="64" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="740" y="84.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">renderer.Stop</text><text x="740" y="101.5" text-anchor="middle" fill="var(--ink)">scene.Prepare(mode)</text><rect x="630" y="140" width="220" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="740" y="162" text-anchor="middle" fill="var(--ink)">GPU?</text><rect x="470" y="210" width="250" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="595" y="230.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gpu.Start</text><text x="595" y="247.5" text-anchor="middle" fill="var(--ink)">場面を GPU へ送り直す</text><rect x="740" y="210" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="865" y="230.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Tracer.Create → renderer.Start</text><text x="865" y="247.5" text-anchor="middle" fill="var(--ink)">描画スレッドを起こす</text><rect x="110" y="304" width="280" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="250" y="326" text-anchor="middle" fill="var(--ink)">GPU?</text><rect x="10" y="384" width="340" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="180" y="404.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gpu.RunPasses(26ms ぶん)</text><text x="180" y="421.5" text-anchor="middle" fill="var(--ink)" font-weight="700">この場で投げて、この場で受け取る</text><rect x="400" y="384" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="404.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">renderer.CopyDisplay</text><text x="580" y="421.5" text-anchor="middle" fill="var(--ink)" font-weight="700">別スレッドが積んだものを見に行く</text><rect x="80" y="464" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="484.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Present</text><text x="250" y="501.5" text-anchor="middle" fill="var(--ink)">LockBits + HUD</text><rect x="80" y="540" width="340" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="562" text-anchor="middle" fill="var(--ink)">30fps に合わせて寝る</text><path d="M250 46 L250 70" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M390 90 L558 90" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="398" y="84" fill="var(--muted)" font-size="12">はい</text><path d="M740 114 L740 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M630 158 L595 158 L595 208" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="603" y="152" fill="var(--muted)" font-size="12">はい</text><path d="M850 158 L865 158 L865 208" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="873" y="152" fill="var(--muted)" font-size="12">いいえ</text><path d="M250 108 L250 302" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="258" y="125" fill="var(--muted)" font-size="12">いいえ</text><path d="M595 260 L595 316 L392 316" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M865 260 L865 328 L392 328" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M150 340 L150 382" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="158" y="357" fill="var(--muted)" font-size="12">はい</text><path d="M350 340 L350 360 L580 360 L580 382" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="358" y="355" fill="var(--muted)" font-size="12">いいえ</text><path d="M150 434 L150 462" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M580 434 L580 489 L422 489" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M250 514 L250 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M80 558 L4 558 L4 28 L78 28" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>CPU 版では UI スレッドは光線を1本も追わない</strong>(Day 59 からの約束)。<strong>GPU 版では UI スレッドが仕事を投げる</strong>——が、投げた仕事は GPU が勝手に進めるので、UI スレッドが持っていかれるのは「投げる」「終わるのを待つ」「読み戻す」の 26ms だけ。実測で <strong>25fps 前後、1フレームあたり 9 パス</strong>、つまり毎秒 222 サンプル積んでいる(15 秒で 370 フレーム・3325 サンプル)。</p>
+<p>1フレームの予算を 30fps ぶんの<strong>8割</strong>にしてあるのは、窓の反応を保つため——そして <strong>GPU を 100% に張り付かせない</strong>ため。パストレーサは電源に対していちばん厳しい種類の負荷になる。</p>
+<h3 id="s21">1パスの中身 — C# と GLSL の分担</h3>
+<svg viewBox="0 0 980 636" role="img" aria-label="ViewerWindow が RunPasses(0.026) を呼ぶと、GpuRenderer は前のフレームの1パスの時間から投げる本数を見積もり、バッファと uniform を GPU に渡す。9 パスのあいだ、最後の1パスの直前だけ数え上げを 0 に戻し、glDispatchCompute と glMemoryBarrier を投げる。glFinish で全部終わるのを待ち、経過時間をパス数で割って1パスの時間にし、画素 2MB と数え上げ 28 バイトを読み戻して true を返す。ViewerWindow は CopyDisplay して Present する" style="width:100%;max-width:980px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><line x1="120" y1="38" x2="120" y2="626" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="400" y1="38" x2="400" y2="626" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><line x1="860" y1="38" x2="860" y2="626" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="30" y="4" width="180" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ViewerWindow</text><rect x="310" y="4" width="180" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="400" y="25" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GpuRenderer</text><rect x="770" y="4" width="180" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="860" y="25" text-anchor="middle" fill="var(--ink)">GPU</text><path d="M120 56 L396 56" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="260" y="50" fill="var(--muted)" font-size="12" text-anchor="middle">RunPasses(0.026)</text><path d="M400 90 L434 90 L434 104 L404 104" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="442" y="101" fill="var(--muted)" font-size="12" text-anchor="start">前のフレームの1パスの時間から、投げる本数を見積もる</text><path d="M400 136 L856 136" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="130" fill="var(--muted)" font-size="12" text-anchor="middle">BindBufferBase x8 + BindImageTexture</text><path d="M400 170 L856 170" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="164" fill="var(--muted)" font-size="12" text-anchor="middle">uniform を 20 本あまり</text><path d="M400 234 L856 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="228" fill="var(--muted)" font-size="12" text-anchor="middle">最後の1パスの直前だけ、数え上げを 0 に戻す</text><path d="M400 268 L856 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="262" fill="var(--muted)" font-size="12" text-anchor="middle">glDispatchCompute(120, 68, 1)</text><path d="M400 302 L856 302" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="296" fill="var(--muted)" font-size="12" text-anchor="middle">glMemoryBarrier(image + storage)</text><rect x="370" y="204" width="520" height="136" rx="6" fill="none" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="4 3"></rect><text x="378" y="219" fill="var(--accent)" font-size="12">loop  9 パス</text><path d="M400 364 L856 364" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="358" fill="var(--muted)" font-size="12" text-anchor="middle">glFinish</text><path stroke-dasharray="5 4" d="M860 398 L404 398" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="392" fill="var(--muted)" font-size="12" text-anchor="middle">積んだ仕事が全部終わった</text><path d="M400 432 L434 432 L434 446 L404 446" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="442" y="443" fill="var(--muted)" font-size="12" text-anchor="start">経過時間 ÷ パス数 = 1パスの時間</text><path d="M400 478 L856 478" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="472" fill="var(--muted)" font-size="12" text-anchor="middle">glGetBufferSubData(画素 2MB)</text><path d="M400 512 L856 512" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="630" y="506" fill="var(--muted)" font-size="12" text-anchor="middle">glGetBufferSubData(数え上げ 28 バイト)</text><path stroke-dasharray="5 4" d="M400 546 L124 546" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="260" y="540" fill="var(--muted)" font-size="12" text-anchor="middle">true</text><path d="M120 580 L154 580 L154 594 L124 594" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="162" y="591" fill="var(--muted)" font-size="12" text-anchor="start">CopyDisplay → Present</text></g></svg>
+<p><strong>数え上げを「最後の1パスだけ」にしてある</strong>のが、図の中で一番説明が要るところ。<code>uint</code> は 42 億で一周する。960x540 の総当たりでは1パスで 7.3 億回の交差判定があり、<strong>6 パスで溢れる</strong>(検証3)。HUD に出すのは「1パスの光線」なので、直前で 0 に戻せばそれが答えになる。</p>
+<h3 id="s22">1つの呼び出しの中 — pathtrace.comp</h3>
+<svg viewBox="0 0 910 862" role="img" aria-label="pathtrace.comp の1つの呼び出しの中。グループの先頭の呼び出しが sCounters を 0 にし、barrier で揃える。画面の外の画素なら何もしない。中なら rngCreate で番号から乱数器を作り直し、Camera.GetRay と同じ式で向きを作る。uViewMode が陰影なら pathTrace、法線なら tryHit して法線を色に、光線の数か交差判定の数なら pathTrace してから heatColor。imageLoad して足して imageStore し、平均して sRGB に直して uint に詰める。そのあと全員が、手元で数えた7つを sCounters へ atomicAdd し、barrier で揃え、グループの先頭の呼び出しが sCounters を uCounters へ atomicAdd する" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="270" y="10" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">sCounters を 0 に</text><text x="450" y="47.5" text-anchor="middle" fill="var(--ink)">(グループの先頭の呼び出しだけ)</text><rect x="270" y="84" width="360" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="106" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">barrier</text><rect x="270" y="144" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="166" text-anchor="middle" fill="var(--ink)">画面の中の画素?</text><rect x="270" y="206" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="226.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">rngCreate(x, y, uSample)</text><text x="450" y="243.5" text-anchor="middle" fill="var(--ink)" font-weight="700">番号から乱数器を作り直す</text><rect x="270" y="280" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="302" text-anchor="middle" fill="var(--ink)">Camera.GetRay と同じ式で向きを作る</text><rect x="350" y="340" width="200" height="36" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="362" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uViewMode</text><rect x="20" y="416" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="165" y="436.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">pathTrace</text><text x="165" y="453.5" text-anchor="middle" fill="var(--ink)">Day 60 の PathTracer.Trace と同じループ</text><rect x="330" y="416" width="240" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="438" text-anchor="middle" fill="var(--ink)">tryHit して法線を色に</text><rect x="590" y="416" width="290" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="735" y="438" text-anchor="middle" fill="var(--ink)">pathTrace してから heatColor</text><rect x="270" y="500" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="522" text-anchor="middle" fill="var(--ink)">imageLoad → 足す → imageStore</text><rect x="270" y="560" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="582" text-anchor="middle" fill="var(--ink)">平均して sRGB に直して uint に詰める</text><rect x="270" y="620" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="642" text-anchor="middle" fill="var(--ink)">何もしない</text><rect x="270" y="680" width="360" height="36" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="702" text-anchor="middle" fill="var(--ink)">手元で数えた7つを sCounters へ atomicAdd</text><rect x="270" y="740" width="360" height="36" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="762" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">barrier</text><rect x="270" y="800" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="820.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">sCounters を uCounters へ atomicAdd</text><text x="450" y="837.5" text-anchor="middle" fill="var(--ink)">(グループの先頭の呼び出しだけ)</text><path d="M450 60 L450 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 120 L450 142" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 180 L450 204" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="458" y="197" fill="var(--muted)" font-size="12">はい</text><path d="M630 162 L895 162 L895 638 L632 638" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="638" y="156" fill="var(--muted)" font-size="12">いいえ</text><path d="M450 256 L450 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 316 L450 338" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M350 358 L165 358 L165 414" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="173" y="352" fill="var(--muted)" font-size="12">陰影</text><path d="M450 376 L450 414" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="458" y="393" fill="var(--muted)" font-size="12">法線</text><path d="M550 358 L735 358 L735 414" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="558" y="352" fill="var(--muted)" font-size="12">光線の数 / 交差判定の数</text><path d="M165 466 L165 518 L268 518" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 452 L450 498" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M735 452 L735 518 L632 518" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 536 L450 558" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 596 L450 618" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 656 L450 678" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 716 L450 738" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 776 L450 798" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path></g></svg>
+<p><strong><code>barrier()</code> が <code>if</code> の外にある</strong>のが守るべき決まり。全員が揃うのを待つ命令なので、画面からはみ出した呼び出しが <code>return</code> で抜けると、残りが永久に待つ。だから「はみ出したら何もしない」を <code>if</code> で書き、<code>barrier()</code> は全員が通る場所に置く。</p>
+<p>数え上げの畳み方は <strong>Day 57 の要点6 そのまま</strong>。呼び出しごとに <code>atomicAdd</code> すると50 万本が7つの番地を奪い合うので、まずグループの共有メモリ(64 呼び出しぶん)に集め、<strong>グループにつき7回だけ</strong>全体へ足す。120 x 68 = 8160 グループなので、全体へのアトミックは 57120 回で済む。</p>
+<h3 id="s23">今日残した歪み(3つ)</h3>
+<p><strong>1. <code>ViewerWindow</code> が2つの描き手を <code>if</code> で振り分けている</strong>。<code>ProgressiveRenderer</code> と <code>GpuRenderer</code> は「積み重ねて描く」という同じ役目で、<code>Status</code> / <code>CopyDisplay</code> / <code>Start</code> という同じ形の口を持っているのに、共通の型でくくっていない。くくらなかったのは<strong>回し方が本当に違う</strong>から——CPU 版は <code>Start</code> したら別スレッドが勝手に進み、GPU 版は毎フレーム <code>RunPasses</code> を呼ばないと1ミリも進まない。<code>IRenderer</code> にまとめると「呼ばなくてもよい <code>RunPasses</code>」が生えて、かえって分かりにくくなる。<strong>Day 62 で Vulkan 版が3つ目の描き手として並ぶときに、改めて考える</strong>。</p>
+<p><strong>2. 材質を番号でつなぐ形にしたのは GPU 側だけ</strong>。Day 60 の「歪み1」は半分しか直っていない。CPU 側の <code>Shape</code> は <code>Material</code> を参照で持ったままで、<code>GpuScene</code> が毎回<strong>参照から番号への辞書</strong>を作り直している。両方を番号に揃えれば辞書が要らなくなるが、CPU 側では番号にする得が無く、場面を書くとき(<code>SceneLibrary</code>)が目に見えて面倒になる。<strong>書きやすさを取って、変換を1か所に閉じた</strong>。</p>
+<p><strong>3. GLSL が Day 60 の6ファイルの写しになっている</strong>。<code>Sampler</code> も <code>Optics</code> も <code>Sphere</code> も<code>Bvh</code> も、C# と GLSL に同じ式が2つある。片方を直してもう片方を忘れると、<strong>絵は出るがずれる</strong>という一番たちの悪い壊れ方をする——自己チェック20 はそのための番人。本来は1つのソースから両方を生成したいところだが、そのための道具立て(共通の部分集合を決めて変換器を書く)は今日の主題から遠すぎる。<strong>「2つある」ことを自覚して、必ず数で突き合わせる</strong>という運用にした。</p>
+</section>
+<section class="part"><h2 id="s24">完成条件</h2>
+<p><code>dotnet run --project reference/Day61 -c Release</code> で起動する(<strong>Debug は使わない</strong>。CPU 版の比較が 10 倍遅くなる)。960x540 の窓が開き、左上に HUD が出る。</p>
+<h3 id="s25">1. 起動: 場面4「コーネルボックス」、GPU</h3>
+<p><strong>Day 60 とまったく同じ絵</strong>が出る。違うのは<strong>速さだけ</strong>——ノイズが目で追えないほど速く消える。</p>
+<div class="code"><pre><code>場面 4/6: コーネルボックス    サンプル 34 / 4096
+1パス 2.9 ms   合計 0.1 秒   毎秒 15.7 億本
+1パスの光線: カメラ 51.8万 / 影 196.1万 / 反射 8.1万 / 屈折 0.0万 / 散乱 199.9万   1画素あたり 8.80 本
+計算 GPU (G)   NVIDIA GeForce RTX 3070/PCIe/SSE2   ワークグループ 8x8   共有メモリ 48KB / 呼び出し上限 1024
+追い方 パストレーシング (A)   深さの上限 8 ([ ])   NEE ON (N)   ロシアンルーレット ON (U)   乱数を画素ごと ON (K)
+探し方 BVH(SAH) (B)   形 9 個(BVH 3 / 外 6) 節点 1 深さ 1 作成 0.5ms   1光線あたり 箱 0.9 / 形 7.3 回
+フレネル 正確 (F)   始点を浮かせる ON (E)   画素内のずらし ON (J)   表示 陰影 (V)</code></pre></div>
+<ul><li><strong>20 秒ほどで「サンプル 4096 / 4096(完了)」になって止まる</strong>。CPU 版は同じ 4096 に <strong>5.9 分</strong>かかる(窓を前面にして単独で走らせたときの実測が毎秒 222 サンプル。ほかの仕事と取り合うと落ちる)</li><li><strong><code>1画素あたり 8.80 本</code> が Day 60 と同じ</strong>。同じ道を同じ本数だけ歩いている証拠</li><li><strong><code>毎秒 15.7 億本</code></strong>。Day 60 の <code>5427 万本</code> の 29 倍</li><li><code>探し方</code> の行の <code>1光線あたり 箱 0.9 / 形 7.3 回</code> も Day 60 と同じ数字が出る</li></ul>
+<h3 id="s26">2. <code>G</code>: CPU に切り替える(今日いちばんの見比べ)</h3>
+<p><strong>絵は変わらない。変わるのは HUD の数字と、ノイズの減る速さだけ</strong>。</p>
+<div class="code"><pre><code>1パス 84.0 ms   合計 5.8 秒   毎秒 5427 万本
+計算 CPU (G)   描画スレッド 11 / 12</code></pre></div>
+<ul><li><strong><code>1パス 2.9 ms</code> → <code>84.0 ms</code></strong>(29 倍)</li><li>押した瞬間に積み上げが 0 に戻ってノイズだらけになり、<strong>そこからの回復が目に見えて遅い</strong></li><li>もう一度 <code>G</code> で GPU に戻る</li></ul>
+<h3 id="s27">3. <code>A</code>: Whitted に切り替える</h3>
+<p><strong>Whitted 法は GPU に移していない</strong>(木の枝分かれを GLSL で書くのは別の話になる)ので、<code>A</code> を押すと<strong>計算する場所も黙って CPU に落ちる</strong>。HUD の「計算」の行が <code>CPU</code> に変わる。<code>A</code> でパストレーシングに戻しても CPU のままなので、GPU に戻すには <code>G</code> を押す。</p>
+<h3 id="s28">4. <code>B</code>: 探し方を変える(GPU でも BVH は効く)</h3>
+<p>場面5(<code>5</code> キー)で <code>B</code> を回す。実測(960x540、8 サンプル):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>探し方</th><th>GPU 1パス</th><th>1光線あたりの交差判定</th><th>Day 60 の CPU</th></tr></thead>
+<tbody>
+<tr><td>BVH(SAH)</td><td><strong>4.0 ms</strong></td><td>箱 12.1 + 形 3.3 = <strong>15.4 回</strong></td><td>53 ms</td></tr>
+<tr><td>BVH(中央分割)</td><td>5.0 ms</td><td>箱 14.1 + 形 4.4 = 18.4 回</td><td>63 ms</td></tr>
+<tr><td>総当たり</td><td><strong>25.3 ms</strong></td><td>形 <strong>458.1 回</strong></td><td>399 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>交差判定の回数が CPU とぴったり同じ数字になる</strong>のが見どころ(要点4)。形を BVH の並びのまま送っているので、辿る枝まで同じになっている。</p>
+<p><strong>倍率は 6 倍ちょっとしかない</strong>。CPU では総当たりが 7.5 倍遅かったのに対し、GPU では 6.3 倍。総当たりのほうが<strong>枝分かれが無くてメモリアクセスも素直</strong>なので、GPU では相対的に不利さが薄まる。</p>
+<h3 id="s29">5. <code>C</code>: 自己チェック(23 項目すべて合格、2.2 秒)</h3>
+<p>1〜18 は Day 60 のまま(11 の数字だけ、乱数を替えたので変わる)。19〜23 が今日ぶん。</p>
+<div class="code"><pre><code>自己チェック: 23 項目中 23 項目 OK
+OK  19. GPU が使える(NVIDIA GeForce RTX 3070/PCIe/SSE2 / OpenGL 4.3.0 NVIDIA 596.49)。呼び出し上限 1024 / 共有メモリ 48KB / SSBO の口 96 本
+        std430 のバイト数(C# = GPU): Material 48=48 / Sphere 32=32 / Plane 32=32 / Node 48=48 / PointLight 32=32 / 渡せなかった uniform なし
+OK  20. CPU と GPU が同じ道を歩く(コーネルボックス 160x90 を 1 サンプルだけ。乱数は同じ数列)
+        1成分あたりの差の平均 1.4E-004 / 最大 2.2E+000 / 0.01 を超えた画素 12 個(0.08%)。差の出どころは sin cos sqrt の最後の1ビット
+OK  21. GPU の白い炉(反射率 1 の床と球を、一様な明るさ 0.6 の空に置く。4096 画素)
+        空の色とのずれの最大 0.0E+000(期待 0)/ 跳ね返り 0.75 回 / 閉じ込められた画素 0 個は除いた
+OK  22. CPU と GPU が同じ絵に落ち着く(コーネルボックス 320x180 を 24 サンプル)
+        明るさの平均 CPU 0.9799 / GPU 0.9799(差 0.00%)/ 画素ごとの差の平均 0.0000 / 時間 CPU 256ms → GPU 13ms(20 倍)
+OK  23. GPU の BVH と総当たりが一致(球がたくさん 160x90 を 8 サンプル)
+        画素の差の最大 0.0E+000(期待 0。乱数が同じなので道まで同じ)/ 1光線あたりの交差判定 総当たり 458.0 → SAH 15.4(29.7 分の1)</code></pre></div>
+<p><strong>この4つは役割が違う</strong>ので、どれも要る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>何を捕まえるか</th><th>これだけでは捕まらないもの</th></tr></thead>
+<tbody>
+<tr><td>19</td><td><strong>構造体の並び</strong>と uniform の名前</td><td>式の間違い</td></tr>
+<tr><td>20</td><td><strong>移植のずれ全部</strong>(π、引く順番、材質の番号、基底の符号)</td><td><strong>CPU と GPU が同じように間違っている</strong>場合</td></tr>
+<tr><td>21</td><td><strong>GPU 単体で式が合っているか</strong>(白い炉は答えが解析的に分かる)</td><td>場面の転送のずれ</td></tr>
+<tr><td>23</td><td><strong>BVH の辿り方</strong>(絵ではほとんど見えない)</td><td>材質や光源の間違い</td></tr>
+</tbody>
+</table></div>
+<p>いちばん鋭いのは <strong>20</strong>。1サンプルしか撃たないので、<strong>ノイズが1つも混ざらない</strong>。<code>-0.0</code> の1文字を見つけたのもこれ(検証1)。ただし 20 だけでは「両方が同じように間違っている」を見逃すので、<strong>21 が GPU 単体の答え合わせをする</strong>。</p>
+<h3 id="s30">6. <code>V</code>: 交差判定の数 / 光線の数(GPU 側でも同じ絵)</h3>
+<p><code>V</code> を回すと、Day 60 と同じ4つの表示が出る。<strong>GPU 側でも同じ色になる</strong>——<code>heatColor</code> も <code>packPixel</code> も GLSL に写してあるので。</p>
+<h3 id="s31">7. 右クリック: 1画素を追う(GPU モードでも CPU が追う)</h3>
+<p>GPU モードでも右クリックは効くが、<strong>追っているのは CPU</strong>。GLSL から文字列は返せないので、<code>Tracer.TracePixel</code> をそのまま使っている。乱数を揃えてあるので、<strong>そこに出る道は GPU が歩いている道とほぼ同じ</strong>(最後の1ビットだけ違う)。</p>
+<h3 id="s32">8. その他</h3>
+<ul><li><strong><code>P</code></strong>: <code>reference/Day61/bin/Release/net10.0-windows/captures/day61-scene4-gpu-4096spp-….png</code> に保存。ファイル名に <code>gpu</code> / <code>cpu</code> が入るので、後から見比べられる</li><li><strong>GPU が無い環境</strong>: HUD の「計算 CPU」の行に理由が出て、そのまま Day 60 として動く。自己チェックは 19〜23 が NG になる(飛ばした、と出る)</li><li><strong><code>1〜3</code> の場面</strong>: 点光源だけなので、GPU でも Day 60 と同じ絵が出る。場面1は 0.69ms(26 倍)</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>G</code></td><td>(なし。このページは GPU を動かさない)</td><td>速さの比は実機で。このページの「GPU 側」は、GLSL の書き方の違いだけを同じ JS で再現したもの</td></tr>
+<tr><td><code>C</code>(自己チェック20)</td><td>突き合わせの「サンプル数 1」</td><td>reference の書き方なら差 0(実機は 1.4E-004 / 12 個)。<code>n.z &gt;= 0.0</code> に戻すと 50% の画素がずれる</td></tr>
+<tr><td><code>C</code>(自己チェック22)</td><td>突き合わせの「サンプル数 24」</td><td>1本ごとの道が違っても、明るさの平均は寄ってくる</td></tr>
+<tr><td>右クリック</td><td>突き合わせの絵をクリック</td><td>CPU と GPU 側の道を並べ、最初に食い違った行に印を付ける。左の赤い壁で跳ねた道が分かりやすい</td></tr>
+<tr><td><code>C</code>(自己チェック19)</td><td>std430 の「球の構造体の書き方」</td><td>C# 20 バイト / GPU 32 バイトの食い違いで NG。GL のエラーは出ない</td></tr>
+<tr><td><code>C</code>(自己チェック21)</td><td>mix と Lerp</td><td>mix で書くと、空の色が a の最後の1ビットぶんずれる t がある</td></tr>
+<tr><td><code>4</code> <code>5</code> と <code>B</code></td><td>ワークグループの「場面」、1フレームの「場面と探し方」</td><td>総当たり(1パス 7.3 億回の交差判定)は、数え上げを溜めると 6 パスで溢れる</td></tr>
+<tr><td>(なし。<code>local_size_x/y</code> と <code>GroupSize</code>)</td><td>ワークグループの形</td><td>8x8 と 960x540 では下の4行がはみ出す。64x1 や 32x2 なら割り切れる(改造課題1)</td></tr>
+<tr><td><code>C</code>(自己チェック23)・<code>V</code>・<code>P</code></td><td>(なし)</td><td>BVH と総当たりの一致、表示の切り替え、PNG 保存は実機で</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day61 の Sampling/Rng.cs(PCG-RXS-M-XS 32 と triple32)を docs/site/cpuraytracer.js(Day 59・60a・60b の実験台と共有)に足し、Day 60b までの移植と合わせて使っている。Node で、乱数の数列(<code>Rng.Create(0, 0, 0)</code> が 0, 129708002, 582399676, 1006035121 など)と、960x540 の1パスの「1画素あたり 8.80 本」「1光線あたり 箱 0.90 / 形 7.31」(場面4)、「箱 12.06 / 形 3.35」「形 458.10」(場面5)が reference の C# と一致することを確かめた。突き合わせの「n.z &gt;= 0.0 で比べる」は、reference のシェーダの1行だけを戻して実機(RTX 3070)で自己チェック20 を走らせた値(6.4E-002 / 50.25%)と、このページの値(6.4E-002 / 50.2%)がほぼ同じになる。「光源が1つなら乱数を引かない」と、1フレームの「待たずに測る」「フレームの頭で1回だけ」は reference に無い、このページだけの切り替え。1フレームの図の時間は計画書の実測から組み立てたもので、このページでは測っていない。</p></div>
+</section>
+<section class="part"><h2 id="s33">検証の途中で分かったこと</h2>
+<p><strong>1. <code>-0.0</code> の1文字で、CPU と GPU が別の基底を作っていた</strong>。冒頭の囲みのとおり。症状は「平均の明るさは 0.11% しか違わないのに、1サンプル目は 50% の画素が 0.01 以上ずれる」。<code>MathF.CopySign(1.0f, -0.0f)</code> が <strong>−1</strong>、<code>-0.0 &gt;= 0.0 ? 1.0 : -1.0</code> が <strong>+1</strong> で、コーネルボックスの横の壁(法線 <code>(-1, -0.0, -0.0)</code>)だけが食い違っていた。<strong>どちらの基底も正しい</strong>ので絵は合う。だから「絵で確かめる」では絶対に見つからない。直し方は符号ビットを直接見ること(要点5)。</p>
+<p><strong>2. 空の SSBO に詰め物を足したら、場面に無いものが生えた</strong>。中身 0 バイトのバッファは挿しづらいので <code>Upload</code> が 1 要素ぶん確保するのだが、最初の版は<strong>渡された <code>List</code> に <code>default</code> を足して</strong>いた。呼ぶ側はその後で <code>Count</code> を数えるので、</p>
+<ul><li>コーネルボックスの<strong>点光源が 0 個から 1 個</strong>になり、真っ黒な点光源が生えた。NEE が2つの光源から1つ選ぶことになり、<strong>半分の影の光線が寄与 0 で捨てられた</strong></li><li>総当たりのとき <strong>BVH の節点が 0 個から 1 個</strong>になり、中身が全部ゼロの節点を「内側の節点」と読んで<strong>存在しない子を辿った</strong>。1光線あたりの交差判定が 458 回から 2.0 回に化けた</li></ul>
+<p>どちらも<strong>例外もエラーも出ず、それらしい絵が出る</strong>。<code>Upload</code> が一覧を書き換えないようにして直した。<strong>「呼ばれた側が引数を書き換える」は、こういう形で返ってくる</strong>。</p>
+<p><strong>3. <code>uint</code> の数え上げが、6 パスで溢れた</strong>。1フレームに何パスも投げてから読み戻す作りなので、数え上げも何パスぶんも溜まる。960x540 の総当たりは1パスで 7.3 億回の交差判定があり、<strong>6 パスで 42 億を超える</strong>。HUD の「1光線あたり 458 回」が「123 回」に化けて気づいた。最後の1パスの直前に 0 に戻す形にして直した(<code>glBufferSubData</code> をディスパッチの間に挟むので、<strong>その前にメモリバリアが要る</strong>)。</p>
+<p><strong>4. GPU の速さは、窓の外から測れない</strong>。これに一番時間を取られた。</p>
+<ul><li><code>glDispatchCompute</code> は<strong>仕事を積むだけ</strong>なので、時間を測るには <code>glFinish()</code> が要る</li><li>窓の HUD の「1パス」には<strong>表示の仕事が混ざる</strong>(LockBits、HUD の文字、30fps の待ち)</li><li><strong>窓のスクリーンショットは古い絵を返すことがある</strong>。5 秒・15 秒・25 秒に撮った3枚がバイト単位で同じで、「固まっている」と読み違えた。実際にはフレームごとにログを取ると <strong>15 秒で 370 フレーム・3325 サンプル</strong>積んでいた</li></ul>
+<p>だから<strong>比べる数字は、窓を開かないハーネスで測ったものを使う</strong>。自己チェック22 の説明に「比べるならここの数字」と書いてあるのはこのため。</p>
+<p><strong>5. 乱数を替えたら、Day 60 の自己チェック11 が落ちた——測り方のほうが落ちていた</strong>。「画素ごとに種を変えないと、隣の画素の相関が 1.0000 になる」という項目が <strong>0.0000</strong> を出した。種を変えないと 10 万組が<strong>全部同じ1つの値</strong>になるので、<strong>ばらつき 0 の数列どうしの相関</strong>、つまり 0 ÷ 0 を計算していた。64 ビットの乱数器では丸めの都合でたまたま 1.0000 に出ていただけ。サンプル番号を固定(0)から <code>i</code> に変えて、どちらの設定でも数列がばらつくようにして直した。<strong>乱数は何も悪くなく、測り方が最初から怪しかった</strong>——落ちて初めて分かる類の話。</p>
+<p><strong>6. 市松模様だけは、原理的に CPU と一致しない</strong>。<code>Material.AlbedoAt</code> は <code>long</code> で床の座標を切り捨てて偶奇を見るが、GLSL には 64 ビット整数が無いので <code>float</code> のまま <code>mod</code> で見ている。float の刻みが 1 を超える <strong>840 万 m あたりから模様が潰れる</strong>はず——ただし6つの場面を 64 サンプルで撮って突き合わせたところ、<strong>明るさが 0.05 以上ずれた画素は1つも無かった</strong>(画面に映る床がそこまで遠くないため)。<strong>今日は出ないが、地平線をもっと低く撮ると出る</strong>性質として書き残しておく。</p>
+</section>
+<section class="part"><h2 id="s34">改造課題</h2>
+<h3 id="s35">課題1(易): ワークグループの形とスタックの深さ</h3>
+<p><code>pathtrace.comp</code> の <code>local_size_x/y</code> と <code>Gpu/GpuRenderer.cs</code> の <code>GroupSize</code> は<strong>対で変える</strong> (片方だけ変えると、画面の一部が描かれないか、二重に描かれる)。</p>
+<ol><li><code>8x8</code> / <code>16x16</code> / <code>32x2</code> / <code>64x1</code> の4通りで、場面4と場面5の「1パス」を記録する</li><li><strong>場面4と場面5で、いちばん速い形が違うか</strong>。違うならなぜか(場面5は BVH を辿る。隣の画素が同じ枝を辿るほうが得)</li><li><code>STACK_SIZE</code> を 32 から 8 / 64 に変えて場面5を測る。<strong>8 でも絵が壊れないのはなぜか</strong> (HUD の「深さ」を見る)。64 にすると遅くなるなら、それは何が起きているか</li><li>余力があれば <code>1x64</code>(縦長)も試す。<strong>タイルの形が変わると何が変わるのか</strong>を言葉にする</li></ol>
+<p>「呼び出しをどう束ねるか」だけで速さが変わることを、自分の手で測る課題。<strong>絵は1画素も変わらない</strong>(変わったら、それは 1 の対を崩している)。</p>
+<h3 id="s36">課題2(中): わざと1か所ずらして、自己チェック20 と 22 の役割を確かめる</h3>
+<p>要点5の話を、自分で再現する。</p>
+<ol><li><code>pathtrace.comp</code> の <code>orthonormalBasis</code> の符号を、符号ビット版から<code>n.z &gt;= 0.0 ? 1.0 : -1.0</code> に<strong>戻す</strong></li><li>自己チェックを走らせる。<strong>20 が落ちて、21・22・23 は通る</strong>はず。落ちた数字を記録する</li><li>場面4を 4096 サンプルまで積んで、<code>P</code> で GPU 版と CPU 版を1枚ずつ保存し、<strong>見比べる</strong>。見分けがつくか</li><li>次に <code>reflectDir</code> を GLSL 組み込みの <code>reflect(d, n)</code> に置き換えて、同じことをする。<strong>20 はどのくらいずれるか</strong>(基底の符号ほどではないはず)</li><li>最後に、<code>pathTrace</code> の拡散面で <code>throughput *= albedo;</code> を <code>throughput *= albedo / PI;</code> に変える。<strong>今度は 21(白い炉)も落ちる</strong>。なぜ 4 では落ちなかったのに、5 では落ちるのかを説明する</li></ol>
+<p><strong>「同じ絵になる」と「同じ計算をしている」は別のこと</strong>を、数字で突きつけられる課題。5 が分かれば、20 と 21 を両方置いてある理由が腑に落ちる。</p>
+<h3 id="s37">課題3(難): <code>glFinish</code> をやめる</h3>
+<p>いまの <code>GpuRenderer.RunPasses</code> は、時間を測るために毎フレーム <code>glFinish()</code> で<strong>パイプラインを完全に止めている</strong>。実務ではまずやらない。</p>
+<ol><li>Day 57 の <code>GpuTimer</code>(<code>GL_TIME_ELAPSED</code> のクエリオブジェクト)を <code>Gpu/</code> に持ってきて、<strong>ディスパッチを挟むだけ</strong>にする。<code>glFinish</code> を消して1パスの時間を測れるようにする</li><li>読み戻しも非同期にする。画素バッファを<strong>2本用意して交互に使い</strong>、<code>glFenceSync</code> + <code>glClientWaitSync</code>(待たない)で「前のフレームのぶんが読める状態か」を見る。読めていなければ<strong>今のフレームは絵を更新しない</strong>(1フレーム古い絵を出す)</li><li>1・2 の前後で、<strong>HUD の fps と「1パス」</strong>がどう変わるかを測る。絵の更新が1フレーム遅れることに気づけるか</li><li><strong><code>glFinish</code> を消すと、自己チェック22 の「時間 CPU → GPU」は測れなくなる</strong>。代わりに何を測ればよいかを考える(ヒント: 1 で入れたクエリ)</li><li>余力があれば、積算バッファを <code>rgba16f</code> にして、<strong>何サンプルで「足しても増えない」画素が出るか</strong>を測る。明るい画素(光源を直接見ている画素)から先に壊れるはず</li></ol>
+<p>「測るために止める」と「速く回すために止めない」は両立しない。<strong>実務のレンダラが必ず通る分かれ道</strong>で、Day 62 以降の Vulkan ではこの待ち合わせを自分で全部書くことになる。</p>
+</section>
+<footer class="end">Day 61 GPU パストレーサ化 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/cpuraytracer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, stat } = Lab;
+const C = window.CpuRayTracer;
+const PATH = { algorithm: 'path', maxDepth: 8, shadows: true, fresnel: 'exact', nee: true, rr: true, decorrelate: true, view: 'shade', rng32: true };
+const pct = (v, d = 2) => (v * 100).toFixed(d) + '%';
+const toByte = (v) => Math.round(C.linearToSrgb(v) * 255);
+
+// 少しずつ進める仕事(重い計算で画面を固めないように、15ms ごとに手を離す)
+function runner(step, done) {
+  let alive = true;
+  const tick = () => {
+    if (!alive) return;
+    const t0 = performance.now();
+    let more = true;
+    while (more && performance.now() - t0 < 15) more = step();
+    if (more) setTimeout(tick, 0); else done();
+  };
+  setTimeout(tick, 0);
+  return () => { alive = false; };
+}
+
+// ============================================================
+//  要点1: ワークグループの格子と warp
+// ============================================================
+const KINDS = ['空', '拡散', '金属', 'ガラス', '光る面'];
+const kindOf = (s) => (!s ? 0 : s.m.emissive ? 4 : s.m.kind === 'metal' ? 2 : s.m.kind === 'glass' ? 3 : 1);
+const wg = { shape: '8x8', res: 960, scene: 'cornell', exit: 'if', hover: null };
+const hitMaps = {}, analyses = {};
+let wgJob = null;
+function hitMap(sceneKey, W) {
+  const key = sceneKey + W;
+  if (hitMaps[key]) return hitMaps[key];
+  const H = W * 9 / 16, scene = C.prepare(C.scene(sceneKey), 'sah'), cam = C.camera(scene.view, W, H);
+  const m = { W, H, kind: new Uint8Array(W * H), img: new ImageData(W, H), row: 0, done: false };
+  hitMaps[key] = m;
+  const cnt = C.counters();
+  // 途中で別の絵に切り替えたら、描きかけは捨てる(次に選ばれたときに描き直す)
+  if (wgJob && !hitMaps[wgJob.key].done) { wgJob.cancel(); delete hitMaps[wgJob.key]; }
+  wgJob = { key };
+  wgJob.cancel = runner(() => {
+    const y = m.row;
+    for (let x = 0; x < W; x++) {
+      const d = cam.ray(x + 0.5, y + 0.5), h = C.intersect(scene, cam.pos, d, cnt), i = y * W + x;
+      m.kind[i] = kindOf(h && h.shape);
+      let c;
+      if (!h) c = C.sky(scene, d);
+      else if (h.shape.m.emissive) c = [1, 0.92, 0.6];
+      else if (h.shape.m.kind === 'glass') c = [0.55, 0.75, 0.8];
+      else c = C.albedoAt(h.shape.m, C.add(cam.pos, C.mul(d, h.t)));
+      const shade = h ? 0.35 + 0.65 * Math.abs(C.dot(h.shape.normal(C.add(cam.pos, C.mul(d, h.t))), d)) : 1;
+      for (let k = 0; k < 3; k++) m.img.data[i * 4 + k] = Math.round(Math.min(c[k] * shade, 1) * 255);
+      m.img.data[i * 4 + 3] = 255;
+    }
+    m.row++;
+    if (m.row % 40 === 0) drawWg();
+    return m.row < H;
+  }, () => { m.done = true; drawWg(); });
+  return m;
+}
+function analyze(m, lx, ly) {
+  const ak = `${m.W}-${lx}x${ly}-${m === hitMaps['cornell' + m.W] ? 'c' : 's'}`;
+  if (m.done && analyses[ak]) return analyses[ak];
+  const gx = Math.ceil(m.W / lx), gy = Math.ceil(m.H / ly), perGroup = lx * ly / 32;
+  const mixed = new Uint8Array(gx * gy * perGroup);
+  let mixedCount = 0, idleWarps = 0;
+  for (let g = 0; g < gx * gy; g++) {
+    const ox = (g % gx) * lx, oy = Math.floor(g / gx) * ly;
+    for (let w = 0; w < perGroup; w++) {
+      let mask = 0, idle = false;
+      for (let i = w * 32; i < w * 32 + 32; i++) {
+        const x = ox + (i % lx), y = oy + Math.floor(i / lx);
+        if (x >= m.W || y >= m.H) { idle = true; continue; }
+        mask |= 1 << m.kind[y * m.W + x];
+      }
+      if (mask & (mask - 1)) { mixed[g * perGroup + w] = 1; mixedCount++; }
+      if (idle) idleWarps++;
+    }
+  }
+  const a = { gx, gy, perGroup, mixed, mixedCount, idleWarps, warps: gx * gy * perGroup };
+  if (m.done) analyses[ak] = a;
+  return a;
+}
+const wgOff = document.createElement('canvas');
+function drawWg() {
+  const { ctx, w, h } = fit($('wg-canvas'));
+  const [lx, ly] = wg.shape.split('x').map(Number);
+  const m = hitMap(wg.scene, wg.res), a = analyze(m, lx, ly);
+  const fw = a.gx * lx, fh = a.gy * ly, s = Math.min((w - 8) / fw, (h - 8) / fh), x0 = (w - fw * s) / 2, y0 = (h - fh * s) / 2;
+  wg.view = { x0, y0, s, lx, ly, gx: a.gx, gy: a.gy };
+  // はみ出した場所(画面の外の呼び出し)
+  ctx.fillStyle = tok('--sunken'); ctx.fillRect(x0, y0, fw * s, fh * s);
+  wgOff.width = m.W; wgOff.height = m.H; wgOff.getContext('2d').putImageData(m.img, 0, 0);
+  ctx.imageSmoothingEnabled = m.W < 400 ? false : true;
+  ctx.globalAlpha = 0.75; ctx.drawImage(wgOff, x0, y0, m.W * s, m.H * s); ctx.globalAlpha = 1;
+  if (fh > m.H || fw > m.W) {
+    ctx.fillStyle = 'rgba(230,160,40,0.55)';
+    if (fh > m.H) ctx.fillRect(x0, y0 + m.H * s, fw * s, (fh - m.H) * s);
+    if (fw > m.W) ctx.fillRect(x0 + m.W * s, y0, (fw - m.W) * s, m.H * s);
+  }
+  // 材質が混ざる warp
+  if (m.done) {
+    ctx.fillStyle = 'rgba(220,40,40,0.45)';
+    const wx = lx >= 32 ? 32 : lx, wy = 32 / wx;
+    for (let g = 0; g < a.gx * a.gy; g++) for (let k = 0; k < a.perGroup; k++) {
+      if (!a.mixed[g * a.perGroup + k]) continue;
+      const ox = (g % a.gx) * lx + ((k * 32) % lx), oy = Math.floor(g / a.gx) * ly + Math.floor(k * 32 / lx);
+      ctx.fillRect(x0 + ox * s, y0 + oy * s, wx * s, wy * s);
+    }
+  }
+  // return で抜けたら、はみ出しを含むグループは barrier で永久に待つ
+  if (wg.exit === 'return') {
+    ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2;
+    for (let gy = 0; gy < a.gy; gy++) for (let gx = 0; gx < a.gx; gx++) {
+      if ((gx + 1) * lx <= m.W && (gy + 1) * ly <= m.H) continue;
+      ctx.strokeRect(x0 + gx * lx * s + 1, y0 + gy * ly * s + 1, lx * s - 2, ly * s - 2);
+    }
+  }
+  // グループの格子(細かすぎるときは省く)
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.beginPath();
+  if (lx * s >= 4) for (let gx = 0; gx <= a.gx; gx++) { ctx.moveTo(x0 + gx * lx * s, y0); ctx.lineTo(x0 + gx * lx * s, y0 + fh * s); }
+  if (ly * s >= 4) for (let gy = 0; gy <= a.gy; gy++) { ctx.moveTo(x0, y0 + gy * ly * s); ctx.lineTo(x0 + fw * s, y0 + gy * ly * s); }
+  ctx.stroke();
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.strokeRect(x0 + 0.5, y0 + 0.5, m.W * s, m.H * s);
+  // マウスの下のグループ: warp ごとに枠
+  let hoverText = '';
+  if (wg.hover && m.done) {
+    const [hx, hy] = wg.hover, gx = Math.floor(hx / lx), gy = Math.floor(hy / ly);
+    if (gx < a.gx && gy < a.gy) {
+      const g = gy * a.gx + gx, wx = lx >= 32 ? 32 : lx, wy = 32 / wx;
+      ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+      for (let k = 0; k < a.perGroup; k++) {
+        const ox = gx * lx + ((k * 32) % lx), oy = gy * ly + Math.floor(k * 32 / lx);
+        ctx.strokeRect(x0 + ox * s + 1, y0 + oy * s + 1, wx * s - 2, wy * s - 2);
+      }
+      const parts = [];
+      for (let k = 0; k < a.perGroup; k++) {
+        const set = new Set();
+        let out = 0;
+        for (let i = k * 32; i < k * 32 + 32; i++) {
+          const x = gx * lx + (i % lx), y = gy * ly + Math.floor(i / lx);
+          if (x >= m.W || y >= m.H) out++; else set.add(KINDS[m.kind[y * m.W + x]]);
+        }
+        parts.push(`warp ${k}: ${[...set].join('・') || 'なし'}${out ? `(画面の外 ${out} 本)` : ''}`);
+      }
+      hoverText = `グループ (${gx}, ${gy}) — ${parts.join(' / ')}`;
+    }
+  }
+  const hang = a.gx * a.gy - Math.floor(m.W / lx) * Math.floor(m.H / ly), outside = fw * fh - m.W * m.H;
+  $('wg-stats').innerHTML =
+    stat('グループ数', `${a.gx} x ${a.gy} = ${a.gx * a.gy}`) + stat('呼び出し', (fw * fh).toLocaleString()) + stat('うち画面の外', outside.toLocaleString()) +
+    stat('1グループの warp', `${a.perGroup} 個(${lx >= 32 ? 32 : lx}x${32 / (lx >= 32 ? 32 : lx)})`) +
+    stat('材質が混ざる warp', m.done ? `${pct(a.mixedCount / a.warps, 1)}(${a.mixedCount.toLocaleString()} 個)` : `数えている途中 ${Math.round(m.row / m.H * 100)}%`) +
+    stat('画面の外を含む warp', a.idleWarps.toLocaleString()) +
+    (wg.exit === 'return' ? stat('永久に待つグループ', hang.toLocaleString()) : '');
+  const cut = [m.W % lx ? `${m.W} を ${lx} で` : '', m.H % ly ? `${m.H} を ${ly} で` : ''].filter(Boolean).join('、');
+  let note = outside
+    ? `${cut}割ると切り上がるので、${outside.toLocaleString()} 本の呼び出しが画面の外(橙の帯)に出る。`
+    : `${m.W}x${m.H} は ${lx}x${ly} で割り切れるので、画面の外の呼び出しは1本も無い。`;
+  if (wg.exit === 'return') note += hang ? `return で抜けると、橙の帯にかかる ${hang} グループ(赤枠)は、後ろの barrier() に全員が揃わず、永久に待つ。` : 'だから return で抜けても、たまたま何も起きない——解像度を変えたとたんに固まる種類の間違い。';
+  else note += 'if で囲めば、画面の外の呼び出しも barrier() まで降りてくるので、全員が揃う。';
+  note += ' 赤い warp は、同じ命令を32本で実行する中に違う材質の枝が混ざるところ(発散)。形の輪郭に沿って出る。';
+  $('wg-note').textContent = hoverText || note;
+}
+seg('wg-shape', (v) => { wg.shape = v; drawWg(); });
+seg('wg-res', (v) => { wg.res = Number(v); drawWg(); });
+seg('wg-scene', (v) => { wg.scene = v; drawWg(); });
+seg('wg-exit', (v) => { wg.exit = v; drawWg(); });
+{
+  const cv = $('wg-canvas');
+  cv.addEventListener('pointermove', (e) => {
+    const r = cv.getBoundingClientRect(), v = wg.view;
+    if (!v) return;
+    const x = (e.clientX - r.left - v.x0) / v.s, y = (e.clientY - r.top - v.y0) / v.s;
+    wg.hover = x >= 0 && y >= 0 && x < v.gx * v.lx && y < v.gy * v.ly ? [Math.floor(x), Math.floor(y)] : null;
+    drawWg();
+  });
+  cv.addEventListener('pointerleave', () => { wg.hover = null; drawWg(); });
+}
+window.addEventListener('resize', drawWg);
+drawWg();
+
+// ============================================================
+//  要点4: std430 の詰め方
+// ============================================================
+// コーネルボックスの球。BVH の葉が1枚(3個)なので、並びは場面に書いた順。材質の番号は球の順に 0, 1, 2
+const SPHERES = [{ c: [0, 2.2, 0.3], r: 0.35, m: 0 }, { c: [-0.62, 0.45, 0.5], r: 0.45, m: 1 }, { c: [0.70, 0.5, 0.95], r: 0.5, m: 2 }];
+// 欄: [名前, 種類(f / i), 数, オフセット, 役目(center / radius / material / pad)]
+const LAYOUTS = {
+  today: {
+    cs: { stride: 32, fields: [['CenterRadius', 'f', 4, 0, 'cr'], ['Material', 'i', 1, 16, 'material'], ['_pad0..2', 'i', 3, 20, 'pad']] },
+    gl: { stride: 32, fields: [['centerRadius', 'f', 4, 0, 'cr'], ['info', 'i', 4, 16, 'info']] },
+    csText: 'Vector4 CenterRadius; int Material; int _pad0, _pad1, _pad2;', glText: 'vec4 centerRadius; ivec4 info;',
+  },
+  nopad: {
+    cs: { stride: 20, fields: [['CenterRadius', 'f', 4, 0, 'cr'], ['Material', 'i', 1, 16, 'material']] },
+    gl: { stride: 32, fields: [['centerRadius', 'f', 4, 0, 'cr'], ['info', 'i', 4, 16, 'info']] },
+    csText: 'Vector4 CenterRadius; int Material;', glText: 'vec4 centerRadius; ivec4 info;',
+  },
+  vec3: {
+    cs: { stride: 20, fields: [['Center', 'f', 3, 0, 'center'], ['Radius', 'f', 1, 12, 'radius'], ['Material', 'i', 1, 16, 'material']] },
+    gl: { stride: 32, fields: [['center', 'f', 3, 0, 'center'], ['radius', 'f', 1, 12, 'radius'], ['material', 'i', 1, 16, 'material']] },
+    csText: 'Vector3 Center; float Radius; int Material;', glText: 'vec3 center; float radius; int material;',
+  },
+  radius: {
+    cs: { stride: 20, fields: [['Radius', 'f', 1, 0, 'radius'], ['Center', 'f', 3, 4, 'center'], ['Material', 'i', 1, 16, 'material']] },
+    gl: { stride: 32, fields: [['radius', 'f', 1, 0, 'radius'], ['center', 'f', 3, 16, 'center'], ['material', 'i', 1, 28, 'material']] },
+    csText: 'float Radius; Vector3 Center; int Material;', glText: 'float radius; vec3 center; int material;',
+  },
+};
+const ROLE_COLOR = { cr: [90, 140, 220], center: [90, 140, 220], radius: [70, 170, 120], material: [220, 140, 50], info: [220, 140, 50], pad: [150, 150, 150] };
+// 役目と何番目の要素かから、書く値を決める
+function valueOf(sp, role, k) {
+  if (role === 'cr') return k < 3 ? sp.c[k] : sp.r;
+  if (role === 'center') return sp.c[k];
+  if (role === 'radius') return sp.r;
+  if (role === 'material') return sp.m;
+  return 0;
+}
+const st = { layout: 'today' };
+function drawStd() {
+  const L = LAYOUTS[st.layout], bytes = SPHERES.length * L.cs.stride, dv = new DataView(new ArrayBuffer(bytes));
+  const csWord = [], glWord = [];
+  SPHERES.forEach((sp, i) => {
+    for (const [name, type, n, off, role] of L.cs.fields) for (let k = 0; k < n; k++) {
+      const at = i * L.cs.stride + off + k * 4;
+      if (type === 'f') dv.setFloat32(at, valueOf(sp, role, k), true); else dv.setInt32(at, valueOf(sp, role, k), true);
+      csWord[at / 4] = { i, role, label: name.replace(/\.\..*/, '') };
+    }
+  });
+  const total = SPHERES.length * L.gl.stride;
+  for (let i = 0; i < SPHERES.length; i++) for (const [name, type, n, off, role] of L.gl.fields) for (let k = 0; k < n; k++) glWord[(i * L.gl.stride + off) / 4 + k] = { i, role, label: name };
+  // GPU の構造体の中で欄の無いところは詰め物(GPU は読み飛ばす)
+  for (let k = 0; k < total / 4; k++) if (!glWord[k]) glWord[k] = { i: Math.floor(k * 4 / L.gl.stride), role: 'pad', label: '' };
+  const words = Math.max(bytes, total) / 4;
+  const { ctx, w, h } = fit($('st-canvas'));
+  const left = 92, cw = (w - left - 8) / words, rowH = 46, y1 = 34, y2 = y1 + rowH + 40;
+  ctx.font = '12px ' + tok('--font-body'); ctx.fillStyle = tok('--ink');
+  ctx.fillText('C# が書く', 4, y1 + rowH / 2 + 4); ctx.fillText('GPU が読む', 4, y2 + rowH / 2 + 4);
+  ctx.fillStyle = tok('--muted'); ctx.font = '10px ' + tok('--font-mono');
+  for (let k = 0; k <= words; k += 4) { ctx.textAlign = k === words ? 'right' : 'left'; ctx.fillText(String(k * 4), left + k * cw, 24); }
+  ctx.textAlign = 'left';
+  const cell = (x, y, word, label) => {
+    if (!word) { ctx.strokeStyle = tok('--line'); ctx.setLineDash([3, 3]); ctx.strokeRect(x + 1, y, cw - 2, rowH); ctx.setLineDash([]); return; }
+    const [r, g, b] = ROLE_COLOR[word.role], a = [0.95, 0.65, 0.4][word.i];
+    ctx.fillStyle = `rgba(${r},${g},${b},${a})`; ctx.fillRect(x + 1, y, cw - 2, rowH);
+    if (label && cw > 26) { ctx.fillStyle = '#fff'; ctx.save(); ctx.translate(x + cw / 2 + 4, y + rowH - 4); ctx.rotate(-Math.PI / 2); ctx.fillText(label, 0, 0); ctx.restore(); }
+  };
+  for (let k = 0; k < words; k++) {
+    cell(left + k * cw, y1, k * 4 < bytes ? csWord[k] : null, csWord[k] && csWord[k].role !== 'pad' ? String(k * 4 < bytes ? (csWord[k].role === 'material' ? dv.getInt32(k * 4, true) : +dv.getFloat32(k * 4, true).toFixed(2)) : '') : '');
+    cell(left + k * cw, y2, glWord[k], '');
+  }
+  // 球の境目
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2;
+  for (let i = 0; i <= SPHERES.length; i++) {
+    const xa = left + i * L.cs.stride / 4 * cw, xb = left + i * L.gl.stride / 4 * cw;
+    ctx.beginPath(); ctx.moveTo(xa, y1 - 4); ctx.lineTo(xa, y1 + rowH + 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(xb, y2 - 4); ctx.lineTo(xb, y2 + rowH + 4); ctx.stroke();
+  }
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-body');
+  ctx.fillText(w < 600 ? '太線は球の境目。灰色は詰め物、点線はバッファの外' : '太い縦線が球の境目。灰色は詰め物、点線の枠は C# が書いていないところ(バッファの外)', w < 600 ? 4 : left, y2 + rowH + 22);
+  // GPU が読んだ値
+  const read = (at, type) => (at + 4 > bytes ? null : type === 'f' ? dv.getFloat32(at, true) : dv.getInt32(at, true));
+  const f = (v) => (v === null ? '(外)' : Math.abs(v) < 1e-6 && v !== 0 ? v.toExponential(1) : Number.isInteger(v) ? String(v) : v.toFixed(2));
+  let rows = '', okAll = true;
+  SPHERES.forEach((sp, i) => {
+    const got = { center: [], radius: null, material: null };
+    for (const [name, type, n, off, role] of L.gl.fields) for (let k = 0; k < n; k++) {
+      const v = read(i * L.gl.stride + off + k * 4, type);
+      if (role === 'cr') { if (k < 3) got.center.push(v); else got.radius = v; }
+      else if (role === 'center') got.center.push(v);
+      else if (role === 'radius') got.radius = v;
+      else if ((role === 'material' || role === 'info') && k === 0) got.material = v;
+    }
+    const ok = got.center.every((v, k) => v !== null && Math.abs(v - sp.c[k]) < 1e-6) && got.radius !== null && Math.abs(got.radius - sp.r) < 1e-6 && got.material === sp.m;
+    okAll &&= ok;
+    rows += `<tr><td>${i}</td><td>(${sp.c.join(', ')}) / ${sp.r} / ${sp.m}</td><td>(${got.center.map(f).join(', ')}) / ${f(got.radius)} / ${f(got.material)}</td><td>${ok ? '合う' : '<strong>ずれ</strong>'}</td></tr>`;
+  });
+  $('st-table').innerHTML = `<table><thead><tr><th>球</th><th>C# が書いた 中心 / 半径 / 材質の番号</th><th>GPU が読んだ 中心 / 半径 / 材質の番号</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  $('st-stats').innerHTML = stat('C#(Unsafe.SizeOf)', `${L.cs.stride} バイト`) + stat('GPU(BUFFER_DATA_SIZE)', `${L.gl.stride} バイト`) +
+    stat('自己チェック19', L.cs.stride === L.gl.stride ? 'OK' : 'NG') + stat('GL のエラー', 'なし');
+  const notes = {
+    today: 'vec4 を2つ並べた形。どちらも 32 バイトで、欄の位置も1バイトずつ同じ。C# の _pad0〜2 は GLSL の info.yzw にあたる(読まないが、場所は要る)。',
+    nopad: 'C# は 20 バイトずつ詰めるが、GPU は ivec4 の分まで 32 バイトずつ進む。球 0 は合うが、球 1 は C# の球 1 の後ろ半分と球 2 の頭を混ぜて読み、材質の番号に float のビット列(10 億を超える数)を読む。球 2 はバッファの外にはみ出す。',
+    vec3: 'std430 でも vec3 は 16 バイトに整列し、構造体の大きさは一番大きい整列(16)の倍数に切り上がる。だから欄の並びは C# と同じでも、配列の1要素は 20 ではなく 32 バイト——2つ目の球から全部ずれる。',
+    radius: 'float の後ろの vec3 は 16 バイト目まで飛ぶ。C# は 4 バイト目から詰めるので、先頭の半径しか合わない。球 0 の中心は、材質の番号と次の球の値を読んでしまう。',
+  };
+  $('st-note').innerHTML = `C#: <code>${L.csText}</code><br>GLSL: <code>${L.glText}</code><br>${notes[st.layout]}${okAll ? '' : ' それでも GL は何も言わず、絵は(おかしな玉が並ぶだけで)出る。'}`;
+}
+seg('st-layout', (v) => { st.layout = v; drawStd(); });
+window.addEventListener('resize', drawStd);
+drawStd();
+
+// ============================================================
+//  要点5 (2): mix と Lerp
+// ============================================================
+const F = Math.fround;
+const mx = { a: 0.6, form: 'mix' };
+function ulpOf(v) { const b = new DataView(new ArrayBuffer(4)); b.setFloat32(0, v); const u = b.getUint32(0); b.setUint32(0, u + 1); return b.getFloat32(0) - v; }
+function drawMix() {
+  const A = F(mx.a), N = 1001, err = new Float64Array(N), ulp = ulpOf(A);
+  let bad = 0, worst = 0;
+  for (let i = 0; i < N; i++) {
+    const t = F(i / (N - 1));
+    const v = mx.form === 'mix' ? F(F(A * F(1 - t)) + F(A * t)) : F(A + F(F(A - A) * t));
+    err[i] = (v - A) / ulp;
+    if (v !== A) bad++;
+    worst = Math.max(worst, Math.abs(v - A));
+  }
+  const { ctx, w, h } = fit($('mx-canvas'));
+  const L = 40, R = w - 10, mid = h / 2, sc = (h / 2 - 22) / 2;
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1;
+  for (const u of [-2, -1, 1, 2]) { ctx.beginPath(); ctx.moveTo(L, mid - u * sc); ctx.lineTo(R, mid - u * sc); ctx.stroke(); }
+  ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(L, mid); ctx.lineTo(R, mid); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillText('+1', 10, mid - sc + 4); ctx.fillText('-1', 10, mid + sc + 4); ctx.fillText('0', 18, mid + 4);
+  ctx.fillText('t = 0', L, h - 4); ctx.fillText('t = 1', R - 36, h - 4);
+  ctx.fillStyle = tok('--expl');
+  for (let i = 0; i < N; i++) {
+    if (!err[i]) continue;
+    const x = L + i / (N - 1) * (R - L);
+    ctx.fillRect(x - 0.75, Math.min(mid, mid - err[i] * sc), 1.5, Math.abs(err[i] * sc));
+  }
+  $('mx-a-out').textContent = mx.a.toFixed(2);
+  $('mx-stats').innerHTML = stat('a(float)', A.toPrecision(9)) + stat('a と違う値になった t', `${bad} / ${N}`) +
+    stat('ずれの最大', worst ? worst.toExponential(1) : '0') + stat('a の最後の1ビット', ulp.toExponential(2));
+  $('mx-note').textContent = mx.form === 'mix'
+    ? `a(1 − t) と at を別々に丸めてから足すので、和が a に戻らない t がある(${bad} 個)。白い炉では空の色そのものが ${worst ? worst.toExponential(1) : '0'} ずれ、「ずれの最大 0.0E+000」が出なくなる。`
+    : 'b − a がちょうど 0 になるので、t が何でも a + 0 = a。1ビットも変わらない。reference の GLSL が mix を使わず手で書いてあるのはこのため。';
+}
+$('mx-a').addEventListener('input', (e) => { mx.a = Number(e.target.value); drawMix(); });
+seg('mx-form', (v) => { mx.form = v; drawMix(); });
+window.addEventListener('resize', drawMix);
+drawMix();
+
+// ============================================================
+//  要点3・5: CPU と GPU を1画素ずつ突き合わせる
+// ============================================================
+const CW = 160, CH = 90;
+const ccScene = C.prepare(C.scene('cornell'), 'sah'), ccCam = C.camera(ccScene.view, CW, CH);
+const VARIANTS = { ok: PATH, compare: { ...PATH, basisCompare: true }, skip: { ...PATH, skipSinglePick: true } };
+const cc = { variant: 'ok', samples: 1, sel: null };
+const images = {};
+const queue = [];
+let ccBusy = false;
+function image(key, settings, samples) {
+  if (images[key]) return images[key];
+  const img = { out: new Float32Array(CW * CH * 3), row: 0, done: false, tracer: C.tracer(ccScene, settings), samples };
+  images[key] = img;
+  queue.push(img);
+  pump();
+  return img;
+}
+function pump() {
+  if (ccBusy || !queue.length) return;
+  ccBusy = true;
+  const img = queue[0], cnt = C.counters();
+  runner(() => {
+    const y = img.row;
+    for (let x = 0; x < CW; x++) {
+      let s = [0, 0, 0];
+      for (let i = 0; i < img.samples; i++) {
+        const off = C.sampleOffset(i);
+        s = C.add(s, img.tracer.sample(ccCam, x + off[0], y + off[1], C.Rng32.create(x, y, i, true), cnt));
+      }
+      for (let k = 0; k < 3; k++) img.out[(y * CW + x) * 3 + k] = s[k] / img.samples;
+    }
+    img.row++;
+    if (img.row % 15 === 0) drawCc();
+    return img.row < CH;
+  }, () => { img.done = true; queue.shift(); ccBusy = false; drawCc(); pump(); });
+}
+const lum = (a, i) => 0.2126 * a[i * 3] + 0.7152 * a[i * 3 + 1] + 0.0722 * a[i * 3 + 2];
+const ccOff = document.createElement('canvas');
+function drawCc() {
+  // reference の書き方は CPU 側と同じ式なので、同じ絵をそのまま使う
+  const cpu = image('cpu' + cc.samples, PATH, cc.samples), gpu = cc.variant === 'ok' ? cpu : image(cc.variant + cc.samples, VARIANTS[cc.variant], cc.samples);
+  const { ctx, w, h } = fit($('cc-canvas'));
+  const gap = 10, iw = Math.min((w - 2 * gap) / 3, h * CW / CH), ih = iw * CH / CW, y0 = 18;
+  cc.rect = { iw, ih, gap, y0 };
+  const put = (fill, x) => {
+    const im = new ImageData(CW, CH);
+    for (let i = 0; i < CW * CH; i++) { const c = fill(i); im.data[i * 4] = c[0]; im.data[i * 4 + 1] = c[1]; im.data[i * 4 + 2] = c[2]; im.data[i * 4 + 3] = 255; }
+    ccOff.width = CW; ccOff.height = CH; ccOff.getContext('2d').putImageData(im, 0, 0);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(ccOff, x, y0, iw, ih);
+  };
+  const rowsOf = (img) => (img.done ? CH : img.row);
+  const show = (img) => (i) => (Math.floor(i / CW) < rowsOf(img) ? [toByte(img.out[i * 3]), toByte(img.out[i * 3 + 1]), toByte(img.out[i * 3 + 2])] : [24, 24, 28]);
+  put(show(cpu), 0); put(show(gpu), iw + gap);
+  const both = (i) => Math.floor(i / CW) < Math.min(rowsOf(cpu), rowsOf(gpu));
+  const diffAt = (i) => Math.max(...[0, 1, 2].map((k) => Math.abs(cpu.out[i * 3 + k] - gpu.out[i * 3 + k])));
+  put((i) => { if (!both(i)) return [24, 24, 28]; const d = diffAt(i); return d > 0.01 ? [230, 50, 40] : d > 0 ? [120, 120, 120] : [0, 0, 0]; }, 2 * (iw + gap));
+  ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body');
+  ['CPU', 'GPU(' + { ok: '符号ビット', compare: 'n.z >= 0.0', skip: '乱数を引かない' }[cc.variant] + ')', '差'].forEach((t, k) => ctx.fillText(t, k * (iw + gap), 13));
+  if (cc.sel) {
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) ctx.strokeRect(k * (iw + gap) + cc.sel[0] * iw / CW - 2, y0 + cc.sel[1] * ih / CH - 2, iw / CW + 4, ih / CH + 4);
+  }
+  if (!(cpu.done && gpu.done)) {
+    $('cc-stats').innerHTML = stat('描いている途中', `${Math.round((rowsOf(cpu) + rowsOf(gpu)) / (2 * CH) * 100)}%`);
+    return;
+  }
+  let sum = 0, worst = 0, outl = 0, la = 0, lb = 0;
+  for (let i = 0; i < CW * CH; i++) {
+    let o = false;
+    for (let k = 0; k < 3; k++) { const d = Math.abs(cpu.out[i * 3 + k] - gpu.out[i * 3 + k]); sum += d; worst = Math.max(worst, d); o ||= d > 0.01; }
+    if (o) outl++;
+    la += lum(cpu.out, i); lb += lum(gpu.out, i);
+  }
+  la /= CW * CH; lb /= CW * CH;
+  const e1 = (v) => (v === 0 ? '0' : v.toExponential(1));
+  $('cc-stats').innerHTML = stat('1成分あたりの差の平均', e1(sum / (CW * CH * 3))) + stat('最大', e1(worst)) +
+    stat('0.01 を超えた画素', `${outl} 個(${pct(outl / (CW * CH))})`) + stat('明るさ CPU / GPU', `${la.toFixed(4)} / ${lb.toFixed(4)}`) + stat('平均の差', pct(Math.abs(lb - la) / la));
+  const real = cc.samples === 1
+    ? { ok: '実機の GPU では sin cos sqrt の最後の1ビットが違うので、1.4E-004 / 最大 2.2E+000 / 12 個(0.08%)になる(自己チェック20)。', compare: '実機の GPU でこの1行だけ戻して測ると 6.4E-002 / 7236 個(50.25%)。このページの数字とほぼ同じになる。', skip: '' }
+    : { ok: '実機の自己チェック22(320x180)は CPU 0.9799 / GPU 0.9799(差 0.00%)、画素ごとの差の平均 0.0000。', compare: '実機の GPU でこの1行だけ戻して自己チェック22(320x180)を走らせると 明るさの平均 CPU 0.9799 / GPU 0.9797(差 0.02%)、画素ごとの差の平均 0.0203——自己チェック22 のしきい値 0.02 をわずかに超えた。', skip: '' };
+  const why = {
+    ok: 'このページでは CPU 側と GPU 側が同じ JS の同じ式なので、差はぴったり 0 になる。',
+    compare: '左の赤い壁と天井は、場面に書いた法線を光線の側へ裏返すので、法線が (-1, -0, -0) と (-0, -1, -0) になる。z が -0 なので、符号ビットを見る CPU は −1、比べる GPU は +1 を選び、散る向きの基底が入れ替わる。その2枚で跳ねた道だけ、その先が丸ごと変わる。',
+    skip: 'コーネルボックスの光源は面光源1つだけなので、nextInt(1) は必ず 0 を返す——引かなくても選ぶ光源は同じ。それでも乱数が1個ずれるので、そのあとに引く向きが全部変わる。拡散面に当たった画素はほぼ全部ずれる。',
+  };
+  $('cc-note').textContent = why[cc.variant] + real[cc.variant] + (cc.samples === 24 ? ' 24 サンプル重ねると、1本ごとの道は違っても平均は寄ってくる。' : '');
+  // 選んだ画素の道
+  if (cc.sel) {
+    const [x, y] = cc.sel, a = C.tracer(ccScene, PATH).tracePixel(ccCam, x, y, 0), b = C.tracer(ccScene, VARIANTS[cc.variant]).tracePixel(ccCam, x, y, 0);
+    let first = -1;
+    for (let i = 0; i < Math.max(a.lines.length, b.lines.length); i++) if (a.lines[i] !== b.lines[i]) { first = i; break; }
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const pre = (title, r) => `<div><div style="font-weight:700;margin-bottom:4px">${title} 画素 (${x}, ${y}) 色 (${r.color.map((v) => v.toFixed(3)).join(', ')})</div><pre style="margin:0;max-height:260px;overflow:auto;font-size:12px">${r.lines.map((l, i) => (i === first ? `<mark>${esc(l)}</mark>` : esc(l))).join('\n')}</pre></div>`;
+    $('cc-logs').innerHTML = pre('CPU', a) + pre('GPU', b) + `<p style="margin:0;grid-column:1/-1">${first < 0 ? 'この画素の道は1行も違わない。' : `${first + 1} 行目から食い違う(印の行)。`}</p>`;
+  }
+}
+seg('cc-variant', (v) => { cc.variant = v; drawCc(); });
+seg('cc-samples', (v) => { cc.samples = Number(v); drawCc(); });
+$('cc-canvas').addEventListener('click', (e) => {
+  const r = $('cc-canvas').getBoundingClientRect(), q = cc.rect;
+  if (!q) return;
+  const px = e.clientX - r.left, py = e.clientY - r.top - q.y0, k = Math.floor(px / (q.iw + q.gap)), lx = px - k * (q.iw + q.gap);
+  if (k > 2 || lx > q.iw || py < 0 || py > q.ih) return;
+  cc.sel = [Math.floor(lx / q.iw * CW), Math.floor(py / q.ih * CH)];
+  drawCc();
+});
+window.addEventListener('resize', drawCc);
+cc.sel = [12, 45];
+drawCc();
+
+// ============================================================
+//  要点6・検証3: 1フレームに投げる本数と数え上げ
+// ============================================================
+const BUDGET = 0.8 / 30 * 1000, ISSUE = 0.02, TWO32 = 4294967296;
+const MODES = {
+  c4: { name: '場面4 コーネルボックス', t: 2.90, tests: 37462915, rays: 4561603 },
+  sah: { name: '場面5 BVH(SAH)', t: 4.0, tests: 24701161, rays: 1603123 },
+  median: { name: '場面5 BVH(中央分割)', t: 5.0, tests: 29546271, rays: 1603123 },
+  brute: { name: '場面5 総当たり', t: 25.3, tests: 734374526, rays: 1603123 },
+};
+const fr = { mode: 'c4', start: 'init', finish: 'finish', reset: 'last' };
+function simulate() {
+  const md = MODES[fr.mode], frames = [];
+  let est = fr.start === 'init' ? 2 : fr.start === 'sah' ? 4.0 : md.t;
+  for (let f = 0; f < 6; f++) {
+    const k = Math.floor(Math.min(Math.max(BUDGET / Math.max(est, 1e-5 * 1000), 1), 64));
+    const gpuMs = k * md.t, measured = fr.finish === 'finish' ? gpuMs : k * ISSUE;
+    const counted = fr.reset === 'last' ? md.tests : (k * md.tests) % TWO32, rays = fr.reset === 'last' ? md.rays : k * md.rays;
+    frames.push({ k, est, gpuMs, hudPass: measured / k, raw: fr.reset === 'last' ? md.tests : k * md.tests, counted, perRay: counted / rays, truth: md.tests / md.rays });
+    est = measured / k;
+  }
+  return frames;
+}
+function drawFr() {
+  const frames = simulate(), md = MODES[fr.mode];
+  const { ctx, w, h } = fit($('fr-canvas'));
+  const narrow = w < 600, L = narrow ? 92 : 120, gaugeW = Math.min(220, w * 0.25), R = w - gaugeW - 40, maxMs = 120, X = (ms) => L + Math.min(ms, maxMs) / maxMs * (R - L);
+  const rowH = (h - 40) / frames.length;
+  ctx.font = '11px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  for (let ms = 0; ms <= maxMs; ms += narrow ? 40 : 20) { ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(ms), 14); ctx.lineTo(X(ms), h - 22); ctx.stroke(); ctx.fillText(ms + 'ms', X(ms) - 10, h - 6); }
+  ctx.strokeStyle = tok('--good'); ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(X(BUDGET), 10); ctx.lineTo(X(BUDGET), h - 22); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--good'); ctx.fillText('予算 26.7ms', X(BUDGET) + 4, 11);
+  ctx.fillStyle = tok('--muted'); ctx.fillText(narrow ? 'uint の数え上げ' : 'uint の数え上げ(2^32 で一周)', R + 30, 11);
+  frames.forEach((fm, i) => {
+    const y = 18 + i * rowH, bh = Math.min(22, rowH - 12);
+    ctx.fillStyle = tok('--ink'); ctx.font = (narrow ? '11px ' : '12px ') + tok('--font-body');
+    ctx.fillText(narrow ? `${i + 1}枚目 ${fm.k} パス` : `フレーム ${i + 1}: ${fm.k} パス`, 4, y + bh / 2 + 4);
+    for (let p = 0; p < fm.k; p++) {
+      const a = X(p * md.t), b = X((p + 1) * md.t);
+      if (a >= R) break;
+      ctx.fillStyle = p === fm.k - 1 ? tok('--accent') : 'rgba(90,140,220,0.55)';
+      ctx.fillRect(a + 0.5, y, Math.max(b - a - 1, 1), bh);
+    }
+    if (fm.gpuMs > maxMs) { ctx.fillStyle = tok('--expl'); ctx.font = '11px ' + tok('--font-mono'); ctx.fillText(`→ ${fm.gpuMs.toFixed(0)}ms`, R - 64, y + bh + 11); }
+    // 数え上げの帯
+    const gx = R + 30, wraps = Math.floor(fm.raw / TWO32);
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(gx, y, gaugeW, bh);
+    ctx.fillStyle = wraps ? tok('--expl') : tok('--good'); ctx.fillRect(gx, y, fm.counted / TWO32 * gaugeW, bh);
+    ctx.strokeStyle = tok('--line'); ctx.strokeRect(gx + 0.5, y + 0.5, gaugeW, bh);
+    ctx.fillStyle = tok('--ink'); ctx.font = '11px ' + tok('--font-mono');
+    ctx.fillText(wraps ? `${wraps} 周して ${(fm.counted / 1e8).toFixed(1)} 億` : `${(fm.counted / 1e8).toFixed(1)} 億`, gx + 4, y + bh + 11);
+  });
+  const f1 = frames[0], fl = frames[frames.length - 1];
+  const overflowAt = Math.ceil(TWO32 / md.tests);
+  $('fr-stats').innerHTML =
+    stat('パス数(1 / 6 枚目)', `${f1.k} / ${fl.k}`) + stat('GPU の時間(1 / 6 枚目)', `${f1.gpuMs.toFixed(0)} / ${fl.gpuMs.toFixed(0)} ms`) +
+    stat('HUD の1パス', `${fl.hudPass.toFixed(2)} ms`) +
+    stat('HUD の1光線あたり', `${f1.perRay.toFixed(1)} / ${fl.perRay.toFixed(1)} 回`) + stat('本当の1光線あたり', `${fl.truth.toFixed(1)} 回`) +
+    stat('溢れるのは', overflowAt > 64 ? '64 パスでも溢れない' : `${overflowAt} パス目`);
+  let note = '';
+  if (fr.finish === 'none') note = `glDispatchCompute は仕事を積むだけですぐ返るので、待たずに測ると1パスが「投げる手間」だけの時間に見える(このページでは仮に ${ISSUE}ms とした)。次のフレームはそれで割って上限の 64 パスを投げ、読み戻しが全部の終わりを待つので、1フレームが ${fl.gpuMs.toFixed(0)}ms かかる——窓が固まる。`;
+  else if (f1.k !== fl.k) note = `最初のフレームは古い見積もり(${f1.est}ms)で ${f1.k} パス投げ、${f1.gpuMs.toFixed(0)}ms かかる。2フレーム目からは測った ${md.t}ms で割り直して ${fl.k} パスに落ち着く。`;
+  else note = `予算 26.7ms ÷ 1パス ${md.t}ms で、毎フレーム ${fl.k} パス。`;
+  if (fr.reset === 'frame') note += f1.raw >= TWO32 || fl.raw >= TWO32
+    ? ` 数え上げをフレームの頭でしか戻さないと、${overflowAt} パス目で 42 億を超えて一周し、HUD の「1光線あたり」が ${f1.truth.toFixed(1)} 回ではなく ${(f1.raw >= TWO32 ? f1 : fl).perRay.toFixed(1)} 回に化ける。検証3 の「123 回」は、総当たりで 8 パス溜めたときの値にあたる。`
+    : ' この場面は1パスの交差判定が少ないので、何パス溜めても溢れない。総当たりで試すと分かる。';
+  else note += ' 最後の1パスの直前に 0 に戻すので、数え上げはいつも1パスぶんで、42 億には届かない。';
+  $('fr-note').textContent = note;
+}
+seg('fr-mode', (v) => { fr.mode = v; drawFr(); });
+seg('fr-start', (v) => { fr.start = v; drawFr(); });
+seg('fr-finish', (v) => { fr.finish = v; drawFr(); });
+seg('fr-reset', (v) => { fr.reset = v; drawFr(); });
+window.addEventListener('resize', drawFr);
+drawFr();
+})();
+</script>
+</body>
+</html>

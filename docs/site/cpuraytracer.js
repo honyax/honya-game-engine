@@ -1,6 +1,6 @@
 // ============================================================
-//  CPU レイトレーサ(Day 59・60a・60b の実験台が使う)
-//  reference/Day60b の CpuRayTracer の移植。Optics・Sphere・Plane・Material・SceneLibrary・Camera・
+//  CPU レイトレーサ(Day 59・60a・60b・61 の実験台が使う)
+//  reference/Day60b の CpuRayTracer の移植(Day 61 の 32 ビットの乱数も)。Optics・Sphere・Plane・Material・SceneLibrary・Camera・
 //  WhittedTracer・PathTracer・Rng(PCG32)・Sampler・Aabb・Bvh・ProgressiveRenderer の式。
 //  計算は double(C# は float)。乱数は 64 ビットの演算を 32 ビット2つで組み、C# と同じ数列を出す
 //  使う側: const C = window.CpuRayTracer;
@@ -102,10 +102,34 @@ class Rng {
   nextFloat() { return (this.nextUInt() >>> 8) * (1 / 16777216); }
   nextInt(count) { return Math.floor(this.nextUInt() * count / TWO32); }
 }
+// ---- 乱数(Day 61 の Rng.cs。PCG-RXS-M-XS 32 と triple32。GLSL と同じ数列)----
+function mix32(v) {
+  v = (v ^ (v >>> 17)) >>> 0; v = Math.imul(v, 0xed5ad4bb) >>> 0;
+  v = (v ^ (v >>> 11)) >>> 0; v = Math.imul(v, 0xac4c1b51) >>> 0;
+  v = (v ^ (v >>> 15)) >>> 0; v = Math.imul(v, 0x31848bab) >>> 0;
+  return (v ^ (v >>> 14)) >>> 0;
+}
+class Rng32 {
+  constructor(state) { this.state = state; }
+  static create(x, y, sample, decorrelate = true) {
+    let seed = Math.imul(sample, 0x9e3779b9) >>> 0;
+    if (decorrelate) seed = (seed ^ mix32(((y << 16) ^ x) >>> 0)) >>> 0;
+    return new Rng32(mix32(seed));
+  }
+  nextUInt() {
+    const old = this.state;
+    this.state = (Math.imul(old, 747796405) + 2891336453) >>> 0;
+    const word = Math.imul(((old >>> ((old >>> 28) + 4)) ^ old) >>> 0, 277803737) >>> 0;
+    return ((word >>> 22) ^ word) >>> 0;
+  }
+  nextFloat() { return (this.nextUInt() >>> 8) * (1 / 16777216); }
+  nextInt(count) { return this.nextUInt() % count; }
+}
 
 // ---- サンプリング(Sampler.cs)----
-function basis(n) {
-  const sign = n[2] < 0 || Object.is(n[2], -0) ? -1 : 1, a = -1 / (sign + n[2]), b = n[0] * n[1] * a;
+// compare = true は、符号ビットではなく n.z >= 0 で比べた版(-0 を +1 と読む。Day 61 の実験台の比べる相手)
+function basis(n, compare = false) {
+  const sign = compare ? (n[2] >= 0 ? 1 : -1) : n[2] < 0 || Object.is(n[2], -0) ? -1 : 1, a = -1 / (sign + n[2]), b = n[0] * n[1] * a;
   return [[1 + sign * n[0] * n[0] * a, sign * b, -sign * n[0]], [b, sign + n[1] * n[1] * a, -n[1]]];
 }
 function uniformHemisphere(n, rng) {
@@ -113,15 +137,15 @@ function uniformHemisphere(n, rng) {
   const [t, b] = basis(n);
   return norm(add(add(mul(t, sinT * Math.cos(phi)), mul(b, sinT * Math.sin(phi))), mul(n, cosT)));
 }
-function cosineHemisphere(n, rng) {
+function cosineHemisphere(n, rng, compare = false) {
   const u1 = rng.nextFloat(), u2 = rng.nextFloat(), r = Math.sqrt(u1), phi = 2 * Math.PI * u2;
   const x = r * Math.cos(phi), y = r * Math.sin(phi), z = Math.sqrt(Math.max(0, 1 - u1));
-  const [t, b] = basis(n);
+  const [t, b] = basis(n, compare);
   return norm(add(add(mul(t, x), mul(b, y)), mul(n, z)));
 }
-function uniformCone(axis, cosMax, rng) {
+function uniformCone(axis, cosMax, rng, compare = false) {
   const cosT = 1 - rng.nextFloat() * (1 - cosMax), sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT)), phi = 2 * Math.PI * rng.nextFloat();
-  const [t, b] = basis(axis);
+  const [t, b] = basis(axis, compare);
   return norm(add(add(mul(t, sinT * Math.cos(phi)), mul(b, sinT * Math.sin(phi))), mul(axis, cosT)));
 }
 const uniformHemispherePdf = 1 / (2 * Math.PI);
@@ -157,11 +181,11 @@ function sphere(name, c, r, m) {
     normal: (p) => mul(sub(p, c), 1 / r),
     bounds: () => ({ min: sub(c, [r, r, r]), max: add(c, [r, r, r]) }),
     // TrySampleDirection。球が空を覆っている円錐の中に一様に引く
-    sampleDirection(from, rng) {
+    sampleDirection(from, rng, compare = false) {
       const toC = sub(c, from), dist = len(toC);
       if (dist <= r * 1.0001) return null;
       const sin2 = r * r / (dist * dist), cosMax = Math.sqrt(Math.max(0, 1 - sin2));
-      const dir = uniformCone(mul(toC, 1 / dist), cosMax, rng), pdf = uniformConePdf(cosMax);
+      const dir = uniformCone(mul(toC, 1 / dist), cosMax, rng, compare), pdf = uniformConePdf(cosMax);
       const t = s.hit(from, dir, 0, Infinity);
       return t < 0 ? null : { dir, distance: t, pdf };
     },
@@ -294,6 +318,7 @@ const LIBRARY = {
   59: ['whitted', 'materialRow', 'mirror'],
   '60a': ['whitted', 'materialRow', 'mirror', 'cornell', 'caustic'],
   '60b': ['whitted', 'materialRow', 'mirror', 'cornell', 'sphereField', 'caustic'],
+  61: ['whitted', 'materialRow', 'mirror', 'cornell', 'sphereField', 'caustic'],
 };
 const sky = (s, d) => { const u = Math.sqrt(clamp(d[1], 0, 1)); return s.horizon.map((h, k) => h + (s.zenith[k] - h) * u); };
 
@@ -446,7 +471,8 @@ function camera(view, w, h) {
 }
 
 // ---- 追い方(Tracer.cs・WhittedTracer.cs・PathTracer.cs)----
-// settings: { algorithm: 'path' | 'whitted', maxDepth, shadows, fresnel: 'exact' | 'schlick' | 'off', nee, rr, decorrelate, view }
+// settings: { algorithm: 'path' | 'whitted', maxDepth, shadows, fresnel: 'exact' | 'schlick' | 'off', nee, rr, decorrelate, view, rng32 }
+// Day 61 の実験台の比べる相手: basisCompare(基底の符号を n.z >= 0 で決める)/ skipSinglePick(光源が1つなら乱数を引かない)
 const SURFACE_OFFSET = 1e-3, ROULETTE_START = 3, MIN_SURVIVAL = 0.05;
 const counters = () => ({ camera: 0, shadow: 0, reflection: 0, refraction: 0, scatter: 0, boxTests: 0, shapeTests: 0 });
 const total = (c) => c.camera + c.shadow + c.reflection + c.refraction + c.scatter;
@@ -534,7 +560,7 @@ function tracer(scene, st) {
   function directLight(hit, a, depth, rng, cnt, L) {
     const pointCount = scene.lights.length, totalLights = pointCount + scene.areaLights.length;
     if (!totalLights) return ZERO;
-    const brdf = mul(a, 1 / Math.PI), pick = rng.nextInt(totalLights);
+    const brdf = mul(a, 1 / Math.PI), pick = st.skipSinglePick && totalLights === 1 ? 0 : rng.nextInt(totalLights);
     if (pick < pointCount) {
       const lt = scene.lights[pick], offv = sub(lt.p, hit.p), dist = len(offv), toL = mul(offv, 1 / dist), cos = dot(hit.n, toL);
       if (cos <= 0) { log(L, depth + 1, `NEE → ${lt.name}: 面の裏側。光線は出さない`); return ZERO; }
@@ -545,7 +571,7 @@ function tracer(scene, st) {
       log(L, depth + 1, `NEE → ${lt.name}: 届いた  寄与 (${f3(contrib)})`);
       return contrib;
     }
-    const ls = scene.areaLights[pick - pointCount], smp = ls.sampleDirection(hit.p, rng);
+    const ls = scene.areaLights[pick - pointCount], smp = ls.sampleDirection(hit.p, rng, st.basisCompare);
     if (!smp || smp.pdf <= 0) return ZERO;
     const cosS = dot(hit.n, smp.dir);
     if (cosS <= 0) { log(L, depth + 1, `NEE → ${ls.name}: 面の裏側`); return ZERO; }
@@ -573,7 +599,7 @@ function tracer(scene, st) {
         const a = albedoAt(m, hit.p);
         if (st.nee) radiance = add(radiance, mulv(throughput, directLight(hit, a, depth, rng, cnt, L)));
         if (depth >= st.maxDepth) { log(L, depth + 1, '散乱: 深さの上限なので追わない(この先の光は届かない)'); break; }
-        const sc = cosineHemisphere(hit.n, rng);
+        const sc = cosineHemisphere(hit.n, rng, st.basisCompare);
         throughput = mulv(throughput, a); specular = false; label = '散乱'; cnt.scatter++;
         o = off(hit.p, hit.n); d = norm(sc);
         log(L, depth + 1, `散乱(拡散) 重み (${f2(a)}) → 累積 (${f3(throughput)})`);
@@ -625,7 +651,7 @@ function tracer(scene, st) {
   function tracePixel(cam, x, y, sampleIndex = 0) {
     const L = [], cnt = counters();
     cnt.camera++;
-    const rng = Rng.create(x, y, sampleIndex, st.decorrelate !== false);
+    const rng = (st.rng32 ? Rng32 : Rng).create(x, y, sampleIndex, st.decorrelate !== false);
     const color = trace(cam.pos, cam.ray(x + 0.5, y + 0.5), rng, cnt, L);
     return { lines: L, color, counters: cnt };
   }
@@ -646,7 +672,7 @@ const linearToSrgb = (v) => (!(v > 0) ? 0 : v >= 1 ? 1 : v <= 0.0031308 ? v * 12
 const api = {
   add, sub, mul, mulv, dot, len, norm, cross, clamp,
   reflect, refract, fresnel, schlick, schlickNaive, schlickConductor, r0,
-  Rng, basis, uniformHemisphere, cosineHemisphere, uniformCone, uniformHemispherePdf, cosineHemispherePdf, uniformConePdf,
+  Rng, Rng32, mix32, basis, uniformHemisphere, cosineHemisphere, uniformCone, uniformHemispherePdf, cosineHemispherePdf, uniformConePdf,
   diffuse, checker, metal, glass, light, albedoAt, sphere, plane, dotNetRandom,
   SCENES, LIBRARY, scene: (key) => SCENES[key](), library: (day) => LIBRARY[day].map((k) => SCENES[k]()), sky,
   surfaceArea, slabHit, buildBvh, bvhIntersect, prepare, intersect, findOccluder,
