@@ -1,0 +1,1189 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 67 3D Gaussian Splatting 簡易ビューア(面の無い絵を、楕円体の重ね塗りで作る)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日から新しい Labs — <code>GaussianSplatting</code></a></li><li class="l3"><a href="#s4">学習済みのシーンを手に入れる</a></li><li class="l2"><a href="#s5">事前に読む資料</a></li><li class="l2"><a href="#s6">理論の要点</a></li><li class="l3"><a href="#s7">1. 形は楕円体の集まり — 5つの値と、Σ = R S Sᵀ Rᵀ</a></li><li class="l3"><a href="#s8">2. 画面へ写す — 透視投影を1次式で近似する(EWA splatting)</a></li><li class="l3"><a href="#s9">3. 重ねる — 奥から順に、半透明で。深度バッファは使わない</a></li><li class="l3"><a href="#s10">4. 0.3 の広げ — 画素より小さい楕円</a></li><li class="l3"><a href="#s11">5. 見る向きで変わる色 — 球面調和(次数 3、16 個の係数)</a></li><li class="l3"><a href="#s12">6. .ply の中身 — 学習しやすい形のまま入っている</a></li><li class="l3"><a href="#s13">7. 3DGS の得意と限界 — ポリゴンと並べて</a></li><li class="l3"><a href="#s14">8. 元論文の速い描き方と、学習(講読。今日は実装しない)</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">全体構成と依存の向き</a></li><li class="l3"><a href="#s20">Math と Splats — 楕円体と、その写し方</a></li><li class="l3"><a href="#s21">Compositing と Gpu — 並べて、描いて、読み戻す</a></li><li class="l3"><a href="#s22">App — 窓と自己チェック</a></li><li class="l3"><a href="#s23">1フレームの流れ — 何か変わったフレームだけ描く</a></li><li class="l3"><a href="#s24">楕円体1個が画素になるまで</a></li><li class="l3"><a href="#s25">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動: 場面1「楕円体3つ」</a></li><li class="l3"><a href="#s28">2. <code>V</code>: 表示を回す</a></li><li class="l3"><a href="#s29">3. 回り込む、そして <code>O</code></a></li><li class="l3"><a href="#s30">4. <code>2</code>: 場面2「円板で覆った形」</a></li><li class="l3"><a href="#s31">5. <code>3</code>: 場面3「見る向きで色が変わる」</a></li><li class="l3"><a href="#s32">6. <code>4</code>: 場面4「学習済みのシーン」</a></li><li class="l3"><a href="#s33">7. <code>C</code>: 自己チェック(11 項目すべて合格)</a></li><li class="l3"><a href="#s34">8. その他</a></li><li class="l2"><a href="#s35">検証の途中で分かったこと</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): 楕円に沿った長方形にする</a></li><li class="l3"><a href="#s38">課題2(中): 手前から重ねる</a></li><li class="l3"><a href="#s39">課題3(難): 並べ替えを GPU に移す</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 67 / 計画書</p>
+  <h1>3D Gaussian Splatting 簡易ビューア(面の無い絵を、楕円体の重ね塗りで作る)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日から新しい Labs — <code>GaussianSplatting</code></a></li><li class="l3"><a href="#s4">学習済みのシーンを手に入れる</a></li><li class="l2"><a href="#s5">事前に読む資料</a></li><li class="l2"><a href="#s6">理論の要点</a></li><li class="l3"><a href="#s7">1. 形は楕円体の集まり — 5つの値と、Σ = R S Sᵀ Rᵀ</a></li><li class="l3"><a href="#s8">2. 画面へ写す — 透視投影を1次式で近似する(EWA splatting)</a></li><li class="l3"><a href="#s9">3. 重ねる — 奥から順に、半透明で。深度バッファは使わない</a></li><li class="l3"><a href="#s10">4. 0.3 の広げ — 画素より小さい楕円</a></li><li class="l3"><a href="#s11">5. 見る向きで変わる色 — 球面調和(次数 3、16 個の係数)</a></li><li class="l3"><a href="#s12">6. .ply の中身 — 学習しやすい形のまま入っている</a></li><li class="l3"><a href="#s13">7. 3DGS の得意と限界 — ポリゴンと並べて</a></li><li class="l3"><a href="#s14">8. 元論文の速い描き方と、学習(講読。今日は実装しない)</a></li><li class="l2"><a href="#s15">前Dayからの差分概要</a></li><li class="l3"><a href="#s16">新規ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">全体構成と依存の向き</a></li><li class="l3"><a href="#s20">Math と Splats — 楕円体と、その写し方</a></li><li class="l3"><a href="#s21">Compositing と Gpu — 並べて、描いて、読み戻す</a></li><li class="l3"><a href="#s22">App — 窓と自己チェック</a></li><li class="l3"><a href="#s23">1フレームの流れ — 何か変わったフレームだけ描く</a></li><li class="l3"><a href="#s24">楕円体1個が画素になるまで</a></li><li class="l3"><a href="#s25">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動: 場面1「楕円体3つ」</a></li><li class="l3"><a href="#s28">2. <code>V</code>: 表示を回す</a></li><li class="l3"><a href="#s29">3. 回り込む、そして <code>O</code></a></li><li class="l3"><a href="#s30">4. <code>2</code>: 場面2「円板で覆った形」</a></li><li class="l3"><a href="#s31">5. <code>3</code>: 場面3「見る向きで色が変わる」</a></li><li class="l3"><a href="#s32">6. <code>4</code>: 場面4「学習済みのシーン」</a></li><li class="l3"><a href="#s33">7. <code>C</code>: 自己チェック(11 項目すべて合格)</a></li><li class="l3"><a href="#s34">8. その他</a></li><li class="l2"><a href="#s35">検証の途中で分かったこと</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): 楕円に沿った長方形にする</a></li><li class="l3"><a href="#s38">課題2(中): 手前から重ねる</a></li><li class="l3"><a href="#s39">課題3(難): 並べ替えを GPU に移す</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編の最終日</strong>で、<strong><code>Labs</code> の4つ目の題材</strong>。エンジン(HonyaEngine)にも、ほかの Labs にも触れず、新しいプロジェクト <code>GaussianSplatting</code> をゼロから始める。</p>
+<p>Day 1〜56 の絵は、すべて<strong>三角形</strong>でできていた。今日の絵には三角形が1枚も無い。形は<strong>半透明のぼやけた楕円体(3D のガウス分布)が何十万個も重なったもの</strong>で、描くときは楕円体を1個ずつ画面へ写し、奥から順に半透明のまま重ねる。写真から学習した楕円体を読めば、写真と見分けのつかない絵が出る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ポリゴン(Day 14〜56)</th><th>3D Gaussian Splatting(Day 67)</th></tr></thead>
+<tbody>
+<tr><td>形の持ち方</td><td>頂点と三角形。面がある</td><td><strong>楕円体の集まり</strong>(位置・大きさ・回転・不透明度・色)。面も法線も無い</td></tr>
+<tr><td>色の決め方</td><td>材質と光源から毎フレーム計算する(PBR・影・IBL)</td><td><strong>写真に写っていた色そのもの</strong>。光は計算しない。見る向きで変わるぶんは球面調和で持つ</td></tr>
+<tr><td>見えるものの選び方</td><td>深度バッファでいちばん手前の1枚を残す</td><td><strong>全部を奥から並べて、半透明で重ねる</strong>。深度バッファは使わない</td></tr>
+<tr><td>1個を画面へ出す</td><td>頂点を行列で写す(線形)</td><td>楕円体を写すと楕円になる。<strong>透視投影を1次式で近似して</strong>写す(EWA splatting)</td></tr>
+<tr><td>作り方</td><td>モデラーが作る</td><td><strong>写真から学習する</strong>(今日はやらない。要点8)</td></tr>
+<tr><td>得意</td><td>動かす・照らし直す・ぶつける</td><td><strong>写真どおりの見た目を、そのまま歩き回れる</strong></td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>新規 18 ファイル</strong>(C# 15 本・GLSL 2 本・csproj)。コメント込みで 3,586 行、コメントと空行を除くと約 2,400 行。<strong>Day 59(1,543 行)より多い</strong>ので、下の「写経する順番」で2回に分けることと、自己チェック(407 行)をコピーで済ませることを勧める。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、学習済みのシーンで1画素に掛かっている楕円体の 85% が、絵に何も足していなかったこと</strong></p>
+<p>機関車のシーン(74 万個)を斜めから見て、画面を 144 点に間引いて CPU で数えた。<strong>1画素あたり平均 813 個</strong>の楕円体の四角形が掛かっていて、GPU はそのすべてで画素シェーダを走らせている。ところが濃さが 1/255 を超えて色を足していたのは <strong>156 個</strong>で、手前から重ねていけば <strong>122 個目</strong>で残りの透明度が 0.0001 を切る(それより奥は、何を足しても見えない)。813 回のうち要ったのは 122 回。<strong>元論文が画面をタイルに区切り、手前から重ねて途中で打ち切る描き方をしている理由</strong>が、この数字にある(要点8)。今日のビューアはいちばん簡単な「四角形を奥から重ねる」形で描いていて、右クリックでこの数字を1画素ずつ見られる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると、赤・緑・青の大きな楕円体が3つ、ぼやけて重なって見える。<code>2</code> で床とトーラスと球が出て、それが 27 万枚の平たい楕円体でできていると分かる。<code>4</code> で学習済みの機関車のシーンを読み、WASD とマウスで中を歩き回れる。右クリックした画素に効いている楕円体が、手前から順に全部並ぶ。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>W</code> <code>A</code> <code>S</code> <code>D</code> / <code>Q</code> <code>E</code> / <code>Shift</code></td><td>前後左右に動く / 下・上に動く / 押している間は 4 倍の速さ</td></tr>
+<tr><td>左ドラッグ / ホイール</td><td>見回す / 動く速さを変える</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>場面(楕円体3つ / 円板で覆った形 / 見る向きで色が変わる / <strong>.ply を読む</strong>)</td></tr>
+<tr><td><code>V</code></td><td>表示(ふつう / 中心の点 / くっきりした楕円 / 楕円の輪郭 / <strong>重なりの数</strong>)</td></tr>
+<tr><td><code>O</code></td><td>並べ替え(毎フレーム / 止める / しない)。<strong>止めてから回り込むと、重なりが崩れる</strong></td></tr>
+<tr><td><code>M</code></td><td>球面調和の次数(0〜3)。<strong>場面3で 0 にすると、ハイライトが消える</strong></td></tr>
+<tr><td><code>F</code></td><td>0.3 の広げ ON / OFF。<strong>切ると、遠くの床の市松がギザギザになる</strong></td></tr>
+<tr><td><code>[</code> / <code>]</code></td><td>楕円体の大きさの倍率(0.05〜4 倍)。<strong>縮めると、中身が点の集まりだと分かる</strong></td></tr>
+<tr><td><code>U</code></td><td>上下を裏返す(場面4だけ。学習済みのシーンが逆さまに見えたとき)</td></tr>
+<tr><td>右クリック</td><td><strong>その画素に効いている楕円体</strong>を、手前から全部並べる(CPU で重ね直す)</td></tr>
+<tr><td><code>R</code></td><td>カメラを最初の位置に戻す</td></tr>
+<tr><td><code>C</code></td><td>今日の自己チェック(11 項目)</td></tr>
+<tr><td><code>P</code></td><td>PNG で保存(実行ファイルの隣の <code>captures/</code>)</td></tr>
+<tr><td><code>X</code> / <code>H</code> / <code>Esc</code></td><td>下の欄を消す / 文字を消す / 終了</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「楕円体を写すと楕円になる——ただし近似で」</strong>。楕円体の形は 3x3 の共分散行列 Σ で表せる。これを画面へ写した形の共分散は <code>Σ' = J W Σ Wᵀ Jᵀ</code> で、W はカメラの回転、<strong>J は透視投影(z で割る)を楕円体の中心のまわりで1次式に近似したもの</strong>(要点2)。透視投影は線形ではないので、楕円体の像は厳密には楕円にならない。「中心の近くで接線を引いて、楕円ということにする」のが 3DGS の描き方の芯になる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// splat.vert。T = J W の2本の行を、ワールドの向きとして作る(行列を組まずに、カメラの軸3本で書いてある)
+vec3 row0 = (uFocal.x / z) * uRight + (-uFocal.x * tc.x / (z * z)) * uForward;
+vec3 row1 = (uFocal.y / z) * uUp    + (-uFocal.y * tc.y / (z * z)) * uForward;
+float a = dot(row0, sigma * row0) + uDilation;   // Σ' = T Σ Tᵀ(2x2 の対称行列なので3つだけ)
+float b = dot(row0, sigma * row1);
+float c = dot(row1, sigma * row1) + uDilation;</code></pre></div>
+<p><strong>2つ目は「深度バッファの代わりに、並べ替える」</strong>。半透明の楕円体は、手前の1個だけが見えるのではなく<strong>全部が少しずつ効く</strong>。重ねる式(<code>色 = 新しい色 × α + 今までの色 × (1 − α)</code>)は奥から順に重ねたときだけ正しいので、<strong>毎フレーム全部をカメラから遠い順に並べ直す</strong>(要点3)。74 万個の並べ替えは、16 ビットの計数ソートで CPU 8ms。<code>O</code> で並べ替えを止めてから回り込むと、重なりの順が崩れて手前と奥が入れ替わる。</p>
+<p><strong>3つ目は「光を計算しない」</strong>。楕円体の色は、写真を撮ったときの光ごと焼き込まれた値で、<strong>見る向きで変わるぶん(映り込み・ハイライト)は球面調和の 16 個の係数で持つ</strong>(要点5)。Day 66a で放射照度を持った道具と同じもの。だから照らし直せない(ライトを動かしても何も変わらない)——ポリゴンのパイプラインと正反対の割り切りで、それが写真どおりの見た目の代わりに払ったもの(要点7)。</p>
+<h3 id="s3">今日から新しい Labs — <code>GaussianSplatting</code></h3>
+<p>CLAUDE.md の取り決め(「エンジンと独立した題材(Day 59〜62・64a〜65c・67)は <code>Labs</code> に置く」)どおり、今日の reference は <strong>Day 66a のコピーではない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>どうするか</th></tr></thead>
+<tbody>
+<tr><td>reference</td><td><code>reference/Day67/</code> を新しく作った</td></tr>
+<tr><td>work</td><td><strong><code>work/Labs/GaussianSplatting/</code></strong> を作る。csproj は <code>reference/Day67/Day67.csproj</code> を <code>GaussianSplatting.csproj</code> という名前でコピーする</td></tr>
+<tr><td>名前空間</td><td><code>GaussianSplatting</code></td></tr>
+<tr><td>表示</td><td>Day 59〜61 と同じ <strong>WinForms + LockBits</strong>。GPU は Day 61 と同じ「見えない窓の上の OpenGL 4.3」で使い、描いた絵を読み戻して窓に出す。HUD を GDI+ で重ねられ、CPU で重ね直した色と GPU の絵を数で突き合わせられる</td></tr>
+<tr><td>差分の確認</td><td><code>reference/diff.sh Day67</code> が <code>work/Labs/GaussianSplatting</code> と比べるように直した</td></tr>
+<tr><td>学習済みのシーン</td><td><strong>リポジトリに入れない</strong>(数百 MB・ライセンスが配布元ごと)。<code>assets/splats/README.md</code> の手順でダウンロードして <code>assets/splats/</code> に置く(下の「学習済みのシーンを手に入れる」)</td></tr>
+<tr><td>実行</td><td><code>dotnet run --project reference/Day67 -c Release</code>。Debug でも動くが、並べ替えと読み込みが数倍遅い</td></tr>
+</tbody>
+</table></div>
+<p>CLAUDE.md の名前空間の一覧と <code>.gitignore</code>(<code>assets/splats/*.ply</code>)も合わせて直してある。</p>
+<h3 id="s4">学習済みのシーンを手に入れる</h3>
+<p>場面1〜3 は自前で作るので、何も用意しなくても動く。場面4(<code>4</code> キー)だけが .ply を要る。</p>
+<div class="code"><span class="lang">bash</span><pre><code># リポジトリ直下で(184 MB)
+curl -L -o assets/splats/train-7000.ply \
+  "https://huggingface.co/datasets/Voxel51/gaussian_splatting/resolve/main/FO_dataset/train/point_cloud/iteration_7000/point_cloud.ply"</code></pre></div>
+<p><a href="https://huggingface.co/datasets/Voxel51/gaussian_splatting">Voxel51/gaussian_splatting</a> の <code>train</code>(Tanks and Temples の機関車。元論文の実装で 7,000 回学習、<strong>741,883 個・球面調和は次数 3</strong>)。この計画書の数字はすべてこのファイルで取った。ライセンスや、ほかのシーンについては <code>assets/splats/README.md</code>。</p>
+<p><strong>自分で撮影して学習させるのは勧めない</strong>。学習は GPU を数十分全開で回すので、電源の細い機械では落ちる(このリポジトリの開発機は、今日の検証の途中で1回落ちた。「検証の途中で分かったこと」の1)。</p>
+</section>
+<section class="part"><h2 id="s5">事前に読む資料</h2>
+<ul><li><a href="https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/">Kerbl ほか「3D Gaussian Splatting for Real-Time Radiance Field Rendering」(SIGGRAPH 2023)</a>— <strong>今日の一次資料</strong>。読むのは 1章(導入)・4章(楕円体の持ち方。式 (5) と (6) が要点1・2)・6章(タイル方式の描き方。要点8)。5章(学習と、分割・間引き)は要点8の講読で読む。7章の比較表で、NeRF 系と速さが3桁違うことを見ておく</li><li><a href="https://github.com/graphdeco-inria/gaussian-splatting">graphdeco-inria/gaussian-splatting</a> と<a href="https://github.com/graphdeco-inria/diff-gaussian-rasterization/blob/main/cuda_rasterizer/forward.cu">diff-gaussian-rasterization の <code>cuda_rasterizer/forward.cu</code></a>— 元論文の実装。<strong><code>computeCov2D</code>・<code>computeColorFromSH</code>・<code>renderCUDA</code> の3つだけ</strong>読めばよい。今日の <code>splat.vert</code> と <code>splat.frag</code> は、この3つを四角形の形に直したもの。0.3 の広げ・0.99 の頭打ち・1/255 で捨てる・画角の 1.3 倍で止める、の数字はすべてここから来ている</li><li><a href="https://www.cs.umd.edu/~zwicker/publications/EWASplatting-TVCG02.pdf">Zwicker ほか「EWA Splatting」(IEEE TVCG 2002, PDF)</a>— 要点2・4 の元。3D のガウスを透視投影で写すときの 1次近似(局所アフィン近似)と、画素より小さい楕円のエイリアシングを低域フィルタで抑える話。3DGS はここから 20 年ぶりに掘り起こされた</li><li><a href="https://github.com/antimatter15/splat">antimatter15/splat</a>— WebGL の 3DGS ビューア。<strong>今日と同じ「1個 = 四角形1枚、CPU で並べ替え、奥から重ねる」形</strong>。並べ替えを Web Worker(別スレッド)でやっている。<code>main.js</code> の頂点シェーダを読むと、今日の <code>splat.vert</code> とほぼ同じ式が並んでいる</li><li><a href="https://www.matthewtancik.com/nerf">Mildenhall ほか「NeRF」(ECCV 2020)</a>— 3DGS の前の世代。<strong>同じ「写真から見た目を学習する」問題を、ニューラルネットと光線のレイマーチングで解いた</strong>(Day 58 のレイマーチングを思い出す)。1画素ごとに光線上の数百点でネットを評価するので、1枚に数秒かかった。3DGS はそれを「楕円体を写して重ねる」ラスタライズに置き換えて、毎秒数百枚にした</li><li><strong>Day 66a の計画書 要点2〜4</strong>(球面調和)と、そこで挙げた Sloan「Stupid Spherical Harmonics (SH) Tricks」 — 要点5。今日は放射照度ではなく「その楕円体が各方向へ出す色」を持つ</li><li><strong>Day 6 の計画書</strong>(透視投影)・<strong>Day 31 の計画書</strong>(アルファブレンド)・<strong>Day 60 の計画書 要点2</strong>(モンテカルロ) — 要点2・3 と自己チェック3の下敷き</li></ul>
+</section>
+<section class="part"><h2 id="s6">理論の要点</h2>
+<h3 id="s7">1. 形は楕円体の集まり — 5つの値と、Σ = R S Sᵀ Rᵀ</h3>
+<p>1個の楕円体(3DGS の論文では「3D Gaussian」)が持つのは次の5つだけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>値</th><th>何か</th><th>.ply の中の形(要点6)</th></tr></thead>
+<tbody>
+<tr><td>位置</td><td>中心(ガウス分布の平均)</td><td>そのまま</td></tr>
+<tr><td>大きさ</td><td>楕円体の3本の軸の標準偏差 σ(メートル)</td><td><strong>log を取った値</strong></td></tr>
+<tr><td>回転</td><td>その3本の軸の向き(四元数)</td><td>長さ 1 とは限らない</td></tr>
+<tr><td>不透明度</td><td>中心での不透明さ(0〜1)</td><td><strong>シグモイドを掛ける前の値</strong></td></tr>
+<tr><td>色</td><td>見る向きごとの色(球面調和の係数 16 個 x RGB)</td><td>そのまま</td></tr>
+</tbody>
+</table></div>
+<p>大きさと回転をまとめたものが、<strong>3D の共分散 Σ</strong>(3x3 の対称行列)。</p>
+<div class="code"><pre><code>Σ = R S Sᵀ Rᵀ          S = diag(σx, σy, σz)、R は四元数から作った回転行列
+  = Σ_k σ_k² a_k a_kᵀ   a_k は R の k 列目(k 番目の軸を回した向き)</code></pre></div>
+<p>「半径 1 の球を軸ごとに σ 倍に伸ばし、それから回した形」の共分散。2行目は「3本の軸それぞれの向きに、σ² だけ広がっている」と読める。自己チェック1で、好きな回転 1000 通りについて <code>Σ a_k = σ_k² a_k</code>(回した軸が固有ベクトル)を確かめている。</p>
+<p><strong>なぜ Σ を直接持たないのか</strong>。共分散は正定値(どの向きにも長さが正)でないと楕円体にならないが、6つの数を学習で好きに動かすと、すぐにこの条件を破る。大きさ(exp で必ず正)と回転(正規化で必ず回転)に分けておけば、どう動かしても楕円体のままでいられる。<strong>.ply の値が変な形をしているのも同じ理由</strong>(要点6)。</p>
+<p>描くときは、Σ の独立な6つの数を GPU へ送る(<code>SplatRenderer.Upload</code>)。大きさと回転のまま送って頂点シェーダで作ってもよいが、毎フレーム同じ計算をすることになる。</p>
+<h3 id="s8">2. 画面へ写す — 透視投影を1次式で近似する(EWA splatting)</h3>
+<p>カメラから見た座標を <code>(x, y, z)</code>(右・上・前。z は前向きの距離)とすると、画面の中心からの画素は</p>
+<div class="code"><pre><code>u = fx · x / z        v = fy · y / z        (fx, fy は焦点距離を画素で表したもの)</code></pre></div>
+<p>Day 6 のビュー行列 → 射影行列 → ビューポートを1行にまとめたのと同じ。今日は行列を組まず、<strong>カメラの軸3本と焦点距離だけで写す</strong>(<code>CameraFrame</code>)。</p>
+<p>点ならこれで終わりだが、楕円体は<strong>広がり</strong>を持っている。z で割る写し方は線形ではないので、楕円体を写した像は厳密には楕円にならない(カメラに近い側が大きく、遠い側が小さく写って、卵形にゆがむ)。そこで<strong>楕円体の中心のまわりで、写し方を1次式に近似する</strong>。それが J(ヤコビアン)。</p>
+<div class="code"><pre><code>J = | ∂u/∂x  ∂u/∂y  ∂u/∂z |  =  | fx/z   0      −fx·x/z² |
+    | ∂v/∂x  ∂v/∂y  ∂v/∂z |     | 0      fy/z   −fy·y/z² |
+
+Σ' = J W Σ Wᵀ Jᵀ     (元論文の式 (5)。W はワールド → カメラの回転。Σ' は 2x2)</code></pre></div>
+<p>1次式で写したガウスは、またガウスになる。こうして<strong>楕円体1個 → 画面の上の楕円1個(2D のガウス)</strong>が決まる。</p>
+<ul><li><strong>J は画面の端ほど大きくゆがむ</strong>。x/z が大きいと第3列が効くので、端の楕円体は横に引き伸ばされる(広角レンズの端が伸びるのと同じ)。画面から大きくはみ出した楕円体で J が暴れないように、<strong>x/z と y/z を画角の 1.3 倍で止める</strong>(元論文の実装と同じ。止めるのは J の中だけ)</li><li><strong>近似がどれだけ外れるか</strong>を自己チェック3で測っている。3D のガウスから点を 4 万個ばらまき、1個ずつ正確に z で割って写し、近似で作った 2σ の楕円の内側に何割が入るかを数える(本物の 2D のガウスなら 1 − e⁻² = <strong>86.5%</strong>)</li></ul>
+<div class="table-wrap"><table>
+<thead><tr><th>楕円体</th><th>画面の真ん中</th><th>画面の端</th></tr></thead>
+<tbody>
+<tr><td>σ 0.05m・距離 3m(学習済みのシーンの典型)</td><td>86.4%</td><td>86.3%</td></tr>
+<tr><td>σ 0.5m・距離 2m(カメラに対して大きい)</td><td><strong>81.9%</strong></td><td><strong>82.6%</strong></td></tr>
+</tbody>
+</table></div>
+<p>小さな楕円体では近似はほぼ完ぺき。カメラの近くの大きな楕円体ほど外れる——学習済みのシーンでカメラが「浮いたゴミ」(要点7)に近づくと形が不自然に見えるのは、これも一因。</p>
+<div class="inject"><figure class="lab" id="jc-lab">
+  <div class="lab-head">
+    <h3>近似はどれだけ外れるか — 楕円体の大きさ・距離・画面の位置を変える(要点2・自己チェック3)</h3>
+    <span class="tag">SplatProjection.Project(J と Σ' = J W Σ Wᵀ Jᵀ)と、自己チェック3の測り方(3D のガウスから 4 万個の点を .NET の Random(1) と Box-Muller でばらまき、1個ずつ正確に z で割って写し、近似で作った 2σ の楕円の内側に入る割合を数える)を JS に移したもの。点は先頭の 3,000 個だけ描く(割合は 4 万個で数える)。下の4つのボタンは自己チェック3の4通りで、C# と同じ値(86.4% / 86.3% / 81.9% / 82.6%)になる。スライダーで決める値はこのページだけ(reference は4通りしか測らない)。球は回していないので、Σ' は画面の端でだけ横に伸びる</span>
+  </div>
+  <div class="stage"><canvas id="jc-canvas" style="height:360px" aria-label="3D のガウスを正確に写した点と、近似で作った 2σ の楕円を、画面の上で重ねた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">自己チェック3の4通り</span>
+      <div class="seg" id="jc-preset"><button data-v="0" aria-pressed="true">σ 0.05m・3m・真ん中</button><button data-v="1" aria-pressed="false">σ 0.05m・3m・端</button><button data-v="2" aria-pressed="false">σ 0.5m・2m・真ん中</button><button data-v="3" aria-pressed="false">σ 0.5m・2m・端</button></div>
+    </div>
+    <div class="ctl"><span class="label">楕円体の大きさ σ(m)</span>
+      <div class="range"><input type="range" id="jc-sigma" min="0.02" max="1" step="0.01" value="0.05"><output id="jc-sigma-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">カメラからの距離(m)</span>
+      <div class="range"><input type="range" id="jc-dist" min="0.8" max="8" step="0.1" value="3"><output id="jc-dist-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">画面の位置(0 = 真ん中、1 = 横の端)</span>
+      <div class="range"><input type="range" id="jc-x" min="0" max="1.3" step="0.05" value="0"><output id="jc-x-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="jc-stats"></div><p id="jc-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>楕円が決まったら、<strong>それを包む正方形</strong>を作る。長い軸の長さは Σ' の大きいほうの固有値の平方根で、その 3 倍(3σ)を正方形の半分の辺にする。3σ の外はガウス関数が <code>exp(−4.5) ≒ 0.011</code> しかなく、不透明度を掛けるとほぼ 1/255 を下回る。</p>
+<div class="code"><pre><code>mid = (a + c) / 2
+λ1 = mid + √(mid² − det)       // 大きいほうの固有値
+半径 = ceil(3 √λ1)              // 画素</code></pre></div>
+<h3 id="s9">3. 重ねる — 奥から順に、半透明で。深度バッファは使わない</h3>
+<p>正方形の中の画素ごとに、中心からのずれ d(画素)で濃さを計算する。</p>
+<div class="code"><pre><code>α = min(0.99, 不透明度 × exp(−½ dᵀ Σ'⁻¹ d))       1/255 未満なら塗らない</code></pre></div>
+<p>Σ'⁻¹(<code>Conic</code>)を頂点シェーダで作っておき、画素シェーダは 2x2 の2次形式を1回計算するだけ。<strong>0.99 で頭打ち</strong>にするのは、1 にするとそれより奥が完全に消え、学習のときに奥へ勾配が届かなくなるから(描くだけでも、学習した値と同じ式で描かないと絵が変わる)。</p>
+<p>重ね方は、Day 31 のアルファブレンドと同じ「over」。</p>
+<div class="code"><pre><code>奥から: C ← c_i α_i + C (1 − α_i)                              (今日の GPU の重ね方)
+手前から: C ← C + T c_i α_i、T ← T (1 − α_i)   T は「残りの透明度」   (元論文・右クリックの重ね方)</code></pre></div>
+<p>2つは式を変形すると同じ値になる(どちらも <code>Σ c_i α_i Π_{j が i より手前} (1 − α_j)</code>)。自己チェック9で、GPU(奥から)と CPU(手前から)の色が <strong>5×10⁻⁵</strong> 以内で一致するのを確かめている。</p>
+<p><strong>深度バッファを使わない理由</strong>。ポリゴンは不透明なので、深度バッファで「いちばん手前の1枚」を選べば済んだ。半透明の楕円体は手前の1個だけが見えるわけではなく、<strong>全部が少しずつ効く</strong>。1個を選ぶのではなく、全部を正しい順に重ねなければならない。だから<strong>毎フレーム全部を、カメラから遠い順に並べる</strong>(<code>DepthSorter</code>)。</p>
+<p>並べ方は<strong>計数ソート</strong>。奥行きを 16 ビット(0〜65535)の整数に丸め、「その値が何個あるか」を数えて、数の累積から書き込む場所を決める。比べ合いが無いので速い(自己チェック8。場面2の 27 万個で <strong>計数ソート 2.4ms / Array.Sort 36ms</strong>)。74 万個の機関車は約 8ms。</p>
+<p><strong>並べるのは楕円体の中心の奥行き</strong>で、画素ごとの奥行きではない。2つの楕円体が交差していると、本当は画素によって前後が違うのに、どの画素でも同じ順で重なる。カメラを動かして中心の奥行きの順が入れ替わった瞬間、<strong>重なり方がぱっと変わる</strong>(popping)。3DGS の既知の弱点で、場面1(大きな楕円体3つ)で回り込むと見える。</p>
+<p><code>O</code> の3つのやり方で、並べ替えが何をしているかを確かめられる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th><code>O</code></th><th>何をしているか</th><th>何が見えるか</th></tr></thead>
+<tbody>
+<tr><td>毎フレーム</td><td>いまのカメラで奥から並べ直す</td><td>正しい絵</td></tr>
+<tr><td>止める</td><td>止めた瞬間の順番のまま描く</td><td>止めたまま回り込むと、<strong>奥にあるはずの楕円体が手前に乗る</strong></td></tr>
+<tr><td>しない</td><td>ファイルの順</td><td>場面2 で 3.7 万画素(7%)が変わる。自己チェック11 は奥から / 手前からの逆順で 16% の画素が変わるのを数えている</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><figure class="lab" id="sv-lab">
+  <div class="lab-head">
+    <h3>場面1「楕円体3つ」を動かす — 並べ替え・表示・0.3 の広げ・大きさ・回り込み(要点3・4、完成条件1〜3)</h3>
+    <span class="tag">reference の場面1(SyntheticScenes.ThreeEllipsoids)を、960x540 の絵の全画素について JS で描いたもの(GPU ではない)。投影(SplatProjection)・濃さ(AlphaAt)・計数ソート(DepthSorter)・奥から重ねる over・1画素の重ね直し(PixelProbe)は reference と同じ式で、C# の CPU 版と数えた画素の数が一致する(ふつう・奥から・毎フレームで、重なり 平均 2.30 回 / 最大 3 回、ファイルの順 26,029 画素、手前から 83,500 画素が 3 目盛りより大きく違う。GPU で測った自己チェック11 は 83,495)。「回り込む角度」と「手前から(逆順)」はこのページだけの切り替え(角度 0 が reference の起動位置)。「楕円の輪郭」の線の太さは GPU の fwidth の代わりに隣の画素との差で決めているので、実機と数画素ずれる。場面2・3・4 は楕円体が 6〜74 万個あるのでここでは描かない(完成条件の数字は reference を CPU で描いて確かめた値を本文に書いてある)。図をクリックすると、その画素に効いている楕円体を手前から並べる(実機では右クリック)</span>
+  </div>
+  <div class="stage"><canvas id="sv-canvas" width="960" height="540" style="aspect-ratio:960/540;height:auto;cursor:crosshair" aria-label="場面1の楕円体3つを描いた絵。クリックした画素に効いている楕円体を下に並べる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">表示(V)</span>
+      <div class="seg" id="sv-mode"><button data-v="0" aria-pressed="true">ふつう</button><button data-v="1" aria-pressed="false">中心の点</button><button data-v="2" aria-pressed="false">くっきりした楕円</button><button data-v="3" aria-pressed="false">楕円の輪郭</button><button data-v="4" aria-pressed="false">重なりの数</button></div>
+    </div>
+    <div class="ctl"><span class="label">並べ替え(O)</span>
+      <div class="seg" id="sv-sort"><button data-v="every" aria-pressed="true">毎フレーム</button><button data-v="frozen" aria-pressed="false">止める</button><button data-v="file" aria-pressed="false">しない(ファイルの順)</button><button data-v="rev" aria-pressed="false">手前から(逆順。このページだけ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">0.3 の広げ(F)</span>
+      <div class="seg" id="sv-dil"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">大きさの倍率([ ] を押した回数。マイナスが ] 、プラスが [ )</span>
+      <div class="range"><input type="range" id="sv-scale" min="-6" max="14" step="1" value="0"><output id="sv-scale-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">回り込む角度(度。このページだけ。0 が起動位置)</span>
+      <div class="range"><input type="range" id="sv-angle" min="-180" max="180" step="1" value="0"><output id="sv-angle-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sv-stats"></div><div class="table-wrap" id="sv-probe" style="margin-top:10px"></div><p id="sv-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">4. 0.3 の広げ — 画素より小さい楕円</h3>
+<p>遠くの楕円体は、画面で 1 画素より小さくなる。σ が 0.1 画素の楕円は、画素の真ん中を通るかどうかで<strong>塗られたり塗られなかったり</strong>する。カメラが少し動くだけで、遠くの床がちらつき、市松がギザギザになる(Day 38 のエイリアシングと同じ)。</p>
+<p>元論文の実装は、<strong>2D の共分散の対角に 0.3 を足す</strong>。σ が √0.3 ≒ 0.55 画素より細くならないようにする、画素の大きさの低域フィルタ(EWA splatting の「再構成フィルタ」の名残)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float a = dot(row0, sigma * row0) + uDilation;   // uDilation = 0.3(F で 0 にできる)</code></pre></div>
+<p>場面2で <code>F</code> を押すと、画素の 12%(6.4 万画素)が変わり、<strong>地平線の近くの市松がギザギザになる</strong>。</p>
+<div class="inject"><figure class="lab" id="dl-lab">
+  <div class="lab-head">
+    <h3>0.3 の広げ — 画素より細い楕円は、塗られたり塗られなかったりする(要点4)</h3>
+    <span class="tag">AlphaAt(濃さ = min(0.99, 不透明度 × exp(−½ d² / σ'²)))と、広げ(Σ' の対角に 0.3 を足す)・半径(3σ の切り上げ)を、丸い楕円の1本の行について JS に移したもの。上の図は、画素の真ん中が楕円の中心からどれだけ離れているかで、その画素の濃さを描いたもの。下の図は、楕円の中心を画素の中で 0〜1 画素ずらしたときの、中心にいちばん近い画素の濃さ(カメラが少し動いたときのちらつき)。画面での σ・楕円の中心のずれ・不透明度はこのページだけの値(reference は 0.3 の広げの ON / OFF だけ)。不透明度 0.95 は場面2の円板と同じ</span>
+  </div>
+  <div class="stage"><canvas id="dl-canvas" style="height:340px" aria-label="画素の列と、楕円の濃さ。広げ有りと無しの比較"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">楕円の σ(画面の画素。0.55 = √0.3)</span>
+      <div class="range"><input type="range" id="dl-sigma" min="0.05" max="3" step="0.05" value="0.3"><output id="dl-sigma-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">楕円の中心の位置(画素の真ん中からのずれ。上の図)</span>
+      <div class="range"><input type="range" id="dl-off" min="0" max="1" step="0.05" value="0.5"><output id="dl-off-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">不透明度</span>
+      <div class="range"><input type="range" id="dl-opacity" min="0.1" max="1" step="0.05" value="0.95"><output id="dl-opacity-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dl-stats"></div><p id="dl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>ただしこの 0.3 は<strong>楕円を太らせるだけで、不透明度は下げない</strong>。小さい楕円体が見かけより濃く塗られるので、学習した解像度より遠くから見ると絵が太る。これを直したのが Mip-Splatting(2024)などの後続の研究で、今日はやらない。</p>
+<h3 id="s11">5. 見る向きで変わる色 — 球面調和(次数 3、16 個の係数)</h3>
+<p>写真の中の物は、見る向きで色が変わる。金属の映り込み、つやのあるハイライト、窓ガラス。3DGS は光を計算しないので、<strong>楕円体ごとに「どの向きから見たら何色か」を関数で持つ</strong>。その関数を球面調和(Day 66a)で近似し、係数を持つ。</p>
+<div class="code"><pre><code>色(d) = max(0, 0.5 + Σ_k 係数_k × Y_k(d))       d はカメラ → 楕円体の向き(長さ 1)</code></pre></div>
+<ul><li><strong>次数 0</strong>(係数 1 個)は、どの向きから見ても同じ色。<strong>次数 3</strong>(16 個)で、なだらかなハイライトまで表せる</li><li><strong>0.5 を足す</strong>のは、係数が全部 0 のとき灰色にするため(学習の出発点)。<strong>0 未満を切る</strong>のは、近似の波打ちで負の色が出るため</li><li>基底の式・定数・符号は元論文の実装と1文字も違わないように写してある。学習済みの係数はこの基底で学習されているので、<strong>符号が1つ違っても色がおかしくなる</strong>。自己チェック5で、16 個の基底を球面で数値積分して、互いに直交し長さ 1 であることを確かめている(ずれ 7×10⁻⁵)</li><li>16 個 x RGB = 48 個の float は、位置や形(12 個)の4倍ある。<strong>3DGS のファイルの大半は色</strong></li></ul>
+<p>場面3の3つの球は、<strong>光が面で跳ね返った向きから見たときに明るい</strong>ハイライトを、次数 3 の係数で持たせてある(<code>SyntheticScenes.ViewDependentSpheres</code>)。山は軸の周りに対称なので、Sloan の「帯調和の回転」の式で、山の鋭さごとに 4 つの数を計算すれば、どの向きの山も係数にできる。自己チェック6の結果が、そのまま<strong>次数 3 の限界</strong>を示している。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>山の鋭さ(指数)</th><th>山の頂(本当は 1)</th><th>差の2乗平均</th><th>いちばん低いところ</th></tr></thead>
+<tbody>
+<tr><td>4(左の赤い球)</td><td>0.854</td><td>0.040</td><td>−0.083</td></tr>
+<tr><td>16(真ん中の緑の球)</td><td>0.382</td><td>0.077</td><td>−0.076</td></tr>
+<tr><td>64(右の青い球)</td><td><strong>0.116</strong></td><td>0.055</td><td>−0.027</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><figure class="lab" id="sl-lab">
+  <div class="lab-head">
+    <h3>次数 3 で山を近似する — 鋭さと次数を変えて、頂と波打ちを見る(要点5・自己チェック6)</h3>
+    <span class="tag">SphericalHarmonics.ZonalLobe(山の鋭さごとの4つの数)と Basis(16 個の基底)、自己チェック6の測り方(軸 (0.3, 0.5, −0.8) の向きの山を、球面の 100 x 200 の格子で元の山 max(0, t)ⁿ と比べる)を JS に移したもの。次数 3 の3通り(指数 4 / 16 / 64)は C# と同じ値(頂 0.854 / 0.382 / 0.116、差の2乗平均 0.0395 / 0.0766 / 0.0550、いちばん低いところ −0.083 / −0.076 / −0.027)。曲線は、軸から測った角度 γ に沿って山の断面を描いたもの。次数 0〜2 は実機の M で次数を下げたのと同じ打ち切り(係数をそのまま捨てる)で、reference は自己チェックで次数 3 しか測らないので、その数字はこのページだけ。指数のスライダーもこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="sl-canvas" style="height:340px" aria-label="軸からの角度ごとの、元の山と球面調和で近似した山の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">山の鋭さ(指数)。場面3は 4 / 16 / 64</span>
+      <div class="seg" id="sl-exp"><button data-v="4" aria-pressed="false">4(赤い球)</button><button data-v="16" aria-pressed="false">16(緑の球)</button><button data-v="64" aria-pressed="true">64(青い球)</button><button data-v="free" aria-pressed="false">自分で決める</button></div>
+    </div>
+    <div class="ctl"><span class="label">指数(「自分で決める」のとき。このページだけ)</span>
+      <div class="range"><input type="range" id="sl-n" min="1" max="200" step="1" value="64"><output id="sl-n-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">使う次数(M)</span>
+      <div class="seg" id="sl-deg"><button data-v="0" aria-pressed="false">0(1個)</button><button data-v="1" aria-pressed="false">1(4個)</button><button data-v="2" aria-pressed="false">2(9個)</button><button data-v="3" aria-pressed="true">3(16個)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sl-stats"></div><p id="sl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>鋭いハイライトは、次数 3 では表せない</strong>。16 個の係数で作れるのはなだらかな山と、その周りの負の波打ちだけ。右の青い球にはハイライトがほとんど出ない。学習済みのシーンで、鏡のような映り込みがぼやけていたり、浮いた楕円体で「ごまかして」いたりするのはこのため。</p>
+<h3 id="s12">6. .ply の中身 — 学習しやすい形のまま入っている</h3>
+<p>.ply はもともと点群・ポリゴンのための古い形式(Stanford, 1994)で、先頭に文字で「1行に何がどの順で並ぶか」を書き、その後ろにバイナリの行を並べる。3DGS はこれを「1行 = 楕円体1個」として使っていて、次数 3 なら <strong>62 列 = 248 バイト</strong>。</p>
+<div class="code"><pre><code>x y z                   位置
+nx ny nz                法線(いつも 0。点群の道具で開けるように置いてあるだけ)
+f_dc_0 f_dc_1 f_dc_2    球面調和の0番の係数(RGB)
+f_rest_0 … f_rest_44    1〜15 番の係数。R の 15 個、G の 15 個、B の 15 個の順
+opacity                 シグモイドの前
+scale_0 scale_1 scale_2 log を取った値
+rot_0 rot_1 rot_2 rot_3 四元数。w, x, y, z の順</code></pre></div>
+<p>読むときに直すのは4つ(<code>PlyFormat.Read</code>)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>列</th><th>直し方</th><th>間違えるとどうなるか</th></tr></thead>
+<tbody>
+<tr><td><code>scale_*</code></td><td><code>exp</code></td><td>大きさが負や 0 になり、楕円体が消えるか、画面を覆う</td></tr>
+<tr><td><code>opacity</code></td><td><code>1 / (1 + e⁻ˣ)</code></td><td>全体が真っ白 / 真っ黒に飛ぶ</td></tr>
+<tr><td><code>rot_*</code></td><td>(w, x, y, z) → System.Numerics の (x, y, z, w) に並べ替えて正規化</td><td>形が全部ねじれる(色は合っているのに、細部が崩れる)</td></tr>
+<tr><td><code>f_rest_*</code></td><td>「色ごとにまとまっている」のを「係数ごとに RGB」に並べ替える</td><td>見る向きで色が虹色に変わる</td></tr>
+</tbody>
+</table></div>
+<p>自己チェック7は、場面3(次数 3)を書き出して読み直し、全部の値が元に戻ることを確かめている(書くときは log・ロジット・逆の並べ替え)。</p>
+<p><strong>座標の向き</strong>。学習済みのシーンは COLMAP(写真からカメラの位置を求める道具)の座標で、<strong>たいてい −Y が上</strong>(カメラの y 軸が下向きの流儀で、最初の写真がワールドの軸を決めるため)。今日のビューアは .ply を読んだら上を −Y にし、それでも逆さまなら <code>U</code> で裏返せるようにしてある。<strong>.ply には撮影したカメラの位置が入っていない</strong>ので、最初の立ち位置は楕円体の位置の中央値から見当で決めている(<code>PlyFormat.GuessView</code>)。</p>
+<h3 id="s13">7. 3DGS の得意と限界 — ポリゴンと並べて</h3>
+<p>機関車のシーンを歩き回ると、次のことが目で分かる。</p>
+<ul><li><strong>撮影したカメラの通り道から離れると崩れる</strong>。学習は「写真と同じ位置から描いた絵が、写真と一致するように」楕円体を動かすので、写真に写っていない向き・距離からの見た目は何の保証も無い。線路の上を低く飛ぶ、機関車の裏へ回り込む、空へ高く上がる——どれも絵が崩れる</li><li><strong>浮いたゴミ(floater)</strong>。カメラの近くの空中に、大きくて薄い楕円体が浮いている。どの写真でも「手前でぼんやり色を足しておくと誤差が減る」ので学習で残ったもの。写真の位置からは溶け込んでいて見えないが、ずれた位置から見ると、霧や汚れのように見える(最初の立ち位置を見当で決めたとき、引きすぎてこの中に立った。「検証の途中で分かったこと」の5)</li><li><strong>面が無い</strong>。<code>V</code> で「くっきりした楕円」「楕円の輪郭」にすると、機関車の車体でさえ、平たい楕円体の寄せ集めだと分かる。<strong>当たり判定が作れない</strong>(どこに面があるか分からない)。ゲームに使うなら、別にポリゴンの当たり用の形を用意することになる</li><li><strong>照らし直せない</strong>。色に光が焼き込まれているので、ライトを動かすことも、影を落とし直すことも、夜にすることもできない</li><li><strong>重い</strong>。74 万個で 184MB。ポリゴンなら同じ見た目を数 MB のメッシュ + テクスチャで持てる</li></ul>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ポリゴン(このリポジトリの最終デモ)</th><th>3DGS</th></tr></thead>
+<tbody>
+<tr><td>見た目の本物らしさ</td><td>作り込み次第(Day 56 で PBR・IBL・影・TAA を全部入れた)</td><td><strong>撮った写真そのもの</strong>(細かい汚れ・錆・木の葉まで)</td></tr>
+<tr><td>作る手間</td><td>モデリング・テクスチャ・ライティング</td><td>写真を数百枚撮って学習(数十分)</td></tr>
+<tr><td>動かす / 照らし直す / ぶつける</td><td>できる</td><td><strong>できない</strong>(研究段階)</td></tr>
+<tr><td>描く手間</td><td>三角形の数 × 塗る画素</td><td>楕円体の数 × <strong>重なりの数</strong>(要点8)</td></tr>
+</tbody>
+</table></div>
+<p>「ゲームのエンジンで使う形」と「現実を撮って見せる形」は別物で、いまの AAA は前者が主役のまま。3DGS は、背景や実写の場所・物を取り込む用途から入り始めている。</p>
+<h3 id="s14">8. 元論文の速い描き方と、学習(講読。今日は実装しない)</h3>
+<p>今日のビューアは「1個 = 四角形1枚、CPU で並べ替え、奥から重ねる」で、いちばん簡単な形。元論文の実装(CUDA)は、同じ絵をもっと速く出すために2つのことをしている。</p>
+<p><strong>(a) 画面をタイルに区切り、手前から重ねて打ち切る</strong>。Day 53 の Forward+ で「タイルに当たる光源のリスト」を作ったのと同じ発想で、<strong>「タイル(16x16 画素)に当たる楕円体のリスト」</strong>を作る。</p>
+<div class="code"><pre><code>1. 楕円体ごとに、掛かるタイルを調べ、(タイル番号, 奥行き)の 64 ビットの鍵を作る(1個が 10 タイルに掛かれば鍵は 10 個)
+2. 鍵を GPU の基数ソートで並べる → タイルごとに「手前から並んだリスト」ができる
+3. タイル1つをワークグループ1つが受け持ち、リストを共有メモリへ少しずつ読みながら、画素ごとに手前から重ねる
+4. 残りの透明度 T が 0.0001 を切った画素は、そこで止める</code></pre></div>
+<p>効くのは4の<strong>打ち切り</strong>。四角形を奥から重ねる今日の形では、奥から来る以上、手前が埋まったかどうかを知る手段が無く、全部を塗るしかない。右クリックで、1画素ごとにその差が見える。機関車のシーンを斜めから見て、画面を 144 点に間引いて CPU で数えた結果が冒頭の囲み。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>1画素あたり</th><th>平均</th></tr></thead>
+<tbody>
+<tr><td>四角形が掛かっていた(= 今日の GPU が画素シェーダを走らせた回数)</td><td><strong>813 回</strong>(最大 2,508)</td></tr>
+<tr><td>濃さが 1/255 以上で、実際に色を足した</td><td>156 個</td></tr>
+<tr><td>手前から重ねて、T &lt; 0.0001 で打ち切った場合に要る数</td><td><strong>122 個</strong>(144 点のうち 53 点で打ち切り)</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><figure class="lab" id="es-lab">
+  <div class="lab-head">
+    <h3>手前から重ねると、何個目で打ち切れるか — 濃さと重なりの数を変える(要点3・8)</h3>
+    <span class="tag">PixelProbe の重ね方(C ← C + T c α、T ← T (1 − α))と打ち切りの 0.0001 を、同じ濃さ α の楕円体が手前から並んだ1画素について計算したもの。上の表の 813 / 156 / 122 は、学習済みのシーン(train-7000.ply、184MB。リポジトリには入っていない)を斜めから見て 144 点を CPU で数えた値で、このページでは再現しない(手元に .ply が無いので数え直せない)。ここで見るのは「濃さがそろっているなら、打ち切りが何個目か」という計算だけで、濃さ・重なりの数はすべてこのページだけの値。0.99 は AlphaAt の頭打ち</span>
+  </div>
+  <div class="stage"><canvas id="es-canvas" style="height:300px" aria-label="手前から重ねた個数ごとの、残りの透明度の曲線と、打ち切りの線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">1個の濃さ α(全部同じとする)</span>
+      <div class="range"><input type="range" id="es-alpha" min="0.01" max="0.99" step="0.01" value="0.1"><output id="es-alpha-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">その画素に四角形が掛かっている個数(GPU が画素シェーダを走らせる回数)</span>
+      <div class="range"><input type="range" id="es-n" min="1" max="1000" step="1" value="813"><output id="es-n-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="es-stats"></div><div class="table-wrap" id="es-table" style="margin-top:10px"></div><p id="es-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>(b) 学習</strong>。写真の束(と、COLMAP で求めたそれぞれのカメラの位置)から、楕円体の値を少しずつ直していく。</p>
+<div class="code"><pre><code>1. COLMAP が作った粗い点群を、小さな球の楕円体として置く
+2. 写真と同じカメラの位置から描く(上の (a) の描き方)
+3. 描いた絵と写真の差を計算する
+4. 差が減る向きに、全部の楕円体の値(位置・大きさ・回転・不透明度・色)を少しずつ動かす   ← 描く式を全部逆向きに微分する(微分可能なラスタライザ)
+5. 数百回ごとに、誤差の大きいところの楕円体を分けて増やし(densification)、ほぼ透明なものを消す
+6. 2 へ戻る。3 万回</code></pre></div>
+<p><strong>(a) のタイル方式は、4 の逆伝播のためでもある</strong>。手前から重ねて打ち切った順を覚えておけば、逆向きにたどって、どの楕円体がどれだけ色に効いたかを計算できる。要点1・6 で見た「大きさは log、不透明度はシグモイドの前」の形は、この 4 で好きな値に動かしても壊れないためのもの。</p>
+<p>ビューアの側でこれ以上速くするなら、(a) を丸ごと入れるより先に、<strong>並べ替えを GPU に移す</strong>(Day 57 のコンピュートシェーダで計数ソート)ほうが手軽で、改造課題3にした。</p>
+</section>
+<section class="part"><h2 id="s15">前Dayからの差分概要</h2>
+<p><strong>Day 66a からの差分は無い</strong>(新しいプロジェクト)。reference の中身は全部が新規。</p>
+<h3 id="s16">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うちコード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Day67.csproj</code></td><td>56</td><td>WinExe / net10.0-windows / WinForms / PerMonitorV2 / unsafe。名前空間 <code>GaussianSplatting</code>。Silk.NET.Windowing と OpenGL(Day 61 と同じ)。<code>shaders/</code> を出力先へコピー</td></tr>
+<tr><td><code>Math/SphericalHarmonics.cs</code></td><td>173(100)</td><td><strong>基底 16 個の式と定数</strong>・評価・帯調和の山の係数(要点5)</td></tr>
+<tr><td><code>Math/Covariance3.cs</code></td><td>67(31)</td><td>3D の共分散。<strong><code>Σ = R S Sᵀ Rᵀ</code></strong>(要点1)</td></tr>
+<tr><td><code>Math/FlyView.cs</code></td><td>106(54)</td><td>飛び回るカメラ(<code>FlyView</code>)と、投影に要る値(<code>CameraFrame</code>。軸3本と焦点距離)</td></tr>
+<tr><td><code>Math/SplatProjection.cs</code></td><td>127(55)</td><td><strong>楕円体 → 画面の楕円</strong>(<code>ProjectedSplat</code>)。J・0.3 の広げ・半径・濃さ(要点2〜4)。GPU と同じ計算の CPU 版</td></tr>
+<tr><td><code>Splats/SplatCloud.cs</code></td><td>130(52)</td><td>楕円体の集まり。種類ごとの配列・上の向き・空の色・最初のカメラ</td></tr>
+<tr><td><code>Splats/PlyFormat.cs</code></td><td>352(252)</td><td>.ply を読む・書く(要点6)。最初の立ち位置の見当</td></tr>
+<tr><td><code>Splats/SyntheticScenes.cs</code></td><td>290(201)</td><td>自前の場面3つ(楕円体3つ / 円板で覆った形 / 見る向きで色が変わる)</td></tr>
+<tr><td><code>Compositing/DepthSorter.cs</code></td><td>130(77)</td><td><strong>奥から並べる計数ソート</strong>(要点3)。<code>SortMode</code></td></tr>
+<tr><td><code>Compositing/PixelProbe.cs</code></td><td>103(57)</td><td>1画素に効いている楕円体を CPU で全部調べ、手前から重ねる(右クリック。要点8)</td></tr>
+<tr><td><code>Gpu/GpuDevice.cs</code></td><td>79(47)</td><td>見えない窓の上の OpenGL 4.3(Day 61 と同じ)</td></tr>
+<tr><td><code>Gpu/ShaderProgram.cs</code></td><td>105(72)</td><td>頂点 + 画素シェーダの薄い皮。見つからない uniform を覚える</td></tr>
+<tr><td><code>shaders/splat.vert</code></td><td>156(118)</td><td><strong>楕円体 → 四角形</strong>。並べた順・J・Σ'・半径・球面調和の色</td></tr>
+<tr><td><code>shaders/splat.frag</code></td><td>79(54)</td><td><strong>ガウス関数の濃さで塗る</strong>。表示の切り替え(点・くっきり・輪郭・数える)</td></tr>
+<tr><td><code>Gpu/SplatRenderer.cs</code></td><td>366(238)</td><td>SSBO へ送る・インスタンス描画・ブレンド・タイマー・読み戻し・空を重ねる</td></tr>
+<tr><td><code>App/SelfCheck.cs</code></td><td>521(407)</td><td>自己チェック 11 項目</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>707(527)</td><td>窓。ループ・移動・HUD・キーとマウス・右クリック・PNG</td></tr>
+<tr><td><code>Program.cs</code></td><td>39(13)</td><td>エントリポイント</td></tr>
+</tbody>
+</table></div>
+<p>リポジトリの側で直したもの(<strong>写経の対象ではない</strong>): <code>reference/diff.sh</code>(Day 67 を <code>work/Labs/GaussianSplatting</code> と比べる)、<code>CLAUDE.md</code>(Labs の名前空間の一覧)、<code>.gitignore</code>(<code>assets/splats/*.ply</code>)、<code>assets/splats/README.md</code>(学習済みのシーンの入手の手順)。</p>
+<p><strong>今日の量は多い</strong>(コードだけで約 2,400 行)。下の順番の <strong>9 まで</strong>(式と場面。窓なしで確かめられる部分)と、<strong>10 から</strong>(GPU と窓)で2回に分けるとよい。<strong><code>App/SelfCheck.cs</code>(コード 407 行)は、写すより reference からコピーして読むだけにしてもよい</strong>——式の答え合わせが役目で、今日の理論は全部ほかのファイルにある。</p>
+<h3 id="s17">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong><code>Program.cs</code>(<code>Main</code>)を写すまでは、ビルドすると CS5001(エントリポイントが無い)だけが出る</strong>。それ以外のエラーが出ないことを確かめながら進める。</p>
+<ol start="0"><li><strong><code>work/Labs/GaussianSplatting/</code> を作り、<code>reference/Day67/Day67.csproj</code> を <code>GaussianSplatting.csproj</code> という名前でコピーする</strong>。以降のファイルはこのフォルダの中に、reference と同じサブフォルダ(<code>Math/</code> <code>Splats/</code> <code>Compositing/</code> <code>Gpu/</code> <code>shaders/</code> <code>App/</code>)で置く</li><li><strong><code>Math/SphericalHarmonics.cs</code></strong> — どこにも依存しない。<strong>定数と符号を1文字も間違えない</strong>(自己チェック5が見張っている)</li><li><strong><code>Math/Covariance3.cs</code></strong> — どこにも依存しない。要点1</li><li><strong><code>Math/FlyView.cs</code></strong> — どこにも依存しない(<code>CameraFrame</code> もこのファイル)</li><li><strong><code>Math/SplatProjection.cs</code></strong> — 2・3 を使う。<strong>要点2〜4 の式の全部</strong></li><li><strong><code>Splats/SplatCloud.cs</code></strong> — 1・2・3 を使う</li><li><strong><code>Splats/PlyFormat.cs</code></strong> — 3・5 を使う。要点6</li><li><strong><code>Splats/SyntheticScenes.cs</code></strong> — 1・3・5 を使う</li><li><strong><code>Compositing/DepthSorter.cs</code></strong> — 3・5 を使う。要点3</li><li><strong><code>Compositing/PixelProbe.cs</code></strong> — 4・5 を使う。<strong>ここまでで、GPU を使わない部分が全部そろう</strong></li><li><strong><code>Gpu/GpuDevice.cs</code></strong> — どこにも依存しない(Day 61 とほぼ同じ)</li><li><strong><code>Gpu/ShaderProgram.cs</code></strong> — どこにも依存しない</li><li><strong><code>shaders/splat.vert</code></strong> — 4 と同じ計算を GLSL で。1 の定数もここにもう一度書く</li><li><strong><code>shaders/splat.frag</code></strong> — 4 の <code>AlphaAt</code> と同じ式</li><li><strong><code>Gpu/SplatRenderer.cs</code></strong> — 4・5・8(<code>SortMode</code>)・10・11 を使い、12・13 を読む</li><li><strong><code>App/SelfCheck.cs</code></strong> — ここまでの全部を使う(コピーでもよい)</li><li><strong><code>App/ViewerWindow.cs</code></strong> — 全部を使う</li><li><strong><code>Program.cs</code></strong> — 16 を使う。<strong>ここで初めてビルドが通る</strong></li></ol>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>今日から <code>GaussianSplatting</code> の設計書を新しく始める</strong>。HonyaEngine の設計書は Day 66a の計画書にある(エンジンは今日1行も変わっていない)。</p>
+<h3 id="s19">全体構成と依存の向き</h3>
+<svg viewBox="0 0 550 406" role="img" aria-label="全体構成と依存の向き。行が使う側、列が使われる側の行列(点が1つ = 1本の矢印)。Program.cs が App を使う。App が Gpu を使う。App が Compositing を使う。App が Splats を使う。App が Math を使う。Gpu が Compositing を使う。Gpu が Splats を使う。Gpu が Math を使う。Compositing が Splats を使う。Compositing が Math を使う。Splats が Math を使う。使われる側が必ず後ろの列にあるので、点は対角線の右上にしか並ばない = 循環は無い" style="width:100%;max-width:550px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><polygon points="268,150 268,366 460,366" fill="var(--sunken)" opacity="0.55"></polygon><text x="274" y="356" font-size="12" fill="var(--muted)">この三角形には点が 1 つも無い</text><line x1="268" y1="150" x2="460" y2="150" stroke="var(--line)"></line><line x1="268" y1="150" x2="268" y2="366" stroke="var(--line)"></line><line x1="268" y1="186" x2="460" y2="186" stroke="var(--line)"></line><line x1="300" y1="150" x2="300" y2="366" stroke="var(--line)"></line><line x1="268" y1="222" x2="460" y2="222" stroke="var(--line)"></line><line x1="332" y1="150" x2="332" y2="366" stroke="var(--line)"></line><line x1="268" y1="258" x2="460" y2="258" stroke="var(--line)"></line><line x1="364" y1="150" x2="364" y2="366" stroke="var(--line)"></line><line x1="268" y1="294" x2="460" y2="294" stroke="var(--line)"></line><line x1="396" y1="150" x2="396" y2="366" stroke="var(--line)"></line><line x1="268" y1="330" x2="460" y2="330" stroke="var(--line)"></line><line x1="428" y1="150" x2="428" y2="366" stroke="var(--line)"></line><line x1="268" y1="366" x2="460" y2="366" stroke="var(--line)"></line><line x1="460" y1="150" x2="460" y2="366" stroke="var(--line)"></line><text x="260" y="171.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Program.cs</text><text x="16" y="172" fill="var(--muted)" font-size="12">1</text><text transform="translate(288 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">1 Program</text><rect x="269" y="151" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="260" y="200" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">App</text><text x="260" y="215" text-anchor="end" fill="var(--muted)" font-size="11.5">窓・自己チェック</text><text x="16" y="208" fill="var(--muted)" font-size="12">2</text><text transform="translate(320 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">2 App</text><rect x="301" y="187" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="260" y="236" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Gpu</text><text x="260" y="251" text-anchor="end" fill="var(--muted)" font-size="11.5">GL・シェーダ・描画</text><text x="16" y="244" fill="var(--muted)" font-size="12">3</text><text transform="translate(352 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">3 Gpu</text><rect x="333" y="223" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="260" y="272" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Compositing</text><text x="260" y="287" text-anchor="end" fill="var(--muted)" font-size="11.5">並べ替え・1画素の重ね直し</text><text x="16" y="280" fill="var(--muted)" font-size="12">4</text><text transform="translate(384 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">4 Compositing</text><rect x="365" y="259" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="260" y="308" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Splats</text><text x="260" y="323" text-anchor="end" fill="var(--muted)" font-size="11.5">楕円体の集まり・.ply・自前の場面</text><text x="16" y="316" fill="var(--muted)" font-size="12">5</text><text transform="translate(416 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">5 Splats</text><rect x="397" y="295" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="260" y="344" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Math</text><text x="260" y="359" text-anchor="end" fill="var(--muted)" font-size="11.5">共分散・投影・球面調和・カメラ</text><text x="16" y="352" fill="var(--muted)" font-size="12">6</text><text transform="translate(448 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">6 Math</text><rect x="429" y="331" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><circle cx="316" cy="168" r="7" fill="var(--accent)"></circle><circle cx="348" cy="204" r="7" fill="var(--accent)"></circle><circle cx="380" cy="204" r="7" fill="var(--accent)"></circle><circle cx="412" cy="204" r="7" fill="var(--accent)"></circle><circle cx="444" cy="204" r="7" fill="var(--accent)"></circle><circle cx="380" cy="240" r="7" fill="var(--accent)"></circle><circle cx="412" cy="240" r="7" fill="var(--accent)"></circle><circle cx="444" cy="240" r="7" fill="var(--accent)"></circle><circle cx="412" cy="276" r="7" fill="var(--accent)"></circle><circle cx="444" cy="276" r="7" fill="var(--accent)"></circle><circle cx="444" cy="312" r="7" fill="var(--accent)"></circle><text x="260" y="138" text-anchor="end" fill="var(--muted)" font-size="12">行の側が、列の側を使う →</text></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っている層</th><th>知らない層</th><th>中身</th></tr></thead>
+<tbody>
+<tr><td><code>Math/</code></td><td><strong>どこも知らない</strong></td><td>楕円体の集まり・GPU・窓</td><td><code>SphericalHarmonics</code> / <code>Covariance3</code> / <code>FlyView</code> / <code>CameraFrame</code> / <code>SplatProjection</code> / <code>ProjectedSplat</code></td></tr>
+<tr><td><code>Splats/</code></td><td>Math</td><td>GPU・窓</td><td><code>SplatCloud</code> / <code>PlyFormat</code> / <code>SyntheticScenes</code></td></tr>
+<tr><td><code>Compositing/</code></td><td>Math・Splats</td><td><strong>GPU</strong>・窓</td><td><code>DepthSorter</code> / <code>SortMode</code> / <code>PixelProbe</code> / <code>ProbeResult</code> / <code>Contribution</code></td></tr>
+<tr><td><code>Gpu/</code></td><td>Math・Splats・Compositing(<code>SortMode</code> だけ)</td><td>窓</td><td><code>GpuDevice</code> / <code>ShaderProgram</code> / <code>SplatRenderer</code> / <code>RenderOptions</code> / <code>RenderStats</code> / <code>DisplayMode</code></td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td><td><code>ViewerWindow</code> / <code>SelfCheck</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>循環参照は無い</strong>(コメントを落として型名を拾い、確かめた)。大事なのは2つ。</p>
+<ul><li><strong><code>Math/</code> がどこにも依存しない</strong>。楕円体を写す式(<code>SplatProjection</code>)と球面調和の式は <code>Vector3</code> と <code>float</code> だけで書いてあり、<strong>GLSL へそのまま写してある</strong>。C# 版があるので、右クリックの重ね直しと自己チェック9で、GPU の絵を数で答え合わせできる</li><li><strong><code>Compositing/</code> が GPU を知らない</strong>。並べ替えは CPU の配列を作るところまでで、それを GPU へ送るのは <code>Gpu/</code> の仕事。改造課題3で並べ替えを GPU に移すときは、<code>DepthSorter</code> の代わりに <code>Gpu/</code> の中にコンピュートシェーダを足すことになる</li></ul>
+<h3 id="s20">Math と Splats — 楕円体と、その写し方</h3>
+<svg viewBox="0 0 1250 775" role="img" aria-label="Math と Splats のクラス図。CameraFrame(record struct。Position・Right・Up・Forward、Fx・Fy・TanHalfX・TanHalfY、Width・Height、ToView)、SplatProjection(static。Project)、ProjectedSplat(record struct。Center・Depth・A B C・Conic・Radius、AlphaAt)、FlyView(record struct。Position・Yaw・Pitch・FovYDegrees、Axes・Move・Frame)、Covariance3(record struct。Xx Xy Xz Yy Yz Zz、FromScaleRotation・Sandwich・Scaled)、SplatCloud(Name・Count・ShDegree・Positions・Scales・Rotations・Opacities・Sh・DefaultView・WorldUp・Background、ColorToward・Covariance)、SphericalHarmonics(static。Basis・Evaluate・ZonalLobe)、PlyFormat(static。Read・Write)、SyntheticScenes(static。Create)。FlyView は CameraFrame を作る。SplatProjection は Covariance3・CameraFrame・ProjectedSplat を使う。SplatCloud は FlyView を持ち、Covariance3 と SphericalHarmonics を使う。PlyFormat と SyntheticScenes は SplatCloud を作り、SyntheticScenes は SphericalHarmonics も使う" style="width:100%;max-width:1250px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="340" height="110" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="180" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record struct&gt;&gt;</text><text x="180" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">CameraFrame</text><line x1="10" y1="50" x2="350" y2="50" stroke="var(--line)"></line><text x="20" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position Right Up Forward</text><text x="20" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Fx Fy TanHalfX TanHalfY</text><text x="20" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width Height</text><text x="20" y="112" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ToView(world) Vector3</text><rect x="430" y="10" width="360" height="65" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="610" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SplatProjection</text><line x1="430" y1="50" x2="790" y2="50" stroke="var(--line)"></line><text x="440" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Project(position, covariance, camera, dilate) ProjectedSplat</text><rect x="870" y="10" width="270" height="140" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1005" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record struct&gt;&gt;</text><text x="1005" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ProjectedSplat</text><line x1="870" y1="50" x2="1140" y2="50" stroke="var(--line)"></line><text x="880" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Center</text><text x="880" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Depth</text><text x="880" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float A B C</text><text x="880" y="112" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Conic</text><text x="880" y="127" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Radius</text><text x="880" y="142" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AlphaAt(offset, opacity) float</text><rect x="10" y="190" width="340" height="155" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="180" y="205" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record struct&gt;&gt;</text><text x="180" y="221" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">FlyView</text><line x1="10" y1="230" x2="350" y2="230" stroke="var(--line)"></line><text x="20" y="247" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="262" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Yaw</text><text x="20" y="277" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Pitch</text><text x="20" y="292" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float FovYDegrees</text><text x="20" y="307" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Axes(worldUp) tuple</text><text x="20" y="322" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Move(worldUp, forward, right, up) FlyView</text><text x="20" y="337" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Frame(worldUp, width, height) CameraFrame</text><rect x="430" y="190" width="300" height="110" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="205" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record struct&gt;&gt;</text><text x="580" y="221" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Covariance3</text><line x1="430" y1="230" x2="730" y2="230" stroke="var(--line)"></line><text x="440" y="247" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Xx Xy Xz Yy Yz Zz</text><text x="440" y="262" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+FromScaleRotation(scale, rotation) Covariance3</text><text x="440" y="277" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Sandwich(u, v) float</text><text x="440" y="292" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Scaled(k) Covariance3</text><rect x="230" y="400" width="400" height="233" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="419" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SplatCloud</text><line x1="230" y1="428" x2="630" y2="428" stroke="var(--line)"></line><text x="240" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="240" y="460" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Count</text><text x="240" y="475" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ShDegree</text><text x="240" y="490" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3[] Positions</text><text x="240" y="505" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3[] Scales</text><text x="240" y="520" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Quaternion[] Rotations</text><text x="240" y="535" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float[] Opacities</text><text x="240" y="550" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float[] Sh</text><text x="240" y="565" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FlyView DefaultView</text><text x="240" y="580" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 WorldUp</text><text x="240" y="595" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Background</text><text x="240" y="610" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ColorToward(i, direction, degree) Vector3</text><text x="240" y="625" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Covariance(i) Covariance3</text><rect x="830" y="400" width="410" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1035" y="415" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="1035" y="431" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SphericalHarmonics</text><line x1="830" y1="440" x2="1240" y2="440" stroke="var(--line)"></line><text x="840" y="457" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Basis(d, degree, basis)</text><text x="840" y="472" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Evaluate(coefficients, degree, direction) Vector3</text><text x="840" y="487" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+ZonalLobe(exponent) float[]</text><rect x="10" y="700" width="320" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="715" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="170" y="731" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PlyFormat</text><line x1="10" y1="740" x2="330" y2="740" stroke="var(--line)"></line><text x="20" y="757" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Read(path) SplatCloud</text><text x="20" y="772" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Write(stream, cloud)</text><rect x="420" y="700" width="300" height="65" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="570" y="715" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="570" y="731" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SyntheticScenes</text><line x1="420" y1="740" x2="720" y2="740" stroke="var(--line)"></line><text x="430" y="757" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(index) SplatCloud</text><path stroke-dasharray="5 4" d="M180 190 L180 122" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M430 42.5 L352 42.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M790 42.5 L868 42.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M610 75 L610 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M310 400 L310 347" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M460 400 L460 302" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M630 460 L828 460" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M280 700 L280 635" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M500 700 L500 635" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path stroke-dasharray="5 4" d="M720 732.5 L930 732.5 L930 497" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong><code>SplatCloud</code> は種類ごとの配列</strong>で持つ(1個を1つの struct にしない)。並べ替えは位置しか読まないので、位置だけが連続しているほうがキャッシュに優しい。GPU へ送るときも、形(12 個の float)と色(48 個の float)を別のバッファにする。</p>
+<p><strong><code>CameraFrame</code> は行列を持たない</strong>。軸3本と焦点距離だけで写す。J の式が「右・上・前の向きに、それぞれ何倍」という形で素直に書けるのと、Day 6 の行列の鎖(ビュー → 射影 → ビューポート)が、実は1行の割り算だったことが見えるようにするため。</p>
+<h3 id="s21">Compositing と Gpu — 並べて、描いて、読み戻す</h3>
+<svg viewBox="0 0 1440 593" role="img" aria-label="Compositing と Gpu のクラス図。DepthSorter(_counts・_keys・_depths・_order、Order・InFront、Sort)、SortMode(enum。EveryFrame・Frozen・FileOrder)、RenderOptions(record。Mode・ShDegree・Dilate・ScaleMultiplier・Sort)、PixelProbe(static。Probe)、ProbeResult(record。Covered・Contributions・EarlyStop・Color)、GpuDevice(Gl・Renderer・TryCreate)、SplatRenderer(_program・_framebuffer・_splatBuffer・_shBuffer・_orderBuffer・_readback、Upload・Render・PixelColor)、ShaderProgram(MissingUniforms・Load・Use・Set)。DepthSorter は SortMode を使う。RenderOptions は SortMode を持つ。PixelProbe は ProbeResult を作る。SplatRenderer は ShaderProgram を持ち、GpuDevice と RenderOptions を使う" style="width:100%;max-width:1440px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="340" height="143" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="180" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">DepthSorter</text><line x1="10" y1="38" x2="350" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-int[] _counts</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ushort[] _keys</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-float[] _depths</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-uint[] _order</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ReadOnlySpan Order</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int InFront</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Sort(cloud, camera, mode)</text><rect x="430" y="10" width="170" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="515" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enum&gt;&gt;</text><text x="515" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SortMode</text><line x1="430" y1="50" x2="600" y2="50" stroke="var(--line)"></line><text x="440" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">EveryFrame</text><text x="440" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Frozen</text><text x="440" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">FileOrder</text><rect x="690" y="10" width="280" height="125" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record&gt;&gt;</text><text x="830" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderOptions</text><line x1="690" y1="50" x2="970" y2="50" stroke="var(--line)"></line><text x="700" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DisplayMode Mode</text><text x="700" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ShDegree</text><text x="700" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Dilate</text><text x="700" y="112" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float ScaleMultiplier</text><text x="700" y="127" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SortMode Sort</text><rect x="10" y="215" width="560" height="65" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="290" y="230" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="290" y="246" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PixelProbe</text><line x1="10" y1="255" x2="570" y2="255" stroke="var(--line)"></line><text x="20" y="272" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Probe(cloud, camera, px, py, shDegree, dilate, scaleMultiplier) ProbeResult</text><rect x="650" y="215" width="270" height="110" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="785" y="230" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record&gt;&gt;</text><text x="785" y="246" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ProbeResult</text><line x1="650" y1="255" x2="920" y2="255" stroke="var(--line)"></line><text x="660" y="272" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Covered</text><text x="660" y="287" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+IReadOnlyList Contributions</text><text x="660" y="302" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int EarlyStop</text><text x="660" y="317" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Color</text><rect x="10" y="410" width="340" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="180" y="429" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuDevice</text><line x1="10" y1="438" x2="350" y2="438" stroke="var(--line)"></line><text x="20" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GL Gl</text><text x="20" y="470" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Renderer</text><text x="20" y="485" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryCreate(message) GpuDevice</text><rect x="430" y="410" width="480" height="173" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="670" y="429" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SplatRenderer</text><line x1="430" y1="438" x2="910" y2="438" stroke="var(--line)"></line><text x="440" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ShaderProgram _program</text><text x="440" y="470" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-uint _framebuffer</text><text x="440" y="485" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-uint _splatBuffer</text><text x="440" y="500" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-uint _shBuffer</text><text x="440" y="515" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-uint _orderBuffer</text><text x="440" y="530" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-float[] _readback</text><text x="440" y="545" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Upload(cloud)</text><text x="440" y="560" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(camera, order, options, pixels) RenderStats</text><text x="440" y="575" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PixelColor(x, y, background) Vector3</text><rect x="1000" y="410" width="420" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1210" y="429" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderProgram</text><line x1="1000" y1="438" x2="1420" y2="438" stroke="var(--line)"></line><text x="1010" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+IReadOnlyList MissingUniforms</text><text x="1010" y="470" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Load(gl, vertexPath, fragmentPath) ShaderProgram</text><text x="1010" y="485" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Use()</text><text x="1010" y="500" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Set(name, value)</text><path stroke-dasharray="5 4" d="M350 57.5 L428 57.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M690 67.5 L602 67.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M570 247.5 L648 247.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M830 410 L830 137" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M910 470 L998 470" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M430 470 L352 470" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><code>SplatRenderer</code> の持つ GPU の資源は5つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>資源</th><th>中身</th><th>いつ作り直すか</th></tr></thead>
+<tbody>
+<tr><td>楕円体の SSBO(binding 0)</td><td>1個 48 バイト。位置・不透明度・3D の共分散の6つ</td><td>場面を替えたとき(<code>Upload</code>)</td></tr>
+<tr><td>色の SSBO(binding 1)</td><td>1個 (次数 + 1)² x 3 個の float</td><td>場面を替えたとき</td></tr>
+<tr><td>並べた順の SSBO(binding 2)</td><td>1個 4 バイト</td><td><strong>毎フレーム</strong>(74 万個で 3MB)</td></tr>
+<tr><td>描き込み先</td><td>RGBA 32 ビット浮動小数のテクスチャ 960x540。<strong>深度バッファは無い</strong></td><td>作ったまま</td></tr>
+<tr><td>タイマークエリ</td><td>描画の時間を GPU に測らせる</td><td>作ったまま</td></tr>
+</tbody>
+</table></div>
+<p>描き込み先を 32 ビットの浮動小数にしてあるのは、薄い楕円体を数百枚重ねても丸めの誤差が積もらないようにするのと、「重なりの数」の表示で 1 ずつ足して数えるため。</p>
+<h3 id="s22">App — 窓と自己チェック</h3>
+<svg viewBox="0 0 1150 327" role="img" aria-label="App のクラス図。ViewerWindow は Form を継承する(_device・_renderer・_sorter・_clouds・_view・_options・_dirty・_held、Run・MoveCamera・RenderFrame・Present・SelectScene・ProbePixel・RunSelfCheck)。Program(static。Main)は ViewerWindow を使う。ViewerWindow は SplatRenderer と DepthSorter を持ち、PixelProbe・SelfCheck(static。Run)・PlyFormat・SyntheticScenes を使う" style="width:100%;max-width:1150px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="70" width="160" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="90" y="89" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Form</text><rect x="10" y="190" width="160" height="65" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="90" y="205" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="90" y="221" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Program</text><line x1="10" y1="230" x2="170" y2="230" stroke="var(--line)"></line><text x="20" y="247" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-Main(args)</text><rect x="260" y="10" width="400" height="263" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ViewerWindow</text><line x1="260" y1="38" x2="660" y2="38" stroke="var(--line)"></line><text x="270" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-GpuDevice _device</text><text x="270" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SplatRenderer _renderer</text><text x="270" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-DepthSorter _sorter</text><text x="270" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SplatCloud[] _clouds</text><text x="270" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-FlyView _view</text><text x="270" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RenderOptions _options</text><text x="270" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-bool _dirty</text><text x="270" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-HashSet _held</text><text x="270" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Run()</text><text x="270" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-MoveCamera(dt)</text><text x="270" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RenderFrame()</text><text x="270" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Present()</text><text x="270" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SelectScene(index)</text><text x="270" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ProbePixel(x, y)</text><text x="270" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RunSelfCheck()</text><rect x="800" y="10" width="330" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="965" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SplatRenderer</text><rect x="800" y="52" width="330" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="965" y="71" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">DepthSorter</text><rect x="800" y="94" width="330" height="40" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="965" y="109" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="965" y="125" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PixelProbe</text><rect x="800" y="148" width="330" height="65" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="965" y="163" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="965" y="179" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SelfCheck</text><line x1="800" y1="188" x2="1130" y2="188" stroke="var(--line)"></line><text x="810" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Run(renderer, summary) IReadOnlyList</text><rect x="800" y="225" width="330" height="40" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="965" y="240" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="965" y="256" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PlyFormat</text><rect x="800" y="277" width="330" height="40" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="965" y="292" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="965" y="308" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SyntheticScenes</text><path d="M180.67720271255078 98.09172744857209 L260 110.41891891891892" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M170 96.43243243243244 L179.87567184965218 103.24940430548482 L181.47873357544938 92.93405059165936 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><path stroke-dasharray="5 4" d="M170 204.98648648648648 L258.04626888617594 185.71149248708042" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M660 50 L798 24" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M660 90 L798 66" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M660 130 L798 114" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M660 170 L798 180.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M660 210 L798 245" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M660 250 L798 297" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<h3 id="s23">1フレームの流れ — 何か変わったフレームだけ描く</h3>
+<svg viewBox="0 0 830 658" role="img" aria-label="1フレームの流れ(何か変わったフレームだけ描く)。Application.DoEvents でキー・マウスが届く(設定やカメラを変え、描き直しの印を立てる)。MoveCamera で、押されたままの WASD / QE で動かす(動いたら描き直しの印)。描き直しの印が立っているか。いいえなら描かずに Sleep へ。はいなら、DepthSorter.Sort(CPU)で奥行きを 16 ビットに丸めて計数ソート、SplatRenderer.Render(GPU)で並べた順を送って四角形 4 頂点 x 楕円体の数を描き、glFinish して読み戻し(RGBA の float を、空を重ねて 32 ビットの色に)、Present で LockBits で写して HUD を重ねて DrawImage、次までの間隔を max(1/60 秒, GPU の時間 x 2)にして Sleep。Sleep のあとは先頭の DoEvents に戻る" style="width:100%;max-width:830px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="8" width="480" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Application.DoEvents</text><text x="490" y="45.5" text-anchor="middle" fill="var(--ink)">キー・マウスが届く</text><text x="490" y="62.5" text-anchor="middle" fill="var(--ink)">(設定やカメラを変え、描き直しの印を立てる)</text><rect x="250" y="103" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="123.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">MoveCamera</text><text x="490" y="140.5" text-anchor="middle" fill="var(--ink)">押されたままの WASD / QE で動かす(動いたら描き直しの印)</text><rect x="250" y="181" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="201.5" text-anchor="middle" fill="var(--ink)">描き直しの印が立っている?</text><rect x="250" y="242" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="262.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">DepthSorter.Sort(CPU)</text><text x="490" y="279.5" text-anchor="middle" fill="var(--ink)">奥行きを 16 ビットに丸めて計数ソート</text><rect x="250" y="320" width="480" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="340.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SplatRenderer.Render(GPU)</text><text x="490" y="357.5" text-anchor="middle" fill="var(--ink)">並べた順を送る → 四角形 4 頂点 x 楕円体の数</text><rect x="250" y="398" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="418.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">glFinish → 読み戻し</text><text x="490" y="435.5" text-anchor="middle" fill="var(--ink)">RGBA の float → 空を重ねて 32 ビットの色</text><rect x="250" y="476" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="496.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Present</text><text x="490" y="513.5" text-anchor="middle" fill="var(--ink)">LockBits で写す → HUD を重ねる → DrawImage</text><rect x="250" y="554" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="574.5" text-anchor="middle" fill="var(--ink)">次までの間隔 = max(1/60 秒, GPU の時間 x 2)</text><rect x="250" y="615" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="635.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Sleep</text><path d="M490 75 L490 101" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 153 L490 179" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 292 L490 318" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 370 L490 396" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 448 L490 474" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 526 L490 552" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 587 L490 613" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M490 214 L490 240" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="498" y="231" fill="var(--muted)" font-size="12">はい</text><path d="M730 197.5 L790 197.5 L790 631.5 L732 631.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="738" y="191.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M250 631.5 L190 631.5 L190 41.5 L248 41.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p>Day 59〜61 の窓と同じ「自前のループ + LockBits で転送」。違いは2つ。</p>
+<ul><li><strong>何も変わらないフレームは描き直さない</strong>。止まっている絵を毎フレーム描いても同じ絵が出るだけで、GPU を無駄に回す</li><li><strong>GPU の時間の2倍は休む</strong>。学習済みのシーンを「重なりの数」で見ると1枚 40ms 近くかかり、休まずに歩き回ると GPU が全開に張り付く。電源の細い機械はそれで落ちる(「検証の途中で分かったこと」の1)。そのぶん重い表示では 12fps 程度に落ちるが、見るための表示なので割り切った</li></ul>
+<h3 id="s24">楕円体1個が画素になるまで</h3>
+<svg viewBox="0 0 930 718" role="img" aria-label="楕円体1個が画素になるまで。uOrder[gl_InstanceID] で、何番目に描くかからどの楕円体かを知る。カメラから見た z が 0.2 より手前なら、4 隅をクリップの外へ置いて三角形ごと捨てる。そうでなければ、J を作る(x/z・y/z は画角の 1.3 倍で止める)。Σ' = T Σ Tᵀ を作り、対角に 0.3 を足す。det が 0 以下なら、4 隅をクリップの外へ置いて捨てる。そうでなければ、逆行列(Conic)と半径 3σ を作り、球面調和で色を決め、gl_VertexID の隅へ、中心 ± 半径 画素に置く。画素シェーダで α = min(0.99, 不透明度 x exp(power))。α が 1/255 未満なら discard。そうでなければ、(色 x α, α) を出す(ブレンドは One, OneMinusSrcAlpha)" style="width:100%;max-width:930px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="40" y="8" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uOrder[gl_InstanceID]</text><text x="240" y="45.5" text-anchor="middle" fill="var(--ink)">何番目に描くか → どの楕円体か</text><rect x="40" y="84" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="104.5" text-anchor="middle" fill="var(--ink)">カメラから見た z が</text><text x="240" y="121.5" text-anchor="middle" fill="var(--ink)">0.2 より手前?</text><rect x="560" y="84" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="104.5" text-anchor="middle" fill="var(--ink)">4 隅をクリップの外へ</text><text x="725" y="121.5" text-anchor="middle" fill="var(--ink)">(三角形ごと捨てられる)</text><rect x="40" y="160" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="180.5" text-anchor="middle" fill="var(--ink)">J を作る</text><text x="240" y="197.5" text-anchor="middle" fill="var(--ink)">x/z・y/z は画角の 1.3 倍で止める</text><rect x="40" y="236" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="256.5" text-anchor="middle" fill="var(--ink)">Σ' = T Σ Tᵀ</text><text x="240" y="273.5" text-anchor="middle" fill="var(--ink)">対角に 0.3 を足す</text><rect x="40" y="312" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="332.5" text-anchor="middle" fill="var(--ink)">det が 0 以下?</text><rect x="40" y="371" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="391.5" text-anchor="middle" fill="var(--ink)">逆行列(Conic)・半径 3σ</text><text x="240" y="408.5" text-anchor="middle" fill="var(--ink)">球面調和で色</text><rect x="40" y="447" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="467.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">gl_VertexID の隅へ</text><text x="240" y="484.5" text-anchor="middle" fill="var(--ink)">中心 ± 半径 画素</text><rect x="40" y="523" width="400" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="543.5" text-anchor="middle" fill="var(--ink)">画素シェーダ</text><text x="240" y="560.5" text-anchor="middle" fill="var(--ink)">α = min(0.99, 不透明度 x exp(power))</text><rect x="40" y="599" width="400" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="240" y="619.5" text-anchor="middle" fill="var(--ink)">α が 1/255 未満?</text><rect x="560" y="595.5" width="330" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="725" y="616" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">discard</text><rect x="40" y="658" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="678.5" text-anchor="middle" fill="var(--ink)">(色 x α, α) を出す</text><text x="240" y="695.5" text-anchor="middle" fill="var(--ink)">ブレンド One, OneMinusSrcAlpha</text><path d="M240 58 L240 82" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M240 210 L240 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M240 286 L240 310" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M240 421 L240 445" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M240 497 L240 521" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M240 573 L240 597" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M240 134 L240 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="248" y="151" fill="var(--muted)" font-size="12">いいえ</text><path d="M240 345 L240 369" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="248" y="362" fill="var(--muted)" font-size="12">いいえ</text><path d="M240 632 L240 656" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="248" y="649" fill="var(--muted)" font-size="12">いいえ</text><path d="M440 109 L558 109" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="448" y="103" fill="var(--muted)" font-size="12">はい</text><path d="M440 328.5 L725 328.5 L725 136" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="448" y="322.5" fill="var(--muted)" font-size="12">はい</text><path d="M440 615.5 L558 615.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="448" y="609.5" fill="var(--muted)" font-size="12">はい</text></g></svg>
+<p>頂点属性は1つも使わない。四角形の4隅は <code>gl_VertexID</code>(0〜3、TriangleStrip)、どの楕円体かは <code>gl_InstanceID</code> から決め、データは全部 SSBO から読む。<strong>1回の <code>glDrawArraysInstanced(4 頂点 x 楕円体の数)</code> で全部が出る</strong>。</p>
+<p><strong>頂点シェーダが同じ計算を4回やっている</strong>(4隅それぞれで J・Σ'・球面調和を計算し直す)のが今日の形の無駄。元論文の実装は、楕円体ごとの前処理(写す・色を決める)を1回だけ別の段でやってから描く。直すなら前処理をコンピュートシェーダにし、結果をバッファに書いておく。</p>
+<h3 id="s25">今日残した歪み(3つ)</h3>
+<p><strong>1. 並べ替えが CPU で、描くのと同じスレッド</strong>。74 万個で 8ms、描くより時間を食うことがある。antimatter15/splat は別スレッド(Web Worker)で並べ、並べ終わった順を次のフレームで使う(1フレーム遅れる代わりに止まらない)。GPU に移すのが本筋で、改造課題3。</p>
+<p><strong>2. <code>SplatRenderer</code> が「描く」と「読み戻して窓の色にする」を両方持っている</strong>。重なりの数の色づけ(<code>ResolveOverdraw</code>)も中にある。窓を WinForms にしている今日の都合で、GL の窓に直接描くなら読み戻しごと消える。</p>
+<p><strong>3. <code>PlyFormat</code> が最初の立ち位置の見当(<code>GuessView</code>)を持っている</strong>。読むことと、カメラをどこに置くかは別の話。撮影したカメラの位置(元論文の実装が学習の出力に置く <code>cameras.json</code>)を読めるようにするなら、そちらへ出す。</p>
+</section>
+<section class="part"><h2 id="s26">完成条件</h2>
+<p><code>dotnet run --project reference/Day67 -c Release</code> で起動する。960x540 の窓が開き、左上に HUD が出る。<strong>時間の数字(描画・読み戻し・並べ替え)は、GPU のクロックの状態で倍近く揺れる</strong>。下の値は RTX 3070 での目安。</p>
+<h3 id="s27">1. 起動: 場面1「楕円体3つ」</h3>
+<p>暗い灰色の背景に、<strong>赤(斜めに長い)・緑(縦に長い)・青(平たい)の大きな楕円体が、ぼやけて重なって</strong>見える。縁ははっきりせず、中心から外へなめらかに薄くなる。</p>
+<div class="code"><pre><code>場面 1/4: 楕円体3つ   楕円体 3 個(カメラの前 3)   作成 3 ms
+並べ替え 毎フレーム (O) 0.1 ms   描画 0.36 ms(GPU)   読み戻し 4.7 ms   960x540
+表示 ふつう (V)   球面調和の次数 0(この場面は 0 だけ) (M)   0.3 の広げ ON (F)   大きさ x1.00 ([ ])
+位置 (0.00, 0.00, 4.00)   向き 0 度 / 0 度   速さ 1.50 m/秒(ホイール、Shift で 4 倍)   上 +Y</code></pre></div>
+<ul><li>青が赤と緑の手前に、緑が赤の奥にある(青の中心が z = 0.5 でいちばん近い)</li><li><strong>右クリック</strong>すると、その画素に掛かっている楕円体が手前から並ぶ。たとえば青と緑の重なるところで<code>四角形が掛かっていた 3 個 … 色を足した 2 個 … 最後まで重ねても残りの透明度は 0.3577(空が透ける)</code> のように出て、<code>手前から 1 … 濃さ α 0.532 … 届いた割合 T 1.0000</code> <code>2 … 0.237 … 0.4685</code> と、<strong>T が α の分だけ減っていく</strong>のが読める(要点3)</li></ul>
+<h3 id="s28">2. <code>V</code>: 表示を回す</h3>
+<ul><li><strong>中心の点</strong> … 3つの小さな点だけになる。<strong>楕円体の「位置」だけを見ると点群</strong></li><li><strong>くっきりした楕円(2σ、ぼかし無し)</strong> … 3つの楕円が縁のくっきりした板になる。青が手前、緑が奥</li><li><strong>楕円の輪郭(2σ)</strong> … 3本の楕円の線</li><li><strong>重なりの数</strong> … 3つの楕円を包む<strong>正方形</strong>が見え、重なったところほど色が変わる。HUD に <code>1画素あたり平均 2.3 回 / 最大 3 回</code>。<strong>GPU は楕円ではなく、それを包む正方形の全部で画素シェーダを走らせている</strong></li></ul>
+<p>もう1回押すと、ふつうに戻る。</p>
+<h3 id="s29">3. 回り込む、そして <code>O</code></h3>
+<p>WASD とマウスで3つの楕円体の周りを回る(左ドラッグで右を向き、<code>A</code> で左へ動く、を繰り返すと周りを回れる)。</p>
+<ul><li>回り込むと、<strong>どの色が手前に来るかがある角度でぱっと入れ替わる</strong>(中心の奥行きの順が入れ替わった瞬間。要点3の popping)</li><li><code>O</code> で <strong>止めた</strong> にしてから、反対側まで回り込む → <strong>奥にあるはずの色が手前に乗った</strong>ままの絵になる。<code>O</code> を2回押して毎フレームに戻すと直る</li><li><code>O</code> で <strong>しない(ファイルの順)</strong> … 正面からでも、赤・緑・青の順(ファイルの順)に重なる。正しい絵と 2.6 万画素(5%)違う</li></ul>
+<h3 id="s30">4. <code>2</code>: 場面2「円板で覆った形」</h3>
+<p>水色の空の下に、白と紺の市松の床、オレンジのトーラス、青緑の球。<strong>光の当たり方で明るさが変わっているが、描くときには光の計算を1つもしていない</strong>(色に焼き込んである)。</p>
+<div class="code"><pre><code>場面 2/4: 円板で覆った形   楕円体 274,935 個(カメラの前 206,435)   作成 51 ms
+並べ替え 毎フレーム (O) 2.6 ms   描画 1〜8 ms(GPU)   読み戻し 5 ms</code></pre></div>
+<ul><li><strong><code>[</code> を5回ほど押して大きさを 0.3 倍</strong>にする → 床・トーラス・球が<strong>細かい点の網</strong>になり、空が透けて見える。27 万枚の平たい楕円体を敷き詰めて面に見せていたことが分かる。<code>]</code> で戻す</li><li><code>V</code> で<strong>中心の点</strong> → 同じく点の網。床の奥ほど点が詰まって見える</li><li><code>V</code> を2回(<strong>楕円の輪郭</strong>) → 近くの床に、少しずつ重なり合う楕円が並ぶ</li><li><code>V</code> で<strong>重なりの数</strong> → 床は緑〜黄(数十回)、トーラスの縁が黄。<code>1画素あたり平均 47 回 / 最大 342 回</code>。<strong>遠くの床ほど楕円体が詰まっていて、重なりの数が増える</strong></li><li><strong><code>F</code> で 0.3 の広げを切る</strong> → <strong>地平線の近くの市松がギザギザ</strong>になり、床の奥の縁が細くなる(画素の 12% が変わる。要点4)。カメラを少し動かすと、奥がちらつく</li></ul>
+<h3 id="s31">5. <code>3</code>: 場面3「見る向きで色が変わる」</h3>
+<p>暗い背景に、灰色の床と、赤・緑・青の球。<strong>赤い球に白いハイライト、緑の球に淡いハイライト、青の球にはほとんど無い</strong>(左から山が鋭くなり、次数 3 で表せなくなる。要点5)。</p>
+<ul><li><strong><code>A</code> / <code>D</code> で左右に動く</strong>と、<strong>ハイライトが球の上を滑るように動く</strong>。ハイライトは面に貼り付いておらず、見る向きで決まっている</li><li><code>M</code> を押して次数を <strong>0</strong> にする → ハイライトが全部消え、つや消しの球になる(画素の 8% が変わる)。<strong><code>M</code> を 1・2・3 と押していくと、ハイライトが少しずつ戻る</strong></li><li>床は次数 0 の係数しか持っていないので、<code>M</code> で何も変わらない</li></ul>
+<h3 id="s32">6. <code>4</code>: 場面4「学習済みのシーン」</h3>
+<p><code>assets/splats/</code> に <code>train-7000.ply</code> を置いてから <code>4</code> を押す(読み込みに 0.5〜2 秒)。無ければ下の欄に「.ply が見つからない」と入手の手順が出る。</p>
+<div class="code"><pre><code>場面 4/4: train-7000.ply   楕円体 741,883 個(カメラの前 629,613)   読み込み 470 ms
+並べ替え 毎フレーム (O) 8 ms   描画 6〜11 ms(GPU)   読み戻し 5 ms
+表示 ふつう (V)   球面調和の次数 3 / 3 (M)   0.3 の広げ ON (F)   大きさ x1.00 ([ ])</code></pre></div>
+<p><strong>緑に錆の浮いた機関車(Western Pacific)の側面</strong>が目の前にあり、上に青空と木、下に砂利と線路。写真と見分けがつかない。</p>
+<ul><li><strong><code>D</code> で右へ、左ドラッグで左を向く</strong>を繰り返して機関車の斜め前に回ると、<strong>「713」の番号と「WESTERN PACIFIC」の文字、手前の赤いコーン</strong>が見える(斜めの視点の例: 位置 (2.5, −0.8, −2.5)、向き −45 度。HUD の「位置」で確かめられる)</li><li><strong><code>S</code> で後ろへ下がり続ける</strong>と、画面の手前に<strong>青白いもやや、汚れのような大きな楕円体</strong>が出てくる(浮いたゴミ。要点7)</li><li><code>Q</code> / <code>E</code> で上下に大きく動く、機関車の反対側へ回り込む → 絵が崩れる。<strong>撮影したカメラが通らなかった場所</strong></li><li><code>V</code> で <strong>中心の点</strong> → 機関車が色の付いた点群になり、空は点がまばら(空の遠くは少数の大きな楕円体で塗っている)</li><li><code>V</code> で <strong>くっきりした楕円</strong> → 絵の具を塗り重ねた絵のようになり、<strong>空に大きな楕円の縁が何重にも見える</strong>。機関車の車体でさえ、平たい楕円体の寄せ集め</li><li><strong>右クリック</strong>で機関車の車体を調べる → <code>四角形が掛かっていた</code> が数百〜千、<code>色を足した</code> が百数十、<code>手前から N 個目で残りの透明度が 0.0001 を切る</code> が出る(斜めの視点の画面の真ん中で 1,031 / 171 / 157。要点8。74 万個を CPU で全部写すので、1回に 0.1 秒ほどかかる)</li><li><code>M</code> で次数を 0 にする → <strong>ほとんど変わらない</strong>。画素の 75% が変わるが、平均 3 目盛り(1%)ほどで、車体の明暗がわずかに平らになるだけ。<strong>学習済みのシーンの色の大半は0番の係数(向きによらない色)が持っていて</strong>、1〜15 番(48 個の float の 45 個)は、映り込みの細かい差を持っているだけ。場面3のように、つやの強い物が大きく写っていないと効きが見えない</li><li><strong><code>V</code> で重なりの数</strong>にすると、1枚に 30〜40ms かかり、動かすとカクカクする(GPU を休ませるため。1フレームの流れを参照)。見終わったら、ふつうの表示に戻しておく</li></ul>
+<p><strong>逆さまに見えたら <code>U</code></strong> で上を裏返す(このシーンは −Y が上で、読み込んだ直後から正しい向き)。</p>
+<h3 id="s33">7. <code>C</code>: 自己チェック(11 項目すべて合格)</h3>
+<div class="code"><pre><code>自己チェック: 11 項目中 11 項目 OK
+OK  1. 3D の共分散 Σ = R S Sᵀ Rᵀ
+        σ (1, 2, 3) 回さない: 対角 (1.000, 4.000, 9.000)(期待 1, 4, 9) / z まわりに 90 度: 対角 (4.000, 1.000, 9.000)(期待 4, 1, 9)
+        好きな回転 1000 通り: 回した軸 a が Σa = σ²a を満たす。ずれの最大 5.7E-007
+OK  2. 楕円体を画面へ写す(真ん中の球)
+        距離 5m・σ 0.1m・焦点距離 579.0 画素: 画面の σ (11.580, 11.580) 画素(期待 11.580)、xy 0.0E+000
+        0.3 の広げ: 対角が 0.3000 増える / 半径 35 画素(3σ の切り上げ) / カメラの後ろは描かない: はい
+OK  3. ヤコビアンの近似(写した点が、近似の 2σ の楕円に入る割合。本物のガウスなら 86.5%)
+        σ 0.05m・距離 3m: 真ん中 86.4% / 画面の端 86.3%
+        σ 0.5m・距離 2m: 真ん中 81.9% / 画面の端 82.6%(カメラに対して大きい楕円体ほど外れる)
+OK  4. 逆行列・半径・濃さ(画面で σ (2.9, 1) 画素の楕円)
+        Σ' Σ'⁻¹ = (1.0000, 0.0000; 0.0000, 1.0000) / 半径 9 画素(期待 9)
+        濃さ(不透明度 1): 中心 0.990(0.99 で頭打ち) / 長い軸の 3σ 0.0111(期待 exp(-4.5) = 0.0111)
+OK  5. 球面調和の基底(16 個)が正規直交か(球面で数値積分)
+        ∫ Y_k² のずれの最大 7.2E-005(期待 0) / ∫ Y_j Y_k(j ≠ k)の最大 4.7E-005(期待 0)
+OK  6. 次数 3 で山を近似する(帯調和の回転の式)
+        指数  4: 山の頂 0.854(期待 1) / 差の2乗平均 0.0395 / いちばん低いところ -0.083
+        指数 16: 山の頂 0.382(期待 1) / 差の2乗平均 0.0766 / いちばん低いところ -0.076
+        指数 64: 山の頂 0.116(期待 1) / 差の2乗平均 0.0550 / いちばん低いところ -0.027
+OK  7. .ply に書いて読み直す(場面3、次数 3)
+        64,386 個・次数 3・15.2 MB(1個あたり 248.0 バイト)
+        ずれの最大: 位置 0.0E+000 / 大きさ(比) 1.9E-007 / 回転 1.2E-007 / 不透明度 0.0E+000 / 係数 0.0E+000
+OK  8. 奥から並べる(計数ソート、場面2)
+        274,935 個: 重複 0 / 丸めの幅(0.30 mm)を超えて逆に並んだ所 0
+        計数ソート 2.4 ms / Array.Sort 36.1 ms(同じ奥行きの配列を並べた場合)
+OK  9. GPU の絵と、CPU で重ね直した色(35 画素 x 2 場面)
+        場面1「楕円体3つ」: 35 画素の色の差の最大 9.1E-006
+        場面3「見る向きで色が変わる」: 35 画素の色の差の最大 5.1E-005
+OK  10. シェーダの uniform
+        12 個とも見つかった
+OK  11. 並べる向きで絵が変わる(場面1、奥から / 手前から)
+        3 目盛りより大きく色が変わった画素 83,495(16.1%)
+        手前から「over」で重ねると、奥の楕円体が手前の上に乗る</code></pre></div>
+<p>1〜8 は CPU だけ、9〜11 は GPU で描いて読み戻す(1秒ほどかかる。終わったあと、いまの場面を GPU へ送り直す)。</p>
+<p>いちばん値打ちがあるのは <strong>5 と 9</strong>。5 は球面調和の定数・符号を1つ写し間違えると落ちる(学習済みのシーンは色がおかしくなるだけで、それらしく見えてしまう)。9 は <code>splat.vert</code> / <code>splat.frag</code> と C# の式を突き合わせている——シェーダの式を1か所変えると、ここが落ちる。</p>
+<h3 id="s34">8. その他</h3>
+<ul><li><strong>ホイール</strong>で動く速さが 1.25 倍ずつ変わる。<strong>Shift</strong> を押している間は 4 倍</li><li><strong><code>R</code></strong> で最初の位置に戻る</li><li><strong><code>P</code></strong>: <code>PNG を保存した</code> と保存先(<code>reference/Day67/bin/Release/net10.0-windows/captures/day67-scene….png</code>)。HUD は写らない</li><li><strong><code>H</code></strong>: 文字が全部消える</li><li>起動の引数に .ply のパスを渡すと、場面4でそれを読む(<code>dotnet run --project reference/Day67 -c Release -- D:\どこか\point_cloud.ply</code>)</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー(ビューア)</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>1</code>(場面1)・<code>V</code>・<code>O</code>・<code>F</code>・<code>[</code> <code>]</code>・右クリック</td><td>「場面1「楕円体3つ」を動かす」の表示・並べ替え・0.3 の広げ・大きさ・図のクリック</td><td>重なり 平均 2.30 / 最大 3、ファイルの順 26,029 画素、手前から 83,500 画素(GPU の自己チェック11 は 83,495)、右クリックの 3 個 / 2 個 / 0.3577(画素 (600, 312))</td></tr>
+<tr><td>左ドラッグ・<code>A</code> <code>D</code>(回り込む)</td><td>「回り込む角度」</td><td>中心の奥行きの順が入れ替わる角度で、重なりがぱっと変わる(popping)。<code>O</code> の「止める」で止めてから回すと崩れる</td></tr>
+<tr><td><code>C</code>(自己チェック 3)</td><td>「近似はどれだけ外れるか」の4つのボタン</td><td>86.4% / 86.3% / 81.9% / 82.6%</td></tr>
+<tr><td><code>C</code>(自己チェック 6)・<code>3</code>・<code>M</code></td><td>「次数 3 で山を近似する」の3通りの鋭さと次数</td><td>頂 0.854 / 0.382 / 0.116。場面3の画素の 8% が <code>M</code> で変わる数字は、このページでは描かない</td></tr>
+<tr><td><code>2</code>・<code>F</code>(場面2で広げを切る)</td><td>「0.3 の広げ」</td><td>画素より細い楕円(σ が √0.3 ≒ 0.55 画素より小さい)の濃さが、広げで下がるのではなく、中心のずれによらず出るようになる。場面2の 12%(6.4 万画素)は、このページでは描かない</td></tr>
+<tr><td><code>4</code>(場面4)・右クリック</td><td>「手前から重ねると、何個目で打ち切れるか」</td><td>濃さがそろっているときの打ち切りの個数の計算だけ(813 / 156 / 122 は .ply が要るので、このページでは再現しない)</td></tr>
+<tr><td><code>W</code> <code>A</code> <code>S</code> <code>D</code> <code>Q</code> <code>E</code>・<code>U</code>・<code>R</code>・<code>P</code>・<code>X</code>・<code>H</code>・<code>C</code>(自己チェック 1・2・4・5・7〜11)</td><td>(なし)</td><td>窓・GPU・.ply・ファイルが要るので、このページでは再現しない</td></tr>
+<tr><td>(キーなし)</td><td>「近似はどれだけ外れるか」のスライダー、「回り込む角度」、「手前から(逆順)」、「0.3 の広げ」の σ・位置・不透明度、「次数 3 で山を近似する」の指数、「打ち切り」の濃さと個数</td><td>reference に無い切り替え・値。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day67 の Math/(Covariance3・FlyView・SplatProjection・SphericalHarmonics)、Compositing/(DepthSorter・PixelProbe)、Splats/SyntheticScenes の場面1を JS に移したもの。同じファイルを C# の検証用プロジェクトにそのまま取り込み、自己チェック 1〜8(GPU を使わない項目)を走らせて、計画書の値が全部一致することを確かめた(共分散のずれ 5.7E-07、真ん中の球 σ 11.580 画素・半径 35、ヤコビアン 86.4 / 86.3 / 81.9 / 82.6%、逆行列・半径 9・濃さ 0.990 / 0.0111、基底のずれ 7.2E-05 / 4.7E-05、山 0.854 / 0.382 / 0.116、.ply の往復 64,386 個・15.2 MB・1個 248.0 バイト、計数ソート 274,935 個・丸めの幅 0.30 mm)。さらに、シェーダと同じ計算(投影・濃さ・奥から重ねる over・空を重ねて 8 ビット)を CPU で 960x540 の全画素に回して、完成条件の画素の数(場面1 のファイルの順 26,029 画素・手前から 83,500 画素・重なり 平均 2.30 / 最大 3、場面2 のファイルの順 37,692 画素・広げを切ると 63,835 画素・重なり 平均 47.35 / 最大 342、場面3 の次数 0 で 42,455 画素)と、右クリックの例(画素 (600, 312) で 3 個 / 2 個 / α 0.5315 / 0.2365 / T 0.4685 / 0.3577)を確かめた。ページの JS の場面1の数字も、同じ画素の数で一致する。計数ソートの時間は C# の検証で測り直した(場面2 で 2.4 ms は一致、Array.Sort は計画書の 36.1 ms が 39.7 ms。時間は環境で揺れる)。GPU の時間・読み戻しの時間・自己チェック 9〜11 の GPU 側(35 画素の色の差 9.1E-06 / 5.1E-05、3 目盛りより大きく変わった画素 83,495)・学習済みのシーンの数字(741,883 個・平均 813 / 156 / 122・右クリックの 1,031 / 171 / 157・画素の 75% が <code>M</code> で変わる)は、手元の RTX 3070 と 184MB の .ply が要るので、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s35">検証の途中で分かったこと</h2>
+<p><strong>1. 検証の途中で、開発機が落ちた</strong>。窓なしのハーネスで、機関車のシーン(74 万個)を「重なりの数」表示(1枚 37ms の全開描画)で数枚、続けてふつうの表示で数枚描いたところで電源が落ちた(Kernel-Power 41、BugcheckCode 0。これまでと同じハードの電源断)。それで窓のループに<strong>「GPU の時間の2倍は休む」</strong>を入れ、重い表示の数字(要点8の 813 / 156 / 122)は <strong>GPU を使わずに CPU で数え直した</strong>。学習済みのシーンは、並みのゲームより GPU を重く使う(画素あたり数百回の画素シェーダ)。電源に不安がある機械では、重なりの数の表示で歩き回らないこと。</p>
+<p><strong>2. 「不透明な楕円」表示が、学習済みのシーンでは真っ黒な円だけになった</strong>。最初は 2σ の内側を不透明度 1 で塗っていた。場面1では楕円体の形がよく見えたが、機関車では<strong>カメラの近くの大きくて薄い楕円体(不透明度 0.01 ほど)</strong>が画面を丸ごと覆い、何も見えなかった。不透明度は元のままにして、ぼかしだけを外す「くっきりした楕円」に変えた。学習済みのシーンには、見えない(薄い)大きな楕円体がたくさんある、という発見でもある。</p>
+<p><strong>3. ヤコビアンの近似を「写した点の共分散」で測ったら、58% 外れていると出た</strong>。自己チェック3の最初の版。σ 0.5m の楕円体を 2m 先に置いて点をばらまくと、数個の点がカメラのすぐ近く(z が 0 に近い)へ来て、z で割ると画面のはるか遠くへ飛ぶ。分散はそういう点に振り回される。「近似の 2σ の楕円に入る割合」に変えると、飛んだ点は「外」と数えられるだけになり、81.9% という落ち着いた数字になった。</p>
+<p><strong>4. 半径が 9 ではなく 10 になった</strong>。自己チェック4で、画面で σ がちょうど 3 画素の楕円を作ると、<code>3 × √9</code> が浮動小数の誤差で 9.0000005 になり、切り上げで 10 になった。σ を 2.9 画素にして(3σ = 8.7 → 9)確かめている。GPU でも同じことが起きていて、ちょうどの値の近くでは四角形が1画素大きくなるが、害は無い(外側は濃さが 1/255 未満で捨てられる)。</p>
+<p><strong>5. 最初の立ち位置を見当で決めたら、霧の中に立った</strong>。楕円体の位置の真ん中の半分(25%〜75%)の広がりを「シーンの大きさ」として、その 1.5 倍だけ引いたところに立たせたら、画面が青白いもやと黒い汚れで埋まった。撮影したカメラの輪より外側に出て、浮いたゴミ(要点7)の中に立っていた。0.6 倍に縮めて、機関車の側面が見えるようにした。<strong>.ply には撮影したカメラの位置が入っていない</strong>ので、ほかのシーンではまた外れうる。</p>
+<p><strong>6. 読み戻しの時間に、描く時間が混ざっていた</strong>。最初は <code>glReadPixels</code> の直前から時間を測っていて、機関車で「読み戻し 14ms」と出た。<code>glReadPixels</code> は GPU が描き終わるのを待つので、描く 8ms が入っていた。直前に <code>glFinish</code> を置いて分けると 5ms。</p>
+</section>
+<section class="part"><h2 id="s36">改造課題</h2>
+<h3 id="s37">課題1(易): 楕円に沿った長方形にする</h3>
+<p>今日の四角形は、楕円を包む<strong>正方形</strong>(辺は長い軸の 3σ の2倍)。細長い楕円体では、正方形のほとんどが楕円の外で、画素シェーダが空回りする。</p>
+<ol><li><code>splat.vert</code> で Σ' の2つの固有ベクトル(長い軸・短い軸の向き)を求める。長い軸は <code>(b, λ1 − a)</code> を正規化したもの(b が 0 に近いときは x 軸)</li><li>4隅を <code>中心 ± 3√λ1 × 長い軸 ± 3√λ2 × 短い軸</code> に置き、<code>vOffset</code> もその位置のずれにする</li><li>場面2で <code>V</code> を重なりの数にして、<code>1画素あたり平均</code> が 47 回からどれだけ減るかを見る。自己チェック9(GPU と CPU の突き合わせ)は通るか。通らないなら、<code>PixelProbe</code> の「四角形が掛かっているか」の判定を直す</li></ol>
+<p>antimatter15/splat はこの形にしている。平たい楕円体の多い学習済みのシーンほど効く。</p>
+<h3 id="s38">課題2(中): 手前から重ねる</h3>
+<p>要点3の「手前から」の式を、GPU のブレンドで書く。</p>
+<ol><li><code>DepthSorter</code> の順を逆に(手前から)使う</li><li>ブレンドを <code>glBlendFunc(GL_ONE_MINUS_DST_ALPHA, GL_ONE)</code> にする(「under」。今までに溜まった不透明さの残りの分だけ、新しい色を足す)</li><li>場面1・2・4 で、<strong>奥から重ねた絵と画素が一致する</strong>ことを確かめる(自己チェック11 を書き換えて、差の画素が 0 に近いことを見る)</li><li>手前から重ねると、画素シェーダの中で「もう埋まった画素は捨てる」ができそうに見える。<strong>なぜ今日の形ではできないか</strong>を考える(ヒント: 画素シェーダはフレームバッファの今の値を読めない。読めたとしても、<code>discard</code> しても画素シェーダは走っている。要点8の (a) が共有メモリで画素ごとの T を持つ理由)</li></ol>
+<h3 id="s39">課題3(難): 並べ替えを GPU に移す</h3>
+<p>74 万個の並べ替え(CPU 8ms)を、Day 57 のコンピュートシェーダで GPU に移す。</p>
+<ol><li><strong>奥行きの鍵を作る</strong>コンピュートシェーダ: 楕円体ごとに奥行きを 16 ビットに丸めて、鍵のバッファに書く。最小と最大は、前のフレームの値か、場面の大きさから決めてよい</li><li><strong>数える</strong>: 鍵ごとの個数を <code>atomicAdd</code> で 65536 個の箱に数える</li><li><strong>累積和</strong>: 65536 個の箱の累積和(ワークグループ1つで、共有メモリを使って段々に足す。Day 57 の共有メモリの節)</li><li><strong>置く</strong>: 楕円体ごとに <code>atomicAdd(書き込み位置[鍵], 1)</code> で場所をもらい、並べた順のバッファへ書く。<strong>同じ鍵の中の順は毎回変わる</strong>が、同じ奥行きなので絵はほとんど変わらない</li><li>並べた順のバッファを、そのまま <code>splat.vert</code> の binding 2 に挿す(CPU へ読み戻さない。<code>BufferSubData</code> が要らなくなる)</li><li>HUD の「並べ替え」を GPU のタイマーで測り、CPU の 8ms と比べる</li></ol>
+<p>元論文の実装は、ここでさらに (タイル, 奥行き) の 64 ビットの鍵を基数ソート(8 ビットずつ 8 回)で並べている。1〜4 を 8 ビットずつに分けて繰り返すと、その入り口になる。</p>
+</section>
+<footer class="end">Day 67 3D Gaussian Splatting 簡易ビューア(面の無い絵を、楕円体の重ね塗りで作る) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day67 の Math/(共分散・投影・球面調和・カメラ)と Compositing/(並べ替え・1画素の重ね直し)、
+// Splats/SyntheticScenes の場面1を JS に移したもの(GPU は使わない)。式・定数・順番は C# と同じ。
+// 計算は double(C# は float)。画素ごとの濃さは同じ式なので、数えた画素の数は C# の CPU 版と数画素以内で一致する。
+const GS = (() => {
+const C0 = 0.28209479177387814, C1 = 0.4886025119029199;
+const C2 = [1.0925484305920792, -1.0925484305920792, 0.31539156525252005, -1.0925484305920792, 0.5462742152960396];
+const C3 = [-0.5900435899266435, 2.890611442640554, -0.4570457994644658, 0.3731763325901154, -0.4570457994644658, 1.445305721320277, -0.5900435899266435];
+const DILATION = 0.3, MIN_ALPHA = 1 / 255, FRUSTUM_LIMIT = 1.3, NEAR = 0.2;
+const f32 = Math.fround;
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const normalize = (a) => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+const scale = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const addv = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
+// .NET の Random(seed)(Net5CompatSeedImpl)。ヤコビアンの実験台が、自己チェック3と同じ点をばらまくのに使う
+class NetRandom {
+  constructor(seed) {
+    const MBIG = 2147483647, MSEED = 161803398;
+    this.s = new Int32Array(56);
+    let mj = MSEED - Math.abs(seed);
+    this.s[55] = mj;
+    let mk = 1, ii = 0;
+    for (let i = 1; i < 55; i++) {
+      ii += 21; if (ii >= 55) ii -= 55;
+      this.s[ii] = mk;
+      mk = mj - mk; if (mk < 0) mk += MBIG;
+      mj = this.s[ii];
+    }
+    for (let k = 1; k < 5; k++) {
+      for (let i = 1; i < 56; i++) {
+        let n = i + 30; if (n >= 55) n -= 55;
+        this.s[i] -= this.s[1 + n]; if (this.s[i] < 0) this.s[i] += MBIG;
+      }
+    }
+    this.inext = 0; this.inextp = 21;
+  }
+  nextDouble() {
+    let a = this.inext + 1; if (a >= 56) a = 1;
+    let b = this.inextp + 1; if (b >= 56) b = 1;
+    let r = this.s[a] - this.s[b];
+    if (r === 2147483647) r--;
+    if (r < 0) r += 2147483647;
+    this.s[a] = r; this.inext = a; this.inextp = b;
+    return r * (1.0 / 2147483647);
+  }
+}
+// 標準正規分布(Box-Muller)。SelfCheck.Gaussian と同じ
+const gaussian = (rnd) => { const u1 = 1.0 - rnd.nextDouble(), u2 = rnd.nextDouble(); return f32(Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2)); };
+
+// Covariance3.FromScaleRotation。Σ = Σ_k σ_k² a_k a_kᵀ(a_k は回転行列の k 行目)
+function covFromScaleRotation(s, q) {
+  const [x, y, z, w] = q;
+  const xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x, wy = w * y, wz = w * z;
+  const a0 = [1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)];
+  const a1 = [2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)];
+  const a2 = [2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)];
+  const s0 = s[0] * s[0], s1 = s[1] * s[1], s2 = s[2] * s[2];
+  const c = (i, j) => s0 * a0[i] * a0[j] + s1 * a1[i] * a1[j] + s2 * a2[i] * a2[j];
+  return { xx: c(0, 0), xy: c(0, 1), xz: c(0, 2), yy: c(1, 1), yz: c(1, 2), zz: c(2, 2) };
+}
+const quatAxisAngle = (axis, angle) => { const s = Math.sin(angle / 2); return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(angle / 2)]; };
+const sandwich = (c, u, v) => {
+  const sv = [c.xx * v[0] + c.xy * v[1] + c.xz * v[2], c.xy * v[0] + c.yy * v[1] + c.yz * v[2], c.xz * v[0] + c.yz * v[1] + c.zz * v[2]];
+  return dot(u, sv);
+};
+const scaledCov = (c, k) => ({ xx: c.xx * k, xy: c.xy * k, xz: c.xz * k, yy: c.yy * k, yz: c.yz * k, zz: c.zz * k });
+
+// FlyView.Axes / Frame(上は +Y)
+function cameraFrame(view, width, height, worldUp = [0, 1, 0]) {
+  const side = Math.abs(worldUp[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const f0 = normalize(cross(worldUp, side)), r0 = normalize(cross(f0, worldUp));
+  const horizontal = addv(scale(f0, Math.cos(view.yaw)), scale(r0, Math.sin(view.yaw)));
+  const forward = normalize(addv(scale(horizontal, Math.cos(view.pitch)), scale(worldUp, Math.sin(view.pitch))));
+  const right = normalize(cross(forward, worldUp)), up = cross(right, forward);
+  const tanHalfY = Math.tan(view.fov * Math.PI / 360), focal = height * 0.5 / tanHalfY, tanHalfX = tanHalfY * width / height;
+  return { position: view.position, right, up, forward, fx: focal, fy: focal, width, height, tanHalfX, tanHalfY };
+}
+const toView = (cam, p) => { const t = sub(p, cam.position); return [dot(t, cam.right), dot(t, cam.up), dot(t, cam.forward)]; };
+
+// SplatProjection.Project。カメラの後ろ・潰れた楕円は null
+function project(position, cov, cam, dilate) {
+  const t = toView(cam, position);
+  if (t[2] < NEAR) return null;
+  const z = t[2];
+  const limX = FRUSTUM_LIMIT * cam.tanHalfX, limY = FRUSTUM_LIMIT * cam.tanHalfY;
+  const tx = Math.min(Math.max(t[0] / z, -limX), limX) * z, ty = Math.min(Math.max(t[1] / z, -limY), limY) * z;
+  const row0 = addv(scale(cam.right, cam.fx / z), scale(cam.forward, -cam.fx * tx / (z * z)));
+  const row1 = addv(scale(cam.up, cam.fy / z), scale(cam.forward, -cam.fy * ty / (z * z)));
+  let a = sandwich(cov, row0, row0), b = sandwich(cov, row0, row1), c = sandwich(cov, row1, row1);
+  if (dilate) { a += DILATION; c += DILATION; }
+  const det = a * c - b * b;
+  if (det <= 0) return null;
+  const conic = [c / det, -b / det, a / det];
+  const mid = 0.5 * (a + c);
+  const lambda1 = mid + Math.sqrt(Math.max(0.1, mid * mid - det));
+  const radius = Math.ceil(3 * Math.sqrt(lambda1));
+  return { center: [cam.fx * t[0] / z, cam.fy * t[1] / z], depth: z, a, b, c, conic, radius };
+}
+// ProjectedSplat.AlphaAt
+function alphaAt(p, ox, oy, opacity) {
+  const power = -0.5 * (p.conic[0] * ox * ox + p.conic[2] * oy * oy) - p.conic[1] * ox * oy;
+  if (power > 0) return 0;
+  const alpha = Math.min(0.99, opacity * Math.exp(power));
+  return alpha < MIN_ALPHA ? 0 : alpha;
+}
+
+// 球面調和の基底(次数 3 まで)
+function shBasis(d, degree, out = new Array(16).fill(0)) {
+  const [x, y, z] = d;
+  out[0] = C0;
+  if (degree < 1) return out;
+  out[1] = -C1 * y; out[2] = C1 * z; out[3] = -C1 * x;
+  if (degree < 2) return out;
+  const xx = x * x, yy = y * y, zz = z * z, xy = x * y, yz = y * z, xz = x * z;
+  out[4] = C2[0] * xy; out[5] = C2[1] * yz; out[6] = C2[2] * (2 * zz - xx - yy); out[7] = C2[3] * xz; out[8] = C2[4] * (xx - yy);
+  if (degree < 3) return out;
+  out[9] = C3[0] * y * (3 * xx - yy); out[10] = C3[1] * xy * z; out[11] = C3[2] * y * (4 * zz - xx - yy);
+  out[12] = C3[3] * z * (2 * zz - 3 * xx - 3 * yy); out[13] = C3[4] * x * (4 * zz - xx - yy);
+  out[14] = C3[5] * z * (xx - yy); out[15] = C3[6] * x * (xx - 3 * yy);
+  return out;
+}
+const DEGREE_OF = (k) => (k < 1 ? 0 : k < 4 ? 1 : k < 9 ? 2 : 3);
+// SphericalHarmonics.ZonalLobe: f(t) = max(0, t)^n を帯調和にしたもの(l = 0〜3 の √(4π/(2l+1)) · z_l)
+function zonalLobe(exponent) {
+  const zonalBasis = (l, t) => (l === 0 ? C0 : l === 1 ? C1 * t : l === 2 ? C2[2] * (3 * t * t - 1) : C3[3] * t * (5 * t * t - 3));
+  const STEPS = 4000, out = [];
+  for (let l = 0; l <= 3; l++) {
+    let sum = 0;
+    for (let s = 0; s < STEPS; s++) { const t = -1 + (s + 0.5) * 2 / STEPS; sum += (t > 0 ? Math.pow(t, exponent) : 0) * zonalBasis(l, t); }
+    const z = 2 * Math.PI * sum * (2 / STEPS);
+    out.push(f32(Math.sqrt(4 * Math.PI / (2 * l + 1)) * z));
+  }
+  return out;
+}
+
+// 場面1(SyntheticScenes.ThreeEllipsoids)。赤は横長、緑は縦長、青は平たい
+function scene1() {
+  const defs = [
+    { name: '赤', p: [-0.6, 0, 0], s: [1.0, 0.25, 0.25], q: quatAxisAngle([0, 0, 1], 0.5), o: 0.8, c: [0.9, 0.15, 0.1] },
+    { name: '緑', p: [0.5, 0.2, -0.4], s: [0.3, 0.9, 0.3], q: quatAxisAngle([1, 0, 0], 0.35), o: 0.8, c: [0.2, 0.8, 0.25] },
+    { name: '青', p: [0.1, -0.3, 0.5], s: [0.8, 0.3, 0.6], q: quatAxisAngle([0, 1, 0], 0.8), o: 0.8, c: [0.2, 0.35, 0.95] },
+  ];
+  for (const d of defs) d.cov = covFromScaleRotation(d.s, d.q);
+  return { splats: defs, background: [0.1, 0.1, 0.12] };
+}
+
+// DepthSorter。奥行きを 16 ビットに丸めて計数ソート(安定)。Order[0] がいちばん奥
+function depthSort(positions, cam) {
+  const n = positions.length, depths = positions.map((p) => dot(sub(p, cam.position), cam.forward));
+  const mn = Math.min(...depths), mx = Math.max(...depths);
+  const sc = mx > mn ? 65535 / (mx - mn) : 0;
+  const keys = depths.map((d) => Math.min(65535, Math.floor((mx - d) * sc)));
+  const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => keys[a] - keys[b] || a - b);
+  return { order, depths, keys };
+}
+
+// 1画素を CPU で重ね直す(PixelProbe.Probe)。窓の画素 (px, py)(左上が原点)
+function probe(scene, cam, px, py, opts) {
+  const pixel = [px + 0.5 - cam.width * 0.5, cam.height * 0.5 - (py + 0.5)];
+  const cs = opts.scale * opts.scale;
+  const hits = [];
+  let covered = 0;
+  scene.splats.forEach((sp, i) => {
+    const ps = project(sp.p, scaledCov(sp.cov, cs), cam, opts.dilate);
+    if (!ps) return;
+    const ox = pixel[0] - ps.center[0], oy = pixel[1] - ps.center[1];
+    if (Math.abs(ox) > ps.radius || Math.abs(oy) > ps.radius) return;
+    covered++;
+    const a = alphaAt(ps, ox, oy, sp.o);
+    if (a <= 0) return;
+    hits.push({ index: i, depth: ps.depth, alpha: a, color: sp.c });
+  });
+  hits.sort((a, b) => a.depth - b.depth);
+  let T = 1, col = [0, 0, 0], early = null;
+  const list = hits.map((h, k) => {
+    const row = { ...h, T };
+    col = [col[0] + h.color[0] * h.alpha * T, col[1] + h.color[1] * h.alpha * T, col[2] + h.color[2] * h.alpha * T];
+    T *= 1 - h.alpha;
+    if (early === null && T < 0.0001) early = k + 1;
+    return row;
+  });
+  col = [col[0] + scene.background[0] * T, col[1] + scene.background[1] * T, col[2] + scene.background[2] * T];
+  return { covered, list, early, T, color: col };
+}
+
+// 場面を W x H で描く(GPU の描き方と同じ。奥から over。深度バッファは無い)。
+// mode: 0 ふつう / 1 中心の点 / 2 くっきりした楕円 / 3 楕円の輪郭 / 4 重なりの数
+function render(scene, cam, order, opts) {
+  const W = cam.width, H = cam.height, cs = opts.scale * opts.scale;
+  const rgb = new Float32Array(W * H * 3), al = new Float32Array(W * H), cov = new Int32Array(W * H);
+  for (const i of order) {
+    const sp = scene.splats[i];
+    const ps = project(sp.p, scaledCov(sp.cov, cs), cam, opts.dilate);
+    if (!ps) continue;
+    const radius = opts.mode === 1 ? 2 : ps.radius;
+    const cx = ps.center[0] + W * 0.5, cy = H * 0.5 - ps.center[1];
+    const x0 = Math.max(0, Math.ceil(cx - radius - 0.5)), x1 = Math.min(W - 1, Math.floor(cx + radius - 0.5));
+    const y0 = Math.max(0, Math.ceil(cy - radius - 0.5)), y1 = Math.min(H - 1, Math.floor(cy + radius - 0.5));
+    const col = sp.c;
+    const mOf = (ox, oy) => { const pw = -0.5 * (ps.conic[0] * ox * ox + ps.conic[2] * oy * oy) - ps.conic[1] * ox * oy; return pw; };
+    for (let py = y0; py <= y1; py++) {
+      for (let px = x0; px <= x1; px++) {
+        const ox = px + 0.5 - W * 0.5 - ps.center[0], oy = H * 0.5 - (py + 0.5) - ps.center[1];
+        if (Math.abs(ox) > radius || Math.abs(oy) > radius) continue;
+        const p = py * W + px;
+        cov[p]++;
+        if (opts.mode === 4) continue;
+        let a, c = col;
+        if (opts.mode === 1) { if (ox * ox + oy * oy > 2.25) continue; a = 1; }
+        else {
+          const power = mOf(ox, oy);
+          if (power > 0) continue;
+          if (opts.mode === 2) { if (power < -2) continue; a = Math.min(0.99, sp.o); }
+          else if (opts.mode === 3) {
+            // fwidth(m) は隣の画素との差の絶対値の和(GPU は 2x2 の中で前進差分)
+            const m = Math.sqrt(-2 * power), mx = Math.sqrt(Math.max(0, -2 * mOf(ox + 1, oy))), my = Math.sqrt(Math.max(0, -2 * mOf(ox, oy - 1)));
+            if (Math.abs(m - 2) > Math.abs(mx - m) + Math.abs(my - m)) continue;
+            a = 1;
+          } else { a = Math.min(0.99, sp.o * Math.exp(power)); if (a < MIN_ALPHA) continue; }
+        }
+        const k = 1 - a;
+        rgb[p * 3] = c[0] * a + rgb[p * 3] * k; rgb[p * 3 + 1] = c[1] * a + rgb[p * 3 + 1] * k; rgb[p * 3 + 2] = c[2] * a + rgb[p * 3 + 2] * k;
+        al[p] = a + al[p] * k;
+      }
+    }
+  }
+  return { rgb, al, cov };
+}
+const toByte = (v) => Math.floor(Math.min(1, Math.max(0, v)) * 255 + 0.5);
+// 空を重ねて 8 ビットの色にする(ResolveColor)
+function resolve(img, bg) {
+  const n = img.al.length, out = new Uint8Array(n * 3);
+  for (let p = 0; p < n; p++) { const t = 1 - img.al[p]; for (let c = 0; c < 3; c++) out[p * 3 + c] = toByte(img.rgb[p * 3 + c] + bg[c] * t); }
+  return out;
+}
+// 3 目盛りより大きく(どれかのチャンネルが)違う画素の数
+function countDiff(a, b, thr = 2) {
+  let n = 0;
+  for (let p = 0; p < a.length / 3; p++) { let d = 0; for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(a[p * 3 + c] - b[p * 3 + c])); if (d > thr) n++; }
+  return n;
+}
+// 重なりの数の色(SplatRenderer.ComputeHeatColor)。0 は黒、4 倍ごとに次の色
+const HEAT = [0x000000, 0x1a1a6e, 0x2255dd, 0x33bbee, 0x33cc55, 0xeedd33, 0xee3322, 0xffffff];
+function heatColor(count) {
+  if (count <= 0) return [0, 0, 0];
+  const level = 1 + Math.log(count) / Math.log(4);
+  const low = Math.min(Math.floor(level), HEAT.length - 1), high = Math.min(low + 1, HEAT.length - 1), f = level - Math.floor(level);
+  const mix = (sh) => Math.floor(((HEAT[low] >> sh) & 0xff) * (1 - f) + ((HEAT[high] >> sh) & 0xff) * f);
+  return [mix(16), mix(8), mix(0)];
+}
+
+// 自己チェック3: 3D のガウスから点をばらまき、1個ずつ正確に z で割って写し、近似の 2σ の楕円に入る割合
+function jacobianInside(sigma, distance, screenX, samples = 40000, keep = 0) {
+  const cam = cameraFrame({ position: [0, 0, 5], yaw: 0, pitch: 0, fov: 50 }, 960, 540);
+  // (Right は +X、Forward は −Z。camera.Position + Right·(screenX·distance) + Forward·distance)
+  const center = addv(addv(cam.position, scale(cam.right, screenX * distance)), scale(cam.forward, distance));
+  const ball = covFromScaleRotation([sigma, sigma, sigma], [0, 0, 0, 1]);
+  const ap = project(center, ball, cam, false);
+  const rnd = new NetRandom(1);
+  let inside = 0;
+  const pts = [];
+  for (let n = 0; n < samples; n++) {
+    const p = addv(center, scale([gaussian(rnd), gaussian(rnd), gaussian(rnd)], sigma));
+    const v = toView(cam, p);
+    if (v[2] <= 0) continue;
+    const ox = cam.fx * v[0] / v[2] - ap.center[0], oy = cam.fy * v[1] / v[2] - ap.center[1];
+    const m2 = ap.conic[0] * ox * ox + 2 * ap.conic[1] * ox * oy + ap.conic[2] * oy * oy;
+    if (m2 < 4) inside++;
+    if (n < keep) pts.push([ox, oy, m2 < 4]);
+  }
+  return { ratio: inside / samples, approx: ap, pts, cam };
+}
+
+return { NetRandom, covFromScaleRotation, quatAxisAngle, cameraFrame, project, alphaAt, shBasis, DEGREE_OF, zonalLobe, scene1, depthSort, probe, render, resolve, countDiff, heatColor, jacobianInside, C0, C1, C2, C3, DILATION, MIN_ALPHA, normalize, dot, cross, sub, addv, scale };
+})();
+
+(() => {
+'use strict';
+const { $, fit, seg, setSeg, stat, tok } = Lab;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const f32 = Math.fround;
+// -0.000 は 0.000 と書く
+const fx = (v, d = 3) => { const s = v.toFixed(d); return /^-0\.0*$/.test(s) ? s.slice(1) : s; };
+
+// 折れ線グラフ。series: [{ pts: [[x, y]], color, dash, width, label }]
+function lineChart(canvas, o) {
+  const { ctx, w, h } = fit(canvas);
+  const L = 62, R = 18, T = 20, B = 40, W = w - L - R, H = h - T - B;
+  const [x0, x1] = o.xRange, [y0, y1] = o.yRange;
+  const X = (x) => L + (x - x0) / (x1 - x0) * W, Y = (y) => T + H - (y - y0) / (y1 - y0) * H;
+  ctx.font = '12px ' + tok('--font-mono');
+  ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1;
+  for (const gx of o.xTicks) { ctx.beginPath(); ctx.moveTo(X(gx), T); ctx.lineTo(X(gx), T + H); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(String(gx) + (o.xUnit || ''), X(gx), T + H + 16); }
+  for (const gy of o.yTicks) { ctx.beginPath(); ctx.moveTo(L, Y(gy)); ctx.lineTo(L + W, Y(gy)); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(gy.toFixed(o.yDigits ?? 2), L - 6, Y(gy) + 4); }
+  if (y0 < 0) { ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(L, Y(0)); ctx.lineTo(L + W, Y(0)); ctx.stroke(); }
+  ctx.textAlign = 'left'; ctx.fillStyle = tok('--muted'); ctx.fillText(o.xLabel, L, h - 6); ctx.fillText(o.yLabel, 4, 12);
+  for (const s of o.series) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+    ctx.beginPath(); s.pts.forEach(([x, y], i) => { const px = X(x), py = Y(Math.max(y0, Math.min(y1, y))); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for (const m of o.marks || []) {
+    ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(X(m.x), Y(m.y), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = m.align || 'left'; ctx.fillText(m.text, X(m.x) + (m.align === 'right' ? -8 : 8), Y(m.y) - 8);
+  }
+  for (const v of o.vlines || []) {
+    ctx.strokeStyle = v.color; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(X(v.x), T); ctx.lineTo(X(v.x), T + H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = 'left'; ctx.fillText(v.text, X(v.x) + 6, T + 14);
+  }
+  // 凡例。legend: 'bl' なら左下、既定は右上
+  let ly = o.legend === 'bl' ? T + H - 20 - 18 * o.series.length : T + 6; ctx.textAlign = 'left';
+  const lx = o.legend === 'bl' ? L + 14 : L + W - 270;
+  for (const s of o.series) { ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []); ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + 26, ly); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = tok('--ink'); ctx.fillText(s.label, lx + 32, ly + 4); ly += 18; }
+}
+const niceStep = (v) => { for (const e of [1e-4, 1e-3, 1e-2, 1e-1, 1, 10, 100]) for (const m of [1, 2, 5]) if (v / (m * e) <= 6) return m * e; return 100; };
+
+// ============================================================
+//  近似はどれだけ外れるか(要点2・自己チェック3)
+// ============================================================
+{
+  const PRESETS = [[0.05, 3, 0], [0.05, 3, 1], [0.5, 2, 0], [0.5, 2, 1]];
+  const st = { sigma: 0.05, dist: 3, x: 0 };
+  const cam0 = GS.cameraFrame({ position: [0, 0, 5], yaw: 0, pitch: 0, fov: 50 }, 960, 540);
+  function redraw() {
+    $('jc-sigma-out').textContent = st.sigma.toFixed(2) + ' m';
+    $('jc-dist-out').textContent = st.dist.toFixed(1) + ' m';
+    $('jc-x-out').textContent = st.x.toFixed(2) + '(tan = ' + (st.x * cam0.tanHalfX).toFixed(3) + ')';
+    const r = GS.jacobianInside(st.sigma, st.dist, st.x * cam0.tanHalfX, 40000, 3000);
+    const ap = r.approx;
+    const { ctx, w, h } = fit($('jc-canvas'));
+    const mid = 0.5 * (ap.a + ap.c), disc = Math.sqrt(Math.max(0, mid * mid - (ap.a * ap.c - ap.b * ap.b)));
+    const l1 = mid + disc, l2 = Math.max(mid - disc, 1e-9);
+    const half = 2 * Math.sqrt(l1);
+    // 画面の 2σ の楕円が、図の高さの 35% くらいになる倍率
+    const zoom = Math.min(h * 0.35 / half, 40), cx = w / 2, cy = h / 2;
+    // 目盛り(画素)
+    const step = niceStep(Math.min(w, h) / 2 / zoom);
+    ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1; ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'center';
+    for (let g = -Math.floor(w / 2 / zoom / step) * step; g <= w / 2 / zoom; g += step) { ctx.beginPath(); ctx.moveTo(cx + g * zoom, 0); ctx.lineTo(cx + g * zoom, h); ctx.stroke(); }
+    for (let g = -Math.floor(h / 2 / zoom / step) * step; g <= h / 2 / zoom; g += step) { ctx.beginPath(); ctx.moveTo(0, cy - g * zoom); ctx.lineTo(w, cy - g * zoom); ctx.stroke(); }
+    ctx.textAlign = 'left'; ctx.fillText('格子 1 本 = ' + step + ' 画素(楕円の中心が真ん中)', 8, h - 8);
+    // 正確に写した点
+    for (const [ox, oy, inside] of r.pts) {
+      const px = cx + ox * zoom, py = cy - oy * zoom;
+      if (px < 0 || px > w || py < 0 || py > h) continue;
+      ctx.fillStyle = inside ? 'rgba(80,130,255,0.55)' : 'rgba(255,140,40,0.85)';
+      ctx.fillRect(px - 1, py - 1, 2, 2);
+    }
+    // 近似で作った 2σ の楕円
+    const ang = 0.5 * Math.atan2(2 * ap.b, ap.a - ap.c);
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120 * Math.PI * 2, ex = 2 * Math.sqrt(l1) * Math.cos(t), ey = 2 * Math.sqrt(l2) * Math.sin(t);
+      const ox = ex * Math.cos(ang) - ey * Math.sin(ang), oy = ex * Math.sin(ang) + ey * Math.cos(ang);
+      if (i) ctx.lineTo(cx + ox * zoom, cy - oy * zoom); else ctx.moveTo(cx + ox * zoom, cy - oy * zoom);
+    }
+    ctx.stroke();
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = 'left'; ctx.fillText('白い線 = 近似の 2σ の楕円 / 青 = その内側の点 / 橙 = 外側の点', 8, 16);
+    const pc = (v) => (100 * v).toFixed(1) + '%';
+    const nearRef = PRESETS.findIndex(([s, d, x]) => Math.abs(s - st.sigma) < 1e-9 && Math.abs(d - st.dist) < 1e-9 && Math.abs(x - st.x) < 1e-9);
+    $('jc-stats').innerHTML = stat('2σ の楕円の内側', pc(r.ratio), '<small> (本物のガウスなら 86.5%)</small>') +
+      stat('画面での σ(長い軸 / 短い軸)', `${Math.sqrt(l1).toFixed(2)} / ${Math.sqrt(l2).toFixed(2)} 画素`) +
+      stat('σ ÷ 距離', (st.sigma / st.dist).toFixed(3), '<small> (大きいほど近似が外れる)</small>') +
+      stat('点の数', comma(40000), '<small> (描いたのは先頭 3,000 個)</small>');
+    $('jc-note').textContent = nearRef >= 0 ? `自己チェック3の ${nearRef + 1} 番目の測り方と同じ設定。` + ['σ 0.05m・距離 3m・真ん中は 86.4%。', 'σ 0.05m・距離 3m・画面の端は 86.3%。', 'σ 0.5m・距離 2m・真ん中は 81.9%(カメラに対して大きい)。', 'σ 0.5m・距離 2m・画面の端は 82.6%。'][nearRef]
+      : '小さな楕円体(σ ÷ 距離が小さい)では、点は近似の楕円にほぼ重なって 86% 前後になる。σ ÷ 距離を大きくする(楕円体を大きく、カメラを近くに)と、z で割る写し方の非線形が効いて、近い側が引き伸ばされ、楕円の外へ橙の点がはみ出す。画面の位置を端へ寄せると、J の第3列(x/z)が効いて、楕円が端の向きへ傾く。';
+  }
+  const set = (s, d, x) => { st.sigma = s; st.dist = d; st.x = x; $('jc-sigma').value = String(s); $('jc-dist').value = String(d); $('jc-x').value = String(x); };
+  seg('jc-preset', (v) => { const p = PRESETS[Number(v)]; set(p[0], p[1], p[2]); redraw(); });
+  for (const [id, key] of [['jc-sigma', 'sigma'], ['jc-dist', 'dist'], ['jc-x', 'x']]) {
+    $(id).addEventListener('input', (e) => { st[key] = Number(e.target.value); for (const b of $('jc-preset').querySelectorAll('button')) b.setAttribute('aria-pressed', 'false'); redraw(); });
+  }
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  場面1「楕円体3つ」を動かす
+// ============================================================
+{
+  const sc = GS.scene1();
+  const NAMES = ['赤', '緑', '青'];
+  const st = { mode: 0, sort: 'every', dil: 1, scaleN: 0, angle: 0, frozen: null, probe: null };
+  const positions = sc.splats.map((s) => s.p);
+  const canvas = $('sv-canvas'), W = 960, H = 540;
+  const scaleOf = () => Math.min(4, Math.max(0.05, Math.pow(0.8, st.scaleN)));
+  const camFor = (deg) => { const a = deg * Math.PI / 180; return GS.cameraFrame({ position: [4 * Math.sin(a), 0, 4 * Math.cos(a)], yaw: -a, pitch: 0, fov: 50 }, W, H); };
+  const orderNames = (order) => order.map((i) => NAMES[i]).join(' → ');
+  let pending = false;
+  const schedule = () => { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; redraw(); }); } };
+  function redraw() {
+    $('sv-scale-out').textContent = '× ' + scaleOf().toFixed(2) + '(' + st.scaleN + ' 回)';
+    $('sv-angle-out').textContent = st.angle + ' 度';
+    const cam = camFor(st.angle);
+    const correct = GS.depthSort(positions, cam).order;
+    let order;
+    if (st.sort === 'every') order = correct;
+    else if (st.sort === 'frozen') order = st.frozen || correct;
+    else if (st.sort === 'file') order = [0, 1, 2];
+    else order = [...correct].reverse();
+    const opts = { scale: scaleOf(), dilate: st.dil === 1, mode: st.mode };
+    const img = GS.render(sc, cam, order, opts);
+    const ctx = canvas.getContext('2d');
+    const data = ctx.createImageData(W, H);
+    if (st.mode === 4) {
+      for (let p = 0; p < W * H; p++) { const c = GS.heatColor(img.cov[p]); data.data[p * 4] = c[0]; data.data[p * 4 + 1] = c[1]; data.data[p * 4 + 2] = c[2]; data.data[p * 4 + 3] = 255; }
+    } else {
+      const px = GS.resolve(img, sc.background);
+      for (let p = 0; p < W * H; p++) { data.data[p * 4] = px[p * 3]; data.data[p * 4 + 1] = px[p * 3 + 1]; data.data[p * 4 + 2] = px[p * 3 + 2]; data.data[p * 4 + 3] = 255; }
+    }
+    ctx.putImageData(data, 0, 0);
+    if (st.probe) {
+      const [x, y] = st.probe;
+      ctx.strokeStyle = '#ff2020'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y); ctx.moveTo(x, y - 10); ctx.lineTo(x, y + 10); ctx.stroke();
+    }
+    let total = 0, mx = 0; for (let p = 0; p < W * H; p++) { total += img.cov[p]; if (img.cov[p] > mx) mx = img.cov[p]; }
+    let diff = null;
+    if (st.mode !== 4 && st.sort !== 'every') {
+      const good = GS.render(sc, cam, correct, opts);
+      diff = GS.countDiff(GS.resolve(img, sc.background), GS.resolve(good, sc.background));
+    }
+    const pcx = (v) => (100 * v / (W * H)).toFixed(1) + '%';
+    $('sv-stats').innerHTML = stat('1画素あたりの重なり', (total / (W * H)).toFixed(2) + ' 回', `<small> (最大 ${mx} 回)</small>`) +
+      stat('並んだ順(奥 → 手前)', orderNames(order)) +
+      stat('正しい順との違い', diff === null ? (st.mode === 4 ? '(数える表示では順は効かない)' : '0 画素(正しい順)') : comma(diff) + ' 画素', diff === null ? '' : `<small> (${pcx(diff)}。3 目盛りより大きい画素)</small>`) +
+      stat('その向きの正しい順', orderNames(correct));
+    const notes = {
+      every: 'いまのカメラで奥から並べ直している(正しい絵)。回り込む角度を動かして、中心の奥行きの順が入れ替わるところで、重なり方がぱっと変わる(popping)のを見る。',
+      frozen: '「止める」を押した瞬間の順のまま描いている。回り込む角度を動かすと、奥にあるはずの色が手前に乗って崩れる。「毎フレーム」に戻すと直る。',
+      file: 'ファイルの順(赤・緑・青)のまま描いている。正面の起動位置(角度 0)では、正しい順(緑 → 赤 → 青)と 26,029 画素(5.0%)違う。',
+      rev: '手前から奥の順に「奥から重ねる式」で重ねている(自己チェック11 の逆順)。角度 0 では 83,500 画素(16.1%)違う。手前から重ねる正しい式は over ではなく under で、課題2。',
+    };
+    $('sv-note').textContent = notes[st.sort] + (st.mode === 4 ? ' 「重なりの数」は、GPU が画素シェーダを走らせた回数(楕円ではなく、それを包む正方形の全部)。' : '');
+  }
+  function probeAt(x, y) {
+    st.probe = [x, y];
+    const cam = camFor(st.angle);
+    const r = GS.probe(sc, cam, x, y, { scale: scaleOf(), dilate: st.dil === 1 });
+    const rows = r.list.map((h, i) => `<tr><td>手前から ${i + 1}</td><td>${NAMES[h.index]}</td><td>${h.depth.toFixed(2)} m</td><td>${fx(h.alpha)}</td><td>${fx(h.T, 4)}</td></tr>`).join('');
+    const sw = r.color.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255));
+    $('sv-probe').innerHTML = `<p style="margin:0 0 6px">画素 (${x}, ${y})(窓の左上が原点): <strong>四角形が掛かっていた ${r.covered} 個</strong> … 色を足した ${r.list.length} 個 … 最後まで重ねても残りの透明度は <strong>${fx(r.T, 4)}</strong>${r.early !== null ? `(手前から ${r.early} 個目で 0.0001 を切る)` : '(空が透ける)'} … 色 <span style="display:inline-block;width:1.1em;height:1.1em;vertical-align:-0.2em;border:1px solid var(--line);background:rgb(${sw.join(',')})"></span> rgb(${sw.join(', ')})</p>` +
+      (r.list.length ? `<table><thead><tr><th>順</th><th>楕円体</th><th>奥行き</th><th>濃さ α</th><th>届いた割合 T</th></tr></thead><tbody>${rows}</tbody></table>` : '');
+    redraw();
+  }
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.min(W - 1, Math.max(0, Math.floor((e.clientX - rect.left) * W / rect.width))), y = Math.min(H - 1, Math.max(0, Math.floor((e.clientY - rect.top) * H / rect.height)));
+    probeAt(x, y);
+  });
+  seg('sv-mode', (v) => { st.mode = Number(v); st.probe = null; $('sv-probe').innerHTML = ''; schedule(); });
+  seg('sv-sort', (v) => {
+    st.sort = v;
+    if (v === 'frozen') st.frozen = GS.depthSort(positions, camFor(st.angle)).order; else st.frozen = null;
+    schedule();
+  });
+  seg('sv-dil', (v) => { st.dil = Number(v); schedule(); });
+  $('sv-scale').addEventListener('input', (e) => { st.scaleN = Number(e.target.value); schedule(); });
+  $('sv-angle').addEventListener('input', (e) => { st.angle = Number(e.target.value); schedule(); });
+  $('sv-probe').innerHTML = '<p style="margin:0;color:var(--muted)">図をクリックすると、その画素に効いている楕円体がここに並ぶ。たとえば青と緑が重なる画素 (600, 312) をクリックしてみる(3 個 / 2 個 / 残りの透明度 0.3577)。</p>';
+  redraw();
+}
+
+// ============================================================
+//  0.3 の広げ
+// ============================================================
+{
+  const st = { sigma: 0.3, off: 0.5, opacity: 0.95 };
+  const alpha1d = (d, s2, op) => {
+    // AlphaAt と同じ式(丸い楕円の1本の行。oy = 0)
+    const p = { conic: [1 / s2, 0, 1 / s2] };
+    return GS.alphaAt(p, d, 0, op);
+  };
+  const radiusOf = (s2) => { const mid = s2, det = s2 * s2; return Math.ceil(3 * Math.sqrt(mid + Math.sqrt(Math.max(0.1, mid * mid - det)))); };
+  const inkOf = (x0, s2, op) => { let sum = 0; for (let i = -8; i <= 8; i++) sum += alpha1d(i - x0, s2, op); return sum; };
+  function redraw() {
+    $('dl-sigma-out').textContent = st.sigma.toFixed(2) + ' 画素';
+    $('dl-off-out').textContent = st.off.toFixed(2) + ' 画素';
+    $('dl-opacity-out').textContent = st.opacity.toFixed(2);
+    const s2 = st.sigma * st.sigma, d2 = s2 + GS.DILATION;
+    const { ctx, w, h } = fit($('dl-canvas'));
+    const L = 62, R = 18, mid = Math.floor(h / 2);
+    const W = w - L - R;
+    ctx.font = '12px ' + tok('--font-mono');
+    // ---- 上: 画素の列 ----
+    const T1 = 22, B1 = mid - 26, H1 = B1 - T1, xr = [-4.5, 4.5];
+    const X = (x) => L + (x - xr[0]) / (xr[1] - xr[0]) * W, Y1 = (a) => B1 - a * H1;
+    ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1; ctx.textAlign = 'right';
+    for (const g of [0, 0.5, 1]) { ctx.beginPath(); ctx.moveTo(L, Y1(g)); ctx.lineTo(L + W, Y1(g)); ctx.stroke(); ctx.fillText(g.toFixed(1), L - 6, Y1(g) + 4); }
+    ctx.textAlign = 'center';
+    for (let i = -4; i <= 4; i++) { ctx.beginPath(); ctx.moveTo(X(i), B1); ctx.lineTo(X(i), B1 + 4); ctx.stroke(); ctx.fillText(String(i), X(i), B1 + 16); }
+    const curve = (s, color, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash); ctx.beginPath(); for (let k = 0; k <= 180; k++) { const x = xr[0] + (xr[1] - xr[0]) * k / 180; const a = Math.min(0.99, st.opacity * Math.exp(-0.5 * (x - st.off) * (x - st.off) / s)); if (k) ctx.lineTo(X(x), Y1(a)); else ctx.moveTo(X(x), Y1(a)); } ctx.stroke(); ctx.setLineDash([]); };
+    curve(s2, tok('--muted'), [6, 4]); curve(d2, tok('--accent'), []);
+    let n0 = 0, n1 = 0;
+    for (let i = -4; i <= 4; i++) {
+      const a0 = alpha1d(i - st.off, s2, st.opacity), a1 = alpha1d(i - st.off, d2, st.opacity);
+      if (a0 > 0) n0++; if (a1 > 0) n1++;
+      ctx.fillStyle = 'rgba(140,140,140,0.75)'; ctx.fillRect(X(i) - 12, Y1(a0), 10, B1 - Y1(a0));
+      ctx.fillStyle = tok('--accent'); ctx.fillRect(X(i) + 2, Y1(a1), 10, B1 - Y1(a1));
+    }
+    // 楕円の中心
+    ctx.strokeStyle = tok('--ink'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(st.off), T1 - 8); ctx.lineTo(X(st.off), B1); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('画素の真ん中 → 画素ごとの濃さ(灰 = 広げ無し / 青 = 広げ有り)。縦の点線 = 楕円の中心', L, 14);
+    // ---- 下: 中心を動かしたときの、その行に足されるインクの量 ----
+    const T2 = mid + 22, B2 = h - 40, H2 = B2 - T2;
+    const samples = [];
+    for (let k = 0; k <= 50; k++) { const x0 = k / 50; samples.push([x0, inkOf(x0, s2, st.opacity), inkOf(x0, d2, st.opacity)]); }
+    const top = Math.max(0.1, ...samples.map((s) => Math.max(s[1], s[2])), st.opacity * Math.sqrt(2 * Math.PI) * Math.sqrt(d2), st.opacity * Math.sqrt(2 * Math.PI) * st.sigma) * 1.1;
+    const X2 = (x) => L + x * W, Y2 = (v) => B2 - v / top * H2;
+    ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.textAlign = 'right';
+    const stp = niceStep(top);
+    for (let g = 0; g <= top; g += stp) { ctx.beginPath(); ctx.moveTo(L, Y2(g)); ctx.lineTo(L + W, Y2(g)); ctx.stroke(); ctx.fillText(g.toFixed(stp < 0.1 ? 2 : 1), L - 6, Y2(g) + 4); }
+    ctx.textAlign = 'center';
+    for (const g of [0, 0.5, 1]) { ctx.beginPath(); ctx.moveTo(X2(g), B2); ctx.lineTo(X2(g), B2 + 4); ctx.stroke(); ctx.fillText(g.toFixed(1), X2(g), B2 + 16); }
+    const line = (idx, color, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash); ctx.beginPath(); samples.forEach((s, k) => { if (k) ctx.lineTo(X2(s[0]), Y2(s[idx])); else ctx.moveTo(X2(s[0]), Y2(s[idx])); }); ctx.stroke(); ctx.setLineDash([]); };
+    line(1, tok('--muted'), [6, 4]); line(2, tok('--accent'), []);
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('楕円の中心を 0〜1 画素ずらしたときの、行に足される濃さの合計(ちらつきの大きさ)', L, T2 - 8);
+    ctx.fillText('楕円の中心のずれ(画素)', L, h - 6);
+    const mn0 = Math.min(...samples.map((s) => s[1])), mx0 = Math.max(...samples.map((s) => s[1]));
+    const mn1 = Math.min(...samples.map((s) => s[2])), mx1 = Math.max(...samples.map((s) => s[2]));
+    $('dl-stats').innerHTML = stat('広げ後の σ', Math.sqrt(d2).toFixed(2) + ' 画素', `<small> (√(σ² + 0.3)。σ が 0 でも √0.3 = ${Math.sqrt(0.3).toFixed(2)} より細くならない)</small>`) +
+      stat('四角形の半径', `${radiusOf(s2)} → ${radiusOf(d2)} 画素`, '<small> (広げ無し → 有り。3σ の切り上げ)</small>') +
+      stat('塗られる画素(上の図、9 画素中)', `${n0} → ${n1}`, '<small> (濃さ 1/255 以上)</small>') +
+      stat('濃さの合計の揺れ(広げ無し)', `${mn0.toFixed(3)} 〜 ${mx0.toFixed(3)}`) + stat('濃さの合計の揺れ(広げ有り)', `${mn1.toFixed(3)} 〜 ${mx1.toFixed(3)}`);
+    $('dl-note').textContent = st.sigma < 0.4
+      ? 'σ が画素より細い(0.55 未満)楕円は、広げ無しだと、中心が画素の真ん中から外れた瞬間に濃さが 0 になり、塗られたり塗られなかったりする(下の灰の線が大きく上下する)。広げ有りは σ が最低でも 0.55 画素あるので、合計がほぼ一定になる。代わりに、本来より太い楕円になる(場面2の遠くの床の市松のギザギザが消える代わりに、少し太る)。'
+      : 'σ が 1 画素を超えると、広げ有りと無しの差は小さくなる(足されるのは σ² に 0.3 だけ)。σ を 0.1 くらいまで下げて、楕円の中心のずれ(上)や、下の線の揺れを比べてみる。';
+  }
+  for (const [id, key] of [['dl-sigma', 'sigma'], ['dl-off', 'off'], ['dl-opacity', 'opacity']]) $(id).addEventListener('input', (e) => { st[key] = Number(e.target.value); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  次数 3 で山を近似する
+// ============================================================
+{
+  const st = { exp: 64, free: false, deg: 3 };
+  const axis = GS.normalize([0.3, 0.5, -0.8]);
+  const perp = GS.normalize(GS.cross(axis, [1, 0, 0]));
+  const cache = new Map();
+  const zcache = new Map();
+  const zonal = (e) => { let z = zcache.get(e); if (!z) { z = GS.zonalLobe(e); zcache.set(e, z); } return z; };
+  // 山の係数(RGB とも同じ)。自己チェック6と同じ作り方(0.5 を引いておくと、評価の +0.5 と打ち消し合う)
+  function coefs(e) {
+    const z = zonal(e), b = GS.shBasis(axis, 3), c = [];
+    for (let k = 0; k < 16; k++) c.push(f32(z[GS.DEGREE_OF(k)] * b[k]) - (k === 0 ? 0.5 / GS.C0 : 0));
+    return c;
+  }
+  const evalAt = (c, d, L) => { const b = GS.shBasis(d, L); let v = 0.5; for (let k = 0; k < 16; k++) if (GS.DEGREE_OF(k) <= L) v += b[k] * c[k]; return v; };
+  function measure(e, L) {
+    const key = e + '|' + L;
+    let m = cache.get(key);
+    if (!m) {
+      const c = coefs(e);
+      let sum = 0, area = 0, low = Infinity;
+      for (let i = 0; i < 100; i++) {
+        const th = Math.PI * (i + 0.5) / 100, w = Math.sin(th);
+        for (let j = 0; j < 200; j++) {
+          const ph = 2 * Math.PI * (j + 0.5) / 200;
+          const d = [f32(Math.sin(th) * Math.cos(ph)), f32(Math.sin(th) * Math.sin(ph)), f32(Math.cos(th))];
+          const t = GS.dot(d, axis), truth = t > 0 ? Math.pow(t, e) : 0, a = evalAt(c, d, L);
+          sum += (a - truth) * (a - truth) * w; area += w; if (a < low) low = a;
+        }
+      }
+      m = { peak: evalAt(c, axis, L), rms: Math.sqrt(sum / area), low };
+      cache.set(key, m);
+    }
+    return m;
+  }
+  function redraw() {
+    const e = st.free ? Number($('sl-n').value) : st.exp;
+    $('sl-n-out').textContent = String(Number($('sl-n').value));
+    $('sl-n').disabled = !st.free;
+    const c = coefs(e), m = measure(e, st.deg);
+    const gs = Array.from({ length: 91 }, (_, i) => i * 2);
+    const truth = gs.map((g) => [g, Math.cos(g * Math.PI / 180) > 0 ? Math.pow(Math.cos(g * Math.PI / 180), e) : 0]);
+    const approx = gs.map((g) => { const a = g * Math.PI / 180; return [g, evalAt(c, GS.addv(GS.scale(axis, Math.cos(a)), GS.scale(perp, Math.sin(a))), st.deg)]; });
+    const lo = Math.min(0, ...approx.map((p) => p[1])), hi = Math.max(1, ...approx.map((p) => p[1]));
+    const step = niceStep(hi - lo), yTop = Math.ceil(hi / step) * step, yBot = lo < 0 ? Math.floor(lo / step) * step : 0, ticks = [];
+    for (let t = yBot; t <= yTop + 1e-9; t += step) ticks.push(t);
+    lineChart($('sl-canvas'), {
+      xRange: [0, 180], yRange: [yBot, yTop], xTicks: [0, 30, 60, 90, 120, 150, 180], yTicks: ticks, xUnit: '°', yDigits: step < 0.1 ? 2 : 1,
+      xLabel: '山の軸からの角度 γ(0° = 山の頂)', yLabel: '値(山は 1 が頂)',
+      series: [{ pts: truth, color: tok('--muted'), dash: [6, 4], width: 2, label: `元の山 max(0, cos γ)^${e}` }, { pts: approx, color: tok('--accent'), width: 2.5, label: `次数 ${st.deg} まで(${(st.deg + 1) ** 2} 個)` }],
+      marks: [{ x: 0, y: approx[0][1], color: tok('--accent'), text: '頂 ' + fx(approx[0][1]) }],
+    });
+    const ref = st.deg === 3 && !st.free ? { 4: [0.854, 0.0395, -0.083], 16: [0.382, 0.0766, -0.076], 64: [0.116, 0.0550, -0.027] }[e] : null;
+    $('sl-stats').innerHTML = stat('山の頂(本当は 1)', fx(m.peak), ref ? `<small> (C# の自己チェック6: ${ref[0].toFixed(3)})</small>` : '') +
+      stat('差の2乗平均', fx(m.rms, 4), ref ? `<small> (C#: ${ref[1].toFixed(4)})</small>` : '') +
+      stat('いちばん低いところ', fx(m.low), ref ? `<small> (C#: ${ref[2].toFixed(3)})</small>` : '<small> (負の波打ち)</small>') +
+      stat('係数の数', String((st.deg + 1) ** 2), '<small> (RGB で 3 倍)</small>');
+    $('sl-note').textContent = st.free ? '指数を大きくするほど山は鋭くなり、次数 3 の頂は低く、周りの負の波打ちが目立つ。鋭いハイライトは、16 個の係数では表せない。'
+      : e === 4 ? '指数 4(場面3の左の赤い球)のなだらかな山は、次数 3 でほぼ表せる(頂 0.854)。次数を 0 にすると全方向で同じ値になり、ハイライトが消える。'
+        : e === 16 ? '指数 16(緑の球)は頂が 0.382 まで下がり、周りに −0.076 の波打ちが出る。実機の画面では、淡いハイライトになる。'
+          : '指数 64(青の球)の鋭い山は、次数 3 では頂が 0.116 までしか上がらず、ほとんどハイライトにならない。学習済みのシーンで鏡のような映り込みがぼやけるのはこのため。';
+  }
+  seg('sl-exp', (v) => { if (v === 'free') st.free = true; else { st.free = false; st.exp = Number(v); $('sl-n').value = v; } redraw(); });
+  seg('sl-deg', (v) => { st.deg = Number(v); redraw(); });
+  $('sl-n').addEventListener('input', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  何個目で打ち切れるか
+// ============================================================
+{
+  const st = { alpha: 0.1, n: 813 };
+  // PixelProbe は float で T *= 1 − α と掛ける(0.0001 を切るかの境は float の丸めで決まる)
+  const stopAt = (alpha) => { const a = f32(alpha); let T = 1; for (let k = 1; k < 100000; k++) { T = f32(T * f32(1 - a)); if (T < f32(0.0001)) return k; } return Infinity; };
+  const Tat = (alpha, k) => { const a = f32(alpha); let T = 1; for (let i = 0; i < k; i++) T = f32(T * f32(1 - a)); return T; };
+  function redraw() {
+    $('es-alpha-out').textContent = st.alpha.toFixed(2);
+    $('es-n-out').textContent = comma(st.n) + ' 個';
+    const k = stopAt(st.alpha);
+    const kMax = Math.max(4, Math.min(Math.max(st.n, k) , 1000));
+    const kShow = Math.min(kMax, Math.max(10, Math.ceil(k * 1.6)));
+    const pts = []; for (let i = 0; i <= kShow; i++) pts.push([i, Math.max(-6, Math.log10(Math.max(Tat(st.alpha, i), 1e-12)))]);
+    const xs = niceStep(kShow), xt = []; for (let t = 0; t <= kShow; t += xs) xt.push(t);
+    lineChart($('es-canvas'), {
+      xRange: [0, kShow], yRange: [-6, 0], xTicks: [...new Set(xt)], yTicks: [0, -1, -2, -3, -4, -5, -6], yDigits: 0,
+      xLabel: '手前から重ねた個数', yLabel: 'log10(残りの透明度 T)', legend: 'bl',
+      series: [{ pts, color: tok('--accent'), width: 2.5, label: `T(α = ${st.alpha.toFixed(2)} がずっと続く)` }, { pts: [[0, -4], [kShow, -4]], color: tok('--muted'), dash: [6, 4], width: 1.5, label: '打ち切りの線 T = 0.0001' }],
+      vlines: k <= kShow ? [{ x: k, color: tok('--accent'), text: `${k} 個目で打ち切り` }] : [],
+    });
+    const stops = st.n >= k;
+    $('es-stats').innerHTML = stat('打ち切れる個数', k === Infinity ? '—' : comma(k) + ' 個', '<small> (T < 0.0001 になる最初の個数)</small>') +
+      stat('GPU が走らせる回数', comma(st.n) + ' 回') +
+      stat('要らなかった分', stops ? comma(st.n - k) + ' 回' : '0 回', stops ? `<small> (${(100 * (st.n - k) / st.n).toFixed(0)}%)</small>` : '<small> (まだ打ち切れていない)</small>') +
+      stat(`${comma(st.n)} 個重ねたあとの T`, Tat(st.alpha, st.n).toExponential(2));
+    const rows = [0.99, 0.5, 0.2, 0.1, 0.05, 0.02].map((a) => `<tr><td>${a.toFixed(2)}</td><td>${comma(stopAt(a))} 個</td><td>${a === 0.99 ? '頭打ち(AlphaAt の min(0.99, …))。1 にすると 1 個で全部止まる' : ''}</td></tr>`).join('');
+    $('es-table').innerHTML = `<table><thead><tr><th>濃さ α</th><th>打ち切れる個数</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('es-note').textContent = st.n < k ? `この画素には ${comma(st.n)} 個しか掛かっていないので、T は ${Tat(st.alpha, st.n).toExponential(2)} までしか下がらない(打ち切れない。空が少し透ける)。`
+      : `濃さ ${st.alpha.toFixed(2)} の楕円体が手前から並んでいれば、${k} 個目で T が 0.0001 を切り、それより奥の ${comma(st.n - k)} 個は何を足しても見えない。タイル方式(要点8の (a))は、ここで画素ごとにループを止める。奥から重ねる今日の形は、手前が埋まったかどうかを知る手段が無いので、${comma(st.n)} 回すべてを走らせる。実際のシーンでは濃さがそろっていない(濃いものが手前に来る・薄いものが何百個も重なる)ので、この表の個数にはならない。`;
+  }
+  $('es-alpha').addEventListener('input', (e) => { st.alpha = Number(e.target.value); redraw(); });
+  $('es-n').addEventListener('input', (e) => { st.n = Number(e.target.value); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
