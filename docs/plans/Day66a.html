@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 66a 焼いたイラディアンスプローブ(照り返しを格子に焼いて、回り込ませる)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダと Program</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 放射照度は「余弦のこぶで均した光」なので、9個で足りる</a></li><li class="l3"><a href="#s7">2. 射影は「その基底とどれだけ似ているか」を足すだけ — ただし立体角で重みを付ける</a></li><li class="l3"><a href="#s8">3. 焼くのは「その場所から見えたもの全部」。変えるのは4つだけ</a></li><li class="l3"><a href="#s9">4. SH が苦手なもの — 小さく明るい光(と、それを 32x32 で撮ること)</a></li><li class="l3"><a href="#s10">5. 格子と三線形補間 — 重みは壁を知らない</a></li><li class="l3"><a href="#s11">6. 跳ね返りを重ねる — 同じ関数を、前の回の結果で照らして呼ぶ</a></li><li class="l3"><a href="#s12">7. 焼いたものは付いてこない — 静的 GI</a></li><li class="l3"><a href="#s13">8. 絵の差が小さい理由と、値段</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">プローブ 448 個が焼けるまで — 16 個ずつ撮って、まとめて読む</a></li><li class="l3"><a href="#s20">跳ね返りが重なるまで — 前の回の係数で照らして、もう一度撮る</a></li><li class="l3"><a href="#s21">1画素が照り返しを受け取るまで — 8点を混ぜる、壁を見ずに</a></li><li class="l3"><a href="#s22">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. <code>F2</code>: 焼いたプローブ</a></li><li class="l3"><a href="#s25">2. <code>F8</code>: 放射照度を見る(<strong>今日の見どころ</strong>)</a></li><li class="l3"><a href="#s26">3. <code>F7</code>: プローブを見る</a></li><li class="l3"><a href="#s27">4. <code>F9</code>: 壁の上から見下ろす(<code>F8</code> と一緒に)</a></li><li class="l3"><a href="#s28">5. <code>F10</code>: 灯りを消す(焼き直さない)</a></li><li class="l3"><a href="#s29">6. <code>F4</code> / <code>F5</code> / <code>F6</code>: 焼く条件を変える</a></li><li class="l3"><a href="#s30">7. <code>F11</code>: 内訳</a></li><li class="l3"><a href="#s31">8. <code>F12</code>: 値段</a></li><li class="l3"><a href="#s32">9. <code>1</code>: 自己チェック(15 項目)</a></li><li class="l3"><a href="#s33">10. プローブを入れない限り、絵は Day 63b と1ビットも変わらない</a></li><li class="l3"><a href="#s34">11. メニューの自己チェック</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 格子の間隔と、光漏れの幅</a></li><li class="l3"><a href="#s37">課題2(中): 法線の側の点を重くする</a></li><li class="l3"><a href="#s38">課題3(難): 格子をシーンに書き、焼いた係数をファイルに持つ</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 66a / 計画書</p>
+  <h1>焼いたイラディアンスプローブ(照り返しを格子に焼いて、回り込ませる)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Render とシェーダと Program</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 放射照度は「余弦のこぶで均した光」なので、9個で足りる</a></li><li class="l3"><a href="#s7">2. 射影は「その基底とどれだけ似ているか」を足すだけ — ただし立体角で重みを付ける</a></li><li class="l3"><a href="#s8">3. 焼くのは「その場所から見えたもの全部」。変えるのは4つだけ</a></li><li class="l3"><a href="#s9">4. SH が苦手なもの — 小さく明るい光(と、それを 32x32 で撮ること)</a></li><li class="l3"><a href="#s10">5. 格子と三線形補間 — 重みは壁を知らない</a></li><li class="l3"><a href="#s11">6. 跳ね返りを重ねる — 同じ関数を、前の回の結果で照らして呼ぶ</a></li><li class="l3"><a href="#s12">7. 焼いたものは付いてこない — 静的 GI</a></li><li class="l3"><a href="#s13">8. 絵の差が小さい理由と、値段</a></li><li class="l2"><a href="#s14">前Dayからの差分概要</a></li><li class="l3"><a href="#s15">新規ファイル</a></li><li class="l3"><a href="#s16">変更ファイル</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">プローブ 448 個が焼けるまで — 16 個ずつ撮って、まとめて読む</a></li><li class="l3"><a href="#s20">跳ね返りが重なるまで — 前の回の係数で照らして、もう一度撮る</a></li><li class="l3"><a href="#s21">1画素が照り返しを受け取るまで — 8点を混ぜる、壁を見ずに</a></li><li class="l3"><a href="#s22">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. <code>F2</code>: 焼いたプローブ</a></li><li class="l3"><a href="#s25">2. <code>F8</code>: 放射照度を見る(<strong>今日の見どころ</strong>)</a></li><li class="l3"><a href="#s26">3. <code>F7</code>: プローブを見る</a></li><li class="l3"><a href="#s27">4. <code>F9</code>: 壁の上から見下ろす(<code>F8</code> と一緒に)</a></li><li class="l3"><a href="#s28">5. <code>F10</code>: 灯りを消す(焼き直さない)</a></li><li class="l3"><a href="#s29">6. <code>F4</code> / <code>F5</code> / <code>F6</code>: 焼く条件を変える</a></li><li class="l3"><a href="#s30">7. <code>F11</code>: 内訳</a></li><li class="l3"><a href="#s31">8. <code>F12</code>: 値段</a></li><li class="l3"><a href="#s32">9. <code>1</code>: 自己チェック(15 項目)</a></li><li class="l3"><a href="#s33">10. プローブを入れない限り、絵は Day 63b と1ビットも変わらない</a></li><li class="l3"><a href="#s34">11. メニューの自己チェック</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): 格子の間隔と、光漏れの幅</a></li><li class="l3"><a href="#s37">課題2(中): 法線の側の点を重くする</a></li><li class="l3"><a href="#s38">課題3(難): 格子をシーンに書き、焼いた係数をファイルに持つ</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編で初めて、最終デモの絵そのものに手を入れる日</strong>。Day 57〜63b は <code>Sandbox/</code> の実験台だったが、今日のプローブは <code>Render/</code> に置き、<code>textured.frag</code> と <code>deferred.frag</code> の IBL の1行を差し替える。</p>
+<p>やることは1つ。<strong>夜の裏通りに点を格子状に並べ、各点でシーンを6方向に撮り、届いている光を9個の数に縮めて持つ</strong>。描くときは、画素の位置を囲む8点の9個を混ぜて、その向きの放射照度を引く。</p>
+<div class="code"><pre><code>  焼く(キーを押したとき・1回)                                   引く(毎フレーム・画素ごと)
+  448点 x 6面を撮る → 読み返す → SH へ射影 → 余弦を掛ける → 9 x 448 のテクスチャ     位置 → 囲む8点 → 9係数 x 法線 → 混ぜる
+  1.3 秒(跳ね返り2回)                                                              texelFetch 72 回</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>IBL(Day 36)</th><th>焼いたプローブ(Day 66a)</th></tr></thead>
+<tbody>
+<tr><td>持っているもの</td><td>放射照度マップ1枚(32x32 x 6面)</td><td><strong>448 点 x 9 係数</strong>(1点 72 バイト)</td></tr>
+<tr><td>どこから見た光か</td><td><strong>世界に1か所</strong>。どこに居ても同じ空</td><td><strong>格子の点ごと</strong>。その点から見えたもの</td></tr>
+<tr><td>何が写っているか</td><td>空だけ</td><td>空 + 灯りに照らされた路面・壁・小物</td></tr>
+<tr><td>画素が引くもの</td><td>法線だけ(<code>texture(uIrradianceMap, N)</code>)</td><td><strong>位置と法線</strong>(囲む8点 x 9 係数)</td></tr>
+<tr><td>苦手なもの</td><td>壁の陰でも空が見えていることになる</td><td>格子の間の壁(光漏れ)。<strong>動く光</strong>(焼き直すまで付いてこない)</td></tr>
+<tr><td>立ち位置</td><td>屋外の環境光の定番</td><td><strong>ライトマップと並ぶ AAA の静的 GI の主力</strong></td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>今日いちばん意外だったのは、最初に「よく効いている」と見えた照り返しの4割が、空に残った1つの点だったこと</strong></p>
+<p>焼いたプローブの平均の明るさは、はじめ 0.051 だった。自己チェックで「空だけを撮ったプローブ」と空の係数を突き合わせると、真横(+X)から来る光が <strong>2.47 倍</strong>になっていた。太陽を抜いたあとの空にも輝度 3,200 ほどの点が残っていて、256x256 の空を 32x32 で撮ると、その点を拾った1画素が 64 画素ぶんの面積を代表してしまう。撮る画素と同じ大きさまで縮めた段(3段目)で空を引くと、平均は <strong>0.031</strong> に下がった(要点4)。残った照り返しを最終の絵で見ると、差は<strong>暗がりで +2〜17%</strong>。成分表示(放射照度)にすると一目で分かる——空だけなら青一色だった路面が、灯りのまわりで暖色に、看板の前で桃色に染まる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「プローブGI」ページで <code>F2</code> を押すと、完成版の夜の裏通りが出て、448 個のプローブが焼かれる(1.3 秒)。拡散の環境光が「空1枚」から「その場所から見えたシーン」に変わり、灯りの当たらない面に、照らされた路面や壁の色が回り込む。<code>F8</code> で放射照度を見ると、空だけ(青一色)とプローブ(灯りのまわりが暖色・看板の前が桃色)の違いが一目で分かる。<code>F9</code> で壁の上から見下ろすと、壁の外の地面に通りの照り返しが漏れている。<code>F10</code> で灯りを消しても、焼いた照り返しは残る。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー(「プローブGI」ページ)</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>焼いたプローブ ON / OFF。<strong>今日の到達点</strong>。完成版が出ていなければ出して(決めの構図で止めて)焼く</td></tr>
+<tr><td><code>F3</code></td><td>焼き直す。今の条件(灯り・時間帯)で焼く。<strong>焼いたものは条件が変わっても付いてこない</strong></td></tr>
+<tr><td><code>F4</code></td><td>跳ね返りの回数(1 → 2 → 3)。焼き直す。<strong>増え方は回を追うごとに減る</strong></td></tr>
+<tr><td><code>F5</code></td><td>格子の間隔(3.0 → 1.5 → 1.0m)。焼き直す。<strong>壁越しの漏れは、列が壁のどこに立つかで変わる</strong></td></tr>
+<tr><td><code>F6</code></td><td>光る材質も焼く(既定 OFF)。焼き直す。<strong>同じ灯りを二重に数える</strong></td></tr>
+<tr><td><code>F7</code></td><td>プローブを見る。各点を球で出し、<strong>白い面がそこで受ける照り返し</strong>の色で塗る</td></tr>
+<tr><td><code>F8</code></td><td>放射照度を見る(成分表示 18。Day 36)。<strong><code>F2</code> で空だけ ↔ プローブを見比べる</strong>。今日の主な見方</td></tr>
+<tr><td><code>F9</code></td><td>壁の上から見下ろす。左の壁の外の地面を見る(<code>F8</code> と合わせて光漏れを見る)</td></tr>
+<tr><td><code>F10</code></td><td>灯りを消す(焼き直さない)。直接の光は消えるが、<strong>焼いた照り返しは残る</strong></td></tr>
+<tr><td><code>F11</code></td><td>内訳(格子・焼いた条件・跳ね返りごとの明るさ・場所ごとの照り返し)</td></tr>
+<tr><td><code>F12</code></td><td>値段(焼く時間の内訳と、毎フレーム引く時間)</td></tr>
+<tr><td><code>1</code></td><td>今日の自己チェック(15 項目)</td></tr>
+</tbody>
+</table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「プローブGI」(29 枚目)が直接開く。<strong>プローブを入れない限り、絵は Day 63b と1ビットも変わらない</strong>(起動直後・デモ v1・完成版・ディファードの6つの場面で、画素ごとに確かめた。完成条件 10)。</p>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「放射照度は滑らかなので、9個で足りる」</strong>。放射照度は、入ってくる光に余弦のこぶ(N・L)を掛けて半球で積分したもの。余弦のこぶはとても滑らかなので、球面調和(SH)の次数ごとに見ると<strong>高い次数ほどほとんど残らない</strong>(要点1)。2次(9個)で打ち切っても、「上半分だけ光る空」なら誤差 0.02% で再現できる。縮める手順は、次数ごとに掛け算するだけ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// SphericalHarmonics.ToIrradiance(Day 66a)。放射輝度の係数 → 放射照度 / π の係数
+public static float BandFactor(int coefficient) =&gt; coefficient switch
+{
+    0 =&gt; 1.0f,          // π   / π
+    &lt; 4 =&gt; 2.0f / 3.0f, // 2π/3 / π
+    _ =&gt; 0.25f,         // π/4 / π
+};</code></pre></div>
+<p><strong>2つ目は「焼くのは、その場所から見えたもの全部」</strong>。撮るのは本描画と<strong>同じ <code>textured.frag</code></strong> で、違うのはカメラと4つの uniform だけ(SSAO を切る・定数の環境光を 0・IBL の鏡面を 0・プローブは前の回のもの)。1回目は環境光なしで撮るので、写るのは空と、灯りと月に<strong>直接</strong>照らされた面——それを縮めたものが「1回跳ねた光」になる。<strong>跳ね返りを重ねるには、同じ関数をもう一度呼ぶだけ</strong>(要点3・6)。</p>
+<p><strong>3つ目は「補間は壁を知らない」</strong>。画素は囲む8点を三線形の重みで混ぜるが、重みは<strong>距離だけ</strong>で決まる。壁の向こうの点も、近ければ同じだけ効く——これが光漏れの正体(要点5)。Day 66b で読む DDGI は、この8点の重みに「その点からここが見えるか」を掛けたもの。<strong>重みをシェーダの中で自分で持つ</strong>(3D テクスチャの補間に任せない)のは、その一歩を後から足せるようにするため。</p>
+<h3 id="s3">今日は Render とシェーダと Program</h3>
+<p>差分は <code>Render/</code> に新規2本(<code>SphericalHarmonics</code> / <code>IrradianceProbes</code>)、シェーダに新規2本(球で見る <code>probe.vert</code> / <code>probe.frag</code>)、<strong><code>textured.frag</code> と <code>deferred.frag</code> に同じ 72 行</strong>(uniform と関数2つ。IBL の拡散の1行を差し替え)、<code>EnvironmentMap.DrawSkybox</code> に引数1つ、そして <code>Program.cs</code>。</p>
+<p><strong><code>Demo/</code> も <code>assets/</code> も1行も変わっていない</strong>。格子を置く範囲は <code>Program.cs</code> に書いた(今日残した歪みの1つ目)。灯りの置き場所と色は Day 56 の <code>SceneLights.Fixture</code> がそのまま持っているので、焼く側はそれを読むだけで済んだ。</p>
+</section>
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul><li><a href="https://graphics.stanford.edu/papers/envmap/">Ramamoorthi &amp; Hanrahan, "An Efficient Representation for Irradiance Environment Maps"(SIGGRAPH 2001)</a>— <strong>今日の要点1・2の一次資料</strong>。放射照度を球面調和の9係数で表す原典。<strong>なぜ2次で打ち切ってよいのか</strong> (余弦のこぶを畳み込むと、次数ごとに決まった割合しか残らない)と、その割合 Â0 = π、Â1 = 2π/3、Â2 = π/4 の出どころ。シェーダで9係数から放射照度を組み立てる式も載っている</li><li><a href="https://www.ppsloan.org/publications/StupidSH36.pdf">Peter-Pike Sloan, "Stupid Spherical Harmonics (SH) Tricks"(GDC 2008)</a>— <strong>実装の手引き</strong>。基底の定数(0.282095 など)・キューブマップからの射影・次数ごとの畳み込み。<strong>リンギング</strong>(2次で打ち切ると、明暗の急な境目の反対側で値が 0 の下へはみ出す)と、その抑え方(窓掛け)も</li><li><strong>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch10</strong>— 「大局照明技術」。<strong>ライトマップ・イラディアンスボリューム(今日のプローブの格子)・その先の動的 GI</strong> が並んだ地図。今日がそのどこに座っているかを先に見ておく</li><li><strong>Day 36 の計画書 要点</strong>(放射照度マップと、1/π を焼き込む約束)と<strong>設計書「IBL が焼き上がるまで」</strong> —今日の係数も 1/π 済みで持ち、使う側の式を IBL と同じ1行にしている。<strong>事前フィルタのミップの話</strong>(1サンプルが担当する立体角に見合った段から引く)は、今日の要点4でもう一度出てくる</li><li><strong>Day 56 の計画書 要点1</strong>(灯りは照らす側と見える側の2つでできている) — 光る材質を焼かない理由(要点3)</li><li><strong>Day 52 の計画書</strong>(点光源は影を持たない) — 今日の絵の差が小さい理由(要点8)と、壁の外が直接光で明るい理由</li></ul>
+</section>
+<section class="part"><h2 id="s5">理論の要点</h2>
+<h3 id="s6">1. 放射照度は「余弦のこぶで均した光」なので、9個で足りる</h3>
+<p>ある点のある向きの面が受ける光(放射照度)は、半球から来る光に N・L を掛けて足したもの。</p>
+<div class="code"><pre><code>  E(n) = ∫ L(ω) max(0, n・ω) dω      (半球の積分。Day 36 の irradiance.frag が画素ごとにやっていたこと)</code></pre></div>
+<p><code>L(ω)</code>(どの向きからどれだけ来るか)は細かい模様を持ちうるが、<code>max(0, n・ω)</code>(余弦のこぶ)は<strong>とても滑らか</strong>なので、掛けて積分すると模様の細かい成分はほとんど消える。球面調和(SH)は球の上のフーリエ級数で、次数 l が上がるほど細かい模様を表す。<strong>余弦のこぶと畳み込むと、次数ごとに決まった割合しか残らない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>次数 l</th><th>係数の数</th><th>残る割合 Â_l / π</th><th>何を表すか</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>1</td><td><strong>1</strong></td><td>向きによらない平均</td></tr>
+<tr><td>1</td><td>3</td><td><strong>2/3</strong></td><td>どちらから多く来るか(x・y・z の傾き)</td></tr>
+<tr><td>2</td><td>5</td><td><strong>1/4</strong></td><td>上下から来て横からは来ない、のような偏り</td></tr>
+<tr><td>3</td><td>7</td><td><strong>0</strong></td><td>ちょうど消える(3 以上の奇数次はすべて 0)</td></tr>
+<tr><td>4</td><td>9</td><td>−1/24</td><td>ほぼ消える</td></tr>
+</tbody>
+</table></div>
+<p>だから<strong>2次まで(1 + 3 + 5 = 9 個)で打ち切っても、放射照度はほとんど変わらない</strong>。自己チェックの「上半分だけ光る空」は、0次と奇数次しか持たない関数なので、3次以上がちょうど消えて<strong>9個で厳密に</strong>再現できる(上 1.0002 / 横 0.5000 / 下 −0.0002)。</p>
+<p><strong>9個 x RGB = 27 個の数</strong>。同じものを Day 36 の放射照度マップ(32x32 x 6面 x RGB)で持つと 18,432 個になる。今日はそれを 448 点ぶん持つので、差は <strong>683 分の1</strong>(21.0MB と 31.5KB)。</p>
+<div class="inject"><figure class="lab" id="sh-lab">
+  <div class="lab-head">
+    <h3>9個で足りるか — 使う次数を変えて、放射照度の曲線を見る(要点1・4)</h3>
+    <span class="tag">reference の SphericalHarmonics(基底・射影・次数ごとの 1 / 2/3 / 1/4・評価)を JS に移して、法線を真上(0 度)から真下(180 度)まで動かしたときの放射照度 / π を描いたもの。空の光はキューブの刻み(焼くのと同じ 32x32 x 6面)で射影する。「本当」は、上半分は (1 + cos θ) / 2、一様は 1、円は円の上を球面の座標で細かく積分したもの(上向きは sin² r)。reference は 2 次(9個)まで。3 次・4 次は reference に無い、このページだけの切り替え(3 次は余弦の畳み込みで 0 になるので 2 次と同じ値)</span>
+  </div>
+  <div class="stage"><canvas id="sh-canvas" style="height:340px" aria-label="法線の向きごとの放射照度。本当の値と、球面調和で持った値の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">空の光</span>
+      <div class="seg" id="sh-sky"><button data-v="half" aria-pressed="false">上半分だけ光る</button><button data-v="cap" aria-pressed="true">真上の円だけ光る</button><button data-v="uniform" aria-pressed="false">一様(どこからも 1)</button></div>
+    </div>
+    <div class="ctl"><span class="label">円の半径(度)。reference の自己チェックは 10 度</span>
+      <div class="range"><input type="range" id="sh-r" min="2" max="80" step="1" value="10"><output id="sh-r-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">使う次数(係数の数)</span>
+      <div class="seg" id="sh-order"><button data-v="0" aria-pressed="false">0(1個)</button><button data-v="1" aria-pressed="false">1(4個)</button><button data-v="2" aria-pressed="true">2(9個。reference)</button><button data-v="3" aria-pressed="false">3(16個)</button><button data-v="4" aria-pressed="false">4(25個)</button></div>
+    </div>
+    <div class="ctl"><span class="label">射影の刻み(キューブ 1 面の大きさ)</span>
+      <div class="seg" id="sh-size"><button data-v="32" aria-pressed="false">32(焼くときと同じ)</button><button data-v="64" aria-pressed="true">64(自己チェックの円)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sh-stats"></div><p id="sh-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">2. 射影は「その基底とどれだけ似ているか」を足すだけ — ただし立体角で重みを付ける</h3>
+<p>キューブマップの各テクセルは、ある向きから来る光の明るさ。これを SH の係数にするのが<strong>射影</strong>:</p>
+<div class="code"><pre><code>  L_i = Σ(テクセル)  明るさ x Y_i(向き) x 立体角</code></pre></div>
+<p><strong>立体角を忘れると壊れる</strong>。面の真ん中のテクセルは正面から見ているので大きく、隅のテクセルは斜めから見ているので小さい。32x32 の面では<strong>真ん中と隅で 4.86 倍</strong>違う。等しい重みで足すと隅(立方体の角の向き)を5倍近く重く数え、面の境目の向きから来る光を大きく見積もる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>立体角の求め方</th><th>6面ぶん足すと</th><th>使うところ</th></tr></thead>
+<tbody>
+<tr><td>厳密な式(<code>atan2(xy, √(x²+y²+1))</code> を4隅で足し引き)</td><td><strong>ちょうど 4π</strong>(12.56637)</td><td>今日(<code>SphericalHarmonics.TexelSolidAngle</code>)</td></tr>
+<tr><td>近似 <code>4 / (n² (1+u²+v²)^1.5)</code></td><td>4π に近い</td><td>広く使われている</td></tr>
+</tbody>
+</table></div>
+<p>射影が済んだら、次数ごとに 1 / 2/3 / 1/4 を掛ける(<code>ToIrradiance</code>)。<strong>Day 36 では画素ごとに半球を刻んで積分していた</strong> (0.025 ラジアン刻みで、1テクセルあたり 1 万 6 千回ほど読む)ところが、<strong>9回の掛け算</strong>になる。これが SH で持ついちばんの御利益。</p>
+<div class="inject"><figure class="lab" id="sa-lab">
+  <div class="lab-head">
+    <h3>立体角を忘れると壊れる — 真ん中と隅(要点2)</h3>
+    <span class="tag">SphericalHarmonics.TexelSolidAngle(厳密な式。4 隅で atan2 を足し引き)と、よく使われる近似(4 / (n² (1 + u² + v²)^1.5))、重みを全部同じにした場合を、キューブ 1 面の大きさ n ごとに比べたもの。右の表は、上半分だけ光る空を 32x32 で射影したときの答え(本当は 上 1 / 横 0.5 / 下 0)。n = 32 の厳密な式は C# の自己チェックと同じ値(6面の和が 12.56637 = 4π、真ん中 / 隅 = 4.86 倍)</span>
+  </div>
+  <div class="stage"><canvas id="sa-canvas" style="height:300px" aria-label="キューブの面の真ん中の行で、テクセルごとの立体角を厳密な式・近似・全部同じの3通りで描いた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">キューブ 1 面の大きさ n(テクセル)</span>
+      <div class="seg" id="sa-n"><button data-v="8" aria-pressed="false">8</button><button data-v="16" aria-pressed="false">16</button><button data-v="32" aria-pressed="true">32(焼くとき)</button><button data-v="64" aria-pressed="false">64</button><button data-v="128" aria-pressed="false">128</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sa-stats"></div><div class="table-wrap" id="sa-table" style="margin-top:10px"></div><p id="sa-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>向きの表(どのテクセルがどの向きか)は OpenGL の仕様の表(Table 8.19)をそのまま写す。Day 36 の <code>Program.CubeTexelDirection</code> と同じもので、<strong>覚えるものではない</strong>。撮るときの6面のカメラ(<code>IrradianceProbes.Faces</code>)も Day 36 の <code>CubeMap.FaceViews</code> と同じ表で、この2つが食い違うと、その面の光が別の向きから来たことになる——自己チェックが「空だけを撮ったプローブ」で突き合わせる(6面とも 1.00)。</p>
+<h3 id="s8">3. 焼くのは「その場所から見えたもの全部」。変えるのは4つだけ</h3>
+<p>撮るのは本描画と同じ <code>textured.frag</code> で、<strong>違うのはカメラ(90 度・1:1)と、<code>PrepareProbeCapture</code> が変える4つの uniform だけ</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変えるもの</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>SSAO を切る</td><td>遮蔽率のテクスチャは本描画のカメラで作った画面のもの。撮るカメラとは画素が対応しない</td></tr>
+<tr><td>定数の環境光を 0</td><td>撮った光に、手で決めた光が混ざらないように</td></tr>
+<tr><td>IBL の鏡面を 0(<code>uIblIntensity = 0</code>)</td><td>プローブが運ぶのは拡散だけ。<strong>鏡面は見る場所で変わる</strong>ので、プローブの位置から見た鏡面は当てにならない</td></tr>
+<tr><td>プローブ</td><td>1回目は使わない(環境光なし)。2回目からは前の回のもの(要点6)</td></tr>
+</tbody>
+</table></div>
+<p>光の渡し方は<strong>フォワード</strong>(uniform の配列)。Forward+ の升目は本描画のカメラで切ったもので、撮るカメラの画面とは合わない。</p>
+<p><strong>焼かないものが2つある</strong>。</p>
+<p>1つ目は<strong>光る材質</strong>(窓の板・街灯のガラス・看板)。Day 56 で、灯りは「照らす側(点光源)」と「見える側(光る材質)」の2つでできていると書いた。窓の照らす側は板の 40cm 手前からもう壁と路面を照らしているので、板まで焼き込むと<strong>同じ窓の光を、点光源として1回、板の照り返しとしてもう1回</strong>数えることになる。<code>F6</code> で焼くと、平均の明るさが 0.0336 → 0.0417(<strong>+24%</strong>)になる。</p>
+<p>2つ目は<strong>揺らぎ</strong>。灯りは<strong>揺らぎの無い満点</strong>で焼く。焼くのは一度きりなので、押した瞬間の揺らぎを焼き込むと、押すたびに明るさが変わる。代わりに、ランタンが揺らいでも照り返しは付いてこない(要点7)。</p>
+<p><strong>空は撮る</strong>。壁の切れ目から見える空も「その場所から見えたもの」の一部で、夜は 7% の明るさで写る。つまりプローブは、<strong>IBL の拡散(空)を丸ごと置き換える</strong>。空が壁に隠れている場所では、空からの光も減る。</p>
+<h3 id="s9">4. SH が苦手なもの — 小さく明るい光(と、それを 32x32 で撮ること)</h3>
+<p>9個では<strong>小さな光を小さく持てない</strong>。真上の半径 10 度の円だけが光る空を射影すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>本当の値</th><th>9個で持つと</th></tr></thead>
+<tbody>
+<tr><td>上向きの面</td><td>0.0302</td><td>0.0307</td></tr>
+<tr><td>下向きの面</td><td><strong>0</strong></td><td><strong>0.0017(上の 5.6%)</strong></td></tr>
+</tbody>
+</table></div>
+<p>ぼやけて広がり、<strong>真裏にまで漏れる</strong>。<strong>灯りを点光源のまま当てている</strong>のはこのためで、灯りの直接の光を SH に入れると、灯りの真裏の面まで光ってしまう。プローブが運ぶのは、灯りに照らされた<strong>面</strong>からの光(広がりのある光)だけにしてある。</p>
+<p>同じ弱点が<strong>空の側</strong>にもあった。夜の空(HDRI)には、太陽を抜いたあとにも輝度 3,200 ほどの点が残っている。</p>
+<ul><li><strong>9個に縮めると、その点を向いた面の値がずれる</strong>。Day 36 の放射照度マップと比べると、点に背を向けた面では最大 8.3% の一致なのに、向いた面では最大 <strong>86%</strong> ずれる(自己チェック7)。これは要点1の「9個で足りる」の例外で、打ち切りの限界</li><li><strong>32x32 で撮ると、点を拾うかどうかで空全体の明るさが変わる</strong>。こちらは打ち切りではなく<strong>標本化</strong>の問題。256x256 の空を8画素おきに読むと、点を拾った1画素が 64 画素ぶんの面積を代表する。撮った空の係数は +X で <strong>2.47 倍</strong>になった</li></ul>
+<p>2つ目は直せる。<strong>撮る画素と同じ大きさまで縮めた段で空を引けばよい</strong>(256 / 32 = 8 なので3段目)。そうすれば 8x8 の平均を読むことになり、明るい点は面積に見合った重さで入る。Day 36 の事前フィルタで「1サンプルが担当する立体角に見合った大きさのミップから引く」と書いたのと<strong>同じ理屈</strong>で、今日はそのために <code>EnvironmentMap.DrawSkybox</code> に引数を1つ足した(画面に描くときは 0 段目のまま)。</p>
+<h3 id="s10">5. 格子と三線形補間 — 重みは壁を知らない</h3>
+<p>プローブは 1.5m おきに 7 x 4 x 16 = <strong>448 個</strong>。画素は自分を囲む8点を、3軸の一次補間の積で混ぜる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// textured.frag / deferred.frag の ProbeIrradiance(Day 66a)
+vec3 cell = clamp((worldPos - uProbeGridMin) / uProbeSpacing, vec3(0.0), vec3(uProbeCount - 1));
+ivec3 base = min(ivec3(cell), uProbeCount - 2);
+vec3 t = cell - vec3(base);
+
+for (int i = 0; i &lt; 8; i++)
+{
+    ivec3 corner = ivec3(i &amp; 1, (i &gt;&gt; 1) &amp; 1, (i &gt;&gt; 2) &amp; 1);
+    vec3 w = mix(vec3(1.0) - t, t, vec3(corner));
+    ...
+    sum += ProbeSh(probe, n) * (w.x * w.y * w.z);
+}</code></pre></div>
+<p><strong>重みは距離だけで決まる</strong>。壁の向こうの点も、近ければ同じだけ効く。格子は左の壁(x = −4)の外に1列(x = −5)はみ出させてあり、壁から 50cm 外の地面は、<strong>8点の重みの 33% を壁の内側のプローブから</strong>受け取る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>格子の間隔</th><th>壁をまたぐ升</th><th>壁から 50cm 外の地面が内側から受け取る重み</th><th>放射照度 / π(空だけなら 0.0249)</th></tr></thead>
+<tbody>
+<tr><td>3.0m</td><td>x = −5 〜 −2</td><td>17%</td><td>0.0248(1.0 倍)</td></tr>
+<tr><td>1.5m(既定)</td><td>x = −5 〜 −3.5</td><td><strong>33%</strong></td><td>0.0316(<strong>1.3 倍</strong>)</td></tr>
+<tr><td>1.0m</td><td>なし(x = −4 の列がちょうど壁の面に乗る)</td><td><strong>0%</strong></td><td>0.0228(0.9 倍)</td></tr>
+</tbody>
+</table></div>
+<p><strong>漏れの量は格子の粗さでは決まらない</strong>。3.0m のほうが 1.5m より漏れが少ないのは、壁をまたぐ升の中で壁が内側の列から遠く(重み 17%)、しかも内側の列(x = −2)が街灯から離れていて照り返しを多く見ていないから。<strong>壁をまたぐ升のどこに壁があるか</strong>と、<strong>内側の列が何を見ているか</strong>の2つで決まる。間隔を細かくすれば升は小さくなるが、列の置き場所を選ばない限り、漏れる升は必ずどこかに残る。</p>
+<div class="inject"><figure class="lab" id="pg-lab">
+  <div class="lab-head">
+    <h3>格子と三線形補間 — 壁をまたぐとき、内側から受け取る重み(要点5・課題1)</h3>
+    <span class="tag">IrradianceProbes.Configure(点の数の決め方)と Corners(位置を囲む点と三線形の重み。格子の外は端の値)の x 軸だけを取り出したもの(重みは 3 軸の積なので、壁に直角な x の重みがそのまま漏れの量になる)。格子の角の x = −5、壁の面は x = −4(完成版の裏通り)、壁の外の地面は壁から 50cm の x = −4.5 が reference の置き場所。間隔は reference の 3.0 / 1.5 / 1.0m。それ以外の間隔・壁と点と角の位置はこのページだけ(課題1の 2・4 の下見)。放射照度の列は、手元の RTX 3070 で完成版を焼いて測った値で、このページでは測り直していない</span>
+  </div>
+  <div class="stage"><canvas id="pg-canvas" style="height:260px" aria-label="壁と、プローブの列と、補間の重みを横から見た図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">格子の間隔(F5)</span>
+      <div class="seg" id="pg-spacing"><button data-v="3" aria-pressed="false">3.0m</button><button data-v="1.5" aria-pressed="true">1.5m(既定)</button><button data-v="1" aria-pressed="false">1.0m</button><button data-v="free" aria-pressed="false">自分で決める</button></div>
+    </div>
+    <div class="ctl"><span class="label">間隔(「自分で決める」のとき。このページだけ)</span>
+      <div class="range"><input type="range" id="pg-sp" min="0.5" max="4" step="0.05" value="1.5"><output id="pg-sp-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">補間する位置 x(m)。壁から 50cm 外 = −4.5</span>
+      <div class="range"><input type="range" id="pg-x" min="-6.5" max="-0.5" step="0.05" value="-4.5"><output id="pg-x-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">格子の角の x(m)。reference は −5(課題1の 4 は −5.25)。このページだけ</span>
+      <div class="range"><input type="range" id="pg-min" min="-6" max="-4" step="0.05" value="-5"><output id="pg-min-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">壁の面の x(m)。reference は −4。このページだけ</span>
+      <div class="range"><input type="range" id="pg-wall" min="-4.8" max="-2.5" step="0.05" value="-4"><output id="pg-wall-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="pg-stats"></div><div class="table-wrap" id="pg-table" style="margin-top:10px"></div><p id="pg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>格子の外は、端のプローブで塗る</strong>(位置を格子の中へ寄せる)。壁からずっと離れた地面は x = −5 の列の値になる。もう1つ、<strong>片面の壁は裏から透けて見える</strong>。壁は1枚の板で、裏面は間引いて描いているので、壁の外のプローブからは壁の向こうの通りが見えている。Day 66b で読む DDGI は、この2つ(重みが壁を知らない・点が壁の中や裏に居る)を<strong>「その点から、ここが見えるか」</strong>(深度)と「点が裏面ばかり見ていたら使わない」で防ぐ。</p>
+<p><strong>3D テクスチャの補間に任せない</strong>理由は2つ。1つは<strong>サンプラの数</strong>——27 個の数を RGBA の 3D テクスチャに入れると7枚要り、<code>textured.frag</code> はすでに 14 枚使っている。もう1つが上の話で、<strong>8点の重みがシェーダの中で見えていれば、「この点は壁の向こうだから 0 にする」を後から足せる</strong>(改造課題2)。係数は横 9 列・縦 448 行の2D テクスチャに入れ、<code>texelFetch</code> で1つずつ読む。</p>
+<h3 id="s11">6. 跳ね返りを重ねる — 同じ関数を、前の回の結果で照らして呼ぶ</h3>
+<p>1回目は環境光なしで撮る。写るのは<strong>直接</strong>照らされた面なので、縮めたものは「1回跳ねた光」。2回目は<strong>1回目の係数で照らして</strong>撮る。照り返しに照らされた面が写るので、跳ねる回数が1つ増える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>跳ね返り</th><th>全プローブの平均の明るさ</th><th>増えた量</th></tr></thead>
+<tbody>
+<tr><td>1回</td><td>0.0312</td><td>—</td></tr>
+<tr><td>2回</td><td>0.0336</td><td><strong>+8%</strong></td></tr>
+<tr><td>3回</td><td>0.0336</td><td><strong>+0%</strong>(+0.0001)</td></tr>
+</tbody>
+</table></div>
+<p><strong>増え方が急に減る</strong>のは、面が光の一部しか返さないから(路面やレンガのアルベドは 0.2〜0.4)。1回跳ねるたびに数分の1になるので、足し算がすぐ収まる。既定を2回にしたのはこのため(3回目は焼く時間が 1.3 倍になるのに、平均は 0.0001 しか増えない)。</p>
+<p><strong>差し替えるのは全部撮り終えてから</strong>(<code>IrradianceProbes.Bake</code>)。途中で差し替えると、先に焼いたプローブの光を後のプローブが拾い、<strong>並べた順で明るさが変わる</strong>(格子の片側だけ1回多く跳ねる)。</p>
+<h3 id="s12">7. 焼いたものは付いてこない — 静的 GI</h3>
+<p>焼くのは一度きりなので、<strong>あとから条件が変わっても照り返しは変わらない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変えたもの</th><th>直接の光</th><th>照り返し(焼き直すまで)</th></tr></thead>
+<tbody>
+<tr><td>ランタンが揺らぐ</td><td>揺らぐ</td><td><strong>揺らがない</strong>(満点で焼いてある)</td></tr>
+<tr><td>灯りを消す(<code>F10</code>)</td><td>消える</td><td><strong>残る</strong>。壁と路面がぼんやり光ったまま</td></tr>
+<tr><td>夕暮れにする(「最終デモ」の <code>F4</code>)</td><td>太陽が戻る</td><td><strong>夜の照り返しのまま</strong></td></tr>
+</tbody>
+</table></div>
+<p>HUD は焼いたときの条件を覚えていて、今と違えば「<strong>焼いた条件と違う(灯りを点けて焼いた)</strong>」と出す。灯りを消して焼き直すと(<code>F3</code>)、光だまりを見下ろす面の照り返しは 0.0600 → 0.0113(<strong>19%</strong>)まで落ちる(残りは月に照らされた路面)。</p>
+<p>これが「静的 GI」の意味で、<strong>灯りが動かない静的なシーンだから焼いて済む</strong>。ライトマップ(面ごとに焼く)と並ぶ AAA の主力で、どちらも<strong>動く光と動く物には付いてこない</strong>。付いてこさせたければ毎フレーム焼き直すしかなく、それを実時間でやるのが DDGI(Day 66b)。</p>
+<h3 id="s13">8. 絵の差が小さい理由と、値段</h3>
+<p>最終の絵でプローブを入れると、暗いところが <strong>中央値で +2.2%、上位 1% で +10%、上位 0.1% で +17%</strong> 明るくなる。成分表示(放射照度)では一目で分かるのに、最終の絵で控えめなのは、<strong>このシーンに暗がりがほとんど無い</strong>から。</p>
+<ul><li>灯り(点光源)は<strong>影を持たない</strong>(Day 52)。届く距離の中なら、壁の裏でも物の陰でも直接の光が当たる</li><li>照り返しは直接の光の数分の1(アルベド x 見えている面積)。直接の光が当たっている面では、足しても目立たない</li><li><strong>照り返しが主役になるのは、直接の光が届かないところ</strong>——いちばん効いているのは突き当りの壁の右側とバリアの裏</li></ul>
+<p>プローブの値打ちは<strong>色</strong>にも出る。灯りのまわりは暖色、看板の前は桃色に染まる(空だけなら、どこも同じ青)。Day 56 の課題3(街灯に影を付ける)をやると、影の中は照り返しだけになり、今日の差がはっきり出るはず。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>値段</th></tr></thead>
+<tbody>
+<tr><td>焼く(跳ね返り2回・448 点)</td><td><strong>1.3 秒</strong>。1回ぶん: 撮る 136ms / 読み返す 321ms / 縮める 161ms</td></tr>
+<tr><td>焼く1回の描画</td><td>448 点 x 6面 = 2,688 面 x シーンの物 35 個 = <strong>94,080 回</strong>の描く命令</td></tr>
+<tr><td>引く(毎フレーム)</td><td>シーンを描く時間が 0.379ms → <strong>0.515ms(+0.14ms)</strong>。画素1つにつき <code>texelFetch</code> 72 回</td></tr>
+<tr><td>係数</td><td><strong>31.5KB</strong>(RGBA16F 9 x 448)。撮った面のまま持つと 21.0MB</td></tr>
+</tbody>
+</table></div>
+<p><strong>読み返しがいちばん重い</strong>。撮るのは CPU が描く命令を積むだけで、GPU が撮り終えるのを待つのは <code>glReadPixels</code> の側に入る。1面ずつ読むと待ちが6倍になるので、<strong>16 点 x 6面を1枚(192x512)に並べて撮り、まとめて1回で読む</strong>(28 回)。</p>
+</section>
+<section class="part"><h2 id="s14">前Dayからの差分概要</h2>
+<h3 id="s15">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/SphericalHarmonics.cs</code></td><td><strong>今日の数学の全部</strong>。基底・立体角・キューブの向き・射影・余弦の畳み込み・評価。<strong><code>System.Numerics</code> しか使わない</strong></td></tr>
+<tr><td><code>Render/IrradianceProbes.cs</code></td><td><strong>格子と焼き</strong>。格子を決める・6面を撮る・まとめて読む・縮める・テクスチャへ・C# の鏡の補間・球で見る</td></tr>
+<tr><td><code>shaders/probe.vert</code></td><td>球をプローブの位置へ置くだけ</td></tr>
+<tr><td><code>shaders/probe.frag</code></td><td>1個のプローブの9係数を、球の法線で評価して塗る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/EnvironmentMap.cs</code></td><td><code>DrawSkybox</code> に <code>environmentMip</code>(既定 0)。プローブを撮るときは3段目で空を引く</td><td>+10 / −2</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>uniform 5つと <code>ProbeSh</code> / <code>ProbeIrradiance</code>。IBL の拡散の1行を差し替え</td><td>+72 / −1</td></tr>
+<tr><td><code>shaders/deferred.frag</code></td><td><strong><code>textured.frag</code> と1文字も違わない</strong>同じもの(位置の変数名だけ <code>worldPos</code>)</td><td>+72 / −1</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>OnLoad</code>・<code>ApplyLighting</code>・<code>OnRender</code>・HUD に1か所ずつ、ページ1枚(12 項目)、<code>OnClosing</code>、<code>RunDebugMenuCheck</code> の項目数</td><td>+1,318 / −1</td></tr>
+<tr><td><code>Day66a.csproj</code></td><td><code>Day63b.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong>今日の差分は Day 63b より重い</strong>(新規 909 行 + シェーダ 144 行 + <code>Program.cs</code> 1,318 行。どれもコメント込み)。<code>Program.cs</code> の今日の関数は、<strong>絵が出るまでの前半が約 410 行、内訳・値段・自己チェックの後半が約 760 行</strong>。1日で重ければ、下の順番の <strong>10 まで</strong>(絵が出るまで)と <strong>11 から</strong>(内訳・値段・自己チェック)で2回に分けるとよい。10 の (e) でメニューの <code>F11</code>・<code>F12</code>・<code>1</code> の3行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+<h3 id="s17">写経する順番</h3>
+<p>依存の向きに沿って並べてある。<strong>この順に写せば、途中でビルドが通らない状態を作らずに済む</strong>。</p>
+<ol><li><strong><code>Render/SphericalHarmonics.cs</code></strong>(新規) — <code>System.Numerics</code> しか使わない。<strong>今日の数学はここに全部ある</strong>。基底の定数は Sloan の資料から写す(覚えるものではない)。<code>CubeTexelDirection</code> は Day 36 の <code>Program.CubeTexelDirection</code> と同じ表</li><li><strong><code>Render/EnvironmentMap.cs</code></strong>(変更) — <code>DrawSkybox</code> に <code>float environmentMip = 0.0f</code> を足し、<code>Environment</code> を引く枝の <code>uMip</code> をそれにする。<strong>既定値を付けるので、既存の呼び出しは1つも書き換えない</strong></li><li><strong><code>shaders/probe.vert</code></strong>(新規) — 球を置くだけ</li><li><strong><code>shaders/probe.frag</code></strong>(新規) — 9係数の評価。<strong>基底の定数は 1 と同じ5つ</strong></li><li><strong><code>Render/IrradianceProbes.cs</code></strong>(新規) — 1〜4 を全部使う。<code>Faces</code> の表は <code>CubeMap.FaceViews</code> と同じ並び</li><li><strong><code>shaders/textured.frag</code></strong>(変更) — <code>uniform int uIblPrefilter;</code> の直後に uniform 5つと <code>ProbeSh</code> / <code>ProbeIrradiance</code>。IBL の枝の <code>vec3 irradiance = texture(uIrradianceMap, normal).rgb * uIblIntensity;</code> を3行の三項演算子に</li><li><strong><code>shaders/deferred.frag</code></strong>(変更) — 6 と同じ場所に同じもの。<strong><code>ProbeSh</code> から <code>ProbeIrradiance</code> の <code>return</code> の手前まで、1文字も違えない</strong> (自己チェック 15 が突き合わせる)。差し替える1行の位置の変数だけ <code>worldPos</code></li><li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 63b」のフィールドの直後に「Day 66a」の 12 個(<code>_probes</code> / <code>_probeGi</code> / <code>_probeBounces</code> / <code>ProbeSpacings</code> / <code>_probeSpacingIndex</code> / <code>ProbeGridMin</code> / <code>ProbeGridMax</code> / <code>_probeBakeEmissive</code> / <code>_showProbes</code> / <code>_probeLeakView</code> / <code>_probeBakedWith</code> / <code>_probeBounceMeans</code>)。<code>_probeBakedWith</code> の型(<code>ProbeBakeConditions</code>)は 9 で足すので、<strong>8 と 9 は続けて写す</strong></li><li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunTessellationCheck</code> の直後に、<code>ProbeBakeConditions</code> / <code>ProbesActive</code> / <code>CurrentProbeConditions</code> / <code>ProbesStale</code> / <code>ToggleProbeGi</code> / <code>BakeProbes</code> / <code>BakeLights</code> / <code>SetGlowForBake</code> / <code>RestoreGlow</code> / <code>PrepareProbeCapture</code> / <code>DrawProbeCapture</code> / <code>ProbeSkyMip</code> / <code>MeanProbeLuminance</code> / <code>ProbeBounceMeansText</code> / <code>RenderProbeSpheres</code> / <code>ToggleProbeLeakView</code> / <code>ProbeLeakPoint</code> / <code>LeakWeights</code> / <code>ProbeGiLabel</code></li><li><strong><code>Program.cs</code> の組み込み</strong> — 順に、(a) <code>OnLoad</code> の <code>_tessellation = new TessellationLab(...)</code> の直後に <code>_probes = new IrradianceProbes(...)</code> と <code>Configure</code>、(b) <code>ApplyLighting</code> の <code>_env.Apply(shader);</code> の直後に <code>_probes.Apply(shader, ProbesActive());</code>、(c) <code>OnRender</code> の <code>RenderRaymarch(deltaSeconds);</code> の直前に <code>RenderProbeSpheres();</code>、(d) <code>DrawOverlayInfo</code> の灯りの行(<code>SceneLightsLabel</code>)の直後に HUD の1行、(e) <code>BuildMenu</code> の「テッセレーション」ページの直後に「プローブGI」ページ(12 項目。<strong>F11・F12・<code>1</code> の3項目は 11 で足す関数を指すので、分けて写すなら後回しにする</strong>)、(f) <code>OnClosing</code> の <code>_tessellation.Dispose();</code> の直後に <code>_probes.Dispose();</code>、(g) <code>RunDebugMenuCheck</code> の項目数を <strong>277 → 289</strong> へ</li><li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 9 の続きに <code>EnvironmentCoefficients</code> / <code>BrightestDirection</code> / <code>LampPoolPoint</code> / <code>LampPoolLuminance</code> / <code>ProbeSamplePoints</code> / <code>DescribeProbeGi</code> / <code>MeasureProbeCost</code> / <code>MeasureSceneDraw</code> / <code>ReadProbeIrradianceOnGpu</code> / <code>RunProbeGiCheck</code></li><li><strong><code>Day66a.csproj</code></strong> — <code>Day63b.csproj</code> をリネームするだけ(中身は同じ)</li></ol>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Render/</code> にクラスが2つ増え、<code>EnvironmentMap</code> に引数が1つ増えた。教養編の Day 57〜63b は <code>Sandbox/</code>(エンジンを使う側)に閉じていたが、<strong>今日は <code>Render/</code>(エンジンの側)に置いた</strong>。プローブは実験台ではなく、完成版の絵を描く道の一部——<code>ApplyLighting</code> から毎フレーム渡され、<code>textured.frag</code> の IBL の1行を差し替える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/SphericalHarmonics</code></td><td><code>Render/SphericalHarmonics.cs</code></td><td>静的クラス。<strong><code>System.Numerics</code> しか使わない</strong>(<code>Pbr</code> と同じ置き方)</td></tr>
+<tr><td><code>Render/IrradianceProbes</code></td><td><code>Render/IrradianceProbes.cs</code></td><td>格子・焼き・テクスチャ・C# の鏡・球で見る。<strong>シーンを知らない</strong>(描く関数を受け取る)</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が変わったか</th><th>差分</th></tr></thead>
+<tbody>
+<tr><td><code>Render/EnvironmentMap</code></td><td><code>DrawSkybox(camera, restoreDepthTest, restoreCulling, environmentMip)</code></td><td>+10 / −2</td></tr>
+<tr><td><code>Program.cs</code></td><td>ページ1枚、<code>ApplyLighting</code> に1行、<code>OnRender</code> に1行、HUD に1行、焼く・撮る・見る・内訳・値段・自己チェック</td><td>+1,318 / −1</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">プローブ 448 個が焼けるまで — 16 個ずつ撮って、まとめて読む</h3>
+<svg viewBox="0 0 920 906" role="img" aria-label="プローブ 448 個が焼けるまで(16 個ずつ撮って、まとめて読む)。IrradianceProbes.Configure(min, max, 1.5)で 7 x 4 x 16 = 448 個を決め、焼いてあったものは捨てる。16 個ずつ束ねる(28 回)。撮る先 192x512 を消す。1点 x 6面ぶん、ビューポートを 32x32 の枠へ、カメラを 90 度・その面の向きへ。Program.DrawProbeCapture で、空(3段目)から、シーンの物 35 個を、本描画と同じ textured.frag で描く。16 個ぶん撮ったか。まだなら次の1点へ戻る。撮ったら glReadPixels を1回(ここで GPU を待つ)。Parallel.For で1点ずつ、CopyTile x 6 から ProjectFace で、明るさ x 基底 x 立体角 を足す。ToIrradiance で次数ごとに 1 / 2/3 / 1/4 を掛ける。全部の点を撮ったか。まだなら次の束へ戻る。撮ったら Upload(RGBA16F 9 x 448。ここで初めて差し替える)。Bounces を1つ増やす" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="8" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="28.5" text-anchor="middle" fill="var(--ink)">IrradianceProbes.Configure(min, max, 1.5)</text><text x="470" y="45.5" text-anchor="middle" fill="var(--ink)">7 x 4 x 16 = 448 個</text><text x="470" y="62.5" text-anchor="middle" fill="var(--ink)">焼いてあったものは捨てる</text><rect x="250" y="103" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="123.5" text-anchor="middle" fill="var(--ink)">16 個ずつ束ねる(28 回)</text><text x="470" y="140.5" text-anchor="middle" fill="var(--ink)">撮る先 192x512 を消す</text><rect x="250" y="181" width="440" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="201.5" text-anchor="middle" fill="var(--ink)">1点 x 6面ぶん</text><text x="470" y="218.5" text-anchor="middle" fill="var(--ink)">ビューポートを 32x32 の枠へ</text><text x="470" y="235.5" text-anchor="middle" fill="var(--ink)">カメラを 90 度・その面の向きへ</text><rect x="250" y="276" width="440" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="296.5" text-anchor="middle" fill="var(--ink)">Program.DrawProbeCapture(camera)</text><text x="470" y="313.5" text-anchor="middle" fill="var(--ink)">空(3段目)→ シーンの物 35 個</text><text x="470" y="330.5" text-anchor="middle" fill="var(--ink)">本描画と同じ textured.frag</text><rect x="340" y="371" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="470" y="391.5" text-anchor="middle" fill="var(--ink)">16 個ぶん撮ったか</text><rect x="250" y="444" width="440" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="464.5" text-anchor="middle" fill="var(--ink)">glReadPixels 1回</text><text x="470" y="481.5" text-anchor="middle" fill="var(--ink)">ここで GPU を待つ</text><rect x="250" y="522" width="440" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="542.5" text-anchor="middle" fill="var(--ink)">Parallel.For で1点ずつ</text><text x="470" y="559.5" text-anchor="middle" fill="var(--ink)">CopyTile x 6 → ProjectFace</text><text x="470" y="576.5" text-anchor="middle" fill="var(--ink)">明るさ x 基底 x 立体角 を足す</text><rect x="250" y="617" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="637.5" text-anchor="middle" fill="var(--ink)">ToIrradiance</text><text x="470" y="654.5" text-anchor="middle" fill="var(--ink)">次数ごとに 1 / 2/3 / 1/4</text><rect x="320" y="695" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="470" y="715.5" text-anchor="middle" fill="var(--ink)">全部の点を撮ったか</text><rect x="250" y="768" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="788.5" text-anchor="middle" fill="var(--ink)">Upload</text><text x="470" y="805.5" text-anchor="middle" fill="var(--ink)">RGBA16F 9 x 448</text><text x="470" y="822.5" text-anchor="middle" fill="var(--ink)">ここで初めて差し替える</text><rect x="250" y="863" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="883.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Bounces++</text><path d="M470 75 L470 101" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 153 L470 179" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 248 L470 274" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 343 L470 369" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 494 L470 520" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 589 L470 615" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 667 L470 693" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 835 L470 861" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 404 L470 442" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="478" y="421" fill="var(--muted)" font-size="12">撮った</text><path d="M470 728 L470 766" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="478" y="745" fill="var(--muted)" font-size="12">撮った</text><path d="M600 387.5 L730 387.5 L730 214.5 L692 214.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="608" y="381.5" fill="var(--muted)" font-size="12">まだ</text><path d="M320 711.5 L200 711.5 L200 128 L248 128" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="312" y="705.5" fill="var(--muted)" font-size="12" text-anchor="end">まだ</text></g></svg>
+<p><strong><code>IrradianceProbes</code> はシーンを知らない</strong>。何を描くかは <code>Bake(Action&lt;Camera&gt; drawScene)</code> に渡される関数が決め、このクラスが決めるのは「どこから・どの向きへ撮るか」と「撮ったものをどう縮めるか」だけ。<code>EnvironmentMap</code>(何を映すかは太陽の向きだけで決まる)や <code>DeferredLighting.Render</code>(光の uniform を <code>Action&lt;Shader&gt;</code> で受け取る)と同じ線の引き方で、<strong>灯りを点けるか・何回跳ねるか・光る材質を焼くかは、全部呼ぶ側(<code>Program</code>)の都合</strong>で決められる。</p>
+<p><strong>読み返しは束ごとに1回</strong>。<code>glReadPixels</code> は積まれた描画が全部終わるまで返らないので、1面ずつ読むと GPU の空き待ちが 6 倍になる。撮る先を 192x512 にして 16 点 x 6面を並べ、28 回の読み返しで済ませている。<strong>撮る 136ms に対して読み返し 321ms</strong>——読み返しの中身はほとんどが GPU の描画の待ち。</p>
+<p><strong>縮めるのは CPU</strong>(<code>Parallel.For</code>)。GPU のコンピュートでやれば読み返しも要らないが、C# で書いておけば自己チェックが<strong>同じ関数</strong>に答えの分かる空を通せる(一様・上半分・小さな円)。Day 36 で BRDF の表を CPU で焼いた判断と同じ。</p>
+<h3 id="s20">跳ね返りが重なるまで — 前の回の係数で照らして、もう一度撮る</h3>
+<svg viewBox="0 0 960 330" role="img" aria-label="跳ね返りが重なるまで。撮る前に Configure で係数を捨てる。1回目を撮る(環境光 0・IBL の鏡面 0。写るのは空と直接照らされた面)。係数 A(1回跳ねた光、平均 0.0312)。2回目を撮る(拡散の環境光 = A。A に照らされた面も写る)。係数 B(2回跳ねた光まで、平均 0.0336、+8%)。3回目を撮る(拡散の環境光 = B)。係数 C(平均 0.0336、+0%)" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="8" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="28.5" text-anchor="middle" fill="var(--ink)">撮る前</text><text x="150" y="45.5" text-anchor="middle" fill="var(--ink)">Configure で係数を捨てる</text><rect x="340" y="8" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="28.5" text-anchor="middle" fill="var(--ink)">1回目を撮る</text><text x="480" y="45.5" text-anchor="middle" fill="var(--ink)">環境光 0・IBL の鏡面 0</text><text x="480" y="62.5" text-anchor="middle" fill="var(--ink)">写るのは空と直接照らされた面</text><rect x="670" y="8" width="280" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="28.5" text-anchor="middle" fill="var(--ink)">係数 A</text><text x="810" y="45.5" text-anchor="middle" fill="var(--ink)">1回跳ねた光</text><text x="810" y="62.5" text-anchor="middle" fill="var(--ink)">平均 0.0312</text><rect x="10" y="140" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="160.5" text-anchor="middle" fill="var(--ink)">2回目を撮る</text><text x="150" y="177.5" text-anchor="middle" fill="var(--ink)">拡散の環境光 = A</text><text x="150" y="194.5" text-anchor="middle" fill="var(--ink)">A に照らされた面も写る</text><rect x="340" y="140" width="280" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="160.5" text-anchor="middle" fill="var(--ink)">係数 B</text><text x="480" y="177.5" text-anchor="middle" fill="var(--ink)">2回跳ねた光まで</text><text x="480" y="194.5" text-anchor="middle" fill="var(--ink)">平均 0.0336(+8%)</text><rect x="670" y="140" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="160.5" text-anchor="middle" fill="var(--ink)">3回目を撮る</text><text x="810" y="177.5" text-anchor="middle" fill="var(--ink)">拡散の環境光 = B</text><rect x="10" y="270" width="280" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="290.5" text-anchor="middle" fill="var(--ink)">係数 C</text><text x="150" y="307.5" text-anchor="middle" fill="var(--ink)">平均 0.0336(+0%)</text><path d="M290 33 L338 41.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M620 41.5 L668 41.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M290 173.5 L338 173.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M620 173.5 L668 165" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M810 75 L810 124 L150 124 L150 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M810 190 L810 254 L150 254 L150 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>跳ね返りのために書き足したコードは無い</strong>。<code>BakeProbes</code> のループが <code>_probes.Bake</code> を回数だけ呼び、2回目からは <code>PrepareProbeCapture</code> が「プローブを使う」を立てるだけ。撮る側のシェーダは本描画と同じなので、<strong>本描画がプローブで照らされるなら、撮る絵もプローブで照らされる</strong>——跳ね返りはそれを繰り返しているにすぎない。</p>
+<p><strong>撮っている間は、テクスチャは前の回のまま</strong>(<code>Bake</code> が差し替えるのは最後)。だから1回の焼きの中では、どのプローブも同じ回数だけ跳ねた光を見る。</p>
+<h3 id="s21">1画素が照り返しを受け取るまで — 8点を混ぜる、壁を見ずに</h3>
+<svg viewBox="0 0 920 648" role="img" aria-label="1画素が照り返しを受け取るまで(8点を混ぜる、壁を見ずに)。画素の世界の位置 vWorldPos と法線 N。cell = (位置 − 格子の角) / 1.5m(格子の中へ寄せる。外は端の値)。base = 切り捨て、t = 端数(0〜1)、いちばん上の点では1つ手前の升へ。8 つの角ごとに、重み = 3軸の一次補間の積、番号 = x + 7 (y + 4 z)。ProbeSh(番号, N)で texelFetch を 9 回、基底を掛ける。重みを掛けて足す(壁があるかは見ていない)。max(0) で、2次で打ち切った波で負になる向きを止める。拡散の環境光 = kD x これ x albedo x AO(IBL の放射照度マップの1行を差し替えただけ)" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="200" y="8" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="28.5" text-anchor="middle" fill="var(--ink)">画素の世界の位置 vWorldPos</text><text x="460" y="45.5" text-anchor="middle" fill="var(--ink)">と法線 N</text><rect x="200" y="86" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="106.5" text-anchor="middle" fill="var(--ink)">cell = (位置 - 格子の角) / 1.5m</text><text x="460" y="123.5" text-anchor="middle" fill="var(--ink)">格子の中へ寄せる(外は端の値)</text><rect x="200" y="164" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="184.5" text-anchor="middle" fill="var(--ink)">base = 切り捨て</text><text x="460" y="201.5" text-anchor="middle" fill="var(--ink)">t = 端数(0〜1)</text><text x="460" y="218.5" text-anchor="middle" fill="var(--ink)">いちばん上の点では1つ手前の升へ</text><rect x="200" y="259" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="279.5" text-anchor="middle" fill="var(--ink)">8 つの角ごとに</text><text x="460" y="296.5" text-anchor="middle" fill="var(--ink)">重み = 3軸の一次補間の積</text><text x="460" y="313.5" text-anchor="middle" fill="var(--ink)">番号 = x + 7 (y + 4 z)</text><rect x="200" y="354" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="374.5" text-anchor="middle" fill="var(--ink)">ProbeSh(番号, N)</text><text x="460" y="391.5" text-anchor="middle" fill="var(--ink)">texelFetch 9 回 x 基底</text><rect x="200" y="432" width="520" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="452.5" text-anchor="middle" fill="var(--ink)">重みを掛けて足す</text><text x="460" y="469.5" text-anchor="middle" fill="var(--ink)">壁があるかは見ていない</text><rect x="200" y="510" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="530.5" text-anchor="middle" fill="var(--ink)">max(0)</text><text x="460" y="547.5" text-anchor="middle" fill="var(--ink)">2次で打ち切った波で負になる向きを止める</text><rect x="200" y="588" width="520" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="608.5" text-anchor="middle" fill="var(--ink)">拡散の環境光 = kD x これ x albedo x AO</text><text x="460" y="625.5" text-anchor="middle" fill="var(--ink)">IBL の放射照度マップの1行を差し替えただけ</text><path d="M460 58 L460 84" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 136 L460 162" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 231 L460 257" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 326 L460 352" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 404 L460 430" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 482 L460 508" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M460 560 L460 586" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong>C# の鏡(<code>IrradianceProbes.Irradiance</code>)が同じ手順を持っている</strong>。自己チェックは小さな板を置いて成分表示 18 で描かせ、画面の真ん中の画素を C# の値と突き合わせる(ずれ 0.05%)。テクスチャの並び・番号の振り方・重み・基底の定数のどれが食い違っていても落ちる。</p>
+<p><strong>各点で評価してから混ぜても、係数を混ぜてから評価しても同じ</strong>(どちらも一次式)。シェーダは読みやすさを取って前者にした。後者なら基底の計算が8回から1回に減るが、<code>texelFetch</code> の 72 回は変わらない——値段の大半はそちら。</p>
+<h3 id="s22">今日残した歪み(4つ)</h3>
+<p><strong>1つ目: 格子の範囲が <code>Program.cs</code> に直書きされている</strong>(<code>ProbeGridMin</code> / <code>ProbeGridMax</code>)。完成版の裏通りの形(左の壁 x = −4、突き当り z = −13)を知っているのは本来シーンなので、Day 56 の灯りや夜と同じく<code>demo-final.json</code> に書くのが筋。新しいキーなら古い Day は黙って飛ばすので、書き足しても壊れない(改造課題3)。</p>
+<p><strong>2つ目: 焼いた係数を保存しない</strong>。起動して <code>F2</code> を押すたびに 1.3 秒焼く。本物のエンジンはライトマップと同じく<strong>ビルドのときに焼いてファイルに持つ</strong> (ゲームの実行中に焼くことはまずない)。係数は 31.5KB なので、書き出すのは難しくない(改造課題3)。</p>
+<p><strong>3つ目: 鏡面は空のまま</strong>。プローブが運ぶのは拡散だけで、金属のゴミ箱には今日も空(7%)が映る。場所ごとの映り込みには<strong>反射プローブ</strong>(点ごとにキューブマップを持ち、粗さでぼかす)が別に要る。9係数では鏡面の細かさを持てない(要点4の「小さく明るい光」と同じ理由)ので、拡散のプローブを流用することもできない。</p>
+<p><strong>4つ目: 壁の外のプローブが壁の裏から通りを覗いている</strong>。撮るときも本描画と同じく裏面を間引くので、片面の板の壁は裏から見ると透ける。壁の外の列(x = −5)は、壁の向こうの通りの照り返しを受け取っている。裏面を描いても、裏面は表の法線で照らされる(<code>textured.frag</code> は <code>gl_FrontFacing</code> を見ていない)ので、やはり明るく写る。DDGI(Day 66b)は「裏面ばかり見ている点は使わない」でこれを防ぐ。</p>
+</section>
+<section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day66a -c Release</code> で起動する。起動直後のコンソールは Day 63b と同じ。メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「プローブGI」(29 枚目)が開く。</p>
+<h3 id="s24">1. <code>F2</code>: 焼いたプローブ</h3>
+<p>完成版の夜の裏通りが決めの構図で出て(カメラワークは止まっている)、コンソールに次の行が出る。</p>
+<div class="code"><pre><code>プローブを焼いた: 448 個(7x4x16  間隔 1.5m)  跳ね返り 2 回  面 5,376 枚  1350ms  係数 32KB
+  灯り: 7 個(揺らぎの無い満点)  光る材質: 焼かない  時間帯: 夜
+  跳ね返りごとの平均の明るさ: 1回 0.0312 → 2回 0.0336(+8%)
+焼いたプローブ: <strong>ON</strong>  拡散の環境光を「空1枚」から「その場所から見えたシーン」に差し替えた。灯りの当たらない面に、照らされた路面や壁の色が回り込む</code></pre></div>
+<p>焼いている 1.3 秒ほど、画面が止まる。HUD に今日の行が出る。</p>
+<div class="code"><pre><code>プローブGI:ON 448個(7x4x16) 間隔1.5m  跳ね返り2回  焼き1350ms  係数32KB</code></pre></div>
+<p><code>F2</code> を何度か押して ON / OFF を見比べる。<strong>差は控えめ</strong>(要点8)で、いちばん分かりやすいのは<strong>突き当りの壁の右側</strong>と<strong>バリアの裏</strong>。ON にすると、そこがわずかに明るく、赤みを帯びる。</p>
+<h3 id="s25">2. <code>F8</code>: 放射照度を見る(<strong>今日の見どころ</strong>)</h3>
+<p>成分表示 18(Day 36 の「放射照度」)に切り替わる。画素の色が「その面が受けている環境光」になる。</p>
+<ul><li><strong>プローブ ON</strong>: 灯りのまわりの路面と壁が暖色に、突き当りの壁の看板の前が桃色に、ランタンの下が橙色に染まる。通りの真ん中や、灯りから離れた路面は青みがかる(空が主)。<strong>場所によって色も明るさも違う</strong></li><li><strong><code>F2</code> で OFF(空だけ)</strong>: 路面は青一色、壁は向きごとに一様な色。<strong>向きだけで決まり、場所によらない</strong>——Day 36 の放射照度マップは世界に1枚しかないので</li></ul>
+<p>この2枚の違いが、今日足したものの全部。</p>
+<h3 id="s26">3. <code>F7</code>: プローブを見る</h3>
+<p>1.5m おきに 448 個の球が浮かぶ(半径 12cm)。球の各点は「その向きを向いた白い面が、そこで受ける照り返し」。ほとんどの球は<strong>暖かい灰色</strong>で、<strong>看板の前の球だけが桃色</strong>になる(画素の色でおよそ (95, 78, 55) と (140, 76, 81))。灯りのそばの球でも、灯りの側だけが光ることはない——プローブが運ぶのは灯りの直接の光ではなく、照らされた面からの光だから。照り返しの明るさは白い面でも 0.03〜0.1 ほどしかないので、色の違いは <code>F8</code> の放射照度のほうが読みやすい。</p>
+<h3 id="s27">4. <code>F9</code>: 壁の上から見下ろす(<code>F8</code> と一緒に)</h3>
+<p>真上近く(仰角 86 度)から、左の壁と、その外の地面を見る。画面の下が通り、上が壁の外。</p>
+<div class="code"><pre><code>壁の上から見下ろす: <strong>ON</strong>  画面の下が通り、上が壁の外。<strong>F8(放射照度を見る)で見ること</strong>。壁の外の地面は、そもそも街灯に直接照らされている(点光源は影を持たないので、光が壁を突き抜ける)。照り返しの漏れは、直接の光を外した放射照度で初めて見える(壁の外に 70cm ほどの暖色の帯)
+  壁から 50cm 外の地面 (-4.5, -4.0): 8点の重みのうち <strong>33% が壁の内側のプローブ</strong>、67% が外側。三線形補間は壁を見ていない</code></pre></div>
+<p>ふつうの表示では、壁の外の地面も街灯に照らされて明るい(点光源は壁を突き抜ける)。<code>F8</code> で放射照度にすると、<strong>壁の線の外側に、幅 70cm ほどの暖色の帯</strong>が見える。帯の外(x &lt; −5)は、格子の外なので端の列の値で一様に塗られる。<code>F5</code> で間隔を 1.0m にすると、帯が消える。3.0m にすると、帯はあるが 1.5m より薄い(要点5の表)。</p>
+<h3 id="s28">5. <code>F10</code>: 灯りを消す(焼き直さない)</h3>
+<p>直接の光が全部消えるが、<strong>壁と路面がぼんやり光ったまま</strong>になる。HUD に「焼いた条件と違う」が出る。</p>
+<div class="code"><pre><code>灯り: <strong>消灯</strong>  <strong>焼いた照り返しは残っている</strong>。灯りが消えたのに、壁と路面がぼんやり光ったまま(F3 で焼き直すと、灯りのぶんが消える)</code></pre></div>
+<div class="code"><pre><code>プローブGI:ON 448個(7x4x16) 間隔1.5m  跳ね返り2回  焼き1350ms  係数32KB  <strong>焼いた条件と違う(灯りを点けて焼いた)</strong></code></pre></div>
+<p><code>F3</code> で焼き直すと、灯りのぶんの照り返しが消える(光だまりを見下ろす面で 0.0600 → 0.0113)。もう一度 <code>F10</code> で点け、<code>F3</code> で焼き直して元に戻す。</p>
+<h3 id="s29">6. <code>F4</code> / <code>F5</code> / <code>F6</code>: 焼く条件を変える</h3>
+<p>どれも押すと焼き直す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>押したあと</th><th>焼く時間</th><th>平均の明るさ</th></tr></thead>
+<tbody>
+<tr><td><code>F4</code>(2 → 3 回)</td><td>跳ね返り3回</td><td>1.77 秒</td><td>0.0312 → 0.0336 → <strong>0.0336</strong>(3回目は +0.0001)</td></tr>
+<tr><td><code>F4</code>(3 → 1 回)</td><td>跳ね返り1回</td><td>0.54 秒</td><td>0.0312</td></tr>
+<tr><td><code>F5</code>(1.5 → 1.0m)</td><td>1,440 個(10x6x24)</td><td>1.7 秒(1回)</td><td>0.0305</td></tr>
+<tr><td><code>F5</code>(1.0 → 3.0m)</td><td>108 個(4x3x9)</td><td>0.13 秒(1回)</td><td>0.0285</td></tr>
+<tr><td><code>F6</code></td><td>光る材質も焼く</td><td>1.1〜1.3 秒</td><td>0.0336 → 0.0417(<strong>+24%</strong>。二重に数えたぶん)</td></tr>
+</tbody>
+</table></div>
+<p><strong>間隔で平均が変わる</strong>のは、点の置き場所が変わるため。平均は点ごとの値を足したものなので、空を広く見る上の段や壁の外の列がどれだけ混ざるかで動く(絵の明るさの平均ではない)。3.0m では「街灯の下で路面を見下ろす面」が 0.0600 → 0.0471 に下がる——いちばん近い点が光だまりから遠くなるため。</p>
+<h3 id="s30">7. <code>F11</code>: 内訳</h3>
+<div class="code"><pre><code>--- プローブGI の内訳 ---
+  格子: 7 x 4 x 16 = <strong>448 個</strong>  間隔 1.5m  (-5.0, 0.3, -14.0) から (4.0, 4.8, 8.5)
+    左の壁(x = -4)と突き当りの壁(z = -13)の外に1列ずつはみ出させてある(光漏れを見るため)
+  係数: 1個 9 x RGBA16F = 72 バイト(うち A の 18 バイトは使っていない)→ 全部で <strong>31.5KB</strong>  撮った 32x32 x 6面のまま持つと 21.0MB(<strong>683 分の1</strong>)
+  焼いた条件: 夜 / 灯り 点灯 / 跳ね返り 2 回 / 光る材質 焼かない  → 今と同じ
+  跳ね返りごとの平均の明るさ: 1回 0.0312 → 2回 0.0336(+8%)
+  焼いた時間: 合計 1300ms(最後の1回: 撮る 136ms / 読み返す 321ms / 縮める 161ms)
+
+  場所ごとの放射照度 / π(輝度)。空だけ = IBL、プローブ = 今日
+    場所                      空だけ     プローブ    倍率   色(プローブ)
+    街灯の足元の路面               0.0249     0.0433     1.7倍   (0.059, 0.040, 0.031)
+    街灯の横の壁                 0.0507     0.0655     1.3倍   (0.085, 0.062, 0.041)
+    看板の下の壁                 0.0313     0.0429     1.4倍   (0.059, 0.039, 0.030)
+    街灯の下で路面を見下ろす面          0.0050     0.0600    11.9倍   (0.109, 0.050, 0.018)
+    通りの真ん中の路面              0.0249     0.0275     1.1倍   (0.031, 0.026, 0.029)
+    手前のバリアの陰               0.0249     0.0263     1.1倍   (0.029, 0.025, 0.028)
+    壁の外の地面(光漏れ)            0.0249     0.0316     1.3倍   (0.034, 0.031, 0.033)
+    壁の外の地面・遠く              0.0249     0.0235     0.9倍   (0.018, 0.024, 0.034)
+  光漏れ: 壁の外 50cm の地面は、8点の重みのうち <strong>33% を壁の内側のプローブ</strong>から受け取っている(外側 67%)。遠くの地面は格子の外なので、端(x = -5.0)の列で塗られる</code></pre></div>
+<p><strong>「街灯の下で路面を見下ろす面」が 11.9 倍</strong>になっているのが今日の核心。空だけなら下を向いた面は地面(空の下半分)しか見ておらず暗いが、プローブは<strong>灯りに照らされた路面</strong>を見ている。上を向いた面(路面そのもの)は空を見ているので、倍率は小さい(1.1〜1.7 倍)。「空だけ」の列は Day 36 の空を9係数に縮めたもの x 強さ(0.07)で、本描画の <code>texture(uIrradianceMap, n) * uIblIntensity</code> とほぼ同じ値。</p>
+<h3 id="s31">8. <code>F12</code>: 値段</h3>
+<div class="code"><pre><code>--- プローブGI の値段 ---
+  焼く(1回ぶん): プローブ 448 個 x 6面 = <strong>2,688 面</strong>、シーンの物 35 個なので 描く命令 94,080 回
+    撮る 137ms(1面 50.9us) / 読み返す 305ms(28 回) / 縮める 163ms  → 跳ね返り 2 回で合計 <strong>1392ms</strong>
+    ※ 撮るのは CPU が描く命令を積む時間で、GPU が撮り終えるのを待つのは読み返しの側に入る
+  引く(毎フレーム・シーンを 8 回描いた平均): 空だけ 0.379ms / プローブ <strong>0.515ms</strong>  差 +0.136ms
+    画素1つにつき texelFetch 72 回(8点 x 9係数)。画面 614,400 画素なら <strong>44M 回</strong>。キューブマップを1回引くのと比べれば多いが、読む場所が9列 x 数百行に収まっているのでキャッシュに乗る</code></pre></div>
+<p>VSync を入れたまま測っているので走行ごとにぶれる。何度か押して落ち着いた値を読む。</p>
+<h3 id="s32">9. <code>1</code>: 自己チェック(15 項目)</h3>
+<p>全部 <code>[OK]</code> になる。<strong>完成版を出す前に押すと前半6項目だけが走り</strong>、「ここから先は完成版のシーンが要る」と出る。</p>
+<div class="code"><pre><code>=== Day 66a 自己チェック(SH の数学・撮る向き・補間・跳ね返り・灯り・光る材質)===
+  [OK] <strong>6面のテクセルの立体角を足すと 4π</strong>(真ん中と隅で大きさが違う)  12.56637(4π = 12.56637)  真ん中 / 隅 = 4.86 倍
+  [OK] <strong>9つの基底は正規直交</strong>(自分とは 1、ほかとは 0。定数を1つ写し間違えると崩れる)  いちばん大きいずれ 0.00040
+  [OK] 一様な空(どこからも 1)→ どの向きも 1(<strong>半球の余弦の積分は π、1/π 済みなので 1</strong>)  上 1.0000 / 横 1.0000
+  [OK] <strong>上半分だけ光る空 → 上 1 / 横 0.5 / 下 0</strong>(3次以上の奇数次は余弦で消えるので、9個で足りる)  上 1.0002 / 横 0.5000 / 下 -0.0002
+  [OK] <strong>小さく明るい光(半径 10 度)は、真裏に上向きの 5% ほど漏れる</strong>(2次で打ち切った限界。本当は 0)  上 0.0307(本当は 0.0302)/ 下 0.0017 = 上の 5.6%
+  [OK] 三線形の重みは足すと 1(格子の外でも)。<strong>プローブの上ではそのプローブが 1</strong>(いちばん上の角でも)  ランダムな 200 点で合計 1: はい  (2,1,3) の上 → 1.000 / いちばん上の角 → 1.000
+  [OK] <strong>明るい点に背を向けた面では、空の9係数が Day 36 の放射照度マップ(画素ごとの半球積分)と一致</strong>  背を向けた 189 点のいちばん大きいずれ 8.3% / 向いた 195 点では 86%(全体の平均 9.0%。ずれは平均の明るさ 0.323 に対して)
+  [OK] <strong>空だけを撮ったプローブが、空の係数 x 強さと一致</strong>(撮る6面の向きの表が GL のキューブと同じ)  いちばん大きいずれ 0.2%  撮った / 期待(+X -X +Y -Y +Z -Z): 1.00 1.00 1.00 1.00 1.00 1.00
+  [OK] テクスチャの中身が CPU の係数と同じ(<strong>1行が1プローブ・9列が係数</strong>。RGBA16F に丸めたぶんだけずれる)  108 行 x 9 列 / いちばん大きいずれ 0.04%(0 次に対して)
+  [OK] <strong>GPU が引いた放射照度が C# の鏡と一致</strong>(並び・番号・重み・基底のどれかが違えば落ちる)  いちばん大きいずれ 0.05%  GPU/C#: 街灯の足元の路面 0.0333/0.0333  街灯の横の壁 0.0628/0.0628  看板の下の壁 0.0410/0.0410
+  [OK] <strong>跳ね返るたびに明るくなり、増え方は減っていく</strong>(面は光の一部しか返さないので、足し算が収まる)  1回 0.0285 → 2回 0.0305(+0.0020)→ 3回 0.0306(+0.0001)
+  [OK] <strong>灯りを消して焼き直すと、光だまりを見下ろす面の照り返しはほとんど消える</strong>(焼いているのは灯りの光)  灯りあり 0.0423 → なし 0.0048(11%。残りは月に照らされた路面)  格子全体の平均では 0.0285 → 0.0230(81%。<strong>空を見ているぶんは消えない</strong>)
+  [OK] <strong>光る材質も焼くと明るくなる</strong>(同じ灯りを、点光源と光る板の照り返しで二重に数える)  焼かない 0.0285 → 焼く 0.0326(+14%)
+  [OK] <strong>焼いても、プローブを切っていれば絵は1ビットも変わらない</strong>(撮るときに借りたものを全部返している)  614,400 画素のうち違うもの 0
+  [OK] <strong>基底の定数が C# とシェーダ3本で同じ</strong>、補間の本体が textured.frag と deferred.frag で1文字も違わない  定数 0.282095 / 0.488603 / 1.092548 / 0.315392 / 0.546274</code></pre></div>
+<p>前半6項目は<strong>窓を開かずに走る</strong>(<code>SphericalHarmonics</code> が GL を1行も知らないので)。後半は<strong>いちばん粗い格子(3.0m)で焼き直して</strong>確かめ、終わったら元の条件で焼き直す(自己チェックの所要はおよそ 2 秒)。<strong>夕暮れで押しても、キツネで歩いている最中に押しても同じ数字</strong>になる(焼くところだけ夜にそろえている)。</p>
+<h3 id="s33">10. プローブを入れない限り、絵は Day 63b と1ビットも変わらない</h3>
+<p>同じ手順を Day 63b と Day 66a で踏み、画面を画素ごとに突き合わせた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>違う画素</th></tr></thead>
+<tbody>
+<tr><td>起動直後</td><td>0</td></tr>
+<tr><td>デモ v1</td><td>0</td></tr>
+<tr><td>デモ v1 の決めの構図</td><td>0</td></tr>
+<tr><td>最終デモ・完成版で遊ぶ</td><td>0</td></tr>
+<tr><td>最終デモ・完成版を眺める(決めの構図)</td><td>0</td></tr>
+<tr><td>同じ構図をディファードで</td><td>0</td></tr>
+</tbody>
+</table></div>
+<p><code>uProbeEnabled</code> が 0 のときは <code>texture(uIrradianceMap, normal)</code> を引くので、式が同じならば値も同じになる。<strong>焼いたあとでも</strong>、プローブを切っていれば同じ(自己チェック14)。</p>
+<h3 id="s34">11. メニューの自己チェック</h3>
+<p><code>Alt+F1</code> で Day 48 の割り当て表のチェックが走り、<strong>29 ページ 289 項目</strong>になっている。「最終デモ」の自己チェック(21 項目)も、完成版で遊んでいる状態で全部通る。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー(「プローブGI」ページ)</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>1</code>(自己チェック 1〜6)</td><td>「9個で足りるか」「立体角を忘れると壊れる」</td><td>6面の立体角の和 = 4π、真ん中 / 隅 = 4.86 倍、上半分 1.0002 / 0.5000 / −0.0002、円 10 度 0.0307 / 0.0017(上の 5.6%)</td></tr>
+<tr><td><code>F5</code></td><td>「格子と三線形補間」の間隔</td><td>壁から 50cm 外の地面が内側から受け取る重みは 17% / 33% / 0%。点の数は 108 / 448 / 1,440</td></tr>
+<tr><td><code>F9</code> / <code>F11</code>(光漏れ)</td><td>「格子と三線形補間」の位置・壁・格子の角</td><td>F11 の「壁から 50cm 外の地面は 33% を壁の内側から」の行。壁の内側の足元が外の列から受け取る重み(課題1の 2)も同じ式</td></tr>
+<tr><td><code>F2</code> / <code>F3</code> / <code>F4</code> / <code>F6</code> / <code>F7</code> / <code>F8</code> / <code>F10</code> / <code>F12</code></td><td>(なし)</td><td>焼く・撮る・見る・時間は、完成版の絵と GPU が要るので、このページでは再現しない(F8 の放射照度の色、焼く 1.3 秒、毎フレーム +0.14ms、跳ね返り 0.0312 → 0.0336 は実機で)</td></tr>
+<tr><td>(キーなし)</td><td>「9個で足りるか」の空・円の半径・次数・刻み、「格子と三線形補間」の自由な間隔・壁・点・角</td><td>reference に無い切り替え(次数 3・4 は reference の外)。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day66a の Render/SphericalHarmonics.cs と Render/IrradianceProbes.cs(Configure・Corners)を JS に移したもの(球面調和は docs/site/sh.js に書いてある)。同じ式を C# の検証用プロジェクト(SphericalHarmonics.cs をそのまま取り込んだもの)でも走らせて、6面のテクセルの立体角の和 12.56637(4π)・真ん中 / 隅 4.86 倍、基底の正規直交(いちばん大きいずれ 0.0004)、一様な空 1.0000 / 1.0000、上半分だけ光る空 1.0002 / 0.5000 / −0.0002、真上の半径 10 度の円 0.0307(本当は 0.0302)/ 0.0017(上の 5.6%)、その曲線(0 / 30 / 60 / 90 / 120 / 150 / 180 度で 0.03070 / 0.02541 / 0.01342 / 0.00284 / −0.00106 / 0.00033 / 0.00173)が、4 桁まで一致することを確かめた。格子の点の数(間隔 3.0 / 1.5 / 1.0m で 4x3x9 = 108 / 7x4x16 = 448 / 10x6x24 = 1,440 個)と係数の大きさ(7,776 / 32,256 / 103,680 バイト = 7.6 / 31.5 / 101.2KB)も、Configure と同じ式で同じ値になる。焼く時間(1.3 秒)、毎フレームの値段(+0.14ms)、跳ね返りごとの明るさ、GPU が引いた放射照度と C# の鏡の一致、プローブを切ったときの絵が Day 63b と画素ごとに同じことは、手元の RTX 3070 の値や完成版の絵が要るので、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s35">改造課題</h2>
+<h3 id="s36">課題1(易): 格子の間隔と、光漏れの幅</h3>
+<p><code>F9</code> で壁の上から見下ろし、<code>F8</code> で放射照度にしたまま、<code>F5</code> で間隔を 3.0 / 1.5 / 1.0m と変える。</p>
+<ol><li>それぞれで <code>F11</code> の「光漏れ」の行を読む。壁から 50cm 外の地面が、壁の内側のプローブから何 % 受け取っているか</li><li>3.0m のとき、プローブの列は x = −5, −2, 1, 4。<strong>壁の内側の路面(x = −3.5 など)は、外の列(x = −5)から何 % 受け取るか</strong>を計算する。絵で、壁の内側の足元が暗くなっているか(外の暗さが内側へ漏れる「影漏れ」)</li><li>1.0m のとき、x = −4 の列が壁の面にちょうど乗る。この列のプローブは何を見ているか(<code>F7</code> の球で見る)</li><li><code>ProbeGridMin</code> の x を −5.25 にずらすと、1.0m のときの列はどこに来るか。光漏れの幅はどう変わるか</li></ol>
+<p>見どころは 2 と 4。光漏れは<strong>「間隔を細かくすれば減る」とは限らない</strong>(3.0m のほうが 1.5m より少なかった。要点5)。<strong>列が壁のどちら側にどれだけ離れて立つか</strong>で決まるので、実際のエンジンは「プローブを壁から押し出す」(置き場所を自動で直す)。</p>
+<h3 id="s37">課題2(中): 法線の側の点を重くする</h3>
+<p>DDGI(Day 66b)の重みの1つ、<strong>「面の裏側にある点を軽くする」</strong>を足してみる。</p>
+<ol><li><code>ProbeIrradiance</code>(<code>textured.frag</code> と <code>deferred.frag</code> の両方)の重みに、次の係数を掛ける。<div class="code"><span class="lang">glsl</span><pre><code>vec3 toProbe = normalize(probePosition - worldPos);
+float facing = (dot(toProbe, n) + 1.0) * 0.5;
+w *= facing * facing + 0.2;</code></pre></div><p>プローブの位置は <code>uProbeGridMin + vec3(p) * uProbeSpacing</code> で作れる。<strong>重みの合計で割り直す</strong>のを忘れない(8点の重みの和が 1 でなくなる)</p></li><li>C# の鏡(<code>IrradianceProbes.Irradiance</code> と <code>Corners</code>)にも同じ式を入れる(自己チェック 10 が落ちなくなるまで)</li><li><code>F9</code> + <code>F8</code> で光漏れの帯を見る。<strong>減るか</strong>。<code>F11</code> の「壁の外の地面(光漏れ)」の値はどうなるか</li><li>壁の内側の路面(上向き)にとって、壁の外の列は「裏側」か</li></ol>
+<p>見どころは 3 と 4。上向きの路面から見ると、壁の外の列もやや上にあるので<strong>裏側にならない</strong>——向きの重みでは壁は分からない。<strong>壁があるかどうかは、その点から見えるかどうか(深度)を持たないと分からない</strong>。それを持たせたのが DDGI で、Day 66b で読む。</p>
+<h3 id="s38">課題3(難): 格子をシーンに書き、焼いた係数をファイルに持つ</h3>
+<p>今日残した歪みの1つ目と2つ目。</p>
+<ol><li><code>demo-final.json</code> に <code>"probes": { "min": [...], "max": [...], "spacing": 1.5 }</code> を足し、<code>DemoScene</code> で読む(Day 56 の <code>night</code> と同じ書き方。<strong>書いていないシーンではプローブを使わない</strong>ようにすると、古い Day が壊れない)</li><li><code>IrradianceProbes</code> に <code>Save(path)</code> と <code>Load(path)</code> を足す。中身は格子の形(min・間隔・数)と係数(float x 27 x 点の数)</li><li>焼いたら保存し、起動して完成版を出したときにファイルがあれば読むだけにする。<strong>格子の形が JSON と違えば読まずに焼き直す</strong></li><li><code>F10</code> で灯りを消して <code>F3</code> で焼き直したとき、保存したファイルはどうすべきか</li></ol>
+<p>見どころは 4。焼いた係数は<strong>条件ごとの答え</strong>なので、条件(灯り・時間帯・跳ね返りの回数)も一緒に保存しないと、別の条件の答えを黙って読むことになる。HUD の「焼いた条件と違う」を、ファイルの側でもやることになる。</p>
+</section>
+<section class="part"><h2 id="s39">動作確認済み環境</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>OS</td><td>Windows 11 Home 26200</td></tr>
+<tr><td>.NET</td><td>10.0</td></tr>
+<tr><td>GPU</td><td>NVIDIA GeForce RTX 3070</td></tr>
+<tr><td>OpenGL</td><td>4.3 コアプロファイル(ドライバ 596.49)</td></tr>
+<tr><td>解像度</td><td>960 x 640</td></tr>
+<tr><td>確認の条件</td><td><code>-c Release</code>、<strong>VSync を入れて</strong>確認した。値段の測定はシーンを 8 回描く区間をタイマークエリで挟んだもので、<code>glFinish</code> の連続描画(計測)は今日も無い</td></tr>
+</tbody>
+</table></div>
+<p>焼いた時間(1.5m・448 点)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>跳ね返り</th><th>面</th><th>時間</th></tr></thead>
+<tbody>
+<tr><td>1 回</td><td>2,688</td><td>0.54 秒</td></tr>
+<tr><td>2 回(既定)</td><td>5,376</td><td>1.30〜1.39 秒</td></tr>
+<tr><td>3 回</td><td>8,064</td><td>1.74〜1.79 秒</td></tr>
+</tbody>
+</table></div>
+<p>格子の間隔(跳ね返り1回)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>間隔</th><th>点の数</th><th>係数</th><th>焼く時間</th></tr></thead>
+<tbody>
+<tr><td>3.0m</td><td>108(4 x 3 x 9)</td><td>7.6KB</td><td>0.13 秒</td></tr>
+<tr><td>1.5m</td><td>448(7 x 4 x 16)</td><td>31.5KB</td><td>0.54 秒</td></tr>
+<tr><td>1.0m</td><td>1,440(10 x 6 x 24)</td><td>101.2KB</td><td>1.72 秒</td></tr>
+</tbody>
+</table></div>
+<p>最終の絵でプローブを入れたときの明るさの変化(HUD を消し、同じ構図で ON / OFF を撮って画素ごとに比べた)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>明るくなった割合</th></tr></thead>
+<tbody>
+<tr><td>中央値</td><td>+2.2%</td></tr>
+<tr><td>上位 10%</td><td>+5.7%</td></tr>
+<tr><td>上位 1%</td><td>+10%</td></tr>
+<tr><td>上位 0.1%</td><td>+17%</td></tr>
+</tbody>
+</table></div>
+<h3 id="s40">検証の途中で分かったこと</h3>
+<ol><li><strong>空に残った1つの点で、照り返しが 1.6 倍に見えていた</strong>。最初は空を 0 段目のまま撮っていて、焼いたプローブの平均は 0.051 だった。自己チェックの「空だけを撮ったプローブ」が +X で 2.47 倍・+Z で 2.00 倍・−Z で 0.74 倍と、向きによって上にも下にも外れた。太陽を抜いたあとの空に残った輝度 3,200 ほどの点(向き (0.90, 0.14, 0.42))を、32x32 の1画素が拾うかどうかで決まっていた。撮る画素と同じ大きさまで縮めた3段目で引くようにすると、6面とも 1.00 になり、平均は 0.031 に下がった。<strong>灯りの照り返しだと思っていたものの4割が、空の1点の標本化の誤差だった</strong>(要点4)</li><li><strong>Day 36 の放射照度マップとは、最大のずれでは一致を言えない</strong>。はじめ「384 点のいちばん大きいずれが 10% 未満」で確かめたら 86% で落ちた。ずれは空の明るい点を向いた面に集まっていて、Day 36 の側も 0.025 ラジアン刻みで点を拾い損ねうる。<strong>点に背を向けた面だけで比べると 8.3%</strong> に収まるので、そちらで一致を確かめ、向いた面のずれは数字を出すだけにした</li><li><strong>灯りの効き目を格子全体の平均で測ると、2割にしか見えない</strong>。灯りを消して焼き直しても、平均は 0.0285 → 0.0230(81%)にしか下がらなかった。上の段や壁の外の列は空を広く見ていて、夜の 7% の空でも灯りの照り返しと同じくらい効く。<strong>光だまりを見下ろす面(下向き)で測ると 11%</strong> まで下がる——焼いているのが灯りの光だということは、灯りを見ている面で確かめる</li><li><strong>見下ろしのカメラは、仰角 80 度では壁の外が見えなかった</strong>。目が壁から 1.6m 内側に下がり、高さ 5.5m の壁が外の地面を隠す。上限の 86 度にすると、目が壁の 35cm 内側に来て外の地面まで届く</li><li><strong>壁の外の地面は、プローブを切っていても明るい</strong>。点光源は影を持たない(Day 52)ので、街灯の光は壁を突き抜けて外の地面を直接照らしている。プローブの光漏れはその上に乗る程度なので、<strong>直接の光を外した放射照度(<code>F8</code>)で見ないと分からない</strong></li><li><strong>最終の絵の差は小さい</strong>(中央値 +2.2%)。灯りが影を持たないので暗がりがほとんど無く、照り返しは直接の光の数分の1にしかならない(要点8)。<strong>成分表示で確かめる日</strong>と割り切り、完成条件の見どころを <code>F8</code> に置いた</li></ol>
+</section>
+<footer class="end">Day 66a 焼いたイラディアンスプローブ(照り返しを格子に焼いて、回り込ませる) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/sh.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const D2R = Math.PI / 180;
+// -0.0000 は 0.0000 と書く
+const f4 = (v, d = 4) => { const s = v.toFixed(d); return /^-0\.0*$/.test(s) ? s.slice(1) : s; };
+
+// 折れ線グラフ。series: [{ pts: [[x, y]], color, dash, width, label }]、marks: [{ x, y, color, text }]
+function lineChart(canvas, o) {
+  const { ctx, w, h } = fit(canvas);
+  const L = 62, R = 18, T = 20, B = 40, W = w - L - R, H = h - T - B;
+  const [x0, x1] = o.xRange, [y0, y1] = o.yRange;
+  const X = (x) => L + (x - x0) / (x1 - x0) * W, Y = (y) => T + H - (y - y0) / (y1 - y0) * H;
+  ctx.font = '12px ' + tok('--font-mono');
+  // 目盛り
+  ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1;
+  for (const gx of o.xTicks) { ctx.beginPath(); ctx.moveTo(X(gx), T); ctx.lineTo(X(gx), T + H); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(String(gx) + (o.xUnit || ''), X(gx), T + H + 16); }
+  for (const gy of o.yTicks) { ctx.beginPath(); ctx.moveTo(L, Y(gy)); ctx.lineTo(L + W, Y(gy)); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(gy.toFixed(o.yDigits ?? 2), L - 6, Y(gy) + 4); }
+  if (y0 < 0) { ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(L, Y(0)); ctx.lineTo(L + W, Y(0)); ctx.stroke(); }
+  ctx.textAlign = 'left'; ctx.fillStyle = tok('--muted'); ctx.fillText(o.xLabel, L, h - 6); ctx.fillText(o.yLabel, 4, 12);
+  for (const s of o.series) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+    ctx.beginPath(); s.pts.forEach(([x, y], i) => { const px = X(x), py = Y(Math.max(y0, Math.min(y1, y))); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for (const m of o.marks || []) {
+    ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(X(m.x), Y(m.y), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = m.align || 'left'; ctx.fillText(m.text, X(m.x) + (m.align === 'right' ? -8 : 8), Y(m.y) - 8);
+  }
+  // 凡例
+  let ly = T + 6; ctx.textAlign = 'left';
+  for (const s of o.series) { ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []); ctx.beginPath(); ctx.moveTo(L + W - 250, ly); ctx.lineTo(L + W - 224, ly); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = tok('--ink'); ctx.fillText(s.label, L + W - 218, ly + 4); ly += 18; }
+}
+
+// ============================================================
+//  9個で足りるか
+// ============================================================
+{
+  const st = { sky: 'cap', r: 10, order: 2, size: 64 };
+  const radianceOf = () => {
+    if (st.sky === 'half') return (d) => (d[1] > 0 ? 1 : 0);
+    if (st.sky === 'uniform') return () => 1;
+    const cc = Math.cos(st.r * D2R);
+    return (d) => (d[1] > cc ? 1 : 0);
+  };
+  const trueCache = new Map(), coefCache = new Map();
+  const NS = Array.from({ length: 37 }, (_, i) => i * 5); // 0〜180 度
+  const dirOf = (deg) => { const a = deg * D2R; return [Math.sin(a), Math.cos(a), 0]; };
+  function trueCurve() {
+    const key = `${st.sky}|${st.sky === 'cap' ? st.r : 0}`;
+    let c = trueCache.get(key);
+    if (!c) {
+      // 本当の値: 上半分は (1 + cos θ) / 2、一様は 1、円は円の上を球面の座標で細かく積分(上向きは sin² r)
+      if (st.sky === 'half') c = NS.map((t) => (1 + Math.cos(t * D2R)) / 2);
+      else if (st.sky === 'uniform') c = NS.map(() => 1);
+      else c = NS.map((t) => { const n = [Math.sin(t * D2R), Math.cos(t * D2R)]; let s = 0; const nt = 240, np = 360; for (let i = 0; i < nt; i++) { const a = (i + 0.5) / nt * st.r * D2R; for (let j = 0; j < np; j++) { const f = (j + 0.5) / np * 2 * Math.PI; const cs = n[0] * Math.sin(a) * Math.cos(f) + n[1] * Math.cos(a); if (cs > 0) s += cs * Math.sin(a); } } return s * (st.r * D2R / nt) * (2 * Math.PI / np) / Math.PI; });
+      trueCache.set(key, c);
+    }
+    return c;
+  }
+  function coefs() {
+    const key = `${st.sky}|${st.sky === 'cap' ? st.r : 0}|${st.size}`;
+    let c = coefCache.get(key);
+    if (!c) { c = SH.toIrradiance(SH.projectFunction(radianceOf(), st.size, 4), 4); coefCache.set(key, c); }
+    return c;
+  }
+  function redraw() {
+    $('sh-r-out').textContent = st.r + ' 度';
+    $('sh-r').disabled = st.sky !== 'cap';
+    const tc = trueCurve(), c = coefs();
+    const sh = NS.map((t) => SH.evaluate(c, dirOf(t), 4, st.order));
+    const top = Math.max(...tc, ...sh, 0.001), bottom = Math.min(0, ...sh);
+    const yMax = top * 1.1, yMin = bottom < 0 ? bottom * 1.4 : 0;
+    // 目盛りは 1・2・5 の刻みで、軸の上端までに 6 本以内
+    const stepOf = (v) => { for (const e of [1e-4, 1e-3, 1e-2, 1e-1, 1]) for (const m of [1, 2, 5]) if (v / (m * e) <= 6) return m * e; return 1; };
+    const step = stepOf(yMax), yTop = Math.ceil(yMax / step) * step, ticks = []; for (let t = 0; t <= yTop + 1e-9; t += step) ticks.push(t);
+    lineChart($('sh-canvas'), {
+      xRange: [0, 180], yRange: [yMin < 0 ? Math.min(yMin, -step) : 0, yTop], xTicks: [0, 45, 90, 135, 180], yTicks: yMin < 0 ? [-step, ...ticks] : ticks, xUnit: '°', yDigits: step < 0.01 ? 4 : step < 0.1 ? 3 : 2,
+      xLabel: '法線の向き(0° = 真上、90° = 横、180° = 真下)', yLabel: '放射照度 / π',
+      series: [{ pts: NS.map((t, i) => [t, tc[i]]), color: tok('--muted'), dash: [6, 4], width: 2, label: '本当の値(細かい刻みで積分)' }, { pts: NS.map((t, i) => [t, sh[i]]), color: tok('--accent'), width: 2.5, label: `次数 ${st.order} まで(${(st.order + 1) ** 2} 個)` }],
+      marks: [{ x: 0, y: sh[0], color: tok('--accent'), text: '上 ' + f4(sh[0]) }, { x: 180, y: sh[36], color: tok('--accent'), text: '下 ' + f4(sh[36]), align: 'right' }],
+    });
+    const up = sh[0], down = sh[36], side = sh[18];
+    $('sh-stats').innerHTML = stat('上向きの面', f4(up), `<small> (本当 ${f4(tc[0])})</small>`) + stat('横向きの面', f4(side), `<small> (本当 ${f4(tc[18])})</small>`) +
+      stat('下向きの面', f4(down), `<small> (本当 ${f4(tc[36])})</small>`) + stat('下 / 上', up > 1e-9 ? f4(100 * down / up, 1) + '%' : '—', '<small> (本当は 0)</small>');
+    const ref = st.sky === 'half' ? '上半分だけ光る空は 0 次と奇数次しか持たないので、3 次以上の奇数次が余弦で 0 になり、9個でちょうど足りる(上 1.0002 / 横 0.5000 / 下 −0.0002。0.0002 は 32x32 の刻みのずれ)。'
+      : st.sky === 'uniform' ? '一様な空は 0 次だけ。どの向きも 1(半球の余弦の積分は π、1/π 済み)。'
+        : (st.r === 10 && st.order === 2 ? '真上の半径 10 度の円は、9個ではぼやけて広がり、真裏にも上の 5.6% が漏れる(本当は 0)。灯りを点光源のまま当てているのはこのため。' : `小さく明るい光は、少ない係数ではぼやけて広がり、真裏にも漏れる(本当は 0)。次数 ${st.order}: 上向きの誤差 ${(100 * Math.abs(up - tc[0]) / Math.max(tc[0], 1e-9)).toFixed(1)}%、真裏の値 ${down.toFixed(4)}。打ち切った波が負にはみ出す向きもある(リンギング)。半径を大きくすると(半球に近づくと)漏れは減る。`);
+    $('sh-note').textContent = ref;
+  }
+  const run = () => { setTimeout(redraw, 10); };
+  seg('sh-sky', (v) => { st.sky = v; run(); });
+  seg('sh-order', (v) => { st.order = Number(v); run(); });
+  seg('sh-size', (v) => { st.size = Number(v); run(); });
+  $('sh-r').addEventListener('input', (e) => { st.r = Number(e.target.value); run(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  立体角
+// ============================================================
+{
+  const st = { n: 32 };
+  const memo = new Map();
+  function hemi(weighting) {
+    const key = weighting + '|32';
+    let r = memo.get(key);
+    if (!r) { const c = SH.toIrradiance(SH.projectFunction((d) => (d[1] > 0 ? 1 : 0), 32, 2, weighting)); r = [SH.evaluate(c, [0, 1, 0], 2), SH.evaluate(c, [1, 0, 0], 2), SH.evaluate(c, [0, -1, 0], 2)]; memo.set(key, r); }
+    return r;
+  }
+  function redraw() {
+    const n = st.n, mid = n >> 1;
+    // 真ん中の行(y = n/2)を、面の左端から右端まで
+    const ex = [], ap = [], eq = [];
+    const unit = 4 * Math.PI / (6 * n * n);
+    for (let x = 0; x < n; x++) { ex.push([x + 0.5, SH.texelSolidAngle(x, mid, n) / unit]); ap.push([x + 0.5, SH.texelSolidAngleApprox(x, mid, n) / unit]); eq.push([x + 0.5, 1]); }
+    const top = Math.max(...ex.map((p) => p[1]), ...ap.map((p) => p[1]));
+    lineChart($('sa-canvas'), {
+      xRange: [0, n], yRange: [0, Math.ceil(top * 2) / 2 + 0.5], xTicks: [0, n / 2, n], yTicks: [0, 1, 2, 3, 4, 5], yDigits: 1,
+      xLabel: '面の真ん中の行(左端 → 右端)', yLabel: 'テクセルの立体角 / 全部同じ重み',
+      series: [{ pts: ex, color: tok('--accent'), width: 2.5, label: '厳密な式(reference)' }, { pts: ap, color: tok('--muted'), dash: [6, 4], label: '近似 4 / (n² (1+u²+v²)^1.5)' }, { pts: eq, color: tok('--ink'), dash: [2, 3], width: 1.5, label: '全部同じ重み(誤り)' }],
+    });
+    let sumEx = 0, sumAp = 0;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { sumEx += SH.texelSolidAngle(x, y, n); sumAp += SH.texelSolidAngleApprox(x, y, n); }
+    sumEx *= 6; sumAp *= 6;
+    const centerOver = SH.texelSolidAngle(mid, mid, n) / SH.texelSolidAngle(0, 0, n);
+    $('sa-stats').innerHTML = stat('真ん中 / 隅', centerOver.toFixed(2) + ' 倍', n === 32 ? '<small> (32 では 4.86)</small>' : '') + stat('6面の和(厳密)', sumEx.toFixed(5), `<small> (4π = ${(4 * Math.PI).toFixed(5)})</small>`) +
+      stat('6面の和(近似)', sumAp.toFixed(5), `<small> (${(100 * (sumAp / (4 * Math.PI) - 1)).toFixed(3)}%)</small>`) + stat('1面のテクセル', comma(n * n));
+    const rows = [['厳密な式(reference)', 'exact'], ['近似', 'approx'], ['全部同じ重み(誤り)', 'equal']].map(([name, k]) => { const r = hemi(k); return `<tr><th scope="row">${name}</th><td>${r[0].toFixed(4)}</td><td>${r[1].toFixed(4)}</td><td>${r[2].toFixed(4)}</td></tr>`; }).join('');
+    $('sa-table').innerHTML = `<table><thead><tr><th>上半分だけ光る空を 32x32 で射影(本当は 1 / 0.5 / 0)</th><th>上</th><th>横</th><th>下</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('sa-note').textContent = '面の真ん中のテクセルは正面から見ているので大きく、隅は斜めから見ているので小さい。全部同じ重みで足すと、隅(立方体の角の向き)を重く数えすぎて、答えがずれる(上 1.0157 / 下 −0.0157)。厳密な式は 6 面ぶんの和がちょうど 4π になる。近似はテクセルの中心の値で代表させるので、4π からわずかにずれる(32 で 0.02%)。' + (n === 64 ? ' n を大きくするほど、真ん中 / 隅の比は 3√3 = 5.196 に近づく(隅の向きは、面に斜めに当たって 1 / (1 + u² + v²)^1.5 = 1 / 3^1.5 に縮む)。' : '');
+  }
+  seg('sa-n', (v) => { st.n = Number(v); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  格子と三線形補間
+// ============================================================
+{
+  const st = { spacing: 1.5, free: false, x: -4.5, min: -5, wall: -4 };
+  const MAXX = 4; // 格子の範囲の x の上端(ProbeGridMax)
+  const spacingNow = () => (st.free ? Number($('pg-sp').value) : st.spacing);
+  // IrradianceProbes.Configure と Corners の x 軸ぶん
+  const countOf = (s, min) => Math.max(2, Math.ceil((MAXX - min) / s - 1e-3) + 1);
+  function weightsAt(x, s, min) {
+    const cnt = countOf(s, min);
+    const cell = Math.min(Math.max((x - min) / s, 0), cnt - 1); // 格子の外は端の値
+    const base = Math.min(Math.floor(cell), cnt - 2), t = cell - base;
+    return { cnt, base, t, w: [[base, 1 - t], [base + 1, t]] };
+  }
+  const insideWeight = (x, s, min, wall) => weightsAt(x, s, min).w.filter(([k]) => min + k * s > wall + 1e-6).reduce((a, [, wt]) => a + wt, 0);
+  function redraw() {
+    const s = spacingNow(), min = st.min, wall = st.wall;
+    $('pg-sp-out').textContent = Number($('pg-sp').value).toFixed(2) + ' m';
+    $('pg-sp').disabled = !st.free;
+    $('pg-x-out').textContent = st.x.toFixed(2);
+    $('pg-min-out').textContent = st.min.toFixed(2);
+    $('pg-wall-out').textContent = st.wall.toFixed(2);
+    const { ctx, w, h } = fit($('pg-canvas'));
+    const x0 = -7, x1 = 5.5, L = 20, R = 20, W = w - L - R, X = (x) => L + (x - x0) / (x1 - x0) * W;
+    const ground = h - 70;
+    ctx.fillStyle = 'rgba(100,150,255,0.10)'; ctx.fillRect(X(wall), 10, X(x1) - X(wall), ground - 10 + 40); // 壁の内側(通り)
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(X(wall), 14); ctx.lineTo(X(wall), ground + 44); ctx.stroke();
+    ctx.font = '12px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted'); ctx.textAlign = 'center';
+    ctx.fillText('壁の外の地面', (X(x0) + X(wall)) / 2, 28); ctx.fillText('通り(壁の内側)', (X(wall) + X(x1)) / 2, 28); ctx.fillText('壁の面 x = ' + wall.toFixed(2), X(wall), ground + 62);
+    const wt = weightsAt(st.x, s, min), cnt = wt.cnt;
+    // プローブの列と、重みの棒
+    for (let k = 0; k < cnt; k++) {
+      const px = min + k * s; if (px > x1 + 0.2) break;
+      const inside = px > wall + 1e-6, wk = wt.w.find(([i]) => i === k);
+      ctx.beginPath(); ctx.arc(X(px), ground, 7, 0, Math.PI * 2); ctx.fillStyle = inside ? 'rgb(255,170,60)' : tok('--accent'); ctx.fill(); ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = tok('--muted'); ctx.textAlign = 'center'; ctx.fillText(px.toFixed(2), X(px), ground + 24);
+      if (wk && wk[1] > 0) { const bh = wk[1] * (ground - 60); ctx.fillStyle = inside ? 'rgba(255,170,60,0.55)' : 'rgba(100,150,255,0.55)'; ctx.fillRect(X(px) - 9, ground - 12 - bh, 18, bh); ctx.fillStyle = tok('--ink'); ctx.fillText((100 * wk[1]).toFixed(0) + '%', X(px), ground - 18 - bh); }
+    }
+    // 補間する位置
+    ctx.strokeStyle = tok('--ink'); ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(st.x), 40); ctx.lineTo(X(st.x), ground + 10); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText('x = ' + st.x.toFixed(2), X(st.x), 38);
+    const inside = insideWeight(st.x, s, min, wall);
+    $('pg-stats').innerHTML = stat('点の数(x 方向)', String(cnt), `<small> (x = ${min.toFixed(2)} 〜 ${(min + (cnt - 1) * s).toFixed(2)})</small>`) +
+      stat('囲む2点の重み', wt.w.map(([k, v]) => `x = ${(min + k * s).toFixed(2)}: ${(100 * v).toFixed(0)}%`).join(' / ')) +
+      stat('壁の内側のプローブから受け取る重み', (100 * inside).toFixed(0) + '%', '<small> (橙の列の重みの和)</small>');
+    // reference の 3 つの間隔(位置 x = -4.5・壁 x = -4・角 x = -5)の表
+    const PLAN = { 3: ['0.0248(1.0 倍)', 108], 1.5: ['0.0316(1.3 倍)', 448], 1: ['0.0228(0.9 倍)', 1440] };
+    const rows = [3, 1.5, 1].map((sp) => {
+      const cx = countOf(sp, -5), cy = Math.max(2, Math.ceil(4.5 / sp - 1e-3) + 1), cz = Math.max(2, Math.ceil(22.5 / sp - 1e-3) + 1);
+      const cols = []; for (let k = 0; k < cx; k++) cols.push(-5 + k * sp);
+      const cross = cols.filter((c, k) => k + 1 < cols.length && c < -4 - 1e-6 && cols[k + 1] > -4 + 1e-6).map((c) => `x = ${c.toFixed(1)} 〜 ${(c + sp).toFixed(1)}`).join('') || 'なし';
+      const bytes = cx * cy * cz * 72;
+      return `<tr><th scope="row">${sp.toFixed(1)}m</th><td>${cx} x ${cy} x ${cz} = ${comma(cx * cy * cz)} 個(係数 ${comma(bytes)} バイト = ${(bytes / 1024).toFixed(2)}KB)</td><td>${cross}</td><td>${(100 * insideWeight(-4.5, sp, -5, -4)).toFixed(0)}%</td><td>${PLAN[sp][0]}</td></tr>`;
+    }).join('');
+    $('pg-table').innerHTML = `<table><thead><tr><th>reference の間隔(壁 x = −4・角 x = −5・壁から 50cm 外の x = −4.5)</th><th>点の数(x x y x z)</th><th>壁をまたぐ升</th><th>内側から受け取る重み</th><th>放射照度 / π(計画書。空だけなら 0.0249)</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('pg-note').textContent = '重みは距離だけで決まる(三線形補間は壁を知らない)。壁の向こうの点も、近ければ同じだけ効く。3.0m では壁をまたぐ升の中で壁が内側の列から遠く、重みは 17%。1.5m は 33%。1.0m は x = −4 の列がちょうど壁の面に乗るので、内側の重みは 0%(列は壁の面の上で、内側ではない)。漏れの量は格子の粗さでは決まらず、壁をまたぐ升のどこに壁があるかで決まる。格子の角や壁を動かすと、細かい間隔でも漏れが出る。格子の外(x < 角)は、端の列の値で塗られる。';
+  }
+  seg('pg-spacing', (v) => { if (v === 'free') st.free = true; else { st.free = false; st.spacing = Number(v); $('pg-sp').value = String(v); } redraw(); });
+  $('pg-sp').addEventListener('input', redraw);
+  $('pg-x').addEventListener('input', (e) => { st.x = Number(e.target.value); redraw(); });
+  $('pg-min').addEventListener('input', (e) => { st.min = Number(e.target.value); redraw(); });
+  $('pg-wall').addEventListener('input', (e) => { st.wall = Number(e.target.value); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
