@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 34 法線マップ・視差マッピング(接空間の理解)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 法線マップは「向きの地図」で、接空間に住んでいる</a></li><li class="l3"><a href="#s5">2. 接線は「連立方程式を1つ解く」と出る</a></li><li class="l3"><a href="#s6">3. B は持たない。持つのは符号1個</a></li><li class="l3"><a href="#s7">4. 高さマップから法線マップは作れる。逆は難しい</a></li><li class="l3"><a href="#s8">5. 緑の向きに2つの流儀がある(OpenGL と DirectX)</a></li><li class="l3"><a href="#s9">6. 視差マッピングは、UV をずらすだけ</a></li><li class="l3"><a href="#s10">7. 視差の入力(高さマップ)は、モデルから来ない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">Day 33 の空行を1つ直した</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">接空間ができるまで — CPU とシェーダにまたがる1本の道</a></li><li class="l2"><a href="#s18">完成条件</a></li><li class="l3"><a href="#s19">1. 接線が生成されていることをコンソールで確かめる</a></li><li class="l3"><a href="#s20">2. <code>Alt+1</code>: 法線マップの ON / OFF</a></li><li class="l3"><a href="#s21">3. <code>Alt+5</code>: 材質テストの板</a></li><li class="l3"><a href="#s22">4. <code>Alt+2</code> / <code>Alt+4</code>: 3方式の違いを出す</a></li><li class="l3"><a href="#s23">5. <code>Alt+3</code>: 深さを上げて、視差マッピングの限界を見る</a></li><li class="l3"><a href="#s24">6. <code>Alt+8</code>: 緑を反転して、DirectX 形式の見え方を作る</a></li><li class="l3"><a href="#s25">7. <code>Alt+7</code>: ファイルの接線と、生成した接線を見比べる</a></li><li class="l3"><a href="#s26">8. <code>Alt+0</code>: 自己チェック</a></li><li class="l2"><a href="#s27">改造課題</a></li><li class="l3"><a href="#s28">課題1(易): 高さマップから AO(環境遮蔽)を焼く</a></li><li class="l3"><a href="#s29">課題2(中): 視差の縁を <code>discard</code> で切る</a></li><li class="l3"><a href="#s30">課題3(難): 接線を持たないモデルで、MikkTSpace との差を測る</a></li><li class="l2"><a href="#s31">動作確認済み環境</a></li><li class="l3"><a href="#s32">自己チェック(17 項目すべて合格)</a></li><li class="l3"><a href="#s33">素材の生成と読み込み</a></li><li class="l3"><a href="#s34">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 34 / 計画書</p>
+  <h1>法線マップ・視差マッピング(接空間の理解)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 法線マップは「向きの地図」で、接空間に住んでいる</a></li><li class="l3"><a href="#s5">2. 接線は「連立方程式を1つ解く」と出る</a></li><li class="l3"><a href="#s6">3. B は持たない。持つのは符号1個</a></li><li class="l3"><a href="#s7">4. 高さマップから法線マップは作れる。逆は難しい</a></li><li class="l3"><a href="#s8">5. 緑の向きに2つの流儀がある(OpenGL と DirectX)</a></li><li class="l3"><a href="#s9">6. 視差マッピングは、UV をずらすだけ</a></li><li class="l3"><a href="#s10">7. 視差の入力(高さマップ)は、モデルから来ない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">Day 33 の空行を1つ直した</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">接空間ができるまで — CPU とシェーダにまたがる1本の道</a></li><li class="l2"><a href="#s18">完成条件</a></li><li class="l3"><a href="#s19">1. 接線が生成されていることをコンソールで確かめる</a></li><li class="l3"><a href="#s20">2. <code>Alt+1</code>: 法線マップの ON / OFF</a></li><li class="l3"><a href="#s21">3. <code>Alt+5</code>: 材質テストの板</a></li><li class="l3"><a href="#s22">4. <code>Alt+2</code> / <code>Alt+4</code>: 3方式の違いを出す</a></li><li class="l3"><a href="#s23">5. <code>Alt+3</code>: 深さを上げて、視差マッピングの限界を見る</a></li><li class="l3"><a href="#s24">6. <code>Alt+8</code>: 緑を反転して、DirectX 形式の見え方を作る</a></li><li class="l3"><a href="#s25">7. <code>Alt+7</code>: ファイルの接線と、生成した接線を見比べる</a></li><li class="l3"><a href="#s26">8. <code>Alt+0</code>: 自己チェック</a></li><li class="l2"><a href="#s27">改造課題</a></li><li class="l3"><a href="#s28">課題1(易): 高さマップから AO(環境遮蔽)を焼く</a></li><li class="l3"><a href="#s29">課題2(中): 視差の縁を <code>discard</code> で切る</a></li><li class="l3"><a href="#s30">課題3(難): 接線を持たないモデルで、MikkTSpace との差を測る</a></li><li class="l2"><a href="#s31">動作確認済み環境</a></li><li class="l3"><a href="#s32">自己チェック(17 項目すべて合格)</a></li><li class="l3"><a href="#s33">素材の生成と読み込み</a></li><li class="l3"><a href="#s34">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の4日目。<strong>平らなポリゴンに凹凸が出る</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Alt+5</code> でレンガの板が出て、<code>Alt+2</code> で視差の方式を切り替えられる。</p>
+<div class="code"><pre><code>  Alt+5  材質テストの板(レンガ)。<strong>視差はここでしか確かめられない</strong>
+  Alt+1  法線マップ ON / OFF
+  Alt+2  視差   なし / 単純視差 / 急峻視差 / 視差遮蔽(POM)
+  Alt+3  視差の深さ  0.02 / 0.05 / 0.10 / 0.18
+  Alt+4  レイマーチの刻み  4〜8 / 8〜32 / 16〜64
+  Alt+6  板の繰り返し  1 / 2 / 4
+  Alt+7  ファイルの接線 / 生成した接線 を切り替え
+  Alt+8  法線マップの緑を反転(DirectX 形式の素材の見え方)
+  Alt+9  最終法線をすぐ見る    Alt+0  接空間の自己チェック</code></pre></div>
+<p>今日の主題は<strong>接空間</strong>の1つに尽きる。法線マップも視差マッピングも「面に貼り付いた座標系」が土台で、そこが分かっていないとどちらも動かない。</p>
+<p>そして Day 32 で読み込むだけしていた法線マップが、<strong>やっと絵に効く</strong>。器を先に作っておいたので、今日の差分はシェーダと接線の用意で済んでいる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-10: テクスチャマッピング(2) さまざまな材質</a> <strong>バンプマッピングから法線マップまでの流れ</strong>が載っている。Phase 3(Day 15)でマテリアルの抽象化をやったときにも読んだ回で、今日は後半の「法線をテクスチャで置き換える」が本題</li><li><strong>西川善司『「3Dゲームエンジン」が作れる本』Ch3「法線マップとその進化形」</strong>今日のいちばん近い解説。<strong>接空間の図が分かりやすい</strong>。「進化形」として視差マッピング・視差遮蔽マッピングまで扱っているので、今日の範囲がそのまま1章に収まっている</li><li><a href="https://learnopengl.com/Advanced-Lighting/Normal-Mapping">LearnOpenGL: Normal Mapping</a> / <a href="https://learnopengl.com/Advanced-Lighting/Parallax-Mapping">Parallax Mapping</a> <strong>コードで追いたいならここが最短</strong>。今日の実装とほぼ同じ構成で、単純視差 → 急峻視差 → POM の順に進むところまで対応する</li><li><a href="https://foundationsofgameenginedev.com/">Foundations of Game Engine Development, Vol.2 の接線空間の章(Eric Lengyel)</a>接線の導出(連立方程式を解く形)の出どころ。同じ導出が <a href="http://www.terathon.com/code/tangent.html">Lengyel の Web 記事</a>にもある</li><li><a href="http://www.mikktspace.com/">MikkTSpace</a> <strong>接線の事実上の標準実装</strong>。Blender も glTF も、法線マップを焼くときはこれで接線を作っている。今日書く生成は素直な平均版なので、<strong>そことは細部が食い違う</strong>——なぜ標準実装が要るのかがここに書いてある</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 法線マップは「向きの地図」で、接空間に住んでいる</h3>
+<p>法線マップに入っている RGB は色ではなく、<strong>その画素で面がどちらを向いているか</strong>。ただし世界での向きではない。<strong>面に貼り付いた座標系</strong>での向きになっている。</p>
+<p>なぜ世界の向きを直接入れないのか。<strong>入れたら貼り回せなくなる</strong>から。「上を向いている」を世界座標で書いてしまうと、壁に貼った瞬間に嘘になる。面に対する相対的な向きで書いておけば、<strong>どの面に貼っても意味が変わらない</strong>。</p>
+<p>その座標系が接空間で、軸は3本。</p>
+<div class="code"><pre><code>  T(接線 / Tangent)     … UV の U が増える向き
+  B(従接線 / Bitangent) … UV の V が増える向き
+  N(法線 / Normal)      … 面の向き</code></pre></div>
+<p><strong>U と V が基準になっている</strong>のが肝で、「面のどっちが右か」を決められるのはテクスチャ座標しかない。だから接空間は<strong>メッシュの形と UV の張り方の両方</strong>で決まる。</p>
+<h3 id="s5">2. 接線は「連立方程式を1つ解く」と出る</h3>
+<p>三角形1枚には頂点が3つあり、それぞれ位置と UV を持っている。2辺を、位置の差と UV の差で書くと:</p>
+<div class="code"><pre><code>  E1 = T * du1 + B * dv1
+  E2 = T * du2 + B * dv2</code></pre></div>
+<p>未知が T と B の2本、式も2本なので解ける。</p>
+<div class="code"><pre><code>  r = 1 / (du1*dv2 - du2*dv1)
+  T = (E1*dv2 - E2*dv1) * r
+  B = (E2*du1 - E1*du2) * r</code></pre></div>
+<p><code>r</code> の分母は 2x2 行列の行列式で、<strong>UV の三角形の面積の2倍</strong>にあたる。だから <strong>UV が潰れている三角形では 0 になって NaN が出る</strong>。NaN は頂点で足し込むときに周りへ伝染するので、そこは捨てる。</p>
+<p>頂点は複数の三角形に共有されるので、面ごとに出した T を<strong>足し込んで平均</strong>する。法線を頂点で共有するときと同じ理屈で、これで面の境目が滑らかに繋がる。</p>
+<p>最後に<strong>グラム・シュミットで法線に直交させる</strong>。足し込んだ T は法線と直角になっていない(共有する面ごとに少しずつ傾いている)ので、法線の向きの成分を引いて、面に乗った成分だけを残す。</p>
+<div class="code"><pre><code>  T = normalize(T - N * dot(N, T))</code></pre></div>
+<div class="inject"><figure class="lab" id="tg-lab">
+  <div class="lab-head">
+    <h3>接線は UV の張り方で決まる — 回す・裏返す・潰す(要点2・3)</h3>
+    <span class="tag">GltfLoader.GenerateTangents の1枚ぶん(2辺の位置の差と UV の差から T と B を解き、w = dot(cross(N, T), B) の符号)を JS に移して、平らな三角形1枚(法線 N は手前向き)に描いたもの。三角形の形は固定で、貼る UV だけを、回す・左右に裏返す・縦に潰すで変える。これらの値はこのページだけ(reference はファイルの UV をそのまま使う)。図の上が +y、右が +x</span>
+  </div>
+  <div class="stage"><canvas id="tg-canvas" style="height:300px" aria-label="三角形と、UV から求めた接線 T・従接線 B・cross(N, T) x w の向き"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">UV を回す(度)</span>
+      <div class="range"><input type="range" id="tg-rot" min="-180" max="180" step="5" value="0"><output id="tg-rot-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">UV を左右に裏返す(鏡像)</span>
+      <div class="seg" id="tg-mirror"><button data-v="0" aria-pressed="true">そのまま</button><button data-v="1" aria-pressed="false">裏返す</button></div>
+    </div>
+    <div class="ctl"><span class="label">UV を縦に潰す(1 = そのまま、0 = 1本の線)</span>
+      <div class="range"><input type="range" id="tg-squash" min="0" max="1" step="0.05" value="1"><output id="tg-squash-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tg-stats"></div><p id="tg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">3. B は持たない。持つのは符号1個</h3>
+<p>3本のうち2本が決まれば3本目は外積で出るので、B は保存しない。</p>
+<div class="code"><pre><code>  B = cross(N, T) * w        // w は +1 か -1</code></pre></div>
+<p><code>w</code> に <strong>±1 しか入らない</strong>のは、外積の向きが合っているか、逆かの2択だから。</p>
+<p>逆になるのは <strong>UV が鏡像になっている面</strong>。左右対称のキャラクタで、片側の UV を裏返して使い回すのは定番の手で、そのとき裏返した側は「V が増える向き」が反転する。</p>
+<p><strong>符号を落とすと、鏡像の側だけ凹凸が反転する</strong>。左右対称のモデルで「右半分だけ変」という壊れ方はほぼこれ。今日の WaterBottle は 2426 頂点が <code>w = -1</code> になっていて、自己チェック(Alt+0)がその数を出す。</p>
+<h3 id="s7">4. 高さマップから法線マップは作れる。逆は難しい</h3>
+<p>法線マップは<strong>傾きの地図</strong>で、高さマップは<strong>高さの地図</strong>。傾きは高さの微分なので、後者から前者は素直に作れる。</p>
+<div class="code"><pre><code>  dx = h(x+1, y) - h(x-1, y)
+  dy = h(x, y+1) - h(x, y-1)
+  N  = normalize(-dx, -dy, 1)</code></pre></div>
+<p><strong>符号がマイナス</strong>なのは、右へ行くほど高くなる面(dx &gt; 0)の法線は左へ傾くから。坂を登るとき、地面は自分のほうを向いている。</p>
+<p><strong>Z が 1 固定なのが「法線マップはだいたい薄紫」の正体</strong>。平らなところは (0, 0, 1) で、0〜1 に写すと (0.5, 0.5, 1.0) = 薄い青紫になる。一面その色に見えるのは<strong>ほとんどの画素が平らだから</strong>であって、「そういう色の画像」なのではない。</p>
+<p>今日の自己チェックは、生成した法線マップの<strong>過半数(64%)が平ら</strong>であることと、<strong>強く傾いた画素の割合(21.9%)が面取りの帯の面積(22.6%)と一致する</strong>ことを確かめる。模様のパラメータから予言できる数字が、焼いた結果と合う。</p>
+<div class="inject"><figure class="lab" id="nm-lab">
+  <div class="lab-head">
+    <h3>高さマップから法線マップを焼く — 目地の幅と強さ、緑の向き(要点4・5)</h3>
+    <span class="tag">Render/SurfaceMaps.cs(HeightAt・CreateNormal。中央差分で傾きを出し、(−dx x 強さ, −dy x 強さ, 1) を正規化して 0〜255 に写す)を、float の計算と丸めまで含めて JS に移し、512x512 を全部焼いたもの。数え方は自己チェックと同じ(傾き 20 以下が平ら、60 より大きいのが急)。既定(目地幅 6%・強さ 8)では C# と同じ「平ら 167,489 / 急 57,344 / 全体 262,144、21.9%」、真ん中のレンガは (131, 131, 255)。目地幅と強さはこのページだけ。右の絵は、左上から照らした接空間のランバート反射(光の向きはこのページだけ)。緑を反転すると Alt+8 と同じ見え方になる</span>
+  </div>
+  <div class="stage" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;padding:8px"><canvas id="nm-map" width="512" height="512" style="width:min(100%,300px);height:auto" aria-label="焼いた法線マップ"></canvas><canvas id="nm-lit" width="512" height="512" style="width:min(100%,300px);height:auto" aria-label="法線マップを左上から照らした絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">目地の幅(レンガの幅に対する割合。reference は 6%)</span>
+      <div class="range"><input type="range" id="nm-mortar" min="0.02" max="0.2" step="0.01" value="0.06"><output id="nm-mortar-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">傾きの強さ(CreateNormal の strength。reference は 8)</span>
+      <div class="range"><input type="range" id="nm-strength" min="1" max="20" step="1" value="8"><output id="nm-strength-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">緑の向き(Alt+8)</span>
+      <div class="seg" id="nm-flip"><button data-v="0" aria-pressed="true">OpenGL 形式(正しい)</button><button data-v="1" aria-pressed="false">反転(DirectX 形式の素材を貼った見え方)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="nm-stats"></div><p id="nm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>逆(法線マップ → 高さマップ)は積分になるので簡単ではない。だから<strong>視差マッピングをやるには高さマップが別に要る</strong>。そして glTF のコア仕様には高さテクスチャが無い(要点7)。</p>
+<h3 id="s8">5. 緑の向きに2つの流儀がある(OpenGL と DirectX)</h3>
+<p>法線マップの緑成分には、<strong>互いに逆の2つの約束</strong>が流通している。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>流儀</th><th>緑が大きい =</th></tr></thead>
+<tbody>
+<tr><td>OpenGL 形式(Y+)</td><td>V が増える向きへ傾く</td></tr>
+<tr><td>DirectX 形式(Y−)</td><td>V が減る向きへ傾く</td></tr>
+</tbody>
+</table></div>
+<p><strong>画像としては見分けが付かない</strong>。並べて置いても、どちらも薄紫の似た絵になる。貼ってから「なんとなく凹凸が逆」と気づくのが定番の踏み方で、<code>Alt+8</code> でわざと反転させて、その見え方を作れるようにしてある。</p>
+<p>見分け方は1つだけある。<strong>斜めから照らして、出っ張りが出っ張って見えるか</strong>。影の付き方が「光と反対側が暗い」なら正しく、「光の側が暗い」なら反転している。</p>
+<h3 id="s9">6. 視差マッピングは、UV をずらすだけ</h3>
+<p>法線マップは向きを変えるだけなので、<strong>面はどこまでも平ら</strong>。斜めから見ると「絵が描いてあるだけ」だとすぐ分かる。</p>
+<p>視差マッピングはそこへ一歩踏み込んで、<strong>本当に凹凸があったなら見えていたはずの点</strong>を探しに行く。</p>
+<div class="code"><pre><code>        視線 V
+         \
+   ───────\──────────  ← 実際のポリゴン(平ら)
+           \
+            *          ← 本当はここが見えるはず(高さマップの谷)</code></pre></div>
+<p>板は平らなままなので、<strong>形は1ミリも変わらない</strong>。変わるのは「どのテクセルを読むか」だけ。だから輪郭は平らなままで、面の中だけが立体に見える。</p>
+<p>今日は3方式を切り替えられるようにした。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方式</th><th>やること</th><th>読む回数</th><th>弱点</th></tr></thead>
+<tbody>
+<tr><td><strong>単純視差</strong></td><td>その場の高さを1回読んで、視線の傾きぶんずらす</td><td>1</td><td>深い溝で大きく外す</td></tr>
+<tr><td><strong>急峻視差</strong></td><td>視線を刻んで進み、高さの下へ潜った点を探す</td><td>8〜32</td><td>層の境目で<strong>縞になる</strong></td></tr>
+<tr><td><strong>視差遮蔽(POM)</strong></td><td>急峻視差の<strong>最後の1歩を線形補間で戻す</strong></td><td>8〜32 + 1</td><td>縁の破綻(下記)</td></tr>
+</tbody>
+</table></div>
+<p>POM が足すのは3行だけなのに、急峻視差の縞がきれいに消える。<strong>レイマーチの最後だけ補間</strong>は定石で、Day 37 の SSAO でも同じ発想が出てくる。</p>
+<p><strong>共通の弱点は輪郭</strong>。形を変えていないので、板の縁では嘘がばれる。深さを上げるほど目立つので、<code>Alt+3</code> で 0.18 にすると縁の破綻が見える。本当に形を変えるにはテセレーション+ディスプレイスメントが要る。</p>
+<div class="inject"><figure class="lab" id="px-lab">
+  <div class="lab-head">
+    <h3>視差の3方式 — 視線を刻んで高さの下へ潜る(要点6)</h3>
+    <span class="tag">textured.frag の ParallaxUv(単純視差は1回読んでずらす。急峻視差は刻みの数 = mix(最大, 最小, |視線の z|) で進み、深さが高さを超えた所で止まる。POM は最後の1歩を線形補間で戻す)を、レンガの高さマップ(SurfaceMaps を JS に移したもの)の1行(y = 32、1段目の真ん中)の断面で計算したもの。上の図は断面で、横と縦を同じ縮尺にしてある(深さは (1 − 高さ) x 深さの設定)。下の2本の帯は、窓の中の各点から見えるはずの高さを、本当の答え(細かく辿ったもの)と選んだ方式で並べたもの。深さと刻みの選択肢は reference と同じ。見る角度と調べる点はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="px-canvas" style="height:380px" aria-label="高さマップの断面と視線、各方式が止まった点"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">方式(Alt+2)</span>
+      <div class="seg" id="px-mode"><button data-v="1" aria-pressed="false">単純視差</button><button data-v="2" aria-pressed="false">急峻視差</button><button data-v="3" aria-pressed="true">視差遮蔽(POM)</button></div>
+    </div>
+    <div class="ctl"><span class="label">深さ(Alt+3)</span>
+      <div class="seg" id="px-depth"><button data-v="0.02" aria-pressed="false">0.02</button><button data-v="0.05" aria-pressed="true">0.05(既定)</button><button data-v="0.1" aria-pressed="false">0.10</button><button data-v="0.18" aria-pressed="false">0.18</button></div>
+    </div>
+    <div class="ctl"><span class="label">刻み(Alt+4)</span>
+      <div class="seg" id="px-steps"><button data-v="4,8" aria-pressed="false">4〜8</button><button data-v="8,32" aria-pressed="true">8〜32(既定)</button><button data-v="16,64" aria-pressed="false">16〜64</button></div>
+    </div>
+    <div class="ctl"><span class="label">視線の傾き(面の法線からの角度。0 = 正面)</span>
+      <div class="range"><input type="range" id="px-angle" min="0" max="85" step="1" value="65"><output id="px-angle-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">調べる点(窓の中の位置)</span>
+      <div class="range"><input type="range" id="px-u" min="0" max="1" step="0.005" value="0.62"><output id="px-u-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="px-stats"></div><p id="px-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">7. 視差の入力(高さマップ)は、モデルから来ない</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>要るもの</th><th>glTF から来るか</th></tr></thead>
+<tbody>
+<tr><td>法線マップ</td><td><strong>来る</strong>(DamagedHelmet などが持っている)</td></tr>
+<tr><td>高さマップ</td><td><strong>来ない</strong></td></tr>
+</tbody>
+</table></div>
+<p>glTF のコア仕様にも Khronos の主要な拡張にも、視差用の高さテクスチャは無い(<code>KHR_materials_displacement</code> は提案止まり)。だから読み込んだモデルには絶対に付いてこない。</p>
+<p>そこで今日は <code>SurfaceMaps</code> で<strong>3枚とも手で作る</strong>。得が2つある。</p>
+<ol><li><strong>法線マップが高さマップから出てくる</strong>ことが手を動かして分かる(要点4)</li><li><strong>3枚が必ず辻褄の合った素材になる</strong>ので、「実装が間違っている」のか「素材が合っていない」のかで迷わない</li></ol>
+<p>そして<strong>接線が無いモデルのほうが多い</strong>、というのも今日の実感になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>TANGENT</th></tr></thead>
+<tbody>
+<tr><td>DamagedHelmet</td><td><strong>無し</strong>(生成する)</td></tr>
+<tr><td>WaterBottle</td><td>有り</td></tr>
+<tr><td>Lantern</td><td>有り</td></tr>
+<tr><td>BoxTextured</td><td><strong>無し</strong>(生成する)</td></tr>
+</tbody>
+</table></div>
+<p>「エクスポータが出してくれるはず」と決め打ちすると、<strong>いちばん有名なモデルでいきなり法線マップが効かなくなる</strong>。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/SurfaceMaps.cs</code></td><td>レンガの<strong>高さ・法線・ベースカラーを手で焼く</strong>。3枚とも1つの高さ関数から出る</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Vertex.cs</code></td><td><strong>接線を末尾に追加</strong>(location 4、VEC4)。1頂点 48 → 64 バイト</td></tr>
+<tr><td><code>Render/Primitives.cs</code></td><td>板と立方体に接線を持たせる。立方体は「左下 → 右下」から求める</td></tr>
+<tr><td><code>Render/Mesh.cs</code></td><td><code>ReadVertices</code>(GPU から頂点を読み返す)。<strong>自己チェック用</strong></td></tr>
+<tr><td><code>Render/RenderResources.cs</code></td><td><code>LoadTextureFromPixels</code>(生の RGBA から作る)</td></tr>
+<tr><td><code>Render/Material.cs</code></td><td><code>NormalScale</code> / <code>HeightTexture</code> / <code>ParallaxScale</code>。<code>Apply</code> がユニット 6 に割り当てる</td></tr>
+<tr><td><code>Model/Model.cs</code></td><td><code>FileTangentParts</code> / <code>GeneratedTangentParts</code>(接線の出どころ)</td></tr>
+<tr><td><code>Model/GltfLoader.cs</code></td><td>TANGENT の読み込み、<strong>接線の生成</strong>、<code>normalTexture.scale</code>、<code>forceGenerateTangents</code></td></tr>
+<tr><td><code>shaders/textured.vert</code></td><td>接線属性、TBN の組み立て、接空間の視線</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>法線マップの適用、視差の3方式、成分 9〜12</td></tr>
+<tr><td><code>Program.cs</code></td><td>材質テストの板、視差の設定、<code>Alt+0〜9</code>、HUD の1行、<code>RunTangentCheck</code></td></tr>
+</tbody>
+</table></div>
+<p>変更ファイルへの追加が 1270 行、新規ファイルが 335 行で、合わせて約 1600 行。<strong>Day 33 より2割ほど大きい</strong>——法線マップと視差マッピングは別々の技法だが、どちらも接空間が土台なので、分けると同じ説明を2回することになる。</p>
+<h3 id="s14">Day 33 の空行を1つ直した</h3>
+<p><code>Program.cs</code> の <code>OnRender</code> 末尾に、余分な空行が1行残っていた。Day 33 の作成時に検証用の一時コードを外した跡で、<code>dotnet format whitespace</code> は閉じ括弧の直前の空行を落とさないため通ってしまっていた。</p>
+<p><strong>写経の差分に無意味な1行が乗る</strong>ので、Day 33 側も一緒に直してある。</p>
+<h3 id="s15">写経する順番</h3>
+<p>依存の下から。<code>Vertex</code> を最初に置くのは、<strong>ここを変えないと他が全部通らない</strong>ため。</p>
+<ol><li><strong><code>Render/Vertex.cs</code></strong>(変更) <code>Tangent</code>(<code>Vector4</code>)を末尾に追加 → <code>Attributes</code> に <code>Float(4)</code> を1本 → 5引数のコンストラクタを足して、既存の4引数版はそれに委譲する</li><li><strong><code>Render/Primitives.cs</code></strong>(変更)板は <code>(1,0,0,1)</code> 固定、立方体は <code>AddFace</code> の中で「左下 → 右下」から求める</li><li><strong><code>Render/Mesh.cs</code></strong>(変更) <code>_vertexCount</code> を覚える → <code>VertexCount</code> → <code>ReadVertices</code>。<strong><code>Draw</code> の直前</strong>に置く</li><li><strong><code>Render/RenderResources.cs</code></strong>(変更) <code>LoadTextureFromPixels</code> を <code>LoadTextureFromMemory</code> の直後に</li><li><strong><code>Render/SurfaceMaps.cs</code></strong>(新規) <code>HeightAt</code> → <code>CreateHeight</code> → <code>CreateNormal</code> → <code>CreateBaseColor</code> → <code>BrickColor</code> / <code>Noise</code> / <code>Hash</code> / <code>Smoothstep</code> / <code>Wrap</code>。<strong><code>Wrap</code> を忘れるとタイルの継ぎ目に縦線が出る</strong>(下の「検証の途中で分かったこと」)</li><li><strong><code>Render/Material.cs</code></strong>(変更) <code>NormalScale</code> / <code>HeightTexture</code> / <code>ParallaxScale</code> → <code>Apply</code> の追記。<strong>ユニット 5 は飛ばす</strong>(シャドウマップが使っている)</li><li><strong><code>Model/Model.cs</code></strong>(変更) <code>FileTangentParts</code> / <code>GeneratedTangentParts</code> を <code>VertexCount</code> の直後に</li><li><strong><code>Model/GltfLoader.cs</code></strong>(変更) <code>Load</code> に <code>forceGenerateTangents</code> → <code>LoadContext</code> のフィールドと2つのカウンタ → <code>ReadPrimitive</code> の TANGENT 読み込みと生成の呼び出し → <strong><code>GenerateTangents</code></strong> → <code>ReadVector4Accessor</code> → <code>normalTexture.scale</code></li><li><strong><code>shaders/textured.vert</code></strong>(変更) <code>aTangent</code> と <code>uCameraPosition</code> → 3本の <code>out</code> → <code>main</code> の TBN</li><li><strong><code>shaders/textured.frag</code></strong>(変更) uniform 群 → <strong><code>ParallaxUv</code></strong> → <strong><code>PerturbNormal</code></strong> → <code>main</code> の先頭で <code>uv</code> を決める → 各マップを <code>uv</code> で読むよう差し替え →成分 9〜12</li><li><strong><code>Program.cs</code></strong>(変更) Day 34 のフィールド → <code>OnLoad</code>(3枚の生成とマテリアル)→ <strong><code>OnRender</code> に <code>else if (_surfaceDemo)</code> の枝を足す</strong>(<code>_model is not null</code> の直前)→ <code>Render3D</code> のフレーム uniform と分岐 → <code>RenderSurfaceDemo</code> →深度パスの分岐 → <code>SetModel</code>(接線の出どころを出す)→ <code>DebugChannelLabel</code> / <code>ParallaxLabel</code> / <code>TangentLabel</code> → HUD の行 → <code>OnKeyDown</code>(<code>alt</code> の判定と <code>Alt+0〜9</code>)→ <code>RunTangentCheck</code> と補助3つ → 操作説明</li><li><strong><code>Day34.csproj</code></strong>(リネームのみ)中身は Day 33 と同じ</li></ol>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>クラスが1つ増えただけ</strong>で、層の構成は Day 33 のまま。<code>Render/</code> の中に <code>SurfaceMaps</code> が入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/SurfaceMaps</code></td><td>高さ・法線・色を手で焼く。<strong>GL を1行も触らない</strong>(バイト列を返すだけ)</td></tr>
+</tbody>
+</table></div>
+<p><code>Render/</code> と <code>Model/</code> の既存クラスも太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Vertex</code></td><td><strong>接線</strong>(5本目の属性)。1頂点 64 バイト</td></tr>
+<tr><td><code>Material</code></td><td><code>NormalScale</code> / <code>HeightTexture</code> / <code>ParallaxScale</code></td></tr>
+<tr><td><code>Mesh</code></td><td><code>ReadVertices</code>(<strong>GPU から読み返す</strong>)</td></tr>
+<tr><td><code>RenderResources</code></td><td><code>LoadTextureFromPixels</code></td></tr>
+<tr><td><code>GltfLoader</code></td><td>TANGENT の読み込みと、<strong>接線の生成</strong></td></tr>
+<tr><td><code>Model</code></td><td>接線の出どころ(ファイル / 生成)の数</td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">接空間ができるまで — CPU とシェーダにまたがる1本の道</h3>
+<p>法線マップが1枚効くまでに、<strong>4つの場所</strong>を通る。どこか1つでも規約がずれると、絵は出るが凹凸だけがおかしくなる。</p>
+<svg viewBox="0 0 960 1485" role="img" aria-label="接空間ができるまで(CPU とシェーダにまたがる1本の道)。読み込み(CPU): ファイルに TANGENT があるか。Yes なら ReadVector4Accessor(xyz = 接線 / w = 符号。w はそのまま使う)。No なら GenerateTangents: 三角形ごとに連立方程式を解く(E1 = T*du1 + B*dv1、E2 = T*du2 + B*dv2)、反転前の UV を使う(ファイルの規約に合わせる)、頂点へ足し込む(UV が潰れた三角形は捨てる)、グラム・シュミットで法線に直交させる、w = dot(cross(N,T), B) の符号。どちらも Vertex.Tangent(location 4 / VEC4)へ。頂点シェーダ: T を uNormalMatrix で世界へ、もう一度グラム・シュミット(補間と変換で崩れるため)、B = cross(N, T) * w、視線を接空間へ(転置 = 逆行列。正規直交だから)。画素シェーダ: ParallaxUv(視線の傾きで UV をずらす)、法線マップを読む(rgb * 2 - 1)、接空間 → 世界(T*n.x + B*n.y + N*n.z)、ライティング(N が差し替わっているので形が変わる)" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="328" y="1121" width="304" height="366" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="338" y="1136" fill="var(--muted)" font-size="12">画素シェーダ</text><rect x="328" y="779" width="304" height="332" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="338" y="794" fill="var(--muted)" font-size="12">頂点シェーダ</text><rect x="18" y="10" width="924" height="759" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="28" y="25" fill="var(--muted)" font-size="12">読み込み(CPU)</text><rect x="340" y="34" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="480" y="54.5" text-anchor="middle" fill="var(--ink)">ファイルに</text><text x="480" y="71.5" text-anchor="middle" fill="var(--ink)">TANGENT があるか</text><rect x="650" y="128" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="790" y="148.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ReadVector4Accessor</text><text x="790" y="165.5" text-anchor="middle" fill="var(--ink)">xyz = 接線 / w = 符号</text><text font-weight="700" x="790" y="182.5" text-anchor="middle" fill="var(--ink)">w はそのまま使う</text><rect x="30" y="128" width="280" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="165.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GenerateTangents</text><rect x="30" y="239" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="259.5" text-anchor="middle" fill="var(--ink)">三角形ごとに連立方程式を解く</text><text x="170" y="276.5" text-anchor="middle" fill="var(--ink)">E1 = T*du1 + B*dv1</text><text x="170" y="293.5" text-anchor="middle" fill="var(--ink)">E2 = T*du2 + B*dv2</text><rect x="30" y="350" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text font-weight="700" x="170" y="370.5" text-anchor="middle" fill="var(--ink)">反転前の UV を使う</text><text x="170" y="387.5" text-anchor="middle" fill="var(--ink)">ファイルの規約に合わせる</text><rect x="30" y="444" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="464.5" text-anchor="middle" fill="var(--ink)">頂点へ足し込む</text><text x="170" y="481.5" text-anchor="middle" fill="var(--ink)">UV が潰れた三角形は捨てる</text><rect x="30" y="538" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="558.5" text-anchor="middle" fill="var(--ink)">グラム・シュミットで</text><text x="170" y="575.5" text-anchor="middle" fill="var(--ink)">法線に直交させる</text><rect x="30" y="632" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="652.5" text-anchor="middle" fill="var(--ink)">w = dot(cross(N,T), B) の符号</text><rect x="340" y="709" width="280" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="729.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Vertex.Tangent</text><text x="480" y="746.5" text-anchor="middle" fill="var(--ink)">location 4 / VEC4</text><rect x="340" y="803" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="823.5" text-anchor="middle" fill="var(--ink)">T を uNormalMatrix で世界へ</text><rect x="340" y="880" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="900.5" text-anchor="middle" fill="var(--ink)">もう一度グラム・シュミット</text><text x="480" y="917.5" text-anchor="middle" fill="var(--ink)">補間と変換で崩れるため</text><rect x="340" y="974" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="994.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">B = cross(N, T) * w</text><rect x="340" y="1051" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="1071.5" text-anchor="middle" fill="var(--ink)">視線を接空間へ</text><text font-weight="700" x="480" y="1088.5" text-anchor="middle" fill="var(--ink)">転置 = 逆行列(正規直交だから)</text><rect x="340" y="1145" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="1165.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParallaxUv</text><text x="480" y="1182.5" text-anchor="middle" fill="var(--ink)">視線の傾きで UV をずらす</text><rect x="340" y="1239" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="1259.5" text-anchor="middle" fill="var(--ink)">法線マップを読む</text><text x="480" y="1276.5" text-anchor="middle" fill="var(--ink)">rgb * 2 - 1</text><rect x="340" y="1333" width="280" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text font-weight="700" x="480" y="1353.5" text-anchor="middle" fill="var(--ink)">接空間 → 世界</text><text x="480" y="1370.5" text-anchor="middle" fill="var(--ink)">T*n.x + B*n.y + N*n.z</text><rect x="340" y="1427" width="280" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="1447.5" text-anchor="middle" fill="var(--ink)">ライティング</text><text x="480" y="1464.5" text-anchor="middle" fill="var(--ink)">N が差し替わっているので形が変わる</text><path d="M604 84 L604 98 L790 98 L790 126" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="796" y="122" fill="var(--muted)" font-size="12">Yes</text><path d="M356 84 L356 98 L170 98 L170 126" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="176" y="122" fill="var(--muted)" font-size="12">No</text><path d="M170 195 L170 237" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 306 L170 348" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 400 L170 442" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 494 L170 536" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 588 L170 630" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M790 195 L790 734 L622 734" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M294 665 L294 679 L480 679 L480 707" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 759 L480 801" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 836 L480 878" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 930 L480 972" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 1007 L480 1049" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 1101 L480 1143" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 1195 L480 1237" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 1289 L480 1331" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M480 1383 L480 1425" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>規約が食い違いやすい場所が4つある</strong>。どれも絵は出るので、間違いに気づきにくい。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場所</th><th>間違えると</th><th>気づき方</th></tr></thead>
+<tbody>
+<tr><td>UV の V を反転したときの <code>w</code></td><td><strong>凹凸が全部裏返る</strong></td><td>出っ張りが出っ張って見えるか</td></tr>
+<tr><td>生成に使う UV(反転前 / 後)</td><td><strong>モデルによって効いたり効かなかったり</strong></td><td>ファイル有りと無しで見比べる</td></tr>
+<tr><td>法線マップの緑の流儀</td><td>凹凸が裏返る(上と同じ症状)</td><td><code>Alt+8</code> でわざと再現できる</td></tr>
+<tr><td><code>cross(N, T)</code> の順序</td><td>従接線が逆を向く</td><td>自己チェックの「V の増える向きと一致」</td></tr>
+</tbody>
+</table></div>
+<p><strong>症状が全部同じ</strong>(凹凸が裏返る)なのが厄介なところで、だから今日の自己チェック(Alt+0)は「立方体の6面すべてで <code>cross(N,T)*w</code> が V の向きと一致するか」を見ている。<strong>手で答えが書ける形</strong>で1つ確かめておくと、切り分けの起点になる。</p>
+</section>
+<section class="part"><h2 id="s18">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day34 -c Release</code></pre></div>
+<p>起動すると Day 33 と同じ DamagedHelmet が出る。<strong>そこが今日の1つ目の見どころ</strong>。</p>
+<h3 id="s19">1. 接線が生成されていることをコンソールで確かめる</h3>
+<div class="code"><pre><code>モデル: DamagedHelmet.glb  1043ms
+  ...
+  接線: ファイル 0 パーツ / 生成 1 パーツ</code></pre></div>
+<p><strong>DamagedHelmet は TANGENT を持っていない</strong>。持っていると思い込んだままだと、法線マップは一切効かない(接線が全部 (1,0,0) の既定値になるので、凹凸が変な方向に付く)。</p>
+<p><code>Shift+0</code> で WaterBottle に切り替えると <code>ファイル 1 パーツ / 生成 0 パーツ</code> に変わる。<strong>モデルによって経路が違う</strong>ことが1行で分かるようにしてある。</p>
+<h3 id="s20">2. <code>Alt+1</code>: 法線マップの ON / OFF</h3>
+<p>DamagedHelmet を出したまま切り替える。<strong>違いは意外と小さい</strong>。</p>
+<p>このモデルの法線マップは細かい傷が主なので、この距離では「表面のざらつきが少し増える」くらいにしか見えない。ホイールで寄ると差が開く。</p>
+<p><strong>はっきり見たいなら <code>Alt+9</code></strong>(最終法線を表示)。パネルの継ぎ目・リベット・バイザーの枠が線としてくっきり出る。<code>Shift+9</code> を2回押して成分 2(頂点法線)に切り替えると、<strong>同じ形が つるっとした面</strong>になる——この差が法線マップの仕事そのもの。</p>
+<h3 id="s21">3. <code>Alt+5</code>: 材質テストの板</h3>
+<p>レンガの壁と、手前に寝た床が出る。<strong>視差はこの床でしか確かめられない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>見るところ</th><th>期待</th></tr></thead>
+<tbody>
+<tr><td>立っている壁</td><td>法線マップの陰影。目地が影で落ちくぼんで見える</td></tr>
+<tr><td><strong>手前の床</strong></td><td>斜めから見ているので、<strong>視差が効く</strong>。レンガの角が立体に見える</td></tr>
+<tr><td>HUD 1行目</td><td><code>法線マップ:ON 視差遮蔽(POM) 深さ:0.050 刻み:8〜32 接線:生成1</code></td></tr>
+</tbody>
+</table></div>
+<p><code>Alt+2</code> で視差を「なし」にすると、床のレンガが<strong>ぺったり平らな長方形</strong>に戻る。往復させると、視差マッピングが何をしているのかがいちばん分かりやすい。</p>
+<p><strong>正面の壁ではほとんど何も起きない</strong>のも確かめてほしい。視差は「視線が寝ているほど UV のずれが大きい」技法なので、正面から見ている面では原理的に効かない。「実装したのに効かない」の原因はほぼこれになる。</p>
+<h3 id="s22">4. <code>Alt+2</code> / <code>Alt+4</code>: 3方式の違いを出す</h3>
+<p><code>Alt+4</code> を1回押して刻みを <strong>4〜8</strong>(粗い)にしてから、<code>Alt+2</code> で回す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方式</th><th>床の見え方</th></tr></thead>
+<tbody>
+<tr><td>なし</td><td>平らな長方形</td></tr>
+<tr><td>単純視差</td><td>少し立体に見えるが、<strong>溝の底が正しくない</strong>(浅い)</td></tr>
+<tr><td>急峻視差</td><td>立体になるが、<strong>斜面に階段状の縞</strong>が出る</td></tr>
+<tr><td>視差遮蔽(POM)</td><td><strong>縞が消える</strong>。同じ刻み数なのに</td></tr>
+</tbody>
+</table></div>
+<p>急峻視差と POM の差は<strong>コード3行</strong>で、レイマーチの最後だけ線形補間を足したもの。刻みを粗くするほど差が開くので、Alt+4 で往復させると効き目が見える。</p>
+<h3 id="s23">5. <code>Alt+3</code>: 深さを上げて、視差マッピングの限界を見る</h3>
+<p>深さを 0.18 にすると、床のレンガがはっきり立体になる代わりに<strong>板の縁がぐにゃりと歪む</strong>。</p>
+<p>視差マッピングは形を変えていないので、<strong>輪郭は最後まで平らなまま</strong>。深くするほどその嘘がばれる。本当に形を変えるにはテセレーション+ディスプレイスメントが要り、そこはこのロードマップの範囲外になる。</p>
+<h3 id="s24">6. <code>Alt+8</code>: 緑を反転して、DirectX 形式の見え方を作る</h3>
+<p>板を出したまま <code>Alt+8</code>。<strong>目地が溝ではなく畝(うね)に見えるようになる</strong>。</p>
+<p>影の付き方で見分けられる。正しいときは「光と反対側が暗い」、反転していると「光の側が暗い」。<strong>画像を眺めても分からない</strong>のがこの間違いの厄介なところで、素材を買ってきて貼ったときに最初に疑うのがここになる。</p>
+<h3 id="s25">7. <code>Alt+7</code>: ファイルの接線と、生成した接線を見比べる</h3>
+<p><code>Shift+0</code> で WaterBottle にしてから <code>Alt+7</code>。<strong>見た目はほとんど変わらない</strong>(自己チェックで一致率 97.8%)。</p>
+<p>変わらないことが分かるのが値打ちで、だから TANGENT を持たない DamagedHelmet でも安心して生成に回せる。残りの 2% がどこかは <code>Shift+9</code> を9回押して接線 T を見ると分かる——UV の継ぎ目のあたりで色が食い違う。</p>
+<h3 id="s26">8. <code>Alt+0</code>: 自己チェック</h3>
+<p>17 項目すべて <code>OK</code> になる。</p>
+<div class="code"><pre><code>[接空間の自己チェック]
+  [OK] 立方体: <strong>cross(N, T) * w が V の増える向きと一致</strong>(6面すべて)
+  [OK] DamagedHelmet: TANGENT を持たないので生成に回る  生成 1 パーツ
+  [OK] w が ±1 だけ  外れ 0 個(うち -1 が 2426 個)
+  [OK] ファイルの接線と生成した接線が <strong>9割以上で 15 度以内</strong>  一致率 97.8%
+  [OK] 生成した法線マップ: 強く傾いた画素の割合が<strong>面取りの帯の面積と一致</strong>
+       実測 21.9% / 予測 22.6%(目地幅 6% から計算)
+  すべて合格</code></pre></div>
+<p><strong>最後の1行がいちばん面白い</strong>。法線マップのうち強く傾いている画素の割合は、模様のパラメータだけから予言できる——レンガ1個を単位正方形と見ると、4辺から幅 6% の帯が面取りの部分なので、その面積は <code>1 - (1 - 0.12)^2 = 22.6%</code>。焼いた結果が 21.9% で合っている。</p>
+<p><strong><code>w = -1</code> が 2426 個</strong>あるのも見どころで、WaterBottle のラベル部分は UV が鏡像になっている。符号を落とすと、そこだけ凹凸が反転する。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Alt+2</code>(視差)・<code>Alt+3</code>(深さ)・<code>Alt+4</code>(刻み)</td><td>「視差の3方式」</td><td>刻み 4〜8 にすると、急峻視差は帯が段々になり、POM は同じ刻みでなめらかに戻る。正面(角度 0)ではどの方式もほとんどずれない</td></tr>
+<tr><td><code>Alt+8</code>(緑を反転)・<code>Alt+9</code>(最終法線)</td><td>「高さマップから法線マップを焼く」の緑の向き</td><td>反転すると、目地が溝ではなく畝に見える(光の側が暗くなる)</td></tr>
+<tr><td><code>Alt+0</code>(自己チェックの法線マップ3項目)</td><td>「高さマップから法線マップを焼く」の数字</td><td>平ら 167,489 / 急 57,344 / 全体 262,144、21.9%(予測 22.6%)、真ん中 (131, 131, 255)</td></tr>
+<tr><td><code>Alt+0</code>(立方体の向き)・<code>Alt+7</code></td><td>「接線は UV の張り方で決まる」</td><td>UV を裏返すと w が −1 になり、cross(N, T) x w がまた V の増える向きを指す</td></tr>
+<tr><td><code>Alt+1</code>・<code>Alt+5</code>・<code>Alt+6</code>・<code>Shift+0</code></td><td>(なし)</td><td>モデルと GPU が要るので、このページでは再現しない</td></tr>
+<tr><td>(キーなし)</td><td>UV の回転・鏡像・潰し、目地の幅と強さ、見る角度と調べる点</td><td>reference に無い値。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day34 の Model/GltfLoader.cs(GenerateTangents)・Render/SurfaceMaps.cs・shaders/textured.frag(ParallaxUv)の式を JS に移したもの。SurfaceMaps は C# の検証用プロジェクトにそのまま取り込んで走らせ、JS と画素の数まで一致することを確かめた(平ら 167,489 / 急 57,344、真ん中 (131, 131, 255))。WaterBottle の接線の比較(自己チェックの「一致率」)も、assets/models/WaterBottle.glb を読んで GenerateTangents と同じ式で計算し直した(97.8%、生成した接線の w = −1 は 2,426 個)。視差の方式は GPU のテクスチャの線形補間を1行ぶんの線形補間で代用しているので、帯の細部は実機とわずかに違う。読み込みや素材の生成の時間は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s27">改造課題</h2>
+<h3 id="s28">課題1(易): 高さマップから AO(環境遮蔽)を焼く</h3>
+<p>視差の溝は形として見えるが、<strong>溝の中が暗くならない</strong>。現実の溝は周りに囲まれていて、空からの光が入りにくい。</p>
+<p>高さマップの周囲を数点サンプルして、「自分より高いものがどれだけあるか」を数えれば、粗い AO が作れる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// おおよその流れ
+float occlusion = 0;
+for (16 方向) {
+    float neighbour = HeightAt(x + dx, y + dy);
+    occlusion += neighbour &gt; here ? 1 : 0;
+}
+occlusion = 1 - (occlusion / 16);</code></pre></div>
+<p><code>SurfaceMaps.CreateOcclusion</code> として足して、マテリアルの <code>OcclusionTexture</code> に挿すだけで絵に効く(器は Day 32 で作ってある)。</p>
+<p><strong>環境光にだけ掛かる</strong>ことを確かめるのが本題(<code>textured.frag</code> の要点)。直接光にも掛けると溝が真っ黒になる。</p>
+<h3 id="s29">課題2(中): 視差の縁を <code>discard</code> で切る</h3>
+<p>深さを上げると板の縁が歪む(完成条件5)。<strong>ずらした UV が 0〜1 の外に出たら捨てる</strong>と、歪みの代わりに穴が開く。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>if (uv.x &lt; 0.0 || uv.x &gt; 1.0 || uv.y &lt; 0.0 || uv.y &gt; 1.0) discard;</code></pre></div>
+<p>やってみると分かるが、<strong>これは解決ではない</strong>。歪みが穴になっただけで、しかもタイリング(<code>Alt+6</code> で 2 以上)しているときはそもそも 0〜1 の外が正しい隣のタイルなので、<strong>中身に穴が開く</strong>。</p>
+<p>本当に効かせるには「タイルの外」ではなく「板の外」を判定する必要があり、そのためには UV とは別に「板の中でのどこか」を頂点から渡すことになる。<strong>素朴な対処がなぜ効かないのか</strong>を確かめるのが目的の課題。</p>
+<h3 id="s30">課題3(難): 接線を持たないモデルで、MikkTSpace との差を測る</h3>
+<p>生成した接線とファイルの接線は 98% 一致した(自己チェック)。残り 2% がどこで、なぜ食い違うのかを調べる。</p>
+<p>やること。</p>
+<ol><li><strong>食い違う頂点を色で出す</strong>。成分を1つ足して、<code>dot(生成, ファイル)</code> が 0.966 未満の頂点を赤くする</li><li><strong>UV の継ぎ目に集中している</strong>ことを確かめる。継ぎ目では同じ位置の頂点が UV 上で分かれていて、面の足し込み方が実装によって違う</li><li><strong>MikkTSpace が何をしているか</strong>を読む。要点は「UV の継ぎ目で頂点を分割し、法線マップを焼いたときと同じ分割を再現する」こと</li></ol>
+<p>ここまで来ると「<strong>なぜ標準実装が必要なのか</strong>」が腹に落ちる。接線の作り方に正解は無く、<strong>焼いたときと同じ作り方をする</strong>ことだけが正解になる。だから MikkTSpace という「共通の作り方」が事実上の標準になった。</p>
+</section>
+<section class="part"><h2 id="s31">動作確認済み環境</h2>
+<ul><li>Windows 11 Home / .NET 10</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li></ul>
+<h3 id="s32">自己チェック(17 項目すべて合格)</h3>
+<div class="code"><pre><code>[接空間の自己チェック]
+  [OK] 板の接線が +X、w が +1
+  [OK] 立方体: 接線が単位ベクトル
+  [OK] 立方体: 接線が法線と直交している
+  [OK] 立方体: w が ±1
+  [OK] 立方体: cross(N, T) * w が V の増える向きと一致(6面すべて)
+  [OK] WaterBottle: ファイルが TANGENT を持っている  ファイル 1 / 生成 0
+  [OK] WaterBottle: 無視すると生成側に回る  ファイル 0 / 生成 1
+  [OK] DamagedHelmet: TANGENT を持たないので生成に回る  生成 1 パーツ
+  [OK] 生成した接線が単位ベクトル(誤差 1e-3 未満)  最大誤差 1.19E-007
+  [OK] 生成した接線が法線と直交(内積の絶対値 1e-3 未満)  最大 |N・T| 8.94E-008
+  [OK] NaN が1つも無い  0 個
+  [OK] w が ±1 だけ  外れ 0 個(うち -1 が 2426 個)
+  [OK] ファイルの接線と生成した接線が 9割以上で 15 度以内  一致率 97.8%
+  [OK] 生成した法線マップ: 平らなところが薄紫 (128, 128, 255) 付近  実際 (131, 131, 255)
+  [OK] 生成した法線マップ: Z が全画素で正(面の外を向く)
+  [OK] 生成した法線マップ: 過半数の画素が平ら  平ら 167,489 / 急 57,344 / 全体 262,144
+  [OK] 生成した法線マップ: 強く傾いた画素の割合が面取りの帯の面積と一致
+       実測 21.9% / 予測 22.6%(目地幅 6% から計算)
+  すべて合格</code></pre></div>
+<h3 id="s33">素材の生成と読み込み</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>実測</th></tr></thead>
+<tbody>
+<tr><td>512x512 を3枚(色 / 法線 / 高さ)</td><td><strong>191 ms</strong>(起動時に1回)</td></tr>
+<tr><td>DamagedHelmet の読み込み</td><td>1043〜1144 ms(Day 33 と同程度)</td></tr>
+</tbody>
+</table></div>
+<p><strong>接線の生成は読み込み時間に埋もれる</strong>。DamagedHelmet の 14556 頂点・15452 三角形に対して、三角形1周と頂点1周だけなので、画像の復号(1秒近く)に比べれば誤差になる。「接線の生成は重い」と身構える必要は無い、というのが実感。</p>
+<h3 id="s34">検証の途中で分かったこと</h3>
+<p><strong>タイルの継ぎ目に縦線が出た</strong>。</p>
+<p><code>Alt+6</code> で板の繰り返しを 2 にしたら、壁の真ん中に縦の筋が入った。レンガの模様そのものは繋がっていたので、原因を掴むのに手間取った。</p>
+<p>犯人は2つ。どちらも「番号を折り返していない」ことだった。</p>
+<ul><li><strong>ざらつきのノイズ</strong> … 格子の番号 63 の次が 64 になり、0 と違う値を引いていた</li><li><strong>レンガの色</strong> … 半個ずらした段では列番号が 4 に届き、0 と違う色になっていた</li></ul>
+<p>模様は繋がっているのに<strong>ざらつきと色だけが途切れる</strong>ので、「継ぎ目がある」と気づいてから原因に辿り着くまでが遠い。タイルとして貼るテクスチャを手で作るときは、<strong>すべての番号に折り返しを入れる</strong>のが唯一の予防になる(<code>SurfaceMaps.Wrap</code>)。</p>
+<p><strong>UV の V を反転しているのに、接線の w は反転しない</strong>。</p>
+<p>glTF ローダは V を反転して頂点に入れている(Day 32)。それなら従接線の向きも反転するので w も反転すべきに見えるが、<strong>逆</strong>。</p>
+<p>法線マップの緑は「ファイルの従接線に沿った傾き」を表していて、UV の反転と画像の上下反転は打ち消し合うので、シェーダが読むテクセルは<strong>ファイルの想定どおりの場所</strong>になる。つまり緑の意味もファイルの従接線のままなので、w もそのままが正しい。</p>
+<p>同じ理由で、<strong>接線を生成するときは反転前の UV を使う</strong>。反転後の UV で作ると生成側だけ符号が逆になり、ファイルが TANGENT を持つモデルと持たないモデルで凹凸が逆になる——<strong>モデルによって効いたり効かなかったりする</strong>という、いちばん厄介な壊れ方になる。</p>
+<p><strong>自己チェックの閾値を当て推量で書いていた</strong>。</p>
+<p>「傾いている画素は一部だけ(3割未満)」という項目を書いたら、実測 36% で落ちた。閾値を緩めれば通るが、それでは検査の意味が無い。</p>
+<p>数字を見直すと、傾いた画素の割合は<strong>面取りの帯の面積そのもの</strong>だった。レンガ1個を単位正方形と見て、4辺から幅 6% の帯なので <code>1 - 0.88^2 = 22.6%</code>。</p>
+<p><strong>当て推量の閾値を、模様のパラメータから計算した予測値に置き換えた</strong>。「なんとなく少ないはず」ではなく「22.6% になるはず」を確かめる項目になり、面取りの幅を変えたら追随する検査になった。</p>
+<p><strong>Day 33 の空行が1行残っていた</strong>。</p>
+<p>Day 34 の作業中に、Day 33 の <code>Program.cs</code> へ余分な空行が1行残っていることに気づいた(検証用の一時コードを外した跡)。<code>dotnet format whitespace</code> は閉じ括弧の直前の空行を落とさないので、整形を通しても残る。</p>
+<p><strong>写経の差分に無意味な1行が乗る</strong>ので、Day 33 側も直してある。</p>
+</section>
+<footer class="end">Day 34 法線マップ・視差マッピング(接空間の理解) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day34 の Render/SurfaceMaps.cs(レンガの高さ・法線)を JS に移したもの。float の計算と丸め(偶数への丸め)まで C# に揃えてある
+const SM = (() => {
+const f = Math.fround;
+const SIZE = 512, COLUMNS = 4, ROWS = 8;
+const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, f(f(x - e0) / Math.max(f(e1 - e0), f(1e-6))))); return f(f(t * t) * f(3 - f(2 * t))); };
+const wrap = (v, p) => ((v % p) + p) % p;
+function hash(value) {
+  let x = value >>> 0;
+  x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
+  x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
+  x ^= x >>> 16;
+  return f((x & 0xFFFFFF) / 0xFFFFFF);
+}
+const cornerHash = (gx, gy, cells) => hash((Math.imul(wrap(gx, cells), 374761393) + Math.imul(wrap(gy, cells), 668265263)) | 0);
+function noise(x, y, cells) {
+  const px = f(f(x / SIZE) * cells), py = f(f(y / SIZE) * cells);
+  const gx = Math.floor(px), gy = Math.floor(py), fx = f(px - gx), fy = f(py - gy);
+  const a = cornerHash(gx, gy, cells), b = cornerHash(gx + 1, gy, cells), c = cornerHash(gx, gy + 1, cells), d = cornerHash(gx + 1, gy + 1, cells);
+  const sx = smooth(0, 1, fx), sy = smooth(0, 1, fy);
+  return f(f(f(f(a * f(1 - sx)) + f(b * sx)) * f(1 - sy)) + f(f(f(c * f(1 - sx)) + f(d * sx)) * sy));
+}
+// mortar は目地の幅(reference は 0.06)
+function heightAt(x, y, mortar = 0.06) {
+  x = wrap(x, SIZE); y = wrap(y, SIZE);
+  const u = f(x / SIZE), v = f(y / SIZE);
+  const row = f(v * ROWS), rowIndex = Math.floor(row);
+  const offset = rowIndex % 2 === 0 ? 0 : 0.5;
+  const column = f(f(u * COLUMNS) + offset);
+  const fx = f(column - Math.floor(column)), fy = f(row - rowIndex);
+  const edge = Math.min(Math.min(fx, f(1 - fx)), Math.min(fy, f(1 - fy)));
+  let h = smooth(0, f(mortar), edge);
+  h = f(h * f(f(0.88) + f(noise(x, y, 64) * f(0.12))));
+  return Math.min(1, Math.max(0, h));
+}
+// MathF.Round は偶数への丸め
+const roundEven = (v) => { const r = Math.round(v); return (Math.abs(v % 1) === 0.5 && r % 2 !== 0) ? r - 1 : r; };
+const toByte = (v) => Math.min(255, Math.max(0, roundEven(f(v * 255))));
+// CreateNormal。flipGreen は Alt+8(DirectX 形式の見え方)
+function createNormal(strength = 8, mortar = 0.06, flipGreen = false) {
+  const px = new Uint8ClampedArray(SIZE * SIZE * 4);
+  const H = new Float32Array((SIZE + 2) * (SIZE + 2));
+  for (let y = -1; y <= SIZE; y++) for (let x = -1; x <= SIZE; x++) H[(y + 1) * (SIZE + 2) + (x + 1)] = heightAt(x, y, mortar);
+  const h = (x, y) => H[(y + 1) * (SIZE + 2) + (x + 1)];
+  for (let y = 0; y < SIZE; y++) for (let x = 0; x < SIZE; x++) {
+    const nx = f(f(-f(h(x + 1, y) - h(x - 1, y))) * strength), ny = f(f(-f(h(x, y + 1) - h(x, y - 1))) * strength), nz = 1;
+    const len = f(Math.sqrt(f(f(f(nx * nx) + f(ny * ny)) + nz)));
+    const n = [f(nx / len), f(ny / len), f(nz / len)];
+    const i = (y * SIZE + x) * 4;
+    px[i] = toByte(f(f(n[0] * 0.5) + 0.5)); px[i + 1] = toByte(f(f((flipGreen ? -n[1] : n[1]) * 0.5) + 0.5)); px[i + 2] = toByte(f(f(n[2] * 0.5) + 0.5)); px[i + 3] = 255;
+  }
+  return px;
+}
+// 自己チェックと同じ数え方。平ら = 傾き 20 以下、急 = 60 より大きい
+function countTilt(px) {
+  let flat = 0, steep = 0;
+  for (let i = 0; i < px.length; i += 4) { const t = Math.max(Math.abs(px[i] - 128), Math.abs(px[i + 1] - 128)); if (t <= 20) flat++; else if (t > 60) steep++; }
+  return { flat, steep, total: px.length / 4 };
+}
+return { SIZE, heightAt, createNormal, countTilt, toByte };
+})();
+
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+// -0.000 は 0.000 と書く
+const fz = (v, d = 3) => { const t = v.toFixed(d); return /^-0.0*$/.test(t) ? t.slice(1) : t; };
+
+// ============================================================
+//  接線は UV の張り方で決まる
+// ============================================================
+{
+  // 三角形(形は固定)。位置は xy 平面、法線 N = +z(画面の手前)
+  const POS = [[-1.2, -0.8], [1.3, -0.6], [0.1, 1.0]];
+  function redraw() {
+    const rot = Number($('tg-rot').value) * Math.PI / 180, mirror = $('tg-mirror').querySelector('[aria-pressed="true"]').dataset.v === '1', sq = Number($('tg-squash').value);
+    $('tg-rot-out').textContent = $('tg-rot').value + ' 度';
+    $('tg-squash-out').textContent = sq.toFixed(2);
+    // UV = 位置を回して、裏返して、縦に潰したもの(0.5 だけずらして 0〜1 あたりへ)
+    const uvOf = ([x, y]) => { let u = x * Math.cos(rot) - y * Math.sin(rot), v = x * Math.sin(rot) + y * Math.cos(rot); if (mirror) u = -u; v *= sq; return [0.5 + u * 0.3, 0.5 + v * 0.3]; };
+    const UV = POS.map(uvOf);
+    const e1 = [POS[1][0] - POS[0][0], POS[1][1] - POS[0][1]], e2 = [POS[2][0] - POS[0][0], POS[2][1] - POS[0][1]];
+    const d1 = [UV[1][0] - UV[0][0], UV[1][1] - UV[0][1]], d2 = [UV[2][0] - UV[0][0], UV[2][1] - UV[0][1]];
+    const det = d1[0] * d2[1] - d2[0] * d1[1];
+    const { ctx, w, h } = fit($('tg-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const cx = w * 0.3, cy = h * 0.5, s = Math.min(w * 0.22, h * 0.32);
+    const P = (p) => [cx + p[0] * s, cy - p[1] * s];
+    ctx.fillStyle = 'rgba(120,150,255,0.12)'; ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5;
+    ctx.beginPath(); POS.forEach((p, i) => { const q = P(p); if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'center';
+    POS.forEach((p, i) => { const q = P(p); ctx.fillText(`(${UV[i][0].toFixed(2)}, ${UV[i][1].toFixed(2)})`, q[0], q[1] + (i === 2 ? -10 : 18)); });
+    // UV の地図(右側)
+    const mx = w * 0.72, my = h * 0.5, ms = Math.min(w * 0.22, h * 0.7);
+    const M = (uv) => [mx - ms / 2 + uv[0] * ms, my + ms / 2 - uv[1] * ms];
+    ctx.strokeStyle = tok('--line'); ctx.strokeRect(mx - ms / 2, my - ms / 2, ms, ms);
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('UV の地図(右 = +U、上 = +V)', mx - ms / 2, my - ms / 2 - 8);
+    ctx.fillStyle = 'rgba(120,150,255,0.25)'; ctx.beginPath(); UV.forEach((uv, i) => { const q = M(uv); if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); }); ctx.closePath(); ctx.fill(); ctx.strokeStyle = tok('--ink'); ctx.stroke();
+    let note, stats;
+    const c0 = P([0.07, -0.13]);
+    if (Math.abs(det) < 1e-12) {
+      note = 'UV の三角形が潰れて面積が 0 になると、行列式が 0 になり、r = 1 / 0 で NaN が出る。GenerateTangents はこの三角形を飛ばして足し込まない(周りへ NaN が伝染しないように)。';
+      stats = stat('行列式(UV の面積の2倍)', det.toExponential(1)) + stat('T', '—') + stat('w', '—');
+    } else {
+      const r = 1 / det;
+      const T = [(e1[0] * d2[1] - e2[0] * d1[1]) * r, (e1[1] * d2[1] - e2[1] * d1[1]) * r];
+      const B = [(e2[0] * d1[0] - e1[0] * d2[0]) * r, (e2[1] * d1[0] - e1[1] * d2[0]) * r];
+      const tl = Math.hypot(...T), Tn = [T[0] / tl, T[1] / tl];
+      const NxT = [-Tn[1], Tn[0]]; // cross((0,0,1), (Tx, Ty, 0))
+      const wSign = NxT[0] * B[0] + NxT[1] * B[1] < 0 ? -1 : 1;
+      const Bs = [NxT[0] * wSign, NxT[1] * wSign];
+      const arrowTo = (v, len, color, lab) => { const k = len / Math.hypot(...v); const e = [c0[0] + v[0] * k, c0[1] - v[1] * k]; Lab.arrow(ctx, c0[0], c0[1], e[0], e[1], color, 2.5); ctx.fillStyle = color; const left = v[0] < -0.3; ctx.textAlign = left ? 'right' : 'left'; ctx.fillText(lab, e[0] + (left ? -6 : 6), e[1] + (Math.abs(v[0]) < 0.3 ? (v[1] > 0 ? -8 : 16) : 4)); };
+      arrowTo(Tn, s * 0.7, 'rgb(240,110,90)', 'T(U が増える向き)');
+      arrowTo(Bs, s * 0.7, 'rgb(90,200,120)', 'cross(N, T) x w');
+      ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(c0[0], c0[1], 4, 0, Math.PI * 2); ctx.fill(); ctx.fillText('N は手前向き', c0[0] + 8, c0[1] + 18);
+      stats = stat('行列式(UV の面積の2倍)', det.toFixed(4), det < 0 ? '<small> (負 = UV が裏返っている)</small>' : '') +
+        stat('T(正規化)', `(${fz(Tn[0])}, ${fz(Tn[1])}, 0)`) + stat('w', wSign > 0 ? '+1' : '−1');
+      note = (mirror ? 'UV を裏返すと、V の増える向きが cross(N, T) と逆になるので w = −1 になる。w を掛けると、緑の矢印は再び V の増える向き(UV の地図の上)を指す。w を落とすと、鏡像の側だけ凹凸が反転する。' : 'UV を回すと、T(U の増える向き)が三角形の上で一緒に回る。接空間は形だけでは決まらず、UV の張り方で決まる。') +
+        (sq < 0.25 ? ' UV を潰していくと行列式が 0 に近づき、T と B が長く(不安定に)なる。' : '');
+    }
+    $('tg-stats').innerHTML = stats; $('tg-note').textContent = note;
+  }
+  for (const id of ['tg-rot', 'tg-squash']) $(id).addEventListener('input', redraw);
+  seg('tg-mirror', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  高さマップから法線マップを焼く
+// ============================================================
+{
+  let pending = null;
+  function redraw() {
+    const mortar = Number($('nm-mortar').value), strength = Number($('nm-strength').value), flip = $('nm-flip').querySelector('[aria-pressed="true"]').dataset.v === '1';
+    $('nm-mortar-out').textContent = (mortar * 100).toFixed(0) + '%';
+    $('nm-strength-out').textContent = String(strength);
+    const px = SM.createNormal(strength, mortar, flip);
+    const c = SM.countTilt(SM.createNormal(strength, mortar, false));
+    const S = SM.SIZE;
+    const mctx = $('nm-map').getContext('2d'), img = mctx.createImageData(S, S);
+    // 画像の上の行 = V が大きい側(テクスチャの y を下から数えるので、上下を返して描く)
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) { const s = ((S - 1 - y) * S + x) * 4, d = (y * S + x) * 4; img.data[d] = px[s]; img.data[d + 1] = px[s + 1]; img.data[d + 2] = px[s + 2]; img.data[d + 3] = 255; }
+    mctx.putImageData(img, 0, 0);
+    // 左上から照らす(接空間の光の向き。x 左、y 上、z 手前)
+    const L = [-0.5, 0.5, 0.7071], ll = Math.hypot(...L);
+    const lctx = $('nm-lit').getContext('2d'), li = lctx.createImageData(S, S);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const s = ((S - 1 - y) * S + x) * 4, n = [px[s] / 255 * 2 - 1, px[s + 1] / 255 * 2 - 1, px[s + 2] / 255 * 2 - 1];
+      const nl = Math.hypot(...n), dl = Math.max(0, (n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / (nl * ll));
+      const v = Math.round(255 * (0.12 + 0.88 * dl)), d = (y * S + x) * 4;
+      li.data[d] = v; li.data[d + 1] = Math.round(v * 0.85); li.data[d + 2] = Math.round(v * 0.75); li.data[d + 3] = 255;
+    }
+    lctx.putImageData(li, 0, 0);
+    const band = 1 - Math.pow(1 - 2 * mortar, 2), si = (((S / 16) * S) + (S / 8)) * 4;
+    $('nm-stats').innerHTML = stat('平ら(傾き 20 以下)', comma(c.flat), `<small> (${(100 * c.flat / c.total).toFixed(1)}%)</small>`) + stat('急(傾き 60 より大きい)', comma(c.steep), `<small> (${(100 * c.steep / c.total).toFixed(1)}%)</small>`) +
+      stat('面取りの帯の面積(予測)', (100 * band).toFixed(1) + '%', '<small> (1 − (1 − 2 x 目地幅)²)</small>') + stat('真ん中のレンガ', `(${px[si]}, ${px[si + 1]}, ${px[si + 2]})`);
+    $('nm-note').textContent = (Math.abs(mortar - 0.06) < 1e-6 && strength === 8 ? '既定の目地幅 6%・強さ 8 では、C# の自己チェックと同じ数(平ら 167,489 / 急 57,344)。' : '') +
+      '急に傾いた画素の割合は、面取りの帯の面積(目地幅から計算できる)とほぼ一致する。ほとんどの画素は平らなので、法線マップは全体が薄紫 (128, 128, 255) に見える。' +
+      (flip ? ' 緑を反転すると、上下の向きの傾きだけが逆になり、目地の上下の縁の明暗が入れ替わって畝のように見える(画像としては見分けにくい)。' : '');
+    void pending;
+  }
+  for (const id of ['nm-mortar', 'nm-strength']) $(id).addEventListener('change', redraw);
+  for (const id of ['nm-mortar', 'nm-strength']) $(id).addEventListener('input', () => { $('nm-mortar-out').textContent = (Number($('nm-mortar').value) * 100).toFixed(0) + '%'; $('nm-strength-out').textContent = $('nm-strength').value; });
+  seg('nm-flip', redraw);
+  redraw();
+}
+
+// ============================================================
+//  視差の3方式
+// ============================================================
+{
+  const S = SM.SIZE, ROW = 32;
+  // 高さマップの1行(バイトに丸めてから 0〜1。テクスチャと同じ)
+  const H = new Float32Array(S); for (let x = 0; x < S; x++) H[x] = SM.toByte(SM.heightAt(x, ROW)) / 255;
+  // 線形補間で読む(GL_LINEAR + REPEAT の1行ぶん)
+  const height = (u) => { const t = u * S - 0.5, i = Math.floor(t), fr = t - i; const a = H[((i % S) + S) % S], b = H[(((i + 1) % S) + S) % S]; return a + (b - a) * fr; };
+  const st = { mode: 3, depth: 0.05, steps: [8, 32] };
+  // ParallaxUv の1次元版。viewDir = (sin a, 0, cos a)(接空間。x が U の向き)
+  function parallax(u, angle, mode) {
+    const vx = Math.sin(angle), vz = Math.cos(angle);
+    if (vz <= 0.001) return { u, reads: 0 };
+    if (mode === 1) { const d = (1 - height(u)) * st.depth; return { u: u - vx / vz * d, reads: 1 }; }
+    const steps = st.steps[1] + (st.steps[0] - st.steps[1]) * Math.abs(vz);
+    const layer = 1 / steps, step = vx / vz * st.depth / steps;
+    let cu = u, cl = 0, cd = 1 - height(cu), reads = 1;
+    while (cl < cd && cl < 1) { cu -= step; cd = 1 - height(cu); cl += layer; reads++; }
+    if (mode === 2) return { u: cu, reads };
+    const pu = cu + step, after = cd - cl, before = (1 - height(pu)) - cl + layer;
+    const wgt = after / (after - before);
+    return { u: cu * (1 - wgt) + pu * wgt, reads: reads + 1 };
+  }
+  // 本当の答え(細かく辿る)
+  function truth(u, angle) {
+    const vx = Math.sin(angle), vz = Math.cos(angle); if (vz <= 0.001) return u;
+    const N = 4000, step = vx / vz * st.depth / N; let cu = u, cl = 0;
+    for (let k = 0; k < N; k++) { if (cl >= (1 - height(cu))) return cu; cu -= step; cl += 1 / N; }
+    return cu;
+  }
+  function redraw() {
+    const angle = Number($('px-angle').value) * Math.PI / 180, pick = Number($('px-u').value);
+    $('px-angle-out').textContent = $('px-angle').value + ' 度';
+    // 窓は目地 1 本(u = 0.25、x = 128)をまたぐ 0.2 ぶん
+    const u0 = 0.17, u1 = 0.37, uw = u1 - u0;
+    $('px-u-out').textContent = (u0 + pick * uw).toFixed(3);
+    const { ctx, w, h } = fit($('px-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const L = 20, W = w - 40, top = 30, X = (u) => L + (u - u0) / uw * W, sc = W / uw, Y = (d) => top + d * sc;
+    // 断面(深さ = (1 − 高さ) x 深さの設定)。上が板の面
+    ctx.fillStyle = 'rgba(150,110,90,0.35)'; ctx.beginPath(); ctx.moveTo(X(u0), Y(st.depth) + 2);
+    for (let k = 0; k <= 400; k++) { const u = u0 + uw * k / 400; ctx.lineTo(X(u), Y((1 - height(u)) * st.depth)); }
+    ctx.lineTo(X(u1), Y(st.depth) + 2); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(u0), Y(0)); ctx.lineTo(X(u1), Y(0)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('点線 = 実際の板(平ら)。茶色 = 高さマップが表す凹凸(深さ方向に同じ縮尺)', L, 16);
+    // 視線
+    const up = u0 + pick * uw, tu = truth(up, angle), r = parallax(up, angle, st.mode);
+    const vx = Math.sin(angle), vz = Math.cos(angle);
+    ctx.strokeStyle = 'rgba(255,210,90,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    const back = 0.05; ctx.moveTo(X(up + vx / vz * back), Y(-back)); ctx.lineTo(X(up - vx / vz * st.depth * 1.05), Y(st.depth * 1.05)); ctx.stroke();
+    const mark = (u, color, lab, dy) => { const d = (1 - height(u)) * st.depth; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X(u), Y(d), 5, 0, Math.PI * 2); ctx.fill(); ctx.textAlign = 'center'; ctx.fillText(lab, X(u), Y(d) + dy); };
+    mark(tu, tok('--ink'), '本当', -10);
+    mark(r.u, 'rgb(90,160,255)', ['', '単純視差', '急峻視差', 'POM'][st.mode], 20);
+    ctx.fillStyle = 'rgb(255,210,90)'; ctx.beginPath(); ctx.arc(X(up), Y(0), 4, 0, Math.PI * 2); ctx.fill();
+    // 下の帯: 窓の各点で、見えるはずの高さ
+    const bandTop = Y(st.depth) + 30, bh = Math.max(24, (h - bandTop - 40) / 2 - 8);
+    const N = Math.round(W);
+    for (let i = 0; i < N; i++) {
+      const u = u0 + uw * (i + 0.5) / N;
+      const g1 = Math.round(255 * height(truth(u, angle))), g2 = Math.round(255 * height(parallax(u, angle, st.mode).u));
+      ctx.fillStyle = `rgb(${g1},${Math.round(g1 * 0.8)},${Math.round(g1 * 0.7)})`; ctx.fillRect(L + i, bandTop, 1.2, bh);
+      ctx.fillStyle = `rgb(${g2},${Math.round(g2 * 0.8)},${Math.round(g2 * 0.7)})`; ctx.fillRect(L + i, bandTop + bh + 16, 1.2, bh);
+    }
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left';
+    ctx.fillText('本当(細かく辿った答え)', L, bandTop - 4); ctx.fillText(['', '単純視差', '急峻視差', '視差遮蔽(POM)'][st.mode], L, bandTop + bh + 12);
+    const errTex = (r.u - tu) * S;
+    const steps = st.steps[1] + (st.steps[0] - st.steps[1]) * Math.abs(vz);
+    $('px-stats').innerHTML = stat('ずれ(UV)', (up - r.u).toFixed(4), `<small> (本当 ${(up - tu).toFixed(4)})</small>`) + stat('本当との差', Math.abs(errTex).toFixed(2) + ' テクセル') +
+      stat('高さマップを読んだ回数', String(r.reads)) + stat('刻みの数', st.mode === 1 ? '—' : steps.toFixed(1), st.mode === 1 ? '' : `<small> (mix(${st.steps[1]}, ${st.steps[0]}, |z| = ${Math.abs(vz).toFixed(2)}))</small>`);
+    $('px-note').textContent = angle < 0.2 ? '正面から見ると視線の傾きが 0 なので、どの方式もほとんどずれない(視差は寝た面でしか効かない)。'
+      : st.mode === 1 ? '単純視差はその場の高さを1回だけ読むので、溝の縁のような急な所では大きく外す(帯の目地の位置がずれる)。'
+        : st.mode === 2 ? '急峻視差は刻みの層で止まるので、斜面の上で答えが層ごとに飛び、帯が段々(縞)になる。刻みを 4〜8 にすると目立つ。'
+          : 'POM は急峻視差の最後の1歩を線形補間で戻すので、同じ刻みの数でも段々が消える。';
+  }
+  seg('px-mode', (v) => { st.mode = Number(v); redraw(); });
+  seg('px-depth', (v) => { st.depth = Number(v); redraw(); });
+  seg('px-steps', (v) => { st.steps = v.split(',').map(Number); redraw(); });
+  for (const id of ['px-angle', 'px-u']) $(id).addEventListener('input', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>

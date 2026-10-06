@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 37 SSAO(スクリーンスペース環境遮蔽)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. AO は「レンダリング方程式の可視項」を先に抜き出したもの</a></li><li class="l3"><a href="#s5">2. 「画面に写っているもの」だけで遮蔽を測る</a></li><li class="l3"><a href="#s6">3. 半球でなければならない</a></li><li class="l3"><a href="#s7">4. 少ない標本は「ノイズにしてからぼかす」</a></li><li class="l3"><a href="#s8">5. 遠くの物に遮られたことにしない</a></li><li class="l3"><a href="#s9">6. 半径はシーンの大きさで決まる。万能の値は無い</a></li><li class="l3"><a href="#s10">7. AO を直接光に掛けてはいけない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">AO が1枚できるまで — 3つのパスと、画面に写っていないものの話</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">1. <code>Ctrl+F9</code>: SSAO が効く構図</a></li><li class="l3"><a href="#s19">2. <code>Ctrl+F2</code>: 遮蔽率を全画面に出す</a></li><li class="l3"><a href="#s20">3. <code>Ctrl+F5</code>: ぼかしを切る</a></li><li class="l3"><a href="#s21">4. <code>Ctrl+F8</code>: 下駄を 0 にする</a></li><li class="l3"><a href="#s22">5. <code>Ctrl+F3</code>: 半径を動かす</a></li><li class="l3"><a href="#s23">6. <code>Ctrl+F11</code>: AO を直接光にも掛ける</a></li><li class="l3"><a href="#s24">7. <code>Ctrl+F6</code>: 半解像度</a></li><li class="l3"><a href="#s25">8. <code>Ctrl+F10</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): 遮蔽率を画面に出さずに数字で確かめる</a></li><li class="l3"><a href="#s28">課題2(中): 半径をワールドではなくスクリーンで頭打ちにする</a></li><li class="l3"><a href="#s29">課題3(難): ぼかしを深度でエッジを守る形にする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(13 項目すべて合格)</a></li><li class="l3"><a href="#s32">幾何パス + 遮蔽の計算にかかる時間</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 37 / 計画書</p>
+  <h1>SSAO(スクリーンスペース環境遮蔽)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. AO は「レンダリング方程式の可視項」を先に抜き出したもの</a></li><li class="l3"><a href="#s5">2. 「画面に写っているもの」だけで遮蔽を測る</a></li><li class="l3"><a href="#s6">3. 半球でなければならない</a></li><li class="l3"><a href="#s7">4. 少ない標本は「ノイズにしてからぼかす」</a></li><li class="l3"><a href="#s8">5. 遠くの物に遮られたことにしない</a></li><li class="l3"><a href="#s9">6. 半径はシーンの大きさで決まる。万能の値は無い</a></li><li class="l3"><a href="#s10">7. AO を直接光に掛けてはいけない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">AO が1枚できるまで — 3つのパスと、画面に写っていないものの話</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">1. <code>Ctrl+F9</code>: SSAO が効く構図</a></li><li class="l3"><a href="#s19">2. <code>Ctrl+F2</code>: 遮蔽率を全画面に出す</a></li><li class="l3"><a href="#s20">3. <code>Ctrl+F5</code>: ぼかしを切る</a></li><li class="l3"><a href="#s21">4. <code>Ctrl+F8</code>: 下駄を 0 にする</a></li><li class="l3"><a href="#s22">5. <code>Ctrl+F3</code>: 半径を動かす</a></li><li class="l3"><a href="#s23">6. <code>Ctrl+F11</code>: AO を直接光にも掛ける</a></li><li class="l3"><a href="#s24">7. <code>Ctrl+F6</code>: 半解像度</a></li><li class="l3"><a href="#s25">8. <code>Ctrl+F10</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): 遮蔽率を画面に出さずに数字で確かめる</a></li><li class="l3"><a href="#s28">課題2(中): 半径をワールドではなくスクリーンで頭打ちにする</a></li><li class="l3"><a href="#s29">課題3(難): ぼかしを深度でエッジを守る形にする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(13 項目すべて合格)</a></li><li class="l3"><a href="#s32">幾何パス + 遮蔽の計算にかかる時間</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の7日目。<strong>物が床に乗る</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Ctrl+F9</code> で立方体の根元に寄った構図が出て、<strong>接地の帯が暗くなる</strong>。<code>Ctrl+F1</code> で切ると、Day 36 までの「浮いている立方体」に戻る。</p>
+<div class="code"><pre><code>  Ctrl+F9   SSAO が効く構図。<strong>今日の到達点はこの1枚</strong>
+  Ctrl+F1   SSAO ON / OFF(OFF で Day 36 に戻る)
+  Ctrl+F2   遮蔽率 / ビュー法線 / 距離 を全画面に出す(<strong>今日いちばん使う窓</strong>)
+  Ctrl+F3   半径      Ctrl+F4   標本数
+  Ctrl+F5   ぼかし(OFF で 4x4 の格子が見える)
+  Ctrl+F6   遮蔽バッファを半解像度に
+  Ctrl+F7   強さ      Ctrl+F8   下駄(0 で平らな床が荒れる)
+  Ctrl+F11  AO を直接光にも掛ける(<strong>わざと間違える</strong>)
+  Ctrl+F10  SSAO の自己チェック</code></pre></div>
+<p>Day 36 で環境光が「まわりの景色ぜんぶ」になった。ところが焼いた放射照度は<strong>その点が空だけを見ている前提</strong>の値で、隣に壁があろうと箱の下だろうと、法線が同じなら同じ明るさを返す。</p>
+<p>だから Day 36 までの絵には<strong>物と物が接している場所の暗がりが無い</strong>。影(Day 33)は太陽が遮られたところを暗くするが、<strong>太陽と関係ない暗がり</strong>——曇りの日でも隅が暗いこと——は誰も作っていなかった。</p>
+<p>今日はそれを作る。<strong>すでに描いてある深度バッファを「世界の模型」として使い回す</strong>のが手口で、三角形の数にもシーンの構成にも依存しない。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-13: 画面空間の環境遮蔽</a> <strong>今日の本命</strong>。深度バッファから遮蔽を推定するという発想そのものと、「スクリーンスペースで何が失われるか」がここで手に入る</li><li>西川善司『「3Dゲームエンジン」を用いた3Dゲームグラフィックス講座』<strong>第10章</strong> SSAO が実際のゲームでどう使われてきたか。Crytek 版から HBAO まで、<strong>手法が世代交代してきた理由</strong>が読める</li><li><a href="https://learnopengl.com/Advanced-Lighting/SSAO">LearnOpenGL: SSAO</a> <strong>コードで追うならここが最短</strong>。今日の実装とほぼ同じ構成で、幾何バッファ → 半球カーネル → ノイズ → ぼかし の順に進む。ただしあちらはディファードなので G バッファが既にある前提(今日は自分で焼く)</li><li><a href="https://en.wikipedia.org/wiki/Screen_space_ambient_occlusion">Vladimir Kajalin, "Screen-Space Ambient Occlusion" (ShaderX7, 2009)</a> Crytek 版の一次資料。<strong>球でサンプリングしていた</strong>ので平らな面まで一律に 0.5 になり、全体が薄暗くなっていた——今日「半球にする理由」として説明するものの出どころ</li><li><a href="https://developer.nvidia.com/sites/default/files/akamai/gamedev/docs/HBAO_SIG08b.pdf">Louis Bavoil et al., "Image-Space Horizon-Based Ambient Occlusion" (NVIDIA, 2008)</a>今日の手法の次の世代(HBAO)。改造課題3の下敷きになる。<strong>点を数えるのではなく地平線角を求める</strong>という発想の違いを見ておくとよい</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. AO は「レンダリング方程式の可視項」を先に抜き出したもの</h3>
+<p>Day 35 で書いたレンダリング方程式には、実は項が1つ足りていなかった。</p>
+<div class="code"><pre><code>  Lo(V) = ∫ f(V, L) * Li(L) * V(L) * (N・L) dω
+                              ~~~~
+                              可視項。その方向に何も無ければ 1、遮られていれば 0</code></pre></div>
+<p>平行光源1本のときは、これがシャドウマップ(Day 33)そのものだった。IBL(Day 36)では<strong>この項を丸ごと 1 と置いていた</strong>——「まわりの景色は全部見えている」という仮定で焼いたのが放射照度マップ。</p>
+<p>環境遮蔽はその仮定を緩める。ただし方向ごとに解くのではなく、<strong>方向によらない1つの係数</strong>に潰す。</p>
+<div class="code"><pre><code>  AO(P) = (1/π) ∫ V(L) (N・L) dω        … 半球のうち、どれだけ空が見えるか</code></pre></div>
+<p>これを環境光に掛ける。<strong>厳密には嘘</strong>で、遮られている方向と明るい方向がずれていれば結果は合わない。それでも使うのは、<strong>方向を捨てたぶん、1画素あたり1つの数字で済む</strong>から。</p>
+<h3 id="s5">2. 「画面に写っているもの」だけで遮蔽を測る</h3>
+<p>正しく AO を出すなら、点 P から半球じゅうへレイを飛ばして当たり判定をする。三角形が 100 万個あればその 100 万個が相手になる。</p>
+<p>SSAO の発想は、<strong>その世界の模型として深度バッファを使う</strong>こと。</p>
+<div class="code"><pre><code>  1. P のまわりの半球に、点をばらまく
+  2. その点が「画面のどこに写るか」を計算する
+  3. その画素にすでに描かれている面が、点より手前にあるか?
+       手前にある = その方向は何かで塞がっている</code></pre></div>
+<p><strong>当たり判定を1回もしていない</strong>のが肝で、やっているのは射影と、テクスチャの読み込みと、大小比較だけ。だからコストは<strong>画素数 × 標本数</strong>で決まり、三角形が 100 万個あろうと 100 個だろうと同じ時間で終わる。</p>
+<p>代償は「深度バッファは世界の模型として不完全」なこと。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>失われるもの</th><th>どう見えるか</th></tr></thead>
+<tbody>
+<tr><td>画面の外にあるもの</td><td>カメラを振ると画面の縁の暗がりが揺れる</td></tr>
+<tr><td>手前の物の裏側</td><td>柱の縁に沿って、背景側が不自然に明るい/暗い</td></tr>
+<tr><td>厚み</td><td>薄い板と分厚い柱が同じに扱われる</td></tr>
+</tbody>
+</table></div>
+<p><strong>この3つは手法の欠陥ではなく定義</strong>で、どんなに丁寧に実装しても消えない。消したければ画面の外の情報を持つしかなく、それがボクセル化(VXAO)やレイトレーシング(RTAO)へ進む道になる。</p>
+<h3 id="s6">3. 半球でなければならない</h3>
+<p>標本を球全体にばらまくと、<strong>平らな面でも半分が「遮られている」と出る</strong>。面の裏へ潜った点は、必ず面より奥にあるから。</p>
+<div class="code"><pre><code>      球でばらまく                  半球でばらまく
+         ・ ・ ・                       ・ ・ ・
+       ・   N   ・                    ・   N   ・
+    ───●───────────            ───●───────────
+       ・       ・   ← 全部遮蔽と判定される
+         ・ ・ ・</code></pre></div>
+<p>Crytek の初代 SSAO(2007)はこれを球でやっていて、<strong>シーン全体が一律に薄暗くなる</strong>のが特徴的な絵だった。<code>1 - 0.5 = 0.5</code> が「何も無いところ」の値になるので、そこから明るさを持ち上げる調整が必要になる。</p>
+<p>半球にするには、<strong>法線を軸にした接空間</strong>が要る。Day 34 で法線マップのために組んだ TBN とまったく同じ手順で、違うのは接線を UV の傾きではなく乱数から作ること。</p>
+<h3 id="s7">4. 少ない標本は「ノイズにしてからぼかす」</h3>
+<p>半球の積分を 16 点や 32 点で済ませているので、当然誤差が出る。<strong>全画素で同じ 16 方向を使うと、誤差も全画素で同じ形になる</strong>——これが縞やまだら(バンディング)として出る。</p>
+<p>そこで画素ごとに接空間をランダムに回す。すると誤差は<strong>規則的な模様から、目に付きにくい砂嵐へ変わる</strong>。</p>
+<p>砂嵐はぼかせば消える。縞はぼかしても縞のまま残る。これが「ノイズを入れてからぼかす」が定番になる理由で、Day 36 の事前フィルタ(重点サンプリング)とも、今後のテンポラル AA(Day 38 以降)とも同じ発想の系列にある。</p>
+<p><strong>ぼかしの幅はノイズの周期に合わせる</strong>。4x4 で敷いたなら 4x4 で平均する。そうすると 16 通りがちょうど1回ずつ混ざり、模様がきれいに消える。5x5 や 3x3 だと割り切れず、薄い格子が残る。</p>
+<h3 id="s8">5. 遠くの物に遮られたことにしない</h3>
+<p>素朴に「手前に面があれば遮蔽」とすると、<strong>柱の向こうにある遠くの壁</strong>まで遮蔽物と数えてしまう。柱の縁に沿って、背景が黒く縁取られる形で出る。</p>
+<p>対処は、深度の差が半径を超えたら効き目を落とすこと。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>  float rangeCheck = smoothstep(0.0, 1.0, uRadius / abs(P.z - sampledZ));</code></pre></div>
+<p><strong>この1行がスクリーンスペースの性格を全部表している</strong>。本当の遮蔽を測っているなら、こんな補正は要らない。深度バッファという不完全な模型を相手にしているから、「模型として信用できる範囲」を自分で区切る必要がある。</p>
+<h3 id="s9">6. 半径はシーンの大きさで決まる。万能の値は無い</h3>
+<p>SSAO のつまみの中で、<strong>半径だけが物理的な長さ</strong>を持っている。1辺 1m の箱が並ぶシーンなら 1m 前後、机の上の小物なら 5cm、街並みなら 3m——<strong>その都度決めるもの</strong>。</p>
+<p>作例の数字をそのまま持ってくると効かない、というのがここの落とし穴で、LearnOpenGL が 0.5 なのはあちらの箱が小さいから。このリファレンスは 1辺 1m の立方体が並ぶ縮尺なので <strong>1.0m</strong> にしてある。</p>
+<p>半径を上げると暗がりは広がるが、<strong>遠くの物まで遮蔽物と数え始める</strong>。上の要点5の綱引きがそのまま出るので、「広く効かせたい」と「嘘を増やしたくない」の間で決めることになる。</p>
+<h3 id="s10">7. AO を直接光に掛けてはいけない</h3>
+<p>AO は<strong>まわりから回り込んでくる光</strong>がどれだけ遮られるかの値なので、太陽から一直線に来る光とは無関係。遮っているものがあるなら、それは影(Day 33)の仕事。</p>
+<p>掛けてしまうと、日向の壁際まで暗くなり、<strong>絵全体が薄汚れる</strong>。<code>Ctrl+F11</code> でわざとそうできるようにしてある——「なんとなく汚い」がどこから来るのかを一度見ておくと、他人の絵を見たときにも気づけるようになる。</p>
+<p>同じ話が Day 33 でも出ている(影は直接光にだけ掛ける)。<strong>AO と影はちょうど裏返し</strong>で、掛ける先が入れ替わっている。</p>
+<div class="inject"><figure class="lab" id="ao-lab">
+  <div class="lab-head">
+    <h3>SSAO を1枚焼く — 幾何バッファから遮蔽率、ぼかしまで(要点2〜7、完成条件1〜8)</h3>
+    <span class="tag">reference の Ssao.BuildKernel / CreateNoiseTexture(Random(20370101) で 64 本の半球カーネルと 4x4 のノイズ。自己チェックと同じく前半の平均長 0.103 / 後半 0.314)、ssao.frag(距離から位置を戻し、ノイズで回した接空間に標本をばらまき、写った深度と比べて数える。rangeCheck・下駄・強さ・1.6 乗まで同じ)、ssao-blur.frag(4x4 の平均)を JS に移して、Ctrl+F9 と同じ構図(Yaw 0.9・Pitch 0.10・注視点 (0, −0.35, 0)・距離 4・画角 60 度、床と立方体6個)を 240x160 で焼いたもの。幾何バッファは三角形を描く代わりに光線を飛ばして作り、立方体はどれも回していない(実機は時間で回る)。「陰影」の表示は、このページの簡略な照明(平行光源 + 環境光 0.35、影も IBL も無し)。球でばらまくのは Crytek 版の比較で、このページだけ</span>
+  </div>
+  <div class="stage"><canvas id="ao-canvas" width="240" height="160" style="width:100%;height:auto;image-rendering:auto;display:block" aria-label="立方体の根元に寄った構図の、遮蔽率や陰影"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">表示(Ctrl+F2)</span>
+      <div class="seg" id="ao-view"><button data-v="lit" aria-pressed="true">陰影</button><button data-v="ao" aria-pressed="false">遮蔽率</button><button data-v="normal" aria-pressed="false">ビュー法線</button><button data-v="depth" aria-pressed="false">距離</button></div>
+    </div>
+    <div class="ctl"><span class="label">SSAO(Ctrl+F1)</span>
+      <div class="seg" id="ao-on"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">半径(Ctrl+F3)</span>
+      <div class="seg" id="ao-radius"><button data-v="0.25" aria-pressed="false">0.25m</button><button data-v="0.5" aria-pressed="false">0.5m</button><button data-v="1" aria-pressed="true">1.0m</button><button data-v="2" aria-pressed="false">2.0m</button></div>
+    </div>
+    <div class="ctl"><span class="label">標本数(Ctrl+F4)</span>
+      <div class="seg" id="ao-samples"><button data-v="8" aria-pressed="false">8</button><button data-v="16" aria-pressed="false">16</button><button data-v="32" aria-pressed="true">32</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">ぼかし(Ctrl+F5)</span>
+      <div class="seg" id="ao-blur"><button data-v="1" aria-pressed="true">ON(4x4)</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">強さ(Ctrl+F7。Ctrl+F9 は 2.0)</span>
+      <div class="seg" id="ao-strength"><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="1" aria-pressed="false">1.0</button><button data-v="1.5" aria-pressed="false">1.5</button><button data-v="2" aria-pressed="true">2.0</button></div>
+    </div>
+    <div class="ctl"><span class="label">下駄(Ctrl+F8)</span>
+      <div class="seg" id="ao-bias"><button data-v="0" aria-pressed="false">0</button><button data-v="0.01" aria-pressed="false">0.01</button><button data-v="0.025" aria-pressed="true">0.025</button><button data-v="0.05" aria-pressed="false">0.05</button></div>
+    </div>
+    <div class="ctl"><span class="label">掛け方(Ctrl+F11)とばらまき方(このページだけ)</span>
+      <div class="seg" id="ao-misuse"><button data-v="ok" aria-pressed="true">環境光にだけ</button><button data-v="direct" aria-pressed="false">直接光にも(誤用)</button><button data-v="sphere" aria-pressed="false">球でばらまく(Crytek)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ao-stats"></div><p id="ao-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何が遮られているか</th><th>掛ける先</th></tr></thead>
+<tbody>
+<tr><td>影(Day 33)</td><td>太陽</td><td>直接光</td></tr>
+<tr><td>AO(Day 37)</td><td>まわり全部</td><td>環境光</td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Ssao.cs</code></td><td><strong>SSAO 一式</strong>。幾何バッファを持ち、遮蔽を計算し、ぼかして配る</td></tr>
+<tr><td><code>shaders/geometry.vert</code> / <code>geometry.frag</code></td><td>1パス目。<strong>ビュー空間の法線と距離</strong>を1枚に書く</td></tr>
+<tr><td><code>shaders/ssao.frag</code></td><td>2パス目。半球にばらまいて数える。<strong>今日の主役</strong></td></tr>
+<tr><td><code>shaders/ssao-blur.frag</code></td><td>3パス目。4x4 の単純平均でノイズのタイルをならす</td></tr>
+<tr><td><code>shaders/ssao-view.frag</code></td><td>遮蔽率 / ビュー法線 / 距離 を全画面に出す(Ctrl+F2)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Texture.cs</code></td><td><code>RenderTargetFormat.R8</code>。<strong>1成分の描き込み先</strong>(AO は数字ひとつ)</td></tr>
+<tr><td><code>Render/Framebuffer.cs</code></td><td><code>BytesPerPixel</code>。形式が3つになったので表に分けた</td></tr>
+<tr><td><code>Render/Shader.cs</code></td><td><code>SetVector3Array</code>。カーネル 64 本を <strong>1回の glUniform3fv</strong> で送る</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>遮蔽率を環境光に掛ける。uniform 4本、成分 21</td></tr>
+<tr><td><code>Program.cs</code></td><td><code>RenderSsaoPass</code>、<code>_ssao.Apply</code>、<code>Ctrl+F1〜F11</code>、HUD の1行、<code>RunSsaoCheck</code></td></tr>
+</tbody>
+</table></div>
+<p>新規が 1045 行、変更ファイルへの追加が 966 行で、<strong>合わせて約 2000 行</strong>。Day 35(約 1700 行)と同じくらい、Day 36(約 2300 行)より小さい。</p>
+<h3 id="s14">写経する順番</h3>
+<p>依存の下から。<strong>バッファの形式から先に手を入れる</strong>のが今日の順番で、<code>Ssao</code> はその上に乗る。</p>
+<ol><li><strong><code>Render/Texture.cs</code></strong>(変更) <code>RenderTargetFormat</code> に <code>R8</code> を足し、<code>CreateTarget</code> を<code>(内部形式, 転送形式, 型)</code> の3つ組に変える。<strong>転送形式も <code>Red</code> にそろえる</strong></li><li><strong><code>Render/Framebuffer.cs</code></strong>(変更) <code>ByteSize</code> の三項演算子を <code>BytesPerPixel</code> に切り出す。ここを直さないと HUD の VRAM が 4 倍に見える</li><li><strong><code>Render/Shader.cs</code></strong>(変更) <code>SetVector3Array</code> を <code>SetVector3</code> と <code>SetVector4</code> の間に。<strong>配列の uniform は「先頭の位置 + 個数」で書ける</strong></li><li><strong><code>shaders/geometry.vert</code></strong> / <strong><code>geometry.frag</code></strong>(新規) <code>uModelView</code> と <code>uProjection</code> に分けるのが本描画との違い。<strong>ビュー空間の位置が途中で要る</strong>ので、透視投影の手前で切る</li><li><strong><code>shaders/ssao.frag</code></strong>(新規) uniform 群 → <strong><code>ViewPosition</code></strong>(深度から位置を戻す) → <code>main</code>。<code>uSampleStride</code> を忘れないこと(下の「検証の途中で分かったこと」)</li><li><strong><code>shaders/ssao-blur.frag</code></strong>(新規) 4x4 の単純平均。<strong>ノイズの周期と同じ幅</strong>であることが効いている</li><li><strong><code>shaders/ssao-view.frag</code></strong>(新規) 3つのモード。距離は線形なので <code>shadow-view.frag</code> のような戻しが要らない</li><li><strong><code>Render/Ssao.cs</code></strong>(新規) <code>SsaoDebugView</code> → 定数 → フィールド → コンストラクタ → プロパティ群 → <code>BeginGeometry</code> / <code>Draw</code> / <code>EndGeometry</code> → <strong><code>Compute</code></strong> → <code>Apply</code> → <code>DrawDebug</code> → <code>Resize</code> / <code>SetHalfResolution</code> / <code>ReloadShaders</code> → <strong><code>BuildKernel</code></strong>(半球の作り方)→ <code>CreateNoiseTexture</code> → <code>NormalMatrix</code> → <code>CreateOcclusionBuffer</code> → <code>ResizeOcclusionBuffers</code> → <strong><code>ComputeOcclusion</code></strong> → <code>BlurOcclusion</code> → <code>DrawFullscreen</code> → <code>SetCap</code> → <code>Dispose</code></li><li><strong><code>shaders/textured.frag</code></strong>(変更)ユニットのコメントに 7〜10 → Day 37 の uniform 4本 → <strong><code>ScreenSpaceOcclusion()</code></strong> を <code>SrgbToLinear</code> の直前へ → <code>occlusion</code> の直後に <code>ssao</code> / <code>ambientOcclusion</code> / <code>directOcclusion</code> →成分 21 → 環境光の 5 か所を <code>ambientOcclusion</code> に差し替え →直接光の 3 か所に <code>directOcclusion</code> を掛ける</li><li><strong><code>Program.cs</code></strong>(変更) Day 37 のフィールド2つ → <code>OnLoad</code>(生成とコンソール1行)→ <code>OnFramebufferResize</code> の <code>_ssao.Resize</code> → <code>OnRender</code>(<code>RenderSsaoPass()</code> と <code>_ssao.DrawDebug</code>)→ <strong><code>RenderSsaoPass</code></strong> → <code>Render3D</code> の <code>_ssao.Apply</code> → <code>GridMatrix</code> / <code>SurfaceWallMatrix</code> / <code>SurfaceFloorMatrix</code> の切り出しと<code>RenderMaterialGrid</code> / <code>RenderSurfaceDemo</code> の差し替え → <code>DebugChannelLabel</code> の 21 と巡回を 22 → <code>SsaoViewLabel</code> / <code>SsaoLabel</code> → HUD の行 → <code>OnKeyDown</code>(<code>Ctrl+F1〜F11</code>。<strong><code>case Key.F5:</code> より必ず上</strong>)→ <strong><code>RunSsaoCheck</code></strong> と補助4つ → F5 の <code>_ssao.ReloadShaders()</code> → <code>_ssao.Dispose()</code> → 操作説明 → クラス要約に Day 37 の項</li><li><strong><code>Day37.csproj</code></strong>(リネームのみ)中身は Day 36 と同じ</li></ol>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>クラスが1つ増えた</strong>(<code>Render/Ssao</code>)。層の構成は Day 36 のままで、今日も全部 <code>Render/</code> の中に入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Ssao</code></td><td>幾何バッファを焼き、遮蔽率を計算し、ぼかして配る。<strong>シーンを知らない</strong></td></tr>
+<tr><td><code>SsaoDebugView</code></td><td>中間結果のどれを全画面に出すか(Ctrl+F2)</td></tr>
+</tbody>
+</table></div>
+<p><code>Render/</code> の既存クラスも少し太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>RenderTargetFormat</code></td><td><code>R8</code>。<strong>1成分の描き込み先</strong>(1920x1080 で 8.3MB が 2.1MB)</td></tr>
+<tr><td><code>Framebuffer</code></td><td><code>BytesPerPixel</code>。形式が3つになったので三項演算子を表に切り出した</td></tr>
+<tr><td><code>Shader</code></td><td><code>SetVector3Array</code>。カーネル 64 本を1回の <code>glUniform3fv</code> で送る</td></tr>
+</tbody>
+</table></div>
+<p><code>Ssao</code> は <code>PostProcess</code>(Day 31)・<code>ShadowMap</code>(Day 33)・<code>EnvironmentMap</code>(Day 36)に続く<strong>4つ目の「自分でバッファを持ち、シェーダは借りる」クラス</strong>。</p>
+<p>4つそろって、形が完全に固まった。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>xxx.Begin(...);        // 行き先を自分のバッファへ切り替える
+// ここで好きなものを描いてもらう
+xxx.End(width, height); // 画面へ戻し、借りた GL の状態を返す
+xxx.Apply(shader);      // 本描画が読めるようにテクスチャと uniform を配る</code></pre></div>
+<p><strong>この形が4例あることの値打ち</strong>は、Day 52(ディファードレンダリング)で5つ目を足すときに設計を考え直さなくてよいこと。Day 31 で「1回では終わらない描画が全部ここから始まる」と書いた予告が、ここでちょうど回収された形になっている。</p>
+<p><strong>設計の歪みが1つ表に出た</strong>。今日、同じジオメトリを<strong>1フレームに3回描く</strong>ようになった。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>パス</th><th>何のために</th><th>何を書くか</th></tr></thead>
+<tbody>
+<tr><td>影(Day 33)</td><td>光から見た深度</td><td>深度だけ</td></tr>
+<tr><td>幾何(Day 37)</td><td>カメラから見た法線と距離</td><td>法線 + 距離</td></tr>
+<tr><td>本描画</td><td>絵</td><td>色</td></tr>
+</tbody>
+</table></div>
+<p><code>Program.cs</code> に<strong>同じ描画リストが3つ</strong>並ぶことになり、どれか1つに足し忘れると「影が落ちない」「AO に穴が開く」という形で出る。実際、今日 <code>GridMatrix</code> と <code>SurfaceWallMatrix</code> を切り出したのは、グリッドと板の行列が本描画側にベタ書きされていて、<strong>幾何パスから同じ形を描けなかった</strong>ため。</p>
+<p>正しい直し方は<strong>1回描いて複数のバッファへ同時に書く</strong>(MRT / G バッファ)で、それが Day 52 の主題になる。今日そこへ踏み込まないのは、<code>Framebuffer</code> にカラーアタッチメントを複数挿す口が無く、足すと差分が今日の主題から外れて広がるため。</p>
+<h3 id="s16">AO が1枚できるまで — 3つのパスと、画面に写っていないものの話</h3>
+<p><code>RenderSsaoPass()</code> の中で何が起きているか。<strong>入力と出力を全部書き出す</strong>と、幾何バッファが2回読まれることが見える。</p>
+<svg viewBox="0 0 1010 990" role="img" aria-label="AO が1枚できるまで(3つのパスと、画面に写っていないものの話)。Ssao.BeginGeometry(camera)で幾何バッファへ切り替え(クリア色は (0,0,0,0))。Ssao.Draw(mesh, model) を必要なだけ(uModelView と uNormalMatrix だけ送る)。幾何バッファ RGBA16F(RGB = ビュー空間の法線、A = カメラからの距離)。Ssao.EndGeometry()(借りた GL の状態を返す)。Ssao.Compute(camera, w, h) で ssao.frag(フルスクリーン1枚)。ssao.frag は幾何バッファの自分の画素と、標本の先を読む。4x4 のノイズ(Repeat + Nearest)とカーネル 64本(接空間の半球)も読む。遮蔽バッファ R8(1 = 遮られていない)。BlurEnabled なら ssao-blur.frag(4x4 の単純平均)で、ぼかした遮蔽バッファ R8(本描画が読むのはこちら)。そうでなければ生の遮蔽バッファ(タイルの格子が見える)。どちらも Ssao.Apply(shader, unit=10)(uAoMap / uScreenSize / uSsaoEnabled)から textured.frag で環境光に掛ける" style="width:100%;max-width:1010px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="340" y="8" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.BeginGeometry(camera)</text><text x="490" y="45.5" text-anchor="middle" fill="var(--ink)">幾何バッファへ切り替え</text><text font-weight="700" x="490" y="62.5" text-anchor="middle" fill="var(--ink)">クリア色は (0,0,0,0)</text><rect x="340" y="109" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="129.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.Draw(mesh, model) を必要なだけ</text><text x="490" y="146.5" text-anchor="middle" fill="var(--ink)">uModelView と uNormalMatrix だけ送る</text><rect x="340" y="193" width="300" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="213.5" text-anchor="middle" fill="var(--ink)">幾何バッファ RGBA16F</text><text x="490" y="230.5" text-anchor="middle" fill="var(--ink)">RGB = ビュー空間の法線</text><text x="490" y="247.5" text-anchor="middle" fill="var(--ink)">A = カメラからの距離</text><rect x="340" y="294" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="314.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.EndGeometry()</text><text x="490" y="331.5" text-anchor="middle" fill="var(--ink)">借りた GL の状態を返す</text><rect x="340" y="378" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="407" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.Compute(camera, w, h)</text><rect x="20" y="378" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="398.5" text-anchor="middle" fill="var(--ink)">4x4 のノイズ</text><text x="170" y="415.5" text-anchor="middle" fill="var(--ink)">Repeat + Nearest</text><rect x="680" y="378" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="398.5" text-anchor="middle" fill="var(--ink)">カーネル 64本</text><text x="830" y="415.5" text-anchor="middle" fill="var(--ink)">接空間の半球</text><rect x="340" y="462" width="300" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="482.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ssao.frag(フルスクリーン1枚)</text><rect x="340" y="529" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="549.5" text-anchor="middle" fill="var(--ink)">遮蔽バッファ R8</text><text x="490" y="566.5" text-anchor="middle" fill="var(--ink)">1 = 遮られていない</text><rect x="340" y="613" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="633.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BlurEnabled ?</text><rect x="20" y="680" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="700.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ssao-blur.frag</text><text x="170" y="717.5" text-anchor="middle" fill="var(--ink)">4x4 の単純平均</text><rect x="680" y="680" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="700.5" text-anchor="middle" fill="var(--ink)">生の遮蔽バッファ</text><text x="830" y="717.5" text-anchor="middle" fill="var(--ink)">タイルの格子が見える</text><rect x="20" y="764" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="784.5" text-anchor="middle" fill="var(--ink)">ぼかした遮蔽バッファ R8</text><text font-weight="700" x="170" y="801.5" text-anchor="middle" fill="var(--ink)">本描画が読むのはこちら</text><rect x="340" y="848" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="868.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ssao.Apply(shader, unit=10)</text><text x="490" y="885.5" text-anchor="middle" fill="var(--ink)">uAoMap / uScreenSize / uSsaoEnabled</text><rect x="340" y="932" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="952.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag</text><text x="490" y="969.5" text-anchor="middle" fill="var(--ink)">環境光に掛ける</text><path d="M490 75 L490 107" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 159 L490 191" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 260 L490 292" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 344 L490 376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 428 L490 460" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path stroke-dasharray="5 4" d="M340 226.5 L318 226.5 L318 448 L410 448 L410 460" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="312" y="266.5" fill="var(--muted)" font-size="12" text-anchor="end">自分の画素を読む</text><path stroke-dasharray="5 4" d="M640 226.5 L662 226.5 L662 448 L570 448 L570 460" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="668" y="266.5" fill="var(--muted)" font-size="12">標本の先を読む</text><path stroke-dasharray="5 4" d="M170 428 L170 478.5 L338 478.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path stroke-dasharray="5 4" d="M830 428 L830 478.5 L642 478.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 495 L490 527" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 579 L490 611" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M356 646 L356 660 L170 660 L170 678" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="176" y="674" fill="var(--muted)" font-size="12">Yes</text><path d="M624 646 L624 660 L830 660 L830 678" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="836" y="674" fill="var(--muted)" font-size="12">No</text><path d="M170 730 L170 762" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 814 L170 873 L338 873" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M830 730 L830 873 L642 873" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 898 L490 930" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>幾何バッファから出ている点線が2本ある</strong>のが、この図でいちばん見てほしいところ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どちらの読み</th><th>何を答える</th></tr></thead>
+<tbody>
+<tr><td>自分の画素</td><td>この点はどこにあり、どちらを向いているか</td></tr>
+<tr><td>標本の先の画素</td><td><strong>その方向に何か写っているか</strong></td></tr>
+</tbody>
+</table></div>
+<p>2本目が SSAO の全部で、当たり判定の代わりをしている。だから<strong>画面に写っていないものは絶対に遮蔽しない</strong>——画面の外の柱も、手前の物の裏側も、深度バッファには存在しない。</p>
+<p><strong>なぜ遮蔽バッファが2枚あるか</strong>は <code>PostProcess</code> のぼかしと同じ理由で、<strong>同じテクスチャを読みながら同じテクスチャに書けない</strong>から(GPU は読み書きの順序を保証しない)。あちらは4往復するので ping-pong だったが、こちらは1回で済むので<code>_occlusion</code> → <code>_blurred</code> の一方通行になっている。</p>
+<p><strong>ぼかしを切ると <code>Result</code> が <code>_occlusion</code> を指す</strong>。バッファを2枚持ったまま片方を使わない形にしてあるのは、切り替えのたびに確保し直すより、2MB(R8 なら)を持ち続けるほうが安いため。</p>
+<p>パスの数と代償(960x640、標本 32 本、RTX 3070)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>何回</th><th>実測</th></tr></thead>
+<tbody>
+<tr><td>幾何パス</td><td>描くものの数だけ(デモは 7 回)</td><td>—</td></tr>
+<tr><td>遮蔽の計算</td><td>フルスクリーン1枚</td><td>—</td></tr>
+<tr><td>ぼかし</td><td>フルスクリーン1枚</td><td>—</td></tr>
+<tr><td><strong>合計</strong></td><td></td><td><strong>0.29〜0.38ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>VRAM は 960x640 で 7.6MB。内訳は<strong>幾何 6.4MB</strong>(色 RGBA16F で 4.7MB +深度レンダーバッファ 1.8MB)と<strong>遮蔽 0.6MB x2</strong>。</p>
+<p><strong>幾何バッファが 85% を占める</strong>ので、<code>Ctrl+F6</code> で遮蔽を半分にしても6.7MB にしか減らない——ここが「AO だけ半解像度」の限界で、本当に節約したいなら G バッファを本描画と共有する(Day 52)ことになる。</p>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<p><code>dotnet run --project reference/Day37 -c Release</code> で起動する。HUD に <code>SSAO:32本  半径:1.00m  下駄:0.025  強さ:1.0  ぼかしON  960x640  幾何:N回  パス:2  0.29ms  7.6MB</code>の行が増えていること。</p>
+<h3 id="s18">1. <code>Ctrl+F9</code>: SSAO が効く構図</h3>
+<p><strong>今日の到達点はこの1枚</strong>。立方体の根元に寄った構図が出る。スプライトの群れは消える(<code>PageUp</code> で戻る)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>見るところ</th><th>期待</th></tr></thead>
+<tbody>
+<tr><td><strong>立方体の根元</strong></td><td>床側に暗がりの帯。<strong>幅は半径 1m ぶん</strong>で、外へ行くほど薄れる</td></tr>
+<tr><td>立方体の下側の面</td><td>床からの照り返しが減るぶん、上側より暗い</td></tr>
+<tr><td>左奥の立方体</td><td>同じ帯が出る。<strong>距離によらず効く</strong>(スクリーンスペースなので)</td></tr>
+<tr><td>開けた床</td><td>何も起きない。遮るものが無いので AO = 1.0</td></tr>
+</tbody>
+</table></div>
+<p><code>Ctrl+F1</code> で切ると、<strong>立方体が床から浮いて見える</strong>のが分かる。Day 36 までの絵がそれだった、というのが今日の主張。</p>
+<h3 id="s19">2. <code>Ctrl+F2</code>: 遮蔽率を全画面に出す</h3>
+<p><strong>今日いちばん使う窓</strong>。1回押すと遮蔽率、2回でビュー法線、3回で距離。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>遮蔽率</td><td>白が「遮られていない」。<strong>立方体の根元と、面と面の内角が灰色になる</strong></td></tr>
+<tr><td>ビュー法線</td><td>面ごとに一様な色。<strong>カメラを回すと色が変わるのが正しい</strong>(ビュー空間なので)</td></tr>
+<tr><td>距離</td><td>近いほど白い。<strong>線形なので手前から奥へ素直に暗くなる</strong>(深度バッファの絵と違う)</td></tr>
+</tbody>
+</table></div>
+<p>ビュー法線の表示で色が変わらないなら <code>uNormalMatrix</code> が効いていない。距離が真っ白か真っ黒なら、<code>vViewDepth</code> の符号を疑う。</p>
+<h3 id="s20">3. <code>Ctrl+F5</code>: ぼかしを切る</h3>
+<p><strong>4x4 の格子模様がはっきり出る</strong>のが正解。標本が 32 本しか無いことによるノイズが、ノイズテクスチャのタイルの形で残っている。</p>
+<p><code>Ctrl+F4</code> で標本数を 8 まで落とすと、格子がさらに粗くなる。<strong>ノイズを消しているのは標本数ではなくぼかし</strong>であることが、この2つの組み合わせで分かる。</p>
+<p>自己チェックの実測(ノイズのタイル1枚の中のばらつき)。</p>
+<div class="code"><pre><code>  ぼかし前 0.0847 → ぼかし後 0.0367     16 本
+  8本 0.0815 → 64本 0.0505              ぼかし無し</code></pre></div>
+<h3 id="s21">4. <code>Ctrl+F8</code>: 下駄を 0 にする</h3>
+<p><strong>平らな床一面にうっすら砂が乗る</strong>のが正解。自分自身を遮蔽物と数えてしまっている——Day 33 のシャドウアクネと同じ理屈。</p>
+<p><strong>平均値はほとんど動かない</strong>(1.000 のまま)ので、絵を見るときも「暗くなった」ではなく「ざらついた」を探すこと。自己チェックはタイルの中のばらつきで測っている(下駄なし 0.0221 / 下駄あり 0.0000)。</p>
+<h3 id="s22">5. <code>Ctrl+F3</code>: 半径を動かす</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>半径</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>0.25m</td><td>接地の線が細い。<strong>ほとんど効いていないように見える</strong></td></tr>
+<tr><td>0.5m</td><td>線がやや太る</td></tr>
+<tr><td>1.0m(既定)</td><td>立方体の縮尺に合う。根元に帯が出る</td></tr>
+<tr><td>2.0m</td><td>広く暗くなるが、<strong>離れた床まで暗がりが伸びる</strong>(遠くの物を遮蔽物と数え始める)</td></tr>
+</tbody>
+</table></div>
+<p><strong>半径だけが物理的な長さを持つつまみ</strong>なので、シーンの縮尺を変えたら必ず見直すことになる(要点6)。</p>
+<h3 id="s23">6. <code>Ctrl+F11</code>: AO を直接光にも掛ける</h3>
+<p><strong>日向の壁際まで暗くなり、絵全体が薄汚れる</strong>のが正解。これは誤用。HUD に <code>[直接光にも適用=誤用]</code> が出る。</p>
+<p>AO は環境光にだけ掛かるもので、太陽が遮られていることは影(Day 33)が別に扱っている(要点7)。</p>
+<h3 id="s24">7. <code>Ctrl+F6</code>: 半解像度</h3>
+<p>遮蔽バッファが 480x320 になる。画素数は 1/4。</p>
+<p><strong>VRAM はあまり減らない</strong>(7.6MB → 6.7MB)のが見どころで、幾何バッファ(RGBA16F + 深度)が大半を占めているため。絵のほうは、輪郭のあたりで AO がにじむ。</p>
+<h3 id="s25">8. <code>Ctrl+F10</code>: 自己チェック</h3>
+<p>13 項目すべて <code>[OK]</code> になること。落ちたときにどこを疑うかは、項目名がそのまま指している。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>落ちた項目</th><th>疑うところ</th></tr></thead>
+<tbody>
+<tr><td>標本が全部 z &gt;= 0</td><td><code>BuildKernel</code> の z を <code>-1〜1</code> にしていないか</td></tr>
+<tr><td>焼いた距離が一致</td><td><code>geometry.vert</code> の <code>vViewDepth</code> の符号、<code>uModelView</code> の掛ける順</td></tr>
+<tr><td>焼いた法線が一致</td><td><code>NormalMatrix</code> にビュー行列を入れ忘れていないか</td></tr>
+<tr><td>空は遮られない</td><td><code>ssao.frag</code> の <code>depth &lt;= 0.0</code> の枝</td></tr>
+<tr><td>接地部は暗い</td><td>比較の向き(<code>sampledZ &gt;= samplePos.z + bias</code>)</td></tr>
+<tr><td>ぼかしがばらつきを消す</td><td><code>uTexelSize</code> が遮蔽バッファの大きさになっているか</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+F9</code>・<code>Ctrl+F1</code>・<code>Ctrl+F2</code></td><td>「SSAO を1枚焼く」の表示と ON / OFF</td><td>立方体の根元に暗がりの帯。OFF で立方体が床から浮く。遮蔽率は白が「遮られていない」、距離は線形で手前ほど白い</td></tr>
+<tr><td><code>Ctrl+F3</code>・<code>Ctrl+F4</code>・<code>Ctrl+F5</code>・<code>Ctrl+F7</code>・<code>Ctrl+F8</code></td><td>同じ実験台の半径・標本数・ぼかし・強さ・下駄</td><td>ぼかしを切ると 4x4 の格子。標本を減らすと荒れる。下駄 0 で平らな床のばらつきが増える。半径 2m で離れた床まで暗がりが伸びる</td></tr>
+<tr><td><code>Ctrl+F11</code></td><td>「直接光にも(誤用)」</td><td>日向の壁際まで暗くなり、絵全体が薄汚れる</td></tr>
+<tr><td><code>Ctrl+F10</code>(カーネルの3項目)</td><td>同じ実験台(カーネルは同じ乱数で作る)</td><td>全部 z ≥ 0、単位球の中、前半 0.103 / 後半 0.314</td></tr>
+<tr><td><code>Ctrl+F6</code>・<code>Ctrl+F10</code>(残りの項目)</td><td>(なし)</td><td>焼いたバッファの読み返しと時間は GPU が要るので、このページでは測らない</td></tr>
+<tr><td>(キーなし)</td><td>球でばらまく(Crytek)</td><td>reference に無い比較。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day37 の Render/Ssao.cs(BuildKernel・CreateNoiseTexture)・shaders/ssao.frag・shaders/ssao-blur.frag の式を JS に移したもの。カーネルは同じ乱数の種から作り、自己チェックの「前半 0.103 / 後半 0.314」と一致することを確かめた。中間バッファの大きさ(960x640 で幾何 4.7MB + 深度 1.8MB、遮蔽 0.6MB x2、合計 7.6MB / 半解像度で 6.7MB)は、Framebuffer.ByteSize の数え方(RGBA16F 8 バイト・R8 1 バイト・深度 3 バイト)で計算し直して一致した。差分の行数は git diff --no-index --numstat と wc -l で数え直した(新規 1,045 行・変更ファイルへの追加 966 行で、合っている)。自己チェックの焼いた値(距離 6.336・接地 0.675・ばらつき 0.0221 / 0.0847 など)と時間は GPU と実機の構図が要るので、このページでは測り直していない(このページの数字は構図と解像度が違うので、同じ値にはならない)。</p></div>
+</section>
+<section class="part"><h2 id="s26">改造課題</h2>
+<h3 id="s27">課題1(易): 遮蔽率を画面に出さずに数字で確かめる</h3>
+<p><code>Ctrl+F2</code> の全画面表示は便利だが、<strong>「この点はいくつか」には答えてくれない</strong>。</p>
+<p>マウスカーソルの下の画素の遮蔽率を読み返して HUD に出せ。<code>RunSsaoCheck</code> の <code>ReadOcclusion</code> がそのまま使える(<code>_input.Mice[0].Position</code> が窓の左上原点なので、<strong>Y を反転する</strong>必要がある)。</p>
+<p><strong>毎フレーム <code>glReadPixels</code> を呼ぶと GPU の同期待ちが入る</strong>ので、fps がどれだけ落ちるかも一緒に見ておくとよい——これが「デバッグ表示は画面に出すのが安い」理由になっている。</p>
+<h3 id="s28">課題2(中): 半径をワールドではなくスクリーンで頭打ちにする</h3>
+<p>いまの実装は半径をワールド単位で持っているので、<strong>カメラが遠ざかると、探る範囲が画面上で数画素まで縮む</strong>。すると標本が全部同じテクセルを読み、遮蔽が出なくなる。</p>
+<p><code>ssao.frag</code> で、投影後の半径が一定の画素数を下回らないように制限せよ。ヒント: ビュー空間の半径 <code>r</code> は、画面上ではおよそ<code>r * (画面の高さ/2) / (tan(fov/2) * depth)</code> 画素になる。</p>
+<p>逆に<strong>近づきすぎると画面の半分を探る</strong>ことになって重くなるので、上限も要る。実際のエンジンはどちらも入れている。</p>
+<h3 id="s29">課題3(難): ぼかしを深度でエッジを守る形にする</h3>
+<p>いまの <code>ssao-blur.frag</code> は 4x4 の単純平均なので、<strong>手前の物と奥の壁の境目でも混ぜてしまう</strong>。柱の輪郭のまわりで AO がにじみ、輪郭が二重に見える。</p>
+<p>幾何バッファの距離も一緒に読み、中心との深度差が大きい画素の重みを落とせ(バイラテラルフィルタ)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>  float w = exp(-abs(centerDepth - sampleDepth) / uDepthSigma);</code></pre></div>
+<p><strong>テクスチャの読み込みが 16 回増える</strong>ので、Ctrl+F10 の計測でコストがどれだけ上がるかを必ず測ること。値打ちに対して割に合うかを自分で判断するのが、この課題の主題。</p>
+<p>さらに進めるなら、<strong>法線の差でも重みを落とす</strong>と内角のにじみが止まる。そこまで行くと HBAO(事前に読む資料の最後)の入口に立っている。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070</li><li>960x640(既定)、Release ビルド</li><li>Silk.NET 2.23.0</li></ul>
+<h3 id="s31">自己チェック(13 項目すべて合格)</h3>
+<div class="code"><pre><code>[SSAO の自己チェック]
+  [OK] <strong>標本が全部 z &gt;= 0(半球)</strong>  ※球にすると平らな面まで 0.5 になる  64 本
+  [OK] 標本が単位球の中にある
+  [OK] 標本が中心寄りに密(前半の平均長 &lt; 後半の平均長)  前半 0.103 / 後半 0.314
+  [OK] <strong>焼いた距離が CPU の計算と一致</strong>  焼いた 6.336 / 期待 6.344(誤差 0.1%)
+  [OK] <strong>焼いた法線がビュー空間の床の法線と一致</strong>  内積 1.0000
+  [OK] <strong>空は遮られない</strong>(距離 0 を素通りしている)  実際 1.000
+  [OK] 開けた床はほぼ遮られない  実際 1.000
+  [OK] <strong>立方体の接地部は暗い</strong>  接地 0.675 / 開けた床 1.000
+  [OK] 半径 0 なら遮蔽ゼロ  実際 1.000
+  [OK] <strong>下駄 0 では平らな床に自己遮蔽が出る</strong>  下駄なし 0.0221 / 下駄あり 0.0000
+  [OK] 標本を増やすとノイズが減る  8本 0.0815 → 64本 0.0505
+  [OK] <strong>ぼかしがタイルの中のばらつきを消す</strong>  ぼかし前 0.0847 → ぼかし後 0.0367
+  [OK] 半解像度にすると遮蔽バッファが小さくなる  7.6MB ⇔ 6.7MB
+  すべて合格</code></pre></div>
+<h3 id="s32">幾何パス + 遮蔽の計算にかかる時間</h3>
+<p>床1枚 + 立方体1個を描いて 200 回まわした平均(<code>glFinish</code> 込み)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>遮蔽バッファ</th><th>8本</th><th>16本</th><th>32本</th><th>64本</th></tr></thead>
+<tbody>
+<tr><td>960x640(原寸)</td><td>0.173ms</td><td>0.248ms</td><td>0.375ms</td><td>0.383ms</td></tr>
+<tr><td>480x320(半分)</td><td>0.101ms</td><td>0.091ms</td><td>0.097ms</td><td>0.166ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>原寸の 8本と 16本の差(0.075ms)より、半解像度にしたときの差のほうが大きい</strong>。標本数はループの回数なので素直に効きそうに見えるが、実際に効いているのは<strong>テクスチャの読み込み回数 × 画素数</strong>で、32本と 64本がほとんど変わらないのは、この規模では帯域ではなく幾何パスと固定費のほうが支配的になっているため。</p>
+<p><strong>大きい画面ほど標本数が効いてくる</strong>ので、1920x1080 で測ると傾きが変わる。「自分の環境で測る」が結論になるのは Day 31 から変わらない。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong>1. カーネルを先頭から取ると、いちばん短い標本だけになる</strong></p>
+<p><code>BuildKernel</code> は「中心寄りに密」にするため、標本を<strong>短いものから長いものの順</strong>に作っている。そこへ「標本数を減らすときは先頭から N 本」と素直に書くと、<strong>8本にした瞬間に手元 5cm しか探らなくなる</strong>。</p>
+<p>最初はそれで、標本数を 8 に落とすと AO が全部 1.000 になった。半径を上げても何も起きないので、しばらく <code>uRadius</code> の送り忘れを疑っていた。</p>
+<p>直し方は間引いて読むこと(<code>uSampleStride = 64 / uSampleCount</code>)。<strong>「配列の順序に意味がある」ことを、使う側が知っている必要がある</strong>——順序に意味を持たせた時点で、部分集合の取り方も設計の一部になる。</p>
+<p><strong>2. 平らな面の自己遮蔽は、平均値では捕まえられない</strong></p>
+<p>下駄(<code>uBias</code>)を 0 にしたときの不具合を確かめようとして、最初は「開けた床の AO が下がるはず」と考えた。<strong>下がらなかった</strong>(1.000 のまま)。</p>
+<p>理屈のうえでも下がらない。完全に平らな面では、半球の標本は必ず面より手前にあるので、下駄が無くても遮蔽と判定されない。実際に出るのは<strong>深度の量子化と長さがほぼ 0 の標本による、当たり外れのばらつき</strong>——つまり平均ではなく分散に出る。</p>
+<p>そこで自己チェックの物差しを<strong>ノイズのタイル1枚の中の標準偏差</strong>に変えた(<code>TileNoise</code>)。4x4 の中では幾何がほぼ同じで乱数の向きだけが違うので、本物の濃淡が混ざらない。下駄なし 0.0221 / 下駄あり 0.0000 と、はっきり出る。</p>
+<p><strong>「何を測れば違いが出るか」を先に決める</strong>のが、この種の確認では半分を占める。</p>
+<p><strong>3. 確認用の点をカメラの後ろに置いていた</strong></p>
+<p>自己チェックで「開けた床」の点を <code>(4.5, -0.5, 3.5)</code> に取ったところ、焼いた距離が <strong>-0.239</strong>(負)になった。カメラの後ろだった。</p>
+<p>透視除算は <code>w</code> が負でも計算できてしまうので、<strong>符号が反転した座標が返り、画面の反対側の画素を読む</strong>。エラーにならず、それらしい数字が返るのがたちが悪い。</p>
+<p><code>WorldToPixel</code> に「カメラの前にあるか」の確認を入れる手もあるが、自己チェックが「焼いた距離が CPU の計算と一致」を見ているので、<strong>そこで必ず落ちる</strong>——チェックが1つあれば、点の取り違えもまとめて捕まる。</p>
+<p><strong>4. スプライトの群れが 3D の上に乗ったままだった(Day 34〜36 の不備)</strong></p>
+<p><code>Ctrl+F9</code> の構図を確認しようとしたら、<strong>1000 枚のスプライトが全面を覆っていた</strong>。</p>
+<p>調べると、<code>OnRender</code> は「モデル表示中」と「ゲーム中」しかスプライトを飛ばしていなかった。材質グリッド(Ctrl+Shift+5)と材質テストの板(Alt+5)を選ぶ分岐は<strong><code>Render3D()</code> の中</strong>にあって、<code>OnRender</code> からは見えていない——だから両方とも「ふつうのデモ」の枝に落ち、スプライトの群れとロードの帯が上に重なる。</p>
+<p><strong>Day 34〜36 の計画書の「1フレームの流れ」は、正しいほうの絵を描いていた</strong> (<code>RG --&gt; TX</code> と <code>RS2 --&gt; TX</code> でスプライトを飛ばしている)。図を実装から起こさずに意図から描くと、<strong>コードより先に図が嘘になる</strong>——Day 36 の設計書で <code>Core</code> ⇔ <code>Render</code> について書いたのと同じことが、ここでも起きていた。</p>
+<p>症状は3つあった。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>グリッドと板の上にスプライトが重なり、<strong>材質も凹凸も読めない</strong></td></tr>
+<tr><td>2</td><td>HUD の <code>DC</code> がグリッドの 49 ではなく<strong>スプライトのバッチ数</strong>になる(後から上書きされる)</td></tr>
+<tr><td>3</td><td><code>G</code>(3D 背景)を切ると、<strong>グリッドや板まで消える</strong>(<code>if (_draw3D)</code> の内側なので)</td></tr>
+</tbody>
+</table></div>
+<p>直し方は、モデルの枝とまったく同じ扱いにすること。<code>OnRender</code> に枝を1本足し、Day 34(板)で導入して Day 35(グリッド)で条件を広げた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>else if (_materialGrid || _surfaceDemo)
+{
+    Render3D();
+    RenderText();
+}</code></pre></div>
+<p>これで計画書の図とコードが一致し、3つの症状が同時に消える。<strong>Day 34・35・36 の reference にも同じ修正を入れてある</strong> (Day 36 の <code>Ctrl+Alt+9</code> は、これでようやく計画書どおりの1枚が出る)。</p>
+<p>今日の <code>Ctrl+F9</code> はそれでも <code>SetSpriteCount(0)</code> を呼んでいる。こちらの見どころは<strong>ふつうのデモの立方体と床</strong>——専用の表示モードではないので、上の枝には落ちないため。<code>PageUp</code> で戻せる。</p>
+</section>
+<footer class="end">Day 37 SSAO(スクリーンスペース環境遮蔽) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day37 の Render/Ssao.cs(BuildKernel・CreateNoiseTexture)と shaders/ssao.frag を JS に移したもの
+const SS = (() => {
+const f = Math.fround;
+// .NET の Random(seed)。NextSingle は Sample() を float に丸めたもの
+class NetRandom {
+  constructor(seed) {
+    const MBIG = 2147483647, MSEED = 161803398;
+    this.s = new Int32Array(56);
+    let mj = MSEED - Math.abs(seed); this.s[55] = mj;
+    let mk = 1, ii = 0;
+    for (let i = 1; i < 55; i++) { ii += 21; if (ii >= 55) ii -= 55; this.s[ii] = mk; mk = mj - mk; if (mk < 0) mk += MBIG; mj = this.s[ii]; }
+    for (let k = 1; k < 5; k++) for (let i = 1; i < 56; i++) { let n = i + 30; if (n >= 55) n -= 55; this.s[i] -= this.s[1 + n]; if (this.s[i] < 0) this.s[i] += MBIG; }
+    this.inext = 0; this.inextp = 21;
+  }
+  sample() {
+    let a = this.inext + 1; if (a >= 56) a = 1; let b = this.inextp + 1; if (b >= 56) b = 1;
+    let r = this.s[a] - this.s[b]; if (r === 2147483647) r--; if (r < 0) r += 2147483647;
+    this.s[a] = r; this.inext = a; this.inextp = b; return r * (1.0 / 2147483647);
+  }
+  nextSingle() { return f(this.sample()); }
+}
+const MAX = 64;
+function buildKernel(seed = 20370101) {
+  const rnd = new NetRandom(seed), k = [];
+  for (let i = 0; i < MAX; i++) {
+    let s = [f(f(rnd.nextSingle() * 2) - 1), f(f(rnd.nextSingle() * 2) - 1), rnd.nextSingle()];
+    const len = f(Math.sqrt(f(f(f(s[0] * s[0]) + f(s[1] * s[1])) + f(s[2] * s[2]))));
+    const r = rnd.nextSingle();
+    s = s.map((v) => f(f(v / len) * r));
+    const sc = f(i / MAX), m = f(0.1 + f(f(0.9 * sc) * sc));
+    k.push(s.map((v) => f(v * m)));
+  }
+  return { kernel: k, rnd };
+}
+return { NetRandom, buildKernel, MAX };
+})();
+
+(() => {
+'use strict';
+const { $, seg, stat } = Lab;
+const segV = (id) => $(id).querySelector('[aria-pressed="true"]').dataset.v;
+const W = 240, H = 160;
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+// カーネルとノイズ(Ssao のコンストラクタと同じ順に、同じ乱数から作る)
+const { kernel, rnd } = SS.buildKernel(20370101);
+const noise = []; for (let i = 0; i < 16; i++) noise.push([rnd.nextSingle() * 2 - 1, rnd.nextSingle() * 2 - 1, 0]);
+
+// カメラ(OrbitCameraController.Apply と Ctrl+F9 の値)
+const yaw = 0.9, pitch = 0.10, target = [0, -0.35, 0], dist = 4, fov = Math.PI / 3, aspect = 960 / 640;
+const eye = [target[0] + dist * Math.cos(pitch) * Math.sin(yaw), target[1] + dist * Math.sin(pitch), target[2] + dist * Math.cos(pitch) * Math.cos(yaw)];
+const fwd = norm(sub(target, eye)), right = norm(cross(fwd, [0, 1, 0])), up = cross(right, fwd);
+const th = Math.tan(fov / 2), projScale = [th * aspect, th];
+// シーン: 床(y = −0.5)と立方体6個(Program.Cubes。回していない形)
+const CUBES = [[[0, 0.25, 0], 1.5], [[3, 0, 3], 1], [[3, 1, 3], 1], [[-3, 0, 3], 1], [[3, 0, -3], 1], [[-3, 0, -3], 1]];
+function trace(o, d) {
+  let best = Infinity, n = null, isFloor = false;
+  if (d[1] < 0) { const t = (-0.5 - o[1]) / d[1]; const p = [o[0] + d[0] * t, o[2] + d[2] * t]; if (t > 0 && Math.abs(p[0]) < 10 && Math.abs(p[1]) < 10) { best = t; n = [0, 1, 0]; isFloor = true; } }
+  for (const [c, s] of CUBES) {
+    const h = s / 2; let t0 = -Infinity, t1 = Infinity, ax = -1, sg = 0;
+    for (let k = 0; k < 3; k++) {
+      const lo = (c[k] - h - o[k]) / d[k], hi = (c[k] + h - o[k]) / d[k], a = Math.min(lo, hi), b = Math.max(lo, hi);
+      if (a > t0) { t0 = a; ax = k; sg = d[k] > 0 ? -1 : 1; } t1 = Math.min(t1, b);
+    }
+    if (t0 < t1 && t0 > 0 && t0 < best) { best = t0; n = [0, 0, 0]; n[ax] = sg; isFloor = false; }
+  }
+  return best === Infinity ? null : { t: best, n, isFloor, p: [o[0] + d[0] * best, o[1] + d[1] * best, o[2] + d[2] * best] };
+}
+// 幾何バッファ(ビュー空間の法線と距離)。行は下から(GL のテクスチャと同じ)
+const G = new Float32Array(W * H * 4), WORLD = [];
+for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  const ndc = [((x + 0.5) / W) * 2 - 1, ((y + 0.5) / H) * 2 - 1];
+  const d = norm([0, 1, 2].map((c) => fwd[c] + right[c] * ndc[0] * projScale[0] + up[c] * ndc[1] * projScale[1]));
+  const hit = trace(eye, d), i = y * W + x;
+  if (!hit) { WORLD[i] = null; continue; }
+  const vn = [dot(hit.n, right), dot(hit.n, up), -dot(hit.n, fwd)], depth = dot(sub(hit.p, eye), fwd);
+  G[i * 4] = vn[0]; G[i * 4 + 1] = vn[1]; G[i * 4 + 2] = vn[2]; G[i * 4 + 3] = depth;
+  WORLD[i] = hit;
+}
+const fetchDepth = (u, v) => { const x = Math.min(W - 1, Math.max(0, Math.floor(u * W))), y = Math.min(H - 1, Math.max(0, Math.floor(v * H))); return G[(y * W + x) * 4 + 3]; };
+// ssao.frag
+function computeAo(o) {
+  const out = new Float32Array(W * H), stride = 64 / o.samples;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, depth = G[i * 4 + 3];
+    if (depth <= 0) { out[i] = 1; continue; }
+    const ndc = [((x + 0.5) / W) * 2 - 1, ((y + 0.5) / H) * 2 - 1];
+    const P = [ndc[0] * projScale[0] * depth, ndc[1] * projScale[1] * depth, -depth];
+    const N = norm([G[i * 4], G[i * 4 + 1], G[i * 4 + 2]]), rv = noise[(y % 4) * 4 + (x % 4)];
+    const T = norm(sub(rv, N.map((c) => c * dot(rv, N)))), B = cross(N, T);
+    let occ = 0;
+    for (let s = 0; s < o.samples; s++) {
+      let k = kernel[s * stride];
+      if (o.sphere) k = [k[0], k[1], (s % 2 === 0 ? 1 : -1) * k[2]]; // 球でばらまく(半分を裏へ)
+      const sp = [0, 1, 2].map((c) => P[c] + (T[c] * k[0] + B[c] * k[1] + N[c] * k[2]) * o.radius);
+      if (sp[2] >= -0.1) continue;
+      const u = (sp[0] / (-sp[2] * projScale[0])) * 0.5 + 0.5, v = (sp[1] / (-sp[2] * projScale[1])) * 0.5 + 0.5;
+      if (u < 0 || u > 1 || v < 0 || v > 1) continue;
+      const sd = fetchDepth(u, v); if (sd <= 0) continue;
+      const sz = -sd, occluded = sz >= sp[2] + o.bias ? 1 : 0;
+      const t = Math.min(1, Math.max(0, o.radius / Math.max(Math.abs(P[2] - sz), 1e-4))), range = t * t * (3 - 2 * t);
+      occ += occluded * range;
+    }
+    const amb = 1 - (occ / o.samples) * o.strength;
+    out[i] = Math.pow(Math.min(1, Math.max(0, amb)), 1.6);
+  }
+  return out;
+}
+function blur(a) {
+  const out = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let s = 0; for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) { const xx = Math.min(W - 1, Math.max(0, x + i - 2)), yy = Math.min(H - 1, Math.max(0, y + j - 2)); s += a[yy * W + xx]; }
+    out[y * W + x] = s / 16;
+  }
+  return out;
+}
+// 4x4 のタイルの中のばらつき(自己チェックの TileNoise と同じ考え方)を、開けた床で平均する
+function tileNoise(a) {
+  let sum = 0, cnt = 0;
+  for (let ty = 0; ty < H / 4; ty++) for (let tx = 0; tx < W / 4; tx++) {
+    let ok = true, m = 0; const vs = [];
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) { const k = (ty * 4 + j) * W + tx * 4 + i, h = WORLD[k]; if (!h || !h.isFloor || Math.hypot(h.p[0], h.p[2]) < 2.2) ok = false; vs.push(a[k]); }
+    if (!ok) continue; m = vs.reduce((p, q) => p + q, 0) / 16; sum += Math.sqrt(vs.reduce((p, q) => p + (q - m) * (q - m), 0) / 16); cnt++;
+  }
+  return cnt ? sum / cnt : 0;
+}
+const SUN = norm([0.53, 0.72, -0.45]);
+function redraw() {
+  const o = { radius: Number(segV('ao-radius')), samples: Number(segV('ao-samples')), strength: Number(segV('ao-strength')), bias: Number(segV('ao-bias')), sphere: segV('ao-misuse') === 'sphere' };
+  const on = segV('ao-on') === '1', view = segV('ao-view'), blurOn = segV('ao-blur') === '1', misuse = segV('ao-misuse') === 'direct';
+  const raw = computeAo(o), ao = blurOn ? blur(raw) : raw;
+  const ctx = $('ao-canvas').getContext('2d'), img = ctx.createImageData(W, H);
+  let near = 0, nc = 0, open = 0, oc = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, d = ((H - 1 - y) * W + x) * 4, h = WORLD[i];
+    let c;
+    if (!h) c = [0.55, 0.65, 0.8];
+    else {
+      const a = on ? ao[i] : 1;
+      if (h.isFloor) { const r = Math.hypot(h.p[0], h.p[2]); if (r > 0.8 && r < 1.2) { near += ao[i]; nc++; } else if (r > 2.2 && r < 4) { open += ao[i]; oc++; } }
+      if (view === 'ao') c = [a, a, a];
+      else if (view === 'normal') c = [G[i * 4] * 0.5 + 0.5, G[i * 4 + 1] * 0.5 + 0.5, G[i * 4 + 2] * 0.5 + 0.5];
+      else if (view === 'depth') { const v = Math.max(0, 1 - G[i * 4 + 3] / 12); c = [v, v, v]; }
+      else {
+        const base = h.isFloor ? [0.45, 0.5, 0.6] : [0.75, 0.72, 0.68], lam = Math.max(0, dot(h.n, SUN));
+        c = base.map((b) => b * (lam * 1.1 * (misuse ? a : 1) + 0.35 * a));
+      }
+    }
+    for (let k = 0; k < 3; k++) img.data[d + k] = Math.round(255 * Math.pow(Math.min(1, Math.max(0, c[k])), view === 'lit' ? 1 / 2.2 : 1));
+    img.data[d + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  $('ao-stats').innerHTML = stat('根元の床(中心から 0.8〜1.2m)', nc ? (near / nc).toFixed(3) : '—', '<small> (遮蔽率の平均)</small>') + stat('開けた床(2.2〜4m)', oc ? (open / oc).toFixed(3) : '—') +
+    stat('タイルの中のばらつき', tileNoise(ao).toFixed(4), `<small> (${blurOn ? 'ぼかし後' : 'ぼかし前'}。開けた床)</small>`);
+  const notes = [];
+  if (!on) notes.push('SSAO を切ると、立方体の根元に暗がりが無くなり、床から浮いて見える。');
+  if (o.sphere) notes.push('球でばらまくと、半分の標本が面の裏に潜って「遮られている」と出るので、平らな床まで一律に暗くなる(Crytek の初代 SSAO の絵)。');
+  if (!blurOn) notes.push('ぼかしを切ると、4x4 のノイズのタイルの形で格子が見える。標本を減らすほど粗くなる。');
+  if (o.bias === 0) notes.push('下駄 0 では、平らな床でも量子化と長さほぼ 0 の標本で当たり外れが出て、ばらつきが増える(平均はほとんど変わらない)。');
+  if (o.radius >= 2) notes.push('半径 2m では、離れた床まで暗がりが伸びる(遠くの物を遮蔽物と数え始める)。');
+  if (misuse) notes.push('AO を直接光にも掛けると、日の当たる面の隅まで暗くなり、絵全体が薄汚れる。');
+  if (!notes.length) notes.push('立方体の根元の床に暗がりの帯が出る(幅は半径 1m ぶん)。開けた床は遮るものが無いので 1 のまま。距離によらず効く(スクリーンスペースなので)。');
+  $('ao-note').textContent = notes.join(' ');
+}
+for (const id of ['ao-view', 'ao-on', 'ao-radius', 'ao-samples', 'ao-blur', 'ao-strength', 'ao-bias', 'ao-misuse']) seg(id, () => setTimeout(redraw, 10));
+redraw();
+})();
+</script>
+</body>
+</html>

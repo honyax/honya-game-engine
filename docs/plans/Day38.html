@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 38 FXAA と簡易カラーグレーディング</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ジャギーは「1画素につき1回しか色を決めていない」ことの帰結</a></li><li class="l3"><a href="#s5">2. MSAA が後処理と噛み合わない</a></li><li class="l3"><a href="#s6">3. FXAA が見ているのは輝度。それも<strong>ガンマを掛けたあと</strong>の値</a></li><li class="l3"><a href="#s7">4. 混ぜるのは「縁をまたぐ方向」ではなく「縁に沿う方向」</a></li><li class="l3"><a href="#s8">5. FXAA が苦手なもの。だから UI を外に出す</a></li><li class="l3"><a href="#s9">6. グレーディングはトーンマップの<strong>前</strong>。空間と順番が全部</a></li><li class="l3"><a href="#s10">7. ホワイトバランスは RGB ではなく LMS で掛ける</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16"><code>ColorGrade</code> だけ形が違う</a></li><li class="l3"><a href="#s17">出口が2段になった</a></li><li class="l3"><a href="#s18">UI が後処理の外へ出た</a></li><li class="l2"><a href="#s19">完成条件</a></li><li class="l3"><a href="#s20">1. <code>Shift+F12</code>: FXAA が効く構図</a></li><li class="l3"><a href="#s21">2. <code>Shift+F1</code>: FXAA を切る</a></li><li class="l3"><a href="#s22">3. <code>Shift+F2</code>: FXAA の中身を見る</a></li><li class="l3"><a href="#s23">4. <code>Shift+F4</code>: 効きを変える</a></li><li class="l3"><a href="#s24">5. <code>Shift+F5</code>: UI を後処理に通す(Day 37 までの置き方)</a></li><li class="l3"><a href="#s25">6. <code>Shift+F7</code>: 下敷きを回す</a></li><li class="l3"><a href="#s26">7. <code>Shift+F8</code> / <code>Shift+F9</code> / <code>Shift+F10</code>: つまみを1つずつ</a></li><li class="l3"><a href="#s27">8. <code>Ctrl+F12</code>: 自己チェック</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): グレーディングの下敷きを1つ足す</a></li><li class="l3"><a href="#s30">課題2(中): 色温度を RGB の掛け算で実装して見比べる</a></li><li class="l3"><a href="#s31">課題3(難): 縁の形を見てから重みを決める(SMAA の入口)</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s34">FXAA にかかる時間</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 38 / 計画書</p>
+  <h1>FXAA と簡易カラーグレーディング</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ジャギーは「1画素につき1回しか色を決めていない」ことの帰結</a></li><li class="l3"><a href="#s5">2. MSAA が後処理と噛み合わない</a></li><li class="l3"><a href="#s6">3. FXAA が見ているのは輝度。それも<strong>ガンマを掛けたあと</strong>の値</a></li><li class="l3"><a href="#s7">4. 混ぜるのは「縁をまたぐ方向」ではなく「縁に沿う方向」</a></li><li class="l3"><a href="#s8">5. FXAA が苦手なもの。だから UI を外に出す</a></li><li class="l3"><a href="#s9">6. グレーディングはトーンマップの<strong>前</strong>。空間と順番が全部</a></li><li class="l3"><a href="#s10">7. ホワイトバランスは RGB ではなく LMS で掛ける</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16"><code>ColorGrade</code> だけ形が違う</a></li><li class="l3"><a href="#s17">出口が2段になった</a></li><li class="l3"><a href="#s18">UI が後処理の外へ出た</a></li><li class="l2"><a href="#s19">完成条件</a></li><li class="l3"><a href="#s20">1. <code>Shift+F12</code>: FXAA が効く構図</a></li><li class="l3"><a href="#s21">2. <code>Shift+F1</code>: FXAA を切る</a></li><li class="l3"><a href="#s22">3. <code>Shift+F2</code>: FXAA の中身を見る</a></li><li class="l3"><a href="#s23">4. <code>Shift+F4</code>: 効きを変える</a></li><li class="l3"><a href="#s24">5. <code>Shift+F5</code>: UI を後処理に通す(Day 37 までの置き方)</a></li><li class="l3"><a href="#s25">6. <code>Shift+F7</code>: 下敷きを回す</a></li><li class="l3"><a href="#s26">7. <code>Shift+F8</code> / <code>Shift+F9</code> / <code>Shift+F10</code>: つまみを1つずつ</a></li><li class="l3"><a href="#s27">8. <code>Ctrl+F12</code>: 自己チェック</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): グレーディングの下敷きを1つ足す</a></li><li class="l3"><a href="#s30">課題2(中): 色温度を RGB の掛け算で実装して見比べる</a></li><li class="l3"><a href="#s31">課題3(難): 縁の形を見てから重みを決める(SMAA の入口)</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s34">FXAA にかかる時間</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の8日目。<strong>輪郭の階段が消えて、絵に色が付く</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Shift+F12</code> で市松の床が奥まで見える構図が出て、<strong>画面の左半分だけが階段のまま</strong>になる。<code>Shift+F11</code> で比較を切れば、全面が均された絵になる。</p>
+<div class="code"><pre><code>  Shift+F12  FXAA が効く構図。<strong>今日の到達点はこの1枚</strong>(左=加工前 / 右=加工後)
+  Shift+F1   FXAA ON / OFF(OFF で Day 37 に戻る)
+  Shift+F2   輝度 / 縁の検出 / 混合量 を全画面に出す(<strong>今日いちばん使う窓</strong>)
+  Shift+F4   効き(低 / 中 / 高 / 極)
+  Shift+F5   UI を後処理に通すか(<strong>Day 37 までの置き方に戻す</strong>)
+  Shift+F6   カラーグレーディング ON / OFF
+  Shift+F7   下敷き(夕暮れ / 月夜 / 退色 / モノクロ)
+  Shift+F8   コントラスト   Shift+F9   彩度   Shift+F10  色温度
+  Shift+F11  左右比較(FXAA / グレーディング)
+  Ctrl+F12   今日の自己チェック</code></pre></div>
+<p>Day 31〜37 で足してきたのは、どれも<strong>光の計算</strong>だった。HDR、影、法線、PBR、IBL、環境遮蔽——全部「この点はどれだけ明るいか」の話で、足すたびに絵は物理に近づいてきた。</p>
+<p>今日はそこから離れて、<strong>画面に出す最後の2手</strong>を入れる。</p>
+<p>1つ目は <strong>1画素につき1回しか色を決めていないことの帳尻</strong>。三角形の縁が画素の途中を通っても、その画素は「入っている」か「いない」のどちらかに倒れるので、斜めの縁が段々になる(ジャギー)。正攻法は画素の中で何回も色を決めること(MSAA)だが、後処理と噛み合わないので、<strong>もう出来上がった絵を見て均す</strong>ほうを採る。これが FXAA。</p>
+<p>2つ目は <strong>絵作り</strong>。物理的に正しい明るさが出たあと、「どういう絵にしたいか」を決める段が要る。ホワイトバランス・コントラスト・彩度の3つだけでも、同じシーンが夕暮れにも月夜にもなる。<strong>ここから先は物理ではなく好み</strong>で、Day 31 のトーンマッピングと地続きの話になっている。</p>
+<p>併せて、<strong>UI が後処理の外に出る</strong>。Day 31 から HUD の文字はシーンと同じバッファに描かれていたので、露出を上げると文字まで白飛びしていた。FXAA は文字を滲ませるので、今日それを分けないと絵が成立しない——Day 37 の <code>OnRender</code> に「分けるのは Day 38」と書いてあった宿題がこれ。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/FXAA_WhitePaper.pdf">Timothy Lottes, "FXAA" (NVIDIA, 2009)</a> <strong>今日の本命</strong>。FXAA の一次資料。「輝度で段差を見つけ、縁に沿って混ぜる」という骨格と、<strong>なぜガンマ後の値を入力に取るのか</strong>がここに書いてある</li><li><a href="https://github.com/GameTechDev/CMAA2/blob/master/Projects/CMAA2/FXAA/Fxaa3_11.h">FXAA 3.11 のソース</a>製品版の実装。1500 行あるが、読むのは <code>FxaaPixelShader</code> の前半 100 行だけでよい。今日書くのはここを削ぎ落としたもの</li><li><a href="https://www.ea.com/frostbite/news/high-dynamic-range-color-grading-and-display-in-frostbite">Alex Fry, "High Dynamic Range color grading and display in Frostbite" (SIGGRAPH 2017)</a> <strong>グレーディングをどの空間で、どの順番で掛けるか</strong>の決定版。今日「トーンマップの前」に置く理由がここで裏取りできる</li><li><a href="https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/">Krzysztof Narkowicz, "ACES Filmic Tone Mapping Curve"</a> Day 31 で使った曲線の出どころ。今日はその<strong>手前</strong>に処理を挟むので、「何を入れる前提の曲線なのか」をもう一度見ておくとよい</li><li><a href="https://docs.unity3d.com/Packages/com.unity.render-pipelines.high-definition@17.0/manual/White-Balance.html">Unity HDRP の White Balance</a>今日の色温度の実装はこれと同じ形(LMS 空間での von Kries 順応)。<strong>つまみの目盛り(-100〜100)も合わせてある</strong>ので、Unity で触ったことがあれば感覚がそのまま移る</li><li><a href="https://www.iryoku.com/smaa/">Jorge Jimenez et al., "Filmic SMAA" (SIGGRAPH 2016)</a> FXAA の次の世代。<strong>改造課題3の下敷き</strong>で、「縁を検出してから、その形を分類して重みを引く」という発想の違いを見ておくとよい</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. ジャギーは「1画素につき1回しか色を決めていない」ことの帰結</h3>
+<p>Day 14 から使っているラスタライザは、三角形の中に<strong>画素の中心が入っているか</strong>で塗るかどうかを決めている。縁が画素の途中を通っても、その画素は 0 か 1 に倒れる。</p>
+<div class="code"><pre><code>  本当の縁         画素で決めた結果
+  ┌─────────       ┌─────────
+  │ ／             │███
+  │／              │███
+  ／               │██
+ ／│               │█</code></pre></div>
+<p>正しい答えは「その画素の面積のうち何割が三角形に入っているか」で、これを<strong>被覆率</strong>と呼ぶ。被覆率が出せれば階段は消える——斜めの縁に沿って、0 と 1 の間の値がなだらかに並ぶからだ。</p>
+<p>アンチエイリアスの手法は、結局のところ<strong>この被覆率をどう手に入れるか</strong>の違いになる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手法</th><th>被覆率の出し方</th><th>代償</th></tr></thead>
+<tbody>
+<tr><td>SSAA</td><td>4倍の解像度で描いて縮める</td><td><strong>全部が4倍</strong>(描画も帯域もメモリも)</td></tr>
+<tr><td>MSAA</td><td>深度と被覆だけ4点で取り、色は1回</td><td>バッファが4倍。<strong>後処理と噛み合わない</strong>(要点2)</td></tr>
+<tr><td>FXAA</td><td><strong>出来上がった絵から推測する</strong></td><td>フルスクリーン1パス。細い線が滲む</td></tr>
+<tr><td>TAA</td><td>前のフレームからもらう(Day 54)</td><td>動くものに残像。実装が重い</td></tr>
+</tbody>
+</table></div>
+<p>今日入れるのは3行目。<strong>被覆率を測るのではなく、「階段になっているところを見つけて、それらしい中間値を置く」</strong>という割り切りで、情報が増えるわけではないぶん、限界も最初から決まっている。</p>
+<h3 id="s5">2. MSAA が後処理と噛み合わない</h3>
+<p>MSAA は「深度と被覆は4点、色の計算は1回」という賢い節約で、前方レンダリング(Day 37 までの形)なら品質もコストも申し分ない。ではなぜ現代のゲームで主流でなくなったのか。</p>
+<p>理由は3つあり、<strong>どれも Day 31 以降に自分で作ったものが原因</strong>になっている。</p>
+<ol><li><strong>HDR バッファが4倍になる</strong>。1920x1080 の RGBA16F は 15.8MB で、4x MSAA なら 63MB。ブルームの入力を作るには「解決(resolve)」も要る</li><li><strong>解決の順番が難しい</strong>。トーンマップの前に平均すると、明るい画素1点が全体を白く引きずる(Day 31 で見た「畳む前と後」の話)</li><li><strong>ディファードだと G バッファまで4倍になる</strong>(Day 52)。位置・法線・材質を全部4標本ずつ持つのは、帯域として現実的でない</li></ol>
+<p>FXAA はこれを全部避ける。<strong>入力は最終画像1枚だけ</strong>なので、パイプラインのどこにも触らずに後ろへ足せる。2009 年に出てから 10 年以上、事実上の標準として使われ続けた理由がここにある。</p>
+<p>おまけとして、<strong>ポリゴンの縁以外にも効く</strong>。MSAA は「三角形の縁」でしか標本を増やさないので、テクスチャの模様や高輝度部の縁(今日のデモなら市松の床)はまったく直らない。FXAA は絵しか見ていないので、そこも同じように均す。</p>
+<h3 id="s6">3. FXAA が見ているのは輝度。それも<strong>ガンマを掛けたあと</strong>の値</h3>
+<p><code>fxaa.frag</code> が最初にやるのは、中心と斜め4点の<strong>輝度</strong>を取ることだけ。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float Luma(vec3 color) { return dot(color, vec3(0.299, 0.587, 0.114)); }</code></pre></div>
+<p>色ではなく輝度で判断してよいのは、<strong>人の目が明るさの差に敏感で色の差に鈍い</strong>から。3成分を別々に見ても判定はほとんど変わらないのに、計算は3倍になる。</p>
+<p>ここで大事なのは<strong>どの空間の値に掛けるか</strong>。</p>
+<ul><li>係数 (0.299, 0.587, 0.114) は NTSC 由来で、<strong>ガンマ後の値</strong>に掛けるもの</li><li>係数 (0.2126, 0.7152, 0.0722) は Rec.709 の輝度で、<strong>リニアな明るさ</strong>に掛けるもの</li></ul>
+<p>今日は両方が1つのファイルの中に出てくる——<code>composite.frag</code> の彩度計算は後者、<code>fxaa.frag</code> は前者。<strong>同じ「輝度」でも係数が違う</strong>のはそのためで、取り違えると暗部の重みがずれる(絵は出るので、なかなか気づけない)。</p>
+<p>そして FXAA が<strong>ガンマ後の絵</strong>を入力に取るのも同じ理由。リニアな明るさで段差を測ると、暗部の差が小さく出すぎて縁を見逃す。人の目は暗部の差にこそ敏感なので、その感覚に近いのはガンマ後の値のほうになる。</p>
+<p><strong>だから FXAA はパイプラインのいちばん後ろにしか置けない</strong>。今日 <code>PostProcess</code> の出口が2段になった(合成 → LDR バッファ → FXAA → 画面)のは、この制約がそのまま形になったもの。</p>
+<h3 id="s7">4. 混ぜるのは「縁をまたぐ方向」ではなく「縁に沿う方向」</h3>
+<p>FXAA でいちばん誤解されやすいのがここ。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));  // 上下の差 → x へ
+dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));  // 左右の差 → y へ</code></pre></div>
+<p>上下の差が大きい(=<strong>横に走る縁</strong>)とき、<code>dir</code> は横を向く。つまり <strong><code>dir</code> は縁に沿った方向</strong>で、そちらへ数テクセル進んだ色を混ぜる。</p>
+<p>縁をまたいで混ぜたら、それはただのぼかしで、輪郭が甘くなるだけで階段は消えない。縁に沿って混ぜると何が起きるか——<strong>階段の1段先の色が入ってくる</strong>。</p>
+<div class="code"><pre><code>  混ぜる前              混ぜたあと
+  ████░░░░              ████▓▒░░
+  ░░░░████  ← 段差      ░░▒▓████</code></pre></div>
+<p>段差の角に中間色が置かれ、被覆率のプロファイルが直線に近づく。これが今日の自己チェックで測っているものそのもので、<strong>「列ごとの白の量が、理想の直線からどれだけずれているか」</strong>が0.50 画素から 0.30 画素へ下がる(実測)。</p>
+<p><code>dir</code> の長さも意味がある。小さいほうの成分で正規化してあるので、<strong>縁の傾きがそのまま歩幅になる</strong>——45 度なら両成分が 1 テクセル、ほとんど水平な縁なら横成分だけが <code>uSpanMax</code> まで伸びる。傾きが緩い縁ほど階段の段が長いので、遠くまで取りに行く必要がある、という理屈。</p>
+<div class="inject"><figure class="lab" id="fx-lab">
+  <div class="lab-head">
+    <h3>FXAA で階段を均す — 自己チェックの「傾き 1/4 の階段」(要点3〜5、完成条件3・4・8)</h3>
+    <span class="tag">shaders/fxaa.frag(斜め4点と中心の輝度、しきい値で縁を判定、上下差と左右差から縁に沿った向きを作り、4点を混ぜる。安全装置で 2点に戻す)と、RunAaCheck の DrawStaircase(黒の上に、幅 8・高さ 1 + 2i の白い短冊を 24 本)を JS に移したもの。画面は 960x640 のつもりで計算し、階段の周りだけを拡大して描く(左 = 加工前、右 = 加工後)。テクスチャの読みは線形補間で、結果は 8bit に丸める。効き(Shift+F4)の中では C# と同じ数(中間の明るさ 295 画素、ずれ 0.499 → 0.302 画素、明るさの総量 4608.0 → 4603.8。GPU では 4603.6)。段の幅と高さはこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="fx-canvas" style="height:300px;image-rendering:pixelated" aria-label="傾き 1/4 の階段を、FXAA の前と後で拡大して並べた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">効き(Shift+F4)</span>
+      <div class="seg" id="fx-q"><button data-v="low" aria-pressed="false">低</button><button data-v="medium" aria-pressed="true">中(既定)</button><button data-v="high" aria-pressed="false">高</button><button data-v="extreme" aria-pressed="false">極</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(Shift+F2)</span>
+      <div class="seg" id="fx-view"><button data-v="0" aria-pressed="true">通常</button><button data-v="1" aria-pressed="false">輝度</button><button data-v="2" aria-pressed="false">縁の検出</button><button data-v="3" aria-pressed="false">混合量</button></div>
+    </div>
+    <div class="ctl"><span class="label">段の形(1段の幅 x 高さ。reference は 8 x 2)</span>
+      <div class="seg" id="fx-step"><button data-v="8,2" aria-pressed="true">8 x 2(傾き 1/4)</button><button data-v="4,4" aria-pressed="false">4 x 4(45 度)</button><button data-v="16,1" aria-pressed="false">16 x 1(ほぼ水平)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fx-stats"></div><p id="fx-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">5. FXAA が苦手なもの。だから UI を外に出す</h3>
+<p>情報を増やしていないので、<strong>本当は縁でないものまで縁に見えると滲む</strong>。</p>
+<ul><li><strong>1画素幅の線</strong>。両側に段差があるので必ず縁と判定され、両方向から混ざる</li><li><strong>文字</strong>。1画素幅の線の塊なので、いちばん犠牲になる</li><li><strong>時間方向のちらつき</strong>。前のフレームを知らないので、カメラが少し動くたびに「縁と判定されるか」が画素ごとに入れ替わる</li></ul>
+<p>1つ目と2つ目への対処は簡単で、<strong>FXAA を通さないところに描けばよい</strong>。今日 UI を後処理の外へ出したのはこれが決め手になっている(露出やトーンマップから外れるのは、そのついでに直った副作用のほう)。</p>
+<p><code>Shift+F5</code> で Day 37 までの置き方に戻せる。露出(<code>Shift+5</code>)を上げるとHUD の文字が白飛びし、<code>Shift+F7</code> を4回押してモノクロにすると文字まで灰色になる。</p>
+<p>3つ目は原理的に直せない。<strong>時間方向の情報を持ち込む</strong>のが唯一の解で、それが TAA(Day 54)になる。</p>
+<h3 id="s9">6. グレーディングはトーンマップの<strong>前</strong>。空間と順番が全部</h3>
+<p><code>composite.frag</code> の中身は、今日で5段になった。</p>
+<div class="code"><pre><code>  1. 露出          何を 1.0 とみなすか
+  2. ブルーム合成   滲みを足す
+  3. グレーディング  ← 今日ここに入った
+  4. トーンマップ   0〜∞ を 0〜1 へ畳む
+  5. ガンマ        表示のための符号化</code></pre></div>
+<p><strong>3 が 4 の前</strong>でなければならない。トーンマップは「フィルムの特性曲線」に当たるものなので、味付けはフィルムに写す前——まだ物理的な明るさである側——で行う。</p>
+<p>後ろに置くとどうなるか。すでに 0〜1 に畳まれた絵のコントラストを上げれば、上は 1.0 に張り付き、下は 0 に潰れる。<strong>階調を作る前に階調を捨てる</strong>ことになる。前に置けば、コントラストで持ち上がったぶんもトーンマップが畳んでくれる。</p>
+<p>グレーディング自身の中の順番も決まっている。</p>
+<div class="code"><pre><code>  ホワイトバランス → 色フィルタ → コントラスト → 彩度
+  ←── 撮影条件の補正 ──→   ←── 表現としての味付け ──→</code></pre></div>
+<p>前半は「撮ったときの光の色を打ち消す」補正、後半は「どう見せたいか」。実際の現像もこの順で、順番を入れ替えると<strong>補正のつもりの操作が味付けに引きずられる</strong>。</p>
+<h3 id="s10">7. ホワイトバランスは RGB ではなく LMS で掛ける</h3>
+<p>色温度のつまみを「暖色寄りにしたいから赤を 1.1 倍、青を 0.9 倍」と実装すると、<strong>肌色が緑や紫に転ぶ</strong>。RGB の3軸は人の目の3種類の錐体と一致していないので、軸ごとに定数を掛けると色相が引きずられる。</p>
+<p>人の目が「白いものを白く見続ける」仕組み(色順応)は、<strong>3種類の錐体それぞれの感度が独立に変わる</strong>ことで起きている——これが<strong>フォン・クリースの順応則</strong>(1902)。錐体の応答を並べた空間が <strong>LMS</strong>(Long / Medium / Short 波長)で、そこで各成分に定数を掛けるのが、いちばん人の見え方に近い白の付け替えになる。</p>
+<p>やることは3段。</p>
+<ol><li>つまみから<strong>目標の白点の色度 (x, y)</strong> を作る。色温度を変えるとは「何 K の黒体が出す光を白とみなすか」を変えることで、その白点は CIE xy 平面上の1本の曲線(<strong>プランク軌跡</strong>)に載っている</li><li>その色度を <strong>LMS へ変換</strong>する(xyY → XYZ → LMS)</li><li><strong>基準の白との比</strong>を取る。これが各成分の増幅率</li></ol>
+<p><code>ColorGrade.ComputeWhiteBalance</code> がここを担当する。<strong>1フレームに1回で済む定数</strong>なので CPU に置き、シェーダは受け取った vec3 を掛けるだけ(<code>composite.frag</code> の <code>WhiteBalance</code>)。</p>
+<p>なお、コントラストのほうも同じく<strong>空間の選択</strong>が効いている。リニアのまま <code>(x - 0.18) * c + 0.18</code> と書くと暗部が負になり、露出(掛け算)との合成もおかしくなる。<strong>対数の上で傾きを変える</strong>と、露出が平行移動、コントラストが傾きの変更になって素直に噛み合う——人の明るさの感覚もほぼ対数なので、見た目にも自然になる。</p>
+<p>中心を <strong>18% グレー</strong>に置くのは写真からの流用。0.5 を中心にすると、コントラストを上げただけで全体が暗く沈む。</p>
+<div class="inject"><figure class="lab" id="cg-lab">
+  <div class="lab-head">
+    <h3>カラーグレーディング — 白点・フィルタ・コントラスト・彩度、そしてトーンマップ(要点6・7、完成条件6・7)</h3>
+    <span class="tag">Render/ColorGrade.cs(ComputeWhiteBalance: 色温度・色合いから CIE xy の白点を作り、LMS で基準の白との比を取る。下敷きの数字)と composite.frag の Grade(LMS で白点 → 色フィルタ → 対数でコントラスト(中心 18% グレー)→ Rec.709 の輝度で彩度)を JS に移して、色見本を並べたもの。順番は露出 → グレーディング → トーンマップ → ガンマ。下の表は自己チェックと同じ入力(トーンマップなし・露出 1・8bit に丸め)で、C# と同じ値になる。「RGB に掛ける」は課題2の比較で、このページだけ</span>
+  </div>
+  <div class="stage"><canvas id="cg-canvas" style="height:220px" aria-label="色見本を、グレーディングの前と後で並べた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">下敷き(Shift+F7)</span>
+      <div class="seg" id="cg-preset"><button data-v="neutral" aria-pressed="true">ニュートラル</button><button data-v="sunset" aria-pressed="false">夕暮れ</button><button data-v="moon" aria-pressed="false">月夜</button><button data-v="bleach" aria-pressed="false">退色</button><button data-v="mono" aria-pressed="false">モノクロ</button></div>
+    </div>
+    <div class="ctl"><span class="label">色温度(Shift+F10)</span>
+      <div class="seg" id="cg-temp"><button data-v="-40" aria-pressed="false">−40</button><button data-v="-20" aria-pressed="false">−20</button><button data-v="0" aria-pressed="true">0</button><button data-v="20" aria-pressed="false">+20</button><button data-v="40" aria-pressed="false">+40</button></div>
+    </div>
+    <div class="ctl"><span class="label">コントラスト(Shift+F8)</span>
+      <div class="seg" id="cg-con"><button data-v="0.8" aria-pressed="false">0.8</button><button data-v="1" aria-pressed="true">1.0</button><button data-v="1.2" aria-pressed="false">1.2</button><button data-v="1.4" aria-pressed="false">1.4</button></div>
+    </div>
+    <div class="ctl"><span class="label">彩度(Shift+F9)</span>
+      <div class="seg" id="cg-sat"><button data-v="0" aria-pressed="false">0.0</button><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="1" aria-pressed="true">1.0</button><button data-v="1.3" aria-pressed="false">1.3</button></div>
+    </div>
+    <div class="ctl"><span class="label">白点の掛け方</span>
+      <div class="seg" id="cg-wb"><button data-v="lms" aria-pressed="true">LMS(reference)</button><button data-v="rgb" aria-pressed="false">RGB に掛ける(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cg-stats"></div><div class="table-wrap" id="cg-table" style="margin-top:10px"></div><p id="cg-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/ColorGrade.cs</code></td><td><strong>グレーディングのつまみ一式</strong>。GL の資源を1つも持たない、数字だけのクラス</td></tr>
+<tr><td><code>shaders/fxaa.frag</code></td><td><strong>FXAA 本体</strong>。輝度で段差を見つけ、縁に沿って混ぜる。デバッグ表示3種と左右比較つき</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>shaders/composite.frag</code></td><td>グレーディングの4段(白点 / フィルタ / コントラスト / 彩度)と左右比較</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td><strong>LDR バッファと FXAA パス</strong>。<code>End</code> を <code>EndCore</code> に割り、行き先を引数にした</td></tr>
+<tr><td><code>Program.cs</code></td><td><code>Shift+F1〜F12</code>、HUD の2行、<code>RunAaCheck</code>、<strong>UI を後処理の外へ</strong></td></tr>
+</tbody>
+</table></div>
+<p>新規が 475 行、変更ファイルへの追加が約 1300 行で、<strong>合わせて約 1800 行</strong>。Day 37(約 2000 行)より少し小さい。</p>
+<p><code>Program.cs</code> の 900 行のうち 500 行あまりは自己チェック(<code>RunAaCheck</code> と補助6つ)。<strong>今日の2つは絵を見ても正しさが分からない</strong>類のものなので、そのぶん厚くしてある。</p>
+<h3 id="s14">写経する順番</h3>
+<p>グレーディング → FXAA → 配線、の順。<strong>シェーダを先に書く</strong>のが今日の並びで、<code>PostProcess</code> はその2つを呼ぶだけ。</p>
+<ol><li><strong><code>Render/ColorGrade.cs</code></strong>(新規) <code>GradePreset</code> → 定数 → プロパティ群 → <code>ApplyPreset</code> / <code>MarkCustom</code> / <code>Apply</code> → <strong><code>ComputeWhiteBalance</code></strong> → <code>StandardIlluminantY</code> → <code>CieXyToLms</code>。<code>Shader</code> の既存の setter しか使わないので、ここは単体で書き切れる</li><li><strong><code>shaders/composite.frag</code></strong>(変更)冒頭のコメントを5段に → uniform 6本(<code>uGradeEnabled</code> 〜 <code>uGradeSplit</code>)→ <code>LinearToSrgb</code> の<strong>手前</strong>に <code>LinearToLms</code> / <code>LmsToLinear</code> の2つの <code>mat3</code> と<code>WhiteBalance</code> / <code>Contrast</code> / <code>Saturation</code> / <code>Grade</code> → <code>main</code> の 2 と 3 の間に <code>Grade</code> の呼び出し → 段の番号を 4 / 5 へ</li><li><strong><code>shaders/fxaa.frag</code></strong>(新規) uniform 群 → <code>Luma</code> / <code>Sample</code> → <code>main</code>(近傍5点 → しきい値 → <strong>向きの決定</strong> → 4点の混合 → 安全装置 → デバッグ表示 → 左右比較)。<strong><code>dir.x</code> に上下差、<code>dir.y</code> に左右差</strong>を入れるところが要点4</li><li><strong><code>Render/PostProcess.cs</code></strong>(変更) <code>FxaaQuality</code> / <code>FxaaDebugView</code> / <code>PostSplit</code> の3つの enum →クラス要約の図を2段に → <code>_ldr</code> と <code>_fxaaShader</code> のフィールド →コンストラクタ(<code>_ldr</code> の生成、<code>fxaa.frag</code> の読み込み、<code>SetFxaaQuality</code>)→プロパティ群(<code>Grade</code> / <code>FxaaEnabled</code> / …)と <code>ByteSize</code> への加算 → <strong><code>End</code> を <code>EndCore</code> に割り、<code>EndToTarget</code> を足す</strong> → <code>EndCore</code> の中で FXAA の有無で行き先を分ける → <code>Composite</code> の引数を <code>Framebuffer?</code> に(<code>Grade.Apply</code> と <code>uGradeSplit</code>)→ <strong><code>ApplyFxaa</code></strong> → <code>SetFxaaQuality</code> → <code>BindTarget</code> → <code>Resize</code> / <code>ReloadShaders</code> / <code>Dispose</code> に <code>_ldr</code> と <code>_fxaaShader</code></li><li><strong><code>Program.cs</code></strong>(変更) <code>_uiThroughPost</code> のフィールド → <code>OnLoad</code>(FXAA のコンソール1行と操作説明)→ <strong><code>OnRender</code></strong>(4つの枝から <code>RenderText()</code> を抜き、<code>_post.End</code> の前後に置き直す)→ <code>FxaaViewLabel</code> / <code>FxaaQualityLabel</code> / <code>SplitLabel</code> / <code>AaLabel</code> / <code>GradeLabel</code> → HUD の2行と1行目の <code>Day38</code> → <code>OnKeyDown</code>(<code>Shift+F1〜F12</code>。<strong><code>case Key.F5:</code> より必ず上</strong>)→ <code>Ctrl+F12</code> の1件 → <strong><code>RunAaCheck</code></strong> と補助6つ(<code>DrawStaircase</code> / <code>CompositeProbe</code> / <code>BenchmarkPost</code> / <code>ReadRed</code> / <code>ReadPixel</code> / <code>MidTones</code> / <code>EdgeDeviation</code> / <code>Identical</code> / <code>MaxDifference</code>)→窓のタイトル → クラス要約に Day 38 の項</li><li><strong><code>Day38.csproj</code></strong>(リネームのみ)中身は Day 37 と同じ</li></ol>
+<p><strong>細かい2箇所を直してある</strong>(今日の主題とは無関係。差分を 0 にしたいなら合わせておく)。</p>
+<ul><li>HUD の1行目が <code>Day36</code> のままだった(Day 37 で更新し忘れ)。<code>Day38</code> にした</li><li>窓のタイトルが <code>Day31 - FBOとHDRパイプライン…</code> のまま据え置かれていた。今日の題に更新した</li></ul>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>クラスが1つ増えた</strong>(<code>Render/ColorGrade</code>)。層の構成は Day 37 のままで、今日も全部 <code>Render/</code> の中に入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/ColorGrade</code></td><td>グレーディングのつまみと下敷き。<strong>GL の資源を1つも持たない</strong></td></tr>
+<tr><td><code>GradePreset</code></td><td>夕暮れ / 月夜 / 退色 / モノクロ(Shift+F7)</td></tr>
+<tr><td><code>FxaaQuality</code></td><td>しきい値と歩幅の組(Shift+F4)</td></tr>
+<tr><td><code>FxaaDebugView</code></td><td>輝度 / 縁 / 混合量(Shift+F2)</td></tr>
+<tr><td><code>PostSplit</code></td><td>左右比較をどちらの段で行うか(Shift+F11)</td></tr>
+</tbody>
+</table></div>
+<p><code>Render/PostProcess</code> が太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>PostProcess</code></td><td><code>_ldr</code>(RGBA8)と FXAA パス。<code>End</code> が <code>EndCore</code> に割れ、<strong>行き先が引数に</strong>なった</td></tr>
+<tr><td><code>PostProcess</code></td><td><code>EndToTarget</code>。自己チェックが本番と同じ経路を読み戻すための出口</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16"><code>ColorGrade</code> だけ形が違う</h3>
+<p>Day 31 以降に足したクラスは、<code>PostProcess</code> / <code>ShadowMap</code> / <code>EnvironmentMap</code> / <code>Ssao</code> の4つとも<strong>「自分でバッファを持ち、シェーダは借りる」</strong>という同じ形をしていた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>xxx.Begin(...);         // 行き先を自分のバッファへ切り替える
+// ここで好きなものを描いてもらう
+xxx.End(width, height); // 画面へ戻し、借りた GL の状態を返す
+xxx.Apply(shader);      // 本描画が読めるようにテクスチャと uniform を配る</code></pre></div>
+<p><code>ColorGrade</code> は<strong>この形に入らない</strong>。持っているのは数字だけで、FBO もテクスチャもシェーダのハンドルも握っていない。だから <code>IDisposable</code> ですらなく、<code>Apply(shader)</code> だけがある。</p>
+<p>これは怠慢ではなく、<strong>そもそも自分のパスを持たない機能だから</strong>。グレーディングは合成パス(<code>composite.frag</code>)の中に数行足すだけで済む——すでに全画素を1回触っているところに便乗している。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>パス</th><th>VRAM</th><th>どこに住むか</th></tr></thead>
+<tbody>
+<tr><td>FXAA</td><td><strong>+1</strong>(フルスクリーン)</td><td><strong>+8.3MB</strong>(1920x1080 の RGBA8)</td><td><code>PostProcess</code> の中</td></tr>
+<tr><td>グレーディング</td><td>±0</td><td>±0</td><td><code>composite.frag</code> に相乗り</td></tr>
+</tbody>
+</table></div>
+<p><strong>「後処理を1つ足す」と言っても代償はまるで違う</strong>、という対比が今日いちばん設計として見てほしいところ。似た見た目の機能でも、<strong>自分のパスが要るかどうか</strong>で置き場所が変わる。</p>
+<h3 id="s17">出口が2段になった</h3>
+<p>Day 37 まで、画面(既定のフレームバッファ)へ書くのは <code>Composite</code> の1箇所だけだった。今日 FXAA が後ろに付いたので、こうなる。</p>
+<div class="code"><pre><code>  FXAA ON   … Composite → [_ldr] → ApplyFxaa → 画面
+  FXAA OFF  … Composite ────────────────────→ 画面</code></pre></div>
+<p><strong>素通しのコピーを1パス挟んで経路を1本にする</strong>書き方もできる(コードは短くなる)。そうしなかったのは、1920x1080 の読み書きが丸ごと1回増えるため。後処理では「パスを1つ増やす/減らす」が、そのまま帯域の話になる。</p>
+<p>代わりに <code>End</code> を <code>EndCore(Framebuffer? target, int w, int h)</code> に割り、<strong>行き先を引数にした</strong>。<code>null</code> なら画面。これで</p>
+<ul><li><code>End(w, h)</code> … 本番。画面へ</li><li><code>EndToTarget(fb)</code> … 自己チェック。読み戻せるバッファへ</li></ul>
+<p>の2つが同じ経路を通る。<strong>確かめる側が本番と違う道を通ったら意味が無い</strong>ので、分岐を増やさずに口だけ2つにしてある。</p>
+<h3 id="s18">UI が後処理の外へ出た</h3>
+<p>Day 31 から、HUD の文字は <code>_post.Begin</code> と <code>_post.End</code> の<strong>間</strong>で描かれていた。シーンと同じ RGBA16F のバッファに入るので、露出もグレーディングもトーンマップもガンマも、全部くぐっていたことになる。</p>
+<p>今日それを <code>_post.End</code> の<strong>後ろ</strong>へ移した。決め手は FXAA で、<strong>字は1画素幅の線の塊</strong>なので、輪郭を均す処理といちばん相性が悪い(要点5)。</p>
+<p>副作用が2つある。どちらも「そのほうが正しい」側に転んだ。</p>
+<ul><li>露出を上げても HUD が白飛びしなくなった</li><li><strong>文字がわずかに暗く見える</strong>。前はガンマ(1/2.2 乗)を通っていたので0.95 が 0.977 に持ち上がっていた。UI の色は<strong>表示空間で決めるもの</strong>なので、こちらのほうが筋が通っている</li></ul>
+<p><code>Shift+F5</code> で Day 37 までの置き方に戻せる。<strong>わざと間違えるための窓</strong>で、Day 37 の <code>Ctrl+F11</code>(AO を直接光に掛ける)と同じ趣旨。</p>
+</section>
+<section class="part"><h2 id="s19">完成条件</h2>
+<p><code>dotnet run --project reference/Day38 -c Release</code> で起動して、順に確かめる。</p>
+<h3 id="s20">1. <code>Shift+F12</code>: FXAA が効く構図</h3>
+<p>市松の床が奥まで見える構図になり、<strong>画面の真ん中に黄色い縦線</strong>が引かれる。</p>
+<ul><li>線の<strong>左</strong>が加工前、<strong>右</strong>が加工後</li><li>見るのは奥へ向かって細かくなる市松の斜めの縁と、立方体の輪郭</li><li>左は段々、右はなだらか。<strong>同じ模様が左右に続いているので、線をまたいで目で追える</strong></li></ul>
+<p>分かりにくければ、ウィンドウを最大化してから左右の同じ高さの縁を見比べる。それでも分からないときは <code>Shift+F2</code> を3回押して「混合量」にすると、<strong>FXAA が触った画素だけが光る</strong>ので、どこが変わったのかがはっきりする。</p>
+<p>この構図は空が白飛びしているので、<strong>HUD の白い文字がほとんど読めない</strong>。数字を見たいときだけ <code>;</code> で表示を消し、絵を見てから戻すとよい(HUD の色を背景に応じて変えるのは Day 40 のトグル UI 側の仕事になる)。</p>
+<p><strong>今日の到達点はこの1枚</strong>。</p>
+<h3 id="s21">2. <code>Shift+F1</code>: FXAA を切る</h3>
+<p>全面が加工前に戻る。市松の奥のほうで、<strong>斜めの縁がはっきり階段になる</strong>のが見える。</p>
+<p>もう一度押して戻す。HUD の <code>パス:11</code> が <code>パス:10</code> と行き来するのも確かめる——FXAA がフルスクリーン1パスだけの手法である、という主張がここに出ている。</p>
+<h3 id="s22">3. <code>Shift+F2</code>: FXAA の中身を見る</h3>
+<p>4回押すと1周する。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>何が見えるか</th></tr></thead>
+<tbody>
+<tr><td>輝度</td><td>灰色の絵。<strong>FXAA が見ている世界そのもの</strong>(色は見ていない)</td></tr>
+<tr><td>縁の検出</td><td>縁と判定された画素が<strong>赤く</strong>なる。市松の線と立方体の輪郭が全部赤い</td></tr>
+<tr><td>混合量</td><td>元の色からどれだけ動いたか。<strong>輪郭の線だけが光るのが正解</strong></td></tr>
+<tr><td>通常</td><td>もどる</td></tr>
+</tbody>
+</table></div>
+<p>「縁の検出」で<strong>空や壁の平らな面まで赤い</strong>ならしきい値が低すぎる。「混合量」で<strong>面が光っている</strong>なら混ぜすぎ。<code>Shift+F4</code> で効きを「極」にすると、赤い画素も光る画素も増えるのが分かる。</p>
+<h3 id="s23">4. <code>Shift+F4</code>: 効きを変える</h3>
+<p>低 → 中 → 高 → 極 と回る。HUD の <code>しきい値</code> と <code>歩幅</code> が一緒に変わる。</p>
+<ul><li><strong>低</strong>にすると、市松の奥のほうに階段が残る(拾えていない)</li><li><strong>極</strong>にすると、細い線が滲み始める。HUD を後処理に通した状態(<code>Shift+F5</code>)で極にすると、<strong>文字がぼやける</strong>のがいちばん分かりやすい</li></ul>
+<h3 id="s24">5. <code>Shift+F5</code>: UI を後処理に通す(Day 37 までの置き方)</h3>
+<p>HUD の文字が後処理をくぐるようになる。3つ起きる。</p>
+<ol><li><code>Shift+5</code> で露出を上げると、<strong>文字が白飛びして読めなくなる</strong></li><li><code>Shift+F7</code> を4回押してモノクロにすると、<strong>文字まで灰色になる</strong></li><li><code>Shift+F4</code> で効きを「極」にすると、<strong>文字の輪郭が滲む</strong></li></ol>
+<p>3 が Day 38 で UI を外へ出した決め手。もう一度 <code>Shift+F5</code> で戻すと、どれだけ露出を上げても文字は白いまま、色も変わらない。</p>
+<h3 id="s25">6. <code>Shift+F7</code>: 下敷きを回す</h3>
+<p>ニュートラル → 夕暮れ → 月夜 → 退色 → モノクロ と回る。<strong>同じシーンの印象がどれだけ変わるか</strong>を見る。</p>
+<p><code>Shift+F11</code> を「グレーディング比較」まで回すと(なし → FXAA → グレーディング)、画面の左半分だけが素通しになる。<strong>色は隣に並べないと分からない</strong>——単体で見ていると、どんな色かぶりでも数秒で目が順応して「これが普通」に見えてくる。</p>
+<h3 id="s26">7. <code>Shift+F8</code> / <code>Shift+F9</code> / <code>Shift+F10</code>: つまみを1つずつ</h3>
+<ul><li><strong>コントラスト</strong>(0.8 / 1.0 / 1.2 / 1.4)。上げても<strong>中間の灰色は動かない</strong>。明るいところがより明るく、暗いところがより暗くなる</li><li><strong>彩度</strong>(0.0 / 0.5 / 1.0 / 1.3)。0 でモノクロ</li><li><strong>色温度</strong>(-40 / -20 / 0 / +20 / +40)。正が暖色、負が寒色。HUD の <code>白点:(…)</code> が動くのを一緒に見る——+40 で R 側が 1.06、B 側が 0.77 になる</li></ul>
+<p>つまみを動かすと HUD の下敷き名が「手動」に変わる。<code>Shift+F7</code> を押せばいつでも既知の組に戻せる。</p>
+<h3 id="s27">8. <code>Ctrl+F12</code>: 自己チェック</h3>
+<p>コンソールに 15 項目が出る。<strong>全部 OK なら今日のコードは正しい</strong>。</p>
+<p>内容は下の「動作確認済み環境」に載せてある。いちばん見てほしいのは6項目目で、<strong>縁の被覆率が理想の直線からどれだけずれているか</strong>が0.499 画素 → 0.302 画素へ下がる。これが「階段が均された」の数値化そのもの。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+F1</code>・<code>Shift+F2</code>・<code>Shift+F4</code>・<code>Shift+F12</code></td><td>「FXAA で階段を均す」</td><td>左が段々、右がなだらか。縁の検出で赤い画素、混合量で光る画素。効きを上げるほど拾う画素が増える。「中」で 295 画素・0.499 → 0.302 画素</td></tr>
+<tr><td><code>Shift+F7</code>〜<code>Shift+F10</code>・<code>Shift+F6</code></td><td>「カラーグレーディング」</td><td>+40 で白点 L 1.059 / S 0.765(HUD の R 側 1.06・B 側 0.77)。コントラストを上げても 18% グレーは動かない</td></tr>
+<tr><td><code>Ctrl+F12</code>(自己チェックの 1〜7・11〜15)</td><td>両方の実験台の数字</td><td>白点 (1, 1, 1)、L 1.059 / M 1.000 / S 0.765、L 0.906 / M 1.029 / S 1.653、295 画素、0.499 → 0.302、0.792 / 0.576 / 0.424、0.624、0.4588、0.2549 → 0.2039、R 0.729 → 0.780</td></tr>
+<tr><td><code>Shift+F5</code>・<code>Shift+F11</code>・<code>Ctrl+F12</code>(残り)</td><td>(なし)</td><td>UI の置き場所、左右比較の線、GPU の時間は、このページでは再現しない</td></tr>
+<tr><td>(キーなし)</td><td>段の形、RGB に掛ける</td><td>reference に無い比較。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day38 の shaders/fxaa.frag・Render/ColorGrade.cs・shaders/composite.frag(Grade)・Program.cs の RunAaCheck(DrawStaircase・MidTones・EdgeDeviation・CompositeProbe の入力)を JS に移したもの。自己チェックの数字は、GPU の時間と、次の3つの最後の桁を除いて、すべて同じ値になった。FXAA の明るさの総量(このページは 4603.8、GPU は 4603.6。テクスチャの線形補間の精度の差)、素通しの G(このページは 0.580、GPU は 0.576)と色温度 +40 の R(このページは 0.784、GPU は 0.780)。後の2つは 8bit に丸める直前の値がちょうど境目(147.53 と 199.50)にあり、GPU では1目盛り下に丸まる。差分の行数は git diff --no-index --numstat と wc -l で数え直した(新規 475 行・変更ファイルへの追加 1,306 行で、本文の「約 1300 行」と合っている)。時間(0.009 / 0.035 / 0.026ms)は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s28">改造課題</h2>
+<h3 id="s29">課題1(易): グレーディングの下敷きを1つ足す</h3>
+<p><code>GradePreset</code> に自分の1つを足して、<code>ApplyPreset</code> の <code>switch</code> に数字を書く。</p>
+<p>作ってみると分かるが、<strong>「なんとなく良い」は再現できない</strong>。つまみを回しているうちに元がどこだったか分からなくなるので、<code>Shift+F6</code> で ON/OFF するか、<code>Shift+F11</code> で左右比較しながら決めること。</p>
+<p>余裕があれば <code>Filter</code>(色フィルタ)と <code>Temperature</code>(ホワイトバランス)で<strong>同じ方向に振ったときの違い</strong>を見比べてみるとよい。色フィルタは白いものにも色が付き、ホワイトバランスは白を白のまま動かす。</p>
+<h3 id="s30">課題2(中): 色温度を RGB の掛け算で実装して見比べる</h3>
+<p><code>composite.frag</code> の <code>WhiteBalance</code> を、LMS を経由せずに</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 WhiteBalance(vec3 color) { return color * uWhiteBalance; }</code></pre></div>
+<p>と書き換えてみる(CPU 側はそのまま使える)。</p>
+<p><code>Shift+F10</code> で色温度を ±40 まで振ると、違いが出る。特に見てほしいのは<strong>中間の明るさの色がどちらへ転ぶか</strong>で、市松の床の緑や、モデル(<code>Shift+0</code>)の肌色に近い部分が分かりやすい。</p>
+<p>「見た目そんなに変わらない」と思ったら、それも正しい観察。<strong>±40 程度なら差は小さく、大きく振ったときに効いてくる</strong>——つまり LMS を使う値打ちは「壊れにくさ」であって「見栄え」ではない。どこまでやるかを自分で決めるための課題で、<code>ColorGrade.CieXyToLms</code> のコメントを読み直す口実でもある。</p>
+<h3 id="s31">課題3(難): 縁の形を見てから重みを決める(SMAA の入口)</h3>
+<p>FXAA は「縁を見つけたら、その向きへ数テクセル混ぜる」だけで、<strong>縁がどんな形をしているかは見ていない</strong>。だから 45 度の縁も、ほとんど水平な縁も、同じ手続きで処理してしまう。</p>
+<p>SMAA(事前に読む資料の最後)はここを変える。</p>
+<ol><li>縁を検出する(ここまでは FXAA と同じ)</li><li><strong>縁に沿って両端まで歩き、どこで途切れるかを調べる</strong></li><li>その形(L 字 / Z 字 / U 字 …)から、<strong>正しい被覆率を計算で出す</strong></li></ol>
+<p>3 が決定的な違いで、推測ではなく<strong>幾何から答えを出している</strong>。</p>
+<p>最小の一歩として、<code>fxaa.frag</code> に「縁に沿って左右へ最大 N テクセル歩き、輝度が変わるところまでの距離を測る」ループを足してみるとよい。測った2つの距離から台形の面積として被覆率を出せば、<strong>同じ1パスのまま品質が上がる</strong>——FXAA 3.11 の後半(今日削ぎ落とした部分)がやっているのもだいたいこれになる。</p>
+<p><code>Ctrl+F12</code> の「縁が理想の直線に近づく」の数字が0.302 からどこまで下がるかで、値打ちを測れる。</p>
+</section>
+<section class="part"><h2 id="s32">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070</li><li>960x640(既定)、Release ビルド</li><li>Silk.NET 2.23.0</li></ul>
+<h3 id="s33">自己チェック(15 項目すべて合格)</h3>
+<div class="code"><pre><code>[FXAA とカラーグレーディングの自己チェック]
+  [OK] <strong>色温度 0 の増幅率がちょうど 1</strong>(素通しが本当に素通し)  (1.00000, 1.00000, 1.00000)
+  [OK] 暖色へ回すと L(長波長=赤側)が上がり S(短波長=青側)が下がる  L 1.059 / M 1.000 / S 0.765
+  [OK] 寒色はその逆(<strong>軌跡の上を反対へ動いている</strong>)  L 0.906 / M 1.029 / S 1.653
+  [OK] FXAA なしでは<strong>中間の明るさが1画素も無い</strong>(白か黒しかない = 階段)  0 画素 / 全 10752 画素
+  [OK] <strong>FXAA を掛けると中間の明るさが現れる</strong>(階段の角が埋まった)  295 画素(2.7%)
+  [OK] <strong>縁が理想の直線に近づく</strong>(列ごとの被覆率のずれが減る)
+       ずれ 0.499 → 0.302 画素(完全な直線なら 0。階段のままなら段の高さの 1/4 = 0.500)
+  [OK] <strong>明るさの総量はほとんど変わらない</strong>(ぼかしではなく整形だから)  4608.0 → 4603.6 画素ぶん(-0.10%)
+  [OK] <strong>白一色の面は1ビットも動かない</strong>(局所コントラストが 0 なので縁ではない)  最大差 0.00000
+  [OK] <strong>しきい値を 1.0 にすると FXAA なしと完全一致</strong>(早期打ち切りの経路)  最大差 0.00000
+  [OK] FXAA を掛けるとフルスクリーンパスが1つ増える  OFF 1 パス → ON 2 パス
+  [OK] <strong>素通しの設定なら ON/OFF で絵が一致</strong>(恒等が恒等になっている)
+       OFF (0.792,0.576,0.424) / ON (0.792,0.576,0.424)
+  [OK] 彩度 0 で R = G = B(モノクロになる)  (0.624, 0.624, 0.624)
+  [OK] <strong>コントラストを上げても 18% グレーは動かない</strong>(回転の中心)  0.4588 → 0.4588
+  [OK] 中心より暗いところはコントラストでさらに沈む  0.2549 → 0.2039
+  [OK] <strong>暖色へ回すと絵の赤が上がり青が下がる</strong>(白点の付け替えが届いている)
+       R 0.729→0.780  G 0.729→0.725  B 0.729→0.631
+  すべて合格
+  合成のみ 0.009ms  合成+FXAA 0.035ms  → FXAA ぶん 0.026ms  (960x640)
+  LDR バッファ 960x640(RGBA8) 2.3MB  後処理の合計 12.3MB</code></pre></div>
+<p><strong>確かめる側の絵を自分で描いている</strong>のが今日の自己チェックの特徴。シザーテスト付きの <code>glClear</code> で傾き 1/4 の階段を焼くだけなので、三角形もシェーダも要らず、<strong>入力が完全に決まった1枚</strong>になる。カメラの位置にもシーンの中身にも左右されないので、「入力が同じなら出力も同じ」が成り立つ。</p>
+<h3 id="s34">FXAA にかかる時間</h3>
+<p><code>Ctrl+F12</code> の最後の行。合成だけを 60 回まわしたものと、合成 + FXAA を 60 回まわしたものの差を取っている(<code>glFinish</code> を前後に挟んで、積んだだけの時間にならないようにしてある)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>解像度</th><th>合成のみ</th><th>合成 + FXAA</th><th>FXAA ぶん</th></tr></thead>
+<tbody>
+<tr><td>960x640</td><td>0.009ms</td><td>0.035ms</td><td><strong>0.026ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>RTX 3070 で 0.03ms 弱。1920x1080 なら画素数が 3.4 倍なので 0.1ms 弱の見当になる。<strong>フレーム予算(60fps で 16.7ms)の 1% 未満</strong>。</p>
+<p>HUD に出ている影パスの 0.08ms や SSAO の 0.07ms と<strong>並べて比べてはいけない</strong>。あちらは <code>Stopwatch</code> で測った<strong>CPU が命令を積むのにかかった時間</strong>で、GPU が実際に走った時間ではない(<code>glFinish</code> を挟んでいない)。同じ土俵で測りたいなら、あちらにも <code>glFinish</code> を入れる必要がある——<strong>計測の作法が揃っていない数字を並べない</strong>、というのはDay 26 のブロードフェーズの計測でも一度ぶつかった話。</p>
+<p>FXAA が 10 年以上使われ続けた理由がこの数字に出ている——<strong>ほとんど只で、どんな絵にも効く</strong>。代わりに払っているのは VRAM 2.3MB(1920x1080 なら 8.3MB)と、細い線の滲み。</p>
+<h3 id="s35">検証の途中で分かったこと</h3>
+<p><strong>「ジャギーが減った」をどう測るかで、結論がひっくり返った</strong>。</p>
+<p>最初は<strong>全変動</strong>(隣り合う画素の差の絶対値の和)で測ろうとして、これは駄目だとすぐ分かった。段差をなだらかな傾斜に均しても、<strong>全変動は変わらない</strong>(単調な変化の全変動は端の差だけで決まる)。</p>
+<p>次に<strong>2階差分の絶対値の和</strong>にした。直線なら 0 になるので筋はよさそうに見えたが、実測すると <strong>92.0 → 97.5 と増えた</strong>。FXAA が縁の周りに作る細かい起伏を拾ってしまい、「まっすぐになった」ことより「局所的にでこぼこした」ことのほうが大きく出る。</p>
+<p>最終的に<strong>最小二乗で直線を当てはめ、そこからの平均のずれ</strong>にしたら<strong>0.499 → 0.302</strong> と素直に下がった。同じデータで、同じ現象で、<strong>測り方を変えただけで OK と NG がひっくり返る</strong>——性能や品質を数字で語るときにいちばん怖いのがこれ。</p>
+<p><strong>しきい値のチェックが最初 NG になった</strong>。「相対しきい値を 1.0 にすれば何も縁にならないはず」と思って書いたら、最大差 0.333 が出た。理由は単純で、テスト画像が<strong>黒と白</strong>なので局所コントラストがちょうど 1.0 になり、<code>range &gt;= 1.0</code> を満たしてしまう。2.0 にしたら通った。<strong>「最大値ちょうど」は境界条件</strong>という、浮動小数点以前の初歩的な取りこぼし。</p>
+<p><strong><code>glClear</code> はシザー矩形の中しか塗らない</strong>という性質が、確かめ用の絵を描くのに具合がよかった。シェーダも頂点バッファも要らず、<code>glScissor</code> を 24 回動かすだけで「傾き 1/4 の直線をラスタライズした階段」が手に入る。<strong>シザーテストを切り忘れると、そのあとのフルスクリーンパスが最後の短冊の中だけに描かれて画面がほぼ真っ黒になる</strong>ので、そこだけ注意。</p>
+</section>
+<footer class="end">Day 38 FXAA と簡易カラーグレーディング / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day38 の shaders/fxaa.frag と、自己チェックの「傾き 1/4 の階段」(DrawStaircase)を JS に移したもの
+const FX = (() => {
+const QUALITY = { low: [0.250, 0.0833, 4], medium: [0.166, 0.0625, 8], high: [0.125, 0.0312, 8], extreme: [0.063, 0.0156, 16] };
+const luma = (c) => c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+// img: { w, h, data: Float32Array(w*h*3) }。行は下から(GL と同じ)。線形補間 + 端は伸ばす
+function sample(img, u, v) {
+  const x = u * img.w - 0.5, y = v * img.h - 0.5, x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+  const at = (xx, yy) => { xx = Math.min(img.w - 1, Math.max(0, xx)); yy = Math.min(img.h - 1, Math.max(0, yy)); return (yy * img.w + xx) * 3; };
+  const a = at(x0, y0), b = at(x0 + 1, y0), c = at(x0, y0 + 1), d = at(x0 + 1, y0 + 1), out = [0, 0, 0];
+  for (let k = 0; k < 3; k++) out[k] = (img.data[a + k] * (1 - fx) + img.data[b + k] * fx) * (1 - fy) + (img.data[c + k] * (1 - fx) + img.data[d + k] * fx) * fy;
+  return out;
+}
+// fxaa.frag の main。debug: 0 通常 / 1 輝度 / 2 縁 / 3 混合量。x0..x1, y0..y1 の範囲だけ計算する
+function fxaa(img, q, debug = 0, rect = null) {
+  const [th, thMin, span] = q, rm = 1 / 8, rmin = 1 / 128, tx = 1 / img.w, ty = 1 / img.h;
+  const out = { w: img.w, h: img.h, data: new Float32Array(img.data) };
+  const [X0, Y0, X1, Y1] = rect || [0, 0, img.w, img.h];
+  for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
+    const u = (x + 0.5) / img.w, v = (y + 0.5) / img.h;
+    const C = sample(img, u, v), nw = sample(img, u - tx, v - ty), ne = sample(img, u + tx, v - ty), sw = sample(img, u - tx, v + ty), se = sample(img, u + tx, v + ty);
+    const lNw = luma(nw), lNe = luma(ne), lSw = luma(sw), lSe = luma(se), lM = luma(C);
+    const lMin = Math.min(lM, lNw, lNe, lSw, lSe), lMax = Math.max(lM, lNw, lNe, lSw, lSe), range = lMax - lMin;
+    const isEdge = range >= Math.max(thMin, lMax * th);
+    let dx = -((lNw + lNe) - (lSw + lSe)), dy = (lNw + lSw) - (lNe + lSe);
+    const reduce = Math.max((lNw + lNe + lSw + lSe) * 0.25 * rm, rmin), rcp = 1 / (Math.min(Math.abs(dx), Math.abs(dy)) + reduce);
+    dx = Math.min(span, Math.max(-span, dx * rcp)) * tx; dy = Math.min(span, Math.max(-span, dy * rcp)) * ty;
+    const s = (t) => sample(img, u + dx * t, v + dy * t);
+    const p1 = s(1 / 3 - 0.5), p2 = s(2 / 3 - 0.5), p3 = s(-0.5), p4 = s(0.5);
+    const A = [0, 1, 2].map((k) => 0.5 * (p1[k] + p2[k])), Bc = [0, 1, 2].map((k) => A[k] * 0.5 + 0.25 * (p3[k] + p4[k]));
+    const lB = luma(Bc), filtered = lB < lMin || lB > lMax ? A : Bc;
+    let r = isEdge ? filtered : C;
+    if (debug === 1) r = [lM, lM, lM];
+    else if (debug === 2) r = isEdge ? [1, 0.15, 0.1] : [lM * 0.35, lM * 0.35, lM * 0.35];
+    else if (debug === 3) r = r.map((vv, k) => Math.abs(vv - C[k]) * 8);
+    const o = (y * img.w + x) * 3; out.data[o] = r[0]; out.data[o + 1] = r[1]; out.data[o + 2] = r[2];
+  }
+  return out;
+}
+// 8bit に丸める(RGBA8 の描き込み先)
+const quant = (img) => { const d = new Float32Array(img.data.length); for (let i = 0; i < d.length; i++) d[i] = Math.round(Math.min(1, Math.max(0, img.data[i])) * 255) / 255; return { w: img.w, h: img.h, data: d }; };
+// DrawStaircase: 黒で消して、シザー矩形の白い短冊を並べる(x + i*幅, y, 幅, 1 + i*高さ)
+function staircase(w, h, x, y, sw, sh, n) {
+  const img = { w, h, data: new Float32Array(w * h * 3) };
+  for (let i = 0; i < n; i++) for (let yy = y; yy < y + 1 + i * sh; yy++) for (let xx = x + i * sw; xx < x + (i + 1) * sw; xx++) { const o = (yy * w + xx) * 3; img.data[o] = img.data[o + 1] = img.data[o + 2] = 1; }
+  return img;
+}
+const readRed = (img, x, y, w, h) => { const out = new Float32Array(w * h); for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) out[j * w + i] = img.data[((y + j) * img.w + x + i) * 3]; return out; };
+const midTones = (v) => v.filter((a) => a > 0.08 && a < 0.92).length;
+function edgeDeviation(v, w, h) {
+  const prof = []; let cov = 0;
+  for (let x = 0; x < w; x++) { let s = 0; for (let y = 0; y < h; y++) s += v[y * w + x]; prof.push(s); cov += s; }
+  let sx = 0, sy = 0, sxx = 0, sxy = 0; for (let x = 0; x < w; x++) { sx += x; sy += prof[x]; sxx += x * x; sxy += x * prof[x]; }
+  const slope = (w * sxy - sx * sy) / (w * sxx - sx * sx), icp = (sy - slope * sx) / w;
+  let dev = 0; for (let x = 0; x < w; x++) dev += Math.abs(prof[x] - (slope * x + icp));
+  return { dev: dev / w, cov };
+}
+return { QUALITY, fxaa, quant, staircase, readRed, midTones, edgeDeviation, luma };
+})();
+
+// reference/Day38 の Render/ColorGrade.cs と composite.frag の Grade を JS に移したもの
+const CG = (() => {
+const f = Math.fround, D65X = 0.31271;
+const illumY = (x) => f(f(f(2.87 * x) - f(f(3 * x) * x)) - 0.275509);
+function xyToLms(x, y) {
+  const X = x / y, Z = (1 - x - y) / y;
+  return [0.7328 * X + 0.4296 - 0.1624 * Z, -0.7036 * X + 1.6975 + 0.0061 * Z, 0.0030 * X + 0.0136 + 0.9834 * Z];
+}
+function whiteBalance(temp, tint) {
+  const t1 = temp / 65, t2 = tint / 65, x = D65X - t1 * (t1 < 0 ? 0.10 : 0.05), y = illumY(x) + t2 * 0.05;
+  const tg = xyToLms(x, y), rf = xyToLms(D65X, illumY(D65X));
+  return [rf[0] / tg[0], rf[1] / tg[1], rf[2] / tg[2]];
+}
+// GLSL の mat3 は列ごとに並んでいる
+const L2M = [[0.390405, 0.070841, 0.023108], [0.549941, 0.963172, 0.128021], [0.008926, 0.001358, 0.936245]];
+const M2L = [[2.858470, -0.210182, -0.041812], [-1.628790, 1.158200, -0.118169], [-0.024891, 0.000324, 1.068670]];
+const mul = (m, v) => [0, 1, 2].map((r) => m[0][r] * v[0] + m[1][r] * v[1] + m[2][r] * v[2]);
+const PRESETS = { neutral: [0, 0, 1.0, 1.0, [1, 1, 1]], sunset: [25, 5, 1.15, 1.10, [1.05, 0.98, 0.92]], moon: [-35, -5, 1.05, 0.75, [0.88, 0.96, 1.14]], bleach: [5, 0, 1.35, 0.45, [1, 1, 1]], mono: [0, 0, 1.20, 0.00, [1, 1, 1]] };
+function grade(c, g) {
+  const wb = whiteBalance(g.temp, g.tint);
+  c = g.rgb ? c.map((v, i) => v * wb[i]) : mul(M2L, mul(L2M, c).map((v, i) => v * wb[i]));
+  c = c.map((v, i) => v * g.filter[i]);
+  c = c.map((v) => Math.pow(2, (Math.log2(Math.max(v, 1e-5)) - Math.log2(0.18)) * g.contrast + Math.log2(0.18)));
+  const l = c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+  c = c.map((v) => l + (v - l) * g.sat);
+  return c.map((v) => Math.max(v, 0));
+}
+const aces = (x) => Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+// 自己チェックの CompositeProbe(トーンマップなし・露出 1・8bit)
+const probe = (c, g) => (g ? grade(c, g) : c).map((v) => Math.round(Math.pow(Math.min(1, Math.max(0, v)), 1 / 2.2) * 255) / 255);
+return { whiteBalance, grade, PRESETS, aces, probe };
+})();
+
+(() => {
+'use strict';
+const { $, fit, seg, setSeg, stat, tok } = Lab;
+const segV = (id) => $(id).querySelector('[aria-pressed="true"]').dataset.v;
+
+// ============================================================
+//  FXAA で階段を均す
+// ============================================================
+{
+  const W = 960, Hh = 640, X0 = 64, Y0 = 64, N = 24;
+  const cache = new Map();
+  function compute(q, view, step) {
+    const key = q + '|' + view + '|' + step;
+    let c = cache.get(key);
+    if (!c) {
+      const [sw, sh] = step.split(',').map(Number);
+      const img = FX.staircase(W, Hh, X0, Y0, sw, sh, N), rw = sw * N, rh = sh * N + 8;
+      const rect = [X0 - 24, Y0 - 24, X0 + rw + 24, Y0 + rh + 24];
+      const out = FX.quant(FX.fxaa(img, FX.QUALITY[q], Number(view), rect));
+      const plain = FX.readRed(img, X0, Y0 - 4, rw, rh), sm = FX.readRed(FX.quant(FX.fxaa(img, FX.QUALITY[q], 0, rect)), X0, Y0 - 4, rw, rh);
+      c = { img, out, rw, rh, plainMid: FX.midTones(plain), mid: FX.midTones(sm), a: FX.edgeDeviation(plain, rw, rh), b: FX.edgeDeviation(sm, rw, rh), total: plain.length, sh };
+      cache.set(key, c);
+    }
+    return c;
+  }
+  function redraw() {
+    const q = segV('fx-q'), view = segV('fx-view'), step = segV('fx-step');
+    const c = compute(q, view, step);
+    const { ctx, w, h } = fit($('fx-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    // 階段の左下 48x24 画素ぶんを拡大して、左に加工前、右に加工後を描く
+    const vx = X0 + 16, vy = Y0 - 4, vw = 56, vh = Math.min(28, c.rh + 4), half = (w - 30) / 2, s = Math.min(half / vw, (h - 30) / vh);
+    const draw = (img, ox) => {
+      for (let y = 0; y < vh; y++) for (let x = 0; x < vw; x++) {
+        const o = ((vy + y) * W + vx + x) * 3, col = [img.data[o], img.data[o + 1], img.data[o + 2]].map((v) => Math.round(255 * Math.min(1, Math.max(0, v))));
+        ctx.fillStyle = `rgb(${col.join(',')})`; ctx.fillRect(ox + x * s, h - 20 - (y + 1) * s, s + 0.5, s + 0.5);
+      }
+    };
+    draw(c.img, 10);
+    draw(c.out, 20 + half);
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = 'left'; ctx.fillText('加工前', 10, 14); ctx.fillText(['FXAA のあと', '輝度(FXAA が見ている世界)', '縁の検出(赤 = 縁と判定)', '混合量(元の色から動いた量 x 8)'][Number(view)], 20 + half, 14);
+    $('fx-stats').innerHTML = stat('中間の明るさの画素', `${c.plainMid} → ${c.mid}`, `<small> (全 ${c.total} 画素)</small>`) + stat('縁の直線からのずれ', `${c.a.dev.toFixed(3)} → ${c.b.dev.toFixed(3)} 画素`, `<small> (階段のままなら段の高さの 1/4 = ${(c.sh * 0.25).toFixed(3)})</small>`) +
+      stat('明るさの総量', `${c.a.cov.toFixed(1)} → ${c.b.cov.toFixed(1)}`, `<small> (${(100 * (c.b.cov - c.a.cov) / c.a.cov).toFixed(2)}%)</small>`) + stat('しきい値 / 歩幅', `${FX.QUALITY[q][0]} / ${FX.QUALITY[q][2]}`);
+    $('fx-note').textContent = (q === 'medium' && step === '8,2' ? 'C# の自己チェックと同じ入力と効き。' : '') +
+      '加工前は白と黒しかなく(中間の明るさ 0 画素)、列ごとの白の量が段々になっている。FXAA は輝度の差で縁を見つけ、縁に沿った向きに数テクセル先の色を混ぜるので、段の角に中間色が置かれて直線に近づく。総量はほとんど変わらない(ぼかしではなく整形だから)。' +
+      (step === '16,1' ? ' ほとんど水平な縁は段が長いので、歩幅の上限で届かない所が残る(効きを「極」にすると歩幅 16 まで取りに行く)。' : '');
+  }
+  for (const id of ['fx-q', 'fx-view', 'fx-step']) seg(id, () => setTimeout(redraw, 10));
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  カラーグレーディング
+// ============================================================
+{
+  const SWATCHES = [['18% グレー', [0.18, 0.18, 0.18]], ['暗い灰', [0.05, 0.05, 0.05]], ['明るい灰', [0.6, 0.6, 0.6]], ['肌に近い色', [0.6, 0.3, 0.15]], ['芝の緑', [0.12, 0.35, 0.06]], ['空の青', [0.25, 0.45, 0.9]], ['白い雲(HDR)', [2.5, 2.5, 2.5]], ['夕日', [4.0, 1.4, 0.4]]];
+  const st = { temp: 0, tint: 0, contrast: 1, sat: 1, filter: [1, 1, 1], rgb: false };
+  const out = (c, g) => (g ? CG.grade(c, g) : c).map((v) => Math.round(255 * Math.pow(CG.aces(v), 1 / 2.2)));
+  function redraw() {
+    st.rgb = segV('cg-wb') === 'rgb';
+    const g = { ...st };
+    const { ctx, w, h } = fit($('cg-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const cw = (w - 20) / SWATCHES.length;
+    SWATCHES.forEach(([name, c], i) => {
+      const x = 10 + i * cw, a = out(c, null), b = out(c, g);
+      ctx.fillStyle = `rgb(${a.join(',')})`; ctx.fillRect(x + 4, 22, cw - 8, 70);
+      ctx.fillStyle = `rgb(${b.join(',')})`; ctx.fillRect(x + 4, 96, cw - 8, 70);
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText(name, x + cw / 2, 184);
+    });
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('上 = グレーディング無し、下 = あり(どちらも露出 1・ACES・ガンマ 2.2)', 10, 14);
+    const wb = CG.whiteBalance(st.temp, st.tint);
+    $('cg-stats').innerHTML = stat('白点(L, M, S の増幅率)', `(${wb.map((v) => v.toFixed(3)).join(', ')})`) + stat('色温度 / 色合い', `${st.temp} / ${st.tint}`) + stat('コントラスト / 彩度', `${st.contrast} / ${st.sat}`) + stat('色フィルタ', `(${st.filter.join(', ')})`);
+    // 自己チェックと同じ入力(トーンマップなし)
+    const P = [0.6, 0.3, 0.15], base = { temp: 0, tint: 0, contrast: 1, sat: 1, filter: [1, 1, 1], rgb: false };
+    const r = (v) => v.map((x) => x.toFixed(3)).join(', ');
+    const rows = [
+      ['素通しの設定で ON/OFF が一致', `OFF (${r(CG.probe(P))}) / ON (${r(CG.probe(P, base))})`],
+      ['彩度 0 で R = G = B', `(${r(CG.probe(P, { ...base, sat: 0 }))})`],
+      ['コントラスト 1.4 でも 18% グレーは動かない', `${CG.probe([0.18, 0.18, 0.18])[0].toFixed(4)} → ${CG.probe([0.18, 0.18, 0.18], { ...base, contrast: 1.4 })[0].toFixed(4)}`],
+      ['中心より暗いところは沈む(0.05)', `${CG.probe([0.05, 0.05, 0.05])[0].toFixed(4)} → ${CG.probe([0.05, 0.05, 0.05], { ...base, contrast: 1.4 })[0].toFixed(4)}`],
+      ['色温度 +40 で赤が上がり青が下がる(0.5)', (() => { const a = CG.probe([0.5, 0.5, 0.5]), b = CG.probe([0.5, 0.5, 0.5], { ...base, temp: 40 }); return `R ${a[0].toFixed(3)}→${b[0].toFixed(3)}  G ${a[1].toFixed(3)}→${b[1].toFixed(3)}  B ${a[2].toFixed(3)}→${b[2].toFixed(3)}`; })()],
+      ['色温度 +40 / −40 の白点', `${r(CG.whiteBalance(40, 0))} / ${r(CG.whiteBalance(-40, 0))}`],
+    ].map(([a, b]) => `<tr><th scope="row">${a}</th><td>${b}</td></tr>`).join('');
+    $('cg-table').innerHTML = `<table><thead><tr><th>自己チェックと同じ入力(トーンマップなし・8bit)</th><th>このページ</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('cg-note').textContent = (st.rgb ? 'RGB の3軸にそのまま掛けると、白は白に戻るが、中間の色の色相が引きずられる(LMS と見比べる。±40 程度なら差は小さい)。' : 'LMS で白点を掛けると、人の目の色順応に近い形で白を付け替えられる。') +
+      'グレーディングはトーンマップの前に掛けるので、コントラストで持ち上がった明るい所(白い雲・夕日)もトーンマップが畳んでくれる。コントラストの中心は 18% グレーで、そこは動かない。';
+  }
+  const setFrom = (p) => { [st.temp, st.tint, st.contrast, st.sat, st.filter] = CG.PRESETS[p]; setSeg('cg-temp', st.temp); setSeg('cg-con', st.contrast); setSeg('cg-sat', st.sat); };
+  seg('cg-preset', (v) => { setFrom(v); redraw(); });
+  seg('cg-temp', (v) => { st.temp = Number(v); setSeg('cg-preset', ''); redraw(); });
+  seg('cg-con', (v) => { st.contrast = Number(v); setSeg('cg-preset', ''); redraw(); });
+  seg('cg-sat', (v) => { st.sat = Number(v); setSeg('cg-preset', ''); redraw(); });
+  seg('cg-wb', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
