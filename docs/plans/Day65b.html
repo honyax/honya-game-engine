@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 65b GPU 駆動レンダリング(2)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. Hi-Z — 「その範囲でいちばん奥の深度」の山</a></li><li class="l3"><a href="#s6">2. どの段を読むか — 箱の差し渡しで決める</a></li><li class="l3"><a href="#s7">3. 段の大きさは切り捨て — 端の1列を取りこぼさない</a></li><li class="l3"><a href="#s8">4. 作る手順 — 9 回のディスパッチと、その間のバリア</a></li><li class="l3"><a href="#s9">5. 見えるようにする — Hi-Z の段を CPU へ引き取って描く</a></li><li class="l2"><a href="#s10">前Dayからの差分概要</a></li><li class="l3"><a href="#s11">新規ファイル</a></li><li class="l3"><a href="#s12">変更ファイル</a></li><li class="l3"><a href="#s13">写経の始め方</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">全体構成と依存の向き</a></li><li class="l3"><a href="#s17">Vulkan — 8つのクラス(Day 65b で <code>ComputePipeline</code> と <code>DepthPyramid</code> が増えた)</a></li><li class="l3"><a href="#s18">GPU に挿さっているもの — binding の一覧</a></li><li class="l3"><a href="#s19">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65b で描いた後に Hi-Z が入った)</a></li><li class="l3"><a href="#s20">depth_reduce.comp の1人の中(新規)</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. 起動: 絵は Day 65a のまま、HUD に「Hi-Z」の行</a></li><li class="l3"><a href="#s24">2. <code>4</code> を押してから <code>Z</code> を押していく(今日の目)</a></li><li class="l3"><a href="#s25">3. <code>B</code> で道を回す / <code>G</code> で選び方を回す</a></li><li class="l2"><a href="#s26">検証の途中で分かったこと</a></li><li class="l3"><a href="#s27">検証1: Hi-Z の各段は「受け持つ画素のいちばん奥」になっている</a></li><li class="l3"><a href="#s28">検証2: 粗い段はほとんど「何も無い」</a></li><li class="l3"><a href="#s29">検証3: 値段</a></li><li class="l3"><a href="#s30">検証4: 切り上げで数えた 10 段目</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 平均で畳んでみる</a></li><li class="l3"><a href="#s33">課題2(中): 段 0 を 2 の累乗にする</a></li><li class="l3"><a href="#s34">課題3(難): Hi-Z で「隠れていそうな体」を数えてみる</a></li><li class="l2"><a href="#s35">次の Day 65c へ</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 65b / 計画書</p>
+  <h1>GPU 駆動レンダリング(2)</h1>
+  <p class="lede">描き終わった深度を畳んで Hi-Z を作る</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. Hi-Z — 「その範囲でいちばん奥の深度」の山</a></li><li class="l3"><a href="#s6">2. どの段を読むか — 箱の差し渡しで決める</a></li><li class="l3"><a href="#s7">3. 段の大きさは切り捨て — 端の1列を取りこぼさない</a></li><li class="l3"><a href="#s8">4. 作る手順 — 9 回のディスパッチと、その間のバリア</a></li><li class="l3"><a href="#s9">5. 見えるようにする — Hi-Z の段を CPU へ引き取って描く</a></li><li class="l2"><a href="#s10">前Dayからの差分概要</a></li><li class="l3"><a href="#s11">新規ファイル</a></li><li class="l3"><a href="#s12">変更ファイル</a></li><li class="l3"><a href="#s13">写経の始め方</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">全体構成と依存の向き</a></li><li class="l3"><a href="#s17">Vulkan — 8つのクラス(Day 65b で <code>ComputePipeline</code> と <code>DepthPyramid</code> が増えた)</a></li><li class="l3"><a href="#s18">GPU に挿さっているもの — binding の一覧</a></li><li class="l3"><a href="#s19">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65b で描いた後に Hi-Z が入った)</a></li><li class="l3"><a href="#s20">depth_reduce.comp の1人の中(新規)</a></li><li class="l3"><a href="#s21">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. 起動: 絵は Day 65a のまま、HUD に「Hi-Z」の行</a></li><li class="l3"><a href="#s24">2. <code>4</code> を押してから <code>Z</code> を押していく(今日の目)</a></li><li class="l3"><a href="#s25">3. <code>B</code> で道を回す / <code>G</code> で選び方を回す</a></li><li class="l2"><a href="#s26">検証の途中で分かったこと</a></li><li class="l3"><a href="#s27">検証1: Hi-Z の各段は「受け持つ画素のいちばん奥」になっている</a></li><li class="l3"><a href="#s28">検証2: 粗い段はほとんど「何も無い」</a></li><li class="l3"><a href="#s29">検証3: 値段</a></li><li class="l3"><a href="#s30">検証4: 切り上げで数えた 10 段目</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): 平均で畳んでみる</a></li><li class="l3"><a href="#s33">課題2(中): 段 0 を 2 の累乗にする</a></li><li class="l3"><a href="#s34">課題3(難): Hi-Z で「隠れていそうな体」を数えてみる</a></li><li class="l2"><a href="#s35">次の Day 65c へ</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編。Day 65 の2日目</strong>。reference は Day 65a の完全コピー + 差分(<code>MeshletRenderer</code> の続き)。</p>
+<p>Day 65a で「描く命令の引数を GPU が書く」骨格を作った。ところが選ぶのに使ったのは、体の置き場所と視錐台という<strong>CPU でも分かる情報</strong>だけで、CPU で選んでも絵も速さも同じだった。Day 65c では <strong>CPU が持っていない情報——深度——で、隠れたものを捨てる</strong>。今日はその下ごしらえで、描き終わった深度を縦横半分ずつ畳み、「その範囲でいちばん奥の深度」を残した画像の山(<strong>Hi-Z</strong>)を毎フレーム作る。</p>
+<div class="code"><pre><code>  深度(960 x 540)
+     │ 2x2 のうち、いちばん奥
+     ▼
+  段 0(480 x 270)→ 段 1(240 x 135)→ 段 2(120 x 67)→ ... → 段 8(1 x 1)
+                                                   9 回のディスパッチ、合わせて 25 us 前後</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 65a</th><th><strong>Day 65b</strong></th></tr></thead>
+<tbody>
+<tr><td>深度</td><td>描き終わったら捨てる(<code>DontCare</code>)</td><td><strong>残して(<code>Store</code>)、シェーダから読む</strong></td></tr>
+<tr><td>描いた後</td><td>色を引き取るだけ</td><td><strong>Hi-Z を作る</strong>(<code>DepthPyramid</code> + <code>depth_reduce.comp</code>)</td></tr>
+<tr><td>コンピュートのパイプライン</td><td><code>MeshRenderer</code> の中の関数で作る</td><td><strong><code>ComputePipeline</code> クラス</strong>(使い手が2つになったので)</td></tr>
+<tr><td>画面</td><td>絵</td><td><code>Z</code> で <strong>Hi-Z の段を絵の代わりに出せる</strong></td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>新規 3 ファイル</strong>(<code>DepthPyramid.cs</code> 238 行、<code>ComputePipeline.cs</code> 87 行、<code>depth_reduce.comp</code> 82 行)と<strong>変更 6 ファイル</strong>(+265 / −75 行)。Day 65 は3日に分けた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何を作るか</th><th>絵は変わるか</th></tr></thead>
+<tbody>
+<tr><td>65a</td><td>描く命令の引数を GPU が書く(indirect)。体ごとのカリング</td><td>変わらない</td></tr>
+<tr><td><strong>65b</strong></td><td><strong>深度の山(Hi-Z)を作って、目で見る</strong></td><td>変わらない(<code>Z</code> で Hi-Z を見られる)</td></tr>
+<tr><td>65c</td><td>前のフレームに見えていたもの → Hi-Z → 隠れたものを捨てる2パス。Nanite の講読</td><td>変わらない(描く量が減る)</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>今日いちばん意外だったのは、画像のミップは「切り上げ」で数えると作れないこと</strong></p>
+<p>480 x 270 を半分ずつにしていくとき、最初は切り上げ(15 → 8)で数えて <strong>10 段</strong>の画像を作った。何のエラーも出ず、絵も出た。ところが Day 65c の判定が1体だけ必ず「隠れている」と言うので調べると、<strong>段 9 の大きさがシェーダから 0 x 0 に見えていた</strong>。Vulkan のミップの大きさは<strong>切り捨て</strong>(<code>max(1, 大きさ &gt;&gt; 段)</code>)で、480 x 270 から作れるのは <strong>9 段まで</strong>。10 段目は仕様違反で、検証レイヤの無いこの PC では黙って「無い段」になっていた。切り捨てに合わせると、今度は奇数の段を半分にするたびに<strong>端の1列が取り残される</strong>。取り残すと「そこに見えていた物」を隠れていると言いかねないので、端の画素だけ 3 列(3 行)読んで拾う(要点3)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると Day 65a と同じ 16 体が出る。HUD に「Hi-Z : 9 段 / 作るのに GPU 80〜110 us 前後 / 見ていない」の行が増える。<code>Z</code> を押すたびに、絵の代わりに Hi-Z の段 0、1、2 … 8 が画面いっぱいに引き伸ばされて出る。段を上がるほど粗いモザイクになり、</strong>体の輪郭の内側まで黒(= 奥、何も無い)が食い込んでいく<strong>。9 回目の <code>Z</code> で絵に戻る。絵そのものは Day 65a と1画素も変わらない。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>Z</code></td><td><strong>Hi-Z の段を見る(見ない → 段 0 → 段 1 → … → 段 8 → 見ない)。今日の目</strong></td></tr>
+<tr><td><code>G</code> / <code>B</code> / <code>C</code> / <code>F</code> / <code>O</code> / <code>M</code> / <code>1</code>〜<code>4</code> / ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>Day 65a のまま</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「いちばん奥を残す」</strong>(要点1)。Hi-Z の1画素は、それが受け持つ画面の範囲の<strong>いちばん奥の深度</strong>。ある物のいちばん手前が、その物がかかる範囲の「いちばん奥」よりさらに奥なら、その物は<strong>1画素も見えない</strong>と言い切れる。平均でも手前でもなく「奥」を残すのは、この「言い切れる」(安全側)のため。</p>
+<p><strong>2つ目は「どんな大きさの範囲でも、読むのは 2x2 画素」</strong>(要点2)。段 L の1画素は画面の 2^(L+1) 画素四方を受け持つ。物が画面で覆う箱の差し渡しが 100 画素なら、段 6(128 画素四方)を選べば箱は多くても 2x2 画素にかかる。何千画素の範囲でも、4 画素読めば「その範囲でいちばん奥」が分かる。これが山にしておく理由。</p>
+<p><strong>3つ目は「作るのは安く、でも毎フレーム」</strong>(要点4・検証3)。9 回のディスパッチで 25 us 前後(ハーネス)。256 体を描く時間(400 us)の 6% ほど。ただし<strong>深度はそのフレームの物</strong>なので、毎フレーム作り直すしかない。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://www.rastergrid.com/blog/2010/10/hierarchical-z-map-based-occlusion-culling/">RasterGrid: Hierarchical-Z map based occlusion culling</a></strong> —Hi-Z を作って、物の箱と比べて隠れを判定する、という手法の定番の解説。「いちばん奥(max)を残す」理由と、<strong>奇数の大きさの段で端を取りこぼす問題</strong>(今日の要点3)も書いてある。今日は前半(作る)、Day 65c で後半(比べる)</li><li><strong><a href="https://docs.vulkan.org/spec/latest/chapters/resources.html">Vulkan 仕様: Resource Creation</a></strong> の<code>VkImageCreateInfo</code> の <code>mipLevels</code> の決まり(<code>floor(log2(max(幅, 高さ))) + 1</code> 以下)と、<strong>Image Mip Level Sizing</strong> の節(段の大きさは <code>max(1, 幅 &gt;&gt; 段)</code>)。今日の「意外だったこと」はここに書いてある</li><li><strong><a href="https://github.com/zeux/niagara">niagara</a></strong>(Arseny Kapoulkine の Vulkan レンダラ)の <code>src/shaders/depthreduce.comp.glsl</code> —同じことをする 20 行ほどのシェーダ。niagara は<strong>サンプラーの縮約</strong>(<code>VK_SAMPLER_REDUCTION_MODE_MIN</code>)で 2x2 を1回の読み出しで畳み、段 0 を画面より小さい 2 の累乗に取る。<strong>深度を逆向き(手前 1、奥 0)にしているので、いちばん奥は MIN</strong> になる。今日は texelFetch で1画素ずつ読む(要点3 の違いを参照)</li><li><strong>Day 57 の計画書</strong>の要点(コンピュートシェーダの実行モデル)と <strong>Day 62a の計画書</strong>の要点5(画像のレイアウトとバリア)</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. Hi-Z — 「その範囲でいちばん奥の深度」の山</h3>
+<p>深度の画像を縦横半分ずつ畳んでいく。畳むとき、2x2 画素のうち<strong>いちばん奥(値が大きいほう。手前 0、奥 1)</strong>を残す。</p>
+<div class="code"><pre><code>  段 0 の 2x2        段 1 の 1 画素
+  ┌─────┬─────┐
+  │0.97 │1.00 │      いちばん奥 = 1.00(ここには何も描かれていない画素がある)
+  ├─────┼─────┤ ──→
+  │0.96 │0.97 │
+  └─────┴─────┘</code></pre></div>
+<p>こうしておくと、段 L の1画素は「画面の 2^(L+1) 画素四方の中で、いちばん奥の深度」になる。</p>
+<p><strong>なぜ「奥」なのか</strong>。Day 65c でやりたいのは「この物は隠れているから描かなくてよい」と<strong>言い切る</strong>こと。物のいちばん手前の深度を d、物がかかる範囲の Hi-Z の値を z とする。</p>
+<ul><li><strong>d &gt; z</strong>(物のいちばん手前が、範囲のいちばん奥よりさらに奥)→ 範囲のどの画素でも、すでに描いた物のほうが手前。<strong>1画素も見えない</strong></li><li>d ≤ z → 見えるかもしれない(見えないかもしれない)。<strong>捨てない</strong></li></ul>
+<p>「平均」を残すと、範囲の一部に何も無い(深度 1)画素があっても平均は 1 より小さくなり、その隙間から見えている物を「隠れている」と言ってしまう。<strong>「奥」を残す限り、間違えるときは必ず「捨て損なう」側に倒れる</strong>。</p>
+<p>深度の形式(<code>D32_SFLOAT</code>)はストレージ画像にできない(シェーダから書けない)ので、Hi-Z は <code>R32_SFLOAT</code> の画像を別に作る(<code>VulkanImage.CreatePyramid</code>)。深度はシェーダから<strong>読むだけ</strong>(Sampled)なので、深度の画像には <code>SampledBit</code> を足すだけで済む。</p>
+<h3 id="s6">2. どの段を読むか — 箱の差し渡しで決める</h3>
+<p>Day 65c では、物(体やメッシュレット)を画面に投影した<strong>箱</strong>と Hi-Z を比べる。箱の差し渡しが e 画素なら、1画素が e 画素四方以上を受け持つ段——<strong>2^(L+1) ≥ e となる最小の L</strong>——を選ぶ。</p>
+<div class="code"><pre><code>  e = 100 画素 → 2^(L+1) ≥ 100 → L = 6(1画素 = 128 画素四方)
+  箱の左端 x0 = 300、右端 x1 = 400 → 300 / 128 = 2.3、400 / 128 = 3.1 → 画素 2 と 3 の2つにかかる</code></pre></div>
+<p>箱の差し渡しが1画素の幅以下なので、<strong>箱は縦横それぞれ多くても 2 画素にかかる</strong>。読むのは多くても 4 画素。何千画素の範囲でも読む量が一定——これが「山」にしておく値打ち。</p>
+<p>代わりに<strong>粗くなる</strong>。段 6 の1画素は 128 画素四方で、その中に1画素でも「何も無い」があれば値は 1 になる。今日の場面(穴だらけのトーラスノット)では、段 5 まで上がると 98% の画素が 1 になった(検証2)。<strong>大きい物ほど粗い段で比べることになり、隠れていると言いにくい</strong>。Day 65c で、体ごとよりメッシュレットごとの判定がずっと効く理由がこれ。</p>
+<div class="inject"><figure class="lab" id="bx-lab">
+  <div class="lab-head">
+    <h3>どの段を読むか — 箱の差し渡しから決める(要点2)</h3>
+    <span class="tag">「2^(L+1) ≥ 箱の差し渡し となる最小の L」を、画面の上の正方形の箱について計算したもの(Day 65c の判定が使う選び方。判定そのものは Day 65c)。箱の画素はこのページが 960x540 の画面に置いた値で、段の大きさ・画面の画素 → Hi-Z の画素の式(min(p >> (L+1), 幅 − 1))は ViewerWindow.DrawPyramidLevel と同じ。「何も無い画素の割合」は、上の実験台と同じ 256 体・既定の視点の Hi-Z のもの</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">箱の左端 x(画素)</span>
+      <div class="range"><input type="range" id="bx-x" min="0" max="900" step="1" value="300"><output id="bx-x-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">箱の差し渡し e(画素)</span>
+      <div class="range"><input type="range" id="bx-e" min="1" max="520" step="1" value="100"><output id="bx-e-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bx-stats"></div><div class="table-wrap" id="bx-table" style="margin-top:10px"></div><p id="bx-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">3. 段の大きさは切り捨て — 端の1列を取りこぼさない</h3>
+<p>Vulkan の画像のミップは、段ごとに大きさを<strong>切り捨てで</strong>半分にする(<code>max(1, 幅 &gt;&gt; 段)</code>)。480 x 270 なら</p>
+<div class="code"><pre><code>  480x270 → 240x135 → 120x67 → 60x33 → 30x16 → 15x8 → 7x4 → 3x2 → 1x1     (9 段)</code></pre></div>
+<p>135 → 67 のように奇数を半分にすると、下の段の<strong>いちばん端の1行(134 行目)がどの出力にも入らない</strong> (出力の 66 行目が読むのは 132・133 行目)。取りこぼした行に「そこだけ見えていた物」があると、Hi-Z はそれを知らないまま「奥はこの値」と言ってしまう。<strong>安全側が崩れる</strong>。</p>
+<p>そこで <code>depth_reduce.comp</code> は、<strong>下の段が奇数で、自分が端の出力なら、3 列目(3 行目)も読む</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>int countX = (p.x == outputSize.x - 1 &amp;&amp; (sourceSize.x &amp; 1) != 0) ? 3 : 2;
+int countY = (p.y == outputSize.y - 1 &amp;&amp; (sourceSize.y &amp; 1) != 0) ? 3 : 2;</code></pre></div>
+<p>すると段 L の画素 x は、画面の画素 [x · 2^(L+1), (x+1) · 2^(L+1)) を受け持ち、<strong>いちばん右の画素だけは余った分(画面の右端まで)も受け持つ</strong>。画面の画素 p から Hi-Z の画素を引くときは <code>min(p &gt;&gt; (L+1), 幅 − 1)</code> でよい(<code>ViewerWindow.DrawPyramidLevel</code> と Day 65c の判定で同じ式)。</p>
+<p><strong>切り上げで数えれば取りこぼしは起きない</strong>(15 → 8 なら 2 画素ずつで 16 を覆う)が、その大きさの段は作れない。「今日いちばん意外だったこと」の 10 段目がこれ。</p>
+<p>niagara は段 0 を「画面より小さい 2 の累乗」(960 x 540 なら 512 x 256)に取る。すると段 1 から上は必ずぴったり半分になり、奇数の端が出ない。段 0 だけは1画素が深度の 1.875 x 2.1 画素ぶんになるが、縮みが 2 倍以下なのでサンプラーの 2x2 の縮約1回で受け持つ範囲を覆える——と niagara のコードのコメントは説明している。今日は段の大きさを<strong>画像のミップの大きさにそのまま合わせ</strong>、画面の画素と Hi-Z の画素の対応が <code>p &gt;&gt; (L+1)</code> の式1つで書けるほうを採った(代わりに端の 3 列・3 行が要る)。どちらが良いかは改造課題2 で比べる。</p>
+<div class="inject"><figure class="lab" id="sz-lab">
+  <div class="lab-head">
+    <h3>段の大きさは切り捨て — 端の1列を取りこぼさない(要点3、検証4)</h3>
+    <span class="tag">段の大きさ(Vulkan の決まりの max(1, 大きさ >> 段)と、切り上げで数えた場合)と、depth_reduce.comp の読み方(ふつう 2 画素、下の段が奇数で端の出力だけ 3 画素)を、段ごとに数えたもの。「作れる段の数の上限」は Vulkan の仕様(floor(log2(max(幅, 高さ))) + 1)。段 0 の大きさは reference では深度の半分(480x270)で、ほかの大きさはこのページだけ</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">段 0 の大きさ</span>
+      <div class="seg" id="sz-size"><button data-v="480,270" aria-pressed="true">480 x 270(reference)</button><button data-v="640,360" aria-pressed="false">640 x 360</button><button data-v="512,256" aria-pressed="false">512 x 256(2 の累乗。niagara)</button><button data-v="960,540" aria-pressed="false">960 x 540</button></div>
+    </div>
+    <div class="ctl"><span class="label">段の大きさの数え方</span>
+      <div class="seg" id="sz-round"><button data-v="floor" aria-pressed="true">切り捨て(Vulkan・reference)</button><button data-v="ceil" aria-pressed="false">切り上げ(最初の版。10 段目ができる)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sz-stats"></div><div class="table-wrap" id="sz-table" style="margin-top:10px"></div><p id="sz-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">4. 作る手順 — 9 回のディスパッチと、その間のバリア</h3>
+<div class="code"><pre><code>  描き終わる
+     ↓ バリア: 深度 DepthAttachmentOptimal → ShaderReadOnlyOptimal(深度の書き込み → コンピュートの読み込み)
+  段 0 を作る(深度を読む)
+     ↓ バリア: コンピュートの書き込み → コンピュートの読み込み
+  段 1 を作る(段 0 を読む)
+     ↓ …
+  段 8 を作る(段 7 を読む)
+     ↓ (見たい段があれば)バリア: コンピュートの書き込み → 転送の読み込み / 段 L をバッファへ写す</code></pre></div>
+<ul><li><strong>段と段の間にバリアが要る</strong>。段 L は段 L − 1 を読むので、書き終わってから読む。9 回のディスパッチが直列に並ぶ</li><li><strong>ディスクリプタセットは段の数だけ作る</strong>。違うのは書き込み先(段 L だけを見るビュー)だけ。<strong>ストレージ画像として挿せるのはミップ1段ぶんのビューだけ</strong>なので、段ごとにビューを作る(<code>VulkanImage.CreateMipView</code>)</li><li><strong>何段目を作っているかはプッシュ定数で渡す</strong>(uint 1つ)。段 0 だけは深度を、ほかは1つ下の段を読むので、シェーダが分ける</li><li>Hi-Z の画像は作った直後に <strong>General</strong> へ移し、置きっぱなしにする。書く(ストレージ画像)のも読む(サンプルする画像)のも、CPU へ写すコピーも、General のままでできる。深度だけは毎フレーム「的」と「読む」を行き来する</li></ul>
+<p>深度は Day 65a まで <code>StoreOp = DontCare</code>(描き終わったら捨ててよい)だった。今日は後で読むので <strong><code>Store</code></strong> にした。タイル型の GPU(スマートフォン)では、深度をメモリへ書き戻す手間が増える。手元の RTX 3070 では描く時間は変わらなかった(検証3)。</p>
+<h3 id="s9">5. 見えるようにする — Hi-Z の段を CPU へ引き取って描く</h3>
+<p><code>Z</code> で選んだ段を、描き終わったあと CPU へ写し(<code>DepthPyramid.RecordCopyLevel</code>)、<code>ViewerWindow</code> が画面いっぱいに引き伸ばして描く。</p>
+<p>深度の値(0〜1)は<strong>手前に寄って詰まっている</strong>。今日の投影(手前 0.1m、奥 200m)では、5m 先でもう 0.98。そのまま灰色にすると、ほとんど真っ白の絵になる。そこで<strong>目からの距離(m)に戻して</strong>から明るさにする。</p>
+<div class="code"><pre><code>  距離 = 手前 x 奥 / (奥 − 深度 x (奥 − 手前))          (Camera の透視投影を逆にたどる)
+  明るさ = 1 − 距離 / 60m                              (近いほど明るい。60m より先と、何も無い = 深度 1 は黒)</code></pre></div>
+<p>段を上がるたびに黒(= 奥)が体の輪郭の内側へ食い込んでいくのが見えるはず。それが「いちばん奥を残す」の見た目。</p>
+<div class="inject"><figure class="lab" id="hz-lab">
+  <div class="lab-head">
+    <h3>Hi-Z を見る — 深度を畳んで、いちばん奥を残す(要点1・5、完成条件2、検証2)</h3>
+    <span class="tag">reference の depth_reduce.comp(2x2、下の段が奇数で端なら 3 列 / 3 行、いちばん奥)と DepthPyramid の段の大きさ(480x270 → … → 1x1 の 9 段)を JS に移して、選ばれた体を 960x540 でソフトウェアに描いた深度から作ったもの(GPU ではない)。画面への引き伸ばしと明るさ(目からの距離 → 60m で黒)は ViewerWindow.DrawPyramidLevel と同じ。体の数・視点は reference の起動時(SceneData)と同じ。値が 1.0 の画素の割合は、計画書の検証2の表と同じ値になる。GPU の時間はここでは測れない</span>
+  </div>
+  <div class="stage"><canvas id="hz-canvas" style="height:420px;background:#000" aria-label="深度、または Hi-Z の段を、画面いっぱいに引き伸ばして灰色で表した絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の数(1 / 2 / 3 / 4)</span>
+      <div class="seg" id="hz-count"><button data-v="1" aria-pressed="false">1</button><button data-v="16" aria-pressed="false">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="true">256</button></div>
+    </div>
+    <div class="ctl"><span class="label">見下ろす角度(Pitch。ドラッグで変える。計画書の「低い視点」は 0.12)</span>
+      <div class="seg" id="hz-pitch"><button data-v="default" aria-pressed="true">既定</button><button data-v="0.12" aria-pressed="false">0.12(低い視点)</button></div>
+    </div>
+    <div class="ctl"><span class="label">見る段(Z)</span>
+      <div class="seg" id="hz-level"><button data-v="-1" aria-pressed="true">見ていない(深度)</button><button data-v="0" aria-pressed="false">0</button><button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="3" aria-pressed="false">3</button><button data-v="4" aria-pressed="false">4</button><button data-v="5" aria-pressed="false">5</button><button data-v="6" aria-pressed="false">6</button><button data-v="7" aria-pressed="false">7</button><button data-v="8" aria-pressed="false">8</button></div>
+    </div>
+    <div class="ctl"><span class="label">畳み方。reference は「いちばん奥」。このページだけ(課題1)</span>
+      <div class="seg" id="hz-mode"><button data-v="max" aria-pressed="true">いちばん奥(reference)</button><button data-v="mean" aria-pressed="false">平均</button><button data-v="min" aria-pressed="false">いちばん手前</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="hz-stats"></div><div class="table-wrap" id="hz-table" style="margin-top:10px"></div><p id="hz-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s10">前Dayからの差分概要</h2>
+<h3 id="s11">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Vulkan/ComputePipeline.cs</code></td><td>87</td><td>コンピュートパイプライン1本。Day 65a の <code>MeshRenderer.CreateComputePipeline</code> をクラスにしたもの</td></tr>
+<tr><td><code>Vulkan/DepthPyramid.cs</code></td><td>238</td><td><strong>今日の主役</strong>。Hi-Z の画像・段ごとのビューとディスクリプタセット・9 回のディスパッチ</td></tr>
+<tr><td><code>shaders/depth_reduce.comp</code></td><td>82</td><td>Hi-Z を1段作る。2x2(端は 3)のうちいちばん奥を残す</td></tr>
+</tbody>
+</table></div>
+<h3 id="s12">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何を足したか</th></tr></thead>
+<tbody>
+<tr><td><code>Day65b.csproj</code></td><td>コメントのみ</td><td>shaders に <code>depth_reduce.comp</code> が増えたことの説明</td></tr>
+<tr><td><code>Vulkan/VulkanImage.cs</code></td><td>+66 / −11</td><td>深度に <code>SampledBit</code>、ミップの段数(<code>MipLevels</code>)、<code>CreatePyramid</code>、<code>CreateMipView</code>、段を選べる <code>RecordCopyToBuffer</code></td></tr>
+<tr><td><code>Vulkan/VulkanBuffer.cs</code></td><td>+16 / −0</td><td><code>Read(float[])</code>(Hi-Z の1段を引き取る)</td></tr>
+<tr><td><code>Vulkan/MeshRenderer.cs</code></td><td>+109 / −50</td><td><code>ComputePipeline</code> を使う(関数を消す)、<code>DepthPyramid</code> を持つ、深度を <code>Store</code>、<code>RecordPyramid</code>、時計を6目盛りに</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+61 / −1</td><td><code>Z</code>、<code>DrawPyramidLevel</code>、HUD の「Hi-Z」の行</td></tr>
+<tr><td><code>Program.cs</code></td><td>+6 / −13</td><td>説明の差し替え(コメントのみ)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">写経の始め方</h3>
+<p><code>work/Labs/MeshletRenderer</code> をそのまま育てる(Day 64a から続いているプロジェクト)。差分は <code>./diff.sh Day65b</code> で見られる。</p>
+<h3 id="s14">写経する順番</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Vulkan/ComputePipeline.cs</code></td><td><strong>新規</strong>。依存は <code>VulkanDevice</code> だけ。中身は Day 65a の <code>CreateComputePipeline</code> とほぼ同じ</td></tr>
+<tr><td>2</td><td><code>Vulkan/VulkanImage.cs</code></td><td>依存なし。<code>Create</code> に <code>mipLevels</code> を足し、ビューの <code>LevelCount</code> とバリアの範囲も段数に合わせる</td></tr>
+<tr><td>3</td><td><code>Vulkan/VulkanBuffer.cs</code></td><td>依存なし。<code>Read(int[])</code> の float 版</td></tr>
+<tr><td>4</td><td><code>shaders/depth_reduce.comp</code></td><td><strong>新規</strong>。<code>common.glsl</code> は読まない(別のセットを使う)。端の 3 列・3 行を忘れない</td></tr>
+<tr><td>5</td><td><code>Vulkan/DepthPyramid.cs</code></td><td><strong>新規</strong>。1・2・4 を使う。段の数は<strong>切り捨て</strong>で数える(切り上げだと作れない段ができる)</td></tr>
+<tr><td>6</td><td><code>Vulkan/MeshRenderer.cs</code></td><td>1〜5 を使う。<code>CreateComputePipeline</code> を消して <code>ComputePipeline.Create</code> に。深度の <code>StoreOp</code> を <code>Store</code> に</td></tr>
+<tr><td>7</td><td><code>App/ViewerWindow.cs</code></td><td>6 の <code>ShownPyramidLevel</code> / <code>LastPyramidLevel</code> / <code>PyramidLevelWidth</code> を使う</td></tr>
+<tr><td>8</td><td><code>Program.cs</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+<tr><td>9</td><td><code>Day65b.csproj</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>動かすのは 6 まで写してから</strong>(6 で <code>CreateComputePipeline</code> が消え、<code>ComputePipeline</code> に置き換わるので、途中ではビルドが通らない)。7 を写す前でも起動はでき、HUD には何も増えないが Hi-Z は裏で作られている。7 まで写したら <code>Z</code> で段 0 から順に見る。段 0 で体の形がそのまま出ていれば、深度の読み方とレイアウトは合っている。段を上げて<strong>急に真っ黒になる / 画面の端に黒い筋が出る</strong>なら、段の大きさ(5)か端の 3 列(4)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p>Day 65a から<strong>クラスが2つ増えた</strong>(<code>ComputePipeline</code> と <code>DepthPyramid</code>)。どちらも <code>Vulkan/</code> の中で、層の形は変わらない。<code>MeshRenderer</code> は Hi-Z を<strong>持つ</strong>(作り方は <code>DepthPyramid</code> に任せる)。</p>
+<h3 id="s16">全体構成と依存の向き</h3>
+<svg viewBox="0 0 978 880" role="img" aria-label="全体構成と依存の向き。行が使う側、列が使われる側の行列(点が1つ = 1本の矢印)。Program.cs が App/ViewerWindow.cs を使う。App/ViewerWindow.cs が Vulkan/MeshRenderer.cs を使う。App/ViewerWindow.cs が Vulkan/VulkanDevice.cs を使う。App/ViewerWindow.cs が Vulkan/ShaderCompiler.cs を使う。App/ViewerWindow.cs が Geometry/MeshletBuilder.cs を使う。App/ViewerWindow.cs が Geometry/TorusKnot.cs を使う。App/ViewerWindow.cs が Scene/SceneData.cs を使う。App/ViewerWindow.cs が Scene/Camera.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/GraphicsPipeline.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/ComputePipeline.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/DepthPyramid.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanBuffer.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanImage.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/ShaderCompiler.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshletBuilder.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshData.cs を使う。Vulkan/MeshRenderer.cs が Scene/Camera.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/ComputePipeline.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/VulkanImage.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/ShaderCompiler.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/VulkanBuffer.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/ComputePipeline.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanImage.cs を使う。Vulkan/GraphicsPipeline.cs が Geometry/MeshData.cs を使う。Vulkan/VulkanBuffer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanBuffer.cs を使う。Geometry/MeshletBuilder.cs が Geometry/MeshData.cs を使う。Geometry/TorusKnot.cs が Geometry/MeshData.cs を使う。Scene/SceneData.cs が Scene/Camera.cs を使う。使われる側が必ず後ろの列にあるので、点は対角線の右上にしか並ばない = 循環は無い" style="width:100%;max-width:978px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><polygon points="408,150 408,840 888,840" fill="var(--sunken)" opacity="0.55"></polygon><text x="414" y="830" font-size="12" fill="var(--muted)">この三角形には点が 1 つも無い</text><line x1="408" y1="150" x2="888" y2="150" stroke="var(--line)"></line><line x1="408" y1="150" x2="408" y2="840" stroke="var(--line)"></line><line x1="408" y1="196" x2="888" y2="196" stroke="var(--line)"></line><line x1="440" y1="150" x2="440" y2="840" stroke="var(--line)"></line><line x1="408" y1="242" x2="888" y2="242" stroke="var(--line)"></line><line x1="472" y1="150" x2="472" y2="840" stroke="var(--line)"></line><line x1="408" y1="288" x2="888" y2="288" stroke="var(--line)"></line><line x1="504" y1="150" x2="504" y2="840" stroke="var(--line)"></line><line x1="408" y1="334" x2="888" y2="334" stroke="var(--line)"></line><line x1="536" y1="150" x2="536" y2="840" stroke="var(--line)"></line><line x1="408" y1="380" x2="888" y2="380" stroke="var(--line)"></line><line x1="568" y1="150" x2="568" y2="840" stroke="var(--line)"></line><line x1="408" y1="426" x2="888" y2="426" stroke="var(--line)"></line><line x1="600" y1="150" x2="600" y2="840" stroke="var(--line)"></line><line x1="408" y1="472" x2="888" y2="472" stroke="var(--line)"></line><line x1="632" y1="150" x2="632" y2="840" stroke="var(--line)"></line><line x1="408" y1="518" x2="888" y2="518" stroke="var(--line)"></line><line x1="664" y1="150" x2="664" y2="840" stroke="var(--line)"></line><line x1="408" y1="564" x2="888" y2="564" stroke="var(--line)"></line><line x1="696" y1="150" x2="696" y2="840" stroke="var(--line)"></line><line x1="408" y1="610" x2="888" y2="610" stroke="var(--line)"></line><line x1="728" y1="150" x2="728" y2="840" stroke="var(--line)"></line><line x1="408" y1="656" x2="888" y2="656" stroke="var(--line)"></line><line x1="760" y1="150" x2="760" y2="840" stroke="var(--line)"></line><line x1="408" y1="702" x2="888" y2="702" stroke="var(--line)"></line><line x1="792" y1="150" x2="792" y2="840" stroke="var(--line)"></line><line x1="408" y1="748" x2="888" y2="748" stroke="var(--line)"></line><line x1="824" y1="150" x2="824" y2="840" stroke="var(--line)"></line><line x1="408" y1="794" x2="888" y2="794" stroke="var(--line)"></line><line x1="856" y1="150" x2="856" y2="840" stroke="var(--line)"></line><line x1="408" y1="840" x2="888" y2="840" stroke="var(--line)"></line><line x1="888" y1="150" x2="888" y2="840" stroke="var(--line)"></line><text x="400" y="176.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Program.cs</text><text x="16" y="177" fill="var(--muted)" font-size="12">1</text><text transform="translate(428 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">1 Program</text><rect x="409" y="151" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="207.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">App/ViewerWindow.cs</text><text x="400" y="222.5" text-anchor="end" fill="var(--muted)" font-size="11.5">窓・ループ・HUD・入力</text><text x="400" y="236.5" text-anchor="end" fill="var(--muted)" font-size="11.5">（目を2つ持つ・体の選び方・Hi-Z の段を描く）</text><text x="16" y="223" fill="var(--muted)" font-size="12">2</text><text transform="translate(460 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">2 ViewerWindow</text><rect x="441" y="197" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="253.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/MeshRenderer.cs</text><text x="400" y="268.5" text-anchor="end" fill="var(--muted)" font-size="11.5">ディスクリプタ・3つの道・体を選ぶパス</text><text x="400" y="282.5" text-anchor="end" fill="var(--muted)" font-size="11.5">計測・数え上げ・引数</text><text x="16" y="269" fill="var(--muted)" font-size="12">3</text><text transform="translate(492 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">3 MeshRenderer</text><rect x="473" y="243" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="307" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/GraphicsPipeline.cs</text><text x="400" y="322" text-anchor="end" fill="var(--muted)" font-size="11.5">固定機能の設定 + シェーダ</text><text x="16" y="315" fill="var(--muted)" font-size="12">4</text><text transform="translate(524 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">4 GraphicsPipeline</text><rect x="505" y="289" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="345.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/DepthPyramid.cs</text><text x="400" y="360.5" text-anchor="end" fill="var(--muted)" font-size="11.5">Hi-Z の画像・段ごとのセット</text><text x="400" y="374.5" text-anchor="end" fill="var(--muted)" font-size="11.5">9 回のディスパッチ</text><text x="16" y="361" fill="var(--muted)" font-size="12">5</text><text transform="translate(556 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">5 DepthPyramid</text><rect x="537" y="335" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="399" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/ComputePipeline.cs</text><text x="400" y="414" text-anchor="end" fill="var(--muted)" font-size="11.5">シェーダ 1 本 + レイアウト</text><text x="16" y="407" fill="var(--muted)" font-size="12">6</text><text transform="translate(588 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">6 ComputePipeline</text><rect x="569" y="381" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="445" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/SceneData.cs</text><text x="400" y="460" text-anchor="end" fill="var(--muted)" font-size="11.5">体の並べ方・視点</text><text x="16" y="453" fill="var(--muted)" font-size="12">7</text><text transform="translate(620 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">7 SceneData</text><rect x="601" y="427" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="483.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshletBuilder.cs</text><text x="400" y="498.5" text-anchor="end" fill="var(--muted)" font-size="11.5">丸く育てる / 育てる / 並び順のまま</text><text x="400" y="512.5" text-anchor="end" fill="var(--muted)" font-size="11.5">球と円錐</text><text x="16" y="499" fill="var(--muted)" font-size="12">8</text><text transform="translate(652 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">8 MeshletBuilder</text><rect x="633" y="473" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="544.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/TorusKnot.cs</text><text x="16" y="545" fill="var(--muted)" font-size="12">9</text><text transform="translate(684 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">9 TorusKnot</text><rect x="665" y="519" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="583" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanImage.cs</text><text x="400" y="598" text-anchor="end" fill="var(--muted)" font-size="11.5">色と深度の的・Hi-Z の画像</text><text x="16" y="591" fill="var(--muted)" font-size="12">10</text><text transform="translate(716 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">10 VulkanImage</text><rect x="697" y="565" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="636.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanBuffer.cs</text><text x="16" y="637" fill="var(--muted)" font-size="12">11</text><text transform="translate(748 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">11 VulkanBuffer</text><rect x="729" y="611" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="675" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/ShaderCompiler.cs</text><text x="400" y="690" text-anchor="end" fill="var(--muted)" font-size="11.5">GLSL to SPIR-V + include + define</text><text x="16" y="683" fill="var(--muted)" font-size="12">12</text><text transform="translate(780 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">12 ShaderCompiler</text><rect x="761" y="657" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="713.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/Camera.cs</text><text x="400" y="728.5" text-anchor="end" fill="var(--muted)" font-size="11.5">OrbitView / 行列 / 視錐台の6面</text><text x="400" y="742.5" text-anchor="end" fill="var(--muted)" font-size="11.5">球の内外 / 手前と奥の切り口</text><text x="16" y="729" fill="var(--muted)" font-size="12">13</text><text transform="translate(812 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">13 Camera</text><rect x="793" y="703" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="759.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshData.cs</text><text x="400" y="774.5" text-anchor="end" fill="var(--muted)" font-size="11.5">GpuVertex / MeshData</text><text x="400" y="788.5" text-anchor="end" fill="var(--muted)" font-size="11.5">形全体の球</text><text x="16" y="775" fill="var(--muted)" font-size="12">14</text><text transform="translate(844 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">14 MeshData</text><rect x="825" y="749" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="813" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanDevice.cs</text><text x="400" y="828" text-anchor="end" fill="var(--muted)" font-size="11.5">1.3 / 描画キュー / mesh_shader + task</text><text x="16" y="821" fill="var(--muted)" font-size="12">15</text><text transform="translate(876 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">15 VulkanDevice</text><rect x="857" y="795" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><circle cx="456" cy="173" r="7" fill="var(--accent)"></circle><circle cx="488" cy="219" r="7" fill="var(--accent)"></circle><circle cx="872" cy="219" r="7" fill="var(--accent)"></circle><circle cx="776" cy="219" r="7" fill="var(--accent)"></circle><circle cx="648" cy="219" r="7" fill="var(--accent)"></circle><circle cx="680" cy="219" r="7" fill="var(--accent)"></circle><circle cx="616" cy="219" r="7" fill="var(--accent)"></circle><circle cx="808" cy="219" r="7" fill="var(--accent)"></circle><circle cx="520" cy="265" r="7" fill="var(--accent)"></circle><circle cx="584" cy="265" r="7" fill="var(--accent)"></circle><circle cx="552" cy="265" r="7" fill="var(--accent)"></circle><circle cx="872" cy="265" r="7" fill="var(--accent)"></circle><circle cx="744" cy="265" r="7" fill="var(--accent)"></circle><circle cx="712" cy="265" r="7" fill="var(--accent)"></circle><circle cx="776" cy="265" r="7" fill="var(--accent)"></circle><circle cx="648" cy="265" r="7" fill="var(--accent)"></circle><circle cx="840" cy="265" r="7" fill="var(--accent)"></circle><circle cx="808" cy="265" r="7" fill="var(--accent)"></circle><circle cx="584" cy="357" r="7" fill="var(--accent)"></circle><circle cx="712" cy="357" r="7" fill="var(--accent)"></circle><circle cx="776" cy="357" r="7" fill="var(--accent)"></circle><circle cx="744" cy="357" r="7" fill="var(--accent)"></circle><circle cx="872" cy="357" r="7" fill="var(--accent)"></circle><circle cx="872" cy="403" r="7" fill="var(--accent)"></circle><circle cx="872" cy="311" r="7" fill="var(--accent)"></circle><circle cx="712" cy="311" r="7" fill="var(--accent)"></circle><circle cx="840" cy="311" r="7" fill="var(--accent)"></circle><circle cx="872" cy="633" r="7" fill="var(--accent)"></circle><circle cx="872" cy="587" r="7" fill="var(--accent)"></circle><circle cx="744" cy="587" r="7" fill="var(--accent)"></circle><circle cx="840" cy="495" r="7" fill="var(--accent)"></circle><circle cx="840" cy="541" r="7" fill="var(--accent)"></circle><circle cx="808" cy="449" r="7" fill="var(--accent)"></circle><text x="400" y="138" text-anchor="end" fill="var(--muted)" font-size="12">行の側が、列の側を使う →</text></g></svg><p class="note">mermaid の矢印図は、15 個の箱に 33 本の矢印が絡まって読めなかったので、行列に描き直した(辺は Day 65a に DepthPyramid と ComputePipeline の分を足したもの)。行が使う側、列が使われる側で、点が1つ = 矢印1本。点は対角線の右上にしか出ない。左下の三角形が空なのが、循環が無いということ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っているもの</th><th>知らないもの</th><th>Day 65a からの変化</th></tr></thead>
+<tbody>
+<tr><td><code>Geometry/</code></td><td>自分の中だけ</td><td><strong>Vulkan を知らない</strong></td><td>なし</td></tr>
+<tr><td><code>Scene/</code></td><td>自分の中だけ</td><td>形も GPU も知らない</td><td>なし(<code>Camera.Near</code> / <code>Far</code> を <code>ViewerWindow</code> が距離に戻すのに使う)</td></tr>
+<tr><td><code>Vulkan/</code></td><td><code>Geometry/</code> の型と <code>Camera</code></td><td>窓を知らない</td><td><code>DepthPyramid</code> と <code>ComputePipeline</code> が増えた。<code>VulkanImage</code> がミップを持てる</td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td><td>Hi-Z の段を絵の代わりに描く</td></tr>
+</tbody>
+</table></div>
+<p><strong>循環は依然として無い</strong>。<code>DepthPyramid</code> は <code>MeshRenderer</code> を知らない(深度の <code>VulkanImage</code> を受け取るだけ)。だから Day 65c で「早いパスと遅いパスの間で作る」ように呼ぶ場所を変えても、<code>DepthPyramid</code> は1行も変わらない。</p>
+<p><strong>入れ替えると何が壊れるか</strong>を3つ。</p>
+<ul><li><strong>段の数の数え方</strong>(<code>DepthPyramid</code> のコンストラクタ)と <strong>段の大きさ</strong>(<code>LevelWidth</code>)と <strong>シェーダの <code>imageSize</code> / <code>textureSize</code></strong> の3か所が、同じ「切り捨て」の約束の上に立っている。1か所だけ切り上げにすると、作れない段を作ろうとするか(仕様違反)、CPU が引き取る大きさと GPU が書いた大きさが食い違って<strong>絵が斜めにずれる</strong></li><li><strong>深度のレイアウト</strong>が毎フレーム「的 → 読む」と移り、次のフレームの頭で「Undefined → 的」に戻る。<code>DepthPyramid</code> のディスクリプタセットは深度を <strong><code>ShaderReadOnlyOptimal</code> で置いてある</strong>と宣言して挿してある。移し替えのバリアを忘れると、その宣言と実際が食い違う(検証レイヤが無いと黙って動く。NVIDIA では多くの場合たまたま動く)</li><li><strong>深度の <code>StoreOp</code></strong> を Day 65a の <code>DontCare</code> に戻すと、Hi-Z が読む深度の中身は「決まっていない」になる。手元では絵もたまたま正しく出るかもしれないが、検証1 のような突き合わせをしないと気づけない</li></ul>
+<h3 id="s17">Vulkan — 8つのクラス(Day 65b で <code>ComputePipeline</code> と <code>DepthPyramid</code> が増えた)</h3>
+<svg viewBox="0 0 1400 968" role="img" aria-label="Vulkan のクラス図(Day 65b で ComputePipeline と DepthPyramid が増えた。FrameUniforms・DrawArguments・InstanceSelection・CullingMode・CullingStatistics は Day 65a から変わっていないので図から外してある)。VulkanBuffer・VulkanImage・GraphicsPipeline・ComputePipeline は VulkanDevice を使う。DepthPyramid は自分の Hi-Z の画像 VulkanImage と ComputePipeline を持ち、深度の VulkanImage は借りて読む。MeshRenderer は DepthPyramid・VulkanImage・VulkanBuffer・GraphicsPipeline・ComputePipeline を持つ。ShaderCompiler は他のクラスと直接の関係を持たない" style="width:100%;max-width:1400px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="330" height="53" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderCompiler</text><line x1="10" y1="38" x2="340" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CompileFile(string, ShaderKind, string[]) uint[]</text><rect x="400" y="10" width="430" height="173" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="615" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanDevice</text><line x1="400" y1="38" x2="830" y2="38" stroke="var(--line)"></line><text x="410" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Device Handle</text><text x="410" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Queue Queue</text><text x="410" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool MeshShaderSupported</text><text x="410" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool TaskShaderSupported</text><text x="410" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ExtMeshShader MeshShaderApi</text><text x="410" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float TimestampPeriod</text><text x="410" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryCreate(out string) VulkanDevice</text><text x="410" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SubmitAndWait(Action) void</text><text x="410" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindMemoryType(uint, MemoryPropertyFlags) uint</text><rect x="900" y="10" width="440" height="68" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1120" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputePipeline</text><line x1="900" y1="38" x2="1340" y2="38" stroke="var(--line)"></line><text x="910" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="910" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, PipelineLayout, uint[]) ComputePipeline</text><rect x="10" y="320" width="300" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanBuffer</text><line x1="10" y1="348" x2="310" y2="348" stroke="var(--line)"></line><text x="20" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Buffer Handle</text><text x="20" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Size</text><text x="20" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanBuffer</text><text x="20" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateStaging(...) VulkanBuffer</text><text x="20" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDeviceLocal(...) VulkanBuffer</text><text x="20" y="440" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Write(ReadOnlySpan) void</text><text x="20" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Read(int[]) void</text><text x="20" y="470" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Read(float[]) void</text><rect x="330" y="320" width="520" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="590" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GraphicsPipeline</text><line x1="330" y1="348" x2="850" y2="348" stroke="var(--line)"></line><text x="340" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="340" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, PipelineLayout, int, int, stages, bool) GraphicsPipeline</text><rect x="900" y="320" width="440" height="173" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1120" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanImage</text><line x1="900" y1="348" x2="1340" y2="348" stroke="var(--line)"></line><text x="910" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="910" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MipLevels</text><text x="910" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateColor(VulkanDevice, int, int) VulkanImage</text><text x="910" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDepth(VulkanDevice, int, int) VulkanImage</text><text x="910" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreatePyramid(VulkanDevice, int, int, int) VulkanImage</text><text x="910" y="440" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateMipView(int) ImageView</text><text x="910" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordBarrier(...) void</text><text x="910" y="470" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyToBuffer(CommandBuffer, VulkanBuffer,</text><text x="910" y="485" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">     int, ImageLayout) void</text><rect x="960" y="620" width="380" height="158" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1150" y="639" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">DepthPyramid</text><line x1="960" y1="648" x2="1340" y2="648" stroke="var(--line)"></line><text x="970" y="665" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="970" y="680" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="970" y="695" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Levels</text><text x="970" y="710" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="970" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LevelWidth(int) int</text><text x="970" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LevelHeight(int) int</text><text x="970" y="755" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Record(CommandBuffer) void</text><text x="970" y="770" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyLevel(CommandBuffer, VulkanBuffer, int) void</text><rect x="380" y="620" width="520" height="338" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="640" y="639" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshRenderer</text><line x1="380" y1="648" x2="900" y2="648" stroke="var(--line)"></line><text x="390" y="665" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int TaskWorkGroupSize</text><text x="390" y="680" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int CullWorkGroupSize</text><text x="390" y="695" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+MeshletSet Meshlets</text><text x="390" y="710" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int InstanceCount</text><text x="390" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastDrawMilliseconds</text><text x="390" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastSelectMilliseconds</text><text x="390" y="755" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastPyramidMilliseconds</text><text x="390" y="770" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int LastDrawnInstances</text><text x="390" y="785" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int PyramidLevels</text><text x="390" y="800" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ShownPyramidLevel</text><text x="390" y="815" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float[] LastPyramidLevel</text><text x="390" y="830" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PyramidLevelWidth(int) int</text><text x="390" y="845" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PyramidLevelHeight(int) int</text><text x="390" y="860" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Effective(DrawPath) DrawPath</text><text x="390" y="875" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TaskGroupsFor(int) long</text><text x="390" y="890" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, Camera, int, DrawPath, CullingMode, InstanceSelection, int[]) void</text><text x="390" y="905" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordGpuSelection(Vk) void</text><text x="390" y="920" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordCpuSelection(Vk, int) void</text><text x="390" y="935" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordPyramid(Vk) void</text><text x="390" y="950" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SelectOnCpu(Vector4[]) int</text><path d="M278.8264462809917 320 L483.22705486738545 184.10728769805692" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M593.3009708737864 320 L606.4086757127874 184.99064015829038" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M900 340 L832 200" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M900 44 L832 44" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M432 620 L258.78299723100173 479.26118525018893" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="350.61538461538464" y="545" fill="var(--muted)" font-size="12">含む</text><path d="M620.5747126436781 620 L594.1364273222605 389.9869177036662" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="613.2413793103449" y="500" fill="var(--muted)" font-size="12">含む</text><path d="M880 620 L880 580 L940 580 L940 495" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="886" y="598" fill="var(--muted)" font-size="12">含む</text><path d="M900 749 L958 749" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="908" y="743" fill="var(--muted)" font-size="12">含む</text><path d="M810 620 L810 540 L875 540 L875 80 L898 80" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="880" y="534" fill="var(--muted)" font-size="12">含む</text><path d="M1040 620 L1040 495" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="1048" y="598" fill="var(--muted)" font-size="12">含む</text><path stroke-dasharray="5 4" d="M1200 620 L1200 495" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="1208" y="598" fill="var(--muted)" font-size="12">深度を読む(借りる)</text><path d="M1340 699 L1376 699 L1376 60 L1342 60" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="1346" y="693" fill="var(--muted)" font-size="12">含む</text></g></svg>
+<p>(<code>FrameUniforms</code> / <code>DrawArguments</code> / <code>InstanceSelection</code> / <code>CullingMode</code> / <code>CullingStatistics</code> は Day 65a から変わっていないので、図から外した。Day 65a の計画書の設計書を参照。)</p>
+<p><code>DepthPyramid</code> は <code>VulkanImage</code> と2通りの関わり方をする。<strong>自分の Hi-Z の画像は持つ</strong>(<code>*--</code>)、<strong>深度の画像は借りて読む</strong>(<code>--&gt;</code>。持ち主は <code>MeshRenderer</code>)。深度を借りているので、<code>MeshRenderer</code> は <code>DepthPyramid</code> を深度より先に壊す(<code>Dispose</code> の順番)。</p>
+<p><code>ComputePipeline</code> を切り出したのは「2つ目の使い手ができたから」。Day 65a の時点では <code>MeshRenderer</code> だけが使っていたので、関数で十分だった。<strong>使い手が1つのうちはクラスにしない</strong>(置き場所を決めるのは2つ目が来てから)——Day 62c で<code>ComputeRenderer</code> の中にあったものを今日まで持ち越した理由でもある。</p>
+<h3 id="s18">GPU に挿さっているもの — binding の一覧</h3>
+<p><strong>描くためのセットは Day 65a から変わっていない</strong>(0〜9 番。Day 65a の計画書の設計書を参照)。今日増えたのは、<code>DepthPyramid</code> が持つ<strong>別のセット</strong>(段の数 = 9 組)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>binding</th><th>中身</th><th>型</th><th>置いてあるレイアウト</th></tr></thead>
+<tbody>
+<tr><td>0</td><td>深度(段 0 を作るときだけ読む)</td><td>sampled image</td><td><code>ShaderReadOnlyOptimal</code></td></tr>
+<tr><td>1</td><td>Hi-Z 全体(段 L − 1 を読む)</td><td>sampled image</td><td><code>General</code></td></tr>
+<tr><td>2</td><td>Hi-Z の段 L だけ(書き込み先)</td><td>storage image</td><td><code>General</code></td></tr>
+<tr><td>push</td><td>何段目か(uint)</td><td>プッシュ定数</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p>9 組のセットは 2 番だけが違う。<strong>ディスクリプタセットは「挿したものの組」</strong>なので、組が違えばセットも別になる。段ごとにセットを作っておけば、毎フレームは束ね直すだけで済む(書き換えない)。</p>
+<p>サンプラーは使わない(<code>GL_EXT_samplerless_texture_functions</code> で <code>texture2D</code> から <code>texelFetch</code>)。サンプラーの縮約(min / max)を使えば 2x2 を1回の読み出しで畳めるが、端の 3 列・3 行は読めない(要点3。niagara は段の大きさを 2 の累乗にして、端が出ないようにしている)。</p>
+<h3 id="s19">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65b で描いた後に Hi-Z が入った)</h3>
+<svg viewBox="0 0 960 897" role="img" aria-label="1フレームの流れ(MeshRenderer.Render。Day 65b で描いた後に Hi-Z が入った)。Render(camera, cullCamera, mode, path, culling, selection, dest)。体を選ぶ(Day 65a のまま。GPU は下書きと cull.comp、CPU は一覧を送る)。色と深度を Undefined から的へ。CmdBeginRendering(深度も Store)、描く命令(Day 65a のまま)、CmdEndRendering。深度を的から ShaderReadOnlyOptimal へ(深度の書き込みからコンピュートの読み込みへのバリア)。Timestamp 4。DepthPyramid.Record で段 0 から 8 を順に作る(間にバリア)。Timestamp 5。見たい段があれば、バリア(コンピュートから転送)をして段 L を _pyramidReadback へ写す。色を的から TransferSrc へ移して引き取る。バリアから Host、Submit、WaitForFences。時計・統計・数え上げ・引数を読み、見たい段があれば Hi-Z の段も読む" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="250" y="8" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render(camera, cullCamera, mode, path, culling, selection, dest)</text><rect x="250" y="65" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="85.5" text-anchor="middle" fill="var(--ink)">体を選ぶ（Day 65a のまま）</text><text x="490" y="102.5" text-anchor="middle" fill="var(--ink)">GPU: 下書き + cull.comp / CPU: 一覧を送る</text><rect x="250" y="139" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="159.5" text-anchor="middle" fill="var(--ink)">色: Undefined → 的</text><text x="490" y="176.5" text-anchor="middle" fill="var(--ink)">深度: Undefined → 的</text><rect x="250" y="213" width="480" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="233.5" text-anchor="middle" fill="var(--ink)">CmdBeginRendering（深度も Store）</text><text x="490" y="250.5" text-anchor="middle" fill="var(--ink)">描く命令（Day 65a のまま）</text><text x="490" y="267.5" text-anchor="middle" fill="var(--ink)">CmdEndRendering</text><rect x="250" y="304" width="480" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="324.5" text-anchor="middle" fill="var(--ink)">深度: 的 → ShaderReadOnlyOptimal</text><text x="490" y="341.5" text-anchor="middle" fill="var(--ink)">（深度の書き込み → コンピュートの読み込み）</text><rect x="250" y="378" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="398.5" text-anchor="middle" fill="var(--ink)">Timestamp 4</text><rect x="250" y="435" width="480" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="455.5" text-anchor="middle" fill="var(--ink)">DepthPyramid.Record</text><text x="490" y="472.5" text-anchor="middle" fill="var(--ink)">段 0 〜 8 を順に（間にバリア）</text><rect x="250" y="509" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="529.5" text-anchor="middle" fill="var(--ink)">Timestamp 5</text><rect x="360" y="566" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="586.5" text-anchor="middle" fill="var(--ink)">見たい段がある?</text><rect x="250" y="649" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="669.5" text-anchor="middle" fill="var(--ink)">バリア: コンピュート → 転送</text><text x="490" y="686.5" text-anchor="middle" fill="var(--ink)">段 L を _pyramidReadback へ写す</text><rect x="250" y="723" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="743.5" text-anchor="middle" fill="var(--ink)">色: 的 → TransferSrc / 引き取る</text><rect x="250" y="780" width="480" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="800.5" text-anchor="middle" fill="var(--ink)">バリア → Host / Submit / WaitForFences</text><rect x="250" y="837" width="480" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="857.5" text-anchor="middle" fill="var(--ink)">時計・統計・数え上げ・引数を読む</text><text x="490" y="874.5" text-anchor="middle" fill="var(--ink)">見たい段があれば Hi-Z の段も読む</text><path d="M490 41 L490 63" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 115 L490 137" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 189 L490 211" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 280 L490 302" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 354 L490 376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 411 L490 433" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 485 L490 507" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 542 L490 564" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 756 L490 778" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 813 L490 835" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M490 599 L490 647" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="498" y="616" fill="var(--muted)" font-size="12">はい</text><path d="M490 699 L490 721" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M620 582.5 L760 582.5 L760 739.5 L732 739.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="630" y="576.5" fill="var(--muted)" font-size="12">いいえ</text></g></svg>
+<p><strong>Hi-Z は、見ていなくても毎フレーム作る</strong>。Day 65c では毎フレーム使うものなので、値段(HUD の「作るのに」)を今日から見えるようにしておく。深度は「読む」レイアウトのままフレームを終える。次のフレームの頭で <code>Undefined</code> から的へ移す(中身は捨ててよい)ので、戻さない。</p>
+<h3 id="s20">depth_reduce.comp の1人の中(新規)</h3>
+<svg viewBox="0 0 900 613" role="img" aria-label="depth_reduce.comp の1人の中。1人が段 L の 1 画素 p を受け持つ(8 x 8 人で 1 組)。p が段 L の大きさの中か。外なら何もしない。中なら、L = 0 か。そうなら読む先は深度(960 x 540)、違えば Hi-Z の段 L − 1。読む数を決める(ふつう 2 x 2。下の段が奇数で p が端なら 3 列・3 行)。読む画素のいちばん奥(max)を取る(はみ出したら端の画素を繰り返す)。imageStore で段 L の p に奥を書く" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="150" y="8" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="28.5" text-anchor="middle" fill="var(--ink)">1人 = 段 L の 1 画素 p</text><text x="370" y="45.5" text-anchor="middle" fill="var(--ink)">8 x 8 人で 1 組</text><rect x="150" y="100" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="370" y="120.5" text-anchor="middle" fill="var(--ink)">p が段 L の大きさの中?</text><rect x="250" y="190" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="370" y="210.5" text-anchor="middle" fill="var(--ink)">L = 0?</text><rect x="10" y="280" width="340" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="180" y="300.5" text-anchor="middle" fill="var(--ink)">読む先 = 深度（960 x 540）</text><rect x="400" y="280" width="340" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="570" y="300.5" text-anchor="middle" fill="var(--ink)">読む先 = Hi-Z の段 L − 1</text><rect x="150" y="370" width="440" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="390.5" text-anchor="middle" fill="var(--ink)">読む数を決める</text><text x="370" y="407.5" text-anchor="middle" fill="var(--ink)">ふつう 2 x 2</text><text x="370" y="424.5" text-anchor="middle" fill="var(--ink)">下の段が奇数で p が端なら 3 列 / 3 行</text><rect x="150" y="480" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="500.5" text-anchor="middle" fill="var(--ink)">読む画素のいちばん奥（max）</text><text x="370" y="517.5" text-anchor="middle" fill="var(--ink)">はみ出したら端の画素を繰り返す</text><rect x="150" y="570" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="590.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">imageStore(段 L, p, 奥)</text><rect x="660" y="100" width="200" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="760" y="120.5" text-anchor="middle" fill="var(--ink)">何もしない</text><path d="M370 58 L370 98" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M370 133 L370 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="378" y="150" fill="var(--muted)" font-size="12">はい</text><path d="M370 437 L370 478" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M370 530 L370 568" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M590 116.5 L658 116.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="600" y="110.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M250 206.5 L180 206.5 L180 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="242" y="200.5" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M490 206.5 L570 206.5 L570 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="498" y="200.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M180 313 L180 340 L270 340 L270 368" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M570 313 L570 340 L470 340 L470 368" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<h3 id="s21">今日残した歪み(3つ)</h3>
+<p><strong>1. Hi-Z を作っても、まだ誰も使っていない</strong>。今日は作って見るだけで、描く量は1枚も減らない(むしろ 25 us 増える)。使うのは Day 65c。</p>
+<p><strong>2. 1フレーム遅れの深度しか無い</strong>。今日の Hi-Z は「このフレームを描き終えた深度」から作る。次のフレームのカリングにそのまま使うと、カメラや物が動いた分だけずれる(前のフレームで見えていなかった物が、今は見えているかもしれない)。Day 65c では「前のフレームに見えていたものを先に描き、<strong>その深度で</strong> Hi-Z を作る」2パスにして、このずれを消す。</p>
+<p><strong>3. <code>MeshRenderer</code> はさらに太った</strong>(約 1,250 行)。Hi-Z の作り方は <code>DepthPyramid</code> に出したが、深度のレイアウトの移し替えと「いつ作るか」は <code>MeshRenderer</code> に残した。いつ作るかは描き方(1パス / 2パス)と絡むので、Day 65c を書いてから切り出し方を考える(Day 65a の歪み4 の続き)。</p>
+<p><strong>持ち越し</strong>: Day 65a の歪み1(体を描く順番が GPU 任せ)・歪み3(形が1種類)と、Day 64b の歪み1(欠片)はそのまま。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day65b -c Release</code> で確かめる。</p>
+<h3 id="s23">1. 起動: 絵は Day 65a のまま、HUD に「Hi-Z」の行</h3>
+<ul><li>絵・「体」「判定」「内訳」の行は Day 65a と同じ</li><li>新しい行「<strong>Hi-Z : 9 段 / 作るのに GPU 80〜110 us 前後 / 見ていない (Z で段 0 から順に見る)</strong>」(アプリ内の値。60 枚/秒に合わせて休んでいるぶん GPU のクロックが下がるので、ハーネスの 25 us より大きく出る。検証3)</li></ul>
+<h3 id="s24">2. <code>4</code> を押してから <code>Z</code> を押していく(今日の目)</h3>
+<p>256 体にしてから <code>Z</code> を押す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th><code>Z</code> の回数</th><th>HUD</th><th>見えるもの</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>段 0 を表示中 (480 x 270、1画素 = 画面の 2 画素四方)</td><td>絵とほぼ同じ形の灰色の絵。近い体ほど明るい。空は黒</td></tr>
+<tr><td>2〜3</td><td>段 1・2</td><td>輪郭がぎざぎざになり、管の間の細い隙間が黒く埋まり始める</td></tr>
+<tr><td>4</td><td>段 3 (60 x 33、1画素 = 16 画素四方)</td><td>はっきりしたモザイク。<strong>管の輪郭の内側まで黒が食い込む</strong></td></tr>
+<tr><td>5〜6</td><td>段 4・5</td><td>奥の体の列はほぼ真っ黒。手前の太い管だけが残る</td></tr>
+<tr><td>7〜9</td><td>段 6〜8</td><td>ほぼ真っ黒。段 8 は 1 x 1 で画面全体が黒</td></tr>
+<tr><td>10</td><td>見ていない</td><td>絵に戻る</td></tr>
+</tbody>
+</table></div>
+<p><strong>黒は「奥 = 何も無い」</strong>。段を上がるほど黒が増えるのは、1画素が受け持つ範囲の中に1画素でも空があれば、その画素は奥(1.0)になるから。256 体の既定の視点では、段 5 で画面の 98% が黒になる(検証2)。</p>
+<h3 id="s25">3. <code>B</code> で道を回す / <code>G</code> で選び方を回す</h3>
+<p>どの道・どの選び方でも Hi-Z の見え方は変わらない(描いた深度が同じだから)。絵も Day 65a のまま。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Z</code></td><td>「Hi-Z を見る」の見る段</td><td>段 0 は絵とほぼ同じ形。段 3 で管の輪郭の内側まで黒が食い込み、段 5 で 256 体の 98% が黒(1.0)になる</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>「Hi-Z を見る」の体の数</td><td>1 / 16 / 64 / 256 体。粗い段の「何も無い」の割合は、体が多いほど下がる(段 5 は 99% / 100% / — / 98%)</td></tr>
+<tr><td>ドラッグ(Pitch)</td><td>「Hi-Z を見る」の見下ろす角度の2択</td><td>低い視点(0.12)は体が奥へ重なって隙間が埋まり、粗い段でも 1.0 でない画素が残る(段 6 で 14%)</td></tr>
+<tr><td><code>G</code> / <code>B</code> / <code>C</code> / <code>F</code> / <code>O</code> / <code>M</code> / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>(なし)</td><td>Hi-Z の見え方は変わらない(描いた深度が同じ)。このページは丸く育てる・視錐台 + 背面で固定している</td></tr>
+<tr><td>(キーなし)</td><td>「Hi-Z を見る」の畳み方、「どの段を読むか」の箱、「段の大きさ」の大きさと数え方</td><td>reference に無い切り替え(課題1・2 の下見、切り上げは最初の版の誤り)。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day65b の shaders/depth_reduce.comp・Vulkan/DepthPyramid.cs(LevelWidth / LevelHeight)・App/ViewerWindow.cs(DrawPyramidLevel)を JS に移したもの(トーラスノットと切り方・体の並べ方・カメラ・体の選択・深度と Hi-Z は docs/site/meshlet.js に書いてあり、Day 64a・64b・65a と共有。このページには実験台の部分だけがある)。選ばれた体を 960x540 でソフトウェアに描いた深度から Hi-Z を作り、値が 1.0 の画素の割合を段ごとに数えると、計画書の検証2の表(1 体 / 16 体 / 256 体の既定の視点 / 256 体の低い視点 x 段 0〜6 の 28 個)と、整数に丸めて全部一致する(256 体・既定の視点: 45 / 48 / 53 / 64 / 83 / 98 / 100%)。段の大きさも検証1と同じ(480x270 → 240x135 → 120x67 → 60x33 → 30x16 → 15x8 → 7x4 → 3x2 → 1x1 の 9 段)。GPU の時間(Hi-Z を作る 25 us、アプリ内で 80〜110 us)、深度を Store にしても描く時間が変わらないこと、検証1のハーネスの突き合わせ(72 通り)、検証レイヤの無い GPU が 10 段目を黙って「無い段」にすることは、手元の RTX 3070 の値や挙動で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s26">検証の途中で分かったこと</h2>
+<p>窓の無いハーネス(<code>MeshRenderer</code> を直接呼ぶ)で確かめた。RTX 3070 / ドライバ 596.49、検証レイヤなし。</p>
+<h3 id="s27">検証1: Hi-Z の各段は「受け持つ画素のいちばん奥」になっている</h3>
+<p>体の数 3 通り(1 / 16 / 256)x 視点 2 通り(既定 / 見下ろす角度を 0.12 に下げたもの)= 6 の場面で、9 段すべてを CPU へ引き取り、2つのことを確かめた。</p>
+<ul><li><strong>段と段</strong>: 段 L の各画素が、段 L − 1 の受け持つ 2x2(端は 3)画素の max と<strong>完全に一致</strong>する — 6 場面すべてで食い違い 0</li><li><strong>段 0 と絵</strong>: 段 0 の各画素が受け持つ 2x2 画素の中に、絵で空の色の画素が1つでもあれば 1.0、1つも無ければ 1.0 未満 — 6 場面すべてで食い違い 0</li></ul>
+<p>段の大きさは 6 場面とも <strong>480x270 → 240x135 → 120x67 → 60x33 → 30x16 → 15x8 → 7x4 → 3x2 → 1x1</strong> の 9 段。</p>
+<p>Hi-Z を足しても<strong>絵は変わらない</strong>ことも確かめた(体の数 4 通り x 描き方 3 通り x 選び方 3 通り x Hi-Z を見る / 見ない = 72 通り、Day 65a と同じ基準の絵と全画素一致)。深度を <code>Store</code> にしても、段を引き取っても、色の絵には触っていない。</p>
+<h3 id="s28">検証2: 粗い段はほとんど「何も無い」</h3>
+<p>段ごとに、値が 1.0(= 受け持つ範囲に空がある)の画素の割合を数えた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>段 0</th><th>段 1</th><th>段 2</th><th>段 3</th><th>段 4</th><th>段 5</th><th>段 6</th></tr></thead>
+<tbody>
+<tr><td>1 体</td><td>93%</td><td>93%</td><td>93%</td><td>94%</td><td>97%</td><td>99%</td><td>100%</td></tr>
+<tr><td>16 体</td><td>68%</td><td>70%</td><td>73%</td><td>80%</td><td>91%</td><td><strong>100%</strong></td><td>100%</td></tr>
+<tr><td>256 体(既定の視点)</td><td>45%</td><td>48%</td><td>53%</td><td>64%</td><td>83%</td><td><strong>98%</strong></td><td>100%</td></tr>
+<tr><td>256 体(低い視点)</td><td>48%</td><td>49%</td><td>51%</td><td>54%</td><td>63%</td><td>78%</td><td>86%</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>段 5(1画素 = 64 画素四方)で、既定の視点ではほぼ全部が 1.0</strong>。トーラスノットは管が細く穴だらけなので、64 画素四方の範囲に「管だけ」が詰まっていることはほとんど無い</li><li>つまり Day 65c で<strong>画面で 64 画素より大きい物は、ほぼ「隠れている」と言えない</strong>。256 体の既定の視点では、体1つが画面で 100〜500 画素ある。<strong>体ごとの判定はほとんど効かず、メッシュレット(数十画素)ごとの判定なら効く</strong>、という予想が立つ</li><li>見下ろす角度を下げると(低い視点)、体が奥へ何列も重なって隙間が埋まり、粗い段でも 1.0 でない画素が残る(段 6 で 14%)</li></ul>
+<h3 id="s29">検証3: 値段</h3>
+<p>同じ場面を 32 回描いた最小値と中央値(ハーネス。4 ms ずつ休みながら)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>Hi-Z を作る</th><th>描く(タスクの道・両方のカリング)</th></tr></thead>
+<tbody>
+<tr><td>16 体</td><td>23.6 us(中央値 24.6 us)</td><td>0.071 ms</td></tr>
+<tr><td>256 体</td><td>25.6 us(中央値 26.6 us)</td><td>0.400 ms</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>体の数によらずほぼ一定</strong>。画面の大きさ(960 x 540)だけで決まる。9 回のディスパッチのうち、段 0(480 x 270 画素を作る)がほとんど</li><li>256 体を描く時間の 6% ほど。Day 65c で描く量が 6% 以上減らなければ元が取れない</li><li><strong>深度を <code>Store</code> にしても描く時間は変わらなかった</strong>(256 体 0.400 ms。Day 65a の検証3 と同じ)</li><li>アプリ内では 80〜110 us 前後に出る(GPU のクロックが下がっているので。Day 65a と同じ注意)</li></ul>
+<h3 id="s30">検証4: 切り上げで数えた 10 段目</h3>
+<p>最初は段の数を切り上げで数え(480 → 240 → … → 15 → 8 → 4 → 2 → 1 で 10 段)、10 段の画像を作っていた。画像は作れてしまい、絵も出た。Day 65c の判定を書いてから、1体の場面で<strong>その1体が必ず「隠れている」</strong>になった。</p>
+<p>判定のシェーダに一時的な書き出しを足して調べると、段 9 について <code>textureSize</code> が <strong>0 x 0</strong>、<code>texelFetch</code> が <strong>0.0</strong> を返していた(<code>textureQueryLevels</code> は 9)。「何も無い段の値は 0(= いちばん手前)」なので、どんな物も「それより奥」になって隠れ扱いされた。</p>
+<ul><li>Vulkan の決まりでは、480 x 270 の画像に作れるミップは <code>floor(log2(480)) + 1 = 9</code> 段まで。10 段は仕様違反</li><li><strong>検証レイヤがあれば <code>vkCreateImage</code> の時点で止まった</strong>はずのもの。無いと、壊れた結果だけが遠くに出る</li><li>直したあと、Day 65c の判定は正しく働いた(Day 65c の計画書の検証1)</li></ul>
+</section>
+<section class="part"><h2 id="s31">改造課題</h2>
+<h3 id="s32">課題1(易): 平均で畳んでみる</h3>
+<p><code>depth_reduce.comp</code> の <code>max</code> を平均(読んだ値の和 / 個数)に変えて、<code>Z</code> で段を見る。</p>
+<ol><li>段 3〜5 の見え方はどう変わるか。黒(何も無い)はどうなるか</li><li>平均の Hi-Z で「物のいちばん手前 &gt; Hi-Z の値なら隠れている」と判定すると、どんな物を間違って捨てるか。絵で言うと、どこに穴が開きそうか(要点1)</li><li>逆に <code>min</code>(いちばん手前)で畳むと、何の役に立つか(ヒント: 「確実に見えている」と言いたいとき)</li></ol>
+<h3 id="s33">課題2(中): 段 0 を 2 の累乗にする</h3>
+<p>niagara と同じく、段 0 を「画面より小さい 2 の累乗」(512 x 256)にしてみる。検証1 のハーネスのやり方(段 0 と絵を突き合わせる)で、取りこぼしが無いかも確かめる。</p>
+<ol><li><code>DepthPyramid</code> の段 0 の大きさと段の数を変える(512 x 256 なら 10 段)</li><li>段 0 を作るとき、出力の1画素が受け持つ深度の範囲は 1.875 x 2.109 画素になる。<strong>どの深度の画素をどの出力が読むか</strong>を決め、取りこぼしが無いように書く(ヒント: 出力の画素の四隅を深度の座標に写し、かかる画素を全部読む)</li><li><code>ViewerWindow.DrawPyramidLevel</code> の「画面の画素 → Hi-Z の画素」の式も変わる。どう変わるか</li><li>奇数の端の 3 列はまだ要るか。2 の累乗にした得は何か(ヒント: 段と段の間)</li></ol>
+<h3 id="s34">課題3(難): Hi-Z で「隠れていそうな体」を数えてみる</h3>
+<p>Day 65c の先取り。<code>Z</code> で見ている段の Hi-Z(CPU へ引き取ったもの)を使って、<strong>CPU で</strong>「確実に隠れている体」を数える。</p>
+<ol><li>体ごとに形全体の球(<code>MeshData.ComputeBoundingSphere</code>)を体の行列で運び、球を囲む立方体の8つの角を <code>camera.ViewProjection</code> で画面に投影する</li><li>画面の上の箱と、いちばん手前の深度を出す。箱の差し渡しから段を選び(要点2)、かかる Hi-Z の画素のいちばん奥と比べる</li><li>見ている段の Hi-Z しか引き取っていないので、段を固定して(例えば段 3)、「その段では判定できない大きさの箱」は数えない</li><li>256 体・既定の視点と低い視点で、何体が「隠れている」になるか。<strong>その数は Day 65c の結果と合うか</strong></li><li>これを CPU でやると、<strong>Hi-Z は1フレーム前のもの</strong>になる(描き終わってから引き取るので)。Day 65c の2パスはこの問題をどう避けるか</li></ol>
+<blockquote><p><strong>測るときは Release で、1フレームずつ交互に描いて比べる</strong>。そして長く回しっぱなしにしない(電源に対して厳しい負荷になる)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s35">次の Day 65c へ</h2>
+<p>今日作った Hi-Z は、まだ誰も使っていない。Day 65c では2パスにして使う。</p>
+<ol><li><strong>早いパス</strong>: 前のフレームで見えていたもの(体とメッシュレットに「見えた」印を GPU の上に残しておく)を描く</li><li>その深度から <strong>Hi-Z を作る</strong>(今日の <code>DepthPyramid</code> をそのまま、呼ぶ場所だけ変える)</li><li><strong>遅いパス</strong>: 全部を Hi-Z と比べ直す。確実に隠れているものは捨て、早いパスで描いていない見えるものを描き足す。印を書き直す</li></ol>
+<p>どれも CPU には答えが出せない(深度は GPU の中にしか無い)ので、Day 65a の indirect の骨格がここで初めて要るものになる。そのうえで、UE5 の Nanite がこの形(クラスタ + GPU の上の選択 + 2パスのオクルージョン)に何を足したのかを読む。</p>
+</section>
+<footer class="end">Day 65b GPU 駆動レンダリング(2) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softview.js"></script>
+<script src="../site/meshlet.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const M = Meshlet;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const REDRAW = [];
+window.addEventListener('resize', () => { for (const f of REDRAW) f(); });
+const MESH = M.createTorusKnot();
+const SET = M.build(MESH, 'round');
+const SPHERE = M.boundingSphere(MESH);
+const W = 960, H = 540, NEAR = 0.1, FAR = 200;
+const SIZES = M.pyramidSizes(W, H);
+
+// 深度は(体の数・見下ろす角度)が同じなら同じなので取っておく。Hi-Z は畳み方ごとに
+const depthCache = new Map(), pyrCache = new Map();
+function depthOf(count, pitch) {
+  const key = `${count}|${pitch}`;
+  let d = depthCache.get(key);
+  if (!d) {
+    if (depthCache.size > 8) depthCache.clear();
+    const inst = M.sceneInstances(count);
+    const view = { ...M.defaultView(count) }; if (pitch !== 'default') view.pitch = Number(pitch);
+    const cam = M.orbit(view, W, H);
+    const ids = M.selectBodies(inst, cam, SPHERE);
+    d = M.renderDepth(MESH, SET, inst, ids, cam, W, H);
+    depthCache.set(key, d);
+  }
+  return d;
+}
+function pyramidOf(count, pitch, mode) {
+  const key = `${count}|${pitch}|${mode}`;
+  let p = pyrCache.get(key);
+  if (!p) { if (pyrCache.size > 24) pyrCache.clear(); p = M.buildPyramid(depthOf(count, pitch), W, H, mode); pyrCache.set(key, p); }
+  return p;
+}
+const ones = (level) => M.fractionOfOnes(level);
+
+// ============================================================
+//  Hi-Z を見る
+// ============================================================
+{
+  const st = { count: 256, pitch: 'default', level: -1, mode: 'max' };
+  // 計画書の検証2の表(値が 1.0 の画素の割合。段 0〜6)。キーは 体の数|角度
+  const PLAN = { '1|default': [93, 93, 93, 94, 97, 99, 100], '16|default': [68, 70, 73, 80, 91, 100, 100], '256|default': [45, 48, 53, 64, 83, 98, 100], '256|0.12': [48, 49, 51, 54, 63, 78, 86] };
+  function redraw() {
+    const depth = depthOf(st.count, st.pitch), levels = pyramidOf(st.count, st.pitch, st.mode);
+    // ---- 絵 ----
+    const cv = $('hz-canvas');
+    const { ctx, w: cw, h: ch } = fit(cv);
+    const img = new ImageData(W, H), px = new Uint32Array(img.data.buffer);
+    const gray = (d) => { const dist = NEAR * FAR / (FAR - d * (FAR - NEAR)); return Math.round(Math.min(1, Math.max(0, 1 - dist / 60)) * 255); };
+    if (st.level < 0) {
+      for (let i = 0; i < W * H; i++) { const g = gray(depth[i]); px[i] = (255 << 24) | (g << 16) | (g << 8) | g; }
+    } else {
+      const lv = levels[st.level], shift = st.level + 1;
+      for (let y = 0; y < H; y++) {
+        const ty = Math.min(y >> shift, lv.h - 1);
+        for (let x = 0; x < W; x++) { const g = gray(lv.data[ty * lv.w + Math.min(x >> shift, lv.w - 1)]); px[y * W + x] = (255 << 24) | (g << 16) | (g << 8) | g; }
+      }
+    }
+    const off = document.createElement('canvas'); off.width = W; off.height = H; off.getContext('2d').putImageData(img, 0, 0);
+    const s = Math.min(cw / W, ch / H);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(off, (cw - W * s) / 2, (ch - H * s) / 2, W * s, H * s);
+    // ---- 数 ----
+    const lv = st.level >= 0 ? levels[st.level] : null;
+    $('hz-stats').innerHTML = stat('見ている段', lv ? `段 ${st.level}(${lv.w} x ${lv.h})` : '見ていない(深度 960 x 540)') +
+      stat('1画素が受け持つ範囲', lv ? `画面の ${1 << (st.level + 1)} 画素四方` : '1 画素') +
+      stat('値が 1.0(範囲のどこかが空)', lv ? (100 * ones(lv)).toFixed(1) + '%' : (100 * depth.reduce((a, v) => a + (v >= 1 ? 1 : 0), 0) / depth.length).toFixed(1) + '%');
+    const key = `${st.count}|${st.pitch}`, plan = PLAN[key];
+    const head = SIZES.map((_, i) => `<th>段 ${i}</th>`).join('');
+    const mine = levels.map((l) => `<td>${(100 * ones(l)).toFixed(0)}%</td>`).join('');
+    const planRow = plan && st.mode === 'max' ? `<tr><th scope="row">計画書の検証2(GPU)</th>${SIZES.map((_, i) => `<td>${i < plan.length ? plan[i] + '%' : '—'}</td>`).join('')}</tr>` : '';
+    $('hz-table').innerHTML = `<table><thead><tr><th>値が 1.0 の画素の割合(${st.count} 体)</th>${head}</tr></thead><tbody><tr><th scope="row">このページ(${st.mode === 'max' ? 'いちばん奥' : st.mode === 'mean' ? '平均' : 'いちばん手前'})</th>${mine}</tr>${planRow}</tbody></table>`;
+    $('hz-note').textContent = st.mode === 'max'
+      ? '黒は「奥 = 何も無い」。段を上がるほど黒が増えるのは、1画素が受け持つ範囲の中に1画素でも空があれば、その画素は奥(1.0)になるから。「いちばん奥」を残す限り、Day 65c で「隠れている」と言い切るときに、間違えるのは必ず「捨て損なう」側になる。'
+      : st.mode === 'mean'
+        ? '平均で畳むと、範囲の一部に何も無い画素があっても値は 1 より小さくなる。その隙間から見えている物を「隠れている」と言ってしまう(課題1の2)。黒(何も無い)の割合は、いちばん奥のときより少ない。'
+        : 'いちばん手前で畳むと、範囲に1画素でも物があれば値が小さくなる。「確実に見えている」と言いたいときの値で、隠れの判定には使えない(課題1の3)。';
+  }
+  REDRAW.push(redraw);
+  const run = (fn) => { $('hz-note').textContent = '計算しています…'; setTimeout(() => { fn(); redraw(); }, 20); };
+  seg('hz-count', (v) => run(() => { st.count = Number(v); }));
+  seg('hz-pitch', (v) => run(() => { st.pitch = v; }));
+  seg('hz-level', (v) => { st.level = Number(v); redraw(); });
+  seg('hz-mode', (v) => { st.mode = v; redraw(); });
+  setTimeout(redraw, 100); // 最初の表示は、ページが開いたあとで作る(読み込みを止めない)
+}
+
+// ============================================================
+//  どの段を読むか
+// ============================================================
+{
+  const st = { x: 300, e: 100 };
+  function redraw() {
+    $('bx-x-out').textContent = st.x + ' 画素';
+    $('bx-e-out').textContent = st.e + ' 画素';
+    const x0 = st.x, x1 = Math.min(W - 1, st.x + st.e - 1);
+    // 2^(L+1) >= e となる最小の L(段 0 は 2 画素四方。いちばん粗い段 8 は 1x1)
+    let L = 0; while ((1 << (L + 1)) < st.e && L < SIZES.length - 1) L++;
+    const rows = [];
+    for (const lv of [Math.max(0, L - 1), L]) {
+      const [lw] = SIZES[lv], sh = lv + 1;
+      const a = Math.min(x0 >> sh, lw - 1), b = Math.min(x1 >> sh, lw - 1);
+      rows.push({ lv, size: 1 << sh, a, b, n: b - a + 1 });
+    }
+    const pyr = pyramidOf(256, 'default', 'max');
+    const lvChosen = rows[1], lvFine = rows[0];
+    const onesAt = (lv) => (100 * ones(pyr[lv])).toFixed(0) + '%';
+    const a0 = Math.min(x0 >> 1, SIZES[0][0] - 1), b0 = Math.min(x1 >> 1, SIZES[0][0] - 1);
+    $('bx-stats').innerHTML = stat('選ばれる段 L', String(L), `<small> (2^(L+1) = ${1 << (L + 1)} ≥ ${st.e})</small>`) +
+      stat('1画素が受け持つ範囲', `${1 << (L + 1)} 画素四方`) +
+      stat('箱がかかる Hi-Z の画素(横)', `${lvChosen.a}〜${lvChosen.b}`, `<small> (${lvChosen.n} 画素)</small>`) +
+      stat('読む画素', `多くても ${lvChosen.n} x ${lvChosen.n} = ${lvChosen.n * lvChosen.n}`) +
+      stat('段 0 で比べるなら', `${b0 - a0 + 1} x ${b0 - a0 + 1} = ${comma((b0 - a0 + 1) ** 2)} 画素`);
+    $('bx-table').innerHTML = `<table><thead><tr><th>段</th><th>1画素の範囲</th><th>箱の左端 ${x0} 〜 右端 ${x1} がかかる画素(横)</th><th>何も無い(1.0)画素の割合(256 体・既定の視点)</th></tr></thead><tbody>` +
+      rows.map((r) => `<tr><th scope="row">${r.lv}${r.lv === L ? ' ◀' : ''}</th><td>${r.size} 画素四方</td><td>${r.a}〜${r.b}(${r.n} 画素)</td><td>${onesAt(r.lv)}</td></tr>`).join('') + '</tbody></table>';
+    $('bx-note').textContent = `箱の差し渡しが 1 画素の幅以下なので、箱は縦横それぞれ多くても 2 画素にかかり、読むのは多くても 4 画素。何千画素の範囲でも読む量が一定なのが「山」にしておく値打ち。代わりに粗くなる。段 ${L} の何も無い画素の割合は ${onesAt(L)}` + (L >= 5 ? '(ほぼ全部が 1.0 なので、この大きさの箱は「隠れている」とほとんど言えない)。' : '。') + (st.e <= 2 ? ' 差し渡しが 2 画素以下なら段 0 で足りる。' : '');
+  }
+  REDRAW.push(redraw);
+  $('bx-x').addEventListener('input', (e) => { st.x = Number(e.target.value); redraw(); });
+  $('bx-e').addEventListener('input', (e) => { st.e = Number(e.target.value); redraw(); });
+  setTimeout(redraw, 400);
+}
+
+// ============================================================
+//  段の大きさ
+// ============================================================
+{
+  const st = { size: [480, 270], round: 'floor' };
+  function redraw() {
+    const [w0, h0] = st.size;
+    const legal = Math.floor(Math.log2(Math.max(w0, h0))) + 1; // 作れる段の数の上限(仕様)
+    // 段の大きさの並び
+    const sizes = [[w0, h0]];
+    if (st.round === 'floor') { for (let L = 1; L < legal; L++) sizes.push([Math.max(1, w0 >> L), Math.max(1, h0 >> L)]); }
+    else { while (sizes[sizes.length - 1][0] > 1 || sizes[sizes.length - 1][1] > 1) { const [a, b] = sizes[sizes.length - 1]; sizes.push([Math.max(1, Math.ceil(a / 2)), Math.max(1, Math.ceil(b / 2))]); } }
+    // 読み方の確認: 下の段の列(行)が全部どこかの出力に入るか。ふつう 2、奇数で端なら 3 読む
+    const cover = (src, out, fix) => { if (st.round === 'ceil') return 0; let covered = 0; for (let x = 0; x < out; x++) covered += (fix && x === out - 1 && (src & 1)) ? 3 : 2; return Math.max(0, src - covered); };
+    const rows = [];
+    for (let L = 0; L < sizes.length; L++) {
+      const src = L === 0 ? [w0 * 2, h0 * 2] : sizes[L - 1], out = sizes[L];
+      const oddX = src[0] & 1, oddY = src[1] & 1;
+      const naive = cover(src[0], out[0], false) * src[1] + cover(src[1], out[1], false) * src[0];
+      rows.push({ L, out, src, oddX, oddY, naive, illegal: L >= legal });
+    }
+    $('sz-stats').innerHTML = stat('段 0 の大きさ', `${w0} x ${h0}`) +
+      stat('作れる段の数の上限', String(legal), `<small> = floor(log2(${Math.max(w0, h0)})) + 1</small>`) +
+      stat('数えた段の数', String(sizes.length), sizes.length > legal ? '<small> (仕様違反)</small>' : '') +
+      stat('取りこぼす画素(端の 3 列を読まないとき)', comma(rows.reduce((a, r) => a + r.naive, 0)));
+    $('sz-table').innerHTML = '<table><thead><tr><th>段</th><th>大きさ</th><th>1つ下の大きさ</th><th>下が奇数か(横 / 縦)</th><th>端の出力が読む数(横 x 縦)</th><th>2x2 だけ読むと取りこぼす画素</th></tr></thead><tbody>' +
+      rows.map((r) => {
+        const rx = st.round === 'ceil' ? 2 : (r.oddX ? 3 : 2), ry = st.round === 'ceil' ? 2 : (r.oddY ? 3 : 2);
+        return `<tr><th scope="row">${r.L}${r.illegal ? ' ✗' : ''}</th><td>${r.out[0]} x ${r.out[1]}${r.illegal ? '(作れない)' : ''}</td><td>${r.src[0]} x ${r.src[1]}</td><td>${r.oddX ? '奇数' : '偶数'} / ${r.oddY ? '奇数' : '偶数'}</td><td>${rx} x ${ry}</td><td>${r.naive ? comma(r.naive) : '0'}</td></tr>`;
+      }).join('') + '</tbody></table>';
+    $('sz-note').textContent = st.round === 'ceil'
+      ? `切り上げで数えると ${sizes.length} 段になる。Vulkan が許すのは ${legal} 段までなので、${sizes.length - legal} 段ぶんは仕様違反で、検証レイヤの無い環境では黙って「無い段」になる(textureSize が 0 x 0、texelFetch が 0.0 = いちばん手前を返し、どんな物も「それより奥」になって隠れ扱いされた)。`
+      : st.size[0] === 512 && st.size[1] === 256
+        ? '段 0 が 2 の累乗なら、段 1 から上は必ずぴったり半分になり、奇数の端が出ない(niagara のやり方)。代わりに、段 0 だけは 1画素が深度の 1.875 x 2.109 画素ぶんになり、画面の画素と Hi-Z の画素の対応が単純なシフトでは書けない(課題2)。'
+        : '下の段が奇数のとき、切り捨てで半分にすると端の1列(1行)がどの出力にも入らない(右端の列は「2 x 2 だけ読む」の列で取りこぼされる)。端の出力だけ 3 列(3 行)読めば、取りこぼしは 0 になる。';
+  }
+  REDRAW.push(redraw);
+  seg('sz-size', (v) => { st.size = v.split(',').map(Number); redraw(); });
+  seg('sz-round', (v) => { st.round = v; redraw(); });
+  redraw();
+}
+})();
+</script>
+</body>
+</html>

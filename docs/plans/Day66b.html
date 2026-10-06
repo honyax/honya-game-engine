@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 66b モダンライティング理論講読(TAA の発展・アップスケーリング・DDGI・Lumen・ReSTIR)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l3"><a href="#s3">DDGI(今日の中心)</a></li><li class="l3"><a href="#s4">Lumen</a></li><li class="l3"><a href="#s5">ReSTIR</a></li><li class="l3"><a href="#s6">TAA の発展とアップスケーリング</a></li><li class="l3"><a href="#s7">このリポジトリの中</a></li><li class="l2"><a href="#s8">理論の要点</a></li><li class="l3"><a href="#s9">1. TAA の発展 — 「溜める」はほぼ完成していて、「疑う」が続いている</a></li><li class="l3"><a href="#s10">2. アップスケーリング — 低い解像度で描き、TAA の履歴を高い解像度で持つ</a></li><li class="l3"><a href="#s11">3. DDGI — 66a のプローブを「毎フレーム、少しずつ」焼き直す</a></li><li class="l3"><a href="#s12">4. DDGI の値段と、それでも残るもの</a></li><li class="l3"><a href="#s13">5. Lumen — 何段もの近似を、遠さと値段で使い分ける</a></li><li class="l3"><a href="#s14">6. ReSTIR — 光を全部回さず、確率で選んで、選んだ結果を使い回す</a></li><li class="l3"><a href="#s15">7. 4つを並べると — 使い回すのは「何」か</a></li><li class="l2"><a href="#s16">前Dayからの差分概要</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">読んだものが入る場所 — いまの1フレームのどこに差し込まれるか</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l2"><a href="#s21">改造課題</a></li><li class="l3"><a href="#s22">課題1(易): 66a を「少しずつ焼き直す」にしたら何フレームかかるか</a></li><li class="l3"><a href="#s23">課題2(中): ヒステリシスを入れる</a></li><li class="l3"><a href="#s24">課題3(難): プローブに深度を持たせ、見えないプローブの重みを下げる</a></li><li class="l2"><a href="#s25">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 66b / 計画書</p>
+  <h1>モダンライティング理論講読(TAA の発展・アップスケーリング・DDGI・Lumen・ReSTIR)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l3"><a href="#s3">DDGI(今日の中心)</a></li><li class="l3"><a href="#s4">Lumen</a></li><li class="l3"><a href="#s5">ReSTIR</a></li><li class="l3"><a href="#s6">TAA の発展とアップスケーリング</a></li><li class="l3"><a href="#s7">このリポジトリの中</a></li><li class="l2"><a href="#s8">理論の要点</a></li><li class="l3"><a href="#s9">1. TAA の発展 — 「溜める」はほぼ完成していて、「疑う」が続いている</a></li><li class="l3"><a href="#s10">2. アップスケーリング — 低い解像度で描き、TAA の履歴を高い解像度で持つ</a></li><li class="l3"><a href="#s11">3. DDGI — 66a のプローブを「毎フレーム、少しずつ」焼き直す</a></li><li class="l3"><a href="#s12">4. DDGI の値段と、それでも残るもの</a></li><li class="l3"><a href="#s13">5. Lumen — 何段もの近似を、遠さと値段で使い分ける</a></li><li class="l3"><a href="#s14">6. ReSTIR — 光を全部回さず、確率で選んで、選んだ結果を使い回す</a></li><li class="l3"><a href="#s15">7. 4つを並べると — 使い回すのは「何」か</a></li><li class="l2"><a href="#s16">前Dayからの差分概要</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">読んだものが入る場所 — いまの1フレームのどこに差し込まれるか</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l2"><a href="#s21">改造課題</a></li><li class="l3"><a href="#s22">課題1(易): 66a を「少しずつ焼き直す」にしたら何フレームかかるか</a></li><li class="l3"><a href="#s23">課題2(中): ヒステリシスを入れる</a></li><li class="l3"><a href="#s24">課題3(難): プローブに深度を持たせ、見えないプローブの重みを下げる</a></li><li class="l2"><a href="#s25">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>講読の日。コードは書かない</strong>(<code>reference/Day66b</code> は作らない。写経も無い)。教養編で作ってきたものが、いまのゲームエンジンの中でどう育っているかを、論文と講演資料で読む。</p>
+<p>読むものは4つに分かれるが、<strong>どれもこのリポジトリのどこかの Day の「続き」</strong>として読める。何もないところから読むと用語の山になるので、<strong>必ず自分の書いたコードの横に置いて読む</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>読むもの</th><th>続きになっている Day</th><th>一言で言うと</th></tr></thead>
+<tbody>
+<tr><td>TAA の発展</td><td>Day 54a・54b(TAA)</td><td>履歴を<strong>どれだけ信じるか</strong>の判断を、手書きの規則からもっと賢いものへ</td></tr>
+<tr><td>アップスケーリング(FSR / DLSS)</td><td>Day 54a・54b(TAA)+ Day 55a(被写界深度)</td><td><strong>低い解像度で描いて</strong>、TAA の履歴を高い解像度で持つ</td></tr>
+<tr><td>DDGI</td><td><strong>Day 66a</strong>(焼いたプローブ)</td><td>66a のプローブを<strong>毎フレームのレイで焼き直し、深度を持たせて光漏れを防いだもの</strong></td></tr>
+<tr><td>Lumen</td><td>Day 66a + Day 58(SDF)+ Day 62(ハードウェア RT)</td><td>動く光と動く物に付いてくる GI を、何段もの近似の組み合わせで</td></tr>
+<tr><td>ReSTIR</td><td>Day 52b(1024 個の点光源)+ Day 53(Forward+)+ Day 60a(モンテカルロ)</td><td>光を<strong>全部回す</strong>のでも<strong>升目で選ぶ</strong>のでもなく、<strong>確率で数本選んで、選んだ結果を隣と前のフレームで使い回す</strong></td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>今日の読み方のいちばんの芯</strong></p>
+<p>4つとも、<strong>「前のフレームの答えを使い回す」</strong>と<strong>「全部を正しく計算せず、足りないぶんを使い回しで埋める」</strong>の組み合わせでできている。Day 54 の TAA が「1画素 1 サンプルでも、8 フレーム溜めれば 8 サンプル」と言っていたのと同じ発想が、解像度(アップスケーリング)・GI(DDGI・Lumen)・光源の数(ReSTIR)に広がっている。Day 66a の焼いたプローブは、その逆——<strong>一度だけ全部計算して、あとはずっと使い回す</strong>——の端にある。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>4つの技術それぞれについて、「このリポジトリのどの Day の、何を、どう置き換えたものか」を1〜2文で言える。とくに DDGI は、Day 66a の <code>IrradianceProbes</code> のどこを変えれば DDGI になるかを、関数の名前を挙げて説明できる。</strong></p>
+<p>確かめ方は「完成条件」の問い(8 問)に、資料を閉じて答えられるか。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<h3 id="s3">DDGI(今日の中心)</h3>
+<ul><li><a href="https://jcgt.org/published/0008/02/01/">Majercik, Guertin, Nowrouzezahrai, McGuire, "Dynamic Diffuse Global Illumination with Ray-Traced Irradiance Fields"(JCGT 2019)</a>— <strong>今日いちばん時間を使う資料</strong>。Day 66a の計画書の「今日残した歪み」4つ目(壁の裏から覗くプローブ)と、要点5(重みが壁を知らない)に、この論文がどう答えているかを探しながら読む。読む順は、プローブの持ち物(照度と深度)→ 更新(レイを撃って混ぜる)→ 引き方(重み)→ 置き場所の自動調整</li></ul>
+<h3 id="s4">Lumen</h3>
+<ul><li><a href="https://advances.realtimerendering.com/s2022/index.html">Wright, Narkowicz, Kelly, "Lumen: Real-time Global Illumination in Unreal Engine 5"(SIGGRAPH 2022 Advances in Real-Time Rendering)</a>— 講演資料(<a href="https://advances.realtimerendering.com/s2022/SIGGRAPH2022-Advances-Lumen-Wright%20et%20al.pdf">PDF</a>)。分量が多いので、<strong>全体の構成(何段の近似を重ねているか)</strong>と、最後のほうの「品質を下げたときに何へ落ちるか」を先に読む</li><li><a href="https://knarkowicz.wordpress.com/2022/08/18/journey-to-lumen/">Krzysztof Narkowicz, "Journey to Lumen"(2022)</a>— 開発者本人のブログ。<strong>試して捨てた方式</strong>が並んでいるので、「なぜこの形になったか」が講演資料より読みやすい</li></ul>
+<h3 id="s5">ReSTIR</h3>
+<ul><li><a href="https://benedikt-bitterli.me/restir/">Bitterli, Wyman, Pharr, Shirley, Lefohn, Jarosz, "Spatiotemporal reservoir resampling for real-time ray tracing with dynamic direct lighting"(SIGGRAPH 2020)</a>— 論文の頁(<a href="https://research.nvidia.com/sites/default/files/pubs/2020-07_Spatiotemporal-reservoir-resampling/ReSTIR.pdf">PDF</a>)。<strong>重点的リサンプリング(RIS)→ 貯水池(リザーバ)→ 時間と空間での使い回し</strong>の3段で読む。Day 60a の計画書(モンテカルロ積分・重点サンプリング)を隣に置く</li></ul>
+<h3 id="s6">TAA の発展とアップスケーリング</h3>
+<ul><li><a href="http://behindthepixels.io/assets/files/TemporalAA.pdf">Yang, Liu, Salvi, "A Survey of Temporal Antialiasing Techniques"(Eurographics 2020 STAR)</a>— TAA を「サンプルを溜める」と「履歴を疑う」の2つに分けて整理したサーベイ。<strong>Day 54a の要点3(混ぜる)と要点5(疑う)がそのまま章立てになっている</strong>。後半の「アップスケーリング」と「残っている問題」を読む</li><li><a href="https://advances.realtimerendering.com/s2014/">Brian Karis, "High Quality Temporal Supersampling"(SIGGRAPH 2014 Advances)</a>— Day 54a で読んだものの読み直し。今日は<strong>「なぜ近所の色の箱で疑うのか」ではなく「それでも何が残るのか」</strong>を拾う</li><li><a href="https://gpuopen.com/fidelityfx-superresolution/">AMD FidelityFX Super Resolution 1</a> と<a href="https://gpuopen.com/fidelityfx-superresolution-2/">FidelityFX Super Resolution 2</a>(GPUOpen)— FSR 1 は<strong>1枚の絵だけで</strong>拡大する(空間)、FSR 2 は<strong>前のフレームを使う</strong>(時間)。2 の<a href="https://gpuopen.com/manuals/fidelityfx_sdk/techniques/super-resolution-temporal/">説明書</a>で、入力(低解像度の色・深度・速度・ずらし)が Day 54 の TAA とほぼ同じであることを確かめる</li><li><a href="https://developer.download.nvidia.com/video/gputechconf/gtc/2020/presentations/s22698-dlss-image-reconstruction-for-real-time-rendering-with-deep-learning.pdf">Edward Liu, "DLSS 2.0 - Image Reconstruction for Real-time Rendering with Deep Learning"(GTC 2020)</a>— <strong>手書きの規則のどこをネットワークに任せたか</strong>だけを読めばよい(ネットワークの中身は今日の主題ではない)</li></ul>
+<h3 id="s7">このリポジトリの中</h3>
+<ul><li><strong>Day 66a の計画書</strong> 要点5・7 と「今日残した歪み」 — DDGI を読む前に必ず読み直す</li><li><strong>Day 54a の計画書</strong> 要点3・5、<strong>Day 54b の計画書</strong> 要点3・4 — TAA とアップスケーリングの土台</li><li><strong>Day 52b・53 の計画書</strong>(多光源と Forward+)と <strong>Day 60a の計画書</strong>(モンテカルロ) — ReSTIR の土台</li><li><strong>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch10</strong>(大局照明技術) — 地図として</li></ul>
+</section>
+<section class="part"><h2 id="s8">理論の要点</h2>
+<h3 id="s9">1. TAA の発展 — 「溜める」はほぼ完成していて、「疑う」が続いている</h3>
+<p>Day 54a の TAA は、1画素 1 サンプルを毎フレームずらして描き、指数移動平均で溜めた。そして、使い回してはいけない履歴を<strong>近所の色の箱</strong>で疑い、箱の外に出た履歴を箱の中へ引き戻した(要点5)。</p>
+<p>サーベイの整理では、TAA の研究は今も<strong>ほとんどが「疑う」側</strong>にある。溜め方(指数移動平均)はほぼ決まっていて、問題になるのはいつも「この履歴は、いまの画素と同じものを見ていたか」。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>疑い方</th><th>Day 54 でやったか</th><th>何を見て疑うか</th></tr></thead>
+<tbody>
+<tr><td>近所の色の箱(min / max、分散)</td><td><strong>やった</strong>(Day 54a)</td><td>いまの画素のまわりの色の範囲</td></tr>
+<tr><td>速度の食い違い</td><td>やっていない</td><td>前のフレームで、その場所の速度が大きく違っていたか</td></tr>
+<tr><td>深度・物体 ID の食い違い</td><td>やっていない</td><td>引き戻した先に、同じ物が写っていたか</td></tr>
+<tr><td>学習した重み</td><td>やっていない</td><td>上の全部をネットワークに見せて、混ぜ方を決めさせる(DLSS)</td></tr>
+</tbody>
+</table></div>
+<p><strong>色の箱で疑うことの限界</strong>は、Day 54a で見たとおり、<strong>細い線や小さな明るい点</strong>。いまの画素の近所に写っていないものは、正しい履歴でも「箱の外」に見えて捨てられる。これがちらつきとぼけの残りの正体で、ここを良くしようとすると「色以外の手がかり」が要る——アップスケーリングでそれがさらに深刻になる。</p>
+<h3 id="s10">2. アップスケーリング — 低い解像度で描き、TAA の履歴を高い解像度で持つ</h3>
+<p>Day 54 の TAA は、<strong>描く解像度と履歴の解像度が同じ</strong>だった。アップスケーラは、これを分ける。</p>
+<div class="code"><pre><code>  描く: 1280x720(画素の数は 4 分の1)  ─ずらし→  履歴: 2560x1440
+         1フレームで 1 画素 1 サンプル              4 フレーム溜めれば、履歴の 1 画素に 1 サンプル</code></pre></div>
+<p><strong>ずらしを細かくすれば、低い解像度の画素でも、高い解像度の画素の中のいろいろな位置を順に踏める</strong>。Day 54a の「8 点のずらし」を増やし、履歴に書き込む位置を高い解像度の側で決めるのが、FSR 2 と DLSS 2 に共通する骨格。入力は Day 54 の TAA とほぼ同じ(低解像度の色・深度・速度・ずらしの量)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何を使うか</th><th>疑い方</th></tr></thead>
+<tbody>
+<tr><td>FSR 1</td><td><strong>1枚の絵だけ</strong>(空間)。縁を見て拡大し、鋭くする</td><td>疑わない(履歴を持たない)</td></tr>
+<tr><td>FSR 2</td><td>前のフレームの履歴(時間)</td><td><strong>手書きの規則</strong>(色・深度・速度の食い違い、細いものを「固定」する)</td></tr>
+<tr><td>DLSS 2</td><td>前のフレームの履歴(時間)</td><td><strong>ネットワーク</strong>が混ぜ方を決める</td></tr>
+</tbody>
+</table></div>
+<p><strong>解像度を下げると、「疑う」がずっと難しくなる</strong>。いまの画素の近所の色の箱が、4倍粗い画素から作られるので、細い線は箱にまったく入らなくなる。DLSS が「手書きの規則のどこをネットワークに任せたか」は、ほぼこの1点——<strong>どの履歴を捨てるか</strong>——に集中している。</p>
+<p><strong>被写界深度・モーションブラーとの順番</strong>も読みどころ。Day 55 では TAA の直後に被写界深度とブラーを置いた。アップスケーラは TAA の場所に入るので、その後ろの後処理は<strong>高い解像度で走る</strong>——高い解像度ぶん値段が上がる。前に置けば安いが、ぼけた絵を拡大することになる。どちらを取るかは資料でも意見が分かれている。</p>
+<h3 id="s11">3. DDGI — 66a のプローブを「毎フレーム、少しずつ」焼き直す</h3>
+<p>DDGI の骨格は Day 66a とまったく同じ。<strong>格子にプローブを並べ、画素は囲む8点を混ぜて照度を引く</strong>。違いは4つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 66a(焼いたプローブ)</th><th>DDGI</th></tr></thead>
+<tbody>
+<tr><td>1. 何で撮るか</td><td>ラスタライズ(6面 x 32x32)</td><td><strong>レイ</strong>(1点あたり毎フレーム数百本)</td></tr>
+<tr><td>2. いつ撮るか</td><td>キーを押したとき、1回</td><td><strong>毎フレーム</strong>。前の値と混ぜる(ヒステリシス)</td></tr>
+<tr><td>3. 何を持つか</td><td>照度(SH 9 係数)</td><td>照度(<strong>八面体マップ</strong>)+ <strong>深度</strong>(平均と2乗平均)</td></tr>
+<tr><td>4. 置き場所</td><td>格子のまま</td><td><strong>動かす・止める</strong>(壁の中や裏に居るものを直す)</td></tr>
+</tbody>
+</table></div>
+<p><strong>2 がいちばん大事</strong>。毎フレーム全部撮り直すのではなく、少しのレイで撮った結果を<strong>前の値に少しだけ混ぜる</strong> (前の値の重みは 0.9 台後半)。これは <strong>Day 54 の TAA とまったく同じ指数移動平均</strong>で、TAA が画素の上でやったことを、プローブの上でやっている。だから灯りが動けば、照り返しも数十フレームかけて付いてくる——<strong>66a の「焼いたものは付いてこない」(要点7)がここで外れる</strong>。</p>
+<div class="inject"><figure class="lab" id="hy-lab">
+  <div class="lab-head">
+    <h3>ヒステリシス — 前の値にどれだけ残るか(要点3・課題1・2)</h3>
+    <span class="tag">DDGI の「前の値に少しだけ混ぜる」を、課題2の式(next = previous x h + new x (1 − h))で、毎フレーム 1 回更新したときの値の動きを描いたもの。Day 54 の TAA の指数移動平均と同じ式で、TAA の混ぜる割合は α = 1 − h。コードを書かない日なので、reference は無く、式から数えた値(半分になるまでの回数 = ln 0.5 / ln h)だけが出る。下の「1周」の見積もりは、Day 66a の計画書の焼く時間(448 点・1回ぶん: 撮る 136ms / 読み返す 321ms / 縮める 161ms)を 448 で割った値で、課題1の 2 を計算したもの</span>
+  </div>
+  <div class="stage"><canvas id="hy-canvas" style="height:300px" aria-label="入力の変化と、ヒステリシスをかけた出力の動き"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">何が変わるか</span>
+      <div class="seg" id="hy-case"><button data-v="off" aria-pressed="true">灯りを消す(F10 のあと)</button><button data-v="on" aria-pressed="false">灯りを点ける</button><button data-v="flick" aria-pressed="false">灯りが揺らぐ</button></div>
+    </div>
+    <div class="ctl"><span class="label">前の値の重み h(DDGI は 0.9 台後半。課題2は 0.9)</span>
+      <div class="range"><input type="range" id="hy-h" min="0.5" max="0.995" step="0.005" value="0.9"><output id="hy-h-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">揺らぎの周期(フレーム。「揺らぐ」のとき)</span>
+      <div class="range"><input type="range" id="hy-p" min="4" max="120" step="1" value="30"><output id="hy-p-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">1フレームに使ってよい時間(ms。課題1の 2)</span>
+      <div class="range"><input type="range" id="hy-ms" min="0.25" max="4" step="0.05" value="1"><output id="hy-ms-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="hy-stats"></div><div class="table-wrap" id="hy-table" style="margin-top:10px"></div><p id="hy-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>3 の深度が光漏れを防ぐ</strong>。各プローブは「その向きに、いちばん近い面までどれだけあるか」の平均と2乗平均を持つ。画素がプローブから見えているかを、<strong>チェビシェフの不等式</strong>(平均と分散から「この距離より奥にある確率」の上限を出す)で見積もり、見えていなさそうなプローブの重みを下げる。Day 33 の影で言えば、分散シャドウマップと同じ考え方。<strong>66a の <code>ProbeIrradiance</code> の重み <code>w.x * w.y * w.z</code> に、もう1つ掛け算が増える</strong>と読めばよい。</p>
+<div class="inject"><figure class="lab" id="ch-lab">
+  <div class="lab-head">
+    <h3>見えているかの見積もり — 平均と分散から重みを出す(要点3・課題3)</h3>
+    <span class="tag">プローブが持つ「その向きの、いちばん近い面までの距離」の平均 μ と分散 σ²(= 2乗平均 − 平均²)から、画素がプローブから見えている確率の上限を出す式(チェビシェフの不等式の片側の形): 画素までの距離 d が μ 以下なら 1、より奥なら σ² / (σ² + (d − μ)²)。この式で重みを下げる、というのが DDGI の光漏れ対策の骨格(論文を読んで細部を確かめること)。コードを書かない日なので reference は無い。距離は 1 次元(プローブから画素へ向かう1本の線)で、壁は平均 μ の位置にある</span>
+  </div>
+  <div class="stage"><canvas id="ch-canvas" style="height:300px" aria-label="画素までの距離ごとの、見えている確率の上限(重み)"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">その向きの、いちばん近い面までの距離の平均 μ(m)。壁までの距離</span>
+      <div class="range"><input type="range" id="ch-mu" min="0.5" max="5" step="0.05" value="2"><output id="ch-mu-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">ばらつき σ(m)。近い向きに撃ったレイが、壁に当たる距離のばらつき</span>
+      <div class="range"><input type="range" id="ch-s" min="0.02" max="1.5" step="0.01" value="0.15"><output id="ch-s-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">画素までの距離 d(m)</span>
+      <div class="range"><input type="range" id="ch-d" min="0.2" max="6" step="0.05" value="3.5"><output id="ch-d-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ch-stats"></div><p id="ch-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p><strong>4 は 66a の「今日残した歪み」4つ目への答え</strong>。レイが裏面ばかりに当たるプローブは、壁の中か壁の裏に居る。DDGI はそれを数えて、プローブを少し動かすか、使わないことにする。</p>
+<p><strong>SH ではなく八面体マップで持つ</strong>のは、毎フレーム少しずつ書き足すのに向くから(テクスチャの画素に混ぜるだけで済む)と、深度は SH では持てない(要点4 の「小さく明るい光」と同じで、細かい変化を9個では表せない)から。</p>
+<h3 id="s12">4. DDGI の値段と、それでも残るもの</h3>
+<p>DDGI はレイを撃つので、<strong>ハードウェア RT(Day 62)が前提</strong>になる。1点あたり毎フレーム数百本 x 数千点なので、画面の画素の数よりずっと少ないレイで済むのが値打ち(画素ごとにレイを撃つパストレーシングの何百分の1)。</p>
+<p>それでも残るものは、66a と同じ格子の弱点。</p>
+<ul><li><strong>格子より細かい照り返しは出ない</strong>。プローブの間隔が照り返しの解像度の上限</li><li><strong>間隔を細かくすると、点の数は3乗で増える</strong>(66a の <code>F5</code> で見た)。広い世界では、カメラのまわりだけ細かくする入れ子の格子(カスケード)にする</li><li><strong>拡散だけ</strong>。鏡面の映り込みは別の仕組み(画面空間の反射やレイの反射)が要る(66a の「今日残した歪み」3つ目と同じ)</li></ul>
+<h3 id="s13">5. Lumen — 何段もの近似を、遠さと値段で使い分ける</h3>
+<p>Lumen は「1つの方式」ではなく、<strong>同じ問い(その点に、まわりからどれだけ光が来るか)に答える近似を何段も重ねたもの</strong>。レイを近いところから順に、安い方法で試し、当たらなければ次の方法へ渡す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>何で調べるか</th><th>このリポジトリで近いもの</th></tr></thead>
+<tbody>
+<tr><td>画面の中</td><td>深度バッファの上をたどる</td><td>Day 37(SSAO)——画面に写っているものだけ</td></tr>
+<tr><td>近くの物</td><td>物ごとの距離場(SDF)をたどる</td><td><strong>Day 58(レイマーチング)</strong></td></tr>
+<tr><td>遠くの物</td><td>世界全体の粗い距離場をたどる</td><td>同上(粗い版)</td></tr>
+<tr><td>ハードウェア RT(使えれば)</td><td>三角形そのもの</td><td><strong>Day 62</strong>(BLAS / TLAS)</td></tr>
+</tbody>
+</table></div>
+<p><strong>当たった先の明るさは、面に貼った「サーフェスキャッシュ」から読む</strong>。当たった点でもう一度光を計算し直すと高いので、物の面の明るさを低い解像度で持っておき、それを読む——66a のプローブが「点で持つ」のに対して、「面に貼って持つ」。</p>
+<p><strong>最後に画面の上で集める</strong>(ファイナルギャザー)。画素ごとに何本もレイを撃つのは高いので、画面の上に間引いたプローブを置き、そこで撃って、画素は近くのプローブから引く。<strong>プローブが画面の上に移っただけで、66a の「囲む点を混ぜる」と同じ形</strong>。</p>
+<p><strong>品質を下げると、何へ落ちるか</strong>が読みどころ。講演資料には、プローブと遮蔽を使う軽い版(Irradiance Fields with Probe Occlusion)が出てくる——<strong>つまり DDGI に近いもの</strong>で、Lumen の最下段は 66a からそう遠くない。</p>
+<h3 id="s14">6. ReSTIR — 光を全部回さず、確率で選んで、選んだ結果を使い回す</h3>
+<p>Day 52b では 1024 個の点光源を描いた。フォワードは画素ごとに全部を回し、Day 53 の Forward+ は画面を升目に切って<strong>升目にかかる光だけ</strong>を回した。どちらも「届くかもしれない光を<strong>全部</strong>調べる」。</p>
+<p>ReSTIR は、全部を調べない。<strong>画素ごとに数本だけ、明るそうな光を確率で選ぶ</strong>(重点サンプリング。Day 60a のモンテカルロと同じ)。それだけではノイズだらけなので、2つを使い回す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>使い回し</th><th>何をするか</th><th>このリポジトリで近いもの</th></tr></thead>
+<tbody>
+<tr><td>時間</td><td>前のフレームの同じ場所の「選んだ結果」を、今の選択に混ぜる</td><td><strong>Day 54 の TAA</strong>(速度で前の場所を引き戻す)</td></tr>
+<tr><td>空間</td><td>隣の画素の「選んだ結果」も、自分の選択に混ぜる</td><td>Day 37 の SSAO のぼかし(近所を見る)</td></tr>
+</tbody>
+</table></div>
+<p><strong>使い回すのは色ではなく「選んだ光」</strong>というのが TAA との違い。貯水池(リザーバ)は「これまでに見た候補のうち1つと、その重みの合計」だけを持つ小さな箱で、何本見ても大きさが変わらない。混ぜるときは箱と箱を合わせるだけなので、隣と前のフレームを何度でも足せる。<strong>選び直しの重みを正しく付ければ、推定は偏らない</strong>(論文の主張の中心。同じ誤差で 6〜60 倍速い)。</p>
+<p><strong>影が付く</strong>のも、Day 52b / 53 との大きな違い。選んだ数本の光にだけ、レイ(影のレイ)を撃つので、1024 個の光すべてに影が付く。Day 52 の点光源が影を持たなかったのは、全部の光に影を付けると値段が光の数だけ増えるから——ReSTIR はそれを「選ぶ」ことで外した。</p>
+<h3 id="s15">7. 4つを並べると — 使い回すのは「何」か</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>技術</th><th>使い回すもの</th><th>どこから</th><th>疑い方</th></tr></thead>
+<tbody>
+<tr><td>TAA(Day 54)</td><td>色</td><td>前のフレーム・同じ画素</td><td>近所の色の箱</td></tr>
+<tr><td>アップスケーラ</td><td>色(高い解像度で)</td><td>前のフレーム</td><td>手書きの規則 / ネットワーク</td></tr>
+<tr><td>DDGI</td><td>照度と深度</td><td>前のフレーム・同じプローブ</td><td>ほぼ疑わない(ゆっくり混ぜる)</td></tr>
+<tr><td>Lumen</td><td>面の明るさ・画面のプローブ</td><td>前のフレーム・近くの面</td><td>物が動いたら、その面のぶんを捨てる</td></tr>
+<tr><td>ReSTIR</td><td><strong>選んだ光</strong></td><td>前のフレーム・隣の画素</td><td>選び直しの重み</td></tr>
+<tr><td><strong>焼いたプローブ(Day 66a)</strong></td><td>照度</td><td><strong>焼いたとき</strong>(ずっと)</td><td><strong>疑わない</strong>(条件が変わっても使い続ける)</td></tr>
+</tbody>
+</table></div>
+<p><strong>66a がいちばん下の行に居る</strong>のが今日の結論。何も疑わず、ずっと使い回す。だから安く(毎フレーム +0.14ms)、だから動く光には付いてこない。上の行へ行くほど、使い回す期間が短くなり、疑い方が賢くなり、値段が上がる。</p>
+</section>
+<section class="part"><h2 id="s16">前Dayからの差分概要</h2>
+<p><strong>差分なし</strong>(講読の日)。<code>reference/Day66b</code> は作らない。写経も無い。</p>
+<h3 id="s17">写経する順番</h3>
+<p>無し。<strong>改造課題</strong>が手を動かす場所になる(どれも Day 66a のコードの上でやる)。</p>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>Day 66a から変更なし</strong>(コードを書かない日なので、Day 66a の計画書の設計書をそのまま見ること)。</p>
+<p>代わりに、今日読んだものを<strong>いまのエンジンに入れるとしたら、どこが変わるか</strong>を1枚にしておく。改造課題を始める前の地図として使う。</p>
+<h3 id="s19">読んだものが入る場所 — いまの1フレームのどこに差し込まれるか</h3>
+<svg viewBox="0 0 1210 384" role="img" aria-label="読んだものが入る場所(いまの1フレームのどこに差し込まれるか)。いまのエンジン(Day 66a)は、RenderShadowPass(太陽の影だけ)、AssignLightsToClusters(Forward+ の升目。Day 53)、本描画 textured.frag(点光源は影なし。拡散の環境光は焼いたプローブ)、TemporalAA(同じ解像度。Day 54)、被写界深度・ブラー・ブルームの順。DDGI(毎フレーム、プローブへレイ。照度と深度を少し混ぜる)は、IrradianceProbes.Bake を毎フレームの更新にして、本描画に差し込む。ReSTIR(画素ごとに数本の光を選ぶ。時間と空間で使い回す。選んだ光にだけ影のレイ)は、Forward+ の升目の代わりになる。アップスケーラ(FSR 2 / DLSS 2)は、TAA の場所に入り、描く解像度を下げる。Lumen(画面・距離場・RT を段で使い分け)は、環境光と映り込みの全部を置き換える" style="width:100%;max-width:1210px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="1190" height="150" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="22" y="28" fill="var(--muted)" font-size="12">いまのエンジン(Day 66a)</text><rect x="30" y="50" width="170" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="115" y="70.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderShadowPass</text><text x="115" y="87.5" text-anchor="middle" fill="var(--ink)">太陽の影だけ</text><rect x="230" y="50" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="335" y="70.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">AssignLightsToClusters</text><text x="335" y="87.5" text-anchor="middle" fill="var(--ink)">Forward+ の升目(Day 53)</text><rect x="470" y="50" width="270" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="605" y="70.5" text-anchor="middle" fill="var(--ink)">本描画 textured.frag</text><text x="605" y="87.5" text-anchor="middle" fill="var(--ink)">点光源は影なし</text><text x="605" y="104.5" text-anchor="middle" fill="var(--ink)">拡散の環境光 = 焼いたプローブ</text><rect x="770" y="50" width="170" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="855" y="70.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TemporalAA</text><text x="855" y="87.5" text-anchor="middle" fill="var(--ink)">同じ解像度(Day 54)</text><rect x="970" y="50" width="210" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1075" y="79" text-anchor="middle" fill="var(--ink)">被写界深度・ブラー・ブルーム</text><path d="M200 75 L228 75" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 75 L468 83.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M740 83.5 L768 75" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M940 75 L968 75" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><rect x="100" y="290" width="270" height="84" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="310.5" text-anchor="middle" fill="var(--ink)">ReSTIR</text><text x="235" y="327.5" text-anchor="middle" fill="var(--ink)">画素ごとに数本の光を選ぶ</text><text x="235" y="344.5" text-anchor="middle" fill="var(--ink)">時間と空間で使い回す</text><text x="235" y="361.5" text-anchor="middle" fill="var(--ink)">選んだ光にだけ影のレイ</text><rect x="410" y="290" width="260" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="540" y="310.5" text-anchor="middle" fill="var(--ink)">DDGI</text><text x="540" y="327.5" text-anchor="middle" fill="var(--ink)">毎フレーム、プローブへレイ</text><text x="540" y="344.5" text-anchor="middle" fill="var(--ink)">照度と深度を少し混ぜる</text><rect x="710" y="290" width="250" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="835" y="310.5" text-anchor="middle" fill="var(--ink)">Lumen</text><text x="835" y="327.5" text-anchor="middle" fill="var(--ink)">画面・距離場・RT を段で使い分け</text><rect x="990" y="290" width="190" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1085" y="310.5" text-anchor="middle" fill="var(--ink)">アップスケーラ</text><text x="1085" y="327.5" text-anchor="middle" fill="var(--ink)">FSR 2 / DLSS 2</text><path stroke-dasharray="6 4" d="M235 288 L235 230 L335 230 L335 102" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="345" y="224" fill="var(--muted)" font-size="12">升目の代わりに</text><path stroke-dasharray="6 4" d="M500 288 L500 119" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="506" y="232" fill="var(--muted)" font-size="12">IrradianceProbes.Bake を</text><text x="506" y="248" fill="var(--muted)" font-size="12">毎フレームの更新へ</text><path stroke-dasharray="6 4" d="M775 288 L775 250 L685 250 L685 119" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="781" y="244" fill="var(--muted)" font-size="12">環境光と映り込みの全部を置き換える</text><path stroke-dasharray="6 4" d="M1085 288 L1085 200 L855 200 L855 102" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="1073" y="188" fill="var(--muted)" font-size="12" text-anchor="end">TAA の場所に入る</text><text x="1073" y="204" fill="var(--muted)" font-size="12" text-anchor="end">描く解像度を下げる</text></g></svg>
+<p><strong>DDGI がいちばん近い</strong>。<code>IrradianceProbes</code> の格子・テクスチャ・<code>ProbeIrradiance</code> の8点の補間はそのまま使え、変わるのは「撮り方」(ラスタの6面 → レイ)・「持ち方」(SH → 八面体マップ + 深度)・「混ぜ方」(差し替え → 少しずつ混ぜる)・「重み」(3軸の一次補間 → それに見えている確率を掛ける)の4つ。</p>
+<p><strong>ReSTIR は Forward+ の升目を置き換える</strong>が、影のレイが要るので、ハードウェア RT(Day 62 の Vulkan)か、距離場のレイマーチング(Day 58)のどちらかが本描画の中から呼べる必要がある。<strong>いまのエンジン(OpenGL 4.3)にはどちらの口も無い</strong>。</p>
+<p><strong>アップスケーラは TAA の場所に入り、<code>PostProcess</code> の中で解像度が2つに分かれる</strong>。Day 31 から「シーンのバッファ = 画面の大きさ」で揃えてきた前提(<code>Framebuffer.Resize</code> を画面の大きさで呼ぶ)が崩れるので、影響はいちばん広い。</p>
+</section>
+<section class="part"><h2 id="s20">完成条件</h2>
+<p>資料を閉じて、次の 8 問に答えられること。答えの要点は下に畳んである(先に自分で書いてから開く)。</p>
+<ol><li>Day 54 の TAA と、FSR 2 / DLSS 2 のいちばん大きな違いを1つ。入力で同じものを3つ</li><li>解像度を下げると、TAA の「疑う」がなぜ難しくなるか</li><li>DDGI が Day 66a と違う4点。そのうち<strong>光漏れ</strong>を防いでいるのはどれか</li><li>DDGI のヒステリシスは、Day 54 の何と同じ式か。灯りを急に消したとき、DDGI の照り返しはどう振る舞うか</li><li>Day 66a の「今日残した歪み」4つ目(壁の裏から覗くプローブ)に、DDGI はどう答えているか</li><li>Lumen がレイを「段」で使い分けるのはなぜか。最下段が 66a に近いのはなぜか</li><li>ReSTIR が「使い回す」ものは、TAA が使い回すものとどう違うか</li><li>Day 52 の点光源が影を持たなかった理由と、ReSTIR でそれが外せる理由</li></ol>
+<details><summary>答えの要点</summary>
+<ol><li><strong>描く解像度と履歴の解像度が違う</strong>(低く描いて高く溜める)。入力は色・深度・速度・ずらしの量(のうち3つ)</li><li>疑う材料(いまの画素の近所の色の箱)が粗い画素から作られるので、細い線や小さな点が箱に入らず、正しい履歴まで捨ててしまう</li><li>レイで撮る・毎フレーム少しずつ混ぜる・深度も持つ・置き場所を直す。光漏れは<strong>深度</strong>(チェビシェフで見えている確率を出して重みを下げる)と、置き場所の調整</li><li><strong>指数移動平均</strong>(TAA の混ぜる式と同じ)。消した瞬間には残り、数十フレームかけて消えていく(66a の「焼き直すまで残る」と、TAA のゴーストの中間)</li><li>レイが裏面ばかりに当たるプローブを見つけて、動かすか使わない</li><li>近いところほど安く正確な方法があり(画面・物ごとの距離場)、遠いところは粗くてよいから。品質を下げると「プローブ + 遮蔽」の照度の場に落ちる——格子の点を混ぜる形は 66a と同じ</li><li>TAA は<strong>色</strong>、ReSTIR は<strong>選んだ光(と重みの合計)</strong>。色は混ぜるとぼけるが、選んだ光は選び直すだけなので偏らない</li><li>全部の光に影を付けると値段が光の数だけ増えるから。ReSTIR は画素ごとに数本しか選ばないので、影のレイも数本で済む</li></ol>
+</details>
+</section>
+<section class="part"><h2 id="s21">改造課題</h2>
+<p>どれも <strong>Day 66a のコードの上で</strong>やる(<code>work/HonyaEngine</code> の 66a を写経し終えてから)。</p>
+<h3 id="s22">課題1(易): 66a を「少しずつ焼き直す」にしたら何フレームかかるか</h3>
+<p>DDGI の「毎フレーム少しずつ」を、66a の数字で見積もる。</p>
+<ol><li>66a の <code>F12</code>(値段)で、1回ぶんの焼きの内訳(撮る・読み返す・縮める)を読む</li><li>1フレームに使ってよい時間を 1ms とする。448 点を何フレームで1周できるか(撮る時間だけで見積もる)</li><li>1周するあいだに灯りが揺らぐと、照り返しのどこが遅れて見えるか</li><li><strong>読み返しが焼きの半分以上を占める</strong>のはなぜか。DDGI が読み返しを必要としないのはなぜか(ヒント: 縮めるのをどこでやるか)</li></ol>
+<h3 id="s23">課題2(中): ヒステリシスを入れる</h3>
+<p>66a の <code>IrradianceProbes.Upload</code> の直前で、新しい係数を<strong>前の係数と混ぜる</strong>。</p>
+<ol><li><code>next[i] = previous[i] * h + next[i] * (1 - h)</code>(<code>h</code> は 0.9)にする。初回(前が無い)は混ぜない</li><li>灯りを消して(<code>F10</code>)、<code>F3</code> を 1 回ずつ押していく。照り返しが何回で半分になるか。<code>h</code> から計算した値と合うか</li><li><code>h</code> を 0.97 にすると何回か。DDGI の既定が 0.9 台後半なのは、どちらを嫌っているからか(遅れか、ちらつきか)</li><li>焼くたびに<strong>揺らいだ灯りのまま</strong>(満点ではなく、今の明るさで)焼くと、<code>h</code> の大きさで照り返しの揺らぎがどう変わるか</li></ol>
+<h3 id="s24">課題3(難): プローブに深度を持たせ、見えないプローブの重みを下げる</h3>
+<p>DDGI の光漏れ対策を、66a の撮り方のまま真似る。</p>
+<ol><li><code>IrradianceProbes.Bake</code> で、撮った6面の<strong>深度</strong>も読み返す(撮る先の <code>Framebuffer</code> の深度から、プローブからの距離に直す)</li><li>プローブごとに、6方向(±X・±Y・±Z)それぞれの「いちばん近い面までの距離」の平均と2乗平均を持つ(6 方向 x 2 = 12 個の数)</li><li><code>ProbeIrradiance</code>(<code>textured.frag</code> と <code>deferred.frag</code>)の重みに、<strong>画素がプローブから見えている確率</strong>(チェビシェフ)を掛ける。画素からプローブへの向きに近い方向の平均と2乗平均を使う。<strong>重みの合計で割り直す</strong></li><li>66a の <code>F9</code> + <code>F8</code> で、壁の外の暖色の帯が消えるか。<strong>6 方向しか持たないと、どこで破綻するか</strong>(DDGI が深度を細かい八面体マップで持つ理由)</li></ol>
+<p>見どころは 4。6 方向の平均では「壁の手前と奥」を同じ方向に混ぜてしまうことがあり、そこで漏れが戻る。<strong>深度を細かい向きで持つ</strong>ことが DDGI の八面体マップの役目だと分かれば、今日の講読は済んでいる。</p>
+<div class="inject"><h3>実験台と改造課題の対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>改造課題</th><th>このページの実験台</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>課題1の 2(448 点を何フレームで1周するか)</td><td>「ヒステリシス」の「1フレームに使ってよい時間」</td><td>1ms なら、撮る時間だけで 136 フレーム、読み返しと縮めるも入れると 618 フレーム。読み返し(321ms)が焼きの半分以上を占める</td></tr>
+<tr><td>課題1の 3(1周のあいだに灯りが揺らぐと)</td><td>「ヒステリシス」の「灯りが揺らぐ」と周期</td><td>周期が短い揺らぎは出力に残らず、長い揺らぎは付いてくるが遅れる</td></tr>
+<tr><td>課題2の 2・3(照り返しが何回で半分になるか)</td><td>「ヒステリシス」の h と「灯りを消す」</td><td>h = 0.9 で 7 回、0.97 で 23 回(ln 0.5 / ln h を切り上げた値)</td></tr>
+<tr><td>課題2の 4(揺らいだ灯りのまま焼く)</td><td>「ヒステリシス」の「灯りが揺らぐ」と h</td><td>h が大きいほど揺らぎは消えるが、本当の変化への遅れも増える</td></tr>
+<tr><td>課題3の 3・4(見えている確率で重みを下げる)</td><td>「見えているかの見積もり」の μ・σ・d</td><td>壁がはっきり(σ が小さい)なら、壁の向こうの画素の重みはほぼ 0。平均と分散を粗い向きでまとめると σ が大きくなり、重みが漏れる(6 方向しか持たないときの破綻)</td></tr>
+</tbody>
+</table></div>
+<p class="note">どちらの実験台もコードを書かない日に合わせて、式だけを JS で動かしたもの(DDGI の論文・RTXGI のコードそのものの移植ではない)。ヒステリシスの式は課題2の式、半分になるまでの回数は ln 0.5 / ln h の切り上げ(h = 0.9 で 7 回、0.97 で 23 回)、揺らぎの出力の振幅は同じ式を周期 p の正弦波に通した周波数応答((1 − h) / √(1 + h² − 2 h cos ω)、ω = 2π / p)で、出力を 1 フレームずつ回した値と、1% 以内で合う(周期が短いと、標本の位置でわずかに小さく出る)ことを Node で確かめた。1周の見積もりは、Day 66a の計画書の焼く時間(1回ぶん 448 点: 撮る 136ms / 読み返す 321ms / 縮める 161ms)から出した算術で、手元の RTX 3070 の測定値を使っている。チェビシェフの式の細部(論文が何乗にして使うか、距離の測り方、八面体マップの引き方)は、このページでは再現していない。</p></div>
+</section>
+<section class="part"><h2 id="s25">動作確認済み環境</h2>
+<p>講読の日なので、動かすものは無い。改造課題は Day 66a の reference(<code>dotnet run --project reference/Day66a -c Release</code>)と同じ環境で行う(Day 66a の計画書「動作確認済み環境」を参照)。</p>
+</section>
+<footer class="end">Day 66b モダンライティング理論講読(TAA の発展・アップスケーリング・DDGI・Lumen・ReSTIR) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+
+function lineChart(canvas, o) {
+  const { ctx, w, h } = fit(canvas);
+  const L = 56, R = 18, T = 20, B = 36, W = w - L - R, H = h - T - B;
+  const [x0, x1] = o.xRange, [y0, y1] = o.yRange;
+  const X = (x) => L + (x - x0) / (x1 - x0) * W, Y = (y) => T + H - (y - y0) / (y1 - y0) * H;
+  ctx.font = '12px ' + tok('--font-mono');
+  ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1;
+  for (const gx of o.xTicks) { ctx.beginPath(); ctx.moveTo(X(gx), T); ctx.lineTo(X(gx), T + H); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(String(gx), X(gx), T + H + 16); }
+  for (const gy of o.yTicks) { ctx.beginPath(); ctx.moveTo(L, Y(gy)); ctx.lineTo(L + W, Y(gy)); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(gy.toFixed(1), L - 6, Y(gy) + 4); }
+  ctx.textAlign = 'left'; ctx.fillText(o.xLabel, L, h - 6); ctx.fillText(o.yLabel, 4, 12);
+  for (const s of o.series) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+    ctx.beginPath(); s.pts.forEach(([x, y], i) => { const px = X(x), py = Y(Math.max(y0, Math.min(y1, y))); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for (const v of o.vlines || []) { ctx.strokeStyle = v.color; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(v.x), T); ctx.lineTo(X(v.x), T + H); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = v.color; ctx.textAlign = 'left'; ctx.fillText(v.text, X(v.x) + 4, T + 14); }
+  let ly = T + 6; ctx.textAlign = 'left';
+  for (const s of o.series) { ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []); ctx.beginPath(); ctx.moveTo(L + W - 250, ly + 20); ctx.lineTo(L + W - 224, ly + 20); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = tok('--ink'); ctx.fillText(s.label, L + W - 218, ly + 24); ly += 18; }
+}
+
+// ============================================================
+//  ヒステリシス
+// ============================================================
+{
+  const st = { kase: 'off', h: 0.9, p: 30, ms: 1 };
+  const FRAMES = 120;
+  // 66a の計画書の焼く時間(跳ね返り 1 回ぶん・448 点)
+  const COST = { capture: 136, readback: 321, reduce: 161, points: 448 };
+  function simulate() {
+    const input = [], out = [];
+    let y = st.kase === 'off' ? 1 : 0;
+    for (let n = 0; n <= FRAMES; n++) {
+      const x = st.kase === 'off' ? (n === 0 ? 1 : 0) : st.kase === 'on' ? (n === 0 ? 0 : 1) : 0.5 + 0.5 * Math.sin(2 * Math.PI * n / st.p);
+      // n = 0 は変わる前の値(定常)。1 以降で新しい入力を混ぜる
+      if (n === 0) y = st.kase === 'off' ? 1 : st.kase === 'on' ? 0 : 0.5;
+      else y = y * st.h + x * (1 - st.h);
+      input.push([n, st.kase === 'off' ? (n === 0 ? 1 : 0) : x]); out.push([n, y]);
+    }
+    return { input, out };
+  }
+  function redraw() {
+    $('hy-h-out').textContent = st.h.toFixed(3);
+    $('hy-p-out').textContent = st.p + ' フレーム';
+    $('hy-p').disabled = st.kase !== 'flick';
+    $('hy-ms-out').textContent = st.ms.toFixed(2) + ' ms';
+    const { input, out } = simulate();
+    lineChart($('hy-canvas'), {
+      xRange: [0, FRAMES], yRange: [-0.05, 1.05], xTicks: [0, 20, 40, 60, 80, 100, 120], yTicks: [0, 0.5, 1],
+      xLabel: '更新の回数(フレーム。1 フレームに 1 回混ぜる)', yLabel: '照り返しの強さ(1 = 満点)',
+      series: [{ pts: input, color: tok('--muted'), dash: [6, 4], label: '本当の灯り(入力)' }, { pts: out, color: tok('--accent'), width: 2.5, label: `プローブの値(h = ${st.h.toFixed(3)})` }],
+      vlines: st.kase === 'flick' ? [] : [{ x: Math.ceil(Math.log(0.5) / Math.log(st.h)), color: 'rgb(255,170,60)', text: '半分' }],
+    });
+    const half = Math.ceil(Math.log(0.5) / Math.log(st.h)), tenth = Math.ceil(Math.log(0.1) / Math.log(st.h));
+    const w = 2 * Math.PI / st.p, gain = (1 - st.h) / Math.sqrt(1 + st.h * st.h - 2 * st.h * Math.cos(w));
+    const allMs = (COST.capture + COST.readback + COST.reduce) / COST.points, capMs = COST.capture / COST.points;
+    const cyc = (perPoint) => Math.ceil(COST.points / (st.ms / perPoint));
+    $('hy-stats').innerHTML = stat('半分になるまで', half + ' 回', `<small> = ln 0.5 / ln ${st.h.toFixed(3)} = ${(Math.log(0.5) / Math.log(st.h)).toFixed(2)}</small>`) +
+      stat('1割まで', tenth + ' 回') + stat('混ぜる割合 α(TAA の式と同じ)', (1 - st.h).toFixed(3)) +
+      stat('周期 ' + st.p + ' フレームの揺らぎの振幅', (100 * gain).toFixed(0) + '%', '<small> が出力に残る</small>');
+    $('hy-table').innerHTML = `<table><thead><tr><th>448 点を1周する(1フレーム ${st.ms.toFixed(2)} ms)</th><th>1点の時間</th><th>1フレームに撮れる点</th><th>1周に必要なフレーム</th><th>60 枚/秒なら</th></tr></thead><tbody>` +
+      [['撮る時間だけで見積もる(課題1の 2)', capMs], ['撮る + 読み返す + 縮める', allMs]].map(([name, p]) => `<tr><th scope="row">${name}</th><td>${p.toFixed(2)} ms</td><td>${(st.ms / p).toFixed(2)} 個</td><td>${comma(cyc(p))}</td><td>${(cyc(p) / 60).toFixed(1)} 秒</td></tr>`).join('') + '</tbody></table>';
+    $('hy-note').textContent = st.kase === 'off'
+      ? `灯りを消しても、プローブの照り返しは一気には消えず、${half} 回の更新で半分、${tenth} 回で 1 割まで下がる。Day 66a の「焼き直すまで残る」と、TAA のゴーストの中間。h を大きくするほど、消えるのが遅くなる。DDGI の h が 0.9 台後半なのは、遅れよりちらつきを嫌っているから、と読める。`
+      : st.kase === 'on' ? `灯りを点けると、照り返しは ${half} 回の更新で半分まで立ち上がる(消えるときと同じ速さ)。`
+        : `周期 ${st.p} フレームの揺らぎは、出力では振幅が ${(100 * gain).toFixed(0)}% に縮み、遅れて付いてくる。周期が短いほどよく消える(ちらつきは消えるが、本当に速い変化にも付いてこない)。揺らぎをそのまま(満点ではなく今の明るさで)焼いても、h が大きければ照り返しの揺らぎは小さくなる(課題2の 4)。`;
+  }
+  seg('hy-case', (v) => { st.kase = v; redraw(); });
+  $('hy-h').addEventListener('input', (e) => { st.h = Number(e.target.value); redraw(); });
+  $('hy-p').addEventListener('input', (e) => { st.p = Number(e.target.value); redraw(); });
+  $('hy-ms').addEventListener('input', (e) => { st.ms = Number(e.target.value); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  見えているかの見積もり
+// ============================================================
+{
+  const st = { mu: 2, s: 0.15, d: 3.5 };
+  const weight = (d, mu, s) => (d <= mu ? 1 : (s * s) / (s * s + (d - mu) * (d - mu)));
+  function redraw() {
+    $('ch-mu-out').textContent = st.mu.toFixed(2) + ' m';
+    $('ch-s-out').textContent = st.s.toFixed(2) + ' m';
+    $('ch-d-out').textContent = st.d.toFixed(2) + ' m';
+    const pts = []; for (let i = 0; i <= 240; i++) { const d = i / 240 * 6; pts.push([d, weight(d, st.mu, st.s)]); }
+    lineChart($('ch-canvas'), {
+      xRange: [0, 6], yRange: [-0.05, 1.05], xTicks: [0, 1, 2, 3, 4, 5, 6], yTicks: [0, 0.5, 1],
+      xLabel: '画素までの距離 d(m。プローブから画素へ向かう線の上)', yLabel: '重み(見えている確率の上限)',
+      series: [{ pts, color: tok('--accent'), width: 2.5, label: 'σ² / (σ² + (d − μ)²)(d > μ)' }],
+      vlines: [{ x: st.mu, color: tok('--muted'), text: '壁 μ' }, { x: st.d, color: 'rgb(255,170,60)', text: '画素' }],
+    });
+    const w = weight(st.d, st.mu, st.s);
+    $('ch-stats').innerHTML = stat('分散 σ²', (st.s * st.s).toFixed(4)) + stat('画素の位置', st.d <= st.mu ? '壁の手前(μ 以下)' : `壁の向こう(μ より ${(st.d - st.mu).toFixed(2)} m 奥)`) +
+      stat('重み', w.toFixed(4), st.d <= st.mu ? '<small> (= 1。そのまま使う)</small>' : '') + stat('漏れる光', (100 * w).toFixed(2) + '%', '<small> (壁の向こうの画素が、このプローブから受け取る割合に掛ける)</small>');
+    $('ch-note').textContent = st.d <= st.mu ? '画素が壁より手前にあれば、プローブから見えている(重みは 1)。'
+      : (st.s < 0.3 ? '壁がはっきり(σ が小さい)していれば、壁の向こうの画素の重みはほぼ 0 になる。66a の補間は、この重みが無いので、壁の向こうの点も近ければ同じだけ効いていた。'
+        : 'σ が大きいと、壁の向こうの画素にも重みが漏れる。壁に斜めに当たる向きや、近くの別の面と混ざる向きでは、距離のばらつきが大きくなる。向きを粗くまとめて持つと(課題3の 6 方向)、壁の手前と奥を同じ向きに混ぜて σ が大きくなり、漏れが戻る。DDGI が深度を細かい向き(八面体マップ)で持つ理由。');
+  }
+  for (const [id, key] of [['ch-mu', 'mu'], ['ch-s', 's'], ['ch-d', 'd']]) $(id).addEventListener('input', (e) => { st[key] = Number(e.target.value); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>

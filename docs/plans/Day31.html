@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 31 FBOとRender To Texture、HDRパイプライン(ACESトーンマッピング、ブルーム)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. フレームバッファを差し替えると、描いた絵をもう一度読める</a></li><li class="l3"><a href="#s5">2. 8bit のバッファは、明るさを 1.0 で切る</a></li><li class="l3"><a href="#s6">3. リニアワークフロー: 掛け算しかしないうちは、間違っていても気づかない</a></li><li class="l3"><a href="#s7">4. トーンマッピングは物理ではなく、好みの問題</a></li><li class="l3"><a href="#s8">5. ブルームは「1.0 を超えていること」を伝える唯一の手段</a></li><li class="l3"><a href="#s9">6. ガウスぼかしは縦横に分けると劇的に安くなる</a></li><li class="l3"><a href="#s10">7. 後処理は、シーンが残した GL の状態を畳んでから走らせる</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14"><code>ResourceManager</code> を <code>Render/RenderResources</code> へ引っ越した</a></li><li class="l3"><a href="#s15">キーは Shift + 数字にまとめた</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">HDR パイプラインの中身 — 10 回のフルスクリーンパス</a></li><li class="l2"><a href="#s19">完成条件</a></li><li class="l3"><a href="#s20">1. 明るさの階段が見える</a></li><li class="l3"><a href="#s21">2. <code>Shift+3</code>: トーンマップを切り替える</a></li><li class="l3"><a href="#s22">3. <code>Shift+5</code> で露出を下げる — ここが今日の山</a></li><li class="l3"><a href="#s23">4. <code>Shift+4</code>: パイプラインの途中を見る</a></li><li class="l3"><a href="#s24">5. <code>Shift+8</code>: 自己チェック</a></li><li class="l3"><a href="#s25">6. Day 30 と見比べる</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): ブルームの強さを調整できるようにする</a></li><li class="l3"><a href="#s28">課題2(中): UI を後処理の外に出す</a></li><li class="l3"><a href="#s29">課題3(難): 露出を自動にする(オートエクスポージャ)</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(6項目すべて合格)</a></li><li class="l3"><a href="#s32">後処理の代償(1920x1080、スプライト 1000 枚、3D 背景あり)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 31 / 計画書</p>
+  <h1>FBOとRender To Texture、HDRパイプライン(ACESトーンマッピング、ブルーム)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. フレームバッファを差し替えると、描いた絵をもう一度読める</a></li><li class="l3"><a href="#s5">2. 8bit のバッファは、明るさを 1.0 で切る</a></li><li class="l3"><a href="#s6">3. リニアワークフロー: 掛け算しかしないうちは、間違っていても気づかない</a></li><li class="l3"><a href="#s7">4. トーンマッピングは物理ではなく、好みの問題</a></li><li class="l3"><a href="#s8">5. ブルームは「1.0 を超えていること」を伝える唯一の手段</a></li><li class="l3"><a href="#s9">6. ガウスぼかしは縦横に分けると劇的に安くなる</a></li><li class="l3"><a href="#s10">7. 後処理は、シーンが残した GL の状態を畳んでから走らせる</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14"><code>ResourceManager</code> を <code>Render/RenderResources</code> へ引っ越した</a></li><li class="l3"><a href="#s15">キーは Shift + 数字にまとめた</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">HDR パイプラインの中身 — 10 回のフルスクリーンパス</a></li><li class="l2"><a href="#s19">完成条件</a></li><li class="l3"><a href="#s20">1. 明るさの階段が見える</a></li><li class="l3"><a href="#s21">2. <code>Shift+3</code>: トーンマップを切り替える</a></li><li class="l3"><a href="#s22">3. <code>Shift+5</code> で露出を下げる — ここが今日の山</a></li><li class="l3"><a href="#s23">4. <code>Shift+4</code>: パイプラインの途中を見る</a></li><li class="l3"><a href="#s24">5. <code>Shift+8</code>: 自己チェック</a></li><li class="l3"><a href="#s25">6. Day 30 と見比べる</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): ブルームの強さを調整できるようにする</a></li><li class="l3"><a href="#s28">課題2(中): UI を後処理の外に出す</a></li><li class="l3"><a href="#s29">課題3(難): 露出を自動にする(オートエクスポージャ)</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(6項目すべて合格)</a></li><li class="l3"><a href="#s32">後処理の代償(1920x1080、スプライト 1000 枚、3D 背景あり)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>Phase 6(デモ必須編)の1日目</strong>。Day 30 でエンジン本体は完成した。ここからの 10 日は「AAA デモとして見せる」ための描画を積んでいく。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>描いた絵が画面へ直行しなくなる。いったんテクスチャに描き、<strong>明部を抜く → ぼかす → 露出・トーンマップ・ガンマ</strong>を通ってから画面に出る。</p>
+<p>3D の背景に、明るさ <strong>0.25 から 32 まで</strong> の階段が並ぶ。</p>
+<div class="code"><pre><code> Shift+3 でトーンマップを切り替えると、階段の見え方が変わる
+
+ なし       ▓ ▒ █ █ █ █ █ █     1.0 から右が全部おなじ白
+ Reinhard   ▓ ▒ ░ ░ ▒ ▓ █ █     右まで見分けはつくが全体が眠い
+ ACES       ▓ ▒ ░ ░ ▒ █ █ █     4 あたりまで段差が戻り、暗部も締まる
+            ↑                   ↑
+          0.25                 32</code></pre></div>
+<p>そして Shift+1 でシーンバッファを 8bit に落とすと、<strong>露出をいくら下げても上の段は戻ってこない</strong>。畳む前に 1.0 で切られているから。</p>
+<p>これが「なぜ中間バッファを浮動小数点にするのか」の答えそのものになる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-14: 遅延レンダリング</a>(<strong>前半のみ</strong>) FBO と Render To Texture の作り方。後半の G-Buffer は Day 52 で読む</li><li><strong>西川本 Ch7「HDRレンダリング」</strong>なぜ 8bit では足りないのか、トーンマッピングとブルームが何を模しているか。今日の理論の要点1〜4はほぼこの章の内容</li><li><a href="https://learnopengl.com/Advanced-OpenGL/Framebuffers">LearnOpenGL: Framebuffers</a> / <a href="https://learnopengl.com/Advanced-Lighting/HDR">HDR</a> / <a href="https://learnopengl.com/Advanced-Lighting/Bloom">Bloom</a>実装の最短経路。今日書くコードの骨格はこの3本と同じ</li><li><a href="https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/">Krzysztof Narkowicz: ACES Filmic Tone Mapping Curve</a> <code>composite.frag</code> に写す5つの定数の出どころ。<strong>元の ACES は 3x3 行列を2回挟む重い変換</strong>で、それを1本の有理式に当てはめたのがこの記事</li><li><a href="https://learnopengl.com/Advanced-Lighting/Gamma-Correction">LearnOpenGL: Gamma Correction</a>要点2(リニアワークフロー)の背景。<strong>今日いちばん事故りやすいところ</strong></li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. フレームバッファを差し替えると、描いた絵をもう一度読める</h3>
+<p>Day 14 からずっと、描画の行き先は「既定のフレームバッファ」——ウィンドウが用意した、画面に直結した描き込み先——だった。これは <code>glBindFramebuffer(GL_FRAMEBUFFER, 0)</code> の状態で、<strong>0 番だけが特別扱い</strong>で「窓」を指す。</p>
+<p>自分でフレームバッファを作ると、行き先をテクスチャに差し替えられる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.BindFramebuffer(FramebufferTarget.Framebuffer, _handle);
+_gl.Viewport(0, 0, (uint)Width, (uint)Height);   // ← 忘れると壊れる</code></pre></div>
+<p>フレームバッファ自体は入れ物でしかなく、中身は「アタッチメント」として外から挿す。今日挿すのは2つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>アタッチメント</th><th>何にするか</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>カラー</td><td><strong>テクスチャ</strong></td><td>あとで読むから</td></tr>
+<tr><td>デプス</td><td><strong>レンダーバッファ</strong></td><td>読まないから</td></tr>
+</tbody>
+</table></div>
+<p>読まないものにテクスチャの機能(フィルタ、ミップマップ、サンプラ)を持たせても無駄で、レンダーバッファは「描き込み専用のメモリ」として GPU が圧縮などの最適化をかけやすい。深度を読みたくなったら(影は Day 33、SSAO は Day 37)そこでテクスチャに変える。</p>
+<p><strong>ビューポートは付いてこない</strong>のが最初の罠。ビューポートは「クリップ座標をどのピクセル範囲に写すか」という別の状態なので、半分の大きさのバッファに切り替えたのに設定を忘れると、<strong>左下 1/4 にだけ絵が入り、残りが黒いまま</strong>になる。</p>
+<p>もうひとつ、<strong>完全性(completeness)の確認は必ず書く</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>GLEnum status = _gl.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+if (status != GLEnum.FramebufferComplete) { throw ... }</code></pre></div>
+<p>不完全なフレームバッファに描いても<strong>エラーは出ず、ただ何も起きない</strong>。画面が真っ黒になるだけで、原因を教えてもらえない。</p>
+<p>そして、ここから先が全部開く。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>何ができるようになるか</th><th>いつ</th></tr></thead>
+<tbody>
+<tr><td>画面全体に効く処理(トーンマップ、ブルーム)</td><td><strong>今日</strong></td></tr>
+<tr><td>影(光の位置から深度だけを描いて保存)</td><td>Day 33</td></tr>
+<tr><td>環境マップ(別の視点から描いて貼る)</td><td>Day 36</td></tr>
+<tr><td>遅延レンダリング(位置・法線・色を別々に貯める)</td><td>Day 52</td></tr>
+</tbody>
+</table></div>
+<p><strong>1回では終わらない描画</strong>が、全部ここから始まる。</p>
+<h3 id="s5">2. 8bit のバッファは、明るさを 1.0 で切る</h3>
+<p>これが今日いちばんの動機。</p>
+<p>8bit(<code>RGBA8</code>)は 0.0〜1.0 を 256 段で刻むだけなので、2つのことが同時に起きる。</p>
+<ul><li><strong>1.0 を超える明るさは、書いた瞬間に 1.0 に丸められる</strong></li><li><strong>暗いところは 1/255 刻みしか無く、露出を上げると縞になる</strong></li></ul>
+<p>露出もトーンマッピングも「1.0 を超えたぶんをどう畳むか」の話なので、<strong>畳む前に切られていたら何もできない</strong>。</p>
+<p>現実の明るさは月明かりから太陽まで 10 桁以上の幅がある。画面が出せるのはそのうちの狭い一区間だけなので、「どの区間を切り出すか(露出)」と「区間の外をどう畳むか(トーンマップ)」を決める必要がある。<strong>その2つを決める材料が、8bit では残っていない</strong>。</p>
+<p><code>Shift+8</code> の自己チェックが、これを数値で確かめる。</p>
+<div class="code"><pre><code>[OK] RGBA16F: <strong>4.0 が 4.0 のまま入る</strong>  実際 4.000
+[OK] RGBA8: <strong>4.0 は 1.0 に丸められる</strong>  実際 1.000
+[OK] RGBA8: 暗部は 1/255 刻みに丸められる  実際 0.25098(64/255 = 0.25098)</code></pre></div>
+<p><code>RGBA16F</code> を選ぶのは、32bit float より<strong>帯域が半分</strong>で、色の精度としてはまず足りるから。半精度は仮数部 10bit なので<strong>相対誤差 1/1024 程度</strong>——明るさが 100 でも 0.1 でも「その値に対して 0.1%」の精度が保たれる。8bit が「0.5 付近でも 0.01 付近でも 1/255」と絶対値で刻むのと、ここが決定的に違う。</p>
+<h3 id="s6">3. リニアワークフロー: 掛け算しかしないうちは、間違っていても気づかない</h3>
+<p><strong>今日いちばん事故りやすいのがここ</strong>。</p>
+<p>PNG の中の 128 は「明るさ 0.5」ではない。ディスプレイのガンマ(だいたい 2.2 乗)を打ち消すようにあらかじめ曲げてある値で、実際の明るさは 0.5^2.2 ≒ 0.22 にあたる。</p>
+<p>Day 30 まではこの曲がった値のまま掛け算していた。それでも破綻しなかったのは、<strong>掛け算がガンマと交換できる</strong>から。</p>
+<div class="code"><pre><code>   a^2.2 × b^2.2 = (a × b)^2.2      ← リニアで掛けてから戻すのと、そのまま掛けるのが一致する</code></pre></div>
+<p>だが<strong>足し算は交換できない</strong>。</p>
+<div class="code"><pre><code>   a^2.2 + b^2.2 ≠ (a + b)^2.2</code></pre></div>
+<p>ブルームは足し算で、トーンマップは非線形な畳み込み。<strong>今日から足し算が入るので、曲がったままでは合わなくなる</strong>。</p>
+<div class="inject"><figure class="lab" id="lw-lab">
+  <div class="lab-head">
+    <h3>掛け算は合う、足し算は合わない — ガンマのまま計算したときのずれ(要点3)</h3>
+    <span class="tag">textured.frag の SrgbToLinear(pow(c, 2.2))と composite.frag の LinearToSrgb(pow(c, 1/2.2))を JS に移したもの。2つの色 a・b(PNG に入っている符号化された値、0〜1)を、リニアに戻して計算してから符号化に戻した値(正しい)と、符号化されたまま計算した値(Day 30 までのやり方)を並べる。a・b の値はこのページだけ。Day 31 のテクスチャは Srgb8Alpha8(本物の sRGB の曲線)で戻すが、このページは頂点色と同じ 2.2 乗で比べる</span>
+  </div>
+  <div class="stage"><canvas id="lw-canvas" style="height:230px" aria-label="2つの色と、掛け算・足し算の結果を、リニアで計算した場合と符号化のまま計算した場合で並べた色見本"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">a(符号化された値)</span>
+      <div class="range"><input type="range" id="lw-a" min="0" max="1" step="0.01" value="0.5"><output id="lw-a-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">b(符号化された値)</span>
+      <div class="range"><input type="range" id="lw-b" min="0" max="1" step="0.01" value="0.5"><output id="lw-b-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="lw-stats"></div><p id="lw-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>そこで、明るさを扱うところは全部リニアに揃える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこ</th><th>どうするか</th></tr></thead>
+<tbody>
+<tr><td>テクスチャ</td><td>内部形式を <code>Srgb8Alpha8</code> に。<strong>GPU が読むときに戻す(無料)</strong></td></tr>
+<tr><td>頂点色</td><td>フラグメントシェーダで <code>pow(c, 2.2)</code></td></tr>
+<tr><td><code>uTint</code>(マテリアル色)</td><td><strong>変換しない</strong>。1 を超えてよい「明るさの倍率」という意味に変えた</td></tr>
+<tr><td><code>glClearColor</code></td><td>C# 側で 2.2 乗して渡す(シェーダを通らないので)</td></tr>
+<tr><td>出口</td><td><code>composite.frag</code> で <code>pow(c, 1/2.2)</code> して符号化に戻す</td></tr>
+</tbody>
+</table></div>
+<p><strong>アルファは変換しない</strong>。α は色ではなく「どれだけ混ぜるか」の割合で、ガンマ符号化の対象ではない。ここを一緒に <code>pow</code> すると半透明が濃くなる。</p>
+<p><code>uTint</code> だけ扱いが違うのは、発光するものが <code>Tint = (6, 5.2, 2.2)</code> のような1 を超える値を入れるため。sRGB として扱うと 6.0 が 2.2 乗されて 60 になってしまう。「見た目で選ぶ色」と「明るさの倍率」を同じ uniform に載せているのが本来おかしく、PBR(Day 35)ではベースカラーと発光を別の入力に分けることになる。</p>
+<p><strong>揃え忘れると「移行したら色が変になった」が起きる</strong>。実際、床のマテリアルは Day 30 の <code>(0.45, 0.50, 0.60)</code> をそのまま置いておくと2.2 乗ぶん明るくなるので、リニアへ直した数字に書き換えてある。</p>
+<h3 id="s7">4. トーンマッピングは物理ではなく、好みの問題</h3>
+<p>トーンマッピングは「0〜∞ の明るさを 0〜1 に畳む」関数。写真の現像でネガの濃度を印画紙の濃度に写す作業と同じ役割で、名前もそこから来ている。</p>
+<p><strong>どう畳むかに正解は無い</strong>。だから流儀がいくつもある。今日は2つ書く。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 Reinhard(vec3 x) { return x / (1.0 + x); }</code></pre></div>
+<p>0 は 0 に、1 は 0.5 に、∞ は 1 に写る。単調増加で必ず 1 未満に収まる。短くて軽いが、<strong>中間の明るさが軒並み暗くなる</strong>ので全体が眠くなる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 AcesFilmic(vec3 x)
+{
+    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}</code></pre></div>
+<p>映画のフィルムに近い畳み方の近似。Reinhard との違いは<strong>両端の形</strong>にある。</p>
+<ul><li>暗部で少し持ち上がる(足がついている)ので、影が潰れずコントラストが立つ</li><li>明部が S 字で緩やかに寝るので、白飛びの手前に「粘り」が出る</li></ul>
+<p>ゲームで「フィルムっぽい」と言われる絵は、だいたいこの形をしている。</p>
+<p><strong>ACES にも白飛びする点(ホワイトポイント)はある</strong>。この近似式は 7 くらいで 1.0 に達するので、8 から右は白のまま。そこを見たければ露出を下げる——<strong>「畳み方」と「どこを切り出すか」は別の道具</strong>で、両方いる。</p>
+<p>順番も決まっている。</p>
+<div class="code"><pre><code>   露出 → ブルーム加算 → トーンマップ → ガンマ</code></pre></div>
+<ul><li><strong>露出はトーンマップより前</strong>。トーンマップは「1.0 付近をどう扱うか」の関数なので、その前に「何を 1.0 とみなすか」を決めておく必要がある</li><li><strong>ブルームもトーンマップより前</strong>。あとで足すと、すでに畳まれた絵の上に光を重ねることになり、滲みが白い板になる</li><li><strong>ガンマはいちばん最後</strong>。トーンマップの曲線はリニアな値を入れる前提なので、先にガンマをかけると暗部が持ち上がりすぎて全体が白っぽくなる</li></ul>
+<div class="inject"><figure class="lab" id="tm-lab">
+  <div class="lab-head">
+    <h3>明るさの階段を畳む — トーンマップ・露出・8bit(要点2・4、完成条件2・3)</h3>
+    <span class="tag">composite.frag の Reinhard・AcesFilmic・LinearToSrgb と、露出の掛け方(PostProcess.Exposure を Shift+5 / Shift+6 で ÷1.3 / ×1.3。float で掛け、0.02〜64 で止める)、RGBA8 のシーンバッファ(0〜1 で切って 1/255 刻み)を JS に移して、Program.cs の明るさの階段(0.25 〜 32 の8枚。発光の板なので、画素の値 = 明るさ)を通したもの。下の8枚の数字は画面に出る値(ガンマ後、0〜1)。ブルームはここでは足さない(実機では板の周りに滲みが足されるので、段の見分けは画面のほうが付きやすい)</span>
+  </div>
+  <div class="stage"><canvas id="tm-canvas" style="height:380px" aria-label="トーンマップの曲線と、明るさの階段8枚が画面でどの明るさになるか"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">トーンマップ(Shift+3)</span>
+      <div class="seg" id="tm-tone"><button data-v="0" aria-pressed="false">なし</button><button data-v="1" aria-pressed="false">Reinhard</button><button data-v="2" aria-pressed="true">ACES</button></div>
+    </div>
+    <div class="ctl"><span class="label">シーンバッファ(Shift+1)</span>
+      <div class="seg" id="tm-fmt"><button data-v="16" aria-pressed="true">RGBA16F</button><button data-v="8" aria-pressed="false">RGBA8</button></div>
+    </div>
+    <div class="ctl"><span class="label">露出(Shift+5 / Shift+6)</span>
+      <div class="seg" id="tm-exp"><button data-v="down" aria-pressed="false">Shift+5(÷1.3)</button><button data-v="up" aria-pressed="false">Shift+6(×1.3)</button><button data-v="reset" aria-pressed="false">1.00 に戻す</button><button data-v="six" aria-pressed="false">1.00 から Shift+5 を6回</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tm-stats"></div><p id="tm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">5. ブルームは「1.0 を超えていること」を伝える唯一の手段</h3>
+<p>画面が出せる最大の白は 1.0 で頭打ちなので、<strong>「まぶしい」は周りへの滲みでしか表現できない</strong>。レンズやまつ毛や眼球の中で光が散る現象を真似ている。</p>
+<p>しきい値は 1.0 のあたりに置く。0.5 まで下げると「明るくない部分」まで滲んで画面全体が霞む。</p>
+<p>しきい値でスパッと切ると<strong>「ここから光る」という輪郭線</strong>が出るので、<code>smoothstep</code> でなめらかに立ち上げる(ソフトニー)。球のハイライトのように明るさが少しずつ変わる面だと、カメラが動くたびにその線が面の上を這うのがはっきり見える。</p>
+<p>明るさの判定は<strong>人の目の感度で重み付け</strong>する。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));   // Rec.709</code></pre></div>
+<p>単純平均にすると、同じ数値の青が緑と同じだけ光ることになって不自然になる。</p>
+<p>削るのは<strong>明るさだけで、色は保つ</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>FragColor = vec4(color * weight, 1.0);   // しきい値ぶんを「引く」のではなく「掛ける」</code></pre></div>
+<p>引くと色が薄くなる(飽和した赤がピンクへ寄る)。掛けるだけなら色相はそのまま残る。</p>
+<div class="inject"><figure class="lab" id="br-lab">
+  <div class="lab-head">
+    <h3>明部の抽出 — しきい値とソフトニー、引くか掛けるか(要点5)</h3>
+    <span class="tag">bright.frag(輝度 = Rec.709 の重み、knee = しきい値 × 0.5、重み = smoothstep(しきい値 − knee, しきい値 + knee, 輝度)、出力 = 色 × 重み)を JS に移したもの。表は、Program.cs の発光する立方体3つ(電球色 (6, 5.2, 2.2)・青 (1, 3.2, 8)・赤 (9, 1.4, 1.8))と、明るさの階段の4枚。右の2列の色見本は、出力をトーンマップ前の値のまま 1 で切って並べたもの(色相を比べるため)。「引く」は bright.frag に無い、このページだけの比較(色 − しきい値)</span>
+  </div>
+  <div class="stage"><canvas id="br-canvas" style="height:280px" aria-label="輝度ごとの重みの曲線。しきい値の前後をなめらかに立ち上げる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ブルームのしきい値(Shift+7)</span>
+      <div class="seg" id="br-th"><button data-v="0.7" aria-pressed="false">0.7</button><button data-v="1" aria-pressed="true">1.0(既定)</button><button data-v="1.5" aria-pressed="false">1.5</button><button data-v="2.5" aria-pressed="false">2.5</button></div>
+    </div>
+    <div class="ctl"><span class="label">立ち上げ方</span>
+      <div class="seg" id="br-knee"><button data-v="soft" aria-pressed="true">ソフトニー(bright.frag)</button><button data-v="hard" aria-pressed="false">スパッと切る(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="br-table"></div><p id="br-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">6. ガウスぼかしは縦横に分けると劇的に安くなる</h3>
+<p>2次元のガウス関数は縦と横の掛け算に分解できる。</p>
+<div class="code"><pre><code>   G(x, y) = G(x) × G(y)</code></pre></div>
+<p>だから「横だけぼかす」→「縦だけぼかす」の2回で、2次元のぼかしと同じ結果になる。手間はまるで違う。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>半径 N のぼかし</th><th>1ピクセルあたりのサンプリング回数</th><th>N=4 なら</th></tr></thead>
+<tbody>
+<tr><td>2次元まとめて</td><td>(2N+1)²</td><td>81 回</td></tr>
+<tr><td>縦横に分けて</td><td>(2N+1) × 2</td><td><strong>18 回</strong></td></tr>
+</tbody>
+</table></div>
+<p>効くのは「分解できる」フィルタだけで、中央値フィルタやバイラテラルフィルタは分解できない。ガウスがどこでも使われるのは、この性質があるからでもある。</p>
+<p>実装で必ずぶつかるのが <strong>ping-pong</strong>。GPU は「同じテクスチャを読みながら同じテクスチャへ書く」ことを許さない(読み書きの順序が保証されないので結果が未定義になる)ので、2枚を交互に使う。</p>
+<p>そして<strong>ぼかし用のバッファは画面の半分</strong>にする。ぼかしたものを縮めても分からないので、ピクセル数 1/4 = コスト 1/4。おまけに「縮めて拡大する」こと自体が弱いぼかしとして働くので、同じタップ数でより広く滲む。<strong>質を落とさずに 4 倍安くなる</strong>、後処理では珍しく素直な最適化。</p>
+<div class="inject"><figure class="lab" id="gb-lab">
+  <div class="lab-head">
+    <h3>5 タップのぼかしを 4 往復 — 1点がどこまで滲むか(要点6)</h3>
+    <span class="tag">blur.frag の重み(0.2270270 / 0.1945946 / 0.1216216 / 0.0540541 / 0.0162162。真ん中と左右4つずつで、和が 1)を、横ぼかしの1行について JS で畳み込んだもの。PostProcess は画面の 1/2 のバッファで横 → 縦を 4 往復する(BlurIterations = 4)。グラフの横軸は画面の画素(1/2 のバッファの1画素 = 画面の2画素)。往復の回数 1〜3・5〜8 はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="gb-canvas" style="height:300px" aria-label="1点の光を横に何回ぼかしたかで、どこまで滲むかの曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">往復の回数(reference は 4)</span>
+      <div class="range"><input type="range" id="gb-n" min="1" max="8" step="1" value="4"><output id="gb-n-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">ぼかすバッファ</span>
+      <div class="seg" id="gb-res"><button data-v="2" aria-pressed="true">画面の 1/2(reference)</button><button data-v="1" aria-pressed="false">原寸(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="gb-stats"></div><p id="gb-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">7. 後処理は、シーンが残した GL の状態を畳んでから走らせる</h3>
+<p>OpenGL の状態はグローバルなので、直前に何が描かれたかで挙動が変わる。フルスクリーンの板にとって、次の4つはどれも「効いていたら困る」もの。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>残っていると</th><th>どうなるか</th></tr></thead>
+<tbody>
+<tr><td>深度テスト</td><td>シーンの深度が残っているので、板が奥と判定されて消える</td></tr>
+<tr><td>ブレンド</td><td>半透明として画面に混ざる</td></tr>
+<tr><td>背面カリング</td><td>板の向き次第で消える</td></tr>
+<tr><td>ワイヤーフレーム(<code>W</code> キー)</td><td>板の輪郭線しか出ず、<strong>画面がほぼ真っ黒になる</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>後処理が真っ黒のときは、まずこの4つを疑う</strong>。</p>
+<p>畳んだら元に戻す。戻さないと <code>Z</code> / <code>C</code> / <code>W</code> キーの設定が次のフレームから効かなくなる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.GetInteger(GetPName.PolygonMode, polygonModes);   // ← int を 2 個返す</code></pre></div>
+<p><code>GL_POLYGON_MODE</code> は表面用と裏面用の <strong>int を2個</strong>返すので、<code>out int</code> の版を使うと GL が 2 個目を書き込む先が無く、その場のメモリを踏む。返る個数は <code>glGet</code> の項目ごとに決まっているので、必ず仕様を見て器を用意する。</p>
+<p>もうひとつ、フルスクリーンの板には<strong>頂点バッファが要らない</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec2 uv = vec2((gl_VertexID &lt;&lt; 1) &amp; 2, gl_VertexID &amp; 2);
+gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);</code></pre></div>
+<p>頂点3個ぶんの座標を頂点番号から計算する。<strong>四角形(三角形2枚)ではなく、はみ出した三角形1枚</strong>にするのが定番で、四角形だと対角線上のピクセルが2つの三角形の境目になり、GPU が 2x2 のピクセル単位で処理する都合でその線上だけ2回走る。三角形1枚なら境目そのものが無い。</p>
+<p>ただし<strong>コアプロファイルでは VAO が 0 のまま描画すると <code>GL_INVALID_OPERATION</code></strong> になるので、中身が空の VAO を1個だけ作ってバインドする。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Framebuffer.cs</code></td><td>画面ではなくテクスチャへ描くための入れ物。カラー(テクスチャ)+デプス(レンダーバッファ)、リサイズ、完全性チェック</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td>HDR パイプライン本体。バッファ4枚と 10 パスの手順、露出・トーンマップ・ブルームの設定</td></tr>
+<tr><td><code>shaders/fullscreen.vert</code></td><td>頂点バッファ無しのフルスクリーン三角形</td></tr>
+<tr><td><code>shaders/bright.frag</code></td><td>明部の抽出(しきい値+ソフトニー)</td></tr>
+<tr><td><code>shaders/blur.frag</code></td><td>分離型ガウスぼかし。方向を uniform で渡すのでシェーダは1本</td></tr>
+<tr><td><code>shaders/composite.frag</code></td><td>露出 → ブルーム加算 → トーンマップ → ガンマ。<strong>唯一、画面へ書くパス</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Core/ResourceManager.cs</code> → <code>Render/RenderResources.cs</code></td><td><strong>改名して <code>Render/</code> へ移動</strong>(下の「<code>ResourceManager</code> を <code>Render/RenderResources</code> へ引っ越した」)。変わるのはクラス名・コンストラクタ名とクラス概要のコメントだけ</td></tr>
+<tr><td><code>Render/Material.cs</code></td><td><code>Apply</code> の引数とコメントを <code>RenderResources</code> へ</td></tr>
+<tr><td><code>Audio/AudioSystem.cs</code></td><td>コメントのみ。「<code>RenderResources</code> に相乗りしない」理由を書き直した</td></tr>
+<tr><td><code>Text/GlyphAtlas.cs</code></td><td>コメントのみ。Day 21 の窓口への参照に当時の名前を補った</td></tr>
+<tr><td><code>Render/Texture.cs</code></td><td><code>RenderTargetFormat</code> 列挙を追加。カラーテクスチャの内部形式を <code>Srgb8Alpha8</code> へ。<code>CreateTarget</code>(描き込み先の空テクスチャ)を追加</td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>頂点色を sRGB→リニアへ。<code>uTint</code> は<strong>変換しない</strong>(明るさの倍率という意味に変更)</td></tr>
+<tr><td><code>shaders/sprite.frag</code></td><td>頂点色を sRGB→リニアへ</td></tr>
+<tr><td><code>shaders/text.frag</code></td><td>同上。被覆率(R8)は色ではないので変換しない</td></tr>
+<tr><td><code>Program.cs</code></td><td><code>ResourceManager</code> → <code>RenderResources</code>、<code>PostProcess</code> の生成・リサイズ・破棄、<code>OnRender</code> を <code>Begin</code>/<code>End</code> で挟む、発光する立方体と明るさの階段、<code>Shift+数字</code> のスイッチ、<code>RunHdrCheck</code>、床マテリアルの色をリニアへ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14"><code>ResourceManager</code> を <code>Render/RenderResources</code> へ引っ越した</h3>
+<p>今日の本題(HDR)とは別に、<strong>Day 25 から持ち越していた歪みを1つ直した</strong>。</p>
+<p>Day 25 の設計書で「きれいな形ではない」と書いた <code>Core</code> ⇔ <code>Render</code> の相互参照は、<code>Core/ResourceManager.cs</code> 1ファイルが原因だった。中で持っているのは <code>Texture</code> と <code>Shader</code> だけ——つまり全部 GL のもので、<strong><code>Core/</code> の中で <code>Silk.NET.OpenGL</code> を using している唯一のファイル</strong>でもあった。名前は「全リソースの窓口」を約束しているのに、中身は描画専用だったことになる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 30 まで</th><th>Day 31 から</th></tr></thead>
+<tbody>
+<tr><td>置き場所と名前</td><td><code>Core/ResourceManager.cs</code></td><td><code>Render/RenderResources.cs</code></td></tr>
+<tr><td><code>Core</code> と <code>Render</code></td><td>相互参照</td><td><strong><code>Render</code> → <code>Core</code> の一方通行</strong></td></tr>
+<tr><td><code>ResourcePool&lt;T&gt;</code> / <code>Handle&lt;T&gt;</code></td><td><code>Core/</code></td><td><code>Core/</code>(<strong>動かさない</strong>)</td></tr>
+</tbody>
+</table></div>
+<p><code>ResourcePool&lt;T&gt;</code> と <code>Handle&lt;T&gt;</code> を <code>Core/</code> に残すのは、<code>T</code> が何かを知らない総称型だから。知らないものは下層に居てよい。窓口だけを上げれば、相互参照はそれで消える。</p>
+<p>今日やるのは、<strong><code>PostProcess</code> という利用者が今日増える</strong>から。Day 25 の設計書では「Phase 6 でアセットの種類が増えたときに検討する」と書いたが、後に回すほど書き換える呼び出し側が増える。Phase 6 の初日がいちばん安い。</p>
+<p>中身の処理は1行も変わっていない。</p>
+<h3 id="s15">キーは Shift + 数字にまとめた</h3>
+<p>文字キーはもう空きが無いので、今日のスイッチは全部 <code>Shift</code> 併用にした。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が変わるか</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+1</code></td><td>シーンバッファ <code>RGBA16F</code> ⇄ <code>RGBA8</code> — <strong>今日の見せ場</strong></td></tr>
+<tr><td><code>Shift+2</code></td><td>ブルーム ON/OFF</td></tr>
+<tr><td><code>Shift+3</code></td><td>トーンマップ(なし → Reinhard → ACES)</td></tr>
+<tr><td><code>Shift+4</code></td><td>表示する段(最終 → シーンのみ → 明部 → ぼかし後)</td></tr>
+<tr><td><code>Shift+5</code> / <code>Shift+6</code></td><td>露出 ÷1.3 / ×1.3</td></tr>
+<tr><td><code>Shift+7</code></td><td>ブルームのしきい値(0.7 → 1.0 → 1.5 → 2.5)</td></tr>
+<tr><td><code>Shift+8</code></td><td>HDR の自己チェック</td></tr>
+<tr><td><code>F5</code></td><td>シェーダのリロード(<strong>後処理も含む</strong>)</td></tr>
+</tbody>
+</table></div>
+<p>実装上の注意が1つ。C# の <code>switch</code> は上から順に照合するので、<strong>ガード付きの <code>case Key.Number1 when shift:</code> を、ガード無しの <code>case Key.Number1:</code>(シミュレーションレート)より先に書く</strong>。逆に書くとコンパイルエラーになる。</p>
+<h3 id="s16">写経する順番</h3>
+<p><strong>引っ越しを最初に済ませる</strong>。処理が1行も変わらないので、ここでビルドして Day 30 と同じように動けば置き換え漏れが無いと言える。HDR の差分と混ぜると、動かなかったときにどちらのせいか分からなくなる。</p>
+<p>そのあとは依存の下から。シェーダを先に置くのは、<code>PostProcess</code> が起動時に名前で読むため。</p>
+<ol><li><strong><code>Core/ResourceManager.cs</code> → <code>Render/RenderResources.cs</code></strong>(改名・移動)ファイルを動かし、クラス名・コンストラクタ名・クラス概要のコメントを書き換える。続けて呼び出し側を置き換える——<code>Render/Material.cs</code>(<code>Apply</code> の引数とコメント)、<code>Program.cs</code>(フィールドと <code>new</code>、コメント2か所)、<code>Audio/AudioSystem.cs</code> と <code>Text/GlyphAtlas.cs</code>(コメントのみ)。<strong>ここで一度ビルドして、Day 30 と同じように動くことを確かめる</strong></li><li><strong><code>shaders/fullscreen.vert</code></strong>(新規)頂点バッファ無しのフルスクリーン三角形。<code>gl_VertexID</code> から座標を作る</li><li><strong><code>shaders/bright.frag</code></strong>(新規)明部の抽出。輝度の重み付けとソフトニー</li><li><strong><code>shaders/blur.frag</code></strong>(新規)分離型ガウス。<code>uDirection</code> で横/縦を切り替える</li><li><strong><code>shaders/composite.frag</code></strong>(新規) Reinhard と ACES、露出、ブルーム加算、ガンマ。<strong>今日いちばん長いシェーダ</strong></li><li><strong><code>shaders/textured.frag</code></strong>(変更) <code>SrgbToLinear</code> を追加して頂点色に適用。<code>uTint</code> はそのまま掛ける</li><li><strong><code>shaders/sprite.frag</code></strong>(変更)同じ変換を頂点色に。アルファは触らない</li><li><strong><code>shaders/text.frag</code></strong>(変更)同上。被覆率は変換しない</li><li><strong><code>Render/Texture.cs</code></strong>(変更) <code>RenderTargetFormat</code> 列挙 → <code>FromPixels</code> の内部形式を <code>Srgb8Alpha8</code> へ → <code>CreateTarget</code> を追加。<strong><code>Framebuffer</code> がこの2つを使う</strong>ので先に書く</li><li><strong><code>Render/Framebuffer.cs</code></strong>(新規) FBO の生成・アタッチ・完全性チェック・リサイズ。<code>Texture.CreateTarget</code> を呼ぶ</li><li><strong><code>Render/PostProcess.cs</code></strong>(新規)バッファ4枚と 10 パス。<code>Framebuffer</code> と <code>RenderResources</code> を使うので後</li><li><strong><code>Program.cs</code></strong>(変更)ヘッダのコメント → <code>Emitters</code> / <code>LadderSteps</code> → <code>_post</code> / <code>_emissiveMaterial</code> / <code>ClearColor</code> のフィールド → <code>OnLoad</code>(<code>PostProcess</code> 生成と発光マテリアル、床の色をリニアへ) → <code>OnFramebufferResize</code> → <code>OnRender</code>(<code>Begin</code>/<code>End</code> で挟む) → <code>RenderEmitters</code> / <code>RenderLadder</code> → <code>SrgbToLinear</code> → <code>DrawOverlayInfo</code> の HDR 行 → <code>ToneMapLabel</code> / <code>DebugViewLabel</code> → <code>OnKeyDown</code>(<code>shift</code> を switch の外へ出す + Shift 群 + F5) → <code>RunHdrCheck</code> → <code>OnClosing</code> → 起動時のコンソール出力とウィンドウタイトル</li><li><strong><code>Day31.csproj</code></strong>(リネームのみ)中身は Day 30 と同じ。ファイル名を変えるだけで出力アセンブリ名が付いてくる</li></ol>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>Phase 6 の1日目</strong>。層は増えていないが、<code>Render/</code> の中に<strong>新しい種類の部品</strong>が2つ入った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Framebuffer</code></td><td>画面ではなくテクスチャへ描くための入れ物</td></tr>
+<tr><td><code>PostProcess</code></td><td>シーンバッファ → 明部抽出 → ぼかし → 露出・トーンマップ・ガンマ</td></tr>
+</tbody>
+</table></div>
+<p>これまでの <code>Render/</code> は「1枚の絵を描く道具」しか持っていなかった(<code>Mesh</code> / <code>Material</code> / <code>SpriteBatch</code>)。今日入ったのは<strong>「描いた絵をもう一度読む」ための道具</strong>で、性格がまるで違う。</p>
+<p>もう1つ、<strong><code>Core/ResourceManager</code> が <code>Render/RenderResources</code> へ引っ越した</strong> (差分概要の「<code>ResourceManager</code> を <code>Render/RenderResources</code> へ引っ越した」)。これで Day 25 から残っていた <code>Core</code> ⇔ <code>Render</code> の相互参照が消える。</p>
+<h3 id="s18">HDR パイプラインの中身 — 10 回のフルスクリーンパス</h3>
+<p><code>_post.End()</code> の中で何が起きているか。<strong>入力と出力を全部書き出す</strong>と、ping-pong の必然性がそのまま見える。</p>
+<svg viewBox="0 0 1010 665" role="img" aria-label="HDR パイプラインの中身(10 回のフルスクリーンパス)。シーンバッファ(画面と同じ大きさ / RGBA16F / 深度あり)から、明部の抽出(bright.frag、1パス)で bright バッファ(画面の 1/2 / RGBA16F)へ。横ぼかし(blur.frag uDirection=(1/w, 0))で blurB へ、縦ぼかし(blur.frag uDirection=(0, 1/h))で blurA へ。4往復するので、2回目以降は blurA が横ぼかしの入力になる。シーンバッファと blurA を、合成(composite.frag。露出 → ブルーム加算 → トーンマップ → ガンマ)で既定のフレームバッファ(= 画面)へ書く" style="width:100%;max-width:1010px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="360" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="200" y="28.5" text-anchor="middle" fill="var(--ink)">シーンバッファ</text><text x="200" y="45.5" text-anchor="middle" fill="var(--ink)">画面と同じ大きさ / RGBA16F / 深度あり</text><rect x="470" y="8" width="380" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="28.5" text-anchor="middle" fill="var(--ink)">明部の抽出</text><text x="660" y="45.5" text-anchor="middle" fill="var(--ink)">bright.frag</text><text x="660" y="62.5" text-anchor="middle" fill="var(--ink)">1パス</text><rect x="470" y="105" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="125.5" text-anchor="middle" fill="var(--ink)">bright バッファ</text><text x="660" y="142.5" text-anchor="middle" fill="var(--ink)">画面の 1/2 / RGBA16F</text><rect x="470" y="185" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="205.5" text-anchor="middle" fill="var(--ink)">横ぼかし</text><text x="660" y="222.5" text-anchor="middle" fill="var(--ink)">blur.frag uDirection=(1/w, 0)</text><rect x="470" y="265" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="285.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">blurB</text><rect x="470" y="328" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="348.5" text-anchor="middle" fill="var(--ink)">縦ぼかし</text><text x="660" y="365.5" text-anchor="middle" fill="var(--ink)">blur.frag uDirection=(0, 1/h)</text><rect x="470" y="408" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="660" y="428.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">blurA</text><rect x="20" y="481" width="360" height="84" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="200" y="501.5" text-anchor="middle" fill="var(--ink)">合成</text><text x="200" y="518.5" text-anchor="middle" fill="var(--ink)">composite.frag</text><text x="200" y="535.5" text-anchor="middle" fill="var(--ink)">露出 → ブルーム加算 →</text><text x="200" y="552.5" text-anchor="middle" fill="var(--ink)">トーンマップ → ガンマ</text><rect x="20" y="605" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="200" y="625.5" text-anchor="middle" fill="var(--ink)">既定のフレームバッファ</text><text x="200" y="642.5" text-anchor="middle" fill="var(--ink)">= 画面</text><path d="M660 75 L660 103" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M660 155 L660 183" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M660 235 L660 263" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M660 298 L660 326" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M660 378 L660 406" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M380 41.5 L468 41.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M850 424.5 L900 424.5 L900 210 L852 210" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="908" y="309.25" fill="var(--muted)" font-size="12">4往復するので</text><text x="908" y="326.25" fill="var(--muted)" font-size="12">2回目以降の入力</text><path d="M470 424.5 L300 424.5 L300 479" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M140 58 L140 479" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M200 565 L200 603" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p>パスの数は <strong>1(明部)+ 4×2(ぼかし)+ 1(合成)= 10</strong>。画面に出ている <code>パス:10</code> はこれを数えている。</p>
+<p><strong>なぜ <code>blurA</code> と <code>blurB</code> の2枚が要るのか</strong>。GPU は「同じテクスチャを読みながら同じテクスチャへ書く」ことを許さない(読み書きの順序が保証されないので結果が未定義になる)。だから横ぼかしの結果を別の場所に置き、それを読んで縦ぼかしを書く、を繰り返す。これが ping-pong で、後処理を書き始めると必ず最初にぶつかる制約になる。</p>
+<p><strong><code>bright</code> を <code>blurA</code>/<code>blurB</code> と別に持っている</strong>のは、中間バッファの表示(Shift+4)で「ぼかす前の明部」を見たいから。表示のためだけに 1/2 サイズのバッファ1枚(1920x1080 なら 4MB)を払っている。本番用に絞るなら、<code>bright</code> を捨てて <code>blurA</code> に直接書けば1枚減らせる。</p>
+<p><strong>バッファの大きさが2種類ある</strong>ことにも意味がある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>バッファ</th><th>大きさ</th><th>形式</th><th>深度</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>scene</td><td>画面と同じ</td><td>RGBA16F</td><td>あり</td><td>3D を描くので深度が要る。原寸でないと絵がぼける</td></tr>
+<tr><td>bright / blurA / blurB</td><td>画面の 1/2</td><td>RGBA16F</td><td><strong>なし</strong></td><td><strong>ぼかしたものを縮めても分からない</strong>。板1枚なので深度も要らない</td></tr>
+</tbody>
+</table></div>
+<p>半分にするとピクセル数が 1/4 になり、ぼかし 8 パスのコストがそのまま 1/4 になる。おまけに「縮めて拡大する」こと自体が弱いぼかしとして働くので、同じタップ数でより広く滲む。<strong>質を落とさずに 4 倍安くなる</strong>、後処理では珍しく素直な最適化。</p>
+</section>
+<section class="part"><h2 id="s19">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day31 -c Release</code></pre></div>
+<p>起動したら、まず<strong>スプライトを消して 3D だけにする</strong>と見やすい。</p>
+<div class="code"><pre><code>Shift+PageDown        … スプライトを 0 に(Shift 併用で1万枚単位)
+Space                  … 止める</code></pre></div>
+<h3 id="s20">1. 明るさの階段が見える</h3>
+<p>画面の奥に、白い板が8枚並んでいる。左から <strong>0.25 / 0.5 / 1 / 2 / 4 / 8 / 16 / 32</strong>。隣どうしがちょうど 2 倍(写真でいう「1段」)になっている。</p>
+<p>そのほかに、光っている立方体が3つ(電球色・青・赤)。<code>Tint</code> に 1 を超える値が入っているのはこの4種類だけで、床も立方体もスプライトも 1.0 以下のまま。</p>
+<h3 id="s21">2. <code>Shift+3</code>: トーンマップを切り替える</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>階段がどう見えるか</th></tr></thead>
+<tbody>
+<tr><td><strong>なし</strong></td><td>3枚目(1.0)から右が<strong>全部おなじ白</strong>。4枚目以降の情報が絵に出ていない</td></tr>
+<tr><td><strong>Reinhard</strong></td><td>右まで見分けはつくが、中間が持ち上がって全体が眠くなる</td></tr>
+<tr><td><strong>ACES</strong></td><td>4 のあたりまで段差が戻る。<strong>暗部も締まる</strong>ので床の格子がはっきりする</td></tr>
+</tbody>
+</table></div>
+<p>「なし」と「ACES」を往復するのがいちばん分かりやすい。<strong>同じシーンなのに、畳み方だけで読み取れる情報量が変わる</strong>。</p>
+<h3 id="s22">3. <code>Shift+5</code> で露出を下げる — ここが今日の山</h3>
+<p>ACES のまま <code>Shift+5</code> を6回押して露出を <strong>0.21</strong> まで下げる。</p>
+<div class="code"><pre><code>HDR:16F  ACES  露出:0.21  ブルーム:閾1.0  [最終]  パス:10  10.0MB</code></pre></div>
+<p>階段の右側(8, 16, 32)に<strong>段差が戻ってくる</strong>。明るさそのものの差は 0.95 / 0.98 / 1.00 と細かいが、<strong>滲みの大きさがはっきり違う</strong>ので、3枚が別物だと目で分かる。畳む前の値が残っているので、露出を下げれば見えるようになる。</p>
+<p>そこで <code>Shift+1</code> を押して 8bit に落とす。</p>
+<div class="code"><pre><code>HDR:8bit  ACES  露出:0.21  ブルーム:閾1.0  [最終]  パス:10  7.6MB</code></pre></div>
+<p><strong>3枚目(1.0)から右が全部おなじ灰色に潰れる</strong>。光っていた立方体も、ただの薄い板になる。ブルームも1ミリも出ない。露出をさらに下げても、絵が暗くなるだけで<strong>何も戻ってこない</strong>。</p>
+<blockquote><p>畳む前に 1.0 で切られていたら、あとから何をしても復元できない。</p></blockquote>
+<p>これが「なぜ中間バッファを浮動小数点にするのか」の答えになる。<code>Shift+1</code> でもう一度 16F に戻すと、そのまま復活する。</p>
+<h3 id="s23">4. <code>Shift+4</code>: パイプラインの途中を見る</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>何が映るか</th></tr></thead>
+<tbody>
+<tr><td>最終</td><td>ふつうの絵</td></tr>
+<tr><td>シーンのみ</td><td>ブルームを足さないもの。滲みの効き目が分かる</td></tr>
+<tr><td><strong>明部</strong></td><td>1.0 を超えているところ<strong>だけ</strong>。階段の右半分と3つの立方体、あとは真っ黒</td></tr>
+<tr><td>ぼかし後</td><td>それを4往復ぼかしたもの。これが最終結果に足されている</td></tr>
+</tbody>
+</table></div>
+<p>「明部」がいちばん見て気持ちがいい。<strong>1.0 を超えているものが画面のどこにあるか</strong>が一目で分かる。</p>
+<h3 id="s24">5. <code>Shift+8</code>: 自己チェック</h3>
+<p>6項目すべて <code>OK</code> になる。</p>
+<div class="code"><pre><code>[HDR の自己チェック]
+  [OK] RGBA16F: 暗部 0.25 がそのまま残る  実際 0.250
+  [OK] RGBA16F: 1.0 がそのまま残る  実際 1.000
+  [OK] RGBA16F: <strong>4.0 が 4.0 のまま入る</strong>  実際 4.000
+  [OK] RGBA8: 1.0 までは入る  実際 1.000
+  [OK] RGBA8: <strong>4.0 は 1.0 に丸められる</strong>  実際 1.000
+  [OK] RGBA8: 暗部は 1/255 刻みに丸められる  実際 0.25098(64/255 = 0.25098)
+  すべて合格
+  中間バッファ合計 10.0MB(960x640)</code></pre></div>
+<p><code>0.25098</code> が <code>64/255</code> にぴったり一致するのが、8bit の刻みそのもの。<strong>「なんとなく潰れている」ではなく、どこで何段に丸められたかが数字で出る</strong>。</p>
+<h3 id="s25">6. Day 30 と見比べる</h3>
+<p>トーンマップを「なし」、ブルームを OFF、露出 1.00 にすると、<strong>Day 30 とほぼ同じ絵</strong>になる。</p>
+<div class="code"><pre><code>dotnet run --project reference/Day30 -c Release</code></pre></div>
+<p>を別ウィンドウで並べて確かめられる。要点3のとおり、リニアに直して掛け算し、最後にガンマで戻すのは<strong>掛け算しかしていない経路では完全に元へ戻る</strong>ため。</p>
+<p>ぴったり同じにはならない箇所が2つある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>違うところ</th><th>なぜ</th></tr></thead>
+<tbody>
+<tr><td>半透明の重なり</td><td>アルファ合成が sRGB 空間からリニア空間に移った。<strong>こちらのほうが正しい</strong></td></tr>
+<tr><td>文字の太さ</td><td>同じ理由。輪郭の半透明画素の混ざり方が変わる</td></tr>
+</tbody>
+</table></div>
+<p>「絵が変わっていない」ことを確かめるのが、今日の作業がちゃんと通った証拠になる。<strong>変わってしまったら、要点3の表のどれかを揃え忘れている</strong>。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+3</code>(トーンマップ)・<code>Shift+5</code> / <code>Shift+6</code>(露出)・<code>Shift+1</code>(8bit)</td><td>「明るさの階段を畳む」</td><td>ACES・露出 1.00 で 4 → 0.988 / 8 から右が 1.000。Shift+5 を6回(露出 0.21)で 8 / 16 / 32 が 0.949 / 0.982 / 0.999。8bit にすると 1 から右が全部同じ</td></tr>
+<tr><td><code>Shift+7</code>(しきい値)</td><td>「明部の抽出」</td><td>しきい値 1.0 で、輝度 0.5〜1.5 をなめらかに立ち上げる。電球色・青・赤の立方体は重み 1 のまま、色相を保って抜ける</td></tr>
+<tr><td><code>Shift+2</code>(ブルーム)・<code>Shift+4</code>(途中の段)</td><td>「5 タップのぼかしを 4 往復」</td><td>パス 10(明部 1 + ぼかし 4 往復 x 2 + 合成 1)。1点の光が画面で何画素まで滲むか</td></tr>
+<tr><td><code>Shift+8</code>(自己チェック)</td><td>「明るさの階段を畳む」の 8bit</td><td>1.0 を超えた値が 1.0 に、0.25 が 64/255 = 0.25098 に丸められる</td></tr>
+<tr><td>(キーなし)</td><td>「掛け算は合う、足し算は合わない」の a・b、「明部の抽出」のスパッと切る・引く、「ぼかし」の往復の回数と原寸</td><td>reference に無い切り替え・値。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day31 の shaders/(bright.frag・blur.frag・composite.frag・textured.frag)と Render/PostProcess.cs・Program.cs(露出の刻み・しきい値の巡回・階段と発光する立方体の値)の式を JS に移したもの。シェーダは GPU で走るので、同じ式を Node で計算して、計画書の数字を確かめた(ACES の 1.0 に達する点 7.24、露出 0.21(1.00 から ÷1.3 を6回)での 8 / 16 / 32 が 0.949 / 0.982 / 0.999、ぼかしの重みの和 1.0000000、8bit の 0.25 → 64/255 = 0.25098)。中間バッファの大きさ(960x640 で 10.0MB / 8bit で 7.6MB、1920x1080 で 33.6MB)は Framebuffer.ByteSize の式(カラー 8 または 4 バイト + 深度 3 バイト)で計算し直して一致した。後処理の時間(0.341 / 0.398 / 0.672 ms)は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s26">改造課題</h2>
+<h3 id="s27">課題1(易): ブルームの強さを調整できるようにする</h3>
+<p><code>PostProcess.BloomIntensity</code> は 0.55 固定にしてある。<code>Shift+7</code> がしきい値を巡回するのと同じ形で、強さも変えられるようにする。</p>
+<p>見てほしいのは<strong>しきい値と強さの役割の違い</strong>。</p>
+<ul><li>しきい値を下げる … <strong>滲む対象が増える</strong>。画面全体が霞む</li><li>強さを上げる … <strong>滲みが濃くなる</strong>。対象は変わらない</li></ul>
+<p>同じ「ブルームが強い」でも中身が違うので、片方だけで調整しようとすると必ずどこかで破綻する。</p>
+<p>余裕があれば <code>BlurIterations</code>(現在4)も変えてみる。往復を増やすと滲みが広がるが、パス数が線形に増える(<code>パス:</code> の表示で分かる)。</p>
+<h3 id="s28">課題2(中): UI を後処理の外に出す</h3>
+<p>いまは HUD の文字もトーンマップを通っている。露出を上げると文字まで白飛びするのがその証拠。</p>
+<p><code>_post.End()</code> を呼んだ<strong>あと</strong>に <code>RenderText()</code> を呼ぶように変える。</p>
+<p>引っかかるのは2つ。</p>
+<ol><li><code>End()</code> は既定のフレームバッファを bind したままにするので、そこは都合がよい</li><li>しかし <code>End()</code> は深度テストとブレンドを<strong>元に戻して</strong>帰るので、文字を描く前の状態がシーン依存になる。<code>SpriteBatch</code> はブレンドを自分で有効にするが、<strong>深度テストは面倒を見ていない</strong></li></ol>
+<p>直したら、露出を上げても文字が白いままであることを確かめる。そのうえで「じゃあ UI にブルームをかけたくなったらどうするか」を考えてみると、Day 38 でやることの見当がつく。</p>
+<h3 id="s29">課題3(難): 露出を自動にする(オートエクスポージャ)</h3>
+<p>いまは露出を手で決めている。実際のゲームは<strong>画面の平均的な明るさから自動で決める</strong>(明るい屋外から暗い洞窟に入ると、最初はまぶしくて、だんだん目が慣れる、あの挙動)。</p>
+<p>手順はこうなる。</p>
+<ol><li>シーンバッファのミップマップを作る(<code>glGenerateMipmap</code>)。<strong>いちばん小さいレベル(1x1)が画面全体の平均</strong>になる</li><li>その1テクセルを読む。ただし <code>glReadPixels</code> は<strong>GPU の完了を待つ</strong>ので、毎フレームやるとパイプラインが止まる。1フレーム遅れで読むか、ピクセルバッファオブジェクト(PBO)を使う</li><li>目標露出 = <code>0.18 / 平均輝度</code>(0.18 は写真の「中間グレー」)</li><li><strong>いきなり切り替えず、時定数をつけて追従させる</strong>。これをやらないと、明るいものが横切るたびに画面全体が明滅する</li></ol>
+<p>3 と 4 が本体で、1 と 2 は道具。特に 4 は「正しい値に一瞬で合わせると、絵として破綻する」典型例になっている。</p>
+<p>平均ではなく<strong>対数平均</strong>(輝度の log を平均してから exp で戻す)を使うと、1つの強い光源に引きずられにくくなる。余裕があればそちらも試す。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 Home / .NET 10</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li></ul>
+<h3 id="s31">自己チェック(6項目すべて合格)</h3>
+<div class="code"><pre><code>[HDR の自己チェック]
+  [OK] RGBA16F: 暗部 0.25 がそのまま残る  実際 0.250
+  [OK] RGBA16F: 1.0 がそのまま残る  実際 1.000
+  [OK] RGBA16F: <strong>4.0 が 4.0 のまま入る</strong>  実際 4.000
+  [OK] RGBA8: 1.0 までは入る  実際 1.000
+  [OK] RGBA8: <strong>4.0 は 1.0 に丸められる</strong>  実際 1.000
+  [OK] RGBA8: 暗部は 1/255 刻みに丸められる  実際 0.25098(64/255 = 0.25098)
+  すべて合格
+  中間バッファ合計 10.0MB(960x640)</code></pre></div>
+<h3 id="s32">後処理の代償(1920x1080、スプライト 1000 枚、3D 背景あり)</h3>
+<p><code>glFinish()</code> を挟んで <strong>GPU の完了まで含めた</strong> 800 フレームの平均。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>1フレーム</th><th>Day 30 との差</th></tr></thead>
+<tbody>
+<tr><td>Day 30(後処理なし)</td><td>0.341 ms</td><td>—</td></tr>
+<tr><td>合成のみ(パス 1)</td><td>0.398 ms</td><td>+0.06 ms</td></tr>
+<tr><td>ブルームあり(パス 10)</td><td><strong>0.672 ms</strong></td><td><strong>+0.33 ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>ブルームの9パスが 0.27ms、合成の1パスが 0.06ms。<strong>60fps の予算(16.7ms)の 2%</strong> で、AAA デモの最低条件が1つ揃う計算になる。</p>
+<p>VRAM は 1920x1080 で <strong>33.6MB</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>バッファ</th><th>大きさ</th><th>内訳</th></tr></thead>
+<tbody>
+<tr><td>scene</td><td>1920x1080</td><td>カラー RGBA16F 15.8MB + 深度 5.9MB</td></tr>
+<tr><td>bright / blurA / blurB</td><td>960x540</td><td>RGBA16F 3.95MB × 3</td></tr>
+</tbody>
+</table></div>
+<p><code>glFinish()</code> を挟まずに測ると、ブルームありでも 0.38ms 程度しか出ない。このデモは CPU 側(1000 枚のスプライトの組み立て)がボトルネックで、<strong>GPU が裏で走っているぶんが frame time に現れない</strong>ため。後処理のように「CPU の仕事はほぼゼロ、GPU だけが働く」ものを測るときは、同期を入れないと<strong>足したはずのコストが消えて見える</strong>。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong><code>GL_POLYGON_MODE</code> は int を2個返す</strong>。<code>GetInteger(GetPName.PolygonMode, out int)</code> と書いても<strong>コンパイルは通り、警告も出ない</strong>。GL は 2 個目を書き込む先が無いままメモリを踏むので、「たいてい動くが、たまに壊れる」という最悪の形になる。<code>Span&lt;int&gt;</code> を受け取る版を使う。</p>
+<p><strong>ACES の白飛びする点は 7 あたり</strong>。最初は「ACES にすれば 32 まで見分けがつく」と書いていたが、実際に測るとこのカーブフィットは x=8 で 1.0 に達していた。<strong>トーンマップは無限を 0〜1 に写すが、実用上のホワイトポイントは有限</strong>で、そこから先を見たければ露出で切り出す区間を動かすしかない。「畳み方」と「どこを切り出すか」が別の道具である理由がここにある。</p>
+<p><strong>階段を詰めて並べるとブルームが隣へ滲んで、段の境目が読めなくなる</strong>。最初は隙間 0.08 で並べていたが、滲みが仕事をしすぎて1本の光る帯になった。0.28 まで広げて、ようやく段として読めるようになった。<strong>効果を見せるための題材は、効果に負けない間隔で並べる</strong>。</p>
+</section>
+<footer class="end">Day 31 FBOとRender To Texture、HDRパイプライン(ACESトーンマッピング、ブルーム) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, setSeg, stat, tok } = Lab;
+const f32 = Math.fround;
+
+// 折れ線グラフ。series: [{ pts: [[x, y]], color, dash, width, label }]
+function lineChart(canvas, o) {
+  const { ctx, w, h } = fit(canvas);
+  const L = 56, R = 18, T = 20, B = 40, W = w - L - R, H = (o.height || h) - T - B;
+  const [x0, x1] = o.xRange, [y0, y1] = o.yRange;
+  const X = (x) => L + (x - x0) / (x1 - x0) * W, Y = (y) => T + H - (y - y0) / (y1 - y0) * H;
+  ctx.font = '12px ' + tok('--font-mono');
+  ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1;
+  for (const [gx, lab] of o.xTicks) { ctx.beginPath(); ctx.moveTo(X(gx), T); ctx.lineTo(X(gx), T + H); ctx.stroke(); ctx.textAlign = 'center'; ctx.fillText(lab, X(gx), T + H + 16); }
+  for (const gy of o.yTicks) { ctx.beginPath(); ctx.moveTo(L, Y(gy)); ctx.lineTo(L + W, Y(gy)); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(gy.toFixed(o.yDigits ?? 1), L - 6, Y(gy) + 4); }
+  ctx.textAlign = 'left'; ctx.fillStyle = tok('--muted'); ctx.fillText(o.xLabel, L, T + H + 34); ctx.fillText(o.yLabel, 4, 12);
+  for (const s of o.series) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+    ctx.beginPath(); s.pts.forEach(([x, y], i) => { const px = X(x), py = Y(Math.max(y0, Math.min(y1, y))); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for (const v of o.vlines || []) { ctx.strokeStyle = v.color; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(v.x), T); ctx.lineTo(X(v.x), T + H); ctx.stroke(); ctx.setLineDash([]); if (v.text) { ctx.fillStyle = tok('--ink'); ctx.textAlign = 'left'; ctx.fillText(v.text, X(v.x) + 4, T + 12); } }
+  let ly = T + 6; ctx.textAlign = 'left';
+  const lx = o.legendLeft ? L + 12 : L + W - 250;
+  for (const s of o.series) { ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []); ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + 26, ly); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = tok('--ink'); ctx.fillText(s.label, lx + 32, ly + 4); ly += 18; }
+  return { ctx, X, Y, w, h, L, W, T, H };
+}
+const gray = (v) => { const c = Math.round(Math.min(1, Math.max(0, v)) * 255); return `rgb(${c},${c},${c})`; };
+const rgbCss = (c) => `rgb(${c.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255)).join(',')})`;
+
+// ============================================================
+//  掛け算は合う、足し算は合わない
+// ============================================================
+{
+  const toLin = (c) => Math.pow(c, 2.2), toEnc = (c) => Math.pow(Math.max(c, 0), 1 / 2.2);
+  function redraw() {
+    const a = Number($('lw-a').value), b = Number($('lw-b').value);
+    $('lw-a-out').textContent = a.toFixed(2) + `(${Math.round(a * 255)} / 255)`;
+    $('lw-b-out').textContent = b.toFixed(2) + `(${Math.round(b * 255)} / 255)`;
+    const mulRight = toEnc(toLin(a) * toLin(b)), mulWrong = a * b;
+    const addRight = toEnc(toLin(a) + toLin(b)), addWrong = a + b;
+    const { ctx, w, h } = fit($('lw-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const cols = [['a', a], ['b', b], ['a x b リニアで', mulRight], ['a x b そのまま', mulWrong], ['a + b リニアで', addRight], ['a + b そのまま', addWrong]];
+    const cw = (w - 20) / cols.length;
+    cols.forEach(([lab, v], i) => {
+      const x = 10 + i * cw;
+      ctx.fillStyle = gray(v); ctx.fillRect(x + 6, 14, cw - 12, h - 80);
+      ctx.strokeStyle = tok('--line'); ctx.strokeRect(x + 6, 14, cw - 12, h - 80);
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center';
+      ctx.fillText(lab, x + cw / 2, h - 46); ctx.fillText(v.toFixed(3) + (v > 1 ? '(1 で切れる)' : ''), x + cw / 2, h - 26);
+    });
+    $('lw-stats').innerHTML = stat('a の本当の明るさ', toLin(a).toFixed(4), `<small> (= ${a.toFixed(2)}^2.2)</small>`) +
+      stat('掛け算の差', Math.abs(mulRight - mulWrong).toExponential(1), '<small> (いつも 0。丸めの誤差だけ)</small>') +
+      stat('足し算の差', (addWrong - addRight).toFixed(3), '<small> (符号化のまま足すと明るすぎる)</small>');
+    $('lw-note').textContent = `掛け算はガンマと交換できる(a^2.2 x b^2.2 = (a x b)^2.2)ので、符号化のまま掛けても、リニアで掛けて戻しても同じ値(${mulRight.toFixed(3)})になる。足し算は交換できない。符号化のまま足すと ${addWrong.toFixed(3)}、リニアで足して戻すと ${addRight.toFixed(3)}。ブルームの加算と、トーンマップの非線形が入る今日から、ここがずれる。PNG の 128 は 0.502 ではなく、本当の明るさ ${toLin(128 / 255).toFixed(3)}。`;
+  }
+  for (const id of ['lw-a', 'lw-b']) $(id).addEventListener('input', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  明るさの階段を畳む
+// ============================================================
+{
+  const LADDER = [0.25, 0.5, 1, 2, 4, 8, 16, 32];
+  const DOWN = f32(1 / f32(1.3)), UP = f32(1.3);
+  const st = { tone: 2, fmt: 16, exposure: 1 };
+  const reinhard = (x) => x / (1 + x);
+  const aces = (x) => Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+  const tone = (x) => (st.tone === 1 ? reinhard(x) : st.tone === 2 ? aces(x) : Math.min(1, Math.max(0, x)));
+  // シーンバッファに入る値。RGBA8 は 0〜1 で切って 1/255 刻み。RGBA16F は半精度(仮数 10bit)に丸める
+  const f16 = (v) => { if (v === 0) return 0; const e = Math.floor(Math.log2(Math.abs(v))); const q = Math.pow(2, e - 10); return Math.round(v / q) * q; };
+  const store = (x) => (st.fmt === 8 ? Math.round(Math.min(1, Math.max(0, x)) * 255) / 255 : f16(x));
+  const out = (L) => Math.pow(tone(store(L) * st.exposure), 1 / 2.2);
+  const NAMES = ['なし', 'Reinhard', 'ACES'];
+  function redraw() {
+    const xs = []; for (let k = 0; k <= 240; k++) xs.push(-3 + k / 240 * 9); // log2 の -3〜6
+    const c = lineChart($('tm-canvas'), {
+      height: 250, xRange: [-3, 6], yRange: [0, 1.05], xTicks: LADDER.map((v) => [Math.log2(v), String(v)]), yTicks: [0, 0.25, 0.5, 0.75, 1], yDigits: 2,
+      xLabel: '明るさ(シーンバッファに書いた値。横は2倍ごと)', yLabel: '画面に出る値(ガンマ後)', legendLeft: true,
+      series: [{ pts: xs.map((x) => [x, out(Math.pow(2, x))]), color: tok('--accent'), width: 2.5, label: `${NAMES[st.tone]}・露出 ${st.exposure.toFixed(2)}・${st.fmt === 8 ? 'RGBA8' : 'RGBA16F'}` }],
+    });
+    const { ctx, X, w, h } = c;
+    // 階段の8枚
+    const y0 = 262, bh = h - y0 - 30;
+    LADDER.forEach((L, i) => {
+      const v = out(L), cx = X(Math.log2(L));
+      ctx.fillStyle = gray(v); ctx.fillRect(cx - 22, y0, 44, bh);
+      ctx.strokeStyle = tok('--line'); ctx.strokeRect(cx - 22, y0, 44, bh);
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText(v.toFixed(3), cx, y0 + bh + 16);
+    });
+    const vals = LADDER.map(out);
+    const distinct = new Set(vals.map((v) => v.toFixed(3))).size;
+    const hud = `HDR:${st.fmt === 8 ? '8bit' : '16F'}  ${NAMES[st.tone]}  露出:${st.exposure.toFixed(2)}`;
+    $('tm-stats').innerHTML = stat('HUD の表示', `<code>${hud}</code>`) + stat('見分けのつく段', `${distinct} / 8`, '<small> (3 桁で違う値の数)</small>') +
+      stat('ACES が 1.0 に達する明るさ', (7.2417 / st.exposure).toFixed(1), '<small> (露出で割った値。露出 1 で 7.24)</small>');
+    let note;
+    if (st.fmt === 8) note = 'RGBA8 のシーンバッファは、書いた瞬間に 1.0 で切られる。1 から右の5枚は同じ値になり、露出を下げても全部が同じ灰色のまま暗くなるだけ(何も戻ってこない)。RGBA16F に戻すと、そのまま復活する。';
+    else if (st.tone === 0) note = 'トーンマップなしは 1.0 で切るだけ。露出 1 では 1 から右が全部同じ白。';
+    else if (st.tone === 1) note = 'Reinhard は 1 を 0.5 に写し、どこまでも 1 未満に収まる。右まで見分けはつくが、中間が持ち上がって全体が眠い。';
+    else note = 'ACES は暗部が締まり、明部は 7.24(露出 1 のとき)で 1.0 に達する。そこから右を見たければ、露出を下げて切り出す区間を動かす(1.00 から Shift+5 を6回で露出 0.21、8 / 16 / 32 が 0.949 / 0.982 / 0.999)。';
+    $('tm-note').textContent = note;
+  }
+  seg('tm-tone', (v) => { st.tone = Number(v); redraw(); });
+  seg('tm-fmt', (v) => { st.fmt = Number(v); redraw(); });
+  seg('tm-exp', (v) => {
+    if (v === 'down') st.exposure = Math.min(64, Math.max(0.02, f32(st.exposure * DOWN)));
+    else if (v === 'up') st.exposure = Math.min(64, Math.max(0.02, f32(st.exposure * UP)));
+    else if (v === 'reset') st.exposure = 1;
+    else { st.exposure = 1; for (let i = 0; i < 6; i++) st.exposure = f32(st.exposure * DOWN); }
+    for (const b of $('tm-exp').querySelectorAll('button')) b.setAttribute('aria-pressed', 'false');
+    redraw();
+  });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  明部の抽出
+// ============================================================
+{
+  const st = { th: 1, knee: 'soft' };
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const lum = (c) => c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+  const weight = (l) => { if (st.knee === 'hard') return l >= st.th ? 1 : 0; const k = Math.max(st.th * 0.5, 0.0001); return smooth(st.th - k, st.th + k, l); };
+  const SAMPLES = [['電球色の立方体', [6, 5.2, 2.2]], ['青の立方体', [1, 3.2, 8]], ['赤の立方体', [9, 1.4, 1.8]], ['階段 0.5', [0.5, 0.5, 0.5]], ['階段 1', [1, 1, 1]], ['階段 2', [2, 2, 2]], ['階段 0.25', [0.25, 0.25, 0.25]], ['床くらいの明るさ(このページだけ)', [0.6, 0.55, 0.5]]];
+  function redraw() {
+    const xs = []; for (let k = 0; k <= 200; k++) xs.push(k / 200 * 4);
+    const k = Math.max(st.th * 0.5, 0.0001);
+    lineChart($('br-canvas'), {
+      xRange: [0, 4], yRange: [0, 1.05], xTicks: [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4].map((v) => [v, v.toFixed(1)]), yTicks: [0, 0.5, 1], yDigits: 1,
+      xLabel: '輝度(Rec.709 の重みで足した明るさ)', yLabel: '重み(色に掛ける)', legendLeft: false,
+      series: [{ pts: xs.map((x) => [x, weight(x)]), color: tok('--accent'), width: 2.5, label: st.knee === 'soft' ? `smoothstep(${(st.th - k).toFixed(2)}, ${(st.th + k).toFixed(2)}, 輝度)` : `輝度 ≥ ${st.th} なら 1` }],
+      vlines: [{ x: st.th, color: tok('--muted'), text: 'しきい値' }],
+    });
+    const rows = SAMPLES.map(([name, c]) => {
+      const l = lum(c), wgt = weight(l), mul = c.map((v) => v * wgt), subt = c.map((v) => Math.max(0, v - st.th));
+      const sw = (cc) => `<span style="display:inline-block;width:2.2em;height:1.1em;vertical-align:-0.2em;border:1px solid var(--line);background:${rgbCss(cc.map((v) => v / Math.max(...cc, 1e-9)))}"></span>`;
+      return `<tr><th scope="row">${name}</th><td>(${c.join(', ')})</td><td>${l.toFixed(3)}</td><td>${wgt.toFixed(3)}</td><td>${sw(c)}</td><td>${wgt > 0 ? sw(mul) : '—'}</td><td>${Math.max(...subt) > 0 ? sw(subt) : '—'}</td></tr>`;
+    }).join('');
+    $('br-table').innerHTML = `<table><thead><tr><th>もの</th><th>色(リニア)</th><th>輝度</th><th>重み</th><th>元の色相</th><th>掛ける(bright.frag)</th><th>引く(このページだけ)</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('br-note').textContent = '色見本は、明るさを揃えて色相だけを見せたもの。掛けると元の色相のまま抜ける。引くと、明るい成分だけが残って色相が変わる(赤の立方体 (9, 1.4, 1.8) から 1 を引くと (8, 0.4, 0.8)。電球色は (5, 4.2, 1.2) で黄みが強くなる)。' +
+      (st.knee === 'hard' ? 'スパッと切ると、しきい値をまたぐ面の上に「ここから光る」線が出る。' : `ソフトニーは輝度 ${(st.th - k).toFixed(2)}〜${(st.th + k).toFixed(2)} をなめらかに立ち上げるので、線が出ない。`);
+  }
+  seg('br-th', (v) => { st.th = Number(v); redraw(); });
+  seg('br-knee', (v) => { st.knee = v; redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  5 タップのぼかしを 4 往復
+// ============================================================
+{
+  const WTS = [0.2270270, 0.1945946, 0.1216216, 0.0540541, 0.0162162];
+  const st = { n: 4, res: 2 };
+  function blurN(n) {
+    const size = 2 * 4 * n + 1, c = 4 * n;
+    let a = new Float64Array(size); a[c] = 1;
+    for (let it = 0; it < n; it++) {
+      const b = new Float64Array(size);
+      for (let i = 0; i < size; i++) for (let k = -4; k <= 4; k++) { const j = i + k; if (j >= 0 && j < size) b[i] += a[j] * WTS[Math.abs(k)]; }
+      a = b;
+    }
+    return { a, c };
+  }
+  function redraw() {
+    st.n = Number($('gb-n').value);
+    $('gb-n-out').textContent = st.n + ' 往復' + (st.n === 4 ? '(reference)' : '');
+    const { a, c } = blurN(st.n);
+    const varOne = 2 * WTS.reduce((s, w, i) => s + w * i * i, 0);
+    const sigmaBuf = Math.sqrt(varOne * st.n), sigmaScreen = sigmaBuf * st.res;
+    const reach = 4 * st.n * st.res;
+    const span = 32 * 2;
+    const pts = []; for (let i = 0; i < a.length; i++) pts.push([(i - c) * st.res, a[i] / a[c]]);
+    const pts1 = (() => { const r = blurN(1); const p = []; for (let i = 0; i < r.a.length; i++) p.push([(i - r.c) * st.res, r.a[i] / r.a[r.c]]); return p; })();
+    lineChart($('gb-canvas'), {
+      xRange: [-span, span], yRange: [0, 1.05], xTicks: [-64, -48, -32, -16, 0, 16, 32, 48, 64].map((v) => [v, String(v)]), yTicks: [0, 0.5, 1], yDigits: 1,
+      xLabel: '光の点からの距離(画面の画素)', yLabel: '滲みの強さ(真ん中を 1 として)',
+      series: [{ pts: pts1, color: tok('--muted'), dash: [6, 4], width: 1.5, label: '1 往復' }, { pts, color: tok('--accent'), width: 2.5, label: `${st.n} 往復` }],
+    });
+    const passes = 1 + 2 * st.n + 1;
+    $('gb-stats').innerHTML = stat('パスの数', String(passes), '<small> (明部 1 + ぼかし 2 x 往復 + 合成 1)</small>') +
+      stat('滲みの σ', sigmaScreen.toFixed(1) + ' 画素', `<small> (1 往復の σ ${(Math.sqrt(varOne) * st.res).toFixed(2)} 画素の √${st.n} 倍)</small>`) +
+      stat('届く端', reach + ' 画素', '<small> (4 タップ x 往復 x 縮小)</small>') +
+      stat('1画素あたりの読み', `${2 * 9 * st.n} 回`, `<small> (2次元まとめてなら ${81 * st.n} 回)</small>`) +
+      stat('ぼかしの手間', st.res === 2 ? '1/4' : '1', '<small> (原寸を 1 として)</small>');
+    $('gb-note').textContent = `縦と横に分けると、半径 4 のぼかしは 1画素あたり 81 回ではなく 18 回の読みで済む。それを ${st.n} 往復すると、σ は √${st.n} 倍に広がる(分散が足し算になる)。` +
+      (st.res === 2 ? '1/2 のバッファで回すので、同じタップ数で画面の2倍の距離まで滲み、手間は 1/4。' : '原寸で回すと、同じ往復の回数で滲みは半分の距離にしか届かず、手間は 4 倍。');
+  }
+  $('gb-n').addEventListener('input', redraw);
+  seg('gb-res', (v) => { st.res = Number(v); redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
