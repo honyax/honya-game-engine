@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 36 環境マッピング(キューブマップ)とイメージベースドライティング</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. IBL は「光源を増やす」のではなく「光源を積分する」</a></li><li class="l3"><a href="#s5">2. キューブマップは「方向を渡すと色が返る関数」</a></li><li class="l3"><a href="#s6">3. 拡散は「法線だけ」で決まる。だから1枚に焼ける</a></li><li class="l3"><a href="#s7">4. 鏡面は3変数。<strong>分割和</strong>で2つに割る</a></li><li class="l3"><a href="#s8">5. HDR でないと IBL は効かない</a></li><li class="l3"><a href="#s9">6. 事前計算には順番がある</a></li><li class="l3"><a href="#s10">7. 動く太陽と IBL は相性が悪い</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">IBL が焼き上がるまで — 5段の事前計算</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">1. <code>Ctrl+Alt+9</code>: 材質グリッド + IBL</a></li><li class="l3"><a href="#s19">2. <code>Ctrl+Alt+1</code>: IBL を切る</a></li><li class="l3"><a href="#s20">3. <code>Ctrl+Alt+4</code>: 事前フィルタの段を空に出す</a></li><li class="l3"><a href="#s21">4. <code>Ctrl+Alt+8</code>: 事前フィルタを使わない</a></li><li class="l3"><a href="#s22">5. <code>Ctrl+Alt+6</code>: 空を 8bit に落として焼き直す</a></li><li class="l3"><a href="#s23">6. <code>Ctrl+Alt+5</code>: 太陽を回す</a></li><li class="l3"><a href="#s24">7. <code>Ctrl+Alt+7</code>: 焼いた3枚を1枚ずつ見る</a></li><li class="l3"><a href="#s25">8. <code>Ctrl+Alt+0</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): 空を差し替えて、シーンの印象を変える</a></li><li class="l3"><a href="#s28">課題2(中): 本物の HDRI を読み込む</a></li><li class="l3"><a href="#s29">課題3(難): 動く太陽に耐えられるようにする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(11 項目すべて合格)</a></li><li class="l3"><a href="#s32">焼く時間と容量</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 36 / 計画書</p>
+  <h1>環境マッピング(キューブマップ)とイメージベースドライティング</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. IBL は「光源を増やす」のではなく「光源を積分する」</a></li><li class="l3"><a href="#s5">2. キューブマップは「方向を渡すと色が返る関数」</a></li><li class="l3"><a href="#s6">3. 拡散は「法線だけ」で決まる。だから1枚に焼ける</a></li><li class="l3"><a href="#s7">4. 鏡面は3変数。<strong>分割和</strong>で2つに割る</a></li><li class="l3"><a href="#s8">5. HDR でないと IBL は効かない</a></li><li class="l3"><a href="#s9">6. 事前計算には順番がある</a></li><li class="l3"><a href="#s10">7. 動く太陽と IBL は相性が悪い</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">IBL が焼き上がるまで — 5段の事前計算</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">1. <code>Ctrl+Alt+9</code>: 材質グリッド + IBL</a></li><li class="l3"><a href="#s19">2. <code>Ctrl+Alt+1</code>: IBL を切る</a></li><li class="l3"><a href="#s20">3. <code>Ctrl+Alt+4</code>: 事前フィルタの段を空に出す</a></li><li class="l3"><a href="#s21">4. <code>Ctrl+Alt+8</code>: 事前フィルタを使わない</a></li><li class="l3"><a href="#s22">5. <code>Ctrl+Alt+6</code>: 空を 8bit に落として焼き直す</a></li><li class="l3"><a href="#s23">6. <code>Ctrl+Alt+5</code>: 太陽を回す</a></li><li class="l3"><a href="#s24">7. <code>Ctrl+Alt+7</code>: 焼いた3枚を1枚ずつ見る</a></li><li class="l3"><a href="#s25">8. <code>Ctrl+Alt+0</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): 空を差し替えて、シーンの印象を変える</a></li><li class="l3"><a href="#s28">課題2(中): 本物の HDRI を読み込む</a></li><li class="l3"><a href="#s29">課題3(難): 動く太陽に耐えられるようにする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(11 項目すべて合格)</a></li><li class="l3"><a href="#s32">焼く時間と容量</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の6日目。<strong>まわりの景色が光になる</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Ctrl+Alt+9</code> で材質グリッドが出て、<strong>Day 35 で真っ黒だった金属の行に景色が映る</strong>。</p>
+<div class="code"><pre><code>  Ctrl+Alt+9  材質グリッド + IBL。<strong>今日の到達点はこの1枚</strong>
+  Ctrl+Alt+1  IBL ON / OFF(OFF で Day 35 の「環境光は定数」に戻る)
+  Ctrl+Alt+2  空の表示   Ctrl+Alt+3  環境光の強さ
+  Ctrl+Alt+4  空に事前フィルタの段を出す(粗さとぼけの対応を見る)
+  Ctrl+Alt+5  太陽を 30 度回して焼き直す
+  Ctrl+Alt+6  空を 8bit に落として焼き直す(HDR が要る理由)
+  Ctrl+Alt+7  焼いた3枚を1枚ずつ見る
+  Ctrl+Alt+8  事前フィルタを使わず原寸を引く    Ctrl+Alt+0  IBL の自己チェック</code></pre></div>
+<p>Day 35 の最後に「金属の行が黒いのは正しい。映り込む景色が無いから」と書いた。今日はその景色を用意する。</p>
+<p><strong>費用対効果がロードマップ中で最大</strong>の項目でもある(4章の仕分け表)。HDRI を1枚差し替えるだけでシーンの説得力が一段変わるのは、拡散も鏡面も「まわり全部」から来るようになるため。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-11: 環境による照明(環境マッピング・IBL)</a> <strong>今日の本命</strong>。キューブマップの仕組みから、環境を光源として扱う考え方まで。「環境マッピングは反射だけの技法ではない」という視点がここで手に入る</li><li><a href="https://learnopengl.com/PBR/IBL/Diffuse-irradiance">LearnOpenGL: IBL — Diffuse irradiance</a> / <a href="https://learnopengl.com/PBR/IBL/Specular-IBL">Specular IBL</a> <strong>コードで追うならここが最短</strong>。今日の実装とほぼ同じ構成で、正距円筒 → キューブ → 放射照度 → 事前フィルタ → BRDF の表 の順に進む</li><li><a href="https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf">Real Shading in Unreal Engine 4(Brian Karis, SIGGRAPH 2013)</a> <strong>分割和近似の一次資料</strong>。Day 35 で <code>k = (r+1)²/8</code> の出どころとして読んだのと同じ資料の、今度は後半。「なぜ2つに割ってよいのか」と「割ったことで何を諦めたのか」が書いてある</li><li><a href="https://polyhaven.com/hdris">Poly Haven(CC0 の HDRI)</a> <strong>今日は使わない</strong>が、Day 39 で差し込む先。今日は空を手で焼くので、素材のダウンロードは要らない</li><li><a href="https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf">OpenGL 4.6 Specification, 8.13 Cube Map Texture Selection</a>面の並びと、方向ベクトルから面・UV を選ぶ規則の一次資料。<strong>符号がばらばらで覚えられない</strong>ので、必要なときに引く表として</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. IBL は「光源を増やす」のではなく「光源を積分する」</h3>
+<p>Day 35 の時点で、光は平行光源1本だけだった。金属はハイライト以外が黒く、環境光は<strong>向きを持たない定数</strong>だった。</p>
+<p>現実の物体は、まわりのあらゆる方向から光を受けている。空、壁、床、自分の手——それを全部足し合わせるのがレンダリング方程式の本体で、</p>
+<div class="code"><pre><code>  Lo(V) = ∫ f(V, L) * Li(L) * (N・L) dω</code></pre></div>
+<p>平行光源1本なら積分が消えて掛け算1回になる(Day 35)。IBL はこの積分を、<strong>環境の絵(キューブマップ)を Li として真面目に解く</strong>。</p>
+<p>「光源を 1000 個置く」のとは違う。<strong>方向ごとの明るさが1枚の絵に入っている</strong>ので、光源の数ではなく積分の刻み数の問題になる。</p>
+<h3 id="s5">2. キューブマップは「方向を渡すと色が返る関数」</h3>
+<p>方向を絵に写す方法として、GPU は立方体の6面を選んだ。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>  vec3 color = texture(uEnvironment, direction).rgb;   // UV ではなく方向</code></pre></div>
+<p>正距円筒(横長1枚)と比べた利点は<strong>歪みが一様</strong>なこと。正距円筒は極が極端に引き伸ばされ、テクセルが無駄になる。それでも HDRI が正距円筒で配られるのは、1枚で完結して扱いやすいから——なので実務では<strong>読み込んだあとキューブへ焼き直す</strong>のが定番の入口になる。</p>
+<p><strong>面の並びと向きは RenderMan(1980 年代)由来</strong>で、<strong>Y が上下逆</strong>という有名な落とし穴が付いてくる。素直に「上は +Y」で6面のカメラを組むと、焼いた環境が上下反転する。しかも空が上にあるうちは気づきにくく、「なぜか地面が天井から照らしてくる」という形で後から出てくる。</p>
+<p>対処は「焼くときの上方向を反転させる」か「読むときに Y を反転する」かの2つ。<strong>片方だけやる</strong>のが正解で、両方やると元に戻る。このリファレンスは前者(<code>CubeMap.FaceViews</code>)にした——読む側(空・本描画・事前フィルタ)を素直に書けるので、規約が散らばらない。</p>
+<h3 id="s6">3. 拡散は「法線だけ」で決まる。だから1枚に焼ける</h3>
+<p>拡散反射の積分は、視線に依存しない。</p>
+<div class="code"><pre><code>  E(N) = ∫ Li(L) (N・L) dω          … 放射照度(irradiance)</code></pre></div>
+<p>入っているのは <strong>N だけ</strong>。つまり「方向を渡すと放射照度が返る関数」で、これはまさにキューブマップの形をしている。</p>
+<p>しかも<strong>とても滑らか</strong>。cos で重み付けした半球の平均なので、元の環境にどんな細かい模様があっても全部ならされる。だから <strong>32x32 の6面で足りる</strong>——本番のシェーダは1回引くだけで済む。</p>
+<p>焼く側で <code>1/π</code>(ランバート BRDF の正規化)まで済ませてしまうと、使う側は <code>irradiance * albedo</code> と書ける。<strong>掛け忘れ・掛けすぎがいちばん起きやすい定数</strong>なので、出口を1つにしておく。</p>
+<div class="inject"><figure class="lab" id="ir-lab">
+  <div class="lab-head">
+    <h3>空から放射照度へ — 法線の向きだけで決まる、とても滑らかな関数(要点3・5)</h3>
+    <span class="tag">Render/SkyImage.cs(Sample: 天頂と地平線と地面の色、太陽 300・半径 0.045 ラジアン、まぶしさ 6 x cos²²⁰)と IntegrateIrradiance(半球を細かい格子で cos の重み付きに足す)を JS に移したもの。太陽は reference の平行光源の向き (−0.53, −0.72, 0.45) から来る。上の絵は正距円筒の空(露出 0.5 で ACES)。グラフは、太陽を含む縦の断面で法線を真下(−90 度)から真上(90 度)まで回したときの放射照度 / π(赤の成分)。8bit は Ctrl+Alt+6 と同じく、空の値を 1 で切ってから積分したもの。キューブの6面の中心の値は C# の自己チェックの CPU の積分と同じ(+X 1.0506 / −X 0.7980 / +Y 1.0048 / −Y 0.3971)。断面の角度の刻み(5 度)と曲線の積分の刻み(200 x 200)はこのページだけ。表は C# と同じ 320 x 320</span>
+  </div>
+  <div class="stage"><canvas id="ir-sky" width="512" height="256" style="width:100%;height:auto;display:block" aria-label="正距円筒の空。太陽と地平線と地面"></canvas><canvas id="ir-canvas" style="height:280px" aria-label="法線の向きごとの放射照度の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">空の形式(Ctrl+Alt+6)</span>
+      <div class="seg" id="ir-fmt"><button data-v="hdr" aria-pressed="true">HDR(RGB16F)</button><button data-v="ldr" aria-pressed="false">8bit(1 で切る)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="ir-table"></div><p id="ir-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">4. 鏡面は3変数。<strong>分割和</strong>で2つに割る</h3>
+<p>鏡面の積分は N・V・粗さの3つに依存するので、素直に表にはできない。</p>
+<p>Karis(2013)の<strong>分割和近似</strong>は、これを2つの積に割る。</p>
+<div class="code"><pre><code>  ∫ f L (N・L) dω  ≈  [ ∫ L(l) D(l) dω ] × [ ∫ f(V,L) (N・L) dω ]
+                       ~~~~~~~~~~~~~~~~      ~~~~~~~~~~~~~~~~~~~~~
+                       環境を粗さでぼかす     材質だけで決まる係数</code></pre></div>
+<p>左は<strong>事前フィルタ環境マップ</strong>。粗さごとにぼかした環境を、ミップの段に1つずつ入れる(粗さ 0, 0.25, 0.5, 0.75, 1.0)。</p>
+<p>右は<strong>BRDF の表</strong>。ここがうまい。Schlick のフレネル</p>
+<div class="code"><pre><code>  F = F0 + (1 - F0) * (1 - V・H)^5</code></pre></div>
+<p>は F0 について1次なので、積分の外へ出せる:</p>
+<div class="code"><pre><code>  ∫ f (N・L) dω = F0 * A + B</code></pre></div>
+<p><strong>A と B は F0 に依存しない</strong>——つまり材質の色に依存しない。残る変数は <code>N・V</code> と <code>roughness</code> だけなので、<strong>2次元の表1枚で全材質ぶん</strong>をまかなえる。環境にもモデルにも依存しないので、<strong>一度焼けばどのシーンでも使い回せる</strong>。</p>
+<p><strong>厳密ではない</strong>。破綻が見えるのは「粗い金属を極端に浅い角度から見たとき」くらいで、実写と並べても分からない程度に収まる。代償として <code>N = V = R</code> と置いている(<strong>斜めから見ても映り込みが伸びない</strong>)。</p>
+<div class="inject"><figure class="lab" id="lut-lab">
+  <div class="lab-head">
+    <h3>BRDF の表 — N・V と粗さだけで、全材質ぶんの A と B(要点4)</h3>
+    <span class="tag">Pbr.IntegrateBrdf(GGX の重点サンプリング 1024 点、IBL 用の k = α / 2、フレネルを (1 − V・H)⁵ の外と中に分けて A と B に足す)を JS に移したもの。左の絵は表そのもの(横 = N・V、縦 = 粗さ、赤 = A、緑 = B。このページは 32x32 を 256 点で焼いた粗い版。reference は 128x128 を 1024 点)。右のグラフは、選んだ粗さでの F0 x A + B(= 鏡面の方向アルベド)。表の数字は 1024 点で計算したもので、C# と同じ値(粗さ 0・正面で (1.0000, 0.0000)、N・V 0.5・粗さ 0.5 で (0.7272, 0.0185) など)</span>
+  </div>
+  <div class="stage" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px"><canvas id="lut-img" width="32" height="32" style="width:200px;height:200px;image-rendering:pixelated" aria-label="BRDF の表。横が N・V、縦が粗さ"></canvas><canvas id="lut-canvas" style="height:240px;flex:1;min-width:260px" aria-label="選んだ粗さでの F0 x A + B の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">粗さ</span>
+      <div class="range"><input type="range" id="lut-r" min="0" max="1" step="0.05" value="0.5"><output id="lut-r-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">F0(材質の正面の反射率)</span>
+      <div class="seg" id="lut-f0"><button data-v="0.04" aria-pressed="true">0.04(非金属)</button><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="1" aria-pressed="false">1.0(白い金属)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="lut-table"></div><p id="lut-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">5. HDR でないと IBL は効かない</h3>
+<p>環境マップに入っているのは色ではなく<strong>明るさ</strong>。太陽は 300 前後、空は 1〜3、地面は 0.1 以下。</p>
+<p>この開きが 8bit では表せない。1.0 で切ると<strong>太陽と白い雲の区別が付かなくなる</strong>——そして環境光の大半は太陽が担っているので、切った瞬間に「全体的にぼんやり明るいだけ」の環境になる。</p>
+<p><code>Ctrl+Alt+6</code> で実際に切って焼き直せる。Day 31 でシーンバッファを 8bit に落としたときと同じ実験を、今度は<strong>光源の側</strong>で行う形になる。<strong>PBR と HDR と IBL が3点セットで語られる</strong>のは、この依存関係のため。</p>
+<h3 id="s9">6. 事前計算には順番がある</h3>
+<p>焼く順は入れ替えられない。前の結果が次の入力になる。</p>
+<div class="code"><pre><code>  空の画像(CPU) → 環境キューブ → ミップ生成 → 放射照度
+                                    ~~~~~~~~ ↘ 事前フィルタ</code></pre></div>
+<p><strong>ミップ生成が挟まる</strong>のが見落としやすいところ。事前フィルタは 1024 点をランダムに引くので、太陽(1テクセルで 300)に当たった数点だけが桁違いに効いて、<strong>隣のテクセルで当たり外れが変わる</strong>——ぼかしたはずの面に白い点が散る(ファイアフライ)。</p>
+<p>対処は「1サンプルが担当する立体角に見合った大きさのミップから引く」こと。そのために元の環境マップにミップが要る。</p>
+<p>BRDF の表だけは独立していて、<strong>環境が変わっても焼き直さなくてよい</strong>。</p>
+<div class="inject"><figure class="lab" id="pf-lab">
+  <div class="lab-head">
+    <h3>事前フィルタとファイアフライ — 1024 点で太陽を当てると(要点6)</h3>
+    <span class="tag">prefilter.frag(N = V = R と置き、GGX の重点サンプリング 1024 点で空を引いて N・L の重みで平均する)を JS に移して、太陽を通る縦の断面で、向きを −90〜90 度に振ったときの結果(赤の成分。縦軸は対数)を描いたもの。空は SkyImage.Sample。「ミップで均す」は、1サンプルが担当する立体角(1 / (1024 x pdf))に見合った範囲の空を平均してから使う近似で、GPU のミップの段と同じではない(このページだけの近似)。「本当」は 16,384 点で引いたもの</span>
+  </div>
+  <div class="stage"><canvas id="pf-canvas" style="height:320px" aria-label="向きごとの事前フィルタの値。1024 点で引いたものと本当の値"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">粗さ(事前フィルタの段は 0 / 0.25 / 0.5 / 0.75 / 1.0)</span>
+      <div class="seg" id="pf-r"><button data-v="0.25" aria-pressed="false">0.25</button><button data-v="0.5" aria-pressed="true">0.5</button><button data-v="0.75" aria-pressed="false">0.75</button><button data-v="1" aria-pressed="false">1.0</button></div>
+    </div>
+    <div class="ctl"><span class="label">引き方</span>
+      <div class="seg" id="pf-mip"><button data-v="0" aria-pressed="true">ミップ無し(原寸を引く)</button><button data-v="1" aria-pressed="false">ミップで均す(このページの近似)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="pf-stats"></div><p id="pf-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">7. 動く太陽と IBL は相性が悪い</h3>
+<p><code>Ctrl+Alt+5</code> で太陽を 30 度回すと、空・影・平行光源が一緒に動く……が、<strong>そこでフレームが止まる</strong>。焼き直しに 700ms 前後かかる。</p>
+<p>これは実装の粗さではなく、IBL の性質そのもの。事前計算した3枚は「環境が動かない」という前提の上に立っている。時間帯が変わるゲームで IBL をどう扱うかは、それだけで大きな設計問題になる(時間帯ごとに焼いておいて補間する、1フレームに1面ずつ焼く、球面調和で持って係数だけ補間する、など)。</p>
+<p>今日は「止まる」ことを体感するところまでにする。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/CubeMap.cs</code></td><td><strong>6面のテクスチャ</strong>。作る・焼き先にする・読み返す。面のビュー行列もここ</td></tr>
+<tr><td><code>Render/SkyImage.cs</code></td><td><strong>HDR の空を手で焼く</strong>。正距円筒の float 画像。CPU 側の積分も持つ</td></tr>
+<tr><td><code>Render/EnvironmentMap.cs</code></td><td><strong>IBL 一式</strong>。環境 / 放射照度 / 事前フィルタ / BRDF の表を焼いて配る</td></tr>
+<tr><td><code>shaders/cube.vert</code></td><td>焼くとき共通。<strong>位置がそのまま方向になる</strong></td></tr>
+<tr><td><code>shaders/equirect.frag</code></td><td>正距円筒 → キューブ</td></tr>
+<tr><td><code>shaders/irradiance.frag</code></td><td>放射照度(拡散ぶん)</td></tr>
+<tr><td><code>shaders/prefilter.frag</code></td><td>事前フィルタ(鏡面ぶんの環境側)</td></tr>
+<tr><td><code>shaders/skybox.vert</code> / <code>skybox.frag</code></td><td>空を描く。<strong>深度を 1.0 に固定する技</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Texture.cs</code></td><td><code>FromFloatPixels</code>(RGB16F / RG16F)。<strong>1.0 を超える値を持てるテクスチャ</strong></td></tr>
+<tr><td><code>Render/Pbr.cs</code></td><td><code>IblK</code> / <code>GeometrySmithIbl</code> / <code>FresnelSchlickRoughness</code> / <strong><code>IntegrateBrdf</code></strong></td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>環境光を IBL に差し替え、uniform 6本、成分 18〜20</td></tr>
+<tr><td><code>Program.cs</code></td><td>環境マップの生成と焼き、空の描画、<code>Ctrl+Alt+0〜9</code>、HUD の1行、<code>RunIblCheck</code></td></tr>
+</tbody>
+</table></div>
+<p>変更ファイルへの追加が 898 行、新規ファイルが 1383 行で、<strong>合わせて約 2300 行</strong>。</p>
+<p><strong>Day 34(約 1600 行)・Day 35(約 1700 行)より 4 割ほど大きい</strong>。分けるなら「キューブマップ + 空 + 拡散 IBL」と「鏡面 IBL」で切れるが、<strong>前半だけでは金属が黒いまま</strong>——Day 35 の宿題が片付かない。1日ぶんとしては大きいので、写経は2回に分けてもよい(下の「写経する順番」の 1〜6 と 7〜10 がちょうどその境目になっている)。</p>
+<h3 id="s14">写経する順番</h3>
+<p>依存の下から。<strong>シェーダを先に全部書いてしまう</strong>のが今日のコツで、<code>EnvironmentMap</code> はそれらを読み込むところから始まる。</p>
+<ol><li><strong><code>Render/Texture.cs</code></strong>(変更) <code>FromFloatPixels</code> を <code>FromPixels</code> と <code>CreateR8</code> の間に。<strong><code>UnpackAlignment</code> を 1 にする</strong>のを忘れないこと(成分数を変えたときに行がずれる)</li><li><strong><code>Render/CubeMap.cs</code></strong>(新規) <code>Create</code> → <code>FullMipCount</code> → <code>EnableSeamless</code> → <strong><code>FaceViews</code></strong>(上方向の反転) → <code>FaceProjection</code> → <code>Bind</code> → <code>GenerateMipmaps</code> → <code>ReadFace</code> → <code>SetFilter</code> → <code>Dispose</code></li><li><strong><code>Render/SkyImage.cs</code></strong>(新規) <code>Create</code> → <strong><code>Sample</code></strong> → <code>IntegrateIrradiance</code> → <code>Smoothstep</code>。<code>Create</code> の中の <strong><code>phi = (u - 0.5) * 2π</code></strong> が <code>equirect.frag</code> と対の約束になる</li><li><strong><code>shaders/cube.vert</code></strong> / <strong><code>shaders/equirect.frag</code></strong>(新規) <code>DirectionToUv</code> が 3 の裏返し。<strong>片方だけ直すと空が回る</strong></li><li><strong><code>shaders/irradiance.frag</code></strong>(新規) <strong><code>textureLod</code> で段を 0 に固定する</strong>こと。<code>texture</code> だと粗いミップを引かれる(下の「検証の途中で分かったこと」)</li><li><strong><code>shaders/prefilter.frag</code></strong>(新規) <code>RadicalInverseVdC</code> → <code>Hammersley</code> → <code>ImportanceSampleGgx</code> → <code>DistributionGgx</code> → <code>main</code>(ちらつき対策のミップ選択)</li><li><strong><code>shaders/skybox.vert</code></strong> / <strong><code>skybox.frag</code></strong>(新規) <code>gl_Position = clip.xyww</code> が肝</li><li><strong><code>Render/Pbr.cs</code></strong>(変更) <code>IblK</code> → <code>GeometrySmithIbl</code> → <code>FresnelSchlickRoughness</code> → <strong><code>IntegrateBrdf</code></strong>。<code>Basis</code> の直前に置く</li><li><strong><code>Render/EnvironmentMap.cs</code></strong>(新規)定数 → フィールド → コンストラクタ → プロパティ群 → <strong><code>Bake</code></strong> → <code>Apply</code> → <code>DrawSkybox</code> → <strong><code>RenderToCube</code></strong> → <code>BakeBrdfLut</code> → <code>SetCap</code> → <code>Dispose</code></li><li><strong><code>shaders/textured.frag</code></strong>(変更)成分のコメントに 18〜20 → Day 36 の uniform 6本 → <code>FresnelSchlickRoughness</code> を <code>CookTorrance</code> の直前へ → <code>main</code> の環境光を丸ごと差し替え</li><li><strong><code>Program.cs</code></strong>(変更) Day 36 のフィールド → <code>OnLoad</code>(生成と焼き)→ <code>OnRender</code>(空を先に描く)→ <code>Render3D</code> の <code>_env.Apply</code> → <code>RenderMaterialGrid</code> の <code>uIblIntensity</code> → <code>IblLabel</code> → <code>DebugChannelLabel</code> の 18〜20 → 巡回を 18 → 21 → HUD の行 → <code>OnKeyDown</code>(<code>ctrl &amp;&amp; alt</code> の 10 個。<strong><code>when ctrl</code> より必ず上</strong>)→ <strong><code>RunIblCheck</code></strong> と補助3つ → <code>_env.Dispose()</code> → 操作説明 →クラス要約に Day 36 の項</li><li><strong><code>Day36.csproj</code></strong>(リネームのみ)中身は Day 35 と同じ</li></ol>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>クラスが3つ増えた</strong>。層の構成は Day 35 のままで、全部 <code>Render/</code> の中に入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/CubeMap</code></td><td>6面のテクスチャ。<strong>GL の面の並びと向きの約束をここに閉じ込める</strong></td></tr>
+<tr><td><code>Render/SkyImage</code></td><td>HDR の空を焼く。<strong>GL を1行も触らない</strong>(<code>SurfaceMaps</code> と同じ形)</td></tr>
+<tr><td><code>Render/EnvironmentMap</code></td><td>IBL 一式。焼いて、配って、空を描く</td></tr>
+</tbody>
+</table></div>
+<p><code>Render/</code> の既存クラスも太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Texture</code></td><td><code>FromFloatPixels</code>(RGB16F / RG16F)。<strong>1.0 を超える値を持てる 2D</strong></td></tr>
+<tr><td><code>Pbr</code></td><td><code>IblK</code> / <code>GeometrySmithIbl</code> / <code>FresnelSchlickRoughness</code> / <code>IntegrateBrdf</code></td></tr>
+</tbody>
+</table></div>
+<p><code>EnvironmentMap</code> は <code>PostProcess</code>(Day 31)と <code>ShadowMap</code>(Day 33)に続く<strong>3つ目の「自分でバッファを持ち、シェーダは借りる」クラス</strong>になる。分担が3クラスで一致しているのは偶然ではなく、「大きさや形式に強い制約があるものは所有、共有して使い回すものは借りる」というDay 21 からの線がそのまま出ている。</p>
+<p><strong>設計の歪みが1つ増えた</strong>。<code>EnvironmentMap</code> は <code>Framebuffer</code> を使わず、<strong>生の FBO を1つ自分で持っている</strong>。理由は <code>Framebuffer</code> が「自分でテクスチャを作って所有する」形になっていて、外から用意したキューブマップの1面を挿す口が無いため。</p>
+<p>本来は <code>Framebuffer</code> に「外のテクスチャを挿す」モードを足すのが筋だが、今日はそちらを直すと差分が広がるので、生の FBO を持つほうを取った。<strong>Day 52(ディファードレンダリング)で複数のカラーアタッチメントが要る</strong>ときに、まとめて整理するのがよさそう。</p>
+<h3 id="s16">IBL が焼き上がるまで — 5段の事前計算</h3>
+<p><code>EnvironmentMap.Bake</code> の中身。<strong>順番は動かせない</strong>——前の結果が次の入力になる。</p>
+<svg viewBox="0 0 990 537" role="img" aria-label="IBL が焼き上がるまで(5段の事前計算)。SkyImage.Create(正距円筒 1024x512 の float 配列。CPU。太陽 300 / 空 1〜3 / 地面 0.1)から Texture.FromFloatPixels(RGB16F。横は Repeat)、equirect.frag x 6面(方向 → 横長の絵の UV。キューブ 256)、GenerateMipmaps(ここが要る。事前フィルタのちらつき対策)。そこから irradiance.frag x 6面(半球を 0.025 刻みで積分。キューブ 32。1/π 込み)と、prefilter.frag x 6面 x 5段(GGX 重点サンプリング 1024 点。キューブ 128。段 = 粗さ)。それとは別に Pbr.IntegrateBrdf(CPU / Parallel.For。128x128 x 1024 点 = 1600 万回)から RG16F の表(横 = N・V / 縦 = 粗さ)。放射照度・事前フィルタ・表の3つを EnvironmentMap.Apply(7 放射照度 / 8 事前フィルタ / 9 表)で配る" style="width:100%;max-width:990px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="20" y="8" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SkyImage.Create</text><text x="170" y="45.5" text-anchor="middle" fill="var(--ink)">正距円筒 1024x512 の float 配列</text><text font-weight="700" x="170" y="62.5" text-anchor="middle" fill="var(--ink)">CPU。太陽 300 / 空 1〜3 / 地面 0.1</text><rect x="20" y="109" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="129.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Texture.FromFloatPixels</text><text x="170" y="146.5" text-anchor="middle" fill="var(--ink)">RGB16F。横は Repeat</text><rect x="20" y="193" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="213.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">equirect.frag x 6面</text><text x="170" y="230.5" text-anchor="middle" fill="var(--ink)">方向 → 横長の絵の UV</text><text font-weight="700" x="170" y="247.5" text-anchor="middle" fill="var(--ink)">キューブ 256</text><rect x="20" y="294" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="314.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GenerateMipmaps</text><text font-weight="700" x="170" y="331.5" text-anchor="middle" fill="var(--ink)">ここが要る。事前フィルタのちらつき対策</text><rect x="20" y="378" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="398.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">irradiance.frag x 6面</text><text x="170" y="415.5" text-anchor="middle" fill="var(--ink)">半球を 0.025 刻みで積分</text><text font-weight="700" x="170" y="432.5" text-anchor="middle" fill="var(--ink)">キューブ 32。1/π 込み</text><rect x="340" y="378" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="398.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">prefilter.frag x 6面 x 5段</text><text x="490" y="415.5" text-anchor="middle" fill="var(--ink)">GGX 重点サンプリング 1024 点</text><text font-weight="700" x="490" y="432.5" text-anchor="middle" fill="var(--ink)">キューブ 128。段 = 粗さ</text><rect x="660" y="193" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="213.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Pbr.IntegrateBrdf</text><text font-weight="700" x="810" y="230.5" text-anchor="middle" fill="var(--ink)">CPU / Parallel.For</text><text x="810" y="247.5" text-anchor="middle" fill="var(--ink)">128x128 x 1024 点 = 1600 万回</text><rect x="660" y="294" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="314.5" text-anchor="middle" fill="var(--ink)">RG16F の表</text><text x="810" y="331.5" text-anchor="middle" fill="var(--ink)">横 = N・V / 縦 = 粗さ</text><rect x="340" y="479" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="499.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">EnvironmentMap.Apply</text><text x="490" y="516.5" text-anchor="middle" fill="var(--ink)">7 放射照度 / 8 事前フィルタ / 9 表</text><path d="M170 75 L170 107" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 159 L170 191" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 260 L170 292" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M170 344 L170 376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M304 344 L304 358 L490 358 L490 376" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M810 260 L810 292" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M304 445 L304 459 L490 459 L490 477" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 445 L490 477" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M810 344 L810 504 L642 504" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>入れ替えられない理由</strong>が段ごとにある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>前の段に何を依存しているか</th></tr></thead>
+<tbody>
+<tr><td>正距円筒 → キューブ</td><td>空の絵が要る。<strong>ここで方位と上下の約束が確定する</strong></td></tr>
+<tr><td>ミップ生成</td><td>キューブが要る。<strong>飛ばすと事前フィルタに白い点が散る</strong></td></tr>
+<tr><td>放射照度</td><td>キューブが要る。<strong>ミップは引かない</strong>(<code>textureLod</code> で 0 に固定)</td></tr>
+<tr><td>事前フィルタ</td><td>キューブとそのミップが要る</td></tr>
+<tr><td>BRDF の表</td><td><strong>何にも依存しない</strong>。だから初回だけ焼けばよい</td></tr>
+</tbody>
+</table></div>
+<p>いちばん最後だけが独立しているのは、<strong>そこに環境の情報が入っていない</strong>から。入っているのは「この材質は、あらゆる方向から来る光をどれだけ返すか」という材質の性質だけで、空を差し替えても変わらない(要点4)。</p>
+<p><strong><code>Ctrl+Alt+5</code> の焼き直しに BRDF の表が入っていない</strong>のはこのため。1600 万回の積分が毎回走ったら、太陽を回すたびに 700ms ではなく 1.5 秒止まることになる。</p>
+<p><strong>ミップ生成が真ん中に挟まる</strong>のがいちばん見落としやすい。事前フィルタは 1024 点をランダムに引くので、太陽(1テクセルで 300)に当たった数点だけが桁違いに効き、<strong>隣のテクセルで当たり外れが変わる</strong>。「1サンプルが担当する立体角に見合った大きさのミップから引く」ことで均すのだが、そのミップが無ければ何も起きない——<strong>エラーも出ない</strong>。症状は「ぼかしたはずの面に白い点が散る」で、ファイアフライ(firefly)と呼ばれる、モンテカルロ積分では定番の壊れ方になる。</p>
+<p><strong>放射照度だけがミップを引いてはいけない</strong>、というのが裏返しの落とし穴。こちらは <code>texture()</code> を使うと GPU が勝手に粗い段を選び、地平線の明るい空が地面側へにじむ。同じキューブマップに対して、<strong>片方はミップを使い、片方は使ってはいけない</strong>——用途で正解が反対になるので、コメントに理由を書いておかないと後で必ず迷う(「検証の途中で分かったこと」)。</p>
+<p><strong>焼く先の差し替えは生の FBO でやっている</strong>。<code>glFramebufferTexture2D</code> に「面」と「ミップ」を直接渡せるので、6面 x 5段 = 30 通りの描き込み先を1つの FBO で回せる。<code>Framebuffer</code> を使わない理由は設計書の冒頭に書いたとおりで、<strong>外のテクスチャを挿す口が無い</strong>から。</p>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day36 -c Release</code></pre></div>
+<p>起動すると DamagedHelmet が出る。<strong>背景が黒くなくなっている</strong>のがまず目に入るはず。そして兜の金属部分に、空と地面が映り込んでいる。</p>
+<p>コンソールに焼いた結果が出る。</p>
+<div class="code"><pre><code>環境マップ: 空 1024x512 → キューブ 256 / 放射照度 32 / 事前フィルタ 128x5段 / BRDF表 128
+  焼き 762ms(空の生成 44ms / BRDF表 701ms)  3.8MB</code></pre></div>
+<p><strong>大半が BRDF の表</strong>なのが分かる。GPU のパスは全部合わせて 20ms 足らずで、CPU で 1600 万回の重点サンプリングを回しているところが効いている。</p>
+<h3 id="s18">1. <code>Ctrl+Alt+9</code>: 材質グリッド + IBL</h3>
+<p><strong>今日の到達点はこの1枚</strong>。Day 35 で真っ黒だった上の行(金属)に景色が映る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>見るところ</th><th>期待</th></tr></thead>
+<tbody>
+<tr><td><strong>左上(鏡の金属)</strong></td><td>空と地面が丸ごと映る。<strong>球面鏡そのもの</strong></td></tr>
+<tr><td>上の行を右へ</td><td>映り込みがぼけていく。粗さ 1.0 では「空の平均色」になる</td></tr>
+<tr><td>下の行(非金属)</td><td>全体がわずかに明るくなる。映り込みは縁だけ</td></tr>
+<tr><td>どの球も下半分</td><td>地面の色を拾って暗い。<strong>環境光に向きがある</strong>ことの現れ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">2. <code>Ctrl+Alt+1</code>: IBL を切る</h3>
+<p><strong>金属の行が黒に戻る</strong>。Day 35 の絵がそのまま戻ってくるので、今日の差分が1押しで分かる。</p>
+<p>参考までに、材質グリッドの画素を読み出して比べた実測値(金属度 1.0 の行、粗さ 0 → 1)。</p>
+<div class="code"><pre><code>  IBL ON   168 → 210 → 126     空が映るので、粗さによらず明るい
+  IBL OFF  111 → 188 →  86     ハイライト以外はほぼ環境光の定数だけ</code></pre></div>
+<h3 id="s20">3. <code>Ctrl+Alt+4</code>: 事前フィルタの段を空に出す</h3>
+<p>空が段ごとにぼけていく。<strong>粗さ 0.25 刻みでどれだけぼけるか</strong>が直接見える。</p>
+<p>これを見ておくと、材質グリッドの「右へ行くほど映り込みがぼける」がどこから来ているのかが腑に落ちる——<strong>球ごとに違う段を引いているだけ</strong>で、ぼかしはすべて焼くときに済んでいる。</p>
+<h3 id="s21">4. <code>Ctrl+Alt+8</code>: 事前フィルタを使わない</h3>
+<p>粗さを無視して原寸を引くようにすると、<strong>粗い金属まで鏡になる</strong>。さらに太陽の反射が点として散り、動かすとちらつく。</p>
+<p>事前フィルタが何をしているかの裏返しで、「ぼかしておく」という一手間がどれだけ効いているかが分かる。</p>
+<h3 id="s22">5. <code>Ctrl+Alt+6</code>: 空を 8bit に落として焼き直す</h3>
+<p><strong>環境光がのっぺりする</strong>。金属の映り込みから太陽が消え、全体が均一な明るさになる。</p>
+<p>Day 31 で「シーンバッファを 8bit にすると露出を下げても上の段が戻らない」を見た。今度は<strong>光源の側</strong>で同じことが起きる——1.0 で切った時点で、環境光の大半を担っていた太陽が失われている。</p>
+<h3 id="s23">6. <code>Ctrl+Alt+5</code>: 太陽を回す</h3>
+<p>空・影・映り込みが<strong>同時に</strong>動く。手で焼いた空の太陽を平行光源と同じ向きから作っているので、最初から辻褄が合っている。</p>
+<p>そして <strong>700ms 前後フレームが止まる</strong>。IBL は「環境が動かない」前提の技法だ、ということが体で分かる(要点7)。</p>
+<h3 id="s24">7. <code>Ctrl+Alt+7</code>: 焼いた3枚を1枚ずつ見る</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>成分</th><th>見え方</th><th>読み取れること</th></tr></thead>
+<tbody>
+<tr><td>18 放射照度</td><td>ぼんやりした色。上向きの面が青、下向きが暗い</td><td><strong>法線だけで決まる</strong>ことが分かる</td></tr>
+<tr><td>19 映り込み</td><td>空と地面が球面に映る</td><td>粗いところほどぼけている</td></tr>
+<tr><td>20 BRDF の表</td><td>赤(A)と緑(B)の帯</td><td>縁(N・V 小)で B が立ち上がる</td></tr>
+</tbody>
+</table></div>
+<h3 id="s25">8. <code>Ctrl+Alt+0</code>: 自己チェック</h3>
+<p>11 項目。<strong>焼いたものが正しいかは絵からは判定できない</strong>ので、数字で確かめる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>なぜ大事か</th></tr></thead>
+<tbody>
+<tr><td>焼いたキューブが元の空と一致</td><td><strong>上下反転と方位のずれ</strong>をここで捕まえる</td></tr>
+<tr><td>いちばん明るいテクセルが太陽の向き</td><td>同上。方位のずれは絵から気づけない</td></tr>
+<tr><td>放射照度が CPU の半球積分と一致</td><td><strong>まったく違う書き方で同じ積分</strong>をした2つを突き合わせる</td></tr>
+<tr><td>BRDF の表: A + B が 1 以下</td><td>光を作り出していないこと</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Alt+6</code>(空を 8bit に)・<code>Ctrl+Alt+7</code>(成分 18 放射照度)</td><td>「空から放射照度へ」</td><td>8bit にすると太陽が 1 に切られ、太陽の側の面の放射照度だけが大きく下がる(全体がのっぺりする)</td></tr>
+<tr><td><code>Ctrl+Alt+7</code>(成分 20 BRDF の表)・<code>Ctrl+Alt+0</code>(表の2項目)</td><td>「BRDF の表」</td><td>粗さ 0・正面で (1.0000, 0.0000)。縁(N・V が小さい所)で B が立ち上がる。A + B は 1 を超えない(最大 0.9999)</td></tr>
+<tr><td><code>Ctrl+Alt+8</code>(事前フィルタを使わない)・<code>Ctrl+Alt+4</code>(段を空に出す)</td><td>「事前フィルタとファイアフライ」</td><td>ミップ無しで 1024 点を引くと、太陽の近くで当たり外れが向きごとに変わる(白い点)</td></tr>
+<tr><td><code>Ctrl+Alt+0</code>(放射照度が CPU の積分と一致)</td><td>「空から放射照度へ」の表</td><td>6面の中心の向きで +X 1.0506 / −X 0.7980 / +Y 1.0048 / −Y 0.3971</td></tr>
+<tr><td><code>Ctrl+Alt+9</code>・<code>1</code>・<code>2</code>・<code>3</code>・<code>5</code></td><td>(なし)</td><td>GPU で焼いたキューブマップと材質グリッドが要るので、このページでは再現しない</td></tr>
+<tr><td>(キーなし)</td><td>断面の向き、表の粗い焼き方、ミップで均す近似</td><td>reference に無い値・近似。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day36 の Render/SkyImage.cs・Render/Pbr.cs(IntegrateBrdf)・shaders/prefilter.frag の式を JS に移したもの。SkyImage.cs と Pbr.cs は C# の検証用プロジェクトにそのまま取り込んで走らせ、自己チェックの CPU 側の数字が一致することを確かめた(放射照度の CPU の積分 +X 1.0506 / −X 0.7980 / +Y 1.0048 / −Y 0.3971、BRDF の表の (1.0000, 0.0000) と A + B の最大 0.9999、太陽の明るさ 307)。差分の行数は git diff --no-index --numstat で数え直した(変更ファイルへの追加 898 行・新規 1,383 行)。GPU で焼いた値(放射照度の 1.0625 / 0.7974 / 0.9932 / 0.3960、キューブと空の一致 0.2%、事前フィルタのばらつき、材質グリッドの画素の値)と焼く時間(762ms)は、手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s26">改造課題</h2>
+<h3 id="s27">課題1(易): 空を差し替えて、シーンの印象を変える</h3>
+<p><code>SkyImage.Sample</code> を書き換える。夕暮れ(地平線が赤く、太陽が低い)、曇り(太陽を消して全天を均一に)、屋内(上が暗く、窓の方向だけ明るい)など。</p>
+<p><strong>焼き直しは <code>Ctrl+Alt+5</code> を2回押せばよい</strong>(60 度回って戻ってこないが、太陽の位置が変わるだけなので確認には足りる)。起動し直すのがいちばん確実。</p>
+<p>見どころは<strong>金属の球</strong>。空を変えると、金属だけが劇的に変わって非金属はほとんど変わらない——「金属は映り込みしか返さない」が絵として出る。</p>
+<p>曇りにすると影が消えたようになる(平行光源は残るので完全には消えない)。<strong>環境光だけで陰影が付く</strong>ことが確かめられるのは、この課題がいちばん分かりやすい。</p>
+<h3 id="s28">課題2(中): 本物の HDRI を読み込む</h3>
+<p>Radiance の <code>.hdr</code> 形式(RGBE)を読む。仕様は単純で、テキストのヘッダ + RLE 圧縮されたスキャンライン。1画素 4 バイトで、RGB の仮数部と共通の指数部が入っている:</p>
+<div class="code"><pre><code>  色 = (R, G, B) * 2^(E - 128) / 256</code></pre></div>
+<p>読めたら <code>SkyImage.Create</code> の戻り値と差し替えるだけで、<strong>それ以外は1行も変えずに動く</strong>——正距円筒の float 配列という同じ形にしてあるのはこのため。</p>
+<p><a href="https://polyhaven.com/hdris">Poly Haven</a> の CC0 HDRI を 2K で落としてくるとよい。<strong><code>.gitattributes</code> は既に <code>.hdr</code> を LFS に送るようになっている</strong>(Day 32 で用意した)。</p>
+<p>ここまでやると Day 39(デモの組み上げ)の入口が済む。</p>
+<h3 id="s29">課題3(難): 動く太陽に耐えられるようにする</h3>
+<p><code>Ctrl+Alt+5</code> の 700ms を、フレームを止めずに払えるようにする。方針はいくつかある。</p>
+<ol><li><strong>1フレームに1面ずつ焼く</strong>。6面 x 3枚 = 18 フレームに分散する。途中の状態が見えるので、切り替わりが不自然にならないか確かめること</li><li><strong>放射照度を球面調和(SH)で持つ</strong>。9 係数で拡散ぶんが表せるので、キューブマップを焼く代わりに係数を積分する。<strong>係数どうしを補間できる</strong>のが大きく、時間帯の遷移が滑らかになる</li><li><strong>時間帯ごとに焼いておいて補間する</strong>。いちばん素朴だが、VRAM を食う</li></ol>
+<p>2 が本命で、実際のエンジンはたいてい拡散を SH、鏡面をキューブマップで持っている。9 個の float で半球ぶんの光が表せる、というのは初見だと信じがたいが、<strong>放射照度がとても滑らかだから</strong>(要点3)成り立つ話になっている。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 Home / .NET 10</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li></ul>
+<h3 id="s31">自己チェック(11 項目すべて合格)</h3>
+<div class="code"><pre><code>[IBL の自己チェック]
+  [OK] 3枚 + 表がそろっている
+  [OK] 事前フィルタが5段ある(粗さ 0 / 0.25 / 0.5 / 0.75 / 1.0)  5 段 / 128x128
+  [OK] 焼いたキューブが元の空と一致(上下反転も方位のずれもここで出る)
+       1,528 点 / 最大誤差 0.2%(+X)
+  [OK] いちばん明るいテクセルが太陽の向き(方位の取り違えが出る)
+       ずれ 0.53 度  明るさ 307
+  [OK] 上の面が下の面より明るい(空と地面が逆さまでない)  上 0.768 / 下 0.070
+  [OK] 放射照度が CPU の半球積分と一致(誤差 15% 未満)  最大誤差 0.8%(+Y)
+  [OK] 放射照度は環境マップよりばらつきが小さい  環境 16.108 → 放射照度 0.146
+  [OK] 事前フィルタは段が進むほどぼけている  15.921 → 3.156 → 0.680 → 0.266 → 0.155
+  [OK] BRDF の表: 粗さ 0・正面で (A, B) ≒ (1, 0)  (1.0000, 0.0000)
+  [OK] BRDF の表: A + B が 1 を超えない  最大 0.9999
+  [OK] 鏡の金属に映る環境が 0 でない  上向きの鏡が受け取る明るさ 1.994
+  所要 100ms
+  すべて合格</code></pre></div>
+<p>放射照度は<strong>6面とも 1% 以内</strong>で一致した。まったく違う書き方の2つがここまで揃うと、両方が正しいと言ってよい。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>面</th><th>焼いた値(R)</th><th>CPU の積分(R)</th></tr></thead>
+<tbody>
+<tr><td>+X</td><td>1.0625</td><td>1.0506</td></tr>
+<tr><td>-X</td><td>0.7974</td><td>0.7980</td></tr>
+<tr><td>+Y(空)</td><td>0.9932</td><td>1.0048</td></tr>
+<tr><td>-Y(地面)</td><td>0.3960</td><td>0.3971</td></tr>
+</tbody>
+</table></div>
+<p>それでも閾値を 15% と緩めに置いてあるのは、<strong>太陽の扱いに余地があるから</strong>。太陽は 0.045 ラジアンしかないのに対し、シェーダの刻みは 0.025 ラジアン——3x3 点でしか捉えられないので、太陽が半球に入る向き(+Y 側)では当たり方で数 % 動きうる。式の間違いではなく標本化の話なので、<strong>そこを見込んだ閾値</strong>にしてある。</p>
+<h3 id="s32">焼く時間と容量</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>実測</th></tr></thead>
+<tbody>
+<tr><td>空の生成(CPU / 1024x512)</td><td>44 ms</td></tr>
+<tr><td>正距円筒 → キューブ(256、6面)</td><td>数 ms</td></tr>
+<tr><td>放射照度(32、6面 x 15,876 サンプル)</td><td>十数 ms</td></tr>
+<tr><td>事前フィルタ(128、5段 x 6面 x 1024 サンプル)</td><td>十数 ms</td></tr>
+<tr><td><strong>BRDF の表(CPU / 128x128 x 1024 サンプル)</strong></td><td><strong>701 ms</strong></td></tr>
+<tr><td>合計</td><td><strong>762 ms</strong> / 3.8MB</td></tr>
+</tbody>
+</table></div>
+<p><strong>9 割が BRDF の表</strong>。GPU に移せば 10ms を切るが、今日は CPU に置いた——Day 35 で書いた重点サンプリングがそのまま使え、シェーダを1本増やさずに済み、自己チェックで中身を直接確かめられる。<strong>環境が変わっても焼き直さなくてよい</strong>(材質の性質しか入っていない)ので、<code>Ctrl+Alt+5</code> の焼き直しには入っていない。</p>
+<p>描画そのものは重くならない。IBL が増やしたのは<strong>テクスチャの読み込み3回</strong>(キューブ2枚 + 表1枚)だけで、フレーム時間に有意な差は出なかった。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong>正距円筒の方位が 180 度ずれていた。</strong></p>
+<p><code>SkyImage</code> は <code>phi = u * 2π</code> で絵を作り、<code>equirect.frag</code> は<code>u = atan2(z, x) / 2π + 0.5</code> で読んでいた。<code>atan2</code> が返すのは -π〜π なので、0〜1 に写すために 0.5 を足すのは正しい。<strong>足したぶんを作る側で戻していなかった</strong>。</p>
+<p>厄介なのは、この空が方位に対してほぼ一様なこと(色は仰角だけで決まる)。<strong>絵を見ても分からない</strong>——太陽の位置だけが真裏に行くので、「空はそれらしいのに影と反射が合わない」という形で出る。</p>
+<p>最初に書いた自己チェックは「6面の中心テクセルが、その面の向きの空の色と一致するか」だったが、これも<strong>方位に一様なので通ってしまった</strong>。テクセルごとに向きを計算して比べる形(<code>CubeTexelDirection</code>)に書き直し、併せて「いちばん明るいテクセルが太陽の向きか」を足したところで、ようやく捕まった。</p>
+<p><strong>確かめ方が対象の性質に引きずられる</strong>、という教訓になっている。</p>
+<p><strong>放射照度が下向きの面だけ 80% ずれていた。</strong></p>
+<p>側面(±X / ±Z)は 0.1% 以下で一致するのに、真下を向く面だけ大きく外れた。しかも<strong>青が過剰</strong>——つまり空の光が下半球に漏れている。</p>
+<p>原因は <code>irradiance.frag</code> の <code>texture()</code>。環境マップにはミップを作ってある(事前フィルタが要るため)。<code>texture()</code> は隣の画素との UV の差から段を自動で選ぶが、ここでの方向はループの中で大きく動くので、<strong>GPU がとても粗い段を選んでいた</strong>。その結果、地平線の明るい空が地面側までにじんでいた。</p>
+<p><code>textureLod(..., 0.0)</code> で段を 0 に固定したら、全面が 1% 以内で一致した。</p>
+<p>絵としては「なんとなく柔らかい環境光」にしか見えないので、<strong>CPU の積分と突き合わせるまで気づけなかった</strong>。Day 35 で「同じ式を2か所に持つ」と決めたことが、ここで効いている。</p>
+<p><strong>空の地平線に 7 倍の段差があった。</strong></p>
+<p>最初は「地面は空の 0.35 倍」と書いていた。絵としては地平線に硬い線が入るだけだが、<strong>キューブへ焼くと検算が通らなくなった</strong>——1テクセル(0.006 ラジアン)の間に明るさが 7 倍変わるので、元の絵(1024x512)とキューブ(256)で標本化の結果が食い違う。</p>
+<p>現実の地面も、地平線のすぐ近くは空とほとんど同じ明るさに見える。空の値から始めて下を向くほど暗くする形(<code>Lerp(horizon * 2.4, ground, pow(-up, 0.45))</code>)に直したら、誤差が桁で落ちた。</p>
+<p><strong>「検算しやすい素材は、たいてい物理的にも素直」</strong>という経験則の一例。</p>
+<p><strong>材質グリッドが IBL で白飛びした。</strong></p>
+<p>Day 35 で「見本を撮る露出」として直接光を 0.30 倍に絞ってあった。そこへ IBL を素の強さで足したら、49 個が軒並み 230〜245 になり、<strong>また材質が読めなくなった</strong>(画素を読み出して気づいた)。</p>
+<p>露出は「その絵に入る光すべて」に掛けるものなので、環境光にも同じ倍率を掛けるようにした(<code>RenderMaterialGrid</code>)。直したあとは 126〜210 に収まっている。</p>
+<p><strong>空と太陽は二重に数えている。</strong></p>
+<p>環境マップには太陽が焼き込まれていて、それとは別に平行光源がある。つまり<strong>同じ太陽を2回足している</strong>。</p>
+<p>実務では、</p>
+<ul><li>HDRI に太陽を残して平行光源を置かない(影が出せない)</li><li>HDRI から太陽を抜いて、代わりに平行光源を置く(<strong>こちらが主流</strong>)</li></ul>
+<p>のどちらかにする。今日は前者の便利さ(金属の映り込みに太陽が出る)を取って、二重計上を承知で残してある。<code>SkyImage</code> の太陽の明るさ(300)が実際の比率(空の 10 万倍以上)よりだいぶ控えめなのも、二重計上を目立たせないための調整になっている。</p>
+<p><strong>まっとうに直すなら Day 39</strong>(デモのライティングを組む日)。そこで本物の HDRI を入れるときに、同じ問題にもう一度当たることになる。</p>
+</section>
+<footer class="end">Day 36 環境マッピング(キューブマップ)とイメージベースドライティング / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day36 の Render/SkyImage.cs と Pbr.IntegrateBrdf と prefilter.frag を JS に移したもの
+const IBL = (() => {
+const PI = Math.PI;
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+const SUN_R = 0.045, SUN_I = 300;
+const TO_SUN = norm([0.53, 0.72, -0.45]); // 平行光源 (−0.53, −0.72, 0.45) の逆
+const ZEN = [0.16, 0.32, 0.75], HOR = [0.75, 0.80, 0.92], GRD = [0.08, 0.07, 0.06];
+// SkyImage.Sample
+function sky(d, ldr = false) {
+  d = norm(d);
+  const c = dot(d, TO_SUN), ang = Math.acos(Math.min(1, Math.max(-1, c)));
+  const sun = ang < SUN_R ? SUN_I * smooth(SUN_R, SUN_R * 0.7, ang) : 0;
+  const glare = 6 * Math.pow(Math.max(c, 0), 220), up = d[1];
+  let col;
+  if (up >= 0) { const t = Math.pow(up, 0.45); col = HOR.map((h, i) => (h + (ZEN[i] - h) * t) * 2.4); }
+  else { const t = Math.pow(-up, 0.45); col = HOR.map((h, i) => h * 2.4 + (GRD[i] - h * 2.4) * t); }
+  col = col.map((v) => v + sun + glare);
+  return ldr ? col.map((v) => Math.min(v, 1)) : col;
+}
+function frame(n) { const up = Math.abs(n[1]) < 0.99 ? [0, 1, 0] : [1, 0, 0]; const t = norm(cross(up, n)); return [t, cross(n, t)]; }
+// IntegrateIrradiance(/ π まで済ませた値を返す)
+function irradiance(n, steps = 120, ldr = false) {
+  n = norm(n); const [t, b] = frame(n);
+  const dT = PI / 2 / steps, dP = 2 * PI / steps; const tot = [0, 0, 0];
+  for (let i = 0; i < steps; i++) {
+    const th = (i + 0.5) * dT, st = Math.sin(th), ct = Math.cos(th);
+    for (let j = 0; j < steps; j++) {
+      const ph = (j + 0.5) * dP;
+      const l = norm([0, 1, 2].map((c) => t[c] * st * Math.cos(ph) + b[c] * st * Math.sin(ph) + n[c] * ct));
+      const s = sky(l, ldr), w = ct * st * dT * dP;
+      tot[0] += s[0] * w; tot[1] += s[1] * w; tot[2] += s[2] * w;
+    }
+  }
+  return tot.map((v) => v / PI);
+}
+function hammersley(i, count) {
+  let b = i >>> 0;
+  b = ((b << 16) | (b >>> 16)) >>> 0;
+  b = (((b & 0x55555555) << 1) | ((b & 0xAAAAAAAA) >>> 1)) >>> 0;
+  b = (((b & 0x33333333) << 2) | ((b & 0xCCCCCCCC) >>> 2)) >>> 0;
+  b = (((b & 0x0F0F0F0F) << 4) | ((b & 0xF0F0F0F0) >>> 4)) >>> 0;
+  b = (((b & 0x00FF00FF) << 8) | ((b & 0xFF00FF00) >>> 8)) >>> 0;
+  return [i / count, b * 2.3283064365386963e-10];
+}
+function sampleGgx(xi, n, a) {
+  const a2 = a * a, ph = 2 * PI * xi[0], ct = Math.sqrt((1 - xi[1]) / (1 + (a2 - 1) * xi[1])), st = Math.sqrt(Math.max(1 - ct * ct, 0));
+  const [t, b] = frame(n);
+  return norm([0, 1, 2].map((c) => t[c] * st * Math.cos(ph) + b[c] * st * Math.sin(ph) + n[c] * ct));
+}
+const MIN_R = 0.045;
+const alphaOf = (r) => { const c = Math.min(1, Math.max(MIN_R, r)); return c * c; };
+const G1 = (x, k) => x / (x * (1 - k) + k);
+// Pbr.IntegrateBrdf(A, B)
+function integrateBrdf(nv, r, samples = 1024) {
+  nv = Math.min(1, Math.max(1e-3, nv));
+  const n = [0, 0, 1], v = [Math.sqrt(1 - nv * nv), 0, nv], a = alphaOf(r), k = a / 2;
+  let A = 0, B = 0;
+  for (let i = 0; i < samples; i++) {
+    const h = sampleGgx(hammersley(i, samples), n, a), vh0 = dot(v, h), l = norm([0, 1, 2].map((c) => 2 * vh0 * h[c] - v[c]));
+    const nl = l[2]; if (nl <= 0) continue;
+    const nh = Math.max(h[2], 0), vh = Math.max(vh0, 0);
+    const g = G1(nv, k) * G1(nl, k), vis = g * vh / (nh * nv), fc = Math.pow(1 - vh, 5);
+    A += (1 - fc) * vis; B += fc * vis;
+  }
+  return [A / samples, B / samples];
+}
+// prefilter.frag(mipCone: 1サンプルの立体角に見合った円錐で空を平均する、このページの近似)
+const D = (nh, a) => { const a2 = a * a, d = nh * nh * (a2 - 1) + 1; return a2 / (PI * d * d); };
+function prefilter(n, rough, samples = 1024, mipCone = false) {
+  n = norm(n); const a = rough * rough; let col = 0, wsum = 0;
+  const texelSA = 4 * PI / (6 * 256 * 256);
+  for (let i = 0; i < samples; i++) {
+    const h = sampleGgx(hammersley(i, samples), n, a), vh0 = dot(n, h), l = norm([0, 1, 2].map((c) => 2 * vh0 * h[c] - n[c]));
+    const nl = Math.max(dot(n, l), 0); if (nl <= 0) continue;
+    let s;
+    if (!mipCone) s = sky(l)[0];
+    else {
+      const pdf = D(Math.max(dot(n, h), 0), a) * Math.max(dot(n, h), 0) / (4 * Math.max(dot(h, n), 0)) + 0.0001;
+      const sa = 1 / (samples * pdf), rad = Math.min(0.6, Math.sqrt(Math.max(sa, texelSA) / PI));
+      const [t, b] = frame(l); s = 0;
+      for (let k = 0; k < 12; k++) { const ang = 2 * PI * k / 12, rr = rad * Math.sqrt((k % 3 + 0.5) / 3); s += sky(norm([0, 1, 2].map((c) => l[c] + t[c] * Math.cos(ang) * rr + b[c] * Math.sin(ang) * rr)))[0]; }
+      s /= 12;
+    }
+    col += s * nl; wsum += nl;
+  }
+  return col / Math.max(wsum, 0.001);
+}
+return { sky, irradiance, integrateBrdf, prefilter, TO_SUN, norm };
+})();
+
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const segV = (id) => $(id).querySelector('[aria-pressed="true"]').dataset.v;
+const aces = (x) => Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+// 太陽を含む縦の断面: 太陽の方位で、仰角 e の向き
+const az = Math.atan2(IBL.TO_SUN[2], IBL.TO_SUN[0]);
+const dirAt = (e) => [Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)];
+const sunElev = Math.asin(IBL.TO_SUN[1]) * 180 / Math.PI;
+
+// ============================================================
+//  空から放射照度へ
+// ============================================================
+{
+  // 正距円筒の空(SkyImage.Create と同じ写し方)
+  const cv = $('ir-sky'), W = cv.width, H = cv.height, ctx = cv.getContext('2d'), img = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const th = (y + 0.5) / H * Math.PI, ph = ((x + 0.5) / W - 0.5) * 2 * Math.PI;
+    const c = IBL.sky([Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)]);
+    const o = (y * W + x) * 4; for (let k = 0; k < 3; k++) img.data[o + k] = Math.round(255 * Math.pow(aces(c[k] * 0.5), 1 / 2.2)); img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  // 自己チェックと同じく、32x32 の面の真ん中のテクセル(16, 16)の向き(CubeTexelDirection)
+  const cc = 2 * (16.5 / 32) - 1;
+  const FACE_DIRS = [[1, -cc, -cc], [-1, -cc, cc], [cc, 1, cc], [cc, -1, -cc], [cc, -cc, 1], [-cc, -cc, -1]];
+  const cache = {};
+  const ES = Array.from({ length: 37 }, (_, i) => -90 + i * 5);
+  function compute(fmt) {
+    if (!cache[fmt]) {
+      const ldr = fmt === 'ldr';
+      cache[fmt] = { curve: ES.map((e) => IBL.irradiance(dirAt(e * Math.PI / 180), 200, ldr)[0]), faces: FACE_DIRS.map((d) => IBL.irradiance(d, 320, ldr)[0]) };
+    }
+    return cache[fmt];
+  }
+  function redraw() {
+    const fmt = segV('ir-fmt'), hdr = compute('hdr'), cur = compute(fmt);
+    const { ctx: c2, w, h } = fit($('ir-canvas'));
+    c2.font = '12px ' + tok('--font-mono');
+    const L = 56, R = 18, T = 20, B = 40, W2 = w - L - R, H2 = h - T - B, top = Math.ceil(Math.max(...hdr.curve) * 1.1 * 4) / 4;
+    const X = (e) => L + (e + 90) / 180 * W2, Y = (v) => T + H2 - v / top * H2;
+    c2.strokeStyle = tok('--line'); c2.fillStyle = tok('--muted'); c2.lineWidth = 1; c2.textAlign = 'right';
+    for (let g = 0; g <= top + 1e-9; g += 0.25) { c2.beginPath(); c2.moveTo(L, Y(g)); c2.lineTo(L + W2, Y(g)); c2.stroke(); c2.fillText(g.toFixed(2), L - 6, Y(g) + 4); }
+    c2.textAlign = 'center'; for (const e of [-90, -45, 0, 45, 90]) c2.fillText(e + '°', X(e), T + H2 + 16);
+    c2.strokeStyle = 'rgba(255,210,90,0.8)'; c2.setLineDash([4, 4]); c2.beginPath(); c2.moveTo(X(sunElev), T); c2.lineTo(X(sunElev), T + H2); c2.stroke(); c2.setLineDash([]);
+    c2.fillStyle = 'rgb(255,210,90)'; c2.textAlign = 'left'; c2.fillText(`太陽の高さ ${sunElev.toFixed(0)}°`, X(sunElev) + 4, T + 12);
+    const line = (arr, color, dash, lab, k) => { c2.strokeStyle = color; c2.lineWidth = 2.5; c2.setLineDash(dash); c2.beginPath(); arr.forEach((v, i) => { if (i) c2.lineTo(X(ES[i]), Y(v)); else c2.moveTo(X(ES[i]), Y(v)); }); c2.stroke(); c2.setLineDash([]); c2.fillStyle = color; c2.fillText(lab, L + 10, T + 14 + k * 16); };
+    line(hdr.curve, tok('--accent'), [], 'HDR', 0);
+    if (fmt === 'ldr') line(cur.curve, 'rgb(240,140,60)', [6, 4], '8bit(空を 1 で切る)', 1);
+    c2.fillStyle = tok('--muted'); c2.textAlign = 'left'; c2.fillText('法線の向き(太陽を含む縦の断面。−90° = 真下、90° = 真上)', L, h - 6); c2.fillText('放射照度 / π(赤)', 4, 12);
+    const names = ['+X', '−X', '+Y(空)', '−Y(地面)', '+Z', '−Z'], ref = [1.0506, 0.7980, 1.0048, 0.3971, 0.7980, 1.0021];
+    $('ir-table').innerHTML = `<table><thead><tr><th>面の向き(真ん中)</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead><tbody><tr><th scope="row">このページ(${fmt === 'hdr' ? 'HDR' : '8bit'})</th>${cur.faces.map((v) => `<td>${v.toFixed(4)}</td>`).join('')}</tr><tr><th scope="row">C# の CPU の積分(HDR、面の中心のテクセルの向き)</th>${ref.map((v) => `<td>${v.toFixed(4)}</td>`).join('')}</tr></tbody></table>`;
+    $('ir-note').textContent = fmt === 'hdr' ? '放射照度は空の細かい模様をならした、とても滑らかな関数になる(太陽の点も、半球の平均の中では1つの山にすぎない)。だから 32x32 の6面で足りる。表の値は、C# の自己チェックと同じく、軸の向きそのものではなく面の真ん中のテクセルの向き(半テクセルずれる)で、320 x 320 の格子で積分したもの。'
+      : '空を 1 で切ると、300 あった太陽が 1 になり、太陽の側の面の放射照度だけが大きく下がる。どの向きもほぼ空の平均の明るさになり、環境光に向きがなくなる(のっぺりする)。';
+  }
+  seg('ir-fmt', () => setTimeout(redraw, 10));
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  BRDF の表
+// ============================================================
+{
+  // 表の絵(32x32、256 点)
+  const S = 32, cv = $('lut-img'), ctx = cv.getContext('2d'), img = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const [A, B] = IBL.integrateBrdf((x + 0.5) / S, (y + 0.5) / S, 256), o = ((S - 1 - y) * S + x) * 4;
+    img.data[o] = Math.round(255 * Math.min(1, A)); img.data[o + 1] = Math.round(255 * Math.min(1, B)); img.data[o + 2] = 0; img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const cache = new Map();
+  function redraw() {
+    const r = Number($('lut-r').value), f0 = Number(segV('lut-f0'));
+    $('lut-r-out').textContent = r.toFixed(2) + (r < 0.045 ? '(0.045 で止まる)' : '');
+    let c = cache.get(r);
+    if (!c) { c = Array.from({ length: 33 }, (_, i) => { const nv = 0.01 + 0.99 * i / 32; return [nv, ...IBL.integrateBrdf(nv, r)]; }); cache.set(r, c); }
+    const { ctx: c2, w, h } = fit($('lut-canvas'));
+    c2.font = '12px ' + tok('--font-mono');
+    const L = 50, R = 14, T = 20, B = 36, W2 = w - L - R, H2 = h - T - B;
+    const X = (v) => L + v * W2, Y = (v) => T + H2 - v / 1.05 * H2;
+    c2.strokeStyle = tok('--line'); c2.fillStyle = tok('--muted'); c2.lineWidth = 1; c2.textAlign = 'right';
+    for (const g of [0, 0.5, 1]) { c2.beginPath(); c2.moveTo(L, Y(g)); c2.lineTo(L + W2, Y(g)); c2.stroke(); c2.fillText(g.toFixed(1), L - 6, Y(g) + 4); }
+    c2.textAlign = 'center'; for (const g of [0, 0.5, 1]) c2.fillText(g.toFixed(1), X(g), T + H2 + 16);
+    const line = (fn, color, lab, k) => { c2.strokeStyle = color; c2.lineWidth = 2.5; c2.beginPath(); c.forEach((p, i) => { const v = fn(p); if (i) c2.lineTo(X(p[0]), Y(v)); else c2.moveTo(X(p[0]), Y(v)); }); c2.stroke(); c2.fillStyle = color; c2.textAlign = 'left'; c2.fillText(lab, L + 8, T + 12 + k * 16); };
+    line((p) => p[1], 'rgb(240,110,90)', 'A', 0); line((p) => p[2], 'rgb(90,200,120)', 'B', 1); line((p) => f0 * p[1] + p[2], tok('--accent'), `F0 x A + B(F0 = ${f0})`, 2);
+    c2.fillStyle = tok('--muted'); c2.textAlign = 'left'; c2.fillText('N・V', L, h - 4);
+    const rows = [[1, 0], [0.5, 0.5], [0.1, 0], [1, 1], [0.5, 1]].map(([nv, rr]) => { const [A, B] = IBL.integrateBrdf(nv, rr); return `<tr><td>${nv.toFixed(1)}</td><td>${rr.toFixed(1)}</td><td>${A.toFixed(4)}</td><td>${B.toFixed(4)}</td><td>${(A + B).toFixed(4)}</td></tr>`; }).join('');
+    $('lut-table').innerHTML = `<table><thead><tr><th>N・V</th><th>粗さ</th><th>A</th><th>B</th><th>A + B</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('lut-note').textContent = 'A と B は F0 によらない(フレネルが F0 について1次なので、積分の外へ出せる)。だから表は N・V と粗さの2次元で、全材質ぶんをまかなえる。縁(N・V が小さい所)ほど B が立ち上がる(浅い角度では何でも鏡に近づく)。A + B はどこでも 1 を超えない(光を作らない)。粗いほど A + B が下がるのは、Day 35 で見た単一散乱の損失と同じもの。';
+  }
+  $('lut-r').addEventListener('input', redraw);
+  seg('lut-f0', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  事前フィルタとファイアフライ
+// ============================================================
+{
+  const cache = new Map();
+  const ES = Array.from({ length: 121 }, (_, i) => -10 + i * 0.75); // 太陽の周り(仰角 -10〜80 度)
+  function compute(r, mip) {
+    const key = r + '|' + mip;
+    let c = cache.get(key);
+    if (!c) {
+      c = { fast: ES.map((e) => IBL.prefilter(dirAt(e * Math.PI / 180), r, 1024, mip)) };
+      const tk = r + '|truth'; if (!cache.has(tk)) cache.set(tk, ES.filter((_, i) => i % 4 === 0).map((e) => IBL.prefilter(dirAt(e * Math.PI / 180), r, 16384, false)));
+      c.truth = cache.get(tk); cache.set(key, c);
+    }
+    return c;
+  }
+  function redraw() {
+    const r = Number(segV('pf-r')), mip = segV('pf-mip') === '1', c = compute(r, mip);
+    const { ctx, w, h } = fit($('pf-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const L = 56, R = 18, T = 20, B = 40, W = w - L - R, H = h - T - B;
+    const lo = Math.log10(0.3), hi = Math.log10(Math.max(...c.fast, ...c.truth) * 1.3);
+    const X = (e) => L + (e - ES[0]) / (ES[ES.length - 1] - ES[0]) * W, Y = (v) => T + H - (Math.log10(Math.max(v, 0.3)) - lo) / (hi - lo) * H;
+    ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1; ctx.textAlign = 'right';
+    for (const g of [0.3, 1, 3, 10, 30, 100]) { if (Math.log10(g) > hi) break; ctx.beginPath(); ctx.moveTo(L, Y(g)); ctx.lineTo(L + W, Y(g)); ctx.stroke(); ctx.fillText(String(g), L - 6, Y(g) + 4); }
+    ctx.textAlign = 'center'; for (const e of [0, 20, 40, 60, 80]) ctx.fillText(e + '°', X(e), T + H + 16);
+    ctx.strokeStyle = 'rgba(255,210,90,0.8)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X(sunElev), T); ctx.lineTo(X(sunElev), T + H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.beginPath(); c.truth.forEach((v, i) => { const e = ES[i * 4]; if (i) ctx.lineTo(X(e), Y(v)); else ctx.moveTo(X(e), Y(v)); }); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.beginPath(); c.fast.forEach((v, i) => { if (i) ctx.lineTo(X(ES[i]), Y(v)); else ctx.moveTo(X(ES[i]), Y(v)); }); ctx.stroke();
+    ctx.fillStyle = tok('--accent'); ctx.textAlign = 'left'; ctx.fillText(`1024 点${mip ? '(ミップで均す近似)' : '(ミップ無し)'}`, L + 10, T + 14); ctx.fillStyle = tok('--muted'); ctx.fillText('本当(16,384 点)', L + 10, T + 30);
+    ctx.fillText('向き(太陽を含む縦の断面の仰角)', L, h - 6); ctx.fillText('赤の成分(対数)', 4, 12);
+    // 隣どうしの揺れ(本当にない凸凹)
+    let jag = 0; for (let i = 1; i + 1 < c.fast.length; i++) jag = Math.max(jag, Math.abs(c.fast[i] - (c.fast[i - 1] + c.fast[i + 1]) / 2) / Math.max(c.fast[i], 1e-6));
+    const ti = c.truth.reduce((a, v, i) => (v > c.truth[a] ? i : a), 0);
+    $('pf-stats').innerHTML = stat('隣どうしの揺れ(最大)', (100 * jag).toFixed(0) + '%', '<small> (なめらかなら 0 に近い)</small>') + stat('太陽の向きの値(本当)', c.truth[ti].toFixed(2)) + stat('粗さ', r.toFixed(2), `<small> (α = ${(r * r).toFixed(4)})</small>`);
+    $('pf-note').textContent = mip ? '1サンプルが担当する立体角に見合った範囲を平均してから使うと、太陽に当たった点の重みがならされて、隣どうしの当たり外れが小さくなる。これが元の環境マップにミップを作る理由(GPU は段を選ぶだけで済む)。'
+      : '1024 点を空の原寸から引くと、太陽(300)に当たった数点が桁違いに効き、向きを少し変えただけで当たり外れが変わる。ぼかしたはずの面に白い点が散る(ファイアフライ)。粗いほど、1点が担当する範囲が広いのに太陽を点で引くので目立つ。';
+  }
+  seg('pf-r', () => setTimeout(redraw, 10)); seg('pf-mip', () => setTimeout(redraw, 10));
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
