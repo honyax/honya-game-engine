@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 40 デモ v1 組み上げ(2)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Catmull-Rom — 「両隣を見て接線を決める」だけの補間</a></li><li class="l3"><a href="#s5">2. 補間方式とイージングは、別の軸</a></li><li class="l3"><a href="#s6">3. 角度の補間には巻き取りが要る。ただし全部ではない</a></li><li class="l3"><a href="#s7">4. カメラは「位置」ではなく「軌道のパラメータ」で持つ</a></li><li class="l3"><a href="#s8">5. 機能の表は、状態を持ってはいけない</a></li><li class="l3"><a href="#s9">6. デモの機能は、差分でしか見えない</a></li><li class="l3"><a href="#s10">7. 画角は「どのレンズで撮るか」であって、距離ではない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16"><code>FeatureToggles</code> が <code>Render</code> を知らない、ということ</a></li><li class="l3"><a href="#s17"><code>CameraPath</code> も GL を呼ばない</a></li><li class="l3"><a href="#s18"><code>EyePosition</code> を切り出した理由</a></li><li class="l3"><a href="#s19"><code>Path</code> という名前が使えなかった話</a></li><li class="l3"><a href="#s20">カメラが1フレーム進むまで — 時刻から姿勢へ、5段</a></li><li class="l3"><a href="#s21">機能ツアーの2相 — 「1つ切る」と「全部戻す」</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>Ctrl+Alt+F1</code>: カメラが回り出す</a></li><li class="l3"><a href="#s24">2. <code>Ctrl+Alt+F4</code>: 線形に落とす</a></li><li class="l3"><a href="#s25">3. <code>Ctrl+Alt+F5</code>: イージングを切る</a></li><li class="l3"><a href="#s26">4. <code>Ctrl+Alt+F9</code>: 全部 OFF</a></li><li class="l3"><a href="#s27">5. <code>Ctrl+Alt+F10</code>: 機能ツアー</a></li><li class="l3"><a href="#s28">6. <code>Ctrl+Alt+F7</code> / <code>F8</code>: 1つずつ切る</a></li><li class="l3"><a href="#s29">7. <code>Ctrl+Alt+F3</code> / <code>F6</code>: ショット送りと再生速度</a></li><li class="l3"><a href="#s30">8. <code>Ctrl+Alt+F2</code>: 止めて手で回す</a></li><li class="l3"><a href="#s31">9. <code>Ctrl+Shift+F10</code>: JSON を書き換えて読み直す</a></li><li class="l3"><a href="#s32">10. <code>Ctrl+Alt+F11</code>: 自己チェック(8項目すべて合格)</a></li><li class="l3"><a href="#s33">11. Day 39 までの機能が全部生きていること</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ショットを1つ足して、引き継ぎの効き目を見る</a></li><li class="l3"><a href="#s36">課題2(中): 弧長パラメータ化で、区間ごとの速さを揃える</a></li><li class="l3"><a href="#s37">課題3(難): 機能ツアーを PNG の連番で吐く(比較シート)</a></li><li class="l2"><a href="#s38">動作確認済み環境</a></li><li class="l3"><a href="#s39">自己チェック(8項目すべて合格)</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 40 / 計画書</p>
+  <h1>デモ v1 組み上げ(2)</h1>
+  <p class="lede">カメラワークと、機能を1つずつ切る</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Catmull-Rom — 「両隣を見て接線を決める」だけの補間</a></li><li class="l3"><a href="#s5">2. 補間方式とイージングは、別の軸</a></li><li class="l3"><a href="#s6">3. 角度の補間には巻き取りが要る。ただし全部ではない</a></li><li class="l3"><a href="#s7">4. カメラは「位置」ではなく「軌道のパラメータ」で持つ</a></li><li class="l3"><a href="#s8">5. 機能の表は、状態を持ってはいけない</a></li><li class="l3"><a href="#s9">6. デモの機能は、差分でしか見えない</a></li><li class="l3"><a href="#s10">7. 画角は「どのレンズで撮るか」であって、距離ではない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16"><code>FeatureToggles</code> が <code>Render</code> を知らない、ということ</a></li><li class="l3"><a href="#s17"><code>CameraPath</code> も GL を呼ばない</a></li><li class="l3"><a href="#s18"><code>EyePosition</code> を切り出した理由</a></li><li class="l3"><a href="#s19"><code>Path</code> という名前が使えなかった話</a></li><li class="l3"><a href="#s20">カメラが1フレーム進むまで — 時刻から姿勢へ、5段</a></li><li class="l3"><a href="#s21">機能ツアーの2相 — 「1つ切る」と「全部戻す」</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. <code>Ctrl+Alt+F1</code>: カメラが回り出す</a></li><li class="l3"><a href="#s24">2. <code>Ctrl+Alt+F4</code>: 線形に落とす</a></li><li class="l3"><a href="#s25">3. <code>Ctrl+Alt+F5</code>: イージングを切る</a></li><li class="l3"><a href="#s26">4. <code>Ctrl+Alt+F9</code>: 全部 OFF</a></li><li class="l3"><a href="#s27">5. <code>Ctrl+Alt+F10</code>: 機能ツアー</a></li><li class="l3"><a href="#s28">6. <code>Ctrl+Alt+F7</code> / <code>F8</code>: 1つずつ切る</a></li><li class="l3"><a href="#s29">7. <code>Ctrl+Alt+F3</code> / <code>F6</code>: ショット送りと再生速度</a></li><li class="l3"><a href="#s30">8. <code>Ctrl+Alt+F2</code>: 止めて手で回す</a></li><li class="l3"><a href="#s31">9. <code>Ctrl+Shift+F10</code>: JSON を書き換えて読み直す</a></li><li class="l3"><a href="#s32">10. <code>Ctrl+Alt+F11</code>: 自己チェック(8項目すべて合格)</a></li><li class="l3"><a href="#s33">11. Day 39 までの機能が全部生きていること</a></li><li class="l2"><a href="#s34">改造課題</a></li><li class="l3"><a href="#s35">課題1(易): ショットを1つ足して、引き継ぎの効き目を見る</a></li><li class="l3"><a href="#s36">課題2(中): 弧長パラメータ化で、区間ごとの速さを揃える</a></li><li class="l3"><a href="#s37">課題3(難): 機能ツアーを PNG の連番で吐く(比較シート)</a></li><li class="l2"><a href="#s38">動作確認済み環境</a></li><li class="l3"><a href="#s39">自己チェック(8項目すべて合格)</a></li><li class="l3"><a href="#s40">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の最終日。<strong>Day 39 で出来た1枚が、動き出して、分解できるようになる</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Ctrl+Alt+F1</code> で、夕暮れの裏通りを<strong>カメラがひとりでに巡る</strong>。通りの全景 → ゴミ箱の金属 → 街灯を見上げる → 壁を舐める光 → 消火栓と長い影、の5ショットを 42.5 秒で1周し、そのまま何周でも回り続ける。</p>
+<p><code>Ctrl+Alt+F9</code> を押すと、8日ぶんの機能が全部消えて <strong>Day 31 の絵</strong>に戻る。もう一度押すと戻ってくる。</p>
+<div class="code"><pre><code>  Ctrl+Alt+F1   デモ v1 を出して<strong>カメラワークを再生</strong>。<strong>今日の到達点はこれ</strong>
+  Ctrl+Alt+F2   再生 / 一時停止(止めれば左ドラッグで手動に戻れる)
+  Ctrl+Alt+F3   次のショットへ飛ぶ
+  Ctrl+Alt+F4   補間: Catmull-Rom / 線形(<strong>通過点で速度が飛ぶ</strong>)
+  Ctrl+Alt+F5   イージング ON / OFF(<strong>軌跡は変わらず、速さの配分だけ変わる</strong>)
+  Ctrl+Alt+F6   再生速度(0.25 / 0.5 / 1 / 2 倍)
+  Ctrl+Alt+F7   機能を1つ選ぶ(HUD のカーソルが動く)
+  Ctrl+Alt+F8   選んだ機能を ON / OFF
+  Ctrl+Alt+F9   全部 ON / 全部 OFF(<strong>必須構成の絵と素の絵を往復</strong>)
+  Ctrl+Alt+F10  機能ツアー(3秒ごとに1つずつ切っては戻す)
+  Ctrl+Alt+F11  今日の自己チェック</code></pre></div>
+<p>これで Phase 6 のマイルストーンに到達する。</p>
+<blockquote><p>HDRI と CC0 アセットで組んだ静的シーンが、PBR+IBL+ソフトシャドウ+SSAO+ブルーム+AA で描かれ、<strong>ゆっくりしたカメラパンで見られる(各機能は ON/OFF 切り替え可能)</strong></p></blockquote>
+<p>Day 39 で出来たのは<strong>決めの構図1枚</strong>だった。静止画でよいなら PNG を置けばよく、実時間で描いている意味が無い。今日はそこに2つを足す。</p>
+<p>1つ目は<strong>カメラワーク</strong>。キーフレームを並べて曲線で繋ぐだけなのだが、「繋ぐ」のやり方が2軸に割れている——<strong>どんな形の線で結ぶか</strong>(補間方式)と、<strong>その線をどんな速さで進むか</strong>(イージング)。この2つを混ぜて憶えていると、カメラが変な動きをしたときにどちらを直せばよいのか分からなくなる。今日は別々のキーに割り当てて、片方だけ動かして見比べられるようにする。</p>
+<p>2つ目は<strong>機能の ON/OFF を1か所に集めた表</strong>。Day 31〜38 のスイッチは <code>Program.OnKeyDown</code> の switch 文に8日ぶん散らばっていて、「全部 OFF の素の絵」へ1キーで行けなかった。それが困るのは、<strong>SSAO も FXAA も法線マップも、差分でしか見えない</strong>から。入れた絵を眺めても「効いている気がする」以上のことは言えず、同じ構図で切って戻して、初めて何をしているのかが分かる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Catmull%E2%80%93Rom_spline">Cubic Hermite spline(Wikipedia)— Catmull–Rom spline の節</a> <strong>今日の本命その1</strong>。読むのは「Catmull–Rom spline」の節だけでよい。「両隣を見て接線を <code>(p2-p0)/2</code> と決めた3次エルミート補間」という1行の定義から、<strong>制御点を必ず通る</strong>ことと<strong>キーの上で速度が繋がる</strong>ことが両方出てくる</li><li><a href="https://en.wikipedia.org/wiki/Kochanek%E2%80%93Bartels_spline">Kochanek–Bartels spline(Wikipedia)</a> Catmull-Rom に tension / continuity / bias の3つのつまみを足したもの。<strong>アニメーションツールのカーブエディタはだいたいこれ</strong>。今日は書かないが、「接線の決め方だけを差し替えれば済む」ことが読み取れると、Catmull-Rom がどこまで一般化できるかの見当が付く</li><li><a href="https://www.geometrictools.com/Documentation/MovingAlongCurveSpecifiedSpeed.pdf">David Eberly, "Moving Along a Curve with Specified Speed"</a> <strong>改造課題2の下敷き</strong>。パラメータ <code>u</code> を等間隔に進めても<strong>曲線の上を等速には進まない</strong>、という今日いちばん引っかかる事実と、その直し方(弧長パラメータ化)。読むのは 1〜3 節</li><li><a href="https://mrl.cs.nyu.edu/~perlin/paper445.pdf">Ken Perlin, "Improving Noise" (SIGGRAPH 2002)</a> smoothstep(<code>3u²-2u³</code>)の出どころと、その改良版(<code>6u⁵-15u⁴+10u³</code>)。<strong>2階微分まで 0 にすると何が良くなるのか</strong>が1ページで分かる。カメラの加速度が連続かどうかの話に直結する</li><li><a href="https://www.youtube.com/watch?v=C7307qRmlMI">John Nesky, "50 Game Camera Mistakes" (GDC 2014)</a>カメラの「べからず集」。今日作るのは操作しないカメラなので直接は効かないが、<strong>画角と距離をどう決めるか</strong>、<strong>カットとパンをどう使い分けるか</strong>は今日の話</li><li><a href="https://docs.unity3d.com/Packages/com.unity.cinemachine@3.1/manual/index.html">Unity Cinemachine のマニュアル</a>実際のエンジンがカメラワークをどんなデータ構造で持っているかの実例。「Virtual Camera を並べて、Blend で繋ぐ」——今日書く <code>CameraPath.Key</code> と <code>Travel</code> がだいたいこれの最小版になっている</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. Catmull-Rom — 「両隣を見て接線を決める」だけの補間</h3>
+<p>キー <code>p1</code> から <code>p2</code> までを結ぶとき、その前後の <code>p0</code> と <code>p3</code> も覗いて</p>
+<div class="code"><pre><code>  p1 での接線 = (p2 - p0) / 2
+  p2 での接線 = (p3 - p1) / 2</code></pre></div>
+<p>と決める。あとは「位置と接線が両端で指定された3次曲線」(エルミート補間)を解くだけで、展開すると実装のあの形になる。</p>
+<div class="code"><pre><code>  p(u) = 0.5 * ( 2p1
+                 + (-p0 + p2) u
+                 + (2p0 - 5p1 + 4p2 - p3) u²
+                 + (-p0 + 3p1 - 3p2 + p3) u³ )</code></pre></div>
+<p>ここから性質が2つ出る。どちらも<strong>カメラワークで欲しかったもの</strong>そのもの。</p>
+<p><strong>制御点を必ず通る</strong>。<code>u=0</code> を入れると <code>p1</code>、<code>u=1</code> を入れると <code>p2</code> になる。ベジエ曲線は途中の制御点を通らないので、「ここを通ってほしい」と書いた構図が実際には映らない。JSON に書いた数字がそのまま画面になるのは、この性質のおかげ。</p>
+<p><strong>キーの上で速度が繋がる</strong>(C1 連続)。<code>p1</code> を終点とする区間も、<code>p1</code> を始点とする区間も、<code>p1</code> での接線を同じ式 <code>(p2-p0)/2</code> で決めている——だから通過する瞬間に速度が跳ばない。線形補間だとここが折れて、パンが「カクッ」と曲がる。</p>
+<h3 id="s5">2. 補間方式とイージングは、別の軸</h3>
+<p>ここが今日いちばん取り違えやすいところ。</p>
+<div class="code"><pre><code>  補間方式    … キーとキーの間を、どんな形の線で結ぶか   → 軌跡が変わる
+  イージング  … その線の上を、どんな速さで進むか         → 軌跡は変わらない</code></pre></div>
+<p>イージングは区間内の進み <code>u</code>(0〜1)を別の 0〜1 に付け替えるだけ。</p>
+<div class="code"><pre><code>  smoothstep(u) = 3u² - 2u³      u=0 と u=1 で微分が 0</code></pre></div>
+<p>微分が 0 ということは<strong>その瞬間だけ止まる</strong>ということで、静止(<code>hold</code>)と滑らかに繋がる。イージングを切ると、止まっていたカメラがいきなり最高速で動き出し、その瞬間だけ切り貼りしたように見える。</p>
+<p><code>u</code> を付け替えても<strong>通る点の集合は1ミリも動かない</strong>。自己チェックの4番目がこれをそのまま確かめている——「イージング入りで時刻 t」と「イージング無しで、進みが <code>smoothstep(u)</code> になる時刻」は同じ点を指すはず、という形で。</p>
+<p>Perlin の改良版(<code>6u⁵-15u⁴+10u³</code>)は2階微分まで 0 になる。<strong>加速度まで連続</strong>になるので、長いパンではこちらのほうが上品に見える。</p>
+<div class="inject"><figure class="lab" id="cam-lab">
+  <div class="lab-head">
+    <h3>カメラワークを再生する — 5ショットの軌跡と速さ(要点1・2・4、完成条件1〜3・7・8、自己チェック1〜5)</h3>
+    <span class="tag">reference の Demo/CameraPath.cs(区間を決める → 静止ならキーをそのまま → u を作る → smoothstep → 線形か Catmull-Rom、方位は巻き取ってから)と OrbitCameraController.EyePosition を、float の丸めごと JS に移して、demo-v1.json の 5 ショットを再生したもの。上は真上から見た図(太線が目の軌跡、点線が注視点の軌跡、扇が画角)、下は目の速さ(m/s)の 1 周ぶんで、灰色の帯が静止(hold)。HUD の行は Program.CameraLabel と同じ書式。自己チェックの 1〜5 はページを開いたときに JS で走らせた値で、C# と同じ数になる(1.45E-006 / 0.52 度 / 線形 1.58・Catmull-Rom 1.13 / 5.20E-006)。真上から見た図と速さのグラフはこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="cam-top" style="height:320px" aria-label="真上から見たカメラの軌跡。目の位置、注視点、画角の扇"></canvas><canvas id="cam-speed" style="height:120px;margin-top:6px" aria-label="1周ぶんの目の速さのグラフ"></canvas></div>
+  <div class="readout" style="padding-top:0"><pre id="cam-hud" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">再生(Ctrl+Alt+F2)と次のショット(F3)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="cam-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div><button class="btn" id="cam-next">次のショットへ</button></div>
+    </div>
+    <div class="ctl"><span class="label">補間(Ctrl+Alt+F4)</span>
+      <div class="seg" id="cam-interp"><button data-v="catmull" aria-pressed="true">Catmull-Rom</button><button data-v="linear" aria-pressed="false">線形</button></div>
+    </div>
+    <div class="ctl"><span class="label">イージング(Ctrl+Alt+F5)</span>
+      <div class="seg" id="cam-ease"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">再生速度(Ctrl+Alt+F6)</span>
+      <div class="seg" id="cam-speedx"><button data-v="0.25" aria-pressed="false">x0.25</button><button data-v="0.5" aria-pressed="false">x0.5</button><button data-v="1" aria-pressed="true">x1</button><button data-v="2" aria-pressed="false">x2</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cam-stats"></div><p id="cam-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">3. 角度の補間には巻き取りが要る。ただし全部ではない</h3>
+<p>方位 350 度から 10 度へ動かしたい。数字をそのまま線形補間すると、</p>
+<div class="code"><pre><code>  350 → 340 → 330 → ... → 20 → 10      340 度ぶん、逆回り</code></pre></div>
+<p>正解は 20 度ぶん進むほう。直し方は、<strong>基準からの差を毎回 -180〜180 度に畳む</strong>。</p>
+<div class="code"><pre><code>  y2 = y1 + wrap(k2.Yaw - y1)        wrap は -π〜π へ畳む</code></pre></div>
+<p>こうすると <code>y1</code> と <code>y2</code> が「1本の数直線の上で近い2点」になり、そのあとは普通に補間すればよい。Catmull-Rom なら <code>y0</code> と <code>y3</code> も同じやり方で数直線に乗せてから渡す。</p>
+<p><strong>仰角は畳んではいけない</strong>、というのが対になる注意点。軌道カメラの仰角は ±86 度で止めてあって一周し得ないので、畳むと「89 度 → -89 度」を「近道は2度」と判断して<strong>カメラがひっくり返る</strong>。</p>
+<div class="code"><pre><code>  一周し得る角度(方位)      → 畳む
+  一周し得ない角度(仰角)    → 畳まない</code></pre></div>
+<p>「角度だから畳む」ではなく、<strong>値域を見て決める</strong>。</p>
+<div class="inject"><figure class="lab" id="wr-lab">
+  <div class="lab-head">
+    <h3>方位を巻き取る — 近いほうを回るか、逆回りするか(要点3)</h3>
+    <span class="tag">CameraPath.Interpolate の巻き取り(y2 = y1 + WrapAngle(k2.Yaw − y1)。WrapAngle は MathF.Tau で割った余りを −π〜π へ寄せる)を JS に移して、2つのキーの間を線形に補間したもの。「巻き取らない」は y2 = k2.Yaw のまま補間する誤りの再現。図は真上から見た軌道の円で、目が通る弧を太線で描く。キーの方位の組はこのページだけ(JSON の 5 ショットは −7〜55 度で ±180 度をまたがないので、巻き取りの有無で軌跡は変わらない)</span>
+  </div>
+  <div class="stage"><canvas id="wr-canvas" style="height:300px" aria-label="真上から見た軌道の円と、カメラが回る弧"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">キーの方位(このページだけ)</span>
+      <div class="seg" id="wr-pair"><button data-v="350,10" aria-pressed="true">350 度 → 10 度</button><button data-v="170,-170" aria-pressed="false">170 度 → −170 度</button><button data-v="55,-7" aria-pressed="false">55 度 → −7 度(JSON の 2→3)</button></div>
+    </div>
+    <div class="ctl"><span class="label">方位の巻き取り</span>
+      <div class="seg" id="wr-wrap"><button data-v="1" aria-pressed="true">巻き取る(reference)</button><button data-v="0" aria-pressed="false">巻き取らない(誤り)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="wr-stats"></div><p id="wr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">4. カメラは「位置」ではなく「軌道のパラメータ」で持つ</h3>
+<p>キーが持つのは注視点・距離・方位・仰角・画角の5つで、カメラの位置そのものは持たない。位置は毎フレーム</p>
+<div class="code"><pre><code>  eye = target + d * ( cosθ sinφ,  sinθ,  cosθ cosφ )      θ=仰角, φ=方位</code></pre></div>
+<p>で作る(<code>OrbitCameraController.EyePosition</code>)。</p>
+<p><strong>手で数字を書くならこちらが圧倒的に楽</strong>、というのが選んだ理由。「もう少し引く」が <code>distance</code> の1か所で済み、注視点はぶれない。位置と注視点を直接持つ流儀(映像系のツールはたいていこちら)だと、引くたびに位置の3成分を計算し直すことになる。</p>
+<p>代償もある。<strong>注視点から見て裏に回れない動き</strong>は書けない——たとえば「柱の後ろを通り抜けながら被写体を追う」は、軌道の言葉では表しにくい。キャラクターを追う Day 51 では位置ベースに寄せることになる。</p>
+<h3 id="s8">5. 機能の表は、状態を持ってはいけない</h3>
+<p>ON/OFF の表が持っているのは <code>bool</code> ではなく、<strong>そこへの読み書きの手順</strong>(<code>Func&lt;bool&gt;</code> と <code>Action&lt;bool&gt;</code>)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>features.Add("SSAO", "接地の暗がりが消える",
+    () =&gt; _ssao.Enabled,             // 読む手順
+    on =&gt; _ssao.Enabled = on);       // 書く手順</code></pre></div>
+<p>値をコピーして持たせると必ずずれる。<code>Ctrl+F1</code>(Day 37 のキー)で直接 <code>_ssao.Enabled</code> を触られた瞬間に、<strong>表の言う ON と絵の中の OFF が食い違う</strong>。どちらが本当かを決める仕組みを足すと、今度はその同期がバグの温床になる。</p>
+<p><strong>状態の置き場所は1つ</strong>。Day 22 で <code>Transform</code> を <code>GameObject</code> に1つだけ置いたのと同じ判断で、今日はそれが「値ではなく手順を持つ」という形で出てくる。</p>
+<h3 id="s9">6. デモの機能は、差分でしか見えない</h3>
+<p>SSAO を入れた絵を見せられても「そういうものか」としか思えない。同じ構図で切って戻すと、<strong>接地の暗がりが呼吸するように出入りする</strong>のが見える。</p>
+<p>だから今日の道具は「一覧」ではなく「往復」で作ってある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>見せ方</th><th>何が分かるか</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Alt+F8</code></td><td>1つを切りっぱなし</td><td>その機能だけをじっくり見る</td></tr>
+<tr><td><code>Ctrl+Alt+F9</code></td><td>全部 ⇔ 素</td><td><strong>8日ぶんの積み上げの総量</strong></td></tr>
+<tr><td><code>Ctrl+Alt+F10</code></td><td>1つずつ切っては戻す</td><td>機能ごとの寄与を順に</td></tr>
+</tbody>
+</table></div>
+<p><code>Ctrl+Alt+F10</code> のツアーが「1つ切る → 全部戻す」を交互にやるのは、<strong>基準の絵を毎回挟むため</strong>。切りっぱなしで次へ進むと、2つ目からは「何と比べているのか」が分からなくなる。</p>
+<div class="inject"><figure class="lab" id="ft-lab">
+  <div class="lab-head">
+    <h3>機能の表と機能ツアー — 値ではなく手順を持つ(要点5・6、完成条件4〜6、自己チェック6〜8)</h3>
+    <span class="tag">reference の Demo/FeatureToggles.cs(Add・SelectNext・ToggleSelected・SetAll・Capture・Restore・BeginTour・EndTour・Update・Describe・TourLabel)と Program.BuildFeatureToggles の 12 項目(名前と説明の文)、キーの処理(StopTourIfRunning を含む)を JS に移したもの。絵の代わりに「エンジンの中の本当の値」の列を置いた。HUD とコンソールの文は C# と同じ(説明の文の ** もコンソールにはそのまま出る)。ツアーは 3 秒ごとに進む。「値を写して持つ」は要点5の失敗の再現で、このページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px"><div class="table-wrap" id="ft-table"></div></div>
+  <div class="readout" style="padding-top:0"><pre id="ft-hud" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">キー</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="ft-f7">Ctrl+Alt+F7 選ぶ</button><button class="btn" id="ft-f8">Ctrl+Alt+F8 切り替え</button><button class="btn" id="ft-f9">Ctrl+Alt+F9 全部</button><button class="btn" id="ft-f10">Ctrl+Alt+F10 ツアー</button><button class="btn" id="ft-ctrlf1">Ctrl+F1(Day 37 のキーで SSAO を直接)</button><button class="btn" id="ft-f11">Ctrl+Alt+F11 自己チェック</button></div>
+    </div>
+    <div class="ctl"><span class="label">表の持ち方</span>
+      <div class="seg" id="ft-mode"><button data-v="proc" aria-pressed="true">読み書きの手順を持つ(reference)</button><button data-v="copy" aria-pressed="false">値を写して持つ(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><pre id="ft-console" style="margin:0;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre><p id="ft-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">7. 画角は「どのレンズで撮るか」であって、距離ではない</h3>
+<p><code>Camera.FieldOfView</code> の既定は 60 度。これは<strong>操作するゲームの画角</strong>で、デモの絵には広すぎる。壁が倒れて見え、遠くのものが実際より遠くに見える。</p>
+<div class="code"><pre><code>  画角を狭く(望遠)  → 遠近が圧縮される。奥行きが平たくなる
+  画角を広く(広角)  → 遠近が誇張される。近いものが大きく張り出す</code></pre></div>
+<p><strong>距離を変えても同じことは起きない</strong>のが要点。距離は「どこから見るか」、画角は「どのレンズで撮るか」で、両方を動かすと「被写体の大きさは同じまま、背景の遠近だけが変わる」——ヒッチコックのめまいショット(ドリーズーム)がまさにこれ。</p>
+<p>デモのショットは 35〜50 度に散らしてある。広い構図ほど広角、寄りほど望遠にしてあり、これは実際のレンズの使い分けと同じ。<code>Ctrl+Alt+F3</code> で切り替えながら HUD の「画角」を見ると、数字と絵の印象が結び付く。</p>
+<div class="inject"><figure class="lab" id="fov-lab">
+  <div class="lab-head">
+    <h3>画角と距離 — レンズを替えるのと、近づくのは違う(要点7)</h3>
+    <span class="tag">ピンホールの透視投影(画面の高さに占める割合 = 大きさ / (2 x 距離 x tan(画角/2)))で、手前の被写体(高さ 1m)と、その奥 4m・10m・25m に並ぶ同じ高さの柱を横から写した図。「被写体の大きさを保つ」はドリーズームで、距離を 被写体の大きさが同じになるように付け替える。数字と図はこのページだけ(画角の 35〜50 度は JSON のショットの値、60 度は Camera.FieldOfView の既定)</span>
+  </div>
+  <div class="stage"><canvas id="fov-canvas" style="height:220px" aria-label="画角に応じて、手前の被写体と奥の柱がどう写るかを描いた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">画角</span>
+      <div class="seg" id="fov-fov"><button data-v="20" aria-pressed="false">20 度</button><button data-v="35" aria-pressed="false">35 度(寄り)</button><button data-v="42" aria-pressed="true">42 度</button><button data-v="50" aria-pressed="false">50 度(見上げ)</button><button data-v="60" aria-pressed="false">60 度(既定)</button><button data-v="90" aria-pressed="false">90 度</button></div>
+    </div>
+    <div class="ctl"><span class="label">距離</span>
+      <div class="seg" id="fov-mode"><button data-v="dolly" aria-pressed="true">被写体の大きさを保つ(ドリーズーム)</button><button data-v="fixed" aria-pressed="false">距離は 4m のまま</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fov-stats"></div><p id="fov-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Demo/CameraPath.cs</code></td><td>キーフレームのカメラワーク。Catmull-Rom / 線形 + イージング。<strong>今日の主役その1</strong></td></tr>
+<tr><td><code>Demo/FeatureToggles.cs</code></td><td>機能の ON/OFF を1か所に集めた表と、機能ツアー。<strong>主役その2</strong></td></tr>
+</tbody>
+</table></div>
+<p>どちらも <code>Demo/</code>(Day 39 でできた「エンジンを使う側」の層)に入る。<strong><code>Render/</code> には1行も足していない</strong>——今日は機能を増やす日ではなく、すでにある機能を見せる日なので。</p>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/OrbitCameraController.cs</code></td><td><code>EyePosition</code> を <code>static</code> に切り出した(<code>CameraPath</code> が速さを測るのに要る)</td></tr>
+<tr><td><code>Demo/DemoScene.cs</code></td><td><code>Shots</code> / <code>CameraFieldOfView</code> / <code>Grade</code> と、その読み込み</td></tr>
+<tr><td><code>Program.cs</code></td><td>表の組み立て・カメラの更新・キー・HUD 2行・自己チェック</td></tr>
+<tr><td><code>Day40.csproj</code></td><td>ファイル名のみ(<code>Day39.csproj</code> からリネーム)</td></tr>
+</tbody>
+</table></div>
+<p>素材(写経の対象外):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>置き場所</th><th>中身</th></tr></thead>
+<tbody>
+<tr><td><code>assets/scenes/demo-v1.json</code></td><td><code>camera.shots</code>(5ショット)と <code>lighting.grade</code> を追記。<strong>Day 39 のままでも動く</strong></td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">写経する順番</h3>
+<p>依存の順に並べてある。上から順に写すと、途中でビルドが通らない状態にならない。</p>
+<ol><li><strong><code>Render/OrbitCameraController.cs</code></strong> <code>Apply</code> の中の球面座標の式を <code>EyePosition</code>(<code>static</code>)へ出し、<code>Apply</code> はそれを呼ぶ形にする。<strong>いちばん先に写す</strong>——次の <code>CameraPath</code> がこのメソッドを呼ぶ</li><li><strong><code>Demo/CameraPath.cs</code></strong>(新規)キーフレームと補間。<code>enum CameraInterpolation</code> → <code>Key</code> / <code>Pose</code> → <code>Sample</code> → <code>Interpolate</code> の順。<strong><code>WrapAngle</code> は <code>public</code></strong> にしておく(自己チェックが使う)</li><li><strong><code>Demo/FeatureToggles.cs</code></strong>(新規)機能の表とツアー。<strong>誰にも依存しない</strong>ので、2 との前後は自由</li><li><strong><code>Demo/DemoScene.cs</code></strong> <code>Shots</code> / <code>CameraFieldOfView</code> / <code>Grade</code> の3つと、<code>ReadCameraPath</code>。<strong>2 より後</strong>でないと <code>CameraPath</code> が見つからない。<code>Path</code> ではなく <strong><code>Shots</code></strong> という名前にしてある理由は下の注意書きを参照</li><li><strong><code>Program.cs</code></strong>最後。中身は7つに分かれる:<ol><li>フィールド(<code>_features</code> / <code>_cameraPlaying</code> / <code>_cameraTime</code> / 補間とイージングの状態)</li><li><code>OnLoad</code>(<code>BuildFeatureToggles</code> の呼び出しと、キー一覧の表示)</li><li><code>BuildFeatureToggles</code> / <code>UpdateDemoCamera</code> / <code>ApplyCameraPose</code> / <code>JumpToNextShot</code> / <code>StopTourIfRunning</code> / <code>CameraLabel</code> / <code>RunCameraCheck</code> / <code>KeyError</code> / <code>WorstSpeedJump</code></li><li><code>OnUpdate</code> にカメラとツアーの更新を挟む(<strong><code>FixedUpdate</code> ではない</strong>。要点は設計書に)</li><li><code>FrameDemoScene</code> に画角、<code>PlayDemoCamera</code> を新設、<code>ApplyDemoLighting</code> に色調整、<code>LoadDemoScene</code> / <code>UnloadDemoScene</code> / <code>DescribeDemoScene</code> に追記</li><li>キー(<code>Ctrl+Alt+F1</code>〜<code>F11</code>。<strong>switch の先頭に置く</strong>)と、Day 39 の <code>Ctrl+Shift+F12</code> をフラグ12行から <code>_features.SetAll(true)</code> へ差し替え</li><li>HUD に2行(<code>CameraLabel</code> と機能の一覧)</li></ol></li></ol>
+<p><strong><code>DemoScene.Path</code> にできない</strong>のが4番の落とし穴。<code>Path</code> という名前のプロパティを作ると、同じクラスの中で<code>Path.GetFileName(...)</code>(<code>System.IO.Path</code>)が<strong>そのプロパティを指してしまい</strong>、<code>AddProp</code> が丸ごとコンパイルエラーになる。<code>using static</code> も名前空間も関係なく、<strong>インスタンスメンバーのほうが型より優先される</strong>というC# の名前解決の規則そのもの。ここでは <code>Shots</code> に改名して避けている。</p>
+<p><strong><code>Program.cs</code> に1か所だけ、今日の機能と関係ない修正</strong>が入っている。HUD の左上に出している日付が <code>Day38</code> のままだったのを <code>Day40</code> にした(Day 39 でも直っていなかった)。Phase 6 のマイルストーンのスクリーンショットに残る文字なので、ここで直しておく(1語のみ。差分0にしたいなら合わせておく)。</p>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>層は増えていない</strong>。Day 39 で作った <code>Demo/</code> の中にクラスが2つ増えただけで、矢印の向きも数も Day 39 のまま。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>どこに</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Demo/CameraPath</code></td><td><code>Demo/</code></td><td>キーフレームを補間して姿勢を返す。<strong>GL を1回も呼ばない</strong></td></tr>
+<tr><td><code>CameraPath.Key</code> / <code>.Pose</code></td><td>同上</td><td>キーフレーム1つ / ある時刻の姿勢</td></tr>
+<tr><td><code>Demo/FeatureToggles</code></td><td><code>Demo/</code></td><td>機能の ON/OFF 表と機能ツアー。<strong>Render の型を1つも知らない</strong></td></tr>
+<tr><td><code>FeatureToggles.Feature</code></td><td>同上</td><td>機能1つぶん。<strong>値ではなく読み書きの手順</strong>を持つ</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Demo/DemoScene</code></td><td><code>Shots</code> / <code>CameraFieldOfView</code> / <code>Grade</code></td></tr>
+<tr><td><code>Render/OrbitCameraController</code></td><td><code>EyePosition</code>(<code>static</code>)。<code>Apply</code> の中身を切り出したもの</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16"><code>FeatureToggles</code> が <code>Render</code> を知らない、ということ</h3>
+<p>このクラスの中には <code>Ssao</code> も <code>PostProcess</code> も <code>ShadowMap</code> も出てこない。出てくるのは <code>Func&lt;bool&gt;</code> と <code>Action&lt;bool&gt;</code> だけで、<strong>どの機能を並べるかを決めているのは <code>Program.BuildFeatureToggles</code></strong> のほう。</p>
+<div class="code"><pre><code>  Program  ──「SSAO の読み方と書き方はこれです」──→  FeatureToggles
+           ←──「いま ON です / 切ってください」──┘</code></pre></div>
+<p>この形にした配当は3つある。</p>
+<p>1つ目。<strong>表が状態を持たない</strong>。本当の値は <code>_ssao.Enabled</code> のほうにあるので、Day 37 のキー(<code>Ctrl+F1</code>)で直接触られても食い違わない。</p>
+<p>2つ目。<code>Demo/</code> から <code>Render/</code> への依存が増えない。<code>DemoScene</code> はすでに <code>Render</code> を知っているので実害は無いのだが、<strong>「機能を並べる知識」は <code>Program</code> の仕事</strong>——どの Day の何を見せたいかはデモの都合であって、表の都合ではない。</p>
+<p>3つ目。<strong>bool でないつまみも bool に見せられる</strong>。PCF の半径(0〜3)や視差の方式(0〜3)は段階のあるつまみだが、表としては「ソフトかどうか」「凹凸があるかどうか」で足りる。<code>on =&gt; _shadow.PcfRadius = on ? 2 : 0</code> のように、<strong>戻す先の値を <code>Program</code> 側で決め打ちにできる</strong>のは、表が型を知らないおかげ。</p>
+<h3 id="s17"><code>CameraPath</code> も GL を呼ばない</h3>
+<p><code>HdrImage</code> と <code>SkyAnalysis</code>(Day 39)と同じ性格のクラスがもう1つ増えた。入口は <code>float</code>、出口は <code>Pose</code>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クラス</th><th>入口</th><th>出口</th><th>GL</th></tr></thead>
+<tbody>
+<tr><td><code>SurfaceMaps</code></td><td>パラメータ</td><td><code>byte[]</code> x3</td><td>呼ばない</td></tr>
+<tr><td><code>SkyImage</code></td><td>太陽の向き</td><td><code>float[]</code></td><td>呼ばない</td></tr>
+<tr><td><code>HdrImage</code></td><td>ファイルのパス</td><td><code>float[]</code></td><td>呼ばない</td></tr>
+<tr><td><code>SkyAnalysis</code></td><td><code>float[]</code></td><td><code>Sun</code> / <code>float[]</code></td><td>呼ばない</td></tr>
+<tr><td><code>CameraPath</code></td><td>時刻</td><td><code>Pose</code></td><td>呼ばない</td></tr>
+</tbody>
+</table></div>
+<p>配当が出るのがまた<strong>自己チェック</strong>で、<code>RunCameraCheck</code> のカメラ側5項目は1枚も描かずに走る。「キーの上を通るか」「速度が跳ばないか」は<strong>絵にせずに確かめられる</strong>種類の問いなので、そこを分けておくと検算が軽い。</p>
+<h3 id="s18"><code>EyePosition</code> を切り出した理由</h3>
+<p><code>CameraPath.SpeedAt</code> は「そのときカメラは何 m/s で動いているか」を測る。そのためには姿勢(注視点・距離・角度)から<strong>目の位置</strong>を作る必要があり、それは <code>OrbitCameraController.Apply</code> がやっていることとまったく同じ計算になる。</p>
+<p>式を写して2か所に置くと、<strong>片方だけ直したときに、測った速度と実際の動きがずれる</strong>。しかも絵は正しく出るので、疑うのは数字のほうになる——いちばん見つけにくい壊れ方。</p>
+<div class="code"><pre><code>  OrbitCameraController.Apply()   ──┐
+                                    ├→ EyePosition(target, distance, yaw, pitch)
+  CameraPath.SpeedAt()            ──┘</code></pre></div>
+<p><code>static</code> にしてあるのは、<code>CameraPath</code> がコントローラのインスタンスを知らなくてよいようにするため。<strong>計算だけを共有して、状態は共有しない</strong>。</p>
+<h3 id="s19"><code>Path</code> という名前が使えなかった話</h3>
+<p><code>DemoScene</code> のカメラワークを持つプロパティは、最初 <code>Path</code> という名前だった。そのまま書くとビルドが通らない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public CameraPath? Path { get; private set; }
+...
+string name = Path.GetFileNameWithoutExtension(relativePath);   // ← ここが壊れる</code></pre></div>
+<p>C# の名前解決では、<strong>同じクラスのインスタンスメンバーが型名より優先される</strong>。<code>Path</code> は <code>System.IO.Path</code> ではなく自分のプロパティを指し、「<code>CameraPath</code> に <code>GetFileNameWithoutExtension</code> は無い」と言われる。</p>
+<p><code>System.IO.Path</code> と完全修飾して逃げることもできるが、<strong>呼び出し側が全部長くなる</strong>のは筋が悪い。<code>Shots</code> に改名した。JSON のキー(<code>shots</code>)とも揃うので、結果的にこちらのほうが読みやすい。</p>
+<h3 id="s20">カメラが1フレーム進むまで — 時刻から姿勢へ、5段</h3>
+<svg viewBox="0 0 970 973" role="img" aria-label="カメラが1フレーム進むまで(時刻から姿勢へ、5段)。OnUpdate(deltaSeconds)は可変 dt で、固定ステップではない。_cameraTime += dt x 再生速度(1周したら Wrap で先頭へ)。IndexAt(t) で _starts[] を前から見て区間を決める。local <= Hold なら静止中で、PoseOf(i) がキーをそのまま返し、補間を1回も通らない。そうでなければ移動中で、u = (local - Hold) / Travel(0〜1 の進み)。Ease なら u = 3u² - 2u³(両端で微分 0 = 静止と繋がる)。Interpolation が Linear なら Lerp(k1, k2, u)(方位だけ巻き取ってから)、CatmullRom なら前後 k0 / k3 も覗き、方位を4つとも1本の数直線へ乗せて CatmullRom(k0, k1, k2, k3, u)。どれも ApplyCameraPose(pose) へ行き、_orbit.Target / Distance / Yaw / Pitch と _camera.FieldOfView を書いて _orbit.Apply()。最後に SpeedAt(t) で m/s と 度/s を測る(HUD 専用。前進差分)" style="width:100%;max-width:970px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="8" width="310" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OnUpdate(deltaSeconds)</text><text font-weight="700" x="455" y="45.5" text-anchor="middle" fill="var(--ink)">可変 dt。固定ステップではない</text><rect x="300" y="92" width="310" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="112.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_cameraTime += dt x 再生速度</text><text x="455" y="129.5" text-anchor="middle" fill="var(--ink)">1周したら Wrap で先頭へ</text><rect x="300" y="176" width="310" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="196.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">IndexAt(t)</text><text x="455" y="213.5" text-anchor="middle" fill="var(--ink)">_starts[] を前から見て区間を決める</text><rect x="300" y="260" width="310" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="280.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">local &lt;= Hold ?</text><rect x="10" y="327" width="250" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="135" y="347.5" text-anchor="middle" fill="var(--ink)">PoseOf(i)</text><text font-weight="700" x="135" y="364.5" text-anchor="middle" fill="var(--ink)">キーをそのまま返す</text><text x="135" y="381.5" text-anchor="middle" fill="var(--ink)">補間を1回も通らない</text><rect x="300" y="327" width="310" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="356" text-anchor="middle" fill="var(--ink)">u = (local - Hold) / Travel</text><text x="455" y="373" text-anchor="middle" fill="var(--ink)">0〜1 の進み</text><rect x="300" y="428" width="310" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="448.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ease ?</text><rect x="650" y="495" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="795" y="515.5" text-anchor="middle" fill="var(--ink)">u = 3u² - 2u³</text><text x="795" y="532.5" text-anchor="middle" fill="var(--ink)">両端で微分 0 = 静止と繋がる</text><rect x="300" y="579" width="310" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="455" y="599.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Interpolation ?</text><rect x="300" y="646" width="310" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="675" text-anchor="middle" fill="var(--ink)">Lerp(k1, k2, u)</text><text font-weight="700" x="455" y="692" text-anchor="middle" fill="var(--ink)">方位だけ巻き取ってから</text><rect x="650" y="646" width="290" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="795" y="666.5" text-anchor="middle" fill="var(--ink)">前後 k0 / k3 も覗く</text><text x="795" y="683.5" text-anchor="middle" fill="var(--ink)">方位を4つとも1本の数直線へ</text><text x="795" y="700.5" text-anchor="middle" fill="var(--ink)">CatmullRom(k0, k1, k2, k3, u)</text><rect x="300" y="747" width="310" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="767.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ApplyCameraPose(pose)</text><rect x="300" y="814" width="310" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="834.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_orbit.Target / Distance / Yaw / Pitch</text><text x="455" y="851.5" text-anchor="middle" fill="var(--ink)">_camera.FieldOfView</text><text x="455" y="868.5" text-anchor="middle" fill="var(--ink)">→ _orbit.Apply()</text><rect x="300" y="915" width="310" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="455" y="935.5" text-anchor="middle" fill="var(--ink)">SpeedAt(t) で m/s と 度/s を測る</text><text font-weight="700" x="455" y="952.5" text-anchor="middle" fill="var(--ink)">HUD 専用。前進差分</text><path d="M455 58 L455 90" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M455 142 L455 174" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M455 226 L455 258" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M300 276.5 L135 276.5 L135 325" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="292" y="270.5" fill="var(--muted)" font-size="12" text-anchor="end">静止中</text><path d="M455 293 L455 325" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="461" y="308" fill="var(--muted)" font-size="12">移動中</text><path d="M455 394 L455 426" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M610 444.5 L795 444.5 L795 493" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="618" y="438.5" fill="var(--muted)" font-size="12">Yes</text><path d="M455 461 L455 577" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="461" y="476" fill="var(--muted)" font-size="12">No</text><path d="M795 545 L795 595.5 L612 595.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M455 612 L455 644" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="461" y="627" fill="var(--muted)" font-size="12">Linear</text><path d="M610 603.5 L755 603.5 L755 644" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="761" y="638" fill="var(--muted)" font-size="12">CatmullRom</text><path d="M455 713 L455 745" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M795 713 L795 763.5 L612 763.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M135 394 L135 763.5 L298 763.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M455 780 L455 812" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M455 881 L455 913" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>静止中は補間を1回も通らない</strong>のが、この図でいちばん効いている枝。<code>hold</code> の間はキーをそのまま返すので、どんな補間方式でも、どんなイージングでも、止まっている絵は完全に同じになる。<code>Ctrl+Alt+F4</code> や <code>F5</code> を押しても静止中は何も起きないのはこのため——<strong>押しても効かないように見えるが、正しい</strong>。</p>
+<p><code>SpeedAt</code> が最後にぶら下がっているのは、<strong>HUD のためだけ</strong>にあるから。絵には1ミリも影響しない。それでも毎フレーム測っているのは、補間方式の違いが<strong>通過点の 0.1 秒にしか出ない</strong>ので、数字が無いと <code>Ctrl+Alt+F4</code> を押しても何が変わったか分からないため。</p>
+<h3 id="s21">機能ツアーの2相 — 「1つ切る」と「全部戻す」</h3>
+<svg viewBox="0 0 820 349" role="img" aria-label="機能ツアーの2相(「1つ切る」と「全部戻す」)。始まりは停止。停止から BeginTour()(いまの状態を控えて SetAll(true))で「切る」へ。「切る」から TourInterval 経過で SetAll(true) して「戻す」へ。「戻す」から TourInterval 経過で index++ してから SetAll(true) → 1つ OFF して「切る」へ。「切る」から EndTour() で控えた状態へ Restore して停止へ。「戻す」からも EndTour() で停止へ" style="width:100%;max-width:820px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><circle cx="410" cy="16" r="8" fill="var(--ink)"></circle><path d="M410 24 L410 56" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><rect x="330" y="58" width="160" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="78.5" text-anchor="middle" fill="var(--ink)">停止</text><rect x="60" y="260" width="160" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="280.5" text-anchor="middle" fill="var(--ink)">切る</text><rect x="600" y="260" width="160" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="280.5" text-anchor="middle" fill="var(--ink)">戻す</text><path d="M330 68 L130 68 L130 258" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="122" y="150" fill="var(--muted)" font-size="12" text-anchor="end">BeginTour()</text><text x="122" y="166" fill="var(--muted)" font-size="12" text-anchor="end">いまの状態を控えて</text><text x="122" y="182" fill="var(--muted)" font-size="12" text-anchor="end">SetAll(true)</text><path d="M200 260 L200 84 L328 84" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="208" y="150" fill="var(--muted)" font-size="12">EndTour()</text><text x="208" y="166" fill="var(--muted)" font-size="12">控えた状態へ Restore</text><path d="M680 260 L680 76 L492 76" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="672" y="150" fill="var(--muted)" font-size="12" text-anchor="end">EndTour()</text><path d="M220 270 L598 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="410" y="256" fill="var(--muted)" font-size="12" text-anchor="middle">TourInterval 経過 / SetAll(true)</text><path d="M600 284 L222 284" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="410" y="311" fill="var(--muted)" font-size="12" text-anchor="middle">TourInterval 経過</text><text x="410" y="327" fill="var(--muted)" font-size="12" text-anchor="middle">index++ してから SetAll(true) → 1つ OFF</text></g></svg>
+<p><strong>毎回 <code>SetAll(true)</code> から組み直す</strong>のが実装上の要点。「切ったものを憶えておいて戻す」形にすると、途中で <code>Ctrl+Alt+F8</code> を押されたときに何を戻せばよいのか分からなくなる。<strong>常に全部 ON を基準にして、そこから1つ引く</strong>なら、状態は <code>index</code> と相の2つで足りる。</p>
+<p>その代わり、<strong>走っている間に手で切り替えても数秒後に戻される</strong>。押しても効かないスイッチはバグにしか見えないので、<code>Ctrl+Alt+F8</code> / <code>F9</code> / <code>F1</code> を押した時点でツアーのほうを終わらせている(<code>Program.StopTourIfRunning</code>)。</p>
+<p>「全部戻す」相を挟むのは<strong>基準の絵を毎回見せるため</strong>。切りっぱなしで次へ進むと、2つ目からは何と比べているのか分からなくなる。</p>
+</section>
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day40 -c Release</code> で起動する。<strong>必ず <code>-c Release</code></strong> ——<code>.hdr</code> の復号も太陽の抽出も CPU の総なめなので、Debug だと読み込みが数倍かかる。</p>
+<p>起動直後は Day 38 までの絵。今日のデモは <code>Ctrl+Alt+F1</code> で入る。</p>
+<h3 id="s23">1. <code>Ctrl+Alt+F1</code>: カメラが回り出す</h3>
+<p>読み込みに1秒ほどかかったあと、夕暮れの裏通りが出て<strong>カメラが動き始める</strong>。コンソールに出る:</p>
+<div class="code"><pre><code>デモ v1: 「夕暮れの裏通り」
+  シーン 961ms(glTF 7 体 / 描画 25 回 / 三角形 215,350 枚 / テクスチャ 48 枚)
+  影を落とすもの: 24 / 25
+  カメラワーク: 5 ショット / 1周 42.5秒  (Ctrl+Alt+F1 で再生)
+カメラワーク: 5 ショット / 1周 42.5秒 で再生</code></pre></div>
+<p>HUD の下から3行目がこうなる(数字は動き続ける)。</p>
+<div class="code"><pre><code>カメラ:再生  ショット1/5「通りを見渡す」  2.8/42.5s  x1.00  Catmull-Rom  イージング:ON  0.00m/s 0.0度/s  画角:40度
+機能 12/12: [+HDR] +空 +影 +ソフト影 +法線マップ +視差 +PBR +IBL +SSAO +ブルーム +FXAA +色調整</code></pre></div>
+<p>見どころは5ショット。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ショット</th><th>見るもの</th></tr></thead>
+<tbody>
+<tr><td>通りを見渡す</td><td>全景。低い太陽が引く長い影と、壁を斜めに舐める光</td></tr>
+<tr><td>ゴミ箱の金属</td><td><strong>IBL がいちばん効く</strong>。空が胴に映り込んでいる</td></tr>
+<tr><td>街灯を見上げる</td><td>空が画面に入る。HDRI そのものを見る</td></tr>
+<tr><td>壁を舐める光</td><td><strong>法線マップと視差</strong>。目地の凹凸と、街灯の影が横切る縁</td></tr>
+<tr><td>消火栓と長い影</td><td>影の長さと、接地の暗がり(SSAO)</td></tr>
+</tbody>
+</table></div>
+<p><strong>静止(hold)と移動(travel)が交互に来る</strong>のが分かればよい。止まる時間が無いと、どこを見ればよいのか分からない映像になる。</p>
+<h3 id="s24">2. <code>Ctrl+Alt+F4</code>: 線形に落とす</h3>
+<p>HUD の <code>Catmull-Rom</code> が <code>線形</code> に変わる。<strong>ショットが切り替わる瞬間を狙って見る</strong>——カメラがキーを通過するところで、パンの向きが「カクッ」と折れる。</p>
+<p>分かりにくければ HUD の <code>m/s</code> を見る。Catmull-Rom なら滑らかに増減する数字が、線形だと通過点で跳ぶ。<code>Ctrl+Alt+F11</code> の3番目がこれを数字で出している。</p>
+<h3 id="s25">3. <code>Ctrl+Alt+F5</code>: イージングを切る</h3>
+<p>止まっていたカメラが<strong>いきなり最高速で動き出す</strong>ようになる。そして次のショットの手前で、動いたまま急停止する。</p>
+<p><strong>軌跡は1ミリも動かない</strong>のが要点。カメラが通る場所は同じで、変わったのは「その上をどんな速さで進むか」だけ。<code>Ctrl+Alt+F11</code> の4番目がこれを検算している。</p>
+<h3 id="s26">4. <code>Ctrl+Alt+F9</code>: 全部 OFF</h3>
+<p>8日ぶんの機能が一度に消える。</p>
+<ul><li>空が消えて背景が単色になる(<code>_env.SkyboxVisible</code>)</li><li>影が消えて、物が床に浮く</li><li>金属が黒くなる(IBL が定数の環境光に戻る)</li><li>陰影がランバートに戻り、材質の差が消える</li><li>壁と地面が平らな板になる</li><li>輪郭に階段が出る</li></ul>
+<p>HUD が <code>機能 0/12: -HDR -空 -影 ...</code> になる。もう一度押すと全部戻る。<strong>この往復が Phase 6 の総括</strong>で、Day 31 の出発点がどれだけ素っ気なかったかがそのまま見える。</p>
+<h3 id="s27">5. <code>Ctrl+Alt+F10</code>: 機能ツアー</h3>
+<p>3秒ごとに「1つ切る → 全部戻す」を交互に繰り返す。コンソールに何を切ったかが出る。</p>
+<div class="code"><pre><code>機能ツアー: 3.0 秒ごとに1つずつ切っては戻す
+  HDR を OFF: 1.0 で切られ、露出を下げても明部が戻らない(Day 31)
+  全部 ON に戻す
+  空 を OFF: 背景が単色になる。映り込みの元は残る(Day 36)</code></pre></div>
+<p>止めるにはもう一度 <code>Ctrl+Alt+F10</code>。<strong>走っている間に <code>Ctrl+Alt+F8</code> や <code>F9</code> を押すと、ツアーのほうが終わる</strong>——押しても効かないスイッチにならないようにしてある。</p>
+<h3 id="s28">6. <code>Ctrl+Alt+F7</code> / <code>F8</code>: 1つずつ切る</h3>
+<p><code>F7</code> で HUD のカーソル(角括弧)が動き、<code>F8</code> でその機能が反転する。切ったときはコンソールに「何が起きるか」が出る。</p>
+<div class="code"><pre><code>SSAO: OFF  — 物が接しているところの暗がりが消える(Day 37)</code></pre></div>
+<h3 id="s29">7. <code>Ctrl+Alt+F3</code> / <code>F6</code>: ショット送りと再生速度</h3>
+<p><code>F3</code> で次のショットの頭へ飛ぶ。<code>F6</code> で 0.25 / 0.5 / 1 / 2 倍。<strong>0.25 倍にすると補間の様子がよく見える</strong>ので、2 と 3 はこれと併せて見るとよい。</p>
+<h3 id="s30">8. <code>Ctrl+Alt+F2</code>: 止めて手で回す</h3>
+<p>一時停止するとカメラワークが姿勢を書かなくなるので、<strong>左ドラッグとホイールで普通に回せる</strong>。もう一度押すと、パスの現在時刻の姿勢へ戻る(手で動かしたぶんは上書きされる)。</p>
+<h3 id="s31">9. <code>Ctrl+Shift+F10</code>: JSON を書き換えて読み直す</h3>
+<p><code>assets/scenes/demo-v1.json</code> の <code>camera.shots</code> を書き換えて保存 → <code>Ctrl+Shift+F10</code>。<strong>再生位置は頭に戻る</strong>ので、直したショットがすぐ見られる。</p>
+<p><code>Ctrl+Shift+F9</code> を押すと、引き継ぎ(書かなかった項目は前のショットのまま)を展開したあとの数字が全部出る。</p>
+<div class="code"><pre><code>  カメラワーク 5 ショット / 1周 42.5秒
+    通りを見渡す           距離  12.0m  方位   32.0度  仰角  12.0度  画角   40度  静止 3.0s → 移動 6.0s
+    ゴミ箱の金属           距離   3.2m  方位   55.0度  仰角   8.0度  画角   35度  静止 3.0s → 移動 5.0s</code></pre></div>
+<h3 id="s32">10. <code>Ctrl+Alt+F11</code>: 自己チェック(8項目すべて合格)</h3>
+<div class="code"><pre><code>[カメラワークと機能トグルの自己チェック]
+  [OK] <strong>キーの上をきっちり通る</strong>(Catmull-Rom は制御点を通る補間)  いちばん大きいずれ 1.45E-006
+  [OK] <strong>方位が近いほうを回る</strong>(巻き取りが効いている)  1標本あたりの最大 0.52 度(21.2ms 刻み)
+  [OK] <strong>Catmull-Rom のほうが通過点の速度変化が小さい</strong>(C1 連続)  線形 1.58m/s の跳び / Catmull-Rom 1.13m/s
+  [OK] <strong>イージングは軌跡を動かさない</strong>(速さの配分だけを変える)  いちばん大きいずれ 5.20E-006
+  [OK] 全ショットが軌道カメラの可動域(距離 2〜40m / 仰角 ±86度)に入っている  5 ショット
+  [OK] <strong>機能表から全部 OFF / 全部 ON にできる</strong>  12 項目
+  [OK] <strong>控えた状態にそのまま戻せる</strong>(読み書きが対になっている)  ON 12/12
+  [OK] <strong>必須構成が全部 ON</strong>(PBR+IBL+ソフトシャドウ+SSAO+ブルーム+AA)  Phase 6 のマイルストーン
+  すべて合格</code></pre></div>
+<p>最後の1行が <strong>Phase 6 のマイルストーンそのもの</strong>になっている。</p>
+<h3 id="s33">11. Day 39 までの機能が全部生きていること</h3>
+<p><code>Ctrl+Shift+F1</code>〜<code>F12</code>(Day 39)、<code>Shift+F1</code>〜<code>F12</code>(Day 38)、<code>Ctrl+F1</code>〜<code>F11</code>(Day 37)、数字キーの5段(Day 31〜36)は全部そのまま。<code>Ctrl+Shift+F12</code>(決めの構図)も動く——中身がフラグ12行から<code>_features.SetAll(true)</code> の1行に変わっただけで、出る絵は同じ。</p>
+<p><code>Ctrl+Alt+F1</code> を押さずに <code>Ctrl+Shift+F1</code> でデモに入ると、<strong>カメラは止まったまま決めの構図</strong>になる(Day 39 の挙動)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Alt+F1</code>・<code>F2</code>・<code>F3</code>・<code>F6</code></td><td>「カメラワークを再生する」の再生・次のショット・再生速度</td><td>静止と移動が交互に来る。1周 42.5 秒。HUD の行が実機と同じ書式で動く</td></tr>
+<tr><td><code>Ctrl+Alt+F4</code>・<code>F5</code></td><td>同じ実験台の補間とイージング</td><td>線形はキーの通過で速さのグラフが折れる。イージングを切ると静止の境目で速さが跳ぶ。真上から見た軌跡はイージングでは動かない</td></tr>
+<tr><td><code>Ctrl+Alt+F7</code>〜<code>F10</code>・<code>Ctrl+F1</code></td><td>「機能の表と機能ツアー」</td><td>全部 OFF / ON の往復、1つ切る → 全部戻す の2相、手で触るとツアーが終わる</td></tr>
+<tr><td><code>Ctrl+Alt+F11</code></td><td>2つの実験台の自己チェック</td><td>1.45E-006、0.52 度(21.2ms 刻み)、線形 1.58m/s / Catmull-Rom 1.13m/s、5.20E-006、5 ショット、12 項目、ON 12/12、Phase 6 のマイルストーン</td></tr>
+<tr><td><code>Ctrl+Shift+F9</code>・<code>F10</code>、<code>Ctrl+Shift+F12</code></td><td>(なし)</td><td>シーンの絵と JSON の読み直しは、このページでは再現しない(ショットの数字は JSON の値を写してある)</td></tr>
+<tr><td>(キーなし)</td><td>方位を巻き取る、値を写して持つ、画角と距離</td><td>reference に無い比較。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day40 の Demo/CameraPath.cs・Demo/FeatureToggles.cs・Render/OrbitCameraController.cs(EyePosition)・Program.cs(BuildFeatureToggles・CameraLabel・RunCameraCheck・キーの処理)を JS に移したもの。カメラパスは C# の float と同じ丸めで計算していて、自己チェックの 1〜4 と、途中の時刻の速さ・方位の標本が、reference のコードを直接回した C# の小さなプログラムと全部一致した。本文の記述で、reference の動きと合わないところが2つある。(1) 要点3の「仰角を畳むと 89 度 → −89 度を近道 2 度と判断してひっくり返る」: 差は −178 度で、WrapAngle(−180〜180 度へ畳む)を掛けても値は変わらない。仰角は ±86 度で止めてあるので差は最大 172 度で、畳んでも畳まなくても結果は同じになる。(2) 自己チェックの読み方の「巻き取りを忘れると、ここが 300 度超になる」: 今日のショットは方位が −7〜55 度で ±180 度をまたがないので、巻き取りを外しても 0.52 度のまま変わらない。またぐ並び(170・−170・175・−175・180 度)で外しても、遠回りするだけで 1 標本あたり 3.35 度にしかならず、検査は合格する(標本の差にも WrapAngle を掛けているため)。fps(870)は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s34">改造課題</h2>
+<h3 id="s35">課題1(易): ショットを1つ足して、引き継ぎの効き目を見る</h3>
+<p><code>assets/scenes/demo-v1.json</code> の <code>shots</code> に、道路バリアの寄りを1つ足す。</p>
+<div class="code"><span class="lang">json</span><pre><code>{
+  "name": "バリアの寄り",
+  "target": [2.3, 0.5, 0.0],
+  "distance": 3.4,
+  "yaw": 120.0,
+  "hold": 2.5,
+  "travel": 5.0
+}</code></pre></div>
+<p><code>pitch</code> も <code>fov</code> も書いていないので、<strong>前のショットのものがそのまま引き継がれる</strong>。<code>Ctrl+Shift+F10</code> で読み直し、<code>Ctrl+Shift+F9</code> で展開後の数字を確かめる。</p>
+<p>そのうえで確かめてほしいことが2つ。</p>
+<ul><li>方位の合計が 0 でなくなると何が起きるか。1周するたびにカメラが同じ向きへ回り続け、<strong>何周かすると構図がずれていく</strong>——ように見えて、実は巻き取りが効いているのでずれない。なぜか</li><li><code>hold</code> を 0 にすると、そのショットは「通過点」になる。イージングが効いたまま通過するので <strong>そこで一瞬止まって見える</strong>。イージングを切る(<code>Ctrl+Alt+F5</code>)と素通りする</li></ul>
+<h3 id="s36">課題2(中): 弧長パラメータ化で、区間ごとの速さを揃える</h3>
+<p>いまは <code>travel</code> が同じでも、区間の長さが違えば速さが違う。「ゴミ箱の金属 → 街灯を見上げる」は 5 秒で 4m しか動かないが、「通りを見渡す → ゴミ箱の金属」は 6 秒で 10m 近く動く。</p>
+<p>直し方は Eberly の資料のとおり。</p>
+<ol><li>区間ごとに <code>u</code> を細かく刻んで折れ線の長さを積み、<strong>弧長の表</strong>を作る</li><li><code>Sample</code> で欲しいのは「弧長が s になる <code>u</code>」なので、表を二分探索して逆引きする</li><li><code>travel</code> を「秒」ではなく「m/s」で書けるようにする</li></ol>
+<p><strong>表は <code>CameraPath</code> のコンストラクタで作る</strong>のが要点。毎フレーム積み直すと 600 回のサンプルが毎フレーム走る。</p>
+<p>できたら、自己チェックに「区間ごとの平均速度のばらつき」を1項目足す。弧長パラメータ化の前後で数字が縮むはず。</p>
+<h3 id="s37">課題3(難): 機能ツアーを PNG の連番で吐く(比較シート)</h3>
+<p>ツアーが切り替わるたびにスクリーンショットを撮って、<code>screenshots/tour/00-all.png</code>、<code>01-hdr-off.png</code> …… と並べる。デモの資料としてはこれがいちばん使いでがある。</p>
+<p>引っかかるのは<strong>タイミング</strong>で、フラグを立てたそのフレームには撮れない。</p>
+<div class="code"><pre><code>  フレーム N   : 機能を OFF にする(OnUpdate)
+  フレーム N   : その設定で描く(OnRender)
+  フレーム N+1 : ← ここで撮る。glReadPixels は「描き終わった画面」を読む</code></pre></div>
+<p><code>Screenshot.Save</code>(Day 39)は既定のフレームバッファを読むので、<strong><code>_post.End</code> より後、<code>SwapBuffers</code> より前</strong>でなければ意味の無い絵が撮れる。撮影の予約をキューに積んで、<code>OnRender</code> の末尾で1枚ずつ消化する形になる。</p>
+<p>余力があれば、撮った 13 枚を1枚のコンタクトシートに並べるところまで。<code>Screenshot</code> が持っている PNG の書き出しをそのまま使える——<strong>帯を並べて zlib に流すだけ</strong>なので、画像を貼り合わせる処理は 30 行ほどで書ける。</p>
+</section>
+<section class="part"><h2 id="s38">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / RTX 3070 / 1920x1080(DPI 100%)</li><li><code>dotnet run --project reference/Day40 -c Release</code></li></ul>
+<p>デモ v1(5ショットのカメラワーク、機能 12 個 ON)で <strong>870 fps</strong>。Day 39 の静止した決めの構図と同じで、<strong>カメラが動いても描画の負荷は変わらない</strong>——カメラワークが増やしたのは CPU 側の補間 1 回ぶんだけ。</p>
+<h3 id="s39">自己チェック(8項目すべて合格)</h3>
+<p>上の「完成条件 10」のとおり。数字の読み方をいくつか。</p>
+<ul><li><strong>キーの上を通るずれが 1.45E-006</strong>。float の精度の話しか残っていない。ここが <code>1E-3</code> くらいになるなら、区間の端で <code>u</code> が 1 に届いていないことを疑う</li><li><strong>速度の跳びが 線形 1.58 / Catmull-Rom 1.13</strong>。「Catmull-Rom は滑らか」という言葉が、<strong>1.4 倍という具体的な数字</strong>になる。0 にならないのは、イージングを外して測っているのと、<code>hold</code> の出入りが残っているため</li><li><strong>方位の最大 0.52 度 / 標本</strong>。1周を 2000 で割った 21.2ms 刻みなので、秒速にすると 25 度/s 弱。巻き取りを忘れると、ここが 300 度超になる</li></ul>
+<h3 id="s40">検証の途中で分かったこと</h3>
+<p><strong>街灯を見上げるショットは、最初まったく成立しなかった</strong>。仰角 -6 度で街灯の頭を狙ったら、画面が壁のレンガで埋まった。高さ 5.5m の壁が近くにあると、<strong>カメラの位置から壁の上端までの仰角</strong>が40 度を超えていて、それより浅い角度では空が入らない。</p>
+<p>直したのは仰角(-44 度)と距離(3.5m)で、<strong>壁のすぐ内側に立って空を向く</strong>構図にした。「見上げるショットは、まず何度から空が入るかを計算してから決める」——シーンの寸法から画角を逆算するのは、Day 39 で太陽の仰角から壁の高さを決めたのと同じ作業。</p>
+<p>もう1つ。<strong><code>DemoScene.Path</code> という名前が使えなかった</strong>話は設計書に書いたとおりで、これはコンパイルエラーで気づける類の問題だが、エラーメッセージ(「<code>CameraPath</code> に <code>GetFileNameWithoutExtension</code> は無い」)が原因からいちばん遠い場所を指すので、慣れていないと迷う。</p>
+</section>
+<footer class="end">Day 40 デモ v1 組み上げ(2) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day40 の Demo/CameraPath.cs と OrbitCameraController.EyePosition を JS に移したもの。
+// C# は float で計算しているので、1回の演算ごとに Math.fround で丸めて同じ値を出す(自己チェックの 1.45E-006 などが一致する)
+const CP = (() => {
+  const f = Math.fround, PI = f(Math.PI), TAU = f(2 * Math.PI);
+  const sin = (x) => f(Math.sin(x)), cos = (x) => f(Math.cos(x));
+  const v3 = (x, y, z) => [f(x), f(y), f(z)];
+  const dist = (a, b) => { const dx = f(a[0] - b[0]), dy = f(a[1] - b[1]), dz = f(a[2] - b[2]); return f(Math.sqrt(f(f(f(dx * dx) + f(dy * dy)) + f(dz * dz)))); };
+  const rad = (deg) => f(f(deg) * f(PI / f(180)));
+  function wrapAngle(r) {
+    let w = f(r % TAU);
+    if (w > PI) w = f(w - TAU); else if (w < -PI) w = f(w + TAU);
+    return w;
+  }
+  function eyePosition(t, d, yaw, pitch) {
+    const cp = cos(pitch);
+    return [f(t[0] + f(f(d * cp) * sin(yaw))), f(t[1] + f(d * sin(pitch))), f(t[2] + f(f(d * cp) * cos(yaw)))];
+  }
+  const lerp = (a, b, u) => f(a + f(f(b - a) * u));
+  function cr(p0, p1, p2, p3, u) {
+    const u2 = f(u * u), u3 = f(u2 * u);
+    const a = f(2 * p1), b = f(f(-p0 + p2) * u);
+    const c = f(f(f(f(f(2 * p0) - f(5 * p1)) + f(4 * p2)) - p3) * u2);
+    const d = f(f(f(f(-p0 + f(3 * p1)) - f(3 * p2)) + p3) * u3);
+    return f(0.5 * f(f(f(a + b) + c) + d));
+  }
+  class CameraPath {
+    constructor(keys) {
+      this.keys = keys; this.starts = []; let t = 0;
+      for (const k of keys) { this.starts.push(t); t = f(f(t + Math.max(0, k.hold)) + Math.max(0, k.travel)); }
+      this.total = t; this.interpolation = 'catmull'; this.ease = true;
+    }
+    wrap(time) { if (this.total <= 0) return 0; const t = f(f(time) % this.total); return t < 0 ? f(t + this.total) : t; }
+    indexAt(time) { const t = this.wrap(time); let i = 0; while (i + 1 < this.keys.length && t >= this.starts[i + 1]) i++; return i; }
+    poseOf(i) { const k = this.keys[i]; return { target: k.target, distance: k.distance, yaw: k.yaw, pitch: k.pitch, fov: k.fov, hold: true }; }
+    sample(time) {
+      const t = this.wrap(time), i = this.indexAt(t), local = f(t - this.starts[i]), k = this.keys[i];
+      if (local <= k.hold || k.travel <= 0) return this.poseOf(i);
+      let u = Math.min(1, Math.max(0, f(f(local - k.hold) / k.travel)));
+      if (this.ease) u = f(f(u * u) * f(3 - f(2 * u)));
+      return this.interpolate(i, u);
+    }
+    speedAt(time, step = f(1 / 120)) {
+      const a = this.sample(time), b = this.sample(f(time + step));
+      const ea = eyePosition(a.target, a.distance, a.yaw, a.pitch), eb = eyePosition(b.target, b.distance, b.yaw, b.pitch);
+      return { metres: f(dist(ea, eb) / step), degrees: f(f(f(Math.abs(wrapAngle(f(b.yaw - a.yaw))) * f(f(180) / PI)) / step)) };
+    }
+    interpolate(i1, u) {
+      const n = this.keys.length, i2 = (i1 + 1) % n, k1 = this.keys[i1], k2 = this.keys[i2];
+      const y1 = k1.yaw, y2 = f(y1 + wrapAngle(f(k2.yaw - y1)));
+      if (this.interpolation === 'linear') {
+        return { target: [0, 1, 2].map((c) => lerp(k1.target[c], k2.target[c], u)), distance: lerp(k1.distance, k2.distance, u), yaw: lerp(y1, y2, u), pitch: lerp(k1.pitch, k2.pitch, u), fov: lerp(k1.fov, k2.fov, u) };
+      }
+      const k0 = this.keys[(i1 + n - 1) % n], k3 = this.keys[(i2 + 1) % n];
+      const y0 = f(y1 - wrapAngle(f(y1 - k0.yaw))), y3 = f(y2 + wrapAngle(f(k3.yaw - y2)));
+      return { target: [0, 1, 2].map((c) => cr(k0.target[c], k1.target[c], k2.target[c], k3.target[c], u)), distance: cr(k0.distance, k1.distance, k2.distance, k3.distance, u), yaw: cr(y0, y1, y2, y3, u), pitch: cr(k0.pitch, k1.pitch, k2.pitch, k3.pitch, u), fov: cr(k0.fov, k1.fov, k2.fov, k3.fov, u) };
+    }
+  }
+  // assets/scenes/demo-v1.json の camera.shots(DemoScene.ReadCameraPath と同じく度をラジアンにする)
+  const SHOTS = [
+    ['通りを見渡す', [-1.2, 1.4, -1.5], 12.0, 32.0, 12.0, 40.0, 3.0, 6.0],
+    ['ゴミ箱の金属', [-2.9, 0.55, -0.4], 3.2, 55.0, 8.0, 35.0, 3.0, 5.0],
+    ['街灯を見上げる', [-3.4, 3.6, -4.0], 3.5, -7.0, -44.0, 50.0, 2.5, 5.0],
+    ['壁を舐める光', [-3.6, 2.0, -6.0], 9.0, 8.0, 6.0, 42.0, 3.0, 6.0],
+    ['消火栓と長い影', [-3.2, 0.6, 2.6], 4.5, 35.0, 14.0, 42.0, 3.0, 6.0],
+  ].map(([name, t, d, yaw, pitch, fov, hold, travel]) => ({ name, target: v3(...t), distance: f(d), yaw: rad(yaw), pitch: rad(pitch), fov: rad(fov), hold: f(hold), travel: f(travel) }));
+  // Program.RunCameraCheck のカメラ側(1〜4)
+  function keyError(p, k) { return Math.max(dist(p.target, k.target), Math.max(Math.abs(f(p.distance - k.distance)), Math.abs(wrapAngle(f(p.yaw - k.yaw))))); }
+  function worstSpeedJump(path, interp) {
+    path.interpolation = interp; const N = 600; let worst = 0, prev = path.speedAt(0).metres;
+    for (let i = 1; i <= N; i++) { const s = path.speedAt(f(f(path.total * i) / N)).metres; worst = Math.max(worst, Math.abs(f(s - prev))); prev = s; }
+    return worst;
+  }
+  function selfCheck(path) {
+    const oi = path.interpolation, oe = path.ease, r = {};
+    path.interpolation = 'catmull'; path.ease = true; let wk = 0;
+    path.keys.forEach((k, i) => {
+      if (k.travel <= 0) return; const ms = f(path.starts[i] + k.hold);
+      const head = path.sample(f(ms + f(k.travel * f(1e-5)))), tail = path.sample(f(ms + f(k.travel * f(1 - f(1e-5)))));
+      wk = Math.max(wk, keyError(head, k), keyError(tail, path.keys[(i + 1) % path.keys.length]));
+    });
+    r.keyError = wk;
+    let wy = 0; const N = 2000;
+    for (let i = 0; i < N; i++) { const t0 = f(f(path.total * i) / N), t1 = f(f(path.total * (i + 1)) / N); wy = Math.max(wy, f(Math.abs(wrapAngle(f(path.sample(t1).yaw - path.sample(t0).yaw))) * f(f(180) / PI))); }
+    r.yawJump = wy; r.yawStep = path.total / N * 1000;
+    path.ease = false; r.linearJump = worstSpeedJump(path, 'linear'); r.splineJump = worstSpeedJump(path, 'catmull');
+    path.interpolation = 'catmull'; let wp = 0;
+    path.keys.forEach((k, i) => {
+      if (k.travel <= 0) return; const ms = f(path.starts[i] + k.hold);
+      for (let s = 0; s <= 100; s++) { const u = f(s / f(100)), e = f(f(u * u) * f(3 - f(2 * u))); path.ease = true; const w = path.sample(f(ms + f(u * k.travel))).target; path.ease = false; const wo = path.sample(f(ms + f(e * k.travel))).target; wp = Math.max(wp, dist(w, wo)); }
+    });
+    r.easeError = wp;
+    path.interpolation = oi; path.ease = oe;
+    return r;
+  }
+  return { CameraPath, SHOTS, eyePosition, wrapAngle, selfCheck, rad };
+})();
+
+(() => {
+'use strict';
+const { $, tok, fit, seg, stat } = Lab;
+const segV = (id) => $(id).querySelector('[aria-pressed="true"]').dataset.v;
+const DEG = 180 / Math.PI, f = Math.fround;
+const fmtE = (v) => { const [m, e] = v.toExponential(2).split('e'); return m + 'E' + (e[0] === '-' ? '-' : '+') + e.replace(/^[+-]/, '').padStart(3, '0'); };
+// C# の F 書式は、ちょうど真ん中の値を偶数の側へ丸める(21.25 → 21.2)
+const fixedCs = (v, d) => { const k = Math.pow(10, d), x = v * k, r = Math.round(x); return ((Math.abs(x - Math.trunc(x)) === 0.5 && r % 2 !== 0) ? r - 1 : r) / k; };
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ------------------------------------------------------------
+// 1. カメラワーク
+// ------------------------------------------------------------
+const path = new CP.CameraPath(CP.SHOTS);
+const check = CP.selfCheck(path);
+let camTime = 0, playing = !reduceMotion, speedX = 1, last = null;
+const N = 600;
+function sampleTrack() {
+  const eyes = [], tgts = [], speeds = [];
+  for (let i = 0; i <= N; i++) {
+    const t = f(path.total * i / N), p = path.sample(t);
+    eyes.push(CP.eyePosition(p.target, p.distance, p.yaw, p.pitch)); tgts.push(p.target); speeds.push(path.speedAt(t).metres);
+  }
+  return { eyes, tgts, speeds };
+}
+let track = null, other = null, bounds = null;
+function rebuild() {
+  path.interpolation = segV('cam-interp'); path.ease = segV('cam-ease') === '1';
+  track = sampleTrack();
+  // 比べる相手(補間方式だけを替えたもの)
+  const keep = path.interpolation; path.interpolation = keep === 'catmull' ? 'linear' : 'catmull'; other = sampleTrack(); path.interpolation = keep;
+  const xs = track.eyes.concat(track.tgts, other.eyes).map((e) => e[0]), zs = track.eyes.concat(track.tgts, other.eyes).map((e) => e[2]);
+  bounds = [Math.min(...xs) - 1, Math.max(...xs) + 1, Math.min(...zs) - 1, Math.max(...zs) + 1];
+}
+function drawCam() {
+  const pose = path.sample(camTime), eye = CP.eyePosition(pose.target, pose.distance, pose.yaw, pose.pitch);
+  const idx = path.indexAt(camTime), sp = playing ? path.speedAt(camTime) : { metres: 0, degrees: 0 };
+  // 真上から(x 右、z 下)
+  {
+    const { ctx, w, h } = fit($('cam-top'));
+    const [x0, x1, z0, z1] = bounds, sc = Math.min((w - 20) / (x1 - x0), (h - 20) / (z1 - z0)), ox = (w - sc * (x1 - x0)) / 2, oz = (h - sc * (z1 - z0)) / 2;
+    const P = (v) => [ox + (v[0] - x0) * sc, oz + (v[2] - z0) * sc];
+    const line = (pts, color, width, dash) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.beginPath(); pts.forEach((v, i) => { const [x, y] = P(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.setLineDash([]); };
+    // 床の目盛り(1m)
+    ctx.strokeStyle = tok('--line'); ctx.lineWidth = 0.5;
+    for (let x = Math.ceil(x0); x <= x1; x++) { const [px] = P([x, 0, 0]); ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke(); }
+    for (let z = Math.ceil(z0); z <= z1; z++) { const [, py] = P([0, 0, z]); ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke(); }
+    line(other.eyes, tok('--muted'), 1, [2, 3]);
+    line(track.tgts, tok('--muted'), 1.2, [5, 4]);
+    line(track.eyes, tok('--accent'), 2.5);
+    ctx.font = '12px sans-serif';
+    path.keys.forEach((k, i) => {
+      const e = CP.eyePosition(k.target, k.distance, k.yaw, k.pitch), [x, y] = P(e);
+      ctx.fillStyle = tok('--accent'); ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = tok('--ink'); ctx.fillText(`${i + 1} ${k.name}`, x + 8, y - 6);
+    });
+    // 画角の扇(水平方向の画角は 960x640 の縦横比で広げる)
+    const [ex, ey] = P(eye), [tx, ty] = P(pose.target), ang = Math.atan2(ty - ey, tx - ex), half = Math.atan(Math.tan(pose.fov / 2) * 1.5), len = 60;
+    ctx.fillStyle = 'rgba(255,190,60,0.25)'; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex + Math.cos(ang - half) * len, ey + Math.sin(ang - half) * len); ctx.lineTo(ex + Math.cos(ang + half) * len, ey + Math.sin(ang + half) * len); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,190,60,0.9)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.fillStyle = '#ffbe3c'; ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = tok('--muted'); ctx.fillText(`太線 = 目(${path.interpolation === 'catmull' ? 'Catmull-Rom' : '線形'})/ 細い点線 = ${path.interpolation === 'catmull' ? '線形' : 'Catmull-Rom'} / 点線 = 注視点`, 8, h - 8);
+  }
+  // 速さのグラフ
+  {
+    const { ctx, w, h } = fit($('cam-speed'));
+    const maxS = Math.max(...track.speeds, ...other.speeds, 0.1), X = (t) => 30 + (t / path.total) * (w - 40), Y = (s) => h - 18 - (s / maxS) * (h - 30);
+    ctx.fillStyle = 'rgba(128,128,128,0.18)';
+    path.keys.forEach((k, i) => ctx.fillRect(X(path.starts[i]), 4, X(path.starts[i] + k.hold) - X(path.starts[i]), h - 22));
+    const plot = (sp, color, width) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath(); sp.forEach((s, i) => { const x = X(path.total * i / N), y = Y(s); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); };
+    plot(other.speeds, tok('--muted'), 1); plot(track.speeds, tok('--accent'), 2);
+    ctx.strokeStyle = '#ffbe3c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(camTime), 4); ctx.lineTo(X(camTime), h - 18); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+    ctx.fillText(`${maxS.toFixed(1)}m/s`, 2, 12); ctx.fillText('0', 18, h - 18); ctx.fillText('0s', 26, h - 4); ctx.fillText(`${path.total.toFixed(1)}s`, w - 40, h - 4);
+  }
+  $('cam-hud').textContent = `カメラ:${playing ? '再生' : '停止'}  ショット${idx + 1}/${path.keys.length}「${path.keys[idx].name}」  ${camTime.toFixed(1)}/${path.total.toFixed(1)}s  x${speedX.toFixed(2)}  ${path.interpolation === 'catmull' ? 'Catmull-Rom' : '線形'}  イージング:${path.ease ? 'ON' : 'OFF'}  ${sp.metres.toFixed(2)}m/s ${sp.degrees.toFixed(1)}度/s  画角:${(f(pose.fov) * DEG).toFixed(0)}度`;
+}
+function camStats() {
+  const inRange = path.keys.every((k) => k.distance >= 2 && k.distance <= 40 && Math.abs(k.pitch) <= 1.5);
+  $('cam-stats').innerHTML = stat('1. キーの上を通るずれ', fmtE(check.keyError)) + stat('2. 方位の 1 標本あたり最大', check.yawJump.toFixed(2) + ' 度', `<small> (${fixedCs(f(f(path.total / 2000) * 1000), 1).toFixed(1)}ms 刻み)</small>`) +
+    stat('3. 通過点の速度の跳び', `線形 ${check.linearJump.toFixed(2)} / CR ${check.splineJump.toFixed(2)}`, '<small> m/s</small>') + stat('4. イージングで軌跡が動く量', fmtE(check.easeError)) +
+    stat('5. 可動域(距離 2〜40m / 仰角 ±86度)', inRange ? `${path.keys.length} ショット` : '範囲外あり');
+  const notes = [];
+  if (path.interpolation === 'linear') notes.push('線形では、キーを通過する瞬間に向きが折れ、速さのグラフが角を作る(イージングを切ると分かりやすい)。');
+  else notes.push('Catmull-Rom はキーの上で接線が両側とも (p2 − p0) / 2 なので、通過の瞬間に向きも速さも繋がる。');
+  if (!path.ease) notes.push('イージングを切ると、静止(灰色の帯)の終わりでいきなり最高速になり、次の静止の手前で急に止まる。真上から見た軌跡は、イージングを入れたときと同じ線のまま。');
+  else notes.push('イージングが入っているので、静止の両端で速さが 0 に落ちて繋がる。静止中は補間を通らずキーをそのまま返すので、補間方式を替えても止まっている絵は同じ。');
+  $('cam-note').textContent = notes.join(' ');
+}
+function camFrame(ts) {
+  if (last !== null && playing) camTime = path.wrap(f(camTime + ((ts - last) / 1000) * speedX));
+  last = ts; drawCam();
+  if (playing) requestAnimationFrame(camFrame); else last = null;
+}
+seg('cam-play', (v) => { playing = v === '1'; if (playing) requestAnimationFrame(camFrame); else drawCam(); });
+seg('cam-interp', () => { rebuild(); camStats(); drawCam(); });
+seg('cam-ease', () => { rebuild(); camStats(); drawCam(); });
+seg('cam-speedx', (v) => { speedX = Number(v); drawCam(); });
+// Program.JumpToNextShot と同じく、次のショットの頭(静止の始まり)へ飛ぶ
+$('cam-next').addEventListener('click', () => { const i = (path.indexAt(camTime) + 1) % path.keys.length; camTime = path.starts[i]; drawCam(); });
+
+// ------------------------------------------------------------
+// 2. 方位の巻き取り
+// ------------------------------------------------------------
+function drawWrap() {
+  const [a, b] = segV('wr-pair').split(',').map(Number), wrap = segV('wr-wrap') === '1';
+  const y1 = CP.rad(a), y2 = wrap ? f(y1 + CP.wrapAngle(f(CP.rad(b) - y1))) : CP.rad(b), turn = (y2 - y1) * DEG;
+  const { ctx, w, h } = fit($('wr-canvas'));
+  const cx = w / 2, cy = h / 2 - 6, r = Math.min(w / 2, h / 2) - 34;
+  // 真上から: EyePosition の x = sin(yaw)、z = cos(yaw)。画面の右 = +x、下 = +z
+  const pt = (yaw, rr = r) => [cx + Math.sin(yaw) * rr, cy + Math.cos(yaw) * rr];
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 3; ctx.beginPath();
+  for (let i = 0; i <= 120; i++) { const y = y1 + (y2 - y1) * (i / 120), [x, yy] = pt(y); i ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); }
+  ctx.stroke();
+  const [ex, ey] = pt(y1 + (y2 - y1) * 0.97), [px, py] = pt(y1 + (y2 - y1) * 0.9);
+  Lab.arrow(ctx, px, py, ex, ey, tok('--accent'), 3);
+  ctx.fillStyle = tok('--ink'); ctx.font = '12px sans-serif';
+  for (const [yaw, t] of [[CP.rad(a), `始点 ${a} 度`], [CP.rad(b), `終点 ${b} 度`]]) { const [x, y] = pt(yaw), [lx, ly] = pt(yaw, r + 18); ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.textAlign = Math.sin(yaw) < 0 ? 'right' : 'left'; ctx.fillText(t, lx, ly + 4); ctx.textAlign = 'left'; }
+  ctx.fillStyle = tok('--muted'); ctx.fillText('注視点', cx - 18, cy + 4);
+  const wrapped = CP.wrapAngle(f(CP.rad(b) - CP.rad(a))) * DEG;
+  $('wr-stats').innerHTML = stat('回る角度', `${Math.abs(turn).toFixed(1)} 度`, `<small> (${turn >= 0 ? '方位が増える向き' : '方位が減る向き'})</small>`) +
+    stat('WrapAngle(終点 − 始点)', `${wrapped.toFixed(1)} 度`) + stat('5 秒で回すときの角速度', `${(Math.abs(turn) / 5).toFixed(1)} 度/s`);
+  $('wr-note').textContent = Math.abs(turn) > 180
+    ? `数字のまま補間すると ${Math.abs(turn).toFixed(0)} 度ぶん逆回りする。差を −180〜180 度に畳んでから足すと、近いほうの ${Math.abs(wrapped).toFixed(0)} 度で済む。`
+    : (wrap ? '差を −180〜180 度に畳んでから補間しているので、近いほうを回る。' : '差がもともと 180 度より小さいので、巻き取らなくても同じ弧になる(JSON の 5 ショットはどれもこの場合)。') +
+      ' なお仰角は ±86 度で止めてあるので差は最大 172 度で、WrapAngle を掛けても値は変わらない。';
+}
+seg('wr-pair', drawWrap); seg('wr-wrap', drawWrap);
+
+// ------------------------------------------------------------
+// 3. 機能の表と機能ツアー
+// ------------------------------------------------------------
+// エンジンの中の本当の値(_post.SceneFormat、_env.SkyboxVisible、_shadow.PcfRadius など)
+const engine = { hdr: true, sky: true, shadow: true, pcf: 2, normal: true, parallax: 3, pbr: true, ibl: true, ssao: true, bloom: true, fxaa: true, grade: true };
+const DEFS = [
+  ['HDR', '1.0 で切られ、露出を下げても明部が戻らない(Day 31)', () => engine.hdr, (on) => { engine.hdr = on; }, () => (engine.hdr ? 'Rgba16F' : 'Rgba8')],
+  ['空', '背景が単色になる。映り込みの元は残る(Day 36)', () => engine.sky, (on) => { engine.sky = on; }],
+  ['影', '接地感が消えて、物が床に浮く(Day 33)', () => engine.shadow, (on) => { engine.shadow = on; }],
+  ['ソフト影', '影の縁が1テクセルの階段になる(PCF なし。Day 33)', () => engine.pcf > 0, (on) => { engine.pcf = on ? 2 : 0; }, () => `PcfRadius = ${engine.pcf}`],
+  ['法線マップ', '壁と地面が平らな板に戻る(Day 34)', () => engine.normal, (on) => { engine.normal = on; }],
+  ['視差', '目地の奥行きが消える。輪郭は変わらない(Day 34)', () => engine.parallax !== 0, (on) => { engine.parallax = on ? 3 : 0; }, () => `_parallaxMode = ${engine.parallax}`],
+  ['PBR', 'ランバートに戻り、金属とプラスチックの差が消える(Day 35)', () => engine.pbr, (on) => { engine.pbr = on; }],
+  ['IBL', '環境光が定数になり、**ゴミ箱の金属が真っ黒になる**(Day 36)', () => engine.ibl, (on) => { engine.ibl = on; }],
+  ['SSAO', '物が接しているところの暗がりが消える(Day 37)', () => engine.ssao, (on) => { engine.ssao = on; }],
+  ['ブルーム', '明部のにじみが消えて、光が強く見えなくなる(Day 31)', () => engine.bloom, (on) => { engine.bloom = on; }],
+  ['FXAA', '輪郭に階段が出る(Day 38)', () => engine.fxaa, (on) => { engine.fxaa = on; }],
+  ['色調整', 'シーンが指定した色温度・彩度が外れる(Day 38)', () => engine.grade, (on) => { engine.grade = on; }],
+];
+class FeatureToggles {
+  constructor(mode) { this.mode = mode; this.features = []; this.selected = 0; this.tourActive = false; this.tourInterval = 3; this.snapshot = []; this.tourIndex = 0; this.tourTime = 0; this.showingAll = true; }
+  add(name, effect, get, set) {
+    // reference は読み書きの手順をそのまま持つ。「写す」版は、作った時点の値を自分で覚えてしまう(要点5の失敗)
+    if (this.mode === 'copy') { const box = { v: get() }; this.features.push({ name, effect, get: () => box.v, set: (on) => { box.v = on; set(on); } }); }
+    else this.features.push({ name, effect, get, set });
+  }
+  get onCount() { return this.features.filter((x) => x.get()).length; }
+  get allOn() { return this.features.every((x) => x.get()); }
+  selectNext() { this.selected = (this.selected + 1) % Math.max(1, this.features.length); }
+  toggleSelected() { const x = this.features[this.selected]; x.set(!x.get()); return x; }
+  setAll(on) { for (const x of this.features) x.set(on); }
+  capture() { return this.features.map((x) => x.get()); }
+  restore(s) { if (s.length === this.features.length) s.forEach((v, i) => this.features[i].set(v)); }
+  beginTour() { this.snapshot = this.capture(); this.tourIndex = 0; this.tourTime = 0; this.showingAll = false; this.tourActive = true; this.setAll(true); return this.applyStep(); }
+  endTour() { if (!this.tourActive) return; this.tourActive = false; this.restore(this.snapshot); }
+  update(dt) {
+    if (!this.tourActive || !this.features.length) return null;
+    this.tourTime += dt; if (this.tourTime < this.tourInterval) return null;
+    this.tourTime = 0;
+    if (this.showingAll) { this.tourIndex = (this.tourIndex + 1) % this.features.length; this.showingAll = false; } else this.showingAll = true;
+    return this.applyStep();
+  }
+  describe() { return this.features.map((x, i) => { const b = (x.get() ? '+' : '-') + x.name; return i === this.selected ? `[${b}]` : b; }).join(' '); }
+  tourLabel() { return !this.tourActive ? 'ツアー:OFF' : (this.showingAll ? 'ツアー:全部 ON(戻した絵)' : `ツアー:${this.features[this.tourIndex].name} だけ OFF`); }
+  applyStep() { this.setAll(true); if (this.showingAll) return '  全部 ON に戻す'; const x = this.features[this.tourIndex]; x.set(false); return `  ${x.name} を OFF: ${x.effect}`; }
+}
+let ft = null;
+const log = [];
+const say = (s) => { log.push(s); if (log.length > 60) log.shift(); const el = $('ft-console'); el.textContent = log.join('\n'); el.scrollTop = el.scrollHeight; };
+const onOff = (v) => (v ? 'ON' : 'OFF');
+function buildFt() {
+  for (const k of Object.keys(engine)) engine[k] = k === 'pcf' ? 2 : k === 'parallax' ? 3 : true;
+  ft = new FeatureToggles(segV('ft-mode'));
+  for (const [n, e, g, s] of DEFS) ft.add(n, e, g, s);
+}
+function stopTourIfRunning() { if (!ft.tourActive) return; ft.endTour(); say('機能ツアー: 手で切り替えたので終了しました'); }
+function drawFt() {
+  const rows = DEFS.map(([n, , g, , raw], i) => {
+    const table = ft.features[i].get(), real = g(), bad = table !== real;
+    return `<tr${i === ft.selected ? ' style="background:var(--accent-soft)"' : ''}><td>${i === ft.selected ? '▶ ' : ''}${n}</td><td>${onOff(table)}</td><td>${onOff(real)}${raw ? `<small>(${raw()})</small>` : ''}</td><td>${bad ? '<b>食い違い</b>' : ''}</td></tr>`;
+  }).join('');
+  $('ft-table').innerHTML = `<table><thead><tr><th>機能</th><th>表の言う値</th><th>エンジンの中の本当の値</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  $('ft-hud').textContent = `機能 ${ft.onCount}/${ft.features.length}: ${ft.describe()}\n${ft.tourLabel()}`;
+  const bad = DEFS.some(([, , g], i) => ft.features[i].get() !== g());
+  $('ft-note').textContent = bad
+    ? '表が値を写して持っているので、Day 37 のキーで _ssao.Enabled を直接触った瞬間に、表の言う ON と絵の中の OFF が食い違った。どちらが本当かを決める仕組みを足すと、今度はその同期がバグの温床になる。'
+    : (ft.tourActive ? '1つ切る → 全部戻す を 3 秒ごとに交互に回す。毎回 SetAll(true) から組み直すので、状態は index と相の2つで足りる。走っている間に F8 / F9 を押すと、ツアーのほうが終わる。'
+      : (ft.mode === 'proc' ? '表は値を持たず、読み書きの手順だけを持つ。Day 37 のキー(Ctrl+F1)で直接触っても、表はエンジンの値を読み直すだけなので食い違わない。' : '「値を写して持つ」版。このままでは問題が見えない。Ctrl+F1 で SSAO を直接触ると食い違う。'));
+}
+$('ft-f7').addEventListener('click', () => { ft.selectNext(); const x = ft.features[ft.selected]; say(`選択: ${x.name}(${onOff(x.get())})  Ctrl+Alt+F8 で切り替え`); drawFt(); });
+$('ft-f8').addEventListener('click', () => { stopTourIfRunning(); const x = ft.toggleSelected(); say(`${x.name}: ${onOff(x.get())}` + (x.get() ? '' : `  — ${x.effect}`)); drawFt(); });
+$('ft-f9').addEventListener('click', () => { stopTourIfRunning(); const on = !ft.allOn; ft.setAll(on); say(on ? `機能: 全部 ON(${ft.features.length} 項目。必須構成の絵)` : '機能: 全部 OFF(**Day 31 に戻した絵**。ベースカラーと平行光源だけ)'); drawFt(); });
+$('ft-f10').addEventListener('click', () => {
+  if (ft.tourActive) { ft.endTour(); say('機能ツアー: 終了(始める前の状態に戻した)'); }
+  else { say(''); say(`機能ツアー: ${ft.tourInterval.toFixed(1)} 秒ごとに1つずつ切っては戻す`); say(ft.beginTour()); }
+  drawFt();
+});
+$('ft-ctrlf1').addEventListener('click', () => { engine.ssao = !engine.ssao; say(`SSAO(Ctrl+F1): ${onOff(engine.ssao)}`); drawFt(); });
+$('ft-f11').addEventListener('click', () => {
+  const before = ft.capture(); ft.setAll(false); const allOff = ft.onCount === 0; ft.setAll(true); const allOn = ft.allOn; ft.restore(before);
+  const restored = ft.capture().every((v, i) => v === before[i]);
+  const missing = ['PBR', 'IBL', '影', 'ソフト影', 'SSAO', 'ブルーム', 'FXAA'].filter((n) => ft.features.find((x) => x.name === n)?.get() !== true).join('/');
+  say(''); say('[カメラワークと機能トグルの自己チェック](機能トグルの3項目)');
+  say(`  [${allOff && allOn ? 'OK' : 'NG'}] **機能表から全部 OFF / 全部 ON にできる**  ${ft.features.length} 項目`);
+  say(`  [${restored ? 'OK' : 'NG'}] **控えた状態にそのまま戻せる**(読み書きが対になっている)  ON ${ft.onCount}/${ft.features.length}`);
+  say(`  [${missing ? 'NG' : 'OK'}] **必須構成が全部 ON**(PBR+IBL+ソフトシャドウ+SSAO+ブルーム+AA)  ${missing ? 'OFF: ' + missing : 'Phase 6 のマイルストーン'}`);
+  drawFt();
+});
+seg('ft-mode', () => { log.length = 0; buildFt(); say(`(表を作り直した: ${segV('ft-mode') === 'proc' ? '読み書きの手順を持つ' : '値を写して持つ'})`); drawFt(); });
+setInterval(() => { if (!ft.tourActive) return; const m = ft.update(0.1); if (m) { say(m); drawFt(); } }, 100);
+
+// ------------------------------------------------------------
+// 4. 画角と距離
+// ------------------------------------------------------------
+function drawFov() {
+  const fov = Number(segV('fov-fov')) / DEG, mode = segV('fov-mode');
+  const ref = 42 / DEG, d0 = 4, d = mode === 'dolly' ? d0 * Math.tan(ref / 2) / Math.tan(fov / 2) : d0;
+  const { ctx, w, h } = fit($('fov-canvas'));
+  // 右半分 = 写った絵(高さの割合)、左半分 = 横から見た配置
+  const half = w * 0.45, depths = [0, 4, 10, 25];
+  const frac = (z) => 1 / (2 * (d + z) * Math.tan(fov / 2));
+  // 左: 横から(カメラは左端、被写体と柱は右へ)
+  const far = d + 25, sx = (z) => 16 + (z / far) * (half - 30), gy = h - 30, sy = 40 / 1;
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(10, gy); ctx.lineTo(half, gy); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,190,60,0.18)'; ctx.beginPath(); ctx.moveTo(sx(0), gy - 20); ctx.lineTo(sx(far), gy - 20 - far * Math.tan(fov / 2) * ((half - 30) / far)); ctx.lineTo(sx(far), gy - 20 + far * Math.tan(fov / 2) * ((half - 30) / far)); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffbe3c'; ctx.fillRect(sx(0) - 4, gy - 24, 8, 8);
+  depths.forEach((z, i) => { ctx.fillStyle = i ? tok('--muted') : tok('--accent'); const x = sx(d + z); ctx.fillRect(x - 2, gy - 20 - sy * 0.5, 4, sy * 0.5 + 20); });
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px sans-serif'; ctx.fillText(`横から(カメラ → 被写体 ${d.toFixed(1)}m、柱は 4 / 10 / 25m 奥)`, 10, 16);
+  // 右: 写った絵
+  const vx = half + 20, vw = w - vx - 10, vh = h - 40, vy = 24;
+  ctx.strokeStyle = tok('--line'); ctx.strokeRect(vx, vy, vw, vh);
+  const horizon = vy + vh * 0.62;
+  depths.slice().reverse().forEach((z, ri) => {
+    const i = depths.length - 1 - ri, ph = frac(z) * vh, pw = Math.max(3, ph * 0.35), x = vx + vw * (0.3 + i * 0.16);
+    ctx.fillStyle = i ? tok('--muted') : tok('--accent'); ctx.fillRect(x - pw / 2, horizon - ph * 0.5, pw, ph);
+  });
+  ctx.fillStyle = tok('--muted'); ctx.fillText(`写った絵(画角 ${segV('fov-fov')} 度)`, vx, 16);
+  const ratio = frac(0) / frac(10);
+  $('fov-stats').innerHTML = stat('被写体までの距離', d.toFixed(2) + ' m') + stat('被写体の高さ(画面比)', (frac(0) * 100).toFixed(0) + '%') +
+    stat('10m 奥の柱(画面比)', (frac(10) * 100).toFixed(1) + '%') + stat('被写体 / 10m 奥の柱', ratio.toFixed(2) + ' 倍');
+  $('fov-note').textContent = mode === 'dolly'
+    ? `被写体の大きさは同じまま、奥の柱の大きさだけが変わる(ドリーズーム)。望遠(狭い画角)ほど奥が大きく写って遠近が平たくなり、広角ほど奥が小さく遠ざかる。42 度のときの 4m を基準にしている。`
+    : '距離を 4m のままレンズだけ替えると、被写体も奥も同じ倍率で大きくなるだけで、被写体と奥の比は変わらない。比を変えるのは「どこから見るか」(距離)のほう。';
+}
+seg('fov-fov', drawFov); seg('fov-mode', drawFov);
+
+function all() { drawCam(); drawWrap(); drawFt(); drawFov(); }
+rebuild(); camStats(); buildFt(); say('(Ctrl+Alt+F7〜F10 のボタンを押すと、ここにコンソールの出力が出る)'); all();
+if (playing) requestAnimationFrame(camFrame);
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(all, 100); });
+})();
+</script>
+</body>
+</html>
