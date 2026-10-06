@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 64a メッシュシェーダ</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 入口ごと取り替える</a></li><li class="l3"><a href="#s6">2. メッシュレット — 起動前に小さなメッシュに切る</a></li><li class="l3"><a href="#s7">3. 上限を先に宣言して、番号で書く — GS との違い</a></li><li class="l3"><a href="#s8">4. 32 人で 64 頂点・124 枚 — ワークグループの組み方</a></li><li class="l3"><a href="#s9">5. Vulkan でラスタライズする — パイプライン・的・移し替え</a></li><li class="l3"><a href="#s10">6. 数える — 数えられるものが道ごとに違う</a></li><li class="l3"><a href="#s11">7. 同じ絵を出すための約束 — そして値段</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新しく書くファイル</a></li><li class="l3"><a href="#s14">Day 62c から持ってきて変えるファイル</a></li><li class="l3"><a href="#s15">持ってこないファイル</a></li><li class="l3"><a href="#s16">写経の始め方</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">全体構成と依存の向き</a></li><li class="l3"><a href="#s20">Geometry — 形とメッシュレット</a></li><li class="l3"><a href="#s21">Vulkan — 6つのクラスと2つの構造体</a></li><li class="l3"><a href="#s22">GPU に挿さっているもの — binding の一覧</a></li><li class="l3"><a href="#s23">1フレームの流れ — <code>MeshRenderer.Render</code></a></li><li class="l3"><a href="#s24">メッシュレットが育つまで — <code>BuildGrow</code></a></li><li class="l3"><a href="#s25">メッシュシェーダの1ワークグループの中</a></li><li class="l3"><a href="#s26">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s27">完成条件</a></li><li class="l3"><a href="#s28">1. 起動: 16 体、メッシュシェーダ</a></li><li class="l3"><a href="#s29">2. <code>B</code> を押す: 頂点シェーダの道(今日の目)</a></li><li class="l3"><a href="#s30">3. <code>4</code> を押す: 256 体</a></li><li class="l3"><a href="#s31">4. <code>M</code> と <code>O</code> で切り方を見る</a></li><li class="l3"><a href="#s32">5. シェーダを1本だけ壊す</a></li><li class="l2"><a href="#s33">検証の途中で分かったこと</a></li><li class="l3"><a href="#s34">検証1: 2つの道の絵を突き合わせる</a></li><li class="l3"><a href="#s35">検証2: 数えるだけで 34 倍遅くなった</a></li><li class="l3"><a href="#s36">検証3: 「並び順のまま」のほうが速かった</a></li><li class="l3"><a href="#s37">検証4: <code>gl_PrimitiveID</code> には GeometryShader の機能が要る</a></li><li class="l2"><a href="#s38">改造課題</a></li><li class="l3"><a href="#s39">課題1(易): メッシュシェーダの回数を数えてみる</a></li><li class="l3"><a href="#s40">課題2(中): メッシュレットの大きさを変える</a></li><li class="l3"><a href="#s41">課題3(難): 育て方の点数に「向き」を混ぜる</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 64a / 計画書</p>
+  <h1>メッシュシェーダ</h1>
+  <p class="lede">頂点を配らずに三角形を作る</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 入口ごと取り替える</a></li><li class="l3"><a href="#s6">2. メッシュレット — 起動前に小さなメッシュに切る</a></li><li class="l3"><a href="#s7">3. 上限を先に宣言して、番号で書く — GS との違い</a></li><li class="l3"><a href="#s8">4. 32 人で 64 頂点・124 枚 — ワークグループの組み方</a></li><li class="l3"><a href="#s9">5. Vulkan でラスタライズする — パイプライン・的・移し替え</a></li><li class="l3"><a href="#s10">6. 数える — 数えられるものが道ごとに違う</a></li><li class="l3"><a href="#s11">7. 同じ絵を出すための約束 — そして値段</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新しく書くファイル</a></li><li class="l3"><a href="#s14">Day 62c から持ってきて変えるファイル</a></li><li class="l3"><a href="#s15">持ってこないファイル</a></li><li class="l3"><a href="#s16">写経の始め方</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">全体構成と依存の向き</a></li><li class="l3"><a href="#s20">Geometry — 形とメッシュレット</a></li><li class="l3"><a href="#s21">Vulkan — 6つのクラスと2つの構造体</a></li><li class="l3"><a href="#s22">GPU に挿さっているもの — binding の一覧</a></li><li class="l3"><a href="#s23">1フレームの流れ — <code>MeshRenderer.Render</code></a></li><li class="l3"><a href="#s24">メッシュレットが育つまで — <code>BuildGrow</code></a></li><li class="l3"><a href="#s25">メッシュシェーダの1ワークグループの中</a></li><li class="l3"><a href="#s26">今日残した歪み(3つ)</a></li><li class="l2"><a href="#s27">完成条件</a></li><li class="l3"><a href="#s28">1. 起動: 16 体、メッシュシェーダ</a></li><li class="l3"><a href="#s29">2. <code>B</code> を押す: 頂点シェーダの道(今日の目)</a></li><li class="l3"><a href="#s30">3. <code>4</code> を押す: 256 体</a></li><li class="l3"><a href="#s31">4. <code>M</code> と <code>O</code> で切り方を見る</a></li><li class="l3"><a href="#s32">5. シェーダを1本だけ壊す</a></li><li class="l2"><a href="#s33">検証の途中で分かったこと</a></li><li class="l3"><a href="#s34">検証1: 2つの道の絵を突き合わせる</a></li><li class="l3"><a href="#s35">検証2: 数えるだけで 34 倍遅くなった</a></li><li class="l3"><a href="#s36">検証3: 「並び順のまま」のほうが速かった</a></li><li class="l3"><a href="#s37">検証4: <code>gl_PrimitiveID</code> には GeometryShader の機能が要る</a></li><li class="l2"><a href="#s38">改造課題</a></li><li class="l3"><a href="#s39">課題1(易): メッシュシェーダの回数を数えてみる</a></li><li class="l3"><a href="#s40">課題2(中): メッシュレットの大きさを変える</a></li><li class="l3"><a href="#s41">課題3(難): 育て方の点数に「向き」を混ぜる</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編。Day 64 の1日目</strong>。ロードマップの Day 64(メッシュシェーダ)は1日に収まらないので、Day 62・63 と同じく <strong>64a / 64b の2日に割った</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>今日やること</th><th>Day 63 の何と比べるか</th></tr></thead>
+<tbody>
+<tr><td><strong>64a(今日)</strong></td><td><strong>Vulkan でラスタライズする</strong>。メッシュレットに切って、<strong>メッシュシェーダで描く</strong></td><td>63a のジオメトリシェーダ(図形を作り直す段)</td></tr>
+<tr><td>64b</td><td>メッシュシェーダの手前に<strong>タスクシェーダ</strong>を置き、<strong>メッシュレット単位で GPU カリング</strong></td><td>63b のテッセレーション(増やす段)</td></tr>
+</tbody>
+</table></div>
+<p><strong>Labs の新しいプロジェクト <code>MeshletRenderer</code></strong> として始める。ただし Vulkan の土台はDay 62c の <code>HardwareRayTracer</code> から持ってくる(device・メモリ・ディスクリプタ・SPIR-V の話は Day 62a で済んでいる)。</p>
+<ul><li>置き場所: <code>reference/Day64a/</code> / 写経先は <code>work/Labs/MeshletRenderer/</code></li><li>名前空間: <code>MeshletRenderer</code>(64a / 64b で共通)</li></ul>
+<p>今日やることは2つ。<strong>Vulkan でラスタライズする</strong>(Day 62 は一度もやっていない)ことと、<strong>同じ絵を2つの道で描いて比べる</strong>こと。</p>
+<div class="code"><pre><code>  頂点シェーダの道: 索引 → [入力の回路] → 頂点シェーダ(1頂点ずつ) → ラスタライザ → 画素シェーダ
+  メッシュの道    :                        メッシュシェーダ(32 人で小さなメッシュを丸ごと) → ラスタライザ → 画素シェーダ</code></pre></div>
+<p>Day 63a・63b の段は、どちらも<strong>頂点シェーダの後ろに挟む</strong>ものだった。入口(索引を読んで頂点を1つずつ配る回路)はそのまま。メッシュシェーダは<strong>入口ごと取り替える</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ジオメトリシェーダ(63a)</th><th>テッセレーション(63b)</th><th><strong>メッシュシェーダ(64a)</strong></th></tr></thead>
+<tbody>
+<tr><td>どこに入るか</td><td>頂点シェーダの後ろ</td><td>頂点シェーダの後ろ</td><td><strong>入力の回路と頂点シェーダの代わり</strong></td></tr>
+<tr><td>1回が受け持つもの</td><td>図形1つ(1人)</td><td>パッチ1つ</td><td><strong>メッシュレット1つ(32 人)</strong></td></tr>
+<tr><td>出す量</td><td>実行してみるまで分からない</td><td>回路が決める(6つの数から)</td><td><strong>上限を先に宣言する</strong>(64 頂点・124 枚)</td></tr>
+<tr><td>出し方</td><td><code>EmitVertex</code> で<strong>後ろに付け足す</strong></td><td>回路が作る</td><td><strong>番号を指定して並行に書く</strong></td></tr>
+<tr><td>頂点の使い回し</td><td>帯(strip)で出すので重なる</td><td>回路が共有する</td><td><strong>局所番号の三角形で共有する</strong></td></tr>
+<tr><td>素通しの値段</td><td><strong>4.89 倍</strong>(OpenGL)</td><td>—</td><td><strong>0.80〜1.03 倍</strong>(Vulkan、要点7)</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>新しく書く 10 ファイル + csproj</strong>(C# 1,513 行 + GLSL 207 行)と、Day 62c から持ってきて手を入れる<strong>7 ファイル</strong>(+363 / −512 行)。<strong>1日ぶんとしては重い</strong>(Day 62a と同じくらい)。「写経する順番」は途中で区切れるように並べてある。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、「数える」だけでメッシュの道が 34 倍遅くなったこと</strong></p>
+<p>2つの道を並べて測ったら、最初はメッシュの道が <strong>2.4ms、頂点の道が 0.07ms</strong> だった。シェーダの中身を削っていくと、<strong>中身が空のメッシュシェーダでも 2.4ms</strong> のまま——犯人はシェーダではなく、「メッシュシェーダが何回走ったか」を GPU に数えさせる<strong>パイプライン統計</strong>だった。これを外すとメッシュの道は <strong>0.070ms</strong>、頂点の道と同じ速さになった(検証2)。Day 62a の「CPU の時計で測ると GPU の時間が見えない」と同じく、<strong>測り方が測るものを変える</strong>。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると 960x540 の窓に、トーラスノット(結び目の形の管)が 16 体並ぶ。HUD の「描き方」が「メッシュシェーダ」で、「内訳」の行に「メッシュシェーダ 5,488 組 x 32 人 / ラスタライザへ 三角形 524,288 枚」と出る。<code>B</code> で頂点シェーダの道に切り替えても</strong>絵は1画素も変わらず<strong>、内訳が「頂点シェーダ 545,522 回」に変わる。<code>M</code> で色をメッシュレットごとにすると、管の表面が不揃いな小片に塗り分けられる。<code>O</code> で切り方を変えると、輪切りの縞になる。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>B</code></td><td><strong>描き方(メッシュシェーダ ↔ 頂点シェーダ)。今日の目</strong>。絵は変わらない</td></tr>
+<tr><td><code>M</code></td><td>表示(陰影 → メッシュレットごとの色 → 三角形ごとの色)</td></tr>
+<tr><td><code>O</code></td><td>メッシュレットの切り方(育てる ↔ 並び順のまま)</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>体の数(1 / 16 / 64 / 256)。三角形は 3 万 / 52 万 / 210 万 / 839 万枚</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>Day 62 のまま</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「入口ごと取り替える」</strong>(要点1)。頂点シェーダの道では、GPU の<strong>入力の回路</strong>が索引を読み、頂点を1つずつ頂点シェーダに配っていた。メッシュシェーダの道には<strong>その回路が無い</strong>。パイプラインを作るコードでは、それが「2行が有るか無いか」として見える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// GraphicsPipeline.cs
+PVertexInputState   = vertexInput ? &amp;vertexInputState : null,   // 頂点バッファのどこに何があるか
+PInputAssemblyState = vertexInput ? &amp;inputAssembly   : null,   // 索引を3つずつ読んで三角形にする</code></pre></div>
+<p>代わりにメッシュシェーダは、<strong>頂点も索引も自分でストレージバッファから読む</strong>。</p>
+<p><strong>2つ目は「小さなメッシュに切っておく」</strong>(要点2)。メッシュシェーダの1ワークグループが出せるのは頂点 64・三角形 124 まで(今日の設定)。だから元のメッシュを<strong>その大きさの小片(メッシュレット)に起動前に切る</strong>。切り方で数が変わる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>切り方</th><th>1体あたり</th><th>三角形 / 個</th><th>頂点 / 個</th><th>頂点の重複</th></tr></thead>
+<tbody>
+<tr><td><strong>育てる</strong>(新しい頂点がいちばん増えない隣を足す)</td><td><strong>343 個</strong></td><td>95.5</td><td>63.7</td><td><strong>x1.33</strong></td></tr>
+<tr><td>並び順のまま</td><td>512 個</td><td>64.0</td><td>64.0</td><td>x2.00</td></tr>
+</tbody>
+</table></div>
+<p><strong>3つ目は「上限を先に宣言して、番号で書く」</strong>(要点3)。Day 63a の GS は <code>EmitVertex()</code> で1つずつ後ろに付け足したので、何個出るかが実行するまで分からなかった。メッシュシェーダは <code>max_vertices = 64, max_primitives = 124</code> を先に宣言し、<strong>何番目に書くかを自分で指定する</strong>。だから 32 人が同時に書ける。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>SetMeshOutputsEXT(meshlet.vertexCount, meshlet.triangleCount);      // 実際の数(上限以下)
+for (uint i = gl_LocalInvocationIndex; i &lt; meshlet.vertexCount; i += 32u)
+    gl_MeshVerticesEXT[i].gl_Position = ...;                         // i 番目に書く
+for (uint i = gl_LocalInvocationIndex; i &lt; meshlet.triangleCount; i += 32u)
+    gl_PrimitiveTriangleIndicesEXT[i] = uvec3(...);                  // i 番目の三角形</code></pre></div>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://www.khronos.org/blog/mesh-shading-for-vulkan">Khronos Blog: Mesh Shading for Vulkan</a></strong> —VK_EXT_mesh_shader が出たときの紹介記事。<strong>何が変わったのか</strong>を最初に掴むのにちょうどよい長さ</li><li><strong><a href="https://github.com/KhronosGroup/Vulkan-Docs/blob/main/proposals/VK_EXT_mesh_shader.adoc">VK_EXT_mesh_shader の提案書(proposal)</a></strong> —仕様になる前の「なぜこう決めたか」の文書。<strong>Rasterization Order の節</strong>(メッシュシェーダでも描く順番は決まっている)と、NV 版・D3D12 版との違いの節を読む</li><li><strong><a href="https://github.com/KhronosGroup/GLSL/blob/main/extensions/ext/GLSL_EXT_mesh_shader.txt">GLSL_EXT_mesh_shader 拡張仕様</a></strong> —<code>SetMeshOutputsEXT</code> / <code>gl_MeshVerticesEXT</code> / <code>gl_PrimitiveTriangleIndicesEXT</code> / <code>gl_MeshPrimitivesEXT</code> の定義。<strong>今日いちばん引く資料</strong>。<code>SetMeshOutputsEXT</code> の「1回だけ、全員がそろって通る場所で」の決まりはここにある</li><li><strong><a href="https://developer.nvidia.com/blog/introduction-turing-mesh-shaders/">NVIDIA: Introduction to Turing Mesh Shaders</a></strong> —NV 版の拡張の解説だが、<strong>メッシュレットという考え方と 64 / 126 という数の由来</strong>はここがいちばん詳しい</li><li><strong><a href="https://zeux.io/2023/01/16/meshlet-size-tradeoffs/">Arseny Kapoulkine: Meshlet size tradeoffs</a></strong> —meshoptimizer の作者による、メッシュレットの大きさの考察。<strong>「頂点 64 なら三角形はだいたい 98 枚」</strong>の実測がある(要点2)</li><li><strong><a href="https://gpuopen.com/learn/mesh_shaders/mesh_shaders-from_vertex_shader_to_mesh_shader/">AMD GPUOpen: From vertex shader to mesh shader</a></strong> —AMD 側から見た同じ話。<strong>GPU の中で頂点シェーダがどう組まれていたか</strong>の図がよい</li><li><strong><a href="https://docs.vulkan.org/samples/latest/samples/extensions/dynamic_rendering/README.html">Vulkan Samples: Dynamic rendering</a></strong> —描画パスを作らずに描き始める仕組み(要点5)。今日のラスタライズの儀式はこれで短くなっている</li><li><strong><a href="https://docs.vulkan.org/spec/latest/chapters/queries.html">Vulkan 仕様: Queries</a></strong> の<strong>Pipeline Statistics Queries</strong> と <strong>Mesh Shader Queries</strong> の節 — 要点6 の「数えられるものが道ごとに違う」</li><li><strong>Day 63a の計画書</strong>の冒頭の枠(GS の素通しが 4.89 倍になった理由)と、<strong>Day 62a の計画書</strong>の要点4〜6 (ディスクリプタ、バリア、タイムスタンプ)。今日の Vulkan の書き方はそこからの続き</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. 入口ごと取り替える</h3>
+<p>頂点シェーダの道を GPU の側から見ると、こうなっている。</p>
+<div class="code"><pre><code>  索引バッファ ─→ [入力の回路] ─→ 頂点シェーダ ─→ [組み立て] ─→ ラスタライザ
+                   │ 索引を読む              ↑ 1頂点に1回
+                   │ 頂点バッファから属性を取り出す
+                   └ 同じ索引が最近出ていたら、前の結果を使い回す(post-transform cache)</code></pre></div>
+<p>この<strong>入力の回路</strong>は固定機能で、プログラムできない。頂点シェーダが「自分がどの三角形の角か」を知らないのも、隣の頂点が見えないのも、この回路が1頂点ずつ配っているから。</p>
+<p>メッシュシェーダの道では、この回路と頂点シェーダが<strong>丸ごと無くなり</strong>、代わりに<strong>コンピュートシェーダに近い段</strong>が入る。</p>
+<div class="code"><pre><code>  (何も配られない) ─→ メッシュシェーダ ─→ ラスタライザ
+                      ↑ ワークグループ1つ = メッシュレット1つ
+                        頂点も索引も自分でストレージバッファから読む
+                        三角形(3つの局所番号)も自分で書く</code></pre></div>
+<p>描く命令もそれに合わせて変わる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>vk.CmdDrawIndexed(cmd, 索引の数, 体の数, 0, 0, 0);                  // 頂点の道: 「索引を何個」
+meshApi.CmdDrawMeshTask(cmd, メッシュレットの数, 体の数, 1);         // メッシュの道: 「ワークグループを何組」</code></pre></div>
+<p><code>CmdDrawMeshTask</code> に渡すのは<strong>コンピュートの <code>CmdDispatch</code> と同じ、ワークグループの数</strong>。頂点バッファも索引バッファも挿さない(Silk.NET では <code>vkCmdDrawMeshTasksEXT</code> の末尾の s が落ちて<code>CmdDrawMeshTask</code> という名前になっている)。</p>
+<h3 id="s6">2. メッシュレット — 起動前に小さなメッシュに切る</h3>
+<p>メッシュシェーダの1ワークグループが出せる量には上限がある。手元の RTX 3070 では頂点 256・三角形 256 まで出せるが、<strong>NVIDIA の推奨は頂点 64・三角形 126</strong>(NVIDIA のブログ)。今日は meshoptimizer に倣って <strong>64 / 124</strong> にした(126 は「三角形の索引を 128 バイト単位で確保し、そこに数の 4 バイトも入る」から来た数で、meshoptimizer は三角形の数を 4 の倍数に揃える作りなので 124 を使う)。</p>
+<p>1つのメッシュレットが持つのは「どこから何個」の組が2つだけ(16 バイト)。</p>
+<div class="code"><pre><code>  GpuMeshlet { VertexOffset, TriangleOffset, VertexCount, TriangleCount }
+                    │               │
+                    │               └→ Triangles[]     … 局所番号3つを 8 ビットずつ詰めた uint
+                    └→ VertexIndices[] … 局所番号 → 元の頂点番号</code></pre></div>
+<p><strong>局所番号が 0〜63 に収まる</strong>のがミソで、三角形1枚が 4 バイト(元の索引は 32 ビット x 3 = 12 バイト)になる。</p>
+<p>切り方は2つ用意した(<code>MeshletBuilder.cs</code>)。</p>
+<ul><li><strong>並び順のまま</strong>: 索引の先頭から三角形を詰めて、入らなくなったら次へ。10 行で済む</li><li><strong>育てる</strong>: 種の三角形から始めて、<strong>頂点を共有している三角形のうち、新しく増える頂点がいちばん少ないもの</strong>を足していく</li></ul>
+<p>トーラスノットは三角形が「管の断面を1周する帯」ごとに並んでいる(1周 32 升 = 三角形 64 枚・頂点 64 個)。だから並び順のまま切ると、<strong>1つのメッシュレットがちょうど1本の輪になる</strong>(<code>O</code> で見える縞模様)。輪の両側の円は隣のメッシュレットでも使うので、<strong>頂点の重複率がちょうど 2.00</strong>。</p>
+<p>育てると、境目の短いひとつながりの小片になり、重複率は <strong>1.33</strong> まで下がる(ただし<strong>形は丸くない</strong>。管の周りを回り込むように育つ——Day 64b で測って分かる)。</p>
+<blockquote><p><strong>三角形 124 枚の上限には1つも届かない</strong>(343 個中 0 個。頂点 64 の上限に届いたのが 340 個)。格子状のメッシュでは、頂点 64 個で囲める三角形はだいたい 98 枚で(Kapoulkine の記事の実測と同じ)、三角形の上限より先に頂点の上限に当たる。<strong>平均 95.5 枚</strong>はほぼその限界。「頂点 64・三角形 124」は、上限を2つ並べておいて、先に当たったほうで切る、という意味の数。</p></blockquote>
+<div class="inject"><figure class="lab" id="ml-lab">
+  <div class="lab-head">
+    <h3>メッシュレットに切る — 育てる / 並び順のまま、そして大きさ(要点2)</h3>
+    <span class="tag">reference の TorusKnot.Create と MeshletBuilder(BuildGrow・BuildScan・MeshletWriter)を JS に移して、1体のトーラスノットを2D のキャンバスにソフトウェアで描いたもの(GPU ではない)。切り方は C# と同じ手順で、個数・番号とも一致する。表の色は reference の hashColor ではなくこのページ用の色。表側の三角形だけを描く</span>
+  </div>
+  <div class="stage"><canvas id="ml-canvas" style="height:400px;background:#12151c" aria-label="トーラスノットをメッシュレットごとに塗り分けた絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">切り方(O)</span>
+      <div class="seg" id="ml-strategy"><button data-v="grow" aria-pressed="true">育てる</button><button data-v="scan" aria-pressed="false">並び順のまま</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(M)</span>
+      <div class="seg" id="ml-mode"><button data-v="meshlet" aria-pressed="true">メッシュレットごとの色</button><button data-v="triangle" aria-pressed="false">三角形ごとの色</button><button data-v="shaded" aria-pressed="false">陰影</button></div>
+    </div>
+    <div class="ctl"><span class="label">1つの大きさ(頂点 / 三角形)。このページだけ。reference は 64 / 124 の定数(課題2)</span>
+      <div class="seg" id="ml-size"><button data-v="32,64" aria-pressed="false">32 / 64</button><button data-v="64,124" aria-pressed="true">64 / 124(今日)</button><button data-v="128,256" aria-pressed="false">128 / 256</button></div>
+    </div>
+    <div class="ctl"><span class="label">向き(Yaw。左ドラッグの代わり)</span>
+      <div class="range"><input type="range" id="ml-yaw" min="-3.14" max="3.14" step="0.02" value="0.6"><output id="ml-yaw-out"></output></div>
+    </div>
+    <label class="check"><input type="checkbox" id="ml-pick"> 1つだけ強調する(このページだけ)</label>
+    <div class="ctl"><span class="label">強調するメッシュレットの番号</span>
+      <div class="range"><input type="range" id="ml-index" min="0" max="342" step="1" value="120"><output id="ml-index-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ml-stats"></div>
+    <canvas id="ml-hist" style="height:120px;margin-top:10px" aria-label="メッシュレットの三角形の数の分布"></canvas>
+    <div class="table-wrap" id="ml-one" style="margin-top:10px"></div>
+    <p id="ml-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">3. 上限を先に宣言して、番号で書く — GS との違い</h3>
+<p>Day 63a の枠には、素通しの GS が 4.89 倍になった理由として「出る数が実行してみるまで分からない」「出た順を守らなければならない」の2つが書いてある。メッシュシェーダはこの2つをこう変えた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>GS(63a)</th><th>メッシュシェーダ(今日)</th></tr></thead>
+<tbody>
+<tr><td>出す量</td><td><code>EmitVertex</code> を何回呼ぶかは実行してみるまで分からない</td><td><strong>上限をシェーダの頭で宣言する</strong>(<code>max_vertices</code> / <code>max_primitives</code>)。実数は <code>SetMeshOutputsEXT</code> で</td></tr>
+<tr><td>書く場所</td><td>1人が<strong>後ろへ付け足す</strong>(書いた時刻の順 = 出力の順)</td><td><strong>番号で指定する</strong>(<code>gl_MeshVerticesEXT[i]</code>)。32 人が同時に、ばらばらの順で書いてよい</td></tr>
+<tr><td>描く順番</td><td>図形の順 → その中で付け足した順</td><td><strong>ワークグループの番号順 → その中で配列の番号順</strong>(提案書の Rasterization Order)</td></tr>
+</tbody>
+</table></div>
+<p><strong>メッシュシェーダにも描く順番の約束はある</strong>(ここを取り違えやすい)。違うのは、その順番が<strong>書いた時刻ではなく、配列の番号で決まる</strong>こと。置き場所の大きさも最初から決まっている。だから GPU は出力の場所を先に取っておけるし、中の人たちを待ち合わせさせずに書かせられる。</p>
+<p>もう1つ、<strong>三角形ごとの出力</strong>が書ける。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>gl_MeshPrimitivesEXT[i].gl_PrimitiveID = int(meshlet.triangleOffset + i);</code></pre></div>
+<p>頂点シェーダは「頂点」しか出せないので、三角形ごとの値は作れなかった(GS はそのための段でもあった)。今日は画素シェーダの色分けに使う番号を、これで渡している(要点7)。</p>
+<h3 id="s8">4. 32 人で 64 頂点・124 枚 — ワークグループの組み方</h3>
+<p><code>VulkanDevice</code> が聞いている値の中に、上限とは別に<strong>推奨値</strong>がある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>値</th><th>手元の RTX 3070</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td><code>maxMeshWorkGroupInvocations</code></td><td>128</td><td>1ワークグループの人数の上限</td></tr>
+<tr><td><strong><code>maxPreferredMeshWorkGroupInvocations</code></strong></td><td><strong>32</strong></td><td><strong>この人数で組むと速い</strong>(NVIDIA のワープ1つ)</td></tr>
+<tr><td><code>maxMeshOutputVertices</code> / <code>Primitives</code></td><td>256 / 256</td><td>出せる量の上限</td></tr>
+</tbody>
+</table></div>
+<p>今日は推奨値に合わせて <code>local_size_x = 32</code> にした。64 頂点を 32 人で出すので、1人が 2 頂点、124 枚を 32 人で出すので、1人が 4 枚(最後の組は欠ける)。ループは Day 57 のパーティクルと同じ「自分の番号から始めて人数ぶん飛ぶ」形。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>for (uint i = gl_LocalInvocationIndex; i &lt; meshlet.vertexCount; i += 32u)   // 0,32 / 1,33 / 2,34 / ...</code></pre></div>
+<p>こうすると<strong>隣の人が隣の要素を読む</strong>ので、メモリの読み込みが 32 人ぶん1回にまとまる。</p>
+<div class="inject"><figure class="lab" id="ln-lab">
+  <div class="lab-head">
+    <h3>32 人で配る — 「自分の番号から始めて人数ぶん飛ぶ」ループ(要点4)</h3>
+    <span class="tag">meshlet.mesh の for (uint i = gl_LocalInvocationIndex; i &lt; 個数; i += 32u) を、人(列)と周(行)に開いて描いたもの。色は人の番号。GPU の中で何が起きているかを見せるものではなく、「どの人がどの番号を書くか」の割り当てだけ。人数は reference では 32 に固定(maxPreferredMeshWorkGroupInvocations に合わせた)で、変えられるのはこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="ln-canvas" style="height:420px" aria-label="頂点のループと三角形のループで、人ごとに書く番号を並べた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">例</span>
+      <div class="seg" id="ln-preset"><button data-v="64,64" aria-pressed="false">並び順のまま(64 / 64)</button><button data-v="64,96" aria-pressed="true">育てる・平均(64 / 96)</button><button data-v="64,124" aria-pressed="false">上限いっぱい(64 / 124)</button><button data-v="free" aria-pressed="false">自分で決める</button></div>
+    </div>
+    <div class="ctl"><span class="label">人数(1 つのワークグループ)。このページだけ</span>
+      <div class="seg" id="ln-lanes"><button data-v="16" aria-pressed="false">16</button><button data-v="32" aria-pressed="true">32(reference)</button><button data-v="64" aria-pressed="false">64</button></div>
+    </div>
+    <div class="ctl"><span class="label">頂点の数 vertexCount(1〜64)</span>
+      <div class="range"><input type="range" id="ln-v" min="1" max="64" step="1" value="64"><output id="ln-v-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">三角形の数 triangleCount(1〜124)</span>
+      <div class="range"><input type="range" id="ln-t" min="1" max="124" step="1" value="96"><output id="ln-t-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ln-stats"></div><p id="ln-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">5. Vulkan でラスタライズする — パイプライン・的・移し替え</h3>
+<p>Day 62 はコンピュートとレイトレーシングだけで、ラスタライザを1回も使っていない。今日はその儀式を足す。</p>
+<p><strong>グラフィックスパイプライン</strong>(<code>GraphicsPipeline.cs</code>)には、固定機能の段の設定が全部入る。ビューポート、ラスタライズ(裏を捨てるか、表はどちら回りか)、深度、色の合成。OpenGL で <code>glEnable(GL_DEPTH_TEST)</code> のように描く直前に変えていたものを、<strong>作る時点で固める</strong>。</p>
+<p><strong>dynamic rendering</strong>(Vulkan 1.3 のコア)で、描画パス(<code>VkRenderPass</code>)とフレームバッファのオブジェクトを作らずに済ませた。パイプラインには「どの形式の的に描くか」(<code>PipelineRenderingCreateInfo</code>)だけを伝え、実物の画像は描くときに渡す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>vk.CmdBeginRendering(cmd, &amp;renderingInfo);   // 色の的・深度の的をここで渡す(Clear / Store も)
+...描く...
+vk.CmdEndRendering(cmd);</code></pre></div>
+<p><strong>画像のレイアウトの移し替え</strong>が毎フレーム入る(<code>VulkanImage.RecordBarrier</code>)。Day 62 の画像はシェーダが <code>imageStore</code> で書くストレージ画像で、General に置きっぱなしにできた。ラスタライザが書く画像は<strong>用途専用のレイアウト</strong>に置く必要がある。</p>
+<div class="code"><pre><code>  色  : Undefined ─→ ColorAttachmentOptimal ─(描く)─→ TransferSrcOptimal ─(引き取る)
+  深度: Undefined ─→ DepthAttachmentOptimal ─(描く)                     (引き取らない)</code></pre></div>
+<p>Undefined から移すのは「前の中身は捨ててよい」の意味(どうせ全部塗り直す)。</p>
+<p>細かいが効いてくる点が2つある。</p>
+<ul><li><strong>色の形式を <code>B8G8R8A8_UNORM</code> にできた</strong>。Day 62 はストレージ画像にするため <code>R8G8B8A8</code> が必須で、シェーダの最後で <code>color.bgr</code> と並べ替えていた。ラスタライザの的なら BGRA も必須形式なので、WinForms が欲しい並びでそのまま描ける</li><li><strong>Vulkan の画面は y が下向き</strong>。<code>Camera.cs</code> で投影行列の y を裏返している(<code>projection.M22 = -projection.M22</code>)。裏返したあとも画面上の見た目は反時計回りのままなので、表の向きは <code>CounterClockwise</code> でよい</li><li><strong>CPU で読む前にもバリアが1つ要る</strong>。フェンスを待つだけでは、GPU が書いたものが CPU から見えるとは限らない(仕様の Fences の節の注記:「フェンスの作るメモリの依存関係は GPU の中のアクセスしか含まない」)。引き取りのあとに Transfer → Host のバリアを積む。<strong>Day 62 はこれを省いていた</strong>(NVIDIA では省いても困らなかった)</li></ul>
+<h3 id="s10">6. 数える — 数えられるものが道ごとに違う</h3>
+<p>HUD の「内訳」の行は、GPU に数えさせた値(パイプライン統計)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>道</th><th>数えているもの</th><th>仕組み</th></tr></thead>
+<tbody>
+<tr><td>頂点</td><td>頂点シェーダの回数・クリップへ届いた三角形・画素シェーダの回数</td><td><code>QueryType.PipelineStatistics</code></td></tr>
+<tr><td>メッシュ</td><td>画素シェーダの回数</td><td><code>QueryType.PipelineStatistics</code></td></tr>
+<tr><td>メッシュ</td><td><strong>メッシュシェーダが出した三角形</strong></td><td><code>QueryType.MeshPrimitivesGeneratedExt</code>(別の種類のクエリ)</td></tr>
+</tbody>
+</table></div>
+<p><strong>入れ物を道ごとに分けている</strong>のには理由がある。仕様が、メッシュの描画の間に<strong>頂点シェーダ・入力の組み立て・クリップ</strong>を数える統計を開いておくことを禁じている(<code>VUID-vkCmdDrawMeshTasksEXT-pipelineStatistics-07076</code>)。メッシュの道にはそれらの段が無いから、というのが筋。代わりに「メッシュシェーダが出した三角形の数」を数える専用のクエリがある。</p>
+<p>そして<strong>メッシュシェーダの回数は、数えられるが数えていない</strong>。検証2 のとおり、それを数える統計を開いているだけでメッシュの道が 34 倍遅くなったから。回数は「メッシュレットの数 x 体の数 x 32 人」と決まっているので、HUD にはその計算値を出している。</p>
+<p>数えた値から読めること(16 体、既定の視点)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>頂点の道</th><th>メッシュの道</th></tr></thead>
+<tbody>
+<tr><td>頂点を変換した回数</td><td><strong>545,522</strong>(頂点シェーダの回数。数えた値)</td><td><strong>349,728</strong>(メッシュレットの頂点の総数 x 16 体。計算)</td></tr>
+<tr><td>元の頂点の数 x 16 体</td><td>262,144</td><td>262,144</td></tr>
+<tr><td>比</td><td><strong>2.08 倍</strong></td><td><strong>1.33 倍</strong></td></tr>
+<tr><td>ラスタライザへの三角形</td><td>524,288</td><td>524,288</td></tr>
+<tr><td>画素シェーダ</td><td>195,990</td><td>195,990</td></tr>
+</tbody>
+</table></div>
+<p><strong>頂点の道のほうが頂点を多く変換している</strong>。post-transform cache(要点1)は索引の並びの「最近」しか覚えていないので、帯の向こう側で同じ頂点がまた出てきたときには忘れている。メッシュレットは「このメッシュレットの頂点は 64 個」と最初から決まっているので、中では1回ずつしか変換しない(境目の頂点だけが隣でもう1回)。</p>
+<div class="inject"><figure class="lab" id="ct-lab">
+  <div class="lab-head">
+    <h3>数える — 体の数と切り方で、どの数がどう変わるか(要点6)</h3>
+    <span class="tag">メッシュの道の数(組・人・変換した頂点・ラスタライザへの三角形)は、上の切り方を JS で走らせた結果から式で出している(reference の MeshWorkGroups と HUD の計算値と同じ式)。頂点の道の数は GPU(post-transform cache)が決めるので、このページでは計算できない。手元の RTX 3070 で数えた値が計画書にあるものだけを「GPU の実測」として並べ、無いものは空欄にしてある。GPU の時間はここでは測れない</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の数(1 / 2 / 3 / 4)</span>
+      <div class="seg" id="ct-count"><button data-v="1" aria-pressed="false">1</button><button data-v="16" aria-pressed="true">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="false">256</button></div>
+    </div>
+    <div class="ctl"><span class="label">切り方(O)</span>
+      <div class="seg" id="ct-strategy"><button data-v="grow" aria-pressed="true">育てる</button><button data-v="scan" aria-pressed="false">並び順のまま</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="ct-table"></div><p id="ct-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">7. 同じ絵を出すための約束 — そして値段</h3>
+<p>2つの道の絵を、既定の条件で<strong>全画素突き合わせて一致</strong>させた(検証1)。そのために守っていることが3つある。</p>
+<ol><li><strong>頂点の道の索引を、メッシュレットの順に並べ直す</strong>(<code>MeshletSet.OrderedIndices</code>)。こうすると「k 番目の三角形」が2つの道で同じ三角形を指す</li><li><strong><code>gl_PrimitiveID</code> を揃える</strong>。頂点の道では GPU が数える(1体ぶんの描画の中で何枚目か)。メッシュの道ではメッシュシェーダが <code>triangleOffset + i</code> を書く。どちらも「1. で並べ直した索引の k 番目」になる</li><li><strong>式の順番を揃える</strong>。<code>world = model * p; clip = viewProj * world</code> の2段で、どちらのシェーダも同じ順に掛ける。<code>viewProj * model</code> を先に掛けると丸め方が変わって、深度の最下位ビットがずれる</li></ol>
+<p>その上で値段を比べた。<strong>1フレームずつ交互に描いて</strong>(同じ GPU のクロックの状態で比べるため)、16 回の最小値を取った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の数(三角形)</th><th>育てる: メッシュ / 頂点</th><th>並び順のまま: メッシュ / 頂点</th></tr></thead>
+<tbody>
+<tr><td>1(3 万)</td><td>1.00</td><td>0.90</td></tr>
+<tr><td>16(52 万)</td><td>1.03</td><td>1.02〜1.03</td></tr>
+<tr><td>64(210 万)</td><td>0.87</td><td>0.89</td></tr>
+<tr><td>256(839 万)</td><td>0.88</td><td>0.80〜0.82</td></tr>
+</tbody>
+</table></div>
+<p><strong>素通しのメッシュシェーダは、頂点シェーダとほぼ同じ値段で、数が増えると少し速い</strong>。Day 63a の素通しの GS が 4.89 倍だったのと比べると、「GS をやめて作り直した」理由がこの数に出ている(ただし 63a は OpenGL、今日は Vulkan で、API も場面も違う。比べてよいのは「倍率」まで)。</p>
+<blockquote><p><strong>「育てる」のほうが速いわけではない</strong>。重複率は育てるほうが低い(1.33 対 2.00)のに、256 体では並び順のままのほうが 10% ほど速かった(検証3)。今日の場面では頂点の変換が詰まりどころではないらしい。<strong>切り方の良し悪しが効いてくるのは Day 64b</strong>——輪切りのメッシュレットは法線があらゆる向きを向いているので、「丸ごと裏を向いている」と言えず、カリングが効かない。</p></blockquote>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<p>新しいプロジェクトなので、<strong>前Day = Day 62c(Vulkan の土台の出どころ)</strong>として差分を取っている。</p>
+<h3 id="s13">新しく書くファイル</h3>
+<p><code>SceneData.cs</code> と <code>common.glsl</code> は <strong>Day 62c に同名のファイルがあるが、中身は別物</strong>なので持ってこずに新しく書く。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Day64a.csproj</code>(写経先では <code>MeshletRenderer.csproj</code>)</td><td>73</td><td>名前空間 <code>MeshletRenderer</code>、<strong>KHR のパッケージを入れない</strong>、shaders の説明</td></tr>
+<tr><td><code>Scene/SceneData.cs</code></td><td>63</td><td>トーラスノットを格子に並べる置き方と視点</td></tr>
+<tr><td><code>Geometry/MeshData.cs</code></td><td>48</td><td><code>GpuVertex</code>(32 バイト)と <code>MeshData</code>(頂点 + 索引)</td></tr>
+<tr><td><code>Geometry/TorusKnot.cs</code></td><td>108</td><td>トーラスノットを作る。頂点 16,384・三角形 32,768</td></tr>
+<tr><td><code>Geometry/MeshletBuilder.cs</code></td><td>431</td><td><strong>今日の主役その1</strong>。2つの切り方、<code>GpuMeshlet</code>、<code>MeshletSet</code></td></tr>
+<tr><td><code>Vulkan/GraphicsPipeline.cs</code></td><td>250</td><td>グラフィックスパイプライン。<strong>2つの道の差は2行</strong></td></tr>
+<tr><td><code>Vulkan/MeshRenderer.cs</code></td><td>613</td><td>ディスクリプタ・2本のパイプライン・毎フレームのコマンド・計測</td></tr>
+<tr><td><code>shaders/common.glsl</code></td><td>58</td><td>バッファの一覧(binding 0〜6)と色の関数</td></tr>
+<tr><td><code>shaders/scene.vert</code></td><td>31</td><td>頂点シェーダ(比べるための従来の道)</td></tr>
+<tr><td><code>shaders/meshlet.mesh</code></td><td>68</td><td><strong>今日の主役その2</strong>。メッシュシェーダ</td></tr>
+<tr><td><code>shaders/shade.frag</code></td><td>50</td><td>画素シェーダ。2つの道で同じ1本</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">Day 62c から持ってきて変えるファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何を変えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Vulkan/VulkanDevice.cs</code></td><td>+110 / −197</td><td>版 1.3、<strong>描画キュー</strong>、拡張を <code>VK_EXT_mesh_shader</code> 1つに、機能の鎖、メッシュシェーダの上限</td></tr>
+<tr><td><code>Vulkan/VulkanBuffer.cs</code></td><td>+3 / −42</td><td>GPU のアドレス(<code>DeviceAddress</code>)まわりを外す(加速構造にしか使っていなかった)</td></tr>
+<tr><td><code>Vulkan/ShaderCompiler.cs</code></td><td>+19 / −25</td><td><code>CompileComputeFile</code> を外し、<code>CompileFile</code> に説明を寄せる</td></tr>
+<tr><td><code>Vulkan/VulkanImage.cs</code></td><td>+92 / −108</td><td><strong>色と深度の的</strong>になれるように。<code>RecordBarrier</code> を外に出す</td></tr>
+<tr><td><code>Scene/Camera.cs</code></td><td>+44 / −22</td><td>光線の3軸 → <strong>ビュー・投影の行列</strong>(y を裏返す)。3軸は使わなくなったので消す</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+78 / −90</td><td><code>B</code> が描き方、<code>O</code> が増え、HUD に内訳</td></tr>
+<tr><td><code>Program.cs</code></td><td>+17 / −28</td><td>説明の差し替え(コメントのみ)</td></tr>
+</tbody>
+</table></div>
+<p>差分の行数は、namespace の行を置き換えたあとの Day 62c と比べたもの。</p>
+<h3 id="s15">持ってこないファイル</h3>
+<p><code>Vulkan/AccelerationStructure.cs</code> / <code>ComputeRenderer.cs</code> / <code>RayTracingPipeline.cs</code> / <code>ShaderBindingTable.cs</code>、<code>shaders/</code> の <code>trace.comp</code> と <code>.r*</code> の6本。レイトレーシング専用なので、新しいプロジェクトには持ってこない。</p>
+<h3 id="s16">写経の始め方</h3>
+<ol><li><code>work/Labs/MeshletRenderer/</code> を作る</li><li><code>work/Labs/HardwareRayTracer/</code> から次の7つをコピーする。<strong>ほかは持ってこない</strong><ul><li><code>Vulkan/VulkanDevice.cs</code> / <code>VulkanBuffer.cs</code> / <code>VulkanImage.cs</code> / <code>ShaderCompiler.cs</code></li><li><code>Scene/Camera.cs</code></li><li><code>App/ViewerWindow.cs</code> / <code>Program.cs</code></li></ul></li><li>7つの <code>namespace HardwareRayTracer;</code> を <code>namespace MeshletRenderer;</code> に置き換える</li><li>csproj は <code>reference/Day64a/Day64a.csproj</code> を見ながら <code>MeshletRenderer.csproj</code> として新しく書く</li><li>以降は <code>./diff.sh Day64a</code> で差分を見ながら、下の順に写す</li></ol>
+<blockquote><p><strong>ビルドが通るのは 15 まで写した時点</strong>(<code>ViewerWindow</code> が Day 62 の <code>ComputeRenderer</code> を呼んだままなので)。途中で型の間違いを見たいときは <code>dotnet build</code> して、<code>ViewerWindow.cs</code> 以外にエラーが出ていないことを確かめればよい。</p></blockquote>
+<h3 id="s17">写経する順番</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>MeshletRenderer.csproj</code>(= <code>Day64a.csproj</code>)</td><td><strong>新規</strong>。<code>Extensions.KHR</code> を入れない。<code>RootNamespace</code> は <code>MeshletRenderer</code></td></tr>
+<tr><td>2</td><td><code>Vulkan/VulkanDevice.cs</code></td><td>版 1.3、<code>FindGraphicsQueueFamily</code>、機能の鎖(meshShader → Vulkan13 → Features2)。<strong><code>GeometryShader = true</code> を忘れない</strong>(検証4)</td></tr>
+<tr><td>3</td><td><code>Vulkan/VulkanBuffer.cs</code></td><td>消すだけ(<code>DeviceAddress</code> と <code>MemoryAllocateFlagsInfo</code>)</td></tr>
+<tr><td>4</td><td><code>Vulkan/ShaderCompiler.cs</code></td><td>消すだけ + コメント。翻訳先(Vulkan 1.2 / SPIR-V 1.5)は変えない</td></tr>
+<tr><td>5</td><td><code>Vulkan/VulkanImage.cs</code></td><td><code>CreateColor</code> / <code>CreateDepth</code> / <code>RecordBarrier</code>。<code>RecordCopyToBuffer</code> からバリアを外す</td></tr>
+<tr><td>6</td><td><code>Scene/Camera.cs</code></td><td>行列3つ。<code>projection.M22 = -projection.M22</code></td></tr>
+<tr><td>7</td><td><code>Scene/SceneData.cs</code></td><td><strong>新規</strong>(Day 62c の同名とは別物)。6 の <code>OrbitView</code> を使う</td></tr>
+<tr><td>8</td><td><code>Geometry/MeshData.cs</code></td><td><strong>新規</strong>。<code>GpuVertex</code> は 32 バイト(<code>vec3</code> を 16 バイトに揃える)</td></tr>
+<tr><td>9</td><td><code>Geometry/TorusKnot.cs</code></td><td><strong>新規</strong>。8 を使う。三角形の並び(帯ごと)が 10 の「並び順のまま」の前提</td></tr>
+<tr><td>10</td><td><code>Geometry/MeshletBuilder.cs</code></td><td><strong>新規</strong>。8 を使う。<code>MeshletWriter</code>(足す・閉じる)を先に書くと、2つの切り方が短く読める</td></tr>
+<tr><td>11</td><td><code>shaders/common.glsl</code></td><td><strong>新規</strong>(Day 62c の同名とは別物)。binding の番号を 14 と見比べながら</td></tr>
+<tr><td>12</td><td><code>shaders/scene.vert</code> / <code>shade.frag</code> / <code>meshlet.mesh</code></td><td><strong>新規</strong>。11 を <code>#include</code>。<code>meshlet.mesh</code> の <code>max_vertices</code> / <code>max_primitives</code> を 10 の定数と揃える</td></tr>
+<tr><td>13</td><td><code>Vulkan/GraphicsPipeline.cs</code></td><td><strong>新規</strong>。5・8 を使う。<code>PVertexInputState</code> / <code>PInputAssemblyState</code> の2行が今日の要点1</td></tr>
+<tr><td>14</td><td><code>Vulkan/MeshRenderer.cs</code></td><td><strong>新規</strong>。2・5・6・10・13 を使う。統計の入れ物が道ごとに分かれている(要点6)</td></tr>
+<tr><td>15</td><td><code>App/ViewerWindow.cs</code></td><td>7・9・10・14 を使う。<code>B</code> / <code>O</code> / <code>M</code>、HUD の「分割」「内訳」</td></tr>
+<tr><td>16</td><td><code>Program.cs</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>途中で動かしたいなら</strong>: 14 まで写した時点で、<code>ViewerWindow.cs</code> の <code>RebuildRenderer</code> と <code>Render</code> の呼び出しだけを先に直すと、頂点の道(<code>B</code>)で絵が出る。<strong>頂点の道で絵が正しく出てから</strong>メッシュの道を確かめると、「Vulkan のラスタライズの儀式が間違っている」のか「メッシュシェーダが間違っている」のかを分けられる。</p></blockquote>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>新しいプロジェクトの初日</strong>なので、全体を描き起こす。Day 62c の <code>HardwareRayTracer</code> と比べて、<code>Scene/</code> と <code>Vulkan/</code> の形は引き継ぎ、<strong><code>Geometry/</code> が増えた</strong>。</p>
+<h3 id="s19">全体構成と依存の向き</h3>
+<svg viewBox="0 0 844 658" role="img" aria-label="全体構成と依存の向き。行が使う側、列が使われる側の行列(点が1つ = 1本の矢印)。Program.cs が App/ViewerWindow.cs を使う。App/ViewerWindow.cs が Vulkan/MeshRenderer.cs を使う。App/ViewerWindow.cs が Vulkan/VulkanDevice.cs を使う。App/ViewerWindow.cs が Vulkan/ShaderCompiler.cs を使う。App/ViewerWindow.cs が Geometry/MeshletBuilder.cs を使う。App/ViewerWindow.cs が Geometry/TorusKnot.cs を使う。App/ViewerWindow.cs が Scene/SceneData.cs を使う。App/ViewerWindow.cs が Scene/Camera.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/GraphicsPipeline.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanBuffer.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanImage.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/ShaderCompiler.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshletBuilder.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshData.cs を使う。Vulkan/MeshRenderer.cs が Scene/Camera.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanImage.cs を使う。Vulkan/GraphicsPipeline.cs が Geometry/MeshData.cs を使う。Vulkan/VulkanBuffer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanBuffer.cs を使う。Geometry/MeshletBuilder.cs が Geometry/MeshData.cs を使う。Geometry/TorusKnot.cs が Geometry/MeshData.cs を使う。Scene/SceneData.cs が Scene/Camera.cs を使う。使われる側が必ず後ろの列にあるので、点は対角線の右上にしか並ばない = 循環は無い" style="width:100%;max-width:844px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><polygon points="338,150 338,618 754,618" fill="var(--sunken)" opacity="0.55"></polygon><text x="344" y="608" font-size="12" fill="var(--muted)">この三角形には点が 1 つも無い</text><line x1="338" y1="150" x2="754" y2="150" stroke="var(--line)"></line><line x1="338" y1="150" x2="338" y2="618" stroke="var(--line)"></line><line x1="338" y1="186" x2="754" y2="186" stroke="var(--line)"></line><line x1="370" y1="150" x2="370" y2="618" stroke="var(--line)"></line><line x1="338" y1="222" x2="754" y2="222" stroke="var(--line)"></line><line x1="402" y1="150" x2="402" y2="618" stroke="var(--line)"></line><line x1="338" y1="258" x2="754" y2="258" stroke="var(--line)"></line><line x1="434" y1="150" x2="434" y2="618" stroke="var(--line)"></line><line x1="338" y1="294" x2="754" y2="294" stroke="var(--line)"></line><line x1="466" y1="150" x2="466" y2="618" stroke="var(--line)"></line><line x1="338" y1="330" x2="754" y2="330" stroke="var(--line)"></line><line x1="498" y1="150" x2="498" y2="618" stroke="var(--line)"></line><line x1="338" y1="366" x2="754" y2="366" stroke="var(--line)"></line><line x1="530" y1="150" x2="530" y2="618" stroke="var(--line)"></line><line x1="338" y1="402" x2="754" y2="402" stroke="var(--line)"></line><line x1="562" y1="150" x2="562" y2="618" stroke="var(--line)"></line><line x1="338" y1="438" x2="754" y2="438" stroke="var(--line)"></line><line x1="594" y1="150" x2="594" y2="618" stroke="var(--line)"></line><line x1="338" y1="474" x2="754" y2="474" stroke="var(--line)"></line><line x1="626" y1="150" x2="626" y2="618" stroke="var(--line)"></line><line x1="338" y1="510" x2="754" y2="510" stroke="var(--line)"></line><line x1="658" y1="150" x2="658" y2="618" stroke="var(--line)"></line><line x1="338" y1="546" x2="754" y2="546" stroke="var(--line)"></line><line x1="690" y1="150" x2="690" y2="618" stroke="var(--line)"></line><line x1="338" y1="582" x2="754" y2="582" stroke="var(--line)"></line><line x1="722" y1="150" x2="722" y2="618" stroke="var(--line)"></line><line x1="338" y1="618" x2="754" y2="618" stroke="var(--line)"></line><line x1="754" y1="150" x2="754" y2="618" stroke="var(--line)"></line><text x="330" y="172" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Program.cs</text><text x="16" y="172" fill="var(--muted)" font-size="12">1</text><text transform="translate(358 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">1 Program</text><rect x="339" y="151" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="202" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">App/ViewerWindow.cs</text><text x="330" y="217" text-anchor="end" fill="var(--muted)" font-size="11.5">窓・ループ・HUD・入力</text><text x="16" y="208" fill="var(--muted)" font-size="12">2</text><text transform="translate(390 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">2 ViewerWindow</text><rect x="371" y="187" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="238" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/MeshRenderer.cs</text><text x="330" y="253" text-anchor="end" fill="var(--muted)" font-size="11.5">ディスクリプタ・2つの道・計測</text><text x="16" y="244" fill="var(--muted)" font-size="12">3</text><text transform="translate(422 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">3 MeshRenderer</text><rect x="403" y="223" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="274" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/GraphicsPipeline.cs</text><text x="330" y="289" text-anchor="end" fill="var(--muted)" font-size="11.5">固定機能の設定 + シェーダ</text><text x="16" y="280" fill="var(--muted)" font-size="12">4</text><text transform="translate(454 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">4 GraphicsPipeline</text><rect x="435" y="259" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="310" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/SceneData.cs</text><text x="330" y="325" text-anchor="end" fill="var(--muted)" font-size="11.5">体の並べ方・視点</text><text x="16" y="316" fill="var(--muted)" font-size="12">5</text><text transform="translate(486 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">5 SceneData</text><rect x="467" y="295" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="346" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshletBuilder.cs</text><text x="330" y="361" text-anchor="end" fill="var(--muted)" font-size="11.5">育てる / 並び順のまま</text><text x="16" y="352" fill="var(--muted)" font-size="12">6</text><text transform="translate(518 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">6 MeshletBuilder</text><rect x="499" y="331" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="388" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/TorusKnot.cs</text><text x="16" y="388" fill="var(--muted)" font-size="12">7</text><text transform="translate(550 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">7 TorusKnot</text><rect x="531" y="367" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="418" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanImage.cs</text><text x="330" y="433" text-anchor="end" fill="var(--muted)" font-size="11.5">色と深度の的</text><text x="16" y="424" fill="var(--muted)" font-size="12">8</text><text transform="translate(582 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">8 VulkanImage</text><rect x="563" y="403" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="460" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanBuffer.cs</text><text x="16" y="460" fill="var(--muted)" font-size="12">9</text><text transform="translate(614 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">9 VulkanBuffer</text><rect x="595" y="439" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="490" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/ShaderCompiler.cs</text><text x="330" y="505" text-anchor="end" fill="var(--muted)" font-size="11.5">GLSL to SPIR-V + include</text><text x="16" y="496" fill="var(--muted)" font-size="12">10</text><text transform="translate(646 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">10 ShaderCompiler</text><rect x="627" y="475" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="526" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/Camera.cs</text><text x="330" y="541" text-anchor="end" fill="var(--muted)" font-size="11.5">OrbitView / 行列</text><text x="16" y="532" fill="var(--muted)" font-size="12">11</text><text transform="translate(678 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">11 Camera</text><rect x="659" y="511" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="562" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshData.cs</text><text x="330" y="577" text-anchor="end" fill="var(--muted)" font-size="11.5">GpuVertex / MeshData</text><text x="16" y="568" fill="var(--muted)" font-size="12">12</text><text transform="translate(710 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">12 MeshData</text><rect x="691" y="547" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="330" y="598" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanDevice.cs</text><text x="330" y="613" text-anchor="end" fill="var(--muted)" font-size="11.5">1.3 / 描画キュー / mesh_shader</text><text x="16" y="604" fill="var(--muted)" font-size="12">13</text><text transform="translate(742 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">13 VulkanDevice</text><rect x="723" y="583" width="30" height="34" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><circle cx="386" cy="168" r="7" fill="var(--accent)"></circle><circle cx="418" cy="204" r="7" fill="var(--accent)"></circle><circle cx="738" cy="204" r="7" fill="var(--accent)"></circle><circle cx="642" cy="204" r="7" fill="var(--accent)"></circle><circle cx="514" cy="204" r="7" fill="var(--accent)"></circle><circle cx="546" cy="204" r="7" fill="var(--accent)"></circle><circle cx="482" cy="204" r="7" fill="var(--accent)"></circle><circle cx="674" cy="204" r="7" fill="var(--accent)"></circle><circle cx="450" cy="240" r="7" fill="var(--accent)"></circle><circle cx="738" cy="240" r="7" fill="var(--accent)"></circle><circle cx="610" cy="240" r="7" fill="var(--accent)"></circle><circle cx="578" cy="240" r="7" fill="var(--accent)"></circle><circle cx="642" cy="240" r="7" fill="var(--accent)"></circle><circle cx="514" cy="240" r="7" fill="var(--accent)"></circle><circle cx="706" cy="240" r="7" fill="var(--accent)"></circle><circle cx="674" cy="240" r="7" fill="var(--accent)"></circle><circle cx="738" cy="276" r="7" fill="var(--accent)"></circle><circle cx="578" cy="276" r="7" fill="var(--accent)"></circle><circle cx="706" cy="276" r="7" fill="var(--accent)"></circle><circle cx="738" cy="456" r="7" fill="var(--accent)"></circle><circle cx="738" cy="420" r="7" fill="var(--accent)"></circle><circle cx="610" cy="420" r="7" fill="var(--accent)"></circle><circle cx="706" cy="348" r="7" fill="var(--accent)"></circle><circle cx="706" cy="384" r="7" fill="var(--accent)"></circle><circle cx="674" cy="312" r="7" fill="var(--accent)"></circle><text x="330" y="138" text-anchor="end" fill="var(--muted)" font-size="12">行の側が、列の側を使う →</text></g></svg><p class="note">mermaid の矢印図は、13 個の箱に 25 本の矢印が絡まって読めなかったので、行列に描き直した(辺は同じ)。行が使う側、列が使われる側で、点が1つ = 矢印1本。行と列を依存の順(使う側が先、使われる側が後)に並べてあるので、点は対角線の右上にしか出ない。左下の三角形が空なのが、循環が無いということ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っているもの</th><th>知らないもの</th></tr></thead>
+<tbody>
+<tr><td><code>Geometry/</code></td><td>自分の中だけ(<code>MeshData</code> が土台)</td><td><strong>Vulkan を知らない</strong>。メッシュレットは CPU の配列として作る</td></tr>
+<tr><td><code>Scene/</code></td><td>自分の中だけ</td><td>形も GPU も知らない。数と行列だけ</td></tr>
+<tr><td><code>Vulkan/</code></td><td><code>Geometry/</code> の型(<code>GpuVertex</code> / <code>MeshletSet</code>)と <code>Camera</code></td><td>窓を知らない。<code>MeshRenderer</code> は <code>int[]</code> に絵を返すだけ</td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong>循環は無い</strong>。<code>Geometry/</code> が Vulkan を知らないので、メッシュレットの切り方だけを CPU で試して数(個数・重複率)を比べる、ということができる(検証用のハーネスもそうしている)。</p>
+<p><strong>入れ替えると何が壊れるか</strong>を2つ。</p>
+<ul><li><code>GraphicsPipeline</code> が <code>GpuVertex</code> を知っているのは、<strong>頂点の道の属性の宣言</strong>(32 バイトずつ、16 バイト目に法線)のため。頂点の形式を変えるとここも変える必要がある(今日残した歪み1)</li><li><code>MeshRenderer</code> が <code>MeshletSet</code> を受け取るのは、<strong>GPU に送る配列4本を丸ごと持っていく</strong>ため。メッシュレットの作り方(<code>MeshletBuilder</code>)には依存していないので、切り方を差し替えても <code>MeshRenderer</code> は変わらない</li></ul>
+<h3 id="s20">Geometry — 形とメッシュレット</h3>
+<svg viewBox="0 0 1180 443" role="img" aria-label="Geometry のクラス図。TorusKnot は MeshData を作る(Create)。MeshData は GpuVertex の配列と索引を含む。MeshletBuilder は MeshData と MeshletStrategy(Grow / Scan)を受け取って MeshletSet を作り、private クラスの MeshletWriter(足す・閉じる・書き出す)を含む。MeshletWriter は MeshData を読む。MeshletSet は GpuMeshlet の配列と、頂点番号・三角形・三角形からメッシュレットへの対応・並べ直した索引を持つ" style="width:100%;max-width:1180px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="320" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">TorusKnot</text><line x1="10" y1="38" x2="330" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int TubularSegments</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int RadialSegments</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(int, int, float, float) MeshData</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-PointOnCurve(float, int, int, float) Vector3</text><rect x="10" y="190" width="320" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="209" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshData</text><line x1="10" y1="218" x2="330" y2="218" stroke="var(--line)"></line><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GpuVertex[] Vertices</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] Indices</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int TriangleCount</text><rect x="10" y="330" width="320" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="349" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuVertex</text><line x1="10" y1="358" x2="330" y2="358" stroke="var(--line)"></line><text x="20" y="375" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="390" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Normal</text><text x="20" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+uint NormalOffset</text><rect x="400" y="10" width="300" height="80" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="550" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletStrategy</text><line x1="400" y1="50" x2="700" y2="50" stroke="var(--line)"></line><text x="410" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Grow</text><text x="410" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Scan</text><rect x="400" y="140" width="330" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="565" y="159" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletBuilder</text><line x1="400" y1="168" x2="730" y2="168" stroke="var(--line)"></line><text x="410" y="185" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int MaxVertices</text><text x="410" y="200" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int MaxTriangles</text><text x="410" y="215" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Build(MeshData, MeshletStrategy) MeshletSet</text><text x="410" y="230" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-BuildScan(MeshData, MeshletWriter) void</text><text x="410" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-BuildGrow(MeshData, MeshletWriter) void</text><rect x="400" y="320" width="330" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="565" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletWriter</text><line x1="400" y1="348" x2="730" y2="348" stroke="var(--line)"></line><text x="410" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+NewVertexCount(int) int</text><text x="410" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CanAdd(int) bool</text><text x="410" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(int) void</text><text x="410" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Flush() void</text><text x="410" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Finish(MeshletStrategy, double) MeshletSet</text><rect x="860" y="10" width="310" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1015" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletSet</text><line x1="860" y1="38" x2="1170" y2="38" stroke="var(--line)"></line><text x="870" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GpuMeshlet[] Meshlets</text><text x="870" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] VertexIndices</text><text x="870" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] Triangles</text><text x="870" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] TriangleMeshlet</text><text x="870" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] OrderedIndices</text><text x="870" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double TrianglesPerMeshlet</text><text x="870" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double VertexDuplication</text><text x="870" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double BuildMilliseconds</text><rect x="860" y="280" width="310" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1015" y="299" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuMeshlet</text><line x1="860" y1="308" x2="1170" y2="308" stroke="var(--line)"></line><text x="870" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint VertexOffset</text><text x="870" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint TriangleOffset</text><text x="870" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint VertexCount</text><text x="870" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint TriangleCount</text><path d="M170 273 L170 328" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="176" y="297.5" fill="var(--muted)" font-size="12">含む</text><path stroke-dasharray="5 4" d="M170 108 L170 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="176" y="145" fill="var(--muted)" font-size="12">作る</text><path stroke-dasharray="5 4" d="M730 157.08333333333334 L858.054735984728 126.49247973698164" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="801" y="137.55555555555554" fill="var(--muted)" font-size="12">作る</text><path d="M565 253 L565 318" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="571" y="282.5" fill="var(--muted)" font-size="12">含む(private)</text><path stroke-dasharray="5 4" d="M559.2150170648464 140 L554.2992762653137 91.98959819123036" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="562.655290102389" y="111" fill="var(--muted)" font-size="12">使う</text><path d="M1015 168 L1015 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="1021" y="220" fill="var(--muted)" font-size="12">含む</text><path d="M411.08620689655174 320 L284.9292205932799 273.68920755955844" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="353.0689655172414" y="292.5" fill="var(--muted)" font-size="12">読む</text></g></svg>
+<p><code>MeshletWriter</code> は <code>MeshletBuilder</code> の中の private クラス。<strong>2つの切り方は「どの三角形をどの順に足すか」だけが違う</strong>ので、足す・閉じる・書き出すはここに1つだけ書いてある。</p>
+<h3 id="s21">Vulkan — 6つのクラスと2つの構造体</h3>
+<svg viewBox="0 0 1265 668" role="img" aria-label="Vulkan のクラス図。VulkanBuffer・VulkanImage・GraphicsPipeline は VulkanDevice を使う。MeshRenderer は VulkanImage・VulkanBuffer・GraphicsPipeline を持ち(GraphicsPipeline は2本、頂点の道とメッシュの道)、FrameUniforms と DrawStatistics を使う。ShaderCompiler は他のクラスと直接の関係を持たない" style="width:100%;max-width:1265px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="330" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderCompiler</text><line x1="10" y1="38" x2="340" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CompileFile(string, ShaderKind, string[]) uint[]</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-ResolveIncludes(string) string</text><rect x="380" y="10" width="400" height="203" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanDevice</text><line x1="380" y1="38" x2="780" y2="38" stroke="var(--line)"></line><text x="390" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Device Handle</text><text x="390" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Queue Queue</text><text x="390" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool MeshShaderSupported</text><text x="390" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ExtMeshShader MeshShaderApi</text><text x="390" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxMeshOutputVertices</text><text x="390" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxMeshOutputPrimitives</text><text x="390" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxPreferredMeshWorkGroupInvocations</text><text x="390" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float TimestampPeriod</text><text x="390" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryCreate(out string) VulkanDevice</text><text x="390" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SubmitAndWait(Action) void</text><text x="390" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindMemoryType(uint, MemoryPropertyFlags) uint</text><rect x="10" y="300" width="290" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanBuffer</text><line x1="10" y1="328" x2="300" y2="328" stroke="var(--line)"></line><text x="20" y="345" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Buffer Handle</text><text x="20" y="360" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Size</text><text x="20" y="375" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanBuffer</text><text x="20" y="390" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateStaging(...) VulkanBuffer</text><text x="20" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDeviceLocal(...) VulkanBuffer</text><text x="20" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Write(ReadOnlySpan) void</text><text x="20" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Read(int[]) void</text><rect x="320" y="300" width="520" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GraphicsPipeline</text><line x1="320" y1="328" x2="840" y2="328" stroke="var(--line)"></line><text x="330" y="345" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="330" y="360" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, PipelineLayout, int, int, stages, bool) GraphicsPipeline</text><rect x="860" y="300" width="395" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1057.5" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanImage</text><line x1="860" y1="328" x2="1255" y2="328" stroke="var(--line)"></line><text x="870" y="345" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Format ColorFormat</text><text x="870" y="360" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Format DepthFormat</text><text x="870" y="375" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="870" y="390" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageAspectFlags Aspect</text><text x="870" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateColor(VulkanDevice, int, int) VulkanImage</text><text x="870" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDepth(VulkanDevice, int, int) VulkanImage</text><text x="870" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordBarrier(...) void</text><text x="870" y="450" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyToBuffer(CommandBuffer, VulkanBuffer) void</text><rect x="360" y="530" width="440" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="549" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshRenderer</text><line x1="360" y1="558" x2="800" y2="558" stroke="var(--line)"></line><text x="370" y="575" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+MeshletSet Meshlets</text><text x="370" y="590" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool MeshShaderAvailable</text><text x="370" y="605" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long MeshWorkGroups</text><text x="370" y="620" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastDrawMilliseconds</text><text x="370" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DrawStatistics LastStatistics</text><text x="370" y="650" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, int, DrawPath, int[]) void</text><rect x="10" y="560" width="290" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="579" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">FrameUniforms</text><line x1="10" y1="588" x2="300" y2="588" stroke="var(--line)"></line><text x="20" y="605" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix4x4 ViewProjection</text><text x="20" y="620" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CameraPosition</text><text x="20" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Mode</text><rect x="965" y="560" width="290" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1110" y="579" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">DrawStatistics</text><line x1="965" y1="588" x2="1255" y2="588" stroke="var(--line)"></line><text x="975" y="605" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong VertexShaderInvocations</text><text x="975" y="620" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Triangles</text><text x="975" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong FragmentShaderInvocations</text><path d="M271.875 300 L412.38047113383436 214.04371177694836" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M916.481308411215 300 L762.9270992205746 213.9774849036727" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M580 300 L580 215" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M722.1395348837209 530 L880.2228473132116 458.8211263406482" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="808.0930232558139" y="490" fill="var(--muted)" font-size="12">含む</text><path d="M457.75280898876406 530 L293.3449007395677 443.92762450483247" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="380.6629213483146" y="482.5" fill="var(--muted)" font-size="12">含む</text><path d="M580 530 L580 370" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="586" y="445" fill="var(--muted)" font-size="12">含む</text><path stroke-dasharray="5 4" d="M360 597.8823529411765 L301.9996886540322 598.9058878472819" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M800 597.1132075471698 L963.0002002191292 599.4198141540443" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><code>MeshRenderer</code> が持つ <code>GraphicsPipeline</code> は2本(頂点の道とメッシュの道)。どちらも同じディスクリプタセットとパイプラインレイアウトを使う。<strong>切り替えは <code>CmdBindPipeline</code> に渡すハンドルが変わるだけ</strong>で、作り直しは起きない(Day 62b の「準備を前に寄せる」と同じ)。</p>
+<h3 id="s22">GPU に挿さっているもの — binding の一覧</h3>
+<p><code>common.glsl</code> と <code>MeshRenderer.cs</code> の <code>buffers</code> の並びが 1 対 1 に対応する。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>binding</th><th>中身</th><th>型</th><th>読む段</th></tr></thead>
+<tbody>
+<tr><td>0</td><td><code>Frame</code>(行列・目の位置・表示)</td><td>uniform</td><td>全部</td></tr>
+<tr><td>1</td><td>頂点(<code>GpuVertex[]</code>)</td><td>storage</td><td>メッシュ(頂点の道は<strong>同じバッファを頂点バッファとして</strong>読む)</td></tr>
+<tr><td>2</td><td>体ごとの行列</td><td>storage</td><td>頂点・メッシュ</td></tr>
+<tr><td>3</td><td>メッシュレット(<code>GpuMeshlet[]</code>)</td><td>storage</td><td>メッシュ</td></tr>
+<tr><td>4</td><td>局所番号 → 元の頂点番号</td><td>storage</td><td>メッシュ</td></tr>
+<tr><td>5</td><td>三角形(局所番号3つ)</td><td>storage</td><td>メッシュ</td></tr>
+<tr><td>6</td><td>三角形 → メッシュレット</td><td>storage</td><td>画素(色分け)</td></tr>
+<tr><td>—</td><td>並べ直した索引(<code>OrderedIndices</code>)</td><td><strong>索引バッファ</strong></td><td>頂点の道の入力の回路</td></tr>
+</tbody>
+</table></div>
+<p><strong>頂点のバッファ1本を2つの使い道で宣言している</strong>(<code>VertexBufferBit | StorageBufferBit</code>)のが要点1 の見える形。頂点の道では入力の回路が読み、メッシュの道ではメッシュシェーダが自分で読む。</p>
+<h3 id="s23">1フレームの流れ — <code>MeshRenderer.Render</code></h3>
+<svg viewBox="0 0 900 1069" role="img" aria-label="1フレームの流れ(MeshRenderer.Render)。FrameUniforms を uniform buffer に書く(前のフレームはフェンスで待ち終わっている)。ResetCommandBuffer と Begin。ResetQueryPool を2回か3回(描画の外でしかできない)。色を Undefined から ColorAttachmentOptimal へ、深度を Undefined から DepthAttachmentOptimal へ。CmdBeginRendering(Clear / Store、深度は DontCare)。Timestamp 0 と BeginQuery。path で分かれる。メッシュなら CmdBindPipeline(メッシュの道)と CmdDrawMeshTask(メッシュレット数, 体の数, 1)。頂点なら CmdBindPipeline(頂点の道)、BindVertexBuffers と BindIndexBuffer、CmdDrawIndexed(索引数, 体の数)。合流して EndQuery と Timestamp 1、CmdEndRendering、色を ColorAttachmentOptimal から TransferSrcOptimal へ、CmdCopyImageToBuffer、Transfer から Host のバリア(CPU から読めるようにする)、End と Submit と WaitForFences、タイムスタンプと統計を読んで画素を写す" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="230" y="8" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render(camera, mode, path, dest)</text><rect x="230" y="65" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="85.5" text-anchor="middle" fill="var(--ink)">FrameUniforms を uniform buffer に書く</text><text x="450" y="102.5" text-anchor="middle" fill="var(--ink)">（前のフレームはフェンスで待ち終わっている）</text><rect x="230" y="139" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="159.5" text-anchor="middle" fill="var(--ink)">ResetCommandBuffer / Begin</text><rect x="230" y="196" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="216.5" text-anchor="middle" fill="var(--ink)">ResetQueryPool x2 or x3</text><text x="450" y="233.5" text-anchor="middle" fill="var(--ink)">（描画の外でしかできない）</text><rect x="230" y="270" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="290.5" text-anchor="middle" fill="var(--ink)">色: Undefined → ColorAttachmentOptimal</text><text x="450" y="307.5" text-anchor="middle" fill="var(--ink)">深度: Undefined → DepthAttachmentOptimal</text><rect x="230" y="344" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="364.5" text-anchor="middle" fill="var(--ink)">CmdBeginRendering</text><text x="450" y="381.5" text-anchor="middle" fill="var(--ink)">（Clear / Store、深度は DontCare）</text><rect x="230" y="418" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="438.5" text-anchor="middle" fill="var(--ink)">Timestamp 0 / BeginQuery</text><rect x="320" y="475" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="495.5" text-anchor="middle" fill="var(--ink)">path は?</text><rect x="10" y="554" width="430" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="574.5" text-anchor="middle" fill="var(--ink)">CmdBindPipeline(メッシュの道)</text><text x="225" y="591.5" text-anchor="middle" fill="var(--ink)">CmdDrawMeshTask(メッシュレット数, 体の数, 1)</text><rect x="470" y="554" width="420" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="574.5" text-anchor="middle" fill="var(--ink)">CmdBindPipeline(頂点の道)</text><text x="680" y="591.5" text-anchor="middle" fill="var(--ink)">BindVertexBuffers / BindIndexBuffer</text><text x="680" y="608.5" text-anchor="middle" fill="var(--ink)">CmdDrawIndexed(索引数, 体の数)</text><rect x="230" y="667" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="687.5" text-anchor="middle" fill="var(--ink)">EndQuery / Timestamp 1</text><rect x="230" y="724" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="744.5" text-anchor="middle" fill="var(--ink)">CmdEndRendering</text><rect x="230" y="781" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="801.5" text-anchor="middle" fill="var(--ink)">色: ColorAttachmentOptimal → TransferSrcOptimal</text><rect x="230" y="838" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="858.5" text-anchor="middle" fill="var(--ink)">CmdCopyImageToBuffer</text><rect x="230" y="895" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="915.5" text-anchor="middle" fill="var(--ink)">Transfer → Host のバリア</text><text x="450" y="932.5" text-anchor="middle" fill="var(--ink)">（CPU から読めるようにする）</text><rect x="230" y="969" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="989.5" text-anchor="middle" fill="var(--ink)">End / Submit / WaitForFences</text><rect x="230" y="1026" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="1046.5" text-anchor="middle" fill="var(--ink)">タイムスタンプと統計を読む → 画素を写す</text><path d="M450 41 L450 63" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 115 L450 137" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 172 L450 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 246 L450 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 320 L450 342" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 394 L450 416" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 451 L450 473" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 700 L450 722" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 757 L450 779" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 814 L450 836" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 871 L450 893" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 945 L450 967" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M450 1002 L450 1024" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M320 491.5 L225 491.5 L225 552" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="312" y="485.5" fill="var(--muted)" font-size="12" text-anchor="end">メッシュ</text><path d="M580 491.5 L680 491.5 L680 552" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="588" y="485.5" fill="var(--muted)" font-size="12">頂点</text><path d="M225 604 L225 626 L450 626 L450 665" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M680 621 L680 643 L450 643 L450 665" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p><strong>分岐は描く命令の1か所だけ</strong>。的の用意も引き取りも、2つの道で同じ。Day 62c の <code>Render</code> は分岐が3か所(bind point、撃ち方、バリアの段)あったのに比べると素直になった——ラスタライザの後ろは2つの道で同じだから。</p>
+<h3 id="s24">メッシュレットが育つまで — <code>BuildGrow</code></h3>
+<svg viewBox="0 0 960 630" role="img" aria-label="メッシュレットが育つまで(BuildGrow)。頂点から三角形への表を作る(CSR)。使っていない三角形が残っているか。いいえなら MeshletSet を返して終わり。はいなら、索引でいちばん前の未使用を種にして Take(種)。候補を1周見る(使用済みは詰めて消す)。足せる候補(頂点 64・三角形 124 を超えない)はあるか。あるなら、新しい頂点がいちばん少ない候補(同点なら候補に入った順)を選び、Take(使用済みにする・書き足す・3頂点を共有する三角形を候補に足す)して、また候補を1周見る。無ければ Flush(閉じて書き出す・残った候補の印を消す)して、また残っているかの判断へ戻る" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="40" y="8" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="28.5" text-anchor="middle" fill="var(--ink)">頂点 → 三角形 の表を作る（CSR）</text><rect x="40" y="80" width="380" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="100.5" text-anchor="middle" fill="var(--ink)">使っていない三角形が残っている?</text><rect x="560" y="80" width="340" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="100.5" text-anchor="middle" fill="var(--ink)">MeshletSet を返す</text><rect x="40" y="170" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="190.5" text-anchor="middle" fill="var(--ink)">索引でいちばん前の未使用を種にする</text><text x="230" y="207.5" text-anchor="middle" fill="var(--ink)">Take(種)</text><rect x="40" y="270" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="290.5" text-anchor="middle" fill="var(--ink)">候補を1周見る</text><text x="230" y="307.5" text-anchor="middle" fill="var(--ink)">（使用済みは詰めて消す）</text><rect x="40" y="370" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="230" y="390.5" text-anchor="middle" fill="var(--ink)">足せる候補はある?</text><text x="230" y="407.5" text-anchor="middle" fill="var(--ink)">（頂点 64・三角形 124 を超えない）</text><rect x="40" y="470" width="380" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="490.5" text-anchor="middle" fill="var(--ink)">新しい頂点がいちばん少ない候補</text><text x="230" y="507.5" text-anchor="middle" fill="var(--ink)">（同点なら候補に入った順）</text><rect x="40" y="570" width="380" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="230" y="590.5" text-anchor="middle" fill="var(--ink)">Take: 使用済みにする / 書き足す</text><text x="230" y="607.5" text-anchor="middle" fill="var(--ink)">3頂点を共有する三角形を候補に足す</text><rect x="560" y="370" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="390.5" text-anchor="middle" fill="var(--ink)">Flush: 閉じて書き出す</text><text x="730" y="407.5" text-anchor="middle" fill="var(--ink)">残った候補の印を消す</text><path d="M230 41 L230 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M230 113 L230 168" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="238" y="130" fill="var(--muted)" font-size="12">はい</text><path d="M230 220 L230 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M230 320 L230 368" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M230 420 L230 468" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="238" y="437" fill="var(--muted)" font-size="12">はい</text><path d="M230 520 L230 568" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M420 96.5 L558 96.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="490" y="88.5" fill="var(--muted)" font-size="12" text-anchor="middle">いいえ</text><path d="M420 395 L558 395" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="490" y="387" fill="var(--muted)" font-size="12" text-anchor="middle">いいえ</text><path d="M900 395 L924 395 L924 52 L320 52 L320 78" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M40 595 L16 595 L16 295 L38 295" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>点数は「新しく増える頂点の数」だけ</strong>(0 / 1 / 2)。0 は隙間を埋める三角形、1 は縁に1枚貼り足す三角形で、0 を優先するので隙間を残さずに広がる。ただし<strong>同点なら候補に入った順</strong>で選ぶので、形は丸くならない。meshoptimizer はここに「中心からの距離」や「法線の揃い方」も混ぜている(改造課題3、Day 64b)。</p>
+<h3 id="s25">メッシュシェーダの1ワークグループの中</h3>
+<svg viewBox="0 0 910 440" role="img" aria-label="メッシュシェーダの1ワークグループの中。ワークグループ (x, y) = (メッシュレット, 体)。meshlets[x] と instances[y] を読む(32 人全員が同じものを読む)。SetMeshOutputsEXT(頂点数, 三角形数)。ここから、頂点のループと三角形のループに分かれる。頂点のループは i = 自分の番号から +32 ずつ、vertices[meshletVertices[offset + i]] を読んで変換し、gl_MeshVerticesEXT[i] と vNormal[i] などに書く。三角形のループは i = 自分の番号から +32 ずつ、meshletTriangles を 8 ビットずつほどいて、gl_PrimitiveTriangleIndicesEXT[i] と gl_PrimitiveID に書く。ワークグループが終わると、出力の配列が丸ごとラスタライザへ渡り、ワークグループ番号順、その中で配列の番号順に描かれる" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="230" y="8" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)">ワークグループ (x, y) = (メッシュレット, 体)</text><rect x="230" y="70" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="90.5" text-anchor="middle" fill="var(--ink)">meshlets[x] と instances[y] を読む</text><text x="450" y="107.5" text-anchor="middle" fill="var(--ink)">（32 人全員が同じものを読む）</text><rect x="230" y="150" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="170.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SetMeshOutputsEXT(頂点数, 三角形数)</text><rect x="10" y="240" width="430" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="260.5" text-anchor="middle" fill="var(--ink)">頂点のループ: i = 自分の番号, +32 ずつ</text><text x="225" y="277.5" text-anchor="middle" fill="var(--ink)">vertices[meshletVertices[offset + i]] を読んで変換</text><text x="225" y="294.5" text-anchor="middle" fill="var(--ink)">gl_MeshVerticesEXT[i] と vNormal[i] などに書く</text><rect x="470" y="240" width="430" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="260.5" text-anchor="middle" fill="var(--ink)">三角形のループ: i = 自分の番号, +32 ずつ</text><text x="685" y="277.5" text-anchor="middle" fill="var(--ink)">meshletTriangles を 8 ビットずつほどく</text><text x="685" y="294.5" text-anchor="middle" fill="var(--ink)">gl_PrimitiveTriangleIndicesEXT[i] と gl_PrimitiveID に書く</text><rect x="170" y="380" width="560" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="400.5" text-anchor="middle" fill="var(--ink)">ワークグループが終わると、出力の配列が丸ごとラスタライザへ</text><text x="450" y="417.5" text-anchor="middle" fill="var(--ink)">（ワークグループ番号順 → 配列の番号順に描かれる）</text><path d="M450 41 L450 68" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M450 120 L450 148" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M370 183 L370 205 L225 205 L225 238" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M530 183 L530 205 L685 205 L685 238" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M225 307 L225 362 L330 362 L330 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M685 307 L685 362 L570 362 L570 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path></g></svg>
+<p>頂点のループと三角形のループは<strong>互いを待たない</strong>。三角形は局所番号で頂点を指すだけで、頂点の中身が書き終わっているかどうかは気にしなくてよい(使われるのはワークグループが終わってから)。</p>
+<h3 id="s26">今日残した歪み(3つ)</h3>
+<p><strong>1. <code>GraphicsPipeline</code> が頂点の形式を知っている</strong>。頂点の道の属性の宣言(<code>GpuVertex</code> の 32 バイト)がパイプラインを作るコードの中に書いてある。本来は「頂点の形式」を別の型にして渡すべきで、形式が1つしかない今日は直していない。メッシュの道はこの宣言を<strong>そもそも持たない</strong>ので、メッシュシェーダだけのエンジンならこの歪みは消える。</p>
+<p><strong>2. 統計の入れ物を道ごとに持っている</strong>。<code>_vertexStatistics</code> と <code>_meshStatistics</code> と <code>_meshPrimitives</code> の3つで、読み出しも分岐している。仕様の制約(要点6)から来ているので避けられないが、Day 64b でタスクシェーダが入ると<strong>数えたいものがさらに変わる</strong>(タスクシェーダが捨てたメッシュレットの数)。そこは統計ではなく自分でバッファに数える形になる。</p>
+<p><strong>3. メッシュレットを体ごとに持っていない</strong>。1体ぶんのメッシュレットを全部の体で使い回している(インスタンシング)。今日はこれで正しいが、<strong>メッシュレットの境界の球や法線の向き</strong>(Day 64b)も1体ぶんしか作らないので、カリングのときに体の行列で動かしてから比べる必要がある。</p>
+</section>
+<section class="part"><h2 id="s27">完成条件</h2>
+<p><code>dotnet run --project reference/Day64a -c Release</code> で確かめる。</p>
+<h3 id="s28">1. 起動: 16 体、メッシュシェーダ</h3>
+<ul><li>16 体のトーラスノットが、手前から奥へ並んで見える</li><li>HUD の「描き方」が「<strong>メッシュシェーダ</strong>」</li><li>「分割」が「<strong>育てる (O)  1体 343 個 / 三角形 95.5 枚・頂点 63.7 個 (個あたり) / 頂点の重複 x1.33</strong>」</li><li>「内訳」が「<strong>メッシュシェーダ 5,488 組 x 32 人 / ラスタライザへ 三角形 524,288 枚 / 画素シェーダ 195,990 回</strong>」</li><li>「うち描画」が 0.2〜0.3 ms 前後(アプリ内。60 枚/秒に合わせて休んでいるので、GPU のクロックが下がって大きめに出る)</li></ul>
+<h3 id="s29">2. <code>B</code> を押す: 頂点シェーダの道(今日の目)</h3>
+<ul><li><strong>絵が変わらない</strong>(全画素一致。検証1)</li><li>「内訳」が「<strong>頂点シェーダ 545,522 回</strong> / ラスタライザへ 三角形 524,288 枚 / 画素シェーダ 195,990 回」に変わる。三角形と画素は同じで、<strong>変換した頂点の数だけが違う</strong>(要点6)</li></ul>
+<h3 id="s30">3. <code>4</code> を押す: 256 体</h3>
+<ul><li>三角形 839 万枚。見渡す限りトーラスノットが並ぶ</li><li>アプリ内の「うち描画」: メッシュの道 <strong>2.35 ms</strong>、頂点の道 <strong>2.52 ms</strong>(<code>B</code> で行き来して、10 秒ほど待ってから読む)</li><li>「内訳」: メッシュの道 87,808 組 x 32 人 / 頂点の道 8,728,562 回。三角形はどちらも 8,388,608 枚</li></ul>
+<h3 id="s31">4. <code>M</code> と <code>O</code> で切り方を見る</h3>
+<p><code>1</code> で1体にしてから <code>M</code> を1回押す(メッシュレットごとの色)。</p>
+<ul><li>育てる: 管の表面が<strong>不揃いな小片</strong>に塗り分けられる(1体 343 個)</li><li><code>O</code> で並び順のまま: <strong>輪切りの縞</strong>になる(1体 512 個、重複 x2.00)。1本の縞 = 1つのメッシュレット = 管の断面1周</li></ul>
+<p><code>M</code> をもう1回押すと三角形ごとの色(1体 32,768 枚の細かさが見える)。この表示でも <code>B</code> で絵は変わらない。</p>
+<h3 id="s32">5. シェーダを1本だけ壊す</h3>
+<p><code>shaders/meshlet.mesh</code> の中をわざと壊して保存し、<code>2</code> → <code>1</code> と押して作り直させる。</p>
+<ul><li>HUD にエラーが出て、レンダラが作られない(<strong>頂点の道も描けなくなる</strong>)。2本のパイプラインを同じ <code>MeshRenderer</code> の中でまとめて作っているため。Day 62c のように片方だけ生き残る作りにはしていない</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>B</code></td><td>「数える」の表の2列(メッシュの道は計算、頂点の道は GPU の実測だけ)</td><td>頂点の道は変換した頂点が 2.08 倍。メッシュの道は 1.33 倍。絵は変わらない(全画素一致は GPU でしか確かめられない)</td></tr>
+<tr><td><code>M</code></td><td>「メッシュレットに切る」の表示</td><td>メッシュレットごとの色は育てると不揃いな小片、並び順のままだと輪切りの縞。三角形ごとの色は 1体 32,768 枚の細かさ</td></tr>
+<tr><td><code>O</code></td><td>「メッシュレットに切る」「数える」の切り方</td><td>1体 343 個 / 重複 x1.33 と、512 個 / x2.00</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>「数える」の体の数</td><td>三角形 3 万 / 52 万 / 210 万 / 839 万枚。組は 343 / 5,488 / 21,952 / 87,808</td></tr>
+<tr><td>左ドラッグ / ホイール / <code>R</code></td><td>「メッシュレットに切る」の向き(Yaw のみ)</td><td>どの向きから見ても同じ切り方の絵。ホイールとピッチは無い</td></tr>
+<tr><td><code>H</code> / <code>Esc</code></td><td>(なし)</td><td>HUD の出し入れと終了は実機で</td></tr>
+<tr><td>(キーなし。定数)</td><td>「メッシュレットに切る」の大きさ、「32 人で配る」の人数と数</td><td>実機では <code>MeshletBuilder.MaxVertices / MaxTriangles</code> と <code>meshlet.mesh</code> の宣言を揃えて書き換える(課題2)。このページだけの切り替え</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day64a の Geometry/TorusKnot.cs と Geometry/MeshletBuilder.cs、shaders/meshlet.mesh のループを JS に移したもの(トーラスノットと切り方は docs/site/meshlet.js に書いてあり、Day 64b と共有。このページには実験台の部分だけがある)。同じ切り方を C# の検証用プロジェクトでも走らせ、JS と C# の両方で、64 / 124 の育てるが 343 個(三角形 95.53 枚・頂点 63.73 個・重複 1.3341・頂点の上限に届いたのが 340 個・三角形の上限に届いたのが 0 個)、並び順のままが 512 個(64 枚・64 個・重複 2.0000)になること、32 / 64 と 128 / 256 の値(789 個・1.5347 / 1,110 個・2.1615 / 158 個・1.2277 / 171 個・1.3340)、切り方の結果(メッシュレットごとの頂点数・三角形数・頂点番号・詰めた三角形)の 64 ビットのハッシュが6通りとも一致することを確かめた(トーラスノットの頂点の位置と法線も、float で C# と全ビット一致する)。体の数ごとの組(5,488 など)と変換した頂点(349,728)は同じ式。頂点シェーダの回数(545,522 回・8,728,562 回)、画素シェーダの回数、GPU の時間、2つの道の絵の一致は、手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s33">検証の途中で分かったこと</h2>
+<p>窓の無いハーネス(reference のソースを取り込んで、<code>MeshRenderer</code> を直接呼ぶ)で確かめた。環境は RTX 3070 / ドライバ 596.49、<strong>検証レイヤなし</strong>。</p>
+<h3 id="s34">検証1: 2つの道の絵を突き合わせる</h3>
+<p>切り方 2 通り x 体の数 4 通り x 表示 3 通り = <strong>24 通り</strong>で、2つの道の絵を 518,400 画素すべて突き合わせた。</p>
+<p><strong>24 通りとも完全一致</strong>(1画素も違わない)。Day 62c の3つの探し方では最下位ビットのずれ(別々に翻訳したときのFMA の縮約の違い)が残ったが、今日は要点7 の3つを守った結果、ずれが出なかった。</p>
+<p>3つ目(式の順番)の効き目も確かめた。メッシュシェーダだけ <code>(frame.viewProj * model) * p</code> と先に行列どうしを掛けると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の数</th><th>頂点の道と違う画素</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>3</td></tr>
+<tr><td>16</td><td>29</td></tr>
+<tr><td>256</td><td>64</td></tr>
+</tbody>
+</table></div>
+<p>数は少ないが、<strong>ゼロではなくなる</strong>。数学的には同じ式でも、掛ける順が変われば丸め方が変わり、2つの物が重なる縁で「どちらが手前か」の判定が入れ替わる。</p>
+<h3 id="s35">検証2: 数えるだけで 34 倍遅くなった</h3>
+<p>最初の版は、メッシュの道の統計に<strong>メッシュシェーダの回数</strong>(<code>MeshShaderInvocationsBitExt</code>)も入れていた。そのとき 16 体で測った GPU の時間(描く命令だけ、最小値)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メッシュシェーダの中身</th><th>描く命令</th></tr></thead>
+<tbody>
+<tr><td>そのまま</td><td>2.419 ms</td></tr>
+<tr><td><code>gl_PrimitiveID</code> を書かない</td><td>2.399 ms</td></tr>
+<tr><td>位置だけ出す</td><td>2.442 ms</td></tr>
+<tr><td><code>frame.viewProj</code> を読まない</td><td>2.421 ms</td></tr>
+<tr><td>頂点を読まない</td><td>2.429 ms</td></tr>
+<tr><td><strong>何もしない</strong>(<code>SetMeshOutputsEXT(0, 0)</code> で返る)</td><td><strong>2.424 ms</strong></td></tr>
+<tr><td>(頂点の道)</td><td>0.071 ms</td></tr>
+</tbody>
+</table></div>
+<p>中身を削っても何も変わらない。<strong>ワークグループ1つあたり 0.44us</strong> で、まるで1つずつ順番に走っているような数字。そこで C# 側のクエリを1つずつ外した。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>開いていたクエリ</th><th>メッシュの道</th></tr></thead>
+<tbody>
+<tr><td>統計(画素 + メッシュシェーダの回数)+ 三角形の数</td><td>2.43 ms</td></tr>
+<tr><td>統計(<strong>メッシュシェーダの回数だけ</strong>)</td><td><strong>2.39 ms</strong></td></tr>
+<tr><td>統計(画素だけ)+ 三角形の数</td><td><strong>0.072 ms</strong></td></tr>
+<tr><td>何も開かない</td><td>0.070 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>メッシュシェーダの回数を数える統計を開いているだけで 34 倍</strong>。画素の回数と三角形の数は、数えてもただ。仕様上は正しく数えられる項目で、値も正しかった(メッシュレット数 x 32 人と一致)。ドライバがこの項目を数えるためにワークグループを1つずつ流している、というのが素直な推測だが、確かめる手段は無い。</p>
+<p>HUD の数字は「数えているとき」の値でもあるので、<strong>数えることで値段が変わるなら、その値段は測っていないのと同じ</strong>。今日はこの項目を外し、回数は計算で出している(<code>MeshRenderer.MeshWorkGroups</code>)。</p>
+<h3 id="s36">検証3: 「並び順のまま」のほうが速かった</h3>
+<p>2つの道を1フレームずつ交互に 16 回ずつ描き、最小値を取った(2回走らせた)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の数</th><th>育てる: 頂点 / メッシュ(ms)</th><th>並び順のまま: 頂点 / メッシュ(ms)</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>0.010 / 0.010</td><td>0.010 / 0.009</td></tr>
+<tr><td>16</td><td>0.070 / 0.072</td><td>0.063〜0.065 / 0.066</td></tr>
+<tr><td>64</td><td>0.256 / 0.222〜0.223</td><td>0.548〜0.560 / 0.486〜0.499</td></tr>
+<tr><td>256</td><td>2.49〜2.68 / 2.19〜2.35</td><td>2.44〜2.56 / 2.00〜2.05</td></tr>
+</tbody>
+</table></div>
+<p>2つのことが読める。</p>
+<ul><li><strong>メッシュの道は頂点の道とほぼ同じで、数が増えると 10〜20% 速い</strong>。要点7 の表はこの比</li><li><strong>256 体では「並び順のまま」のほうが 10% ほど速い</strong>。重複率は育てるほうが低い(1.33 対 2.00)ので、頂点の変換の量では説明できない。輪切りのメッシュレットは三角形 64 枚ちょうどで、出力の置き場所の粒度(<code>meshOutputPerPrimitiveGranularity</code> = 32)にぴったり収まる、1つのメッシュレットの三角形が画面の広い範囲に散る、などが考えられるが、<strong>今日は切り分けていない</strong></li></ul>
+<blockquote><p><strong>絶対値は信用しないこと</strong>。同じ条件でも走らせるたびに 1〜2 割動き、64 体の頂点の道が 0.256 と 0.548 に分かれたように、GPU のクロックの状態で倍近く変わることもある。<strong>同じ走行の中で交互に描いた比</strong>だけを比べる。アプリの HUD の値(60 枚/秒に合わせて休む)はさらに大きく出る(Day 62c の完成条件と同じ事情)。</p></blockquote>
+<h3 id="s37">検証4: <code>gl_PrimitiveID</code> には GeometryShader の機能が要る</h3>
+<p><code>VulkanDevice</code> で <code>GeometryShader</code> を立てている理由を確かめるため、翻訳した SPIR-V を開いて能力の宣言(<code>OpCapability</code>)を数えた。<code>shade.frag</code> には <code>Shader</code> のほかに <strong><code>Geometry</code></strong> が入っていた。</p>
+<div class="code"><pre><code>shade.frag   : capabilities [Shader, Geometry]
+scene.vert   : capabilities [Shader]
+meshlet.mesh : capabilities [MeshShadingEXT]</code></pre></div>
+<p>画素シェーダで <code>gl_PrimitiveID</code> を読むと、glslang は <code>Geometry</code> の能力を宣言する。Vulkan の決まりでは<strong>その能力を使うには <code>geometryShader</code> の機能を有効にしておく必要がある</strong>。ジオメトリシェーダを1本も使わないのに要る——「三角形の番号」はもともと GS の持ち物だった、という名残り。</p>
+<p>試しに <code>GeometryShader = false</code> にして走らせると、<strong>この環境(検証レイヤなし、NVIDIA)では何も言われずに同じ絵が出た</strong> (24 通りとも完全一致のまま)。仕様違反でも動いてしまう例で、別の GPU やドライバで同じとは限らない。Vulkan で「動いたから正しい」と言えないのは、こういうところ。</p>
+</section>
+<section class="part"><h2 id="s38">改造課題</h2>
+<h3 id="s39">課題1(易): メッシュシェーダの回数を数えてみる</h3>
+<p>検証2 を自分の手で再現する。</p>
+<ol><li><code>MeshRenderer</code> の <code>_meshStatistics</code> に <code>QueryPipelineStatisticFlags.MeshShaderInvocationsBitExt</code> を足す</li><li>結果は<strong>立てたビットの小さい順</strong>に返る。<code>countLength</code> と、<code>DrawStatistics</code> への詰め方を直す</li><li>HUD の「うち描画」がどうなるか。<code>B</code> で頂点の道と行き来して比べる</li><li>数えた値が「メッシュレット数 x 体の数 x 32」と一致することを確かめる</li><li><strong>数えたい値は、数えずに計算で出せないか</strong>を先に考える習慣を付ける(今日の HUD がそうしている)</li></ol>
+<h3 id="s40">課題2(中): メッシュレットの大きさを変える</h3>
+<p><code>MeshletBuilder.MaxVertices</code> / <code>MaxTriangles</code> と、<code>meshlet.mesh</code> の <code>max_vertices</code> / <code>max_primitives</code> を<strong>揃えて</strong>変える(揃えないと、書き込み先が宣言より大きくなって未定義動作)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>頂点 / 三角形</th><th>予想</th></tr></thead>
+<tbody>
+<tr><td>32 / 64</td><td></td></tr>
+<tr><td>64 / 124(今日)</td><td>三角形 95.5 枚 / 重複 x1.33</td></tr>
+<tr><td>128 / 256</td><td></td></tr>
+</tbody>
+</table></div>
+<ol><li>表を埋める前に、「頂点 V 個で三角形はおよそ何枚か」を予想する(ヒント: 格子の中では三角形は頂点のおよそ2倍。縁の分だけ減る)</li><li>HUD の「分割」で答え合わせする</li><li>256 体で2つの道の値段を比べる。<strong>大きいほど良い</strong>とは限らない理由を考える(ヒント: 出力の置き場所が大きいほど、1つの SM に同時に載せられるワークグループが減る)</li></ol>
+<h3 id="s41">課題3(難): 育て方の点数に「向き」を混ぜる</h3>
+<p>Day 64b の背面カリングは「メッシュレットの三角形の法線が、どれだけ揃っているか」で効き目が決まる。今日の <code>BuildGrow</code> は新しい頂点の数しか見ていないので、管の表面を回り込むように育つことがある。</p>
+<ol><li>候補の点数を「新しい頂点の数 + α x (メッシュレットの平均法線と候補の法線のなす角)」に変える</li><li>各メッシュレットについて「法線のばらつき」(三角形の法線と平均法線の内積の最小値)を求め、全体の平均を出す</li><li>α を 0 / 0.5 / 2 と変えて、<strong>重複率と法線のばらつき</strong>がどう動くかを表にする。片方を良くするともう片方が悪くなるはず——それが meshoptimizer の <code>cone_weight</code> 引数の意味</li><li>Day 64b を作ったあとで、この α を入れた切り方でカリングの効き目がどう変わるかを見る(Day 64b では向きではなく「中心からの距離」を同点の決め方に使う。どちらがよく効くか比べるとよい)</li></ol>
+<blockquote><p><strong>測るときは Release で、1フレームずつ交互に描いて比べる</strong>(検証3)。そして長く回しっぱなしにしない(電源に対して厳しい負荷になる)。</p></blockquote>
+</section>
+<footer class="end">Day 64a メッシュシェーダ / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softview.js"></script>
+<script src="../site/meshlet.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok, setSeg } = Lab;
+const { shadeRGB } = SoftView;
+const M = Meshlet;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const REDRAW = [];
+window.addEventListener('resize', () => { for (const f of REDRAW) f(); });
+
+const KNOT = M.createTorusKnot();
+// 切った結果は同じなら同じなので、取っておく
+const setCache = new Map();
+function meshletsOf(strategy, maxV = 64, maxT = 124) {
+  const key = `${strategy}|${maxV}|${maxT}`;
+  let s = setCache.get(key);
+  if (!s) { s = M.build(KNOT, strategy, maxV, maxT); setCache.set(key, s); }
+  return s;
+}
+const fract = (x) => x - Math.floor(x);
+// 番号 → 色(黄金比で色相を散らす)
+function hashRGB(id) {
+  const hue = fract(id * 0.61803399);
+  return [0, 2 / 3, 1 / 3].map((o) => Math.min(1, Math.max(0, Math.abs(fract(hue + o) * 6 - 3) - 1)) * 0.55 + 0.35);
+}
+
+// ============================================================
+//  メッシュレットに切る
+// ============================================================
+{
+  const st = { strategy: 'grow', mode: 'meshlet', size: '64,124', yaw: 0.6, pick: false, index: 120 };
+  const PITCH = 0.35, DIST = 5.0;
+  function current() { const [v, t] = st.size.split(',').map(Number); return meshletsOf(st.strategy, v, t); }
+
+  // 三角形ごとに色を決めて、z バッファ付きで塗る(Meshlet.render。表側の三角形だけ)
+  function render(set, w, h) {
+    const cam = Meshlet.orbit({ target: [0, 0, 0], yaw: st.yaw, pitch: PITCH, dist: DIST, fov: 50 }, w, h);
+    const pickId = st.pick ? Math.min(st.index, set.count - 1) : -1;
+    return Meshlet.render(KNOT, set, cam, w, h, {
+      color: (k, ml, n) => {
+        let rgb;
+        if (st.mode === 'shaded') rgb = shadeRGB(n, [0.85, 0.8, 0.72], 0.25, 0.85);
+        else rgb = shadeRGB(n, hashRGB(st.mode === 'triangle' ? k + 0.5 : ml), 0.55, 0.45); // 面の向きで少しだけ暗くして、形を読めるようにする
+        if (pickId >= 0) rgb = ml === pickId ? [255, 214, 74] : rgb.map((v) => Math.round(v * 0.3));
+        return rgb;
+      },
+    });
+  }
+
+  function drawHist(set) {
+    const { ctx, w, h } = fit($('ml-hist'));
+    const bin = set.maxT >= 200 ? 8 : 4, nb = Math.ceil((set.maxT + 1) / bin);
+    const cnt = new Array(nb).fill(0);
+    for (const m of set.meshlets) cnt[Math.min(nb - 1, Math.floor(m.triangleCount / bin))]++;
+    const top = Math.max(...cnt);
+    const L = 56, R = 16, T = 14, B = 34, W = w - L - R, H = h - T - B;
+    ctx.font = '12px ' + tok('--font-mono');
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'right';
+    ctx.fillText(String(top), L - 6, T + 10); ctx.fillText('0', L - 6, T + H);
+    ctx.textAlign = 'left'; ctx.fillText('メッシュレットの数', 4, 10 + 0);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(L, T + H + 0.5); ctx.lineTo(L + W, T + H + 0.5); ctx.stroke();
+    const bw = W / nb;
+    cnt.forEach((c, i) => {
+      if (!c) return;
+      ctx.fillStyle = tok('--accent'); const bh = c / top * H;
+      ctx.fillRect(L + i * bw + 1, T + H - bh, Math.max(1, bw - 2), bh);
+    });
+    // 上限(三角形の上限)の線
+    const lx = L + (set.maxT / (nb * bin)) * W;
+    ctx.strokeStyle = tok('--ink'); ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(lx, T); ctx.lineTo(lx, T + H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--ink'); ctx.textAlign = 'right'; ctx.fillText('三角形の上限 ' + set.maxT, lx - 4, T + 12);
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('0', L, h - 18);
+    ctx.textAlign = 'right'; ctx.fillText('1つの三角形の数 →', L + W, h - 4);
+  }
+
+  function redraw() {
+    const set = current();
+    $('ml-yaw-out').textContent = st.yaw.toFixed(2);
+    $('ml-index').max = String(set.count - 1);
+    if (st.index > set.count - 1) st.index = set.count - 1;
+    $('ml-index').value = String(st.index);
+    $('ml-index-out').textContent = `${st.index} / ${set.count - 1}`;
+    $('ml-index').disabled = !st.pick;
+    const cv = $('ml-canvas');
+    fit(cv);
+    const img = render(set, cv.width, cv.height);
+    cv.getContext('2d').putImageData(img, 0, 0);
+    const strat = st.strategy === 'grow' ? '育てる' : '並び順のまま';
+    $('ml-stats').innerHTML = stat('1体のメッシュレット', comma(set.count) + ' 個') +
+      stat('三角形 / 個', set.trisPerMeshlet.toFixed(1), `<small> (上限 ${set.maxT})</small>`) +
+      stat('頂点 / 個', set.vertsPerMeshlet.toFixed(1), `<small> (上限 ${set.maxV})</small>`) +
+      stat('頂点の重複', 'x' + set.duplication.toFixed(2)) +
+      stat('頂点の上限に届いた個数', `${set.hitV}`, ` <small>/ ${set.count}</small>`) +
+      stat('三角形の上限に届いた個数', `${set.hitT}`, ` <small>/ ${set.count}</small>`);
+    drawHist(set);
+    const m = set.meshlets[Math.min(st.index, set.count - 1)];
+    const k = m.triangleOffset, packed = set.triangles[k];
+    const loc = [packed & 255, (packed >> 8) & 255, (packed >> 16) & 255];
+    const orig = loc.map((l) => set.vertexIndices[m.vertexOffset + l]);
+    const hex = '0x' + packed.toString(16).padStart(8, '0');
+    $('ml-one').innerHTML = `<table><thead><tr><th>メッシュレット ${st.index}</th><th>VertexOffset</th><th>TriangleOffset</th><th>VertexCount</th><th>TriangleCount</th><th>先頭の三角形(局所番号 → 元の頂点番号)</th></tr></thead><tbody><tr><td>${strat}</td><td>${comma(m.vertexOffset)}</td><td>${comma(m.triangleOffset)}</td><td>${m.vertexCount}</td><td>${m.triangleCount}</td><td>${hex} = (${loc.join(', ')}) → (${orig.join(', ')})</td></tr></tbody></table>`;
+    const same = set.strategy === 'scan' ? '並び順のままは、三角形が「管の断面を1周する帯」ごとに並んでいるので、1つのメッシュレットがちょうど1本の輪になる(縞)。輪の両側の円は隣のメッシュレットでも使うので、頂点は 2 回ずつ変換される(重複 2.00)。' : '育てると、境目の短いひとつながりの小片になる。ただし形は丸くなく、管の周りを回り込むように育つ。';
+    $('ml-note').textContent = (st.pick ? '強調したメッシュレットが裏側にあると見えない(表側の三角形だけを描いているので。向きを回すと見つかる)。 ' : '') + same + (set.hitT === 0 ? ` 三角形の上限(${set.maxT})には1つも届かない。頂点の上限(${set.maxV})に先に当たるから。平均 ${set.trisPerMeshlet.toFixed(1)} 枚は上限の ${(100 * set.trisPerMeshlet / set.maxT).toFixed(0)}%。` : '');
+  }
+  REDRAW.push(redraw);
+  seg('ml-strategy', (v) => { st.strategy = v; redraw(); });
+  seg('ml-mode', (v) => { st.mode = v; redraw(); });
+  seg('ml-size', (v) => { st.size = v; redraw(); });
+  $('ml-yaw').addEventListener('input', (e) => { st.yaw = Number(e.target.value); redraw(); });
+  $('ml-pick').addEventListener('change', (e) => { st.pick = e.target.checked; redraw(); });
+  $('ml-index').addEventListener('input', (e) => { st.index = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  32 人で配る
+// ============================================================
+{
+  const st = { preset: '64,96', lanes: 32, v: 64, t: 96 };
+  function redraw() {
+    const L = st.lanes;
+    $('ln-v-out').textContent = String(st.v);
+    $('ln-t-out').textContent = String(st.t);
+    const rv = Math.ceil(st.v / L), rt = Math.ceil(st.t / L);
+    const rowH = 16, head = 50, gap = 30;
+    const needH = head + rv * rowH + gap + head + rt * rowH + 14;
+    const cv = $('ln-canvas');
+    cv.style.height = needH + 'px';
+    const { ctx, w } = fit(cv);
+    const LEFT = 92, cw = Math.min(22, (w - LEFT - 16) / L);
+    ctx.font = '12px ' + tok('--font-mono');
+    const panel = (y0, title, count, rounds, code) => {
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'left';
+      ctx.fillText(title, 8, y0 + 12);
+      ctx.fillStyle = tok('--muted'); ctx.fillText(code, 8, y0 + 28);
+      for (let r = 0; r < rounds; r++) {
+        const y = y0 + head + r * rowH;
+        ctx.fillStyle = tok('--muted'); ctx.textAlign = 'right';
+        ctx.fillText(`i = ${r * L}〜`, LEFT - 8, y + 12);
+        for (let lane = 0; lane < L; lane++) {
+          const i = r * L + lane, x = LEFT + lane * cw;
+          if (i < count) {
+            const c = hashRGBlane(lane, L);
+            ctx.fillStyle = `rgb(${c.join(',')})`; ctx.fillRect(x + 0.5, y + 0.5, cw - 1, rowH - 1);
+            if (cw >= 17) { ctx.fillStyle = '#10131a'; ctx.textAlign = 'center'; ctx.font = '10px ' + tok('--font-mono'); ctx.fillText(String(i), x + cw / 2, y + 12); ctx.font = '12px ' + tok('--font-mono'); }
+          } else {
+            ctx.strokeStyle = tok('--line'); ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, rowH - 1);
+          }
+        }
+      }
+      ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left';
+      ctx.fillText('← 人 0', LEFT, y0 + head - 6);
+      ctx.textAlign = 'right'; ctx.fillText(`人 ${L - 1} →`, LEFT + L * cw, y0 + head - 6);
+    };
+    panel(6, `頂点のループ(${st.v} 個)`, st.v, rv, `for (uint i = gl_LocalInvocationIndex; i < ${st.v}; i += ${L}u)`);
+    panel(6 + head + rv * rowH + gap, `三角形のループ(${st.t} 枚)`, st.t, rt, `for (uint i = gl_LocalInvocationIndex; i < ${st.t}; i += ${L}u)`);
+    const slotsV = rv * L, slotsT = rt * L;
+    $('ln-stats').innerHTML = stat('頂点のループ', `${rv} 周`, `<small> (${st.v} / ${slotsV} = ${(100 * st.v / slotsV).toFixed(0)}%)</small>`) +
+      stat('三角形のループ', `${rt} 周`, `<small> (${st.t} / ${slotsT} = ${(100 * st.t / slotsT).toFixed(0)}%)</small>`) +
+      stat('最後の周で休む人', `頂点 ${slotsV - st.v} 人 / 三角形 ${slotsT - st.t} 人`) +
+      stat('1人が書く数(最大)', `頂点 ${rv} 個 / 三角形 ${rt} 枚`);
+    $('ln-note').textContent = `同じ周の ${L} 人は連続した番号(i = 周 x ${L} + 人の番号)を受け持つ。隣の人が隣の要素を読むので、メモリの読み込みが ${L} 人ぶん1回にまとまる。` + (L === 32 ? ' reference の値(64 頂点を 32 人で出すので1人が 2 頂点、124 枚なら1人が 4 枚で、最後の周は欠ける)。' : ' 人数を変えられるのはこのページだけ。実機は maxPreferredMeshWorkGroupInvocations(RTX 3070 は 32)に合わせて 32 に固定している。');
+  }
+  const hashRGBlane = (lane, L) => hashRGB(lane / L * 3 + 0.1).map((v) => Math.round(v * 255));
+  REDRAW.push(redraw);
+  const syncPreset = () => { if (st.preset !== 'free') { const [v, t] = st.preset.split(',').map(Number); st.v = v; st.t = t; } $('ln-v').value = String(st.v); $('ln-t').value = String(st.t); };
+  seg('ln-preset', (v) => { st.preset = v; syncPreset(); redraw(); });
+  seg('ln-lanes', (v) => { st.lanes = Number(v); redraw(); });
+  $('ln-v').addEventListener('input', (e) => { st.v = Number(e.target.value); st.preset = 'free'; setSeg('ln-preset', 'free'); redraw(); });
+  $('ln-t').addEventListener('input', (e) => { st.t = Number(e.target.value); st.preset = 'free'; setSeg('ln-preset', 'free'); redraw(); });
+  syncPreset(); redraw();
+}
+
+// ============================================================
+//  数える
+// ============================================================
+{
+  const st = { count: 16, strategy: 'grow' };
+  // 計画書にある GPU の実測(手元の RTX 3070、既定の視点、育てる)。頂点シェーダの回数と画素シェーダの回数
+  const MEASURED = { '16|grow': { vs: 545522, fs: 195990 }, '256|grow': { vs: 8728562, fs: null } };
+  function redraw() {
+    const set = meshletsOf(st.strategy), n = st.count;
+    const src = KNOT.vertexCount * n, tris = KNOT.triangleCount * n;
+    const groups = set.count * n, xformed = set.vertexIndices.length * n;
+    const meas = MEASURED[`${n}|${st.strategy}`];
+    const dash = '<span style="color:var(--muted)">(このページでは出せない)</span>';
+    const row = (k, a, b) => `<tr><th scope="row">${k}</th><td>${a}</td><td>${b}</td></tr>`;
+    $('ct-table').innerHTML = `<table><thead><tr><th></th><th>メッシュの道</th><th>頂点の道</th></tr></thead><tbody>` +
+      row('描く命令に渡す数', `<code>CmdDrawMeshTask(${set.count}, ${n}, 1)</code> = ${comma(groups)} 組(計算)`, `<code>CmdDrawIndexed(${set.triangles.length * 3}, ${n}, ...)</code>`) +
+      row('メッシュシェーダの人数', `${comma(groups)} 組 x 32 人 = ${comma(groups * 32)} 人(計算)`, '(段が無い)') +
+      row('頂点を変換した回数', `${comma(xformed)} 回(メッシュレットの頂点の総数 ${comma(set.vertexIndices.length)} x ${n} 体。計算)`, meas ? `<strong>${comma(meas.vs)} 回</strong>(頂点シェーダの回数。GPU が数えた値)` : dash) +
+      row('元の頂点の数 x 体の数', comma(src), comma(src)) +
+      row('比(変換した回数 / 元の頂点)', `<strong>${(xformed / src).toFixed(2)} 倍</strong>(計算)`, meas ? `<strong>${(meas.vs / src).toFixed(2)} 倍</strong>` : dash) +
+      row('ラスタライザへの三角形', comma(tris), comma(tris)) +
+      row('画素シェーダの回数', meas && meas.fs ? comma(meas.fs) + '(GPU が数えた値)' : dash, meas && meas.fs ? comma(meas.fs) + '(GPU が数えた値)' : dash) +
+      `</tbody></table>`;
+    $('ct-note').textContent = meas
+      ? (st.count === 16 ? '16 体・育てる・既定の視点は、完成条件の起動直後の内訳と同じ数。頂点の道のほうが頂点を多く変換するのは、post-transform cache が索引の並びの「最近」しか覚えていないため(メッシュレットは頂点が最初から 64 個と決まっているので、中では1回ずつしか変換しない。境目の頂点だけが隣でもう1回)。' : '256 体の頂点シェーダの回数は完成条件の値。ここから画素シェーダの回数は計画書に無いので空欄。')
+      : '三角形の数は2つの道で同じで、違うのは変換する頂点の数だけ。頂点の道の数は GPU が数えるもので、この組み合わせでは計画書に実測が無い。';
+  }
+  seg('ct-count', (v) => { st.count = Number(v); redraw(); });
+  seg('ct-strategy', (v) => { st.strategy = v; redraw(); });
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
