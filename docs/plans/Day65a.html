@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 65a GPU 駆動レンダリング(1)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. indirect の描く命令 — 数の代わりに「数の書いてある場所」を渡す</a></li><li class="l3"><a href="#s6">2. 引数を GPU が書く — 下書きと <code>atomicAdd</code></a></li><li class="l3"><a href="#s7">3. 一覧で引き直す — 「何番目に描く体か」と「どの体か」を分ける</a></li><li class="l3"><a href="#s8">4. バリア — 引数を読むのは「シェーダ」ではない</a></li><li class="l3"><a href="#s9">5. 階層カリング — 体 → メッシュレット → 三角形</a></li><li class="l3"><a href="#s10">6. CPU で選ぶか、GPU で選ぶか</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経の始め方</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Geometry — 形とメッシュレット(Day 65a で <code>MeshData</code> に球が付いた)</a></li><li class="l3"><a href="#s19">Vulkan — 6つのクラスと5つの型(Day 65a で <code>MeshRenderer</code> がもう一段太った)</a></li><li class="l3"><a href="#s20">GPU に挿さっているもの — binding の一覧(Day 65a で 8・9 番が増えた)</a></li><li class="l3"><a href="#s21">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65a で描く前にコンピュートが入った)</a></li><li class="l3"><a href="#s22">cull.comp の1人の中(新規)</a></li><li class="l3"><a href="#s23">タスクシェーダの1ワークグループの中(Day 65a で体の番号の引き方が変わった)</a></li><li class="l3"><a href="#s24">メッシュシェーダの1ワークグループの中(Day 65a で、タスクなしの道の体の番号の引き方が変わった)</a></li><li class="l3"><a href="#s25">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動: 16 体、GPU で選ぶ</a></li><li class="l3"><a href="#s28">2. <code>4</code> を押す: 256 体(今日の目)</a></li><li class="l3"><a href="#s29">3. <code>B</code> を2回押す: 頂点の道</a></li><li class="l3"><a href="#s30">4. <code>F</code> で目を止めて見下ろす</a></li><li class="l2"><a href="#s31">検証の途中で分かったこと</a></li><li class="l3"><a href="#s32">検証1: どの選び方でも絵は1画素も変わらない</a></li><li class="l3"><a href="#s33">検証2: 体を描く順番が画素シェーダの回数を変える</a></li><li class="l3"><a href="#s34">検証3: 値段</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): CPU で手前から並べる</a></li><li class="l3"><a href="#s37">課題2(中): GPU で選んでも順番を保つ</a></li><li class="l3"><a href="#s38">課題3(難): 粗い形を足して、引数を2つ並べる</a></li><li class="l2"><a href="#s39">次の Day 65b・65c へ</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 65a / 計画書</p>
+  <h1>GPU 駆動レンダリング(1)</h1>
+  <p class="lede">何体描くかを GPU が決め、描く命令の引数を GPU が書く</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. indirect の描く命令 — 数の代わりに「数の書いてある場所」を渡す</a></li><li class="l3"><a href="#s6">2. 引数を GPU が書く — 下書きと <code>atomicAdd</code></a></li><li class="l3"><a href="#s7">3. 一覧で引き直す — 「何番目に描く体か」と「どの体か」を分ける</a></li><li class="l3"><a href="#s8">4. バリア — 引数を読むのは「シェーダ」ではない</a></li><li class="l3"><a href="#s9">5. 階層カリング — 体 → メッシュレット → 三角形</a></li><li class="l3"><a href="#s10">6. CPU で選ぶか、GPU で選ぶか</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経の始め方</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">全体構成と依存の向き</a></li><li class="l3"><a href="#s18">Geometry — 形とメッシュレット(Day 65a で <code>MeshData</code> に球が付いた)</a></li><li class="l3"><a href="#s19">Vulkan — 6つのクラスと5つの型(Day 65a で <code>MeshRenderer</code> がもう一段太った)</a></li><li class="l3"><a href="#s20">GPU に挿さっているもの — binding の一覧(Day 65a で 8・9 番が増えた)</a></li><li class="l3"><a href="#s21">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65a で描く前にコンピュートが入った)</a></li><li class="l3"><a href="#s22">cull.comp の1人の中(新規)</a></li><li class="l3"><a href="#s23">タスクシェーダの1ワークグループの中(Day 65a で体の番号の引き方が変わった)</a></li><li class="l3"><a href="#s24">メッシュシェーダの1ワークグループの中(Day 65a で、タスクなしの道の体の番号の引き方が変わった)</a></li><li class="l3"><a href="#s25">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動: 16 体、GPU で選ぶ</a></li><li class="l3"><a href="#s28">2. <code>4</code> を押す: 256 体(今日の目)</a></li><li class="l3"><a href="#s29">3. <code>B</code> を2回押す: 頂点の道</a></li><li class="l3"><a href="#s30">4. <code>F</code> で目を止めて見下ろす</a></li><li class="l2"><a href="#s31">検証の途中で分かったこと</a></li><li class="l3"><a href="#s32">検証1: どの選び方でも絵は1画素も変わらない</a></li><li class="l3"><a href="#s33">検証2: 体を描く順番が画素シェーダの回数を変える</a></li><li class="l3"><a href="#s34">検証3: 値段</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): CPU で手前から並べる</a></li><li class="l3"><a href="#s37">課題2(中): GPU で選んでも順番を保つ</a></li><li class="l3"><a href="#s38">課題3(難): 粗い形を足して、引数を2つ並べる</a></li><li class="l2"><a href="#s39">次の Day 65b・65c へ</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編。Day 65 の1日目</strong>。reference は Day 64b の完全コピー + 差分(<code>MeshletRenderer</code> の続き)。</p>
+<p>Day 64b のタスクシェーダは、描く命令の<strong>中で</strong>「メッシュシェーダを何組立ち上げるか」を GPU に決めさせた。ただ、描く命令そのもの——<strong>何体ぶん描くか</strong>——は、まだ CPU が数を書き込んでいた。今日はその数も GPU に書かせる。描く前にコンピュートシェーダが体を1つずつ調べ、<strong>描く体の一覧と、描く命令の引数をバッファに書く</strong>。CPU は「引数はあのバッファに書いてある」と言うだけ。</p>
+<div class="code"><pre><code>  Day 64b: CPU「256 体描け」 ───────────────→ タスクシェーダ(メッシュレットごとに捨てる)→ メッシュシェーダ → ラスタライザ
+  Day 65a: コンピュート(体ごとに捨てる。引数を書く)→ CPU「引数を読んで描け」→ タスクシェーダ → メッシュシェーダ → ラスタライザ
+           ↑ 256 体を 4 組 x 64 人で調べる                    ↑ CPU は何体描かれるかを知らない</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 64b</th><th><strong>Day 65a</strong></th></tr></thead>
+<tbody>
+<tr><td>何体描くか</td><td>CPU が数を書く(<code>CmdDrawMeshTask(15, 256, 1)</code>)</td><td><strong>GPU が数を書く</strong>(<code>CmdDrawMeshTasksIndirect(バッファ, 32, 1, 0)</code>)</td></tr>
+<tr><td>画面の外の体</td><td>468 個のメッシュレットを1つずつタスクシェーダが捨てる</td><td><strong>体ごとに1回</strong>調べて丸ごと捨てる。タスクシェーダも立ち上がらない</td></tr>
+<tr><td>捨てる段</td><td>メッシュレット → 三角形</td><td><strong>体 → メッシュレット → 三角形</strong>(階層カリング)</td></tr>
+<tr><td>頂点の道</td><td>カリングなし(839 万枚を全部)</td><td><strong>頂点の道でも体ごとに捨てられる</strong>(indirect の描く命令は Vulkan 1.0 からある)</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>新規 1 ファイル</strong>(<code>cull.comp</code>、74 行)と<strong>変更 10 ファイル</strong> (C# +515 / −37 行、GLSL +51 / −24 行)。量は Day 64b と同じくらい。Day 65 は3日に分けた。<strong>65a で「引数を GPU が書く」骨格を作り、65b で深度の山(Hi-Z)を作り、65c でその骨格に「CPU が知らない情報で選ぶ」を載せる</strong>(前のフレームの深度で、隠れた体を捨てる)。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、体を描く順番が変わっただけで、画素シェーダの回数が最大 20% 増えたこと</strong></p>
+<p>GPU で体を選ぶと、生き残った体は <code>atomicAdd</code> で一覧に席を取るので、<strong>並び順がフレームごとに変わる</strong>。絵は1画素も変わらない(検証1)。ところが画素シェーダの回数は、CPU で選んだとき(番号順)の 337,434 回に対して、GPU で選ぶと <strong>368,386〜406,348 回</strong>の間でフレームごとに揺れた。では番号順が偉いのかというと、そうではない。<strong>反対側から見ると、番号順のほうが 492,540 回で、GPU(404,863〜455,006 回)より悪い</strong>。番号順は、既定の視点からはたまたま「手前から奥へ」の順になっていただけだった(検証2)。<strong>不透明な物は手前から描くと速い</strong>——CPU が並べていたときはタダで手に入っていたものが、GPU に任せると消える。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると Day 64b と同じ 16 体が出る。HUD に新しく「体」の行が増え、「GPU で選ぶ (indirect) (G)  16 体 → 描く 16 体」と出る。<code>4</code> で 256 体にすると「256 体 → 描く 110 体」になり、タスクシェーダの組の数が 3,840 → 1,650 に減る。<code>G</code> で CPU で選ぶ・選ばないに切り替えても、絵も三角形の数も変わらない。変わるのは「答えを知っているのが誰か」だけ。<code>F</code> でカリングの目を止めて上から見下ろすと、止めた目の視錐台の形(扇形)に体が残り、その外の体は丸ごと消えている。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>G</code></td><td><strong>描く体をどう選ぶか(GPU で選ぶ → CPU で選ぶ → 選ばない)。今日の目</strong></td></tr>
+<tr><td><code>B</code></td><td>描き方(タスク + メッシュ → メッシュ → 頂点)。<strong><code>G</code> は3つの道のどれでも効く</strong></td></tr>
+<tr><td><code>C</code> / <code>F</code> / <code>O</code> / <code>M</code> / <code>1</code>〜<code>4</code> / ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>Day 64b のまま</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「描く命令の引数を GPU が書く」</strong>(要点1・2)。描く命令に数を渡す代わりに、<strong>数の書いてあるバッファの場所</strong>を渡す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Day 64b: 数を渡す。CPU がこの数を知っている必要がある
+CmdDrawMeshTask(commands, 15, 256, 1);
+
+// Day 65a: 場所を渡す。数は cull.comp が GPU の上で書く
+CmdDrawMeshTasksIndirect(commands, drawArguments, 32, 1, 0);   // 32 = タスクの道の引数が始まるバイト位置</code></pre></div>
+<p>CPU は描く命令を積み終えて提出するまで、<strong>何体描かれるかを一度も知らない</strong>。描き終わったあとに HUD のために引数のバッファを読んでいるが、それは描くのに要らなかった数。</p>
+<p><strong>2つ目は「粗いものから順に捨てる」</strong>(要点5)。体の球 → メッシュレットの球と円錐 → 三角形の順に調べる。256 体では、</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>選ばない(Day 64b)</th><th><strong>GPU で選ぶ</strong></th></tr></thead>
+<tbody>
+<tr><td>コンピュート</td><td>—</td><td>256 人(4 組 x 64 人)が球を1つずつ</td></tr>
+<tr><td>タスクシェーダ</td><td>3,840 組 x 32 人</td><td><strong>1,650 組</strong> x 32 人</td></tr>
+<tr><td>メッシュレットの判定</td><td>119,808 個 → 画面の外 61.4%</td><td><strong>51,480 個</strong> → 画面の外 10.2%</td></tr>
+<tr><td>ラスタライザへの三角形</td><td>2,453,947 枚</td><td>2,453,947 枚(同じ)</td></tr>
+</tbody>
+</table></div>
+<p>画面の外のメッシュレットの大半(61.4% → 10.2%)は、体ごとの判定で先に捨てられた。残った 10.2% は「半分だけ画面に入っている体」の、はみ出した側のメッシュレット。</p>
+<p><strong>3つ目は「CPU で選んでも GPU で選んでも同じ」</strong>(要点6)。同じ式を C# と GLSL に書き、<code>G</code> で比べられるようにした。<strong>選ぶ体も、絵も、描く時間も同じ</strong>(検証1・3)。違うのは答えを知っているのが誰かだけで、今日の場面では GPU に任せる得はほとんど無い。それでも GPU に任せる骨格を作るのは、<strong>CPU が知らない情報で選びたい</strong>から。その代表が「前のフレームの深度」で、Day 65c で使う。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://docs.vulkan.org/spec/latest/chapters/drawing.html">Vulkan 仕様: Drawing Commands</a></strong> の<code>vkCmdDrawIndexedIndirect</code> と <code>VkDrawIndexedIndirectCommand</code>、そしてメッシュシェーダの節の<code>vkCmdDrawMeshTasksIndirectEXT</code> と <code>VkDrawMeshTasksIndirectCommandEXT</code>。<strong>引数の構造体が、direct の描く命令の引数を並べただけ</strong>であることを確かめる(要点1)</li><li><strong><a href="https://github.com/KhronosGroup/Vulkan-Docs/wiki/Synchronization-Examples">Khronos: Synchronization Examples</a></strong> の「Dispatch writes into a storage buffer. Draw consumes that buffer as a draw indirect buffer.」——今日のバリアそのもの(要点4)</li><li><strong><a href="https://fgiesen.wordpress.com/2011/07/02/a-trip-through-the-graphics-pipeline-2011-part-2/">A Trip Through the Graphics Pipeline 2011, part 2</a></strong> (Fabian Giesen)の <strong>Command Processor</strong> の節。描く命令は GPU の中の「命令を読む係」が順に読んでいく。indirect の描く命令では、その係が<strong>描く直前に</strong>引数をメモリから読みに行く</li><li><strong><a href="https://advances.realtimerendering.com/s2015/aaltonenhaar_siggraph2015_combined_final_footer_220dpi.pdf">Haar &amp; Aaltonen: GPU-Driven Rendering Pipelines(SIGGRAPH 2015)</a></strong> —Assassin's Creed Unity と Trials の GPU 駆動の講演。前半の「体(インスタンス)→ クラスタ(メッシュレット)→ 三角形」の階層カリングの図が、今日と Day 64b を合わせた形。後半の「前のフレームの深度で隠れたものを捨てる」は Day 65c で読む</li><li><strong><a href="https://vkguide.dev/docs/gpudriven/gpu_driven_engines/">vkguide: GPU Driven Rendering Overview</a></strong> —Vulkan での GPU 駆動の全体像。形が何種類もある場面での「1本の大きなバッファ」と <code>DrawIndirectCount</code> の話は今日やらない(歪み3・改造課題3)</li><li><strong>Day 64b の計画書</strong>の「今日残した歪み」2 と 3 — 今日と Day 65b・65c の出発点</li><li><strong>Day 57 の計画書</strong>の要点(コンピュートシェーダの実行モデル)— ワークグループと <code>atomicAdd</code> の復習</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. indirect の描く命令 — 数の代わりに「数の書いてある場所」を渡す</h3>
+<p>描く命令の引数は、どれも数個の整数でしかない。indirect の描く命令は、<strong>その整数の並びをバッファから読む</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>direct(数を渡す)</th><th>indirect(場所を渡す)</th><th>バッファの中身(Vulkan が決めた構造体)</th></tr></thead>
+<tbody>
+<tr><td><code>vkCmdDrawIndexed(索引数, 体の数, 最初の索引, 頂点のずれ, 最初の体)</code></td><td><code>vkCmdDrawIndexedIndirect(バッファ, 位置, 回数, 間隔)</code></td><td><code>VkDrawIndexedIndirectCommand</code>(uint x 5、20 バイト)</td></tr>
+<tr><td><code>vkCmdDrawMeshTasksEXT(x, y, z)</code></td><td><code>vkCmdDrawMeshTasksIndirectEXT(バッファ, 位置, 回数, 間隔)</code></td><td><code>VkDrawMeshTasksIndirectCommandEXT</code>(uint x 3、12 バイト)</td></tr>
+</tbody>
+</table></div>
+<p>構造体の中身は、direct の命令に渡していた数を<strong>同じ順に並べただけ</strong>。今日は3つの道の分を1本のバッファに並べておき、道ごとに読み始める位置(オフセット)を変える。</p>
+<div class="code"><pre><code>  _drawArguments(44 バイト)
+  ┌──────────────────── 0 ───────────────────┬────── 20 ──────┬────── 32 ──────┐
+  │ 索引数 / 体の数 / 最初の索引 / ずれ / 最初の体 │ x / y / z       │ x / y / z       │
+  │  頂点の道(DrawIndexedIndirectCommand)   │ メッシュの道    │ タスクの道      │
+  └──────────────────────────────────────────┴────────────────┴────────────────┘
+                ↑ 体の数                            ↑ y = 体の数      ↑ y = 体の数   ← cull.comp が足す</code></pre></div>
+<p>C# では Silk.NET の同名の構造体をそのまま並べる(<code>DrawArguments</code>)。位置は <code>Marshal.OffsetOf</code> で取る。</p>
+<p>引数を読むのは、<strong>GPU の中の「命令を読む係」</strong>(Command Processor。事前資料 part 2)。描く命令にたどり着いた時点でバッファを読み、そこに書いてある数で描き始める。だから<strong>その命令より前に積んだ GPU の仕事(今日は cull.comp)が書いた数</strong>で描ける。CPU を経由しない。</p>
+<p>最後の2つの引数(回数と間隔)は、構造体を<strong>何個続けて読むか</strong>と、その間の<strong>バイト数</strong>。今日は1個なので間隔は使われない。何個も並べると形の違う物を1回の命令で描ける(<code>multiDrawIndirect</code>。歪み3・改造課題3)。</p>
+<h3 id="s6">2. 引数を GPU が書く — 下書きと <code>atomicAdd</code></h3>
+<p>cull.comp が書くのは<strong>数の欄だけ</strong>。索引数やメッシュレットの数は形で決まっていて、GPU が考える必要が無い。そこで毎フレーム、C# が<strong>数の欄だけ 0 にした下書き</strong>を書き込み、cull.comp は生き残るたびに数の欄に 1 を足す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// MeshRenderer.RecordGpuSelection
+var draft = new DrawArguments
+{
+    Vertex = new DrawIndexedIndirectCommand(indexCount: _indexCount, instanceCount: 0, ...),
+    Mesh = new DrawMeshTasksIndirectCommandEXT(groupCountX: _meshletCount, groupCountY: 0, groupCountZ: 1),
+    Task = new DrawMeshTasksIndirectCommandEXT(groupCountX: TaskGroupsPerInstance, groupCountY: 0, groupCountZ: 1),
+};
+vk.CmdUpdateBuffer(_commands, _drawArguments.Handle, 0, (ulong)Unsafe.SizeOf&lt;DrawArguments&gt;(), &amp;draft);</code></pre></div>
+<p><code>vkCmdUpdateBuffer</code> は<strong>命令の中に値を埋めて送る</strong>(64KB まで)。CPU が map して書く手もあるが、そうすると「前のフレームの描く命令が、もう読み終わったか」を CPU が気にすることになる。命令として積めば、GPU の中で順番に処理される。</p>
+<p>cull.comp の側は、生き残ったら <code>atomicAdd</code> で席を取り、3つの数の欄に足す。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>uint slot = atomicAdd(args.instanceCount, 1u);   // 足す前の値 = 自分の席
+visibleInstances[slot] = instance;
+atomicAdd(args.meshGroupsY, 1u);
+atomicAdd(args.taskGroupsY, 1u);</code></pre></div>
+<p>3か所に足すのは、どの道で描いても同じ数になるようにするため。どの道で描くかをシェーダが知っていれば1か所で済むが、そうすると描き方を変えるたびにシェーダも変わる。</p>
+<h3 id="s7">3. 一覧で引き直す — 「何番目に描く体か」と「どの体か」を分ける</h3>
+<p>GPU で選ぶと、描く体は<strong>飛び飛び</strong>になる(256 体のうち 110 体)。ところが描く命令が立ち上げるのは「0 番目から 109 番目まで」の連番。そこで<strong>番号の一覧</strong>(binding 8)を1枚挟む。</p>
+<div class="code"><pre><code>  描く命令が配る番号:   0    1    2    3   ...  109        ← gl_InstanceIndex / gl_WorkGroupID.y
+  一覧(binding 8):     17   18    3   33   ...  240        ← cull.comp が詰めた本当の体の番号(値は一例)
+                        ↓
+  instances[visibleInstances[gl_InstanceIndex]]              ← 体の行列</code></pre></div>
+<p>3つの描くシェーダ(<code>scene.vert</code> / <code>meshlet.task</code> / <code>meshlet.mesh</code>)は全部この引き直しをする。CPU で選ぶとき(と選ばないとき)は、C# が一覧を作って <code>vkCmdUpdateBuffer</code> で送る。<strong>描くシェーダはどちらが書いたかを知らない</strong>。</p>
+<p><strong>一覧の順番は走るたびに変わる</strong>。<code>atomicAdd</code> は先に着いた人から席を取るので、どの体が何番目になるかは GPU の都合で決まる。Day 64b のタスクシェーダは投票(ballot)で元の順番を保ったが、今日は保たない。不透明な物を深度テスト付きで描くなら、<strong>体を描く順番が変わっても絵は変わらない</strong>(深度テストが手前を残すので。検証1)。ただし<strong>速さは変わりうる</strong>(検証2)。</p>
+<div class="inject"><figure class="lab" id="ar-lab">
+  <div class="lab-head">
+    <h3>引数と一覧 — cull.comp が書くもの(要点1〜3)</h3>
+    <span class="tag">cull.comp の atomicAdd が、一覧(binding 8)と描く命令の引数(binding 9)に何を書くかを、体の数ごとに数えたもの。選ばれる体は上の実験台と同じ式(C# の検証用プロジェクトと一致)。「もう一度走らせる」は GPU の席の取り方のまね(32 体ずつの組の中は番号順、組どうしの順番だけが毎回入れ替わる。検証2の観察)で、本物の GPU が何を選ぶかは約束されていない。引数の並びは reference の DrawArguments(44 バイト)と同じ</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の数(2 / 3 / 4)。目は DefaultView</span>
+      <div class="seg" id="ar-count"><button data-v="16" aria-pressed="false">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="true">256</button></div>
+    </div>
+    <div class="ctl"><span class="label">cull.comp を走らせ直す(このページだけ)</span>
+      <div><button type="button" id="ar-run" style="padding:6px 14px">もう一度走らせる</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="ar-table"></div><div id="ar-list" style="margin-top:10px"></div><p id="ar-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">4. バリア — 引数を読むのは「シェーダ」ではない</h3>
+<p>cull.comp が書いたものを、描く側は2通りに読む。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>書いたもの</th><th>読むのは誰か</th><th>段(Stage)</th><th>読み方(Access)</th></tr></thead>
+<tbody>
+<tr><td>引数(binding 9)</td><td><strong>描く命令そのもの</strong>(命令を読む係)</td><td><code>DrawIndirect</code></td><td><code>IndirectCommandRead</code></td></tr>
+<tr><td>一覧(binding 8)</td><td>描くシェーダ</td><td><code>VertexShader</code> / <code>TaskShader</code> / <code>MeshShader</code></td><td><code>ShaderRead</code></td></tr>
+</tbody>
+</table></div>
+<div class="code"><span class="lang">csharp</span><pre><code>var toDraw = new MemoryBarrier
+{
+    SrcAccessMask = AccessFlags.ShaderWriteBit,
+    DstAccessMask = AccessFlags.IndirectCommandReadBit | AccessFlags.ShaderReadBit,
+};
+vk.CmdPipelineBarrier(_commands,
+    PipelineStageFlags.ComputeShaderBit,
+    PipelineStageFlags.DrawIndirectBit | _drawShaderStages, ...);</code></pre></div>
+<p><strong>引数を読む段は、パイプラインのいちばん頭</strong>(<code>DrawIndirect</code>)。頂点シェーダより前にある。ここを <code>VertexShaderBit</code> だけにすると、描く命令は「まだ 0 のままの下書き」を読んで1体も描かないかもしれない(この PC には検証レイヤが無いので、間違えても黙って動くことがある。だから仕様どおりに書く)。</p>
+<p><code>_drawShaderStages</code> は「持っている段だけ」を並べたもの。メッシュシェーダを持たない GPU で <code>MeshShaderBitExt</code> を挙げると仕様違反になる。</p>
+<p>フレームの頭と終わりにもバリアがある。</p>
+<div class="code"><pre><code>  CmdUpdateBuffer(引数の下書き)
+     ↓ バリア: 転送の書き込み → コンピュートの読み書き
+  CmdDispatch(cull.comp)
+     ↓ バリア: コンピュートの書き込み → DrawIndirect(引数)+ 描くシェーダ(一覧)
+  CmdBeginRendering ... CmdDraw*Indirect ... CmdEndRendering
+     ↓ バリア: 転送 + タスク + コンピュートの書き込み → Host
+  WaitForFences → 引数を読む(HUD の「描く 110 体」)</code></pre></div>
+<h3 id="s9">5. 階層カリング — 体 → メッシュレット → 三角形</h3>
+<p>体ごとの判定に使うのは、<strong>形全体の境界の球</strong>(<code>MeshData.ComputeBoundingSphere</code>。中心 (0.159, 0, 0)、半径 1.875m)。作り方はメッシュレットの球と同じで、頂点を囲む箱の中心から、いちばん遠い頂点まで。体の行列は回転と移動だけなので、中心だけを行列で運べば半径はそのまま使える(Day 64b の要点2 と同じ)。</p>
+<p>判定の式も Day 64b の視錐台カリングと同じ(<code>outsideFrustum</code> を <code>meshlet.task</code> から <code>common.glsl</code> へ移した)。違うのは<strong>調べる単位</strong>だけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>調べる単位</th><th>何で調べるか</th><th>256 体での数</th></tr></thead>
+<tbody>
+<tr><td><strong>cull.comp</strong>(今日)</td><td>体</td><td>形全体の球</td><td>256 体 → 110 体</td></tr>
+<tr><td>meshlet.task(Day 64b)</td><td>メッシュレット</td><td>メッシュレットの球と円錐</td><td>51,480 個 → 32,139 個</td></tr>
+<tr><td>ラスタライザ</td><td>三角形</td><td>画面の外と裏向き</td><td>2,453,947 枚 → 画素へ</td></tr>
+</tbody>
+</table></div>
+<p><strong>粗い段で捨てたものは、細かい段の手間を丸ごと省ける</strong>。画面の外の体 146 体は、Day 64b ではタスクシェーダが 146 x 468 = 68,328 個のメッシュレットを1つずつ捨てていた。今日は 146 回の球の判定で済む。</p>
+<p>ただし<strong>省ける手間の大きさは、細かい段が元々どれだけ高かったかで決まる</strong>。タスクシェーダは元々安い(Day 64b の検証3 で上乗せ 0〜5%)ので、タスクの道の描く時間は 4% しか縮まない。<strong>頂点の道では半分</strong>になる(検証3)——頂点の道にはそれまでカリングが1つも無かったから。</p>
+<div class="inject"><figure class="lab" id="sl-lab">
+  <div class="lab-head">
+    <h3>体を選ぶ — 体 → メッシュレット → 三角形の順に捨てる(要点5・6、完成条件2)</h3>
+    <span class="tag">cull.comp(形全体の球が視錐台の外か)と Camera.IsOutside、その後ろのタスクシェーダの判定(Day 64b)を JS に移して、上から見た地図に描いたもの。SceneData の体の並べ方・Camera の6面・MeshData.ComputeBoundingSphere(中心 (0.159, 0, 0)・半径 1.875m)も同じ。reference の起動時の目(体の数ごとの DefaultView、窓は 960x540)から判定している。数は C# の検証用プロジェクトと完全に一致する。GPU で選ぶ・CPU で選ぶは、選ぶ体が同じ(式が同じ)なので数は同じで、違うのは答えを知っているのが誰かだけ。GPU の時間・画素シェーダの回数はここでは測れない(画素シェーダは下の「描く順」の実験台で数える)</span>
+  </div>
+  <div class="stage"><canvas id="sl-canvas" style="height:360px" aria-label="トーラスノットの格子を上から見た地図。目と視錐台、体ごとの球、選ばれた体"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の数(1 / 2 / 3 / 4)</span>
+      <div class="seg" id="sl-count"><button data-v="1" aria-pressed="false">1</button><button data-v="16" aria-pressed="false">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="true">256</button></div>
+    </div>
+    <div class="ctl"><span class="label">体の選び方(G)</span>
+      <div class="seg" id="sl-select"><button data-v="gpu" aria-pressed="true">GPU で選ぶ</button><button data-v="cpu" aria-pressed="false">CPU で選ぶ</button><button data-v="none" aria-pressed="false">選ばない</button></div>
+    </div>
+    <div class="ctl"><span class="label">カリングの目の向き(F で止めた目の向き。既定は 0.60)。変えられるのはこのページだけ</span>
+      <div class="range"><input type="range" id="sl-yaw" min="-3.14" max="3.14" step="0.02" value="0.6"><output id="sl-yaw-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">球の半径の倍率。reference は 1。このページだけ</span>
+      <div class="seg" id="sl-scale"><button data-v="1" aria-pressed="true">1(reference)</button><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="0" aria-pressed="false">0(中心だけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sl-stats"></div><div class="table-wrap" id="sl-table" style="margin-top:10px"></div><p id="sl-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">6. CPU で選ぶか、GPU で選ぶか</h3>
+<p><code>G</code> の「CPU で選ぶ」は、cull.comp と同じ式を C# に書いたもの(<code>MeshRenderer.SelectOnCpu</code> と <code>Camera.IsOutside</code>)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>CPU で選ぶ</th><th>GPU で選ぶ</th></tr></thead>
+<tbody>
+<tr><td>式</td><td><code>Camera.IsOutside</code>(C#)</td><td><code>outsideFrustum</code>(GLSL)</td></tr>
+<tr><td>選ぶのにかかる時間(256 体)</td><td>CPU で約 8 us(体の数に比例)</td><td>GPU で約 6 us(ほぼ一定。検証3)</td></tr>
+<tr><td>描く命令</td><td>direct(数を CPU が書く)</td><td>indirect(数を GPU が書く)</td></tr>
+<tr><td>一覧の並び</td><td>番号順</td><td>走るたびに変わる</td></tr>
+<tr><td>描く体・絵・描く時間</td><td><strong>同じ</strong></td><td><strong>同じ</strong></td></tr>
+<tr><td>CPU が知っている必要があるもの</td><td><strong>全部の体の置き場所</strong>(<code>_instanceMatrices</code> の写し)</td><td>何も無い</td></tr>
+</tbody>
+</table></div>
+<p>今日の場面では、どちらで選んでも絵も時間も同じで、GPU に任せる得はほとんど無い。GPU に任せる得が出るのは、<strong>CPU が答えを出すのに必要な情報を持っていないとき</strong>。</p>
+<ul><li><strong>前のフレームの深度</strong>(Day 65b・65c)。隠れているかどうかは深度を見ないと分からない。深度は GPU の中にあり、CPU へ読み戻すと1フレーム以上待つ</li><li><strong>GPU が動かしている物の位置</strong>(Day 57 のパーティクルのように、位置の計算自体が GPU にある場合)</li><li><strong>体の数が多すぎるとき</strong>。CPU の時間は体の数に比例する(256 体で 8 us なら、10 万体で 3ms)。GPU は数万人を並べて走らせる</li></ul>
+<p>逆に、<strong>CPU が選べば、ついでに並べ替えもできる</strong>(手前から順に)。GPU に任せるとそれが消える(検証2、改造課題1・2)。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>shaders/cull.comp</code></td><td>74</td><td><strong>今日の主役</strong>。体ごとに球を調べ、生き残りを一覧に詰めて、描く命令の引数に数を足す</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何を足したか</th></tr></thead>
+<tbody>
+<tr><td><code>Day65a.csproj</code></td><td>コメントのみ</td><td>shaders に <code>cull.comp</code> が増えたことの説明</td></tr>
+<tr><td><code>Geometry/MeshData.cs</code></td><td>+30 / −0</td><td><code>ComputeBoundingSphere</code>(形全体の球)</td></tr>
+<tr><td><code>Scene/Camera.cs</code></td><td>+22 / −0</td><td><code>IsOutside</code>(球が視錐台の外か。CPU で選ぶとき用)</td></tr>
+<tr><td><code>shaders/common.glsl</code></td><td>+37 / −3</td><td><code>Frame</code> に体の数と形全体の球、binding 8(一覧)、<code>outsideFrustum</code> を <code>meshlet.task</code> から移す</td></tr>
+<tr><td><code>shaders/meshlet.task</code></td><td>+5 / −16</td><td><code>outsideFrustum</code> を消す(移したので)。体の番号を一覧で引く</td></tr>
+<tr><td><code>shaders/meshlet.mesh</code></td><td>+3 / −2</td><td>体の番号を一覧で引く(タスクなしの道)</td></tr>
+<tr><td><code>shaders/scene.vert</code></td><td>+6 / −3</td><td>体の番号を一覧で引く</td></tr>
+<tr><td><code>Vulkan/MeshRenderer.cs</code></td><td>+415 / −20</td><td><code>DrawArguments</code> / <code>InstanceSelection</code>、コンピュートのパイプライン、一覧と引数のバッファ、バリア、indirect の描く命令、CPU で選ぶ</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+38 / −3</td><td><code>G</code>、HUD の「体」の行、<code>Render</code> に選び方を渡す</td></tr>
+<tr><td><code>Program.cs</code></td><td>+10 / −14</td><td>説明の差し替え(コメントのみ)</td></tr>
+</tbody>
+</table></div>
+<p><code>MeshRenderer.cs</code> の +415 行のうち、半分ほどはコメント。コードとしての主役は <code>RecordGpuSelection</code>(約 50 行)と、描く命令の分岐(indirect と direct の2通り x 3つの道)。</p>
+<h3 id="s14">写経の始め方</h3>
+<p><code>work/Labs/MeshletRenderer</code> をそのまま育てる(Day 64a から続いているプロジェクト)。差分は <code>./diff.sh Day65a</code> で見られる(Day 65 は Day 64 と同じ <code>work/Labs/MeshletRenderer</code> に対応させた)。</p>
+<h3 id="s15">写経する順番</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Geometry/MeshData.cs</code></td><td>依存なし。<code>MeshletBuilder.ComputeSphere</code> と同じ作り方</td></tr>
+<tr><td>2</td><td><code>Scene/Camera.cs</code></td><td>依存なし。式は <code>meshlet.task</code> の <code>outsideFrustum</code> と同じ</td></tr>
+<tr><td>3</td><td><code>shaders/common.glsl</code></td><td><code>Frame</code> の <code>padding</code> を <code>instanceCount</code> にし、末尾に <code>meshSphere</code>。binding 8 は <code>#ifdef CULL_INSTANCES</code> で2通り。<code>outsideFrustum</code> をここへ</td></tr>
+<tr><td>4</td><td><code>shaders/meshlet.task</code></td><td><strong>3 と同時に</strong>。<code>outsideFrustum</code> を消さないと、同じ関数が2つになって翻訳が通らない</td></tr>
+<tr><td>5</td><td><code>shaders/meshlet.mesh</code></td><td>3 の一覧を使う。<code>#else</code> の側(タスクなしの道)だけ</td></tr>
+<tr><td>6</td><td><code>shaders/scene.vert</code></td><td>3 の一覧を使う。<code>vInstance</code> も本当の番号に</td></tr>
+<tr><td>7</td><td><code>shaders/cull.comp</code></td><td><strong>新規</strong>。3 を使う。<code>#define CULL_INSTANCES</code> を <code>#include</code> より<strong>前</strong>に</td></tr>
+<tr><td>8</td><td><code>Vulkan/MeshRenderer.cs</code></td><td>1〜7 を使う。<code>FrameUniforms</code> を 3 の <code>Frame</code> と合わせる。binding は 10 本に</td></tr>
+<tr><td>9</td><td><code>App/ViewerWindow.cs</code></td><td>8 を使う。<code>Render</code> の引数が1つ増える</td></tr>
+<tr><td>10</td><td><code>Program.cs</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+<tr><td>11</td><td><code>Day65a.csproj</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>動かすのは 9 まで写してから</strong>(8 で <code>Render</code> の引数が変わるので、9 まで写さないとビルドが通らない)。シェーダは起動時に翻訳されるので、<strong>3〜7 の間違いはビルドでは分からず、起動すると HUD に翻訳エラーが出る</strong>。動いたら、<code>G</code> を「選ばない」→「CPU で選ぶ」→「GPU で選ぶ」の順に確かめる。選ばないで崩れる → 一覧の引き直し(5・6、<code>meshlet.task</code>)か <code>FrameUniforms</code> の並び(3・8)/ CPU で選ぶと崩れる → <code>SelectOnCpu</code> と <code>RecordCpuSelection</code>(8)/ GPU で選ぶと1体も出ない → 下書き・<code>cull.comp</code>・バリア(7・8)/ GPU で選ぶと体が足りない → <code>meshSphere</code> の渡し方(1・3・8)</p></blockquote>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p>Day 64b から<strong>クラスは増えていない</strong>(増えたのは列挙1つと、Vulkan の構造体を並べた構造体1つ)。層の形も変わらない。変わったのは、<code>MeshRenderer.Render</code> の中で<strong>描く前にコンピュートのパスが入った</strong>ことと、描く側のシェーダが体の番号を<strong>一覧で引き直す</strong>ようになったこと。</p>
+<h3 id="s17">全体構成と依存の向き</h3>
+<svg viewBox="0 0 874 788" role="img" aria-label="全体構成と依存の向き。行が使う側、列が使われる側の行列(点が1つ = 1本の矢印)。Program.cs が App/ViewerWindow.cs を使う。App/ViewerWindow.cs が Vulkan/MeshRenderer.cs を使う。App/ViewerWindow.cs が Vulkan/VulkanDevice.cs を使う。App/ViewerWindow.cs が Vulkan/ShaderCompiler.cs を使う。App/ViewerWindow.cs が Geometry/MeshletBuilder.cs を使う。App/ViewerWindow.cs が Geometry/TorusKnot.cs を使う。App/ViewerWindow.cs が Scene/SceneData.cs を使う。App/ViewerWindow.cs が Scene/Camera.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/GraphicsPipeline.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanBuffer.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanImage.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/ShaderCompiler.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshletBuilder.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshData.cs を使う。Vulkan/MeshRenderer.cs が Scene/Camera.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanImage.cs を使う。Vulkan/GraphicsPipeline.cs が Geometry/MeshData.cs を使う。Vulkan/VulkanBuffer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanBuffer.cs を使う。Geometry/MeshletBuilder.cs が Geometry/MeshData.cs を使う。Geometry/TorusKnot.cs が Geometry/MeshData.cs を使う。Scene/SceneData.cs が Scene/Camera.cs を使う。使われる側が必ず後ろの列にあるので、点は対角線の右上にしか並ばない = 循環は無い" style="width:100%;max-width:874px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><polygon points="368,150 368,748 784,748" fill="var(--sunken)" opacity="0.55"></polygon><text x="374" y="738" font-size="12" fill="var(--muted)">この三角形には点が 1 つも無い</text><line x1="368" y1="150" x2="784" y2="150" stroke="var(--line)"></line><line x1="368" y1="150" x2="368" y2="748" stroke="var(--line)"></line><line x1="368" y1="196" x2="784" y2="196" stroke="var(--line)"></line><line x1="400" y1="150" x2="400" y2="748" stroke="var(--line)"></line><line x1="368" y1="242" x2="784" y2="242" stroke="var(--line)"></line><line x1="432" y1="150" x2="432" y2="748" stroke="var(--line)"></line><line x1="368" y1="288" x2="784" y2="288" stroke="var(--line)"></line><line x1="464" y1="150" x2="464" y2="748" stroke="var(--line)"></line><line x1="368" y1="334" x2="784" y2="334" stroke="var(--line)"></line><line x1="496" y1="150" x2="496" y2="748" stroke="var(--line)"></line><line x1="368" y1="380" x2="784" y2="380" stroke="var(--line)"></line><line x1="528" y1="150" x2="528" y2="748" stroke="var(--line)"></line><line x1="368" y1="426" x2="784" y2="426" stroke="var(--line)"></line><line x1="560" y1="150" x2="560" y2="748" stroke="var(--line)"></line><line x1="368" y1="472" x2="784" y2="472" stroke="var(--line)"></line><line x1="592" y1="150" x2="592" y2="748" stroke="var(--line)"></line><line x1="368" y1="518" x2="784" y2="518" stroke="var(--line)"></line><line x1="624" y1="150" x2="624" y2="748" stroke="var(--line)"></line><line x1="368" y1="564" x2="784" y2="564" stroke="var(--line)"></line><line x1="656" y1="150" x2="656" y2="748" stroke="var(--line)"></line><line x1="368" y1="610" x2="784" y2="610" stroke="var(--line)"></line><line x1="688" y1="150" x2="688" y2="748" stroke="var(--line)"></line><line x1="368" y1="656" x2="784" y2="656" stroke="var(--line)"></line><line x1="720" y1="150" x2="720" y2="748" stroke="var(--line)"></line><line x1="368" y1="702" x2="784" y2="702" stroke="var(--line)"></line><line x1="752" y1="150" x2="752" y2="748" stroke="var(--line)"></line><line x1="368" y1="748" x2="784" y2="748" stroke="var(--line)"></line><line x1="784" y1="150" x2="784" y2="748" stroke="var(--line)"></line><text x="360" y="176.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Program.cs</text><text x="16" y="177" fill="var(--muted)" font-size="12">1</text><text transform="translate(388 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">1 Program</text><rect x="369" y="151" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="207.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">App/ViewerWindow.cs</text><text x="360" y="222.5" text-anchor="end" fill="var(--muted)" font-size="11.5">窓・ループ・HUD・入力</text><text x="360" y="236.5" text-anchor="end" fill="var(--muted)" font-size="11.5">（目を2つ持つ・体の選び方）</text><text x="16" y="223" fill="var(--muted)" font-size="12">2</text><text transform="translate(420 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">2 ViewerWindow</text><rect x="401" y="197" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="253.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/MeshRenderer.cs</text><text x="360" y="268.5" text-anchor="end" fill="var(--muted)" font-size="11.5">ディスクリプタ・3つの道・体を選ぶパス</text><text x="360" y="282.5" text-anchor="end" fill="var(--muted)" font-size="11.5">計測・数え上げ・引数</text><text x="16" y="269" fill="var(--muted)" font-size="12">3</text><text transform="translate(452 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">3 MeshRenderer</text><rect x="433" y="243" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="307" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/GraphicsPipeline.cs</text><text x="360" y="322" text-anchor="end" fill="var(--muted)" font-size="11.5">固定機能の設定 + シェーダ</text><text x="16" y="315" fill="var(--muted)" font-size="12">4</text><text transform="translate(484 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">4 GraphicsPipeline</text><rect x="465" y="289" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="353" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/SceneData.cs</text><text x="360" y="368" text-anchor="end" fill="var(--muted)" font-size="11.5">体の並べ方・視点</text><text x="16" y="361" fill="var(--muted)" font-size="12">5</text><text transform="translate(516 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">5 SceneData</text><rect x="497" y="335" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="391.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshletBuilder.cs</text><text x="360" y="406.5" text-anchor="end" fill="var(--muted)" font-size="11.5">丸く育てる / 育てる / 並び順のまま</text><text x="360" y="420.5" text-anchor="end" fill="var(--muted)" font-size="11.5">球と円錐</text><text x="16" y="407" fill="var(--muted)" font-size="12">6</text><text transform="translate(548 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">6 MeshletBuilder</text><rect x="529" y="381" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="452.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/TorusKnot.cs</text><text x="16" y="453" fill="var(--muted)" font-size="12">7</text><text transform="translate(580 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">7 TorusKnot</text><rect x="561" y="427" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="491" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanImage.cs</text><text x="360" y="506" text-anchor="end" fill="var(--muted)" font-size="11.5">色と深度の的</text><text x="16" y="499" fill="var(--muted)" font-size="12">8</text><text transform="translate(612 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">8 VulkanImage</text><rect x="593" y="473" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="544.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanBuffer.cs</text><text x="16" y="545" fill="var(--muted)" font-size="12">9</text><text transform="translate(644 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">9 VulkanBuffer</text><rect x="625" y="519" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="583" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/ShaderCompiler.cs</text><text x="360" y="598" text-anchor="end" fill="var(--muted)" font-size="11.5">GLSL to SPIR-V + include + define</text><text x="16" y="591" fill="var(--muted)" font-size="12">10</text><text transform="translate(676 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">10 ShaderCompiler</text><rect x="657" y="565" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="621.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/Camera.cs</text><text x="360" y="636.5" text-anchor="end" fill="var(--muted)" font-size="11.5">OrbitView / 行列 / 視錐台の6面</text><text x="360" y="650.5" text-anchor="end" fill="var(--muted)" font-size="11.5">球の内外</text><text x="16" y="637" fill="var(--muted)" font-size="12">11</text><text transform="translate(708 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">11 Camera</text><rect x="689" y="611" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="667.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshData.cs</text><text x="360" y="682.5" text-anchor="end" fill="var(--muted)" font-size="11.5">GpuVertex / MeshData</text><text x="360" y="696.5" text-anchor="end" fill="var(--muted)" font-size="11.5">形全体の球</text><text x="16" y="683" fill="var(--muted)" font-size="12">12</text><text transform="translate(740 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">12 MeshData</text><rect x="721" y="657" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="360" y="721" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanDevice.cs</text><text x="360" y="736" text-anchor="end" fill="var(--muted)" font-size="11.5">1.3 / 描画キュー / mesh_shader + task</text><text x="16" y="729" fill="var(--muted)" font-size="12">13</text><text transform="translate(772 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">13 VulkanDevice</text><rect x="753" y="703" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><circle cx="416" cy="173" r="7" fill="var(--accent)"></circle><circle cx="448" cy="219" r="7" fill="var(--accent)"></circle><circle cx="768" cy="219" r="7" fill="var(--accent)"></circle><circle cx="672" cy="219" r="7" fill="var(--accent)"></circle><circle cx="544" cy="219" r="7" fill="var(--accent)"></circle><circle cx="576" cy="219" r="7" fill="var(--accent)"></circle><circle cx="512" cy="219" r="7" fill="var(--accent)"></circle><circle cx="704" cy="219" r="7" fill="var(--accent)"></circle><circle cx="480" cy="265" r="7" fill="var(--accent)"></circle><circle cx="768" cy="265" r="7" fill="var(--accent)"></circle><circle cx="640" cy="265" r="7" fill="var(--accent)"></circle><circle cx="608" cy="265" r="7" fill="var(--accent)"></circle><circle cx="672" cy="265" r="7" fill="var(--accent)"></circle><circle cx="544" cy="265" r="7" fill="var(--accent)"></circle><circle cx="736" cy="265" r="7" fill="var(--accent)"></circle><circle cx="704" cy="265" r="7" fill="var(--accent)"></circle><circle cx="768" cy="311" r="7" fill="var(--accent)"></circle><circle cx="608" cy="311" r="7" fill="var(--accent)"></circle><circle cx="736" cy="311" r="7" fill="var(--accent)"></circle><circle cx="768" cy="541" r="7" fill="var(--accent)"></circle><circle cx="768" cy="495" r="7" fill="var(--accent)"></circle><circle cx="640" cy="495" r="7" fill="var(--accent)"></circle><circle cx="736" cy="403" r="7" fill="var(--accent)"></circle><circle cx="736" cy="449" r="7" fill="var(--accent)"></circle><circle cx="704" cy="357" r="7" fill="var(--accent)"></circle><text x="360" y="138" text-anchor="end" fill="var(--muted)" font-size="12">行の側が、列の側を使う →</text></g></svg><p class="note">mermaid の矢印図は、13 個の箱に 25 本の矢印が絡まって読めなかったので、行列に描き直した(辺は Day 64a・64b と同じ。箱の説明だけが変わった)。行が使う側、列が使われる側で、点が1つ = 矢印1本。点は対角線の右上にしか出ない。左下の三角形が空なのが、循環が無いということ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っているもの</th><th>知らないもの</th><th>Day 64b からの変化</th></tr></thead>
+<tbody>
+<tr><td><code>Geometry/</code></td><td>自分の中だけ</td><td><strong>Vulkan を知らない</strong></td><td><code>MeshData</code> が形全体の球を出せる</td></tr>
+<tr><td><code>Scene/</code></td><td>自分の中だけ</td><td>形も GPU も知らない</td><td><code>Camera</code> が「球が視錐台の外か」を答えられる</td></tr>
+<tr><td><code>Vulkan/</code></td><td><code>Geometry/</code> の型と <code>Camera</code></td><td>窓を知らない</td><td>描く前にコンピュートのパス。indirect の描く命令。CPU で選ぶ道も持つ</td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td><td>体の選び方を持つ</td></tr>
+</tbody>
+</table></div>
+<p><strong>循環は依然として無い</strong>。矢印も1本も増えていない(<code>MeshRenderer</code> はもともと <code>Camera</code> と <code>MeshData</code> を知っていた)。</p>
+<p><strong>入れ替えると何が壊れるか</strong>を3つ。</p>
+<ul><li><strong>同じ式が C# と GLSL の2か所にある</strong>(<code>Camera.IsOutside</code> と <code>common.glsl</code> の <code>outsideFrustum</code>)。片方だけ直すと、<code>G</code> で切り替えたときに<strong>描く体の数が食い違う</strong>(HUD の「描く 110 体」が変わる)。Day 64b の「円錐の w の約束が C# と GLSL にまたがる」と同じ種類の危うさで、今日は HUD で気づける形にしてある</li><li><strong>引数の構造体の並びが C# と GLSL の2か所にある</strong>(<code>DrawArguments</code> と <code>cull.comp</code> の <code>DrawArguments</code> ブロック)。こちらは Vulkan が決めた並びなので勝手に変えられない。GLSL 側で欄を1つ飛ばすと、<strong>数が別の欄(例えば「最初の索引」)に足されて</strong>、描く命令がとんでもない位置の索引を読む。検証レイヤが無いと、落ちるか、絵が崩れるか、何も起きないかのどれか</li><li><strong>描く命令は「何番目に描く体か」しか配らない</strong>。3つの描くシェーダのどれかで一覧を引き忘れると、<strong>選ばないとき(一覧 = 番号順)だけ正しく見える</strong>。<code>G</code> を回して確かめる理由がこれ(検証1 のわざと壊した実験)</li></ul>
+<h3 id="s18">Geometry — 形とメッシュレット(Day 65a で <code>MeshData</code> に球が付いた)</h3>
+<svg viewBox="0 0 1230 493" role="img" aria-label="Geometry のクラス図。TorusKnot は MeshData を作る。MeshData は GpuVertex の配列と索引を含み、Day 65a で形全体の球 ComputeBoundingSphere を出せるようになった。MeshletStrategy は Grow・Scan・Round の3つ。MeshletBuilder は MeshData と MeshletStrategy を受け取って MeshletSet を作り、private クラスの MeshletWriter(足す・閉じる・書き出す。閉じるときに球 ComputeSphere と円錐 ComputeCone を計算する)を含む。MeshletWriter は MeshData を読む。MeshletSet は GpuMeshlet の配列(境界の球 BoundingSphere と法線の円錐 NormalCone を持つ)と、頂点番号・三角形・三角形からメッシュレットへの対応・並べ直した索引、円錐の使える割合と半角の平均を持つ" style="width:100%;max-width:1230px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="320" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">TorusKnot</text><line x1="10" y1="38" x2="330" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int TubularSegments</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int RadialSegments</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(int, int, float, float) MeshData</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-PointOnCurve(float, int, int, float) Vector3</text><rect x="10" y="190" width="320" height="98" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="209" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshData</text><line x1="10" y1="218" x2="330" y2="218" stroke="var(--line)"></line><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GpuVertex[] Vertices</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] Indices</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int TriangleCount</text><text x="20" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ComputeBoundingSphere() Vector4</text><rect x="10" y="350" width="320" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="369" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuVertex</text><line x1="10" y1="378" x2="330" y2="378" stroke="var(--line)"></line><text x="20" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Normal</text><text x="20" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+uint NormalOffset</text><rect x="400" y="10" width="300" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="550" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletStrategy</text><line x1="400" y1="50" x2="700" y2="50" stroke="var(--line)"></line><text x="410" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Grow</text><text x="410" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Scan</text><text x="410" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Round</text><rect x="400" y="150" width="340" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="570" y="169" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletBuilder</text><line x1="400" y1="178" x2="740" y2="178" stroke="var(--line)"></line><text x="410" y="195" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int MaxVertices</text><text x="410" y="210" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int MaxTriangles</text><text x="410" y="225" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Build(MeshData, MeshletStrategy) MeshletSet</text><text x="410" y="240" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-BuildScan(MeshData, MeshletWriter) void</text><text x="410" y="255" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-BuildGrow(MeshData, MeshletWriter, bool) void</text><rect x="400" y="340" width="340" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="570" y="359" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletWriter</text><line x1="400" y1="368" x2="740" y2="368" stroke="var(--line)"></line><text x="410" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+NewVertexCount(int) int</text><text x="410" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CanAdd(int) bool</text><text x="410" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(int) void</text><text x="410" y="430" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Flush() void</text><text x="410" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Finish(MeshletStrategy, double) MeshletSet</text><text x="410" y="460" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ComputeSphere() Vector4</text><text x="410" y="475" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ComputeCone() Vector4</text><rect x="880" y="10" width="330" height="188" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1045" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshletSet</text><line x1="880" y1="38" x2="1210" y2="38" stroke="var(--line)"></line><text x="890" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GpuMeshlet[] Meshlets</text><text x="890" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] VertexIndices</text><text x="890" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] Triangles</text><text x="890" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] TriangleMeshlet</text><text x="890" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint[] OrderedIndices</text><text x="890" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double TrianglesPerMeshlet</text><text x="890" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double VertexDuplication</text><text x="890" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double ConeUsableFraction</text><text x="890" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double AverageConeAngleDegrees</text><text x="890" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double BuildMilliseconds</text><rect x="880" y="310" width="330" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1045" y="329" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GpuMeshlet</text><line x1="880" y1="338" x2="1210" y2="338" stroke="var(--line)"></line><text x="890" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint VertexOffset</text><text x="890" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint TriangleOffset</text><text x="890" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint VertexCount</text><text x="890" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint TriangleCount</text><text x="890" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 BoundingSphere</text><text x="890" y="430" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 NormalCone</text><path d="M170 288 L170 348" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="176" y="315" fill="var(--muted)" font-size="12">含む</text><path stroke-dasharray="5 4" d="M170 108 L170 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="176" y="145" fill="var(--muted)" font-size="12">作る</text><path stroke-dasharray="5 4" d="M740 169.81578947368422 L878.0449995026188 140.027131686277" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="816" y="150.71052631578948" fill="var(--muted)" font-size="12">作る</text><path d="M570 263 L570 338" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="576" y="297.5" fill="var(--muted)" font-size="12">含む(private)</text><path stroke-dasharray="5 4" d="M562.4161073825503 150 L556.6419090818268 106.98222265960995" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="565.3959731543624" y="123.5" fill="var(--muted)" font-size="12">使う</text><path d="M1045 198 L1045 308" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="1051" y="250" fill="var(--muted)" font-size="12">含む</text><path d="M404.2028985507246 340 L285.4596926756543 288.7919924663759" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="349.9130434782609" y="310" fill="var(--muted)" font-size="12">読む</text></g></svg>
+<p>球が2種類になった。<strong>形全体の球</strong>(<code>MeshData.ComputeBoundingSphere</code>)は体ごとの判定に、<strong>メッシュレットの球</strong>(<code>MeshletWriter.ComputeSphere</code>)はメッシュレットごとの判定に使う。作り方は同じ(箱の中心から、いちばん遠い頂点まで)。同じ処理を2か所に書いているが、<code>MeshletWriter</code> が見るのは「いま閉じようとしているメッシュレットの頂点だけ」なので、共通化すると引数が増えて読みにくくなる。今日はそのままにした。</p>
+<h3 id="s19">Vulkan — 6つのクラスと5つの型(Day 65a で <code>MeshRenderer</code> がもう一段太った)</h3>
+<svg viewBox="0 0 1265 958" role="img" aria-label="Vulkan のクラス図。VulkanBuffer・VulkanImage・GraphicsPipeline は VulkanDevice を使う。MeshRenderer は VulkanImage・VulkanBuffer・GraphicsPipeline を持ち(GraphicsPipeline は3本。コンピュートのパイプラインは MeshRenderer の中の CreateComputePipeline で作る)、FrameUniforms・DrawArguments・InstanceSelection・CullingMode・CullingStatistics を使う。ShaderCompiler は他のクラスと直接の関係を持たない" style="width:100%;max-width:1265px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="330" height="53" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="175" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ShaderCompiler</text><line x1="10" y1="38" x2="340" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CompileFile(string, ShaderKind, string[]) uint[]</text><rect x="380" y="10" width="420" height="233" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="590" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanDevice</text><line x1="380" y1="38" x2="800" y2="38" stroke="var(--line)"></line><text x="390" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Device Handle</text><text x="390" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Queue Queue</text><text x="390" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool MeshShaderSupported</text><text x="390" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool TaskShaderSupported</text><text x="390" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ExtMeshShader MeshShaderApi</text><text x="390" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxMeshOutputVertices</text><text x="390" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxMeshOutputPrimitives</text><text x="390" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxPreferredMeshWorkGroupInvocations</text><text x="390" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MaxPreferredTaskWorkGroupInvocations</text><text x="390" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float TimestampPeriod</text><text x="390" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+TryCreate(out string) VulkanDevice</text><text x="390" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SubmitAndWait(Action) void</text><text x="390" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FindMemoryType(uint, MemoryPropertyFlags) uint</text><rect x="10" y="320" width="290" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanBuffer</text><line x1="10" y1="348" x2="300" y2="348" stroke="var(--line)"></line><text x="20" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Buffer Handle</text><text x="20" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ulong Size</text><text x="20" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(...) VulkanBuffer</text><text x="20" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateStaging(...) VulkanBuffer</text><text x="20" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDeviceLocal(...) VulkanBuffer</text><text x="20" y="440" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Write(ReadOnlySpan) void</text><text x="20" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Read(int[]) void</text><rect x="320" y="320" width="520" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="580" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GraphicsPipeline</text><line x1="320" y1="348" x2="840" y2="348" stroke="var(--line)"></line><text x="330" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="330" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, PipelineLayout, int, int, stages, bool) GraphicsPipeline</text><rect x="860" y="320" width="395" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1057.5" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VulkanImage</text><line x1="860" y1="348" x2="1255" y2="348" stroke="var(--line)"></line><text x="870" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="870" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateColor(VulkanDevice, int, int) VulkanImage</text><text x="870" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+CreateDepth(VulkanDevice, int, int) VulkanImage</text><text x="870" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordBarrier(...) void</text><text x="870" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyToBuffer(CommandBuffer, VulkanBuffer) void</text><rect x="330" y="580" width="560" height="353" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="599" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshRenderer</text><line x1="330" y1="608" x2="890" y2="608" stroke="var(--line)"></line><text x="340" y="625" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int TaskWorkGroupSize</text><text x="340" y="640" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int CullWorkGroupSize</text><text x="340" y="655" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+MeshletSet Meshlets</text><text x="340" y="670" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool MeshShaderAvailable</text><text x="340" y="685" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool TaskShaderAvailable</text><text x="340" y="700" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int InstanceCount</text><text x="340" y="715" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long MeshWorkGroups</text><text x="340" y="730" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long TaskWorkGroups</text><text x="340" y="745" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastDrawMilliseconds</text><text x="340" y="760" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastSelectMilliseconds</text><text x="340" y="775" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastCpuSelectMilliseconds</text><text x="340" y="790" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int LastDrawnInstances</text><text x="340" y="805" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DrawStatistics LastStatistics</text><text x="340" y="820" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CullingStatistics LastCulling</text><text x="340" y="835" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Effective(DrawPath) DrawPath</text><text x="340" y="850" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TaskGroupsFor(int) long</text><text x="340" y="865" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, Camera, int, DrawPath, CullingMode, InstanceSelection, int[]) void</text><text x="340" y="880" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordGpuSelection(Vk) void</text><text x="340" y="895" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordCpuSelection(Vk, int) void</text><text x="340" y="910" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SelectOnCpu(Vector4[]) int</text><text x="340" y="925" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-CreateComputePipeline(...) (Pipeline, ShaderModule)</text><rect x="10" y="590" width="290" height="173" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="609" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">FrameUniforms</text><line x1="10" y1="618" x2="300" y2="618" stroke="var(--line)"></line><text x="20" y="635" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix4x4 ViewProjection</text><text x="20" y="650" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CameraPosition</text><text x="20" y="665" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Mode</text><text x="20" y="680" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MeshletCount</text><text x="20" y="695" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint CullFlags</text><text x="20" y="710" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint InstanceCount</text><text x="20" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CullPosition</text><text x="20" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FrustumPlaneArray Frustum</text><text x="20" y="755" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 MeshSphere</text><rect x="10" y="790" width="290" height="83" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="809" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">DrawArguments</text><line x1="10" y1="818" x2="300" y2="818" stroke="var(--line)"></line><text x="20" y="835" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DrawIndexedIndirectCommand Vertex</text><text x="20" y="850" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DrawMeshTasksIndirectCommandEXT Mesh</text><text x="20" y="865" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DrawMeshTasksIndirectCommandEXT Task</text><rect x="960" y="580" width="220" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1070" y="595" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="1070" y="611" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">InstanceSelection</text><line x1="960" y1="620" x2="1180" y2="620" stroke="var(--line)"></line><text x="970" y="637" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Gpu</text><text x="970" y="652" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Cpu</text><text x="970" y="667" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">None</text><rect x="960" y="710" width="220" height="110" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1070" y="725" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="1070" y="741" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">CullingMode</text><line x1="960" y1="750" x2="1180" y2="750" stroke="var(--line)"></line><text x="970" y="767" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">None</text><text x="970" y="782" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Frustum</text><text x="970" y="797" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Backface</text><text x="970" y="812" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Both</text><rect x="920" y="850" width="330" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1085" y="869" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">CullingStatistics</text><line x1="920" y1="878" x2="1250" y2="878" stroke="var(--line)"></line><text x="930" y="895" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Tested</text><text x="930" y="910" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long FrustumCulled</text><text x="930" y="925" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long BackfaceCulled</text><text x="930" y="940" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Visible</text><path d="M272.3679245283019 320 L397.0561330539081 244.04051664532034" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M951.845 320 L801.7636604954762 239.7425991954418" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M581.4945054945055 320 L584.7912935972944 244.99807066155503" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path d="M817.8519736842105 580 L989.4393069174914 434.2945550197838" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="910.4078947368421" y="502.5" fill="var(--muted)" font-size="12">含む</text><path d="M389.9794520547945 580 L245.69020066366937 464.25147965327324" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="323.05479452054794" y="517.5" fill="var(--muted)" font-size="12">含む</text><path d="M596.8447204968944 580 L582.6828174682109 389.99446769849635" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="595.6894409937888" y="480" fill="var(--muted)" font-size="12">含む</text><path stroke-dasharray="5 4" d="M330 707.2692307692307 L301.9697846431409 702.3408412559369" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M330 802.6538461538462 L301.97337080520174 807.2736201969448" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M890 677.9782608695652 L958.0742895079413 658.8878622901643" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M890 761.6739130434783 L958.0003413587106 762.930441090324" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><path stroke-dasharray="5 4" d="M890 840.5 L919.7510140962244 849.4253042288673" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path></g></svg>
+<p>コンピュートのパイプラインは <code>GraphicsPipeline</code> のようなクラスにせず、<code>MeshRenderer</code> の中の<code>CreateComputePipeline</code>(Day 62c の <code>ComputeRenderer</code> から持ってきたもの)で作って、ハンドルを2つ(パイプラインとモジュール)持つだけにした。固定機能の設定が1つも無いので、クラスにするほどのものが無い。<strong>グラフィックスの3本と同じパイプラインレイアウト・同じディスクリプタセット</strong>を使い、束ねる先(<code>PipelineBindPoint.Compute</code>)だけを変える。</p>
+<p><code>MeshRenderer</code> はそろそろ太すぎる(約 1,200 行。うち半分ほどはコメント)。「体を選ぶ」部分(<code>RecordGpuSelection</code> / <code>RecordCpuSelection</code> / <code>SelectOnCpu</code> と2本のバッファ)は、Day 65b・65c で Hi-Z と2パスが加わるともう一段増えるので、そこで <code>InstanceCuller</code> のような別のクラスに切り出すかを考える(歪み4)。</p>
+<h3 id="s20">GPU に挿さっているもの — binding の一覧(Day 65a で 8・9 番が増えた)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>binding</th><th>中身</th><th>型</th><th>読む・書く段</th></tr></thead>
+<tbody>
+<tr><td>0</td><td><code>Frame</code>(行列・目・表示・カリングの目と6面・<strong>体の数・形全体の球</strong>)</td><td>uniform</td><td>全部</td></tr>
+<tr><td>1</td><td>頂点(<code>GpuVertex[]</code>)</td><td>storage</td><td>メッシュ(頂点の道は同じバッファを頂点バッファとして)</td></tr>
+<tr><td>2</td><td>体ごとの行列</td><td>storage</td><td><strong>コンピュート</strong>・頂点・タスク・メッシュ</td></tr>
+<tr><td>3</td><td>メッシュレット(<code>GpuMeshlet[]</code>、48 バイト)</td><td>storage</td><td>タスク・メッシュ</td></tr>
+<tr><td>4</td><td>局所番号 → 元の頂点番号</td><td>storage</td><td>メッシュ</td></tr>
+<tr><td>5</td><td>三角形(局所番号3つ)</td><td>storage</td><td>メッシュ</td></tr>
+<tr><td>6</td><td>三角形 → メッシュレット</td><td>storage</td><td>画素(色分け)</td></tr>
+<tr><td>7</td><td>カリングの数え上げ(uint 4つ)</td><td>storage</td><td>タスクが書く、CPU が読む</td></tr>
+<tr><td><strong>8</strong></td><td><strong>描く体の番号の一覧</strong></td><td>storage</td><td><strong>コンピュートが書く</strong>(または C# が転送で)、頂点・タスク・メッシュが読む</td></tr>
+<tr><td><strong>9</strong></td><td><strong>描く命令の引数</strong>(<code>DrawArguments</code>、44 バイト)</td><td>storage + <strong>indirect</strong></td><td><strong>コンピュートが書く</strong>、<strong>描く命令が読む</strong>、CPU が読む</td></tr>
+<tr><td>—</td><td>並べ直した索引</td><td>索引バッファ</td><td>頂点の道の入力の回路</td></tr>
+<tr><td>—</td><td>荷物(<code>TaskPayload</code>)</td><td>(ディスクリプタではない)</td><td>タスクが書き、そこから生まれたメッシュが読む</td></tr>
+</tbody>
+</table></div>
+<p><strong>8 番は宣言が2通りある</strong>。<code>common.glsl</code> の中で、<code>CULL_INSTANCES</code> が定義されていれば <code>writeonly</code>、無ければ <code>readonly</code>。書ける宣言を頂点シェーダから見える場所に置くと、別の機能(<code>vertexPipelineStoresAndAtomics</code>)が要るので(Day 64b の 7 番と同じ理由)、書けるのは cull.comp だけにしてある。<strong>9 番は cull.comp の中でだけ宣言する</strong>(描くシェーダは読まない。読むのは描く命令)。</p>
+<p><strong>9 番は使い道を3つ宣言している</strong>(<code>IndirectBufferBit | StorageBufferBit | TransferDstBit</code>)。<code>IndirectBufferBit</code> が無いと、描く命令の引数としては読めない(Vulkan はバッファを作るときに使い道を全部宣言させる。Day 62a の要点3)。</p>
+<h3 id="s21">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65a で描く前にコンピュートが入った)</h3>
+<svg viewBox="0 0 1000 1417" role="img" aria-label="1フレームの流れ(MeshRenderer.Render)。Render(camera, cullCamera, mode, path, culling, selection, dest)。actual = Effective(path)。FrameUniforms を書く(体の数と形全体の球も)。selection で分かれる。CPU なら SelectOnCpu で C# が球を調べて一覧を作る。選ばないなら SelectAll で 0, 1, 2, ... の一覧を作る。GPU ならそのまま進む。ResetCommandBuffer と Begin と ResetQueryPool。タスクの道なら CmdFillBuffer(数え上げ, 0)とバリア。Timestamp 0。GPU で選ぶなら、CmdUpdateBuffer(引数の下書き)とバリア(転送からコンピュート)、CmdDispatch(cull.comp, ceil(体の数 / 64))、バリア(コンピュートから DrawIndirect と描くシェーダ)。違えば、CmdUpdateBuffer(一覧)とバリア(転送から描くシェーダ)。Timestamp 1。色と深度のバリア、CmdBeginRendering、Timestamp 2。GPU で選ぶなら CmdDraw*Indirect(引数, 0 / 20 / 32)、違えば CmdDraw*(..., CPU が数えた体の数, ...)。Timestamp 3 と CmdEndRendering。色を引き取り、バリア(転送とタスクとコンピュートから Host)。End と Submit と WaitForFences。時計・統計・数え上げ・引数(何体描いたか)を読んで画素を写す" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="8" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render(camera, cullCamera, mode, path, culling, selection, dest)</text><rect x="300" y="65" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="85.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">actual = Effective(path)</text><rect x="300" y="122" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="142.5" text-anchor="middle" fill="var(--ink)">FrameUniforms を書く</text><text x="510" y="159.5" text-anchor="middle" fill="var(--ink)">（体の数と形全体の球も）</text><rect x="390" y="196" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="510" y="216.5" text-anchor="middle" fill="var(--ink)">selection は?</text><rect x="10" y="279" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="299.5" text-anchor="middle" fill="var(--ink)">SelectOnCpu:</text><text x="155" y="316.5" text-anchor="middle" fill="var(--ink)">C# で球を調べて一覧を作る</text><rect x="720" y="279" width="270" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="855" y="299.5" text-anchor="middle" fill="var(--ink)">SelectAll:</text><text x="855" y="316.5" text-anchor="middle" fill="var(--ink)">0, 1, 2, ... の一覧</text><rect x="300" y="369" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="389.5" text-anchor="middle" fill="var(--ink)">ResetCommandBuffer / Begin / ResetQueryPool</text><rect x="390" y="426" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="510" y="446.5" text-anchor="middle" fill="var(--ink)">タスクの道?</text><rect x="300" y="499" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="519.5" text-anchor="middle" fill="var(--ink)">CmdFillBuffer(数え上げ, 0) + バリア</text><rect x="300" y="556" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="576.5" text-anchor="middle" fill="var(--ink)">Timestamp 0</text><rect x="390" y="613" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="510" y="633.5" text-anchor="middle" fill="var(--ink)">GPU で選ぶ?</text><rect x="10" y="696" width="420" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="716.5" text-anchor="middle" fill="var(--ink)">CmdUpdateBuffer(引数の下書き)</text><text x="220" y="733.5" text-anchor="middle" fill="var(--ink)">バリア: 転送 → コンピュート</text><rect x="10" y="770" width="420" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="790.5" text-anchor="middle" fill="var(--ink)">CmdDispatch(cull.comp, ceil(体の数 / 64))</text><rect x="10" y="827" width="420" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="847.5" text-anchor="middle" fill="var(--ink)">バリア: コンピュート → DrawIndirect + 描くシェーダ</text><rect x="570" y="696" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="780" y="716.5" text-anchor="middle" fill="var(--ink)">CmdUpdateBuffer(一覧)</text><text x="780" y="733.5" text-anchor="middle" fill="var(--ink)">バリア: 転送 → 描くシェーダ</text><rect x="300" y="910" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="930.5" text-anchor="middle" fill="var(--ink)">Timestamp 1</text><rect x="300" y="967" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="987.5" text-anchor="middle" fill="var(--ink)">色と深度のバリア / CmdBeginRendering / Timestamp 2</text><rect x="390" y="1024" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="510" y="1044.5" text-anchor="middle" fill="var(--ink)">GPU で選ぶ?</text><rect x="10" y="1107" width="420" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="220" y="1127.5" text-anchor="middle" fill="var(--ink)">CmdDraw*Indirect(引数, 0 / 20 / 32)</text><rect x="570" y="1107" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="780" y="1127.5" text-anchor="middle" fill="var(--ink)">CmdDraw*(..., CPU が数えた体の数, ...)</text><rect x="300" y="1186" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="1206.5" text-anchor="middle" fill="var(--ink)">Timestamp 3 / CmdEndRendering</text><rect x="300" y="1243" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="1263.5" text-anchor="middle" fill="var(--ink)">色を引き取る</text><text x="510" y="1280.5" text-anchor="middle" fill="var(--ink)">バリア: 転送 + タスク + コンピュート → Host</text><rect x="300" y="1317" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="1337.5" text-anchor="middle" fill="var(--ink)">End / Submit / WaitForFences</text><rect x="300" y="1374" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="1394.5" text-anchor="middle" fill="var(--ink)">時計・統計・数え上げ・引数（何体描いたか）を読む → 画素を写す</text><path d="M510 41 L510 63" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 98 L510 120" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 172 L510 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 402 L510 424" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 532 L510 554" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 589 L510 611" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M220 746 L220 768" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M220 803 L220 825" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 943 L510 965" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 1000 L510 1022" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 1219 L510 1241" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 1293 L510 1315" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M510 1350 L510 1372" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M390 212.5 L155 212.5 L155 277" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="382" y="206.5" fill="var(--muted)" font-size="12" text-anchor="end">CPU</text><path d="M630 212.5 L855 212.5 L855 277" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="638" y="206.5" fill="var(--muted)" font-size="12">選ばない</text><path d="M510 229 L510 367" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="518" y="247" fill="var(--muted)" font-size="12">GPU</text><path d="M155 329 L155 385.5 L298 385.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M855 329 L855 385.5 L722 385.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M630 442.5 L670 442.5 L670 572.5 L722 572.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="676" y="436.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M510 459 L510 497" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="518" y="476" fill="var(--muted)" font-size="12">はい</text><path d="M390 629.5 L220 629.5 L220 694" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="382" y="623.5" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M630 629.5 L780 629.5 L780 694" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="638" y="623.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M220 860 L220 885 L510 885 L510 908" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M780 746 L780 885 L510 885 L510 908" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M390 1040.5 L220 1040.5 L220 1105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="382" y="1034.5" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M630 1040.5 L780 1040.5 L780 1105" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="638" y="1034.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M220 1140 L220 1162 L510 1162 L510 1184" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><path d="M780 1140 L780 1162 L510 1162 L510 1184" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path></g></svg>
+<p><strong>GPU で選ぶとき、CPU は描く体の数を一度も扱わない</strong>。<code>CmdUpdateBuffer</code> で送る下書きの数の欄は 0 で、描く命令にはバッファの位置だけを渡す。数が CPU の手に入るのは、フェンスを待った後の最後の箱だけ。</p>
+<p>「CPU で選ぶ」「選ばない」も同じ形にそろえた(一覧を送って、数を指定して描く)。こうしておくと3つの違いが<strong>「一覧を書くのは誰か」と「描く命令が数を持っているか」の2点だけ</strong>になり、<code>G</code> で比べやすい。</p>
+<h3 id="s22">cull.comp の1人の中(新規)</h3>
+<svg viewBox="0 0 900 540" role="img" aria-label="cull.comp の1人の中。1人が1体を受け持つ(instance = gl_GlobalInvocationID.x)。範囲の中か(最後の組は 64 に満たない)。範囲の外なら何もしない。範囲の中なら、形全体の球の中心を体の行列で世界へ運び、outsideFrustum(6面のどれかの外)なら何もしない。違えば、slot = atomicAdd(引数.体の数, 1)で一覧[slot] = instance とし、続けて atomicAdd でメッシュの道の y とタスクの道の y にも 1 を足す" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="150" y="8" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="28.5" text-anchor="middle" fill="var(--ink)">1人 = 1体</text><text x="370" y="45.5" text-anchor="middle" fill="var(--ink)">instance = gl_GlobalInvocationID.x</text><rect x="150" y="100" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="370" y="120.5" text-anchor="middle" fill="var(--ink)">範囲の中?</text><text x="370" y="137.5" text-anchor="middle" fill="var(--ink)">（最後の組は 64 に満たない）</text><rect x="150" y="200" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="220.5" text-anchor="middle" fill="var(--ink)">形全体の球の中心を体の行列で世界へ運ぶ</text><rect x="150" y="290" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="370" y="310.5" text-anchor="middle" fill="var(--ink)">outsideFrustum?</text><text x="370" y="327.5" text-anchor="middle" fill="var(--ink)">（6面のどれかの外）</text><rect x="150" y="390" width="440" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="410.5" text-anchor="middle" fill="var(--ink)">slot = atomicAdd(引数.体の数, 1)</text><text x="370" y="427.5" text-anchor="middle" fill="var(--ink)">一覧[slot] = instance</text><rect x="150" y="480" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="370" y="500.5" text-anchor="middle" fill="var(--ink)">atomicAdd(メッシュの道の y, 1)</text><text x="370" y="517.5" text-anchor="middle" fill="var(--ink)">atomicAdd(タスクの道の y, 1)</text><rect x="660" y="200" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="770" y="220.5" text-anchor="middle" fill="var(--ink)">何もしない</text><path d="M370 58 L370 98" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M370 150 L370 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="378" y="167" fill="var(--muted)" font-size="12">はい</text><path d="M370 233 L370 288" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M370 340 L370 388" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="378" y="357" fill="var(--muted)" font-size="12">いいえ</text><path d="M370 440 L370 478" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path d="M590 125 L770 125 L770 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="600" y="119" fill="var(--muted)" font-size="12">いいえ</text><path d="M590 315 L770 315 L770 235" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="600" y="309" fill="var(--muted)" font-size="12">はい</text></g></svg>
+<p><strong>投票も共有メモリも使わない</strong>。Day 64b のタスクシェーダは 32 人が投票してから代表が1回だけ足したが、cull.comp は生き残った人がそれぞれ <code>atomicAdd</code> する。256 体では奪い合いが問題になる数ではないので、読みやすいほうを採った。代わりに一覧の順番は保たれない(歪み1)。</p>
+<h3 id="s23">タスクシェーダの1ワークグループの中(Day 65a で体の番号の引き方が変わった)</h3>
+<svg viewBox="0 0 960 878" role="img" aria-label="タスクシェーダの1ワークグループの中。ワークグループ (x, y) = (32 個ずつの組, 何番目に描く体か)。自分のメッシュレット = x * 32 + 自分の番号、体 = 一覧[y]。範囲の中か(最後の組は 32 に満たない)。範囲の外なら、そのまま投票へ。範囲の中なら、メッシュレットの球と円錐、体の行列を読んで、球の中心を世界へ運ぶ。視錐台カリングが ON で6面のどれかの外なら frustumCulled。違えば、背面カリングが ON で dot(軸, v) >= sin α |v| + r(1 + sin α) なら backfaceCulled。違えば visible。3つとも投票へ進む。投票: subgroupBallot(visible)、自分より前の人数が席の番号、visible なら payload.meshlets[席] = 自分の番号。投票で3つの数を出し、0 番の人だけが payload.instance(本当の体の番号)を書いて atomicAdd を3回。最後に全員で EmitMeshTasksEXT(生き残りの数, 1, 1)" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="230" y="8" width="460" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="28.5" text-anchor="middle" fill="var(--ink)">ワークグループ (x, y) = (32 個ずつの組, 何番目に描く体か)</text><rect x="250" y="74" width="420" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="94.5" text-anchor="middle" fill="var(--ink)">自分のメッシュレット = x * 32 + 自分の番号</text><text x="460" y="111.5" text-anchor="middle" fill="var(--ink)">体 = 一覧[y]</text><rect x="250" y="160" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="460" y="180.5" text-anchor="middle" fill="var(--ink)">範囲の中?</text><text x="460" y="197.5" text-anchor="middle" fill="var(--ink)">（最後の組は 32 に満たない）</text><rect x="250" y="260" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="280.5" text-anchor="middle" fill="var(--ink)">メッシュレットの球と円錐、体の行列を読む</text><text x="460" y="297.5" text-anchor="middle" fill="var(--ink)">球の中心を世界へ運ぶ</text><rect x="250" y="350" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="460" y="370.5" text-anchor="middle" fill="var(--ink)">視錐台カリング ON で</text><text x="460" y="387.5" text-anchor="middle" fill="var(--ink)">6面のどれかの外?</text><rect x="250" y="450" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="460" y="470.5" text-anchor="middle" fill="var(--ink)">背面カリング ON で</text><text x="460" y="487.5" text-anchor="middle" fill="var(--ink)">dot(軸, v) &gt;= sin α |v| + r(1 + sin α)?</text><rect x="250" y="555" width="420" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="575.5" text-anchor="middle" fill="var(--ink)">visible</text><rect x="730" y="350" width="170" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="815" y="370.5" text-anchor="middle" fill="var(--ink)">frustumCulled</text><rect x="730" y="450" width="170" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="815" y="470.5" text-anchor="middle" fill="var(--ink)">backfaceCulled</text><rect x="250" y="640" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="660.5" text-anchor="middle" fill="var(--ink)">投票: subgroupBallot(visible)</text><text x="460" y="677.5" text-anchor="middle" fill="var(--ink)">自分より前の人数 = 席の番号</text><text x="460" y="694.5" text-anchor="middle" fill="var(--ink)">visible なら payload.meshlets[席] = 自分の番号</text><rect x="250" y="745" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="765.5" text-anchor="middle" fill="var(--ink)">投票で3つの数を出す</text><text x="460" y="782.5" text-anchor="middle" fill="var(--ink)">0 番の人だけ: payload.instance（本当の体の番号）と atomicAdd x3</text><rect x="230" y="835" width="460" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="460" y="855.5" text-anchor="middle" fill="var(--ink)">全員で EmitMeshTasksEXT(生き残りの数, 1, 1)</text><path d="M460 41 L460 72" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M460 124 L460 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M460 210 L460 258" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="468" y="227" fill="var(--muted)" font-size="12">はい</text><path d="M460 310 L460 348" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M460 400 L460 448" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="468" y="417" fill="var(--muted)" font-size="12">いいえ</text><path d="M460 500 L460 553" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="468" y="517" fill="var(--muted)" font-size="12">いいえ</text><path d="M460 588 L460 638" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M460 707 L460 743" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M460 795 L460 833" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M670 375 L728 366.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="680" y="369" fill="var(--muted)" font-size="12">はい</text><path d="M670 475 L728 466.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="680" y="469" fill="var(--muted)" font-size="12">はい</text><path d="M900 366.5 L928 366.5 L928 673.5 L672 673.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M900 466.5 L928 466.5 L928 673.5 L672 673.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M250 185 L206 185 L206 673.5 L248 673.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="200" y="179" fill="var(--muted)" font-size="12" text-anchor="end">いいえ</text></g></svg>
+<p>変わったのは2か所目の箱の「体 = 一覧[y]」だけ。<strong>y の範囲(何体ぶん立ち上がるか)は、GPU で選ぶときは cull.comp が書いた数</strong>。荷物には一覧で引き直した<strong>本当の体の番号</strong>を入れるので、メッシュシェーダ(<code>USE_TASK</code> あり)は何も変わらない。</p>
+<h3 id="s24">メッシュシェーダの1ワークグループの中(Day 65a で、タスクなしの道の体の番号の引き方が変わった)</h3>
+<svg viewBox="0 0 910 423" role="img" aria-label="メッシュシェーダの1ワークグループの中(タスクなしの道の体の番号の引き方が変わった)。USE_TASK ありなら、meshlet = payload.meshlets[gl_WorkGroupID.x]、instance = payload.instance。なしなら、meshlet = gl_WorkGroupID.x、instance = 一覧[gl_WorkGroupID.y]。どちらも SetMeshOutputsEXT(頂点数, 三角形数)へ進み、頂点のループ(自分の番号から +32 ずつ)と三角形のループ(自分の番号から +32 ずつ、gl_PrimitiveID も書く)に分かれ、出力の配列が丸ごとラスタライザへ渡る" style="width:100%;max-width:910px;display:block;margin:8px 0 16px">
+<defs><marker id="arr8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="8" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)">USE_TASK?</text><rect x="10" y="90" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="110.5" text-anchor="middle" fill="var(--ink)">meshlet = payload.meshlets[gl_WorkGroupID.x]</text><text x="225" y="127.5" text-anchor="middle" fill="var(--ink)">instance = payload.instance</text><rect x="470" y="90" width="420" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="680" y="110.5" text-anchor="middle" fill="var(--ink)">meshlet = gl_WorkGroupID.x</text><text x="680" y="127.5" text-anchor="middle" fill="var(--ink)">instance = 一覧[gl_WorkGroupID.y]</text><rect x="230" y="190" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="210.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SetMeshOutputsEXT(頂点数, 三角形数)</text><rect x="10" y="280" width="430" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="300.5" text-anchor="middle" fill="var(--ink)">頂点のループ: 自分の番号から +32 ずつ</text><rect x="470" y="280" width="430" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="685" y="300.5" text-anchor="middle" fill="var(--ink)">三角形のループ: 自分の番号から +32 ずつ</text><text x="685" y="317.5" text-anchor="middle" fill="var(--ink)">gl_PrimitiveID も書く</text><rect x="230" y="380" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="400.5" text-anchor="middle" fill="var(--ink)">出力の配列が丸ごとラスタライザへ</text><path d="M300 24.5 L225 24.5 L225 88" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="292" y="18.5" fill="var(--muted)" font-size="12" text-anchor="end">あり</text><path d="M600 24.5 L680 24.5 L680 88" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="608" y="18.5" fill="var(--muted)" font-size="12">なし</text><path d="M225 140 L225 160 L360 160 L360 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M680 140 L680 160 L540 160 L540 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M370 223 L370 245 L225 245 L225 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M530 223 L530 245 L685 245 L685 278" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M225 313 L225 360 L350 360 L350 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M685 330 L685 360 L550 360 L550 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path></g></svg>
+<h3 id="s25">今日残した歪み(4つ)</h3>
+<p><strong>1. 体を描く順番が GPU 任せ</strong>。<code>atomicAdd</code> で席を取るので、一覧の順番は走るたびに変わる。絵は変わらないが、<strong>手前から描くほど早期の深度テストで画素シェーダを省ける</strong>ので、順番しだいで画素シェーダの回数が最大 20% 変わった(検証2)。CPU で選んでいたときは、並べ替えは CPU がタダでできた。GPU で並べ替えるには前置和(prefix sum)やソートのパスが要る。改造課題1・2。</p>
+<p><strong>2. 隠れているものを捨てていない</strong>(Day 64b の歪み3 のまま)。手前の体に隠れた奥の体も、画面の中にいれば描いている。これを捨てるのが Day 65c(Hi-Z は Day 65b で作る)。「前のフレームの深度」は GPU の中にしか無いので、<strong>選ぶのは GPU でなければならない</strong>——今日作った indirect の骨格が、そこで初めて要るものになる。</p>
+<p><strong>3. 形が1種類なので、描く命令が1つで済んでいる</strong>。本物の GPU 駆動のエンジンは、形も材質も何百種類もある物を描く。そのために「全部の形を1本の大きなバッファに入れる」「引数の構造体を形ごとに並べ、何個並べたかも GPU が書く」(<code>vkCmdDrawIndexedIndirectCount</code>、<code>vkCmdDrawMeshTasksIndirectCountEXT</code>)という仕組みを使う。今日の場面ではそこまで要らないので作っていない。改造課題3 で「細かい形と粗い形の2種類」にすると、この話の入口に立てる。</p>
+<p><strong>4. <code>MeshRenderer</code> が太すぎる</strong>(約 1,200 行)。描く道が3つ x 体の選び方が3つ、計測、数え上げを1つのクラスが持っている。Day 65b・65c で Hi-Z と2パスが加わる前に、体を選ぶ部分を切り出すかを決める。</p>
+<p><strong>持ち越し</strong>: Day 64b の歪み1(取り残された欠片)はそのまま。</p>
+</section>
+<section class="part"><h2 id="s26">完成条件</h2>
+<p><code>dotnet run --project reference/Day65a -c Release</code> で確かめる。</p>
+<h3 id="s27">1. 起動: 16 体、GPU で選ぶ</h3>
+<ul><li>絵は Day 64b と同じ</li><li>新しい行「体」が「<strong>GPU で選ぶ (indirect) (G)  16 体 → 描く 16 体 / 選ぶのに GPU 21 us</strong>」前後(16 体は全部画面に入っているので、1体も捨てられない)</li><li>「判定」「内訳」は Day 64b と同じ(<strong>7,488 個 → 画面の外 1.9% / 裏向き 29.9% / 描く 68.2%</strong>、タスクシェーダ 240 組、三角形 391,278 枚、画素シェーダ 196,009 回)</li></ul>
+<p>「選ぶのに」の値は、アプリの中では 20〜26 us 前後に出る(60 枚/秒に合わせて休んでいるぶん GPU のクロックが下がるので、ハーネスの値より大きい。検証3)。</p>
+<h3 id="s28">2. <code>4</code> を押す: 256 体(今日の目)</h3>
+<ul><li>「体」: <strong>256 体 → 描く 110 体</strong></li><li>「判定」: <strong>51,480 個 → 画面の外 10.2% / 裏向き 27.3% / 描く 62.4%</strong></li><li>「内訳」: タスクシェーダ <strong>1,650 組</strong> x 32 人 → メッシュシェーダ 32,139 組 / 三角形 <strong>2,453,947 枚</strong></li></ul>
+<p><code>G</code> で回して見比べる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の選び方</th><th>描く体</th><th>タスクシェーダ</th><th>判定(画面の外 / 裏向き / 描く)</th><th>三角形</th><th>画素シェーダ</th></tr></thead>
+<tbody>
+<tr><td>GPU で選ぶ</td><td>110</td><td>1,650 組</td><td>51,480 個(10.2% / 27.3% / 62.4%)</td><td>2,453,947</td><td><strong>368,386〜406,348(揺れる)</strong></td></tr>
+<tr><td>CPU で選ぶ</td><td>110</td><td>1,650 組</td><td>51,480 個(10.2% / 27.3% / 62.4%)</td><td>2,453,947</td><td>337,434</td></tr>
+<tr><td>選ばない</td><td>256</td><td>3,840 組</td><td>119,808 個(61.4% / 11.7% / 26.8%)</td><td>2,453,947</td><td>337,434</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>三角形の数は3つとも同じ</strong>。画面の外の体のメッシュレットは、選ばなくてもタスクシェーダが1つずつ捨てていたから</li><li>「選ぶのに」は、GPU で選ぶと GPU の時間(20〜26 us 前後)、CPU で選ぶと CPU の時間(4 us 前後)</li><li>「うち描画」はアプリ内で 3.2〜3.4 ms 前後で、3つとも見分けがつかない(検証3)</li><li><strong>GPU で選ぶときだけ、画素シェーダの回数がフレームごとに変わる</strong>(HUD の数字が揺れる)。検証2</li></ul>
+<h3 id="s29">3. <code>B</code> を2回押す: 頂点の道</h3>
+<ul><li>「体」は変わらない(<strong>110 体</strong>)。<strong>頂点の道でも体ごとのカリングが効く</strong></li><li>「内訳」: 頂点シェーダ <strong>3,644,941 回</strong> / 三角形 <strong>3,604,480 枚</strong>(選ばないと 8,482,797 回 / 8,388,608 枚)</li><li><code>G</code> で「選ばない」にすると三角形が 839 万枚に戻り、描く時間がほぼ倍になる</li></ul>
+<h3 id="s30">4. <code>F</code> で目を止めて見下ろす</h3>
+<p>256 体・GPU で選ぶのまま <code>F</code> を押し、ホイールで大きく引いて、ドラッグで上から見下ろす。<strong>止めた目の視錐台の形(扇形)に体が残り、その外の体は丸ごと消えている</strong>。扇の縁の体は、半分はみ出していても丸ごと残っている(形全体の球が少しでも視錐台に入れば描く)。<code>G</code> で「選ばない」にすると、扇の外にも体が戻る(ただし <code>C</code> が「視錐台 + 背面」なら、扇の外の体のメッシュレットはタスクシェーダが捨てるので、やはり見えない。<code>C</code> で「しない」にすると全部戻る)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>G</code></td><td>「体を選ぶ」の選び方、「引数と一覧」</td><td>GPU で選ぶ・CPU で選ぶは同じ 110 体(同じ式)。選ばないは 256 体のまま。一覧の並びだけが違い、GPU は走るたびに入れ替わる</td></tr>
+<tr><td><code>B</code></td><td>「体を選ぶ」の三角形の2行(頂点の道・タスクの道)</td><td>頂点の道は体ごとのカリングだけで 839 万 → 360 万枚。タスクの道は 245 万枚で同じ。道ごとの GPU の時間はここでは測れない</td></tr>
+<tr><td><code>F</code></td><td>「体を選ぶ」のカリングの目の向き</td><td>実機は目を止めて見下ろす。このページは地図が最初から見下ろしなので、目の向きを回して扇の形を見る</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>「体を選ぶ」の体の数(「引数と一覧」「描く順」は <code>2</code> / <code>3</code> / <code>4</code> の 16 / 64 / 256 体)</td><td>16 体は全部描く。64 体は 44、256 体は 110</td></tr>
+<tr><td><code>C</code> / <code>O</code> / <code>M</code> / ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>(なし)</td><td>Day 64b のページの実験台で。このページは視錐台 + 背面・丸く育てるで固定している</td></tr>
+<tr><td>(キーなし)</td><td>「体を選ぶ」の球の半径の倍率・向きの自由な値、「引数と一覧」の走らせ直し、「描く順」の図に描く順・GPU のまね</td><td>reference に無い切り替え。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day65a の MeshData.cs(ComputeBoundingSphere)・Camera.cs(IsOutside)・shaders/cull.comp・common.glsl の outsideFrustum を JS に移したもの(トーラスノットと切り方・体の並べ方・カメラ・判定は docs/site/meshlet.js に書いてあり、Day 64a・64b と共有。このページには実験台の部分だけがある)。同じ式を C# の検証用プロジェクト(reference の Geometry・Camera・SceneData をそのまま取り込み、cull.comp と meshlet.task の判定だけを C# に書き写したもの)でも走らせて、形全体の球(中心 (0.159, 0, 0)・半径 1.875)と、体の数 4 通り(1・16・64・256)x 見る向き(yaw 0.6 / 2.2 / 3.74 / 4.0)で選ばれる体の一覧(番号のハッシュ)・メッシュレットの行き先・三角形の数が一致することを確かめた(256 体・yaw 0.6 は 110 体 → 51,480 個 → 画面の外 10.2% / 裏向き 27.3% / 描く 62.4%、タスクシェーダ 1,650 組、メッシュシェーダ 32,139 組、三角形 2,453,947 枚。頂点の道は体ごとのカリングだけで 3,604,480 枚)。画素シェーダの回数(番号順: 256 体 yaw 0.6 が 337,523、yaw 3.74 が 492,678、64 体の組の順の入れ替えが 279,130 と 299,179、16 体が 196,067)は、GPU の実測(337,434 / 492,540 / 279,046 と 299,095 / 196,009)と 0.03% 以内で合う。GPU の時間、検証1の画素の突き合わせ、GPU が実際に取る席の順番は、手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s31">検証の途中で分かったこと</h2>
+<p>窓の無いハーネス(<code>MeshRenderer</code> を直接呼ぶ)で確かめた。RTX 3070 / ドライバ 596.49、検証レイヤなし。</p>
+<h3 id="s32">検証1: どの選び方でも絵は1画素も変わらない</h3>
+<p>体の数 4 通り x 見る向き 3 通り(yaw 0.6 / 2.2 / 4.0)x 表示 3 通り = 36 の場面それぞれで、頂点の道・選ばない・カリングなしの絵を基準に、12 通り(頂点の道・メッシュの道・タスクの道(カリングなし / 両方))x(GPU / CPU / 選ばない)を<strong>518,400 画素すべて突き合わせた</strong>。<strong>432 通りとも完全一致</strong>。</p>
+<ul><li>体ごとのカリングは、画面に1画素でも出る体を捨てていない(形全体の球が安全側に効いている)</li><li>GPU で選んだときの<strong>順番のばらつき</strong>は、絵を1画素も変えなかった(深度テストが手前を残す。要点3)</li><li>C# の <code>IsOutside</code> と GLSL の <code>outsideFrustum</code> は、全部の場面で同じ体を選んだ</li></ul>
+<p><strong>突き合わせが本当に効いているか</strong>も確かめた。<code>scene.vert</code> で一覧を引かずに <code>gl_InstanceIndex</code> をそのまま体の番号にすると、36 の場面で絵が変わった(256 体の場面で <strong>149,115 画素</strong>)。選ばないとき(一覧 = 番号順)は一致したまま——設計書の「入れ替えると何が壊れるか」の3つ目がこれ。</p>
+<h3 id="s33">検証2: 体を描く順番が画素シェーダの回数を変える</h3>
+<p>GPU で選ぶと、画素シェーダの回数がフレームごとに違った。同じ場面を 10 フレーム続けて描いた(タスクの道・両方のカリング)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の数</th><th>見る向き</th><th>GPU で選ぶ(10 フレーム)</th><th>CPU で選ぶ(番号順)</th></tr></thead>
+<tbody>
+<tr><td>16</td><td>yaw 0.6(既定)</td><td>196,009(10 回とも)</td><td>196,009</td></tr>
+<tr><td>64</td><td>yaw 0.6</td><td><strong>279,046 と 299,095 の2通り</strong></td><td>279,046</td></tr>
+<tr><td>256</td><td>yaw 0.6</td><td><strong>368,386〜406,348</strong></td><td>337,434</td></tr>
+<tr><td>256</td><td>yaw 3.74(反対側)</td><td><strong>404,863〜455,006</strong></td><td><strong>492,540</strong></td></tr>
+</tbody>
+</table></div>
+<ul><li>深度テストは画素シェーダの<strong>前にも</strong>できる(早期の深度テスト)。<strong>手前の物を先に描いておくと、奥の物の画素は画素シェーダまで行かずに捨てられる</strong>。だから同じ絵でも、描く順番で画素シェーダの回数が変わる</li><li>体の番号は格子の奥行き方向(z)の順に振ってある(<code>SceneData.CreateInstances</code>)。既定の視点(yaw 0.6)は −z 側から見ているので、<strong>番号順 = 手前から奥</strong>になっていた。反対側(yaw 3.74)から見ると番号順は奥から手前になり、CPU で選んだほうが悪くなる</li><li>GPU の順番は手前から奥でも奥から手前でもなく、その間のどこか。<strong>番号順より良いことも悪いこともある</strong></li><li>16 体は 10 回とも同じ値、64 体は 2 通り。手元の GPU では、<strong>同じワープ(32 人)の中の <code>atomicAdd</code> は番号の若い人から順に席が決まり</strong>、ワープどうしの順番だけが揺れているように見える(16 体 = 1 ワープ、64 体 = 2 ワープ、256 体 = 8 ワープ)。仕様はこの順番を何も約束していないので、別の GPU では 16 体でも揺れるかもしれない</li></ul>
+<p><strong>画素シェーダの回数が 20% 変わっても、今日の描く時間はほとんど変わらなかった</strong>(検証3 の task-cpu と task-gpu が同じ 0.400 ms)。今日の画素シェーダは光の計算が数行しかなく、安いから。材質の重い場面(Day 35 の PBR など)では、これがそのまま時間の差になる。<strong>GPU 駆動のエンジンが「手前から順に」を取り戻すために、深度だけを先に描く(Z プリパス)か、GPU の上で並べ替える</strong>のはこのため。</p>
+<div class="inject"><figure class="lab" id="ov-lab">
+  <div class="lab-head">
+    <h3>描く順で、画素シェーダの回数が変わる(検証2)</h3>
+    <span class="tag">選ばれた体を、決めた順に 960x540 でソフトウェアに描き、「深度テストに通った画素」を数えたもの。早期の深度テストで画素シェーダの前に捨てられる画素は数えない。三角形は reference と同じ形・同じ並び(丸く育てる)で、表側だけを描く。GPU の画素シェーダの回数と、ほぼ同じ値になる(GPU は 2x2 の画素の組で動くので、0.03% ほどずれる)。「GPU のまね」は、32 体ずつの組の中は番号順で、組どうしの順番が入れ替わる(検証2の観察)。本物の GPU の席の取り方は約束されていない</span>
+  </div>
+  <div class="stage"><canvas id="ov-canvas" style="height:400px;background:#12151c" aria-label="画素ごとに、深度テストに通った回数を色で表した図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の数(2 / 3 / 4)</span>
+      <div class="seg" id="ov-count"><button data-v="16" aria-pressed="false">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="true">256</button></div>
+    </div>
+    <div class="ctl"><span class="label">見る向き</span>
+      <div class="seg" id="ov-yaw"><button data-v="0.6" aria-pressed="true">yaw 0.6(既定)</button><button data-v="3.74" aria-pressed="false">yaw 3.74(反対側)</button></div>
+    </div>
+    <div class="ctl"><span class="label">図に描く順(明るいほど、1画素に何度も画素シェーダが走った)</span>
+      <div class="seg" id="ov-order"><button data-v="index" aria-pressed="true">番号順</button><button data-v="near" aria-pressed="false">手前から奥</button><button data-v="far" aria-pressed="false">奥から手前</button><button data-v="warps" aria-pressed="false">GPU のまね</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ov-stats"></div><div class="table-wrap" id="ov-table" style="margin-top:10px"></div><p id="ov-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s34">検証3: 値段</h3>
+<p>6 通りを1フレームずつ交互に 16 回ずつ描き、最小値を取った(描く命令だけの GPU の時間。頂点の道・選ばないを 1.00 とした比)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体の数</th><th>頂点・選ばない</th><th>頂点・CPU</th><th>頂点・GPU</th><th>タスク・選ばない</th><th>タスク・CPU</th><th>タスク・GPU</th></tr></thead>
+<tbody>
+<tr><td>64</td><td>0.260 ms(1.00)</td><td>0.72</td><td>0.72</td><td>0.61</td><td>0.59</td><td>0.60</td></tr>
+<tr><td>256</td><td>1.024 ms(1.00)</td><td><strong>0.47</strong></td><td><strong>0.47</strong></td><td>0.41</td><td>0.39</td><td>0.39</td></tr>
+</tbody>
+</table></div>
+<p>(タスクの道は両方のカリング付き。頂点の道にはメッシュレットのカリングが無い。)</p>
+<p>読めることは4つ。</p>
+<ul><li><strong>頂点の道では、体を選ぶだけで半分になる</strong>(0.47)。256 体のうち 110 体しか描かないのだから当然だが、メッシュシェーダを持たない GPU でも indirect の描く命令は使えるので、<strong>GPU 駆動の入口はメッシュシェーダを待たない</strong></li><li><strong>タスクの道では 4〜5% しか縮まない</strong>(0.41 → 0.39)。画面の外のメッシュレットは Day 64b のタスクシェーダがもう捨てていて、今日省けたのは「捨てる手間」だけ。その手間が元々安かった</li><li><strong>CPU で選んでも GPU で選んでも、描く時間は同じ</strong>(0.47 と 0.47、0.39 と 0.39)</li><li><strong>選ぶ手間はどちらも数 us</strong>。GPU の「選ぶパス」(下書き + バリア + cull.comp + バリア)は中央値 8.4〜9.2 us で、CPU で選ぶときの同じ区間(一覧の転送 + バリア)2.8〜3.4 us との差、<strong>約 6 us</strong> が cull.comp の値段。CPU で選ぶ C# の時間は 256 体で中央値 8 us 前後(64 体で 4 us)。どちらも描く時間(400 us)の 2% 程度</li></ul>
+<blockquote><p>ハーネスの絶対値(頂点・選ばない 1.024 ms)は、Day 64b の検証3(3.1〜3.5 ms)よりずっと小さい。GPU のクロックの状態が違うため。<strong>比べるのは同じ走行の中の比だけ</strong>にする(Day 64a の検証3 と同じ注意)。アプリ内の値(完成条件)はさらに大きく出る。</p></blockquote>
+</section>
+<section class="part"><h2 id="s35">改造課題</h2>
+<h3 id="s36">課題1(易): CPU で手前から並べる</h3>
+<p><code>MeshRenderer.SelectOnCpu</code> で、選んだ体をカリングの目からの距離が近い順に並べ替える(<code>Array.Sort</code> に距離の配列を添えればよい)。</p>
+<ol><li>yaw 3.74(反対側。<code>R</code> のあとドラッグで半周)で、CPU で選んだときの画素シェーダの回数が 492,540 からどれだけ減るか</li><li>既定の視点(yaw 0.6)ではどうか。番号順(337,434)より良くなるか</li><li>並べ替えにかかる CPU の時間(HUD の「選ぶのに CPU」)はどれだけ増えるか。体が 10 万体ならどうなりそうか</li></ol>
+<h3 id="s37">課題2(中): GPU で選んでも順番を保つ</h3>
+<p>cull.comp の <code>atomicAdd</code> をやめて、<strong>番号順のまま</strong>一覧に詰める。体が 256 以下なので、1 ワークグループ(256 人)で足りる。</p>
+<ol><li><code>local_size_x</code> を 256 にし、共有メモリに「自分が生き残ったか(0 / 1)」を書く</li><li>共有メモリの上で<strong>前置和</strong>(prefix sum。自分より前に生き残った人の数)を求める。Day 64b の <code>subgroupBallotExclusiveBitCount</code> はワープの中の前置和だった。ワープをまたぐには、ワープごとの合計をもう一度足し合わせる</li><li>最後の人が合計を引数の数の欄に書く(<code>atomicAdd</code> は要らなくなる)</li><li>画素シェーダの回数が、CPU で選ぶときと同じ値(337,434)で止まることを確かめる</li><li>体が 256 を超えたらこのやり方はどう破綻するか。ワークグループをまたぐ前置和は何回のパスで作れるか</li></ol>
+<h3 id="s38">課題3(難): 粗い形を足して、引数を2つ並べる</h3>
+<p>Day 64b の改造課題3(タスクシェーダで LOD)を、<strong>体ごと</strong>に GPU で選ぶ形でやってみる。頂点の道でやるのがいちばん簡単。</p>
+<ol><li><code>TorusKnot.Create</code> の刻みを引数で変えられるようにし、粗い版(128 x 16 など)を作って、細かい版の後ろに頂点と索引をつなげる</li><li><code>DrawArguments</code> の頂点の道の欄を2つにする(細かい版と粗い版。<code>firstIndex</code> と <code>vertexOffset</code> がそれぞれ違う)</li><li>cull.comp で目からの距離を測り、近い体は細かい版の数の欄に、遠い体は粗い版の数の欄に足す。<strong>一覧も2つに分ける</strong> (粗い版の一覧を配列の後ろ半分に置き、<code>firstInstance</code> で読み始めをずらすのが1つの手。<code>drawIndirectFirstInstance</code> の機能が要る)</li><li><code>vkCmdDrawIndexedIndirect</code> の回数を 2、間隔を 20 にする(<code>multiDrawIndirect</code> の機能が要る。<code>VulkanDevice</code> で有効にする)</li><li>256 体で三角形の数と時間がどれだけ減るか。<strong>何種類の形を描くかは CPU が決めている(回数 2)</strong>が、これも GPU に決めさせたいときに <code>vkCmdDrawIndexedIndirectCount</code> がある——それが歪み3 の入口</li></ol>
+<blockquote><p><strong>測るときは Release で、1フレームずつ交互に描いて比べる</strong>。そして長く回しっぱなしにしない(電源に対して厳しい負荷になる)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s39">次の Day 65b・65c へ</h2>
+<p>今日は、体を選ぶ権限を GPU に移し、描く命令の引数を GPU が書くようにした。ところが今日の場面では、CPU で選んでも同じだった。<strong>CPU で選べる情報(体の置き場所と視錐台)しか使っていない</strong>から。</p>
+<p>Day 65b・65c では、<strong>CPU が持っていない情報</strong>——前のフレームの深度——で選ぶ。</p>
+<ul><li>Day 65b: 深度を、縦横半分ずつに縮めながら「いちばん奥の深度」を残した画像の山(Hi-Z)を作る</li><li>Day 65c: 体(とメッシュレット)の球を画面に投影し、その大きさに合った段の Hi-Z と比べて、<strong>確実に隠れているなら捨てる</strong></li><li>前のフレームの深度は「前のフレームに見えていた物」でしか作れないので、<strong>2パス</strong>にする(1. 前のフレームに見えていた物を描いて深度を作る → 2. その深度で残りを調べて、新しく見えた物を描く)</li><li>どれも CPU には答えが出せないので、今日の indirect の骨格がそのまま要る</li><li>そのうえで、UE5 の Nanite がこの形(クラスタの階層 + GPU の上の選択 + 2パスのオクルージョン)に何を足したのかを読む</li></ul>
+</section>
+<footer class="end">Day 65a GPU 駆動レンダリング(1) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softview.js"></script>
+<script src="../site/meshlet.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, setSeg, stat, tok } = Lab;
+const M = Meshlet;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const pct = (a, b) => (b ? (100 * a / b).toFixed(1) : '0.0') + '%';
+const REDRAW = [];
+window.addEventListener('resize', () => { for (const f of REDRAW) f(); });
+const MESH = M.createTorusKnot();
+const SET = M.build(MESH, 'round');
+const SPHERE = M.boundingSphere(MESH);
+const GROUPS = Math.ceil(SET.count / 32); // 1体あたりのタスクシェーダの組 = 15
+const TRIS = MESH.triangleCount;
+
+// 平らな色のブロックで領域を塗る
+function paintRegion(ctx, w, h, bs, toWorld, color, test) {
+  ctx.fillStyle = color;
+  for (let py = 0; py < h; py += bs) for (let px = 0; px < w; px += bs) { const [x, y] = toWorld(px + bs / 2, py + bs / 2); if (test(x, y)) ctx.fillRect(px, py, bs, bs); }
+}
+// 体の数・見る向きが同じなら同じ結果なので取っておく
+const cache = new Map();
+function scene(count, yaw) {
+  const key = count + '|' + yaw;
+  let s = cache.get(key);
+  if (!s) {
+    if (cache.size > 40) cache.clear();
+    const inst = M.sceneInstances(count), cam = M.orbit({ ...M.defaultView(count), yaw }, 960, 540);
+    s = { inst, cam };
+    cache.set(key, s);
+  }
+  return s;
+}
+// 選ばれた体のメッシュレットの行き先(視錐台 + 背面)
+function meshletStats(ids, inst, cam) {
+  let fc = 0, bc = 0, vis = 0, tris = 0;
+  for (const i of ids) for (const m of SET.meshlets) {
+    const k = M.classify(m, inst[i], cam, 3);
+    if (k === 'frustum') fc++; else if (k === 'backface') bc++; else { vis++; tris += m.triangleCount; }
+  }
+  return { tested: fc + bc + vis, frustum: fc, backface: bc, visible: vis, triangles: tris };
+}
+
+// ============================================================
+//  体を選ぶ
+// ============================================================
+{
+  const st = { count: 256, select: 'gpu', yaw: 0.6, scale: 1 };
+  const memo = new Map();
+  function resultFor(count, yaw, scale, mode) {
+    const key = `${count}|${yaw}|${scale}|${mode}`;
+    let r = memo.get(key);
+    if (!r) {
+      if (memo.size > 60) memo.clear();
+      const { inst, cam } = scene(count, yaw);
+      const ids = mode === 'none' ? inst.map((_, i) => i) : M.selectBodies(inst, cam, SPHERE, scale);
+      r = { ids, ...meshletStats(ids, inst, cam) };
+      memo.set(key, r);
+    }
+    return r;
+  }
+  function redraw() {
+    $('sl-yaw-out').textContent = st.yaw.toFixed(2);
+    const { inst, cam } = scene(st.count, st.yaw);
+    const r = resultFor(st.count, st.yaw, st.scale, st.select);
+    const sel = new Set(r.ids);
+    // ---- 上から見た地図 ----
+    const { ctx, w, h } = fit($('sl-canvas'));
+    const xs = [cam.pos[0], ...inst.map((m) => m[12])], zs = [cam.pos[2], ...inst.map((m) => m[14])];
+    const pad = 3.4;
+    const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad, minZ = Math.min(...zs) - pad, maxZ = Math.max(...zs) + pad;
+    const scale = Math.min((w - 20) / (maxX - minX), (h - 20) / (maxZ - minZ));
+    const ox = (w - (maxX - minX) * scale) / 2, oz = (h - (maxZ - minZ) * scale) / 2;
+    const toPx = (x, z) => [ox + (x - minX) * scale, h - oz - (z - minZ) * scale];
+    const toWorld = (px, py) => [minX + (px - ox) / scale, minZ + (h - oz - py) / scale];
+    paintRegion(ctx, w, h, 4, toWorld, 'rgba(100,150,255,0.14)', (x, z) => x >= minX && x <= maxX && z >= minZ && z <= maxZ && cam.planes.every((p) => p[0] * x + p[2] * z + p[3] >= 0));
+    ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; { const [a, b] = toPx(minX, maxZ), [c, d] = toPx(maxX, minZ); ctx.strokeRect(a, b, c - a, d - b); }
+    const R = SPHERE[3] * st.scale * scale;
+    inst.forEach((m, i) => {
+      const c = M.xformPoint(m, SPHERE), [px, py] = toPx(c[0], c[2]);
+      const on = sel.has(i);
+      ctx.beginPath(); ctx.arc(px, py, Math.max(1.5, R), 0, Math.PI * 2);
+      ctx.fillStyle = on ? 'rgba(80,200,120,0.55)' : 'rgba(120,120,130,0.18)'; ctx.fill();
+      ctx.strokeStyle = on ? 'rgb(80,200,120)' : tok('--line'); ctx.lineWidth = 1; ctx.stroke();
+    });
+    const [ex, ey] = toPx(cam.pos[0], cam.pos[2]), tgt = toPx(0, 0);
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(tgt[0], tgt[1]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'left'; ctx.fillText('目', ex + 10, ey + 4);
+    ctx.fillStyle = tok('--muted'); ctx.fillText('青: 視錐台の内側(地面の高さ)/ 円: 体ごとの球 / 緑: 描く体 / 灰: 体ごと捨てた', 8, 14);
+    // ---- 数 ----
+    const compute = st.select === 'gpu' ? `${Math.ceil(st.count / 64)} 組 x 64 人` : st.select === 'cpu' ? 'なし(C# が選ぶ)' : 'なし';
+    $('sl-stats').innerHTML = stat('描く体', `${r.ids.length} 体`, `<small> / ${st.count} 体</small>`) +
+      stat('コンピュート(cull.comp)', compute) +
+      stat('タスクシェーダ', `${comma(r.ids.length * GROUPS)} 組 x 32 人`, `<small> = ${r.ids.length} x ${GROUPS}</small>`) +
+      stat('メッシュレットの判定', `${comma(r.tested)} 個`) +
+      stat('画面の外 / 裏向き / 描く', `${pct(r.frustum, r.tested)} / ${pct(r.backface, r.tested)} / ${pct(r.visible, r.tested)}`) +
+      stat('メッシュシェーダ', `${comma(r.visible)} 組`) +
+      stat('ラスタライザへの三角形(タスクの道)', comma(r.triangles)) +
+      stat('三角形(頂点の道)', comma(r.ids.length * TRIS), '<small> (メッシュレットのカリングが無い)</small>');
+    // ---- 3つの選び方の表 ----
+    const modes = [['gpu', 'GPU で選ぶ'], ['cpu', 'CPU で選ぶ'], ['none', '選ばない']];
+    const gpuMeasured = st.count === 256 && st.yaw === 0.6 && st.scale === 1;
+    const px = { gpu: '368,386〜406,348(揺れる)', cpu: '337,434', none: '337,434' };
+    let rows = '';
+    for (const [m, name] of modes) {
+      const q = resultFor(st.count, st.yaw, st.scale, m === 'none' ? 'none' : 'sel');
+      rows += `<tr><th scope="row">${name}${m === st.select ? ' ◀' : ''}</th><td>${q.ids.length}</td><td>${comma(q.ids.length * GROUPS)}</td><td>${comma(q.tested)}(${pct(q.frustum, q.tested)} / ${pct(q.backface, q.tested)} / ${pct(q.visible, q.tested)})</td><td>${comma(q.triangles)}</td><td>${gpuMeasured ? px[m] + '(GPU の実測)' : '—'}</td></tr>`;
+    }
+    $('sl-table').innerHTML = `<table><thead><tr><th>${st.count} 体</th><th>描く体</th><th>タスクシェーダ(組)</th><th>判定(画面の外 / 裏向き / 描く)</th><th>三角形</th><th>画素シェーダ</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('sl-note').textContent = st.scale < 1
+      ? '球の半径を縮めると、半分だけ画面に入っている体まで捨てる(扇の縁の体が消える)。形全体の球は安全側(大きめ)でなければならない。reference は箱の中心から、いちばん遠い頂点までの半径。'
+      : (st.select === 'none' ? '選ばないと、画面の外の体も全部タスクシェーダに渡り、メッシュレットを1つずつ捨てる。三角形の数は同じ(画面の外のメッシュレットはどのみち捨てられる)。' : '画面の外のメッシュレットの大半(61.4% → 10.2%)は、体ごとの判定で先に捨てられた。残った 10.2% は「半分だけ画面に入っている体」の、はみ出した側のメッシュレット。')
+      + (gpuMeasured ? '' : ' 画素シェーダの回数は、体の数・向きがこのページの既定のときの GPU の実測だけを載せている(下の「描く順」で数える)。');
+  }
+  REDRAW.push(redraw);
+  seg('sl-count', (v) => { st.count = Number(v); redraw(); });
+  seg('sl-select', (v) => { st.select = v; redraw(); });
+  seg('sl-scale', (v) => { st.scale = Number(v); redraw(); });
+  $('sl-yaw').addEventListener('input', (e) => { st.yaw = Number(e.target.value); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  引数と一覧
+// ============================================================
+{
+  const st = { count: 256, seed: 12345 };
+  const lcg = (seed) => { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  const shuffle = (a, rnd) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const NOTE = ['', ''];
+  function redraw() {
+    const { inst, cam } = scene(st.count, 0.6);
+    const ids = M.selectBodies(inst, cam, SPHERE);
+    const warps = [...new Set(ids.map((i) => (i / 32) | 0))];
+    const perm = shuffle(warps.slice(), lcg(st.seed));
+    const gpu = M.orderBodies('warps', ids, inst, cam, perm), cpu = ids;
+    const n = ids.length;
+    const idxCount = TRIS * 3;
+    const cell = (v, c) => `<td>${v}${c ? ' <small>' + c + '</small>' : ''}</td>`;
+    const rows = [
+      ['頂点の道(DrawIndexedIndirectCommand、20 バイト)', [['indexCount', comma(idxCount), '= 三角形 32,768 x 3'], ['instanceCount', n, '← 足す'], ['firstIndex', 0, ''], ['vertexOffset', 0, ''], ['firstInstance', 0, '']], 0],
+      ['メッシュの道(DrawMeshTasksIndirectCommandEXT、12 バイト)', [['groupCountX', SET.count, '= メッシュレットの数'], ['groupCountY', n, '← 足す'], ['groupCountZ', 1, '']], 20],
+      ['タスクの道(DrawMeshTasksIndirectCommandEXT、12 バイト)', [['groupCountX', GROUPS, `= ceil(${SET.count} / 32)`], ['groupCountY', n, '← 足す'], ['groupCountZ', 1, '']], 32],
+    ];
+    let body = '';
+    for (const [title, fields, off] of rows) {
+      body += `<tr><th colspan="3" scope="colgroup" style="text-align:left">${title}。${off} バイト目から</th></tr>`;
+      fields.forEach(([k, v, c], i) => { body += `<tr><td><code>${k}</code></td><td>${off + i * 4} バイト目</td>${cell(v, c)}</tr>`; });
+    }
+    $('ar-table').innerHTML = `<table><thead><tr><th>欄</th><th>位置</th><th>cull.comp が走ったあとの値(${st.count} 体、既定の向き)</th></tr></thead><tbody>${body}</tbody></table>`;
+    const chips = (list, label) => `<div style="margin:6px 0"><span style="color:var(--muted)">${label}</span><div style="font-family:var(--font-mono);font-size:0.8125rem;line-height:1.7;word-break:break-word">${list.slice(0, 40).map((v) => `<span style="display:inline-block;min-width:2.4em;text-align:right;padding:0 4px;margin:1px;border:1px solid var(--line);border-radius:4px">${v}</span>`).join('')}${list.length > 40 ? ' …' : ''}</div></div>`;
+    $('ar-list').innerHTML = chips(cpu, `一覧(binding 8)— CPU で選んだとき(番号順)。先頭 40 個 / ${n} 個`) + chips(gpu, `一覧(binding 8)— GPU で選んだとき(32 体ずつの組の順番だけが入れ替わるまね)。組の順: ${perm.join(' → ')}`);
+    $('ar-note').textContent = `一覧の中身は同じ ${n} 体の集まりで、並びだけが違う。描く命令が配るのは「何番目に描く体か」(0〜${n - 1})で、3つの描くシェーダが 一覧[何番目] で本当の体の番号に引き直す。` + (warps.length === 1 ? ' 16 体は 1 組(32 体)に収まるので、入れ替わる組が無く、毎回同じ並びになる。' : ` 選ばれた体は ${warps.length} 組(32 体ずつ)にまたがり、組の順番の入れ替え方は ${warps.length} の階乗通り。`);
+  }
+  REDRAW.push(redraw);
+  seg('ar-count', (v) => { st.count = Number(v); redraw(); });
+  $('ar-run').addEventListener('click', () => { st.seed = Math.floor(Math.random() * 1e9); redraw(); });
+  redraw();
+}
+
+// ============================================================
+//  描く順で、画素シェーダの回数が変わる
+// ============================================================
+{
+  const st = { count: 256, yaw: 0.6, order: 'index', token: 0 };
+  const RES = { w: 960, h: 540 };
+  const ORDERS = [['index', '番号順(CPU で選んだとき)'], ['near', '手前から奥'], ['far', '奥から手前'], ['warps', 'GPU のまね(組の順を入れ替え)']];
+  // GPU の実測(計画書の検証2・完成条件)。キーは 体の数|yaw
+  const GPU = {
+    '16|0.6': { index: '196,009', warps: '196,009(10 回とも)' },
+    '64|0.6': { index: '279,046', warps: '279,046 と 299,095' },
+    '256|0.6': { index: '337,434', warps: '368,386〜406,348' },
+    '256|3.74': { index: '492,540', warps: '404,863〜455,006' },
+  };
+  const lcg = (seed) => { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; };
+  const results = new Map(); // 体の数|yaw -> { index, near, far, warps: {min, max, n}, maps: {順: Uint8Array}, tris }
+  const resultsOf = (key) => { let r = results.get(key); if (!r) { r = { maps: {} }; results.set(key, r); } return r; };
+  // 組(32 体ずつ)の順番の入れ替え。組が 3 つ以下なら全部、それより多ければ 10 通り(固定の乱数)
+  function perms(groups, seed) {
+    if (groups.length <= 3) { const out = []; const rec = (a, r) => { if (!r.length) out.push(a); else r.forEach((x, i) => rec([...a, x], r.filter((_, j) => j !== i))); }; rec([], groups); return out; }
+    const rnd = lcg(seed), out = [];
+    for (let t = 0; t < 10; t++) { const p = groups.slice(); for (let i = p.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; } out.push(p); }
+    return out;
+  }
+  const PALETTE = [null, [60, 90, 170], [40, 170, 170], [90, 210, 100], [240, 220, 60], [255, 120, 50]];
+  function draw(map) {
+    const { ctx, w: cw, h: ch } = fit($('ov-canvas'));
+    const w = RES.w, h = RES.h, img = new ImageData(w, h), px = new Uint32Array(img.data.buffer);
+    for (let i = 0; i < w * h; i++) {
+      const c = map[i];
+      // 0 = 背景、1 = 1回だけ(青)、2 回以上ほど、青緑 → 緑 → 黄 → 橙へ明るく
+      const [r, g, b] = c === 0 ? [18, 21, 28] : PALETTE[Math.min(c, PALETTE.length - 1)];
+      px[i] = (255 << 24) | (b << 16) | (g << 8) | r;
+    }
+    const off = document.createElement('canvas'); off.width = w; off.height = h; off.getContext('2d').putImageData(img, 0, 0);
+    const s = Math.min(cw / w, ch / h);
+    ctx.drawImage(off, (cw - w * s) / 2, (ch - h * s) / 2, w * s, h * s);
+  }
+  function refresh(done) {
+    const key = st.count + '|' + st.yaw, cur = resultsOf(key);
+    const { inst, cam } = scene(st.count, st.yaw);
+    const nSel = M.selectBodies(inst, cam, SPHERE).length;
+    const g = GPU[key];
+    let rows = '';
+    for (const [k, name] of ORDERS) {
+      const v = cur[k];
+      const val = v === undefined ? '<span style="color:var(--muted)">計算中…</span>' : (k === 'warps' ? (v.min === v.max ? comma(v.min) : comma(v.min) + '〜' + comma(v.max)) + '<small> (' + v.n + ' 通り)</small>' : comma(v));
+      rows += '<tr><th scope="row">' + name + (k === st.order ? ' ◀' : '') + '</th><td>' + val + '</td><td>' + (g && g[k] ? g[k] + '(GPU の実測)' : '—') + '</td></tr>';
+    }
+    $('ov-table').innerHTML = '<table><thead><tr><th>' + st.count + ' 体(選ばれた ' + nSel + ' 体)・yaw ' + st.yaw + '</th><th>画素シェーダの回数(このページ)</th><th>計画書</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    $('ov-stats').innerHTML = stat('選ばれた体', nSel + ' 体') + stat('表側の三角形', cur.tris ? comma(cur.tris) : '—') + stat('画面', RES.w + ' x ' + RES.h);
+    if (cur.maps[st.order]) draw(cur.maps[st.order]);
+    if (done) {
+      $('ov-note').textContent = '手前から奥に描くと ' + comma(cur.near) + ' で、いちばん少ない(手前の物が先に深度を書くので、奥の物の画素は画素シェーダまで行かずに捨てられる)。奥から手前は ' + comma(cur.far) + ' で、いちばん多い。番号順は ' + comma(cur.index) + ' で、体の番号が格子の奥行き方向(z)の順に振ってあるため、yaw 0.6 では手前から奥に近く、反対側の yaw 3.74 では奥から手前に近い。GPU で選ぶと、32 体ずつの組の順番が走るたびに入れ替わり、回数はその間で揺れる。';
+    }
+  }
+  function run() {
+    const my = ++st.token;
+    const key = st.count + '|' + st.yaw, cur = resultsOf(key);
+    const { inst, cam } = scene(st.count, st.yaw);
+    const ids = M.selectBodies(inst, cam, SPHERE);
+    const groups = [...new Set(ids.map((i) => (i / 32) | 0))];
+    const jobs = [st.order, ...ORDERS.map((o) => o[0]).filter((k) => k !== st.order)].filter((k) => cur[k] === undefined);
+    if (!jobs.length) { refresh(true); return; }
+    refresh(false);
+    $('ov-note').textContent = '数えています(960x540 のソフトウェア描画。1つの順番につき 0.1〜0.3 秒ほど)…';
+    const step = () => {
+      if (my !== st.token) return; // 設定が変わったので、数え直しに任せる
+      if (!jobs.length) { refresh(true); return; }
+      const k = jobs.shift();
+      if (k === 'warps') {
+        const plist = perms(groups, st.yaw === 0.6 ? 12345 : 777);
+        const vals = plist.map((p, i) => { const r = M.countFragments(MESH, SET, inst, M.orderBodies('warps', ids, inst, cam, p), cam, RES.w, RES.h, { map: i === 0 }); if (r.map) cur.maps.warps = r.map; return r.frags; });
+        cur.warps = { min: Math.min(...vals), max: Math.max(...vals), n: plist.length };
+      } else {
+        const r = M.countFragments(MESH, SET, inst, M.orderBodies(k, ids, inst, cam), cam, RES.w, RES.h, { map: true });
+        cur[k] = r.frags; cur.maps[k] = r.map; cur.tris = r.tris;
+      }
+      refresh(false);
+      setTimeout(step, 16);
+    };
+    setTimeout(step, 30);
+  }
+  seg('ov-count', (v) => { st.count = Number(v); run(); });
+  seg('ov-yaw', (v) => { st.yaw = Number(v); run(); });
+  seg('ov-order', (v) => { st.order = v; run(); });
+  window.addEventListener('resize', () => refresh(false));
+  // 最初の表示は、ページが開いたあとで数える(読み込みを止めない)
+  setTimeout(run, 300);
+}
+})();
+</script>
+</body>
+</html>
