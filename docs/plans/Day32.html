@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 32 glTF 2.0 の読み込み(静的メッシュ + PBR マテリアル)と高品質アセット導入</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">素材について</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. glTF は「読み込んだあとの姿」で書かれている</a></li><li class="l3"><a href="#s6">2. accessor → bufferView → buffer の3段</a></li><li class="l3"><a href="#s7">3. glb は zip ではない</a></li><li class="l3"><a href="#s8">4. マテリアルが仕様に入っている — metallic-roughness</a></li><li class="l3"><a href="#s9">5. 色のテクスチャとデータのテクスチャは、読み方が違う</a></li><li class="l3"><a href="#s10">6. 法線はモデル行列では運べない</a></li><li class="l3"><a href="#s11">7. モデルの大きさは読むまで分からない</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">リポジトリの設定</a></li><li class="l3"><a href="#s16">Day 31 の発光する立方体の表し方が変わった</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">Model — glTF を描画の言葉へ翻訳する層</a></li><li class="l3"><a href="#s20">glTF を1体読むまで — 3段の間接参照とノードの木</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. コンソールに構成が出る</a></li><li class="l3"><a href="#s23">2. <code>Shift+0</code>: 4体を巡回する</a></li><li class="l3"><a href="#s24">3. <code>Shift+9</code>: 読み込んだマップを1枚ずつ見る</a></li><li class="l3"><a href="#s25">4. <code>Shift+-</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): TANGENT を読んで、接線を色で出す</a></li><li class="l3"><a href="#s28">課題2(中): パーツをマテリアル順に並べ替えて、ドローコールを減らす</a></li><li class="l3"><a href="#s29">課題3(難): モデルの読み込みを非同期にする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(30 項目すべて合格)</a></li><li class="l3"><a href="#s32">読み込みと描画の実測(1920x1080、<code>glFinish()</code> 込みの 400 フレーム平均)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 32 / 計画書</p>
+  <h1>glTF 2.0 の読み込み(静的メッシュ + PBR マテリアル)と高品質アセット導入</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">素材について</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. glTF は「読み込んだあとの姿」で書かれている</a></li><li class="l3"><a href="#s6">2. accessor → bufferView → buffer の3段</a></li><li class="l3"><a href="#s7">3. glb は zip ではない</a></li><li class="l3"><a href="#s8">4. マテリアルが仕様に入っている — metallic-roughness</a></li><li class="l3"><a href="#s9">5. 色のテクスチャとデータのテクスチャは、読み方が違う</a></li><li class="l3"><a href="#s10">6. 法線はモデル行列では運べない</a></li><li class="l3"><a href="#s11">7. モデルの大きさは読むまで分からない</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">リポジトリの設定</a></li><li class="l3"><a href="#s16">Day 31 の発光する立方体の表し方が変わった</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">Model — glTF を描画の言葉へ翻訳する層</a></li><li class="l3"><a href="#s20">glTF を1体読むまで — 3段の間接参照とノードの木</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. コンソールに構成が出る</a></li><li class="l3"><a href="#s23">2. <code>Shift+0</code>: 4体を巡回する</a></li><li class="l3"><a href="#s24">3. <code>Shift+9</code>: 読み込んだマップを1枚ずつ見る</a></li><li class="l3"><a href="#s25">4. <code>Shift+-</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): TANGENT を読んで、接線を色で出す</a></li><li class="l3"><a href="#s28">課題2(中): パーツをマテリアル順に並べ替えて、ドローコールを減らす</a></li><li class="l3"><a href="#s29">課題3(難): モデルの読み込みを非同期にする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(30 項目すべて合格)</a></li><li class="l3"><a href="#s32">読み込みと描画の実測(1920x1080、<code>glFinish()</code> 込みの 400 フレーム平均)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の2日目。<strong>エンジンに本物のモデルが載る</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>Khronos 公式のサンプルモデルを <code>Shift+0</code> で切り替えて眺められる。</p>
+<div class="code"><pre><code> Shift+0 で巡回
+
+  DamagedHelmet   15,452三角形  テクスチャ5枚   glb 埋め込み・JPEG
+  WaterBottle      4,510三角形  テクスチャ4枚   glb 埋め込み・PNG
+  Lantern          5,394三角形  テクスチャ4枚   ノード4個・親子あり
+  BoxTextured         12三角形  テクスチャ1枚   .gltf + .bin + .png の3ファイル
+  (モデル無し)                                  Day 31 までのデモに戻る</code></pre></div>
+<p>そして <code>Shift+9</code> で、読み込んだマップを1枚ずつ画面に出せる。</p>
+<div class="code"><pre><code> 通常 → ベースカラー → 法線(頂点) → メタリック → ラフネス → AO → 発光 → 法線マップ</code></pre></div>
+<p><strong>今日はベースカラーしか絵に使わない</strong>。残りは読み込んで持っておくだけで、使い始めるのは法線が Day 34、メタリック/ラフネスが Day 35、AO が Day 37。先に器を作っておくと、その日の差分がシェーダだけで済む。</p>
+<p>併せて <code>Vertex</code> に法線が戻り、平行光源1つぶんのランバート反射が付く(Day 9 でソフトウェアラスタライザに書いたものの GPU 版)。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、実装に直結するものを挙げておく。</p>
+<ul><li><a href="https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html">glTF 2.0 仕様</a> <strong>今日いちばん使う</strong>。全部読む必要は無く、「Concepts → Geometry」「Concepts → Materials」「Binary glTF Layout」の3節でよい</li><li><a href="https://github.com/KhronosGroup/glTF-Tutorials/tree/main/gltfTutorial">glTF Tutorial</a>仕様を読む前の地図。<strong>"A Minimal glTF File" と "Buffers, BufferViews, and Accessors"</strong> の2章が要点</li><li><a href="https://www.khronos.org/files/gltf20-reference-guide.pdf">glTF 2.0 Quick Reference Guide (PDF)</a> 1枚絵でファイル構造が載っている。<strong>写経中はこれを開いておくと速い</strong></li><li><a href="https://github.com/KhronosGroup/glTF-Sample-Assets">glTF Sample Assets</a>今日使う4体の出どころ。「どの機能を試すためのモデルか」が README に書いてある</li><li><a href="https://learnopengl.com/Lighting/Basic-Lighting">LearnOpenGL: Basic Lighting</a>法線行列(逆転置)の導出はここが短い。要点5の背景</li></ul>
+</section>
+<section class="part"><h2 id="s3">素材について</h2>
+<p><code>assets/models/</code> に Khronos のサンプルを4体置いた。<strong>入手元とライセンスは<code>assets/models/LICENSE.md</code></strong> に記録してある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>サイズ</th><th>ライセンス</th></tr></thead>
+<tbody>
+<tr><td>DamagedHelmet.glb</td><td>3.8MB</td><td>CC BY-NC 4.0(非商用)</td></tr>
+<tr><td>WaterBottle.glb</td><td>9.0MB</td><td>CC0</td></tr>
+<tr><td>Lantern.glb</td><td>9.6MB</td><td>CC0</td></tr>
+<tr><td>BoxTextured(3ファイル)</td><td>8KB</td><td>CC BY 4.0</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>.glb</code> は Git LFS で管理する</strong>ことにした(<code>.gitattributes</code>)。Phase 6 は素材がそのまま重くなり、Day 36 の IBL では 1 枚 20〜50MB の HDRI が入る。通常の blob として置くと、<strong>以後すべてのクローンが恒久的にその重さを払う</strong>。</p>
+<p>LFS へ移せるのは<strong>最初のコミットの前だけ</strong>で、一度通常の blob として push すると、あとから移すには履歴の書き換えが要る。</p>
+<p>クローンした側は一度だけこれが要る。</p>
+<div class="code"><pre><code>git lfs install
+git lfs pull</code></pre></div>
+<p>引いていない場合、<code>assets/models/*.glb</code> は 130 バイトのテキスト(ポインタ)になっている。<code>Program.OnLoad</code> はモデルの読み込みに失敗しても起動を続けるので、<strong>素材が無くても他の Day の機能は触れる</strong>。</p>
+<p>Poly Haven など他の CC0 素材を足すときも、置くのは同じ場所でよい。<code>.gltf</code> と <code>.glb</code> はローダがどちらも受ける。</p>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. glTF は「読み込んだあとの姿」で書かれている</h3>
+<p>Day 10 で OBJ ローダを書いた。あれはテキストを行ごとに読んで <code>v</code> / <code>vt</code> / <code>f</code> を拾うだけで、100 行に満たなかった。glTF はそれよりずっと大きいが、<strong>大きい理由がはっきりしている</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>OBJ(1992)</th><th>glTF 2.0(2017)</th></tr></thead>
+<tbody>
+<tr><td>形式</td><td>テキスト</td><td>JSON + バイナリ</td></tr>
+<tr><td>読み込み</td><td>数値を1個ずつ parse</td><td><strong>バイト列をそのまま GPU へ</strong></td></tr>
+<tr><td>マテリアル</td><td>別ファイル(.mtl)、実装依存</td><td>仕様に組み込み。<strong>PBR で定義</strong></td></tr>
+<tr><td>階層</td><td>無い</td><td>ノードの木</td></tr>
+<tr><td>テクスチャ</td><td>パスだけ</td><td>埋め込みも可。サンプラの設定も持つ</td></tr>
+</tbody>
+</table></div>
+<p>glTF が "the JPEG of 3D" と呼ばれるのは、<strong>実行時にそのまま使える形</strong>で入っているから。</p>
+<p>OBJ は「頂点の位置の配列」と「面の定義」が別々なので、読み込んだあとに GPU 向けの頂点配列へ組み直す必要があった(Day 10 の計画書の要点2)。glTF は組み直したあとの姿——<strong>頂点バッファとインデックスバッファそのもの</strong>——が入っている。</p>
+<p>だから読み込みの仕事は「解析」ではなく「<strong>どこからどこまでを、どういう意味で読むか</strong>」の解決になる。</p>
+<h3 id="s6">2. accessor → bufferView → buffer の3段</h3>
+<p>glTF の骨格はこの3段で、ここさえ掴めば残りは細部になる。</p>
+<div class="code"><pre><code>  accessor   … 「float の VEC3 が 14556 個」        = 意味と個数
+      ↓
+  bufferView … 「buffer の 92712 バイト目から 174672 バイト」= 場所
+      ↓
+  buffer     … バイト列そのもの</code></pre></div>
+<p>面倒に見えるが、この分け方のおかげで<strong>1本のバイト列を複数の意味で切り出せる</strong>。位置と法線と UV が同じ <code>buffer</code> に同居し、それぞれの <code>bufferView</code> が違う範囲を指す。</p>
+<p><code>buffer</code> の出どころは3通りあり、<strong>全部に対応しないとサンプルすら読めない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>どこから</th><th>いつ使われるか</th></tr></thead>
+<tbody>
+<tr><td>glb の BIN チャンク</td><td><code>.glb</code> なら常にこれ(<code>uri</code> が無い)</td></tr>
+<tr><td>外部ファイル</td><td><code>.gltf</code> + <code>.bin</code>。Poly Haven の配布はたいていこれ</td></tr>
+<tr><td>data URI(base64)</td><td><code>.gltf</code> 1ファイルで完結させたいとき。バイト数は 4/3 に増える</td></tr>
+</tbody>
+</table></div>
+<p><strong>オフセットが2段ある</strong>のが引っかかりどころで、<code>bufferView.byteOffset</code> と <code>accessor.byteOffset</code> を足して初めて実際の位置になる。</p>
+<p>そして <code>byteStride</code>。glTF は「位置・法線・UV を1頂点ずつ交互に並べる(interleaved)」書き方も許していて、その場合 <code>bufferView</code> に <code>byteStride</code> が入る。0(または未指定)なら詰めて並んでいる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>return (buffer, start, stride &gt; 0 ? stride : elementSize);</code></pre></div>
+<p><strong>これを無視して決め打ちしても、今日の4体は全部 stride 無しなので動いてしまう</strong>。「動いたから正しい」が言えない類の分岐で、仕様を読んでいないと存在にすら気づかない。</p>
+<div class="inject"><figure class="lab" id="ac-lab">
+  <div class="lab-head">
+    <h3>accessor → bufferView → buffer — 頂点 i の位置は何バイト目か(要点2)</h3>
+    <span class="tag">GltfLoader の Locate(bufferView.byteOffset + accessor.byteOffset から、byteStride(0 なら要素の大きさ)ずつ進む)を、assets/models/DamagedHelmet.glb の実際の値(BIN チャンク 3,771,740 バイト、bufferView 9 本のうち頂点に使う 4 本)で計算したもの。「交互に並べたら」は、同じ頂点を 1 本の bufferView に位置・法線・UV の順で詰めた(byteStride 32)場合の、このページだけの比較。DamagedHelmet は詰めて並べてある(byteStride 無し)</span>
+  </div>
+  <div class="stage"><canvas id="ac-canvas" style="height:150px" aria-label="BIN チャンクの中で、インデックス・位置・法線・UV の bufferView が占める範囲と、頂点 i のデータの場所"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">頂点の番号 i(0〜14,555)</span>
+      <div class="range"><input type="range" id="ac-i" min="0" max="14555" step="1" value="0"><output id="ac-i-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">並べ方</span>
+      <div class="seg" id="ac-mode"><button data-v="tight" aria-pressed="true">詰めて(DamagedHelmet のまま)</button><button data-v="inter" aria-pressed="false">交互に並べたら(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="ac-table"></div><p id="ac-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">3. glb は zip ではない</h3>
+<p><code>.glb</code> の中身は「ヘッダ + チャンクの並び」だけ。</p>
+<div class="code"><pre><code>  [magic "glTF"][version 2][全体の長さ]       12 バイト
+  [チャンク長][型 "JSON"][JSON 本体]
+  [チャンク長][型 "BIN\0"][バイナリ本体]      ← 無いこともある</code></pre></div>
+<p><strong>なぜ圧縮しないのか</strong>。バイナリチャンクは頂点バッファの並びそのものなので、ファイルから読んだメモリの一部を、コピーも変換もせず GPU へ渡せる。圧縮すると必ず展開の1手間が入る。</p>
+<p>読むときの作法が2つある。</p>
+<ul><li><strong>拡張子ではなく先頭4バイトで判別する</strong>。拡張子は人が付け替えられるが、マジックナンバーは嘘をつかない</li><li><strong>未知の型のチャンクは読み飛ばす</strong>。仕様がそう要求していて、将来チャンクが増えても古いローダが壊れない</li></ul>
+<p>チャンクは4バイト境界にそろえる決まりなので、詰め物のぶん進めるのを忘れない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>offset += (length + 3) &amp; ~3;</code></pre></div>
+<h3 id="s8">4. マテリアルが仕様に入っている — metallic-roughness</h3>
+<p>OBJ の <code>.mtl</code> は「実装が好きに解釈してよい」ものだった。glTF は<strong>材質の意味まで仕様で決めている</strong>のが決定的な違いで、だからファイルを渡すだけで同じ見た目が出る。</p>
+<p>使うのは <strong>metallic-roughness ワークフロー</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>何を表すか</th></tr></thead>
+<tbody>
+<tr><td>ベースカラー</td><td>非金属なら拡散色、金属なら反射色</td></tr>
+<tr><td>メタリック</td><td>0 = 非金属(誘電体)、1 = 金属。<strong>中間はほぼ物理的に無い</strong></td></tr>
+<tr><td>ラフネス</td><td>0 = 鏡、1 = つや消し</td></tr>
+</tbody>
+</table></div>
+<p>「拡散色 + 鏡面色」で表す昔ながらのやり方に比べ、<strong>物理的に破綻した組み合わせを作りにくい</strong>のが利点になる(拡散も鏡面も真っ白、のようなことができない)。</p>
+<p>メタリックとラフネスは<strong>1枚のテクスチャに詰めて</strong>配る。</p>
+<div class="code"><pre><code>  R = 空き(AO を入れる流儀もある)
+  G = ラフネス
+  B = メタリック</code></pre></div>
+<p>チャンネルの割り当ては仕様で決まっているので、<strong>入れ替えると静かに壊れる</strong>。<code>Shift+9</code> でメタリックとラフネスを個別に出せるようにしてあるのは、これを目で確かめるため。</p>
+<h3 id="s9">5. 色のテクスチャとデータのテクスチャは、読み方が違う</h3>
+<p><strong>今日いちばん間違えやすいところ</strong>。Day 31 で <code>Texture</code> を全部 <code>Srgb8Alpha8</code> にしたが、glTF は1つのモデルの中に色とデータを混ぜて持つので、そのままでは立ち行かない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>マップ</th><th>中身</th><th>読み方</th></tr></thead>
+<tbody>
+<tr><td>ベースカラー</td><td><strong>色</strong></td><td>sRGB(GPU が 2.2 乗を戻す)</td></tr>
+<tr><td>発光</td><td><strong>色</strong></td><td>sRGB</td></tr>
+<tr><td>法線</td><td>データ(向き)</td><td><strong>リニア</strong></td></tr>
+<tr><td>メタリック/ラフネス</td><td>データ(数値)</td><td><strong>リニア</strong></td></tr>
+<tr><td>AO</td><td>データ(遮蔽率)</td><td><strong>リニア</strong></td></tr>
+</tbody>
+</table></div>
+<p>法線マップを sRGB で読むと、<code>(0.5, 0.5, 1.0)</code> が <code>(0.22, 0.22, 1.0)</code> になり、面の傾きが実際より強く出る。ラフネスを sRGB で読むと、「少しざらついた面」が軒並みつるつるになる。</p>
+<p><strong>どちらもエラーにならず、絵が微妙におかしくなるだけ</strong>なので気付きにくい。キャッシュのキーにも混ぜておかないと、同じ PNG を「色として」読んだあとに「データとして」読んだとき、先に読んだほうが返ってくる。</p>
+<div class="inject"><figure class="lab" id="sr-lab">
+  <div class="lab-head">
+    <h3>データのテクスチャを sRGB で読むと — 法線マップが傾き、ラフネスがつるつるになる(要点5)</h3>
+    <span class="tag">テクスチャの内部形式が Rgba8(リニア。値 / 255 のまま)か Srgb8Alpha8(GPU が sRGB の曲線で戻す)かで、シェーダが受け取る値がどう変わるかを計算したもの。法線マップは「値 x 2 − 1」で向きに戻す(glTF の決まり)。sRGB の戻し方は本物の sRGB の曲線(要点5の表の 0.22 は 2.2 乗の近似で、どちらでも 0.22)。バイトの値はこのページだけ。法線の図は、接空間の x と z の断面</span>
+  </div>
+  <div class="stage"><canvas id="sr-canvas" style="height:260px" aria-label="法線マップの1テクセルを、リニアで読んだ向きと sRGB で読んだ向きで並べた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">法線マップの R(x)のバイト値。128 が傾き無し</span>
+      <div class="range"><input type="range" id="sr-r" min="0" max="255" step="1" value="128"><output id="sr-r-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">ラフネス(MR マップの G)のバイト値</span>
+      <div class="range"><input type="range" id="sr-g" min="0" max="255" step="1" value="128"><output id="sr-g-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sr-stats"></div><p id="sr-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<div class="code"><span class="lang">csharp</span><pre><code>private static string MakeMemoryKey(string baseKey, bool generateMipmaps, bool srgb) =&gt;
+    baseKey + (generateMipmaps ? "" : "|nomip") + (srgb ? "" : "|linear");</code></pre></div>
+<p><strong>キャッシュのキーは「同じ結果になる条件」全部</strong>、という Day 21 の話がそのまま効く。</p>
+<h3 id="s10">6. 法線はモデル行列では運べない</h3>
+<p><code>Vertex</code> に法線が戻ったので、世界空間へ運ぶ必要が出てくる。位置は <code>uModel</code> で運べるが、<strong>法線は同じ行列では運べない</strong>。</p>
+<p>理由は「法線は面に垂直だが、<strong>垂直という関係は変換で保たれない</strong>」から。x 方向だけ 2 倍に伸ばすと、斜めの面は寝るのに、同じ行列を法線に掛けると法線は逆に立ってしまう。</p>
+<p>正しい変換は <strong>モデル行列の左上 3x3 の逆行列の転置</strong>(法線行列)。導出は「面上のベクトル <code>t</code> と法線 <code>n</code> の内積 0 を、変換後も 0 にする行列は何か」を解くだけで、答えが <code>(M^-1)^T</code> になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>return Matrix4x4.Invert(model, out Matrix4x4 inverse)
+    ? Matrix4x4.Transpose(inverse)
+    : model;</code></pre></div>
+<p><strong>一様スケールと回転しか使っていなければ <code>M</code> と一致する</strong>ので、手を抜いても大半のモデルは正しく見える——これも「動いたから正しい」が言えない分岐。glTF は非一様スケールを持つノードを普通に含むので、ここで払っておく。</p>
+<p>送るときにもう1つ罠がある。GLSL の <code>mat3</code> は「3 float の列が3本」で詰めて並ぶが、<code>Matrix4x4</code> のメモリから左上を取ると <strong>4 float ごとに飛び飛び</strong>になる。<code>SetMatrix4</code> のようにポインタをそのまま渡すと、2列目以降が1つずつずれる。<code>SetMatrix3</code> で詰め直しているのはこのため。</p>
+<div class="inject"><figure class="lab" id="nm-lab">
+  <div class="lab-head">
+    <h3>法線はモデル行列では運べない — 非一様スケールで、法線が面から外れる(要点6)</h3>
+    <span class="tag">Program.NormalMatrix(モデル行列の逆行列の転置)と、モデル行列をそのまま掛けた場合を、斜めの面1枚の断面(2D)で比べたもの。面の向き t は M で運び、法線 n は (M⁻¹)ᵀ と M の2通りで運ぶ。変換後の面と法線の角度が 90 度なら正しい。スケールと面の傾きはこのページだけの値(reference は glTF のノードの行列をそのまま使う)</span>
+  </div>
+  <div class="stage"><canvas id="nm-canvas" style="height:300px" aria-label="斜めの面を伸ばしたときの、正しい法線と、モデル行列で運んだ法線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">x の倍率</span>
+      <div class="range"><input type="range" id="nm-sx" min="0.25" max="3" step="0.05" value="2"><output id="nm-sx-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">y の倍率</span>
+      <div class="range"><input type="range" id="nm-sy" min="0.25" max="3" step="0.05" value="1"><output id="nm-sy-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">面の傾き(度)</span>
+      <div class="range"><input type="range" id="nm-a" min="0" max="90" step="1" value="45"><output id="nm-a-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="nm-stats"></div><p id="nm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s11">7. モデルの大きさは読むまで分からない</h3>
+<p>glTF の単位は「<strong>1.0 = 1 メートル</strong>」と仕様で決まっている。決まってはいるが、実際に来るものはこうなる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>境界球の半径</th></tr></thead>
+<tbody>
+<tr><td>WaterBottle</td><td>0.15m</td></tr>
+<tr><td>DamagedHelmet</td><td>1.64m</td></tr>
+<tr><td>Lantern</td><td><strong>15.17m</strong></td></tr>
+</tbody>
+</table></div>
+<p>100 倍の幅がある。固定の倍率を書くと、どれか1つにしか合わない。</p>
+<p>そこで<strong>境界箱を読み込み時に取って、そこから倍率とカメラを決める</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float scale = targetRadius / model.BoundsRadius;
+_orbit.Distance = targetRadius * 2.6f;</code></pre></div>
+<p>境界箱は<strong>世界行列を通したあと</strong>で取る。ローカルのままだと、ノードの平行移動(街灯の本体は 13m 上にある)が反映されない。</p>
+<p><strong>モデル側を動かす</strong>のは、カメラを動かすとニアクリップとファークリップも一緒に調整することになるから(Day 16 の計画書の要点5)。触るものが少ないほうを選ぶ。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Model/Model.cs</code></td><td>読み込み済みのモデル1体。<strong>パーツの平らな一覧</strong>と境界箱。テクスチャの参照を返す責任も持つ</td></tr>
+<tr><td><code>Model/GltfLoader.cs</code></td><td>glTF 2.0 の読み込み本体。glb/gltf、3段の間接参照、ノードの木、マテリアル、サンプラ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Vertex.cs</code></td><td><strong>法線を末尾に追加</strong>(location 3)。1頂点 36 → 48 バイト</td></tr>
+<tr><td><code>Render/Primitives.cs</code></td><td>立方体と板に法線を持たせる。立方体は面の外積から求める</td></tr>
+<tr><td><code>Render/Shader.cs</code></td><td><code>SetMatrix3</code> を追加(法線行列用。<strong>詰め直しが要る</strong>)</td></tr>
+<tr><td><code>Render/Texture.cs</code></td><td><code>FromPixels</code> / <code>FromFile</code> に <code>srgb</code> 引数。<code>DecodeBytes</code>(メモリ上の PNG/JPEG)を追加</td></tr>
+<tr><td><code>Render/RenderResources.cs</code></td><td><code>LoadTexture</code> に <code>srgb</code>。<code>LoadTextureFromMemory</code> を追加。キャッシュのキーに sRGB を混ぜる</td></tr>
+<tr><td><code>Render/Material.cs</code></td><td>metallic-roughness の値5つと補助マップ4枚。<code>Apply</code> がユニット 1〜4 に割り当てる</td></tr>
+<tr><td><code>shaders/textured.vert</code></td><td>法線属性と <code>uNormalMatrix</code></td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>平行光源のランバート反射、PBR のマップ、表示成分の切り替え</td></tr>
+<tr><td><code>Program.cs</code></td><td>モデルの読み込み・切り替え・描画・画面合わせ、平行光源、<code>Shift+0/9/-</code>、<code>RunGltfCheck</code>、発光マテリアルを emissive で表すよう変更</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">リポジトリの設定</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>.gitattributes</code></td><td><code>*.glb</code> / <code>*.hdr</code> / <code>*.exr</code> / <code>*.ktx2</code> を Git LFS へ</td></tr>
+<tr><td><code>assets/models/</code></td><td>サンプル4体と <code>LICENSE.md</code>(<strong>写経の対象外</strong>)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">Day 31 の発光する立方体の表し方が変わった</h3>
+<p>今日から陰影が付くので、Day 31 のやり方(<code>Tint</code> に 1.0 を超える値)だと<strong>光源のはずのものまで影の側が暗くなる</strong>。</p>
+<p>glTF の言い方に合わせて「ベースカラーは黒、発光がその色」にした。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>BaseColorFactor = new Vector4(0.0f, 0.0f, 0.0f, 1.0f),   // 拡散反射しない
+// 描くたびに EmissiveFactor = 明るさ</code></pre></div>
+<p><strong>これが「光っているもの」の正しい書き方</strong>で、Day 31 で <code>Tint</code> を流用していたのは陰影が無かったから許されていた。明るさの階段の数値(0.25〜32)は変わらないので、Day 31 の見え方はそのまま残る。</p>
+<h3 id="s17">写経する順番</h3>
+<p>依存の下から。<code>Vertex</code> を最初に置くのは、<strong>ここを変えないと他が全部通らない</strong>ため。</p>
+<ol><li><strong><code>Render/Vertex.cs</code></strong>(変更) <code>Normal</code> を末尾に追加し、<code>Attributes</code> に <code>Float(3)</code> を1本足す。4引数のコンストラクタを足して、既存の3引数版はそれに委譲する</li><li><strong><code>Render/Primitives.cs</code></strong>(変更)板は <code>UnitZ</code> 固定、立方体は <code>AddFace</code> の中で外積から求める</li><li><strong><code>Render/Shader.cs</code></strong>(変更) <code>SetMatrix3</code> を追加。<strong><code>SetMatrix4</code> の直後</strong>に置く</li><li><strong><code>Render/Texture.cs</code></strong>(変更) <code>DecodeBytes</code> を追加 → <code>FromFile</code> / <code>FromPixels</code> に <code>srgb</code> 引数 →内部形式を <code>srgb ? Srgb8Alpha8 : Rgba8</code> に</li><li><strong><code>Render/RenderResources.cs</code></strong>(変更) <code>LoadTexture</code> に <code>srgb</code> → <code>LoadTextureFromMemory</code> を追加 → <code>MakeTextureKey</code> を <code>MakeMemoryKey</code> に分けて sRGB を混ぜる。<strong><code>LoadTextureAsync</code> のキー生成も直す</strong>(引数が増えたのでコンパイルが通らなくなる)</li><li><strong><code>Render/Material.cs</code></strong>(変更) <code>Name</code> と PBR のプロパティ → <code>Apply</code> の追記 → <code>BindMap</code>。<strong><code>Texture.cs</code> と <code>RenderResources.cs</code> より後</strong>(ハンドルを解くのに要る)</li><li><strong><code>Model/Model.cs</code></strong>(新規) <code>Part</code> レコード、境界箱、<code>Dispose</code> でのテクスチャ返却。<code>Material</code> が要るので6の後</li><li><strong><code>Model/GltfLoader.cs</code></strong>(新規) glb のほどき方 → <code>LoadContext</code> → ノードの木 → プリミティブ → アクセサ → buffer/uri → マテリアル → テクスチャ/サンプラ → <code>Describe</code>。<strong>今日いちばん長い1ファイル(899行)</strong></li><li><strong><code>shaders/textured.vert</code></strong>(変更) <code>aNormal</code> と <code>uNormalMatrix</code>、<code>vNormal</code> の出力</li><li><strong><code>shaders/textured.frag</code></strong>(変更)マップ5枚の uniform → PBR の値 → 平行光源 → 表示成分の分岐 → ランバート反射</li><li><strong><code>Program.cs</code></strong>(変更)ヘッダ → <code>ModelPaths</code> / <code>_model</code> / ライトのフィールド → <code>OnLoad</code>(発光マテリアルを emissive へ、<code>SetModel(0)</code>)→ <code>OnRender</code> の分岐 → <code>Render3D</code> のライト設定 → <code>RenderModel</code> / <code>SetModel</code> / <code>FrameModel</code> → <code>Draw</code> と <code>NormalMatrix</code> → <code>DebugChannelLabel</code> / <code>ModelLabel</code> → HUD の行 → <code>OnKeyDown</code>(<code>Shift+0/9/-</code>)→ <code>RunGltfCheck</code> → <code>OnClosing</code> → 操作説明</li><li><strong><code>Day32.csproj</code></strong>(リネームのみ)中身は Day 31 と同じ</li></ol>
+<p><code>.gitattributes</code> と <code>assets/models/</code> はリポジトリ側の設定と素材なので、写経の対象外。</p>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p><strong>層が1つ増えた</strong>。<code>Model/</code> が <code>Render/</code> の上に乗る形で入り、<code>Text/</code> とちょうど同じ位置づけになる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Model/GltfLoader</code></td><td>glTF 2.0 を読んで <code>Mesh</code> + <code>Material</code> + 世界行列に変換する</td></tr>
+<tr><td><code>Model/Model</code></td><td>読み終わったモデル1体。<strong>平らなパーツの一覧</strong></td></tr>
+</tbody>
+</table></div>
+<p><code>Render/</code> 側も、頂点フォーマットとマテリアルが太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Vertex</code></td><td><strong>法線</strong>(4本目の属性)。Day 14 で落としていたものが戻った</td></tr>
+<tr><td><code>Material</code></td><td>metallic-roughness の値5つと、補助マップ4枚</td></tr>
+<tr><td><code>Texture</code></td><td><strong>sRGB かどうかの引数</strong>。色とデータでテクスチャの読み方が変わる</td></tr>
+<tr><td><code>Shader</code></td><td><code>SetMatrix3</code>(法線行列を送るため)</td></tr>
+<tr><td><code>RenderResources</code></td><td><code>LoadTextureFromMemory</code>(glb の中の画像を読むため)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s19">Model — glTF を描画の言葉へ翻訳する層</h3>
+<svg viewBox="0 0 1060 420" role="img" aria-label="Model のクラス図。GltfLoader(static。Load・Describe・ReadGlb)は、1回の読み込みぶんの LoadContext(buffers・materials・textures、Build・Visit・ReadPrimitive・ReadVector3Accessor・ReadIndexAccessor・Locate・GetBuffer・ReadUri・GetOrCreateMaterial・ReadTexture・ApplySampler)を使う。LoadContext は Model を作る。Model(Parts・Materials・BoundsMin・BoundsMax・BoundsCenter・BoundsRadius・TriangleCount・VertexCount・TextureCount、Dispose)は Part(record struct。Mesh・Material・Transform・Name)を合成で持つ。Part は Mesh を所有し、Material は共有される。Model は RenderResources からテクスチャを借りて返す" style="width:100%;max-width:1060px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="320" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="25" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;static&gt;&gt;</text><text x="170" y="41" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GltfLoader</text><line x1="10" y1="50" x2="330" y2="50" stroke="var(--line)"></line><text x="20" y="67" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Load(gl, resources, path, shader) Model</text><text x="20" y="82" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Describe(path) string</text><text x="20" y="97" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">-ReadGlb(bytes, path)</text><rect x="10" y="160" width="320" height="248" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="179" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">LoadContext</text><line x1="10" y1="188" x2="330" y2="188" stroke="var(--line)"></line><text x="20" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Dictionary buffers</text><text x="20" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Dictionary materials</text><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-List textures</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Build() Model</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Visit(nodes, index, parent, ...)</text><text x="20" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadPrimitive(primitive, world, ...)</text><text x="20" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadVector3Accessor(index)</text><text x="20" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadIndexAccessor(index)</text><text x="20" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-Locate(accessor, elementSize)</text><text x="20" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-GetBuffer(index)</text><text x="20" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadUri(uri)</text><text x="20" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-GetOrCreateMaterial(index)</text><text x="20" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ReadTexture(owner, property, srgb)</text><text x="20" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-ApplySampler(texture, handle)</text><rect x="440" y="10" width="300" height="188" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="590" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Model</text><line x1="440" y1="38" x2="740" y2="38" stroke="var(--line)"></line><text x="450" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+IReadOnlyList Parts</text><text x="450" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+IReadOnlyList Materials</text><text x="450" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 BoundsMin</text><text x="450" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 BoundsMax</text><text x="450" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 BoundsCenter</text><text x="450" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float BoundsRadius</text><text x="450" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int TriangleCount</text><text x="450" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int VertexCount</text><text x="450" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int TextureCount</text><text x="450" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Dispose()</text><rect x="440" y="300" width="300" height="110" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="590" y="315" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;record struct&gt;&gt;</text><text x="590" y="331" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Part</text><line x1="440" y1="340" x2="740" y2="340" stroke="var(--line)"></line><text x="450" y="357" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Mesh Mesh</text><text x="450" y="372" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Material Material</text><text x="450" y="387" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix4x4 Transform</text><text x="450" y="402" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><rect x="840" y="300" width="200" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="940" y="319" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Mesh</text><rect x="840" y="380" width="200" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="940" y="399" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Material</text><rect x="840" y="60" width="200" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="940" y="79" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">RenderResources</text><path stroke-dasharray="5 4" d="M110 105 L110 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="118" y="127" fill="var(--muted)" font-size="12">1回の読み込みぶん</text><path stroke-dasharray="5 4" d="M330 220 L438 220" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="360" y="214" fill="var(--muted)" font-size="12">作る</text><path d="M590 198 L583 208 L590 218 L597 208 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M590 218 L590 300" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M740 314 L838 314" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="754" y="308" fill="var(--muted)" font-size="12">所有する</text><path d="M740 394 L838 394" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="754" y="388" fill="var(--muted)" font-size="12">共有される</text><path stroke-dasharray="5 4" d="M740 74 L838 74" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="746" y="66" fill="var(--muted)" font-size="12">テクスチャを借りて返す</text></g></svg>
+<p><strong><code>LoadContext</code> を切り出したのは、引数が増えすぎたから</strong>。<code>gl</code> / <code>resources</code> / <code>path</code> / <code>directory</code> / <code>root</code> / <code>embedded</code> / <code>shader</code> の7つを静的メソッド間で渡し回すと、どの関数も先頭3行が引数の受け渡しになる。<strong>読み込み1回ぶんの寿命を持つ入れ物</strong>にまとめると、buffer のキャッシュとマテリアルの使い回しも自然にそこへ収まる。</p>
+<p><strong><code>Model</code> が木ではなく平らな一覧を持つ</strong>のが設計の分かれ目。glTF の中身はノードの木だが、<strong>静的なモデルに階層は要らない</strong>——読み込み時に根から行列を掛け合わせて世界行列を確定させてしまえば、描くときは順に回すだけになる。</p>
+<p>木のまま持つべきなのは、あとから関節を動かす場合(スキニング。Day 41)。そのときは <code>Model</code> に木を残す形へ戻すことになるが、<strong>要るまで持たない</strong>ほうが今は読みやすい。</p>
+<p><strong><code>Model</code> が <code>RenderResources</code> を握っている</strong>のは、テクスチャの参照カウントを返すため(Day 21 の要点3)。<code>Mesh</code> は自分で作ったので所有するが、テクスチャは借り物なので返す必要がある。ここを忘れると、モデルを切り替えるたびに 2K テクスチャが数枚ずつ残り、<strong>絵は正しいのに VRAM だけ増え続ける</strong>。自己チェックの最後の1行(「全部畳んだらテクスチャの数が元に戻る」)は、これを見ている。</p>
+<h3 id="s20">glTF を1体読むまで — 3段の間接参照とノードの木</h3>
+<svg viewBox="0 0 820 736" role="img" aria-label="glTF を1体読むまで(ファイルからノードの木を歩くまで)。ファイルを読み、先頭4バイトが glTF なら ReadGlb で JSON チャンクと BIN チャンクに分ける。そうでなければ JSON としてそのまま parse し、buffer は外部ファイル。scenes[scene].nodes から開始し、Visit(ノード, 親の世界行列)でローカル行列を作る(matrix か TRS のどちらか。world = local * parent)。mesh を持てば primitives を順に ReadPrimitive。children があれば Visit へ戻る。無ければ Parts の一覧が完成" style="width:100%;max-width:820px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="260" y="8" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="28.5" text-anchor="middle" fill="var(--ink)">ファイルを読む</text><rect x="260" y="71" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="410" y="91.5" text-anchor="middle" fill="var(--ink)">先頭4バイトが</text><text x="410" y="108.5" text-anchor="middle" fill="var(--ink)">glTF か</text><rect x="20" y="161" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="185" y="181.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ReadGlb</text><text x="185" y="198.5" text-anchor="middle" fill="var(--ink)">JSON チャンクと BIN チャンクに分ける</text><rect x="470" y="161" width="330" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="635" y="181.5" text-anchor="middle" fill="var(--ink)">JSON としてそのまま parse</text><text x="635" y="198.5" text-anchor="middle" fill="var(--ink)">buffer は外部ファイル</text><rect x="260" y="251" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="271.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">scenes[scene].nodes から開始</text><rect x="260" y="314" width="300" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="334.5" text-anchor="middle" fill="var(--ink)">Visit(ノード, 親の世界行列)</text><rect x="260" y="377" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="397.5" text-anchor="middle" fill="var(--ink)">ローカル行列を作る</text><text x="410" y="414.5" text-anchor="middle" fill="var(--ink)">matrix か TRS のどちらか</text><text x="410" y="431.5" text-anchor="middle" fill="var(--ink)">world = local * parent</text><rect x="260" y="474" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="410" y="494.5" text-anchor="middle" fill="var(--ink)">mesh を持つか</text><rect x="20" y="547" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="567.5" text-anchor="middle" fill="var(--ink)">primitives を順に ReadPrimitive</text><rect x="260" y="620" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="410" y="640.5" text-anchor="middle" fill="var(--ink)">children があるか</text><rect x="260" y="693" width="300" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="410" y="713.5" text-anchor="middle" fill="var(--ink)">Parts の一覧が完成</text><path d="M410 41 L410 69" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M410 284 L410 312" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M410 347 L410 375" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M410 444 L410 472" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M410 653 L410 691" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="418" y="670" fill="var(--muted)" font-size="12">No</text><path d="M260 96 L185 96 L185 159" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="252" y="90" fill="var(--muted)" font-size="12" text-anchor="end">Yes</text><path d="M560 96 L635 96 L635 159" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="568" y="90" fill="var(--muted)" font-size="12">No</text><path d="M185 211 L185 267.5 L258 267.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M635 211 L635 267.5 L562 267.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M260 490.5 L170 490.5 L170 545" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="252" y="484.5" fill="var(--muted)" font-size="12" text-anchor="end">Yes</text><path d="M170 580 L170 636.5 L258 636.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M470 507 L470 618" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="478" y="524" fill="var(--muted)" font-size="12">No</text><path d="M560 636.5 L680 636.5 L680 330.5 L562 330.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="568" y="630.5" fill="var(--muted)" font-size="12">Yes</text></g></svg>
+<p>ノードの処理は<strong>行列を掛けながら降りるだけ</strong>で、Day 22 の <code>Transform</code> と同じ話。違うのは、こちらは<strong>降り切った時点で結果を確定させてしまう</strong>こと。</p>
+<p>プリミティブ1個を頂点配列にするところが、glTF のいちばん機械的な部分になる。</p>
+<svg viewBox="0 0 900 613" role="img" aria-label="プリミティブ1個を頂点配列にするまで。primitive の attributes.POSITION から accessor 番号を引き、accessors[n](type=VEC3 componentType=5126(float) count=14556)、bufferViews[m](buffer=0 byteOffset=92712 byteStride=0)、buffers[0](glb の BIN チャンク / 外部 .bin / data URI)とたどる。Locate が (バイト列, 開始位置, ストライド) を返し、Vertex[] を組む(V を反転 / 法線が無ければ上向き)。indices も accessor から読み、u8 / u16 / u32 を uint へ広げて Vertex[] と合わせる。new Mesh(vertices, indices)。material は GetOrCreateMaterial(ベースカラーは sRGB、それ以外はリニア)。Mesh と Material から Model.Part(Mesh, Material, world, name) を作る" style="width:100%;max-width:900px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="360" y="8" width="180" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="450" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">primitive</text><rect x="20" y="81" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="101.5" text-anchor="middle" fill="var(--ink)">attributes.POSITION → accessor 番号</text><rect x="20" y="140" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="160.5" text-anchor="middle" fill="var(--ink)">accessors[n]</text><text x="240" y="177.5" text-anchor="middle" fill="var(--ink)">type=VEC3 componentType=5126(float) count=14556</text><rect x="20" y="216" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="236.5" text-anchor="middle" fill="var(--ink)">bufferViews[m]</text><text x="240" y="253.5" text-anchor="middle" fill="var(--ink)">buffer=0 byteOffset=92712 byteStride=0</text><rect x="20" y="292" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="312.5" text-anchor="middle" fill="var(--ink)">buffers[0]</text><text x="240" y="329.5" text-anchor="middle" fill="var(--ink)">glb の BIN チャンク / 外部 .bin / data URI</text><rect x="20" y="368" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="388.5" text-anchor="middle" fill="var(--ink)">Locate が (バイト列, 開始位置, ストライド) を返す</text><rect x="20" y="427" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="447.5" text-anchor="middle" fill="var(--ink)">Vertex[] を組む</text><text x="240" y="464.5" text-anchor="middle" fill="var(--ink)">V を反転 / 法線が無ければ上向き</text><rect x="540" y="81" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="700" y="101.5" text-anchor="middle" fill="var(--ink)">indices → accessor</text><text x="700" y="118.5" text-anchor="middle" fill="var(--ink)">u8 / u16 / u32 を uint へ広げる</text><rect x="540" y="216" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="700" y="236.5" text-anchor="middle" fill="var(--ink)">material → GetOrCreateMaterial</text><text x="700" y="253.5" text-anchor="middle" fill="var(--ink)">ベースカラーは sRGB、それ以外はリニア</text><rect x="20" y="507" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="240" y="527.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">new Mesh(vertices, indices)</text><rect x="540" y="570" width="320" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="700" y="590.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Model.Part(Mesh, Material, world, name)</text><path d="M360 24.5 L240 24.5 L240 79" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M540 24.5 L700 24.5 L700 79" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M540 32.5 L890 32.5 L890 241 L862 241" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 114 L240 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 190 L240 214" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 266 L240 290" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 342 L240 366" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 401 L240 425" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 477 L240 505" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M580 131 L580 196 L500 196 L500 452 L462 452" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M760 266 L760 568" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M240 540 L240 586.5 L538 586.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong><code>byteStride</code> が肝</strong>。glTF は「位置・法線・UV を1頂点ずつ交互に並べる」書き方も許していて、その場合 <code>bufferView</code> に <code>byteStride</code> が入る。0(または未指定)なら詰めて並んでいる。</p>
+<p>これを無視して「詰めて並んでいる」と決め打ちしても、<strong>今日の4体は全部 stride 無しなので動いてしまう</strong>。つまり「動いたから正しい」が言えない類の分岐で、仕様を読んでいないと存在にすら気づかない。</p>
+<p><strong><code>accessor</code> を経由する意味</strong>は、1本のバイト列を複数の意味で切り出せること。位置と法線と UV が同じ <code>buffer</code> に同居し、それぞれの <code>bufferView</code> が違う範囲を指す。OBJ が「v の配列」「vt の配列」を別々のテキスト行として持っていたのに対し、glTF は<strong>メモリ上の並びをそのまま記述している</strong>ので、読み込み後の組み直しが要らない。</p>
+</section>
+<section class="part"><h2 id="s21">完成条件</h2>
+<div class="code"><pre><code>git lfs install     # 一度だけ
+git lfs pull        # assets/models/*.glb を実体化する
+
+dotnet run --project reference/Day32 -c Release</code></pre></div>
+<p>起動すると <strong>DamagedHelmet</strong> が画面の真ん中に出る。左ドラッグで回し、ホイールで寄れる。</p>
+<h3 id="s22">1. コンソールに構成が出る</h3>
+<div class="code"><pre><code>モデル: DamagedHelmet.glb  1156ms
+  glb  3685KB  nodes:1  meshes:1  materials:1  textures:5  images:5  accessors:4  generator:Khronos Blender glTF 2.0 exporter
+  パーツ 1 / 三角形 15,452 / 頂点 14,556 / マテリアル 1 / テクスチャ 5
+  境界 (-0.95, -0.90, -1.19)〜(0.94, 0.90, 0.81)  半径 1.64m
+  [Material_MR] metallic 1.00 / roughness 1.00 / OPAQUE
+    マップ: ベース MR 法線 AO 発光</code></pre></div>
+<p><strong><code>マップ: ベース MR 法線 AO 発光</code> の5つが揃っている</strong>のがいちばん見たいところ。今日はベースカラーしか絵に使っていないが、読み込みは全部通っている。</p>
+<h3 id="s23">2. <code>Shift+0</code>: 4体を巡回する</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>見てほしいこと</th></tr></thead>
+<tbody>
+<tr><td><strong>DamagedHelmet</strong></td><td>glb 埋め込み・JPEG。読み込みが 1.2 秒かかる(要点は下の計測)</td></tr>
+<tr><td><strong>WaterBottle</strong></td><td>高さ 0.3m の小物。<strong>それでも画面いっぱいに映る</strong>(境界箱から合わせている)</td></tr>
+<tr><td><strong>Lantern</strong></td><td>パーツ3個(<code>DC:3</code>)。<strong>支柱・鎖・ランタンが正しい位置関係</strong>で組み上がる</td></tr>
+<tr><td><strong>BoxTextured</strong></td><td><code>.gltf</code> + <code>.bin</code> + <code>.png</code> の3ファイル。<strong>外部参照と <code>matrix</code> 形式のノード</strong></td></tr>
+<tr><td>(モデル無し)</td><td>Day 31 までのデモに戻る。明るさの階段とスプライトが復活する</td></tr>
+</tbody>
+</table></div>
+<p>Lantern がいちばん確認になる。<strong>3つのパーツはファイル上ばらばらの位置に置かれていて、親ノードの回転を掛け忘れると、位置は合っているのに向きだけ裏返る</strong>。組み上がっていれば、ノードの木を正しく歩けている。</p>
+<p>そして Lantern の<strong>ランタンの火が滲む</strong>。これは発光マップが Day 31 の HDR パイプラインへそのまま流れているためで、2日ぶんの仕事が繋がったところになる。</p>
+<h3 id="s24">3. <code>Shift+9</code>: 読み込んだマップを1枚ずつ見る</h3>
+<p>DamagedHelmet を出したまま <code>Shift+9</code> を押していく。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>表示</th><th>期待される見た目</th></tr></thead>
+<tbody>
+<tr><td>ベースカラー</td><td>陰影の無い、塗りそのまま</td></tr>
+<tr><td>法線(頂点)</td><td>面の向きが色になる。<strong>上向きが薄緑、手前が水色</strong></td></tr>
+<tr><td>メタリック</td><td>金属部分だけ白い。バイザーは黒</td></tr>
+<tr><td>ラフネス</td><td>つるつるなところが黒、ざらざらが白</td></tr>
+<tr><td>AO</td><td>くぼみが黒い。<strong>焼き込まれた影</strong></td></tr>
+<tr><td>発光</td><td>ほぼ真っ黒に、計器のところだけ光る</td></tr>
+<tr><td><strong>法線マップ</strong></td><td><strong>一面が薄い青紫</strong>(0.5, 0.5, 1.0)で、傷や凹凸のところだけ色がずれる</td></tr>
+</tbody>
+</table></div>
+<p>法線マップが薄紫一色なら正しく読めている。<strong>緑や茶色に見えたら sRGB で読んでいる</strong>(要点5)。</p>
+<p>メタリックとラフネスを見比べるのも大事で、<strong>この2つが入れ替わっていても完成した絵はそれっぽく見えてしまう</strong>。1枚ずつ出せるようにしてあるのはこのため。</p>
+<h3 id="s25">4. <code>Shift+-</code>: 自己チェック</h3>
+<p>4体すべてを読み、30 項目すべて <code>OK</code> になる。</p>
+<div class="code"><pre><code>[glTF の自己チェック]
+  [OK] DamagedHelmet.glb: 読めた  glb  3685KB  nodes:1  meshes:1  ... generator:Khronos Blender glTF 2.0 exporter
+  [OK] DamagedHelmet.glb: 三角形が 15,000 個以上  実際 15,452
+  ...
+  [OK] Lantern: 3つのパーツが別々の位置にある(親子の掛け合わせが効いている)
+  [OK] BoxTextured: matrix 形式のノードが単位行列になっていない
+  [OK] 水筒より街灯のほうが大きい  WaterBottle 0.15m / Lantern 15.17m
+  [OK] 2回目の読み込みでテクスチャが増えない(重複排除が効いている)  21 → 21
+  [OK] そのぶんキャッシュヒットが増える  1 → 7
+  [OK] 全部畳んだらテクスチャの数が元に戻る  7 → 7
+  すべて合格</code></pre></div>
+<p><strong>最後の1行がいちばん見たい行</strong>。<code>Model.Dispose</code> の <code>Release</code> が足りていないと、ここが <code>7 → 21</code> のように増えたままになる。絵には一切出ないので、数えないと気づけない。</p>
+<p>「1体読めた」は「その1体が読めた」でしかない——glb と gltf、埋め込みと外部参照、TRS と <code>matrix</code>、ノード1個と親子つき。<strong>通っていない経路は必ず後で壊れる</strong>ので、4体まとめて回す形にしてある。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Shift+0</code>(DamagedHelmet)・起動時のコンソール</td><td>「accessor → bufferView → buffer」</td><td><code>accessors:4</code> の中身。位置は BIN チャンクの 92,712 バイト目から 174,672 バイト(14,556 個 x 12 バイト)</td></tr>
+<tr><td><code>Shift+9</code>(法線マップ・ラフネス)</td><td>「データのテクスチャを sRGB で読むと」</td><td>(128, 128, 255) は、リニアで読めば真上、sRGB で読むと 39 度傾く。「緑や茶色に見えたら sRGB で読んでいる」の中身</td></tr>
+<tr><td><code>Shift+0</code>(Lantern・BoxTextured)</td><td>「法線はモデル行列では運べない」</td><td>非一様スケールのノードで、モデル行列のまま運んだ法線は面に垂直でなくなる</td></tr>
+<tr><td><code>Shift+-</code>(自己チェック)</td><td>(なし)</td><td>GPU とファイルが要るので、このページでは走らせない(数字は下の「動作確認済み環境」の注を参照)</td></tr>
+<tr><td>(キーなし)</td><td>「交互に並べたら」、バイトの値、スケールと面の傾き</td><td>reference に無い切り替え・値。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day32 の Model/GltfLoader.cs(Locate)・Render/Texture.cs(srgb の引数で内部形式を Srgb8Alpha8 / Rgba8 に分ける)・Program.cs(NormalMatrix)の式を JS に移したもの。assets/models の4体を Node で読み直して、計画書の数字を確かめた(三角形 15,452 / 4,510 / 5,394 / 12、頂点 14,556、パーツ 1 / 1 / 3 / 1、境界 (-0.95, -0.90, -1.19)〜(0.94, 0.90, 0.81)、半径 1.645 / 0.151 / 15.166 / 0.866m、DamagedHelmet の 3,685KB・nodes 1・meshes 1・materials 1・textures 5・images 5・accessors 4、Lantern の本体が 13.02m の高さ)。読み込みの時間と1フレームの時間は手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s26">改造課題</h2>
+<h3 id="s27">課題1(易): TANGENT を読んで、接線を色で出す</h3>
+<p>WaterBottle と Lantern は <code>TANGENT</code>(VEC4)を持っている。<code>Vertex</code> に足して、<code>Shift+9</code> に「接線」の表示を追加する。</p>
+<p>W 成分が <strong>+1 か -1 しか入っていない</strong>ことに気づくはず。これは従接線(bitangent)の向きで、<code>cross(N, T) * w</code> で求める——3本目のベクトルを持たずに済ませるための工夫になっている。</p>
+<p><strong>接線が無いモデル(DamagedHelmet)をどうするか</strong>が本題。glTF の仕様は「法線マップがあって TANGENT が無ければ、実行時に計算せよ」と言っている。計算式は仕様の "Meshes" 節にある。これを書いておくと Day 34 がそのまま楽になる。</p>
+<h3 id="s28">課題2(中): パーツをマテリアル順に並べ替えて、ドローコールを減らす</h3>
+<p>いまは <code>Model.Parts</code> をノードの順に描いている。マテリアルが同じパーツが飛び飛びに並ぶと、そのたびにテクスチャの差し替えが起きる。</p>
+<p>読み込みの最後に<strong>マテリアルでソートしてから確定させる</strong>ようにして、<code>Material.Apply</code> の呼び出し回数を数えてみる。</p>
+<p>今日の4体では<strong>差が出ない</strong>(マテリアルが1個ずつしかない)。それが分かるのが課題の要点で、<strong>Sponza のような大きなシーンを入れて初めて効く</strong>。</p>
+<ul><li><a href="https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Sponza">Sponza</a> はマテリアル 25 個・パーツ 103 個</li></ul>
+<p>「効くと分かっている最適化を、効かない題材で測ってしまう」のはDay 18 のバッチでも通った道になる。</p>
+<h3 id="s29">課題3(難): モデルの読み込みを非同期にする</h3>
+<p>DamagedHelmet の読み込みは 1.2 秒かかり、その間フレームが完全に止まる。Day 21 で作った非同期ロードは<strong>テクスチャ1枚ずつ</strong>の仕組みなので、そのままでは載らない。</p>
+<p>モデル1体の読み込みは、性質の違う4つが混ざっている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>仕事</th><th>どのスレッドでできるか</th></tr></thead>
+<tbody>
+<tr><td>ファイルを読む / JSON を parse</td><td><strong>どこでも</strong></td></tr>
+<tr><td>頂点配列を組む</td><td><strong>どこでも</strong></td></tr>
+<tr><td>画像を復号する(いちばん重い)</td><td><strong>どこでも</strong></td></tr>
+<tr><td>GPU へ上げる(Mesh / Texture)</td><td><strong>描画スレッドだけ</strong></td></tr>
+</tbody>
+</table></div>
+<p>つまり<strong>上の3つをワーカーへ出し、最後だけ描画スレッドで消化する</strong>形になる。<code>RenderResources.Update</code> が1フレームの枚数に上限を持っている(Day 21 の計画書の要点6)のと同じ考え方で、メッシュのアップロードにも上限が要る。</p>
+<p>読み込み中に何を表示するかも決める必要がある。仮の絵(紫の市松)に相当するものが、モデルには無い——<strong>箱を出すか、何も出さないか、前のモデルを残すか</strong>。実際のゲームがローディング画面を挟む理由がここで腹に落ちる。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 Home / .NET 10</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li></ul>
+<h3 id="s31">自己チェック(30 項目すべて合格)</h3>
+<div class="code"><pre><code>[glTF の自己チェック]
+  [OK] DamagedHelmet.glb: 読めた / パーツ 1 / 三角形 15,452 / マテリアル 1 / 半径 1.645m
+  [OK] WaterBottle.glb:   読めた / パーツ 1 / 三角形  4,510 / マテリアル 1 / 半径 0.151m
+  [OK] Lantern.glb:       読めた / パーツ 3 / 三角形  5,394 / マテリアル 1 / 半径 15.166m
+  [OK] BoxTextured.gltf:  読めた / パーツ 1 / 三角形     12 / マテリアル 1 / 半径 0.866m
+  [OK] Lantern: 3つのパーツが別々の位置にある(親子の掛け合わせが効いている)
+  [OK] BoxTextured: matrix 形式のノードが単位行列になっていない
+  [OK] 水筒より街灯のほうが大きい  WaterBottle 0.15m / Lantern 15.17m
+  [OK] 2回目の読み込みでテクスチャが増えない(重複排除が効いている)  21 → 21
+  [OK] そのぶんキャッシュヒットが増える  1 → 7
+  [OK] 全部畳んだらテクスチャの数が元に戻る  7 → 7
+  すべて合格</code></pre></div>
+<h3 id="s32">読み込みと描画の実測(1920x1080、<code>glFinish()</code> 込みの 400 フレーム平均)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>三角形</th><th>読み込み</th><th>1フレーム</th></tr></thead>
+<tbody>
+<tr><td>DamagedHelmet</td><td>15,452</td><td><strong>1156 ms</strong></td><td>0.516 ms</td></tr>
+<tr><td>WaterBottle</td><td>4,510</td><td>375 ms</td><td>0.489 ms</td></tr>
+<tr><td>Lantern</td><td>5,394</td><td>409 ms</td><td>0.499 ms</td></tr>
+<tr><td>BoxTextured</td><td>12</td><td>2 ms</td><td>0.476 ms</td></tr>
+<tr><td>モデル無し(Day 31 のデモ)</td><td>—</td><td>—</td><td>0.896 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>描画はどれも誤差の範囲</strong>。1万5千三角形は、1000 枚のスプライトを積む Day 31 のデモより軽い(そちらは CPU 側で毎フレーム 4000 頂点を組み直している)。<strong>今日のコストは描画ではなく読み込みに全部乗っている</strong>。</p>
+<p>読み込みの内訳を見ると、時間はほぼ<strong>画像の復号</strong>で消えている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モデル</th><th>画像</th><th>展開後</th><th>読み込み</th></tr></thead>
+<tbody>
+<tr><td>DamagedHelmet</td><td>2048x2048 の <strong>JPEG</strong> 5枚</td><td>80MB</td><td>1156 ms(1枚あたり 231ms)</td></tr>
+<tr><td>WaterBottle</td><td>2048x2048 の PNG 4枚</td><td>64MB</td><td>375 ms(1枚あたり 94ms)</td></tr>
+</tbody>
+</table></div>
+<p>同じ画素数なのに <strong>JPEG のほうが 2.5 倍遅い</strong>。<code>StbImageSharp</code> の JPEG デコーダが SIMD 化されていないためで、「圧縮率が高いほうが速い」とは限らない、という実例になっている。</p>
+<p>ファイルサイズは逆で、DamagedHelmet は 3.8MB、WaterBottle は 9.0MB。<strong>ディスクから読む量と、復号にかかる時間は別の話</strong>。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong>平行光源の強さは 1.0 の少し上に置く</strong>。最初は「太陽なので明るく」と 2.6 にしていたら、<strong>モデル全体が発光体のように滲んだ</strong>。Day 31 のブルームはしきい値 1.0 を超えたものを「まぶしいもの」として拾うので、普通の物体が 1.0 を超えると絵が壊れる。</p>
+<p>1.15 に落とすと、光に正対した白い面が ACES で 0.92 前後に収まり、滲むのは Lantern の火のような<strong>本当に発光しているものだけ</strong>になった。<strong>明るさの基準を決めるのは光源側の仕事</strong>で、露出(Shift+5/6)はそのあとの調整。</p>
+<p><strong><code>uniform</code> が未使用だと GLSL に消される</strong>。<code>uNormalMap</code> を宣言してバインドまでしていたのに、シェーダの中で1回も読んでいなかったため最適化で削除され、起動のたびに <code>[警告] uniform 'uNormalMap' が見つかりません</code> が2行出ていた。</p>
+<p>Day 14 で書いた警告がここで効いた形になる。対処として <code>Shift+9</code> に「法線マップ」の表示を足した——<strong>読み込んだものを目で確かめられるようにする</strong>ほうが、警告を消すより筋がよい。</p>
+<p><strong>モデルを切り替えたらカメラも戻す</strong>。<code>FrameModel</code> がモデルに合わせて距離と注視点を寄せるので、「モデル無し」に戻したときにそのままだと、明るさの階段が画面いっぱいに映って何も分からなくなっていた。</p>
+<p><strong>glTF の <code>matrix</code> は列優先</strong>。<code>System.Numerics.Matrix4x4</code> は行優先なので、16 個の float を宣言順にそのまま流し込むと転置になる——そしてそれがちょうど正しい(Day 14 の計画書の要点4と同じ打ち消し合い)。BoxTextured だけがこの形式なので、<strong>他の3体では気づけない</strong>。</p>
+</section>
+<footer class="end">Day 32 glTF 2.0 の読み込み(静的メッシュ + PBR マテリアル)と高品質アセット導入 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+
+// ============================================================
+//  accessor → bufferView → buffer
+// ============================================================
+{
+  const BIN = 3771740;
+  // DamagedHelmet.glb の bufferView 0〜3 と accessor 0〜3(accessor.byteOffset はどれも 0)
+  const VIEWS = [
+    { name: 'indices(accessor 0)', type: 'SCALAR u16', size: 2, offset: 0, length: 92712, count: 46356, color: 'rgb(150,150,150)' },
+    { name: 'POSITION(accessor 1)', type: 'VEC3 float', size: 12, offset: 92712, length: 174672, count: 14556, color: 'rgb(90,140,255)' },
+    { name: 'NORMAL(accessor 2)', type: 'VEC3 float', size: 12, offset: 267384, length: 174672, count: 14556, color: 'rgb(80,200,120)' },
+    { name: 'TEXCOORD_0(accessor 3)', type: 'VEC2 float', size: 8, offset: 442056, length: 116448, count: 14556, color: 'rgb(240,170,60)' },
+  ];
+  const st = { i: 0, mode: 'tight' };
+  function redraw() {
+    st.i = Number($('ac-i').value);
+    $('ac-i-out').textContent = comma(st.i);
+    const { ctx, w, h } = fit($('ac-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const L = 20, W = w - 40, end = 558504; // 頂点に使う4本の終わり。以降は画像(テクスチャ)
+    const X = (b) => L + b / end * W;
+    const y0 = 40, bh = 46;
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText(`BIN チャンク(全体 ${comma(BIN)} バイト)の先頭 ${comma(end)} バイト。この先は画像5枚`, L, 20);
+    const rows = [];
+    if (st.mode === 'tight') {
+      for (const v of VIEWS) {
+        ctx.fillStyle = v.color; ctx.globalAlpha = 0.35; ctx.fillRect(X(v.offset), y0, X(v.offset + v.length) - X(v.offset), bh); ctx.globalAlpha = 1;
+        ctx.strokeStyle = tok('--line'); ctx.strokeRect(X(v.offset), y0, X(v.offset + v.length) - X(v.offset), bh);
+        ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText(v.name.split('(')[0], (X(v.offset) + X(v.offset + v.length)) / 2, y0 + bh + 16);
+        const idx = v.name.startsWith('indices') ? Math.min(st.i, v.count - 1) : st.i;
+        const addr = v.offset + 0 + idx * v.size;
+        ctx.fillStyle = v.color; ctx.fillRect(X(addr) - 1.5, y0 - 8, 3, bh + 16);
+        rows.push(`<tr><th scope="row">${v.name}</th><td>${v.type}</td><td>${comma(v.offset)}</td><td>0</td><td>${v.size}</td><td>${comma(idx)}</td><td><strong>${comma(addr)}</strong> 〜 ${comma(addr + v.size - 1)}</td></tr>`);
+      }
+    } else {
+      const iv = VIEWS[0];
+      ctx.fillStyle = iv.color; ctx.globalAlpha = 0.35; ctx.fillRect(X(0), y0, X(iv.length) - X(0), bh); ctx.globalAlpha = 1;
+      ctx.strokeStyle = tok('--line'); ctx.strokeRect(X(0), y0, X(iv.length) - X(0), bh);
+      const vb = { offset: 92712, length: 14556 * 32 };
+      ctx.fillStyle = 'rgba(120,120,220,0.25)'; ctx.fillRect(X(vb.offset), y0, X(vb.offset + vb.length) - X(vb.offset), bh); ctx.strokeRect(X(vb.offset), y0, X(vb.offset + vb.length) - X(vb.offset), bh);
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText('交互に並べた1本の bufferView(byteStride 32)', (X(vb.offset) + X(vb.offset + vb.length)) / 2, y0 + bh + 16);
+      rows.push(`<tr><th scope="row">${iv.name}</th><td>${iv.type}</td><td>0</td><td>0</td><td>2</td><td>${comma(Math.min(st.i, iv.count - 1))}</td><td><strong>${comma(Math.min(st.i, iv.count - 1) * 2)}</strong></td></tr>`);
+      [['POSITION', 'VEC3 float', 0, 12, 'rgb(90,140,255)'], ['NORMAL', 'VEC3 float', 12, 12, 'rgb(80,200,120)'], ['TEXCOORD_0', 'VEC2 float', 24, 8, 'rgb(240,170,60)']].forEach(([n, t, ao, sz, col]) => {
+        const addr = vb.offset + ao + st.i * 32;
+        ctx.fillStyle = col; ctx.fillRect(X(addr) - 1.5, y0 - 8, 3, bh + 16);
+        rows.push(`<tr><th scope="row">${n}</th><td>${t}</td><td>${comma(vb.offset)}</td><td>${ao}</td><td>32(byteStride)</td><td>${comma(st.i)}</td><td><strong>${comma(addr)}</strong> 〜 ${comma(addr + sz - 1)}</td></tr>`);
+      });
+    }
+    // 目盛り
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'center';
+    for (const b of [0, 100000, 200000, 300000, 400000, 500000]) { ctx.fillRect(X(b), y0 + bh + 26, 1, 5); ctx.fillText(comma(b), X(b), y0 + bh + 44); }
+    $('ac-table').innerHTML = `<table><thead><tr><th>accessor</th><th>型</th><th>bufferView.byteOffset</th><th>accessor.byteOffset</th><th>1 個ぶんの進み(バイト)</th><th>番号</th><th>BIN の中のバイト</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+    $('ac-note').textContent = st.mode === 'tight'
+      ? `位置・法線・UV は別々の bufferView に詰めて並んでいる。頂点 ${comma(st.i)} の位置は 92,712 + ${comma(st.i)} x 12 バイト目。3本の印は遠く離れていて、1頂点の材料が BIN の3か所に散らばっている。`
+      : `交互に並べると、1頂点の材料が 32 バイトの中に隣り合う(3本の印が重なる)。同じ i なのに、byteStride を無視して「12 バイトずつ」と決め打ちすると、2 頂点目から別の頂点の法線や UV を位置として読む。今日の4体はどれも詰めて並べてあるので、決め打ちでも動いてしまう。`;
+  }
+  $('ac-i').addEventListener('input', redraw);
+  seg('ac-mode', (v) => { st.mode = v; redraw(); });
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  データのテクスチャを sRGB で読むと
+// ============================================================
+{
+  const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  function redraw() {
+    const r = Number($('sr-r').value), g = Number($('sr-g').value);
+    $('sr-r-out').textContent = `${r}(${(r / 255).toFixed(3)})`;
+    $('sr-g-out').textContent = `${g}(${(g / 255).toFixed(3)})`;
+    const lin = r / 255, srg = srgbToLinear(r / 255), b = 1; // B = 255
+    const nLin = [2 * lin - 1, 2 * b - 1], nSrg = [2 * srg - 1, 2 * srgbToLinear(1) - 1];
+    // 法線マップの (r, 128, 255)。y も同じだけ倒れる(ここでは x と z の断面だけ描く)
+    const yLin = 2 * (128 / 255) - 1, ySrg = 2 * srgbToLinear(128 / 255) - 1;
+    const norm = (v) => { const l = Math.hypot(...v); return v.map((c) => c / l); };
+    const NL = norm([nLin[0], yLin, nLin[1]]), NS = norm([nSrg[0], ySrg, nSrg[1]]);
+    const tilt = (n) => Math.acos(Math.min(1, n[2])) * 180 / Math.PI;
+    const { ctx, w, h } = fit($('sr-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const panel = (cx, label, n, color) => {
+      const base = h - 50, len = 120;
+      ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 140, base); ctx.lineTo(cx + 140, base); ctx.stroke();
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, base); ctx.lineTo(cx, base - len - 10); ctx.stroke(); ctx.setLineDash([]);
+      const ex = cx + n[0] / Math.hypot(n[0], n[2]) * len, ey = base - n[2] / Math.hypot(n[0], n[2]) * len;
+      Lab.arrow(ctx, cx, base, ex, ey, color, 3);
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText(label, cx, base + 22); ctx.fillText(`傾き ${tilt(n).toFixed(1)} 度`, cx, base + 38);
+    };
+    panel(w * 0.27, 'リニアで読む(Rgba8。正しい)', NL, tok('--accent'));
+    panel(w * 0.73, 'sRGB で読む(Srgb8Alpha8。誤り)', NS, 'rgb(240,120,60)');
+    const rl = g / 255, rs = srgbToLinear(g / 255);
+    $('sr-stats').innerHTML = stat('R をリニアで', lin.toFixed(3), `<small> → x = ${(2 * lin - 1).toFixed(3)}</small>`) + stat('R を sRGB で', srg.toFixed(3), `<small> → x = ${(2 * srg - 1).toFixed(3)}</small>`) +
+      stat('ラフネス(リニア)', rl.toFixed(3)) + stat('ラフネス(sRGB で読むと)', rs.toFixed(3), `<small> (${rl > 0 ? (100 * rs / rl).toFixed(0) : '—'}%)</small>`);
+    $('sr-note').textContent = `法線マップの (128, 128, 255) は「傾き無し」の意味。リニアで読めば ${(128 / 255).toFixed(3)} → ほぼ 0 で真上を向くが、sRGB で読むと ${srgbToLinear(128 / 255).toFixed(3)} に下がり、x も y も −0.57 になって ${tilt(norm([2 * srgbToLinear(128 / 255) - 1, ySrg, 1])).toFixed(0)} 度倒れる(全部の画素が同じ向きに倒れるので、面全体が斜めから照らされたように見える)。ラフネスも同じく下がり、少しざらついた面がつるつるになる。エラーは出ない。`;
+  }
+  for (const id of ['sr-r', 'sr-g']) $(id).addEventListener('input', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  法線はモデル行列では運べない
+// ============================================================
+{
+  function redraw() {
+    const sx = Number($('nm-sx').value), sy = Number($('nm-sy').value), a = Number($('nm-a').value) * Math.PI / 180;
+    $('nm-sx-out').textContent = sx.toFixed(2); $('nm-sy-out').textContent = sy.toFixed(2); $('nm-a-out').textContent = Math.round(a * 180 / Math.PI) + ' 度';
+    const t = [Math.cos(a), Math.sin(a)], n = [-Math.sin(a), Math.cos(a)];
+    const t2 = [t[0] * sx, t[1] * sy];
+    const right = [n[0] / sx, n[1] / sy], wrong = [n[0] * sx, n[1] * sy];
+    const ang = (u, v) => Math.acos((u[0] * v[0] + u[1] * v[1]) / Math.hypot(...u) / Math.hypot(...v)) * 180 / Math.PI;
+    const { ctx, w, h } = fit($('nm-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const draw = (cx, cy, title, tt, normals) => {
+      const s = 55, l = Math.hypot(...tt);
+      ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx - tt[0] * s, cy + tt[1] * s); ctx.lineTo(cx + tt[0] * s, cy - tt[1] * s); ctx.stroke();
+      for (const [v, color, lab] of normals) { const k = 70 / Math.hypot(...v); Lab.arrow(ctx, cx, cy, cx + v[0] * k, cy - v[1] * k, color, 2.5); ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(lab, cx + v[0] * k + 6, cy - v[1] * k); }
+      ctx.fillStyle = tok('--ink'); ctx.textAlign = 'center'; ctx.fillText(title, cx, h - 14);
+      void l;
+    };
+    draw(w * 0.22, h * 0.52, '元の面と法線', t, [[n, tok('--accent'), 'n']]);
+    draw(w * 0.66, h * 0.52, `x を ${sx.toFixed(2)} 倍・y を ${sy.toFixed(2)} 倍した面`, t2, [[right, tok('--accent'), '(M⁻¹)ᵀ n'], [wrong, 'rgb(240,120,60)', 'M n']]);
+    $('nm-stats').innerHTML = stat('面と (M⁻¹)ᵀ n の角度', ang(t2, right).toFixed(1) + ' 度', '<small> (いつも 90)</small>') + stat('面と M n の角度', ang(t2, wrong).toFixed(1) + ' 度') +
+      stat('M n の向きのずれ', Math.abs(90 - ang(t2, wrong)).toFixed(1) + ' 度');
+    $('nm-note').textContent = Math.abs(sx - sy) < 1e-6 ? '一様スケール(x と y が同じ倍率)では、M で運んでも向きは同じになる(長さは正規化で戻る)。手を抜いても大半のモデルが正しく見えるのはこのため。' : 'x だけ伸ばすと、面は寝るのに、M で運んだ法線は逆に立つ(面から外れる)。逆行列の転置で運べば、面との直角が保たれる。';
+  }
+  for (const id of ['nm-sx', 'nm-sy', 'nm-a']) $(id).addEventListener('input', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
