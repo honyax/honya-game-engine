@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 35 物理ベースレンダリング(Cook-Torrance BRDF、メタリック/ラフネス)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. PBR の主張は「材質は2つの数で表せる」</a></li><li class="l3"><a href="#s5">2. マイクロファセット — 面を「微小な鏡の集まり」と見る</a></li><li class="l3"><a href="#s6">3. D(GGX)— 正規化されていることが命</a></li><li class="l3"><a href="#s7">4. F(フレネル)— たった1行が金属と非金属を分ける</a></li><li class="l3"><a href="#s8">5. G(幾何減衰)— 粗いほど暗くなる理由</a></li><li class="l3"><a href="#s9">6. エネルギーの分け前 — <code>1/π</code> と <code>kD = (1 - F)(1 - metallic)</code></a></li><li class="l3"><a href="#s10">7. 平行光源1つだと金属は黒い。それは正しい</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">1画素の色が決まるまで — BRDF が座っている場所</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">1. <code>Ctrl+Shift+5</code>: 材質グリッド</a></li><li class="l3"><a href="#s19">2. <code>Ctrl+Shift+1</code>: Cook-Torrance / ランバートを切り替え</a></li><li class="l3"><a href="#s20">3. <code>Ctrl+Shift+7</code>: 環境鏡面を切る</a></li><li class="l3"><a href="#s21">4. <code>Ctrl+Shift+8</code>: グリッドの色を金・銅に</a></li><li class="l3"><a href="#s22">5. <code>Ctrl+Shift+9</code>: 鏡面だけを見る</a></li><li class="l3"><a href="#s23">6. <code>Ctrl+Shift+6</code>: α = roughness² を外す</a></li><li class="l3"><a href="#s24">7. <code>Ctrl+Shift+2</code> / <code>Ctrl+Shift+3</code>: モデルの材質を上書きする</a></li><li class="l3"><a href="#s25">8. <code>Ctrl+Shift+0</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): 光源をもう1つ足す</a></li><li class="l3"><a href="#s28">課題2(中): 多重散乱の補正を入れて、失われた光を取り戻す</a></li><li class="l3"><a href="#s29">課題3(難): 「材質を撮る」ための正しいカメラを作る</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(30 項目すべて合格)</a></li><li class="l3"><a href="#s32">描画の負荷</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 35 / 計画書</p>
+  <h1>物理ベースレンダリング(Cook-Torrance BRDF、メタリック/ラフネス)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. PBR の主張は「材質は2つの数で表せる」</a></li><li class="l3"><a href="#s5">2. マイクロファセット — 面を「微小な鏡の集まり」と見る</a></li><li class="l3"><a href="#s6">3. D(GGX)— 正規化されていることが命</a></li><li class="l3"><a href="#s7">4. F(フレネル)— たった1行が金属と非金属を分ける</a></li><li class="l3"><a href="#s8">5. G(幾何減衰)— 粗いほど暗くなる理由</a></li><li class="l3"><a href="#s9">6. エネルギーの分け前 — <code>1/π</code> と <code>kD = (1 - F)(1 - metallic)</code></a></li><li class="l3"><a href="#s10">7. 平行光源1つだと金属は黒い。それは正しい</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">1画素の色が決まるまで — BRDF が座っている場所</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">1. <code>Ctrl+Shift+5</code>: 材質グリッド</a></li><li class="l3"><a href="#s19">2. <code>Ctrl+Shift+1</code>: Cook-Torrance / ランバートを切り替え</a></li><li class="l3"><a href="#s20">3. <code>Ctrl+Shift+7</code>: 環境鏡面を切る</a></li><li class="l3"><a href="#s21">4. <code>Ctrl+Shift+8</code>: グリッドの色を金・銅に</a></li><li class="l3"><a href="#s22">5. <code>Ctrl+Shift+9</code>: 鏡面だけを見る</a></li><li class="l3"><a href="#s23">6. <code>Ctrl+Shift+6</code>: α = roughness² を外す</a></li><li class="l3"><a href="#s24">7. <code>Ctrl+Shift+2</code> / <code>Ctrl+Shift+3</code>: モデルの材質を上書きする</a></li><li class="l3"><a href="#s25">8. <code>Ctrl+Shift+0</code>: 自己チェック</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): 光源をもう1つ足す</a></li><li class="l3"><a href="#s28">課題2(中): 多重散乱の補正を入れて、失われた光を取り戻す</a></li><li class="l3"><a href="#s29">課題3(難): 「材質を撮る」ための正しいカメラを作る</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">自己チェック(30 項目すべて合格)</a></li><li class="l3"><a href="#s32">描画の負荷</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の5日目。<strong>材質が「2つの数」で表せるようになる</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Ctrl+Shift+5</code> で球が 7x7 並び、<strong>縦に金属度・横に粗さ</strong>を振った材質の見本ができる。</p>
+<div class="code"><pre><code>  Ctrl+Shift+5  材質グリッド(球 7x7)。<strong>PBR はここでいちばん分かる</strong>
+  Ctrl+Shift+1  Cook-Torrance / ランバート(Day 34)を切り替え
+  Ctrl+Shift+2  金属度の上書き   Ctrl+Shift+3  粗さの上書き
+  Ctrl+Shift+4  非金属の F0(0.00 / 0.04 / 0.08 / 0.17)
+  Ctrl+Shift+6  α = roughness² / roughness
+  Ctrl+Shift+7  環境鏡面(Day 36 までのつなぎ)
+  Ctrl+Shift+8  グリッドの色(白 / 金 / 銅 / 青)
+  Ctrl+Shift+9  グリッド + 鏡面だけを表示    Ctrl+Shift+0  PBR の自己チェック</code></pre></div>
+<p>Day 32 で読み込むだけしていた<strong>メタリックとラフネスが、やっと絵に効く</strong>。法線が Day 34、金属度と粗さが今日——器を先に作っておいた回収の2回目になる。</p>
+<p>そして今日いちばん腑に落ちてほしいのは、<strong>式が1本しかない</strong>こと。木も金属もプラスチックも、同じ <code>f = D*G*F/(4(N・V)(N・L)) + kD*albedo/π</code> から出る。違うのは <code>metallic</code> と <code>roughness</code> の2つの数だけ。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-7: 陰影付け(2) 物理ベースの反射モデル</a> <strong>今日の本命</strong>。マイクロファセットモデルから Cook-Torrance までを、式の出どころ付きで追う回。「なぜ分母が <code>4(N・V)(N・L)</code> なのか」がここに書いてある</li><li><a href="https://learnopengl.com/PBR/Theory">LearnOpenGL: PBR Theory</a> / <a href="https://learnopengl.com/PBR/Lighting">Lighting</a> <strong>コードで追うならここが最短</strong>。今日の実装とほぼ同じ構成で、GLSL がそのまま載っている。D・G・F の関数名も揃えてある</li><li><a href="https://cdn2.unrealengine.com/Resources/files/2013SiggraphPresentationsNotes-26915738.pdf">Real Shading in Unreal Engine 4(Brian Karis, SIGGRAPH 2013)</a> <strong><code>k = (roughness + 1)² / 8</code> の出どころ</strong>。実務でどう妥協したかが書いてある一次資料で、「物理から導けるもの」と「当てはめ」の境目がはっきりする</li><li><a href="https://pbr-book.org/">Physically Based Rendering: From Theory to Implementation(無料公開)</a> BRDF・相反性・エネルギー保存の定義。今日の自己チェックが何を確かめているのかは<strong>8.1 Basic Interface</strong> と <strong>9. Reflection Models</strong> を読むと据わりがよくなる</li><li><a href="https://google.github.io/filament/Filament.html">Google Filament のドキュメント</a> <strong>実装者向けの決定版</strong>。式の選択とその理由が一覧になっていて、今日「なぜこの近似を選んだか」に迷ったらここを引く</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. PBR の主張は「材質は2つの数で表せる」</h3>
+<p>物理ベースレンダリングという名前は大げさだが、実装として何が変わるかは案外はっきりしている。</p>
+<p><strong>古い流儀</strong>は材質を「拡散色 + 鏡面色 + 光沢度」で持っていた。自由度が高すぎるのが問題で、<strong>物理的に有り得ない材質が簡単に作れてしまう</strong>。「拡散も鏡面も真っ白」は入ってきた光の2倍を返す設定だが、値としては何も止められない。</p>
+<p><strong>metallic-roughness</strong> はこう置き換える。</p>
+<div class="code"><pre><code>  baseColor  … その材質の色
+  metallic   … 金属か否か(0 か 1。中間はほぼ無い)
+  roughness  … 表面のざらつき(0 = 鏡、1 = つや消し)</code></pre></div>
+<p>自由度が減っているのがミソで、<strong>有り得ない材質を作りにくい</strong>。そして減らせる根拠が物理にある——世の中の物質は<strong>金属と非金属にきれいに分かれる</strong>からで、そこを1ビットにしてよい。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>非金属(誘電体)</th><th>金属</th></tr></thead>
+<tbody>
+<tr><td>拡散反射</td><td><strong>する</strong>(色はここから)</td><td><strong>しない</strong></td></tr>
+<tr><td>鏡面の強さ F0</td><td>0.02〜0.05。ほぼ 0.04</td><td>0.5〜1.0</td></tr>
+<tr><td>鏡面の色</td><td><strong>白</strong></td><td><strong>baseColor の色が付く</strong></td></tr>
+</tbody>
+</table></div>
+<p>金属が拡散しないのは、中へ入った光が自由電子にすぐ吸収されて出てこないため。だから金属は「映り込みしかない」——鏡がそういうものであるように。</p>
+<h3 id="s5">2. マイクロファセット — 面を「微小な鏡の集まり」と見る</h3>
+<p>Cook-Torrance は、ざらざらの面を<strong>顕微鏡で見たら小さな鏡だらけ</strong>という描像で組み立てる。粗さとは、その鏡の向きがどれだけばらついているかのこと。</p>
+<p>そう見ると、鏡面反射の強さは3つの割合の掛け算になる。</p>
+<div class="code"><pre><code>  f_spec = D * G * F / (4 * (N・V) * (N・L))
+
+    D … 何枚が「ちょうど V へ返す向き」を向いているか(法線分布)
+    G … その鏡が隣の凸に隠れていない割合(幾何減衰)
+    F … その鏡がどれだけ反射するか(フレネル)</code></pre></div>
+<p><strong>「ちょうど V へ返す向き」は1つに決まる</strong>のがこの式の出発点で、それが<strong>ハーフベクトル</strong> <code>H = normalize(V + L)</code>。反射の法則から、<code>H</code> を向いた鏡だけが <code>L</code> から来た光を <code>V</code> へ返せる。</p>
+<p>分母の <code>4(N・V)(N・L)</code> は、微小面の面積と立体角を投影で数え直すときに出る係数。導出は特論 A-7 にあるが、<strong>「投影の数え直し」</strong>とだけ覚えておけば実装は書ける。</p>
+<h3 id="s6">3. D(GGX)— 正規化されていることが命</h3>
+<div class="code"><pre><code>  D = α² / (π * ((N・H)²(α² - 1) + 1)²)</code></pre></div>
+<p>GGX が Phong や Beckmann を押しのけたのは<strong>裾が長い</strong>から。ハイライトの芯のまわりに、ぼんやりした広がりが遠くまで残る。実測した材質はどれもこの裾を持っていて、「金属なのに CG っぽい」の正体はたいていここだった。</p>
+<p><strong>いちばん大事な性質は正規化</strong>:</p>
+<div class="code"><pre><code>  ∫ D(H) (N・H) dω = 1</code></pre></div>
+<p>「鏡の総面積が、面に投影すると 1 になる」という意味。これが崩れると、粗さを変えただけで鏡面の総量が勝手に増減する——<strong>明るさが変わるだけなので、絵からは絶対に気づけない</strong>。今日の自己チェック(<code>Ctrl+Shift+0</code>)がまずここを見るのはそのため。</p>
+<p><strong><code>α</code> は <code>roughness</code> そのものではない</strong>。glTF・Unreal・Unity はどれも</p>
+<div class="code"><pre><code>  α = roughness²</code></pre></div>
+<p>とする。物理的にはどちらでもよい(定義域を写し替えているだけ)が、<strong>2乗を挟まないとスライダーが使い物にならない</strong>。α を直接動かすと 0〜0.2 でハイライトが一気に広がり、残り 0.2〜1.0 はほぼ変化しない。<code>Ctrl+Shift+6</code> で切り替えて、グリッドの右半分がのっぺりするのを見られる。</p>
+<h3 id="s7">4. F(フレネル)— たった1行が金属と非金属を分ける</h3>
+<div class="code"><pre><code>  F = F0 + (1 - F0) * (1 - cosθ)^5        … Schlick 近似
+  F0 = mix(vec3(0.04), baseColor, metallic)</code></pre></div>
+<p>上の行は「<strong>浅い角度から見れば何でも鏡になる</strong>」という日常の現象。机も紙も、目の高さすれすれから見ると光沢が出る。</p>
+<p>そして<strong>下の行が metallic-roughness の心臓部</strong>で、要点1の表がこの1行に畳んである。<code>metallic</code> が 0 なら F0 は 0.04 の白、1 なら baseColor そのもの。<code>Ctrl+Shift+8</code> でグリッドの色を金や銅に変えると、<strong>金属の行だけハイライトに色が乗る</strong>のが見える。</p>
+<p>θ に入れるのは <strong><code>V・H</code></strong>(視線と微小な鏡の法線の角)で、<code>N・V</code> ではない。反射しているのは微小な鏡なので、基準はその鏡の法線になる。<code>N・V</code> で書くと粗い材質の縁だけが不自然に光る。</p>
+<div class="inject"><figure class="lab" id="lb-lab">
+  <div class="lab-head">
+    <h3>1本の光がどこへ返るか — D・G・F を掛けたハイライトの形(要点2〜5)</h3>
+    <span class="tag">Render/Pbr.cs(Alpha・DistributionGgx・GeometrySmith(直接光の k = (粗さ + 1)² / 8)・FresnelSchlick・Evaluate)を JS に移して、面に入る光の向きを −90〜90 度で振ったときの「目に返る明るさ(f x N・L)」を、光の向きごとの棒で描いたもの。目は手前の決まった角度に置く。下の3本の線は、その光の向きでの D・G・F(粗さを変えると D の山の高さと幅が変わる)。光と目は面に垂直な1枚の面の中に置いている(2D)。見る角度と、光を走らせる範囲はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="lb-canvas" style="height:380px" aria-label="光の向きごとの、目に返る明るさの棒と、D・G・F の曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">粗さ(Ctrl+Shift+3 の上書きは 0.05 / 0.3 / 0.6 / 1.0)</span>
+      <div class="range"><input type="range" id="lb-r" min="0" max="1" step="0.01" value="0.3"><output id="lb-r-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">金属度(Ctrl+Shift+2)</span>
+      <div class="seg" id="lb-m"><button data-v="0" aria-pressed="true">0(非金属)</button><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="1" aria-pressed="false">1(金属)</button></div>
+    </div>
+    <div class="ctl"><span class="label">α の取り方(Ctrl+Shift+6)</span>
+      <div class="seg" id="lb-alpha"><button data-v="1" aria-pressed="true">α = 粗さ²(既定)</button><button data-v="0" aria-pressed="false">α = 粗さ</button></div>
+    </div>
+    <div class="ctl"><span class="label">目の角度(面の法線から。このページだけ)</span>
+      <div class="range"><input type="range" id="lb-v" min="-85" max="85" step="1" value="30"><output id="lb-v-out"></output></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="lb-stats"></div><p id="lb-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">5. G(幾何減衰)— 粗いほど暗くなる理由</h3>
+<p>微小な鏡は互いを隠す。光が入るときに手前の凸に遮られ(shadowing)、出ていくときにも遮られる(masking)。その残存率が G。</p>
+<p>Smith の近似は<strong>入りと出を独立と見て掛け合わせる</strong>。</p>
+<div class="code"><pre><code>  G1(X) = (N・X) / ((N・X)(1 - k) + k)
+  G     = G1(V) * G1(L)
+  k     = (roughness + 1)² / 8        … 直接光の場合</code></pre></div>
+<p><strong><code>k</code> の式は物理から出てこない</strong>。Disney が実測に合わせて選んだ当てはめで、IBL では <code>α / 2</code> を使う(Day 36)。同じ G なのに係数が2通りあるのは、このあたりが「理屈と当てはめのつぎはぎ」であることの現れになっている。</p>
+<p>G があるおかげで<strong>粗い材質は暗くなる</strong>。グリッドを見ると、右へ行くほどハイライトが広がり、同時に暗くなるのが分かる——同じ量の光を広い範囲に配っているのだから、当然そうなる。</p>
+<h3 id="s9">6. エネルギーの分け前 — <code>1/π</code> と <code>kD = (1 - F)(1 - metallic)</code></h3>
+<p>拡散と鏡面を足すとき、<strong>合計が入ってきた光を超えてはいけない</strong>。そのための2つの係数が今日から入る。</p>
+<div class="code"><pre><code>  kD      = (1 - F) * (1 - metallic)
+  diffuse = kD * baseColor / π</code></pre></div>
+<p><code>(1 - F)</code> は「反射しなかったぶんだけが中へ入る」。<code>(1 - metallic)</code> は「金属は中へ入った光を返さない」。どちらも要点1の物理をそのまま式にしただけになっている。</p>
+<p><strong><code>1/π</code> は Day 34 まで省いていた</strong>。ランバート反射を半球全体で積分すると π になるので、1 に戻すために割るのが正しいのだが、Day 9 以来この π は<strong>光の強さのほうに吸わせていた</strong>(光を弱く持っていた)。</p>
+<p>だから式を差し替えるとシーン全体が <strong>1/π に沈む</strong>。リファレンスでは <code>Render3D</code> が送る <code>uLightColor</code> に π を掛けて釣り合わせている——<code>Ctrl+Shift+1</code> で切り替えたときに明るさが揃っていないと見比べられないため。<strong>物理的には π を掛けたほうが正しい</strong>(<code>uLightColor</code> が放射輝度になる)。</p>
+<h3 id="s10">7. 平行光源1つだと金属は黒い。それは正しい</h3>
+<p>グリッドを出すと、<strong>上の行(金属)がほとんど黒くなる</strong>。バグではない。</p>
+<p>金属は拡散反射をしない。だから見えるのは映り込みだけで、<strong>映り込む景色が無ければ本当に黒い</strong>。現実の金属が黒く見えないのは、空や壁や自分の手を映しているから。</p>
+<p>それを与えるのが Day 36(環境マッピングと IBL)。今日は <code>Ctrl+Shift+7</code> で「環境光を F0 の色で薄く足す」だけの粗い代用を置いてある——物理的な裏付けは無いが、金属度の効きを見るには要る。</p>
+<p>もう1つ、<strong>光は式の中でも失われる</strong>。Cook-Torrance は微小な鏡で<strong>1回だけ</strong>跳ねる前提なので、凹凸の中で2回3回と跳ね返る光をまるごと落としている。自己チェックが数字を出す。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>粗さ</th><th>返る光</th><th>失う光</th></tr></thead>
+<tbody>
+<tr><td>0.05</td><td>100.0%</td><td>0.0%</td></tr>
+<tr><td>0.50</td><td>86.0%</td><td>14.0%</td></tr>
+<tr><td>1.00</td><td><strong>30.7%</strong></td><td><strong>69.3%</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>ざらざらの金属が実物より暗くなる</strong>のはこれ。今日はまず「知っていて使っている」状態にするところまでで、補正(Kulla-Conty や Fdez-Agüera の多重散乱項)は Day 36 の発展課題にする。</p>
+<div class="inject"><figure class="lab" id="ea-lab">
+  <div class="lab-head">
+    <h3>返る光の割合(方向アルベド)— 粗さと視線で、どれだけ失うか(要点6・7、自己チェック)</h3>
+    <span class="tag">Pbr.DirectionalAlbedo(拡散は余弦で重みを付けた半球のサンプル、鏡面は GGX の重点サンプリング。どちらも Hammersley の 8192 点)を JS に移して、白い材質を正面からの視線(N・V)で照らしたときに返る光の割合を、粗さ 0.045〜1 について描いたもの。正面(N・V = 1)の金属は C# の自己チェックと同じ値(粗さ 0.05 / 0.25 / 0.50 / 0.75 / 1.00 で 100.0 / 98.8 / 86.0 / 57.6 / 30.7%)。非金属は 1 をわずかに超えることがある(粗さ 0.05・N・V 0.27 で 1.0760)。視線の角度は自己チェックの4通り(0.1 / 0.7 / 1.3 / 1.5 ラジアン)のほかはこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="ea-canvas" style="height:320px" aria-label="粗さごとの、金属と非金属の方向アルベドの曲線"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">視線(N・V)</span>
+      <div class="seg" id="ea-v"><button data-v="1" aria-pressed="true">1.00(正面)</button><button data-v="0.76484" aria-pressed="false">0.76(0.7 rad)</button><button data-v="0.26750" aria-pressed="false">0.27(1.3 rad)</button><button data-v="0.07074" aria-pressed="false">0.07(1.5 rad)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="ea-table"></div><p id="ea-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Pbr.cs</code></td><td><strong>Cook-Torrance の C# 版</strong>。GLSL と同じ式を、検算できる形でもう1本持つ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Primitives.cs</code></td><td><code>CreateSphere</code>(UV 球)。<strong>接線は導関数から出す。w が -1 になる</strong></td></tr>
+<tr><td><code>Render/Mesh.cs</code></td><td><code>ReadIndices</code>(GPU からインデックスを読み返す)。<strong>巻き順の検査用</strong></td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td>Cook-Torrance、<code>uPbrEnabled</code> ほか 7 本の uniform、成分 13〜17</td></tr>
+<tr><td><code>Program.cs</code></td><td>材質グリッド、<code>Ctrl+Shift+0〜9</code>、HUD の1行、<code>RunPbrCheck</code>、クラス要約に Day 33〜35</td></tr>
+</tbody>
+</table></div>
+<p>変更ファイルへの追加が 1255 行、新規ファイルが 473 行で、合わせて約 1700 行。<strong>Day 34(約 1600 行)とほぼ同じ</strong>。</p>
+<p><code>Render/Pbr.cs</code> が全体の3割を占めるのが今日の特徴で、<strong>同じ式を GLSL と C# の2か所に書いている</strong>。普段なら避けるべき二重管理だが、「D の積分が 1 か」「入ってきた以上の光を返していないか」は<strong>半球を数千点に刻んで積分しないと確かめられず、それは GPU では書けない</strong>。式が数行でこの先動かないもの(物理の定義)なので、検算できる価値のほうを取った。</p>
+<h3 id="s14">写経する順番</h3>
+<p>依存の下から。<code>Pbr.cs</code> を先に置くのは、<code>Program.cs</code> の自己チェックが呼ぶため。</p>
+<ol><li><strong><code>Render/Pbr.cs</code></strong>(新規)定数(<code>DielectricF0</code> / <code>MinRoughness</code>)→ <code>Alpha</code> → <code>DistributionGgx</code> → <code>DirectK</code> → <code>GeometrySchlickGgx</code> → <code>GeometrySmith</code> → <code>FresnelSchlick</code> → <code>F0Of</code> → <code>Evaluate</code>(2つ。引数の多いほうが本体)→ <code>IntegrateNdf</code> → <code>Hammersley</code> → <code>ImportanceSampleGgx</code> → <code>DirectionalAlbedo</code> → <code>Basis</code></li><li><strong><code>Render/Primitives.cs</code></strong>(変更) <code>CreateSphere</code> を <code>CreateCube</code> と <code>AddFace</code> の間に。<strong><code>w = -1</code></strong> と<strong>巻き順</strong>(左下 → 左上 → 右上)を間違えないこと——前者は凹凸が裏返り、後者はカリングで球が消える</li><li><strong><code>Render/Mesh.cs</code></strong>(変更) <code>ReadIndices</code> を <code>ReadVertices</code> の直後、<code>Draw</code> の直前に。<strong><code>ElementArrayBuffer</code> ではなく <code>CopyReadBuffer</code> に結び付けて読む</strong>——インデックスバッファの結び付けはVAO の記録なので、0 に戻すと直前に描いたメッシュが壊れる(Day 52 の検証で見つかった潜在バグを遡って直してある。Day 52b の計画書の「検証の途中で分かったこと 1」)</li><li><strong><code>shaders/textured.frag</code></strong>(変更) <code>uDebugChannel</code> のコメントに 13〜17 → Day 35 の uniform 7本 → <code>main</code> の直前に <code>PI</code> / <code>MIN_ROUGHNESS</code> / <code>DistributionGgx</code> / <code>GeometrySchlickGgx</code> / <code>GeometrySmith</code> / <code>FresnelSchlick</code> / <strong><code>CookTorrance</code></strong> →メタリック・ラフネスの上書き → <code>main</code> 末尾のライティングを丸ごと差し替え</li><li><strong><code>Program.cs</code></strong>(変更) Day 35 のフィールド(<code>GridLightDirection</code> / <code>GridLightScale</code> / <code>GridColors</code> まで)→ <code>OnLoad</code>(<code>_sphere</code> の生成、白 1x1、<code>_gridMaterial</code>)→ <strong><code>OnRender</code> の <code>else if (_surfaceDemo)</code> を <code>_materialGrid || _surfaceDemo</code> へ</strong>(Day 34 で足した枝)→ <code>Render3D</code> のフレーム uniform と分岐 → <strong><code>RenderMaterialGrid</code></strong> →深度パスの分岐 → <code>DebugChannelLabel</code> の 13〜17 → <code>MetallicOverrideValue</code> / <code>RoughnessOverrideValue</code> / <code>PbrLabel</code> → HUD の行 → <code>OnKeyDown</code>(<code>ctrl &amp;&amp; shift</code> の 10 個。<strong><code>when ctrl</code> より必ず上</strong>)→ <code>_debugChannel</code> の周期を 13 → 18 → <strong><code>RunPbrCheck</code></strong> → <code>_sphere.Dispose()</code> → 操作説明</li><li><strong><code>Day35.csproj</code></strong>(リネームのみ)中身は Day 34 と同じ</li></ol>
+<p><code>Program.cs</code> のクラス要約(先頭の <code>&lt;summary&gt;</code>)に <strong>Day 33〜35 の3項目を足してある</strong>。Day 32 で止まっていたので追いついた形で、コメントだけの変更。差分を 0 にしたいなら合わせておく。</p>
+</section>
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>クラスが1つ増えただけ</strong>で、層の構成は Day 34 のまま。<code>Render/</code> の中に <code>Pbr</code> が入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Pbr</code></td><td>Cook-Torrance の C# 版。<strong>GL も Silk.NET も知らない</strong>(数式だけ)</td></tr>
+</tbody>
+</table></div>
+<p><code>Render/</code> の既存クラスも少し太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Primitives</code></td><td><code>CreateSphere</code>(UV 球)。<strong>接線を導関数から出す最初の形</strong></td></tr>
+<tr><td><code>Mesh</code></td><td><code>ReadIndices</code>(<strong>巻き順を検査するため</strong>)</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Pbr</code> の置き場所には迷いがある</strong>。<code>Render/</code> の中でいちばん異質で、GL を触らないどころか「描画」の手続きを何も持たない——純粋な数式の集まりになっている。</p>
+<p>それでも <code>Render/</code> に置いたのは、<strong>使う相手がここにしか居ない</strong>から。<code>Math/</code> のような層を作るほどの分量ではなく、<code>textured.frag</code> と対で読まれるものなので隣に置くほうが探しやすい。Day 36 で IBL の事前計算(環境マップの畳み込み)が同じ式を使い始めると分量が倍近くになるので、<strong>そのときに切り出しを考え直す</strong>のがよさそう。</p>
+<h3 id="s16">1画素の色が決まるまで — BRDF が座っている場所</h3>
+<p><code>textured.frag</code> の <code>main</code> が、1画素につき1回走る。Day 31 から積み上げてきたものが<strong>全部この1本の中</strong>に並んでいるので、今日足した BRDF がどこに座っているのかを1枚にしておく。</p>
+<svg viewBox="0 0 1010 1258" role="img" aria-label="1画素の色が決まるまで(BRDF が座っている場所)。ParallaxUv(視線の傾きで UV をずらす。Day 34)。5枚のマップ(ベース / MR / 法線 / AO / 発光)をずらしたあとの UV で読む。PerturbNormal(接空間の法線を世界へ。Day 34)。金属度・粗さの上書き(Day 35。負なら素通し)。成分 1〜7, 12 ならそのマップを出して終わり。ShadowFactor(光の座標へ写して PCF。Day 33)。成分 8 なら影の係数だけ。uPbrEnabled が 0 ならランバート(Day 34 まで。光 × N・L × 影 + 環境光 × AO)。1 なら CookTorrance()(D・G・F を出す。拡散と鏡面を分けて返す)。成分 15〜17 なら F / D / G を1枚ずつ。直接光(拡散・鏡面 × 光 × N・L × 影)、環境光(拡散 = 環境 × albedo × AO × (1 - metallic)、鏡面 = 環境 × F(N・V) × (1 - roughness))。成分 13 / 14 なら拡散だけ / 鏡面だけ。直接 + 環境 + 発光。ランバートも Cook-Torrance も FragColor へ(この先はまだ HDR。1.0 を超える)。PostProcess(明部抽出 → ぼかし → 露出 → トーンマップ → ガンマ)" style="width:100%;max-width:1010px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="340" y="8" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ParallaxUv</text><text x="490" y="45.5" text-anchor="middle" fill="var(--ink)">視線の傾きで UV をずらす(Day 34)</text><rect x="340" y="92" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="112.5" text-anchor="middle" fill="var(--ink)">5枚のマップを ずらしたあとの UV で読む</text><text x="490" y="129.5" text-anchor="middle" fill="var(--ink)">ベース / MR / 法線 / AO / 発光</text><rect x="340" y="176" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="196.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PerturbNormal</text><text x="490" y="213.5" text-anchor="middle" fill="var(--ink)">接空間の法線を世界へ(Day 34)</text><rect x="340" y="260" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="280.5" text-anchor="middle" fill="var(--ink)">金属度・粗さの上書き(Day 35)</text><text x="490" y="297.5" text-anchor="middle" fill="var(--ink)">負なら素通し</text><rect x="340" y="344" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="364.5" text-anchor="middle" fill="var(--ink)">成分 1〜7, 12 ?</text><rect x="720" y="344" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="364.5" text-anchor="middle" fill="var(--ink)">そのマップを出して終わり</text><rect x="340" y="411" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="431.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ShadowFactor</text><text x="490" y="448.5" text-anchor="middle" fill="var(--ink)">光の座標へ写して PCF(Day 33)</text><rect x="340" y="495" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="515.5" text-anchor="middle" fill="var(--ink)">成分 8 ?</text><rect x="720" y="495" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="515.5" text-anchor="middle" fill="var(--ink)">影の係数だけ</text><rect x="340" y="562" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="582.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">uPbrEnabled ?</text><rect x="20" y="629" width="280" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="658" text-anchor="middle" fill="var(--ink)">ランバート(Day 34 まで)</text><text x="160" y="675" text-anchor="middle" fill="var(--ink)">光 × N・L × 影 + 環境光 × AO</text><rect x="340" y="629" width="300" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text font-weight="700" x="490" y="649.5" text-anchor="middle" fill="var(--ink)">CookTorrance()</text><text x="490" y="666.5" text-anchor="middle" fill="var(--ink)">D・G・F を出す</text><text x="490" y="683.5" text-anchor="middle" fill="var(--ink)">拡散と鏡面を分けて返す</text><rect x="340" y="730" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="750.5" text-anchor="middle" fill="var(--ink)">成分 15〜17 ?</text><rect x="720" y="730" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="750.5" text-anchor="middle" fill="var(--ink)">F / D / G を1枚ずつ</text><rect x="340" y="797" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="817.5" text-anchor="middle" fill="var(--ink)">直接光</text><text x="490" y="834.5" text-anchor="middle" fill="var(--ink)">拡散・鏡面 × 光 × N・L × 影</text><rect x="310" y="881" width="360" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="901.5" text-anchor="middle" fill="var(--ink)">環境光</text><text x="490" y="918.5" text-anchor="middle" fill="var(--ink)">拡散 = 環境 × albedo × AO × (1 - metallic)</text><text x="490" y="935.5" text-anchor="middle" fill="var(--ink)">鏡面 = 環境 × F(N・V) × (1 - roughness)</text><rect x="340" y="982" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="490" y="1002.5" text-anchor="middle" fill="var(--ink)">成分 13 / 14 ?</text><rect x="720" y="982" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="1002.5" text-anchor="middle" fill="var(--ink)">拡散だけ / 鏡面だけ</text><rect x="340" y="1049" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="1069.5" text-anchor="middle" fill="var(--ink)">直接 + 環境 + 発光</text><rect x="340" y="1116" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="1136.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FragColor</text><text font-weight="700" x="490" y="1153.5" text-anchor="middle" fill="var(--ink)">この先はまだ HDR(1.0 を超える)</text><rect x="310" y="1200" width="360" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="1220.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">PostProcess</text><text x="490" y="1237.5" text-anchor="middle" fill="var(--ink)">明部抽出 → ぼかし → 露出 → トーンマップ → ガンマ</text><path d="M490 58 L490 90" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 142 L490 174" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 226 L490 258" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 310 L490 342" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M640 360.5 L718 360.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="648" y="354.5" fill="var(--muted)" font-size="12">Yes</text><path d="M490 377 L490 409" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="496" y="392" fill="var(--muted)" font-size="12">No</text><path d="M490 461 L490 493" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M640 511.5 L718 511.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="648" y="505.5" fill="var(--muted)" font-size="12">Yes</text><path d="M490 528 L490 560" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="496" y="543" fill="var(--muted)" font-size="12">No</text><path d="M356 595 L356 609 L160 609 L160 627" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="166" y="623" fill="var(--muted)" font-size="12">0</text><path d="M490 595 L490 627" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="496" y="610" fill="var(--muted)" font-size="12">1</text><path d="M490 696 L490 728" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M640 746.5 L718 746.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="648" y="740.5" fill="var(--muted)" font-size="12">Yes</text><path d="M490 763 L490 795" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="496" y="778" fill="var(--muted)" font-size="12">No</text><path d="M490 847 L490 879" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 948 L490 980" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M640 998.5 L718 998.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="648" y="992.5" fill="var(--muted)" font-size="12">Yes</text><path d="M490 1015 L490 1047" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="496" y="1030" fill="var(--muted)" font-size="12">No</text><path d="M160 696 L160 1141 L338 1141" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 1082 L490 1114" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M490 1166 L490 1198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p><strong>読み取ってほしいのは順番の必然性</strong>で、上から下へ「動かせない理由」がある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>なぜここでなければならないか</th></tr></thead>
+<tbody>
+<tr><td>UV が先</td><td>ずらす前の UV で1枚でも読むと、その成分だけ凹凸から浮く(Day 34)</td></tr>
+<tr><td>法線が次</td><td>BRDF の入力が N なので、差し替えは呼ぶ前に済んでいる必要がある</td></tr>
+<tr><td>上書きはその後</td><td>マップを読んでから潰す。逆にすると上書きがマップに掛け算されてしまう</td></tr>
+<tr><td>BRDF は影の後</td><td>影は BRDF の中身に関係しない<strong>係数</strong>なので、外で掛けるほうが式が澄む</td></tr>
+<tr><td>環境光は最後</td><td>直接光と足すだけ。<strong>AO は環境光にしか掛けない</strong>(Day 33 の要点)</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>CookTorrance</code> が <code>out</code> を5つ持っている</strong>のがこの図のいちばん不格好なところで、拡散・鏡面・D・G・F を全部外へ出している。</p>
+<p>戻り値1つで済ませるほうがきれいだが、それだと「金属なのに拡散が残っている」「非金属なのに鏡面が色付き」といった取り違えが<strong>合成した絵からは絶対に見えなくなる</strong>。成分 13〜17 は、そのために外へ出した5つをそのまま画面に出しているだけ。</p>
+<p><strong>分岐が多いのは GPU では本来まずい</strong>。GPU は近くの画素をまとめて動かすので、枝が分かれると<strong>両方の枝を実行してから片方を捨てる</strong>ことがある。本番のエンジンはこれを <code>#define</code> を変えた<strong>シェーダバリアント</strong>に分けるが、今日は「1本のシェーダで全部見られる」ことを優先した。成分の分岐は画面全体で同じ値を取る(uniform 分岐)ので、実際には安く済んでいる。</p>
+<p><strong><code>FragColor</code> はまだ HDR</strong>。金属のハイライトは 1.0 を軽く超えて出る。Day 31 で RGBA16F のシーンバッファを用意しておいたので、ここで切られずに後処理まで届く——<strong>8bit(Shift+1)に落とすと、粗さの左端が全部同じ白になる</strong>のを確かめられる。PBR と HDR が対で語られるのはこのため。</p>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day35 -c Release</code></pre></div>
+<p>起動すると Day 34 と同じ DamagedHelmet が出る。<strong>まずここが違う</strong>——兜の金属部分に、粗さの分布に沿った光沢が出ているはず。Day 34 まではランバートしか無かったので、ここは一様な明るさだった。</p>
+<h3 id="s18">1. <code>Ctrl+Shift+5</code>: 材質グリッド</h3>
+<p>球が 7x7 並び、カメラが正面へ回る。<strong>今日の主役</strong>。</p>
+<div class="code"><pre><code>  ↑ 金属度 1.0(上)
+  |
+  |  ← 粗さ 0.0(左)          粗さ 1.0(右) →
+  |
+  ↓ 金属度 0.0(下)</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th>見るところ</th><th>期待</th></tr></thead>
+<tbody>
+<tr><td><strong>左から右へ</strong></td><td>ハイライトが点から面へ広がり、<strong>同時に暗くなる</strong>(要点5)</td></tr>
+<tr><td><strong>下から上へ</strong></td><td>拡散が消えていく。上の行は暗い(要点7)</td></tr>
+<tr><td>どの球も縁</td><td>わずかに明るい。<strong>フレネル</strong>(要点4)</td></tr>
+<tr><td>左上の球</td><td>ほぼ真っ黒 + 小さな点のハイライト。<strong>鏡そのもの</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>上の行が黒いのは正しい</strong>。金属は映り込みしか返さず、映り込む景色がまだ無い。コンソールにもそう出る。</p>
+<div class="inject"><figure class="lab" id="mg-lab">
+  <div class="lab-head">
+    <h3>材質グリッド 7x7 — 縦に金属度、横に粗さ(完成条件1〜6)</h3>
+    <span class="tag">Program.RenderMaterialGrid(金属度 = 行 / 6、粗さ = max(列 / 6, 0.045)、グリッド用の光の向き (0.42, −0.52, −0.75)、強さ = (1.15, 1.11, 1.04) x 0.30 x π)と、textured.frag の CookTorrance・直接光・環境光(拡散 = 環境 x 色 x (1 − 金属度)、鏡面 = 環境 x F(N・V) x (1 − 粗さ))、後処理(露出 1・ACES・ガンマ 2.2)を JS に移して、球を1個ずつ画素ごとに塗ったもの。ブルームと影は足さない。目は真正面から平行に見る(このページの簡略化。実機は透視投影なので、端の球はわずかに斜めから見える)。グリッドの4色は reference の Ctrl+Shift+8 と同じ</span>
+  </div>
+  <div class="stage"><canvas id="mg-canvas" width="490" height="490" style="width:min(100%,490px);height:auto;display:block;margin:0 auto" aria-label="金属度と粗さを振った 7x7 の球"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">反射のモデル(Ctrl+Shift+1)</span>
+      <div class="seg" id="mg-pbr"><button data-v="1" aria-pressed="true">Cook-Torrance</button><button data-v="0" aria-pressed="false">ランバート(Day 34)</button></div>
+    </div>
+    <div class="ctl"><span class="label">色(Ctrl+Shift+8)</span>
+      <div class="seg" id="mg-color"><button data-v="0" aria-pressed="true">白</button><button data-v="1" aria-pressed="false">金</button><button data-v="2" aria-pressed="false">銅</button><button data-v="3" aria-pressed="false">青</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(Ctrl+Shift+9 ほか成分 13〜17)</span>
+      <div class="seg" id="mg-view"><button data-v="all" aria-pressed="true">ふつう</button><button data-v="spec" aria-pressed="false">鏡面だけ(14)</button><button data-v="diff" aria-pressed="false">拡散だけ(13)</button><button data-v="F" aria-pressed="false">F(15)</button><button data-v="D" aria-pressed="false">D / 20(16)</button><button data-v="G" aria-pressed="false">G(17)</button></div>
+    </div>
+    <div class="ctl"><span class="label">環境鏡面(Ctrl+Shift+7)</span>
+      <div class="seg" id="mg-env"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">α の取り方(Ctrl+Shift+6)</span>
+      <div class="seg" id="mg-alpha"><button data-v="1" aria-pressed="true">α = 粗さ²</button><button data-v="0" aria-pressed="false">α = 粗さ</button></div>
+    </div>
+    <div class="ctl"><span class="label">非金属の F0(Ctrl+Shift+4)</span>
+      <div class="seg" id="mg-f0"><button data-v="0" aria-pressed="false">0.00</button><button data-v="0.04" aria-pressed="true">0.04</button><button data-v="0.08" aria-pressed="false">0.08</button><button data-v="0.17" aria-pressed="false">0.17</button></div>
+    </div>
+  </div>
+  <div class="readout"><p id="mg-note" style="margin:0"></p></div>
+</figure></div>
+<h3 id="s19">2. <code>Ctrl+Shift+1</code>: Cook-Torrance / ランバートを切り替え</h3>
+<p>グリッドを出したまま押す。<strong>ランバートにすると 49 個が全部同じに見える</strong>。</p>
+<p>金属度も粗さも使っていないのだから当然で、違いはベースカラー(全部同じ)だけになる。<strong>これが今日の差分そのもの</strong>——材質という概念が、Day 34 まではエンジンに存在していなかった。</p>
+<p>明るさがほぼ揃うのは、<code>uLightColor</code> に π を掛けて釣り合わせているため(要点6)。</p>
+<h3 id="s20">3. <code>Ctrl+Shift+7</code>: 環境鏡面を切る</h3>
+<p>金属の行が<strong>さらに黒くなる</strong>。左上はほぼ完全な黒 + 点のハイライトだけになる。</p>
+<p>これが平行光源1つで金属を描いたときの素の姿。Day 36 で環境マップを入れると、ここに景色が映り込む。</p>
+<h3 id="s21">4. <code>Ctrl+Shift+8</code>: グリッドの色を金・銅に</h3>
+<p><strong>金属の行だけハイライトに色が乗る</strong>。非金属の行はハイライトが白いまま、拡散だけが色付く。</p>
+<p><code>F0 = mix(vec3(0.04), baseColor, metallic)</code> の1行が、このたった1枚の絵に全部出ている(要点4)。</p>
+<h3 id="s22">5. <code>Ctrl+Shift+9</code>: 鏡面だけを見る</h3>
+<p>拡散を落として鏡面だけにすると、<strong>粗さの効きが邪魔されずに読める</strong>。右へ行くほどハイライトが広がって薄くなる様子と、下の行(非金属)の鏡面が<strong>上の行の 1/20 以下</strong>しか無いことが分かる。</p>
+<p><code>Shift+9</code> を押し進めると成分 15(フレネル F)・16(法線分布 D)・17(幾何減衰 G)も見られる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>成分</th><th>見え方</th><th>読み取れること</th></tr></thead>
+<tbody>
+<tr><td>15 フレネル F</td><td>非金属は縁だけ白い / 金属は全面が色付き</td><td>F0 が金属度で切り替わっている</td></tr>
+<tr><td>16 法線分布 D</td><td>粗さ 0 は点、粗さ 1 は一様</td><td>ハイライトの形そのもの</td></tr>
+<tr><td>17 幾何減衰 G</td><td>縁ほど暗い</td><td>浅い角度ほど鏡が隠れ合う</td></tr>
+</tbody>
+</table></div>
+<h3 id="s23">6. <code>Ctrl+Shift+6</code>: α = roughness² を外す</h3>
+<p>グリッドの<strong>右半分がのっぺりする</strong>。粗さ 0.5 と 1.0 の見分けが付かなくなり、変化が左端に固まる。</p>
+<p>2乗を挟む理由が「見た目のため」だけであること、そしてそれが実用上どれだけ効くかが、この1押しで分かる(要点3)。</p>
+<h3 id="s24">7. <code>Ctrl+Shift+2</code> / <code>Ctrl+Shift+3</code>: モデルの材質を上書きする</h3>
+<p><code>Ctrl+Shift+5</code> でグリッドを消してから、DamagedHelmet で試す。</p>
+<ul><li><code>Ctrl+Shift+2</code> を 3 回押して金属度 1.0 → <strong>兜全体が金属になる</strong>。革の部分まで映り込み側に回る</li><li><code>Ctrl+Shift+3</code> で粗さ 0.05 → <strong>全面が鏡</strong>。1つの光源しか無いので大部分が黒くなる</li></ul>
+<p>「モデルが持っている値」を止めて1軸だけ動かすと、<strong>そのモデルがなぜあの見え方なのか</strong>が逆算できる。</p>
+<h3 id="s25">8. <code>Ctrl+Shift+0</code>: 自己チェック</h3>
+<p>30 項目。<strong>絵からは絶対に分からないことだけ</strong>を確かめている。</p>
+<p>見るべきは4つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>なぜ大事か</th></tr></thead>
+<tbody>
+<tr><td>D の積分が 1</td><td>崩れても「明るさが変わる」だけなので絵で気づけない</td></tr>
+<tr><td>金属の方向アルベドが 1 以下</td><td><strong>光を作り出していない</strong>ことの確認</td></tr>
+<tr><td>非金属の超過 7.6%</td><td><strong>今日の式の穴</strong>。正直に数字で出す(下記)</td></tr>
+<tr><td>球の巻き順</td><td>逆だとカリングで消える。「実装は合っているのに真っ暗」を防ぐ</td></tr>
+</tbody>
+</table></div>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+Shift+5</code>(材質グリッド)・<code>Ctrl+Shift+1</code>・<code>6</code>・<code>7</code>・<code>8</code>・<code>9</code>・<code>4</code></td><td>「材質グリッド 7x7」</td><td>上の行(金属)は暗く、左上は黒 + 点のハイライト。ランバートにすると 49 個が同じに見える。金・銅にすると金属の行だけハイライトに色が乗る。α = 粗さ にすると右半分がのっぺりする</td></tr>
+<tr><td><code>Ctrl+Shift+2</code> / <code>Ctrl+Shift+3</code>(上書き)・<code>Shift+9</code>(成分 15〜17)</td><td>「1本の光がどこへ返るか」</td><td>粗さが上がると D の山が低く広くなり、ハイライトが広がって暗くなる。浅い角度ほど F が 1 に近づく</td></tr>
+<tr><td><code>Ctrl+Shift+0</code>(自己チェックの方向アルベド)</td><td>「返る光の割合」</td><td>正面の金属で 100.0 / 98.8 / 86.0 / 57.6 / 30.7%。非金属の最大 1.0760(粗さ 0.05・N・V 0.27)</td></tr>
+<tr><td><code>Ctrl+Shift+0</code>(D の積分・相反性・球)</td><td>(なし)</td><td>C# の検証で数字を確かめた(下の注)。このページでは描かない</td></tr>
+<tr><td>(キーなし)</td><td>目の角度、粗さの連続値、視線の追加の角度</td><td>reference に無い値。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day35 の Render/Pbr.cs・shaders/textured.frag(CookTorrance と環境光)・Program.cs(材質グリッドの光と色)の式を JS に移したもの。Pbr.cs は C# の検証用プロジェクトにそのまま取り込んで走らせ、自己チェックの数字が全部一致することを確かめた(D の積分 0.9998 / 1.0000 / 1.0000 / 1.0000、ピーク 39.3、金属の最大 0.9986、非金属の最大 1.0760、損失の表 0.0 / 1.2 / 14.0 / 42.4 / 69.3%)。差分の行数は git diff --no-index --numstat で数え直した(変更ファイルへの追加 1,255 行・新規 473 行)。球の数(48 x 32 分割なので頂点 1,617、三角形 3,072 枚 = 2,976 + 極の 96 枚)は分割数から計算して一致した。描画の負荷は GPU が要るので、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s26">改造課題</h2>
+<h3 id="s27">課題1(易): 光源をもう1つ足す</h3>
+<p>平行光源を2本にして、色と向きを変える。<code>uLightDirection</code> / <code>uLightColor</code> を配列(<code>vec3[2]</code>)にして、<code>CookTorrance</code> の呼び出しをループで回すだけ。</p>
+<p><strong>ここで BRDF の形が効いてくる</strong>。BRDF は「V と L から割合を返す」関数なので、光源が増えても<strong>足すだけ</strong>でよい。1本目のために書いたコードが1行も変わらない。</p>
+<p>見どころは金属のグリッド。ハイライトが2つ出て、<strong>その2点以外はやはり黒い</strong>——光源をいくら増やしても、点や平行光源では映り込みにならないことが体感できる。Day 36 が要る理由がここではっきりする。</p>
+<h3 id="s28">課題2(中): 多重散乱の補正を入れて、失われた光を取り戻す</h3>
+<p>要点7の表で、粗さ 1.0 の金属は<strong>光の 69% を失っていた</strong>。Fdez-Agüera の近似は、これを数行で埋める。</p>
+<div class="code"><pre><code>  E   = 鏡面の方向アルベド(視線角と粗さから引く)
+  補正 = 1 + F0 * (1/E - 1)
+  specular *= 補正</code></pre></div>
+<p><code>E</code> は本来 LUT(Day 36 の分割和)から引くが、<strong>まずは <code>Pbr.DirectionalAlbedo</code> を CPU で刻んで 32x32 の表に焼き、テクスチャとして渡す</strong>のが早い。今日書いた重点サンプリングがそのまま使える。</p>
+<p>うまくいけば自己チェックの損失の表が「粗さ 1.00 で 69.3% 失う」から数 % まで縮む。<strong>チェックが先にあるので、効いたかどうかを絵ではなく数字で判定できる</strong>——今日 CPU 側に式を持った値打ちがここで出る。</p>
+<h3 id="s29">課題3(難): 「材質を撮る」ための正しいカメラを作る</h3>
+<p>いまの材質グリッドは、正面から見た球に光を1本当てているだけ。実務の材質ビューアは、これに加えて</p>
+<ul><li><strong>カメラを球に対して等距離に置く</strong>(いまは平行に並べているので、端の球ほど斜めから見ている)</li><li><strong>粗さの刻みを対数にする</strong>(0.0〜0.2 に見どころが集中しているので)</li><li><strong>背景に階調のあるグラデーションを敷く</strong>(縁の明るさが背景に対して読めるように)</li></ul>
+<p>をやる。3つ目がいちばん効く。黒い背景だとフレネルの縁が「明るい」としか分からないが、明るい背景と暗い背景の両方に接する球を置くと、<strong>縁が背景より明るいのか暗いのか</strong>が判定できるようになる。</p>
+<p>やってみると分かるが、これは<strong>絵作りではなく計測の話</strong>。「材質が正しいか」を目で判定できる条件を整える作業で、Day 39 でデモのライティングを組むときに同じ悩みがもう一度出る。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 Home / .NET 10</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li></ul>
+<h3 id="s31">自己チェック(30 項目すべて合格)</h3>
+<div class="code"><pre><code>[PBR の自己チェック]
+  [OK] D の積分が 1(粗さ 0.10 / α 0.0100)  ∫D(N・H)dω = 0.9998
+  [OK] D の積分が 1(粗さ 0.30 / α 0.0900)  ∫D(N・H)dω = 1.0000
+  [OK] D の積分が 1(粗さ 0.60 / α 0.3600)  ∫D(N・H)dω = 1.0000
+  [OK] D の積分が 1(粗さ 1.00 / α 1.0000)  ∫D(N・H)dω = 1.0000
+  [OK] D のピークが 1/(π α²) と一致  39.3 / 期待 39.3
+  [OK] F(0 度) = F0
+  [OK] F(90 度) = 1(真横なら何でも鏡)
+  [OK] 非金属の F0 はベースカラーによらず 0.04  &lt;0.04, 0.04, 0.04&gt;
+  [OK] 金属の F0 はベースカラーそのもの(鏡面に色が付く)
+  [OK] 金属の拡散が 0
+  [OK] 非金属の拡散が 0 でない
+  [OK] 金属の鏡面が 0 でない
+  [OK] 金属の方向アルベドが 1 を超えない(16 通り)  最大 0.9986(粗さ 0.05 / 視線 1.00(N・V))
+  [OK] 非金属の超過は 10% 未満((1 - F) の分け方の限界。直すのは Day 36 の LUT)
+       最大 1.0760(粗さ 0.05 / 視線 0.27(N・V))  超過 7.6%
+  --- 単一散乱で失われるエネルギー(金属・白・正面から)---
+      粗さ 0.05: 返る 100.0%   失う 0.0%
+      粗さ 0.25: 返る 98.8%   失う 1.2%
+      粗さ 0.50: 返る 86.0%   失う 14.0%
+      粗さ 0.75: 返る 57.6%   失う 42.4%
+      粗さ 1.00: 返る 30.7%   失う 69.3%
+  [OK] 粗いほど損が大きい(多重散乱を落としている証拠)  粗さ 0.05 で 0.0% → 粗さ 1.00 で 69.3%
+  [OK] 相反性: f(V, L) = f(L, V)(64 通り)  最大誤差 2.11E-008
+  [OK] NaN も無限大も出ない(粗さ×視線×光 の 18,513 通り)
+  [OK] 負の値が出ない
+  [OK] 幾何減衰 G が 0〜1 に収まる
+  [OK] 球: 全頂点が半径 0.5 の上にある(1,617 頂点)
+  [OK] 球: 法線が位置と同じ向き(単位球の性質)
+  [OK] 球: 接線が単位ベクトルで、法線と直交
+  [OK] 球: w が全頂点で -1(板と立方体は +1)
+  [OK] 球: cross(N, T) * w が ∂P/∂v(V の増える向き)と一致
+  [OK] 球: 全三角形が外向きに巻かれている(逆だとカリングで消える)
+       2,976 枚 / 極で潰れた三角形 96 枚は対象外
+  [OK] シェーダの MIN_ROUGHNESS が Pbr.MinRoughness と一致  Pbr.MinRoughness = 0.045
+  [OK] α = roughness² が両方に入っている  Pbr.Alpha(0.5) = 0.2500
+  所要 79ms(半球の重点サンプリング 37 回 x 8192 点)
+  すべて合格</code></pre></div>
+<h3 id="s32">描画の負荷</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>項目</th><th>実測</th></tr></thead>
+<tbody>
+<tr><td>材質グリッド(球 49 個 / 三角形 15 万枚)</td><td>ドローコール 49。60fps 維持</td></tr>
+<tr><td>Cook-Torrance への差し替え</td><td>フレーム時間に有意な差なし</td></tr>
+</tbody>
+</table></div>
+<p><strong>BRDF を差し替えても目に見えて重くならない</strong>。D・G・F はどれも数命令で、テクスチャの読み込みが増えるわけでもない。「物理ベースは重い」という印象は、たいてい<strong>IBL と影のほう</strong>から来ている。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong>素朴な数値積分では、エネルギー保存を検算できなかった。</strong></p>
+<p>最初は半球を 192x192 の格子に刻んで足し込む形で<code>DirectionalAlbedo</code> を書いた。素直で分かりやすいが、結果が壊れた——粗さ 0.05 の金属で「<strong>返る光 120.6%</strong>」という値が出た。</p>
+<p>原因は D のとがり方。粗さ 0.05 なら α = 0.0025 で、ピークの幅は 0.0025 ラジアンしかない。刻み(0.008 ラジアン)より細いので、<strong>山を踏み外すか、踏んだ1点に広いマス目の面積を掛けて数えすぎるか</strong>のどちらかにしかならない。</p>
+<p>解は<strong>重点サンプリング</strong>。D に比例する確率でハーフベクトルを引き、確率密度で割り戻す。約分すると D がきれいに消えて<code>G * F * (V・H) / ((N・V)(N・H))</code> だけが残る。同じ 8192 点でも、粗さ 0.05 で 100.0% と正しい値になった。</p>
+<p>副産物として <code>Hammersley</code> と <code>ImportanceSampleGgx</code> が手元に揃った。<strong>Day 36 の IBL は環境マップの事前積分にこれをそのまま使う</strong>ので、先に書けたことになる。</p>
+<p><strong>非金属は、浅い角度で 1 をわずかに超える。</strong></p>
+<p>金属(拡散なし)は全条件で 1 以下に収まったのに、非金属は視線が浅いところで 1.076 まで出た。実装ミスを疑って探したが、式は合っていた。</p>
+<p>穴は <code>kD = 1 - F(V・H)</code> の作り方にある。これは「その1本の光線が反射しなかった割合」であって、<strong>「鏡面が半球全体で持って行った割合」ではない</strong>。浅い角度では F が 1 に近づくのに、拡散側は入ってくる光の平均で減らされるので引き足りない。</p>
+<p>正しくやるには鏡面の方向アルベドで拡散を減らす必要があり、それには視線角と粗さの2次元表が要る——<strong>Day 36 で焼く分割和の LUT がまさにそれ</strong>。今日は「7.6% 超える」という数字を出して知っておくところまでにして、自己チェックの項目名にもそう書いた。</p>
+<p><strong>相反性のチェックが落ちたが、悪かったのはチェックのほうだった。</strong></p>
+<p><code>f(V, L) = f(L, V)</code> を 64 通りで確かめる項目が、最大誤差 0.118 で落ちた。Cook-Torrance は D も G も F も V と L について対称なので、破れるはずがない。</p>
+<p>原因は試験に使うベクトルで、<strong>片方が面の裏側に回っていた</strong>。裏なら片方は 0 を返し、もう片方は 0 割り避けのクランプ(<code>max(N・V, 1e-4)</code>)が効くので、式のせいではないところで対称性が崩れる。両方を表側に置き直したら誤差 2.11E-008 まで落ちた。</p>
+<p><strong>自己チェックが落ちたとき、まず疑うのは実装だが、確かめ方が悪いこともある</strong>。</p>
+<p><strong>材質グリッドが逆光になっていた。</strong></p>
+<p>グリッドを実装して画素を読み出したところ、49 個が軒並みのっぺりした環境光の色になっていた。</p>
+<p>デモの太陽(<code>_lightDirection</code>)は<strong>画面の奥から手前へ</strong>進む向きに置いてある。立方体やモデルを斜めから見るぶんには陰影が付くが、グリッドは正面から見る絵なので、手前の面が全部逆光になる。</p>
+<p>材質の見本を撮るときは光をカメラの少し左上に置くのが定石なので、<strong>この描画の間だけ <code>uLightDirection</code> を差し替える</strong>ことにした。併せて光の強さも 0.30 倍にしてある——元の強さだと拡散の行が白飛びして、<strong>粗さの違いが消えた</strong>。ハイライトのぶんの余地を上に残しておかないと材質が読めない。</p>
+<p><strong>球の巻き順は、手で決めずに計算した。</strong></p>
+<p>UV 球の三角形を「左下 → 右下 → 右上」で巻いたら内向きになる。経度の増える向きと緯度の増える向きの外積が球の内側を向くためで、<strong>間違えると背面カリングで球が丸ごと消える</strong>——「実装は合っているのに何も映らない」という、原因の見当が付きにくい壊れ方をする。</p>
+<p>赤道上の1点で <code>cross(BR - BL, TR - BL)</code> を実際に計算して外向きを確かめ、「左下 → 左上 → 右上」に決めた。併せて <code>Mesh.ReadIndices</code> を足して、<strong>全三角形の幾何法線が頂点法線と同じ側を向くか</strong>を自己チェックに入れてある。極で潰れる 96 枚(面積 0 なので向きが出ない)は対象外として数えるだけにした。</p>
+</section>
+<footer class="end">Day 35 物理ベースレンダリング(Cook-Torrance BRDF、メタリック/ラフネス) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day35 の Render/Pbr.cs と textured.frag の CookTorrance を JS に移したもの
+const PBR = (() => {
+const MIN_R = 0.045, PI = Math.PI;
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const alphaOf = (r, perceptual = true) => { const c = Math.min(1, Math.max(MIN_R, r)); return perceptual ? c * c : c; };
+const D = (nh, a) => { const a2 = a * a, d = nh * nh * (a2 - 1) + 1; return a2 / (PI * d * d); };
+const kDirect = (r) => { const c = Math.min(1, Math.max(MIN_R, r)) + 1; return c * c / 8; };
+const G1 = (nx, k) => nx / (nx * (1 - k) + k);
+const G = (nv, nl, r) => { const k = kDirect(r); return G1(nv, k) * G1(nl, k); };
+const F = (c, f0) => { const t = Math.pow(1 - Math.min(1, Math.max(0, c)), 5); return f0.map((v) => v + (1 - v) * t); };
+const f0Of = (base, m, d0 = 0.04) => base.map((b) => d0 + (b - d0) * m);
+// CookTorrance(textured.frag)。拡散・鏡面・D・G・F を返す
+function cookTorrance(n, v, l, base, m, r, d0 = 0.04, perceptual = true) {
+  const nl = dot(n, l);
+  if (nl <= 0) return { diff: [0, 0, 0], spec: [0, 0, 0], d: 0, g: 0, f: f0Of(base, m, d0) };
+  const nv = Math.max(dot(n, v), 1e-4), h = norm([v[0] + l[0], v[1] + l[1], v[2] + l[2]]);
+  const nh = Math.max(dot(n, h), 0), vh = Math.max(dot(v, h), 0);
+  const rr = Math.max(r, MIN_R), a = perceptual ? rr * rr : rr;
+  const d = D(nh, a), g = G(nv, nl, rr), f = F(vh, f0Of(base, m, d0));
+  const spec = f.map((fc) => d * g * fc / (4 * nv * nl));
+  const diff = f.map((fc, i) => (1 - fc) * (1 - m) * base[i] / PI);
+  return { diff, spec, d, g, f };
+}
+function hammersley(i, count) {
+  let b = i >>> 0;
+  b = ((b << 16) | (b >>> 16)) >>> 0;
+  b = (((b & 0x55555555) << 1) | ((b & 0xAAAAAAAA) >>> 1)) >>> 0;
+  b = (((b & 0x33333333) << 2) | ((b & 0xCCCCCCCC) >>> 2)) >>> 0;
+  b = (((b & 0x0F0F0F0F) << 4) | ((b & 0xF0F0F0F0) >>> 4)) >>> 0;
+  b = (((b & 0x00FF00FF) << 8) | ((b & 0xFF00FF00) >>> 8)) >>> 0;
+  return [i / count, b * 2.3283064365386963e-10];
+}
+const basis = (n) => { const up = Math.abs(n[1]) < 0.99 ? [0, 1, 0] : [1, 0, 0]; const t = norm(cross(up, n)); return [t, cross(n, t)]; };
+// DirectionalAlbedo(白・正面の値が自己チェックの表になる)
+function directionalAlbedo(n, v, base, m, r, samples = 8192) {
+  const nv = Math.max(dot(n, v), 1e-4), a = alphaOf(r), f0 = f0Of(base, m), [t, b] = basis(n);
+  let diff = 0, spec = 0;
+  for (let i = 0; i < samples; i++) {
+    const xi = hammersley(i, samples);
+    {
+      const ct = Math.sqrt(1 - xi[1]), stt = Math.sqrt(xi[1]), ph = 2 * PI * xi[0];
+      const l = norm([0, 1, 2].map((c) => t[c] * stt * Math.cos(ph) + b[c] * stt * Math.sin(ph) + n[c] * ct));
+      const h = norm([v[0] + l[0], v[1] + l[1], v[2] + l[2]]);
+      const fr = F(Math.max(dot(v, h), 0), f0)[0];
+      diff += (1 - fr) * (1 - m) * base[0];
+    }
+    {
+      const a2 = a * a, ph = 2 * PI * xi[0], ct = Math.sqrt((1 - xi[1]) / (1 + (a2 - 1) * xi[1])), stt = Math.sqrt(Math.max(1 - ct * ct, 0));
+      const h = norm([0, 1, 2].map((c) => t[c] * stt * Math.cos(ph) + b[c] * stt * Math.sin(ph) + n[c] * ct));
+      const vdh = dot(v, h), l = norm([0, 1, 2].map((c) => 2 * vdh * h[c] - v[c]));
+      const nl = dot(n, l); if (nl <= 0) continue;
+      const nh = Math.max(dot(n, h), 1e-4), vh = Math.max(vdh, 1e-4);
+      spec += F(vh, f0)[0] * (G(nv, nl, r) * vh / (nv * nh));
+    }
+  }
+  return { diff: diff / samples, spec: spec / samples, total: (diff + spec) / samples };
+}
+return { cookTorrance, directionalAlbedo, D, G, F, f0Of, alphaOf, norm, dot, MIN_R };
+})();
+
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const segV = (id) => $(id).querySelector('[aria-pressed="true"]').dataset.v;
+
+// ============================================================
+//  1本の光がどこへ返るか
+// ============================================================
+{
+  function redraw() {
+    const r = Number($('lb-r').value), m = Number(segV('lb-m')), perceptual = segV('lb-alpha') === '1', va = Number($('lb-v').value) * Math.PI / 180;
+    $('lb-r-out').textContent = r.toFixed(2) + (r < PBR.MIN_R ? `(${PBR.MIN_R} で止まる)` : '');
+    $('lb-v-out').textContent = $('lb-v').value + ' 度';
+    const n = [0, 1, 0], v = [Math.sin(va), Math.cos(va), 0], base = [0.85, 0.85, 0.85];
+    const { ctx, w, h } = fit($('lb-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    // 上: 面と目と、光の向きごとの棒(長さ = 目に返る明るさ)
+    const cx = w / 2, cy = 190, R = 150;
+    ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - R - 30, cy); ctx.lineTo(cx + R + 30, cy); ctx.stroke();
+    const samples = [];
+    for (let deg = -88; deg <= 88; deg += 2) {
+      const la = deg * Math.PI / 180, l = [Math.sin(la), Math.cos(la), 0];
+      const c = PBR.cookTorrance(n, v, l, base, m, r, 0.04, perceptual);
+      samples.push({ deg, la, spec: c.spec[0] * Math.cos(la), diff: c.diff[0] * Math.cos(la), d: c.d, g: c.g, f: c.f[0] });
+    }
+    const top = Math.max(...samples.map((s) => s.spec + s.diff), 1e-6);
+    for (const s of samples) {
+      const len = (s.spec + s.diff) / top * R, dl = s.diff / top * R;
+      const ex = cx + Math.sin(s.la) * len, ey = cy - Math.cos(s.la) * len;
+      ctx.strokeStyle = 'rgba(140,140,140,0.8)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.sin(s.la) * dl, cy - Math.cos(s.la) * dl); ctx.stroke();
+      ctx.strokeStyle = tok('--accent'); ctx.beginPath(); ctx.moveTo(cx + Math.sin(s.la) * dl, cy - Math.cos(s.la) * dl); ctx.lineTo(ex, ey); ctx.stroke();
+    }
+    // 目
+    Lab.arrow(ctx, cx + Math.sin(va) * (R + 20), cy - Math.cos(va) * (R + 20), cx + Math.sin(va) * 40, cy - Math.cos(va) * 40, 'rgb(255,210,90)', 2);
+    ctx.fillStyle = 'rgb(255,210,90)'; ctx.textAlign = 'center'; ctx.fillText('目', cx + Math.sin(va) * (R + 32), cy - Math.cos(va) * (R + 32));
+    // 鏡の向き(反射の法則で、ハイライトの芯がある光の向き)
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('棒 = その向きから光が来たとき、目に返る明るさ(灰 = 拡散、青 = 鏡面)。いちばん長い棒で 1 に揃えてある', 10, 16);
+    // 下: D・G・F の曲線(光の向きごと)
+    const T2 = cy + 30, H2 = h - T2 - 26, X = (deg) => 50 + (deg + 90) / 180 * (w - 70);
+    const dTop = Math.max(...samples.map((s) => s.d), 1e-6);
+    ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(50, T2 + H2); ctx.lineTo(w - 20, T2 + H2); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'center'; for (const d of [-90, -45, 0, 45, 90]) ctx.fillText(d + '°', X(d), T2 + H2 + 16);
+    const line = (key, color, scale, lab) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); samples.forEach((s, i) => { const y = T2 + H2 - s[key] / scale * H2; if (i) ctx.lineTo(X(s.deg), y); else ctx.moveTo(X(s.deg), y); }); ctx.stroke(); ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(lab, w - 230, T2 + 12 + ['d', 'g', 'f'].indexOf(key) * 16); };
+    line('d', tok('--accent'), dTop, `D(最大 ${dTop.toFixed(1)} で 1 に揃える)`); line('g', 'rgb(90,200,120)', 1, 'G(0〜1)'); line('f', 'rgb(240,140,60)', 1, 'F(0〜1)');
+    const peak = samples.reduce((a, b) => (b.spec > a.spec ? b : a));
+    const a = PBR.alphaOf(r, perceptual);
+    $('lb-stats').innerHTML = stat('α', a.toFixed(4), `<small> (${perceptual ? '粗さ²' : '粗さ'})</small>`) + stat('D の山(N・H = 1)', (1 / (Math.PI * a * a)).toFixed(1), '<small> (1 / (π α²))</small>') +
+      stat('ハイライトの芯', peak.deg + ' 度', `<small> (鏡なら ${-Math.round(va * 180 / Math.PI)} 度)</small>`) + stat('芯での F', peak.f.toFixed(3), m === 0 ? '<small> (非金属は 0.04 から)</small>' : '');
+    $('lb-note').textContent = (m === 1 ? '金属は拡散が 0(灰の棒が無い)で、返るのは鏡面だけ。' : m === 0 ? '非金属は灰の拡散がどの向きにもあり、鏡面(青)は 0.04 から始まる弱いもの。' : '金属度 0.5 は、拡散も F0 も半分ずつの、物理的にはほぼ無い材質。') +
+      '粗さを上げると D の山が低く広がり、ハイライトが広がって暗くなる。目を寝かせる(浅い角度にする)と F が 1 に近づき、非金属でも鏡のように光る。' + (perceptual ? '' : ' α = 粗さ だと、粗さ 0.2 を超えたあたりから D の形がほとんど変わらなくなる。');
+  }
+  for (const id of ['lb-r', 'lb-v']) $(id).addEventListener('input', redraw);
+  seg('lb-m', redraw); seg('lb-alpha', redraw);
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  返る光の割合(方向アルベド)
+// ============================================================
+{
+  const cache = new Map();
+  function curve(nv) {
+    const key = String(nv);
+    let c = cache.get(key);
+    if (!c) {
+      const v = [Math.sqrt(Math.max(0, 1 - nv * nv)), nv, 0], n = [0, 1, 0], one = [1, 1, 1];
+      const rs = []; for (let k = 0; k <= 40; k++) rs.push(PBR.MIN_R + (1 - PBR.MIN_R) * k / 40);
+      c = rs.map((r) => ({ r, metal: PBR.directionalAlbedo(n, v, one, 1, r).total, diel: PBR.directionalAlbedo(n, v, one, 0, r).total }));
+      cache.set(key, c);
+    }
+    return c;
+  }
+  function redraw() {
+    const nv = Number(segV('ea-v'));
+    const c = curve(nv);
+    const { ctx, w, h } = fit($('ea-canvas'));
+    ctx.font = '12px ' + tok('--font-mono');
+    const L = 56, R = 18, T = 20, B = 40, W = w - L - R, H = h - T - B, y0 = 0, y1 = 1.15;
+    const X = (r) => L + r * W, Y = (v) => T + H - (v - y0) / (y1 - y0) * H;
+    ctx.strokeStyle = tok('--line'); ctx.fillStyle = tok('--muted'); ctx.lineWidth = 1; ctx.textAlign = 'right';
+    for (const g of [0, 0.25, 0.5, 0.75, 1]) { ctx.beginPath(); ctx.moveTo(L, Y(g)); ctx.lineTo(L + W, Y(g)); ctx.stroke(); ctx.fillText(g.toFixed(2), L - 6, Y(g) + 4); }
+    ctx.textAlign = 'center'; for (const g of [0, 0.25, 0.5, 0.75, 1]) ctx.fillText(g.toFixed(2), X(g), T + H + 16);
+    ctx.strokeStyle = tok('--ink'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(L, Y(1)); ctx.lineTo(L + W, Y(1)); ctx.stroke(); ctx.setLineDash([]);
+    const line = (key, color, lab, k) => { ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.beginPath(); c.forEach((p, i) => { if (i) ctx.lineTo(X(p.r), Y(p[key])); else ctx.moveTo(X(p.r), Y(p[key])); }); ctx.stroke(); ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(lab, L + W - 230, T + 14 + k * 16); };
+    line('metal', tok('--accent'), '金属(白)', 0); line('diel', 'rgb(240,140,60)', '非金属(白)', 1);
+    ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('粗さ', L, h - 6); ctx.fillText('返る光の割合(1 が入った光と同じ)', 4, 12);
+    const one = [1, 1, 1], v = [Math.sqrt(Math.max(0, 1 - nv * nv)), nv, 0], n = [0, 1, 0];
+    const rows = [0.05, 0.25, 0.5, 0.75, 1].map((r) => { const mt = PBR.directionalAlbedo(n, v, one, 1, r).total, dl = PBR.directionalAlbedo(n, v, one, 0, r).total; return `<tr><td>${r.toFixed(2)}</td><td>${(100 * mt).toFixed(1)}%</td><td>${(100 * (1 - mt)).toFixed(1)}%</td><td>${dl.toFixed(4)}</td></tr>`; }).join('');
+    $('ea-table').innerHTML = `<table><thead><tr><th>粗さ</th><th>金属: 返る</th><th>金属: 失う</th><th>非金属: 返る割合</th></tr></thead><tbody>${rows}</tbody></table>`;
+    $('ea-note').textContent = nv === 1 ? '正面の金属は C# の自己チェックと同じ表(100.0 / 98.8 / 86.0 / 57.6 / 30.7%)。粗いほど光を失うのは、微小な鏡の間で2回以上跳ねる光を落としているから(単一散乱)。'
+      : nv < 0.3 && nv > 0.2 ? '浅い視線では、非金属が 1 をわずかに超える(粗さ 0.05 で 1.0760)。拡散側を (1 − F) で減らす分け方が、鏡面が半球で持って行った量と一致しないため。Day 36 の LUT で直す。'
+        : '視線を寝かせると、金属の値も変わる。G(幾何減衰)が浅い角度ほど効くため。';
+  }
+  seg('ea-v', () => setTimeout(redraw, 10));
+  window.addEventListener('resize', redraw);
+  redraw();
+}
+
+// ============================================================
+//  材質グリッド 7x7
+// ============================================================
+{
+  const COLORS = [[0.85, 0.85, 0.85], [1.0, 0.77, 0.34], [0.95, 0.64, 0.54], [0.15, 0.35, 0.85]];
+  const LIGHT = PBR.norm([-0.42, 0.52, 0.75]); // 光へ向かう向き(GridLightDirection の逆)
+  const LCOL = [1.15, 1.11, 1.04], AMB = [0.13, 0.16, 0.22];
+  const aces = (x) => Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14)));
+  const srgb = (c) => Math.pow(Math.max(c, 0), 2.2);
+  const BG = [0.08, 0.09, 0.12].map(srgb);
+  function redraw() {
+    const pbr = segV('mg-pbr') === '1', base = COLORS[Number(segV('mg-color'))], view = segV('mg-view'), env = segV('mg-env') === '1', perceptual = segV('mg-alpha') === '1', d0 = Number(segV('mg-f0'));
+    const canvas = $('mg-canvas'), S = canvas.width, cell = S / 7, rad = cell * 0.42;
+    const ctx = canvas.getContext('2d'), img = ctx.createImageData(S, S);
+    const lc = LCOL.map((c) => c * 0.30 * (pbr ? Math.PI : 1));
+    const v = [0, 0, 1];
+    for (let py = 0; py < S; py++) for (let px = 0; px < S; px++) {
+      const col = Math.floor(px / cell), row = 6 - Math.floor(py / cell);
+      const dx = (px + 0.5 - (col + 0.5) * cell) / rad, dy = -(py + 0.5 - (6 - row + 0.5) * cell) / rad, rr = dx * dx + dy * dy;
+      let c;
+      if (rr > 1) c = BG;
+      else {
+        const n = [dx, dy, Math.sqrt(1 - rr)], m = row / 6, r = Math.max(col / 6, PBR.MIN_R);
+        if (!pbr) { const lam = Math.max(PBR.dot(n, LIGHT), 0); c = base.map((b, i) => b * (lc[i] * lam + AMB[i])); }
+        else {
+          const ct = PBR.cookTorrance(n, v, LIGHT, base, m, r, d0, perceptual), nl = Math.max(PBR.dot(n, LIGHT), 0);
+          const dd = ct.diff.map((d, i) => d * lc[i] * nl), ds = ct.spec.map((s, i) => s * lc[i] * nl);
+          const ad = base.map((b, i) => AMB[i] * b * (1 - m));
+          const af = PBR.F(Math.max(PBR.dot(n, v), 0), PBR.f0Of(base, m, d0)), as = env ? af.map((f, i) => AMB[i] * f * (1 - r)) : [0, 0, 0];
+          if (view === 'spec') c = ds.map((s, i) => s + as[i]);
+          else if (view === 'diff') c = dd.map((d, i) => d + ad[i]);
+          else if (view === 'F') c = ct.f;
+          else if (view === 'D') c = [ct.d / 20, ct.d / 20, ct.d / 20];
+          else if (view === 'G') c = [ct.g, ct.g, ct.g];
+          else c = dd.map((d, i) => d + ds[i] + ad[i] + as[i]);
+        }
+      }
+      const o = (py * S + px) * 4;
+      for (let k = 0; k < 3; k++) img.data[o + k] = Math.round(255 * Math.pow(aces(c[k]), 1 / 2.2));
+      img.data[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    $('mg-note').textContent = !pbr ? 'ランバートは金属度も粗さも使わないので、49 個が全部同じに見える(明るさが Cook-Torrance とほぼ揃うのは、光に π を掛けて釣り合わせているため)。'
+      : view === 'F' ? 'F(フレネル): 非金属は縁だけ白く、金属は全面に色が乗る。' : view === 'D' ? 'D(法線分布)/ 20: 粗さ 0 は点、粗さ 1 は一様。' : view === 'G' ? 'G(幾何減衰): 縁ほど暗い。浅い角度ほど微小な鏡が隠し合う。'
+        : `上の行(金属)は拡散しないので暗く、左上はほぼ黒 + 点のハイライト(鏡)。右へ行くほどハイライトが広がって暗くなる。${base === COLORS[0] ? '' : '金属の行だけハイライトに色が乗る。'}${env ? '' : ' 環境鏡面を切ると、金属の行がさらに黒くなる。'}${perceptual ? '' : ' α = 粗さ だと右半分がのっぺりする。'}`;
+  }
+  for (const id of ['mg-pbr', 'mg-color', 'mg-view', 'mg-env', 'mg-alpha', 'mg-f0']) seg(id, () => setTimeout(redraw, 10));
+  redraw();
+}
+})();
+</script>
+</body>
+</html>
