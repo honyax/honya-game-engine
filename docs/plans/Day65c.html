@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 65c GPU 駆動レンダリング(3)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 2パス — 「深度は描かないと無い」をどう解くか</a></li><li class="l3"><a href="#s6">2. 見えた印 — フレームをまたいで GPU の上に残す</a></li><li class="l3"><a href="#s7">3. 隠れの判定 — 球を箱にして、Hi-Z の 2x2 と比べる</a></li><li class="l3"><a href="#s8">4. 遅いパスが描き足すもの — 体の印とメッシュレットの印</a></li><li class="l3"><a href="#s9">5. 体ごとは効かない、メッシュレットごとは効く</a></li><li class="l3"><a href="#s10">6. 値段 — 隠れるものが無くても払う分</a></li><li class="l3"><a href="#s11">7. Nanite 講読 — Day 64a〜65c の上に何が載っているか</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経の始め方</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">全体構成と依存の向き</a></li><li class="l3"><a href="#s19">Vulkan — 変わった4つのクラスと5つの型(Day 65c で <code>MeshRenderer</code> が2パスを持った)</a></li><li class="l3"><a href="#s20">GPU に挿さっているもの — binding の一覧(Day 65c で 10〜12 番とプッシュ定数が増えた)</a></li><li class="l3"><a href="#s21">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65c で2パスになった)</a></li><li class="l3"><a href="#s22">遅いパス — <code>RecordLatePass</code></a></li><li class="l3"><a href="#s23">cull.comp の1人の中(Day 65c で3通りになった)</a></li><li class="l3"><a href="#s24">タスクシェーダの1ワークグループの中(Day 65c で3通りになった)</a></li><li class="l3"><a href="#s25">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動: 16 体、2パス</a></li><li class="l3"><a href="#s28">2. <code>4</code> で 256 体、<code>V</code> で低い視点(今日の目)</a></li><li class="l3"><a href="#s29">3. <code>B</code> で頂点の道にする</a></li><li class="l3"><a href="#s30">4. <code>Z</code> で Hi-Z を見る</a></li><li class="l3"><a href="#s31">5. <code>F</code> で目を止めて回り込む</a></li><li class="l2"><a href="#s32">検証の途中で分かったこと</a></li><li class="l3"><a href="#s33">検証1: 2パスでも絵は1画素も変わらない — 視点が飛んでも</a></li><li class="l3"><a href="#s34">検証2: どれだけ隠れて捨てられるか</a></li><li class="l3"><a href="#s35">検証3: 値段</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): 箱を小さくする</a></li><li class="l3"><a href="#s38">課題2(中): 隠す物を置く</a></li><li class="l3"><a href="#s39">課題3(難): 印を持たない2パス</a></li><li class="l2"><a href="#s40">Day 65 の3日をふりかえって</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">教養編 / Day 65c / 計画書</p>
+  <h1>GPU 駆動レンダリング(3)</h1>
+  <p class="lede">Hi-Z で隠れたものを捨てる2パス(と Nanite 講読)</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l2"><a href="#s3">事前に読む資料</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. 2パス — 「深度は描かないと無い」をどう解くか</a></li><li class="l3"><a href="#s6">2. 見えた印 — フレームをまたいで GPU の上に残す</a></li><li class="l3"><a href="#s7">3. 隠れの判定 — 球を箱にして、Hi-Z の 2x2 と比べる</a></li><li class="l3"><a href="#s8">4. 遅いパスが描き足すもの — 体の印とメッシュレットの印</a></li><li class="l3"><a href="#s9">5. 体ごとは効かない、メッシュレットごとは効く</a></li><li class="l3"><a href="#s10">6. 値段 — 隠れるものが無くても払う分</a></li><li class="l3"><a href="#s11">7. Nanite 講読 — Day 64a〜65c の上に何が載っているか</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経の始め方</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">全体構成と依存の向き</a></li><li class="l3"><a href="#s19">Vulkan — 変わった4つのクラスと5つの型(Day 65c で <code>MeshRenderer</code> が2パスを持った)</a></li><li class="l3"><a href="#s20">GPU に挿さっているもの — binding の一覧(Day 65c で 10〜12 番とプッシュ定数が増えた)</a></li><li class="l3"><a href="#s21">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65c で2パスになった)</a></li><li class="l3"><a href="#s22">遅いパス — <code>RecordLatePass</code></a></li><li class="l3"><a href="#s23">cull.comp の1人の中(Day 65c で3通りになった)</a></li><li class="l3"><a href="#s24">タスクシェーダの1ワークグループの中(Day 65c で3通りになった)</a></li><li class="l3"><a href="#s25">今日残した歪み(4つ)</a></li><li class="l2"><a href="#s26">完成条件</a></li><li class="l3"><a href="#s27">1. 起動: 16 体、2パス</a></li><li class="l3"><a href="#s28">2. <code>4</code> で 256 体、<code>V</code> で低い視点(今日の目)</a></li><li class="l3"><a href="#s29">3. <code>B</code> で頂点の道にする</a></li><li class="l3"><a href="#s30">4. <code>Z</code> で Hi-Z を見る</a></li><li class="l3"><a href="#s31">5. <code>F</code> で目を止めて回り込む</a></li><li class="l2"><a href="#s32">検証の途中で分かったこと</a></li><li class="l3"><a href="#s33">検証1: 2パスでも絵は1画素も変わらない — 視点が飛んでも</a></li><li class="l3"><a href="#s34">検証2: どれだけ隠れて捨てられるか</a></li><li class="l3"><a href="#s35">検証3: 値段</a></li><li class="l2"><a href="#s36">改造課題</a></li><li class="l3"><a href="#s37">課題1(易): 箱を小さくする</a></li><li class="l3"><a href="#s38">課題2(中): 隠す物を置く</a></li><li class="l3"><a href="#s39">課題3(難): 印を持たない2パス</a></li><li class="l2"><a href="#s40">Day 65 の3日をふりかえって</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p><strong>教養編。Day 65 の3日目(最終日)</strong>。reference は Day 65b の完全コピー + 差分(<code>MeshletRenderer</code> の続き)。</p>
+<p>Day 65a で「描く命令の引数を GPU が書く」骨格を、Day 65b で深度の山(Hi-Z)を作った。今日は2つを組み合わせて、<strong>CPU が持っていない情報——深度——で、隠れたものを捨てる</strong>。</p>
+<p>困るのは「深度は描かないと無い」こと。隠れているかを知るには深度が要り、深度を作るには描く必要がある。そこで<strong>前のフレームに見えていたものを先に描いて</strong>深度を作り、その深度で残りを調べる。1フレームを2回に分けて描く。</p>
+<div class="code"><pre><code>  早いパス: 前のフレームに見えていた体・メッシュレットを描く(隠れの判定はまだしない)
+     ↓
+  Hi-Z を作る(Day 65b の DepthPyramid をそのまま)
+     ↓
+  遅いパス: 全部を Hi-Z と比べ直す。確実に隠れているものは捨て、早いパスで描いていない見えるものを描き足す
+            見えた / 見えなかったを書き残す → 次のフレームの早いパスが使う</code></pre></div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 65b</th><th><strong>Day 65c</strong></th></tr></thead>
+<tbody>
+<tr><td>1フレームの描画</td><td>1回</td><td><strong>2回</strong>(早いパス + 遅いパス)</td></tr>
+<tr><td>Hi-Z を作るとき</td><td>描き終わった後(見るだけ)</td><td><strong>早いパスと遅いパスの間</strong>(遅いパスが使う)</td></tr>
+<tr><td>フレームをまたいで残るもの</td><td>無し</td><td><strong>見えた印</strong>(体ごと 256 個・メッシュレットごと 12 万個)</td></tr>
+<tr><td>選び方(<code>G</code>)</td><td>GPU / CPU / 選ばない</td><td><strong>2パス</strong> / GPU / CPU / 選ばない</td></tr>
+</tbody>
+</table></div>
+<p>今日の差分は<strong>変更 10 ファイル</strong>(C# +503 / −155 行、GLSL +265 / −33 行。新規ファイルは無い)。</p>
+<blockquote><p><strong>今日いちばん意外だったのは、「隠れて丸ごと捨てられた体」が 256 体のうち 0 体だったこと</strong></p>
+<p>手前の体が奥の体を隠している絵なのに、体ごとの判定では1体も捨てられなかった。トーラスノットは穴だらけで、体1つを画面に投影した箱(100〜500 画素)の中には必ず隙間があり、Hi-Z の粗い段ではその隙間が「何も無い(いちばん奥)」になる(Day 65b の検証2)。ところが<strong>メッシュレットごと</strong>に同じ判定をすると、既定の視点で 15%、見下ろす角度を下げた低い視点(<code>V</code>)では <strong>45%</strong> が隠れていて捨てられ、ラスタライザへ渡る三角形は 249 万枚から <strong>80 万枚</strong>に減り、GPU の時間は半分になった(検証2・3)。<strong>隠れの判定は、調べる単位が小さいほど効く</strong>。Nanite がクラスタ(メッシュレット)単位で隠れを調べるのはこのため(要点7)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>起動すると Day 65b と同じ 16 体が出る。「体」の行が「2パス (隠れたものも捨てる) (G)  16 体 → 画面の外 0 / 隠れている 0 / 見える 16」、「判定」の行に「隠れている 5.3%」が増える。<code>4</code> で 256 体、<code>V</code> で低い視点にすると「隠れている 45.4%」、三角形は </strong>80 万枚<strong>。<code>G</code> で1パス(GPU で選ぶ)に戻すと、絵は1画素も変わらずに三角形が 249 万枚に戻る。<code>F</code> で目を止めてから回り込むと、止めた瞬間に見えていなかったもの(画面の外・裏向き・</strong>隠れていたもの<strong>)が全部穴になって見える。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>何が起きるか</th></tr></thead>
+<tbody>
+<tr><td><code>G</code></td><td><strong>描く体をどう選ぶか(2パス → GPU で選ぶ → CPU で選ぶ → 選ばない)。今日の目</strong></td></tr>
+<tr><td><code>V</code></td><td><strong>低い視点</strong>(見下ろす角度を 0.30 → 0.12 ラジアンに下げる)。体が奥へ何列も重なり、隠れるものが増える。<code>R</code> で戻る</td></tr>
+<tr><td><code>F</code></td><td>カリングの目を止める。2パスでは<strong>早いパスだけ</strong>になり、見えた印も Hi-Z も止まる</td></tr>
+<tr><td><code>Z</code></td><td>Hi-Z の段を見る(Day 65b)。2パスでは、遅いパスが使った Hi-Z(早いパスの深度から作ったもの)が見える</td></tr>
+<tr><td><code>B</code> / <code>C</code> / <code>O</code> / <code>M</code> / <code>1</code>〜<code>4</code> / ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>Day 65b のまま</td></tr>
+</tbody>
+</table></div>
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「前のフレームを当てにして、外れたら遅いパスで直す」</strong>(要点1・2)。早いパスは「前のフレームで見えていたもの」を<strong>判定せずに</strong>描く。カメラが動いて新しく見えたものは、遅いパスが全部を調べ直して拾う。逆に、前は見えていたが今は隠れているものは、早いパスで<strong>余計に描いてしまう</strong>が、絵は壊れない(深度テストが手前を残す)。<strong>当てが外れても、遅くなるだけで絵は間違えない</strong>——これがこの形の強み。</p>
+<p><strong>2つ目は「隠れているとは、手前の深度が範囲のいちばん奥より奥なこと」</strong>(要点3)。物の球を囲む立方体を画面に投影して箱にし、箱の大きさに合った Hi-Z の段で「その範囲のいちばん奥」を読む。物のいちばん手前がそれより奥なら、1画素も見えない。</p>
+<p><strong>3つ目は「調べる単位が小さいほど効く、でも値段は固定」</strong>(要点5・6)。メッシュレット単位の判定は低い視点で 45% を捨てるが、Hi-Z(26 us)と遅いパス(40 us)の分は隠れるものが無くても払う。16 体の場面では<strong>2パスのほうが遅い</strong>(検証3)。</p>
+</section>
+<section class="part"><h2 id="s3">事前に読む資料</h2>
+<ul><li><strong><a href="https://www.rastergrid.com/blog/2010/10/hierarchical-z-map-based-occlusion-culling/">RasterGrid: Hierarchical-Z map based occlusion culling</a></strong> の後半 —物の箱を Hi-Z と比べて隠れを判定する部分。「箱の大きさで段を選び、2x2 だけ読む」(要点3)</li><li><strong><a href="https://advances.realtimerendering.com/s2015/aaltonenhaar_siggraph2015_combined_final_footer_220dpi.pdf">Haar &amp; Aaltonen: GPU-Driven Rendering Pipelines(SIGGRAPH 2015)</a></strong> の後半 —Day 65a で前半(階層カリング)を読んだ講演。後半はオクルージョンカリングの節。<strong>深度をどこから持ってくるか</strong>(前のフレームか、先に描いた物か)を今日の2パスと見比べながら読む</li><li><strong><a href="https://github.com/zeux/niagara">niagara</a></strong> の <code>src/shaders/drawcull.comp.glsl</code> と <code>src/niagara.cpp</code> —今日と同じ2パス(niagara では early / late)を最小の形で書いた実装。niagara は <code>LATE</code> を<strong>特殊化定数</strong>(specialization constant)にして、1つの SPIR-V から2本のパイプラインを作る(今日は定義を変えて2回翻訳する)。遅いパスで「メッシュレットの隠れを調べるなら、前も見えていた体も一覧に載せる」という判断(要点4)も、<code>drawcull.comp.glsl</code> のコメントに同じことが書いてある。球を画面へ投影する関数(<code>projectSphere</code>。Mara と McGuire の「2D Polyhedral Bounds of a Clipped, Perspective-Projected 3D Sphere」2013 の式)は、今日の「立方体の8つの角」より箱が小さく出る(改造課題1)</li><li><strong><a href="https://advances.realtimerendering.com/s2021/Karis_Nanite_SIGGRAPH_Advances_2021_final.pdf">Karis: Nanite — A Deep Dive(SIGGRAPH 2021 Advances)</a></strong> —<strong>今日の講読の本題</strong>(要点7)。クラスタの切り方・LOD の DAG・2パスのオクルージョン・小さい三角形のソフトウェアラスタライズ・visibility buffer。Day 64a〜65c でやったことが、どこにどう載っているかを探しながら読む</li><li><strong>Day 65b の計画書</strong>の要点2(どの段を読むか)と検証2(粗い段はほとんど「何も無い」)</li></ul>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. 2パス — 「深度は描かないと無い」をどう解くか</h3>
+<p>隠れているかを知るには、そのフレームの深度が要る。でも深度は描いた後にしか無い。<strong>全部描いてから隠れを調べても、もう描いてしまっている</strong>。</p>
+<p>解き方は「<strong>前のフレームとあまり変わらないだろう</strong>」と当てにすること。</p>
+<div class="code"><pre><code>  フレーム N
+    早いパス : 見えた印(フレーム N−1 の遅いパスが書いた)が立っているものを描く   ← 判定しない
+    Hi-Z     : 早いパスの深度から作る
+    遅いパス : 全部を Hi-Z と比べる
+               ├ 見える、かつ早いパスで描いていない → 描き足す
+               ├ 見える、かつ早いパスで描いた       → 何もしない(もう描いてある)
+               └ 隠れている / 画面の外 / 裏向き     → 捨てる
+               見えたかどうかを印に書く(→ フレーム N+1 の早いパスへ)</code></pre></div>
+<p><strong>絵が正しくなる理由</strong>を順に確かめる。</p>
+<ul><li>遅いパスの Hi-Z は、<strong>早いパスで実際に描いた物の深度だけ</strong>でできている。そこで「隠れている」と言われたものは、早いパスで描いた物の後ろに本当に隠れている(Day 65b の要点1)。<strong>描き足さなくても絵は同じ</strong></li><li>「見える」と言われたものは、早いパスで描いたか、遅いパスで描き足すかのどちらか。<strong>見えるものは必ずどちらかで描かれる</strong></li><li>前のフレームで見えていて今は隠れているものは、早いパスで描かれる。深度テストで負けるので<strong>絵には出ない</strong>(値段だけ払う)</li></ul>
+<p>カメラを大きく振った直後のフレームは、早いパスがほとんど何も描かず(当てが外れる)、遅いパスが全部を描く——<strong>1パスに戻るだけ</strong>。起動直後の最初のフレームもこれ(印は全部 0 から始まる)。</p>
+<p><strong>カリングの目を止めた(<code>F</code>)とき</strong>は、遅いパスを走らせない。Hi-Z は描く目の深度なので、止めた目の判定には使えないから。すると早いパスが<strong>止めた瞬間の印のまま</strong>描き続けるので、回り込むと「止めたときに見えていなかったもの」が全部穴になって見える。Day 64b の <code>F</code>(捨てた穴を横から見る)の2パス版。</p>
+<div class="inject"><figure class="lab" id="tp-lab">
+  <div class="lab-head">
+    <h3>2パスを動かす — 見えた印が落ち着くまで、そして視点が飛んだとき(要点1・2・4)</h3>
+    <span class="tag">cull.comp と meshlet.task の EARLY / LATE(印が立っていて画面の外・裏向きでないものを描く → その深度から Hi-Z → 全部を occluded() で調べ直して、描き足す・印を書き直す)と common.glsl の occluded() を JS に移して、1フレームずつ進めたもの(GPU ではない)。選ぶのはタスクの道(cullFlags = 視錐台 + 背面 + 見える体を全部送る)。印は reference と同じ2本(体ごと・メッシュレットごと)で、起動直後は全部 0。絵は 960x540 でソフトウェアに描き、「1パス(全部描く)の絵との違い」を画素で数える(検証1のソフトウェア版)。GPU の時間と、GPU が実際に描いた三角形の数はここでは測れない</span>
+  </div>
+  <div class="stage"><canvas id="tp-canvas" style="height:420px;background:#12151c" aria-label="2パスで描かれたメッシュレットを、早いパス(青)・遅いパスで描き足したもの(橙)に塗り分け、隠れて捨てたもの(赤)を透かして重ねた絵"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の数(1 / 2 / 3 / 4)</span>
+      <div class="seg" id="tp-count"><button data-v="1" aria-pressed="false">1</button><button data-v="16" aria-pressed="true">16</button><button data-v="64" aria-pressed="false">64</button><button data-v="256" aria-pressed="false">256</button></div>
+    </div>
+    <div class="ctl"><span class="label">見下ろす角度(V で低い視点。0.02 は計画書の検証2の表の行で、このページだけ)</span>
+      <div class="seg" id="tp-pitch"><button data-v="default" aria-pressed="true">既定(0.30)</button><button data-v="0.12" aria-pressed="false">低い視点(0.12)</button><button data-v="0.02" aria-pressed="false">もっと低い(0.02)</button></div>
+    </div>
+    <div class="ctl"><span class="label">フレームを進める(このページだけ)</span>
+      <div class="seg" id="tp-step" style="display:flex;gap:6px"><button type="button" data-v="step" aria-pressed="false">次のフレーム</button><button type="button" data-v="jump" aria-pressed="false">視点を飛ばして1フレーム</button><button type="button" data-v="reset" aria-pressed="false">印を捨てる(起動直後)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tp-stats"></div><div class="table-wrap" id="tp-table" style="margin-top:10px"></div><p id="tp-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">2. 見えた印 — フレームをまたいで GPU の上に残す</h3>
+<p>「前のフレームで見えていたか」は、<strong>GPU の上のバッファに書き残す</strong>。CPU へは読み戻さない(読み戻すと1フレーム待つことになる)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>印</th><th>大きさ</th><th>書く人</th><th>読む人</th></tr></thead>
+<tbody>
+<tr><td>体ごと(binding 11)</td><td>uint x 256</td><td>遅いパスの cull.comp</td><td>次のフレームの早いパスの cull.comp</td></tr>
+<tr><td>メッシュレットごと(binding 10)</td><td>uint x 256 x 468 = 約 12 万</td><td>遅いパスのタスクシェーダ</td><td>次のフレームの早いパスのタスクシェーダ</td></tr>
+</tbody>
+</table></div>
+<p>どちらも<strong>作ったときに 0 で埋める</strong>(<code>MeshRenderer.CreateZeroed</code>)。今日の全部の状態のうち、フレームをまたいで残るのはこの2本だけ。</p>
+<p>cull.comp とタスクシェーダは、定義を変えて<strong>3通りに翻訳する</strong>(Day 62b の <code>trace.comp</code>、Day 64b の <code>meshlet.mesh</code> と同じ手)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>定義</th><th>cull.comp</th><th>meshlet.task</th></tr></thead>
+<tbody>
+<tr><td>なし(1パス)</td><td>画面の外の体を捨てる(Day 65a)</td><td>画面の外と裏向きのメッシュレットを捨てる(Day 64b)</td></tr>
+<tr><td><code>EARLY</code></td><td>印が立っていて、画面の中にいる体</td><td>印が立っていて、画面の外でも裏向きでもないメッシュレット</td></tr>
+<tr><td><code>LATE</code></td><td>画面の外 / <strong>隠れている</strong>を判定。印を書き直す</td><td>画面の外 / 裏向き / <strong>隠れている</strong>を判定。早いパスで描いていないものを描く。印を書き直す</td></tr>
+</tbody>
+</table></div>
+<p>一覧と引数は、早いパス用と遅いパス用を<strong>1本のバッファの前半と後半</strong>に持つ(一覧は体の数 x 2、引数は <code>DrawArguments</code> x 2)。描く命令は「どちらの半分を読むか」を<strong>プッシュ定数</strong>(<code>listOffset</code>)で受け取る。uniform buffer は1フレームに1回しか書き換えられないが、プッシュ定数は<strong>描く命令の合間に積める</strong>——同じパイプラインのまま、1回目と2回目で値だけ変えられる。</p>
+<h3 id="s7">3. 隠れの判定 — 球を箱にして、Hi-Z の 2x2 と比べる</h3>
+<p><code>common.glsl</code> の <code>occluded(center, radius)</code>。遅いパス(<code>LATE</code>)の cull.comp とタスクシェーダだけが使う。</p>
+<ol><li>球を囲む<strong>立方体の8つの角</strong>を、描く目の <code>viewProj</code> で画面に投影する → 画面の上の<strong>箱</strong>と、角の<strong>いちばん手前の深度</strong></li><li>どれかの角が目の後ろ(<code>w ≤ 0</code>)や手前の切り口より手前(<code>z &lt; 0</code>)にかかったら、投影が裏返って箱が壊れるので<strong>判定しない</strong>(見えるとする)</li><li>箱の差し渡し e 画素から、2^(L+1) ≥ e となる段 L を選ぶ(Day 65b の要点2)。箱がかかる Hi-Z の画素は多くても 2x2</li><li>その画素の<strong>いちばん奥</strong>と、角のいちばん手前を比べる。<strong>手前 &gt; 奥なら隠れている</strong>。等しいときは捨てない</li></ol>
+<div class="code"><span class="lang">glsl</span><pre><code>float extent = max(pmax.x - pmin.x, pmax.y - pmin.y);
+int level = clamp(int(ceil(log2(max(extent, 1.0)))) - 1, 0, int(frame.screen.z) - 1);
+float texel = exp2(float(level + 1));
+ivec2 t0 = min(ivec2(floor(pmin / texel)), levelSize - 1);
+ivec2 t1 = min(ivec2(floor(pmax / texel)), levelSize - 1);
+// t0〜t1 の Hi-Z の画素のいちばん奥 → farthest
+return nearest &gt; farthest;</code></pre></div>
+<p><strong>立方体は球より大きい</strong>ので、箱は少し大きく、深度は少し手前に出る。どちらも「隠れていない」側に倒れる(安全側)。立方体の8つの角のいちばん手前は、球のいちばん手前以下になる(深度は目の奥行き方向の距離だけで決まり、立方体はその方向に球を覆っている)。</p>
+<p><strong>比べる深度には余裕を持たせない</strong>。手前 &gt; 奥 − 0.002 のように少しでも甘くすると、576 回の突き合わせのうち 236 回(4 割)で絵が変わった(検証1 のわざと壊した実験)。深度の値は奥で詰まっている(Day 65b の要点5)ので、0.002 は数十 cm〜数 m の差になる。</p>
+<div class="inject"><figure class="lab" id="ep-lab">
+  <div class="lab-head">
+    <h3>比べる深度に余裕を持たせると、見えているものを捨てる(要点3、検証1のわざと壊した実験)</h3>
+    <span class="tag">occluded() の最後の比べ(nearest > farthest)を、nearest > farthest − 余裕 に変えて、見えた印が落ち着いたあと(3フレーム後)の絵を、1パス(全部描く)の絵と画素で突き合わせたもの(ソフトウェア描画。GPU ではない)。「見えているのに捨てた」は、1パスの絵に1画素でも出ているメッシュレットのうち、2パスが描かなかったもの。余裕 0 が reference で、ほかはこのページだけ。計画書の検証1は 36 の場面 x 16 回の視点の動き = 576 回の GPU の絵の突き合わせで、このページはそのうちの1回に当たる</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">場面</span>
+      <div class="seg" id="ep-scene"><button data-v="16|default" aria-pressed="true">16 体・既定</button><button data-v="64|default" aria-pressed="false">64 体・既定</button><button data-v="256|0.12" aria-pressed="false">256 体・低い視点</button></div>
+    </div>
+    <div class="ctl"><span class="label">比べる深度の余裕</span>
+      <div class="seg" id="ep-eps"><button data-v="0" aria-pressed="true">0(reference)</button><button data-v="0.0005" aria-pressed="false">0.0005</button><button data-v="0.002" aria-pressed="false">0.002(検証1)</button><button data-v="0.01" aria-pressed="false">0.01</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ep-stats"></div><canvas id="ep-canvas" style="height:300px;margin-top:10px;background:#12151c" aria-label="1パスの絵と違う画素を赤で示した図"></canvas><p id="ep-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">4. 遅いパスが描き足すもの — 体の印とメッシュレットの印</h3>
+<p>遅いパスは「見える、かつ早いパスで描いていない」ものを描く。<strong>早いパスで描いたかどうか</strong>の決め方が、道によって違う。</p>
+<p><strong>頂点の道・メッシュの道</strong>は体を丸ごと描く。早いパスで描いたかは<strong>体の印だけ</strong>で決まる。遅いパスの cull.comp は「見える、かつ印が立っていなかった」体だけを一覧に載せる。</p>
+<p><strong>タスクの道</strong>は、体の中でメッシュレットごとに描く・描かないが分かれる。前のフレームで体は見えていても、<strong>その体のどのメッシュレットが見えていたか</strong>は別。だから遅いパスの cull.comp は<strong>見える体を全部</strong>一覧に載せ、タスクシェーダがメッシュレットの印で描き足すものを決める。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// meshlet.task(LATE)
+bool drawnEarly = drawnInstanceWasVisible(gl_WorkGroupID.y) &amp;&amp; inRange &amp;&amp; meshletVisible[visibilityIndex] != 0u;
+bool draw = visible &amp;&amp; !drawnEarly;
+meshletVisible[visibilityIndex] = visible ? 1u : 0u;   // 次のフレームのために書き直す</code></pre></div>
+<p>「体が前のフレームで見えていたか」は、cull.comp が一覧の番号の<strong>いちばん上のビット</strong>に載せて渡す(<code>0x80000000</code>)。遅いパスの cull.comp は体の印を書き直してしまうので、タスクシェーダが体の印を直接読むと<strong>今のフレームの値</strong>になってしまう。だから書き直す前の値を番号に載せて運ぶ。番号を読む3つのシェーダは <code>drawnInstance()</code>(ビットを落とす)を通す。</p>
+<p>早いパスと遅いパスは<strong>同じ目・同じ式</strong>で画面の外と裏向きを判定する。だから「早いパスで描いた」ものは、遅いパスでも必ず(隠れの判定を足す前の段階で)「見える」側に入る。この前提が崩れると、早いパスで描いたものを遅いパスがもう一度描く(絵は同じだが値段が倍になる)か、どちらでも描かない(穴が開く)。</p>
+<h3 id="s9">5. 体ごとは効かない、メッシュレットごとは効く</h3>
+<p>256 体・タスクの道で、2つの単位の判定がそれぞれ何を捨てたか(遅いパスが数えた値)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>視点</th><th>隠れて捨てた体</th><th>隠れて捨てたメッシュレット</th><th>ラスタライザへの三角形(1パス → 2パス)</th></tr></thead>
+<tbody>
+<tr><td>既定(見下ろす角度 0.30)</td><td><strong>0 / 110</strong></td><td>15.0%</td><td>245 万 → 207 万</td></tr>
+<tr><td>低い(0.12。<code>V</code>)</td><td><strong>0 / 111</strong></td><td><strong>45.4%</strong></td><td>249 万 → <strong>80 万</strong></td></tr>
+<tr><td>もっと低い(0.02)</td><td>2 / 111</td><td>56.3%</td><td>250 万 → 30 万</td></tr>
+</tbody>
+</table></div>
+<p>体ごとの判定がほとんど効かないのは、Day 65b の検証2 のとおり。体1つは画面で 100〜500 画素あり、それを覆う Hi-Z の段(段 5〜7)はほぼ全部が「何も無い」になっている。トーラスノットの穴から奥の空が見えているから。メッシュレットは画面で数十画素なので、段 3〜4 で比べられ、手前の管の「中」にすっぽり入るものが多い。</p>
+<p><strong>1体だけの場面でも 4.7% が隠れて捨てられる</strong>(検証2)。体は1つなのに——自分の手前の管が、自分の奥の管を隠している。メッシュレット単位なら、1つの物の中の<strong>自分で自分を隠す</strong>部分も捨てられる。</p>
+<div class="inject"><figure class="lab" id="lv-lab">
+  <div class="lab-head">
+    <h3>体ごとは効かない、メッシュレットごとは効く(要点5、検証2)</h3>
+    <span class="tag">「2パスを動かす」と同じ 2パスを、計画書の検証2の7つの場面で、見えた印が落ち着くまで(4 フレーム)進めて数えたもの(ソフトウェア描画。GPU ではない)。「数える」を押すと順に数える(256 体の場面は 1 つにつき数秒)。計画書の列は GPU の実測。1パスの三角形は同じ式で出していて、計画書と同じ。2パスの三角形は、境目のメッシュレットの判定が分かれて、GPU の実測と 1〜2 メッシュレット(100〜200 枚ほど)ずれることがある</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">全部の場面を数える</span>
+      <div><button type="button" id="lv-run" style="padding:6px 14px">数える</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="lv-table"></div><p id="lv-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s10">6. 値段 — 隠れるものが無くても払う分</h3>
+<p>2パスにすると、隠れるものが1つも無くても次の分を払う。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>追加で払うもの</th><th>256 体での値段(ハーネス)</th></tr></thead>
+<tbody>
+<tr><td>Hi-Z を作る(9 回のディスパッチ)</td><td>25 us 前後(Day 65b)</td></tr>
+<tr><td>遅いパス(cull.comp をもう1回 + 見える体のタスクシェーダをもう1回)</td><td>40 us 前後</td></tr>
+<tr><td>描画を2回に分ける(描画の始めと終わり、深度のレイアウトの行き来)</td><td>上に含まれる</td></tr>
+</tbody>
+</table></div>
+<p>代わりに減るのは、隠れて捨てたメッシュレットの三角形。</p>
+<ul><li>低い視点・256 体: 描く時間が大きく減り、合わせて <strong>0.447 → 0.212 ms</strong>(0.47 倍)</li><li>既定の視点・256 体: <strong>0.448 → 0.406 ms</strong>(0.91 倍)</li><li>既定の視点・16 体: <strong>0.109 → 0.127 ms</strong>(1.17 倍。<strong>遅くなる</strong>)</li><li>頂点の道: 体が1つも隠れないので、描く量は変わらず、<strong>2パスの分だけ遅い</strong>(1.02〜1.04 倍)</li></ul>
+<p>(1パスの値にも Hi-Z を作る 25 us が入っている。Day 65b から、見ていなくても毎フレーム作っているので。)</p>
+<p><strong>2パスが得になるのは、隠れるものが多い場面だけ</strong>。AAA のゲームで2パスのオクルージョンカリングが当たり前なのは、街や屋内のように<strong>壁や建物が何でも隠す</strong>場面が多いから。穴だらけの物を並べた今日の場面は、むしろ不利な側。</p>
+<h3 id="s11">7. Nanite 講読 — Day 64a〜65c の上に何が載っているか</h3>
+<p>UE5 の Nanite(Karis 2021)は、今日までの材料をほぼ全部使い、その上に4つを足したもの。講演資料を読みながら、下の表の「今日まで」の列を確かめる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Nanite の部品</th><th>今日まで(Day 64a〜65c)</th><th>Nanite が足したもの</th></tr></thead>
+<tbody>
+<tr><td><strong>クラスタ</strong>(三角形 128 枚の小片)</td><td>メッシュレット(64 頂点・124 枚。Day 64a)</td><td>同じ考え。切り方は「境界が短く、まとまった形」を狙う(Day 64b の丸く育てる)</td></tr>
+<tr><td><strong>クラスタの LOD の DAG</strong></td><td>無し(Day 64b の改造課題3 で体ごとの LOD の入口だけ)</td><td>クラスタを数個ずつまとめ、<strong>まとまりの外周を動かさずに</strong>三角形を半分に減らして切り直す。これを繰り返して粗い版を積み上げる。外周を動かさないので、<strong>細かさの違うクラスタが隣り合っても亀裂が出ない</strong>(Day 63b の亀裂と比べる)</td></tr>
+<tr><td><strong>LOD の選び方</strong></td><td>無し</td><td>クラスタごとに「自分の誤差」と「1段粗い版の誤差」を持たせ、画面での大きさに直して閾値と比べる。<strong>「親の誤差 &gt; 閾値 ≥ 自分の誤差」のクラスタだけを描く</strong>。この条件はクラスタごとに独立に判定できるので、<strong>全部を並べて GPU で一斉に</strong>決められる</td></tr>
+<tr><td><strong>階層カリング</strong></td><td>体 → メッシュレット → 三角形(Day 65a)</td><td>クラスタのまとまりに BVH を作り、GPU の上で木を下りながら捨てる(常駐させたスレッドが仕事の列を回す)</td></tr>
+<tr><td><strong>2パスのオクルージョン</strong></td><td><strong>今日</strong>(早いパス → Hi-Z → 遅いパス)</td><td>同じ。「前のフレームに見えていたクラスタ」を先に描いて Hi-Z(HZB)を作り、残りを調べる</td></tr>
+<tr><td><strong>小さい三角形のラスタライズ</strong></td><td>無し(全部ハードウェア)</td><td>画面で数画素より小さい三角形は、<strong>コンピュートシェーダで自前にラスタライズ</strong>する。ハードウェアのラスタライザは 2x2 画素の組で動くので、1画素の三角形では 4 倍の手間になる</td></tr>
+<tr><td><strong>visibility buffer</strong></td><td>無し(画素シェーダで色まで出す)</td><td>画素には「どのクラスタの何番目の三角形か」と深度だけを書き(64 ビットの atomic で深度と一緒に)、<strong>材質の計算は後で画面の画素ごとに1回</strong>だけやる</td></tr>
+</tbody>
+</table></div>
+<p>読むときの問い:</p>
+<ol><li><strong>Nanite のクラスタが 128 枚なのはなぜか</strong>。今日のメッシュレット(124 枚)とほぼ同じ大きさになっているのは偶然か(ヒント: Day 64a の要点——1ワークグループで扱える量)</li><li><strong>「親の誤差 &gt; 閾値 ≥ 自分の誤差」がクラスタごとに独立に判定できるためには、誤差にどんな性質が要るか</strong>(ヒント: 親は必ず子より粗い → 誤差は親のほうが大きい)</li><li><strong>今日の2パスで「隠れて丸ごと捨てた体」が 0 だった</strong>のに対し、Nanite は何を単位に隠れを調べているか。今日の結果(要点5)と照らしてなぜそうするのか</li><li><strong>小さい三角形をソフトウェアでラスタライズする</strong>のは、Day 63a のジオメトリシェーダや Day 63b のテッセレーションが「細かくするほど遅い」と分かったことと、どうつながるか</li></ol>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<p>無し。</p>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>何を足したか</th></tr></thead>
+<tbody>
+<tr><td><code>Day65c.csproj</code></td><td>コメントのみ</td><td>cull.comp と meshlet.task を3通りに翻訳することの説明</td></tr>
+<tr><td><code>shaders/common.glsl</code></td><td>+117 / −3</td><td><code>Frame</code> に画面の大きさと段の数、プッシュ定数 <code>Pass</code>、数え上げ(binding 7)をここへ移して 8 欄に、<code>drawnInstance()</code>、Hi-Z(binding 12)と <code>occluded()</code></td></tr>
+<tr><td><code>shaders/meshlet.task</code></td><td>+61 / −15</td><td><code>TASK_STAGE</code>、数え上げの宣言を消す、メッシュレットの印(binding 10)、<code>EARLY</code> / <code>LATE</code>、隠れの判定</td></tr>
+<tr><td><code>shaders/meshlet.mesh</code></td><td>+1 / −1</td><td><code>drawnInstance()</code> を通す</td></tr>
+<tr><td><code>shaders/scene.vert</code></td><td>+1 / −1</td><td><code>drawnInstance()</code> を通す</td></tr>
+<tr><td><code>shaders/cull.comp</code></td><td>+85 / −13</td><td>引数を2つ、体の印(binding 11)、<code>append()</code>、<code>EARLY</code> / <code>LATE</code></td></tr>
+<tr><td><code>Scene/SceneData.cs</code></td><td>+7 / −0</td><td><code>LowView</code>(低い視点)</td></tr>
+<tr><td><code>Vulkan/MeshRenderer.cs</code></td><td>+432 / −139</td><td><code>GpuTwoPass</code>、<code>TwoPassStatistics</code>、印のバッファ、パイプライン4本、binding 10〜12、プッシュ定数、<code>BeginRendering</code> / <code>RecordDraw</code> / <code>RecordLatePass</code> への切り出し、時計を8目盛りに</td></tr>
+<tr><td><code>App/ViewerWindow.cs</code></td><td>+53 / −10</td><td><code>G</code> の先頭に2パス、<code>V</code>、HUD の「体」「判定」「1枚」「内訳」</td></tr>
+<tr><td><code>Program.cs</code></td><td>+11 / −6</td><td>説明の差し替え(コメントのみ)</td></tr>
+</tbody>
+</table></div>
+<p><code>MeshRenderer.cs</code> の +432 / −139 のうち 100 行ほどは、Day 65b の <code>Render</code> の中にあった描く命令のブロックと描き始めの設定を、<code>RecordDraw</code> / <code>BeginRendering</code> へ<strong>移しただけ</strong>(中身はほぼ同じ)。差分を読むときは、移した先と移す前を並べて読むとよい。</p>
+<h3 id="s15">写経の始め方</h3>
+<p><code>work/Labs/MeshletRenderer</code> をそのまま育てる(Day 64a から続いているプロジェクト)。差分は <code>./diff.sh Day65c</code> で見られる。</p>
+<h3 id="s16">写経する順番</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>ファイル</th><th>何が要るか / 気をつけるところ</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>shaders/common.glsl</code></td><td><code>Frame</code> の末尾に <code>uvec4 screen</code>。数え上げ(binding 7)の宣言を <code>meshlet.task</code> から<strong>ここへ移す</strong>(<code>#if defined(CULL_INSTANCES) || defined(TASK_STAGE)</code>)。<code>occluded()</code> は <code>#ifdef LATE</code> の中</td></tr>
+<tr><td>2</td><td><code>shaders/meshlet.task</code></td><td><strong>1 と同時に</strong>。数え上げの宣言を消さないと同じブロックが2つになる。<code>#define TASK_STAGE</code> は <code>#include</code> より前</td></tr>
+<tr><td>3</td><td><code>shaders/meshlet.mesh</code></td><td>1 の <code>drawnInstance()</code> を使う</td></tr>
+<tr><td>4</td><td><code>shaders/scene.vert</code></td><td>同じ</td></tr>
+<tr><td>5</td><td><code>shaders/cull.comp</code></td><td>1 を使う。引数のブロックを <code>DrawArguments args[2]</code> に。頭に <code>GL_EXT_samplerless_texture_functions</code></td></tr>
+<tr><td>6</td><td><code>Scene/SceneData.cs</code></td><td>依存なし</td></tr>
+<tr><td>7</td><td><code>Vulkan/MeshRenderer.cs</code></td><td>1〜5 を使う。<code>FrameUniforms</code> を 1 の <code>Frame</code> と合わせる(末尾に uint 4つ)。binding は 13 本、12 番だけ画像</td></tr>
+<tr><td>8</td><td><code>App/ViewerWindow.cs</code></td><td>6・7 を使う(<code>SceneData.LowView</code>、<code>LastTwoPass</code>、<code>LastTotalMilliseconds</code>、<code>CullingStatistics.OcclusionCulled</code>)</td></tr>
+<tr><td>9</td><td><code>Program.cs</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+<tr><td>10</td><td><code>Day65c.csproj</code></td><td>コメントのみ。差分0にしたいなら合わせておく</td></tr>
+</tbody>
+</table></div>
+<blockquote><p><strong>動かすのは 8 まで写してから</strong>(7 まで写せばビルドは通るが、<code>G</code> の先頭に2パスが無いので、2パスを選ぶ手段が無い)。シェーダは起動時に翻訳されるので、1〜5 の間違いは起動すると HUD に翻訳エラーとして出る。動いたら、<code>G</code> で「GPU で選ぶ」(1パス)が Day 65b と同じに動くことを先に確かめ、それから2パスに戻す。2パスで<strong>何も出ない</strong> → 早いパスの印と遅いパスの一覧(5・7。遅いパスが走っているか HUD の「遅いパス」の体の数を見る)/ <strong>体がちらつく・一部が欠ける</strong> → 遅いパスの <code>drawnEarly</code>(2)か、プッシュ定数の <code>listOffset</code>(7)/ <strong>欠けないが「隠れている」が 0%</strong> → <code>occluded()</code> の段の選び方か、Hi-Z のディスクリプタ(1・7)</p></blockquote>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p>Day 65b から<strong>クラスは増えていない</strong>(増えたのは記録1つと、<code>MeshRenderer</code> の中の列挙1つ)。層の形も変わらない。変わったのは、<code>MeshRenderer.Render</code> が<strong>1フレームに2回描く</strong>ようになったことと、GPU の上に<strong>フレームをまたいで残る状態</strong>(見えた印)ができたこと。</p>
+<h3 id="s18">全体構成と依存の向き</h3>
+<svg viewBox="0 0 978 880" role="img" aria-label="全体構成と依存の向き。行が使う側、列が使われる側の行列(点が1つ = 1本の矢印)。Program.cs が App/ViewerWindow.cs を使う。App/ViewerWindow.cs が Vulkan/MeshRenderer.cs を使う。App/ViewerWindow.cs が Vulkan/VulkanDevice.cs を使う。App/ViewerWindow.cs が Vulkan/ShaderCompiler.cs を使う。App/ViewerWindow.cs が Geometry/MeshletBuilder.cs を使う。App/ViewerWindow.cs が Geometry/TorusKnot.cs を使う。App/ViewerWindow.cs が Scene/SceneData.cs を使う。App/ViewerWindow.cs が Scene/Camera.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/GraphicsPipeline.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/ComputePipeline.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/DepthPyramid.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanBuffer.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/VulkanImage.cs を使う。Vulkan/MeshRenderer.cs が Vulkan/ShaderCompiler.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshletBuilder.cs を使う。Vulkan/MeshRenderer.cs が Geometry/MeshData.cs を使う。Vulkan/MeshRenderer.cs が Scene/Camera.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/ComputePipeline.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/VulkanImage.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/ShaderCompiler.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/VulkanBuffer.cs を使う。Vulkan/DepthPyramid.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/ComputePipeline.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/GraphicsPipeline.cs が Vulkan/VulkanImage.cs を使う。Vulkan/GraphicsPipeline.cs が Geometry/MeshData.cs を使う。Vulkan/VulkanBuffer.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanDevice.cs を使う。Vulkan/VulkanImage.cs が Vulkan/VulkanBuffer.cs を使う。Geometry/MeshletBuilder.cs が Geometry/MeshData.cs を使う。Geometry/TorusKnot.cs が Geometry/MeshData.cs を使う。Scene/SceneData.cs が Scene/Camera.cs を使う。使われる側が必ず後ろの列にあるので、点は対角線の右上にしか並ばない = 循環は無い" style="width:100%;max-width:978px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><polygon points="408,150 408,840 888,840" fill="var(--sunken)" opacity="0.55"></polygon><text x="414" y="830" font-size="12" fill="var(--muted)">この三角形には点が 1 つも無い</text><line x1="408" y1="150" x2="888" y2="150" stroke="var(--line)"></line><line x1="408" y1="150" x2="408" y2="840" stroke="var(--line)"></line><line x1="408" y1="196" x2="888" y2="196" stroke="var(--line)"></line><line x1="440" y1="150" x2="440" y2="840" stroke="var(--line)"></line><line x1="408" y1="242" x2="888" y2="242" stroke="var(--line)"></line><line x1="472" y1="150" x2="472" y2="840" stroke="var(--line)"></line><line x1="408" y1="288" x2="888" y2="288" stroke="var(--line)"></line><line x1="504" y1="150" x2="504" y2="840" stroke="var(--line)"></line><line x1="408" y1="334" x2="888" y2="334" stroke="var(--line)"></line><line x1="536" y1="150" x2="536" y2="840" stroke="var(--line)"></line><line x1="408" y1="380" x2="888" y2="380" stroke="var(--line)"></line><line x1="568" y1="150" x2="568" y2="840" stroke="var(--line)"></line><line x1="408" y1="426" x2="888" y2="426" stroke="var(--line)"></line><line x1="600" y1="150" x2="600" y2="840" stroke="var(--line)"></line><line x1="408" y1="472" x2="888" y2="472" stroke="var(--line)"></line><line x1="632" y1="150" x2="632" y2="840" stroke="var(--line)"></line><line x1="408" y1="518" x2="888" y2="518" stroke="var(--line)"></line><line x1="664" y1="150" x2="664" y2="840" stroke="var(--line)"></line><line x1="408" y1="564" x2="888" y2="564" stroke="var(--line)"></line><line x1="696" y1="150" x2="696" y2="840" stroke="var(--line)"></line><line x1="408" y1="610" x2="888" y2="610" stroke="var(--line)"></line><line x1="728" y1="150" x2="728" y2="840" stroke="var(--line)"></line><line x1="408" y1="656" x2="888" y2="656" stroke="var(--line)"></line><line x1="760" y1="150" x2="760" y2="840" stroke="var(--line)"></line><line x1="408" y1="702" x2="888" y2="702" stroke="var(--line)"></line><line x1="792" y1="150" x2="792" y2="840" stroke="var(--line)"></line><line x1="408" y1="748" x2="888" y2="748" stroke="var(--line)"></line><line x1="824" y1="150" x2="824" y2="840" stroke="var(--line)"></line><line x1="408" y1="794" x2="888" y2="794" stroke="var(--line)"></line><line x1="856" y1="150" x2="856" y2="840" stroke="var(--line)"></line><line x1="408" y1="840" x2="888" y2="840" stroke="var(--line)"></line><line x1="888" y1="150" x2="888" y2="840" stroke="var(--line)"></line><text x="400" y="176.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Program.cs</text><text x="16" y="177" fill="var(--muted)" font-size="12">1</text><text transform="translate(428 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">1 Program</text><rect x="409" y="151" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="207.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">App/ViewerWindow.cs</text><text x="400" y="222.5" text-anchor="end" fill="var(--muted)" font-size="11.5">窓・ループ・HUD・入力</text><text x="400" y="236.5" text-anchor="end" fill="var(--muted)" font-size="11.5">（目を2つ持つ・体の選び方・Hi-Z の段を描く）</text><text x="16" y="223" fill="var(--muted)" font-size="12">2</text><text transform="translate(460 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">2 ViewerWindow</text><rect x="441" y="197" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="253.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/MeshRenderer.cs</text><text x="400" y="268.5" text-anchor="end" fill="var(--muted)" font-size="11.5">ディスクリプタ・3つの道・体を選ぶパス</text><text x="400" y="282.5" text-anchor="end" fill="var(--muted)" font-size="11.5">2パス・見えた印・計測・数え上げ・引数</text><text x="16" y="269" fill="var(--muted)" font-size="12">3</text><text transform="translate(492 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">3 MeshRenderer</text><rect x="473" y="243" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="307" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/GraphicsPipeline.cs</text><text x="400" y="322" text-anchor="end" fill="var(--muted)" font-size="11.5">固定機能の設定 + シェーダ</text><text x="16" y="315" fill="var(--muted)" font-size="12">4</text><text transform="translate(524 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">4 GraphicsPipeline</text><rect x="505" y="289" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="345.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/DepthPyramid.cs</text><text x="400" y="360.5" text-anchor="end" fill="var(--muted)" font-size="11.5">Hi-Z の画像・段ごとのセット</text><text x="400" y="374.5" text-anchor="end" fill="var(--muted)" font-size="11.5">9 回のディスパッチ</text><text x="16" y="361" fill="var(--muted)" font-size="12">5</text><text transform="translate(556 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">5 DepthPyramid</text><rect x="537" y="335" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="399" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/ComputePipeline.cs</text><text x="400" y="414" text-anchor="end" fill="var(--muted)" font-size="11.5">シェーダ 1 本 + レイアウト</text><text x="16" y="407" fill="var(--muted)" font-size="12">6</text><text transform="translate(588 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">6 ComputePipeline</text><rect x="569" y="381" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="445" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/SceneData.cs</text><text x="400" y="460" text-anchor="end" fill="var(--muted)" font-size="11.5">体の並べ方・視点・低い視点</text><text x="16" y="453" fill="var(--muted)" font-size="12">7</text><text transform="translate(620 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">7 SceneData</text><rect x="601" y="427" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="483.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshletBuilder.cs</text><text x="400" y="498.5" text-anchor="end" fill="var(--muted)" font-size="11.5">丸く育てる / 育てる / 並び順のまま</text><text x="400" y="512.5" text-anchor="end" fill="var(--muted)" font-size="11.5">球と円錐</text><text x="16" y="499" fill="var(--muted)" font-size="12">8</text><text transform="translate(652 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">8 MeshletBuilder</text><rect x="633" y="473" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="544.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/TorusKnot.cs</text><text x="16" y="545" fill="var(--muted)" font-size="12">9</text><text transform="translate(684 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">9 TorusKnot</text><rect x="665" y="519" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="583" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanImage.cs</text><text x="400" y="598" text-anchor="end" fill="var(--muted)" font-size="11.5">色と深度の的・Hi-Z の画像</text><text x="16" y="591" fill="var(--muted)" font-size="12">10</text><text transform="translate(716 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">10 VulkanImage</text><rect x="697" y="565" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="636.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanBuffer.cs</text><text x="16" y="637" fill="var(--muted)" font-size="12">11</text><text transform="translate(748 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">11 VulkanBuffer</text><rect x="729" y="611" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="675" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/ShaderCompiler.cs</text><text x="400" y="690" text-anchor="end" fill="var(--muted)" font-size="11.5">GLSL to SPIR-V + include + define</text><text x="16" y="683" fill="var(--muted)" font-size="12">12</text><text transform="translate(780 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">12 ShaderCompiler</text><rect x="761" y="657" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="713.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Scene/Camera.cs</text><text x="400" y="728.5" text-anchor="end" fill="var(--muted)" font-size="11.5">OrbitView / 行列 / 視錐台の6面</text><text x="400" y="742.5" text-anchor="end" fill="var(--muted)" font-size="11.5">球の内外 / 手前と奥の切り口</text><text x="16" y="729" fill="var(--muted)" font-size="12">13</text><text transform="translate(812 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">13 Camera</text><rect x="793" y="703" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="759.5" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Geometry/MeshData.cs</text><text x="400" y="774.5" text-anchor="end" fill="var(--muted)" font-size="11.5">GpuVertex / MeshData</text><text x="400" y="788.5" text-anchor="end" fill="var(--muted)" font-size="11.5">形全体の球</text><text x="16" y="775" fill="var(--muted)" font-size="12">14</text><text transform="translate(844 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">14 MeshData</text><rect x="825" y="749" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><text x="400" y="813" text-anchor="end" fill="var(--ink)" font-family="var(--font-mono)" font-size="12.5">Vulkan/VulkanDevice.cs</text><text x="400" y="828" text-anchor="end" fill="var(--muted)" font-size="11.5">1.3 / 描画キュー / mesh_shader + task</text><text x="16" y="821" fill="var(--muted)" font-size="12">15</text><text transform="translate(876 142) rotate(-55)" fill="var(--ink)" font-family="var(--font-mono)" font-size="12">15 VulkanDevice</text><rect x="857" y="795" width="30" height="44" fill="none" stroke="var(--line)" stroke-dasharray="2 3"></rect><circle cx="456" cy="173" r="7" fill="var(--accent)"></circle><circle cx="488" cy="219" r="7" fill="var(--accent)"></circle><circle cx="872" cy="219" r="7" fill="var(--accent)"></circle><circle cx="776" cy="219" r="7" fill="var(--accent)"></circle><circle cx="648" cy="219" r="7" fill="var(--accent)"></circle><circle cx="680" cy="219" r="7" fill="var(--accent)"></circle><circle cx="616" cy="219" r="7" fill="var(--accent)"></circle><circle cx="808" cy="219" r="7" fill="var(--accent)"></circle><circle cx="520" cy="265" r="7" fill="var(--accent)"></circle><circle cx="584" cy="265" r="7" fill="var(--accent)"></circle><circle cx="552" cy="265" r="7" fill="var(--accent)"></circle><circle cx="872" cy="265" r="7" fill="var(--accent)"></circle><circle cx="744" cy="265" r="7" fill="var(--accent)"></circle><circle cx="712" cy="265" r="7" fill="var(--accent)"></circle><circle cx="776" cy="265" r="7" fill="var(--accent)"></circle><circle cx="648" cy="265" r="7" fill="var(--accent)"></circle><circle cx="840" cy="265" r="7" fill="var(--accent)"></circle><circle cx="808" cy="265" r="7" fill="var(--accent)"></circle><circle cx="584" cy="357" r="7" fill="var(--accent)"></circle><circle cx="712" cy="357" r="7" fill="var(--accent)"></circle><circle cx="776" cy="357" r="7" fill="var(--accent)"></circle><circle cx="744" cy="357" r="7" fill="var(--accent)"></circle><circle cx="872" cy="357" r="7" fill="var(--accent)"></circle><circle cx="872" cy="403" r="7" fill="var(--accent)"></circle><circle cx="872" cy="311" r="7" fill="var(--accent)"></circle><circle cx="712" cy="311" r="7" fill="var(--accent)"></circle><circle cx="840" cy="311" r="7" fill="var(--accent)"></circle><circle cx="872" cy="633" r="7" fill="var(--accent)"></circle><circle cx="872" cy="587" r="7" fill="var(--accent)"></circle><circle cx="744" cy="587" r="7" fill="var(--accent)"></circle><circle cx="840" cy="495" r="7" fill="var(--accent)"></circle><circle cx="840" cy="541" r="7" fill="var(--accent)"></circle><circle cx="808" cy="449" r="7" fill="var(--accent)"></circle><text x="400" y="138" text-anchor="end" fill="var(--muted)" font-size="12">行の側が、列の側を使う →</text></g></svg><p class="note">mermaid の矢印図は、15 個の箱に 33 本の矢印が絡まって読めなかったので、行列に描き直した(辺は Day 65b と同じ。箱の説明だけが変わった)。行が使う側、列が使われる側で、点が1つ = 矢印1本。点は対角線の右上にしか出ない。左下の三角形が空なのが、循環が無いということ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>知っているもの</th><th>知らないもの</th><th>Day 65b からの変化</th></tr></thead>
+<tbody>
+<tr><td><code>Geometry/</code></td><td>自分の中だけ</td><td><strong>Vulkan を知らない</strong></td><td>なし</td></tr>
+<tr><td><code>Scene/</code></td><td>自分の中だけ</td><td>形も GPU も知らない</td><td><code>SceneData</code> に低い視点</td></tr>
+<tr><td><code>Vulkan/</code></td><td><code>Geometry/</code> の型と <code>Camera</code></td><td>窓を知らない</td><td><code>MeshRenderer</code> が2パスを持つ。<code>DepthPyramid</code> は<strong>1行も変わらない</strong>(呼ぶ場所が変わっただけ)</td></tr>
+<tr><td><code>App/</code></td><td>全部</td><td>—</td><td>2パスの内訳を HUD に出す</td></tr>
+</tbody>
+</table></div>
+<p><strong>循環は依然として無い</strong>。Day 65b で <code>DepthPyramid</code> を <code>MeshRenderer</code> を知らない形にしておいたので、「描き終わった後に作る」を「早いパスと遅いパスの間で作る」に変えても <code>DepthPyramid</code> は変わらなかった。</p>
+<p><strong>入れ替えると何が壊れるか</strong>を3つ。</p>
+<ul><li><strong>早いパスと遅いパスで、画面の外と裏向きの判定を同じ目・同じ式でやる</strong>という約束(要点4)。片方だけ式を変える(例えば遅いパスだけ背面カリングを切る)と、「早いパスで描いた」と「遅いパスで見える」が食い違う。早いパスで描かなかったのに遅いパスで「早いパスで描いた」扱いになるメッシュレットが出て、<strong>そのフレームだけ穴が開く</strong> (次のフレームで印が直るので、動かしたときだけちらつく。静止画の突き合わせでは見つからない)</li><li><strong>一覧の番号のいちばん上のビット</strong>(前のフレームでも見えていた)の約束が、cull.comp(載せる)と <code>common.glsl</code> の<code>drawnInstance()</code> / <code>drawnInstanceWasVisible()</code>(落とす・読む)の2か所にまたがっている。3つの描くシェーダのどれかが<code>visibleInstances[i]</code> を直接読むと、<strong>遅いパスでだけ</strong>体の番号が 2^31 ずれて、範囲の外の行列を読む</li><li><strong>比べる深度の向き</strong>(手前 0、奥 1。深度テストは Less)。深度を逆向き(手前 1、奥 0。reversed-Z)にすると精度は良くなるが、Hi-Z の max を min に、<code>nearest &gt; farthest</code> を <code>&lt;</code> に、立方体の角の「いちばん手前」を max に——と <strong>3か所を一緒に</strong>変える必要がある。1か所でも残すと、「隠れている」の判定が裏返って<strong>見えているものを捨てる</strong></li></ul>
+<h3 id="s19">Vulkan — 変わった4つのクラスと5つの型(Day 65c で <code>MeshRenderer</code> が2パスを持った)</h3>
+<svg viewBox="0 0 1330 748" role="img" aria-label="Vulkan のクラス図(Day 65c で MeshRenderer が2パスを持った。VulkanDevice・VulkanBuffer・VulkanImage・ShaderCompiler・DrawArguments・CullingMode は Day 65b から変わっていないので図から外してある)。DepthPyramid は ComputePipeline を持つ。MeshRenderer は GraphicsPipeline・ComputePipeline・DepthPyramid を持ち、Pass(Single・Early・Late)・InstanceSelection(GpuTwoPass・Gpu・Cpu・None)・FrameUniforms(画面の大きさと段の数が増えた)・CullingStatistics(OcclusionCulled が増えた)・TwoPassStatistics を使う" style="width:100%;max-width:1330px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="390" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="205" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">DepthPyramid</text><line x1="10" y1="38" x2="400" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Levels</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ImageView View</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LevelWidth(int) int</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LevelHeight(int) int</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Record(CommandBuffer) void</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecordCopyLevel(CommandBuffer, VulkanBuffer, int) void</text><rect x="10" y="230" width="450" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="235" y="249" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComputePipeline</text><line x1="10" y1="258" x2="460" y2="258" stroke="var(--line)"></line><text x="20" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="20" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, PipelineLayout, uint[]) ComputePipeline</text><rect x="10" y="350" width="520" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="270" y="369" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GraphicsPipeline</text><line x1="10" y1="378" x2="530" y2="378" stroke="var(--line)"></line><text x="20" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Pipeline Handle</text><text x="20" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+Create(VulkanDevice, PipelineLayout, int, int, stages, bool) GraphicsPipeline</text><rect x="580" y="10" width="640" height="413" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="900" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">MeshRenderer</text><line x1="580" y1="38" x2="1220" y2="38" stroke="var(--line)"></line><text x="590" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int TaskWorkGroupSize</text><text x="590" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)" text-decoration="underline">+int CullWorkGroupSize</text><text x="590" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+MeshletSet Meshlets</text><text x="590" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int InstanceCount</text><text x="590" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastDrawMilliseconds</text><text x="590" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastSelectMilliseconds</text><text x="590" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastPyramidMilliseconds</text><text x="590" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastLateMilliseconds</text><text x="590" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double LastTotalMilliseconds</text><text x="590" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int LastDrawnInstances</text><text x="590" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TwoPassStatistics LastTwoPass</text><text x="590" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CullingStatistics LastCulling</text><text x="590" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int PyramidLevels</text><text x="590" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ShownPyramidLevel</text><text x="590" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float[] LastPyramidLevel</text><text x="590" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Effective(DrawPath) DrawPath</text><text x="590" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TaskGroupsFor(int) long</text><text x="590" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Render(Camera, Camera, int, DrawPath, CullingMode, InstanceSelection, int[]) void</text><text x="590" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-BeginRendering(Vk, AttachmentLoadOp) void</text><text x="590" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordDraw(Vk, DrawPath, bool, uint, Pass) void</text><text x="590" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordLatePass(Vk, DrawPath, bool) void</text><text x="590" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordPyramid(Vk, PipelineStageFlags) void</text><text x="590" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordGpuSelection(Vk, ComputePipeline, int) void</text><text x="590" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-RecordCpuSelection(Vk, int) void</text><text x="590" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">-SelectOnCpu(Vector4[]) int</text><rect x="10" y="520" width="310" height="218" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="165" y="539" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">FrameUniforms</text><line x1="10" y1="548" x2="320" y2="548" stroke="var(--line)"></line><text x="20" y="565" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix4x4 ViewProjection</text><text x="20" y="580" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CameraPosition</text><text x="20" y="595" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Mode</text><text x="20" y="610" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint MeshletCount</text><text x="20" y="625" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint CullFlags</text><text x="20" y="640" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint InstanceCount</text><text x="20" y="655" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 CullPosition</text><text x="20" y="670" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FrustumPlaneArray Frustum</text><text x="20" y="685" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 MeshSphere</text><text x="20" y="700" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ScreenWidth</text><text x="20" y="715" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint ScreenHeight</text><text x="20" y="730" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint PyramidLevels</text><rect x="340" y="520" width="270" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="475" y="539" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">CullingStatistics</text><line x1="340" y1="548" x2="610" y2="548" stroke="var(--line)"></line><text x="350" y="565" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Tested</text><text x="350" y="580" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long FrustumCulled</text><text x="350" y="595" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long BackfaceCulled</text><text x="350" y="610" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long OcclusionCulled</text><text x="350" y="625" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long Visible</text><rect x="630" y="520" width="290" height="143" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="775" y="539" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">TwoPassStatistics</text><line x1="630" y1="548" x2="920" y2="548" stroke="var(--line)"></line><text x="640" y="565" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool LateRan</text><text x="640" y="580" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int EarlyInstances</text><text x="640" y="595" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int LateInstances</text><text x="640" y="610" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int FrustumInstances</text><text x="640" y="625" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int OccludedInstances</text><text x="640" y="640" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long EarlyMeshlets</text><text x="640" y="655" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long LateMeshlets</text><rect x="940" y="520" width="200" height="110" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1040" y="535" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="1040" y="551" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">InstanceSelection</text><line x1="940" y1="560" x2="1140" y2="560" stroke="var(--line)"></line><text x="950" y="577" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">GpuTwoPass</text><text x="950" y="592" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Gpu</text><text x="950" y="607" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Cpu</text><text x="950" y="622" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">None</text><rect x="1160" y="520" width="150" height="95" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="1235" y="535" text-anchor="middle" fill="var(--muted)" font-size="11">&lt;&lt;enumeration&gt;&gt;</text><text x="1235" y="551" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Pass</text><line x1="1160" y1="560" x2="1310" y2="560" stroke="var(--line)"></line><text x="1170" y="577" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Single</text><text x="1170" y="592" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Early</text><text x="1170" y="607" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">Late</text><path d="M218.54285714285714 168 L228.8335009412069 228.02875549037347" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="229.85714285714286" y="195" fill="var(--muted)" font-size="12">含む</text><path d="M578 70 L402 70" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="542" y="64" fill="var(--muted)" font-size="12">含む</text><path d="M578 270 L462 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="542" y="264" fill="var(--muted)" font-size="12">含む</text><path d="M578 390 L532 390" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="542" y="384" fill="var(--muted)" font-size="12">含む</text><path stroke-dasharray="5 4" d="M580 396.09183673469386 L321.74410083388045 541.0313719809855" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M656.2152777777778 423 L543.2274802331006 518.7073108613737" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M831.1666666666666 423 L799.465788865367 518.102633403899" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M980.6415620641562 423 L1017.7940929199774 518.1370165129422" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M1097.0868945868947 423 L1188.28438871063 518.5531953356152" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path></g></svg>
+<p>(<code>VulkanDevice</code> / <code>VulkanBuffer</code> / <code>VulkanImage</code> / <code>ShaderCompiler</code> / <code>DrawArguments</code> / <code>CullingMode</code> は Day 65b から変わっていないので、図から外した。Day 65b と Day 65a の計画書の設計書を参照。)</p>
+<p><code>MeshRenderer</code> が持つパイプラインは<strong>グラフィックス5本・コンピュート3本</strong>になった(<code>DepthPyramid</code> の中のもう1本を合わせると 4 本)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1パス</th><th>早いパス</th><th>遅いパス</th></tr></thead>
+<tbody>
+<tr><td>グラフィックス(タスクの道)</td><td><code>_taskPipeline</code></td><td><code>_taskEarlyPipeline</code></td><td><code>_taskLatePipeline</code></td></tr>
+<tr><td>グラフィックス(メッシュ・頂点の道)</td><td><code>_meshPipeline</code> / <code>_vertexPipeline</code>(3つのパスで共通)</td><td>←</td><td>←</td></tr>
+<tr><td>コンピュート(cull.comp)</td><td><code>_cullPipeline</code></td><td><code>_cullEarlyPipeline</code></td><td><code>_cullLatePipeline</code></td></tr>
+</tbody>
+</table></div>
+<p>全部が<strong>同じパイプラインレイアウト・同じディスクリプタセット</strong>を使う。レイアウトにはプッシュ定数が1つ(uint、全部の段から見える)。</p>
+<p><code>MeshRenderer</code> は約 1,550 行になった(うち半分ほどはコメント)。Day 65a の歪み4 で「Hi-Z が加わる前に切り出すかを決める」と書いたが、実際に2パスを書いてみると、<strong>描く命令・パス・パイプラインの選び方が1つの関数(<code>RecordDraw</code>)の中で絡んでいる</strong>。体を選ぶ部分だけを切り出しても、<code>RecordDraw</code> と <code>RecordLatePass</code> は <code>MeshRenderer</code> に残る。切り出すなら「パスを1つ描く」単位になる(歪み3)。</p>
+<h3 id="s20">GPU に挿さっているもの — binding の一覧(Day 65c で 10〜12 番とプッシュ定数が増えた)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>binding</th><th>中身</th><th>型</th><th>読む・書く段</th></tr></thead>
+<tbody>
+<tr><td>0</td><td><code>Frame</code>(…・形全体の球・<strong>画面の大きさと段の数</strong>)</td><td>uniform</td><td>全部</td></tr>
+<tr><td>1〜6</td><td>頂点・体の行列・メッシュレット・局所番号・三角形・三角形 → メッシュレット</td><td>storage</td><td>Day 65b のまま</td></tr>
+<tr><td>7</td><td>カリングの数え上げ(uint <strong>8 つ</strong>)</td><td>storage</td><td>タスク・<strong>コンピュート</strong>が書く、CPU が読む</td></tr>
+<tr><td>8</td><td>描く体の番号の一覧(体の数 x <strong>2</strong>。前半 = 1パス / 早いパス、後半 = 遅いパス)</td><td>storage</td><td>コンピュート(か C#)が書く、描くシェーダが読む</td></tr>
+<tr><td>9</td><td>描く命令の引数(<code>DrawArguments</code> x <strong>2</strong>)</td><td>storage + indirect</td><td>コンピュートが書く、描く命令と CPU が読む</td></tr>
+<tr><td><strong>10</strong></td><td><strong>メッシュレットごとの見えた印</strong>(体の数 x メッシュレットの数)</td><td>storage</td><td><strong>タスク(EARLY が読む、LATE が読み書き)</strong></td></tr>
+<tr><td><strong>11</strong></td><td><strong>体ごとの見えた印</strong>(体の数)</td><td>storage</td><td><strong>コンピュート(EARLY が読む、LATE が読み書き)</strong></td></tr>
+<tr><td><strong>12</strong></td><td><strong>Hi-Z</strong>(<code>DepthPyramid.View</code>、General)</td><td><strong>sampled image</strong></td><td><strong>コンピュート(LATE)・タスク(LATE)が読む</strong></td></tr>
+<tr><td>push</td><td><code>listOffset</code>(uint。一覧の何番目から読むか)</td><td>プッシュ定数</td><td>描くシェーダ</td></tr>
+</tbody>
+</table></div>
+<p>10 番は <code>meshlet.task</code> の中、11 番は <code>cull.comp</code> の中でだけ宣言する(書ける宣言を頂点シェーダから見える場所に置かない。Day 64b の 7 番と同じ理由)。12 番は <code>common.glsl</code> の <code>#ifdef LATE</code> の中。</p>
+<h3 id="s21">1フレームの流れ — <code>MeshRenderer.Render</code>(Day 65c で2パスになった)</h3>
+<svg viewBox="0 0 1000 876" role="img" aria-label="1フレームの流れ(MeshRenderer.Render。Day 65c で2パスになった)。Render(camera, cullCamera, mode, path, culling, selection, dest)。FrameUniforms を書く(画面の大きさ・段の数、2パスでタスクなら cullFlags に 4)。Begin、ResetQueryPool、数え上げを 0 に。selection で分かれる。2パスなら、早いパスの体を選ぶ(cull.comp EARLY で引数 0・一覧の前半)。GPU なら cull.comp で引数 0・一覧の前半。CPU か選ばないなら一覧を送る。BeginQuery(描画の外で)。BeginRendering(Clear)、RecordDraw(Early または Single)、EndRendering。2パスで目を止めていないなら RecordLatePass、違えば RecordPyramid(Z で見るため)と時計 6・7 を空打ち。EndQuery。色を引き取り、バリアから Host、Submit、Wait。時計・統計・数え上げ・引数 2 つ・Hi-Z の段を読み、TwoPassStatistics を組み立てる" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="8" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render(camera, cullCamera, mode, path, culling, selection, dest)</text><rect x="300" y="65" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="85.5" text-anchor="middle" fill="var(--ink)">FrameUniforms を書く</text><text x="510" y="102.5" text-anchor="middle" fill="var(--ink)">（画面の大きさ・段の数、2パス + タスクなら cullFlags に 4）</text><rect x="300" y="139" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="159.5" text-anchor="middle" fill="var(--ink)">Begin / ResetQueryPool / 数え上げを 0 に</text><rect x="390" y="196" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="510" y="216.5" text-anchor="middle" fill="var(--ink)">selection は?</text><rect x="10" y="279" width="280" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="299.5" text-anchor="middle" fill="var(--ink)">早いパスの体を選ぶ</text><text x="150" y="316.5" text-anchor="middle" fill="var(--ink)">cull.comp EARLY → 引数 0・一覧の前半</text><rect x="360" y="279" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="500" y="299.5" text-anchor="middle" fill="var(--ink)">cull.comp → 引数 0・一覧の前半</text><rect x="710" y="279" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="299.5" text-anchor="middle" fill="var(--ink)">一覧を送る</text><rect x="300" y="375" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="395.5" text-anchor="middle" fill="var(--ink)">BeginQuery（描画の外で）</text><rect x="300" y="432" width="420" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="452.5" text-anchor="middle" fill="var(--ink)">BeginRendering(Clear)</text><text x="510" y="469.5" text-anchor="middle" fill="var(--ink)">RecordDraw（Early または Single）</text><text x="510" y="486.5" text-anchor="middle" fill="var(--ink)">EndRendering</text><rect x="370" y="523" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="510" y="543.5" text-anchor="middle" fill="var(--ink)">2パスで、目を止めていない?</text><rect x="10" y="606" width="300" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="626.5" text-anchor="middle" fill="var(--ink)">RecordLatePass</text><rect x="560" y="606" width="400" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="760" y="626.5" text-anchor="middle" fill="var(--ink)">RecordPyramid（Z で見るため）</text><text x="760" y="643.5" text-anchor="middle" fill="var(--ink)">時計 6・7 を空打ち</text><rect x="300" y="702" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="722.5" text-anchor="middle" fill="var(--ink)">EndQuery</text><rect x="300" y="759" width="420" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="779.5" text-anchor="middle" fill="var(--ink)">色を引き取る / バリア → Host / Submit / Wait</text><rect x="300" y="816" width="420" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="836.5" text-anchor="middle" fill="var(--ink)">時計・統計・数え上げ・引数 2 つ・Hi-Z の段を読む</text><text x="510" y="853.5" text-anchor="middle" fill="var(--ink)">TwoPassStatistics を組み立てる</text><path d="M510 41 L510 63" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M510 115 L510 137" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M510 172 L510 194" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M510 408 L510 430" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M510 499 L510 521" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M510 735 L510 757" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M510 792 L510 814" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M390 212.5 L150 212.5 L150 277" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="382" y="206.5" fill="var(--muted)" font-size="12" text-anchor="end">2パス</text><path d="M510 229 L510 277" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="518" y="247" fill="var(--muted)" font-size="12">GPU</text><path d="M630 212.5 L850 212.5 L850 277" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="638" y="206.5" fill="var(--muted)" font-size="12">CPU / 選ばない</text><path d="M150 329 L150 351 L510 351 L510 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M500 312 L500 351 L510 351 L510 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M850 312 L850 351 L510 351 L510 373" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M370 539.5 L160 539.5 L160 604" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="362" y="533.5" fill="var(--muted)" font-size="12" text-anchor="end">はい</text><path d="M650 539.5 L760 539.5 L760 604" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="658" y="533.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M160 639 L160 678 L510 678 L510 700" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M760 656 L760 678 L510 678 L510 700" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path></g></svg>
+<h3 id="s22">遅いパス — <code>RecordLatePass</code></h3>
+<svg viewBox="0 0 940 512" role="img" aria-label="遅いパス(RecordLatePass)。早いパスを描き終えたあと、RecordPyramid で深度を的から読むレイアウトへ移し(深度の書き込みとタスクの読みからコンピュートへ)、Hi-Z を 9 段作る。バリア(コンピュートの書き込みからコンピュートとタスクの読み込みへ)。Timestamp 6。RecordGpuSelection(cull.comp LATE、引数 1)で、下書き、全部の体の判定、体の印の書き直しをして、一覧の後半に載せる(前も見えていたかを上のビットに載せる)。深度を読むから的へ戻す(中身は残す)、色は的から的へ(早いパスの書き込みの後で)。BeginRendering(Load)、RecordDraw(Late)(listOffset = 体の数、引数 1 を読む)、EndRendering、Timestamp 7" style="width:100%;max-width:940px;display:block;margin:8px 0 16px">
+<defs><marker id="arr8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="150" y="8" width="640" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="28.5" text-anchor="middle" fill="var(--ink)">早いパスを描き終えた</text><rect x="150" y="65" width="640" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="85.5" text-anchor="middle" fill="var(--ink)">RecordPyramid</text><text x="470" y="102.5" text-anchor="middle" fill="var(--ink)">深度: 的 → 読む（深度の書き込み + タスクの読み → コンピュート）</text><text x="470" y="119.5" text-anchor="middle" fill="var(--ink)">Hi-Z を 9 段作る</text><rect x="150" y="156" width="640" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="176.5" text-anchor="middle" fill="var(--ink)">バリア: コンピュートの書き込み → コンピュート + タスクの読み込み</text><rect x="150" y="213" width="640" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="233.5" text-anchor="middle" fill="var(--ink)">Timestamp 6</text><rect x="150" y="270" width="640" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="290.5" text-anchor="middle" fill="var(--ink)">RecordGpuSelection(cull.comp LATE, 引数 1)</text><text x="470" y="307.5" text-anchor="middle" fill="var(--ink)">下書き → 全部の体を判定 → 体の印を書き直す</text><text x="470" y="324.5" text-anchor="middle" fill="var(--ink)">一覧の後半に載せる（前も見えていた = 上のビット）</text><rect x="150" y="361" width="640" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="381.5" text-anchor="middle" fill="var(--ink)">深度: 読む → 的（中身は残す）</text><text x="470" y="398.5" text-anchor="middle" fill="var(--ink)">色: 的 → 的（早いパスの書き込みの後で）</text><rect x="150" y="435" width="640" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="470" y="455.5" text-anchor="middle" fill="var(--ink)">BeginRendering(Load)</text><text x="470" y="472.5" text-anchor="middle" fill="var(--ink)">RecordDraw(Late)：listOffset = 体の数、引数 1 を読む</text><text x="470" y="489.5" text-anchor="middle" fill="var(--ink)">EndRendering / Timestamp 7</text><path d="M470 41 L470 63" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M470 132 L470 154" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M470 189 L470 211" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M470 246 L470 268" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M470 337 L470 359" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M470 411 L470 433" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path></g></svg>
+<p><strong>深度は1フレームの中で「的 → 読む → 的」と行き来する</strong>。Day 65b では「的 → 読む」で終わっていた(次のフレームで捨てるので戻さなかった)。今日は遅いパスが<strong>早いパスの深度の上に</strong>描き足すので、中身を残したまま的へ戻す(<code>Undefined</code> からは移さない)。色は的のレイアウトのままだが、「早いパスの書き込みが終わってから遅いパスが読み書きする」順序だけはバリアで言う(<code>LoadOp = Load</code> は読むことになる)。</p>
+<h3 id="s23">cull.comp の1人の中(Day 65c で3通りになった)</h3>
+<svg viewBox="0 0 1160 1113" role="img" aria-label="cull.comp の1人の中(Day 65c で3通りになった)。1人が1体を受け持つ。範囲の中か。外なら何もしない。中なら、形全体の球を世界へ運ぶ。どの翻訳か。なし(1パス)は、画面の外なら何もせず、違えば append(番号)。EARLY は、体の印が 0 か画面の外なら何もせず、違えば append(番号)。LATE は、was = 体の印を取り、画面の外なら frustumInstances に 1 を足して visible = false、違って occluded(Hi-Z)なら occludedInstances に 1 を足して visible = false、どちらでもなければ visible = true。体の印 = visible と書き直す。visible で、タスクの道か was = 0 なら、append(番号に was を上のビットとして載せる)。違えば何もしない" style="width:100%;max-width:1160px;display:block;margin:8px 0 16px">
+<defs><marker id="arr9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="330" y="8" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="28.5" text-anchor="middle" fill="var(--ink)">1人 = 1体</text><rect x="330" y="66" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="480" y="86.5" text-anchor="middle" fill="var(--ink)">範囲の中?</text><rect x="740" y="66" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="86.5" text-anchor="middle" fill="var(--ink)">何もしない</text><rect x="330" y="130" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="150.5" text-anchor="middle" fill="var(--ink)">形全体の球を世界へ運ぶ</text><rect x="330" y="190" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="480" y="210.5" text-anchor="middle" fill="var(--ink)">どの翻訳?</text><rect x="70" y="290" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="310.5" text-anchor="middle" fill="var(--ink)">画面の外?</text><rect x="440" y="290" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="310.5" text-anchor="middle" fill="var(--ink)">何もしない</text><rect x="70" y="360" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="380.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">append(番号)</text><rect x="70" y="470" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="490.5" text-anchor="middle" fill="var(--ink)">体の印が 0 か、画面の外?</text><rect x="440" y="470" width="220" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="490.5" text-anchor="middle" fill="var(--ink)">何もしない</text><rect x="70" y="540" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="560.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">append(番号)</text><rect x="70" y="650" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="670.5" text-anchor="middle" fill="var(--ink)">was = 体の印</text><rect x="70" y="720" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="740.5" text-anchor="middle" fill="var(--ink)">画面の外?</text><rect x="440" y="720" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="740.5" text-anchor="middle" fill="var(--ink)">frustumInstances に +1</text><text x="610" y="757.5" text-anchor="middle" fill="var(--ink)">visible = false</text><rect x="70" y="810" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="210" y="830.5" text-anchor="middle" fill="var(--ink)">occluded(Hi-Z)?</text><rect x="440" y="810" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="830.5" text-anchor="middle" fill="var(--ink)">occludedInstances に +1</text><text x="610" y="847.5" text-anchor="middle" fill="var(--ink)">visible = false</text><rect x="70" y="900" width="280" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="210" y="920.5" text-anchor="middle" fill="var(--ink)">visible = true</text><rect x="440" y="900" width="340" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="920.5" text-anchor="middle" fill="var(--ink)">体の印 = visible</text><rect x="440" y="970" width="340" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="610" y="999" text-anchor="middle" fill="var(--ink)">visible で、タスクの道か was = 0?</text><rect x="830" y="970" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="980" y="999" text-anchor="middle" fill="var(--ink)">append(番号 + was を上のビットに)</text><rect x="440" y="1070" width="340" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="1090.5" text-anchor="middle" fill="var(--ink)">何もしない</text><path d="M480 41 L480 64" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M480 99 L480 128" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="488" y="116" fill="var(--muted)" font-size="12">はい</text><path d="M480 163 L480 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M630 82.5 L738 82.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="640" y="76.5" fill="var(--muted)" font-size="12">いいえ</text><path d="M330 206.5 L24 206.5 L24 306.5 L68 306.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="322" y="200.5" fill="var(--muted)" font-size="12" text-anchor="end">なし</text><path d="M24 306.5 L24 666.5" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M24 486.5 L68 486.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="30" y="478.5" fill="var(--muted)" font-size="12">EARLY</text><path d="M24 666.5 L68 666.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="30" y="658.5" fill="var(--muted)" font-size="12">LATE</text><path d="M350 306.5 L438 306.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="360" y="300.5" fill="var(--muted)" font-size="12">はい</text><path d="M210 323 L210 358" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="218" y="340" fill="var(--muted)" font-size="12">いいえ</text><path d="M350 486.5 L438 486.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="360" y="480.5" fill="var(--muted)" font-size="12">はい</text><path d="M210 503 L210 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="218" y="520" fill="var(--muted)" font-size="12">いいえ</text><path d="M210 683 L210 718" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M350 736.5 L438 736.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="360" y="730.5" fill="var(--muted)" font-size="12">はい</text><path d="M210 753 L210 808" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="218" y="770" fill="var(--muted)" font-size="12">いいえ</text><path d="M350 826.5 L438 826.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="360" y="820.5" fill="var(--muted)" font-size="12">はい</text><path d="M210 843 L210 898" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="218" y="860" fill="var(--muted)" font-size="12">いいえ</text><path d="M350 916.5 L438 916.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M780 745 L810 745 L810 916.5 L782 916.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M780 835 L810 835 L810 916.5 L782 916.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M610 933 L610 968" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><path d="M780 995 L828 995" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="790" y="989" fill="var(--muted)" font-size="12">はい</text><path d="M610 1020 L610 1068" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><text x="618" y="1037" fill="var(--muted)" font-size="12">いいえ</text></g></svg>
+<p><code>append()</code> は Day 65a の「席を取って3つの数の欄に足す」を関数にしたもの。どの引数・一覧の半分に書くかは翻訳ごとに決まっている(<code>LATE</code> なら後半)。</p>
+<h3 id="s24">タスクシェーダの1ワークグループの中(Day 65c で3通りになった)</h3>
+<svg viewBox="0 0 1170 743" role="img" aria-label="タスクシェーダの1ワークグループの中(Day 65c で3通りになった)。ワークグループ (x, y) = (32 個ずつの組, 何番目に描く体か)。体 = drawnInstance(y)(上のビットを落とす)、自分のメッシュレット = x * 32 + 自分の番号。画面の外・裏向きを判定する(Day 64b のまま。LATE ならどちらでもないとき occluded(Hi-Z) も)。visible = 範囲の中でどれにも当たらない。どの翻訳か。なしなら draw = visible。EARLY なら draw = visible かつメッシュレットの印。LATE なら、drawnEarly = 体が前も見えていてメッシュレットの印がある、draw = visible かつ drawnEarly でない、メッシュレットの印 = visible。投票 subgroupBallot(draw)で前から詰める。0 番の人が数え上げ(EARLY は描いた数だけ、それ以外は行き先の内訳、LATE は描き足した数も)。EmitMeshTasksEXT(draw の数, 1, 1)" style="width:100%;max-width:1170px;display:block;margin:8px 0 16px">
+<defs><marker id="arr10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="310" y="8" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="28.5" text-anchor="middle" fill="var(--ink)">ワークグループ (x, y) = (32 個ずつの組, 何番目に描く体か)</text><rect x="310" y="74" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="94.5" text-anchor="middle" fill="var(--ink)">体 = drawnInstance(y)（上のビットを落とす）</text><text x="530" y="111.5" text-anchor="middle" fill="var(--ink)">自分のメッシュレット = x * 32 + 自分の番号</text><rect x="310" y="160" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="180.5" text-anchor="middle" fill="var(--ink)">画面の外 / 裏向き を判定（Day 64b のまま）</text><text x="530" y="197.5" text-anchor="middle" fill="var(--ink)">LATE なら、どちらでもないとき occluded(Hi-Z) も</text><rect x="310" y="246" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="266.5" text-anchor="middle" fill="var(--ink)">visible = 範囲の中 かつ どれにも当たらない</text><rect x="430" y="316" width="200" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="530" y="336.5" text-anchor="middle" fill="var(--ink)">どの翻訳?</text><rect x="10" y="410" width="280" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="430.5" text-anchor="middle" fill="var(--ink)">draw = visible</text><rect x="330" y="410" width="360" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="510" y="430.5" text-anchor="middle" fill="var(--ink)">draw = visible かつ メッシュレットの印</text><rect x="730" y="410" width="420" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="940" y="430.5" text-anchor="middle" fill="var(--ink)">drawnEarly = 体が前も見えていた かつ メッシュレットの印</text><text x="940" y="447.5" text-anchor="middle" fill="var(--ink)">draw = visible かつ drawnEarly でない</text><text x="940" y="464.5" text-anchor="middle" fill="var(--ink)">メッシュレットの印 = visible</text><rect x="310" y="540" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="560.5" text-anchor="middle" fill="var(--ink)">投票: subgroupBallot(draw) → 前から詰める</text><rect x="310" y="610" width="440" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="630.5" text-anchor="middle" fill="var(--ink)">0 番の人: 数え上げ</text><text x="530" y="647.5" text-anchor="middle" fill="var(--ink)">EARLY は描いた数だけ / それ以外は行き先の内訳（LATE は描き足した数も）</text><rect x="310" y="700" width="440" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="720.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">EmitMeshTasksEXT(draw の数, 1, 1)</text><path d="M530 41 L530 72" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M530 124 L530 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M530 210 L530 244" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M530 279 L530 314" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M530 573 L530 608" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M530 660 L530 698" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M430 332.5 L150 332.5 L150 408" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="422" y="326.5" fill="var(--muted)" font-size="12" text-anchor="end">なし</text><path d="M530 349 L530 372.5 L510 372.5 L510 408" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="538" y="365" fill="var(--muted)" font-size="12">EARLY</text><path d="M630 332.5 L940 332.5 L940 408" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="638" y="326.5" fill="var(--muted)" font-size="12">LATE</text><path d="M150 443 L150 499 L530 499 L530 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M510 443 L510 499 L530 499 L530 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><path d="M940 477 L940 499 L530 499 L530 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path></g></svg>
+<p><strong>投票するのは「見えるか」ではなく「このパスで描くか」</strong>(Day 64b では同じものだった)。</p>
+<h3 id="s25">今日残した歪み(4つ)</h3>
+<p><strong>1. 穴だらけの物に不利</strong>。体ごとの隠れの判定は、今日の場面では1体も捨てなかった(要点5)。遅いパスの cull.comp が体ごとに Hi-Z を読む手間は、今日の場面では丸ごと無駄。壁や建物のような「中身の詰まった」隠す物がある場面なら効く。隠す物(occluder)と隠される物を分けて考え、隠す物だけを早いパスで確実に描く、という作りも多い。</p>
+<p><strong>2. 箱が大きい</strong>。球を囲む立方体の8つの角で箱を作っているので、箱は球の投影より広く、深度は手前に出る(要点3)。その分、捨て損なう。niagara の <code>projectSphere</code>(Mara と McGuire の式)なら箱がもっと小さくなる。改造課題1。</p>
+<p><strong>3. <code>MeshRenderer</code> が約 1,550 行</strong>。Day 65a の歪み4 の続き。パスを1つ描く(一覧 → 引数 → 描く命令)単位で切り出せそうだが、深度と色のレイアウトの行き来(<code>RecordLatePass</code>)がパスの間にまたがっているので、切り出した後の境目をどこに置くかがまだ決まらない。このリポジトリの Labs はここで終わりなので、答えは HonyaEngine 本体で GPU 駆動を入れるときに持ち越す。</p>
+<p><strong>4. 動いている物が無い</strong>。今日の体は全部止まっている。体が動く場面では、前のフレームの印は「前の場所で見えていた」ことしか言わない。それでも絵は壊れない(遅いパスが直す)が、早いパスの当たりが減って遅いパスの仕事が増える。</p>
+<p><strong>持ち越し</strong>: Day 65a の歪み1(体を描く順番が GPU 任せ)・歪み3(形が1種類)と、Day 64b の歪み1(欠片)はそのまま。</p>
+</section>
+<section class="part"><h2 id="s26">完成条件</h2>
+<p><code>dotnet run --project reference/Day65c -c Release</code> で確かめる。</p>
+<h3 id="s27">1. 起動: 16 体、2パス</h3>
+<ul><li>絵は Day 65b と同じ</li><li>「体」: <strong>2パス (隠れたものも捨てる) (G)  16 体 → 画面の外 0 / 隠れている 0 / 見える 16  (早いパス 16 体・遅いパス 16 体)</strong></li><li>「判定」: <strong>7,488 個 → 画面の外 1.9% / 裏向き 29.9% / 隠れている 5.3% / 描く 62.9%</strong></li><li>「内訳」: タスクシェーダ 480 組 → メッシュシェーダ <strong>4,708 + 0 組</strong> / 三角形 <strong>382,751 枚</strong> (「+ 0」は遅いパスで描き足したメッシュレット。止まっていれば、見えるものは全部早いパスで描けている)</li></ul>
+<p><code>G</code> で「GPU で選ぶ」(1パス)にすると、隠れているが 0% に、三角形が 391,278 枚に戻る。<strong>絵は変わらない</strong>。</p>
+<h3 id="s28">2. <code>4</code> で 256 体、<code>V</code> で低い視点(今日の目)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>体</th><th>判定(画面の外 / 裏向き / 隠れている / 描く)</th><th>三角形</th><th>1パスでは</th></tr></thead>
+<tbody>
+<tr><td>256 体・既定の視点</td><td>画面の外 146 / <strong>隠れている 0</strong> / 見える 110</td><td>10.2% / 27.3% / <strong>15.0%</strong> / 47.4%</td><td>2,066,457</td><td>2,453,947</td></tr>
+<tr><td>256 体・低い視点(<code>V</code>)</td><td>画面の外 145 / <strong>隠れている 0</strong> / 見える 111</td><td>9.8% / 27.5% / <strong>45.4%</strong> / 17.3%</td><td><strong>801,554</strong></td><td>2,485,151</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>体ごとには1体も隠れない</strong>。隠れているのは全部メッシュレットの単位(要点5)</li><li>「1枚」の行に、直前の1枚の内訳(早いパス + Hi-Z + 遅いパス)が出る。アプリ内の値は GPU のクロックで大きく揺れるので、比べるなら検証3 のハーネスの値を見る</li><li><code>G</code> で1パスに戻すと三角形が 249 万枚に戻る</li></ul>
+<h3 id="s29">3. <code>B</code> で頂点の道にする</h3>
+<ul><li>「体」: 早いパス 111 体・<strong>遅いパス 0 体</strong>(止まっていれば、描き足す体が無い)</li><li>頂点の道には体ごとの判定しか無いので、描く量は1パスと同じ(三角形 3,637,248 枚)。<strong>2パスの分だけ遅い</strong>(検証3)</li></ul>
+<h3 id="s30">4. <code>Z</code> で Hi-Z を見る</h3>
+<p>2パスのまま <code>Z</code> を押すと、遅いパスが判定に使った Hi-Z(早いパスの深度から作ったもの)が見える。低い視点では、段 3 でも画面の下半分が白く詰まっている——手前の太い管が画面を覆っていて、そこに隠れるメッシュレットが多い。</p>
+<h3 id="s31">5. <code>F</code> で目を止めて回り込む</h3>
+<p>256 体・低い視点・<code>M</code> でメッシュレットごとの色にしてから <code>F</code> を押し、ドラッグで横へ回り込む。</p>
+<ul><li>「体」の行が「<strong>早いパスだけ 111 体(目を止めている間は、見えた印も Hi-Z も止まる)</strong>」になる</li><li>手前の体の<strong>後ろ側</strong>に回り込むと、奥の体の、手前の体に隠れていた部分が<strong>メッシュレットの形の穴</strong>になっている。画面の外だった体は丸ごと、裏向きだったメッシュレットも穴(Day 64b と同じ)</li><li><code>F</code> をもう一度押すと、次のフレームの遅いパスが穴を全部描き足し、印も今の目に合わせて書き直される</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>G</code></td><td>「2パスを動かす」(2パスの内訳)。1パスは三角形の列で比べる</td><td>2パスの三角形は、256 体・低い視点で 249 万 → 80 万枚。隠れて捨てたメッシュレット 45.4%</td></tr>
+<tr><td><code>V</code></td><td>「2パスを動かす」「比べる深度の余裕」「体ごとは効かない」の見下ろす角度</td><td>低い視点(0.12)は体が奥へ重なり、隠れるものが増える。計画書の表の「もっと低い(0.02)」はこのページだけの選択肢</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>「2パスを動かす」の体の数</td><td>16 体は「隠れている 5.3%」、256 体・既定は 15.0%、1体でも 4.7%(自分の手前の管が奥の管を隠す)</td></tr>
+<tr><td><code>F</code></td><td>「2パスを動かす」の「視点を飛ばして1フレーム」(目を止めるのではなく、印をそのままに視点だけ変える)</td><td>当てが外れると、早いパスがほとんど描かず、遅いパスが大半を描き足す(1パスに戻るだけ)。絵は変わらない</td></tr>
+<tr><td><code>Z</code></td><td>(なし)。Hi-Z の見え方は Day 65b のページの実験台で</td><td>2パスの Hi-Z は早いパスの深度から作る</td></tr>
+<tr><td><code>B</code> / <code>C</code> / <code>O</code> / <code>M</code> / ドラッグ / ホイール / <code>R</code> / <code>H</code> / <code>Esc</code></td><td>(なし)</td><td>このページはタスクの道・視錐台 + 背面・丸く育てるで固定している。頂点の道では体ごとの判定だけで、2パスの分だけ遅くなる(GPU の時間はここでは測れない)</td></tr>
+<tr><td>(キーなし)</td><td>「2パスを動かす」のフレーム送りと印を捨てる、「比べる深度の余裕」</td><td>reference に無い操作(余裕は検証1のわざと壊した実験)。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">どの実験台も reference/Day65c の shaders/cull.comp・meshlet.task(EARLY / LATE)・common.glsl の occluded()、Scene/SceneData.cs(LowView)を JS に移したもの(トーラスノットと切り方・体の並べ方・カメラ・深度と Hi-Z・2パスは docs/site/meshlet.js に書いてあり、Day 64a〜65b と共有。このページには実験台の部分だけがある)。見えた印が落ち着くまで 4 フレーム進めて、計画書の検証2の7つの場面の数を数えると、隠れて捨てたメッシュレット(1 体 4.7% / 16 体 5.3% / 64 体 6.0% / 256 体 15.0% / 64 体・低い視点 28.3% / 256 体・低い視点 45.4% / 256 体・もっと低い視点 56.3%)、隠れて捨てた体(最後の場面だけ 2 体、ほかは 0)、判定の内訳(16 体は 1.9% / 29.9% / 5.3% / 62.9%、256 体・低い視点は 9.8% / 27.5% / 45.4% / 17.3%)が全部一致する。2パスの三角形は、1 体 25,786・16 体 382,751(4,708 + 0 組)・64 体・低い視点 543,298・256 体・低い視点 801,554・もっと低い視点 295,484 が一致し、64 体は 884,811(GPU の実測 884,716)、256 体は 2,066,629(同 2,066,457)と、境目のメッシュレット 1〜2 個ぶんずれる。1パスの三角形(25,912 / 391,278 / 915,473 / 2,453,947 / 935,467 / 2,485,151 / 2,496,528)は全部一致する。余裕 0 で、2パスの絵は1パスの絵と全画素一致(7 場面とも違う画素 0)する。GPU の時間(Hi-Z 25 us、遅いパス 40 us、256 体・低い視点で 0.447 → 0.212 ms など)、検証1の GPU の絵の突き合わせ 576 回(余裕 0.002 で 236 回が変わった)は、手元の RTX 3070 の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s32">検証の途中で分かったこと</h2>
+<p>窓の無いハーネス(<code>MeshRenderer</code> を直接呼ぶ)で確かめた。RTX 3070 / ドライバ 596.49、検証レイヤなし。</p>
+<h3 id="s33">検証1: 2パスでも絵は1画素も変わらない — 視点が飛んでも</h3>
+<p>体の数 4 通り x 描き方 3 通り x 表示 3 通り = 36 の組み合わせそれぞれで、<strong>視点を 16 回動かしながら</strong>2パスで描き、毎回、同じ視点を頂点の道・選ばない・カリングなしで描いた絵と 518,400 画素すべて突き合わせた。</p>
+<p>視点の動かし方は、少しずつ回す(12 回)→ <strong>半周近く飛ぶ</strong> → 飛んだ先で低く寄る → 高く引く → 元の視点。飛んだ直後のフレームは、前のフレームの印がほとんど外れている(早いパスが的外れなものを描き、遅いパスが大半を描き足す)。</p>
+<p><strong>576 回とも完全一致</strong>。当てが外れても絵は壊れない(要点1)。</p>
+<p><strong>突き合わせが本当に効いているか</strong>も確かめた。<code>occluded()</code> の比べ方を <code>nearest &gt; farthest - 0.002</code> と少しだけ甘くすると、576 回のうち <strong>236 回</strong>で絵が変わった(256 体の場面で 1 回につき 2,000〜14,000 画素)。深度は奥で詰まっているので、0.002 の甘さでも見えているメッシュレットを捨ててしまう。</p>
+<h3 id="s34">検証2: どれだけ隠れて捨てられるか</h3>
+<p>遅いパスが数えた値(3 フレーム描いて印を落ち着かせた後)。タスクの道・画面の外と背面のカリングあり。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>隠れて捨てた体</th><th>隠れて捨てたメッシュレット</th><th>三角形(1パス → 2パス)</th></tr></thead>
+<tbody>
+<tr><td>1 体</td><td>0</td><td>4.7%</td><td>25,912 → 25,786</td></tr>
+<tr><td>16 体</td><td>0</td><td>5.3%</td><td>391,278 → 382,751</td></tr>
+<tr><td>64 体</td><td>0</td><td>6.0%</td><td>915,473 → 884,716</td></tr>
+<tr><td>256 体</td><td>0</td><td>15.0%</td><td>2,453,947 → 2,066,457</td></tr>
+<tr><td>64 体・低い視点</td><td>0</td><td>28.3%</td><td>935,467 → 543,298</td></tr>
+<tr><td>256 体・低い視点</td><td>0</td><td><strong>45.4%</strong></td><td>2,485,151 → <strong>801,554</strong></td></tr>
+<tr><td>256 体・もっと低い視点(0.02)</td><td>2</td><td>56.3%</td><td>2,496,528 → 295,484</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>1体でも 4.7% が隠れる</strong>。自分の手前の管が、自分の奥の管を隠している(要点5)</li><li><strong>隠れて捨てた体は、もっと低い視点でやっと 2 体</strong>。Day 65b の検証2 の「粗い段はほとんど何も無い」がそのまま効いている</li><li>数え上げの4つ(画面の外 + 裏向き + 隠れている + 見える)の和は、どの場面でも調べた数(メッシュレット数 x 遅いパスの体の数)と一致した</li></ul>
+<h3 id="s35">検証3: 値段</h3>
+<p>同じ設定で2回続けて描き(印を落ち着かせる)、2回目の GPU の合計(選ぶ + 描く + Hi-Z + 遅いパス)を取る。これを4通り交互に 16 回ずつやり、最小値を取った。1パスにも Hi-Z を作る 25 us が入っている(Day 65b から毎フレーム作るので)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>頂点・1パス</th><th>頂点・2パス</th><th>タスク・1パス</th><th>タスク・2パス</th></tr></thead>
+<tbody>
+<tr><td>64 体・低い視点</td><td>0.227 ms(1.00)</td><td>0.236(1.04)</td><td>0.200(0.88)</td><td><strong>0.150(0.66)</strong></td></tr>
+<tr><td>256 体・低い視点</td><td>0.525 ms(1.00)</td><td>0.534(1.02)</td><td>0.447(0.85)</td><td><strong>0.212(0.40)</strong></td></tr>
+</tbody>
+</table></div>
+<p>同じやり方で既定の視点も測った(1回走らせた値)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>場面</th><th>タスク・1パス</th><th>タスク・2パス</th><th>比</th></tr></thead>
+<tbody>
+<tr><td>16 体・既定</td><td>0.109 ms</td><td>0.127 ms</td><td><strong>1.17(遅い)</strong></td></tr>
+<tr><td>256 体・既定</td><td>0.448 ms</td><td>0.406 ms</td><td>0.91</td></tr>
+<tr><td>256 体・低い視点</td><td>0.452 ms</td><td>0.216 ms</td><td><strong>0.48</strong></td></tr>
+</tbody>
+</table></div>
+<p>2パスの内訳(256 体・低い視点): 早いパス(選ぶ + 描く)0.141 ms、Hi-Z 25〜27 us、遅いパス 0.039 ms。<strong>遅いパスは描き足すものが0でも 40 us かかる</strong>(cull.comp をもう1回と、見える体 111 体ぶんのタスクシェーダをもう1回)。</p>
+<ul><li><strong>頂点の道では 2〜4% 遅くなるだけ</strong>。体が1つも隠れないので、2パスにしても描く量が変わらない</li><li><strong>タスクの道は、隠れるものが多い場面でだけ大きく得をする</strong>(低い視点で半分以下)。既定の視点でも 256 体なら少し得、16 体では損</li><li>「隠れるものが少ない場面では、2パスの固定の値段(Hi-Z + 遅いパスで 65 us 前後)を取り返せない」——要点6</li></ul>
+</section>
+<section class="part"><h2 id="s36">改造課題</h2>
+<h3 id="s37">課題1(易): 箱を小さくする</h3>
+<p><code>common.glsl</code> の <code>occluded()</code> の「立方体の8つの角」を、niagara の <code>projectSphere</code>(<code>src/shaders/math.h</code>)に置き換える。</p>
+<ol><li>球の中心を<strong>目の座標</strong>に運ぶ必要がある(<code>Frame</code> に View 行列と、投影の P00・P11、手前の切り口を足す)。niagara は目の座標で z が前を向く(<code>-z</code> ではない)流儀なので、符号を合わせる</li><li>箱の差し渡しはどれだけ小さくなるか(画面の端に近い球ほど差が出るはず)</li><li>256 体・低い視点で「隠れている」の割合と三角形の数はどう変わるか。<strong>絵が1画素も変わらないこと</strong>は検証1 のやり方で確かめる</li><li>箱が小さくなると、選ばれる段が下がる(細かくなる)ことがある。それが効き目にどう効くか</li></ol>
+<h3 id="s38">課題2(中): 隠す物を置く</h3>
+<p>穴だらけのトーラスノットではなく、<strong>中身の詰まった隠す物</strong>(壁)を置いて、体ごとの判定が効く場面を作る。</p>
+<ol><li>地面に立つ板(薄い箱)を数枚、<code>TorusKnot</code> と同じ <code>MeshData</code> の形で作り、別の描く命令で<strong>早いパスの前に毎フレーム必ず</strong>描く(カリングしない。「隠す物は確実に描く」)</li><li>板の後ろに隠れた体が「隠れている」で丸ごと捨てられることを HUD で確かめる</li><li>板を早いパスで描かずに、ほかの体と同じ2パスに入れるとどうなるか。前のフレームの印で決まる早いパスに、板が入らないフレームがあるか</li></ol>
+<h3 id="s39">課題3(難): 印を持たない2パス</h3>
+<p>見えた印(binding 10・11)を捨てて、<strong>前のフレームの Hi-Z そのもの</strong>で早いパスを選ぶ作り方もある(前のフレームの深度を今のフレームへ当てはめ直す、reprojection の流儀)。</p>
+<ol><li>フレームの終わりに Hi-Z を作って残しておき、次のフレームの早いパスの cull.comp で<strong>前のフレームの Hi-Z と前のフレームの viewProj</strong> を使って判定する</li><li>早いパスで捨てたものを、今のフレームの Hi-Z で遅いパスがもう一度調べる</li><li>印の2パスと比べて、カメラを動かしたときの「早いパスの当たり」はどちらが良いか。<strong>前のフレームの Hi-Z を今の目で使うとき、何を直す必要があるか</strong> (ヒント: 前のフレームの viewProj で投影し直すなら正しい。今の viewProj で投影すると、動いた分だけ間違える)</li></ol>
+<blockquote><p><strong>測るときは Release で、1フレームずつ交互に描いて比べる</strong>。そして長く回しっぱなしにしない(電源に対して厳しい負荷になる)。</p></blockquote>
+</section>
+<section class="part"><h2 id="s40">Day 65 の3日をふりかえって</h2>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>65a</th><th>65b</th><th>65c</th></tr></thead>
+<tbody>
+<tr><td>何を足したか</td><td>indirect の描く命令 + 体ごとのカリング</td><td>Hi-Z(深度の山)</td><td>2パスのオクルージョンカリング</td></tr>
+<tr><td>何が GPU に移ったか</td><td>何体描くか</td><td>—</td><td><strong>何が見えていたか</strong>(フレームをまたぐ印)</td></tr>
+<tr><td>256 体・低い視点の三角形</td><td>249 万(1パスと同じ)</td><td>249 万</td><td><strong>80 万</strong></td></tr>
+<tr><td>一番の収穫</td><td><strong>CPU で選んでも GPU で選んでも同じ</strong>。違うのは答えを知っているのが誰か</td><td><strong>ミップの大きさは切り捨て</strong>。端を取りこぼすと安全側が崩れる</td><td><strong>隠れの判定は単位が小さいほど効く</strong>。体ごとでは 0 体</td></tr>
+</tbody>
+</table></div>
+<p>ロードマップの問い「<strong>CPU がドローコールを発行しない現代アーキテクチャ。UE5 Nanite の基礎理論</strong>」の答えは、</p>
+<ul><li><strong>CPU がドローコールを発行しない</strong>とは、CPU が「何を・いくつ描くか」を知らないまま描く命令を積むこと。引数は GPU が書き(65a)、何が見えるかは GPU が深度で決め(65c)、その記憶も GPU の上に残す(65c の印)</li><li>それが要るのは、<strong>CPU が持っていない情報で選ぶため</strong>。65a の時点では CPU で選んでも同じだった。深度という CPU に無い情報を使った 65c で初めて、GPU に任せることが「速さの差」になった</li><li><strong>Nanite</strong> は、その上にクラスタの LOD の DAG(細かさを GPU が選ぶ)、小さい三角形のソフトウェアラスタライズ、visibility buffer を載せたもの。隠れの判定をクラスタ単位でやるのは、今日の要点5 の「単位が小さいほど効く」の延長</li></ul>
+</section>
+<footer class="end">Day 65c GPU 駆動レンダリング(3) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softview.js"></script>
+<script src="../site/meshlet.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, setSeg, stat, tok } = Lab;
+const M = Meshlet;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const pct = (a, b) => (b ? (100 * a / b).toFixed(1) : '0.0') + '%';
+const MESH = M.createTorusKnot();
+const SET = M.build(MESH, 'round');
+const SPHERE = M.boundingSphere(MESH);
+const N = SET.count;
+const W = 960, H = 540;
+const pitchOf = (p) => (p === 'default' ? null : Number(p));
+function cameraOf(count, pitch, yawOffset = 0) {
+  const v = { ...M.defaultView(count) };
+  if (pitchOf(pitch) !== null) v.pitch = pitchOf(pitch);
+  v.yaw += yawOffset;
+  return M.orbit(v, W, H);
+}
+// 1パス(全部描く)の深度。視錐台 + 背面を通るメッシュレットだけを描く(reference の1パスと同じ)
+function baselineMask(inst, cam) {
+  const ids = M.selectBodies(inst, cam, SPHERE);
+  const ok = new Uint8Array(inst.length * N);
+  let tris = 0;
+  for (const bi of ids) for (let mi = 0; mi < N; mi++) if (M.classify(SET.meshlets[mi], inst[bi], cam, 3) === 'visible') { ok[bi * N + mi] = 1; tris += SET.meshlets[mi].triangleCount; }
+  return { ids, ok, tris };
+}
+const bodiesOf = (st) => { const a = []; st.instMark.forEach((v, i) => { if (v) a.push(i); }); return a; };
+
+// 色(早いパス = 青、遅いパスで描き足し = 橙、隠れて捨てた = 赤)。明るさは目からの距離
+const distOf = (d) => { const NEAR = 0.1, FAR = 200; return NEAR * FAR / (FAR - d * (FAR - NEAR)); };
+const shadeOf = (d) => Math.min(1, Math.max(0.3, 1 - distOf(d) / 45));
+
+// ============================================================
+//  2パスを動かす
+// ============================================================
+{
+  const st = { count: 16, pitch: 'default', yawOffset: 0, busy: false };
+  let two = null, inst = null, rows = [], last = null;
+  function newScene() {
+    inst = M.sceneInstances(st.count);
+    two = M.createTwoPass(MESH, SET, inst, SPHERE);
+    rows = []; last = null; st.yawOffset = 0;
+  }
+  function paint(r, cam, earlyMask) {
+    const cv = $('tp-canvas');
+    const { ctx, w: cw, h: ch } = fit(cv);
+    const bodies = bodiesOf(two);
+    // 描かれたメッシュレット(早い = 青 / 描き足し = 橙)
+    const drawn = M.renderDepth(MESH, SET, inst, bodies, cam, W, H, (bi, mi) => r.visibleMask[bi * N + mi] === 1, true);
+    // 隠れて捨てたメッシュレットを、前を遮るものを無視して描く(透かして見る)
+    const hidden = M.renderDepth(MESH, SET, inst, bodies, cam, W, H, (bi, mi) => r.occludedMask[bi * N + mi] === 1, true);
+    const img = new ImageData(W, H), px = new Uint32Array(img.data.buffer);
+    for (let i = 0; i < W * H; i++) {
+      let R = 18, G = 21, B = 28;
+      const o = drawn.owner[i];
+      if (o >= 0) {
+        const k = shadeOf(drawn.depth[i]);
+        const early = earlyMask[o] === 1;
+        [R, G, B] = early ? [70 * k + 20, 120 * k + 30, 235 * k] : [250 * k, 150 * k + 20, 40 * k];
+      }
+      if (hidden.owner[i] >= 0) { R = R * 0.45 + 255 * 0.55; G = G * 0.45 + 60 * 0.55; B = B * 0.45 + 60 * 0.55; }
+      px[i] = (255 << 24) | (Math.round(B) << 16) | (Math.round(G) << 8) | Math.round(R);
+    }
+    const off = document.createElement('canvas'); off.width = W; off.height = H; off.getContext('2d').putImageData(img, 0, 0);
+    const s = Math.min(cw / W, ch / H);
+    ctx.fillStyle = '#12151c'; ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(off, (cw - W * s) / 2, (ch - H * s) / 2, W * s, H * s);
+    ctx.font = '12px ' + tok('--font-mono'); ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgb(110,160,255)'; ctx.fillText('青: 早いパス', 8, 16);
+    ctx.fillStyle = 'rgb(255,170,60)'; ctx.fillText('橙: 遅いパスで描き足し', 100, 16);
+    ctx.fillStyle = 'rgb(255,110,110)'; ctx.fillText('赤: 隠れて捨てた(透かして重ねてある)', 270, 16);
+  }
+  function showTable() {
+    const head = '<tr><th>フレーム</th><th>早いパス(体 / メッシュレット)</th><th>遅いパス(体)</th><th>遅いパスで描き足し</th><th>隠れて捨てた</th><th>描かれた三角形</th><th>1パス</th><th>1パスの絵との違い</th></tr>';
+    const body = rows.map((x) => `<tr><th scope="row">${x.n}${x.note ? ' <small>' + x.note + '</small>' : ''}</th><td>${x.earlyBodies} / ${comma(x.earlyMeshlets)}</td><td>${x.lateBodies}</td><td>${comma(x.lateMeshlets)}</td><td>${comma(x.occluded)}(${pct(x.occluded, x.tested)})</td><td>${comma(x.tris)}</td><td>${comma(x.one)}</td><td>${x.diff} 画素</td></tr>`).join('');
+    $('tp-table').innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  }
+  function frame(note, cam) {
+    const r = M.twoPassFrame(two, cam, W, H);
+    // 早いパスで描いたメッシュレット(= 前の印が立っていて、画面の外・裏向きでないもの)は、「描き足し」でないものとして色分けする
+    const earlyMask = new Uint8Array(inst.length * N);
+    for (const bi of bodiesOf(two)) for (let mi = 0; mi < N; mi++) if (r.visibleMask[bi * N + mi] && !r.addedMask[bi * N + mi]) earlyMask[bi * N + mi] = 1;
+    // 1パスの絵との突き合わせ
+    const base = baselineMask(inst, cam);
+    const d1 = M.renderDepth(MESH, SET, inst, base.ids, cam, W, H, (bi, mi) => base.ok[bi * N + mi] === 1);
+    const d2 = M.renderDepth(MESH, SET, inst, bodiesOf(two), cam, W, H, (bi, mi) => r.visibleMask[bi * N + mi] === 1);
+    let diff = 0; for (let i = 0; i < d1.length; i++) if (d1[i] !== d2[i]) diff++;
+    rows.push({ n: two.frames, note, earlyBodies: r.earlyBodies, earlyMeshlets: r.earlyMeshlets, lateBodies: r.lateBodies, lateMeshlets: r.lateMeshlets, occluded: r.tally.occluded, tested: r.tally.tested, tris: r.visibleTris, one: base.tris, diff });
+    last = { r, cam, earlyMask };
+  }
+  function refresh() {
+    showTable();
+    if (last) paint(last.r, last.cam, last.earlyMask);
+    const x = rows[rows.length - 1];
+    $('tp-stats').innerHTML = x ? stat('フレーム', String(x.n)) + stat('隠れて捨てたメッシュレット', pct(x.occluded, x.tested), `<small> (${comma(x.occluded)} / ${comma(x.tested)})</small>`) +
+      stat('三角形(2パス / 1パス)', `${comma(x.tris)} / ${comma(x.one)}`) + stat('1パスの絵との違い', `${x.diff} 画素`) : stat('フレーム', '0');
+    const prev = rows[rows.length - 2];
+    $('tp-note').textContent = !x ? '「次のフレーム」を押すと、見えた印が立っていない起動直後から1フレームずつ進む。'
+      : x.n === 1 ? '最初のフレーム: 印が全部 0 なので、早いパスは何も描かず(深度が空 = 何も隠さない)、遅いパスが見えるメッシュレットを全部描いて、印を立てる。'
+      : (x.note && x.note.includes('飛') ? '視点が飛んだ直後のフレーム: 前の印は前の視点で見えていたものなので、早いパスで描かれるのは「新しい視点でも見えるもの」だけ。残りは遅いパスが描き足す。それでも絵は1パスと同じ(違う画素 0)。' : (prev && x.earlyMeshlets === prev.earlyMeshlets && x.lateMeshlets === 0 ? '印が落ち着いた(早いパスの数が前のフレームと同じで、遅いパスの描き足しが 0)。隠れて捨てたメッシュレットは早いパスにも入らない。' : 'フレームを重ねるたび、遅いパスが「隠れている」と見たものの印が消え、次のフレームの早いパスから外れる。'));
+  }
+  function run(fn) {
+    if (st.busy) return;
+    st.busy = true; $('tp-note').textContent = '計算しています…(256 体は 1 フレームにつき数秒)';
+    setTimeout(() => { try { fn(); } finally { st.busy = false; refresh(); } }, 30);
+  }
+  const doStep = () => frame('', cameraOf(st.count, st.pitch, st.yawOffset));
+  seg('tp-count', (v) => { st.count = Number(v); newScene(); run(() => { doStep(); doStep(); doStep(); }); });
+  seg('tp-pitch', (v) => { st.pitch = v; newScene(); run(() => { doStep(); doStep(); doStep(); }); });
+  $('tp-step').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const v = b.dataset.v;
+    if (v === 'step') run(doStep);
+    else if (v === 'jump') run(() => { st.yawOffset += 2.6; frame('(視点が飛んだ)', cameraOf(st.count, st.pitch, st.yawOffset)); });
+    else if (v === 'reset') { newScene(); refresh(); }
+  });
+  newScene(); refresh();
+  // 最初の表示は、ページが開いたあとで 3 フレーム進める(印が落ち着くところまで)
+  setTimeout(() => run(() => { doStep(); doStep(); doStep(); }), 400);
+}
+
+// ============================================================
+//  比べる深度の余裕
+// ============================================================
+{
+  const st = { scene: '16|default', eps: 0 };
+  const cache = new Map();
+  function compute(count, pitch, eps) {
+    const key = `${count}|${pitch}|${eps}`;
+    let r = cache.get(key);
+    if (r) return r;
+    const inst = M.sceneInstances(count), cam = cameraOf(count, pitch);
+    const base = baselineMask(inst, cam);
+    const b = M.renderDepth(MESH, SET, inst, base.ids, cam, W, H, (bi, mi) => base.ok[bi * N + mi] === 1, true);
+    const two = M.createTwoPass(MESH, SET, inst, SPHERE);
+    let f; for (let i = 0; i < 3; i++) f = M.twoPassFrame(two, cam, W, H, { eps });
+    const d = M.renderDepth(MESH, SET, inst, bodiesOf(two), cam, W, H, (bi, mi) => f.visibleMask[bi * N + mi] === 1);
+    let diff = 0; const diffMap = new Uint8Array(W * H);
+    for (let i = 0; i < d.length; i++) if (b.depth[i] !== d[i]) { diff++; diffMap[i] = 1; }
+    // 1パスの絵に1画素でも出ているメッシュレットのうち、2パスが描かなかったもの
+    const seen = new Set(); for (let i = 0; i < b.owner.length; i++) if (b.owner[i] >= 0) seen.add(b.owner[i]);
+    let wrong = 0; for (const o of seen) if (!f.visibleMask[o]) wrong++;
+    r = { f, diff, diffMap, wrong, seen: seen.size, oneTris: base.tris, depth: b.depth };
+    cache.set(key, r);
+    return r;
+  }
+  function redraw() {
+    const [count, pitch] = [Number(st.scene.split('|')[0]), st.scene.split('|')[1]];
+    const r = compute(count, pitch, st.eps);
+    $('ep-stats').innerHTML = stat('余裕', String(st.eps), st.eps === 0 ? '<small> (reference)</small>' : '') +
+      stat('隠れて捨てたメッシュレット', comma(r.f.tally.occluded)) +
+      stat('2パスの三角形 / 1パス', `${comma(r.f.visibleTris)} / ${comma(r.oneTris)}`) +
+      stat('見えているのに捨てたメッシュレット', `${r.wrong}`, `<small> / 1パスの絵に出ている ${comma(r.seen)} 個</small>`) +
+      stat('1パスの絵と違う画素', comma(r.diff), `<small> / ${comma(W * H)}</small>`);
+    const cv = $('ep-canvas'), { ctx, w: cw, h: ch } = fit(cv);
+    const img = new ImageData(W, H), px = new Uint32Array(img.data.buffer);
+    for (let i = 0; i < W * H; i++) {
+      const g = r.depth[i] >= 1 ? 0 : Math.round(60 * shadeOf(r.depth[i]) + 25);
+      px[i] = r.diffMap[i] ? 0xff2020ff : (255 << 24) | (g << 16) | (g << 8) | g;
+    }
+    // 違う画素は小さくて見えにくいので、まわりに少し広げて描く
+    const off = document.createElement('canvas'); off.width = W; off.height = H; off.getContext('2d').putImageData(img, 0, 0);
+    const s = Math.min(cw / W, ch / H);
+    ctx.fillStyle = '#12151c'; ctx.fillRect(0, 0, cw, ch);
+    ctx.drawImage(off, (cw - W * s) / 2, (ch - H * s) / 2, W * s, H * s);
+    ctx.fillStyle = 'rgb(255,32,32)';
+    for (let i = 0; i < W * H; i++) if (r.diffMap[i]) { const x = (cw - W * s) / 2 + (i % W) * s, y = (ch - H * s) / 2 + Math.floor(i / W) * s; ctx.fillRect(x - 1.5, y - 1.5, 4, 4); }
+    $('ep-note').textContent = st.eps === 0
+      ? '余裕 0(reference)では、2パスの絵は1パスの絵と全画素一致する。隠れて捨てたものは、本当に1画素も見えていなかった。'
+      : `余裕 ${st.eps} だと、見えているメッシュレットを ${r.wrong} 個捨てて、${comma(r.diff)} 画素の絵が変わる(赤)。深度は奥で詰まっているので、0.002 の甘さは手前の物の数十 cm〜数 m の差になる。`;
+  }
+  const run = () => { $('ep-note').textContent = '計算しています…'; setTimeout(redraw, 30); };
+  seg('ep-scene', (v) => { st.scene = v; run(); });
+  seg('ep-eps', (v) => { st.eps = Number(v); run(); });
+  setTimeout(redraw, 900);
+}
+
+// ============================================================
+//  体ごとは効かない、メッシュレットごとは効く
+// ============================================================
+{
+  const SCENES = [
+    ['1 体', 1, 'default', { body: '0', ml: '4.7%', two: '25,912 → 25,786' }],
+    ['16 体', 16, 'default', { body: '0', ml: '5.3%', two: '391,278 → 382,751' }],
+    ['64 体', 64, 'default', { body: '0', ml: '6.0%', two: '915,473 → 884,716' }],
+    ['256 体', 256, 'default', { body: '0', ml: '15.0%', two: '2,453,947 → 2,066,457' }],
+    ['64 体・低い視点', 64, '0.12', { body: '0', ml: '28.3%', two: '935,467 → 543,298' }],
+    ['256 体・低い視点', 256, '0.12', { body: '0', ml: '45.4%', two: '2,485,151 → 801,554' }],
+    ['256 体・もっと低い視点(0.02)', 256, '0.02', { body: '2', ml: '56.3%', two: '2,496,528 → 295,484' }],
+  ];
+  const results = new Array(SCENES.length).fill(null);
+  let running = false;
+  function table() {
+    const rows = SCENES.map(([name, , , plan], i) => {
+      const r = results[i];
+      const mine = r ? `${r.occBodies} / ${r.bodies}` : '—', mine2 = r ? pct(r.occ, r.tested) : '—', mine3 = r ? `${comma(r.one)} → ${comma(r.tris)}` : '—';
+      return `<tr><th scope="row">${name}</th><td>${mine}</td><td>${mine2}</td><td>${mine3}</td><td>${plan.body}</td><td>${plan.ml}</td><td>${plan.two}</td></tr>`;
+    }).join('');
+    $('lv-table').innerHTML = `<table><thead><tr><th>場面</th><th>隠れて捨てた体(このページ / 見える体)</th><th>隠れて捨てたメッシュレット(このページ)</th><th>三角形(1パス → 2パス。このページ)</th><th>体(計画書)</th><th>メッシュレット(計画書)</th><th>三角形(計画書)</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  function runAll() {
+    if (running) return;
+    running = true; let i = 0;
+    $('lv-note').textContent = '数えています…(256 体の場面は 1 つにつき数秒)';
+    const next = () => {
+      if (i >= SCENES.length) { running = false; $('lv-note').textContent = '体ごとの判定で隠れて捨てられた体は、もっと低い視点(0.02)でやっと 2 体。メッシュレットごとなら、1体でも 4.7%、低い視点の 256 体で 45.4% が隠れて捨てられる。体は画面で 100〜500 画素あり、それを覆う Hi-Z の段(5〜7)はほぼ全部が「何も無い」になっているが、メッシュレットは数十画素で、段 3〜4 で比べられ、手前の管の「中」にすっぽり入るものが多い。'; return; }
+      const [, count, pitch] = SCENES[i];
+      const inst = M.sceneInstances(count), cam = cameraOf(count, pitch);
+      const two = M.createTwoPass(MESH, SET, inst, SPHERE);
+      let f; for (let k = 0; k < 4; k++) f = M.twoPassFrame(two, cam, W, H);
+      results[i] = { occBodies: f.occludedInst, bodies: f.lateBodies, occ: f.tally.occluded, tested: f.tally.tested, tris: f.visibleTris, one: baselineMask(inst, cam).tris };
+      table(); i++;
+      setTimeout(next, 20);
+    };
+    setTimeout(next, 30);
+  }
+  $('lv-run').addEventListener('click', runAll);
+  table();
+}
+})();
+</script>
+</body>
+</html>
