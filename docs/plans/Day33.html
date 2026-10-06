@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 33 シャドウマッピング(デプスシャドウ → PCF ソフトシャドウ)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 影とは「光から見えているか」の問い</a></li><li class="l3"><a href="#s5">2. 平行光源には位置が無い。「どこを写すか」を自分で決める</a></li><li class="l3"><a href="#s6">3. シャドウアクネ — なぜ縞になるのか</a></li><li class="l3"><a href="#s7">4. NDC は -1〜1、深度バッファは 0〜1</a></li><li class="l3"><a href="#s8">5. 解像度の呪い — 1テクセルが覆うワールドの長さ</a></li><li class="l3"><a href="#s9">6. PCF — 比較してから平均する</a></li><li class="l3"><a href="#s10">7. 深度だけのフレームバッファ — <code>glDrawBuffer(GL_NONE)</code></a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">平行光源の向きを 90 度回した</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">影が1枚出るまで — 2つのパスと、5つの落とし穴</a></li><li class="l2"><a href="#s18">完成条件</a></li><li class="l3"><a href="#s19">1. 影が見える</a></li><li class="l3"><a href="#s20">2. <code>Ctrl+4</code>: バイアスを 0 にしてアクネを出す</a></li><li class="l3"><a href="#s21">3. <code>Ctrl+2</code> / <code>Ctrl+8</code>: ギザギザと VRAM の綱引き</a></li><li class="l3"><a href="#s22">4. <code>Ctrl+7</code>: シャドウマップそのものを見る</a></li><li class="l3"><a href="#s23">5. <code>Shift+9</code> を8回: 影の係数だけを見る</a></li><li class="l3"><a href="#s24">6. <code>Ctrl+0</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s25">改造課題</a></li><li class="l3"><a href="#s26">課題1(易): テクセルスナップで、カメラを動かしたときの揺れを止める</a></li><li class="l3"><a href="#s27">課題2(中): ハードウェア PCF(<code>sampler2DShadow</code>)に置き換える</a></li><li class="l3"><a href="#s28">課題3(難): カスケードシャドウマップ(2段)</a></li><li class="l2"><a href="#s29">動作確認済み環境</a></li><li class="l3"><a href="#s30">自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s31">深度パスの実測(立方体6個 + 床、<code>glFinish()</code> 込みの 120 回平均)</a></li><li class="l3"><a href="#s32">PCF のタップ数と1フレーム(960x640、<code>glFinish()</code> 込みの 300 フレーム平均)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 6 / Day 33 / 計画書</p>
+  <h1>シャドウマッピング(デプスシャドウ → PCF ソフトシャドウ)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 影とは「光から見えているか」の問い</a></li><li class="l3"><a href="#s5">2. 平行光源には位置が無い。「どこを写すか」を自分で決める</a></li><li class="l3"><a href="#s6">3. シャドウアクネ — なぜ縞になるのか</a></li><li class="l3"><a href="#s7">4. NDC は -1〜1、深度バッファは 0〜1</a></li><li class="l3"><a href="#s8">5. 解像度の呪い — 1テクセルが覆うワールドの長さ</a></li><li class="l3"><a href="#s9">6. PCF — 比較してから平均する</a></li><li class="l3"><a href="#s10">7. 深度だけのフレームバッファ — <code>glDrawBuffer(GL_NONE)</code></a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">平行光源の向きを 90 度回した</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">影が1枚出るまで — 2つのパスと、5つの落とし穴</a></li><li class="l2"><a href="#s18">完成条件</a></li><li class="l3"><a href="#s19">1. 影が見える</a></li><li class="l3"><a href="#s20">2. <code>Ctrl+4</code>: バイアスを 0 にしてアクネを出す</a></li><li class="l3"><a href="#s21">3. <code>Ctrl+2</code> / <code>Ctrl+8</code>: ギザギザと VRAM の綱引き</a></li><li class="l3"><a href="#s22">4. <code>Ctrl+7</code>: シャドウマップそのものを見る</a></li><li class="l3"><a href="#s23">5. <code>Shift+9</code> を8回: 影の係数だけを見る</a></li><li class="l3"><a href="#s24">6. <code>Ctrl+0</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s25">改造課題</a></li><li class="l3"><a href="#s26">課題1(易): テクセルスナップで、カメラを動かしたときの揺れを止める</a></li><li class="l3"><a href="#s27">課題2(中): ハードウェア PCF(<code>sampler2DShadow</code>)に置き換える</a></li><li class="l3"><a href="#s28">課題3(難): カスケードシャドウマップ(2段)</a></li><li class="l2"><a href="#s29">動作確認済み環境</a></li><li class="l3"><a href="#s30">自己チェック(15 項目すべて合格)</a></li><li class="l3"><a href="#s31">深度パスの実測(立方体6個 + 床、<code>glFinish()</code> 込みの 120 回平均)</a></li><li class="l3"><a href="#s32">PCF のタップ数と1フレーム(960x640、<code>glFinish()</code> 込みの 300 フレーム平均)</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 6 の3日目。<strong>モデルが床に影を落とす</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Ctrl + 数字</code> で影の作りをひとつずつ壊しながら見られる。</p>
+<div class="code"><pre><code>  Ctrl+1  影 ON / OFF
+  Ctrl+2  解像度      512 / 1024 / 2048 / 4096
+  Ctrl+3  PCF         1タップ / 3x3 / 5x5 / 7x7
+  Ctrl+4  深度バイアス 0(アクネが出る) / 0.0005 / 0.0015 / 0.006
+  Ctrl+5  傾きに比例したバイアス
+  Ctrl+6  深度パスの表カリング(ピーターパンの実演)
+  Ctrl+7  シャドウマップそのものを画面の隅に出す
+  Ctrl+8  光の届く範囲  3 / 6 / 12 / 24m
+  Ctrl+9  光の向きを 30 度ずつ回す
+  Ctrl+0  自己チェックと計測</code></pre></div>
+<p><strong>「きれいな影を出す」より「影が壊れる原因を全部見る」ほうが今日の主題</strong>。シャドウマッピングは仕組み自体は 30 行で書けるが、そのままではまず間違いなく縞模様(シャドウアクネ)とギザギザ(エイリアス)が出る。この2つの正体と対処が Day 33 の中身になる。</p>
+<p><code>Shift+9</code> を8回押すと <strong>影の係数だけ</strong>を白黒で見られる。絵として合成する前に見るのが、影を直すときのいちばん近道になる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-12: 影</a>シャドウボリューム(ステンシルで影の体積を切る古典手法)との対比が載っている。<strong>今日はシャドウマッピング側だけ</strong>やるが、「なぜ今どこもシャドウマップなのか」は対比を見ると腹に落ちる</li><li><strong>西川善司『「3Dゲームエンジン」が作れる本』Ch4「デプスシャドウ技法とその進化形」</strong>今日のいちばん近い解説。<strong>アクネとピーターパンの図が分かりやすい</strong>。後半の「進化形」(PCF・VSM・カスケード)は Day 39 以降の下準備として眺めておく</li><li><a href="https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping">LearnOpenGL: Shadow Mapping</a> <strong>コードで追いたいならここが最短</strong>。今日の実装とほぼ同じ構成で、バイアスと PCF の節はそのまま対応する</li><li><a href="https://www.khronos.org/opengl/wiki/Framebuffer_Object">OpenGL Wiki: Framebuffer Object</a> <code>glDrawBuffer(GL_NONE)</code> が要る理由の一次情報。「深度だけのフレームバッファ」でつまずいたらここを見る</li><li><a href="https://learn.microsoft.com/en-us/windows/win32/dxtecharts/common-techniques-to-improve-shadow-depth-maps">Common Techniques to Improve Shadow Depth Maps (Microsoft Learn)</a> DirectX の文書だが<strong>内容は API に依らない</strong>。バイアス・カスケード・テクセルスナップの実務的な扱いがまとまっている。今日の範囲を超えるが、Day 39 で戻ってくる価値がある</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 影とは「光から見えているか」の問い</h3>
+<p>影があるかどうかは、突き詰めると1つの問いに尽きる。</p>
+<blockquote><p>この点は、光から<strong>まっすぐ見えている</strong>か?</p></blockquote>
+<p>見えていれば光が当たり、途中に何かが挟まっていれば影になる。レイトレーシングならその場で光へレイを飛ばせばよいが、<strong>ラスタライザにレイは無い</strong>。</p>
+<p>そこで発想を裏返す。<strong>カメラを光の位置に置いて1回描き、いちばん手前の深度だけを覚えておく</strong>。本描画では、各ピクセルの世界座標を光の座標系へ写して、覚えておいた深度と比べる。自分のほうが奥なら、間に何かがある——つまり影。</p>
+<div class="code"><pre><code>1パス目(深度パス)   光の目 → 深度テクスチャ(色は書かない)
+2パス目(本描画)     ピクセルの世界座標 → 光の座標系 → 深度を引いて比べる</code></pre></div>
+<p>Day 31 で作った Render To Texture が、そのまま土台になる。<code>Framebuffer</code> のコメントに「深度を読みたくなったら(影、SSAO)テクスチャに変える」と書いてあったのがこの日で、<strong>書いた土台がそのまま次を呼ぶ</strong>という設計の配当が出る。</p>
+<h3 id="s5">2. 平行光源には位置が無い。「どこを写すか」を自分で決める</h3>
+<p>カメラの投影行列は、視野角と縦横比と near/far から<strong>一意に決まる</strong>。光の投影行列にはそれが無い。</p>
+<ul><li>太陽は無限遠にあるので「カメラを光の位置に置く」ができない</li><li>平行光線なので遠近感が付いてはいけない → <strong>正射影</strong></li><li>では正射影の箱は<strong>どれだけの広さ</strong>にするのか? → <strong>誰も決めてくれない</strong></li></ul>
+<p>今日は「注目したい球」を1つ決めて、そこから組み立てる。</p>
+<div class="code"><pre><code>中心   = カメラの注視点
+半径   = Ctrl+8 で切り替え(既定 6m)
+視点   = 中心 - 光の向き × 半径 × 2
+投影   = 正射影(幅・高さ = 半径 × 2、near = 半径 × 0.5、far = 半径 × 3.5)</code></pre></div>
+<p><code>center - direction * radius * 2</code> の「2」は絵に影響しない。正射影なので視点をどれだけ引いても大きさは変わらず、<strong>ニアクリップより手前のものが消える</strong>ことだけが問題になるので、余裕を持って引いている。</p>
+<p><strong>この箱の広さがそのまま影の品質になる</strong>。世界全体を入れれば影は粗くなり、狭くすれば細かくなるが範囲外の影が消える。この綱引きが「シャドウマップの調整」と呼ばれるものの大半で、実際のエンジンは<strong>視錐台を距離で分割して箱を何段も作る</strong>(カスケードシャドウマップ)。今日は1段だけにして、<code>Ctrl+8</code> で手を動かして綱引きを体感する。</p>
+<h3 id="s6">3. シャドウアクネ — なぜ縞になるのか</h3>
+<p>バイアスを 0 にする(<code>Ctrl+4</code>)と、床とモデルの表面に<strong>細かい縞模様</strong>が出る。これがシャドウアクネで、影を実装すると 100% 出る。</p>
+<p>原因は<strong>解像度が有限</strong>であること。シャドウマップの1テクセルは、光から見て<strong>ある広さの領域</strong>の深度をたった1つの値で代表している。斜めの面ではその領域の中で本当の深度が連続的に変わるので、</p>
+<div class="code"><pre><code>    テクセルが代表する深度 ┄┄┄┄┄┄┄┄┄
+                          ／ ← 実際の面
+   代表値より手前の点 → 影でない
+   代表値より奥の点   → 「自分が自分を遮っている」= 影</code></pre></div>
+<p>半々に生まれて縞になる。<strong>自分自身が原因</strong>なので、「モデルを増やしたら出た」ではなく最初から出る。</p>
+<p>対処は2つある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>手</th><th>やること</th><th>代償</th></tr></thead>
+<tbody>
+<tr><td><strong>深度バイアス</strong></td><td>比較の前に自分の深度を手前へずらす</td><td>入れすぎると影が本体から離れる(<strong>ピーターパン</strong>)</td></tr>
+<tr><td><strong>表カリング</strong></td><td>深度パスで表を捨て、<strong>裏だけ焼く</strong></td><td><strong>閉じた立体にしか使えない</strong>。薄いものは浮く</td></tr>
+</tbody>
+</table></div>
+<p>バイアスは<strong>面の傾きに比例させる</strong>のが定石。光に正対していれば1テクセル内の深度差はほぼ 0、光と平行に近い面では大きい。<code>dot(N, L)</code> がそのまま傾きの指標になるので、</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float bias = uShadowBias + (uShadowSlopeBias * (1.0 - ndotl));</code></pre></div>
+<p>表カリングのほうは理屈が気持ちいい。裏面だけを焼けば記録されるのは物体の<strong>向こう側</strong>の深度になり、表面との間に<strong>物体の厚みぶんの隙間</strong>ができる。バイアス無しでもアクネが出ない。</p>
+<p>だが床のような1枚板は裏が無いので<strong>丸ごと影を落とさなくなる</strong>し、薄い物体は厚みが足りず影が浮く。<strong>板を含むシーンでは既定を OFF にしてバイアスで対処する</strong>——今日もそうしている。<code>Ctrl+6</code> で切り替えて、床の影がどうなるか見るとよい。</p>
+<div class="inject"><figure class="lab" id="sm-lab">
+  <div class="lab-head">
+    <h3>影を壊して見る — バイアス・PCF・解像度・範囲・表カリング(要点2〜6、完成条件2・3)</h3>
+    <span class="tag">ShadowMap.Begin(視点 = 中心 − 光の向き x 半径 x 2、正射影の幅 = 半径 x 2、near = 半径 x 0.5、far = 半径 x 3.5)と textured.frag の ShadowFactor(z を 0〜1 に直す、bias = 定数 + 定数 x 6 x (1 − N・L)、(2r+1)² タップを比較してから平均)を、光の向きを含む縦の断面(2D)に移したもの。深度はテクセルの真ん中で光線を飛ばして、いちばん手前の面を 24bit で記録する。シーンは床と、その上の 1m の箱(このページだけの形。奥行き方向にずっと続く箱とみなすので、3x3 の PCF は1行ぶんの平均と同じになる)。光の高さの既定 46 度は reference の (−0.53, −0.72, 0.45)。上の図は横から見た全体、下の帯は床の影の係数(白 = 当たっている、黒 = 影)を拡大したもの。細い縦線はシャドウマップのテクセルの境目</span>
+  </div>
+  <div class="stage"><canvas id="sm-canvas" style="height:420px" aria-label="床と箱を横から見た図と、床の影の係数を拡大した帯"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">深度バイアス(Ctrl+4)</span>
+      <div class="seg" id="sm-bias"><button data-v="0" aria-pressed="false">0</button><button data-v="0.0005" aria-pressed="false">0.0005</button><button data-v="0.0015" aria-pressed="true">0.0015(既定)</button><button data-v="0.006" aria-pressed="false">0.006</button></div>
+    </div>
+    <div class="ctl"><span class="label">傾きに比例したバイアス(Ctrl+5)</span>
+      <div class="seg" id="sm-slope"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">PCF(Ctrl+3)</span>
+      <div class="seg" id="sm-pcf"><button data-v="0" aria-pressed="false">1タップ</button><button data-v="1" aria-pressed="true">3x3</button><button data-v="2" aria-pressed="false">5x5</button><button data-v="3" aria-pressed="false">7x7</button></div>
+    </div>
+    <div class="ctl"><span class="label">解像度(Ctrl+2)</span>
+      <div class="seg" id="sm-res"><button data-v="512" aria-pressed="false">512</button><button data-v="1024" aria-pressed="false">1024</button><button data-v="2048" aria-pressed="true">2048</button><button data-v="4096" aria-pressed="false">4096</button></div>
+    </div>
+    <div class="ctl"><span class="label">光の届く範囲(Ctrl+8。半径)</span>
+      <div class="seg" id="sm-radius"><button data-v="3" aria-pressed="false">3m</button><button data-v="6" aria-pressed="true">6m</button><button data-v="12" aria-pressed="false">12m</button><button data-v="24" aria-pressed="false">24m</button></div>
+    </div>
+    <div class="ctl"><span class="label">深度パスのカリング(Ctrl+6)</span>
+      <div class="seg" id="sm-cull"><button data-v="back" aria-pressed="true">裏を捨てる(既定)</button><button data-v="front" aria-pressed="false">表を捨てる</button></div>
+    </div>
+    <div class="ctl"><span class="label">光の高さ(度。このページだけ。46 が reference)</span>
+      <div class="range"><input type="range" id="sm-elev" min="8" max="85" step="1" value="46"><output id="sm-elev-out"></output></div>
+    </div>
+    <div class="ctl"><span class="label">下の帯で拡大する場所</span>
+      <div class="seg" id="sm-zoom"><button data-v="base" aria-pressed="true">箱の根元(ピーターパン)</button><button data-v="tip" aria-pressed="false">影の先端(ギザギザ)</button><button data-v="floor" aria-pressed="false">光の当たる床(アクネ)</button><button data-v="plate" aria-pressed="false">薄い板の影</button></div>
+    </div>
+    <div class="ctl"><span class="label">落とし穴をわざと踏む(このページだけ)</span>
+      <div class="seg" id="sm-bug"><button data-v="none" aria-pressed="true">踏まない</button><button data-v="avg" aria-pressed="false">深度を平均してから比較</button><button data-v="z" aria-pressed="false">z を 0〜1 に直し忘れる</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sm-stats"></div><p id="sm-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">4. NDC は -1〜1、深度バッファは 0〜1</h3>
+<p>光の座標系へ写した位置から、シャドウマップを引くまでの式。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>vec3 proj = vLightSpacePos.xyz / vLightSpacePos.w;   // 透視除算(正射影なら w = 1)
+proj = (proj * 0.5) + 0.5;                           // -1〜1 → 0〜1
+float closest = texture(uShadowMap, proj.xy).r;
+bool inShadow = (proj.z - bias) &gt; closest;</code></pre></div>
+<p><strong>xy だけ変換して z を忘れる</strong>のが今日いちばん出やすい間違い。<code>proj.z</code> が -1〜1 のままだと、深度バッファの 0〜1 とスケールが合わず、<strong>全部が影になる</strong>か<strong>まったく影が出ない</strong>かのどちらかになる。どちらも「実装できていない」ように見えるだけで、原因を教えてくれない。</p>
+<p>透視除算を書いておくのは、平行光源では無意味(w は必ず 1)だが、<strong>点光源の影は透視投影を使う</strong>ので、そのまま持っていけるようにするため。</p>
+<p>そして箱の外。<code>proj.z &gt; 1.0</code>(遠クリップより奥)は明示的に「影なし」を返し、<code>proj.xy</code> が 0〜1 の外に出る場合は<strong>テクスチャのラップに任せる</strong>。深度テクスチャを <code>ClampToBorder</code> + 縁の色 1.0(= いちばん奥)で作ってあるので、外を引けば必ず「何にも遮られていない」が返る。</p>
+<p><code>ClampToEdge</code> にすると<strong>端のテクセルの深度</strong>が返り、箱の縁の影が外側へ筋になって伸びる、という分かりやすい壊れ方をする。</p>
+<h3 id="s8">5. 解像度の呪い — 1テクセルが覆うワールドの長さ</h3>
+<p>影のギザギザの大きさは、たった1つの数字で決まる。</p>
+<div class="code"><pre><code>1テクセルが覆うワールドの長さ = 光の箱の幅 ÷ 解像度 = (半径 × 2) ÷ 解像度</code></pre></div>
+<p>画面(HUD)に <code>0.6cm/tx</code> として出しているのがこれで、既定の半径 6m・2048 なら<code>12m ÷ 2048 = 0.586cm</code>。<strong>影の輪郭はこの粒で階段になる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>半径</th><th>解像度</th><th>1テクセル</th><th>VRAM</th></tr></thead>
+<tbody>
+<tr><td>6m</td><td>512</td><td>2.3cm</td><td>0.8MB</td></tr>
+<tr><td>6m</td><td>2048</td><td>0.6cm</td><td>12.0MB</td></tr>
+<tr><td>6m</td><td>4096</td><td>0.3cm</td><td>48.0MB</td></tr>
+<tr><td>24m</td><td>2048</td><td>2.3cm</td><td>12.0MB</td></tr>
+</tbody>
+</table></div>
+<p><strong>解像度を4倍にするのと、箱を1/4にするのは同じ効果</strong>——ただし VRAM の代償は前者だけが払う。だから実際のエンジンはまず箱を絞る。カスケードシャドウマップは「手前ほど小さい箱を使う」という、この表をそのまま制度にしたもの。</p>
+<div class="inject"><figure class="lab" id="tx-lab">
+  <div class="lab-head">
+    <h3>1テクセルが覆う長さと VRAM — 解像度と範囲の綱引き(要点5)</h3>
+    <span class="tag">ShadowMap.WorldPerTexel(半径 x 2 ÷ 解像度)と、深度テクスチャの大きさ(1テクセル 3 バイト。Framebuffer.ByteSize と同じ数え方)を、reference の4つの解像度と4つの半径の組み合わせ全部で並べたもの。今の組み合わせは「影を壊して見る」の選び方に合わせて強調する</span>
+  </div>
+  <div class="readout"><div class="table-wrap" id="tx-table"></div><p id="tx-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s9">6. PCF — 比較してから平均する</h3>
+<p>ギザギザを目立たなくする定番が PCF(Percentage-Closer Filtering)。やることは「1テクセルではなく周りも読んで平均する」だけだが、<strong>順番が肝</strong>になる。</p>
+<div class="code"><pre><code>✗ 深度を平均してから比較する   手前 0.2 と奥 0.9 の平均 0.55 は、どこにも存在しない面
+✓ 比較してから平均する         0/1 を平均した 0.55 は「55% が影」という意味を持つ</code></pre></div>
+<p>3x3 なら 0, 1/9, 2/9, … 1 の 10 段。境目が階調になるので、ギザギザが「にじみ」に置き換わる。</p>
+<p><strong>影が柔らかくなるのではなく、ギザギザが目立たなくなるだけ</strong>というのが正確なところ。本物の半影(光源の大きさで決まるボケ。近くは硬く、遠いほど柔らかい)は別の話で、そちらは Day 39 以降になる。</p>
+<p>この「順番」が、深度テクスチャのフィルタを <strong>Nearest にする理由</strong>でもある。<code>Linear</code> にすると GPU が深度を4つ平均して返してくるので、<strong>比較する前に平均してしまう</strong>——上の ✗ そのものになる。</p>
+<blockquote><p>なお GPU には「読むときに比較まで済ませる」専用の仕掛けがあり(<code>sampler2DShadow</code> + <code>GL_TEXTURE_COMPARE_MODE</code>)、そちらでは <code>Linear</code> がタダで 2x2 の PCF になる。改造課題2で扱う。</p></blockquote>
+<h3 id="s10">7. 深度だけのフレームバッファ — <code>glDrawBuffer(GL_NONE)</code></h3>
+<p>シャドウマップは「光から見た深度」しか使わないので、色は1バイトも要らない。カラーアタッチメントを1枚も持たないフレームバッファは合法だが、<strong>1行だけ作法が要る</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.DrawBuffer(DrawBufferMode.None);
+_gl.ReadBuffer(ReadBufferMode.None);</code></pre></div>
+<p>OpenGL のフレームバッファは既定で「0 番のカラーアタッチメントへ描く」つもりでいる。カラーが無いのにそのままにすると、<strong>「描く先が無い」で不完全</strong>(<code>GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER</code>)になる。</p>
+<p>Day 31 で書いた完全性チェックが、ここで例外として教えてくれる。チェックが無ければ「影が出ない」だけになり、光源行列を疑って何時間も溶かすことになっていた——<strong>あの5行の配当</strong>。</p>
+<p>色を書かないぶん、深度パスは安い。実測(RTX 3070、立方体6個 + 床)では <strong>4096x4096 でも 0.044ms</strong>で、解像度を上げてもほとんど変わらない。<strong>影の代償は「焼く」側ではなく、本描画で PCF を引く側に出る</strong>。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Render/ShadowMap.cs</code></td><td><strong>今日の主役</strong>。深度専用 FBO の所有、光源行列の組み立て、<code>Begin</code>/<code>Draw</code>/<code>End</code>、本描画への uniform 配布、デバッグ表示</td></tr>
+<tr><td><code>shaders/depth.vert</code></td><td>位置だけを光の座標系へ写す。<strong>属性は location 0 だけ宣言する</strong></td></tr>
+<tr><td><code>shaders/depth.frag</code></td><td><strong>中身が空</strong>。深度は自動で書かれるので、色を出力しない</td></tr>
+<tr><td><code>shaders/shadow-view.frag</code></td><td>シャドウマップを画面の隅に出す(<code>Ctrl+7</code>)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Texture.cs</code></td><td><code>TextureWrap.ClampToBorder</code> を追加。<code>CreateDepthTarget</code>(深度テクスチャ)。<code>SetWrap</code> を switch へ</td></tr>
+<tr><td><code>Render/Framebuffer.cs</code></td><td><strong>深度テクスチャだけの形</strong>を追加。<code>CreateDepthOnly</code> / <code>Depth</code> / <code>glDrawBuffer(GL_NONE)</code>。<code>Create</code> を2つに割る</td></tr>
+<tr><td><code>shaders/textured.vert</code></td><td><code>uLightSpaceMatrix</code>、<code>vWorldPos</code>、<code>vLightSpacePos</code></td></tr>
+<tr><td><code>shaders/textured.frag</code></td><td><code>ShadowFactor()</code>(投影・バイアス・PCF)、影の係数の表示(成分 8)、直接光にだけ影を掛ける</td></tr>
+<tr><td><code>Program.cs</code></td><td>深度パス、モデル表示中の床、影の uniform、<code>Ctrl+0〜9</code>、HUD の1行、<code>RunShadowCheck</code>、<strong>平行光源の向きを 90 度回した</strong></td></tr>
+</tbody>
+</table></div>
+<p>変更ファイルへの追加が 825 行、新規ファイルが 477 行で、合わせて約 1300 行。うち <strong>4割がコメント</strong>(528 行)なので、実際に打つ量は Day 32 と同程度になる。</p>
+<h3 id="s14">平行光源の向きを 90 度回した</h3>
+<p>Day 32 までの光の向きは <code>(-0.45, -0.72, -0.53)</code>。これは既定のカメラ(<code>OrbitCameraController</code> の Yaw 0.6)と<strong>ほぼ同じ方角から照らしている</strong>——つまり光が視線とだいたい同じ向きに進む。</p>
+<p>陰影を見るだけなら問題なかったが、影が付くと事情が変わる。<strong>影は光の進む向きへ伸びるので、物体の真後ろに隠れて1ピクセルも見えない</strong>。</p>
+<div class="code"><pre><code>Day 32 まで  (-0.45, -0.72, -0.53)   影がカメラから見て真後ろ → 見えない
+Day 33 から  (-0.53, -0.72,  0.45)   90 度回して横へ倒す     → 全体が見える</code></pre></div>
+<p><strong>照明の位置は絵の一部</strong>で、「正しく実装したのに何も見えない」の原因になりうる。これは実装の話ではなく画作りの話だが、<strong>影のデバッグでいちばん最初に疑うべきこと</strong>なので、ここに書いておく。</p>
+<p>なお立方体の陰影の付き方が Day 32 と変わるが、明るさの階段(0.25〜32)と発光する箱は <code>EmissiveFactor</code> で描いているので、Day 31 の見え方はそのまま残る。</p>
+<h3 id="s15">写経する順番</h3>
+<p>依存の下から。<code>Texture</code> を最初に置くのは、<strong>深度テクスチャが無いと器が作れない</strong>ため。</p>
+<ol><li><strong><code>Render/Texture.cs</code></strong>(変更) <code>TextureWrap</code> に <code>ClampToBorder</code> を追加 → <code>SetWrap</code> を三項演算子から <code>switch</code> へ → <code>CreateDepthTarget</code> を <strong><code>CreateTarget</code> の直後</strong>に追加</li><li><strong><code>Render/Framebuffer.cs</code></strong>(変更) <code>_depthOnly</code> フィールド → private コンストラクタ → <code>CreateDepthOnly</code> → <code>Depth</code> プロパティ → <code>ByteSize</code> の分岐 → <strong><code>Create</code> を <code>CreateColorAttachments</code> と <code>CreateDepthOnlyAttachments</code> に割る</strong> (完全性チェックは <code>Create</code> に残す)→ <code>Destroy</code> で <code>Depth</code> も畳む</li><li><strong><code>shaders/depth.vert</code></strong>(新規)/ <strong><code>shaders/depth.frag</code></strong>(新規)合わせて 40 行。<strong>frag の <code>main</code> が空</strong>なのを確かめる</li><li><strong><code>shaders/shadow-view.frag</code></strong>(新規)深度を 0〜1 に引き伸ばして白黒で出すだけ</li><li><strong><code>Render/ShadowMap.cs</code></strong>(新規)フィールド → <code>Begin</code>(光源行列)→ <code>Draw</code> → <code>End</code> → <code>Apply</code> → <code>DrawDebug</code> → <code>SetResolution</code> → <code>Dispose</code>。<strong>今日いちばん長い1ファイル(405行)</strong></li><li><strong><code>shaders/textured.vert</code></strong>(変更) <code>uLightSpaceMatrix</code> と2本の <code>out</code> → <code>main</code> で <code>worldPos</code> を先に出す</li><li><strong><code>shaders/textured.frag</code></strong>(変更)影の uniform 6本 → <code>ShadowFactor()</code> → <code>main</code> で <code>toLight</code> と <code>shadow</code> →成分 8 の表示 → <strong><code>lambert * shadow</code></strong></li><li><strong><code>Program.cs</code></strong>(変更) <code>_shadow</code> / <code>_shadowMilliseconds</code> のフィールド → <code>_lightDirection</code> の向きを変更 → <code>_debugChannel</code> のコメント → <code>OnLoad</code>(<code>ShadowMap</code> の生成)→ <code>OnRender</code>(<code>RenderShadowPass</code> と <code>DrawDebug</code>)→ <code>RenderShadowPass</code> → <code>Render3D</code> の <code>_shadow.Apply</code> → <code>FloorMatrix</code> / <code>CubeMatrix</code> の切り出し → <code>RenderModel</code> に床 → <code>ShadowLabel</code> と成分 8 → HUD の行(<strong>先頭の <code>Day32</code> → <code>Day33</code> も忘れずに</strong>)→ <code>OnKeyDown</code>(<code>ctrl</code> の判定と <code>Ctrl+0〜9</code>)→ <code>RunShadowCheck</code> / <code>ReadShadowDepth</code> / <code>BenchmarkDepthPass</code> → <code>OnClosing</code> → 操作説明</li><li><strong><code>Day33.csproj</code></strong>(リネームのみ)中身は Day 32 と同じ</li></ol>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>クラスが1つ増えただけ</strong>で、層の構成は Day 32 のまま。<code>Render/</code> の中に <code>ShadowMap</code> が入り、<code>PostProcess</code> と横に並ぶ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>増えたもの</th><th>何をするか</th></tr></thead>
+<tbody>
+<tr><td><code>Render/ShadowMap</code></td><td>深度専用 FBO を持ち、光源行列を作り、本描画へ uniform を配る</td></tr>
+</tbody>
+</table></div>
+<p><code>Render/</code> の既存クラスも2つ太った。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>変わったもの</th><th>何が増えたか</th></tr></thead>
+<tbody>
+<tr><td><code>Framebuffer</code></td><td><strong>深度テクスチャだけの形</strong>。<code>CreateDepthOnly</code> / <code>Depth</code></td></tr>
+<tr><td><code>Texture</code></td><td><code>CreateDepthTarget</code> と <code>TextureWrap.ClampToBorder</code></td></tr>
+</tbody>
+</table></div>
+<h3 id="s17">影が1枚出るまで — 2つのパスと、5つの落とし穴</h3>
+<svg viewBox="0 0 1060 1118" role="img" aria-label="影が1枚出るまで(2つのパスと、5つの落とし穴)。1パス目(深度パス): ShadowMap.Begin(光の向き, 注視点)。視点 = 中心 - 向き × 半径 × 2、正射影(幅高さ = 半径×2)。落とし穴1: 箱の広さは誰も決めてくれない。LightSpaceMatrix = view * projection。落とし穴2: 深度パスと本描画で同じ行列を使う。深度専用 FBO を bind し、ビューポートを 2048 に。落とし穴3: glDrawBuffer(GL_NONE)。Draw(mesh, model) を並べる(depth.vert / depth.frag、色は書かない)。End() で画面へ戻し、借りた GL の状態も返す。2パス目(本描画): ShadowMap.Apply(textured シェーダ)で行列 / 5番のテクスチャ / PCF / バイアスを渡す(フレームに1回でよい)。textured.vert で vLightSpacePos = uLightSpaceMatrix * worldPos(頂点でやる。画素でやると無駄)。textured.frag の ShadowFactor() で proj = xyz / w、proj = proj * 0.5 + 0.5。落とし穴4: z も変換する。proj.z > 1.0 なら影なし(遠クリップより奥)。そうでなければ bias = 定数 + 傾き × (1 - N・L)。落とし穴5: 傾きに比例させる。PCF: (2r+1)^2 タップ(比較してから平均する)。lighting = 光 × ランバート × 影 + 環境光 × AO" style="width:100%;max-width:1060px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="180" y="8" width="520" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ShadowMap.Begin(光の向き, 注視点)</text><rect x="180" y="67" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="87.5" text-anchor="middle" fill="var(--ink)">視点 = 中心 - 向き × 半径 × 2</text><text x="440" y="104.5" text-anchor="middle" fill="var(--ink)">正射影(幅高さ = 半径×2)</text><text x="440" y="121.5" text-anchor="middle" fill="var(--ink)" font-weight="700">落とし穴1: 箱の広さは誰も決めてくれない</text><rect x="180" y="160" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="180.5" text-anchor="middle" fill="var(--ink)">LightSpaceMatrix = view * projection</text><text x="440" y="197.5" text-anchor="middle" fill="var(--ink)" font-weight="700">落とし穴2: 深度パスと本描画で同じ行列を使う</text><rect x="180" y="236" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="256.5" text-anchor="middle" fill="var(--ink)">深度専用 FBO を bind</text><text x="440" y="273.5" text-anchor="middle" fill="var(--ink)">ビューポートを 2048 に</text><text x="440" y="290.5" text-anchor="middle" fill="var(--ink)" font-weight="700">落とし穴3: glDrawBuffer(GL_NONE)</text><rect x="180" y="329" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="349.5" text-anchor="middle" fill="var(--ink)">Draw(mesh, model) を並べる</text><text x="440" y="366.5" text-anchor="middle" fill="var(--ink)">depth.vert / depth.frag</text><text x="440" y="383.5" text-anchor="middle" fill="var(--ink)">色は書かない</text><rect x="180" y="422" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="442.5" text-anchor="middle" fill="var(--ink)">End()</text><text x="440" y="459.5" text-anchor="middle" fill="var(--ink)">画面へ戻す。借りた GL の状態も返す</text><rect x="180" y="512" width="520" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="532.5" text-anchor="middle" fill="var(--ink)">ShadowMap.Apply(textured シェーダ)</text><text x="440" y="549.5" text-anchor="middle" fill="var(--ink)">行列 / 5番のテクスチャ / PCF / バイアス</text><text x="440" y="566.5" text-anchor="middle" fill="var(--ink)" font-weight="700">フレームに1回でよい</text><rect x="180" y="605" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="625.5" text-anchor="middle" fill="var(--ink)">textured.vert</text><text x="440" y="642.5" text-anchor="middle" fill="var(--ink)">vLightSpacePos = uLightSpaceMatrix * worldPos</text><text x="440" y="659.5" text-anchor="middle" fill="var(--ink)" font-weight="700">頂点でやる。画素でやると無駄</text><rect x="180" y="698" width="520" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="718.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">textured.frag: ShadowFactor()</text><rect x="180" y="757" width="520" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="777.5" text-anchor="middle" fill="var(--ink)">proj = xyz / w</text><text x="440" y="794.5" text-anchor="middle" fill="var(--ink)">proj = proj * 0.5 + 0.5</text><text x="440" y="811.5" text-anchor="middle" fill="var(--ink)" font-weight="700">落とし穴4: z も変換する</text><rect x="180" y="850" width="520" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="440" y="870.5" text-anchor="middle" fill="var(--ink)">proj.z &gt; 1.0 ?</text><rect x="780" y="844" width="260" height="45" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="910" y="870.5" text-anchor="middle" fill="var(--ink)">影なし(遠クリップより奥)</text><rect x="180" y="923" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="943.5" text-anchor="middle" fill="var(--ink)">bias = 定数 + 傾き × (1 - N・L)</text><text x="440" y="960.5" text-anchor="middle" fill="var(--ink)" font-weight="700">落とし穴5: 傾きに比例させる</text><rect x="180" y="999" width="520" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="1019.5" text-anchor="middle" fill="var(--ink)">PCF: (2r+1)^2 タップ</text><text x="440" y="1036.5" text-anchor="middle" fill="var(--ink)" font-weight="700">比較してから平均する</text><rect x="180" y="1075" width="520" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="440" y="1095.5" text-anchor="middle" fill="var(--ink)">lighting = 光 × ランバート × 影 + 環境光 × AO</text><path d="M440 41 L440 65" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 134 L440 158" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 210 L440 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 303 L440 327" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 396 L440 420" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 472 L440 510" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 579 L440 603" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 672 L440 696" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 731 L440 755" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 824 L440 848" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 973 L440 997" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 1049 L440 1073" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M440 883 L440 921" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="448" y="900" fill="var(--muted)" font-size="12">No</text><path d="M700 866.5 L778 866.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="708" y="860.5" fill="var(--muted)" font-size="12">Yes</text><text x="164" y="28.5" text-anchor="end" fill="var(--muted)" font-size="12">1パス目(深度パス)</text><text x="164" y="549.5" text-anchor="end" fill="var(--muted)" font-size="12">2パス目(本描画)</text></g></svg>
+<p><strong>落とし穴が5つとも「絵からは原因が読めない」</strong>のが、影を難しくしている。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>落とし穴</th><th>症状</th><th>見分け方</th></tr></thead>
+<tbody>
+<tr><td>1. 箱が広すぎ/狭すぎ</td><td>ギザギザ / 画面の端で影が消える</td><td>HUD の <code>cm/tx</code> を見る</td></tr>
+<tr><td>2. 行列がずれる</td><td>影が丸ごとずれる</td><td><code>Ctrl+7</code> でマップは焼けているのに合わない</td></tr>
+<tr><td>3. <code>glDrawBuffer</code> 忘れ</td><td>影がまったく出ない</td><td><strong>例外が出る</strong>(完全性チェック。Day 31 の配当)</td></tr>
+<tr><td>4. <code>z</code> を変換し忘れ</td><td>全部影 / まったく影なし</td><td><code>Shift+9</code> を8回で係数を見ると一目</td></tr>
+<tr><td>5. バイアス無し/過多</td><td>縞模様 / 影が浮く</td><td><code>Ctrl+4</code> で 0 と 0.006 を往復する</td></tr>
+</tbody>
+</table></div>
+<p><strong>3 だけが例外で教えてくれる</strong>。残り4つは「影がおかしい」としか分からないので、<code>Ctrl+7</code>(マップを見る)と <code>Shift+9</code>×8(係数を見る)の2つを先に作っておく。デバッグ表示は本体より先に書いてよい類のもので、今日はそれが<strong>キー2つで済む</strong>ところまで来ている。</p>
+</section>
+<section class="part"><h2 id="s18">完成条件</h2>
+<div class="code"><pre><code>git lfs install     # 一度だけ
+git lfs pull        # assets/models/*.glb を実体化する
+
+dotnet run --project reference/Day33 -c Release</code></pre></div>
+<p>起動すると <strong>DamagedHelmet が床の上に立ち、左下へ影が落ちている</strong>。Day 32 との違いは影1つだが、床が入ったことで「置かれている」感じが一気に出る。</p>
+<h3 id="s19">1. 影が見える</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>見るところ</th><th>期待</th></tr></thead>
+<tbody>
+<tr><td>床</td><td>兜の形の影が<strong>左手前へ</strong>倒れている。輪郭は少しにじんでいる(3x3 PCF)</td></tr>
+<tr><td>兜の下面</td><td>影の側は真っ黒ではなく、環境光ぶん(0.13, 0.16, 0.22)だけ残る</td></tr>
+<tr><td>HUD 2行目</td><td><code>影:2048 PCF:3x3 範囲:6m バイアス:0.0015+傾き 0.6cm/tx 12.0MB 影パス:2回 …ms</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>影が真っ黒にならない</strong>のが今日の1つの見どころ。影は直接光にだけ掛けていて、環境光には掛けていない(現実の影が黒くないのは、空や周囲からの光が回り込んでいるから)。ここを間違えて環境光にも掛けると、影の中が夜になる。</p>
+<p><code>影パス:2回</code> は深度パスのドローコール数。モデル1パーツ + 床で2回。<code>Shift+0</code> で Lantern に切り替えると <code>4回</code>(3パーツ + 床)になる。</p>
+<h3 id="s20">2. <code>Ctrl+4</code>: バイアスを 0 にしてアクネを出す</h3>
+<p><strong>今日いちばん見てほしい壊れ方</strong>。2回押して <code>0.0000</code> にすると(1回目は <code>0.0060</code>)、床と兜の表面に細かい縞模様(モアレ)が広がる。</p>
+<div class="code"><pre><code>バイアス 0.0000  → 面全体に縞。「影が出た」のではなく「自分が自分を遮った」
+バイアス 0.0005  → ほとんど消えるが、床の遠くにまだ残る
+バイアス 0.0015  → 消える(既定)
+バイアス 0.0060  → 影が兜から離れて浮く(ピーターパン)</code></pre></div>
+<p><code>Ctrl+5</code> で傾きに比例したバイアスを切ると、0.0015 のままでも<strong>床の遠く(光に対して寝ているところ)に縞が戻る</strong>。必要なバイアスが傾きに比例することが、切り替えるだけで見える。</p>
+<p><code>Ctrl+6</code> で表カリングに変えると、<strong>バイアス 0 でもアクネが消える</strong>。同時に<strong>床の影が丸ごと消える</strong>のも確かめてほしい——床は1枚板で裏が無いので、表を捨てると何も焼かれない。「閉じた立体にしか使えない」が絵として出る。</p>
+<h3 id="s21">3. <code>Ctrl+2</code> / <code>Ctrl+8</code>: ギザギザと VRAM の綱引き</h3>
+<p><code>Ctrl+3</code> を3回押して <strong>1タップ</strong>(PCF なし)にしてから、解像度を動かす。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>1テクセル</th><th>見え方</th></tr></thead>
+<tbody>
+<tr><td>512 / 半径6m</td><td>2.3cm</td><td>影の輪郭が<strong>はっきり階段</strong>になる</td></tr>
+<tr><td>2048 / 半径6m</td><td>0.6cm</td><td>階段は残るが目立たない</td></tr>
+<tr><td>2048 / 半径24m</td><td>2.3cm</td><td><strong>512 と同じ粗さ</strong>。VRAM は 12MB のまま</td></tr>
+</tbody>
+</table></div>
+<p><strong>「解像度を4倍」と「箱を1/4」が同じ効果</strong>で、VRAM を払うのは前者だけ。HUD の <code>cm/tx</code> がその数字そのものなので、押しながら数字を見るとよい。</p>
+<p>半径 3m まで絞ると影は最も細かくなるが、<strong>カメラを引くと画面の端から影が消える</strong>(箱の外に出る)。<code>ClampToBorder</code> が効いて、外は「遮るものなし」になる。</p>
+<h3 id="s22">4. <code>Ctrl+7</code>: シャドウマップそのものを見る</h3>
+<p>右下に焼いたシャドウマップが出る。<strong>影がおかしいときの最初の1歩</strong>。</p>
+<div class="code"><pre><code>真っ白           → 何も焼かれていない。深度パスに物体が来ていないか、行列が外れている
+モデルの形が出る → 深度パスは正しい。疑うのは本描画側の座標変換か比較</code></pre></div>
+<p><strong>平行光源なので線形補正が要らない</strong>のがここの気持ちよさで、正射影の深度は距離にそのまま比例する(透視投影の深度は 1/z に比例するので、見るときに戻す必要がある)。</p>
+<p>背景が上から下へなめらかな階調になっているのが床で、その中心にモデルの断面が明るく浮かぶ。</p>
+<h3 id="s23">5. <code>Shift+9</code> を8回: 影の係数だけを見る</h3>
+<p>成分の巡回に「影の係数」が増えた。白 = 当たっている、黒 = 影。</p>
+<p><strong>色を混ぜない状態がいちばん読み取りやすい</strong>。アクネの縞も、PCF の階調も、バイアスの入れすぎで影が痩せるのも、完成した絵の上では「なんとなくおかしい」で終わってしまう。</p>
+<h3 id="s24">6. <code>Ctrl+0</code>: 自己チェックと計測</h3>
+<p>15 項目すべて <code>OK</code> になり、解像度ごとの深度パスが出る。</p>
+<div class="code"><pre><code>[シャドウマッピングの自己チェック]
+  [OK] 深度テクスチャが挿さっている
+  [OK] カラーアタッチメントは無い
+  ...
+  [OK] 中央のテクセルに立方体の<strong>上面</strong>が焼けている  実際 0.4444 / 期待 0.4444
+  [OK] <strong>表カリングにすると裏面(下面)が焼ける</strong>  実際 0.5556 / 期待 0.5556(表のとき 0.4444)
+  ...
+  すべて合格</code></pre></div>
+<p><strong>中央のテクセルの2行が今日の核心</strong>。1辺 2 の立方体を真上から焼くと、上面(y=+1)と下面(y=-1)の深度差はちょうど 2 ワールド単位 = 0.1111(深度の範囲 18 のうち)。<code>0.4444</code> と <code>0.5556</code> の差が <strong>0.1111</strong> になっているのが、「表カリングは物体の厚みぶん奥を焼く」の数値そのものになる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Ctrl+4</code>(バイアス)・<code>Ctrl+5</code>(傾き)</td><td>「影を壊して見る」のバイアスと傾き、「光の当たる床」の拡大</td><td>0 で縞(床のテクセルの半分が自分を遮る)。0.006 で影が箱の根元から離れる(ピーターパン)</td></tr>
+<tr><td><code>Ctrl+3</code>(PCF)</td><td>「影を壊して見る」の PCF と「影の先端」の拡大</td><td>3x3 なら 0, 1/3, 2/3, 1 の段(断面なので1行ぶん)。ギザギザが階調に置き換わる</td></tr>
+<tr><td><code>Ctrl+2</code>(解像度)・<code>Ctrl+8</code>(範囲)</td><td>「影を壊して見る」の解像度・範囲、「1テクセルが覆う長さと VRAM」</td><td>512 / 6m と 2048 / 24m が同じ 2.3cm。VRAM は 0.8MB と 12.0MB</td></tr>
+<tr><td><code>Ctrl+6</code>(表カリング)</td><td>「影を壊して見る」の深度パスのカリング</td><td>表を捨てると箱の向こう側の面が焼かれ、バイアス 0 でもアクネが消える。床(1枚板)は何も焼かれなくなる</td></tr>
+<tr><td><code>Ctrl+9</code>(光を回す)</td><td>「光の高さ」(このページだけ)</td><td>実機は向きを水平に回す。このページは断面なので高さを変える</td></tr>
+<tr><td><code>Ctrl+0</code>(自己チェック)・<code>Ctrl+7</code>・<code>Shift+9</code></td><td>(なし)</td><td>GPU が要るので、このページでは走らせない(下の注を参照)</td></tr>
+<tr><td>(キーなし)</td><td>「落とし穴をわざと踏む」、箱の形、光の高さ</td><td>reference に無い切り替え・値。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day33 の Render/ShadowMap.cs(Begin の光源行列・WorldPerTexel・uShadowSlopeBias = DepthBias x 6)と shaders/textured.frag(ShadowFactor)の式を、断面に移して JS で計算したもの。自己チェックの数字は同じ式で計算し直して一致した(半径 6m で near 3・far 21・深度の範囲 18、中心の深度 0.500、6m 上 0.167、1辺 2 の立方体の上面 0.4444・下面 0.5556、1テクセル 0.59cm → 0.29cm、VRAM 48.0MB、半径を4倍で 0.6cm → 2.3cm)。差分の行数は git diff --no-index --numstat で数え直した(変更ファイルへの追加 825 行・新規 477 行)。深度パスと PCF の時間は手元の RTX 3070 の値で、このページでは測り直していない。断面のモデルなので、実機の「床の遠くにまだ縞が残る」(画面の奥ほど1画素が床の広い範囲を覆う見え方の話)は、このページでは再現しない。</p></div>
+</section>
+<section class="part"><h2 id="s25">改造課題</h2>
+<h3 id="s26">課題1(易): テクセルスナップで、カメラを動かしたときの揺れを止める</h3>
+<p><code>Ctrl+8</code> で半径を 3m にして、左ドラッグでカメラをゆっくり回すと、影の輪郭が<strong>ちらちら泳ぐ</strong>のが見える。</p>
+<p>光の箱の中心がカメラの注視点に追随しているので、<strong>1フレームごとにシャドウマップの格子がずれる</strong>のが原因。同じ面が、あるフレームではテクセルの中央に、次のフレームでは境目に来る。</p>
+<p>直し方は「箱の中心をテクセルの格子に吸着させる」。<code>ShadowMap.Begin</code> で光源行列を作ったあと、中心を光の座標系へ写し、<code>WorldPerTexel</code> の整数倍に丸めて、そのぶん平行移動を足し戻す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// おおよその流れ
+Vector3 lightSpaceCenter = Vector3.Transform(center, view);
+float texel = WorldPerTexel;
+lightSpaceCenter.X = MathF.Floor(lightSpaceCenter.X / texel) * texel;
+lightSpaceCenter.Y = MathF.Floor(lightSpaceCenter.Y / texel) * texel;
+// 丸めたぶんを view に足し戻す</code></pre></div>
+<p><strong>注視点そのものを丸めてはいけない</strong>(カメラが飛ぶ)のが引っかかりどころ。丸めるのは光の座標系での位置で、しかも Z は丸めない。</p>
+<h3 id="s27">課題2(中): ハードウェア PCF(<code>sampler2DShadow</code>)に置き換える</h3>
+<p>GPU には「読むときに比較まで済ませる」専用の仕掛けがある。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// テクスチャ側
+gl.TexParameter(target, TextureParameterName.TextureCompareMode,
+    (int)TextureCompareMode.CompareRefToTexture);
+gl.TexParameter(target, TextureParameterName.TextureCompareFunc, (int)DepthFunction.Lequal);
+texture.SetFilter(TextureFilter.Linear);   // ← 今度は Linear が正しい</code></pre></div>
+<div class="code"><span class="lang">glsl</span><pre><code>uniform sampler2DShadow uShadowMap;
+float lit = texture(uShadowMap, vec3(proj.xy, proj.z - bias));   // 0〜1 が返る</code></pre></div>
+<p><strong>タップ数が 1/4 になるのに、3x3 相当のなめらかさが出る</strong>——GPU が 2x2 の比較結果をハードウェアで補間してくれるため。</p>
+<p>見どころは2つ。<strong><code>Linear</code> が今度は正しい設定になる</strong>理由(要点6の「順番」)と、<strong>返り値が 0 か 1 ではなく 0.25 刻みになる</strong>こと。既存の手書き PCF と切り替えられるようにして、同じ 9 タップでどれだけなめらかさが違うか見比べるとよい。</p>
+<h3 id="s28">課題3(難): カスケードシャドウマップ(2段)</h3>
+<p>要点2と5の綱引きに、本気で答える。</p>
+<p>視錐台を距離で2つに割り(たとえば near〜15m と 15m〜60m)、それぞれに別の光源行列とシャドウマップを持たせる。本描画では、そのピクセルのビュー空間の深度を見てどちらを引くか選ぶ。</p>
+<div class="code"><pre><code>段0: 半径 6m  / 2048  → 0.6cm/tx   手前だけ担当
+段1: 半径 30m / 2048  → 2.9cm/tx   遠くを担当</code></pre></div>
+<p><strong>手前は細かく、遠くは粗く</strong>。遠くの影は小さく映るので、粗くても気づかれない。</p>
+<p>難しいのは3つ。</p>
+<ol><li><strong>境目</strong>。段が切り替わるところに線が出る。実務では2段をブレンドする</li><li><strong>どこで割るか</strong>。等分割だと手前が粗い。対数分割(<code>near * (far/near)^(i/n)</code>)が定番</li><li><strong>深度パスが段の数だけ増える</strong>。今日 0.05ms のものが 0.1ms になる</li></ol>
+<p>Day 39〜40 のデモで広い屋外を出すなら、ここは避けて通れない。<strong>先に1段で全部の落とし穴を踏んでおくと、2段目は同じ話の繰り返し</strong>になる。</p>
+</section>
+<section class="part"><h2 id="s29">動作確認済み環境</h2>
+<ul><li>Windows 11 Home / .NET 10</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li></ul>
+<h3 id="s30">自己チェック(15 項目すべて合格)</h3>
+<div class="code"><pre><code>[シャドウマッピングの自己チェック]
+  [OK] 深度テクスチャが挿さっている
+  [OK] カラーアタッチメントは無い
+  [OK] 正方形になっている  2048x2048
+  [OK] 中心が NDC の原点に来る  (0.000, 0.000)
+  [OK] w が 1(正射影なので透視除算が要らない)  w = 1.000
+  [OK] 中心の深度が範囲のちょうど中央(0.5)  実際 0.500
+  [OK] <strong>光に近いほど深度が小さい</strong>  6m 上 0.167 &lt; 中心 0.500
+  [OK] 半径ちょうどの点が NDC の端(±1)  実際 -1.000
+  [OK] 半径の外は NDC からはみ出す(= 影の判定に載らない)  実際 -1.500
+  [OK] 中央のテクセルに立方体の<strong>上面</strong>が焼けている  実際 0.4444 / 期待 0.4444
+  [OK] 何も無い隅は 1.0(クリア値のまま)  実際 1.0000
+  [OK] <strong>表カリングにすると裏面(下面)が焼ける</strong>  実際 0.5556 / 期待 0.5556(表のとき 0.4444)
+  [OK] 解像度を2倍にすると1テクセルの担当が半分になる  0.59cm → 0.29cm
+  [OK] VRAM は4倍になる  48.0MB
+  [OK] 光の箱を4倍広げると1テクセルの担当も4倍になる(= 影が粗くなる)  0.6cm → 2.3cm
+  すべて合格</code></pre></div>
+<h3 id="s31">深度パスの実測(立方体6個 + 床、<code>glFinish()</code> 込みの 120 回平均)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>解像度</th><th>深度パス</th><th>VRAM</th><th>1テクセル</th></tr></thead>
+<tbody>
+<tr><td>512x512</td><td>0.050 ms</td><td>0.8MB</td><td>2.3cm</td></tr>
+<tr><td>1024x1024</td><td>0.045 ms</td><td>3.0MB</td><td>1.2cm</td></tr>
+<tr><td>2048x2048</td><td>0.044 ms</td><td>12.0MB</td><td>0.6cm</td></tr>
+<tr><td>4096x4096</td><td>0.044 ms</td><td>48.0MB</td><td>0.3cm</td></tr>
+</tbody>
+</table></div>
+<p><strong>解像度を 64 倍にしても時間が変わらない</strong>。深度だけを書くパスは GPU の得意技(画素シェーダが何も出力しない)で、この規模では<strong>ドローコールを積む CPU 側の時間</strong>が全部になっている。</p>
+<p>「影を細かくしたら重くなるはず」という直感が外れるところで、<strong>代償は VRAM に出る</strong>(0.8MB → 48MB)というのが正しい読み方になる。</p>
+<h3 id="s32">PCF のタップ数と1フレーム(960x640、<code>glFinish()</code> 込みの 300 フレーム平均)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>1フレーム</th></tr></thead>
+<tbody>
+<tr><td>影 OFF</td><td>0.154 ms</td></tr>
+<tr><td>1タップ</td><td>0.196 ms</td></tr>
+<tr><td>3x3(9タップ)</td><td>0.185 ms</td></tr>
+<tr><td>5x5(25タップ)</td><td>0.195 ms</td></tr>
+<tr><td>7x7(49タップ)</td><td>0.216 ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>9タップから 49 タップへ増やしても 0.03ms しか増えない</strong>。1タップと 3x3 の逆転(0.196 → 0.185)は誤差の範囲で、この規模では有意差が出ていない。</p>
+<p>影を付けること自体のコスト(0.154 → 0.19)のほうが、タップ数より大きい。シャドウマップの読み込みはキャッシュに素直に乗る(隣のピクセルは隣のテクセルを読む)ので、<strong>タップ数がそのまま時間にはならない</strong>。</p>
+<p>ただしこれは 960x640 の話で、<strong>影を受けるピクセルの数に比例する</strong>。1920x1080 なら 3.4 倍、4K なら 13.5 倍になるので、Day 39 以降で画面を大きくしたら測り直すこと。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<p><strong>影が出ないと思ったら、影が真後ろにあった</strong>。</p>
+<p>実装を終えて最初に走らせたとき、床にも兜にも影が1ピクセルも出なかった。シャドウマップは正しく焼けていて(<code>Ctrl+7</code> で確認)、CPU 側で光源行列を計算し直しても値は合っていた。</p>
+<p>原因は<strong>光の向きとカメラの向きがほぼ揃っていた</strong>こと。Day 32 までの光 <code>(-0.45, -0.72, -0.53)</code> は、既定のカメラ(Yaw 0.6)と同じ方角から差していた。影は光の進む向きへ伸びるので、<strong>物体の真後ろに完全に隠れていた</strong>。</p>
+<ul><li><strong>原因のかなり上位に来るのに、コードを何度読んでも見つからない</strong>類の話</li><li>切り分けは光を回すのが速い(<code>Ctrl+9</code>)。今日それをキーに割り当てているのはこのため</li><li>結局、既定の光の向きを 90 度回して恒久的に直した(差分概要を参照)</li></ul>
+<p><strong>シャドウマップは画面の大きさと関係無い</strong>。<code>OnFramebufferResize</code> に手を入れそうになったが、要らない——シャドウマップは「光から見た絵」なので、ウィンドウをどう変えても 2048x2048 のまま。後処理のバッファ(画面に追随する)と扱いが違うことに、書きながら気づいた。</p>
+<p><strong>深度パスは GL の状態を借りっぱなしにしない</strong>。<code>ShadowMap.Begin</code> で深度テストとカリングを有効にした最初の版では、<code>C</code> キー(カリング)や <code>W</code> キー(ワイヤーフレーム)の設定が<strong>影パスの都合で書き換わったまま本描画へ流れていた</strong>。</p>
+<p><code>PostProcess.End</code> が同じ用心をしていたのを見落としていた形で、OpenGL の状態がグローバルである以上、<strong>借りたら返す</strong>を毎回書くしかない(Day 31 の <code>PostProcess.End</code> のコメント)。</p>
+<p><strong>床を足さないと影が確かめられない</strong>。Day 32 はモデルだけを宙に浮かべていた。陰影しか無いうちはそれで足りたが、影は<strong>他の物体の上に落ちて初めて見える</strong>。落ちる先が無いと「影が出ていない」のか「落ちる先が無い」のか区別が付かないので、モデル表示中も床を1枚敷くようにした。</p>
+</section>
+<footer class="end">Day 33 シャドウマッピング(デプスシャドウ → PCF ソフトシャドウ) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, stat, tok } = Lab;
+const comma = (n) => Math.round(n).toLocaleString('en-US');
+const st = { bias: 0.0015, slope: 1, pcf: 1, res: 2048, radius: 6, cull: 'back', elev: 46, zoom: 'base', bug: 'none' };
+const BOX = { x0: -0.5, x1: 0.5, y0: 0, y1: 1 }; // このページだけの箱(1m)
+const PLATE = { x0: -3.0, x1: -2.4, y0: 0, y1: 0.05 }; // このページだけの薄い板(厚さ 5cm。床に置いてある)
+
+// 光の座標系。光は左上から右下へ進む。d は進む向き、u は d に直角(箱の幅の向き)
+function lightFrame() {
+  const e = st.elev * Math.PI / 180, d = [Math.cos(e), -Math.sin(e)], u = [Math.sin(e), Math.cos(e)];
+  const r = st.radius, eye = [-d[0] * 2 * r, -d[1] * 2 * r], near = r * 0.5, far = r * 3.5;
+  return { d, u, r, eye, near, far, texel: 2 * r / st.res };
+}
+// 光線(u の位置から d の向き)が最初に当たる面。cull: 'back' は光に向いた面だけ、'front' は光と反対を向いた面だけを焼く
+function castDepth(L, uPos) {
+  const o = [L.eye[0] + L.u[0] * uPos, L.eye[1] + L.u[1] * uPos];
+  let best = Infinity;
+  const tryPlane = (axis, value, normal, lo, hi) => {
+    const dd = L.d[axis]; if (Math.abs(dd) < 1e-12) return;
+    const t = (value - o[axis]) / dd; if (t <= 0) return;
+    const other = 1 - axis, q = o[other] + L.d[other] * t;
+    if (q < lo || q > hi) return;
+    const facing = normal[0] * L.d[0] + normal[1] * L.d[1]; // < 0 なら光に向いている(表)
+    if (st.cull === 'back' && facing >= 0) return;
+    if (st.cull === 'front' && facing <= 0) return;
+    if (t < best) best = t;
+  };
+  tryPlane(1, 0, [0, 1], -1e9, 1e9);                 // 床(上向きの1枚板)
+  for (const bx of [BOX, PLATE]) {
+    tryPlane(1, bx.y1, [0, 1], bx.x0, bx.x1);          // 上面
+    tryPlane(1, bx.y0, [0, -1], bx.x0, bx.x1);         // 下面(床と重なる)
+    tryPlane(0, bx.x0, [-1, 0], bx.y0, bx.y1);         // 左面
+    tryPlane(0, bx.x1, [1, 0], bx.y0, bx.y1);          // 右面
+  }
+  if (best === Infinity) return 1;
+  const z = (best - L.near) / (L.far - L.near);
+  if (z < 0 || z > 1) return 1;
+  return Math.round(z * 16777215) / 16777215;         // 24bit の深度
+}
+function makeMap(L) {
+  const map = new Float64Array(st.res);
+  for (let k = 0; k < st.res; k++) map[k] = castDepth(L, -L.r + (k + 0.5) * L.texel);
+  return map;
+}
+// 面の上の点 p(法線 n)の影の係数。ShadowFactor と同じ順番
+function factor(L, map, p, n) {
+  const rel = [p[0] - L.eye[0], p[1] - L.eye[1]];
+  const uPos = rel[0] * L.u[0] + rel[1] * L.u[1], dist = rel[0] * L.d[0] + rel[1] * L.d[1];
+  let z = (dist - L.near) / (L.far - L.near);
+  if (st.bug === 'z') z = z * 2 - 1;                  // NDC のまま比べてしまう
+  if (z > 1) return 1;
+  const ndotl = Math.max(-(n[0] * L.d[0] + n[1] * L.d[1]), 0);
+  const bias = st.bias + (st.slope ? st.bias * 6 : 0) * (1 - ndotl);
+  const fetch = (uu) => { const k = Math.floor((uu + L.r) / L.texel); return k < 0 || k >= st.res ? 1 : map[k]; };
+  const R = st.pcf;
+  if (st.bug === 'avg') { let s = 0; for (let j = -R; j <= R; j++) s += fetch(uPos + j * L.texel); return (z - bias) > s / (2 * R + 1) ? 0 : 1; }
+  let lit = 0;
+  for (let j = -R; j <= R; j++) lit += (z - bias) > fetch(uPos + j * L.texel) ? 0 : 1;
+  return lit / (2 * R + 1);
+}
+const shade = (f) => { const c = Math.round(40 + 200 * f); return `rgb(${c},${c},${c})`; };
+
+function redraw() {
+  $('sm-elev-out').textContent = st.elev + ' 度';
+  const L = lightFrame(), map = makeMap(L);
+  const { ctx, w, h } = fit($('sm-canvas'));
+  ctx.font = '12px ' + tok('--font-mono');
+  // ---- 上: 横から見た全体 ----
+  const span = Math.min(L.r, 6), x0 = -span * 0.6, x1 = span * 1.2, top = 14, H1 = 210;
+  const sc = (w - 40) / (x1 - x0), X = (x) => 20 + (x - x0) * sc, Y = (y) => top + H1 - 30 - y * sc;
+  // 光の向き
+  for (let k = 0; k < 6; k++) { const sx = x0 + (x1 - x0) * (k + 0.5) / 6 - 0.6, sy = 1.9; Lab.arrow(ctx, X(sx), Y(sy), X(sx + L.d[0] * 0.6), Y(sy + L.d[1] * 0.6), 'rgba(255,210,90,0.8)', 1.5); }
+  // 床(影の係数で塗る)
+  const N = Math.round(w - 40);
+  for (let i = 0; i < N; i++) { const x = x0 + (x1 - x0) * (i + 0.5) / N; if ((x > BOX.x0 && x < BOX.x1) || (x > PLATE.x0 && x < PLATE.x1)) continue; const f = factor(L, map, [x, 0], [0, 1]); ctx.fillStyle = shade(f); ctx.fillRect(20 + i, Y(0), 1.2, 10); }
+  // 箱(面ごとに、光に向いた面を塗る)
+  ctx.fillStyle = tok('--sunken'); ctx.fillRect(X(BOX.x0), Y(BOX.y1), (BOX.x1 - BOX.x0) * sc, (BOX.y1 - BOX.y0) * sc);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1; ctx.strokeRect(X(BOX.x0), Y(BOX.y1), (BOX.x1 - BOX.x0) * sc, (BOX.y1 - BOX.y0) * sc);
+  for (let i = 0; i < 40; i++) {
+    const t = (i + 0.5) / 40;
+    const ft = factor(L, map, [BOX.x0 + t * (BOX.x1 - BOX.x0), BOX.y1], [0, 1]); ctx.fillStyle = shade(ft); ctx.fillRect(X(BOX.x0 + t * (BOX.x1 - BOX.x0)) - sc * 0.0125, Y(BOX.y1) - 5, sc * 0.026, 5);
+    const fl = factor(L, map, [BOX.x0, BOX.y0 + t], [-1, 0]); ctx.fillStyle = shade(fl); ctx.fillRect(X(BOX.x0) - 5, Y(BOX.y0 + t) - sc * 0.0125, 5, sc * 0.026);
+  }
+  ctx.fillStyle = tok('--ink'); ctx.fillRect(X(PLATE.x0), Y(PLATE.y1), (PLATE.x1 - PLATE.x0) * sc, Math.max(2, (PLATE.y1 - PLATE.y0) * sc));
+  ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left'; ctx.fillText('横から見た床と、箱(1m)と、床に置いた薄い板(5cm)。黄の矢印が光の進む向き。床と箱の縁の帯が影の係数', 20, top);
+  // 拡大する場所
+  const shadowEnd = BOX.x1 + BOX.y1 / Math.tan(st.elev * Math.PI / 180);
+  const plateEnd = PLATE.x1 + PLATE.y1 / Math.tan(st.elev * Math.PI / 180);
+  const zc = st.zoom === 'base' ? BOX.x1 + 0.06 : st.zoom === 'tip' ? shadowEnd : st.zoom === 'plate' ? (PLATE.x1 + plateEnd) / 2 : -1.6;
+  const zw = Math.max(0.16, L.texel * 24);
+  ctx.strokeStyle = 'rgb(240,120,60)'; ctx.lineWidth = 2; ctx.strokeRect(X(zc - zw / 2), Y(0) - 4, zw * sc, 18);
+  // ---- 下: 床の影の係数を拡大 ----
+  const T2 = top + H1 + 30, H2 = h - T2 - 40;
+  const zx0 = zc - zw / 2, zsc = (w - 40) / zw;
+  for (let i = 0; i < N; i++) { const x = zx0 + zw * (i + 0.5) / N; const inBox = (x > BOX.x0 && x < BOX.x1) || (x > PLATE.x0 && x < PLATE.x1); const f = inBox ? 0 : factor(L, map, [x, 0], [0, 1]); ctx.fillStyle = inBox ? tok('--sunken') : shade(f); ctx.fillRect(20 + i, T2, 1.2, H2); }
+  // テクセルの境目(床の上での間隔は texel / sin(高さ))
+  const step = L.texel / Math.sin(st.elev * Math.PI / 180);
+  const rel0 = [zx0 - L.eye[0], -L.eye[1]], u0 = rel0[0] * L.u[0] + rel0[1] * L.u[1];
+  const kStart = Math.floor((u0 + L.r) / L.texel);
+  ctx.strokeStyle = 'rgba(255,120,60,0.6)'; ctx.lineWidth = 1;
+  for (let k = kStart; k < kStart + 200; k++) {
+    const uB = -L.r + k * L.texel, x = zx0 + (uB - u0) / Math.sin(st.elev * Math.PI / 180);
+    if (x > zx0 + zw) break; if (x < zx0) continue;
+    const px = 20 + (x - zx0) * zsc; ctx.beginPath(); ctx.moveTo(px, T2 + H2); ctx.lineTo(px, T2 + H2 + 6); ctx.stroke();
+  }
+  ctx.fillStyle = tok('--muted'); ctx.textAlign = 'left';
+  ctx.fillText(`拡大(床の ${(zw * 100).toFixed(0)}cm ぶん。橙の目盛り = テクセルの境目、床の上で ${(step * 100).toFixed(2)}cm ごと)`, 20, T2 - 8);
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) { const x = zx0 + zw * f; ctx.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center'; ctx.fillText(`${(x >= 0 ? '+' : '') + x.toFixed(3)}m`, 20 + f * (w - 40), T2 + H2 + 22); }
+  // ---- 数字 ----
+  // 光の当たる床で、自分を遮ってしまった割合(アクネ)
+  let acne = 0, M = 2000;
+  for (let i = 0; i < M; i++) { const x = -2.3 + 1.5 * (i + 0.5) / M; if (factor(L, map, [x, 0], [0, 1]) < 1) acne++; }
+  // 薄い板の影が残っている割合
+  let plateShadow = 0; const PM = 400; for (let i = 0; i < PM; i++) { const x = PLATE.x1 + (plateEnd - PLATE.x1) * (i + 0.5) / PM; plateShadow += 1 - factor(L, map, [x, 0], [0, 1]); }
+  // 箱の根元から影が始まるまでの隙間(ピーターパン)
+  let gap = 0; for (let i = 0; i < 4000; i++) { const x = BOX.x1 + i * 0.0005; if (factor(L, map, [x, 0], [0, 1]) < 0.5) { gap = x - BOX.x1; break; } if (i === 3999) gap = Infinity; }
+  const ndotl = Math.sin(st.elev * Math.PI / 180), biasNow = st.bias + (st.slope ? st.bias * 6 : 0) * (1 - ndotl);
+  const vram = st.res * st.res * 3 / 1048576;
+  $('sm-stats').innerHTML = stat('1テクセル', (L.texel * 100).toFixed(2) + 'cm', `<small> (${(L.r * 2).toFixed(0)}m ÷ ${st.res})</small>`) + stat('VRAM', vram.toFixed(1) + 'MB') +
+    stat('床のバイアス', biasNow.toFixed(5), `<small> (= ${(biasNow * (L.far - L.near) * 100).toFixed(1)}cm 手前へ)</small>`) +
+    stat('光の当たる床の縞', (100 * acne / M).toFixed(1) + '%', '<small> (箱の左の床 1.5m のうち、影の係数が 1 未満の割合)</small>') +
+    stat('影が箱の根元から離れる隙間', gap === Infinity ? '影なし' : (gap * 100).toFixed(1) + 'cm', '<small> (ピーターパン)</small>') +
+    stat('薄い板の影', (100 * plateShadow / PM).toFixed(0) + '%', '<small> (残っている割合)</small>');
+  let note;
+  if (st.bug === 'z') note = 'z を -1〜1 のまま比べると、自分の深度がいつも記録より小さく見えて、影がまったく出ない(箱の影も消える)。逆向きにずれれば全部が影になる。どちらも原因を教えてくれない。';
+  else if (st.bug === 'avg') note = '深度を平均してから比べると、箱の深度と床の深度の平均という「どこにも無い面」と比べることになり、結果は 0 か 1 の二択に戻る(影の縁がなめらかにならない)。比較してから平均すると、0 / 1 の割合が「何割が影か」になる。';
+  else if (st.cull === 'front') note = '表を捨てると、焼かれるのは箱の向こう側の面だけになり、箱の厚みぶんの隙間ができるので、バイアス 0 でもアクネが出ない。床は上向きの1枚板なので、何も焼かれなくなる(床の深度が消える)。箱は閉じた立体なので、床に落ちる箱の影は残る。';
+  else if (st.bias === 0) note = 'バイアス 0 では、床の上でテクセルの境目ごとに縞が出る。テクセルの真ん中で記録した深度より奥にある、テクセルの後ろ半分が「自分が自分を遮った」影になる。';
+  else if (st.bias >= 0.006) note = `バイアスを入れすぎると、自分の深度を ${(biasNow * (L.far - L.near) * 100).toFixed(0)}cm も手前へずらすので、遮っている面との深度差がそれより小さいところ(床に置いた薄い板の影、床すれすれの面)の影が消える。実機の兜は床の近くで曲面が床に寄っていくので、根元の影が本体から離れて見える(ピーターパン)。このページの箱は 1m の厚みがあり、根元の床から箱の表の面まで 1m 以上離れているので、根元では離れない。表を捨てると、根元のすぐ横で深度差が小さくなり、離れて見える。`;
+  else note = `1テクセル内の深度差は、床で最大 ${((L.texel / 2) / Math.tan(st.elev * Math.PI / 180) * 100).toFixed(2)}cm(テクセルの半分 x 光の傾き)。バイアスがそれより大きければ縞は消える。光を低くすると(床に対して寝かせると)深度差が増えるので、傾きに比例したバイアスが効いてくる。`;
+  $('sm-note').textContent = note;
+  // 1テクセルの表
+  const rows = [512, 1024, 2048, 4096].map((res) => `<tr><th scope="row">${res}</th>${[3, 6, 12, 24].map((r) => { const cur = res === st.res && r === st.radius; const v = (2 * r / res * 100).toFixed(2); return `<td${cur ? ' style="background:var(--accent-soft);font-weight:700"' : ''}>${v}cm</td>`; }).join('')}<td>${(res * res * 3 / 1048576).toFixed(1)}MB</td></tr>`).join('');
+  $('tx-table').innerHTML = `<table><thead><tr><th>解像度 / 半径</th><th>3m</th><th>6m</th><th>12m</th><th>24m</th><th>VRAM</th></tr></thead><tbody>${rows}</tbody></table>`;
+  $('tx-note').textContent = '対角線に並ぶ組み合わせ(解像度を2倍にするのと、半径を半分にするの)は同じ1テクセルの長さになる。VRAM を払うのは解像度を上げたときだけ。512 / 6m と 2048 / 24m はどちらも 2.34cm で、VRAM は 0.8MB と 12.0MB。';
+}
+seg('sm-bias', (v) => { st.bias = Number(v); redraw(); });
+seg('sm-slope', (v) => { st.slope = Number(v); redraw(); });
+seg('sm-pcf', (v) => { st.pcf = Number(v); redraw(); });
+seg('sm-res', (v) => { st.res = Number(v); redraw(); });
+seg('sm-radius', (v) => { st.radius = Number(v); redraw(); });
+seg('sm-cull', (v) => { st.cull = v; redraw(); });
+seg('sm-zoom', (v) => { st.zoom = v; redraw(); });
+seg('sm-bug', (v) => { st.bug = v; redraw(); });
+$('sm-elev').addEventListener('input', (e) => { st.elev = Number(e.target.value); redraw(); });
+window.addEventListener('resize', redraw);
+redraw();
+})();
+</script>
+</body>
+</html>
