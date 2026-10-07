@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 25 2D衝突判定(AABB→円→回転矩形のSAT)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 形は「安い順」に並べて選ぶ</a></li><li class="l3"><a href="#s5">2. AABB — 区間の重なりを2回見るだけ</a></li><li class="l3"><a href="#s6">3. 円 — 平方根を取らない</a></li><li class="l3"><a href="#s7">4. SAT(分離軸定理)— 全部の判定を貫く1つの考え方</a></li><li class="l3"><a href="#s8">5. 難しい形は、知っている形に変換する</a></li><li class="l3"><a href="#s9">6. 「当たったか」だけでは足りない</a></li><li class="l3"><a href="#s10">7. 総当たりは O(n²)。どこで破綻するか</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">フォルダを分けた</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">新しい素材</a></li><li class="l3"><a href="#s16">キーの変更</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">全体構成 — 5つの層と依存の向き</a></li><li class="l3"><a href="#s20">Core — 時間・入力・リソース</a></li><li class="l3"><a href="#s21">Render — OpenGL の薄い皮</a></li><li class="l3"><a href="#s22">Scene — GameObject + Component</a></li><li class="l3"><a href="#s23">Ecs と Physics — どこにも依存しない2つ</a></li><li class="l3"><a href="#s24">1フレームの流れ</a></li><li class="l3"><a href="#s25">FixedUpdate の中身 — 入力の出どころと3つのバックエンド</a></li><li class="l3"><a href="#s26">Scene.FixedUpdate の4段階</a></li><li class="l3"><a href="#s27">非同期テクスチャロードの流れ</a></li><li class="l3"><a href="#s28">衝突判定のディスパッチ</a></li><li class="l2"><a href="#s29">完成条件</a></li><li class="l3"><a href="#s30"><code>F6</code>: 衝突デモ</a></li><li class="l3"><a href="#s31"><code>F8</code>: 押し戻しを切る</a></li><li class="l3"><a href="#s32"><code>F7</code>: 形を回してみる</a></li><li class="l3"><a href="#s33"><code>Shift</code> + <code>PageUp</code>: 壁にぶつかる</a></li><li class="l3"><a href="#s34"><code>F9</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): AABB の接触計算を速くする</a></li><li class="l3"><a href="#s37">課題2(中): 外接 AABB で足切りする</a></li><li class="l3"><a href="#s38">課題3(難): 連続衝突判定(すり抜けの解消)</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">判定 1 回あたりのコスト(200 万回の平均、当たり 5〜7 割の配置)</a></li><li class="l3"><a href="#s41">総当たりの伸び方</a></li><li class="l3"><a href="#s42">自己チェック(19 項目すべて合格)</a></li><li class="l3"><a href="#s43">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 5 / Day 25 / 計画書</p>
+  <h1>2D衝突判定(AABB→円→回転矩形のSAT)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 形は「安い順」に並べて選ぶ</a></li><li class="l3"><a href="#s5">2. AABB — 区間の重なりを2回見るだけ</a></li><li class="l3"><a href="#s6">3. 円 — 平方根を取らない</a></li><li class="l3"><a href="#s7">4. SAT(分離軸定理)— 全部の判定を貫く1つの考え方</a></li><li class="l3"><a href="#s8">5. 難しい形は、知っている形に変換する</a></li><li class="l3"><a href="#s9">6. 「当たったか」だけでは足りない</a></li><li class="l3"><a href="#s10">7. 総当たりは O(n²)。どこで破綻するか</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">フォルダを分けた</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">新しい素材</a></li><li class="l3"><a href="#s16">キーの変更</a></li><li class="l3"><a href="#s17">写経する順番</a></li><li class="l2"><a href="#s18">設計書</a></li><li class="l3"><a href="#s19">全体構成 — 5つの層と依存の向き</a></li><li class="l3"><a href="#s20">Core — 時間・入力・リソース</a></li><li class="l3"><a href="#s21">Render — OpenGL の薄い皮</a></li><li class="l3"><a href="#s22">Scene — GameObject + Component</a></li><li class="l3"><a href="#s23">Ecs と Physics — どこにも依存しない2つ</a></li><li class="l3"><a href="#s24">1フレームの流れ</a></li><li class="l3"><a href="#s25">FixedUpdate の中身 — 入力の出どころと3つのバックエンド</a></li><li class="l3"><a href="#s26">Scene.FixedUpdate の4段階</a></li><li class="l3"><a href="#s27">非同期テクスチャロードの流れ</a></li><li class="l3"><a href="#s28">衝突判定のディスパッチ</a></li><li class="l2"><a href="#s29">完成条件</a></li><li class="l3"><a href="#s30"><code>F6</code>: 衝突デモ</a></li><li class="l3"><a href="#s31"><code>F8</code>: 押し戻しを切る</a></li><li class="l3"><a href="#s32"><code>F7</code>: 形を回してみる</a></li><li class="l3"><a href="#s33"><code>Shift</code> + <code>PageUp</code>: 壁にぶつかる</a></li><li class="l3"><a href="#s34"><code>F9</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s35">改造課題</a></li><li class="l3"><a href="#s36">課題1(易): AABB の接触計算を速くする</a></li><li class="l3"><a href="#s37">課題2(中): 外接 AABB で足切りする</a></li><li class="l3"><a href="#s38">課題3(難): 連続衝突判定(すり抜けの解消)</a></li><li class="l2"><a href="#s39">動作確認済み環境</a></li><li class="l3"><a href="#s40">判定 1 回あたりのコスト(200 万回の平均、当たり 5〜7 割の配置)</a></li><li class="l3"><a href="#s41">総当たりの伸び方</a></li><li class="l3"><a href="#s42">自己チェック(19 項目すべて合格)</a></li><li class="l3"><a href="#s43">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 5(ゲームが作れる状態に)の1日目。あわせて<strong>フォルダ構成を整理する</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>F6</code> で衝突デモに切り替わり、円・矩形・回転矩形が飛び交って<strong>当たると赤くなる</strong>。<code>F8</code> で押し戻しを入れると重ならなくなる。</p>
+<p>そしてタイトルバーに出る数字が、Day 26 の出発点になる。</p>
+<div class="code"><pre><code>衝突:1000体 組:499,500 接触:2855 判定:12.01ms</code></pre></div>
+<p><strong>1000 体で 12ms</strong>。60fps の予算 16.6ms の 7 割を当たり判定だけで使い切る。卒業制作は「敵が数百体押し寄せる」題材なので、これは他人事ではない。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、実装に直結するものを挙げておく。</p>
+<ul><li><a href="https://dyn4j.org/2010/01/sat/">SAT (Separating Axis Theorem)</a>(dyn4j)分離軸定理の説明として一番わかりやすい。図が多く、投影の式もそのまま使える。要点4はこの記事の 2D 版をなぞっている</li><li><a href="https://developer.mozilla.org/ja/docs/Games/Techniques/2D_collision_detection">2D collision detection</a>(MDN) AABB と円だけの短い記事。<strong>まずこれで足りることのほうが多い</strong>、という感覚を持つのに良い</li><li>『Real-Time Collision Detection』(Christer Ericson)この分野の定番書。形の組み合わせごとの判定が網羅されている。Phase 7(3D の物理)で本格的に要るので、手元にあるなら 4 章と 5 章に目を通しておくとよい</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 形は「安い順」に並べて選ぶ</h3>
+<p>同じ「当たり判定」でも、形によってコストが1桁違う。実測すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>判定</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td>AABB(当たったかだけ)</td><td>7.4ns</td></tr>
+<tr><td>円と円(当たったかだけ)</td><td>10.6ns</td></tr>
+<tr><td>円と円(法線と深さまで)</td><td>20.0ns</td></tr>
+<tr><td>円と AABB</td><td>29.7ns</td></tr>
+<tr><td>AABB と AABB(法線と深さまで)</td><td>44.0ns</td></tr>
+<tr><td>円と OBB</td><td>73.9ns</td></tr>
+<tr><td><strong>OBB と OBB(SAT)</strong></td><td><strong>120.8ns</strong></td></tr>
+</tbody>
+</table></div>
+<p>いちばん安いものといちばん高いものの差は <strong>16 倍</strong>。だから設計としては、</p>
+<ul><li><strong>円で済むなら円にする</strong>。2D の当たり判定は円で足りることが驚くほど多い</li><li>回転が要るときだけ OBB を使い、<strong>まず外接 AABB で足切り</strong>する</li><li>そもそも組の数を減らす(Day 26)</li></ul>
+<p>の順で効いてくる。今日はこの表を自分の手で作るのが目的でもある。</p>
+<h3 id="s5">2. AABB — 区間の重なりを2回見るだけ</h3>
+<p>軸に平行と決めてしまうと、判定は X と Y で「区間が重なっているか」を見るだけになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>a.Min.X &lt;= b.Max.X &amp;&amp; a.Max.X &gt;= b.Min.X
+&amp;&amp; a.Min.Y &lt;= b.Max.Y &amp;&amp; a.Max.Y &gt;= b.Min.Y</code></pre></div>
+<p>回らないので当たり判定そのものには使いにくいが、AABB がどこにでも出てくるのは<strong>ほかの形の「外接箱」として使える</strong>から。高い判定の前に AABB で弾いておけば、ほとんどの組は安いほうで終わる。</p>
+<p>法線まで求めるときは、<strong>重なりが小さいほうの軸で押し戻す</strong>。深くめり込んだ軸へ押すと、箱が反対側へ突き抜ける。</p>
+<h3 id="s6">3. 円 — 平方根を取らない</h3>
+<div class="code"><span class="lang">csharp</span><pre><code>float radii = a.Radius + b.Radius;
+return (b.Center - a.Center).LengthSquared() &lt;= radii * radii;</code></pre></div>
+<p>距離を求めるには <code>sqrt</code> が要るが、「距離が半径の和より小さいか」を知りたいだけなら<strong>二乗のまま比べれば足りる</strong>。<code>sqrt</code> は加減乗算の 10 倍以上かかるので、総当たりで何十万回も呼ぶ場面では効く。</p>
+<p>押し戻す向きが要るときだけ <code>sqrt</code> を取る。<strong>当たっていない組では取らない</strong>、という順番が大事。</p>
+<p>そして<strong>退化した配置を必ず潰しておく</strong>。中心が完全に重なると向きが決まらず、<code>delta / distance</code> が NaN になる。NaN は伝播して、その物体は以降どこへも描かれなくなる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (distance &lt; 1e-6f)
+{
+    // 向きは決め打ちでよいので、必ず何か返す
+    return Contact2D.Touching(Vector2.UnitX, radii);
+}</code></pre></div>
+<p>同じ話が円と AABB にもある。<strong>円が箱の中に完全に入る</strong>と最近点が中心そのものになり、距離が 0 になる。高速で飛び込んだ弾で普通に起きるので、ここを書き忘れると「たまに弾が壁の中で止まる」。</p>
+<h3 id="s7">4. SAT(分離軸定理)— 全部の判定を貫く1つの考え方</h3>
+<blockquote><p>凸な形が2つあるとき、当たっていないなら<strong>「その軸に投影すると2つが重ならない」軸が必ず存在する</strong></p></blockquote>
+<p>逆に言えば、<strong>候補の軸を全部試して1本も分離できなければ当たっている</strong>。</p>
+<p>矩形は向かい合う辺が平行なので、4辺あっても軸は2本。OBB 同士なら 2 + 2 = <strong>4軸</strong>で判定できる。</p>
+<p>各軸でやることは同じ。</p>
+<ol><li>それぞれの箱をその軸に投影して「半径」を出す</li><li>中心間の距離を同じ軸に投影する</li><li>半径の和より離れていたら、<strong>その時点で当たっていない</strong>(打ち切り)</li><li>全軸で重なっていたら当たり。重なりが最小の軸が押し戻す向き</li></ol>
+<p>投影半径の式が要点で、軸 n に対して</p>
+<div class="code"><pre><code>半径 = |dot(n, 箱のX軸)| * halfX + |dot(n, 箱のY軸)| * halfY</code></pre></div>
+<p>「箱の辺を n に射影した長さの合計」。絶対値なのは、向きではなく広がりを見たいから。</p>
+<p>3 で即座に抜けられるので、<strong>離れている組ほど速い</strong>。当たっている組だけが4軸全部を回る。</p>
+<p>この見方をすると、ほかの形も同じ定理の適用先が違うだけと読める。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>形</th><th>試すべき軸</th></tr></thead>
+<tbody>
+<tr><td>AABB 同士</td><td>X と Y の2本(固定)</td></tr>
+<tr><td>OBB 同士</td><td>それぞれの X 軸と Y 軸で4本</td></tr>
+<tr><td>円と多角形</td><td>各辺の法線 + <strong>円の中心から最近点への1本</strong></td></tr>
+<tr><td>一般の凸多角形</td><td>辺の数だけ</td></tr>
+</tbody>
+</table></div>
+<p>別々の公式を覚えるのではなく、同じ骨格の特殊化と見ると整理しやすい。Day 44 の 3D の SAT(15軸)も同じ話になる。</p>
+<div class="inject"><figure class="lab" id="sat-lab">
+  <div class="lab-head">
+    <h3>2つの形を重ねてみる — 投影の区間・打ち切り・法線(要点2〜6)</h3>
+    <span class="tag">reference の Physics/Shapes2D.cs・Collision2D.cs と、Program.cs の Test(in Body, in Body)(形の組み合わせ表と符号反転)を、float の丸めごと JS に移したもの。B をドラッグで動かし、回転は下のつまみで変える。座標は画面と同じ y 下向き。上が形と法線(A から B へ向かう矢印、長さは深さ)、下が軸ごとの投影で、横棒が A と B の区間、重なった部分が濃い色。「自己チェックの配置」は Program.RunCollisionCheck と同じ形と位置で、深さと法線の表示は C# と同じ値になる(1.142、&lt;1, 0&gt; など)。ドラッグできる配置と押し戻した後の影はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="sat-canvas" style="height:300px;touch-action:none" aria-label="2つの形と、当たったときの法線と押し戻し後の位置"></canvas><canvas id="sat-axes" style="height:150px;margin-top:6px" aria-label="軸ごとの投影の区間"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">A の形</span>
+      <div class="seg" id="sat-sa"><button data-v="0" aria-pressed="false">円</button><button data-v="1" aria-pressed="false">矩形</button><button data-v="2" aria-pressed="true">回転矩形</button></div>
+    </div>
+    <div class="ctl"><span class="label">B の形</span>
+      <div class="seg" id="sat-sb"><button data-v="0" aria-pressed="false">円</button><button data-v="1" aria-pressed="false">矩形</button><button data-v="2" aria-pressed="true">回転矩形</button></div>
+    </div>
+    <div class="ctl range"><span class="label">A の回転</span><input type="range" id="sat-ra" min="0" max="180" step="1" value="20"><output id="sat-ra-o"></output></div>
+    <div class="ctl range"><span class="label">B の回転</span><input type="range" id="sat-rb" min="0" max="180" step="1" value="45"><output id="sat-rb-o"></output></div>
+    <div class="ctl"><span class="label">自己チェックの配置(A と B は C# の引数の順)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-preset="obb45">45 度の角が刺さる</button><button class="btn" data-preset="aabb">AABB: 浅い軸で押す</button><button class="btn" data-preset="obb0">OBB(回転 0)で同じ配置</button><button class="btn" data-preset="inside">円が箱の中</button><button class="btn" data-preset="same">円同士で中心が重なる</button><button class="btn" data-preset="cobb">円と 90 度回した OBB</button></div>
+    </div>
+    <div class="ctl"><span class="label">押し戻した後の位置</span>
+      <div class="seg" id="sat-push"><button data-v="1" aria-pressed="true">影で見せる</button><button data-v="0" aria-pressed="false">見せない</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sat-stats"></div><p id="sat-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s8">5. 難しい形は、知っている形に変換する</h3>
+<p>円と OBB は、専用の式を導くより<strong>箱の座標系に持ち込む</strong>ほうが早い。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector2 localCenter = box.ToLocal(circle.Center);
+var localBox = new Aabb2D(-box.HalfSize, box.HalfSize);
+Contact2D local = Test(new Circle2D(localCenter, circle.Radius), localBox);</code></pre></div>
+<p>円は回しても円のままなので、箱を戻す回転を円にかければ<strong>円 vs AABB に落ちる</strong>。最後に法線だけワールドへ戻す。</p>
+<p>同じ手口はあちこちで使う。カプセル(Day 45)は「線分と点の距離」に落とし、三角形との判定は重心座標に落とす。<strong>新しい形が来たら、まず既知の形に落とせないか考える</strong>。</p>
+<h3 id="s9">6. 「当たったか」だけでは足りない</h3>
+<p>判定関数は最初から<strong>法線と貫通深さ</strong>を返す形にしておく。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal readonly struct Contact2D
+{
+    public readonly bool Hit;
+    public readonly Vector2 Normal;   // a を b から引き離す向き(長さ1)
+    public readonly float Depth;      // めり込み量
+}</code></pre></div>
+<p><code>bool</code> だけだと、当たったあと何もできない。押し戻すにも、跳ね返すにも、ダメージ表示を出すにも向きと量が要る。</p>
+<p><strong>「どちらから見た法線か」は必ずコメントに書く</strong>。ここを取り違えると、物体がめり込む方向へ押されて相手を突き抜けていく。引数の順番が逆になる組み合わせ(<code>Test(円, 箱)</code> しか無いのに <code>Test(箱, 円)</code> が要る場面)では、呼び出し側で<strong>符号を反転する</strong>必要がある。</p>
+<p>なお、法線を出す計算はタダではない。要点1の表で<strong>AABB の接触計算(44.0ns)が円(20.0ns)より高い</strong>のはそのためで、「AABB は円より安い」は判定だけの話。逆転する。</p>
+<h3 id="s10">7. 総当たりは O(n²)。どこで破綻するか</h3>
+<p>今日の判定は素朴な二重ループ。<code>j</code> を <code>i+1</code> から始めて同じ組を2回試さないようにしても、組の数は n(n-1)/2 で増える。実測すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>組</th><th>1ステップ</th><th>1組あたり</th><th>接触</th></tr></thead>
+<tbody>
+<tr><td>120</td><td>7,140</td><td>0.173ms</td><td>24.2ns</td><td>52</td></tr>
+<tr><td>250</td><td>31,125</td><td>0.750ms</td><td>24.1ns</td><td>212</td></tr>
+<tr><td>500</td><td>124,750</td><td>2.976ms</td><td>23.9ns</td><td>792</td></tr>
+<tr><td>1,000</td><td>499,500</td><td><strong>12.009ms</strong></td><td>24.0ns</td><td>2,855</td></tr>
+<tr><td>2,000</td><td>1,999,000</td><td><strong>47.298ms</strong></td><td>23.7ns</td><td>11,236</td></tr>
+</tbody>
+</table></div>
+<p><strong>1組あたりのコストは体数によらず 24ns で一定</strong>。つまり増えているのは純粋に組の数だけで、これが O(n²) の姿そのもの。</p>
+<p>60fps の予算 16.6ms を超えるのは <strong>1,000〜2,000 体の間</strong>。卒業制作の「敵が数百体」は、この壁のすぐ手前にいる。</p>
+<div class="inject"><figure class="lab" id="n2-lab">
+  <div class="lab-head">
+    <h3>総当たりの伸び方を測る — 組の数と1ステップの時間(要点7、完成条件の Shift + PageUp)</h3>
+    <span class="tag">reference の InitializeBodies(種 20260825、960x640、形は混在)と UpdateBodies(動かす → 総当たり → 半分ずつ押し戻す)を JS に移して、体数ごとに初期配置から 10 ステップ回した平均の時間を測る。「組」と「1ステップ目の接触」は C# の UpdateBodies を直接回した値と一致する(36 / 199 / 791 / 3,143 / 11,801)。本文の表の「接触」は走らせている途中のある瞬間の値なので、1ステップ目とは違う。時間はこのページ(ブラウザの JS)の値で、reference の 24ns とは比べられない。比べるのは「体数が2倍で時間が約4倍」と「1組あたりがほぼ一定」のほう</span>
+  </div>
+  <div class="stage" style="padding:12px"><div class="table-wrap" id="n2-table"></div><canvas id="n2-chart" style="height:180px;margin-top:8px" aria-label="体数と1ステップの時間のグラフ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">測る</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="n2-run">120〜2,000 体を測る</button></div>
+    </div>
+  </div>
+  <div class="readout"><p id="n2-note" style="margin:0"></p></div>
+</figure></div>
+<p>そして重要なのは、<strong>接触している組は 2,000 体でも 11,236 / 1,999,000 = 0.6% しかない</strong>こと。99.4% は「調べたけど当たっていなかった」で捨てている。<strong>この無駄を消すのが Day 26 の空間分割</strong>で、「近くにあるものだけ調べる」ようにすれば O(n²) から抜けられる。</p>
+<div class="inject"><figure class="lab" id="cd-lab">
+  <div class="lab-head">
+    <h3>衝突デモ — 当たると赤くなる(完成条件の F6〜F9)</h3>
+    <span class="tag">reference の衝突デモ(InitializeBodies・UpdateBodies・Test(in Body, in Body)・RenderBodies の色・SetBodyCount・キーの処理)と RunCollisionCheck を JS に移して、60Hz の固定ステップで回したもの。同じ種から作るので、初期配置は reference と同じになる。上の行はタイトルバーと同じ書式で、「判定」の ms だけはこのページの JS の値。自己チェックの 19 行と計測の「当たり %」は C# と同じ(計測の ns はこのページの値)。押し戻しありで長く回すと、C# の MathF.Sin が 1 ulp ずれる角度があって、回転矩形の押し戻しから配置が少しずつ分かれる(120 体の混在で 528 ステップ目、1,000 体で 47 ステップ目から接触の数が変わる。円だけ・矩形だけ・回転矩形だけと押し戻しなしは 600 ステップ一致)</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="cd-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="cd-canvas" style="height:400px" aria-label="円・矩形・回転矩形が飛び回り、当たっているものが赤くなる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">形(F7)</span>
+      <div class="seg" id="cd-mix"><button data-v="0" aria-pressed="true">混在</button><button data-v="1" aria-pressed="false">円</button><button data-v="2" aria-pressed="false">矩形</button><button data-v="3" aria-pressed="false">回転矩形</button></div>
+    </div>
+    <div class="ctl"><span class="label">押し戻し(F8)</span>
+      <div class="seg" id="cd-res"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">体数(PageUp / PageDown、Shift で ±500)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-n="-500">−500</button><button class="btn" data-n="-60">−60</button><button class="btn" data-n="60">+60</button><button class="btn" data-n="500">+500</button></div>
+    </div>
+    <div class="ctl"><span class="label">再生</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="cd-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div><button class="btn" id="cd-step">1 ステップ</button><button class="btn" id="cd-f9">F9 自己チェックと計測</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cd-stats"></div><pre id="cd-console" style="margin:10px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">フォルダを分けた</h3>
+<p>Day 24 まで 33 個の .cs がフラットに並んでいた。Phase 6 でさらに増えるので、Phase の切れ目である今日、役割ごとに分ける。</p>
+<div class="code"><pre><code>reference/Day25/
+  Core/      GameLoop / Input* 4本 / Handle / ResourcePool / ResourceManager   (8)
+  Scene/     Transform / Component / Components / GameObject / Scene /
+             ComponentRegistry / SceneSerializer                                (7)
+  Ecs/       Entity / ComponentStore / World / EcsComponents / EcsSystems       (5)
+  Render/    Camera / OrbitCameraController / Shader / Texture / TextureAtlas /
+             Material / Mesh / Vertex / VertexAttribute / Primitives /
+             SpriteBatch / SpriteVertex                                        (12)
+  Physics/   Shapes2D / Collision2D                                        (2・新規)
+  Program.cs
+  shaders/</code></pre></div>
+<p><strong>名前空間は <code>HonyaEngine</code> のまま</strong>。C# はフォルダと名前空間が一致しなくてよい。<code>HonyaEngine.Rendering</code> のように切ると全ファイルに <code>using</code> が増えて、写経の差分が濁る(プロジェクト規約「名前空間は Phase 単位で固定」にも反する)。</p>
+<p><code>Program.cs</code> は根に置いたままにした。<strong>唯一「写経で中身が変わるファイル」</strong>なので、<code>git diff --no-index reference/Day24/Program.cs reference/Day25/Program.cs</code> がそのまま使えるほうがよい。</p>
+<p>移動したファイルは<strong>中身を1文字も変えていない</strong>。今日実際に書くのは下の3つだけになる。</p>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/Shapes2D.cs</code></td><td>156 (79)</td><td><code>Aabb2D</code> / <code>Circle2D</code> / <code>Obb2D</code></td></tr>
+<tr><td><code>Physics/Collision2D.cs</code></td><td>284 (131)</td><td><code>Contact2D</code> と6通りの判定。SAT</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+574 / -7</td><td>衝突デモ(<code>Body</code> / <code>UpdateBodies</code> / <code>RenderBodies</code>)、自己チェック、計測</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">新しい素材</h3>
+<p><code>assets/textures/sprite-box.png</code>(64x64、210 バイト)。<strong>枠が見える半透明の四角</strong>にしてある。押し戻しを切ったときにどれだけ重なっているかが目で分かるようにするため。</p>
+<p>これを追加したことで <code>SpriteNames</code> が5つになったが、背景のスプライトは4種類までしか使わないようにしてある(<code>BackgroundSpriteKinds</code>)。箱は衝突デモ専用。</p>
+<h3 id="s16">キーの変更</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>F6</code></td><td>衝突デモ ON/OFF</td></tr>
+<tr><td><code>F7</code></td><td>形の切り替え(混在 → 円 → 矩形 → 回転矩形)</td></tr>
+<tr><td><code>F8</code></td><td>押し戻し ON/OFF</td></tr>
+<tr><td><code>F9</code></td><td>衝突判定の自己チェックと計測</td></tr>
+</tbody>
+</table></div>
+<p>衝突デモ中は <code>PageUp</code> / <code>PageDown</code> が体数を変える(±60、Shift 併用で ±500)。</p>
+<h3 id="s17">写経する順番</h3>
+<ol><li><strong>フォルダを作ってファイルを移す</strong> — 中身は変えない。<code>dotnet build</code> が通ることだけ確認する</li><li><strong><code>Physics/Shapes2D.cs</code></strong> — 構造体3つ。<code>Obb2D</code> が三角関数をコンストラクタで1回だけ計算しているところに注目</li><li><strong><code>Physics/Collision2D.cs</code></strong> — 安い順に上から。SAT(<code>Test(Obb2D, Obb2D)</code> と <code>TestAxis</code>)が本丸</li><li><strong><code>Program.cs</code></strong> — <code>Body</code> → <code>UpdateBodies</code>(総当たりの二重ループ)→ <code>Test(in Body, in Body)</code>(組み合わせの分岐)→ <code>RenderBodies</code> → <code>RunCollisionCheck</code></li></ol>
+</section>
+<section class="part"><h2 id="s18">設計書</h2>
+<p>Day 24 の時点でクラスが 33 個になり、「どこに何があるか」を頭に置いておくのが難しくなった。フォルダを分けた今日に合わせて、<strong>現時点のエンジン全体の姿</strong>を図にしておく。</p>
+<p>写経の前に読み込む必要はない。<strong>途中で「これは誰が呼ぶんだったか」と迷ったときに戻ってくる場所</strong>として使う。Day 26 以降もこの節を更新していくので、差分を追えば設計が育っていく過程がそのまま残る。</p>
+<h3 id="s19">全体構成 — 5つの層と依存の向き</h3>
+<svg viewBox="0 0 960 310" role="img" aria-label="全体構成(5つの層と依存の向き)。Program.cs(デモの組み立て・キー操作・計測)は Scene/(GameObject + Component)、Ecs/(Entity + ComponentStore)、Physics/(形と衝突判定)、Render/(OpenGL の薄い皮)、Core/(時間・入力・リソース)の全部に依存する。Scene は Core に依存し、SceneSerializer だけが Ecs に依存する(点線)。Render と Core は互いに依存している(両向きの矢印)" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="330" y="10" width="300" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="480" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program.cs</text><text x="480" y="47.5" text-anchor="middle" fill="var(--ink)">デモの組み立て・キー操作・計測</text><rect x="330" y="120" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="140.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Scene/</text><text x="430" y="157.5" text-anchor="middle" fill="var(--ink)">GameObject + Component</text><rect x="10" y="120" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="110" y="140.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Ecs/</text><text x="110" y="157.5" text-anchor="middle" fill="var(--ink)">Entity + ComponentStore</text><rect x="570" y="120" width="170" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="655" y="140.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Physics/</text><text x="655" y="157.5" text-anchor="middle" fill="var(--ink)">形と衝突判定</text><rect x="780" y="120" width="170" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="865" y="140.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render/</text><text x="865" y="157.5" text-anchor="middle" fill="var(--ink)">OpenGL の薄い皮</text><rect x="430" y="250" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="530" y="270.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Core/</text><text x="530" y="287.5" text-anchor="middle" fill="var(--ink)">時間・入力・リソース</text><path d="M330 35 L110 35 L110 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M380 60 L380 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M550 60 L550 248" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M610 60 L610 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M630 35 L865 35 L865 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M470 170 L470 248" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path stroke-dasharray="5 4" d="M330 145 L212 145" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="270" y="138" fill="var(--muted)" font-size="12" text-anchor="middle">SceneSerializer</text><text x="270" y="162" fill="var(--muted)" font-size="12" text-anchor="middle">だけ</text><path marker-start="url(#arr1)" d="M865 170 L865 275 L632 275" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>依存先</th><th>備考</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/</code></td><td><strong>なし</strong></td><td><code>System.Numerics</code> だけ。そのまま別プロジェクトへ持ち出せる</td></tr>
+<tr><td><code>Ecs/</code></td><td><strong>なし</strong></td><td>同上。Day 23 で「他に依存しないので先に5つ書ける」と書いたとおり</td></tr>
+<tr><td><code>Scene/</code></td><td><code>Core</code>(<code>InputSnapshot</code>)、<code>Ecs</code>(<code>SceneSerializer</code> のみ)</td><td><strong>描画を一切知らない</strong>。<code>SpriteRenderer</code> は絵の種類と大きさを持つデータでしかない</td></tr>
+<tr><td><code>Render/</code></td><td><code>Core</code>(<code>Handle</code> / <code>ResourceManager</code>)</td><td><code>Material</code> がハンドルを解くために管理側を呼ぶ</td></tr>
+<tr><td><code>Core/</code></td><td><code>Render</code>(<code>Texture</code> / <code>Shader</code>)</td><td><code>ResourceManager</code> が両者の実体を握っている</td></tr>
+<tr><td><code>Program.cs</code></td><td>全部</td><td>組み立て役。3018行あるが、その大半はデモ・計測・自己チェック</td></tr>
+</tbody>
+</table></div>
+<p><strong><code>Core</code> と <code>Render</code> が相互参照になっている</strong>のは、この図を描いて初めて見えたことで、きれいな形ではない。<code>ResourceManager</code>(Core)が <code>Texture</code>(Render)を作り、<code>Material</code>(Render)が <code>ResourceManager</code>(Core)を呼ぶ、という往復になっている。</p>
+<p>名前空間が <code>HonyaEngine</code> 1つなので今は問題なく動くが、<strong>アセンブリを分けようとした瞬間に破綻する</strong>。直すなら「<code>ResourcePool</code> と <code>Handle</code> だけを下層に置き、<code>ResourceManager</code> は Render 側に上げる」のが素直で、Phase 6 でアセットの種類が増えたときに検討する。今日の時点では<strong>そういう歪みがあることを記録しておくだけ</strong>にする。</p>
+<h3 id="s20">Core — 時間・入力・リソース</h3>
+<svg viewBox="0 0 960 493" role="img" aria-label="Core のクラス図。GameLoop(FixedDeltaTime・MaxStepsPerFrame・DropExcess・Alpha・StepsLastFrame・Lag・Advance(frameSeconds, fixedUpdate))。InputSystem(Current・Attach(keyboard)・Attach(mouse)・BeginStep・SetCurrent)は InputMap(Bind・Resolve・CreateDefault)でキーを引き、InputSnapshot(Held・Pressed・Released・MoveAxis・IsHeld・WasPressed)に畳んで返す。InputRecorder(Mode・Record・TryReplay)は InputSnapshot を溜める / 返す。ResourceManager(MaxUploadsPerFrame・PendingCount・LoadTexture・LoadTextureAsync・Update・GetTexture・Release)は ResourcePool(Add・TryGet・Retain・Release・Replace)をテクスチャ用とシェーダ用の2本、合成で持つ。ResourcePool は Handle(IsValid)に添字 + 世代を配る" style="width:100%;max-width:960px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="270" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="145" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GameLoop</text><line x1="10" y1="38" x2="280" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double FixedDeltaTime</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxStepsPerFrame</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool DropExcess</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double Alpha</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int StepsLastFrame</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+double Lag</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Advance(frameSeconds, fixedUpdate)</text><rect x="10" y="200" width="270" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="145" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">InputSystem</text><line x1="10" y1="228" x2="280" y2="228" stroke="var(--line)"></line><text x="20" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+InputSnapshot Current</text><text x="20" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Attach(keyboard)</text><text x="20" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Attach(mouse)</text><text x="20" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+BeginStep() InputSnapshot</text><text x="20" y="305" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetCurrent(snapshot)</text><rect x="10" y="380" width="270" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="145" y="399" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">InputMap</text><line x1="10" y1="408" x2="280" y2="408" stroke="var(--line)"></line><text x="20" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Bind(key, action)</text><text x="20" y="440" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Resolve(key) GameAction</text><text x="20" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateDefault() InputMap</text><rect x="370" y="200" width="250" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="495" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">InputSnapshot</text><line x1="370" y1="228" x2="620" y2="228" stroke="var(--line)"></line><text x="380" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GameAction Held</text><text x="380" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GameAction Pressed</text><text x="380" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GameAction Released</text><text x="380" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 MoveAxis</text><text x="380" y="305" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+IsHeld(action) bool</text><text x="380" y="320" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+WasPressed(action) bool</text><rect x="370" y="400" width="250" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="495" y="419" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">InputRecorder</text><line x1="370" y1="428" x2="620" y2="428" stroke="var(--line)"></line><text x="380" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+RecorderMode Mode</text><text x="380" y="460" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Record(snapshot)</text><text x="380" y="475" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TryReplay(out snapshot) bool</text><rect x="680" y="10" width="270" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="815" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ResourceManager</text><line x1="680" y1="38" x2="950" y2="38" stroke="var(--line)"></line><text x="690" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxUploadsPerFrame</text><text x="690" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int PendingCount</text><text x="690" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LoadTexture(path) Handle</text><text x="690" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LoadTextureAsync(path) Handle</text><text x="690" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Update()</text><text x="690" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GetTexture(handle) Texture</text><text x="690" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Release(handle) bool</text><rect x="680" y="220" width="270" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="815" y="239" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ResourcePool</text><line x1="680" y1="248" x2="950" y2="248" stroke="var(--line)"></line><text x="690" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(value) Handle</text><text x="690" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TryGet(handle, out value) bool</text><text x="690" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Retain(handle) bool</text><text x="690" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Release(handle, out removed) bool</text><text x="690" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Replace(handle, value, out prev) bool</text><rect x="680" y="410" width="270" height="53" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="815" y="429" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Handle</text><line x1="680" y1="438" x2="950" y2="438" stroke="var(--line)"></line><text x="690" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool IsValid</text><path d="M145 313 L145 378" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="153" y="350.5" fill="var(--muted)" font-size="12">キーを引く</text><path stroke-dasharray="5 4" d="M280 250 L368 250" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="290" y="244" fill="var(--muted)" font-size="12">畳んで返す</text><path stroke-dasharray="5 4" d="M495 400 L495 330" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="503" y="368" fill="var(--muted)" font-size="12">溜める / 返す</text><path d="M815 171 L815 220" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M815 153 L809 162 L815 171 L821 162 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="825" y="183" fill="var(--muted)" font-size="12">テクスチャ用と</text><text x="825" y="199" fill="var(--muted)" font-size="12">シェーダ用の2本</text><path stroke-dasharray="5 4" d="M815 333 L815 408" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="823" y="375.5" fill="var(--muted)" font-size="12">添字 + 世代を配る</text></g></svg>
+<p><code>ResourcePool</code> と <code>Handle</code> は総称型(<code>ResourcePool&lt;T&gt;</code> / <code>Handle&lt;T&gt;</code>)。<code>T</code> が何かを知らないまま添字と世代だけを管理するので、<code>Texture</code> にも <code>Shader</code> にも同じものが使える。</p>
+<p>この層で押さえるべき責務の線引き:</p>
+<ul><li><strong><code>GameLoop</code> は時間しか知らない</strong>。何を更新するかは <code>Action&lt;float&gt;</code> で渡される</li><li><strong><code>InputSystem</code> はデバイスのイベントを畳むだけ</strong>。ゲームとしての意味づけは <code>InputMap</code> が持つ</li><li><strong><code>InputSnapshot</code> は値</strong>。だから記録・再生で丸ごと差し替えられる(Day 20 の肝)</li></ul>
+<h3 id="s21">Render — OpenGL の薄い皮</h3>
+<svg viewBox="0 0 1140 908" role="img" aria-label="Render のクラス図。OrbitCameraController(Yaw・Pitch・Distance・Apply)は Camera(Position・Target・Mode・AspectRatio・ViewProjection・CreateScreen)に球面座標で位置を書く。Material(Shader・MainTexture のハンドル、Tint・UvScale・Apply(resources))は Shader(Use・SetInt・SetVector4・SetMatrix4・TryReload)と Texture(Handle・Width・Height・HasMipmaps・FromFile・DecodeFile・FromPixels・Bind)をハンドル経由で使う。Primitives(CreateQuad・CreateCube)は Mesh(Draw・Dispose)を作る。Mesh は Vertex(Position・TexCoord・Color・Attributes)を型引数に取り、VertexAttribute(ComponentCount・Normalized・ByteSize)でストライドとオフセットを組む。Vertex と SpriteVertex(Position・TexCoord・Color・PackColor)も VertexAttribute を使う。TextureAtlas(Texture・FromFiles)は Texture を1枚に詰めて合成で持ち、AtlasRegion(Texture・UvMin・UvMax)も合成で持つ。SpriteBatch(SortMode・DrawCallCount・Begin・Draw・End)は Shader を持ち、SpriteVertex を積み、AtlasRegion から UV を受け取る" style="width:100%;max-width:1140px;display:block;margin:8px 0 16px">
+<defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="290" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">OrbitCameraController</text><line x1="10" y1="38" x2="300" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Yaw</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Pitch</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Distance</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Apply()</text><rect x="10" y="150" width="290" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="169" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Camera</text><line x1="10" y1="178" x2="300" y2="178" stroke="var(--line)"></line><text x="20" y="195" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="210" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Target</text><text x="20" y="225" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ProjectionMode Mode</text><text x="20" y="240" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float AspectRatio</text><text x="20" y="255" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix4x4 ViewProjection</text><text x="20" y="270" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateScreen(width, height) Matrix4x4</text><rect x="10" y="390" width="290" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="409" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Material</text><line x1="10" y1="418" x2="300" y2="418" stroke="var(--line)"></line><text x="20" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Handle Shader</text><text x="20" y="450" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Handle MainTexture</text><text x="20" y="465" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Tint</text><text x="20" y="480" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 UvScale</text><text x="20" y="495" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Apply(resources)</text><rect x="10" y="570" width="290" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="589" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Primitives</text><line x1="10" y1="598" x2="300" y2="598" stroke="var(--line)"></line><text x="20" y="615" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateQuad(gl) Mesh</text><text x="20" y="630" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateCube(gl) Mesh</text><rect x="10" y="680" width="290" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="699" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Mesh</text><line x1="10" y1="708" x2="300" y2="708" stroke="var(--line)"></line><text x="20" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Draw()</text><text x="20" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Dispose()</text><rect x="10" y="800" width="290" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="819" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Vertex</text><line x1="10" y1="828" x2="300" y2="828" stroke="var(--line)"></line><text x="20" y="845" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 Position</text><text x="20" y="860" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 TexCoord</text><text x="20" y="875" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Color</text><text x="20" y="890" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Attributes</text><rect x="380" y="320" width="280" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="520" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Shader</text><line x1="380" y1="348" x2="660" y2="348" stroke="var(--line)"></line><text x="390" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Use()</text><text x="390" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetInt(name, value)</text><text x="390" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetVector4(name, value)</text><text x="390" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetMatrix4(name, value)</text><text x="390" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TryReload() bool</text><rect x="380" y="490" width="280" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="520" y="509" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Texture</text><line x1="380" y1="518" x2="660" y2="518" stroke="var(--line)"></line><text x="390" y="535" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Handle</text><text x="390" y="550" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="390" y="565" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="390" y="580" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool HasMipmaps</text><text x="390" y="595" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FromFile(gl, path) Texture</text><text x="390" y="610" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DecodeFile(path) DecodedImage</text><text x="390" y="625" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FromPixels(gl, pixels, w, h) Texture</text><text x="390" y="640" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Bind(unit)</text><rect x="380" y="800" width="280" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="520" y="819" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VertexAttribute</text><line x1="380" y1="828" x2="660" y2="828" stroke="var(--line)"></line><text x="390" y="845" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ComponentCount</text><text x="390" y="860" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Normalized</text><text x="390" y="875" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ByteSize</text><rect x="740" y="320" width="380" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="930" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SpriteBatch</text><line x1="740" y1="348" x2="1120" y2="348" stroke="var(--line)"></line><text x="750" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SpriteSortMode SortMode</text><text x="750" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int DrawCallCount</text><text x="750" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Begin(projection, sortMode)</text><text x="750" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Draw(texture, center, size, rotation, color, layer)</text><text x="750" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+End()</text><rect x="740" y="490" width="320" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="900" y="509" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">TextureAtlas</text><line x1="740" y1="518" x2="1060" y2="518" stroke="var(--line)"></line><text x="750" y="535" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Texture Texture</text><text x="750" y="550" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FromFiles(gl, paths, padding) TextureAtlas</text><rect x="740" y="610" width="220" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="850" y="629" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">AtlasRegion</text><line x1="740" y1="638" x2="960" y2="638" stroke="var(--line)"></line><text x="750" y="655" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Texture Texture</text><text x="750" y="670" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 UvMin</text><text x="750" y="685" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 UvMax</text><rect x="740" y="800" width="380" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="930" y="819" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SpriteVertex</text><line x1="740" y1="828" x2="1120" y2="828" stroke="var(--line)"></line><text x="750" y="845" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Position</text><text x="750" y="860" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 TexCoord</text><text x="750" y="875" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Color</text><text x="750" y="890" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PackColor(color) uint</text><path d="M155 108 L155 148" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="163" y="133" fill="var(--muted)" font-size="12">球面座標で位置を書く</text><path stroke-dasharray="5 4" d="M300 420 L340 420 L340 376.5 L378 376.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="306" y="414" fill="var(--muted)" font-size="12">ハンドル経由</text><path stroke-dasharray="5 4" d="M300 483 L350 483 L350 530 L378 530" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="306" y="477" fill="var(--muted)" font-size="12">ハンドル経由</text><path d="M740 376.5 L662 376.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path d="M722 524 L660 524" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M740 524 L731 518 L722 524 L731 530 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="666" y="517" fill="var(--muted)" font-size="12">1枚に詰める</text><path d="M850 576 L850 610" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M850 558 L844 567 L850 576 L856 567 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><path stroke-dasharray="5 4" d="M1090 433 L1090 651.5 L962 651.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="970" y="644.5" fill="var(--muted)" font-size="12">UV を受け取る</text><path stroke-dasharray="5 4" d="M1106 433 L1106 798" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="1112" y="780" fill="var(--muted)" font-size="12">積む</text><path stroke-dasharray="5 4" d="M155 638 L155 678" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="163" y="663" fill="var(--muted)" font-size="12">作る</text><path stroke-dasharray="5 4" d="M155 748 L155 798" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="163" y="778" fill="var(--muted)" font-size="12">型引数</text><path stroke-dasharray="5 4" d="M300 714 L520 714 L520 798" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><text x="310" y="707" fill="var(--muted)" font-size="12">ストライドとオフセットを組む</text><path stroke-dasharray="5 4" d="M300 840 L378 840" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path><path stroke-dasharray="5 4" d="M740 840 L662 840" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr3)"></path></g></svg>
+<p><strong><code>Material</code> が何も所有していない</strong>のは Day 15 から一貫している(Day15.md の要点2)。持っているのはハンドルだけで、実体の寿命は <code>ResourceManager</code> にある。</p>
+<p><strong>3D の道(<code>Mesh</code> + <code>Material</code>)と 2D の道(<code>SpriteBatch</code>)が並列</strong>なのも見てのとおりで、両者は <code>Shader</code> と <code>Texture</code> を共有しているだけで互いを知らない。<code>Mesh</code> は「形が決まっていて毎フレーム変わらないもの」、<code>SpriteBatch</code> は「毎フレーム頂点を作り直すもの」という使い分けになっている。</p>
+<h3 id="s22">Scene — GameObject + Component</h3>
+<svg viewBox="0 0 1110 788" role="img" aria-label="Scene のクラス図。Scene(GameObjectCount・Input・Bounds・CreateGameObject・Destroy・FixedUpdate・Clear)は GameObject を 1 対 n の合成で持つ。GameObject(Name・Transform・ActiveInHierarchy・AddComponent・GetComponent・SetActive)は Transform を 1 対 1、Component を 1 対 n の合成で持つ。Transform(LocalPosition・LocalRotation・LocalScale・Parent・LocalToWorld・SetParent・Snapshot・GetInterpolatedWorldPosition)は親子として Transform を 1 対 n で集約する。Component(GameObject・Transform・Enabled と、protected の Awake・Start・OnEnable・OnDisable・FixedUpdate・OnDestroy)を SpriteRenderer(Kind・Size・Color・Layer)・BouncingMover(Velocity・SpinSpeed)・OrbitMover(Radius・AngularSpeed)・PlayerController(Velocity・DashCooldown)・LifecycleLogger(Label)が継承する。SceneSerializer(CurrentVersion・Save・Load)は Scene を読み書きし、ComponentRegistry(Register・NameOf・TypeOf)で型名を引く" style="width:100%;max-width:1110px;display:block;margin:8px 0 16px">
+<defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="270" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="145" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SceneSerializer</text><line x1="10" y1="38" x2="280" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CurrentVersion</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Save(scene, world, name) string</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Load(json, world) Scene</text><rect x="10" y="190" width="270" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="145" y="209" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComponentRegistry</text><line x1="10" y1="218" x2="280" y2="218" stroke="var(--line)"></line><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Register(name)</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+NameOf(type) string</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+TypeOf(name) Type</text><rect x="350" y="10" width="270" height="143" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="485" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Scene</text><line x1="350" y1="38" x2="620" y2="38" stroke="var(--line)"></line><text x="360" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int GameObjectCount</text><text x="360" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+InputSnapshot Input</text><text x="360" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Bounds</text><text x="360" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateGameObject(name, parent) GameObject</text><text x="360" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Destroy(gameObject)</text><text x="360" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FixedUpdate(deltaTime)</text><text x="360" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Clear()</text><rect x="350" y="220" width="270" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="485" y="239" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GameObject</text><line x1="350" y1="248" x2="620" y2="248" stroke="var(--line)"></line><text x="360" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="360" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Transform Transform</text><text x="360" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool ActiveInHierarchy</text><text x="360" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AddComponent() T</text><text x="360" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GetComponent() T</text><text x="360" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetActive(active)</text><rect x="350" y="420" width="270" height="173" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="485" y="439" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Component</text><line x1="350" y1="448" x2="620" y2="448" stroke="var(--line)"></line><text x="360" y="465" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GameObject GameObject</text><text x="360" y="480" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Transform Transform</text><text x="360" y="495" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Enabled</text><text x="360" y="510" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">#Awake()</text><text x="360" y="525" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">#Start()</text><text x="360" y="540" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">#OnEnable()</text><text x="360" y="555" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">#OnDisable()</text><text x="360" y="570" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">#FixedUpdate(deltaTime)</text><text x="360" y="585" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">#OnDestroy()</text><rect x="700" y="220" width="330" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="865" y="239" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Transform</text><line x1="700" y1="248" x2="1030" y2="248" stroke="var(--line)"></line><text x="710" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 LocalPosition</text><text x="710" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Quaternion LocalRotation</text><text x="710" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector3 LocalScale</text><text x="710" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Transform Parent</text><text x="710" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Matrix4x4 LocalToWorld</text><text x="710" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+SetParent(parent)</text><text x="710" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Snapshot()</text><text x="710" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GetInterpolatedWorldPosition(alpha) Vector3</text><rect x="10" y="680" width="190" height="98" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="105" y="699" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SpriteRenderer</text><line x1="10" y1="708" x2="200" y2="708" stroke="var(--line)"></line><text x="20" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Kind</text><text x="20" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Size</text><text x="20" y="755" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector4 Color</text><text x="20" y="770" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Layer</text><rect x="220" y="680" width="190" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="315" y="699" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">BouncingMover</text><line x1="220" y1="708" x2="410" y2="708" stroke="var(--line)"></line><text x="230" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Velocity</text><text x="230" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float SpinSpeed</text><rect x="430" y="680" width="190" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="525" y="699" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">OrbitMover</text><line x1="430" y1="708" x2="620" y2="708" stroke="var(--line)"></line><text x="440" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Radius</text><text x="440" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float AngularSpeed</text><rect x="640" y="680" width="190" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="735" y="699" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">PlayerController</text><line x1="640" y1="708" x2="830" y2="708" stroke="var(--line)"></line><text x="650" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Velocity</text><text x="650" y="740" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float DashCooldown</text><rect x="850" y="680" width="190" height="53" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="945" y="699" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">LifecycleLogger</text><line x1="850" y1="708" x2="1040" y2="708" stroke="var(--line)"></line><text x="860" y="725" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Label</text><path d="M485 171 L485 220" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M485 153 L479 162 L485 171 L491 162 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="495" y="169" fill="var(--muted)" font-size="12">1</text><text x="495" y="214" fill="var(--muted)" font-size="12">n</text><path d="M638 260 L700 260" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M620 260 L629 266 L638 260 L629 254 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="628" y="254" fill="var(--muted)" font-size="12">1</text><text x="692" y="254" fill="var(--muted)" font-size="12" text-anchor="end">1</text><path d="M485 366 L485 420" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M485 348 L479 357 L485 366 L491 357 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="495" y="364" fill="var(--muted)" font-size="12">1</text><text x="495" y="414" fill="var(--muted)" font-size="12">n</text><path d="M1048 270 L1060 270 L1060 340 L1030 340" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M1030 270 L1039 276 L1048 270 L1039 264 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><text x="1066" y="310" fill="var(--muted)" font-size="12">親子</text><text x="1036" y="264" fill="var(--muted)" font-size="12">1</text><text x="1036" y="356" fill="var(--muted)" font-size="12">n</text><path stroke-dasharray="5 4" d="M280 51.5 L348 51.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="288" y="45.5" fill="var(--muted)" font-size="12">読み書き</text><path stroke-dasharray="5 4" d="M145 93 L145 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr4)"></path><text x="153" y="145.5" fill="var(--muted)" font-size="12">型名を引く</text><path d="M485 593 L477 606 L493 606 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M485 606 L485 654 M105 654 L945 654" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M105 654 L105 680" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M315 654 L315 680" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M525 654 L525 680" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M735 654 L735 680" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M945 654 L945 680" fill="none" stroke="var(--muted)" stroke-width="1.5"></path></g></svg>
+<p><code>Transform</code> だけが <code>GameObject</code> の固定メンバーで、ほかは全部 <code>Component</code> として付け外しする(Day 22 の要点2)。<code>SceneSerializer</code> が <code>ComponentRegistry</code> を経由するのは、<strong>JSON の文字列から直接 <code>Type</code> を作らせない</strong>ため(Day 24 の要点2)。</p>
+<h3 id="s23">Ecs と Physics — どこにも依存しない2つ</h3>
+<svg viewBox="0 0 920 388" role="img" aria-label="Ecs のクラス図。World(AliveCount・CreateEntity・DestroyEntity・Store・Add・Get)は ComponentStore(Count・Values・Entities・Add・Get・Remove)を型ごとに1本、1 対 n の合成で持ち、Entity(IsValid)に番号を配る。EcsSystems(Snapshot・Move・AreAligned)は World を舐める" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="300" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">EcsSystems</text><line x1="10" y1="38" x2="310" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Snapshot(world, aligned)</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Move(world, deltaTime, bounds, aligned)</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AreAligned(a, b) bool</text><rect x="380" y="10" width="250" height="128" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="505" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">World</text><line x1="380" y1="38" x2="630" y2="38" stroke="var(--line)"></line><text x="390" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int AliveCount</text><text x="390" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+CreateEntity() Entity</text><text x="390" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+DestroyEntity(entity) bool</text><text x="390" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Store() ComponentStore</text><text x="390" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(entity, value)</text><text x="390" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Get(entity) T</text><rect x="720" y="10" width="180" height="53" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="810" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Entity</text><line x1="720" y1="38" x2="900" y2="38" stroke="var(--line)"></line><text x="730" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool IsValid</text><rect x="380" y="250" width="250" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="505" y="269" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">ComponentStore</text><line x1="380" y1="278" x2="630" y2="278" stroke="var(--line)"></line><text x="390" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Count</text><text x="390" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Values</text><text x="390" y="325" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Entities</text><text x="390" y="340" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Add(entityIndex, value)</text><text x="390" y="355" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Get(entityIndex) T</text><text x="390" y="370" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Remove(entityIndex) bool</text><path stroke-dasharray="5 4" d="M310 50 L378 50" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="320" y="44" fill="var(--muted)" font-size="12">舐める</text><path stroke-dasharray="5 4" d="M630 40 L718 40" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr5)"></path><text x="638" y="34" fill="var(--muted)" font-size="12">番号を配る</text><path d="M505 156 L505 250" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M505 138 L499 147 L505 156 L511 147 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="515" y="154" fill="var(--muted)" font-size="12">1</text><text x="515" y="244" fill="var(--muted)" font-size="12">n</text><text x="531" y="198" fill="var(--muted)" font-size="12">型ごとに1本</text></g></svg>
+<svg viewBox="0 0 920 488" role="img" aria-label="Physics のクラス図。Collision2D(Overlap(a, b)・Test(a, b)・ClosestPoint(box, point))は Aabb2D・Circle2D・Obb2D を使い、Contact2D(Hit・Normal・Depth・None・Touching)を返す。Circle2D(Center・Radius・Bounds)と Obb2D(Center・HalfSize・Rotation・AxisX・AxisY・Bounds・ToLocal・ToWorld)は、外接箱として Aabb2D(Min・Max・Center・HalfSize・FromCenter・Union)を使う" style="width:100%;max-width:920px;display:block;margin:8px 0 16px">
+<defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="170" width="300" height="83" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="189" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Collision2D</text><line x1="10" y1="198" x2="310" y2="198" stroke="var(--line)"></line><text x="20" y="215" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Overlap(a, b) bool</text><text x="20" y="230" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Test(a, b) Contact2D</text><text x="20" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ClosestPoint(box, point) Vector2</text><rect x="10" y="340" width="300" height="113" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="160" y="359" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Contact2D</text><line x1="10" y1="368" x2="310" y2="368" stroke="var(--line)"></line><text x="20" y="385" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Hit</text><text x="20" y="400" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Normal</text><text x="20" y="415" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Depth</text><text x="20" y="430" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+None</text><text x="20" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Touching(normal, depth) Contact2D</text><rect x="430" y="10" width="240" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Circle2D</text><line x1="430" y1="38" x2="670" y2="38" stroke="var(--line)"></line><text x="440" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Center</text><text x="440" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Radius</text><text x="440" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Aabb2D Bounds</text><rect x="430" y="140" width="280" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="570" y="159" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Aabb2D</text><line x1="430" y1="168" x2="710" y2="168" stroke="var(--line)"></line><text x="440" y="185" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Min</text><text x="440" y="200" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Max</text><text x="440" y="215" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Center</text><text x="440" y="230" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 HalfSize</text><text x="440" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FromCenter(center, halfSize) Aabb2D</text><text x="440" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Union(a, b) Aabb2D</text><rect x="430" y="320" width="240" height="158" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="550" y="339" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Obb2D</text><line x1="430" y1="348" x2="670" y2="348" stroke="var(--line)"></line><text x="440" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 Center</text><text x="440" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 HalfSize</text><text x="440" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Rotation</text><text x="440" y="410" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 AxisX</text><text x="440" y="425" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Vector2 AxisY</text><text x="440" y="440" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Aabb2D Bounds</text><text x="440" y="455" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ToLocal(world) Vector2</text><text x="440" y="470" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ToWorld(local) Vector2</text><path stroke-dasharray="5 4" d="M310 188 L370 188 L370 51.5 L428 51.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M310 204 L428 204" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M310 239 L370 239 L370 399 L428 399" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><path stroke-dasharray="5 4" d="M160 253 L160 338" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="168" y="300.5" fill="var(--muted)" font-size="12">返す</text><path stroke-dasharray="5 4" d="M550 93 L550 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="558" y="120.5" fill="var(--muted)" font-size="12">外接箱</text><path stroke-dasharray="5 4" d="M550 320 L550 270" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr6)"></path><text x="558" y="298" fill="var(--muted)" font-size="12">外接箱</text></g></svg>
+<p><strong>形は全部 <code>readonly struct</code>、判定は <code>static</code> メソッドだけ</strong>。状態を持たないので、どのスレッドから何回呼んでも同じ答えが返る。Day 26 で空間分割を入れるとき、この性質のおかげで<strong>判定そのものには一切手を入れずに済む</strong>。</p>
+<h3 id="s24">1フレームの流れ</h3>
+<p>Silk.NET のウィンドウから <code>OnUpdate</code> と <code>OnRender</code> が交互に呼ばれる。<strong>状態を変えるのは <code>OnUpdate</code> 側だけ</strong>、というのが Day 19 で引いた線。</p>
+<svg viewBox="0 0 1154 553" role="img" aria-label="1フレームの流れ。Silk.NET のウィンドウから OnUpdate(deltaSeconds)と OnRender が呼ばれる。OnUpdate は _loop.Advance(dt, FixedUpdate)を呼び、アキュムレータに1ステップ分溜まっていれば FixedUpdate(固定 dt)を呼んで判定に戻る。溜まっていなければ Alpha = 端数 / 固定dt(次の描画で使う補間率)を出し、UpdateLoadWatch / fps / タイトルバーへ進む。OnRender は _resources.Update()(裏で復号済みの絵を GPU へ。1フレームの枚数に上限あり)→ Clear → _draw3D なら Render3D()(Mesh + Material)→ RenderSprites()(SpriteBatch)→ RenderResourceStrip()(ロード状況の帯)。_draw3D でなければ Render3D を飛ばして RenderSprites へ" style="width:100%;max-width:1154px;display:block;margin:8px 0 16px">
+<defs><marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="330" y="8" width="200" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="28.5" text-anchor="middle" fill="var(--ink)">Silk.NET ウィンドウ</text><rect x="10" y="75" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="95.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OnUpdate(deltaSeconds)</text><rect x="10" y="142" width="290" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="179.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_loop.Advance(dt, FixedUpdate)</text><rect x="10" y="243" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="155" y="263.5" text-anchor="middle" fill="var(--ink)">アキュムレータに</text><text x="155" y="280.5" text-anchor="middle" fill="var(--ink)">1ステップ分溜まったか</text><rect x="330" y="243" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="272" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FixedUpdate(固定 dt)</text><rect x="10" y="327" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="347.5" text-anchor="middle" fill="var(--ink)">Alpha = 端数 / 固定dt</text><text x="155" y="364.5" text-anchor="middle" fill="var(--ink)">次の描画で使う補間率</text><rect x="10" y="411" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="155" y="440" text-anchor="middle" fill="var(--ink)">UpdateLoadWatch / fps / タイトルバー</text><rect x="550" y="75" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="695" y="95.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">OnRender</text><rect x="550" y="142" width="290" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="695" y="162.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_resources.Update()</text><text font-weight="700" x="695" y="179.5" text-anchor="middle" fill="var(--ink)">裏で復号済みの絵を GPU へ</text><text x="695" y="196.5" text-anchor="middle" fill="var(--ink)">1フレームの枚数に上限あり</text><rect x="550" y="243" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="695" y="272" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Clear</text><rect x="550" y="335.5" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="695" y="356" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_draw3D ?</text><rect x="870" y="327" width="200" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="970" y="347.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Render3D()</text><text x="970" y="364.5" text-anchor="middle" fill="var(--ink)">Mesh + Material</text><rect x="550" y="411" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="695" y="431.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderSprites()</text><text x="695" y="448.5" text-anchor="middle" fill="var(--ink)">SpriteBatch</text><rect x="550" y="495" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="695" y="515.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">RenderResourceStrip()</text><text x="695" y="532.5" text-anchor="middle" fill="var(--ink)">ロード状況の帯</text><path d="M346 41 L346 55 L155 55 L155 73" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M514 41 L514 55 L695 55 L695 73" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M155 108 L155 140" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M155 209 L155 241" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M300 260 L328 260" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="306" y="254" fill="var(--muted)" font-size="12">Yes</text><path d="M330 276 L302 276" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M155 293 L155 325" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="161" y="308" fill="var(--muted)" font-size="12">No</text><path d="M155 377 L155 409" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M695 108 L695 140" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M695 209 L695 241" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M695 293 L695 333.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M840 352 L868 352" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="846" y="346" fill="var(--muted)" font-size="12">Yes</text><path d="M695 368.5 L695 409" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><text x="701" y="383.5" fill="var(--muted)" font-size="12">No</text><path d="M970 377 L970 436 L842 436" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path><path d="M695 461 L695 493" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr7)"></path></g></svg>
+<p><code>OnRender</code> の先頭で <code>_resources.Update()</code> を呼ぶのが要点で、<strong>GL は描画スレッドからしか触れない</strong>ため、裏で復号し終えた画素をここで GPU に上げている(Day 21 の要点5・6)。</p>
+<h3 id="s25">FixedUpdate の中身 — 入力の出どころと3つのバックエンド</h3>
+<svg viewBox="0 0 940 720" role="img" aria-label="FixedUpdate の中身(入力の出どころと3つのバックエンド)。FixedUpdate(dt)→ BurnCpu(_loadMicroseconds)(処理落ちの再現)→ _recorder.Mode で分かれる。Replaying なら TryReplay が成功したか見て、成功なら記録された入力を採用(_inputSystem.SetCurrent)、失敗なら FinishReplay()(その場で操作を返す)してから実操作の道へ。Off / Recording なら input = _inputSystem.BeginStep() + _recorder.Record(input)。どちらも _scene.Input = input、_scene.FixedUpdate(dt)へ合流し、_collisionDemo なら UpdateBodies(dt, bounds)を挟んで、_backend で分かれる。StructArray は UpdateSprites(dt)(構造体の配列を順に舐める)、Ecs は EcsSystems.Snapshot と EcsSystems.Move、GameObject は Scene.FixedUpdate が済ませている" style="width:100%;max-width:940px;display:block;margin:8px 0 16px">
+<defs><marker id="arr8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="300" y="8" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FixedUpdate(dt)</text><rect x="300" y="75" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="95.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">BurnCpu(_loadMicroseconds)</text><text x="445" y="112.5" text-anchor="middle" fill="var(--ink)">処理落ちの再現</text><rect x="300" y="159" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="445" y="179.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_recorder.Mode</text><rect x="10" y="226" width="260" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="140" y="246.5" text-anchor="middle" fill="var(--ink)">TryReplay 成功?</text><rect x="10" y="293" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="313.5" text-anchor="middle" fill="var(--ink)">記録された入力を採用</text><text x="140" y="330.5" text-anchor="middle" fill="var(--ink)">_inputSystem.SetCurrent</text><rect x="300" y="293" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="313.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FinishReplay()</text><text x="445" y="330.5" text-anchor="middle" fill="var(--ink)">その場で操作を返す</text><rect x="620" y="293" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="765" y="313.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">input = _inputSystem.BeginStep()</text><text x="765" y="330.5" text-anchor="middle" fill="var(--ink)">+ _recorder.Record(input)</text><rect x="300" y="377" width="290" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="397.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_scene.Input = input</text><text x="445" y="414.5" text-anchor="middle" fill="var(--ink)">_scene.FixedUpdate(dt)</text><rect x="300" y="461" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="445" y="481.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_collisionDemo ?</text><rect x="620" y="528" width="290" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="765" y="548.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UpdateBodies(dt, bounds)</text><rect x="300" y="595" width="290" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="445" y="615.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_backend</text><rect x="10" y="662" width="260" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="140" y="682.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UpdateSprites(dt)</text><text x="140" y="699.5" text-anchor="middle" fill="var(--ink)">構造体の配列を順に舐める</text><rect x="300" y="662" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="445" y="682.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">EcsSystems.Snapshot</text><text x="445" y="699.5" text-anchor="middle" fill="var(--ink)">EcsSystems.Move</text><rect x="620" y="662" width="290" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="765" y="682.5" text-anchor="middle" fill="var(--ink)">Scene.FixedUpdate が</text><text x="765" y="699.5" text-anchor="middle" fill="var(--ink)">済ませている</text><path d="M445 41 L445 73" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M445 125 L445 157" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M300 175.5 L140 175.5 L140 224" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="292" y="169.5" fill="var(--muted)" font-size="12" text-anchor="end">Replaying</text><path d="M590 175.5 L765 175.5 L765 291" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="598" y="169.5" fill="var(--muted)" font-size="12">Off / Recording</text><path d="M140 259 L140 291" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="146" y="274" fill="var(--muted)" font-size="12">Yes</text><path d="M270 242.5 L445 242.5 L445 291" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="278" y="236.5" fill="var(--muted)" font-size="12">No</text><path d="M590 318 L618 318" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M140 343 L140 402 L298 402" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M765 343 L765 402 L592 402" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M445 427 L445 459" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M590 477.5 L765 477.5 L765 526" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="598" y="471.5" fill="var(--muted)" font-size="12">Yes</text><path d="M445 494 L445 593" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="451" y="509" fill="var(--muted)" font-size="12">No</text><path d="M765 561 L765 611.5 L592 611.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><path d="M300 611.5 L140 611.5 L140 660" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="292" y="605.5" fill="var(--muted)" font-size="12" text-anchor="end">StructArray</text><path d="M445 628 L445 660" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="451" y="643" fill="var(--muted)" font-size="12">Ecs</text><path d="M590 619.5 L765 619.5 L765 660" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr8)"></path><text x="771" y="635.5" fill="var(--muted)" font-size="12">GameObject</text></g></svg>
+<p><strong>入力がどこから来たかを、この関数から下は誰も気にしない</strong>のがポイント(Day 20 の要点1)。<code>InputSnapshot</code> という値に畳んであるので、記録の再生と実操作を1行で差し替えられる。</p>
+<p><code>Scene.FixedUpdate</code> を <code>_backend</code> の分岐より前で必ず呼んでいるのは、<strong>プレイヤーと階層の実演がどのモードでも Scene 側にいる</strong>ため。</p>
+<h3 id="s26">Scene.FixedUpdate の4段階</h3>
+<p>順番に意味がある。入れ替えると壊れる。</p>
+<svg viewBox="0 0 936 70" role="img" aria-label="Scene.FixedUpdate の4段階。1. SnapshotTransforms(今の姿勢を控える)→ 2. RunPendingStart(まだ Start していない部品)→ 3. UpdateComponents(各 Component.FixedUpdate)→ 4. FlushDestroy(溜めた破棄をまとめて実行)" style="width:100%;max-width:936px;display:block;margin:8px 0 16px">
+<defs><marker id="arr9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="205" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="112.5" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">1. SnapshotTransforms</text><text x="112.5" y="47.5" text-anchor="middle" fill="var(--ink)">今の姿勢を控える</text><path d="M215 35 L245 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><rect x="247" y="10" width="205" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="349.5" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">2. RunPendingStart</text><text x="349.5" y="47.5" text-anchor="middle" fill="var(--ink)">まだ Start していない部品</text><path d="M452 35 L482 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><rect x="484" y="10" width="205" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="586.5" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">3. UpdateComponents</text><text x="586.5" y="47.5" text-anchor="middle" fill="var(--ink)">各 Component.FixedUpdate</text><path d="M689 35 L719 35" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr9)"></path><rect x="721" y="10" width="205" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="823.5" y="30.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">4. FlushDestroy</text><text x="823.5" y="47.5" text-anchor="middle" fill="var(--ink)">溜めた破棄をまとめて実行</text></g></svg>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>なぜその位置か</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>動かす前</strong>に控えないと、補間の始点が終点と同じになって補間が効かない</td></tr>
+<tr><td>2</td><td><code>Start</code> の中で新しいオブジェクトが生まれるので、<strong>開始時点の件数だけ</strong>回す</td></tr>
+<tr><td>3</td><td>ここも開始時点の件数で止める。このステップで生まれたものは次のステップから</td></tr>
+<tr><td>4</td><td>更新中にリストから消すと<strong>走査中のインデックスがずれる</strong>(Day 22 の要点5)。まとめて <code>RemoveAll</code> するのは、1個ずつ消すと O(n^2) になるため</td></tr>
+</tbody>
+</table></div>
+<h3 id="s27">非同期テクスチャロードの流れ</h3>
+<p><code>Q</code> キーで走る道。<strong>GL を呼ぶ部分と呼ばない部分の境目</strong>が、そのままスレッドの境目になっている(Day 21 の要点5)。</p>
+<svg viewBox="0 0 1040 616" role="img" aria-label="非同期テクスチャロードの流れ(シーケンス図)。登場するのは Program、ResourceManager、スレッドプール、_decoded キュー、OnRender(描画スレッド)。Program が LoadTextureAsync(path)を呼ぶと、ResourceManager は仮の絵でスロットを確保して Handle を即返し、Task.Run(復号)でスレッドプールへ投げる。この間もフレームは止まらず、ハンドルを解くと仮の絵が出る。スレッドプールは Texture.DecodeFile(GL を呼ばない)をして、_decoded キューに DecodedJob を積む。OnRender が ResourceManager の Update()を呼ぶと、ResourceManager はキューから TryDequeue し、IsAlive で生存確認し、描画スレッドで Texture.FromPixels でアップロードし、Replace(handle, texture)する。次のフレームから本物が出て、呼び出し側のコードは一切変わらない" style="width:100%;max-width:1040px;display:block;margin:8px 0 16px">
+<defs><marker id="arr10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><line x1="90" y1="44" x2="90" y2="606" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="30" y="10" width="120" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="90" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program</text><line x1="290" y1="44" x2="290" y2="606" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="205" y="10" width="170" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="290" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">ResourceManager</text><line x1="490" y1="44" x2="490" y2="606" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="420" y="10" width="140" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="490" y="31" text-anchor="middle" fill="var(--ink)">スレッドプール</text><line x1="700" y1="44" x2="700" y2="606" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="620" y="10" width="160" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="700" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_decoded キュー</text><line x1="920" y1="44" x2="920" y2="606" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="810" y="10" width="220" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="920" y="31" text-anchor="middle" fill="var(--ink)">OnRender(描画スレッド)</text><path d="M90 74 L288 74" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="190" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">LoadTextureAsync(path)</text><path d="M290 110 L330 110 L330 124 L292 124" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="338" y="121" fill="var(--ink)" font-size="12.5">仮の絵でスロットを確保</text><path stroke-dasharray="5 4" d="M290 150 L92 150" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="190" y="144" text-anchor="middle" fill="var(--ink)" font-size="12.5">Handle を即返す</text><path d="M290 186 L488 186" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="390" y="180" text-anchor="middle" fill="var(--ink)" font-size="12.5">Task.Run(復号)</text><rect x="20" y="210" width="970" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--line)"></rect><text x="505" y="228" text-anchor="middle" fill="var(--ink)">この間もフレームは止まらない</text><text x="505" y="246" text-anchor="middle" fill="var(--ink)">ハンドルを解くと仮の絵が出る</text><path d="M490 282 L530 282 L530 296 L492 296" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="538" y="293" fill="var(--ink)" font-size="12.5">Texture.DecodeFile(GL を呼ばない)</text><path d="M490 322 L698 322" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="595" y="316" text-anchor="middle" fill="var(--ink)" font-size="12.5">DecodedJob を積む</text><path d="M920 358 L292 358" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="605" y="352" text-anchor="middle" fill="var(--ink)" font-size="12.5">Update()</text><path d="M290 394 L698 394" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="495" y="388" text-anchor="middle" fill="var(--ink)" font-size="12.5">TryDequeue</text><path d="M290 430 L330 430 L330 444 L292 444" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="338" y="441" fill="var(--ink)" font-size="12.5">IsAlive で生存確認</text><path d="M290 470 L918 470" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="605" y="464" text-anchor="middle" fill="var(--ink)" font-size="12.5">Texture.FromPixels でアップロード</text><path d="M290 506 L330 506 L330 520 L292 520" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr10)"></path><text x="338" y="517" fill="var(--ink)" font-size="12.5">Replace(handle, texture)</text><rect x="20" y="534" width="970" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--line)"></rect><text x="505" y="552" text-anchor="middle" fill="var(--ink)">次のフレームから本物が出る</text><text x="505" y="570" text-anchor="middle" fill="var(--ink)">呼び出し側のコードは一切変わらない</text></g></svg>
+<p><code>Update()</code> が <code>MaxUploadsPerFrame</code> で枚数を絞っているのが肝で、<strong>復号を非同期にしても、アップロードをまとめてやるとそこでカクつく</strong>(Day 21 の要点6)。</p>
+<h3 id="s28">衝突判定のディスパッチ</h3>
+<p><code>UpdateBodies</code> は「動かす → 総当たり → 押し戻す」の3段。形の組み合わせごとの振り分けは <code>Test(in Body, in Body)</code> が一手に引き受ける。</p>
+<svg viewBox="0 0 414 620" role="img" aria-label="衝突判定のディスパッチ。UpdateBodies(dt, bounds)→ 1. 全体を動かす(位置と回転を進め、壁で跳ね返す。壁は外接 AABB で見る)→ 2. 総当たり(for i, for j = i+1)→ Test(in Body a, in Body b)(形の組で振り分け)→ contact.Hit で分かれる。No なら総当たりへ戻る。Yes なら接触数を数え、色を赤にする。_resolveOverlap が No なら総当たりへ戻り、Yes なら 3. 半分ずつ押し戻す(a -= n*d/2 , b += n*d/2)してから総当たりへ戻る" style="width:100%;max-width:414px;display:block;margin:8px 0 16px">
+<defs><marker id="arr11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="8" width="320" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">UpdateBodies(dt, bounds)</text><rect x="10" y="75" width="320" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="95.5" text-anchor="middle" fill="var(--ink)">1. 全体を動かす</text><text x="170" y="112.5" text-anchor="middle" fill="var(--ink)">位置と回転を進め、壁で跳ね返す</text><text x="170" y="129.5" text-anchor="middle" fill="var(--ink)">壁は外接 AABB で見る</text><rect x="10" y="176" width="320" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="196.5" text-anchor="middle" fill="var(--ink)">2. 総当たり</text><text x="170" y="213.5" text-anchor="middle" fill="var(--ink)">for i, for j = i+1</text><rect x="10" y="260" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="280.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Test(in Body a, in Body b)</text><text x="170" y="297.5" text-anchor="middle" fill="var(--ink)">形の組で振り分け</text><rect x="10" y="344" width="320" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="170" y="364.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">contact.Hit ?</text><rect x="10" y="411" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="431.5" text-anchor="middle" fill="var(--ink)">接触数を数える</text><text x="170" y="448.5" text-anchor="middle" fill="var(--ink)">色を赤にする</text><rect x="10" y="495" width="320" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="170" y="515.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_resolveOverlap ?</text><rect x="10" y="562" width="320" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="170" y="582.5" text-anchor="middle" fill="var(--ink)">3. 半分ずつ押し戻す</text><text x="170" y="599.5" text-anchor="middle" fill="var(--ink)">a -= n*d/2 , b += n*d/2</text><path d="M170 41 L170 73" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><path d="M170 142 L170 174" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><path d="M170 226 L170 258" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><path d="M170 310 L170 342" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><path d="M330 360.5 L356 360.5 L356 201 L332 201" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><text x="338" y="354.5" fill="var(--muted)" font-size="12">No</text><path d="M170 377 L170 409" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><text x="176" y="392" fill="var(--muted)" font-size="12">Yes</text><path d="M170 461 L170 493" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><path d="M330 511.5 L374 511.5 L374 201 L332 201" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><text x="338" y="505.5" fill="var(--muted)" font-size="12">No</text><path d="M170 528 L170 560" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path><text x="176" y="543" fill="var(--muted)" font-size="12">Yes</text><path d="M330 587 L392 587 L392 201 L332 201" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr11)"></path></g></svg>
+<p><code>Test(in Body, in Body)</code> の中身は形の組み合わせ表そのもの。<strong>3種類で6通り</strong>になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>a \ b</th><th>Circle</th><th>Box</th><th>RotatedBox</th></tr></thead>
+<tbody>
+<tr><td><strong>Circle</strong></td><td><code>Test(Circle, Circle)</code></td><td><code>Test(Circle, Aabb)</code></td><td><code>Test(Circle, Obb)</code></td></tr>
+<tr><td><strong>Box</strong></td><td>上を<strong>符号反転</strong></td><td><code>Test(Aabb, Aabb)</code></td><td>OBB 同士へ寄せる</td></tr>
+<tr><td><strong>RotatedBox</strong></td><td>上を<strong>符号反転</strong></td><td>OBB 同士へ寄せる</td><td><code>Test(Obb, Obb)</code> SAT</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>専用の速い経路</strong>(AABB 同士、円同士)と<strong>一般形</strong>(OBB 同士の SAT)を併存させ、組み合わせの穴は一般形で埋める。<code>F9</code> の自己チェックで<strong>両者の答えが一致すること</strong>を確認している</li><li>引数の順が逆になる組(<code>Test(Box, Circle)</code>)は<strong>法線の符号を反転</strong>して返す。ここを間違えると物体がめり込む方向へ押される(要点6)</li><li>種類を1つ足すと表が1行1列増える。3D で球・箱・カプセル・平面・地形と並べると 15 通りになり、<strong>その表を埋めることが物理エンジンを書くこと</strong>になる(Phase 7)</li></ul>
+</section>
+<section class="part"><h2 id="s29">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day25 -c Release</code></pre></div>
+<h3 id="s30"><code>F6</code>: 衝突デモ</h3>
+<p><strong>見やすくするなら先に <code>G</code>(3D背景オフ)と <code>PageDown</code> 連打(スプライト 0)</strong>。コンソールにもその案内が出る。</p>
+<ul><li>水色 … 誰にも当たっていない</li><li>赤 … 誰かに当たっている</li><li>円は円の絵、矩形は枠の見える四角</li></ul>
+<p>120 体だと 5〜6 割くらいが赤くなる。</p>
+<h3 id="s31"><code>F8</code>: 押し戻しを切る</h3>
+<p>四角が<strong>重なったまま</strong>すり抜けていくのが見える。枠があるので、どれだけめり込んでいるかが分かる。戻すと、押し合ってじわじわ離れる。</p>
+<h3 id="s32"><code>F7</code>: 形を回してみる</h3>
+<p>回転矩形だけにすると、<strong>角が刺さったときだけ</strong>赤くなるのが分かる。円だけにすると判定が軽くなり、<code>判定:</code> の数字が下がる(要点1)。</p>
+<h3 id="s33"><code>Shift</code> + <code>PageUp</code>: 壁にぶつかる</h3>
+<p>500 → 1000 → 1500 → 2000 と増やして、タイトルバーの <code>判定:</code> を見る。</p>
+<div class="code"><pre><code>衝突:500体  組:124,750    判定:2.98ms
+衝突:1000体 組:499,500    判定:12.01ms
+衝突:2000体 組:1,999,000  判定:47.30ms</code></pre></div>
+<p><strong>体数が2倍で判定が約4倍</strong>。fps がはっきり落ちるところまで上げてみること。これが Day 26 でグリッドを作る動機になる。</p>
+<h3 id="s34"><code>F9</code>: 自己チェックと計測</h3>
+<p>19 項目すべて <code>OK</code> になり、続けて形ごとのコストが出る。</p>
+<div class="code"><pre><code>[OK] AABB: 浅い軸で押す(X)  深さ 4 法線 &lt;1, 0&gt;
+[OK] OBB: 45度の角が刺さっているのを検出  深さ 1.142
+[OK] OBB(回転0) と AABB の答えが一致  SAT 深さ 4 法線 &lt;1, 0&gt;
+[OK] 円同士: 中心が重なっても NaN にならない  &lt;1, 0&gt; 20
+[OK] 押し戻すと重なりが消える
+  すべて合格</code></pre></div>
+<p><code>OBB(回転0) と AABB の答えが一致</code> は、<strong>専用の速い経路と一般形が食い違っていない</strong>ことの確認。最適化した経路を足したら、必ず一般形と突き合わせておく。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F6</code></td><td>「衝突デモ」(開いた時点で動いている)</td><td>120 体の混在で、平均して 5〜6 割の体が赤い。初期配置は reference と同じ</td></tr>
+<tr><td><code>F7</code></td><td>同じ実験台の「形」</td><td>回転矩形だけにすると角が刺さったときだけ赤くなる。円だけにすると「判定」の ms が下がる</td></tr>
+<tr><td><code>F8</code></td><td>同じ実験台の「押し戻し」</td><td>OFF で四角が重なったまま抜けていく。ON に戻すと押し合ってじわじわ離れる</td></tr>
+<tr><td><code>PageUp</code> / <code>PageDown</code>(<code>Shift</code> で ±500)</td><td>同じ実験台の「体数」と「総当たりの伸び方を測る」</td><td>組は n(n−1)/2。体数が2倍で時間が約4倍、1組あたりはほぼ一定</td></tr>
+<tr><td><code>F9</code></td><td>「衝突デモ」の「F9 自己チェックと計測」</td><td>19 項目がすべて OK。計測の「当たり %」は C# と同じ(59 / 50 / 59 / 50 / 61 / 61 / 66%)</td></tr>
+<tr><td>(キーなし)</td><td>「2つの形を重ねてみる」</td><td>reference に無い見せ方。軸ごとの投影、打ち切り、法線、押し戻した後の影。自己チェックの配置は C# と同じ値になる</td></tr>
+<tr><td><code>G</code>・スプライト・3D 背景・ほかの Day のキー</td><td>(なし)</td><td>このページは当たり判定だけを再現する</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day25 の Physics/Shapes2D.cs・Physics/Collision2D.cs と、Program.cs の衝突デモ(Body・InitializeBodies・PickShape・UpdateBodies・Test(in Body, in Body)・BoundsExtent・RenderBodies の色・SetBodyCount)、RunCollisionCheck、BenchmarkCollision の配置を JS(docs/site/collision2d.js)に移したもの。System.Random(種あり)の並びも移してあり、reference のコードを直接回した C# の小さなプログラムと、自己チェックの 19 行(法線の &lt;-1, -0&gt; や &lt;4.371139E-08, -1&gt; まで)、計測の当たりの数、体数ごとの1ステップ目の接触の数が一致した。本文の記述で、reference の動きと合わないところが1つある。要点6のコードの「a を b から引き離す向き」(Collision2D.cs の Contact2D のコメントも同じ)は、実際の Normal とは逆向きの言い方になっている。Normal は a から b へ向かう向きで、押し戻しは a を −Normal、b を +Normal へ動かす(UpdateBodies と RunCollisionCheck の「押し戻すと重なりが消える」もこの向きで動かしている)。fps と ns の数字は手元の RTX 3070 環境の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s35">改造課題</h2>
+<h3 id="s36">課題1(易): AABB の接触計算を速くする</h3>
+<p>要点1の表で、<strong>AABB の接触計算(44.0ns)が円(20.0ns)より高い</strong>のは妙に見える。原因は <code>Aabb2D</code> が <code>Min</code> / <code>Max</code> で持っていて、<code>Center</code> と <code>HalfSize</code> を<strong>呼ばれるたびに計算し直している</strong>こと(それと <code>MathF.CopySign</code>)。</p>
+<p>中心と半径ベクトルで持つ <code>Aabb2D</code> を別に書いて、<code>F9</code> で測り比べてみる。どちらが速いかだけでなく、<strong><code>Min</code> / <code>Max</code> のほうが書きやすい場面</strong> (2つを包む箱を作る、点が入っているか調べる)もあることに気づけるとよい。</p>
+<p><strong>表現の選び方でコストが変わる</strong>のは、Day 23 で ECS を書いたときと同じ話。</p>
+<h3 id="s37">課題2(中): 外接 AABB で足切りする</h3>
+<p>OBB 同士の判定(120.8ns)の前に、外接 AABB(<code>Obb2D.Bounds</code>)で弾く。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (!Collision2D.Overlap(a.Bounds, b.Bounds)) { return Contact2D.None; }</code></pre></div>
+<p><code>F7</code> で回転矩形だけにして、<code>判定:</code> がどう変わるかを測る。</p>
+<p>考えどころは<strong>いつ速くなり、いつ遅くなるか</strong>。外れている組が多いほど得をし、当たっている組が多いほど損をする(足切りを通ってから本判定もやることになるため)。体数を変えながら測ると、損得が入れ替わる密度がある。</p>
+<h3 id="s38">課題3(難): 連続衝突判定(すり抜けの解消)</h3>
+<p><code>Shift</code> + <code>PageUp</code> で体を減らし、代わりに速度を 10 倍にすると、<strong>細い箱を弾がすり抜ける</strong>ようになる。1ステップで動く距離が相手の厚みを超えると、「動く前」も「動いた後」も当たっていない状態になるため。</p>
+<p>対策は2段階ある。</p>
+<ol><li><strong>掃過ボリューム(swept volume)で足切り</strong> — 移動前と移動後を包む AABB を作り、それが重なる組だけ詳しく調べる</li><li><strong>円と円の連続判定</strong> — 相対速度を使って「いつ当たるか」を2次方程式で解く。<code>t</code> が 0〜1 に入れば、そのステップの途中で当たっている</li></ol>
+<p>1 だけでも「すり抜けたことに気づける」ようになる。2 まで書くと、当たった瞬間まで戻して処理できる。</p>
+<p><strong>なぜ多くのゲームがここを妥協するのか</strong>(弾を大きめの円にする、壁を厚くする、ステップを細かくする)も考えてみてほしい。</p>
+</section>
+<section class="part"><h2 id="s39">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>960x640、VSync オフ、<code>-c Release</code>、シミュレーション 60Hz</li></ul>
+<h3 id="s40">判定 1 回あたりのコスト(200 万回の平均、当たり 5〜7 割の配置)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>判定</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td>AABB(当たったかだけ)</td><td>7.4ns</td></tr>
+<tr><td>円と円(当たったかだけ)</td><td>10.6ns</td></tr>
+<tr><td>円と円</td><td>20.0ns</td></tr>
+<tr><td>円と AABB</td><td>29.7ns</td></tr>
+<tr><td>AABB と AABB</td><td>44.0ns</td></tr>
+<tr><td>円と OBB</td><td>73.9ns</td></tr>
+<tr><td>OBB と OBB</td><td>120.8ns</td></tr>
+</tbody>
+</table></div>
+<h3 id="s41">総当たりの伸び方</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>組</th><th>1ステップ</th><th>1組あたり</th><th>接触した組</th></tr></thead>
+<tbody>
+<tr><td>120</td><td>7,140</td><td>0.173ms</td><td>24.2ns</td><td>52</td></tr>
+<tr><td>250</td><td>31,125</td><td>0.750ms</td><td>24.1ns</td><td>212</td></tr>
+<tr><td>500</td><td>124,750</td><td>2.976ms</td><td>23.9ns</td><td>792</td></tr>
+<tr><td>1,000</td><td>499,500</td><td>12.009ms</td><td>24.0ns</td><td>2,855</td></tr>
+<tr><td>2,000</td><td>1,999,000</td><td>47.298ms</td><td>23.7ns</td><td>11,236</td></tr>
+</tbody>
+</table></div>
+<p>移動と壁の跳ね返りを含めた「1ステップの当たり判定処理」全体の時間。形は混在(円・矩形・回転矩形が 1/3 ずつ)。</p>
+<p>2,000 体でも<strong>実際に接触しているのは 0.6%</strong> で、残りは無駄に調べている。</p>
+<h3 id="s42">自己チェック(19 項目すべて合格)</h3>
+<div class="code"><pre><code>[OK] 円同士: ちょうど接するのは当たり扱い
+[OK] 円同士: 中心が重なっても NaN にならない  &lt;1, 0&gt; 20
+[OK] AABB: 浅い軸で押す(X)  深さ 4 法線 &lt;1, 0&gt;
+[OK] 円とAABB: 円が中にあっても向きが決まる  &lt;-1, 0&gt; 深さ 11
+[OK] OBB: 45度の角が刺さっているのを検出  深さ 1.142
+[OK] OBB(回転0) と AABB の答えが一致  SAT 深さ 4 法線 &lt;1, 0&gt;
+[OK] 押し戻すと重なりが消える</code></pre></div>
+<h3 id="s43">検証の途中で分かったこと</h3>
+<ul><li><strong>AABB の接触計算は円より高い</strong>(44.0ns 対 20.0ns)。「AABB がいちばん安い」は判定だけの話(7.4ns)で、法線と深さまで求めると逆転する。原因は <code>Min</code>/<code>Max</code> 表現から毎回 <code>Center</code>/<code>HalfSize</code> を計算し直していることと<code>MathF.CopySign</code>。<strong>表現の選び方が効く</strong>(課題1)</li><li><strong>1組あたりのコストは体数によらず 24ns で一定</strong>だった。最初の測定では 120 体だけ 58ns と出て「小さいほうが遅い」ように見えたが、これは<strong>.NET の段階的 JIT</strong>で、最初に測った構成だけ最適化前のコードで走っていたため。全構成をあらかじめ回してから測り直したら一定になった。ベンチマークは<strong>測る対象を全部温めてから</strong>始めること</li><li>当たり判定のテストは<strong>期待値のほうを間違えやすい</strong>。最初に書いた「円と AABB」の確認は、円を x=24 に置いていてそもそも届いていなかった(箱の右辺は x=10、円の左端は 18)。実装ではなくテストが間違っていた。<strong>手で図を描いて数えたほうが速い</strong></li></ul>
+</section>
+<footer class="end">Day 25 2D衝突判定(AABB→円→回転矩形のSAT) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/collision2d.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, arrow, animate, reduceMotion } = Lab;
+const C = Col2D, f = Math.fround;
+const RED = 'rgba(255,77,71,0.95)', CYAN = 'rgba(115,217,255,0.85)';
+const SHAPE_NAME = ['円', '矩形', '回転矩形'];
+
+// 1体を描く(RenderBodies と同じ色。箱は枠の見える半透明)
+function drawBody(ctx, P, s, b, color, ghost) {
+  ctx.save();
+  ctx.globalAlpha = ghost ? 0.35 : 1;
+  const [x, y] = P(b.pos);
+  if (b.shape === C.CIRCLE) {
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, b.half[0] * s, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.translate(x, y); ctx.rotate(b.shape === C.ROTATED ? b.rot : 0);
+    const w = b.half[0] * s, h = b.half[1] * s;
+    ctx.fillStyle = color.replace(/[\d.]+\)$/, '0.45)'); ctx.fillRect(-w, -h, 2 * w, 2 * h);
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, s * 1.2); ctx.strokeRect(-w, -h, 2 * w, 2 * h);
+  }
+  ctx.restore();
+}
+
+// ------------------------------------------------------------
+// 1. 2つの形を重ねてみる
+// ------------------------------------------------------------
+const sat = {
+  a: { pos: [f(0), f(0)], half: [f(14), f(9)], rot: 0, shape: C.ROTATED, contacts: 0 },
+  b: { pos: [f(24), f(6)], half: [f(12), f(8)], rot: 0, shape: C.ROTATED, contacts: 0 },
+  view: null, drag: null,
+};
+function satSetRot() {
+  sat.a.rot = f(f(Number($('sat-ra').value)) * f(C.PI / f(180)));
+  sat.b.rot = f(f(Number($('sat-rb').value)) * f(C.PI / f(180)));
+  $('sat-ra-o').textContent = `${$('sat-ra').value} 度`; $('sat-rb-o').textContent = `${$('sat-rb').value} 度`;
+}
+// どの経路を通るか(Program.Test(in Body, in Body) の switch と同じ)
+function route(a, b) {
+  const k = a.shape * 3 + b.shape, CI = C.CIRCLE, BX = C.BOX, RO = C.ROTATED;
+  if (k === CI * 3 + CI) return { kind: 'cc', label: 'Test(Circle2D, Circle2D)' };
+  if (k === BX * 3 + BX) return { kind: 'aa', label: 'Test(Aabb2D, Aabb2D)' };
+  if (k === CI * 3 + BX) return { kind: 'ca', label: 'Test(Circle2D, Aabb2D)' };
+  if (k === BX * 3 + CI) return { kind: 'ca', flip: true, label: 'Test(Circle2D, Aabb2D) を引数を入れ替えて呼び、符号を反転' };
+  if (k === CI * 3 + RO) return { kind: 'co', label: 'Test(Circle2D, Obb2D)' };
+  if (k === RO * 3 + CI) return { kind: 'co', flip: true, label: 'Test(Circle2D, Obb2D) を引数を入れ替えて呼び、符号を反転' };
+  return { kind: 'oo', label: a.shape === RO && b.shape === RO ? 'Test(Obb2D, Obb2D) — SAT' : 'Test(Obb2D, Obb2D) — 回らない矩形は回転 0 の OBB として SAT へ寄せる' };
+}
+function satDraw() {
+  const { a, b } = sat, r = route(a, b), c = C.testBodies(a, b);
+  const { ctx, w, h } = fit($('sat-canvas'));
+  const s = Math.min(w / 110, h / 64), ox = w / 2 - 12 * s, oy = h / 2;
+  const P = (p) => [ox + p[0] * s, oy + p[1] * s];
+  sat.view = { s, ox, oy };
+  // 目盛り(10 刻み)
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 0.5;
+  for (let x = -60; x <= 80; x += 10) { const [px] = P([x, 0]); ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke(); }
+  for (let y = -40; y <= 40; y += 10) { const [, py] = P([0, y]); ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke(); }
+  const col = c.hit ? RED : CYAN;
+  if (c.hit && segValue('sat-push') === '1') {
+    const hd = f(c.depth * 0.5), push = [f(c.normal[0] * hd), f(c.normal[1] * hd)];
+    drawBody(ctx, P, s, { ...a, pos: [f(a.pos[0] - push[0]), f(a.pos[1] - push[1])] }, CYAN, true);
+    drawBody(ctx, P, s, { ...b, pos: [f(b.pos[0] + push[0]), f(b.pos[1] + push[1])] }, CYAN, true);
+  }
+  drawBody(ctx, P, s, a, col); drawBody(ctx, P, s, b, col);
+  ctx.font = '13px sans-serif'; ctx.fillStyle = tok('--ink');
+  ctx.fillText('A', ...P([a.pos[0] - 2, a.pos[1] + 2])); ctx.fillText('B', ...P([b.pos[0] - 2, b.pos[1] + 2]));
+  // 円と箱は最近点を出す
+  if (r.kind === 'ca' || r.kind === 'co') {
+    const cir = r.flip ? b : a, box = r.flip ? a : b;
+    let cp;
+    if (r.kind === 'ca') cp = C.closestPoint(C.toAabb(box), cir.pos);
+    else { const o = C.toObb(box), l = C.toLocal(o, cir.pos), lc = [Math.min(Math.max(l[0], -o.half[0]), o.half[0]), Math.min(Math.max(l[1], -o.half[1]), o.half[1])]; cp = [o.center[0] + o.axisX[0] * lc[0] + o.axisY[0] * lc[1], o.center[1] + o.axisX[1] * lc[0] + o.axisY[1] * lc[1]]; }
+    const [px, py] = P(cp), [qx, qy] = P(cir.pos);
+    ctx.strokeStyle = tok('--muted'); ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(qx, qy); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#ffbe3c'; ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = tok('--muted'); ctx.fillText('最近点', px + 6, py - 6);
+  }
+  if (c.hit) {
+    const [x0, y0] = P(a.pos), len = Math.max(c.depth * s, 14);
+    arrow(ctx, x0, y0, x0 + c.normal[0] * len * 1.0 + c.normal[0] * 18, y0 + c.normal[1] * len + c.normal[1] * 18, '#ffbe3c', 2.5);
+  }
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px sans-serif';
+  const cap = ['B をドラッグで動かせる。', '黄色の矢印 = 法線(A から B へ)。薄い影 = 半分ずつ押し戻した後'];
+  if (ctx.measureText(cap.join('')).width < w - 16) ctx.fillText(cap.join(''), 8, h - 8);
+  else { ctx.fillText(cap[0], 8, h - 24); ctx.fillText(cap[1], 8, h - 8); }
+  satAxesDraw(r, c);
+  satStats(r, c);
+}
+function satAxesDraw(r, c) {
+  const { ctx, w, h } = fit($('sat-axes'));
+  const { a, b } = sat;
+  let rows = [], note = '';
+  if (r.kind === 'oo') {
+    const ax = C.satAxes(C.toObb(a), C.toObb(b));
+    let stopped = false, best = Infinity, bi = -1;
+    rows = ax.map((x, i) => {
+      const row = { ...x, tried: !stopped };
+      if (!stopped && x.overlap <= 0) { row.sep1 = true; stopped = true; } else if (!stopped && x.overlap < best) { best = x.overlap; bi = i; }
+      return row;
+    });
+    if (!stopped && bi >= 0) rows[bi].best = true;
+  } else if (r.kind === 'aa') {
+    const A = C.toAabb(a), Bb = C.toAabb(b), ca = C.center(A), cb = C.center(Bb), ha = C.halfSize(A), hb = C.halfSize(Bb);
+    rows = [0, 1].map((k) => { const sep = f(cb[k] - ca[k]); return { name: k ? 'Y 軸' : 'X 軸', ra: ha[k], rb: hb[k], sep, overlap: f(f(ha[k] + hb[k]) - Math.abs(sep)), tried: true }; });
+    if (rows.every((x) => x.overlap > 0)) rows[rows[0].overlap < rows[1].overlap ? 0 : 1].best = true;
+  } else if (r.kind === 'cc') {
+    const d = [b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]], dist = Math.hypot(...d);
+    rows = [{ name: '中心を結ぶ向き', ra: a.half[0], rb: b.half[0], sep: dist, overlap: a.half[0] + b.half[0] - dist, tried: true }];
+    if (rows[0].overlap >= 0) rows[0].best = true;
+  } else {
+    note = '円と箱は軸を並べない。最近点(各軸を箱の範囲へ押し込んだ点)と円の中心の距離を半径と比べる。OBB は箱の座標系へ持ち込んでから AABB と同じことをする';
+  }
+  const rowH = 34, left = 120, right = w - 120;
+  if (!rows.length) { ctx.fillStyle = tok('--muted'); ctx.font = '13px sans-serif'; wrapText(ctx, note, 10, 22, w - 20, 18); return; }
+  const span = Math.max(...rows.map((x) => Math.max(x.ra, Math.abs(x.sep) + x.rb))) * 1.1, sc = (right - left) / (2 * span), mid = (left + right) / 2;
+  rows.forEach((x, i) => {
+    const y = 12 + i * rowH;
+    ctx.globalAlpha = x.tried ? 1 : 0.35;
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px sans-serif'; ctx.fillText(x.name, 6, y + 13);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(left, y + 9); ctx.lineTo(right, y + 9); ctx.stroke();
+    const A0 = mid - x.ra * sc, A1 = mid + x.ra * sc, B0 = mid + (x.sep - x.rb) * sc, B1 = mid + (x.sep + x.rb) * sc;
+    ctx.fillStyle = 'rgba(115,217,255,0.55)'; ctx.fillRect(A0, y + 2, A1 - A0, 6);
+    ctx.fillStyle = 'rgba(255,190,60,0.55)'; ctx.fillRect(B0, y + 10, B1 - B0, 6);
+    const o0 = Math.max(A0, B0), o1 = Math.min(A1, B1);
+    if (o1 > o0) { ctx.fillStyle = x.best ? RED : 'rgba(200,80,80,0.5)'; ctx.fillRect(o0, y + 18, o1 - o0, 4); }
+    ctx.fillStyle = x.sep1 ? RED : tok('--muted'); ctx.font = '12px sans-serif';
+    const t = !x.tried ? '(試さない)' : x.sep1 ? '分離 → 打ち切り' : x.overlap > 0 || (r.kind === 'cc' && x.overlap >= 0) ? `重なり ${x.overlap.toFixed(2)}${x.best ? ' ← 最小' : ''}` : `離れている ${(-x.overlap).toFixed(2)}`;
+    ctx.fillText(t, right + 8, y + 13);
+  });
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = tok('--muted'); ctx.fillText('水色 = A の区間 / 橙 = B の区間 / 赤 = 重なり', left, h - 6);
+}
+function wrapText(ctx, text, x, y, maxW, lh) {
+  let line = '';
+  for (const ch of text) { if (ctx.measureText(line + ch).width > maxW) { ctx.fillText(line, x, y); line = ''; y += lh; } line += ch; }
+  ctx.fillText(line, x, y);
+}
+function satStats(r, c) {
+  $('sat-stats').innerHTML = stat('経路', `<small>${r.label}</small>`) + stat('当たり', c.hit ? 'Hit' : 'None') +
+    stat('法線(a → b)', c.hit ? C.fmtVec(c.normal) : '—') + stat('深さ', c.hit ? C.fmtFloat(c.depth) : '—') + stat('深さ(F3)', c.hit ? c.depth.toFixed(3) : '—');
+  const notes = {
+    oo: '軸は A の X・Y、B の X・Y の順に試す。1本でも区間が離れたら、残りは試さずに当たっていない(離れている組ほど速い)。全部重なったら、重なりが最小の軸が法線になる(符号は A から B へ向く側にそろえる)',
+    aa: 'X と Y の重なりを両方出し、浅いほうの軸で押す。深い軸へ押すと反対側へ突き抜ける',
+    cc: '当たったかは二乗のまま比べ、当たったときだけ sqrt を取る。中心が完全に重なると向きが決まらないので <1, 0> を決め打ちで返す',
+    ca: '最近点は各軸を箱の範囲へ押し込むだけ。円の中心が箱の中に入ると最近点が中心そのものになるので、AABB 同士と同じ「浅い面へ逃がす」に切り替える',
+    co: '円の中心を箱の座標系へ移し(ToLocal)、円 vs AABB に落としてから、法線だけワールドへ戻す',
+  };
+  $('sat-note').textContent = notes[r.kind] + (r.flip ? '。引数の順が逆なので、法線の符号を反転して返す(要点6)' : '');
+}
+const PRESETS = {
+  obb45: [[C.ROTATED, [0, 0], [10, 10], 0], [C.ROTATED, [23, 0], [10, 10], 45]],
+  aabb: [[C.BOX, [0, 0], [10, 10], 0], [C.BOX, [16, 4], [10, 10], 0]],
+  obb0: [[C.ROTATED, [0, 0], [10, 10], 0], [C.ROTATED, [16, 4], [10, 10], 0]],
+  inside: [[C.CIRCLE, [2, 0], [3, 3], 0], [C.BOX, [0, 0], [10, 10], 0]],
+  same: [[C.CIRCLE, [0, 0], [10, 10], 0], [C.CIRCLE, [0, 0], [10, 10], 0]],
+  cobb: [[C.CIRCLE, [0, 12], [3, 3], 0], [C.ROTATED, [0, 0], [10, 4], 90]],
+};
+function satPreset(name) {
+  const [pa, pb] = PRESETS[name];
+  for (const [body, p, id] of [[sat.a, pa, 'a'], [sat.b, pb, 'b']]) {
+    body.shape = p[0]; body.pos = [f(p[1][0]), f(p[1][1])]; body.half = [f(p[2][0]), f(p[2][1])];
+    setSeg('sat-s' + id, p[0]); $('sat-r' + id).value = p[3];
+  }
+  satSetRot();
+  // 45 度と 90 度は C# と同じく MathF.PI / 4・MathF.PI / 2 で作る
+  if (name === 'obb45') sat.b.rot = f(C.PI / 4);
+  if (name === 'cobb') sat.b.rot = f(C.PI / 2);
+  satDraw();
+}
+function satShape(id, v) {
+  const body = sat[id], k = Number(v);
+  body.shape = k;
+  if (k === C.CIRCLE) body.half = [body.half[0], body.half[0]];
+  else if (body.half[0] === body.half[1]) body.half = [body.half[0], f(body.half[0] * 0.65)];
+  satDraw();
+}
+seg('sat-sa', (v) => satShape('a', v)); seg('sat-sb', (v) => satShape('b', v)); seg('sat-push', satDraw);
+for (const id of ['sat-ra', 'sat-rb']) $(id).addEventListener('input', () => { satSetRot(); satDraw(); });
+document.querySelectorAll('#sat-lab [data-preset]').forEach((btn) => btn.addEventListener('click', () => satPreset(btn.dataset.preset)));
+{
+  const cv = $('sat-canvas');
+  const toWorld = (ev) => { const r = cv.getBoundingClientRect(), v = sat.view; return [(ev.clientX - r.left - v.ox) / v.s, (ev.clientY - r.top - v.oy) / v.s]; };
+  cv.addEventListener('pointerdown', (ev) => { const p = toWorld(ev); sat.drag = [p[0] - sat.b.pos[0], p[1] - sat.b.pos[1]]; cv.setPointerCapture(ev.pointerId); });
+  cv.addEventListener('pointermove', (ev) => { if (!sat.drag) return; const p = toWorld(ev); sat.b.pos = [f(Math.round((p[0] - sat.drag[0]) * 2) / 2), f(Math.round((p[1] - sat.drag[1]) * 2) / 2)]; satDraw(); });
+  const up = () => { sat.drag = null; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+}
+satSetRot();
+
+// ------------------------------------------------------------
+// 2. 総当たりの伸び方を測る
+// ------------------------------------------------------------
+const N2_COUNTS = [120, 250, 500, 1000, 2000];
+let n2rows = [];
+function n2Table() {
+  const fmt = (n) => n.toLocaleString('en-US');
+  const body = N2_COUNTS.map((n) => {
+    const r = n2rows.find((x) => x.n === n);
+    return `<tr><td>${fmt(n)}</td><td>${fmt(n * (n - 1) / 2)}</td><td>${r ? r.ms.toFixed(3) + 'ms' : '—'}</td><td>${r ? r.ns.toFixed(1) + 'ns' : '—'}</td><td>${r ? fmt(r.contacts) : '—'}</td></tr>`;
+  }).join('');
+  $('n2-table').innerHTML = `<table><thead><tr><th>体数</th><th>組</th><th>1ステップ(このページ)</th><th>1組あたり(このページ)</th><th>1ステップ目の接触</th></tr></thead><tbody>${body}</tbody></table>`;
+  const { ctx, w, h } = fit($('n2-chart'));
+  const X = (n) => 50 + (n / 2000) * (w - 70), maxMs = Math.max(1, ...n2rows.map((r) => r.ms)), Y = (ms) => h - 24 - (ms / maxMs) * (h - 40);
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(50, 8); ctx.lineTo(50, h - 24); ctx.lineTo(w - 10, h - 24); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+  for (const n of N2_COUNTS) ctx.fillText(String(n), X(n) - 10, h - 8);
+  ctx.fillText(`${maxMs.toFixed(1)}ms`, 2, 14); ctx.fillText('0', 36, h - 24);
+  if (n2rows.length) {
+    // n² に比例する線(最後の点を通る)
+    const last = n2rows[n2rows.length - 1];
+    ctx.strokeStyle = tok('--muted'); ctx.setLineDash([4, 3]); ctx.beginPath();
+    for (let n = 0; n <= 2000; n += 20) { const ms = last.ms * (n * (n - 1)) / (last.n * (last.n - 1)); n ? ctx.lineTo(X(n), Y(ms)) : ctx.moveTo(X(n), Y(ms)); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = tok('--accent');
+    for (const r of n2rows) { ctx.beginPath(); ctx.arc(X(r.n), Y(r.ms), 4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = tok('--muted'); ctx.fillText('点 = 測った値 / 点線 = n(n−1)/2 に比例する線', 60, 20);
+  }
+}
+async function n2Run() {
+  $('n2-run').disabled = true; n2rows = []; n2Table();
+  // 先に全部の体数を1回ずつ回して温める(本文の「検証の途中で分かったこと」の段階的 JIT と同じ話)
+  for (const n of N2_COUNTS) { const b = C.initializeBodies(n, 0, 960, 640); C.updateBodies(b, n, 1 / 60, [960, 640], true); await new Promise((r) => setTimeout(r, 0)); }
+  for (const n of N2_COUNTS) {
+    const bodies = C.initializeBodies(n, 0, 960, 640);
+    const steps = 10;
+    let contacts = 0, t = 0;
+    for (let i = 0; i < steps; i++) {
+      const t0 = performance.now(); const st = C.updateBodies(bodies, n, 1 / 60, [960, 640], true); t += performance.now() - t0;
+      if (i === 0) contacts = st.contacts;
+    }
+    const ms = t / steps;
+    n2rows.push({ n, ms, ns: ms * 1e6 / (n * (n - 1) / 2), contacts });
+    n2Table();
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  const a = n2rows.find((r) => r.n === 1000), b = n2rows.find((r) => r.n === 2000);
+  $('n2-note').textContent = `1,000 体 → 2,000 体で ${(b.ms / a.ms).toFixed(1)} 倍(組は ${(1999000 / 499500).toFixed(2)} 倍)。1組あたりは ${Math.min(...n2rows.map((r) => r.ns)).toFixed(1)}〜${Math.max(...n2rows.map((r) => r.ns)).toFixed(1)}ns。`;
+  $('n2-run').disabled = false;
+}
+$('n2-run').addEventListener('click', n2Run);
+n2Table();
+
+// ------------------------------------------------------------
+// 3. 衝突デモ
+// ------------------------------------------------------------
+const cd = { n: 120, mix: 0, resolve: true, bodies: [], pairs: 0, contacts: 0, ms: 0, steps: 0, acc: 0, playing: !reduceMotion, log: [] };
+const MIX_LABEL = ['混在', '円', '矩形', '回転矩形'];
+const onOff = (b) => (b ? 'ON' : 'OFF');
+function cdLog(s) { cd.log.push(s); if (cd.log.length > 200) cd.log.splice(0, cd.log.length - 200); $('cd-console').textContent = cd.log.join('\n'); $('cd-console').scrollTop = 1e9; }
+function cdInit() { cd.bodies = C.initializeBodies(cd.n, cd.mix, 960, 640); cd.steps = 0; cd.pairs = cd.n * (cd.n - 1) / 2; cd.contacts = 0; }
+function cdStep() {
+  const t0 = performance.now();
+  const st = C.updateBodies(cd.bodies, cd.n, 1 / 60, [960, 640], cd.resolve);
+  cd.ms = cd.ms * 0.9 + (performance.now() - t0) * 0.1;
+  cd.pairs = st.pairs; cd.contacts = st.contacts; cd.steps++;
+}
+function cdDraw() {
+  const cv = $('cd-canvas');
+  cv.style.height = Math.round(cv.clientWidth * 640 / 960) + 'px';
+  const { ctx, w, h } = fit(cv), s = w / 960;
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, w, h);
+  const P = (p) => [p[0] * s, p[1] * s];
+  for (let i = 0; i < cd.n; i++) { const b = cd.bodies[i]; drawBody(ctx, P, s, b, b.contacts > 0 ? RED : CYAN); }
+  $('cd-title').textContent = `衝突:${cd.n}体 組:${cd.pairs.toLocaleString('en-US')} 接触:${cd.contacts} 判定:${cd.ms.toFixed(2)}ms 形:${MIX_LABEL[cd.mix]} 押戻:${onOff(cd.resolve)}`;
+  const red = cd.bodies.slice(0, cd.n).filter((b) => b.contacts > 0).length;
+  $('cd-stats').innerHTML = stat('ステップ', String(cd.steps), `<small> (${(cd.steps / 60).toFixed(1)} 秒)</small>`) + stat('組', cd.pairs.toLocaleString('en-US')) + stat('接触した組', String(cd.contacts)) +
+    stat('赤い体', `${red} / ${cd.n}`, `<small> (${cd.n ? Math.round(red * 100 / cd.n) : 0}%)</small>`) + stat('判定(このページ)', cd.ms.toFixed(2) + 'ms');
+}
+seg('cd-mix', (v) => { cd.mix = Number(v); cdInit(); cdLog(`形: ${MIX_LABEL[cd.mix]}`); cdDraw(); });
+seg('cd-res', (v) => { cd.resolve = v === '1'; cdLog(`押し戻し: ${onOff(cd.resolve)}`); cdDraw(); });
+seg('cd-play', (v) => { cd.playing = v === '1'; });
+document.querySelectorAll('#cd-lab [data-n]').forEach((btn) => btn.addEventListener('click', () => {
+  cd.n = Math.min(2000, Math.max(0, cd.n + Number(btn.dataset.n)));
+  cdInit(); cdLog(`[collision] ${cd.n} 体 / 組 ${(cd.n * (cd.n - 1) / 2).toLocaleString('en-US')}`); cdDraw();
+}));
+$('cd-step').addEventListener('click', () => { cd.playing = false; setSeg('cd-play', '0'); cdStep(); cdDraw(); });
+$('cd-f9').addEventListener('click', async () => {
+  const r = C.selfCheck();
+  cdLog(''); cdLog('[当たり判定の自己チェック]'); for (const l of r.lines) cdLog(l); cdLog('');
+  cdLog('### 判定 1 回あたりのコスト ###(ns はこのページの値)');
+  await new Promise((res) => setTimeout(res, 0));
+  // BenchmarkCollision と同じ配置(種 7、64 個、i と i+7 の組)
+  const rnd = new C.DotNetRandom(7), circles = [], boxes = [], obbs = [];
+  for (let i = 0; i < 64; i++) {
+    const c = [f(f(rnd.nextDouble()) * 40), f(f(rnd.nextDouble()) * 40)];
+    circles.push(C.circle(c, 12)); boxes.push(C.fromCenter(c, [f(12), f(9)])); obbs.push(C.obb(c, [f(12), f(9)], f(f(rnd.nextDouble()) * C.TAU)));
+  }
+  const n = 2000000;
+  const measure = async (name, test) => {
+    let warm = 0; for (let i = 0; i < 10000; i++) warm += test(i) ? 1 : 0;
+    const t0 = performance.now(); let hits = 0; for (let i = 0; i < n; i++) hits += test(i) ? 1 : 0;
+    const ns = (performance.now() - t0) * 1e6 / n;
+    cdLog(`  ${name}: ${ns.toFixed(1).padStart(5)}ns  (当たり ${Math.round(hits * 100 / n)}% / warm ${warm})`);
+    await new Promise((res) => setTimeout(res, 0));
+  };
+  await measure('円 と 円 (判定のみ)', (i) => C.overlapCircle(circles[i & 63], circles[(i + 7) & 63]));
+  await measure('AABB (判定のみ)   ', (i) => C.overlapAabb(boxes[i & 63], boxes[(i + 7) & 63]));
+  await measure('円 と 円      ', (i) => C.testCircle(circles[i & 63], circles[(i + 7) & 63]).hit);
+  await measure('AABB と AABB  ', (i) => C.testAabb(boxes[i & 63], boxes[(i + 7) & 63]).hit);
+  await measure('円 と AABB    ', (i) => C.testCircleAabb(circles[i & 63], boxes[(i + 7) & 63]).hit);
+  await measure('円 と OBB     ', (i) => C.testCircleObb(circles[i & 63], obbs[(i + 7) & 63]).hit);
+  await measure('OBB と OBB    ', (i) => C.testObb(obbs[i & 63], obbs[(i + 7) & 63]).hit);
+});
+cdInit();
+cdLog('衝突デモ: ON');
+animate($('cd-canvas'), (dt) => {
+  if (cd.playing) {
+    cd.acc += dt;
+    let k = 0;
+    while (cd.acc >= 1 / 60 && k < 4) { cdStep(); cd.acc -= 1 / 60; k++; }
+    if (k === 4) cd.acc = 0; // 追いつけないぶんは捨てる(重い体数で固まらないように)
+  }
+  cdDraw();
+});
+
+satPreset('obb45');
+satDraw();
+cdDraw();
+window.addEventListener('resize', () => { satDraw(); n2Table(); cdDraw(); });
+})();
+</script>
+</body>
+</html>
