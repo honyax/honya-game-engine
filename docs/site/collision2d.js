@@ -1,7 +1,7 @@
 // ============================================================
-//  2D の衝突判定(reference/Day25〜 の Physics/Shapes2D.cs・Collision2D.cs、Day 26 の SpatialGrid.cs と、
+//  2D の衝突判定(reference/Day25〜 の Physics/Shapes2D.cs・Collision2D.cs、Day 26 の SpatialGrid.cs(Day 29 の Query も)と、
 //  Program.cs の衝突デモ(Body・InitializeBodies・UpdateBodies・Test)を JS に移したもの)
-//  Day 25〜27 の計画書の実験台が共有する。window.Col2D にまとめて置く。
+//  Day 25〜30 の計画書の実験台が共有する。window.Col2D にまとめて置く。
 //
 //  - C# は float で計算しているので、1回の演算ごとに Math.fround で丸めて同じ値を出す
 //    (同じ種から作った体を何百ステップ回しても、接触の数が C# と一致する)
@@ -230,6 +230,29 @@ class SpatialGrid {
     return this.pairCount;
   }
   cellContents(column, row) { const c = row * this.columns + column; return this.cellStart[c + 1] - this.cellStart[c]; }
+  // Day 29 から: 1つの箱の近くにいるものを results に詰めて数を返す(候補まで。本判定は呼び出し側)。
+  // またがっているものは CollectPairs と同じ印で1回にする。results がいっぱいになったらそこで打ち切る
+  query(box, results) {
+    if (results.length === 0 || this.cellStart.length === 0) return 0;
+    if (this.mark.length < this.entries.length) { const m = new Int32Array(Math.max(this.entries.length * 2, 64)); m.set(this.mark); this.mark = m; }
+    const stamp = ++this.stamp, cs = this.cellStart, ent = this.entries, mark = this.mark, cols = this.columns;
+    let found = 0;
+    const [x0, y0, x1, y1] = this.cellRange(box);
+    for (let cy = y0; cy <= y1; cy++) {
+      const rb = cy * cols;
+      for (let cx = x0; cx <= x1; cx++) {
+        const cell = rb + cx, end = cs[cell + 1];
+        for (let e = cs[cell]; e < end; e++) {
+          const index = ent[e];
+          if (mark[index] === stamp) continue;
+          mark[index] = stamp;
+          results[found++] = index;
+          if (found === results.length) return found;
+        }
+      }
+    }
+    return found;
+  }
 }
 
 // ---------------- 衝突デモ(Program.cs) ----------------
