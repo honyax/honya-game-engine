@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 26 空間分割とブロードフェーズ(均一グリッド)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ブロードフェーズとナローフェーズ — 責任が非対称</a></li><li class="l3"><a href="#s5">2. 均一グリッド — 世界を格子に切って、同じマスの中だけ見る</a></li><li class="l3"><a href="#s6">3. 配列3本で作る — List のマス配列は使わない</a></li><li class="l3"><a href="#s7">4. マスの大きさが性能の全部を決める</a></li><li class="l3"><a href="#s8">5. O(n²) から O(n) へ。ただし「密度が一定なら」</a></li><li class="l3"><a href="#s9">6. 正しさは「総当たりと同じ答えか」で確かめる</a></li><li class="l3"><a href="#s10">7. なぜ均一グリッドなのか — 他の選択肢と比べる</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの追加</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">均一グリッドの中身 — 2つの関数しかない</a></li><li class="l2"><a href="#s18">完成条件</a></li><li class="l3"><a href="#s19"><code>F6</code> → <code>F10</code>: 同じ絵のまま速くなる</a></li><li class="l3"><a href="#s20"><code>F11</code>: 格子を見る</a></li><li class="l3"><a href="#s21"><code>-</code>: 密度を上げるとどうなるか</a></li><li class="l3"><a href="#s22"><code>F12</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s23">改造課題</a></li><li class="l3"><a href="#s24">課題1(易): <code>List&lt;int&gt;[]</code> で書いて、測り比べる</a></li><li class="l3"><a href="#s25">課題2(中): 隣のマスまで見る版に変えて、なぜ遅いかを説明する</a></li><li class="l3"><a href="#s26">課題3(難): Sweep and Prune を書いて、どちらが速いか測る</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li><li class="l3"><a href="#s28">体数を振る(形は混在、押し戻しあり)</a></li><li class="l3"><a href="#s29">マスの大きさを振る(4,000 体)</a></li><li class="l3"><a href="#s30">大きさを固定したまま増やす(密度が上がる)</a></li><li class="l3"><a href="#s31">デモを動かしたときの表示(グリッド、自動、形は混在)</a></li><li class="l3"><a href="#s32">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 5 / Day 26 / 計画書</p>
+  <h1>空間分割とブロードフェーズ(均一グリッド)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ブロードフェーズとナローフェーズ — 責任が非対称</a></li><li class="l3"><a href="#s5">2. 均一グリッド — 世界を格子に切って、同じマスの中だけ見る</a></li><li class="l3"><a href="#s6">3. 配列3本で作る — List のマス配列は使わない</a></li><li class="l3"><a href="#s7">4. マスの大きさが性能の全部を決める</a></li><li class="l3"><a href="#s8">5. O(n²) から O(n) へ。ただし「密度が一定なら」</a></li><li class="l3"><a href="#s9">6. 正しさは「総当たりと同じ答えか」で確かめる</a></li><li class="l3"><a href="#s10">7. なぜ均一グリッドなのか — 他の選択肢と比べる</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの追加</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">均一グリッドの中身 — 2つの関数しかない</a></li><li class="l2"><a href="#s18">完成条件</a></li><li class="l3"><a href="#s19"><code>F6</code> → <code>F10</code>: 同じ絵のまま速くなる</a></li><li class="l3"><a href="#s20"><code>F11</code>: 格子を見る</a></li><li class="l3"><a href="#s21"><code>-</code>: 密度を上げるとどうなるか</a></li><li class="l3"><a href="#s22"><code>F12</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s23">改造課題</a></li><li class="l3"><a href="#s24">課題1(易): <code>List&lt;int&gt;[]</code> で書いて、測り比べる</a></li><li class="l3"><a href="#s25">課題2(中): 隣のマスまで見る版に変えて、なぜ遅いかを説明する</a></li><li class="l3"><a href="#s26">課題3(難): Sweep and Prune を書いて、どちらが速いか測る</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li><li class="l3"><a href="#s28">体数を振る(形は混在、押し戻しあり)</a></li><li class="l3"><a href="#s29">マスの大きさを振る(4,000 体)</a></li><li class="l3"><a href="#s30">大きさを固定したまま増やす(密度が上がる)</a></li><li class="l3"><a href="#s31">デモを動かしたときの表示(グリッド、自動、形は混在)</a></li><li class="l3"><a href="#s32">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 5(ゲームが作れる状態に)の2日目。Day 25 で作った O(n²) の壁を壊す。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>F6</code> の衝突デモで <code>F10</code> を押すと、同じ絵のまま<strong>判定時間が 30 分の 1 になる</strong>。</p>
+<div class="code"><pre><code>総当たり  衝突:2000体 候補:1,999,000/1,999,000 判定:47.54ms
+グリッド  衝突:2000体 候補:12,560/1,999,000    判定:1.43ms</code></pre></div>
+<p>体数の上限も 2000 から <strong>20000</strong> に上げる。Day 25 で「60fps の予算 16.6ms を超えるのは 1,000〜2,000 体の間」と書いた壁が、そのまま <strong>20,000 体</strong>まで動く(そこで 15.8ms。壁が消えたのではなく、10 倍先へ移った)。</p>
+<p><code>F11</code> を押すと、判定を絞っている格子そのものが見える。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、実装に直結するものを挙げておく。</p>
+<ul><li><a href="https://gameprogrammingpatterns.com/spatial-partition.html">Spatial Partition</a> (『Game Programming Patterns』, Robert Nystrom。<a href="https://gpp.craftbeer.style/spatial-partition/">日本語版</a>) <strong>今日いちばん近い資料</strong>。均一グリッドの実装を1章まるごと使って説明していて、「なぜ O(n²) が問題なのか」から入る。無料で全文が読める</li><li><a href="https://www.toptal.com/game/video-game-physics-part-ii-collision-detection-for-solid-objects">Broadphase Collision Detection</a>ブロードフェーズとナローフェーズの分け方。今日の設計そのもの</li><li><a href="https://matthias-research.github.io/pages/publications/tetraedra.pdf">Optimized Spatial Hashing for Collision Detection of Deformable Objects</a> (Teschner et al., 2003)世界の広さを決めずに済ませる「空間ハッシュ」の原論文。3ページ目までで足りる。<strong>均一グリッドの弱点(世界が有限でないと困る)をどう外すか</strong>が分かる</li><li>『Real-Time Collision Detection』(Christer Ericson)7章空間分割の教科書。グリッド・階層グリッド・SAP・BVH が並べて比較されている。手元にあるなら 7.1(均一グリッド)と 7.5(SAP)を読むと、今日の選択の位置づけが分かる</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. ブロードフェーズとナローフェーズ — 責任が非対称</h3>
+<p>当たり判定を2段に分ける。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段</th><th>やること</th><th>出るもの</th><th>間違えたときの扱い</th></tr></thead>
+<tbody>
+<tr><td><strong>ブロードフェーズ</strong></td><td>調べる価値のある組を選ぶ</td><td>番号の組</td><td><strong>余分に出すのは可 / 取りこぼしは不可</strong></td></tr>
+<tr><td><strong>ナローフェーズ</strong></td><td>その組を本当に判定する</td><td>法線と深さ</td><td>どちらも不可</td></tr>
+</tbody>
+</table></div>
+<p>この非対称が全部を決めている。ブロードフェーズは<strong>「当たっているかもしれない組」を全部含んでいればよく、正確である必要はない</strong>。だから外接 AABB という雑な近似で足りるし、格子という雑な区切りで足りる。</p>
+<p>逆に、<strong>取りこぼしだけは絶対に許されない</strong>。1組落とすと、その2体はその瞬間すり抜ける。Day 25 のナローフェーズにバグがあれば「めり込んだまま止まる」と目に見えるが、ブロードフェーズのバグは<strong>何百体も飛び交う中の1組が1フレームだけ抜ける</strong>形で出る。気づくのは「たまに敵が壁を抜ける」という報告が来たとき。</p>
+<p>だから今日は<strong>確かめ方を先に決める</strong>(要点6)。</p>
+<h3 id="s5">2. 均一グリッド — 世界を格子に切って、同じマスの中だけ見る</h3>
+<p>いちばん単純な空間分割。世界を等間隔のマスに切り、それぞれの物体を<strong>自分が重なっているマス全部</strong>に登録する。判定するのは、同じマスに入っている組だけ。</p>
+<div class="code"><pre><code>   0    1    2    3
+ +----+----+----+----+
+0|    | A  | AB |  B |     A は 1,2 に登録
+ +----+----+----+----+     B は 2,3 に登録
+1|    | C  |    |    |     → 候補は (A,B) だけ。C は最初から候補外
+ +----+----+----+----+</code></pre></div>
+<p>実装で引っかかるところが2つある。</p>
+<p><strong>(a) 中心のマスだけに入れてはいけない</strong>「物体の中心があるマス」だけに登録して、周囲 3×3 を調べる作りも見かける。これは<strong>物体がマスより小さいときにしか正しくない</strong>。大きい物体が来た瞬間に取りこぼす。外接 AABB が重なるマス全部に入れるほうが、大きさに関係なく正しい。</p>
+<p><strong>(b) またがるぶん、同じ組が何度も見つかる</strong> A と B が2つのマスを共有していたら、同じ組が2回出てくる。重複を消す手が2つ要る。</p>
+<ol><li><strong><code>j &gt; i</code> のときだけ組にする</strong> — (i,j) と (j,i) の2回を1回にする</li><li><strong>「印」を付ける</strong> — i を調べている間に見つけた j に通し番号を書き込み、同じ通し番号ならもう見つけた相手として飛ばす</li></ol>
+<p>1 だけでは 2 のケースが消えない(どちらも <code>j &gt; i</code> を満たすため)。ここは実際に踏む。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>int stamp = ++_stamp;              // i ごとに新しい番号
+...
+if (_mark[j] == stamp) { continue; }  // この i では既に見つけた相手
+_mark[j] = stamp;</code></pre></div>
+<p><strong>毎回配列をクリアしないで済ませる</strong>ために通し番号を増やしていくのがコツ。<code>HashSet</code> を使うより2桁速い。グラフ探索の visited でも同じ手を使う。</p>
+<h3 id="s6">3. 配列3本で作る — List のマス配列は使わない</h3>
+<p>素直に書くと <code>List&lt;int&gt;[] _cells</code> になるが、これは毎フレーム作り直すには重い。マスの数だけ <code>List</code> があり、それぞれが内部で配列を持ち、追加のたびに容量を見る。<strong>代わりに、カウンティングソートで1本の配列に並べ替える</strong>。</p>
+<div class="code"><pre><code>1. 数える     : 各マスに何個入るかを数える           → [0,2,0,3,1,...]
+2. 接頭辞和   : 数を「開始位置」に変える             → [0,0,2,2,5,6,...]
+3. 詰める     : もう一度なめて、所定の位置へ書き込む → [A,B, C,D,E, F,...]</code></pre></div>
+<p>できあがるのは</p>
+<ul><li><code>_entries</code> … マス順に並んだ体の番号(1本の <code>int[]</code>)</li><li><code>_cellStart</code> … 各マスの開始位置(<code>_cellStart[c]</code> 〜 <code>_cellStart[c+1]</code> がマス c の中身)</li></ul>
+<p>の2本だけ。<strong>割り当てはゼロ</strong>(配列は使い回す)で、走査は連続したメモリになる。</p>
+<p><code>_cellStart</code> の長さを「マス数 + 1」にして末尾に番兵を置くと、最後のマスを特別扱いせずに済む。この形は ECS のストア(Day 23)やスパース行列(CSR 形式)と同じで、<strong>可変長のリストを2本の配列で表す</strong>定番の型。</p>
+<div class="inject"><figure class="lab" id="gi-lab">
+  <div class="lab-head">
+    <h3>格子の中身を見る — 3パスで詰めて、重複を消す(要点2・3、自己チェックの小さな例)</h3>
+    <span class="tag">reference の Physics/SpatialGrid.cs(Configure・Build の3パス・CollectPairs・CellRange のクランプ)を JS に移して、Program.RunBroadphaseCheck の「小さな例」の 8 個の箱(番号も同じ)を 960x640 の世界に置いたもの。マス 32px のとき、候補・同居・登録の数は C# と同じになる(3 組 (0,1)(2,3)(4,5)、同居 8 組、登録 89)。箱はドラッグで動かせる。点線の枠が世界(0〜960、0〜640)で、その外の 4・5 は端のマスへ丸めて登録される。マスの色は RenderCells と同じ式(4 個で赤に振り切る)。「重複の消し方」の reference 以外と、箱を動かした配置はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="gi-canvas" style="height:360px;touch-action:none" aria-label="世界を格子に切り、8個の箱がどのマスに登録されるかを色で示した図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">マスの大きさ</span>
+      <div class="seg" id="gi-cell"><button data-v="16" aria-pressed="false">16px</button><button data-v="32" aria-pressed="true">32px(自己チェック)</button><button data-v="64" aria-pressed="false">64px</button><button data-v="128" aria-pressed="false">128px</button><button data-v="4000" aria-pressed="false">4000px(世界が1マス)</button></div>
+    </div>
+    <div class="ctl"><span class="label">重複の消し方</span>
+      <div class="seg" id="gi-dedup"><button data-v="both" aria-pressed="true">j &gt; i と印(reference)</button><button data-v="ji" aria-pressed="false">j &gt; i だけ</button><button data-v="none" aria-pressed="false">どちらも無し</button></div>
+    </div>
+    <div class="ctl"><span class="label">配置</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="gi-reset">自己チェックの配置に戻す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="gi-stats"></div><pre id="gi-arrays" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px;max-height:240px;overflow:auto"></pre><p id="gi-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s7">4. マスの大きさが性能の全部を決める</h3>
+<p>実測(4000 体、Release):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>マス</th><th>格子</th><th>登録</th><th>最大/マス</th><th>同居した組</th><th>候補</th><th>合計</th></tr></thead>
+<tbody>
+<tr><td>4px</td><td>240x160</td><td>181,422</td><td>14</td><td>29,676</td><td>24,781</td><td>5.68ms</td></tr>
+<tr><td>8px</td><td>120x80</td><td>58,971</td><td>13</td><td>34,396</td><td>24,800</td><td>3.57ms</td></tr>
+<tr><td><strong>16px</strong></td><td>60x40</td><td>23,189</td><td>17</td><td>46,042</td><td>24,868</td><td><strong>2.99ms</strong></td></tr>
+<tr><td><strong>32px</strong></td><td>30x20</td><td>11,358</td><td>29</td><td>72,527</td><td>24,733</td><td><strong>2.98ms</strong></td></tr>
+<tr><td>64px</td><td>15x10</td><td>7,022</td><td>59</td><td>143,247</td><td>24,798</td><td>3.40ms</td></tr>
+<tr><td>128px</td><td>8x5</td><td>5,336</td><td>160</td><td>353,107</td><td>24,670</td><td>4.84ms</td></tr>
+<tr><td>256px</td><td>4x3</td><td>4,614</td><td>525</td><td>957,840</td><td>24,869</td><td>8.48ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>両端で遅くなる谷型</strong>になる。理由が左右で違うのが面白いところ。</p>
+<ul><li><strong>小さすぎる側</strong>(4px): <code>登録</code> の欄を見る。1個が何十枚ものマスにまたがるので、登録の総数が体数の 45 倍になっている。<strong>構築そのものが重い</strong></li><li><strong>大きすぎる側</strong>(256px): <code>同居した組</code> を見る。1マスに 525 個入っているので、そのマスの中で総当たりが起きている。<strong>元の O(n²) に戻っていく</strong></li></ul>
+<p><code>候補</code> の欄が<strong>どの行でもほぼ 24,800 で一定</strong>なのが効いている。最後に外接 AABB で足切りしているので、マスの大きさを変えてもナローフェーズを呼ぶ回数は変わらない。<strong>変わっているのはそこへ至るコストだけ</strong>。</p>
+<p>目安は「物体の平均的な直径くらい」。この配置では自動選択が 22.3px を選び、測定上の最適(16〜32px)に入っている。ただし<strong>目安は測り始める場所でしかない</strong>ので、<code>F12</code> で掃引して確かめる。</p>
+<h3 id="s8">5. O(n²) から O(n) へ。ただし「密度が一定なら」</h3>
+<p>体数を振った実測(形は混在、押し戻しあり):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>総当たり</th><th>グリッド</th><th>うち広域</th><th>候補</th><th>接触</th><th>倍率</th></tr></thead>
+<tbody>
+<tr><td>250</td><td>0.75ms</td><td>0.09ms</td><td>0.07ms</td><td>289</td><td>240</td><td>8.2x</td></tr>
+<tr><td>500</td><td>3.00ms</td><td>0.20ms</td><td>0.15ms</td><td>898</td><td>765</td><td>14.9x</td></tr>
+<tr><td>1,000</td><td>12.26ms</td><td>0.44ms</td><td>0.25ms</td><td>3,093</td><td>2,369</td><td>27.8x</td></tr>
+<tr><td>2,000</td><td>47.54ms</td><td>1.43ms</td><td>0.71ms</td><td>12,560</td><td>7,425</td><td>33.2x</td></tr>
+<tr><td>4,000</td><td>187.37ms</td><td>2.91ms</td><td>1.46ms</td><td>24,880</td><td>14,641</td><td>64.4x</td></tr>
+<tr><td>8,000</td><td>—</td><td>6.00ms</td><td>3.02ms</td><td>49,615</td><td>29,264</td><td>—</td></tr>
+<tr><td>16,000</td><td>—</td><td>12.46ms</td><td>6.45ms</td><td>100,548</td><td>59,099</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><strong>総当たりは体数が2倍で時間が4倍</strong>(0.75 → 3.00 → 12.26 → 47.54 → 187.37)。組あたり 24ns で一定なので、増えているのは純粋に組の数だけ。</p>
+<p><strong>グリッドは 2,000 体から上でぴったり2倍ずつ</strong> (1.43 → 2.91 → 6.00 → 12.46)。候補の数も同じく2倍ずつ増えている。これが O(n) の姿。</p>
+<p>ただし条件がある。この表は<strong>体を増やすたびに小さくして、画面の詰まり具合を一定に保っている</strong> (2,000 体を基準に、面積の合計が変わらないよう一辺を <code>1/√n</code> で縮める)。大きさを固定したまま増やすと、こうなる:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>グリッド</th><th>候補</th><th>接触</th><th>候補/体</th><th>最大/マス</th></tr></thead>
+<tbody>
+<tr><td>2,000</td><td>1.45ms</td><td>12,359</td><td>7,269</td><td>6.2</td><td>21</td></tr>
+<tr><td>4,000</td><td>5.06ms</td><td>51,321</td><td>23,487</td><td>12.8</td><td>41</td></tr>
+<tr><td>8,000</td><td>18.17ms</td><td>217,661</td><td>69,721</td><td>27.2</td><td>81</td></tr>
+</tbody>
+</table></div>
+<p><strong>2倍で 3.5 倍</strong>。O(n²) に戻り始めている。<code>候補/体</code> が 6.2 → 12.8 → 27.2 と倍々になっているのが原因で、密度が上がったぶん「近くにいる相手」そのものが増えている。</p>
+<p>つまり空間分割は <strong>「物が空間に散らばっている」ことに賭けた最適化</strong>で、賭けが外れると効かない。現実のゲームで賭けが外れる典型は、<strong>全員が同じ場所に集まる</strong>とき——ボス戦で敵が1点に群がる、狭い通路に押し込まれる、といった場面になる。そこが実際に問題になるなら、階層グリッドや BVH(要点7)へ進むことになる。</p>
+<div class="inject"><figure class="lab" id="sw-lab">
+  <div class="lab-head">
+    <h3>掃引する — マスの大きさの谷と、体数の伸び方(要点4・5、F12 の表)</h3>
+    <span class="tag">reference の BenchmarkBroadphase の3つの表(マスの大きさを振る / 体数を振る / 大きさを固定したまま増やす)を、このページで測るもの。体は InitializeBodies と同じ種・同じ縮め方(2,000 体を超えたら一辺を √(2000/n) 倍)で作り、初期配置から1ステップ目の数を出す。格子・登録・最大/マス・同居・候補・接触は、reference のコードを直接回した C# と一致する(4,000 体の候補はどのマスでも 27,999)。本文の表は 20〜200 ステップ回した後の値なので、1ステップ目とは少し違う(C# で回し直すと本文の表と全部一致した)。時間はこのページの JS の値で、1ステップを数回測った平均。総当たりは 4,000 体まで(reference と同じ)</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="sw-chart" style="height:220px" aria-label="掃引の結果のグラフ"></canvas><div class="table-wrap" id="sw-table" style="margin-top:8px"></div></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">表</span>
+      <div class="seg" id="sw-kind"><button data-v="cell" aria-pressed="true">マスの大きさを振る(4,000 体)</button><button data-v="count" aria-pressed="false">体数を振る</button><button data-v="dense" aria-pressed="false">大きさを固定したまま増やす</button></div>
+    </div>
+    <div class="ctl"><span class="label">測る</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="sw-run">測る</button></div>
+    </div>
+  </div>
+  <div class="readout"><p id="sw-note" style="margin:0"></p></div>
+</figure></div>
+<h3 id="s9">6. 正しさは「総当たりと同じ答えか」で確かめる</h3>
+<p>要点1で書いたとおり、ブロードフェーズのバグは絵に出ない。だから確かめ方はひとつしかない。</p>
+<blockquote><p><strong>総当たりは遅いが絶対に正しい。だから正解表として使える。</strong></p></blockquote>
+<p><code>F12</code> の自己チェックがやっているのはこれで、1,000 体をばらまいて「AABB が重なる組の集合」を総当たりで作り、グリッドの出力と<strong>集合として一致するか</strong>を見る。</p>
+<p>そのうえで、<strong>マスの大きさを変えても答えが変わらないこと</strong>を確かめる。</p>
+<div class="code"><pre><code>[OK] マス      4px: 総当たりと同じ組  3693 組(正解 3693 組)
+[OK] マス     13px: 総当たりと同じ組  3693 組(正解 3693 組)
+[OK] マス   4000px: 総当たりと同じ組  3693 組(正解 3693 組)</code></pre></div>
+<p>マスの大きさは<strong>性能の調整つまみであって、仕様ではない</strong>。ここで答えが変わるなら、それは調整の失敗ではなくバグ。4000px(=世界全体が1マス)でも通ることが、「グリッドは総当たりの一般化になっている」ことの確認にもなっている。</p>
+<p>最適化を入れるときは、いつもこの形にする。Day 25 の「回転 0 の OBB と AABB の答えが一致」も同じ考え方だった。</p>
+<h3 id="s10">7. なぜ均一グリッドなのか — 他の選択肢と比べる</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>方式</th><th>得意</th><th>苦手</th><th>構築</th></tr></thead>
+<tbody>
+<tr><td><strong>均一グリッド</strong></td><td>大きさが揃っていて散らばっている</td><td>偏り、極端な大きさの差</td><td>O(n)、毎フレーム作り直せる</td></tr>
+<tr><td>空間ハッシュ</td><td>世界が無限に広い</td><td>ハッシュ衝突の分だけ余分な候補</td><td>O(n)</td></tr>
+<tr><td>四分木 / 八分木</td><td>偏りに強い</td><td>ポインタ追跡、境界にまたがる物体の扱い</td><td>O(n log n)</td></tr>
+<tr><td>BVH</td><td>静的な物が大量にある</td><td>動くと作り直しか回転が要る</td><td>O(n log n)</td></tr>
+<tr><td>Sweep and Prune</td><td>1軸に細長い世界、動きが小さい</td><td>全方向に散らばると効かない</td><td>挿入ソートで O(n)(ほぼ整列済みなら)</td></tr>
+</tbody>
+</table></div>
+<p>今日の題材(卒業制作の見下ろし型アクション)は<strong>大きさが揃った敵が画面に散らばる</strong>ので、均一グリッドが素直に当たる。構築が O(n) で毎フレーム作り直せるのも、全員が毎フレーム動く前提と噛み合う。</p>
+<p>そして重要なのは、<strong>均一グリッドは他の方式の土台になる</strong>こと。階層グリッド(大きさごとに複数のグリッドを持つ)は均一グリッドを何枚か重ねたものだし、空間ハッシュはマス番号をハッシュに置き換えただけで、実装はほとんど同じ。Day 46 の 3D 版も、マスが立方体になるだけで構造は変わらない。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Physics/SpatialGrid.cs</code></td><td>386 (199)</td><td><code>BroadPair</code> と均一グリッド。構築と候補列挙</td></tr>
+</tbody>
+</table></div>
+<p><code>Physics/</code> は今日も<strong>どこにも依存しない</strong>まま。<code>SpatialGrid</code> が受け取るのは <code>ReadOnlySpan&lt;Aabb2D&gt;</code> だけで、<code>Body</code> も速度も形も知らない。返すのも番号の組だけ。このおかげで Day 46 の 3D 版は、この型を丸ごと持っていける。</p>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+712 / -36</td><td>ブロードフェーズの切り替え、マスの可視化、自己チェックと掃引ベンチ</td></tr>
+</tbody>
+</table></div>
+<p><code>Program.cs</code> の変更を4つに分けると:</p>
+<ol><li><strong><code>UpdateBodies</code> の中身が3段になった</strong> — 動かす / 組を絞る / 判定する。総当たりとグリッドで<strong>共通の1組ぶんの処理</strong>(<code>Resolve</code>)を local function に出した。ここを共通にしておかないと、2つの方式で答えが食い違ったときに原因が絞れない</li><li><strong>体数の上限が 2000 → 20000</strong>。あわせて、体を増やすときは<strong>面積の合計が変わらないように小さくする</strong>(要点5)</li><li><strong>マスの可視化</strong>(<code>RenderCells</code>)— 混んでいるマスほど赤くする</li><li><strong>自己チェックと掃引ベンチ</strong>(<code>RunBroadphaseCheck</code> / <code>BenchmarkBroadphase</code>)</li></ol>
+<h3 id="s14">キーの追加</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>F10</code></td><td>総当たり ⇄ 均一グリッド</td></tr>
+<tr><td><code>F11</code></td><td>マスの可視化 ON/OFF</td></tr>
+<tr><td><code>F12</code></td><td>ブロードフェーズの自己チェックと計測(数秒かかる)</td></tr>
+<tr><td><code>,</code> / <code>.</code></td><td>マスの大きさを1段小さく / 大きく(端まで行くと自動へ戻る)</td></tr>
+<tr><td><code>-</code></td><td>体の大きさ(面積を一定に保つ ⇄ 固定)</td></tr>
+</tbody>
+</table></div>
+<p><code>PageUp</code> / <code>PageDown</code> は Day 25 と同じ(衝突デモ中は体数 ±60、Shift 併用で ±500)。</p>
+<h3 id="s15">写経する順番</h3>
+<ol><li><strong><code>Physics/SpatialGrid.cs</code></strong> — 上から順に。<code>Build</code> の3パス(数える → 接頭辞和 → 詰める)と<code>CollectPairs</code> の重複除去(<code>j &gt; i</code> と印)が本丸。<code>CellRange</code> のクランプは短いが、世界の外に出た物体の扱いを決めている</li><li><strong><code>Program.cs</code></strong> — 依存の順に。<ol><li>フィールド(<code>Broadphase</code> / <code>Grid</code> / <code>_bodyBounds</code> / <code>_cellSizeOverride</code> ほか)と定数(<code>MaxBodies</code> / <code>DensityReferenceBodies</code>)</li><li><code>InitializeBodies</code> — 面積を一定に保つ <code>sizeScale</code></li><li><code>UpdateBodies</code> — <strong>今日の主役</strong>。3段に分かれ、<code>Resolve</code> が共通化される</li><li><code>SetBodyCount</code> — 上限と警告</li><li><code>RenderCells</code> / <code>RenderBodies</code> — 可視化</li><li><code>CycleCellSize</code> / <code>BroadphaseLabel</code> / <code>OnKeyDown</code> / タイトルバー / 起動時のヘルプ</li><li><code>RunBroadphaseCheck</code> → <code>BenchmarkBroadphase</code> — <strong>ここは飛ばさない</strong>。要点6のとおり、今日の実装は「確かめる側」とセットで意味を持つ</li></ol></li></ol>
+</section>
+<section class="part"><h2 id="s16">設計書</h2>
+<p>Day 25 から<strong>変わったのは <code>Physics/</code> だけ</strong>。クラスが1つ(と組を表す小さな構造体が1つ)増えた。それ以外の層——<code>Core</code> / <code>Scene</code> / <code>Ecs</code> / <code>Render</code>——は1文字も動いていない。</p>
+<h3 id="s17">均一グリッドの中身 — 2つの関数しかない</h3>
+<p><code>SpatialGrid</code> の公開メソッドは実質 <code>Build</code> と <code>CollectPairs</code> の2つだけ。中で何が起きているかは、コードを読むより図のほうが早い。</p>
+<svg viewBox="0 0 812 596" role="img" aria-label="均一グリッドの中身(2つの関数)。Build(bounds)で格子を組む: パス1 数える(各体の AABB が触れるマスに +1。_cellStart[cell+1]++)→ パス2 接頭辞和(個数を開始位置に変える。_cellStart[c] += _cellStart[c-1])→ パス3 詰める(もう一度なめて _entries へ書く。書き込み位置は _cursor が持つ)。続いて CollectPairs(bounds)で候補を集める: 体 i について stamp = ++_stamp → i が触れるマスを順に見る → j > i か。No なら次へ。Yes なら _mark[j] == stamp か。Yes(既に見つけた相手)なら次へ。No なら _mark[j] = stamp として同居 1 組と数え、AABB が重なるか見る。No なら次へ、Yes なら _pairs に積んで次へ" style="width:100%;max-width:812px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="380" y="10" width="324" height="588" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="390" y="25" fill="var(--muted)" font-size="12">CollectPairs(bounds) — 候補を集める</text><rect x="10" y="10" width="324" height="303" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 3"></rect><text x="20" y="25" fill="var(--muted)" font-size="12">Build(bounds) — 格子を組む</text><rect x="22" y="34" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="172" y="54.5" text-anchor="middle" fill="var(--ink)">パス1: 数える</text><text x="172" y="71.5" text-anchor="middle" fill="var(--ink)">各体の AABB が触れるマスに +1</text><text x="172" y="88.5" text-anchor="middle" fill="var(--ink)">_cellStart[cell+1]++</text><rect x="22" y="135" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="172" y="155.5" text-anchor="middle" fill="var(--ink)">パス2: 接頭辞和</text><text x="172" y="172.5" text-anchor="middle" fill="var(--ink)">個数を開始位置に変える</text><text x="172" y="189.5" text-anchor="middle" fill="var(--ink)">_cellStart[c] += _cellStart[c-1]</text><rect x="22" y="236" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="172" y="256.5" text-anchor="middle" fill="var(--ink)">パス3: 詰める</text><text x="172" y="273.5" text-anchor="middle" fill="var(--ink)">もう一度なめて _entries へ書く</text><text x="172" y="290.5" text-anchor="middle" fill="var(--ink)">書き込み位置は _cursor が持つ</text><rect x="392" y="34" width="300" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="542" y="63" text-anchor="middle" fill="var(--ink)">体 i について</text><text x="542" y="80" text-anchor="middle" fill="var(--ink)">stamp = ++_stamp</text><rect x="392" y="135" width="300" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="542" y="172.5" text-anchor="middle" fill="var(--ink)">i が触れるマスを順に見る</text><rect x="392" y="253" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="542" y="273.5" text-anchor="middle" fill="var(--ink)">j &gt; i ?</text><rect x="392" y="337" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="542" y="357.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">_mark[j] == stamp ?</text><rect x="392" y="404" width="300" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="542" y="424.5" text-anchor="middle" fill="var(--ink)">_mark[j] = stamp</text><text x="542" y="441.5" text-anchor="middle" fill="var(--ink)">同居 1 組と数える</text><rect x="392" y="488" width="300" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="542" y="508.5" text-anchor="middle" fill="var(--ink)">AABB が重なる ?</text><rect x="392" y="555" width="300" height="33" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="542" y="575.5" text-anchor="middle" fill="var(--ink)">_pairs に積む</text><path d="M172 101 L172 133" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M172 202 L172 234" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M322 269.5 L357 269.5 L357 67.5 L390 67.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M542 101 L542 133" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M542 202 L542 251" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M692 269.5 L736 269.5 L736 168.5 L694 168.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="700" y="263.5" fill="var(--muted)" font-size="12">No</text><path d="M542 286 L542 335" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="548" y="301" fill="var(--muted)" font-size="12">Yes</text><path d="M692 353.5 L754 353.5 L754 168.5 L694 168.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="700" y="347.5" fill="var(--muted)" font-size="12">Yes</text><path d="M542 370 L542 402" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="548" y="385" fill="var(--muted)" font-size="12">No</text><path d="M542 454 L542 486" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><path d="M692 504.5 L772 504.5 L772 168.5 L694 168.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="700" y="498.5" fill="var(--muted)" font-size="12">No</text><path d="M542 521 L542 553" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="548" y="536" fill="var(--muted)" font-size="12">Yes</text><path d="M692 571.5 L790 571.5 L790 168.5 L694 168.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path></g></svg>
+<p>3つの絞りが直列に並んでいるのが分かる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>絞り</th><th>落とすもの</th><th>4000 体での実測(マス 32px)</th></tr></thead>
+<tbody>
+<tr><td>格子</td><td>別のマスにいる組</td><td>7,998,000 → 72,527</td></tr>
+<tr><td><code>j &gt; i</code> と印</td><td>同じ組の重複</td><td>(上の数に含まれる)</td></tr>
+<tr><td>AABB</td><td>同じマスだが離れている組</td><td>72,527 → 24,733</td></tr>
+</tbody>
+</table></div>
+<p><strong>最後の AABB がまだ 3 分の 1 に減らしている</strong>のが面白いところで、「同じマスにいる」は「近い」でしかない。7.4ns の AABB 判定を挟むことで、24〜120ns のナローフェーズを 5 万回節約している。</p>
+<p><code>j &gt; i</code> の条件だけでは重複が消えないことは、実際に印を外すと確かめられる(自己チェックの「重複した組が無い」が落ちる)。</p>
+<p><code>Test(in Body, in Body)</code> の中身は形の組み合わせ表そのもの。<strong>3種類で6通り</strong>になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>a \ b</th><th>Circle</th><th>Box</th><th>RotatedBox</th></tr></thead>
+<tbody>
+<tr><td><strong>Circle</strong></td><td><code>Test(Circle, Circle)</code></td><td><code>Test(Circle, Aabb)</code></td><td><code>Test(Circle, Obb)</code></td></tr>
+<tr><td><strong>Box</strong></td><td>上を<strong>符号反転</strong></td><td><code>Test(Aabb, Aabb)</code></td><td>OBB 同士へ寄せる</td></tr>
+<tr><td><strong>RotatedBox</strong></td><td>上を<strong>符号反転</strong></td><td>OBB 同士へ寄せる</td><td><code>Test(Obb, Obb)</code> SAT</td></tr>
+</tbody>
+</table></div>
+<ul><li><strong>専用の速い経路</strong>(AABB 同士、円同士)と<strong>一般形</strong>(OBB 同士の SAT)を併存させ、組み合わせの穴は一般形で埋める。<code>F9</code> の自己チェックで<strong>両者の答えが一致すること</strong>を確認している</li><li>引数の順が逆になる組(<code>Test(Box, Circle)</code>)は<strong>法線の符号を反転</strong>して返す。ここを間違えると物体がめり込む方向へ押される(要点6)</li><li>種類を1つ足すと表が1行1列増える。3D で球・箱・カプセル・平面・地形と並べると 15 通りになり、<strong>その表を埋めることが物理エンジンを書くこと</strong>になる(Phase 7)</li></ul>
+</section>
+<section class="part"><h2 id="s18">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day26 -c Release</code></pre></div>
+<p><strong>FPS を見るなら必ず <code>-c Release</code></strong>。Debug ビルドでは数字が意味を持たない。</p>
+<h3 id="s19"><code>F6</code> → <code>F10</code>: 同じ絵のまま速くなる</h3>
+<p><code>F6</code> で衝突デモに入り、<code>G</code>(3D背景オフ)と <code>PageDown</code> 連打(スプライト 0)で見やすくする。<code>Shift</code> + <code>PageUp</code> で 2000 体まで上げてから <code>F10</code> を押す。</p>
+<div class="code"><pre><code>総当たり  衝突:2000体 総当たり                候補:1,999,000/1,999,000 広域:0.00ms 判定:47.54ms
+グリッド  衝突:2000体 格子31x21@32自動 最大23/マス 候補:12,560/1,999,000    広域:0.74ms 判定:1.46ms</code></pre></div>
+<p><strong>絵はまったく変わらないのに数字だけが変わる</strong>のを確認する。変わったら、それは絞り方のバグ(<code>F12</code> で捕まえられる)。</p>
+<p>そのまま <code>Shift</code> + <code>PageUp</code> を押し続けて 20000 体まで上げる。</p>
+<div class="code"><pre><code>衝突:8000体  格子61x41@16自動 最大24/マス 候補: 50,080 広域:3.08ms 判定: 5.94ms
+衝突:16000体 格子87x58@11自動 最大23/マス 候補:100,702 広域:6.54ms 判定:12.44ms
+衝突:20000体 格子97x65@10自動 最大23/マス 候補:125,912 広域:8.38ms 判定:15.77ms</code></pre></div>
+<p>Day 25 では 2000 体が上限で、そこで既に 47ms かかっていた。そして 20000 体でまた 60fps の予算に当たる——<strong>壁は消えていない。10 倍先へ動いただけ</strong>。<code>最大/マス</code> が体数によらず 23〜24 で一定なのは、面積を保つように小さくしているから(要点5)。マスの大きさも自動で 32 → 10px と付いてきている。</p>
+<h3 id="s20"><code>F11</code>: 格子を見る</h3>
+<p>マスが見えるようになり、混んでいるマスほど赤くなる。</p>
+<ul><li><code>,</code> を押してマスを小さくしていくと、<strong>1個の体が何枚ものマスにまたがる</strong>のが見える。タイトルバーの <code>格子</code> の数字が増え、<code>判定</code> も増える</li><li><code>.</code> を押して大きくしていくと、画面が数枚の巨大なマスになり、<code>最大/マス</code> が3桁になって <code>判定</code> が跳ね上がる</li><li>端まで行くと <code>自動</code> に戻る</li></ul>
+<p><strong>赤いマスが広がっていたらマスを小さくする合図</strong>、というのが数字を見ずに調整するときの目安になる。</p>
+<h3 id="s21"><code>-</code>: 密度を上げるとどうなるか</h3>
+<p><code>-</code> で「大きさを固定」に切り替えてから体数を増やすと、体が小さくならないので画面が詰まっていく。</p>
+<div class="code"><pre><code>面積一定  8000体  判定:6.00ms   候補:49,615
+大きさ固定 8000体 判定:18.17ms  候補:217,661</code></pre></div>
+<p><strong>空間分割は「散らばっている」ことに賭けた最適化</strong>(要点5)。賭けが外れると効かなくなる、というのがここで見える。</p>
+<h3 id="s22"><code>F12</code>: 自己チェックと計測</h3>
+<p>20 項目すべて <code>OK</code> になり、続けて3つの表が出る(数秒かかる)。</p>
+<div class="code"><pre><code>[OK] 小さな例: 組は 3 つ  3 組: (0,1)(2,3)(4,5)
+[OK] 小さな例: 世界の外でも拾う(4,5)
+[OK] 小さな例: 同じマスでも離れていれば候補にしない(6,7)
+[OK] 小さな例: 大物が複数マスに登録されている  登録 89 / 体 8
+[OK] マス      4px: 総当たりと同じ組  3693 組(正解 3693 組)
+[OK] マス   4000px: 総当たりと同じ組  3693 組(正解 3693 組)
+[OK] 1ステップの接触数が一致  総当たり 757 / グリッド 757
+[OK] ナローフェーズの回数は減っている  124,750 → 922(99.3% 削減)
+  すべて合格</code></pre></div>
+<p>いちばん大事なのは <strong><code>マス 4000px</code> の行</strong>。世界全体が1マス、つまり全員が同居している状態でも答えが変わらない。これが通るということは、<strong>グリッドは総当たりの一般化になっている</strong>。</p>
+<div class="inject"><figure class="lab" id="cd-lab">
+  <div class="lab-head">
+    <h3>衝突デモ — 同じ絵のまま速くなる(完成条件の F10・F11・「,」「.」・「-」・F12)</h3>
+    <span class="tag">reference/Day26 の衝突デモ(InitializeBodies の縮め方・UpdateBodies の3段と Resolve・RenderCells の色・CycleCellSize・BroadphaseLabel・SetBodyCount・キーの処理)と RunBroadphaseCheck を JS に移して、60Hz の固定ステップで回したもの。既定はグリッド(reference と同じ)。上の行はタイトルバーと同じ書式で、「広域」と「判定」の ms だけはこのページの JS の値。格子の大きさ・最大/マス・候補・接触は、初期配置から1ステップ目までは C# と同じになる(2,000 体で 格子31x21@32自動 最大29/マス 候補 14,246・接触 7,989)。その先は、C# の MathF.Sin / Cos が 1 ulp ずれる角度があって、体数が多いほど早く少しずつ分かれる。F12 は自己チェックの 20 行だけ出す(C# と同じ)。計測の表は上の「掃引する」で出す。総当たりで 4,000 体を超えるとブラウザが固まるので、このページでは総当たりは 4,000 体までしか回さない</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="cd-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="cd-canvas" style="height:400px" aria-label="体が飛び回り、当たっているものが赤くなる。格子を出すと、混んでいるマスほど赤い"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ブロードフェーズ(F10)</span>
+      <div class="seg" id="cd-bp"><button data-v="brute" aria-pressed="false">総当たり</button><button data-v="grid" aria-pressed="true">均一グリッド</button></div>
+    </div>
+    <div class="ctl"><span class="label">マスの可視化(F11)</span>
+      <div class="seg" id="cd-cells"><button data-v="1" aria-pressed="false">ON</button><button data-v="0" aria-pressed="true">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">マスの大きさ(, と .)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="cd-smaller">, 小さく</button><button class="btn" id="cd-larger">. 大きく</button></div>
+    </div>
+    <div class="ctl"><span class="label">体の大きさ(-)</span>
+      <div class="seg" id="cd-fixed"><button data-v="0" aria-pressed="true">面積を一定に保つ</button><button data-v="1" aria-pressed="false">固定</button></div>
+    </div>
+    <div class="ctl"><span class="label">体数(PageUp / PageDown、Shift で ±500)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-n="-500">−500</button><button class="btn" data-n="-60">−60</button><button class="btn" data-n="60">+60</button><button class="btn" data-n="500">+500</button><button class="btn" data-n="2000">2,000 体</button><button class="btn" data-n="8000">8,000 体</button><button class="btn" data-n="20000">20,000 体</button></div>
+    </div>
+    <div class="ctl"><span class="label">形(F7)と押し戻し(F8)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="cd-mix"><button data-v="0" aria-pressed="true">混在</button><button data-v="1" aria-pressed="false">円</button><button data-v="2" aria-pressed="false">矩形</button><button data-v="3" aria-pressed="false">回転矩形</button></div><div class="seg" id="cd-res"><button data-v="1" aria-pressed="true">押し戻し ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">再生</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="cd-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div><button class="btn" id="cd-step">1 ステップ</button><button class="btn" id="cd-f12">F12 自己チェック</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cd-stats"></div><pre id="cd-console" style="margin:10px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>F6</code></td><td>「衝突デモ」(開いた時点で動いている)</td><td>既定はグリッド。初期配置は reference と同じ</td></tr>
+<tr><td><code>F10</code></td><td>同じ実験台の「ブロードフェーズ」</td><td>絵は変わらず、「候補」と「判定」だけが変わる。2,000 体で候補 1,999,000 → 1 万組台</td></tr>
+<tr><td><code>F11</code></td><td>同じ実験台の「マスの可視化」と「格子の中身を見る」</td><td>混んでいるマスほど赤い(4 個で振り切る)。格子の中身では、箱がどのマスに何回登録されたかまで見える</td></tr>
+<tr><td><code>,</code> / <code>.</code></td><td>同じ実験台の「マスの大きさ」と「掃引する」のマスの大きさの表</td><td>4〜256px の 7 段。端で自動に戻る。両端で遅くなる谷型で、候補の数はマスの大きさによらない</td></tr>
+<tr><td><code>-</code></td><td>同じ実験台の「体の大きさ」と「掃引する」の大きさ固定の表</td><td>固定のまま増やすと、候補/体と最大/マスが倍々になる</td></tr>
+<tr><td><code>PageUp</code> / <code>PageDown</code>(<code>Shift</code> で ±500)</td><td>同じ実験台の「体数」</td><td>上限 20,000 体。2,000 体を超えると体が小さくなる。総当たりで 2,000 体を超えると警告が出る</td></tr>
+<tr><td><code>F12</code></td><td>「衝突デモ」の「F12 自己チェック」と「掃引する」</td><td>自己チェックの 20 行は C# と同じ。表は1ステップ目の数で出す</td></tr>
+<tr><td><code>F7</code> / <code>F8</code></td><td>同じ実験台の「形」と「押し戻し」</td><td>Day 25 と同じ</td></tr>
+<tr><td>(キーなし)</td><td>「格子の中身を見る」の重複の消し方と、箱のドラッグ</td><td>reference に無い比較。印を外すと、2 マス以上を共有する組が重複して出る</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day26 の Physics/SpatialGrid.cs と、Program.cs の衝突デモ(InitializeBodies・UpdateBodies・Resolve・RenderCells・CycleCellSize・BroadphaseLabel・SetBodyCount)、RunBroadphaseCheck、BenchmarkBroadphase の Sample を JS(docs/site/collision2d.js と、このページの中のスクリプト)に移したもの。reference のコードを直接回した C# の小さなプログラムと、自己チェックの 20 行、1ステップ目の格子・登録・最大/マス・同居・候補・接触の数(マスの大きさ 8 通り、体数 8 通り、大きさ固定 3 通り)が一致した。本文の表の数(候補・接触・登録・同居・最大/マス・自動の 22.3px)は、C# で reference と同じステップ数を回すと全部一致した。このページで何ステップも回した後の数が少しずれるのは、C# の MathF.Sin / Cos(CRT の sinf / cosf)が角度によって 1 ulp ずれるため(20 万個の角度で 0.13%)。fps と ms の数字は手元の RTX 3070 環境の値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s23">改造課題</h2>
+<h3 id="s24">課題1(易): <code>List&lt;int&gt;[]</code> で書いて、測り比べる</h3>
+<p><code>SpatialGrid.Build</code> の3パスを、素直な形に書き換える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private List&lt;int&gt;[] _cells = [];   // マスの数だけ List を持つ
+
+// Build
+foreach (var list in _cells) { list.Clear(); }
+for (int i = 0; i &lt; bounds.Length; i++)
+{
+    // 触れるマス全部に Add
+}</code></pre></div>
+<p><code>F12</code> の掃引で <code>広域</code> の欄がどう変わるかを見る。</p>
+<p>考えどころは<strong>どこで差が付くか</strong>。<code>Clear</code> はマスの数だけ、<code>Add</code> は登録の数だけ走る。マスを小さくすると <code>Clear</code> が効いてきて、大きくすると差が縮む(4px と 256px で比べると分かりやすい)。</p>
+<p>さらに、<strong>GC が動くかどうか</strong>も見てみるとよい。<code>GC.CollectionCount(0)</code> をベンチの前後で取って表示すれば、配列版が本当に割り当てゼロなのかが確かめられる。</p>
+<h3 id="s25">課題2(中): 隣のマスまで見る版に変えて、なぜ遅いかを説明する</h3>
+<p>要点2で「中心のマスだけに入れて周囲 3×3 を見る作りは、物体がマスより小さいときにしか正しくない」と書いた。実際にその版を書いてみる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// Build: 中心のマスにだけ入れる
+// CollectPairs: 自分のマスと周囲 8 マスを見る</code></pre></div>
+<p>まず <code>F12</code> の自己チェックが<strong>どこで落ちるか</strong>を確認する(「マスをまたぐ大物(2,3)」が落ちるはず)。次に、マスの大きさを「いちばん大きい体より大きく」取れば正しくなることを確かめる。</p>
+<p>そのうえで測ると、<strong>正しい設定にしたときには元の版より遅い</strong>ことが多い。理由は要点4の表にある——大きい体に合わせてマスを取ると、小さい体にとってはマスが大きすぎて1マスに入りすぎる。<strong>「大きさがばらばらだと均一グリッドは苦しい」</strong>というのが結論で、そこから階層グリッド(大きさごとに別のグリッドを持つ)の動機が出てくる。</p>
+<h3 id="s26">課題3(難): Sweep and Prune を書いて、どちらが速いか測る</h3>
+<p>もう一つの定番のブロードフェーズを実装して、同じ土俵で比べる。</p>
+<ol><li>全部の体の AABB を X 軸の <code>Min</code> で並べ替える</li><li>前から順に見て、「自分の <code>Max</code> より <code>Min</code> が小さい」相手とだけ組にする</li><li>その組について Y 軸でも重なっているかを見る</li></ol>
+<div class="code"><span class="lang">csharp</span><pre><code>for (int i = 0; i &lt; count; i++)
+{
+    for (int j = i + 1; j &lt; count; j++)
+    {
+        if (sorted[j].Min.X &gt; sorted[i].Max.X) { break; }   // ここで打ち切れる
+        // Y の重なりを見て、通れば候補
+    }
+}</code></pre></div>
+<p>見どころは3つ。</p>
+<ul><li><strong>並べ替えのコスト</strong>。毎フレーム <code>Array.Sort</code> すると O(n log n) かかるが、1ステップで動く距離は小さいので<strong>ほぼ整列済み</strong>になる。挿入ソートに変えると O(n) 近くまで落ちる(これが SAP の本来の姿)</li><li><strong>どんな配置で勝つか</strong>。横に長い世界(横スクロール)では SAP が強く、正方形の画面に散らばる今日の配置ではグリッドが強い。<strong>測って確かめる</strong></li><li><strong>X 軸を選ぶ理由</strong>。物が最も散らばっている軸を選ぶのが正解で、実際のエンジンは分散を計算して軸を決める</li></ul>
+<p>余裕があれば <code>F10</code> を3状態(総当たり / グリッド / SAP)にして、<code>F12</code> の表に列を足すところまでやる。<strong>3つが同じ接触数を返すこと</strong>を先に確かめるのを忘れないように(要点6)。</p>
+</section>
+<section class="part"><h2 id="s27">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>960x640、VSync オフ、<code>-c Release</code>、シミュレーション 60Hz</li></ul>
+<h3 id="s28">体数を振る(形は混在、押し戻しあり)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>総当たり</th><th>グリッド</th><th>うち広域</th><th>候補</th><th>接触</th><th>倍率</th></tr></thead>
+<tbody>
+<tr><td>250</td><td>0.75ms</td><td>0.09ms</td><td>0.07ms</td><td>289</td><td>240</td><td>8.2x</td></tr>
+<tr><td>500</td><td>3.00ms</td><td>0.20ms</td><td>0.15ms</td><td>898</td><td>765</td><td>14.9x</td></tr>
+<tr><td>1,000</td><td>12.26ms</td><td>0.44ms</td><td>0.25ms</td><td>3,093</td><td>2,369</td><td>27.8x</td></tr>
+<tr><td>2,000</td><td>47.54ms</td><td>1.43ms</td><td>0.71ms</td><td>12,560</td><td>7,425</td><td>33.2x</td></tr>
+<tr><td>4,000</td><td>187.37ms</td><td>2.91ms</td><td>1.46ms</td><td>24,880</td><td>14,641</td><td>64.4x</td></tr>
+<tr><td>8,000</td><td>—</td><td>6.00ms</td><td>3.02ms</td><td>49,615</td><td>29,264</td><td>—</td></tr>
+<tr><td>16,000</td><td>—</td><td>12.46ms</td><td>6.45ms</td><td>100,548</td><td>59,099</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p>総当たりは 4,000 体で 1 ステップ 0.19 秒。<strong>測ること自体が苦痛になる</strong>ので、そこから上はグリッドだけにしてある。</p>
+<h3 id="s29">マスの大きさを振る(4,000 体)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>マス</th><th>格子</th><th>登録</th><th>最大/マス</th><th>同居</th><th>候補</th><th>広域</th><th>合計</th></tr></thead>
+<tbody>
+<tr><td>4px</td><td>240x160</td><td>181,422</td><td>14</td><td>29,676</td><td>24,781</td><td>4.20ms</td><td>5.68ms</td></tr>
+<tr><td>8px</td><td>120x80</td><td>58,971</td><td>13</td><td>34,396</td><td>24,800</td><td>2.11ms</td><td>3.57ms</td></tr>
+<tr><td>16px</td><td>60x40</td><td>23,189</td><td>17</td><td>46,042</td><td>24,868</td><td>1.52ms</td><td>2.99ms</td></tr>
+<tr><td>32px</td><td>30x20</td><td>11,358</td><td>29</td><td>72,527</td><td>24,733</td><td>1.52ms</td><td>2.98ms</td></tr>
+<tr><td>64px</td><td>15x10</td><td>7,022</td><td>59</td><td>143,247</td><td>24,798</td><td>1.92ms</td><td>3.40ms</td></tr>
+<tr><td>128px</td><td>8x5</td><td>5,336</td><td>160</td><td>353,107</td><td>24,670</td><td>3.37ms</td><td>4.84ms</td></tr>
+<tr><td>256px</td><td>4x3</td><td>4,614</td><td>525</td><td>957,840</td><td>24,869</td><td>7.01ms</td><td>8.48ms</td></tr>
+</tbody>
+</table></div>
+<p>自動で選ばれる値は 22.3px。</p>
+<h3 id="s30">大きさを固定したまま増やす(密度が上がる)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>グリッド</th><th>候補</th><th>接触</th><th>候補/体</th><th>最大/マス</th></tr></thead>
+<tbody>
+<tr><td>2,000</td><td>1.45ms</td><td>12,359</td><td>7,269</td><td>6.2</td><td>21</td></tr>
+<tr><td>4,000</td><td>5.06ms</td><td>51,321</td><td>23,487</td><td>12.8</td><td>41</td></tr>
+<tr><td>8,000</td><td>18.17ms</td><td>217,661</td><td>69,721</td><td>27.2</td><td>81</td></tr>
+</tbody>
+</table></div>
+<h3 id="s31">デモを動かしたときの表示(グリッド、自動、形は混在)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>格子</th><th>最大/マス</th><th>候補</th><th>広域</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td>2,000</td><td>31x21 @32px</td><td>23</td><td>12,560</td><td>0.74ms</td><td>1.46ms</td></tr>
+<tr><td>8,000</td><td>61x41 @16px</td><td>24</td><td>50,080</td><td>3.08ms</td><td>5.94ms</td></tr>
+<tr><td>16,000</td><td>87x58 @11px</td><td>23</td><td>100,702</td><td>6.54ms</td><td>12.44ms</td></tr>
+<tr><td>20,000</td><td>97x65 @10px</td><td>23</td><td>125,912</td><td>8.38ms</td><td>15.77ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>20,000 体で 15.77ms</strong>。60fps の予算 16.6ms のほぼ全部を当たり判定が使う。Day 25 の壁(1,000〜2,000 体)が 10 倍先へ移っただけで、壁そのものは残っている。ここから先へ進むには、判定を並列化するか(Phase 7)、そもそも判定しなくてよい相手を増やす(レイヤ分け、休眠状態)ことになる。</p>
+<h3 id="s32">検証の途中で分かったこと</h3>
+<ul><li><strong>Day 25 の「段階的 JIT」の罠を、そのまま踏み直した</strong>。最初のベンチは全構成を 20 ステップずつ測っていて、250 体と 500 体だけ組あたり 34ns(他は 24ns)と出た。温めを増やし、<strong>軽い構成ほど回数を増やす</strong>ように変えたら、全構成できっちり 24ns にそろった。ベンチマークの回数は「何回」ではなく<strong>「合計でどれくらい時間を使うか」で決める</strong></li><li><strong><code>j &gt; i</code> だけでは重複が消えない</strong>。書いているときは「小さいほうから見るなら1回のはず」と思い込みやすいが、2つのマスを共有していれば、どちらのマスでも <code>j &gt; i</code> は成り立つ。自己チェックの「重複した組が無い」が最初に落ちたのがここ</li><li><strong>AABB の足切りが思ったより効く</strong>。「同じマスにいる」で絞れば十分だろうと考えていたが、4,000 体・マス 32px で 72,527 組 → 24,733 組と、まだ3分の1に減る。安い判定を1枚挟むことの価値は、実際に数えるまで過小評価しがち</li><li><strong>マスの大きさは、思ったより広い範囲で平らだった</strong>。16px と 32px が同着で、8px と 64px も 15% 落ちるだけ。<strong>外すと痛いのは「桁で外したとき」</strong>なので、自動選択の目安が多少ずれていても問題にならない</li></ul>
+</section>
+<footer class="end">Day 26 空間分割とブロードフェーズ(均一グリッド) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/collision2d.js"></script>
+<script>
+// reference/Day26 の Program.RunBroadphaseCheck と BenchmarkBroadphase の数の部分(Sample・StepsFor・GridStepsFor)を JS に移したもの。
+// 判定とグリッドは docs/site/collision2d.js(Col2D)を使う
+const BP26 = ((C) => {
+  const f = Math.fround, W = 960, H = 640, DT = 1 / 60;
+  const fmtN = (n) => n.toLocaleString('en-US');
+  const pad = (s, n) => String(s).padStart(n);
+  // 体の集まり。Program の静的フィールド(_bodies・_activeBodies・_shapeMix・_fixedBodySize・_resolveOverlap・_broadphase・_cellSizeOverride)にあたる
+  class Demo {
+    constructor() { this.grid = new C.SpatialGrid(); this.mix = 0; this.fixedSize = false; this.resolve = true; this.mode = 'grid'; this.cellOverride = 0; this.n = 120; this.bodies = []; this.last = { pairs: 0, contacts: 0, broadMs: 0 }; }
+    init(n = this.n) { this.n = n; this.bodies = C.initializeBodies(n, this.mix, W, H, C.sizeScaleFor(n, this.fixedSize)); }
+    step() {
+      this.last = C.updateBodies(this.bodies, this.n, DT, [W, H], this.resolve, this.mode === 'grid' ? this.grid : null, this.cellOverride);
+      return this.last;
+    }
+    boxes() { return this.bodies.slice(0, this.n).map((b) => C.fromCenter(b.pos, C.boundsExtent(b))); }
+  }
+  // F12 の自己チェック(20 項目)
+  function runBroadphaseCheck() {
+    const lines = []; let fails = 0;
+    const check = (name, ok, detail = '') => { lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+    const grid = new C.SpatialGrid(), world = [W, H];
+    const fc = (x, y, h) => C.fromCenter([f(x), f(y)], [f(h), f(h)]);
+    const boxes = [fc(50, 50, 10), fc(64, 50, 10), fc(300, 300, 120), fc(400, 400, 8), fc(-40, -40, 10), fc(-30, -40, 10), fc(10, 10, 2), fc(28, 28, 2)];
+    grid.configure([0, 0], world, 32); grid.build(boxes);
+    const found = grid.collectPairs(boxes);
+    const pairs = () => Array.from({ length: grid.pairCount }, (_, k) => [grid.pairsA[k], grid.pairsB[k]]);
+    const has = (a, b) => pairs().some(([x, y]) => x === a && y === b);
+    check('小さな例: 組は 3 つ', found === 3, `${found} 組: ${pairs().map(([a, b]) => `(${a},${b})`).join('')}`);
+    check('小さな例: 隣り合う小物(0,1)', has(0, 1));
+    check('小さな例: マスをまたぐ大物(2,3)', has(2, 3));
+    check('小さな例: 世界の外でも拾う(4,5)', has(4, 5));
+    check('小さな例: 同じマスでも離れていれば候補にしない(6,7)', !has(6, 7));
+    check('小さな例: 足切り前は同居していた', grid.coLocatedPairs > found, `同居 ${grid.coLocatedPairs} 組`);
+    check('小さな例: 大物が複数マスに登録されている', grid.entryCount > boxes.length, `登録 ${grid.entryCount} / 体 ${boxes.length}`);
+    grid.build([]);
+    check('空でも落ちない', grid.collectPairs([]) === 0, '0 体');
+    const d = new Demo(); d.init(1000);
+    const probe = d.boxes();
+    const expected = [];
+    for (let i = 0; i < probe.length; i++) for (let j = i + 1; j < probe.length; j++) if (C.overlapAabb(probe[i], probe[j])) expected.push(i * 100000 + j);
+    expected.sort((a, b) => a - b);
+    for (const cell of [4, 13, 32, 100, 4000]) {
+      grid.configure([0, 0], world, cell); grid.build(probe); grid.collectPairs(probe);
+      const actual = pairs().map(([a, b]) => a * 100000 + b).sort((a, b) => a - b);
+      let unique = true; for (let i = 1; i < actual.length; i++) unique = unique && actual[i] !== actual[i - 1];
+      const same = actual.length === expected.length && actual.every((v, i) => v === expected[i]);
+      check(`マス ${pad(cell, 6)}px: 総当たりと同じ組`, same, `${actual.length} 組(正解 ${expected.length} 組)`);
+      check(`マス ${pad(cell, 6)}px: 重複した組が無い`, unique);
+    }
+    const e = new Demo(); e.resolve = false; e.mode = 'brute'; e.init(500); e.step();
+    const bruteContacts = e.last.contacts, bruteTests = e.last.pairs;
+    e.init(500); e.mode = 'grid'; e.cellOverride = 0; e.step();
+    check('1ステップの接触数が一致', e.last.contacts === bruteContacts, `総当たり ${bruteContacts} / グリッド ${e.last.contacts}`);
+    check('ナローフェーズの回数は減っている', e.last.pairs < bruteTests, `${fmtN(bruteTests)} → ${fmtN(e.last.pairs)}(${(100 - e.last.pairs * 100 / bruteTests).toFixed(1)}% 削減)`);
+    lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`);
+    return { lines, fails, count: lines.length - 1 };
+  }
+  const stepsFor = (count) => Math.min(Math.max(Math.trunc(20000000 / Math.max(count * (count - 1) / 2, 1)), 3), 60);
+  const gridStepsFor = (count) => Math.min(Math.max(Math.trunc(400000 / Math.max(count, 1)), 20), 200);
+  // Sample(count, mode, cellSize, steps)。時間は測った値をそのまま返す(このページの値)
+  function sample(count, mode, cellSize, steps, fixedSize = false) {
+    const d = new Demo(); d.mode = mode; d.cellOverride = cellSize; d.fixedSize = fixedSize; d.init(count);
+    let broad = 0;
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+    for (let s = 0; s < steps; s++) { d.step(); broad += d.last.broadMs; }
+    const total = typeof performance !== 'undefined' ? (performance.now() - t0) / steps : 0;
+    return { total, broad: broad / steps, pairs: d.last.pairs, contacts: d.last.contacts, grid: d.grid, demo: d };
+  }
+  return { W, H, Demo, runBroadphaseCheck, stepsFor, gridStepsFor, sample, fmtN, pad };
+})(Col2D);
+
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate, reduceMotion } = Lab;
+const C = Col2D, B = BP26, f = Math.fround;
+const RED = 'rgba(255,77,71,0.95)', CYAN = 'rgba(115,217,255,0.85)';
+const fmtN = B.fmtN;
+// RenderCells と同じ色(4 個で赤に振り切る)
+const heatColor = (n) => { const h = Math.min(n / 4, 1); return `rgba(${Math.round((0.20 + 0.65 * h) * 255)},${Math.round((0.55 - 0.40 * h) * 255)},${Math.round((0.85 - 0.70 * h) * 255)},${(0.10 + 0.22 * h).toFixed(3)})`; };
+
+// ------------------------------------------------------------
+// 1. 格子の中身を見る
+// ------------------------------------------------------------
+const GI_INIT = [[50, 50, 10], [64, 50, 10], [300, 300, 120], [400, 400, 8], [-40, -40, 10], [-30, -40, 10], [10, 10, 2], [28, 28, 2]];
+const gi = { boxes: [], grid: new C.SpatialGrid(), view: null, drag: null };
+function giReset() { gi.boxes = GI_INIT.map(([x, y, h]) => ({ c: [f(x), f(y)], h: f(h) })); }
+const giAabbs = () => gi.boxes.map((b) => C.fromCenter(b.c, [b.h, b.h]));
+// 重複の消し方を変えた CollectPairs(reference の形は grid.collectPairs そのもの)
+function collectVariant(grid, bounds, mode) {
+  if (mode === 'both') { grid.collectPairs(bounds); return { pairs: Array.from({ length: grid.pairCount }, (_, k) => [grid.pairsA[k], grid.pairsB[k]]), co: grid.coLocatedPairs }; }
+  const pairs = []; let co = 0;
+  for (let i = 0; i < bounds.length; i++) {
+    const [x0, y0, x1, y1] = grid.cellRange(bounds[i]);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+      const cell = cy * grid.columns + cx;
+      for (let e = grid.cellStart[cell]; e < grid.cellStart[cell + 1]; e++) {
+        const j = grid.entries[e];
+        if (mode === 'ji' ? j <= i : j === i) continue;
+        co++;
+        if (C.overlapAabb(bounds[i], bounds[j])) pairs.push([i, j]);
+      }
+    }
+  }
+  return { pairs, co };
+}
+function giDraw() {
+  const cell = Number(segValue('gi-cell')), mode = segValue('gi-dedup');
+  const boxes = giAabbs(), grid = gi.grid;
+  grid.configure([0, 0], [960, 640], cell); grid.build(boxes);
+  const res = collectVariant(grid, boxes, mode);
+  const { ctx, w, h } = fit($('gi-canvas'));
+  const vx0 = -80, vy0 = -80, vw = 700, vh = 580, s = Math.min(w / vw, h / vh), ox = (w - vw * s) / 2 - vx0 * s, oy = -vy0 * s;
+  gi.view = { s, ox, oy };
+  const P = (x, y) => [ox + x * s, oy + y * s];
+  // 中身のあるマス(色は RenderCells と同じ)
+  for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.columns; c++) {
+    const n = grid.cellContents(c, r);
+    if (!n) continue;
+    const [x, y] = P(c * grid.cellSize, r * grid.cellSize), cs = grid.cellSize * s;
+    ctx.fillStyle = heatColor(n); ctx.fillRect(x + 0.5, y + 0.5, cs - 1, cs - 1);
+    if (cs > 18) { ctx.fillStyle = tok('--muted'); ctx.font = '10px sans-serif'; ctx.fillText(String(n), x + 3, y + 11); }
+  }
+  // 格子の線(見えている範囲だけ)
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 0.5;
+  for (let c = 0; c <= grid.columns; c++) { const [x] = P(c * grid.cellSize, 0); if (x > w) break; ctx.beginPath(); ctx.moveTo(x, P(0, 0)[1]); ctx.lineTo(x, Math.min(h, P(0, grid.rows * grid.cellSize)[1])); ctx.stroke(); }
+  for (let r = 0; r <= grid.rows; r++) { const [, y] = P(0, r * grid.cellSize); if (y > h) break; ctx.beginPath(); ctx.moveTo(P(0, 0)[0], y); ctx.lineTo(Math.min(w, P(grid.columns * grid.cellSize, 0)[0]), y); ctx.stroke(); }
+  // 世界の枠
+  ctx.strokeStyle = tok('--muted'); ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+  const [wx, wy] = P(0, 0); ctx.strokeRect(wx, wy, 960 * s, 640 * s); ctx.setLineDash([]);
+  // 箱
+  const inPair = new Set(res.pairs.flat());
+  gi.boxes.forEach((b, i) => {
+    const [x, y] = P(b.c[0] - b.h, b.c[1] - b.h), sz = 2 * b.h * s;
+    ctx.fillStyle = inPair.has(i) ? 'rgba(255,77,71,0.35)' : 'rgba(115,217,255,0.30)'; ctx.fillRect(x, y, sz, sz);
+    ctx.strokeStyle = inPair.has(i) ? RED : CYAN; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, sz, sz);
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px sans-serif';
+    const [lx, ly] = P(b.c[0], b.c[1]); ctx.fillText(String(i), lx - 3 + (sz < 14 ? 8 : 0), ly + 4 - (sz < 14 ? 8 : 0));
+  });
+  ctx.fillStyle = tok('--muted'); ctx.font = '12px sans-serif';
+  const cap = ['点線 = 世界(0〜960、0〜640)。', 'マスの数字 = そのマスに登録された箱の数。', '赤い箱 = 候補の組に入っている'];
+  if (ctx.measureText(cap.join('')).width < w - 16) ctx.fillText(cap.join(''), 8, h - 8);
+  else cap.forEach((t, k) => ctx.fillText(t, 8, h - 8 - (cap.length - 1 - k) * 15));
+  // 読み出し
+  const keys = res.pairs.map(([a, b2]) => `${a},${b2}`), dup = keys.length - new Set(keys).size;
+  $('gi-stats').innerHTML = stat('格子', `${grid.columns}x${grid.rows}`, `<small> (@${grid.cellSize})</small>`) + stat('登録(パス1 の合計)', String(grid.entryCount), `<small> / 体 ${boxes.length}</small>`) +
+    stat('最大/マス', String(grid.maxPerCell)) + stat('同居', `${res.co} 組`) + stat('候補', `${res.pairs.length} 組`, dup ? `<small> (重複 ${dup})</small>` : '');
+  const occ = [];
+  for (let c = 0; c < grid.cellCount; c++) { const n = grid.cellStart[c + 1] - grid.cellStart[c]; if (n) occ.push(c); }
+  const lines = [`候補: ${res.pairs.map(([a, b2]) => `(${a},${b2})`).join('') || '(なし)'}`, '',
+    `_cellStart と _entries(中身のあるマスだけ。マスの番号 = 行 x ${grid.columns} + 列)`, '  マス  (列,行)   数  開始位置  中身'];
+  for (const c of occ.slice(0, 14)) {
+    const st = grid.cellStart[c], n = grid.cellStart[c + 1] - st;
+    lines.push(`  ${String(c).padStart(4)}  (${c % grid.columns},${Math.floor(c / grid.columns)})`.padEnd(18) + `${String(n).padStart(3)}  ${String(st).padStart(6)}    ${Array.from(grid.entries.subarray(st, st + n)).join(' ')}`);
+  }
+  if (occ.length > 14) lines.push(`  …ほか ${occ.length - 14} マス(中身のあるマスは全部で ${occ.length})`);
+  $('gi-arrays').textContent = lines.join('\n');
+  const notes = {
+    both: '箱 2(半径 120)は何十枚ものマスに登録されるが、箱 3 との組は1回だけ出る。j > i で (3,2) を落とし、印で「同じ i のうちに2枚目のマスで再会した 3」を落としている',
+    ji: dup ? `印を外したもの。j > i は満たしたまま、2 マス以上を共有する組が共有しているマスの数だけ見つかり、重複が ${dup} 組出た(要点2 の「1 だけでは 2 のケースが消えない」)`
+      : '印を外したもの。いまの配置とマスの大きさでは、2 マス以上を共有する組が無いので重複は出ない。16px にするか、箱 3 をマスの境目へ動かすと、2 と 3 が何度も見つかる',
+    none: `j > i も外したもの。(i,j) と (j,i) の両方が出て、さらにマスを共有するぶん重なる(重複 ${dup} 組)`,
+  };
+  $('gi-note').textContent = notes[mode];
+}
+seg('gi-cell', giDraw); seg('gi-dedup', giDraw);
+$('gi-reset').addEventListener('click', () => { giReset(); giDraw(); });
+{
+  const cv = $('gi-canvas');
+  const toWorld = (ev) => { const r = cv.getBoundingClientRect(), v = gi.view; return [(ev.clientX - r.left - v.ox) / v.s, (ev.clientY - r.top - v.oy) / v.s]; };
+  cv.addEventListener('pointerdown', (ev) => {
+    const p = toWorld(ev);
+    // 小さい箱を優先して拾う(大物の中にいる 3 をつかめるように)
+    const hit = gi.boxes.map((b, i) => [b, i]).filter(([b]) => Math.abs(p[0] - b.c[0]) <= b.h + 4 && Math.abs(p[1] - b.c[1]) <= b.h + 4).sort((a, b) => a[0].h - b[0].h)[0];
+    if (!hit) return;
+    gi.drag = { i: hit[1], d: [p[0] - hit[0].c[0], p[1] - hit[0].c[1]] }; cv.setPointerCapture(ev.pointerId);
+  });
+  cv.addEventListener('pointermove', (ev) => { if (!gi.drag) return; const p = toWorld(ev), b = gi.boxes[gi.drag.i]; b.c = [f(Math.round(p[0] - gi.drag.d[0])), f(Math.round(p[1] - gi.drag.d[1]))]; giDraw(); });
+  const up = () => { gi.drag = null; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+}
+giReset();
+
+// ------------------------------------------------------------
+// 2. 掃引する
+// ------------------------------------------------------------
+const sw = { results: {}, running: false };
+const SW_CELLS = [0, 4, 8, 16, 32, 64, 128, 256], SW_COUNTS = [250, 500, 1000, 2000, 4000, 8000, 16000], SW_DENSE = [2000, 4000, 8000];
+// 初期配置から1ステップ目を reps 回測る(配置は毎回作り直すので、数はいつも同じ)
+function measure(count, mode, cell, fixedSize, reps) {
+  let total = 0, broad = 0, last = null, grid = null;
+  for (let r = 0; r < reps; r++) {
+    const d = new B.Demo(); d.mode = mode; d.cellOverride = cell; d.fixedSize = fixedSize; d.init(count);
+    const t0 = performance.now(); d.step(); total += performance.now() - t0; broad += d.last.broadMs;
+    last = d.last; grid = d.grid;
+  }
+  return { total: total / reps, broad: broad / reps, pairs: last.pairs, contacts: last.contacts, cols: grid.columns, rows: grid.rows, cellSize: grid.cellSize, entries: grid.entryCount, max: grid.maxPerCell, co: grid.coLocatedPairs };
+}
+const tick = () => new Promise((r) => setTimeout(r, 0));
+async function swRun() {
+  if (sw.running) return;
+  sw.running = true; $('sw-run').disabled = true;
+  const kind = segValue('sw-kind'), out = [];
+  sw.results[kind] = out;
+  // 温め(Day 25・26 の「段階的 JIT」の話と同じく、測る前に一通り回す)
+  measure(1000, 'grid', 0, false, 2); measure(500, 'brute', 0, false, 1); await tick();
+  if (kind === 'cell') for (const cell of SW_CELLS) { out.push({ cell, ...measure(4000, 'grid', cell, false, 5) }); swDraw(); await tick(); }
+  if (kind === 'count') for (const n of SW_COUNTS) { const g = measure(n, 'grid', 0, false, n <= 4000 ? 5 : 3); const b = n <= 4000 ? measure(n, 'brute', 0, false, n <= 1000 ? 3 : 1) : null; out.push({ n, g, b }); swDraw(); await tick(); }
+  if (kind === 'dense') for (const n of SW_DENSE) { out.push({ n, ...measure(n, 'grid', 0, true, 5) }); swDraw(); await tick(); }
+  sw.running = false; $('sw-run').disabled = false; swDraw();
+}
+function swDraw() {
+  const kind = segValue('sw-kind'), res = sw.results[kind] || [];
+  const ms = (v) => `${v.toFixed(2)}ms`;
+  let head, rows;
+  if (kind === 'cell') {
+    head = ['マス', '格子', '登録', '最大/マス', '同居', '候補', '接触', '広域(このページ)', '合計(このページ)'];
+    rows = SW_CELLS.map((c) => { const r = res.find((x) => x.cell === c); return [c ? `${c}px` : `自動 ${r ? r.cellSize.toFixed(1) : ''}px`, ...(r ? [`${r.cols}x${r.rows}`, fmtN(r.entries), r.max, fmtN(r.co), fmtN(r.pairs), fmtN(r.contacts), ms(r.broad), ms(r.total)] : Array(8).fill('—'))]; });
+  } else if (kind === 'count') {
+    head = ['体数', '総当たり(このページ)', 'グリッド(このページ)', 'うち広域', '候補', '接触', '倍率'];
+    rows = SW_COUNTS.map((n) => { const r = res.find((x) => x.n === n); return [fmtN(n), ...(r ? [r.b ? ms(r.b.total) : '—', ms(r.g.total), ms(r.g.broad), fmtN(r.g.pairs), fmtN(r.g.contacts), r.b ? `${(r.b.total / r.g.total).toFixed(1)}x` : '—'] : Array(6).fill('—'))]; });
+  } else {
+    head = ['体数', 'グリッド(このページ)', '候補', '接触', '候補/体', '最大/マス'];
+    rows = SW_DENSE.map((n) => { const r = res.find((x) => x.n === n); return [fmtN(n), ...(r ? [ms(r.total), fmtN(r.pairs), fmtN(r.contacts), (r.pairs / n).toFixed(1), r.max] : Array(5).fill('—'))]; });
+  }
+  $('sw-table').innerHTML = `<table><thead><tr>${head.map((x) => `<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((x) => `<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  // グラフ
+  const { ctx, w, h } = fit($('sw-chart'));
+  const L = 54, R = w - 14, T = 14, Bm = h - 26;
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(L, T); ctx.lineTo(L, Bm); ctx.lineTo(R, Bm); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+  if (!res.length) { ctx.fillText('「測る」を押すと、ここにグラフが出る', L + 10, T + 20); return; }
+  let xs, series, xl;
+  if (kind === 'cell') {
+    const pts = res.filter((r) => r.cell > 0);
+    xs = pts.map((r) => Math.log2(r.cell)); xl = pts.map((r) => `${r.cell}`);
+    series = [['合計', pts.map((r) => r.total), tok('--accent')], ['広域', pts.map((r) => r.broad), tok('--muted')]];
+  } else if (kind === 'count') {
+    xs = res.map((r) => Math.log2(r.n)); xl = res.map((r) => fmtN(r.n));
+    series = [['グリッド', res.map((r) => r.g.total), tok('--accent')], ['総当たり', res.map((r) => (r.b ? r.b.total : NaN)), RED]];
+  } else {
+    xs = res.map((r) => Math.log2(r.n)); xl = res.map((r) => fmtN(r.n));
+    series = [['グリッド', res.map((r) => r.total), tok('--accent')]];
+  }
+  const all = series.flatMap((s) => s[1]).filter(Number.isFinite), logY = kind === 'count';
+  const ymin = logY ? Math.log10(Math.min(...all)) - 0.1 : 0, ymax = logY ? Math.log10(Math.max(...all)) + 0.1 : Math.max(...all) * 1.1;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), X = (v) => L + (x1 > x0 ? (v - x0) / (x1 - x0) : 0.5) * (R - L - 20) + 10;
+  const Y = (v) => Bm - ((logY ? Math.log10(v) : v) - ymin) / (ymax - ymin) * (Bm - T);
+  xs.forEach((x, i) => ctx.fillText(xl[i], X(x) - 10, h - 8));
+  ctx.fillText(logY ? `${Math.pow(10, ymax).toFixed(1)}ms` : `${ymax.toFixed(1)}ms`, 2, T + 8);
+  ctx.fillText(logY ? `${Math.pow(10, ymin).toFixed(2)}ms` : '0', 2, Bm);
+  series.forEach(([name, ys, col], k) => {
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2; ctx.beginPath(); let started = false;
+    ys.forEach((y, i) => { if (!Number.isFinite(y)) return; const px = X(xs[i]), py = Y(y); started ? ctx.lineTo(px, py) : ctx.moveTo(px, py); started = true; }); ctx.stroke();
+    ys.forEach((y, i) => { if (Number.isFinite(y)) { ctx.beginPath(); ctx.arc(X(xs[i]), Y(y), 3.5, 0, Math.PI * 2); ctx.fill(); } });
+    ctx.fillText(name, L + 10 + k * 90, T + 10);
+  });
+  const notes = {
+    cell: '横軸はマスの大きさ(倍々)。両端で遅くなる谷型になる。小さい側は「登録」が膨らみ(構築が重い)、大きい側は「同居」が膨らむ(マスの中で総当たり)。「候補」の列はどの行も同じ',
+    count: '横軸は体数、縦軸は時間(どちらも倍々の目盛り)。総当たりは体数が2倍で約4倍(傾き2)、グリッドは約2倍(傾き1)。2,000 体を超えると体が小さくなる(密度を一定に保つ)',
+    dense: '大きさを固定したまま増やすと密度が上がり、「候補/体」と「最大/マス」が倍々になる。グリッドの時間も2倍では済まなくなる',
+  };
+  $('sw-note').textContent = notes[kind];
+}
+seg('sw-kind', swDraw);
+$('sw-run').addEventListener('click', swRun);
+
+// ------------------------------------------------------------
+// 3. 衝突デモ
+// ------------------------------------------------------------
+const MIX_LABEL = ['混在', '円', '矩形', '回転矩形'], CELL_STEPS = [4, 8, 16, 32, 64, 128, 256];
+const onOff = (b) => (b ? 'ON' : 'OFF');
+const cd = { demo: new B.Demo(), ms: 0, broadMs: 0, steps: 0, acc: 0, playing: !reduceMotion, showCells: false, log: [], stalled: false };
+cd.demo.mode = 'grid';
+function cdLog(s) { cd.log.push(s); if (cd.log.length > 300) cd.log.splice(0, cd.log.length - 300); $('cd-console').textContent = cd.log.join('\n'); $('cd-console').scrollTop = 1e9; }
+function cdInit() { cd.demo.init(cd.demo.n); cd.steps = 0; cd.demo.last = { pairs: 0, contacts: 0, broadMs: 0 }; }
+function cdStep() {
+  const d = cd.demo;
+  // このページだけ: 総当たりで 4,000 体を超えると1ステップに数秒かかり、ブラウザが固まる
+  cd.stalled = d.mode === 'brute' && d.n > 4000;
+  if (cd.stalled) return;
+  const t0 = performance.now(); d.step(); const t = performance.now() - t0;
+  cd.ms = cd.ms * 0.9 + t * 0.1; cd.broadMs = cd.broadMs * 0.9 + d.last.broadMs * 0.1; cd.steps++;
+}
+const bpLabel = () => { const d = cd.demo, g = d.grid; return d.mode === 'grid' ? `格子${g.columns}x${g.rows}@${g.cellSize.toFixed(0)}${d.cellOverride > 0 ? '手動' : '自動'} 最大${g.maxPerCell}/マス` : '総当たり'; };
+function cdDraw() {
+  const cv = $('cd-canvas'), d = cd.demo;
+  cv.style.height = Math.round(cv.clientWidth * 640 / 960) + 'px';
+  const { ctx, w } = fit(cv), s = w / 960;
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, w, cv.clientHeight);
+  const g = d.grid;
+  if (cd.showCells && d.mode === 'grid' && g.entryCount > 0 && g.cellCount <= 6000) {
+    const cs = g.cellSize * s;
+    for (let r = 0; r < g.rows; r++) for (let c = 0; c < g.columns; c++) { const n = g.cellContents(c, r); if (n) { ctx.fillStyle = heatColor(n); ctx.fillRect(c * cs + 0.5, r * cs + 0.5, cs - 1, cs - 1); } }
+  }
+  for (let i = 0; i < d.n; i++) {
+    const b = d.bodies[i], col = b.contacts > 0 ? RED : CYAN, x = b.pos[0] * s, y = b.pos[1] * s;
+    if (b.shape === C.CIRCLE) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, b.half[0] * s, 0, Math.PI * 2); ctx.fill(); continue; }
+    ctx.save(); ctx.translate(x, y); ctx.rotate(b.shape === C.ROTATED ? b.rot : 0);
+    const hw = b.half[0] * s, hh = b.half[1] * s;
+    ctx.fillStyle = col.replace(/[\d.]+\)$/, '0.45)'); ctx.fillRect(-hw, -hh, 2 * hw, 2 * hh);
+    if (d.n <= 4000) { ctx.strokeStyle = col; ctx.lineWidth = Math.max(0.6, s * 1.2); ctx.strokeRect(-hw, -hh, 2 * hw, 2 * hh); }
+    ctx.restore();
+  }
+  const all = d.n * (d.n - 1) / 2;
+  $('cd-title').textContent = `衝突:${d.n}体 ${bpLabel()} 候補:${fmtN(d.last.pairs)}/${fmtN(all)} 接触:${d.last.contacts} 広域:${cd.broadMs.toFixed(2)}ms 判定:${cd.ms.toFixed(2)}ms 形:${MIX_LABEL[d.mix]} 押戻:${onOff(d.resolve)}` +
+    (cd.stalled ? '\n(このページでは総当たりは 4,000 体まで。止めています。グリッドに戻すか体数を減らすと動く)' : '');
+  const red = d.bodies.slice(0, d.n).filter((b) => b.contacts > 0).length;
+  $('cd-stats').innerHTML = stat('ステップ', String(cd.steps), `<small> (${(cd.steps / 60).toFixed(1)} 秒)</small>`) + stat('候補 / 総当たりの組', fmtN(d.last.pairs), `<small> / ${fmtN(all)}</small>`) +
+    stat('接触', fmtN(d.last.contacts)) + stat('赤い体', `${red} / ${d.n}`) + stat('広域 / 判定(このページ)', `${cd.broadMs.toFixed(2)} / ${cd.ms.toFixed(2)}ms`);
+}
+function setCount(n) {
+  const d = cd.demo;
+  d.n = Math.min(20000, Math.max(0, n)); cdInit();
+  cdLog(`[collision] ${d.n} 体 / 総当たりなら ${fmtN(d.n * (d.n - 1) / 2)} 組`);
+  if (d.mode === 'brute' && d.n > 2000) cdLog('            総当たりのままです。F10 でグリッドに切り替えると軽くなります');
+  cdDraw();
+}
+seg('cd-bp', (v) => { cd.demo.mode = v; cdLog(`ブロードフェーズ: ${v === 'brute' ? '総当たり' : '均一グリッド'}`); cdDraw(); });
+seg('cd-cells', (v) => { cd.showCells = v === '1'; cdLog(`マスの可視化: ${onOff(cd.showCells)}`); cdDraw(); });
+seg('cd-fixed', (v) => { cd.demo.fixedSize = v === '1'; cdInit(); cdLog(`体の大きさ: ${cd.demo.fixedSize ? '固定(増やすと密になる)' : '面積を一定に保つ'}`); cdDraw(); });
+seg('cd-mix', (v) => { cd.demo.mix = Number(v); cdInit(); cdLog(`形: ${MIX_LABEL[cd.demo.mix]}`); cdDraw(); });
+seg('cd-res', (v) => { cd.demo.resolve = v === '1'; cdLog(`押し戻し: ${onOff(cd.demo.resolve)}`); cdDraw(); });
+seg('cd-play', (v) => { cd.playing = v === '1'; });
+// CycleCellSize と同じ(自動から入るときは今の自動値にいちばん近い段から。端をはみ出したら自動へ)
+function cycleCell(larger) {
+  const d = cd.demo;
+  if (d.cellOverride <= 0) {
+    const cur = d.grid.cellSize; let nearest = 0;
+    for (let i = 1; i < CELL_STEPS.length; i++) if (Math.abs(CELL_STEPS[i] - cur) < Math.abs(CELL_STEPS[nearest] - cur)) nearest = i;
+    d.cellOverride = CELL_STEPS[nearest];
+  } else {
+    const idx = CELL_STEPS.indexOf(d.cellOverride) + (larger ? 1 : -1);
+    d.cellOverride = idx < 0 || idx >= CELL_STEPS.length ? 0 : CELL_STEPS[idx];
+  }
+  cdLog(d.cellOverride > 0 ? `マスの大きさ: ${d.cellOverride}px(手動)` : 'マスの大きさ: 自動(平均の直径)');
+}
+$('cd-smaller').addEventListener('click', () => { cycleCell(false); if (!cd.playing) { cdStep(); } cdDraw(); });
+$('cd-larger').addEventListener('click', () => { cycleCell(true); if (!cd.playing) { cdStep(); } cdDraw(); });
+document.querySelectorAll('#cd-lab [data-n]').forEach((btn) => btn.addEventListener('click', () => {
+  const v = Number(btn.dataset.n);
+  setCount(Math.abs(v) <= 500 ? cd.demo.n + v : v);
+}));
+$('cd-step').addEventListener('click', () => { cd.playing = false; setSeg('cd-play', '0'); cdStep(); cdDraw(); });
+$('cd-f12').addEventListener('click', () => {
+  const r = B.runBroadphaseCheck();
+  cdLog(''); cdLog('[ブロードフェーズの自己チェック]'); for (const l of r.lines) cdLog(l); cdLog('');
+  cdLog('(計測の表は上の「掃引する」で出す)');
+  // 触った状態を戻す(reference と同じく、体を作り直す)
+  cdInit(); cdDraw();
+});
+cdInit();
+cdLog('衝突デモ: ON  (G で3D背景、PageDown でスプライトを消すと見やすい)');
+animate($('cd-canvas'), (dt) => {
+  if (cd.playing) {
+    cd.acc += dt;
+    let k = 0;
+    while (cd.acc >= 1 / 60 && k < 2) { cdStep(); cd.acc -= 1 / 60; k++; }
+    if (k === 2) cd.acc = 0; // 追いつけないぶんは捨てる(重い体数で固まらないように)
+  }
+  cdDraw();
+});
+
+giDraw();
+swDraw();
+cdDraw();
+window.addEventListener('resize', () => { giDraw(); swDraw(); cdDraw(); });
+})();
+</script>
+</body>
+</html>
