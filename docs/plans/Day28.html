@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 28 テキスト描画</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 文字は「ベースライン + 送り」で並ぶ</a></li><li class="l3"><a href="#s5">2. フォント単位からピクセルへ</a></li><li class="l3"><a href="#s6">3. 使った文字だけ焼く — Day 17 の棚詰めを実行中にやる</a></li><li class="l3"><a href="#s7">4. 1チャンネルで足りる。そして <code>GL_UNPACK_ALIGNMENT</code> の罠</a></li><li class="l3"><a href="#s8">5. ピクセルに合わせないとにじむ</a></li><li class="l3"><a href="#s9">6. カーニングは高い。日本語ではほぼ効かないのに</a></li><li class="l3"><a href="#s10">7. 「1文字」は思ったより難しい</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">フォントは同梱しない</a></li><li class="l3"><a href="#s15">キーの追加</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">Text — Render の上に積む層</a></li><li class="l3"><a href="#s19">1文字が画面に出るまで — 4つの層を通り抜ける</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21"><code>;</code> 1回目: 情報が画面に出る</a></li><li class="l3"><a href="#s22"><code>;</code> 2回目: アトラスが見える</a></li><li class="l3"><a href="#s23"><code>;</code> 3回目: 見本帳</a></li><li class="l3"><a href="#s24"><code>/</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s25">改造課題</a></li><li class="l3"><a href="#s26">課題1(易): カーニングを安くする</a></li><li class="l3"><a href="#s27">課題2(中): フォントフォールバック — 絵文字を出す</a></li><li class="l3"><a href="#s28">課題3(難): SDF フォントにする</a></li><li class="l3"><a href="#s29">そのほか、今日やらなかったこと</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">フォントのメトリクス(メイリオ)</a></li><li class="l3"><a href="#s32">文字まわりのコスト</a></li><li class="l3"><a href="#s33">実際の画面での測定</a></li><li class="l3"><a href="#s34">自己チェック(21 項目すべて合格)</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 5 / Day 28 / 計画書</p>
+  <h1>テキスト描画</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 文字は「ベースライン + 送り」で並ぶ</a></li><li class="l3"><a href="#s5">2. フォント単位からピクセルへ</a></li><li class="l3"><a href="#s6">3. 使った文字だけ焼く — Day 17 の棚詰めを実行中にやる</a></li><li class="l3"><a href="#s7">4. 1チャンネルで足りる。そして <code>GL_UNPACK_ALIGNMENT</code> の罠</a></li><li class="l3"><a href="#s8">5. ピクセルに合わせないとにじむ</a></li><li class="l3"><a href="#s9">6. カーニングは高い。日本語ではほぼ効かないのに</a></li><li class="l3"><a href="#s10">7. 「1文字」は思ったより難しい</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">フォントは同梱しない</a></li><li class="l3"><a href="#s15">キーの追加</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">Text — Render の上に積む層</a></li><li class="l3"><a href="#s19">1文字が画面に出るまで — 4つの層を通り抜ける</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21"><code>;</code> 1回目: 情報が画面に出る</a></li><li class="l3"><a href="#s22"><code>;</code> 2回目: アトラスが見える</a></li><li class="l3"><a href="#s23"><code>;</code> 3回目: 見本帳</a></li><li class="l3"><a href="#s24"><code>/</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s25">改造課題</a></li><li class="l3"><a href="#s26">課題1(易): カーニングを安くする</a></li><li class="l3"><a href="#s27">課題2(中): フォントフォールバック — 絵文字を出す</a></li><li class="l3"><a href="#s28">課題3(難): SDF フォントにする</a></li><li class="l3"><a href="#s29">そのほか、今日やらなかったこと</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">フォントのメトリクス(メイリオ)</a></li><li class="l3"><a href="#s32">文字まわりのコスト</a></li><li class="l3"><a href="#s33">実際の画面での測定</a></li><li class="l3"><a href="#s34">自己チェック(21 項目すべて合格)</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 5(ゲームが作れる状態に)の4日目。<strong>画面に文字が出る</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>;</code> を押すと、タイトルバーに押し込んでいた数字が<strong>画面の中</strong>に出る。もう2回押すと見本帳が出て、日本語も 48px の見出しも中央ぞろえも並ぶ。</p>
+<div class="code"><pre><code>Day28   512.3 fps   DC:4
+構造体配列  更新:0.12ms  GO:12  E:0  スプライト:1000
+文字:208字  棚5段  使用率16.8%  焼:0  積:87枚  描画:0.39ms</code></pre></div>
+<p><strong>フォントは同梱していない</strong>。<code>C:\Windows\Fonts</code> からメイリオを探して開き、<strong>使った文字だけ</strong>をその場で焼いて 1 枚のアトラスに詰める。日本語は常用漢字だけで 2136 字あり、全部焼くと 30.5ms かかる——つまり<strong>起動時に全部焼くという選択肢が無い</strong>ことが、今日の設計を決めている。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、実装に直結するものを挙げておく。</p>
+<ul><li><a href="https://learnopengl.com/In-Practice/Text-Rendering">Text Rendering</a>(LearnOpenGL) <strong>今日といちばん近い資料</strong>。FreeType でグリフを焼いてクアッドを並べる、という構成がそのまま同じ。<code>GL_UNPACK_ALIGNMENT</code> の罠(要点4)もここに出てくる</li><li><a href="https://github.com/nothings/stb/blob/master/stb_truetype.h">stb_truetype.h</a> の冒頭コメント今日使うライブラリ本体。<strong>関数一覧の前にある解説</strong>が、フォントの単位系(em、フォント単位、スケール)の説明として簡潔でよい</li><li><a href="https://faultlore.com/blah/text-hates-you/">Text Rendering Hates You</a>文字を「ちゃんと」出そうとすると何が待っているか——合字、異体字、右横書き、結合文字、書記素クラスタ。<strong>今日やらないことの一覧</strong>として読むとよい</li><li><a href="https://steamcdn-a.akamaihd.net/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf">Valve の SDF 論文</a>拡大に強い文字の定番手法。改造課題3で触れる</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 文字は「ベースライン + 送り」で並ぶ</h3>
+<p>四角を並べるのとの違いは、<strong>そろえる線が上端ではない</strong>こと。</p>
+<div class="code"><pre><code>        ┌───┐                    ┌───┐
+   ─────┤ A ├──┬───┬─────────────┤ 漢 ├──   ← ascent(上端)
+        │   │  │ g │             │    │
+   ═════╧═══╧══╪═══╪═════════════╧════╧══   ← ベースライン
+               │   │
+   ────────────┴───┴──────────────────────   ← descent(下端)
+        |&lt;-----&gt;|
+        Advance(次の原点まで)</code></pre></div>
+<p>上端をそろえて置くと、<code>g</code> や <code>p</code> のように下へ伸びる字でがたつく。そろえるのは<strong>ベースライン</strong>で、そこからの上下は各グリフが持っている。</p>
+<p>フォントから読む数字は5つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>数字</th><th>単位</th><th>意味</th></tr></thead>
+<tbody>
+<tr><td><code>ascent</code></td><td>フォント全体</td><td>ベースラインから上へどれだけ使うか</td></tr>
+<tr><td><code>descent</code></td><td>フォント全体</td><td>下へどれだけ使うか</td></tr>
+<tr><td><code>lineGap</code></td><td>フォント全体</td><td>行と行の間に足す余白(0 のフォントも多い)</td></tr>
+<tr><td><code>Advance</code></td><td>グリフごと</td><td>次の文字の原点までの距離</td></tr>
+<tr><td><code>Offset</code></td><td>グリフごと</td><td>原点から絵の左上まで</td></tr>
+</tbody>
+</table></div>
+<p><strong>行送りを自分で決めてはいけない</strong>。「文字の高さ + 4px」のように書くと、フォントを差し替えた瞬間に行がくっついたり離れたりする。行送りは <code>ascent + |descent| + lineGap</code> で、<strong>フォントが持っている情報</strong>。</p>
+<p>実測(メイリオ、16px 指定):</p>
+<div class="code"><pre><code>ascent 11.31 / descent 4.69 / 行送り 16.00</code></pre></div>
+<p><code>Advance</code> と絵の幅が<strong>別物</strong>なのも大事なところ。空白は絵を持たないが送りはある(実測 3.62px)し、<code>j</code> のように絵が原点より左へはみ出す字もある。</p>
+<h3 id="s5">2. フォント単位からピクセルへ</h3>
+<p>TrueType の座標は「フォント単位」という解像度非依存の整数で入っている。1em が 1000 だったり 2048 だったりする。ピクセルにするには倍率を掛ける。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float scale = font.ScaleFor(32.0f);   // メイリオでは 0.0104166...
+float 幅ピクセル = フォント単位 * scale;</code></pre></div>
+<p>引っかかるのは<strong>「32px」が何の 32px か</strong>。<code>ScaleForPixelHeight</code> が返すのは「<code>ascent + |descent|</code> が 32px になる倍率」で、em の高さでも、実際に描かれる字の高さでもない。だから <strong>16px を指定しても、字は 16px より小さく見える</strong>(メイリオでは 11.31 + 4.69)。</p>
+<p>フォントの見た目の大きさが規格化されていないのは、そもそもそういうもの。「同じ px 指定でもフォントによって大きさが違う」のはバグではない。</p>
+<div class="inject"><figure class="lab" id="ln-lab">
+  <div class="lab-head">
+    <h3>字を並べる — ベースラインと送り(要点1・2・6・7)</h3>
+    <span class="tag">reference の Text/TextRenderer.cs(Layout・MeasureLine・DrawLine)を JS に移し、メイリオの数(大きさごとの ascent・descent・行送り、グリフの幅・高さ・Offset・送り、カーニング)は reference の FontFace を C# で回して取り出した値をそのまま使ったもの。幅・ascent・descent・行送りは C# と同じになる(16px で 11.31 / 4.69 / 16.00、AVAV のカーニングは 32px で 58.04 → 56.20)。枠はグリフの絵の箱(OffsetX・OffsetY・幅・高さ)、下の目盛りがペンの位置(送り)。字の絵はこのページだけで、ブラウザのメイリオ(無ければ代わりのフォント)で箱の中に描いている。フォントが持っていない字(絵文字)は、reference と同じく豆腐の箱にする</span>
+  </div>
+  <div class="stage"><canvas id="ln-canvas" style="height:260px" aria-label="1行の字を拡大して、ベースライン・ascent・descent・送りを重ねた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">文字列</span>
+      <div class="seg" id="ln-text"><button data-v="Ag漢 jpy" aria-pressed="true">Ag漢 jpy</button><button data-v="AVATAR To." aria-pressed="false">AVATAR To.</button><button data-v="あいうえお" aria-pressed="false">あいうえお</button><button data-v="𠮟" aria-pressed="false">𠮟(サロゲートペア)</button><button data-v="😀" aria-pressed="false">😀(フォントに無い)</button></div>
+    </div>
+    <div class="ctl"><span class="label">大きさ</span>
+      <div class="seg" id="ln-px"><button data-v="16" aria-pressed="false">16px</button><button data-v="32" aria-pressed="true">32px</button><button data-v="48" aria-pressed="false">48px</button></div>
+    </div>
+    <div class="ctl"><span class="label">カーニング</span>
+      <div class="seg" id="ln-kern"><button data-v="1" aria-pressed="true">あり(reference の既定)</button><button data-v="0" aria-pressed="false">なし</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ln-stats"></div><p id="ln-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">3. 使った文字だけ焼く — Day 17 の棚詰めを実行中にやる</h3>
+<p>日本語は文字数が桁違いに多い。実測すると:</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>焼く時間</th><th>1文字あたり</th><th>アトラスの使用率</th></tr></thead>
+<tbody>
+<tr><td>ASCII 95字(16px)</td><td>1.0ms</td><td>10.5us</td><td>512x512 の 5.1%</td></tr>
+<tr><td>常用漢字 2136字(16px)</td><td><strong>30.5ms</strong></td><td>14.3us</td><td>1024x1024 の 27.9%(512 には入らない)</td></tr>
+</tbody>
+</table></div>
+<p><strong>ASCII なら起動時に全部焼いてよい</strong>。1ms なら誰も気づかない。<strong>日本語はそうはいかない</strong>——30.5ms は 60fps の 2 フレーム分で、そこで確実に止まる。しかも実際に使うのはゲーム1本でせいぜい数百字なので、大半が無駄になる。</p>
+<p>だから<strong>来た文字を、来たときに焼く</strong>。</p>
+<div class="code"><pre><code>1. 辞書を引く → あればそれを返す(61ns)
+2. 無ければ焼いて、棚に置いて、テクスチャに送る(14.3us)</code></pre></div>
+<p><strong>234 倍の差</strong>があるので、キャッシュが効いているかどうかがそのまま性能になる。</p>
+<p>Day 17 の <code>TextureAtlas</code> も棚詰めだったが、<strong>あちらは全部そろってから詰めた</strong>ので高さの降順に並べ替えられた(段の無駄が小さい)。今日は来た順なので、低い字のあとに高い字が来ると段が丸ごと高くなる。それでも実用になるのは、<strong>同じ大きさの文字ばかり来る</strong>という使われ方に助けられているから。</p>
+<p>そして<strong>キーには大きさが入る</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>long key = ((long)pixelHeight &lt;&lt; 32) | (uint)codepoint;</code></pre></div>
+<p>同じ「あ」でも 16px と 32px では別の絵なので、別々に焼く。つまり<strong>サイズを増やすとアトラスを食う</strong>。大きさを自由にしたいなら SDF(改造課題3)へ進むことになる。</p>
+<h3 id="s7">4. 1チャンネルで足りる。そして <code>GL_UNPACK_ALIGNMENT</code> の罠</h3>
+<p>グリフが持っているのは色ではなく、<strong>「その画素のどれだけが字で覆われているか」という 0〜255 の値ひとつ</strong>だけ。色は描くときに頂点から掛ける。だから 1 チャンネル(<code>GL_R8</code>)で足りる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>float coverage = texture(uTexture, vTexCoord).r;
+FragColor = vec4(vColor.rgb, vColor.a * coverage);</code></pre></div>
+<p>RGBA で持つと、同じ値を 4 回書くために 4 倍のメモリを使うことになる(512x512 なら 1MB が 256KB で済む)。ついでに、<strong>この式がアンチエイリアスの正体</strong>でもある——輪郭の画素だけが中途半端な被覆率を持ち、そのまま半透明になる。</p>
+<p>そして今日いちばん有名な罠。</p>
+<blockquote><p>OpenGL は既定で「各行は4バイト境界にそろっている」と思って読む。</p></blockquote>
+<p>RGBA なら1画素4バイトなので必ずそろうが、<strong>1チャンネルだとそろわない</strong>。幅 11 のグリフを送ると、GL は「1行 12 バイト」のつもりで読み進めるので、2行目以降が1バイトずつずれて<strong>字が斜めに崩れる</strong>。</p>
+<p>たちが悪いのは、<strong>幅がたまたま4の倍数の字だけ正しく出る</strong>こと。「一部の漢字だけ壊れる」という形で出るので、原因にたどり着きにくい。</p>
+<p>直し方は1行。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+// ... TexSubImage2D ...
+gl.PixelStore(PixelStoreParameter.UnpackAlignment, 4);   // 戻す</code></pre></div>
+<p><strong>戻すのを忘れない</strong>。GL の状態はグローバルなので、変えっぱなしにすると遠く離れた場所のテクスチャ読み込みが壊れる。</p>
+<div class="inject"><figure class="lab" id="at-lab">
+  <div class="lab-head">
+    <h3>アトラスに焼く — 来た順に棚へ詰める(要点3・4、; の2回目と3回目、/ の自己チェック)</h3>
+    <span class="tag">reference の Text/GlyphAtlas.cs(GetOrAdd・TryAllocate の棚詰め・Usage)と Program.DrawTextSample・RunTextCheck を JS に移し、グリフの幅と高さは C# で取り出した値を使ったもの。字数・段数・使用率は C# と同じ(見本帳を空のアトラスに1回描くと 159字 / 4段 / 14.6%、ASCII 95字で 512px 中 5.1%、漢字 2136字で 1024px 中 27.9%)。つまみで「何字目まで焼いたか」を戻せる。「UNPACK_ALIGNMENT 4 のまま」は要点4の誤りの再現で、幅が4の倍数でない字の2行目以降が1バイトずつずれる(このページだけ)。字の絵はブラウザのメイリオで描いたもの。下の「画面」は見本帳を 960x640 に積んだ結果(位置は C# と同じ計算)。/ の自己チェックの行は C# と同じになる(GL のエラーの行だけは、このページが GL を使わないので文言が違う)</span>
+  </div>
+  <div class="stage"><canvas id="at-canvas" style="height:420px" aria-label="グリフのアトラス。棚ごとに字が詰まっている"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">焼くもの</span>
+      <div class="seg" id="at-scene"><button data-v="sample" aria-pressed="true">見本帳を1回描く(512)</button><button data-v="check" aria-pressed="false">/ の自己チェックの順(512)</button><button data-v="ascii" aria-pressed="false">ASCII 95字(512)</button><button data-v="kanji" aria-pressed="false">漢字 2136字(1024)</button><button data-v="kanji512" aria-pressed="false">漢字 2136字を 512 へ</button></div>
+    </div>
+    <div class="ctl range"><span class="label">何字目まで焼いたか</span><input type="range" id="at-upto" min="0" max="100" step="1" value="100"><output id="at-upto-o"></output></div>
+    <div class="ctl"><span class="label">GL_UNPACK_ALIGNMENT</span>
+      <div class="seg" id="at-align"><button data-v="1" aria-pressed="true">1 にして送る(reference)</button><button data-v="4" aria-pressed="false">4 のまま(既定)</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示</span>
+      <div class="seg" id="at-view"><button data-v="all" aria-pressed="true">アトラス全体</button><button data-v="used" aria-pressed="false">使った段だけ拡大</button></div>
+    </div>
+    <div class="ctl"><span class="label">自己チェック</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="at-check">/ 自己チェック</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="at-stats"></div><p id="at-note" style="margin:10px 0 0"></p><pre id="at-console" style="margin:10px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage" style="border-top:1px solid var(--line)"><canvas id="at-screen" style="height:420px" aria-label="見本帳を 960x640 の画面に積んだ結果"></canvas></div>
+</figure></div>
+<h3 id="s8">5. ピクセルに合わせないとにじむ</h3>
+<p>字の輪郭が画素の境目からずれると、線形補間で隣の画素へにじむ。1px の線が 2px の薄い線になり、全体がぼやけて見える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (PixelSnap)
+{
+    left = MathF.Round(left);
+    top = MathF.Round(top);
+}</code></pre></div>
+<p><strong>丸める順番</strong>に注意がいる。<code>SpriteBatch</code> は中心で受け取るので、先に中心を出してから丸めると、幅が奇数の字で 0.5px ずれる。<strong>左上を丸めてから中心を出す</strong>。</p>
+<p>ただし常に丸めればよいわけではない。<strong>止まっている字は丸め、動く字は丸めない</strong>——スクロールする字幕を丸めると 1px 単位でかくかく動く。UI は前者、演出は後者、が実務上の落としどころ。</p>
+<div class="inject"><figure class="lab" id="sn-lab">
+  <div class="lab-head">
+    <h3>ピクセルに合わせる — 0.5px ずれるとにじむ(要点5、見本帳のピクセル丸めの2行)</h3>
+    <span class="tag">見本帳の「細い線ほど差が出る ABC 漢字」(16px)を、DrawLine と同じ計算で並べ、アトラス(R8、Linear・ClampToEdge)から双線形で読み出して 1 画素ずつ描いたものを 4 倍に拡大して見せる。左上の位置と丸めの有無は reference と同じ式(MathF.Round で左上を丸めてから中心を出す)。字の絵はブラウザのメイリオで描いたもの。ずらす量を変えられるのはこのページだけ(見本帳は 0.5px)</span>
+  </div>
+  <div class="stage"><canvas id="sn-canvas" style="height:220px" aria-label="丸めた行と丸めない行を拡大して並べた図"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">下の行をずらす量</span>
+      <div class="seg" id="sn-off"><button data-v="0" aria-pressed="false">0px</button><button data-v="0.25" aria-pressed="false">0.25px</button><button data-v="0.5" aria-pressed="true">0.5px(見本帳)</button></div>
+    </div>
+    <div class="ctl"><span class="label">下の行の PixelSnap</span>
+      <div class="seg" id="sn-snap"><button data-v="0" aria-pressed="true">切る(見本帳)</button><button data-v="1" aria-pressed="false">丸める</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sn-stats"></div></div>
+</figure></div>
+<p>見本帳(<code>;</code> を3回)で、丸めた行と 0.5px ずらした行を並べて出しているので見比べられる。</p>
+<h3 id="s9">6. カーニングは高い。日本語ではほぼ効かないのに</h3>
+<p>"AV" や "To" は、送りのとおりに並べると離れて見える。フォントは「この組み合わせならこれだけ詰めろ」という表を持っていて、それがカーニング。</p>
+<p>実測すると、<strong>払っているコストが釣り合っていない</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>24文字を測る</th><th>24文字を積む</th></tr></thead>
+<tbody>
+<tr><td>カーニングあり</td><td>4,057ns</td><td>9,726ns</td></tr>
+<tr><td>カーニングなし</td><td><strong>207ns</strong></td><td><strong>1,029ns</strong></td></tr>
+<tr><td>倍率</td><td><strong>20倍</strong></td><td><strong>9.5倍</strong></td></tr>
+</tbody>
+</table></div>
+<p>理由は <code>stbtt_GetCodepointKernAdvance</code> の中身にある。1文字ごとに<strong>グリフ番号を2回引き直し</strong>(9MB のフォントの文字対応表を二分探索)、そのうえで kern テーブルをもう一度二分探索する。</p>
+<p>そして<strong>日本語は全角送りなので、ほとんどの組で 0 が返る</strong>。実測でも "AVAV" が 58.04px → 56.20px と 1.84px 詰まるだけで、かな漢字ではまず動かない。</p>
+<p>対策は3つあり、どれも素直。</p>
+<ul><li><strong>(前の文字, 次の文字) をキーにキャッシュする</strong> — 同じ組は何度も出てくる</li><li><strong>どちらかが CJK なら飛ばす</strong> — 2 行で書ける</li><li><strong>そもそも切る</strong> — UI が日本語だけならこれで十分</li></ul>
+<p>今日は既定を「あり」にしてある。<strong>コストが見える状態にしておくため</strong>で、見本帳で効き目を見て、計測で値段を見てから決められるようにしている(改造課題1)。</p>
+<h3 id="s10">7. 「1文字」は思ったより難しい</h3>
+<p>C# の <code>char</code> は 16bit なので、<strong>1文字が <code>char</code> 2個になることがある</strong>(サロゲートペア)。絵文字や一部の漢字(𠮟 = U+20B9F)がこれにあたる。<code>char</code> をそのまま回すと、2個をばらばらの文字として引きに行って両方とも豆腐になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>foreach (Rune rune in line.EnumerateRunes())   // UTF-32 のコードポイント単位</code></pre></div>
+<p>日本語の常用漢字は 16bit で表せる範囲に収まるので普段は困らないが、<strong>困らないうちに正しく書いておく</strong>類の話。</p>
+<p>そして <code>Rune</code> でもまだ足りない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>単位</th><th>例</th><th>今日</th></tr></thead>
+<tbody>
+<tr><td><code>char</code>(UTF-16)</td><td>𠮟 は 2 個</td><td>使わない</td></tr>
+<tr><td><code>Rune</code>(コードポイント)</td><td>𠮟 は 1 個</td><td><strong>これ</strong></td></tr>
+<tr><td>書記素クラスタ</td><td>👨‍👩‍👧 は 1 個(結合文字で 5 コードポイント)</td><td>扱わない</td></tr>
+</tbody>
+</table></div>
+<p>さらに、<strong>フォントが持っていない文字</strong>は避けて通れない。メイリオにも游ゴシックにも絵文字は入っていないので、グリフ番号 0(<code>.notdef</code>)に落ち、四角い枠——いわゆる豆腐——が出る。</p>
+<p>これを「別のフォントで出す」のがフォントフォールバックで、CJK と絵文字が混ざる文章では必須になる(改造課題2)。今日は<strong>豆腐を出す</strong>ところまで。<strong>黙って消えるより、抜けが見えるほうがよい</strong>。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Text/FontFace.cs</code></td><td>351 (147)</td><td><code>SystemFonts</code> / <code>GlyphMetrics</code> / <code>FontFace</code></td></tr>
+<tr><td><code>Text/GlyphAtlas.cs</code></td><td>257 (125)</td><td><code>Glyph</code> と動的アトラス(棚詰め)</td></tr>
+<tr><td><code>Text/TextRenderer.cs</code></td><td>264 (147)</td><td><code>TextAlign</code> とレイアウト</td></tr>
+<tr><td><code>shaders/text.frag</code></td><td>21</td><td>1チャンネルを被覆率として読む</td></tr>
+</tbody>
+</table></div>
+<p><code>Text/</code> は <code>Render/</code>(<code>Texture</code> / <code>AtlasRegion</code> / <code>SpriteBatch</code>)の上に乗る。<strong><code>Render/</code> は <code>Text/</code> を知らない</strong>——<code>SpriteBatch</code> から見れば文字はただの四角。</p>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Render/Texture.cs</code></td><td>+115</td><td><code>CreateR8</code> と <code>UploadR8</code>(要点4)</td></tr>
+<tr><td><code>Program.cs</code></td><td>+610 / -3</td><td>フォントの用意、画面内の表示、見本帳、自己チェックと計測</td></tr>
+<tr><td><code>Day28.csproj</code></td><td>+1 パッケージ</td><td><code>StbTrueTypeSharp</code></td></tr>
+</tbody>
+</table></div>
+<p><code>Program.cs</code> の <code>-3</code> は、ウィンドウのタイトルが <code>Day25</code> / <code>Day26</code> のままだったのを直したぶん。<strong>Day 26 と Day 27 で更新し忘れていた</strong>ので、ここでまとめて直してある。</p>
+<h3 id="s14">フォントは同梱しない</h3>
+<p><code>assets/</code> に何も足していない。<strong>システムのフォントを探して使う</strong>(要点3の前提)。</p>
+<div class="code"><pre><code>meiryo.ttc → YuGothM.ttc → YuGothR.ttc → BIZ-UDGothicR.ttc → msgothic.ttc
+  → segoeui.ttf → consola.ttf → arial.ttf</code></pre></div>
+<p>日本語を持つものを先に置き、「あ」を持っているかで判定する。どれも持っていなければ、開けたものの中で最初のものを使う——<strong>日本語が出せないくらいなら落ちる、よりは、英数字だけでも出す</strong>。</p>
+<p><code>.ttc</code> は TrueType Collection で、1つのファイルに複数のフォントが入っている(メイリオなら4つ)。読むときに何番目かを指定する必要がある。</p>
+<p>フォントを同梱すればどの環境でも同じ絵になるが、日本語フォントは 6〜14MB あって、<code>assets/</code> 全部で 1.5MB のリポジトリには重すぎる。Windows には必ず入っているので、そちらを借りる判断にした。</p>
+<h3 id="s15">キーの追加</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>;</code></td><td>画面内の表示(なし → 情報 → 情報+アトラス → 見本帳)</td></tr>
+<tr><td><code>/</code></td><td>テキストの自己チェックと計測</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">写経する順番</h3>
+<p>依存の順に並べる。上から順に写せば、途中でビルドが通らなくなることはない。</p>
+<ol><li><strong><code>Day28.csproj</code></strong> — <code>StbTrueTypeSharp</code> を足す。<strong>最初にやる</strong></li><li><strong><code>Render/Texture.cs</code></strong> — <code>CreateR8</code> と <code>UploadR8</code> を追加。<code>GL_UNPACK_ALIGNMENT</code> を 1 にして戻すところが要点(要点4)</li><li><strong><code>shaders/text.frag</code></strong> — 新規。GLSL の本体は 7 行。<strong>頂点シェーダは <code>sprite.vert</code> を使い回す</strong>ので、そちらは触らない</li><li><strong><code>Text/FontFace.cs</code></strong> — <code>SystemFonts</code> → <code>GlyphMetrics</code> → <code>FontFace</code>。<code>GCHandle</code> で配列を固定している理由(stb がポインタを覚える)に注目</li><li><strong><code>Text/GlyphAtlas.cs</code></strong> — <code>Glyph</code> → <code>GlyphAtlas</code>。<code>TryAllocate</code> の棚詰めと、<code>Bake</code> の上下反転が本丸</li><li><strong><code>Text/TextRenderer.cs</code></strong> — <code>TextAlign</code> → <code>TextRenderer</code>。<code>Layout</code> が測る側と描く側の両方から呼ばれている形に注目</li><li><strong><code>Program.cs</code></strong> — 依存の順に。<ol><li>フィールド(<code>_font</code> / <code>_glyphAtlas</code> / <code>_text</code> / <code>_textBatch</code> / <code>_textShader</code> / <code>_overlay</code> / <code>UiFontSize</code>)</li><li><code>OnLoad</code> — シェーダの読み込みとフォントの用意、一覧の表示</li><li><code>OnRender</code> — <code>_glyphAtlas.BeginFrame()</code> と <code>RenderText()</code> の呼び出し</li><li><code>RenderText</code> / <code>DrawOverlayInfo</code> / <code>DrawTextSample</code> / <code>DrawAtlasView</code> / <code>Line</code> / <code>OverlayLabel</code></li><li><code>OnKeyDown</code> / 起動時のヘルプ / <code>OnClosing</code> / ウィンドウのタイトル</li><li><code>RunTextCheck</code> → <code>BenchmarkText</code></li></ol></li></ol>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>また層が1つ増えた</strong>。Day 27 で 6 つ、今日 <code>Text/</code> が加わって 7 つになる。</p>
+<p><code>Text/</code> は今までの層と少し性格が違う。<code>Audio/</code> や <code>Physics/</code> が<strong>自分で完結している</strong>のに対して、<code>Text/</code> は <strong><code>Render/</code> を土台にして、その上に積む</strong>——グリフは <code>Texture</code> に焼かれ、<code>AtlasRegion</code> として切り出され、<code>SpriteBatch</code> に積まれる。<strong>文字専用の描画経路をひとつも作っていない</strong>のがこの日の設計上の要点で、そのぶん <code>Text/</code> は薄く済んでいる。</p>
+<h3 id="s18">Text — Render の上に積む層</h3>
+<svg viewBox="0 0 980 608" role="img" aria-label="Text のクラス図。SystemFonts(Directory・Open(requiredCodepoint))は FontFace を探して開く。FontFace(Path・Name・FaceIndex・FaceCount・ScaleFor・Ascent・Descent・LineGap・LineHeight・HasGlyph・GlyphIndexOf・Measure・Rasterize・Kerning)は GlyphMetrics(Width・Height・OffsetX・OffsetY・Advance・HasPixels)を測って返す。GlyphAtlas(Size・Texture・Font・GlyphCount・ShelfCount・BakedThisFrame・BakedTotal・IsFull・Usage・BeginFrame・GetOrAdd(codepoint, pixelHeight))は FontFace に焼いてもらい、R8 の Texture を1枚合成で持ち、Glyph を配る。Glyph(Region・Metrics・HasPixels)は AtlasRegion と GlyphMetrics を合成で持つ。TextRenderer(Kerning・PixelSnap・GlyphsDrawn・LineHeight・Ascent・Measure・Draw)は GlyphAtlas を引き、SpriteBatch に四角を積む" style="width:100%;max-width:980px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="280" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="150" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SystemFonts</text><line x1="10" y1="38" x2="290" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Directory</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Open(requiredCodepoint) FontFace</text><rect x="10" y="140" width="380" height="248" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="200" y="159" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">FontFace</text><line x1="10" y1="168" x2="390" y2="168" stroke="var(--line)"></line><text x="20" y="185" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Path</text><text x="20" y="200" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="20" y="215" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int FaceIndex</text><text x="20" y="230" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int FaceCount</text><text x="20" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+ScaleFor(pixelHeight) float</text><text x="20" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Ascent(scale) float</text><text x="20" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Descent(scale) float</text><text x="20" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LineGap(scale) float</text><text x="20" y="305" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LineHeight(scale) float</text><text x="20" y="320" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+HasGlyph(codepoint) bool</text><text x="20" y="335" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GlyphIndexOf(codepoint) int</text><text x="20" y="350" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Measure(glyphIndex, scale) GlyphMetrics</text><text x="20" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Rasterize(glyphIndex, scale, dest, w, h, stride)</text><text x="20" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Kerning(left, right, scale) float</text><rect x="10" y="470" width="220" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="120" y="489" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GlyphMetrics</text><line x1="10" y1="498" x2="230" y2="498" stroke="var(--line)"></line><text x="20" y="515" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Width</text><text x="20" y="530" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Height</text><text x="20" y="545" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int OffsetX</text><text x="20" y="560" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int OffsetY</text><text x="20" y="575" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Advance</text><text x="20" y="590" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool HasPixels</text><rect x="500" y="10" width="470" height="143" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="735" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">TextRenderer</text><line x1="500" y1="38" x2="970" y2="38" stroke="var(--line)"></line><text x="510" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Kerning</text><text x="510" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool PixelSnap</text><text x="510" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int GlyphsDrawn</text><text x="510" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+LineHeight(pixelHeight) float</text><text x="510" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Ascent(pixelHeight) float</text><text x="510" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Measure(text, pixelHeight) Vector2</text><text x="510" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Draw(batch, text, position, pixelHeight, color, align, layer) Vector2</text><rect x="500" y="200" width="300" height="203" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="650" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">GlyphAtlas</text><line x1="500" y1="228" x2="800" y2="228" stroke="var(--line)"></line><text x="510" y="245" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Size</text><text x="510" y="260" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Texture Texture</text><text x="510" y="275" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FontFace Font</text><text x="510" y="290" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int GlyphCount</text><text x="510" y="305" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ShelfCount</text><text x="510" y="320" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int BakedThisFrame</text><text x="510" y="335" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int BakedTotal</text><text x="510" y="350" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool IsFull</text><text x="510" y="365" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Usage</text><text x="510" y="380" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+BeginFrame()</text><text x="510" y="395" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GetOrAdd(codepoint, pixelHeight) Glyph</text><rect x="500" y="470" width="240" height="83" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="620" y="489" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Glyph</text><line x1="500" y1="498" x2="740" y2="498" stroke="var(--line)"></line><text x="510" y="515" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+AtlasRegion Region</text><text x="510" y="530" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+GlyphMetrics Metrics</text><text x="510" y="545" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool HasPixels</text><rect x="850" y="290" width="120" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="910" y="309" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Texture</text><rect x="760" y="560" width="140" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="830" y="579" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">AtlasRegion</text><rect x="850" y="200" width="120" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="910" y="219" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">SpriteBatch</text><path stroke-dasharray="5 4" d="M150 78 L150 138" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="158" y="113" fill="var(--muted)" font-size="12">探して開く</text><path stroke-dasharray="5 4" d="M120 388 L120 468" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="128" y="433" fill="var(--muted)" font-size="12">測って返す</text><path d="M500 301.5 L392 301.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="400" y="294.5" fill="var(--muted)" font-size="12">焼いてもらう</text><path d="M818 304 L850 304" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M800 304 L809 310 L818 304 L809 298 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="804" y="324" fill="var(--muted)" font-size="12">R8 を1枚持つ</text><path stroke-dasharray="5 4" d="M620 403 L620 468" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="628" y="440.5" fill="var(--muted)" font-size="12">配る</text><path d="M758 537 L830 537 L830 560" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M740 537 L749 543 L758 537 L749 531 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M482 534 L230 534" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M500 534 L491 528 L482 534 L491 540 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><path d="M600 153 L600 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="608" y="180.5" fill="var(--muted)" font-size="12">引く</text><path stroke-dasharray="5 4" d="M910 153 L910 198" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="902" y="180.5" fill="var(--muted)" font-size="12" text-anchor="end">四角を積む</text></g></svg>
+<p>4つのクラスが、<strong>それぞれ1つのことしかしない</strong>ように切ってある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead>
+<tbody>
+<tr><td><code>SystemFonts</code></td><td>どこにフォントがあるか</td><td>描き方</td></tr>
+<tr><td><code>FontFace</code></td><td>フォントの中身(寸法とアウトライン)</td><td>GL、アトラス、レイアウト</td></tr>
+<tr><td><code>GlyphAtlas</code></td><td>どこに置いたか、何を焼いたか</td><td>文字の並べ方</td></tr>
+<tr><td><code>TextRenderer</code></td><td>並べ方(送り・行送り・整列)</td><td>フォントの中身、GL</td></tr>
+</tbody>
+</table></div>
+<p>この切り方の値打ちは、<strong>差し替えたときにどこまで壊れるか</strong>で分かる。SDF に変える(改造課題3)なら <code>GlyphAtlas</code> と <code>text.frag</code> だけが変わり、<code>TextRenderer</code> は 1 行も触らない。フォントフォールバックを入れる(改造課題2)なら <code>FontFace</code> を複数持つだけで、<code>GlyphAtlas</code> の棚詰めには影響しない。</p>
+<p><strong><code>GlyphMetrics</code> が <code>FontFace</code> と <code>TextRenderer</code> の共通語</strong>になっている。「原点からどれだけずらして、次にどれだけ進むか」——この5つの数字さえあれば、フォントの実装が何であれ字を並べられる。</p>
+<h3 id="s19">1文字が画面に出るまで — 4つの層を通り抜ける</h3>
+<p><code>Draw("あ", ...)</code> を呼んでから画面に出るまでに何が起きるか。<strong>初回だけ通る道</strong>(焼く)と、<strong>毎回通る道</strong>(引く・積む)が分かれているのが要点。</p>
+<svg viewBox="0 0 1000 672" role="img" aria-label="1文字が画面に出るまで(シーケンス図)。Program が TextRenderer に Draw(batch, "あ", 位置, 16px, 色)を呼ぶ。TextRenderer は行に切ってベースラインを出し、GlyphAtlas に GetOrAdd(0x3042, 16)を頼む。初回だけ、GlyphAtlas は FontFace に GlyphIndexOf(0x3042)と Measure(グリフ番号, scale)を頼み、幅 11 / 高さ 11 / 送り 16 を受け取り、棚に場所を取り、Rasterize(作業用バッファへ)して上下をひっくり返し、Texture に UploadR8(x, y, 11, 11)する(実測 14.3us。ここだけが高い)。GlyphAtlas は Glyph(切り出し位置 + 寸法)を返す(2回目からは辞書を引くだけ。61ns)。TextRenderer は penX + OffsetX / baseline + OffsetY を出し、整数に丸めて(PixelSnap)、SpriteBatch に Draw(領域, 中心, 大きさ, 色)を積む。ここから先はスプライトと同じ道" style="width:100%;max-width:1000px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><line x1="80" y1="44" x2="80" y2="662" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="25" y="10" width="110" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="80" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Program</text><line x1="250" y1="44" x2="250" y2="662" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="185" y="10" width="130" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="250" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">TextRenderer</text><line x1="430" y1="44" x2="430" y2="662" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="370" y="10" width="120" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="430" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">GlyphAtlas</text><line x1="610" y1="44" x2="610" y2="662" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="555" y="10" width="110" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="610" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">FontFace</text><line x1="770" y1="44" x2="770" y2="662" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="720" y="10" width="100" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="770" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Texture</text><line x1="910" y1="44" x2="910" y2="662" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="4 4"></line><rect x="850" y="10" width="120" height="34" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="910" y="31" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">SpriteBatch</text><rect x="316" y="158" width="524" height="288" rx="6" fill="none" stroke="var(--accent)" stroke-dasharray="5 4"></rect><path d="M80 74 L248 74" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="165" y="68" text-anchor="middle" fill="var(--ink)" font-size="12.5">Draw(batch, "あ", 位置, 16px, 色)</text><path d="M250 106 L286 106 L286 118 L252 118" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="292" y="116" fill="var(--ink)" font-size="12.5">行に切る / ベースラインを出す</text><path d="M250 140 L428 140" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="340" y="134" text-anchor="middle" fill="var(--ink)" font-size="12.5">GetOrAdd(0x3042, 16)</text><text x="324" y="172" fill="var(--muted)" font-size="12">alt  初回だけ</text><path d="M430 188 L608 188" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="520" y="182" text-anchor="middle" fill="var(--ink)" font-size="12.5">GlyphIndexOf(0x3042)</text><path d="M430 220 L608 220" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="520" y="214" text-anchor="middle" fill="var(--ink)" font-size="12.5">Measure(グリフ番号, scale)</text><path stroke-dasharray="5 4" d="M610 252 L432 252" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="520" y="246" text-anchor="middle" fill="var(--ink)" font-size="12.5">幅 11 / 高さ 11 / 送り 16</text><path d="M430 284 L466 284 L466 296 L432 296" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="472" y="294" fill="var(--ink)" font-size="12.5">棚に場所を取る</text><path d="M430 318 L608 318" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="520" y="312" text-anchor="middle" fill="var(--ink)" font-size="12.5">Rasterize(作業用バッファへ)</text><path d="M430 350 L466 350 L466 362 L432 362" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="472" y="360" fill="var(--ink)" font-size="12.5">上下をひっくり返す</text><path d="M430 384 L768 384" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="600" y="378" text-anchor="middle" fill="var(--ink)" font-size="12.5">UploadR8(x, y, 11, 11)</text><rect x="360" y="404" width="480" height="24" rx="5" fill="var(--accent-soft)" stroke="var(--line)"></rect><text x="600" y="420" text-anchor="middle" fill="var(--ink)" font-size="12.5">実測 14.3us。ここだけが高い</text><path stroke-dasharray="5 4" d="M430 458 L252 458" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="340" y="452" text-anchor="middle" fill="var(--ink)" font-size="12.5">Glyph(切り出し位置 + 寸法)</text><rect x="180" y="478" width="320" height="24" rx="5" fill="var(--accent-soft)" stroke="var(--line)"></rect><text x="340" y="494" text-anchor="middle" fill="var(--ink)" font-size="12.5">2回目からは辞書を引くだけ。61ns</text><path d="M250 526 L286 526 L286 538 L252 538" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="292" y="536" fill="var(--ink)" font-size="12.5">penX + OffsetX / baseline + OffsetY</text><path d="M250 560 L286 560 L286 572 L252 572" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="292" y="570" fill="var(--ink)" font-size="12.5">整数に丸める(PixelSnap)</text><path d="M250 594 L908 594" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="580" y="588" text-anchor="middle" fill="var(--ink)" font-size="12.5">Draw(領域, 中心, 大きさ, 色)</text><rect x="777" y="614" width="219" height="24" rx="5" fill="var(--accent-soft)" stroke="var(--line)"></rect><text x="886.5" y="630" text-anchor="middle" fill="var(--ink)" font-size="12.5">ここから先はスプライトと同じ道</text></g></svg>
+<p>図で見てほしいのは、<strong><code>alt</code> の中が初回にしか走らない</strong>こと。14.3us と 61ns の差は 234 倍あり、<strong>キャッシュを持つかどうかがそのまま性能</strong>になる。だからアトラスは「使い回すためのもの」であって、描画をまとめるため(Day 17 の動機)だけのものではない。</p>
+<p>もうひとつ、<strong><code>TextRenderer</code> から <code>Texture</code> への線が無い</strong>。グリフを焼く判断も、GL を触るのも、全部 <code>GlyphAtlas</code> の中で閉じている。<code>TextRenderer</code> から見れば「文字を渡すと切り出し位置が返ってくる」だけで、それが今焼かれたものか、100 フレーム前に焼かれたものかを知らない。</p>
+</section>
+<section class="part"><h2 id="s20">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day28 -c Release</code></pre></div>
+<p>起動時に、見つかったフォントがコンソールに出る。</p>
+<div class="code"><pre><code>フォント: メイリオ  C:\WINDOWS\Fonts\meiryo.ttc
+  ファイル内のフォント数 4 / 使用 0 番目 / 日本語 あり
+  16px: ascent 11.31 / descent 4.69 / 行送り 16.00</code></pre></div>
+<p><strong><code>ファイル内のフォント数 4</code></strong> を確認する。<code>.ttc</code> に4つ入っているという意味で、ここが 1 なら単体の <code>.ttf</code> を開いている。</p>
+<p>フォントが1つも見つからなければ「見つかりませんでした(文字なしで続行します)」と出て、<strong>そのまま普通に遊べる</strong>。</p>
+<h3 id="s21"><code>;</code> 1回目: 情報が画面に出る</h3>
+<p>タイトルバーに押し込んでいた数字が画面の左上に出る。</p>
+<div class="code"><pre><code>Day28   512.3 fps   DC:4
+構造体配列  更新:0.12ms  GO:12  E:0  スプライト:1000
+音:0/32  要求:0  発音:0  間引き:0
+文字:87字  棚3段  使用率9.4%  焼:0  積:87枚  描画:0.12ms</code></pre></div>
+<p><strong><code>焼:</code> が 0 になっている</strong>のを確認する。1フレーム目は数十になり、そのあとは 0 のまま——<strong>同じ文字は2度焼かない</strong>からで、数字が動くと(<code>512.3</code> → <code>498.1</code>)そこで初めて新しい数字を焼く。</p>
+<p><code>F6</code> で衝突デモを出すと行が増え、数字が毎フレーム変わるので、<strong>焼く必要のある文字がひととおり出そろうまで <code>焼:</code> が動く</strong>のが見える。</p>
+<h3 id="s22"><code>;</code> 2回目: アトラスが見える</h3>
+<p>右下にアトラスの中身が出る。<strong>棚詰めがそのまま見える</strong>。</p>
+<ul><li>段の高さが「その段でいちばん高い字」で決まっている</li><li>右端に余りが出ている(次の字が入らなかったぶん)</li><li>大きさの違う字を混ぜる(見本帳を一度出してから戻る)と、段の高さがばらばらになる</li></ul>
+<p><code>G</code> と <code>PageDown</code> で背景を消すと見やすい。</p>
+<h3 id="s23"><code>;</code> 3回目: 見本帳</h3>
+<p>見たいことを1画面に並べてある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>見るところ</th><th>何が分かるか</th></tr></thead>
+<tbody>
+<tr><td>日本語の行</td><td>ひらがな・カタカナ・漢字・記号が出る</td></tr>
+<tr><td>48px の見出し</td><td>大きさは指定できるが、<strong>アトラスを食う</strong>(<code>;</code> 2回目で確認)</td></tr>
+<tr><td>整列の3つ</td><td>同じ y に左・中央・右。中央と右は<strong>行の幅を先に測っている</strong></td></tr>
+<tr><td>カーニング(上下2行)</td><td>上が詰まっている。"AVATAR" の A と V の間で分かりやすい</td></tr>
+<tr><td>ピクセル丸め(上下2行)</td><td>下は 0.5px ずらしてある。<strong>にじんで太く見える</strong></td></tr>
+<tr><td>最後の行</td><td>絵文字が豆腐(四角)になる</td></tr>
+</tbody>
+</table></div>
+<p>見本帳を出したあとに <code>;</code> を押してアトラスへ戻ると、<strong>48px の字が大きな段を作っている</strong>のが見える。</p>
+<h3 id="s24"><code>/</code>: 自己チェックと計測</h3>
+<p>21 項目すべて <code>OK</code> になり、続けてコストが出る。</p>
+<div class="code"><pre><code>[OK] 32px 指定で ascent+descent が 32px  32.00px
+[OK] 行送り &gt;= ascent+descent  行送り 32.00px / lineGap 0.00px
+[OK] 空白は絵を持たないが送りはある  送り 3.62px
+[OK] 2回目は焼き直さない  焼いた回数 1
+[OK] 大きさが違えば別のグリフ  16px と 17px で 1 回
+[OK] UV の幅が画素幅と一致  11.00px / 11px
+[OK] グリフを焼いても GL エラーが出ない  NoError
+[OK] Measure と Draw の大きさが一致  167.15x16.00
+[OK] サロゲートペアを1文字として数える  char 2 個 / 幅 10.67px
+[OK] 幅がグリフ1つぶんと一致  10.67px / 1グリフ 10.67px
+[OK] 満杯になっても落ちない  200字 / 4段
+  すべて合格
+
+### 文字まわりのコスト ###
+  焼く(ASCII 95字、16px):    10.5us  (合計 1.0ms / 512px 中 使用率 5.1%)
+  焼く(16px、初回)      :    14.3us  (2136字で 30.5ms / 1024px 中 使用率 27.9%)
+  焼く(48px、初回)      :    23.1us
+  引く(キャッシュあり)  :      60ns
+  Measure(24文字)       :    4205ns
+  Measure(カーニングなし):     216ns
+  Draw に積む(24文字)   :    9852ns
+  Draw(カーニングなし)  :    1036ns</code></pre></div>
+<p>いちばん大事なのは <strong><code>Measure と Draw の大きさが一致</code></strong>。測る側と描く側が別の答えを出すと、枠から字がはみ出したり中央ぞろえがずれたりする。今日は両方を同じ <code>Layout</code> に通しているので一致するが、<strong>速さのために片方だけ最適化した瞬間に崩れる</strong>ところなので、確かめる仕掛けを先に置いてある。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>(起動時の一覧)</td><td>「字を並べる」の数字</td><td>16px で ascent 11.31 / descent 4.69 / 行送り 16.00</td></tr>
+<tr><td><code>;</code> 1回目(情報)</td><td>(なし)</td><td>fps や更新時間はこのページでは出さない。焼いた数の動きは「アトラスに焼く」のつまみで見る</td></tr>
+<tr><td><code>;</code> 2回目(アトラス)</td><td>「アトラスに焼く」</td><td>段の高さは、その段でいちばん高い字で決まる。48px の見出しが大きな段を作る</td></tr>
+<tr><td><code>;</code> 3回目(見本帳)</td><td>「アトラスに焼く」の画面と「ピクセルに合わせる」</td><td>位置と整列は reference と同じ計算。カーニングの上下2行、丸めの上下2行</td></tr>
+<tr><td><code>/</code></td><td>「アトラスに焼く」の / 自己チェック</td><td>21 項目と [--] の2行が C# と同じ。計測(us・ns)は出さない</td></tr>
+<tr><td>(キーなし)</td><td>「アトラスに焼く」の UNPACK_ALIGNMENT 4、「ピクセルに合わせる」のずらす量</td><td>reference に無い比較。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day28 の Text/GlyphAtlas.cs・Text/TextRenderer.cs と、Program.cs の DrawTextSample・RunTextCheck を JS に移したもの。メイリオの数(ascent・descent・行送り・グリフの寸法と送り・カーニング・持っている字)は、reference の FontFace(StbTrueTypeSharp)を C# で回して取り出し、ページに埋め込んである。フォントのデータそのものは入れていない。reference の Text/ を GL の代わりの小さな差し替えの上で直接回した C# のプログラムと、自己チェックの 21 項目と [--] の2行、見本帳・ASCII・漢字のアトラスの字数・段数・使用率、文字列の幅が一致した。字の絵だけはブラウザが描いたもので、stb_truetype の絵とは細部が違う。コスト(us・ns・ms)は手元の環境で測った値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s25">改造課題</h2>
+<h3 id="s26">課題1(易): カーニングを安くする</h3>
+<p>要点6のとおり、カーニングは<strong>20倍</strong>のコストを払って <strong>1.84px</strong> を得ている。日本語の UI ではほとんど効かないのに、値段だけは全部払っている。</p>
+<p>まず、なぜ高いのかを確かめる。<code>FontFace.Kerning</code> は<code>stbtt_GetCodepointKernAdvance</code> を呼んでいて、その中では</p>
+<ol><li>左の文字 → グリフ番号(9MB のフォントの対応表を二分探索)</li><li>右の文字 → グリフ番号(同上)</li><li>kern テーブルを二分探索</li></ol>
+<p>が毎回走る。<strong>1 と 2 の結果は <code>GlyphAtlas</code> が既に持っている</strong>ので、二度手間になっている。</p>
+<p>やることは3段階。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// (a) 組をキーにキャッシュする
+private readonly Dictionary&lt;long, float&gt; _kerning = [];
+
+// (b) どちらかが CJK なら 0 と決め打つ
+static bool IsCjk(int cp) =&gt; cp &gt;= 0x3000 &amp;&amp; cp &lt;= 0x9FFF;</code></pre></div>
+<p>(a) と (b) を入れて <code>/</code> で測り直す。<strong>どちらがどれだけ効くか</strong>を分けて測ること——(b) だけで日本語の行はほぼ 0 になるが、英字の行は変わらない。</p>
+<p>そのうえで、<strong>(c) 最初からグリフ番号で引く API を通す</strong> (<code>stbtt_GetGlyphKernAdvance</code> にはグリフ番号を渡せる)ところまで行くと、1 と 2 が丸ごと消える。<code>GlyphAtlas</code> にグリフ番号を持たせる必要が出てくるので、<strong>どのクラスが何を知るべきか</strong>を考え直す練習になる。</p>
+<h3 id="s27">課題2(中): フォントフォールバック — 絵文字を出す</h3>
+<p>見本帳の最後の行が豆腐になるのは、メイリオが絵文字を持っていないから。Windows には <code>seguiemj.ttf</code>(Segoe UI Emoji)が入っているので、<strong>「メイリオに無ければそちらで焼く」</strong>ようにする。</p>
+<p>設計の分かれ道がここにある。</p>
+<ul><li><strong>フォントごとにアトラスを分ける</strong> — 単純だが、テクスチャが増えてバッチが切れる(Day 17 の話がそのまま戻ってくる)</li><li><strong>1枚のアトラスに混ぜ、キーにフォント番号を足す</strong> — バッチは1回のまま。<code>GlyphAtlas</code> が <code>FontFace</code> を1つしか持っていない前提を崩す必要がある</li></ul>
+<div class="code"><span class="lang">csharp</span><pre><code>// 後者ならキーはこうなる
+long key = ((long)fontIndex &lt;&lt; 40) | ((long)pixelHeight &lt;&lt; 32) | (uint)codepoint;</code></pre></div>
+<p><strong>どちらを選ぶかは「フォントが何枚まで増えるか」で決まる</strong>。2〜3枚なら後者、多言語対応で 10 枚を超えるなら前者、が目安になる。</p>
+<p>そこまで書けたら、<strong>Segoe UI Emoji はカラー絵文字を持っている</strong>ことにも気づく(<code>CBDT</code>/<code>sbix</code> テーブル)。stb_truetype はこれを読まないので、出るのは白黒の輪郭だけになる。<strong>「対応した」と「同じに見える」は別</strong>。</p>
+<h3 id="s28">課題3(難): SDF フォントにする</h3>
+<p>要点3のとおり、いまは<strong>大きさごとに別のグリフ</strong>を焼いている。16px と 17px と 48px で3回焼くので、拡大縮小するUIとは相性が悪い。</p>
+<p>SDF(Signed Distance Field)は、被覆率の代わりに<strong>「その画素から字の輪郭までの距離」</strong>を焼く。距離は拡大しても線形に補間できるので、<strong>1つのアトラスから任意の大きさが出せる</strong>。</p>
+<ol><li><code>stbtt_GetGlyphSDF</code> でグリフを SDF として焼く(stb が持っている)</li><li><code>text.frag</code> を書き換える</li></ol>
+<div class="code"><span class="lang">glsl</span><pre><code>float distance = texture(uTexture, vTexCoord).r;
+float width = fwidth(distance);                       // 画面上での変化の速さ
+float alpha = smoothstep(0.5 - width, 0.5 + width, distance);
+FragColor = vec4(vColor.rgb, vColor.a * alpha);</code></pre></div>
+<p><code>fwidth</code> が肝で、<strong>拡大率に応じて輪郭のぼかし幅を自動で変える</strong>。これが無いと、拡大したときに輪郭がぼやけるか、縮小したときにギザギザになる。</p>
+<p>見どころは3つ。</p>
+<ul><li><strong>小さい字では負ける</strong>。SDF は 1 画素に満たない細部を表現できないので、16px の漢字では従来の焼き方のほうがはっきり出る。<strong>だから実務では「本文はビットマップ、見出しは SDF」と使い分ける</strong></li><li><strong>アトラスの節約になるか測る</strong>。SDF は 1 サイズで済むが、余白(距離を持たせる範囲)が要るので 1 グリフは大きくなる。<strong>何サイズ使うと元が取れるか</strong>が分かれ目</li><li><strong>輪郭・影が1行で足せる</strong>。距離が分かっているので、<code>smoothstep</code> のしきい値を変えるだけで縁取りになる。ビットマップだと焼き直しが要る</li></ul>
+<h3 id="s29">そのほか、今日やらなかったこと</h3>
+<p><code>Text/</code> は<strong>横書きの日本語と英語を、折り返しなしで並べる</strong>ところまでしかやっていない。ゲームUIとしてはこの先が要る場面がある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>やっていないこと</th><th>どこで要るか</th></tr></thead>
+<tbody>
+<tr><td>折り返し(word wrap)</td><td>長い説明文。英語は単語単位、日本語は禁則処理が要る</td></tr>
+<tr><td>右横書き・縦書き</td><td>アラビア語、縦書きの演出</td></tr>
+<tr><td>合字・異体字(GSUB)</td><td><code>fi</code> の合字、<code>葛</code> の2種類</td></tr>
+<tr><td>書記素クラスタ</td><td>👨‍👩‍👧 のような結合文字を1文字として扱う</td></tr>
+</tbody>
+</table></div>
+<p><strong>どれも「文字を出す」の続きではなく、別の問題</strong>になっている。<code>Text Rendering Hates You</code>(事前に読む資料)が、この辺りを一覧にしてくれている。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0 / StbTrueTypeSharp 1.26.12</li><li>フォント: メイリオ(<code>C:\Windows\Fonts\meiryo.ttc</code>、4面中0番)</li><li>960x640、VSync オフ、<code>-c Release</code>、シミュレーション 60Hz</li></ul>
+<h3 id="s31">フォントのメトリクス(メイリオ)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>指定</th><th>ascent</th><th>descent</th><th>行送り</th><th>lineGap</th></tr></thead>
+<tbody>
+<tr><td>16px</td><td>11.31</td><td>4.69</td><td>16.00</td><td>0.00</td></tr>
+<tr><td>32px</td><td>22.61</td><td>9.39</td><td>32.00</td><td>0.00</td></tr>
+</tbody>
+</table></div>
+<p><code>ascent + descent</code> がちょうど指定値になり、<code>lineGap</code> が 0 なので行送りも同じ値になる。<strong>フォントによってはここが一致しない</strong>(<code>lineGap</code> を持つフォントでは行送りのほうが大きい)。</p>
+<h3 id="s32">文字まわりのコスト</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>呼び出し</th><th>1回あたり</th><th>備考</th></tr></thead>
+<tbody>
+<tr><td>焼く(ASCII 95字、16px)</td><td>10.5us</td><td>合計 1.0ms / 512px 中 5.1%</td></tr>
+<tr><td>焼く(常用漢字 2136字、16px)</td><td>14.3us</td><td>合計 <strong>30.5ms</strong> / 1024px 中 27.9%</td></tr>
+<tr><td>焼く(48px)</td><td>23.1us</td><td></td></tr>
+<tr><td>引く(キャッシュあり)</td><td><strong>60ns</strong></td><td>焼くのと <strong>234倍</strong> の差</td></tr>
+<tr><td><code>Measure</code>(24文字)</td><td>4,205ns</td><td>カーニングあり</td></tr>
+<tr><td><code>Measure</code>(カーニングなし)</td><td><strong>216ns</strong></td><td><strong>20倍</strong> の差</td></tr>
+<tr><td><code>Draw</code> に積む(24文字)</td><td>9,852ns</td><td>カーニングあり</td></tr>
+<tr><td><code>Draw</code>(カーニングなし)</td><td><strong>1,036ns</strong></td><td><strong>9.5倍</strong> の差</td></tr>
+</tbody>
+</table></div>
+<h3 id="s33">実際の画面での測定</h3>
+<p>情報表示 + アトラス表示(5行 + アトラス1枚、208字が焼かれた状態):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>内訳</th><th>時間</th></tr></thead>
+<tbody>
+<tr><td>積む(レイアウト + <code>SpriteBatch.Draw</code>)</td><td>0.367ms</td></tr>
+<tr><td><code>End</code>(GL への送信 + ドローコール)</td><td>0.020ms</td></tr>
+<tr><td>合計</td><td><strong>0.387ms</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>送るより並べるほうが 18 倍高い</strong>。文字は1枚ずつ位置を計算するので CPU 側が重く、GPU 側から見れば数百枚の四角でしかない。Day 18 のスプライトが「送るほうが重い」だったのと<strong>逆になっている</strong>。</p>
+<p>なお 0.387ms のうち大半はカーニング(要点6)と、<strong>左ぞろえでも行の幅を測っていること</strong>による。<code>Layout</code> は戻り値の大きさを出すために必ず1回測ってから描くので、実質2回なめている。改造課題1でここも軽くなる。</p>
+<h3 id="s34">自己チェック(21 項目すべて合格)</h3>
+<div class="code"><pre><code>フォント: メイリオ(4 面中 0 番)
+[OK] ascent は正  22.61px
+[OK] descent は正(下向きの量として)  9.39px
+[OK] 32px 指定で ascent+descent が 32px  32.00px
+[OK] 行送り &gt;= ascent+descent  行送り 32.00px / lineGap 0.00px
+[OK] 英字を持っている
+[OK] ひらがなを持っている  あ
+[OK] 漢字を持っている  漢
+[--] 絵文字 U+1F600: なし(豆腐になる)
+[OK] 空白は絵を持たないが送りはある  送り 3.62px
+[OK] 2回目は焼き直さない  焼いた回数 1
+[OK] 大きさが違えば別のグリフ  16px と 17px で 1 回
+[OK] UV が 0..1 に収まっている  (0.000,0.000)-(0.021,0.020)
+[OK] UV の幅が画素幅と一致  11.00px / 11px
+[OK] グリフを焼いても GL エラーが出ない  NoError
+[OK] Measure と Draw の大きさが一致  167.15x16.00
+[OK] 2行の高さは1行の2倍  16.00 → 32.00
+[OK] 2行の幅は広いほうの行  53.33px
+[OK] CRLF でも同じ
+[--] カーニング: AVAV が 58.04px → 56.20px(1.84px 詰まった)
+[OK] サロゲートペアを1文字として数える  char 2 個 / 幅 10.67px
+[OK] 幅がグリフ1つぶんと一致  10.67px / 1グリフ 10.67px
+[OK] 満杯になっても落ちない  200字 / 4段
+[OK] 満杯でも送りは返す  21.33px</code></pre></div>
+<h3 id="s35">検証の途中で分かったこと</h3>
+<ul><li><strong>カーニングが 20 倍のコストを持っていた</strong>。これは測るまで想像していなかった。「送りに数値を1つ足すだけ」に見えるのに、中では<strong>文字対応表の二分探索が2回</strong>走っている。そして日本語では 0 が返るので、<strong>払ったぶんが丸ごと無駄</strong>になる。<strong>安そうに見える呼び出しほど、中で何をしているか確かめる</strong></li><li><strong><code>Measure</code> と <code>Draw</code> の比が 2.4 倍だった</strong>。<code>Draw</code> の中で <code>Measure</code> 相当を1回やっているので、理屈どおり。左ぞろえでは要らない計算だが、<strong>戻り値の大きさを出すために必要</strong>という設計上の理由がある。速さのためにここを分けると、「測った幅と描いた幅が違う」という最悪のバグを呼び込む</li><li><strong><code>dotnet format</code> を構文エラーのあるファイルに掛けると、インデントが壊れたまま保存される</strong>。途中で編集を誤った状態のまま整形を走らせて、数百行が左詰めになった。<strong>整形の前にビルドを通す</strong>——スキルの手順が「整形 → ビルド」の順に書いてあるが、<strong>実際には「ビルド → 整形 → ビルド」でないと危ない</strong></li><li><strong><code>.ttc</code> を単体の <code>.ttf</code> として開くと失敗する</strong>。メイリオは4つのフォントが1ファイルに入っているので、<code>stbtt_GetFontOffsetForIndex</code> で何番目かを指定する必要がある。ここを飛ばすと <code>stbtt_InitFont</code> が 0 を返して読めない</li><li><strong>ウィンドウのタイトルが <code>Day25</code> のままだった</strong>。Day 26 と Day 27 で更新し忘れていて、今日画面に <code>Day28</code> と出したときに気づいた。<strong>同じ情報を2箇所に書くと必ず片方が古くなる</strong>という、ありふれた形の実例</li></ul>
+</section>
+<footer class="end">Day 28 テキスト描画 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+// reference/Day28 の FontFace(メイリオ)から C# で取り出した数だけを埋め込んだもの(フォントのデータそのものは入れない)。
+// sizes: 大きさごとの scale・ascent・descent・lineGap・行送り・em(CSS の font-size)。glyphs: "px:コードポイント" → [幅, 高さ, OffsetX, OffsetY, 送り, グリフがあるか]。
+// kanji16: U+4E00 から 2136 字の 16px の幅と高さ(36 進 1 桁ずつ)。送りはどれも同じ。kern: 0 でないカーニング
+const FONT28 = {"name":"メイリオ","faceCount":4,"faceIndex":0,"sizes":{"15":{"scale":0.0048828125,"ascent":10.600586,"descent":4.399414,"lineGap":0,"lineHeight":15,"em":10},"16":{"scale":0.0052083335,"ascent":11.307292,"descent":4.6927085,"lineGap":0,"lineHeight":16,"em":10.666667},"17":{"scale":0.005533854,"ascent":12.013997,"descent":4.9860024,"lineGap":0,"lineHeight":17,"em":11.333333},"24":{"scale":0.0078125,"ascent":16.960938,"descent":7.0390625,"lineGap":0,"lineHeight":24,"em":16},"32":{"scale":0.010416667,"ascent":22.614584,"descent":9.385417,"lineGap":0,"lineHeight":32,"em":21.333334},"48":{"scale":0.015625,"ascent":33.921875,"descent":14.078125,"lineGap":0,"lineHeight":48,"em":32}},"glyphs":{"15:19968":[10,1,0,-5,10,1],"15:19969":[10,9,0,-8,10,1],"15:19970":[10,9,0,-8,10,1],"15:19971":[10,10,0,-9,10,1],"15:19972":[10,10,0,-9,10,1],"15:19973":[10,9,0,-8,10,1],"15:19974":[8,8,1,-8,10,0],"15:19975":[10,9,0,-8,10,1],"15:19976":[10,10,0,-9,10,1],"15:19977":[10,9,0,-8,10,1],"15:19978":[10,10,0,-9,10,1],"15:19979":[10,9,0,-8,10,1],"15:19980":[10,9,0,-8,10,1],"15:19981":[10,9,0,-8,10,1],"15:19982":[10,10,0,-9,10,1],"15:19983":[10,10,0,-9,10,1],"15:19984":[10,10,0,-9,10,1],"15:19985":[10,9,0,-8,10,1],"15:19986":[10,9,0,-8,10,1],"15:19987":[8,8,1,-8,10,0],"15:19988":[10,9,0,-8,10,1],"15:19989":[10,9,0,-8,10,1],"15:19990":[10,10,0,-9,10,1],"15:19991":[10,10,0,-9,10,1],"15:19992":[10,9,0,-8,10,1],"15:19993":[10,9,0,-8,10,1],"15:19994":[8,8,1,-8,10,0],"15:19995":[8,8,1,-8,10,0],"15:19996":[8,8,1,-8,10,0],"15:19997":[8,8,1,-8,10,0],"15:19998":[10,9,0,-8,10,1],"15:19999":[10,9,0,-8,10,1],"16:32":[0,0,0,0,3.625,1],"16:33":[2,8,1,-8,4.041667,1],"16:34":[4,4,0,-9,4.791667,1],"16:35":[8,8,0,-8,8.572917,1],"16:36":[6,11,0,-9,6.625,1],"16:37":[11,10,0,-9,11.010417,1],"16:38":[9,10,0,-9,7.75,1],"16:39":[2,4,0,-9,2.7604167,1],"16:40":[4,12,0,-9,4.6875,1],"16:41":[4,12,0,-9,4.6875,1],"16:42":[5,6,1,-9,6.625,1],"16:43":[7,7,1,-7,8.572917,1],"16:44":[3,4,0,-2,3.7239585,1],"16:45":[4,2,0,-4,4.6875,1],"16:46":[2,2,1,-2,3.7239585,1],"16:47":[6,11,-1,-9,4.791667,1],"16:48":[6,10,0,-9,6.625,1],"16:49":[5,8,1,-8,6.625,1],"16:50":[7,9,0,-9,6.625,1],"16:51":[6,10,0,-9,6.625,1],"16:52":[7,8,0,-8,6.625,1],"16:53":[6,9,0,-8,6.625,1],"16:54":[7,9,0,-8,6.625,1],"16:55":[7,8,0,-8,6.625,1],"16:56":[7,10,0,-9,6.625,1],"16:57":[6,10,0,-9,6.625,1],"16:58":[2,6,1,-6,4.5833335,1],"16:59":[3,8,1,-6,4.5833335,1],"16:60":[7,7,1,-7,8.572917,1],"16:61":[7,4,1,-5,8.572917,1],"16:62":[7,7,1,-7,8.572917,1],"16:63":[6,9,0,-9,5.6614585,1],"16:64":[10,11,0,-9,10.875,1],"16:65":[8,8,0,-8,7.229167,1],"16:66":[7,8,0,-8,7.1770835,1],"16:67":[7,9,0,-8,7.171875,1],"16:68":[8,8,0,-8,7.984375,1],"16:69":[7,8,0,-8,6.588542,1],"16:70":[6,8,0,-8,6.09375,1],"16:71":[8,9,0,-8,7.765625,1],"16:72":[7,8,0,-8,7.9270835,1],"16:73":[4,8,0,-8,4.3020835,1],"16:74":[4,9,0,-8,4.7395835,1],"16:75":[8,8,0,-8,7.046875,1],"16:76":[6,8,0,-8,5.9375,1],"16:77":[8,8,0,-8,8.859375,1],"16:78":[7,8,0,-8,7.90625,1],"16:79":[8,10,0,-9,8.130209,1],"16:80":[7,8,0,-8,6.354167,1],"16:81":[8,12,0,-9,8.130209,1],"16:82":[8,8,0,-8,7.28125,1],"16:83":[7,9,0,-8,6.7708335,1],"16:84":[7,8,0,-8,6.78125,1],"16:85":[7,9,0,-8,7.776042,1],"16:86":[8,8,0,-8,7.28125,1],"16:87":[11,8,0,-8,10.682292,1],"16:88":[7,8,0,-8,7.140625,1],"16:89":[7,8,0,-8,6.729167,1],"16:90":[7,8,0,-8,6.9427085,1],"16:91":[3,12,1,-9,4.6875,1],"16:92":[7,8,0,-8,6.625,1],"16:93":[4,12,0,-9,4.6875,1],"16:94":[8,5,0,-8,8.572917,1],"16:95":[8,2,-1,0,6.625,1],"16:96":[3,3,1,-9,6.625,1],"16:97":[6,8,0,-7,6.1875,1],"16:98":[7,10,0,-9,6.4895835,1],"16:99":[6,8,0,-7,5.40625,1],"16:100":[6,10,0,-9,6.4895835,1],"16:101":[6,8,0,-7,6.15625,1],"16:102":[5,9,0,-9,3.578125,1],"16:103":[6,10,0,-7,6.4739585,1],"16:104":[6,9,0,-9,6.59375,1],"16:105":[2,9,0,-9,2.7083335,1],"16:106":[4,12,-1,-9,3.5052085,1],"16:107":[6,9,0,-9,5.8802085,1],"16:108":[2,9,0,-9,2.7083335,1],"16:109":[10,7,0,-7,10.234375,1],"16:110":[6,7,0,-7,6.59375,1],"16:111":[6,8,0,-7,6.3333335,1],"16:112":[7,10,0,-7,6.4895835,1],"16:113":[6,10,0,-7,6.4895835,1],"16:114":[5,6,0,-6,4.40625,1],"16:115":[5,8,0,-7,5.3125,1],"16:116":[4,9,0,-8,4.041667,1],"16:117":[6,7,0,-6,6.59375,1],"16:118":[6,6,0,-6,6.0364585,1],"16:119":[9,6,0,-6,8.885417,1],"16:120":[6,6,0,-6,5.9270835,1],"16:121":[6,9,0,-6,6.0364585,1],"16:122":[6,6,0,-6,5.3958335,1],"16:123":[6,12,0,-9,6.3958335,1],"16:124":[2,12,1,-9,4.6875,1],"16:125":[6,12,0,-9,6.3958335,1],"16:126":[8,3,0,-5,8.572917,1],"16:8594":[11,6,0,-7,10.666667,1],"16:8595":[6,11,2,-9,10.666667,1],"16:12290":[4,4,0,-3,10.666667,1],"16:12354":[11,10,0,-9,10.666667,1],"16:12356":[11,9,0,-8,10.666667,1],"16:12358":[9,10,1,-9,10.666667,1],"16:12360":[11,10,0,-9,10.666667,1],"16:12362":[11,10,0,-9,10.666667,1],"16:12363":[11,10,0,-9,10.666667,1],"16:12364":[11,11,0,-10,10.666667,1],"16:12365":[9,10,1,-9,10.666667,1],"16:12367":[7,10,2,-9,10.666667,1],"16:12369":[10,10,1,-9,10.666667,1],"16:12371":[9,9,1,-8,10.666667,1],"16:12375":[8,10,2,-9,10.666667,1],"16:12376":[9,10,1,-9,10.666667,1],"16:12378":[11,11,0,-10,10.666667,1],"16:12382":[11,11,0,-10,10.666667,1],"16:12388":[11,8,0,-8,10.666667,1],"16:12390":[10,9,0,-8,10.666667,1],"16:12391":[10,9,0,-8,10.666667,1],"16:12392":[9,10,1,-9,10.666667,1],"16:12393":[10,10,1,-9,10.666667,1],"16:12394":[11,10,0,-9,10.666667,1],"16:12395":[9,10,1,-9,10.666667,1],"16:12398":[11,9,0,-8,10.666667,1],"16:12399":[10,10,1,-9,10.666667,1],"16:12411":[10,10,1,-9,10.666667,1],"16:12417":[11,10,0,-9,10.666667,1],"16:12418":[10,10,0,-9,10.666667,1],"16:12425":[9,10,1,-9,10.666667,1],"16:12426":[8,10,2,-9,10.666667,1],"16:12427":[10,9,0,-8,10.666667,1],"16:12429":[10,10,0,-9,10.666667,1],"16:12434":[10,10,0,-9,10.666667,1],"16:12452":[10,10,0,-9,10.666667,1],"16:12457":[9,8,0,-7,10.666667,1],"16:12459":[10,10,0,-9,10.666667,1],"16:12463":[10,10,0,-9,10.666667,1],"16:12464":[11,11,0,-10,10.666667,1],"16:12473":[11,9,0,-8,10.666667,1],"16:12475":[11,10,0,-9,10.666667,1],"16:12488":[8,10,3,-9,10.666667,1],"16:12491":[11,8,0,-8,10.666667,1],"16:12500":[9,11,1,-10,10.666667,1],"16:12501":[9,9,1,-8,10.666667,1],"16:12503":[11,11,0,-10,10.666667,1],"16:12512":[11,10,0,-9,10.666667,1],"16:12521":[9,9,1,-8,10.666667,1],"16:12523":[11,10,0,-9,10.666667,1],"16:12524":[10,10,1,-9,10.666667,1],"16:12531":[10,9,1,-8,10.666667,1],"16:12540":[10,2,0,-5,10.666667,1],"16:19968":[11,2,0,-6,10.666667,1],"16:19969":[11,10,0,-9,10.666667,1],"16:19970":[11,10,0,-9,10.666667,1],"16:19971":[10,10,0,-9,10.666667,1],"16:19972":[11,10,0,-9,10.666667,1],"16:19973":[11,10,0,-9,10.666667,1],"16:19974":[9,8,1,-8,10.666667,0],"16:19975":[11,10,0,-9,10.666667,1],"16:19976":[11,10,0,-9,10.666667,1],"16:19977":[10,9,0,-8,10.666667,1],"16:19978":[11,10,0,-9,10.666667,1],"16:19979":[11,10,0,-9,10.666667,1],"16:19980":[10,10,0,-9,10.666667,1],"16:19981":[11,10,0,-9,10.666667,1],"16:19982":[11,10,0,-9,10.666667,1],"16:19983":[11,10,0,-9,10.666667,1],"16:19984":[10,10,0,-9,10.666667,1],"16:19985":[11,10,0,-9,10.666667,1],"16:19986":[11,10,0,-9,10.666667,1],"16:19987":[9,8,1,-8,10.666667,0],"16:19988":[11,10,0,-9,10.666667,1],"16:19989":[11,10,0,-9,10.666667,1],"16:19990":[11,10,0,-9,10.666667,1],"16:19991":[11,10,0,-9,10.666667,1],"16:19992":[11,10,0,-9,10.666667,1],"16:19993":[11,10,0,-9,10.666667,1],"16:19994":[9,8,1,-8,10.666667,0],"16:19995":[9,8,1,-8,10.666667,0],"16:19996":[9,8,1,-8,10.666667,0],"16:19997":[9,8,1,-8,10.666667,0],"16:19998":[11,10,0,-9,10.666667,1],"16:19999":[11,10,0,-9,10.666667,1],"16:22830":[11,10,0,-9,10.666667,1],"16:23383":[11,10,0,-9,10.666667,1],"16:24038":[11,10,0,-9,10.666667,1],"16:24046":[11,10,0,-9,10.666667,1],"16:24115":[11,10,0,-9,10.666667,1],"16:25551":[11,10,0,-9,10.666667,1],"16:25972":[11,10,0,-9,10.666667,1],"16:25991":[11,10,0,-9,10.666667,1],"16:26032":[11,10,0,-9,10.666667,1],"16:26356":[11,10,0,-9,10.666667,1],"16:26412":[11,10,0,-9,10.666667,1],"16:26522":[11,10,0,-9,10.666667,1],"16:26842":[11,10,0,-9,10.666667,1],"16:27083":[11,10,0,-9,10.666667,1],"16:27573":[11,10,0,-9,10.666667,1],"16:27598":[11,10,0,-9,10.666667,1],"16:28450":[11,10,0,-9,10.666667,1],"16:28961":[11,10,0,-9,10.666667,1],"16:28988":[11,10,0,-9,10.666667,1],"16:29575":[11,10,0,-9,10.666667,1],"16:29992":[10,10,0,-9,10.666667,1],"16:30011":[11,10,0,-9,10.666667,1],"16:31309":[11,10,0,-9,10.666667,1],"16:32048":[10,10,0,-9,10.666667,1],"16:32117":[11,10,0,-9,10.666667,1],"16:32218":[11,10,0,-9,10.666667,1],"16:33104":[11,10,0,-9,10.666667,1],"16:35201":[11,10,0,-9,10.666667,1],"16:35211":[11,10,0,-9,10.666667,1],"16:35910":[11,10,0,-9,10.666667,1],"16:36890":[11,10,0,-9,10.666667,1],"16:36896":[11,10,0,-9,10.666667,1],"16:36947":[11,10,0,-9,10.666667,1],"16:37197":[11,10,0,-9,10.666667,1],"16:127918":[9,8,1,-8,10.666667,0],"16:128512":[9,8,1,-8,10.666667,0],"16:134047":[11,10,0,-9,10.666667,1],"17:28450":[11,11,0,-10,11.333333,1],"24:32":[0,0,0,0,5.4375,1],"24:9312":[16,15,0,-13,16,1],"24:9313":[16,15,0,-13,16,1],"24:9314":[16,15,0,-13,16,1],"24:12316":[14,5,1,-8,16,1],"24:12364":[16,15,0,-14,16,1],"24:12394":[16,14,0,-13,16,1],"24:12402":[16,13,0,-12,16,1],"24:12418":[14,14,1,-13,16,1],"24:12425":[14,14,1,-13,16,1],"24:12427":[14,13,1,-12,16,1],"24:12459":[15,14,0,-13,16,1],"24:12479":[15,14,0,-13,16,1],"24:12490":[16,14,0,-13,16,1],"24:20986":[14,15,1,-14,16,1],"24:21495":[16,14,0,-13,16,1],"24:23383":[16,15,0,-14,16,1],"24:26085":[12,14,2,-13,16,1],"24:26412":[16,15,0,-14,16,1],"24:28450":[16,15,0,-14,16,1],"24:35352":[14,14,1,-13,16,1],"24:35486":[16,14,0,-13,16,1],"24:65281":[2,12,7,-12,16,1],"24:65311":[8,13,4,-13,16,1],"32:32":[0,0,0,0,7.25,1],"32:46":[3,3,2,-3,7.447917,1],"32:65":[15,16,0,-16,14.458334,1],"32:66":[13,16,1,-16,14.354167,1],"32:67":[14,17,0,-16,14.34375,1],"32:69":[12,16,1,-16,13.177084,1],"32:82":[14,16,1,-16,14.5625,1],"32:84":[14,16,0,-16,13.5625,1],"32:86":[15,16,0,-16,14.5625,1],"32:87":[21,16,0,-16,21.364584,1],"32:89":[14,16,0,-16,13.458334,1],"32:97":[11,14,0,-13,12.375,1],"32:103":[12,18,0,-13,12.947917,1],"32:106":[7,22,-1,-17,7.010417,1],"32:111":[12,14,0,-13,12.666667,1],"32:112":[12,18,1,-13,12.979167,1],"32:119":[18,12,0,-12,17.770834,1],"32:121":[12,17,0,-12,12.072917,1],"32:12354":[20,19,1,-18,21.333334,1],"32:12356":[20,16,1,-15,21.333334,1],"32:12358":[17,18,2,-17,21.333334,1],"32:12360":[21,18,0,-17,21.333334,1],"32:12362":[20,18,1,-17,21.333334,1],"32:12364":[22,20,0,-19,21.333334,1],"32:12393":[18,19,3,-18,21.333334,1],"32:12411":[19,18,2,-17,21.333334,1],"32:12427":[19,17,1,-16,21.333334,1],"32:19968":[20,3,1,-11,21.333334,1],"32:19969":[20,19,1,-17,21.333334,1],"32:19970":[21,18,0,-17,21.333334,1],"32:19971":[20,19,0,-18,21.333334,1],"32:19972":[20,19,1,-18,21.333334,1],"32:19973":[20,19,1,-17,21.333334,1],"32:19974":[17,16,2,-16,21.333334,0],"32:19975":[21,19,0,-17,21.333334,1],"32:19976":[20,20,1,-18,21.333334,1],"32:19977":[19,17,1,-16,21.333334,1],"32:19978":[20,19,1,-18,21.333334,1],"32:19979":[20,19,1,-17,21.333334,1],"32:19980":[19,18,1,-17,21.333334,1],"32:19981":[21,19,0,-17,21.333334,1],"32:19982":[21,20,0,-18,21.333334,1],"32:19983":[20,19,1,-18,21.333334,1],"32:19984":[19,20,1,-18,21.333334,1],"32:19985":[21,18,0,-17,21.333334,1],"32:19986":[20,19,1,-18,21.333334,1],"32:19987":[17,16,2,-16,21.333334,0],"32:19988":[21,18,0,-17,21.333334,1],"32:19989":[21,18,0,-17,21.333334,1],"32:19990":[21,20,0,-18,21.333334,1],"32:19991":[20,19,1,-18,21.333334,1],"32:19992":[21,18,0,-17,21.333334,1],"32:19993":[21,19,0,-17,21.333334,1],"32:19994":[17,16,2,-16,21.333334,0],"32:19995":[17,16,2,-16,21.333334,0],"32:19996":[17,16,2,-16,21.333334,0],"32:19997":[17,16,2,-16,21.333334,0],"32:19998":[21,18,0,-17,21.333334,1],"32:19999":[20,19,1,-17,21.333334,1],"32:20000":[17,16,2,-16,21.333334,0],"32:20001":[21,19,0,-17,21.333334,1],"32:20002":[17,16,2,-16,21.333334,0],"32:20003":[19,19,1,-17,21.333334,1],"32:20004":[21,18,0,-17,21.333334,1],"32:20005":[17,16,2,-16,21.333334,0],"32:20006":[21,19,0,-18,21.333334,1],"32:20007":[17,16,2,-16,21.333334,0],"32:20008":[3,20,9,-18,21.333334,1],"32:20009":[11,20,4,-18,21.333334,1],"32:20010":[22,20,0,-18,21.333334,1],"32:20011":[18,20,2,-18,21.333334,1],"32:20012":[8,20,5,-18,21.333334,1],"32:20013":[19,20,1,-18,21.333334,1],"32:20014":[21,19,1,-18,21.333334,1],"32:20015":[20,20,1,-18,21.333334,1],"32:20016":[20,20,1,-18,21.333334,1],"32:20017":[19,20,1,-18,21.333334,1],"32:20018":[19,20,1,-18,21.333334,1],"32:20019":[17,16,2,-16,21.333334,0],"32:20020":[17,16,2,-16,21.333334,0],"32:20021":[21,20,0,-18,21.333334,1],"32:20022":[10,10,5,-14,21.333334,1],"32:20023":[14,7,4,-13,21.333334,1],"32:20024":[21,20,0,-18,21.333334,1],"32:20025":[21,19,0,-17,21.333334,1],"32:20026":[17,16,2,-16,21.333334,0],"32:20027":[21,19,0,-18,21.333334,1],"32:20028":[21,20,0,-18,21.333334,1],"32:20029":[17,16,2,-16,21.333334,0],"32:20030":[17,16,2,-16,21.333334,0],"32:20031":[7,20,6,-18,21.333334,1],"32:20032":[19,19,1,-17,21.333334,1],"32:20033":[16,18,4,-16,21.333334,1],"32:20034":[21,19,0,-17,21.333334,1],"32:20035":[20,18,0,-17,21.333334,1],"32:20036":[19,20,1,-18,21.333334,1],"32:20037":[21,20,0,-18,21.333334,1],"32:20038":[17,16,2,-16,21.333334,0],"32:20039":[21,19,0,-18,21.333334,1],"32:20040":[19,20,1,-18,21.333334,1],"32:20041":[17,16,2,-16,21.333334,0],"32:20042":[17,16,2,-16,21.333334,0],"32:20043":[21,19,0,-18,21.333334,1],"32:20044":[17,16,2,-16,21.333334,0],"32:20045":[21,20,0,-18,21.333334,1],"32:20046":[21,20,0,-18,21.333334,1],"32:20047":[21,19,0,-18,21.333334,1],"32:20048":[17,16,2,-16,21.333334,0],"32:20049":[21,19,0,-18,21.333334,1],"32:20050":[17,16,2,-16,21.333334,0],"32:20051":[17,16,2,-16,21.333334,0],"32:20052":[17,16,2,-16,21.333334,0],"32:20053":[21,20,0,-18,21.333334,1],"32:20054":[21,20,0,-18,21.333334,1],"32:20055":[21,20,0,-18,21.333334,1],"32:20056":[21,20,0,-18,21.333334,1],"32:20057":[18,18,2,-17,21.333334,1],"32:20058":[15,19,4,-18,21.333334,1],"32:20059":[17,16,2,-16,21.333334,0],"32:20060":[21,20,0,-18,21.333334,1],"32:20061":[21,20,0,-18,21.333334,1],"32:20062":[20,20,0,-18,21.333334,1],"32:20063":[21,19,0,-18,21.333334,1],"32:20064":[17,16,2,-16,21.333334,0],"32:20065":[17,16,2,-16,21.333334,0],"32:20066":[20,19,1,-18,21.333334,1],"32:20067":[21,19,0,-18,21.333334,1],"32:20068":[17,16,2,-16,21.333334,0],"32:20069":[17,16,2,-16,21.333334,0],"32:20070":[17,16,2,-16,21.333334,0],"32:20071":[17,16,2,-16,21.333334,0],"32:20072":[21,20,0,-18,21.333334,1],"32:20073":[20,19,1,-18,21.333334,1],"32:20074":[17,16,2,-16,21.333334,0],"32:20075":[17,16,2,-16,21.333334,0],"32:20076":[17,16,2,-16,21.333334,0],"32:20077":[17,16,2,-16,21.333334,0],"32:20078":[17,16,2,-16,21.333334,0],"32:20079":[17,16,2,-16,21.333334,0],"32:20080":[17,16,2,-16,21.333334,0],"32:20081":[21,20,0,-18,21.333334,1],"32:20082":[17,16,2,-16,21.333334,0],"32:20083":[21,20,0,-18,21.333334,1],"32:20084":[21,19,0,-18,21.333334,1],"32:20085":[21,20,0,-18,21.333334,1],"32:20086":[17,16,2,-16,21.333334,0],"32:20087":[17,16,2,-16,21.333334,0],"32:20088":[17,16,2,-16,21.333334,0],"32:20089":[21,20,0,-18,21.333334,1],"32:20090":[17,16,2,-16,21.333334,0],"32:20091":[17,16,2,-16,21.333334,0],"32:20092":[17,16,2,-16,21.333334,0],"32:20093":[17,16,2,-16,21.333334,0],"32:20094":[21,20,0,-18,21.333334,1],"32:20095":[21,20,0,-18,21.333334,1],"32:20096":[22,21,0,-19,21.333334,1],"32:20097":[17,16,2,-16,21.333334,0],"32:20098":[21,20,0,-18,21.333334,1],"32:20099":[17,16,2,-16,21.333334,0],"32:20100":[17,16,2,-16,21.333334,0],"32:20101":[6,20,6,-18,21.333334,1],"32:20102":[20,19,1,-17,21.333334,1],"32:20103":[17,16,2,-16,21.333334,0],"32:20104":[21,19,0,-17,21.333334,1],"32:20105":[21,21,0,-19,21.333334,1],"32:20106":[21,20,0,-18,21.333334,1],"32:20107":[21,20,0,-18,21.333334,1],"32:20108":[20,15,1,-15,21.333334,1],"32:20109":[19,19,1,-17,21.333334,1],"32:20110":[20,20,1,-18,21.333334,1],"32:20111":[17,16,2,-16,21.333334,0],"32:20112":[17,16,2,-16,21.333334,0],"32:20113":[20,18,1,-16,21.333334,1],"32:20114":[21,18,0,-17,21.333334,1],"32:20115":[17,16,2,-16,21.333334,0],"32:20116":[21,18,0,-17,21.333334,1],"32:20117":[21,20,0,-18,21.333334,1],"32:20118":[19,18,1,-17,21.333334,1],"32:20119":[21,19,0,-18,21.333334,1],"32:20120":[21,18,0,-17,21.333334,1],"32:20121":[21,18,0,-17,21.333334,1],"32:20122":[17,16,2,-16,21.333334,0],"32:20123":[19,19,1,-18,21.333334,1],"32:20124":[21,18,0,-17,21.333334,1],"32:20125":[21,19,0,-18,21.333334,1],"32:20126":[21,18,0,-17,21.333334,1],"32:20127":[20,19,1,-18,21.333334,1],"32:20128":[20,5,1,-13,21.333334,1],"32:20129":[21,19,0,-18,21.333334,1],"32:20130":[21,20,0,-18,21.333334,1],"32:20131":[17,16,2,-16,21.333334,0],"32:20132":[21,20,0,-18,21.333334,1],"32:20133":[20,20,1,-18,21.333334,1],"32:20134":[21,20,0,-18,21.333334,1],"32:20135":[17,16,2,-16,21.333334,0],"32:20136":[21,20,0,-18,21.333334,1],"32:20137":[17,16,2,-16,21.333334,0],"32:20138":[17,16,2,-16,21.333334,0],"32:20139":[21,20,0,-18,21.333334,1],"32:20140":[21,20,0,-18,21.333334,1],"32:20141":[20,20,1,-18,21.333334,1],"32:20142":[21,20,0,-18,21.333334,1],"32:20143":[20,20,1,-18,21.333334,1],"32:20144":[21,20,0,-18,21.333334,1],"32:20145":[17,16,2,-16,21.333334,0],"32:20146":[17,16,2,-16,21.333334,0],"32:20147":[19,19,1,-18,21.333334,1],"32:20148":[17,16,2,-16,21.333334,0],"32:20149":[17,16,2,-16,21.333334,0],"32:20150":[20,20,1,-19,21.333334,1],"32:20151":[17,16,2,-16,21.333334,0],"32:20152":[17,16,2,-16,21.333334,0],"32:20153":[20,19,1,-18,21.333334,1],"32:20154":[20,20,1,-18,21.333334,1],"32:20155":[8,20,5,-18,21.333334,1],"32:20156":[21,19,0,-18,21.333334,1],"32:20157":[17,16,2,-16,21.333334,0],"32:20158":[17,16,2,-16,21.333334,0],"32:20159":[17,16,2,-16,21.333334,0],"32:20160":[21,20,0,-18,21.333334,1],"32:20161":[21,20,0,-18,21.333334,1],"32:20162":[20,20,0,-18,21.333334,1],"32:20163":[21,19,0,-18,21.333334,1],"32:20164":[21,20,0,-18,21.333334,1],"32:20165":[17,16,2,-16,21.333334,0],"32:20166":[21,20,0,-18,21.333334,1],"32:20167":[22,20,0,-18,21.333334,1],"32:20986":[19,20,1,-18,21.333334,1],"32:23383":[21,20,0,-18,21.333334,1],"32:24046":[21,19,0,-18,21.333334,1],"32:28450":[21,20,0,-18,21.333334,1],"32:32048":[20,20,0,-18,21.333334,1],"32:32218":[22,20,0,-18,21.333334,1],"32:40864":[22,20,0,-18,21.333334,1],"32:128512":[17,16,2,-16,21.333334,0],"32:134047":[20,19,1,-18,21.333334,1],"48:32":[0,0,0,0,10.875,1],"48:46":[5,5,3,-5,11.171875,1],"48:52":[19,24,0,-24,19.875,1],"48:56":[18,26,1,-25,19.875,1],"48:65":[22,24,0,-24,21.6875,1],"48:69":[17,24,2,-24,19.765625,1],"48:82":[21,24,2,-24,21.84375,1],"48:84":[20,24,0,-24,20.34375,1],"48:86":[22,24,0,-24,21.84375,1],"48:87":[30,24,1,-24,32.046875,1],"48:89":[21,24,0,-24,20.1875,1],"48:97":[16,20,1,-19,18.5625,1],"48:103":[16,26,1,-19,19.421875,1],"48:106":[10,32,-2,-25,10.515625,1],"48:111":[17,20,1,-19,19,1],"48:112":[17,26,2,-19,19.46875,1],"48:119":[26,18,0,-18,26.65625,1],"48:120":[18,18,0,-18,17.78125,1],"48:121":[18,25,0,-18,18.109375,1],"48:12354":[30,28,1,-26,32,1],"48:12356":[29,24,2,-23,32,1],"48:12358":[25,27,3,-25,32,1],"48:12360":[30,27,1,-25,32,1],"48:12362":[30,28,1,-26,32,1],"48:12375":[24,27,6,-25,32,1],"48:12398":[30,25,1,-24,32,1],"48:20986":[28,29,2,-27,32,1],"48:28450":[31,29,0,-27,32,1],"48:35211":[30,28,1,-26,32,1],"48:128512":[24,24,4,-24,32,0],"48:134047":[29,29,2,-27,32,1]},"kanji16":"b2babaaababa98babaa9babaaabababaaababa98babababababa98989898baba98ba98aaba98ba982a6aba9a5aaabababaaaaa9898ba6574baba98baba98984aaa89baaaaaba98baaa9898ba98bababa98ba989898babababa9a8a98babaaaba9898baba98989898baba98989898989898ba98bababa989898ba98989898bababb98ba98983aba98babbbabab8aaba9898b9ba98babaaabababa98aababababab3baba98bababa98ba9898babababababa9898aa9898bb9898baba5aba989898babaaababa98bababa98baba98babababa989898bababababaaababa98baaabababaaabababa9898ba9898ba98bababaaabaaaba98bbbaba989898bababababababababa98989898bababababababababababa9898bababa98baba98baba98989898989898989898989898ba9898baaababa98babaaabaaaaabaaababababa98aa98baaa9898babababa98aabababababababababababababbbabababaaababbba9898baba98989898baaa98ba98babababa98ba98bababababababababababa98babababababa98bababaaababababababbbababa98baaababaaaba98baaabababa989898989898989898ba98bababa9898ba9898baaaab98ba98babaaabababababababababa98babababababababaaaaabababa9898baba98babababa98bbbababababbbaba98989898989898babaaabaabba98baba98ba98ba98bababababaaaba98bbbababa98babaaababababbbaaaaababa98baaababababaaabababa98aabababababababababababbbaba98ba98baba98baba9898ba98ba98989898babababa98bababababaaa98ba98babababababa98bababa98baba98ba9898bbba98baba98bababa9898ba98baba9898bababa98bababababa98989898ba9898bbba98babababa98ba98ba9898babababababbaababbba98bababababa98bbbababababb989898989898bb98baba98baaabababababa98ba98bababb98baba98ba98babababa98ba98baba98babababbbaba98babababa98bababa98babababa98babababababaaabaaa989898babababababbbaaabbba9898bababa9898ba98bababababa98babababa98babbbaba98ba98ba98babababababababababababa98ba98ba989898baba98ba98baba98ba98bababbbabb98babababababa9898babababaaababababababababababbbababa98bababbba98baba98ba98ba9898baba98ba98bababa9abaaabababababa9898ba98bababababababa98bbba98ba98ba98aa9abaaa9a9898babaaababaaaaaaa9a9aba98bab2baaaba989898ba9898bababababababa98aaaaba7ababa9898babaaababababababa98ba98baaababa9898bababaaaba98bbbabbaababa98ba98babababbbaaa98ba9898bababababbbababb9898bababa98baba98bababa98bababababaaaaaaaaaaaaa9898baaa98aa9a5aaabababaaaaa98aaaa9898aa9898aaaaaaaaaaaaaaaa98989898aa98989898aa98aaaaaaaaabaaaaaa9898aa98aabaaaaa98aaaaaabaaaaaaaba989898989898aaaaaa98aa98aaaabaaaba98ba98989898aaaaaaabaa98aaaaabaaaaaaabaa98aaaaaaaa9898aaba98aa98aaaaaabaaaaaaaaa98abaaaa989898aa98aaaa98aaaaabaa98aabaaaaa98abaa989898aabaabbaaaaaaaaa98aaaaba9898aaaa9898baaaaaaaaa98aabaaaaaaa98aaaaaa9898babaaaaaaaaaabaaaaaaba98aaaa98aabaaaaaaaaababa98aaaa98aaaaabaa98aaaaaaaaaaba98baaababababaaabaaaaababaaaaaaaaa98aa989898baaababaaababaabbaabaaaa9898abaaaabaaaab98ababaaab98aaaaabab98baabab98ab989ababaaabaaababababaaabaaa98baaaba98bababababababa98babababaaa98ba9898babaaababaaaaabababababa98babababababababaaa989898babababa9898bababababa7a98aa98aaba98ab98bbbabb986a9898aaaabaaaaabaaaaaaaaa98baaaabbaaa98aaaaaa9898bababa9898bababa98989898ba98989898aaba98ba98bababa9898ba98bababa9898bababa98babababa98babababa98aabababaaababa98baba98ba9898babbbababbbb9898babababababababa9898babababababa98bababa98babababababa99baaaaaaaaaaababaaabababababababababababaaa98ba989898989898babababa989898babaaabaaaaabababaaababa989898989898baba98bababababa9898ba98bababababababababaaa98ba98bababaaa98baba98aabababababa98aababa98bababababa98babababa98ba989898ba9898989898989898aaba9898ba98ba98aabaaabababaaababa98aaba98baaababaaa989898aababa98bababa98baaababa98bbbababaaababababababa9898baaa9898989898aa9898babababa98bababbaababababababababa98abbaba989898bababababaaaaabababaaabaaaba98bbbabababb9898aaba989898989898989898ba98989898989898bababa9898baba98bababa98babababa98bbbabb9898ba989898ba98babababababa9898bababbbababb9898babaaabbba989898babbba98989898989898989898989898989898aa9898bbba9898aaba98aababa98baba98baba98babababa98baaa9898babababa98baba98baba98aabbba98ba9898baaaba98babbbaaaba98baba98babb98ba9898989898989898989898989898989898989898aabababababaaabababa98baaababababa9898baba98bbbababa9898babababa98baaaaaaa989898babb9898bababababababbba98ba98aa989898ba9898989898989898ba98ba98bbbabbbaba98bb98baba98aa9898babababa9898baba98bbbababababb9898baaaba98989898ba9898ba98ba9898ba98989898babababa989898bababa9898989898bbbabbbababa9898bbbabababbba98ba98babababa98ba98989898ba98989898989898bbba9898ba9898babbbaaabababababababb98bbbaba98babababababa98babb98ba98babababababa9898baba989898","kern":{"16:111:118":-0.07291667,"16:111:120":-0.09375,"16:111:46":-0.09375,"16:112:121":-0.020833334,"16:114:97":-0.15104167,"16:118:101":-0.083333336,"16:65:84":-0.6197917,"16:65:86":-0.3072917,"16:84:111":-1.140625,"16:84:119":-0.9791667,"16:84:65":-0.6197917,"16:86:65":-0.3072917,"16:87:65":-0.25520834,"16:89:97":-0.7239584,"16:97:119":-0.041666668,"16:97:121":-0.07291667,"32:111:46":-0.1875,"32:112:121":-0.041666668,"32:65:84":-1.2395834,"32:65:86":-0.6145834,"32:84:111":-2.28125,"32:84:119":-1.9583334,"32:84:65":-1.2395834,"32:86:65":-0.6145834,"32:87:65":-0.5104167,"32:89:97":-1.4479167,"48:111:46":-0.28125,"48:112:121":-0.0625,"48:65:84":-1.859375,"48:65:86":-0.921875,"48:84:111":-3.421875,"48:84:119":-2.9375,"48:84:65":-1.859375,"48:86:65":-0.921875,"48:87:65":-0.765625,"48:89:97":-2.171875},"has":{"65":1,"12354":1,"28450":1,"128512":0}};
+
+// reference/Day28 の Text/GlyphAtlas.cs(GetOrAdd・TryAllocate・Usage)と Text/TextRenderer.cs(Layout・MeasureLine・DrawLine・SplitLines)、
+// Program.DrawTextSample・RunTextCheck を JS に移したもの。フォントの数(寸法・送り・カーニング)は FONT28(C# で取り出した値)から引く。
+// 字の絵(被覆率)は、ページの側が rasterize(cp, px, w, h, ox, oy) で用意する(このページはブラウザのメイリオで描く)
+const TX28 = ((FD) => {
+  const f = Math.fround;
+  // MathF.Round は偶数丸め(0.5 → 0、1.5 → 2)
+  const roundEven = (v) => { const r = Math.round(v); return Math.abs(v % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r; };
+  // C# の F 書式。ちょうど真ん中の値は偶数の側へ丸める(3.625 → 3.62。toFixed は 3.63 にする)
+  const fixedCs = (v, d) => {
+    const s = Math.abs(v).toFixed(40), dot = s.indexOf('.'), rest = s.slice(dot + 1 + d);
+    if (!/^50*$/.test(rest)) return v.toFixed(d);
+    const last = Number(s[dot + d] === '.' ? s[dot - 1] : s[dot + d]);
+    if (last % 2 !== 0) return v.toFixed(d);
+    return (v < 0 ? '-' : '') + s.slice(0, d ? dot + 1 + d : dot);
+  };
+  // ---- FontFace の代わり(C# で測った数を引くだけ) ----
+  const font = {
+    name: FD.name, faceCount: FD.faceCount, faceIndex: FD.faceIndex,
+    size: (px) => { const s = FD.sizes[px]; if (!s) throw new Error('大きさの数が無い: ' + px); return s; },
+    hasGlyph: (cp) => FD.has[cp] === 1,
+    measure(cp, px) {
+      const g = FD.glyphs[`${px}:${cp}`];
+      if (g) return { width: g[0], height: g[1], offsetX: g[2], offsetY: g[3], advance: f(g[4]), glyph: g[5] === 1 };
+      const i = cp - 0x4E00;
+      if (px === 16 && i >= 0 && i < 2136) return { width: parseInt(FD.kanji16[2 * i], 36), height: parseInt(FD.kanji16[2 * i + 1], 36), offsetX: 0, offsetY: -10, advance: f(10.666667), glyph: true };
+      throw new Error(`グリフの数が無い: ${px}px U+${cp.toString(16)}`);
+    },
+    kerning: (a, b, px) => f(FD.kern[`${px}:${a}:${b}`] || 0),
+  };
+  const hasPixels = (m) => m.width > 0 && m.height > 0;
+
+  // ---- GlyphAtlas ----
+  class GlyphAtlas {
+    constructor(size = 512, rasterize = null) {
+      this.size = size; this.glyphs = new Map(); this.shelfY = 0; this.shelfHeight = 0; this.penX = 0; this.shelfCount = 1;
+      this.bakedThisFrame = 0; this.bakedTotal = 0; this.isFull = false; this.rasterize = rasterize; this.order = [];
+    }
+    get glyphCount() { return this.glyphs.size; }
+    get usage() { return f((this.shelfY + this.shelfHeight) / this.size); }
+    beginFrame() { this.bakedThisFrame = 0; }
+    getOrAdd(cp, px) {
+      const key = px * 0x200000 + cp;
+      const c = this.glyphs.get(key);
+      if (c) return c;
+      const g = this.bake(cp, px);
+      this.glyphs.set(key, g);
+      return g;
+    }
+    bake(cp, px) {
+      const m = font.measure(cp, px);
+      if (!hasPixels(m)) return { region: null, metrics: m, cp, px };
+      const at = this.tryAllocate(m.width, m.height);
+      if (!at) { this.isFull = true; return { region: null, metrics: { ...m, width: 0, height: 0 }, cp, px }; }
+      this.bakedThisFrame++; this.bakedTotal++;
+      const region = { x: at[0], y: at[1], width: m.width, height: m.height,
+        uvMin: [f(at[0] / this.size), f(at[1] / this.size)], uvMax: [f((at[0] + m.width) / this.size), f((at[1] + m.height) / this.size)] };
+      const g = { region, metrics: m, cp, px };
+      this.order.push(g);
+      return g;
+    }
+    // 棚詰め。右にはみ出すなら次の段へ、下にはみ出すなら満杯
+    tryAllocate(w, h) {
+      const stepX = w + 1, stepY = h + 1;
+      if (this.penX + stepX > this.size) { this.shelfY += this.shelfHeight; this.shelfHeight = 0; this.penX = 0; this.shelfCount++; }
+      if (this.shelfY + stepY > this.size) return null;
+      const at = [this.penX, this.shelfY];
+      this.penX += stepX; this.shelfHeight = Math.max(this.shelfHeight, stepY);
+      return at;
+    }
+  }
+
+  // ---- TextRenderer ----
+  function splitLines(text) {
+    const out = []; let start = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] !== '\n') continue;
+      out.push(text.slice(start, i > start && text[i - 1] === '\r' ? i - 1 : i)); start = i + 1;
+    }
+    out.push(text.slice(start));
+    return out;
+  }
+  class TextRenderer {
+    constructor(atlas) { this.atlas = atlas; this.kerning = true; this.pixelSnap = true; this.glyphsDrawn = 0; }
+    lineHeight(px) { return f(font.size(px).lineHeight); }
+    ascent(px) { return f(font.size(px).ascent); }
+    measure(text, px) { return this.layout(text, px, [0, 0], 'left', null); }
+    // batch は配列。積んだ四角 { glyph, left, top, w, h } を足す
+    draw(batch, text, pos, px, align = 'left') { this.glyphsDrawn = 0; return this.layout(text, px, pos, align, batch); }
+    layout(text, px, pos, align, batch) {
+      const s = font.size(px), lineHeight = f(s.lineHeight);
+      let baseline = f(f(pos[1]) + f(s.ascent)), widest = 0, lines = 0;
+      for (const line of splitLines(text)) {
+        lines++;
+        const w = this.measureLine(line, px);
+        widest = Math.max(widest, w);
+        if (batch) {
+          const startX = align === 'center' ? f(f(pos[0]) - f(w * 0.5)) : align === 'right' ? f(f(pos[0]) - w) : f(pos[0]);
+          this.drawLine(batch, line, px, startX, baseline);
+        }
+        baseline = f(baseline + lineHeight);
+      }
+      return [widest, f(lines * lineHeight)];
+    }
+    kern(prev, cur, px) { return this.kerning && prev !== 0 ? font.kerning(prev, cur, px) : 0; }
+    measureLine(line, px) {
+      let penX = 0, prev = 0;
+      for (const ch of line) { const cp = ch.codePointAt(0); penX = f(penX + this.kern(prev, cp, px)); penX = f(penX + this.atlas.getOrAdd(cp, px).metrics.advance); prev = cp; }
+      return penX;
+    }
+    drawLine(batch, line, px, startX, baseline) {
+      let penX = startX, prev = 0;
+      for (const ch of line) {
+        const cp = ch.codePointAt(0);
+        penX = f(penX + this.kern(prev, cp, px));
+        const g = this.atlas.getOrAdd(cp, px);
+        prev = cp;
+        if (hasPixels(g.metrics)) {
+          const m = g.metrics;
+          let left = f(penX + m.offsetX), top = f(baseline + m.offsetY);
+          if (this.pixelSnap) { left = roundEven(left); top = roundEven(top); }
+          batch.push({ glyph: g, left, top, w: m.width, h: m.height, penX, baseline });
+          this.glyphsDrawn++;
+        }
+        penX = f(penX + g.metrics.advance);
+      }
+    }
+  }
+
+  // ---- Program.DrawTextSample(960x640 の画面に、同じ順・同じ位置で積む) ----
+  const SAMPLE_COLORS = { white: '#f5f8ff', dim: '#8c9eb8', warn: '#ffb859' };
+  function drawTextSample(text, batch, width = 960) {
+    const put = (s, px, x, y, color, align = 'left') => { const n = batch.length; const r = text.draw(batch, s, [x, y], px, align); for (let i = n; i < batch.length; i++) batch[i].color = color; return r; };
+    const line = (s, px, color, y) => { put(s, px, 14, y, color); return text.lineHeight(px); };
+    const { white, dim, warn } = SAMPLE_COLORS;
+    let y = 14;
+    y = f(y + line('見本帳(; でもどる)', 16, dim, y));
+    y = f(f(y + line('日本語も出る ひらがな カタカナ 漢字 記号 ①②③ 〜！？', 24, white, y)) + 2);
+    y = f(f(y + line('The quick brown fox jumps over the lazy dog 0123456789', 16, white, y)) + 8);
+    y = f(f(y + line('48px の見出し', 48, white, y)) + 6);
+    y = f(y + line('整列 ↓(同じ y に3つ)', 16, dim, y));
+    const alignY = y;
+    put('左ぞろえ', 16, 14, alignY, white); put('中央ぞろえ', 16, f(width * 0.5), alignY, white, 'center'); put('右ぞろえ', 16, f(width - 14), alignY, white, 'right');
+    y = f(f(y + text.lineHeight(16)) + 10);
+    y = f(y + line('カーニング(上=あり / 下=なし)', 16, dim, y));
+    text.kerning = true; y = f(y + line('AVATAR Two Ya WAVE To.', 32, white, y));
+    text.kerning = false; y = f(f(y + line('AVATAR Two Ya WAVE To.', 32, warn, y)) + 10);
+    text.kerning = true;
+    y = f(y + line('ピクセル丸め(上=あり / 下=なし。0.5px ずらして描画)', 16, dim, y));
+    put('細い線ほど差が出る ABC 漢字', 16, 14, y, white);
+    y = f(y + text.lineHeight(16));
+    text.pixelSnap = false; put('細い線ほど差が出る ABC 漢字', 16, 14.5, f(y + 0.5), warn); text.pixelSnap = true;
+    y = f(f(y + text.lineHeight(16)) + 10);
+    line('フォントに無い文字は豆腐になる → 😀🎮  (絵文字は別フォントが要る)', 16, dim, y);
+  }
+
+  // ---- Program.RunTextCheck(21 項目と、数えない [--] が2行) ----
+  function runTextCheck(atlas, text) {
+    const lines = []; let fails = 0, count = 0;
+    const check = (name, ok, detail = '') => { count++; lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+    const F2 = (v) => fixedCs(v, 2), F3 = (v) => fixedCs(v, 3);
+    lines.push(`  フォント: ${font.name}(${font.faceCount} 面中 ${font.faceIndex} 番)`);
+    const s = font.size(32), ascent = f(s.ascent), descent = f(s.descent), lh = f(s.lineHeight);
+    check('ascent は正', ascent > 0, `${F2(ascent)}px`);
+    check('descent は正(下向きの量として)', descent > 0, `${F2(descent)}px`);
+    check('32px 指定で ascent+descent が 32px', Math.abs(f(ascent + descent) - 32) < 0.5, `${F2(f(ascent + descent))}px`);
+    check('行送り >= ascent+descent', lh >= f(ascent + descent) - 0.01, `行送り ${F2(lh)}px / lineGap ${F2(s.lineGap)}px`);
+    check('英字を持っている', font.hasGlyph(65));
+    check('ひらがなを持っている', font.hasGlyph(0x3042), font.hasGlyph(0x3042) ? 'あ' : 'なし');
+    check('漢字を持っている', font.hasGlyph(0x6F22), font.hasGlyph(0x6F22) ? '漢' : 'なし');
+    lines.push(`  [--] 絵文字 U+1F600: ${font.hasGlyph(0x1F600) ? 'あり' : 'なし(豆腐になる)'}`);
+    const space = atlas.getOrAdd(32, 16);
+    check('空白は絵を持たないが送りはある', !hasPixels(space.metrics) && space.metrics.advance > 0, `送り ${F2(space.metrics.advance)}px`);
+    const before = atlas.bakedTotal; atlas.getOrAdd(0x6F22, 16); const a1 = atlas.bakedTotal; atlas.getOrAdd(0x6F22, 16); const a2 = atlas.bakedTotal;
+    check('2回目は焼き直さない', a2 === a1, `焼いた回数 ${a2 - before}`);
+    atlas.getOrAdd(0x6F22, 17);
+    check('大きさが違えば別のグリフ', atlas.bakedTotal === a2 + 1, `16px と 17px で ${atlas.bakedTotal - a2} 回`);
+    const r = atlas.getOrAdd(0x6F22, 16).region;
+    const inside = r.uvMin[0] >= 0 && r.uvMin[1] >= 0 && r.uvMax[0] <= 1 && r.uvMax[1] <= 1 && r.uvMin[0] < r.uvMax[0] && r.uvMin[1] < r.uvMax[1];
+    check('UV が 0..1 に収まっている', inside, `(${F3(r.uvMin[0])},${F3(r.uvMin[1])})-(${F3(r.uvMax[0])},${F3(r.uvMax[1])})`);
+    const uvw = f(f(r.uvMax[0] - r.uvMin[0]) * atlas.size);
+    check('UV の幅が画素幅と一致', Math.abs(uvw - r.width) < 0.01, `${F2(uvw)}px / ${r.width}px`);
+    for (let i = 0; i < 32; i++) atlas.getOrAdd(0x4E00 + i, 15);
+    check('グリフを焼いても GL エラーが出ない', true, 'NoError(このページは GL を使わない)');
+    const sample = 'Measure と Draw は同じ道を通る';
+    const me = text.measure(sample, 16), dr = text.draw([], sample, [0, 0], 16);
+    check('Measure と Draw の大きさが一致', Math.abs(me[0] - dr[0]) < 0.01 && Math.abs(me[1] - dr[1]) < 0.01, `${F2(me[0])}x${F2(me[1])}`);
+    const one = text.measure('あいうえお', 16), two = text.measure('あいうえお\nかきくけこ', 16);
+    check('2行の高さは1行の2倍', Math.abs(two[1] - one[1] * 2) < 0.01, `${F2(one[1])} → ${F2(two[1])}`);
+    check('2行の幅は広いほうの行', Math.abs(two[0] - one[0]) < 0.01, `${F2(two[0])}px`);
+    check('CRLF でも同じ', Math.abs(text.measure('あ\r\nい', 16)[1] - text.measure('あ\nい', 16)[1]) < 0.01);
+    text.kerning = false; const without = text.measure('AVAV', 32)[0]; text.kerning = true; const withK = text.measure('AVAV', 32)[0];
+    lines.push(`  [--] カーニング: AVAV が ${F2(without)}px → ${F2(withK)}px` + (withK < without ? `(${F2(f(without - withK))}px 詰まった)` : '(このフォントでは効かない)'));
+    const sur = '\u{20B9F}';
+    check('サロゲートペアを1文字として数える', sur.length === 2, `char ${sur.length} 個 / 幅 ${F2(text.measure(sur, 16)[0])}px`);
+    const pw = text.measure(sur, 16)[0], og = atlas.getOrAdd(0x20B9F, 16).metrics.advance;
+    check('幅がグリフ1つぶんと一致', Math.abs(pw - og) < 0.01, `${F2(pw)}px / 1グリフ ${F2(og)}px`);
+    const tiny = new GlyphAtlas(64);
+    for (let i = 0; i < 200; i++) tiny.getOrAdd(0x4E00 + i, 32);
+    check('満杯になっても落ちない', tiny.isFull, `${tiny.glyphCount}字 / ${tiny.shelfCount}段`);
+    const missing = tiny.getOrAdd(0x9FA0, 32);
+    check('満杯でも送りは返す', missing.metrics.advance > 0, `${F2(missing.metrics.advance)}px`);
+    lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`);
+    return { lines, fails, count };
+  }
+  return { font, roundEven, fixedCs, GlyphAtlas, TextRenderer, splitLines, drawTextSample, runTextCheck, hasPixels, SAMPLE_COLORS };
+})(FONT28);
+
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat } = Lab;
+const T = TX28, f = Math.fround;
+const FONT_CSS = '"Meiryo", "メイリオ", "Yu Gothic", "Hiragino Sans", sans-serif';
+const pct = (v) => `${T.fixedCs(v * 100, 1)}%`;
+
+// ------------------------------------------------------------
+// 字の絵(このページだけ): ブラウザのフォントで、reference の箱(幅・高さ・Offset)の中に描いて被覆率を取る
+// ------------------------------------------------------------
+const rasterCache = new Map();
+const scratch = document.createElement('canvas');
+const sctx = scratch.getContext('2d', { willReadFrequently: true });
+function rasterize(g) {
+  const m = g.metrics, key = `${g.px}:${g.cp}`;
+  if (rasterCache.has(key)) return rasterCache.get(key);
+  const w = m.width, h = m.height, out = new Uint8Array(w * h);
+  if (w > 0 && h > 0) {
+    if (!m.glyph) {
+      // フォントに無い字は .notdef(豆腐)。箱の縁を描く
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (x === 0 || y === 0 || x === w - 1 || y === h - 1) out[y * w + x] = 230;
+    } else {
+      scratch.width = w; scratch.height = h;
+      sctx.clearRect(0, 0, w, h); sctx.fillStyle = '#fff'; sctx.textBaseline = 'alphabetic';
+      sctx.font = `${FONT28.sizes[g.px].em}px ${FONT_CSS}`;
+      sctx.fillText(String.fromCodePoint(g.cp), -m.offsetX, -m.offsetY);
+      const d = sctx.getImageData(0, 0, w, h).data;
+      for (let i = 0; i < w * h; i++) out[i] = d[i * 4 + 3];
+    }
+  }
+  rasterCache.set(key, out);
+  return out;
+}
+// 被覆率の配列を、色を付けた画像にする
+function toImage(cov, w, h, rgb = [166, 217, 255]) {
+  const img = new ImageData(Math.max(1, w), Math.max(1, h));
+  for (let i = 0; i < w * h; i++) { img.data[i * 4] = rgb[0]; img.data[i * 4 + 1] = rgb[1]; img.data[i * 4 + 2] = rgb[2]; img.data[i * 4 + 3] = cov[i]; }
+  return img;
+}
+const tmp = document.createElement('canvas');
+function blit(ctx, img, x, y, w, h) { tmp.width = img.width; tmp.height = img.height; tmp.getContext('2d').putImageData(img, 0, 0); ctx.imageSmoothingEnabled = false; ctx.drawImage(tmp, x, y, w, h); }
+
+// ------------------------------------------------------------
+// 1. 字を並べる
+// ------------------------------------------------------------
+function lnDraw() {
+  const text = segValue('ln-text'), px = Number(segValue('ln-px')), kern = segValue('ln-kern') === '1';
+  const atlas = new T.GlyphAtlas(2048), tr = new T.TextRenderer(atlas);
+  tr.kerning = kern;
+  const batch = [], size = tr.draw(batch, text, [0, 0], px);
+  // 送り(ペンの位置)を並べる。DrawLine と同じ足し方
+  const pens = []; let penX = 0, prev = 0;
+  for (const ch of text) { const cp = ch.codePointAt(0); const k = tr.kern(prev, cp, px); penX = f(penX + k); const g = atlas.getOrAdd(cp, px); pens.push({ x: penX, adv: g.metrics.advance, kern: k, cp }); penX = f(penX + g.metrics.advance); prev = cp; }
+  const s = T.font.size(px);
+  const { ctx, w, h } = fit($('ln-canvas'));
+  const z = Math.min((w - 60) / Math.max(size[0], 1), (h - 70) / s.lineHeight), ox = 30, oy = 22;
+  const X = (v) => ox + v * z, Y = (v) => oy + v * z;
+  const hl = (y, color, label) => { ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(10, y); ctx.lineTo(w - 10, y); ctx.stroke(); ctx.setLineDash([]); ctx.font = '11px sans-serif'; const lw = ctx.measureText(label).width; ctx.fillStyle = tok('--surface'); ctx.fillRect(w - 14 - lw, y - 15, lw + 8, 14); ctx.fillStyle = color; ctx.fillText(label, w - 10 - lw, y - 4); };
+  hl(Y(0), tok('--muted'), `ascent(上端) ${T.fixedCs(s.ascent, 2)}px`);
+  hl(Y(s.ascent), '#ffbe3c', 'ベースライン');
+  hl(Y(f(s.ascent + s.descent)), tok('--muted'), `descent(下端) ${T.fixedCs(s.descent, 2)}px`);
+  for (const q of batch) {
+    const img = toImage(rasterize(q.glyph), q.w, q.h);
+    blit(ctx, img, X(q.left), Y(q.top), q.w * z, q.h * z);
+    ctx.strokeStyle = 'rgba(115,217,255,0.8)'; ctx.lineWidth = 1; ctx.strokeRect(X(q.left), Y(q.top), q.w * z, q.h * z);
+  }
+  // ペンの位置と送り
+  const by = Y(f(s.ascent + s.descent)) + 10;
+  ctx.font = '11px sans-serif';
+  pens.forEach((p, i) => {
+    ctx.strokeStyle = p.kern ? '#ff6b5e' : tok('--accent'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(X(p.x), Y(s.ascent) - 6); ctx.lineTo(X(p.x), by + 6); ctx.stroke();
+    ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(p.x), by + 2); ctx.lineTo(X(p.x + p.adv), by + 2); ctx.stroke();
+    ctx.fillStyle = p.kern ? '#ff6b5e' : tok('--muted');
+    if (p.kern) ctx.fillText(`${T.fixedCs(p.kern, 2)}`, X(p.x) + 3, by + 16);
+  });
+  ctx.fillStyle = tok('--muted');
+  const cap = ['青い縦線 = ペンの位置(送りの区切り)/ ', '赤 = カーニングで詰めた位置 / 枠 = 絵の箱'];
+  if (ctx.measureText(cap.join('')).width < w - 20) ctx.fillText(cap.join(''), 10, h - 6); else { ctx.fillText(cap[0], 10, h - 20); ctx.fillText(cap[1], 10, h - 6); }
+  tr.kerning = !kern; const other = tr.measure(text, px)[0]; tr.kerning = kern;
+  $('ln-stats').innerHTML = stat('幅 x 高さ(Measure)', `${T.fixedCs(size[0], 2)} x ${T.fixedCs(size[1], 2)}`) + stat('ascent / descent', `${T.fixedCs(s.ascent, 2)} / ${T.fixedCs(s.descent, 2)}`) +
+    stat('行送り', T.fixedCs(s.lineHeight, 2)) + stat('char / Rune', `${text.length} / ${[...text].length}`) + stat(kern ? 'カーニングなしなら' : 'カーニングありなら', `${T.fixedCs(other, 2)}px`);
+  const notes = {
+    'Ag漢 jpy': 'g・j・p・y はベースラインより下へ伸び、j は絵が原点より左へはみ出す(OffsetX が負)。空白は絵を持たないが、送りはある。',
+    'AVATAR To.': 'A と V、T と o の間がカーニングで詰まる(赤い線)。送りのとおりに並べると離れて見える組み合わせ。',
+    'あいうえお': '全角の字は送りがどれも同じで、カーニングは 0。漢字やかなでは、カーニングを引くコストだけがかかる。',
+    '𠮟': 'U+20B9F は char 2 個(サロゲートペア)。Rune で回すので1文字として引き、送りは1つぶん。',
+    '😀': 'メイリオは絵文字を持っていないので、グリフ番号 0(.notdef)の豆腐が出る。黙って消えるより、抜けが見えるほうがよい。',
+  };
+  $('ln-note').textContent = notes[text] || '';
+}
+seg('ln-text', lnDraw); seg('ln-px', lnDraw); seg('ln-kern', lnDraw);
+
+// ------------------------------------------------------------
+// 2. アトラスに焼く
+// ------------------------------------------------------------
+// 焼く順(GetOrAdd を呼んだ順)を控える
+function recordScene(scene) {
+  const calls = [], size = scene === 'kanji' ? 1024 : 512;
+  const atlas = new T.GlyphAtlas(size), orig = atlas.getOrAdd.bind(atlas);
+  atlas.getOrAdd = (cp, px) => { calls.push([cp, px]); return orig(cp, px); };
+  const tr = new T.TextRenderer(atlas);
+  if (scene === 'sample') T.drawTextSample(tr, []);
+  if (scene === 'check') T.runTextCheck(atlas, tr);
+  if (scene === 'ascii') for (let i = 0x20; i < 0x7F; i++) atlas.getOrAdd(i, 16);
+  if (scene === 'kanji' || scene === 'kanji512') for (let i = 0; i < 2136; i++) atlas.getOrAdd(0x4E00 + i, 16);
+  return { calls, size, total: atlas.bakedTotal };
+}
+// 先頭から k 字焼いたところまで回し直す
+function replay(rec, k) {
+  const atlas = new T.GlyphAtlas(rec.size);
+  for (const [cp, px] of rec.calls) { if (atlas.bakedTotal >= k && !atlas.glyphs.has(px * 0x200000 + cp)) { const m = T.font.measure(cp, px); if (T.hasPixels(m)) break; } atlas.getOrAdd(cp, px); }
+  return atlas;
+}
+// R8 のテクスチャへ送る。align 4 のときは、GL が各行を4バイト境界から読むのを再現する
+function uploadAll(atlas, align) {
+  const S = atlas.size, buf = new Uint8Array(S * S); let broken = 0;
+  for (const g of atlas.order) {
+    const r = g.region, src = rasterize(g), stride = align === 4 ? Math.ceil(r.width / 4) * 4 : r.width;
+    if (stride !== r.width) broken++;
+    for (let y = 0; y < r.height; y++) for (let x = 0; x < r.width; x++) { const i = y * stride + x; buf[(r.y + y) * S + r.x + x] = i < src.length ? src[i] : 0; }
+  }
+  return { buf, broken };
+}
+const at = { rec: null, scene: null, log: [] };
+function atDraw() {
+  const scene = segValue('at-scene'), align = Number(segValue('at-align'));
+  if (at.scene !== scene) { at.scene = scene; at.rec = recordScene(scene); $('at-upto').max = at.rec.total; $('at-upto').value = at.rec.total; }
+  const k = Number($('at-upto').value), atlas = replay(at.rec, k), { buf, broken } = uploadAll(atlas, align);
+  $('at-upto-o').textContent = `${k} / ${at.rec.total} 字`;
+  const { ctx, w, h } = fit($('at-canvas'));
+  const S = atlas.size, usedRows = Math.max(1, Math.ceil(f(atlas.usage * S))), zoom = segValue('at-view') === 'used';
+  // 全体: 正方形のまま縮める。使った段だけ: 上から使った高さまでを、幅いっぱいに広げる
+  const srcH = zoom ? usedRows : S, sc = zoom ? Math.min((w - 20) / S, (h - 20) / srcH) : Math.min(w - 20, h - 20) / S;
+  const side = S * sc, ox = (w - side) / 2, oy = 10;
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(ox, oy, side, srcH * sc);
+  const img = toImage(buf, S, S);
+  tmp.width = S; tmp.height = S; tmp.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = sc < 1; ctx.drawImage(tmp, 0, 0, S, srcH, ox, oy, side, srcH * sc);
+  // 段の境目
+  ctx.strokeStyle = 'rgba(255,190,60,0.5)'; ctx.lineWidth = 1;
+  let y = 0;
+  for (const g of atlas.order) if (g.region.y > y) { y = g.region.y; ctx.beginPath(); ctx.moveTo(ox, oy + y * sc); ctx.lineTo(ox + side, oy + y * sc); ctx.stroke(); }
+  ctx.strokeStyle = tok('--line'); ctx.strokeRect(ox, oy, side, srcH * sc);
+  const usedY = oy + f(atlas.usage * S) * sc;
+  ctx.strokeStyle = '#ffbe3c'; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(ox, usedY); ctx.lineTo(ox + side, usedY); ctx.stroke(); ctx.setLineDash([]);
+  $('at-stats').innerHTML = stat('アトラス', `${S}x${S} R8`) + stat('字(GlyphCount)', String(atlas.glyphCount)) + stat('棚', `${atlas.shelfCount} 段`) +
+    stat('使用率(Usage)', pct(atlas.usage)) + stat('焼いた(BakedTotal)', String(atlas.bakedTotal)) + (atlas.isFull ? stat('満杯', '[満杯]') : '') + (align === 4 ? stat('崩れた字', `${broken} / ${atlas.order.length}`) : '');
+  const notes = {
+    sample: '見本帳を空のアトラスに1回描いたところ。16px・24px・32px・48px が来た順に同じ棚へ入るので、48px の字が来ると段が丸ごと高くなる。',
+    check: '/ の自己チェックが本番のアトラスに焼く順(空白は絵が無いので焼かない。漢 16px → 漢 17px → 一〜 15px …)。',
+    ascii: 'ASCII 95字。起動時に全部焼いても 1ms ほどで、512px の 5.1% しか使わない。',
+    kanji: '常用漢字の数(2136字)だけ焼いたところ。1024px の 27.9%。512px には入らない。',
+    kanji512: '512px に 2136字を入れようとすると、途中で満杯になる。満杯のあとは絵を出さず、送りだけ返す。',
+  };
+  $('at-note').textContent = notes[scene] + (align === 4 ? ' UNPACK_ALIGNMENT が 4 のままだと、幅が4の倍数の字だけが正しく出て、ほかは斜めに崩れる。' : '');
+}
+seg('at-scene', atDraw); seg('at-view', atDraw); seg('at-align', () => { atDraw(); screenDraw(); snDraw(); });
+$('at-upto').addEventListener('input', atDraw);
+$('at-check').addEventListener('click', () => {
+  const atlas = new T.GlyphAtlas(512), tr = new T.TextRenderer(atlas), r = T.runTextCheck(atlas, tr);
+  at.log.push('', '[テキストの自己チェック]', ...r.lines, '(計測は出さない。焼く・引く・測る・積むの us と ns は本文の表を見る)');
+  $('at-console').textContent = at.log.join('\n'); $('at-console').scrollTop = 1e9;
+});
+// 見本帳の画面(960x640)
+function screenDraw() {
+  const atlas = new T.GlyphAtlas(512), tr = new T.TextRenderer(atlas), batch = [];
+  T.drawTextSample(tr, batch);
+  // アトラスに送った結果から読む(UNPACK_ALIGNMENT を 4 のままにすると、画面の字も崩れる)
+  const { buf } = uploadAll(atlas, Number(segValue('at-align'))), S = atlas.size;
+  const W = 960, H = 640, img = new ImageData(W, H);
+  for (let i = 0; i < W * H; i++) { img.data[i * 4] = 13; img.data[i * 4 + 1] = 17; img.data[i * 4 + 2] = 23; img.data[i * 4 + 3] = 255; }
+  for (const q of batch) {
+    const r = q.glyph.region, c = q.color.match(/\w\w/g).map((v) => parseInt(v, 16)), lx = Math.round(q.left), ty = Math.round(q.top);
+    for (let y = 0; y < q.h; y++) for (let x = 0; x < q.w; x++) {
+      const X = lx + x, Y = ty + y; if (X < 0 || Y < 0 || X >= W || Y >= H) continue;
+      const a = buf[(r.y + y) * S + r.x + x] / 255, o = (Y * W + X) * 4;
+      for (let k = 0; k < 3; k++) img.data[o + k] = Math.round(img.data[o + k] * (1 - a) + c[k] * a);
+    }
+  }
+  const cv = $('at-screen'); cv.style.height = Math.round(cv.clientWidth * 640 / 960) + 'px';
+  const { ctx, w } = fit(cv);
+  tmp.width = W; tmp.height = H; tmp.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(tmp, 0, 0, w, w * H / W);
+}
+
+// ------------------------------------------------------------
+// 3. ピクセルに合わせる
+// ------------------------------------------------------------
+const SN_TEXT = '細い線ほど差が出る ABC 漢字';
+function snDraw() {
+  const off = Number(segValue('sn-off')), snap2 = segValue('sn-snap') === '1';
+  const atlas = new T.GlyphAtlas(512), tr = new T.TextRenderer(atlas);
+  const b1 = [], b2 = [];
+  tr.draw(b1, SN_TEXT, [4, 2], 16);
+  tr.pixelSnap = snap2; tr.draw(b2, SN_TEXT, [f(4 + off), f(22 + off)], 16); tr.pixelSnap = true;
+  const { buf } = uploadAll(atlas, 1), S = atlas.size;
+  const tex = (x, y) => buf[Math.min(Math.max(y, 0), S - 1) * S + Math.min(Math.max(x, 0), S - 1)];
+  const W = Math.ceil(tr.measure(SN_TEXT, 16)[0]) + 10, H = 42, out = new Float32Array(W * H);
+  // GL と同じく、画素の中心が四角の中にある画素だけ塗り、双線形で読む(Linear・ClampToEdge)
+  for (const q of [...b1, ...b2]) {
+    const r = q.glyph.region;
+    for (let Y = Math.floor(q.top) - 1; Y <= Math.ceil(q.top + q.h); Y++) for (let X = Math.floor(q.left) - 1; X <= Math.ceil(q.left + q.w); X++) {
+      const cxp = X + 0.5, cyp = Y + 0.5;
+      if (cxp < q.left || cxp >= q.left + q.w || cyp < q.top || cyp >= q.top + q.h || X < 0 || Y < 0 || X >= W || Y >= H) continue;
+      const u = r.x + (cxp - q.left) - 0.5, v = r.y + (cyp - q.top) - 0.5, x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+      const s = (tex(x0, y0) * (1 - fx) + tex(x0 + 1, y0) * fx) * (1 - fy) + (tex(x0, y0 + 1) * (1 - fx) + tex(x0 + 1, y0 + 1) * fx) * fy;
+      out[Y * W + X] = Math.max(out[Y * W + X], s);
+    }
+  }
+  const img = new ImageData(W, H);
+  for (let i = 0; i < W * H; i++) { const a = out[i] / 255; img.data[i * 4] = Math.round(13 + (245 - 13) * a); img.data[i * 4 + 1] = Math.round(17 + (248 - 17) * a); img.data[i * 4 + 2] = Math.round(23 + (255 - 23) * a); img.data[i * 4 + 3] = 255; }
+  const cv = $('sn-canvas'), z = Math.max(1, Math.min((cv.clientWidth - 20) / W, 4));
+  cv.style.height = `${Math.round(H * z + 10)}px`;
+  const { ctx } = fit(cv);
+  blit(ctx, img, 10, 5, W * z, H * z);
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+  // 濃さの統計(上の行 = 0〜20 行目、下の行 = 20〜42 行目)
+  const rowStats = (y0, y1) => { let part = 0, peak = 0; for (let y = y0; y < y1; y++) for (let x = 0; x < W; x++) { const v = out[y * W + x]; if (v > 8 && v < 247) part++; peak = Math.max(peak, v); } return { part, peak }; };
+  const a = rowStats(0, 21), b = rowStats(21, H);
+  $('sn-stats').innerHTML = stat('上の行(丸めあり)', `中間の濃さ ${a.part} 画素`) + stat(`下の行(${off}px ずらし、丸め${snap2 ? 'あり' : 'なし'})`, `中間の濃さ ${b.part} 画素`) +
+    stat('いちばん濃い画素(上 / 下)', `${Math.round(a.peak)} / ${Math.round(b.peak)}`);
+}
+seg('sn-off', snDraw); seg('sn-snap', snDraw);
+
+const all = () => { lnDraw(); atDraw(); screenDraw(); snDraw(); };
+// フォントが読み込まれてから描く(Meiryo はローカルにあるので、すぐ揃う)
+(document.fonts && document.fonts.load ? document.fonts.load(`16px ${FONT_CSS}`, 'あ漢A').catch(() => {}) : Promise.resolve()).then(() => { rasterCache.clear(); all(); });
+all();
+window.addEventListener('resize', () => { lnDraw(); atDraw(); screenDraw(); snDraw(); });
+})();
+</script>
+</body>
+</html>

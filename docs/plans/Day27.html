@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 27 オーディオ再生</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. WAV(RIFF)は「知らない箱を飛ばせる」形式</a></li><li class="l3"><a href="#s5">2. バッファとソースを分ける — Texture と Material と同じ形</a></li><li class="l3"><a href="#s6">3. <code>alSourcePlay</code> だけが3桁高い</a></li><li class="l3"><a href="#s7">4. ボイスは有限。足りなければ「奪う」</a></li><li class="l3"><a href="#s8">5. 同じ音が同時に大量に鳴ると、音として壊れる</a></li><li class="l3"><a href="#s9">6. 定位はモノラルにしか効かない</a></li><li class="l3"><a href="#s10">7. 音が出ない環境で落ちてはいけない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">新しい素材</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">キーの追加</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">Audio — OpenAL の薄い皮</a></li><li class="l3"><a href="#s19">音を1発鳴らすまで — 3つの関門</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21"><code>5</code> と <code>0</code>: まず鳴らす</a></li><li class="l3"><a href="#s22"><code>F6</code> → <code>6</code>: 壁に当たる音</a></li><li class="l3"><a href="#s23"><code>7</code>: 間引きを外す</a></li><li class="l3"><a href="#s24"><code>8</code>: ピッチの揺らぎを切る</a></li><li class="l3"><a href="#s25"><code>F1</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): ステレオのクリップに定位を付けようとしてみる</a></li><li class="l3"><a href="#s28">課題2(中): 体どうしの接触でも音を鳴らす</a></li><li class="l3"><a href="#s29">課題3(難): 発音をまとめて 1 回にする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">OpenAL の呼び出しコスト</a></li><li class="l3"><a href="#s32"><code>AudioSystem</code> の呼び出しコスト(連打したとき)</a></li><li class="l3"><a href="#s33">衝突デモでの発音(形は混在、押し戻しあり、120 ステップの平均)</a></li><li class="l3"><a href="#s34">自己チェック(16 項目すべて合格)</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 5 / Day 27 / 計画書</p>
+  <h1>オーディオ再生</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. WAV(RIFF)は「知らない箱を飛ばせる」形式</a></li><li class="l3"><a href="#s5">2. バッファとソースを分ける — Texture と Material と同じ形</a></li><li class="l3"><a href="#s6">3. <code>alSourcePlay</code> だけが3桁高い</a></li><li class="l3"><a href="#s7">4. ボイスは有限。足りなければ「奪う」</a></li><li class="l3"><a href="#s8">5. 同じ音が同時に大量に鳴ると、音として壊れる</a></li><li class="l3"><a href="#s9">6. 定位はモノラルにしか効かない</a></li><li class="l3"><a href="#s10">7. 音が出ない環境で落ちてはいけない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">新しい素材</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">キーの追加</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">Audio — OpenAL の薄い皮</a></li><li class="l3"><a href="#s19">音を1発鳴らすまで — 3つの関門</a></li><li class="l2"><a href="#s20">完成条件</a></li><li class="l3"><a href="#s21"><code>5</code> と <code>0</code>: まず鳴らす</a></li><li class="l3"><a href="#s22"><code>F6</code> → <code>6</code>: 壁に当たる音</a></li><li class="l3"><a href="#s23"><code>7</code>: 間引きを外す</a></li><li class="l3"><a href="#s24"><code>8</code>: ピッチの揺らぎを切る</a></li><li class="l3"><a href="#s25"><code>F1</code>: 自己チェックと計測</a></li><li class="l2"><a href="#s26">改造課題</a></li><li class="l3"><a href="#s27">課題1(易): ステレオのクリップに定位を付けようとしてみる</a></li><li class="l3"><a href="#s28">課題2(中): 体どうしの接触でも音を鳴らす</a></li><li class="l3"><a href="#s29">課題3(難): 発音をまとめて 1 回にする</a></li><li class="l2"><a href="#s30">動作確認済み環境</a></li><li class="l3"><a href="#s31">OpenAL の呼び出しコスト</a></li><li class="l3"><a href="#s32"><code>AudioSystem</code> の呼び出しコスト(連打したとき)</a></li><li class="l3"><a href="#s33">衝突デモでの発音(形は混在、押し戻しあり、120 ステップの平均)</a></li><li class="l3"><a href="#s34">自己チェック(16 項目すべて合格)</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 5(ゲームが作れる状態に)の3日目。<strong>音が出るようになる</strong>。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>5</code> で効果音が鳴り、<code>0</code> で BGM がループする。そして <code>F6</code> の衝突デモで <code>6</code> を押すと、体が壁に当たるたびに音が鳴る——<strong>画面の左で当たれば左から、小さい体ほど高い音で</strong>。</p>
+<p>体を 2000 まで増やすと、タイトルバーがこうなる。</p>
+<div class="code"><pre><code>音:32/32 要求:194 発音:4 間引き:189 奪取:4</code></pre></div>
+<p><strong>1ステップに 194 回鳴らそうとして、実際に鳴らしたのは 4 回</strong>。<code>7</code> で上限を外すと、その 194 回が全部鳴って<strong>音が割れる</strong>——しかも1ステップが 2.48ms から 2.97ms に伸びる。Day 26 で 2 万体を動かせるようにしたことが、そのまま音の設計問題になっている。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、実装に直結するものを挙げておく。</p>
+<ul><li><a href="http://soundfile.sapp.org/doc/WaveFormat/">WAVE PCM soundfile format</a>(Stanford CCRMA) <strong>1ページに全部載っている</strong>。今日書く <code>WavFile.cs</code> はこの図をコードにしただけ。ただしこのページは「fmt の次に data が来る」前提で書かれているので、それだけでは足りない(要点1)</li><li><a href="https://www.openal.org/documentation/OpenAL_Programmers_Guide.pdf">OpenAL Programmer's Guide</a> Device / Context / Buffer / Source の関係。2 章と 3 章だけでよい</li><li><a href="https://openal-soft.org/">OpenAL Soft</a> の <a href="https://github.com/kcat/openal-soft/wiki">ドキュメント</a>実際に使う実装のほう。<strong>仕様に無い拡張</strong>(EFX のリバーブなど)がここにある</li><li><a href="https://www.gameaudioprogramming.com/">Game Audio Programming: Principles and Practices</a>ボイス管理・優先度・スティールといった「鳴らし方」の話。今日の要点4・5はこの分野の定番の知恵をなぞっている</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. WAV(RIFF)は「知らない箱を飛ばせる」形式</h3>
+<p>WAV の中身は、<code>名前(4バイト) + 長さ(4バイト) + 中身</code> という箱が並んでいるだけ。</p>
+<div class="code"><pre><code>"RIFF" | 全体の長さ | "WAVE"
+  "fmt " | 16  | チャンネル数・サンプルレート・ビット深度…
+  "LIST" | 26  | 制作ソフト名など。<strong>知らないので飛ばす</strong>
+  "data" | ... | PCM 本体</code></pre></div>
+<p>素朴に書くと「<code>fmt </code> を読んで、次の <code>data</code> を読む」になる。サンプルの WAV ではこれで動くのに、<strong>編集ソフトで保存し直した瞬間に読めなくなる</strong>——間に <code>LIST</code> や <code>fact</code> が挟まるため。</p>
+<p>正しくは「知らない名前が来たら、長さのぶんだけ飛ばして次へ」。<strong>未知のものを安全に飛ばせることがチャンク形式の値打ちそのもの</strong>で、PNG も RIFF も glTF(Day 32)も同じ考え方で作られている。</p>
+<p>引っかかりやすい細部が2つ。</p>
+<ul><li><strong>チャンクは偶数バイト境界にそろう</strong>。長さが奇数なら 1 バイトの詰め物が入る。忘れると、その次のチャンク名が 1 バイトずれて全部読めなくなる</li><li><strong>8bit は符号なし、16bit は符号付き</strong>。8bit は 0〜255 で中央が 128、16bit は -32768〜32767 で中央が 0。歴史的経緯だが、間違えると「8bit の音だけ盛大に歪む」</li></ul>
+<p>なぜ PNG(Day 16)は既製品に任せたのに WAV は自分で書くのか。<strong>難しさが2桁違う</strong>から。PNG は zlib 展開とフィルタ復元が要るが、非圧縮 PCM の WAV は<strong>ヘッダを飛ばして残りをそのまま渡すだけ</strong>で終わる。実コード 83 行。この規模のものを外部依存にする理由は無い。</p>
+<div class="inject"><figure class="lab" id="wav-lab">
+  <div class="lab-head">
+    <h3>WAV を読む — 箱を順に飛ばす(要点1、自己チェックの WAV パーサ)</h3>
+    <span class="tag">reference の Audio/WavFile.cs(Parse: 名前 + 長さの箱を順に見て、fmt と data だけ読み、知らない箱は長さのぶん飛ばし、奇数長なら 1 バイトの詰め物も飛ばす)と、Program.RunAudioCheck の BuildWav を JS に移したもの。bounce.wav と pickup.wav は assets/audio の本物をページに埋め込んであり、読んだ結果は C# と同じ(0.08s / 3,528 フレーム、0.22s / 4,959 フレーム)。LIST 付き・奇数長 LIST 付き・24bit・WAV でないものは、自己チェックと同じ組み立て方で作ったバイト列で、結果も同じ(400 バイト、200 バイト、24bit を弾く、WAV でないものを弾く)。下の波形は data の先頭の 2,000 フレーム。「読み方」の誤りの2つと、8bit を符号付きで読む誤りはこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px"><div class="table-wrap" id="wav-table"></div><pre id="wav-hex" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px"></pre><canvas id="wav-wave" style="height:120px;margin-top:8px" aria-label="data の先頭の波形"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">読むもの</span>
+      <div class="seg" id="wav-file"><button data-v="bounce" aria-pressed="false">bounce.wav</button><button data-v="pickup" aria-pressed="true">pickup.wav(8bit・奇数長)</button><button data-v="list" aria-pressed="false">LIST 付き</button><button data-v="odd" aria-pressed="false">奇数長 LIST 付き</button><button data-v="b24" aria-pressed="false">24bit</button><button data-v="notwav" aria-pressed="false">WAV でない 64 バイト</button></div>
+    </div>
+    <div class="ctl"><span class="label">読み方</span>
+      <div class="seg" id="wav-mode"><button data-v="reference" aria-pressed="true">知らない箱を飛ばす(reference)</button><button data-v="nopad" aria-pressed="false">詰め物を忘れる</button><button data-v="naive" aria-pressed="false">fmt の次は data と決め打ち</button></div>
+    </div>
+    <div class="ctl"><span class="label">8bit の読み方</span>
+      <div class="seg" id="wav-sign"><button data-v="0" aria-pressed="true">符号なし・中央 128(reference)</button><button data-v="1" aria-pressed="false">符号付きとして読む</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="wav-stats"></div><p id="wav-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s5">2. バッファとソースを分ける — Texture と Material と同じ形</h3>
+<p>OpenAL の登場人物は3つしかない。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>名前</th><th>何か</th><th>数</th></tr></thead>
+<tbody>
+<tr><td><strong>Device</strong></td><td>サウンドカード</td><td>1つ開く</td></tr>
+<tr><td><strong>Context</strong></td><td>描画でいう GL コンテキスト</td><td>1つ、カレントにして使う</td></tr>
+<tr><td><strong>Buffer</strong></td><td>音のデータ</td><td>音の種類だけ</td></tr>
+<tr><td><strong>Source</strong></td><td>「今それを鳴らしている人」</td><td>同時発音数だけ</td></tr>
+</tbody>
+</table></div>
+<p>肝は<strong>バッファとソースが別</strong>なこと。</p>
+<div class="code"><pre><code>AudioClip (バッファ) … 波形。1つだけメモリに載る
+ボイス   (ソース)   … 再生位置・音量・ピッチ・定位を持つ。同時に何人でも</code></pre></div>
+<p>敵が 30 体同時に死んでも、爆発音の波形は1つしか載らない。逆にこの分け方をしないと、<strong>同じ音を重ねて鳴らせない</strong> (再生位置が1つしかないので、2発目が1発目を頭から巻き戻す)。</p>
+<p>Day 15 の <code>Texture</code>(データ)と <code>Material</code>(使い方)がまったく同じ形で、Day 21 の <code>ResourcePool</code> と <code>Handle</code> もこの分離の上に乗っている。<strong>新しいリソースの種類が来たら、まずこの線を引く</strong>。</p>
+<h3 id="s6">3. <code>alSourcePlay</code> だけが3桁高い</h3>
+<p>今日いちばん意外な数字。実測(RTX 3070 機、OpenAL Soft 1.23.1):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>呼び出し</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td><code>alGetError</code></td><td>39ns</td></tr>
+<tr><td><code>SetSourceProperty(Gain)</code></td><td>87ns</td></tr>
+<tr><td><code>SetSourceProperty(Pitch)</code></td><td>92ns</td></tr>
+<tr><td><code>SetSourceProperty(Position)</code></td><td>96ns</td></tr>
+<tr><td><code>GetSourceProperty(State)</code></td><td>62ns</td></tr>
+<tr><td><code>SetSourceProperty(Buffer)</code></td><td>346ns</td></tr>
+<tr><td><code>alSourceStop</code></td><td>66ns</td></tr>
+<tr><td><strong><code>alSourcePlay</code></strong></td><td><strong>7,347ns</strong></td></tr>
+</tbody>
+</table></div>
+<p>他は全部 100ns 前後なのに、<strong>再生開始だけ 7.3μs</strong>。理由は、これが<strong>ミキサースレッドとの同期</strong>を伴うから。OpenAL Soft は別スレッドで音を混ぜ続けていて、<code>alSourcePlay</code> はそのスレッドに新しいボイスを引き渡し、受け取ったことを確認するまで戻らない。</p>
+<p><strong>この 7.3μs は「連打したときの数字」で、実際にはもっと安いことも多い</strong>。デモで測り直すと(2000 体、上限を外して 1ステップに 193 発):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>要求/step</th><th>上限4のとき</th><th>上限なしのとき</th><th>差</th><th>1発あたり</th></tr></thead>
+<tbody>
+<tr><td>500</td><td>24.4</td><td>0.50ms</td><td>0.49ms</td><td>0.00ms</td><td>—</td></tr>
+<tr><td>2,000</td><td>194.3</td><td>2.48ms</td><td>2.97ms</td><td>+0.49ms</td><td>2.6μs</td></tr>
+<tr><td>8,000</td><td>364.2</td><td>6.07ms</td><td>8.39ms</td><td>+2.32ms</td><td>6.5μs</td></tr>
+</tbody>
+</table></div>
+<p><strong>鳴らす回数が多いほど、1発あたりも高くなっている</strong>。ミキサーが追いつかなくなるほど待ちが増えるので、同期待ちのある呼び出しでは普通に起きる。「1回いくら」が固定だと思って掛け算すると外す。</p>
+<p>どちらの数字を取っても、Day 25・26 と並べれば桁は動かない。</p>
+<div class="code"><pre><code>当たり判定 1 回        24ns
+音を 1 発鳴らす   2,600〜7,300ns   ← 100〜300 倍</code></pre></div>
+<p><strong>1ステップに 300 発鳴らせば 1〜2ms</strong> 持っていかれる。「音くらい何回鳴らしてもいいだろう」が通らないことが、これで決まる。</p>
+<p>だから今日の設計は<strong>発音の回数を絞ることが中心</strong>になる(要点5)。</p>
+<h3 id="s7">4. ボイスは有限。足りなければ「奪う」</h3>
+<p>同時に作れるソースの数には上限がある(実装依存。OpenAL Soft の既定は 256)。そのうえ要点3のとおり生成も再生開始も安くないので、<strong>起動時に固定数だけ作って使い回す</strong>のが定石になる。ここでは 32 本。</p>
+<p>空きが無いときにどうするかが設計の分かれ目で、選択肢は2つ。</p>
+<ul><li><strong>鳴らさない</strong>(新しい音を捨てる)</li><li><strong>奪う</strong>(鳴っている音を止めて枠を取る)</li></ul>
+<p>どちらも正解になりうるが、<strong>新しい音のほうが情報量が多い</strong>ことが多い(たった今起きたことだから)ので、奪うほうを既定にする。奪う相手の選び方が、そのまま手触りになる。</p>
+<ol><li><strong>ループしているものは奪わない</strong> — BGM が効果音に消されては困る</li><li><strong>優先度がいちばん低いもの</strong> — プレイヤーの被弾音は雑魚の足音より偉い</li><li><strong>同じ優先度なら、いちばん古くから鳴っているもの</strong> — 古い音ほど「もう聞こえた」</li></ol>
+<p>実務ではもう1つ「今どれくらい小さく鳴っているか」を見ることが多い。遠くの小さな音を先に消したほうが、消えたことに気づかれにくい。</p>
+<p>そして<strong>枠を使い回すなら世代が要る</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal readonly struct VoiceId
+{
+    private readonly int _index;
+    private readonly int _generation;
+}</code></pre></div>
+<p>添字だけを配ると、自分の音が終わって枠が別の音に取られたあと、<code>Stop()</code> が<strong>その別人を止めてしまう</strong>。Day 21 で <code>Handle&lt;T&gt;</code> に世代を持たせたのとまったく同じ問題なので、同じ手で解く。</p>
+<p>なお、<strong>効果音の 9 割は札を受け取る必要がない</strong>。札が要るのは、あとから止めたり位置を追わせたりするもの——BGM、ループするエンジン音、詠唱中の音——だけになる。</p>
+<div class="inject"><figure class="lab" id="vo-lab">
+  <div class="lab-head">
+    <h3>32 本のボイスと札 — 空きが無ければ奪う、古い札は効かない(要点2・4・7、F1 の自己チェック)</h3>
+    <span class="tag">reference の Audio/AudioSystem.cs(Update・Play・PlayLoop・IsPlaying・Stop・StopAll・AcquireVoice・ReleaseVoice・TryResolve と VoiceId)を JS に移して、OpenAL の代わりに Web Audio で鳴らすもの。マス1つがボイス1本で、#番号.g世代・鳴らしているクリップ・優先度を書く。Update はページ全体で 60Hz に1回呼ぶ(FixedUpdate の頭と同じ)。F1 の自己チェックの 16 行は、reference のコードと本物の OpenAL Soft を回した C# と同じになる(ページを開いてすぐ押したとき。先に音を鳴らすと世代が進むので、札の番号は変わる)。stereo-ping.wav と music-loop.wav は大きいので埋め込まず、同じ形式・同じ長さの音をこのページで合成している(中身は別物)。呼び出しコストの表は OpenAL を測ったものなので、このページでは測らない。「音の出ない環境」はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="vo-canvas" style="height:216px" aria-label="32 本のボイス。使っているもの、ループ、奪われたものを色で示す"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">音(ブラウザは押すまで鳴らせない)</span>
+      <div class="seg" id="snd-on"><button data-v="1" aria-pressed="false">音を出す</button><button data-v="0" aria-pressed="true">出さない</button></div>
+    </div>
+    <div class="ctl"><span class="label">鳴らす</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="vo-one">hit を 1 発</button><button class="btn" id="vo-ten">hit を 10 発</button><button class="btn" id="vo-prio">優先度 5 で 1 発</button><button class="btn" id="vo-loop">BGM をループで(優先度 100)</button></div>
+    </div>
+    <div class="ctl"><span class="label">札で止める</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="vo-stop-last">最後の札で Stop</button><button class="btn" id="vo-stop-first">最初の札で Stop</button><button class="btn" id="vo-stopall">StopAll</button><button class="btn" id="vo-f1">F1 自己チェック</button></div>
+    </div>
+    <div class="ctl"><span class="label">同じ音の上限(7)</span>
+      <div class="seg" id="vo-limit"><button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="true">4</button><button data-v="8" aria-pressed="false">8</button><button data-v="0" aria-pressed="false">無制限</button></div>
+    </div>
+    <div class="ctl"><span class="label">環境</span>
+      <div class="seg" id="vo-avail"><button data-v="1" aria-pressed="true">音が出る</button><button data-v="0" aria-pressed="false">音の出ない環境</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="vo-stats"></div><pre id="vo-console" style="margin:10px 0 0;max-height:240px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s8">5. 同じ音が同時に大量に鳴ると、音として壊れる</h3>
+<p>Day 26 で 2 万体を動かせるようにした結果、「壁に当たったら鳴らす」と素直に書くと<strong>1ステップに 100 回以上</strong>要求が飛ぶ。実測で 2000 体なら 194 回、8000 体なら 364 回。</p>
+<p>問題は3つあって、どれも別の話。</p>
+<p><strong>(a) 単純に重い</strong>(要点3)。2000 体で +0.49ms、8000 体で +2.32ms。</p>
+<p><strong>(b) 音圧が線形に足される</strong>。同じ波形が同じ瞬間に始まると位相までそろうので、N 個重ねると振幅が N 倍になる。10 個で 10 倍、つまり +20dB。<strong>まず間違いなく割れる</strong>。ばらばらの音なら √N 程度で済むのとは話が違う。</p>
+<p><strong>(c) 情報として区別できない</strong>。10 個同時に鳴っても、人間には「1個大きく鳴った」としか聞こえない。<strong>払ったコストが無駄になる</strong>。</p>
+<p>対策は素直に2つ。</p>
+<ul><li><strong>1ステップに同じクリップを鳴らす回数に上限を置く</strong>(ここでは 4)。4 から上は増やしても区別が付かない</li><li><strong>ピッチをわずかに揺らす</strong>(±6%)。位相がずれるので(b)が緩み、「同じ音の繰り返し」の機械的な感じも消える</li></ul>
+<p>後者は<strong>同じ WAV を別の音に聞こえさせる</strong>手でもあって、今日は体の大きさでピッチを変えている(小さい体ほど高い)。実際のゲームでも、足音1つに 4〜6 個の波形を用意してランダムに選び、さらにピッチと音量を振る、という作りが定番になっている。<strong>音の種類を増やすより、1つを変化させるほうが安上がりで効果が高い</strong>。</p>
+<h3 id="s9">6. 定位はモノラルにしか効かない</h3>
+<p>OpenAL は<strong>ステレオのバッファに 3D 定位を適用しない</strong>。左右がすでに決まっているものを勝手に動かせないので当然といえば当然だが、「位置を設定したのに真ん中から聞こえる」という形で出るので原因が分かりにくい。</p>
+<p>結論は単純で、<strong>効果音はモノラルで作る</strong>。ステレオにするのは BGM と環境音だけ。</p>
+<p>2D の定位は、リスナーを原点に置いて<strong>ソースを円周上に並べる</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float x = pan;                                  // -1(左)〜 +1(右)
+float z = -MathF.Sqrt(1.0f - (x * x));          // 距離が 1 になるように
+al.SetSourceProperty(source, SourceVector3.Position, x, 0.0f, z);</code></pre></div>
+<p>単に x を動かすと、端へ行くほどリスナーから遠ざかって小さくなる。円周に載せれば<strong>距離減衰の影響を受けずに定位だけが変わる</strong>。</p>
+<p>あわせて <code>SourceRelative = true</code> を立てて、<strong>リスナーから見た相対位置</strong>として扱う。見下ろし型の 2D では、ワールド座標をそのまま渡すよりこのほうが素直(カメラが動いても音の左右が勝手に変わらない)。</p>
+<h3 id="s10">7. 音が出ない環境で落ちてはいけない</h3>
+<p>音が出ない状況はいくらでもある。リモートデスクトップ、サウンドを持たないマシン、ドライバが死んでいるとき、そもそもネイティブライブラリが見つからないとき。</p>
+<p><strong>そこで例外を投げるゲームは論外</strong>なので、<code>AudioSystem</code> は初期化に失敗したら <code>IsAvailable</code> を <code>false</code> にして、以降の呼び出しが<strong>黙って何もしない</strong>ようにしてある。呼び出し側に <code>if (audio is not null)</code> を書かせない、という方針。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public VoiceId Play(...)
+{
+    if (!IsAvailable || _al is null)
+    {
+        return VoiceId.None;
+    }
+    ...
+}</code></pre></div>
+<p>同じ考え方は「鳴らせなかったとき」にも及ぶ。ボイスが足りない・間引かれたときも <code>VoiceId.None</code> を返すだけで、例外は投げない。<strong>音が多すぎたときだけ落ちる</strong>という、再現しにくいバグを自分で仕込まないため。</p>
+<p>なお <code>AudioSystem</code> は <code>ResourceManager</code>(Day 21)に相乗りしていない。<code>ResourceManager</code> は <code>GL</code> を握っているので、そこへ OpenAL を足すと<strong><code>Core</code> がグラフィックスと音の両方を知る</strong>ことになり、Day 25 の設計書で記録した <code>Core</code> ⇔ <code>Render</code> の相互参照をもう一段悪くする。代わりに <code>ResourcePool&lt;T&gt;</code>(何も知らない総称型)だけを借りて、音のリソースは <code>AudioSystem</code> が自分で持つ形にした。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Audio/WavFile.cs</code></td><td>168 (83)</td><td><code>WavData</code> と RIFF パーサ</td></tr>
+<tr><td><code>Audio/AudioClip.cs</code></td><td>98 (47)</td><td>OpenAL のバッファ1つ</td></tr>
+<tr><td><code>Audio/AudioSystem.cs</code></td><td>576 (345)</td><td><code>VoiceId</code>、デバイス、ボイスプール、間引き</td></tr>
+</tbody>
+</table></div>
+<p><code>Audio/</code> は <code>Core/</code>(<code>Handle</code> / <code>ResourcePool</code>)だけに依存する。<code>Render/</code> も <code>Physics/</code> も知らない。</p>
+<h3 id="s13">新しい素材</h3>
+<p><code>assets/audio/</code> に5つ。<strong>わざとフォーマットをばらしてある</strong>——パーサが全部の経路を通ることを確かめるため。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>形式</th><th>長さ</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><code>bounce.wav</code></td><td>44100Hz 1ch 16bit</td><td>0.08s</td><td>壁に当たった音</td></tr>
+<tr><td><code>hit.wav</code></td><td>44100Hz 1ch 16bit</td><td>0.18s</td><td>体が当たった音(計測にも使う)</td></tr>
+<tr><td><code>pickup.wav</code></td><td>22050Hz 1ch <strong>8bit</strong></td><td>0.22s</td><td>拾った音。8bit の経路</td></tr>
+<tr><td><code>stereo-ping.wav</code></td><td>44100Hz <strong>2ch</strong> 16bit</td><td>0.60s</td><td>定位が効かないことの実演</td></tr>
+<tr><td><code>music-loop.wav</code></td><td>22050Hz 1ch 16bit</td><td>4.00s</td><td>BGM。継ぎ目が分からないようにループ</td></tr>
+</tbody>
+</table></div>
+<p><strong>全部その場で合成したもの</strong>で、外部から持ってきていない(卒業制作では <a href="https://kenney.nl/">Kenney</a> の CC0 素材を使う)。波形は素朴で、</p>
+<ul><li><code>bounce</code> … 760Hz から少し下がる正弦波 + 指数の減衰</li><li><code>hit</code> … ホワイトノイズを一次ローパスで鈍らせたもの + 120Hz の正弦</li><li><code>pickup</code> … 矩形波の3音アルペジオ(C5 E5 B5)</li><li><code>music-loop</code> … のこぎり波のベース + 矩形波のアルペジオ、120BPM で 2 小節</li></ul>
+<p>だけでできている。<strong>先頭に数ミリ秒の立ち上がりを付ける</strong>のがコツで、これが無いと波形が 0 から不連続に飛んで「プチッ」と鳴る。ループの継ぎ目も同じ理由で、末尾を数ミリ秒フェードしてある。</p>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+480 / -1</td><td>音の初期化と後始末、壁に当たったときの発音、キー、自己チェックと計測</td></tr>
+<tr><td><code>Day27.csproj</code></td><td>+2 パッケージ</td><td><code>Silk.NET.OpenAL</code> と <code>Silk.NET.OpenAL.Soft.Native</code></td></tr>
+</tbody>
+</table></div>
+<p><code>Silk.NET.OpenAL.Soft.Native</code> は <strong>OpenAL Soft の本体(<code>soft_oal.dll</code>)</strong>。OpenAL は仕様であって実装ではないので、どれかの実装が別途要る。昔は Creative のドライバが Windows に入っていたが、今は同梱するのが普通。</p>
+<h3 id="s15">キーの追加</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>5</code></td><td>効果音を1発鳴らす</td></tr>
+<tr><td><code>6</code></td><td>壁に当たったときの音 ON/OFF</td></tr>
+<tr><td><code>7</code></td><td>同じ音の1ステップあたり上限(0 → 1 → 2 → 4 → 8 → 0)</td></tr>
+<tr><td><code>8</code></td><td>ピッチの揺らぎ ON/OFF</td></tr>
+<tr><td><code>9</code></td><td>左右の定位 ON/OFF</td></tr>
+<tr><td><code>0</code></td><td>BGM の再生 / 停止</td></tr>
+<tr><td><code>[</code> / <code>]</code></td><td>全体の音量</td></tr>
+<tr><td><code>F1</code></td><td>オーディオの自己チェックと計測</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">写経する順番</h3>
+<p>依存の順に並べる。上から順に写せば、途中でビルドが通らなくなることはない。</p>
+<ol><li><strong><code>Day27.csproj</code></strong> — パッケージを2つ足す。<strong>最初にやる</strong>(以降が全部これに依存する)</li><li><strong><code>Audio/WavFile.cs</code></strong> — <code>WavData</code> → <code>WavFile.Parse</code>。チャンクを飛ばすループと、奇数長の詰め物が要点</li><li><strong><code>Audio/AudioClip.cs</code></strong> — <code>WavData</code> を OpenAL のバッファへ。短い</li><li><strong><code>Audio/AudioSystem.cs</code></strong> — 今日の本体。上から順に。<code>VoiceId</code> → コンストラクタ(デバイス/コンテキスト/ソースの用意)→ <code>Load</code> → <code>Update</code> → <code>Play</code> → <code>AcquireVoice</code>(<strong>奪う</strong>)→ 後始末</li><li><strong><code>Program.cs</code></strong> — 依存の順に。<ol><li>フィールド(<code>_audio</code> / クリップ5本 / <code>_musicVoice</code> / <code>_collisionSfx</code> / <code>_panning</code> / <code>_soundRequests</code>)</li><li><code>OnLoad</code> — <code>AudioSystem</code> の生成とクリップの読み込み、一覧の表示</li><li><code>FixedUpdate</code> の頭 — <code>_audio.Update()</code></li><li><code>UpdateBodies</code> の移動ループ — <code>bounced</code> を立てて <code>PlayBounce</code> を呼ぶ</li><li><code>PlayBounce</code> — 定位・ピッチ・音量の割り当て</li><li><code>OnKeyDown</code> / タイトルバー / 起動時のヘルプ / <code>OnClosing</code></li><li><code>RunAudioCheck</code> → <code>BenchmarkAudio</code></li></ol></li></ol>
+</section>
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層が1つ増えた</strong>。Day 25 で 5 つ(<code>Core</code> / <code>Scene</code> / <code>Ecs</code> / <code>Render</code> / <code>Physics</code>)、Day 26 でそのまま、今日 <code>Audio/</code> が加わって 6 つになる。</p>
+<h3 id="s18">Audio — OpenAL の薄い皮</h3>
+<svg viewBox="0 0 880 558" role="img" aria-label="Audio のクラス図。AudioSystem(IsAvailable・DeviceName・VoiceCount・ActiveVoices・MasterVolume・PitchVariation・MaxStartsPerClipPerStep・StartedLastStep・CulledLastStep・StolenLastStep・Load(path)・Update・Play(clip, volume, pitch, pan, priority, looping)・PlayLoop・IsPlaying・Stop・StopAll・Dispose)は WavFile(Load・Parse)を読み、AudioClip(Name・Buffer・SampleRate・Channels・BitsPerSample・Duration・ByteSize・IsMono・FromWav・Dispose)を ResourcePool で持ち、Voice(Source・Generation・Active・Looping・Priority・StartedAt)を固定数の配列で持つ。VoiceId(IsValid・None)に添字 + 世代を配り、Handle でクリップを指す。WavFile は WavData(Data・SampleRate・Channels・BitsPerSample・BytesPerFrame・FrameCount・Duration)を返し、AudioClip は WavData を受け取る" style="width:100%;max-width:880px;display:block;margin:8px 0 16px">
+<defs><marker id="arr1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="10" y="10" width="430" height="308" rx="6" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="225" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">AudioSystem</text><line x1="10" y1="38" x2="440" y2="38" stroke="var(--line)"></line><text x="20" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool IsAvailable</text><text x="20" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string DeviceName</text><text x="20" y="85" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int VoiceCount</text><text x="20" y="100" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ActiveVoices</text><text x="20" y="115" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float MasterVolume</text><text x="20" y="130" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool PitchVariation</text><text x="20" y="145" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int MaxStartsPerClipPerStep</text><text x="20" y="160" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int StartedLastStep</text><text x="20" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int CulledLastStep</text><text x="20" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int StolenLastStep</text><text x="20" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Load(path) Handle</text><text x="20" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Update()</text><text x="20" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Play(clip, volume, pitch, pan, priority, looping) VoiceId</text><text x="20" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+PlayLoop(clip, volume) VoiceId</text><text x="20" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+IsPlaying(voice) bool</text><text x="20" y="280" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Stop(voice)</text><text x="20" y="295" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+StopAll()</text><text x="20" y="310" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Dispose()</text><rect x="10" y="400" width="200" height="128" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="110" y="419" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Voice</text><line x1="10" y1="428" x2="210" y2="428" stroke="var(--line)"></line><text x="20" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Source</text><text x="20" y="460" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Generation</text><text x="20" y="475" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Active</text><text x="20" y="490" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool Looping</text><text x="20" y="505" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Priority</text><text x="20" y="520" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+long StartedAt</text><rect x="250" y="400" width="190" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="345" y="419" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">VoiceId</text><line x1="250" y1="428" x2="440" y2="428" stroke="var(--line)"></line><text x="260" y="445" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool IsValid</text><text x="260" y="460" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+None</text><rect x="250" y="520" width="190" height="28" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="345" y="539" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">Handle</text><rect x="600" y="10" width="260" height="68" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="29" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">WavFile</text><line x1="600" y1="38" x2="860" y2="38" stroke="var(--line)"></line><text x="610" y="55" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Load(path) WavData</text><text x="610" y="70" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Parse(bytes, name) WavData</text><rect x="600" y="130" width="260" height="143" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="149" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">WavData</text><line x1="600" y1="158" x2="860" y2="158" stroke="var(--line)"></line><text x="610" y="175" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+byte[] Data</text><text x="610" y="190" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int SampleRate</text><text x="610" y="205" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Channels</text><text x="610" y="220" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int BitsPerSample</text><text x="610" y="235" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int BytesPerFrame</text><text x="610" y="250" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int FrameCount</text><text x="610" y="265" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Duration</text><rect x="600" y="330" width="260" height="188" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="730" y="349" text-anchor="middle" fill="var(--ink)" font-weight="700" font-family="var(--font-mono)">AudioClip</text><line x1="600" y1="358" x2="860" y2="358" stroke="var(--line)"></line><text x="610" y="375" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+string Name</text><text x="610" y="390" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+uint Buffer</text><text x="610" y="405" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int SampleRate</text><text x="610" y="420" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int Channels</text><text x="610" y="435" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int BitsPerSample</text><text x="610" y="450" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+float Duration</text><text x="610" y="465" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+int ByteSize</text><text x="610" y="480" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+bool IsMono</text><text x="610" y="495" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+FromWav(al, wav, name) AudioClip</text><text x="610" y="510" fill="var(--ink)" font-size="11.5" font-family="var(--font-mono)">+Dispose()</text><path stroke-dasharray="5 4" d="M440 44 L598 44" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="450" y="37" fill="var(--muted)" font-size="12">読む</text><path stroke-dasharray="5 4" d="M730 78 L730 128" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="738" y="108" fill="var(--muted)" font-size="12">返す</text><path stroke-dasharray="5 4" d="M730 330 L730 275" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="738" y="305.5" fill="var(--muted)" font-size="12">受け取る</text><path d="M458 294 L500 294 L500 424 L600 424" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M440 294 L449 300 L458 294 L449 288 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="506" y="402" fill="var(--muted)" font-size="12">ResourcePool</text><text x="506" y="416" fill="var(--muted)" font-size="12">で持つ</text><path d="M110 336 L110 400" fill="none" stroke="var(--muted)" stroke-width="1.5"></path><path d="M110 318 L104 327 L110 336 L116 327 Z" fill="var(--muted)" stroke="var(--muted)" stroke-width="1.5"></path><text x="120" y="363" fill="var(--muted)" font-size="12">固定数の配列</text><path stroke-dasharray="5 4" d="M345 318 L345 398" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="353" y="363" fill="var(--muted)" font-size="12">添字 + 世代を配る</text><path stroke-dasharray="5 4" d="M440 310 L466 310 L466 534 L442 534" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr1)"></path><text x="474" y="538" fill="var(--muted)" font-size="12">クリップを指す</text></g></svg>
+<p><code>Voice</code> は <code>AudioSystem</code> の中の <code>private struct</code>。外からは <code>VoiceId</code> 越しにしか触れない。</p>
+<p>この層で押さえるべき線引きは3つ。</p>
+<ul><li><strong><code>WavFile</code> は OpenAL を知らない</strong>。ただのバイト列パーサなので、ファイルが無くてもメモリ上のバイト列で試せる(自己チェックがそうしている)</li><li><strong><code>AudioClip</code> はデータ、<code>Voice</code> は再生</strong>(要点2)。<code>Texture</code> と <code>Material</code>、<code>Mesh</code> と描画呼び出しと同じ分け方</li><li><strong><code>VoiceId</code> は <code>Handle&lt;T&gt;</code> と同じ構造</strong>(添字 + 世代)だが<strong>別の型</strong>。<code>Handle&lt;T&gt;</code> は <code>ResourcePool&lt;T&gt;</code> のためのもので、ボイスはプールではないので流用しない。同じ手口を別の場所で使い直している、と読むのが正しい</li></ul>
+<h3 id="s19">音を1発鳴らすまで — 3つの関門</h3>
+<p><code>Play</code> を呼んでから実際に音が出るまでに、3回ふるいにかけられる。<strong>呼んだのに鳴らないことは普通に起きる</strong>ので、どこで落ちたかを数えられるようにしてある。</p>
+<svg viewBox="0 0 1060 805" role="img" aria-label="音を1発鳴らすまで(3つの関門)。Play(clip, volume, pitch, pan)→ IsAvailable か。No なら VoiceId.None(音の出ない環境。例外は投げない)。Yes ならクリップは生きているか。No なら VoiceId.None。Yes なら、このステップで同じクリップを上限まで鳴らしたか。Yes なら間引き(CulledLastStep++)。No なら AcquireVoice(priority)→ 空きがあるか。Yes ならボイスを設定する(Buffer / Gain / Pitch / Position)。No なら奪える相手がいるか(ループ以外で優先度が自分以下)。No なら諦める(CulledLastStep++)。Yes なら、いちばん低い優先度(同点なら最古)を止めて(StolenLastStep++)ボイスを設定する。そのあと alSourcePlay(7.3us かかる)→ VoiceId を返す(添字 + 世代)" style="width:100%;max-width:1060px;display:block;margin:8px 0 16px">
+<defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="var(--muted)"></path></marker></defs>
+<g font-size="13"><rect x="290" y="8" width="270" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="425" y="28.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">Play(clip, volume, pitch, pan)</text><rect x="290" y="83.5" width="270" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="425" y="104" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">IsAvailable ?</text><rect x="10" y="75" width="240" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="130" y="95.5" text-anchor="middle" fill="var(--ink)">VoiceId.None</text><text x="130" y="112.5" text-anchor="middle" fill="var(--ink)">音の出ない環境。例外は投げない</text><rect x="290" y="159" width="270" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="425" y="179.5" text-anchor="middle" fill="var(--ink)">クリップは生きている ?</text><rect x="10" y="159" width="240" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="130" y="179.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">VoiceId.None</text><rect x="290" y="226" width="270" height="67" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="425" y="246.5" text-anchor="middle" fill="var(--ink)">このステップで</text><text x="425" y="263.5" text-anchor="middle" fill="var(--ink)">同じクリップを</text><text x="425" y="280.5" text-anchor="middle" fill="var(--ink)">上限まで鳴らした ?</text><rect x="10" y="226" width="240" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="130" y="255" text-anchor="middle" fill="var(--ink)">間引き</text><text x="130" y="272" text-anchor="middle" fill="var(--ink)">CulledLastStep++</text><rect x="290" y="327" width="270" height="33" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="425" y="347.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">AcquireVoice(priority)</text><rect x="290" y="394" width="270" height="33" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="425" y="414.5" text-anchor="middle" fill="var(--ink)">空きがある ?</text><rect x="600" y="461" width="220" height="67" rx="8" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="5 4"></rect><text x="710" y="481.5" text-anchor="middle" fill="var(--ink)">奪える相手がいる ?</text><text x="710" y="498.5" text-anchor="middle" fill="var(--ink)">ループ以外で</text><text x="710" y="515.5" text-anchor="middle" fill="var(--ink)">優先度が自分以下</text><rect x="860" y="461" width="170" height="67" rx="8" fill="var(--accent-soft)" stroke="var(--line)" stroke-width="1.5"></rect><text x="945" y="490" text-anchor="middle" fill="var(--ink)">諦める</text><text x="945" y="507" text-anchor="middle" fill="var(--ink)">CulledLastStep++</text><rect x="600" y="562" width="220" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="710" y="582.5" text-anchor="middle" fill="var(--ink)">いちばん低い優先度</text><text x="710" y="599.5" text-anchor="middle" fill="var(--ink)">同点なら最古を止める</text><text x="710" y="616.5" text-anchor="middle" fill="var(--ink)">StolenLastStep++</text><rect x="290" y="562" width="270" height="67" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="425" y="591" text-anchor="middle" fill="var(--ink)">ボイスを設定する</text><text x="425" y="608" text-anchor="middle" fill="var(--ink)">Buffer / Gain / Pitch / Position</text><rect x="290" y="663" width="270" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="425" y="683.5" text-anchor="middle" fill="var(--ink)" font-family="var(--font-mono)">alSourcePlay</text><text font-weight="700" x="425" y="700.5" text-anchor="middle" fill="var(--ink)">7.3us かかる</text><rect x="290" y="747" width="270" height="50" rx="8" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"></rect><text x="425" y="767.5" text-anchor="middle" fill="var(--ink)">VoiceId を返す</text><text x="425" y="784.5" text-anchor="middle" fill="var(--ink)">添字 + 世代</text><path d="M425 41 L425 81.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M290 100 L252 100" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="282" y="94" fill="var(--muted)" font-size="12" text-anchor="end">No</text><path d="M425 116.5 L425 157" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="431" y="131.5" fill="var(--muted)" font-size="12">Yes</text><path d="M290 175.5 L252 175.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="282" y="169.5" fill="var(--muted)" font-size="12" text-anchor="end">No</text><path d="M425 192 L425 224" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="431" y="207" fill="var(--muted)" font-size="12">Yes</text><path d="M290 259.5 L252 259.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="282" y="253.5" fill="var(--muted)" font-size="12" text-anchor="end">Yes</text><path d="M425 293 L425 325" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="431" y="308" fill="var(--muted)" font-size="12">No</text><path d="M425 360 L425 392" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M425 427 L425 560" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="431" y="442" fill="var(--muted)" font-size="12">Yes</text><path d="M560 410.5 L710 410.5 L710 459" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="568" y="404.5" fill="var(--muted)" font-size="12">No</text><path d="M820 494.5 L858 494.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="828" y="488.5" fill="var(--muted)" font-size="12">No</text><path d="M710 528 L710 560" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><text x="716" y="543" fill="var(--muted)" font-size="12">Yes</text><path d="M600 595.5 L562 595.5" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M425 629 L425 661" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path><path d="M425 713 L425 745" fill="none" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#arr2)"></path></g></svg>
+<p><strong>「諦める」が2箇所ある</strong>のが要点。間引き(<code>C</code>)は「同じ音が多すぎる」で落とし、<code>F</code> は「ボイスが足りず、しかも自分より偉い音しか鳴っていない」で落とす。前者は音として意味が無いから落とすので<strong>積極的</strong>、後者は資源が足りないから落とすので<strong>消極的</strong>。タイトルバーで両方を分けて数えているのは、この2つが違う対処を要求するため(前者は上限を調整する、後者はボイスを増やす)。</p>
+</section>
+<section class="part"><h2 id="s20">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day27 -c Release</code></pre></div>
+<p>起動時に、読み込んだクリップの一覧がコンソールに出る。<strong>フォーマットがばらばらであることを確認する</strong>——ここが全部同じだと、パーサの分岐が試されていない。</p>
+<div class="code"><pre><code>オーディオ: OpenAL Soft / 1.1 ALSOFT 1.23.1 / ボイス 32
+  bounce       44100Hz 1ch 16bit  0.08s   7,056B
+  hit          44100Hz 1ch 16bit  0.18s  15,876B
+  pickup       22050Hz 1ch  8bit  0.22s   4,959B
+  stereo-ping  44100Hz 2ch 16bit  0.60s 105,840B
+  music-loop   22050Hz 1ch 16bit  4.00s 176,400B</code></pre></div>
+<p>音が出ない環境なら「使えるデバイスがありません(音なしで続行します)」と出て、<strong>そのまま普通に遊べる</strong>(要点7)。</p>
+<h3 id="s21"><code>5</code> と <code>0</code>: まず鳴らす</h3>
+<p><code>5</code> で効果音が1発、<code>0</code> で BGM がループする。<code>[</code> <code>]</code> で音量を変えられる。</p>
+<p>BGM は 4 秒で一周する。<strong>継ぎ目が分かるかどうか</strong>を聞いてみてほしい。末尾を数ミリ秒フェードしてあるので、プチッとは鳴らないはず。</p>
+<h3 id="s22"><code>F6</code> → <code>6</code>: 壁に当たる音</h3>
+<p>衝突デモを出して <code>6</code> を押す。<code>G</code> と <code>PageDown</code> で見やすくしておくとよい。</p>
+<p>体が壁で跳ね返るたびに音が鳴る。<strong>画面の左で跳ねれば左から鳴る</strong>(<code>9</code> で切れる)。<strong>小さい体ほど高い音</strong>になっているので、大きさが耳で分かる。</p>
+<p><code>Shift</code> + <code>PageUp</code> で 2000 体まで増やすと、タイトルバーがこうなる。</p>
+<div class="code"><pre><code>音:32/32 要求:194 発音:4 間引き:189 奪取:4</code></pre></div>
+<p><strong>194 回要求して 4 回しか鳴っていない</strong>。それでも音は成立している——というより、4 回に絞っているからこそ成立している。</p>
+<h3 id="s23"><code>7</code>: 間引きを外す</h3>
+<p>上限を 8 → 0(無制限)まで開けていく。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>上限</th><th>聞こえ方</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>数が減ったのが分かる。まばら</td></tr>
+<tr><td>4(既定)</td><td>「たくさん当たっている」感じが出る</td></tr>
+<tr><td>8</td><td>4 との違いはほとんど分からない</td></tr>
+<tr><td>0(無制限)</td><td><strong>音が割れる</strong>。1つの大きな塊になって、粒が消える</td></tr>
+</tbody>
+</table></div>
+<p>無制限にすると <code>発音:</code> が 3 桁になり、<code>判定:</code> も上がる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>要求/step</th><th>上限4のとき</th><th>上限なしのとき</th></tr></thead>
+<tbody>
+<tr><td>500</td><td>24.4</td><td>0.50ms</td><td>0.49ms</td></tr>
+<tr><td>2,000</td><td>194.3</td><td>2.48ms</td><td><strong>2.97ms</strong></td></tr>
+<tr><td>8,000</td><td>364.2</td><td>6.07ms</td><td><strong>8.39ms</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>音として悪くなるのに、コストは上がる</strong>というのが要点5の意味。500 体では差が出ないことにも注目——<strong>問題が出るのは「数が増えてから」</strong>なので、少ない数で試して満足すると見逃す。</p>
+<h3 id="s24"><code>8</code>: ピッチの揺らぎを切る</h3>
+<p>上限を 8 くらいにしてから <code>8</code> を押す。揺らぎを切ると<strong>同じ音が重なって「ビーン」という金属的な響き</strong>になる。位相がそろって足し合わされているため。戻すと粒が分かれて聞こえる。</p>
+<div class="inject"><figure class="lab" id="sd-lab">
+  <div class="lab-head">
+    <h3>衝突デモの音 — 要求と発音を並べて数える(要点3・5・6、完成条件の 5〜9・0・[ ])</h3>
+    <span class="tag">Day 26 の衝突デモ(グリッド)に、reference の Program.PlayBounce(体の左右の位置 → 定位、半径 4〜21px → ピッチ 1.6〜0.7 倍、速さ → 音量)と、上の実験台と同じ AudioSystem をつないだもの。壁で跳ねた体に黄色い輪を出し、実際に鳴らせたものだけ輪を太くする。上の行はタイトルバーの音の部分と同じ書式。体の初期配置と、1ステップ目からの数ステップの要求の数・定位・ピッチ・音量は C# と同じ(500 体で 4, 12, 16, 16, 16。120 ステップの平均も 500 体なら本文の 24.4 と同じ。2,000 体・8,000 体は sinf の 1 ulp で配置が分かれるので、192.7・369.6 と少しずれる)。発音・間引き・奪取は、音の長さと実時間で決まるので、本文の表(計測のために全速で回したもの)とは違う。定位は OpenAL の円周上の位置の代わりに Web Audio の StereoPannerNode(左右の x だけ)で近似している</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="sd-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="sd-canvas" style="height:400px" aria-label="体が飛び回り、壁で跳ねたところに輪が出る。鳴らせた音の輪は太い"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">音(ブラウザは押すまで鳴らせない)</span>
+      <div class="seg" id="snd-on2"><button data-v="1" aria-pressed="false">音を出す</button><button data-v="0" aria-pressed="true">出さない</button></div>
+    </div>
+    <div class="ctl"><span class="label">衝突音(6)</span>
+      <div class="seg" id="sd-sfx"><button data-v="1" aria-pressed="false">ON</button><button data-v="0" aria-pressed="true">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">同じ音の上限(7)</span>
+      <div class="seg" id="sd-limit"><button data-v="1" aria-pressed="false">1</button><button data-v="2" aria-pressed="false">2</button><button data-v="4" aria-pressed="true">4</button><button data-v="8" aria-pressed="false">8</button><button data-v="0" aria-pressed="false">無制限</button></div>
+    </div>
+    <div class="ctl"><span class="label">ピッチの揺らぎ(8)と定位(9)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sd-jitter"><button data-v="1" aria-pressed="true">揺らぎ ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="sd-pan"><button data-v="1" aria-pressed="true">定位 ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">鳴らす(5・0)と音量([ ])</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="sd-k5">5 効果音</button><button class="btn" id="sd-k0">0 BGM</button><button class="btn" id="sd-vdown">[ 音量</button><button class="btn" id="sd-vup">] 音量</button></div>
+    </div>
+    <div class="ctl"><span class="label">体数</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-n="-60">−60</button><button class="btn" data-n="60">+60</button><button class="btn" data-n="500">500 体</button><button class="btn" data-n="2000">2,000 体</button><button class="btn" data-n="8000">8,000 体</button></div>
+    </div>
+    <div class="ctl"><span class="label">再生</span>
+      <div class="seg" id="sd-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sd-stats"></div><pre id="sd-console" style="margin:10px 0 0;max-height:160px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s25"><code>F1</code>: 自己チェックと計測</h3>
+<p>16 項目すべて <code>OK</code> になり、続けて呼び出しコストが出る。</p>
+<div class="code"><pre><code>[OK] pickup.wav       22050Hz 1ch 8bit  0.22s / 4,959 フレーム
+[OK] 知らないチャンク(LIST)を飛ばせる  400 バイト
+[OK] 奇数長チャンクの詰め物を飛ばせる  200 バイト
+[OK] 24bit を弾く
+[OK] ボイスの数を超えない  32 / 32
+[OK] 足りなければ奪う  8 回
+[OK] 古い札は無効になっている  voice#0.g3 → voice#0.g4
+[OK] ループは奪われない  voice#0.g5
+[OK] 1ステップに 2 回まで  発音 2
+  すべて合格
+
+### 呼び出し 1 回あたりのコスト ###
+  Play(間引かれる):      115ns
+  Play(空きあり)  :     8328ns
+  Play(奪う)      :    11180ns
+  Update()        :     2349ns</code></pre></div>
+<p><strong><code>Play(間引かれる)</code> と <code>Play(空きあり)</code> の差が 70 倍</strong>あることを確認する。間引きは「音を良くするため」だけでなく、<strong>そのままコストの話</strong>でもある。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>(起動時の一覧)</td><td>「WAV を読む」</td><td>bounce と pickup は本物の WAV。箱を順に見て、知らない箱と奇数長の詰め物を飛ばす</td></tr>
+<tr><td><code>5</code> / <code>0</code></td><td>「衝突デモの音」の 5 効果音と 0 BGM、「32 本のボイス」の BGM</td><td>BGM はループで、優先度 100。奪われない</td></tr>
+<tr><td><code>[</code> / <code>]</code></td><td>「衝突デモの音」の音量</td><td>全体の音量(MasterVolume)。0〜100% を 10% 刻み</td></tr>
+<tr><td><code>F6</code> → <code>6</code></td><td>「衝突デモの音」の衝突音</td><td>壁で跳ねるたびに鳴る。左で跳ねれば左から、小さい体ほど高い</td></tr>
+<tr><td><code>7</code></td><td>「衝突デモの音」と「32 本のボイス」の上限</td><td>2,000 体で要求が 100 を超えても、発音は上限の数まで。無制限にすると音が塊になる</td></tr>
+<tr><td><code>8</code> / <code>9</code></td><td>「衝突デモの音」の揺らぎと定位</td><td>揺らぎを切ると同じ高さの音が重なる。定位を切ると全部真ん中から聞こえる</td></tr>
+<tr><td><code>F1</code></td><td>「32 本のボイス」の F1 自己チェック</td><td>16 行が C# と同じ(開いてすぐ押したとき)。呼び出しコストの表は出さない</td></tr>
+<tr><td><code>PageUp</code> / <code>PageDown</code></td><td>「衝突デモの音」の体数</td><td>500・2,000・8,000 体で要求の数を比べる</td></tr>
+<tr><td>(キーなし)</td><td>「WAV を読む」の誤った読み方、「32 本のボイス」の札で止めるボタンと音の出ない環境</td><td>reference に無い比較。このページだけ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day27 の Audio/WavFile.cs・Audio/AudioSystem.cs と、Program.cs の PlayBounce・RunAudioCheck(BuildWav を含む)・キーの処理を JS に移し、OpenAL の代わりに Web Audio で鳴らしたもの。衝突デモの物理は docs/site/collision2d.js(Day 25・26 と共通)で、壁で跳ねた体を受け取る口だけ今日足した。reference の Audio/ を本物の OpenAL Soft 1.23.1 ごと回した C# の小さなプログラムと、起動時のクリップの一覧、自己チェックの 16 行(voice#0.g3 → voice#0.g4 などの札の番号まで)、PlayBounce の定位・ピッチ・音量、1ステップ目から数ステップの要求の数が一致した。本文の「衝突デモでの発音」の要求/step(24.4 / 194.3 / 364.2)は、C# で同じ手順を回すと一致した。bounce.wav・hit.wav・pickup.wav は assets/audio の本物を埋め込み、stereo-ping.wav と music-loop.wav はこのページで合成した同じ形式・同じ長さの音で代えている。呼び出しコスト(ns)と 1ステップの ms は手元の環境で測った値で、このページでは測り直していない。</p></div>
+</section>
+<section class="part"><h2 id="s26">改造課題</h2>
+<h3 id="s27">課題1(易): ステレオのクリップに定位を付けようとしてみる</h3>
+<p><code>stereo-ping.wav</code> を <code>5</code> キーで鳴らすように変えて、<code>pan</code> を -1 と +1 で振ってみる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_audio.Play(_stereoClip, 0.8f, 1.0f, -1.0f);   // 左のはず
+_audio.Play(_stereoClip, 0.8f, 1.0f, +1.0f);   // 右のはず</code></pre></div>
+<p><strong>何も変わらない</strong>。要点6のとおり、ステレオのバッファには 3D 定位が効かない。</p>
+<p>そのうえで、<code>AudioClip.IsMono</code> を見て「ステレオのクリップに <code>pan</code> を渡したら1回だけ警告を出す」ようにしてみる。<strong>黙って効かない</strong>のがいちばん困るので、気づける形にしておく。実際のエンジンでも、アセットのインポート時に「3D で使う音がステレオになっている」を警告するのが定番になっている。</p>
+<h3 id="s28">課題2(中): 体どうしの接触でも音を鳴らす</h3>
+<p>いまは壁に当たったときだけ鳴らしている。<code>Resolve</code> の中で「新しく接触が始まった組」でも鳴らすようにしてみる。</p>
+<p>まず素直に <code>Resolve</code> の中で <code>_audio.Play(_hitClip, ...)</code> を呼ぶ。2000 体で <strong>1ステップに 7,425 回</strong>要求が飛ぶ。<code>要求:</code> の数字と <code>判定:</code> の変化を見る(間引かれる側でも 115ns 掛かる)。</p>
+<p>次に、<strong>呼ぶ前に絞る</strong>。要点3のとおり <code>Play</code> の中で弾くのでは遅い場合がある。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 例: 相対速度が小さい接触は音にしない
+if (relativeSpeed &lt; 60.0f) { /* 鳴らさない */ }</code></pre></div>
+<p>考えどころは<strong>「押し戻しているだけの接触」と「今ぶつかった接触」の区別</strong>。いまの実装は、重なっている間ずっと接触として数え続けるので、そのまま鳴らすと<strong>接触している間じゅう鳴りっぱなし</strong>になる。「前のステップで接触していなかった組だけ鳴らす」には、接触の集合をステップをまたいで持つ必要がある。これは Phase 7 で <code>OnCollisionEnter</code> 相当を作るときの前段になる。</p>
+<h3 id="s29">課題3(難): 発音をまとめて 1 回にする</h3>
+<p>要点3の <code>alSourcePlay</code> 7.3μs は、<strong>1本ずつ鳴らすときの数字</strong>。OpenAL には複数のソースをまとめて再生する <code>alSourcePlayv</code> があり、ミキサースレッドとの同期を1回で済ませられる。実測すると:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方法</th><th>1本あたり</th></tr></thead>
+<tbody>
+<tr><td><code>alSourcePlay</code> を 32 回</td><td>7,347ns</td></tr>
+<tr><td><code>alSourcePlayv</code> で 32 本まとめて</td><td><strong>1,981ns</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>3.7 倍速い</strong>。</p>
+<p><code>AudioSystem</code> を、</p>
+<ol><li><code>Play</code> はボイスを確保して設定するところまでで、<strong>再生開始はしない</strong></li><li>ステップの終わりに <code>FlushPlays()</code> で、始めるボイスをまとめて <code>alSourcePlayv</code> に渡す</li></ol>
+<p>という形に変える。Silk.NET では<code>al.SourcePlay(int count, uint* sources)</code> のポインタ版がそれにあたる。</p>
+<p>考えどころが3つある。</p>
+<ul><li><strong><code>Play</code> が返した直後は、まだ鳴っていない</strong>。<code>IsPlaying</code> の意味が変わる</li><li><strong>どこで <code>FlushPlays</code> を呼ぶか</strong>。<code>FixedUpdate</code> の末尾が素直だが、キー操作から鳴らした音は1ステップ遅れる</li><li><strong>本当に速くなるか</strong>。1ステップに 4 発しか鳴らさないなら、4 × 7.3μs = 29μs が 4 × 2.0μs = 8μs になるだけ。<strong>21μs のために設計を複雑にする価値があるか</strong>を、測ってから決める</li></ul>
+<p>最後の問いがいちばん大事で、これは Day 18 のスプライトバッチと同じ話(まとめると速いが、まとめる手間と遅延を払う)。<strong>測ってから決める</strong>という順番だけは守る。</p>
+</section>
+<section class="part"><h2 id="s30">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0 / Silk.NET.OpenAL.Soft.Native 1.23.1</li><li>OpenAL Soft 1.23.1(<code>1.1 ALSOFT 1.23.1</code>)、ボイス 32 本</li><li>960x640、VSync オフ、<code>-c Release</code>、シミュレーション 60Hz</li></ul>
+<h3 id="s31">OpenAL の呼び出しコスト</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>呼び出し</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td><code>alGetError</code></td><td>39ns</td></tr>
+<tr><td><code>SetSourceProperty(Gain)</code></td><td>87ns</td></tr>
+<tr><td><code>SetSourceProperty(Pitch)</code></td><td>92ns</td></tr>
+<tr><td><code>SetSourceProperty(Position)</code></td><td>96ns</td></tr>
+<tr><td><code>GetSourceProperty(State)</code></td><td>62ns</td></tr>
+<tr><td><code>SetSourceProperty(Buffer)</code></td><td>346ns</td></tr>
+<tr><td><code>alSourceStop</code></td><td>66ns</td></tr>
+<tr><td><strong><code>alSourcePlay</code></strong></td><td><strong>7,347ns</strong></td></tr>
+<tr><td><code>alSourcePlayv</code>(32 本まとめて、1本あたり)</td><td>1,981ns</td></tr>
+</tbody>
+</table></div>
+<h3 id="s32"><code>AudioSystem</code> の呼び出しコスト(連打したとき)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>呼び出し</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td><code>Play</code>(間引かれる)</td><td>115ns</td></tr>
+<tr><td><code>Play</code>(空きがある)</td><td>8,328ns</td></tr>
+<tr><td><code>Play</code>(奪う)</td><td>11,180ns</td></tr>
+<tr><td><code>Update</code>(ボイス 32 本の回収)</td><td>2,349ns</td></tr>
+</tbody>
+</table></div>
+<h3 id="s33">衝突デモでの発音(形は混在、押し戻しあり、120 ステップの平均)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>上限</th><th>要求/step</th><th>発音/step</th><th>間引き/step</th><th>奪取/step</th><th>1ステップ</th></tr></thead>
+<tbody>
+<tr><td>500</td><td>4</td><td>24.4</td><td>4.0</td><td>20.1</td><td>3.7</td><td>0.50ms</td></tr>
+<tr><td>500</td><td>なし</td><td>24.4</td><td>24.1</td><td>0.2</td><td>24.1</td><td>0.49ms</td></tr>
+<tr><td>2,000</td><td>4</td><td>194.3</td><td>4.2</td><td>188.7</td><td>4.2</td><td>2.48ms</td></tr>
+<tr><td>2,000</td><td>なし</td><td>194.3</td><td>192.7</td><td>1.6</td><td>192.7</td><td>2.97ms</td></tr>
+<tr><td>8,000</td><td>4</td><td>364.2</td><td>5.6</td><td>357.0</td><td>4.2</td><td>6.07ms</td></tr>
+<tr><td>8,000</td><td>なし</td><td>364.2</td><td>361.0</td><td>3.2</td><td>361.0</td><td>8.39ms</td></tr>
+</tbody>
+</table></div>
+<h3 id="s34">自己チェック(16 項目すべて合格)</h3>
+<div class="code"><pre><code>[OK] bounce.wav       44100Hz 1ch 16bit  0.08s / 3,528 フレーム
+[OK] pickup.wav       22050Hz 1ch 8bit  0.22s / 4,959 フレーム
+[OK] stereo-ping.wav  44100Hz 2ch 16bit  0.60s / 26,460 フレーム
+[OK] 知らないチャンク(LIST)を飛ばせる  400 バイト
+[OK] 奇数長チャンクの詰め物を飛ばせる  200 バイト
+[OK] WAV でないものを弾く
+[OK] 24bit を弾く
+[OK] ボイスの数を超えない  32 / 32
+[OK] 足りなければ奪う  8 回
+[OK] 古い札は無効になっている  voice#0.g3 → voice#0.g4
+[OK] ループは奪われない  voice#0.g5
+[OK] 1ステップに 2 回まで  発音 2
+[OK] 残りは間引かれる  間引き 8
+[OK] 再生中の状態になる  voice#0.g7</code></pre></div>
+<h3 id="s35">検証の途中で分かったこと</h3>
+<ul><li><strong><code>alSourcePlay</code> だけが 3 桁高い</strong>。他の OpenAL 呼び出しが 40〜350ns なのに、再生開始だけ 7.3μs。ミキサースレッドとの同期が入るためで、「音の API はどれも安い」と思い込んでいると設計を間違える。<strong>1つだけ極端に高い呼び出しがある</strong>という形は、GL の <code>glFinish</code> や<code>glGetError</code> の同期待ちと同じで、API を新しく使うときは<strong>まず全部の呼び出しコストを測る</strong>のが安全</li><li><strong>その 7.3μs は「連打したときの数字」だった</strong>。連打する計測では 8.3μs(<code>AudioSystem.Play</code> 全体)出るのに、デモで上限を外して測ると 2000 体で 2.6μs、8000 体で 6.5μs にしかならない。<strong>同期待ちのある呼び出しは、呼ぶ頻度で1回あたりが変わる</strong>。マイクロベンチの数字をそのまま掛け算すると外すので、最後は<strong>本物の負荷で測り直す</strong></li><li><strong>奪うコスト(11.2μs)と空きがあるとき(8.3μs)の差は 2.9μs</strong>しかなかった。「奪うのは高い」と身構えていたが、<code>alSourceStop</code> は 66ns なので、差の大半は結局 <code>alSourcePlay</code> のほう。<strong>ボイスを増やして奪う回数を減らす</strong>のは、思ったほど効かない</li><li><strong>8bit WAV は符号なし</strong>。生成した <code>pickup.wav</code> が最初ノイズになり、中央を 0 として書いていたのが原因だった。16bit と 8bit で符号の扱いが違うのは仕様なので、<strong>両方の経路を試す素材</strong>を最初から用意しておくと、この手のずれがすぐ見つかる</li><li><strong>立ち上がりを付けないとプチッと鳴る</strong>。合成した波形をそのまま鳴らすと、先頭で振幅が 0 から不連続に飛ぶ。数ミリ秒のフェードインを入れるだけで消える。ループの継ぎ目も同じ理由</li></ul>
+</section>
+<footer class="end">Day 27 オーディオ再生 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/collision2d.js"></script>
+<script>
+// assets/audio の bounce.wav・hit.wav・pickup.wav(reference と同じファイル)を base64 で埋め込んだもの。
+// ブラウザでファイルを直接開くと fetch でファイルを読めないので、小さい3つだけをページに持たせる
+const CLIPS27 = {"bounce":"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Y/9Y/07/Rv8//zn/NP8x/y//L/8w/zP/N/89/0P/S/9V/1//av93/4T/kv+h/7H/wf/R/+L/8/8DABMAJAA0AEQAVABiAHAAfgCKAJUAoACpALEAuAC9AMEAxADFAMYAxADCAL4AuQCyAKsAogCYAI0AggB1AGgAWQBLADwALAAdAA0A/v/u/97/z//A/7H/o/+W/4r/fv9z/2r/Yf9Z/1P/Tv9K/0f/Rf9F/0b/SP9M/1H/V/9e/2b/b/95/4T/kP+c/6r/t//F/9T/4//y/wAADwAdACwAOgBIAFUAYgBuAHkAgwCNAJUAnACjAKgArACvALAAsQCwAK4AqwCnAKIAmwCUAIwAggB4AG0AYgBVAEkAOwAuACAAEgAEAPf/6f/b/83/wP+0/6f/nP+R/4f/fv92/2//aP9j/1//XP9a/1n/Wf9a/13/YP9l/2v/cf95/4H/iv+U/5//qv+2/8P/z//c/+n/9/8DABAAHQAqADcAQwBOAFkAZABuAHcAfwCGAI0AkgCXAJoAnACeAJ4AnQCcAJkAlQCQAIoAhAB8AHQAawBhAFcATABBADUAKQAdABAABAD4/+z/4P/U/8j/vf+y/6j/nv+V/43/hf9//3n/dP9w/27/bP9r/2v/bP9u/3H/df95/3//hf+N/5X/nf+n/7H/u//G/9H/3P/o//T/AAAKABYAIQAtADgAQgBMAFYAXwBnAG4AdQB7AIAAhQCIAIsAjACNAI0AjACKAIcAgwB+AHkAcwBsAGQAXABTAEoAQAA2ACsAIAAVAAoAAAD1/+r/3//V/8v/wf+3/67/pv+e/5f/kf+L/4b/gv9//33/e/97/3v/fP9+/4H/hP+J/47/lP+a/6H/qf+x/7r/w//N/9f/4f/r//b/AAAKABQAHgAoADIAOwBEAEwAVABcAGIAaABuAHIAdgB5AHwAfQB+AH4AfQB7AHkAdQBxAG0AZwBhAFsAUwBMAEMAOwAyACkAHwAVAAwAAgD5/+//5v/c/9P/yv/C/7r/sv+r/6X/n/+a/5X/kf+O/4z/iv+J/4n/iv+L/43/kP8=","hit":"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IgATAC4AHwBWAIQAnwCSAIgAkACAAFIAbgBpAFYAMgAKABEAGQD1/ygANQBXAH8AdABmAI0AgwBrAEAAJwBPAFkAewCIAJIAnQC/ALMAgQCIAJYAngDDAKkAsACdAHMAaQBRAHUAZwBwAH0ASQBJAFoAewBiAFgAaAB4AFEANwBHAGEAggB4AFwAPQA3ACAAPQA6AEIATgAnAD8AJQAtADcAGwAlABYAIQASADYA//8fADYASQBiACYANQBEAE4APQBAAAkAEgDm/9j/xf++/93/2f/+/+z/AgD//9X/wf/C/8n/n/+g/8D/qf9+/4D/jv+G/23/jf+B/37/XP95/6D/sf/L/8D/3v/0/9z/uf/Y/+X/xP/Q/9//+//2/9//uf/C/8L/z/+s/8H/0P/C/4//sv+t/7T/n/9y/4r/hv+j/5T/q/+m/4H/l/+s/5T/e/93/4H/l/+V/5H/rv+z/4r/af95/1z/ev+O/4//mP+7/6P/o/+h/6H/qP+C/3v/cf97/2T/Xf9H/y//H/8E/y3/EP///hH//f7h/gb///4J/zD/Ef9D/z3/KP8U/xj/Q/9s/37/cf9T/1z/ZP+Q/4P/cf9V/zz/Wf9r/1f/gf98/5v/ef+U/7z/w//Y/+L/4f/P/+L/wf+k/6n/2f/l/97/1v/A/7r/1v/E/+v/CgAoADwAYABZAFEAMwArABMAOABUAE8ASABiAHgAlgCRAJsAmwCTAIsAjQBtAI8ApACVAJgAuQDKAKoAvwCwAKcAkACSAJEAbABLAHYAXAB9AI8ArQC2ANQA9ADuAPYA8ADoAPAA7AD6AOkA4gD5AAkB9wD3AAUB3wDxAN4AtADLALkAmQByAIUAqwCuAJwAwACgAI4AhwCFAIMAbACMALAAswC4ALwAywDFALYAugDdALQAlACrAKwAhwClAIoAhgB1AFsAbABNAG4AdwCFAJMAqgCIAKYAsgDFAJwAoAChALkAwgC3AKAAfwCiAL8A1wCxAKwAqwDEAMMAowCPAI8AbAB0AFAATABuAJEAsQDHAMEAswCNAHIAWABSADoAOgBBAGUAeAB3AGkASwArACYASQAlABEAJQAcAAwAKwAsAB8AHAAwAA0ACwDs//z/+f/p/+//zv/v/9b/x/+t/8f/6v/w//j/8P8OAA4AJgBDAEgAQAAZAAMAEwAUAAYABwDt/wUA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","pickup":"UklGRoMTAABXQVZFZm10IBAAAAABAAEAIlYAACJWAAABAAgAZGF0YV8TAACAgYKEhYaIiYqMjY+QkZOUlZeYmZtjYmBfXVxbWVhXVVRTUVBOTUxKSUi5ury7u7u7u7q6urq6ubm5ubm5uLhHR0dHSEhISEhISUlJSUlKSkpKSkq0tLS0tLS0s7Ozs7OzsrKysrKysbFOTk5OTk9PT09PT1BQUFBQUFBRUVGurq6ura2tra2traysrKysrKyrq6tUVFRUVFVVVVVVVVVWVlZWVlZWVleoqKioqKiop6enp6enp6empqampqZZWVpaWlpaWlpaWltbW1tbW1tbW1yjo6Ojo6Ojo6KioqKioqKioqGhoaFeXl5eXl5fX19fX19fX19fYGBgYGCfn5+fn56enp6enp6enp6enZ2dnZ1iYmJiYmNjY2NjY2NjY2NjY2RkZGSbm5ubm5ubmpqampqampqampqampmZZmZmZmZmZmZmZmdnZ2dnZ2dnZ2dnmJiXl5eXl5eXl5eXl5eXl5aWlpaWaWlpaWlpaWlpampqampqampqampqlZWVlJSUlJSUlJSUlJSUlJSUlJOTbGxsbGxsbGxsbGxsbGxsbW1tbW1tkpKSkpKSkpKSkpKRkZGRkZGRkZGRbm5ubm5ubm5vb29vb29vb29vb29vkJCQkJCQkI+Pj4+Pj4+Pj4+Pj4+PcHBwcHBwcHFxcXFxcXFxcXFxcXFxjo6Ojo6Ojo6NjY2NjY2NjY2NjY2NcnJycnJycnJycnJzc3Nzc3Nzc3NzjIyMjIyMjIyMjIyMjIyMi4uLi4uLdHR0dHR0dHR0dHR0dHR0dHR0dHR0i4qKioqKioqKioqKioqKioqKioqKinV1dXV1dXV1dXV2dnZ2dnZ2dnZ2domJiYmJiYmJiYmJiYmJiYmJiYmJiXZ2d3d3d3d3d3d3d3d3d3d3d3d3d4iIiIiIiIiIiIiIiIiIiIiIiIiHh3h4eHh4eHh4eHh4eHh4eHh4eHh4eIeHh4eHh4eHh4eHh4eHh4eHh4eHhnl5eXl5eXl5eXl5eXl5eXl5eXl5eYaGhoaGhoaGhoaGhoaGhoaGhoaGhnl5eXl5eXp6enp6enp6enp6enp6eoWFhYWFhYWFhYWFhYWFhYWFhYWFhXp6enp6enp6enp6enp6enp6enp6eoWFhISEhISEhISEhISEhISEhISEhHt7e3t7e3t7e3t7e3t7e3t7e3t7e4SEhISEhISEhISEhISEhISEhISEhIR7e3t7e3t7e3t7fHx8fHx8fHx8fHyDg4ODg4ODg4ODg4ODg4ODg4ODg4N8fHx8fHx8fHx8fHx8fHx8fHx8fHyDg4ODg4ODg4ODg4ODg4ODg4ODg4N8fHx8fHx8fHx8fHx8fHx8fHx8fX2CgoKCgoKCgoKCgoKCgoKCgoKCgoJ9fX19fX19fX19fX19fX19fX19fX2CgoKCgoKCgoKCgoKCgoKCgoKCgoJ9fX19fX19fX19fX19fX19fX19fX2CgoKCgoKCgoKCgoKCgoKCgoKCgoJ9fX19fX19fX19fX19fX19fX19fX2CgoGBgYGBgYGBgYGBgYGBgYGBgYF+fn5+fn5+fn5+fn5+fn5+fn5+fn6BgYGBgYGBgYGBgYGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGAgICAgICAf39/f39/f39/f39/f39/f39/f39/gICAgICAgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f39/f39/gICAgICAgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f39/f39/gICAgICAgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f39/f39/f4CAgICAgICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f39/f39/f4CAgICAgICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f39/f39/f4CAgICAgICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f39/f39/f4CAgICAgICAgICAgYKEhYaIiYqMjY+QkZOUamhnZmRjYmBfXVxbWVhXVVStrq+xsrO1tre5ury7u7u7u0VFRUVFRkZGRkZGR0dHR0e4t7e3t7e3tra2tra1tbW1tUpLS0tLS0tLTExMTExMTU1NsrKysbGxsbGxsbCwsLCwsK9QUFBQUFBRUVFRUVFRUlJSra2traysrKysrKyrq6urq6tUVFVVVVVVVVVWVlZWVlZWVqioqKioqKiop6enp6enp6dZWVlZWVlZWVpaWlpaWlpaWqSkpKSkpKSkpKOjo6Ojo6OjXF1dXV1dXV1dXV5eXl5eXl6hoaGgoKCgoKCgoKCgn5+fYGBgYGBgYGFhYWFhYWFhYWGenZ2dnZ2dnZ2dnZycnJycnGNjY2NjY2RkZGRkZGRkZGRkmpqampqampqampqampmZmWZmZmZmZmZmZmdnZ2dnZ2dnmJiYmJiXl5eXl5eXl5eXl5doaGlpaWlpaWlpaWlpaWlplZWVlZWVlZWVlZWVlZWVlJRra2tra2tra2tra2tra2xsbJOTk5OTk5OTk5OTk5OTkpKSbW1tbW1tbW1tbW1tbW1ubpGRkZGRkZGRkZGRkZGRkZGQb29vb29vb29vb29vb29vb2+QkI+Pj4+Pj4+Pj4+Pj4+PcHBwcHBwcHFxcXFxcXFxcXGOjo6Ojo6Ojo6Ojo6NjY2NjXJycnJycnJycnJycnJycnJyjY2MjIyMjIyMjIyMjIyMjHNzc3Nzc3Nzc3NzdHR0dHR0i4uLi4uLi4uLi4uLi4uLi4t0dHR0dHV1dXV1dXV1dXV1dYqKioqKioqKioqKioqKiop1dXV2dnZ2dnZ2dnZ2dnZ2domJiYmJiYmJiYmJiYmJiYmJdnZ2d3d3d3d3d3d3d3d3d4iIiIiIiIiIiIiIiIiIiIiId3d3d3d3d3d4eHh4eHh4eHiHh4eHh4eHh4eHh4eHh4eHh3h4eHh4eHh4eHh4eHh4eHiHhoaGhoaGhoaGhoaGhoaGhnl5eXl5eXl5eXl5eXl5eXl5hoaGhoaGhoaGhoaGhoaGhoV6enp6enp6enp6enp6enp6hYWFhYWFhYWFhYWFhYWFhYV6enp6enp6enp6enp6enp6eoWFhYWFhYWFhISEhISEhIR7e3t7e3t7e3t7e3t7e3t7e4SEhISEhISEhISEhISEhISEe3t7e3t7e3t7e3t7e3t7e3uEhISEhISEhISEhISEg4ODfHx8fHx8fHx8fHx8fHx8fHyDg4ODg4ODg4ODg4ODg4ODg3x8fHx8fHx8fHx8fHx8fHyDg4ODg4ODg4ODg4ODg4ODg3x8fHx8fHx8fHx8fHx8fHx8g4ODg4ODgoKCgoKCgoKCgoJ9fX19fX19fX19fX19fX19goKCgoKCgoKCgoKCgoKCgoJ9fX19fX19fX19fX19fX19fYKCgoKCgoKCgoKCgoKCgoKCfX19fX19fX19fX19fX19fYKCgoKCgoKCgoKCgoKCgoKCfX19fX19fX19fX19fX19fX2CgoGBgYGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+fn5+fn6BgYGBgYGBgYGBgYGBgYGBgX5+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGBgX5+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGBgYF+fn5+fn5+fn5+fn5+fn5+gYGBgYGBgYGBgYGBgYGBgYF+fn5+fn5+fn5+fn5+fn5+foGBgYGBgYGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+fn5+foGBgYGBgYGBgYGBgYGBgYGBfn5+fn5+fn5/f39/f39/f3+AgICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f3+AgICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f39/gICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f39/gICAgICAgICAgICAgICAgIB/f39/f39/f39/f39/f39/f4CAgICAgICAgICAgICAgIB/f39/f39/f39/f39/f39/f4CAgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f3+AgICAgICAgICAgICAgICAf39/f39/f39/f39/f39/f3+AgICAgICAgICAgICAgICAgH9/f39/f39/f39/f39/f3+AgICAgICAgICAgICAgICAgYKEhYaIiYqMjXFvbmxramhnZmRjnp+goqOkpqeoqqtTUVBOTUxKSUhGRby7u7u7u7q6urq6RkZGRkZGR0dHR0e4t7e3t7e3tra2trZKSkpKSkpLS0tLS7S0s7Ozs7OzsrKyTU1NTk5OTk5OTk+wsLCwsK+vr6+vr1BRUVFRUVFRUlJSra2traysrKysrKyrVFRUVFRUVFVVVVWqqqqpqampqampqVdXV1dXV1dXWFhYp6enp6empqampqZZWVpaWlpaWlpaWqSkpKSkpKSkpKOjo1xcXFxcXF1dXV1doqKioqGhoaGhoaFeXl5fX19fX19fX6Cgn5+fn5+fn5+fYGFhYWFhYWFhYWGenZ2dnZ2dnZ2dnZxjY2NjY2NjY2NjY5ubm5ubm5ubm5ubZWVlZWVlZWVlZWWampmZmZmZmZmZmWZmZmdnZ2dnZ2dnmJiYmJiXl5eXl5eXaGhoaGhoaGlpaWmWlpaWlpaWlpaWlWpqampqampqampqlZWVlJSUlJSUlJRra2tra2tra2xsbJOTk5OTk5OTk5OTbGxsbW1tbW1tbW1tkpKSkpKSkpKRkZFubm5ubm5ubm5ubpGRkZGQkJCQkJCQb29vb29vb29vb2+QkI+Pj4+Pj4+Pj3BwcHBwcHBwcHBwcI6Ojo6Ojo6Ojo6OcXFxcXFxcXFxcXGNjY2NjY2NjY2NjXJycnJycnJycnJyjY2MjIyMjIyMjIxzc3Nzc3Nzc3Nzc3OMjIyMi4uLi4uLi3R0dHR0dHR0dHR0i4uLi4uLi4uLi4p1dXV1dXV1dXV1dYqKioqKioqKioqKdXV1dXV1dXV2dnZ2iYmJiYmJiYmJiYl2dnZ2dnZ2dnZ2domJiYmJiYmJiIiId3d3d3d3d3d3d3eIiIiIiIiIiIiIiHd3d3d3d3d3d3d3d4iHh4eHh4eHh4eHeHh4eHh4eHh4eHiHh4eHh4eHh4eHh3h4eHh4eHh4eHh4hoaGhoaGhoaGhoZ5eXl5eXl5eXl5eYaGhoaGhoaGhoaGhnl5eXl5eXl5eXl5hoaGhoWFhYWFhYV6enp6enp6enp6eoWFhYWFhYWFhYWFenp6enp6enp6enqFhYWFhYWFhYWFhYV6enp6enp6e3t7e4SEhISEhISEhISEe3t7e3t7e3t7e3uEhISEhISEhISEhHt7e3t7e3t7e3t7hISEhISEhISEhISEe3t7e3t7e3t7e3uEg4ODg4ODg4ODg3x8fHx8fHx8fHx8g4ODg4ODg4ODg4N8fHx8fHx8fHx8fIODg4ODg4ODg4ODg3x8fHx8fHx8fHx8g4ODg4ODg4ODg4N8fHx8fHx8fHx8fIODg4ODgoKCgoKCfX19fX19fX19fX2CgoKCgoKCgoKCgoJ9fX19fX19fX19fYKCgoKCgoKCgoKCfX19fX19fX19fX2CgoKCgoKCgoKCgn19fX19fX19fX19goKCgoKCgoKCgoJ9fX19fX19fX19fX2CgoKCgoKCgoKCgn19fX19fX19fX19goGBgYGBgYGBgYF+fn5+fn5+fn5+foGBgYGBgYGBgYGBfn5+fn5+fn5+fn5+gYGBgYGBgYGBgYF+fn5+fn5+fn5+foGBgYGBgYGBgYGBfn5+fn5+fn5+fn6BgYGBgYGBgYGBgX5+fn5+fn5+fn5+foGBgYGBgYGBgYGBfn5+fn5+fn5+fn6BgYGBgYGBgYGBgX5+fn5+fn5+fn5+gYGBgYGBgYGBgYF+fn5+fn5+fn5+fn6BgYGBgYGBgYGBgX5+fn5+fn5+fn5+gYGBgYGBgYGBgYF+fn5+fn5+fn5+foGAgICAgICAgICAf39/f39/f39/f39/gICAgICAgICAgIB/f39/f39/f39/f4CAgICAgICAgICAf39/f39/f39/f3+AgICAgICAgICAgH9/f39/f39/f39/gICAgICAgICAgICAf39/f39/f39/f3+AgICAgICAgICAgH9/f39/f39/f39/gICAgICAgICAgIB/f39/f39/f39/f4CAgICAgICAgICAgH9/f39/f39/f39/gICAgICAgICAgIB/f39/f39/f39/f4CAgICAgICAgICAf39/f39/f39/f3+AgICAgICAgICAgIB/f39/f39/f39/f4CAgICAgICAgICAf39/f39/f39/f3+AgICAgICAgICAgH9/f39/f39/f39/gIA="};
+
+// reference/Day27 の Audio/WavFile.cs・Audio/AudioSystem.cs(VoiceId・ボイスプール・間引き・奪う)と、
+// Program.cs の BuildWav・RunAudioCheck・PlayBounce を JS に移したもの。
+// OpenAL の代わりに、鳴らす部分は「裏方」(backend。Web Audio)へ渡す。裏方が無ければ鳴らさずに状態だけ進める
+const AU27 = ((C) => {
+  const f = Math.fround;
+  // ---------------- WavFile ----------------
+  class InvalidDataException extends Error { constructor(m) { super(m); this.name = 'InvalidDataException'; } }
+  class NotSupportedException extends Error { constructor(m) { super(m); this.name = 'NotSupportedException'; } }
+  const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  const idOf = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+  const wavInfo = (w) => { const bpf = w.channels * (w.bits >> 3), frames = bpf === 0 ? 0 : Math.trunc(w.data.length / bpf); return { ...w, bytesPerFrame: bpf, frameCount: frames, duration: w.sampleRate === 0 ? 0 : f(f(frames) / w.sampleRate) }; };
+  // opts.trace に配列を渡すと、読んだ箱を順に積む(実験台の表示用)。opts.mode は誤りの再現(このページだけ)
+  function parse(bytes, name = '(メモリ)', opts = {}) {
+    const trace = opts.trace || [], mode = opts.mode || 'reference';
+    if (bytes.length < 12 || idOf(bytes, 0) !== 'RIFF' || idOf(bytes, 8) !== 'WAVE') throw new InvalidDataException(`WAV ではありません: ${name}`);
+    let sampleRate = 0, channels = 0, bits = 0, data = null, offset = 12;
+    while (offset + 8 <= bytes.length) {
+      const id = idOf(bytes, offset), size = u32(bytes, offset + 4), body = offset + 8;
+      const available = Math.min(size, bytes.length - body);
+      const row = { offset, id, size, action: '飛ばす', pad: 0 };
+      if (id === 'fmt ') {
+        const format = u16(bytes, body);
+        channels = u16(bytes, body + 2); sampleRate = u32(bytes, body + 4); bits = u16(bytes, body + 14);
+        row.action = `読む(${channels}ch ${sampleRate}Hz ${bits}bit)`;
+        trace.push(row);
+        if (format !== 1) throw new NotSupportedException(format === 3 ? `float PCM は未対応: ${name}` : `非圧縮 PCM 以外は未対応(format=${format}): ${name}`);
+        // 誤りの再現: fmt の次は data と決め打ちして、次の 8 バイトを data の見出しとして読む
+        if (mode === 'naive') {
+          const n = body + available, nid = idOf(bytes, n), nsize = u32(bytes, n + 4);
+          trace.push({ offset: n, id: nid, size: nsize, action: `data として読む(本当は「${nid}」)`, pad: 0 });
+          data = bytes.slice(n + 8, n + 8 + Math.min(nsize, bytes.length - n - 8));
+          break;
+        }
+      } else if (id === 'data') {
+        data = bytes.slice(body, body + available);
+        row.action = `読む(${available.toLocaleString('en-US')} バイト)`;
+        trace.push(row);
+      } else trace.push(row);
+      offset = body + available;
+      if ((available & 1) !== 0 && mode !== 'nopad') { offset++; row.pad = 1; }
+    }
+    if (data === null || channels === 0 || sampleRate === 0) throw new InvalidDataException(`fmt か data が見つかりません: ${name}`);
+    if (bits !== 8 && bits !== 16) throw new NotSupportedException(`${bits}bit は未対応(8 か 16 のみ): ${name}`);
+    if (channels !== 1 && channels !== 2) throw new NotSupportedException(`${channels}ch は未対応: ${name}`);
+    return wavInfo({ data, sampleRate, channels, bits });
+  }
+  // Program.RunAudioCheck の BuildWav(パーサを試すためだけの道具)
+  function buildWav(rate, channels, bits, pcm, listText) {
+    const out = [];
+    const str = (s) => { for (const ch of s) out.push(ch.charCodeAt(0)); };
+    const i32 = (v) => out.push(v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255);
+    const i16 = (v) => out.push(v & 255, (v >>> 8) & 255);
+    str('RIFF'); i32(0); str('WAVE');
+    str('fmt '); i32(16); i16(1); i16(channels); i32(rate); i32(Math.trunc(rate * channels * bits / 8)); i16(Math.trunc(channels * bits / 8)); i16(bits);
+    if (listText !== null && listText !== undefined) { str('LIST'); i32(listText.length); str(listText); if (listText.length & 1) out.push(0); }
+    str('data'); i32(pcm.length); for (const v of pcm) out.push(v);
+    const bytes = Uint8Array.from(out), n = bytes.length - 8;
+    bytes[4] = n & 255; bytes[5] = (n >>> 8) & 255; bytes[6] = (n >>> 16) & 255; bytes[7] = (n >>> 24) & 255;
+    return bytes;
+  }
+  // PCM を -1〜1 の小数へ。8bit は符号なし(中央 128)、16bit は符号付き(中央 0)
+  function toFloat(w, signed8 = false) {
+    const ch = [];
+    for (let c = 0; c < w.channels; c++) ch.push(new Float32Array(w.frameCount));
+    for (let i = 0; i < w.frameCount; i++) for (let c = 0; c < w.channels; c++) {
+      if (w.bits === 8) { const v = w.data[i * w.channels + c]; ch[c][i] = signed8 ? ((v << 24) >> 24) / 128 : (v - 128) / 128; }
+      else { const o = (i * w.channels + c) * 2, v = (w.data[o] | (w.data[o + 1] << 8)) << 16 >> 16; ch[c][i] = v / 32768; }
+    }
+    return ch;
+  }
+
+  // ---------------- AudioSystem ----------------
+  const VoiceNone = { index: -1, generation: 0 };
+  const voiceText = (v) => (v.index >= 0 ? `voice#${v.index}.g${v.generation}` : 'voice#none');
+  class AudioSystem {
+    constructor(voiceCount = 32, backend = null, clock = () => performance.now() / 1000) {
+      this.voiceCount = voiceCount; this.backend = backend; this.clock = clock;
+      this.voices = Array.from({ length: voiceCount }, (_, i) => ({ source: i, generation: 1, active: false, looping: false, priority: 0, startedAt: 0, clip: null, endAt: Infinity }));
+      this.clips = []; this.startsThisStep = new Map(); this.random = new C.DotNetRandom(27);
+      this.startCounter = 0; this.startedThisStep = 0; this.culledThisStep = 0; this.stolenThisStep = 0;
+      this.isAvailable = true; this.activeVoices = 0; this._master = 0.6;
+      this.pitchVariation = true; this.pitchJitter = f(0.06); this.maxStartsPerClipPerStep = 4;
+      this.startedLastStep = 0; this.culledLastStep = 0; this.stolenLastStep = 0;
+    }
+    get masterVolume() { return this._master; }
+    set masterVolume(v) { this._master = Math.min(Math.max(f(v), 0), 1); if (this.backend) this.backend.setMaster(this._master); }
+    get requestedLastStep() { return this.startedLastStep + this.culledLastStep; }
+    load(name, wav) {
+      if (!this.isAvailable) return null;
+      const clip = { name, wav, alive: true, index: this.clips.length };
+      this.clips.push(clip);
+      if (this.backend) this.backend.load(clip);
+      return clip;
+    }
+    // OpenAL の SourceState。ループ以外は、鳴らし始めてから「長さ / ピッチ」秒で止まる
+    stateOf(i) { const v = this.voices[i]; if (!v.active) return 'stopped'; if (v.looping) return 'playing'; return this.clock() < v.endAt ? 'playing' : 'stopped'; }
+    update() {
+      this.startedLastStep = this.startedThisStep; this.culledLastStep = this.culledThisStep; this.stolenLastStep = this.stolenThisStep;
+      this.startedThisStep = 0; this.culledThisStep = 0; this.stolenThisStep = 0;
+      this.startsThisStep.clear();
+      if (!this.isAvailable) return;
+      let active = 0;
+      for (let i = 0; i < this.voices.length; i++) {
+        if (!this.voices[i].active) continue;
+        if (this.stateOf(i) === 'stopped') this.releaseVoice(i); else active++;
+      }
+      this.activeVoices = active;
+    }
+    play(clip, volume = 1, pitch = 1, pan = 0, priority = 0, looping = false) {
+      if (!this.isAvailable) return VoiceNone;
+      if (!clip || !clip.alive) return VoiceNone;
+      if (!looping && this.maxStartsPerClipPerStep > 0) {
+        const started = this.startsThisStep.get(clip) || 0;
+        if (started >= this.maxStartsPerClipPerStep) { this.culledThisStep++; return VoiceNone; }
+        this.startsThisStep.set(clip, started + 1);
+      }
+      const index = this.acquireVoice(priority, looping);
+      if (index < 0) { this.culledThisStep++; return VoiceNone; }
+      const v = this.voices[index];
+      let finalPitch = f(pitch);
+      if (this.pitchVariation) finalPitch = f(finalPitch * f(1 + f(f(f(f(this.random.nextDouble()) - 0.5) * 2) * this.pitchJitter)));
+      const p = Math.min(Math.max(finalPitch, f(0.25)), 4);
+      const x = Math.min(Math.max(f(pan), -1), 1), z = f(-Math.sqrt(Math.max(0, f(1 - f(x * x)))));
+      const gain = Math.min(Math.max(f(volume), 0), 1);
+      if (this.backend) this.backend.start(index, clip, gain, p, x, z, looping);
+      v.active = true; v.looping = looping; v.priority = priority; v.startedAt = ++this.startCounter; v.clip = clip;
+      v.endAt = looping ? Infinity : this.clock() + clip.wav.duration / p;
+      v.lastPitch = p; v.lastPan = x; v.lastGain = gain;
+      this.startedThisStep++; this.activeVoices++;
+      return { index, generation: v.generation };
+    }
+    playLoop(clip, volume = 1) { return this.play(clip, volume, 1, 0, 100, true); }
+    isPlaying(id) { const i = this.tryResolve(id); return i >= 0 && this.stateOf(i) === 'playing'; }
+    stop(id) { const i = this.tryResolve(id); if (i < 0) return false; this.stopVoice(i); this.releaseVoice(i); this.activeVoices = Math.max(0, this.activeVoices - 1); return true; }
+    stopAll() { for (let i = 0; i < this.voices.length; i++) if (this.voices[i].active) { this.stopVoice(i); this.releaseVoice(i); } this.activeVoices = 0; }
+    acquireVoice(priority, looping) {
+      for (let i = 0; i < this.voices.length; i++) if (!this.voices[i].active) return i;
+      let victim = -1;
+      for (let i = 0; i < this.voices.length; i++) {
+        const v = this.voices[i];
+        if (v.looping) continue;
+        if (victim < 0 || v.priority < this.voices[victim].priority || (v.priority === this.voices[victim].priority && v.startedAt < this.voices[victim].startedAt)) victim = i;
+      }
+      if (victim < 0 || (this.voices[victim].priority > priority && !looping)) return -1;
+      this.stopVoice(victim); this.releaseVoice(victim);
+      this.stolenThisStep++; this.activeVoices = Math.max(0, this.activeVoices - 1);
+      return victim;
+    }
+    stopVoice(i) { if (this.backend) this.backend.stop(i); }
+    releaseVoice(i) { const v = this.voices[i]; v.active = false; v.looping = false; v.clip = null; v.generation++; v.endAt = Infinity; }
+    tryResolve(id) { const i = id.index; return this.isAvailable && i >= 0 && i < this.voices.length && this.voices[i].active && this.voices[i].generation === id.generation ? i : -1; }
+  }
+
+  // ---------------- Program.RunAudioCheck(16 項目) ----------------
+  // clips: { bounce, hit, pickup, stereo, music } と、それぞれの元のバイト列 files: { 'bounce.wav': bytes, ... }
+  function runAudioCheck(audio, clips, files) {
+    const lines = []; let fails = 0;
+    const check = (name, ok, detail = '') => { lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${detail ? '  ' + detail : ''}`); if (!ok) fails++; };
+    if (!audio.isAvailable) { lines.push('  デバイスが無いので飛ばします'); return { lines, fails, count: 0 }; }
+    const expect = (file, rate, channels, bits) => {
+      const w = parse(files[file], file);
+      check(`${file.padEnd(16)} ${rate}Hz ${channels}ch ${bits}bit`, w.sampleRate === rate && w.channels === channels && w.bits === bits, `${w.duration.toFixed(2)}s / ${w.frameCount.toLocaleString('en-US')} フレーム`);
+    };
+    expect('bounce.wav', 44100, 1, 16); expect('hit.wav', 44100, 1, 16); expect('pickup.wav', 22050, 1, 8); expect('stereo-ping.wav', 44100, 2, 16); expect('music-loop.wav', 22050, 1, 16);
+    const listed = parse(buildWav(44100, 1, 16, new Uint8Array(400), 'MADE BY HONYA'), 'LIST 付き');
+    check('知らないチャンク(LIST)を飛ばせる', listed.data.length === 400, `${listed.data.length} バイト`);
+    const odd = parse(buildWav(44100, 1, 16, new Uint8Array(200), 'ODD'), '奇数長 LIST 付き');
+    check('奇数長チャンクの詰め物を飛ばせる', odd.data.length === 200, `${odd.data.length} バイト`);
+    const throws = (T, fn) => { try { fn(); return false; } catch (e) { return e instanceof T; } };
+    check('WAV でないものを弾く', throws(InvalidDataException, () => parse(new Uint8Array(64))));
+    check('24bit を弾く', throws(NotSupportedException, () => parse(buildWav(44100, 1, 24, new Uint8Array(300), null))));
+    const savedLimit = audio.maxStartsPerClipPerStep, savedVolume = audio.masterVolume;
+    audio.masterVolume = 0; audio.stopAll(); audio.update();
+    audio.maxStartsPerClipPerStep = 0;
+    for (let i = 0; i < audio.voiceCount + 8; i++) audio.play(clips.hit, 1);
+    const active = audio.activeVoices; audio.update();
+    check('ボイスの数を超えない', active <= audio.voiceCount, `${active} / ${audio.voiceCount}`);
+    check('足りなければ奪う', audio.stolenLastStep === 8, `${audio.stolenLastStep} 回`);
+    audio.stopAll(); audio.update();
+    const first = audio.play(clips.hit, 1); audio.stop(first);
+    const second = audio.play(clips.hit, 1); audio.stop(first);
+    check('古い札は無効になっている', audio.isPlaying(second), `${voiceText(first)} → ${voiceText(second)}`);
+    audio.stopAll(); audio.update();
+    const loop = audio.playLoop(clips.music, 1);
+    for (let i = 0; i < audio.voiceCount * 2; i++) audio.play(clips.hit, 1);
+    check('ループは奪われない', audio.isPlaying(loop), voiceText(loop));
+    audio.stop(loop);
+    audio.stopAll(); audio.update();
+    audio.maxStartsPerClipPerStep = 2;
+    for (let i = 0; i < 10; i++) audio.play(clips.hit, 1);
+    audio.update();
+    check('1ステップに 2 回まで', audio.startedLastStep === 2, `発音 ${audio.startedLastStep}`);
+    check('残りは間引かれる', audio.culledLastStep === 8, `間引き ${audio.culledLastStep}`);
+    audio.stopAll(); audio.update();
+    audio.maxStartsPerClipPerStep = savedLimit; audio.masterVolume = savedVolume;
+    const audible = audio.play(clips.pickup, 0.8);
+    check('再生中の状態になる', audio.isPlaying(audible), voiceText(audible));
+    lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`);
+    return { lines, fails, count: lines.length - 1 };
+  }
+  // Program.PlayBounce の定位・ピッチ・音量
+  function bounceParams(body, bounds, panning) {
+    const pan = panning ? Math.min(Math.max(f(f(f(body.pos[0] / Math.max(bounds[0], 1)) * 2) - 1), -1), 1) : 0;
+    const size = Math.min(Math.max(body.half[0], 4), 21);
+    const pitch = f(f(1.6) - f(f(f(size - 4) / 17) * f(0.9)));
+    const speed = f(Math.sqrt(f(f(body.vel[0] * body.vel[0]) + f(body.vel[1] * body.vel[1]))));
+    const volume = Math.min(Math.max(f(speed / 140), f(0.15)), 1);
+    return { pan, pitch, volume: f(volume * f(0.5)) };
+  }
+  // このページだけ: stereo-ping.wav と music-loop.wav は大きいので埋め込まず、同じ形式・同じ長さの音をここで合成する(中身は reference の WAV と別物)
+  function pcm16(samples) { const out = new Uint8Array(samples.length * 2); samples.forEach((s, i) => { const v = Math.max(-32768, Math.min(32767, Math.round(s * 32767))); out[2 * i] = v & 255; out[2 * i + 1] = (v >> 8) & 255; }); return out; }
+  const env = (t, len, attack = 0.003) => Math.min(1, t / attack) * Math.min(1, (len - t) / 0.004);
+  function synthStereoPing() {
+    const rate = 44100, n = 26460, s = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      s[2 * i] = 0.5 * Math.sin(2 * Math.PI * 1046.5 * t) * Math.exp(-t * 9) * env(t, 0.6);
+      const tr = t - 0.15;
+      s[2 * i + 1] = tr > 0 ? 0.5 * Math.sin(2 * Math.PI * 1318.5 * tr) * Math.exp(-tr * 9) * env(tr, 0.45) : 0;
+    }
+    return buildWav(rate, 2, 16, pcm16(s), null);
+  }
+  function synthMusicLoop() {
+    const rate = 22050, n = 88200, s = new Float32Array(n);
+    const bass = [65.41, 55.0, 43.65, 49.0];                      // C2 A1 F1 G1(1 秒ずつ)
+    const arp = [[523.25, 659.25, 783.99, 659.25], [440.0, 523.25, 659.25, 523.25], [349.23, 440.0, 523.25, 440.0], [392.0, 493.88, 587.33, 493.88]];
+    for (let i = 0; i < n; i++) {
+      const t = i / rate, chord = Math.floor(t), beat = t % 0.5, step = Math.floor(t / 0.125) % 4, tn = t % 0.125;
+      const fb = bass[chord], saw = 2 * ((t * fb) % 1) - 1;
+      const fa = arp[chord][step], sq = ((t * fa) % 1) < 0.5 ? 1 : -1;
+      s[i] = (0.22 * saw * Math.exp(-beat * 3) * env(beat, 0.5) + 0.10 * sq * Math.exp(-tn * 18) * env(tn, 0.125)) * env(t, 4.0, 0.005);
+    }
+    return buildWav(rate, 1, 16, pcm16(s), null);
+  }
+  return { parse, buildWav, toFloat, wavInfo, synthStereoPing, synthMusicLoop, InvalidDataException, NotSupportedException, AudioSystem, VoiceNone, voiceText, runAudioCheck, bounceParams, u32, idOf };
+})(Col2D);
+
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate, reduceMotion } = Lab;
+const C = Col2D, A = AU27, f = Math.fround;
+const RED = 'rgba(255,77,71,0.95)', CYAN = 'rgba(115,217,255,0.85)';
+const fmtN = (n) => n.toLocaleString('en-US');
+const onOff = (b) => (b ? 'ON' : 'OFF');
+
+// ------------------------------------------------------------
+// 素材: 本物の WAV 3つ(埋め込み)と、このページで合成した2つ
+// ------------------------------------------------------------
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const files = { 'bounce.wav': b64(CLIPS27.bounce), 'hit.wav': b64(CLIPS27.hit), 'pickup.wav': b64(CLIPS27.pickup), 'stereo-ping.wav': A.synthStereoPing(), 'music-loop.wav': A.synthMusicLoop() };
+
+// ------------------------------------------------------------
+// OpenAL の代わりの裏方(Web Audio)。ボイス1本 = AudioBufferSourceNode 1つ
+// ------------------------------------------------------------
+class WebAudioBackend {
+  constructor() { this.ctx = null; this.master = null; this.masterValue = 0.6; this.clips = []; this.buffers = new Map(); this.nodes = []; this.enabled = false; }
+  ensure() {
+    if (this.ctx) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain(); this.master.gain.value = this.masterValue; this.master.connect(this.ctx.destination);
+    for (const clip of this.clips) this.decode(clip);
+    return true;
+  }
+  enable(on) { this.enabled = on; if (on && this.ensure()) this.ctx.resume(); else if (this.ctx) { for (let i = 0; i < this.nodes.length; i++) this.stop(i); this.ctx.suspend(); } }
+  decode(clip) {
+    const w = clip.wav, ch = A.toFloat(w), buf = this.ctx.createBuffer(w.channels, Math.max(1, w.frameCount), w.sampleRate);
+    ch.forEach((d, c) => buf.copyToChannel(d, c));
+    this.buffers.set(clip, buf);
+  }
+  load(clip) { this.clips.push(clip); if (this.ctx) this.decode(clip); }
+  setMaster(v) { this.masterValue = v; if (this.master) this.master.gain.value = v; }
+  start(i, clip, gain, pitch, x, z, looping) {
+    if (!this.enabled || !this.ctx) return;
+    this.stop(i);
+    const src = this.ctx.createBufferSource(); src.buffer = this.buffers.get(clip); src.loop = looping; src.playbackRate.value = pitch;
+    const g = this.ctx.createGain(); g.gain.value = gain; src.connect(g);
+    // OpenAL はステレオのバッファに位置を効かせない(要点6)。ここも同じにする
+    if (clip.wav.channels === 1 && this.ctx.createStereoPanner) { const p = this.ctx.createStereoPanner(); p.pan.value = x; g.connect(p); p.connect(this.master); } else g.connect(this.master);
+    src.start(); this.nodes[i] = src;
+  }
+  stop(i) { const n = this.nodes[i]; if (!n) return; try { n.stop(); } catch (e) { /* もう止まっている */ } n.disconnect(); this.nodes[i] = null; }
+}
+const backend = new WebAudioBackend();
+let audio = null;
+const clips = {};
+function createAudio() {
+  audio = new A.AudioSystem(32, backend);
+  backend.clips = []; backend.buffers.clear();
+  for (const [k, file] of [['bounce', 'bounce.wav'], ['hit', 'hit.wav'], ['pickup', 'pickup.wav'], ['stereo', 'stereo-ping.wav'], ['music', 'music-loop.wav']]) clips[k] = audio.load(file.replace('.wav', ''), A.parse(files[file], file));
+}
+createAudio();
+// 「音を出す」は2か所にあるので揃える
+const setSound = (v) => { backend.enable(v === '1'); setSeg('snd-on', v); setSeg('snd-on2', v); };
+seg('snd-on', setSound); seg('snd-on2', setSound);
+
+// ------------------------------------------------------------
+// 1. WAV を読む
+// ------------------------------------------------------------
+function wavBytes(kind) {
+  switch (kind) {
+    case 'bounce': return ['bounce.wav', files['bounce.wav']];
+    case 'pickup': return ['pickup.wav', files['pickup.wav']];
+    case 'list': return ['LIST 付き', A.buildWav(44100, 1, 16, new Uint8Array(400), 'MADE BY HONYA')];
+    case 'odd': return ['奇数長 LIST 付き', A.buildWav(44100, 1, 16, new Uint8Array(200), 'ODD')];
+    case 'b24': return ['(メモリ)', A.buildWav(44100, 1, 24, new Uint8Array(300), null)];
+    default: return ['(メモリ)', new Uint8Array(64)];
+  }
+}
+function wavDraw() {
+  const kind = segValue('wav-file'), mode = segValue('wav-mode'), signed8 = segValue('wav-sign') === '1';
+  const [name, bytes] = wavBytes(kind), trace = [];
+  let w = null, err = null;
+  try { w = A.parse(bytes, name, { trace, mode }); } catch (e) { err = e; }
+  const rows = trace.map((r) => `<tr><td>${r.offset}</td><td><code>${JSON.stringify(r.id).slice(1, -1).replace(/\\u0000/g, '\\0')}</code></td><td>${fmtN(r.size)}</td><td>${r.action}${r.pad ? ' + 詰め物 1 バイト' : ''}</td></tr>`).join('');
+  $('wav-table').innerHTML = `<table><thead><tr><th>位置</th><th>名前</th><th>長さ</th><th>扱い</th></tr></thead><tbody><tr><td>0</td><td><code>RIFF</code> / <code>WAVE</code></td><td>${fmtN(bytes.length >= 8 ? A.u32(bytes, 4) : 0)}</td><td>${bytes.length >= 12 && A.idOf(bytes, 0) === 'RIFF' ? '見出し(全体の長さ)' : '見出しが RIFF / WAVE でない'}</td></tr>${rows}</tbody></table>`;
+  // 先頭 64 バイト
+  const hex = [];
+  for (let o = 0; o < Math.min(64, bytes.length); o += 16) {
+    const part = Array.from(bytes.subarray(o, o + 16));
+    hex.push(`${String(o).padStart(4)}  ${part.map((v) => v.toString(16).padStart(2, '0')).join(' ').padEnd(47)}  ${part.map((v) => (v >= 32 && v < 127 ? String.fromCharCode(v) : '.')).join('')}`);
+  }
+  $('wav-hex').textContent = `先頭 ${Math.min(64, bytes.length)} バイト(全体 ${fmtN(bytes.length)} バイト)\n` + hex.join('\n');
+  // 波形
+  const { ctx, w: cw, h } = fit($('wav-wave'));
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(cw, h / 2); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+  if (w && w.frameCount > 0) {
+    const ch = A.toFloat(w, signed8), n = Math.min(2000, w.frameCount);
+    ch.forEach((d, c) => {
+      ctx.strokeStyle = c ? 'rgba(255,190,60,0.9)' : tok('--accent'); ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 0; i < n; i++) { const x = (i / Math.max(1, n - 1)) * cw, y = h / 2 - d[i] * (h / 2 - 6); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.stroke();
+    });
+    ctx.fillText(`data の先頭 ${n} フレーム${w.channels === 2 ? '(青 = 左、橙 = 右)' : ''}`, 6, 12);
+  } else ctx.fillText(err ? '読めなかった' : 'data が空', 6, 12);
+  $('wav-stats').innerHTML = err
+    ? stat('結果', `<span style="color:${RED}">${err.name}</span>`) + stat('メッセージ', `<small>${err.message}</small>`)
+    : stat('形式', `${w.sampleRate}Hz ${w.channels}ch ${w.bits}bit`) + stat('長さ', `${w.duration.toFixed(2)}s`) + stat('フレーム', fmtN(w.frameCount)) + stat('data', `${fmtN(w.data.length)} バイト`);
+  let note = '';
+  if (kind === 'pickup') note = 'pickup.wav は data が 4,959 バイトの奇数長。最後の箱なので、詰め物が無くても読み終わる。8bit は符号なしで、0〜255 の中央 128 が無音。';
+  if (kind === 'list') note = 'fmt と data の間に LIST(13 バイト。奇数長なので詰め物 1 バイト)が挟まっている。知らない名前なので長さのぶん飛ばす。';
+  if (kind === 'odd') note = 'LIST の中身が 3 バイト。詰め物を飛ばさないと、次の箱の名前が 1 バイトずれる。';
+  if (mode === 'nopad' && err) note += '詰め物を忘れると、次の箱の名前が 1 バイトずれて意味の無い名前になり、data が見つからない。';
+  if (mode === 'naive' && w && trace.some((r) => /本当は/.test(r.action) && !/本当は「data」/.test(r.action))) note += `「fmt の次は data」と決め打ちすると、LIST の中身を音として読んでしまう(${w.data.length} バイト)。例外にならないぶん気づきにくい。`;
+  if (signed8 && w && w.bits === 8) note += '8bit を符号付きとして読むと、128 を境に符号が反転して、波形が上下に割れる(「8bit の音だけ盛大に歪む」)。';
+  if (kind === 'b24' && !err) note += '';
+  $('wav-note').textContent = note || (err ? '' : '知らない箱は無く、fmt と data を順に読んだ。');
+}
+seg('wav-file', wavDraw); seg('wav-mode', wavDraw); seg('wav-sign', wavDraw);
+
+// ------------------------------------------------------------
+// 2. 32 本のボイスと札
+// ------------------------------------------------------------
+const vo = { tickets: [], log: [], flash: new Map() };
+function voLog(s) { vo.log.push(s); if (vo.log.length > 200) vo.log.splice(0, vo.log.length - 200); $('vo-console').textContent = vo.log.join('\n'); $('vo-console').scrollTop = 1e9; }
+// 1回の操作で、発音・間引き・奪取がいくつ増えたか
+function counted(label, fn) {
+  const s0 = audio.startedThisStep, c0 = audio.culledThisStep, t0 = audio.stolenThisStep;
+  const before = audio.voices.map((v) => v.generation);
+  const out = fn();
+  audio.voices.forEach((v, i) => { if (v.generation !== before[i] && v.active) vo.flash.set(i, performance.now()); });
+  voLog(`${label}${out ? '  ' + out : ''}  (発音 ${audio.startedThisStep - s0}・間引き ${audio.culledThisStep - c0}・奪取 ${audio.stolenThisStep - t0})`);
+}
+const issue = (id) => { if (id.index >= 0) vo.tickets.push(id); return A.voiceText(id); };
+$('vo-one').addEventListener('click', () => counted('Play(hit)', () => issue(audio.play(clips.hit, 1))));
+$('vo-ten').addEventListener('click', () => counted('Play(hit) x 10', () => { const r = []; for (let i = 0; i < 10; i++) r.push(issue(audio.play(clips.hit, 1))); return r.join(' '); }));
+$('vo-prio').addEventListener('click', () => counted('Play(hit, 優先度 5)', () => issue(audio.play(clips.hit, 1, 1, 0, 5))));
+$('vo-loop').addEventListener('click', () => counted('PlayLoop(music-loop)', () => issue(audio.playLoop(clips.music, 0.55))));
+const stopBy = (id) => { if (!id) { voLog('札がまだ無い'); return; } const ok = audio.stop(id); voLog(`Stop(${A.voiceText(id)})  ${ok ? '止めた' : '何もしない(その札はもう無効。世代が違うか、止まっている)'}`); };
+$('vo-stop-last').addEventListener('click', () => stopBy(vo.tickets[vo.tickets.length - 1]));
+$('vo-stop-first').addEventListener('click', () => stopBy(vo.tickets[0]));
+$('vo-stopall').addEventListener('click', () => { audio.stopAll(); voLog('StopAll()'); });
+seg('vo-limit', (v) => { audio.maxStartsPerClipPerStep = Number(v); setSeg('sd-limit', v); voLog(Number(v) === 0 ? '同じ音の上限: 無制限(割れます)' : `同じ音の上限: 1ステップに ${v} 回`); });
+seg('vo-avail', (v) => {
+  if (v === '0') { audio.stopAll(); audio.isAvailable = false; voLog('音の出ない環境: IsAvailable = false。以降の Play は VoiceId.None を返すだけで、例外は投げない'); }
+  else { audio.isAvailable = true; voLog('音が出る環境に戻した'); }
+});
+$('vo-f1').addEventListener('click', () => {
+  voLog(''); voLog('[オーディオの自己チェック]');
+  if (audio.isAvailable) voLog('  デバイス: (このページは Web Audio)');
+  const r = A.runAudioCheck(audio, clips, files);
+  for (const l of r.lines) voLog(l);
+  voLog('(呼び出しコストの表は OpenAL を測ったもので、このページでは測らない)');
+  sd.musicVoice = A.VoiceNone;
+});
+function voDraw() {
+  const { ctx, w, h } = fit($('vo-canvas'));
+  const cols = w < 600 ? 4 : 8, rows = Math.ceil(32 / cols), cw = (w - 8) / cols, ch = Math.min(52, (h - 8) / rows);
+  // 列の数が変わったら高さを合わせる(次のフレームから効く)
+  if (Math.abs($('vo-canvas').clientHeight - (rows * 52 + 8)) > 2) $('vo-canvas').style.height = `${rows * 52 + 8}px`;
+  const now = performance.now(), clock = audio.clock();
+  audio.voices.forEach((v, i) => {
+    const x = 4 + (i % cols) * cw, y = 4 + Math.floor(i / cols) * ch;
+    const playing = v.active && audio.stateOf(i) === 'playing';
+    ctx.fillStyle = !v.active ? 'rgba(128,128,128,0.08)' : v.looping ? 'rgba(160,120,255,0.35)' : playing ? 'rgba(115,217,255,0.30)' : 'rgba(115,217,255,0.10)';
+    ctx.fillRect(x + 2, y + 2, cw - 4, ch - 4);
+    // 残りの長さ
+    if (playing && !v.looping && v.clip) { const left = Math.max(0, (v.endAt - clock) / (v.clip.wav.duration / v.lastPitch)); ctx.fillStyle = 'rgba(115,217,255,0.55)'; ctx.fillRect(x + 2, y + ch - 7, (cw - 4) * left, 3); }
+    const fl = vo.flash.get(i), hot = fl && now - fl < 600;
+    ctx.strokeStyle = hot ? RED : tok('--line'); ctx.lineWidth = hot ? 2 : 1; ctx.strokeRect(x + 2, y + 2, cw - 4, ch - 4);
+    ctx.fillStyle = tok('--ink'); ctx.font = '11px ui-monospace, monospace';
+    ctx.fillText(`#${i} g${v.generation}`, x + 7, y + 16);
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+    if (v.active) ctx.fillText(`${v.clip ? v.clip.name : ''}${v.looping ? ' ループ' : ''} p${v.priority}`, x + 7, y + 31);
+  });
+  $('vo-stats').innerHTML = stat('IsAvailable', String(audio.isAvailable)) + stat('使っているボイス', `${audio.activeVoices} / ${audio.voiceCount}`) +
+    stat('同じ音の上限', audio.maxStartsPerClipPerStep === 0 ? '無制限' : `${audio.maxStartsPerClipPerStep} 回 / ステップ`) + stat('札', vo.tickets.length ? `${A.voiceText(vo.tickets[0])} 〜 ${A.voiceText(vo.tickets[vo.tickets.length - 1])}` : '(なし)');
+}
+
+// ------------------------------------------------------------
+// 3. 衝突デモの音
+// ------------------------------------------------------------
+const MIX = 0;
+const sd = { n: 120, bodies: [], grid: new C.SpatialGrid(), playing: !reduceMotion, sfx: false, panning: true, requests: 0, rings: [], hist: [], musicVoice: A.VoiceNone, steps: 0, log: [] };
+function sdLog(s) { sd.log.push(s); if (sd.log.length > 200) sd.log.splice(0, sd.log.length - 200); $('sd-console').textContent = sd.log.join('\n'); $('sd-console').scrollTop = 1e9; }
+function sdInit() { sd.bodies = C.initializeBodies(sd.n, MIX, 960, 640, C.sizeScaleFor(sd.n, false)); sd.steps = 0; sd.hist = []; sd.rings = []; }
+function playBounce(b) {
+  sd.requests++;
+  const p = A.bounceParams(b, [960, 640], sd.panning);
+  const id = audio.play(clips.bounce, p.volume, p.pitch, p.pan);
+  sd.rings.push({ x: b.pos[0], y: b.pos[1], t: performance.now(), ok: id.index >= 0 });
+}
+// FixedUpdate の頭で音の後始末をして、そのあと衝突デモを1ステップ進める
+function fixedStep() {
+  audio.update();
+  sd.requests = 0;
+  if (sd.playing) {
+    C.updateBodies(sd.bodies, sd.n, 1 / 60, [960, 640], true, sd.grid, 0, sd.sfx ? playBounce : null);
+    sd.steps++;
+    sd.hist.push([sd.requests, audio.startedThisStep, audio.culledThisStep, audio.stolenThisStep]);
+    if (sd.hist.length > 120) sd.hist.shift();
+  }
+}
+function sdDraw() {
+  const cv = $('sd-canvas');
+  cv.style.height = Math.round(cv.clientWidth * 640 / 960) + 'px';
+  const { ctx, w } = fit(cv), s = w / 960, now = performance.now();
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 0, w, cv.clientHeight);
+  for (let i = 0; i < sd.n; i++) {
+    const b = sd.bodies[i], col = b.contacts > 0 ? RED : CYAN, x = b.pos[0] * s, y = b.pos[1] * s;
+    if (b.shape === C.CIRCLE) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, b.half[0] * s, 0, Math.PI * 2); ctx.fill(); continue; }
+    ctx.save(); ctx.translate(x, y); ctx.rotate(b.shape === C.ROTATED ? b.rot : 0);
+    ctx.fillStyle = col.replace(/[\d.]+\)$/, '0.45)'); ctx.fillRect(-b.half[0] * s, -b.half[1] * s, 2 * b.half[0] * s, 2 * b.half[1] * s);
+    ctx.restore();
+  }
+  sd.rings = sd.rings.filter((r) => now - r.t < 400);
+  for (const r of sd.rings) { const k = (now - r.t) / 400; ctx.strokeStyle = `rgba(255,190,60,${(1 - k) * (r.ok ? 1 : 0.5)})`; ctx.lineWidth = r.ok ? 3 : 1; ctx.beginPath(); ctx.arc(r.x * s, r.y * s, (6 + 26 * k) * Math.max(s, 0.5), 0, Math.PI * 2); ctx.stroke(); }
+  $('sd-title').textContent = `衝突:${sd.n}体 | 音:${audio.activeVoices}/${audio.voiceCount} 要求:${sd.requests} 発音:${audio.startedLastStep} 間引き:${audio.culledLastStep} 奪取:${audio.stolenLastStep}`;
+  const avg = (k) => (sd.hist.length ? (sd.hist.reduce((a, r) => a + r[k], 0) / sd.hist.length).toFixed(1) : '—');
+  $('sd-stats').innerHTML = stat('ステップ', String(sd.steps)) + stat(`要求/step(直近 ${sd.hist.length})`, avg(0)) + stat('発音/step', avg(1)) + stat('間引き/step', avg(2)) + stat('奪取/step', avg(3));
+}
+seg('sd-sfx', (v) => { sd.sfx = v === '1'; sdLog(`衝突音: ${onOff(sd.sfx)}`); });
+seg('sd-limit', (v) => { audio.maxStartsPerClipPerStep = Number(v); setSeg('vo-limit', v); sdLog(Number(v) === 0 ? '同じ音の上限: 無制限(割れます)' : `同じ音の上限: 1ステップに ${v} 回`); });
+seg('sd-jitter', (v) => { audio.pitchVariation = v === '1'; sdLog(`ピッチの揺らぎ: ${onOff(audio.pitchVariation)}`); });
+seg('sd-pan', (v) => { sd.panning = v === '1'; sdLog(`左右の定位: ${onOff(sd.panning)}`); });
+seg('sd-play', (v) => { sd.playing = v === '1'; });
+$('sd-k5').addEventListener('click', () => { audio.play(clips.pickup, 0.8); });
+$('sd-k0').addEventListener('click', () => {
+  if (audio.isPlaying(sd.musicVoice)) { audio.stop(sd.musicVoice); sd.musicVoice = A.VoiceNone; sdLog('BGM: 停止'); }
+  else { sd.musicVoice = audio.playLoop(clips.music, 0.55); sdLog(`BGM: 再生 ${A.voiceText(sd.musicVoice)}`); }
+});
+const volText = () => `音量: ${Math.round(audio.masterVolume * 100)}%`;
+$('sd-vdown').addEventListener('click', () => { audio.masterVolume = f(audio.masterVolume - f(0.1)); sdLog(volText()); });
+$('sd-vup').addEventListener('click', () => { audio.masterVolume = f(audio.masterVolume + f(0.1)); sdLog(volText()); });
+document.querySelectorAll('#sd-lab [data-n]').forEach((btn) => btn.addEventListener('click', () => {
+  const v = Number(btn.dataset.n);
+  sd.n = Math.min(20000, Math.max(0, Math.abs(v) <= 60 ? sd.n + v : v)); sdInit();
+  sdLog(`[collision] ${sd.n} 体 / 総当たりなら ${fmtN(sd.n * (sd.n - 1) / 2)} 組`);
+}));
+sdInit();
+
+// ページ全体の固定ステップ(60Hz)。重い体数で追いつけないぶんは捨てる
+{
+  let last = performance.now(), acc = 0;
+  const loop = (now) => {
+    acc += Math.min((now - last) / 1000, 0.1); last = now;
+    let k = 0;
+    while (acc >= 1 / 60 && k < 2) { fixedStep(); acc -= 1 / 60; k++; }
+    if (k === 2) acc = 0;
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+}
+animate($('vo-canvas'), voDraw);
+animate($('sd-canvas'), sdDraw);
+
+wavDraw();
+voDraw();
+sdDraw();
+window.addEventListener('resize', () => { wavDraw(); voDraw(); sdDraw(); });
+})();
+</script>
+</body>
+</html>
