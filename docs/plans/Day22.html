@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 22 GameObject + Component</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 継承の木は、組み合わせが増えると必ず破綻する</a></li><li class="l3"><a href="#s5">2. <code>Transform</code> だけ特別扱いする</a></li><li class="l3"><a href="#s6">3. 回転はクォータニオンで持つ</a></li><li class="l3"><a href="#s7">4. <code>Awake</code> と <code>Start</code> はなぜ分かれているのか</a></li><li class="l3"><a href="#s8">5. 更新中に消してはいけない</a></li><li class="l3"><a href="#s9">6. <code>GetComponent</code> は「遅い」のか</a></li><li class="l3"><a href="#s10">7. 実行順は決めていない</a></li><li class="l3"><a href="#s11">8. 代償はメモリの置き方で払う</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">キーの変更</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">起動直後</a></li><li class="l3"><a href="#s19"><code>J</code>: 更新方式の切り替え</a></li><li class="l3"><a href="#s20"><code>H</code>: ライフサイクルの実演</a></li><li class="l3"><a href="#s21">階層が効いていること</a></li><li class="l3"><a href="#s22"><code>M</code> / <code>N</code>: リプレイが壊れていないこと</a></li><li class="l2"><a href="#s23">改造課題</a></li><li class="l3"><a href="#s24">課題1(易): 部品を1個足す</a></li><li class="l3"><a href="#s25">課題2(中): 描画リストを登録制にする</a></li><li class="l3"><a href="#s26">課題3(難): 実行順を決められるようにする</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li><li class="l3"><a href="#s28">1ステップの更新時間(200 ステップの平均)</a></li><li class="l3"><a href="#s29">メモリ</a></li><li class="l3"><a href="#s30"><code>GetComponent</code></a></li><li class="l3"><a href="#s31">階層の検算(8項目すべて合格)</a></li><li class="l3"><a href="#s32">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 4 / Day 22 / 計画書</p>
+  <h1>GameObject + Component</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 継承の木は、組み合わせが増えると必ず破綻する</a></li><li class="l3"><a href="#s5">2. <code>Transform</code> だけ特別扱いする</a></li><li class="l3"><a href="#s6">3. 回転はクォータニオンで持つ</a></li><li class="l3"><a href="#s7">4. <code>Awake</code> と <code>Start</code> はなぜ分かれているのか</a></li><li class="l3"><a href="#s8">5. 更新中に消してはいけない</a></li><li class="l3"><a href="#s9">6. <code>GetComponent</code> は「遅い」のか</a></li><li class="l3"><a href="#s10">7. 実行順は決めていない</a></li><li class="l3"><a href="#s11">8. 代償はメモリの置き方で払う</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">キーの変更</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">起動直後</a></li><li class="l3"><a href="#s19"><code>J</code>: 更新方式の切り替え</a></li><li class="l3"><a href="#s20"><code>H</code>: ライフサイクルの実演</a></li><li class="l3"><a href="#s21">階層が効いていること</a></li><li class="l3"><a href="#s22"><code>M</code> / <code>N</code>: リプレイが壊れていないこと</a></li><li class="l2"><a href="#s23">改造課題</a></li><li class="l3"><a href="#s24">課題1(易): 部品を1個足す</a></li><li class="l3"><a href="#s25">課題2(中): 描画リストを登録制にする</a></li><li class="l3"><a href="#s26">課題3(難): 実行順を決められるようにする</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li><li class="l3"><a href="#s28">1ステップの更新時間(200 ステップの平均)</a></li><li class="l3"><a href="#s29">メモリ</a></li><li class="l3"><a href="#s30"><code>GetComponent</code></a></li><li class="l3"><a href="#s31">階層の検算(8項目すべて合格)</a></li><li class="l3"><a href="#s32">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 4(エンジンコア)の4日目。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>スプライトもプレイヤーも <code>GameObject</code> になり、<strong>まったく同じ動きを2通りで回して比べられる</strong>。</p>
+<ul><li><code>J</code> キー … 構造体の配列(Day 17 からのやり方)⇔ GameObject + Component(今日のやり方)</li><li>見た目は完全に同じ。変わるのは更新時間だけで、<strong>2万個で 0.082ms → 1.370ms(17倍)</strong></li></ul>
+<p>この 17 倍が、Day 23 で ECS を書く動機そのものになる。ロードマップに「<strong>同じものを2回書く</strong>のが狙い」とあるのはこのこと。</p>
+<p>あわせて、Day 20 の <code>UpdatePlayer</code> と static フィールド6個が<code>PlayerController</code> 1クラスに畳まれて消える。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、この設計の出所を挙げておく。</p>
+<ul><li><a href="https://gameprogrammingpatterns.com/component.html">Game Programming Patterns: Component</a>(Robert Nystrom)「継承の木がなぜ破綻するか」から始まって、今日作るものにたどり着く。無料で全文が読める。要点1はほぼこの章の要約</li><li><a href="https://gameprogrammingpatterns.com/data-locality.html">Game Programming Patterns: Data Locality</a>今日測る 17 倍がどこから来るのか。<strong>Day 23 の予習でもある</strong>ので、今日のうちに目を通しておくと ECS の話が早い</li><li><a href="https://docs.unity3d.com/Manual/ExecutionOrder.html">Unity: Order of execution for event functions</a>ライフサイクルの図。今日実装するのはこのうち<code>Awake</code> / <code>OnEnable</code> / <code>Start</code> / <code>FixedUpdate</code> / <code>OnDisable</code> / <code>OnDestroy</code> の6つだけ</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 継承の木は、組み合わせが増えると必ず破綻する</h3>
+<p><code>Entity</code> → <code>MovingEntity</code> → <code>Enemy</code> → <code>FlyingEnemy</code> と伸ばしていって、あるとき「飛ばないが爆発する敵」が要る、となる。</p>
+<ul><li><code>ExplodingEnemy</code> を作る → 爆発の処理が <code>FlyingEnemy</code> と重複する</li><li><code>Enemy</code> に上げる → 爆発しない敵まで爆発の処理を持つ</li></ul>
+<p><strong>機能の組み合わせが増えるほど、木のどこに置いても間違いになる</strong>。「飛ぶ」「爆発する」「毒を撒く」が独立に付いたり付かなかったりするなら、継承の木は 2^3 通りの葉を要求してくる。</p>
+<p>合成なら「爆発する」を1個のコンポーネントにして、必要なものに足すだけ。<strong>組み合わせは掛け算で増えるが、部品は足し算でしか増えない</strong>。</p>
+<p>代わりに払うものが3つある。今日はそれも全部測る。</p>
+<ul><li>部品どうしが話すには <code>GetComponent&lt;T&gt;()</code> が要る(要点6)</li><li>実行順が決まらない(要点7)</li><li>オブジェクト1個がヒープ上の何個ものオブジェクトになる(要点5)</li></ul>
+<h3 id="s5">2. <code>Transform</code> だけ特別扱いする</h3>
+<p><code>Transform</code> は <code>AddComponent</code> しなくても最初から生えている。「そこに無いオブジェクト」が考えにくいからで、Unity も Unreal もここは同じ。</p>
+<p>そして<strong>親子関係は <code>Transform</code> が持つ</strong>。これが今日いちばん効く部分で、</p>
+<div class="code"><pre><code>ワールド行列 = 自分のローカル行列 * 親のワールド行列</code></pre></div>
+<p>を根まで再帰するだけで、砲塔が戦車についてくる。掛ける順番が「ローカル * 親」なのは <code>System.Numerics</code> が行ベクトル規約(<code>v' = v * M</code>)だから。Day 16 で見たのと同じ約束で、先に適用したいものを左に置く。</p>
+<p>実演として、根 → 子3つ → それぞれの孫1つ、の3段の木を置いてある(画面右上の黄色い丸と、そのまわりを回る水色のリング、さらにそのまわりのピンク)。<strong>子も孫も「原点から半径 R の円周上を回る」としか書いていない</strong>。どこに出るかは親が決める。</p>
+<p>計算し直すのは「変わったときだけ」にしてある(遅延評価)。値を書き換えたら <code>MarkDirty</code> が子孫まで印を付けて回り、<code>LocalToWorld</code> を読まれたときに初めて計算する。<strong>すでに印が付いていたら子をたどらない</strong>のがコツで、そうしないと深い木で何度も動かしたときに同じ枝を何度も歩く。</p>
+<div class="inject"><figure class="lab" id="hi-lab">
+  <div class="lab-head">
+    <h3>階層を動かす — 子も孫も「親のまわりを回る」としか書いていない(要点2・3)</h3>
+    <span class="tag">reference の Transform.cs(親子、ワールド = ローカル × 親のワールド、MarkDirty と遅延評価)・GameObject.cs(ActiveInHierarchy)・Scene.cs と、BuildScene の階層の実演(根 → 子3つ → 孫1つずつ、OrbitMover の半径 86 と 32、角速度 1.1 と −3.4)を JS に移したもの。Transform は 2D に絞り、回転は Z の角度で持っている(reference はクォータニオン)。黄色い丸(根)はドラッグで動かせる。細い線は親から子へのつながりで、薄い円は各 OrbitMover が書いている「自分のぶん」の円。MarkDirty の早期 return を外す切り替えと、歩いた数・計算し直した数の表示はこのページだけ</span>
+  </div>
+  <div class="stage"><canvas id="hi-canvas" style="height:340px;touch-action:none" aria-label="黄色い根のまわりを水色のリングが回り、そのまわりをピンクの菱形が回る。根はドラッグで動かせる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">子 0 を SetActive</span>
+      <div class="seg" id="hi-active"><button data-v="1" aria-pressed="true">true</button><button data-v="0" aria-pressed="false">false(孫も消える)</button></div>
+    </div>
+    <div class="ctl"><span class="label">MarkDirty の早期 return(このページだけ)</span>
+      <div class="seg" id="hi-early"><button data-v="1" aria-pressed="true">あり(reference)</button><button data-v="0" aria-pressed="false">なし</button></div>
+    </div>
+    <div class="ctl"><span class="label">再生と検算</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="hi-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div><button class="btn" id="hi-check">階層の検算(8 項目)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="hi-stats"></div><pre id="hi-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px;display:none"></pre></div>
+</figure></div>
+<h3 id="s6">3. 回転はクォータニオンで持つ</h3>
+<p>オイラー角(X回転・Y回転・Z回転の3つの数)で持つと2つ困る。</p>
+<ul><li><strong>ジンバルロック</strong> … 特定の姿勢で軸が重なり、回転の自由度が1つ消える</li><li><strong>補間できない</strong> … 2つの姿勢の間を角度ごとに線形補間すると、途中で変な方向を向く(最短の回り方にならない)</li></ul>
+<p>クォータニオンは4つの数で回転を表し、どちらも起きない。<code>System.Numerics.Quaternion</code> があるので自作はしない。</p>
+<p><strong>合成の順番に罠がある</strong>。実際に行列と突き合わせて確かめると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th>書き方</th><th>行列の <code>M(local) * M(parent)</code> と一致するか</th></tr></thead>
+<tbody>
+<tr><td><code>Quaternion.Concatenate(local, parent)</code></td><td>一致する</td></tr>
+<tr><td><code>parent * local</code>(演算子)</td><td>一致する</td></tr>
+<tr><td><code>local * parent</code>(演算子)</td><td><strong>一致しない</strong></td></tr>
+</tbody>
+</table></div>
+<p>つまり<strong>演算子 <code>*</code> は行列と順序が逆</strong>。行列の掛け算と並べて書くと必ず間違えるので、<code>Concatenate</code> を使うほうが安全。</p>
+<p>なお 2D(Z 軸まわりだけ)なら、合成は単なる角度の足し算になる(0.7 と 0.4 を合成すると 1.1 になることを確認済み)。<code>Transform.GetInterpolatedWorldRotationZ</code> はこれを使っている。</p>
+<h3 id="s7">4. <code>Awake</code> と <code>Start</code> はなぜ分かれているのか</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>呼ばれるとき</th><th>何を書くか</th></tr></thead>
+<tbody>
+<tr><td><code>Awake</code></td><td><code>AddComponent</code> の<strong>中で</strong>即座に</td><td>自分の初期化だけ</td></tr>
+<tr><td><code>OnEnable</code></td><td>有効になったとき</td><td>購読の開始など</td></tr>
+<tr><td><code>Start</code></td><td><strong>最初の <code>FixedUpdate</code> の直前</strong></td><td>他のコンポーネントを探す</td></tr>
+<tr><td><code>FixedUpdate</code></td><td>毎ステップ</td><td>ゲームの状態を変える</td></tr>
+<tr><td><code>OnDisable</code> / <code>OnDestroy</code></td><td>無効化・破棄のとき</td><td>後始末</td></tr>
+</tbody>
+</table></div>
+<p><code>Start</code> が遅れるのには理由がある。<code>Start</code> が走る時点では<strong>そのステップで作られたオブジェクトの <code>Awake</code> が全部終わっている</strong>ので、「相手を探す」処理を安心して書ける。A が B を、B が A を探しても、どちらの順で作っても動く。<code>Awake</code> でやると、先に作られたほうが相手を見つけられない。</p>
+<p>もう1つ、<code>Awake</code> は <code>AddComponent</code> の中で走るので、<strong>プロパティを設定する前に呼ばれる</strong>。<code>H</code> キーの実演で確かめられる。</p>
+<div class="code"><pre><code>  CreateGameObject + AddComponent
+    [obj] Awake       (AddComponent した直後)   ← ラベルがまだ既定値
+    [obj] OnEnable
+  ↑ ラベルはまだ obj。Awake は AddComponent の中で走るので、
+     プロパティを入れる前に呼ばれている</code></pre></div>
+<p>「<code>Awake</code> の中で、外から設定した値をあてにしてはいけない」がここから出てくる。</p>
+<h3 id="s8">5. 更新中に消してはいけない</h3>
+<p><code>Destroy</code> はその場では消さず、<strong>予約するだけ</strong>にしてある。更新中に <code>List</code> から要素を消すと、そこで例外になるか、運が悪いと1個飛ばして更新される。</p>
+<div class="code"><pre><code>  Destroy を予約 → まだ生きている
+    IsDestroyed = True / シーンにはまだ 9 個
+  次のステップの終わりで実際に消える
+    [demo] OnDisable
+    [demo] OnDestroy   (合計 4 ステップ動いた)
+    シーンは 8 個になった</code></pre></div>
+<p>この「予約して後で」はゲームエンジンのあちこちに出てくる形で、Day 21 の非同期ロード(復号を予約して、描画スレッドで消化する)も同じ骨格。</p>
+<p>まとめて消すときは <code>RemoveAll</code> を1回だけ呼ぶ。1個ずつ <code>Remove</code> すると、そのたびに後ろ全部がずれて O(n^2) になる(ウェーブが全滅する瞬間のような、大量に消える場面で効く)。</p>
+<div class="inject"><figure class="lab" id="lc-lab">
+  <div class="lab-head">
+    <h3>ライフサイクルを順に呼ぶ — Awake は AddComponent の中、Destroy は予約(要点4・5、H キー)</h3>
+    <span class="tag">reference の Scene.cs(RegisterComponent・FixedUpdate の4段階・Destroy と FlushDestroy)・GameObject.cs(AddComponent・SetActive)と、Program.RunLifecycleDemo・LifecycleLogger を JS に移したもの。シーンには BuildScene と同じ 8 個(プレイヤーと階層の実演)を入れてある。「1 段ずつ進める」は、同じ手順をボタンを押すたびに1段ずつ進めるもので、このページだけ</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">実演</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="lc-h">H 一気に流す</button><button class="btn" id="lc-step">1 段ずつ進める</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="lc-stats"></div><pre id="lc-console" style="margin:10px 0 0;max-height:320px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s9">6. <code>GetComponent</code> は「遅い」のか</h3>
+<p>「<code>GetComponent</code> は遅いから <code>Start</code> でキャッシュしろ」とよく言われる。実測すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td>フィールドを読む</td><td>0.88ns</td></tr>
+<tr><td><code>GetComponent&lt;T&gt;()</code> 1個目</td><td>1.03ns</td></tr>
+<tr><td><code>GetComponent&lt;T&gt;()</code> 2個目</td><td>2.01ns</td></tr>
+</tbody>
+</table></div>
+<p><strong>ほとんど差が無い</strong>。型の判定はせいぜい数個ぶんで、しかも同じオブジェクトを続けて触るからキャッシュに乗る。</p>
+<p>効いてくるのは<strong>別々のオブジェクトを順に引くとき</strong>。描画パスと同じ形で2万個を1周すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1周あたり</th></tr></thead>
+<tbody>
+<tr><td>あらかじめ配列に集めておく</td><td>0.039ms</td></tr>
+<tr><td>毎回 <code>GetComponent</code> で引く</td><td>0.201ms</td></tr>
+</tbody>
+</table></div>
+<p>0.16ms の差。60fps の予算 16.6ms に対して 1% なので致命的ではないが、無視もできない。そして<strong>この差は探索そのものより「オブジェクトを渡り歩くこと」から来ている</strong>——配列版でも中身は散らばったオブジェクトへの参照で、そこはどちらも同じだからだ。</p>
+<p>つまり結論は「<code>GetComponent</code> を速くする」ではなく、<strong>「オブジェクトを渡り歩かない形に変える」</strong>。それが Day 23 の ECS。</p>
+<h3 id="s10">7. 実行順は決めていない</h3>
+<p><code>Scene</code> は <code>_gameObjects</code> に入っている順(= 生成した順)に更新するだけ。「敵より先にプレイヤーを動かしたい」という要求が出てきたら、優先度を持たせるか、フェーズ(入力 → 移動 → 当たり判定)に分けることになる。</p>
+<p><strong>順序が要るのに順序を決めていない設計は、必ずどこかで1フレーム遅れのバグを生む</strong>。「なぜかカメラが1フレーム遅れてついてくる」の正体はたいていこれ。</p>
+<p>Day 23 の ECS では、この点が「システムを順に並べる」という形で最初から明示的になる。GameObject 方式の弱点が、ECS では設計の前提に変わる。</p>
+<h3 id="s11">8. 代償はメモリの置き方で払う</h3>
+<p>同じ動きを2通りで回した実測(1ステップあたり)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>個数</th><th>構造体の配列</th><th>GameObject</th><th>比</th><th>うち枠組み</th><th>うち部品の中身</th></tr></thead>
+<tbody>
+<tr><td>1,000</td><td>0.020ms</td><td>0.089ms</td><td>4.5x</td><td>0.039ms</td><td>0.050ms</td></tr>
+<tr><td>5,000</td><td>0.032ms</td><td>0.318ms</td><td>9.9x</td><td>0.095ms</td><td>0.223ms</td></tr>
+<tr><td>19,981</td><td>0.082ms</td><td>1.370ms</td><td><strong>16.8x</strong></td><td>0.614ms</td><td>0.755ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>倍率が個数とともに大きくなる</strong>のが肝心なところ。定数倍の差(仮想呼び出し、null チェック)なら倍率は一定のはず。増えていくのは<strong>キャッシュに乗り切らなくなるから</strong>で、これがデータ配置の問題である証拠。</p>
+<p>「枠組み」は部品の中身を止めて測ったもの(Transform の控え + 走査 + 有効判定)で、だいたい半分を占める。<strong>部品を軽くしても半分しか減らない</strong>。</p>
+<p>メモリも見ておく。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1個あたり</th><th>2万個</th></tr></thead>
+<tbody>
+<tr><td>構造体の配列</td><td>64 バイト</td><td>1.3MB</td></tr>
+<tr><td>GameObject</td><td>515 バイト</td><td>10.0MB</td></tr>
+</tbody>
+</table></div>
+<p>GameObject + Transform + <code>List&lt;Component&gt;</code> 2本 + 部品2個で 515 バイト。<strong>8倍</strong>で、しかも6個のオブジェクトに分かれてヒープ上に散らばっている。2万個を GameObject 化するのに 25ms かかるのもここから来る。</p>
+<p>念のため確かめておくと、コンポーネント化しても<strong>決定性は保たれる</strong>(Day 20)。</p>
+<div class="code"><pre><code>A 右へ300ステップ : D3F3CF0BB1B32BC6
+B 同じ入力で再実行: D3F3CF0BB1B32BC6  一致
+C 左へ300ステップ : 243F758A539EFA8B  不一致</code></pre></div>
+<p>置き場所を変えただけで計算は変えていないので、当然そうなる。<strong>リプレイ(Day 20)は GameObject 化しても壊れない</strong>。</p>
+<div class="inject"><figure class="lab" id="sw-lab">
+  <div class="lab-head">
+    <h3>同じ動きを2通りで回す — 構造体の配列 ⇔ GameObject(要点6・8、J キー)</h3>
+    <span class="tag">reference の UpdateSprites(構造体の配列)と BouncingMover(GameObject + Component)の2通りの更新、EnsureSceneSprites(今の状態をそのまま GameObject に写す)、タイトルバーの書き方を JS に移したもの。JS では「構造体の配列」を Float32Array の束で、GameObject を 1 個ずつのオブジェクト(GameObject・Transform・部品 2 個)で表している。更新時間はこのページで 60 ステップを平均した値で、本文の表(C# の値)とは倍率も含めて違う。「部品の中身を止める」は本文の「うち枠組み」の測り方(全 BouncingMover の Enabled を false)。絵は小さな四角で描いている</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="sw-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="sw-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:420px" aria-label="たくさんの四角が跳ね回る。更新方式を切り替えても絵は同じ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">更新方式(J)</span>
+      <div class="seg" id="sw-mode"><button data-v="soa" aria-pressed="true">構造体の配列</button><button data-v="go" aria-pressed="false">GameObject</button></div>
+    </div>
+    <div class="ctl"><span class="label">個数(PageUp / PageDown、Shift で ±10000)</span>
+      <div class="seg" id="sw-count"><button data-v="1000" aria-pressed="true">1,000</button><button data-v="5000" aria-pressed="false">5,000</button><button data-v="19981" aria-pressed="false">19,981</button></div>
+    </div>
+    <div class="ctl"><span class="label">部品の中身</span>
+      <div class="seg" id="sw-body"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める(枠組みだけ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">測る</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="sw-bench">3 通りの個数で比べる(表)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sw-stats"></div><div class="table-wrap" id="sw-table" style="margin-top:10px"></div><pre id="sw-console" style="margin:10px 0 0;max-height:160px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Transform.cs</code></td><td>244 (125)</td><td>位置・回転・スケールと親子関係。ワールド行列の遅延評価と補間</td></tr>
+<tr><td><code>Component.cs</code></td><td>114 (48)</td><td>ふるまいの基底。ライフサイクルの6つの入口</td></tr>
+<tr><td><code>GameObject.cs</code></td><td>189 (104)</td><td>名前 + Transform + コンポーネントの入れ物</td></tr>
+<tr><td><code>Scene.cs</code></td><td>220 (131)</td><td>入れ物であり、ライフサイクルを回す人。遅延破棄</td></tr>
+<tr><td><code>Components.cs</code></td><td>312 (174)</td><td>具体的な部品5つ(下表)</td></tr>
+</tbody>
+</table></div>
+<p><code>Components.cs</code> の中身:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クラス</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>SpriteRenderer</code></td><td>何の絵をどう出すか。<strong>データだけ、ふるまい無し</strong></td></tr>
+<tr><td><code>BouncingMover</code></td><td>画面内を飛び回って端で跳ね返る。<code>UpdateSprites</code> と同じ計算</td></tr>
+<tr><td><code>OrbitMover</code></td><td>親のまわりを回る。階層の実演用</td></tr>
+<tr><td><code>PlayerController</code></td><td>Day 20 の <code>UpdatePlayer</code> をそのまま移したもの</td></tr>
+<tr><td><code>LifecycleLogger</code></td><td>ライフサイクルの呼ばれ方をコンソールに出すだけ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+343 / -145</td><td>シーンの組み立て、2通りの更新の切り替え、シーンの描画。<code>UpdatePlayer</code> と static フィールド6個が消えた</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">キーの変更</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>J</code></td><td>更新方式を切り替える(構造体の配列 ⇔ GameObject)</td></tr>
+<tr><td><code>H</code></td><td>ライフサイクルの実演(コンソール)</td></tr>
+<tr><td><code>Shift</code> + <code>PageUp</code> / <code>PageDown</code></td><td>スプライト数を ±10000</td></tr>
+</tbody>
+</table></div>
+<p><code>PageUp</code> / <code>PageDown</code> は、GameObject モードならシーンのほうも作り直すようになった。2万個まで 1000 刻みで上げるのは19回かかるので、<code>Shift</code> 併用で10倍動くようにしてある。</p>
+<h3 id="s16">写経する順番</h3>
+<ol><li><strong><code>Transform.cs</code></strong> — 親子とワールド行列。<code>MarkDirty</code> の早期 return の理由を押さえる</li><li><strong><code>Component.cs</code></strong> — 中身はほぼ空。<code>Awake</code> と <code>Start</code> のコメントを読む</li><li><strong><code>GameObject.cs</code></strong> — <code>AddComponent</code> / <code>GetComponent</code> / <code>ActiveInHierarchy</code></li><li><strong><code>Scene.cs</code></strong> — <code>FixedUpdate</code> の4段階と <code>FlushDestroy</code></li><li><strong><code>Components.cs</code></strong> — <code>SpriteRenderer</code> → <code>BouncingMover</code> → <code>OrbitMover</code> → <code>PlayerController</code> → <code>LifecycleLogger</code> の順が読みやすい</li><li><strong><code>Program.cs</code></strong> — <code>BuildScene</code> → <code>EnsureSceneSprites</code> → <code>FixedUpdate</code> の分岐 → <code>RenderScene</code> → <code>RunLifecycleDemo</code></li></ol>
+<p>1〜4 は他のファイルに依存しない(<code>InputSnapshot</code> だけ知っている)ので、先に4つ書いてしまうのが楽。</p>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day22 -c Release</code></pre></div>
+<h3 id="s18">起動直後</h3>
+<p>Day 21 と同じ画面。ただしプレイヤー(黄色い星)は<strong>もう GameObject</strong>で、画面右上に<strong>階層の実演</strong>が出ている。</p>
+<ul><li>黄色い丸(根)</li><li>そのまわりを回る水色のリング3つ(子)</li><li>さらにそのまわりを回るピンクの菱形3つ(孫)</li></ul>
+<p>コンソールに <code>シーン構築: GameObject 8 個 / コンポーネント 15 個</code> が出る。</p>
+<p><code>PageDown</code> を何度か押してスプライトを 0 にすると、階層だけがはっきり見える。</p>
+<h3 id="s19"><code>J</code>: 更新方式の切り替え</h3>
+<p>タイトルバーの表示が <code>構造体配列 更新:0.02ms</code> から<code>GameObject 更新:0.09ms GO:1008 C:2015</code> に変わる。<strong>絵はまったく変わらない</strong>。</p>
+<p><code>Shift</code> + <code>PageUp</code> を2回押して2万個まで増やすと差が開く。</p>
+<div class="code"><pre><code>構造体配列 更新:0.08ms
+GameObject 更新:1.37ms GO:19989 C:39977</code></pre></div>
+<p>シーンを作り直すたびに、かかった時間とメモリがコンソールに出る。</p>
+<div class="code"><pre><code>[シーン] スプライト 19981 個を GameObject 化: 25.0ms / 10053KB (515 バイト/個)</code></pre></div>
+<h3 id="s20"><code>H</code>: ライフサイクルの実演</h3>
+<p><code>Awake</code> → <code>OnEnable</code> → <code>Start</code> → <code>FixedUpdate</code> → <code>OnDisable</code> → <code>OnDestroy</code> の順と<strong>タイミング</strong>が出る。見るべきは2箇所。</p>
+<ul><li><code>Awake</code> がラベルを設定する<strong>前</strong>に出ていること(要点4)</li><li><code>Destroy</code> を呼んでもその場では消えず、次のステップの終わりで消えること(要点5)</li></ul>
+<h3 id="s21">階層が効いていること</h3>
+<p><code>J</code> で GameObject モードにしてから、右上の実演を見る。リングは黄色い丸のまわりを、菱形はリングのまわりを回っている。<strong>菱形の位置は「黄色い丸 + リングの円運動 + 菱形の円運動」の合成</strong>で、<code>OrbitMover</code> はそのうち自分のぶんしか書いていない。</p>
+<h3 id="s22"><code>M</code> / <code>N</code>: リプレイが壊れていないこと</h3>
+<p>Day 20 と同じように記録・再生できる。プレイヤーがコンポーネントになってもハッシュは一致する(要点8)。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>J</code></td><td>「同じ動きを2通りで回す」の更新方式</td><td>絵は変わらず、タイトルの更新時間だけが変わる。個数を増やすほど差が開く</td></tr>
+<tr><td><code>H</code></td><td>「ライフサイクルを順に呼ぶ」の「H 一気に流す」</td><td>Awake がラベルを入れる前に出る。Destroy はその場では消えず、次のステップの終わりで消える</td></tr>
+<tr><td><code>PageUp</code> / <code>PageDown</code>(<code>Shift</code> で ±10000)</td><td>「同じ動きを2通りで回す」の個数</td><td>1,000 / 5,000 / 19,981 の 3 段。GameObject のときは作り直す時間をコンソールに出す</td></tr>
+<tr><td>(起動直後の右上)</td><td>「階層を動かす」</td><td>根をドラッグすると子も孫もついてくる。子 0 を false にすると孫も消える</td></tr>
+<tr><td>(キーなし)</td><td>「階層を動かす」の早期 return の切り替えと検算、「同じ動きを2通りで回す」の「部品の中身を止める」と表</td><td>早期 return を外すと、MarkDirty が同じ枝を何度も歩く</td></tr>
+<tr><td><code>M</code> / <code>N</code>、矢印キー・<code>X</code></td><td>このページには無い</td><td>Day 20 のページ(プレイヤーがコンポーネントになっても同じ動き)</td></tr>
+<tr><td>Day 21 までのキー</td><td>このページには無い</td><td>Day 19〜21 のページ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day22 の Transform.cs、Component.cs、GameObject.cs、Scene.cs(いずれも docs/site/enginecore.js。Transform は 2D に絞った)と、Components.cs の SpriteRenderer、BouncingMover、OrbitMover、LifecycleLogger、Program.cs の BuildScene、EnsureSceneSprites、RunLifecycleDemo を JS に移したもの。動きの見た目を写したもので、数値は C# と突き合わせていない。ms の数字はこのページで測った値。</p></div>
+</section>
+<section class="part"><h2 id="s23">改造課題</h2>
+<h3 id="s24">課題1(易): 部品を1個足す</h3>
+<p>画面の端に着いたときに色が変わる <code>FlashOnBounce</code> を書いて、<code>EnsureSceneSprites</code> の中で <code>AddComponent</code> する。</p>
+<ul><li><code>Start</code> で <code>SpriteRenderer</code> を1回引いて持つ</li><li><code>BouncingMover</code> の速度の符号が変わったフレームで色を差す</li></ul>
+<p><strong><code>BouncingMover</code> にも <code>SpriteRenderer</code> にも手を入れずに機能が増える</strong>ことを確認する。これが合成の見返りそのもの。</p>
+<h3 id="s25">課題2(中): 描画リストを登録制にする</h3>
+<p><code>RenderScene</code> は毎フレーム全オブジェクトに <code>GetComponent&lt;SpriteRenderer&gt;()</code> を呼んでいる。これを <code>Scene</code> 側に <code>List&lt;SpriteRenderer&gt;</code> を持たせ、<code>RegisterComponent</code> のときに登録する形に変える(破棄のときに外すのを忘れないこと)。</p>
+<p>要点6の 0.16ms が消えるはず。タイトルバーの fps で確かめる。</p>
+<p>そのうえで考えてほしいのが、<strong>この「型ごとのリスト」を全種類ぶん作ったらどうなるか</strong>。それが Day 23 の ECS の入口になる。</p>
+<h3 id="s26">課題3(難): 実行順を決められるようにする</h3>
+<p><code>Component</code> に <code>ExecutionOrder</code>(既定 0)を足して、<code>Scene.FixedUpdate</code> がその順に呼ぶようにする。要点7の「順序が決まっていない」を解消する。</p>
+<p>素直にやると毎ステップ全コンポーネントをソートすることになって遅い。</p>
+<ul><li>コンポーネントが増減したときだけ並べ直す</li><li>そのために <code>Scene</code> が全コンポーネントの平坦なリストを持つ(今は <code>GameObject</code> ごとの入れ子になっている)</li></ul>
+<p>まで来ると、<strong>シーンの持ち方が「オブジェクトの木」から「コンポーネントの列」へ寄っていく</strong>のが分かる。Day 23 はその先にある。</p>
+</section>
+<section class="part"><h2 id="s27">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>960x640、VSync オフ、<code>-c Release</code>、シミュレーション 60Hz</li></ul>
+<h3 id="s28">1ステップの更新時間(200 ステップの平均)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>個数</th><th>構造体の配列</th><th>GameObject</th><th>比</th><th>うち枠組み</th><th>うち部品の中身</th></tr></thead>
+<tbody>
+<tr><td>1,000</td><td>0.020ms</td><td>0.089ms</td><td>4.5x</td><td>0.039ms</td><td>0.050ms</td></tr>
+<tr><td>5,000</td><td>0.032ms</td><td>0.318ms</td><td>9.9x</td><td>0.095ms</td><td>0.223ms</td></tr>
+<tr><td>19,981</td><td>0.082ms</td><td>1.370ms</td><td>16.8x</td><td>0.614ms</td><td>0.755ms</td></tr>
+</tbody>
+</table></div>
+<p>「枠組み」は全 <code>BouncingMover</code> の <code>Enabled</code> を false にして測ったもの。実行ごとに 1 割ほどばらつく(1,000 個での比は 3.9〜4.8 倍の範囲で観測した)。</p>
+<h3 id="s29">メモリ</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1個あたり</th><th>2万個</th><th>内訳</th></tr></thead>
+<tbody>
+<tr><td>構造体の配列</td><td>64 バイト</td><td>1.3MB</td><td>フィールドの合計(8+8+4+4+4+16+4+4+8+4)</td></tr>
+<tr><td>GameObject</td><td>515 バイト</td><td>10.0MB</td><td>GameObject + Transform + List 2本 + 部品2個</td></tr>
+</tbody>
+</table></div>
+<p><code>GC.GetTotalAllocatedBytes</code> で生成前後の差を取った実測値。2万個の生成そのものに 25ms かかる。</p>
+<h3 id="s30"><code>GetComponent</code></h3>
+<div class="table-wrap"><table>
+<thead><tr><th>同じオブジェクトを繰り返し</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td>フィールドを読む</td><td>0.88ns</td></tr>
+<tr><td><code>GetComponent</code> 1個目</td><td>1.03ns</td></tr>
+<tr><td><code>GetComponent</code> 2個目</td><td>2.01ns</td></tr>
+</tbody>
+</table></div>
+<div class="table-wrap"><table>
+<thead><tr><th>19,989 個を1周(描画パスと同じ形)</th><th>1周あたり</th></tr></thead>
+<tbody>
+<tr><td>あらかじめ配列に集めておく</td><td>0.039ms</td></tr>
+<tr><td>毎回 <code>GetComponent</code> で引く</td><td>0.201ms</td></tr>
+</tbody>
+</table></div>
+<h3 id="s31">階層の検算(8項目すべて合格)</h3>
+<div class="code"><pre><code>[OK] 子のワールド座標 = 親 + 子のローカル
+[OK] 子は親から半径 86      実際 86.00
+[OK] 孫は子から半径 32      実際 32.00
+[OK] 親を +100 動かすと孫も +100  実際 100.000
+[OK] 親を切ると孫も ActiveInHierarchy = false
+[OK] 孫自身の ActiveSelf は true のまま
+[OK] 戻すと有効に戻る
+[OK] 自分の子孫を親にすると例外</code></pre></div>
+<h3 id="s32">検証の途中で分かったこと</h3>
+<ul><li><strong><code>GetComponent</code> は思ったより速い</strong>。「遅いからキャッシュしろ」という定説をそのまま書こうとしたが、測ると 1.03ns でフィールド読みと大差なかった。遅いのは探索ではなく、<strong>散らばったオブジェクトを渡り歩くこと</strong>のほう。コメントは測定に合わせて書き直した</li><li>クォータニオンの合成は<strong>演算子 <code>*</code> と行列の <code>*</code> で順序が逆</strong>。<code>Quaternion.Concatenate(local, parent)</code> が行列の <code>M(local) * M(parent)</code> に対応する。行列と並べて書くコードでは事故のもとなので、実際に突き合わせて確認した</li><li>GameObject 版の遅さのうち、<code>SetLocalRotationZ</code>(sin/cos とクォータニオン生成)がそれなりの割合を占める。<strong>汎用の <code>Transform</code> を持つこと自体のコスト</strong>で、コンポーネント方式そのものの費用ではない。比の 16.8 倍を全部「合成のせい」と読むのは正しくない</li></ul>
+</section>
+<footer class="end">Day 22 GameObject + Component / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/enginecore.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const C = Core, F = DotNet.fmtFixed;
+const TAU = Math.PI * 2;
+
+// ---------------- 部品(reference の Components.cs) ----------------
+// 何の絵をどう出すか。データだけ、ふるまい無し
+class SpriteRenderer extends C.Component { constructor() { super(); this.kind = 0; this.size = 32; this.color = [1, 1, 1, 1]; this.layer = 0; } }
+// 画面内を飛び回って端で跳ね返る(UpdateSprites と同じ計算)
+class BouncingMover extends C.Component {
+  constructor() { super(); this.velocity = [0, 0]; this.spinSpeed = 0; this.angle = 0; this.halfSize = 16; }
+  start() { const r = this.gameObject.getComponent(SpriteRenderer); this.halfSize = (r ? r.size : 32) * 0.5; this.angle = this.transform.localRotationZ; }
+  fixedUpdate(dt) {
+    const p = [...this.transform.localPosition], v = this.velocity, b = this.gameObject.scene.bounds, h = this.halfSize;
+    p[0] += v[0] * dt; p[1] += v[1] * dt;
+    if (p[0] < h) { p[0] = h; v[0] = -v[0]; } else if (p[0] > b[0] - h) { p[0] = b[0] - h; v[0] = -v[0]; }
+    if (p[1] < h) { p[1] = h; v[1] = -v[1]; } else if (p[1] > b[1] - h) { p[1] = b[1] - h; v[1] = -v[1]; }
+    this.transform.localPosition = p;
+    this.angle += this.spinSpeed * dt;
+    this.transform.setLocalRotationZ(this.angle);
+  }
+}
+// 親のまわりを回る。自分のぶんの円運動しか書いていない
+class OrbitMover extends C.Component {
+  constructor() { super(); this.radius = 100; this.angularSpeed = 1; this.startAngle = 0; this.spinSpeed = 0; this.angle = 0; this.spin = 0; }
+  start() { this.angle = this.startAngle; }
+  fixedUpdate(dt) {
+    this.angle += this.angularSpeed * dt; this.spin += this.spinSpeed * dt;
+    this.transform.localPosition = [Math.cos(this.angle) * this.radius, Math.sin(this.angle) * this.radius];
+    this.transform.setLocalRotationZ(this.spin);
+  }
+}
+// プレイヤー(このページでは動かさない。数をそろえるためだけに置く)
+class PlayerController extends C.Component {}
+// ライフサイクルの呼ばれ方を出すだけ
+class LifecycleLogger extends C.Component {
+  constructor() { super(); this.steps = 0; this.label = 'obj'; this.log = LifecycleLogger.out; }
+  awake() { this.log(`    [${this.label}] Awake       (AddComponent した直後)`); }
+  onEnable() { this.log(`    [${this.label}] OnEnable`); }
+  start() { this.log(`    [${this.label}] Start       (最初の FixedUpdate の直前)`); }
+  fixedUpdate() { this.steps++; if (this.steps <= 2) this.log(`    [${this.label}] FixedUpdate (${this.steps} 回目)`); }
+  onDisable() { this.log(`    [${this.label}] OnDisable`); }
+  onDestroy() { this.log(`    [${this.label}] OnDestroy   (合計 ${this.steps} ステップ動いた)`); }
+}
+LifecycleLogger.out = () => {};
+
+// Program.BuildScene: プレイヤーと、根 → 子3つ → 孫1つずつの階層
+function buildScene(scene) {
+  const player = scene.createGameObject('Player');
+  player.transform.localPosition = [480, 320]; player.transform.snapshot();
+  player.addComponent(SpriteRenderer, { kind: 2, size: 68, layer: 1 });
+  player.addComponent(PlayerController);
+  const root = scene.createGameObject('OrbitRoot');
+  root.transform.localPosition = [770, 170]; root.transform.snapshot();
+  root.addComponent(SpriteRenderer, { kind: 0, size: 72, color: [1, 0.8, 0.15, 1], layer: 0.95 });
+  const children = [], moons = [];
+  for (let i = 0; i < 3; i++) {
+    const child = scene.createGameObject(`Orbit${i}`, root.transform);
+    child.addComponent(SpriteRenderer, { kind: 1, size: 46, color: [0.2, 0.75, 1, 1], layer: 0.94 });
+    child.addComponent(OrbitMover, { radius: 86, angularSpeed: 1.1, startAngle: (i * TAU) / 3 });
+    const moon = scene.createGameObject(`Orbit${i}-moon`, child.transform);
+    moon.addComponent(SpriteRenderer, { kind: 3, size: 26, color: [1, 0.3, 0.6, 1], layer: 0.93 });
+    moon.addComponent(OrbitMover, { radius: 32, angularSpeed: -3.4, startAngle: i * 1.7 });
+    children.push(child); moons.push(moon);
+  }
+  return { player, root, children, moons };
+}
+const rgba = (c) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})`;
+function shape(ctx, kind, x, y, r, rot) {
+  ctx.beginPath();
+  if (kind === 0 || kind === 1) ctx.arc(x, y, r, 0, TAU);
+  else if (kind === 2) { for (let k = 0; k < 10; k++) { const a = rot - Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+  else { for (let k = 0; k < 4; k++) { const a = rot + (k * Math.PI) / 2; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+}
+function drawSprite(ctx, r, x, y, rot) {
+  ctx.fillStyle = ctx.strokeStyle = rgba(r.color);
+  shape(ctx, r.kind, x, y, r.size * 0.5, rot);
+  if (r.kind === 1) { ctx.lineWidth = Math.max(2, r.size * 0.18); ctx.stroke(); } else ctx.fill();
+}
+
+// ------------------------------------------------------------
+// 1. 階層を動かす
+// ------------------------------------------------------------
+const hi = { scene: new C.Scene(), loop: new C.GameLoop(1 / 60), last: 0, play: true, marked: 0, recomputed: 0, drag: null, view: null };
+hi.tree = buildScene(hi.scene);
+const St = C.TransformStats;
+const hiCanvas = $('hi-canvas');
+// 画面右上の部分(根のまわり 260 x 260)を拡大して見せる
+function hiView() { const { w, h } = { w: hiCanvas.clientWidth, h: hiCanvas.clientHeight }; const sc = Math.min(w / 360, h / 300); return { sc, ox: w / 2 - 770 * sc, oy: h / 2 - 170 * sc }; }
+function hiDraw() {
+  const { ctx, w, h } = fit(hiCanvas);
+  ctx.fillStyle = '#14171f'; ctx.fillRect(0, 0, w, h);
+  const v = hi.view = hiView();
+  ctx.save(); ctx.translate(v.ox, v.oy); ctx.scale(v.sc, v.sc);
+  const t = hi.tree;
+  const r0 = St.recomputed;
+  const pos = (g) => g.transform.worldPosition;
+  // つながりと、各 OrbitMover が書いている円
+  ctx.lineWidth = 1.2 / v.sc;
+  for (let i = 0; i < 3; i++) {
+    const c = t.children[i], m = t.moons[i];
+    if (!c.activeInHierarchy) continue;
+    const pr = pos(t.root), pc = pos(c), pm = pos(m);
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.arc(pr[0], pr[1], 86, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(pc[0], pc[1], 32, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.moveTo(pr[0], pr[1]); ctx.lineTo(pc[0], pc[1]); ctx.lineTo(pm[0], pm[1]); ctx.stroke();
+  }
+  const objs = [t.root, ...t.children, ...t.moons];
+  for (const g of objs) {
+    if (!g.activeInHierarchy) continue;
+    const m = g.transform.localToWorld, r = g.getComponent(SpriteRenderer);
+    drawSprite(ctx, r, m[4], m[5], Math.atan2(m[1], m[0]));
+  }
+  ctx.restore();
+  hi.recomputedFrame = St.recomputed - r0;
+}
+function hiStep(dt) {
+  const m0 = St.marked;
+  hi.scene.fixedUpdate(dt);
+  hi.marked = St.marked - m0;
+}
+seg('hi-active', (val) => { hi.tree.children[0].setActive(val === '1'); hiDraw(); });
+seg('hi-early', (val) => { St.earlyReturn = val === '1'; });
+seg('hi-play', (val) => { hi.play = val === '1'; });
+hiCanvas.addEventListener('pointerdown', (e) => {
+  const v = hi.view, b = hiCanvas.getBoundingClientRect();
+  const x = (e.clientX - b.left - v.ox) / v.sc, y = (e.clientY - b.top - v.oy) / v.sc, p = hi.tree.root.transform.worldPosition;
+  if (Math.hypot(x - p[0], y - p[1]) < 60) { hi.drag = [x - p[0], y - p[1]]; hiCanvas.setPointerCapture(e.pointerId); }
+});
+hiCanvas.addEventListener('pointermove', (e) => {
+  if (!hi.drag) return;
+  const v = hi.view, b = hiCanvas.getBoundingClientRect();
+  const x = (e.clientX - b.left - v.ox) / v.sc, y = (e.clientY - b.top - v.oy) / v.sc;
+  const m0 = St.marked;
+  hi.tree.root.transform.localPosition = [x - hi.drag[0], y - hi.drag[1]];
+  hi.dragMarked = St.marked - m0;
+  if (!hi.play) hiDraw();
+});
+hiCanvas.addEventListener('pointerup', () => { hi.drag = null; });
+$('hi-check').addEventListener('click', () => {
+  // 本文の「階層の検算」の 8 項目を、このページの移植で確かめる
+  const scene = new C.Scene(), t = buildScene(scene);
+  for (let i = 0; i < 30; i++) scene.fixedUpdate(1 / 60);
+  const lines = ['[階層の検算]']; let fails = 0;
+  const check = (name, ok, d = '') => { if (!ok) fails++; lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${d ? '  ' + d : ''}`); };
+  const root = t.root.transform, child = t.children[0], moon = t.moons[0];
+  const pr = root.worldPosition, pc = child.transform.worldPosition, lc = child.transform.localPosition;
+  check('子のワールド座標 = 親 + 子のローカル', Math.abs(pc[0] - (pr[0] + lc[0])) < 1e-3 && Math.abs(pc[1] - (pr[1] + lc[1])) < 1e-3);
+  check('子は親から半径 86', Math.abs(Math.hypot(pc[0] - pr[0], pc[1] - pr[1]) - 86) < 1e-3, `実際 ${F(Math.hypot(pc[0] - pr[0], pc[1] - pr[1]), 2)}`);
+  const pm = moon.transform.worldPosition;
+  check('孫は子から半径 32', Math.abs(Math.hypot(pm[0] - pc[0], pm[1] - pc[1]) - 32) < 1e-3, `実際 ${F(Math.hypot(pm[0] - pc[0], pm[1] - pc[1]), 2)}`);
+  root.localPosition = [pr[0] + 100, pr[1]];
+  const pm2 = moon.transform.worldPosition;
+  check('親を +100 動かすと孫も +100', Math.abs(pm2[0] - pm[0] - 100) < 1e-3, `実際 ${F(pm2[0] - pm[0], 3)}`);
+  t.root.setActive(false);
+  check('親を切ると孫も ActiveInHierarchy = false', !moon.activeInHierarchy);
+  check('孫自身の ActiveSelf は true のまま', moon.activeSelf);
+  t.root.setActive(true);
+  check('戻すと有効に戻る', moon.activeInHierarchy);
+  let threw = false; try { root.setParent(moon.transform); } catch (e) { threw = true; }
+  check('自分の子孫を親にすると例外', threw);
+  lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`);
+  $('hi-console').style.display = ''; $('hi-console').textContent = lines.join('\n');
+});
+animate($('hi-lab'), () => {
+  const now = performance.now(); let dt = hi.last ? (now - hi.last) / 1000 : 0; hi.last = now; if (dt > 0.25) dt = 0;
+  if (hi.play) hi.loop.advance(dt, hiStep);
+  hiDraw();
+  $('hi-stats').innerHTML = stat('MarkDirty が歩いた数(1 ステップ)', hi.marked) + stat('ドラッグ 1 回で歩いた数', hi.dragMarked ?? '—')
+    + stat('ワールド行列を計算し直した数(1 描画)', hi.recomputedFrame) + stat('GameObject / コンポーネント', `${hi.scene.gameObjects.length} / ${hi.scene.componentCount}`);
+});
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) hi.last = 0; }).observe($('hi-lab'));
+hiDraw();
+
+// ------------------------------------------------------------
+// 2. ライフサイクルを順に呼ぶ(Program.RunLifecycleDemo)
+// ------------------------------------------------------------
+const lc = { lines: [], gen: null };
+const lcLog = (s) => { lc.lines.push(s); $('lc-console').textContent = lc.lines.join('\n'); $('lc-console').scrollTop = 1e9; };
+LifecycleLogger.out = lcLog;
+function* lifecycle() {
+  const scene = new C.Scene(); buildScene(scene);
+  lc.scene = scene;
+  lcLog(''); lcLog('[ライフサイクルの実演]');
+  lcLog('  CreateGameObject + AddComponent');
+  const demo = scene.createGameObject('LifecycleDemo');
+  const logger = demo.addComponent(LifecycleLogger);
+  logger.label = 'demo';
+  lcLog('  ↑ ラベルはまだ obj。Awake は AddComponent の中で走るので、');
+  lcLog('     プロパティを入れる前に呼ばれている');
+  yield;
+  lcLog('  SetActive(false) → SetActive(true)');
+  demo.setActive(false); demo.setActive(true);
+  yield;
+  lcLog('  ここから4ステップ動かす(Start は最初のステップの直前)');
+  for (let i = 0; i < 4; i++) scene.fixedUpdate(1 / 60);
+  yield;
+  lcLog('  Destroy を予約 → まだ生きている');
+  scene.destroy(demo);
+  lcLog(`    IsDestroyed = ${demo.isDestroyed ? 'True' : 'False'} / シーンにはまだ ${scene.gameObjects.length} 個`);
+  yield;
+  lcLog('  次のステップの終わりで実際に消える');
+  scene.fixedUpdate(1 / 60);
+  lcLog(`    シーンは ${scene.gameObjects.length} 個になった`);
+}
+function lcStats() { const s = lc.scene; $('lc-stats').innerHTML = stat('シーンの GameObject', s ? s.gameObjects.length : '—') + stat('コンポーネント', s ? s.componentCount : '—') + stat('Start 待ち', s ? s.pendingStart.length : '—') + stat('破棄の予約', s ? s.pendingDestroy.length : '—'); }
+$('lc-h').addEventListener('click', () => { lc.gen = null; for (const _ of lifecycle()) { /* 全部流す */ } lcStats(); });
+$('lc-step').addEventListener('click', () => {
+  if (!lc.gen) lc.gen = lifecycle();
+  if (lc.gen.next().done) { lc.gen = null; lcLog('  (おわり。もう一度押すと最初から)'); }
+  lcStats();
+});
+lcStats();
+
+// ------------------------------------------------------------
+// 3. 同じ動きを2通りで回す
+// ------------------------------------------------------------
+const MAX = 19981, W = 960, H = 640;
+// 構造体の配列(ここでは型付き配列の束)。種は reference と同じ 20260816(並びは近似)
+function makeSoa() {
+  const r = new DotNet.DotNetRandom(20260816), n = MAX;
+  const a = { px: new Float32Array(n), py: new Float32Array(n), vx: new Float32Array(n), vy: new Float32Array(n), size: new Float32Array(n), rot: new Float32Array(n), spin: new Float32Array(n), color: [] , kind: new Uint8Array(n) };
+  for (let i = 0; i < n; i++) {
+    const speed = 60 + r.nextDouble() * 120, dir = r.nextDouble() * TAU;
+    a.px[i] = r.nextDouble() * W; a.py[i] = r.nextDouble() * H;
+    a.vx[i] = Math.cos(dir) * speed; a.vy[i] = Math.sin(dir) * speed;
+    a.size[i] = 14 + r.nextDouble() * 24; a.rot[i] = r.nextDouble() * TAU; a.spin[i] = (r.nextDouble() - 0.5) * 3;
+    a.color.push(`rgba(${Math.round((0.45 + r.nextDouble() * 0.55) * 255)},${Math.round((0.45 + r.nextDouble() * 0.55) * 255)},${Math.round((0.45 + r.nextDouble() * 0.55) * 255)},0.85)`);
+    r.nextDouble(); a.kind[i] = i % 4;
+  }
+  return a;
+}
+// Program.UpdateSprites(配列・個数・dt・画面サイズだけで結果が決まる形)
+function updateSoa(a, count, dt) {
+  const { px, py, vx, vy, size, rot, spin } = a;
+  for (let i = 0; i < count; i++) {
+    px[i] += vx[i] * dt; py[i] += vy[i] * dt; rot[i] += spin[i] * dt;
+    const h = size[i] * 0.5;
+    if (px[i] < h) { px[i] = h; vx[i] = -vx[i]; } else if (px[i] > W - h) { px[i] = W - h; vx[i] = -vx[i]; }
+    if (py[i] < h) { py[i] = h; vy[i] = -vy[i]; } else if (py[i] > H - h) { py[i] = H - h; vy[i] = -vy[i]; }
+  }
+}
+// Program.EnsureSceneSprites: 今の状態をそのまま GameObject に写す
+function toScene(a, count) {
+  const scene = new C.Scene(); buildScene(scene);
+  const t0 = performance.now(), sprites = [];
+  for (let i = 0; i < count; i++) {
+    const g = scene.createGameObject('Sprite');
+    g.transform.localPosition = [a.px[i], a.py[i]]; g.transform.setLocalRotationZ(a.rot[i]); g.transform.snapshot();
+    const rd = g.addComponent(SpriteRenderer, { kind: a.kind[i], size: a.size[i] });
+    rd.css = a.color[i];
+    g.addComponent(BouncingMover, { velocity: [a.vx[i], a.vy[i]], spinSpeed: a.spin[i] });
+    sprites.push(g);
+  }
+  scene.fixedUpdate(0);   // Start をここで済ませる(reference も作り直しの前後で FixedUpdate(0) を呼ぶ)
+  return { scene, sprites, ms: performance.now() - t0 };
+}
+function fromScene(a, sprites) {
+  sprites.forEach((g, i) => { const p = g.transform.localPosition, m = g.getComponent(BouncingMover); a.px[i] = p[0]; a.py[i] = p[1]; a.vx[i] = m.velocity[0]; a.vy[i] = m.velocity[1]; a.rot[i] = g.transform.localRotationZ; });
+}
+const sw = { a: makeSoa(), count: 1000, mode: 'soa', go: null, loop: new C.GameLoop(1 / 60), last: 0, times: [], fpsF: 0, fpsT: 0, fps: 0, log: [] };
+const swLog = (s) => { sw.log.push(s); $('sw-console').textContent = sw.log.join('\n'); $('sw-console').scrollTop = 1e9; };
+function setBody(on) { if (sw.go) for (const g of sw.go.sprites) g.components[1].enabled = on; }
+function swMode(mode) {
+  if (mode === sw.mode) return;
+  if (mode === 'go') { sw.go = toScene(sw.a, sw.count); setBody(segValue('sw-body') === '1'); swLog(`[シーン] スプライト ${sw.count} 個を GameObject 化: ${F(sw.go.ms, 1)}ms`); }
+  else { fromScene(sw.a, sw.go.sprites); sw.go = null; }
+  sw.mode = mode; sw.times = [];
+}
+seg('sw-mode', swMode);
+seg('sw-count', (v) => { const m = sw.mode; if (m === 'go') swMode('soa'); sw.count = Number(v); if (m === 'go') swMode('go'); sw.times = []; });
+seg('sw-body', (v) => { setBody(v === '1'); sw.times = []; });
+function swStep(dt) {
+  const t0 = performance.now();
+  if (sw.mode === 'soa') { if (segValue('sw-body') === '1') updateSoa(sw.a, sw.count, dt); }
+  else sw.go.scene.fixedUpdate(dt);
+  sw.times.push(performance.now() - t0); if (sw.times.length > 60) sw.times.shift();
+}
+const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+function swDraw() {
+  const cv = $('sw-canvas'), { ctx, w } = fit(cv), h = cv.clientHeight;
+  const sc = Math.min(w / W, h / H), ox = (w - W * sc) / 2, oy = (h - H * sc) / 2;
+  ctx.fillStyle = '#14171f'; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(sc, sc);
+  const a = sw.a, alpha = sw.loop.alpha;
+  if (sw.mode === 'soa') {
+    for (let i = 0; i < sw.count; i++) { const s = a.size[i]; ctx.fillStyle = a.color[i]; ctx.fillRect(a.px[i] - s / 2, a.py[i] - s / 2, s, s); }
+  } else {
+    for (const g of sw.go.sprites) { const r = g.components[0], p = g.transform.localPosition, s = r.size; ctx.fillStyle = r.css; ctx.fillRect(p[0] - s / 2, p[1] - s / 2, s, s); }
+  }
+  ctx.restore();
+}
+animate($('sw-lab'), () => {
+  const now = performance.now(); let dt = sw.last ? (now - sw.last) / 1000 : 0; sw.last = now; if (dt > 0.25) dt = 0;
+  sw.loop.advance(dt, swStep);
+  sw.fpsF++; sw.fpsT += dt;
+  if (sw.fpsT >= 0.5) {
+    sw.fps = sw.fpsF / sw.fpsT; sw.fpsF = 0; sw.fpsT = 0;
+    const t = F(avg(sw.times), 2);
+    $('sw-title').textContent = `Day22 - GameObject + Component  ${F(sw.fps, 1)} fps | ` + (sw.mode === 'soa' ? `構造体配列 更新:${t}ms` : `GameObject 更新:${t}ms GO:${sw.go.scene.gameObjects.length} C:${sw.go.scene.componentCount}`) + ` | スプライト:${sw.count}`;
+  }
+  swDraw();
+  $('sw-stats').innerHTML = stat('更新(直近 60 ステップの平均)', F(avg(sw.times), 3) + ' ms') + stat('方式', sw.mode === 'soa' ? '構造体の配列' : 'GameObject') + stat('個数', sw.count);
+});
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) sw.last = 0; }).observe($('sw-lab'));
+$('sw-title').textContent = 'Day22 - GameObject + Component(0.5 秒ごとに更新)';
+$('sw-bench').addEventListener('click', async () => {
+  const btn = $('sw-bench'); btn.disabled = true;
+  const rows = [], tick = () => new Promise((r) => setTimeout(r, 0));
+  const measure = (fn) => { for (let i = 0; i < 20; i++) fn(); const t0 = performance.now(); for (let i = 0; i < 200; i++) fn(); return (performance.now() - t0) / 200; };
+  for (const n of [1000, 5000, 19981]) {
+    $('sw-table').textContent = `${n} 個を測っている…`; await tick();
+    const a = makeSoa();
+    const soa = measure(() => updateSoa(a, n, 1 / 60));
+    const g = toScene(makeSoa(), n);
+    const full = measure(() => g.scene.fixedUpdate(1 / 60));
+    for (const s of g.sprites) s.components[1].enabled = false;
+    const frame = measure(() => g.scene.fixedUpdate(1 / 60));
+    rows.push(`<tr><td>${n.toLocaleString()}</td><td>${F(soa, 3)}ms</td><td>${F(full, 3)}ms</td><td>${F(full / soa, 1)}x</td><td>${F(frame, 3)}ms</td><td>${F(full - frame, 3)}ms</td></tr>`);
+    await tick();
+  }
+  $('sw-table').innerHTML = `<table><thead><tr><th>個数</th><th>構造体の配列</th><th>GameObject</th><th>比</th><th>うち枠組み</th><th>うち部品の中身</th></tr></thead><tbody>${rows.join('')}</tbody></table><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">このページの JS で 200 ステップを平均した値(1 ステップあたり)</p>`;
+  btn.disabled = false;
+});
+})();
+</script>
+</body>
+</html>
