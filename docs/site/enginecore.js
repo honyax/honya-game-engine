@@ -4,6 +4,7 @@
 //  - Day 20: InputMap.cs・InputSnapshot.cs・InputSystem.cs・InputRecorder.cs
 //  - Day 21: Handle.cs・ResourcePool.cs・ResourceManager.cs(テクスチャは名前だけの値。復号とアップロードの時間はページ側で決める)
 //  - Day 22: Transform.cs・Component.cs・GameObject.cs・Scene.cs(Transform は 2D に絞り、回転は Z の角度で持つ)
+//  - Day 23: Entity.cs・ComponentStore.cs・World.cs・EcsComponents.cs・EcsSystems.cs(ストアはフィールドごとの Float32Array)
 //  Day 19〜24 の計画書の実験台が共有する。dotnet.js を先に読んでおく
 //
 //  - C# の float の計算は1回ごとに Math.fround で丸める(GameLoop は double なのでそのまま)
@@ -396,6 +397,115 @@ class Scene {
   }
 }
 
+// ---------------- ECS(Day 23 の Entity.cs・ComponentStore.cs・World.cs・EcsComponents.cs・EcsSystems.cs) ----------------
+// エンティティは Handle と同じ 32 ビット(世代 8 + 添字 24)。
+// ComponentStore は sparse set: 実体(フィールドごとの Float32Array)と denseToEntity は隙間なく詰め、entityToDense で引く
+class ComponentStore {
+  constructor(name, fields) {
+    this.name = name; this.fields = fields; this.count = 0;
+    this.cap = 64; this.cols = {}; for (const k of fields) this.cols[k] = new Float32Array(this.cap);
+    this.denseToEntity = new Int32Array(this.cap); this.entityToDense = new Int32Array(0);
+  }
+  ensureEntity(e) {
+    if (e < this.entityToDense.length) return;
+    let size = Math.max(64, this.entityToDense.length); while (size <= e) size *= 2;
+    const n = new Int32Array(size).fill(-1); n.set(this.entityToDense); this.entityToDense = n;
+  }
+  add(e, value) {
+    this.ensureEntity(e);
+    let d = this.entityToDense[e];
+    if (d < 0) {
+      if (this.count === this.cap) {
+        this.cap *= 2;
+        for (const k of this.fields) { const a = new Float32Array(this.cap); a.set(this.cols[k]); this.cols[k] = a; }
+        const de = new Int32Array(this.cap); de.set(this.denseToEntity); this.denseToEntity = de;
+      }
+      d = this.count++; this.denseToEntity[d] = e; this.entityToDense[e] = d;
+    }
+    for (const k of this.fields) this.cols[k][d] = value[k] ?? 0;
+  }
+  has(e) { return e < this.entityToDense.length && this.entityToDense[e] >= 0; }
+  denseIndexOf(e) { return e < this.entityToDense.length ? this.entityToDense[e] : -1; }
+  get(e) { const d = this.entityToDense[e], o = {}; for (const k of this.fields) o[k] = this.cols[k][d]; return o; }
+  set(e, k, v) { this.cols[k][this.entityToDense[e]] = v; }
+  // 末尾と入れ替えて縮める(O(1)。並び順は変わる)
+  remove(e) {
+    if (!this.has(e)) return false;
+    const d = this.entityToDense[e], last = this.count - 1;
+    if (d !== last) {
+      for (const k of this.fields) this.cols[k][d] = this.cols[k][last];
+      const moved = this.denseToEntity[last]; this.denseToEntity[d] = moved; this.entityToDense[moved] = d;
+    }
+    this.entityToDense[e] = -1; this.count--;
+    return true;
+  }
+  clear() { this.entityToDense.fill(-1); this.count = 0; }
+}
+
+class World {
+  constructor() { this.versions = []; this.free = []; this.nextIndex = 0; this.stores = new Map(); this.aliveCount = 0; }
+  createEntity() {
+    const index = this.free.length ? this.free.pop() : this.nextIndex++;
+    if (!this.versions[index]) this.versions[index] = 1;
+    this.aliveCount++;
+    return Handle.make(index, this.versions[index]);
+  }
+  isAlive(e) { const i = Handle.index(e); return Handle.isValid(e) && i < this.nextIndex && this.versions[i] === Handle.generation(e); }
+  destroyEntity(e) {
+    if (!this.isAlive(e)) return false;
+    const i = Handle.index(e);
+    for (const s of this.stores.values()) s.remove(i);   // 全ストアが同じ入れ替えをする
+    this.versions[i] = this.versions[i] + 1 > MAX_GENERATION ? 1 : this.versions[i] + 1;
+    this.free.push(i); this.aliveCount--;
+    return true;
+  }
+  // 種類ごとのストア。schema は { 名前: [フィールド...] }
+  store(name) {
+    let s = this.stores.get(name);
+    if (!s) { s = new ComponentStore(name, World.schema[name]); this.stores.set(name, s); }
+    return s;
+  }
+  add(e, name, value = {}) { if (!this.isAlive(e)) throw new Error(`${Handle.toString(e)} はもう生きていません`); this.store(name).add(Handle.index(e), value); }
+  has(e, name) { return this.isAlive(e) && this.store(name).has(Handle.index(e)); }
+  get(e, name) { return this.store(name).get(Handle.index(e)); }
+  describeStores() { return [...this.stores.values()].map((s) => `${s.name}:${s.count}`).join(' '); }
+}
+// EcsComponents.cs: データだけの構造体(Transform2D 12 / Previous2D 12 / Velocity2D 16 / Sprite2D 28 バイト)
+World.schema = {
+  Transform2D: ['px', 'py', 'rot'], Previous2D: ['px', 'py', 'rot'],
+  Velocity2D: ['vx', 'vy', 'spin', 'half'], Sprite2D: ['kind', 'size', 'r', 'g', 'b', 'a', 'layer'],
+};
+
+// EcsSystems.cs: 状態を持たない手続き。aligned なら添字をそのまま使い、そうでなければ番号で引く(結合)
+const EcsSystems = {
+  areAligned(a, b) {
+    if (a.count !== b.count) return false;
+    for (let i = 0; i < a.count; i++) if (a.denseToEntity[i] !== b.denseToEntity[i]) return false;
+    return true;
+  },
+  snapshot(world, aligned) {
+    const t = world.store('Transform2D'), p = world.store('Previous2D'), tc = t.cols, pc = p.cols;
+    for (let i = 0; i < t.count; i++) {
+      const d = aligned ? i : p.denseIndexOf(t.denseToEntity[i]);
+      if (d < 0) continue;
+      pc.px[d] = tc.px[i]; pc.py[d] = tc.py[i]; pc.rot[d] = tc.rot[i];
+    }
+  },
+  move(world, dt, bounds, aligned) {
+    const t = world.store('Transform2D'), v = world.store('Velocity2D'), tc = t.cols, vc = v.cols, f = Math.fround;
+    dt = f(dt);
+    for (let i = 0; i < t.count; i++) {
+      const d = aligned ? i : v.denseIndexOf(t.denseToEntity[i]);
+      if (d < 0) continue;
+      let x = f(tc.px[i] + f(vc.vx[d] * dt)), y = f(tc.py[i] + f(vc.vy[d] * dt));
+      const h = vc.half[d];
+      if (x < h) { x = h; vc.vx[d] = -vc.vx[d]; } else if (x > f(bounds[0] - h)) { x = f(bounds[0] - h); vc.vx[d] = -vc.vx[d]; }
+      if (y < h) { y = h; vc.vy[d] = -vc.vy[d]; } else if (y > f(bounds[1] - h)) { y = f(bounds[1] - h); vc.vy[d] = -vc.vy[d]; }
+      tc.px[i] = x; tc.py[i] = y; tc.rot[i] = f(tc.rot[i] + f(vc.spin[d] * dt));
+    }
+  },
+};
+
 // FNV-1a(64 ビット)。float のビット表現を順に混ぜる(Day 19 の Checksum、Day 20 の PlayerChecksum)
 const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
 const MASK = (1n << 64n) - 1n, PRIME = 1099511628211n;
@@ -408,7 +518,7 @@ const hex16 = (h) => h.toString(16).toUpperCase().padStart(16, '0');
 
 const Core = {
   GameLoop, GameAction, actionNames, InputMap, InputSnapshot, InputSystem, InputRecorder, Handle, ResourcePool, ResourceManager,
-  Transform, TransformStats: Stats, Component, GameObject, Scene, fnv1aFloats, hex16,
+  Transform, TransformStats: Stats, Component, GameObject, Scene, ComponentStore, World, EcsSystems, fnv1aFloats, hex16,
 };
 if (typeof window !== 'undefined') window.Core = Core;
 if (typeof module !== 'undefined') module.exports = Core;
