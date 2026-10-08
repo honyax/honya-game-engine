@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 69 モーフと表情</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model が主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. モーフターゲットは「差分」の足し算</a></li><li class="l3"><a href="#s7">2. スキニングの前に足す</a></li><li class="l3"><a href="#s8">3. CPU で合成して、動いたときだけ送る</a></li><li class="l3"><a href="#s9">4. VRM の表情は「名前の約束」と3種類の割り当て</a></li><li class="l3"><a href="#s10">5. override と isBinary — 表情どうしの約束</a></li><li class="l3"><a href="#s11">6. 色と UV の表情 — 元から目標へ寄せる</a></li><li class="l3"><a href="#s12">7. 自動まばたき — ランダムな間隔と、速く閉じて遅く開く形</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">モーフは VRM を知らず、表情は GL を知らない</a></li><li class="l3"><a href="#s19">1フレームの中の表情 — 順番がそのまま設計</a></li><li class="l3"><a href="#s20">今日残した歪み</a></li><li class="l3"><a href="#s21">試して分かったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. F2: 表情を回す</a></li><li class="l3"><a href="#s24">2. F4: 自動まばたき</a></li><li class="l3"><a href="#s25">3. F6: override を試す</a></li><li class="l3"><a href="#s26">4. F3 / F5 / F7: 口・強さ・isBinary</a></li><li class="l3"><a href="#s27">5. F8 / F9: 色と UV の表情</a></li><li class="l3"><a href="#s28">6. Day 68 までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">7. F12: 自己チェック(12 項目すべて合格)</a></li><li class="l3"><a href="#s30">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): ときどき2回続けてまばたきする</a></li><li class="l3"><a href="#s33">課題2(中): 頂点バッファを共有して、送るのを1回にする</a></li><li class="l3"><a href="#s34">課題3(難): GPU でモーフを足す</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 69 / 計画書</p>
+  <h1>モーフターゲットと VRM の表情</h1>
+  <p class="lede">顔の頂点を差分の足し算で動かし、名前の約束でまばたきさせる</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model が主役</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. モーフターゲットは「差分」の足し算</a></li><li class="l3"><a href="#s7">2. スキニングの前に足す</a></li><li class="l3"><a href="#s8">3. CPU で合成して、動いたときだけ送る</a></li><li class="l3"><a href="#s9">4. VRM の表情は「名前の約束」と3種類の割り当て</a></li><li class="l3"><a href="#s10">5. override と isBinary — 表情どうしの約束</a></li><li class="l3"><a href="#s11">6. 色と UV の表情 — 元から目標へ寄せる</a></li><li class="l3"><a href="#s12">7. 自動まばたき — ランダムな間隔と、速く閉じて遅く開く形</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">モーフは VRM を知らず、表情は GL を知らない</a></li><li class="l3"><a href="#s19">1フレームの中の表情 — 順番がそのまま設計</a></li><li class="l3"><a href="#s20">今日残した歪み</a></li><li class="l3"><a href="#s21">試して分かったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. F2: 表情を回す</a></li><li class="l3"><a href="#s24">2. F4: 自動まばたき</a></li><li class="l3"><a href="#s25">3. F6: override を試す</a></li><li class="l3"><a href="#s26">4. F3 / F5 / F7: 口・強さ・isBinary</a></li><li class="l3"><a href="#s27">5. F8 / F9: 色と UV の表情</a></li><li class="l3"><a href="#s28">6. Day 68 までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">7. F12: 自己チェック(12 項目すべて合格)</a></li><li class="l3"><a href="#s30">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): ときどき2回続けてまばたきする</a></li><li class="l3"><a href="#s33">課題2(中): 頂点バッファを共有して、送るのを1回にする</a></li><li class="l3"><a href="#s34">課題3(難): GPU でモーフを足す</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 68 でアバターは立ったが、顔は T ポーズのまま固まっていた。今日はその顔を動かす。</p>
+<p>道具は2つ。1つ目は <strong>モーフターゲット</strong>(ブレンドシェイプ・シェイプキーとも呼ぶ)。Day 32 から glTF ローダーが読み飛ばしていた、「頂点をどれだけ動かすか」の差分の束だ。骨では作りにくい「まぶたが下りる」「唇がすぼまる」を、頂点の足し算で作る。今日は <strong>CPU で足し合わせて頂点バッファを書き換える</strong>。</p>
+<p>2つ目は <strong>VRM の表情</strong>(<code>expressions</code>)。モーフの名前はツールごとに違う(VRoid は <code>Fcl_EYE_Close</code>)が、VRM は「<code>blink</code> は両目を閉じる」という名前の約束を持つ。だから自動まばたきは、どの VRM でも <code>blink</code> の重みを動かすだけで書ける。表情どうしの約束(<code>override</code>・<code>isBinary</code>)と、マテリアルの色・UV を動かす表情も、仕様どおりに読む。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「VRMの表情」ページで <code>F2</code> を押すと、VRMビューアが出てアバターの顔に寄り、表情が happy → angry → sad → relaxed → surprised と変わる。何もしなくても、数秒おきにまばたきする。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「VRMの表情」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>表情: なし → happy → angry → sad → relaxed → surprised。<strong>今日の到達点</strong>。0.25 秒かけて寄せる</td></tr>
+<tr><td><code>F3</code></td><td>口の形: なし → aa → ih → ou → ee → oh(リップシンクの5つの母音)</td></tr>
+<tr><td><code>F4</code></td><td>自動まばたき ON / OFF(起動時は ON)。1.5 から 5.5 秒おきに、0.21 秒で閉じて開く</td></tr>
+<tr><td><code>F5</code></td><td>表情の強さ: 1 → 0.5 → 0.25。<strong>途中の重みも同じ足し算で出る</strong></td></tr>
+<tr><td><code>F6</code></td><td>override を試す: ファイルの値 → 感情が block → 感情が blend。<strong>happy にまばたきが重なると目が消える</strong>のを止める</td></tr>
+<tr><td><code>F7</code></td><td>isBinary を試す: ファイルの値 ↔ 全部 true(0 か 1 にしかならない)</td></tr>
+<tr><td><code>F8</code></td><td>自作の表情「照れ」ON / OFF。<strong>マテリアルの色</strong>の表情</td></tr>
+<tr><td><code>F9</code></td><td>自作の表情「目そらし」ON / OFF。<strong>UV のずらし</strong>の表情</td></tr>
+<tr><td><code>F10</code></td><td>顔に寄る ON / OFF(「VRMビューア」の <code>F6</code> と同じ)</td></tr>
+<tr><td><code>F11</code></td><td>内訳(モーフの数と疎な差分・合成の時間・表情の一覧と割り当て・抑えの倍率)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(12 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「VRMの表情」(31 枚目)が直接開く。どの項目も、VRMビューアが出ていなければ出してから効く。<strong>VRMビューアを出さない限り、今日の差分は読み込みのとき以外1行も通らない</strong>(モーフを持つファイルは assets の中で AvatarSample_A だけ。毎フレームの更新は <code>_vrmDemo</code> で守ってある)。</p>
+
+<figure class="lab" id="morph-lab">
+  <div class="lab-head">
+    <h3>実験台: モーフの足し算</h3>
+    <span class="tag">要点1。式は reference/Day69 の MorphTargets.Blend と同じ(顔の形はこのページで描いたもの)</span>
+  </div>
+  <div class="split">
+    <div><canvas id="morph-canvas" style="height:300px" aria-label="モーフで動く顔"></canvas><div class="cap">頂点は 38 個(目 14 x 2・口 10)。点が頂点、矢印は選んだターゲットの差分</div></div>
+    <div><canvas id="morph-bars" style="height:300px" aria-label="重みと動く頂点の数"></canvas><div class="cap">ターゲットごとの重みと、動かす頂点の数(疎に持つのはこの数だけ)</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">Fcl_EYE_Close(blink)</span><div class="range"><input type="range" id="morph-blink" min="0" max="1.5" step="0.01" value="0"><output id="morph-blink-out"></output></div></div>
+    <div class="ctl"><span class="label">Fcl_ALL_Joy(happy)</span><div class="range"><input type="range" id="morph-joy" min="0" max="1.5" step="0.01" value="0"><output id="morph-joy-out"></output></div></div>
+    <div class="ctl"><span class="label">Fcl_MTH_A(aa)</span><div class="range"><input type="range" id="morph-aa" min="0" max="1.5" step="0.01" value="0"><output id="morph-aa-out"></output></div></div>
+    <div class="ctl"><span class="label">矢印で見せるターゲット</span>
+      <div class="seg" id="morph-show">
+        <button data-v="none" aria-pressed="false">なし</button><button data-v="0" aria-pressed="true">blink</button><button data-v="1" aria-pressed="false">happy</button><button data-v="2" aria-pressed="false">aa</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">よく見る組み合わせ</span>
+      <div class="seg" id="morph-preset">
+        <button data-v="zero" aria-pressed="true">全部 0</button><button data-v="half" aria-pressed="false">blink 0.5</button><button data-v="joyaa" aria-pressed="false">happy + aa</button><button data-v="crash" aria-pressed="false">happy + blink</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="morph-stats"></div><p id="morph-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「モーフは差分の足し算」</strong>。形を何通りも持つのではなく、元の形からの差分を何本も持ち、重みを掛けて足す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// MorphTargets.Blend(Day 69)。元の頂点を写してから、重みが 0 でないターゲットの差分だけを足す
+result[i].Position += target.Positions[k] * weight;
+result[i].Normal   += target.Normals[k]   * weight;   // 法線も同じ重みで(長さはシェーダが直す)</code></pre></div>
+<p>足し算なので、半分閉じた目(0.5)も、笑いながら「あ」の口(2本を同時に 1)も同じ式で出る。<strong>足し算だから壊れ方も足し算になる</strong>——happy(目を細めて閉じる)と blink(目を閉じる)を両方 1 にすると、まぶたが2回ぶん下りて目が消える(上の実験台の「happy + blink」)。</p>
+<p><strong>2つ目は「表情は名前の約束」</strong>。モーフの番号や名前はアバターごとに違うが、VRM の <code>blink</code> はどのアバターでも「両目を閉じる」。表情1つが、モーフ・マテリアルの色・UV のずらしを同じ重みでまとめて動かす。</p>
+<p><strong>3つ目は「表情どうしの約束は作者が書く」</strong>。上の目が消える問題を防ぐのが <code>overrideBlink</code>(「この表情が出ている間はまばたきを止めよ」)だ。ところが <strong>AvatarSample_A は全部 <code>none</code></strong> で書き出されている。アプリ側で勝手に止めず、ファイルの値どおりに評価する(<code>F6</code> は試しに書き換えて違いを見るだけ)。</p>
+
+<h3 id="s3">今日は Model が主役</h3>
+<p>新規は <code>Model/</code> に3本(<code>MorphTargets</code>・<code>VrmExpressions</code>・<code>AutoBlink</code>)。変更は <code>GltfLoader</code>(モーフを読む)、<code>Model</code>(モーフとマテリアルの番号の表)、<code>VrmAvatar</code>(表情を読んで流す)、<code>Mesh</code>(頂点を書き換える口)、<code>MToon</code> と <code>mtoon.vert</code>(UV のずらし)、そして <code>Program.cs</code>。</p>
+<p><strong>描く側(<code>RenderVrm</code>・影パス・速度バッファ)は1行も変わっていない</strong>。モーフは <code>Mesh</code> の中身を書き換えるだけ、色の表情は <code>Material</code> と <code>MToon</code> の値を書き換えるだけなので、Day 68 の描き方がそのまま新しい顔を描く。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#morph-targets">glTF 2.0 仕様の Morph Targets</a> — 要点1・2の一次資料。差分を足す式、<code>mesh.weights</code> と <code>node.weights</code>、「モーフはスキニングの前」の決まり</li>
+<li><a href="https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm-1.0/expressions.ja.md">VRMC_vrm-1.0 の expressions.ja.md</a> — 要点4〜6の一次資料。プリセットの 18 個、<code>morphTargetBinds</code> / <code>materialColorBinds</code> / <code>textureTransformBinds</code>、<code>isBinary</code> と <code>override*</code></li>
+<li><a href="https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm-core/src/expressions">three-vrm の expressions</a> — 評価の順番の手本。<code>VRMExpressionManager.ts</code> の <code>update</code> と <code>_calculateWeightMultipliers</code>、<code>VRMExpression.ts</code> の <code>overrideBlinkAmount</code> と <code>applyWeight</code>。仕様の文章で曖昧なところ(抑える量の合計の仕方、抑えられた isBinary の扱い、色は差を足すこと)はここに合わせた</li>
+<li>Day 41 の計画書(スキニング)— 関節行列は「バインドポーズの頂点」に掛かる。要点2でモーフをその前に足す理由</li>
+<li>Day 68 の計画書 設計書「今日残した歪み」の4つ目 — 顔の 7 枚のプリミティブが同じ頂点の並びを共有していること。今日はこれが「合成は1回、送るのは7回」になって出てくる</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. モーフターゲットは「差分」の足し算</h3>
+<p>glTF のモーフターゲットは、プリミティブの <code>targets</code> に並んだ <strong>位置と法線の差分</strong>だ。重みはメッシュ(ノード)に1組だけあり、全プリミティブに同じ重みが効く。</p>
+<div class="code"><pre><code>  位置 = 元の位置 + Σ 重み[k] x 位置の差分[k]
+  法線 = 元の法線 + Σ 重み[k] x 法線の差分[k]       (シェーダが正規化する)</code></pre></div>
+<ul>
+<li><strong>線形</strong>。重み 0.5 は差分のちょうど半分。0.25 秒かけて 0 → 1 へ寄せれば、頂点はまっすぐ動く(<code>F5</code> の「表情の強さ」で途中を止めて見られる)</li>
+<li><strong>1 を超えてよい</strong>。仕様は重みを切り詰めない。2つの表情が同じターゲットを動かせば足し合わさる(実験台で 1.5 まで動かせる)</li>
+<li><strong>重みはメッシュに1組</strong>。<code>Fcl_EYE_Close</code> を 1 にすれば、肌・白目・まつ毛・アイラインの 7 枚が一緒に閉じる。だから重みの並びは <code>MorphTargets</code> に1つだけ置いた</li>
+<li><strong>名前は仕様の外</strong>。glTF の本体はターゲットを番号でしか呼ばない。<code>mesh.extras.targetNames</code> に名前を入れるのは慣習(Blender・UniVRM・VRoid が書く)</li>
+</ul>
+<p>AvatarSample_A のモーフは顔(ノード 91「Face」)だけで、57 本。体と髪は持たない。</p>
+<div class="table-wrap"><table><thead><tr><th>ターゲット</th><th>動かす頂点</th><th>いちばん大きい差分</th><th>表情</th></tr></thead><tbody>
+<tr><td><code>Fcl_ALL_Joy</code></td><td>2,300 個</td><td>1.36cm</td><td>happy(目を細めて閉じ、口を開けて笑う)</td></tr>
+<tr><td><code>Fcl_ALL_Surprised</code></td><td>2,585 個</td><td>1.06cm</td><td>surprised</td></tr>
+<tr><td><code>Fcl_EYE_Close</code></td><td>1,066 個</td><td>2.36cm</td><td>blink(まぶたが下りる)</td></tr>
+<tr><td><code>Fcl_EYE_Close_L</code> / <code>_R</code></td><td>556 / 553 個</td><td>2.36cm</td><td>blinkLeft / blinkRight</td></tr>
+<tr><td><code>Fcl_MTH_A</code></td><td>1,426 個</td><td>0.66cm</td><td>aa</td></tr>
+<tr><td>57 本の合計</td><td>44,895 個</td><td>—</td><td>全部持てば 231,420 個(19%)</td></tr>
+</tbody></table></div>
+
+<h3 id="s7">2. スキニングの前に足す</h3>
+<p>glTF は順番を決めている。<strong>モーフで形を変えてから、関節行列で曲げる</strong>。</p>
+<div class="code"><pre><code>  バインドポーズの頂点 ── + Σ 重み x 差分 ──→ 表情の付いた頂点 ── 関節行列 ──→ 画面
+                          (CPU。MorphTargets)                   (GPU。mtoon.vert。Day 41 のまま)</code></pre></div>
+<p>差分は「バインドポーズの顔」に対して作られている。まぶたの差分は「顔が正面を向いているとき、下へ 2.36cm」だ。頭を横に倒した<strong>後</strong>に足すと、差分の向きは倒れずに真下のままなので、まぶたが顔の外へ滑る。<strong>先に</strong>足せば、まぶたは顔と一緒に関節行列で倒れる。</p>
+<p>この順番のおかげで、CPU の合成は<strong>描く側を知らなくてよい</strong>。書き換えるのはバインドポーズの頂点だけで、関節・アウトラインの押し出し・影パス・速度バッファは、Day 68 と同じ頂点バッファを同じように読む。</p>
+
+<h3 id="s8">3. CPU で合成して、動いたときだけ送る</h3>
+<p>合成する場所には2通りある。</p>
+<div class="table-wrap"><table><thead><tr><th>どこで</th><th>やり方</th><th>手が入る所</th></tr></thead><tbody>
+<tr><td><strong>CPU(今日)</strong></td><td>頂点を足し合わせ、<code>glBufferSubData</code> で頂点バッファを上書きする</td><td><code>Mesh</code> に書き換えの口が1つ増えるだけ</td></tr>
+<tr><td>GPU</td><td>差分をテクスチャ(またはバッファ)に詰め、頂点シェーダで重みを掛けて足す</td><td>頂点シェーダ全部(MToon・影・速度)に同じ足し算が要る。重みの uniform の枠も決める(改造課題3)</td></tr>
+</tbody></table></div>
+<p>CPU でも速く済ませる工夫が3つある。</p>
+<ol>
+<li><strong>差分は疎に持つ</strong>。ファイルの差分は頂点の数だけ並んでいて、81% が 0。読むときに 0 でない頂点の番号と差分だけを残す(<code>Target.FromDense</code>)。まばたきは 4,060 頂点のうち 1,066 個しか触らない</li>
+<li><strong>重みが前と同じなら送らない</strong>。まばたきの合間(3.5 秒のうち 3.3 秒)は比べるだけで返る。HUD の「頂点を送った」がほとんど「いいえ」になる</li>
+<li><strong>同じ並びの合成は1回</strong>。顔の 7 枚のプリミティブは POSITION も 57 本の差分も同じアクセサを指している。ローダーはアクセサの番号を並べた鍵で見分け、差分を1回だけ読んで、できた頂点を 7 本の <code>Mesh</code> へ送る</li>
+</ol>
+<div class="table-wrap"><table><thead><tr><th>計った値(Release・RTX 3070)</th><th>時間・量</th></tr></thead><tbody>
+<tr><td>合成だけ(GL を通さない。重みが少しだけ立っているとき)</td><td>0.014 から 0.023ms</td></tr>
+<tr><td>合成 + 7 本へ送る</td><td>0.18 から 0.47ms</td></tr>
+<tr><td>1回に送る量</td><td>4,060 頂点 x 96 バイト x 7 本 = 2.60MB</td></tr>
+</tbody></table></div>
+<p>時間のほとんどは<strong>送る</strong>ほうにかかる。7 本に同じものを送っているのは、ローダーがプリミティブごとに頂点バッファを作っているから(Day 68 の歪み4。改造課題2で直せる)。</p>
+
+<h3 id="s9">4. VRM の表情は「名前の約束」と3種類の割り当て</h3>
+<p><code>VRMC_vrm.expressions</code> は <code>preset</code>(名前が決まっている)と <code>custom</code>(作者が足す)の2つの辞書。プリセットは 18 個ある。</p>
+<div class="table-wrap"><table><thead><tr><th>種類</th><th>名前</th><th>AvatarSample_A のモーフ</th></tr></thead><tbody>
+<tr><td>感情</td><td><code>happy</code> <code>angry</code> <code>sad</code> <code>relaxed</code> <code>surprised</code></td><td><code>Fcl_ALL_Joy</code> / <code>_Angry</code> / <code>_Sorrow</code> / <code>_Fun</code> / <code>_Surprised</code></td></tr>
+<tr><td>口(リップシンク)</td><td><code>aa</code> <code>ih</code> <code>ou</code> <code>ee</code> <code>oh</code></td><td><code>Fcl_MTH_A</code> / <code>_I</code> / <code>_U</code> / <code>_E</code> / <code>_O</code></td></tr>
+<tr><td>まばたき</td><td><code>blink</code> <code>blinkLeft</code> <code>blinkRight</code></td><td><code>Fcl_EYE_Close</code> / <code>_L</code> / <code>_R</code></td></tr>
+<tr><td>視線</td><td><code>lookUp</code> <code>lookDown</code> <code>lookLeft</code> <code>lookRight</code></td><td><strong>無い</strong>(<code>lookAt.type</code> が <code>bone</code>。目の骨を回す。Day 71)</td></tr>
+<tr><td>その他</td><td><code>neutral</code></td><td><code>Fcl_ALL_Neutral</code></td></tr>
+</tbody></table></div>
+<p>表情1つは3種類の割り当てを持ち、<strong>全部が同じ重みで動く</strong>。</p>
+<div class="table-wrap"><table><thead><tr><th>割り当て</th><th>中身</th><th>重み w のとき</th></tr></thead><tbody>
+<tr><td><code>morphTargetBinds</code></td><td>ノード番号・ターゲット番号・重み</td><td>ターゲットの重み += 割り当ての重み x w</td></tr>
+<tr><td><code>materialColorBinds</code></td><td>マテリアル番号・種類(6つ)・目標の色</td><td>色 = 元の色 + (目標 - 元) x w</td></tr>
+<tr><td><code>textureTransformBinds</code></td><td>マテリアル番号・拡大・ずらし</td><td>拡大・ずらし = 元 + (目標 - 元) x w</td></tr>
+</tbody></table></div>
+<p>割り当ては<strong>番号</strong>でモーフとマテリアルを指す。だから表情は <code>Model</code> を読み終えてからでないと引けない。<code>VrmAvatar.Load</code> は <code>VRMC_vrm</code> を読んだ JSON の文書を閉じる前に、表情の部分だけ <code>JsonElement.Clone()</code> で写しておき、<code>Model</code> ができてから読む。マテリアルの番号は <code>Model.MaterialsByIndex</code> で引き直す(<code>Model.Materials</code> は使われた順に並んでいて、ファイルの番号と一致しないため)。</p>
+
+<h3 id="s10">5. override と isBinary — 表情どうしの約束</h3>
+<p>happy の目は「細めて閉じた弧」になっている。そこへ自動まばたきが blink を 1 にすると、まぶたがもう一度下りて目が消える(完成条件3の絵)。これを防ぐのが <code>override</code> で、<strong>感情の側</strong>に「出ている間、まばたき・視線・口をどう抑えるか」を書く。</p>
+<div class="table-wrap"><table><thead><tr><th>値</th><th>抑える量</th><th>happy 0.3 のとき blink に掛かる倍率</th></tr></thead><tbody>
+<tr><td><code>none</code></td><td>0</td><td>1</td></tr>
+<tr><td><code>block</code></td><td>出ていれば 1(少しでも)</td><td>0</td></tr>
+<tr><td><code>blend</code></td><td>その表情の重み</td><td>0.7</td></tr>
+</tbody></table></div>
+<p><code>isBinary</code> は「0 か 1 にしかならない」表情の印。重みが 0.5 を超えたら 1、それ以外は 0。漫符(汗・怒りマーク)のように半分だけ出ると変な絵になるものに付ける。</p>
+<p>評価の順番は three-vrm の <code>VRMExpressionManager.update</code> に合わせた(<code>VrmExpressions.Update</code>)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 1. 抑える量を決める(全部の表情を先に見る)
+blink -= expression.OverrideAmount(expression.OverrideBlink);   // 視線・口も同じ。最後に 0 で止める
+// 2. 元に戻す(割り当てのあるモーフの重みを 0 に、色と UV を読んだときの値に)
+// 3. 足す
+float weight = expression.OutputWeight * Multiplier(expression.Name);   // isBinary を通し、抑える倍率を掛ける
+if (expression.IsBinary &amp;&amp; weight &lt; 1.0f) { weight = 0.0f; }             // 抑えられた isBinary は出さない</code></pre></div>
+<ul>
+<li><strong>1 を先に全部済ませる</strong>。表情を1つずつ「抑えて足す」と、並び順で結果が変わる(happy の後に blink が来れば抑えられ、前なら抑えられない)</li>
+<li><strong>2 で戻してから足す</strong>。2つの表情が同じモーフや色を動かすことがある。前のフレームの値に足すと毎フレーム積み上がる</li>
+<li><strong>抑えられるのはプリセットのまばたき・視線・口だけ</strong>。カスタムの表情(作者が足したウインクなど)は抑えられない</li>
+</ul>
+
+<figure class="lab" id="ovr-lab">
+  <div class="lab-head">
+    <h3>実験台: override と isBinary</h3>
+    <span class="tag">要点5。評価の順番は reference/Day69 の VrmExpressions.Update と同じ(顔は上の実験台の形)</span>
+  </div>
+  <div class="split">
+    <div><canvas id="ovr-face" style="height:280px" aria-label="抑えた結果の顔"></canvas><div class="cap">3つの表情を評価した結果の顔</div></div>
+    <div><canvas id="ovr-bars" style="height:280px" aria-label="書いた重みと流した重み"></canvas><div class="cap">薄い棒 = 外が書いた重み、濃い棒 = 流した重み(isBinary と抑えを通した値)</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">happy の重み(F2・F5)</span><div class="range"><input type="range" id="ovr-happy" min="0" max="1" step="0.01" value="1"><output id="ovr-happy-out"></output></div></div>
+    <div class="ctl"><span class="label">blink の重み(自動まばたき)</span><div class="range"><input type="range" id="ovr-blink" min="0" max="1" step="0.01" value="1"><output id="ovr-blink-out"></output></div></div>
+    <div class="ctl"><span class="label">aa の重み(F3)</span><div class="range"><input type="range" id="ovr-aa" min="0" max="1" step="0.01" value="0"><output id="ovr-aa-out"></output></div></div>
+    <div class="ctl"><span class="label">happy の overrideBlink / overrideMouth(F6)</span>
+      <div class="seg" id="ovr-mode">
+        <button data-v="none" aria-pressed="true">none(ファイルの値)</button><button data-v="block" aria-pressed="false">block</button><button data-v="blend" aria-pressed="false">blend</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">isBinary(F7)</span>
+      <div class="seg" id="ovr-binary">
+        <button data-v="off" aria-pressed="true">ファイルの値(false)</button><button data-v="on" aria-pressed="false">全部 true</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ovr-stats"></div><p id="ovr-note"></p></div>
+</figure>
+
+<h3 id="s11">6. 色と UV の表情 — 元から目標へ寄せる</h3>
+<p><code>materialColorBinds</code> の目標の色は<strong>差ではなく、重み 1 のときの色そのもの</strong>(リニア)。だから読んだときの色を覚えておき、「目標 - 元」の差に重みを掛けて足す。6つの種類は MToon の欄に対応する。</p>
+<div class="table-wrap"><table><thead><tr><th><code>type</code></th><th>書き換える欄</th></tr></thead><tbody>
+<tr><td><code>color</code></td><td><code>Material.BaseColorFactor</code>(MToon の明るい側の色)</td></tr>
+<tr><td><code>emissionColor</code></td><td><code>Material.EmissiveFactor</code></td></tr>
+<tr><td><code>shadeColor</code> / <code>matcapColor</code> / <code>rimColor</code> / <code>outlineColor</code></td><td><code>MToon</code> の <code>ShadeColorFactor</code> / <code>MatcapFactor</code> / <code>ParametricRimColorFactor</code> / <code>OutlineColorFactor</code></td></tr>
+</tbody></table></div>
+<p>書き換えた値は、Day 68 の <code>MToon.Apply</code> が描くたびに送っている。<strong>描く側は何も知らずに新しい色で描く</strong>。</p>
+<p><code>textureTransformBinds</code> はマテリアルの全部のテクスチャの UV を拡大・ずらす。今日は <code>MToon</code> に <code>UvScale</code> / <code>UvOffset</code> を足し、<code>mtoon.vert</code> で頂点の UV に1回だけ掛ける。<strong>上下の向きに注意</strong>がいる。頂点の UV はローダーが <code>v' = 1 - v</code> に裏返してある(Day 32)ので、ファイルの向きの式を書き直して送る。</p>
+<div class="code"><pre><code>  ファイルの向き:   v_new  = v  x s + o
+  裏返した向き:     v'_new = v' x s + (1 - s - o)          ← MToon.GlUvTransform の w</code></pre></div>
+<p>UV のずらしで動くのは<strong>貼る絵だけで、メッシュは動かない</strong>。AvatarSample_A の瞳のメッシュは瞳の絵とほぼ同じ大きさなので、絵をずらすとメッシュの縁で欠ける(完成条件5の絵、下の実験台)。UV で目を動かすアバターは、瞳のメッシュを白目いっぱいに作っておく。</p>
+
+<figure class="lab" id="uv-lab">
+  <div class="lab-head">
+    <h3>実験台: UV のずらし</h3>
+    <span class="tag">要点6。上下の直し方は reference/Day69 の MToon.GlUvTransform と同じ</span>
+  </div>
+  <div class="split">
+    <div><canvas id="uv-canvas" style="height:240px" aria-label="瞳の絵とメッシュ"></canvas><div class="cap">点線 = 瞳のメッシュ(動かない)、絵 = 瞳のテクスチャ(UV で動く)。メッシュの外は描かれない</div></div>
+    <div><canvas id="uv-math" style="height:240px" aria-label="UV の式"></canvas><div class="cap">ファイルの向きの UV と、GL に送る式の値</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ずらし u(F9 は 0.06)</span><div class="range"><input type="range" id="uv-u" min="-0.12" max="0.12" step="0.005" value="0.06"><output id="uv-u-out"></output></div></div>
+    <div class="ctl"><span class="label">ずらし v</span><div class="range"><input type="range" id="uv-v" min="-0.12" max="0.12" step="0.005" value="0"><output id="uv-v-out"></output></div></div>
+    <div class="ctl"><span class="label">表情の重み</span><div class="range"><input type="range" id="uv-w" min="0" max="1" step="0.01" value="1"><output id="uv-w-out"></output></div></div>
+    <div class="ctl"><span class="label">メッシュの大きさ</span>
+      <div class="seg" id="uv-mesh">
+        <button data-v="tight" aria-pressed="true">瞳ぴったり(VRoid)</button><button data-v="wide" aria-pressed="false">白目いっぱい</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="uv-stats"></div><p id="uv-note"></p></div>
+</figure>
+
+<h3 id="s12">7. 自動まばたき — ランダムな間隔と、速く閉じて遅く開く形</h3>
+<p>人は1分に 15 から 20 回まばたきする。<strong>一定の間隔にすると機械に見える</strong>ので、待ち時間を毎回 1.5 から 5.5 秒(平均 3.5 秒)から選び直す。形は「閉じる 0.06 秒(一定の速さ)・閉じたまま 0.03 秒・開く 0.12 秒(滑らかに)」で、1回 0.21 秒。まぶたは一気に下りて、ゆっくり上がる。</p>
+<p><code>AutoBlink</code> は<strong>表情のことを何も知らない</strong>。出すのは blink の重み1つだけで、happy の間に止めるかどうかは表情の <code>overrideBlink</code> が決める。作者の意図(override)とアプリの都合(自動まばたき)を別々の場所に書けるようにしてある。乱数の種は決めてある(<code>new AutoBlink(69)</code>)ので、何度起動しても同じ間隔の並びになる。</p>
+
+<figure class="lab" id="blink-lab">
+  <div class="lab-head">
+    <h3>実験台: 自動まばたき</h3>
+    <span class="tag">要点7。形(AutoBlink.Curve)は reference/Day69 と同じ。乱数は JS のものなので、間隔の並びは実機と違う</span>
+  </div>
+  <canvas id="blink-timeline" style="height:170px" aria-label="20 秒ぶんの blink の重み"></canvas>
+  <div class="split">
+    <div><canvas id="blink-curve" style="height:200px" aria-label="1回のまばたきの形"></canvas><div class="cap">1回ぶんの形(横は 0 から 0.25 秒)</div></div>
+    <div><canvas id="blink-face" style="height:200px" aria-label="まばたきする目"></canvas><div class="cap">いまの重みで閉じた目</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">待ち時間の最小(秒)</span><div class="range"><input type="range" id="blink-min" min="0.3" max="5" step="0.1" value="1.5"><output id="blink-min-out"></output></div></div>
+    <div class="ctl"><span class="label">待ち時間の最大(秒)</span><div class="range"><input type="range" id="blink-max" min="0.5" max="8" step="0.1" value="5.5"><output id="blink-max-out"></output></div></div>
+    <div class="ctl"><span class="label">間隔</span>
+      <div class="seg" id="blink-mode">
+        <button data-v="random" aria-pressed="true">ランダム</button><button data-v="fixed" aria-pressed="false">一定(平均で固定)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="blink-stats"></div><p id="blink-note"></p></div>
+</figure>
+</section>
+
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>役割</th><th>行数</th></tr></thead><tbody>
+<tr><td><code>Model/MorphTargets.cs</code></td><td>1つのメッシュのモーフ。疎な差分(<code>Target</code>)・頂点の並びごとのまとまり(<code>Block</code>)・重み・合成の式(<code>Blend</code>)・送る(<code>Apply</code>)。<strong>VRM も JSON も知らない</strong></td><td>260</td></tr>
+<tr><td><code>Model/VrmExpressions.cs</code></td><td>VRM の表情。3種類の割り当て・<code>isBinary</code>・<code>override</code>・評価の3段(<code>Update</code>)・ファイルから読む(<code>Read</code>)。<strong>GL を知らない</strong></td><td>515</td></tr>
+<tr><td><code>Model/AutoBlink.cs</code></td><td>自動まばたき。ランダムな間隔と、まばたきの形(<code>Curve</code>)。<strong>表情を知らない</strong></td><td>124</td></tr>
+</tbody></table></div>
+
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Render/Mesh.cs</code></td><td>頂点を書き換える <code>UpdateVertices</code></td><td>+39 / −0</td></tr>
+<tr><td><code>Model/Model.cs</code></td><td><code>Morphs</code>・<code>MaterialsByIndex</code>・<code>FindMorph</code></td><td>+15 / −0</td></tr>
+<tr><td><code>Model/GltfLoader.cs</code></td><td>説明、<code>_morphs</code>、<code>Build</code> で2つを渡す、<code>ReadPrimitive</code> の最後で <code>ReadMorphTargets</code></td><td>+113 / −1</td></tr>
+<tr><td><code>Render/MToon.cs</code></td><td><code>UvScale</code>・<code>UvOffset</code>・<code>GlUvTransform</code>、<code>Apply</code> で送る1行</td><td>+20 / −0</td></tr>
+<tr><td><code>shaders/mtoon.vert</code></td><td><code>uUvTransform</code> を頂点の UV に1回だけ掛ける</td><td>+7 / −2</td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td>説明、<code>Expressions</code>、<code>Load</code> で表情を写して読む、<code>UpdateFace</code></td><td>+43 / −2</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>OnUpdate</code>・HUD に1か所ずつ、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数</td><td>+784 / −1</td></tr>
+<tr><td><code>Day69.csproj</code></td><td><code>Day68.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p class="note">今日の差分は Day 68 と同じくらい重い(新規 899 行 + 変更 1,021 行。どれもコメント込み)。<code>Program.cs</code> の今日の関数は、顔が動くまでの前半が約 190 行、内訳と自己チェックの後半が約 415 行。1日で重ければ、下の順番の <strong>12 の (c) まで</strong>(顔が動くまで)と <strong>13</strong>(内訳・自己チェック)で2回に分けるとよい。12 の (c) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+
+<h3 id="s16">写経する順番</h3>
+<p>依存の向きに沿って並べてある。この順に写せば、途中でビルドが通らない状態を作らずに済む。</p>
+<ol>
+<li><strong><code>Render/Mesh.cs</code>(変更)</strong> — <code>IndexCount</code> の直後に <code>UpdateVertices</code>。<code>MorphTargets</code> が呼ぶので先に足す</li>
+<li><strong><code>Model/MorphTargets.cs</code>(新規)</strong> — <code>Mesh</code> と <code>Vertex</code> しか使わない</li>
+<li><strong><code>Model/Model.cs</code>(変更)</strong> — <code>SourcePath</code> の直後に <code>Morphs</code>・<code>MaterialsByIndex</code>・<code>FindMorph</code></li>
+<li><strong><code>Model/GltfLoader.cs</code>(変更)</strong> — 順に、(a) クラスの説明の「Day 69 で足したもの」と「まだ読まないもの」の書き換え、(b) <code>_animations</code> の直後に <code>_morphs</code>、(c) <code>Build</code> の初期化子の最後に <code>Morphs</code> と <code>MaterialsByIndex</code>、(d) <code>ReadPrimitive</code> の <code>new Mesh&lt;Vertex&gt;</code> の直後に <code>ReadMorphTargets</code> の呼び出しと、その直後(<code>NormalizeWeights</code> の手前)に <code>ReadMorphTargets</code> の本体</li>
+<li><strong><code>Render/MToon.cs</code>(変更)</strong> — <code>RenderQueueOffsetNumber</code> の後(<code>HasOutline</code> の手前)に <code>UvScale</code>・<code>UvOffset</code>・<code>GlUvTransform</code>、<code>Apply</code> の <code>uOutlineLightingMixFactor</code> の直後に <code>uUvTransform</code> を送る1行</li>
+<li><strong><code>shaders/mtoon.vert</code>(変更)</strong> — <code>uTanHalfFov</code> の直後に <code>uUvTransform</code>、<code>main</code> の頭で <code>uv</code> を作り、太さのテクスチャと <code>vTexCoord</code> をそれに替える(5 の <code>Apply</code> が送る名前と揃える)</li>
+<li><strong><code>Model/VrmExpressions.cs</code>(新規)</strong> — <code>MorphTargets</code> / <code>Material</code> / <code>MToon</code>(5 の <code>UvScale</code>・<code>UvOffset</code>)/ <code>Model</code>(3 の <code>FindMorph</code>・<code>MaterialsByIndex</code>)を使う</li>
+<li><strong><code>Model/AutoBlink.cs</code>(新規)</strong> — 何にも依存しない</li>
+<li><strong><code>Model/VrmAvatar.cs</code>(変更)</strong> — 順に、クラスの説明の「Day 69 で足したもの」、コンストラクタの引数と <code>Expressions</code>、<code>HumanBones</code> の直後に <code>Expressions</code> のプロパティ、<code>Load</code> の <code>expressions</code> の写しと最後の <code>VrmExpressions.Read</code>、<code>Load</code> の直後に <code>UpdateFace</code></li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 68」のフィールド(<code>VrmStageSky</code>)の直後に「Day 69」の 16 個(<code>VrmBlink</code> / <code>_vrmAutoBlink</code> / <code>_vrmEmotion</code> / <code>VrmEmotions</code> / <code>_vrmMouth</code> / <code>VrmMouths</code> / <code>_vrmExpressionStrength</code> / <code>_vrmOverrideTrial</code> / <code>_vrmBinaryTrial</code> / <code>_vrmBlush</code> / <code>_vrmLookAway</code> / <code>VrmBlushName</code> / <code>VrmLookAwayName</code> / <code>VrmExpressionFadeSpeed</code> / <code>_vrmMorphUploads</code>)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunVrmCheck</code> の直後(<code>CheckList</code> の手前)に、<code>VrmLookAwayOffset</code> / <code>EnsureVrmFace</code> / <code>UpdateVrmFace</code> / <code>AddVrmCustomExpressions</code> / <code>ApplyVrmTrials</code> / <code>VrmExpressionText</code> / <code>VrmOverrideTrialName</code> / <code>VrmFaceLabel</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — 順に、
+(a) <code>OnUpdate</code> の <code>_demo?.Lights.Update(...)</code> の直後に <code>UpdateVrmFace(...)</code>、
+(b) <code>DrawOverlayInfo</code> の <code>VrmLabel()</code> の行の直後に <code>VrmFaceLabel()</code> の行、
+(c) <code>BuildMenu</code> の「VRMビューア」ページの直後(<code>return menu;</code> の手前)に「VRMの表情」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 13 で足す関数を指すので、分けて写すなら後回しにする)、
+(d) <code>RunDebugMenuCheck</code> の項目数を <strong>300 → 311</strong> へ</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 11 の続きに <code>DescribeVrmFace</code> / <code>RunVrmFaceCheck</code> / <code>VrmNear</code>(3つ)</li>
+<li><strong><code>Day69.csproj</code></strong> — <code>Day68.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+</section>
+
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> に3本足しただけで、<code>Render/</code> は <code>Mesh</code> と <code>MToon</code> に口を1つずつ開けた。矢印の向きは今日も <code>Model/ → Render/</code> だけ。</p>
+
+<h3 id="s18">モーフは VRM を知らず、表情は GL を知らない</h3>
+<svg viewBox="0 0 720 300" role="img" aria-label="Day 69 の依存の図" style="width:100%;max-width:720px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow69" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <rect x="270" y="8" width="180" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="27" text-anchor="middle">Program</text><text x="360" y="42" text-anchor="middle" font-size="11" fill="var(--muted)">重みを書く・試しを当てる</text>
+    <rect x="20" y="86" width="200" height="40" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="120" y="111" text-anchor="middle">Model/AutoBlink(今日)</text>
+    <rect x="250" y="86" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="104" text-anchor="middle">Model/VrmAvatar</text><text x="360" y="119" text-anchor="middle" font-size="11" fill="var(--muted)">Expressions・UpdateFace</text>
+    <rect x="250" y="160" width="220" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="360" y="179" text-anchor="middle">Model/VrmExpressions(今日)</text><text x="360" y="195" text-anchor="middle" font-size="11" fill="var(--muted)">抑える → 戻す → 足す</text>
+    <rect x="20" y="246" width="200" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="120" y="265" text-anchor="middle">Model/MorphTargets(今日)</text><text x="120" y="281" text-anchor="middle" font-size="11" fill="var(--muted)">疎な差分・Blend・Apply</text>
+    <rect x="270" y="246" width="200" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="370" y="265" text-anchor="middle">Render/Material・MToon</text><text x="370" y="281" text-anchor="middle" font-size="11" fill="var(--muted)">色の欄・UvScale / UvOffset</text>
+    <rect x="510" y="246" width="190" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="605" y="265" text-anchor="middle">Render/Mesh</text><text x="605" y="281" text-anchor="middle" font-size="11" fill="var(--muted)">UpdateVertices</text>
+    <rect x="510" y="160" width="190" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="605" y="179" text-anchor="middle">Model/GltfLoader</text><text x="605" y="195" text-anchor="middle" font-size="11" fill="var(--muted)">ReadMorphTargets</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#arrow69)">
+    <path d="M320,48 L150,84"/><path d="M360,48 L360,84"/>
+    <path d="M360,126 L360,158"/>
+    <path d="M300,204 L170,244"/><path d="M370,204 L370,244"/>
+    <path d="M220,268 L508,268"/>
+    <path d="M605,204 L240,252"/>
+  </g>
+</svg>
+<p>コメントを落としてから型名を拾って確かめた。</p>
+<div class="table-wrap"><table><thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Model/MorphTargets</code></td><td><code>Mesh</code> / <code>Vertex</code></td><td><strong>VRM・表情・JSON</strong>。重みを誰が書いたかを知らない(glTF のアニメーションでも、VRM の表情でも同じように動く)</td></tr>
+<tr><td><code>Model/VrmExpressions</code></td><td><code>MorphTargets</code> / <code>Material</code> / <code>MToon</code> / <code>Model</code> / JSON</td><td><strong>GL</strong>(頂点を送るのは <code>MorphTargets.Apply</code>、色を送るのは <code>MToon.Apply</code>)・まばたきの時間・<code>Program</code></td></tr>
+<tr><td><code>Model/AutoBlink</code></td><td><code>Random</code> だけ</td><td><strong>表情の全部</strong>。出すのは重み1つ</td></tr>
+<tr><td><code>Model/GltfLoader</code></td><td><code>MorphTargets</code> を作る</td><td><code>VRMC_vrm.expressions</code>。それは <code>VrmAvatar</code> が外で読む</td></tr>
+<tr><td><code>Render/Mesh</code>・<code>Render/MToon</code></td><td>今日も <code>Render/</code> の中だけ</td><td>モーフ・表情(書き換えの口を開けただけ)</td></tr>
+</tbody></table></div>
+<p><strong>モーフはローダーの中で、表情は外で読む</strong>。Day 68 の MToon とメタ情報の分け方と同じ理屈で、モーフの差分はアクセサ(<code>ReadVector3Accessor</code>。<code>LoadContext</code> の中にしか無い)を読まないと取れない。表情はノード番号とマテリアル番号と数字しか持たないので、<code>Model</code> ができてから外で引ける。</p>
+<p><strong>表情は <code>Material</code> と <code>MToon</code> の値を直接書き換える</strong>。値を別に持って描くときに足す形(描く側が表情を知る形)にしなかったのは、Day 68 の <code>RenderVrm</code> と影パスを1行も変えずに済ませるため。代わりに「読んだときの値」を割り当ての側に覚えておき、毎フレーム戻してから足す(要点5の2段目)。</p>
+
+<h3 id="s19">1フレームの中の表情 — 順番がそのまま設計</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">重みを書く(<code>UpdateVrmFace</code>。<code>OnUpdate</code> の中)</div>
+    <div class="rw"><span>書く <b>感情・口・自作の表情の重み(0.25 秒で寄せる)、blink の重み(AutoBlink)</b></span></div>
+    <div class="swap">ここで override を判断すると: アプリが作者の約束を上書きする。重みは素直に書き、抑えるのは 2 に任せる</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">表情を流す(<code>VrmExpressions.Update</code>)— 抑える → 戻す → 足す</div>
+    <div class="rw"><span>書く <b>モーフの重み・マテリアルの色・UV の拡大とずらし</b></span></div>
+    <div class="swap">抑える量を表情ごとに決めながら足すと: 並び順で結果が変わる。戻さずに足すと: 毎フレーム積み上がる</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">合成して送る(<code>MorphTargets.Apply</code>)</div>
+    <div class="rw"><span>読む <b>モーフの重み</b></span><span>書く <b>顔の頂点バッファ 7 本(重みが変わったときだけ)</b></span></div>
+    <div class="swap">4 より後に置くと: 影だけ1フレーム前の顔になる(まばたきの影が遅れる)</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">影パス(<code>DrawVrmShadow</code>。<code>OnRender</code>)</div>
+    <div class="rw"><span>読む <b>3 で書き換えた頂点</b></span></div>
+    <div class="swap">Day 68 のまま。何も足していない</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">キャラ(<code>RenderVrm</code>)— <code>MToon.Apply</code> が色と UV を送る</div>
+    <div class="rw"><span>読む <b>3 の頂点・2 の色と UV</b></span></div>
+    <div class="swap">Day 68 のまま。<code>uUvTransform</code> の1行だけ足した</div>
+  </div></li>
+</ol>
+<p>1〜3 を <code>OnUpdate</code> に置いたのは、<strong>影パスより前</strong>に頂点を書き換えたいから。<code>OnUpdate</code> は毎フレーム <code>OnRender</code> の前に呼ばれ、GL の文脈も同じスレッドにある。一時停止中は時刻だけ止め(まばたきも寄せる途中の重みも止まる)、呼ぶこと自体は止めない(灯りの <code>Lights.Update</code> と同じ扱い)。</p>
+
+<h3 id="s20">今日残した歪み</h3>
+<p><strong>1つ目: 同じ頂点を 7 回送っている</strong>。合成は1回でも、ローダーがプリミティブごとに頂点バッファを作っている(Day 68 の歪み4)ので、まばたき1回のあいだ毎フレーム 2.6MB を送る。共有すれば 0.37MB で済む(改造課題2)。</p>
+<p><strong>2つ目: sparse アクセサを読まない</strong>(<code>Locate</code> が止める)。モーフの差分はほとんどが 0 なので、書き出しツールによっては差分を sparse で縮めて書く。今日のアバター(VRoid Studio)は sparse を使っていない。読むなら、0 で埋めた並びに「番号と値」の組を書き込めばよく、どうせ <code>FromDense</code> で疎に戻すので、最初から疎のまま受け取る道もある。</p>
+<p><strong>3つ目: 接線の差分を読まない</strong>。法線マップを貼った顔がモーフで大きく曲がると、陰影の向きが少しずれる。今日のアバターは接線の差分を持たず、顔に法線マップも貼っていない。</p>
+<p><strong>4つ目: 境界箱がモーフで変わらない</strong>。キャラを包む球(灯りを選ぶ <code>SelectVrmLights</code>)はバインドポーズのまま。顔のモーフは 2.4cm 以内なので効かないが、体を大きく変えるモーフ(体型の調整)を持つアバターでは足りない。</p>
+<p><strong>5つ目: 自作の表情が <code>Program.cs</code> に直書き</strong>(<code>AddVrmCustomExpressions</code>)。肌と瞳のマテリアルを名前の一部(<code>Face_00_SKIN</code> / <code>EyeIris</code>)で探しているので、VRoid 以外のアバターでは何も割り当たらない。本来は作者がファイルの <code>custom</code> に書くもので、見せるための仮置き。</p>
+<p><strong>6つ目: 表情のアニメーション(glTF の <code>weights</code> チャンネル)を読まない</strong>。<code>AnimationClip</code> は今日も黙って飛ばす。Day 71 の VRMA は表情を「表情ノードの <code>translation.x</code>」で書くので、そちらは <code>VrmExpressions.SetWeight</code> に流せば済む。</p>
+
+<h3 id="s21">試して分かったこと</h3>
+<ul>
+<li><strong>happy にまばたきが重なると目が消える</strong>。<code>Fcl_ALL_Joy</code> は目を閉じた弧にする差分を含んでいて、blink の差分(下へ 2.4cm)と足すと、まぶたが下まぶたを越える。<code>F6</code> の block で止まる</li>
+<li><strong>AvatarSample_A の override は全部 <code>none</code></strong>(VRoid Studio 2.14.0 の書き出し)。付けるかどうかは作者次第で、アプリが勝手に止めると「作者が止めないと決めたアバター」の絵を変えてしまう</li>
+<li><strong>UV のずらしはメッシュの縁で欠ける</strong>。瞳のメッシュは瞳の絵とほぼ同じ大きさで、0.06(瞳の幅の 1/4)ずらすと、ずらした側の縁が切れる。UV で目を動かすなら、瞳のメッシュを白目いっぱいに作っておく必要がある</li>
+<li><strong>差分の 81% は 0</strong>。57 本を全部持つと 23 万個、残すのは 4 万 5 千個</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day69 -c Release</code> で起動する。起動直後は Day 68 までの絵のまま。今日の主役は「VRMの表情」のページ(<code>Shift+F1</code> で直接開く)から。どの項目も、VRMビューアが出ていなければ出してから効く。</p>
+
+<h3 id="s23">1. F2: 表情を回す</h3>
+<p>まず <code>F10</code> で顔に寄る(VRMビューアが出て、head の 6cm 上に寄る)。<code>F2</code> を押すたびに、0.25 秒かけて表情が移る。</p>
+<ul>
+<li>happy … 目を細めて閉じた弧になり、口を開けて笑う</li>
+<li>angry … 眉が寄り、目がつり上がる</li>
+<li>sad … 眉が八の字に下がる</li>
+<li>relaxed … 目を細め、口角が上がる</li>
+<li>surprised … 目を見開き、口を小さく開ける</li>
+</ul>
+<p>HUD に2行目が増える。</p>
+<div class="code"><pre><code>表情:happy 1.00  口:なし  まばたき:自動 0.00  抑え:まばたきx1.00 口x1.00  override:ファイルの値  頂点を送った:いいえ</code></pre></div>
+<p>表情が止まっていれば「頂点を送った: いいえ」。寄せている間とまばたきの 0.21 秒だけ「はい」になる。</p>
+
+<h3 id="s24">2. F4: 自動まばたき</h3>
+<p>起動時から ON。1.5 から 5.5 秒おきに、まぶたが一気に下りてゆっくり上がる。<code>F4</code> で切ると、表情を変えても目は開いたまま。<code>F11</code> の内訳の最後に回数と直前の待ち時間が出る。</p>
+
+<h3 id="s25">3. F6: override を試す</h3>
+<p>happy を出したまま、自動まばたきを ON にして待つ。</p>
+<ul>
+<li><strong>ファイルの値(none)</strong> … まばたきのたびに<strong>目が消える</strong>(閉じた弧がさらに下へ潰れる)</li>
+<li><strong>感情が block</strong> … まばたきが止まる。HUD の「抑え: まばたき x0.00 口 x0.00」。口の形(<code>F3</code>)も出なくなる</li>
+<li><strong>感情が blend</strong> … happy 1 なら block と同じ。<code>F5</code> で強さを 0.5 にすると、まばたきが半分だけ閉じ(x0.50)、口も半分になる</li>
+</ul>
+
+<h3 id="s26">4. F3 / F5 / F7: 口・強さ・isBinary</h3>
+<ul>
+<li><code>F3</code> … aa(大きく開く)・ih(横に引く)・ou(すぼめる)・ee・oh(縦に開く)。感情と同時に出せる(足し算)</li>
+<li><code>F5</code> … 強さ 0.5 / 0.25。<strong>途中の重みでも形が崩れない</strong>(差分の足し算なので、頂点はまっすぐ途中まで動く)</li>
+<li><code>F7</code> … 全部 isBinary。表情を切り替えると、0.25 秒かけて寄せる途中で<strong>0.5 を超えた瞬間にパッと変わる</strong>。強さ 0.25 では表情がまったく出ない。まばたきも閉じる途中が無くなる</li>
+</ul>
+
+<h3 id="s27">5. F8 / F9: 色と UV の表情</h3>
+<ul>
+<li><code>F8</code> 照れ … 顔の肌が赤みを帯びる(ベースカラーを (1, 0.72, 0.72) 倍、影の色を (1, 0.55, 0.55) 倍の色へ寄せる)。光を回しても(「VRMビューア」の <code>F7</code>)赤みは保たれる——描く側は表情を知らず、書き換わった色で描いているだけ</li>
+<li><code>F9</code> 目そらし … 瞳とハイライトの絵が<strong>画面の左(アバターの右)へ</strong>寄る。ずらした側の縁がメッシュで欠ける(要点6)</li>
+</ul>
+
+<h3 id="s28">6. Day 68 までの機能が全部生きていること</h3>
+<p>モーフを持つファイルは <code>assets/</code> の中で AvatarSample_A だけなので、ほかのモデルの読み込みは Day 68 と同じ道を通る。毎フレームの更新は <code>_vrmDemo</code> で守ってある。「VRMビューア」の自己チェック(15 項目)と、Day 48 の割り当て表(311 項目)が通ること。</p>
+<p class="note">開発機の電源の都合で、Day 68 との画素の突き合わせはしていない。VRMビューアの床の上だけで確かめた(裏通りは描いていない)。</p>
+
+<h3 id="s29">7. F12: 自己チェック(12 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 69 自己チェック(モーフの合成・表情の約束・まばたき・VRM の表情・GPU の頂点)===
+  [OK] モーフは 元の位置 + Σ 重み x 差分(重み 0.5 で半分、2本同時なら足し算、法線も同じ重みで足す、全部 0 なら元の形)  A を 0.5 で y = 0.010 / A と B を 1 で (0.01, 0.02, 0)
+  [OK] 差分は動く頂点だけを持つ(位置か法線のどちらかが 0 でない頂点)  5 頂点のうち 1, 2, 4 番
+  [OK] isBinary は 0.5 を境に 0 か 1。ほかの表情に抑えられて 1 未満になったら 0(途中の値で出さない)  0.49 → 0 / 0.51 → 1 / happy 0.3 の blend で抑えると 0
+  [OK] override: block は happy 0.01 でもまばたきを 0 に、blend は happy 0.3 で 0.7 倍、none は抑えない。カスタムの表情は抑えられない  block 0.00 / blend 0.70 / none 1.00 / カスタム 1.00
+  [OK] 元に戻してから足す(3回 Update しても同じ値。同じターゲットを動かす2つの表情は足し合わさる)  blink 0.4 + カスタム 0.5 → 0.90 / happy 0.30
+  [OK] 色と UV の表情は 元 + (目標 - 元) x 重み。重み 0 に戻すと、読んだときの値にぴったり戻る  0.5 で 色 (1.00, 0.50, 0.50) / 影 (0.00, 0.00, 0.50) / ずらし 0.03
+  [OK] UV のずらしは上下を直して送る(ファイルの向きの v x s + o を、v を裏返した頂点の UV に当てても同じ所を指す)  ファイル (0.40, 0.35) → GL (0.40, 0.65)
+  [OK] 自動まばたき: 間隔は 1.5 から 5.5 秒のどこか(+ まばたき 0.21 秒)、10 分で 100 から 250 回、閉じきる(重み 1)。閉じる 0.06 秒で半分、開く 0.12 秒で半分  166 回 / 間隔 1.75 から 5.70 秒 / 最大の重み 1.00
+  [OK] ファイルの表情は 14 個のプリセットで、全部が顔のモーフ1本(色・UV・override・isBinary は使っていない。視線は骨で動かすので無い)  14 個  blink → Fcl_EYE_Close / blinkLeft → Fcl_EYE_Close_L / happy → Fcl_ALL_Joy / aa → Fcl_MTH_A
+  [OK] モーフは顔だけ(57 本)。7 枚のプリミティブが同じ頂点の並びを共有し、差分は1回だけ読んで疎に持つ  顔 57 本 / Mesh 7 本 / 頂点 4,060 / 差分 44,895 個(まばたきは 1,066 個)
+  [OK] 合成した頂点が 7 本の Mesh 全部に届く(まばたき 1 でいちばん動く頂点が 元 + 差分 に、0 で元の形にぴったり戻る。重みが同じなら送らない)  頂点 3001 が 2.38cm 動く / 閉じた 7/7 / 戻した 7/7 / 2回目は 送らない
+  [OK] UV のずらしは頂点で1回だけ掛ける(画素シェーダの全部のテクスチャと、アウトラインの太さのテクスチャが同じだけずれる)
+  すべて合格(モーフの合成・表情の約束・まばたき・VRM の表情・GPU の頂点が仕様どおり)</code></pre></div>
+<p>GPU を使うのは 11 番目だけ(顔の頂点を読み返す。読み返したあとは重みを元に戻して送り直す)。12 番目はシェーダのファイルを文字列で読む。どの状態で押しても同じ数字になる(VRMビューアを出す前でも、出して表情を付けていても)。</p>
+
+<h3 id="s30">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>モーフの足し算: Fcl_ALL_Joy を 1</td><td><code>F2</code> で happy</td></tr>
+<tr><td>モーフの足し算: Fcl_MTH_A を 1</td><td><code>F3</code> で aa</td></tr>
+<tr><td>モーフの足し算: 「happy + blink」</td><td><code>F2</code> で happy、自動まばたきのまま待つ(<code>F6</code> はファイルの値)</td></tr>
+<tr><td>モーフの足し算: 重みを 0.5 / 1 を超えて</td><td><code>F5</code>(0.5 / 0.25)。1 を超える操作は実機に無い</td></tr>
+<tr><td>override と isBinary: none / block / blend</td><td><code>F6</code></td></tr>
+<tr><td>override と isBinary: isBinary 全部 true</td><td><code>F7</code></td></tr>
+<tr><td>UV のずらし: u = 0.06</td><td><code>F9</code>(目そらし)</td></tr>
+<tr><td>UV のずらし: v・メッシュの大きさ</td><td>実機に対応するキーは無い</td></tr>
+<tr><td>自動まばたき: ランダム</td><td><code>F4</code>(ON / OFF)。間隔の幅を変えるキーは無い(<code>AutoBlink.MinInterval</code> / <code>MaxInterval</code>)</td></tr>
+</tbody></table></div>
+<p class="note">実験台の顔は、目と口を 38 個の頂点で描いた形で、差分もこのページで決めた(happy が目を閉じた弧にすること、blink が上まぶたを下まぶたへ下ろすことは実物と同じにしてある)。式と順番(元から足す・抑える → 戻す → 足す・isBinary の扱い・まばたきの形・UV の上下の直し)は reference と同じ。</p>
+</section>
+
+<section class="part"><h2 id="s31">改造課題</h2>
+
+<h3 id="s32">課題1(易): ときどき2回続けてまばたきする</h3>
+<p>人のまばたきは、ときどき2回続く。<code>AutoBlink</code> に「開き終わったとき、20% の確率で待ち時間を 0.1 秒にする」を足す。自己チェックの間隔の項目(最小 1.5 秒)は落ちるようになるので、何を確かめたいかに合わせて直す——「最小の間隔」ではなく「平均の間隔」で確かめる形にできるか。</p>
+
+<h3 id="s33">課題2(中): 頂点バッファを共有して、送るのを1回にする</h3>
+<p>今日残した歪みの1つ目(Day 68 の歪み4)。<code>GltfLoader</code> で POSITION のアクセサの番号が同じプリミティブには同じ頂点バッファを使わせ、インデックスバッファだけを別に持たせる。<code>Mesh</code> を「頂点バッファを借りる」形に分けることになる。<code>MorphTargets.Block.Meshes</code> が1本になり、<code>F11</code> の「1回に送る量」が 2.60MB から 0.37MB に減ることを確かめる。<code>Model.Dispose</code> が同じバッファを2回消さないように。</p>
+
+<h3 id="s34">課題3(難): GPU でモーフを足す</h3>
+<p>差分を <code>BufferTexture</code>(Day 53)に詰め、<code>mtoon.vert</code> で <code>gl_VertexID</code> とターゲット番号から引いて足す。重みは「0 でないものだけ、番号と重みの組で最大 8 本」を uniform で送る(57 本全部を回すと頂点ごとに 57 回読む)。影パス(<code>depth.vert</code>)と速度バッファ(<code>MotionVectors</code>)にも同じ足し算が要る——描く側がモーフを知ることになる、というのが CPU 版との設計の違い。CPU 版と GPU 版で、まばたき中の1フレームの時間を比べる。</p>
+</section>
+
+<section class="part"><h2 id="s35">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり</p>
+<p>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)。Day 68 と同じファイル</p>
+<p>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 12 項目(VRMビューアを出す前と後)、Day 68 の自己チェック 15 項目、Day 48 の割り当て表(311 項目)、床の上で顔に寄った絵(なし・まばたき・感情5つ・happy + まばたき(none / block)・aa・oh・照れ・目そらし・強さ 0.5)</p>
+
+<h3 id="s36">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>happy にまばたきが重なった絵で、目が消えた</strong>。最初は合成の誤りを疑ったが、<code>Fcl_ALL_Joy</code> と <code>Fcl_EYE_Close</code> の差分を足すと実際にまぶたが下まぶたを越える。ファイルの override が none なので、仕様どおりの絵だった。<code>F6</code> の試しを足したのはこのため</li>
+<li><strong>目そらしの量は、瞳の絵から決めた</strong>。瞳のテクスチャは 1024 x 512 に両目が並び、瞳1つが幅の約 0.2。0.06 で瞳の幅の 1/4 ほど動き、それ以上は縁の欠けが目立つ</li>
+<li><strong>コンソールに「〜」を出すと化ける</strong>(CP932)。表示の文字列では「から」と書いた</li>
+</ul>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, setSeg, stat, arrow, animate } = Lab;
+
+// ============================================================
+//  モーフの合成(reference/Day69/Model/MorphTargets.cs の移植)
+//  この Day の実験台だけが使う。ほかの Day でも要るようになったら docs/site/ へ移す。
+// ============================================================
+// 頂点は [x, y](顔の中心が原点、上が負)。差分は疎に持つ: { indices, deltas }
+function blend(base, targets, weights) {
+  const out = base.map((p) => [p[0], p[1]]);
+  targets.forEach((t, k) => {
+    const w = weights[k];
+    if (w === 0) return;
+    t.indices.forEach((i, n) => { out[i][0] += t.deltas[n][0] * w; out[i][1] += t.deltas[n][1] * w; });
+  });
+  return out;
+}
+function fromDense(dense) {
+  const indices = [], deltas = [];
+  dense.forEach((d, i) => { if (d[0] !== 0 || d[1] !== 0) { indices.push(i); deltas.push(d); } });
+  return { indices, deltas };
+}
+
+// ------------------------------------------------------------
+//  顔の形(このページで決めたもの)。目は上まぶた 7 点 + 下まぶた 7 点、口は上唇 5 点 + 下唇 5 点
+// ------------------------------------------------------------
+const EYE_XS = [-1, -0.66, -0.33, 0, 0.33, 0.66, 1];
+const EYE_W = 0.22, EYE_H = 0.13;
+const EYES = [{ cx: -0.32, cy: -0.05 }, { cx: 0.32, cy: -0.05 }];
+const MOUTH = { cx: 0, cy: 0.42, w: 0.16 };
+const base = [];
+const upperY = (x) => -EYE_H * Math.pow(1 - x * x, 0.6);
+const lowerY = (x) => EYE_H * 0.55 * (1 - x * x);
+for (const e of EYES) {
+  for (const x of EYE_XS) base.push([e.cx + x * EYE_W, e.cy + upperY(x)]);
+  for (const x of EYE_XS) base.push([e.cx + x * EYE_W, e.cy + lowerY(x)]);
+}
+const MOUTH_XS = [-1, -0.5, 0, 0.5, 1];
+for (const x of MOUTH_XS) base.push([MOUTH.cx + x * MOUTH.w, MOUTH.cy - 0.012 * (1 - x * x)]);
+for (const x of MOUTH_XS) base.push([MOUTH.cx + x * MOUTH.w, MOUTH.cy + 0.012 * (1 - x * x)]);
+const N = base.length;   // 38
+const eyeStart = (e) => e * 14, mouthStart = 28;
+
+function denseZero() { return base.map(() => [0, 0]); }
+// blink: 上まぶたを下まぶたの位置へ(重み 1 でぴったり閉じる)
+const blinkDense = denseZero();
+for (let e = 0; e < 2; e++) EYE_XS.forEach((x, i) => { blinkDense[eyeStart(e) + i] = [0, lowerY(x) - upperY(x)]; });
+// happy: 上下のまぶたを「上に凸の弧」へ寄せて閉じた笑い目にし、口角を上げて下唇を下げる
+const arcY = (x) => -EYE_H * 0.15 * (1 - x * x) + EYE_H * 0.25;
+const joyDense = denseZero();
+for (let e = 0; e < 2; e++) EYE_XS.forEach((x, i) => {
+  joyDense[eyeStart(e) + i] = [0, arcY(x) - upperY(x)];
+  joyDense[eyeStart(e) + 7 + i] = [0, arcY(x) - lowerY(x) - 0.004 * (1 - x * x)];
+});
+MOUTH_XS.forEach((x, i) => {
+  const corner = Math.abs(x) === 1 ? -0.04 : 0;
+  joyDense[mouthStart + i] = [x * 0.03, corner + 0.004 * (1 - x * x)];
+  joyDense[mouthStart + 5 + i] = [x * 0.03, corner + 0.07 * (1 - x * x)];
+});
+// aa: 下唇を大きく下げ、上唇を少し上げる(口角は動かさない)
+const aaDense = denseZero();
+MOUTH_XS.forEach((x, i) => {
+  if (Math.abs(x) === 1) return;
+  aaDense[mouthStart + i] = [0, -0.02 * (1 - x * x)];
+  aaDense[mouthStart + 5 + i] = [0, 0.12 * (1 - x * x)];
+});
+const TARGETS = [fromDense(blinkDense), fromDense(joyDense), fromDense(aaDense)];
+const TARGET_NAMES = ['Fcl_EYE_Close', 'Fcl_ALL_Joy', 'Fcl_MTH_A'];
+
+// 顔を描く。verts は合成後の頂点、view は { cx, cy, s }(画面の中心と倍率)
+function drawFace(ctx, verts, view, opts = {}) {
+  const P = (p) => [view.cx + p[0] * view.s, view.cy + p[1] * view.s];
+  // 顔の輪郭
+  ctx.fillStyle = opts.skin || '#f6e3d8';
+  ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(view.cx, view.cy + 0.08 * view.s, 0.62 * view.s, 0.72 * view.s, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  for (let e = 0; e < 2; e++) {
+    const up = [], lo = [];
+    for (let i = 0; i < 7; i++) { up.push(verts[eyeStart(e) + i]); lo.push(verts[eyeStart(e) + 7 + i]); }
+    // 見える白目: 上まぶたが下まぶたより上にある所だけ(越えたら 0。目が消える)
+    const vis = up.map((u, i) => [u[0], Math.min(u[1], lo[i][1])]);
+    ctx.save();
+    ctx.beginPath();
+    vis.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+    for (let i = 6; i >= 0; i--) { const q = P(lo[i]); ctx.lineTo(q[0], q[1]); }
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.clip();
+    const ec = P([EYES[e].cx + (opts.irisShift || 0), EYES[e].cy + 0.01]);
+    ctx.fillStyle = '#8a5a3c'; ctx.beginPath(); ctx.arc(ec[0], ec[1], 0.085 * view.s, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#2b1b14'; ctx.beginPath(); ctx.arc(ec[0], ec[1], 0.04 * view.s, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // まぶたの線(上は太く)
+    ctx.strokeStyle = '#3a2620'; ctx.lineWidth = Math.max(2, 0.018 * view.s);
+    ctx.beginPath(); up.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.beginPath(); lo.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
+  }
+  // 口
+  const ul = [], ll = [];
+  for (let i = 0; i < 5; i++) { ul.push(verts[mouthStart + i]); ll.push(verts[mouthStart + 5 + i]); }
+  ctx.beginPath();
+  ul.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+  for (let i = 4; i >= 0; i--) { const q = P(ll[i]); ctx.lineTo(q[0], q[1]); }
+  ctx.closePath();
+  ctx.fillStyle = '#b85a5f'; ctx.fill();
+  ctx.strokeStyle = '#7a3a3e'; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+// ============================================================
+//  実験台1: モーフの足し算
+// ============================================================
+const morph = { w: [0, 0, 0], show: '0' };
+function drawMorph() {
+  const { ctx, w, h } = fit($('morph-canvas'));
+  const view = { cx: w / 2, cy: h / 2 - 10, s: Math.min(w, h) * 0.62 };
+  const verts = blend(base, TARGETS, morph.w);
+  drawFace(ctx, verts, view);
+  // 頂点
+  ctx.fillStyle = tok('--accent');
+  for (const p of verts) { ctx.beginPath(); ctx.arc(view.cx + p[0] * view.s, view.cy + p[1] * view.s, 2.2, 0, Math.PI * 2); ctx.fill(); }
+  // 選んだターゲットの差分(元の位置から、重み 1 ぶん)
+  if (morph.show !== 'none') {
+    const t = TARGETS[+morph.show];
+    t.indices.forEach((i, n) => {
+      const p = base[i], d = t.deltas[n];
+      arrow(ctx, view.cx + p[0] * view.s, view.cy + p[1] * view.s, view.cx + (p[0] + d[0]) * view.s, view.cy + (p[1] + d[1]) * view.s, tok('--warn'), 1.2);
+    });
+  }
+}
+function drawMorphBars() {
+  const { ctx, w, h } = fit($('morph-bars'));
+  const rowH = (h - 40) / 3, x0 = 120, x1 = w - 16;
+  ctx.font = '12px ' + tok('--font-mono');
+  TARGETS.forEach((t, k) => {
+    const y = 20 + k * rowH;
+    ctx.fillStyle = tok('--ink'); ctx.fillText(TARGET_NAMES[k], 8, y + 14);
+    ctx.fillStyle = tok('--muted'); ctx.fillText(`${t.indices.length} / ${N} 頂点`, 8, y + 32);
+    // 重みの棒(0 から 1.5。1 の所に線)
+    const X = (v) => x0 + v / 1.5 * (x1 - x0);
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(x0, y + 4, x1 - x0, 14);
+    ctx.fillStyle = tok('--accent'); ctx.fillRect(x0, y + 4, X(morph.w[k]) - x0, 14);
+    ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(X(1), y); ctx.lineTo(X(1), y + 22); ctx.stroke();
+    // 動く頂点の割合
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(x0, y + 26, x1 - x0, 8);
+    ctx.fillStyle = tok('--muted'); ctx.fillRect(x0, y + 26, (x1 - x0) * t.indices.length / N, 8);
+  });
+}
+function updateMorph() {
+  ['blink', 'joy', 'aa'].forEach((k, i) => { $('morph-' + k + '-out').textContent = morph.w[i].toFixed(2); });
+  drawMorph(); drawMorphBars();
+  const verts = blend(base, TARGETS, morph.w);
+  // 右目の真ん中(上まぶた 3 番・下まぶた 3 番)のすき間
+  const gap = verts[eyeStart(1) + 7 + 3][1] - verts[eyeStart(1) + 3][1];
+  const moved = TARGETS.reduce((s, t, k) => s + (morph.w[k] !== 0 ? t.indices.length : 0), 0);
+  $('morph-stats').innerHTML =
+    stat('目のすき間(元 = ' + (lowerY(0) - upperY(0)).toFixed(3) + ')', gap.toFixed(3)) +
+    stat('足し込んだ差分', moved + ' 個') +
+    stat('全部持てば', (TARGETS.length * N) + ' 個');
+  $('morph-note').textContent = gap < -1e-6
+    ? 'まぶたが下まぶたを越えた(すき間が負)。目が消える——実機の happy + まばたき(F6 がファイルの値のとき)と同じ壊れ方。足し算は止まらないので、止めるのは表情の override の仕事。'
+    : morph.w.some((v) => v > 1)
+      ? '重みは 1 を超えてよい(仕様は切り詰めない)。差分がそのまま伸びる。'
+      : '位置 = 元の位置 + Σ 重み x 差分。重み 0.5 は差分のちょうど半分。矢印は選んだターゲットを重み 1 で足したときの動き。';
+}
+for (const [k, i] of [['blink', 0], ['joy', 1], ['aa', 2]]) {
+  $('morph-' + k).addEventListener('input', (e) => { morph.w[i] = parseFloat(e.target.value); setSeg('morph-preset', ''); updateMorph(); });
+}
+seg('morph-show', (v) => { morph.show = v; updateMorph(); });
+seg('morph-preset', (v) => {
+  morph.w = { zero: [0, 0, 0], half: [0.5, 0, 0], joyaa: [0, 1, 1], crash: [1, 1, 0] }[v];
+  ['blink', 'joy', 'aa'].forEach((k, i) => { $('morph-' + k).value = morph.w[i]; });
+  updateMorph();
+});
+
+// ============================================================
+//  表情の評価(reference/Day69/Model/VrmExpressions.cs の Update の移植)
+// ============================================================
+const BLINK_NAMES = ['blink', 'blinkLeft', 'blinkRight'];
+const LOOK_NAMES = ['lookUp', 'lookDown', 'lookLeft', 'lookRight'];
+const MOUTH_NAMES = ['aa', 'ih', 'ou', 'ee', 'oh'];
+function outputWeight(e) { return e.isBinary ? (e.weight > 0.5 ? 1 : 0) : e.weight; }
+function overrideAmount(e, mode) { return mode === 'block' ? (outputWeight(e) > 0 ? 1 : 0) : mode === 'blend' ? outputWeight(e) : 0; }
+// expressions: [{ name, weight, isBinary, overrideBlink, overrideLookAt, overrideMouth, binds: [{ index, weight }] }]
+function updateExpressions(expressions, morphWeights) {
+  let blink = 1, look = 1, mouth = 1;
+  for (const e of expressions) { blink -= overrideAmount(e, e.overrideBlink); look -= overrideAmount(e, e.overrideLookAt); mouth -= overrideAmount(e, e.overrideMouth); }
+  const m = { blink: Math.max(blink, 0), look: Math.max(look, 0), mouth: Math.max(mouth, 0) };
+  for (const e of expressions) for (const b of e.binds) morphWeights[b.index] = 0;
+  for (const e of expressions) {
+    const mul = (BLINK_NAMES.includes(e.name) ? m.blink : 1) * (LOOK_NAMES.includes(e.name) ? m.look : 1) * (MOUTH_NAMES.includes(e.name) ? m.mouth : 1);
+    let w = outputWeight(e) * mul;
+    if (e.isBinary && w < 1) w = 0;
+    e.applied = w;
+    if (w === 0) continue;
+    for (const b of e.binds) morphWeights[b.index] += b.weight * w;
+  }
+  return m;
+}
+window.FaceLab = { blend, fromDense, updateExpressions, outputWeight, overrideAmount };
+
+// ============================================================
+//  実験台2: override と isBinary
+// ============================================================
+const ovr = { happy: 1, blink: 1, aa: 0, mode: 'none', binary: false };
+function evaluateOvr() {
+  const exps = [
+    { name: 'happy', weight: ovr.happy, binds: [{ index: 1, weight: 1 }] },
+    { name: 'blink', weight: ovr.blink, binds: [{ index: 0, weight: 1 }] },
+    { name: 'aa', weight: ovr.aa, binds: [{ index: 2, weight: 1 }] },
+  ];
+  for (const e of exps) {
+    e.isBinary = ovr.binary;
+    e.overrideBlink = e.name === 'happy' ? ovr.mode : 'none';
+    e.overrideMouth = e.name === 'happy' ? ovr.mode : 'none';
+    e.overrideLookAt = 'none';
+  }
+  const weights = [0, 0, 0];
+  const m = updateExpressions(exps, weights);
+  return { exps, weights, m };
+}
+function drawOvr() {
+  const r = evaluateOvr();
+  {
+    const { ctx, w, h } = fit($('ovr-face'));
+    drawFace(ctx, blend(base, TARGETS, r.weights), { cx: w / 2, cy: h / 2 - 8, s: Math.min(w, h) * 0.62 });
+  }
+  const { ctx, w, h } = fit($('ovr-bars'));
+  const x0 = 70, x1 = w - 16, rowH = (h - 70) / 3;
+  ctx.font = '12px ' + tok('--font-mono');
+  r.exps.forEach((e, k) => {
+    const y = 14 + k * rowH;
+    ctx.fillStyle = tok('--ink'); ctx.fillText(e.name, 8, y + 16);
+    ctx.fillStyle = tok('--sunken'); ctx.fillRect(x0, y, x1 - x0, 26);
+    ctx.fillStyle = tok('--accent-soft'); ctx.fillRect(x0, y, (x1 - x0) * e.weight, 12);
+    ctx.fillStyle = tok('--accent'); ctx.fillRect(x0, y + 14, (x1 - x0) * e.applied, 12);
+    ctx.fillStyle = tok('--muted'); ctx.fillText(`${e.weight.toFixed(2)} → ${e.applied.toFixed(2)}`, x0 + 4, y + 42);
+  });
+  ctx.fillStyle = tok('--ink');
+  ctx.fillText(`抑えの倍率  まばたき x${r.m.blink.toFixed(2)}  口 x${r.m.mouth.toFixed(2)}`, 8, h - 12);
+  return r;
+}
+function updateOvr() {
+  ['happy', 'blink', 'aa'].forEach((k) => { $('ovr-' + k + '-out').textContent = ovr[k].toFixed(2); });
+  const r = drawOvr();
+  const blinkApplied = r.exps[1].applied;
+  $('ovr-stats').innerHTML =
+    stat('まばたきの倍率', 'x' + r.m.blink.toFixed(2)) +
+    stat('口の倍率', 'x' + r.m.mouth.toFixed(2)) +
+    stat('流した blink', blinkApplied.toFixed(2)) +
+    stat('流した aa', r.exps[2].applied.toFixed(2));
+  let note;
+  if (ovr.mode === 'none' && ovr.happy > 0 && blinkApplied > 0.6) note = 'none(AvatarSample_A の値)では抑えない。happy の閉じた弧にまばたきが足されて、目が消える。';
+  else if (ovr.mode === 'block' && ovr.happy > 0) note = 'block は happy が少しでも出ていれば(0.01 でも)まばたきと口を 0 倍にする。happy を 0 まで下げると戻る。';
+  else if (ovr.mode === 'blend') note = 'blend は happy の重みのぶんだけ弱める(happy 0.3 なら x0.70)。happy が 1 なら block と同じ。';
+  else note = '抑える量は全部の表情を見てから決める(1段目)。表情を1つずつ「抑えて足す」と、並び順で結果が変わる。';
+  if (ovr.binary) note += ' isBinary: 0.5 を超えた重みだけが 1 になる。抑えられて 1 未満になった isBinary は 0(blend で x0.7 にされたまばたきは出ない)。';
+  $('ovr-note').textContent = note;
+}
+for (const k of ['happy', 'blink', 'aa']) $('ovr-' + k).addEventListener('input', (e) => { ovr[k] = parseFloat(e.target.value); updateOvr(); });
+seg('ovr-mode', (v) => { ovr.mode = v; updateOvr(); });
+seg('ovr-binary', (v) => { ovr.binary = v === 'on'; updateOvr(); });
+
+// ============================================================
+//  実験台3: UV のずらし(MToon.GlUvTransform の移植)
+// ============================================================
+const uv = { u: 0.06, v: 0, w: 1, mesh: 'tight' };
+function glUvTransform(scale, offset) { return [scale[0], scale[1], offset[0], 1 - scale[1] - offset[1]]; }
+function drawUv() {
+  const { ctx, w, h } = fit($('uv-canvas'));
+  // テクスチャ 1 枚 = 画面の幅 tex 画素。瞳はテクスチャの (0.5, 0.5) に半径 0.1
+  const tex = Math.min(w * 0.9, h * 1.6), cx = w / 2, cy = h / 2;
+  const ou = uv.u * uv.w, ov = uv.v * uv.w;
+  // ファイルの向きの UV で考える: 画面の点 → uv = (点の uv) + o。絵の中心は uv が 0.5 になる点 = 点の uv が 0.5 - o
+  const irisX = cx - ou * tex, irisY = cy - ov * tex;
+  const meshR = uv.mesh === 'tight' ? [0.105, 0.115] : [0.2, 0.13];
+  // 白目(顔の肌の上)
+  ctx.fillStyle = '#f6e3d8'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(cx, cy, 0.2 * tex, 0.13 * tex, 0, 0, Math.PI * 2); ctx.fill();
+  // 瞳のメッシュの中だけ描く
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx, cy, meshR[0] * tex, meshR[1] * tex, 0, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = '#8a5a3c'; ctx.beginPath(); ctx.arc(irisX, irisY, 0.1 * tex, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2b1b14'; ctx.beginPath(); ctx.arc(irisX, irisY, 0.045 * tex, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff8d0'; ctx.beginPath(); ctx.arc(irisX + 0.03 * tex, irisY - 0.035 * tex, 0.018 * tex, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(cx, cy, meshR[0] * tex, meshR[1] * tex, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = '#3a2620'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 0.2 * tex, 0.13 * tex, 0, 0, Math.PI * 2); ctx.stroke();
+  return { ou, ov, clipped: Math.abs(ou) + 0.1 > meshR[0] || Math.abs(ov) + 0.1 > meshR[1] };
+}
+function drawUvMath(ou, ov) {
+  const { ctx, w, h } = fit($('uv-math'));
+  const g = glUvTransform([1, 1], [ou, ov]);
+  const sample = [0.3, 0.2];
+  const fileNew = [sample[0] + ou, sample[1] + ov];
+  const glNew = [sample[0] * g[0] + g[2], (1 - sample[1]) * g[1] + g[3]];
+  ctx.font = '13px ' + tok('--font-mono'); ctx.fillStyle = tok('--ink');
+  const lines = [
+    'ずらし o = (' + ou.toFixed(3) + ', ' + ov.toFixed(3) + ')',
+    '',
+    'GL へ送る uUvTransform',
+    '  = (s.x, s.y, o.x, 1 - s.y - o.y)',
+    '  = (' + g.map((v) => v.toFixed(3)).join(', ') + ')',
+    '',
+    'ファイルの UV (0.3, 0.2) は',
+    '  ファイルの向き → (' + fileNew[0].toFixed(3) + ', ' + fileNew[1].toFixed(3) + ')',
+    '  GL の向き     → (' + glNew[0].toFixed(3) + ', ' + glNew[1].toFixed(3) + ')',
+    '  1 - v で戻すと  (' + glNew[0].toFixed(3) + ', ' + (1 - glNew[1]).toFixed(3) + ')',
+  ];
+  lines.forEach((t, i) => ctx.fillText(t, 10, 22 + i * 20));
+}
+function updateUv() {
+  $('uv-u-out').textContent = uv.u.toFixed(3); $('uv-v-out').textContent = uv.v.toFixed(3); $('uv-w-out').textContent = uv.w.toFixed(2);
+  const r = drawUv();
+  drawUvMath(r.ou, r.ov);
+  $('uv-stats').innerHTML =
+    stat('いまのずらし u', r.ou.toFixed(3)) +
+    stat('瞳の動き(瞳の幅に対して)', Math.round(Math.hypot(r.ou, r.ov) / 0.2 * 100) + '%') +
+    stat('メッシュの縁で欠ける', r.clipped ? 'はい' : 'いいえ');
+  $('uv-note').textContent = r.clipped && uv.mesh === 'tight'
+    ? 'ずらした側の縁が、動かないメッシュで切れる(実機の F9 と同じ)。「白目いっぱい」にすると欠けない。UV で動くのは絵だけで、メッシュは動かない。'
+    : 'u を増やすとテクスチャのより右を読むので、絵は左へ動く。v は GL の向きに直して送る(右の式)。';
+}
+for (const k of ['u', 'v', 'w']) $('uv-' + k).addEventListener('input', (e) => { uv[k] = parseFloat(e.target.value); updateUv(); });
+seg('uv-mesh', (v) => { uv.mesh = v; updateUv(); });
+
+// ============================================================
+//  実験台4: 自動まばたき(reference/Day69/Model/AutoBlink.cs の Curve と間隔の決め方の移植)
+// ============================================================
+const CLOSE = 0.06, HOLD = 0.03, OPEN = 0.12, BLINK = CLOSE + HOLD + OPEN;
+function curve(t) {
+  if (t <= 0 || t >= BLINK) return 0;
+  if (t < CLOSE) return t / CLOSE;
+  if (t < CLOSE + HOLD) return 1;
+  const x = (t - CLOSE - HOLD) / OPEN;
+  return 1 - x * x * (3 - 2 * x);
+}
+function mulberry32(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const blinkState = { min: 1.5, max: 5.5, mode: 'random', time: 0, starts: [] };
+function planBlinks(span) {
+  const rnd = mulberry32(69), starts = [];
+  let t = 0;
+  const lo = Math.min(blinkState.min, blinkState.max), hi = Math.max(blinkState.min, blinkState.max);
+  while (t < span) {
+    t += blinkState.mode === 'fixed' ? (lo + hi) / 2 : lo + (hi - lo) * rnd();   // 待ち時間は開き終わってから数える
+    starts.push(t);
+    t += BLINK;
+  }
+  return starts;
+}
+function weightAt(t) { for (const s of blinkState.starts) if (t >= s && t < s + BLINK) return curve(t - s); return 0; }
+function drawBlink() {
+  const span = 20, now = blinkState.time % span;
+  {
+    const { ctx, w, h } = fit($('blink-timeline'));
+    const x0 = 34, x1 = w - 10, y0 = h - 24, y1 = 14;
+    const X = (t) => x0 + t / span * (x1 - x0), Y = (v) => y0 - v * (y0 - y1);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+    for (let t = 0; t <= span; t += 5) ctx.fillText(t + 's', X(t) - 6, y0 + 16);
+    ctx.fillText('1', 18, Y(1) + 4); ctx.fillText('0', 18, Y(0) + 4);
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2;
+    for (const s of blinkState.starts) {
+      if (s > span) break;
+      ctx.beginPath();
+      for (let i = 0; i <= 20; i++) { const t = s + BLINK * i / 20; i ? ctx.lineTo(X(t), Y(curve(t - s))) : ctx.moveTo(X(t), Y(0)); }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(now), y0); ctx.lineTo(X(now), y1); ctx.stroke();
+  }
+  {
+    const { ctx, w, h } = fit($('blink-curve'));
+    const x0 = 34, x1 = w - 10, y0 = h - 24, y1 = 14, span1 = 0.25;
+    const X = (t) => x0 + t / span1 * (x1 - x0), Y = (v) => y0 - v * (y0 - y1);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+    for (const t of [0, CLOSE, CLOSE + HOLD, BLINK]) { ctx.fillText(t.toFixed(2), X(t) - 10, y0 + 16); ctx.strokeStyle = tok('--grid'); ctx.beginPath(); ctx.moveTo(X(t), y0); ctx.lineTo(X(t), y1); ctx.stroke(); }
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2.5; ctx.beginPath();
+    for (let i = 0; i <= 200; i++) { const t = span1 * i / 200; i ? ctx.lineTo(X(t), Y(curve(t))) : ctx.moveTo(X(t), Y(curve(t))); }
+    ctx.stroke();
+  }
+  {
+    const { ctx, w, h } = fit($('blink-face'));
+    const weight = reduceMotion ? 0.6 : weightAt(now);
+    drawFace(ctx, blend(base, TARGETS, [weight, 0, 0]), { cx: w / 2, cy: h / 2 - 6, s: Math.min(w, h) * 0.6 });
+  }
+}
+function updateBlink() {
+  $('blink-min-out').textContent = blinkState.min.toFixed(1); $('blink-max-out').textContent = blinkState.max.toFixed(1);
+  blinkState.starts = planBlinks(80);
+  const in60 = blinkState.starts.filter((s) => s < 60).length;
+  const gaps = blinkState.starts.slice(1).map((s, i) => s - blinkState.starts[i]).filter((g, i) => blinkState.starts[i + 1] < 60);
+  const mean = gaps.reduce((a, b) => a + b, 0) / Math.max(gaps.length, 1);
+  $('blink-stats').innerHTML =
+    stat('1 分のまばたき', in60 + ' 回') +
+    stat('間隔の平均', mean.toFixed(2) + ' 秒') +
+    stat('間隔の幅', (Math.min(...gaps)).toFixed(2) + ' から ' + (Math.max(...gaps)).toFixed(2) + ' 秒') +
+    stat('1 回の長さ', BLINK.toFixed(2) + ' 秒');
+  $('blink-note').textContent = blinkState.mode === 'fixed'
+    ? '一定の間隔だと、時計のように規則正しく閉じる。数回見ると機械に見える。'
+    : '人は 1 分に 15 から 20 回。閉じるのは 0.06 秒で一定の速さ、開くのは 0.12 秒で滑らかに(終わりで速さ 0)。待ち時間は開き終わってから数える。';
+  drawBlink();
+}
+for (const k of ['min', 'max']) $('blink-' + k).addEventListener('input', (e) => { blinkState[k] = parseFloat(e.target.value); updateBlink(); });
+seg('blink-mode', (v) => { blinkState.mode = v; updateBlink(); });
+if (!reduceMotion) animate($('blink-lab'), (dt) => { blinkState.time += dt; drawBlink(); });
+
+// ------------------------------------------------------------
+updateMorph(); updateOvr(); updateUv(); updateBlink();
+window.addEventListener('resize', () => { updateMorph(); updateOvr(); updateUv(); drawBlink(); });
+})();
+</script>
+</body>
+</html>
