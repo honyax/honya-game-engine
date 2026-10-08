@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 23 ECS への書き換え(両設計の比較)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ECS は「持ち方の裏返し」</a></li><li class="l3"><a href="#s5">2. sparse set — 3本の配列で「隙間なく詰める」</a></li><li class="l3"><a href="#s6">3. なぜ速いのか — 触るバイト数が減る</a></li><li class="l3"><a href="#s7">4. 結合(join)のコストと、アーキタイプ方式</a></li><li class="l3"><a href="#s8">5. システムの順番は「書く」もの</a></li><li class="l3"><a href="#s9">6. ECS は全部を置き換えるものではない</a></li><li class="l3"><a href="#s10">7. 設計を変えても計算は変わっていない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17"><code>J</code> を3回押す</a></li><li class="l3"><a href="#s18"><code>D</code>: ECS の自己チェック</a></li><li class="l3"><a href="#s19"><code>M</code> / <code>N</code> と <code>Y</code></a></li><li class="l2"><a href="#s20">改造課題</a></li><li class="l3"><a href="#s21">課題1(易): コンポーネントとシステムを1つ足す</a></li><li class="l3"><a href="#s22">課題2(中): <code>Store&lt;T&gt;()</code> の辞書引きをなくす</a></li><li class="l3"><a href="#s23">課題3(難): アーキタイプ方式に一歩寄せる</a></li><li class="l2"><a href="#s24">動作確認済み環境</a></li><li class="l3"><a href="#s25">1ステップの更新時間(200 ステップの平均)</a></li><li class="l3"><a href="#s26">結合のコスト</a></li><li class="l3"><a href="#s27">1体あたりのバイト数</a></li><li class="l3"><a href="#s28">構築時間(19,981 体)</a></li><li class="l3"><a href="#s29">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 4 / Day 23 / 計画書</p>
+  <h1>ECS への書き換え(両設計の比較)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ECS は「持ち方の裏返し」</a></li><li class="l3"><a href="#s5">2. sparse set — 3本の配列で「隙間なく詰める」</a></li><li class="l3"><a href="#s6">3. なぜ速いのか — 触るバイト数が減る</a></li><li class="l3"><a href="#s7">4. 結合(join)のコストと、アーキタイプ方式</a></li><li class="l3"><a href="#s8">5. システムの順番は「書く」もの</a></li><li class="l3"><a href="#s9">6. ECS は全部を置き換えるものではない</a></li><li class="l3"><a href="#s10">7. 設計を変えても計算は変わっていない</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17"><code>J</code> を3回押す</a></li><li class="l3"><a href="#s18"><code>D</code>: ECS の自己チェック</a></li><li class="l3"><a href="#s19"><code>M</code> / <code>N</code> と <code>Y</code></a></li><li class="l2"><a href="#s20">改造課題</a></li><li class="l3"><a href="#s21">課題1(易): コンポーネントとシステムを1つ足す</a></li><li class="l3"><a href="#s22">課題2(中): <code>Store&lt;T&gt;()</code> の辞書引きをなくす</a></li><li class="l3"><a href="#s23">課題3(難): アーキタイプ方式に一歩寄せる</a></li><li class="l2"><a href="#s24">動作確認済み環境</a></li><li class="l3"><a href="#s25">1ステップの更新時間(200 ステップの平均)</a></li><li class="l3"><a href="#s26">結合のコスト</a></li><li class="l3"><a href="#s27">1体あたりのバイト数</a></li><li class="l3"><a href="#s28">構築時間(19,981 体)</a></li><li class="l3"><a href="#s29">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 4(エンジンコア)の5日目。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>まったく同じ動きのスプライトを<strong>3通りで切り替えられる</strong>(<code>J</code> キー)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>更新方式</th><th>2万体の1ステップ</th><th>構造体配列との比</th></tr></thead>
+<tbody>
+<tr><td>構造体の配列(Day 17 の専用コード)</td><td>0.084ms</td><td>1.00x</td></tr>
+<tr><td>GameObject + Component(Day 22)</td><td>1.511ms</td><td>18.1x</td></tr>
+<tr><td><strong>ECS(今日)</strong></td><td><strong>0.084ms</strong></td><td><strong>1.01x</strong></td></tr>
+</tbody>
+</table></div>
+<p>Day 22 で開いた 18 倍が、<strong>そっくり埋まる</strong>。しかも 3 つとも、400 ステップ回した後の位置がビット単位で一致する。</p>
+<div class="code"><pre><code>構造体の配列: 46918C8954922A4A
+ECS         : 46918C8954922A4A  一致
+GameObject  : 46918C8954922A4A  一致</code></pre></div>
+<p>計算は1つも変えていない。変えたのは<strong>データの置き方だけ</strong>。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、この設計の出所を挙げておく。</p>
+<ul><li><a href="https://github.com/SanderMertens/ecs-faq">ECS FAQ</a>(Sander Mertens / flecs 作者) ECS の用語と実装方式が一通り整理されている。今日いちばん効くのは <strong>sparse set とアーキタイプの比較</strong>の節で、要点4に直結する</li><li><a href="https://kyren.github.io/2018/09/14/rustconf-talk.html">Using Rust For Game Development</a>(Catherine West, RustConf 2018) Day 21 でも挙げたもの。今日は<strong>後半が本番</strong>で、「継承 → コンポーネント → 世代付き添字の配列」という流れがそのまま今日の道筋</li><li><a href="https://gameprogrammingpatterns.com/data-locality.html">Game Programming Patterns: Data Locality</a> Day 22 で挙げたもの。要点3の裏付け</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. ECS は「持ち方の裏返し」</h3>
+<p>Day 22 の <code>GameObject</code> は、名前と <code>Transform</code> とコンポーネントのリストを抱えたヒープ上のオブジェクトだった。ECS ではそれが<strong>32 ビットの整数1個</strong>になる。</p>
+<div class="code"><pre><code>GameObject : GameObject[] → それぞれが Component[] を持つ   (1個ぶんがまとまる)
+ECS        : ComponentStore ごとに配列                       (同じ種類がまとまる)</code></pre></div>
+<p>「位置」も「絵」も「速度」も、エンティティが<strong>持っている</strong>のではなく、<code>ComponentStore&lt;T&gt;</code> の側が「この番号のぶん」として持つ。</p>
+<p>この裏返しが ECS の全部と言ってよい。そして名前のとおり3つに分かれる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>中身</th><th>今日のファイル</th></tr></thead>
+<tbody>
+<tr><td><strong>E</strong>ntity</td><td>ただの番号。データもふるまいも持たない</td><td><code>Entity.cs</code></td></tr>
+<tr><td><strong>C</strong>omponent</td><td>データだけの構造体。ふるまいを持たない</td><td><code>EcsComponents.cs</code></td></tr>
+<tr><td><strong>S</strong>ystem</td><td>配列を舐めるだけの手続き。状態を持たない</td><td><code>EcsSystems.cs</code></td></tr>
+</tbody>
+</table></div>
+<p><code>Entity</code> の中身は Day 21 の <code>Handle&lt;T&gt;</code> とまったく同じ——世代 8 ビット + 添字 24 ビットで、世代 0 を無効に予約している。<strong>「使い回される配列の枠を安全に指す」という問題は同じ</strong>なので、答えも同じになる。</p>
+<h3 id="s5">2. sparse set — 3本の配列で「隙間なく詰める」</h3>
+<p><code>ComponentStore&lt;T&gt;</code> の中身。</p>
+<div class="code"><pre><code>_dense         [ Pos0 ][ Pos1 ][ Pos2 ] ...   ← 実体。隙間なし。ここを舐める
+_denseToEntity [  7   ][  3   ][  12  ] ...   ← 密な添字 → エンティティ番号
+_entityToDense [ .. ][ .. ][  1  ][ .. ]      ← エンティティ番号 → 密な添字(-1 で無し)</code></pre></div>
+<p>肝は <code>_dense</code> に隙間が無いこと。システムはここを頭から順に舐めるだけなので、CPU のプリフェッチが効き、キャッシュラインを無駄なく使える。</p>
+<p>取り除くときは<strong>末尾と入れ替えて縮める</strong>ので O(1)。代わりに並び順が変わるので、密な添字を覚えておいてはいけない。</p>
+<p><code>Values</code> を <code>Span&lt;T&gt;</code> で返しているのも意味がある。<code>List&lt;T&gt;</code> の添字アクセスは構造体だと<strong>コピーが返る</strong>ので、その場で書き換えられない。<code>Span&lt;T&gt;</code> なら <code>ref</code> で触れる。同じ理由で <code>Get</code> も <code>ref T</code> を返している。</p>
+<h3 id="s6">3. なぜ速いのか — 触るバイト数が減る</h3>
+<p>移動のシステムが読み書きするのは <code>Transform2D</code>(12 バイト)と<code>Velocity2D</code>(16 バイト)だけ。合計 28 バイト。</p>
+<p>Day 17 からの <code>Sprite</code> 構造体は <strong>64 バイト</strong>あって、色(16)も種類(4)もレイヤー(4)も<strong>移動には要らないのに一緒に運ばれていた</strong>。64 バイトのキャッシュラインに 1 体しか入らない計算になる。ECS では 28 バイトなので、同じ 1 ライン に 2 体強が乗る。</p>
+<p>だから ECS は「GameObject より速い」だけでなく、<strong>手書きの構造体配列にも並ぶ</strong>(実測 1.01 倍)。1,000 体では 0.96 倍とわずかに速いことすらある。</p>
+<p>もう1つ、ECS では<strong>表現を用途ごとに選べる</strong>。Day 22 の <code>Transform</code> はクォータニオン・スケール・親子・ダーティフラグを全員に配っていたが、<code>Transform2D</code> は <code>Vector2</code> + <code>float</code> しか持たない。3D が要るところには 3D 用のコンポーネントを別に作ればよい。Day 22 で「16.8 倍のうちいくらかは汎用 Transform のコスト」と書いたが、ECS はその汎用性を<strong>捨てる自由</strong>を与える。</p>
+<h3 id="s7">4. 結合(join)のコストと、アーキタイプ方式</h3>
+<p>いいことばかりではない。移動には <code>Transform2D</code> と <code>Velocity2D</code> の<strong>両方</strong>が要る。2本の配列を突き合わせる(結合する)には、エンティティ番号 → 密な添字 → 実体、と1段余計にたどることになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 一般の場合: 片方を舐めて、もう片方は番号で引く
+int dense = velocities.DenseIndexOf(entities[i]);
+Step(ref t[i], ref velocities.AtDense(dense), ...);</code></pre></div>
+<p>実測すると、これが効く。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>添字をそのまま使う</th><th>番号で引く</th><th>比</th></tr></thead>
+<tbody>
+<tr><td>1,000</td><td>0.018ms</td><td>0.063ms</td><td>3.45x</td></tr>
+<tr><td>19,981</td><td>0.087ms</td><td>0.137ms</td><td>1.57x</td></tr>
+</tbody>
+</table></div>
+<p><strong>全員が同じコンポーネントを同じ順で持っていれば、添字をそのまま使える</strong>。このデモは全員を同じ手順で作っているのでその状態になっており、<code>EcsSystems.AreAligned</code> で確かめてから速い経路に入る。</p>
+<p>問題は、その前提が<strong>いつ崩れるか</strong>が直感に反すること。<code>D</code> キーで確かめられる。</p>
+<div class="code"><pre><code>[OK] 同じ順で付ければ並びは一致する
+[OK] 破棄しても並びの一致は保たれる      ← 全ストアが同じ入れ替えをするから
+[OK] 片方にしか無ければ件数が合わない
+[OK] 件数がそろっても順番は戻らない      ← 後から足すと崩れる</code></pre></div>
+<p>「破棄では崩れないが、後から足すと崩れる」。崩れたまま速い経路を使えば<strong>静かに間違う</strong>——例外も出ず、別人の速度で動く。</p>
+<p>そこで出てくるのが<strong>アーキタイプ方式</strong>(Unity DOTS、flecs、Bevy などが採る)。「同じコンポーネント構成のエンティティを、同じ塊にまとめて置く」ことで、上の <code>aligned</code> な状態を<strong>人間の注意力ではなく構造で保証する</strong>。代わりにコンポーネントを足し引きすると塊の間で引っ越しが起きる。</p>
+<p>今日は sparse set を書いて<strong>結合のコストを実際に払ってみる</strong>ところまで。「なぜアーキタイプという面倒な仕組みがあるのか」が、1.57〜3.45 倍という数字で腹に落ちるはず。</p>
+<div class="inject"><figure class="lab" id="ss-lab">
+  <div class="lab-head">
+    <h3>sparse set の3本の配列 — 破棄では崩れず、後から足すと崩れる(要点2・4、D キー)</h3>
+    <span class="tag">reference の ComponentStore.cs(Add・Remove の末尾との入れ替え・entityToDense の −1 埋め)・World.cs(CreateEntity・DestroyEntity・枠の再利用)・EcsSystems.AreAligned と、Program.RunEcsCheck(15 項目)を JS に移したもの。Transform2D と Velocity2D の2つのストアを並べ、各ストアの3本の配列(実体の並び = denseToEntity、entityToDense)を表で見せる。数字はエンティティの番号(添字)。下の「速い経路で組む相手」は、添字をそのまま使ったときに i 番目の Transform2D と組む Velocity2D で、番号が違えば別人の速度で動く(赤)。エンティティの札を押すと選べる</span>
+  </div>
+  <div class="stage" style="padding:12px"><div id="ss-view"></div></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">作る</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="ss-both">作る(両方付ける)</button><button class="btn" id="ss-tonly">作る(Transform2D だけ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">選んだエンティティに</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="ss-addv">Velocity2D を後から足す</button><button class="btn" id="ss-destroy">破棄する</button></div>
+    </div>
+    <div class="ctl"><span class="label">確かめる</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="ss-check">D 自己チェック</button><button class="btn" id="ss-reset">最初から(3 体)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ss-stats"></div><pre id="ss-console" style="margin:10px 0 0;max-height:300px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s8">5. システムの順番は「書く」もの</h3>
+<p>Day 22 の要点7で、<code>Scene</code> の実行順は「リストに入っている順」でしかなく誰も決めていない、と書いた。ECS では逆で、<strong>書かないと動かない</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>EcsSystems.Snapshot(_world, _ecsAligned);   // 控えてから
+EcsSystems.Move(_world, dt, bounds, _ecsAligned);   // 動かす</code></pre></div>
+<p>逆にすると補間が1ステップぶんずれる。「入力 → 移動 → 当たり判定 → 描画」を呼び出し側に並べさせるのが ECS の作法で、<strong>Day 22 の弱点が設計の前提に変わる</strong>。</p>
+<p>システムを静的メソッドにしてあるのも同じ狙い。システムが状態を持ち始めると、それは結局オブジェクトになる。状態はコンポーネント(= <code>World</code> の中)にしか置かない。</p>
+<h3 id="s9">6. ECS は全部を置き換えるものではない</h3>
+<p>このデモでも、<strong>プレイヤーと階層の実演は3つのどのモードでも GameObject のまま</strong>。意図的にそうしてある。</p>
+<p>ECS が苦手なのは、</p>
+<ul><li><strong>親子関係</strong> … 「親のワールド行列」を引くには結局ポインタを辿ることになる。ECS で階層をやるなら、親のエンティティ番号を持たせて「親が先に更新されている順」に並べ替える(トポロジカルソート)ことになり、Day 22 の <code>Transform</code> より確実に面倒</li><li><strong>少数で、それぞれ違うふるまいをするもの</strong> … プレイヤー1体のためにコンポーネントとシステムを作る旨みは無い。<code>PlayerController</code> 1クラスのほうが読める</li><li><strong>オブジェクト間の1対1のやりとり</strong> … 「この敵がこの弾に当たった」のような個別の関係は、配列を舐める形に馴染まない</li></ul>
+<p>逆に得意なのは<strong>同じ処理を大量にかけるもの</strong>。Phase 5 の卒業制作(敵が数百体押し寄せる見下ろし型アクション)はまさにそれで、敵と弾は ECS、プレイヤーと UI は GameObject、という<strong>混ぜた作り</strong>が現実的な答えになる。</p>
+<p>「どちらが正しいか」ではなく「どこに何を使うか」。ロードマップが<strong>同じものを2回書かせた</strong>のは、この判断ができるようになるため。</p>
+<h3 id="s10">7. 設計を変えても計算は変わっていない</h3>
+<p>3つの経路を同じ初期状態から 400 ステップ回して、位置をハッシュで突き合わせる。</p>
+<div class="code"><pre><code>500 体 x 400 ステップ後の位置のハッシュ
+  構造体の配列: 46918C8954922A4A
+  ECS         : 46918C8954922A4A  一致
+  GameObject  : 46918C8954922A4A  一致</code></pre></div>
+<p><strong>ビット単位で一致する</strong>。浮動小数点の足し算は順序を変えると結果が変わる(Day 19 要点7)ので、これは「同じ演算を同じ順でやっている」ことの証明になる。</p>
+<p>つまり今日やったのは最適化であって、仕様変更ではない。Day 20 のリプレイも、Day 19 の決定性も、そのまま生きている。<strong>性能の話をするときは、まずこれを確かめてから</strong>でないと、速くなったのか壊れたのか区別がつかない。</p>
+<div class="inject"><figure class="lab" id="tw-lab">
+  <div class="lab-head">
+    <h3>3通りで回す — 構造体の配列 → GameObject → ECS(要点3・7、J キー)</h3>
+    <span class="tag">reference の3つの更新(UpdateSprites、Day 22 の BouncingMover、EcsSystems.Snapshot + Move)と、EnsureEcsSprites(今の状態をそのままエンティティに写す)・タイトルバーの書き方を JS に移したもの。JS では、構造体の配列を Float32Array の束、GameObject を1個ずつのオブジェクト、ECS のストアをフィールドごとの Float32Array(sparse set)で表している。3つとも float の計算を1回ごとに丸めているので、「400 ステップ後のハッシュ」は3つで一致する(このページの3つの実装どうしの一致で、C# の値とは比べていない)。更新時間はこのページで測った値。絵は小さな四角で描いている</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="tw-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="tw-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:420px" aria-label="たくさんの四角が跳ね回る。更新方式を切り替えても絵は同じ"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">更新方式(J で巡回)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tw-mode"><button data-v="soa" aria-pressed="true">構造体の配列</button><button data-v="go" aria-pressed="false">GameObject + Component</button><button data-v="ecs" aria-pressed="false">ECS</button></div><button class="btn" id="tw-j">J 次へ</button></div>
+    </div>
+    <div class="ctl"><span class="label">個数(Shift + PageUp / PageDown)</span>
+      <div class="seg" id="tw-count"><button data-v="1000" aria-pressed="true">1,000</button><button data-v="5000" aria-pressed="false">5,000</button><button data-v="19981" aria-pressed="false">19,981</button></div>
+    </div>
+    <div class="ctl"><span class="label">確かめる・測る</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="tw-hash">400 ステップ後のハッシュ(500 体)</button><button class="btn" id="tw-bench">3 通りの個数で比べる(表)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tw-stats"></div><div class="table-wrap" id="tw-table" style="margin-top:10px"></div><pre id="tw-console" style="margin:10px 0 0;max-height:200px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Entity.cs</code></td><td>59 (23)</td><td>世代 + 添字の 32 ビット。<code>Handle&lt;T&gt;</code> と同じ作り</td></tr>
+<tr><td><code>ComponentStore.cs</code></td><td>180 (91)</td><td>sparse set。1種類のコンポーネントを隙間なく並べる</td></tr>
+<tr><td><code>World.cs</code></td><td>177 (102)</td><td>エンティティの番号を配り、ストアを束ねる</td></tr>
+<tr><td><code>EcsComponents.cs</code></td><td>79 (25)</td><td><code>Transform2D</code> / <code>Previous2D</code> / <code>Velocity2D</code> / <code>Sprite2D</code></td></tr>
+<tr><td><code>EcsSystems.cs</code></td><td>182 (104)</td><td><code>Snapshot</code> / <code>Move</code> / <code>AreAligned</code></td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+361 / -34</td><td>3方式の切り替え、ECS の組み立てと描画、自己チェック</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">キーの変更</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>J</code></td><td>更新方式を巡回(構造体の配列 → GameObject → ECS → …)</td></tr>
+<tr><td><code>D</code></td><td>ECS の自己チェック(コンソール)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">写経する順番</h3>
+<ol><li><strong><code>Entity.cs</code></strong> — 短い。Day 21 の <code>Handle&lt;T&gt;</code> と見比べる</li><li><strong><code>ComponentStore.cs</code></strong> — 3本の配列。<code>Remove</code> の入れ替えと<code>EnsureEntityCapacity</code> の <code>-1</code> 埋めが要注意</li><li><strong><code>World.cs</code></strong> — エンティティの生成・破棄とストアの束ね方</li><li><strong><code>EcsComponents.cs</code></strong> — ほぼ構造体の宣言。コメントだけ読めばよい</li><li><strong><code>EcsSystems.cs</code></strong> — <code>Snapshot</code> と <code>Move</code>。速い経路と一般の経路を見比べる</li><li><strong><code>Program.cs</code></strong> — <code>EnsureEcsSprites</code> → <code>FixedUpdate</code> の分岐 → <code>RenderEcsSprites</code> → <code>RunEcsCheck</code></li></ol>
+<p>1〜5 は他のファイルにまったく依存しない(<code>Vector2</code> だけ)ので、<strong>先に5つ書いてしまえる</strong>。Day 22 より切り離しやすい。</p>
+</section>
+<section class="part"><h2 id="s16">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day23 -c Release</code></pre></div>
+<h3 id="s17"><code>J</code> を3回押す</h3>
+<p>タイトルバーの表示が巡回する。<strong>絵はどれもまったく同じ</strong>。</p>
+<div class="code"><pre><code>構造体の配列 更新:0.02ms GO:8 E:0
+GameObject + Component 更新:0.09ms GO:1008 E:0
+ECS 更新:0.02ms GO:8 E:1000</code></pre></div>
+<p><code>Shift</code> + <code>PageUp</code> を2回押して2万体にすると差がはっきりする。</p>
+<div class="code"><pre><code>構造体の配列 更新:0.08ms
+GameObject + Component 更新:1.51ms   ← 18倍
+ECS 更新:0.08ms                       ← 元に戻った</code></pre></div>
+<p>切り替えのたびにコンソールへ構築の記録が出る。</p>
+<div class="code"><pre><code>[シーン] スプライト 19981 個を GameObject 化: 20.7ms / 10053KB (515 バイト/個)
+[ECS] スプライト 19981 体をエンティティ化: 20.0ms / 4992KB (256 バイト/体) /
+      Transform2D:19981 Previous2D:19981 Velocity2D:19981 Sprite2D:19981 / 並び 一致</code></pre></div>
+<p><strong><code>並び 一致</code> が出ていること</strong>が、速い経路に入れている印。</p>
+<h3 id="s18"><code>D</code>: ECS の自己チェック</h3>
+<p>15 項目すべて <code>OK</code> になる。いちばん見たいのは並びの崩れ方(要点4)。</p>
+<div class="code"><pre><code>[OK] 破棄しても並びの一致は保たれる
+[OK] 片方にしか無ければ件数が合わない
+[OK] 件数がそろっても順番は戻らない  件数 4 / 4
+[OK] 崩れても結果は同じ  (速い経路と一般の経路を突き合わせ)</code></pre></div>
+<p>最後の1項目は、<strong>速い経路と一般の経路で 100 ステップ回した結果が1ビットも違わない</strong>ことを確かめている。「前提が崩れたら静かに間違う」種類の最適化なので、正しいときには完全に一致することを押さえておく。</p>
+<h3 id="s19"><code>M</code> / <code>N</code> と <code>Y</code></h3>
+<p>Day 20 のリプレイ、Day 19 の決定性チェックはそのまま動く。プレイヤーは ECS モードでも GameObject のままなので、影響を受けない。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>J</code></td><td>「3通りで回す」の更新方式と「J 次へ」</td><td>絵は変わらず、タイトルの更新時間だけが変わる。GameObject だけが重い。ECS に切り替えるとコンソールに「並び 一致」が出る</td></tr>
+<tr><td><code>Shift</code> + <code>PageUp</code> / <code>PageDown</code></td><td>同じ実験台の個数</td><td>1,000 / 5,000 / 19,981 の 3 段。個数を増やすほど GameObject との差が開く</td></tr>
+<tr><td><code>D</code></td><td>「sparse set の3本の配列」の「D 自己チェック」</td><td>15 項目。並びは破棄では崩れず、後から足すと崩れる</td></tr>
+<tr><td>(キーなし)</td><td>「sparse set の3本の配列」の作る・足す・破棄、「3通りで回す」のハッシュと表</td><td>崩れたまま速い経路を通すと、例外も出ずに別人の速度と組む。表には結合のコスト(番号で引く経路)も出す</td></tr>
+<tr><td><code>M</code> / <code>N</code>、<code>Y</code>、<code>H</code> など</td><td>このページには無い</td><td>Day 19〜22 のページ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day23 の Entity.cs、ComponentStore.cs、World.cs、EcsComponents.cs、EcsSystems.cs(いずれも docs/site/enginecore.js。ストアの実体はフィールドごとの Float32Array)と、Program.cs の EnsureEcsSprites、RunEcsCheck を JS に移したもの。動きの見た目を写したもので、数値は C# と突き合わせていない。ms の数字はこのページで測った値。</p></div>
+</section>
+<section class="part"><h2 id="s20">改造課題</h2>
+<h3 id="s21">課題1(易): コンポーネントとシステムを1つ足す</h3>
+<p><code>Fade2D { public float Life; }</code> を作り、時間で <code>Sprite2D.Color.W</code> を下げる<code>FadeSystem</code> を書いて、<code>EcsSystems</code> に足す。</p>
+<ul><li><code>EnsureEcsSprites</code> で一部のエンティティにだけ <code>Fade2D</code> を付ける</li><li>付いていないエンティティは<strong>そもそもストアに入っていない</strong>ので、<code>if (has fade)</code> のような判定が1つも要らないことを確認する</li></ul>
+<p><strong>「持っていないものは配列に無い」</strong>が ECS のいちばん気持ちのよいところ。Day 22 では全オブジェクトを回って <code>GetComponent</code> の結果を null チェックしていた。</p>
+<p>なお <code>Fade2D</code> を一部にだけ付けると、そのストアだけ並びが崩れる。<code>FadeSystem</code> は番号で引く経路を通ることになるので、そこも確かめる。</p>
+<h3 id="s22">課題2(中): <code>Store&lt;T&gt;()</code> の辞書引きをなくす</h3>
+<p><code>World.Store&lt;T&gt;()</code> は毎回 <code>Dictionary&lt;Type, ...&gt;</code> を引いている。2万体を作るのに <code>Add</code> が 8 万回走り、そのたびに辞書を引くので、構築の 20ms のかなりの部分がこれになっている。</p>
+<p>定石は<strong>静的ジェネリッククラスに型ごとの番号を焼く</strong>こと。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private static class TypeId&lt;T&gt; where T : struct
+{
+    public static readonly int Id = Interlocked.Increment(ref _nextTypeId) - 1;
+}</code></pre></div>
+<p><code>Id</code> は型ごとに1回だけ計算され、以降は定数を読むのと同じ速さになる。ストアを <code>IComponentStore[]</code> に持ち替えて、この番号で引く。</p>
+<p>構築時間がどこまで下がるか測ってみること(更新時間のほうは、ループの外で1回引いているので変わらないはず)。</p>
+<h3 id="s23">課題3(難): アーキタイプ方式に一歩寄せる</h3>
+<p>要点4の「並びが崩れると静かに間違う」を、構造で防げるようにする。</p>
+<p>いきなり本物のアーキタイプは重いので、まずは<strong>崩れたら分かる</strong>ところから。</p>
+<ul><li><code>ComponentStore</code> に「構造が変わった世代番号」を持たせる</li><li><code>Snapshot</code> / <code>Move</code> は、渡された <code>aligned</code> が現在の世代と食い違ったら例外にする</li></ul>
+<p>そのうえで、余裕があれば本物に近づける。</p>
+<ul><li>「このコンポーネント構成のエンティティ群」をアーキタイプとして持つ</li><li>コンポーネントを足し引きしたら、アーキタイプ間で引っ越す</li><li>システムは「この構成を含むアーキタイプ」だけを舐める</li></ul>
+<p>引っ越しのコストと、結合が消える利得のどちらが勝つか。<strong>エンティティの構成が頻繁に変わるゲームでは負けることもある</strong>、というのが分かればこの課題は十分。</p>
+</section>
+<section class="part"><h2 id="s24">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>960x640、VSync オフ、<code>-c Release</code>、シミュレーション 60Hz</li></ul>
+<h3 id="s25">1ステップの更新時間(200 ステップの平均)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>構造体の配列</th><th>GameObject</th><th>ECS</th><th>GO/構造体</th><th>ECS/構造体</th></tr></thead>
+<tbody>
+<tr><td>1,000</td><td>0.020ms</td><td>0.089ms</td><td>0.019ms</td><td>4.5x</td><td>0.96x</td></tr>
+<tr><td>5,000</td><td>0.032ms</td><td>0.327ms</td><td>0.032ms</td><td>10.2x</td><td>0.99x</td></tr>
+<tr><td>19,981</td><td>0.084ms</td><td>1.511ms</td><td>0.084ms</td><td>18.1x</td><td>1.01x</td></tr>
+</tbody>
+</table></div>
+<p>ECS の値は <code>Snapshot</code> と <code>Move</code> の合計。構造体の配列版は <code>UpdateSprites</code> の中で控えているので、条件はそろっている。</p>
+<p>実行ごとに1割ほどばらつく(GameObject の比は 15.7〜18.1 倍の範囲で観測した)。</p>
+<h3 id="s26">結合のコスト</h3>
+<p>並びが一致しているデータに対して、わざと一般の経路を通した場合。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>体数</th><th>添字をそのまま</th><th>番号で引く</th><th>比</th></tr></thead>
+<tbody>
+<tr><td>1,000</td><td>0.018ms</td><td>0.063ms</td><td>3.45x</td></tr>
+<tr><td>19,981</td><td>0.087ms</td><td>0.137ms</td><td>1.57x</td></tr>
+</tbody>
+</table></div>
+<p><strong>体数が多いほど比が小さくなる</strong>のが面白いところで、2万体ではどちらもメモリ帯域で頭打ちになり、余計な1段の相対的な重みが下がる。</p>
+<h3 id="s27">1体あたりのバイト数</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1体</th><th>2万体</th></tr></thead>
+<tbody>
+<tr><td><code>Sprite</code> 構造体</td><td>64 バイト</td><td>1.3MB</td></tr>
+<tr><td>ECS(定常状態)</td><td>104 バイト</td><td>2.1MB</td></tr>
+<tr><td>GameObject</td><td>515 バイト</td><td>10.0MB</td></tr>
+</tbody>
+</table></div>
+<p>ECS の内訳は、コンポーネント 68 バイト(<code>Transform2D</code> 12 + <code>Previous2D</code> 12 + <code>Velocity2D</code> 16 + <code>Sprite2D</code> 28)に、索引の配列 32 バイト(<code>denseToEntity</code> 4本 + <code>entityToDense</code> 4本)と世代 4 バイトを足したもの。</p>
+<p><code>GC.GetTotalAllocatedBytes</code> での実測は 256 バイト/体だが、これは<strong>配列を倍々に伸ばす途中で捨てた古い配列</strong>を含んだ数字。最終的に生きているのは 104 バイト/体。</p>
+<h3 id="s28">構築時間(19,981 体)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>時間</th></tr></thead>
+<tbody>
+<tr><td>GameObject 化</td><td>20.7ms</td></tr>
+<tr><td>エンティティ化</td><td>20.0ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>ここは ECS でもたいして速くない</strong>。<code>world.Add</code> が1体につき4回、そのたびに <code>Store&lt;T&gt;()</code> が辞書を引いているため(課題2で潰せる)。「ECS だから何でも速い」ではない。</p>
+<h3 id="s29">検証の途中で分かったこと</h3>
+<ul><li><strong>3つの経路の結果がビット単位で一致した</strong>。GameObject 版はクォータニオンを経由しているので位置だけの比較にしたが、それでも完全一致。設計を変えても演算の順序を変えていないことの裏付けになる</li><li>結合のコストは<strong>体数が少ないほど比率が大きい</strong>。少数だと全部キャッシュに乗るので、余計な1段の相対的な重みが増す。「大きいデータのほうが最適化が効く」とは限らない</li><li>ECS の並びは<strong>破棄では崩れない</strong>(全ストアが同じ入れ替えをするため)のに、<strong>後からコンポーネントを足すと崩れる</strong>。直感と逆で、自己チェックを書くまで気づかなかった</li></ul>
+</section>
+<footer class="end">Day 23 ECS への書き換え(両設計の比較) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/enginecore.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const C = Core, H = C.Handle, ES = C.EcsSystems, F = DotNet.fmtFixed, f = Math.fround;
+const TAU = Math.PI * 2, W = 960, H2 = 640;
+
+// ------------------------------------------------------------
+// 1. sparse set の3本の配列
+// ------------------------------------------------------------
+const ss = { world: null, sel: null, log: [] };
+const ssLog = (s) => { ss.log.push(s); if (ss.log.length > 300) ss.log.splice(0, ss.log.length - 300); $('ss-console').textContent = ss.log.join('\n'); $('ss-console').scrollTop = 1e9; };
+function ssReset() {
+  ss.world = new C.World(); ss.ents = [];
+  for (let i = 0; i < 3; i++) ssCreate(true, true);
+  ss.sel = null; ssDraw();
+}
+function ssCreate(withV, quiet) {
+  const w = ss.world, e = w.createEntity();
+  w.add(e, 'Transform2D', { px: 10 * H.index(e) });
+  if (withV) w.add(e, 'Velocity2D');
+  ss.ents.push(e);
+  if (!quiet) ssLog(`CreateEntity → ${H.toString(e)}  Add(Transform2D)${withV ? ' Add(Velocity2D)' : ''}`);
+  return e;
+}
+$('ss-both').addEventListener('click', () => { ssCreate(true); ssDraw(); });
+$('ss-tonly').addEventListener('click', () => { ss.sel = ssCreate(false); ssDraw(); });
+$('ss-addv').addEventListener('click', () => {
+  const w = ss.world, e = ss.sel;
+  if (e == null || !w.isAlive(e)) { ssLog('(先にエンティティの札を押して選ぶ)'); return; }
+  if (w.has(e, 'Velocity2D')) { ssLog(`${H.toString(e)} はもう Velocity2D を持っている`); return; }
+  w.add(e, 'Velocity2D'); ssLog(`Add(${H.toString(e)}, Velocity2D)  ← 末尾に付く`); ssDraw();
+});
+$('ss-destroy').addEventListener('click', () => {
+  const w = ss.world, e = ss.sel;
+  if (e == null || !w.isAlive(e)) { ssLog('(先にエンティティの札を押して選ぶ)'); return; }
+  w.destroyEntity(e); ss.ents = ss.ents.filter((x) => x !== e); ss.sel = null;
+  ssLog(`DestroyEntity(${H.toString(e)})  ← どのストアでも末尾と入れ替えて縮める`); ssDraw();
+});
+$('ss-reset').addEventListener('click', () => { ssReset(); ssLog('(最初から: 3 体、どれも両方付けた)'); });
+function cells(arr, n, hi) { return Array.from({ length: n }, (_, i) => `<td style="text-align:center;${hi && hi(i) ? 'color:var(--expl);font-weight:bold' : ''}">${arr(i)}</td>`).join(''); }
+function ssDraw() {
+  const w = ss.world, t = w.store('Transform2D'), v = w.store('Velocity2D');
+  const nE = w.nextIndex;
+  const aligned = ES.areAligned(t, v);
+  const n = Math.max(t.count, v.count);
+  const head = (k) => `<tr><th style="white-space:nowrap">${k}</th>${Array.from({ length: n }, (_, i) => `<th style="text-align:center">${i}</th>`).join('')}</tr>`;
+  const headE = `<tr><th style="white-space:nowrap">エンティティ番号</th>${Array.from({ length: nE }, (_, i) => `<th style="text-align:center">${i}</th>`).join('')}</tr>`;
+  const row = (k, s) => `<tr><td style="white-space:nowrap">${k}</td>${cells((i) => (i < s.count ? s.denseToEntity[i] : '<span style="color:var(--muted)">·</span>'), n)}</tr>`;
+  const rowE = (k, s) => `<tr><td style="white-space:nowrap">${k}</td>${cells((i) => { const d = s.denseIndexOf(i); return d < 0 ? '<span style="color:var(--muted)">−1</span>' : d; }, nE)}</tr>`;
+  const pair = `<tr><td style="white-space:nowrap">速い経路で組む相手</td>${cells((i) => (i < t.count && i < v.count ? `${t.denseToEntity[i]}↔${v.denseToEntity[i]}` : i < t.count ? `${t.denseToEntity[i]}↔?` : ''), n, (i) => i < t.count && (i >= v.count || t.denseToEntity[i] !== v.denseToEntity[i]))}</tr>`;
+  const chips = ss.ents.map((e) => `<button class="btn" data-e="${e}" ${ss.sel === e ? 'aria-pressed="true" style="border-color:var(--accent)"' : ''}>${H.toString(e)}${w.has(e, 'Velocity2D') ? '' : '(T だけ)'}</button>`).join(' ');
+  $('ss-view').innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:4px">実体の並び(dense の i 番目に入っているエンティティ番号 = denseToEntity)</div>
+<div class="table-wrap"><table>${head('dense の添字 i')}${row('Transform2D', t)}${row('Velocity2D', v)}${pair}</table></div>
+<div style="font-size:12px;color:var(--muted);margin:10px 0 4px">entityToDense(エンティティ番号 → dense の添字。−1 は持っていない)</div>
+<div class="table-wrap"><table>${headE}${rowE('Transform2D', t)}${rowE('Velocity2D', v)}</table></div>
+<div style="font-size:12px;color:var(--muted);margin:10px 0 4px">生きているエンティティ(押すと選ぶ)</div><div style="display:flex;gap:6px;flex-wrap:wrap">${chips}</div>`;
+  for (const b of $('ss-view').querySelectorAll('[data-e]')) b.addEventListener('click', () => { ss.sel = Number(b.dataset.e); ssDraw(); });
+  $('ss-stats').innerHTML = stat('AreAligned(Transform2D, Velocity2D)', aligned ? '一致(速い経路が使える)' : '<span style="color:var(--expl)">崩れている</span>')
+    + stat('件数', `${t.count} / ${v.count}`) + stat('生きているエンティティ', w.aliveCount) + stat('選んでいる', ss.sel == null ? '—' : H.toString(ss.sel));
+}
+$('ss-check').addEventListener('click', () => {
+  // Program.RunEcsCheck
+  const lines = ['[ECS の自己チェック]']; let fails = 0, count = 0;
+  const check = (name, ok, d = '') => { count++; if (!ok) fails++; lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${d ? '  ' + d : ''}`); };
+  const world = new C.World();
+  check('既定値のエンティティは無効', !H.isValid(H.none));
+  const a = world.createEntity();
+  world.add(a, 'Transform2D', { px: 1, py: 2 }); world.add(a, 'Velocity2D', { vx: 3, vy: 4 });
+  check('生きている', world.isAlive(a));
+  check('コンポーネントが引ける', world.has(a, 'Transform2D') && world.has(a, 'Velocity2D'));
+  world.store('Transform2D').set(H.index(a), 'px', 99);
+  check('Get は参照を返す', Math.abs(world.get(a, 'Transform2D').px - 99) < 0.001);
+  const b = world.createEntity(); world.add(b, 'Transform2D', { px: 10 }); world.add(b, 'Velocity2D');
+  const c = world.createEntity(); world.add(c, 'Transform2D', { px: 20 }); world.add(c, 'Velocity2D');
+  const T = world.store('Transform2D'), V = world.store('Velocity2D');
+  check('同じ順で付ければ並びは一致する', ES.areAligned(T, V));
+  world.destroyEntity(b);
+  check('破棄すると全ストアから消える', T.count === 2 && V.count === 2);
+  check('破棄したエンティティは無効', !world.isAlive(b));
+  check('残りは正しく引ける', Math.abs(world.get(c, 'Transform2D').px - 20) < 0.001);
+  check('破棄しても並びの一致は保たれる', ES.areAligned(T, V));
+  const reused = world.createEntity();
+  check('空いた枠が再利用される', H.index(reused) === H.index(b), `新 ${H.toString(reused)} / 旧 ${H.toString(b)}`);
+  check('それでも古いエンティティは無効のまま', reused !== b && !world.isAlive(b));
+  check('再利用した枠に前の中身は残っていない', !world.has(reused, 'Transform2D'));
+  const late = world.createEntity(); world.add(late, 'Transform2D');
+  check('片方にしか無ければ件数が合わない', !ES.areAligned(T, V));
+  const both = world.createEntity(); world.add(both, 'Transform2D'); world.add(both, 'Velocity2D'); world.add(late, 'Velocity2D');
+  check('件数がそろっても順番は戻らない', T.count === V.count && !ES.areAligned(T, V), `件数 ${T.count} / ${V.count}`);
+  check('崩れても結果は同じ', alignedAndJoinedAgree(), '(速い経路と一般の経路を突き合わせ)');
+  lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`, `  (項目数 ${count})`);
+  ssLog(''); for (const l of lines) ssLog(l);
+});
+// 同じ乱数列から2つ作って、速い経路と一般の経路で 100 ステップ回した結果を比べる
+function alignedAndJoinedAgree() {
+  const run = (aligned) => {
+    const r = new DotNet.DotNetRandom(4242), w = new C.World();
+    for (let i = 0; i < 64; i++) {
+      const e = w.createEntity();
+      w.add(e, 'Transform2D', { px: r.nextDouble() * 900, py: r.nextDouble() * 600, rot: r.nextDouble() });
+      w.add(e, 'Previous2D');
+      w.add(e, 'Velocity2D', { vx: r.nextDouble() * 200 - 100, vy: 80, spin: 1, half: 16 });
+    }
+    for (let s = 0; s < 100; s++) { ES.snapshot(w, aligned); ES.move(w, 1 / 60, [960, 640], aligned); }
+    const t = w.store('Transform2D'), vals = [];
+    for (let i = 0; i < t.count; i++) vals.push(t.cols.px[i], t.cols.py[i], t.cols.rot[i]);
+    return C.fnv1aFloats(vals);
+  };
+  return run(true) === run(false);
+}
+ssReset();
+ssLog('最初は 3 体。どれも Transform2D と Velocity2D を同じ順で付けたので、並びは一致している。');
+
+// ------------------------------------------------------------
+// 2. 3通りで回す
+// ------------------------------------------------------------
+const MAX = 19981;
+function makeInit(n = MAX) {
+  const r = new DotNet.DotNetRandom(20260816);
+  const a = { ppx: new Float32Array(n), ppy: new Float32Array(n), prot: new Float32Array(n), px: new Float32Array(n), py: new Float32Array(n), vx: new Float32Array(n), vy: new Float32Array(n), size: new Float32Array(n), rot: new Float32Array(n), spin: new Float32Array(n), color: [] };
+  for (let i = 0; i < n; i++) {
+    const speed = 60 + r.nextDouble() * 120, dir = r.nextDouble() * TAU;
+    a.px[i] = r.nextDouble() * W; a.py[i] = r.nextDouble() * H2;
+    a.vx[i] = Math.cos(dir) * speed; a.vy[i] = Math.sin(dir) * speed;
+    a.size[i] = 14 + r.nextDouble() * 24; a.rot[i] = r.nextDouble() * TAU; a.spin[i] = (r.nextDouble() - 0.5) * 3;
+    a.color.push(`rgba(${Math.round((0.45 + r.nextDouble() * 0.55) * 255)},${Math.round((0.45 + r.nextDouble() * 0.55) * 255)},${Math.round((0.45 + r.nextDouble() * 0.55) * 255)},0.85)`);
+    r.nextDouble();
+  }
+  return a;
+}
+// 構造体の配列(UpdateSprites)。動かす前に前の状態を控える。3つの方式で同じ順に同じ丸めをする
+function updateSoa(a, n, dt) {
+  dt = f(dt);
+  const { ppx, ppy, prot, px, py, vx, vy, size, rot, spin } = a;
+  for (let i = 0; i < n; i++) {
+    ppx[i] = px[i]; ppy[i] = py[i]; prot[i] = rot[i];
+    let x = f(px[i] + f(vx[i] * dt)), y = f(py[i] + f(vy[i] * dt));
+    const h = f(size[i] * 0.5);
+    if (x < h) { x = h; vx[i] = -vx[i]; } else if (x > f(W - h)) { x = f(W - h); vx[i] = -vx[i]; }
+    if (y < h) { y = h; vy[i] = -vy[i]; } else if (y > f(H2 - h)) { y = f(H2 - h); vy[i] = -vy[i]; }
+    px[i] = x; py[i] = y; rot[i] = f(rot[i] + f(spin[i] * dt));
+  }
+}
+// GameObject + Component(Day 22 の BouncingMover)
+class SpriteRenderer extends C.Component { constructor() { super(); this.size = 32; this.css = '#fff'; } }
+class BouncingMover extends C.Component {
+  constructor() { super(); this.v = [0, 0]; this.spin = 0; this.half = 16; this.angle = 0; }
+  start() { this.half = f(this.gameObject.getComponent(SpriteRenderer).size * 0.5); this.angle = this.transform.localRotationZ; }
+  fixedUpdate(dt) {
+    dt = f(dt);
+    const p = this.transform.localPosition, v = this.v, h = this.half;
+    let x = f(p[0] + f(v[0] * dt)), y = f(p[1] + f(v[1] * dt));
+    if (x < h) { x = h; v[0] = -v[0]; } else if (x > f(W - h)) { x = f(W - h); v[0] = -v[0]; }
+    if (y < h) { y = h; v[1] = -v[1]; } else if (y > f(H2 - h)) { y = f(H2 - h); v[1] = -v[1]; }
+    this.transform.localPosition = [x, y];
+    this.angle = f(this.angle + f(this.spin * dt));
+    this.transform.setLocalRotationZ(this.angle);
+  }
+}
+// プレイヤーと階層の実演(8 個)は、どのモードでも GameObject のまま
+function baseScene() {
+  const s = new C.Scene();
+  for (const name of ['Player', 'OrbitRoot', 'Orbit0', 'Orbit0-moon', 'Orbit1', 'Orbit1-moon', 'Orbit2', 'Orbit2-moon']) s.createGameObject(name);
+  return s;
+}
+function toScene(a, n) {
+  const t0 = performance.now(), scene = baseScene(), sprites = [];
+  for (let i = 0; i < n; i++) {
+    const g = scene.createGameObject('Sprite');
+    g.transform.localPosition = [a.px[i], a.py[i]]; g.transform.setLocalRotationZ(a.rot[i]); g.transform.snapshot();
+    g.addComponent(SpriteRenderer, { size: a.size[i], css: a.color[i] });
+    g.addComponent(BouncingMover, { v: [a.vx[i], a.vy[i]], spin: a.spin[i] });
+    sprites.push(g);
+  }
+  // Start は最初のステップの直前に走る(ここで FixedUpdate(0) を呼ぶと、端の押し戻しが1回余計に走る)
+  return { scene, sprites, ms: performance.now() - t0 };
+}
+function fromScene(a, sprites) { sprites.forEach((g, i) => { const p = g.transform.localPosition, m = g.components[1]; a.px[i] = p[0]; a.py[i] = p[1]; a.vx[i] = m.v[0]; a.vy[i] = m.v[1]; a.rot[i] = m.angle; }); }
+// ECS(EnsureEcsSprites): 全員に同じ順で4つ付けるので、並びは一致する
+function toWorld(a, n) {
+  const t0 = performance.now(), w = new C.World();
+  for (let i = 0; i < n; i++) {
+    const e = w.createEntity();
+    w.add(e, 'Transform2D', { px: a.px[i], py: a.py[i], rot: a.rot[i] });
+    w.add(e, 'Previous2D', { px: a.px[i], py: a.py[i], rot: a.rot[i] });
+    w.add(e, 'Velocity2D', { vx: a.vx[i], vy: a.vy[i], spin: a.spin[i], half: f(a.size[i] * 0.5) });
+    w.add(e, 'Sprite2D', { size: a.size[i] });
+  }
+  const aligned = ES.areAligned(w.store('Transform2D'), w.store('Velocity2D')) && ES.areAligned(w.store('Transform2D'), w.store('Previous2D'));
+  return { world: w, aligned, ms: performance.now() - t0 };
+}
+function fromWorld(a, ecs) { const t = ecs.world.store('Transform2D').cols, v = ecs.world.store('Velocity2D').cols; for (let i = 0; i < ecs.world.store('Transform2D').count; i++) { a.px[i] = t.px[i]; a.py[i] = t.py[i]; a.rot[i] = t.rot[i]; a.vx[i] = v.vx[i]; a.vy[i] = v.vy[i]; } }
+
+const tw = { a: makeInit(), n: 1000, mode: 'soa', go: null, ecs: null, loop: new C.GameLoop(1 / 60), last: 0, times: [], fpsF: 0, fpsT: 0, fps: 0, log: [] };
+const twLog = (s) => { tw.log.push(s); $('tw-console').textContent = tw.log.join('\n'); $('tw-console').scrollTop = 1e9; };
+const LABEL = { soa: '構造体の配列', go: 'GameObject + Component', ecs: 'ECS' };
+function leave() { if (tw.mode === 'go') { fromScene(tw.a, tw.go.sprites); tw.go = null; } if (tw.mode === 'ecs') { fromWorld(tw.a, tw.ecs); tw.ecs = null; } }
+function enter(mode) {
+  if (mode === 'go') { tw.go = toScene(tw.a, tw.n); twLog(`[シーン] スプライト ${tw.n} 個を GameObject 化: ${F(tw.go.ms, 1)}ms`); }
+  if (mode === 'ecs') { tw.ecs = toWorld(tw.a, tw.n); twLog(`[ECS] スプライト ${tw.n} 体をエンティティ化: ${F(tw.ecs.ms, 1)}ms / ${tw.ecs.world.describeStores()} / 並び ${tw.ecs.aligned ? '一致' : '不一致'}`); }
+  tw.mode = mode; tw.times = []; setSeg('tw-mode', mode);
+}
+function setMode(m) { if (m === tw.mode) return; leave(); enter(m); }
+seg('tw-mode', setMode);
+$('tw-j').addEventListener('click', () => setMode({ soa: 'go', go: 'ecs', ecs: 'soa' }[tw.mode]));
+seg('tw-count', (v) => { const m = tw.mode; leave(); tw.mode = 'soa'; tw.n = Number(v); enter(m); });
+function twStep(dt) {
+  const t0 = performance.now();
+  if (tw.mode === 'soa') updateSoa(tw.a, tw.n, dt);
+  else if (tw.mode === 'go') tw.go.scene.fixedUpdate(dt);
+  else { ES.snapshot(tw.ecs.world, tw.ecs.aligned); ES.move(tw.ecs.world, dt, [W, H2], tw.ecs.aligned); }
+  tw.times.push(performance.now() - t0); if (tw.times.length > 60) tw.times.shift();
+}
+const avg = (x) => (x.length ? x.reduce((p, q) => p + q, 0) / x.length : 0);
+function twDraw() {
+  const cv = $('tw-canvas'), { ctx, w } = fit(cv), h = cv.clientHeight;
+  const sc = Math.min(w / W, h / H2), ox = (w - W * sc) / 2, oy = (h - H2 * sc) / 2;
+  ctx.fillStyle = '#14171f'; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(sc, sc);
+  const a = tw.a;
+  if (tw.mode === 'soa') for (let i = 0; i < tw.n; i++) { const s = a.size[i]; ctx.fillStyle = a.color[i]; ctx.fillRect(a.px[i] - s / 2, a.py[i] - s / 2, s, s); }
+  else if (tw.mode === 'go') for (const g of tw.go.sprites) { const r = g.components[0], p = g.transform.localPosition; ctx.fillStyle = r.css; ctx.fillRect(p[0] - r.size / 2, p[1] - r.size / 2, r.size, r.size); }
+  else { const w2 = tw.ecs.world, t = w2.store('Transform2D'), sp = w2.store('Sprite2D'); for (let i = 0; i < t.count; i++) { const s = sp.cols.size[i]; ctx.fillStyle = a.color[t.denseToEntity[i]]; ctx.fillRect(t.cols.px[i] - s / 2, t.cols.py[i] - s / 2, s, s); } }
+  ctx.restore();
+}
+animate($('tw-lab'), () => {
+  const now = performance.now(); let dt = tw.last ? (now - tw.last) / 1000 : 0; tw.last = now; if (dt > 0.25) dt = 0;
+  tw.loop.advance(dt, twStep);
+  tw.fpsF++; tw.fpsT += dt;
+  if (tw.fpsT >= 0.5) {
+    tw.fps = tw.fpsF / tw.fpsT; tw.fpsF = 0; tw.fpsT = 0;
+    const go = tw.mode === 'go' ? 8 + tw.n : 8, e = tw.mode === 'ecs' ? tw.n : 0;
+    $('tw-title').textContent = `Day23 - ECS  ${F(tw.fps, 1)} fps | ${LABEL[tw.mode]} 更新:${F(avg(tw.times), 2)}ms GO:${go} E:${e} | スプライト:${tw.n}`;
+  }
+  twDraw();
+  $('tw-stats').innerHTML = stat('更新(直近 60 ステップの平均)', F(avg(tw.times), 3) + ' ms') + stat('方式', LABEL[tw.mode]) + stat('個数', tw.n);
+});
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) tw.last = 0; }).observe($('tw-lab'));
+$('tw-title').textContent = 'Day23 - ECS(0.5 秒ごとに更新)';
+$('tw-hash').addEventListener('click', () => {
+  // 500 体を同じ初期状態から 400 ステップ回して、位置をハッシュで突き合わせる
+  const n = 500, dt = 1 / 60;
+  const hashOf = (px, py) => { const v = []; for (let i = 0; i < n; i++) v.push(px(i), py(i)); return C.hex16(C.fnv1aFloats(v)); };
+  const a = makeInit(n); for (let s = 0; s < 400; s++) updateSoa(a, n, dt);
+  const hs = hashOf((i) => a.px[i], (i) => a.py[i]);
+  const e = toWorld(makeInit(n), n); for (let s = 0; s < 400; s++) { ES.snapshot(e.world, e.aligned); ES.move(e.world, dt, [W, H2], e.aligned); }
+  const t = e.world.store('Transform2D').cols, he = hashOf((i) => t.px[i], (i) => t.py[i]);
+  const g = toScene(makeInit(n), n); for (let s = 0; s < 400; s++) g.scene.fixedUpdate(dt);
+  const hg = hashOf((i) => g.sprites[i].transform.localPosition[0], (i) => g.sprites[i].transform.localPosition[1]);
+  twLog(''); twLog(`${n} 体 x 400 ステップ後の位置のハッシュ`);
+  twLog(`  構造体の配列: ${hs}`); twLog(`  ECS         : ${he}  ${he === hs ? '一致' : '不一致'}`); twLog(`  GameObject  : ${hg}  ${hg === hs ? '一致' : '不一致'}`);
+});
+$('tw-bench').addEventListener('click', async () => {
+  const btn = $('tw-bench'); btn.disabled = true;
+  const rows = [], tick = () => new Promise((r) => setTimeout(r, 0));
+  const measure = (fn) => { for (let i = 0; i < 20; i++) fn(); const t0 = performance.now(); for (let i = 0; i < 200; i++) fn(); return (performance.now() - t0) / 200; };
+  for (const n of [1000, 5000, 19981]) {
+    $('tw-table').textContent = `${n} 体を測っている…`; await tick();
+    const a = makeInit(); const soa = measure(() => updateSoa(a, n, 1 / 60)); await tick();
+    const g = toScene(makeInit(), n); const go = measure(() => g.scene.fixedUpdate(1 / 60)); await tick();
+    const e = toWorld(makeInit(), n);
+    const ecs = measure(() => { ES.snapshot(e.world, true); ES.move(e.world, 1 / 60, [W, H2], true); });
+    const join = measure(() => { ES.snapshot(e.world, false); ES.move(e.world, 1 / 60, [W, H2], false); });
+    rows.push(`<tr><td>${n.toLocaleString()}</td><td>${F(soa, 3)}ms</td><td>${F(go, 3)}ms</td><td>${F(ecs, 3)}ms</td><td>${F(go / soa, 1)}x</td><td>${F(ecs / soa, 2)}x</td><td>${F(join, 3)}ms(${F(join / ecs, 2)}x)</td></tr>`);
+    await tick();
+  }
+  $('tw-table').innerHTML = `<table><thead><tr><th>体数</th><th>構造体の配列</th><th>GameObject</th><th>ECS</th><th>GO/構造体</th><th>ECS/構造体</th><th>ECS を番号で引く経路</th></tr></thead><tbody>${rows.join('')}</tbody></table><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">このページの JS で 200 ステップを平均した値(1 ステップあたり)。ECS は Snapshot と Move の合計</p>`;
+  btn.disabled = false;
+});
+})();
+</script>
+</body>
+</html>
