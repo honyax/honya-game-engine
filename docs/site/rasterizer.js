@@ -8,6 +8,7 @@
 //  - Day 6: Mat4.LookAt と Perspective、Camera.cs、Rasterizer.TryProjectToScreen
 //  - Day 7: DepthBuffer.cs と、深度テストつきの FillTriangle(色を計算する前に判定する)
 //  - Day 8: Texture.cs(ニアレスト、バイリニア、リピート)と、透視補正つきの FillTriangle(属性は配列で持つ)
+//  - Day 9: Light.cs(Shade)と Mesh.cs(立方体、球、床)、GameWindow.DrawMesh(Day 9・10 の2日で使うのでここに置く)
 //
 //  - 画素の色は reference と同じ 0xAARRGGBB の整数で持つ。canvas に出すときだけ並べ替える(toCanvas)
 //  - 実験台が数えたいもの(判定した画素・塗った画素)は stats に足していく。reference には無い
@@ -325,11 +326,87 @@ class Rasterizer8 {
   drawTriangleWireframe(a, b, c, color) { Rasterizer5.prototype.drawTriangleWireframe.call(this, a, b, c, color); }
 }
 
+// ---------------- Day 9: Light と Mesh ----------------
+const reflect3 = (i, n) => { const d = 2 * dot3(i, n); return [i[0] - d * n[0], i[1] - d * n[1], i[2] - d * n[2]]; };
+// Light.Shade: 色 = アルベド × (環境光 + 光の色 × 拡散) + 光の色 × 鏡面。parts でどの成分を足すか選べる(このページだけ)
+const defaultLight = () => ({ position: [3, 4, 3], color: [1, 0.97, 0.9], ambient: [0.12, 0.13, 0.18], shininess: 32, specularStrength: 0.6 });
+function shade(light, world, normal, albedo, cameraPos, parts = { ambient: true, diffuse: true, specular: true, normalize: true }) {
+  const n = parts.normalize === false ? normal : norm3(normal);
+  const toLight = norm3(sub3(light.position, world));
+  const diffuse = Math.max(dot3(n, toLight), 0);
+  let specular = 0;
+  if (diffuse > 0) {   // 裏から当たっている面にはハイライトを出さない
+    const toCam = norm3(sub3(cameraPos, world)), r = reflect3([-toLight[0], -toLight[1], -toLight[2]], n);
+    specular = Math.pow(Math.max(dot3(r, toCam), 0), light.shininess) * light.specularStrength;
+  }
+  const amb = parts.ambient === false ? [0, 0, 0] : light.ambient, dif = parts.diffuse === false ? 0 : diffuse, spe = parts.specular === false ? 0 : specular;
+  return [0, 1, 2].map((k) => albedo[k] * (amb[k] + light.color[k] * dif) + light.color[k] * spe);
+}
+// Mesh: 頂点 { pos, normal, uv } と索引。どれも外から見て反時計回り
+const Mesh = {
+  cube() {
+    const fn = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]], fc = [[0, 2, 6, 4], [5, 7, 3, 1], [0, 4, 5, 1], [2, 3, 7, 6], [1, 3, 2, 0], [4, 6, 7, 5]];
+    const uvs = [[0, 0], [1, 0], [1, 1], [0, 1]], vertices = [], indices = [];
+    for (let f = 0; f < 6; f++) {
+      for (let k = 0; k < 4; k++) { const c = fc[f][k]; vertices.push({ pos: [c & 1 ? 1 : -1, c & 2 ? 1 : -1, c & 4 ? 1 : -1], normal: fn[f], uv: uvs[k] }); }
+      const b = f * 4; indices.push(b, b + 2, b + 1, b, b + 3, b + 2);
+    }
+    return { vertices, indices };
+  },
+  sphere(rings, segments) {
+    const vertices = [], indices = [];
+    for (let r = 0; r <= rings; r++) {
+      const phi = (Math.PI * r) / rings, y = Math.cos(phi), rr = Math.sin(phi);
+      for (let s = 0; s <= segments; s++) { const th = (Math.PI * 2 * s) / segments, p = [rr * Math.sin(th), y, rr * Math.cos(th)]; vertices.push({ pos: p, normal: p, uv: [s / segments, r / rings] }); }
+    }
+    for (let r = 0; r < rings; r++) for (let s = 0; s < segments; s++) { const c = r * (segments + 1) + s, n = c + segments + 1; indices.push(c, n, c + 1, c + 1, n, n + 1); }
+    return { vertices, indices };
+  },
+  plane(half, uvRepeat, div) {
+    const vertices = [], indices = [];
+    for (let z = 0; z <= div; z++) for (let x = 0; x <= div; x++) { const fx = x / div, fz = z / div; vertices.push({ pos: [(fx * 2 - 1) * half, 0, (fz * 2 - 1) * half], normal: [0, 1, 0], uv: [fx * uvRepeat, fz * uvRepeat] }); }
+    for (let z = 0; z < div; z++) for (let x = 0; x < div; x++) { const c = z * (div + 1) + x, n = c + div + 1; indices.push(c, n, c + 1, c + 1, n, n + 1); }
+    return { vertices, indices };
+  },
+};
+
+// GameWindow.DrawMesh(Day 9〜10): 全頂点をワールドへ変換してから、索引で三角形を組む
+// 属性 vary = [r, g, b, u, v, nx, ny, nz, wx, wy, wz](色・UV・法線・ワールド座標)
+// o: { mode: 'flat' | 'gouraud' | 'phong', albedo, light, cam(カメラの位置), tex, emissive, parts, wire }
+function drawMesh(ras, mesh, model, vp, o) {
+  const { mode, albedo, light, cam, tex = null, emissive = false, parts, wire = false } = o;
+  const verts = mesh.vertices.map((v) => {
+    const pos = Mat4.transformPoint(v.pos, model), n = norm3(Mat4.transformDirection(v.normal, model));
+    const color = mode === 'gouraud' && !emissive ? shade(light, pos, n, albedo, cam, parts) : albedo;
+    return { pos, n, uv: v.uv, color };
+  });
+  const albedoAt = (a) => { if (!tex) return [a[0], a[1], a[2]]; const t = tex.sample(a[3], a[4]); return [t[0] * a[0], t[1] * a[1], t[2] * a[2]]; };
+  const shader = emissive ? (a) => rgbF(a[0], a[1], a[2])
+    : mode === 'phong' ? (a) => { const c = shade(light, [a[8], a[9], a[10]], [a[5], a[6], a[7]], albedoAt(a), cam, parts); return rgbF(c[0], c[1], c[2]); }
+    : (a) => { const c = albedoAt(a); return rgbF(c[0], c[1], c[2]); };
+  const mk = (v, color) => ({ pos: v.pos, vary: [...color, ...v.uv, ...v.n, ...v.pos] });
+  let n = 0;
+  for (let i = 0; i + 2 < mesh.indices.length; i += 3) {
+    const v0 = verts[mesh.indices[i]], v1 = verts[mesh.indices[i + 1]], v2 = verts[mesh.indices[i + 2]];
+    let c0 = v0.color, c1 = v1.color, c2 = v2.color;
+    if (mode === 'flat' && !emissive) {
+      // 面の法線は 2 辺の外積(巻き方向で向きが決まる)、明るさは面の中心で 1 回だけ
+      const fnrm = norm3(cross3(sub3(v1.pos, v0.pos), sub3(v2.pos, v0.pos)));
+      const center = [0, 1, 2].map((k) => (v0.pos[k] + v1.pos[k] + v2.pos[k]) / 3);
+      c0 = c1 = c2 = shade(light, center, fnrm, albedo, cam, parts);
+    }
+    ras.drawTriangle(mk(v0, c0), mk(v1, c1), mk(v2, c2), vp, shader);
+    n++;
+    if (wire) { const s = [v0, v1, v2].map((v) => projectToScreen(v.pos, vp, ras.target.width, ras.target.height)); if (s.every(Boolean)) ras.drawTriangleWireframe(s[0], s[1], s[2], rgb(255, 60, 60)); }
+  }
+  return n;
+}
+
 // GameWindow の HueColor(Day 2〜)
 function hueColor(h01) {
   const h = (h01 - Math.floor(h01)) * 6, s = Math.trunc(h), f = h - s, up = Math.trunc(f * 255), down = Math.trunc((1 - f) * 255);
   return [rgb(255, up, 0), rgb(down, 255, 0), rgb(0, 255, up), rgb(0, down, 255), rgb(up, 0, 255), rgb(255, 0, down)][Math.min(5, s)];
 }
 
-window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7, unpack3, Texture, Rasterizer8 };
+window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7, unpack3, Texture, Rasterizer8, reflect3, defaultLight, shade, Mesh, drawMesh };
 })();
