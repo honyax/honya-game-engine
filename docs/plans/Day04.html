@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 04 バリセントリック座標と属性補間</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. バリセントリック座標 = 「3頂点をどの割合で混ぜたか」</a></li><li class="l3"><a href="#s5">2. 重みの正体は面積比 — つまりエッジ関数そのもの</a></li><li class="l3"><a href="#s6">3. 内外判定にはバイアス、補間には生の値</a></li><li class="l3"><a href="#s7">4. 色は float で持つ</a></li><li class="l3"><a href="#s8">5. 補間した値を「色以外」に使う — シェーダーの発想</a></li><li class="l3"><a href="#s9">6. 実測 — デリゲート呼び出しより、float→byte 変換のほうが高かった</a></li><li class="l3"><a href="#s10">7. 頂点を共有すると継ぎ目が消える</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): バリセントリック座標を直接見る</a></li><li class="l3"><a href="#s16">課題2(中): 属性を増やす</a></li><li class="l3"><a href="#s17">課題3(難): 補間の精度を壊してみる</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 04 / 計画書</p>
+  <h1>バリセントリック座標と属性補間</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. バリセントリック座標 = 「3頂点をどの割合で混ぜたか」</a></li><li class="l3"><a href="#s5">2. 重みの正体は面積比 — つまりエッジ関数そのもの</a></li><li class="l3"><a href="#s6">3. 内外判定にはバイアス、補間には生の値</a></li><li class="l3"><a href="#s7">4. 色は float で持つ</a></li><li class="l3"><a href="#s8">5. 補間した値を「色以外」に使う — シェーダーの発想</a></li><li class="l3"><a href="#s9">6. 実測 — デリゲート呼び出しより、float→byte 変換のほうが高かった</a></li><li class="l3"><a href="#s10">7. 頂点を共有すると継ぎ目が消える</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): バリセントリック座標を直接見る</a></li><li class="l3"><a href="#s16">課題2(中): 属性を増やす</a></li><li class="l3"><a href="#s17">課題3(難): 補間の精度を壊してみる</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「バリセントリック座標と属性補間」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>3頂点に別々の色を持たせると、三角形の内部がその3色で滑らかに混ざる。さらに、補間した値を色以外(テクスチャ座標)として使えることを確かめる。</p>
+<p>Day 3 で「どのピクセルを塗るか」は解けた。今日は残りの半分、<strong>「そのピクセルの値をいくつにするか」</strong>を解く。しかも Day 3 で内外判定のために計算した数値をそのまま使い回すだけで解ける、というのが今日の気持ちのよいところ。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/barycentric-coordinates.html">Scratchapixel: Barycentric Coordinates</a> —面積比としてのバリセントリック座標。図が分かりやすい</li><li><a href="https://fgiesen.wordpress.com/2013/02/06/the-barycentric-conspirac/">Fabian Giesen: The barycentric conspiracy</a> —「エッジ関数 = バリセントリック座標の分子」という関係を正面から扱った記事。今日の実装の核心</li><li>ロードマップ上の必読資料は指定なし。Day 5(数学)と Day 8(テクスチャ)の橋渡しの回</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. バリセントリック座標 = 「3頂点をどの割合で混ぜたか」</h3>
+<p>三角形の内部の任意の点 P は、3頂点 V0, V1, V2 の<strong>重み付き平均</strong>として必ず書ける。</p>
+<div class="code"><pre><code>P = λ0 * V0 + λ1 * V1 + λ2 * V2      ただし λ0 + λ1 + λ2 = 1、すべて 0 以上</code></pre></div>
+<p>この (λ0, λ1, λ2) がバリセントリック座標(重心座標)。名前の由来は物理の重心で、「3頂点にそれぞれ λ の重さの錘を置いたとき、釣り合う点が P」という意味になる。</p>
+<p>重要なのは、<strong>この重みが位置だけでなく、あらゆる属性に使える</strong>こと。</p>
+<div class="code"><pre><code>Pの色 = λ0 * V0の色 + λ1 * V1の色 + λ2 * V2の色
+PのUV = λ0 * V0のUV + λ1 * V1のUV + λ2 * V2のUV
+Pの法線 = λ0 * V0の法線 + λ1 * V1の法線 + λ2 * V2の法線</code></pre></div>
+<p>式の形は完全に同じ。だからラスタライザは属性の中身を知る必要がなく、「頂点が持っている数値を、重みで混ぜて配る」だけの機械になれる。Day 8 でUVが、Day 9 で法線が増えても、このコードは1行も変わらない。</p>
+<h3 id="s5">2. 重みの正体は面積比 — つまりエッジ関数そのもの</h3>
+<p>λ0 は「頂点0の向かい側の辺と点Pが作る三角形の面積 ÷ 全体の面積」に等しい。</p>
+<div class="code"><pre><code>        V0
+       / | \
+      /  |  \          λ0 = (P,V1,V2 の面積) / (V0,V1,V2 の面積)
+     /   P   \         P が V0 に近いほど、この面積は大きくなる
+    /  /   \  \
+   V1---------V2</code></pre></div>
+<p>そして Day 3 で書いたエッジ関数は、まさにこの面積の2倍を返していた。<strong>内外判定のために計算した w0, w1, w2 を、全体の面積で割るだけで重みになる。</strong></p>
+<div class="code"><span class="lang">csharp</span><pre><code>float invArea = 1.0f / area;   // 三角形につき1回だけ割り算する
+...
+float l0 = w0 * invArea;       // ピクセルごとは掛け算だけ
+float l1 = w1 * invArea;
+float l2 = w2 * invArea;</code></pre></div>
+<p>Day 3 の実装が最初からこの形だったのは、この日のためだった。スキャンライン方式(辺に沿って左右の端点を追う古典的な手法)だと、内外判定と属性補間を別々に管理する必要があって、こう素直にはいかない。</p>
+<p><strong>実測での検算</strong>: 三角形の全ピクセルで λ0 + λ1 + λ2 を計算したところ、1.0 との誤差は<strong>厳密に0</strong>(整数で計算してから1回だけ割っているため)。3頂点に赤・緑・青を置いたときの重心の色は <strong>(85, 85, 85)</strong> = 255/3 ちょうどになる。</p>
+<h3 id="s6">3. 内外判定にはバイアス、補間には生の値</h3>
+<p>top-left rule のバイアス(Day 3)は、辺の上のピクセルを塗るかどうかを決めるための ±1 でしかない。これを重みの計算に混ぜてはいけない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>int w0 = EdgeFunction(...);   // 生の値
+...
+if (((w0 + bias0) | (w1 + bias1) | (w2 + bias2)) &lt; 0) continue;  // 判定はバイアス付き
+float l0 = w0 * invArea;                                          // 補間は生の値</code></pre></div>
+<p>混ぜると三角形の縁で色がわずかにずれる。1/area 程度の微小な誤差なので画面では気づきにくいが、Day 8 でUVに使うとテクスチャの端が1テクセルずれる形で表面化する。<strong>「同じ数字でも用途によって使い分ける」</strong>必要がある例。</p>
+<div class="inject"><figure class="lab" id="bc-lab">
+  <div class="lab-head">
+    <h3>面積比を見る — バリセントリック座標と属性補間(要点1〜3、改造課題1)</h3>
+    <span class="tag">reference の Rasterizer.FillTriangle(エッジ関数の生の値に 1/面積 を掛けて重みにし、属性を混ぜる)を JS に移し(docs/site/rasterizer.js)、200x140 の小さなフレームバッファに描いて拡大したもの。白い点 P は三角形の中をドラッグでき、P と各辺がつくる3つの三角形(λ0・λ1・λ2 の面積)を色分けして重ねる。頂点もドラッグできる。表示の切り替えは改造課題1の3つで、このページだけ</span>
+  </div>
+  <div class="stage"><canvas id="bc-canvas" style="width:100%;aspect-ratio:10/7;height:auto;max-height:440px;touch-action:none" aria-label="赤・緑・青の頂点を持つ三角形と、その中の点 P"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">塗り方(課題1)</span>
+      <div class="seg" id="bc-mode"><button data-v="color" aria-pressed="true">頂点の色を補間</button><button data-v="l0" aria-pressed="false">λ0 だけ</button><button data-v="min" aria-pressed="false">最小の λ</button><button data-v="half" aria-pressed="false">λ が 0.5 付近</button></div>
+    </div>
+    <div class="ctl"><span class="label">面積を重ねる</span>
+      <div class="seg" id="bc-areas"><button data-v="1" aria-pressed="true">重ねる</button><button data-v="0" aria-pressed="false">重ねない</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bc-stats"></div></div>
+</figure></div>
+<h3 id="s7">4. 色は float で持つ</h3>
+<p><code>Vertex</code> の色を byte(0〜255)ではなく float(0.0〜1.0)にしている。</p>
+<ul><li>補間の途中で丸めが入らない</li><li>Day 9 で「明るさを掛ける」計算が自然に書ける(0.5倍 = 0.5を掛けるだけ)</li><li>1.0 を超える値を一時的に持てる。光を足し合わせると簡単に超える</li></ul>
+<p><strong>byte に落とすのは画面へ書き込む最後の1回だけ</strong>、というのが原則。GPUのシェーダーが色を float で扱うのも同じ理由で、「1.0 を超えた分をどうするか」がトーンマッピング(Day 31)の話になる。</p>
+<h3 id="s8">5. 補間した値を「色以外」に使う — シェーダーの発想</h3>
+<p>今日のデモの2つ目は、頂点1と頂点2に (1,0) と (0,1) を持たせて補間し、その値を整数化して偶奇で色を変えている。結果は市松模様になる。</p>
+<p>つまり補間された値を<strong>色として使わず、模様を引く鍵として使っている</strong>。これが Day 8 のテクスチャマッピングそのもので、違いは「模様を計算で作るか、画像から読むか」しかない。</p>
+<p>この分離をコードにするため、<code>PixelShader</code> デリゲートを用意した。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>internal delegate int PixelShader(float a0, float a1, float a2);</code></pre></div>
+<p>ラスタライザの責任は「どのピクセルか」と「そこでの属性値はいくつか」まで。<strong>色をどう決めるかは呼び出し側に委ねる。</strong> GPUがシェーダーをプログラマブルにしたのは、まさにこの境界に「差し替え可能な穴」を開けたということだった。</p>
+<h3 id="s9">6. 実測 — デリゲート呼び出しより、float→byte 変換のほうが高かった</h3>
+<p>640x480に収まる大きな三角形1枚を200回描いた実測(Release / 最良値):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>描き方</th><th>時間</th></tr></thead>
+<tbody>
+<tr><td>頂点カラー補間(<code>Framebuffer.Rgb(float,float,float)</code> で色を作る)</td><td>1.439 ms/枚</td></tr>
+<tr><td>シェーダ経由(デリゲート呼び出し + 市松判定)</td><td><strong>1.148 ms/枚</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>デリゲートを挟んだほうが速い。</strong> 直感に反するが、理由は単純で、<code>Rgb(float,float,float)</code> が3チャンネル分のクランプと丸めをしているのに対し、市松シェーダは2つの整数化と1回のビット判定で色を返しているから。<strong>デリゲート1回の呼び出しコストより、float→byte 変換3回のほうが重かった</strong>ということ。</p>
+<p>Day 2 の「速度差は測る場所で変わる」に続き、<strong>思い込みで最適化の当たりをつけない</strong>という教訓がまた出てきた形になる。</p>
+<p>なお1フレーム全体の render 時間は Day 3 の 1.31 ms(115枚)からDay 4 は 1.63 ms(66枚)に増えている。枚数はほぼ半分なのに時間は増えた。1ピクセルあたりの仕事が「単色を書く」から「重み3つ + 属性3つ + 変換」に増えたため。</p>
+<h3 id="s10">7. 頂点を共有すると継ぎ目が消える</h3>
+<p>3つ目のデモの円盤は、Day 3 とまったく同じ三角形64枚。違いは<strong>隣り合う扇形が縁の頂点色を共有している</strong>ことだけ。</p>
+<p>Day 3 では扇形1枚が単色だったので色の段差が見えたが、今日は境界で色が連続するので継ぎ目が完全に消え、なめらかな円盤に見える。三角形の枚数は1枚も増えていない。</p>
+<p>これは Day 9 のグーローシェーディングと原理的にまったく同じこと。「頂点でだけ計算して、内部は補間で誤魔化す」という手抜きが、なぜあれほど効果的なのかがここで体感できる。</p>
+<div class="inject"><figure class="lab" id="gd-lab">
+  <div class="lab-head">
+    <h3>属性補間デモ3種 — グラデーション・市松・なめらかな円盤(要点4〜7、W キー)</h3>
+    <span class="tag">reference の GameWindow.cs(DrawGradientTriangle、DrawBarycentricPattern の市松シェーダ、DrawSmoothDisc と RimVertex)を JS に移して 640x480 に描いたもの(三角形は docs/site/rasterizer.js)。1 フレーム 66 枚。render はこのページの値。「円盤の頂点色」を「扇形ごとに単色」にすると Day 3 と同じ描き方になる(このページだけ)。重心の色はこのページで中心の画素を読んだ値</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="gd-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="gd-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="RGB のグラデーション三角形、市松模様の三角形、なめらかな円盤"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ワイヤー(W)と円盤の頂点色(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="gd-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤーを重ねる</button></div><div class="seg" id="gd-share"><button data-v="1" aria-pressed="true">縁の色を共有(reference)</button><button data-v="0" aria-pressed="false">扇形ごとに単色(Day 3)</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">動き</span>
+      <div class="seg" id="gd-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="gd-stats"></div></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Vertex.cs</code></td><td><strong>新規(58行)</strong></td><td>位置 + 属性(色)。この先UVと法線が増えていく器</td></tr>
+<tr><td><code>Rasterizer.cs</code></td><td>変更</td><td><code>FillTriangle</code> がバリセントリック補間するように。<code>PixelShader</code> デリゲート追加。Day 3 の実験用フラグ2つを削除</td></tr>
+<tr><td><code>Framebuffer.cs</code></td><td>+18行</td><td><code>Rgb(float, float, float)</code> オーバーロード(クランプ付き)</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え</td><td>三角形デモ3種を属性補間版に</td></tr>
+<tr><td><code>Program.cs</code></td><td>変更なし</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p>デモ3種:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メソッド</th><th>描くもの</th><th>確認したいこと</th></tr></thead>
+<tbody>
+<tr><td><code>DrawGradientTriangle</code></td><td>頂点RGBのグラデーション三角形</td><td>補間が効いているか。重心が灰色か</td></tr>
+<tr><td><code>DrawBarycentricPattern</code></td><td>補間値をUVとして使った市松模様</td><td>色以外の用途に使えるか(Day 8 の予告)</td></tr>
+<tr><td><code>DrawSmoothDisc</code></td><td>頂点色を共有した円盤</td><td>継ぎ目が消えるか(Day 9 の予告)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>Vertex.cs</code> — 短い。float で色を持つ理由のコメントを読む</li><li><code>Framebuffer.cs</code> — <code>Rgb(float,float,float)</code> を足すだけ</li><li><code>Rasterizer.cs</code> — <strong>今日の本体</strong>。Day 3 との差分は驚くほど小さい。「w を捨てずに invArea を掛ける」という一点が本質</li><li><code>GameWindow.cs</code> — デモ3種</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day03/Rasterizer.cs reference/Day04/Rasterizer.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day04 -c Release</code></pre></div>
+<ol><li>左上に<strong>赤・緑・青のグラデーション三角形</strong>が回転している。3頂点が純色で、中心付近が<strong>灰色</strong>になっている</li><li>右上に<strong>黄色と紺の市松模様の三角形</strong>が回転している。模様のマス目は正方形ではなく、三角形の形に沿って<strong>歪んだ平行四辺形</strong>になっている(これがバリセントリック座標の作る「斜めの座標系」)</li><li>下中央に<strong>中心が白く縁が虹色の円盤</strong>が回転している。<strong>継ぎ目が1本も見えない</strong></li><li><strong>W</strong> キーでワイヤーフレームが重なる</li><li>タイトルバーが <code>59.x fps | 66 tri | render 1.6x ms</code> のようになっている</li><li>Esc で終了する</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>色が頂点と対応していない/回転で色が入れ替わる</strong> → 巻き方向の正規化のとき、位置だけ入れ替えて色を入れ替えていない。<code>Vertex</code> ごと交換すること</li><li><strong>三角形の縁だけ色がおかしい</strong> → 補間にバイアス付きの w を使っている。要点3</li><li><strong>重心が灰色にならない</strong> → <code>invArea</code> の計算。<code>area</code> を正に正規化した後の値を使っているか</li><li><strong>色が飛び飛び(バンディング)になる</strong> → 色を byte で補間している。float で持つこと</li><li><strong>市松模様が出ない/全面が単色</strong> → シェーダに渡る属性の順序。<code>Vertex</code> の R を U、G を V として使っている点に注意</li><li><strong>円盤に継ぎ目が見える</strong> → 隣り合う三角形で縁の頂点色が一致していない。<code>i / DiscTriangles</code> と <code>(i+1) / DiscTriangles</code> が次の三角形の値と揃うか確認</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>W</code></td><td>「属性補間デモ3種」の「ワイヤーを重ねる」</td><td>円盤の三角形の境目が見えるのはワイヤーを重ねたときだけ(色は連続している)</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「扇形ごとに単色」</td><td>三角形の枚数は同じなのに、継ぎ目が見えるようになる(要点7)</td></tr>
+<tr><td>(キーなし)</td><td>「面積比を見る」</td><td>P を重心に寄せると 3 つの面積がそろい、色は灰色に近づく。課題1の3つの表示</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day04 の Vertex.cs、Framebuffer.cs(Rgb(float))、Rasterizer.cs(FillTriangle と PixelShader)、GameWindow.cs(3つのデモ)を JS に移したもの(docs/site/rasterizer.js)。計算は double(reference は float)。render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): バリセントリック座標を直接見る</h3>
+<p><code>DrawGradientTriangle</code> の頂点色を (1,0,0), (0,1,0), (0,0,1) にしたまま、シェーダを渡して次を表示してみる。</p>
+<ol><li><code>λ0</code> だけをグレースケールで表示する(頂点0で白、向かいの辺で黒)</li><li><code>λ0, λ1, λ2</code> のうち<strong>最小のもの</strong>をグレースケールで表示する。何が見えるか(ヒント: 辺からの距離)。これは輪郭線を描く安直な方法になる</li><li><code>λ</code> のどれかが 0.5 に近いピクセルだけ色を変える。三角形の中に何が現れるか</li></ol>
+<h3 id="s16">課題2(中): 属性を増やす</h3>
+<p><code>Vertex</code> に4つ目の属性(例えば <code>A</code>)を足し、ラスタライザで一緒に補間する。</p>
+<ol><li><code>Vertex</code> にフィールドを追加し、<code>FillTriangle</code> の補間を1行増やす</li><li><code>PixelShader</code> を4引数に変更する</li><li>使い道の例: 4つ目を「透明度」として使い、背景と混ぜる(アルファブレンド)</li></ol>
+<p><strong>補間のコードが機械的にしか増えないこと</strong>を確認するのが目的。Day 8 でUV、Day 9 で法線を足すときも、やることは完全に同じになる。逆に言えば、属性が増えるたびに引数が増えるこの設計は限界があり、Day 5 でベクトル型を導入するとかなり整理される。</p>
+<h3 id="s17">課題3(難): 補間の精度を壊してみる</h3>
+<ol><li><code>float</code> を <code>Half</code>(16bit浮動小数)に変えると、どこから絵が崩れるか</li><li>重みを <code>int</code> の固定小数点(例えば 1.0 を 65536 とする)で持つとどうなるか。速くなるか? 精度は足りるか?</li><li><strong>今日の実装は、三角形が画面外に大きくはみ出すと破綻する。</strong>頂点座標が数万ピクセルになると、エッジ関数の <code>(bx-ax)*(py-ay)</code> が<code>int</code> の範囲(約21億)を超えてオーバーフローする。どのくらいの座標値から壊れるか計算し、実際に大きな三角形を描いて確かめる。この問題への正しい対処が Day 10 のクリッピングになる(画面外の部分を先に切り落とす)</li></ol>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 59〜60 fps、render 1.61〜1.65 ms(66枚)</li><li>検算: 重みの合計と1.0との誤差は厳密に0、3色の重心は (85,85,85)</li></ul>
+</section>
+<footer class="end">Day 04 バリセントリック座標と属性補間 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const R = Raster;
+
+// ------------------------------------------------------------
+// 1. 面積比を見る
+// ------------------------------------------------------------
+const BW = 200, BH = 140;
+const bc = { v: [[100, 12], [22, 124], [182, 112]], p: [100, 84], drag: null };
+const bfb = new R.Framebuffer(BW, BH), bras = new R.Rasterizer4(bfb), boff = document.createElement('canvas');
+boff.width = BW; boff.height = BH;
+// 連続な点 P の重み(面積比)。エッジ関数を浮動小数で計算する
+const ef = (a, b, p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+function bcDraw() {
+  const mode = segValue('bc-mode'), [a, b, c] = bc.v;
+  bfb.clear(R.rgb(12, 14, 22));
+  const shaders = {
+    color: null,
+    l0: (_r, _g, _b, l0) => R.rgbF(l0, l0, l0),
+    min: (_r, _g, _b, l0, l1, l2) => { const m = Math.min(l0, l1, l2) * 3; return R.rgbF(m, m, m); },
+    half: (r, g, bb, l0, l1, l2) => ([l0, l1, l2].some((l) => Math.abs(l - 0.5) < 0.02) ? R.rgb(255, 255, 255) : R.rgbF(r * 0.4, g * 0.4, bb * 0.4)),
+  };
+  bras.fillTriangle(R.vertex(a[0], a[1], 1, 0, 0), R.vertex(b[0], b[1], 0, 1, 0), R.vertex(c[0], c[1], 0, 0, 1), shaders[mode]);
+  bfb.toCanvas(boff);
+  const { ctx, w, h } = fit($('bc-canvas')), k = Math.min(w / BW, h / BH), ox = (w - BW * k) / 2, oy = (h - BH * k) / 2;
+  bc.geom = { k, ox, oy };
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(boff, ox, oy, BW * k, BH * k);
+  const S = (p) => [ox + (p[0] + 0.5) * k, oy + (p[1] + 0.5) * k];
+  // P と各辺がつくる三角形(λi は頂点 i の向かいの三角形)
+  const area = ef(a, b, c), L = [ef(b, c, bc.p) / area, ef(c, a, bc.p) / area, ef(a, b, bc.p) / area];
+  if (segValue('bc-areas') === '1') {
+    const cols = ['rgba(255,80,80,0.28)', 'rgba(80,255,120,0.28)', 'rgba(90,140,255,0.28)'];
+    [[b, c], [c, a], [a, b]].forEach(([q, r], i) => { ctx.fillStyle = cols[i]; ctx.beginPath(); [bc.p, q, r].forEach((pt, j) => { const [x, y] = S(pt); if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.closePath(); ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.stroke(); });
+  }
+  bc.v.forEach((q, i) => { const [x, y] = S(q); ctx.fillStyle = ['#f55', '#5f7', '#58f'][i]; ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#000'; ctx.font = '10px sans-serif'; ctx.fillText(`V${i}`, x - 7, y + 3); });
+  { const [x, y] = S(bc.p); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#000'; ctx.fillText('P', x - 3, y + 4); }
+  const col = R.rgbF(L[0], L[1], L[2]);
+  $('bc-stats').innerHTML = stat('λ0 / λ1 / λ2', L.map((l) => l.toFixed(3)).join(' / ')) + stat('λ の合計', (L[0] + L[1] + L[2]).toFixed(6))
+    + stat('P の色', `(${(col >>> 16) & 255}, ${(col >>> 8) & 255}, ${col & 255})`) + stat('面積 × 2', Math.abs(area).toFixed(0));
+}
+['bc-mode', 'bc-areas'].forEach((id) => seg(id, bcDraw));
+{
+  const cv = $('bc-canvas');
+  const at = (e) => { const r = cv.getBoundingClientRect(), { k, ox, oy } = bc.geom; return [(e.clientX - r.left - ox) / k - 0.5, (e.clientY - r.top - oy) / k - 0.5]; };
+  cv.addEventListener('pointerdown', (e) => {
+    const q = at(e), d = (p) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+    const k = bc.v.findIndex((p) => d(p) < 6);
+    bc.drag = k >= 0 ? k : 'p'; cv.setPointerCapture(e.pointerId);
+    if (bc.drag === 'p') { bc.p = q; bcDraw(); }
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (bc.drag === null) return;
+    const q = at(e).map((v, i) => Math.min([BW, BH][i] - 1, Math.max(0, v)));
+    if (bc.drag === 'p') bc.p = q; else bc.v[bc.drag] = q.map(Math.round);
+    bcDraw();
+  });
+  cv.addEventListener('pointerup', () => { bc.drag = null; });
+}
+
+// ------------------------------------------------------------
+// 2. 属性補間デモ3種
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer4(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const gd = { t: 0, ms: 0, fps: 0, n: 0, acc: 0, centroid: '' };
+const round = Math.round;
+function render(t) {
+  const wire = segValue('gd-wire') === '1', white = R.rgb(255, 255, 255);
+  ras.stats = { tested: 0, filled: 0, triangles: 0 };
+  fb.clear(R.rgb(12, 14, 22));
+  const ring = (cx, cy, r, base, colors) => [0, 1, 2].map((i) => { const a = base + (i * 2 * Math.PI) / 3; return R.vertex(cx + round(Math.cos(a) * r), cy + round(Math.sin(a) * r), ...colors(i)); });
+  { // グラデーション三角形
+    const v = ring(150, 132, 96, t * 0.7, (i) => [i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0]);
+    ras.fillTriangle(v[0], v[1], v[2]);
+    // 重心(3 頂点の平均の画素)の色を読む
+    const cx = round((v[0].x + v[1].x + v[2].x) / 3), cy = round((v[0].y + v[1].y + v[2].y) / 3), c = fb.pixels[cy * W + cx];
+    gd.centroid = `(${(c >>> 16) & 255}, ${(c >>> 8) & 255}, ${c & 255})`;
+    if (wire) ras.drawTriangleWireframe(v[0].x, v[0].y, v[1].x, v[1].y, v[2].x, v[2].y, white);
+  }
+  { // 補間した値を UV として使う市松
+    const v = ring(470, 132, 96, -t * 0.5, (i) => [i === 1 ? 1 : 0, i === 2 ? 1 : 0, 0]);
+    const yellow = R.rgbF(0.95, 0.80, 0.35), navy = R.rgbF(0.25, 0.30, 0.45);
+    ras.fillTriangle(v[0], v[1], v[2], (u, vv) => (((Math.trunc(u * 8) + Math.trunc(vv * 8)) & 1) === 0 ? yellow : navy));
+    if (wire) ras.drawTriangleWireframe(v[0].x, v[0].y, v[1].x, v[1].y, v[2].x, v[2].y, white);
+  }
+  { // 縁の頂点色を共有した円盤(64 枚)
+    const cx = W / 2, cy = 350, n = 64, share = segValue('gd-share') === '1';
+    const center = R.vertex(cx, cy, 1, 1, 1);
+    const rim = (a, hue) => R.vertexFromPacked(cx + round(Math.cos(a) * 110), cy + round(Math.sin(a) * 110), R.hueColor(hue));
+    for (let i = 0; i < n; i++) {
+      const a0 = -t * 0.3 + (i * 2 * Math.PI) / n, a1 = -t * 0.3 + ((i + 1) * 2 * Math.PI) / n;
+      const e0 = rim(a0, i / n), e1 = rim(a1, (i + 1) / n);
+      if (share) ras.fillTriangle(center, e0, e1);
+      else { const c = R.hueColor(i / n); ras.fillTriangle(R.vertexFromPacked(cx, cy, c), R.vertexFromPacked(e0.x, e0.y, c), R.vertexFromPacked(e1.x, e1.y, c)); }
+      if (wire) ras.drawTriangleWireframe(center.x, center.y, e0.x, e0.y, e1.x, e1.y, R.rgb(20, 20, 20));
+    }
+  }
+}
+function gdDraw() {
+  const t0 = performance.now();
+  render(gd.t);
+  gd.ms = gd.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('gd-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  const s = ras.stats;
+  $('gd-title').textContent = `Day04 - 属性補間  ${gd.fps.toFixed(1)} fps | ${s.triangles} tri | render ${gd.ms.toFixed(2)} ms | W:ワイヤー Esc:終了`;
+  $('gd-stats').innerHTML = stat('三角形', s.triangles) + stat('判定 / 塗り', `${s.tested.toLocaleString()} / ${s.filled.toLocaleString()}`) + stat('グラデーションの重心の色', gd.centroid) + stat('render(このページ)', `${gd.ms.toFixed(2)} ms`);
+}
+['gd-wire', 'gd-share', 'gd-play'].forEach((id) => seg(id, gdDraw));
+animate($('gd-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('gd-play') === '1') gd.t += dt;
+  gd.n++; gd.acc += dt; if (gd.acc >= 0.5) { gd.fps = gd.n / gd.acc; gd.n = 0; gd.acc = 0; }
+  gdDraw();
+});
+window.addEventListener('resize', bcDraw);
+bcDraw(); gdDraw();
+})();
+</script>
+</body>
+</html>
