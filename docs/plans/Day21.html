@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 21 リソース管理(ハンドルベース、非同期ロード)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 参照を配ると、寿命の持ち主が決まらない</a></li><li class="l3"><a href="#s5">2. ハンドル = 添字 + 世代</a></li><li class="l3"><a href="#s6">3. 共有は参照カウントで扱う</a></li><li class="l3"><a href="#s7">4. 間接参照のコストは実質ゼロ</a></li><li class="l3"><a href="#s8">5. 非同期化の境目は「GL を呼ぶかどうか」</a></li><li class="l3"><a href="#s9">6. アップロードも絞らないと、結局カクつく</a></li><li class="l3"><a href="#s10">7. キャッシュのキーは「同じ結果になる条件」を全部含める</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">新しい素材</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">ビルドと起動</a></li><li class="l3"><a href="#s19"><code>T</code>: ハンドルの自己チェック</a></li><li class="l3"><a href="#s20"><code>E</code>: 同期ロード(止まるほう)</a></li><li class="l3"><a href="#s21"><code>Q</code>: 非同期ロード(止まらないほう)</a></li><li class="l3"><a href="#s22"><code>Q</code> を押してすぐ <code>U</code></a></li><li class="l3"><a href="#s23">タイトルバー</a></li><li class="l2"><a href="#s24">改造課題</a></li><li class="l3"><a href="#s25">課題1(易): 仮の絵を変えてみる</a></li><li class="l3"><a href="#s26">課題2(中): メッシュもプールに載せる</a></li><li class="l3"><a href="#s27">課題3(難): ロードを打ち切れるようにする</a></li><li class="l2"><a href="#s28">動作確認済み環境</a></li><li class="l3"><a href="#s29">1枚あたりの内訳(<code>ground-grid.png</code> / 1024x1024 / 59KB)</a></li><li class="l3"><a href="#s30">ロードの比較(6枚 = 1024x1024 x 6)</a></li><li class="l3"><a href="#s31">ハンドル解決のコスト</a></li><li class="l3"><a href="#s32">重複排除</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 4 / Day 21 / 計画書</p>
+  <h1>リソース管理(ハンドルベース、非同期ロード)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 参照を配ると、寿命の持ち主が決まらない</a></li><li class="l3"><a href="#s5">2. ハンドル = 添字 + 世代</a></li><li class="l3"><a href="#s6">3. 共有は参照カウントで扱う</a></li><li class="l3"><a href="#s7">4. 間接参照のコストは実質ゼロ</a></li><li class="l3"><a href="#s8">5. 非同期化の境目は「GL を呼ぶかどうか」</a></li><li class="l3"><a href="#s9">6. アップロードも絞らないと、結局カクつく</a></li><li class="l3"><a href="#s10">7. キャッシュのキーは「同じ結果になる条件」を全部含める</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">新しい素材</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">ビルドと起動</a></li><li class="l3"><a href="#s19"><code>T</code>: ハンドルの自己チェック</a></li><li class="l3"><a href="#s20"><code>E</code>: 同期ロード(止まるほう)</a></li><li class="l3"><a href="#s21"><code>Q</code>: 非同期ロード(止まらないほう)</a></li><li class="l3"><a href="#s22"><code>Q</code> を押してすぐ <code>U</code></a></li><li class="l3"><a href="#s23">タイトルバー</a></li><li class="l2"><a href="#s24">改造課題</a></li><li class="l3"><a href="#s25">課題1(易): 仮の絵を変えてみる</a></li><li class="l3"><a href="#s26">課題2(中): メッシュもプールに載せる</a></li><li class="l3"><a href="#s27">課題3(難): ロードを打ち切れるようにする</a></li><li class="l2"><a href="#s28">動作確認済み環境</a></li><li class="l3"><a href="#s29">1枚あたりの内訳(<code>ground-grid.png</code> / 1024x1024 / 59KB)</a></li><li class="l3"><a href="#s30">ロードの比較(6枚 = 1024x1024 x 6)</a></li><li class="l3"><a href="#s31">ハンドル解決のコスト</a></li><li class="l3"><a href="#s32">重複排除</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 4(エンジンコア)の3日目。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>テクスチャもシェーダも <code>ResourceManager</code> を通してしか出入りしなくなり、1024x1024 のテクスチャ6枚を <strong>1フレームも止めずに</strong> 読み込める。</p>
+<p>Day 15 で書いた「ハンドルベースの正式な仕組みは Day 21 で作る」という宿題の回収でもある。</p>
+<ul><li><code>E</code> キー(同期ロード): その場で全部読む。実測で <strong>69ms 画面が固まる</strong></li><li><code>Q</code> キー(非同期ロード): 即座にハンドルが返る。紫の市松模様(仮の絵)が出て、読めたものから1枚ずつ差し替わる。<strong>最悪フレームは 7ms 前後</strong>で、止まったようには見えない</li></ul>
+<p>読むファイルも枚数もまったく同じで、違うのは経路だけ。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、この設計の出所にあたるものを挙げておく。</p>
+<ul><li><a href="https://floooh.github.io/2018/06/17/handles-vs-pointers.html">Handles are the better pointers</a>(Andre Weissflog)今日の設計はほぼこの記事のとおり。「なぜポインタ(参照)ではなくハンドルなのか」がC++ の文脈で丁寧に書かれている。C# には GC があるので事情が少し違うが、<strong>GPU リソースの寿命は GC の管轄外</strong>なので話はそのまま通じる</li><li><a href="https://kyren.github.io/2018/09/14/rustconf-talk.html">Using Rust For Game Development</a>(Catherine West, RustConf 2018)世代付き添字(generational index)が「オブジェクトの参照」の代わりになる、という話。後半は Day 23 の ECS に直結する。今日は前半だけでよい</li><li><a href="https://www.khronos.org/opengl/wiki/OpenGL_and_multithreading">OpenGL and multithreading</a>(Khronos wiki)コンテキストがスレッドに紐づくこと。要点5の根拠</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 参照を配ると、寿命の持ち主が決まらない</h3>
+<p>Day 15 の <code>Material</code> にはこう書いてあった。</p>
+<div class="code"><pre><code>/// 貼るテクスチャ。<strong>共有される</strong>ので、こちらも破棄の責任は持たない。
+/// 誰が寿命を持つかを曖昧にするとリークか二重解放になる。</code></pre></div>
+<p>「破棄の責任は持たない」と書けるうちはよいが、これは<strong>規約であってコードではない</strong>。マテリアルが100個あって、どれも同じことを守ってくれる保証はどこにも無い。実際 Day 20 の <code>OnClosing</code> は、こう並べるしかなかった。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_atlas.Dispose();
+foreach (Texture texture in _looseTextures) { texture.Dispose(); }
+_spriteShader.Dispose();
+_texture.Dispose();
+_shader.Dispose();</code></pre></div>
+<p>ここに1行足し忘れれば、そのぶんだけ静かにリークする。気づくきっかけは無い(GL のリソースは GC が回収しない)。</p>
+<p>C# なら参照が宙に浮くことは無いのでは、と思うかもしれないが、<strong>壊れるのは C# のオブジェクトではなく GPU 側の実体</strong>のほう。<code>Dispose</code> すると <code>glDeleteTextures</code> が走り、C# のオブジェクトだけが残る。その状態で <code>Bind</code> すると、削除済みの番号を指すので描画が真っ黒になるか、番号が再利用されていれば<strong>まったく別の絵が出る</strong>。原因(<code>Dispose</code>)と症状(描画)が離れるので、追跡はかなり難しい。</p>
+<h3 id="s5">2. ハンドル = 添字 + 世代</h3>
+<p>解決策は、参照の代わりに<strong>整数1個</strong>を配ること。実体は配列の中にあり、持ち主はその配列(<code>ResourcePool&lt;T&gt;</code>)ただ1つになる。</p>
+<div class="code"><pre><code>  31            24 23                            0
+  +---------------+------------------------------+
+  |   世代 (8bit) |         添字 (24bit)          |
+  +---------------+------------------------------+</code></pre></div>
+<p>添字だけでは足りない。スロットが再利用されると、古いハンドルが<strong>別人を指したまま生き続ける</strong>からで、これでは 1 の問題が戻ってくる。そこでスロットに世代番号を持たせ、<strong>解放のたびに +1</strong> する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>removed = slot.Value;
+slot.Value = null;
+slot.Generation = NextGeneration(slot.Generation);   // この1行で古いハンドルが全部死ぬ</code></pre></div>
+<p>引くときは世代も一緒に照合するので、古いハンドルはその場で「無効」と分かる。実測でも確認できる(<code>T</code> キー)。</p>
+<div class="code"><pre><code>[OK] 空いたスロットが再利用される  新 #5.g2 / 旧 #5.g1
+[OK] それでも古いハンドルは無効のまま</code></pre></div>
+<p>細かいが効く工夫が2つ。</p>
+<ul><li><strong>世代 0 を「無効」に予約する</strong>。<code>default(Handle&lt;T&gt;)</code> はビットが全部 0 なので、初期化し忘れたハンドルが自動的に無効になる。添字 0 は正当なスロットなので、「添字が 0 なら無効」という判定にはできない</li><li><strong>進めるのは解放時</strong>。再利用時に進める実装だと、解放してから次に使われるまでの隙間で古いハンドルが通ってしまう</li></ul>
+<p>世代は 8 ビットなので <strong>255 回の再利用で一周する</strong>。その時点で 255 代前のハンドルを握った相手がいれば蘇るが、起きたら発見はほぼ不可能な種類のバグなので、気になるならビット配分を変える(世代 16 / 添字 16 など)。<strong>「同時に持てる個数」と「安全に再利用できる回数」の綱引き</strong>で、どちらが厳しいかはリソースの種類によって違う。</p>
+<h3 id="s6">3. 共有は参照カウントで扱う</h3>
+<p>同じテクスチャを複数のマテリアルが使うのは普通のことなので、1人が要らなくなっただけで消えては困る。<code>Retain</code> で +1、<code>Release</code> で -1 し、<strong>0 になった瞬間だけ</strong>スロットを空ける。</p>
+<p>これで Day 15 の但し書きが要らなくなる。マテリアルは「持てないものは壊せない」。</p>
+<p>重複排除も同じ表で成立する。同じパスを頼まれたら、読まずに <code>Retain</code> して同じハンドルを返す。</p>
+<div class="code"><pre><code>同じパスを 1000 回: 10.85ms / 増えたテクスチャ 1 件 / キャッシュヒット 999 回
+参照カウント: 1000
+全部返したあと: テクスチャ 5 件(開始時 5 件)</code></pre></div>
+<p>1000 回で 10.85ms、つまり<strong>1回あたり 10 マイクロ秒</strong>かかっている。中身はほぼ <code>Path.GetFullPath</code>(パスの正規化)で、決して安くはない。<strong>毎フレームパスで問い合わせるのではなく、ハンドルを持ち回るのが正しい使い方</strong>。</p>
+<p>なお参照カウントは循環参照に弱い(A が B を、B が A を持つと永遠に 0 にならない)。リソースは他のリソースを持たないので今回は問題にならないが、<strong>ゲームオブジェクトの寿命に同じ手を使うと詰まる</strong>。Day 22 では別の手を使う。</p>
+<div class="inject"><figure class="lab" id="pl-lab">
+  <div class="lab-head">
+    <h3>プールの中を見る — 添字 + 世代 + 参照カウント(要点2・3、T キー)</h3>
+    <span class="tag">reference の Handle.cs、ResourcePool.cs、ResourceManager.cs(パス → ハンドルの表、重複排除、Retain / Release)を JS に移したもの。起動時と同じく、uv-test(ミップマップ有)とスプライト4枚(ミップマップ無)が先に入っている。「読む」で返ってきたハンドルは右の「持っているハンドル」に並び、押すと Release する。返したあとも札は残り、そのハンドルを引くと何が返るか(本物 / 仮の絵)を表示し続ける。「世代を一周させる」はこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px" id="pl-grid">
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:6px">ResourcePool&lt;Texture&gt; のスロット(空きリストの先頭は ▶)</div><div class="table-wrap" id="pl-slots"></div></div>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:6px">持っているハンドル(押すと Release)</div><div id="pl-held" style="display:flex;flex-wrap:wrap;gap:6px"></div></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">読む(LoadTexture)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><select id="pl-path" class="btn"></select><div class="seg" id="pl-mip"><button data-v="1" aria-pressed="true">ミップマップ有</button><button data-v="0" aria-pressed="false">無</button></div><button class="btn primary" id="pl-load">読む</button></div>
+    </div>
+    <div class="ctl"><span class="label">確かめる</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="pl-check">T 自己チェック</button><button class="btn" id="pl-wrap">世代を一周させる(255 回)</button><button class="btn" id="pl-reset">起動直後に戻す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="pl-stats"></div><pre id="pl-console" style="margin:10px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s7">4. 間接参照のコストは実質ゼロ</h3>
+<p>「毎回配列を引くなら遅いのでは」という懸念は当然出る。実測すると、</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td>参照を直接使う</td><td>0.78ns</td></tr>
+<tr><td>ハンドルを解いてから使う</td><td>1.31ns</td></tr>
+<tr><td>差</td><td><strong>0.53ns</strong></td></tr>
+</tbody>
+</table></div>
+<p>差は 0.5ns 程度。スプライト2万枚ぶん解決しても <strong>+0.011ms</strong> で、1フレームの予算 16.6ms に対して誤差の範囲。やっているのは境界チェックと世代の比較だけなので、当然といえば当然。</p>
+<p>だから <code>Submit</code> では素直にその場で解いている。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_spriteBatch.Draw(_resources.GetTexture(_looseTextures[kind]), center, size, rotation, color, layer);</code></pre></div>
+<p><strong>キャッシュミスの心配があるのは、解いた先(テクスチャ本体)を触るとき</strong>であって解決そのものではない。プールの配列は連続していて、しかも小さい。</p>
+<h3 id="s8">5. 非同期化の境目は「GL を呼ぶかどうか」</h3>
+<p>OpenGL のコンテキストは<strong>スレッドに紐づいている</strong>。別スレッドから <code>glTexImage2D</code> を呼んでも、そのスレッドではカレントになっていないので何も起きないか落ちる(共有コンテキストを作れば可能だが、話が一気に面倒になる)。</p>
+<p>つまり、テクスチャの読み込みは2つに割れる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段階</th><th>中身</th><th>スレッド</th><th>実測(1024x1024)</th></tr></thead>
+<tbody>
+<tr><td>復号</td><td>ファイル読み + PNG 展開</td><td><strong>どこでもよい</strong></td><td>6.0ms</td></tr>
+<tr><td>アップロード</td><td><code>glTexImage2D</code> + <code>glGenerateMipmap</code></td><td><strong>描画スレッド限定</strong></td><td>1.5ms(ミップマップ無)/ 4.0ms(有)</td></tr>
+</tbody>
+</table></div>
+<p><strong>重いほうが自由に動かせる</strong>ので、割った甲斐がある。<code>Texture.FromFile</code> を <code>DecodeFile</code>(CPU)と <code>FromPixels</code>(GPU)に分けたのはこのため。</p>
+<p>呼び出し側から見た違いはこうなる。</p>
+<div class="code"><pre><code>同期    : 呼び出しが返るまで 68.2ms  ← この間ウィンドウは無反応
+非同期  : 呼び出しが返るまで  0.1ms  ← 仮の絵を指すハンドルが即座に返る</code></pre></div>
+<p>そして<strong>ハンドルだから差し替えられる</strong>。読み終わったらプールの1スロットを書き換えるだけで、そのハンドルを持っている全員が新しいほうを見る。呼び出し側に「読み終わったか」を問い合わせるコードすら要らない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 毎フレームこう書くだけ。何が入っているかは知らなくてよい
+_spriteBatch.Draw(_resources.GetTexture(handle), ...);</code></pre></div>
+<p>参照を配る設計だと、配った先を全部探して書き換えることになる。<strong>これが間接参照を1段はさんだ最大の見返り</strong>。</p>
+<h3 id="s9">6. アップロードも絞らないと、結局カクつく</h3>
+<p>復号を裏に回しても、アップロードは描画スレッドに残る。6枚を一度に上げれば、そのフレームで 24ms 止まる——せっかく裏で読んだのに、という間抜けな結果になる。実測がそのとおりになる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>呼び出し</th><th>全部そろうまで</th><th>最悪フレーム</th></tr></thead>
+<tbody>
+<tr><td>基準(ロードなし、1500 フレーム)</td><td>-</td><td>-</td><td>0.78ms</td></tr>
+<tr><td>同期</td><td>68.2ms</td><td>70ms</td><td><strong>69.7ms</strong></td></tr>
+<tr><td>非同期・<code>MaxUploadsPerFrame = 99</code></td><td>0.1ms</td><td>35ms</td><td><strong>27.7ms</strong></td></tr>
+<tr><td>非同期・<code>MaxUploadsPerFrame = 1</code></td><td>0.1ms</td><td>43ms</td><td><strong>6.6ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>絞ると「全部そろうまで」は 35ms から 43ms に伸びるが、<strong>最悪フレームは 27.7ms から 6.6ms に下がる</strong>。遅くなったほうが体感はよい、という典型例。</p>
+<p>1フレームずつ追うと、内訳がはっきり見える。</p>
+<div class="code"><pre><code>frame   1:   3.21ms  upload  0.00ms  待ち 6   ← 復号中。ワーカーが CPU を食う
+frame   5:   2.74ms  upload  0.00ms  待ち 6
+frame  33:   5.34ms  upload  4.16ms  待ち 4   ← ここから1フレーム1枚ずつ
+frame  34:   4.63ms  upload  2.74ms  待ち 3
+frame  37:   3.56ms  upload  4.14ms  待ち 0</code></pre></div>
+<p>止まらないとはいえ、平常時の 0.78ms に対して 3〜5ms は乗る。内訳は「ワーカースレッドが CPU を使うぶん」と「1枚ぶんのアップロード」で、どちらも避けられない。<strong>非同期は仕事を消すのではなく、均すもの</strong>。</p>
+<div class="inject"><figure class="lab" id="ld-lab">
+  <div class="lab-head">
+    <h3>同期と非同期のロード — 止めるか、均すか(要点5・6、完成条件の E、Q・U)</h3>
+    <span class="tag">reference の ResourceManager(LoadTexture / LoadTextureAsync / Update の MaxUploadsPerFrame / Release と生存確認)を JS に移し、このページの中の時計で回したもの。時間は本文の実測をもとに置いた値(このページだけ): 平常のフレーム 0.78ms、同期の1枚はファイル読みと復号で 7.0ms、非同期は裏で 6 枚を同時に復号して 9ms(その間フレームが 2.5ms 重くなる)、アップロード 4.0ms(ミップマップ無なら 1.5ms)。上の図は、ロードを始めてからのフレームを長さどおりの幅で並べたもので、赤は 16.6ms を超えたフレーム。下の 6 枚は図の縦線の時点の絵で、紫の市松が仮の絵。押すと最初から 1/20 の速さで再生する</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="ld-chart" style="height:150px" aria-label="ロード中のフレームの長さを並べた図"></canvas><p style="margin:4px 0 0;font-size:12px;color:var(--muted)">青 = 平常 / 黄 = 裏で復号中 / 緑 = アップロードした / 赤 = 16.6ms 超え / 縦線 = 今の時点</p><canvas id="ld-strip" style="height:110px;margin-top:10px" aria-label="6枚のテクスチャ。読めていないものは紫の市松模様"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ロード</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="ld-e">E 同期</button><button class="btn primary" id="ld-q">Q 非同期</button><button class="btn" id="ld-qu">Q を押してすぐ U</button></div>
+    </div>
+    <div class="ctl"><span class="label">MaxUploadsPerFrame とミップマップ</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ld-max"><button data-v="1" aria-pressed="true">1(reference)</button><button data-v="99" aria-pressed="false">99</button></div><div class="seg" id="ld-mip"><button data-v="1" aria-pressed="true">ミップマップ有</button><button data-v="0" aria-pressed="false">無(このページだけ)</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ld-stats"></div><pre id="ld-console" style="margin:10px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<p>ちなみに 6 枚ぶんの復号バッファは 4MB x 6 = 24MB あり、この間に GC が1回走る。本気でやるなら <code>ArrayPool&lt;byte&gt;</code> で使い回すが、今日はそこまでしない。</p>
+<h3 id="s10">7. キャッシュのキーは「同じ結果になる条件」を全部含める</h3>
+<p>同じ PNG でも、ミップマップ有りと無しは<strong>別のテクスチャ</strong>になる。パスだけをキーにすると、先に読まれたほうが返ってしまう。</p>
+<p>Day 18 で見たとおり、ミップマップが無いのに <code>LinearMipmapLinear</code> を指定したテクスチャはエラーも出さずに<strong>真っ黒</strong>になる。キャッシュのキーをけちると、この形で表面化する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private static string MakeTextureKey(string path, bool generateMipmaps) =&gt;
+    generateMipmaps ? Path.GetFullPath(path) : Path.GetFullPath(path) + "|nomip";</code></pre></div>
+<p><code>Path.GetFullPath</code> を通すのは、<code>./assets/x.png</code> と <code>assets/x.png</code> を同じものと見なすため。Windows は大文字小文字を区別しないので、比較も <code>OrdinalIgnoreCase</code> にしてある(Linux へ持っていくならここは変えることになる)。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Handle.cs</code></td><td>96 (24)</td><td>添字 + 世代の 32 ビット。型引数は取り違え防止のためだけの幽霊型</td></tr>
+<tr><td><code>ResourcePool.cs</code></td><td>256 (138)</td><td>配列 + 空きリスト + 世代 + 参照カウント。リソースの種類を知らない</td></tr>
+<tr><td><code>ResourceManager.cs</code></td><td>372 (194)</td><td>窓口。パス→ハンドル、重複排除、非同期ロード、後片付け</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Texture.cs</code></td><td>+31 / -2</td><td><code>DecodeFile</code>(GL を呼ばない部分)を <code>FromFile</code> から切り出し。<code>DecodedImage</code> 型を追加</td></tr>
+<tr><td><code>Material.cs</code></td><td>+38 / -21</td><td><code>Shader</code> / <code>Texture</code> の参照をハンドルに。<code>Apply(ResourceManager)</code> になった</td></tr>
+<tr><td><code>Program.cs</code></td><td>+333 / -42</td><td>全リソースを <code>ResourceManager</code> 経由に。ロードの実演・計測・自己チェック</td></tr>
+</tbody>
+</table></div>
+<p><code>Handle</code> / <code>ResourcePool</code> / <code>ResourceManager</code> は他の Day のファイルに依存しない(<code>Texture</code> と <code>Shader</code> の名前だけ知っている)ので、<strong>先に3つ書いてしまうのが楽</strong>。</p>
+<h3 id="s14">キーの変更</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>Q</code></td><td>非同期ロード(6枚)</td></tr>
+<tr><td><code>E</code></td><td>同期ロード(6枚)</td></tr>
+<tr><td><code>U</code></td><td>アンロード</td></tr>
+<tr><td><code>T</code></td><td>ハンドルの自己チェック</td></tr>
+</tbody>
+</table></div>
+<p>Day 20 までの <code>L</code>(負荷)、<code>K</code>(余剰破棄)、<code>Y</code>(決定性チェック)はそのまま。</p>
+<h3 id="s15">新しい素材</h3>
+<p><code>assets/textures/</code> に 1024x1024 のテクスチャを6枚追加した。いずれも手続き的に生成したもので、出所は無い(このリポジトリで作った)。</p>
+<p><code>ground-grid</code> / <code>wall-brick</code> / <code>wood-planks</code> / <code>metal-plate</code> / <code>stone-tiles</code> / <code>fabric-weave</code></p>
+<p>スプライト用の 64x64 では復号が 0.07ms で終わってしまい、同期と非同期の差が出ない。<strong>1024x1024 にして初めて「読み込みが重い」という前提が成立する</strong>。Phase 6 の 3D シーンでも使う。</p>
+<h3 id="s16">写経する順番</h3>
+<ol><li><strong><code>Handle.cs</code></strong> — 短い。世代 0 の予約とビット配分だけ押さえる</li><li><strong><code>ResourcePool.cs</code></strong> — 空きリストと <code>NextGeneration</code> が肝。<code>Replace</code> は今は使い道が見えないが、5 で効いてくる</li><li><strong><code>Texture.cs</code></strong> — <code>DecodeFile</code> の切り出し。差分は小さいがここが非同期化の境目</li><li><strong><code>ResourceManager.cs</code></strong> — <code>LoadTextureAsync</code> と <code>Update</code> を並べて読む。「要求時に辞書へ入れる」「完了時に生存確認する」の2つが要点</li><li><strong><code>Material.cs</code></strong> — ハンドルに置き換える。Day 15 の但し書きが消えるのを確認する</li><li><strong><code>Program.cs</code></strong> — <code>OnLoad</code> を管理経由にする → <code>OnClosing</code> が短くなる → <code>RenderResourceStrip</code> → <code>LoadDemoTextures</code> / <code>UpdateLoadWatch</code> → <code>RunResourceCheck</code></li></ol>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<h3 id="s18">ビルドと起動</h3>
+<div class="code"><pre><code>dotnet run --project reference/Day21 -c Release</code></pre></div>
+<p>Day 20 と同じ画面が出る。見た目は変わらない(リソースの通り道が変わっただけ)。</p>
+<h3 id="s19"><code>T</code>: ハンドルの自己チェック</h3>
+<p>コンソールに9項目が出て、すべて <code>OK</code> になる。</p>
+<div class="code"><pre><code>[リソースの自己チェック]
+  [OK] 既定値のハンドルは無効
+  [OK] 同じパスは同じハンドルになる(重複ロードされない)
+  [OK] 参照カウントが 2 になる  実際 2
+  [OK] 1回返しただけでは消えない
+  [OK] 2回目で消える
+  [OK] 解放後のハンドルからは仮の絵が返る
+  [OK] 空いたスロットが再利用される  新 #5.g2 / 旧 #5.g1
+  [OK] それでも古いハンドルは無効のまま
+  [OK] 読み込み設定が違えば別のハンドル
+  すべて合格</code></pre></div>
+<p><code>新 #5.g2 / 旧 #5.g1</code> が今日の核心。<strong>同じスロット(#5)を指しているのに、世代が違うので古いほうは無効</strong>。</p>
+<h3 id="s20"><code>E</code>: 同期ロード(止まるほう)</h3>
+<p>画面下に6枚のテクスチャが並ぶが、その前に<strong>ウィンドウが一瞬固まる</strong>。</p>
+<div class="code"><pre><code>[ロード開始] 同期 6 枚 / 呼び出しが返るまで 68.2ms
+[ロード完了] 同期 / 呼び出し 68.2ms / 全部そろうまで 70ms / 最悪フレーム 69.7ms
+  → 60fps の1フレーム(16.6ms)を超えた。ユーザーには「固まった」と見える</code></pre></div>
+<h3 id="s21"><code>Q</code>: 非同期ロード(止まらないほう)</h3>
+<p><code>U</code> で一度解放してから <code>Q</code> を押す。<strong>紫の市松模様が6枚並び</strong>、そのあと本物に差し替わる。カメラを回しながら押しても引っかからない。</p>
+<div class="code"><pre><code>[ロード開始] 非同期 6 枚 / 呼び出しが返るまで 0.1ms
+[ロード完了] 非同期 / 呼び出し 0.1ms / 全部そろうまで 43ms / 最悪フレーム 6.6ms
+  → 1フレームの予算に収まっている。読み込んでいることに気づかせない</code></pre></div>
+<p>差し替わる様子を目で追いたいときは <code>V</code>(VSync)を先に押す。上限を外した状態だと 1000fps 近く出るので、43ms は 40 フレーム程度——一瞬で終わってしまって見えない。</p>
+<h3 id="s22"><code>Q</code> を押してすぐ <code>U</code></h3>
+<p><strong>読み込み中に解放しても壊れない</strong>ことの確認。</p>
+<div class="code"><pre><code>[ロード開始] 非同期 6 枚 / 呼び出しが返るまで 0.0ms
+[解放] 残りテクスチャ 5 件 / 待ち 6 件
+  1.5秒後  : 待ち 0 件 / テクスチャ 5 件(捨てられていれば増えない)</code></pre></div>
+<p>裏の復号は完走するが、出来上がったものは <code>Update</code> の生存確認で捨てられる。テクスチャの数が増えていないことがその証拠。<strong>参照を配る設計だと、ここで解放済みのオブジェクトに書き込むことになる</strong>。</p>
+<h3 id="s23">タイトルバー</h3>
+<p><code>tex:11 待ち:0</code> が増えている。<code>Q</code> を押した直後だけ <code>待ち</code> が 6 になる。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>T</code></td><td>「プールの中を見る」の「T 自己チェック」</td><td>9 項目。「新 #5.g2 / 旧 #5.g1」で、同じスロットでも世代が違えば古いほうは無効</td></tr>
+<tr><td><code>E</code></td><td>「同期と非同期のロード」の「E 同期」</td><td>1 フレームが 60ms 以上に伸び、6 枚がいきなりそろう</td></tr>
+<tr><td><code>Q</code></td><td>同じ実験台の「Q 非同期」</td><td>仮の絵がすぐ並び、1 フレーム 1 枚ずつ差し替わる。MaxUploadsPerFrame を 99 にすると最後に大きな赤いフレームが出る</td></tr>
+<tr><td><code>Q</code> → <code>U</code></td><td>同じ実験台の「Q を押してすぐ U」</td><td>裏の復号は完走するが、Update の生存確認で捨てられ、テクスチャの数は増えない</td></tr>
+<tr><td><code>U</code></td><td>(「E 同期」「Q 非同期」は毎回 U してから始める)</td><td>参照カウントが 0 になったものだけ消える。「プールの中を見る」で1つずつ返すこともできる</td></tr>
+<tr><td>(キーなし)</td><td>「プールの中を見る」の「世代を一周させる」</td><td>reference に無い実験。255 回再利用すると、古いハンドルが別のテクスチャを指して蘇る</td></tr>
+<tr><td>Day 20 までのキー</td><td>このページには無い</td><td>Day 19・20 のページ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day21 の Handle.cs、ResourcePool.cs、ResourceManager.cs(いずれも docs/site/enginecore.js)と、Program.cs の LoadDemoTextures、UnloadDemoTextures、UpdateLoadWatch、RunResourceCheck を JS に移したもの。テクスチャは名前だけの値で、復号とアップロードの時間は本文の実測をもとに置いたモデル。ms の数字はこのページの時計の値で、本文の表(手元の RTX 3070 環境の値)とは一致しない。</p></div>
+</section>
+<section class="part"><h2 id="s24">改造課題</h2>
+<h3 id="s25">課題1(易): 仮の絵を変えてみる</h3>
+<p><code>ResourceManager.CreatePlaceholder</code> の色を、たとえば黒や透明に変えてみる。</p>
+<p>そのうえで <code>Q</code> を押し、「読み込み中であること」に気づけるかどうかを見る。紫の市松が業界の定番になっている理由が体感できる(自然界にほぼ無い色なので、絵として成立してしまわない)。</p>
+<p>余裕があれば <code>ResourceManager.MaxUploadsPerFrame</code> を 1 と 99 で切り替えて、タイトルバーの fps がどう変わるかを見る。</p>
+<h3 id="s26">課題2(中): メッシュもプールに載せる</h3>
+<p><code>Mesh&lt;TVertex&gt;</code> は今も <code>Program</code> が直接 <code>Dispose</code> している。これを <code>ResourcePool&lt;Mesh&lt;Vertex&gt;&gt;</code> に載せて、<code>OnClosing</code> から<code>_cube.Dispose()</code> / <code>_quad.Dispose()</code> を消す。</p>
+<p><code>Handle&lt;Mesh&lt;Vertex&gt;&gt;</code> と書けること(幽霊型がジェネリック型でも動くこと)、<code>ResourcePool&lt;T&gt;</code> がリソースの種類を一切知らずに再利用できることが確認できる。</p>
+<p>ただし <code>Mesh</code> はファイルから読むものではないので、<code>ResourceManager</code> の「パス→ハンドル」の表には載らない。<strong>プールに載せることと、キャッシュのキーを持つことは別</strong>。どこで線を引くかを考えるのがこの課題の主題。</p>
+<h3 id="s27">課題3(難): ロードを打ち切れるようにする</h3>
+<p>今の <code>LoadTextureAsync</code> は、投げた <code>Task</code> を止める手段が無い。<code>ResourceManager.Dispose</code> のコメントにも「本物のエンジンでは<code>CancellationToken</code> を渡して止められるようにする」と書いてある。</p>
+<p><code>CancellationTokenSource</code> を持たせて、</p>
+<ul><li><code>Release</code> で参照カウントが 0 になったら、対応するロードを取り消す</li><li><code>Dispose</code> で全部取り消して、飛んでいる <code>Task</code> の完了を待ってから破棄する</li></ul>
+<p>を実装する。シーンを切り替えた瞬間に前のシーンのロードを全部捨てられるようになる。</p>
+<p>難しいのは<strong>取り消しと完了の競合</strong>で、「取り消した直後に完了した」場合に<code>_pending</code> が合わなくなったり、二重に破棄したりしやすい。世代番号があるおかげで最悪でも「捨てられる」だけで済んでいる、という今の作りのありがたみが分かるはず。</p>
+</section>
+<section class="part"><h2 id="s28">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>GL_VERSION: 3.3.0 NVIDIA 596.49</li><li>960x640、VSync オフ、1000 スプライト、<code>-c Release</code></li></ul>
+<h3 id="s29">1枚あたりの内訳(<code>ground-grid.png</code> / 1024x1024 / 59KB)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>復号(CPU)</th><th>アップロード(GPU)</th></tr></thead>
+<tbody>
+<tr><td>ミップマップ無</td><td>6.0ms</td><td>1.5ms</td></tr>
+<tr><td>ミップマップ有</td><td>6.1ms</td><td>4.0ms</td></tr>
+</tbody>
+</table></div>
+<p>復号がアップロードの 1.5〜4 倍。<strong>重いほうがスレッドを選ばない</strong>ので、分割の効果が出る。ミップマップ生成の 2.5ms は描画スレッドから動かせない。</p>
+<p>なお PNG の復号時間は<strong>ファイルサイズではなく解像度で決まる</strong>。測定中に作った 2048x2048 の比較用画像では、16MB のノイズ画像(21.3ms)より 228KB のグラデーション画像(24.7ms)のほうが遅かった。zlib の展開より、ピクセル数ぶんのフィルタ復元が効いている。</p>
+<h3 id="s30">ロードの比較(6枚 = 1024x1024 x 6)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>呼び出しが返るまで</th><th>全部そろうまで</th><th>最悪フレーム</th></tr></thead>
+<tbody>
+<tr><td>基準(ロードなし、1500 フレーム)</td><td>-</td><td>-</td><td>0.78ms</td></tr>
+<tr><td>同期</td><td>68.2ms</td><td>70ms</td><td>69.7ms</td></tr>
+<tr><td>非同期・<code>MaxUploadsPerFrame = 99</code></td><td>0.1ms</td><td>35ms</td><td>27.7ms</td></tr>
+<tr><td>非同期・<code>MaxUploadsPerFrame = 1</code></td><td>0.1ms</td><td>43ms</td><td>6.6ms</td></tr>
+</tbody>
+</table></div>
+<p>非同期の初回だけ呼び出しが 1.7〜2.3ms かかることがある。スレッドプールのスレッドが立ち上がるぶんで、2回目以降は 0.1ms。</p>
+<h3 id="s31">ハンドル解決のコスト</h3>
+<p><code>Texture.Width</code> を 2000 万回読む。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>合計</th><th>1回あたり</th></tr></thead>
+<tbody>
+<tr><td>参照を直接使う</td><td>15.6ms</td><td>0.78ns</td></tr>
+<tr><td><code>GetTexture(handle)</code> を挟む</td><td>26.3ms</td><td>1.31ns</td></tr>
+</tbody>
+</table></div>
+<p>差 0.53ns。スプライト2万枚ぶんで +0.011ms。</p>
+<h3 id="s32">重複排除</h3>
+<p>同じパスを 1000 回要求 → テクスチャは1件、キャッシュヒット 999 回、所要 10.85ms。1回 10 マイクロ秒はほぼ <code>Path.GetFullPath</code> の費用。</p>
+<h3 id="s33">検証の途中で分かったこと</h3>
+<ul><li><strong><code>Handle&lt;T&gt;</code> を辞書のキーにするなら <code>GetHashCode</code> / <code>Equals</code> が要る</strong>。<code>readonly struct</code> の既定実装はリフレクション経由で遅いうえ、<code>==</code> を定義しないと参照比較のような書き味にならない</li><li>非同期ロード中の最悪フレーム 6.6ms は、内訳を追うと「ワーカースレッドが CPU を食うぶん(3ms)」と「1枚ぶんのアップロード(4ms)」だった。<strong>アップロードを絞っても平常時の 0.78ms には戻らない</strong>。非同期は仕事を消すのではなく均すもの、という理解でよい</li><li>同期ロードでは <code>ResourceManager.Update</code> を通らないので、<code>LastUploadMilliseconds</code> は 0 のまま。GPU 側の費用も同じだけかかっているが、この指標には出てこない</li></ul>
+</section>
+<footer class="end">Day 21 リソース管理(ハンドルベース、非同期ロード) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/enginecore.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const C = Core, H = C.Handle, F = DotNet.fmtFixed;
+const DEMO = ['ground-grid', 'wall-brick', 'wood-planks', 'metal-plate', 'stone-tiles', 'fabric-weave'];
+const SPRITES = ['sprite-circle', 'sprite-ring', 'sprite-star', 'sprite-diamond'];
+// 起動時(OnLoad)と同じ順に読む: uv-test(ミップマップ有)→ スプライト4枚(ミップマップ無)
+function startupManager() {
+  const m = new C.ResourceManager();
+  m.loadTexture('uv-test');
+  for (const s of SPRITES) m.loadTexture(s, false);
+  return m;
+}
+
+// ------------------------------------------------------------
+// 1. プールの中を見る
+// ------------------------------------------------------------
+const pl = { m: null, held: [], log: [] };
+const plLog = (s) => { pl.log.push(s); if (pl.log.length > 200) pl.log.splice(0, pl.log.length - 200); $('pl-console').textContent = pl.log.join('\n'); $('pl-console').scrollTop = 1e9; };
+function plReset() { pl.m = startupManager(); pl.held = []; plDraw(); }
+for (const name of ['sprite-diamond', ...DEMO]) { const o = document.createElement('option'); o.value = o.textContent = name; $('pl-path').appendChild(o); }
+seg('pl-mip', () => {});
+$('pl-load').addEventListener('click', () => {
+  const path = $('pl-path').value, mip = segValue('pl-mip') === '1';
+  const hits = pl.m.cacheHits, h = pl.m.loadTexture(path, mip);
+  pl.held.push({ h, path, mip, released: false });
+  plLog(`LoadTexture("${path}"${mip ? '' : ', generateMipmaps: false'}) → ${H.toString(h)}  ${pl.m.cacheHits > hits ? '(キャッシュヒット。Retain して同じハンドル)' : '(新しく読んだ)'}`);
+  plDraw();
+});
+$('pl-reset').addEventListener('click', () => { plReset(); plLog('(起動直後に戻した)'); });
+$('pl-check').addEventListener('click', () => {
+  // Program.RunResourceCheck(起動直後と同じプールで回す)
+  const m = startupManager(), path = 'sprite-diamond';
+  const lines = ['[リソースの自己チェック]']; let fails = 0;
+  const check = (name, ok, detail = '') => { if (!ok) fails++; lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${detail ? '  ' + detail : ''}`); };
+  check('既定値のハンドルは無効', !H.isValid(H.none));
+  const first = m.loadTexture(path), second = m.loadTexture(path);
+  check('同じパスは同じハンドルになる(重複ロードされない)', first === second);
+  check('参照カウントが 2 になる', m.refCountOf(first) === 2, `実際 ${m.refCountOf(first)}`);
+  m.release(first);
+  check('1回返しただけでは消えない', m.isReady(second));
+  m.release(second);
+  check('2回目で消える', m.textures.tryGet(second) === null);
+  check('解放後のハンドルからは仮の絵が返る', m.getTexture(second) === m.placeholder);
+  const reused = m.loadTexture(path);
+  check('空いたスロットが再利用される', H.index(reused) === H.index(second), `新 ${H.toString(reused)} / 旧 ${H.toString(second)}`);
+  check('それでも古いハンドルは無効のまま', reused !== second && m.textures.tryGet(second) === null);
+  const noMip = m.loadTexture(path, false);
+  check('読み込み設定が違えば別のハンドル', noMip !== reused);
+  m.release(noMip); m.release(reused);
+  lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`);
+  plLog(''); for (const l of lines) plLog(l);
+});
+$('pl-wrap').addEventListener('click', () => {
+  // 1つのスロットを 255 回使い回すと、世代(8 ビット)が一周して古いハンドルが通ってしまう
+  const m = pl.m;
+  const old = m.loadTexture('wood-planks');
+  m.release(old);
+  let h = 0, n = 0;
+  for (; n < 255; n++) {
+    h = m.loadTexture(`wrap-${n}`);   // 毎回ちがうパス(キャッシュに当たらないように)
+    if (H.generation(h) === H.generation(old) && H.index(h) === H.index(old)) break;
+    m.release(h);
+  }
+  const t = m.textures.tryGet(old);
+  pl.held.push({ h: old, path: 'wood-planks', mip: true, released: true });
+  plLog(`古いハンドル ${H.toString(old)}(wood-planks)を返したあと、同じスロットを ${n + 1} 回使い回した → いま ${H.toString(h)}`);
+  plLog(`  古いハンドルを引くと: ${t ? `「${t.name}」が返る(別人なのに通ってしまう)` : '無効'}`);
+  plDraw();
+});
+function plDraw() {
+  const m = pl.m, pool = m.textures;
+  const rows = pool.slots.map((s, i) => `<tr><td>${i === pool.freeHead ? '▶ ' : ''}#${i}</td><td>g${s.generation}</td><td>${s.value ? s.refCount : '—'}</td><td>${s.value ? `${s.value.name}${s.value.mip === false ? ' (mip 無)' : ''}` : `<span style="color:var(--muted)">空き(次 ${s.nextFree < 0 ? 'なし' : '#' + s.nextFree})</span>`}</td></tr>`).join('');
+  $('pl-slots').innerHTML = `<table><thead><tr><th>添字</th><th>世代</th><th>参照</th><th>中身</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const held = $('pl-held'); held.innerHTML = '';
+  pl.held.forEach((x, k) => {
+    const b = document.createElement('button'); b.className = 'btn';
+    const t = m.textures.tryGet(x.h), alive = !!t;
+    b.innerHTML = `${H.toString(x.h)} ${x.path}${x.mip ? '' : '(mip 無)'}<br><span style="font-size:11px;color:${alive ? 'var(--good)' : 'var(--expl)'}">${x.released ? '返した / ' : ''}${alive ? `引くと「${t.name}」` : '無効 → 仮の絵'}</span>`;
+    b.disabled = x.released;
+    b.addEventListener('click', () => { const gone = m.release(x.h); x.released = true; plLog(`Release(${H.toString(x.h)}) → ${gone ? '参照 0。スロットを空けて世代を進めた' : `参照が残っている(あと ${m.refCountOf(x.h)})`}`); plDraw(); });
+    held.appendChild(b);
+  });
+  $('pl-stats').innerHTML = stat('生きているテクスチャ', m.textureCount) + stat('スロット', pool.slotCount) + stat('キャッシュヒット', m.cacheHits);
+}
+plReset();
+plLog('起動時に uv-test と、スプライト4枚(ミップマップ無)を読んである。');
+function narrow() { $('pl-grid').style.gridTemplateColumns = $('pl-grid').clientWidth < 520 ? '1fr' : 'minmax(0,1.4fr) minmax(0,1fr)'; }
+window.addEventListener('resize', narrow); narrow();
+
+// ------------------------------------------------------------
+// 2. 同期と非同期のロード(このページの中の時計)
+// ------------------------------------------------------------
+// 同期の1枚 = ファイル読み 1.0 + 復号 6.0 + アップロード。非同期は 6 枚を裏で同時に復号して 9ms(同時に動くぶん1枚のときより遅い)
+const BASE = 0.78, DECODE = 9.0, SYNC_DECODE = 7.0, WORKERS = 6, CONTEND = 2.5;
+const UPLOAD = { 1: 4.0, 0: 1.5 };
+// 1 回ぶんを最後まで回して、フレームの列と状態の移り変わりを返す
+function simulate(kind, maxUploads, mip, unloadAt) {
+  const m = startupManager();
+  m.maxUploadsPerFrame = maxUploads;
+  const jobs = [];   // 裏の復号: { h, path, start, end }
+  let t = 0, workerFree = Array(WORKERS).fill(0);
+  m.onDecodeRequested = (h, path, mp) => {
+    const w = workerFree.indexOf(Math.min(...workerFree));
+    const start = Math.max(t, workerFree[w]), end = start + DECODE;
+    workerFree[w] = end; jobs.push({ h, path, mip: mp, start, end, queued: false });
+  };
+  const log = [], frames = [];
+  let handles = [];
+  const call0 = performance.now();
+  // 呼び出し(同期は 6 枚ぶんの復号+アップロードがこの中で終わる)
+  let callMs;
+  if (kind === 'sync') { handles = DEMO.map((d) => m.loadTexture(d, mip)); callMs = DEMO.length * (SYNC_DECODE + UPLOAD[mip ? 1 : 0]); }
+  else { handles = DEMO.map((d) => m.loadTextureAsync(d, mip)); callMs = 0.1; }
+  log.push(`[ロード開始] ${kind === 'sync' ? '同期' : '非同期'} ${DEMO.length} 枚 / 呼び出しが返るまで ${F(callMs, 1)}ms`);
+  const readyMask = () => handles.map((h) => m.isReady(h));
+  // 最初のフレームは呼び出しを含む
+  let frame = { t0: 0, dur: BASE + callMs, uploads: 0, decoding: 0, pending: m.pending, ready: readyMask(), tex: m.textureCount };
+  frames.push(frame); t = frame.dur;
+  let unloaded = false, readyAt = m.pending === 0 ? t : -1, worst = frame.dur;
+  if (kind === 'sync') readyAt = t;
+  while (t < 90) {
+    if (unloadAt !== undefined && !unloaded && t >= unloadAt) {
+      for (const h of handles) m.release(h);
+      handles = []; unloaded = true;
+      log.push(`[解放] 残りテクスチャ ${m.textureCount} 件 / 待ち ${m.pending} 件`);
+    }
+    // 終わった復号をキューへ
+    for (const j of jobs) if (!j.queued && j.end <= t) { m.decoded(j.h, j.path, j.mip); j.queued = true; }
+    const decoding = jobs.filter((j) => j.start < t && j.end > t).length;
+    const up = m.update();
+    const dur = BASE + (decoding ? CONTEND : 0) + up * UPLOAD[mip ? 1 : 0];
+    frame = { t0: t, dur, uploads: up, decoding, pending: m.pending, ready: unloaded ? [] : readyMask(), tex: m.textureCount };
+    frames.push(frame);
+    t += dur; worst = Math.max(worst, dur);
+    if (readyAt < 0 && m.pending === 0) readyAt = t;
+  }
+  if (unloadAt !== undefined) log.push(`  しばらく後: 待ち ${m.pending} 件 / テクスチャ ${m.textureCount} 件(捨てられていれば増えない)`);
+  else {
+    log.push(`[ロード完了] ${kind === 'sync' ? '同期' : '非同期'} / 呼び出し ${F(callMs, 1)}ms / 全部そろうまで ${F(readyAt, 0)}ms / 最悪フレーム ${F(worst, 1)}ms`);
+    log.push(worst > 16.6 ? '  → 60fps の1フレーム(16.6ms)を超えた。ユーザーには「固まった」と見える' : '  → 1フレームの予算に収まっている。読み込んでいることに気づかせない');
+  }
+  return { frames, log, callMs, readyAt, worst, unloadAt, end: t, tex: m.textureCount };
+}
+const ld = { run: null, cursor: 0, playing: false, log: [] };
+function ldStart(kind, unloadAt) {
+  ld.run = simulate(kind, Number(segValue('ld-max')), segValue('ld-mip') === '1', unloadAt);
+  ld.cursor = 0; ld.playing = true; ld.shown = 0;
+  ld.log.push('');
+  ldDraw();
+}
+$('ld-e').addEventListener('click', () => ldStart('sync'));
+$('ld-q').addEventListener('click', () => ldStart('async'));
+$('ld-qu').addEventListener('click', () => ldStart('async', 1.5));
+seg('ld-max', () => {}); seg('ld-mip', () => {});
+function pattern(ctx, k, x, y, s) {
+  const hue = [30, 8, 35, 210, 200, 280][k];
+  ctx.fillStyle = `hsl(${hue},25%,45%)`; ctx.fillRect(x, y, s, s);
+  ctx.strokeStyle = `hsl(${hue},30%,70%)`; ctx.lineWidth = 2;
+  ctx.beginPath();
+  if (k === 0) for (let i = 1; i < 6; i++) { ctx.moveTo(x + (i * s) / 6, y); ctx.lineTo(x + (i * s) / 6, y + s); ctx.moveTo(x, y + (i * s) / 6); ctx.lineTo(x + s, y + (i * s) / 6); }
+  else if (k === 1) for (let r = 0; r < 6; r++) { const yy = y + (r * s) / 6; ctx.moveTo(x, yy); ctx.lineTo(x + s, yy); for (let c = 0; c < 3; c++) { const xx = x + ((c + (r % 2) * 0.5) * s) / 3; ctx.moveTo(xx, yy); ctx.lineTo(xx, yy + s / 6); } }
+  else if (k === 2) for (let i = 1; i < 5; i++) { ctx.moveTo(x, y + (i * s) / 5); ctx.lineTo(x + s, y + (i * s) / 5); }
+  else if (k === 3) { ctx.rect(x + 6, y + 6, s - 12, s - 12); for (const [a, b] of [[12, 12], [s - 12, 12], [12, s - 12], [s - 12, s - 12]]) { ctx.moveTo(x + a + 3, y + b); ctx.arc(x + a, y + b, 3, 0, Math.PI * 2); } }
+  else if (k === 4) for (let i = 1; i < 3; i++) { ctx.moveTo(x + (i * s) / 3, y); ctx.lineTo(x + (i * s) / 3, y + s); ctx.moveTo(x, y + (i * s) / 3); ctx.lineTo(x + s, y + (i * s) / 3); }
+  else for (let i = -6; i < 6; i++) { ctx.moveTo(x + (i * s) / 6, y); ctx.lineTo(x + ((i + 6) * s) / 6, y + s); }
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, s, s); ctx.clip(); ctx.stroke(); ctx.restore();
+}
+function checker(ctx, x, y, s) {
+  const n = 4, c = s / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { ctx.fillStyle = (i + j) % 2 ? 'rgb(230,40,230)' : 'rgb(40,10,50)'; ctx.fillRect(x + i * c, y + j * c, c, c); }
+}
+function ldDraw() {
+  const r = ld.run;
+  { // フレームの図
+    const { ctx, w, h } = fit($('ld-chart'));
+    const L = 40, R = w - 8, T = 10, B = h - 20, span = 90, maxMs = 80;
+    const X = (t) => L + (t / span) * (R - L), Y = (ms) => B - (Math.min(ms, maxMs) / maxMs) * (B - T);
+    ctx.font = '11px sans-serif'; ctx.fillStyle = tok('--muted');
+    for (let t = 0; t <= span; t += w < 600 ? 30 : 10) ctx.fillText(`${t}ms`, Math.min(X(t) - 10, w - 34), h - 4);
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--muted'); ctx.beginPath(); ctx.moveTo(L, Y(16.6)); ctx.lineTo(R, Y(16.6)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillText('16.6ms', 2, Y(16.6) + 4);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(L, B); ctx.lineTo(R, B); ctx.stroke();
+    if (r) {
+      for (const fr of r.frames) {
+        if (fr.t0 > span) break;
+        const x0 = X(fr.t0), x1 = X(Math.min(fr.t0 + fr.dur, span));
+        ctx.fillStyle = fr.dur > 16.6 ? tok('--expl') : fr.uploads ? tok('--good') : fr.decoding ? tok('--warn') : tok('--accent');
+        ctx.fillRect(x0, Y(fr.dur), Math.max(1, x1 - x0 - 0.5), B - Y(fr.dur));
+      }
+      if (r.unloadAt !== undefined) { ctx.strokeStyle = tok('--expl'); ctx.beginPath(); ctx.moveTo(X(r.unloadAt), T); ctx.lineTo(X(r.unloadAt), B); ctx.stroke(); ctx.fillStyle = tok('--expl'); ctx.fillText('U', X(r.unloadAt) + 3, T + 10); }
+      ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(ld.cursor), T); ctx.lineTo(X(ld.cursor), B); ctx.stroke(); ctx.lineWidth = 1;
+    }
+  }
+  { // 6 枚
+    const { ctx, w, h } = fit($('ld-strip'));
+    const n = DEMO.length, gap = 8, s = Math.min(h - 18, (w - gap * (n - 1)) / n), x0 = (w - (s * n + gap * (n - 1))) / 2;
+    let fr = null;
+    if (r) for (const x of r.frames) { if (x.t0 <= ld.cursor) fr = x; else break; }
+    ctx.font = '10px sans-serif';
+    DEMO.forEach((name, k) => {
+      const x = x0 + k * (s + gap);
+      if (!fr || !fr.ready.length) { ctx.strokeStyle = tok('--line'); ctx.strokeRect(x + 0.5, 0.5, s - 1, s - 1); }
+      else if (fr.ready[k]) pattern(ctx, k, x, 0, s);
+      else checker(ctx, x, 0, s);
+      ctx.fillStyle = tok('--muted'); ctx.fillText(s < 90 ? name.split('-')[0] : name, x, s + 12);
+    });
+  }
+  const fr = r ? r.frames.filter((x) => x.t0 <= ld.cursor).pop() : null;
+  $('ld-stats').innerHTML = stat('時計', r ? F(ld.cursor, 1) + 'ms' : '—') + stat('待ち', fr ? fr.pending : 0) + stat('テクスチャ', fr ? fr.tex : 5)
+    + stat('このフレームのアップロード', fr ? fr.uploads : 0) + stat('最悪フレーム', r ? F(r.worst, 1) + 'ms' : '—');
+}
+animate($('ld-lab'), (dt) => {
+  if (!ld.run || !ld.playing) return;
+  ld.cursor += dt * 1000 / 20;
+  const r = ld.run;
+  // 時計が進んだぶんだけコンソールに出す
+  const due = r.unloadAt === undefined ? [[0, 1], [r.readyAt, r.log.length]] : [[0, 1], [r.unloadAt, 2], [60, r.log.length]];
+  for (const [at, n] of due) if (ld.cursor >= at) while (ld.shown < n) { ld.log.push(r.log[ld.shown++]); }
+  $('ld-console').textContent = ld.log.slice(-60).join('\n'); $('ld-console').scrollTop = 1e9;
+  if (ld.cursor >= 90) { ld.cursor = 90; ld.playing = false; while (ld.shown < r.log.length) ld.log.push(r.log[ld.shown++]); $('ld-console').textContent = ld.log.slice(-60).join('\n'); }
+  ldDraw();
+});
+ldDraw();
+})();
+</script>
+</body>
+</html>
