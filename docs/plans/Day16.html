@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 16 カメラと3Dシーン表示(Phase 1の知識をGPUで再現)</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. カメラの正体は行列2本しかない</a></li><li class="l3"><a href="#s5">2. System.Numerics の投影行列は、OpenGL にそのまま渡せない</a></li><li class="l3"><a href="#s6">3. 深度テスト — Day 7 のZバッファが設定2行になる</a></li><li class="l3"><a href="#s7">4. 背面カリング — Day 10 の判定が設定3行になる</a></li><li class="l3"><a href="#s8">5. uniform の3階層が完成する</a></li><li class="l3"><a href="#s9">6. カメラと、カメラの操作方法を分ける</a></li><li class="l3"><a href="#s10">7. アスペクト比はカメラの持ち物になった</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l3"><a href="#s16">見た目</a></li><li class="l3"><a href="#s17">操作</a></li><li class="l3"><a href="#s18">ビルド</a></li><li class="l2"><a href="#s19">改造課題</a></li><li class="l3"><a href="#s20">課題1(易): 投影行列を壊して、症状を観察する</a></li><li class="l3"><a href="#s21">課題2(中): カメラの操作方法をもう1つ作る</a></li><li class="l3"><a href="#s22">課題3(難): 視錐台カリングを入れる</a></li><li class="l2"><a href="#s23">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 3 / Day 16 / 計画書</p>
+  <h1>カメラと3Dシーン表示(Phase 1の知識をGPUで再現)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. カメラの正体は行列2本しかない</a></li><li class="l3"><a href="#s5">2. System.Numerics の投影行列は、OpenGL にそのまま渡せない</a></li><li class="l3"><a href="#s6">3. 深度テスト — Day 7 のZバッファが設定2行になる</a></li><li class="l3"><a href="#s7">4. 背面カリング — Day 10 の判定が設定3行になる</a></li><li class="l3"><a href="#s8">5. uniform の3階層が完成する</a></li><li class="l3"><a href="#s9">6. カメラと、カメラの操作方法を分ける</a></li><li class="l3"><a href="#s10">7. アスペクト比はカメラの持ち物になった</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l3"><a href="#s16">見た目</a></li><li class="l3"><a href="#s17">操作</a></li><li class="l3"><a href="#s18">ビルド</a></li><li class="l2"><a href="#s19">改造課題</a></li><li class="l3"><a href="#s20">課題1(易): 投影行列を壊して、症状を観察する</a></li><li class="l3"><a href="#s21">課題2(中): カメラの操作方法をもう1つ作る</a></li><li class="l3"><a href="#s22">課題3(難): 視錐台カリングを入れる</a></li><li class="l2"><a href="#s23">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 3 / ロードマップ該当行: 「カメラと3Dシーン表示(Phase 1の知識をGPUで再現)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>床の上に並んだ立方体を、マウスでぐるぐる回して見られる。</strong></p>
+<p>Day 15 までの絵は「画面に貼り付いた四角形」だった。アスペクト比の補正を<code>Program</code> が直接行列に混ぜ込んでいて、<strong>カメラという概念が存在しなかった</strong>。</p>
+<p>今日それを <code>Camera</code> に切り出し、奥行きのあるシーンを描く。新しい概念はほとんど出てこない。Phase 1 の Day 6(ビュー・投影)、Day 7(Zバッファ)、Day 10(背面カリング)でやったことが、<strong>GPU 側で何に置き換わるか</strong>を確認するのが目的。</p>
+<p>置き換わり方は次のとおりで、要するに<strong>自分で書いたループが設定1行になる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Phase 1 で自作したもの</th><th>Day 16 での姿</th></tr></thead>
+<tbody>
+<tr><td><code>Mat4.LookAt</code></td><td><code>Matrix4x4.CreateLookAt</code>(中身は同一)</td></tr>
+<tr><td><code>Mat4.Perspective</code></td><td>自作を維持(理由は要点2)</td></tr>
+<tr><td>頂点ごとに行列を掛けるループ</td><td>頂点シェーダの1行</td></tr>
+<tr><td><code>float[,]</code> の深度バッファ + 比較</td><td><code>gl.Enable(EnableCap.DepthTest)</code></td></tr>
+<tr><td>面法線と視線の内積による背面判定</td><td><code>gl.Enable(EnableCap.CullFace)</code></td></tr>
+</tbody>
+</table></div>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-3 変換(1) 同次座標による座標変換</a> —ロードマップ指定。Day 5・Day 6 で読んだ回。今日は<strong>投影行列の各成分が何をしているか</strong>を見る</li><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-4 変換(2) 四元数による回転と補間</a> —ロードマップ指定。今日は使わないが、<code>Up</code> ベクトルで回避している問題の正攻法がここにある(実際に使うのは Phase 4 の Transform 実装)</li><li><a href="https://learnopengl.com/Getting-started/Coordinate-Systems">Coordinate Systems — LearnOpenGL</a> —モデル→ビュー→投影→NDC→スクリーンの5段階と、深度テストの有効化</li><li><a href="https://learnopengl.com/Getting-started/Camera">Camera — LearnOpenGL</a> — LookAt の作り方</li><li><a href="https://learnopengl.com/Advanced-OpenGL/Depth-testing">Depth Testing — LearnOpenGL</a> —深度値が 1/z で分布する話。near を大きく取れという理由の出どころ</li><li>復習として <strong>Day06.md(パイプライン)・Day07.md(Zバッファ)・Day10.md(背面カリング)</strong>。今日は3つとも再登場する</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. カメラの正体は行列2本しかない</h3>
+<p>「カメラ」という実体はレンダラの中に存在しない。あるのは次の2つだけで、これは Phase 1 でも今日でも変わらない。</p>
+<ul><li><strong>ビュー行列</strong> … カメラを動かす代わりに、世界のほうを逆向きに動かす。カメラが右に3進んだ景色は、世界が左に3ずれた景色と同じ</li><li><strong>投影行列</strong> … 奥行き(ビュー座標の z)を W にコピーする。遠近感そのものはこの行列ではなく、<strong>そのあとの透視除算</strong>(x, y, z を W で割る)で生まれる</li></ul>
+<p><code>Camera</code> クラスがやっているのは、人間に扱いやすい言葉(位置・注視点・視野角)からこの2本を組み立てることだけ。Day 6 で自作した <code>Camera</code> とほぼ同じ形にしてあるので、<code>git diff --no-index reference/Day10/Camera.cs reference/Day16/Camera.cs</code> で見比べるとよい。</p>
+<p><code>Matrix4x4.CreateLookAt</code> は Phase 1 の <code>Mat4.LookAt</code> と<strong>まったく同じもの</strong>を作る。右手系・カメラは -Z 方向を見る・行ベクトル規約、と3つとも一致しているのでそのまま使える。「そのまま使えると判断できる」ために自作したのが Day 5〜6 だった。</p>
+<h3 id="s5">2. System.Numerics の投影行列は、OpenGL にそのまま渡せない</h3>
+<p>今日いちばん引っかかりやすいところ。</p>
+<p><code>Matrix4x4.CreatePerspectiveFieldOfView(fov, aspect, near, far)</code> は名前も引数もぴったりだが、<strong>深度を 0〜1 に写す DirectX の規約</strong>で作られている。OpenGL の NDC は z が <strong>-1〜1</strong>。Phase 1 の <code>Mat4.Perspective</code> も DirectX 側に合わせてあった(自前の Z バッファがその範囲を前提にしていたため)。</p>
+<p>行列の違いは Z に関わる2成分だけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>M33</th><th>M43</th></tr></thead>
+<tbody>
+<tr><td>DirectX(<code>System.Numerics</code>)</td><td><code>f/(n-f)</code></td><td><code>nf/(n-f)</code></td></tr>
+<tr><td>OpenGL(<code>Camera.CreatePerspective</code>)</td><td><code>(f+n)/(n-f)</code></td><td><code>2fn/(n-f)</code></td></tr>
+</tbody>
+</table></div>
+<p>遠近感を作る仕掛け(<code>M34 = -1</code> で z を W にコピーし、透視除算で割る)は共通で、<strong>違うのは「割ったあとの z をどの範囲に収めるか」だけ</strong>。</p>
+<p>厄介なのは、間違えても<strong>絵が出てしまう</strong>こと。深度の大小関係は保たれるので前後関係は正しく描かれ、一見なんともない。壊れるのは次の2点で、<code>near = 0.1 / far = 100</code> で実測すると次のようになる(板を1枚置いて深度バッファを読み出した値。<code>1.00000</code> は「描かれなかった」)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ビュー座標 z</th><th>自作(OpenGL規約)</th><th><code>System.Numerics</code></th></tr></thead>
+<tbody>
+<tr><td>-0.0499</td><td>クリップ</td><td>クリップ</td></tr>
+<tr><td>-0.0501</td><td>クリップ</td><td><strong>描画</strong> 深度 0.00150</td></tr>
+<tr><td>-0.0700</td><td>クリップ</td><td><strong>描画</strong> 深度 0.28550</td></tr>
+<tr><td>-0.0999</td><td>クリップ</td><td><strong>描画</strong> 深度 0.49950</td></tr>
+<tr><td>-0.1001</td><td>描画 深度 0.00100</td><td>描画 深度 0.50050</td></tr>
+<tr><td>-1.0</td><td>0.90090</td><td>0.95045</td></tr>
+<tr><td>-10.0</td><td>0.99099</td><td>0.99550</td></tr>
+</tbody>
+</table></div>
+<p>読み取れることは2つ。</p>
+<ol><li><strong>近クリップ面が near/2 まで手前にずれる</strong>。<code>near = 0.1</code> と指定したのに0.0501 の板が描かれている。正確には <code>nf/(2f-n)</code>(この条件で 0.050025)</li><li><strong>深度バッファの半分(0〜0.5)が、本来クリップされるはずの隙間に食われる</strong>。指定した near の位置で深度が 0.5 になってしまっている</li></ol>
+<div class="inject"><figure class="lab" id="dp-lab">
+  <div class="lab-head">
+    <h3>深度の規約を比べる — 板を1枚置いて深度を読む(要点2、改造課題1)</h3>
+    <span class="tag">reference の Camera.CreatePerspective(OpenGL の規約)と、Matrix4x4.CreatePerspectiveFieldOfView(DirectX の規約)の M33・M43 を JS に移し、ビュー座標の z に置いた点がどこへ写るかを計算したもの。GL は NDC の z が −1〜1 の外をクリップし、残りを (z + 1) / 2 で深度にする。グラフの横軸はカメラからの距離(対数)、縦軸は深度。「深度 1 段の距離」は 24 ビットの深度バッファで隣の値と区別できる奥行きの幅で、このページで式から出したもの。near と far の切り替えは改造課題1の3・4</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="dp-chart" style="width:100%;height:260px" aria-label="カメラからの距離と深度の関係。2本の曲線"></canvas><p style="margin:4px 0 0;font-size:12px;color:var(--muted)"><span style="color:var(--accent)">青 = 自作(OpenGL の規約)</span> / <span style="color:var(--warn)">橙 = System.Numerics</span> / 縦の点線 = near と near/2 / 白い縦線 = 板の位置</p></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">板を置く距離(ビュー座標の z の符号を変えたもの)</span>
+      <input type="range" id="dp-z" min="0" max="1000" value="380" style="width:100%"><span id="dp-zv" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div class="ctl"><span class="label">near / far</span>
+      <div class="seg" id="dp-nf"><button data-v="0.1,100" aria-pressed="true">0.1 / 100(reference)</button><button data-v="0.1,10000" aria-pressed="false">0.1 / 10000</button><button data-v="0.001,10000" aria-pressed="false">0.001 / 10000</button></div>
+    </div>
+    <div class="ctl"><span class="label">本文の表</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="dp-table">7 行を計算する</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dp-stats"></div><pre id="dp-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px;display:none"></pre></div>
+</figure></div>
+<p>どちらも「なんとなく変」で済んでしまい、遠くで Z ファイティングが出て初めて疑うことになる。だから今日は <code>Camera.CreatePerspective</code> / <code>CreateOrthographic</code> を自前で持つ。</p>
+<p>補足: OpenGL 4.5 以降なら <code>glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE)</code> でGPU 側を 0〜1 に切り替えられる(むしろ精度的にはそちらが有利)。今日は 3.3 コアプロファイルなので使えない。</p>
+<h3 id="s6">3. 深度テスト — Day 7 のZバッファが設定2行になる</h3>
+<p>Phase 1 では <code>float[,]</code> を確保し、毎フレーム <code>float.MaxValue</code> で埋め、ピクセルを書く前に比較していた。GPU では次で終わる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>gl.Enable(EnableCap.DepthTest);
+gl.DepthFunc(DepthFunction.Less);   // 既定値。「小さい = 手前」</code></pre></div>
+<p>そして毎フレーム、<strong>色と一緒に深度も消す</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);</code></pre></div>
+<p>注意点は2つ。</p>
+<ul><li><strong>深度テストは既定で無効</strong>。有効化を忘れると「あとから描いたものが手前に来る」という、Day 7 以前の絵になる。3D で最初に踏むバグの筆頭</li><li>深度バッファは<strong>ウィンドウ生成時に要求</strong>しておく必要がある。Silk.NET の既定でも 24bit が付いてくるが、<code>PreferredDepthBufferBits = 24</code> と書いておくと意図が残る</li></ul>
+<p>Z キーで切り替えられるようにしてあるので、切ってからカメラを回すとよい。描いた順で前後が固定されるので、<strong>回すたびに前後関係が破綻する</strong>のが見える。これが Day 7 で「描く順で解決するのは無理」と書いたことの実演になっている。</p>
+<p>なお、<code>glGetIntegerv(GL_DEPTH_BITS)</code> で深度のビット数を問い合わせる方法は<strong>コアプロファイルでは使えない</strong>(<code>GL_INVALID_ENUM</code> になる)。デフォルトフレームバッファの属性は<code>glGetFramebufferAttachmentParameteriv</code> で引く決まりになっている。</p>
+<h3 id="s7">4. 背面カリング — Day 10 の判定が設定3行になる</h3>
+<p>閉じた立体では、裏を向いた面は必ず表の面に隠れる。だから描く前に捨ててよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>gl.Enable(EnableCap.CullFace);
+gl.CullFace(TriangleFace.Back);
+gl.FrontFace(FrontFaceDirection.Ccw);   // 既定値。反時計回りが表</code></pre></div>
+<p>判定の中身は Day 10 とまったく同じ。<strong>スクリーン上での三角形の回り方</strong>、つまり Day 3 のエッジ関数が返す符号付き面積の符号を見ているだけで、Day 10 で <code>bool frontFacing = area &lt; 0.0f;</code> と書いた1行が<code>gl.FrontFace(...)</code> の設定に置き換わっている。</p>
+<p>Day 10 では「符号の向きは規約の積み重ねで決まるので、片方を試して裏返っていたら逆にする」と割り切ったが、OpenGL はそこを<strong>CCW が表</strong>と決めてくれている(Y の向きも含めて規約が固定されている)ぶん、迷わなくてよい。</p>
+<p>このため、<strong>頂点を並べる順が意味を持つ</strong>。<code>Primitives.CreateCube</code> は6面すべて「外から見て反時計回り」にそろえてある。1面でも間違えると、その面だけ<strong>内側から覗いたときに見える</strong>という分かりやすい壊れ方をする。</p>
+<p>C キーで切り替えられる。塗りつぶしのままだと見た目はほとんど変わらない(そもそも隠れている面なので当然)が、W キーでワイヤーフレームにすると裏側の線が出るので違いが分かる。<strong>描画結果を変えずに仕事量を半分にする</strong>、という最適化の典型例。</p>
+<div class="inject"><figure class="lab" id="sc-lab">
+  <div class="lab-head">
+    <h3>床と立方体のシーン — 回して、深度テストとカリングを切る(要点1・3・4・6、Z・C・P キー)</h3>
+    <span class="tag">reference の Camera.cs、OrbitCameraController.cs(球面座標、仰角の制限、乗算のズーム)、Primitives.cs(24 頂点の立方体と四角形)、Program.cs(床と6個の立方体、OnRender、タイトルバー)と textured.vert を JS に移し、ソフトウェア版の GL(docs/site/softgl.js)で描いたもの。絵は左ドラッグで回り、ホイールで寄る。重さのため 960x640 の半分の 480x320 で描いている。fps と、三角形・画素の数はこのページの値</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="sc-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="sc-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:480px;touch-action:none;cursor:grab" aria-label="市松模様の床の上に立方体が6個並んでいる。ドラッグで回せる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">深度テスト(Z)と背面カリング(C)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc-depth"><button data-v="1" aria-pressed="true">深度 ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="sc-cull"><button data-v="1" aria-pressed="true">カリング ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">投影(P)と描き方(W)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc-proj"><button data-v="Perspective" aria-pressed="true">Perspective</button><button data-v="Orthographic" aria-pressed="false">Orthographic</button></div><div class="seg" id="sc-wire"><button data-v="0" aria-pressed="true">塗り</button><button data-v="1" aria-pressed="false">ワイヤー</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">フィルタ(F)とラップ(R)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc-filter"><button data-v="Linear" aria-pressed="true">Linear</button><button data-v="Nearest" aria-pressed="false">Nearest</button></div><div class="seg" id="sc-wrap"><button data-v="Repeat" aria-pressed="true">Repeat</button><button data-v="ClampToEdge" aria-pressed="false">ClampToEdge</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">自転(Space)とカメラ(Home)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc-play"><button data-v="1" aria-pressed="true">回す</button><button data-v="0" aria-pressed="false">止める</button></div><button class="btn" id="sc-home">Home 初期位置</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sc-stats"></div></div>
+</figure></div>
+<h3 id="s8">5. uniform の3階層が完成する</h3>
+<p>Day 15 で書いた「uniform には3つの階層がある」が、今日そろう。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>階層</th><th>中身</th><th>誰が、いつ送るか</th></tr></thead>
+<tbody>
+<tr><td>フレームごと</td><td>ビュー射影行列、時間</td><td><code>Program</code> がフレーム頭で<strong>1回</strong></td></tr>
+<tr><td>オブジェクトごと</td><td>モデル行列</td><td>描画のたびに <code>Draw</code> が</td></tr>
+<tr><td>マテリアルごと</td><td>色、UV倍率、テクスチャ</td><td><code>Material.Apply()</code> が</td></tr>
+</tbody>
+</table></div>
+<p>Day 15 は3つを <code>uTransform</code> 1本に混ぜていた。今日それを<code>uViewProjection</code>(フレーム)と <code>uModel</code>(オブジェクト)に分ける。</p>
+<p>分けられる根拠は、<strong>uniform がプログラムに紐づく状態</strong>であること。<code>glUseProgram</code> を呼び直しても値は消えないので、フレーム頭で1回入れればそのフレームの全ドローコールで有効なままになる。オブジェクトが100個あっても、ビュー射影行列を送るのは1回でよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// フレーム頭。1回だけ
+_shader.Use();
+_shader.SetMatrix4("uViewProjection", _camera.ViewProjection);
+
+// オブジェクトごと
+material.Apply();                              // マテリアル階層
+material.Shader.SetMatrix4("uModel", model);   // オブジェクト階層
+mesh.Draw();</code></pre></div>
+<p>GLSL 側の掛ける順にも注意。C# は行ベクトル規約なので <code>model * view * projection</code>だが、GLSL は列ベクトル規約なので<strong>逆に左から書く</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0);</code></pre></div>
+<p>Day 14 の要点4で見たとおり、この2つは同じ変換を表している。</p>
+<h3 id="s9">6. カメラと、カメラの操作方法を分ける</h3>
+<p><code>Camera</code> は「どこから、どこを、どんなレンズで見るか」しか知らない。マウスもキーボードも知らない。入力から <code>Camera</code> の値を作るのは<code>OrbitCameraController</code> の仕事にしてある。</p>
+<p>分ける理由は、<strong>同じ Camera を別の操作方法で使い回したいから</strong>。一人称視点、三人称追従(Day 51)、シネマティックの固定カメラ、どれも「Camera が要る」のであって「マウスが要る」わけではない。ここを混ぜると、カメラを使いたいだけなのにマウスへの依存が付いてくる。</p>
+<p>位置は<strong>球面座標</strong>で持つ。半径 d・水平角 yaw・仰角 pitch から:</p>
+<div class="code"><pre><code>x = d * cos(pitch) * sin(yaw)
+y = d * sin(pitch)
+z = d * cos(pitch) * cos(yaw)</code></pre></div>
+<p><code>cos(pitch)</code> が x と z の両方に掛かるのは、<strong>上を向くほど水平方向の半径が縮む</strong>から(地球儀の緯線が極に近いほど短くなるのと同じ)。直交座標で持つと「距離を保ったまま回す」のが面倒なのに対し、球面座標なら回転は角度の足し算、ズームは距離の掛け算で済む。</p>
+<p>仰角は ±86度あたりで止めてある。真上・真下に来ると視線と <code>Up</code> が平行になり、<code>LookAt</code> が軸を作れずに絵が壊れる。この破綻を根本的に避けるにはクォータニオンが要る(特論 A-4。Phase 4 の Transform で扱う)。今日は角度制限で回避する。</p>
+<p>ズームは<strong>加算ではなく乗算</strong>にしてある。加算だと近くでは動きすぎ、遠くでは動かなすぎる。「今の距離に対する割合」で動かすと、どの距離でも同じ操作感になる。</p>
+<h3 id="s10">7. アスペクト比はカメラの持ち物になった</h3>
+<p>Day 15 は <code>Matrix4x4.CreateScale(1.0f / aspect, 1, 1)</code> を毎フレームモデル行列に混ぜ込んでいた。これは本来カメラの仕事なので、今日は<code>Camera.AspectRatio</code> に移した。移した結果、<strong>ウィンドウのリサイズに対応できる</strong>。</p>
+<p>リサイズ時にやることは2つで、どちらを忘れても絵が歪む。</p>
+<ol><li><code>gl.Viewport(size)</code> … クリップ座標 → ピクセルの対応。古いと描画範囲がずれる</li><li><code>camera.AspectRatio = w / h</code> … 古いと絵が縦長・横長に潰れる</li></ol>
+<p>イベントは <code>Resize</code> ではなく <strong><code>FramebufferResize</code></strong> を使う。高DPI環境では<strong>ウィンドウのサイズ(論理ピクセル)と描画先のサイズ(物理ピクセル)が一致しない</strong>ためで、ビューポートは物理ピクセルで指定する必要がある。Day 11 で <code>SetProcessDpiAwarenessContext</code> を叩いたときと同じ話が、Silk.NET 側では「どちらのイベントを使うか」という形で出てくる。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Camera.cs</code></td><td>148</td><td>ビュー行列・投影行列。OpenGL 規約の透視/平行投影を自前で持つ</td></tr>
+<tr><td><code>OrbitCameraController.cs</code></td><td>178</td><td>マウス入力 → カメラ位置。球面座標</td></tr>
+<tr><td><code>Primitives.cs</code></td><td>110</td><td>立方体と四角形のメッシュ生成。<code>Program</code> からの引っ越し</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+186 / -100</td><td>深度テストと背面カリングの有効化、カメラの組み立て、シーンの配置、リサイズ対応、Z/C/P/Home キー</td></tr>
+<tr><td><code>shaders/textured.vert</code></td><td>+16 / -7</td><td><code>uTransform</code> を <code>uViewProjection</code> と <code>uModel</code> に分割</td></tr>
+<tr><td><code>Material.cs</code></td><td>+8 / -6</td><td>uniform 3階層の説明を、実際にそろった形に更新</td></tr>
+<tr><td><code>Vertex.cs</code></td><td>+1 / -1</td><td>コメントのみ</td></tr>
+</tbody>
+</table></div>
+<p><code>Mesh.cs</code> / <code>Texture.cs</code> / <code>Shader.cs</code> は<strong>変更なし</strong>。Day 15 で作った抽象化が、3D に移っても手を入れずに済んだということで、分け方が妥当だったことの確認になっている。</p>
+<h3 id="s14">写経する順番</h3>
+<ol><li><strong><code>Camera.cs</code></strong> — 今日の中心。Day 10 の <code>Camera.cs</code> と見比べながら書く。投影行列の2成分だけは Phase 1 と違うので、要点2を読んでから</li><li><strong><code>shaders/textured.vert</code></strong> — uniform を2本に分ける。3行の変更だが、要点5の階層分けがここに現れる</li><li><strong><code>Primitives.cs</code></strong> — 立方体の24頂点。面の回り方(CCW)に注意</li><li><strong><code>OrbitCameraController.cs</code></strong> — 球面座標とマウスイベント。カメラ本体とは独立なので、後回しにしてもよい</li><li><strong><code>Program.cs</code></strong> — 上を組み合わせる。<code>OnLoad</code> の深度テスト/カリングと、<code>OnRender</code> のフレーム階層 uniform が肝</li><li><strong><code>Material.cs</code> / <code>Vertex.cs</code></strong> — どちらもコメントだけの変更。写経しなくても動くが、<code>git diff --no-index</code> を差分0にしたいなら合わせておく</li></ol>
+</section>
+<section class="part"><h2 id="s15">完成条件</h2>
+<p><code>dotnet run --project reference/Day16 -c Release</code> で次を確認する。</p>
+<h3 id="s16">見た目</h3>
+<ul><li>市松模様の床(20x20、テクスチャが 10x10 に敷き詰められている)の上に、<strong>6個の立方体</strong>が並んでいる(中央に大きめのものが1個、四隅に4個、手前右のものの上にもう1個積んである)</li><li>遠くの床のマス目ほど小さく、<strong>地平線に向かって収束</strong>している</li><li>中央の立方体と、積んだ立方体が<strong>自転している</strong></li><li>立方体の面ごとに色味が違う(上面が明るく、正面が赤寄り、など)</li></ul>
+<h3 id="s17">操作</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>操作</th><th>期待される結果</th></tr></thead>
+<tbody>
+<tr><td>左ドラッグ</td><td>注視点のまわりをカメラが回る。真上・真下の手前で止まる</td></tr>
+<tr><td>ホイール</td><td>寄る/引く。近くでも遠くでも同じ操作感</td></tr>
+<tr><td>Home</td><td>初期位置に戻る</td></tr>
+<tr><td><strong>Z</strong></td><td>深度テスト OFF。<strong>カメラを回すと前後関係が破綻する</strong>(奥のものが手前に描かれる)</td></tr>
+<tr><td><strong>C</strong></td><td>背面カリング OFF。塗りつぶしでは見た目が変わらない。W と併用すると裏側の線が出る</td></tr>
+<tr><td><strong>P</strong></td><td>平行投影に切り替わる。<strong>床のマス目が全部同じ大きさ</strong>になり、遠くの立方体も小さくならない</td></tr>
+<tr><td>W</td><td>ワイヤーフレーム。1面が三角形2枚でできているのが見える</td></tr>
+<tr><td>F / R</td><td>フィルタ / ラップの切り替え(Day 15 と同じ)</td></tr>
+<tr><td>V / Space / F5 / Esc</td><td>VSync / 自転停止 / シェーダ再読込 / 終了</td></tr>
+<tr><td>ウィンドウのリサイズ</td><td>絵が潰れず、視野が広がる/狭まる</td></tr>
+</tbody>
+</table></div>
+<p><strong>P キーの前後を見比べるのが今日いちばんの収穫</strong>になる。透視投影では床が地平線に収束し、平行投影では床が平行四辺形のまま一定の大きさで並ぶ。同じシーン・同じカメラ位置で、行列の Z 成分と W 成分を変えただけでこうなる、というのが要点1の「遠近感は透視除算で生まれる」の実物。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機の操作</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>左ドラッグ / ホイール / <code>Home</code></td><td>「床と立方体のシーン」の絵の上で同じ操作、「Home 初期位置」</td><td>仰角は ±1.5 ラジアンで止まる。ズームは今の距離に対する割合で動く</td></tr>
+<tr><td><code>Z</code></td><td>同じ実験台の「深度 OFF」</td><td>描いた順(床 → 立方体を表の順)で上書きされ、回すと前後が破綻する</td></tr>
+<tr><td><code>C</code></td><td>同じ実験台の「カリング OFF」</td><td>塗りでは絵が変わらず、捨てた三角形の数だけが 0 になる。ワイヤーにすると裏の線が出る</td></tr>
+<tr><td><code>P</code></td><td>同じ実験台の「Orthographic」</td><td>床のマス目が全部同じ大きさになる。高さはカメラの距離から決めている(OrthographicHeight)</td></tr>
+<tr><td><code>W</code> / <code>F</code> / <code>R</code> / <code>Space</code></td><td>同じ実験台の同名の切り替え</td><td>Day 15 と同じ。床は UV 倍率 10 なので、ラップを ClampToEdge にすると1枚だけ残る</td></tr>
+<tr><td>(キーなし)</td><td>「深度の規約を比べる」</td><td>改造課題1。System.Numerics の行列では near/2 から手前まで描かれ、深度の半分がその隙間に使われる</td></tr>
+<tr><td>ウィンドウのリサイズ</td><td>ブラウザの幅を変える</td><td>このページは描き先の大きさが固定(480x320)で、縦横比は変わらない</td></tr>
+<tr><td><code>V</code> / <code>F5</code> / <code>Esc</code></td><td>このページには無い</td><td>VSync、シェーダ再読込、終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day16 の Camera.cs、OrbitCameraController.cs、Primitives.cs、Program.cs(OnLoad の深度テストとカリング、OnRender、OnKeyDown)と、shaders の textured.vert、textured.frag を JS に移したもの。シーンはソフトウェア版の GL(docs/site/softgl.js)で描いていて、画素の値は手元の GPU と一致しない。深度の表は式から計算した値で、本文の表(実機で深度バッファを読み出した値)と同じ数になる。</p></div>
+<h3 id="s18">ビルド</h3>
+<ul><li><code>dotnet build reference/Day16</code> が警告 0 で通る</li><li><code>dotnet format whitespace reference/Day16/Day16.csproj --verify-no-changes</code> の差分が 0</li></ul>
+</section>
+<section class="part"><h2 id="s19">改造課題</h2>
+<h3 id="s20">課題1(易): 投影行列を壊して、症状を観察する</h3>
+<p>要点2を体で確認する。<strong>症状から原因を逆算できるようになる</strong>のが目的。</p>
+<ol><li><code>Camera.CreatePerspective</code> の中身を<code>Matrix4x4.CreatePerspectiveFieldOfView(fieldOfViewY, aspectRatio, near, far)</code> に差し替える。<strong>絵はほとんど変わらない</strong>ことを確認する</li><li><code>NearPlane</code> を <code>0.1</code> のまま、カメラを立方体にめり込むまで寄せる(<code>MinDistance</code> を <code>0.05</code> くらいまで下げる)。自作版と差し替え版で、<strong>面が消え始める距離が違う</strong>ことを見る</li><li><code>FarPlane</code> を <code>100</code> から <code>10000</code> に上げ、遠くに小さな立方体を2つ、ほぼ同じ深さに重ねて置く。<strong>どちらの版が先に Z ファイティングを起こすか</strong></li><li><code>NearPlane</code> を <code>0.001</code> にする。3 の Z ファイティングがどうなるか。「near はできるだけ大きく」の意味を確認する</li></ol>
+<h3 id="s21">課題2(中): カメラの操作方法をもう1つ作る</h3>
+<p>要点6の分離が効いていることを確かめる。<strong><code>Camera.cs</code> に一切手を入れずに</strong>やる。</p>
+<ol><li><code>FlyCameraController</code> を作る。WASD で前後左右、Q/E で上下、右ドラッグで視線の向き(いわゆるFPS操作)</li><li><code>Camera.Position</code> と「向き」から <code>Target</code> を作る必要がある。<code>Target = Position + forward</code> でよい。<code>forward</code> は yaw/pitch から作る</li><li>Tab キーで <code>OrbitCameraController</code> と切り替えられるようにする</li><li>移動速度を<strong>フレーム時間に比例</strong>させる。していないと、VSync を切った(V キー)ときに操作が速くなりすぎる。これは Day 19 の固定タイムステップにつながる問題</li></ol>
+<p>余力があれば、視野角(<code>FieldOfView</code>)をホイールに割り当ててみる。<strong>距離で寄るのと視野角で寄るのは別物</strong>で、後者は遠近感そのものが変わる(映画のドリーズーム)。両方を試すと <code>FieldOfView</code> の意味がはっきりする。</p>
+<h3 id="s22">課題3(難): 視錐台カリングを入れる</h3>
+<p>背面カリング(要点4)は「面」を捨てる仕組みだった。今度は<strong>オブジェクトごと捨てる</strong>。Day 26 の空間分割、Day 46 のブロードフェーズ、そしてアセットが増える Day 39〜40 のデモ組み上げに直接つながる。</p>
+<ol><li><code>Primitives.CreateCube</code> に、そのメッシュを包む球(中心と半径)を持たせる。立方体なら中心は原点、半径は <code>sqrt(3)/2 * scale</code></li><li>ビュー射影行列から<strong>視錐台の6平面</strong>を取り出す(Gribb-Hartmann 法)。行ベクトル規約(<code>System.Numerics</code>)では <code>clip = v * M</code> なので、<code>clip.x</code> は <strong>M の第1列</strong>との内積になる。だから使うのは行ではなく<strong>列</strong>:<div class="code"><pre><code>c1 = (M11, M21, M31, M41)   c2 = (M12, M22, M32, M42)
+c3 = (M13, M23, M33, M43)   c4 = (M14, M24, M34, M44)
+
+左 = c4 + c1   右 = c4 - c1
+下 = c4 + c2   上 = c4 - c2
+近 = c4 + c3   遠 = c4 - c3</code></pre></div><p>各平面は <code>(a,b,c)</code> の長さで割って正規化してから使う。近平面が <code>c4 + c3</code> になるのは NDC の z が <strong>-1〜1</strong> だから。要点2で 0〜1 の行列を使っていたら、ここも <code>c3</code> 単体に変わる</p></li><li>各オブジェクトについて、包む球が6平面すべての内側にあるかを調べ、外なら <code>Draw</code> を丸ごと飛ばす</li><li>立方体を 10000 個に増やし、カリングの ON/OFF で fps を比べる。<strong>カメラを回すと fps が変動する</strong>はず。何を見ているときが一番速いか</li><li>発展: この判定は「見えないものを捨てる」だけで、<strong>見えているものは全部描く</strong>。手前の壁に完全に隠れた 1000 個は捨てられない。これを扱うのがオクルージョンカリングで、Day 52 のディファードレンダリングと問題意識を共有している</li></ol>
+<p>4 で fps が上がらなかったら、それも収穫。<strong>ボトルネックが CPU 側のドローコール発行なのか、GPU 側のピクセル処理なのか</strong>が分かる。Day 17〜18 のスプライトバッチは前者を潰す話なので、その前提を測っておく意味がある。</p>
+</section>
+<section class="part"><h2 id="s23">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0 / StbImageSharp 2.30.16 / OpenGL 3.3 コアプロファイル</li><li>960x640 / VSync ON で 60.0 fps</li><li>フレームバッファを読み出して画像化し、次を確認:<ul><li>透視投影で床が地平線に収束し、6個の立方体が正しい前後関係で描かれる</li><li>深度テスト OFF で、奥の立方体が手前の立方体を上書きする</li><li>平行投影で床のマス目が均一になり、遠近による大小差が消える</li><li>ワイヤーフレーム + カリング OFF で、立方体の裏側の稜線と面の対角線が見える</li><li>背面カリング ON のまま面が欠けない(6面の CCW がそろっている)</li></ul></li><li>深度規約の差は板を1枚置いて深度バッファを読み出して実測(要点2の表)。<code>System.Numerics</code> 版は z = -0.0501 の板を描いてしまい、指定した near(-0.1)で深度が 0.5005 になることを確認</li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 16 カメラと3Dシーン表示(Phase 1の知識をGPUで再現) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softgl.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const G = SoftGL, M = G.Mat;
+
+// ------------------------------------------------------------
+// 1. 深度の規約を比べる
+// ------------------------------------------------------------
+// ビュー座標 z(負)の点を投影して、深度(0〜1)を返す。NDC の z が −1〜1 の外なら null(クリップ)
+function depthOf(P, z) {
+  const c = M.mulRow([0, 0, z, 1], P);
+  const ndc = c[2] / c[3];
+  if (ndc < -1 || ndc > 1) return null;
+  return (ndc + 1) / 2;
+}
+const dpMats = () => { const [n, f] = segValue('dp-nf').split(',').map(Number); return { n, f, gl: M.perspectiveGL(Math.PI / 3, 1.5, n, f), dx: M.perspectiveDX(Math.PI / 3, 1.5, n, f) }; };
+// スライダー(0〜1000)→ 距離(対数で 0.01〜1000)
+const dpDist = () => 0.01 * Math.pow(10, Number($('dp-z').value) / 200);
+// 24 ビットの深度で 1 段(1 / 2^24)ぶん動くのに要る距離
+function step(P, d) { const a = depthOf(P, -d), b = depthOf(P, -d * 1.0001); return a === null || b === null ? null : (d * 0.0001) / ((b - a) * 16777216); }
+function dpDraw() {
+  const { n, f, gl, dx } = dpMats(), d = dpDist();
+  const { ctx, w, h } = fit($('dp-chart'));
+  const L = 44, R = w - 10, T = 10, B = h - 24, lo = Math.floor(Math.log10(n / 2)), hi = Math.log10(f) + 0.2;
+  const X = (dist) => L + ((Math.log10(dist) - lo) / (hi - lo)) * (R - L), Y = (v) => B - v * (B - T);
+  ctx.font = '11px sans-serif'; ctx.fillStyle = tok('--muted'); ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  for (let e = lo; e <= hi; e++) { const x = X(10 ** e); ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, B); ctx.stroke(); const lab = e < 0 ? (10 ** e).toFixed(-e) : String(10 ** e); ctx.fillText(lab, Math.min(x - 8, w - 4 - ctx.measureText(lab).width), h - 6); }
+  for (const v of [0, 0.5, 1]) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(R, Y(v)); ctx.stroke(); ctx.fillText(v.toFixed(1), 8, Y(v) + 4); }
+  // near と near/2
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--muted');
+  for (const x of [n, n / 2]) { ctx.beginPath(); ctx.moveTo(X(x), T); ctx.lineTo(X(x), B); ctx.stroke(); }
+  ctx.setLineDash([]);
+  for (const [P, col] of [[gl, '--accent'], [dx, '--warn']]) {
+    ctx.strokeStyle = tok(col); ctx.lineWidth = 2; ctx.beginPath(); let pen = false;
+    for (let i = 0; i <= 600; i++) {
+      const dist = 10 ** (lo + ((hi - lo) * i) / 600), v = depthOf(P, -dist);
+      if (v === null) { pen = false; continue; }
+      if (pen) ctx.lineTo(X(dist), Y(v)); else ctx.moveTo(X(dist), Y(v));
+      pen = true;
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(X(d), T); ctx.lineTo(X(d), B); ctx.stroke(); ctx.lineWidth = 1;
+  $('dp-zv').textContent = `z = −${d < 1 ? d.toFixed(4) : d.toFixed(2)}`;
+  const show = (P) => { const v = depthOf(P, -d); return v === null ? 'クリップ' : `描画 深度 ${v.toFixed(5)}`; };
+  const fmtStep = (P) => { const s = step(P, d); return s === null ? '—' : s < 0.001 ? `${(s * 1e6).toFixed(2)} µm` : s < 1 ? `${(s * 1000).toFixed(3)} mm` : `${s.toFixed(3)} m`; };
+  $('dp-stats').innerHTML = stat('自作(OpenGL)', show(gl)) + stat('System.Numerics', show(dx)) + stat('深度 1 段の距離(自作)', fmtStep(gl)) + stat('深度 1 段の距離(System.Numerics)', fmtStep(dx))
+    + stat('System.Numerics の近クリップ', `${((n * f) / (2 * f - n)).toFixed(6)}`);
+}
+$('dp-z').addEventListener('input', dpDraw);
+seg('dp-nf', dpDraw);
+$('dp-table').addEventListener('click', () => {
+  const gl = M.perspectiveGL(Math.PI / 3, 1.5, 0.1, 100), dx = M.perspectiveDX(Math.PI / 3, 1.5, 0.1, 100);
+  const cell = (P, z) => { const v = depthOf(P, z); return v === null ? 'クリップ' : `描画 深度 ${v.toFixed(5)}`; };
+  const lines = ['near = 0.1 / far = 100 のとき(このページで式から計算)', 'ビュー座標 z | 自作(OpenGL規約) | System.Numerics'];
+  for (const z of [-0.0499, -0.0501, -0.07, -0.0999, -0.1001, -1, -10]) lines.push(`${String(z).padEnd(7)} | ${cell(gl, z).padEnd(16)} | ${cell(dx, z)}`);
+  const con = $('dp-console'); con.style.display = ''; con.textContent = lines.join('\n');
+});
+window.addEventListener('resize', dpDraw);
+dpDraw();
+
+// ------------------------------------------------------------
+// 2. 床と立方体のシーン
+// ------------------------------------------------------------
+const W = 480, H = 320, CLEAR = [0.08, 0.09, 0.12, 1];
+// シーン(床と6個の立方体)と OrbitCameraController は Day 17・18 の背景にも使うので docs/site/softgl.js の DemoScene に置いた
+const S = G.DemoScene, orbit = S.createOrbit();
+const apply = () => S.applyOrbit(orbit);
+const sc = { target: G.createTarget(W, H), angle: 0, fps: 0, fpsN: 0, fpsT: 0 };
+function scDraw() {
+  const t = sc.target;
+  G.clear(t, CLEAR);
+  const state = { depthTest: segValue('sc-depth') === '1', cull: segValue('sc-cull') === '1', wire: segValue('sc-wire') === '1' };
+  S.render(t, orbit, { ...state, angle: sc.angle, orthographic: segValue('sc-proj') === 'Orthographic', filter: segValue('sc-filter'), wrap: segValue('sc-wrap') });
+  const { ctx, w, h } = fit($('sc-canvas'));
+  G.present(t, ctx, w, h);
+  $('sc-title').textContent = `Day16 - カメラと3Dシーン  ${sc.fps.toFixed(1)} fps | ${segValue('sc-proj')} | 深度:${state.depthTest ? 'ON' : 'OFF'} カリング:${state.cull ? 'ON' : 'OFF'} | 距離:${orbit.distance.toFixed(1)}`;
+  $('sc-stats').innerHTML = stat('ドローコール', 1 + S.CUBES.length) + stat('三角形', t.triangles) + stat('カリングで捨てた', t.culled) + stat('書いた画素', t.fragments.toLocaleString())
+    + stat('yaw / pitch', `${orbit.yaw.toFixed(2)} / ${orbit.pitch.toFixed(2)}`);
+}
+['sc-depth', 'sc-cull', 'sc-proj', 'sc-wire', 'sc-filter', 'sc-wrap', 'sc-play'].forEach((id) => seg(id, scDraw));
+$('sc-home').addEventListener('click', () => { Object.assign(orbit, S.createOrbit()); apply(); scDraw(); });
+{ // マウス: 左ドラッグで回す、ホイールで寄る
+  const c = $('sc-canvas'); let last = null;
+  c.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; last = [e.clientX, e.clientY]; c.setPointerCapture(e.pointerId); c.style.cursor = 'grabbing'; });
+  c.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    // 実機は 960x640 の窓の画素で測る。このページは表示の幅を 960 に換算して同じ回り方にする
+    const k = 960 / c.clientWidth;
+    orbit.yaw -= (e.clientX - last[0]) * k * 0.008; orbit.pitch += (e.clientY - last[1]) * k * 0.008;
+    last = [e.clientX, e.clientY]; apply(); scDraw();
+  });
+  const up = () => { last = null; c.style.cursor = 'grab'; };
+  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+  c.addEventListener('wheel', (e) => { e.preventDefault(); orbit.distance *= Math.pow(1 - 0.12, -Math.sign(e.deltaY)); apply(); scDraw(); }, { passive: false });
+}
+animate($('sc-lab'), (dt) => {
+  if (segValue('sc-play') === '1') sc.angle += dt;
+  sc.fpsN++; sc.fpsT += dt;
+  if (sc.fpsT >= 0.5) { sc.fps = sc.fpsN / sc.fpsT; sc.fpsN = 0; sc.fpsT = 0; }
+  scDraw();
+});
+apply(); scDraw();
+})();
+</script>
+</body>
+</html>

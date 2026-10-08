@@ -29,6 +29,28 @@ const Mat = {
   rotationX(t) { const c = Math.cos(t), s = Math.sin(t); return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]; },
   scale: (x, y, z = 1) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
   translation: (x, y, z = 0) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1],
+  // Matrix4x4.CreateLookAt(右手系、カメラは -Z を見る)
+  lookAt(eye, target, up) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const norm = (a) => { const l = Math.hypot(...a); return a.map((v) => v / l); };
+    const z = norm(sub(eye, target)), x = norm(cross(up, z)), y = cross(z, x);
+    return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1];
+  },
+  // Day 16 の Camera.CreatePerspective(OpenGL の規約。NDC の z は -1〜1)
+  perspectiveGL(fovY, aspect, n, f) {
+    const ys = 1 / Math.tan(fovY * 0.5), xs = ys / aspect;
+    return [xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, (2 * f * n) / (n - f), 0];
+  },
+  // Matrix4x4.CreatePerspectiveFieldOfView(DirectX の規約。NDC の z は 0〜1)
+  perspectiveDX(fovY, aspect, n, f) {
+    const ys = 1 / Math.tan(fovY * 0.5), xs = ys / aspect;
+    return [xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, f / (n - f), -1, 0, 0, (n * f) / (n - f), 0];
+  },
+  // Day 16 の Camera.CreateOrthographic(OpenGL の規約)
+  orthographicGL(w, h, n, f) { return [2 / w, 0, 0, 0, 0, 2 / h, 0, 0, 0, 0, 2 / (n - f), 0, 0, 0, (f + n) / (n - f), 1]; },
+  // 行ベクトル規約の v * M
+  mulRow(v, m) { const o = [0, 0, 0, 0]; for (let c = 0; c < 4; c++) o[c] = v[0] * m[c] + v[1] * m[4 + c] + v[2] * m[8 + c] + v[3] * m[12 + c]; return o; },
   transpose(m) { const o = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) o[r * 4 + c] = m[c * 4 + r]; return o; },
   // glUniformMatrix4fv に float 16 個を渡したとき、GL(列ベクトル規約)が見る行列 G を行優先で返す。
   // GL はメモリを列優先として読むので、transpose が false なら G[r][c] = data[c * 4 + r](= 転置)
@@ -255,5 +277,60 @@ function uvTest() {
   return { w: n, h: n, data: d };
 }
 
-window.SoftGL = { Mat, createTarget, clear, readPixel, draw, present, createTexture, flipRows, sample, uvTest };
+// ---------------- Day 16 のシーン(Day 16〜18 の実験台が使う) ----------------
+// reference/Day16 の Primitives.cs(四角形と 24 頂点の立方体)、Program.cs の床と6個の立方体、
+// OrbitCameraController.cs(球面座標)、textured.vert / textured.frag
+const DemoScene = (() => {
+  const v = (p, uv, c) => ({ pos: p, uv, color: c });
+  const QUAD = { vertices: [v([-0.5, -0.5, 0], [0, 0], [1, 1, 1, 1]), v([0.5, -0.5, 0], [1, 0], [1, 1, 1, 1]), v([0.5, 0.5, 0], [1, 1], [1, 1, 1, 1]), v([-0.5, 0.5, 0], [0, 1], [1, 1, 1, 1])], indices: [0, 1, 2, 2, 3, 0] };
+  // 6 面とも外から見て反時計回り
+  const CUBE = (() => {
+    const h = 0.5, vs = [], ix = [];
+    const face = (bl, br, tr, tl, c) => { const b = vs.length; vs.push(v(bl, [0, 0], c), v(br, [1, 0], c), v(tr, [1, 1], c), v(tl, [0, 1], c)); ix.push(b, b + 1, b + 2, b + 2, b + 3, b); };
+    face([-h, -h, h], [h, -h, h], [h, h, h], [-h, h, h], [1.00, 0.55, 0.55, 1]);     // +Z 赤
+    face([h, -h, -h], [-h, -h, -h], [-h, h, -h], [h, h, -h], [0.55, 1.00, 0.65, 1]); // -Z 緑
+    face([h, -h, h], [h, -h, -h], [h, h, -h], [h, h, h], [0.60, 0.70, 1.00, 1]);     // +X 青
+    face([-h, -h, -h], [-h, -h, h], [-h, h, h], [-h, h, -h], [1.00, 0.95, 0.55, 1]); // -X 黄
+    face([-h, h, h], [h, h, h], [h, h, -h], [-h, h, -h], [1.00, 1.00, 1.00, 1]);     // +Y 白
+    face([-h, -h, -h], [h, -h, -h], [h, -h, h], [-h, -h, h], [0.70, 0.70, 0.75, 1]); // -Y 灰
+    return { vertices: vs, indices: ix };
+  })();
+  // Program.Cubes: 位置・大きさ・自転の速さ
+  const CUBES = [[[0, 0.25, 0], 1.5, 0.8], [[3, 0, 3], 1, 0], [[3, 1, 3], 1, 0.5], [[-3, 0, 3], 1, -0.4], [[3, 0, -3], 1, 0.3], [[-3, 0, -3], 1, 0]];
+  const cubeMat = { tint: [1, 1, 1, 1], uv: [1, 1] }, floorMat = { tint: [0.45, 0.50, 0.60, 1], uv: [10, 10] };
+  let tex = null;
+  const texture = () => { if (!tex) { const p = uvTest(); tex = createTexture(p.w, p.h, flipRows(p.w, p.h, p.data)); } return tex; };
+  // OrbitCameraController(Reset と同じ初期値)
+  const createOrbit = () => ({ yaw: 0.6, pitch: 0.4, distance: 9, target: [0, 0, 0], fov: Math.PI / 3, near: 0.1, far: 100, position: [0, 0, 0], orthoHeight: 10 });
+  function applyOrbit(o) {
+    o.pitch = Math.min(1.5, Math.max(-1.5, o.pitch));   // 約 86 度で止める(真上で LookAt が軸を作れなくなる)
+    o.distance = Math.min(40, Math.max(2, o.distance));
+    const cp = Math.cos(o.pitch), t = o.target, d = o.distance;
+    o.position = [t[0] + d * cp * Math.sin(o.yaw), t[1] + d * Math.sin(o.pitch), t[2] + d * cp * Math.cos(o.yaw)];
+    o.orthoHeight = 2 * d * Math.tan(o.fov * 0.5);
+  }
+  // opts: { angle, orthographic, depthTest, cull, wire, filter: 'Linear' | 'Nearest', wrap: 'Repeat' | 'ClampToEdge' }
+  function render(t, o, opts) {
+    const tx = texture(), aspect = t.w / t.h;
+    tx.minFilter = opts.filter === 'Nearest' ? 'NearestMipmapNearest' : 'LinearMipmapLinear'; tx.magFilter = opts.filter || 'Linear';
+    tx.wrapS = tx.wrapT = opts.wrap || 'Repeat';
+    const view = Mat.lookAt(o.position, o.target, [0, 1, 0]);
+    const proj = opts.orthographic ? Mat.orthographicGL(o.orthoHeight * aspect, o.orthoHeight, o.near, o.far) : Mat.perspectiveGL(o.fov, aspect, o.near, o.far);
+    // フレームごと: uViewProjection を 1 回だけ(行ベクトル規約なので View → Projection の順)
+    const VP = Mat.asSeenByGL(Mat.mul(view, proj), false);
+    const state = { depthTest: opts.depthTest !== false, cull: opts.cull === false ? 'none' : 'back', polygonMode: opts.wire ? 'line' : 'fill' };
+    const drawObj = (mesh, mat, model) => {
+      const Mm = Mat.asSeenByGL(model, false);
+      // textured.vert: gl_Position = uViewProjection * uModel * vec4(aPosition, 1.0)
+      draw(t, mesh, { ...state,
+        vs: (vx) => ({ pos: Mat.mulColumn(VP, Mat.mulColumn(Mm, [...vx.pos, 1])), vary: [vx.uv[0] * mat.uv[0], vx.uv[1] * mat.uv[1], ...vx.color] }),
+        fs: (q, grad) => { const c = sample(tx, q[0], q[1], grad()); return [c[0] * q[2] * mat.tint[0], c[1] * q[3] * mat.tint[1], c[2] * q[4] * mat.tint[2], 1]; } });
+    };
+    drawObj(QUAD, floorMat, Mat.mul(Mat.mul(Mat.scale(20, 20, 20), Mat.rotationX(-Math.PI / 2)), Mat.translation(0, -0.5, 0)));
+    for (const [p, s, spin] of CUBES) drawObj(CUBE, cubeMat, Mat.mul(Mat.mul(Mat.scale(s, s, s), Mat.rotationY((opts.angle || 0) * spin)), Mat.translation(...p)));
+  }
+  return { QUAD, CUBE, CUBES, createOrbit, applyOrbit, render };
+})();
+
+window.SoftGL = { Mat, createTarget, clear, readPixel, draw, present, createTexture, flipRows, sample, uvTest, DemoScene };
 })();
