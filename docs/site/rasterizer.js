@@ -9,6 +9,7 @@
 //  - Day 7: DepthBuffer.cs と、深度テストつきの FillTriangle(色を計算する前に判定する)
 //  - Day 8: Texture.cs(ニアレスト、バイリニア、リピート)と、透視補正つきの FillTriangle(属性は配列で持つ)
 //  - Day 9: Light.cs(Shade)と Mesh.cs(立方体、球、床)、GameWindow.DrawMesh(Day 9・10 の2日で使うのでここに置く)
+//  - Day 10: 背面カリングと近クリップ面のクリッピング(サザーランド・ホジマン)
 //
 //  - 画素の色は reference と同じ 0xAARRGGBB の整数で持つ。canvas に出すときだけ並べ替える(toCanvas)
 //  - 実験台が数えたいもの(判定した画素・塗った画素)は stats に足していく。reference には無い
@@ -402,11 +403,46 @@ function drawMesh(ras, mesh, model, vp, o) {
   return n;
 }
 
+// ---------------- Day 10: 背面カリングと、近クリップ面のクリッピング ----------------
+// cull: 'back' | 'front' | 'none'。clip を false にすると Day 9 までの「W が正でない頂点を含む三角形は捨てる」(このページだけ)
+class Rasterizer10 extends Rasterizer8 {
+  constructor(target) { super(target); this.cull = 'back'; this.clip = true; this.culled = 0; this.drawn = 0; }
+  resetStatistics() { this.culled = 0; this.drawn = 0; }
+  drawTriangle(v0, v1, v2, mvp, shader) {
+    if (!this.clip) return super.drawTriangle(v0, v1, v2, mvp, shader);
+    // クリップ座標のまま、z >= 0(近クリップ面の内側)で切る。サザーランド・ホジマン
+    const src = [v0, v1, v2].map((v) => ({ c: Mat4.transform([v.pos[0], v.pos[1], v.pos[2], 1], mvp), vary: v.vary }));
+    const out = [];
+    for (let i = 0; i < 3; i++) {
+      const a = src[i], b = src[(i + 1) % 3], da = a.c[2], db = b.c[2], ain = da >= 0, bin = db >= 0;
+      if (ain) out.push(a);
+      if (ain !== bin) { const t = da / (da - db); out.push({ c: a.c.map((x, k) => x + (b.c[k] - x) * t), vary: a.vary.map((x, k) => x + (b.vary[k] - x) * t) }); }
+    }
+    if (out.length < 3) return false;
+    const T = this.target, toScreen = (q) => { if (q.c[3] <= 1e-5) return null; const iw = 1 / q.c[3]; return { pos: [(q.c[0] * iw * 0.5 + 0.5) * T.width, (0.5 - q.c[1] * iw * 0.5) * T.height, q.c[2] * iw], invW: iw, vary: q.vary }; };
+    for (let i = 1; i + 1 < out.length; i++) {   // 最大 4 頂点の多角形をファンで三角形に戻す
+      const s = [out[0], out[i], out[i + 1]].map(toScreen);
+      if (s.every(Boolean)) this.fillTriangle(s[0], s[1], s[2], shader);
+    }
+    return true;
+  }
+  fillTriangle(v0, v1, v2, shader) {
+    const E = (a, b, px, py) => (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+    const area = E(v0.pos, v1.pos, v2.pos[0], v2.pos[1]);
+    if (area === 0) return;
+    // Day 3 で捨てていた符号。モデルが外から見て反時計回りなら、画面(y 下向き)では負が表
+    const front = area < 0;
+    if (this.cull !== 'none' && (this.cull === 'back' ? !front : front)) { this.culled++; return; }
+    this.drawn++;
+    super.fillTriangle(v0, v1, v2, shader);
+  }
+}
+
 // GameWindow の HueColor(Day 2〜)
 function hueColor(h01) {
   const h = (h01 - Math.floor(h01)) * 6, s = Math.trunc(h), f = h - s, up = Math.trunc(f * 255), down = Math.trunc((1 - f) * 255);
   return [rgb(255, up, 0), rgb(down, 255, 0), rgb(0, 255, up), rgb(0, down, 255), rgb(up, 0, 255), rgb(255, 0, down)][Math.min(5, s)];
 }
 
-window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7, unpack3, Texture, Rasterizer8, reflect3, defaultLight, shade, Mesh, drawMesh };
+window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7, unpack3, Texture, Rasterizer8, reflect3, defaultLight, shade, Mesh, drawMesh, Rasterizer10 };
 })();
