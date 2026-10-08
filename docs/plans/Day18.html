@@ -253,7 +253,7 @@ VertexAttribute.UNormByte4()  // unsigned byte 4個を 0.0〜1.0 として読む
   sprite-star       48x48  UV (0.549, 0.018)-(0.732, 0.201)
   sprite-diamond    32x32  UV (0.752, 0.018)-(0.873, 0.139)</code></pre></div>
 <h3 id="s19">見た目</h3>
-<ul><li>Day 16 の3Dシーンの手前に、<strong>円・輪・星・ひし形の4種類</strong>が飛び回っている</li><li>左上に<strong>大きな3枚(緑・赤・青)</strong> が重なっている。これがソートの確認用</li><li>スプライトの縁がきれいに切り抜かれ、<strong>隣のリージョンの色がにじんでいない</strong> (パディングと半テクセル内側寄せが効いている)</li></ul>
+<ul><li>Day 16 の3Dシーンの手前に、<strong>円・輪・星・ひし形の4種類</strong>が飛び回っている</li><li>左上に<strong>大きな3枚(緑・赤・青)</strong> が重なっている。これがソートの確認用</li><li>スプライトの縁がきれいに切り抜かれ、<strong>隣のリージョンの色がにじんでいない</strong> (今日の4枚は縁が透明なのでそもそもにじみにくい。パディングと半テクセル内側寄せは、縁まで色のある素材への備え。改造課題1)</li></ul>
 <h3 id="s20">マイルストーンの確認</h3>
 <div class="table-wrap"><table>
 <thead><tr><th>操作</th><th>ドローコール</th></tr></thead>
@@ -297,7 +297,7 @@ VertexAttribute.UNormByte4()  // unsigned byte 4個を 0.0〜1.0 として読む
 <section class="part"><h2 id="s23">改造課題</h2>
 <h3 id="s24">課題1(易): アトラスを壊して、症状を覚える</h3>
 <p>要点1・2の落とし穴を実際に踏む。<strong>症状から原因を逆算できるようになる</strong>のが目的。</p>
-<ol><li><code>TextureAtlas.FromFiles</code> の <code>padding</code> を <strong>0</strong> にする。スプライトを大きく描いて(<code>Size</code> を 200 くらいに)縁を見る。<strong>隣のリージョンの色がにじむ</strong>はず。どの方向ににじむか、アトラスの並び順と照らして確かめる</li><li>半テクセル内側寄せ(<code>float half = 0.5f</code>)を <code>0.0f</code> にする。padding が 0 のときにどう変わるか</li><li><code>Texture.FromPixels</code> の <code>generateMipmaps</code> を <strong>true</strong> にしてアトラスを作る。スプライトを小さく(<code>Size</code> を 4〜8)描いて、<strong>リージョンの色が混ざる</strong>のを見る</li><li><code>Texture.SetFilter</code> の振り分けを消して、常に <code>LinearMipmapLinear</code> にする。アトラス(ミップマップなし)が<strong>真っ黒</strong>になることを確認する。これが要点2の「エラーが出ないのに黒い」</li></ol>
+<ol><li><code>TextureAtlas.FromFiles</code> の <code>padding</code> を <strong>0</strong> にする。スプライトを大きく描いて(<code>Size</code> を 200 くらいに)縁を見る。<strong>今日の4枚では、にじみは見えない</strong>はず。どの画像も縁の2ピクセルが完全に透明で、バイリニアが読む隣の1テクセルも透明だから。縁まで色のある画像(ベタ塗りの四角など)を1枚足して、どの方向ににじむかをアトラスの並び順と照らして確かめる</li><li>半テクセル内側寄せ(<code>float half = 0.5f</code>)を <code>0.0f</code> にする。padding が 0 のときにどう変わるか</li><li><code>Texture.FromPixels</code> の <code>generateMipmaps</code> を <strong>true</strong> にしてアトラスを作る。スプライトを小さく(<code>Size</code> を 4〜8)描いて、<strong>リージョンの色が混ざる</strong>のを見る</li><li><code>Texture.SetFilter</code> の振り分けを消して、常に <code>LinearMipmapLinear</code> にする。アトラス(ミップマップなし)が<strong>真っ黒</strong>になることを確認する。これが要点2の「エラーが出ないのに黒い」</li></ol>
 <h3 id="s25">課題2(中): ソートキーを設計し直す</h3>
 <p>要点3の「1本の long に畳む」を自分で組み替える。</p>
 <ol><li><strong>安定ソートにする</strong>。キーの下位に通し番号を混ぜて、同じレイヤー・同じテクスチャなら積んだ順が保たれるようにする。32bit をどう配分するか(レイヤー / テクスチャ / 通し番号)を決めるのが本題</li><li>レイヤーの量子化を 16bit から <strong>8bit</strong> に落とす。何段まで減らすと重なりがおかしく見え始めるか</li><li>マテリアル(シェーダ)を切り替えられるようにして、キーに足す。<strong>シェーダの切り替えはテクスチャより高い</strong>ので、優先度はシェーダ &gt; テクスチャ &gt; レイヤー……にしたくなるが、<code>BackToFront</code> ではレイヤーが最優先でなければ絵が壊れる。<strong>この矛盾をどう扱うか</strong>を考える(ヒント: 実際のエンジンは不透明と半透明でパスを分け、前者はシェーダ優先、後者はレイヤー優先にする)</li><li><code>Array.Sort</code> を基数ソート(radix sort)に置き換えて、2万枚で測る。キーが整数なので O(n) にできる。<strong>効くかどうかは測るまで分からない</strong></li></ol>
