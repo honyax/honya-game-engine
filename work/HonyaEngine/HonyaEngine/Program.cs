@@ -749,6 +749,89 @@ internal static class Program
     /// </summary>
     private const float AnimationStepSeconds = 1.0f / 30.0f;
 
+    // ================================================================
+    //  Day 43: 剛体力学の基礎(セミインプリシット積分・力とトルク・インパルス)
+    // ================================================================
+
+    /// <summary>今日のデモの筋書き。**見せたいものごとに初期配置が違う**。</summary>
+    private enum PhysicsScene
+    {
+        /// <summary>反発係数を振った5球を落とす。**跳ね方の違いが1画面で見える**。</summary>
+        Drop,
+
+        /// <summary>球を縦に積む。**速度の反復回数が効いてくる**。</summary>
+        Stack,
+
+        /// <summary>一列に並べた球を端から撞く。**運動量が伝わっていく**。</summary>
+        Cradle,
+    }
+
+    /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
+    private static bool _physicsDemo;
+
+    /// <summary>
+    /// 剛体の世界。**Program は「組み立てて、進めて、描く」だけ**。
+    ///
+    /// 中身(積分・判定・解決)は <see cref="PhysicsWorld"/> にあり、
+    /// そこは GL も窓も一切知らない。おかげで自己チェック(Ctrl+Shift+Alt+F12)は
+    /// **画面を1枚も出さずに走る**——Day 26 の衝突判定、Day 42 のブレンドと同じ性格。
+    /// </summary>
+    private static readonly PhysicsWorld Physics = new();
+
+    /// <summary>今の筋書き。</summary>
+    private static PhysicsScene _physicsScene = PhysicsScene.Drop;
+
+    /// <summary>
+    /// 体ごとの色。**<see cref="RigidBody"/> には持たせない**。
+    ///
+    /// 色は描画の都合で、物理の状態ではない。
+    /// <c>Physics/</c> が <c>Render/</c> を知らない一方通行を保つために、
+    /// 見せ方の情報は呼ぶ側(ここ)に置く——
+    /// Day 29 で <c>SurvivorGame</c> が <c>GameView</c> を知らなかったのと同じ線。
+    /// </summary>
+    private static readonly List<Vector4> BodyColors = [];
+
+    /// <summary>球を描くマテリアル。色は描くたびに差し替える。</summary>
+    private static Material _physicsMaterial = null!;
+
+    /// <summary>
+    /// 反発係数の候補(Ctrl+Shift+Alt+F3)。
+    ///
+    /// **これは「これから作る球の既定値」**で、今ある球の値とは限らない。
+    /// 落下の筋書きは5球にそれぞれ違う e を振っているので、
+    /// HUD の「既定e」と絵が食い違って見える——
+    /// `Ctrl+Shift+Alt+F3` を1回押すと全部がこの値に揃う。
+    /// </summary>
+    private static readonly float[] RestitutionSteps = [0.0f, 0.3f, 0.6f, 0.9f];
+
+    private static int _restitutionIndex = 2;
+
+    /// <summary>速度の解決を何周するか(Ctrl+Shift+Alt+F5)。**1 が素朴版**。</summary>
+    private static readonly int[] IterationSteps = [1, 2, 4, 8];
+
+    private static int _iterationIndex = 3;
+
+    /// <summary>物理だけを止める。**画面は動いたまま**なのでカメラを回して観察できる。</summary>
+    private static bool _physicsPaused;
+
+    /// <summary>コマ送りで進めたいステップ数(Ctrl+Shift+Alt+F10)。</summary>
+    private static int _physicsStepsRequested;
+
+    /// <summary>1ステップの所要時間 [ms]。移動平均。</summary>
+    private static double _physicsMilliseconds;
+
+    /// <summary>床の高さ。<see cref="FloorMatrix"/> が置いている板と合わせてある。</summary>
+    private const float PhysicsFloorY = -0.5f;
+
+    /// <summary>見えない壁までの距離。**摩擦が無いので、囲わないと滑って消える**。</summary>
+    private const float PhysicsWallDistance = 5.0f;
+
+    /// <summary>降らせた球の数。色を巡回させるのに使う。</summary>
+    private static int _spawnCount;
+
+    /// <summary>次に撃つときに中心を外すか(Ctrl+Shift+Alt+F8 で交互に入れ替わる)。</summary>
+    private static bool _kickOffCenter = true;
+
     /// <summary>
     /// 画面に出す成分(Shift+9)。
     /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ
@@ -1467,6 +1550,23 @@ internal static class Program
             RoughnessFactor = 0.5f,
         };
 
+        // --- Day 43: 物理デモの球 ---
+        //
+        // **模様のあるテクスチャを貼る**のが要点。単色だと球が回っていても
+        // まったく分からず、トルクが効いているかを絵で確かめられない。
+        // <c>uv-test.png</c> は Day 15 から使っている格子で、
+        // 経線と緯線がそのまま回転の目印になる。
+        //
+        // 色は描くたびに <see cref="Material.BaseColorFactor"/> を差し替えるので、
+        // マテリアルは1つで足りる(材質グリッドと同じやり方)。
+        _physicsMaterial = new Material(_shader)
+        {
+            Name = "physics-ball",
+            MainTexture = _texture,
+            MetallicFactor = 0.0f,
+            RoughnessFactor = 0.35f,
+        };
+
         // --- 2D ---
         _spriteShader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "sprite.vert"),
@@ -1676,6 +1776,15 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 43: 剛体力学の基礎(Ctrl+Shift+Alt+F1〜F12)---");
+        Console.WriteLine("Ctrl+Shift+Alt+F1:物理デモ ON/OFF。**球が落ちて跳ねて積まれる。今日の到達点**");
+        Console.WriteLine("Ctrl+Shift+Alt+F2:積分法(セミインプリシット / **陽的オイラー**。数字キー4と併せて見る)");
+        Console.WriteLine("Ctrl+Shift+Alt+F3:反発係数 0/0.3/0.6/0.9  Ctrl+Shift+Alt+F4:筋書き(落下/積み上げ/撞き玉)");
+        Console.WriteLine("Ctrl+Shift+Alt+F5:速度の反復 1/2/4/8(**1 だと柱が沈む**)  Ctrl+Shift+Alt+F6:位置補正 ON/OFF");
+        Console.WriteLine("Ctrl+Shift+Alt+F7:球を1つ降らせる  Ctrl+Shift+Alt+F8:撃つ(**中心 / 中心を外す が交互**)");
+        Console.WriteLine("Ctrl+Shift+Alt+F9:内訳(運動量・エネルギー・めり込み)  Ctrl+Shift+Alt+F10:停止");
+        Console.WriteLine("Ctrl+Shift+Alt+F11:コマ送り  Ctrl+Shift+Alt+F12:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
         Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
@@ -2332,6 +2441,12 @@ internal static class Program
             UpdateBodies(dt, bounds);
         }
 
+        // **物理は固定ステップ**(Day 43)。可変 dt で回すと、
+        // フレームレートが落ちた瞬間に球が床を突き抜ける。
+        // Day 41〜42 のアニメーションを可変 dt 側(OnUpdate)に置いたのと逆の判断で、
+        // 線引きは Day 19 のまま——**状態を持つものはこちら**。
+        UpdatePhysics(dt);
+
         switch (_backend)
         {
             case SpriteBackend.StructArray:
@@ -2769,7 +2884,20 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_demo is not null)
+        if (_physicsDemo)
+        {
+            // **球は影を落とす**(Day 43)。落下デモは高さが主役なので、
+            // 床に落ちる影が無いと「どのくらいの高さにいるか」が読めない。
+            // 影は接地しているかどうかも教えてくれる——
+            // 積み上げデモで一番下の球が沈んでいるかは、影の大きさで気づける。
+            foreach (RigidBody physicsBody in Physics.Bodies)
+            {
+                _shadow.Draw(_sphere, BodyMatrix(physicsBody));
+            }
+
+            _shadow.Draw(_quad, FloorMatrix());
+        }
+        else if (_demo is not null)
         {
             // **フラグで選ぶ**(Day 39)。この関数の説明に書いた宿題がここで片付いた——
             // 手書きの分岐ではなく、シーンのデータが「落とすかどうか」を持っている。
@@ -3009,6 +3137,14 @@ internal static class Program
         var lines = new System.Text.StringBuilder();
 
         lines.AppendLine($"Day40   {_fps:F1} fps   DC:{_drawCalls}");
+
+        // **今日の1行**(Day 43)。物理は「なんとなく動いている」で済ませてしまいやすい。
+        // めり込み量と運動エネルギーが数字で出ていないと、
+        // 沈んでいるのか、震えているのか、そもそも止まっているのかが分からない。
+        if (_physicsDemo)
+        {
+            lines.AppendLine(PhysicsLabel());
+        }
 
         if (_model is not null)
         {
@@ -3776,6 +3912,438 @@ internal static class Program
         SetModel(index >= 0 ? index : 0);
     }
 
+    // ================================================================
+    //  Day 43: 剛体力学の基礎(セミインプリシット積分・力とトルク・インパルス)
+    // ================================================================
+
+    /// <summary>
+    /// 物理デモを出す下ごしらえ(Ctrl+Shift+Alt+F1 / F4)。
+    ///
+    /// <see cref="ShowAnimatedModel"/> と同じ形。
+    /// **他のデモを全部下ろしてから**でないと、
+    /// <see cref="Render3D"/> の優先順位に負けて球が1つも見えない。
+    /// </summary>
+    private static void ShowPhysicsDemo(PhysicsScene scene)
+    {
+        if (_demo is not null)
+        {
+            UnloadDemoScene();
+        }
+
+        StopTourIfRunning();
+
+        if (_model is not null)
+        {
+            SetModel(ModelPaths.Length);
+        }
+
+        _materialGrid = false;
+        _surfaceDemo = false;
+        _draw3D = true;
+        _debugChannel = 0;
+        SetSpriteCount(0);
+
+        _physicsDemo = true;
+        _physicsPaused = false;
+        _physicsStepsRequested = 0;
+
+        BuildPhysicsScene(scene);
+
+        // **カメラは少し高いところから**。真横から見ると重なりが読めず、
+        // 真上から見ると高さが読めない。物理は高さの絵なので、やや斜め上に置く。
+        _orbit.Reset();
+        _orbit.Target = new Vector3(0.0f, 1.0f, 0.0f);
+        _orbit.Distance = 12.0f;
+        _orbit.Yaw = 0.35f;
+        _orbit.Pitch = 0.22f;
+        _orbit.Apply();
+    }
+
+    /// <summary>
+    /// 初期配置を組む。**筋書きごとに、見せたいものが1つだけ**ある。
+    ///
+    /// <list type="bullet">
+    /// <item><b>落下</b> … 反発係数を5段に振った球。跳ね返る高さの違いだけを見る</item>
+    /// <item><b>積み上げ</b> … 縦一列。<see cref="PhysicsWorld.VelocityIterations"/> が効く</item>
+    /// <item><b>撞き玉</b> … 一列に並べて端から撞く。運動量が伝わる</item>
+    /// </list>
+    /// </summary>
+    private static void BuildPhysicsScene(PhysicsScene scene)
+    {
+        _physicsScene = scene;
+        _spawnCount = 0;
+
+        Physics.Clear();
+        BodyColors.Clear();
+        Physics.VelocityIterations = IterationSteps[_iterationIndex];
+
+        // **床は無限に広い平面**。描いている板(20x20)の外にも続いているので、
+        // 遠くへ飛んでいった球も落ちない。有限の床が要るのは Day 44 以降。
+        Physics.AddPlane(Plane3D.FromPointNormal(
+            new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY));
+
+        // **見えない壁を4枚**。摩擦が無いので、横向きの速度は一切減らない——
+        // 囲っておかないと、一度滑り始めた球は画面の外まで行ったきり戻ってこない。
+        // 縁石(<see cref="RenderPhysics"/> が描く箱)は、この壁の位置の目印。
+        Physics.AddPlane(Plane3D.FromPointNormal(
+            new Vector3(-PhysicsWallDistance, 0.0f, 0.0f), Vector3.UnitX));
+        Physics.AddPlane(Plane3D.FromPointNormal(
+            new Vector3(PhysicsWallDistance, 0.0f, 0.0f), -Vector3.UnitX));
+        Physics.AddPlane(Plane3D.FromPointNormal(
+            new Vector3(0.0f, 0.0f, -PhysicsWallDistance), Vector3.UnitZ));
+        Physics.AddPlane(Plane3D.FromPointNormal(
+            new Vector3(0.0f, 0.0f, PhysicsWallDistance), -Vector3.UnitZ));
+
+        switch (scene)
+        {
+            case PhysicsScene.Drop:
+                BuildDropScene();
+                break;
+
+            case PhysicsScene.Stack:
+                BuildStackScene();
+                break;
+
+            case PhysicsScene.Cradle:
+                BuildCradleScene();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 落下。**反発係数だけを振った5球**を同じ高さから落とす。
+    ///
+    /// 他の条件(質量・半径・高さ)を揃えてあるので、
+    /// <b>跳ね返る高さの違いは反発係数だけで説明が付く</b>。
+    /// 理屈のうえでは、1回の跳ね返りで高さが e² 倍になる——
+    /// e = 0.9 なら 81%、e = 0.5 なら 25%。
+    /// </summary>
+    private static void BuildDropScene()
+    {
+        float[] restitutions = [0.0f, 0.25f, 0.5f, 0.75f, 0.95f];
+
+        for (int i = 0; i < restitutions.Length; i++)
+        {
+            RigidBody body = RigidBody.CreateSphere(1.0f, 0.4f);
+            body.Position = new Vector3((i - 2) * 1.6f, 3.5f, 0.0f);
+            body.Restitution = restitutions[i];
+
+            // **摩擦が無いので、回り出した球は永久に回り続ける**。
+            // 角速度だけ少し抜いておくと、撃ったあとに落ち着いて見える。
+            body.AngularDamping = 0.4f;
+            Physics.AddBody(body);
+
+            // 青(跳ねない)→ 赤(よく跳ねる)。**色が反発係数の目盛り**になる。
+            float t = restitutions[i];
+            BodyColors.Add(SrgbToLinear(new Vector4(0.2f + (0.7f * t), 0.35f, 0.9f - (0.7f * t), 1.0f)));
+        }
+    }
+
+    /// <summary>
+    /// 積み上げ。**縦に4個**、ちょうど接するように置く。
+    ///
+    /// 摩擦が無いので、ピラミッド型には積めない(横向きに力が要る)。
+    /// 真上に積む形だけが、摩擦なしで成立する積み方になる。
+    ///
+    /// <para>
+    /// <b>反復回数を 1 にすると沈む</b>のが今日の見どころ(要点8)。
+    /// 下の接触を1回解いただけでは、いちばん下の球には
+    /// 上の3個ぶんの重さが伝わっていない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>4個までにしてある</b>のは、素朴なインパルスの限界が
+    /// 段数とともに急に効いてくるから。6段にすると
+    /// 反復を 16 周しても 2cm 以上めり込む(今日の最後に書いた「残った歪み」)。
+    /// </para>
+    /// </summary>
+    private static void BuildStackScene()
+    {
+        const float radius = 0.45f;
+
+        for (int i = 0; i < 4; i++)
+        {
+            RigidBody body = RigidBody.CreateSphere(1.0f, radius);
+            body.Position = new Vector3(0.0f, PhysicsFloorY + radius + (i * radius * 2.0f), 0.0f);
+            body.Restitution = RestitutionSteps[_restitutionIndex];
+            body.AngularDamping = 0.4f;
+            Physics.AddBody(body);
+
+            float t = i / 3.0f;
+            BodyColors.Add(SrgbToLinear(new Vector4(0.85f - (0.4f * t), 0.55f + (0.3f * t), 0.25f + (0.5f * t), 1.0f)));
+        }
+    }
+
+    /// <summary>
+    /// 撞き玉。一列に並べた5球を、左から来た6個目で撞く。
+    ///
+    /// <para>
+    /// <b>わざと 1cm ずつ隙間を空けてある</b>。ぴったり接して並べると
+    /// 5つの接触が同時に立ち、素朴なインパルス(蓄積も温存もしない)では
+    /// **端の1個だけが飛ぶ**という理想的な伝わり方にならない。
+    /// 隙間があれば接触が1つずつ順に立つので、教科書どおりの絵に近づく。
+    /// 同時接触をきちんと解くのは Day 47 の宿題。
+    /// </para>
+    /// </summary>
+    private static void BuildCradleScene()
+    {
+        const float radius = 0.4f;
+        const float gap = 0.01f;
+
+        for (int i = 0; i < 5; i++)
+        {
+            RigidBody body = RigidBody.CreateSphere(1.0f, radius);
+            body.Position = new Vector3(
+                (i - 2) * ((radius * 2.0f) + gap), PhysicsFloorY + radius, 0.0f);
+
+            // **ほぼ完全弾性**にしないと、伝わる前に吸われる。
+            body.Restitution = 0.95f;
+            body.AngularDamping = 0.4f;
+            Physics.AddBody(body);
+            BodyColors.Add(SrgbToLinear(new Vector4(0.75f, 0.75f, 0.80f, 1.0f)));
+        }
+
+        RigidBody striker = RigidBody.CreateSphere(1.0f, radius);
+        striker.Position = new Vector3(-4.2f, PhysicsFloorY + radius, 0.0f);
+        striker.LinearVelocity = new Vector3(6.0f, 0.0f, 0.0f);
+        striker.Restitution = 0.95f;
+        striker.AngularDamping = 0.4f;
+        Physics.AddBody(striker);
+        BodyColors.Add(SrgbToLinear(new Vector4(0.95f, 0.35f, 0.25f, 1.0f)));
+    }
+
+    /// <summary>球を1つ降らせる(Ctrl+Shift+Alt+F7)。</summary>
+    private static void SpawnBall()
+    {
+        if (!_physicsDemo)
+        {
+            return;
+        }
+
+        // 落とす場所を少しずつずらす。真上から重ねると、
+        // 同心の球(法線が決められない)を作りかけて面白くない。
+        float angle = _spawnCount * 2.399963f;   // 黄金角。**重ならないように散る**
+        float radius = 0.25f + (0.1f * (_spawnCount % 3));
+
+        RigidBody body = RigidBody.CreateSphere(radius * radius * radius * 20.0f, radius);
+        body.Position = new Vector3(
+            MathF.Cos(angle) * 1.8f, 4.5f, MathF.Sin(angle) * 1.8f);
+        body.Restitution = RestitutionSteps[_restitutionIndex];
+        body.AngularDamping = 0.4f;
+
+        Physics.AddBody(body);
+        BodyColors.Add(SrgbToLinear(new Vector4(
+            0.35f + (0.5f * MathF.Abs(MathF.Sin(angle))),
+            0.55f,
+            0.35f + (0.5f * MathF.Abs(MathF.Cos(angle))),
+            1.0f)));
+
+        _spawnCount++;
+
+        Console.WriteLine(
+            $"球を1つ追加: 半径 {radius:F2}m 質量 {body.Mass:F2}kg  "
+            + $"体 {Physics.Bodies.Count} 個  組 {(long)Physics.Bodies.Count * (Physics.Bodies.Count - 1) / 2}");
+    }
+
+    /// <summary>
+    /// 全部の球を**中心を外して**撃つ(Ctrl+Shift+Alt+F8)。
+    ///
+    /// **これがトルクの実演**(要点2)。同じ大きさの撃力でも、
+    /// 中心に掛ければ真上に飛ぶだけ、外して掛ければ飛びながら回る。
+    /// 球には模様(uv-test)が貼ってあるので、回っているかどうかが目で分かる。
+    /// </summary>
+    private static void KickBodies(bool offCenter)
+    {
+        if (!_physicsDemo)
+        {
+            return;
+        }
+
+        int kicked = 0;
+        float maxSpin = 0.0f;
+
+        foreach (RigidBody body in Physics.Bodies)
+        {
+            if (body.IsStatic)
+            {
+                continue;
+            }
+
+            var impulse = new Vector3(0.0f, 4.0f * body.Mass, 0.0f);
+
+            // 中心を外す。**外した量がそのまま腕の長さ**になる。
+            // 半径いっぱい(0.9)まで外すと 20rad/s を超えてただのブレになるので、
+            // **見て回転が追える速さ**(1〜2回転/秒)に収まるところを選んである。
+            Vector3 point = offCenter
+                ? body.Position + new Vector3(body.Radius * 0.35f, 0.0f, 0.0f)
+                : body.Position;
+
+            body.ApplyImpulseAtPoint(impulse, point);
+
+            kicked++;
+            maxSpin = MathF.Max(maxSpin, body.AngularVelocity.Length());
+        }
+
+        Console.WriteLine(
+            (offCenter
+                ? "**中心を外して**撃った(r × J のトルクが立つ)"
+                : "中心に撃った(**トルクは 0**。回らない)")
+            + $": {kicked} 個  最大角速度 {maxSpin:F2} rad/s");
+    }
+
+    /// <summary>
+    /// 物理を1ステップ進める。**<see cref="FixedUpdate"/> からだけ呼ぶ**。
+    ///
+    /// 可変 dt で回すと、フレームレートが落ちた瞬間に貫通が起き、
+    /// 同じ操作でも違う結果になる。アニメーション(Day 41〜42)を
+    /// 可変 dt 側に置いたのとは逆の判断で、
+    /// **状態を持つものは固定ステップ**という Day 19 の線がそのまま効いている。
+    /// </summary>
+    private static void UpdatePhysics(float dt)
+    {
+        if (!_physicsDemo)
+        {
+            return;
+        }
+
+        if (_physicsPaused)
+        {
+            if (_physicsStepsRequested <= 0)
+            {
+                return;
+            }
+
+            _physicsStepsRequested--;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        Physics.Step(dt);
+        _physicsMilliseconds =
+            (_physicsMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+    }
+
+    /// <summary>
+    /// 物理デモを描く。**床 + 縁石 + 球**。
+    ///
+    /// 位置と向きは <see cref="Interpolate(Vector3, Vector3)"/> で補間する(Day 19)。
+    /// 物理は 60Hz の固定ステップで回っているので、
+    /// 144Hz の画面で補間を切ると**ステップの粒が見える**
+    /// (I キーで切って確かめられる)。
+    /// </summary>
+    private static void RenderPhysics()
+    {
+        _drawCalls = Physics.Bodies.Count + 5;
+
+        Draw(_quad, _floorMaterial, FloorMatrix());
+
+        foreach (Matrix4x4 wall in WallMatrices())
+        {
+            Draw(_cube, _floorMaterial, wall);
+        }
+
+        for (int i = 0; i < Physics.Bodies.Count; i++)
+        {
+            _physicsMaterial.BaseColorFactor = BodyColors[i];
+            Draw(_sphere, _physicsMaterial, BodyMatrix(Physics.Bodies[i]));
+        }
+    }
+
+    /// <summary>
+    /// 縁石4本の行列。**見えない壁の位置を目に見えるようにする**だけのもの。
+    ///
+    /// 壁そのものは無限に高い平面なので、縁石を飛び越えた高さでも跳ね返る。
+    /// 絵と物理が食い違っている箇所で、
+    /// 有限の壁が要るなら箱(Day 44)で作り直すことになる。
+    /// </summary>
+    private static IEnumerable<Matrix4x4> WallMatrices()
+    {
+        const float thickness = 0.2f;
+        const float height = 0.5f;
+        float span = (PhysicsWallDistance * 2.0f) + thickness;
+        float centerY = PhysicsFloorY + (height * 0.5f);
+        float offset = PhysicsWallDistance + (thickness * 0.5f);
+
+        yield return Matrix4x4.CreateScale(thickness, height, span)
+            * Matrix4x4.CreateTranslation(-offset, centerY, 0.0f);
+        yield return Matrix4x4.CreateScale(thickness, height, span)
+            * Matrix4x4.CreateTranslation(offset, centerY, 0.0f);
+        yield return Matrix4x4.CreateScale(span, height, thickness)
+            * Matrix4x4.CreateTranslation(0.0f, centerY, -offset);
+        yield return Matrix4x4.CreateScale(span, height, thickness)
+            * Matrix4x4.CreateTranslation(0.0f, centerY, offset);
+    }
+
+    /// <summary>
+    /// 球1つぶんの行列。**拡大 → 回転 → 平行移動**の順。
+    ///
+    /// 単位球は半径 0.5(直径 1)なので、拡大は直径をそのまま入れる。
+    /// </summary>
+    private static Matrix4x4 BodyMatrix(RigidBody body) =>
+        Matrix4x4.CreateScale(body.Radius * 2.0f)
+        * Matrix4x4.CreateFromQuaternion(Interpolate(body.PreviousOrientation, body.Orientation))
+        * Matrix4x4.CreateTranslation(Interpolate(body.PreviousPosition, body.Position));
+
+    private static string PhysicsSceneLabel() => _physicsScene switch
+    {
+        PhysicsScene.Stack => "積み上げ",
+        PhysicsScene.Cradle => "撞き玉",
+        _ => "落下",
+    };
+
+    /// <summary>
+    /// HUD の1行。**絵から読み取れない数字だけ**を出す。
+    ///
+    /// 積分法・反復回数・めり込み量は、どれも絵を見ても分からない。
+    /// 「なんとなく震えている」「なんとなく沈んでいる」で終わらせないために、
+    /// <b>最大めり込みと運動エネルギーは常に数字で</b>出しておく。
+    /// </summary>
+    private static string PhysicsLabel() =>
+        $"物理[{PhysicsSceneLabel()}]  体:{Physics.Bodies.Count}  接触:{Physics.Contacts.Count}  "
+        + $"組:{Physics.PairTests}  "
+        + $"{(Physics.Integrator == IntegratorMode.SemiImplicit ? "セミインプリシット" : "**陽的オイラー**")}  "
+        + $"反復:{Physics.VelocityIterations}  既定e:{RestitutionSteps[_restitutionIndex]:F2}  "
+        + $"補正:{OnOff(Physics.PositionCorrection)}  めり込み:{Physics.MaxPenetration * 100.0f:F2}cm  "
+        + $"KE:{Physics.TotalKineticEnergy:F2}J  {_physicsMilliseconds:F2}ms"
+        + (_physicsPaused ? "  [停止中]" : string.Empty);
+
+    /// <summary>
+    /// 今の内訳をコンソールへ(Ctrl+Shift+Alt+F9)。
+    ///
+    /// **保存量を並べて出す**のが眼目。運動量と運動エネルギーは、
+    /// 衝突が正しく解けているかを外から確かめられる数少ない手掛かりになる。
+    /// </summary>
+    private static void DescribePhysics()
+    {
+        Console.WriteLine();
+        Console.WriteLine($"--- 物理デモの内訳({PhysicsSceneLabel()})---");
+        Console.WriteLine(
+            $"  積分: {(Physics.Integrator == IntegratorMode.SemiImplicit ? "セミインプリシット" : "陽的オイラー")}"
+            + $"  反復: {Physics.VelocityIterations}  位置補正: {OnOff(Physics.PositionCorrection)}"
+            + $"(率 {Physics.CorrectionRate:F2} / 許容 {Physics.Slop * 100.0f:F1}cm)");
+        Console.WriteLine(
+            $"  体: {Physics.Bodies.Count} 個  平面: {Physics.Planes.Count} 枚  "
+            + $"接触: {Physics.Contacts.Count} 点  試した組: {Physics.PairTests}");
+        Console.WriteLine(
+            $"  合計運動量: ({Physics.TotalMomentum.X:F3}, {Physics.TotalMomentum.Y:F3}, "
+            + $"{Physics.TotalMomentum.Z:F3}) kg·m/s");
+        Console.WriteLine(
+            $"  合計運動エネルギー: {Physics.TotalKineticEnergy:F3} J  "
+            + $"最大めり込み: {Physics.MaxPenetration * 1000.0f:F2} mm");
+        Console.WriteLine();
+
+        for (int i = 0; i < Physics.Bodies.Count; i++)
+        {
+            RigidBody body = Physics.Bodies[i];
+            Console.WriteLine(
+                $"  [{i,2}] 高さ {body.Position.Y - PhysicsFloorY:F3}m  "
+                + $"速度 {body.LinearVelocity.Length():F3}m/s  "
+                + $"角速度 {body.AngularVelocity.Length():F3}rad/s  "
+                + $"質量 {body.Mass:F2}kg  半径 {body.Radius:F2}m  e={body.Restitution:F2}");
+        }
+
+        Console.WriteLine();
+    }
+
     private static string ToneMapLabel() => _post.ToneMap switch
     {
         ToneMapOperator.Reinhard => "Reinhard",
@@ -3910,6 +4478,16 @@ internal static class Program
         shader.SetInt("uParallaxMode", _parallaxMode);
         shader.SetInt("uParallaxMinSteps", _parallaxMinSteps);
         shader.SetInt("uParallaxMaxSteps", _parallaxMaxSteps);
+
+        // **物理デモはさらに優先する**(Day 43)。今日の主役なので、
+        // 出ている間はこれだけを描く。ほかのデモは
+        // <see cref="ShowPhysicsDemo"/> が全部下ろしているが、
+        // あとから Ctrl+Shift+F1 でデモ v1 を出されると重なるので、ここでも守る。
+        if (_physicsDemo)
+        {
+            RenderPhysics();
+            return;
+        }
 
         // **デモ v1 はいちばん優先する**(Day 39)。
         // 他のデモと重ねる意味が無いので、読み込んである間はこれだけを描く。
@@ -10896,6 +11474,28 @@ internal static class Program
         return Vector2.Lerp(previous, current, alpha);
     }
 
+    /// <summary>3D 版(Day 43)。剛体の位置を描画のタイミングへ運ぶ。</summary>
+    private static Vector3 Interpolate(Vector3 previous, Vector3 current)
+    {
+        float alpha = _interpolate ? (float)_loop.Alpha : 1.0f;
+        return Vector3.Lerp(previous, current, alpha);
+    }
+
+    /// <summary>
+    /// 向きの補間(Day 43)。**Lerp ではなく Slerp**。
+    ///
+    /// クォータニオンを成分ごとに直線で混ぜると、回る速さが一定にならない。
+    /// 1ステップぶん(60Hz なら 16ms)の差なので実害は小さいが、
+    /// 角速度が大きいとき——キックした直後の球——にははっきり出る。
+    /// Day 42 の要点2で「3本以上なら nlerp」と書いたのとは逆で、
+    /// <b>2つだけなら slerp を使わない理由が無い</b>。
+    /// </summary>
+    private static Quaternion Interpolate(Quaternion previous, Quaternion current)
+    {
+        float alpha = _interpolate ? (float)_loop.Alpha : 1.0f;
+        return Quaternion.Slerp(previous, current, alpha);
+    }
+
     /// <summary>
     /// 1枚積む。**アトラスを使うかどうかの分岐はここだけ**。
     /// バッチから見れば <see cref="AtlasRegion"/> か <see cref="Texture"/> かの違いしかなく、
@@ -10979,7 +11579,170 @@ internal static class Program
 
         switch (key)
         {
-            // --- 今日のスイッチ(カメラワークと機能トグル)---
+            // --- 今日のスイッチ(剛体力学の基礎)---
+            //
+            // **Ctrl+Shift+Alt + ファンクションキー**。段はこれで7つ目になる
+            // (Ctrl+F / Shift+F / Ctrl+Shift+F / Ctrl+Alt+F / Alt+F / Shift+Alt+F /
+            //  Ctrl+Shift+Alt+F)。修飾キー3つの組み合わせはこれ1つしか残っていないので、
+            // **次の日からは別の当て方を考える**ことになる(数字キーの段も同様に埋まりつつある)。
+            //
+            // <b>この塊はいちばん上に置くこと</b>。下にある
+            // `case Key.F1 when ctrl && alt:`(Day 40)も
+            // `case Key.F1 when ctrl && shift:`(Day 39)も
+            // **Ctrl+Shift+Alt+F1 で成立してしまう**ので、
+            // 1つでも上に来ていると今日のキーが1つも届かない。
+            // Day 39 から毎日書いている話がここで最大になる——
+            // **ガード付き case は「具体的なものほど上」**が唯一の守り方。
+            //
+            // <b>Ctrl+Shift+Alt+F4 は Alt+F4 ではない</b>ので窓は閉じない(Day 40 と同じ)。
+            case Key.F1 when ctrl && shift && alt:
+                // **今日の到達点**。球を落として、跳ねさせて、積む。
+                // もう一度押すと消える。**消して出し直せば作り直し**になる。
+                if (_physicsDemo)
+                {
+                    _physicsDemo = false;
+                    Physics.Clear();
+                    BodyColors.Clear();
+                    _orbit.Reset();
+                    Console.WriteLine("物理デモ: OFF");
+                }
+                else
+                {
+                    ShowPhysicsDemo(_physicsScene);
+                    Console.WriteLine(
+                        $"物理デモ: {PhysicsSceneLabel()}({Physics.Bodies.Count} 体)。"
+                        + "**Ctrl+Shift+Alt+F4 で筋書きを切り替え**");
+                    Console.WriteLine(
+                        "  F2:積分法  F3:反発係数  F5:反復回数  F6:位置補正  "
+                        + "F7:球を追加  F8:撃つ  F9:内訳  F10:停止  F11:コマ送り");
+                }
+
+                break;
+
+            case Key.F2 when ctrl && shift && alt:
+                // **今日いちばん深い比較**。2行の順番を入れ替えるだけで、
+                // エネルギーが増える積分器と、増えない積分器が入れ替わる。
+                Physics.Integrator = Physics.Integrator == IntegratorMode.SemiImplicit
+                    ? IntegratorMode.Explicit
+                    : IntegratorMode.SemiImplicit;
+
+                Console.WriteLine(
+                    Physics.Integrator == IntegratorMode.SemiImplicit
+                        ? "積分: セミインプリシット(速度 → 位置。**ゲームの標準**)"
+                        : "積分: **陽的オイラー**(位置 → 速度。エネルギーが増え続ける)");
+                if (Physics.Integrator == IntegratorMode.Explicit)
+                {
+                    // **60Hz だと差が小さい**。増える量は 1ステップあたり g²dt²/2 なので、
+                    // dt を大きくすると2乗で効いてくる。数字キーの 3(20Hz)や 4(5Hz)で
+                    // シミュレーションレートを落とすと、跳ねるたびに高くなるのが一目で分かる。
+                    Console.WriteLine(
+                        "  **数字キーの 3(20Hz)や 4(5Hz)を押す**と一目で分かる"
+                        + "(増える量は dt の2乗に比例)");
+                }
+
+                break;
+
+            case Key.F3 when ctrl && shift && alt:
+                {
+                    _restitutionIndex = (_restitutionIndex + 1) % RestitutionSteps.Length;
+                    float restitution = RestitutionSteps[_restitutionIndex];
+
+                    // **今ある球にも反映する**。作り直さないと効かないのでは、
+                    // 「同じ場面で e だけを変える」比較ができない。
+                    foreach (RigidBody body in Physics.Bodies)
+                    {
+                        body.Restitution = restitution;
+                    }
+
+                    Console.WriteLine(
+                        $"反発係数: {restitution:F2}"
+                        + (restitution <= 0.0f ? "(**跳ねない**。当たったら止まる)" : string.Empty)
+                        + (restitution >= 0.9f ? "(**ほぼ完全弾性**。なかなか止まらない)" : string.Empty)
+                        + "  ※落下デモの5段の振り分けも、ここで上書きされる");
+                }
+
+                break;
+
+            case Key.F4 when ctrl && shift && alt:
+                {
+                    PhysicsScene next = _physicsScene switch
+                    {
+                        PhysicsScene.Drop => PhysicsScene.Stack,
+                        PhysicsScene.Stack => PhysicsScene.Cradle,
+                        _ => PhysicsScene.Drop,
+                    };
+
+                    ShowPhysicsDemo(next);
+                    Console.WriteLine(_physicsScene switch
+                    {
+                        PhysicsScene.Stack =>
+                            "筋書き: **積み上げ**(縦に6個。反復回数を 1 にすると沈む)",
+                        PhysicsScene.Cradle =>
+                            "筋書き: **撞き玉**(左から撞く。運動量が伝わっていく)",
+                        _ =>
+                            "筋書き: **落下**(反発係数 0 / 0.25 / 0.5 / 0.75 / 0.95 の5球)",
+                    });
+                }
+
+                break;
+
+            case Key.F5 when ctrl && shift && alt:
+                _iterationIndex = (_iterationIndex + 1) % IterationSteps.Length;
+                Physics.VelocityIterations = IterationSteps[_iterationIndex];
+                Console.WriteLine(
+                    $"速度の反復: {Physics.VelocityIterations} 周"
+                    + (Physics.VelocityIterations == 1
+                        ? "(**素朴版**。積み上げが持たない)"
+                        : string.Empty)
+                    + "  ※積み上げの筋書きでいちばん効く");
+                break;
+
+            case Key.F6 when ctrl && shift && alt:
+                Physics.PositionCorrection = !Physics.PositionCorrection;
+                Console.WriteLine(
+                    Physics.PositionCorrection
+                        ? $"位置補正: ON(率 {Physics.CorrectionRate:F2} / 許容 {Physics.Slop * 100.0f:F1}cm)"
+                        : "位置補正: **OFF**(速度は直るが、めり込みは戻らない。HUD の「めり込み」を見る)");
+                break;
+
+            case Key.F7 when ctrl && shift && alt:
+                SpawnBall();
+                break;
+
+            case Key.F8 when ctrl && shift && alt:
+                // **押すたびに交互**にする。中心と、中心を外した場合を
+                // 続けて撃つと、同じ大きさの撃力でも回るかどうかが変わるのが見える。
+                KickBodies(_kickOffCenter);
+                _kickOffCenter = !_kickOffCenter;
+                break;
+
+            case Key.F9 when ctrl && shift && alt:
+                DescribePhysics();
+                break;
+
+            case Key.F10 when ctrl && shift && alt:
+                _physicsPaused = !_physicsPaused;
+                _physicsStepsRequested = 0;
+                Console.WriteLine(
+                    _physicsPaused
+                        ? "物理: 一時停止(**カメラは動かせる**。Ctrl+Shift+Alt+F11 でコマ送り)"
+                        : "物理: 再開");
+                break;
+
+            case Key.F11 when ctrl && shift && alt:
+                // 止まっていなければ、まず止めてから1歩進める。
+                _physicsPaused = true;
+                _physicsStepsRequested++;
+                Console.WriteLine(
+                    $"物理: コマ送り {_physicsStepsRequested} ステップ待ち"
+                    + $"(1ステップ = {_loop.FixedDeltaTime * 1000.0:F1}ms)");
+                break;
+
+            case Key.F12 when ctrl && shift && alt:
+                RunRigidBodyCheck();
+                break;
+
+            // --- Day 40 のスイッチ(カメラワークと機能トグル)---
             //
             // **Ctrl+Alt + ファンクションキー**。Ctrl+F(Day 37)、Shift+F(Day 38)、
             // Ctrl+Shift+F(Day 39)が埋まったので、残りはここしかない。
@@ -13728,6 +14491,624 @@ internal static class Program
             int at = (int)index;
             return (uint)at < (uint)joints.Length ? joints[at] : Matrix4x4.Identity;
         }
+    }
+
+    /// <summary>
+    /// 今日の自己チェック(Ctrl+Shift+Alt+F12)。
+    ///
+    /// 物理は**間違っていてもそれらしく動く**のが厄介なところで、
+    /// 積分の順番が逆でも、慣性テンソルが定数でも、
+    /// 反発係数を反復回数ぶん重ね掛けしていても、球は落ちて跳ねる。
+    /// 「なんとなく動いている」と「合っている」を分けられるのは数字だけなので、
+    /// <b>保存量(運動量・エネルギー)と解析解</b>で押さえる。
+    ///
+    /// <para>
+    /// <see cref="PhysicsWorld"/> も <see cref="RigidBody"/> も GL を知らないので、
+    /// **窓を1枚も出さずに全項目が走る**。
+    /// Day 26 の衝突判定、Day 42 のブレンドと同じ性格の層になっている。
+    /// </para>
+    /// </summary>
+    private static void RunRigidBodyCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 43: 剛体力学の自己チェック ---");
+        var checks = new CheckList();
+
+        const float dt = 1.0f / 60.0f;
+        const float g = 9.81f;
+
+        // ============================================================
+        //  1. 積分(要点1)
+        // ============================================================
+
+        // 自由落下を1秒。**床も他の体も無い世界**で、解析解と突き合わせる。
+        static (float Velocity, float Drop) FreeFall(IntegratorMode mode, float dt, int steps)
+        {
+            var world = new PhysicsWorld { Integrator = mode };
+            RigidBody body = RigidBody.CreateSphere(1.0f, 0.5f);
+            world.AddBody(body);
+
+            for (int i = 0; i < steps; i++)
+            {
+                world.Step(dt);
+            }
+
+            return (body.LinearVelocity.Y, -body.Position.Y);
+        }
+
+        (float semiVelocity, float semiDrop) = FreeFall(IntegratorMode.SemiImplicit, dt, 60);
+        (float eulerVelocity, float eulerDrop) = FreeFall(IntegratorMode.Explicit, dt, 60);
+
+        // 速度はどちらも同じ。**g を 60 回足しているだけ**なので誤差が入りようが無い。
+        checks.Check(
+            "1秒後の落下速度が -9.81m/s(積分法によらない)",
+            MathF.Abs(semiVelocity + g) < 1e-3f && MathF.Abs(eulerVelocity + g) < 1e-3f,
+            $"セミ {semiVelocity:F4} / 陽的 {eulerVelocity:F4}");
+
+        // 解析解は 1/2 g t² = 4.905m。
+        float exactDrop = 0.5f * g * 1.0f;
+
+        checks.Check(
+            "セミインプリシットは**行き過ぎる**(解析解より深く落ちる)",
+            semiDrop > exactDrop,
+            $"{semiDrop:F4}m > {exactDrop:F4}m");
+        checks.Check(
+            "陽的オイラーは**足りない**(解析解より浅い)",
+            eulerDrop < exactDrop,
+            $"{eulerDrop:F4}m < {exactDrop:F4}m");
+
+        // **2つの平均がぴったり解析解になる**。
+        // 誤差はどちらも ±g·dt·t/2 で、符号だけが逆(要点1)。
+        checks.Check(
+            "2つの平均が解析解と一致(誤差の符号が逆で大きさが同じ)",
+            MathF.Abs(((semiDrop + eulerDrop) * 0.5f) - exactDrop) < 1e-4f,
+            $"平均 {(semiDrop + eulerDrop) * 0.5f:F6} / 解析 {exactDrop:F6}");
+
+        // dt を半分にすると誤差も半分。**1次の積分器**であることの確認。
+        (_, float halfDrop) = FreeFall(IntegratorMode.SemiImplicit, dt * 0.5f, 120);
+        float errorFull = semiDrop - exactDrop;
+        float errorHalf = halfDrop - exactDrop;
+
+        checks.Check(
+            "dt を半分にすると誤差も半分(1次精度)",
+            MathF.Abs((errorFull / errorHalf) - 2.0f) < 0.05f,
+            $"{errorFull * 1000.0f:F2}mm → {errorHalf * 1000.0f:F2}mm(比 {errorFull / errorHalf:F3})");
+
+        // --- ばね。**振動する系でこそ差が出る**(要点1)---
+        //
+        // 自由落下は「行き過ぎる/足りない」が1回ぶんだが、
+        // 振動子では毎周期ぶん積み上がる。
+        // セミインプリシットのエネルギーは**上下に揺れるが、いつまでも同じ幅に収まる**——
+        // これが「シンプレクティック(あるエネルギーに似た量を保存する)」の意味で、
+        // <b>誤差が無い</b>のではなく<b>誤差が溜まらない</b>のが値打ち。
+        static float PeakEnergy(IntegratorMode mode, int steps)
+        {
+            const float stiffness = 100.0f;   // ω = 10 rad/s
+            const float step = 1.0f / 60.0f;
+
+            RigidBody body = RigidBody.CreateSphere(1.0f, 0.5f);
+            body.Position = new Vector3(1.0f, 0.0f, 0.0f);
+
+            float peak = 0.0f;
+
+            for (int i = 0; i < steps; i++)
+            {
+                body.ClearAccumulators();
+                body.ApplyForce(new Vector3(-stiffness * body.Position.X, 0.0f, 0.0f));
+
+                if (mode == IntegratorMode.SemiImplicit)
+                {
+                    body.IntegrateVelocity(step, Vector3.Zero);
+                    body.IntegratePosition(step);
+                }
+                else
+                {
+                    body.IntegratePosition(step);
+                    body.IntegrateVelocity(step, Vector3.Zero);
+                }
+
+                float energy = (0.5f * body.LinearVelocity.LengthSquared())
+                    + (0.5f * stiffness * body.Position.X * body.Position.X);
+
+                peak = MathF.Max(peak, energy);
+            }
+
+            return peak;
+        }
+
+        // 初期状態は x = 1m、静止。E = 1/2 k x² = 50J。
+        const float springStart = 50.0f;
+
+        float peakShort = PeakEnergy(IntegratorMode.SemiImplicit, 600);      // 10 秒
+        float peakLong = PeakEnergy(IntegratorMode.SemiImplicit, 6000);      // 100 秒
+        float peakEuler = PeakEnergy(IntegratorMode.Explicit, 600);
+
+        checks.Check(
+            "ばね: セミインプリシットのエネルギーの上限は**時間が経っても同じ**",
+            MathF.Abs(peakLong - peakShort) < springStart * 0.01f,
+            $"10秒 {peakShort:F2}J / 100秒 {peakLong:F2}J(初期 {springStart:F2}J)");
+        checks.Check(
+            "その上限も初期値の数%以内(**誤差が溜まらない**)",
+            peakLong < springStart * 1.10f,
+            $"{peakLong / springStart:F4} 倍");
+        checks.Check(
+            "ばね10秒: **陽的オイラーは発散する**(1000 倍以上)",
+            peakEuler > springStart * 1000.0f,
+            $"{springStart:F2}J → {peakEuler:E2}J({peakEuler / springStart:E2} 倍)");
+
+        // --- 描画のための1ステップ前(Day 19 の補間)---
+        var interpolationWorld = new PhysicsWorld();
+        RigidBody tracked = RigidBody.CreateSphere(1.0f, 0.5f);
+        interpolationWorld.AddBody(tracked);
+        interpolationWorld.Step(dt);
+        Vector3 afterOne = tracked.Position;
+        interpolationWorld.Step(dt);
+
+        checks.Check(
+            "1ステップ前の位置を控えている(描画の補間用)",
+            (tracked.PreviousPosition - afterOne).Length() < 1e-6f,
+            $"控え {tracked.PreviousPosition.Y:F5} / 実測 {afterOne.Y:F5}");
+
+        // ============================================================
+        //  2. 力とトルク(要点2)
+        // ============================================================
+
+        RigidBody lever = RigidBody.CreateSphere(1.0f, 0.5f);
+        lever.ApplyForce(new Vector3(0.0f, 10.0f, 0.0f));
+
+        checks.Check(
+            "重心に掛けた力はトルクを生まない",
+            lever.Torque.Length() < 1e-6f,
+            $"|τ| = {lever.Torque.Length():E2}");
+
+        lever.ClearAccumulators();
+        lever.ApplyForceAtPoint(new Vector3(0.0f, 1.0f, 0.0f), lever.Position + Vector3.UnitX);
+
+        checks.Check(
+            "中心を外すとトルクが立つ(τ = r × F)",
+            (lever.Torque - Vector3.UnitZ).Length() < 1e-6f,
+            $"τ = ({lever.Torque.X:F3}, {lever.Torque.Y:F3}, {lever.Torque.Z:F3})");
+
+        // 力が重心を向いていれば(r と F が平行)トルクは 0。
+        lever.ClearAccumulators();
+        lever.ApplyForceAtPoint(new Vector3(2.0f, 0.0f, 0.0f), lever.Position + Vector3.UnitX);
+
+        checks.Check(
+            "力が重心を向いていればトルクは 0(r と F が平行)",
+            lever.Torque.Length() < 1e-6f,
+            $"|τ| = {lever.Torque.Length():E2}");
+
+        // 同じ力を掛けたとき、質量が2倍なら加速度は半分。
+        static float SpeedAfterPush(float mass, float seconds)
+        {
+            var world = new PhysicsWorld { Gravity = Vector3.Zero };
+            RigidBody body = RigidBody.CreateSphere(mass, 0.5f);
+            world.AddBody(body);
+
+            int steps = (int)MathF.Round(seconds * 60.0f);
+            for (int i = 0; i < steps; i++)
+            {
+                body.ApplyForce(new Vector3(10.0f, 0.0f, 0.0f));
+                world.Step(1.0f / 60.0f);
+            }
+
+            return body.LinearVelocity.X;
+        }
+
+        float lightSpeed = SpeedAfterPush(1.0f, 1.0f);
+        float heavySpeed = SpeedAfterPush(2.0f, 1.0f);
+
+        checks.Check(
+            "同じ力なら、質量2倍で速度は半分(a = F/m)",
+            MathF.Abs((lightSpeed / heavySpeed) - 2.0f) < 1e-3f,
+            $"{lightSpeed:F3} / {heavySpeed:F3} = {lightSpeed / heavySpeed:F4}");
+
+        // 中身の詰まった球の慣性モーメントは 2/5 m r²。
+        RigidBody ball = RigidBody.CreateSphere(2.0f, 0.5f);
+        float expectedInertia = 0.4f * 2.0f * 0.5f * 0.5f;
+
+        checks.Check(
+            "球の慣性モーメントが 2/5 m r²",
+            MathF.Abs((1.0f / ball.InverseInertiaLocal.X) - expectedInertia) < 1e-5f,
+            $"I = {1.0f / ball.InverseInertiaLocal.X:F4}(期待 {expectedInertia:F4})");
+
+        // **球は等方**なので、回しても世界の慣性テンソルが変わらない(要点4)。
+        ball.Orientation = Quaternion.CreateFromYawPitchRoll(0.7f, -1.1f, 2.3f);
+        ball.UpdateInertiaWorld();
+
+        Vector3 spun = Vector3.Transform(Vector3.UnitX, ball.InverseInertiaWorld);
+        checks.Check(
+            "球は回しても慣性テンソルが変わらない(**等方**)",
+            MathF.Abs(spun.X - ball.InverseInertiaLocal.X) < 1e-4f
+                && MathF.Abs(spun.Y) < 1e-4f && MathF.Abs(spun.Z) < 1e-4f,
+            $"({spun.X:F4}, {spun.Y:F4}, {spun.Z:F4})");
+
+        // **対角が違えば回すと変わる**。Day 44 の箱の予告。
+        RigidBody boxLike = RigidBody.CreateSphere(1.0f, 0.5f);
+        boxLike.InverseInertiaLocal = new Vector3(1.0f, 2.0f, 3.0f);
+        boxLike.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI * 0.5f);
+        boxLike.UpdateInertiaWorld();
+
+        Vector3 tilted = Vector3.Transform(Vector3.UnitX, boxLike.InverseInertiaWorld);
+        checks.Check(
+            "対角が違う体は、90度回すと x と y の回りやすさが入れ替わる",
+            MathF.Abs(tilted.X - 2.0f) < 1e-4f && MathF.Abs(tilted.Y) < 1e-4f,
+            $"({tilted.X:F4}, {tilted.Y:F4}, {tilted.Z:F4})");
+
+        // ============================================================
+        //  3. クォータニオンの積分(要点5)
+        // ============================================================
+
+        RigidBody spinner = RigidBody.CreateSphere(1.0f, 0.5f);
+        spinner.AngularVelocity = new Vector3(0.0f, 2.0f, 0.0f);
+
+        for (int i = 0; i < 240; i++)
+        {
+            spinner.IntegratePosition(1.0f / 240.0f);
+        }
+
+        float turned = 2.0f * MathF.Acos(Math.Clamp(MathF.Abs(spinner.Orientation.W), -1.0f, 1.0f));
+
+        checks.Check(
+            "角速度 2rad/s で1秒回すと 2rad(q += ½ωq dt)",
+            MathF.Abs(turned - 2.0f) < 1e-3f,
+            $"{turned:F5} rad");
+        checks.Check(
+            "回したあとも単位クォータニオンのまま(**毎回正規化している**)",
+            MathF.Abs(spinner.Orientation.Length() - 1.0f) < 1e-5f,
+            $"|q| = {spinner.Orientation.Length():F7}");
+
+        // ============================================================
+        //  4. 衝突判定
+        // ============================================================
+
+        Contact3D apart = Collision3D.SphereSphere(
+            new Sphere3D(Vector3.Zero, 1.0f), new Sphere3D(new Vector3(3.0f, 0.0f, 0.0f), 1.0f));
+        checks.Check("離れた球は当たらない", !apart.Hit);
+
+        Contact3D overlap = Collision3D.SphereSphere(
+            new Sphere3D(Vector3.Zero, 1.0f), new Sphere3D(new Vector3(1.5f, 0.0f, 0.0f), 1.0f));
+        checks.Check(
+            "めり込み量が半径の和 - 中心距離",
+            overlap.Hit && MathF.Abs(overlap.Depth - 0.5f) < 1e-5f,
+            $"{overlap.Depth:F5}");
+        checks.Check(
+            "法線は**A を B から引き離す向き**",
+            (overlap.Normal - new Vector3(-1.0f, 0.0f, 0.0f)).Length() < 1e-5f,
+            $"({overlap.Normal.X:F2}, {overlap.Normal.Y:F2}, {overlap.Normal.Z:F2})");
+        checks.Check(
+            "接触点はめり込んだ領域の真ん中",
+            MathF.Abs(overlap.Point.X - 0.75f) < 1e-5f,
+            $"x = {overlap.Point.X:F5}");
+
+        Contact3D concentric = Collision3D.SphereSphere(
+            new Sphere3D(Vector3.Zero, 1.0f), new Sphere3D(Vector3.Zero, 1.0f));
+        checks.Check(
+            "中心が一致しても NaN を返さない(**上へ逃がす**)",
+            concentric.Hit && float.IsFinite(concentric.Normal.X)
+                && (concentric.Normal - Vector3.UnitY).Length() < 1e-5f,
+            $"({concentric.Normal.X:F2}, {concentric.Normal.Y:F2}, {concentric.Normal.Z:F2})");
+
+        var floor = Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY);
+        Contact3D onFloor = Collision3D.SpherePlane(new Sphere3D(new Vector3(0.0f, 0.3f, 0.0f), 1.0f), floor);
+        checks.Check(
+            "球と平面: めり込みは 半径 - 符号付き距離",
+            onFloor.Hit && MathF.Abs(onFloor.Depth - 0.7f) < 1e-5f
+                && MathF.Abs(onFloor.Point.Y) < 1e-5f,
+            $"深さ {onFloor.Depth:F5} 接触点 y = {onFloor.Point.Y:F5}");
+
+        Contact3D belowFloor = Collision3D.SpherePlane(new Sphere3D(new Vector3(0.0f, -0.2f, 0.0f), 1.0f), floor);
+        checks.Check(
+            "裏側へ抜けた球も**抜けたぶんだけ深く**なる(押し戻せる)",
+            belowFloor.Hit && MathF.Abs(belowFloor.Depth - 1.2f) < 1e-5f,
+            $"{belowFloor.Depth:F5}");
+
+        // ============================================================
+        //  5. インパルスによる解決(要点6・要点7)
+        // ============================================================
+
+        // 正面衝突の実験台。**重力も床も無い**ので、外力は接触だけになる。
+        static (RigidBody A, RigidBody B, PhysicsWorld World) HeadOn(
+            float massA, float massB, float speedA, float speedB, float restitution)
+        {
+            var world = new PhysicsWorld { Gravity = Vector3.Zero, VelocityIterations = 4 };
+
+            RigidBody a = RigidBody.CreateSphere(massA, 1.05f);
+            a.Position = new Vector3(-1.0f, 0.0f, 0.0f);
+            a.LinearVelocity = new Vector3(speedA, 0.0f, 0.0f);
+            a.Restitution = restitution;
+
+            RigidBody b = RigidBody.CreateSphere(massB, 1.05f);
+            b.Position = new Vector3(1.0f, 0.0f, 0.0f);
+            b.LinearVelocity = new Vector3(speedB, 0.0f, 0.0f);
+            b.Restitution = restitution;
+
+            world.AddBody(a);
+            world.AddBody(b);
+            world.Step(1.0f / 600.0f);
+
+            return (a, b, world);
+        }
+
+        (RigidBody elasticA, RigidBody elasticB, PhysicsWorld elasticWorld) =
+            HeadOn(1.0f, 1.0f, 2.0f, -2.0f, 1.0f);
+
+        checks.Check(
+            "等質量・e=1 の正面衝突で速度が入れ替わる",
+            MathF.Abs(elasticA.LinearVelocity.X + 2.0f) < 1e-3f
+                && MathF.Abs(elasticB.LinearVelocity.X - 2.0f) < 1e-3f,
+            $"{elasticA.LinearVelocity.X:F4} / {elasticB.LinearVelocity.X:F4}");
+
+        checks.Check(
+            "e=1 なら運動エネルギーが保存する",
+            MathF.Abs(elasticWorld.TotalKineticEnergy - 4.0f) < 1e-2f,
+            $"{elasticWorld.TotalKineticEnergy:F4}J(前 4.0000J)");
+
+        checks.Check(
+            "**球どうしの衝突では回らない**(法線が中心を通る)",
+            elasticA.AngularVelocity.Length() < 1e-6f && elasticB.AngularVelocity.Length() < 1e-6f,
+            $"|ω| = {elasticA.AngularVelocity.Length():E2}");
+
+        (RigidBody stickA, RigidBody stickB, _) = HeadOn(1.0f, 1.0f, 2.0f, -2.0f, 0.0f);
+        checks.Check(
+            "e=0 なら相対速度が 0 になる(一体化)",
+            MathF.Abs(stickA.LinearVelocity.X - stickB.LinearVelocity.X) < 1e-3f,
+            $"相対 {stickA.LinearVelocity.X - stickB.LinearVelocity.X:E2}");
+
+        (_, _, PhysicsWorld momentumWorld) = HeadOn(1.0f, 3.0f, 4.0f, -1.0f, 0.5f);
+        checks.Check(
+            "質量が違っても運動量は保存する(前 1.0 kg·m/s)",
+            MathF.Abs(momentumWorld.TotalMomentum.X - 1.0f) < 1e-3f,
+            $"{momentumWorld.TotalMomentum.X:F5} kg·m/s");
+
+        (RigidBody pebble, RigidBody boulder, _) = HeadOn(1.0f, 1000.0f, 5.0f, 0.0f, 1.0f);
+        checks.Check(
+            "1000 倍重い相手にぶつかると、ほぼそのまま跳ね返る",
+            pebble.LinearVelocity.X < -4.9f && MathF.Abs(boulder.LinearVelocity.X) < 0.02f,
+            $"軽 {pebble.LinearVelocity.X:F3} / 重 {boulder.LinearVelocity.X:F4}");
+
+        // **反復回数を増やしても跳ね返りが重ね掛けされない**(要点7)。
+        // 跳ね返り目標を接触を作るときに1回だけ決めているかの確認。
+        static float BounceSpeed(int iterations)
+        {
+            var world = new PhysicsWorld { Gravity = Vector3.Zero, VelocityIterations = iterations };
+            world.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+            RigidBody body = RigidBody.CreateSphere(1.0f, 0.5f);
+            body.Position = new Vector3(0.0f, 0.45f, 0.0f);
+            body.LinearVelocity = new Vector3(0.0f, -4.0f, 0.0f);
+            body.Restitution = 0.5f;
+            world.AddBody(body);
+            world.Step(1.0f / 600.0f);
+
+            return body.LinearVelocity.Y;
+        }
+
+        float bounce1 = BounceSpeed(1);
+        float bounce8 = BounceSpeed(8);
+
+        checks.Check(
+            "反復を8周にしても跳ね返りが増えない(**目標を1回だけ決めている**)",
+            MathF.Abs(bounce1 - bounce8) < 1e-3f && MathF.Abs(bounce8 - 2.0f) < 1e-2f,
+            $"1周 {bounce1:F4} / 8周 {bounce8:F4}(期待 2.0000 = 0.5 × 4.0)");
+
+        // 撃力を中心を外して掛けると角速度が立つ(要点2)。
+        RigidBody kicked = RigidBody.CreateSphere(1.0f, 0.5f);
+        kicked.ApplyImpulseAtPoint(new Vector3(0.0f, 1.0f, 0.0f), kicked.Position + new Vector3(0.5f, 0.0f, 0.0f));
+
+        // I = 2/5 · 1 · 0.25 = 0.1、r × J = (0,0,0.5) なので ω = 0.5 / 0.1 = 5。
+        checks.Check(
+            "中心を外した撃力で角速度が立つ(Δω = I⁻¹ (r × J))",
+            MathF.Abs(kicked.AngularVelocity.Z - 5.0f) < 1e-4f
+                && MathF.Abs(kicked.LinearVelocity.Y - 1.0f) < 1e-5f,
+            $"ω = {kicked.AngularVelocity.Z:F4} rad/s、v = {kicked.LinearVelocity.Y:F4} m/s");
+
+        RigidBody centered = RigidBody.CreateSphere(1.0f, 0.5f);
+        centered.ApplyImpulseAtPoint(new Vector3(0.0f, 1.0f, 0.0f), centered.Position);
+        checks.Check(
+            "中心に掛ければ回らない(**同じ撃力でも場所で結果が変わる**)",
+            centered.AngularVelocity.Length() < 1e-9f,
+            $"|ω| = {centered.AngularVelocity.Length():E2}");
+
+        // 減衰は**毎秒の割合**なので、シミュレーションレートを変えても結果が同じ。
+        // `v *= 0.99f` のようにステップ単位で書くと、ここが 60Hz と 240Hz でずれる。
+        static (float Linear, float Angular) Damped(float hertz)
+        {
+            var world = new PhysicsWorld { Gravity = Vector3.Zero };
+
+            RigidBody body = RigidBody.CreateSphere(1.0f, 0.5f);
+            body.LinearVelocity = new Vector3(10.0f, 0.0f, 0.0f);
+            body.AngularVelocity = new Vector3(0.0f, 4.0f, 0.0f);
+            body.LinearDamping = 0.5f;
+            body.AngularDamping = 0.5f;
+            world.AddBody(body);
+
+            for (int i = 0; i < (int)hertz; i++)
+            {
+                world.Step(1.0f / hertz);
+            }
+
+            return (body.LinearVelocity.X, body.AngularVelocity.Y);
+        }
+
+        (float slowLinear, float slowAngular) = Damped(60.0f);
+        (float fastLinear, float fastAngular) = Damped(240.0f);
+
+        checks.Check(
+            "減衰 0.5/秒 を1秒で、速度がちょうど半分になる",
+            MathF.Abs(slowLinear - 5.0f) < 1e-3f && MathF.Abs(slowAngular - 2.0f) < 1e-3f,
+            $"v {slowLinear:F4} m/s、ω {slowAngular:F4} rad/s");
+        checks.Check(
+            "**シミュレーションレートを変えても同じ**(毎秒の割合で書いている)",
+            MathF.Abs(slowLinear - fastLinear) < 1e-3f
+                && MathF.Abs(slowAngular - fastAngular) < 1e-3f,
+            $"60Hz {slowLinear:F5} / 240Hz {fastLinear:F5}");
+
+        // ============================================================
+        //  6. 位置の補正(要点8)
+        // ============================================================
+
+        static float PenetrationAfter(bool correction, int steps)
+        {
+            var world = new PhysicsWorld
+            {
+                Gravity = Vector3.Zero,
+                PositionCorrection = correction,
+            };
+
+            RigidBody a = RigidBody.CreateSphere(1.0f, 1.0f);
+            a.Position = new Vector3(-0.7f, 0.0f, 0.0f);
+            RigidBody b = RigidBody.CreateSphere(1.0f, 1.0f);
+            b.Position = new Vector3(0.7f, 0.0f, 0.0f);
+
+            world.AddBody(a);
+            world.AddBody(b);
+
+            for (int i = 0; i < steps; i++)
+            {
+                world.Step(1.0f / 60.0f);
+            }
+
+            return world.MaxPenetration;
+        }
+
+        float corrected = PenetrationAfter(correction: true, 60);
+        float uncorrected = PenetrationAfter(correction: false, 60);
+
+        checks.Check(
+            "めり込んだ2球は押し戻されて、許容量(5mm)近くまで戻る",
+            corrected < 0.01f,
+            $"{corrected * 1000.0f:F2}mm");
+        checks.Check(
+            "位置補正を切ると**めり込んだまま**",
+            uncorrected > 0.5f,
+            $"{uncorrected * 1000.0f:F1}mm(初期 600mm)");
+
+        // ============================================================
+        //  7. 積み上げ(要点8)
+        // ============================================================
+
+        static (float Penetration, float Height) Stack(int iterations, int steps)
+        {
+            const float radius = 0.45f;
+
+            var world = new PhysicsWorld { VelocityIterations = iterations };
+            world.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+            for (int i = 0; i < 4; i++)
+            {
+                RigidBody body = RigidBody.CreateSphere(1.0f, radius);
+                body.Position = new Vector3(0.0f, radius + (i * radius * 2.0f), 0.0f);
+                body.Restitution = 0.0f;
+                world.AddBody(body);
+            }
+
+            for (int i = 0; i < steps; i++)
+            {
+                world.Step(1.0f / 60.0f);
+            }
+
+            return (world.MaxPenetration, world.Bodies[^1].Position.Y);
+        }
+
+        (float deep1, float top1) = Stack(1, 300);
+        (float deep8, float top8) = Stack(8, 300);
+
+        // 理想の高さは 0.45 + 3 × 0.9 = 3.15m(許容めり込みぶんだけ下がる)。
+        checks.Check(
+            "反復1周だと柱が沈む(**素朴版の限界**)",
+            deep1 > deep8 * 3.0f,
+            $"めり込み {deep1 * 1000.0f:F1}mm(高さ {top1:F3}m)");
+        checks.Check(
+            "反復8周なら持つ(めり込みが許容量の数倍以内)",
+            deep8 < 0.02f && top8 > 3.10f,
+            $"めり込み {deep8 * 1000.0f:F1}mm(高さ {top8:F3}m / 理想 3.150m)");
+
+        // ============================================================
+        //  8. 落として跳ねる(全部を通す)
+        // ============================================================
+
+        var dropWorld = new PhysicsWorld();
+        dropWorld.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+        RigidBody bouncer = RigidBody.CreateSphere(1.0f, 0.5f);
+        bouncer.Position = new Vector3(0.0f, 3.0f, 0.0f);
+        bouncer.Restitution = 0.5f;
+        dropWorld.AddBody(bouncer);
+
+        var peaks = new List<float>();
+        float previousVelocity = 0.0f;
+
+        for (int i = 0; i < 600; i++)
+        {
+            dropWorld.Step(dt);
+
+            // 上がりから下がりへ転じた瞬間が頂点。
+            if (previousVelocity > 0.0f && bouncer.LinearVelocity.Y <= 0.0f)
+            {
+                peaks.Add(bouncer.Position.Y - 0.5f);
+            }
+
+            previousVelocity = bouncer.LinearVelocity.Y;
+        }
+
+        bool descending = peaks.Count >= 3;
+        for (int i = 1; i < peaks.Count && descending; i++)
+        {
+            descending = peaks[i] < peaks[i - 1];
+        }
+
+        checks.Check(
+            "跳ね返るたびに頂点が低くなる(e < 1)",
+            descending,
+            peaks.Count > 0
+                ? string.Join(" → ", peaks.Take(4).Select(h => $"{h:F3}m"))
+                : "頂点が見つからない");
+
+        // e² = 0.25 倍が理屈のうえでの比。離散化とめり込みでずれる。
+        checks.Check(
+            "1回目の頂点が、落とした高さの e² 倍前後(0.25)",
+            peaks.Count > 0 && peaks[0] > 3.0f * 0.15f && peaks[0] < 3.0f * 0.35f,
+            peaks.Count > 0 ? $"{peaks[0]:F3}m / 3.000m = {peaks[0] / 3.0f:F3}" : "-");
+
+        checks.Check(
+            "10秒後には落ち着いている(**跳ね返りのしきい値が効いている**)",
+            dropWorld.TotalKineticEnergy < 0.2f,
+            $"{dropWorld.TotalKineticEnergy:F4}J");
+
+        checks.Check(
+            "落ち着いた球の高さが半径ぶん(床にちょうど乗っている)",
+            MathF.Abs(bouncer.Position.Y - 0.5f) < 0.01f,
+            $"{bouncer.Position.Y:F4}m(期待 0.5000m)");
+
+        // 自由落下のエネルギードリフト。**符号が逆で、大きさが同じ**。
+        static float EnergyDrift(IntegratorMode mode, int steps)
+        {
+            var world = new PhysicsWorld { Integrator = mode };
+            RigidBody body = RigidBody.CreateSphere(1.0f, 0.5f);
+            world.AddBody(body);
+
+            float start = 0.0f;
+            for (int i = 0; i < steps; i++)
+            {
+                world.Step(1.0f / 60.0f);
+            }
+
+            float end = (0.5f * body.LinearVelocity.LengthSquared()) + (9.81f * body.Position.Y);
+            return end - start;
+        }
+
+        float driftSemi = EnergyDrift(IntegratorMode.SemiImplicit, 60);
+        float driftEuler = EnergyDrift(IntegratorMode.Explicit, 60);
+
+        checks.Check(
+            "1秒の自由落下: セミは**減り**、陽的は**増える**。大きさは同じ",
+            driftSemi < 0.0f && driftEuler > 0.0f
+                && MathF.Abs(driftSemi + driftEuler) < 1e-3f,
+            $"セミ {driftSemi:F4}J / 陽的 {driftEuler:+0.0000;-0.0000}J");
+
+        checks.Report("すべて合格(球は落ち、跳ね、積める)");
+        Console.WriteLine();
     }
 
     /// <summary>
