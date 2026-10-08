@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 08 テクスチャマッピング(ニアレスト→バイリニア)</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. テクスチャは「UV で読む画像」</a></li><li class="l3"><a href="#s5">2. 透視補正補間 — Day 4 からずっと間違っていたもの</a></li><li class="l3"><a href="#s6">3. ニアレストとバイリニア</a></li><li class="l3"><a href="#s7">4. 範囲外のUVをどう扱うか(ラップモード)</a></li><li class="l3"><a href="#s8">5. 実測 — 正しさはタダ、品質は高い</a></li><li class="l3"><a href="#s9">6. 縮小方向の問題(今日は解決しない)</a></li><li class="l3"><a href="#s10">7. 大きな三角形は、カメラの後ろに回ると丸ごと消える</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 補正とフィルタの効果を数字で見る</a></li><li class="l3"><a href="#s16">課題2(中): ラップモードを増やす</a></li><li class="l3"><a href="#s17">課題3(難): ミップマップを実装する</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 08 / 計画書</p>
+  <h1>テクスチャマッピング(ニアレスト→バイリニア)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. テクスチャは「UV で読む画像」</a></li><li class="l3"><a href="#s5">2. 透視補正補間 — Day 4 からずっと間違っていたもの</a></li><li class="l3"><a href="#s6">3. ニアレストとバイリニア</a></li><li class="l3"><a href="#s7">4. 範囲外のUVをどう扱うか(ラップモード)</a></li><li class="l3"><a href="#s8">5. 実測 — 正しさはタダ、品質は高い</a></li><li class="l3"><a href="#s9">6. 縮小方向の問題(今日は解決しない)</a></li><li class="l3"><a href="#s10">7. 大きな三角形は、カメラの後ろに回ると丸ごと消える</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 補正とフィルタの効果を数字で見る</a></li><li class="l3"><a href="#s16">課題2(中): ラップモードを増やす</a></li><li class="l3"><a href="#s17">課題3(難): ミップマップを実装する</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「テクスチャマッピング(ニアレスト→バイリニア)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>立方体と床に画像が貼られる。しかも<strong>遠近感に沿って正しく歪む</strong>。</p>
+<p>今日は2つの山がある。テクスチャを引くこと自体は簡単だが、<strong>Day 4 からずっと間違っていた属性補間</strong>(Day 7 の要点3で予告したもの)がテクスチャを貼った瞬間に目に見えるようになる。その修正が今日の本題。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-9 テクスチャマッピング(1) 座標生成とサンプリング</a> —<strong>今日の必読</strong>。UV座標とサンプリングの理論。資料PDFのファイル番号は1つずれる(B-9の資料は ggnote08)点に注意</li><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/perspective-correct-interpolation-vertex-attributes.html">Scratchapixel: Perspective-Correct Interpolation</a> —透視補正補間の導出。今日の要点2の数学的な裏付け</li><li>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch2</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. テクスチャは「UV で読む画像」</h3>
+<p>テクスチャの実体は <code>Framebuffer</code> と同じ「int の1次元配列 + 幅と高さ」。違うのは<strong>読み方</strong>だけで、整数のピクセル座標ではなく 0.0〜1.0 の実数座標(UV)で読む。</p>
+<p>UV が 0〜1 に正規化されているのは、<strong>テクスチャの解像度と切り離すため</strong>。モデル側は「この頂点は画像の右上」とだけ言えばよく、その画像が 64x64 でも 4096x4096 でも同じデータが使える。解像度を差し替えられる(LOD、モバイル向けの縮小版)のはこの設計のおかげ。</p>
+<p>そしてUVは<strong>モデルの形とは独立</strong>に決められる。同じ立方体でも、6面に同じ絵を貼ることも、1枚の絵を切り分けて貼ることもできる。この割り当てを決める作業がUV展開で、モデラーが手間をかけている部分でもある。</p>
+<p>実装としては、Day 4 で作った属性補間の仕組みに <code>Vec2 TexCoord</code> を1つ足しただけ。<strong>補間のコードは1行増えただけ</strong>で済んでいる。Day 4 の要点1で書いた「属性が増えても式の形は変わらない」がそのとおりになった。</p>
+<h3 id="s5">2. 透視補正補間 — Day 4 からずっと間違っていたもの</h3>
+<p><strong>画面上で属性を素直に線形補間するのは、3Dでは間違い。</strong></p>
+<p>理由は Day 7 の要点3の裏返し。透視除算のあと、画面上で線形に変化するのはZ だけで、色やUVは線形に変化しない。遠近感によって「画面上で等間隔でも、実空間では等間隔でない」ためで、奥に行くほど1ピクセルが担当する実距離が伸びていく。</p>
+<p>正しい補間はこうなる。</p>
+<div class="code"><pre><code>補間したい属性を A、クリップ座標の W とすると
+  (A/W) を画面上で線形補間したもの ÷ (1/W) を画面上で線形補間したもの = 正しい A</code></pre></div>
+<p>つまり <strong>A/W と 1/W なら画面上で線形に変化する</strong>ので、その2つを補間してから割る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 三角形ごとに1回: 属性を W で割っておく
+Vec2 uv0 = v0.TexCoord * v0.InvW;  // 以下 v1, v2 も
+
+// ピクセルごと: 補間して、補間した 1/W で割り戻す
+float interpolatedInvW = iw0 * l0 + iw1 * l1 + iw2 * l2;
+float w = 1.0f / interpolatedInvW;
+Vec2 uv = (uv0 * l0 + uv1 * l1 + uv2 * l2) * w;</code></pre></div>
+<p><strong>P キーで補正を切ると、床のタイルが三角形の対角線を境にぐにゃりと折れ曲がる。</strong>初代プレイステーションのテクスチャが揺れて見えたのはまさにこれで、当時のハードにはピクセルごとに除算器を回す余裕がなかった。</p>
+<p>なぜ今まで見えなかったのか: Day 6〜7 は面が単色だったので、補間が間違っていても結果が同じだった。色を頂点ごとに変えていればDay 6 の時点で(よく見れば)歪んでいたことになる。</p>
+<div class="inject"><figure class="lab" id="pc-lab">
+  <div class="lab-head">
+    <h3>透視補正を比べる — 床の正方形1枚(要点2、P キー)</h3>
+    <span class="tag">reference の Rasterizer.FillTriangle(属性と 1/W を補間してから割り戻す透視補正)を JS に移し(docs/site/rasterizer.js)、UV を 0〜4 にした正方形1枚(三角形2枚)を同じカメラで2回描いたもの。左が補正あり、右が補正なし(画面上で UV を単純補間)。赤い線が三角形の境目の対角線。カメラの傾きはこのページの切り替え</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="pc-grid">
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">透視補正 ON(reference)</div><canvas id="pc-on" style="width:100%;aspect-ratio:4/3;height:auto" aria-label="遠近に沿って正しく縮む市松の床"></canvas></div>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">透視補正 OFF</div><canvas id="pc-off" style="width:100%;aspect-ratio:4/3;height:auto" aria-label="対角線で折れ曲がる市松の床"></canvas></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">カメラの高さ(低いほど床が斜めに見える)</span>
+      <input type="range" id="pc-h" min="3" max="40" value="10" style="width:100%">
+    </div>
+  </div>
+</figure></div>
+<h3 id="s6">3. ニアレストとバイリニア</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>方式</th><th>読むテクセル数</th><th>拡大したとき</th></tr></thead>
+<tbody>
+<tr><td>ニアレスト</td><td>1</td><td>ブロック状(ドット絵の拡大)</td></tr>
+<tr><td>バイリニア</td><td>4</td><td>なめらか(ぼやける)</td></tr>
+</tbody>
+</table></div>
+<p>バイリニアは周囲4テクセルを距離で重み付けして混ぜる。混ぜ方は Day 4 の線形補間を横方向に2回、縦方向に1回やるだけ。「バイ(2つの)リニア(線形)」という名前どおり。</p>
+<p><strong>実装の要点は -0.5 のずらし</strong>。テクセルの色が定義されている場所はテクセルの左上の角ではなく<strong>中心</strong>なので、テクセル座標に直したあと 0.5 引く。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float x = u * Width - 0.5f;   // この -0.5 を忘れると絵が半テクセルずれる</code></pre></div>
+<p>拡大率が大きいほどずれが目立つので、忘れるとすぐ分かる……はずだが、「なんとなくぼやけている」だけに見えて見逃しやすい罠でもある。</p>
+<div class="inject"><figure class="lab" id="bl-lab">
+  <div class="lab-head">
+    <h3>テクセルを拡大して読む — ニアレストとバイリニア(要点3・4)</h3>
+    <span class="tag">reference の Texture.cs(SampleNearest、SampleBilinear の -0.5 と 4 テクセルの重み、WrapIndex のリピート)と CreateTestPattern(32x32、8 マスの市松)を JS に移したもの。左はテクスチャの一部を UV で −0.25〜0.75 の範囲だけ大きく描いたもので、黒い格子がテクセルの境目、小さな点がテクセルの中心。白い十字(ドラッグできる)が読む点で、バイリニアなら囲む 4 テクセルとその重みを出す。右は同じ範囲を各フィルタで拡大表示したもの。「-0.5 を忘れる」はこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="bl-grid">
+      <canvas id="bl-texels" style="width:100%;aspect-ratio:1;height:auto;touch-action:none" aria-label="拡大したテクセルと読む点"></canvas>
+      <canvas id="bl-view" style="width:100%;aspect-ratio:1;height:auto" aria-label="同じ範囲をフィルタで拡大したもの"></canvas>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">フィルタ(F)と -0.5(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="bl-filter"><button data-v="bilinear" aria-pressed="true">バイリニア</button><button data-v="nearest" aria-pressed="false">ニアレスト</button></div><div class="seg" id="bl-half"><button data-v="1" aria-pressed="true">-0.5 する(reference)</button><button data-v="0" aria-pressed="false">忘れる</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bl-stats"></div></div>
+</figure></div>
+<h3 id="s7">4. 範囲外のUVをどう扱うか(ラップモード)</h3>
+<p>床は UV を 0〜4 にしてテクスチャを4回繰り返している。1 を超えたUVをどう扱うかは選べて、本Dayは<strong>リピート</strong>(折り返し)を実装した。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private static int WrapIndex(int value, int size) =&gt; ((value % size) + size) % size;</code></pre></div>
+<p><code>%</code> を2回使っているのは、C# の <code>%</code> が負の数に対して負を返すため。UV が 0 未満のとき、素直に書くと配列外アクセスになる。</p>
+<p>他にクランプ(端の色を引き伸ばす)、ミラー(鏡像で折り返す)があり、実機ではテクスチャごとに設定できる。地面のタイルはリピート、空のパノラマはクランプ、といった使い分けをする。</p>
+<h3 id="s8">5. 実測 — 正しさはタダ、品質は高い</h3>
+<p>1フレームを設定違いで測った実測(Release / 38枚 / 640x480):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>1フレーム</th></tr></thead>
+<tbody>
+<tr><td>ニアレスト / 透視補正OFF</td><td>7.23 ms</td></tr>
+<tr><td>ニアレスト / 透視補正<strong>ON</strong></td><td><strong>7.23 ms</strong></td></tr>
+<tr><td>バイリニア / 透視補正OFF</td><td>9.57 ms</td></tr>
+<tr><td>バイリニア / 透視補正ON</td><td>9.63 ms</td></tr>
+</tbody>
+</table></div>
+<p>読み取れることが2つある。</p>
+<p><strong>透視補正のコストは実質ゼロ。</strong> ピクセルごとに除算1回と乗算数回が増えるはずなのに、測定できるほどの差が出ていない。他の処理(特にテクスチャの読み込み)がメモリ待ちで詰まっている間に、ついでに終わってしまうため。<strong>PS1 が透視補正を諦めた理由は「当時のハードには除算器が無かった」からで、現代のCPUでは絵が正しくなる代わりに払うものが何も無い。</strong></p>
+<p><strong>バイリニアは 33% 高い</strong>(7.23 → 9.63 ms)。テクセルを1個ではなく4個読むためで、純粋にメモリアクセスが4倍になる。Day 2 から繰り返し出ている「支配的なコストはメモリ」というテーマがここでも出てくる。</p>
+<h3 id="s9">6. 縮小方向の問題(今日は解決しない)</h3>
+<p>床の奥のほうを見ると、タイルがちらついたりモアレ模様が出たりする。1ピクセルが何テクセルもの範囲を覆っているのに、そのうち1点(または4点)しか読んでいないので、<strong>本来平均すべき情報を取りこぼしている</strong>ため。</p>
+<p>これは拡大(マグニフィケーション)ではなく<strong>縮小(ミニフィケーション)</strong>の問題で、フィルタを変えても直らない。正しい解決策は<strong>ミップマップ</strong>——あらかじめ縮小した画像を何段階か用意しておき、そのピクセルが覆う範囲に合った解像度から読む方法。</p>
+<p>本ロードマップでは Phase 3 以降(GPU に移ってから)扱う。ソフトウェアでも実装できるが、「そのピクセルがテクスチャ上でどれだけの範囲を覆っているか」の計算(UVの微分)が必要で、Day 8 の分量を超えるため。</p>
+<h3 id="s10">7. 大きな三角形は、カメラの後ろに回ると丸ごと消える</h3>
+<p>本Dayの床は一辺 6.4 の正方形1枚(三角形2枚)にしてある。もっと大きくしたいところだが、大きくすると<strong>カメラが回ったときに床が丸ごと消える</strong>。</p>
+<p>Day 6 の要点5のとおり、今の実装は「頂点が1つでもカメラの後ろにある三角形」をまるごと捨てている。床は大きな三角形2枚なので、隅がカメラの後ろに回った瞬間に床全体が消えてしまう。</p>
+<p>制作中に実際にこれを踏んで、床が完全に見えなくなった。カメラの周回半径(6.5)を床の対角の長さ(4.5)より大きく取ることで回避している。<strong>Day 10 のクリッピングを入れるとこの制約から解放される。</strong></p>
+<div class="inject"><figure class="lab" id="sc8-lab">
+  <div class="lab-head">
+    <h3>テクスチャを貼ったシーン — 床と立方体(要点2・5・6、P・F・D・W キー)</h3>
+    <span class="tag">reference の GameWindow.cs(Render、DrawFloor の UV 0〜4、DrawTexturedCube、ShadeTextured)と Texture.CreateTestPattern(32, 8)を JS に移して 640x480 に描いたもの(docs/site/rasterizer.js)。1 フレーム 38 枚。render はこのページの値(本文の表は reference の実測)。床の奥のちらつきは縮小の問題(要点6)</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="sc8-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="sc8-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="市松とオレンジの円のテクスチャを貼った床と立方体"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">透視補正(P)とフィルタ(F)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc8-pc"><button data-v="1" aria-pressed="true">透視補正 ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="sc8-filter"><button data-v="bilinear" aria-pressed="true">バイリニア</button><button data-v="nearest" aria-pressed="false">ニアレスト</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">深度表示(D)、ワイヤー(W)、動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc8-depth"><button data-v="0" aria-pressed="true">色</button><button data-v="1" aria-pressed="false">深度</button></div><div class="seg" id="sc8-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤー</button></div><div class="seg" id="sc8-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sc8-stats"></div></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Texture.cs</code></td><td><strong>新規(約170行)</strong></td><td>UVで読む画像。ニアレスト / バイリニア / リピート / テストパターン生成</td></tr>
+<tr><td><code>Vertex.cs</code></td><td>+2フィールド</td><td><code>TexCoord</code>(UV)と <code>InvW</code>(透視補正用)</td></tr>
+<tr><td><code>Rasterizer.cs</code></td><td>+61 / -13行</td><td>透視補正補間、<code>PerspectiveCorrect</code> フラグ、<code>PixelShader</code> にUVを追加</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え</td><td>テクスチャ付きの床と立方体。F / P キー</td></tr>
+</tbody>
+</table></div>
+<p><code>Vertex.InvW</code> は<strong>投影を通した後だけ意味を持つ</strong>フィールド。モデル座標の頂点を作る時点では値が入っておらず、<code>DrawTriangle</code> が投影の途中で埋める。きれいな設計ではないが、頂点の型を2つに分けるほどの複雑さでもないので同居させている。</p>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>Texture.cs</code> — 独立していて読みやすい。<strong><code>SampleBilinear</code> の -0.5</strong> が要点</li><li><code>Vertex.cs</code> — フィールドを2つ足すだけ</li><li><code>Rasterizer.cs</code> — <strong>今日の本体</strong>。透視補正の3行(前計算 → 補間 → 割り戻し)。まず <code>PerspectiveCorrect = false</code> 相当(単純補間)で動かしてから補正を足すと、違いが体験できてよい</li><li><code>GameWindow.cs</code> — 床と立方体にUVを付ける</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day07/Rasterizer.cs reference/Day08/Rasterizer.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day08 -c Release</code></pre></div>
+<ol><li><strong>市松模様とオレンジの円</strong>が描かれたテクスチャが、床と立方体に貼られている</li><li>床のタイルが<strong>奥へ行くほど小さく</strong>なり、遠近感に沿って正しく縮んでいる</li><li>立方体が回転し、6面すべてにテクスチャが貼られている</li><li><strong>P</strong> キーで透視補正を切ると、<strong>床のタイルが三角形の対角線で折れ曲がる</strong>。正方形だったタイルがひし形に歪む。もう一度押すと直る</li><li><strong>F</strong> キーでニアレストに切り替わると、立方体の模様が<strong>ブロック状</strong>になる。特に円の縁が階段状になる</li><li><strong>D</strong> キーで深度表示、<strong>W</strong> キーでワイヤーフレーム</li><li>タイトルバーが <code>58.x fps | 38 tri | render 10.x ms | バイリニア | 透視補正:ON</code> のように</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>テクスチャが真っ黒 / 単色</strong> → UV が頂点に設定されていない、またはシェーダに渡す引数の順序が違う</li><li><strong>床のタイルが対角線で折れる(Pキーを押していないのに)</strong> → 透視補正が効いていない。<code>InvW</code> が投影時に埋められているか確認する</li><li><strong>絵が少しぼやけて半テクセルずれる</strong> → <code>SampleBilinear</code> の -0.5。要点3</li><li><strong>UV が 1 を超えると落ちる / 変な色になる</strong> → <code>WrapIndex</code> の負数対応。要点4</li><li><strong>床が消える</strong> → カメラが床の外側を回れていない。要点7</li><li><strong>模様が上下反転する</strong> → V の向き。画像の原点を左上とするか左下とするかの流儀の違い(OpenGL は左下、DirectX は左上。本リポジトリは左上)</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>P</code></td><td>「テクスチャを貼ったシーン」の「透視補正 OFF」、「透視補正を比べる」の右</td><td>床のタイルが対角線で折れ、正方形がひし形に歪む</td></tr>
+<tr><td><code>F</code></td><td>同じ実験台の「ニアレスト」、「テクセルを拡大して読む」の切り替え</td><td>円の縁が階段状になる。バイリニアは 4 テクセルを重みで混ぜる</td></tr>
+<tr><td><code>D</code> / <code>W</code></td><td>同じ実験台の「深度」「ワイヤー」</td><td>Day 7 と同じ</td></tr>
+<tr><td>(キーなし)</td><td>「テクセルを拡大して読む」の「忘れる」</td><td>テクセルの中心が u = i/W で読まれるので、模様全体が左上へ半テクセルずれる</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day08 の Texture.cs、Vertex.cs(TexCoord と InvW)、Rasterizer.cs(透視補正)、GameWindow.cs(シーン)を JS に移したもの(docs/site/rasterizer.js)。計算は double(深度だけ float)。render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 補正とフィルタの効果を数字で見る</h3>
+<ol><li><code>P</code> と <code>F</code> を切り替えながら render 時間を記録し、要点5の表を再現する</li><li><strong>透視補正のコストがほぼゼロ</strong>であることを確認する。なぜそうなるのか説明できるか</li><li>テクスチャの解像度を 32 → 512 に変える(<code>Texture.CreateTestPattern(512, 128)</code>)。バイリニアのコストはどう変わるか。<strong>遅くなるはず</strong>だが、その理由は計算量ではない(ヒント: 512x512x4バイト = 1MB は L2 キャッシュに乗るか?)</li></ol>
+<h3 id="s16">課題2(中): ラップモードを増やす</h3>
+<p><code>Texture</code> に折り返し方の選択肢を足す。</p>
+<ol><li><strong>クランプ</strong>: 0未満は0に、1以上は1に切り詰める。床の端がどうなるか</li><li><strong>ミラー</strong>: 1を超えたら鏡像で折り返す。市松模様のつなぎ目がどう変わるか</li><li>床の UV を 0〜4 ではなく <strong>0.25〜0.75</strong>(テクスチャの中央だけを引き伸ばす)にするとどう見えるか</li></ol>
+<p>さらに、<strong>バイリニアとリピートの相性問題</strong>にも触れておくとよい。テクスチャの右端のテクセルは、リピートなら左端と混ぜるべきだが、クランプなら右端の色をそのまま使うべき。<code>SampleBilinear</code> の中で <code>WrapIndex</code> を使っているのはリピート前提の実装になっている。</p>
+<h3 id="s17">課題3(難): ミップマップを実装する</h3>
+<p>要点6の縮小方向の問題に取り組む。</p>
+<ol><li>テクスチャを半分ずつ縮小した画像を、1x1 になるまで作る(ミップチェーン)</li><li>そのピクセルがテクスチャ上でどれだけの範囲を覆うかを求める。隣のピクセルとのUVの差(<strong>UVの微分</strong>)から計算できる。ラスタライザの走査ループで、x方向に1つ進んだときのUVの変化を出せばよい</li><li>覆う範囲の大きさから適切なミップレベルを選び、そこから読む</li><li>さらに、<strong>隣り合う2つのミップレベルを混ぜる</strong>(トライリニア)と段差が消える</li></ol>
+<p>床の奥のちらつきが消えることを確認する。GPUがミップマップを標準機能として持っているのは、この計算(特に2)をピクセルシェーダの外で自動的にやってくれるからで、自分で書いてみるとその親切さが分かる。</p>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 58〜60 fps、render 約10 ms(38枚 / バイリニア + 透視補正ON)</li><li>オフスクリーン計測: ニアレスト 7.23 ms、バイリニア 9.63 ms、透視補正の差は測定限界以下</li></ul>
+</section>
+<footer class="end">Day 08 テクスチャマッピング(ニアレスト→バイリニア) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const R = Raster, M = R.Mat4;
+const TEX = R.Texture.createTestPattern(32, 8);
+// ShadeTextured: テクスチャの色 × 頂点の色。vary = [r, g, b, u, v]
+const shadeTex = (tex) => (a) => { const t = tex.sample(a[3], a[4]); return R.rgbF(t[0] * a[0], t[1] * a[1], t[2] * a[2]); };
+const V = (pos, color, uv) => ({ pos, vary: [...color, ...uv] });
+
+// ------------------------------------------------------------
+// 1. 透視補正を比べる
+// ------------------------------------------------------------
+const PW = 320, PH = 240;
+const pcTex = R.Texture.createTestPattern(32, 8);
+function pcDraw() {
+  const h = Number($('pc-h').value) / 10;
+  const cam = R.camera({ position: [0, h, 4.2], target: [0, 0, -0.6], aspect: PW / PH });
+  const vp = R.viewProjection(cam), s = 3.2;
+  const lt = V([-s, 0, -s], [1, 1, 1], [0, 0]), rt = V([s, 0, -s], [1, 1, 1], [4, 0]), rb = V([s, 0, s], [1, 1, 1], [4, 4]), lb = V([-s, 0, s], [1, 1, 1], [0, 4]);
+  for (const [id, pc] of [['pc-on', true], ['pc-off', false]]) {
+    const fb = new R.Framebuffer(PW, PH), ras = new R.Rasterizer8(fb);
+    fb.clear(R.rgb(12, 14, 22)); ras.perspectiveCorrect = pc;
+    ras.drawTriangle(lt, rt, rb, vp, shadeTex(pcTex));
+    ras.drawTriangle(lt, rb, lb, vp, shadeTex(pcTex));
+    // 対角線(三角形の境目)
+    const a = R.projectToScreen(lt.pos, vp, PW, PH), b = R.projectToScreen(rb.pos, vp, PW, PH);
+    if (a && b) fb.drawLine(Math.round(a[0]), Math.round(a[1]), Math.round(b[0]), Math.round(b[1]), R.rgb(255, 60, 60));
+    const c = document.createElement('canvas'); c.width = PW; c.height = PH; fb.toCanvas(c);
+    const { ctx, w, h: hh } = fit($(id)); ctx.imageSmoothingEnabled = false; ctx.drawImage(c, 0, 0, w, hh);
+  }
+}
+$('pc-h').addEventListener('input', pcDraw);
+
+// ------------------------------------------------------------
+// 2. テクセルを拡大して読む
+// ------------------------------------------------------------
+const U0 = -0.25, U1 = 0.75;   // 表示する UV の範囲(リピートで 0 の外も読む)
+const bl = { p: [0.07, 0.11] };
+function sample(u, v) {
+  const f = segValue('bl-filter'), half = segValue('bl-half') === '1';
+  if (f === 'nearest') return { c: TEX.sampleNearest(u, v) };
+  // SampleBilinear(-0.5 を忘れる版はこのページだけ)
+  const W = TEX.width, x = u * W - (half ? 0.5 : 0), y = v * W - (half ? 0.5 : 0), x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+  const wrap = (q) => ((q % W) + W) % W, at = (i, j) => R.unpack3(TEX.texels[wrap(j) * W + wrap(i)]);
+  const c00 = at(x0, y0), c10 = at(x0 + 1, y0), c01 = at(x0, y0 + 1), c11 = at(x0 + 1, y0 + 1);
+  const c = [0, 1, 2].map((k) => { const t = c00[k] + (c10[k] - c00[k]) * fx, b = c01[k] + (c11[k] - c01[k]) * fx; return t + (b - t) * fy; });
+  return { c, x0, y0, fx, fy };
+}
+function blDraw() {
+  const W = TEX.width, span = (U1 - U0) * W;   // 表示するテクセルの数(1 辺)
+  { // 左: テクセルをそのまま大きく
+    const { ctx, w, h } = fit($('bl-texels')), k = w / span;
+    bl.k = k;
+    for (let j = 0; j < span; j++) for (let i = 0; i < span; i++) {
+      const tx = Math.floor(U0 * W) + i, ty = Math.floor(U0 * W) + j, c = R.unpack3(TEX.texels[(((ty % W) + W) % W) * W + (((tx % W) + W) % W)]);
+      ctx.fillStyle = `rgb(${c.map((v) => Math.round(v * 255)).join(',')})`; ctx.fillRect(i * k, j * k, k + 0.5, k + 0.5);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.strokeRect(i * k, j * k, k, k);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect((i + 0.5) * k - 1, (j + 0.5) * k - 1, 2, 2);
+    }
+    // UV = 0 の線(ここから先はリピートで折り返した部分)
+    ctx.strokeStyle = tok('--warn'); ctx.setLineDash([4, 3]); const z = (0 - U0) * W * k;
+    ctx.beginPath(); ctx.moveTo(z, 0); ctx.lineTo(z, h); ctx.moveTo(0, z); ctx.lineTo(w, z); ctx.stroke(); ctx.setLineDash([]);
+    const P = (u, v) => [(u - U0) * W * k, (v - U0) * W * k];
+    const s = sample(bl.p[0], bl.p[1]);
+    if (s.x0 !== undefined) { // 囲む 4 テクセルの中心と重み
+      const pts = [[s.x0, s.y0, (1 - s.fx) * (1 - s.fy)], [s.x0 + 1, s.y0, s.fx * (1 - s.fy)], [s.x0, s.y0 + 1, (1 - s.fx) * s.fy], [s.x0 + 1, s.y0 + 1, s.fx * s.fy]];
+      const half = segValue('bl-half') === '1' ? 0.5 : 0;
+      ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 2;
+      for (const [i, j, wt] of pts) { const [x, y] = P((i + half) / W, (j + half) / W); ctx.beginPath(); ctx.arc(x, y, 4 + wt * 10, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.lineWidth = 1;
+    }
+    const [x, y] = P(bl.p[0], bl.p[1]);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y); ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke(); ctx.lineWidth = 1;
+    const col = s.c.map((v) => Math.round(v * 255));
+    $('bl-stats').innerHTML = stat('UV', `(${bl.p.map((v) => v.toFixed(3)).join(', ')})`) + stat('読んだ色', `(${col.join(', ')})`)
+      + (s.x0 !== undefined ? stat('4 テクセルの重み', [(1 - s.fx) * (1 - s.fy), s.fx * (1 - s.fy), (1 - s.fx) * s.fy, s.fx * s.fy].map((v) => v.toFixed(2)).join(' / ')) : stat('読んだテクセル', `(${Math.floor(bl.p[0] * W)}, ${Math.floor(bl.p[1] * W)})`));
+  }
+  { // 右: 同じ範囲をフィルタで拡大
+    const N = 160, img = new ImageData(N, N);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const c = sample(U0 + ((i + 0.5) / N) * (U1 - U0), U0 + ((j + 0.5) / N) * (U1 - U0)).c, o = (j * N + i) * 4;
+      img.data[o] = c[0] * 255; img.data[o + 1] = c[1] * 255; img.data[o + 2] = c[2] * 255; img.data[o + 3] = 255;
+    }
+    const c = document.createElement('canvas'); c.width = N; c.height = N; c.getContext('2d').putImageData(img, 0, 0);
+    const { ctx, w, h } = fit($('bl-view')); ctx.imageSmoothingEnabled = false; ctx.drawImage(c, 0, 0, w, h);
+  }
+}
+['bl-filter', 'bl-half'].forEach((id) => seg(id, blDraw));
+{
+  const cv = $('bl-texels'); let down = false;
+  const pick = (e) => { const r = cv.getBoundingClientRect(), W = TEX.width; bl.p = [U0 + (e.clientX - r.left) / bl.k / W, U0 + (e.clientY - r.top) / bl.k / W]; blDraw(); };
+  cv.addEventListener('pointerdown', (e) => { down = true; cv.setPointerCapture(e.pointerId); pick(e); });
+  cv.addEventListener('pointermove', (e) => { if (down) pick(e); });
+  cv.addEventListener('pointerup', () => { down = false; });
+}
+
+// ------------------------------------------------------------
+// 3. テクスチャを貼ったシーン
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer8(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const sc = { t: 0, ms: 0, fps: 0, n: 0, acc: 0 };
+const hue3 = (h) => R.unpack3(R.hueColor(h));
+const CORNERS = Array.from({ length: 8 }, (_, i) => [i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1]);
+const FACES = [[0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6], [0, 1, 3, 2], [4, 6, 7, 5]];
+const SHADE = [0.72, 0.86, 0.60, 1.0, 0.78, 0.92];
+function render(t) {
+  ras.stats = { tested: 0, filled: 0, triangles: 0, rejected: 0 };
+  ras.perspectiveCorrect = segValue('sc8-pc') === '1'; TEX.filter = segValue('sc8-filter');
+  fb.clear(R.rgb(12, 14, 22)); ras.depthBuffer.clear();
+  const orbit = t * 0.2, cam = R.camera({ position: [Math.sin(orbit) * 6.5, 2.6, Math.cos(orbit) * 6.5], target: [0, 0.3, 0], aspect: W / H });
+  const vp = R.viewProjection(cam), wire = segValue('sc8-wire') === '1', shade = shadeTex(TEX);
+  const tri = (a, b, c, mvp) => {
+    ras.drawTriangle(a, b, c, mvp, shade);
+    if (wire) { const s = [a, b, c].map((v) => R.projectToScreen(v.pos, mvp, W, H)); if (s.every(Boolean)) ras.drawTriangleWireframe(s[0], s[1], s[2], R.rgb(255, 60, 60)); }
+  };
+  { // 床(一辺 6.4、UV を 4 回繰り返す)
+    const s = 3.2, r = 4, one = [1, 1, 1];
+    const lt = V([-s, 0, -s], one, [0, 0]), rt = V([s, 0, -s], one, [r, 0]), rb = V([s, 0, s], one, [r, r]), lb = V([-s, 0, s], one, [0, r]);
+    tri(lt, rt, rb, vp); tri(lt, rb, lb, vp);
+  }
+  const cube = (mvp, tint) => FACES.forEach((q, f) => {
+    const c = tint.map((v) => v * SHADE[f]);
+    const v = [V(CORNERS[q[0]], c, [0, 0]), V(CORNERS[q[1]], c, [1, 0]), V(CORNERS[q[2]], c, [1, 1]), V(CORNERS[q[3]], c, [0, 1])];
+    tri(v[0], v[1], v[2], mvp); tri(v[0], v[2], v[3], mvp);
+  });
+  cube(M.mul([M.rotationY(t * 0.5), M.rotationX(t * 0.27), M.translation(0, 0.9, 0)].reduce((a, b) => M.mul(a, b)), vp), [1, 1, 1]);
+  for (let i = 0; i < 2; i++) cube(M.mul([M.scale(0.4), M.rotationZ(t * 1.5), M.translation(2.2, 0.6, 0), M.rotationY(t * 0.7 + i * Math.PI)].reduce((a, b) => M.mul(a, b)), vp), hue3(i / 2).map((v) => v * 1.2));
+  if (segValue('sc8-depth') === '1') {
+    const dep = ras.depthBuffer.depth;
+    for (let i = 0; i < dep.length; i++) { const z = dep[i]; if (z >= 1) continue; const d = cam.near / (1 - (z * (cam.far - cam.near)) / cam.far), s = 1 - Math.min(1, Math.max(0, (d - 1.5) / 9.5)); fb.pixels[i] = R.rgbF(s, s, s); }
+  }
+}
+function scDraw() {
+  const t0 = performance.now();
+  render(sc.t);
+  sc.ms = sc.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('sc8-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  const s = ras.stats;
+  $('sc8-title').textContent = `Day08 - テクスチャ  ${sc.fps.toFixed(1)} fps | ${s.triangles} tri | render ${sc.ms.toFixed(2)} ms | ${TEX.filter === 'bilinear' ? 'バイリニア' : 'ニアレスト'} | 透視補正:${ras.perspectiveCorrect ? 'ON' : 'OFF'} | P:透視補正 F:フィルタ D:深度 W:ワイヤー Esc:終了`;
+  $('sc8-stats').innerHTML = stat('三角形', s.triangles) + stat('塗った画素', s.filled.toLocaleString()) + stat('render(このページ)', `${sc.ms.toFixed(2)} ms`);
+}
+['sc8-pc', 'sc8-filter', 'sc8-depth', 'sc8-wire', 'sc8-play'].forEach((id) => seg(id, scDraw));
+animate($('sc8-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('sc8-play') === '1') sc.t += dt;
+  sc.n++; sc.acc += dt; if (sc.acc >= 0.5) { sc.fps = sc.n / sc.acc; sc.n = 0; sc.acc = 0; }
+  scDraw();
+});
+function narrow() { for (const id of ['pc-grid', 'bl-grid']) $(id).style.gridTemplateColumns = $(id).clientWidth < 520 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'; }
+window.addEventListener('resize', () => { narrow(); pcDraw(); blDraw(); });
+narrow(); pcDraw(); blDraw(); scDraw();
+})();
+</script>
+</body>
+</html>

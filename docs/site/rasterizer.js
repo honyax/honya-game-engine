@@ -7,6 +7,7 @@
 //  - Day 5: Mat4.cs(行ベクトル規約)と、float の頂点を画素の中心で判定する FillTriangle(バイアスは最小の正の数)
 //  - Day 6: Mat4.LookAt と Perspective、Camera.cs、Rasterizer.TryProjectToScreen
 //  - Day 7: DepthBuffer.cs と、深度テストつきの FillTriangle(色を計算する前に判定する)
+//  - Day 8: Texture.cs(ニアレスト、バイリニア、リピート)と、透視補正つきの FillTriangle(属性は配列で持つ)
 //
 //  - 画素の色は reference と同じ 0xAARRGGBB の整数で持つ。canvas に出すときだけ並べ替える(toCanvas)
 //  - 実験台が数えたいもの(判定した画素・塗った画素)は stats に足していく。reference には無い
@@ -245,11 +246,90 @@ class Rasterizer7 {
   drawTriangleWireframe(a, b, c, color) { Rasterizer5.prototype.drawTriangleWireframe.call(this, a, b, c, color); }
 }
 
+// ---------------- Day 8: Texture と、透視補正つきで属性を補間する Rasterizer ----------------
+const unpack3 = (c) => [((c >>> 16) & 255) / 255, ((c >>> 8) & 255) / 255, (c & 255) / 255];
+const wrapIndex = (v, n) => ((v % n) + n) % n;   // 負の UV でも配列の外に出ない
+class Texture {
+  constructor(width, height) { this.width = width; this.height = height; this.texels = new Uint32Array(width * height); this.filter = 'bilinear'; }
+  sample(u, v) { return this.filter === 'nearest' ? this.sampleNearest(u, v) : this.sampleBilinear(u, v); }
+  sampleNearest(u, v) { const x = wrapIndex(Math.floor(u * this.width), this.width), y = wrapIndex(Math.floor(v * this.height), this.height); return unpack3(this.texels[y * this.width + x]); }
+  // テクセルの色は中心にあるので -0.5 してから、周囲 4 つを混ぜる
+  sampleBilinear(u, v) {
+    const W = this.width, H = this.height, x = u * W - 0.5, y = v * H - 0.5, x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+    const X0 = wrapIndex(x0, W), Y0 = wrapIndex(y0, H), X1 = wrapIndex(x0 + 1, W), Y1 = wrapIndex(y0 + 1, H);
+    const c00 = unpack3(this.texels[Y0 * W + X0]), c10 = unpack3(this.texels[Y0 * W + X1]), c01 = unpack3(this.texels[Y1 * W + X0]), c11 = unpack3(this.texels[Y1 * W + X1]);
+    return [0, 1, 2].map((k) => { const top = c00[k] + (c10[k] - c00[k]) * fx, bot = c01[k] + (c11[k] - c01[k]) * fx; return top + (bot - top) * fy; });
+  }
+  // Texture.CreateTestPattern: 市松 + 中央のオレンジの円 + 縁の水色
+  static createTestPattern(size, cells) {
+    const t = new Texture(size, size), cell = Math.max(Math.trunc(size / cells), 1), c = size / 2, r = size * 0.34;
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const dark = (Math.trunc(x / cell) + Math.trunc(y / cell)) % 2 === 0;
+      let col = dark ? [0.16, 0.20, 0.32] : [0.88, 0.86, 0.78];
+      if (Math.hypot(x + 0.5 - c, y + 0.5 - c) < r) col = dark ? [0.90, 0.45, 0.15] : [0.95, 0.70, 0.30];
+      if (x === 0 || y === 0 || x === size - 1 || y === size - 1) col = [0.10, 0.85, 0.75];
+      t.texels[y * size + x] = rgbF(...col);
+    }
+    return t;
+  }
+}
+// 頂点は { pos: [x, y, z](モデル座標), vary: [...](色や UV など。属性はいくつでもよい) }
+// 透視補正: 属性/W と 1/W は画面上で線形なので、その 2 つを補間してから割り戻す
+class Rasterizer8 {
+  constructor(target) { this.target = target; this.depthBuffer = new DepthBuffer(target.width, target.height); this.depthTest = true; this.perspectiveCorrect = true; this.stats = { tested: 0, filled: 0, triangles: 0, rejected: 0 }; }
+  drawTriangle(v0, v1, v2, mvp, shader) {
+    const t = this.target, s = [v0, v1, v2].map((v) => this.project(v.pos, mvp));
+    if (s.some((p) => !p)) return false;
+    this.fillTriangle({ pos: s[0].screen, invW: s[0].invW, vary: v0.vary }, { pos: s[1].screen, invW: s[1].invW, vary: v1.vary }, { pos: s[2].screen, invW: s[2].invW, vary: v2.vary }, shader);
+    return true;
+  }
+  project(p, mvp) {
+    const t = this.target, c = Mat4.transform([p[0], p[1], p[2], 1], mvp);
+    if (c[3] <= 1e-5) return null;
+    const iw = 1 / c[3];
+    return { screen: [(c[0] * iw * 0.5 + 0.5) * t.width, (0.5 - c[1] * iw * 0.5) * t.height, c[2] * iw], invW: iw, clip: c };
+  }
+  fillTriangle(v0, v1, v2, shader) {
+    this.stats.triangles++;
+    const E = (a, b, px, py) => (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+    const TL = (a, b) => (a[1] === b[1] && b[0] > a[0]) || b[1] < a[1];
+    let area = E(v0.pos, v1.pos, v2.pos[0], v2.pos[1]);
+    if (area === 0) return;
+    if (area < 0) { [v1, v2] = [v2, v1]; area = -area; }
+    const t = this.target, p0 = v0.pos, p1 = v1.pos, p2 = v2.pos;
+    const minX = Math.max(Math.floor(Math.min(p0[0], p1[0], p2[0])), 0), maxX = Math.min(Math.ceil(Math.max(p0[0], p1[0], p2[0])), t.width - 1);
+    const minY = Math.max(Math.floor(Math.min(p0[1], p1[1], p2[1])), 0), maxY = Math.min(Math.ceil(Math.max(p0[1], p1[1], p2[1])), t.height - 1);
+    const B = Number.MIN_VALUE, b0 = TL(p1, p2) ? 0 : -B, b1 = TL(p2, p0) ? 0 : -B, b2 = TL(p0, p1) ? 0 : -B;
+    // 三角形ごとに 1 回: 属性を W で割っておく(補正を切ると W = 1 として単純補間になる)
+    const pc = this.perspectiveCorrect, iw0 = pc ? v0.invW : 1, iw1 = pc ? v1.invW : 1, iw2 = pc ? v2.invW : 1;
+    const n = v0.vary.length, a0 = v0.vary.map((x) => x * iw0), a1 = v1.vary.map((x) => x * iw1), a2 = v2.vary.map((x) => x * iw2);
+    const inv = 1 / area, px = t.pixels, w = t.width, depth = this.depthBuffer.depth, F = Math.fround;
+    const vary = new Array(n);
+    for (let y = minY; y <= maxY; y++) {
+      const py = y + 0.5;
+      for (let x = minX; x <= maxX; x++) {
+        this.stats.tested++;
+        const qx = x + 0.5, w0 = E(p1, p2, qx, py), w1 = E(p2, p0, qx, py), w2 = E(p0, p1, qx, py);
+        if (w0 + b0 < 0 || w1 + b1 < 0 || w2 + b2 < 0) continue;
+        const l0 = w0 * inv, l1 = w1 * inv, l2 = w2 * inv, i = y * w + x;
+        const z = F(F(F(F(p0[2]) * F(l0)) + F(F(p1[2]) * F(l1))) + F(F(p2[2]) * F(l2)));
+        if (this.depthTest) { if (z >= depth[i]) { this.stats.rejected++; continue; } depth[i] = z; }
+        // ピクセルごと: 補間して、補間した 1/W で割り戻す
+        const W1 = 1 / (iw0 * l0 + iw1 * l1 + iw2 * l2);
+        for (let k = 0; k < n; k++) vary[k] = (a0[k] * l0 + a1[k] * l1 + a2[k] * l2) * W1;
+        px[i] = shader(vary, x, y);
+        this.stats.filled++;
+      }
+    }
+  }
+  drawTriangleWireframe(a, b, c, color) { Rasterizer5.prototype.drawTriangleWireframe.call(this, a, b, c, color); }
+}
+
 // GameWindow の HueColor(Day 2〜)
 function hueColor(h01) {
   const h = (h01 - Math.floor(h01)) * 6, s = Math.trunc(h), f = h - s, up = Math.trunc(f * 255), down = Math.trunc((1 - f) * 255);
   return [rgb(255, up, 0), rgb(down, 255, 0), rgb(0, 255, up), rgb(0, down, 255), rgb(up, 0, 255), rgb(255, 0, down)][Math.min(5, s)];
 }
 
-window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7 };
+window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7, unpack3, Texture, Rasterizer8 };
 })();
