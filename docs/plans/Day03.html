@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 03 三角形の塗りつぶし(エッジ関数)</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 三角形だけが特別扱いされる理由</a></li><li class="l3"><a href="#s5">2. エッジ関数 = 2次元の外積。符号で内外、大きさで面積</a></li><li class="l3"><a href="#s6">3. 巻き方向(ワインディング)をそろえる</a></li><li class="l3"><a href="#s7">4. top-left rule — 継ぎ目を二重に塗らないための取り決め</a></li><li class="l3"><a href="#s8">5. バウンディングボックス走査と、その原理的な無駄</a></li><li class="l3"><a href="#s9">6. 面を塗ることは、線を引くこととコストの桁が違う</a></li><li class="l2"><a href="#s10">前Dayからの差分概要</a></li><li class="l3"><a href="#s11">写経する順番</a></li><li class="l2"><a href="#s12">完成条件</a></li><li class="l2"><a href="#s13">改造課題</a></li><li class="l3"><a href="#s14">課題1(易): 三角形の性質を壊してみる</a></li><li class="l3"><a href="#s15">課題2(中): エッジ関数を差分で計算する(インクリメンタル化)</a></li><li class="l3"><a href="#s16">課題3(難): 塗り残しと重なりを自分で検証する</a></li><li class="l2"><a href="#s17">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 03 / 計画書</p>
+  <h1>三角形の塗りつぶし(エッジ関数)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 三角形だけが特別扱いされる理由</a></li><li class="l3"><a href="#s5">2. エッジ関数 = 2次元の外積。符号で内外、大きさで面積</a></li><li class="l3"><a href="#s6">3. 巻き方向(ワインディング)をそろえる</a></li><li class="l3"><a href="#s7">4. top-left rule — 継ぎ目を二重に塗らないための取り決め</a></li><li class="l3"><a href="#s8">5. バウンディングボックス走査と、その原理的な無駄</a></li><li class="l3"><a href="#s9">6. 面を塗ることは、線を引くこととコストの桁が違う</a></li><li class="l2"><a href="#s10">前Dayからの差分概要</a></li><li class="l3"><a href="#s11">写経する順番</a></li><li class="l2"><a href="#s12">完成条件</a></li><li class="l2"><a href="#s13">改造課題</a></li><li class="l3"><a href="#s14">課題1(易): 三角形の性質を壊してみる</a></li><li class="l3"><a href="#s15">課題2(中): エッジ関数を差分で計算する(インクリメンタル化)</a></li><li class="l3"><a href="#s16">課題3(難): 塗り残しと重なりを自分で検証する</a></li><li class="l2"><a href="#s17">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「三角形の塗りつぶし(エッジ関数)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>任意の3点で指定した三角形を塗りつぶせるようにして、隣り合う三角形の継ぎ目が二重に塗られないこと(top-left rule)を目で確かめる。</p>
+<p>線から面に進む日。<strong>三角形はこの先すべての3D描画の唯一の単位</strong>になる。モデルも地形もキャラクターも、最後は全部三角形に分解されてこの関数を通る。だからここで書く数十行は、Day 10 まで(そしてGPUに移った後も概念として)ずっと効き続ける。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-1 レンダリングパイプライン</a> —Day 2 に続いて再度。今日は特に「ラスタライズ」の段が何をする工程なのかを意識して読む</li><li><a href="https://fgiesen.wordpress.com/2013/02/10/optimizing-the-basic-rasterizer/">Fabian Giesen: Optimizing the basic rasterizer</a> —本Dayの実装(エッジ関数 + バウンディングボックス + top-left rule)の元ネタ。シリーズ全体(A trip through the Graphics Pipeline)はGPUの中身の解説として今後も何度も戻ってくる</li><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/overview-rasterization-algorithm.html">Scratchapixel: Rasterization - a Practical Implementation</a> —エッジ関数とバリセントリック座標の関係(Day 4 の予習にもなる)</li><li>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch2</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 三角形だけが特別扱いされる理由</h3>
+<p>多角形一般ではなく三角形なのは、都合のよい性質が揃っているから。</p>
+<ul><li><strong>必ず平面上にある</strong>。4点以上だとねじれる可能性があり、「面の向き」が一意に決まらない</li><li><strong>必ず凸</strong>。凹んだ形は内外判定が面倒(交差回数を数える等)になるが、三角形なら「3本の辺すべてに対して内側」で済む</li><li><strong>3頂点の値から内部の任意の点の値を一意に決められる</strong>(Day 4 のバリセントリック座標)</li></ul>
+<p>だからモデリングツールが四角形ポリゴンで作られていても、描画の直前には必ず三角形に分割される。ソフトウェアラスタライザでもGPUでも事情は同じ。</p>
+<h3 id="s5">2. エッジ関数 = 2次元の外積。符号で内外、大きさで面積</h3>
+<p>線分 a→b と点 p に対して次を計算する。</p>
+<div class="code"><pre><code>E(a, b, p) = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)</code></pre></div>
+<p>これは2次元の外積 (b - a) × (p - a) で、2つの意味を同時に持つ。</p>
+<ul><li><strong>符号</strong> … p が辺 a→b のどちら側にあるか(今日使う)</li><li><strong>大きさ</strong> … a, b, p が張る平行四辺形の符号付き面積 = 三角形の面積の2倍(Day 4 で使う)</li></ul>
+<p>三角形の3辺それぞれについてこれを計算し、<strong>3つとも同じ符号なら点は内側</strong>。今日は内外判定にしか使わないが、<strong>内外判定のために計算した値が、明日そのまま補間の重みになる</strong>。無駄な計算を1つもしていない、という点でこの方法は美しい。</p>
+<p>なお画面座標は y が下向きなので、紙の上の数学とは符号の向きが逆になる。a=(0,0), b=(1,0), p=(0,1) で E = +1、つまり「辺 a→b より画面の下側が正」。</p>
+<h3 id="s6">3. 巻き方向(ワインディング)をそろえる</h3>
+<p>3頂点を渡す順序が時計回りか反時計回りかで、3つのエッジ関数の符号が一斉に反転する。判定を「3つとも非負」の一択にするため、本Dayでは</p>
+<div class="code"><span class="lang">csharp</span><pre><code>int area = EdgeFunction(x0, y0, x1, y1, x2, y2);
+if (area == 0) return;                              // 面積0(3点が一直線)
+if (area &lt; 0) (x1, y1, x2, y2) = (x2, y2, x1, y1);  // 負なら頂点を入れ替える</code></pre></div>
+<p>として、負なら頂点を2つ入れ替えてしまう。</p>
+<p><strong>ここで捨てている符号は、Day 10 で意味を持つ。</strong> 三角形を裏から見ると巻き方向が反転するので、この符号は「今その面を表から見ているか裏から見ているか」の情報そのもの。Day 10 の背面カリングは、入れ替える代わりに「負なら描かない」と判断するだけで実装できる。</p>
+<h3 id="s7">4. top-left rule — 継ぎ目を二重に塗らないための取り決め</h3>
+<p>辺の<strong>真上</strong>に乗ったピクセル(エッジ関数がちょうど0)を塗るべきか。隣り合う2つの三角形は辺を共有しているので、両方が「自分の内側だ」と答えるとそのピクセルは<strong>2回塗られる</strong>。逆に両方が「外側だ」と答えると<strong>隙間が空く</strong>。</p>
+<p>解決は「辺の種類で機械的に決める」こと。<strong>上の辺と左の辺なら塗る、下の辺と右の辺なら塗らない</strong>。どの辺も必ずどちらか一方の三角形にとってだけ「上または左」になるので、共有ピクセルはちょうど1回だけ塗られる。</p>
+<p>本Dayの座標系(巻き方向を正に正規化済み、y下向き)では次の形になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private static bool IsTopLeft(int ax, int ay, int bx, int by)
+    =&gt; (ay == by &amp;&amp; bx &gt; ax) || by &lt; ay;</code></pre></div>
+<p>実装はバイアスとして効かせる。top-left な辺は 0、そうでない辺は -1 を足してから「非負なら内側」と判定すれば、ちょうど0のピクセルが後者では弾かれる。</p>
+<p><strong>実測(本Dayの実装で検証)</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>図形</th><th>ルールON</th><th>ルールOFF</th></tr></thead>
+<tbody>
+<tr><td>正方形を三角形2枚に分割</td><td>6,400 px すべて1回</td><td>6,561 px 中 <strong>81 px が2回</strong></td></tr>
+<tr><td>円盤(ファン32枚)</td><td>9,512 px すべて1回</td><td><strong>416 px が2回、1 px が3回</strong></td></tr>
+<tr><td>格子8x8(三角形128枚)</td><td>10,816 px すべて1回</td><td><strong>2,114 px が2回、77 px が3回以上</strong></td></tr>
+</tbody>
+</table></div>
+<p>ONのとき正方形がぴったり 6,400 = 80×80 になっている点に注目。<strong>重なりも隙間もなく平面を敷き詰められている</strong>ということで、これがラスタライザに求められる性質。</p>
+<p>不透明な単色で塗っている限り二重描画は見えない。しかし半透明合成では色が濃くなり、Day 7 のZバッファでは深度の書き込み回数が変わり、加算合成のエフェクトでは境界線が光る。Day 2 の課題3で考えた「共有辺が1ピクセルずれると隙間が見える」問題の、正式な解答がこれ。</p>
+<div class="inject"><figure class="lab" id="tl-lab">
+  <div class="lab-head">
+    <h3>継ぎ目を拡大して見る — エッジ関数と top-left rule(要点2〜4)</h3>
+    <span class="tag">reference の Rasterizer.FillTriangle(エッジ関数、巻き方向の正規化、IsTopLeft とバイアス)を JS に移し(docs/site/rasterizer.js)、辺を1本共有する三角形2枚を拡大して描いたもの。1 マス = 1 ピクセルで、判定するのはマスの中の点(整数座標)。青は1枚目だけ、橙は2枚目だけ、赤は2回塗られた画素。丸い点(頂点)はドラッグで動かせる。マスを押すと、その画素の3本のエッジ関数とバイアスを下に出す</span>
+  </div>
+  <div class="stage"><canvas id="tl-canvas" style="width:100%;aspect-ratio:10/7;height:auto;max-height:440px;touch-action:none" aria-label="拡大した方眼の上に、辺を共有する2枚の三角形が塗られている"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">top-left rule(T キー)</span>
+      <div class="seg" id="tl-rule"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">例</span>
+      <div class="seg" id="tl-preset"><button data-v="quad" aria-pressed="true">四角形を2枚に分割</button><button data-v="square" aria-pressed="false">正方形(対角線が 45 度)</button><button data-v="thin" aria-pressed="false">細長い2枚</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tl-stats"></div><pre id="tl-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s8">5. バウンディングボックス走査と、その原理的な無駄</h3>
+<p>画面全体(307,200 px)を走査するのは論外なので、3頂点を囲む矩形の中だけを見る。ただし矩形の中で実際に三角形の内側なのは一部だけで、残りは判定して捨てるだけの無駄になる。</p>
+<p><strong>実測(本Dayのデモ1フレーム)</strong>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>図形</th><th>判定したピクセル</th><th>塗ったピクセル</th><th>無駄</th></tr></thead>
+<tbody>
+<tr><td>単体の三角形</td><td>23,542</td><td>10,940</td><td>53.5%</td></tr>
+<tr><td>継ぎ目テスト(50枚)</td><td>54,450</td><td>25,600</td><td>53.0%</td></tr>
+<tr><td>円盤(64枚・細長い)</td><td>284,708</td><td>36,626</td><td><strong>87.1%</strong></td></tr>
+<tr><td>1フレーム合計</td><td>362,700</td><td>73,166</td><td>79.8%</td></tr>
+</tbody>
+</table></div>
+<p><strong>約50%の無駄は原理的なもの</strong>で、三角形の面積はどうやっても外接矩形の半分を超えられない。問題は細長い三角形で、円盤の細い扇形では87%が捨てられている。「三角形が細長いほどラスタライザは効率が落ちる」というのは実機でも同じ傾向で、モデルの三角形はなるべく正三角形に近い方がよい、と言われる理由の一つ。</p>
+<div class="inject"><figure class="lab" id="tr-lab">
+  <div class="lab-head">
+    <h3>三角形デモ3種 — 単体・継ぎ目テスト・円盤(要点4〜6、W・T キー)</h3>
+    <span class="tag">reference の GameWindow.cs(Render、DrawSingleTriangle、DrawSeamTest の加算合成、DrawDisc、HueColor)を JS に移して 640x480 に描いたもの(三角形は docs/site/rasterizer.js)。判定した画素・塗った画素・render はこのページで数えた値で、回転に合わせて少しずつ変わる(本文の表は 1 フレームの例)。右上の正方形は T で top-left rule を切ると二重に塗った画素が明るい線になる</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="tr-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="tr-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="オレンジの三角形、青い正方形、虹色の円盤"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ワイヤー(W)と top-left rule(T)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tr-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤーを重ねる</button></div><div class="seg" id="tr-rule"><button data-v="1" aria-pressed="true">TopLeft ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">円盤の枚数(課題1の3、このページだけ)と動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tr-disc"><button data-v="64" aria-pressed="true">64(reference)</button><button data-v="512" aria-pressed="false">512</button></div><div class="seg" id="tr-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="tr-table"></div></div>
+</figure></div>
+<p>Day 3 の render 時間 1.31 ms を判定ピクセル数で割ると <strong>1判定あたり約3.6ns</strong>。Day 2 の線分が1ピクセル約2.1nsだったので、エッジ関数3本ぶんの上乗せが見えている。</p>
+<h3 id="s9">6. 面を塗ることは、線を引くこととコストの桁が違う</h3>
+<p>Day 2 は236本の線で 0.17 ms、Day 3 は115枚の三角形で 1.31 ms。枚数は半分以下なのに時間は約8倍になっている。</p>
+<p>線のコストは<strong>長さ</strong>(周囲長)に比例するが、面のコストは<strong>面積</strong>に比例するため。半径 r の円を線で描けば 2πr ピクセルだが、塗れば πr² ピクセルになる。r = 108 の円盤なら 679 px 対 36,600 px で、<strong>54倍</strong>の差になる。</p>
+<p>この「塗るピクセル数がすべてを決める」という感覚は、この先ずっと効いてくる。Day 7 のZバッファで「見えない部分を塗る無駄(オーバードロー)」を潰したくなるのも、現代のGPUがピクセルシェーダのコストを気にするのも、根っこは同じ話。</p>
+</section>
+<section class="part"><h2 id="s10">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Rasterizer.cs</code></td><td><strong>新規(約170行)</strong></td><td>今日の主役。エッジ関数・巻き方向の正規化・top-left rule・走査</td></tr>
+<tr><td><code>Framebuffer.cs</code></td><td>+3 / -77行</td><td>Day 2 の実験用だった DDA 実装と <code>UseDdaLine</code> を削除。<code>DrawLine</code> は Bresenham 本体に</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え</td><td>線分デモ4種 → 三角形デモ3種。W / T キーを追加</td></tr>
+<tr><td><code>Program.cs</code></td><td>変更なし</td><td>—</td></tr>
+</tbody>
+</table></div>
+<p><code>Rasterizer</code> の API:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メソッド / プロパティ</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>FillTriangle(x0,y0,x1,y1,x2,y2,color)</code></td><td><strong>今日の本体</strong>。単色で三角形を塗る</td></tr>
+<tr><td><code>DrawTriangleWireframe(...)</code></td><td>輪郭だけ描く(Day 2 の <code>DrawLine</code> 3回)</td></tr>
+<tr><td><code>UseTopLeftRule</code></td><td>ルールのON/OFF(Tキー)。実験用、Day 4 で消す</td></tr>
+<tr><td><code>AdditiveBlend</code></td><td>加算合成(重なりの可視化用)。実験用、Day 4 で消す</td></tr>
+</tbody>
+</table></div>
+<p>デモ3種:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メソッド</th><th>描くもの</th><th>確認したいこと</th></tr></thead>
+<tbody>
+<tr><td><code>DrawSingleTriangle</code></td><td>回転する三角形1枚</td><td>内外判定が正しいか(Wキーでワイヤーと重ねる)</td></tr>
+<tr><td><code>DrawSeamTest</code></td><td>5x5の格子(三角形50枚)を加算合成</td><td><strong>継ぎ目が二重に塗られていないか</strong></td></tr>
+<tr><td><code>DrawDisc</code></td><td>細長い三角形64枚の円盤</td><td>中心にピンホールが空かないか、そして速度</td></tr>
+</tbody>
+</table></div>
+<h3 id="s11">写経する順番</h3>
+<ol><li><code>Framebuffer.cs</code> — DDA 関連の削除だけ。<code>DrawLineBresenham</code> を <code>DrawLine</code> にリネーム</li><li><code>Rasterizer.cs</code> — <strong>新規。ここに時間をかける</strong>。<code>EdgeFunction</code> → <code>IsTopLeft</code> → <code>FillTriangle</code> の順。<code>FillTriangle</code> は「正規化 → バウンディングボックス → バイアス → 走査」の4段階を1つずつ書いて、途中で一度動かしてみるとよい(top-left rule 抜きでも三角形は塗れる)</li><li><code>GameWindow.cs</code> — デモの差し替え。<code>DrawSeamTest</code> が今日の主役なので先に書くとよい</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day02/Framebuffer.cs reference/Day03/Framebuffer.cs
+git diff --no-index reference/Day02/GameWindow.cs  reference/Day03/GameWindow.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s12">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day03 -c Release</code></pre></div>
+<ol><li>左上に<strong>オレンジの三角形</strong>が回転している(頂点が尖っていて、辺が階段状にギザギザ)</li><li>右上に<strong>均一な青い正方形</strong>が出ている。<strong>内部に線が1本も見えない</strong></li><li>下中央に<strong>虹色の円盤</strong>が回転している。<strong>中心に穴や欠けが無い</strong></li><li><strong>W</strong> キーでワイヤーフレームが重なる。三角形の塗り範囲と輪郭線がほぼ一致している(辺の上の1ピクセルだけずれるのは正常。塗りとBresenhamは別のアルゴリズムのため)</li><li><strong>T</strong> キーで top-left rule を切ると、<strong>右上の正方形に明るい格子線と対角線が浮かび上がる</strong>。これが二重描画の正体。もう一度押すと消える</li><li>タイトルバーが <code>59.x fps | 115 tri | render 1.3x ms | TopLeft:ON</code> のようになっている</li><li>Esc で終了する</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>何も描かれない</strong> → 巻き方向の正規化が逆。<code>area &lt; 0</code> のときに入れ替えているか</li><li><strong>三角形が塗られたり消えたりする(回転に伴って)</strong> → 正規化を忘れている。回転で巻き方向が変わった瞬間に消えるので、この症状が出たらまずここを疑う</li><li><strong>円盤の中心に穴が空く</strong> → バウンディングボックスの <code>&lt;=</code> を <code>&lt;</code> にしていないか。細長い三角形は1ピクセル幅の部分があるので、境界の扱いを間違えるとそこだけ消える</li><li><strong>正方形に常に格子線が見える</strong> → <code>IsTopLeft</code> の条件。<code>by &lt; ay</code> の向きを確認</li><li><strong>正方形の内部に暗い線(隙間)が見える</strong> → バイアスを両方の辺に -1 してしまっている。「塗る側」は 0 のままにする</li><li><strong>例外で落ちる</strong> → バウンディングボックスの画面内への切り詰め。<code>Math.Max(..., 0)</code> と <code>Math.Min(..., Width - 1)</code> の両方が要る</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>T</code></td><td>「三角形デモ3種」の「TopLeft OFF」、「継ぎ目を拡大して見る」の「OFF」</td><td>正方形に明るい格子線と対角線が浮かぶ。拡大すると共有辺の上の画素が赤(2回)になる</td></tr>
+<tr><td><code>W</code></td><td>「三角形デモ3種」の「ワイヤーを重ねる」</td><td>塗りと Bresenham の輪郭は辺の上の1ピクセルだけずれることがある(別のアルゴリズムなので正常)</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の円盤 512 枚</td><td>改造課題1の3。塗る画素はほぼ同じなのに、判定する画素が増える</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day03 の Rasterizer.cs と GameWindow.cs(Render と3つのデモ)を JS に移したもの(docs/site/rasterizer.js)。判定・塗りの画素数は reference と同じ規則で数えたこのページの値、render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s13">改造課題</h2>
+<h3 id="s14">課題1(易): 三角形の性質を壊してみる</h3>
+<ol><li><code>FillTriangle</code> の巻き方向の正規化(<code>if (area &lt; 0)</code> の行)をコメントアウトして実行する。回転する三角形と円盤がどうなるか。なぜそうなるかを説明できるか</li><li><code>area == 0</code> の早期リターンを消すとどうなるか。3点が一直線に並ぶ瞬間(<code>DrawSingleTriangle</code> は回転するので必ず通る)に何が起きるか</li><li><code>DrawDisc</code> の <code>DiscTriangles</code> を 64 → 512 にする。render 時間はどれだけ増えるか。<strong>塗るピクセル数はほぼ変わらないのに時間が増える</strong>はず。その差は何のコストか</li></ol>
+<h3 id="s15">課題2(中): エッジ関数を差分で計算する(インクリメンタル化)</h3>
+<p>現在は1ピクセルごとにエッジ関数を3本フルに計算しているが、これは無駄が多い。エッジ関数は x, y の1次式なので、<strong>隣のピクセルへ移るときの増分は定数</strong>になる。</p>
+<div class="code"><pre><code>E(x + 1, y) - E(x, y) = -(by - ay)     // x方向の増分
+E(x, y + 1) - E(x, y) =  (bx - ax)     // y方向の増分</code></pre></div>
+<p>つまり行の先頭で1回だけ計算し、あとは加算だけで進める書き換えができる。</p>
+<ol><li>上の性質を式で確かめる(エッジ関数の定義に代入するだけ)</li><li>走査ループを「行頭で初期値を計算、内側は <code>w0 += dw0dx</code> だけ」に書き換える</li><li>render 時間がどれだけ改善するか測る。<strong>期待するほど速くならない可能性が高い</strong>ので、そのときは Day 2 の要点6(支配的なコストはどこか)を思い出して考える</li></ol>
+<p>これはGPUのラスタライザが実際にやっていることでもある(さらに複数ピクセルを同時に判定する)。</p>
+<h3 id="s16">課題3(難): 塗り残しと重なりを自分で検証する</h3>
+<p>「重なりも隙間もなく敷き詰められる」ことを、目視ではなくコードで確かめる。</p>
+<ol><li>画面と同じ大きさの <code>int[]</code> カウンタを用意し、<code>FillTriangle</code> が塗るたびに +1 する(<code>AdditiveBlend</code> を参考にするか、専用のデバッグモードを足す)</li><li>適当なポリゴン(格子、円盤、ランダムな三角形分割)を描いたあと、カウンタが2以上のピクセルが0個であることを確認する</li><li><code>UseTopLeftRule = false</code> にすると何ピクセルが2以上になるか数える。本Dayの実測値(格子8x8で2,114 px)と近い数字になるか</li></ol>
+<p>さらに余力があれば: <strong>頂点が整数でなくなったらどうなるか</strong>を考えてみる。今日の実装は頂点も走査点も整数だが、Day 6 で変換行列を通すと頂点は実数になる。そのとき「ピクセルの中心」をどこにするか(整数位置か、+0.5 か)で、top-left rule の判定も変わってくる。Day 5〜6 でこの問題に正面から向き合うことになる。</p>
+</section>
+<section class="part"><h2 id="s17">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 58〜61 fps、render 1.30〜1.31 ms(115枚 / 判定 362,700 px / 塗り 73,166 px)</li></ul>
+</section>
+<footer class="end">Day 03 三角形の塗りつぶし(エッジ関数) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const R = Raster;
+
+// ------------------------------------------------------------
+// 1. 継ぎ目を拡大して見る
+// ------------------------------------------------------------
+const GW = 20, GH = 14;
+const PRESETS = {
+  quad: [[2, 2], [17, 3], [16, 12], [3, 11]],
+  square: [[3, 1], [15, 1], [15, 13], [3, 13]],   // 12x12
+  thin: [[1, 6], [18, 2], [18, 3], [1, 8]],
+};
+const tl = { v: structuredClone(PRESETS.quad), pick: null };
+// 1 枚目 = (v0, v1, v2)、2 枚目 = (v0, v2, v3)。辺 v0-v2 を共有する
+const tris = () => [[tl.v[0], tl.v[1], tl.v[2]], [tl.v[0], tl.v[2], tl.v[3]]];
+function tlRun() {
+  const fb = new R.Framebuffer(GW, GH), ras = new R.Rasterizer3(fb), count = [new Uint8Array(GW * GH), new Uint8Array(GW * GH)];
+  ras.useTopLeftRule = segValue('tl-rule') === '1';
+  tris().forEach((t, k) => { ras.onFill = (x, y) => { count[k][y * GW + x]++; }; ras.fillTriangle(t[0][0], t[0][1], t[1][0], t[1][1], t[2][0], t[2][1], 0); });
+  return { count, stats: ras.stats };
+}
+function tlDraw() {
+  const { count, stats } = tlRun();
+  const { ctx, w, h } = fit($('tl-canvas')), c = Math.min(w / GW, h / GH), ox = (w - c * GW) / 2, oy = (h - c * GH) / 2;
+  tl.geom = { c, ox, oy };
+  let one = 0, two = 0, both = 0;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const i = y * GW + x, a = count[0][i], b = count[1][i];
+    let col = null;
+    if (a && b) { col = tok('--expl'); both++; } else if (a) { col = tok('--accent'); one++; } else if (b) { col = tok('--warn'); two++; }
+    if (col) { ctx.fillStyle = col; ctx.fillRect(ox + x * c + 1, oy + y * c + 1, c - 2, c - 2); }
+  }
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  for (let i = 0; i <= GW; i++) { ctx.beginPath(); ctx.moveTo(ox + i * c, oy); ctx.lineTo(ox + i * c, oy + GH * c); ctx.stroke(); }
+  for (let j = 0; j <= GH; j++) { ctx.beginPath(); ctx.moveTo(ox, oy + j * c); ctx.lineTo(ox + GW * c, oy + j * c); ctx.stroke(); }
+  // 判定する点(整数座標 = マスの中心として描く)と三角形の辺
+  const P = (p) => [ox + (p[0] + 0.5) * c, oy + (p[1] + 0.5) * c];
+  ctx.fillStyle = tok('--muted');
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) { ctx.beginPath(); ctx.arc(ox + (x + 0.5) * c, oy + (y + 0.5) * c, 1.2, 0, Math.PI * 2); ctx.fill(); }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5;
+  for (const t of tris()) { ctx.beginPath(); t.forEach((p, k) => { const [x, y] = P(p); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.closePath(); ctx.stroke(); }
+  tl.v.forEach((p, k) => { const [x, y] = P(p); ctx.fillStyle = tok('--good'); ctx.beginPath(); ctx.arc(x, y, Math.max(6, c * 0.3), 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#000'; ctx.font = '11px sans-serif'; ctx.fillText(`v${k}`, x - 6, y + 4); });
+  if (tl.sel) { const [sx, sy] = tl.sel; ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2; ctx.strokeRect(ox + sx * c + 1, oy + sy * c + 1, c - 2, c - 2); }
+  $('tl-stats').innerHTML = stat('1枚目だけ', one) + stat('2枚目だけ', two) + stat('2回塗られた', both) + stat('判定 / 塗り', `${stats.tested} / ${stats.filled}`);
+  if (tl.sel) {
+    const [x, y] = tl.sel, rule = segValue('tl-rule') === '1';
+    const lines = tris().map((t, k) => {
+      let [[x0, y0], [x1, y1], [x2, y2]] = t;
+      const area = R.edgeFunction(x0, y0, x1, y1, x2, y2);
+      if (area < 0) [x1, y1, x2, y2] = [x2, y2, x1, y1];
+      const e = [[x1, y1, x2, y2], [x2, y2, x0, y0], [x0, y0, x1, y1]].map(([ax, ay, bx, by]) => ({ w: R.edgeFunction(ax, ay, bx, by, x, y), b: !rule || R.isTopLeft(ax, ay, bx, by) ? 0 : -1 }));
+      const inside = e.every((q) => q.w + q.b >= 0);
+      return `${k + 1}枚目(面積×2 = ${Math.abs(area)}${area < 0 ? '、頂点を入れ替えた' : ''}): ` + e.map((q, j) => `w${j} = ${q.w}${q.b ? ' − 1' : ''}`).join('、') + ` → ${inside ? '塗る' : '塗らない'}`;
+    });
+    $('tl-console').textContent = `画素 (${x}, ${y})\n` + lines.join('\n');
+  } else $('tl-console').textContent = 'マスを押すと、その画素のエッジ関数を出す';
+}
+seg('tl-rule', tlDraw);
+seg('tl-preset', (v) => { tl.v = structuredClone(PRESETS[v]); tl.sel = null; tlDraw(); });
+{
+  const cv = $('tl-canvas');
+  const cell = (e) => { const r = cv.getBoundingClientRect(), { c, ox, oy } = tl.geom; return [Math.floor((e.clientX - r.left - ox) / c), Math.floor((e.clientY - r.top - oy) / c)]; };
+  cv.addEventListener('pointerdown', (e) => {
+    const [x, y] = cell(e);
+    const k = tl.v.findIndex((p) => Math.abs(p[0] - x) <= 0 && Math.abs(p[1] - y) <= 0);
+    if (k >= 0) { tl.pick = k; cv.setPointerCapture(e.pointerId); } else if (x >= 0 && y >= 0 && x < GW && y < GH) { tl.sel = [x, y]; tlDraw(); }
+  });
+  cv.addEventListener('pointermove', (e) => { if (tl.pick === null) return; const [x, y] = cell(e); tl.v[tl.pick] = [Math.min(GW - 1, Math.max(0, x)), Math.min(GH - 1, Math.max(0, y))]; tlDraw(); });
+  cv.addEventListener('pointerup', () => { tl.pick = null; });
+}
+
+// ------------------------------------------------------------
+// 2. 三角形デモ3種
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer3(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const tr = { t: 0, ms: 0, fps: 0, n: 0, acc: 0, parts: [] };
+const round = Math.round;
+function part(name, fn) { const s0 = { ...ras.stats }; fn(); tr.parts.push([name, ras.stats.triangles - s0.triangles, ras.stats.tested - s0.tested, ras.stats.filled - s0.filled]); }
+function render(t) {
+  const wire = segValue('tr-wire') === '1';
+  ras.useTopLeftRule = segValue('tr-rule') === '1';
+  ras.stats = { tested: 0, filled: 0, triangles: 0 }; tr.parts = [];
+  fb.clear(R.rgb(12, 14, 22));
+  part('単体の三角形', () => {
+    const v = [0, 1, 2].map((i) => { const a = t * 0.7 + (i * 2 * Math.PI) / 3; return [150 + round(Math.cos(a) * 92), 130 + round(Math.sin(a) * 92)]; });
+    ras.fillTriangle(v[0][0], v[0][1], v[1][0], v[1][1], v[2][0], v[2][1], R.rgb(230, 140, 60));
+    if (wire) ras.drawTriangleWireframe(v[0][0], v[0][1], v[1][0], v[1][1], v[2][0], v[2][1], R.rgb(255, 255, 255));
+  });
+  part('継ぎ目テスト(加算)', () => {
+    ras.additiveBlend = true;
+    const color = R.rgb(48, 72, 104);
+    for (let gy = 0; gy < 5; gy++) for (let gx = 0; gx < 5; gx++) {
+      const l = 390 + gx * 32, tp = 46 + gy * 32, r = l + 32, b = tp + 32;
+      if ((gx + gy) % 2 === 0) { ras.fillTriangle(l, tp, r, tp, l, b, color); ras.fillTriangle(r, tp, r, b, l, b, color); }
+      else { ras.fillTriangle(l, tp, l, b, r, tp, color); ras.fillTriangle(r, tp, l, b, r, b, color); }
+    }
+    ras.additiveBlend = false;
+  });
+  part('円盤', () => {
+    const n = Number(segValue('tr-disc')), cx = W / 2, cy = 350;
+    for (let i = 0; i < n; i++) {
+      const a0 = -t * 0.3 + (i * 2 * Math.PI) / n, a1 = -t * 0.3 + ((i + 1) * 2 * Math.PI) / n;
+      const x0 = cx + round(Math.cos(a0) * 108), y0 = cy + round(Math.sin(a0) * 108), x1 = cx + round(Math.cos(a1) * 108), y1 = cy + round(Math.sin(a1) * 108);
+      ras.fillTriangle(cx, cy, x0, y0, x1, y1, R.hueColor(i / n));
+      if (wire) ras.drawTriangleWireframe(cx, cy, x0, y0, x1, y1, R.rgb(30, 30, 30));
+    }
+  });
+}
+function trDraw() {
+  const t0 = performance.now();
+  render(tr.t);
+  tr.ms = tr.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('tr-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  const s = ras.stats;
+  $('tr-title').textContent = `Day03 - 三角形  ${tr.fps.toFixed(1)} fps | ${s.triangles} tri | render ${tr.ms.toFixed(2)} ms | TopLeft:${ras.useTopLeftRule ? 'ON' : 'OFF'} | W:ワイヤー T:TopLeft Esc:終了`;
+  const row = ([n, tri, te, fi]) => `<tr><td>${n}</td><td>${tri}</td><td>${te.toLocaleString()}</td><td>${fi.toLocaleString()}</td><td>${te ? (((te - fi) / te) * 100).toFixed(1) : '0'}%</td></tr>`;
+  $('tr-table').innerHTML = `<table style="font-size:12.5px;white-space:nowrap"><thead><tr><th>図形</th><th>枚数</th><th>判定した画素</th><th>塗った画素</th><th>無駄</th></tr></thead><tbody>${tr.parts.map(row).join('')}${row(['1フレーム合計', s.triangles, s.tested, s.filled])}</tbody></table>`;
+}
+['tr-wire', 'tr-rule', 'tr-disc', 'tr-play'].forEach((id) => seg(id, trDraw));
+animate($('tr-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('tr-play') === '1') tr.t += dt;
+  tr.n++; tr.acc += dt; if (tr.acc >= 0.5) { tr.fps = tr.n / tr.acc; tr.n = 0; tr.acc = 0; }
+  trDraw();
+});
+window.addEventListener('resize', tlDraw);
+tlDraw(); trDraw();
+})();
+</script>
+</body>
+</html>

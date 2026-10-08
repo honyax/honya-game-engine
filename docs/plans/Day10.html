@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 10 objロード、背面カリング、クリッピング</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. OBJ は「頂点の一覧と面の一覧」でしかない</a></li><li class="l3"><a href="#s5">2. OBJ の頂点と、レンダラの頂点は別物</a></li><li class="l3"><a href="#s6">3. V座標の反転 — 最も頻繁に踏むバグ</a></li><li class="l3"><a href="#s7">4. 背面カリング — Day 3 で捨てた符号を拾い直す</a></li><li class="l3"><a href="#s8">5. クリッピングは近クリップ面だけでよい</a></li><li class="l3"><a href="#s9">6. サザーランド・ホジマン — 多角形を平面で切る</a></li><li class="l3"><a href="#s10">7. 実測 — Phase 1 の到達点と限界</a></li><li class="l2"><a href="#s11">Phase 1 の総括 — Day 1 から積み上げたもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">素材について</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l2"><a href="#s16">改造課題</a></li><li class="l3"><a href="#s17">課題1(易): 別のモデルを読み込む</a></li><li class="l3"><a href="#s18">課題2(中): クリッピングを6面すべてに広げる</a></li><li class="l3"><a href="#s19">課題3(難): 60fps を取り戻す</a></li><li class="l2"><a href="#s20">付録: マルチスレッド化とSIMDの入り口</a></li><li class="l3"><a href="#s21">A. マルチスレッド化 — 先にこちらをやる</a></li><li class="l3"><a href="#s22">B. SIMD — 「1命令で複数のデータ」</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 10 / 計画書</p>
+  <h1>objロード、背面カリング、クリッピング</h1>
+  <p class="lede">ソフトラスタライザ完成</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. OBJ は「頂点の一覧と面の一覧」でしかない</a></li><li class="l3"><a href="#s5">2. OBJ の頂点と、レンダラの頂点は別物</a></li><li class="l3"><a href="#s6">3. V座標の反転 — 最も頻繁に踏むバグ</a></li><li class="l3"><a href="#s7">4. 背面カリング — Day 3 で捨てた符号を拾い直す</a></li><li class="l3"><a href="#s8">5. クリッピングは近クリップ面だけでよい</a></li><li class="l3"><a href="#s9">6. サザーランド・ホジマン — 多角形を平面で切る</a></li><li class="l3"><a href="#s10">7. 実測 — Phase 1 の到達点と限界</a></li><li class="l2"><a href="#s11">Phase 1 の総括 — Day 1 から積み上げたもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">素材について</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l2"><a href="#s16">改造課題</a></li><li class="l3"><a href="#s17">課題1(易): 別のモデルを読み込む</a></li><li class="l3"><a href="#s18">課題2(中): クリッピングを6面すべてに広げる</a></li><li class="l3"><a href="#s19">課題3(難): 60fps を取り戻す</a></li><li class="l2"><a href="#s20">付録: マルチスレッド化とSIMDの入り口</a></li><li class="l3"><a href="#s21">A. マルチスレッド化 — 先にこちらをやる</a></li><li class="l3"><a href="#s22">B. SIMD — 「1命令で複数のデータ」</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「objロード、背面カリング、クリッピング — <strong>ソフトラスタライザ完成</strong>」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>ファイルから読み込んだモデルが、テクスチャとライティング付きで回転する。</strong>カメラが床に踏み込んでも絵が壊れない。</p>
+<p>Phase 1 のマイルストーン「回転するテクスチャ付きモデルがライティング付きで表示される」を、今日で達成する。Day 1 のピクセル配列から始めて、ここまでで<strong>GPUを一切使わない3Dレンダラが完成</strong>する。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-4 変換(2) 四元数による回転と補間</a> —ロードマップ指定。今日は直接は使わないが、モデルの回転を扱う回なので目を通しておく。実際に四元数が必要になるのは Day 41(スキニング)とカメラ制御</li><li><a href="https://en.wikipedia.org/wiki/Wavefront_.obj_file">Wavefront .obj file(Wikipedia)</a> — OBJ の仕様。短い</li><li><a href="https://en.wikipedia.org/wiki/Sutherland%E2%80%93Hodgman_algorithm">Sutherland–Hodgman algorithm</a> —今日実装するクリッピングのアルゴリズム</li><li>復習として Day06.md の要点5(カメラの後ろの頂点)と Day09.md の要点6(巻き方向)</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. OBJ は「頂点の一覧と面の一覧」でしかない</h3>
+<div class="code"><pre><code>v  1.4  0.0  0.0      # 位置
+vt 0.0  0.0           # テクスチャ座標
+vn 1.0  0.0  0.0      # 法線
+f  1/1/1  3/3/3  2/2/2   # 面(位置/UV/法線 の索引を3つ)</code></pre></div>
+<p>これだけ。索引は<strong>1始まり</strong>で、負の値は末尾からの相対を意味する。</p>
+<p>テキスト形式でありサイズも速度も不利だが、<strong>中身をエディタで開いて読める</strong>のが学習には大きい。「モデルファイルとは要するに頂点と面の一覧である」と腑に落ちる。実用ではバイナリの glTF が主流で、そちらはパーサだけで数千行になる。</p>
+<p>本Dayのローダが対応するのは実際に使う範囲だけ。マテリアル(mtl)、グループ、スムージンググループは無視する。ただし次の3点は実際のファイルでよく出るので対応した。</p>
+<ul><li><strong>多角形の面</strong>(四角形以上)→ トライアングルファンで分割</li><li><strong>負の索引</strong></li><li><strong>法線が無いファイル</strong> → 面法線を頂点で平均して自動生成</li></ul>
+<h3 id="s5">2. OBJ の頂点と、レンダラの頂点は別物</h3>
+<p>OBJ は位置・UV・法線を<strong>別々の配列</strong>で持ち、面がそれぞれを独立に参照する。一方こちらの <code>Mesh</code> は「1つの頂点が位置もUVも法線も持つ」形(Day 9)。</p>
+<p>そこで <strong>(位置索引, UV索引, 法線索引) の組み合わせごとに頂点を1つ作る</strong>。同じ組み合わせが再登場したら使い回さないと、索引を使う意味(Day 9 の要点5)が消える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>var vertexCache = new Dictionary&lt;(int Position, int TexCoord, int Normal), int&gt;();</code></pre></div>
+<p><strong>実測</strong>: 本Dayのトーラス(561頂点 / 1024三角形のOBJ)を読み込むと、できあがる <code>Mesh</code> も<strong>ちょうど 561頂点 / 1024三角形</strong>になった。重複排除が正しく効いている証拠(効いていなければ 3072 頂点になる)。</p>
+<h3 id="s6">3. V座標の反転 — 最も頻繁に踏むバグ</h3>
+<p>OBJ(と OpenGL)は<strong>画像の左下</strong>を原点とし、V が上に向かって増える。本リポジトリのテクスチャは配列の先頭が左上なので、V は下に向かって増える。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>texCoords.Add(flipV ? new Vec2(uv.X, 1.0f - uv.Y) : uv);</code></pre></div>
+<p><strong>「テクスチャが上下逆さまになる」はグラフィックスで最頻出のバグ</strong>で、原因はたいていここ。どちらが正しいということはなく、単に流儀が2つあるだけなので、どこかで必ず吸収する必要がある。</p>
+<div class="inject"><figure class="lab" id="obj-lab">
+  <div class="lab-head">
+    <h3>OBJ を読む — 頂点の組み合わせごとに1つ(要点1〜3)</h3>
+    <span class="tag">reference の ObjLoader.cs(v・vt・vn・f の読み取り、1 始まりと負の索引、(位置, UV, 法線)の組での重複排除、多角形のファン分割、法線が無いときの ComputeNormals、V の反転)を JS に移したもの。読むのは assets/models/torus.obj と同じ式(主半径 1.0、管半径 0.4、32 x 16 分割)でこのページが作った OBJ の文字列で、左上がその先頭。右はでき上がった Mesh をテクスチャつきで描いたもの(docs/site/rasterizer.js)。重複排除をしない・V を反転しない・法線を捨てるの3つはこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="obj-grid">
+      <pre id="obj-text" style="margin:0;font-size:11.5px;line-height:1.45;max-height:240px;overflow:auto"></pre>
+      <canvas id="obj-canvas" style="width:100%;aspect-ratio:4/3;height:auto" aria-label="読み込んだトーラス"></canvas>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">壊してみる(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="obj-dedup"><button data-v="1" aria-pressed="true">重複排除する(reference)</button><button data-v="0" aria-pressed="false">しない</button></div><div class="seg" id="obj-flip"><button data-v="1" aria-pressed="true">V を反転(flipV)</button><button data-v="0" aria-pressed="false">しない</button></div><div class="seg" id="obj-normals"><button data-v="file" aria-pressed="true">vn を使う</button><button data-v="compute" aria-pressed="false">vn を捨てて ComputeNormals</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="obj-stats"></div></div>
+</figure></div>
+<h3 id="s7">4. 背面カリング — Day 3 で捨てた符号を拾い直す</h3>
+<p>閉じた立体では、裏を向いた面は必ず表の面に隠れて見えない。<strong>見えないと分かっているものを、描く前に捨てる</strong>のがカリング。</p>
+<p>判定材料はすでに手元にある。Day 3 でエッジ関数から面積を求めたとき、「負なら頂点を入れ替えて向きをそろえる」と書いて<strong>符号を捨てていた</strong>。その符号こそが「表から見ているか裏から見ているか」の情報だった。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>bool frontFacing = area &lt; 0.0f;
+if (Culling == CullMode.Back &amp;&amp; !frontFacing) { CulledTriangles++; return; }</code></pre></div>
+<p>符号がどちら向きになるかは、モデルの巻き方向・Y軸の向き・ビューポート変換のY反転が積み重なって決まる。<strong>覚えるより「片方を試して裏返っていたら逆にする」と割り切るのが早い。</strong>だからこそ Day 9 で全メッシュの巻き方向をそろえておくことが前提になる。</p>
+<p><strong>実測</strong>: 本Dayのシーンでは 2,202枚のうち <strong>1,165枚(53%)がカリングされる</strong>。閉じた面の約半分は裏を向いている、という直感どおりの数字。</p>
+<p>ただし<strong>速度の改善は 6% にとどまった</strong>(18.9 ms → 17.7 ms)。理由は2つ。</p>
+<ul><li>シーンで最も広い面積を占める<strong>床は片面なのでカリングできない</strong>(<code>CullMode.None</code> で描いている)</li><li>Day 7 の深度テストが<strong>色を計算する前に</strong>裏面を捨てているので、一番高い処理(テクスチャ + フォン)はもともと走っていなかった</li></ul>
+<p>つまり<strong>Day 7 の時点ですでに大半の恩恵を得ていた</strong>ということ。それでもカリングを入れる価値はあり、頂点数が多くラスタライズ負荷が高いシーンでは効くし、何より「片面しかない板」を正しく扱うための設定として必要になる。</p>
+<h3 id="s8">5. クリッピングは近クリップ面だけでよい</h3>
+<p>Day 6 から引きずっていた制約——<strong>頂点が1つでもカメラの後ろにあると三角形を丸ごと捨てる</strong>——を、今日ようやく解消する。</p>
+<p>なぜ近クリップ面だけを切ればよいのか。</p>
+<ul><li><strong>左右上下と遠クリップ面</strong>は、はみ出しても壊れない。バウンディングボックスの画面内への切り詰め(Day 3)と深度テスト(Day 7)が面倒を見る。無駄な走査は増えるが、正しい絵は出る</li><li><strong>近クリップ面だけは違う</strong>。ここを跨ぐと透視除算で符号が反転し、三角形が画面の反対側へ裏返って飛んでいく。<strong>除算の前に切るしかない</strong></li></ul>
+<p>切る条件は驚くほど単純で、<strong>クリップ座標の Z が 0 以上か</strong>。本リポジトリの投影行列は近クリップ面を Z = 0 に写す(Day 6 の要点3)ので、この不等式1つで判定できる。カメラの後ろの点も Z が負になるので、まとめて処理できる。</p>
+<h3 id="s9">6. サザーランド・ホジマン — 多角形を平面で切る</h3>
+<p>多角形の辺を順に見て、次の4通りに振り分けるだけ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>辺の状態</th><th>出力するもの</th></tr></thead>
+<tbody>
+<tr><td>内 → 内</td><td>終点</td></tr>
+<tr><td>内 → 外</td><td>交点</td></tr>
+<tr><td>外 → 内</td><td>交点と終点</td></tr>
+<tr><td>外 → 外</td><td>何も出さない</td></tr>
+</tbody>
+</table></div>
+<p>三角形1枚を平面1つで切ると、結果は<strong>頂点が最大4つの多角形</strong>になる(三角形の1頂点だけが外に出た場合)。それをファンで三角形に分割し直す。</p>
+<p><strong>クリップ座標のまま補間してよいのがこの方法の美点。</strong>透視除算の前なのですべてが線形に扱え、位置も色もUVも法線も同じ比率で混ぜるだけで済む。除算の後に切ろうとすると、Day 8 の透視補正と同じ問題に悩まされることになる。</p>
+<p>これで床を<strong>1枚の大きな四角形</strong>にできるようになった。Day 8 と Day 9 では、カメラの後ろに回ると床が丸ごと消えるのを避けるために床を細かく分割したり小さくしたりしていたが、その必要がなくなった。</p>
+<div class="inject"><figure class="lab" id="cl-lab">
+  <div class="lab-head">
+    <h3>近クリップ面で切る — サザーランド・ホジマン(要点5・6)</h3>
+    <span class="tag">reference の Rasterizer.ClipNearPlane(クリップ座標の Z が 0 以上を内側とし、辺ごとに 4 通りに振り分けて交点を足す)を JS に移し、横から見た図で1枚の三角形を切ったもの。左端がカメラで、右へ行くほど遠い。縦の点線が近クリップ面(near)。丸い点(頂点)はドラッグで動かせる。橙の多角形が切ったあとに残る部分で、頂点は最大 4 つになる。下の表は辺ごとの場合分け</span>
+  </div>
+  <div class="stage"><canvas id="cl-canvas" style="width:100%;height:260px;touch-action:none" aria-label="横から見たカメラ、近クリップ面、三角形"></canvas></div>
+  <div class="readout"><div class="table-wrap" id="cl-table"></div><div class="stats" id="cl-stats" style="margin-top:8px"></div></div>
+</figure></div>
+<h3 id="s10">7. 実測 — Phase 1 の到達点と限界</h3>
+<p>Day 10 のシーン(トーラス1024枚 + 床 + 球 + 立方体、合計2,202枚)の実測:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>render</th><th>概算 fps</th></tr></thead>
+<tbody>
+<tr><td>フォン + バイリニア(既定)</td><td>17.8 ms</td><td><strong>約 41 fps</strong></td></tr>
+<tr><td>フォン + ニアレスト</td><td>14.6 ms</td><td>約 47 fps</td></tr>
+<tr><td>グーロー + バイリニア</td><td>11.8 ms</td><td>約 56 fps</td></tr>
+<tr><td>グーロー + テクスチャ無</td><td>7.0 ms</td><td>60 fps</td></tr>
+</tbody>
+</table></div>
+<p>(上の表は同一フレームでの計測。実際に動かすとカメラの上下で床の占める面積が変わり、16.8〜21.6 ms = <strong>32〜41 fps</strong> の範囲で変動する)</p>
+<p><strong>Day 1 から守ってきた60fpsは、最高品質の設定では出せなくなった。</strong>これは実装の不備ではなく、CPUソフトウェアラスタライザの素直な限界と考えてよい。内訳を見ると分かりやすい。</p>
+<ul><li><strong>バイリニアフィルタ … 約 +7 ms</strong>。テクセルを4個読むので、ほぼメモリアクセスのコストそのもの(ニアレストはほぼタダ)</li><li><strong>ピクセル単位のフォン計算 … 約 +7 ms</strong>。正規化(平方根)と <code>Pow</code> が毎ピクセル</li></ul>
+<p>640x480 = 307,200 ピクセルを、1ピクセルあたり数十ナノ秒で処理して、ようやくこの数字になる。<strong>Phase 2 でGPUに移る理由がここにある</strong>——GPUは同じ処理を数千の演算器で並列にこなす。</p>
+<p>なおこれは「もう手が無い」という意味ではない。本ロードマップで扱わなかった最適化がいくつも残っている(改造課題を参照)。</p>
+<div class="inject"><figure class="lab" id="sc10-lab">
+  <div class="lab-head">
+    <h3>マイルストーンのシーン — トーラス・床・球・立方体(要点4・5・7、C キーほか)</h3>
+    <span class="tag">reference の GameWindow.cs(Render のカメラの周回と上下、床は CullMode.None、トーラスと公転する立方体と球、光源)と Rasterizer.cs(背面カリング、近クリップ面のクリッピング)を JS に移して 640x480 に描いたもの(docs/site/rasterizer.js)。トーラスはこのページで作った OBJ を ObjLoader の移植で読んだもの。描画・カリングの枚数と render はこのページの値。「クリッピング OFF」は Day 9 までの「頂点が1つでもカメラの後ろなら捨てる」に戻すもので、このページだけ。床を見るにはカメラを寄せる</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="sc10-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="sc10-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="市松のテクスチャを貼ったトーラスと、床の上を公転する立方体と球"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">背面カリング(C)とシェーディング(1・2・3)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc10-cull"><button data-v="back" aria-pressed="true">カリング ON</button><button data-v="none" aria-pressed="false">OFF</button></div><div class="seg" id="sc10-mode"><button data-v="flat" aria-pressed="false">1 フラット</button><button data-v="gouraud" aria-pressed="false">2 グーロー</button><button data-v="phong" aria-pressed="true">3 フォン</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">テクスチャ(T)、深度(D)、ワイヤー(W)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc10-tex"><button data-v="1" aria-pressed="true">テクスチャ ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="sc10-depth"><button data-v="0" aria-pressed="true">色</button><button data-v="1" aria-pressed="false">深度</button></div><div class="seg" id="sc10-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤー</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">クリッピング(このページだけ)、カメラ、動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc10-clip"><button data-v="1" aria-pressed="true">クリッピング ON</button><button data-v="0" aria-pressed="false">OFF(Day 9 まで)</button></div><div class="seg" id="sc10-cam"><button data-v="1" aria-pressed="true">reference の周回</button><button data-v="0.45" aria-pressed="false">カメラを寄せる</button></div><div class="seg" id="sc10-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sc10-stats"></div></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">Phase 1 の総括 — Day 1 から積み上げたもの</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Day</th><th>追加したもの</th><th>今のコードのどこにあるか</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>ピクセルバッファと60fpsループ</td><td><code>Framebuffer</code> / <code>GameWindow.Run</code></td></tr>
+<tr><td>2</td><td>線分描画(Bresenham)</td><td><code>Framebuffer.DrawLine</code></td></tr>
+<tr><td>3</td><td>三角形の塗りつぶし(エッジ関数、top-left rule)</td><td><code>Rasterizer.FillTriangle</code></td></tr>
+<tr><td>4</td><td>バリセントリック補間</td><td>同上(重みの計算)</td></tr>
+<tr><td>5</td><td>ベクトル・行列</td><td><code>Vec2/3/4</code> / <code>Mat4</code></td></tr>
+<tr><td>6</td><td>MVP変換と透視除算</td><td><code>Camera</code> / <code>Rasterizer.ToScreen</code></td></tr>
+<tr><td>7</td><td>Zバッファ</td><td><code>DepthBuffer</code></td></tr>
+<tr><td>8</td><td>テクスチャと透視補正補間</td><td><code>Texture</code> / <code>FillTriangle</code> の補間</td></tr>
+<tr><td>9</td><td>法線とライティング</td><td><code>Light</code> / <code>Mesh</code></td></tr>
+<tr><td>10</td><td>objロード、カリング、クリッピング</td><td><code>ObjLoader</code> / <code>CullMode</code> / <code>ClipNearPlane</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>Day 3 で書いたエッジ関数が、今も1行も変わらず動いている</strong>のが象徴的で、最初に選んだ設計(内外判定と補間で同じ値を使う)がそのまま最後まで効いた。</p>
+<p>Phase 2 からはGPUに移る。そこで出てくる用語——頂点シェーダ、ラスタライザ、フラグメントシェーダ、深度テスト、カリング、クリッピング——は<strong>全部ここで自分で書いたもの</strong>。GPUが何を代わりにやってくれているのかを知った状態で先へ進める。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>ObjLoader.cs</code></td><td><strong>新規(277行)</strong></td><td>OBJ の読み込み。頂点の重複排除、多角形分割、法線の自動生成</td></tr>
+<tr><td><code>CullMode.cs</code></td><td><strong>新規(約20行)</strong></td><td>カリング設定の列挙型</td></tr>
+<tr><td><code>Rasterizer.cs</code></td><td>+204 / -14行</td><td>背面カリング、近クリップ面クリッピング、統計</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え</td><td>マイルストーンのシーン。素材パスの解決、C キー</td></tr>
+<tr><td><code>assets/models/torus.obj</code></td><td><strong>新規</strong></td><td>手続き生成したトーラス(561頂点 / 1024三角形)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">素材について</h3>
+<p><code>assets/models/torus.obj</code> はスクリプトで生成したもの。外部からダウンロードしていないので、ライセンスの心配もネットワークも不要。生成に使った式は次のとおり。</p>
+<div class="code"><pre><code>位置 = ((R + r cos v) cos u,  r sin v,  (R + r cos v) sin u)
+法線 = (cos v cos u,  sin v,  cos v sin u)     ※ 主半径 R=1.0 / 管半径 r=0.4</code></pre></div>
+<p>別のモデルを試したい場合は、同じ場所に置いて <code>ObjLoader.Load</code> のパスを変えればよい。<a href="https://github.com/ssloy/tinyrenderer/tree/master/obj">tinyrenderer の african_head</a>などが定番。法線が無いファイルでも自動計算されるので読める。</p>
+<h3 id="s14">写経する順番</h3>
+<ol><li><code>CullMode.cs</code> — 短い</li><li><code>Rasterizer.cs</code> のカリング — <code>FillTriangle</code> に数行足すだけ。<strong>Day 3 で捨てた符号を拾う</strong></li><li><code>ObjLoader.cs</code> — 長いが単調。<code>ParseFaceToken</code> と頂点の重複排除が要点</li><li><code>Rasterizer.cs</code> のクリッピング — <strong>今日の本体</strong>。<code>ClipNearPlane</code> → <code>Lerp</code> → <code>DrawTriangle</code> の作り直しの順</li><li><code>GameWindow.cs</code> — シーンの組み立て</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day09/Rasterizer.cs reference/Day10/Rasterizer.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s15">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day10 -c Release</code></pre></div>
+<ol><li><strong>市松模様のテクスチャが貼られたドーナツ型のモデル</strong>(ファイルから読み込んだもの)が回転している</li><li>モデルに<strong>光が当たり、白いハイライトが動いている</strong>。光源の白い球が周回している</li><li><strong>床が画面の手前まで途切れずに伸びている</strong>。カメラが動いても床が丸ごと消えることがない(これがクリッピングの成果)</li><li>床の上に緑の立方体と青い球が公転している。トーラスの穴から向こう側が見える</li><li><strong>C</strong> キーでカリングを切ると、タイトルの「描画」枚数が <strong>1,037 → 2,202 に倍増</strong>する。<strong>絵は変わらない</strong>(裏面は見えないので)が、render 時間は増える</li><li><strong>1 / 2 / 3</strong> で陰影の切り替え、<strong>T</strong> でテクスチャ、<strong>W</strong> でワイヤーフレーム、<strong>D</strong> で深度表示</li><li>タイトルバーが<code>38.x fps | 1016 描画 / 1186 カリング | render 18.x ms | フォン | 背面カリング:ON</code> のように</li></ol>
+<p><strong>fps は 32〜41 の範囲で変動する。</strong> カメラが周回しながら上下するので、床が画面を占める面積(= 塗るピクセル数)がフレームごとに変わるため。要点7のとおり、最高品質の設定では60fpsに届かない。グーロー(2キー)にすれば約56fps、テクスチャも切れば60fpsに戻る。</p>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>モデルが表示されない / 内側から見たようになる</strong> → カリングの符号が逆。<code>frontFacing</code> の条件を反転してみる(要点4)</li><li><strong>モデルの表面がまだらに欠ける</strong> → メッシュの巻き方向が不揃い(Day 9 の要点6)</li><li><strong>テクスチャが上下逆</strong> → <code>flipV</code>。要点3</li><li><strong>床の一部が消える / 画面全体に巨大な三角形が走る</strong> → クリッピングが効いていない。<code>ClipNearPlane</code> の内外判定の向きを確認する</li><li><strong>カメラが物体を通り抜けるときにちらつく</strong> → 正常。近クリップ面で切られている</li><li><strong>素材が見つからない例外</strong> → <code>assets/models/torus.obj</code> の場所。<code>ResolveAssetPath</code> は実行ファイルと作業ディレクトリの両方から上へ辿る</li><li><strong>OBJ の読み込みで例外</strong> → 小数点の解析。<code>CultureInfo.InvariantCulture</code> を指定しているか(地域設定によっては 1.5 が読めない)</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>C</code></td><td>「マイルストーンのシーン」の「カリング OFF」</td><td>描画の枚数がほぼ倍になるのに、絵は変わらない</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code>、<code>T</code></td><td>同じ実験台のシェーディングとテクスチャ</td><td>Day 9 と同じ</td></tr>
+<tr><td><code>D</code> / <code>W</code></td><td>同じ実験台の「深度」「ワイヤー」</td><td>Day 7〜9 と同じ</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「クリッピング OFF」と「カメラを寄せる」</td><td>床の大きな三角形が、隅がカメラの後ろに回った瞬間に丸ごと消える(Day 8・9 の制約)</td></tr>
+<tr><td>(キーなし)</td><td>「OBJ を読む」と「近クリップ面で切る」</td><td>重複排除で 561 頂点に収まること、V の反転、ComputeNormals。切ったあとの多角形は最大 4 頂点</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day10 の ObjLoader.cs、CullMode.cs、Rasterizer.cs(ClipNearPlane、背面カリング)、GameWindow.cs(シーン)を JS に移したもの(docs/site/rasterizer.js)。トーラスの OBJ はこのページで同じ式から作った文字列。計算は double(深度だけ float)。描画・カリングの枚数と render はこのページの値で、回転とカメラの位置で変わる。</p></div>
+</section>
+<section class="part"><h2 id="s16">改造課題</h2>
+<h3 id="s17">課題1(易): 別のモデルを読み込む</h3>
+<ol><li><a href="https://github.com/ssloy/tinyrenderer/tree/master/obj">tinyrenderer の african_head.obj</a> など、外部のモデルを <code>assets/models/</code> に置いて読み込む</li><li>法線が無いモデルなら、自動計算(<code>ComputeNormals</code>)が効くことを確認する。立方体のような角のある形だと、角が丸まって見えるはず。<strong>なぜそうなるか</strong>を説明できるか</li><li>モデルの三角形数と render 時間を記録する。三角形が1万枚を超えるとどうなるか</li></ol>
+<h3 id="s18">課題2(中): クリッピングを6面すべてに広げる</h3>
+<p>今日は近クリップ面だけを切った。左右上下と遠クリップ面も切ってみる。</p>
+<ol><li>クリップ座標での判定条件を書き出す(右: <code>x &lt;= w</code>、左: <code>-w &lt;= x</code>、上下も同様、遠: <code>z &lt;= w</code>)</li><li>平面を順に適用する(1つ切るたびに多角形の頂点が増えうる。最大で何頂点になるか?)</li><li><strong>速くなるか、遅くなるか測る。</strong> 画面外に大きくはみ出す三角形がある場面では走査の無駄が減るが、そうでなければクリッピング自体のコストが乗るだけになる。要点5で「近クリップ面以外は切らなくてよい」と書いた判断が妥当だったか、数字で確かめる</li></ol>
+<h3 id="s19">課題3(難): 60fps を取り戻す</h3>
+<p>要点7の限界に正面から挑む。効果が大きい順に。</p>
+<ol><li><strong>エッジ関数のインクリメンタル化</strong>(Day 3 の課題2)。走査ループから乗算を追い出す</li><li><strong>タイル分割</strong>。画面を 32x32 などのタイルに分け、タイルごとに三角形を仕分けてから塗る。フレームバッファと深度バッファのアクセスがキャッシュに収まるようになる。現代のGPU(特にモバイル)はまさにこの方式</li><li><strong>SIMD 化</strong>。<code>System.Runtime.Intrinsics</code> で4〜8ピクセルを同時に処理する。エッジ関数の判定も属性の補間も、ピクセル間に依存が無いので並列化しやすい</li><li><strong>マルチスレッド化</strong>。タイル分割ができていれば、タイルを別スレッドに割り振るだけで済む。Zバッファのおかげで<strong>描画順序が自由</strong>(Day 7 の要点1)なのが効いてくる</li><li>テクスチャを<strong>モートン順</strong>(Zオーダー)に並べ替えて、バイリニアの4テクセルがキャッシュに乗りやすくする</li></ol>
+<p>1 と 2 だけでも大きく変わるはず。どこまで速くできるか、そして<strong>どこで頭打ちになるか</strong>を体験しておくと、Phase 2 でGPUの速さを見たときの驚きが違ってくる。</p>
+</section>
+<section class="part"><h2 id="s20">付録: マルチスレッド化とSIMDの入り口</h2>
+<p>改造課題3の 3 と 4 は、やったことがないと取っ掛かりが掴みにくいので、<strong>始め方だけ</strong>を具体的に書いておく。どちらも Phase 2 以降では直接使わないが、「GPUが何を並列にやっているのか」を手で確かめられるので、寄り道する価値はある。</p>
+<p>比較の基準は本Dayの実測値、<strong>1スレッド・スカラーで 17.8 ms/frame</strong>。</p>
+<h3 id="s21">A. マルチスレッド化 — 先にこちらをやる</h3>
+<p>効果が大きく、SIMDよりずっと簡単。コア数ぶんに近い改善が見込める。</p>
+<p><strong>やってはいけない分け方</strong>: 三角形をスレッドに配る。2つのスレッドが同じピクセルに同時に書くと、深度バッファの「読む → 比べる → 書く」が競合して結果が壊れる(データ競合)。ロックを入れると今度は遅くなる。</p>
+<p><strong>正しい分け方</strong>: <strong>画面を分ける</strong>。1つのピクセルを触るスレッドが常に1つだけなら、ロックは1個も要らない。</p>
+<p>最も簡単なのは画面を横帯(バンド)に切る方法。2段階に分ける。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// --- 第1段階: 幾何処理(1スレッド)---
+// 変換・クリッピング・カリングまで済ませて、画面座標の三角形リストを作る。
+// ここは頂点数に比例する軽い処理なので、まずは並列化しなくてよい。
+private readonly List&lt;(Vertex A, Vertex B, Vertex C, PixelShader? Shader)&gt; _screenTriangles = new();
+
+// --- 第2段階: ラスタライズ(並列)---
+const int BandCount = 8;                       // Environment.ProcessorCount 程度
+int bandHeight = (_target.Height + BandCount - 1) / BandCount;
+
+Parallel.For(0, BandCount, band =&gt;
+{
+    int minY = band * bandHeight;
+    int maxY = Math.Min(minY + bandHeight - 1, _target.Height - 1);
+
+    foreach (var tri in _screenTriangles)
+    {
+        // この帯に掛かっていない三角形は即スキップ。
+        // FillTriangle の走査範囲を [minY, maxY] に制限して呼ぶ。
+        FillTriangleBanded(tri.A, tri.B, tri.C, tri.Shader, minY, maxY);
+    }
+});</code></pre></div>
+<p><code>FillTriangleBanded</code> は既存の <code>FillTriangle</code> に引数を2つ足して、バウンディングボックスを求めるところを</p>
+<div class="code"><span class="lang">csharp</span><pre><code>int minYClamped = Math.Max((int)MathF.Floor(minYf), bandMinY);
+int maxYClamped = Math.Min((int)MathF.Ceiling(maxYf), bandMaxY);</code></pre></div>
+<p>に変えるだけ。他は1行も変わらない。</p>
+<p><strong>なぜこれで安全なのか</strong>: 帯ごとに担当する行が重ならないので、<code>pixels[]</code> と <code>depth[]</code> の同じ要素を2つのスレッドが触ることが構造的に起きない。Day 7 で「Zバッファのおかげで描画順序が自由になった」と書いたが、<strong>その自由さがそのままスレッド分割の自由さになっている</strong>。</p>
+<p>注意点:</p>
+<ul><li><strong>統計カウンタが競合する</strong>。<code>CulledTriangles</code> / <code>DrawnTriangles</code> をそのまま <code>++</code> すると壊れる。第1段階(1スレッド)で数えるか、<code>Interlocked.Increment</code> を使う</li><li><strong>フォールスシェアリングは今回は心配しなくてよい</strong>。帯の境界は行単位なので、1行 640x4 = 2,560バイトぶん離れている(キャッシュラインは64バイト)</li><li><strong><code>Parallel.For</code> の呼び出しコスト</strong>は毎フレーム数十マイクロ秒程度。16.7ms のフレームでは誤差</li><li>帯の数はコア数と同じか少し多めに。少なすぎると「1つの帯だけ重い」ときに他が遊ぶ</li></ul>
+<p>もう一段進めるなら、帯ではなく <strong>32x32 のタイル</strong>に切り、「どのタイルにどの三角形が掛かるか」を先に仕分けてから塗る(ビニング)。各タイルのフレームバッファと深度バッファがまとめてキャッシュに乗るので、並列化とキャッシュ効率の両方が効く。<strong>モバイルGPUはまさにこの方式</strong>。</p>
+<h3 id="s22">B. SIMD — 「1命令で複数のデータ」</h3>
+<p>やったことがない場合はここから。</p>
+<p><strong>考え方</strong>: 普通の <code>float</code> の足し算は1回に1組。SIMD命令は<strong>4個や8個の float をまとめて1命令で</strong>処理する。CPUの中に「幅の広いレジスタ」(128bit = float 4個、256bit = 8個)があり、そこに値を詰めて演算する。</p>
+<p>C# では2通りある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>API</th><th>特徴</th></tr></thead>
+<tbody>
+<tr><td><code>System.Numerics.Vector&lt;T&gt;</code></td><td><strong>幅が実行環境まかせ</strong>。移植性が高く書きやすい。<strong>まずはこちら</strong></td></tr>
+<tr><td><code>System.Runtime.Intrinsics.Vector128/256&lt;T&gt;</code></td><td>幅を固定して命令を直接指定。細かく制御できるが CPU 対応の確認が要る</td></tr>
+</tbody>
+</table></div>
+<h4 id="s23">まず配列の合計で感覚を掴む</h4>
+<p>いきなりラスタライザに手を入れず、この小さな例で書き味を確かめるとよい。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>using System.Numerics;   // ImplicitUsings には入っていないので明示的に要る
+
+// 普通の版
+static float Sum(float[] values)
+{
+    float total = 0.0f;
+    for (int i = 0; i &lt; values.Length; i++)
+    {
+        total += values[i];
+    }
+    return total;
+}
+
+// SIMD 版
+static float SumSimd(float[] values)
+{
+    int width = Vector&lt;float&gt;.Count;      // 実行環境の幅。AVX2 なら 8
+    var accumulator = Vector&lt;float&gt;.Zero;
+
+    int i = 0;
+    for (; i &lt;= values.Length - width; i += width)
+    {
+        // 配列から width 個まとめて読んで、まとめて足す
+        accumulator += new Vector&lt;float&gt;(values, i);
+    }
+
+    // 横方向の合計(レーンの中身を1つにまとめる)
+    float total = Vector.Sum(accumulator);
+
+    // 端数(width で割り切れなかったぶん)は普通に処理する
+    for (; i &lt; values.Length; i++)
+    {
+        total += values[i];
+    }
+
+    return total;
+}</code></pre></div>
+<p>ここに SIMD の型どおりの構造が全部入っている。</p>
+<ol><li><code>Vector&lt;float&gt;.Count</code> で幅を得る</li><li>まとめて読んで、まとめて演算する</li><li>最後に<strong>横方向へ畳む</strong>(reduction)</li><li><strong>端数</strong>を普通のループで処理する</li></ol>
+<p><strong>動かして確認したこと</strong>(本Dayの環境 / .NET 10):</p>
+<ul><li><code>Vector.IsHardwareAccelerated</code> は <code>True</code>、<code>Vector&lt;float&gt;.Count</code> は <strong>8</strong>(AVX2)</li><li>1003個の乱数の合計で、<code>Sum</code> と <code>SumSimd</code> の結果が <strong>6.1e-5 ずれた</strong></li></ul>
+<p>最後の点は覚えておくとよい。<strong>浮動小数の足し算には結合法則が成り立たない</strong>ので、足す順序が変わると結果も変わる。SIMD版は8個の部分和を別々に持ってから最後に畳むため、順序が必然的に変わる。バグではないが、「SIMD化したら結果が1ビット変わった」で悩まないように知っておくこと(むしろ部分和に分けるぶん、SIMD版のほうが誤差が小さいことが多い)。</p>
+<h4 id="s24">発想の転換: 分岐をやめてマスクにする</h4>
+<p>SIMD で一番慣れが要るのがここ。8個まとめて処理していると、「この4個は条件を満たすが、残り4個は満たさない」が普通に起きる。そこで <strong>if で分岐せず、両方計算してから選ぶ</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector&lt;float&gt; a = ...;
+Vector&lt;float&gt; b = ...;
+
+// 「a &gt; b か」を各レーンごとに判定した結果(真は全ビット1)
+Vector&lt;int&gt; mask = Vector.GreaterThan(a, b);
+
+// マスクに従って選ぶ。if の代わりがこれ
+Vector&lt;float&gt; result = Vector.ConditionalSelect(mask, a, b);</code></pre></div>
+<h4 id="s25">ラスタライザに当てはめる</h4>
+<p><strong>横に並んだ8ピクセルを同時に処理する</strong>のが自然な当てはめ方。エッジ関数は x の1次式なので、隣のピクセルとの差は定数(Day 3 の改造課題2でやるインクリメンタル化がそのまま効く)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 事前に用意しておく: [0, 1, 2, 3, 4, 5, 6, 7]
+// 幅は環境で変わるので、決め打ちせず Count から作る。
+private static readonly Vector&lt;float&gt; LaneOffsets = CreateLaneOffsets();
+
+private static Vector&lt;float&gt; CreateLaneOffsets()
+{
+    var values = new float[Vector&lt;float&gt;.Count];
+    for (int i = 0; i &lt; values.Length; i++)
+    {
+        values[i] = i;
+    }
+    return new Vector&lt;float&gt;(values);
+}
+
+// 行の先頭でスカラーの w0 を求めたあと、8ピクセルぶんに展開する
+Vector&lt;float&gt; w0v = new Vector&lt;float&gt;(w0) + LaneOffsets * new Vector&lt;float&gt;(dw0dx);
+Vector&lt;float&gt; w1v = new Vector&lt;float&gt;(w1) + LaneOffsets * new Vector&lt;float&gt;(dw1dx);
+Vector&lt;float&gt; w2v = new Vector&lt;float&gt;(w2) + LaneOffsets * new Vector&lt;float&gt;(dw2dx);
+
+// 3つとも0以上なら内側。ビット積で3条件をまとめる
+Vector&lt;int&gt; inside =
+    Vector.GreaterThanOrEqual(w0v, Vector&lt;float&gt;.Zero) &amp;
+    Vector.GreaterThanOrEqual(w1v, Vector&lt;float&gt;.Zero) &amp;
+    Vector.GreaterThanOrEqual(w2v, Vector&lt;float&gt;.Zero);
+
+// 8ピクセル全部が外側なら、この塊ごと飛ばせる
+if (Vector.EqualsAll(inside, Vector&lt;int&gt;.Zero))
+{
+    continue;
+}</code></pre></div>
+<p><strong>この「8個まとめて外側なら丸ごとスキップ」が地味に効く。</strong> Day 3 の要点5で測ったとおり、バウンディングボックス走査の<strong>約80%は三角形の外側</strong>を判定して捨てているだけなので、そこが8分の1の回数になる。</p>
+<p>難所も正直に書いておく。</p>
+<ul><li><strong>深度バッファへの書き込み</strong>がマスク付きになる。「8ピクセルのうち通ったものだけ書く」ので、読む → 比較 → <code>ConditionalSelect</code> → 書き戻す、という手順になる</li><li><strong>テクスチャの読み込みが SIMD 化しにくい</strong>。8ピクセルがバラバラの場所のテクセルを読むので、連続したメモリアクセスにならない(gather 命令はあるが、素直にスカラーで4回読むほうが速いことも多い)。<strong>Day 8 で測ったバイリニアの +7ms は、SIMD化してもあまり縮まない可能性が高い</strong></li><li>端数(幅で割り切れないピクセル)の処理を忘れない</li></ul>
+<h4 id="s26">進め方の目安</h4>
+<ol><li>まず上の <code>SumSimd</code> を書いて動かす。<code>Vector&lt;float&gt;.Count</code> が自分のCPUでいくつになるか確認する(本付録のコード片は実際にコンパイル・実行して動作を確認済み)</li><li><code>Vector.IsHardwareAccelerated</code> が true か確認する(false ならSIMDが効いていない)</li><li>ラスタライザに手を入れる前に、<strong>必ず1スレッド版の時間を記録</strong>しておく</li><li>マルチスレッド化 → インクリメンタル化 → SIMD の順に進める。<strong>1つ入れるごとに測る</strong>。Day 2 と Day 9 で繰り返し踏んだとおり、効くと思った最適化が効かないことは普通に起きる</li></ol>
+</section>
+<section class="part"><h2 id="s27">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 32〜41 fps(フォン + バイリニア、render 16.8〜21.6 ms。カメラ位置で変動)</li><li>三角形 2,202枚中 1,165枚(53%)をカリング</li><li><code>ObjLoader</code> の検証: 561頂点 / 1024三角形(重複排除が正しく動作)、巻き方向の誤り0、法線の長さ 1.0000、UV範囲 U 0〜4 / V 0〜1、法線自動計算はファイルの法線と最小内積 0.976 で一致、四角形の面と負の索引も正しく解析</li></ul>
+</section>
+<footer class="end">Day 10 objロード、背面カリング、クリッピング / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const R = Raster, M = R.Mat4;
+const blit = (fb, id) => { const c = document.createElement('canvas'); c.width = fb.width; c.height = fb.height; fb.toCanvas(c); const { ctx, w, h } = fit($(id)); const k = Math.min(w / fb.width, h / fb.height); ctx.imageSmoothingEnabled = false; ctx.drawImage(c, (w - fb.width * k) / 2, (h - fb.height * k) / 2, fb.width * k, fb.height * k); };
+
+// ------------------------------------------------------------
+// torus.obj と同じ式で OBJ の文字列を作る(主半径 1.0 / 管半径 0.4 / 分割 32 x 16。面は外から見て反時計回り)
+// ------------------------------------------------------------
+function makeTorusObj() {
+  const U = 32, V = 16, Rm = 1.0, r = 0.4, f6 = (x) => (Math.abs(x) < 5e-7 ? 0 : x).toFixed(6), lines = ['# torus.obj と同じ式でこのページが作ったもの', `# 手続き生成(主半径 ${Rm.toFixed(2)} / 管半径 ${r.toFixed(2)} / 分割 ${U} x ${V})`];
+  const P = [], N = [], T = [];
+  for (let i = 0; i <= U; i++) for (let j = 0; j <= V; j++) {
+    const u = (2 * Math.PI * i) / U, v = (2 * Math.PI * j) / V;
+    P.push(`v ${f6((Rm + r * Math.cos(v)) * Math.cos(u))} ${f6(r * Math.sin(v))} ${f6((Rm + r * Math.cos(v)) * Math.sin(u))}`);
+    T.push(`vt ${f6(i / U)} ${f6(j / V)}`);
+    N.push(`vn ${f6(Math.cos(v) * Math.cos(u))} ${f6(Math.sin(v))} ${f6(Math.cos(v) * Math.sin(u))}`);
+  }
+  lines.push(...P, ...T, ...N);
+  for (let i = 0; i < U; i++) for (let j = 0; j < V; j++) {
+    const a = i * (V + 1) + j + 1, b = a + 1, c = a + V + 1, d = c + 1, t = (k) => `${k}/${k}/${k}`;
+    lines.push(`f ${t(a)} ${t(d)} ${t(c)}`, `f ${t(a)} ${t(b)} ${t(d)}`);
+  }
+  return lines.join('\n');
+}
+const OBJ = makeTorusObj();
+
+// ObjLoader.Load(dedup・normals はこのページだけの切り替え)
+function loadObj(text, { flipV = true, dedup = true, useNormals = true } = {}) {
+  const pos = [], uv = [], nrm = [], vertices = [], indices = [], cache = new Map();
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line[0] === '#') continue;
+    const tk = line.split(/[ \t]+/);
+    if (tk[0] === 'v') pos.push(tk.slice(1, 4).map(Number));
+    else if (tk[0] === 'vt') { const q = tk.slice(1, 3).map(Number); uv.push(flipV ? [q[0], 1 - q[1]] : q); }
+    else if (tk[0] === 'vn') { if (useNormals) nrm.push(tk.slice(1, 4).map(Number)); }
+    else if (tk[0] === 'f') {
+      const face = tk.slice(1).map((t) => {
+        // 1 始まり。負なら末尾からの相対
+        const [p, q, n] = t.split('/').map((s, k) => { if (!s) return -1; const v = Number(s); return v > 0 ? v - 1 : [pos, uv, nrm][k].length + v; });
+        const key = `${p}/${q}/${useNormals ? n : -1}`;
+        if (dedup && cache.has(key)) return cache.get(key);
+        const idx = vertices.length;
+        vertices.push({ pos: pos[p], uv: q >= 0 ? uv[q] : [0, 0], normal: useNormals && n >= 0 ? nrm[n] : [0, 0, 0] });
+        cache.set(key, idx);
+        return idx;
+      });
+      for (let i = 1; i + 1 < face.length; i++) indices.push(face[0], face[i], face[i + 1]);   // 多角形はファンで三角形に
+    }
+  }
+  if (!nrm.length) { // ComputeNormals: 面の法線(外積)を頂点に足して正規化
+    for (const v of vertices) v.normal = [0, 0, 0];
+    for (let i = 0; i + 2 < indices.length; i += 3) {
+      const a = vertices[indices[i]], b = vertices[indices[i + 1]], c = vertices[indices[i + 2]], f = R.cross3(R.sub3(b.pos, a.pos), R.sub3(c.pos, a.pos));
+      for (const v of [a, b, c]) v.normal = v.normal.map((x, k) => x + f[k]);
+    }
+    for (const v of vertices) v.normal = R.norm3(v.normal);
+  }
+  return { mesh: { vertices, indices }, counts: { v: pos.length, vt: uv.length, vn: nrm.length } };
+}
+const TEX = R.Texture.createTestPattern(64, 8);
+
+// ------------------------------------------------------------
+// 1. OBJ を読む
+// ------------------------------------------------------------
+const objLab = { t: 0 };
+$('obj-text').textContent = OBJ.split('\n').slice(0, 8).join('\n') + '\n…\n' + OBJ.split('\n').filter((l) => l.startsWith('f ')).slice(0, 3).join('\n') + '\n…';
+function objDraw() {
+  const { mesh, counts } = loadObj(OBJ, { flipV: segValue('obj-flip') === '1', dedup: segValue('obj-dedup') === '1', useNormals: segValue('obj-normals') === 'file' });
+  const fb = new R.Framebuffer(320, 240), ras = new R.Rasterizer10(fb);
+  fb.clear(R.rgb(10, 12, 20));
+  const cam = R.camera({ position: [0, 2.2, 3.6], target: [0, 0, 0], aspect: 320 / 240 }), vp = R.viewProjection(cam);
+  const light = { ...R.defaultLight(), position: [2.5, 3, 2.5] };
+  R.drawMesh(ras, mesh, M.mul(M.mul(M.rotationX(0.55), M.rotationY(objLab.t * 0.55)), M.scale(1.1)), vp, { mode: 'phong', albedo: [0.9, 0.62, 0.38], light, cam: cam.position, tex: TEX });
+  blit(fb, 'obj-canvas');
+  $('obj-stats').innerHTML = stat('v / vt / vn / f', `${counts.v} / ${counts.vt} / ${counts.vn} / ${mesh.indices.length / 3}`) + stat('できた Mesh の頂点', mesh.vertices.length.toLocaleString()) + stat('三角形', (mesh.indices.length / 3).toLocaleString());
+}
+['obj-dedup', 'obj-flip', 'obj-normals'].forEach((id) => seg(id, objDraw));
+animate($('obj-lab'), (dt) => { objLab.t += Math.max(0, dt); objDraw(); });
+
+// ------------------------------------------------------------
+// 2. 近クリップ面で切る(横から見た図。x = カメラからの奥行き、y = 高さ)
+// ------------------------------------------------------------
+const NEAR = 1;
+const cl = { v: [[-0.6, 0.8], [3.8, 1.6], [2.6, -1.2]], drag: -1 };
+function clipPoly(poly) {
+  const out = [], rows = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length], da = a[0] - NEAR, db = b[0] - NEAR, ain = da >= 0, bin = db >= 0;
+    const name = `${'ABC'[i]} → ${'ABC'[(i + 1) % 3]}`;
+    // 本文の表と同じ「始点 → 終点」で場合分け。reference のコードは各辺で「始点が内なら始点、跨げば交点」を出すので、終点は次の辺で出る
+    if (ain) out.push(a);
+    let cross = null;
+    if (ain !== bin) { const t = da / (da - db); cross = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; out.push(cross); }
+    rows.push([name, ain ? '内' : '外', bin ? '内' : '外', ain && bin ? '終点' : ain ? '交点' : bin ? '交点と終点' : '何も出さない']);
+  }
+  return { out, rows };
+}
+function clDraw() {
+  const { ctx, w, h } = fit($('cl-canvas'));
+  const X0 = -1.8, X1 = 5, Y0 = -2.2, Y1 = 2.2, X = (d) => 10 + ((d - X0) / (X1 - X0)) * (w - 20), Y = (y) => h / 2 - (y / (Y1 - Y0)) * (h - 20);
+  cl.map = { X, Y, X0, X1, Y0, Y1 };
+  // カメラと視野(90 度)
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(X1), Y(X1)); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(X1), Y(-X1)); ctx.stroke();
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(X(0), Y(0), 5, 0, Math.PI * 2); ctx.fill(); ctx.font = '11px sans-serif'; ctx.fillText('カメラ', X(0) - 14, Y(0) + 18);
+  ctx.fillStyle = 'rgba(255,80,80,0.08)'; ctx.fillRect(0, 0, X(NEAR), h);
+  ctx.setLineDash([5, 4]); ctx.strokeStyle = tok('--muted'); ctx.beginPath(); ctx.moveTo(X(NEAR), 0); ctx.lineTo(X(NEAR), h); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--muted'); ctx.fillText('near', X(NEAR) + 4, 14); ctx.fillText('外(切り落とす)', 6, 14);
+  const { out, rows } = clipPoly(cl.v);
+  if (out.length >= 3) { ctx.fillStyle = 'rgba(240,170,60,0.55)'; ctx.beginPath(); out.forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.closePath(); ctx.fill(); }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.beginPath(); cl.v.forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.closePath(); ctx.stroke(); ctx.lineWidth = 1;
+  out.forEach((p) => { ctx.fillStyle = tok('--warn'); ctx.fillRect(X(p[0]) - 3, Y(p[1]) - 3, 6, 6); });
+  cl.v.forEach((p, i) => { ctx.fillStyle = p[0] >= NEAR ? tok('--good') : tok('--expl'); ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 8, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#000'; ctx.fillText('ABC'[i], X(p[0]) - 4, Y(p[1]) + 4); });
+  $('cl-table').innerHTML = `<table style="font-size:12.5px;white-space:nowrap"><thead><tr><th>辺</th><th>始点</th><th>終点</th><th>出すもの</th></tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  $('cl-stats').innerHTML = stat('切ったあとの頂点', out.length) + stat('ファンで作る三角形', Math.max(0, out.length - 2)) + stat('カメラの後ろの頂点', cl.v.filter((p) => p[0] <= 0).length);
+}
+{
+  const cv = $('cl-canvas');
+  const at = (e) => { const r = cv.getBoundingClientRect(), { X0, X1, Y0, Y1 } = cl.map, w = r.width, h = r.height; return [X0 + ((e.clientX - r.left - 10) / (w - 20)) * (X1 - X0), (-(e.clientY - r.top - h / 2) / (h - 20)) * (Y1 - Y0)]; };
+  cv.addEventListener('pointerdown', (e) => { const q = at(e); cl.drag = cl.v.findIndex((p) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.35); if (cl.drag >= 0) cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => { if (cl.drag < 0) return; const q = at(e); cl.v[cl.drag] = [Math.min(4.8, Math.max(-1.6, q[0])), Math.min(2, Math.max(-2, q[1]))]; clDraw(); });
+  cv.addEventListener('pointerup', () => { cl.drag = -1; });
+}
+
+// ------------------------------------------------------------
+// 3. マイルストーンのシーン
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer10(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const MESH = { model: loadObj(OBJ).mesh, sphere: R.Mesh.sphere(20, 28), cube: R.Mesh.cube(), marker: R.Mesh.sphere(6, 10), floor: R.Mesh.plane(3.6, 5, 1) };
+const sc = { t: 0, ms: 0, fps: 0, n: 0, acc: 0 };
+function render(t) {
+  ras.stats = { tested: 0, filled: 0, triangles: 0, rejected: 0 }; ras.resetStatistics();
+  ras.clip = segValue('sc10-clip') === '1';
+  fb.clear(R.rgb(10, 12, 20)); ras.depthBuffer.clear();
+  const k = Number(segValue('sc10-cam')), orbit = t * 0.22, dist = (5.4 + Math.sin(t * 0.5)) * k;
+  const cam = R.camera({ position: [Math.sin(orbit) * dist, (2.4 + Math.sin(t * 0.37) * 0.5) * (k < 1 ? 0.6 : 1), Math.cos(orbit) * dist], target: [0, 0.95, 0], aspect: W / H });
+  const light = { ...R.defaultLight(), position: [Math.cos(t * 0.7) * 3.4, 2.8, Math.sin(t * 0.7) * 3.4] };
+  const vp = R.viewProjection(cam), o = { mode: segValue('sc10-mode'), light, cam: cam.position, tex: segValue('sc10-tex') === '1' ? TEX : null, wire: segValue('sc10-wire') === '1' };
+  // 床は片面なのでカリングしない
+  ras.cull = 'none';
+  R.drawMesh(ras, MESH.floor, M.identity(), vp, { ...o, albedo: [0.72, 0.75, 0.82] });
+  ras.cull = segValue('sc10-cull');
+  R.drawMesh(ras, MESH.model, [M.scale(0.85), M.rotationX(0.55), M.rotationY(t * 0.55), M.translation(0, 1.05, 0)].reduce((a, b) => M.mul(a, b)), vp, { ...o, albedo: [0.9, 0.62, 0.38] });
+  R.drawMesh(ras, MESH.cube, [M.scale(0.32), M.rotationY(t * 1.3), M.rotationZ(t * 0.7), M.translation(2.4, 0.5, 0), M.rotationY(t * 0.6)].reduce((a, b) => M.mul(a, b)), vp, { ...o, albedo: [0.42, 0.72, 0.55] });
+  R.drawMesh(ras, MESH.sphere, [M.scale(0.36), M.translation(2.4, 0.5, 0), M.rotationY(t * 0.6 + Math.PI)].reduce((a, b) => M.mul(a, b)), vp, { ...o, albedo: [0.45, 0.55, 0.92] });
+  R.drawMesh(ras, MESH.marker, M.mul(M.scale(0.1), M.translation(...light.position)), vp, { ...o, albedo: [1, 1, 1], emissive: true, tex: null });
+  if (segValue('sc10-depth') === '1') {
+    const dep = ras.depthBuffer.depth;
+    for (let i = 0; i < dep.length; i++) { const z = dep[i]; if (z >= 1) continue; const d = cam.near / (1 - (z * (cam.far - cam.near)) / cam.far), s = 1 - Math.min(1, Math.max(0, (d - 1.5) / 9.5)); fb.pixels[i] = R.rgbF(s, s, s); }
+  }
+}
+const MODE_JP = { flat: 'フラット', gouraud: 'グーロー', phong: 'フォン' };
+function scDraw() {
+  const t0 = performance.now();
+  render(sc.t);
+  sc.ms = sc.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('sc10-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  $('sc10-title').textContent = `Day10 - ソフトラスタライザ完成  ${sc.fps.toFixed(1)} fps | ${ras.drawn} 描画 / ${ras.culled} カリング | render ${sc.ms.toFixed(2)} ms | ${MODE_JP[segValue('sc10-mode')]} | 背面カリング:${segValue('sc10-cull') === 'back' ? 'ON' : 'OFF'}`;
+  $('sc10-stats').innerHTML = stat('描画', ras.drawn.toLocaleString()) + stat('カリング', ras.culled.toLocaleString()) + stat('塗った画素', ras.stats.filled.toLocaleString()) + stat('render(このページ)', `${sc.ms.toFixed(2)} ms`);
+}
+['sc10-cull', 'sc10-mode', 'sc10-tex', 'sc10-depth', 'sc10-wire', 'sc10-clip', 'sc10-cam', 'sc10-play'].forEach((id) => seg(id, scDraw));
+animate($('sc10-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('sc10-play') === '1') sc.t += dt;
+  sc.n++; sc.acc += dt; if (sc.acc >= 0.5) { sc.fps = sc.n / sc.acc; sc.n = 0; sc.acc = 0; }
+  scDraw();
+});
+function narrow() { $('obj-grid').style.gridTemplateColumns = $('obj-grid').clientWidth < 520 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'; }
+window.addEventListener('resize', () => { narrow(); clDraw(); });
+narrow(); objDraw(); clDraw(); scDraw();
+})();
+</script>
+</body>
+</html>

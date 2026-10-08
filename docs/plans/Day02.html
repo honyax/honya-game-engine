@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 02 線分描画(Bresenham)</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ラスタライズ = 連続的な図形を、格子の上の点に決め直す作業</a></li><li class="l3"><a href="#s5">2. 素直な発想 = DDA。ただし「長い方の軸」を主軸にする</a></li><li class="l3"><a href="#s6">3. Bresenham = 誤差を整数で持ち回る</a></li><li class="l3"><a href="#s7">4. 8オクタント問題と、それを消す一般形</a></li><li class="l3"><a href="#s8">5. 実測1: DDA と Bresenham は、完全には一致しない</a></li><li class="l3"><a href="#s9">6. 実測2: 速度差は、測る場所によって「30%」にも「1%」にもなる</a></li><li class="l3"><a href="#s10">7. 画面外は描かないほうがいい(が、今日はまだやらない)</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 線の本数と時間の関係を測る</a></li><li class="l3"><a href="#s16">課題2(中): Cohen–Sutherland で線分をクリッピングする</a></li><li class="l3"><a href="#s17">課題3(難): 始点と終点を入れ替えると、絵が変わることを確かめる</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 02 / 計画書</p>
+  <h1>線分描画(Bresenham)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ラスタライズ = 連続的な図形を、格子の上の点に決め直す作業</a></li><li class="l3"><a href="#s5">2. 素直な発想 = DDA。ただし「長い方の軸」を主軸にする</a></li><li class="l3"><a href="#s6">3. Bresenham = 誤差を整数で持ち回る</a></li><li class="l3"><a href="#s7">4. 8オクタント問題と、それを消す一般形</a></li><li class="l3"><a href="#s8">5. 実測1: DDA と Bresenham は、完全には一致しない</a></li><li class="l3"><a href="#s9">6. 実測2: 速度差は、測る場所によって「30%」にも「1%」にもなる</a></li><li class="l3"><a href="#s10">7. 画面外は描かないほうがいい(が、今日はまだやらない)</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 線の本数と時間の関係を測る</a></li><li class="l3"><a href="#s16">課題2(中): Cohen–Sutherland で線分をクリッピングする</a></li><li class="l3"><a href="#s17">課題3(難): 始点と終点を入れ替えると、絵が変わることを確かめる</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「線分描画(Bresenham)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>任意の2点を結ぶ線分をピクセル単位で描けるようにして、方眼・放射線・星型・リサージュ曲線が60fpsで動くのを見る。</p>
+<p>Day 1 で作ったのは「ピクセル配列を画面に出す配管」だった。今日からは中身、つまり<strong>「何色をどこに置くか」を決めるアルゴリズム</strong>の話に入る。その最初の一歩が線分で、ここで出てくる「連続的な図形を離散的なピクセルに落とす」という考え方が、Day 3 の三角形、Day 7 のZバッファ、Day 8 のテクスチャまでずっと同じ形で効いてくる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-1 レンダリングパイプライン</a> — <strong>今日の必読</strong>。Phase 1 全体の見取り図。「頂点をどう画面座標にするか」と「画面座標をどうピクセルに塗るか」が分かれていることを掴んでおくと、Day 2〜10 の各回が全体のどこにいるのか迷わなくなる</li><li><a href="https://github.com/ssloy/tinyrenderer/wiki/Lesson-1-Bresenham%E2%80%99s-Line-Drawing-Algorithm">tinyrenderer Lesson 1: Bresenham の線分描画</a> —素朴な実装から順に改良してBresenhamへ辿り着く流れが丁寧。C++だが読み替えは容易</li><li>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch2(概念とレンダリングパイプライン) — 特論A-1と併読</li><li>(任意)<a href="http://members.chello.at/easyfilter/bresenham.html">Alois Zingl: A Rasterizing Algorithm for Drawing Curves</a> —本Dayで使う「8方向を1つのループで書く一般形」の出典。円・楕円・ベジエへの拡張も同じ枠組みで載っている</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. ラスタライズ = 連続的な図形を、格子の上の点に決め直す作業</h3>
+<p>数学の線分は太さがなく、どこまでも細かい実数の座標を持つ。一方フレームバッファは整数座標の格子でしかない。だから線を描くというのは、実際には<strong>「格子のどのマス目を塗れば、その線に一番近く見えるか」を決める問題</strong>になる。</p>
+<p>ここで決めることは2つある。</p>
+<ul><li>どのピクセルを塗るか(今日の主題)</li><li>塗るピクセルをどんな色にするか(Day 4 の属性補間、Day 8 のテクスチャ、Day 9 のシェーディング)</li></ul>
+<p>この2つが分かれている構造は、この先ずっと変わらない。三角形の塗りつぶしも「どのピクセルが三角形の内側か」+「そのピクセルの色は何か」の2段構えになる。</p>
+<h3 id="s5">2. 素直な発想 = DDA。ただし「長い方の軸」を主軸にする</h3>
+<p>線分 (x0,y0)-(x1,y1) の傾きは dy/dx。<strong>x を1進めるたびに y を dy/dx だけ足す</strong>のが一番素直な実装で、DDA(Digital Differential Analyzer)と呼ばれる。</p>
+<p>ただしこれには注意が要る。傾きが急な線(|dy| &gt; |dx|)で x を主軸にすると、x が1進むあいだに y が2以上飛んでしまい、<strong>線に穴が空く</strong>。</p>
+<div class="code"><span class="lang">text</span><pre><code>x を主軸にした急な線       長い方(y)を主軸にした同じ線
+  . o .                      . o .
+  . . .   &lt;- 穴              . o .
+  o . .                      o . .
+  . . .   &lt;- 穴              o . .</code></pre></div>
+<p>なので原則は「<strong>長い方の軸を1ずつ進め、短い方は進むか留まるかを選ぶ</strong>」。この原則は Bresenham でもまったく同じで、両者の違いは「短い方を進めるかどうかの判定を、浮動小数でやるか整数でやるか」だけとも言える。</p>
+<h3 id="s6">3. Bresenham = 誤差を整数で持ち回る</h3>
+<p>DDA が毎ピクセル浮動小数の加算と丸めをするのに対して、Bresenham は<strong>「理想の直線から今どれだけ縦にズレているか」を誤差として持ち回り、そのズレが半ピクセルを超えたら短い軸を1進める</strong>。</p>
+<p>素直に書くと誤差は dy/dx という分数になるが、全体を dx 倍しておけば分母が消えて整数だけで済む。さらに「0.5 と比べる」判定も、両辺を2倍すれば小数が消える。だから実装に出てくるのは <code>err * 2</code> という一見唐突な式で、これは<strong>分数と小数を消すために全体をスケールした結果</strong>でしかない。</p>
+<p>この「割りたくないので全体に分母を掛けておく」「0.5と比べたくないので2倍する」という手口は、ラスタライザ全体で何度も出てくる定石。Day 3 のエッジ関数でも同じことをする。</p>
+<h3 id="s7">4. 8オクタント問題と、それを消す一般形</h3>
+<p>線の向きは「右/左」×「上/下」×「緩い/急」で8通り(8オクタント)あり、素朴に書くと場合分けだらけになる。本Dayの実装はこれを次の2手で消している。</p>
+<ul><li><code>dx</code> を正、<code>dy</code> を<strong>負</strong>の絶対値にそろえ、進む向きは <code>sx</code> / <code>sy</code>(±1)に追い出す</li><li>x 方向と y 方向の判定を同じ <code>err</code> 1つで見る(両方成立したら斜めに1歩進む = 45度に近い線)</li></ul>
+<div class="code"><span class="lang">csharp</span><pre><code>int dx =  Math.Abs(x1 - x0);
+int dy = -Math.Abs(y1 - y0);   // 符号を反転させておくのが定石
+int sx = x0 &lt; x1 ? 1 : -1;
+int sy = y0 &lt; y1 ? 1 : -1;
+int err = dx + dy;
+
+while (true)
+{
+    SetPixel(x0, y0, color);
+    if (x0 == x1 &amp;&amp; y0 == y1) break;   // 終点も塗ってから抜ける
+
+    int e2 = err * 2;
+    if (e2 &gt;= dy) { err += dy; x0 += sx; }
+    if (e2 &lt;= dx) { err += dx; y0 += sy; }
+}</code></pre></div>
+<p><strong>これで8方向すべてが1つのループで描ける</strong>のが一般形のありがたみ。水平線(dy = 0)と垂直線(dx = 0)も特別扱いなしにそのまま通る。本Dayのデモで方眼を描いているのは見た目のためだけでなく、この退化ケースの動作確認を兼ねている。</p>
+<h3 id="s8">5. 実測1: DDA と Bresenham は、完全には一致しない</h3>
+<p>「どちらも同じ線を描くのだから結果は同じはず」と思いたくなるが、実際は違う。本Dayの実装で 23,600本(全方向 + ランダム)を描いて1ピクセルずつ比べた結果:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>比較</th><th>結果が違う線</th><th>違うピクセル数</th></tr></thead>
+<tbody>
+<tr><td>Bresenham vs DDA</td><td>4,094本(17.3%)</td><td>29,030 px(総描画 6,120,075 px の <strong>0.474%</strong>)</td></tr>
+</tbody>
+</table></div>
+<p>線の17%で差が出るが、ずれるのは1本あたり数ピクセル。目で見て分かる差ではない。</p>
+<p><strong>ずれの原因は DDA 側にある。</strong> 例えば (320,240)-(620,241) は x=470 のちょうど中間でy が 240.5 になる引き分けのケースだが、DDA は <code>stepY = 1/300</code> を150回足し込むため累積誤差で 240.49999… に着地し、四捨五入で 240 に落ちる。整数だけで進む Bresenham は誤差が積もらないので、厳密計算どおり 241 を選ぶ。</p>
+<p><strong>「誤差が累積する」という言葉の意味が、そのまま絵の1ピクセルとして出てくる場所</strong>で、Bresenham を使う理由の本命はここ。速度ではなく、<strong>同じ入力なら必ず同じ結果になること</strong>にある。</p>
+<div class="inject"><figure class="lab" id="ln-lab">
+  <div class="lab-head">
+    <h3>1本の線を拡大して見る — Bresenham と DDA(要点2〜5、改造課題3)</h3>
+    <span class="tag">reference の Framebuffer.cs(DrawLineBresenham の一般形と、double で足し込む DrawLineDda)を JS に移し、640x480 の画面の一部を拡大して 1 マス = 1 ピクセルで描いたもの。丸い点(始点と終点)はドラッグで動かせる。細い線が理想の直線。両方を重ねると、どちらか片方だけが塗ったマスに印が付く。下の表は Bresenham の 1 歩ごとの err と e2。「いつも x を主軸にする」と「始点と終点を入れ替える」はこのページだけの切り替え</span>
+  </div>
+  <div class="stage"><canvas id="ln-canvas" style="width:100%;aspect-ratio:8/5;height:auto;max-height:440px;touch-action:none" aria-label="拡大した方眼の上に、線を構成するピクセルが並ぶ。端点はドラッグできる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">例</span>
+      <div class="seg" id="ln-preset"><button data-v="gentle" aria-pressed="true">緩い線</button><button data-v="steep" aria-pressed="false">急な線</button><button data-v="tie" aria-pressed="false">引き分け(320,240)-(620,241)</button></div>
+    </div>
+    <div class="ctl"><span class="label">描き方</span>
+      <div class="seg" id="ln-algo"><button data-v="both" aria-pressed="true">両方を重ねる</button><button data-v="bres" aria-pressed="false">Bresenham</button><button data-v="dda" aria-pressed="false">DDA</button></div>
+    </div>
+    <div class="ctl"><span class="label">壊してみる(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ln-axis"><button data-v="long" aria-pressed="true">長い方を主軸(reference)</button><button data-v="x" aria-pressed="false">いつも x を主軸(DDA)</button></div><div class="seg" id="ln-dir"><button data-v="ab" aria-pressed="true">A → B</button><button data-v="ba" aria-pressed="false">B → A(課題3)</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ln-stats"></div><pre id="ln-console" style="margin:10px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s9">6. 実測2: 速度差は、測る場所によって「30%」にも「1%」にもなる</h3>
+<p>同じ23,600本を20回ずつ描いた実測(Release / .NET 10):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>測り方</th><th>Bresenham</th><th>DDA</th><th>差</th></tr></thead>
+<tbody>
+<tr><td>座標計算のみ(SetPixelを呼ばない)</td><td>0.40〜0.44 us/本</td><td>0.53〜0.65 us/本</td><td><strong>Bresenhamが25〜30%速い</strong></td></tr>
+<tr><td>実際に描く(SetPixelあり)</td><td>0.552 us/本 (2.13 ns/px)</td><td>0.560 us/本 (2.16 ns/px)</td><td><strong>ほぼ差なし(1〜2%)</strong></td></tr>
+</tbody>
+</table></div>
+<p>アルゴリズム単体では確かに Bresenham が速い。しかし実際に描くと差がほとんど消える。理由は、<strong>支配的なコストが座標計算ではなく <code>SetPixel</code>(範囲チェック + メモリ書き込み)側</strong>にあるから。1ピクセル約2.1nsのうち大半をそちらが食っているので、計算を3割速くしても全体は動かない。</p>
+<p>これは「ボトルネックでない場所を最適化しても全体は速くならない」という、プロファイリングの一番基本的な教訓そのもの。<strong>Bresenham を採用する理由は現代では速度ではなく、整数演算の決定性と、この考え方が後々まで応用が効くこと</strong>だと理解しておくとよい。</p>
+<p>なお、この「主軸を1ずつ進め、従軸を誤差で選ぶ」構造は、この先三角形のスキャンライン走査、ボクセルのレイ走査(DDA traversal)、ミップマップの選択などに姿を変えて何度も再登場する。</p>
+<h3 id="s10">7. 画面外は描かないほうがいい(が、今日はまだやらない)</h3>
+<p><code>SetPixel</code> が範囲外を黙って捨てるので、画面外に伸びる線を渡しても落ちはしない。ただし<strong>ループ自体は画面外でも回り続ける</strong>ので、長さ5000ピクセルの線を渡せば1ピクセルも見えないのに5000回ループする。</p>
+<p>正しい対処は、描く前に線分を画面の矩形で切り詰めること(Cohen–Sutherland クリッピング)。本Dayのデモは放射線の3本に1本をわざと画面外まで伸ばして、この無駄を実演している。実装は改造課題2に回した。Day 10 でやる「視錐台クリッピング」は次元が上がるだけで発想は同じなので、ここで2Dの形を手で書いておくと後が楽になる。</p>
+<div class="inject"><figure class="lab" id="dm-lab">
+  <div class="lab-head">
+    <h3>線分デモ4種 — 方眼・放射線・星・リサージュ(要点4・6・7、Space キー)</h3>
+    <span class="tag">reference の GameWindow.cs(Render、DrawGrid、DrawFan、DrawStar、DrawLissajous、HueColor)を JS に移して 640x480 に描いたもの。1 フレームに描く線は 236 本。render はこのページで測った値(JS なので reference の 0.17ms とは違う)。「画面外で回ったループ」は SetPixel が範囲外として捨てた回数。長い放射線の半径 5000 は改造課題2の条件で、このページだけ</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="dm-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="dm-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="紺色の方眼の上で、虹色の放射線と星とリサージュ曲線が動いている"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">線の描き方(Space)</span>
+      <div class="seg" id="dm-algo"><button data-v="bres" aria-pressed="true">Bresenham</button><button data-v="dda" aria-pressed="false">DDA</button></div>
+    </div>
+    <div class="ctl"><span class="label">長い放射線の半径(このページだけ)と動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="dm-radius"><button data-v="340" aria-pressed="true">340(reference)</button><button data-v="5000" aria-pressed="false">5000(課題2)</button></div><div class="seg" id="dm-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dm-stats"></div></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<p>Day 1 の完全コピー + 以下。ソース差分は <strong>+336行 / -37行</strong>(うち半分ほどが日本語コメント)。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Day02.csproj</code></td><td>変更(コメントのみ)</td><td>Day01 → Day02 の記述と <code>RootNamespace</code> を更新</td></tr>
+<tr><td><code>Framebuffer.cs</code></td><td><strong>+163行</strong> + namespace 1行</td><td>線分描画の追加。今日の主役</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>+170 / -34行 + namespace 1行</td><td>Day 1 のグラデーション+四角を、線分デモ4種に差し替え。Render時間の計測とSpaceキーを追加</td></tr>
+<tr><td><code>Program.cs</code></td><td>namespace 1行のみ</td><td>中身は Day 1 と同じ</td></tr>
+</tbody>
+</table></div>
+<p><strong>Day 1 → Day 2 は Phase の境目</strong>(Phase 0 → Phase 1)なので、名前空間が<code>Framebuffer</code> から <code>SoftwareRasterizer</code> に変わる。差分に出る namespace 行はそのため。Phase の中では名前空間を変えないので、Day 2 以降の差分にはこの行は出てこない。</p>
+<p><code>Framebuffer.cs</code> に増えたAPI:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メソッド</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>DrawLine</code></td><td>線分描画の入口。<code>UseDdaLine</code> で下の2つを切り替える</td></tr>
+<tr><td><code>DrawLineBresenham</code></td><td><strong>今日の本命</strong>。整数のみで完結する一般形</td></tr>
+<tr><td><code>DrawLineDda</code></td><td>比較・学習用の素朴な実装(Day 3 以降は使わない)</td></tr>
+<tr><td><code>DrawPolyline</code></td><td>折れ線 / 閉じた多角形。中身は <code>DrawLine</code> を呼ぶだけ</td></tr>
+<tr><td><code>UseDdaLine</code></td><td>実行中に切り替えるためのフラグ。Day 3 で消す</td></tr>
+</tbody>
+</table></div>
+<p><code>GameWindow.cs</code> のデモ4種(いずれも <code>DrawLine</code> / <code>DrawPolyline</code> だけでできている):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メソッド</th><th>描くもの</th><th>確認したいこと</th></tr></thead>
+<tbody>
+<tr><td><code>DrawGrid</code></td><td>32px間隔の方眼</td><td>水平線 / 垂直線(退化ケース)が正しいか</td></tr>
+<tr><td><code>DrawFan</code></td><td>回転する放射線36本</td><td>8オクタント全部が描けているか / 画面外へのはみ出し</td></tr>
+<tr><td><code>DrawStar</code></td><td>回転する星型多角形</td><td>閉じた折れ線が繋がるか</td></tr>
+<tr><td><code>DrawLissajous</code></td><td>リサージュ曲線(160分割)</td><td>曲線を折れ線で近似する割り切り</td></tr>
+</tbody>
+</table></div>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>Day02.csproj</code>(コメントだけなので流し読みでよい)</li><li><code>Framebuffer.cs</code> — <code>DrawLine</code> → <code>DrawLineBresenham</code> → <code>DrawLineDda</code> → <code>DrawPolyline</code> の順に追加。<strong>ここで一度ビルドを通し、Day 1 のデモのままでも動くことを確認しておく</strong>と切り分けが楽</li><li><code>GameWindow.cs</code> — <code>Render</code> を書き換え、<code>DrawGrid</code> から順に足していく。1つ足すごとに実行すると、どれが壊れているかすぐ分かる</li><li>最後に <code>Run</code> の計測部分と <code>OnKeyDown</code> の Space 対応</li></ol>
+<p>差分の確認(bin/obj が混ざると読みづらいので、ファイル単位で見るのがおすすめ):</p>
+<div class="code"><pre><code>git diff --no-index reference/Day01/Framebuffer.cs reference/Day02/Framebuffer.cs
+git diff --no-index reference/Day01/GameWindow.cs  reference/Day02/GameWindow.cs</code></pre></div>
+<p>写経先は <code>work/SoftwareRasterizer/</code>(Day 2〜10 はここを育て続ける。Dayごとにフォルダは分けない)。Day 1 で書いた <code>Framebuffer.cs</code> と <code>GameWindow.cs</code> を <code>work/Framebuffer/</code> からコピーして始める(手順は <code>work/SoftwareRasterizer/Program.cs</code> のコメントに書いてある)。</p>
+<p>自分のコードとの差分は:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day02 work/SoftwareRasterizer</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day02 -c Release</code></pre></div>
+<p>以下がすべて満たされていれば完成。</p>
+<ol><li>暗い紺色の背景に、32px間隔の<strong>方眼</strong>が全面に引かれている(縦横とも途切れがない)</li><li>画面左上あたりを中心に、<strong>虹色の放射線36本がゆっくり回転</strong>している。どの角度でも線が途切れず、消える向きが無い</li><li>放射線のうち<strong>3本に1本は長く伸びて画面外へ突き抜けている</strong>(画面端で自然に切れる)</li><li>画面右上に<strong>星型(五芒星)が回転</strong>しており、5本の線がきちんと閉じている</li><li>画面下半分に<strong>水色のリサージュ曲線</strong>が、形を変えながら滑らかに描かれている</li><li>タイトルバーが <code>Day02 - 線分描画  60.0 fps | Bresenham | render 0.17 ms | Space:切替 Esc:終了</code>のようになっており、<strong>fpsが59〜61</strong>、<strong>render が 0.2ms 前後</strong></li><li><strong>Space</strong> を押すと表示が <code>DDA</code> に変わる。絵はほぼ同じに見える(理論の要点5)</li><li><strong>Esc</strong> または閉じるボタンで終了する</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>急な傾きの線だけ点線になる</strong> → 長い方の軸を主軸にできていない。要点2</li><li><strong>特定の向きの線だけ描かれない/暴走する</strong> → <code>sx</code> / <code>sy</code> の符号か、<code>dy</code> を負にし忘れている。要点4</li><li><strong>方眼の線が1本も出ない、または画面端の線が出ない</strong> → 退化ケース(dx=0 / dy=0)の扱い。要点4</li><li><strong>線の終点が1ピクセル足りない</strong> → <code>SetPixel</code> してから終了判定する順序。両端を含む閉区間にする</li><li><strong>星が閉じない</strong> → <code>DrawPolyline</code> の <code>closed</code> 処理(最後の点と最初の点を結ぶ)</li><li><strong>無限ループでフリーズする</strong> → 終了判定が <code>x0 == x1 &amp;&amp; y0 == y1</code> になっているか。片方だけの判定にすると、その軸を追い越したときに永久に止まらない</li><li><strong>render が 1ms を大きく超える</strong> → Debug ビルドで動かしている。FPSや時間を見るときは <code>-c Release</code></li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Space</code></td><td>「線分デモ4種」の「Bresenham / DDA」</td><td>絵はほぼ同じ。1 本を拡大して比べるなら「1本の線を拡大して見る」の「両方を重ねる」</td></tr>
+<tr><td>(キーなし)</td><td>「1本の線を拡大して見る」の「引き分け」</td><td>x = 470 で DDA だけが 240 を選ぶ(Bresenham は 241)</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「いつも x を主軸」と「B → A」</td><td>急な線に穴が空く。始点と終点を入れ替えると塗る画素が変わることがある(課題3)</td></tr>
+<tr><td>(キーなし)</td><td>「線分デモ4種」の半径 5000</td><td>見える絵は同じなのに、画面外で回るループが桁違いに増える(要点7、課題2)</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day02 の Framebuffer.cs(DrawLineBresenham、DrawLineDda、DrawPolyline、SetPixel)と GameWindow.cs(Render と4つのデモ)を JS に移したもの。DDA は reference と同じく double で足し込むので、引き分けの例は本文と同じ結果になる。render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 線の本数と時間の関係を測る</h3>
+<p><code>FanSpokes</code> を 36 → 360 に、<code>LissajousSegments</code> を 160 → 1600 に増やして、タイトルバーの render 時間がどう変わるか測る。</p>
+<ul><li>線の本数を10倍にしたら、時間も10倍になったか?</li><li>ならなかったとしたら、増えているのは「線の本数」ではなく何か(ヒント: 総ピクセル数)</li><li><strong>Space で DDA に切り替えると時間はどれだけ増えるか。</strong> ほとんど変わらないはず。なぜ変わらないのかを要点6の表を見て自分の言葉で説明できれば、この課題は達成</li></ul>
+<h3 id="s16">課題2(中): Cohen–Sutherland で線分をクリッピングする</h3>
+<p>画面外へ伸びる線を、描く前に画面矩形で切り詰める。</p>
+<ol><li>点の位置を画面に対して4bitのコード(上/下/左/右)で表す <code>ComputeOutCode</code> を書く</li><li>両端のコードが両方0なら完全に画面内(そのまま描く)、AND が0でなければ完全に画面外(何も描かない)、それ以外は交点を求めて端点を詰める、を繰り返す</li><li><code>DrawFan</code> の <code>radius</code> を 340 → 5000 に変えても render 時間が変わらないことを確認する</li></ol>
+<p>クリッピングを入れると <code>SetPixel</code> の範囲チェックが不要になる場面が増える(= 速くなる)。ただし<strong>チェックを外すのはクリッピングが完璧に正しいときだけ</strong>で、1つでも漏れがあると配列外アクセスで即クラッシュする。この緊張感も含めて体験しておくとよい。Day 10 の視錐台クリッピングは、これの次元が上がっただけのもの。</p>
+<h3 id="s17">課題3(難): 始点と終点を入れ替えると、絵が変わることを確かめる</h3>
+<p>同じ線分を <code>DrawLine(A, B)</code> と <code>DrawLine(B, A)</code> で描き、結果を1ピクセルずつ比較する小さな検証コードを書く。</p>
+<p>実測では <strong>23,600本のうち 7,905本(33.5%)で結果が変わる</strong>(差分は合計 60,606 px)。つまり Bresenham の一般形は<strong>始終点の入れ替えに対して対称ではない</strong>。</p>
+<ol><li>なぜ対称でないのか。誤差の初期値 <code>err = dx + dy</code> と、理想の直線がピクセル中心のちょうど中間を通る「引き分け」のケースを考える</li><li>どうすれば対称にできるか。一番安直な手は「常に x が小さい方を始点にする」正規化だが、これで本当に全部のケースが対称になるか?(垂直線はどうする?)</li><li>そもそも対称であるべきか。三角形を3辺の線で描くとき、隣り合う三角形が共有する辺を互いに逆向きに描くと、<strong>辺が1ピクセルずれて隙間が見える</strong>ことがある。Day 3 以降の「隙間なく敷き詰める」話に直結する問題なので、ここで一度考えておく価値がある</li></ol>
+<p>余力があれば、<strong>太さのある線</strong>(平行に数本引く / 円を掃く)か、<strong>アンチエイリアスされた線</strong>(Xiaolin Wu のアルゴリズム。カバー率で色を薄める)にも挑戦してみるとよい。後者は「1ピクセルを塗る/塗らないの2値ではなく、どれだけ覆っているかで濃さを決める」という、Day 8 のバイリニア補間や後のMSAAに繋がる発想の入口になる。</p>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 59〜61 fps、render 0.17〜0.19 ms(1フレームあたり236本の線を描画)</li></ul>
+</section>
+<footer class="end">Day 02 線分描画(Bresenham) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const W = 640, H = 480;
+
+// ---------------- Framebuffer.cs の線分(座標の列を返す形にしたもの) ----------------
+// Bresenham の一般形。dy を負にそろえ、err 1 つで x と y の両方を判定する。trace に 1 歩ごとの err を残す
+function bresenham(x0, y0, x1, y1, plot, trace) {
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  for (;;) {
+    plot(x0, y0);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = err * 2, px = x0, py = y0, pe = err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+    if (trace) trace.push([px, py, pe, e2, x0 !== px, y0 !== py]);
+  }
+}
+// DDA。長い方の軸の長さを steps にして、double で足し込む(xOnly はこのページだけ: いつも x を主軸にする)
+function dda(x0, y0, x1, y1, plot, xOnly) {
+  const dx = x1 - x0, dy = y1 - y0;
+  const steps = xOnly ? Math.abs(dx) : Math.max(Math.abs(dx), Math.abs(dy));
+  if (steps === 0) { plot(x0, y0); return; }
+  const stepX = dx / steps, stepY = dy / steps;
+  let x = x0, y = y0;
+  for (let i = 0; i <= steps; i++) { plot(Math.trunc(x + 0.5), Math.trunc(y + 0.5)); x += stepX; y += stepY; }
+}
+
+// ------------------------------------------------------------
+// 1. 1本の線を拡大して見る
+// ------------------------------------------------------------
+const PRESETS = {
+  gentle: { a: [3, 4], b: [28, 13], view: [0, 0, 32, 20] },
+  steep: { a: [12, 1], b: [19, 18], view: [0, 0, 32, 20] },
+  // 本文の例。x = 470 のちょうど真ん中で y が 240.5 になる。拡大するのは x = 455〜486 のあたり
+  tie: { a: [320, 240], b: [620, 241], view: [455, 231, 32, 20] },
+};
+const ln = { ...structuredClone(PRESETS.gentle) };
+function lnPixels() {
+  let [x0, y0] = ln.a, [x1, y1] = ln.b;
+  if (segValue('ln-dir') === 'ba') [x0, y0, x1, y1] = [x1, y1, x0, y0];
+  const B = new Map(), D = new Map(), trace = [], other = new Map();
+  bresenham(x0, y0, x1, y1, (x, y) => B.set(`${x},${y}`, [x, y]), trace);
+  // 逆向きの Bresenham(課題3の比較用)
+  bresenham(x1, y1, x0, y0, (x, y) => other.set(`${x},${y}`, 1));
+  if (segValue('ln-axis') === 'x') dda(x0, y0, x1, y1, (x, y) => D.set(`${x},${y}`, [x, y]), true);
+  else dda(x0, y0, x1, y1, (x, y) => D.set(`${x},${y}`, [x, y]), false);
+  return { B, D, trace, other, x0, y0 };
+}
+function lnDraw() {
+  const { B, D, trace, other } = lnPixels(), algo = segValue('ln-algo');
+  const [vx, vy, vw, vh] = ln.view;
+  const { ctx, w, h } = fit($('ln-canvas')), c = Math.min(w / vw, h / vh), ox = (w - c * vw) / 2, oy = (h - c * vh) / 2;
+  ln.geom = { c, ox, oy };
+  const X = (x) => ox + (x - vx) * c, Y = (y) => oy + (y - vy) * c;
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  for (let i = 0; i <= vw; i++) { ctx.beginPath(); ctx.moveTo(X(vx + i), oy); ctx.lineTo(X(vx + i), oy + vh * c); ctx.stroke(); }
+  for (let j = 0; j <= vh; j++) { ctx.beginPath(); ctx.moveTo(ox, Y(vy + j)); ctx.lineTo(ox + vw * c, Y(vy + j)); ctx.stroke(); }
+  ctx.font = `${Math.max(9, c * 0.32)}px sans-serif`; ctx.fillStyle = tok('--muted');
+  for (let i = 0; i < vw; i += 4) ctx.fillText(String(vx + i), X(vx + i) + 2, oy + vh * c - 3);
+  const inView = (x, y) => x >= vx && x < vx + vw && y >= vy && y < vy + vh;
+  const fill = (x, y, col, inset = 1) => { if (inView(x, y)) { ctx.fillStyle = col; ctx.fillRect(X(x) + inset, Y(y) + inset, c - inset * 2, c - inset * 2); } };
+  if (algo !== 'dda') for (const [x, y] of B.values()) fill(x, y, tok('--accent'));
+  if (algo === 'dda') for (const [x, y] of D.values()) fill(x, y, tok('--good'));
+  if (algo === 'both') for (const [k, [x, y]] of D) if (!B.has(k)) fill(x, y, tok('--good'));
+  // 片方だけが塗ったマスに印
+  if (algo === 'both') {
+    ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2;
+    const mark = (x, y) => { if (inView(x, y)) ctx.strokeRect(X(x) + 2, Y(y) + 2, c - 4, c - 4); };
+    for (const [k, [x, y]] of B) if (!D.has(k)) mark(x, y);
+    for (const [k, [x, y]] of D) if (!B.has(k)) mark(x, y);
+  }
+  // 理想の直線(画素の中心どうしを結ぶ)と端点
+  ctx.save(); ctx.beginPath(); ctx.rect(ox, oy, vw * c, vh * c); ctx.clip();   // 拡大している範囲の外には出さない
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(ln.a[0] + 0.5), Y(ln.a[1] + 0.5)); ctx.lineTo(X(ln.b[0] + 0.5), Y(ln.b[1] + 0.5)); ctx.stroke();
+  ctx.restore();
+  for (const [p, name] of [[ln.a, 'A'], [ln.b, 'B']]) if (inView(p[0], p[1])) { ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(p[0] + 0.5), Y(p[1] + 0.5), c * 0.32, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#000'; ctx.fillText(name, X(p[0] + 0.5) - 3, Y(p[1] + 0.5) + 4); }
+  let diff = 0; for (const k of B.keys()) if (!D.has(k)) diff++; for (const k of D.keys()) if (!B.has(k)) diff++;
+  let rev = 0; for (const k of B.keys()) if (!other.has(k)) rev++;
+  $('ln-stats').innerHTML = stat('A, B', `(${ln.a.join(',')}) - (${ln.b.join(',')})`) + stat('Bresenham / DDA', `${B.size} / ${D.size} px`) + stat('食い違うマス', diff)
+    + stat('向きを逆にすると変わる', `${rev} px`);
+  // x = 470 の引き分け
+  const tie = segValue('ln-preset') === 'tie' ? `\nx = 470: Bresenham は y = ${[...B.values()].find(([x]) => x === 470)?.[1]}、DDA は y = ${[...D.values()].find(([x]) => x === 470)?.[1]}(DDA は 1/300 を 150 回足して 240.49999… に着地し、四捨五入で 240)` : '';
+  $('ln-console').textContent = `Bresenham の 1 歩ごと(先頭 14 歩):  (x, y)  err  e2 = err*2  → 進んだ軸` + tie + '\n'
+    + trace.slice(0, 14).map(([x, y, e, e2, mx, my]) => `  (${x}, ${y})  err ${String(e).padStart(4)}  e2 ${String(e2).padStart(4)}  → ${mx && my ? 'x と y(斜め)' : mx ? 'x' : 'y'}`).join('\n');
+}
+seg('ln-preset', (v) => { Object.assign(ln, structuredClone(PRESETS[v])); lnDraw(); });
+['ln-algo', 'ln-axis', 'ln-dir'].forEach((id) => seg(id, lnDraw));
+{ // 端点のドラッグ
+  const cv = $('ln-canvas'); let drag = null;
+  const cell = (e) => { const r = cv.getBoundingClientRect(), { c, ox, oy } = ln.geom; return [ln.view[0] + Math.floor((e.clientX - r.left - ox) / c), ln.view[1] + Math.floor((e.clientY - r.top - oy) / c)]; };
+  cv.addEventListener('pointerdown', (e) => { const [x, y] = cell(e); const d = (p) => Math.hypot(p[0] - x, p[1] - y); drag = d(ln.a) <= d(ln.b) ? 'a' : 'b'; if (d(ln[drag]) > 2) { drag = null; return; } cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => { if (!drag) return; const [x, y] = cell(e), [vx, vy, vw, vh] = ln.view; ln[drag] = [Math.min(vx + vw - 1, Math.max(vx, x)), Math.min(vy + vh - 1, Math.max(vy, y))]; lnDraw(); });
+  cv.addEventListener('pointerup', () => { drag = null; });
+}
+window.addEventListener('resize', lnDraw);
+lnDraw();
+
+// ------------------------------------------------------------
+// 2. 線分デモ4種
+// ------------------------------------------------------------
+const pixels = new Uint32Array(W * H), img = new ImageData(W, H), px32 = new Uint32Array(img.data.buffer);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const dm = { t: 0, set: 0, rejected: 0, lines: 0, ms: 0 };
+// ImageData の並び(R, G, B, A をリトルエンディアンで読む = 0xAABBGGRR)で色を持つ
+const rgb = (r, g, b) => (0xFF000000 | (b << 16) | (g << 8) | r) >>> 0;
+function setPixel(x, y, color) { if (x < 0 || y < 0 || x >= W || y >= H) { dm.rejected++; return; } pixels[y * W + x] = color; dm.set++; }
+function drawLine(x0, y0, x1, y1, color) { dm.lines++; const plot = (x, y) => setPixel(x, y, color); if (segValue('dm-algo') === 'dda') dda(x0, y0, x1, y1, plot, false); else bresenham(x0, y0, x1, y1, plot); }
+function drawPolyline(pts, color, closed) { for (let i = 0; i + 1 < pts.length; i++) drawLine(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], color); if (closed) drawLine(pts[pts.length - 1][0], pts[pts.length - 1][1], pts[0][0], pts[0][1], color); }
+function hueColor(h01) {
+  const h = (h01 - Math.floor(h01)) * 6, s = Math.trunc(h), f = h - s, up = Math.trunc(f * 255), down = Math.trunc((1 - f) * 255);
+  return [rgb(255, up, 0), rgb(down, 255, 0), rgb(0, 255, up), rgb(0, down, 255), rgb(up, 0, 255), rgb(255, 0, down)][Math.min(5, s)];
+}
+const round = (v) => Math.round(v);   // Math.Round は偶数丸めだが、ここでは .5 ちょうどがほぼ出ないので同じとみなす
+function renderDemo(t) {
+  dm.set = 0; dm.rejected = 0; dm.lines = 0;
+  pixels.fill(rgb(12, 14, 22));
+  const grid = rgb(34, 38, 52);
+  for (let x = 0; x < W; x += 32) drawLine(x, 0, x, H - 1, grid);
+  for (let y = 0; y < H; y += 32) drawLine(0, y, W - 1, y, grid);
+  { // 放射線 36 本。3 本に 1 本は画面外まで伸びる
+    const cx = W / 4, cy = H / 4, base = t * 0.5, longR = Number(segValue('dm-radius'));
+    for (let i = 0; i < 36; i++) { const a = base + (i * 2 * Math.PI) / 36, r = i % 3 === 0 ? longR : 104; drawLine(cx, cy, cx + round(Math.cos(a) * r), cy + round(Math.sin(a) * r), hueColor(i / 36)); }
+  }
+  { // 星(五芒星)
+    const cx = (W * 3) / 4, cy = H / 4, off0 = -Math.PI / 2 + t * 0.8, v = [];
+    for (let i = 0; i < 5; i++) { const a = off0 + (i * 2 * 2 * Math.PI) / 5; v.push([cx + round(Math.cos(a) * 92), cy + round(Math.sin(a) * 92)]); }
+    drawPolyline(v, rgb(255, 214, 110), true);
+  }
+  { // リサージュ(160 分割)
+    const cx = W / 2, cy = (H * 3) / 4, ax = W / 2 - 24, ay = H / 4 - 24, ph = t * 0.6, p = [];
+    for (let i = 0; i <= 160; i++) { const s = (i / 160) * 2 * Math.PI; p.push([cx + round(Math.sin(3 * s + ph) * ax), cy + round(Math.sin(2 * s) * ay)]); }
+    drawPolyline(p, rgb(120, 216, 255), false);
+  }
+}
+function dmDraw() {
+  const t0 = performance.now();
+  renderDemo(dm.t);
+  dm.ms = dm.ms * 0.9 + (performance.now() - t0) * 0.1;
+  px32.set(pixels); off.getContext('2d').putImageData(img, 0, 0);
+  const { ctx, w, h } = fit($('dm-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  $('dm-title').textContent = `Day02 - 線分描画  ${dm.fps ? dm.fps.toFixed(1) : '0.0'} fps | ${segValue('dm-algo') === 'dda' ? 'DDA' : 'Bresenham'} | render ${dm.ms.toFixed(2)} ms | Space:切替 Esc:終了`;
+  $('dm-stats').innerHTML = stat('線の本数', dm.lines) + stat('塗った画素', dm.set.toLocaleString()) + stat('画面外で回ったループ', dm.rejected.toLocaleString()) + stat('render(このページ)', `${dm.ms.toFixed(2)} ms`);
+}
+['dm-algo', 'dm-radius', 'dm-play'].forEach((id) => seg(id, dmDraw));
+let fN = 0, fT = 0;
+animate($('dm-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('dm-play') === '1') dm.t += dt;
+  fN++; fT += dt; if (fT >= 0.5) { dm.fps = fN / fT; fN = 0; fT = 0; }
+  dmDraw();
+});
+dmDraw();
+})();
+</script>
+</body>
+</html>

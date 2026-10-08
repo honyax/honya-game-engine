@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 05 ベクトル・行列数学の自作(と System.Numerics 比較)</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. なぜ 3x3 ではなく 4x4 なのか — 平行移動が入らないから</a></li><li class="l3"><a href="#s5">2. 規約 — ここを間違えると一日溶ける</a></li><li class="l3"><a href="#s6">3. 合成の順序 = 変換の順序</a></li><li class="l3"><a href="#s7">4. 内積と外積 — 使い道を先に知っておく</a></li><li class="l3"><a href="#s8">5. 頂点座標が int から float になった</a></li><li class="l3"><a href="#s9">6. struct にする理由、readonly にしない理由</a></li><li class="l3"><a href="#s10">7. 実測 — System.Numerics との比較</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 規約を体で確かめる</a></li><li class="l3"><a href="#s16">課題2(中): System.Numerics と比べる</a></li><li class="l3"><a href="#s17">課題3(難): 逆行列を実装する</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 05 / 計画書</p>
+  <h1>ベクトル・行列数学の自作(と System.Numerics 比較)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. なぜ 3x3 ではなく 4x4 なのか — 平行移動が入らないから</a></li><li class="l3"><a href="#s5">2. 規約 — ここを間違えると一日溶ける</a></li><li class="l3"><a href="#s6">3. 合成の順序 = 変換の順序</a></li><li class="l3"><a href="#s7">4. 内積と外積 — 使い道を先に知っておく</a></li><li class="l3"><a href="#s8">5. 頂点座標が int から float になった</a></li><li class="l3"><a href="#s9">6. struct にする理由、readonly にしない理由</a></li><li class="l3"><a href="#s10">7. 実測 — System.Numerics との比較</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 規約を体で確かめる</a></li><li class="l3"><a href="#s16">課題2(中): System.Numerics と比べる</a></li><li class="l3"><a href="#s17">課題3(難): 逆行列を実装する</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「ベクトル・行列数学の自作(と System.Numerics 比較)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><code>Vec2</code> / <code>Vec3</code> / <code>Vec4</code> / <code>Mat4</code> を自作し、図形の「形」と「置き場所」を分離する。図形は原点まわりの単純な形として書き、配置は行列に任せる。</p>
+<p>今日は絵の派手さより<strong>土台</strong>の日。ただし土台の作り方を間違えるとDay 6 以降のすべてが崩れるので、規約(要点2)だけは絶対に押さえること。そして今日の実装は Day 6 でそのまま3Dのモデル行列になる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-3 変換(1) 同次座標による座標変換</a> —<strong>今日と Day 6 の必読</strong>。同次座標がなぜ必要かの理論そのもの。ただし資料は<strong>列ベクトル規約</strong>なので、本リポジトリのコード(行ベクトル規約)とは行列が転置になる。要点2を読んでから資料に当たると混乱しない</li><li><a href="https://www.scratchapixel.com/lessons/mathematics-physics-for-computer-graphics/geometry/points-vectors-and-normals.html">Scratchapixel: Geometry</a> —点・ベクトル・法線の違い(W=1 と W=0 の話)を丁寧に扱っている</li><li><a href="https://learn.microsoft.com/ja-jp/dotnet/api/system.numerics.matrix4x4">System.Numerics.Matrix4x4 のドキュメント</a> —比較対象。本Dayの実装はこれと<strong>同じ規約・同じメモリ配置</strong>にそろえてある</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. なぜ 3x3 ではなく 4x4 なのか — 平行移動が入らないから</h3>
+<p>3x3 行列は<strong>平行移動を表せない</strong>。行列は必ず原点を原点へ写すので、どんな 3x3 行列を掛けても (0,0,0) は動かない。</p>
+<p>そこで次元を1つ増やし、点を (x, y, z, <strong>1</strong>) の4成分で表す(同次座標)。すると 4x4 行列の4行目に平行移動量を置けて、<strong>回転・拡大・平行移動をすべて「行列を掛ける」1つの操作に統一できる</strong>。</p>
+<p>統一できると何が嬉しいか: 変換をいくつ重ねても、事前に行列を掛け合わせて<strong>1つの行列にまとめられる</strong>。頂点が10万個あっても、行列の合成は1回で済む。これが Day 6 で「モデル行列 x ビュー行列 x 投影行列」を1つにまとめられる理由。</p>
+<p>W の使い分けも重要。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>W</th><th>意味</th><th>平行移動の影響</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>位置(点)</td><td><strong>受ける</strong></td></tr>
+<tr><td>0</td><td>方向(ベクトル)</td><td>受けない</td></tr>
+</tbody>
+</table></div>
+<p>法線や光の向きを W=1 で変換すると、平行移動のぶんだけ向きが狂う。グラフィックスで頻出のバグで、Day 9 で実際に気をつけることになる。</p>
+<h3 id="s5">2. 規約 — ここを間違えると一日溶ける</h3>
+<p><strong>本リポジトリは行ベクトル規約を採用する。</strong></p>
+<div class="code"><pre><code>変換後の点 = 点 * 行列        (v' = v * M)</code></pre></div>
+<p>点は「横に寝た 1x4 の行」として扱い、平行移動量は<strong>4行目</strong>(M41〜M43)に入る。これは System.Numerics / XNA / MonoGame / DirectX と同じで、Day 14 で Silk.NET へ移るときそのまま繋がる。</p>
+<p>一方 <strong>OpenGL / GLSL と多くの教科書(特論も)は列ベクトル規約</strong>で、v' = M * v と書き、平行移動量は4列目に入る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>行ベクトル(本リポジトリ)</th><th>列ベクトル(OpenGL / 特論)</th></tr></thead>
+<tbody>
+<tr><td>書き方</td><td>v * M</td><td>M * v</td></tr>
+<tr><td>平行移動の位置</td><td>4行目</td><td>4列目</td></tr>
+<tr><td>合成の順序</td><td><code>Model * View * Proj</code>(左から適用)</td><td><code>Proj * View * Model</code>(右から適用)</td></tr>
+</tbody>
+</table></div>
+<p><strong>2つは互いに転置</strong>の関係にあり、どちらが正しいということはない。ただし混ぜると壊れる。教科書やネットのコードを写すときは、まずどちらの規約かを確認すること。Phase 2 で生 OpenGL に行列を渡すときは、転置するか <code>glUniformMatrix</code> の<code>transpose</code> 引数を true にする必要がある。</p>
+<h3 id="s6">3. 合成の順序 = 変換の順序</h3>
+<p>行ベクトル規約では、<strong>左に書いた変換から順に適用</strong>される。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Mat4.Scale(pulse) * Mat4.RotationZ(angle) * Mat4.Translation(position)
+// 拡大 → 回転 → 移動 の順</code></pre></div>
+<p>行列の積には交換法則が無いので、順序を変えると別物になる。</p>
+<ul><li>「原点で回してから移動」… その場で自転する(普通に欲しいのはこちら)</li><li>「移動してから原点で回す」… 遠くの点を軸にぐるっと公転する</li></ul>
+<p>デモの <code>DrawOrbitSystem</code> はこの性質を逆手に取って、公転と自転を作り分けている。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 子がぶら下がる座標系: 公転半径ぶん移動 → 公転 → 親の変換
+Mat4 childFrame = Translation(半径) * RotationZ(公転角) * parent;
+
+// 子の見た目: 縮小 → 自転 → 上の座標系へ
+DrawTransformed(child, Scale(26) * RotationZ(自転角) * childFrame, null);</code></pre></div>
+<p><strong>親の行列に自分の行列を掛けるだけで階層ができる。</strong> これがそのままDay 22 の Transform コンポーネント(シーングラフ)になる。太陽 - 惑星 - 衛星を2Dでやっているだけで、3Dでも構造は完全に同じ。</p>
+<div class="inject"><figure class="lab" id="mt-lab">
+  <div class="lab-head">
+    <h3>掛ける順序を入れ替える — 拡大・回転・移動(要点1〜3)</h3>
+    <span class="tag">reference の Mat4.cs(行ベクトル規約。Scale、RotationZ、Translation、積、TransformPoint と TransformDirection)を JS に移し(docs/site/rasterizer.js)、単位三角形を 3 つの行列の積で置いたもの。並びは左から順に適用される。灰色の十字が原点で、細い円は三角形の中心が通った跡。矢印は三角形の「上向き」を TransformDirection(W = 0)で変換したもので、W = 1 にすると平行移動まで受けて別の場所を指す(このページだけ)。下の表が合成した行列(平行移動は 4 行目)</span>
+  </div>
+  <div class="stage"><canvas id="mt-canvas" style="width:100%;height:300px" aria-label="原点のまわりで回る三角形と、通った跡"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">合成の順序</span>
+      <div class="seg" id="mt-order"><button data-v="SRT" aria-pressed="true">Scale × Rotation × Translation</button><button data-v="STR" aria-pressed="false">Scale × Translation × Rotation</button><button data-v="TRS" aria-pressed="false">Translation × Rotation × Scale</button></div>
+    </div>
+    <div class="ctl"><span class="label">向きを変換するときの W(このページだけ)</span>
+      <div class="seg" id="mt-w"><button data-v="0" aria-pressed="true">W = 0(TransformDirection)</button><button data-v="1" aria-pressed="false">W = 1(点として)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div id="mt-matrix"></div><div class="stats" id="mt-stats" style="margin-top:8px"></div></div>
+</figure></div>
+<div class="inject"><figure class="lab" id="or-lab">
+  <div class="lab-head">
+    <h3>行列デモ3種 — 脈打つ三角形・市松・公転系(要点3・5、W キー)</h3>
+    <span class="tag">reference の GameWindow.cs(DrawGradientTriangle、DrawBarycentricPattern、DrawOrbitSystem、DrawTransformed、UnitTriangle、UnitSquare)を JS に移して 640x480 に描いたもの(docs/site/rasterizer.js)。1 フレーム 10 枚。render はこのページの値。「子に親の行列を掛けない」と「頂点を int に丸める」はこのページだけの切り替えで、本文の確認ポイントの症状を再現するもの</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="or-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="or-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="脈打つグラデーション三角形、市松の三角形、金色の四角のまわりを公転する三角形"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ワイヤー(W)と動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="or-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤーを重ねる</button></div><div class="seg" id="or-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">壊してみる(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="or-parent"><button data-v="1" aria-pressed="true">子に親を掛ける(reference)</button><button data-v="0" aria-pressed="false">掛けない</button></div><div class="seg" id="or-round"><button data-v="0" aria-pressed="true">float のまま(reference)</button><button data-v="1" aria-pressed="false">頂点を int に丸める</button></div></div>
+    </div>
+  </div>
+</figure></div>
+<h3 id="s7">4. 内積と外積 — 使い道を先に知っておく</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>演算</th><th>式の意味</th><th>この先どこで使うか</th></tr></thead>
+<tbody>
+<tr><td>内積 a・b</td><td>|a||b|cosθ。単位ベクトル同士なら cosθ そのもの</td><td><strong>Day 9 のランバート反射</strong>(面の向きと光の向きの内積 = 明るさ)、Day 10 の背面カリング</td></tr>
+<tr><td>外積 a×b</td><td>両方に垂直なベクトル。長さは平行四辺形の面積</td><td><strong>Day 10 の法線計算</strong>(三角形の2辺の外積 = 面の向き)</td></tr>
+</tbody>
+</table></div>
+<p><strong>Day 3 のエッジ関数は、この外積のZ成分だけを取り出したものだった。</strong> 2次元では「両方に垂直な方向」が画面の手前/奥の1方向しかないので、向きは符号1つで表せて、値は面積そのものになる。<code>Vec2.Cross</code> として今日ちゃんと名前が付いたことになる。</p>
+<p>外積は順序を入れ替えると符号が反転する(a×b = -(b×a))。これが「頂点の巻き方向が面の表裏を決める」ことの数学的な理由。</p>
+<h3 id="s8">5. 頂点座標が int から float になった</h3>
+<p>Day 4 まで画面座標を int で持っていたのを <code>Vec2</code>(float)に変えた。理由は2つ。</p>
+<ol><li>Day 6 で変換行列を通すと、画面座標は当然のように小数になる</li><li>小数のまま扱えば、三角形の辺をピクセルより細かい精度で置ける(サブピクセル精度)</li></ol>
+<p>これに伴い、ラスタライザの判定点を<strong>ピクセルの中心</strong>に変えた。ピクセル (x, y) が覆っているのは [x, x+1) x [y, y+1) の正方形なので、その代表点は中心の (x + 0.5, y + 0.5) になる。Day 4 まで整数位置で判定していたのは頂点も整数だったからできた手抜きで、頂点が小数になった今は中心で測らないと絵が半ピクセルずれる。</p>
+<p>top-left rule のバイアスも整数の -1 が使えなくなった。代わりに <code>float.Epsilon</code> (float で表せる最小の正の数、約 1.4e-45)を引いている。<strong>ちょうど0だった値だけが負になり、通常の大きさの値は1ビットも変わらない</strong>ため、「0のときだけ効く補正」を分岐を増やさずに書ける。</p>
+<p><strong>実測での検証</strong>(本Dayの実装):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>検証</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>正方形を対角線で2枚に分割(整数座標)</td><td>25,600 px すべて1回、重なり0・隙間0</td></tr>
+<tr><td>同じものを +0.5 ずらす(サブピクセル)</td><td>25,281 px すべて1回、重なり0・隙間0</td></tr>
+<tr><td>四角形をどちらの対角線で割っても同じピクセル集合か</td><td><strong>片方だけのピクセル 0</strong>(= 継ぎ目の割れ無し)</td></tr>
+<tr><td>三角形を 0.1 px ずつ横へずらしたときの塗りピクセル数</td><td>4,950 → 5,050 と<strong>変化する</strong>(int 実装なら全部同じ)</td></tr>
+</tbody>
+</table></div>
+<p>最後の項目が、サブピクセル精度が本当に効いていることの証拠になる。</p>
+<div class="inject"><figure class="lab" id="sp-lab">
+  <div class="lab-head">
+    <h3>0.1 ピクセルずつずらす — サブピクセル精度(要点5)</h3>
+    <span class="tag">reference の Rasterizer.FillTriangle(画素の中心 x + 0.5 で判定、top-left rule のバイアスは最小の正の数)で、小さな三角形を横へずらしながら描いて拡大したもの。「頂点を int に丸める」は Day 4 までの描き方(このページだけ)。細い線は三角形の本当の辺、点は判定する画素の中心。下の帯は、0.0〜1.0 ずらしたときの塗った画素の数</span>
+  </div>
+  <div class="stage"><canvas id="sp-canvas" style="width:100%;aspect-ratio:2/1;height:auto;max-height:360px" aria-label="拡大した方眼の上の小さな三角形"></canvas><canvas id="sp-chart" style="width:100%;height:70px;display:block" aria-label="ずらした量と塗った画素の数"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">横へずらす量</span>
+      <input type="range" id="sp-dx" min="0" max="10" value="0" style="width:100%"><span id="sp-dxv" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div class="ctl"><span class="label">頂点の座標(このページだけ)</span>
+      <div class="seg" id="sp-mode"><button data-v="float" aria-pressed="true">float のまま(reference)</button><button data-v="int" aria-pressed="false">int に丸める(Day 4)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sp-stats"></div></div>
+</figure></div>
+<h3 id="s9">6. struct にする理由、readonly にしない理由</h3>
+<p><code>Vec3</code> も <code>Mat4</code> も <code>class</code> ではなく <code>struct</code> にしている。毎フレーム数万個を扱う値なので、class にすると1個ごとにヒープ確保とポインタ参照が発生してGCが暴れる。</p>
+<p><code>Mat4</code> を <code>float[16]</code> の配列にしていないのも同じ理由。配列だとヒープ確保と境界チェックが入るが、16個のフィールドならレジスタに乗る。行列の積を三重ループではなく16行に展開しているのも、インデックス計算とループのオーバーヘッドを消すため。</p>
+<p><code>readonly struct</code> にしていないのは、写経中に <code>v.X = 1</code> と書いて試せるようにするため。実務では <code>readonly struct</code> + <code>with</code> 式にするのが定石。</p>
+<h3 id="s10">7. 実測 — System.Numerics との比較</h3>
+<p><strong>正しさ</strong>: 自作の実装と System.Numerics の結果を比べたところ、Translation / Scale / RotationX,Y,Z / 合成 / 点の変換 / 方向の変換 / Dot / Cross / Normalizeの<strong>すべてで差が厳密に 0</strong>(ビット単位で一致)。規約もメモリ配置も同じにそろえてあるので、当然そうなるべきではある。</p>
+<p><strong>速度</strong>(1回あたり / 最良値 / Release / SIMD有効):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>演算</th><th>自作</th><th>System.Numerics</th><th>自作は</th></tr></thead>
+<tbody>
+<tr><td>Vec3 内積</td><td>7.69 ns</td><td>6.23 ns</td><td>1.23倍の時間</td></tr>
+<tr><td>Vec3 外積</td><td>17.53 ns</td><td>7.46 ns</td><td>2.35倍</td></tr>
+<tr><td>Vec3 正規化</td><td>8.63 ns</td><td>3.03 ns</td><td>2.85倍</td></tr>
+<tr><td>点の変換 (v*M)</td><td>3.50 ns</td><td>2.09 ns</td><td>1.68倍</td></tr>
+<tr><td>行列の積 (M*M)</td><td>24.57 ns</td><td>11.15 ns</td><td><strong>2.20倍</strong></td></tr>
+</tbody>
+</table></div>
+<p>System.Numerics は SIMD(1命令で4個のfloatをまとめて処理する)で実装されているので、成分が多い演算ほど差が開く。行列の積(64回の積和)で2.2倍というのは妥当な差。</p>
+<p><strong>それでも今日は自作する</strong>。中身が分からないまま使うと「なぜ正規化が要るのか」「内積の符号は何を意味するのか」が身につかないため。Day 14 で Silk.NET へ移るとき System.Numerics に乗り換える段取りにしてある。</p>
+<p>なお絶対値には配列アクセスのコストも含まれているので、数字そのものより<strong>比</strong>を見ること(測り方の注意は Day 2 の要点6と同じ)。</p>
+<p><strong>JIT に消された測定</strong>: 最初に書いたベンチマークは行列の積が 1.74 ns というあり得ない値を出した。<code>(A * B).M11</code> としか書いていなかったので、JIT が残り15成分の計算を「使われない」と判断して丸ごと削除していた。16成分すべてを足し込むように直したら 24.57 ns になった。<strong>マイクロベンチマークは結果を使わないと測定にならない</strong>、という定番の罠。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Vec2.cs</code></td><td><strong>新規(約70行)</strong></td><td>2次元ベクトル。画面座標とUV(Day 8)</td></tr>
+<tr><td><code>Vec3.cs</code></td><td><strong>新規(約130行)</strong></td><td>位置・方向・色・法線。内積と外積</td></tr>
+<tr><td><code>Vec4.cs</code></td><td><strong>新規(64行)</strong></td><td>同次座標。W の意味の説明が本体</td></tr>
+<tr><td><code>Mat4.cs</code></td><td><strong>新規(228行)</strong></td><td>4x4行列。規約の説明が本体</td></tr>
+<tr><td><code>Vertex.cs</code></td><td>変更</td><td>フィールド5個 → <code>Vec2 Position</code> + <code>Vec3 Color</code> の2個に</td></tr>
+<tr><td><code>Rasterizer.cs</code></td><td>変更</td><td>座標が float に。ピクセル中心で判定、バイアスが <code>float.Epsilon</code></td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え</td><td>図形を原点まわりで定義し、配置を行列に任せる形へ</td></tr>
+</tbody>
+</table></div>
+<p><code>Mat4</code> の API:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>メソッド</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Identity</code></td><td>単位行列。積み上げの出発点</td></tr>
+<tr><td><code>Translation</code> / <code>Scale</code> / <code>RotationX,Y,Z</code></td><td>基本の変換</td></tr>
+<tr><td><code>operator *</code></td><td>合成。<strong>左から順に適用</strong></td></tr>
+<tr><td><code>Transform(Vec4, Mat4)</code></td><td>同次座標のまま変換(Day 6 の透視投影で必要になる)</td></tr>
+<tr><td><code>TransformPoint</code> / <code>TransformDirection</code></td><td>W=1 / W=0 の簡易版</td></tr>
+<tr><td><code>Transposed</code></td><td>列ベクトル規約との相互変換</td></tr>
+</tbody>
+</table></div>
+<p>Day 6 で <code>Perspective</code> と <code>LookAt</code> が加わって、パイプラインが完成する。</p>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>Vec2.cs</code> → <code>Vec3.cs</code> → <code>Vec4.cs</code> — 素直な構造体。<code>Vec4</code> のコメント(Wの意味)は熟読</li><li><code>Mat4.cs</code> — <strong>規約のコメントを飛ばさないこと</strong>。ここが今日の本体</li><li><code>Vertex.cs</code> — 新しい型に置き換えるだけ</li><li><code>Rasterizer.cs</code> — int → float。ピクセル中心 (+0.5) とバイアスの変更が要点</li><li><code>GameWindow.cs</code> — デモ。<code>DrawOrbitSystem</code> で行列の合成順序を体感する</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day04/Rasterizer.cs reference/Day05/Rasterizer.cs
+git diff --no-index reference/Day04/Vertex.cs     reference/Day05/Vertex.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day05 -c Release</code></pre></div>
+<ol><li>左上に<strong>赤緑青のグラデーション三角形</strong>が回転しながら、<strong>大きさが脈打っている</strong></li><li>右上に<strong>市松模様の三角形</strong>が逆向きに回転している</li><li>下中央に<strong>金色の四角</strong>が自転し、そのまわりを<strong>3色の三角形が公転</strong>している</li><li>3つの子はそれぞれ<strong>自転</strong>しながら、さらに<strong>白い小さな三角形(孫)を連れて回っている</strong></li><li>動きが滑らか(サブピクセル精度が効いているので、頂点がカクカク飛ばない)</li><li>タイトルバーが <code>60.x fps | 10 tri | render 0.6x ms</code> のようになっている</li><li>W でワイヤーフレーム、Esc で終了</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>図形が画面外へ飛ぶ / 原点あたりに固まる</strong> → 行列の合成順序。<code>Scale * Rotation * Translation</code> の順になっているか(逆順だと移動量まで拡大される)</li><li><strong>回転の向きが逆</strong> → <code>RotationZ</code> の sin の符号2箇所。列ベクトル規約の式を写すとこうなる</li><li><strong>平行移動が効かない</strong> → 平行移動量を4列目(M14, M24, M34)に置いている。行ベクトル規約では<strong>4行目</strong>(M41, M42, M43)</li><li><strong>子が親についてこない</strong> → 子の行列に親の行列を掛けていない、または掛ける順序が逆</li><li><strong>絵が半ピクセルずれる / 細い三角形が消える</strong> → ピクセル中心 (+0.5) で判定していない</li><li><strong>図形の縁がギザギザに震える</strong> → 座標を int に丸めている箇所が残っている</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>W</code></td><td>「行列デモ3種」の「ワイヤーを重ねる」</td><td>四角は三角形 2 枚。子と孫は 1 枚ずつ</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「掛けない」と「int に丸める」</td><td>子が親についてこない。縁がカクカク震える</td></tr>
+<tr><td>(キーなし)</td><td>「掛ける順序を入れ替える」</td><td>Translation を先に掛けると、移動量まで拡大・回転されて公転になる</td></tr>
+<tr><td>(キーなし)</td><td>「0.1 ピクセルずつずらす」</td><td>float のままなら塗る画素の数が少しずつ変わる。int に丸めると変わらない</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day05 の Mat4.cs、Rasterizer.cs(FillTriangle)、GameWindow.cs(3つのデモ)を JS に移したもの(docs/site/rasterizer.js)。計算は double(reference は float)で、top-left rule のバイアスには float.Epsilon の代わりに double の最小の正の数を使う。render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 規約を体で確かめる</h3>
+<ol><li><code>Mat4.Translation</code> の平行移動量を4行目ではなく<strong>4列目</strong>(M14, M24, M34)に置いてみる。絵はどうなるか。なぜそうなるかを説明できるか</li><li><code>DrawGradientTriangle</code> の合成順序を <code>Translation * RotationZ * Scale</code> に変える。何が起きるか。「移動してから回す」の意味を絵で確認する</li><li><code>Mat4.RotationZ</code> の sin の符号を両方反転させる。回転の向きはどうなるか</li></ol>
+<h3 id="s16">課題2(中): System.Numerics と比べる</h3>
+<p>計画書の要点7の実測を自分で再現する。</p>
+<ol><li><code>Vec3</code> / <code>Mat4</code> と <code>System.Numerics.Vector3</code> / <code>Matrix4x4</code> で同じ計算をして、結果が一致することを確認する</li><li>速度を測る。<strong>結果を必ず使う</strong>こと(要点7の最後に書いたJITの罠を踏まないように)</li><li><code>System.Numerics.Vector.IsHardwareAccelerated</code> を表示して、SIMDが有効か確認する</li><li>余力があれば: <code>Vec3</code> を <code>System.Runtime.Intrinsics</code> で SIMD 化してみる。ただし Vec3 は12バイトで SIMD レジスタ(16バイト)に半端に収まるため、素直にやると速くならない。<strong>なぜ System.Numerics.Vector3 が速いのか</strong>を考える手がかりになる</li></ol>
+<h3 id="s17">課題3(難): 逆行列を実装する</h3>
+<p><code>Mat4.Inverted()</code> を実装する。</p>
+<ol><li>まず<strong>回転だけの行列は転置が逆行列になる</strong>ことを確かめる(直交行列の性質)。<code>Mat4.RotationY(0.7f) * Mat4.RotationY(0.7f).Transposed()</code> が単位行列になるか</li><li>平行移動を含む場合はどうか。<code>Translation(t)</code> の逆行列は <code>Translation(-t)</code> でよいか</li><li>一般の 4x4 逆行列(余因子展開)を実装し、<code>M * M.Inverted()</code> が単位行列に十分近くなるか確認する</li></ol>
+<p>逆行列は Day 6 のビュー行列(カメラの逆変換)と、Day 9 の法線変換(逆転置行列)で必要になる。ただし本リポジトリでは、どちらも「逆行列を計算せずに済ませる」方法を採る予定なので、この課題は「なぜ逆行列を避けられるのか」を理解するための準備でもある。</p>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 60〜61 fps、render 0.56〜0.61 ms(10枚)</li><li>System.Numerics との一致検証: 全項目で差が厳密に0</li></ul>
+</section>
+<footer class="end">Day 05 ベクトル・行列数学の自作(と System.Numerics 比較) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate, arrow } = Lab;
+const R = Raster, M = R.Mat4;
+// UnitTriangle: 半径 1 の円に内接する上向きの三角形
+const unitTri = (c0, c1, c2) => [c0, c1, c2].map((c, i) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3; return R.vertex5([Math.cos(a), Math.sin(a)], c); });
+const tp2 = (p, m) => { const r = M.transformPoint([p[0], p[1], 0], m); return [r[0], r[1]]; };
+
+// ------------------------------------------------------------
+// 1. 掛ける順序を入れ替える
+// ------------------------------------------------------------
+const mt = { t: 0, trail: [] };
+function mtMatrix(t) {
+  const S = M.scale(28), Rz = M.rotationZ(t * 0.8), T = M.translation(110, 0, 0);
+  const order = segValue('mt-order'), pick = { S, R: Rz, T };
+  return [...order].map((k) => pick[k]).reduce((a, b) => M.mul(a, b));
+}
+function mtDraw() {
+  const m = mtMatrix(mt.t);
+  const { ctx, w, h } = fit($('mt-canvas')), cx = w / 2, cy = h / 2;
+  const S = (p) => [cx + p[0], cy + p[1]];
+  ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+  // 中心の跡
+  const center = tp2([0, 0], m);
+  mt.trail.push(center); if (mt.trail.length > 240) mt.trail.shift();
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); mt.trail.forEach((p, i) => { const [x, y] = S(p); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.stroke();
+  const v = unitTri([1, 0.3, 0.3], [0.3, 1, 0.3], [0.3, 0.4, 1]).map((q) => S(tp2(q.pos, m)));
+  ctx.fillStyle = tok('--accent'); ctx.beginPath(); v.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = tok('--ink'); ctx.stroke();
+  // 向き(三角形の上向き = (0, -1))を W = 0 / W = 1 で変換
+  const dir = segValue('mt-w') === '0' ? M.transformDirection([0, -1, 0], m) : M.transformPoint([0, -1, 0], m);
+  const [ax, ay] = S(center);
+  if (segValue('mt-w') === '0') { const len = Math.hypot(dir[0], dir[1]) || 1; arrow(ctx, ax, ay, ax + (dir[0] / len) * 50, ay + (dir[1] / len) * 50, tok('--warn'), 2); }
+  else { const [bx, by] = S(dir); arrow(ctx, ax, ay, bx, by, tok('--expl'), 2); }   // 平行移動まで受けて、向きではなく「どこかの点」になる
+  if (Math.abs(center[0]) > w / 2 || Math.abs(center[1]) > h / 2) {
+    // 移動量まで拡大・回転されて、画面の外へ飛んでいった
+    ctx.fillStyle = tok('--expl'); ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`三角形は画面の外(中心 ${center.map((x) => x.toFixed(0)).join(', ')})。移動量 110 まで 28 倍されている`, cx, 24); ctx.textAlign = 'left';
+  }
+  const f = (x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3);
+  let rows = '';
+  for (let r = 0; r < 4; r++) rows += `<tr>${[0, 1, 2, 3].map((c) => `<td style="text-align:right;padding:2px 8px;${r === 3 && c < 3 ? 'color:var(--warn)' : ''}">${f(m[r * 4 + c])}</td>`).join('')}</tr>`;
+  $('mt-matrix').innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:4px">合成した行列(M11〜M44。4 行目の橙が平行移動)</div><table style="font-size:12px;margin:0;font-variant-numeric:tabular-nums">${rows}</table>`;
+  $('mt-stats').innerHTML = stat('三角形の中心', `(${center.map((x) => x.toFixed(1)).join(', ')})`) + stat('向き(変換後)', `(${dir.slice(0, 2).map((x) => x.toFixed(2)).join(', ')})`);
+}
+seg('mt-order', () => { mt.trail = []; mtDraw(); });
+seg('mt-w', mtDraw);
+animate($('mt-lab'), (dt) => { mt.t += Math.max(0, dt); mtDraw(); });
+
+// ------------------------------------------------------------
+// 2. 行列デモ3種
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer5(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const od = { t: 0, ms: 0, fps: 0, n: 0, acc: 0 };
+const hue3 = (h) => { const c = R.hueColor(h); return [((c >>> 16) & 255) / 255, ((c >>> 8) & 255) / 255, (c & 255) / 255]; };
+const mulC = (c, k) => c.map((v) => v * k);
+function drawTransformed(shape, m, shader) {
+  const rnd = segValue('or-round') === '1';
+  const tv = shape.map((v) => { let p = tp2(v.pos, m); if (rnd) p = p.map(Math.round); return R.vertex5(p, v.color); });
+  for (let i = 0; i + 2 < tv.length; i += 3) {
+    ras.fillTriangle(tv[i], tv[i + 1], tv[i + 2], shader);
+    if (segValue('or-wire') === '1') ras.drawTriangleWireframe(tv[i].pos, tv[i + 1].pos, tv[i + 2].pos, R.rgb(255, 255, 255));
+  }
+}
+function render(t) {
+  ras.stats = { tested: 0, filled: 0, triangles: 0 };
+  fb.clear(R.rgb(12, 14, 22));
+  { const pulse = 88 + 10 * Math.sin(t * 2); drawTransformed(unitTri([1, 0, 0], [0, 1, 0], [0, 0, 1]), M.mul(M.mul(M.scale(pulse), M.rotationZ(t * 0.7)), M.translation(150, 132, 0))); }
+  {
+    const yellow = R.rgbF(0.95, 0.80, 0.35), navy = R.rgbF(0.25, 0.30, 0.45);
+    drawTransformed(unitTri([0, 0, 0], [1, 0, 0], [0, 1, 0]), M.mul(M.mul(M.scale(96), M.rotationZ(-t * 0.5)), M.translation(470, 132, 0)),
+      (a) => (((Math.trunc(a[0] * 8) + Math.trunc(a[1] * 8)) & 1) === 0 ? yellow : navy));
+  }
+  { // 公転系: 親 → 子(公転 + 自転)→ 孫
+    const useParent = segValue('or-parent') === '1';
+    const parent = M.mul(M.rotationZ(t * 0.4), M.translation(W / 2, 348, 0));
+    const gold = [0.85, 0.75, 0.45], lt = [-1, -1], rt = [1, -1], rb = [1, 1], lb = [-1, 1];
+    const sq = [[lt, 1], [rt, 0.75], [rb, 0.5], [lt, 1], [rb, 0.5], [lb, 0.75]].map(([p, k]) => R.vertex5(p, mulC(gold, k)));
+    drawTransformed(sq, M.mul(M.scale(34), parent));
+    for (let i = 0; i < 3; i++) {
+      const phase = (i * 2 * Math.PI) / 3;
+      // 子の座標系: 公転半径ぶん移動 → 公転 → 親(このページだけ: 親を掛けないと原点のまわりを回る)
+      let childFrame = M.mul(M.translation(104, 0, 0), M.rotationZ(t * 0.9 + phase));
+      if (useParent) childFrame = M.mul(childFrame, parent);
+      const color = hue3(i / 3);
+      drawTransformed(unitTri(color, mulC(color, 0.55), mulC(color, 0.25)), M.mul(M.mul(M.scale(26), M.rotationZ(t * 2.5)), childFrame));
+      const moon = [M.scale(9), M.rotationZ(-t * 4), M.translation(44, 0, 0), M.rotationZ(t * 3), childFrame].reduce((a, b) => M.mul(a, b));
+      drawTransformed(unitTri([1, 1, 1], [0.6, 0.6, 0.6], [0.3, 0.3, 0.3]), moon);
+    }
+  }
+}
+function orDraw() {
+  const t0 = performance.now();
+  render(od.t);
+  od.ms = od.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('or-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  $('or-title').textContent = `Day05 - 行列  ${od.fps.toFixed(1)} fps | ${ras.stats.triangles} tri | render ${od.ms.toFixed(2)} ms | W:ワイヤー Esc:終了`;
+}
+['or-wire', 'or-play', 'or-parent', 'or-round'].forEach((id) => seg(id, orDraw));
+animate($('or-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('or-play') === '1') od.t += dt;
+  od.n++; od.acc += dt; if (od.acc >= 0.5) { od.fps = od.n / od.acc; od.n = 0; od.acc = 0; }
+  orDraw();
+});
+
+// ------------------------------------------------------------
+// 3. 0.1 ピクセルずつずらす
+// ------------------------------------------------------------
+const SW = 24, SH = 12, BASE = [[3.3, 1.6], [19.7, 4.2], [8.4, 10.7]];
+function spRun(dx) {
+  const f = new R.Framebuffer(SW, SH), r = new R.Rasterizer5(f), hit = new Uint8Array(SW * SH), int = segValue('sp-mode') === 'int';
+  r.onFill = (x, y) => { hit[y * SW + x] = 1; };
+  const v = BASE.map((p) => { const q = [p[0] + dx, p[1]]; return R.vertex5(int ? q.map(Math.round) : q, [1, 1, 1]); });
+  r.fillTriangle(v[0], v[1], v[2]);
+  return { hit, count: r.stats.filled, v };
+}
+function spDraw() {
+  const dx = Number($('sp-dx').value) / 10;
+  $('sp-dxv').textContent = `+${dx.toFixed(1)} px`;
+  const { hit, count, v } = spRun(dx);
+  const { ctx, w, h } = fit($('sp-canvas')), c = Math.min(w / SW, h / SH), ox = (w - c * SW) / 2, oy = (h - c * SH) / 2;
+  for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+    ctx.fillStyle = hit[y * SW + x] ? tok('--accent') : 'transparent';
+    if (hit[y * SW + x]) ctx.fillRect(ox + x * c + 1, oy + y * c + 1, c - 2, c - 2);
+    ctx.strokeStyle = tok('--line'); ctx.strokeRect(ox + x * c, oy + y * c, c, c);
+    ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(ox + (x + 0.5) * c, oy + (y + 0.5) * c, 1.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // 本当の辺(ずらしたままの float の三角形)と、丸めたときの頂点
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5; ctx.beginPath();
+  BASE.forEach((p, i) => { const x = ox + (p[0] + dx) * c, y = oy + p[1] * c; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.closePath(); ctx.stroke();
+  if (segValue('sp-mode') === 'int') { ctx.strokeStyle = tok('--warn'); ctx.setLineDash([4, 3]); ctx.beginPath(); v.forEach((q, i) => { const x = ox + q.pos[0] * c, y = oy + q.pos[1] * c; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); }); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]); }
+  { // 0.0〜1.0 の塗った画素数
+    const s = fit($('sp-chart')), counts = Array.from({ length: 11 }, (_, k) => spRun(k / 10).count), mx = Math.max(...counts), mn = Math.min(...counts) - 3;
+    const bw = (s.w - 20) / 11;
+    counts.forEach((n, k) => { const bh = ((n - mn) / (mx - mn || 1)) * (s.h - 26) + 4; s.ctx.fillStyle = k / 10 === dx ? tok('--warn') : tok('--accent'); s.ctx.fillRect(10 + k * bw, s.h - 16 - bh, bw - 4, bh); s.ctx.fillStyle = tok('--muted'); s.ctx.font = '10px sans-serif'; s.ctx.fillText(String(n), 10 + k * bw, s.h - 3); });
+  }
+  $('sp-stats').innerHTML = stat('ずらした量', `${dx.toFixed(1)} px`) + stat('塗った画素', count);
+}
+$('sp-dx').addEventListener('input', spDraw);
+seg('sp-mode', spDraw);
+window.addEventListener('resize', () => { spDraw(); });
+spDraw(); mtDraw(); orDraw();
+})();
+</script>
+</body>
+</html>
