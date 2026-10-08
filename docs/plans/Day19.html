@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 19 ゲームループ(固定タイムステップ+補間)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 可変タイムステップの何が問題か</a></li><li class="l3"><a href="#s5">2. アキュムレータ — 溜めて、固定間隔で吐き出す</a></li><li class="l3"><a href="#s6">3. 補間 — 5Hz のシミュレーションを 4000fps で滑らかに見せる</a></li><li class="l3"><a href="#s7">4. 何を FixedUpdate に書き、何を描画に書くか</a></li><li class="l3"><a href="#s8">5. 死のスパイラルと、遅れの扱い方</a></li><li class="l3"><a href="#s9">6. Silk.NET の固定レート機能をあえて使わない</a></li><li class="l3"><a href="#s10">7. 決定性は測れる(Y キー)</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17">起動時のコンソール出力</a></li><li class="l3"><a href="#s18">補間の効果(今日の見せ場)</a></li><li class="l3"><a href="#s19">遅れの扱い</a></li><li class="l3"><a href="#s20">タイトルバーの読み方</a></li><li class="l3"><a href="#s21">ビルド</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): 補間を壊して、症状を覚える</a></li><li class="l3"><a href="#s24">課題2(中): 入力を固定ステップに載せる</a></li><li class="l3"><a href="#s25">課題3(難): 可変ステップとの誤差を定量化する</a></li><li class="l2"><a href="#s26">動作確認済み環境</a></li><li class="l3"><a href="#s27">決定性チェック(200枚 × 600ステップ)</a></li><li class="l3"><a href="#s28">補間と負荷(各条件2秒間、スプライト0の画面上の移動量を毎フレーム集計)</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 4 / Day 19 / 計画書</p>
+  <h1>ゲームループ(固定タイムステップ+補間)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 可変タイムステップの何が問題か</a></li><li class="l3"><a href="#s5">2. アキュムレータ — 溜めて、固定間隔で吐き出す</a></li><li class="l3"><a href="#s6">3. 補間 — 5Hz のシミュレーションを 4000fps で滑らかに見せる</a></li><li class="l3"><a href="#s7">4. 何を FixedUpdate に書き、何を描画に書くか</a></li><li class="l3"><a href="#s8">5. 死のスパイラルと、遅れの扱い方</a></li><li class="l3"><a href="#s9">6. Silk.NET の固定レート機能をあえて使わない</a></li><li class="l3"><a href="#s10">7. 決定性は測れる(Y キー)</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17">起動時のコンソール出力</a></li><li class="l3"><a href="#s18">補間の効果(今日の見せ場)</a></li><li class="l3"><a href="#s19">遅れの扱い</a></li><li class="l3"><a href="#s20">タイトルバーの読み方</a></li><li class="l3"><a href="#s21">ビルド</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): 補間を壊して、症状を覚える</a></li><li class="l3"><a href="#s24">課題2(中): 入力を固定ステップに載せる</a></li><li class="l3"><a href="#s25">課題3(難): 可変ステップとの誤差を定量化する</a></li><li class="l2"><a href="#s26">動作確認済み環境</a></li><li class="l3"><a href="#s27">決定性チェック(200枚 × 600ステップ)</a></li><li class="l3"><a href="#s28">補間と負荷(各条件2秒間、スプライト0の画面上の移動量を毎フレーム集計)</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 4 / ロードマップ該当行: 「ゲームループ(固定タイムステップ+補間)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>シミュレーションを 5Hz まで落としても、絵が滑らかなまま動く。</strong></p>
+<p>Day 18 までの更新はこう書いていた。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>sprite.Position += sprite.Velocity * (float)deltaSeconds;   // 可変タイムステップ</code></pre></div>
+<p>短くて分かりやすいが、これは<strong>同じ操作をしても環境によって結果が変わる</strong>書き方になっている。今日それを「シミュレーションは固定間隔、描画は好きなだけ」に組み替える。</p>
+<p>Phase 3 が「絵をどう出すか」だったのに対し、Phase 4 は<strong>エンジンコア</strong>——描画以外の土台を作る。ゲームループはその最初の1本で、このあとの入力(Day 20)・コンポーネント(Day 22)・ECS(Day 23)はすべて「毎ステップ何が呼ばれるか」の上に載る。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://gafferongames.com/post/fix_your_timestep/">Fix Your Timestep! (Gaffer On Games)</a> —ロードマップ指定。<strong>今日の内容はほぼこの記事</strong>。可変 → 固定 → アキュムレータ → 補間、と段階的に組み上げていく構成なので、写経の前に一度通しで読んでおくとよい</li><li><a href="https://dewitters.com/dewitters-gameloop/">deWiTTERS Game Loop</a> —同じ話を別の切り口で。図が多い</li><li><a href="https://gameprogrammingpatterns.com/game-loop.html">Game Programming Patterns: Game Loop</a> —Robert Nystrom。パターンとしての整理と、各方式の向き不向き</li><li>復習として <strong>Day17.md の要点1(ドローコールの実測)</strong>。今日も「予算 16.6ms をどう配るか」の話が出てくる</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 可変タイムステップの何が問題か</h3>
+<p>「経過時間を掛ければ、fps が変わっても同じ速さで動く」——これは半分正しい。等速直線運動なら確かに合う。合わなくなるのは次の3つ。</p>
+<p><strong>(a) 再現しない</strong></p>
+<p>同じ操作をしても、fps が違えば結果が変わる。浮動小数の足し算は結合則を満たさないので、<code>0.016 を60回</code> と <code>0.008 を120回</code> は<strong>別の値</strong>になる。1回の誤差は無視できても、数千ステップ積み上がると軌道が変わる。</p>
+<p>これが困るのは、リプレイ、タイムアタックの記録検証、ロールバック方式のネットワーク対戦——<strong>同じ入力から同じ結果を再現したい</strong>場面すべて。</p>
+<p><strong>(b) 壊れる</strong></p>
+<p>フレームが長引くと1ステップの移動量が大きくなる。弾が壁を「すり抜ける」典型的なバグはこれ。物理を入れると、積分の刻みが粗くなって発散する(バネがどんどん振幅を増して吹き飛ぶ、など。Day 43 で本格的に扱う)。</p>
+<p><strong>(c) 調整が効かない</strong></p>
+<p>「1秒で何回更新されるか」が環境任せなので、ゲームバランスの数値が確定しない。「毎ステップ 0.5 ダメージ」は 60Hz なら毎秒 30、144Hz なら毎秒 72 になる。</p>
+<h3 id="s5">2. アキュムレータ — 溜めて、固定間隔で吐き出す</h3>
+<p>対策はひとつで、<strong>シミュレーションを固定間隔で回す</strong>。ただし描画のタイミングは固定間隔とは一致しないので、経過時間をいったん溜めて、溜まったぶんだけ進める。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_accumulator += frameSeconds;
+
+while (_accumulator &gt;= FixedDeltaTime)
+{
+    fixedUpdate(FixedDeltaTime);   // ← 常に同じ値
+    _accumulator -= FixedDeltaTime;
+}</code></pre></div>
+<p>1フレームでの呼び出し回数は 0 回のことも複数回のこともある。描画が速ければ 0 が続き、遅ければまとめて回る。<strong>描画レートとシミュレーションレートが完全に分離する</strong>のがこの数行の成果。</p>
+<p><code>fixedUpdate</code> に渡る値が毎回同じ、というのが決定性の実体になる。今日の <code>Program.UpdateSprites</code> は「引数だけで結果が決まる」形(グローバルな状態も乱数も時刻も読まない)に切り出してある。</p>
+<div class="inject"><figure class="lab" id="ac-lab">
+  <div class="lab-head">
+    <h3>アキュムレータを1フレームずつ見る — 溜めて、固定間隔で吐き出す(要点2)</h3>
+    <span class="tag">reference の GameLoop.cs(Advance・MaxStepsPerFrame・DropExcess・Alpha)を JS に移し、このページの中の時計でフレームを1本ずつ流したもの。棒1本が1フレームで、高さは「持ち越した端数(灰)+ このフレームの経過時間(青)」。点線が 1 ステップぶん(FixedDeltaTime)の目盛りで、棒の上の数字がそのフレームで回したステップ数(= fixedUpdate を呼んだ回数)。赤は上限で追いつけずに捨てた時間。「ばらばら」のフレーム時間は、reference の決定性チェックと同じ種(1234)で作った 2〜32ms の並び。フレーム時間の選択肢と時計はこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="ac-chart" style="height:260px" aria-label="フレームごとの溜まった時間と、回したステップ数の棒グラフ"></canvas><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">灰 = 持ち越した端数 / 青 = このフレームの経過時間 / 赤 = 捨てた時間 / 横の線 = 残した端数 / 棒の上の数字 = ステップ数 / 下の点 = α(上ほど 1 に近い)</p></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">シミュレーション</span>
+      <div class="seg" id="ac-rate"><button data-v="120" aria-pressed="false">120Hz</button><button data-v="60" aria-pressed="true">60Hz</button><button data-v="20" aria-pressed="false">20Hz</button><button data-v="5" aria-pressed="false">5Hz</button></div>
+    </div>
+    <div class="ctl"><span class="label">フレーム時間(このページだけ)</span>
+      <div class="seg" id="ac-frame"><button data-v="4" aria-pressed="false">4ms(250fps)</button><button data-v="7" aria-pressed="true">7ms(約144fps)</button><button data-v="16.667" aria-pressed="false">16.7ms(60fps)</button><button data-v="25" aria-pressed="false">25ms(40fps)</button><button data-v="rand" aria-pressed="false">ばらばら 2〜32ms</button><button data-v="spike" aria-pressed="false">ときどき 200ms</button></div>
+    </div>
+    <div class="ctl"><span class="label">上限(MaxStepsPerFrame)と余剰破棄(DropExcess)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ac-max"><button data-v="8" aria-pressed="true">8(reference)</button><button data-v="0" aria-pressed="false">無制限</button></div><div class="seg" id="ac-drop"><button data-v="1" aria-pressed="true">捨てる</button><button data-v="0" aria-pressed="false">捨てない</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">再生</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ac-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div><button class="btn" id="ac-step">1 フレーム</button><button class="btn" id="ac-reset">最初から</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ac-stats"></div><p id="ac-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<h3 id="s6">3. 補間 — 5Hz のシミュレーションを 4000fps で滑らかに見せる</h3>
+<p>固定間隔にすると、そのままでは<strong>シミュレーションのレートでしか絵が動かない</strong>。60Hz なら気付きにくいが、20Hz や 5Hz にすると一目でカクつく。</p>
+<p>描画のタイミングは必ず「あるステップと次のステップの間」にある。どのくらい進んでいるかが <code>Alpha = accumulator / FixedDeltaTime</code>(0.0〜1.0)なので、前のステップと今のステップを混ぜれば「間」の絵が作れる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vector2 drawn = Vector2.Lerp(sprite.PreviousPosition, sprite.Position, alpha);</code></pre></div>
+<p>代償は<strong>状態を2つ持つこと</strong>。動かす前に前の値を保存する必要があり、これを忘れると前と後が同じ値になるので補間が効かない(症状は「補間を入れたのにカクついたまま」)。</p>
+<p>実測すると効果がはっきり出る。5Hz でスプライト1枚の「1フレームあたりの画面上の移動量」を2秒間集計した結果:</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>動かなかったフレームの割合</th><th>1フレーム最大移動</th><th>平均移動</th></tr></thead>
+<tbody>
+<tr><td>補間 OFF</td><td><strong>99.9%</strong></td><td><strong>33.38 px</strong></td><td>0.039 px</td></tr>
+<tr><td>補間 ON</td><td><strong>0.0%</strong></td><td><strong>0.20 px</strong></td><td>0.042 px</td></tr>
+</tbody>
+</table></div>
+<p><strong>平均移動がほぼ同じ</strong>なのがポイント(差は計測窓の違いによる誤差)。総移動量は変わっておらず、変わったのは<strong>分配のしかた</strong>だけ。補間 OFF は「200ms 止まって 33px 跳ぶ」、補間 ON は「毎フレーム 0.04px ずつ動く」。同じ距離を進んでいる。</p>
+<p>補間で気を付けるのは<strong>瞬間移動</strong>。ワープ、リスポーン、画面切り替えのときに前と後を直線で結ぶと、画面を横切る線になってしまう。そういう場面では前の状態を現在値で上書きして、補間を1フレーム無効にする。</p>
+<div class="inject"><figure class="lab" id="dm-lab">
+  <div class="lab-head">
+    <h3>補間の効果 — 5Hz のシミュレーションを滑らかに見せる(要点3、完成条件の 1〜4・I・L・K・Y)</h3>
+    <span class="tag">reference/Day19 の InitializeSprites(種 20260816、960x640)・UpdateSprites・Interpolate・OnUpdate(起動直後の1フレームを捨てる)・SetSimulationRate・GameLoop を JS に移し、ブラウザのフレームの経過時間をそのまま GameLoop に渡して回したもの。スプライトの初期状態は 20,000 枚すべて C# とビット単位で同じ。上の行はタイトルバーと同じ書式で、fps・遅れなどはこのページの値。負荷(L)は reference と同じく1ステップごとにビジーループで CPU を回すので、20000us にするとこのページも本当に重くなる。黄色の輪がスプライト 0 で、点は描いた位置の跡(補間を切ると 5Hz では跡が飛び飛びになる)。下の「スプライト 0 の移動量(直近 2 秒)」は本文の表と同じ集計をこのページで測ったもの。3D 背景(G)と描画まわりのキーはこのページには無い。画面の外にあった間やタブを離れていた間の経過時間(1 秒を超えるもの)は捨てる(このページだけ)</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="dm-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="dm-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:460px" aria-label="1000枚のスプライトが跳ね回る。黄色の輪がスプライト0で、描いた位置の跡が点で残る"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">シミュレーション(1 / 2 / 3 / 4)</span>
+      <div class="seg" id="dm-rate"><button data-v="120" aria-pressed="false">1: 120Hz</button><button data-v="60" aria-pressed="true">2: 60Hz</button><button data-v="20" aria-pressed="false">3: 20Hz</button><button data-v="5" aria-pressed="false">4: 5Hz</button></div>
+    </div>
+    <div class="ctl"><span class="label">補間(I)</span>
+      <div class="seg" id="dm-interp"><button data-v="1" aria-pressed="true">ON</button><button data-v="0" aria-pressed="false">OFF</button></div>
+    </div>
+    <div class="ctl"><span class="label">負荷(L)と余剰破棄(K)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="dm-load"><button data-v="0" aria-pressed="true">0us</button><button data-v="2000" aria-pressed="false">2000us</button><button data-v="8000" aria-pressed="false">8000us</button><button data-v="20000" aria-pressed="false">20000us</button></div><div class="seg" id="dm-drop"><button data-v="1" aria-pressed="true">破棄 ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">スプライト数(上下キー ±1000)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-n="-1000">−1000</button><button class="btn" data-n="1000">+1000</button></div>
+    </div>
+    <div class="ctl"><span class="label">再生(Space)と決定性チェック(Y)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="dm-play"><button data-v="1" aria-pressed="true">再生</button><button data-v="0" aria-pressed="false">停止</button></div><button class="btn" id="dm-y">Y 決定性チェック</button><button class="btn" id="dm-trail">跡を消す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dm-stats"></div><pre id="dm-console" style="margin:10px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s7">4. 何を FixedUpdate に書き、何を描画に書くか</h3>
+<p>今日いちばん大事な設計判断。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>置き場所</th><th>例</th></tr></thead>
+<tbody>
+<tr><td><strong>FixedUpdate</strong></td><td>移動、当たり判定、AI、タイマー、ダメージ、入力の反映</td></tr>
+<tr><td><strong>描画</strong></td><td>補間、カメラの追従、パーティクルの見た目、UI のアニメーション</td></tr>
+</tbody>
+</table></div>
+<p>境界は「<strong>ゲームの状態を変えるか</strong>」。状態を変える処理が描画側に紛れ込むと、その瞬間に決定性が壊れる。「描画のついでにちょっと座標を直す」が最も入り込みやすい。</p>
+<p>逆に、見た目だけのものを FixedUpdate に入れると、シミュレーションレートを下げたときにそれまでカクつく。</p>
+<h3 id="s8">5. 死のスパイラルと、遅れの扱い方</h3>
+<p>固定ステップには落とし穴がある。</p>
+<div class="code"><pre><code>フレームが重い → 溜まった時間が増える → 次フレームでステップ数が増える
+→ もっと重い → もっと溜まる → …</code></pre></div>
+<p>これが<strong>死のスパイラル(spiral of death)</strong>で、一度入ると復帰できない。1フレームで回すステップ数に上限(<code>MaxStepsPerFrame</code>)を付けるのが非常ブレーキ。</p>
+<p>上限を付けると、遅い環境では<strong>シミュレーションが実時間より遅れる</strong>。その遅れをどう扱うかが設計判断になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方針</th><th>挙動</th><th>使いどころ</th></tr></thead>
+<tbody>
+<tr><td><strong>捨てる</strong>(既定)</td><td>シミュレーションがスローモーションになる。遅れは溜まらない</td><td>ほとんどのゲーム</td></tr>
+<tr><td><strong>捨てない</strong></td><td>遅れが永久に増え続け、二度と追いつかない</td><td>ほぼ選ばない</td></tr>
+</tbody>
+</table></div>
+<p>1ステップに 20ms かかる負荷をかけて実測した(60Hz なので1ステップの予算は 16.67ms。つまり原理的に追いつけない):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>fps</th><th>遅れ</th><th>捨てた時間(2秒間)</th></tr></thead>
+<tbody>
+<tr><td>捨てる</td><td>41.0</td><td>4.6 ms</td><td>0.20 s</td></tr>
+<tr><td>捨てない</td><td><strong>6.2</strong></td><td><strong>354.9 ms</strong></td><td>0.00 s</td></tr>
+</tbody>
+</table></div>
+<p>捨てる場合、シミュレーションは実時間の約 90% の速さで進む(2秒で 0.2 秒ぶん落とした)。遅いが<strong>動き続ける</strong>。捨てない場合は毎フレームが上限いっぱいのステップ数になり、fps が 6 まで落ちたうえで遅れが増え続ける。<strong>非常ブレーキが無ければ完全に固まる</strong>。</p>
+<div class="inject"><figure class="lab" id="sp-lab">
+  <div class="lab-head">
+    <h3>死のスパイラル — 1ステップが予算を超えると何が起きるか(要点5)</h3>
+    <span class="tag">reference の GameLoop.cs を JS に移し、このページの中の時計で回したもの。1フレームの長さは「描画 0.25ms(本文のタイトルバーの約 4000fps に合わせて置いた値)+ そのフレームで回したステップ数 × 負荷」で、次のフレームの経過時間になる。負荷の段階は reference の L キーと同じ(0 → 2000 → 8000 → 20000us)で、60Hz なので 1 ステップの予算は 16.67ms。グラフは直近 3 秒の、フレームごとのステップ数(棒)と遅れ(線)。上限「無制限」はこのページだけ(reference は 8 に固定)。下の表は、0 から始めて 2 秒回したあとの 2 秒間を集計したもの(上限 8)</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="sp-chart" style="height:240px" aria-label="フレームごとのステップ数と遅れの推移"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">1ステップの負荷(L)</span>
+      <div class="seg" id="sp-load"><button data-v="0" aria-pressed="false">0us</button><button data-v="2000" aria-pressed="false">2000us</button><button data-v="8000" aria-pressed="false">8000us</button><button data-v="20000" aria-pressed="true">20000us</button></div>
+    </div>
+    <div class="ctl"><span class="label">余剰破棄(K)と上限</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sp-drop"><button data-v="1" aria-pressed="true">捨てる</button><button data-v="0" aria-pressed="false">捨てない</button></div><div class="seg" id="sp-max"><button data-v="8" aria-pressed="true">上限 8</button><button data-v="0" aria-pressed="false">無制限(ブレーキなし)</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">時計</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="sp-reset">最初から</button><button class="btn" id="sp-table">2 秒ずつ測る(表)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sp-stats"></div><div class="table-wrap" id="sp-out" style="margin-top:10px"></div><p id="sp-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+<p>「捨てる」を選ぶのは、<strong>重い環境ではゲーム内時間が実時間よりゆっくり進むのを許す</strong>という判断でもある。オンライン対戦のように実時間と同期しなければならない場合は、捨てるのではなく描画やシミュレーションの質を落とすほうを選ぶ。</p>
+<h3 id="s9">6. Silk.NET の固定レート機能をあえて使わない</h3>
+<p><code>WindowOptions.UpdatesPerSecond</code> に値を入れると、Silk.NET が<code>Update</code> イベントを固定レートで呼んでくれる。今日はこれを 0(上限なし)にして、素のフレーム時間を自分の <code>GameLoop</code> に渡す。</p>
+<p>出来合いを使わないのは、Phase 2 で wgl を自分で叩いたのと同じ理由——<strong>中で何が起きているかを一度見ておく</strong>ため。それに、出来合いのものには補間の仕組みが無い。<code>Alpha</code> を自分で持っていないと要点3ができないので、どのみち書くことになる。</p>
+<h3 id="s10">7. 決定性は測れる(Y キー)</h3>
+<p>「同じ入力なら同じ結果」は口で言うだけでは確かめられないので、自己チェックを組み込んである。同じ初期状態から3通りに進めて突き合わせる。</p>
+<ul><li><strong>A</strong>: 固定ステップを 600 回、まとめて回す</li><li><strong>B</strong>: 同じ 600 回を、2〜32ms のばらばらなフレーム時間に分けて <code>GameLoop</code> 経由で回す</li><li><strong>C</strong>: 可変タイムステップで、同じ実時間ぶん進める</li></ul>
+<p>結果(状態の FNV-1a ハッシュ):</p>
+<div class="code"><pre><code>A 固定・まとめて      : 7F43863E1E5DFDB8
+B 固定・フレーム分割  : 7F43863E1E5DFDB8  一致
+C 可変・同じ実時間    : 7444383E9D7F0545  不一致</code></pre></div>
+<p><strong>A == B ≠ C</strong>。フレームの刻み方が違っても、ステップ数が同じなら結果は同じ。可変だと同じ実時間でも結果が変わる。</p>
+<p>比較にビット単位のハッシュを使っているのは意図的で、「誤差の範囲で合っている」では意味がないから。1ビット違えば数千ステップ後には全く別の結果になる。</p>
+<div class="inject"><figure class="lab" id="dc-lab">
+  <div class="lab-head">
+    <h3>決定性チェックを回す — A == B ≠ C(要点7、Y キー)</h3>
+    <span class="tag">reference の RunDeterminismCheck と Checksum(FNV-1a を float のビットにかける)を JS に移したもの。float の計算は1回ごとに Math.fround で丸め、初期の速度の cos / sin は C# の MathF.Cos / Sin と 1 ulp ずれる 38 か所を表で直してある。出力は、reference のコードを直接回した C# の小さなプログラムと、4 通りのレート × 2 通りの枚数(1000 枚 → 200 枚、100 枚)の 8 回ぶん、ハッシュまで全部一致した。下の「中身」は、このページで足した内訳(B が実際に回したステップ数と、C が進めた時間)</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">シミュレーション(今のレートで回る)</span>
+      <div class="seg" id="dc-rate"><button data-v="120" aria-pressed="false">120Hz</button><button data-v="60" aria-pressed="true">60Hz</button><button data-v="20" aria-pressed="false">20Hz</button><button data-v="5" aria-pressed="false">5Hz</button></div>
+    </div>
+    <div class="ctl"><span class="label">スプライト数(先頭から最大 200 枚を使う)</span>
+      <div class="seg" id="dc-count"><button data-v="1000" aria-pressed="true">1000 枚(既定)</button><button data-v="100" aria-pressed="false">100 枚</button></div>
+    </div>
+    <div class="ctl"><span class="label">回す</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="dc-run">Y 決定性チェック</button></div>
+    </div>
+  </div>
+  <div class="readout"><pre id="dc-console" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre><div class="stats" id="dc-stats" style="margin-top:10px"></div><p id="dc-note" style="margin:10px 0 0"></p></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>GameLoop.cs</code></td><td>164</td><td>アキュムレータ、<code>Alpha</code>、ステップ数の上限、遅れの扱い</td></tr>
+</tbody>
+</table></div>
+<p>実コードは 48 行しかない。<strong>今日の重さはコード量ではなく設計判断のほうにある</strong>。</p>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+371 / -31</td><td><code>FixedUpdate</code> への分離、補間、決定性チェック、1/2/3/4・I・L・K・Y キー</td></tr>
+</tbody>
+</table></div>
+<p><code>Program.cs</code> 以外の Phase 3 のクラス(<code>SpriteBatch</code> / <code>Camera</code> / <code>Texture</code> / <code>TextureAtlas</code> / <code>Mesh</code> / <code>Material</code> / <code>Shader</code> など)は<strong>すべて無変更</strong>。レンダラ層とゲームループが独立していることの確認になっている。</p>
+<p>内訳:</p>
+<ul><li><code>Sprite</code> に <code>PreviousPosition</code> / <code>PreviousRotation</code> を追加</li><li><code>OnUpdate</code> は <code>_loop.Advance(deltaSeconds, FixedUpdate)</code> を呼ぶだけになった</li><li><code>UpdateSprites</code> を「配列・個数・dt・画面サイズだけを受け取る」形に切り出した(決定性チェックから同じ関数を呼ぶため)</li><li><code>Interpolate</code> を通してから描画する</li><li><code>RunDeterminismCheck</code> と <code>Checksum</code>(要点7)</li><li><strong>起動直後の1フレームだけ経過時間を捨てる</strong>。シェーダのコンパイルやアトラスの構築が丸ごと入っていて数百ミリ秒あるので、そのまま流すと開幕で「捨て」が 0.3 秒ほど計上され、何もしていないのに処理落ちして見える</li></ul>
+<h3 id="s14">キーの変更</h3>
+<p>3D背景のトグルが <code>3</code> から <strong><code>G</code></strong> に移った(<code>1</code>〜<code>4</code> をシミュレーションレートに使うため)。</p>
+<h3 id="s15">写経する順番</h3>
+<ol><li><strong><code>GameLoop.cs</code></strong> — 実コード 48 行。<code>Advance</code> の while ループが本体</li><li><strong><code>Program.cs</code> の <code>Sprite</code> 構造体</strong> — <code>Previous*</code> を2つ足すだけ</li><li><strong><code>OnUpdate</code> → <code>FixedUpdate</code></strong> — 何をどちらに置くか(要点4)を意識しながら</li><li><strong><code>Interpolate</code> と描画側</strong> — <code>Render3D</code> と <code>RenderSprites</code> の呼び出しを差し替える</li><li><strong>キーハンドラ</strong> — 1/2/3/4・I・L・K</li><li><strong><code>RunDeterminismCheck</code></strong> — 最後でよい。これだけ独立している</li></ol>
+</section>
+<section class="part"><h2 id="s16">完成条件</h2>
+<p><code>dotnet run --project reference/Day19 -c Release</code> で確認する。</p>
+<h3 id="s17">起動時のコンソール出力</h3>
+<p>決定性チェックは Y キーでいつでも走らせられる。<strong>A と B のハッシュが一致し、C だけ違う</strong>ことを確認する。</p>
+<h3 id="s18">補間の効果(今日の見せ場)</h3>
+<ol><li><strong><code>4</code></strong> を押してシミュレーションを 5Hz に落とす</li><li><strong><code>I</code></strong> で補間を切る → スプライトが<strong>1秒に5回しか動かない</strong>。タイトルバーの fps は数千のままなので、<strong>描画は回っているのにシミュレーションが遅い</strong>状態が見える</li><li>もう一度 <strong><code>I</code></strong> → 同じ 5Hz のまま<strong>滑らかに動く</strong>。タイトルの <code>sim 5Hz</code> と <code>step:</code> が変わっていないことを確かめる</li></ol>
+<p><code>3</code>(20Hz)でも同じことができる。20Hz は「補間なしだと少しカクつくが、言われないと気付かないかもしれない」程度なので、まず 5Hz で違いを確認してから 20Hz を見るとよい。</p>
+<h3 id="s19">遅れの扱い</h3>
+<ol><li><strong><code>2</code></strong> で 60Hz に戻す</li><li><strong><code>L</code></strong> を3回押して負荷を 20000us にする。fps が 40 前後まで落ち、タイトルの <strong><code>捨て:</code></strong> が増えていく(シミュレーションがスローモーションになっている)</li><li><strong><code>K</code></strong> で余剰破棄を OFF にする。fps がさらに落ち、<strong><code>遅れ:</code> が増え続ける</strong>。もう追いつかない</li><li><strong><code>K</code></strong> で戻し、<strong><code>L</code></strong> を1回押して負荷を 0 に戻す</li></ol>
+<h3 id="s20">タイトルバーの読み方</h3>
+<div class="code"><pre><code>Day19 - 固定タイムステップ  4049.9 fps | sim 60Hz step:0 α:0.34 遅れ:5.6ms 捨て:0.00s |
+補間:ON 負荷:0us 破棄:ON | スプライト:1000 DC:1</code></pre></div>
+<ul><li><code>step:0</code> … このフレームではステップが1回も回らなかった。<strong>描画のほうが速い証拠</strong></li><li><code>α:0.34</code> … 次のステップまで 34% 進んだところ。補間はこの値を使っている</li><li><code>遅れ</code> … 未処理の時間。1ステップぶん未満なら正常</li><li><code>捨て</code> … 追いつけずに捨てた累計。<strong>負荷をかけていなければ 0.00 のまま</strong>。増え続けるなら処理落ち</li></ul>
+<p>Day 16〜18 のキー(A / S / B / O / G / Z / C / P / W / F / R / V / Space / Home / F5 / 上下 / Esc)もそのまま使える。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code></td><td>「補間の効果」のシミュレーション。「アキュムレータを1フレームずつ見る」「決定性チェックを回す」にも同じ選択肢がある</td><td>切り替えると溜まった時間を捨てる(Reset)。5Hz では 1 ステップ 200ms なので、棒が 1 ステップぶん溜まるまでに何フレームもかかる</td></tr>
+<tr><td><code>I</code></td><td>「補間の効果」の補間</td><td>5Hz で OFF にすると、黄色の輪の跡が 1 秒に 5 か所の飛び飛びになる。ON に戻すと跡が線になる。停止率と最大移動だけが変わり、平均移動はほぼ変わらない</td></tr>
+<tr><td><code>L</code></td><td>「補間の効果」の負荷と「死のスパイラル」の負荷</td><td>0 → 2000 → 8000 → 20000us。「補間の効果」では本当に CPU を回すのでページが重くなる。「死のスパイラル」はページの中の時計なので重くならない</td></tr>
+<tr><td><code>K</code></td><td>「補間の効果」の余剰破棄と「死のスパイラル」の余剰破棄</td><td>切り替えると Reset する(reference と同じ)。OFF で負荷 20000us にすると「遅れ」が増え続ける</td></tr>
+<tr><td><code>Y</code></td><td>「補間の効果」の「Y 決定性チェック」と「決定性チェックを回す」</td><td>60Hz・1000 枚で 7F43863E1E5DFDB8 / 7F43863E1E5DFDB8 / 7444383E9D7F0545。出力は C# と同じ</td></tr>
+<tr><td><code>Space</code></td><td>「補間の効果」の再生 / 停止</td><td>止めている間は経過時間を 0 として渡す(reference と同じ)</td></tr>
+<tr><td>上下キー</td><td>「補間の効果」のスプライト数</td><td>±1000 枚。決定性チェックは先頭から最大 200 枚を使う</td></tr>
+<tr><td>(キーなし)</td><td>「アキュムレータを1フレームずつ見る」のフレーム時間と上限、「死のスパイラル」の上限「無制限」</td><td>reference に無い比較。上限を外して負荷をかけると、フレームが伸びるたびにステップ数が増えて止まらなくなる</td></tr>
+<tr><td><code>A</code> / <code>S</code> / <code>B</code> / <code>O</code> / <code>G</code> / <code>Z</code> / <code>C</code> / <code>P</code> / <code>W</code> / <code>F</code> / <code>R</code> / <code>V</code> / <code>Home</code> / <code>F5</code> / <code>Esc</code></td><td>このページには無い</td><td>Day 16〜18 の描画まわり(アトラス・ソート・バッチ・3D 背景など)</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day19 の GameLoop.cs と、Program.cs の InitializeSprites・UpdateSprites・Interpolate・OnUpdate・SetSimulationRate・RunDeterminismCheck・Checksum を JS(docs/site/dotnet.js の乱数と、このページの中のスクリプト)に移したもの。reference のファイルをそのままコンパイルし、窓だけを差し替えて Program の関数を直接呼ぶ C# の小さなプログラムと、20,000 枚の初期状態(全フィールドのビット)と、決定性チェックの出力 8 回ぶんが一致した。fps・遅れ・移動量の数字はこのページで測った値で、本文の表(手元の RTX 3070 環境の値)とは環境によって違う。</p></div>
+<h3 id="s21">ビルド</h3>
+<ul><li><code>dotnet build reference/Day19</code> が警告 0 で通る</li><li><code>dotnet format whitespace reference/Day19/Day19.csproj --verify-no-changes</code> の差分が 0</li></ul>
+</section>
+<section class="part"><h2 id="s22">改造課題</h2>
+<h3 id="s23">課題1(易): 補間を壊して、症状を覚える</h3>
+<p>要点3の落とし穴を実際に踏む。</p>
+<ol><li><code>UpdateSprites</code> の <code>PreviousPosition</code> の保存を、<strong>移動したあと</strong>に移す。5Hz + 補間 ON でどうなるか。原因が分かるか(前と後が同じ値になるので、補間しても常に最新の状態が出る)</li><li><code>GameLoop.Advance</code> の末尾にある <code>Math.Clamp(..., 0.0, 1.0)</code> を外し、余剰破棄を OFF にして負荷をかける。<strong>α が 1 を超えると補間ではなく外挿</strong>になり、スプライトが先へ飛び出す</li><li>スプライトを「ワープ」させてみる。たとえば 5 秒ごとに1枚をランダムな位置へ飛ばす。補間が画面を横切る線を引くのを確認し、前の状態を現在値で上書きして直す</li><li><code>SetSimulationRate</code> から <code>_loop.Reset()</code> を消して、5Hz から 120Hz へ切り替える。一瞬だけ早送りになるのを確認する</li></ol>
+<h3 id="s24">課題2(中): 入力を固定ステップに載せる</h3>
+<p>Day 20 の入力システムへの布石。<strong>入力は描画レートで来るが、シミュレーションは固定レート</strong>という食い違いを扱う。</p>
+<ol><li>矢印キーで動かせるスプライトを1枚足す。まず素直に <code>OnKeyDown</code> の中で座標を変えてみる。シミュレーションレートを 5Hz に落としたとき、<strong>補間がどう壊れるか</strong></li><li>直す。キーの状態を「押されているか」のフラグとして持ち、<code>FixedUpdate</code> の中で読んで座標を変える</li><li>「押した瞬間」(ジャンプなど)はフラグでは表せない。<code>OnKeyDown</code> でフラグを立て、<code>FixedUpdate</code> で消費する形にする。<strong>1ステップの間に2回押されたら</strong>どうするか</li><li>Y キーの決定性チェックが、入力を入れたあとも通るようにする。通らないなら、入力のどこかが FixedUpdate の外で状態を変えている</li></ol>
+<h3 id="s25">課題3(難): 可変ステップとの誤差を定量化する</h3>
+<p>要点1(a)の「浮動小数の足し算は結合則を満たさない」を数字で見る。</p>
+<ol><li>スプライト1枚を等速直線運動させ(壁の反射を切る)、固定 60Hz で 10 秒ぶん進めた座標と、可変(2〜32ms のばらばら)で同じ 10 秒ぶん進めた座標の差を測る</li><li>差はどのくらいか。<strong>10秒でどれだけずれるか、100秒では</strong></li><li>反射を戻すと差はどうなるか。<strong>分岐(if)が入ると誤差が非線形に拡大する</strong>——わずかな座標差が「壁に当たったか当たらなかったか」を分ける</li><li>速度に重力を足して(<code>velocity.Y += 9.8f * dt</code>)、同じ比較をする。等速のときより差が大きくなるはず。なぜか</li><li>発展: <code>float</code> を <code>double</code> に変えると差はどうなるか。<strong>精度を上げれば決定性が手に入るのか</strong> (ヒント: 手に入らない。CPU が違えば <code>double</code> でも結果が変わりうる。本気でやるなら固定小数点にする。格闘ゲームのロールバック実装がそうしている)</li></ol>
+<p>5 が本題。「精度を上げる」と「決定的にする」は<strong>別の問題</strong>で、後者が欲しいなら浮動小数から離れる必要がある、という話につながる。</p>
+</section>
+<section class="part"><h2 id="s26">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0 / OpenGL 3.3 コアプロファイル</li><li>960x640 / VSync OFF / Release ビルド / スプライト 1000 枚</li></ul>
+<h3 id="s27">決定性チェック(200枚 × 600ステップ)</h3>
+<div class="code"><pre><code>A 固定・まとめて      : 7F43863E1E5DFDB8
+B 固定・フレーム分割  : 7F43863E1E5DFDB8  一致
+C 可変・同じ実時間    : 7444383E9D7F0545  不一致</code></pre></div>
+<h3 id="s28">補間と負荷(各条件2秒間、スプライト0の画面上の移動量を毎フレーム集計)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>fps</th><th>平均移動</th><th>最大移動</th><th>停止率</th><th>遅れ</th><th>捨て</th></tr></thead>
+<tbody>
+<tr><td>60Hz 補間ON 負荷0(起動直後)</td><td>3536.4</td><td>0.047 px</td><td>1.78 px</td><td>0.0%</td><td>13.7 ms</td><td>0.00 s</td></tr>
+<tr><td>60Hz 補間ON 負荷0(定常)</td><td>4057.3</td><td>0.041 px</td><td>0.31 px</td><td>0.0%</td><td>0.5 ms</td><td>0.00 s</td></tr>
+<tr><td>5Hz 補間OFF</td><td>4000.6</td><td>0.039 px</td><td><strong>33.38 px</strong></td><td><strong>99.9%</strong></td><td>1.8 ms</td><td>0.00 s</td></tr>
+<tr><td>5Hz 補間ON</td><td>3999.3</td><td>0.042 px</td><td><strong>0.20 px</strong></td><td><strong>0.0%</strong></td><td>1.9 ms</td><td>0.00 s</td></tr>
+<tr><td>20Hz 補間OFF</td><td>4035.1</td><td>0.040 px</td><td>8.35 px</td><td><strong>99.5%</strong></td><td>50.0 ms</td><td>0.00 s</td></tr>
+<tr><td>20Hz 補間ON</td><td>4029.4</td><td>0.041 px</td><td>0.15 px</td><td>0.0%</td><td>0.1 ms</td><td>0.00 s</td></tr>
+<tr><td>60Hz 負荷20ms 破棄ON</td><td>41.0</td><td>3.87 px</td><td>24.01 px</td><td>0.0%</td><td>4.6 ms</td><td><strong>0.20 s</strong></td></tr>
+<tr><td>60Hz 負荷20ms 破棄OFF</td><td><strong>6.2</strong></td><td>22.25 px</td><td>22.25 px</td><td>0.0%</td><td><strong>354.9 ms</strong></td><td>0.00 s</td></tr>
+</tbody>
+</table></div>
+<ul><li>補間の有無で<strong>平均移動はほぼ変わらず、停止率と最大移動だけが変わる</strong> (総移動量は同じで、分配が変わっている)</li><li>起動直後の行だけ最大 1.78px が出ている。まったく同じ条件で2回目を測ると0.31px なので、これはシェーダのコンパイル等でフレームが1本引っかかったもの</li><li><code>遅れ</code> は計測終了時点の瞬間値。負荷のない条件では1ステップ未満で振動するだけ(20Hz の 50.0ms はちょうど1ステップぶんの境界を踏んだ瞬間の値)</li><li>計測は <code>reference/Day19</code> のコードをそのまま使い、スプライト0の<strong>補間後の座標</strong>を拾うフックだけを足したコピーで実行した</li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 19 ゲームループ(固定タイムステップ+補間) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script>
+// ---------------- reference/Day19 の GameLoop.cs と Program.cs(InitializeSprites・UpdateSprites・RunDeterminismCheck・Checksum)を移したもの ----------------
+// float の計算は1回ごとに Math.fround で丸める(C# と同じビットを出すため)。GameLoop は double なのでそのまま
+const LOOP19 = (() => {
+const f = Math.fround;
+const DN = typeof window !== 'undefined' && window.DotNet ? window.DotNet : require('C:/var/honya-game-engine/docs/site/dotnet.js');
+const TAU = f(2 * Math.PI);
+const MAX_SPRITES = 20000;
+
+class GameLoop {
+  constructor(fixedDeltaTime = 1.0 / 60.0) {
+    this.accumulator = 0; this.fixedDeltaTime = fixedDeltaTime; this.maxStepsPerFrame = 8; this.dropExcess = true;
+    this.alpha = 0; this.stepsLastFrame = 0; this.totalSteps = 0; this.simulationTime = 0; this.droppedSeconds = 0;
+  }
+  get lag() { return this.accumulator; }
+  advance(frameSeconds, fixedUpdate) {
+    if (Number.isNaN(frameSeconds) || frameSeconds < 0) frameSeconds = 0;
+    this.accumulator += frameSeconds;
+    this.stepsLastFrame = 0;
+    while (this.accumulator >= this.fixedDeltaTime && this.stepsLastFrame < this.maxStepsPerFrame) {
+      fixedUpdate(f(this.fixedDeltaTime));
+      this.accumulator -= this.fixedDeltaTime;
+      this.simulationTime += this.fixedDeltaTime;
+      this.totalSteps++;
+      this.stepsLastFrame++;
+    }
+    if (this.accumulator >= this.fixedDeltaTime && this.dropExcess) {
+      // 1ステップ未満の端数だけ残して捨てる
+      const keep = this.accumulator % this.fixedDeltaTime;
+      this.droppedSeconds += this.accumulator - keep;
+      this.accumulator = keep;
+    }
+    this.alpha = Math.min(Math.max(this.accumulator / this.fixedDeltaTime, 0), 1);
+  }
+  reset() { this.accumulator = 0; this.alpha = 0; this.stepsLastFrame = 0; this.droppedSeconds = 0; }
+}
+
+// MathF.Cos / Sin(CRT の cosf / sinf)が、JS の値を float に丸めたものと 1 ulp ずれる角度。
+// C# に同じ角度で計算させて、ずれたものだけを持つ: [スプライトの番号, cos のビット, sin のビット](0 はずれなし)
+const TRIG_FIX = [[182,0,0xBF23F8EB],[488,0,0x3F28AF84],[560,0,0x3F33349F],[1440,0xBF1B401F,0],[2011,0x3F2FDB4D,0],[2178,0xBF2E389A,0],[2981,0,0x3F1FCB80],[3218,0x3F34E298,0],[3293,0,0x3F215ED8],[3884,0xBF2CD7F8,0],[4000,0,0xBF30A6F6],[4792,0x3F2FC9C7,0],[4971,0,0xBF2B6DC3],[5342,0xBF325EFD,0],[6427,0xBF2AAD42,0],[6451,0x3F266622,0],[6464,0,0xBF2D66C8],[6543,0xBF339872,0],[7005,0,0xBF1A8428],[7299,0,0x3F26B66E],[8063,0xBF2CC8B4,0],[8441,0,0x3F3336AE],[8818,0,0xBF2A1F5A],[9051,0x3F2C3018,0],[9212,0x3F2CD602,0],[9239,0,0xBF33FB3A],[12801,0x3F3205B0,0],[12867,0x3F394719,0],[12873,0x3F33890F,0],[13422,0,0xBF22DDBA],[14460,0,0xBF3243E3],[14472,0,0xBF345F17],[14691,0x3F28FC89,0],[15202,0xBF32555A,0],[16012,0,0x3F27DE7B],[18425,0,0x3F295ED3],[19178,0x3F24F235,0],[19776,0xBF2CD566,0]];
+const fixMap = new Map(TRIG_FIX.map((x) => [x[0], x]));
+const bitsToFloat = (u) => { const v = new DataView(new ArrayBuffer(4)); v.setUint32(0, u); return v.getFloat32(0); };
+
+// Program.InitializeSprites。種 20260816 で 20,000 枚ぶん作る(使うのは先頭から _activeSprites 枚)
+function initializeSprites(width = 960, height = 640, record = null) {
+  const r = new DN.DotNetRandom(20260816), out = new Array(MAX_SPRITES);
+  const nd = () => f(r.nextDouble());
+  for (let i = 0; i < MAX_SPRITES; i++) {
+    const speed = f(60 + f(nd() * 120));
+    const direction = f(nd() * TAU);
+    if (record) record.push(direction);
+    let c = f(Math.cos(direction)), s = f(Math.sin(direction));
+    const fx = fixMap.get(i);
+    if (fx) { if (fx[1]) c = bitsToFloat(fx[1]); if (fx[2]) s = bitsToFloat(fx[2]); }
+    const px = f(nd() * width), py = f(nd() * height);
+    const size = f(14 + f(nd() * 24));
+    const rot = f(nd() * TAU);
+    const spin = f(f(nd() - f(0.5)) * 3);
+    const color = [f(f(0.45) + f(nd() * f(0.55))), f(f(0.45) + f(nd() * f(0.55))), f(f(0.45) + f(nd() * f(0.55))), f(0.85)];
+    const layer = nd();
+    out[i] = { px, py, vx: f(c * speed), vy: f(s * speed), size, rot, spin, color, kind: i % 4, layer, ppx: px, ppy: py, prot: rot };
+  }
+  return out;
+}
+
+// Program.UpdateSprites(配列・個数・dt・画面サイズだけで結果が決まる形)
+function updateSprites(sp, count, dt, width, height) {
+  dt = f(dt);
+  for (let i = 0; i < count; i++) {
+    const s = sp[i];
+    // 動かす前に前の状態を保存する
+    s.ppx = s.px; s.ppy = s.py; s.prot = s.rot;
+    s.px = f(s.px + f(s.vx * dt)); s.py = f(s.py + f(s.vy * dt));
+    s.rot = f(s.rot + f(s.spin * dt));
+    const half = f(s.size * 0.5);
+    if (s.px < half) { s.px = half; s.vx = -s.vx; } else if (s.px > f(width - half)) { s.px = f(width - half); s.vx = -s.vx; }
+    if (s.py < half) { s.py = half; s.vy = -s.vy; } else if (s.py > f(height - half)) { s.py = f(height - half); s.vy = -s.vy; }
+  }
+}
+
+const snapshot = (sp, count) => sp.slice(0, count).map((s) => ({ ...s }));
+
+// FNV-1a(64 ビット)を float のビット表現にかける
+const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
+const MASK = (1n << 64n) - 1n, PRIME = 1099511628211n;
+function checksum(sp, count) {
+  let h = 14695981039346656037n;
+  const mix = (v) => { F32[0] = v; const u = U32[0]; for (let b = 0; b < 4; b++) { h ^= BigInt((u >>> (b * 8)) & 255); h = (h * PRIME) & MASK; } };
+  for (let i = 0; i < count; i++) { mix(sp[i].px); mix(sp[i].py); mix(sp[i].rot); }
+  return h.toString(16).toUpperCase().padStart(16, '0');
+}
+
+// C# の F 書式(ちょうど真ん中は偶数の側へ)
+function fmtF(x, d) {
+  const s = x.toFixed(d);
+  const [ip, fp] = Math.abs(x).toFixed(60).split('.');
+  if (/^50*$/.test(fp.slice(d))) {
+    const last = Number(d > 0 ? fp[d - 1] : ip[ip.length - 1]);
+    if (last % 2 === 0) return (x < 0 ? '-' : '') + (d > 0 ? `${ip}.${fp.slice(0, d)}` : ip);
+  }
+  return s;
+}
+
+// Program.RunDeterminismCheck。fixedDeltaTime は今のループの値(double)
+function runDeterminismCheck(sprites, activeSprites, fixedDeltaTime, width = 960, height = 640) {
+  const steps = 600;
+  const dt = f(fixedDeltaTime);
+  const count = Math.min(activeSprites, 200);
+  // フレーム時間の作り方も固定の種にしておく
+  const random = new DN.DotNetRandom(1234);
+  const frameTimes = new Float64Array(steps * 2);
+  for (let i = 0; i < frameTimes.length; i++) frameTimes[i] = 0.002 + random.nextDouble() * 0.030;
+
+  // A: まとめて600回
+  const a = snapshot(sprites, count);
+  for (let i = 0; i < steps; i++) updateSprites(a, count, dt, width, height);
+
+  // B: ばらばらのフレームに分けて、GameLoop 経由で600回(FixedDeltaTime は float の dt を double にしたもの)
+  const b = snapshot(sprites, count);
+  const loop = new GameLoop(dt); loop.maxStepsPerFrame = 2147483647;
+  let done = 0;
+  for (const ft of frameTimes) {
+    if (done >= steps) break;
+    loop.advance(ft, () => { if (done < steps) { updateSprites(b, count, dt, width, height); done++; } });
+  }
+
+  // C: 可変タイムステップ。同じ実時間ぶん進める
+  const c = snapshot(sprites, count);
+  const target = steps * dt;
+  let elapsed = 0, framesC = 0;
+  for (const ft of frameTimes) {
+    if (elapsed >= target) break;
+    const step = Math.min(ft, target - elapsed);
+    updateSprites(c, count, f(step), width, height);
+    elapsed += step; framesC++;
+  }
+  const ha = checksum(a, count), hb = checksum(b, count), hc = checksum(c, count);
+  const frameSum = frameTimes.reduce((x, y) => x + y, 0);
+  return {
+    count, steps, ha, hb, hc, doneB: done, elapsedC: elapsed, framesC, target, frameSum,
+    lines: [
+      `[決定性チェック] ${count} 枚 x ${steps} ステップ (${fmtF(dt * 1000.0, 2)}ms/step)`,
+      `  A 固定・まとめて      : ${ha}`,
+      `  B 固定・フレーム分割  : ${hb}  ${ha === hb ? '一致' : '不一致'}`,
+      `  C 可変・同じ実時間    : ${hc}  ${ha === hc ? '一致' : '不一致'}`,
+      '  → A==B なら再現性あり。A!=C は可変タイムステップでは再現しないこと',
+    ],
+  };
+}
+
+return { GameLoop, MAX_SPRITES, TAU, initializeSprites, updateSprites, snapshot, checksum, runDeterminismCheck, fmtF };
+})();
+
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate, reduceMotion } = Lab;
+const L19 = LOOP19, f = Math.fround;
+const fmtF = L19.fmtF;
+const DN = window.DotNet;
+const W = 960, H = 640;
+
+// ------------------------------------------------------------
+// 1. アキュムレータを1フレームずつ見る(このページの中の時計)
+// ------------------------------------------------------------
+const ac = { loop: null, frames: [], rnd: null, n: 0, real: 0, carry: 0, play: true, acc: 0 };
+function acFrameTime() {
+  const v = segValue('ac-frame');
+  if (v === 'rand') return 0.002 + ac.rnd.nextDouble() * 0.030;
+  if (v === 'spike') return ac.n % 12 === 11 ? 0.2 : 0.007;
+  return Number(v) / 1000;
+}
+function acReset() {
+  ac.loop = new L19.GameLoop(1 / Number(segValue('ac-rate')));
+  ac.loop.maxStepsPerFrame = Number(segValue('ac-max')) || 2147483647;
+  ac.loop.dropExcess = segValue('ac-drop') === '1';
+  ac.frames = []; ac.rnd = new DN.DotNetRandom(1234); ac.n = 0; ac.real = 0; ac.acc = 0;
+  acDraw();
+}
+function acFrame() {
+  const lp = ac.loop, dt = acFrameTime();
+  const carry = lp.accumulator, dropped0 = lp.droppedSeconds;
+  lp.advance(dt, () => {});
+  ac.frames.push({ carry, dt, steps: lp.stepsLastFrame, dropped: lp.droppedSeconds - dropped0, after: lp.accumulator, alpha: lp.alpha });
+  if (ac.frames.length > 400) ac.frames.shift();
+  ac.n++; ac.real += dt;
+}
+function acDraw() {
+  const { ctx, w, h } = fit($('ac-chart'));
+  const lp = ac.loop, fixed = lp.fixedDeltaTime;
+  const n = Math.max(8, Math.min(48, Math.floor((w - 60) / 16)));
+  const fr = ac.frames.slice(-n);
+  const L = 52, R = w - 8, T = 18, B = h - 32;
+  const top = Math.max(fixed * 2.2, ...fr.map((x) => x.carry + x.dt));
+  const Y = (s) => B - (s / top) * (B - T);
+  const cw = (R - L) / n;
+  ctx.font = '11px sans-serif';
+  // 1 ステップぶんの目盛り
+  const stepLines = Math.floor(top / fixed);
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1;
+  const every = Math.max(1, Math.ceil(stepLines / 10));
+  for (let k = 1; k <= stepLines; k++) {
+    if (k % every) continue;
+    ctx.beginPath(); ctx.moveTo(L, Y(k * fixed)); ctx.lineTo(R, Y(k * fixed)); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.fillText(`${k}×${fmtF(fixed * 1000, 1)}ms`, 2, Y(k * fixed) + 4);
+  }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(L, B); ctx.lineTo(R, B); ctx.stroke();
+  fr.forEach((x, i) => {
+    const x0 = L + i * cw + 2, bw = Math.max(3, cw - 4);
+    // 持ち越し(灰)と今回の経過時間(青)
+    ctx.fillStyle = tok('--line'); ctx.fillRect(x0, Y(x.carry), bw, B - Y(x.carry));
+    ctx.fillStyle = tok('--accent'); ctx.fillRect(x0, Y(x.carry + x.dt), bw, Y(x.carry) - Y(x.carry + x.dt));
+    // 捨てた時間(赤): 棒の上から、残した端数の上まで
+    if (x.dropped > 0) { ctx.fillStyle = tok('--expl'); ctx.fillRect(x0, Y(x.carry + x.dt), bw, Y(x.after + x.steps * fixed) - Y(x.carry + x.dt)); }
+    // 残した端数の位置(= 次のフレームの灰)
+    ctx.strokeStyle = tok('--ink'); ctx.beginPath(); ctx.moveTo(x0, Y(x.after)); ctx.lineTo(x0 + bw, Y(x.after)); ctx.stroke();
+    ctx.fillStyle = x.steps ? tok('--good') : tok('--muted'); ctx.textAlign = 'center';
+    ctx.font = (x.steps ? 'bold ' : '') + '11px sans-serif';
+    ctx.fillText(String(x.steps), x0 + bw / 2, Math.max(T - 4, Y(x.carry + x.dt) - 4));
+    ctx.font = '11px sans-serif';
+    // α
+    ctx.fillStyle = tok('--semi'); ctx.beginPath(); ctx.arc(x0 + bw / 2, B + 12 + (1 - x.alpha) * 18, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = 'start';
+  });
+  ctx.fillStyle = tok('--muted'); ctx.fillText('α', L - 14, B + 22);
+  const last = fr[fr.length - 1];
+  const stepsTotal = lp.totalSteps;
+  $('ac-stats').innerHTML = stat('フレーム', ac.n) + stat('ステップ(累計)', stepsTotal)
+    + stat('このフレームのステップ', last ? last.steps : 0) + stat('α', fmtF(lp.alpha, 2))
+    + stat('遅れ', fmtF(lp.lag * 1000, 1) + 'ms') + stat('捨て', fmtF(lp.droppedSeconds, 2) + 's')
+    + stat('シミュ時間 / 実時間', ac.real > 0 ? fmtF(lp.simulationTime / ac.real * 100, 1) + '%' : '—');
+  const fv = segValue('ac-frame'), hz = Number(segValue('ac-rate'));
+  let note;
+  if (fv === 'spike') note = '200ms のフレームが来ると、溜まった時間を数ステップまとめて消化する。上限 8 で追いつけないぶん(5Hz・20Hz では起きない)は、捨てるなら赤になり、捨てないなら次のフレームへ持ち越して遅れになる。';
+  else if (Number(fv) / 1000 < 1 / hz) note = 'フレームの方が速いので、ステップ数 0 のフレームが続き、ときどき 1 になる。灰の持ち越しが α そのもので、補間はこの値で前と今の状態を混ぜる。';
+  else note = 'フレームの方が遅いので、1 フレームで 1 回以上回る。2 回のこともある。それでも fixedUpdate に渡る dt は毎回同じ値になる。';
+  $('ac-note').textContent = note;
+}
+for (const id of ['ac-rate', 'ac-frame', 'ac-max', 'ac-drop']) seg(id, acReset);
+seg('ac-play', (v) => { ac.play = v === '1'; });
+$('ac-step').addEventListener('click', () => { acFrame(); acDraw(); });
+$('ac-reset').addEventListener('click', acReset);
+acReset();
+for (let i = 0; i < 30; i++) acFrame();
+acDraw();
+// 棒が目で追えるよう、0.12 秒に 1 本ずつ流す
+animate($('ac-lab'), (dt) => {
+  if (!ac.play || reduceMotion) return;
+  ac.acc += dt;
+  if (ac.acc < 0.12) return;  // 1 本あたり 0.12 秒
+  ac.acc = 0; acFrame(); acDraw();
+});
+
+// ------------------------------------------------------------
+// 2. 補間の効果(ブラウザの実時間で回す)
+// ------------------------------------------------------------
+const dm = {
+  sprites: L19.initializeSprites(W, H), active: 1000, loop: new L19.GameLoop(1 / 60), interpolate: true, load: 0, paused: false,
+  first: true, last: 0, fpsElapsed: 0, fpsFrames: 0, fps: 0, title: '', trail: [], moves: [], prevDrawn: null, log: [],
+  angle: 0, prevAngle: 0,
+};
+const burn = (us) => { if (us <= 0) return; const s = performance.now(); while (performance.now() - s < us / 1000) { /* ビジーループ */ } };
+function dmFixedUpdate(dt) {
+  burn(dm.load);
+  dm.prevAngle = dm.angle; dm.angle = f(dm.angle + dt);
+  L19.updateSprites(dm.sprites, dm.active, dt, W, H);
+}
+function dmSetRate(hz) {
+  dm.loop.fixedDeltaTime = 1.0 / hz; dm.loop.reset();
+  dmLog(`シミュレーション: ${hz}Hz (1ステップ ${fmtF(1000.0 / hz, 2)}ms)`);
+}
+function dmLog(s) { dm.log.push(s); if (dm.log.length > 200) dm.log.splice(0, dm.log.length - 200); $('dm-console').textContent = dm.log.join('\n'); $('dm-console').scrollTop = 1e9; }
+const onOff = (b) => (b ? 'ON' : 'OFF');
+function dmInterp(prev, cur) { const a = dm.interpolate ? f(dm.loop.alpha) : 1; return f(prev + f(f(cur - prev) * a)); }
+function dmUpdate(delta) {
+  if (dm.first) { dm.first = false; delta = 0; }
+  dm.loop.advance(dm.paused ? 0 : delta, dmFixedUpdate);
+  dm.fpsFrames++; dm.fpsElapsed += delta;
+  if (dm.fpsElapsed >= 0.5) {
+    dm.fps = dm.fpsFrames / dm.fpsElapsed; dm.fpsFrames = 0; dm.fpsElapsed = 0;
+    const lp = dm.loop;
+    dm.title = `Day19 - 固定タイムステップ  ${fmtF(dm.fps, 1)} fps | sim ${fmtF(1.0 / lp.fixedDeltaTime, 0)}Hz step:${lp.stepsLastFrame} α:${fmtF(lp.alpha, 2)} 遅れ:${fmtF(lp.lag * 1000.0, 1)}ms 捨て:${fmtF(lp.droppedSeconds, 2)}s | `
+      + `補間:${onOff(dm.interpolate)} 負荷:${dm.load}us 破棄:${onOff(lp.dropExcess)} | スプライト:${dm.active}`;
+    $('dm-title').textContent = dm.title;
+  }
+}
+// 絵の種類は reference の SpriteNames(circle / ring / star / diamond)の順
+function dmShape(ctx, kind, x, y, r, rot) {
+  ctx.beginPath();
+  if (kind === 0 || kind === 1) ctx.arc(x, y, r, 0, Math.PI * 2);
+  else if (kind === 2) { for (let k = 0; k < 10; k++) { const a = rot + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+  else { for (let k = 0; k < 4; k++) { const a = rot + (k * Math.PI) / 2; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+}
+function dmRender() {
+  const cv = $('dm-canvas');
+  const { ctx, w } = fit(cv);
+  const h = cv.clientHeight;
+  const sc = Math.min(w / W, h / H), ox = (w - W * sc) / 2, oy = (h - H * sc) / 2;
+  ctx.fillStyle = '#14171f'; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(sc, sc);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.strokeRect(0, 0, W, H);
+  for (let i = 0; i < dm.active; i++) {
+    const s = dm.sprites[i];
+    const x = dmInterp(s.ppx, s.px), y = dmInterp(s.ppy, s.py), rot = dmInterp(s.prot, s.rot);
+    const c = s.color;
+    ctx.fillStyle = `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})`;
+    ctx.strokeStyle = ctx.fillStyle;
+    dmShape(ctx, s.kind, x, y, s.size * 0.5, rot);
+    if (s.kind === 1) { ctx.lineWidth = Math.max(2, s.size * 0.18); ctx.stroke(); } else ctx.fill();
+  }
+  // スプライト 0 の跡と輪
+  if (dm.active > 0) {
+    const s = dm.sprites[0];
+    const x = dmInterp(s.ppx, s.px), y = dmInterp(s.ppy, s.py);
+    ctx.fillStyle = '#ffd34d';
+    for (const p of dm.trail) ctx.fillRect(p[0] - 2.5, p[1] - 2.5, 5, 5);
+    ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(x, y, s.size * 0.5 + 8, 0, Math.PI * 2); ctx.stroke();
+    // 移動量の集計(本文の表と同じ: 補間後の座標が 1 フレームでどれだけ動いたか)
+    if (dm.prevDrawn) {
+      const d = Math.hypot(x - dm.prevDrawn[0], y - dm.prevDrawn[1]);
+      if (!dm.paused) dm.moves.push({ t: performance.now(), d });
+      if (!dm.trail.length || Math.hypot(x - dm.trail[dm.trail.length - 1][0], y - dm.trail[dm.trail.length - 1][1]) > 0.5) dm.trail.push([x, y]);
+      if (dm.trail.length > 600) dm.trail.shift();
+    }
+    dm.prevDrawn = [x, y];
+  }
+  ctx.restore();
+}
+function dmStats() {
+  const now = performance.now();
+  while (dm.moves.length && now - dm.moves[0].t > 2000) dm.moves.shift();
+  const m = dm.moves, n = m.length;
+  const sum = m.reduce((a, x) => a + x.d, 0), max = m.reduce((a, x) => Math.max(a, x.d), 0), still = m.filter((x) => x.d === 0).length;
+  $('dm-stats').innerHTML = stat('スプライト 0 の平均移動(直近 2 秒)', n ? fmtF(sum / n, 3) + ' px' : '—')
+    + stat('最大移動', n ? fmtF(max, 2) + ' px' : '—') + stat('動かなかったフレーム', n ? fmtF(still / n * 100, 1) + '%' : '—')
+    + stat('フレーム数(2 秒)', n) + stat('ステップ(累計)', dm.loop.totalSteps);
+}
+seg('dm-rate', (v) => { dmSetRate(Number(v)); dm.trail = []; });
+seg('dm-interp', (v) => { dm.interpolate = v === '1'; dm.trail = []; });
+seg('dm-load', (v) => { dm.load = Number(v); });
+seg('dm-drop', (v) => { dm.loop.dropExcess = v === '1'; dm.loop.reset(); });
+seg('dm-play', (v) => { dm.paused = v !== '1'; });
+for (const b of document.querySelectorAll('#dm-lab [data-n]')) b.addEventListener('click', () => { dm.active = Math.min(L19.MAX_SPRITES, Math.max(0, dm.active + Number(b.dataset.n))); });
+$('dm-trail').addEventListener('click', () => { dm.trail = []; });
+$('dm-y').addEventListener('click', () => {
+  const r = L19.runDeterminismCheck(dm.sprites, dm.active, dm.loop.fixedDeltaTime, W, H);
+  dmLog(''); for (const l of r.lines) dmLog(l); dmLog('');
+});
+$('dm-title').textContent = 'Day19 - 固定タイムステップ(0.5 秒ごとに更新)';
+dmLog('1/2/3/4:シミュレーション 120/60/20/5Hz   I:補間  L:負荷  K:余剰破棄  Y:決定性チェック');
+dmRender();
+animate($('dm-lab'), () => {
+  const now = performance.now();
+  let delta = dm.last ? (now - dm.last) / 1000 : 0;
+  dm.last = now;
+  if (delta > 1) delta = 0;  // 画面の外やタブを離れていた間(このページだけ)
+  dmUpdate(delta);
+  dmRender();
+  dmStats();
+});
+// 画面の外に出たら時計を止める(戻ってきたときの1フレームを 0 にする)
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) dm.last = 0; }).observe($('dm-lab'));
+
+// ------------------------------------------------------------
+// 3. 死のスパイラル(このページの中の時計)
+// ------------------------------------------------------------
+const RENDER = 0.00025;
+const sp = { loop: null, prevSteps: 0, t: 0, hist: [], frozen: false, acc: 0 };
+function spMake(load, drop, max) {
+  const s = { loop: new L19.GameLoop(1 / 60), prevSteps: 0, t: 0, load, hist: [], frozen: false };
+  s.loop.dropExcess = drop; s.loop.maxStepsPerFrame = max || 2147483647;
+  return s;
+}
+// 1 フレーム: 経過時間 = 前のフレームの長さ(描画 + ステップ数 × 負荷)
+function spFrame(s) {
+  const dt = s.t === 0 ? 0 : RENDER + s.prevSteps * s.load / 1e6;
+  const d0 = s.loop.droppedSeconds;
+  s.loop.advance(dt, () => {});
+  s.prevSteps = s.loop.stepsLastFrame;
+  s.t += dt === 0 ? RENDER : dt;
+  return { t: s.t, dt, steps: s.loop.stepsLastFrame, lag: s.loop.lag, dropped: s.loop.droppedSeconds - d0 };
+}
+function spReset() {
+  Object.assign(sp, spMake(Number(segValue('sp-load')), segValue('sp-drop') === '1', Number(segValue('sp-max'))));
+  sp.acc = 0;
+  spDraw();
+}
+function spAdvance(realDt) {
+  if (sp.frozen) return;
+  const end = sp.t + realDt;
+  let guard = 0;
+  while (sp.t < end && guard++ < 20000) {
+    const r = spFrame(sp);
+    sp.hist.push(r);
+    if (RENDER + sp.prevSteps * sp.load / 1e6 > 30) { sp.frozen = true; break; }
+  }
+  while (sp.hist.length && sp.hist[0].t < sp.t - 3) sp.hist.shift();
+}
+function spDraw() {
+  const { ctx, w, h } = fit($('sp-chart'));
+  const L = 44, R = w - 44, T = 14, B = h - 22;
+  const t1 = Math.max(3, sp.t), t0 = t1 - 3;
+  const X = (t) => L + ((t - t0) / 3) * (R - L);
+  const hs = sp.hist.filter((x) => x.t >= t0);
+  const maxSteps = Math.max(8, ...hs.map((x) => x.steps));
+  const maxLag = Math.max(0.05, ...hs.map((x) => x.lag));
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(L, T); ctx.lineTo(L, B); ctx.lineTo(R, B); ctx.lineTo(R, T); ctx.stroke();
+  ctx.font = '11px sans-serif'; ctx.fillStyle = tok('--good'); ctx.fillText(`${maxSteps}`, L - 20, T + 8); ctx.fillText('step', 4, (T + B) / 2);
+  ctx.fillStyle = tok('--expl'); ctx.fillText(`${fmtF(maxLag * 1000, 0)}ms`, R + 4, T + 8); ctx.fillText('遅れ', R + 6, (T + B) / 2);
+  ctx.fillStyle = tok('--muted');
+  for (let s = Math.ceil(t0); s <= t1; s++) ctx.fillText(`${s}s`, X(s) - 6, h - 6);
+  ctx.fillStyle = tok('--good');
+  for (const x of hs) if (x.steps) { const y = B - (x.steps / maxSteps) * (B - T); ctx.fillRect(X(x.t) - 1, y, 2.5, B - y); }
+  ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 2; ctx.beginPath();
+  hs.forEach((x, i) => { const y = B - (x.lag / maxLag) * (B - T); i ? ctx.lineTo(X(x.t), y) : ctx.moveTo(X(x.t), y); });
+  ctx.stroke(); ctx.lineWidth = 1;
+  // 直近 2 秒の集計
+  const win = sp.hist.filter((x) => x.t >= sp.t - 2);
+  const span = win.length ? sp.t - Math.max(sp.t - 2, win[0].t - win[0].dt) : 0;
+  const steps = win.reduce((a, x) => a + x.steps, 0), drop = win.reduce((a, x) => a + x.dropped, 0);
+  $('sp-stats').innerHTML = stat('fps(直近 2 秒)', span > 0 ? fmtF(win.length / span, 1) : '—') + stat('ステップ / フレーム', sp.loop.stepsLastFrame)
+    + stat('遅れ', fmtF(sp.loop.lag * 1000, 1) + 'ms') + stat('捨て(累計)', fmtF(sp.loop.droppedSeconds, 2) + 's')
+    + stat('ステップ(直近 2 秒。実時間どおりなら 120)', steps) + stat('経過(このページの時計)', fmtF(sp.t, 1) + 's');
+  $('sp-note').textContent = sp.frozen ? '1 フレームが 30 秒を超えたので止めた。上限が無いと、フレームが伸びるたびにステップ数が増え、それがまたフレームを伸ばす。これが死のスパイラル。'
+    : sp.load >= 16667 && segValue('sp-max') === '8' ? (segValue('sp-drop') === '1'
+      ? 'ステップ数が上限の 8 に張り付き、追いつけないぶんを毎フレーム捨てる。遅れは 1 ステップ未満に収まるが、シミュレーションは実時間より遅く進む(8 ステップ = 133ms ぶんを、約 160ms かけて進める)。'
+      : 'ステップ数が上限の 8 に張り付き、捨てないので遅れが増え続ける(上限があるのでフレームの長さは 160ms で止まる)。')
+      : sp.load >= 16667 ? '' : '負荷が 1 ステップの予算(16.67ms)より小さいので、ステップ数は 0 か 1(ときどき 2)で、遅れも 1 ステップ未満に収まる。';
+}
+function spTable() {
+  const rows = [];
+  for (const load of [0, 2000, 8000, 20000]) for (const drop of [true, false]) {
+    const s = spMake(load, drop, 8);
+    while (s.t < 2) spFrame(s);
+    const t0 = s.t, d0 = s.loop.droppedSeconds, st0 = s.loop.totalSteps; let n = 0;
+    while (s.t - t0 < 2) { spFrame(s); n++; }
+    const span = s.t - t0;
+    rows.push(`<tr><td>${load}us</td><td>${drop ? '捨てる' : '捨てない'}</td><td>${fmtF(n / span, 1)}</td><td>${fmtF(s.loop.lag * 1000, 1)} ms</td><td>${fmtF(s.loop.droppedSeconds - d0, 2)} s</td><td>${s.loop.totalSteps - st0}</td></tr>`);
+  }
+  $('sp-out').innerHTML = `<table><thead><tr><th>負荷</th><th>余剰</th><th>fps</th><th>遅れ</th><th>捨てた時間(2 秒間)</th><th>ステップ(2 秒間。実時間どおりなら 120)</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+}
+for (const id of ['sp-load', 'sp-drop', 'sp-max']) seg(id, spReset);
+$('sp-reset').addEventListener('click', spReset);
+$('sp-table').addEventListener('click', spTable);
+spReset(); spAdvance(3); spDraw();
+animate($('sp-lab'), (dt) => { if (reduceMotion) return; spAdvance(dt); spDraw(); });
+
+// ------------------------------------------------------------
+// 4. 決定性チェックを回す
+// ------------------------------------------------------------
+const dcSprites = L19.initializeSprites(W, H);
+function dcRun() {
+  const hz = Number(segValue('dc-rate')), active = Number(segValue('dc-count'));
+  const r = L19.runDeterminismCheck(dcSprites, active, 1.0 / hz, W, H);
+  $('dc-console').textContent = r.lines.join('\n');
+  $('dc-stats').innerHTML = stat('B が回したステップ', `${r.doneB} / ${r.steps}`) + stat('フレーム時間 1200 本の合計', fmtF(r.frameSum, 2) + ' s')
+    + stat('600 ステップぶんの時間', fmtF(r.target, 2) + ' s') + stat('C が進めた時間', fmtF(r.elapsedC, 2) + ' s');
+  $('dc-note').textContent = r.doneB < r.steps
+    ? `フレーム時間の表(2〜32ms を 1200 本)の合計が 600 ステップぶんの時間に届かないので、B は ${r.doneB} ステップで表を使い切り、C も同じ時間しか進まない。このレートでは B が「不一致」になる(C# でも同じ出力になる)。`
+    : 'B は 600 ステップを回し切っていて、A とビット単位で同じ。C は同じ時間を可変の刻みで進めたので、ハッシュが違う。';
+}
+seg('dc-rate', dcRun); seg('dc-count', dcRun);
+$('dc-run').addEventListener('click', dcRun);
+dcRun();
+})();
+</script>
+</body>
+</html>
