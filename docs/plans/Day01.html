@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 01 環境構築とピクセルバッファの60fps表示</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">環境構築(Day 1 だけの作業)</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. フレームバッファ — すべての描画の出口</a></li><li class="l3"><a href="#s6">2. ピクセルのメモリ配置 — なぜ 0xAARRGGBB なのか</a></li><li class="l3"><a href="#s7">3. LockBits と stride — マネージド配列を画面へ渡す</a></li><li class="l3"><a href="#s8">4. ゲームループ — なぜ <code>Application.Run</code> を使わないのか</a></li><li class="l3"><a href="#s9">5. フレームレート制限 — VSyncが無い世界の話</a></li><li class="l3"><a href="#s10">6. 高DPIと「1ピクセル = 1ピクセル」</a></li><li class="l3"><a href="#s11">7. 60fpsの時間予算 — 実測値</a></li><li class="l2"><a href="#s12">差分概要(Day 1 は新規作成)</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 解像度を変えて負荷の正体を掴む</a></li><li class="l3"><a href="#s16">課題2(中): <code>SetPixel</code> だけで図形を描く</a></li><li class="l3"><a href="#s17">課題3(難): フレームループを計測して壊す</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 0 / Day 01 / 計画書</p>
+  <h1>環境構築とピクセルバッファの60fps表示</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">環境構築(Day 1 だけの作業)</a></li><li class="l2"><a href="#s4">理論の要点</a></li><li class="l3"><a href="#s5">1. フレームバッファ — すべての描画の出口</a></li><li class="l3"><a href="#s6">2. ピクセルのメモリ配置 — なぜ 0xAARRGGBB なのか</a></li><li class="l3"><a href="#s7">3. LockBits と stride — マネージド配列を画面へ渡す</a></li><li class="l3"><a href="#s8">4. ゲームループ — なぜ <code>Application.Run</code> を使わないのか</a></li><li class="l3"><a href="#s9">5. フレームレート制限 — VSyncが無い世界の話</a></li><li class="l3"><a href="#s10">6. 高DPIと「1ピクセル = 1ピクセル」</a></li><li class="l3"><a href="#s11">7. 60fpsの時間予算 — 実測値</a></li><li class="l2"><a href="#s12">差分概要(Day 1 は新規作成)</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 解像度を変えて負荷の正体を掴む</a></li><li class="l3"><a href="#s16">課題2(中): <code>SetPixel</code> だけで図形を描く</a></li><li class="l3"><a href="#s17">課題3(難): フレームループを計測して壊す</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 0 / ロードマップ該当行: 「環境構築、ピクセルバッファを60fpsで画面表示」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>640x480のピクセル配列を毎フレームCPUで書き換え、それが60fpsでウィンドウに表示される。</p>
+<p>これ以降のDay 2〜10でやること(線分、三角形、Zバッファ、テクスチャ、シェーディング)は、すべて「このピクセル配列の中身をどう決めるか」という話に還元される。今日はその器と、器を毎秒60回画面へ流し込む配管だけを作る。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>Day 1 に必読資料はない。余裕があれば以下を「地図」として眺めておくと以降が楽になる。</p>
+<ul><li>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch1(進化の系譜) — 全体の見取り図</li><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-1 レンダリングパイプライン</a> — Day 2以降の理論の土台。今日は読まなくてもよいが、Day 2 の前に必ず読む</li><li><a href="https://learn.microsoft.com/ja-jp/dotnet/desktop/winforms/">.NET Windows Forms ドキュメント</a> — 今日使うAPIの一次情報</li></ul>
+</section>
+<section class="part"><h2 id="s3">環境構築(Day 1 だけの作業)</h2>
+<ol><li>.NET SDK 10 (LTS) をインストールし、<code>dotnet --version</code> が 10.x を返すことを確認する</li><li>リポジトリ直下の <code>global.json</code> でSDKを固定する(本Dayで作成済み)<div class="code"><span class="lang">json</span><pre><code>{
+  "sdk": {
+    "version": "10.0.102",
+    "rollForward": "latestFeature"
+  }
+}</code></pre></div><p><code>rollForward: latestFeature</code> は「10.0.1xx 系ならより新しいものを使ってよい」の意味。完全固定(<code>disable</code>)にするとSDK更新のたびに引っかかるため、この程度が扱いやすい。</p></li></ol>
+<ol start="3"><li>VSCode に以下の拡張を入れる<ul><li>C# Dev Kit(必須。デバッグ実行とプロジェクト管理)</li><li>Shader languages support for VS Code など GLSL 系(Phase 2以降で使う。今入れておくだけ)</li></ul></li></ol>
+<ol start="4"><li>動作確認: <code>dotnet run --project reference/Day01</code></li></ol>
+<p>補足: Phase 0〜1 は WinForms を使うため Windows 専用になる。これはロードマップ想定どおり。</p>
+</section>
+<section class="part"><h2 id="s4">理論の要点</h2>
+<h3 id="s5">1. フレームバッファ — すべての描画の出口</h3>
+<p>ソフトウェアラスタライザの出力先は <code>Framebuffer.Pixels</code> ただ1つしかない。GPUで言えばバックバッファに相当する。今後どんな高度な処理を書いても、最後は必ず「この配列の何番目に、どの色を入れるか」に落ちる。</p>
+<p>配列は2次元 <code>[y, x]</code> ではなく1次元 <code>[y * Width + x]</code> にしている。メモリが連続していてキャッシュに乗りやすく、境界チェックも1回で済むため。以降のDayでも一貫してこの形を使う。</p>
+<h3 id="s6">2. ピクセルのメモリ配置 — なぜ 0xAARRGGBB なのか</h3>
+<p>1ピクセルを <code>int</code>(32bit)1個で表し、値の並びを <code>0xAARRGGBB</code> にしている。これをリトルエンディアンのメモリに置くと、バイト列は <strong>B, G, R, A</strong> の順に並ぶ。そしてこれは GDI+ の 32bpp フォーマットのメモリ配置とちょうど一致する。</p>
+<p>つまり「見た目の16進表記(RRGGBB、人間に読みやすい)」と「GDI+が要求するバイト順(BGRA)」が、エンディアンのおかげで自動的に噛み合っている。この一致のおかげで、画面への転送は単なるメモリコピーだけで済み、ピクセルごとの並べ替え処理が一切要らない。</p>
+<p><code>byte[]</code> ではなく <code>int[]</code> にした理由も同じ流れで、インデックス計算に <code>* 4</code> が要らず、1ピクセルの読み書きが1命令で済み、転送に使う <code>Marshal.Copy</code> が <code>int[]</code> を直接受け取れる。</p>
+<h3 id="s7">3. LockBits と stride — マネージド配列を画面へ渡す</h3>
+<p><code>Bitmap</code> の中身は GDI+ が管理するアンマネージドメモリで、C#の配列とは別世界にある。<code>Bitmap.LockBits</code> は「今からこのメモリを直接触るので動かさないでくれ」と宣言するAPIで、返ってくる <code>BitmapData.Scan0</code> が生ポインタ、<code>BitmapData.Stride</code> が1行あたりの実バイト数。</p>
+<p><strong>Stride は 幅×4 とは限らない。</strong> GDI+ は各行の先頭を4バイト境界に揃えるためパディングを入れることがある。32bppかつ幅640なら実際には <code>Stride == 640*4</code> になるが、行単位でコピーして毎行 <code>Stride</code> ぶん進める書き方にしておけば、どんな幅でも壊れない。</p>
+<p><code>LockBits</code> したら必ず <code>UnlockBits</code> する。忘れるとビットマップが固定されたままになるため、途中で例外が出ても解放されるよう <code>finally</code> に置く。</p>
+<div class="inject"><figure class="lab" id="fb-lab">
+  <div class="lab-head">
+    <h3>ピクセル配列を読む — 1次元の添字と 0xAARRGGBB(要点1・2・3)</h3>
+    <span class="tag">reference の Framebuffer.cs(Rgb、FillRect)と GameWindow.cs(Render、PingPong、Present の行ごとのコピー)を JS に移したもの。絵の上の点を押す(またはなぞる)と、その画素の添字・int の値・メモリ上のバイトの並びを出す。Rgb のシフトの間違いと、転送先の Stride がパディングで 幅×4 と違う場合(642 画素ぶん)はこのページだけの切り替えで、本文の確認ポイントの症状を再現するもの</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="fb-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="fb-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px;touch-action:none;cursor:crosshair" aria-label="赤と緑のグラデーションの上を白い四角が跳ね回る。押すとその画素の値を読む"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">Framebuffer.Rgb のシフト(このページだけ)</span>
+      <div class="seg" id="fb-shift"><button data-v="ok" aria-pressed="true">r &lt;&lt; 16、b そのまま(reference)</button><button data-v="swap" aria-pressed="false">r と b を逆</button></div>
+    </div>
+    <div class="ctl"><span class="label">転送先の Stride と、コピーの進め方(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="fb-stride"><button data-v="640" aria-pressed="true">Stride = 640×4</button><button data-v="642" aria-pressed="false">Stride = 642×4(パディング)</button></div><div class="seg" id="fb-step"><button data-v="stride" aria-pressed="true">毎行 Stride 進む(reference)</button><button data-v="width" aria-pressed="false">毎行 幅×4 進む</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">動き</span>
+      <div class="seg" id="fb-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fb-stats"></div></div>
+</figure></div>
+<h3 id="s8">4. ゲームループ — なぜ <code>Application.Run</code> を使わないのか</h3>
+<p>WinForms の標準である <code>Application.Run(form)</code> は「メッセージが来るまで待つ」イベント駆動のループ。ボタンを押したら反応するアプリならこれでよいが、ゲームは<strong>入力が無くても毎フレーム絵を更新したい</strong>。そこで自前の <code>while</code> ループを持ち、その中で <code>Application.DoEvents()</code> を呼んでメッセージ処理だけを借りる形にする。<code>DoEvents</code> を呼ばないとウィンドウが「応答なし」になる。</p>
+<p>ちらつき(フリッカ)対策も必要になる。既定ではOSが「背景を塗る → こちらが描く」の2段階で描画するため、一瞬背景色が見えてチラつく。画面全体を毎フレーム自前で埋めるので背景塗りは完全に無駄であり、<code>ControlStyles.Opaque | UserPaint | AllPaintingInWmPaint</code> を立てて背景塗りを止める。</p>
+<h3 id="s9">5. フレームレート制限 — VSyncが無い世界の話</h3>
+<p>GPUを使わないのでVSync(垂直同期)による自動的なフレーム制御が存在しない。放っておくと出せるだけフレームを出してCPUを100%使い切るので、自分で待つ必要がある。</p>
+<p>ここには2つの罠がある。</p>
+<p><strong>罠1: 誤差の累積。</strong> 「今の時刻 + 16.67ms」を毎回計算すると、1フレームごとの微小な待ち誤差がそのまま積み上がり、平均フレームレートが目標より下がる。<strong>「前回の目標時刻 + 16.67ms」を積む</strong>(絶対時刻でスケジュールする)ことで誤差が累積しなくなる。</p>
+<p><strong>罠2: <code>Thread.Sleep</code> は当てにならない。</strong> Windowsのタイマ分解能は既定で粗く、本Dayの実測では <code>Thread.Sleep(1)</code> が<strong>平均約4ms、最悪14ms</strong>眠っていた。目標時刻を飛び越してしまう。そこで「残りが十分あるうちだけ Sleep して CPU を他へ譲り、最後の数msはスピンウェイトで自分で数える」というハイブリッドにする。しきい値を 2ms → 5ms に変えるだけで実測 58.8fps → 59.9fps に改善した。</p>
+<p>これは「正確さのためにCPUを燃やす」という割り切りで、ゲームループでは定番の判断。より真面目なタイムステップ設計は Day 19(固定タイムステップ+補間)で改めて扱う。</p>
+<div class="inject"><figure class="lab" id="wt-lab">
+  <div class="lab-head">
+    <h3>60fps に合わせて待つ — Sleep(1) とスピンの組み合わせ(要点5・7)</h3>
+    <span class="tag">reference の GameWindow.Run(前回の目標時刻に 16.67ms を積む)と WaitUntil(残りがしきい値より多ければ Sleep(1)、少なければ SpinWait)を、このページの中の時計で 3,000 フレーム回したもの。1 フレームの仕事は要点7の表の合計 6.93ms(±5%)。Thread.Sleep(1) が実際に眠る長さは本文の実測(平均約 4ms、最悪 14ms)をもとに置いた分布で、1ms が 60%、2ms が 15%、4ms が 7%、14ms が 18%(このページだけ)。fps はこのモデルの値で、本文の実測(しきい値 2ms で 58.8、5ms で 59.9)とは少し違う。上の図は先頭の 8 フレームを時間の長さどおりに並べたもの</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="wt-chart" style="width:100%;height:150px" aria-label="フレームごとの仕事・Sleep・スピンの時間を並べた図"></canvas><p style="margin:4px 0 0;font-size:12px;color:var(--muted)">青 = 仕事(描画と転送)/ 橙 = Sleep(1)/ 緑 = スピン / 縦の点線 = 16.67ms ごとの目標時刻</p><canvas id="wt-hist" style="width:100%;height:110px;margin-top:10px" aria-label="1フレームの長さの分布"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">スピンに切り替えるしきい値(SpinThresholdSeconds)</span>
+      <div class="seg" id="wt-thr"><button data-v="0" aria-pressed="false">0(Sleep だけ)</button><button data-v="2" aria-pressed="false">2ms</button><button data-v="5" aria-pressed="true">5ms(reference)</button><button data-v="99" aria-pressed="false">スピンだけ</button></div>
+    </div>
+    <div class="ctl"><span class="label">次の目標時刻の決め方</span>
+      <div class="seg" id="wt-sched"><button data-v="abs" aria-pressed="true">前回の目標 + 16.67ms(reference)</button><button data-v="rel" aria-pressed="false">今の時刻 + 16.67ms(罠1)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="wt-stats"></div></div>
+</figure></div>
+<h3 id="s10">6. 高DPIと「1ピクセル = 1ピクセル」</h3>
+<p>Windowsのディスプレイスケーリングが125%や150%だと、DPI非対応アプリはOSに画面を引き伸ばされ、フレームバッファの1ピクセルが画面の1ピクセルに対応しなくなる(絵がぼやける)。ソフトウェアラスタライザでこれが起きると、そもそも何を描いたのか確認できない。</p>
+<p>対策は3点セット。</p>
+<ul><li>csproj で <code>&lt;ApplicationHighDpiMode&gt;PerMonitorV2&lt;/ApplicationHighDpiMode&gt;</code> を宣言し、スケーリングを自前の責任にする</li><li><code>AutoScaleMode = AutoScaleMode.None</code> でWinFormsの自動スケーリングを止める</li><li><code>Graphics.DrawImage</code> には<strong>転送先の矩形を明示的に渡す</strong>。<code>DrawImage(bitmap, 0, 0)</code> のオーバーロードはビットマップのDPIと描画先のDPIの比で勝手に拡大縮小してしまう(有名な罠)</li></ul>
+<h3 id="s11">7. 60fpsの時間予算 — 実測値</h3>
+<p>1フレームの持ち時間は 1/60秒 = 約16.67ms。640x480 = 307,200ピクセルを毎フレーム埋めるので、単純計算で<strong>1ピクセルあたり約54ns</strong>。この予算感がPhase 1全体の前提になる。</p>
+<p>本Dayのリファレンスを Release ビルドで実測した内訳(平均):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>処理</th><th>時間</th><th>備考</th></tr></thead>
+<tbody>
+<tr><td>Render(全ピクセル書き込み)</td><td>約0.8ms</td><td>307,200ピクセル。まだ十分軽い</td></tr>
+<tr><td>フレームバッファ → Bitmap のコピー</td><td>約0.13ms</td><td>1.2MBのメモリコピー。要点2の設計が効いている</td></tr>
+<tr><td>Graphics.DrawImage(画面へ転送)</td><td><strong>約6.0ms</strong></td><td>ここが最大のコスト</td></tr>
+<tr><td>空き</td><td>約9.7ms</td><td>Day 2以降の描画処理に使える予算</td></tr>
+</tbody>
+</table></div>
+<p>つまり<strong>一番重いのは自分の描画ではなくGDI+の画面転送</strong>で、これはPhase 1の間ずっと固定費として乗る。GDI+の品質設定(<code>CompositingMode.SourceCopy</code> 等)を変えても改善しないことは実測で確認済み。この固定費が消えるのは Phase 2 でGPUに移ってからになる。</p>
+</section>
+<section class="part"><h2 id="s12">差分概要(Day 1 は新規作成)</h2>
+<p>前Dayが無いため全ファイル新規。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>役割</th><th>行数の目安</th></tr></thead>
+<tbody>
+<tr><td><code>global.json</code>(リポジトリ直下)</td><td>.NET SDK バージョン固定</td><td>6</td></tr>
+<tr><td><code>reference/Day01/Day01.csproj</code></td><td>WinForms / net10.0-windows / 高DPI設定</td><td>45</td></tr>
+<tr><td><code>reference/Day01/Framebuffer.cs</code></td><td>ピクセルバッファ本体(Rgb / Clear / SetPixel / FillRect)</td><td>91</td></tr>
+<tr><td><code>reference/Day01/GameWindow.cs</code></td><td>ウィンドウ、ゲームループ、画面転送</td><td>313</td></tr>
+<tr><td><code>reference/Day01/Program.cs</code></td><td>エントリポイント、解像度定義</td><td>28</td></tr>
+</tbody>
+</table></div>
+<p>合計約470行だが、半分近くが学習用の日本語コメント。実コードは200行強なので写経1〜2時間程度。</p>
+<p>写経の推奨順序は <code>Day01.csproj</code> → <code>Framebuffer.cs</code> → <code>Program.cs</code> → <code>GameWindow.cs</code>。<code>GameWindow.cs</code> が今日の本体なので最後に回し、それ以外を先に済ませて構造を掴んでおくとよい。</p>
+<p>写経先は <code>work/Framebuffer/</code>。csproj と空の <code>Program.cs</code> は作成済みなので、<code>Framebuffer.cs</code> と <code>GameWindow.cs</code> を自分で追加していく。</p>
+<p>Day 2 以降(Phase 1)は <code>work/SoftwareRasterizer/</code> に移り、そちらを Day 10 まで育て続ける。Phase 0 の「動く最小構成」をそのまま残しておきたいのでフォルダを分けている。</p>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day01 work/Framebuffer</code></pre></div>
+<p>名前空間は reference / work とも <code>Framebuffer</code> で揃えてある(Day番号を含めない)。名前空間は Phase 単位で固定する規約なので、Phase 0 は <code>Framebuffer</code>、Phase 1(Day 2〜10)は <code>SoftwareRasterizer</code> になる。Day が変わっても Phase の中では名前空間が変わらないので、上の差分にはその日の実装差分だけが出る。</p>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day01</code></pre></div>
+<p>以下がすべて満たされていれば完成。</p>
+<ol><li>640x480 のウィンドウが画面中央に出る(リサイズ不可)</li><li>背景が <strong>左→右で赤が濃くなり、上→下で緑が濃くなる</strong>グラデーションで、さらに<strong>青成分が約3.1秒周期で明滅</strong>する</li><li>48x48 の白い四角が画面内を斜めに動き、四辺で跳ね返る。<strong>カクつきや飛びが無い</strong></li><li>タイトルバーに <code>Day01 - Framebuffer  59.x fps</code> のようなFPSが表示され、<strong>59〜61の範囲</strong>にいる</li><li>Esc キーまたは閉じるボタンで終了する</li><li>ウィンドウの中身が<strong>ちらつかない</strong>(背景色が一瞬見える現象が起きない)</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>絵の色がおかしい(赤と青が逆)</strong> → <code>Framebuffer.Rgb</code> のビットシフト位置。要点2を読み直す</li><li><strong>絵が斜めにずれる/縞になる</strong> → <code>Stride</code> を使わず <code>幅*4</code> で進めている。要点3</li><li><strong>絵がぼやける、ウィンドウが640x480でない</strong> → 高DPI設定の3点セット。要点6</li><li><strong>FPSが55前後までしか出ない</strong> → <code>WaitUntil</code> のスピンしきい値。要点5の罠2</li><li><strong>FPSが安定しない、だんだん遅れる</strong> → 「今の時刻+16.67ms」で待っている。要点5の罠1</li><li><strong>ちらつく</strong> → <code>SetStyle</code> の3フラグ。要点4</li><li><strong>ウィンドウが応答なしになる</strong> → ループ内で <code>Application.DoEvents()</code> を呼んでいない</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>起動した画面</td><td>「ピクセル配列を読む」の絵</td><td>青が約 3.1 秒周期で明滅し、白い四角が四辺で跳ね返る。押した画素のバイトは B, G, R, A の順に並ぶ</td></tr>
+<tr><td>タイトルバーの fps</td><td>同じ実験台の上の行(このページの描画の値)と、「60fps に合わせて待つ」のモデルの値</td><td>しきい値 2ms と 5ms の差、「今の時刻 + 16.67ms」で待つとだんだん遅れる(罠1)</td></tr>
+<tr><td>(改造課題3)</td><td>「60fps に合わせて待つ」のしきい値と目標時刻の決め方</td><td>しきい値を 2ms に戻す、目標を今の時刻から積む、を壊してみる実験</td></tr>
+<tr><td>(確認ポイント)</td><td>「ピクセル配列を読む」のシフトと Stride</td><td>赤と青が逆になる症状、絵が斜めにずれる症状</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day01 の Framebuffer.cs と GameWindow.cs(Run、Render、Present、WaitUntil)を JS に移したもの。Sleep(1) の長さと 1 フレームの仕事の時間は本文の実測をもとに置いたモデルで、fps はこのモデルの値。</p></div>
+<p>Debug ビルドは Release より遅く、実測で 58fps 前後まで落ちる(Renderがインライン化されないため)。FPSを評価するときは <code>-c Release</code> を付けること。</p>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 解像度を変えて負荷の正体を掴む</h3>
+<p><code>Program.cs</code> の <code>Width</code> / <code>Height</code> を 320x240 と 1280x720 に変えて、それぞれのFPSを測る。</p>
+<ul><li>ピクセル数は 320x240 で約1/4、1280x720 で約3倍になる。FPSはその比率どおりに変化するか?</li><li>しなかったとしたら、時間を食っているのはどの処理か? 要点7の表を見て考える</li><li><code>Framebuffer</code> と <code>GameWindow</code> を解像度べた書きせずに書けているか、この機会に確認する</li></ul>
+<h3 id="s16">課題2(中): <code>SetPixel</code> だけで図形を描く</h3>
+<p><code>FillRect</code> を使わずに、<code>Framebuffer.SetPixel</code> の呼び出しだけで以下を描く。</p>
+<ul><li>画面の外周1ピクセルを赤い枠で囲む</li><li>画面中央に、縦横それぞれ画面いっぱいの白い十字線を引く</li></ul>
+<p>さらに余力があれば、<strong>任意の2点を結ぶ斜めの線</strong>を自分なりのやり方で引いてみる。おそらく素直に書くと点が飛び飛びになるか、遅くなるはず。「なぜ素直に書くとうまくいかないのか」を体感しておくと、Day 2 の Bresenham のありがたみが桁違いに分かる(この体感がこの課題の目的)。</p>
+<h3 id="s17">課題3(難): フレームループを計測して壊す</h3>
+<p><code>GameWindow.Run</code> に <code>Stopwatch</code> を仕込み、1フレームの内訳(Render / Present / 待ち時間)を計測してタイトルバーかファイルに出す。そのうえで:</p>
+<ol><li><code>SpinThresholdSeconds</code> を <code>0.002</code> に戻すとFPSがいくつになるか。要点5の実測を再現できるか</li><li><code>WaitUntil</code> の呼び出し自体をやめると何fps出るか(= この構成の上限値)</li><li>「今の時刻 + 16.67ms」で待つ実装に書き換えると、FPSがどうずれるか</li></ol>
+<p>3つとも「壊してみて初めて、元の実装がなぜその形なのかが分かる」タイプの確認。測り終わったら元に戻しておくこと。</p>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 59〜61 fps、Debug ビルドで約58 fps</li></ul>
+</section>
+<footer class="end">Day 01 環境構築とピクセルバッファの60fps表示 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const W = 640, H = 480;
+
+// ------------------------------------------------------------
+// 1. ピクセル配列を読む
+// ------------------------------------------------------------
+// Framebuffer.Rgb: 0xAARRGGBB。シフトを間違えると r と b が入れ替わる(このページだけ)
+const rgb = (r, g, b) => (segValue('fb-shift') === 'ok' ? (0xFF000000 | (r << 16) | (g << 8) | b) : (0xFF000000 | (b << 16) | (g << 8) | r)) >>> 0;
+const pixels = new Uint32Array(W * H);
+const pingPong = (v, max) => { if (max <= 0) return 0; const p = max * 2, t = v % p; return Math.trunc(t <= max ? t : p - t); };
+// GameWindow.Render
+function render(t) {
+  const blue = Math.trunc((Math.sin(t * 2) * 0.5 + 0.5) * 255);
+  for (let y = 0; y < H; y++) {
+    const g = Math.trunc((y * 255) / (H - 1)), row = y * W;
+    for (let x = 0; x < W; x++) pixels[row + x] = rgb(Math.trunc((x * 255) / (W - 1)), g, blue);
+  }
+  const size = 48, bx = pingPong(t * 220, W - size), by = pingPong(t * 130, H - size), white = rgb(255, 255, 255);
+  for (let y = by; y < by + size; y++) pixels.fill(white, y * W + bx, y * W + bx + size);
+}
+// GameWindow.Present: 行ごとに Scan0 + y * Stride へコピー。転送先(Bitmap)のメモリは Stride ごとに 1 行
+const fb = { t: 0, sel: [320, 240], fps: 0, n: 0, acc: 0 };
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+function present() {
+  const stride = Number(segValue('fb-stride')), step = segValue('fb-step') === 'stride' ? stride : W;
+  const dest = new Uint32Array(stride * H);
+  for (let y = 0; y < H; y++) { const at = y * step; if (at + W <= dest.length) dest.set(pixels.subarray(y * W, y * W + W), at); }
+  // 画面は Bitmap を「1 行 = Stride」として読む。メモリのバイトは B, G, R, A の順(リトルエンディアン)なので canvas の R, G, B, A に並べ替える
+  const img = new ImageData(W, H), d = img.data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const v = dest[y * stride + x], i = (y * W + x) * 4;
+    d[i] = (v >>> 16) & 255; d[i + 1] = (v >>> 8) & 255; d[i + 2] = v & 255; d[i + 3] = 255;
+  }
+  off.getContext('2d').putImageData(img, 0, 0);
+}
+const hx = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
+function fbDraw() {
+  render(fb.t); present();
+  const { ctx, w, h } = fit($('fb-canvas'));
+  const k = Math.min(w / W, h / H), dx = (w - W * k) / 2, dy = (h - H * k) / 2;
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, dx, dy, W * k, H * k);
+  const [sx, sy] = fb.sel;
+  ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.strokeRect(dx + sx * k - 6, dy + sy * k - 6, 12, 12);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.strokeRect(dx + sx * k - 6, dy + sy * k - 6, 12, 12);
+  fb.geom = { k, dx, dy };
+  const i = sy * W + sx, v = pixels[i];
+  const bytes = [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, v >>> 24].map((b) => hx(b, 2)).join(' ');
+  $('fb-stats').innerHTML = stat('(x, y)', `(${sx}, ${sy})`) + stat('添字 y * Width + x', i.toLocaleString()) + stat('int の値', `0x${hx(v, 8)}`)
+    + stat('メモリの並び(+0〜+3)', `${bytes}<span style="font-size:11px;color:var(--muted)"> = B G R A</span>`);
+  $('fb-title').textContent = `Day01 - Framebuffer  ${fb.fps.toFixed(1)} fps(このページの描画の値)`;
+}
+{
+  const c = $('fb-canvas');
+  const pick = (e) => { if (!fb.geom) return; const r = c.getBoundingClientRect(), { k, dx, dy } = fb.geom; fb.sel = [Math.min(W - 1, Math.max(0, Math.floor((e.clientX - r.left - dx) / k))), Math.min(H - 1, Math.max(0, Math.floor((e.clientY - r.top - dy) / k)))]; fbDraw(); };
+  let down = false;
+  c.addEventListener('pointerdown', (e) => { down = true; c.setPointerCapture(e.pointerId); pick(e); });
+  c.addEventListener('pointermove', (e) => { if (down) pick(e); });
+  c.addEventListener('pointerup', () => { down = false; });
+}
+['fb-shift', 'fb-stride', 'fb-step', 'fb-play'].forEach((id) => seg(id, fbDraw));
+animate($('fb-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('fb-play') === '1') fb.t += dt;
+  fb.n++; fb.acc += dt; if (fb.acc >= 0.5) { fb.fps = fb.n / fb.acc; fb.n = 0; fb.acc = 0; }
+  fbDraw();
+});
+fbDraw();
+
+// ------------------------------------------------------------
+// 2. 60fps に合わせて待つ(このページの中の時計)
+// ------------------------------------------------------------
+const FRAME = 1000 / 60, WORK = 0.8 + 0.13 + 6.0;
+const SLEEP = [[0.60, 1], [0.15, 2], [0.07, 4], [0.18, 14]];   // Thread.Sleep(1) が実際に眠る長さ(ms)と確率
+function rng(seed) { let s = seed >>> 0; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+function simulate(thr, absolute, frames = 3000) {
+  const r = rng(20260801);
+  const sleep = () => { let u = r(), a = 0; for (const [p, v] of SLEEP) { a += p; if (u < a) return v * (0.9 + 0.2 * r()); } return 14; };
+  let t = 0, next = 0, spin = 0, sleeps = 0;
+  const lens = [], segs = [];
+  for (let f = 0; f < frames; f++) {
+    const start = t, rec = f < 8 ? [] : null;
+    const work = WORK * (0.95 + 0.1 * r());
+    if (rec) rec.push(['w', t, work]);
+    t += work;
+    // 次の目標時刻。reference は「前回の目標 + 16.67ms」(遅れたら今に合わせる)
+    // 罠1は「今の時刻 + 16.67ms」= このフレームを始めた時刻から数える。Sleep で寝過ごしたぶんが次のフレームで取り返されない
+    if (absolute) { next += FRAME; if (next < t) next = t; } else next = start + FRAME;
+    // WaitUntil
+    for (;;) {
+      const rem = next - t;
+      if (rem <= 0) break;
+      if (rem > thr) { const s = sleep(); if (rec) rec.push(['s', t, s]); t += s; sleeps++; }
+      else { if (rec) rec.push(['p', t, rem]); spin += rem; t = next; }
+    }
+    lens.push(t - start);
+    if (rec) segs.push({ start, parts: rec, target: next });
+  }
+  return { fps: (1000 * frames) / t, lens, segs, spin: spin / t, sleeps: sleeps / frames, worst: Math.max(...lens), avg: t / frames };
+}
+function wtDraw() {
+  const thr = Number(segValue('wt-thr')), abs = segValue('wt-sched') === 'abs';
+  const res = simulate(thr === 99 ? Infinity : thr, abs);
+  { // 先頭 8 フレーム
+    const { ctx, w, h } = fit($('wt-chart')), span = 8 * FRAME + 20, X = (ms) => 8 + (ms / span) * (w - 16);
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = tok('--muted');
+    for (let k = 0; k <= 8; k++) { ctx.beginPath(); ctx.moveTo(X(k * FRAME), 4); ctx.lineTo(X(k * FRAME), h - 18); ctx.stroke(); }
+    ctx.setLineDash([]);
+    const col = { w: tok('--accent'), s: tok('--warn'), p: tok('--good') };
+    res.segs.forEach((f, k) => {
+      const y = 8 + (k % 2) * 6;
+      for (const [kind, t0, len] of f.parts) { ctx.fillStyle = col[kind]; ctx.fillRect(X(t0), y + 10, Math.max(1, X(t0 + len) - X(t0) - 0.5), (h - 40) * 0.8); }
+    });
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+    for (let k = 0; k <= 8; k += 2) ctx.fillText(`${(k * FRAME).toFixed(0)}ms`, X(k * FRAME) - 8, h - 4);
+  }
+  { // 1 フレームの長さの分布(10〜40ms、1ms 刻み)
+    const { ctx, w, h } = fit($('wt-hist')), bins = new Array(31).fill(0);
+    for (const l of res.lens) bins[Math.min(30, Math.max(0, Math.floor(l) - 10))]++;
+    const max = Math.max(...bins), bw = (w - 16) / bins.length;
+    bins.forEach((n, k) => { ctx.fillStyle = k + 10 === 16 ? tok('--good') : tok('--accent'); const bh = (n / max) * (h - 22); ctx.fillRect(8 + k * bw, h - 16 - bh, bw - 2, bh); });
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif';
+    for (const ms of [10, 16, 20, 30, 40]) ctx.fillText(`${ms}ms`, 8 + (ms - 10) * bw, h - 3);
+  }
+  $('wt-stats').innerHTML = stat('fps(モデル)', res.fps.toFixed(1)) + stat('1 フレームの平均', `${res.avg.toFixed(2)} ms`) + stat('最悪', `${res.worst.toFixed(1)} ms`)
+    + stat('Sleep(1) / フレーム', res.sleeps.toFixed(1)) + stat('スピンで CPU を使った割合', `${(res.spin * 100).toFixed(0)}%`);
+}
+['wt-thr', 'wt-sched'].forEach((id) => seg(id, wtDraw));
+window.addEventListener('resize', wtDraw);
+wtDraw();
+})();
+</script>
+</body>
+</html>
