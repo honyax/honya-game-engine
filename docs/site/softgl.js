@@ -240,5 +240,20 @@ function sample(tex, u, v, grad) {
   return c;
 }
 
-window.SoftGL = { Mat, createTarget, clear, readPixel, draw, present, createTexture, flipRows, sample };
+// assets/textures/uv-test.png(256x256)と同じ絵を作る。並びは画像ファイルと同じ「行 0 が一番上」。
+// 32px ごとの罫線(30)、画像の左上(ファイルの先頭)に白い四角(1〜23px)、明暗の市松(66 / 115)、右へ赤・下へ緑が 100 ずつ増える
+function uvTest() {
+  const n = 256, d = new Uint8ClampedArray(n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const i = (y * n + x) * 4;
+    let c;
+    if (x % 32 === 0 || y % 32 === 0) c = [30, 30, 30];
+    else if (x <= 23 && y <= 23) c = [255, 255, 255];
+    else { const b = ((x >> 5) + (y >> 5)) % 2 ? 115 : 66; c = [b + Math.floor((x * 100) / 255), b + Math.floor((y * 100) / 255), b]; }
+    d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+  }
+  return { w: n, h: n, data: d };
+}
+
+window.SoftGL = { Mat, createTarget, clear, readPixel, draw, present, createTexture, flipRows, sample, uvTest };
 })();
