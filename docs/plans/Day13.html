@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 13 生OpenGLで三角形+シェーダー</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Phase 1 で書いたものは、GPU のどこに行ったのか</a></li><li class="l3"><a href="#s5">2. シェーダは「1個につき1回」走る小さなプログラム</a></li><li class="l3"><a href="#s6">3. VBO と VAO — 「データ」と「読み方」を分ける</a></li><li class="l3"><a href="#s7">4. 頂点属性・uniform・補間 — 3種類のデータの流れ</a></li><li class="l3"><a href="#s8">5. 列優先(column-major)— 行列で最初に踏む地雷</a></li><li class="l3"><a href="#s9">6. GLboolean は1バイト — マーシャリングの罠</a></li><li class="l3"><a href="#s10">7. ドローコール1行の向こう側</a></li><li class="l2"><a href="#s11">Phase 2 の総括 — 3日間で剥がした層</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">写経する順番</a></li><li class="l2"><a href="#s14">完成条件</a></li><li class="l2"><a href="#s15">改造課題</a></li><li class="l3"><a href="#s16">課題1(易): シェーダを書き換えて遊ぶ</a></li><li class="l3"><a href="#s17">課題2(中): インデックスバッファで四角形を描く</a></li><li class="l3"><a href="#s18">課題3(難): シェーダのホットリロード</a></li><li class="l2"><a href="#s19">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 2 / Day 13 / 計画書</p>
+  <h1>生OpenGLで三角形+シェーダー</h1>
+  <p class="lede">バインディング体験完了</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Phase 1 で書いたものは、GPU のどこに行ったのか</a></li><li class="l3"><a href="#s5">2. シェーダは「1個につき1回」走る小さなプログラム</a></li><li class="l3"><a href="#s6">3. VBO と VAO — 「データ」と「読み方」を分ける</a></li><li class="l3"><a href="#s7">4. 頂点属性・uniform・補間 — 3種類のデータの流れ</a></li><li class="l3"><a href="#s8">5. 列優先(column-major)— 行列で最初に踏む地雷</a></li><li class="l3"><a href="#s9">6. GLboolean は1バイト — マーシャリングの罠</a></li><li class="l3"><a href="#s10">7. ドローコール1行の向こう側</a></li><li class="l2"><a href="#s11">Phase 2 の総括 — 3日間で剥がした層</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">写経する順番</a></li><li class="l2"><a href="#s14">完成条件</a></li><li class="l2"><a href="#s15">改造課題</a></li><li class="l3"><a href="#s16">課題1(易): シェーダを書き換えて遊ぶ</a></li><li class="l3"><a href="#s17">課題2(中): インデックスバッファで四角形を描く</a></li><li class="l3"><a href="#s18">課題3(難): シェーダのホットリロード</a></li><li class="l2"><a href="#s19">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 2 / ロードマップ該当行: 「生OpenGLで三角形+シェーダー — <strong>バインディング体験完了</strong>」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>自作バインディングだけで、シェーダーで色づけした三角形が回る。</strong></p>
+<p>Phase 2 のマイルストーン「自作バインディングだけで、シェーダーで色づけした三角形が出る」を今日で達成する。Day 11 でウィンドウを、Day 12 でコンテキストを自分で作った。残っているのは「頂点を GPU に置く」「シェーダを書く」「描けと命じる」の3つだけ。</p>
+<p>そして今日は、<strong>Phase 1 で自分の手で書いた処理が GPU では何になっているのか</strong>が1対1で見える日でもある。頂点シェーダは Day 6 の頂点変換、フラグメントシェーダは Day 8〜9 のピクセル処理、そして Day 3〜4 のラスタライズと補間は<strong>触れない固定機能</strong>として GPU の中にある。</p>
+<p>Day 14 からは Silk.NET に移り、Phase 2 で書いた Win32/WGL/GL のコードは全部捨てる。<strong>捨てて構わないものを、それでも一度書いた</strong>——それが Phase 2 の意味。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-2 GPU</a> — ロードマップ指定。<strong>今日の理論そのもの</strong>。GPU のパイプラインと、どこがプログラマブルでどこが固定機能か</li><li><a href="https://learnopengl.com/Getting-started/Hello-Triangle">Hello Triangle — LearnOpenGL</a> —今日書くコードの C++ 版。VAO / VBO の図解が分かりやすい</li><li><a href="https://www.khronos.org/opengl/wiki/Rendering_Pipeline_Overview">Rendering Pipeline Overview — OpenGL Wiki</a> —要点1の対応表の一次情報</li><li><a href="https://www.khronos.org/opengl/wiki/Vertex_Specification">Vertex Specification — OpenGL Wiki</a> —VAO と VBO の関係(要点3)</li><li>復習として <strong>Day03.md の要点(エッジ関数)、Day04.md(バリセントリック補間)、Day06.md(MVP と透視除算)</strong>。今日はこの3日ぶんが「GPU 側では何になったか」として回収される</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. Phase 1 で書いたものは、GPU のどこに行ったのか</h3>
+<p><strong>今日いちばん重要な表。</strong> Phase 1 で自作したソフトウェアラスタライザの各段階が、GPU パイプラインのどこに対応するかを並べる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Phase 1 で自分が書いたもの</th><th>GPU では</th><th>触れるか</th></tr></thead>
+<tbody>
+<tr><td>Day 6 頂点変換(MVP を掛ける)</td><td><strong>頂点シェーダ</strong></td><td><strong>書く</strong></td></tr>
+<tr><td>Day 10 クリッピング(近クリップ面)</td><td>クリッピング</td><td>固定機能</td></tr>
+<tr><td>Day 6 透視除算(w で割る)</td><td>透視除算</td><td>固定機能</td></tr>
+<tr><td>Day 6 ビューポート変換</td><td>ビューポート変換</td><td><code>glViewport</code> で範囲だけ指定</td></tr>
+<tr><td>Day 10 背面カリング</td><td>カリング</td><td><code>glEnable(GL_CULL_FACE)</code> で ON/OFF</td></tr>
+<tr><td>Day 3 エッジ関数・top-left rule</td><td><strong>ラスタライザ</strong></td><td>固定機能。<strong>一切触れない</strong></td></tr>
+<tr><td>Day 4 バリセントリック補間</td><td>属性補間</td><td>固定機能(<code>out</code>/<code>in</code> に流すだけ)</td></tr>
+<tr><td>Day 8 透視補正補間</td><td>同上</td><td>固定機能(既定で有効)</td></tr>
+<tr><td>Day 8〜9 テクスチャとライティング</td><td><strong>フラグメントシェーダ</strong></td><td><strong>書く</strong></td></tr>
+<tr><td>Day 7 Zバッファ</td><td>深度テスト</td><td><code>glEnable(GL_DEPTH_TEST)</code></td></tr>
+<tr><td>—</td><td>ブレンド</td><td><code>glEnable(GL_BLEND)</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>プログラマブルなのは両端だけ</strong>で、真ん中は全部ハードウェアに焼き込まれている。Day 3 のエッジ関数を最適化しようと Day 10 の改造課題で悩んだが、GPU ではその部分に手を出す余地が最初から無い——代わりに、数千の演算器で並列に実行される。</p>
+<p>この表があると、<strong>Phase 1 は遠回りではなく前提だった</strong>ことが分かる。「頂点シェーダで gl_Position に何を書けばいいのか」は、Day 6 で自分でクリップ座標を計算した人にとっては自明の話でしかない。</p>
+<h3 id="s5">2. シェーダは「1個につき1回」走る小さなプログラム</h3>
+<p>GPU のシェーダが CPU の関数と決定的に違うのは、<strong>呼び出し回数と並列性</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>実行される単位</th><th>今日の実行回数</th></tr></thead>
+<tbody>
+<tr><td>頂点シェーダ</td><td>頂点1個につき1回</td><td><strong>3回</strong></td></tr>
+<tr><td>フラグメントシェーダ</td><td>塗るピクセル1個につき1回</td><td><strong>十数万回</strong></td></tr>
+</tbody>
+</table></div>
+<p>Day 9 でフォンシェーディングが重かったのは、まさにこの「十数万回」をCPU が1コアで順番に回していたから(実測 +7ms)。GPU は同じ処理を数千の演算器に配って同時に走らせる。</p>
+<p>もう1つの違いが<strong>コンパイルのタイミング</strong>。GLSL のコンパイルは実行時で、GPU ごとに命令セットが違うためドライバがその場で機械語に落とす。つまり<strong>シェーダの文法エラーは実行時にしか出ない</strong>。Day 12 で <code>AllocConsole</code> を仕込んでおいたのは、このログを読むため。</p>
+<p>実際にセミコロンを1つ忘れると、こう出る(本Dayの環境で確認):</p>
+<div class="code"><pre><code>フラグメントシェーダのコンパイルに失敗した:
+0(7) : error C0000: syntax error, unexpected identifier, expecting ',' or ';' at token "undefinedFunction"</code></pre></div>
+<p><code>0(7)</code> は「0番目のソースの7行目」。<strong>行番号が出る</strong>ので、ログさえ読めればデバッグは C# と大差ない。逆に、ログを捨てる実装にしてしまうと「何も出ない」だけが手掛かりという地獄になる。</p>
+<h3 id="s6">3. VBO と VAO — 「データ」と「読み方」を分ける</h3>
+<p>初見でいちばん混乱するところなので、先に役割を分けておく。</p>
+<ul><li><strong>VBO</strong>(Vertex Buffer Object)= GPU 上の<strong>ただのバイト列</strong>。意味を持たない</li><li><strong>VAO</strong>(Vertex Array Object)= そのバイト列を<strong>どう解釈するか</strong>の記録</li></ul>
+<p>今日の頂点データはこう並んでいる。1頂点が5つの float で、<strong>交互</strong>に詰めてある。</p>
+<div class="code"><pre><code>[ x, y, r, g, b ][ x, y, r, g, b ][ x, y, r, g, b ]
+  └─位置─┘└─色──┘
+  ← stride = 20バイト →</code></pre></div>
+<p>これを「位置は先頭から2個」「色は8バイト目から3個」と教えるのが <code>glVertexAttribPointer</code>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>GL.glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, IntPtr.Zero);          // 位置
+GL.glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, new IntPtr(8));        // 色</code></pre></div>
+<p>第1引数の番号が、GLSL の <code>layout (location = 0)</code> と対応する。<strong>ここが食い違ってもコンパイルは通り、実行時に絵が壊れるだけ</strong>なので気を付ける。</p>
+<p>位置と色を別々の配列にする持ち方(SoA)もあるが、交互(AoS)にすると1頂点ぶんが連続するので GPU のキャッシュに乗りやすい。実際のモデルデータもほぼこの形で、Phase 1 の <code>Vertex</code> 構造体の配列と同じ発想。</p>
+<p>VAO のおかげで、描画時は <code>glBindVertexArray</code> 1回で全部の設定が復元される。VAO が無かった OpenGL 2.x の時代は、描画のたびに全属性の設定を呼び直していた。<strong>コアプロファイルでは VAO は省略できない</strong>(0番のままだと描画がエラーになる)。</p>
+<p>細かいが引っかかりやすい点を1つ。<strong><code>GL_ARRAY_BUFFER</code> のバインドは VAO の状態に含まれない</strong>が、<strong>インデックスバッファ(<code>GL_ELEMENT_ARRAY_BUFFER</code>)は含まれる</strong>。改造課題2でインデックス描画をやると、ここを踏む。</p>
+<div class="inject"><figure class="lab" id="vao-lab">
+  <div class="lab-head">
+    <h3>VBO のバイト列を VAO で読む — 属性ポインタと location(要点3・4)</h3>
+    <span class="tag">reference の Program.CreateTriangle(VBO に [x, y, r, g, b] を 3 頂点ぶん、glVertexAttribPointer で位置を 0 番・色を 1 番に、それぞれ glEnableVertexAttribArray)と、頂点シェーダの layout(location) を JS に移したもの。上の段が VBO(1 マス = float 1 個 = 4 バイト)、下の段が GL の読み方(色は属性の番号)。シェーダは vec2 と vec3 で受けるので、足りない成分は (0, 0, 0, 1) で埋まり、有効にしていない属性は既定値の (0, 0, 0, 1) になる。三角形はソフトウェア版の GL(docs/site/softgl.js)で、回転させずに描いている。壊し方の3つはこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px;align-items:start" id="vao-grid">
+      <div id="vao-bytes"></div>
+      <canvas id="vao-canvas" style="width:100%;aspect-ratio:4/3;height:auto" aria-label="GL が読んだ値で描いた三角形"></canvas>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">色(属性 1)のオフセット</span>
+      <div class="seg" id="vao-off"><button data-v="8" aria-pressed="true">8 バイト(reference)</button><button data-v="0" aria-pressed="false">0</button><button data-v="4" aria-pressed="false">4</button></div>
+    </div>
+    <div class="ctl"><span class="label">glEnableVertexAttribArray(1)</span>
+      <div class="seg" id="vao-en"><button data-v="1" aria-pressed="true">呼ぶ(reference)</button><button data-v="0" aria-pressed="false">忘れる</button></div>
+    </div>
+    <div class="ctl"><span class="label">GLSL の layout(location)</span>
+      <div class="seg" id="vao-loc"><button data-v="0" aria-pressed="true">位置 0・色 1(reference)</button><button data-v="1" aria-pressed="false">位置 1・色 0(食い違い)</button></div>
+    </div>
+  </div>
+  <div class="readout"><pre id="vao-console" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s7">4. 頂点属性・uniform・補間 — 3種類のデータの流れ</h3>
+<p>シェーダにデータが入る経路は2つ、出る経路は1つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>種類</th><th>変わる単位</th><th>今日の例</th></tr></thead>
+<tbody>
+<tr><td><strong>頂点属性</strong>(<code>in</code>)</td><td>頂点ごと</td><td>位置、色</td></tr>
+<tr><td><strong>uniform</strong></td><td>ドローコールごと(全頂点で同じ)</td><td>変換行列</td></tr>
+<tr><td><strong><code>out</code> → <code>in</code></strong></td><td>ラスタライザが<strong>補間</strong>して渡す</td><td>色</td></tr>
+</tbody>
+</table></div>
+<p>3つ目が Day 4 の回収になる。頂点シェーダで</p>
+<div class="code"><span class="lang">glsl</span><pre><code>out vec3 vColor;   // 頂点ごとの色を出す</code></pre></div>
+<p>と書き、フラグメントシェーダで</p>
+<div class="code"><span class="lang">glsl</span><pre><code>in vec3 vColor;    // 補間済みの色が届く</code></pre></div>
+<p>と受けるだけで、間の補間は GPU がやる。<strong>Day 4 で自分で書いたバリセントリック座標の計算が、<code>out</code> と <code>in</code> の名前を揃えるだけになった</strong>のが今日の一番の実感どころ。しかも Day 8 で苦労した透視補正まで既定で入っている。</p>
+<p>uniform について1つ注意。<code>glGetUniformLocation</code> が <strong>-1 を返してもエラーとは限らない</strong>。「そんな名前は無い」(タイプミス)のほかに、「宣言はしたが結果に影響しないので最適化で削除された」場合も -1 になる。シェーダを書き換えている最中によく出るので、警告を出すようにしてある。</p>
+<h3 id="s8">5. 列優先(column-major)— 行列で最初に踏む地雷</h3>
+<p><code>glUniformMatrix4fv</code> に渡す float[16] は、<strong>列優先</strong>で並んでいることが期待される。</p>
+<div class="code"><pre><code>行列                    配列の並び(列優先)
+| m0  m4  m8  m12 |     [m0, m1, m2, m3,  m4, m5, m6, m7,  ...]
+| m1  m5  m9  m13 |      └── 第0列 ──┘  └── 第1列 ──┘
+| m2  m6  m10 m14 |
+| m3  m7  m11 m15 |</code></pre></div>
+<p>つまり配列の最初の4要素が<strong>1行目ではなく1列目</strong>。<code>m[列 * 4 + 行]</code> の順で詰める。</p>
+<p>行優先で持っている場合は第3引数の <code>transpose</code> を <code>GL_TRUE</code> にすればドライバが転置してくれるので、<strong>どちらでもよい。ただし片方に決めて一貫させること。</strong> 混ざると、「回転しているように見えるが向きが逆」「平行移動が効かない」といった原因の分かりにくい症状になる。</p>
+<p>なお平行移動成分が <code>m12, m13, m14</code> に入るのは列優先での話。Phase 1 の自作 <code>Mat4</code> がどちらだったかを確認しておくと、Phase 3 で移植するときに困らない。</p>
+<div class="inject"><figure class="lab" id="tr-lab">
+  <div class="lab-head">
+    <h3>回る三角形 — float[16] を列優先で詰めて渡す(要点1・2・5、W・Space キー)</h3>
+    <span class="tag">reference の Program.cs(三角形の頂点、FillTransform、RunLoop の描画とタイトルバー)と、頂点シェーダ・フラグメントシェーダを JS に移し、ソフトウェア版の GL(docs/site/softgl.js)で 640x480 に描いたもの。左の表が glUniformMatrix4fv に渡す float[16](番号は並ぶ順)、右が GL が見る uTransform。行優先で詰める2通りとアスペクト補正の切り替えはこのページだけ。fps はこのページの描画の値。シェーダの回数は、頂点シェーダが頂点の数、フラグメントシェーダが塗った画素の数</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="tr-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="tr-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="上が赤、左下が緑、右下が青の三角形が回っている"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">描き方(W)と回転(Space)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tr-wire"><button data-v="0" aria-pressed="true">塗り</button><button data-v="1" aria-pressed="false">ワイヤー</button></div><div class="seg" id="tr-play"><button data-v="1" aria-pressed="true">回す</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">float[16] の詰め方(このページだけ)</span>
+      <div class="seg" id="tr-pack"><button data-v="col" aria-pressed="true">列優先・GL_FALSE(reference)</button><button data-v="rowF" aria-pressed="false">行優先・GL_FALSE</button><button data-v="rowT" aria-pressed="false">行優先・GL_TRUE</button></div>
+    </div>
+    <div class="ctl"><span class="label">アスペクト補正(このページだけ)と読み出し</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tr-aspect"><button data-v="1" aria-pressed="true">あり(reference)</button><button data-v="0" aria-pressed="false">なし</button></div><button class="btn" id="tr-read">glReadPixels で 5 点</button></div>
+    </div>
+  </div>
+  <div class="readout">
+    <div style="display:flex;flex-wrap:wrap;gap:16px">
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">Transform(float[16]。番号は並ぶ順)</div><div id="tr-mem"></div></div>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">GL が見る uTransform(列ベクトル規約)</div><div id="tr-gl"></div></div>
+    </div>
+    <div class="stats" id="tr-stats" style="margin-top:10px"></div>
+    <pre id="tr-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px;display:none"></pre>
+  </div>
+</figure></div>
+<h3 id="s9">6. GLboolean は1バイト — マーシャリングの罠</h3>
+<p><code>glVertexAttribPointer</code> の <code>normalized</code> と <code>glUniformMatrix4fv</code> の <code>transpose</code> は<code>GLboolean</code> 型で、これは <strong>C の <code>unsigned char</code>、つまり1バイト</strong>。</p>
+<p>ところが C# の <code>bool</code> を P/Invoke でマーシャリングすると、既定では<strong>4バイトの Win32 BOOL</strong> になる(Win32 API の <code>BOOL</code> 引数ならこの既定で正しいが、<code>GLboolean</code> とはサイズが違う)。引数として渡すぶんには、32ビットでも64ビットでも1引数ずつ4・8バイトの枠に入るので、たいていずれずに動いてしまう。壊れるのは構造体のフィールドや配列の要素を <code>bool</code> で宣言した場合で、そこではバイト数の違いで後ろのデータがずれる。</p>
+<p>このバインディングでは <code>GLboolean</code> を取る引数をすべて <code>byte</code> にして、<code>GL_FALSE = 0</code> / <code>GL_TRUE = 1</code> を定数で用意した。<strong>型が同じ名前でもサイズが違う</strong>——P/Invoke で最も静かに壊れる類の問題で、<code>GLsizeiptr</code> を <code>int</code> で受けてしまう事故(64bit でずれる)も同じ系統。</p>
+<h3 id="s10">7. ドローコール1行の向こう側</h3>
+<div class="code"><span class="lang">csharp</span><pre><code>GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3);</code></pre></div>
+<p>CPU が送るのはこの1行だけ。この向こうで、頂点シェーダが3回、クリッピングと透視除算とビューポート変換、ラスタライズ、そしてフラグメントシェーダが十数万回走る。</p>
+<p><strong>実測</strong>(本Dayの環境、640x480):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>fps</th></tr></thead>
+<tbody>
+<tr><td>VSync ON</td><td>60.0</td></tr>
+<tr><td>VSync OFF</td><td><strong>約 5,660</strong></td></tr>
+</tbody>
+</table></div>
+<p>Day 12 の「画面をクリアするだけ」が 5,743 fps だったので、<strong>三角形を1枚描いても fps はほとんど変わらない</strong>。GPU にとって三角形1枚は誤差でしかなく、この数字はほぼ「ループと SwapBuffers のオーバーヘッド」を測っている。</p>
+<p>Phase 1 の Day 10 は、三角形 2,202枚で 17.8ms(約41fps)だった。GPU なら同じ絵が桁違いに軽い——それを確かめるのは Phase 3 の仕事になる。</p>
+<p>ここで「ドローコールを減らせ」という定番の助言の意味も見えてくる。重いのは三角形ではなく、<strong>CPU から GPU へ命令を送ること自体</strong>。Day 17〜18 のスプライトバッチ(1万枚を1ドローコール群で)は、まさにこの話。</p>
+</section>
+<section class="part"><h2 id="s11">Phase 2 の総括 — 3日間で剥がした層</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Day</th><th>自分で書いたもの</th><th>Silk.NET なら</th></tr></thead>
+<tbody>
+<tr><td>11</td><td>ウィンドウクラス登録、ウィンドウプロシージャ、メッセージループ、DPI</td><td><code>Window.Create()</code></td></tr>
+<tr><td>12</td><td>ピクセルフォーマット、wgl コンテキスト、関数の動的ロード、VSync</td><td>同上(内部で実施)</td></tr>
+<tr><td>13</td><td>シェーダのコンパイル/リンク、VAO/VBO、ドローコール</td><td><code>GL</code> オブジェクト経由で同じことを書く</td></tr>
+</tbody>
+</table></div>
+<p>Day 11〜12 は<strong>丸ごと1行に消える</strong>。Day 13 で書いた内容は Phase 3 でも書き続けるが、関数の宣言は Silk.NET が生成済みのものを使う。</p>
+<p>つまり Phase 2 で捨てるのは「儀式」だけで、<strong>GPU の使い方そのものは残る</strong>。ロードマップが「一度やれば十分な領域」と書いたのはこの切り分けのこと。Day 14 から Silk.NET を使うときに、それが何を代行しているかを知った状態で使える。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Shader.cs</code></td><td><strong>新規(186行)</strong></td><td>シェーダのコンパイル・リンク・エラーログ・uniform</td></tr>
+<tr><td><code>GL.cs</code></td><td><strong>+199行</strong></td><td>シェーダ、VAO/VBO、描画の関数27個と定数</td></tr>
+<tr><td><code>Program.cs</code></td><td>+244 / -92行</td><td>三角形のセットアップと描画。シェーダのソースも含む</td></tr>
+<tr><td><code>Win32.cs</code></td><td><strong>変更なし</strong></td><td></td></tr>
+<tr><td><code>Wgl.cs</code></td><td><strong>変更なし</strong></td><td></td></tr>
+<tr><td><code>GLContext.cs</code></td><td><strong>変更なし</strong></td><td></td></tr>
+<tr><td><code>Win32Window.cs</code></td><td><strong>変更なし</strong></td><td>Day 11 から3日間まったく触っていない</td></tr>
+</tbody>
+</table></div>
+<p><strong>Day 11〜12 で書いた4ファイルが1行も変わっていない</strong>のが今日の構造上の見どころ。ウィンドウの生成・コンテキストの生成・OpenGL の使用が、きれいに分離できている。</p>
+<p>実コード行の増分は約300行。うち <code>GL.cs</code> の119行は関数宣言なので、<strong>考えるのは <code>Shader.cs</code> の104行と <code>Program.cs</code> の三角形まわり</strong>。1〜2時間で収まる。</p>
+<h3 id="s13">写経する順番</h3>
+<ol><li><code>GL.cs</code> の差分 — 定数 → デリゲート → フィールド → <code>Load()</code> の4箇所に追記。単調(<code>GLboolean</code> を byte にしている理由=要点6 だけ押さえる)</li><li><code>Shader.cs</code> — コンパイル → リンク → ログ取得。「必要な長さを聞いてから取りに行く」2段構えの呼び方に慣れる</li><li><code>Program.cs</code> のシェーダソース2本 — GLSL は短い。<code>layout(location)</code> と <code>out</code>/<code>in</code> の対応を確認</li><li><code>Program.cs</code> の <code>CreateTriangle</code> — <strong>今日の中心</strong>。VAO → VBO → 属性、の順序が重要</li><li><code>Program.cs</code> の <code>RunLoop</code> と <code>FillTransform</code> — 描画は5行。列優先(要点5)に注意</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day12/GL.cs      reference/Day13/GL.cs
+git diff --no-index reference/Day12/Program.cs reference/Day13/Program.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s14">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day13 -c Release</code></pre></div>
+<ol><li>コンソールに <code>GL_RENDERER</code> と <strong><code>シェーダのコンパイルとリンクに成功</code></strong> が出る</li><li><strong>三角形が1枚、ゆっくり回転している</strong>。1秒で約57度(1ラジアン)</li><li><strong>頂点の色が滑らかに混ざっている</strong>。上が赤、左下が緑、右下が青で、中心はそれらの中間色。<strong>境界がはっきりした3色に分かれていたら補間が効いていない</strong></li><li>回転しても<strong>三角形が歪まない</strong>(正三角形に近い形を保つ)。歪むならアスペクト補正が効いていない(要点5)</li><li><strong>W キーでワイヤーフレーム</strong>になる。輪郭線だけになり、内部の色の混ざりが消える</li><li><strong>V キーで VSync OFF</strong> にすると fps が数千に跳ね上がる(本Dayの環境で約5,660)。Day 12 の「クリアのみ」とほぼ同じ数字であることを確認する</li><li><strong>Space</strong> で回転が止まり、もう一度押すと止まった角度から再開する</li><li><strong>Esc</strong> / <strong>[×]</strong> / <strong>Alt+F4</strong> で終了コード 0 で終了する</li></ol>
+<p>参考として、本Dayの環境で <code>glReadPixels</code> を使って実際の描画結果を読み出した値(クリア色は 25,28,33):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>位置</th><th>R</th><th>G</th><th>B</th><th></th></tr></thead>
+<tbody>
+<tr><td>左下すみ (5,5)</td><td>25</td><td>28</td><td>33</td><td>三角形の外なのでクリア色</td></tr>
+<tr><td>上の頂点付近 (320,370)</td><td>245</td><td>56</td><td>57</td><td>ほぼ赤</td></tr>
+<tr><td>左下の頂点付近 (200,130)</td><td>59</td><td>234</td><td>64</td><td>ほぼ緑</td></tr>
+<tr><td>右下の頂点付近 (440,130)</td><td>59</td><td>64</td><td>234</td><td>ほぼ青</td></tr>
+<tr><td>中央 (320,240)</td><td>144</td><td>106</td><td>107</td><td><strong>3色が混ざっている</strong></td></tr>
+</tbody>
+</table></div>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>何も出ない(クリア色だけ)</strong> → 原因が多いので順に潰す。<ol><li><code>glBindVertexArray</code> を描画前に呼んでいるか</li><li><code>glEnableVertexAttribArray</code> を忘れていないか(<strong>属性は既定で無効</strong>)</li><li><code>shader.Use()</code> を呼んでいるか</li><li><code>uTransform</code> が全部0の行列になっていないか(初期化忘れ)</li></ol></li><li><strong>真っ白 / 真っ黒な三角形が出る</strong> → 色の属性が届いていない。<code>glVertexAttribPointer</code> の第1引数(1番)と GLSL の <code>layout(location = 1)</code> の対応、およびオフセット(8バイト)を確認</li><li><strong>三角形が逆向きに回り、回転につれて形が伸び縮みする</strong> → 行列の並びが行優先になっている(要点5)。GL には転置した行列が渡るので、回転が逆になり、横の縮み(アスペクト補正)も一緒に回ってしまう。平行移動を入れていれば、その成分が w の側に入って画面外へ飛ぶこともある。<code>transpose</code> を <code>GL_TRUE</code> にすると直るなら、それが原因</li><li><strong>横に間延びした二等辺三角形になる</strong> → アスペクト補正が入っていない。これは<strong>バグではなく NDC の仕様</strong>で、Phase 1 の投影行列と同じ話(要点5)</li><li><strong><code>シェーダのコンパイルに失敗した</code></strong> → ログの行番号を読む。よくあるのは <code>#version 330 core</code> の書き忘れと、コアプロファイルで廃止された <code>gl_FragColor</code> の使用</li><li><strong>GLSL のコメントの日本語が原因で落ちる</strong> → ソースの渡し方。自動マーシャリング(ANSI)ではなく UTF-8 で渡しているか(<code>Shader.CompileShader</code>)</li><li><strong><code>uniform 'uTransform' が見つからない</code> の警告</strong> → シェーダ内で実際に使われていないと最適化で消える。<code>gl_Position</code> の計算に使っているか確認(要点4)</li><li><strong>描画が1フレーム目だけおかしい</strong> → <code>glViewport</code> を呼ぶ前に描いている</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>W</code></td><td>「回る三角形」の「塗り / ワイヤー」</td><td>輪郭だけになり、フラグメントシェーダが走る画素が 3 辺の上だけになる</td></tr>
+<tr><td><code>Space</code></td><td>同じ実験台の「回す / 止める」</td><td>止めた角度から再開する</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の詰め方とアスペクト補正</td><td>行優先のまま GL_FALSE で渡すと逆回りになり、横の縮みも一緒に回って形が伸び縮みする。GL_TRUE にすると直る</td></tr>
+<tr><td>(キーなし)</td><td>「VBO のバイト列を VAO で読む」</td><td>オフセットのずれ、有効化の忘れ(真っ黒)、location の食い違い。どれもエラーは出ず、絵が壊れるだけ</td></tr>
+<tr><td><code>V</code></td><td>このページには無い</td><td>Day 12 のページの「色を変えて塗るだけのループ」。三角形 1 枚でも fps はほとんど変わらない(約 5,660)</td></tr>
+<tr><td><code>Esc</code> / [×] / <code>Alt+F4</code></td><td>このページには無い</td><td>Day 11 のページの「メッセージループを回す」</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day13 の Program.cs(TriangleVertices、CreateTriangle、FillTransform、RunLoop)と、頂点シェーダ・フラグメントシェーダのソースを JS に移したもの。三角形はソフトウェア版の GL(docs/site/softgl.js)で描いていて、画素の値は手元の GPU と一致しない(本文の 5 点の表は実機の値)。</p></div>
+</section>
+<section class="part"><h2 id="s15">改造課題</h2>
+<h3 id="s16">課題1(易): シェーダを書き換えて遊ぶ</h3>
+<p><strong>シェーダは実行時コンパイルなので、書き換え→実行のサイクルが速い。</strong> まずは慣れる。</p>
+<ol><li>フラグメントシェーダで色を反転する(<code>FragColor = vec4(1.0 - vColor, 1.0)</code>)</li><li>頂点シェーダで、頂点を法線方向ではなく<strong>中心から外へ膨らませる</strong> (<code>gl_Position</code> に渡す前に <code>aPosition * 1.5</code> など)</li><li><strong>わざと壊す。</strong> セミコロンを消す、存在しない関数を呼ぶ、<code>out</code> の名前を片方だけ変える。それぞれどんなエラーメッセージになるか。<strong>リンクエラーとコンパイルエラーの違い</strong>は出るか</li><li>W キーでワイヤーフレームにしたとき、<strong>なぜ色の混ざりが見えなくなるのか</strong>を説明できるか(ヒント: フラグメントシェーダが走るピクセルがどこか)</li></ol>
+<h3 id="s17">課題2(中): インデックスバッファで四角形を描く</h3>
+<p>三角形2枚で四角形を作る。素直にやると頂点が6個必要だが、実際には4個で足りる。</p>
+<ol><li>頂点を4個(四隅)にして、<code>[0,1,2, 2,3,0]</code> というインデックス配列を用意する</li><li><code>GL_ELEMENT_ARRAY_BUFFER</code> に EBO を作り、<code>glDrawElements</code> で描く(<code>glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices)</code>。type は <code>GL_UNSIGNED_INT</code>)</li><li><strong>VAO のバインドを外す順序を変えて、壊してみる。</strong>要点3で触れたとおり EBO のバインドは VAO に含まれるので、VAO をバインドしたまま <code>glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)</code> を呼ぶと描画されなくなる。実際に踏んで、なぜかを説明できるか</li><li>頂点数とインデックス数を比べる。立方体(8頂点・36インデックス)ならどうか。Day 9 で索引付きメッシュにしたときの理屈がそのまま GPU 側に来ている</li></ol>
+<h3 id="s18">課題3(難): シェーダのホットリロード</h3>
+<p><strong>実務で最も効く仕組み。</strong> シェーダを書き換えるたびにアプリを再起動するのは、1日に何十回もやると効率が段違いに落ちる。</p>
+<ol><li>シェーダのソースを C# の定数から <strong><code>.vert</code> / <code>.frag</code> のファイルへ出す</strong> (パス解決は Phase 1 の <code>ResolveAssetPath</code> が参考になる)</li><li><strong>F5 キーで再読み込み</strong>して、シェーダプログラムを作り直す</li><li><strong>コンパイルに失敗しても落ちないようにする。</strong> これが肝で、失敗したらエラーをコンソールに出して<strong>古いシェーダを使い続ける</strong>。落ちると結局再起動になってしまい、意味が半減する</li><li>発展: <code>FileSystemWatcher</code> でファイルの更新を検知し、保存した瞬間に反映されるようにする。ただし<strong>変更通知は複数回飛ぶ</strong>ことと、<strong>保存途中の不完全なファイルを読む</strong>ことがあるので、少し待ってから読むなどの対策が要る</li><li>古いシェーダプログラムの <code>glDeleteProgram</code> を忘れないこと。何十回もリロードすると GPU リソースが積み上がる</li></ol>
+</section>
+<section class="part"><h2 id="s19">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>OpenGL 3.3 コアプロファイル / GLSL 3.30</li><li>VSync ON で 60.0 fps、OFF で約 5,660 fps (Day 12 のクリアのみ 5,743 fps とほぼ同じ = 三角形1枚のコストは誤差)</li><li><code>glReadPixels</code> で描画結果を実測し、頂点色の補間が効いていることを確認(完成条件の表)</li><li>GLSL ソース内の日本語コメントが UTF-8 で正しくコンパイルされることを確認</li><li>シェーダのコンパイルエラーが行番号付きで取得できることを確認</li><li>W(ワイヤーフレーム)/ V(VSync)/ Space(一時停止)/ Esc の各キーを実測で確認</li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 13 生OpenGLで三角形+シェーダー / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softgl.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, segValue, stat, animate } = Lab;
+const G = SoftGL, M = G.Mat;
+const W = 640, H = 480, CLEAR = [0.10, 0.11, 0.13, 1];
+// Program.TriangleVertices: [x, y, r, g, b] × 3(AoS、stride 20 バイト)
+const VBO = [0.0, 0.6, 1.0, 0.2, 0.2, -0.6, -0.5, 0.2, 1.0, 0.2, 0.6, -0.5, 0.2, 0.2, 1.0];
+const n3 = (v) => (Math.abs(v) < 5e-7 ? 0 : v).toFixed(3);
+// 頂点シェーダ: gl_Position = uTransform * vec4(aPosition, 0.0, 1.0); vColor = aColor
+const vert = (Gm) => (v) => ({ pos: M.mulColumn(Gm, [v.pos[0], v.pos[1], 0, 1]), vary: v.color });
+// フラグメントシェーダ: FragColor = vec4(vColor, 1.0)
+const frag = (c) => [c[0], c[1], c[2], 1];
+const fill = [0, 0, 0, 1];
+// GL の読み方: 属性ごとに (offset, 個数) で読み、シェーダの型の長さにそろえる
+function readVertices(attrs) {
+  return [0, 1, 2].map((i) => {
+    const get = (a, len) => (a && a.enabled ? Array.from({ length: len }, (_, k) => (k < a.size ? VBO[i * 5 + a.offset / 4 + k] : fill[k])) : fill.slice(0, len).map((v, k) => (k === len - 1 && len === 4 ? 1 : v)));
+    return { pos: get(attrs.position, 2), color: get(attrs.color, 3) };
+  });
+}
+
+// ------------------------------------------------------------
+// 1. VBO のバイト列を VAO で読む
+// ------------------------------------------------------------
+const vaoTarget = G.createTarget(320, 240);
+function vaoDraw() {
+  const off = Number(segValue('vao-off')), enabled = segValue('vao-en') === '1', swapped = segValue('vao-loc') === '1';
+  // C# 側: 属性 0 = (2 個, オフセット 0)、属性 1 = (3 個, オフセット off)
+  const attr = [{ size: 2, offset: 0, enabled: true }, { size: 3, offset: off, enabled }];
+  // GLSL 側: aPosition と aColor がどちらの番号を見るか
+  const attrs = swapped ? { position: attr[1], color: attr[0] } : { position: attr[0], color: attr[1] };
+  const verts = readVertices(attrs);
+  // 表(先頭の頂点 5 個ぶん)
+  const names = ['x', 'y', 'r', 'g', 'b'], col = ['--accent', '--good'];
+  const cell = (bg, txt) => `<td style="padding:4px 2px;text-align:center;font-size:11px;border:1px solid var(--line);background:${bg ? `color-mix(in srgb, var(${bg}) 28%, transparent)` : 'transparent'}">${txt}</td>`;
+  let top = '', bottom = '', bytes = '';
+  for (let f = 0; f < 10; f++) {
+    const fieldCol = f % 5 < 2 ? '--accent' : '--good';
+    top += cell(fieldCol, `${names[f % 5]}${Math.floor(f / 5)}<br>${VBO[f]}`);
+    bytes += `<td style="font-size:10px;color:var(--muted);text-align:center;padding:2px">${f * 4}</td>`;
+    const a = attr.findIndex((x) => x.enabled && (f % 5) * 4 >= x.offset && (f % 5) * 4 < x.offset + x.size * 4);
+    const both = attr.filter((x) => x.enabled && (f % 5) * 4 >= x.offset && (f % 5) * 4 < x.offset + x.size * 4).length > 1;
+    bottom += a < 0 ? cell(null, '—') : cell(col[a], both ? '0 と 1' : String(a));
+  }
+  $('vao-bytes').innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:4px">VBO の先頭 2 頂点(stride 20 バイト)</div>
+    <div class="table-wrap"><table style="margin:0;table-layout:fixed;width:100%"><tr>${bytes}</tr><tr>${top}</tr><tr>${bottom}</tr></table></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">上の段: <span style="color:var(--accent)">位置</span>、<span style="color:var(--good)">色</span> / 下の段: 読む属性の番号(— は誰も読まない)</div>`;
+  const t = vaoTarget;
+  G.clear(t, CLEAR);
+  const Gm = M.asSeenByGL([0.75, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], false);   // 回転 0、アスペクト補正だけ
+  G.draw(t, { vertices: verts }, { vs: vert(Gm), fs: frag });
+  const { ctx, w, h } = fit($('vao-canvas'));
+  G.present(t, ctx, w, h);
+  const v0 = verts[0];
+  $('vao-console').textContent = `頂点シェーダが受け取った先頭の頂点:\n  aPosition = (${v0.pos.map((v) => +v.toFixed(3)).join(', ')})\n  aColor    = (${v0.color.map((v) => +v.toFixed(3)).join(', ')})`
+    + (!enabled && !swapped ? '\n  → 属性 1 が無効なので、色は既定値 (0, 0, 0) のまま。真っ黒な三角形になる' : '')
+    + (off !== 8 && enabled ? `\n  → 色を ${off} バイト目から読むので、位置の値が色に混ざる` : '')
+    + (swapped ? '\n  → コンパイルは通る。位置に色の値が入り、形も色も壊れる' : '');
+}
+['vao-off', 'vao-en', 'vao-loc'].forEach((id) => seg(id, vaoDraw));
+
+// ------------------------------------------------------------
+// 2. 回る三角形
+// ------------------------------------------------------------
+const tr = { target: G.createTarget(W, H), angle: 0, fps: 0, fpsN: 0, fpsT: 0 };
+const VERTS = readVertices({ position: { size: 2, offset: 0, enabled: true }, color: { size: 3, offset: 8, enabled: true } });
+// Program.FillTransform(列優先: m[列 * 4 + 行])
+function fillTransform(angle, aspect) {
+  const c = Math.cos(angle), s = Math.sin(angle), sx = 1 / aspect, m = new Array(16).fill(0);
+  m[0] = sx * c; m[1] = s; m[4] = sx * -s; m[5] = c; m[10] = 1; m[15] = 1;
+  return m;
+}
+const grid = (m, label) => {
+  const cells = m.map((v, i) => `<td style="text-align:right;padding:2px 6px;font-variant-numeric:tabular-nums">${label ? `<span style="color:var(--muted);font-size:10px">${i} </span>` : ''}${n3(v)}</td>`);
+  let rows = ''; for (let r = 0; r < 4; r++) rows += `<tr>${cells.slice(r * 4, r * 4 + 4).join('')}</tr>`;
+  return `<table style="font-size:12px;margin:0">${rows}</table>`;
+};
+function trDraw() {
+  const t = tr.target, aspect = segValue('tr-aspect') === '1' ? W / H : 1, pack = segValue('tr-pack');
+  const colMajor = fillTransform(tr.angle, aspect);
+  // 行優先で詰める = 列優先の転置。GL_TRUE ならドライバが転置し直す
+  const data = pack === 'col' ? colMajor : M.transpose(colMajor);
+  // softgl の asSeenByGL は「行優先として渡された並び」を前提にしているので、列優先の data は転置して渡す
+  const Gm = pack === 'rowT' ? M.asSeenByGL(data, true) : M.transpose(data);
+  G.clear(t, CLEAR);
+  G.draw(t, { vertices: VERTS }, { vs: vert(Gm), fs: frag, polygonMode: segValue('tr-wire') === '1' ? 'line' : 'fill' });
+  const { ctx, w, h } = fit($('tr-canvas'));
+  G.present(t, ctx, w, h);
+  // 表は「並ぶ順」に 4 個ずつ出す(列優先なら 1 行目が第 0 列)
+  $('tr-mem').innerHTML = grid(data, true);
+  $('tr-gl').innerHTML = grid(Gm, false);
+  const wire = segValue('tr-wire') === '1', paused = segValue('tr-play') === '0';
+  $('tr-title').textContent = `Day13 - 三角形とシェーダー  ${tr.fps.toFixed(1)} fps | VSync:ON | ${wire ? 'ワイヤー' : '塗り'}${paused ? ' | 一時停止中' : ''} | W:ワイヤー V:VSync Space:停止 Esc:終了`;
+  $('tr-stats').innerHTML = stat('ドローコール', 1) + stat('頂点シェーダ', '3 回') + stat('フラグメントシェーダ', `${t.fragments.toLocaleString()} 回`);
+}
+['tr-wire', 'tr-play', 'tr-pack', 'tr-aspect'].forEach((id) => seg(id, trDraw));
+$('tr-read').addEventListener('click', () => {
+  const pts = [['左下すみ', 5, 5], ['上の頂点付近', 320, 370], ['左下の頂点付近', 200, 130], ['右下の頂点付近', 440, 130], ['中央', 320, 240]];
+  const lines = [`[glReadPixels] 角度 ${tr.angle.toFixed(2)} rad のフレーム(このページの値。本文の表は角度 0 付近の実機の値)`];
+  for (const [name, x, y] of pts) lines.push(`  ${name.padEnd(8, '　')} (${x},${y})  ${G.readPixel(tr.target, x, y).join(',')}`);
+  const con = $('tr-console'); con.style.display = ''; con.textContent = lines.join('\n');
+});
+animate($('tr-lab'), (dt) => {
+  if (segValue('tr-play') === '1') tr.angle += Math.max(0, dt);   // 1 秒で 1 ラジアン(最初のフレームの dt は負になることがある)
+  tr.fpsN++; tr.fpsT += dt;
+  if (tr.fpsT >= 0.5) { tr.fps = tr.fpsN / tr.fpsT; tr.fpsN = 0; tr.fpsT = 0; }
+  trDraw();
+});
+function narrow() { $('vao-grid').style.gridTemplateColumns = $('vao-grid').clientWidth < 560 ? '1fr' : 'minmax(0,1.3fr) minmax(0,1fr)'; }
+window.addEventListener('resize', narrow);
+narrow(); vaoDraw(); trDraw();
+})();
+</script>
+</body>
+</html>
