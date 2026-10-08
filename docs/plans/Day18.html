@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 18 スプライトバッチ最適化(アトラス、ソート)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. アトラス — 「絵が違う」と「テクスチャが違う」を切り離す</a></li><li class="l3"><a href="#s5">2. アトラスとミップマップは相性が悪い</a></li><li class="l3"><a href="#s6">3. ソート — キーを1本の long に畳む</a></li><li class="l3"><a href="#s7">4. アトラスとソートは、どちらか片方では足りない</a></li><li class="l3"><a href="#s8">5. 転送は1回、ドローコールは切れ目の数だけ</a></li><li class="l3"><a href="#s9">6. 頂点を小さくする — 今度は効いた</a></li><li class="l3"><a href="#s10">7. 容量を超えるとソートが分断される</a></li><li class="l2"><a href="#s11">Phase 3 を終えて</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">追加した素材</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">起動時のコンソール出力</a></li><li class="l3"><a href="#s19">見た目</a></li><li class="l3"><a href="#s20">マイルストーンの確認</a></li><li class="l3"><a href="#s21">ソートの確認(左上の3枚)</a></li><li class="l3"><a href="#s22">ビルド</a></li><li class="l2"><a href="#s23">改造課題</a></li><li class="l3"><a href="#s24">課題1(易): アトラスを壊して、症状を覚える</a></li><li class="l3"><a href="#s25">課題2(中): ソートキーを設計し直す</a></li><li class="l3"><a href="#s26">課題3(難): テクスチャ配列に置き換える</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li><li class="l3"><a href="#s28">アトラスとソートの組み合わせ(1万枚)</a></li><li class="l3"><a href="#s29">頂点サイズ(20バイト版 / 32バイト版を交互に2往復、ms/frame)</a></li><li class="l3"><a href="#s30">画像による確認</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 3 / Day 18 / 計画書</p>
+  <h1>スプライトバッチ最適化(アトラス、ソート)</h1>
+  <p class="lede">レンダラ完成</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. アトラス — 「絵が違う」と「テクスチャが違う」を切り離す</a></li><li class="l3"><a href="#s5">2. アトラスとミップマップは相性が悪い</a></li><li class="l3"><a href="#s6">3. ソート — キーを1本の long に畳む</a></li><li class="l3"><a href="#s7">4. アトラスとソートは、どちらか片方では足りない</a></li><li class="l3"><a href="#s8">5. 転送は1回、ドローコールは切れ目の数だけ</a></li><li class="l3"><a href="#s9">6. 頂点を小さくする — 今度は効いた</a></li><li class="l3"><a href="#s10">7. 容量を超えるとソートが分断される</a></li><li class="l2"><a href="#s11">Phase 3 を終えて</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">追加した素材</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">起動時のコンソール出力</a></li><li class="l3"><a href="#s19">見た目</a></li><li class="l3"><a href="#s20">マイルストーンの確認</a></li><li class="l3"><a href="#s21">ソートの確認(左上の3枚)</a></li><li class="l3"><a href="#s22">ビルド</a></li><li class="l2"><a href="#s23">改造課題</a></li><li class="l3"><a href="#s24">課題1(易): アトラスを壊して、症状を覚える</a></li><li class="l3"><a href="#s25">課題2(中): ソートキーを設計し直す</a></li><li class="l3"><a href="#s26">課題3(難): テクスチャ配列に置き換える</a></li><li class="l2"><a href="#s27">動作確認済み環境</a></li><li class="l3"><a href="#s28">アトラスとソートの組み合わせ(1万枚)</a></li><li class="l3"><a href="#s29">頂点サイズ(20バイト版 / 32バイト版を交互に2往復、ms/frame)</a></li><li class="l3"><a href="#s30">画像による確認</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 3 / ロードマップ該当行: 「スプライトバッチ最適化(アトラス、ソート) — <strong>レンダラ完成</strong>」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>スプライト1万枚を、ドローコール1回で描く。</strong> Phase 3 のマイルストーン。</p>
+<p>Day 17 のバッチは、呼び出し側が「テクスチャごとにまとめて渡す」ことに依存していた。まとめずに渡すと、1万枚が1万回のドローコールに戻る(実測 25.2 fps)。</p>
+<p>今日はその依存を潰す。<strong>どんな順に <code>Draw</code> を呼んでも 1 ドローコール</strong>にする。やることは2つで、片方だけでは足りない。</p>
+<ul><li><strong>アトラス</strong> … 絵の種類が増えてもテクスチャは1枚のまま</li><li><strong>ソート</strong> … 呼び出し順に関係なく、まとめられる順に並べ替える</li></ul>
+<p>ついでに Day 15 の課題3から持ち越していた「頂点を小さくする」も片付ける(1頂点 32 → 20 バイト)。こちらは Day 17 のオーファニングと違い、<strong>測ったら効いた</strong>。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップの指定は「-」。実装寄りの回なので、次を読んでおくとよい。</p>
+<ul><li><a href="https://www.khronos.org/opengl/wiki/Array_Texture">Array Texture — OpenGL Wiki</a> —アトラスの「現代的な代替」。今日は使わないが、アトラスの弱点を知るのに読む価値がある</li><li><a href="https://www.khronos.org/opengl/wiki/Vertex_Specification#Vertex_format">Vertex Specification — OpenGL Wiki</a> —<code>normalized</code> の意味。整数を 0.0〜1.0 として読ませる仕組み</li><li><a href="https://github.com/juj/RectangleBinPack">A Thousand Ways to Pack the Bin(矩形パッキングの調査)</a> —棚詰めより良い詰め方はいくつもある。論文 PDF がリポジトリに入っている</li><li>復習として <strong>Day15.md の課題3(頂点属性の型)</strong> と <strong>Day17.md の要点4(フラッシュの条件)</strong>。今日はこの2つの続き</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. アトラス — 「絵が違う」と「テクスチャが違う」を切り離す</h3>
+<p>Day 17 で見たとおり、バッチは<strong>テクスチャが変わるたびにフラッシュ</strong>する。絵の種類が10個あれば、どう並べ替えても最低10回のドローコールになる。</p>
+<p>アトラスはこれを構造から潰す。<strong>複数の画像を1枚のテクスチャに詰め込み、それぞれの位置を UV の矩形として覚えておく</strong>。絵の種類が増えてもテクスチャは1枚のままなので、フラッシュの理由が消える。</p>
+<p><code>AtlasRegion</code> が「どのテクスチャの、どこを、元は何ピクセルだったか」を持つ。<code>SpriteBatch</code> から見れば、テクスチャを渡されようが領域を渡されようが同じ経路を通る。</p>
+<p><strong>詰め方は「棚(shelf)詰め」</strong>。高い画像から順に横一列(棚)に並べ、入らなくなったら次の段へ移る。最適な矩形パッキングは NP 困難だが、高さでソートしてから棚に並べるだけで実用上は十分埋まる。<strong>正解を求めるより、十分よい答えを安く出す</strong>の典型例。</p>
+<p>今日詰めるのは4枚だけなので、256x256 のアトラスに対して充填率は 17.6% (使用 11,520 / 全体 65,536 px)しかない。これは棚詰めが悪いのではなく、<strong>2の累乗に切り上げているぶん</strong>。枚数が増えるほど効率は上がる。</p>
+<p>パディング(すき間)を空けるのは<strong>ブリーディング対策</strong>。バイリニア補間は指定した点の周囲2x2テクセルを読むので、すき間が無いと端のピクセルに隣のリージョンの色が混ざる。さらに UV を<strong>半テクセル内側</strong>に寄せて、境界を踏まないようにしてある。</p>
+<h3 id="s5">2. アトラスとミップマップは相性が悪い</h3>
+<p>今日のアトラスは<strong>ミップマップを作らない</strong>。理由は原理的なもの。</p>
+<p>ミップマップは縮小版を作る仕組みだが、その過程で隣のリージョンの色が混ざる。レベルが上がるほど広範囲から混ざり、最後は全体が1テクセルに潰れるので、パディングをどれだけ空けても防げない。</p>
+<p>対策は3つある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>対策</th><th>内容</th><th>評価</th></tr></thead>
+<tbody>
+<tr><td>ミップマップを使わない</td><td>今日これ</td><td>縮小率が小さければ十分。手軽</td></tr>
+<tr><td>リージョンごとにミップマップを自前で作って詰め直す</td><td>各レベルを別のアトラスに</td><td>正しいが手間</td></tr>
+<tr><td>テクスチャ配列(<code>GL_TEXTURE_2D_ARRAY</code>)</td><td>同じ大きさの絵を層に積む</td><td><strong>現代的な答え</strong>。混ざりようがない</td></tr>
+</tbody>
+</table></div>
+<p>テクスチャ配列は「全部の絵が同じ大きさでなければならない」という制約と引き換えに、ミップマップ・<code>Repeat</code>・フィルタのすべてが素直に効く。改造課題3で扱う。</p>
+<p>実装上、この話は <code>Texture</code> に<strong>ミップマップを持っているかどうか</strong>の記録を足す必要を生んだ。ミップマップが無いテクスチャの <code>MinFilter</code> に<code>LinearMipmapLinear</code> を指定すると、そのテクスチャは「不完全(incomplete)」になり、<strong>描画結果が真っ黒になる</strong>。エラーは出ない(合法な組み合わせで、単に条件を満たしていないだけ)ので、「なぜか黒い」の原因として上位に来る。</p>
+<div class="inject"><figure class="lab" id="ap-lab">
+  <div class="lab-head">
+    <h3>アトラスを詰める — 棚詰め、パディング、半テクセル(要点1・2、改造課題1)</h3>
+    <span class="tag">reference の TextureAtlas.cs(高さ順に並べて棚に詰める FromFiles、2 の累乗に切り上げる ChooseAtlasSize、半テクセル内側に寄せた UV)と、Texture.SetFilter のミップマップの有無による振り分けを JS に移したもの。絵は assets/textures の PNG そのもの。左はでき上がったアトラス(上下は画像ファイルの向き。枠がリージョン)、右は選んだリージョンを1枚、ソフトウェア版の GL(docs/site/softgl.js)のバイリニアで描いたもの。暗い背景にアルファで重ねている。パディング、半テクセル、ミップマップ、振り分けの切り替えは改造課題1をこのページで試すもの。なお 4 枚の PNG はどれも縁の 2px が完全に透明なので、padding 0・half 0 にしてもバイリニアが読む隣の 1 テクセルは透明で、にじみは見えない</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="ap-grid">
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">アトラス(市松は透明なところ)</div><canvas id="ap-atlas" style="width:100%;aspect-ratio:1;height:auto;image-rendering:pixelated" aria-label="4枚の絵を1枚に詰めたアトラス"></canvas></div>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">リージョンを描いた絵</div><canvas id="ap-view" style="width:100%;aspect-ratio:1;height:auto;image-rendering:pixelated" aria-label="選んだリージョンを大きく、または小さく描いたもの"></canvas></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">描くリージョンと大きさ</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ap-region"><button data-v="sprite-circle" aria-pressed="false">円</button><button data-v="sprite-ring" aria-pressed="true">輪</button><button data-v="sprite-star" aria-pressed="false">星</button><button data-v="sprite-diamond" aria-pressed="false">ひし形</button></div><div class="seg" id="ap-size"><button data-v="200" aria-pressed="true">200px</button><button data-v="6" aria-pressed="false">6px(拡大して表示)</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">padding と半テクセル(課題1の1・2)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ap-pad"><button data-v="4" aria-pressed="true">padding 4</button><button data-v="0" aria-pressed="false">0</button></div><div class="seg" id="ap-half"><button data-v="0.5" aria-pressed="true">half 0.5</button><button data-v="0" aria-pressed="false">0</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">ミップマップと SetFilter の振り分け(課題1の3・4)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ap-mip"><button data-v="0" aria-pressed="true">ミップマップ無</button><button data-v="1" aria-pressed="false">有</button></div><div class="seg" id="ap-route"><button data-v="1" aria-pressed="true">振り分けあり</button><button data-v="0" aria-pressed="false">常に LinearMipmapLinear</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ap-stats"></div><pre id="ap-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s6">3. ソート — キーを1本の long に畳む</h3>
+<p><code>SpriteBatch.Begin</code> にモードを渡せるようにした。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モード</th><th>並べ替え</th><th>使いどころ</th></tr></thead>
+<tbody>
+<tr><td><code>Immediate</code></td><td>しない</td><td>呼んだ順を保証したいとき(Day 17 の挙動)</td></tr>
+<tr><td><code>Texture</code></td><td>テクスチャで</td><td><strong>ドローコール最小</strong>。不透明・重ならないもの</td></tr>
+<tr><td><code>BackToFront</code></td><td>レイヤー → テクスチャ</td><td><strong>半透明の前後関係が要るとき</strong></td></tr>
+</tbody>
+</table></div>
+<p>実装のポイントは、<strong>比較関数を書かずに数値1本に畳む</strong>こと。</p>
+<div class="code"><pre><code>上位32bit … レイヤー(奥ほど小さい。0.0〜1.0 を 0〜65535 に量子化)
+下位32bit … テクスチャのハンドル</code></pre></div>
+<p><code>Comparison&lt;T&gt;</code> を渡すとデリゲート呼び出しが比較のたびに起きる。数値に畳めば単純な整数比較になり、<strong>優先度の順にビットを並べるだけで多段ソート</strong>になる。レイヤーを量子化するのは、float をそのままビット比較できないため(負数の扱いが素直でない)。65536 段あれば 2D の重ね順には十分すぎる。</p>
+<p><code>Array.Sort(_keys, _order, 0, _pending)</code> はキーの配列と番号の配列を対で受け取り、キーで並べ替えつつ番号も同じ順に動かす。<code>(key, index)</code> のペアを自分で作るより割り当てが少ない。</p>
+<p><strong>注意: <code>Array.Sort</code> は安定ソートではない</strong>。同じキーのスプライトの順序は保証されない。<code>Texture</code> モードで同じテクスチャの2枚を重ねると、どちらが上になるかは不定になる。順序が要るなら <code>BackToFront</code> でレイヤーを明示するか、キーに通し番号を混ぜる。</p>
+<div class="inject"><figure class="lab" id="so-lab">
+  <div class="lab-head">
+    <h3>ソートキーを並べる — 1本の数に畳んで並べ、切れ目で描く(要点3・5・7)</h3>
+    <span class="tag">reference の SpriteBatch.cs(MakeSortKey、FlushAll の並べ替えと切れ目ごとの DrawElements)を、12 枚の小さな例で見るもの(このページだけ)。12 枚はスプライトの配列の先頭 9 枚(Kind は番号 % 4、Layer は乱数)と、左上の確認用の 3 枚(緑 0.5・赤 0.9・青 0.1)。表は並べ替えたあとの順で、キーは 16 進(上位 32 ビットがレイヤー、下位がテクスチャのハンドル)。JS の並べ替えは安定なので、同じキーは積んだ順のまま残る(C# の Array.Sort は不安定)。容量 11 にすると、満杯で FlushAll が2回に分かれる(赤までが前半、青が後半)</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px" id="so-grid">
+      <div class="table-wrap" id="so-table"></div>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">左上の確認用の 3 枚(一番上に来る色)</div><canvas id="so-canvas" style="width:100%;max-width:300px;aspect-ratio:1;height:auto" aria-label="緑・赤・青の大きな円が3枚重なっている"></canvas></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ソートモード(S)</span>
+      <div class="seg" id="so-mode"><button data-v="Texture" aria-pressed="true">Texture</button><button data-v="BackToFront" aria-pressed="false">BackToFront</button><button data-v="Immediate" aria-pressed="false">Immediate</button></div>
+    </div>
+    <div class="ctl"><span class="label">アトラス(A)と容量(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="so-atlas"><button data-v="1" aria-pressed="true">アトラス ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="so-cap"><button data-v="20000" aria-pressed="true">容量 20000</button><button data-v="11" aria-pressed="false">11</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="so-stats"></div><pre id="so-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s7">4. アトラスとソートは、どちらか片方では足りない</h3>
+<p>今日いちばんの発見。1万枚での実測:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ソートモード</th><th>アトラス</th><th>ドローコール</th><th>fps</th></tr></thead>
+<tbody>
+<tr><td><code>Immediate</code></td><td>なし</td><td>10001</td><td>25.2</td></tr>
+<tr><td><code>Immediate</code></td><td><strong>あり</strong></td><td><strong>1</strong></td><td>1258.9</td></tr>
+<tr><td><code>Texture</code></td><td>なし</td><td>4</td><td>771.2</td></tr>
+<tr><td><code>Texture</code></td><td><strong>あり</strong></td><td><strong>1</strong></td><td>959.6</td></tr>
+<tr><td><code>BackToFront</code></td><td>なし</td><td><strong>7482</strong></td><td>270.9</td></tr>
+<tr><td><code>BackToFront</code></td><td><strong>あり</strong></td><td><strong>1</strong></td><td>661.1</td></tr>
+</tbody>
+</table></div>
+<p>読みどころは <code>BackToFront</code> × アトラスなしの <strong>7482 回</strong>。</p>
+<p>ソートを入れたのに、Day 17 の最悪ケース(1万回)とほとんど変わらない。レイヤーを優先して並べ替えるので、<strong>テクスチャの並びが完全に崩れる</strong>からで、これは実装の不備ではなく<strong>そういうものである</strong>。</p>
+<p>数も予想できる。レイヤーがばらばらなら、隣り合う2枚が同じテクスチャになる確率はテクスチャ4枚に対して 1/4。だから期待されるドローコール数は</p>
+<div class="code"><pre><code>10000 × (1 - 1/4) = 7500</code></pre></div>
+<p>実測 7482。ほぼ一致する。</p>
+<p><strong>半透明を正しく描こうとした瞬間に、ソートだけでは無力になる。</strong>だから 2D エンジンはアトラスを使う。逆に、アトラスがあれば<code>Immediate</code> でもドローコールは1回になる(テクスチャが変わらないので)。</p>
+<p>もう一つ細かい観察。<code>Texture</code> × アトラスなしは4回のドローコールで済んでいるのに、アトラスあり(1回)より 0.26ms 遅い。ドローコール3回ぶん(約 12µs)では説明がつかない差なので、<strong>テクスチャの切り替えはドローコールそのものより高い</strong>と読める。</p>
+<div class="inject"><figure class="lab" id="at-lab">
+  <div class="lab-head">
+    <h3>1万枚を1回で描く — アトラス × ソートモード(要点4・6、A・S・上下キー)</h3>
+    <span class="tag">reference の SpriteBatch.cs、TextureAtlas.cs と、Program.cs の InitializeSprites(Kind と Layer を足した版。new Random(20260816) と同じ並び)、RenderSprites、RenderLayerTest、タイトルバーを JS に移したもの(docs/site/spritebatch.js)。バッチが記録したドローコールのとおりに Canvas 2D で 960x640 に描き、背景は Day 16 のシーンを1回だけ描いた止めた絵。下の帯はドローコールの並び(色はテクスチャ、灰 = アトラス)。fps と ms/frame は本文の実測をもとに置いたモデルの値(このページだけ): 頂点を書く 1 枚 0.079µs(32 バイトなら +0.04µs)、並べ替え 1 枚 0.025µs(BackToFront は 0.072µs)、BufferSubData を伴うドローコール 3.9µs、オフセットだけ変えたドローコール 0.29µs、2 枚目以降のテクスチャを使い始めるたびに 85µs、土台 0.6ms(3D を消すと 0.25ms)。頂点サイズの切り替えはこのページだけ</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="at-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="at-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:480px" aria-label="3D シーンの手前を、円・輪・星・ひし形がたくさん飛び回っている。左上に大きな円が3枚重なっている"></canvas><canvas id="at-strip" style="width:100%;height:28px;display:block" aria-label="ドローコールの並び"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">スプライトの数(上下キー)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="at-count"><button data-v="1000" aria-pressed="true">1,000</button><button data-v="10000" aria-pressed="false">10,000</button><button data-v="19997" aria-pressed="false">19,997</button></div><button class="btn" id="at-down">↓ −1000</button><button class="btn" id="at-up">↑ +1000</button></div>
+    </div>
+    <div class="ctl"><span class="label">アトラス(A)とソートモード(S)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="at-atlas"><button data-v="1" aria-pressed="true">アトラス ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="at-mode"><button data-v="Texture" aria-pressed="true">Texture</button><button data-v="BackToFront" aria-pressed="false">BackToFront</button><button data-v="Immediate" aria-pressed="false">Immediate</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">バッチ(B)、オーファニング(O)、3D(3)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="at-batch"><button data-v="1" aria-pressed="true">バッチ ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="at-orphan"><button data-v="0" aria-pressed="true">オーファン OFF</button><button data-v="1" aria-pressed="false">ON</button></div><div class="seg" id="at-3d"><button data-v="1" aria-pressed="true">3D ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">頂点のサイズ(このページだけ)と動き(Space)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="at-vb"><button data-v="20" aria-pressed="true">20 バイト</button><button data-v="32" aria-pressed="false">32 バイト(Day 17)</button></div><div class="seg" id="at-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="at-stats"></div></div>
+</figure></div>
+<h3 id="s8">5. 転送は1回、ドローコールは切れ目の数だけ</h3>
+<p>Day 17 のフラッシュは「溜まったぶんを送って描く」を繰り返していた。つまりテクスチャが変わるたびに転送が起きていた。</p>
+<p>今日は分ける。</p>
+<ol><li>並べ替えた頂点を<strong>1回で全部送る</strong>(<code>glBufferSubData</code> 1回)</li><li>テクスチャの切れ目ごとに <code>glDrawElements</code> を<strong>オフセットをずらして</strong>呼ぶ</li></ol>
+<p>これができるのは、<strong>インデックスバッファが「先頭から順に四角形」の形で固定</strong>だから(Day 17 の要点3b)。頂点のほうを並べ替えて詰め直せば、四角形 <code>runStart</code> 個ぶん先から <code>n</code> 個、という指定がバイトオフセットだけで書ける。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.DrawElements(
+    PrimitiveType.Triangles,
+    (uint)((i - runStart) * 6),
+    DrawElementsType.UnsignedInt,
+    (void*)(runStart * 6 * sizeof(uint)));   // ここがオフセット</code></pre></div>
+<h3 id="s9">6. 頂点を小さくする — 今度は効いた</h3>
+<p>色を <code>Vector4</code>(16バイト)から <strong>byte 4個(4バイト)</strong> に詰め、1頂点 32 → <strong>20バイト</strong>にした。1万枚 = 4万頂点で 1.28MB → 0.80MB。</p>
+<p>そのために頂点属性の記述を一般化した。Day 15 から使ってきた<code>ReadOnlySpan&lt;int&gt;</code>(float が何個か)では、型も正規化の有無も表せない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>VertexAttribute.Float(2)      // float 2個
+VertexAttribute.UNormByte4()  // unsigned byte 4個を 0.0〜1.0 として読む</code></pre></div>
+<p><code>normalized = true</code> が肝で、これで 0〜255 の byte がシェーダ側では 0.0〜1.0 の <code>vec4</code> として届く。<strong>GLSL は1文字も変わらない</strong> (<code>sprite.vert</code> / <code>sprite.frag</code> は Day 17 と完全に同一)。GPU 側から見れば、頂点属性の型はバッファの読み方の指定でしかない。</p>
+<p>Day 15 の課題3で「小さくすれば速い、は測るまで分からない」と書いたので、測った。20バイト版と32バイト版を交互に2往復させた結果(ms/frame、小さいほうが速い):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>20バイト</th><th>32バイト</th><th>差</th></tr></thead>
+<tbody>
+<tr><td>10000枚 <code>Texture</code></td><td>0.989</td><td>1.389</td><td><strong>-0.40ms</strong></td></tr>
+<tr><td>10000枚 <code>Immediate</code></td><td>0.780</td><td>1.154</td><td><strong>-0.37ms</strong></td></tr>
+<tr><td>19997枚 <code>Texture</code></td><td>2.33</td><td>2.54</td><td>-0.21ms</td></tr>
+</tbody>
+</table></div>
+<p><strong>1万枚で 29% 短縮</strong>。Day 17 のオーファニング(効果なし)とは逆に、こちらは効いた。節約できたのは転送量だけではなく、<strong>頂点を書き込む処理と、並べ替え後のコピー</strong>も1枚あたり 128 → 80 バイトに減っている。</p>
+<p>面白いのは 2万枚のほうが<strong>差が小さい</strong>こと。転送量は倍なので単純には倍の差が出そうなものだが、逆になっている。2万枚では GPU 側(重なりの塗り)が律速になっていて、<strong>CPU 側で節約した時間が GPU の待ち時間に隠れる</strong>、というのが素直な解釈になる。Day 17 でオーファニングが効かなかったのと同じ構図で、<strong>ボトルネックがどちら側にあるかで、同じ最適化の価値が変わる</strong>。</p>
+<p>色を 8bit にして精度は落ちないのかという点は、<strong>画面に出す色が最終的に 8bit</strong> なので問題ない。中間計算で精度が要るのは HDR を扱い始める Day 31 から。</p>
+<h3 id="s10">7. 容量を超えるとソートが分断される</h3>
+<p><code>SpriteBatch</code> は容量が満杯になると、そこまでのぶんを吐き出す。<strong>並べ替えモードではこれが起きるとソートが分断される</strong>——前半だけで並べ替え → 描画 → 後半だけで並べ替え、になるので、前半の手前のスプライトが後半の奥のスプライトに隠される。</p>
+<p>だから容量は「1フレームで積む最大枚数」以上にしておくのが素直。今日は 20000 に取ってある(20000 × 4頂点 × 20バイト = 1.6MB。積んだ配列と並べ替え後で2本ぶん必要なので 3.2MB)。</p>
+<p>Day 17 では容量 4000 でドローコールを分けていたが、アトラスとソートが入った今は<strong>容量がそのままドローコール数を決める</strong>ようになった。1万枚で 1 回にできるのは、容量が1万を超えているから。</p>
+</section>
+<section class="part"><h2 id="s11">Phase 3 を終えて</h2>
+<p>Day 14 から5日かけて作ったものを並べると、レンダラ層の輪郭が見える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>層</th><th>クラス</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td>シェーダ</td><td><code>Shader</code></td><td>コンパイル、uniform、ホットリロード</td></tr>
+<tr><td>ジオメトリ</td><td><code>Mesh&lt;TVertex&gt;</code> / <code>Primitives</code> / <code>VertexAttribute</code></td><td>静的な形</td></tr>
+<tr><td>素材</td><td><code>Texture</code> / <code>TextureAtlas</code> / <code>Material</code></td><td>見た目</td></tr>
+<tr><td>視点</td><td><code>Camera</code> / <code>OrbitCameraController</code></td><td>ビュー・投影</td></tr>
+<tr><td>2D</td><td><code>SpriteBatch</code> / <code>SpriteVertex</code></td><td>大量描画</td></tr>
+</tbody>
+</table></div>
+<p>Phase 2 で「Silk.NET が何を代行しているか」を見たうえで、Phase 3 では「自分が何を積み上げるか」をやった。ここから先(Phase 4)はエンジンコア——<strong>描画以外</strong>の話になる。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>TextureAtlas.cs</code></td><td>223</td><td>棚詰めパッカーと <code>AtlasRegion</code></td></tr>
+<tr><td><code>VertexAttribute.cs</code></td><td>60</td><td>頂点属性の記述(型・正規化・バイト数)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>SpriteBatch.cs</code></td><td>+229 / -133</td><td><code>SpriteSortMode</code>、ソートキー、転送1回+切れ目ごとの描画、<code>AtlasRegion</code> 対応</td></tr>
+<tr><td><code>Program.cs</code></td><td>+166 / -89</td><td>アトラスの構築、4種類のスプライト、A/S キー、レイヤーテスト</td></tr>
+<tr><td><code>Texture.cs</code></td><td>+58 / -14</td><td><code>FromPixels</code>、<code>HasMipmaps</code>、ミップマップの有無でフィルタを振り分け</td></tr>
+<tr><td><code>SpriteVertex.cs</code></td><td>+55 / -16</td><td>色を <code>uint</code>(RGBA8)に。<code>PackColor</code></td></tr>
+<tr><td><code>Vertex.cs</code></td><td>+17 / -5</td><td><code>AttributeSizes</code> → <code>Attributes</code></td></tr>
+<tr><td><code>Mesh.cs</code></td><td>+7 / -7</td><td><code>VertexAttribute</code> を受け取る</td></tr>
+<tr><td><code>Primitives.cs</code></td><td>+2 / -2</td><td>呼び出し側の追従</td></tr>
+</tbody>
+</table></div>
+<p><code>Camera.cs</code> / <code>Material.cs</code> / <code>Shader.cs</code> / <code>OrbitCameraController.cs</code> は無変更。<strong><code>shaders/</code> は4本とも1文字も変わっていない</strong>——頂点フォーマットを変えてもGLSL 側に影響が出ないのは要点6のとおり。</p>
+<p>実コード行数(コメント・空行を除く)は 401 行。</p>
+<h3 id="s15">追加した素材</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>assets/textures/sprite-star.png</code></td><td>48x48 RGBA。5角の星。4x4スーパーサンプリングでアンチエイリアス</td></tr>
+<tr><td><code>assets/textures/sprite-diamond.png</code></td><td>32x32 RGBA。ひし形(マンハッタン距離)</td></tr>
+</tbody>
+</table></div>
+<p>Day 17 の2枚と合わせて4枚になった。<strong>わざと大きさをばらばら</strong>にしてあるので、棚詰めが高さ順に並べているのが見て分かる。生成は Day 15・17 と同じく Python の <code>zlib</code> だけで書いた PNG エンコーダ。</p>
+<h3 id="s16">写経する順番</h3>
+<ol><li><strong><code>VertexAttribute.cs</code></strong> — 20行。これが無いと byte の色が表せない</li><li><strong><code>Vertex.cs</code> / <code>Mesh.cs</code> / <code>Primitives.cs</code></strong> — 上への追従。合わせて16行</li><li><strong><code>SpriteVertex.cs</code></strong> — 色を <code>uint</code> に。<code>PackColor</code> のビット並びとリトルエンディアンの関係だけ確認する</li><li><strong><code>Texture.cs</code></strong> — <code>FromPixels</code> を切り出し、<code>HasMipmaps</code> を足す。要点2の「黒くなる」話を読んでから</li><li><strong><code>TextureAtlas.cs</code></strong> — 棚詰め。<code>FromFiles</code> を上から追えばよい</li><li><strong><code>SpriteBatch.cs</code></strong> — <code>MakeSortKey</code> と <code>FlushAll</code> が今日の中身。ソート → 詰め直し → 1回転送 → 切れ目ごとに描画、の流れ</li><li><strong><code>Program.cs</code></strong> — アトラスの構築と、A / S キー</li></ol>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<p><code>dotnet run --project reference/Day18 -c Release</code> で確認する。</p>
+<h3 id="s18">起動時のコンソール出力</h3>
+<p>アトラスの中身が出る。<strong>リージョンが高さ順(64, 64, 48, 32)に並んでいる</strong>ことと、UV が 0〜1 の範囲に収まっていることを確認する。</p>
+<div class="code"><pre><code>アトラス: 256x256、リージョン 4 個
+  sprite-circle     64x64  UV (0.018, 0.018)-(0.264, 0.264)
+  sprite-ring       64x64  UV (0.283, 0.018)-(0.529, 0.264)
+  sprite-star       48x48  UV (0.549, 0.018)-(0.732, 0.201)
+  sprite-diamond    32x32  UV (0.752, 0.018)-(0.873, 0.139)</code></pre></div>
+<h3 id="s19">見た目</h3>
+<ul><li>Day 16 の3Dシーンの手前に、<strong>円・輪・星・ひし形の4種類</strong>が飛び回っている</li><li>左上に<strong>大きな3枚(緑・赤・青)</strong> が重なっている。これがソートの確認用</li><li>スプライトの縁がきれいに切り抜かれ、<strong>隣のリージョンの色がにじんでいない</strong> (パディングと半テクセル内側寄せが効いている)</li></ul>
+<h3 id="s20">マイルストーンの確認</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>操作</th><th>ドローコール</th></tr></thead>
+<tbody>
+<tr><td>起動直後(1000枚、アトラス ON、<code>Texture</code>)</td><td><strong>1</strong></td></tr>
+<tr><td>上キー×9(<strong>10000枚</strong>)</td><td><strong>1</strong> ← ロードマップのマイルストーン</td></tr>
+<tr><td>上キーを押し切る(19997枚)</td><td><strong>1</strong></td></tr>
+<tr><td><strong>A</strong>(アトラス OFF)</td><td>4</td></tr>
+<tr><td><strong>S</strong> で <code>BackToFront</code> にして、<strong>A</strong> で OFF</td><td><strong>7000 以上</strong></td></tr>
+<tr><td><code>Immediate</code> にして <strong>A</strong> で OFF</td><td>枚数とほぼ同じ</td></tr>
+</tbody>
+</table></div>
+<h3 id="s21">ソートの確認(左上の3枚)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>モード</th><th>一番上に来る色</th></tr></thead>
+<tbody>
+<tr><td><code>Immediate</code></td><td><strong>青</strong>(最後に積んだから)</td></tr>
+<tr><td><code>BackToFront</code></td><td><strong>赤</strong>(レイヤーが一番手前だから)</td></tr>
+<tr><td><code>Texture</code></td><td>不定(同じキーなので順序が保証されない。要点3)</td></tr>
+</tbody>
+</table></div>
+<p>Day 16・17 までのキー(B / O / 3 / Z / C / P / W / F / R / V / Space / Home / F5 / Esc)もそのまま使える。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>上下キー</td><td>「1万枚を1回で描く」の枚数と「↑ +1000」「↓ −1000」</td><td>アトラス ON なら 19,997 枚(と確認用の 3 枚)でもドローコール 1 回</td></tr>
+<tr><td><code>A</code></td><td>同じ実験台の「アトラス OFF」、「ソートキーを並べる」の「OFF」</td><td>Texture なら 4 回。BackToFront は 7000 回を超え、Immediate は枚数とほぼ同じ</td></tr>
+<tr><td><code>S</code></td><td>同じ実験台のソートモード、「ソートキーを並べる」のソートモード</td><td>左上の 3 枚は Immediate で青、BackToFront で赤が一番上。Texture は実機では不定(このページは安定な並べ替えなので青)</td></tr>
+<tr><td><code>B</code> / <code>O</code> / <code>3</code> / <code>Space</code></td><td>同じ実験台の同名の切り替え</td><td>Day 17 と同じ</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「頂点のサイズ」</td><td>要点6。32 バイトにすると、1万枚でモデルの ms/frame が 0.4ms ほど伸びる</td></tr>
+<tr><td>(キーなし)</td><td>「アトラスを詰める」</td><td>改造課題1。この 4 枚は縁が透明なので padding 0・half 0 でもにじまない。ミップマップ有で小さく描くと段が上がって周りと混ざり、振り分けを外すと真っ黒</td></tr>
+<tr><td>(キーなし)</td><td>「ソートキーを並べる」の「容量 11」</td><td>要点7。BackToFront で並べ替えが前半と後半に分かれ、後半の青(一番奥のはず)が赤の上に描かれる</td></tr>
+<tr><td>Day 16 までのキー</td><td>このページには無い</td><td>Day 16 のページの「床と立方体のシーン」</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day18 の SpriteBatch.cs、TextureAtlas.cs、SpriteVertex.cs(PackColor)、Texture.cs(SetFilter の振り分け)、Program.cs(InitializeSprites、RenderSprites、RenderLayerTest、OnKeyDown)を JS に移したもの(docs/site/spritebatch.js)。スプライトの絵は assets/textures の PNG をそのまま使い、色の掛け算は段階に丸めた近似。fps と ms/frame は本文の実測から置いたモデルの値で、このページの描画の速さではない。</p></div>
+<h3 id="s22">ビルド</h3>
+<ul><li><code>dotnet build reference/Day18</code> が警告 0 で通る</li><li><code>dotnet format whitespace reference/Day18/Day18.csproj --verify-no-changes</code> の差分が 0</li></ul>
+</section>
+<section class="part"><h2 id="s23">改造課題</h2>
+<h3 id="s24">課題1(易): アトラスを壊して、症状を覚える</h3>
+<p>要点1・2の落とし穴を実際に踏む。<strong>症状から原因を逆算できるようになる</strong>のが目的。</p>
+<ol><li><code>TextureAtlas.FromFiles</code> の <code>padding</code> を <strong>0</strong> にする。スプライトを大きく描いて(<code>Size</code> を 200 くらいに)縁を見る。<strong>隣のリージョンの色がにじむ</strong>はず。どの方向ににじむか、アトラスの並び順と照らして確かめる</li><li>半テクセル内側寄せ(<code>float half = 0.5f</code>)を <code>0.0f</code> にする。padding が 0 のときにどう変わるか</li><li><code>Texture.FromPixels</code> の <code>generateMipmaps</code> を <strong>true</strong> にしてアトラスを作る。スプライトを小さく(<code>Size</code> を 4〜8)描いて、<strong>リージョンの色が混ざる</strong>のを見る</li><li><code>Texture.SetFilter</code> の振り分けを消して、常に <code>LinearMipmapLinear</code> にする。アトラス(ミップマップなし)が<strong>真っ黒</strong>になることを確認する。これが要点2の「エラーが出ないのに黒い」</li></ol>
+<h3 id="s25">課題2(中): ソートキーを設計し直す</h3>
+<p>要点3の「1本の long に畳む」を自分で組み替える。</p>
+<ol><li><strong>安定ソートにする</strong>。キーの下位に通し番号を混ぜて、同じレイヤー・同じテクスチャなら積んだ順が保たれるようにする。32bit をどう配分するか(レイヤー / テクスチャ / 通し番号)を決めるのが本題</li><li>レイヤーの量子化を 16bit から <strong>8bit</strong> に落とす。何段まで減らすと重なりがおかしく見え始めるか</li><li>マテリアル(シェーダ)を切り替えられるようにして、キーに足す。<strong>シェーダの切り替えはテクスチャより高い</strong>ので、優先度はシェーダ &gt; テクスチャ &gt; レイヤー……にしたくなるが、<code>BackToFront</code> ではレイヤーが最優先でなければ絵が壊れる。<strong>この矛盾をどう扱うか</strong>を考える(ヒント: 実際のエンジンは不透明と半透明でパスを分け、前者はシェーダ優先、後者はレイヤー優先にする)</li><li><code>Array.Sort</code> を基数ソート(radix sort)に置き換えて、2万枚で測る。キーが整数なので O(n) にできる。<strong>効くかどうかは測るまで分からない</strong></li></ol>
+<h3 id="s26">課題3(難): テクスチャ配列に置き換える</h3>
+<p>要点2で挙げたアトラスの弱点を、根本から解決する。</p>
+<ol><li>4枚を <code>GL_TEXTURE_2D_ARRAY</code> の4層として読み込む。<strong>全層が同じ大きさでなければならない</strong>ので、64x64 にそろえる(小さい画像は中央に配置してパディングするか、拡大する)</li><li><code>SpriteVertex</code> に<strong>層番号</strong>を足す。UV は毎回 0〜1 でよくなるので、<code>AtlasRegion</code> の UV 矩形が要らなくなる</li><li>フラグメントシェーダを <code>sampler2DArray</code> にして、<code>texture(uTexture, vec3(vTexCoord, vLayer))</code> で読む</li><li>ミップマップを有効にする。<strong>混ざらない</strong>ことを確認する</li><li>アトラス版と比べる。ドローコール数、fps、頂点サイズ、そして<strong>素材の準備しやすさ</strong>。どちらを採るか</li></ol>
+<p>5 が本題。テクスチャ配列は技術的に上位互換に見えるが、「全部同じ大きさ」の制約は素材側の負担が大きい。16x16 のアイコンと 512x512 の背景を同じ配列に入れると、前者のために 512x512 の層を1つ使うことになる。<strong>制約と自由度の取り引き</strong>であって、新しいほうが常に良いわけではない。</p>
+</section>
+<section class="part"><h2 id="s27">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0 / StbImageSharp 2.30.16 / OpenGL 3.3 コアプロファイル</li><li>960x640 / VSync OFF / Release ビルド / 各条件 200 フレーム(最初の30フレームは除外)</li></ul>
+<h3 id="s28">アトラスとソートの組み合わせ(1万枚)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ソートモード</th><th>アトラス</th><th>ドローコール</th><th>fps</th><th>ms/frame</th></tr></thead>
+<tbody>
+<tr><td><code>Texture</code></td><td>あり</td><td><strong>1</strong></td><td>959.6</td><td>1.042</td></tr>
+<tr><td><code>Texture</code></td><td>なし</td><td>4</td><td>771.2</td><td>1.297</td></tr>
+<tr><td><code>BackToFront</code></td><td>あり</td><td><strong>1</strong></td><td>661.1</td><td>1.513</td></tr>
+<tr><td><code>BackToFront</code></td><td>なし</td><td>7482</td><td>270.9</td><td>3.691</td></tr>
+<tr><td><code>Immediate</code></td><td>あり</td><td><strong>1</strong></td><td>1258.9</td><td>0.794</td></tr>
+<tr><td><code>Immediate</code></td><td>なし</td><td>10001</td><td>25.2</td><td>39.710</td></tr>
+<tr><td><code>Texture</code>(19997枚)</td><td>あり</td><td><strong>1</strong></td><td>452.2</td><td>2.211</td></tr>
+<tr><td><code>BackToFront</code>(19997枚)</td><td>あり</td><td><strong>1</strong></td><td>323.3</td><td>3.094</td></tr>
+</tbody>
+</table></div>
+<ul><li><code>BackToFront</code> × アトラスなしの 7482 回は、期待値 <code>10000 × (1 - 1/4) = 7500</code> とほぼ一致</li><li><code>BackToFront</code> は <code>Texture</code> より遅い(1.042 → 1.513ms、差 0.47ms)。内訳はソートだけではなく、キーがばらけるぶん比較が増えることと、詰め直し(<code>Array.Copy</code>)の読み出しが配列全体に飛ぶことの両方</li></ul>
+<h3 id="s29">頂点サイズ(20バイト版 / 32バイト版を交互に2往復、ms/frame)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>20バイト</th><th>32バイト</th></tr></thead>
+<tbody>
+<tr><td>10000枚 <code>Texture</code></td><td>0.979 / 0.999</td><td>1.384 / 1.393</td></tr>
+<tr><td>10000枚 <code>Immediate</code></td><td>0.834 / 0.726</td><td>1.141 / 1.167</td></tr>
+<tr><td>19997枚 <code>Texture</code></td><td>2.298 / 2.353</td><td>2.533 / 2.551</td></tr>
+</tbody>
+</table></div>
+<p>順序効果を除くため、20 → 32 → 20 → 32 と別プロセスで交互に実行した。</p>
+<h3 id="s30">画像による確認</h3>
+<ul><li>アトラスのテクスチャを <code>glGetTexImage</code> で読み出して画像化し、4枚が高さ順(64, 64, 48, 32)に1つの棚へ並び、4px のすき間が空いていることを確認</li><li>フレームバッファを読み出して画像化し、次を確認:<ul><li>4種類の形がすべて正しく切り出されている(UV の割り当てが正しい)</li><li><code>Immediate</code> では左上の3枚のうち<strong>青</strong>が一番上</li><li><code>BackToFront</code> では<strong>赤</strong>が一番上</li></ul></li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 18 スプライトバッチ最適化(アトラス、ソート) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/softgl.js"></script>
+<script src="../site/spritebatch.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const G = SoftGL, SB = SpriteBatchSim, F = DotNet.fmtFixed;
+const W = 960, H = 640, MAX = 20000;
+const NAMES = ['sprite-circle', 'sprite-ring', 'sprite-star', 'sprite-diamond'];
+const JP = { 'sprite-circle': '円', 'sprite-ring': '輪', 'sprite-star': '星', 'sprite-diamond': 'ひし形', atlas: 'アトラス' };
+const KIND_COLOR = { 'sprite-circle': '--accent', 'sprite-ring': '--warn', 'sprite-star': '--good', 'sprite-diamond': '--expl', atlas: '--muted' };
+// Program.LayerTest: 左上に重ねる確認用の 3 枚(位置のずらし、レイヤー、色)
+const LAYER_TEST = [[[0, 0], 0.5, [0.35, 1.00, 0.45, 1]], [[44, 22], 0.9, [1.00, 0.35, 0.35, 1]], [[88, 44], 0.1, [0.40, 0.55, 1.00, 1]]];
+
+SB.ready.then((tex) => {
+const loose = NAMES.map((n) => tex[n]);
+
+// ------------------------------------------------------------
+// TextureAtlas.FromFiles(棚詰め)
+// ------------------------------------------------------------
+// 画像ファイルの並び(行 0 が一番上)を、読み込み時の上下反転と同じく「行 0 = v 0」にしてから詰める
+function buildAtlas(padding, half, mipmaps) {
+  const sources = loose.map((t) => ({ name: t.name, w: t.w, h: t.h, data: G.flipRows(t.w, t.h, t.data) }));
+  sources.sort((a, b) => b.h - a.h);   // 高い順(JS の sort は安定なので、同じ高さは元の順)
+  // ChooseAtlasSize: 面積の 1.4 倍の正方形を 2 の累乗に切り上げる
+  let area = 0, widest = 1, tallest = 1;
+  for (const s of sources) { area += (s.w + padding) * (s.h + padding); widest = Math.max(widest, s.w + padding * 2); tallest = Math.max(tallest, s.h + padding * 2); }
+  let size = Math.max(Math.ceil(Math.sqrt(area * 1.4)), widest, tallest), pow2 = 1;
+  while (pow2 < size) pow2 *= 2;
+  size = pow2;
+  const pixels = new Uint8ClampedArray(size * size * 4);   // 全部ゼロ = 透明
+  const placements = [];
+  let shelfY = padding, shelfHeight = 0, cursorX = padding;
+  for (const s of sources) {
+    if (cursorX + s.w + padding > size) { shelfY += shelfHeight + padding; shelfHeight = 0; cursorX = padding; }
+    for (let row = 0; row < s.h; row++) pixels.set(s.data.subarray(row * s.w * 4, (row + 1) * s.w * 4), ((shelfY + row) * size + cursorX) * 4);
+    placements.push({ name: s.name, x: cursorX, y: shelfY, w: s.w, h: s.h });
+    cursorX += s.w + padding; shelfHeight = Math.max(shelfHeight, s.h);
+  }
+  // Canvas 2D で描く用(画像ファイルの向きに戻す)と、ソフトウェア版の GL で読む用
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const img = c.getContext('2d').createImageData(size, size); img.data.set(G.flipRows(size, size, pixels)); c.getContext('2d').putImageData(img, 0, 0);
+  const texture = SB.textureFromCanvas('atlas', c);
+  const glTex = G.createTexture(size, size, pixels);
+  if (!mipmaps) glTex.levels.length = 1;
+  glTex.wrapS = glTex.wrapT = 'ClampToEdge';
+  const regions = {};
+  for (const p of placements) regions[p.name] = { texture, uvMin: [(p.x + half) / size, (p.y + half) / size], uvMax: [(p.x + p.w - half) / size, (p.y + p.h - half) / size], w: p.w, h: p.h, p };
+  return { size, texture, glTex, regions, placements };
+}
+const ATLAS = buildAtlas(4, 0.5, false);   // 起動時と同じ(padding 4、ミップマップ無)
+
+// ------------------------------------------------------------
+// 1. アトラスを詰める
+// ------------------------------------------------------------
+['ap-region', 'ap-size', 'ap-pad', 'ap-half', 'ap-mip', 'ap-route'].forEach((id) => seg(id, apDraw));
+const apTarget = { 200: G.createTarget(220, 220), 6: G.createTarget(10, 10) };
+function apDraw() {
+  const a = buildAtlas(Number(segValue('ap-pad')), Number(segValue('ap-half')), segValue('ap-mip') === '1');
+  { // アトラス(市松の上に)
+    const { ctx, w, h } = fit($('ap-atlas')), k = w / a.size, cell = Math.max(4, w / 32);
+    for (let y = 0; y < h; y += cell) for (let x = 0; x < w; x += cell) { ctx.fillStyle = ((x + y) / cell) % 2 ? '#3a3f4a' : '#2a2e37'; ctx.fillRect(x, y, cell, cell); }
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(a.texture.canvas, 0, 0, w, h);
+    ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 1;
+    for (const p of a.placements) ctx.strokeRect(p.x * k + 0.5, (a.size - p.y - p.h) * k + 0.5, p.w * k - 1, p.h * k - 1);
+  }
+  // 選んだリージョンを 1 枚描く(SpriteBatch と同じ UV の割り当て。シェーダは texture(uTexture, uv) * 白)
+  const r = a.regions[segValue('ap-region')], size = Number(segValue('ap-size')), t = apTarget[size];
+  const route = segValue('ap-route') === '1', gt = a.glTex, hasMip = gt.levels.length > 1;
+  // Texture.SetFilter: ミップマップがあるときだけ LinearMipmapLinear。振り分けを外すと常に LinearMipmapLinear
+  gt.minFilter = !route || hasMip ? 'LinearMipmapLinear' : 'Linear'; gt.magFilter = 'Linear';
+  const incomplete = gt.minFilter === 'LinearMipmapLinear' && !hasMip;
+  G.clear(t, [0.08, 0.09, 0.12, 1]);
+  const c = t.w / 2, hs = size / 2, P = (x, y) => [(x / t.w) * 2 - 1, 1 - (y / t.h) * 2, 0, 1];
+  const quad = { vertices: [
+    { pos: P(c - hs, c - hs), uv: [r.uvMin[0], r.uvMax[1]] }, { pos: P(c + hs, c - hs), uv: [r.uvMax[0], r.uvMax[1]] },
+    { pos: P(c + hs, c + hs), uv: [r.uvMax[0], r.uvMin[1]] }, { pos: P(c - hs, c + hs), uv: [r.uvMin[0], r.uvMin[1]] }], indices: [0, 1, 2, 2, 3, 0] };
+  G.draw(t, quad, { blend: true, vs: (v) => ({ pos: v.pos, vary: v.uv }),
+    // 不完全なテクスチャ(ミップマップが要るフィルタなのに無い)を読むと (0, 0, 0, 1)
+    fs: (q, grad) => (incomplete ? [0, 0, 0, 1] : G.sample(gt, q[0], q[1], grad())) });
+  const { ctx, w, h } = fit($('ap-view'));
+  G.present(t, ctx, w, h, false);
+  const used = a.placements.reduce((s, p) => s + p.w * p.h, 0);
+  $('ap-stats').innerHTML = stat('アトラス', `${a.size}x${a.size}`) + stat('充填率', `${((used / (a.size * a.size)) * 100).toFixed(1)}%`) + stat('MinFilter', gt.minFilter) + stat('結果', incomplete ? '不完全 → 真っ黒' : hasMip ? 'ミップマップあり' : 'ミップマップなし');
+  $('ap-console').textContent = [`アトラス: ${a.size}x${a.size}、リージョン ${a.placements.length} 個`,
+    ...NAMES.map((n) => { const g = a.regions[n]; return `  ${n.padEnd(16)} ${String(g.w).padStart(3)}x${String(g.h).padEnd(3)} UV (${F(g.uvMin[0], 3)}, ${F(g.uvMin[1], 3)})-(${F(g.uvMax[0], 3)}, ${F(g.uvMax[1], 3)})`; })].join('\n');
+}
+
+// ------------------------------------------------------------
+// スプライト(Kind と Layer つき)
+// ------------------------------------------------------------
+const sprites = SB.makeSprites(MAX, W, H, true);
+const regionOf = (kind, atlas) => (atlas ? ATLAS.regions[NAMES[kind]] : SB.whole(loose[kind]));
+// RenderSprites と RenderLayerTest。onDraw は積んだ直後に呼ぶ(番号を付けるため)
+function submitAll(batch, count, atlas, onDraw = () => {}) {
+  for (let i = 0; i < count; i++) { const s = sprites[i]; batch.draw(regionOf(s.kind, atlas), s.x, s.y, s.size, s.size, s.rotation, s.color, s.layer); onDraw(i); }
+  LAYER_TEST.forEach(([off, layer, color], k) => { batch.draw(regionOf(0, atlas), 120 + off[0], 120 + off[1], 110, 110, 0, color, layer); onDraw(count + k); });
+}
+
+// ------------------------------------------------------------
+// 2. ソートキーを並べる
+// ------------------------------------------------------------
+['so-mode', 'so-atlas', 'so-cap'].forEach((id) => seg(id, soDraw));
+const hex = (key) => `${Math.floor(key / 4294967296).toString(16).padStart(4, '0')}_${(key % 4294967296).toString(16).padStart(8, '0')}`;
+function soDraw() {
+  const atlas = segValue('so-atlas') === '1', b = new SB.Batch({ capacity: Number(segValue('so-cap')), day18: true, vertexBytes: 20 });
+  b.begin(segValue('so-mode'));
+  submitAll(b, 9, atlas, (id) => { b.pending[b.pending.length - 1].id = id; });
+  b.end();
+  let rows = '', n = 0, flushNo = 0;
+  b.calls.forEach((call, ci) => {
+    if (call.transfer) flushNo++;
+    for (const q of call.quads) {
+      const name = atlas ? NAMES[q.id < 9 ? sprites[q.id].kind : 0] : q.texture.name;
+      const layer = q.id < 9 ? sprites[q.id].layer : LAYER_TEST[q.id - 9][1];
+      const label = q.id < 9 ? `#${q.id}` : ['緑', '赤', '青'][q.id - 9];
+      rows += `<tr><td>${n++}</td><td>${label}</td><td><span style="color:var(${KIND_COLOR[name]})">${JP[name]}</span></td><td>${layer.toFixed(3)}</td><td><code>${hex(q.key)}</code></td><td>#${ci + 1}</td><td>${flushNo}</td></tr>`;
+    }
+  });
+  $('so-table').innerHTML = `<table style="font-size:12px;white-space:nowrap"><thead><tr><th>描く順</th><th>積んだもの</th><th>絵</th><th>レイヤー</th><th>キー</th><th>ドローコール</th><th>FlushAll</th></tr></thead><tbody>${rows}</tbody></table>`;
+  { // 確認用の 3 枚だけを、描いた順に重ねる
+    const { ctx, w, h } = fit($('so-canvas'));
+    ctx.fillStyle = 'rgb(20,23,31)'; ctx.fillRect(0, 0, w, h);
+    const calls = b.calls.map((c) => ({ ...c, quads: c.quads.filter((q) => q.id >= 9) }));
+    SB.render(ctx, calls, { scale: w / 290 });
+    const top = calls.flatMap((c) => c.quads).pop();
+    $('so-stats').innerHTML = stat('ドローコール', b.drawCalls) + stat('BufferSubData', `${b.uploads} 回`) + stat('一番上に来る色', ['緑', '赤', '青'][top.id - 9]);
+  }
+  $('so-console').textContent = segValue('so-mode') === 'Texture' ? 'Texture: 3 枚は同じキー(同じテクスチャ)。C# の Array.Sort は不安定なので実機では順序が保証されない。このページは安定な並べ替えなので積んだ順(青が最後)'
+    : segValue('so-mode') === 'BackToFront' ? (b.uploads > 1 ? 'BackToFront: 容量で FlushAll が 2 回に分かれ、並べ替えも前半と後半で別々になった。後半の青(レイヤー 0.1)が、前半で描いた赤(0.9)の上に描かれる(要点7)' : 'BackToFront: レイヤーが上位にあるので奥(小さい)から順に描かれ、0.9 の赤が一番上')
+    : 'Immediate: 並べ替えない。積んだ順なので最後の青が一番上';
+}
+
+// ------------------------------------------------------------
+// 3. 1万枚を1回で描く
+// ------------------------------------------------------------
+const batch = new SB.Batch({ capacity: MAX, day18: true, vertexBytes: 20 });
+const at = { count: 1000, drawMs: 0 };
+const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+{
+  const t = G.createTarget(480, 320), o = G.DemoScene.createOrbit();
+  G.DemoScene.applyOrbit(o); G.clear(t, [0.08, 0.09, 0.12, 1]); G.DemoScene.render(t, o, { angle: 0 });
+  G.present(t, bg.getContext('2d'), W, H);
+}
+function modelMs() {
+  const n = batch.spriteCount, mode = segValue('at-mode'), vb = Number(segValue('at-vb'));
+  const vert = n * (0.0000794 + (vb === 32 ? 0.00004 : 0));
+  const sort = mode === 'Texture' ? n * 0.0000248 : mode === 'BackToFront' ? n * 0.0000719 : 0;
+  const calls = batch.uploads * (0.0039 + (batch.orphaning ? 0.0007 : 0)) + (batch.drawCalls - batch.uploads) * 0.00029;
+  const textures = new Set(batch.calls.map((c) => c.texture)).size;
+  return Math.max(segValue('at-3d') === '1' ? 0.6 : 0.25, vert + sort + calls + (textures - 1) * 0.085);
+}
+const onOff = (id) => (segValue(id) === '1' ? 'ON' : 'OFF');
+function atDraw() {
+  batch.batching = segValue('at-batch') === '1'; batch.orphaning = segValue('at-orphan') === '1'; batch.vertexBytes = Number(segValue('at-vb'));
+  batch.begin(segValue('at-mode'));
+  submitAll(batch, at.count, segValue('at-atlas') === '1');
+  batch.end();
+  const t0 = performance.now();
+  const { ctx, w, h } = fit($('at-canvas'));
+  ctx.fillStyle = 'rgb(20,23,31)'; ctx.fillRect(0, 0, w, h);
+  if (segValue('at-3d') === '1') ctx.drawImage(bg, 0, 0, w, h);
+  SB.render(ctx, batch.calls, { scale: w / W });
+  at.drawMs = at.drawMs * 0.9 + (performance.now() - t0) * 0.1;
+  { // ドローコールの帯
+    const s = fit($('at-strip')), total = Math.max(1, batch.spriteCount);
+    let x = 0;
+    for (const c of batch.calls) { const cw = (c.quads.length / total) * s.w; s.ctx.fillStyle = tok(KIND_COLOR[c.texture.name]); s.ctx.fillRect(x, 4, Math.max(0.5, cw - (cw > 3 ? 1 : 0)), s.h - 8); x += cw; }
+  }
+  const ms = modelMs();
+  $('at-title').textContent = `Day18 - スプライトバッチ最適化  ${(1000 / ms).toFixed(1)} fps | スプライト:${at.count} | ドローコール:${batch.drawCalls} | アトラス:${onOff('at-atlas')} ソート:${segValue('at-mode')} バッチ:${onOff('at-batch')} オーファン:${onOff('at-orphan')} 3D:${onOff('at-3d')}`;
+  $('at-stats').innerHTML = stat('ドローコール', batch.drawCalls.toLocaleString()) + stat('BufferSubData', `${batch.uploads.toLocaleString()} 回`)
+    + stat('送った頂点', `${(batch.uploadedBytes / 1024).toFixed(0)} KB`) + stat('ms/frame(モデル)', ms.toFixed(3)) + stat('このページの描画', `${at.drawMs.toFixed(1)} ms`);
+}
+// 上キーは確認用の 3 枚のぶんを残して 19997 枚まで
+function setCount(n) { at.count = Math.min(MAX - LAYER_TEST.length, Math.max(0, n)); setSeg('at-count', String(at.count)); atDraw(); }
+seg('at-count', (v) => setCount(Number(v)));
+$('at-up').addEventListener('click', () => setCount(at.count + 1000));
+$('at-down').addEventListener('click', () => setCount(at.count - 1000));
+['at-atlas', 'at-mode', 'at-batch', 'at-orphan', 'at-3d', 'at-vb', 'at-play'].forEach((id) => seg(id, atDraw));
+animate($('at-lab'), (dt) => { if (segValue('at-play') === '1') SB.updateSprites(sprites, at.count, dt, W, H); atDraw(); });
+
+function narrow() {
+  $('ap-grid').style.gridTemplateColumns = $('ap-grid').clientWidth < 520 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)';
+  $('so-grid').style.gridTemplateColumns = $('so-grid').clientWidth < 620 ? '1fr' : 'minmax(0,1.5fr) minmax(0,1fr)';
+}
+window.addEventListener('resize', () => { narrow(); apDraw(); soDraw(); });
+narrow(); apDraw(); soDraw(); atDraw();
+});
+})();
+</script>
+</body>
+</html>
