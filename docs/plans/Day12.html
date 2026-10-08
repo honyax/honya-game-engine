@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 12 wglコンテキスト生成、OpenGL関数の自前ロード</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. OpenGL の仕様に「ウィンドウ」は出てこない</a></li><li class="l3"><a href="#s5">2. ピクセルフォーマット — 描き先の仕様書</a></li><li class="l3"><a href="#s6">3. 鶏と卵 — なぜダミーウィンドウを作って捨てるのか</a></li><li class="l3"><a href="#s7">4. コアプロファイル — 「使えなくなる」ことが価値</a></li><li class="l3"><a href="#s8">5. 関数ロードの二重構造 — Silk.NET が代行している作業の正体</a></li><li class="l3"><a href="#s9">6. コアプロファイルでは拡張の一覧の取り方が変わる</a></li><li class="l3"><a href="#s10">7. SwapBuffers と VSync — 自前のフレームレート制限が要らなくなる</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 要求するコンテキストを変えてみる</a></li><li class="l3"><a href="#s16">課題2(中): デバッグコンテキストと <code>glDebugMessageCallback</code></a></li><li class="l3"><a href="#s17">課題3(難): 関数ロードを自動化する</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 2 / Day 12 / 計画書</p>
+  <h1>wglコンテキスト生成、OpenGL関数の自前ロード</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. OpenGL の仕様に「ウィンドウ」は出てこない</a></li><li class="l3"><a href="#s5">2. ピクセルフォーマット — 描き先の仕様書</a></li><li class="l3"><a href="#s6">3. 鶏と卵 — なぜダミーウィンドウを作って捨てるのか</a></li><li class="l3"><a href="#s7">4. コアプロファイル — 「使えなくなる」ことが価値</a></li><li class="l3"><a href="#s8">5. 関数ロードの二重構造 — Silk.NET が代行している作業の正体</a></li><li class="l3"><a href="#s9">6. コアプロファイルでは拡張の一覧の取り方が変わる</a></li><li class="l3"><a href="#s10">7. SwapBuffers と VSync — 自前のフレームレート制限が要らなくなる</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 要求するコンテキストを変えてみる</a></li><li class="l3"><a href="#s16">課題2(中): デバッグコンテキストと <code>glDebugMessageCallback</code></a></li><li class="l3"><a href="#s17">課題3(難): 関数ロードを自動化する</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 2 / ロードマップ該当行: 「wglコンテキスト生成、OpenGL関数の自前ロード」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>自前の P/Invoke だけで OpenGL 3.3 コアプロファイルのコンテキストを作り、GPU が塗った色で画面が埋まる。</strong></p>
+<p>Day 1 から11日間、画面に出るピクセルは全部 CPU が書いていた。今日から<strong>1ピクセルも自分で書かなくなる</strong>。やることは「この色で塗れ」と GPU に伝えるだけで、307,200ピクセルの塗りつぶしは GPU の中で並列に走る。</p>
+<p>絵としては単色が明滅するだけで、見た目の派手さは Day 11 から後退する。今日の成果は画面ではなく、<strong>GLFW や Silk.NET が1行で済ませている「儀式」を全部自分で書けた</strong>という事実のほう。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/GLFWdraft.pdf">GLFWによるOpenGL入門(PDF)</a> — ロードマップ指定。GLFW を使う側の視点だが、「ウィンドウとコンテキストの関係」の説明が丁寧</li><li><a href="https://www.khronos.org/opengl/wiki/Creating_an_OpenGL_Context_(WGL">Creating an OpenGL Context (WGL) — OpenGL Wiki</a>) —<strong>今日書くコードそのもの</strong>。ダミーウィンドウの件も書いてある</li><li><a href="https://www.khronos.org/opengl/wiki/Load_OpenGL_Functions">Load OpenGL Functions — OpenGL Wiki</a> —要点5の一次情報。<code>wglGetProcAddress</code> の失敗値の話もここ</li><li><a href="https://www.khronos.org/opengl/wiki/OpenGL_Context">OpenGL Context — OpenGL Wiki</a> — プロファイルとは何か</li><li>復習として Day11.md の要点2〜4(ウィンドウクラス、ウィンドウプロシージャ、コールバックのGC)</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. OpenGL の仕様に「ウィンドウ」は出てこない</h3>
+<p>意外に思うかもしれないが、<strong>OpenGL は「どこに描くか」を定義していない</strong>。仕様が決めているのは「コンテキストという状態の入れ物があり、そこに対して命令を出すと絵ができる」までで、そのコンテキストをどう作り、どの画面に結び付けるかは<strong>プラットフォーム側の別API</strong>の仕事になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>プラットフォーム</th><th>担当API</th></tr></thead>
+<tbody>
+<tr><td>Windows</td><td><strong>WGL</strong>(今日やる)</td></tr>
+<tr><td>Linux / X11</td><td>GLX</td></tr>
+<tr><td>macOS</td><td>CGL(現在は非推奨)</td></tr>
+<tr><td>モバイル / 組み込み</td><td>EGL</td></tr>
+</tbody>
+</table></div>
+<p>GLFW・SDL・Silk.NET の Windowing が吸収しているのは、まさにこの分岐。「クロスプラットフォームのウィンドウライブラリ」が何を抽象化しているのかが、ここで具体的に分かる。</p>
+<p><strong>コンテキスト</strong>は、GPU 側に置かれた状態の集合(バインド中のバッファ、有効なシェーダ、深度テストの ON/OFF……)。<code>gl*</code> 関数がコンテキストを引数に取らないのは、<strong>「カレントコンテキスト」がスレッドごとに1つ決まっている</strong>という暗黙の前提があるため。Vulkan や D3D12 が毎回デバイスやコマンドリストを明示的に渡すのと対照的な、1992年当時の設計。</p>
+<h3 id="s5">2. ピクセルフォーマット — 描き先の仕様書</h3>
+<p>コンテキストを作る前に、<strong>そのウィンドウがどんなバッファを持つか</strong>を決める必要がある。</p>
+<ul><li>色は何ビットか(32bit RGBA)</li><li>ダブルバッファか</li><li>深度バッファは何ビットか(24bit)</li><li>ステンシルは(8bit)</li><li>ハードウェアアクセラレーションを使うか</li></ul>
+<p>これを <code>PIXELFORMATDESCRIPTOR</code> に書いて <code>ChoosePixelFormat</code> に渡すと、ドライバが「一番近いもの」の<strong>番号</strong>を返す。それを <code>SetPixelFormat</code> で DC に設定する。</p>
+<p>Phase 1 で自分で <code>new int[width * height]</code> と <code>new float[width * height]</code> を確保していたものが、ここでは「ドライバに注文する」形になる。深度バッファ(Day 7)も、もう自分で持たずにピクセルフォーマットの属性として要求するだけになった。</p>
+<h3 id="s6">3. 鶏と卵 — なぜダミーウィンドウを作って捨てるのか</h3>
+<p><strong>今日いちばん奇妙で、いちばん重要な部分。</strong></p>
+<p><code>PIXELFORMATDESCRIPTOR</code> は OpenGL 1.0 時代の様式で、MSAA や sRGB といった後発の要求を表現できない。またコンテキストのバージョンやプロファイルも指定できない。そのために拡張関数が2つ用意されている。</p>
+<ul><li><code>wglChoosePixelFormatARB</code> — 属性リスト形式でピクセルフォーマットを選ぶ</li><li><code>wglCreateContextAttribsARB</code> — バージョンとプロファイルを指定してコンテキストを作る</li></ul>
+<p>ところがこの2つを手に入れるには <code>wglGetProcAddress</code> を呼ぶ必要があり、<strong><code>wglGetProcAddress</code> はカレントコンテキストが無いと動かない</strong>。コンテキストを作るための関数を、コンテキストが無いと取れない。</p>
+<p>「じゃあ古い方法でいったんコンテキストを作って、拡張関数を取ってから、同じウィンドウで作り直せばいい」——ここで2つ目の壁にぶつかる。</p>
+<blockquote><p><strong><code>SetPixelFormat</code> は1つのウィンドウにつき生涯1回しか呼べない。</strong></p>
+<p>一度設定したピクセルフォーマットは変更できない(MSDN に明記されている)。</p></blockquote>
+<p>つまり本番のウィンドウを「練習台」に使ってしまうと、そのウィンドウはもう古いピクセルフォーマットで固定されてしまう。だから<strong>使い捨てのウィンドウ</strong>が要る。</p>
+<div class="code"><pre><code>1. ダミーウィンドウを作る(表示しない、1x1)
+2. 古い様式でピクセルフォーマットを設定      ← このウィンドウはこれで使い物にならなくなる
+3. 古い様式でコンテキストを作り、カレントにする
+4. wglGetProcAddress で拡張関数を3つ回収     ← これが目的
+5. コンテキスト・DC・ウィンドウ・クラスを全部破棄
+--- ここまでが準備 ---
+6. 本番ウィンドウに wglChoosePixelFormatARB でピクセルフォーマットを設定
+7. wglCreateContextAttribsARB で 3.3 コアプロファイルのコンテキストを作る
+8. カレントにして、OpenGL の関数をロードする</code></pre></div>
+<p><strong>GLFW も内部でまったく同じことをしている</strong>(<code>_glfwInitWGL</code> がダミーウィンドウを立てる)。「ライブラリを使えば1行」の裏にあるのがこれ。</p>
+<div class="inject"><figure class="lab" id="ctx-lab">
+  <div class="lab-head">
+    <h3>コンテキストを作る8手順 — ダミーで拡張を取ってから本番へ(要点2・3)</h3>
+    <span class="tag">reference の GLContext.cs(EnsureExtensionsLoaded のダミーウィンドウ、SetupPixelFormat、コンストラクタ)の手順を1段ずつ進めるもの。ウィンドウ、DC、コンテキスト、拡張関数の状態を右に出す。ドライバの振る舞い(SetPixelFormat は1つのウィンドウに1回だけ、wglGetProcAddress はカレントコンテキストが無いと NULL)はこのページで真似たもので、ピクセルフォーマットの番号と GL_VERSION は例の値。「罠を踏む」はこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="ctx-grid">
+      <ol id="ctx-steps" style="margin:0;padding-left:22px;font-size:13px;line-height:1.7"></ol>
+      <div class="table-wrap" id="ctx-state"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">罠を踏む(このページだけ)</span>
+      <div class="seg" id="ctx-bug"><button data-v="none" aria-pressed="true">踏まない</button><button data-v="main" aria-pressed="false">ダミーを作らず本番ウィンドウで練習する</button><button data-v="nocur" aria-pressed="false">ダミーをカレントにしない</button></div>
+    </div>
+    <div class="ctl"><span class="label">進める</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="ctx-step">次の手順</button><button class="btn" id="ctx-all">最後まで</button><button class="btn" id="ctx-reset">最初から</button></div>
+    </div>
+  </div>
+  <div class="readout"><pre id="ctx-console" style="margin:0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s7">4. コアプロファイル — 「使えなくなる」ことが価値</h3>
+<p>OpenGL 3.2 以降、コンテキストには2つのプロファイルがある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>プロファイル</th><th>中身</th></tr></thead>
+<tbody>
+<tr><td><strong>コア</strong></td><td>現代的な API のみ。<code>glBegin</code>/<code>glVertex</code> 等の固定機能は<strong>削除されている</strong></td></tr>
+<tr><td>互換</td><td>1.0 からの全部入り。古いコードが動き続ける</td></tr>
+</tbody>
+</table></div>
+<p>今日はコアを選ぶ。機能が減るのに選ぶ理由は、<strong>うっかり古い API を呼んだらエラーにしてほしい</strong>から。Phase 1 で自分で書いた頂点変換とラスタライズを、Day 13 からはシェーダとしてGPU 側に書き直すことになる。そのとき固定機能という逃げ道があると、「なんとなく動いてしまって何も学ばない」経路ができてしまう。</p>
+<p>バージョンに 3.3 を選んだのは、<strong>シェーダを書くうえで必要なものがひととおり揃った最初の版</strong>だから(VAO、<code>layout</code> 修飾子、インスタンシング)。4.x 固有の機能は Phase 6 以降まで使わない。LearnOpenGL が 3.3 を土台にしているのも同じ理由。</p>
+<h3 id="s8">5. 関数ロードの二重構造 — Silk.NET が代行している作業の正体</h3>
+<p><code>opengl32.dll</code> が実際にエクスポートしているのは <strong>OpenGL 1.1 までの関数だけ</strong>で、これは1996年(Windows NT 4.0)に凍結されている。それ以降に追加された数千の関数は<strong>GPU ドライバの DLL の中</strong>にあり、名前も存在もコンパイル時には分からない。</p>
+<p>結果、関数の取り方が2通りに分かれる。<strong>本Dayの環境で実測した結果がこれ</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>関数</th><th>追加バージョン</th><th><code>wglGetProcAddress</code></th><th><code>GetProcAddress(opengl32.dll)</code></th></tr></thead>
+<tbody>
+<tr><td><code>glClear</code></td><td>1.0</td><td><strong>NULL</strong></td><td>取得</td></tr>
+<tr><td><code>glClearColor</code></td><td>1.0</td><td><strong>NULL</strong></td><td>取得</td></tr>
+<tr><td><code>glGetString</code></td><td>1.0</td><td><strong>NULL</strong></td><td>取得</td></tr>
+<tr><td><code>glViewport</code></td><td>1.0</td><td><strong>NULL</strong></td><td>取得</td></tr>
+<tr><td><code>glGetStringi</code></td><td>3.0</td><td>取得</td><td><strong>NULL</strong></td></tr>
+<tr><td><code>glCreateShader</code></td><td>2.0</td><td>取得</td><td><strong>NULL</strong></td></tr>
+<tr><td><code>glGenVertexArrays</code></td><td>3.0</td><td>取得</td><td><strong>NULL</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>きれいに排他</strong>になっている。片方だけでは <code>glClear</code> すら呼べない。だからローダは必ず2段構えになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>IntPtr address = Wgl.wglGetProcAddress(name);
+if (失敗) { address = Win32.GetProcAddress(_opengl32, name); }</code></pre></div>
+<p>そして「失敗」の判定にもう1つ罠がある。<strong>仕様上は NULL だが、実際のドライバは1 / 2 / 3 / -1 を返すことがある</strong>。GLAD も GLEW も同じ5つを並べて判定している。歴史的事故がそのまま定番コードとして固まった例。</p>
+<p>取れたアドレスは <code>Marshal.GetDelegateForFunctionPointer&lt;T&gt;</code> でデリゲートに変える。<strong>Silk.NET が数千関数ぶん自動生成しているのは、この作業。</strong>ロードマップが「学びの密度が低い」と評した領域そのものなので、一度手で書いたら以降は堂々とライブラリに任せてよい。</p>
+<div class="inject"><figure class="lab" id="ld-lab">
+  <div class="lab-head">
+    <h3>関数ロードの二重構造 — wglGetProcAddress と GetProcAddress(要点5)</h3>
+    <span class="tag">reference の GL.cs(GetProcAddress の2段構えと、失敗値 0・1・2・3・−1 の判定、Load の 7 関数)を JS に移し、Load が引く 7 関数(上の 7 行。Load の順)と、本文の表にある Day 13 で使う 2 関数(下の 2 行。Day 12 の Load は引かない)を並べたもの。どちらの方法でどれが取れるかは本文の実測のとおりにしてある。アドレスはこのページの作り物。ドライバの切り替え(1.1 の関数に 2 を返す)はこのページだけで、本文の環境では NULL を返した</span>
+  </div>
+  <div class="stage" style="padding:12px"><div class="table-wrap" id="ld-table"></div></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ローダ</span>
+      <div class="seg" id="ld-mode"><button data-v="both" aria-pressed="true">2段構え(reference)</button><button data-v="wgl" aria-pressed="false">wglGetProcAddress だけ</button><button data-v="dll" aria-pressed="false">GetProcAddress(opengl32.dll)だけ</button></div>
+    </div>
+    <div class="ctl"><span class="label">失敗の判定と、ドライバ(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="ld-check"><button data-v="5" aria-pressed="true">0・1・2・3・−1(reference)</button><button data-v="0" aria-pressed="false">0 だけ</button></div><div class="seg" id="ld-driver"><button data-v="null" aria-pressed="true">NULL を返す</button><button data-v="two" aria-pressed="false">1.1 の関数に 2 を返す</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><pre id="ld-console" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s9">6. コアプロファイルでは拡張の一覧の取り方が変わる</h3>
+<p><code>glGetString(GL_EXTENSIONS)</code> は、拡張名を空白区切りで全部繋げた<strong>巨大な1本の文字列</strong>を返す API だった。拡張が数百個になると数万文字になり、固定長バッファに入れて壊す事故が絶えなかったため、コアプロファイルでは<strong>削除された</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>glGetIntegerv(GL_NUM_EXTENSIONS, out int count);
+for (int i = 0; i &lt; count; i++) { glGetStringi(GL_EXTENSIONS, i); }   // 1つずつ取る</code></pre></div>
+<p>本Dayの環境では <strong>403個</strong>。旧APIを呼ぶと <code>GL_INVALID_ENUM</code> になって NULL が返ることも実測で確認した。リファレンスコードでは、これを「わざと呼んで NULL を確認する」形で残してある(コアプロファイルが効いている証拠になるので)。</p>
+<p>ここで OpenGL のエラー処理の流儀にも触れておく。<strong>OpenGL は例外を投げず、エラーをフラグに積んで黙って続行する。</strong> <code>glGetError()</code> を呼ぶまで気付けず、しかも呼ぶとフラグは消える。要所に <code>CheckError</code> を挟むのが基本で、もっと楽をしたければデバッグコンテキスト(改造課題2)を使う。</p>
+<h3 id="s10">7. SwapBuffers と VSync — 自前のフレームレート制限が要らなくなる</h3>
+<p>Day 11 までの <code>Present</code> は「1.2MB のピクセル配列を毎フレーム転送する」ことだった。<code>SwapBuffers</code> は<strong>表示するバッファを差し替えるだけ</strong>なので、解像度が上がってもコストがほぼ変わらない。</p>
+<p>そして VSync。<code>wglSwapIntervalEXT(1)</code> を呼ぶと、<code>SwapBuffers</code> が次の垂直帰線まで待つようになる。<strong>Day 1 から書いてきた <code>WaitUntil</code> が不要になる</strong>ので、今日で削除した。</p>
+<p><strong>実測</strong>(本Dayの環境、640x480 の画面クリアのみ):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>fps</th><th>1フレーム</th></tr></thead>
+<tbody>
+<tr><td><code>wglSwapIntervalEXT(1)</code></td><td><strong>60.0</strong></td><td>16.671 ms</td></tr>
+<tr><td><code>wglSwapIntervalEXT(0)</code></td><td><strong>5,743</strong></td><td>0.174 ms</td></tr>
+</tbody>
+</table></div>
+<p>60fps はモニタが決めていて、こちらの処理能力とは無関係だったことが数字で見える。VSync を切ると 5,700fps ——つまり<strong>1フレームの実質的な仕事は 0.17ms しかない</strong>。</p>
+<p>Day 11 と並べるとこうなる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Day 11(CPU)</th><th>Day 12(GPU)</th></tr></thead>
+<tbody>
+<tr><td>画面を塗る</td><td>0.9〜1.3 ms(グラデーション)</td><td>計測不能なほど小さい</td></tr>
+<tr><td>画面に出す</td><td>0.170 ms(<code>StretchDIBits</code>)</td><td>—</td></tr>
+<tr><td>フレーム全体</td><td>約 1.2 ms</td><td><strong>0.174 ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>厳密な比較ではない(Day 11 はグラデーション、今日は単色クリア)が、<strong>CPU が全ピクセルを触る仕事が丸ごと消えた</strong>ことは読み取れる。Phase 1 の Day 10 で「17.8ms、これがCPUの限界」と書いた話の続きが、ようやくここから始まる。</p>
+<div class="inject"><figure class="lab" id="vs-lab">
+  <div class="lab-head">
+    <h3>色を変えて塗るだけのループ — VSync と fps(要点7、V キー)</h3>
+    <span class="tag">reference の Program.RunLoop(sin で 120 度ずつずらした RGB を glClearColor に渡し、glClear して SwapBuffers)を JS に移したもの。塗りはこのページの canvas で、fps と1フレームの時間は本文の実測をもとに置いた値(このページだけ): 仕事は 0.174ms、VSync ON なら SwapBuffers が次の垂直帰線(16.67ms ごと)まで待つ。下の帯は 1/60 秒の間に何回 SwapBuffers が返るかを並べたもの(緑が仕事、灰が待ち。OFF では 0.174ms の仕事が 96 回並ぶ)。「ドライバが VSync を強制」はこのページだけ</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="vs-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="vs-canvas" style="width:100%;height:200px" aria-label="画面全体が虹色にゆっくり変わる"></canvas><canvas id="vs-strip" style="width:100%;height:40px;display:block" aria-label="1/60 秒の中のフレームの並び"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">VSync(V)と色の変化(Space)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="vs-vsync"><button data-v="1" aria-pressed="true">VSync ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="vs-play"><button data-v="1" aria-pressed="true">変える</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">ドライバの設定(このページだけ)</span>
+      <div class="seg" id="vs-force"><button data-v="0" aria-pressed="true">アプリに任せる</button><button data-v="1" aria-pressed="false">垂直同期を強制</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="vs-stats"></div></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Wgl.cs</code></td><td><strong>新規(211行)</strong></td><td>WGL の宣言。<code>PIXELFORMATDESCRIPTOR</code>、ピクセルフォーマットとコンテキストのAPI、ARB拡張の属性とシグネチャ</td></tr>
+<tr><td><code>GLContext.cs</code></td><td><strong>新規(306行)</strong></td><td><strong>今日の本体</strong>。ダミーウィンドウによる拡張ロード → 本番コンテキスト生成 → VSync</td></tr>
+<tr><td><code>GL.cs</code></td><td><strong>新規(209行)</strong></td><td>OpenGL 関数のローダと、今日使う7関数</td></tr>
+<tr><td><code>Program.cs</code></td><td>差し替え</td><td>フレームバッファ描画 → GPU クリア。<code>WaitUntil</code> を削除、コンソール出力を追加</td></tr>
+<tr><td><code>Win32.cs</code></td><td>-76 / +39行</td><td>DIB 転送まわりを削除、<code>LoadLibraryW</code> / <code>GetProcAddress</code> / <code>AllocConsole</code> を追加</td></tr>
+<tr><td><code>Win32Window.cs</code></td><td><strong>変更なし</strong></td><td>Day 11 のまま。ウィンドウの作り方はコンテキストと無関係</td></tr>
+<tr><td><code>Framebuffer.cs</code></td><td><strong>削除</strong></td><td>CPU 側のピクセルバッファはもう要らない</td></tr>
+<tr><td><code>GdiPresenter.cs</code></td><td><strong>削除</strong></td><td>転送は <code>SwapBuffers</code> が担当する</td></tr>
+</tbody>
+</table></div>
+<p>実コード行(コメント・空行を除く)は新規3ファイルで <strong>384行</strong>。ただし <code>Wgl.cs</code> の89行はほぼ全部が宣言で、考えることは無い。<strong>手を動かして考えるのは <code>GLContext.cs</code> の185行</strong>で、そこが今日の山。</p>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>Win32.cs</code> の差分 — <code>LoadLibraryW</code> / <code>GetProcAddress</code> / <code>AllocConsole</code> の追加と、DIB まわりの削除</li><li><code>Wgl.cs</code> — 単調。<code>PIXELFORMATDESCRIPTOR</code> のフィールド順序だけ注意(順序が狂うと実行時に壊れる)</li><li><code>GL.cs</code> — ローダの2段構え(要点5)が要点。関数そのものは7個だけ</li><li><code>GLContext.cs</code> — <strong>今日の本体</strong>。<code>EnsureExtensionsLoaded</code>(ダミー)→ <code>SetupPixelFormat</code> → コンストラクタ、の順に読む</li><li><code>Program.cs</code> — ループから <code>WaitUntil</code> が消え、描画が3行になる</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day11/Program.cs reference/Day12/Program.cs
+git diff --no-index reference/Day11/Win32.cs   reference/Day12/Win32.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day12 -c Release</code></pre></div>
+<ol><li><strong>コンソールウィンドウが1枚立ち</strong>、GL の情報が出る。<code>GL_RENDERER</code> に自分の GPU 名が出ていること</li><li><strong><code>GL_VERSION</code> が 3.3 で始まる</strong>。要求したバージョンが通った証拠</li><li><code>glGetString(GL_EXTENSIONS)</code> の行が <strong><code>NULL(コアプロファイルなので正常)</code></strong> になっている(要点6)</li><li>ゲームウィンドウが <strong>虹色に滑らかに変化する</strong>。カクつきや点滅が無い</li><li>タイトルバーが<code>Day12 - OpenGL 3.3 Core  60.0 fps | VSync:ON | V:VSync Space:停止 Esc:終了</code></li><li><strong>V キーで VSync を切ると fps が数千に跳ね上がる</strong>(本Dayの環境では約5,000)。もう一度押すと 60.0 に戻る。<strong>今日いちばん分かりやすい実験</strong></li><li><strong>Space</strong> で色の変化が止まり、もう一度押すと止まった色から再開する</li><li><strong>Esc</strong> / <strong>[×]</strong> / <strong>Alt+F4</strong> で終了し、プロセスが残らない</li></ol>
+<p>参考として、本Dayの環境でのコンソール出力:</p>
+<div class="code"><pre><code>GL_VENDOR                   : NVIDIA Corporation
+GL_RENDERER                 : NVIDIA GeForce RTX 3070/PCIe/SSE2
+GL_VERSION                  : 3.3.0 NVIDIA 596.49
+GL_SHADING_LANGUAGE_VERSION : 3.30 NVIDIA via Cg compiler
+拡張の数                    : 403</code></pre></div>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong><code>GL_RENDERER</code> が <code>GDI Generic</code></strong> → ハードウェアアクセラレーションが効いていない。<code>WGL_ACCELERATION_ARB, WGL_FULL_ACCELERATION_ARB</code> を属性に入れているか。この状態だと OpenGL 1.1 相当しか動かず、Day 13 のシェーダは全滅する</li><li><strong><code>必須の WGL 拡張が見つからない: wglChoosePixelFormatARB(OpenGL 3.0 以降に対応したドライバが要る)</code></strong> →ダミーコンテキストがカレントになっていない(要点3の手順3を飛ばしている)。あるいは本当に古いドライバ</li><li><strong><code>SetPixelFormat に失敗した</code></strong> → <strong>要点3のいちばんの罠</strong>。本番ウィンドウに対して2回設定しようとしている。ダミーと本番でウィンドウを分けているか確認する</li><li><strong><code>OpenGL 関数が見つからない: glClear</code></strong> → ローダのフォールバックが無い(要点5)。<code>wglGetProcAddress</code> だけでは 1.1 の関数は取れない</li><li><strong>起動直後に落ちる / <code>AccessViolationException</code></strong> →ダミーの <code>WndProc</code> デリゲートを static フィールドで保持しているか(Day 11 の要点4)</li><li><strong>画面が真っ黒のまま</strong> → <code>SwapBuffers</code> を呼んでいない。OpenGL はバックバッファに描くので、入れ替えないと何も見えない</li><li><strong>色が変化せず1色で止まる</strong> → <code>glClearColor</code> は色を<strong>設定するだけ</strong>。<code>glClear</code> を毎フレーム呼んでいるか</li><li><strong>コンソールに日本語が化ける</strong> → <code>Console.OutputEncoding</code> の設定。<code>AllocConsole</code> の<strong>後</strong>に設定する必要がある</li><li><strong>VSync を切っても fps が変わらない</strong> → ドライバ側の設定で「垂直同期:オン」が強制されている(NVIDIA コントロールパネル等)。アプリ側の指定より優先される</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機の操作</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>起動</td><td>「コンテキストを作る8手順」の「次の手順」</td><td>ダミーウィンドウが拡張関数を取るためだけに作られて捨てられる。罠を踏むと、本文の確認ポイントと同じ例外で止まる</td></tr>
+<tr><td>(起動時のロード)</td><td>「関数ロードの二重構造」</td><td>片方の方法だけでは glClear か glGetStringi のどちらかが取れない。判定を 0 だけにすると、2 を関数として呼んで落ちる</td></tr>
+<tr><td><code>V</code></td><td>「色を変えて塗るだけのループ」の「VSync ON / OFF」</td><td>60.0 から 5,743 fps へ。1 フレームの仕事は 0.174ms しかない</td></tr>
+<tr><td><code>Space</code></td><td>同じ実験台の「変える / 止める」</td><td>止めた色から再開する</td></tr>
+<tr><td><code>Esc</code> / [×] / <code>Alt+F4</code></td><td>このページには無い</td><td>Day 11 のページの「メッセージループを回す」</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day12 の GLContext.cs(EnsureExtensionsLoaded、SetupPixelFormat、コンストラクタ)、GL.cs(GetProcAddress、Load)、Program.cs(RunLoop)を JS に移したもの。ドライバの振る舞いはこのページで真似たもので、どちらの方法でどの関数が取れるか、fps と1フレームの時間は本文の実測の値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 要求するコンテキストを変えてみる</h3>
+<p><code>GLContext</code> に渡す値を変えて、ドライバの反応を観察する。</p>
+<ol><li><strong>4.6 を要求する。</strong> 通るか。通ったら <code>GL_VERSION</code> は何になるか。通らないなら自分のドライバの上限はどこか</li><li><strong><code>WGL_CONTEXT_CORE_PROFILE_BIT_ARB</code> を<code>WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB</code> に変える。</strong> <code>glGetString(GL_EXTENSIONS)</code> が NULL でなくなるはず。返ってきた文字列の長さを測ってみると、要点6で「削除された」理由が実感できる</li><li><strong>存在しない 5.0 を要求する。</strong> どんな失敗の仕方をするか。エラーコードは何か(<code>Marshal.GetLastWin32Error</code>)</li><li><code>WGL_DEPTH_BITS_ARB</code> を 0 にして、<code>DescribePixelFormat</code> の結果がどう変わるか見る</li></ol>
+<h3 id="s16">課題2(中): デバッグコンテキストと <code>glDebugMessageCallback</code></h3>
+<p>要点6で触れた「エラーが黙って積まれる」問題を、根本的に楽にする。</p>
+<ol><li>コンテキスト属性に <code>WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB</code> を足す</li><li><code>glDebugMessageCallback</code>(OpenGL 4.3 / <code>GL_KHR_debug</code>)をロードする。シグネチャは<code>void glDebugMessageCallback(DEBUGPROC callback, const void *userParam)</code></li><li><code>glEnable(GL_DEBUG_OUTPUT)</code> と <code>GL_DEBUG_OUTPUT_SYNCHRONOUS</code> を有効にする。後者を付けると<strong>エラーを起こしたその場でコールバックが呼ばれる</strong>ので、スタックトレースが意味を持つようになる</li><li>わざと <code>glGetString(GL_EXTENSIONS)</code> を呼んで、通知が飛んでくることを確認する</li><li><strong>ここで Day 11 の要点4が再登場する。</strong> コールバックのデリゲートをフィールドで保持しないと、数分後にアクセス違反で落ちる。今度は自分で気付けるか</li></ol>
+<p>Day 13 以降、シェーダのコンパイルエラー以外の不具合(バインドし忘れ、型の不一致)はほぼ全部これで見つかるようになる。<strong>入れておくと後が楽。</strong></p>
+<h3 id="s17">課題3(難): 関数ロードを自動化する</h3>
+<p><code>GL.Load()</code> は今のところ7行だが、Day 13 で15個ほどに増え、Phase 3 に進めば数十個になる。名前を2回(フィールド名と文字列)書くのは間違いの元でもある。</p>
+<ol><li>まず<strong>フォールバックを外して壊してみる</strong>。<code>wglGetProcAddress</code> だけにするとどの関数から落ちるか。要点5の表を自分の環境で再現する</li><li><code>GL</code> クラスの public static フィールドをリフレクションで列挙し、<strong>フィールド名からロードする</strong>ように書き換える(<code>glClearColor</code> フィールド → <code>"glClearColor"</code> を引く)。デリゲート型は <code>FieldInfo.FieldType</code> から取れるので、<code>Marshal.GetDelegateForFunctionPointer(address, fieldType)</code> で作れる</li><li>取れなかった関数は例外にせず<strong>null のまま残し</strong>、起動時に「ロードできなかった関数」の一覧を出すようにする。全関数が必須とは限らない(拡張は環境によって有無がある)ため</li><li>リフレクションの起動時コストを測る。数千関数になったとき許容できるか。<strong>できないなら、Silk.NET がなぜコード生成という手段を選んだのかが分かる</strong></li></ol>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li><code>GL_VERSION</code> = <code>3.3.0 NVIDIA 596.49</code> / GLSL <code>3.30</code> / 拡張 403個</li><li>VSync ON で 60.0 fps(16.671 ms/frame)、OFF で 5,743 fps(0.174 ms/frame)</li><li><code>wglGetProcAddress</code> と <code>GetProcAddress(opengl32.dll)</code> がGL 1.1 と 2.0 以降できれいに排他になることを7関数で実測(要点5の表)</li><li>コアプロファイルで <code>glGetString(GL_EXTENSIONS)</code> が<code>GL_INVALID_ENUM</code>(0x0500)と NULL を返すことを確認</li><li>Esc / WM_CLOSE のどちらでも終了コード 0 で正常終了</li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 12 wglコンテキスト生成、OpenGL関数の自前ロード / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+
+// ------------------------------------------------------------
+// 1. コンテキストを作る8手順
+// ------------------------------------------------------------
+const STEPS = [
+  'ダミーウィンドウを作る(表示しない、1x1)',
+  '古い様式でピクセルフォーマットを設定(ChoosePixelFormat + SetPixelFormat)',
+  '古い様式でコンテキストを作り、カレントにする(wglCreateContext + wglMakeCurrent)',
+  'wglGetProcAddress で拡張関数を3つ回収',
+  'コンテキスト・DC・ウィンドウ・クラスを全部破棄',
+  '本番ウィンドウに wglChoosePixelFormatARB でピクセルフォーマットを設定',
+  'wglCreateContextAttribsARB で 3.3 コアプロファイルのコンテキストを作る',
+  'カレントにして、OpenGL の関数をロードする(GL.Load)',
+];
+const LEGACY = 7, ARB = 9;   // ピクセルフォーマットの番号(例)
+let c;
+function ctxReset() {
+  c = { step: 0, failed: -1, log: [], dummy: '無い', dummyPf: '—', mainPf: '未設定', current: '無い', dummyCtx: false,
+    ext: { wglChoosePixelFormatARB: '—', wglCreateContextAttribsARB: '—', wglSwapIntervalEXT: '—' }, gl: '—' };
+  ctxLog('new Win32Window(...)  本番ウィンドウはできている(ピクセルフォーマットはまだ無い)');
+  ctxDraw();
+}
+function ctxLog(t) { c.log.push(t); $('ctx-console').textContent = c.log.join('\n'); $('ctx-console').scrollTop = 1e9; }
+// SetPixelFormat は1つのウィンドウに1回だけ
+function setPixelFormat(which, n) {
+  const key = which === 'dummy' ? 'dummyPf' : 'mainPf';
+  if (c[key] !== '未設定' && c[key] !== '—') throw `Win32Exception: SetPixelFormat に失敗した(このウィンドウには #${c[key].match(/\d+/)[0]} が設定済み。変えられない)`;
+  c[key] = `#${n}(${n === LEGACY ? '古い様式' : 'ARB'})`;
+}
+function run(k) {
+  const bug = segValue('ctx-bug'), practice = bug === 'main' ? 'main' : 'dummy';
+  switch (k) {
+    case 0:
+      if (bug === 'main') { ctxLog('1. (このページだけ)ダミーは作らず、本番ウィンドウで練習する'); return; }
+      c.dummy = 'ある(非表示)'; c.dummyPf = '未設定';
+      ctxLog('1. RegisterClassExW("RawGL.WglBootstrap") → CreateWindowExW(1x1、WS_VISIBLE なし) → GetDC');
+      return;
+    case 1:
+      setPixelFormat(practice, LEGACY);
+      ctxLog(`2. ChoosePixelFormat(PIXELFORMATDESCRIPTOR)→ #${LEGACY} → SetPixelFormat(${practice === 'main' ? '本番' : 'ダミー'}の DC)`);
+      return;
+    case 2:
+      c.dummyCtx = true;
+      if (bug === 'nocur') { ctxLog('3. wglCreateContext → (このページだけ)wglMakeCurrent を呼ばない'); return; }
+      c.current = `古い様式のコンテキスト(${practice === 'main' ? '本番' : 'ダミー'})`;
+      ctxLog('3. wglCreateContext → wglMakeCurrent');
+      return;
+    case 3: {
+      const ok = c.current !== '無い';   // wglGetProcAddress はカレントコンテキストが無いと NULL
+      for (const n of Object.keys(c.ext)) c.ext[n] = ok ? '取れた' : 'NULL';
+      ctxLog(`4. wglGetProcAddress("wglChoosePixelFormatARB") → ${ok ? '取れた' : 'NULL'}`);
+      if (!ok) throw 'InvalidOperationException: 必須の WGL 拡張が見つからない: wglChoosePixelFormatARB(OpenGL 3.0 以降に対応したドライバが要る)';
+      ctxLog('   wglCreateContextAttribsARB → 取れた / wglSwapIntervalEXT → 取れた(これだけは無くても続ける)');
+      return;
+    }
+    case 4:
+      c.current = '無い'; c.dummyCtx = false;
+      if (bug === 'main') { ctxLog('5. wglMakeCurrent(0, 0) → wglDeleteContext(本番ウィンドウは壊せないので残す。ピクセルフォーマットも残る)'); return; }
+      c.dummy = '破棄した'; c.dummyPf = '—';
+      ctxLog('5. wglMakeCurrent(0, 0) → wglDeleteContext → ReleaseDC → DestroyWindow → UnregisterClassW');
+      return;
+    case 5:
+      ctxLog(`6. wglChoosePixelFormatARB(DRAW_TO_WINDOW, SUPPORT_OPENGL, DOUBLE_BUFFER, FULL_ACCELERATION, RGBA, 色 32, 深度 24, ステンシル 8)→ #${ARB}`);
+      ctxLog(`   DescribePixelFormat → SetPixelFormat(本番の DC, #${ARB})`);
+      setPixelFormat('main', ARB);
+      return;
+    case 6:
+      ctxLog('7. wglCreateContextAttribsARB(MAJOR 3, MINOR 3, PROFILE_MASK = CORE, 0 で終端)');
+      return;
+    case 7:
+      c.current = '3.3 コアプロファイル(本番)'; c.gl = '7 個ロードした';
+      ctxLog('8. wglMakeCurrent(本番) → GL.Load()');
+      ctxLog('\n=== OpenGL コンテキスト ===(本文の環境の値)\nGL_VENDOR                   : NVIDIA Corporation\nGL_RENDERER                 : NVIDIA GeForce RTX 3070/PCIe/SSE2\nGL_VERSION                  : 3.3.0 NVIDIA 596.49\nGL_SHADING_LANGUAGE_VERSION : 3.30 NVIDIA via Cg compiler\n拡張の数                    : 403\nglGetString(GL_EXTENSIONS)  : NULL(コアプロファイルなので正常)');
+  }
+}
+function ctxStep() {
+  if (c.failed >= 0 || c.step >= STEPS.length) return;
+  try { run(c.step); c.step++; } catch (e) { c.failed = c.step; ctxLog(`   → ${e}`); }
+  ctxDraw();
+}
+function ctxDraw() {
+  $('ctx-steps').innerHTML = STEPS.map((t, k) => {
+    const st = k === c.failed ? `color:var(--expl);font-weight:600` : k < c.step ? 'color:var(--muted)' : k === c.step ? 'font-weight:600' : '';
+    return `<li style="${st}">${k === c.failed ? '✕ ' : k < c.step ? '✓ ' : k === c.step ? '▶ ' : ''}${t}</li>`;
+  }).join('');
+  const rows = [['ダミーウィンドウ', c.dummy], ['ダミーのピクセルフォーマット', c.dummyPf], ['本番のピクセルフォーマット', c.mainPf], ['カレントコンテキスト', c.current],
+    ...Object.entries(c.ext), ['OpenGL の関数', c.gl]];
+  $('ctx-state').innerHTML = `<table style="font-size:12.5px"><tbody>${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</tbody></table>`;
+  $('ctx-step').disabled = c.failed >= 0 || c.step >= STEPS.length;
+}
+seg('ctx-bug', ctxReset);
+$('ctx-step').addEventListener('click', ctxStep);
+$('ctx-all').addEventListener('click', () => { while (c.failed < 0 && c.step < STEPS.length) ctxStep(); });
+$('ctx-reset').addEventListener('click', ctxReset);
+ctxReset();
+
+// ------------------------------------------------------------
+// 2. 関数ロードの二重構造
+// ------------------------------------------------------------
+// [名前, 追加されたバージョン, Load が引くか]。どちらの方法で取れるかは本文の実測(1.1 までは DLL、2.0 以降はドライバ)
+const FUNCS = [['glGetString', '1.0', 1], ['glGetIntegerv', '1.0', 1], ['glClearColor', '1.0', 1], ['glClear', '1.0', 1], ['glViewport', '1.0', 1], ['glGetError', '1.0', 1], ['glGetStringi', '3.0', 1],
+  ['glCreateShader', '2.0', 0], ['glGenVertexArrays', '3.0', 0]];
+const hex = (a) => (a === -1 ? '-1' : a < 16 ? String(a) : `0x${a.toString(16).toUpperCase()}`);
+function ldDraw() {
+  const mode = segValue('ld-mode'), five = segValue('ld-check') === '5', two = segValue('ld-driver') === 'two';
+  const invalid = (a) => (five ? [0, 1, 2, 3, -1].includes(a) : a === 0);
+  let stopped = null;
+  const rows = FUNCS.map(([name, ver, loads], k) => {
+    const old = ver === '1.0';
+    const real = 0x7FFB3A000000 + k * 0x1A40;
+    const wgl = old ? (two ? 2 : 0) : real + 0x400000;   // 1.1 までの関数は wglGetProcAddress では取れない
+    const dll = old ? real : 0;                          // 2.0 以降は opengl32.dll に無い
+    // GL.GetProcAddress
+    let a;
+    if (mode === 'dll') a = dll;
+    else { a = wgl; if (invalid(a)) a = mode === 'both' ? dll : 0; }
+    let result;
+    if (a === 0) { result = '<span style="color:var(--expl)">見つからない</span>'; if (loads && !stopped) stopped = name; }
+    else if (a > 0 && a < 16) result = `<span style="color:var(--expl)">${a} を関数として使う → 呼ぶと落ちる</span>`;
+    else result = '<span style="color:var(--good)">取れた</span>';
+    return `<tr><td>${name}</td><td>${ver}</td><td>${wgl ? hex(wgl) : 'NULL'}</td><td>${dll ? hex(dll) : 'NULL'}</td><td>${a ? hex(a) : '—'}</td><td>${result}</td><td>${loads ? '引く' : '—'}</td></tr>`;
+  });
+  $('ld-table').innerHTML = `<table style="font-size:12px;white-space:nowrap"><thead><tr><th>関数</th><th>追加</th><th>wglGetProcAddress</th><th>GetProcAddress(dll)</th><th>使うアドレス</th><th>結果</th><th>Load</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  const bad = FUNCS.filter(([, ver, loads]) => loads && ver === '1.0' && two && mode !== 'dll' && !five);
+  $('ld-console').textContent = stopped ? `GL.Load() → InvalidOperationException: OpenGL 関数が見つからない: ${stopped}`
+    : bad.length ? `GL.Load() は通る。でも ${bad.map((f) => f[0]).join('、')} は 2 番地を指したデリゲートになっていて、最初に呼んだところで AccessViolationException`
+    : 'GL.Load() → 7 関数ともロードできた';
+}
+['ld-mode', 'ld-check', 'ld-driver'].forEach((id) => seg(id, ldDraw));
+ldDraw();
+
+// ------------------------------------------------------------
+// 3. 色を変えて塗るだけのループ
+// ------------------------------------------------------------
+const WORK = 0.174, FRAME = 1000 / 60;
+const vs = { t: 0, fps: 0 };
+function vsDraw() {
+  const on = segValue('vs-vsync') === '1' || segValue('vs-force') === '1';
+  const ph = (2 * Math.PI) / 3, r = 0.5 + 0.5 * Math.sin(vs.t), g = 0.5 + 0.5 * Math.sin(vs.t + ph), b = 0.5 + 0.5 * Math.sin(vs.t + ph * 2);
+  { const { ctx, w, h } = fit($('vs-canvas')); ctx.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`; ctx.fillRect(0, 0, w, h); }
+  { // 1/60 秒の中で SwapBuffers が何回返るか
+    const { ctx, w, h } = fit($('vs-strip')), n = on ? 1 : Math.round(FRAME / WORK), per = w / (FRAME / WORK);
+    ctx.fillStyle = tok('--line'); ctx.fillRect(0, 6, w, h - 12);
+    ctx.fillStyle = tok('--good');
+    for (let i = 0; i < n; i++) ctx.fillRect(i * (on ? 0 : w / n), 6, Math.max(1, on ? per : w / n - 1), h - 12);
+    ctx.fillStyle = tok('--ink'); ctx.font = '11px sans-serif';
+    ctx.fillText(on ? '仕事 0.174ms → SwapBuffers が垂直帰線まで待つ(灰)' : `仕事 0.174ms × ${n} 回(待たない)`, 6, h / 2 + 4);
+  }
+  const fps = on ? 60.0 : 5743, ms = on ? FRAME : WORK;
+  $('vs-title').textContent = `Day12 - OpenGL 3.3 Core  ${fps.toFixed(1)} fps | VSync:${segValue('vs-vsync') === '1' ? 'ON' : 'OFF'}${segValue('vs-play') === '0' ? ' | 一時停止中' : ''} | V:VSync Space:停止 Esc:終了`;
+  $('vs-stats').innerHTML = stat('1 フレームの仕事', `${WORK.toFixed(3)} ms`) + stat('SwapBuffers の待ち', `${(ms - WORK).toFixed(3)} ms`) + stat('1 フレーム', `${ms.toFixed(3)} ms`)
+    + stat('glClearColor', `(${r.toFixed(2)}, ${g.toFixed(2)}, ${b.toFixed(2)})`);
+}
+['vs-vsync', 'vs-play', 'vs-force'].forEach((id) => seg(id, vsDraw));
+animate($('vs-lab'), (dt) => { if (segValue('vs-play') === '1') vs.t += dt; vsDraw(); });
+function narrow() { $('ctx-grid').style.gridTemplateColumns = $('ctx-grid').clientWidth < 600 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'; }
+window.addEventListener('resize', () => { narrow(); vsDraw(); });
+narrow(); vsDraw();
+})();
+</script>
+</body>
+</html>

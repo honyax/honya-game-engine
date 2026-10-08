@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 11 Win32 P/Invoke でウィンドウとメッセージループ</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Phase 2 は引き算 — 何が消えて、何が現れるか</a></li><li class="l3"><a href="#s5">2. ウィンドウクラスは「型紙」、ウィンドウは「そこから作った1枚」</a></li><li class="l3"><a href="#s6">3. ウィンドウプロシージャ — OS がこちらを呼び返してくる</a></li><li class="l3"><a href="#s7">4. C# でコールバックを渡すときの唯一にして最大の罠</a></li><li class="l3"><a href="#s8">5. PeekMessage と GetMessage — ゲームループの分かれ道</a></li><li class="l3"><a href="#s9">6. 終了は4段階 — なぜこんなに分かれているのか</a></li><li class="l3"><a href="#s10">7. DPI と、消えた <code>[STAThread]</code></a></li><li class="l3"><a href="#s11">8. 実測 — GDI+ を1枚剥がすと転送が 27倍速くなった</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">名前空間とプロジェクト名</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l2"><a href="#s16">改造課題</a></li><li class="l3"><a href="#s17">課題1(易): <code>GetMessage</code> に変えて、ゲームループの意味を体感する</a></li><li class="l3"><a href="#s18">課題2(中): Phase 1 の転送を <code>StretchDIBits</code> に差し替える</a></li><li class="l3"><a href="#s19">課題3(難): ウィンドウを2枚出せるようにする</a></li><li class="l2"><a href="#s20">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 2 / Day 11 / 計画書</p>
+  <h1>Win32 P/Invoke でウィンドウとメッセージループ</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Phase 2 は引き算 — 何が消えて、何が現れるか</a></li><li class="l3"><a href="#s5">2. ウィンドウクラスは「型紙」、ウィンドウは「そこから作った1枚」</a></li><li class="l3"><a href="#s6">3. ウィンドウプロシージャ — OS がこちらを呼び返してくる</a></li><li class="l3"><a href="#s7">4. C# でコールバックを渡すときの唯一にして最大の罠</a></li><li class="l3"><a href="#s8">5. PeekMessage と GetMessage — ゲームループの分かれ道</a></li><li class="l3"><a href="#s9">6. 終了は4段階 — なぜこんなに分かれているのか</a></li><li class="l3"><a href="#s10">7. DPI と、消えた <code>[STAThread]</code></a></li><li class="l3"><a href="#s11">8. 実測 — GDI+ を1枚剥がすと転送が 27倍速くなった</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">名前空間とプロジェクト名</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l2"><a href="#s16">改造課題</a></li><li class="l3"><a href="#s17">課題1(易): <code>GetMessage</code> に変えて、ゲームループの意味を体感する</a></li><li class="l3"><a href="#s18">課題2(中): Phase 1 の転送を <code>StretchDIBits</code> に差し替える</a></li><li class="l3"><a href="#s19">課題3(難): ウィンドウを2枚出せるようにする</a></li><li class="l2"><a href="#s20">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 2 / ロードマップ該当行: 「Win32 P/Invokeでウィンドウとメッセージループ」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>Day 1 とまったく同じ絵が、WinForms を1行も使わずに 60fps で出る。</strong></p>
+<p>見た目は Day 1 の焼き直しで、新しい絵は1つも出ない。今日の成果は画面ではなく、<strong>「WinForms が代わりにやっていたことを全部自分で書けた」</strong>という事実のほうにある。</p>
+<p>Phase 2 は「積み上げ」ではなく <strong>「引き算」の3日間</strong>。Day 1〜10 で積んだソフトウェアラスタライザはいったん脇に置き、ウィンドウの生成からOSとのやりとりまでを剥き出しにする。ここを一度通しておくと、Phase 3 以降で使う Silk.NET が「何を隠してくれているライブラリなのか」が具体的に分かる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://learn.microsoft.com/en-us/windows/win32/learnwin32/your-first-windows-program">Your First Windows Program(Microsoft Learn)</a> —今日書くコードの C++ 版そのもの。40行ほどなので必ず目を通しておく</li><li><a href="https://learn.microsoft.com/en-us/windows/win32/winmsg/window-classes">Window Classes(Microsoft Learn)</a> —「ウィンドウクラス」が何なのか(OOP のクラスとは無関係)</li><li><a href="https://learn.microsoft.com/ja-jp/dotnet/standard/native-interop/pinvoke">プラットフォーム呼び出し (P/Invoke)</a> —<code>[DllImport]</code> とマーシャリングの一次情報</li><li><a href="https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows">High DPI Desktop Application Development</a> —要点7の DPI の話。長いので「DPI awareness mode」の節だけでよい</li><li>復習として Day01.md の要点4〜6(ゲームループと待ち方)。今日そのまま持ち込む</li></ul>
+<p>なおロードマップの Phase 2 の欄にある GLFW 入門PDF は Day 12(wgl コンテキスト)向けなので、そちらはまだ読まなくてよい。</p>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. Phase 2 は引き算 — 何が消えて、何が現れるか</h3>
+<p>Day 1 の <code>GameWindow : Form</code> は 10 行足らずの設定でウィンドウを出していた。その1行1行の裏で何が起きていたのかを並べると、今日書くものの全体像になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 1 で書いていたもの</th><th>実際にやっていたこと</th><th>Day 11 で自分が書くもの</th></tr></thead>
+<tbody>
+<tr><td><code>class GameWindow : Form</code></td><td>ウィンドウクラスの登録 + ウィンドウ生成</td><td><code>RegisterClassExW</code> + <code>CreateWindowExW</code></td></tr>
+<tr><td>(Form が内部に持つ)</td><td>ウィンドウプロシージャ</td><td><code>WndProc</code> メソッド</td></tr>
+<tr><td><code>ClientSize = new Size(w, h)</code></td><td>枠のぶんを足して外側サイズを逆算</td><td><code>AdjustWindowRect</code> + 検算</td></tr>
+<tr><td><code>StartPosition = CenterScreen</code></td><td>画面中央への配置計算</td><td><code>GetSystemMetrics</code> + <code>SetWindowPos</code></td></tr>
+<tr><td><code>FormBorderStyle = FixedSingle</code></td><td>ウィンドウスタイルのビット操作</td><td><code>WS_OVERLAPPEDWINDOW &amp; ~WS_THICKFRAME</code></td></tr>
+<tr><td><code>SetStyle(ControlStyles.Opaque)</code></td><td>背景を塗らせない</td><td><code>hbrBackground = NULL</code></td></tr>
+<tr><td><code>ApplicationHighDpiMode</code>(csproj)</td><td>DPI 仮想化の解除</td><td><code>SetProcessDpiAwarenessContext</code></td></tr>
+<tr><td><code>[STAThread]</code></td><td>COM の STA 初期化</td><td><strong>不要</strong>(要点7)</td></tr>
+<tr><td><code>Application.DoEvents()</code></td><td>メッセージの取り出しと配送</td><td><code>PeekMessage</code> + <code>DispatchMessage</code></td></tr>
+<tr><td><code>OnKeyDown</code></td><td>WM_KEYDOWN の受信</td><td><code>WndProc</code> の <code>case</code></td></tr>
+<tr><td><code>Bitmap.LockBits</code> + <code>DrawImage</code></td><td>ピクセル配列の画面転送</td><td><code>StretchDIBits</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>「おまじない」だと思って書いていた行に、全部ちゃんと理由がある。</strong>それを1対1で確認するのが今日の主目的。</p>
+<h3 id="s5">2. ウィンドウクラスは「型紙」、ウィンドウは「そこから作った1枚」</h3>
+<p>Win32 の「ウィンドウクラス」は OOP のクラスとは何の関係もない。<strong>同じ見た目・同じ挙動のウィンドウを量産するための型紙</strong>で、<code>RegisterClassEx</code> で OS に登録し、<code>CreateWindowEx</code> で名前を指定して1枚作る。</p>
+<div class="code"><pre><code>RegisterClassExW(型紙)  →  CreateWindowExW("その型紙で1枚")  →  HWND</code></pre></div>
+<p>ボタンもテキストボックスもスクロールバーも、OS があらかじめ登録済みのウィンドウクラス(<code>"BUTTON"</code>、<code>"EDIT"</code>)でしかない。<strong>Windows では画面上のほぼ全部がウィンドウ</strong>、というのがこのAPIの世界観。</p>
+<p>型紙に書く項目のうち、今日効いてくるのは3つ。</p>
+<ul><li><code>lpfnWndProc</code> — ウィンドウプロシージャ。<strong>このウィンドウの振る舞いそのもの</strong></li><li><code>hCursor</code> — 指定を忘れると、クライアント領域に入った瞬間にカーソルが直前のウィンドウのもの(リサイズ矢印など)のまま固まる。有名なハマりどころ</li><li><code>hbrBackground</code> — <code>NULL</code> にすると OS は背景を塗らない。Day 1 の <code>SetStyle(ControlStyles.Opaque, true)</code> と同じ意味</li></ul>
+<p>そして <code>cbSize</code>。<strong>構造体の先頭に自分自身のバイト数を書く</strong>という流儀がWin32 には頻出する(<code>WNDCLASSEXW</code>、<code>BITMAPINFOHEADER</code>、Day 12 の <code>PIXELFORMATDESCRIPTOR</code>)。これは構造体にフィールドを足しても古いバイナリが動き続けるようにするための仕掛けで、サイズがそのままバージョン番号を兼ねている。<strong>埋め忘れると必ず失敗する。</strong></p>
+<h3 id="s6">3. ウィンドウプロシージャ — OS がこちらを呼び返してくる</h3>
+<p>普通のライブラリ呼び出しは「自分 → 相手」の一方向だが、ウィンドウプロシージャは逆向き、<strong>OS がこちらの関数を呼ぶ</strong>(コールバック)。</p>
+<div class="code"><pre><code>[×]ボタンが押された → OS がキューに WM_CLOSE を積む
+  → こちらの PeekMessage が取り出す
+    → DispatchMessage が WndProc を呼ぶ
+      → WndProc が DestroyWindow を呼ぶ</code></pre></div>
+<p>メッセージは <code>uint</code> の番号1つと、<code>wParam</code> / <code>lParam</code> という<strong>メッセージごとに意味が変わる汎用の入れ物2つ</strong>で表現される。<code>WM_KEYDOWN</code> なら <code>wParam</code> に仮想キーコード、<code>lParam</code> にはリピート回数やスキャンコードがビット単位で詰まっている。型安全とは正反対だが、これが Windows の ABI。</p>
+<p>最重要のルールが1つ。<strong>自分で処理しないメッセージは必ず <code>DefWindowProcW</code> に渡すこと。</strong>ウィンドウの移動、システムメニュー、Alt+F4、フォーカス管理——「普通のウィンドウの振る舞い」は全部あの関数の中にある。渡し漏れると「ウィンドウが動かせない」「閉じられない」といった不可解な症状になる。</p>
+<h3 id="s7">4. C# でコールバックを渡すときの唯一にして最大の罠</h3>
+<p><code>Marshal.GetFunctionPointerForDelegate</code> でデリゲートを関数ポインタに変えて OS に渡す。このとき <strong>OS 側は生のアドレスしか持たない</strong>。GC はそのことを知らない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// これは動く。しばらくは。
+var proc = new Win32.WndProcDelegate(WndProc);
+wc.lpfnWndProc = Marshal.GetFunctionPointerForDelegate(proc);   // proc はローカル変数</code></pre></div>
+<p><code>proc</code> がスコープを抜けて GC に回収された瞬間、OS が持っているアドレスは無効なメモリを指す。次のメッセージでアクセス違反。</p>
+<p><strong>厄介なのは、すぐには落ちないこと。</strong> GC が実際に走るまでは動き続けるので、「起動直後は正常、数分後に突然死ぬ」「デバッグビルドでは再現しない」という最悪の形のバグになる。対策は簡単で、<strong>フィールドに持ち続ける</strong>だけ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>private readonly Win32.WndProcDelegate _wndProc;   // クラスが生きている間ずっと生きる</code></pre></div>
+<p>これは Win32 に限らず、<strong>ネイティブコードにコールバックを渡すときの一般則</strong>。Silk.NET でも OpenGL のデバッグコールバックを登録するときに同じ話が出てくる。</p>
+<h3 id="s8">5. PeekMessage と GetMessage — ゲームループの分かれ道</h3>
+<p>教科書の Win32 プログラムはこう書く。</p>
+<div class="code"><span class="lang">c</span><pre><code>while (GetMessage(&amp;msg, NULL, 0, 0)) {   // メッセージが来るまでスレッドを眠らせる
+    TranslateMessage(&amp;msg);
+    DispatchMessage(&amp;msg);
+}</code></pre></div>
+<p><strong>これはゲームには使えない。</strong> マウスもキーも動かさなければメッセージは来ず、スレッドは眠ったまま1フレームも進まない。</p>
+<p>ゲームが欲しいのは「あるだけ処理して、無ければすぐ戻る」動作。それが <code>PeekMessage</code>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>while (PeekMessageW(out MSG msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+{
+    if (msg.message == WM_QUIT) return false;
+    TranslateMessage(ref msg);
+    DispatchMessageW(ref msg);
+}
+return true;   // キューが空になったので、フレームの続きへ</code></pre></div>
+<p>Day 1 の <code>Application.DoEvents()</code> は、まさにこのループの WinForms 版だった(そして <code>Application.Run(form)</code> が <code>GetMessage</code> 版)。Day 1 で「<code>Application.Run</code> を使わない」と書いた理由が、ここでようやく具体的になる。</p>
+<p><strong>細かいが致命的な点</strong>: 第2引数に <code>IntPtr.Zero</code>(= すべてのウィンドウ)を渡すこと。<code>WM_QUIT</code> は特定のウィンドウ宛てではなく<strong>スレッドのキューに直接</strong>積まれるため、ここに自分の <code>HWND</code> を書くと <code>WM_QUIT</code> を永久に受け取れず、終了できなくなる。</p>
+<h3 id="s9">6. 終了は4段階 — なぜこんなに分かれているのか</h3>
+<p>[×] を押してからプロセスが終わるまで、4つのメッセージを経由する。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>段階</th><th>何が起きるか</th><th>ここで何ができるか</th></tr></thead>
+<tbody>
+<tr><td><code>WM_CLOSE</code></td><td>閉じる要求が来た</td><td><strong>中止できる</strong>。「保存しますか?」を出す場所</td></tr>
+<tr><td><code>DestroyWindow</code></td><td>ウィンドウを破棄する</td><td>—</td></tr>
+<tr><td><code>WM_DESTROY</code></td><td>もう破棄された</td><td>後片付け。<strong>描画はもうできない</strong></td></tr>
+<tr><td><code>PostQuitMessage</code> → <code>WM_QUIT</code></td><td>ループに終われと伝える</td><td>メッセージループが抜ける</td></tr>
+</tbody>
+</table></div>
+<p>段階が分かれている理由は、<strong>「閉じてよいか」と「もう閉じた」を区別する必要があるから</strong>。<code>WM_CLOSE</code> で <code>DefWindowProc</code> に渡すと、既定の実装が <code>DestroyWindow</code> を呼ぶ。つまり「何もしなければ閉じる」で、止めたいときだけ自分で処理する設計。</p>
+<p><code>WM_DESTROY</code> で <code>PostQuitMessage</code> を呼び忘れると、<strong>ウィンドウが無いままメッセージループが回り続ける</strong>(画面には何も無いのにプロセスが残る)。Win32 初学者が必ず一度は踏む。</p>
+<div class="inject"><figure class="lab" id="lp-lab">
+  <div class="lab-head">
+    <h3>メッセージループを回す — キューから取り出して WndProc へ(要点3〜6・8、改造課題1)</h3>
+    <span class="tag">reference の Win32Window.cs(ProcessMessages、WndProc、キーの状態)と Program.cs(RunLoop、Render、PingPong)を JS に移したもの。OS のメッセージキューはこのページの中の配列で、絵の上でのキー操作(絵を押してから)・マウスの移動・下のボタンがメッセージを積む。ループの1周はブラウザの1フレーム。render はこのページで測った値、present は本文の実測をもとに置いた値(StretchDIBits 0.17ms、GDI+ 4.6ms)。「わざと壊す」と GetMessage はこのページだけ</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="lp-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="lp-canvas" tabindex="0" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px;outline-offset:-3px" aria-label="赤と緑のグラデーションの上を白い四角が跳ね回る。押すとキー操作を受け付ける"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">メッセージを積む</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="lp-close">[×] を押す</button><button class="btn" id="lp-altf4">Alt+F4</button><button class="btn" id="lp-esc">Esc</button><button class="btn" id="lp-space">Space</button><button class="btn" id="lp-drag">タイトルバーをつかむ(1.5 秒)</button></div>
+    </div>
+    <div class="ctl"><span class="label">ループ(課題1)と転送(要点8)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="lp-loop"><button data-v="peek" aria-pressed="true">PeekMessage</button><button data-v="get" aria-pressed="false">GetMessage</button></div><div class="seg" id="lp-present"><button data-v="gdi" aria-pressed="true">StretchDIBits</button><button data-v="gdiplus" aria-pressed="false">GDI+(Day 1)</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">わざと壊す(このページだけ)</span>
+      <div class="seg" id="lp-bug"><button data-v="none" aria-pressed="true">壊さない</button><button data-v="noquit" aria-pressed="false">PostQuitMessage を呼ばない</button><button data-v="hwnd" aria-pressed="false">Peek の第2引数に HWND</button><button data-v="nodef" aria-pressed="false">DefWindowProcW に渡さない</button><button data-v="local" aria-pressed="false">WndProc をローカル変数で持つ</button></div>
+    </div>
+    <div class="ctl"><span class="label">ほか</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="lp-gc">GC.Collect()</button><button class="btn primary" id="lp-restart">起動し直す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="lp-stats"></div><pre id="lp-console" style="margin:10px 0 0;max-height:240px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s10">7. DPI と、消えた <code>[STAThread]</code></h3>
+<p><code>SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)</code> を<strong>ウィンドウを1枚も作る前に</strong>呼ぶ。これを怠ると、125% や 150% のスケーリング環境でWindows が勝手に画面を引き伸ばし(DPI 仮想化)、640x480 のフレームバッファがぼやける。Day 1〜10 では csproj の <code>ApplicationHighDpiMode=PerMonitorV2</code> が裏でこれをやっていた(あれは WinForms のソースジェネレータ用のプロパティなので、WinForms を参照しない今日のプロジェクトでは書いても何も起きない)。</p>
+<p>DPI を宣言すると、代わりに面倒が1つ増える。<strong><code>AdjustWindowRect</code> が当てにならなくなる。</strong>あの関数が使うのは<strong>システムDPI(= 主モニタのDPI)</strong>の枠の太さだが、PerMonitorV2 のウィンドウの枠は「実際に載っているモニタのDPI」で描かれる。</p>
+<p>本Dayの環境(システムDPI 120 = 125%)で、640x480 のクライアント領域に必要な外側サイズを測った実測:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>想定DPI</th><th>外側サイズ</th></tr></thead>
+<tbody>
+<tr><td>96 (100%)</td><td>656 x 519</td></tr>
+<tr><td>120 (125%)</td><td>658 x 527</td></tr>
+<tr><td>144 (150%)</td><td>662 x 536</td></tr>
+<tr><td>192 (200%)</td><td>666 x 551</td></tr>
+</tbody>
+</table></div>
+<p><code>AdjustWindowRect</code> は 658x527 を返した(= システムDPI の 120 と一致)。主モニタと同じスケーリングのうちは正しいが、<strong>スケーリングの違う副モニタに出た場合はずれる</strong>。96 と 192 では高さが 32 ピクセルも違い、そのぶん絵の下側が画面に出なくなる。</p>
+<p>対策は「作ってから <code>GetClientRect</code> で実測を聞き、ずれていたら足す」。先回りしたければ <code>GetDpiForWindow</code> + <code>AdjustWindowRectExForDpi</code> を使う手もある。</p>
+<div class="inject"><figure class="lab" id="dpi-lab">
+  <div class="lab-head">
+    <h3>枠の太さは DPI で変わる — AdjustWindowRect と検算(要点7)</h3>
+    <span class="tag">reference の Win32Window.CreateWindow(AdjustWindowRect で外側の大きさを逆算し、作ってから GetClientRect で測って足りないぶんを足す)を、本文の表の実測値(DPI ごとの外側の大きさ)で計算したもの。システム DPI は 120 で、AdjustWindowRect はいつも 658x527 を返す。枠の左右と下の太さ、タイトルバーの高さは、表の外側の大きさを左右と下が同じ太さとして割り振った値(このページだけ)。赤い斜線は 640x480 の絵のうち窓に入らないところ</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="dpi-canvas" style="width:100%;height:300px" aria-label="ウィンドウの枠とクライアント領域の図。足りないところが赤くなる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ウィンドウが載っているモニタの DPI</span>
+      <div class="seg" id="dpi-dpi"><button data-v="96" aria-pressed="false">96(100%)</button><button data-v="120" aria-pressed="true">120(125%)</button><button data-v="144" aria-pressed="false">144(150%)</button><button data-v="192" aria-pressed="false">192(200%)</button></div>
+    </div>
+    <div class="ctl"><span class="label">GetClientRect での検算</span>
+      <div class="seg" id="dpi-fix"><button data-v="1" aria-pressed="true">あり(reference)</button><button data-v="0" aria-pressed="false">なし(このページだけ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="dpi-stats"></div></div>
+</figure></div>
+<p>そしてもう1つ、<strong><code>[STAThread]</code> が消えている</strong>。あれは WinForms が内部で使う COM(クリップボード、ファイルダイアログ、ドラッグ＆ドロップ)が STA を要求するために必要だったもので、生の Win32 メッセージループには要らない。これも「おまじないに理由があった」例の1つ。</p>
+<h3 id="s11">8. 実測 — GDI+ を1枚剥がすと転送が 27倍速くなった</h3>
+<p>Day 1 の転送は <code>Bitmap.LockBits</code> + <code>Graphics.DrawImage</code>、つまり <strong>GDI+</strong>。今日使う <code>StretchDIBits</code> はその下の<strong>素の GDI</strong> で、できることは「メモリ上のピクセル配列を DC へ流し込む」だけ。</p>
+<p>同じマシン・同じウィンドウ・同じ 640x480 で、300フレーム平均を測った結果:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>経路</th><th>時間/frame</th></tr></thead>
+<tbody>
+<tr><td>A) <code>LockBits</code> + <code>Marshal.Copy</code></td><td>0.122 ms</td></tr>
+<tr><td>A) <code>Graphics.DrawImage</code></td><td><strong>4.486 ms</strong></td></tr>
+<tr><td>A) GDI+ 合計(Day 1 の経路)</td><td>4.608 ms</td></tr>
+<tr><td>B) <code>StretchDIBits</code>(Day 11 の経路)</td><td><strong>0.170 ms</strong></td></tr>
+</tbody>
+</table></div>
+<p><strong>27倍。</strong> 1フレーム 16.67ms の予算に対して <strong>4.4ms が丸ごと浮いた</strong>。</p>
+<p>GDI+ が遅いというより、<strong>やっていることが違う</strong>。GDI+ は変形・アンチエイリアス・補間・カラーマネジメントを備えた高機能な描画ライブラリで、<code>DrawImage</code> は毎回「拡大縮小は要るか」「ピクセル形式の変換は要るか」を判断している。等倍でそのまま転送するだけの用途では、その機構が丸ごと無駄になる。</p>
+<p>これは Phase 2 全体のテーマの縮図でもある。<strong>層を1枚剥がすと、その層が何をしていたかが時間として見える。</strong> Day 13 で GPU に描かせたときにも、同じ種類の驚きが待っている。</p>
+<p>なお、この数msは Phase 1 でもずっと払っていた。Day 10 の実測は render 17.8ms で約41fps、つまり1フレームに約24.4ms 掛かっていた。render を引いた残り 6.6ms の大半が転送とその周辺のコストで、ここを 0.17ms に落とせれば 18ms/frame = <strong>約55fps</strong> まで届く計算になる(改造課題2で実際に確かめられる)。</p>
+<p>Phase 1 の実装が悪かったわけではない——Day 1 の主題は「絵が出る土台を作る」ことで、標準ライブラリだけで組むという制約もあった。ただ、<strong>「ライブラリの既定の道が最速とは限らない」</strong>という事実は測って初めて分かる。</p>
+</section>
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+<p><strong>Day 11 は Day 10 のコピーではない。</strong> Phase が変わるので、<code>reference/Day11</code> は空から作った新しいプロジェクトになる(Day 10 までのソフトウェアラスタライザは Phase 2 では使わない)。写経先も <code>work/SoftwareRasterizer</code> ではなく <strong><code>work/RawGL</code> を新規に作る</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Day11.csproj</code></td><td>37</td><td>WinExe / net10.0-windows。<strong><code>UseWindowsForms</code> と <code>ApplicationHighDpiMode</code> が無い</strong></td></tr>
+<tr><td><code>Win32.cs</code></td><td>436</td><td>P/Invoke 宣言一式。定数・構造体・<code>DllImport</code></td></tr>
+<tr><td><code>Win32Window.cs</code></td><td>347</td><td>ウィンドウの生成、ウィンドウプロシージャ、メッセージループ、キー状態</td></tr>
+<tr><td><code>GdiPresenter.cs</code></td><td>104</td><td><code>StretchDIBits</code> による画面転送。<strong>Day 12〜13 で消える</strong></td></tr>
+<tr><td><code>Framebuffer.cs</code></td><td>60</td><td>Day 1 のものを持ち込み。Phase 2 で使わない描画メソッドは削った</td></tr>
+<tr><td><code>Program.cs</code></td><td>242</td><td>エントリポイントとゲームループ。ループ本体は Day 1 と同じ</td></tr>
+</tbody>
+</table></div>
+<p>行数は多いが、<strong>実コード行(コメントと空行を除く)は 561 行</strong>で、その内訳は</p>
+<ul><li><code>Win32.cs</code> の 168 行 … ほぼ全部が宣言。考えることは無く、写すだけ</li><li><code>Program.cs</code> の 138 行 … 6割は Day 1 からの持ち込み</li><li><code>Framebuffer.cs</code> の 33 行 … Day 1 からの持ち込み</li><li>残り 222 行(<code>Win32Window.cs</code> と <code>GdiPresenter.cs</code>)… 今日の本当の新規ロジック</li></ul>
+<p>なので、写経の実質的な重さは 200 行強。1〜2時間で収まるはず。</p>
+<h3 id="s13">名前空間とプロジェクト名</h3>
+<p>Phase 2 の名前空間は <code>RawGL</code>(Day 11〜13 で固定)。<code>Framebuffer</code>(Day 1)、<code>SoftwareRasterizer</code>(Day 2〜10)に続く3つ目。</p>
+<h3 id="s14">写経する順番</h3>
+<ol><li><code>Day11.csproj</code> — <strong>何が消えたか</strong>を Day10.csproj と見比べる。ここが Phase 2 の宣言</li><li><code>Framebuffer.cs</code> — Day 1 のものを削っただけ。ウォームアップ</li><li><code>Win32.cs</code> — 長いが単調。定数 → 構造体 → デリゲート → <code>DllImport</code> の順に写す。<code>WNDCLASSEXW</code> と <code>BITMAPINFOHEADER</code> のフィールドの順序だけは間違えないこと(順序が狂うとコンパイルは通り、実行時に不可解な失敗をする)</li><li><code>Win32Window.cs</code> — <strong>今日の本体</strong>。<code>RegisterWindowClass</code> → <code>CreateWindow</code> → <code>ProcessMessages</code> → <code>WndProc</code> の順</li><li><code>GdiPresenter.cs</code> — 短い。<code>biHeight</code> を負にする理由(負 = トップダウン。配列の先頭が画像の一番上の行になる)を押さえる</li><li><code>Program.cs</code> — ループは Day 1 と同じなので、差分は先頭の DPI 宣言と入力処理だけ</li></ol>
+<p>Day 1 との比較:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day01/Program.cs reference/Day11/Program.cs
+git diff --no-index reference/Day01/Framebuffer.cs reference/Day11/Framebuffer.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s15">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day11 -c Release</code></pre></div>
+<ol><li><strong>画面中央に 640x480 のウィンドウが出る</strong>。タイトルは「Day11 - Win32 P/Invoke」</li><li><strong>Day 1 とまったく同じ絵</strong>——横に赤・縦に緑のグラデーションで、青が明滅し、白い四角が画面内を跳ね回っている</li><li>タイトルバーが<code>Day11 - Win32 P/Invoke  60.0 fps | render 1.03 ms | present 0.20 ms | Space:一時停止 矢印:移動 Esc:終了</code>のように 0.5 秒ごとに更新される</li><li><strong>present が 0.2ms 前後</strong>。Day 1 の GDI+ 経路(約4.6ms)から一桁以上速くなっている</li><li><strong>Space</strong> でアニメーションが止まる(タイトルに「一時停止中」が出る)。もう一度押すと<strong>止まった位置から</strong>再開する</li><li><strong>矢印キーを押しっぱなし</strong>にすると四角が動く。離すと止まる(= <code>WM_KEYDOWN</code> / <code>WM_KEYUP</code> が両方効いている証拠)</li><li><strong>Esc</strong> でも <strong>[×]</strong> でも <strong>Alt+F4</strong> でも終了する。終了後にプロセスが残らない(タスクマネージャで確認)</li><li>ウィンドウの<strong>サイズ変更ができない</strong>。最大化ボタンが無い</li><li>クライアント領域の<strong>カーソルが普通の矢印</strong></li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong><code>Win32Exception: RegisterClassExW に失敗した</code></strong> → <code>cbSize</code> の埋め忘れ(要点2)。あるいは同じクラス名で二重に登録している</li><li><strong>ウィンドウは出るが何も描かれない</strong> → <code>GdiPresenter</code> の <code>biSize</code> / <code>biPlanes</code> / <code>biBitCount</code>。<code>StretchDIBits</code> はエラーを投げず、黙って 0 を返して何もしない</li><li><strong>絵が上下逆さま</strong> → <code>biHeight</code> が正のまま。負にするとトップダウン(配列の先頭が画像の一番上の行になる)</li><li><strong>絵の色がおかしい(赤と青が入れ替わる)</strong> → <code>biBitCount</code> が 24 になっている、あるいは <code>Framebuffer.Rgb</code> のシフト量。0xAARRGGBB でなければならない</li><li><strong>数分動かしていると突然落ちる / <code>AccessViolationException</code></strong> → <strong>ウィンドウプロシージャのデリゲートが GC された</strong>(要点4)。フィールドで保持しているか確認する。今日いちばん出会う可能性の高いバグ</li><li><strong>[×] を押しても終わらない、プロセスが残る</strong> → <code>WM_DESTROY</code> で <code>PostQuitMessage</code> を呼んでいない、または <code>PeekMessage</code> の第2引数に <code>HWND</code> を渡している(要点5・6)</li><li><strong>ウィンドウが動かせない・カーソルが変</strong> → <code>DefWindowProcW</code> への渡し漏れ、または <code>hCursor</code> の指定漏れ(要点2・3)</li><li><strong>絵の右端か下端が切れる</strong> → クライアントサイズの検算漏れ(要点7)。スケーリング設定の違うモニタで起きやすい</li><li><strong>絵がぼやける</strong> → <code>SetProcessDpiAwarenessContext</code> を呼んでいない、または<strong>ウィンドウを作った後に</strong>呼んでいる(要点7)</li><li><strong>ウィンドウをドラッグしている間アニメーションが止まる</strong> → <strong>正常</strong>。ドラッグ中は OS 側がモーダルループに入り、こちらのループに制御が戻らない(改造課題1で扱う)</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機の操作</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>矢印キー</td><td>「メッセージループを回す」の絵を押してから矢印キー</td><td>WM_KEYDOWN と WM_KEYUP が両方届くので、押している間だけ四角が動く</td></tr>
+<tr><td><code>Space</code></td><td>同じ実験台の「Space」、または絵の上で Space</td><td>止めても、再開すると止まった位置から動く</td></tr>
+<tr><td><code>Esc</code> / [×] / <code>Alt+F4</code></td><td>同じ実験台の「Esc」「[×] を押す」「Alt+F4」</td><td>[×] は WM_CLOSE → DestroyWindow → WM_DESTROY → PostQuitMessage → WM_QUIT の4段階。Alt+F4 は DefWindowProcW が WM_CLOSE に変える</td></tr>
+<tr><td>ウィンドウのドラッグ</td><td>同じ実験台の「タイトルバーをつかむ」</td><td>DefWindowProcW のモーダルループに入っている間、こちらのループは回らずアニメーションが止まる</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の GetMessage と「わざと壊す」</td><td>改造課題1と、確認ポイントの不具合。GetMessage では絵の上でマウスを動かしている間だけ進む</td></tr>
+<tr><td>(キーなし)</td><td>「枠の太さは DPI で変わる」</td><td>検算なしで 192 に載せると、絵の右と下が切れる</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day11 の Win32Window.cs(ProcessMessages、WndProc、CreateWindow のサイズの検算)と Program.cs(RunLoop、Render)を JS に移したもの。メッセージキューと OS の振る舞いはこのページで真似たもので、present の時間と DPI ごとの外側の大きさは本文の実測の値。</p></div>
+</section>
+<section class="part"><h2 id="s16">改造課題</h2>
+<h3 id="s17">課題1(易): <code>GetMessage</code> に変えて、ゲームループの意味を体感する</h3>
+<p>要点5を手で確かめる。</p>
+<ol><li><code>PeekMessageW</code> を <code>GetMessageW</code> に差し替える(<code>BOOL GetMessageW(out MSG, HWND, UINT, UINT)</code>。戻り値は 0 で終了、-1 でエラー)</li><li>実行する。<strong>マウスを動かしている間だけアニメーションが進む</strong>はず。なぜそうなるかを、要点5の言葉で説明できるか</li><li>元に戻したうえで、今度は <code>WaitUntil</code> の呼び出しを消してみる。fps はどうなるか、タスクマネージャで CPU 使用率はどうなるか</li><li>ついでにウィンドウのドラッグ中にアニメーションが止まることを確認する。これはモーダルループ(OS がドラッグ処理のために自前のメッセージループを回す)によるもの。<strong><code>WM_PAINT</code> を自分で処理して現在のフレームバッファを転送する</strong>と、ドラッグ中も絵が保たれるようになる。実装して確かめる</li></ol>
+<h3 id="s18">課題2(中): Phase 1 の転送を <code>StretchDIBits</code> に差し替える</h3>
+<p>要点8で計算した「Day 10 が約41fps → 約55fps になるはず」を実測で確かめる。</p>
+<ol><li><code>work/SoftwareRasterizer</code>(または <code>reference/Day10</code> のコピー)の <code>Present()</code> を、<code>GdiPresenter</code> と同じ <code>StretchDIBits</code> 経由に差し替える。フレームバッファの形式は同じなので、<code>Bitmap</code> は丸ごと不要になる</li><li>Day 10 と同じシーンで fps を測り、差を記録する</li><li><strong>予想と合ったか。</strong> 合わなかった場合、どこで食われているかを考える(ヒント: 転送が速くなると、今度は別のものがボトルネックになる)</li><li>発展: GDI+ の <code>DrawImage</code> が具体的に何に時間を使っているかを調べる。転送先の矩形サイズを変えて拡大縮小を発生させると、時間はどう変わるか</li></ol>
+<h3 id="s19">課題3(難): ウィンドウを2枚出せるようにする</h3>
+<p>今の実装は、ウィンドウプロシージャがインスタンスメソッドのデリゲートである(= <code>this</code> を暗黙に捕まえている)ことに依存しているので、ウィンドウが1枚しか作れない。実用的なフレームワークが必ず採っている方法に書き換える。</p>
+<ol><li>ウィンドウプロシージャを <code>static</code> にする。当然そのままではインスタンスに触れなくなる</li><li><code>CreateWindowExW</code> の最後の引数 <code>lpParam</code> に、<code>GCHandle</code> で固定した<code>Win32Window</code> インスタンスを渡す</li><li><code>WM_NCCREATE</code> を処理する。<code>lParam</code> は <code>CREATESTRUCT*</code> で、その中に <code>lpCreateParams</code> としてさっきの値が入っている。それを <code>SetWindowLongPtr(hwnd, GWLP_USERDATA, ...)</code> でウィンドウ自身に保存する</li><li>以降のメッセージでは <code>GetWindowLongPtr(hwnd, GWLP_USERDATA)</code> からインスタンスを取り出して転送する</li><li><code>WM_NCDESTROY</code> で <code>GCHandle</code> を解放する。<strong>忘れるとリークする</strong></li><li>ウィンドウを2枚出し、片方を閉じてももう片方が生き残ることを確認する(<code>PostQuitMessage</code> を呼ぶ条件を「最後の1枚が閉じたとき」に変える必要がある)</li></ol>
+<p>なぜ <code>WM_CREATE</code> ではなく <code>WM_NCCREATE</code> なのか、そして<strong>なぜウィンドウプロシージャは <code>CreateWindowEx</code> が戻る前に呼ばれるのか</strong>を説明できるようになれば、Win32 のウィンドウ生成は理解できたと言ってよい。</p>
+</section>
+<section class="part"><h2 id="s20">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / システムDPI 120(125% スケーリング)</li><li>Release ビルドで 58.9〜60.7 fps(render 0.89〜1.28 ms、present 0.16〜0.22 ms)</li><li>クライアント領域が実測でちょうど 640x480 物理ピクセル(ウィンドウ全体は 658x527、<code>GetDpiForWindow</code> = 120)</li><li>転送経路のベンチマーク(300フレーム平均、同一マシン・同一ウィンドウ): GDI+ 合計 4.608 ms/frame に対し <code>StretchDIBits</code> 0.170 ms/frame = <strong>27.2倍</strong></li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 11 Win32 P/Invoke でウィンドウとメッセージループ / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const W = 640, H = 480;
+const VK = { 0x1B: 'VK_ESCAPE', 0x20: 'VK_SPACE', 0x25: 'VK_LEFT', 0x26: 'VK_UP', 0x27: 'VK_RIGHT', 0x28: 'VK_DOWN', 0x73: 'VK_F4' };
+const KEYMAP = { Escape: 0x1B, ' ': 0x20, ArrowLeft: 0x25, ArrowUp: 0x26, ArrowRight: 0x27, ArrowDown: 0x28 };
+const HWND = 0x000A0B12;   // このページの「ウィンドウのハンドル」
+
+// ------------------------------------------------------------
+// 1. メッセージループを回す
+// ------------------------------------------------------------
+const img = new ImageData(W, H), px = new Uint32Array(img.data.buffer);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+let s;
+function restart() {
+  s = { queue: [], window: true, process: 'running', why: '', keyDown: {}, keyPressed: {}, anim: 0, paused: false, mx: 0, my: 0,
+    collected: false, dragUntil: 0, prev: performance.now() / 1000, log: [], handled: 0, mouse: 0, loops: 0, loopT: 0, loopRate: 0,
+    fpsN: 0, fpsT: 0, renderAcc: 0, title: '', blocked: false };
+  log('Win32Window を作った(RegisterClassExW → CreateWindowExW → ShowWindow)');
+  if (segValue('lp-bug') === 'local') log('  (このページだけ) WndProc のデリゲートをローカル変数に入れたまま OS に渡した');
+}
+function log(t) { s.log.push(t); if (s.log.length > 200) s.log.splice(0, s.log.length - 200); $('lp-console').textContent = s.log.join('\n'); $('lp-console').scrollTop = 1e9; }
+// OS がキューに積む。WM_QUIT だけはウィンドウ宛てではなくスレッドのキューに直接積まれる(hwnd = 0)
+function post(message, wParam = 0, extra = {}) {
+  if (s.process !== 'running') return;
+  if (!s.window && message !== 'WM_QUIT') return;   // ウィンドウが無いと入力は来ない
+  s.queue.push({ hwnd: message === 'WM_QUIT' ? 0 : HWND, message, wParam, ...extra });
+}
+const bug = () => segValue('lp-bug');
+// Win32Window.WndProc。処理しないものは DefWindowProcW へ
+function wndProc(m) {
+  if (bug() === 'local' && s.collected) {
+    s.process = 'crashed';
+    s.why = 'AccessViolationException(GC が回収したデリゲートのアドレスを OS が呼んだ)';
+    log(`${m.message} を配送 → 回収済みのアドレスを呼んで落ちた: ${s.why}`);
+    return;
+  }
+  s.handled++;
+  switch (m.message) {
+    case 'WM_CLOSE':
+      log('WM_CLOSE → WndProc: DestroyWindow(hWnd)');
+      destroyWindow();
+      return;
+    case 'WM_KEYDOWN': {
+      const was = !!m.repeat;   // lParam の 30 ビット目(直前も押されていたか)
+      s.keyDown[m.wParam] = true;
+      if (!was) s.keyPressed[m.wParam] = true;
+      if (!was) log(`WM_KEYDOWN ${VK[m.wParam]} → WndProc: _keyDown と _keyPressed を立てる`);
+      return;
+    }
+    case 'WM_KEYUP':
+      s.keyDown[m.wParam] = false;
+      log(`WM_KEYUP   ${VK[m.wParam]} → WndProc: _keyDown を下ろす`);
+      return;
+  }
+  // ここから下は DefWindowProcW の仕事(普通のウィンドウの振る舞い)
+  if (m.message === 'WM_MOUSEMOVE') { s.mouse++; return; }
+  if (bug() === 'nodef') { log(`${m.message} → WndProc は処理せず、DefWindowProcW にも渡さない → 何も起きない`); return; }
+  if (m.message === 'WM_SYSKEYDOWN') { log('WM_SYSKEYDOWN VK_F4 → DefWindowProcW: WM_SYSCOMMAND(SC_CLOSE)→ WM_CLOSE を送る'); wndProc({ ...m, message: 'WM_CLOSE' }); return; }
+  if (m.message === 'WM_NCLBUTTONDOWN') { log('WM_NCLBUTTONDOWN → DefWindowProcW: ドラッグのモーダルループに入る(離すまで戻ってこない)'); s.dragUntil = performance.now() / 1000 + 1.5; }
+}
+function destroyWindow() {
+  if (!s.window) return;
+  s.window = false;
+  // DestroyWindow の中から WM_DESTROY が直接 WndProc に送られる(キューを通らない)
+  log('  → WM_DESTROY → WndProc: _destroyed = true' + (bug() === 'noquit' ? '(このページだけ: PostQuitMessage を呼ばない)' : '、PostQuitMessage(0)'));
+  if (bug() !== 'noquit') post('WM_QUIT');
+}
+// Win32Window.ProcessMessages。false を返したらループを抜ける
+function processMessages() {
+  s.keyPressed = {};
+  // 第2引数に自分の HWND を渡すと、そのウィンドウ宛てのものしか取り出せない。WM_QUIT(hwnd = 0)は永久に残る
+  const take = () => { const k = s.queue.findIndex((m) => bug() !== 'hwnd' || m.hwnd === HWND); return k < 0 ? null : s.queue.splice(k, 1)[0]; };
+  if (segValue('lp-loop') === 'get') {
+    // GetMessage: 来るまでスレッドを眠らせる。1 通取ったら 1 フレーム
+    const m = take();
+    if (!m) { s.blocked = true; return 'blocked'; }
+    s.blocked = false;
+    if (m.message === 'WM_QUIT') return false;
+    wndProc(m);
+    return s.process === 'running';
+  }
+  s.blocked = false;
+  for (let m = take(); m; m = take()) {
+    if (m.message === 'WM_QUIT') return false;
+    wndProc(m);
+    if (s.process !== 'running') return false;
+  }
+  return true;
+}
+// Program.Render(Day 1 と同じ絵)
+const pingPong = (v, max) => { if (max <= 0) return 0; const p = max * 2, t = v % p; return Math.trunc(t <= max ? t : p - t); };
+function render() {
+  const blue = Math.trunc((Math.sin(s.anim * 2) * 0.5 + 0.5) * 255);
+  for (let y = 0; y < H; y++) {
+    const g = Math.trunc((y * 255) / (H - 1)), row = y * W;
+    for (let x = 0; x < W; x++) px[row + x] = 0xFF000000 | (blue << 16) | (g << 8) | Math.trunc((x * 255) / (W - 1));   // ImageData は RGBA の順(リトルエンディアンで ABGR)
+  }
+  const size = 48;
+  let bx = pingPong(s.anim * 220, W - size), by = pingPong(s.anim * 130, H - size);
+  bx = Math.min(W - size, Math.max(0, bx + Math.trunc(s.mx))); by = Math.min(H - size, Math.max(0, by + Math.trunc(s.my)));
+  for (let y = by; y < by + size; y++) px.fill(0xFFFFFFFF, y * W + bx, y * W + bx + size);
+}
+function frame() {
+  const now = performance.now() / 1000;
+  if (s.process === 'running' && now >= s.dragUntil) {
+    const r = processMessages();
+    if (r === false) {
+      if (s.process === 'running') { s.process = 'exited'; s.why = 'WM_QUIT を受け取ってループを抜けた(終了コード 0)'; log('WM_QUIT → ProcessMessages が false → RunLoop を抜けて終了'); }
+    } else if (r !== 'blocked') loopBody(now);
+  }
+  draw(now);
+}
+function loopBody(now) {
+  const dt = now - s.prev; s.prev = now;
+  s.loops++; s.loopT += dt;
+  if (s.loopT >= 0.5) { s.loopRate = s.loops / s.loopT; s.loops = 0; s.loopT = 0; }
+  if (s.keyPressed[0x1B]) {
+    log('Esc → window.Close()(DestroyWindow)して、ループを break で抜ける');
+    destroyWindow();
+    s.process = 'exited'; s.why = 'Esc でループを抜けた(終了コード 0)';
+    return;
+  }
+  if (s.keyPressed[0x20]) s.paused = !s.paused;
+  const sp = 240;
+  if (s.keyDown[0x25]) s.mx -= sp * dt; if (s.keyDown[0x27]) s.mx += sp * dt;
+  if (s.keyDown[0x26]) s.my -= sp * dt; if (s.keyDown[0x28]) s.my += sp * dt;
+  if (!s.paused) s.anim += dt;
+  if (!s.window) return;   // ウィンドウが無いので描く先も無い(ループは回り続ける)
+  const t0 = performance.now();
+  render();
+  s.renderAcc += performance.now() - t0;
+  s.fpsN++; s.fpsT += dt;
+  if (s.fpsT >= 0.5) {
+    const present = segValue('lp-present') === 'gdi' ? 0.17 : 4.6;
+    s.title = `Day11 - Win32 P/Invoke  ${(s.fpsN / s.fpsT).toFixed(1)} fps | render ${(s.renderAcc / s.fpsN).toFixed(2)} ms | present ${present.toFixed(2)} ms${s.paused ? ' | 一時停止中' : ''} | Space:一時停止 矢印:移動 Esc:終了`;
+    s.fpsN = 0; s.fpsT = 0; s.renderAcc = 0;
+  }
+}
+function draw(now) {
+  const { ctx, w, h } = fit($('lp-canvas'));
+  ctx.fillStyle = 'rgb(20,23,31)'; ctx.fillRect(0, 0, w, h);
+  const k = Math.min(w / W, h / H), dx = (w - W * k) / 2, dy = (h - H * k) / 2;
+  const banner = (lines, color) => { ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(dx, dy + H * k / 2 - 34, W * k, 68); ctx.fillStyle = color; ctx.font = '14px sans-serif'; ctx.textAlign = 'center'; lines.forEach((l, i) => ctx.fillText(l, w / 2, dy + H * k / 2 - 8 + i * 20)); ctx.textAlign = 'left'; };
+  if (s.window) { off.getContext('2d').putImageData(img, 0, 0); ctx.drawImage(off, dx, dy, W * k, H * k); }
+  if (!s.window && s.process === 'running') banner(['ウィンドウはもう無い。でもループは回り続けている', 'プロセスが残る(タスクマネージャに居続ける)'], tok('--warn'));
+  else if (s.process === 'exited') banner(['プロセスは終了した', s.why], tok('--good'));
+  else if (s.process === 'crashed') banner(['プロセスが落ちた', s.why], tok('--expl'));
+  else if (now < s.dragUntil) banner(['ドラッグ中: DefWindowProcW のモーダルループの中', 'こちらのループは回らないので絵が止まる'], tok('--ink'));
+  else if (s.blocked) banner(['GetMessage で眠っている(メッセージが来るまで進まない)', '絵の上でマウスを動かすと進む'], tok('--ink'));
+  $('lp-title').textContent = s.window ? s.title || '(タイトルは 0.5 秒ごとに更新)' : '(ウィンドウが無い)';
+  const left = s.queue.length;
+  $('lp-stats').innerHTML = stat('プロセス', { running: '動いている', exited: '終了', crashed: '落ちた' }[s.process]) + stat('ウィンドウ', s.window ? 'ある' : '無い')
+    + stat('キューに残っている', left ? `${left} 通${s.queue.some((m) => m.message === 'WM_QUIT') ? '(WM_QUIT を含む)' : ''}` : '0')
+    + stat('WndProc が受けた', `${s.handled} 通`) + stat('ループの周回', s.process === 'running' && !s.blocked ? `${s.loopRate.toFixed(0)} 回/秒` : '0');
+}
+// 入力 → メッセージ
+const cv = $('lp-canvas');
+cv.addEventListener('keydown', (e) => { const vk = KEYMAP[e.key]; if (vk === undefined) return; e.preventDefault(); post('WM_KEYDOWN', vk, { repeat: e.repeat }); });
+cv.addEventListener('keyup', (e) => { const vk = KEYMAP[e.key]; if (vk === undefined) return; e.preventDefault(); post('WM_KEYUP', vk); });
+cv.addEventListener('pointerdown', () => cv.focus());
+cv.addEventListener('pointermove', () => post('WM_MOUSEMOVE'));
+const tap = (vk) => { post('WM_KEYDOWN', vk); post('WM_KEYUP', vk); };
+$('lp-close').addEventListener('click', () => { log('[×] を押した → OS が WM_CLOSE を積む'); post('WM_CLOSE'); });
+$('lp-altf4').addEventListener('click', () => { log('Alt+F4 → OS が WM_SYSKEYDOWN を積む'); post('WM_SYSKEYDOWN', 0x73); });
+$('lp-esc').addEventListener('click', () => tap(0x1B));
+$('lp-space').addEventListener('click', () => tap(0x20));
+$('lp-drag').addEventListener('click', () => { log('タイトルバーを押した → OS が WM_NCLBUTTONDOWN を積む'); post('WM_NCLBUTTONDOWN'); });
+$('lp-gc').addEventListener('click', () => {
+  if (s.process !== 'running') return;
+  s.collected = true;
+  log(bug() === 'local' ? 'GC.Collect(): ローカル変数のデリゲートは誰も参照していないので回収された(OS はまだそのアドレスを持っている)。次のメッセージで落ちる'
+    : 'GC.Collect(): _wndProc フィールドが持っているので回収されない');
+});
+$('lp-restart').addEventListener('click', restart);
+seg('lp-loop', () => log(segValue('lp-loop') === 'get' ? '(GetMessage に替えた)' : '(PeekMessage に戻した)'));
+seg('lp-present', () => {});
+seg('lp-bug', restart);
+restart();
+animate($('lp-lab'), frame);
+
+// ------------------------------------------------------------
+// 2. 枠の太さは DPI で変わる
+// ------------------------------------------------------------
+// 本文の表: 640x480 のクライアントに要る外側の大きさ(実測)
+const OUTER = { 96: [656, 519], 120: [658, 527], 144: [662, 536], 192: [666, 551] };
+const frameOf = (dpi) => { const [ow, oh] = OUTER[dpi], side = (ow - W) / 2; return { side, title: oh - H - side }; };
+function dpiDraw() {
+  const dpi = Number(segValue('dpi-dpi')), fix = segValue('dpi-fix') === '1', f = frameOf(dpi);
+  // AdjustWindowRect はシステム DPI(120)の枠で計算する
+  const adj = OUTER[120];
+  const client0 = [adj[0] - f.side * 2, adj[1] - f.title - f.side];
+  const delta = [W - client0[0], H - client0[1]];
+  const outer = fix ? [adj[0] + delta[0], adj[1] + delta[1]] : adj;
+  const client = [outer[0] - f.side * 2, outer[1] - f.title - f.side];
+  const { ctx, w, h } = fit($('dpi-canvas'));
+  const k = Math.min((w - 20) / 680, (h - 20) / 560), ox = (w - outer[0] * k) / 2, oy = (h - outer[1] * k) / 2;
+  ctx.fillStyle = tok('--line'); ctx.fillRect(ox, oy, outer[0] * k, outer[1] * k);                 // 枠
+  ctx.fillStyle = tok('--muted'); ctx.fillRect(ox, oy, outer[0] * k, f.title * k);                // タイトルバー
+  ctx.fillStyle = tok('--ink'); ctx.font = '12px sans-serif'; ctx.fillText('Day11 - Win32 P/Invoke', ox + 8, oy + Math.min(f.title * k, 30) * 0.65);
+  const cx = ox + f.side * k, cy = oy + f.title * k;
+  // 640x480 の絵(グラデーション)。窓に入るところだけ見える
+  const gr = ctx.createLinearGradient(cx, cy, cx + W * k, cy + H * k); gr.addColorStop(0, 'rgb(0,0,128)'); gr.addColorStop(1, 'rgb(255,255,128)');
+  ctx.save(); ctx.beginPath(); ctx.rect(cx, cy, client[0] * k, client[1] * k); ctx.clip(); ctx.fillStyle = gr; ctx.fillRect(cx, cy, W * k, H * k); ctx.restore();
+  // 入らないところ
+  ctx.save(); ctx.strokeStyle = tok('--expl'); ctx.lineWidth = 1;
+  const miss = (x, y, ww, hh) => { if (ww <= 0 || hh <= 0) return; ctx.save(); ctx.beginPath(); ctx.rect(x, y, ww, hh); ctx.clip(); for (let t = -hh; t < ww; t += 6) { ctx.beginPath(); ctx.moveTo(x + t, y + hh); ctx.lineTo(x + t + hh, y); ctx.stroke(); } ctx.restore(); ctx.strokeRect(x, y, ww, hh); };
+  miss(cx + client[0] * k, cy, (W - client[0]) * k, H * k);
+  miss(cx, cy + client[1] * k, Math.min(W, client[0]) * k, (H - client[1]) * k);
+  ctx.restore();
+  ctx.setLineDash([4, 3]); ctx.strokeStyle = tok('--accent'); ctx.strokeRect(cx, cy, W * k, H * k); ctx.setLineDash([]);
+  const short = [W - client[0], H - client[1]];
+  $('dpi-stats').innerHTML = stat('AdjustWindowRect', `${adj[0]}x${adj[1]}`) + stat('作った直後のクライアント', `${client0[0]}x${client0[1]}`)
+    + stat('検算で足した', fix ? `${delta[0] >= 0 ? '+' : ''}${delta[0]} x ${delta[1] >= 0 ? '+' : ''}${delta[1]}` : '—') + stat('最終の外側', `${outer[0]}x${outer[1]}`)
+    + stat('最終のクライアント', `${client[0]}x${client[1]}${short[0] > 0 || short[1] > 0 ? `(右 ${Math.max(0, short[0])}・下 ${Math.max(0, short[1])} px 切れる)` : short[0] < 0 || short[1] < 0 ? '(余る)' : ''}`);
+}
+seg('dpi-dpi', dpiDraw); seg('dpi-fix', dpiDraw);
+window.addEventListener('resize', dpiDraw);
+dpiDraw();
+})();
+</script>
+</body>
+</html>

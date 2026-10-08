@@ -79,7 +79,7 @@ mesh.Draw();</code></pre></div>
 <div class="code"><span class="lang">csharp</span><pre><code>StbImage.stbi_set_flip_vertically_on_load(1);</code></pre></div>
 <p>Day 10 の要点3で「テクスチャが上下逆さまになるのはグラフィックスで最頻出のバグ」と書いた話が、そっくりそのまま GPU 側でも起きる。<strong>どちらが正しいということはなく、流儀が2つあるだけ</strong>なので、どこかで必ず吸収する必要がある。</p>
 <p>今日は「読み込み時に反転する」を選んだ。こうしておくと、四角形の左下の頂点に UV(0,0) を割り当てたときに<strong>画像ファイルで見たとおりの向き</strong>で表示される。</p>
-<p>本Dayのテスト用テクスチャには、これを一目で判定できるよう<strong>UV原点に白い四角</strong>を入れてある。実際に描いた結果、白い四角は左の四角形の<strong>左上</strong>に出た——元の PNG でも白は左上なので、向きは正しい。</p>
+<p>本Dayのテスト用テクスチャには、これを一目で判定できるよう<strong>画像の左上(ファイルで最初に来る行の左端)に白い四角</strong>を入れてある(上下反転して読み込むと UV (0,1) に来る)。実際に描いた結果、白い四角は左の四角形の<strong>左上</strong>に出た——元の PNG でも白は左上なので、向きは正しい。</p>
 <h3 id="s8">5. フィルタとラップ — 自作したものが設定1つになる</h3>
 <p>Day 8 で「バイリニアはテクセルを4個読むのでメモリアクセスのコストそのもの、実測 +7ms」と書いた処理は、GPU では<strong>設定1つ</strong>になる。</p>
 <div class="code"><span class="lang">csharp</span><pre><code>_gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, ...);</code></pre></div>
@@ -154,7 +154,7 @@ internal struct Vertex
 
     public static ReadOnlySpan&lt;int&gt; AttributeSizes =&gt; [3, 2, 4];
 }</code></pre></div>
-<p><code>StructLayout(Sequential)</code> が要るのは Day 11 で Win32 の構造体に付けたのと同じ理由。<strong>これが無いと CLR がフィールドを詰め替えてよい</strong>ことになっており、教えたオフセットと食い違う可能性がある。</p>
+<p><code>StructLayout(Sequential)</code> は<strong>フィールドを宣言順に並べる</strong>という指定。C# の struct は既定でも Sequential なので、今日の <code>Vertex</code> では付けなくても並びは変わらない。それでも書いておくのは、<strong>GPU に渡すメモリの並びを前提にしている</strong>ことをコードに残すため(Day 11 で Win32 の構造体に付けたのと同じ考え方)。なお、参照型のフィールドを持つ構造体は、Sequential と書いても CLR が並びを変えてよいことになる。頂点に参照型を入れてはいけない理由の1つ。</p>
 <p><code>Mesh</code> 側は <code>Unsafe.SizeOf&lt;TVertex&gt;()</code> でストライドを取り、<code>AttributeSizes</code> を順に足してオフセットを組み立てる。そして<strong>合計がサイズと一致するか検算する</strong>。</p>
 <div class="code"><span class="lang">csharp</span><pre><code>if (offset != stride) throw new InvalidOperationException(...);</code></pre></div>
 <p>属性の記述を間違えると、GL は何も言わずに壊れた絵を出す。自分で検算しておけば、<strong>絵を見る前に例外で気付ける</strong>。</p>
@@ -204,7 +204,7 @@ internal struct Vertex
 <tbody>
 <tr><td>32px の市松模様</td><td>フィルタの違い(ニアレストは境界がくっきり)</td></tr>
 <tr><td>赤が右へ、緑が下へ増える</td><td>向きと、UV の増える方向</td></tr>
-<tr><td><strong>UV原点の白い四角</strong></td><td><strong>上下反転しているかどうか</strong>(要点4)</td></tr>
+<tr><td><strong>画像の左上の白い四角</strong></td><td><strong>上下反転しているかどうか</strong>(要点4)</td></tr>
 <tr><td>マス目の黒い罫線</td><td>ミップマップとラップの境目</td></tr>
 </tbody>
 </table></div>
@@ -220,7 +220,7 @@ git diff --no-index reference/Day14/Shader.cs  reference/Day15/Shader.cs</code><
 <ol><li><strong>テクスチャの貼られた四角形が2つ</strong>、ゆっくり逆回転しながら表示される</li><li><strong>左の四角形</strong>: <code>assets/textures/uv-test.png</code> が<strong>そのままの向き</strong>で貼られている。<strong>白い四角が左上</strong>にあること(元の PNG と同じ向き = 上下反転が正しい。要点4)</li><li><strong>右の四角形</strong>: 暖色に色づいていて、模様が<strong>縦横2回ずつ、計4枚</strong>繰り返されている(UV倍率2 + Repeat)。白い四角も4つ見える</li><li><strong>R キー</strong>でラップモードを切り替えると、右の四角形が<strong>左下に1枚だけ + 残りは端の色が引き伸ばされた状態</strong>に変わる(ClampToEdge)。<strong>左の四角形は変化しない</strong>(UV が 0〜1 に収まっているため)</li><li><strong>F キー</strong>でフィルタを切り替える。Nearest にすると市松の境界がくっきりする</li><li><strong>W</strong> でワイヤーフレーム。四角形が三角形2枚でできていることが見える</li><li>タイトルバーが<code>Day15 - メッシュ/テクスチャ/マテリアル  60.0 fps | フィルタ:Linear | ラップ:Repeat | 塗り | ...</code></li><li><strong>F5</strong> で Day 14 と同じシェーダのホットリロードが効く</li><li><strong>Esc</strong> / <strong>[×]</strong> で終了し、プロセスが残らない</li></ol>
 <p>2〜4 は目視ではなく、フレームバッファを読み出して画像に落として確認してある。<strong>左は元の PNG と完全に同じ向き</strong>、右は Repeat で 4枚・ClampToEdge で 1枚 + 引き伸ばし、という結果が得られている。</p>
 <p>うまくいかないときの確認ポイント:</p>
-<ul><li><strong>テクスチャが上下逆さま(白い四角が左下に出る)</strong> → 要点4。<code>stbi_set_flip_vertically_on_load</code> を呼んでいるか。あるいは四角形の UV の割り当てが逆</li><li><strong>真っ黒 / 真っ白な四角形</strong> → sampler に何を渡しているか(要点6)。<strong>テクスチャのハンドルではなくユニットの番号(0)</strong></li><li><strong><code>頂点属性の合計 N バイトが Vertex のサイズ M バイトと一致しません</code></strong> → <code>AttributeSizes</code> と構造体のフィールドが食い違っている。<strong>この例外が出るのは正常な動作</strong>(要点7の検算が働いた)</li><li><strong>模様が斜めにずれる / 色が混ざる</strong> → ストライドかオフセットの間違い。<code>StructLayout(Sequential)</code> を付け忘れると起きうる</li><li><strong>拡大したときだけフィルタが効かない</strong> → MagFilter にミップマップ付きの値を指定している(要点5)。<code>GL_INVALID_ENUM</code> が出ているはず</li><li><strong>右の四角形が繰り返されない</strong> → ラップモードが ClampToEdge のまま。あるいは <code>UvScale</code> が 1 のまま</li><li><strong><code>素材が見つかりません: assets/textures/uv-test.png</code></strong> → <code>assets/</code> はリポジトリのルートにある。<code>dotnet run --project</code> で起動しているか</li><li><strong>ワイヤーフレームにすると三角形が1枚しか見えない</strong> → インデックスの向きか個数。6個(2枚ぶん)渡しているか</li></ul>
+<ul><li><strong>テクスチャが上下逆さま(白い四角が左下に出る)</strong> → 要点4。<code>stbi_set_flip_vertically_on_load</code> を呼んでいるか。あるいは四角形の UV の割り当てが逆</li><li><strong>真っ黒 / 真っ白な四角形</strong> → sampler に何を渡しているか(要点6)。<strong>テクスチャのハンドルではなくユニットの番号(0)</strong></li><li><strong><code>頂点属性の合計 N バイトが Vertex のサイズ M バイトと一致しません</code></strong> → <code>AttributeSizes</code> と構造体のフィールドが食い違っている。<strong>この例外が出るのは正常な動作</strong>(要点7の検算が働いた)</li><li><strong>模様が斜めにずれる / 色が混ざる</strong> → ストライドかオフセットの間違い。構造体のフィールドの並びと <code>AttributeSizes</code> の順番が食い違っていないか(合計が同じなら検算をすり抜ける)</li><li><strong>拡大したときだけフィルタが効かない</strong> → MagFilter にミップマップ付きの値を指定している(要点5)。<code>GL_INVALID_ENUM</code> が出ているはず</li><li><strong>右の四角形が繰り返されない</strong> → ラップモードが ClampToEdge のまま。あるいは <code>UvScale</code> が 1 のまま</li><li><strong><code>素材が見つかりません: assets/textures/uv-test.png</code></strong> → <code>assets/</code> はリポジトリのルートにある。<code>dotnet run --project</code> で起動しているか</li><li><strong>ワイヤーフレームにすると三角形が1枚しか見えない</strong> → インデックスの向きか個数。6個(2枚ぶん)渡しているか</li></ul>
 <div class="inject"><h3>実験台と実機のキーの対応</h3>
 <div class="table-wrap"><table>
 <thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
