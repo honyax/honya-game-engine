@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 06 モデル→ビュー→透視投影のパイプライン</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 座標系は5段階ある</a></li><li class="l3"><a href="#s5">2. ビュー行列 = カメラを動かす代わりに、世界を動かす</a></li><li class="l3"><a href="#s6">3. 透視投影行列がしているのは「Z を W にコピーする」だけ</a></li><li class="l3"><a href="#s7">4. 深度は距離に比例しない — near は大きいほどよい</a></li><li class="l3"><a href="#s8">5. カメラの後ろの頂点は、素直には投影できない</a></li><li class="l3"><a href="#s9">6. 画家のアルゴリズムと、その限界</a></li><li class="l3"><a href="#s10">7. 実測 — 3Dになっても中身は Day 3〜5 のまま</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 投影行列を壊して仕組みを見る</a></li><li class="l3"><a href="#s16">課題2(中): 深度の非線形性を自分で確かめる</a></li><li class="l3"><a href="#s17">課題3(難): 画家のアルゴリズムを破る</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 06 / 計画書</p>
+  <h1>モデル→ビュー→透視投影のパイプライン</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 座標系は5段階ある</a></li><li class="l3"><a href="#s5">2. ビュー行列 = カメラを動かす代わりに、世界を動かす</a></li><li class="l3"><a href="#s6">3. 透視投影行列がしているのは「Z を W にコピーする」だけ</a></li><li class="l3"><a href="#s7">4. 深度は距離に比例しない — near は大きいほどよい</a></li><li class="l3"><a href="#s8">5. カメラの後ろの頂点は、素直には投影できない</a></li><li class="l3"><a href="#s9">6. 画家のアルゴリズムと、その限界</a></li><li class="l3"><a href="#s10">7. 実測 — 3Dになっても中身は Day 3〜5 のまま</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 投影行列を壊して仕組みを見る</a></li><li class="l3"><a href="#s16">課題2(中): 深度の非線形性を自分で確かめる</a></li><li class="l3"><a href="#s17">課題3(難): 画家のアルゴリズムを破る</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「モデル→ビュー→透視投影のパイプライン」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>回転する立方体が、遠近感のついた3Dとして画面に出る。</p>
+<p>Day 5 までは全部2Dだった。今日 <strong>3D になる</strong>。しかも新しく書く計算は「行列を2つ追加」と「W で割る」だけで、他はすべて Day 1〜5 の積み上げがそのまま動く。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-3 変換(1) 同次座標による座標変換</a> —<strong>今日の必読</strong>。透視投影行列の導出そのもの。資料は列ベクトル規約なので、行列は本リポジトリの転置になる(Day 5 の要点2)</li><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/perspective-and-orthographic-projection-matrix.html">Scratchapixel: The Perspective and Orthographic Projection Matrix</a> —投影行列の各要素がどこから来るかを段階的に導く</li><li><a href="https://learnopengl.com/Getting-started/Coordinate-Systems">LearnOpenGL: Coordinate Systems</a> —座標系が何段階あるかの全体像。図が分かりやすい</li><li>西川善司「ゲーム制作者になるための3Dグラフィックス技術 改訂3版」Ch2</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 座標系は5段階ある</h3>
+<p>頂点は、画面に出るまでに次の座標系を通る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>座標系</th><th>何を基準にした位置か</th><th>変換するもの</th></tr></thead>
+<tbody>
+<tr><td><strong>モデル座標</strong></td><td>物体そのもの(立方体の中心が原点)</td><td>← ここが <code>Vertex.Position</code> の初期値</td></tr>
+<tr><td><strong>ワールド座標</strong></td><td>世界の原点</td><td>モデル行列(配置・回転・拡大)</td></tr>
+<tr><td><strong>ビュー座標</strong></td><td>カメラ(カメラが原点、視線が -Z)</td><td>ビュー行列</td></tr>
+<tr><td><strong>クリップ座標</strong></td><td>4次元。W に奥行きが入っている</td><td>投影行列</td></tr>
+<tr><td><strong>NDC</strong></td><td>-1〜1 の立方体</td><td><strong>透視除算</strong>(W で割る)</td></tr>
+<tr><td><strong>画面座標</strong></td><td>ピクセル</td><td>ビューポート変換</td></tr>
+</tbody>
+</table></div>
+<p>行列は3つだが、掛け合わせて<strong>1つの MVP 行列</strong>にできる。頂点が10万個あっても行列の合成は物体ごとに1回で済む。これが Day 5 で「変換を行列に統一した」ことの実利。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Mat4 mvp = model * view * projection;   // 行ベクトル規約なので左から順</code></pre></div>
+<h3 id="s5">2. ビュー行列 = カメラを動かす代わりに、世界を動かす</h3>
+<p>カメラという実体はレンダラの中に存在しない。<strong>カメラが右に3進んだ景色は、世界が左に3ずれた景色と同じ</strong>。だからビュー行列は「カメラの姿勢の逆変換」になる。</p>
+<p>逆行列を真面目に計算する必要はない。カメラの姿勢は「回転 + 平行移動」だけなので、</p>
+<ul><li>回転の逆 … 直交行列なので<strong>転置</strong>でよい</li><li>平行移動の逆 … 回転後の各軸との内積の符号を反転したもの</li></ul>
+<p>で済む。<code>Mat4.LookAt</code> の中身がまさにこの形になっている(Day 5 の課題3で「逆行列を避けられる」と書いたのはこのこと)。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Vec3 zAxis = (eye - target).Normalized();      // カメラの後ろ向きが Z(-Z を見る約束)
+Vec3 xAxis = Vec3.Cross(up, zAxis).Normalized();
+Vec3 yAxis = Vec3.Cross(zAxis, xAxis);          // up を作り直して直交させる</code></pre></div>
+<p><code>up</code> を外積で作り直しているのは、呼び出し側が渡す <code>up</code> が視線と直交している保証がないため。</p>
+<h3 id="s6">3. 透視投影行列がしているのは「Z を W にコピーする」だけ</h3>
+<p>ここが今日一番の勘所。<strong>投影行列は遠近感を作っていない。</strong></p>
+<div class="code"><span class="lang">csharp</span><pre><code>M11 = xScale;                       // 視野角による倍率
+M22 = yScale;
+M33 = far / (near - far);
+M34 = -1.0f;                        // ← Z を W へコピーする係数。これが本体
+M43 = near * far / (near - far);
+M44 = 0.0f;                         // ← ここが 0 なのが透視投影の目印</code></pre></div>
+<p><code>M34 = -1</code> により、変換後の W にはカメラからの奥行きが入る。そして<strong>遠近感は次の段階の割り算で生まれる</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float invW = 1.0f / clip.W;
+float ndcX = clip.X * invW;   // 奥のものほど W が大きい → 小さくなる
+float ndcY = clip.Y * invW;</code></pre></div>
+<p><strong>実測での検算</strong>(カメラ (0,0,5)、視野角90度、near=1, far=11):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>点の z</th><th>カメラからの距離</th><th>W</th><th>画面上の高さ NDC.Y</th><th>深度 NDC.Z</th></tr></thead>
+<tbody>
+<tr><td>4.0</td><td>1.0</td><td>1.00</td><td>1.000</td><td>0.0000</td></tr>
+<tr><td>3.0</td><td>2.0</td><td>2.00</td><td>0.500</td><td>0.5500</td></tr>
+<tr><td>0.0</td><td>5.0</td><td>5.00</td><td>0.200</td><td>0.8800</td></tr>
+<tr><td>-3.0</td><td>8.0</td><td>8.00</td><td>0.125</td><td>0.9625</td></tr>
+<tr><td>-6.0</td><td>11.0</td><td>11.00</td><td>0.091</td><td>1.0000</td></tr>
+</tbody>
+</table></div>
+<p><strong>W はカメラからの距離そのもの</strong>になっており、<strong>画面上の高さは距離にきれいに反比例</strong>している(1.0, 0.5, 0.2, 0.125, 0.091 = 1/距離)。これが「遠くのものが小さく見える」の全て。同次座標の W は、この割り算のために用意された仕組みだったということになる。</p>
+<h3 id="s7">4. 深度は距離に比例しない — near は大きいほどよい</h3>
+<p>上の表の一番右の列に注目してほしい。<strong>near から far までを 0〜1 に写す深度が、距離に対して激しく非線形</strong>になっている。</p>
+<ul><li>距離 1 → 2(全体の10%)で深度は <strong>0 → 0.55</strong>。半分以上を使い切る</li><li>距離 8 → 11(全体の30%)では <strong>0.96 → 1.0</strong>。わずか4%しかない</li></ul>
+<p>つまり<strong>深度の精度は手前に集中し、奥はスカスカ</strong>。<code>M43 = near * far / (near - far)</code> の形からくる性質で、near を小さくするほど極端になる。</p>
+<div class="inject"><figure class="lab" id="pp-lab">
+  <div class="lab-head">
+    <h3>1 点を座標系に沿って追う — W に奥行きが入り、割り算で縮む(要点1・3・4)</h3>
+    <span class="tag">reference の Mat4.LookAt、Mat4.Perspective、Rasterizer.TryProjectToScreen を JS に移し(docs/site/rasterizer.js)、本文の表と同じ条件(カメラ (0,0,5)、視野角 90 度、高さ 1 の点)で 1 点を変換したもの。左は横から見た図(カメラは左、視線は右向き。灰色の斜線が視野、縦の点線が near と far)、右は深度 NDC.Z とカメラからの距離の関係。点の z と near はこのページの切り替えで、near 1 / far 11 が本文の表の条件</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="pp-grid">
+      <canvas id="pp-side" style="width:100%;height:220px" aria-label="横から見た視錐台と点"></canvas>
+      <canvas id="pp-depth" style="width:100%;height:220px" aria-label="距離と深度のグラフ"></canvas>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">点の z(高さは 1)</span>
+      <input type="range" id="pp-z" min="-60" max="40" value="0" style="width:100%"><span id="pp-zv" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div class="ctl"><span class="label">near / far</span>
+      <div class="seg" id="pp-near"><button data-v="1" aria-pressed="true">1 / 11(本文の表)</button><button data-v="0.1" aria-pressed="false">0.1 / 11</button><button data-v="0.01" aria-pressed="false">0.01 / 11</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="pp-table"></div></div>
+</figure></div>
+<p>その結果、near を 0.01 のような小さい値にすると、遠くの物体の前後関係を深度値で区別できなくなり、面がチラチラと入れ替わる(<strong>Zファイティング</strong>)。<strong>near はできるだけ大きく</strong>が鉄則。</p>
+<p>なお near = 0 は不可能。数式が破綻するだけでなく、「カメラの位置にある点の投影先」が定義できないため。</p>
+<h3 id="s8">5. カメラの後ろの頂点は、素直には投影できない</h3>
+<p>W はカメラからの奥行きなので、カメラの後ろにある点は W が負になる。そのまま割ると符号が反転し、<strong>三角形が画面の反対側へ裏返って飛んでいく</strong>。</p>
+<p>正しい対処は「三角形を近クリップ面で切って、手前の部分だけ描く」ことで、それが Day 10 のクリッピング。今日は <strong>W が正でない頂点を1つでも含む三角形は丸ごと捨てる</strong>という手抜きで済ませている。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (clip.W &lt;= MinClipW) { screen = default; return false; }</code></pre></div>
+<p>そのためカメラが物体に近づきすぎると面が丸ごと消える。これは今日の時点では正常な挙動(Day 10 で直る)。</p>
+<h3 id="s9">6. 画家のアルゴリズムと、その限界</h3>
+<p>3Dになった途端、新しい問題が出る。<strong>どの面が手前にあるか</strong>。何も考えずに描くと、後から描いた面が前の面を上書きしてしまう。</p>
+<p>今日は古典的な<strong>画家のアルゴリズム</strong>を使う。三角形を奥から順に並べ替えて、奥から描く。絵の具を重ねる画家のやり方に似ているのでこの名前。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>triangles.Sort(static (a, b) =&gt; b.Depth.CompareTo(a.Depth));   // 遠い順</code></pre></div>
+<p>S キーで並べ替えを切ると、立方体が崩壊して奥の面が手前に見える。</p>
+<p><strong>しかしこの方法には原理的な限界がある。</strong></p>
+<ol><li><strong>三角形1枚につき深度が1つしかない。</strong> 実際には三角形は奥行きを持った面なので、「三角形Aのほうが手前」と一言では言えない場合がある</li><li><strong>交差する三角形は絶対に解けない。</strong> 十字に交わる2枚は、どちらを先に描いても間違いになる(互いに相手を貫いているため)</li><li><strong>循環する場合がある。</strong> AはBより手前、BはCより手前、CはAより手前、という3枚の配置が作れてしまう</li><li><strong>並べ替えのコストが乗る。</strong> 三角形が10万枚なら毎フレーム10万個のソート</li></ol>
+<p>Day 7 のZバッファは、これを<strong>ピクセル単位で判定する</strong>ことで全部まとめて解決する。今日のソートの仕組みは Day 7 でまるごと消える。</p>
+<div class="inject"><figure class="lab" id="cu-lab">
+  <div class="lab-head">
+    <h3>立方体4個のシーン — MVP と画家のアルゴリズム(要点1・5・6、S・W キー)</h3>
+    <span class="tag">reference の GameWindow.cs(Render のカメラの周回と4個の立方体、SubmitCube、SubmitTriangle、DrawSubmitted の並べ替え)と Camera.cs を JS に移して 640x480 に描いたもの(docs/site/rasterizer.js)。1 フレーム 48 枚。render はこのページの値。「M44 = 1」と「カメラを寄せる」はこのページだけで、本文の確認ポイントの症状(遠近感が無くなる、近づくと面が消える)を再現するもの</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="cu-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="cu-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="色とりどりの立方体が4個。中央の1個のまわりを3個が回る"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">奥から順に描く(S)とワイヤー(W)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="cu-sort"><button data-v="1" aria-pressed="true">並べ替え ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="cu-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤーを重ねる</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">壊してみる(このページだけ)と動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="cu-m44"><button data-v="0" aria-pressed="true">M44 = 0(reference)</button><button data-v="1" aria-pressed="false">M44 = 1</button></div><div class="seg" id="cu-dist"><button data-v="6" aria-pressed="true">距離 6(reference)</button><button data-v="2.2" aria-pressed="false">カメラを寄せる</button></div><div class="seg" id="cu-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cu-stats"></div></div>
+</figure></div>
+<h3 id="s10">7. 実測 — 3Dになっても中身は Day 3〜5 のまま</h3>
+<p>Day 6 の render 時間は 1.9〜2.0 ms(立方体4個 = 48枚)。Day 5 の 0.6 ms(10枚)から増えているが、これは枚数と塗る面積が増えたからで、1枚あたりのコストの構造は変わっていない。</p>
+<p>今日追加した計算は<strong>頂点あたり</strong>のもの(行列の掛け算1回 + 割り算1回)で、<strong>ピクセルあたり</strong>の仕事は Day 4 から1つも増えていない。頂点は三角形1枚につき3個、ピクセルは数百〜数千個あるので、<strong>3D化のコストは実質ゼロ</strong>と言ってよい。</p>
+<p>これは「頂点処理とピクセル処理を分ける」というパイプラインの設計が効いている証拠で、GPUが頂点シェーダとピクセルシェーダを別々に持っている理由でもある。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Camera.cs</code></td><td><strong>新規(約70行)</strong></td><td>位置・注視点・視野角からビュー行列と投影行列を作る</td></tr>
+<tr><td><code>Mat4.cs</code></td><td>+76行</td><td><code>LookAt</code> と <code>Perspective</code> を追加</td></tr>
+<tr><td><code>Rasterizer.cs</code></td><td>+80行</td><td><code>TryProjectToScreen</code>(透視除算 + ビューポート変換)と <code>DrawTriangle</code></td></tr>
+<tr><td><code>Vertex.cs</code></td><td>変更</td><td><code>Position</code> が <code>Vec2</code> → <code>Vec3</code>(モデル座標 / 画面座標 + 深度の両用)</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え</td><td>立方体4個の3Dシーン。画家のアルゴリズムによる並べ替え</td></tr>
+</tbody>
+</table></div>
+<p><code>Vertex.Position</code> が <code>Vec3</code> になったのは、1つの型を2つの意味で使い回すため。</p>
+<ul><li>パイプラインに入る前 … モデル座標(3次元)</li><li>ラスタライザに渡す時 … 画面座標(X, Y はピクセル、Z は深度 0〜1)</li></ul>
+<p>Z は今日は使わないが、Day 7 のZバッファでそのまま深度値になる。</p>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>Mat4.cs</code> — <code>LookAt</code> → <code>Perspective</code>。<strong><code>Perspective</code> のコメントは熟読すること</strong></li><li><code>Camera.cs</code> — 短い。near の説明(要点4)を読む</li><li><code>Vertex.cs</code> — <code>Vec2</code> → <code>Vec3</code> に変えるだけ</li><li><code>Rasterizer.cs</code> — <code>TryProjectToScreen</code> が今日の本体。<strong>透視除算の3行</strong>が3DCGの核心</li><li><code>GameWindow.cs</code> — 立方体の定義と画家のアルゴリズム</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day05/Rasterizer.cs reference/Day06/Rasterizer.cs
+git diff --no-index reference/Day05/Mat4.cs       reference/Day06/Mat4.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day06 -c Release</code></pre></div>
+<ol><li><strong>色とりどりの立方体が4個</strong>表示され、カメラがゆっくり周回している</li><li><strong>遠近感がついている</strong>。手前の面が大きく、奥の面が小さい。立方体の平行な辺が、画面上では平行になっていない(これが透視投影の証拠)</li><li>中央の大きな立方体が自転し、小さな立方体3個がそのまわりを公転している</li><li>立方体が<strong>面として立体的に見える</strong>(奥の面が手前の面に隠れている)</li><li><strong>S</strong> キーで並べ替えを切ると、<strong>立方体が崩壊する</strong>。奥の面が手前に描かれ、平面的な色の塊に見える。もう一度押すと直る</li><li><strong>W</strong> キーでワイヤーフレームが重なる。立方体の12辺 + 対角線が見える</li><li>タイトルバーが <code>59.x fps | 48 tri | render 2.0x ms | 奥から順に描く:ON</code> のようになっている</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>何も表示されない</strong> → MVP の掛ける順序。行ベクトル規約では <code>model * view * projection</code></li><li><strong>画面が真っ黒で、たまに巨大な三角形が横切る</strong> → W が負の頂点を弾いていない。要点5</li><li><strong>絵が上下逆さま</strong> → ビューポート変換の Y 反転を忘れている。NDC は上が +1、画面は下へ行くほど Y が増える</li><li><strong>絵が縦長 / 横長に潰れる</strong> → <code>AspectRatio</code> を設定していない(既定の 4:3 のままか、幅/高さの順が逆)</li><li><strong>遠近感がない(平行投影に見える)</strong> → <code>M34 = -1</code> と <code>M44 = 0</code> を書いているか。<code>M44 = 1</code> のままだと W が常に 1 になり、割り算が効かない</li><li><strong>カメラに近づくと面が消える</strong> → 正常。要点5のとおり Day 10 で直る</li><li><strong>立方体の面に対角線の隙間が見える</strong> → Day 3 の top-left rule が壊れている</li><li><strong>立方体が裏返って見える(内側から見ているよう)</strong> → カメラの Z 軸の向き。<code>(eye - target)</code> であって <code>(target - eye)</code> ではない</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>S</code></td><td>「立方体4個のシーン」の「並べ替え OFF」</td><td>描いた順に上書きされて、奥の面が手前に出る</td></tr>
+<tr><td><code>W</code></td><td>同じ実験台の「ワイヤーを重ねる」</td><td>立方体の 12 辺と各面の対角線</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「M44 = 1」と「カメラを寄せる」</td><td>W が 1 に固定されて遠近感が消える。W が正でない頂点を含む三角形は丸ごと捨てられる</td></tr>
+<tr><td>(キーなし)</td><td>「1 点を座標系に沿って追う」</td><td>W が距離そのものになり、NDC.Y が 1/距離 で縮む。near を小さくすると深度が手前に偏る</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day06 の Mat4.cs(LookAt、Perspective)、Camera.cs、Rasterizer.cs(TryProjectToScreen)、GameWindow.cs(立方体のシーン)を JS に移したもの(docs/site/rasterizer.js)。計算は double(reference は float)。render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 投影行列を壊して仕組みを見る</h3>
+<ol><li><code>Mat4.Perspective</code> の <code>M34</code> を <code>-1</code> から <code>0</code> に、<code>M44</code> を <code>0</code> から <code>1</code> に変える。何が起きるか。これは何という投影法か(ヒント: 設計図やアイソメトリックなゲームの見え方)</li><li><code>M34</code> を <code>-2</code> にすると何が変わるか。<code>-0.5</code> では?</li><li><code>Camera.FieldOfView</code> を 20度と 150度にして比べる。<strong>同じ位置から同じ物を見ているのに、形が違って見える</strong>のはなぜか(実写でも起きる現象で、広角レンズで顔を撮ると鼻が大きくなるのと同じ理屈)</li></ol>
+<h3 id="s16">課題2(中): 深度の非線形性を自分で確かめる</h3>
+<p>要点4の表を自分で再現し、near の影響を測る。</p>
+<ol><li>カメラの前に等間隔(距離 1, 2, 3, ... 10)で点を置き、それぞれの NDC.Z を出力する</li><li><code>near</code> を 0.1 / 1.0 / 4.0 と変えて、値の分布がどう変わるか比べる</li><li>深度を <strong>float ではなく 16bit 整数</strong>(0〜65535)で持つと仮定して、距離 50 と距離 51 の点が区別できるかを near ごとに計算する。near = 0.01 だとどうなるか</li></ol>
+<p>Zファイティングは実際のゲーム開発で頻繁に遭遇する問題なので、「なぜ near を大きくしろと言われるのか」を数字で納得しておくと後々効く。</p>
+<h3 id="s17">課題3(難): 画家のアルゴリズムを破る</h3>
+<p>要点6で挙げた限界を、実際に絵として再現する。</p>
+<ol><li><strong>交差する2枚</strong>: 十字に交わる大きな三角形2枚を描く。どちらを先に描いても正しくならないことを確認する</li><li><strong>循環</strong>: A→B→C→A と互いに重なり合う3枚を配置する(細長い三角形を少しずつずらして重ねると作れる)</li><li>三角形をソートする基準を「平均」から「最も手前の頂点」「最も奥の頂点」に変えると、結果はどう変わるか。<strong>どの基準でも壊れるケースが作れる</strong>ことを確認する</li></ol>
+<p>ここで壊れた絵を見ておくと、Day 7 のZバッファが「なぜピクセル単位でなければならないのか」が腹に落ちる。</p>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 58〜61 fps、render 1.91〜2.04 ms(48枚)</li><li><code>Mat4.Perspective</code> は System.Numerics と完全一致、<code>LookAt</code> は最大差 3.6e-7</li></ul>
+</section>
+<footer class="end">Day 06 モデル→ビュー→透視投影のパイプライン / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const R = Raster, M = R.Mat4;
+
+// ------------------------------------------------------------
+// 1. 1 点を座標系に沿って追う
+// ------------------------------------------------------------
+const FAR = 11;
+const ppCam = () => R.camera({ position: [0, 0, 5], target: [0, 0, 0], fov: Math.PI / 2, aspect: 1, near: Number(segValue('pp-near')), far: FAR });
+function stages(z) {
+  const c = ppCam(), view = M.lookAt(c.position, c.target, c.up), proj = M.perspective(c.fov, c.aspect, c.near, c.far);
+  const world = [0, 1, z], v = M.transformPoint(world, view), clip = M.transform([...world, 1], M.mul(view, proj));
+  const ndc = clip[3] > 1e-5 ? [clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]] : null;
+  return { world, view: v, clip, ndc, screen: ndc ? [(ndc[0] * 0.5 + 0.5) * 640, (0.5 - ndc[1] * 0.5) * 480] : null };
+}
+const f = (v, d = 3) => (Math.abs(v) < 5e-7 ? 0 : v).toFixed(d);
+function ppDraw() {
+  const z = Number($('pp-z').value) / 10, near = Number(segValue('pp-near')), s = stages(z), dist = 5 - z;
+  $('pp-zv').textContent = `z = ${z.toFixed(1)}(カメラからの距離 ${dist.toFixed(1)})`;
+  { // 横から見た図
+    const { ctx, w, h } = fit($('pp-side')), X = (d) => 20 + (d / 12) * (w - 30), Y = (y) => h / 2 - y * (h / 2 - 10) / 6;
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(12), Y(0)); ctx.stroke();
+    ctx.strokeStyle = tok('--muted'); ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(12), Y(12)); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(12), Y(-12)); ctx.stroke();   // 視野角 90 度
+    ctx.setLineDash([4, 3]);
+    for (const d of [near, FAR]) { ctx.beginPath(); ctx.moveTo(X(d), 0); ctx.lineTo(X(d), h); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.fillStyle = tok('--ink'); ctx.font = '11px sans-serif'; ctx.fillText('カメラ', X(0), Y(0) - 6); ctx.fillText('near', X(near) + 3, 12); ctx.fillText('far', X(FAR) - 18, 12);
+    // 点と、カメラへ向かう線(距離 1 の位置での高さが NDC.Y)
+    ctx.strokeStyle = tok('--warn'); ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(Math.max(dist, 0.01)), Y(1)); ctx.stroke();
+    ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(dist), Y(1), 5, 0, Math.PI * 2); ctx.fill();
+    if (dist > 0) { ctx.fillStyle = tok('--good'); ctx.beginPath(); ctx.arc(X(1), Y(1 / dist), 4, 0, Math.PI * 2); ctx.fill(); ctx.fillText(`距離 1 での高さ = ${(1 / dist).toFixed(3)}`, X(1) + 6, Y(1 / dist) - 6); }
+  }
+  { // 距離と深度
+    const { ctx, w, h } = fit($('pp-depth')), X = (d) => 30 + (d / FAR) * (w - 40), Y = (v) => h - 20 - v * (h - 30);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(FAR), Y(0)); ctx.moveTo(X(0), Y(0)); ctx.lineTo(X(0), Y(1)); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px sans-serif'; ctx.fillText('1', 18, Y(1) + 4); ctx.fillText('0', 18, Y(0) + 4);
+    for (const d of [1, 5, 11]) ctx.fillText(String(d), X(d) - 3, h - 5);
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 300; i++) { const d = near + ((FAR - near) * i) / 300, v = FAR / (near - FAR) * -d + (near * FAR) / (near - FAR); const ndz = v / d; if (i) ctx.lineTo(X(d), Y(ndz)); else ctx.moveTo(X(d), Y(ndz)); }
+    ctx.stroke(); ctx.lineWidth = 1;
+    if (s.ndc && dist >= near && dist <= FAR) { ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(X(dist), Y(s.ndc[2]), 5, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = tok('--muted'); ctx.fillText('NDC.Z(深度)', 34, 14); ctx.fillText('カメラからの距離', w - 100, h - 5);
+  }
+  // 本文の表の 5 点と、今の点
+  const row = (zz, cur) => { const q = stages(zz); return `<tr${cur ? ' style="color:var(--warn)"' : ''}><td>${f(zz, 1)}</td><td>${f(5 - zz, 1)}</td><td>(${q.view.map((v) => f(v, 2)).join(', ')})</td><td>(${q.clip.map((v) => f(v, 2)).join(', ')})</td><td>${q.ndc ? f(q.ndc[1]) : '—'}</td><td>${q.ndc ? f(q.ndc[2], 4) : 'W ≦ 0 で捨てる'}</td><td>${q.screen ? `(${q.screen.map((v) => f(v, 1)).join(', ')})` : '—'}</td></tr>`; };
+  $('pp-table').innerHTML = `<table style="font-size:12px;white-space:nowrap"><thead><tr><th>点の z</th><th>距離</th><th>ビュー座標</th><th>クリップ座標 (x, y, z, w)</th><th>NDC.Y</th><th>NDC.Z</th><th>画面(640x480)</th></tr></thead><tbody>${[4, 3, 0, -3, -6].map((zz) => row(zz, false)).join('')}${row(z, true)}</tbody></table>`;
+}
+$('pp-z').addEventListener('input', ppDraw);
+seg('pp-near', ppDraw);
+
+// ------------------------------------------------------------
+// 2. 立方体4個のシーン
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer5(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const cu = { t: 0, ms: 0, fps: 0, n: 0, acc: 0, dropped: 0 };
+const hue3 = (h) => { const c = R.hueColor(h); return [((c >>> 16) & 255) / 255, ((c >>> 8) & 255) / 255, (c & 255) / 255]; };
+const CORNERS = Array.from({ length: 8 }, (_, i) => [i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1]);
+const FACES = [[0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6], [0, 1, 3, 2], [4, 6, 7, 5]];
+function render(t) {
+  ras.stats = { tested: 0, filled: 0, triangles: 0 };
+  fb.clear(R.rgb(12, 14, 22));
+  const orbit = t * 0.25, d = Number(segValue('cu-dist'));
+  const cam = R.camera({ position: [Math.sin(orbit) * d, 2.4 * (d / 6), Math.cos(orbit) * d], target: [0, 0, 0], aspect: W / H });
+  const vp = R.viewProjection(cam, segValue('cu-m44') === '1');
+  const tris = [];
+  cu.dropped = 0;
+  const submitCube = (mvp, brightness) => {
+    FACES.forEach((q, face) => {
+      const color = hue3(face / 6).map((v) => v * brightness);
+      for (const [a, b, c] of [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]) {
+        const s = [a, b, c].map((k) => R.projectToScreen(CORNERS[k], mvp, W, H));
+        if (s.some((p) => !p)) { cu.dropped++; continue; }   // W が正でない頂点を含む三角形は丸ごと捨てる(Day 10 まで)
+        tris.push({ v: s.map((p) => R.vertex5([p[0], p[1]], color)), depth: (s[0][2] + s[1][2] + s[2][2]) / 3 });
+      }
+    });
+  };
+  submitCube(M.mul(M.mul(M.rotationY(t * 0.6), M.rotationX(t * 0.31)), vp), 1);
+  for (let i = 0; i < 3; i++) {
+    const phase = (i * 2 * Math.PI) / 3;
+    const model = [M.scale(0.45), M.rotationZ(t * 1.7), M.translation(2.6, 0, 0), M.rotationY(t * 0.8 + phase)].reduce((a, b) => M.mul(a, b));
+    submitCube(M.mul(model, vp), 0.55 + 0.15 * i);
+  }
+  // 画家のアルゴリズム: 三角形 1 枚につき深度 1 つ(3 頂点の平均)で、遠い順に並べる
+  if (segValue('cu-sort') === '1') tris.sort((a, b) => b.depth - a.depth);
+  for (const tr of tris) {
+    ras.fillTriangle(tr.v[0], tr.v[1], tr.v[2]);
+    if (segValue('cu-wire') === '1') ras.drawTriangleWireframe(tr.v[0].pos, tr.v[1].pos, tr.v[2].pos, R.rgb(240, 240, 240));
+  }
+  return tris.length;
+}
+function cuDraw() {
+  const t0 = performance.now(), n = render(cu.t);
+  cu.ms = cu.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('cu-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  $('cu-title').textContent = `Day06 - 3D  ${cu.fps.toFixed(1)} fps | ${n} tri | render ${cu.ms.toFixed(2)} ms | 奥から順に描く:${segValue('cu-sort') === '1' ? 'ON' : 'OFF'} | S:並べ替え W:ワイヤー Esc:終了`;
+  $('cu-stats').innerHTML = stat('描いた三角形', n) + stat('W ≦ 0 で捨てた三角形', cu.dropped) + stat('塗った画素', ras.stats.filled.toLocaleString());
+}
+['cu-sort', 'cu-wire', 'cu-m44', 'cu-dist', 'cu-play'].forEach((id) => seg(id, cuDraw));
+animate($('cu-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('cu-play') === '1') cu.t += dt;
+  cu.n++; cu.acc += dt; if (cu.acc >= 0.5) { cu.fps = cu.n / cu.acc; cu.n = 0; cu.acc = 0; }
+  cuDraw();
+});
+function narrow() { $('pp-grid').style.gridTemplateColumns = $('pp-grid').clientWidth < 560 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'; }
+window.addEventListener('resize', () => { narrow(); ppDraw(); });
+narrow(); ppDraw(); cuDraw();
+})();
+</script>
+</body>
+</html>

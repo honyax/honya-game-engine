@@ -5,6 +5,7 @@
 //           Rasterizer.cs の FillTriangle(エッジ関数、巻き方向の正規化、top-left rule、加算合成)
 //  - Day 4: Vertex.cs と Framebuffer.Rgb(float)、バリセントリック補間する FillTriangle(PixelShader を受け取る)
 //  - Day 5: Mat4.cs(行ベクトル規約)と、float の頂点を画素の中心で判定する FillTriangle(バイアスは最小の正の数)
+//  - Day 6: Mat4.LookAt と Perspective、Camera.cs、Rasterizer.TryProjectToScreen
 //
 //  - 画素の色は reference と同じ 0xAARRGGBB の整数で持つ。canvas に出すときだけ並べ替える(toCanvas)
 //  - 実験台が数えたいもの(判定した画素・塗った画素)は stats に足していく。reference には無い
@@ -168,11 +169,37 @@ class Rasterizer5 {
   }
 }
 
+// ---------------- Day 6: LookAt・Perspective・Camera と、透視除算 + ビューポート変換 ----------------
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm3 = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+// カメラの姿勢の逆変換。回転は転置、平行移動は各軸との内積の符号を反転
+Mat4.lookAt = (eye, target, up) => {
+  const z = norm3(sub3(eye, target)), x = norm3(cross3(up, z)), y = cross3(z, x);
+  return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot3(x, eye), -dot3(y, eye), -dot3(z, eye), 1];
+};
+// M34 = -1 で Z を W へコピーし、M44 = 0。深度は near で 0、far で 1(m44one はこのページだけ: M44 = 1 にして W を 1 に固定する)
+Mat4.perspective = (fovY, aspect, near, far, m44one = false) => {
+  const ys = 1 / Math.tan(fovY * 0.5), xs = ys / aspect;
+  return [xs, 0, 0, 0, 0, ys, 0, 0, 0, 0, far / (near - far), m44one ? 0 : -1, 0, 0, (near * far) / (near - far), m44one ? 1 : 0];
+};
+// Camera.cs(位置・注視点・視野角から View と Projection を作る)
+const camera = (o = {}) => ({ position: [0, 0, 5], target: [0, 0, 0], up: [0, 1, 0], fov: Math.PI / 3, aspect: 4 / 3, near: 0.1, far: 100, ...o });
+const viewProjection = (c, m44one) => Mat4.mul(Mat4.lookAt(c.position, c.target, c.up), Mat4.perspective(c.fov, c.aspect, c.near, c.far, m44one));
+// Rasterizer.TryProjectToScreen: クリップ座標 → W で割って NDC → ピクセル。W が正でなければ null(Day 10 までは三角形ごと捨てる)
+function projectToScreen(p, mvp, width, height) {
+  const c = Mat4.transform([p[0], p[1], p[2], 1], mvp);
+  if (c[3] <= 1e-5) return null;
+  const iw = 1 / c[3];
+  return [(c[0] * iw * 0.5 + 0.5) * width, (0.5 - c[1] * iw * 0.5) * height, c[2] * iw];
+}
+
 // GameWindow の HueColor(Day 2〜)
 function hueColor(h01) {
   const h = (h01 - Math.floor(h01)) * 6, s = Math.trunc(h), f = h - s, up = Math.trunc(f * 255), down = Math.trunc((1 - f) * 255);
   return [rgb(255, up, 0), rgb(down, 255, 0), rgb(0, 255, up), rgb(0, down, 255), rgb(up, 0, 255), rgb(255, 0, down)][Math.min(5, s)];
 }
 
-window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5 };
+window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen };
 })();
