@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 24 シーン管理とシリアライズ</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. なぜシーンをファイルに出すのか</a></li><li class="l3"><a href="#s5">2. 難しいのは形式ではなく、多態と参照</a></li><li class="l3"><a href="#s6">3. 何を保存し、何を保存しないか</a></li><li class="l3"><a href="#s7">4. ECS のシリアライズは驚くほど簡単</a></li><li class="l3"><a href="#s8">5. 「往復して一致する」は「正しく保存できている」ではない</a></li><li class="l3"><a href="#s9">6. バージョン番号は最初から書く</a></li><li class="l3"><a href="#s10">7. JSON の代償</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">新しい素材</a></li><li class="l3"><a href="#s15">キーの変更</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">起動時にファイルから読めていること</a></li><li class="l3"><a href="#s19">ファイルを手で編集してみる</a></li><li class="l3"><a href="#s20"><code>F4</code>: 往復の自己チェック</a></li><li class="l3"><a href="#s21"><code>F2</code> → <code>F3</code>: 大量のエンティティを含めた保存</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): コンポーネントを1つ増やして保存できるようにする</a></li><li class="l3"><a href="#s24">課題2(中): プレハブを作る</a></li><li class="l3"><a href="#s25">課題3(難): バイナリ形式を足して、読み込み時間を比べる</a></li><li class="l2"><a href="#s26">動作確認済み環境</a></li><li class="l3"><a href="#s27">往復チェック(11 項目すべて合格)</a></li><li class="l3"><a href="#s28">ファイルの大きさと所要時間</a></li><li class="l3"><a href="#s29">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 4 / Day 24 / 計画書</p>
+  <h1>シーン管理とシリアライズ</h1>
+  <p class="lede">エンジンコア完成</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. なぜシーンをファイルに出すのか</a></li><li class="l3"><a href="#s5">2. 難しいのは形式ではなく、多態と参照</a></li><li class="l3"><a href="#s6">3. 何を保存し、何を保存しないか</a></li><li class="l3"><a href="#s7">4. ECS のシリアライズは驚くほど簡単</a></li><li class="l3"><a href="#s8">5. 「往復して一致する」は「正しく保存できている」ではない</a></li><li class="l3"><a href="#s9">6. バージョン番号は最初から書く</a></li><li class="l3"><a href="#s10">7. JSON の代償</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">新しい素材</a></li><li class="l3"><a href="#s15">キーの変更</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">完成条件</a></li><li class="l3"><a href="#s18">起動時にファイルから読めていること</a></li><li class="l3"><a href="#s19">ファイルを手で編集してみる</a></li><li class="l3"><a href="#s20"><code>F4</code>: 往復の自己チェック</a></li><li class="l3"><a href="#s21"><code>F2</code> → <code>F3</code>: 大量のエンティティを含めた保存</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): コンポーネントを1つ増やして保存できるようにする</a></li><li class="l3"><a href="#s24">課題2(中): プレハブを作る</a></li><li class="l3"><a href="#s25">課題3(難): バイナリ形式を足して、読み込み時間を比べる</a></li><li class="l2"><a href="#s26">動作確認済み環境</a></li><li class="l3"><a href="#s27">往復チェック(11 項目すべて合格)</a></li><li class="l3"><a href="#s28">ファイルの大きさと所要時間</a></li><li class="l3"><a href="#s29">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 4(エンジンコア)の最終日。<strong>Phase 4 のマイルストーン</strong>でもある。</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>シーンがコードから出てファイルになる。</p>
+<div class="code"><pre><code>シーンを読み込みました: demo.scene.json
+  GameObject 8 個 / コンポーネント 15 個</code></pre></div>
+<p>起動時に <code>assets/scenes/demo.scene.json</code> を読み、そこに書いてあるとおりにGameObject とコンポーネントを組み立てて動かす。<strong>ロードマップの「シーンをロードし、コンポーネント付きエンティティが動く」</strong>に到達する。</p>
+<p><code>F4</code> を押すと、コードで組んだシーンと保存して読み直したシーンが<strong>300 ステップ後までビット単位で一致する</strong>ことを確かめられる。</p>
+<div class="code"><pre><code>[OK] 保存 → 読み込み → 再保存でテキストが一致  9568 バイト / 9568 バイト
+[OK] Vector4 が保たれている  &lt;0.125, 0.25, 0.375, 0.5&gt;
+[OK] 300 ステップ後の状態が一致  222B30A8B29885E8 / 222B30A8B29885E8
+[OK] ECS コンポーネントの値が保たれている  &lt;10, 20&gt;
+  すべて合格 — シーンをファイルから復元しても、同じ動きをする</code></pre></div>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップでは資料の指定が無い日なので、実装に直結するものを挙げておく。</p>
+<ul><li><a href="https://learn.microsoft.com/ja-jp/dotnet/standard/serialization/system-text-json/overview">System.Text.Json の概要</a>(Microsoft)今日使う唯一のライブラリ。<strong>「既定ではフィールドを無視する」</strong>という一文が要点5でそのまま牙をむくので、そこだけは目を通しておくとよい</li><li><a href="https://learn.microsoft.com/ja-jp/dotnet/standard/serialization/system-text-json/converters-how-to">カスタム コンバーターの作成</a> <code>Vector2</code> を <code>[1, 2]</code> と書くために使う</li><li><a href="https://docs.unity3d.com/Manual/script-Serialization.html">Unity: シリアライゼーション</a>「何が保存されて何が保存されないか」の線引きの実例。今日の要点3(初期状態 vs 実行時状態)と同じ話をしている</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. なぜシーンをファイルに出すのか</h3>
+<p>Day 23 まで、シーンは <code>CreateDemoScene()</code> というメソッドの中にあった。動くが、</p>
+<ul><li>レベルを1つ変えるたびに<strong>ビルドが要る</strong></li><li>企画やアーティストが触れない(C# が書けないと何もできない)</li><li>「このシーンで落ちる」を人に渡せない</li><li>セーブ/ロードが別の仕組みになる</li></ul>
+<p>シーンがデータになると、これが全部ひっくり返る。エディタは「GUI でファイルを吐くプログラム」でしかなくなり、セーブは「今の状態を同じ形式で書く」だけになる。</p>
+<p><strong>エンジンとゲームの境目は、ここで初めてはっきりする</strong>。Day 23 までの Program.cs は「エンジン + ゲーム」が混ざっていた。今日から Program.cs は「ファイルを読んで回すもの」になり、ゲームの中身は <code>assets/scenes/</code> に移る。</p>
+<h3 id="s5">2. 難しいのは形式ではなく、多態と参照</h3>
+<p>JSON を書くこと自体は簡単で、<code>System.Text.Json</code> が全部やってくれる。詰まるのは次の2つ。</p>
+<p><strong>多態</strong> — <code>List&lt;Component&gt;</code> の要素は型がばらばらで、ファイルに型の印が無いと読むときに何を作ればいいか分からない。</p>
+<div class="code"><span class="lang">json</span><pre><code>{ "type": "SpriteRenderer", "data": { "Kind": 2, "Size": 68, "Color": [1, 1, 1, 1] } }</code></pre></div>
+<p>印に何を書くかが問題で、<strong><code>type.FullName</code> や <code>Type.GetType(name)</code> は使えない</strong>。</p>
+<ul><li>クラス名を変えた瞬間、過去のシーンが全部読めなくなる</li><li><strong>ファイルに書いてある名前のクラスなら何でも作れてしまう</strong> (<code>BinaryFormatter</code> が非推奨になった理由も突き詰めるとこれ)</li></ul>
+<p>だから <code>ComponentRegistry</code> に<strong>明示的に列挙したものしか読み書きしない</strong>。コンポーネントを増やすたびに1行足すのは面倒だが、その面倒さが上の2つを防いでいる。</p>
+<p><strong>参照</strong> — 親子関係は C# のオブジェクト参照でつながっているが、参照はメモリ上のアドレスなので書き出せない。「配列の何番目か」に翻訳する。</p>
+<div class="code"><span class="lang">json</span><pre><code>{ "id": 2, "name": "Orbit0", "parent": 1, ... }</code></pre></div>
+<p>Day 21 のハンドル、Day 23 のエンティティ番号とまったく同じ発想で、<strong>持ち歩ける形にするには番号にするしかない</strong>。</p>
+<p>読むときは<strong>3周する</strong>。</p>
+<ol><li>オブジェクトを作る(親はまだ結ばない)</li><li>親を結ぶ</li><li>コンポーネントを付ける</li></ol>
+<p>1と2を分けるのは、<strong>子が親より先に書いてあっても読めるように</strong>するため。ファイルの並び順に依存する読み込みは、手で編集した瞬間に壊れる。2と3を分けるのは、コンポーネントの <code>OnEnable</code> が <code>ActiveInHierarchy</code> を見るから(Day 22 要点4)。親を結ぶ前に付けると、親が無効なのに <code>OnEnable</code> が走る。</p>
+<div class="inject"><figure class="lab" id="sc-lab">
+  <div class="lab-head">
+    <h3>シーンファイルを編集して読み込む — ビルドし直さずにシーンが変わる(要点1・2・6、完成条件)</h3>
+    <span class="tag">assets/scenes/demo.scene.json の中身をそのまま下の欄に入れてある。reference の SceneSerializer.Load(3 周する読み込み、知らないコンポーネントの読み飛ばし、version の確認)と ComponentRegistry、Day 22 の部品を JS に移したもので、「読み込む」を押すと欄のテキストからシーンを組み立てて動かす。欄は自由に書き換えてよい。上のボタンは本文の「ファイルを手で編集してみる」などを1回で当てるもので、このページだけ。「保存」は動いている今の状態を欄に書き出す(改行は LF、数は JS の書き方)</span>
+  </div>
+  <div class="stage"><canvas id="sc-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:380px" aria-label="シーンファイルから組み立てたシーン。黄色い星と、右上の階層の実演"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ファイルを手で編集する(欄に当てて読み込む)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="sc-move">OrbitRoot を [300, 400, 0] へ</button><button class="btn" id="sc-red">プレイヤーの Color を [1, 0, 0, 1] に</button><button class="btn" id="sc-inactive">Orbit0 の active を false に</button><button class="btn" id="sc-order">子を親より先に並べる</button><button class="btn" id="sc-unknown">知らないコンポーネントを混ぜる</button><button class="btn" id="sc-version">version を 2 にする</button></div>
+    </div>
+    <div class="ctl"><span class="label">読む・書く</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="sc-load">読み込む(欄のテキスト)</button><button class="btn" id="sc-reset">demo.scene.json に戻す</button><button class="btn" id="sc-code">Shift + F3 コードから組む</button><button class="btn" id="sc-save">F2 保存(欄へ)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sc-stats"></div><textarea id="sc-text" spellcheck="false" aria-label="シーンファイルのテキスト" style="width:100%;box-sizing:border-box;height:240px;margin-top:10px;font-family:var(--font-mono);font-size:12px;background:var(--sunken);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px"></textarea><pre id="sc-console" style="margin:10px 0 0;max-height:180px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s6">3. 何を保存し、何を保存しないか</h3>
+<p>これは形式の問題ではなく<strong>設計判断</strong>で、間違えても動いてしまうぶん厄介。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>保存する?</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td><code>Transform</code> の位置・回転</td><td>する</td><td>シーンの初期配置そのもの</td></tr>
+<tr><td><code>SpriteRenderer</code> の色・大きさ</td><td>する</td><td>見た目の設定</td></tr>
+<tr><td><code>PlayerController.Velocity</code></td><td>する</td><td>「最初から右へ飛んでいる敵」を置きたいことがある</td></tr>
+<tr><td><code>PlayerController.DashCooldown</code></td><td><strong>しない</strong></td><td>今まさに走っている最中の一時的な値</td></tr>
+<tr><td><code>Component.GameObject</code></td><td><strong>しない</strong></td><td>逆向きのリンク。保存すると無限に潜る</td></tr>
+</tbody>
+</table></div>
+<p><code>GameObject</code> を保存対象にするとコンポーネント → GameObject → コンポーネント → … と無限再帰する。<strong>所有関係は1方向だけ書けば復元できる</strong>ので、逆向きのリンクは書かない。</p>
+<p><code>DashCooldown</code> と <code>Velocity</code> の違いが分かりにくいところ。<strong>シーンは初期状態、セーブデータは実行時状態</strong>で、目的が違う。同じ形式で両方をまかなおうとすると必ずどちらかが歪む(「シーンを開いたらダッシュのクールダウンが残っている」は明らかにおかしい)。</p>
+<p>C# 側では <code>[JsonIgnore]</code> 1つで表明する。<strong>コードの上で決着をつける</strong>のが大事で、「保存する側で気をつける」にすると必ず忘れる。</p>
+<h3 id="s7">4. ECS のシリアライズは驚くほど簡単</h3>
+<p>同じファイルに ECS も書いているが、こちらは 20 行程度で済む。</p>
+<div class="code"><span class="lang">json</span><pre><code>"ecs": {
+  "count": 2000,
+  "transform2D": [ {"Position": [123, 45], "Rotation": 0.5}, ... ],
+  "velocity2D":  [ ... ]
+}</code></pre></div>
+<p>多態が無い(コンポーネントはただの構造体)。参照が無い(エンティティは番号)。種類ごとに配列に詰まっているので、<strong>配列を4本そのまま書く</strong>だけ。</p>
+<p>ただし<strong>4本の並びが一致していること</strong>が前提になる(Day 23 要点4)。一致していないと「何番目がどのエンティティか」を別に書く必要がある。並びを揃えておく利得が、性能だけでなく<strong>保存の単純さ</strong>にも効いてくる。</p>
+<p>「ECS はシリアライズしやすい」はよく言われるが、GameObject 側を先に書いてから比べると理由がはっきりする。</p>
+<h3 id="s8">5. 「往復して一致する」は「正しく保存できている」ではない</h3>
+<p>今日いちばんの教訓。<strong>この作業中、同じ罠に2回はまった</strong>。</p>
+<p><code>System.Text.Json</code> は既定で<strong>プロパティしか見ない</strong>。フィールドは無視する。ところがこのエンジンには、フィールドで持っている型が2種類ある。</p>
+<ul><li><code>System.Numerics</code> のベクトル(<code>X</code> / <code>Y</code> / <code>Z</code> / <code>W</code> はフィールド)</li><li>ECS のコンポーネント(<code>Transform2D</code> などは全部フィールド)</li></ul>
+<p>どちらも<strong>黙って <code>{}</code> になる</strong>。例外も警告も出ない。</p>
+<div class="code"><span class="lang">json</span><pre><code>"Color": {},        ← 色が消えている
+"transform2D": [ {}, {}, {}, ... ]   ← 2000 体ぶん全部空</code></pre></div>
+<p>たちが悪いのは、<strong>往復チェックのテキスト比較を通ってしまう</strong>こと。保存も再保存も同じように <code>{}</code> を書くので、当然一致する。</p>
+<div class="code"><pre><code>[OK] 保存 → 読み込み → 再保存でテキストが一致   ← 中身が空でも通る</code></pre></div>
+<p>だから往復チェックには<strong>具体的な値の確認</strong>を入れる必要がある。</p>
+<div class="code"><pre><code>[OK] Vector4 が保たれている  &lt;0.125, 0.25, 0.375, 0.5&gt;
+[OK] Vector2 が保たれている  &lt;123, -45&gt;
+[OK] ECS コンポーネントの値が保たれている  &lt;10, 20&gt;</code></pre></div>
+<p>わざと変な値(<code>0.125, 0.25, 0.375, 0.5</code>)を入れているのは、既定値のままだと「保存できていない」と「たまたま既定値」の区別がつかないから。</p>
+<p>直すのは <code>IncludeFields = true</code> の1行。加えて <code>Vector2</code> などに専用の変換器を入れて <code>[1, 2]</code> の形にしている(<code>IncludeFields</code> だけだと <code>{ "X": 1, "Y": 2 }</code> と3行に膨らむ)。</p>
+<div class="inject"><figure class="lab" id="rt-lab">
+  <div class="lab-head">
+    <h3>往復の罠 — 中身が空でもテキスト比較は通る(要点5、F4)</h3>
+    <span class="tag">reference の Program.RunSceneRoundTrip(11 項目。わざと変な値を入れた目印 Probe と、ECS の 3 体)を JS に移したもの。「IncludeFields なし」は System.Text.Json の既定(フィールドを無視する)の真似で、Vector2・Vector4 と ECS の構造体が黙って {} になる。このページの保存は reference と同じ形の JSON を JS で書いたもので、バイト数は C# の値(9568 バイト)とは違う</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">フィールドの扱い</span>
+      <div class="seg" id="rt-fields"><button data-v="1" aria-pressed="true">IncludeFields + 変換器(reference)</button><button data-v="0" aria-pressed="false">IncludeFields なし(既定)</button></div>
+    </div>
+    <div class="ctl"><span class="label">回す</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="rt-run">F4 往復の自己チェック</button></div>
+    </div>
+  </div>
+  <div class="readout"><pre id="rt-console" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre><pre id="rt-json" style="margin:10px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12px"></pre></div>
+</figure></div>
+<h3 id="s9">6. バージョン番号は最初から書く</h3>
+<div class="code"><span class="lang">json</span><pre><code>{ "version": 1, "name": "demo", ... }</code></pre></div>
+<p>後から足そうとすると「バージョンが書いていないファイル」を特別扱いする分岐が永遠に残る。1バイトの節約より、<strong>「読めないと分かること」</strong>のほうがはるかに価値がある。</p>
+<p>そして<strong>知らないコンポーネントは読み飛ばす</strong>。落とさない。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (type is null)
+{
+    Console.WriteLine($"[scene] 知らないコンポーネント \"{typeName}\" を読み飛ばしました");
+    continue;
+}</code></pre></div>
+<p>新しいブランチで作ったシーンを古いブランチで開く、という状況は普通に起きる。そこで例外を投げると、1つ知らない部品があるだけでシーン全体が開けなくなる。</p>
+<h3 id="s10">7. JSON の代償</h3>
+<p>人が読めて diff が取れる代わりに、<strong>太くて遅い</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>エンティティ数</th><th>ファイル</th><th>保存</th><th>読み込み</th></tr></thead>
+<tbody>
+<tr><td>0(GameObject 8 個のみ)</td><td>6.9KB</td><td>0.1ms</td><td>0.2ms</td></tr>
+<tr><td>1,000</td><td>611.8KB</td><td>7.7ms</td><td>12.1ms</td></tr>
+<tr><td>5,000</td><td>3,030.3KB</td><td>31.2ms</td><td>61.1ms</td></tr>
+</tbody>
+</table></div>
+<p>1体あたり <strong>605 バイト</strong>。実行時のメモリは 104 バイト(Day 23)なので<strong>約6倍</strong>。数値を1行ずつ改行して書いているのが効いている。</p>
+<p>5,000 体の読み込みに 61ms かかるのは、ロード画面のあるゲームなら気にならないが、<strong>ストリーミング(遊んでいる最中に読む)には遅すぎる</strong>。</p>
+<p>だから実際のエンジンは2つ持つのが普通。</p>
+<ul><li><strong>編集用</strong> … テキスト。人が読み、git で差分を取り、手で直せる</li><li><strong>実行用</strong> … バイナリ。ビルド時に変換しておき、実行時はこれだけ読む</li></ul>
+<p>Unity の <code>.unity</code>(テキスト)と <code>.assetbundle</code>(バイナリ)、Unreal の <code>.uasset</code> がまさにこの関係。今日はテキストだけ作った。<strong>まずは読める形で正しく動かす</strong>のが順番として正しい。</p>
+<div class="inject"><figure class="lab" id="sz-lab">
+  <div class="lab-head">
+    <h3>JSON の太さ — エンティティを入れて保存・読み込みを測る(要点7、F2 / F3)</h3>
+    <span class="tag">上の SceneSerializer(このページの JS)で、GameObject 8 個と ECS のエンティティ 0 / 1,000 / 5,000 体を保存し、読み込んで組み立て直すまでを測る。本文の表と同じ3行で、値はこのページのもの</span>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">測る</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="sz-run">3 通りで測る(表)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="table-wrap" id="sz-table"></div></div>
+</figure></div>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数(うち実コード)</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>ComponentRegistry.cs</code></td><td>66 (28)</td><td>型名 ↔ クラスの対応表。ここに無いものは読み書きしない</td></tr>
+<tr><td><code>SceneSerializer.cs</code></td><td>513 (330)</td><td>保存と読み込み。ベクトルの変換器も含む</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+381 / -28</td><td><code>SetupScene</code> / <code>BindSceneObjects</code> / <code>CreateDemoScene</code> に分割。F2/F3/F4</td></tr>
+<tr><td><code>Component.cs</code></td><td>+12 / -1</td><td><code>GameObject</code> と <code>Transform</code> に <code>[JsonIgnore]</code></td></tr>
+<tr><td><code>GameObject.cs</code></td><td>+13 / -2</td><td><code>AttachComponent</code>(出来合いの部品を付ける入口)を切り出し</td></tr>
+<tr><td><code>Components.cs</code></td><td>+21 / -0</td><td><code>PlayerController</code> の実行時の値に <code>[JsonIgnore]</code></td></tr>
+</tbody>
+</table></div>
+<h3 id="s14">新しい素材</h3>
+<p><code>assets/scenes/demo.scene.json</code>(7KB)。<strong>起動時に読まれるシーン</strong>。<code>CreateDemoScene()</code> が出力したものをそのまま置いてある。消すか名前を変えればコードから組む経路に戻るので、比べてみるとよい。</p>
+<h3 id="s15">キーの変更</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>動作</th></tr></thead>
+<tbody>
+<tr><td><code>F2</code></td><td>今のシーンを保存(<code>%TEMP%\honya-scene.json</code>)</td></tr>
+<tr><td><code>F3</code></td><td><code>F2</code> で保存したファイルを読み込む</td></tr>
+<tr><td><code>Shift</code> + <code>F3</code></td><td>コードから組み直す</td></tr>
+<tr><td><code>F4</code></td><td>往復の自己チェック</td></tr>
+</tbody>
+</table></div>
+<h3 id="s16">写経する順番</h3>
+<ol><li><strong><code>Component.cs</code> / <code>Components.cs</code> の <code>[JsonIgnore]</code></strong> — 数行。要点3の表明</li><li><strong><code>GameObject.cs</code> の <code>AttachComponent</code></strong> — <code>AddComponent&lt;T&gt;</code> をこちらに寄せる</li><li><strong><code>ComponentRegistry.cs</code></strong> — 短い。コメントのほうが本体</li><li><strong><code>SceneSerializer.cs</code></strong> — 今日の本体。書き出し(<code>WriteGameObjects</code> → <code>WriteEcs</code>)→ 読み込み(3周する <code>Load</code>)→ベクトルの変換器、の順に読むとよい</li><li><strong><code>Program.cs</code></strong> — <code>SetupScene</code> / <code>BindSceneObjects</code> / <code>CreateDemoScene</code> の分割 → <code>SaveSceneToFile</code> / <code>LoadSavedScene</code> → <code>RunSceneRoundTrip</code></li></ol>
+</section>
+<section class="part"><h2 id="s17">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day24 -c Release</code></pre></div>
+<h3 id="s18">起動時にファイルから読めていること</h3>
+<div class="code"><pre><code>シーンを読み込みました: demo.scene.json
+  GameObject 8 個 / コンポーネント 15 個</code></pre></div>
+<p>画面は Day 23 とまったく同じ。プレイヤー(黄色い星)も階層の実演(右上)も出るが、<strong>それを組み立てた手順はもうコードの中に無い</strong>。</p>
+<p><code>assets/scenes/demo.scene.json</code> の名前を変えて起動すると、</p>
+<div class="code"><pre><code>シーンをコードから組みました(assets/scenes/demo.scene.json が見つかりません)</code></pre></div>
+<p>に切り替わり、<strong>まったく同じ画面が出る</strong>。これが「データとコードが等価」の確認。</p>
+<h3 id="s19">ファイルを手で編集してみる</h3>
+<p><code>assets/scenes/demo.scene.json</code> をエディタで開いて、<code>OrbitRoot</code> の <code>position</code> を <code>[300, 400, 0]</code> に変えて起動する。<strong>ビルドし直さずに</strong>シーンが変わる。これが今日の成果そのもの。</p>
+<p><code>SpriteRenderer</code> の <code>Color</code> を <code>[1, 0, 0, 1]</code> にすれば赤くなる。</p>
+<h3 id="s20"><code>F4</code>: 往復の自己チェック</h3>
+<p>11 項目すべて <code>OK</code> になる。</p>
+<div class="code"><pre><code>[OK] 保存 → 読み込み → 再保存でテキストが一致  9568 バイト / 9568 バイト
+[OK] GameObject の数が一致  9 / 9
+[OK] コンポーネントの数が一致  17 / 17
+[OK] 親子の深さが3段(根 → 子 → 孫)  実際 3 段
+[OK] 目印のオブジェクトが復元されている
+[OK] float が保たれている
+[OK] Vector4 が保たれている  &lt;0.125, 0.25, 0.375, 0.5&gt;
+[OK] Vector2 が保たれている  &lt;123, -45&gt;
+[OK] 300 ステップ後の状態が一致  222B30A8B29885E8 / 222B30A8B29885E8
+[OK] エンティティの数が一致  3 / 3
+[OK] ECS コンポーネントの値が保たれている  &lt;10, 20&gt;</code></pre></div>
+<p><strong>9項目目が Phase 4 のマイルストーン</strong>。「ロードしたシーンのコンポーネントが、コードで組んだときと同じに動く」を目視ではなく数字で確かめている。</p>
+<h3 id="s21"><code>F2</code> → <code>F3</code>: 大量のエンティティを含めた保存</h3>
+<p><code>J</code> を2回押して ECS モードにし、<code>Shift</code> + <code>PageUp</code> で 2000 体まで増やしてから <code>F2</code>。</p>
+<div class="code"><pre><code>[scene] 保存: C:\Users\...\honya-scene.json
+  GameObject 8 個 / エンティティ 2000 体 / 1216.5KB / 15.4ms
+  → エンティティ1体あたり 623 バイト。JSON は人が読める代わりに太る</code></pre></div>
+<p><code>F3</code> で読み直すと、<strong>2000 体がそのままの位置と速度で復元される</strong>。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>(起動時の読み込み)</td><td>「シーンファイルを編集して読み込む」(開いた時点で demo.scene.json を読んでいる)</td><td>GameObject 8 個 / コンポーネント 15 個。欄を書き換えて「読み込む」と、ビルドなしでシーンが変わる</td></tr>
+<tr><td><code>F2</code></td><td>同じ実験台の「F2 保存(欄へ)」と「JSON の太さ」</td><td>動いている今の状態が書かれる。エンティティを入れると 1 体あたり数百バイトに太る</td></tr>
+<tr><td><code>F3</code> / <code>Shift</code> + <code>F3</code></td><td>同じ実験台の「読み込む」と「Shift + F3 コードから組む」</td><td>ファイルから組んでもコードから組んでも同じ絵になる</td></tr>
+<tr><td><code>F4</code></td><td>「往復の罠」の「F4 往復の自己チェック」</td><td>11 項目。IncludeFields を外すと、テキスト比較は通るのに Vector と ECS の値が NG になる</td></tr>
+<tr><td>(ファイルを手で編集)</td><td>「シーンファイルを編集して読み込む」の上の6つのボタン</td><td>子を親より先に並べても読める(3 周する)。知らない部品は読み飛ばす。version 2 は読めないと分かる</td></tr>
+<tr><td><code>J</code>、<code>Shift</code> + <code>PageUp</code> など Day 23 までのキー</td><td>このページには無い</td><td>Day 19〜23 のページ</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day24 の SceneSerializer.cs と ComponentRegistry.cs(このページの中のスクリプト)、Program.cs の CreateDemoScene、RunSceneRoundTrip を JS に移したもの。GameObject と ECS は docs/site/enginecore.js。動きの見た目を写したもので、数値は C# と突き合わせていない。バイト数と ms はこのページで測った値。</p></div>
+</section>
+<section class="part"><h2 id="s22">改造課題</h2>
+<h3 id="s23">課題1(易): コンポーネントを1つ増やして保存できるようにする</h3>
+<p>Day 22 の改造課題1で作った <code>FlashOnBounce</code>(または好きな部品)を、シーンファイルに保存できるようにする。</p>
+<ul><li><code>ComponentRegistry</code> に <code>Register&lt;FlashOnBounce&gt;("FlashOnBounce")</code> を1行足す</li><li>保存したくないフィールドに <code>[JsonIgnore]</code> を付ける</li><li><code>F2</code> で保存して、ファイルの中身を目で確かめる</li></ul>
+<p>登録を<strong>忘れたまま</strong>保存するとどうなるかも見ておくこと(<code>NameOf</code> が例外を投げて、何が足りないかを教えてくれる)。</p>
+<h3 id="s24">課題2(中): プレハブを作る</h3>
+<p>同じ構成のオブジェクトを何個も置きたいとき、今の形式ではGameObject を丸ごと何度も書くことになる。これを</p>
+<div class="code"><span class="lang">json</span><pre><code>{ "prefab": "enemy", "position": [100, 200, 0] }</code></pre></div>
+<p>と書けるようにする。<code>assets/prefabs/enemy.json</code> に1体ぶんを置いておき、読み込み時に展開して位置だけ差し替える。</p>
+<p>考えどころは<strong>プレハブの値を1箇所だけ上書きしたいとき</strong>。</p>
+<div class="code"><span class="lang">json</span><pre><code>{ "prefab": "enemy", "position": [100, 200, 0],
+  "overrides": { "SpriteRenderer": { "Color": [1, 0, 0, 1] } } }</code></pre></div>
+<p>Unity のプレハブオーバーライドがなぜあんなに複雑なのか、自分で書くと一瞬で分かる。</p>
+<h3 id="s25">課題3(難): バイナリ形式を足して、読み込み時間を比べる</h3>
+<p>要点7の「編集用テキスト / 実行用バイナリ」を実際に作る。</p>
+<ul><li><code>BinaryWriter</code> / <code>BinaryReader</code> で同じ内容を書く形式を足す</li><li>ECS 側は <code>MemoryMarshal.AsBytes(store.Values)</code> で配列を丸ごと書ける(構造体が blittable なので、1回の <code>Write</code> で済む)</li><li>5,000 体で、ファイルサイズと読み込み時間を JSON と比べる</li></ul>
+<p>JSON の 3,030KB / 61ms が何倍になるか予想してから測ること。そのうえで、<strong>それでも編集用にテキストを残す理由</strong>を考えてみてほしい。</p>
+</section>
+<section class="part"><h2 id="s26">動作確認済み環境</h2>
+<ul><li>Windows 11 / .NET 10 / Silk.NET 2.23.0</li><li>GL_RENDERER: NVIDIA GeForce RTX 3070/PCIe/SSE2</li><li>960x640、VSync オフ、<code>-c Release</code></li></ul>
+<h3 id="s27">往復チェック(11 項目すべて合格)</h3>
+<div class="code"><pre><code>[OK] 保存 → 読み込み → 再保存でテキストが一致  9568 バイト / 9568 バイト
+[OK] 300 ステップ後の状態が一致  222B30A8B29885E8 / 222B30A8B29885E8
+[OK] ECS コンポーネントの値が保たれている  &lt;10, 20&gt;</code></pre></div>
+<h3 id="s28">ファイルの大きさと所要時間</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>エンティティ数</th><th>ファイル</th><th>保存</th><th>読み込み</th></tr></thead>
+<tbody>
+<tr><td>0(GameObject 8 個のみ)</td><td>6.9KB</td><td>0.1ms</td><td>0.2ms</td></tr>
+<tr><td>1,000</td><td>611.8KB</td><td>7.7ms</td><td>12.1ms</td></tr>
+<tr><td>5,000</td><td>3,030.3KB</td><td>31.2ms</td><td>61.1ms</td></tr>
+</tbody>
+</table></div>
+<p>1体あたり 605 バイト。実行時のメモリ 104 バイト(Day 23)の約6倍。</p>
+<p><code>assets/scenes/demo.scene.json</code> は GameObject 8 個で 7,005 バイト / 392 行。数値を1行ずつ書いているので行数は多いが、<strong>そのぶん git の差分が精密</strong>になる(座標の1成分だけ変えたら、その1行だけが差分に出る)。</p>
+<h3 id="s29">検証の途中で分かったこと</h3>
+<ul><li><strong><code>System.Text.Json</code> はフィールドを無視する</strong>。<code>Vector2</code> も ECS のコンポーネントもフィールドなので、黙って <code>{}</code> になった。例外も警告も出ないので、保存したファイルを目で見るまで気づかない</li><li>しかも<strong>往復チェックのテキスト比較は通ってしまう</strong>。保存も再保存も同じように <code>{}</code> を書くため。「往復して一致した」で安心してはいけない、という実例になった。対策として、わざと変な値を入れた目印のオブジェクトを1体置き、<code>Vector2</code> / <code>Vector4</code> / ECS コンポーネントの値を名指しで比べるようにした</li><li>同じ罠に<strong>2回</strong>はまった。1回目は GameObject 側の <code>Vector4</code>(変換器で修正)、2回目は ECS 側の構造体(<code>IncludeFields = true</code> で修正)。1回目の修正が2回目を隠していた——変換器は「プロパティの中の Vector」は直すが、「フィールドだらけの構造体そのもの」は直さない</li></ul>
+</section>
+<footer class="end">Day 24 シーン管理とシリアライズ / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/enginecore.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const C = Core, F = DotNet.fmtFixed;
+const TAU = Math.PI * 2;
+// assets/scenes/demo.scene.json(リポジトリにあるもの。組み立てのときに埋め込んだ)
+const DEMO_JSON = "{\n  \"version\": 1,\n  \"name\": \"demo\",\n  \"bounds\": [\n    960,\n    640\n  ],\n  \"gameObjects\": [\n    {\n      \"id\": 0,\n      \"name\": \"Player\",\n      \"active\": true,\n      \"parent\": -1,\n      \"position\": [\n        480,\n        320,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 2,\n            \"Size\": 68,\n            \"Color\": [\n              1,\n              1,\n              1,\n              1\n            ],\n            \"Layer\": 1,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"PlayerController\",\n          \"data\": {\n            \"Velocity\": [\n              0,\n              0\n            ],\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 1,\n      \"name\": \"OrbitRoot\",\n      \"active\": true,\n      \"parent\": -1,\n      \"position\": [\n        770,\n        170,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 0,\n            \"Size\": 72,\n            \"Color\": [\n              1,\n              0.8,\n              0.15,\n              1\n            ],\n            \"Layer\": 0.95,\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 2,\n      \"name\": \"Orbit0\",\n      \"active\": true,\n      \"parent\": 1,\n      \"position\": [\n        0,\n        0,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 1,\n            \"Size\": 46,\n            \"Color\": [\n              0.2,\n              0.75,\n              1,\n              1\n            ],\n            \"Layer\": 0.94,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"OrbitMover\",\n          \"data\": {\n            \"Radius\": 86,\n            \"AngularSpeed\": 1.1,\n            \"StartAngle\": 0,\n            \"SpinSpeed\": 0,\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 3,\n      \"name\": \"Orbit0-moon\",\n      \"active\": true,\n      \"parent\": 2,\n      \"position\": [\n        0,\n        0,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 3,\n            \"Size\": 26,\n            \"Color\": [\n              1,\n              0.3,\n              0.6,\n              1\n            ],\n            \"Layer\": 0.93,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"OrbitMover\",\n          \"data\": {\n            \"Radius\": 32,\n            \"AngularSpeed\": -3.4,\n            \"StartAngle\": 0,\n            \"SpinSpeed\": 0,\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 4,\n      \"name\": \"Orbit1\",\n      \"active\": true,\n      \"parent\": 1,\n      \"position\": [\n        0,\n        0,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 1,\n            \"Size\": 46,\n            \"Color\": [\n              0.2,\n              0.75,\n              1,\n              1\n            ],\n            \"Layer\": 0.94,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"OrbitMover\",\n          \"data\": {\n            \"Radius\": 86,\n            \"AngularSpeed\": 1.1,\n            \"StartAngle\": 2.0943952,\n            \"SpinSpeed\": 0,\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 5,\n      \"name\": \"Orbit1-moon\",\n      \"active\": true,\n      \"parent\": 4,\n      \"position\": [\n        0,\n        0,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 3,\n            \"Size\": 26,\n            \"Color\": [\n              1,\n              0.3,\n              0.6,\n              1\n            ],\n            \"Layer\": 0.93,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"OrbitMover\",\n          \"data\": {\n            \"Radius\": 32,\n            \"AngularSpeed\": -3.4,\n            \"StartAngle\": 1.7,\n            \"SpinSpeed\": 0,\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 6,\n      \"name\": \"Orbit2\",\n      \"active\": true,\n      \"parent\": 1,\n      \"position\": [\n        0,\n        0,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 1,\n            \"Size\": 46,\n            \"Color\": [\n              0.2,\n              0.75,\n              1,\n              1\n            ],\n            \"Layer\": 0.94,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"OrbitMover\",\n          \"data\": {\n            \"Radius\": 86,\n            \"AngularSpeed\": 1.1,\n            \"StartAngle\": 4.1887903,\n            \"SpinSpeed\": 0,\n            \"Enabled\": true\n          }\n        }\n      ]\n    },\n    {\n      \"id\": 7,\n      \"name\": \"Orbit2-moon\",\n      \"active\": true,\n      \"parent\": 6,\n      \"position\": [\n        0,\n        0,\n        0\n      ],\n      \"rotation\": [\n        0,\n        0,\n        0,\n        1\n      ],\n      \"scale\": [\n        1,\n        1,\n        1\n      ],\n      \"components\": [\n        {\n          \"type\": \"SpriteRenderer\",\n          \"data\": {\n            \"Kind\": 3,\n            \"Size\": 26,\n            \"Color\": [\n              1,\n              0.3,\n              0.6,\n              1\n            ],\n            \"Layer\": 0.93,\n            \"Enabled\": true\n          }\n        },\n        {\n          \"type\": \"OrbitMover\",\n          \"data\": {\n            \"Radius\": 32,\n            \"AngularSpeed\": -3.4,\n            \"StartAngle\": 3.4,\n            \"SpinSpeed\": 0,\n            \"Enabled\": true\n          }\n        }\n      ]\n    }\n  ]\n}";
+
+// ---------------- 部品(reference の Components.cs) ----------------
+class SpriteRenderer extends C.Component { constructor() { super(); this.Kind = 0; this.Size = 32; this.Color = [1, 1, 1, 1]; this.Layer = 0; } }
+class BouncingMover extends C.Component {
+  constructor() { super(); this.Velocity = [0, 0]; this.SpinSpeed = 0; this.angle = 0; this.half = 16; }
+  start() { const r = this.gameObject.getComponent(SpriteRenderer); this.half = (r ? r.Size : 32) * 0.5; this.angle = this.transform.localRotationZ; }
+  fixedUpdate(dt) {
+    const p = [...this.transform.localPosition], v = this.Velocity, b = this.gameObject.scene.bounds, h = this.half;
+    p[0] += v[0] * dt; p[1] += v[1] * dt;
+    if (p[0] < h) { p[0] = h; v[0] = -v[0]; } else if (p[0] > b[0] - h) { p[0] = b[0] - h; v[0] = -v[0]; }
+    if (p[1] < h) { p[1] = h; v[1] = -v[1]; } else if (p[1] > b[1] - h) { p[1] = b[1] - h; v[1] = -v[1]; }
+    this.transform.localPosition = p; this.angle += this.SpinSpeed * dt; this.transform.setLocalRotationZ(this.angle);
+  }
+}
+class OrbitMover extends C.Component {
+  constructor() { super(); this.Radius = 100; this.AngularSpeed = 1; this.StartAngle = 0; this.SpinSpeed = 0; this.angle = 0; this.spin = 0; }
+  start() { this.angle = this.StartAngle; }
+  fixedUpdate(dt) {
+    this.angle += this.AngularSpeed * dt; this.spin += this.SpinSpeed * dt;
+    this.transform.localPosition = [Math.cos(this.angle) * this.Radius, Math.sin(this.angle) * this.Radius];
+    this.transform.setLocalRotationZ(this.spin);
+  }
+}
+// DashCooldown は実行時の値なので保存しない([JsonIgnore])。Velocity は保存する
+class PlayerController extends C.Component { constructor() { super(); this.Velocity = [0, 0]; this.DashCooldown = 0; } }
+class LifecycleLogger extends C.Component { constructor() { super(); this.Label = 'obj'; } }
+
+// ComponentRegistry: ここに列挙したものしか読み書きしない。値は保存するプロパティと型(n = 数、v2 / v4 = ベクトル、s = 文字列)
+const REGISTRY = {
+  SpriteRenderer: { cls: SpriteRenderer, props: { Kind: 'n', Size: 'n', Color: 'v4', Layer: 'n' } },
+  BouncingMover: { cls: BouncingMover, props: { Velocity: 'v2', SpinSpeed: 'n' } },
+  OrbitMover: { cls: OrbitMover, props: { Radius: 'n', AngularSpeed: 'n', StartAngle: 'n', SpinSpeed: 'n' } },
+  PlayerController: { cls: PlayerController, props: { Velocity: 'v2' } },
+  LifecycleLogger: { cls: LifecycleLogger, props: { Label: 's' } },
+};
+const nameOf = (c) => { for (const [k, v] of Object.entries(REGISTRY)) if (c instanceof v.cls) return k; throw new Error(`${c.constructor.name} は ComponentRegistry に登録されていません。Register を1行足してください`); };
+
+// ---------------- SceneSerializer(このページだけ) ----------------
+// includeFields = false は System.Text.Json の既定(フィールドを無視する)の真似: ベクトルと ECS の構造体が黙って {} になる
+const opt = { includeFields: true };
+const vec = (v) => (opt.includeFields ? [...v] : {});
+const readVec = (x, n) => (Array.isArray(x) ? [...x] : new Array(n).fill(0));
+function save(scene, world, name) {
+  const index = new Map(scene.gameObjects.map((g, i) => [g, i]));
+  const root = { version: 1, name, bounds: [...scene.bounds], gameObjects: scene.gameObjects.map((g, i) => {
+    const t = g.transform, half = t.localRotationZ / 2;
+    return {
+      id: i, name: g.name, active: g.activeSelf, parent: t.parent ? index.get(t.parent.gameObject) ?? -1 : -1,
+      position: [t.localPosition[0], t.localPosition[1], 0], rotation: [0, 0, Math.sin(half), Math.cos(half)], scale: [t.scale[0], t.scale[1], 1],
+      components: g.components.map((c) => {
+        const type = nameOf(c), data = {};
+        for (const [k, kind] of Object.entries(REGISTRY[type].props)) data[k] = kind.startsWith('v') ? vec(c[k]) : c[k];
+        data.Enabled = c.enabled;
+        return { type, data };
+      }),
+    };
+  }) };
+  if (world && world.aliveCount > 0) {
+    const T = world.store('Transform2D'), P = world.store('Previous2D'), V = world.store('Velocity2D'), S = world.store('Sprite2D');
+    const arr = (s, fn) => Array.from({ length: s.count }, (_, i) => (opt.includeFields ? fn(s.cols, i) : {}));
+    root.ecs = {
+      count: T.count,
+      transform2D: arr(T, (c, i) => ({ Position: [c.px[i], c.py[i]], Rotation: c.rot[i] })),
+      previous2D: arr(P, (c, i) => ({ Position: [c.px[i], c.py[i]], Rotation: c.rot[i] })),
+      velocity2D: arr(V, (c, i) => ({ Linear: [c.vx[i], c.vy[i]], Spin: c.spin[i], HalfSize: c.half[i] })),
+      sprite2D: arr(S, (c, i) => ({ Kind: c.kind[i], Size: c.size[i], Layer: c.layer[i], Color: [c.r[i], c.g[i], c.b[i], c.a[i]] })),
+    };
+  }
+  return JSON.stringify(root, null, 2);
+}
+// 3 周する: オブジェクトを作る → 親を結ぶ → コンポーネントを付ける
+function load(json, world, log = () => {}) {
+  const root = JSON.parse(json);
+  if (root.version > 1) throw new Error(`シーンの形式が新しすぎます(ファイル ${root.version} / このエンジン 1)`);
+  const scene = new C.Scene();
+  if (root.bounds) scene.bounds = readVec(root.bounds, 2);
+  const created = root.gameObjects.map((e) => {
+    const g = scene.createGameObject(e.name ?? 'GameObject'), p = readVec(e.position, 3), q = readVec(e.rotation, 4), s = readVec(e.scale, 3);
+    g.transform.localPosition = [p[0], p[1]]; g.transform.setLocalRotationZ(2 * Math.atan2(q[2], q[3])); g.transform.localScale = [s[0] || 1, s[1] || 1];
+    g.transform.snapshot();
+    return g;
+  });
+  root.gameObjects.forEach((e, i) => { if (e.parent >= 0 && e.parent < created.length) created[i].transform.setParent(created[e.parent].transform); });
+  root.gameObjects.forEach((e, i) => {
+    const g = created[i];
+    if (e.active === false) g.setActive(false);
+    for (const c of e.components ?? []) {
+      const reg = REGISTRY[c.type];
+      if (!reg) { log(`[scene] 知らないコンポーネント "${c.type}" を読み飛ばしました`); continue; }
+      const init = {};
+      for (const [k, kind] of Object.entries(reg.props)) if (c.data && k in c.data) init[k] = kind === 'v2' ? readVec(c.data[k], 2) : kind === 'v4' ? readVec(c.data[k], 4) : c.data[k];
+      const comp = g.addComponent(reg.cls, init);
+      if (c.data && c.data.Enabled === false) comp.enabled = false;
+    }
+  });
+  if (world && root.ecs) {
+    const e = root.ecs;
+    for (let i = 0; i < e.count; i++) {
+      const id = world.createEntity(), t = e.transform2D[i] ?? {}, p = e.previous2D[i] ?? {}, v = e.velocity2D[i] ?? {}, sp = e.sprite2D[i] ?? {};
+      const tp = readVec(t.Position, 2), pp = readVec(p.Position, 2), vl = readVec(v.Linear, 2), col = readVec(sp.Color, 4);
+      world.add(id, 'Transform2D', { px: tp[0], py: tp[1], rot: t.Rotation ?? 0 });
+      world.add(id, 'Previous2D', { px: pp[0], py: pp[1], rot: p.Rotation ?? 0 });
+      world.add(id, 'Velocity2D', { vx: vl[0], vy: vl[1], spin: v.Spin ?? 0, half: v.HalfSize ?? 0 });
+      world.add(id, 'Sprite2D', { kind: sp.Kind ?? 0, size: sp.Size ?? 0, layer: sp.Layer ?? 0, r: col[0], g: col[1], b: col[2], a: col[3] });
+    }
+  }
+  return scene;
+}
+// Program.CreateDemoScene(コードで組む経路)
+function createDemoScene() {
+  const scene = new C.Scene();
+  const player = scene.createGameObject('Player'); player.transform.localPosition = [480, 320];
+  player.addComponent(SpriteRenderer, { Kind: 2, Size: 68, Layer: 1 }); player.addComponent(PlayerController);
+  const root = scene.createGameObject('OrbitRoot'); root.transform.localPosition = [770, 170];
+  root.addComponent(SpriteRenderer, { Kind: 0, Size: 72, Color: [1, 0.8, 0.15, 1], Layer: 0.95 });
+  for (let i = 0; i < 3; i++) {
+    const c = scene.createGameObject(`Orbit${i}`, root.transform);
+    c.addComponent(SpriteRenderer, { Kind: 1, Size: 46, Color: [0.2, 0.75, 1, 1], Layer: 0.94 });
+    c.addComponent(OrbitMover, { Radius: 86, AngularSpeed: 1.1, StartAngle: (i * TAU) / 3 });
+    const m = scene.createGameObject(`Orbit${i}-moon`, c.transform);
+    m.addComponent(SpriteRenderer, { Kind: 3, Size: 26, Color: [1, 0.3, 0.6, 1], Layer: 0.93 });
+    m.addComponent(OrbitMover, { Radius: 32, AngularSpeed: -3.4, StartAngle: i * 1.7 });
+  }
+  for (const g of scene.gameObjects) g.transform.snapshot();
+  return scene;
+}
+const rgba = (c) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})`;
+function shape(ctx, kind, x, y, r, rot) {
+  ctx.beginPath();
+  if (kind === 0 || kind === 1) ctx.arc(x, y, r, 0, TAU);
+  else if (kind === 2) { for (let k = 0; k < 10; k++) { const a = rot - Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+  else { for (let k = 0; k < 4; k++) { const a = rot + (k * Math.PI) / 2; ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+}
+
+// ------------------------------------------------------------
+// 1. シーンファイルを編集して読み込む
+// ------------------------------------------------------------
+const sc = { scene: null, loop: new C.GameLoop(1 / 60), last: 0, log: [] };
+const scLog = (s) => { sc.log.push(s); if (sc.log.length > 200) sc.log.splice(0, sc.log.length - 200); $('sc-console').textContent = sc.log.join('\n'); $('sc-console').scrollTop = 1e9; };
+const edit = (fn) => { const o = JSON.parse(DEMO_JSON); fn(o); $('sc-text').value = JSON.stringify(o, null, 2); scLoad('編集した demo.scene.json'); };
+function scLoad(label) {
+  try {
+    const s = load($('sc-text').value, null, scLog);
+    sc.scene = s; scLog(`シーンを読み込みました: ${label}`); scLog(`  GameObject ${s.gameObjects.length} 個 / コンポーネント ${s.componentCount} 個`);
+  } catch (e) { scLog(`[scene] 読めませんでした: ${e.message}`); }
+}
+$('sc-load').addEventListener('click', () => scLoad('テキスト欄'));
+$('sc-reset').addEventListener('click', () => { $('sc-text').value = DEMO_JSON; scLoad('demo.scene.json'); });
+$('sc-code').addEventListener('click', () => { sc.scene = createDemoScene(); scLog('シーンをコードから組みました(Shift + F3)'); scLog(`  GameObject ${sc.scene.gameObjects.length} 個 / コンポーネント ${sc.scene.componentCount} 個`); });
+$('sc-save').addEventListener('click', () => { opt.includeFields = true; $('sc-text').value = save(sc.scene, null, 'demo'); scLog(`[scene] 保存: テキスト欄へ(${$('sc-text').value.length} 文字)。動いている今の状態が書かれる`); });
+$('sc-move').addEventListener('click', () => edit((o) => { o.gameObjects.find((g) => g.name === 'OrbitRoot').position = [300, 400, 0]; }));
+$('sc-red').addEventListener('click', () => edit((o) => { o.gameObjects.find((g) => g.name === 'Player').components[0].data.Color = [1, 0, 0, 1]; }));
+$('sc-unknown').addEventListener('click', () => edit((o) => { o.gameObjects[0].components.push({ type: 'FlashOnBounce', data: { Enabled: true } }); }));
+$('sc-order').addEventListener('click', () => edit((o) => {
+  // 子と孫を先に、親を後ろに並べ替える(parent の番号も付け替える)
+  const n = o.gameObjects.length, order = [...o.gameObjects].reverse(), map = new Map(order.map((g, i) => [g.id, i]));
+  o.gameObjects = order.map((g) => ({ ...g, id: map.get(g.id), parent: g.parent < 0 ? -1 : map.get(g.parent) }));
+  scLog(`(${n} 個を逆順に並べた。子が親より先に書いてある)`);
+}));
+$('sc-version').addEventListener('click', () => edit((o) => { o.version = 2; }));
+$('sc-inactive').addEventListener('click', () => edit((o) => { o.gameObjects.find((g) => g.name === 'Orbit0').active = false; }));
+function scDraw() {
+  const cv = $('sc-canvas'), { ctx, w } = fit(cv), h = cv.clientHeight;
+  const W = 960, H = 640, s = Math.min(w / W, h / H), ox = (w - W * s) / 2, oy = (h - H * s) / 2;
+  ctx.fillStyle = '#14171f'; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(s, s);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, W, H);
+  if (sc.scene) {
+    const items = sc.scene.gameObjects.filter((g) => g.activeInHierarchy).map((g) => ({ g, r: g.getComponent(SpriteRenderer) })).filter((x) => x.r).sort((a, b) => a.r.Layer - b.r.Layer);
+    for (const { g, r } of items) {
+      const m = g.transform.localToWorld;
+      ctx.fillStyle = ctx.strokeStyle = rgba(r.Color);
+      shape(ctx, r.Kind, m[4], m[5], r.Size * 0.5, Math.atan2(m[1], m[0]));
+      if (r.Kind === 1) { ctx.lineWidth = Math.max(2, r.Size * 0.18); ctx.stroke(); } else ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+animate($('sc-lab'), () => {
+  const now = performance.now(); let dt = sc.last ? (now - sc.last) / 1000 : 0; sc.last = now; if (dt > 0.25) dt = 0;
+  if (sc.scene) sc.loop.advance(dt, (d) => sc.scene.fixedUpdate(d));
+  scDraw();
+  $('sc-stats').innerHTML = stat('GameObject', sc.scene ? sc.scene.gameObjects.length : '—') + stat('コンポーネント', sc.scene ? sc.scene.componentCount : '—') + stat('テキストの大きさ', `${new TextEncoder().encode($('sc-text').value).length} バイト / ${$('sc-text').value.split('\n').length} 行`);
+});
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) sc.last = 0; }).observe($('sc-lab'));
+$('sc-text').value = DEMO_JSON;
+scLoad('demo.scene.json');
+
+// ------------------------------------------------------------
+// 2. 往復の罠(F4)
+// ------------------------------------------------------------
+function stepAndHash(scene, steps) {
+  for (let i = 0; i < steps; i++) scene.fixedUpdate(1 / 60);
+  const v = []; for (const g of scene.gameObjects) { const p = g.transform.worldPosition; v.push(p[0], p[1]); }
+  return C.hex16(C.fnv1aFloats(v));
+}
+const vstr = (a) => `<${a.map((x) => DotNet.fmtFloat(Math.fround(x))).join(', ')}>`;
+$('rt-run').addEventListener('click', () => {
+  opt.includeFields = segValue('rt-fields') === '1';
+  const lines = ['[シーンの往復チェック]']; let fails = 0;
+  const check = (name, ok, d = '') => { if (!ok) fails++; lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${d ? '  ' + d : ''}`); };
+  const coded = createDemoScene();
+  const probe = coded.createGameObject('Probe');
+  const ps = probe.addComponent(SpriteRenderer, { Size: 31, Color: [0.125, 0.25, 0.375, 0.5] });
+  const pm = probe.addComponent(BouncingMover, { Velocity: [123, -45], SpinSpeed: 2.5 });
+  const cw = new C.World();
+  for (let i = 0; i < 3; i++) {
+    const e = cw.createEntity();
+    cw.add(e, 'Transform2D', { px: 10 + i, py: 20 + i, rot: 0.5 * i }); cw.add(e, 'Previous2D');
+    cw.add(e, 'Velocity2D', { vx: -1.5, vy: 2.5, spin: 1, half: 8 }); cw.add(e, 'Sprite2D', { kind: i, size: 12, layer: 0.5, r: 1, g: 1, b: 1, a: 1 });
+  }
+  const first = save(coded, cw, 'roundtrip');
+  const lw = new C.World(), loaded = load(first, lw);
+  const second = save(loaded, lw, 'roundtrip');
+  check('保存 → 読み込み → 再保存でテキストが一致', first === second, `${first.length} バイト / ${second.length} バイト`);
+  check('GameObject の数が一致', coded.gameObjects.length === loaded.gameObjects.length, `${coded.gameObjects.length} / ${loaded.gameObjects.length}`);
+  check('コンポーネントの数が一致', coded.componentCount === loaded.componentCount, `${coded.componentCount} / ${loaded.componentCount}`);
+  let depth = 0; for (const g of loaded.gameObjects) { let d = 0; for (let t = g.transform.parent; t; t = t.parent) d++; depth = Math.max(depth, d); }
+  check('親子の深さが3段(根 → 子 → 孫)', depth === 2, `実際 ${depth + 1} 段`);
+  const lp = loaded.gameObjects.find((g) => g.name === 'Probe');
+  check('目印のオブジェクトが復元されている', !!lp);
+  if (lp) {
+    const r = lp.getComponent(SpriteRenderer), m = lp.getComponent(BouncingMover);
+    check('float が保たれている', r && r.Size === 31);
+    check('Vector4 が保たれている', r && r.Color.every((x, i) => x === ps.Color[i]), vstr(r.Color));
+    check('Vector2 が保たれている', m && m.Velocity.every((x, i) => x === pm.Velocity[i]), vstr(m.Velocity));
+  }
+  const h1 = stepAndHash(createDemoSceneWithProbe(), 300), h2 = stepAndHash(load(first, null), 300);
+  check('300 ステップ後の状態が一致', h1 === h2, `${h1} / ${h2}`);
+  check('エンティティの数が一致', cw.aliveCount === lw.aliveCount, `${cw.aliveCount} / ${lw.aliveCount}`);
+  const lt = lw.store('Transform2D').cols, lv = lw.store('Velocity2D').cols;
+  const ecsOk = lw.store('Transform2D').count === 3 && lt.px[0] === 10 && lt.py[0] === 20 && lv.vx[0] === -1.5;
+  check('ECS コンポーネントの値が保たれている', ecsOk, vstr([lt.px[0] ?? 0, lt.py[0] ?? 0]));
+  lines.push(fails === 0 ? '  すべて合格 — シーンをファイルから復元しても、同じ動きをする' : `  ${fails} 件 不合格`);
+  $('rt-console').textContent = lines.join('\n');
+  // 保存したテキストのうち、目印と ECS の先頭だけを見せる
+  const o = JSON.parse(first), pr = o.gameObjects.find((g) => g.name === 'Probe');
+  $('rt-json').textContent = `// Probe の部品\n${JSON.stringify(pr.components, null, 2)}\n// ecs.transform2D の先頭\n${JSON.stringify(o.ecs.transform2D.slice(0, 1), null, 2)}`;
+  opt.includeFields = true;
+});
+// 往復と同じ目印を足したシーンを、コードから組み直す(300 ステップ後を比べる基準)
+function createDemoSceneWithProbe() {
+  const s = createDemoScene(), p = s.createGameObject('Probe');
+  p.addComponent(SpriteRenderer, { Size: 31, Color: [0.125, 0.25, 0.375, 0.5] });
+  p.addComponent(BouncingMover, { Velocity: [123, -45], SpinSpeed: 2.5 });
+  return s;
+}
+seg('rt-fields', () => $('rt-run').click());
+
+// ------------------------------------------------------------
+// 3. JSON の太さ(F2 / F3)
+// ------------------------------------------------------------
+$('sz-run').addEventListener('click', async () => {
+  const rows = [], tick = () => new Promise((r) => setTimeout(r, 0));
+  opt.includeFields = true;
+  for (const n of [0, 1000, 5000]) {
+    $('sz-table').textContent = `${n} 体を測っている…`; await tick();
+    const r = new DotNet.DotNetRandom(20260816), w = new C.World();
+    for (let i = 0; i < n; i++) {
+      const e = w.createEntity(), x = r.nextDouble() * 960, y = r.nextDouble() * 640;
+      w.add(e, 'Transform2D', { px: x, py: y, rot: r.nextDouble() * TAU }); w.add(e, 'Previous2D', { px: x, py: y });
+      w.add(e, 'Velocity2D', { vx: r.nextDouble() * 200 - 100, vy: r.nextDouble() * 200 - 100, spin: r.nextDouble() - 0.5, half: 8 });
+      w.add(e, 'Sprite2D', { kind: i % 4, size: 14 + r.nextDouble() * 24, layer: r.nextDouble(), r: 1, g: 1, b: 1, a: 0.85 });
+    }
+    const scene = createDemoScene();
+    let t0 = performance.now(); const text = save(scene, w, 'demo'); const ts = performance.now() - t0;
+    t0 = performance.now(); load(text, new C.World()); const tl = performance.now() - t0;
+    const bytes = new TextEncoder().encode(text).length;
+    rows.push(`<tr><td>${n === 0 ? '0(GameObject 8 個のみ)' : n.toLocaleString()}</td><td>${F(bytes / 1024, 1)}KB</td><td>${F(ts, 1)}ms</td><td>${F(tl, 1)}ms</td><td>${n ? Math.round((bytes - 0) / n) + ' バイト' : '—'}</td></tr>`);
+    await tick();
+  }
+  $('sz-table').innerHTML = `<table><thead><tr><th>エンティティ数</th><th>ファイル</th><th>保存</th><th>読み込み</th><th>1体あたり</th></tr></thead><tbody>${rows.join('')}</tbody></table><p style="margin:6px 0 0;font-size:12px;color:var(--muted)">このページの JS(JSON.stringify と JSON.parse)で測った値。改行は LF、数は JS の倍精度のまま書くので、C# の float の書き方より長くなる</p>`;
+});
+})();
+</script>
+</body>
+</html>
