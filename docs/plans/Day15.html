@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 15 メッシュ/テクスチャ/マテリアルの抽象化</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 3つの責務に分ける</a></li><li class="l3"><a href="#s5">2. 誰がリソースを所有するか</a></li><li class="l3"><a href="#s6">3. uniform には3つの階層がある</a></li><li class="l3"><a href="#s7">4. テクスチャの上下反転 — Day 10 の V 座標問題、再び</a></li><li class="l3"><a href="#s8">5. フィルタとラップ — 自作したものが設定1つになる</a></li><li class="l3"><a href="#s9">6. テクスチャユニットという段</a></li><li class="l3"><a href="#s10">7. 頂点を構造体にする</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">追加パッケージ</a></li><li class="l3"><a href="#s13">テスト用テクスチャについて</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l2"><a href="#s16">改造課題</a></li><li class="l3"><a href="#s17">課題1(易): マテリアルとテクスチャ設定で遊ぶ</a></li><li class="l3"><a href="#s18">課題2(中): テクスチャを2枚使う</a></li><li class="l3"><a href="#s19">課題3(難): 頂点属性の型に対応する</a></li><li class="l2"><a href="#s20">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 3 / Day 15 / 計画書</p>
+  <h1>メッシュ/テクスチャ/マテリアルの抽象化</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 3つの責務に分ける</a></li><li class="l3"><a href="#s5">2. 誰がリソースを所有するか</a></li><li class="l3"><a href="#s6">3. uniform には3つの階層がある</a></li><li class="l3"><a href="#s7">4. テクスチャの上下反転 — Day 10 の V 座標問題、再び</a></li><li class="l3"><a href="#s8">5. フィルタとラップ — 自作したものが設定1つになる</a></li><li class="l3"><a href="#s9">6. テクスチャユニットという段</a></li><li class="l3"><a href="#s10">7. 頂点を構造体にする</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">追加パッケージ</a></li><li class="l3"><a href="#s13">テスト用テクスチャについて</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">完成条件</a></li><li class="l2"><a href="#s16">改造課題</a></li><li class="l3"><a href="#s17">課題1(易): マテリアルとテクスチャ設定で遊ぶ</a></li><li class="l3"><a href="#s18">課題2(中): テクスチャを2枚使う</a></li><li class="l3"><a href="#s19">課題3(難): 頂点属性の型に対応する</a></li><li class="l2"><a href="#s20">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 3 / ロードマップ該当行: 「メッシュ/テクスチャ/マテリアルの抽象化」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>1枚のメッシュと1枚のテクスチャから、見た目の違う四角形が2つ出る。</strong></p>
+<p>Day 14 では頂点バッファの作成もドローコールも <code>Program.cs</code> に直書きだった。今日それを3つの部品に分ける。分けたことの成果は、<strong>描画ループが「マテリアルを適用 → 行列を設定 → メッシュを描く」の3行になる</strong>ことで測れる。メッシュが2枚でも100枚でも、この形は変わらない。</p>
+<p>そして今日から<strong>テクスチャが GPU に載る</strong>。Day 8 で自作したバイリニア補間が、設定1つに置き換わるところを見る。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 B-10 テクスチャマッピング(2) さまざまな材質</a> —ロードマップ指定。マテリアルという概念が何を指すのか</li><li><a href="https://learnopengl.com/Getting-started/Textures">Textures — LearnOpenGL</a> —テクスチャユニット、フィルタ、ラップの実例</li><li><a href="https://www.khronos.org/opengl/wiki/Vertex_Specification">Vertex Specification — OpenGL Wiki</a> —Day 13 でも読んだ回。今日は「構造体でどう表すか」の視点で読み直す</li><li>復習として <strong>Day08.md(テクスチャとバイリニア)と Day10.md の要点3(V座標の反転)</strong>。今日、両方が GPU 側で再登場する</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 3つの責務に分ける</h3>
+<p>Day 14 の <code>CreateTriangle()</code> は、次の3つを一緒くたにやっていた。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>責務</th><th>具体的には</th><th>今日の担当</th></tr></thead>
+<tbody>
+<tr><td><strong>形</strong></td><td>頂点の座標、面の張り方</td><td><code>Mesh&lt;TVertex&gt;</code></td></tr>
+<tr><td><strong>素材</strong></td><td>画像データ、読み方の設定</td><td><code>Texture</code></td></tr>
+<tr><td><strong>見た目</strong></td><td>どのシェーダに、どの値を渡すか</td><td><code>Material</code></td></tr>
+</tbody>
+</table></div>
+<p>分ける動機は「きれいだから」ではなく、<strong>組み合わせが掛け算で増えるから</strong>。メッシュ10種 × マテリアル10種を直書きすると100通り書くことになるが、分ければ 10 + 10 で済む。</p>
+<p><strong>シェーダとマテリアルの違い</strong>が最初は分かりにくいので、対比しておく。</p>
+<ul><li><strong>シェーダ</strong> … 処理そのもの(GPU で動くプログラム)。コンパイルが要る。<strong>重い。使い回す</strong></li><li><strong>マテリアル</strong> … その処理に渡す値の組。ただのデータ。<strong>軽い。いくつも作る</strong></li></ul>
+<p>「木箱」「石壁」「金属板」はマテリアルが3つあれば足り、シェーダは1本でよい。<strong>シェーダの本数を増やさずに見た目の種類を増やす</strong>のがこの分離の目的。</p>
+<p>今日のデモはそれをそのまま形にしてある。<strong>メッシュ1枚・テクスチャ1枚・シェーダ1本</strong>から、マテリアルを2つ作るだけで違う見た目の四角形が2つ出る。</p>
+<h3 id="s5">2. 誰がリソースを所有するか</h3>
+<p>抽象化すると必ず出てくるのが<strong>寿命の問題</strong>。GPU リソースは GC の管轄外なので、「誰が <code>Dispose</code> するか」を決めておかないとリークか二重解放になる。</p>
+<p>今日の方針はこう。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>クラス</th><th>所有するもの</th><th>所有しないもの</th></tr></thead>
+<tbody>
+<tr><td><code>Mesh</code></td><td>VAO / VBO / EBO</td><td>—</td></tr>
+<tr><td><code>Texture</code></td><td>テクスチャオブジェクト</td><td>—</td></tr>
+<tr><td><code>Material</code></td><td><strong>何も所有しない</strong></td><td>シェーダ、テクスチャ(参照するだけ)</td></tr>
+</tbody>
+</table></div>
+<p><code>Material</code> が何も持たないのが肝。マテリアル2つが同じテクスチャを指しているとき、片方を捨てたらテクスチャが消える、では困る。<strong>共有されるものは、共有される側が寿命を管理しない</strong>。</p>
+<p>今日は <code>Program</code> が全部の寿命を握っている。これは規模が小さいから成立する形で、<strong>ハンドルベースの正式な仕組みは Day 21(リソース管理)で作る</strong>。</p>
+<h3 id="s6">3. uniform には3つの階層がある</h3>
+<p>マテリアルを作ると「どの値をマテリアルに持たせるか」を決める必要が出てくる。判断の基準は<strong>何ごとに変わる値か</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>階層</th><th>変わる頻度</th><th>例</th><th>今日の担当</th></tr></thead>
+<tbody>
+<tr><td><strong>フレームごと</strong></td><td>1フレームに1回</td><td>ビュー行列、投影行列、時間</td><td><code>Program</code>(Day 16 でカメラへ)</td></tr>
+<tr><td><strong>オブジェクトごと</strong></td><td>描画1回ごと</td><td>モデル行列</td><td><code>Program</code></td></tr>
+<tr><td><strong>マテリアルごと</strong></td><td>マテリアル1つごと</td><td>色、テクスチャ、UV倍率</td><td><strong><code>Material</code></strong></td></tr>
+</tbody>
+</table></div>
+<p><code>Material.Apply()</code> に3階層すべてを詰め込みたくなるが、そうすると「同じマテリアルで100個描く」ときに毎回ビュー行列を送り直すことになる。<strong>変わらない値を毎回送らない</strong>ための線引きで、Day 17〜18 のスプライトバッチ(1万枚を最小のドローコールで)で決定的に効いてくる。</p>
+<p>だから今日のコードは、こう分かれている。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>material.Apply();                                   // マテリアルごと
+material.Shader.SetMatrix4("uTransform", transform); // オブジェクトごと
+mesh.Draw();</code></pre></div>
+<h3 id="s7">4. テクスチャの上下反転 — Day 10 の V 座標問題、再び</h3>
+<p>画像ファイルは「1行目 = 画像の一番上」で保存されている。一方 OpenGL のテクスチャは「最初のテクセル = UV(0,0)」で、<strong>UV の原点は左下</strong>。素直に流し込むと上下が逆さまになる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>StbImage.stbi_set_flip_vertically_on_load(1);</code></pre></div>
+<p>Day 10 の要点3で「テクスチャが上下逆さまになるのはグラフィックスで最頻出のバグ」と書いた話が、そっくりそのまま GPU 側でも起きる。<strong>どちらが正しいということはなく、流儀が2つあるだけ</strong>なので、どこかで必ず吸収する必要がある。</p>
+<p>今日は「読み込み時に反転する」を選んだ。こうしておくと、四角形の左下の頂点に UV(0,0) を割り当てたときに<strong>画像ファイルで見たとおりの向き</strong>で表示される。</p>
+<p>本Dayのテスト用テクスチャには、これを一目で判定できるよう<strong>UV原点に白い四角</strong>を入れてある。実際に描いた結果、白い四角は左の四角形の<strong>左上</strong>に出た——元の PNG でも白は左上なので、向きは正しい。</p>
+<h3 id="s8">5. フィルタとラップ — 自作したものが設定1つになる</h3>
+<p>Day 8 で「バイリニアはテクセルを4個読むのでメモリアクセスのコストそのもの、実測 +7ms」と書いた処理は、GPU では<strong>設定1つ</strong>になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, ...);</code></pre></div>
+<p>やっていることは同じで、<strong>専用回路が受け持つようになっただけ</strong>。</p>
+<p>ここで Phase 1 に無かったものが1つ増える。<strong>ミップマップ</strong>。縮小版をあらかじめ作っておき、遠くの物体には縮小済みのものを使う。原寸から間引くとテクセルを飛ばし飛ばし読むことになり、模様がちらつく(エイリアシング)。「遠くのテクスチャがチカチカする」の答えがこれで、<code>GenerateMipmap</code> 1行で用意できる。</p>
+<p>フィルタの指定に<strong>非対称性</strong>がある点に注意。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>ミップマップ指定</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td>MinFilter(縮小時)</td><td><strong>できる</strong></td><td>縮小するのだから縮小版を使う</td></tr>
+<tr><td>MagFilter(拡大時)</td><td><strong>できない</strong></td><td>拡大するのに縮小版は要らない</td></tr>
+</tbody>
+</table></div>
+<p>MagFilter に <code>LinearMipmapLinear</code> を指定すると <code>GL_INVALID_ENUM</code> になる。Day 13 の要点で書いたとおり OpenGL は黙って続行するので、「なぜか拡大時だけ効かない」という形で現れる。</p>
+<p><strong>ラップモード</strong>は UV が 0〜1 の外に出たときの扱い。実測で確認した違い:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>モード</th><th>UV倍率2 のときの見え方</th></tr></thead>
+<tbody>
+<tr><td><code>Repeat</code></td><td>模様が<strong>縦横2回ずつ、計4枚</strong>繰り返される</td></tr>
+<tr><td><code>ClampToEdge</code></td><td>左下に1枚だけ出て、<strong>残りは端の色が引き伸ばされる</strong></td></tr>
+</tbody>
+</table></div>
+<div class="inject"><figure class="lab" id="qd-lab">
+  <div class="lab-head">
+    <h3>四角形を2つ描く — メッシュ1枚・テクスチャ1枚・シェーダ1本、マテリアルだけ2つ(要点1・4・5・6、F・R キー)</h3>
+    <span class="tag">reference の Program.cs(CreateQuad、2つのマテリアル、DrawQuad の行列、タイトルバー)、Material.Apply、Texture.cs(上下反転、SetFilter、SetWrap)と textured.vert、textured.frag を JS に移し、ソフトウェア版の GL(docs/site/softgl.js)で 800x600 に描いたもの。uv-test.png はページの中で同じ絵を作っている(小さいほうの絵が、画像ファイルのままの向き)。四角形の大きさ、読み込み時の反転、uTexture に渡す値、右のマテリアルの値の4つはこのページだけの切り替えで、改造課題1と要点6を試すもの</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="qd-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:12px;align-items:start" id="qd-grid">
+      <canvas id="qd-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:440px" aria-label="テクスチャを貼った四角形が2つ、逆向きに回っている"></canvas>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">uv-test.png(ファイルのままの向き)</div><canvas id="qd-png" style="width:128px;height:128px;image-rendering:pixelated" aria-label="uv-test.png。左上に白い四角"></canvas></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">フィルタ(F)とラップ(R)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="qd-filter"><button data-v="Linear" aria-pressed="true">Linear</button><button data-v="Nearest" aria-pressed="false">Nearest</button></div><div class="seg" id="qd-wrap"><button data-v="Repeat" aria-pressed="true">Repeat</button><button data-v="ClampToEdge" aria-pressed="false">ClampToEdge</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">描き方(W)と回転(Space)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="qd-wire"><button data-v="0" aria-pressed="true">塗り</button><button data-v="1" aria-pressed="false">ワイヤー</button></div><div class="seg" id="qd-play"><button data-v="1" aria-pressed="true">回す</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">四角形の大きさ(このページだけ)</span>
+      <div class="seg" id="qd-size"><button data-v="0.9" aria-pressed="true">0.9(reference)</button><button data-v="2.4" aria-pressed="false">拡大</button><button data-v="0.18" aria-pressed="false">縮小</button></div>
+    </div>
+    <div class="ctl"><span class="label">stbi_set_flip_vertically_on_load(課題1の4)</span>
+      <div class="seg" id="qd-flip"><button data-v="1" aria-pressed="true">1(reference)</button><button data-v="0" aria-pressed="false">0</button></div>
+    </div>
+    <div class="ctl"><span class="label">SetInt("uTexture", …) に渡す値(要点6)</span>
+      <div class="seg" id="qd-unit"><button data-v="0" aria-pressed="true">0(ユニットの番号)</button><button data-v="1" aria-pressed="false">1(テクスチャのハンドル)</button></div>
+    </div>
+    <div class="ctl"><span class="label">右のマテリアル(課題1の2・3)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="qd-uv"><button data-v="2" aria-pressed="true">UvScale 2</button><button data-v="0.5" aria-pressed="false">0.5</button><button data-v="-1" aria-pressed="false">−1</button></div><div class="seg" id="qd-alpha"><button data-v="1" aria-pressed="true">Tint α 1</button><button data-v="0.5" aria-pressed="false">α 0.5</button><button data-v="b" aria-pressed="false">α 0.5 + Blend</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="qd-stats"></div></div>
+</figure></div>
+<h3 id="s9">6. テクスチャユニットという段</h3>
+<p>Phase 1 では <code>Texture</code> オブジェクトを直接サンプリング関数に渡していた。GPU では<strong>間に「ユニット」という段が挟まる</strong>。</p>
+<div class="code"><pre><code>シェーダ: 「0番のユニットを見ろ」   ← sampler2D uTexture に int の 0 を渡す
+C#側:    「0番にこのテクスチャを刺す」 ← ActiveTexture(Texture0) + BindTexture</code></pre></div>
+<p>回りくどく見えるが、これがあるおかげで<strong>1回の描画で複数のテクスチャを使える</strong>。Day 34 の法線マップ(色テクスチャ + 法線テクスチャ)で本領を発揮する。</p>
+<p><strong>間違えやすいのは <code>sampler</code> に何を渡すか。</strong> 渡すのはテクスチャのハンドルではなく<strong>ユニットの番号(int)</strong>。ハンドルを渡してしまっても、それが小さい整数だと偶然動いてしまうことがあるぶん厄介。</p>
+<h3 id="s10">7. 頂点を構造体にする</h3>
+<p>Day 14 は <code>float[]</code> に <code>[x, y, r, g, b]</code> を手で並べていた。構造体にすると:</p>
+<ul><li><strong>意味のある名前</strong>で書ける</li><li>コンパイラが<strong>サイズとオフセットを計算</strong>する</li><li>用途の違う頂点(Day 17 のスプライト用)を別の型として区別できる</li></ul>
+<div class="code"><span class="lang">csharp</span><pre><code>[StructLayout(LayoutKind.Sequential)]
+internal struct Vertex
+{
+    public Vector3 Position;
+    public Vector2 TexCoord;
+    public Vector4 Color;
+
+    public static ReadOnlySpan&lt;int&gt; AttributeSizes =&gt; [3, 2, 4];
+}</code></pre></div>
+<p><code>StructLayout(Sequential)</code> が要るのは Day 11 で Win32 の構造体に付けたのと同じ理由。<strong>これが無いと CLR がフィールドを詰め替えてよい</strong>ことになっており、教えたオフセットと食い違う可能性がある。</p>
+<p><code>Mesh</code> 側は <code>Unsafe.SizeOf&lt;TVertex&gt;()</code> でストライドを取り、<code>AttributeSizes</code> を順に足してオフセットを組み立てる。そして<strong>合計がサイズと一致するか検算する</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>if (offset != stride) throw new InvalidOperationException(...);</code></pre></div>
+<p>属性の記述を間違えると、GL は何も言わずに壊れた絵を出す。自分で検算しておけば、<strong>絵を見る前に例外で気付ける</strong>。</p>
+<div class="inject"><figure class="lab" id="vx-lab">
+  <div class="lab-head">
+    <h3>頂点の並びを GL に教える — AttributeSizes からオフセットを積み上げる(要点7)</h3>
+    <span class="tag">reference の Vertex.cs(位置 3・UV 2・色 4 の float 9 個)と Mesh.cs のコンストラクタ(Unsafe.SizeOf をストライドにし、AttributeSizes を順に足してオフセットにし、合計がサイズと合わなければ例外)を JS に移したもの。上の段が構造体のメモリ、下の段が GL に教えた読み方で、色は属性の番号(0 = 位置、1 = UV、2 = 色)。シェーダは vec3・vec2・vec4 で受けるので、教えた個数が多ければ余りは捨てられ、少なければ (0, 0, 0, 1) で埋まる。正しくない AttributeSizes の3つはこのページだけ。絵は左の四角形(回転なし)を、読んだ値のとおりに描いたもの</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px;align-items:start" id="vx-grid">
+      <div id="vx-bytes"></div>
+      <canvas id="vx-canvas" style="width:100%;aspect-ratio:4/3;height:auto" aria-label="GL が読んだ値で描いた四角形"></canvas>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">AttributeSizes</span>
+      <div class="seg" id="vx-sizes"><button data-v="3,2,4" aria-pressed="true">[3, 2, 4](reference)</button><button data-v="2,3,4" aria-pressed="false">[2, 3, 4]</button><button data-v="3,4,2" aria-pressed="false">[3, 4, 2]</button><button data-v="3,2,3" aria-pressed="false">[3, 2, 3]</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="vx-stats"></div><pre id="vx-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<p>なお今日の実装は<strong>全属性が float 前提</strong>の簡易版。色を byte 4個に詰めて頂点を小さくしたくなるのは Day 17 で、そこで拡張することになる(改造課題3)。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Vertex.cs</code></td><td><strong>新規(49行)</strong></td><td>頂点構造体と属性の記述</td></tr>
+<tr><td><code>Mesh.cs</code></td><td><strong>新規(146行)</strong></td><td>VAO/VBO/EBO をまとめた「描けるもの」。インデックス描画</td></tr>
+<tr><td><code>Texture.cs</code></td><td><strong>新規(168行)</strong></td><td>PNG 読み込み、ミップマップ、フィルタ、ラップ</td></tr>
+<tr><td><code>Material.cs</code></td><td><strong>新規(71行)</strong></td><td>シェーダ + 値の組</td></tr>
+<tr><td><code>Shader.cs</code></td><td>+18行</td><td><code>SetVector2</code> / <code>SetVector4</code> を追加</td></tr>
+<tr><td><code>Program.cs</code></td><td>差し替え</td><td>シーンの組み立て。テクスチャのパス解決を追加</td></tr>
+<tr><td><code>Day15.csproj</code></td><td>+6行</td><td>StbImageSharp を追加</td></tr>
+<tr><td><code>shaders/textured.vert</code> / <code>.frag</code></td><td><strong>新規</strong></td><td><code>basic.*</code> を置き換え。UV とテクスチャ</td></tr>
+<tr><td><code>assets/textures/uv-test.png</code></td><td><strong>新規</strong></td><td>テスト用テクスチャ</td></tr>
+</tbody>
+</table></div>
+<p>実コード行は 333行(Day 14)→ <strong>594行</strong>。増分 261行のうち、<code>Program.cs</code> の増加分の多くはシーンの組み立てとパス解決なので、<strong>新しい概念は <code>Mesh</code> 83行・<code>Texture</code> 89行・<code>Material</code> 25行の約200行</strong>。1〜2時間で収まる。</p>
+<h3 id="s12">追加パッケージ</h3>
+<div class="code"><pre><code>StbImageSharp 2.30.16   PNG/JPG のデコーダ</code></pre></div>
+<p>C言語の定番1ファイルライブラリ <code>stb_image</code> の C# 移植(MIT、依存なし)。Silk.NET 自体は画像読み込みを持たないので別途必要になる。<strong>画像フォーマットの解析は本ロードマップの主題ではない</strong>ので、ここは既製品に任せる。</p>
+<h3 id="s13">テスト用テクスチャについて</h3>
+<p><code>assets/textures/uv-test.png</code> はスクリプトで生成したもの。外部からダウンロードしていないので、ライセンスもネットワークも不要。256x256 RGBA で、次の要素を入れてある。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>要素</th><th>何を確かめられるか</th></tr></thead>
+<tbody>
+<tr><td>32px の市松模様</td><td>フィルタの違い(ニアレストは境界がくっきり)</td></tr>
+<tr><td>赤が右へ、緑が下へ増える</td><td>向きと、UV の増える方向</td></tr>
+<tr><td><strong>UV原点の白い四角</strong></td><td><strong>上下反転しているかどうか</strong>(要点4)</td></tr>
+<tr><td>マス目の黒い罫線</td><td>ミップマップとラップの境目</td></tr>
+</tbody>
+</table></div>
+<p>別のテクスチャを試したい場合は同じ場所に置いて <code>ResolveAssetPath</code> の引数を変えればよい。</p>
+<h3 id="s14">写経する順番</h3>
+<ol><li><code>Day15.csproj</code> — StbImageSharp の追加だけ</li><li><code>Vertex.cs</code> — 短い。<code>StructLayout</code> の理由(要点7)を押さえる</li><li><code>Mesh.cs</code> — <strong>属性のオフセットを組み立てるループ</strong>が要点。検算も忘れずに</li><li><code>Texture.cs</code> — 上下反転(要点4)とフィルタの非対称性(要点5)</li><li><code>Shader.cs</code> — <code>SetVector2</code> / <code>SetVector4</code> を足すだけ(+18行)。次の <code>Material.cs</code> が <code>uTint</code> / <code>uUvScale</code> を送るのに使うので、先に足しておく</li><li><code>Material.cs</code> — 25行しかない。<strong>何を持たせないか</strong>(要点2・3)のほうが重要</li><li><code>shaders/textured.*</code> — UV とサンプリング</li><li><code>Program.cs</code> — シーンの組み立て。<code>DrawQuad</code> の3行に注目</li></ol>
+<p>Day 14 との比較:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day14/Program.cs reference/Day15/Program.cs
+git diff --no-index reference/Day14/Shader.cs  reference/Day15/Shader.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s15">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day15 -c Release</code></pre></div>
+<ol><li><strong>テクスチャの貼られた四角形が2つ</strong>、ゆっくり逆回転しながら表示される</li><li><strong>左の四角形</strong>: <code>assets/textures/uv-test.png</code> が<strong>そのままの向き</strong>で貼られている。<strong>白い四角が左上</strong>にあること(元の PNG と同じ向き = 上下反転が正しい。要点4)</li><li><strong>右の四角形</strong>: 暖色に色づいていて、模様が<strong>縦横2回ずつ、計4枚</strong>繰り返されている(UV倍率2 + Repeat)。白い四角も4つ見える</li><li><strong>R キー</strong>でラップモードを切り替えると、右の四角形が<strong>左下に1枚だけ + 残りは端の色が引き伸ばされた状態</strong>に変わる(ClampToEdge)。<strong>左の四角形は変化しない</strong>(UV が 0〜1 に収まっているため)</li><li><strong>F キー</strong>でフィルタを切り替える。Nearest にすると市松の境界がくっきりする</li><li><strong>W</strong> でワイヤーフレーム。四角形が三角形2枚でできていることが見える</li><li>タイトルバーが<code>Day15 - メッシュ/テクスチャ/マテリアル  60.0 fps | フィルタ:Linear | ラップ:Repeat | 塗り | ...</code></li><li><strong>F5</strong> で Day 14 と同じシェーダのホットリロードが効く</li><li><strong>Esc</strong> / <strong>[×]</strong> で終了し、プロセスが残らない</li></ol>
+<p>2〜4 は目視ではなく、フレームバッファを読み出して画像に落として確認してある。<strong>左は元の PNG と完全に同じ向き</strong>、右は Repeat で 4枚・ClampToEdge で 1枚 + 引き伸ばし、という結果が得られている。</p>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>テクスチャが上下逆さま(白い四角が左下に出る)</strong> → 要点4。<code>stbi_set_flip_vertically_on_load</code> を呼んでいるか。あるいは四角形の UV の割り当てが逆</li><li><strong>真っ黒 / 真っ白な四角形</strong> → sampler に何を渡しているか(要点6)。<strong>テクスチャのハンドルではなくユニットの番号(0)</strong></li><li><strong><code>頂点属性の合計 N バイトが Vertex のサイズ M バイトと一致しません</code></strong> → <code>AttributeSizes</code> と構造体のフィールドが食い違っている。<strong>この例外が出るのは正常な動作</strong>(要点7の検算が働いた)</li><li><strong>模様が斜めにずれる / 色が混ざる</strong> → ストライドかオフセットの間違い。<code>StructLayout(Sequential)</code> を付け忘れると起きうる</li><li><strong>拡大したときだけフィルタが効かない</strong> → MagFilter にミップマップ付きの値を指定している(要点5)。<code>GL_INVALID_ENUM</code> が出ているはず</li><li><strong>右の四角形が繰り返されない</strong> → ラップモードが ClampToEdge のまま。あるいは <code>UvScale</code> が 1 のまま</li><li><strong><code>素材が見つかりません: assets/textures/uv-test.png</code></strong> → <code>assets/</code> はリポジトリのルートにある。<code>dotnet run --project</code> で起動しているか</li><li><strong>ワイヤーフレームにすると三角形が1枚しか見えない</strong> → インデックスの向きか個数。6個(2枚ぶん)渡しているか</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>R</code></td><td>「四角形を2つ描く」の「Repeat / ClampToEdge」</td><td>右は4枚から「左下に1枚 + 端の引き伸ばし」へ。左は変わらない</td></tr>
+<tr><td><code>F</code></td><td>同じ実験台の「Linear / Nearest」</td><td>「拡大」にすると市松の境界の違いがはっきりする。「縮小」では Nearest が NearestMipmapNearest なのでミップマップの段が切り替わる</td></tr>
+<tr><td><code>W</code></td><td>同じ実験台の「塗り / ワイヤー」</td><td>四角形1枚が三角形2枚(インデックス 6 個)でできている</td></tr>
+<tr><td><code>Space</code></td><td>同じ実験台の「回す / 止める」</td><td>2つは逆向きに回る(rotation が _angle と −_angle)</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の、反転・uTexture・右のマテリアル</td><td>反転を 0 にすると白い四角が左下へ移る。uTexture にハンドルを渡すと真っ黒になる。α 0.5 はブレンドを有効にするまで半透明にならない</td></tr>
+<tr><td>(キーなし)</td><td>「頂点の並びを GL に教える」</td><td>合計が 36 バイトになる間違いは検算をすり抜け、壊れた絵が出る。[3, 2, 3] だけが例外で止まる</td></tr>
+<tr><td><code>F5</code></td><td>このページには無い</td><td>Day 14 のページの「ホットリロード」</td></tr>
+<tr><td><code>V</code> / <code>Esc</code></td><td>このページには無い</td><td>VSync の切り替えと終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day15 の Vertex.cs、Mesh.cs、Texture.cs、Material.cs、Program.cs(CreateQuad、DrawQuad、OnKeyDown)と、shaders の textured.vert、textured.frag を JS に移したもの。四角形はソフトウェア版の GL(docs/site/softgl.js)で描いていて、フィルタとミップマップの選び方は GL の規則をまねたもの。画素の値は手元の GPU と一致しない。uv-test.png はページの中で同じ式で作り直している。</p></div>
+</section>
+<section class="part"><h2 id="s16">改造課題</h2>
+<h3 id="s17">課題1(易): マテリアルとテクスチャ設定で遊ぶ</h3>
+<p><strong>マテリアルを増やすのがどれくらい安いか</strong>を体感する。</p>
+<ol><li>3つ目・4つ目のマテリアルを作って四角形を増やす。<strong>メッシュもテクスチャもシェーダも増やさずに</strong>見た目を変えられることを確認する</li><li><code>Tint</code> のアルファを 0.5 にしてみる。<strong>半透明にならない</strong>はず。なぜか(ヒント: ブレンドは既定で無効。<code>gl.Enable(EnableCap.Blend)</code> と<code>gl.BlendFunc(...)</code> が要る)。有効にして半透明を出す</li><li><code>UvScale</code> に 0.5 や負の値を入れる。何が起きるか</li><li><code>Texture.FromFile</code> の <code>stbi_set_flip_vertically_on_load(1)</code> を <code>0</code> にする。<strong>白い四角がどこへ移動するか</strong>を予想してから実行する(要点4)</li></ol>
+<h3 id="s18">課題2(中): テクスチャを2枚使う</h3>
+<p>要点6のテクスチャユニットを実際に2つ使う。</p>
+<ol><li>2枚目のテクスチャ(市松でない別のもの。単色グラデーションなどを自作してもよい)をユニット1にバインドする</li><li>フラグメントシェーダに <code>uniform sampler2D uTexture2;</code> を足し、<code>SetInt("uTexture2", 1)</code> で番号を教える</li><li>2枚を混ぜる。まずは単純な乗算、次に<code>mix(texel1, texel2, uBlend)</code> で <code>uBlend</code> をマテリアルのパラメータにする</li><li><code>Material</code> に <code>Texture? SecondTexture</code> を足す。<strong>テクスチャが N 枚になったときにどう持つべきか</strong>を考える(配列? 名前付きの辞書? Day 32 で glTF の PBR マテリアルを読むとベースカラー・法線・メタリックラフネス・オクルージョンで4枚以上になる)</li></ol>
+<h3 id="s19">課題3(難): 頂点属性の型に対応する</h3>
+<p>要点7で書いた「全属性 float 前提」の制約を外す。<strong>Day 17 への直接の布石</strong>。</p>
+<ol><li><code>AttributeSizes</code>(<code>int[]</code>)を、型情報を持つ記述に置き換える。最低限「要素数・型・正規化するか」の3つが要る</li><li>色を <code>Vector4</code>(16バイト)から <strong><code>byte</code> 4個(4バイト)</strong> に変える。1頂点が 36バイト → 24バイト になる</li><li><code>glVertexAttribPointer</code> の <strong><code>normalized</code> を true</strong> にする。これで 0〜255 の byte が、シェーダ側では 0.0〜1.0 の float として読まれる。<strong>Day 13 の要点6で「GLboolean は1バイト」と書いた引数がこれ</strong></li><li>頂点数を1万に増やして、24バイト版と 36バイト版で fps を比べる。<strong>差が出るか。出ないなら、その理由は何か</strong> (ヒント: 今のシーンは頂点数ではなくピクセル数で決まっている)</li><li>発展: 位置を <code>float</code> から半精度(<code>half</code>)にできるか。どこまで削ると絵が壊れ始めるか</li></ol>
+<p>4 は特に大事で、<strong>「小さくすれば速い」は測るまで分からない</strong>。Day 2 と Day 9 で繰り返し踏んだのと同じ話が、GPU 側でも起きる。</p>
+</section>
+<section class="part"><h2 id="s20">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0 / StbImageSharp 2.30.16 / OpenGL 3.3 コアプロファイル</li><li>800x600 / VSync ON で 59.9〜60.1 fps</li><li>フレームバッファを読み出して画像化し、次を確認:<ul><li>左の四角形が <strong><code>uv-test.png</code> と同じ向き</strong>(白い四角が左上)で表示される</li><li>右の四角形が Repeat で <strong>4枚</strong>、ClampToEdge で <strong>1枚 + 端の引き伸ばし</strong>になる</li><li>右の四角形にだけ暖色のティントが乗る(マテリアルの違いが出ている)</li></ul></li><li>F(フィルタ)/ R(ラップ)/ W(ワイヤー)/ Esc の各キーを実測で確認</li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 15 メッシュ/テクスチャ/マテリアルの抽象化 / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softgl.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, segValue, stat, animate } = Lab;
+const G = SoftGL, M = G.Mat;
+const W = 800, H = 600, CLEAR = [0.10, 0.11, 0.13, 1];
+const PNG = G.uvTest();
+
+// Program.CreateQuad: 位置・UV・色(白)。UV は左下が (0,0)。インデックスは反時計回りに 2 枚
+const QUAD = [
+  [-0.5, -0.5, 0, 0, 0, 1, 1, 1, 1],   // 左下
+  [0.5, -0.5, 0, 1, 0, 1, 1, 1, 1],    // 右下
+  [0.5, 0.5, 0, 1, 1, 1, 1, 1, 1],     // 右上
+  [-0.5, 0.5, 0, 0, 1, 1, 1, 1, 1],    // 左上
+];
+const INDICES = [0, 1, 2, 2, 3, 0];
+
+// textured.vert: gl_Position = uTransform * vec4(aPosition, 1.0); vTexCoord = aTexCoord * uUvScale
+const texturedVert = (Gm, uvScale) => (v) => ({ pos: M.mulColumn(Gm, [v.pos[0], v.pos[1], v.pos[2], 1]), vary: [v.uv[0] * uvScale[0], v.uv[1] * uvScale[1], ...v.color] });
+// textured.frag: FragColor = texture(uTexture, vTexCoord) * vColor * uTint
+const texturedFrag = (tex, tint) => (v, grad) => {
+  let t;
+  if (tex) { const g = grad(); t = G.sample(tex, v[0], v[1], [g[0], g[1]]); }
+  else t = [0, 0, 0, 1];   // 何も刺さっていないユニットを読むと (0, 0, 0, 1)
+  return [t[0] * v[2] * tint[0], t[1] * v[3] * tint[1], t[2] * v[4] * tint[2], t[3] * v[5] * tint[3]];
+};
+
+// ------------------------------------------------------------
+// 1. 四角形を2つ描く
+// ------------------------------------------------------------
+const qd = { target: G.createTarget(W, H), angle: 0, fpsT: 0, fpsN: 0, fps: 0, tex: null, flip: null };
+function texture() {
+  // Texture.FromFile: 読み込み時に上下反転(stbi_set_flip_vertically_on_load)→ GenerateMipmap → Linear / Repeat
+  const flip = segValue('qd-flip') === '1';
+  if (qd.flip !== flip) { qd.tex = G.createTexture(PNG.w, PNG.h, flip ? G.flipRows(PNG.w, PNG.h, PNG.data) : PNG.data); qd.flip = flip; }
+  const t = qd.tex, f = segValue('qd-filter');
+  // SetFilter: Linear なら Min = LinearMipmapLinear / Mag = Linear、Nearest なら NearestMipmapNearest / Nearest
+  t.minFilter = f === 'Linear' ? 'LinearMipmapLinear' : 'NearestMipmapNearest'; t.magFilter = f;
+  t.wrapS = t.wrapT = segValue('qd-wrap');
+  return t;
+}
+const vertices = QUAD.map((q) => ({ pos: q.slice(0, 3), uv: q.slice(3, 5), color: q.slice(5, 9) }));
+function drawQuad(t, material, offsetX, rotation, screen, size) {
+  // 行ベクトル規約なので「回転 → 拡大 → 平行移動 → 画面補正」の順に左から掛ける
+  const transform = M.mul(M.mul(M.mul(M.rotationZ(rotation), M.scale(size, size, size)), M.translation(offsetX, 0, 0)), screen);
+  const unitTex = segValue('qd-unit') === '0' ? material.tex : null;   // sampler が見るユニットに刺さっているもの
+  G.draw(t, { vertices, indices: INDICES }, {
+    vs: texturedVert(M.asSeenByGL(transform, false), material.uvScale),
+    fs: texturedFrag(unitTex, material.tint),
+    polygonMode: segValue('qd-wire') === '1' ? 'line' : 'fill', blend: material.blend,
+  });
+}
+['qd-filter', 'qd-wrap', 'qd-wire', 'qd-play', 'qd-size', 'qd-flip', 'qd-unit', 'qd-uv', 'qd-alpha'].forEach((id) => seg(id, () => qdDraw()));
+function qdDraw() {
+  const t = qd.target, tex = texture();
+  G.clear(t, CLEAR);
+  const screen = M.scale(1 / (W / H), 1, 1), size = Number(segValue('qd-size'));
+  const uv = Number(segValue('qd-uv')), a = segValue('qd-alpha');
+  // 同じシェーダ・同じテクスチャ・同じメッシュから、値だけ違うマテリアルを2つ
+  const left = { tex, tint: [1, 1, 1, 1], uvScale: [1, 1] };
+  const right = { tex, tint: [1.0, 0.75, 0.55, a === '1' ? 1 : 0.5], uvScale: [uv, uv], blend: a === 'b' };
+  drawQuad(t, left, -0.55, qd.angle, screen, size);
+  drawQuad(t, right, 0.55, -qd.angle, screen, size);
+  const { ctx, w, h } = fit($('qd-canvas'));
+  G.present(t, ctx, w, h);
+  const wire = segValue('qd-wire') === '1';
+  $('qd-title').textContent = `Day15 - メッシュ/テクスチャ/マテリアル  ${qd.fps.toFixed(1)} fps | フィルタ:${segValue('qd-filter')} | ラップ:${segValue('qd-wrap')} | ${wire ? 'ワイヤー' : '塗り'} | F:フィルタ R:ラップ W:ワイヤー V:VSync Space:停止 Esc:終了`;
+  $('qd-stats').innerHTML = stat('ドローコール', 2) + stat('三角形', t.triangles) + stat('書いた画素', t.fragments.toLocaleString())
+    + stat('MinFilter', tex.minFilter) + stat('MagFilter', tex.magFilter);
+}
+{ // 元の PNG(ファイルの並びのまま)
+  const c = $('qd-png'); c.width = c.height = 256;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(256, 256); img.data.set(PNG.data); ctx.putImageData(img, 0, 0);
+}
+animate($('qd-lab'), (dt) => {
+  if (segValue('qd-play') === '1') qd.angle += dt * 0.5;
+  qd.fpsN++; qd.fpsT += dt;
+  if (qd.fpsT >= 0.5) { qd.fps = qd.fpsN / qd.fpsT; qd.fpsN = 0; qd.fpsT = 0; }
+  qdDraw();
+});
+function narrow() { $('qd-grid').style.gridTemplateColumns = $('qd-grid').clientWidth < 520 ? '1fr' : 'minmax(0,1fr) 128px'; $('vx-grid').style.gridTemplateColumns = $('vx-grid').clientWidth < 560 ? '1fr' : 'minmax(0,1.3fr) minmax(0,1fr)'; }
+window.addEventListener('resize', narrow);
+
+// ------------------------------------------------------------
+// 2. 頂点の並びを GL に教える
+// ------------------------------------------------------------
+const FIELDS = [['Position', 3], ['TexCoord', 2], ['Color', 4]];   // 構造体の宣言順(StructLayout Sequential)
+const SHADER_IN = [3, 2, 4];   // textured.vert の aPosition(vec3)・aTexCoord(vec2)・aColor(vec4)
+const STRIDE = 36;             // Unsafe.SizeOf<Vertex>()
+const COLORS = ['--accent', '--good', '--warn'];
+const vx = { target: G.createTarget(400, 300), tex: null };
+const vxLog = (s) => { $('vx-console').textContent = s; };
+function vxDraw() {
+  const sizes = segValue('vx-sizes').split(',').map(Number);
+  // Mesh のコンストラクタ: オフセットを積み上げ、合計をストライドと比べる
+  const attrs = []; let offset = 0;
+  sizes.forEach((n, i) => { attrs.push({ loc: i, n, offset }); offset += n * 4; });
+  const ok = offset === STRIDE;
+  // 表: 上が構造体のメモリ、下が GL の読み方
+  const fieldOf = []; FIELDS.forEach(([name, n], k) => { for (let j = 0; j < n; j++) fieldOf.push({ k, name, j }); });
+  const cell = (bg, txt, title) => `<td title="${title}" style="padding:4px 2px;text-align:center;font-size:11px;border:1px solid var(--line);background:color-mix(in srgb, var(${bg}) 28%, transparent)">${txt}</td>`;
+  const v0 = QUAD[2];
+  let top = '', bottom = '';
+  for (let f = 0; f < 9; f++) top += cell(COLORS[fieldOf[f].k], `${v0[f]}`, `${fieldOf[f].name}`);
+  for (let f = 0; f < 9; f++) {
+    const a = attrs.find((x) => f * 4 >= x.offset && f * 4 < x.offset + x.n * 4);
+    bottom += a ? cell(COLORS[a.loc], `${a.loc}`, `属性 ${a.loc}`) : '<td style="border:1px solid var(--line);font-size:11px;text-align:center;color:var(--muted)">—</td>';
+  }
+  const byteRow = Array.from({ length: 9 }, (_, f) => `<td style="font-size:10px;color:var(--muted);text-align:center;padding:2px">${f * 4}</td>`).join('');
+  $('vx-bytes').innerHTML = `<div style="font-size:12px;color:var(--muted);margin-bottom:4px">構造体 Vertex のメモリ(右上の頂点。1 マス = float 1 個 = 4 バイト)</div>
+    <div class="table-wrap"><table style="margin:0;table-layout:fixed;width:100%"><tr>${byteRow}</tr><tr>${top}</tr><tr>${bottom}</tr></table></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">上の段: <span style="color:var(--accent)">Position</span>、<span style="color:var(--good)">TexCoord</span>、<span style="color:var(--warn)">Color</span> / 下の段: GL に教えた属性の番号(— は誰も読まない)</div>`;
+  $('vx-stats').innerHTML = stat('ストライド', `${STRIDE} バイト`) + stat('オフセットの合計', `${offset} バイト`) + stat('オフセット', attrs.map((x) => x.offset).join(', '));
+  const t = vx.target;
+  G.clear(t, CLEAR);
+  if (!ok) {
+    vxLog(`InvalidOperationException: 頂点属性の合計 ${offset} バイトが Vertex のサイズ ${STRIDE} バイトと一致しません\n  → Mesh が作られないので、絵を見る前に止まる`);
+  } else {
+    // GL の読み方: 属性 i は offset から n 個読む。シェーダの型より多ければ捨て、少なければ (0, 0, 0, 1) で埋める
+    const read = (q, a) => { const fill = [0, 0, 0, 1]; return Array.from({ length: SHADER_IN[a.loc] }, (_, k) => (k < a.n ? q[a.offset / 4 + k] : fill[k])); };
+    const verts = QUAD.map((q) => ({ pos: read(q, attrs[0]), uv: read(q, attrs[1]), color: read(q, attrs[2]) }));
+    if (!vx.tex) vx.tex = G.createTexture(PNG.w, PNG.h, G.flipRows(PNG.w, PNG.h, PNG.data));
+    const screen = M.scale(1 / (W / H), 1, 1), transform = M.mul(M.scale(1.4, 1.4, 1.4), screen);
+    G.draw(t, { vertices: verts, indices: INDICES }, { vs: texturedVert(M.asSeenByGL(transform, false), [1, 1]), fs: texturedFrag(vx.tex, [1, 1, 1, 1]) });
+    const r = verts[2];
+    vxLog(`シェーダが受け取った右上の頂点:\n  aPosition = (${r.pos.join(', ')})\n  aTexCoord = (${r.uv.join(', ')})\n  aColor    = (${r.color.join(', ')})${sizes.join() === '3,2,4' ? '' : '\n  → 合計は 36 バイトで検算を通るが、並びが違うので値がずれて読まれる'}`);
+  }
+  const { ctx, w, h } = fit($('vx-canvas'));
+  G.present(t, ctx, w, h);
+}
+seg('vx-sizes', vxDraw);
+narrow(); qdDraw(); vxDraw();
+})();
+</script>
+</body>
+</html>

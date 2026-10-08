@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 17 2Dスプライトバッチ(動的頂点バッファ)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ドローコールは1回いくらか</a></li><li class="l3"><a href="#s5">2. バッチの原理 — 「1万個の絵」を「1個の巨大な絵」にする</a></li><li class="l3"><a href="#s6">3. 動的頂点バッファ</a></li><li class="l3"><a href="#s7">4. フラッシュの条件 — バッチが「効かなくなる」のはいつか</a></li><li class="l3"><a href="#s8">5. 2D を描くための状態</a></li><li class="l3"><a href="#s9">6. スクリーン座標をそのまま使う投影行列</a></li><li class="l3"><a href="#s10">7. 今日やっていないこと(= Day 18 でやること)</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">追加した素材</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17">見た目</a></li><li class="l3"><a href="#s18">数字(タイトルバー)</a></li><li class="l3"><a href="#s19">ビルド</a></li><li class="l2"><a href="#s20">改造課題</a></li><li class="l3"><a href="#s21">課題1(易): ブレンドで遊ぶ</a></li><li class="l3"><a href="#s22">課題2(中): 容量とドローコールのトレードオフを測る</a></li><li class="l3"><a href="#s23">課題3(難): インスタンシングで書き直して比べる</a></li><li class="l2"><a href="#s24">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 3 / Day 17 / 計画書</p>
+  <h1>2Dスプライトバッチ(動的頂点バッファ)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. ドローコールは1回いくらか</a></li><li class="l3"><a href="#s5">2. バッチの原理 — 「1万個の絵」を「1個の巨大な絵」にする</a></li><li class="l3"><a href="#s6">3. 動的頂点バッファ</a></li><li class="l3"><a href="#s7">4. フラッシュの条件 — バッチが「効かなくなる」のはいつか</a></li><li class="l3"><a href="#s8">5. 2D を描くための状態</a></li><li class="l3"><a href="#s9">6. スクリーン座標をそのまま使う投影行列</a></li><li class="l3"><a href="#s10">7. 今日やっていないこと(= Day 18 でやること)</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">追加した素材</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17">見た目</a></li><li class="l3"><a href="#s18">数字(タイトルバー)</a></li><li class="l3"><a href="#s19">ビルド</a></li><li class="l2"><a href="#s20">改造課題</a></li><li class="l3"><a href="#s21">課題1(易): ブレンドで遊ぶ</a></li><li class="l3"><a href="#s22">課題2(中): 容量とドローコールのトレードオフを測る</a></li><li class="l3"><a href="#s23">課題3(難): インスタンシングで書き直して比べる</a></li><li class="l2"><a href="#s24">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 3 / ロードマップ該当行: 「2Dスプライトバッチ(動的頂点バッファ)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>Day 16 の3Dシーンの上を、1万枚のスプライトが飛び回っても 60fps を割らない。</strong></p>
+<p>ここまでの <code>Mesh&lt;TVertex&gt;</code> は「1つの形 = 1回の <code>glDrawElements</code>」だった。その調子でスプライトを1万枚描くと、<strong>1万回のドローコール</strong>になる。実測すると、それだけで1フレーム 38.6ms かかる(60fps の予算は 16.6ms)。</p>
+<p>今日は同じ1万枚を<strong>4回のドローコール</strong>で描く。0.6ms になる。GPU の仕事量は変わっていない。減らしたのは「描けと命じる回数」だけ。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップの指定は「-」(特論に対応する回が無い)。実装寄りの回なので、次を読んでおくと引っかかりが減る。</p>
+<ul><li><a href="https://www.khronos.org/opengl/wiki/Buffer_Object_Streaming">Buffer Object Streaming — OpenGL Wiki</a> —毎フレーム書き換えるバッファの扱い。<strong>オーファニング</strong>もここ</li><li><a href="https://learnopengl.com/Advanced-OpenGL/Blending">Blending — LearnOpenGL</a> —アルファブレンドと、半透明を描く順の話</li><li><a href="https://www.khronos.org/opengl/wiki/Vertex_Specification_Best_Practices">Vertex Specification Best Practices — OpenGL Wiki</a> —頂点フォーマットをどう決めるか</li><li>復習として <strong>Day13.md の要点3(VAO/VBO/EBO)</strong> と <strong>Day15.md の要点7(頂点構造体)</strong>。今日はそこに「毎フレーム作り直す」が加わるだけ</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. ドローコールは1回いくらか</h3>
+<p>「ドローコールは高い」とよく言われるが、いくらなのかを測っておくと判断が早くなる。このリポジトリのスプライト(テクスチャ1枚、uniform 変更なし)で測ると:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>ドローコール</th><th>fps</th><th>ms/frame</th></tr></thead>
+<tbody>
+<tr><td>1000枚 バッチあり</td><td>2</td><td>1628</td><td>0.614</td></tr>
+<tr><td>1000枚 バッチなし</td><td>1000</td><td>258</td><td>3.879</td></tr>
+<tr><td>10000枚 バッチあり</td><td>4</td><td>1653</td><td>0.605</td></tr>
+<tr><td>10000枚 バッチなし</td><td>10000</td><td>25.9</td><td>38.629</td></tr>
+<tr><td>20000枚 バッチあり</td><td>6</td><td>948</td><td>1.055</td></tr>
+</tbody>
+</table></div>
+<p>バッチなしの2行から、<strong>ドローコール1回あたり約 3.9 マイクロ秒</strong>と読める(3.879ms / 1000 も 38.629ms / 10000 も同じ 3.9µs になる。きれいに線形)。</p>
+<p>この数字が分かると、予算が計算できる。60fps の 16.6ms を<strong>全部</strong>ドローコールに費やしても <strong>4200回</strong> が上限。実際には他の処理もあるので、現実的な目安は1フレーム 1000〜2000 回。「1万個のオブジェクトを個別に描く」は最初から成立しない。</p>
+<p>そして高いのは <strong>CPU 側</strong>であることに注意。GPU は 10000 回でも 4 回でも同じ量の三角形を塗っているだけで、暇をしている。<strong>GPU を遊ばせないために CPU の口数を減らす</strong>のがバッチング。</p>
+<div class="inject"><figure class="lab" id="bt-lab">
+  <div class="lab-head">
+    <h3>1万枚を何回で描くか — バッチ、まとめ、オーファニング(要点1〜5、B・T・O・3・上下キー)</h3>
+    <span class="tag">reference の SpriteBatch.cs(Begin、Draw、Flush、End)と、Program.cs の InitializeSprites(new Random(20260816) と同じ並び)、UpdateSprites、RenderSprites、タイトルバーを JS に移したもの(docs/site/spritebatch.js)。バッチが記録したドローコールのとおりに Canvas 2D で 960x640 に描いている。背景の 3D は Day 16 のシーンを1回だけ描いた止めた絵。下の帯はドローコールを左から順に並べたもので、幅は入った枚数(青 = 円、橙 = 輪)。fps と ms/frame は本文の実測をもとに置いたモデルの値(このページだけ): CPU はドローコール 1 回 3.9µs + 1 枚 0.02µs、GPU は 1 枚 0.053µs、1 フレームは土台 0.6ms(3D を消すと 0.25ms と置いた)とこれらの大きいほう。ブレンドとカリングの切り替えはこのページだけ</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="bt-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="bt-canvas" style="width:100%;aspect-ratio:3/2;height:auto;max-height:480px" aria-label="3D シーンの手前を、半透明の円と輪がたくさん飛び回っている"></canvas><canvas id="bt-strip" style="width:100%;height:28px;display:block" aria-label="ドローコールの並び"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">スプライトの数(上下キー)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="bt-count"><button data-v="1000" aria-pressed="true">1,000</button><button data-v="10000" aria-pressed="false">10,000</button><button data-v="20000" aria-pressed="false">20,000</button></div><button class="btn" id="bt-down">↓ −1000</button><button class="btn" id="bt-up">↑ +1000</button></div>
+    </div>
+    <div class="ctl"><span class="label">バッチ(B)とまとめ(T)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="bt-batch"><button data-v="1" aria-pressed="true">バッチ ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="bt-group"><button data-v="1" aria-pressed="true">まとめ ON</button><button data-v="0" aria-pressed="false">OFF(交互)</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">オーファニング(O)と 3D(3)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="bt-orphan"><button data-v="0" aria-pressed="true">オーファン OFF</button><button data-v="1" aria-pressed="false">ON</button></div><div class="seg" id="bt-3d"><button data-v="1" aria-pressed="true">3D ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">Begin の状態(このページだけ)と動き(Space)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="bt-blend"><button data-v="alpha" aria-pressed="true">通常ブレンド</button><button data-v="add" aria-pressed="false">加算(課題1)</button><button data-v="none" aria-pressed="false">ブレンド OFF</button></div><div class="seg" id="bt-cull"><button data-v="0" aria-pressed="true">カリング OFF</button><button data-v="1" aria-pressed="false">ON</button></div><div class="seg" id="bt-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="bt-stats"></div></div>
+</figure></div>
+<h3 id="s5">2. バッチの原理 — 「1万個の絵」を「1個の巨大な絵」にする</h3>
+<p>やることは単純で、<strong>1万枚ぶんの頂点(4万頂点)を1本のバッファに詰めて、1回で描かせる</strong>。GPU から見れば4万頂点の三角形リストでしかなく、それが1万個の別々の絵だとは知らない。</p>
+<p>これを成立させるには条件がある。<strong>オブジェクトごとの uniform を持てない</strong>こと。</p>
+<p>Day 16 の 3D 描画は、オブジェクトごとに <code>uModel</code> を送っていた。これをスプライトでやると、1万回 <code>glUniformMatrix4fv</code> を呼ぶことになり、ドローコールを減らした意味が消える。</p>
+<p>だからスプライトバッチは、<strong>位置・回転・大きさを CPU 側で頂点に焼き込む</strong>。<code>SpriteBatch.Draw</code> が回転行列を掛けた4隅の座標を計算して配列に書く。シェーダに渡る uniform は、フレームに1本の投影行列だけになる。</p>
+<div class="code"><pre><code>3D  : 頂点は固定、行列で動かす        → オブジェクトごとに uniform が要る
+2D  : 頂点そのものを毎フレーム作り直す → uniform はフレームに1本</code></pre></div>
+<p>「毎フレーム4万頂点ぶんの座標を CPU で計算するのは無駄では?」と思うところだが、そのコストは実測 0.6ms の中に収まっている。<strong>3.9µs × 1万回のほうが桁違いに高い</strong>。</p>
+<h3 id="s6">3. 動的頂点バッファ</h3>
+<p><code>Mesh&lt;TVertex&gt;</code> を使い回せないのは、あちらが <code>StaticDraw</code> で「1回アップロードして、あとは読むだけ」を前提にしているから。</p>
+<p>スプライトバッチのバッファの扱いは3点で違う。</p>
+<p><strong>(a) 確保と書き込みを分ける</strong></p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 生成時: サイズだけ確保。中身は未定義(第3引数が null)
+gl.BufferData(ArrayBuffer, capacity * 4 * sizeof(SpriteVertex), null, BufferUsageARB.StreamDraw);
+
+// 毎フレーム: 使ったぶんだけ上書き
+gl.BufferSubData(ArrayBuffer, 0, vertexCount * sizeof(SpriteVertex), data);</code></pre></div>
+<p><code>StreamDraw</code> は「毎フレーム書き換えて、数回描いて捨てる」という<strong>使い方の申告</strong>。<code>StaticDraw</code> / <code>DynamicDraw</code> / <code>StreamDraw</code> はドライバへのヒントでしかなく、間違えても動く。ただしドライバはこれを見てメモリの置き場所を決めるので、嘘をつくと遅くなることがある。</p>
+<p><strong>(b) インデックスバッファは静的でよい</strong></p>
+<p>四角形 i の頂点は必ず <code>4i, 4i+1, 4i+2, 4i+3</code> に並ぶので、インデックスの中身は<strong>スプライトの内容に一切依存しない</strong>。だから生成時に <code>capacity * 6</code> 個を1回作れば、あとは触らない。<strong>動的なのは頂点だけ</strong>、というのが見落としやすいところ。</p>
+<p><strong>(c) オーファニング — 定番と言われているが、測ったら効かなかった</strong></p>
+<p>同じバッファに <code>BufferSubData</code> で上書きするとき、GPU がまだ前フレームの描画でそのバッファを読んでいると、ドライバは読み終わるのを待つ(CPU が止まる)。そこで同じサイズ・同じ用途で <code>BufferData</code> を呼び直すと、「前の中身はもう要らない」という宣言になり、ドライバは古い領域を GPU に使わせたまま<strong>新しい領域をこちらに渡す</strong>。古い領域は描き終わったら回収される(= 孤児 orphan にする)。動的バッファの定番テクニックとされている。</p>
+<p>このデモで測った結果:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>ドローコール</th><th>fps</th><th>ms/frame</th></tr></thead>
+<tbody>
+<tr><td>20000枚 オーファニング ON</td><td>6</td><td>944.5</td><td>1.059</td></tr>
+<tr><td>20000枚 オーファニング OFF</td><td>6</td><td>947.7</td><td>1.055</td></tr>
+</tbody>
+</table></div>
+<p><strong>差は 0.3% 以内</strong>。1000枚では ON のほうがむしろ遅かった。理由は単純で、<strong>待つほど GPU が遅れていないから</strong>。オーファニングは「待ちを消す」技であって、待ちが無いところでは<code>BufferData</code> の呼び出しぶんだけ損をする。効くのは GPU 律速のとき。</p>
+<p>なので既定は OFF にして、O キーで切り替えられるようにしてある。Day 2(Bresenham)・Day 9(シェーディング)で繰り返し踏んだのと同じ話で、<strong>定番と呼ばれる手法でも、自分の負荷で測るまでは分からない</strong>。</p>
+<h3 id="s7">4. フラッシュの条件 — バッチが「効かなくなる」のはいつか</h3>
+<p><code>SpriteBatch</code> が溜めたぶんを吐き出す(= ドローコールを1回発行する)のは2つの場合。</p>
+<ol><li><strong>テクスチャが変わる</strong> … シェーダに刺さっているテクスチャは1つだけなので、違う絵を同じドローコールに混ぜられない</li><li><strong>バッファが満杯</strong> … 物理的に入らない</li></ol>
+<p>1 が今日いちばん大事なところ。<strong>バッチは「連続する描画が同じ状態を使っている」ときにしか効かない</strong>。テクスチャを交互に使うと、こうなる:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>ドローコール</th><th>fps</th></tr></thead>
+<tbody>
+<tr><td>1000枚 テクスチャごとにまとめる</td><td>2</td><td>1628</td></tr>
+<tr><td>1000枚 交互に描く</td><td><strong>1000</strong></td><td>255</td></tr>
+</tbody>
+</table></div>
+<p>バッチは有効なのに、バッチなし(258 fps)とほぼ同じ。<strong>まとめる仕組みがあるだけでは足りず、まとめられる順に描く必要がある</strong>。</p>
+<p>今日のデモは呼び出し側が手で分けている(偶数番 → 奇数番)が、本来これはバッチの中でやるべき仕事。それが Day 18 の<strong>ソート</strong>で、そもそもテクスチャを1枚にまとめてしまうのが<strong>アトラス</strong>。今日はこの問題を T キーで体感するところまで。</p>
+<div class="inject"><figure class="lab" id="fl-lab">
+  <div class="lab-head">
+    <h3>フラッシュを1枚ずつ追う — テクスチャが変わるか、満杯か(要点3・4)</h3>
+    <span class="tag">reference の SpriteBatch.Draw と Flush を、16 枚の小さな例で1枚ずつ進めるもの(このページだけ)。上の段が Draw を呼ぶ順(青 = 円、橙 = 輪)、中の段が頂点バッファ(容量のマス。積んだ四角形が入る)。Flush すると、溜まったぶんを BufferSubData で送り、DrawElements を1回呼ぶ。下はインデックスバッファの先頭で、中身はスプライトに関係なく「四角形 i は 4i〜4i+3」の形のまま変わらない</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Draw を呼ぶ順(▶ が次)</div><div id="fl-seq" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    <div style="font-size:12px;color:var(--muted);margin:10px 0 4px">頂点バッファ(容量 <span id="fl-capv"></span> 枚)</div><div id="fl-buf" style="display:flex;flex-wrap:wrap;gap:4px;min-height:30px"></div>
+    <div style="font-size:12px;color:var(--muted);margin:10px 0 4px">インデックスバッファの先頭(生成時に1回だけ作る)</div><pre id="fl-idx" style="margin:0;font-size:12px;white-space:pre-wrap"></pre>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">積む順(T)</span>
+      <div class="seg" id="fl-order"><button data-v="group" aria-pressed="true">まとめる</button><button data-v="alt" aria-pressed="false">交互</button></div>
+    </div>
+    <div class="ctl"><span class="label">容量(このページだけ)</span>
+      <div class="seg" id="fl-cap"><button data-v="4000" aria-pressed="true">4000(reference)</button><button data-v="5" aria-pressed="false">5</button><button data-v="3" aria-pressed="false">3</button></div>
+    </div>
+    <div class="ctl"><span class="label">進める</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="fl-step">1 枚積む</button><button class="btn" id="fl-all">End まで</button><button class="btn" id="fl-reset">Begin からやり直す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fl-stats"></div><pre id="fl-console" style="margin:10px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<p>2 のほうは容量とのトレードオフ。容量 4000 なら 2万枚で 6 回のドローコール(円 1万枚で3回 + リング 1万枚で3回)。容量を上げればドローコールは減るが、頂点バッファのメモリが増える(4000枚 = 4000 × 4頂点 × 32バイト = 512KB)。<strong>ドローコール 3.9µs は、数回の差なら誤差</strong>なので、無理に上げる意味は薄い。</p>
+<h3 id="s8">5. 2D を描くための状態</h3>
+<p>同じフレームの中で 3D の次に 2D を描くと、<strong>GL の状態を切り替える</strong>必要がある。Day 16 のままでは3つとも壊れる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>状態</th><th>3D では</th><th>2D では</th><th>忘れるとどうなるか</th></tr></thead>
+<tbody>
+<tr><td>深度テスト</td><td>ON</td><td><strong>OFF</strong></td><td>あとから描いた手前のスプライトが弾かれる</td></tr>
+<tr><td>背面カリング</td><td>ON</td><td><strong>OFF</strong></td><td>Y 下向きの座標系で巻きが裏返り、<strong>全部消える</strong></td></tr>
+<tr><td>ブレンド</td><td>OFF</td><td><strong>ON</strong></td><td>α が 0 の部分も塗り潰され、四角い板になる</td></tr>
+</tbody>
+</table></div>
+<p>カリングを切る理由は、スクリーン座標が Y 下向きなこと。投影行列で Y を反転している(要点6)ので、素直に「左上 → 右上 → 右下 → 左下」と並べた四角形は NDC 上で時計回りになり、裏面と判定される。回転で符号が変わる可能性もあるので、<strong>2D では巻きを気にせずカリングを切る</strong>のが普通。</p>
+<p><code>SpriteBatch.Begin</code> がこの3つを設定し、<code>End</code> で元に戻している。ただし <code>BlendFunc</code> は戻していない。「何を保存して何を保存しないか」をクラスごとに決め打ちするのは長期的に破綻するので、本来はレンダーステートをまとめて持つ仕組みが要る。今日は「<code>Begin</code> が必ず設定し直す」ことで辻褄を合わせてある。</p>
+<p>アルファブレンドの式は:</p>
+<div class="code"><pre><code>結果 = 描く色 × α + すでにある色 × (1 - α)</code></pre></div>
+<p><code>glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)</code> がこれ。第2引数を <code>GL_ONE</code> にすると<strong>加算ブレンド</strong>になり、重なるほど明るくなる(炎や魔法エフェクトの定番。改造課題1で試す)。</p>
+<h3 id="s9">6. スクリーン座標をそのまま使う投影行列</h3>
+<p>2D では「左上が (0,0)、右下が (幅, 高さ)」でスプライトを置けたほうが圧倒的に楽。そのための行列を <code>Camera.CreateScreen</code> に足した。呼び方は:</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Camera.CreateScreen(left: 0, right: width, bottom: height, top: 0, near: -1, far: 1);</code></pre></div>
+<p><strong>bottom に height、top に 0 を渡す</strong>のがポイントで、これで Y 軸が下向きになる。上下の入れ替えは M22 の符号1つで済むので、専用の反転行列は要らない。</p>
+<p>そして <strong>V 座標の反転が今日で3回目</strong>になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day</th><th>場面</th><th>対応</th></tr></thead>
+<tbody>
+<tr><td>10</td><td>OBJ の V が下から上</td><td>読み込み時に <code>1 - v</code></td></tr>
+<tr><td>15</td><td>画像は上から、テクスチャは下から</td><td><code>stbi_set_flip_vertically_on_load</code></td></tr>
+<tr><td>17</td><td>スクリーンは Y 下向き、テクスチャは V 上向き</td><td>四隅への UV 割り当てで入れ替え</td></tr>
+</tbody>
+</table></div>
+<p>3回とも「原点の取り方が違う2つの世界をつなぐ」という同じ問題で、直し方も毎回1か所。<strong>どこで1回だけ反転させるかを決めておく</strong>のが肝で、2か所で反転すると元に戻ってしまい、しかも動いてしまうので気付きにくい。</p>
+<h3 id="s10">7. 今日やっていないこと(= Day 18 でやること)</h3>
+<p>今日の <code>SpriteBatch</code> には、まだ次の穴がある。全部 Day 18 で埋める。</p>
+<ul><li><strong>テクスチャを混ぜられない</strong> … 呼び出し側が順番を工夫するしかない → アトラス</li><li><strong>描画順を制御できない</strong> … 積んだ順にそのまま描く。半透明の前後関係を自分で解決できない → ソート</li><li><strong>頂点が 32 バイトある</strong> … 色を byte 4個にすれば 20 バイト。2万枚 = 8万頂点なので、毎フレーム 2.5MB → 1.6MB の差になる</li><li><strong>テクスチャの一部を切り出す指定が UV</strong> … スプライトシートはピクセルで指定したい</li></ul>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>SpriteBatch.cs</code></td><td>383</td><td>今日の主役。動的頂点バッファ、フラッシュ判定、2D 用の状態切り替え</td></tr>
+<tr><td><code>SpriteVertex.cs</code></td><td>45</td><td>スプライト用の頂点(位置2 + UV2 + 色4 = 32バイト)</td></tr>
+<tr><td><code>shaders/sprite.vert</code></td><td>25</td><td>投影行列を掛けるだけ。<strong>モデル行列が無い</strong>のが要点</td></tr>
+<tr><td><code>shaders/sprite.frag</code></td><td>15</td><td>テクスチャ × 頂点色(α も掛ける)</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+265 / -84</td><td>スプライトの生成・更新・描画、B/T/O/3/上下キー</td></tr>
+<tr><td><code>Camera.cs</code></td><td>+29 / -0</td><td><code>CreateScreen</code>(スクリーン座標用の平行投影)を追加</td></tr>
+</tbody>
+</table></div>
+<p><code>Mesh.cs</code> / <code>Material.cs</code> / <code>Texture.cs</code> / <code>Shader.cs</code> / <code>Vertex.cs</code> / <code>Primitives.cs</code> / <code>OrbitCameraController.cs</code> / <code>shaders/textured.*</code> は<strong>すべて無変更</strong>。実コード行数(コメント・空行を除く)は 441 行。</p>
+<h3 id="s14">追加した素材</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>assets/textures/sprite-circle.png</code></td><td>64x64 RGBA。縁をぼかした円。中心がわずかに明るい</td></tr>
+<tr><td><code>assets/textures/sprite-ring.png</code></td><td>64x64 RGBA。中央が抜けた輪</td></tr>
+</tbody>
+</table></div>
+<p>どちらも外部からのダウンロードではなく、Python の <code>zlib</code> だけで書いたPNG エンコーダで生成した(Day 15 の <code>uv-test.png</code> と同じやり方)。白〜灰色にしてあるので、頂点色を掛けるだけで好きな色になる。<strong>アルファ付き</strong>なのがここまでのテクスチャとの違いで、ブレンドを有効にしないと四角い板として描かれる。</p>
+<h3 id="s15">写経する順番</h3>
+<ol><li><strong><code>SpriteVertex.cs</code></strong> — 短い。なぜ <code>Vertex</code> と分けるのかだけ押さえる</li><li><strong><code>shaders/sprite.vert</code> / <code>sprite.frag</code></strong> — 合わせて40行。<strong>モデル行列が無い</strong>ことの意味(要点2)を確認してから書く</li><li><strong><code>Camera.CreateScreen</code></strong> — 12行。Y 反転の仕組み</li><li><strong><code>SpriteBatch.cs</code></strong> — 今日の本体。上から順にコンストラクタ(バッファ確保) → <code>Begin</code>(状態) → <code>Draw</code>(頂点を積む) → <code>Flush</code>(送って描く) → <code>End</code>(状態を戻す)</li><li><strong><code>Program.cs</code></strong> — スプライトの配列と更新は普通のループ。見るべきは <code>RenderSprites</code> の「まとめる/まとめない」の分岐だけ</li></ol>
+</section>
+<section class="part"><h2 id="s16">完成条件</h2>
+<p><code>dotnet run --project reference/Day17 -c Release</code> で確認する。<strong>必ず <code>-c Release</code></strong>。今日は数字を見る回なので、Debug では意味が変わる。</p>
+<h3 id="s17">見た目</h3>
+<ul><li>Day 16 の3Dシーン(市松の床と6個の立方体)の<strong>手前に</strong>、円と輪のスプライトが1000枚飛び回っている</li><li>スプライトは半透明で、<strong>重なると下の絵が透ける</strong>。輪の中央は抜けている</li><li>一枚ずつ違う色と大きさで、自転しながら画面の端で跳ね返る</li><li>左ドラッグでカメラを回すと、<strong>3Dシーンだけが動いてスプライトは動かない</strong> (スプライトはスクリーン座標なので、カメラの影響を受けない)</li></ul>
+<h3 id="s18">数字(タイトルバー)</h3>
+<p>fps の絶対値はウィンドウが見えているか(隠れていると SwapBuffers が待たない)で数倍変わるので、<strong>ドローコール数と、切り替え前後の比</strong>を見る。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>操作</th><th>ドローコール</th><th>fps</th></tr></thead>
+<tbody>
+<tr><td>起動直後(1000枚)</td><td><strong>2</strong></td><td>基準値</td></tr>
+<tr><td><strong>B</strong>(バッチ OFF)</td><td><strong>1000</strong></td><td>基準の <strong>1/6 以下</strong>に落ちる</td></tr>
+<tr><td><strong>T</strong>(まとめ OFF)</td><td><strong>1000</strong></td><td>B を切ったときとほぼ同じ</td></tr>
+<tr><td><strong>上キー×9</strong>(10000枚)</td><td><strong>4</strong></td><td>1000枚とほとんど変わらない</td></tr>
+<tr><td>10000枚 + <strong>B</strong></td><td><strong>10000</strong></td><td><strong>1/60 以下</strong>。ここが今日の山場</td></tr>
+<tr><td><strong>上キー</strong>(20000枚)</td><td><strong>6</strong></td><td>10000枚の 6 割程度</td></tr>
+<tr><td><strong>O</strong>(オーファニング ON)</td><td>変化なし</td><td><strong>ほとんど変わらない</strong>(要点3)</td></tr>
+<tr><td><strong>3</strong></td><td>変化なし</td><td>3D背景が消え、スプライトだけの負荷が測れる</td></tr>
+<tr><td><strong>V</strong></td><td>変化なし</td><td>VSync ON。60fps に張り付く</td></tr>
+</tbody>
+</table></div>
+<p><strong>10000枚でバッチを切ったとき</strong>が今日いちばん見るべきところ。計測環境(下記)では 1653 fps が <strong>25.9 fps</strong> まで落ちた。これが「1万枚を個別に描く」の現実で、<code>SpriteBatch</code> はドローコールを10000 回から 4 回に減らすだけでこれを取り戻す。</p>
+<p>Day 16 までのキー(Z / C / P / W / F / R / Space / Home / F5 / Esc)もそのまま使える。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>上下キー</td><td>「1万枚を何回で描くか」の枚数と「↑ +1000」「↓ −1000」</td><td>まとめ ON なら 1000 枚で 2 回、1万枚で 4 回、2万枚で 6 回(容量 4000 ごとに切れる)</td></tr>
+<tr><td><code>B</code></td><td>同じ実験台の「バッチ OFF」</td><td>ドローコールが枚数と同じになり、下の帯が細い線の束になる</td></tr>
+<tr><td><code>T</code></td><td>同じ実験台の「まとめ OFF(交互)」、「フラッシュを1枚ずつ追う」の「交互」</td><td>バッチは有効なのに、テクスチャが毎回変わるので1枚ずつフラッシュされる</td></tr>
+<tr><td><code>O</code></td><td>同じ実験台の「オーファン ON」</td><td>モデルの ms/frame はほとんど変わらない(要点3c)</td></tr>
+<tr><td><code>3</code></td><td>同じ実験台の「3D OFF」</td><td>背景が消える。土台の時間はこのページで置いた値</td></tr>
+<tr><td><code>Space</code></td><td>同じ実験台の「動かす / 止める」</td><td>スプライトの移動と自転を止める</td></tr>
+<tr><td>(キーなし)</td><td>同じ実験台の「Begin の状態」</td><td>加算は重なるほど明るくなる。ブレンド OFF は四角い板。カリング ON は全部消える(要点5)</td></tr>
+<tr><td><code>V</code></td><td>このページには無い</td><td>VSync。モデルの fps は VSync OFF の値</td></tr>
+<tr><td>Day 16 までのキー</td><td>このページには無い</td><td>Day 16 のページの「床と立方体のシーン」</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day17 の SpriteBatch.cs、SpriteVertex.cs(1 頂点 32 バイト)、Program.cs(InitializeSprites、UpdateSprites、RenderSprites、OnKeyDown)を JS に移したもの(docs/site/spritebatch.js)。スプライトの絵は assets/textures の PNG をそのまま使い、色の掛け算は段階に丸めた近似。fps と ms/frame は本文の実測から置いたモデルの値で、このページの描画の速さではない。</p></div>
+<h3 id="s19">ビルド</h3>
+<ul><li><code>dotnet build reference/Day17</code> が警告 0 で通る</li><li><code>dotnet format whitespace reference/Day17/Day17.csproj --verify-no-changes</code> の差分が 0</li></ul>
+</section>
+<section class="part"><h2 id="s20">改造課題</h2>
+<h3 id="s21">課題1(易): ブレンドで遊ぶ</h3>
+<p>要点5のブレンド式を実際にいじる。<strong>状態を戻し忘れるバグ</strong>も踏んでおく。</p>
+<ol><li><code>SpriteBatch.Begin</code> の <code>BlendFunc</code> を<code>(BlendingFactor.SrcAlpha, BlendingFactor.One)</code> に変える。<strong>加算ブレンド</strong>になり、重なるほど明るくなる。炎・魔法・パーティクルの定番</li><li>加算ブレンドのまま、スプライトの色のアルファを下げる(0.85 → 0.2)。「濃さ」の意味が通常ブレンドとどう違うか</li><li><code>SpriteBatch.End</code> から <code>SetCap(EnableCap.Blend, _savedBlend)</code> を消してみる。<strong>次のフレームの3D描画がどうなるか</strong>。原因に辿り着けるか</li><li>3 の状態で、さらに <code>Begin</code> の <code>_gl.Enable(EnableCap.Blend)</code> も消す。1フレーム目だけ正しく、2フレーム目から壊れる…といった挙動になるはず。<strong>状態を持つ API のいやらしさ</strong>を1回体験しておくと、Day 18 以降で助かる</li></ol>
+<h3 id="s22">課題2(中): 容量とドローコールのトレードオフを測る</h3>
+<p>要点4の後半を数字にする。</p>
+<ol><li><code>SpriteBatch</code> の <code>capacity</code> を 100 / 500 / 4000 / 20000 に変え、スプライト2万枚でのドローコール数と fps を記録する</li><li>ドローコール数は予想どおりに変わるはず。<strong>fps はどうか</strong>。3.9µs × 何回ぶんの差になっているか</li><li>頂点バッファのメモリ量も計算して並べる(capacity × 4頂点 × 32バイト)。どこが妥当か</li><li>インデックスを <code>uint</code> から <code>ushort</code> に変える。インデックスバッファが半分になるが、<strong>capacity の上限が 16384 になる</strong>。なぜか(ヒント: 頂点番号は <code>capacity × 4</code>)</li><li>発展: <code>capacity</code> を超える枚数を1つのテクスチャで描いたとき、フラッシュが<strong>フレームの途中で</strong>起きる。半透明の描画順に影響が出ないのはなぜか(ヒント: 今日は深度テストを切っている)</li></ol>
+<h3 id="s23">課題3(難): インスタンシングで書き直して比べる</h3>
+<p>バッチングとは<strong>別の解き方</strong>がある。同じ形を何度も描くなら、頂点を複製せずに「この頂点データを N 回描け」と1回で命じればよい。</p>
+<ol><li>四角形1枚ぶん(4頂点・6インデックス)の<strong>静的な</strong>バッファを作る</li><li>スプライトごとの情報(位置・大きさ・回転・色)を別の VBO に入れ、<code>glVertexAttribDivisor(location, 1)</code> を指定する。divisor が 1 の属性は、<strong>頂点ごとではなくインスタンスごとに1回進む</strong></li><li><code>glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0, spriteCount)</code> で描く</li><li>頂点シェーダで、四角形のローカル座標にインスタンスの回転・拡大・平行移動を適用する。<strong>CPU でやっていた4隅の計算が GPU に移る</strong></li><li>転送量を比べる。バッチングは1枚 <strong>128 バイト</strong>(4頂点 × 32)、インスタンシングは1枚 <strong>24 バイト</strong>(位置8 + サイズ8 + 回転4 + 色4[byte×4])。<strong>5分の1以下</strong>になる</li><li>両方で2万枚を測る。どちらが速いか。<strong>予想と合ったか</strong></li></ol>
+<p>6 が本題。転送量が4分の1になっても速くならない可能性が高い(要点1で見たとおり、この規模ではもう転送がボトルネックではない)。インスタンシングが本当に効いてくるのは、1インスタンスあたりの頂点数が多いとき(草・木・瓦礫を数万本)で、それは Day 32 以降の話。<strong>「同じ問題に2つの解き方があり、どちらが良いかは規模で決まる」</strong>を体験しておく。</p>
+</section>
+<section class="part"><h2 id="s24">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0 / StbImageSharp 2.30.16 / OpenGL 3.3 コアプロファイル</li><li>960x640 / VSync OFF / Release ビルド</li><li>計測は各条件 240 フレーム(最初の30フレームは除外)の平均:<div class="table-wrap"><table>
+<thead><tr><th>条件</th><th>ドローコール</th><th>fps</th><th>ms/frame</th></tr></thead>
+<tbody>
+<tr><td>1000枚 バッチON まとめON</td><td>2</td><td>1628.3</td><td>0.614</td></tr>
+<tr><td>1000枚 バッチOFF</td><td>1000</td><td>257.8</td><td>3.879</td></tr>
+<tr><td>1000枚 バッチON まとめOFF(交互)</td><td>1000</td><td>254.6</td><td>3.927</td></tr>
+<tr><td>10000枚 バッチON まとめON</td><td>4</td><td>1652.9</td><td>0.605</td></tr>
+<tr><td>10000枚 バッチOFF</td><td>10000</td><td>25.9</td><td>38.629</td></tr>
+<tr><td>20000枚 バッチON まとめON</td><td>6</td><td>947.7</td><td>1.055</td></tr>
+<tr><td>20000枚 オーファニングON</td><td>6</td><td>944.5</td><td>1.059</td></tr>
+</tbody>
+</table></div></li></ul>
+<ul><li>ドローコール1回あたりのコストは 3.879ms/1000 も 38.629ms/10000 も<strong>3.9µs</strong> で一致(線形)</li><li>上の計測はウィンドウが見えている状態のもの。<code>reference/Day17</code> を最小化した状態で同じ1000枚を回すと 4400 fps 出た(SwapBuffers が待たなくなるため)。<strong>絶対値は環境と窓の状態で数倍動く</strong>ので、比較するときは条件をそろえる</li><li>フレームバッファを読み出して画像化し、次を確認:<ul><li>3Dシーンの手前に1000枚のスプライトが乗り、<strong>下の絵が透けている</strong></li><li>輪の中央が抜けている(アルファが効いている)</li><li>円の縁がぼけている(アルファのグラデーションが効いている)</li></ul></li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 17 2Dスプライトバッチ(動的頂点バッファ) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/softgl.js"></script>
+<script src="../site/spritebatch.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const G = SoftGL, SB = SpriteBatchSim;
+const W = 960, H = 640, MAX = 20000;
+const KIND_COLOR = { 'sprite-circle': '--accent', 'sprite-ring': '--warn' };
+
+SB.ready.then((tex) => {
+const circle = SB.whole(tex['sprite-circle']), ring = SB.whole(tex['sprite-ring']);
+
+// ------------------------------------------------------------
+// 1. 1万枚を何回で描くか
+// ------------------------------------------------------------
+const sprites = SB.makeSprites(MAX, W, H, false);
+const batch = new SB.Batch({ capacity: 4000, vertexBytes: 32 });
+const bt = { count: 1000, fps: 0, drawMs: 0 };
+// 背景: Day 16 のシーンを 1 回だけ描いて取っておく(毎フレーム描くと重いので止めた絵にする)
+const bg = document.createElement('canvas'); bg.width = W; bg.height = H;
+{
+  const t = G.createTarget(480, 320), o = G.DemoScene.createOrbit();
+  G.DemoScene.applyOrbit(o); G.clear(t, [0.08, 0.09, 0.12, 1]); G.DemoScene.render(t, o, { angle: 0 });
+  G.present(t, bg.getContext('2d'), W, H);
+}
+// Program.RenderSprites
+function renderSprites() {
+  batch.batching = segValue('bt-batch') === '1'; batch.orphaning = segValue('bt-orphan') === '1';
+  batch.begin();
+  const submit = (i, r) => { const s = sprites[i]; batch.draw(r, s.x, s.y, s.size, s.size, s.rotation, s.color); };
+  if (segValue('bt-group') === '1') {
+    // 偶数番と奇数番を分けて回す。テクスチャの切り替えが 1 回だけになる
+    for (let i = 0; i < bt.count; i += 2) submit(i, circle);
+    for (let i = 1; i < bt.count; i += 2) submit(i, ring);
+  } else {
+    // 配列の順に描く。テクスチャが 1 枚ごとに変わるので、バッチが有効でも 1 枚ずつフラッシュされる
+    for (let i = 0; i < bt.count; i++) submit(i, (i & 1) === 0 ? circle : ring);
+  }
+  batch.end();
+}
+// 1 フレームの時間のモデル(本文の実測をもとに置いた値)
+function modelMs() {
+  const dc = batch.drawCalls, n = bt.count;
+  const cpu = 0.0039 * dc + 0.00002 * n + (batch.orphaning ? 0.0007 * batch.uploads : 0);
+  const gpu = 0.000053 * n;
+  return Math.max(segValue('bt-3d') === '1' ? 0.6 : 0.25, cpu, gpu);
+}
+const onOff = (id, on = '1') => (segValue(id) === on ? 'ON' : 'OFF');
+function btDraw() {
+  renderSprites();
+  const t0 = performance.now();
+  const { ctx, w, h } = fit($('bt-canvas'));
+  const k = w / W;
+  ctx.fillStyle = 'rgb(20,23,31)'; ctx.fillRect(0, 0, w, h);
+  if (segValue('bt-3d') === '1') ctx.drawImage(bg, 0, 0, w, h);
+  const culled = segValue('bt-cull') === '1';
+  // スクリーン座標は Y 下向き。左上 → 右上 → 右下 → 左下は NDC で時計回りになり、カリングが ON だと全部裏面として捨てられる
+  if (!culled) SB.render(ctx, batch.calls, { blend: segValue('bt-blend'), scale: k });
+  bt.drawMs = bt.drawMs * 0.9 + (performance.now() - t0) * 0.1;
+  { // ドローコールの帯
+    const s = fit($('bt-strip')), total = Math.max(1, batch.spriteCount);
+    let x = 0;
+    for (const c of batch.calls) {
+      const cw = (c.quads.length / total) * s.w;
+      s.ctx.fillStyle = tok(KIND_COLOR[c.texture.name]); s.ctx.fillRect(x, 4, Math.max(0.5, cw - (cw > 3 ? 1 : 0)), s.h - 8);
+      x += cw;
+    }
+  }
+  const ms = modelMs();
+  $('bt-title').textContent = `Day17 - スプライトバッチ  ${(1000 / ms).toFixed(1)} fps | スプライト:${bt.count} | ドローコール:${batch.drawCalls} | バッチ:${onOff('bt-batch')} まとめ:${onOff('bt-group')} オーファン:${onOff('bt-orphan')} 3D:${onOff('bt-3d')}`;
+  $('bt-stats').innerHTML = stat('ドローコール', batch.drawCalls.toLocaleString()) + stat('BufferSubData', `${batch.uploads.toLocaleString()} 回`)
+    + stat('送った頂点', `${(batch.uploadedBytes / 1024).toFixed(0)} KB`) + stat('ms/frame(モデル)', ms.toFixed(3))
+    + stat('このページの描画', culled ? '全部カリング' : `${bt.drawMs.toFixed(1)} ms`);
+}
+function setCount(n) { bt.count = Math.min(MAX, Math.max(0, n)); setSeg('bt-count', String(bt.count)); btDraw(); }
+seg('bt-count', (v) => setCount(Number(v)));
+$('bt-up').addEventListener('click', () => setCount(bt.count + 1000));
+$('bt-down').addEventListener('click', () => setCount(bt.count - 1000));
+['bt-batch', 'bt-group', 'bt-orphan', 'bt-3d', 'bt-blend', 'bt-cull', 'bt-play'].forEach((id) => seg(id, btDraw));
+animate($('bt-lab'), (dt) => {
+  if (segValue('bt-play') === '1') SB.updateSprites(sprites, bt.count, dt, W, H);
+  btDraw();
+});
+btDraw();
+
+// ------------------------------------------------------------
+// 2. フラッシュを1枚ずつ追う
+// ------------------------------------------------------------
+const N = 16;
+const fl = { batch: null, seq: [], next: 0, done: false, log: [] };
+const flLog = (s) => { fl.log.push(s); $('fl-console').textContent = fl.log.join('\n'); $('fl-console').scrollTop = 1e9; };
+const chip = (name, extra = '') => `<span style="display:inline-block;min-width:26px;padding:3px 4px;text-align:center;font-size:11px;border-radius:4px;border:1px solid var(--line);background:color-mix(in srgb, var(${KIND_COLOR[name]}) 35%, transparent)${extra}">`;
+function flReset() {
+  const cap = Number(segValue('fl-cap'));
+  fl.batch = new SB.Batch({ capacity: cap, vertexBytes: 32 });
+  fl.batch.begin();
+  // まとめる: 偶数番(円)→ 奇数番(輪)。交互: 配列の順
+  const idx = segValue('fl-order') === 'group' ? [...Array(N / 2).keys()].map((i) => i * 2).concat([...Array(N / 2).keys()].map((i) => i * 2 + 1)) : [...Array(N).keys()];
+  fl.seq = idx.map((i) => ({ i, r: (i & 1) === 0 ? circle : ring }));
+  fl.next = 0; fl.done = false; fl.log = [];
+  flLog(`Begin(容量 ${cap})`);
+  flDraw();
+}
+function describe(call, why) {
+  const n = call.quads.length;
+  return `  → ${why}Flush: BufferSubData ${n} 枚 × 128 = ${n * 128} バイト、DrawElements(${n * 6} インデックス)= ドローコール #${fl.batch.drawCalls}(${call.texture.name === 'sprite-circle' ? '円' : '輪'} ${n} 枚)`;
+}
+function flStep() {
+  const b = fl.batch;
+  if (fl.done) return;
+  if (fl.next >= fl.seq.length) {
+    const before = b.calls.length; b.end(); fl.done = true;
+    flLog('End');
+    if (b.calls.length > before) flLog(describe(b.calls[b.calls.length - 1], '残りを '));
+    flDraw(); return;
+  }
+  const { i, r } = fl.seq[fl.next++], s = sprites[i];
+  const before = b.calls.length, wasTex = b.current, wasFull = b.pending.length >= b.capacity;
+  b.draw(r, s.x, s.y, s.size, s.size, s.rotation, s.color);
+  flLog(`Draw(#${i} ${r.texture.name === 'sprite-circle' ? '円' : '輪'})`);
+  if (b.calls.length > before) flLog(describe(b.calls[b.calls.length - 1], wasFull ? '満杯なので ' : wasTex !== r.texture ? 'テクスチャが変わったので ' : ''));
+  flDraw();
+}
+function flDraw() {
+  const b = fl.batch, cap = b.capacity;
+  $('fl-seq').innerHTML = fl.seq.map((x, k) => `${chip(x.r.texture.name, k < fl.next ? ';opacity:.35' : '')}${k === fl.next && !fl.done ? '▶' : ''}${x.i}</span>`).join('');
+  const shown = Math.min(cap, N);
+  let cells = '';
+  for (let k = 0; k < shown; k++) { const q = b.pending[k]; cells += q ? `${chip(q.texture.name)}${k}</span>` : `<span style="display:inline-block;min-width:26px;padding:3px 4px;text-align:center;font-size:11px;border-radius:4px;border:1px dashed var(--line);color:var(--muted)">${k}</span>`; }
+  if (cap > shown) cells += `<span style="font-size:12px;color:var(--muted);align-self:center">…(残り ${(cap - shown).toLocaleString()} マス)</span>`;
+  $('fl-buf').innerHTML = cells;
+  $('fl-capv').textContent = cap.toLocaleString();
+  const quads = Math.min(cap, 4);
+  $('fl-idx').textContent = [...Array(quads).keys()].map((q) => `四角形 ${q}: ${4 * q}, ${4 * q + 1}, ${4 * q + 2},  ${4 * q + 2}, ${4 * q + 3}, ${4 * q}`).join('\n') + `\n…(全部で ${cap.toLocaleString()} × 6 = ${(cap * 6).toLocaleString()} 個、${(cap * 24).toLocaleString()} バイト)`;
+  $('fl-stats').innerHTML = stat('積んだ', `${fl.next} / ${N}`) + stat('バッファの中', b.pending.length) + stat('ドローコール', b.drawCalls) + stat('今のテクスチャ', b.current ? (b.current.name === 'sprite-circle' ? '円' : '輪') : '—');
+  $('fl-step').disabled = fl.done;
+}
+seg('fl-order', flReset); seg('fl-cap', flReset);
+$('fl-step').addEventListener('click', flStep);
+$('fl-all').addEventListener('click', () => { while (!fl.done) flStep(); });
+$('fl-reset').addEventListener('click', flReset);
+flReset();
+});
+})();
+</script>
+</body>
+</html>

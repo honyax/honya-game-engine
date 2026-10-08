@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 14 Silk.NETへ移行、シェーダー管理クラス</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Silk.NET が引き受けたもの、引き受けなかったもの</a></li><li class="l3"><a href="#s5">2. イベント駆動のループ — 自分で回さなくなる</a></li><li class="l3"><a href="#s6">3. シェーダをファイルへ出す — 「管理クラス」の第一歩</a></li><li class="l3"><a href="#s7">4. System.Numerics の行列は、なぜ転置せずに渡してよいのか</a></li><li class="l3"><a href="#s8">5. ホットリロード — 落ちないことが仕様</a></li><li class="l3"><a href="#s9">6. uniform の場所をキャッシュする理由と、-1 の意味</a></li><li class="l3"><a href="#s10">7. プロジェクト設定の変更点</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">NuGet パッケージ</a></li><li class="l3"><a href="#s13">写経する順番</a></li><li class="l2"><a href="#s14">完成条件</a></li><li class="l2"><a href="#s15">改造課題</a></li><li class="l3"><a href="#s16">課題1(易): 行列の規約を自分で壊してみる</a></li><li class="l3"><a href="#s17">課題2(中): シェーダを保存した瞬間に反映する</a></li><li class="l3"><a href="#s18">課題3(難): <code>Shader</code> を「マテリアル」へ育てる前段を作る</a></li><li class="l2"><a href="#s19">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 3 / Day 14 / 計画書</p>
+  <h1>Silk.NETへ移行、シェーダー管理クラス</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. Silk.NET が引き受けたもの、引き受けなかったもの</a></li><li class="l3"><a href="#s5">2. イベント駆動のループ — 自分で回さなくなる</a></li><li class="l3"><a href="#s6">3. シェーダをファイルへ出す — 「管理クラス」の第一歩</a></li><li class="l3"><a href="#s7">4. System.Numerics の行列は、なぜ転置せずに渡してよいのか</a></li><li class="l3"><a href="#s8">5. ホットリロード — 落ちないことが仕様</a></li><li class="l3"><a href="#s9">6. uniform の場所をキャッシュする理由と、-1 の意味</a></li><li class="l3"><a href="#s10">7. プロジェクト設定の変更点</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">NuGet パッケージ</a></li><li class="l3"><a href="#s13">写経する順番</a></li><li class="l2"><a href="#s14">完成条件</a></li><li class="l2"><a href="#s15">改造課題</a></li><li class="l3"><a href="#s16">課題1(易): 行列の規約を自分で壊してみる</a></li><li class="l3"><a href="#s17">課題2(中): シェーダを保存した瞬間に反映する</a></li><li class="l3"><a href="#s18">課題3(難): <code>Shader</code> を「マテリアル」へ育てる前段を作る</a></li><li class="l2"><a href="#s19">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 3 / ロードマップ該当行: 「Silk.NETへ移行、シェーダー管理クラス」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>Day 13 とまったく同じ絵が、Silk.NET の上で出る。そしてシェーダを実行したまま差し替えられる。</strong></p>
+<p>画面に出るものは Day 13 の焼き直し(回転する三角形)。違うのはその下で、Phase 2 で書いた<strong>818行の「儀式」がパッケージ参照3行に置き換わる</strong>。</p>
+<p>そして今日から <code>HonyaEngine</code> が始まる。Day 15 以降は、この名前空間の中身を<strong>捨てずに育て続ける</strong>。Phase 2 までは「一度書いて捨てるコード」だったが、ここからは最終的な AAA デモまで生き残るコードになる。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li><a href="https://tokoik.github.io/gg/">ゲームグラフィックス特論 A-2 GPU</a> — ロードマップ指定。Day 13 と同じ回。今度は「ライブラリの上から」読み直すと、自分が書いたどの部分がどう畳まれたかが見える</li><li><a href="https://dotnet.github.io/Silk.NET/">Silk.NET 公式</a> — トップページと<a href="https://dotnet.github.io/Silk.NET/docs/">Windowing のドキュメント</a></li><li><a href="https://github.com/dotnet/Silk.NET/tree/main/examples/CSharp/OpenGL%20Tutorials">Silk.NET のチュートリアル(公式リポジトリ)</a> —今日書くコードにいちばん近い実例</li><li><a href="https://learn.microsoft.com/ja-jp/dotnet/api/system.numerics.matrix4x4">Matrix4x4 構造体(Microsoft Learn)</a> —要点4で扱う行ベクトル規約の確認用</li><li>復習として <strong>Day13.md の要点5(列優先)</strong>。今日その続きをやる</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. Silk.NET が引き受けたもの、引き受けなかったもの</h3>
+<p>Phase 2 で書いたコードが、そのまま消えるわけではない。<strong>消えるものと残るものがある。</strong></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Phase 2 で書いたもの</th><th>実コード行</th><th>Day 14 では</th></tr></thead>
+<tbody>
+<tr><td><code>Win32Window.cs</code>(ウィンドウとメッセージループ)</td><td>172</td><td><strong>消滅</strong>。<code>Window.Create(options)</code></td></tr>
+<tr><td><code>Wgl.cs</code>(ピクセルフォーマットとコンテキストの宣言)</td><td>89</td><td><strong>消滅</strong></td></tr>
+<tr><td><code>GLContext.cs</code>(ダミーウィンドウの儀式、VSync)</td><td>185</td><td><strong>消滅</strong>。<code>options.API</code> と <code>options.VSync</code></td></tr>
+<tr><td><code>Win32.cs</code>(P/Invoke 一式)</td><td>143</td><td><strong>消滅</strong></td></tr>
+<tr><td><code>GL.cs</code>(関数のロードと宣言)</td><td>229</td><td><strong>消滅</strong>。<code>GL.GetApi(window)</code></td></tr>
+<tr><td><code>Program.cs</code>(頂点バッファ、ドローコール)</td><td>181</td><td><strong>残る</strong>(179行)</td></tr>
+<tr><td><code>Shader.cs</code>(コンパイル、リンク、uniform)</td><td>104</td><td><strong>残って育つ</strong>(154行)</td></tr>
+</tbody>
+</table></div>
+<p>合計 <strong>1,103行 → 333行</strong>。消えた770行のほぼ全部が「儀式」で、<strong>GPU の使い方そのもの(頂点バッファ、シェーダ、ドローコール)は1行も減っていない。</strong></p>
+<p>これがロードマップの言う「Silk.NETが担う部分は学びの密度が低い」の具体的な中身。<code>glGenBuffers</code> を <code>gl.GenBuffer()</code> と書くようになっただけで、やることも順序も知識も何ひとつ変わらない。</p>
+<p>対応も素直に1対1になる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>自作</th><th>Silk.NET</th></tr></thead>
+<tbody>
+<tr><td><code>GL.glGenBuffers(1, out uint id)</code></td><td><code>uint id = gl.GenBuffer()</code></td></tr>
+<tr><td><code>GL.glBindBuffer(GL.GL_ARRAY_BUFFER, id)</code></td><td><code>gl.BindBuffer(BufferTargetARB.ArrayBuffer, id)</code></td></tr>
+<tr><td><code>GL.GL_TRIANGLES</code></td><td><code>PrimitiveType.Triangles</code></td></tr>
+<tr><td><code>GL.glGetString(GL.GL_RENDERER)</code> を UTF-8 で変換</td><td><code>gl.GetStringS(StringName.Renderer)</code></td></tr>
+</tbody>
+</table></div>
+<p><strong>定数が enum になった</strong>のが一番効く差で、<code>glBindBuffer</code> にうっかり <code>GL_TRIANGLES</code> を渡す事故がコンパイル時に止まるようになった。</p>
+<h3 id="s5">2. イベント駆動のループ — 自分で回さなくなる</h3>
+<p>Day 11 で書いた <code>while (window.ProcessMessages())</code> のループは、<code>window.Run()</code> の中に入った。こちらは「このタイミングで呼んでくれ」と登録する側に回る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_window.Load += OnLoad;       // コンテキストが出来た直後に1回
+_window.Update += OnUpdate;   // 更新
+_window.Render += OnRender;   // 描画
+_window.Closing += OnClosing; // 後片付け
+_window.Run();</code></pre></div>
+<p><strong><code>Update</code> と <code>Render</code> が分かれている</strong>のがポイント。今日はどちらも毎フレーム同じ回数呼ばれるので違いは無いが、これは <strong>Day 19 の固定タイムステップ</strong>への布石になっている(更新は秒60回に固定し、描画はモニタの都合で可変にする)。</p>
+<p>もう1つ大事な制約。<strong><code>Load</code> より前に GL の関数は使えない。</strong>コンテキストがまだ無いからで、Day 12 で「wglMakeCurrent の後でないとwglGetProcAddress が動かない」と書いたのとまったく同じ理由。ライブラリを使っても、GPU の都合は変わらない。</p>
+<h3 id="s6">3. シェーダをファイルへ出す — 「管理クラス」の第一歩</h3>
+<p>Day 13 のシェーダは C# の <code>const string</code> だった。ファイルに出す理由は3つ。</p>
+<ul><li><strong>エディタが GLSL として扱える</strong>(色分け、補完)</li><li><strong>git の差分が読める</strong>。C# の文字列の中の変更は差分として読みにくい</li><li><strong>実行中に書き換えられる</strong>(次の要点)</li></ul>
+<p>読み込み先は <code>reference/Day14/shaders/</code>。<strong><code>assets/</code> ではなく Day のフォルダに置く</strong>のは、<code>reference/DayXX</code> が「その時点の完動スナップショット」でなければならないから。共有 <code>assets/</code> に置くと、Day 15 でシェーダを変更した瞬間に Day 14 が壊れる。</p>
+<p>パスは実行ディレクトリから上へ辿って <code>shaders</code> フォルダを探す。<code>bin/</code> にコピーしたものではなく<strong>ソースツリー側を直接読む</strong>のが肝で、そうしないと編集のたびにビルドが要り、ホットリロードの意味が消える。(まともなリソース管理は Day 21 で扱う。それまでは Phase 1 の <code>ObjLoader</code> と同じこの手で済ませる)</p>
+<h3 id="s7">4. System.Numerics の行列は、なぜ転置せずに渡してよいのか</h3>
+<p>Day 13 では <code>float[16]</code> を列優先で手詰めしていた。今日から<code>System.Numerics.Matrix4x4</code> を使う。ここで<strong>2つの食い違いが同時に起きる</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>System.Numerics</th><th>OpenGL / GLSL</th></tr></thead>
+<tbody>
+<tr><td>メモリの並び</td><td><strong>行優先</strong>(M11,M12,M13,M14,M21,…)</td><td><strong>列優先</strong>として読む</td></tr>
+<tr><td>掛け算の規約</td><td><strong>行ベクトル</strong>(v * M)</td><td><strong>列ベクトル</strong>(M * v)</td></tr>
+</tbody>
+</table></div>
+<p>一見すると2箇所直さないといけなさそうだが、<strong>この2つはちょうど打ち消し合う。</strong></p>
+<p>行優先のメモリを列優先として読むと、それは<strong>転置</strong>になる。そして転置は、行ベクトル規約を列ベクトル規約へ変換する操作そのもの。だから <code>transpose: false</code> のまま素直に渡せば正しく動く。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_gl.UniformMatrix4(location, 1, false, (float*)pointer);   // transpose は false でよい</code></pre></div>
+<p><strong>実測で確認した。</strong> Day 13(手詰めの列優先)と Day 14(System.Numerics)で同じ絵になるか、<code>glReadPixels</code> で5点を読み比べたところ<strong>全点が完全一致</strong>した(完成条件を参照)。</p>
+<p>もう1つ、掛ける順序が Phase 1 と逆になる点に注意。行ベクトル規約では <code>A * B</code> が「A を適用してから B」を意味する。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 回転してから、アスペクト比の補正で横を縮める
+Matrix4x4 transform = Matrix4x4.CreateRotationZ(_angle)
+                    * Matrix4x4.CreateScale(1.0f / aspect, 1.0f, 1.0f);</code></pre></div>
+<p>Phase 1 の自作 <code>Mat4</code>(列ベクトル規約)なら <code>Scale * Rotate</code> と書く場面。<strong>どちらが正しいということはなく、規約が2つあるだけ</strong>——Day 10 でOBJ の V 座標について書いたのと同じ構図で、どこかで必ず吸収する必要がある。</p>
+<div class="inject"><figure class="lab" id="tri-lab">
+  <div class="lab-head">
+    <h3>回転する三角形 — 行優先 × 行ベクトルを、そのまま GL に渡す(要点4、改造課題1)</h3>
+    <span class="tag">reference の Program.cs(三角形の頂点、OnRender の行列、OnUpdate のタイトルバー)と basic.vert、basic.frag を JS に移し、Canvas に描く小さなソフトウェア版の GL(docs/site/softgl.js)で 640x480 に描いたもの。行列は System.Numerics と同じ並び(行優先)で作り、GL と同じく列優先として読んでから掛けている。transpose を true にする・掛ける順序を逆にする・平行移動を足す、の3つは改造課題1をこのページで試すもの。fps はこのページの描画の値</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="tri-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="tri-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="上が赤、左下が緑、右下が青の三角形が回転している"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">描き方(W)と回転(Space)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tri-wire"><button data-v="0" aria-pressed="true">塗り</button><button data-v="1" aria-pressed="false">ワイヤー</button></div><div class="seg" id="tri-play"><button data-v="1" aria-pressed="true">回す</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">SetMatrix4 の transpose(課題1の1)</span>
+      <div class="seg" id="tri-transpose"><button data-v="0" aria-pressed="true">false(reference)</button><button data-v="1" aria-pressed="false">true</button></div>
+    </div>
+    <div class="ctl"><span class="label">掛ける順序(課題1の2)</span>
+      <div class="seg" id="tri-order"><button data-v="rs" aria-pressed="true">回転 × 縮小(reference)</button><button data-v="sr" aria-pressed="false">縮小 × 回転</button></div>
+    </div>
+    <div class="ctl"><span class="label">平行移動 (0.3, 0, 0) を足す(課題1の3)</span>
+      <div class="seg" id="tri-move"><button data-v="none" aria-pressed="true">なし</button><button data-v="first" aria-pressed="false">先に掛ける</button><button data-v="last" aria-pressed="false">最後に掛ける</button></div>
+    </div>
+    <div class="ctl"><span class="label">読む(glReadPixels)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="tri-read">5 点を読む</button></div>
+    </div>
+  </div>
+  <div class="readout">
+    <div style="display:flex;flex-wrap:wrap;gap:16px">
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">Matrix4x4 のメモリ(行優先。番号は並ぶ順)</div><div id="tri-mem"></div></div>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">GL が見る uTransform(列ベクトル規約)</div><div id="tri-gl"></div></div>
+    </div>
+    <pre id="tri-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px;display:none"></pre>
+  </div>
+</figure></div>
+<h3 id="s8">5. ホットリロード — 落ちないことが仕様</h3>
+<p><strong>今日いちばん実用的な部品。</strong> シェーダを書き換えるたびに再起動していると、1日に何十回も待つことになる。F5 で作り直せるようにする。</p>
+<p>作りで大事なのは「成功したときの動き」ではなく、<strong>失敗したときの動き</strong>。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public bool TryReload()
+{
+    if (!TryCreateProgram(out uint newProgram, out string error))
+    {
+        Console.WriteLine($"[リロード失敗] 古いシェーダを使い続けます:\n{error}");
+        return false;   // ← 例外を投げない
+    }
+
+    _gl.DeleteProgram(_program);   // 新しいものが出来てから古いものを消す
+    _program = newProgram;
+    _uniformLocations.Clear();     // 場所は変わりうるのでキャッシュを捨てる
+    return true;
+}</code></pre></div>
+<ul><li><strong>例外を投げない。</strong> 落ちたら結局再起動と同じで、仕組みの意味が半分消える</li><li><strong>新しいプログラムが出来てから古いものを消す。</strong> 逆にすると失敗時に描くものが無くなる</li><li><strong>uniform の場所のキャッシュを捨てる。</strong> リンクし直すと場所は変わりうる</li></ul>
+<p><strong>実測</strong>: シェーダをわざと壊して F5 すると、こう出て<strong>アプリは 60fps のまま動き続けた</strong>。</p>
+<div class="code"><pre><code>[リロード失敗] 古いシェーダを使い続けます:
+basic.frag のコンパイルに失敗しました:
+0(21) : error C0000: syntax error, unexpected reserved word "this" at token "this"</code></pre></div>
+<h3 id="s9">6. uniform の場所をキャッシュする理由と、-1 の意味</h3>
+<p><code>glGetUniformLocation</code> は名前(文字列)で引くので、毎フレーム呼ぶものではない。<code>Dictionary&lt;string, int&gt;</code> に覚えておく。</p>
+<p><strong>-1 が返ってもエラーとは限らない</strong>のは Day 13 と同じだが、今日は実際に踏むようになっている。フラグメントシェーダの<code>FragColor</code> を上書きするように書き換えると、<code>uTime</code> は結果に影響しなくなり、<strong>最適化で削除されて -1 になる</strong>。</p>
+<div class="code"><pre><code>[警告] uniform 'uTime' が見つかりません(未使用で削除された可能性)</code></pre></div>
+<p>これは実際にホットリロードの実験で出た。バグではないので、毎フレーム警告を出さないよう「一度出した名前は覚えておく」ようにしてある。</p>
+<div class="inject"><figure class="lab" id="hr-lab">
+  <div class="lab-head">
+    <h3>ホットリロード — 新しいものが出来てから古いものを消す(要点5・6、F5 キー)</h3>
+    <span class="tag">reference の Shader.cs(TryReload、TryCreateProgram、uniform の場所のキャッシュと一度だけの警告)を JS に移したもの。シェーダのコンパイルはできないので、basic.frag の書き換え方を4通り用意し、それぞれのコンパイル結果(成功・エラーのログ・uTime が使われているか)を決めてある。エラーの文は本文の実測のもの。「ファイルを書き換える」はディスクの上のファイルが変わるだけで、F5 を押すまで絵は変わらない。プログラムの番号はこのページの数え方。「先に消す」はこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="hr-grid">
+      <canvas id="hr-canvas" style="width:100%;aspect-ratio:4/3;height:auto" aria-label="今リンクされているシェーダで描いた三角形"></canvas>
+      <div><div style="font-size:12px;color:var(--muted);margin-bottom:4px">ディスクの上の shaders/basic.frag</div><pre id="hr-src" style="margin:0;font-size:11.5px;line-height:1.45;white-space:pre-wrap;max-height:300px;overflow:auto"></pre></div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">ファイルを書き換えて保存する</span>
+      <div class="seg" id="hr-file"><button data-v="orig" aria-pressed="true">元のまま</button><button data-v="invert" aria-pressed="false">最終行のコメントを外す</button><button data-v="broken" aria-pressed="false">壊す</button><button data-v="locked" aria-pressed="false">保存の途中</button></div>
+    </div>
+    <div class="ctl"><span class="label">TryReload の手順</span>
+      <div class="seg" id="hr-order"><button data-v="safe" aria-pressed="true">出来てから消す(reference)</button><button data-v="early" aria-pressed="false">先に消す(このページだけ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">リロード</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="hr-f5">F5 TryReload</button><button class="btn" id="hr-reset">起動直後に戻す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="hr-stats"></div><pre id="hr-console" style="margin:10px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s10">7. プロジェクト設定の変更点</h3>
+<p>Phase 2 から csproj が3つ変わった。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>設定</th><th>Phase 2</th><th>Day 14</th><th>理由</th></tr></thead>
+<tbody>
+<tr><td><code>OutputType</code></td><td><code>WinExe</code></td><td><strong><code>Exe</code></strong></td><td>Day 12 の <code>AllocConsole</code> の小細工が不要になる。標準出力がそのまま使える</td></tr>
+<tr><td><code>RootNamespace</code></td><td><code>RawGL</code></td><td><strong><code>HonyaEngine</code></strong></td><td>Phase 3 以降で固定</td></tr>
+<tr><td><code>AllowUnsafeBlocks</code></td><td>なし</td><td><strong><code>true</code></strong></td><td>Silk.NET の一部 API がポインタを取るため</td></tr>
+</tbody>
+</table></div>
+<p><code>TargetFramework</code> は <code>net10.0-windows</code> のままにした。Silk.NET 自体はクロスプラットフォームなので <code>net10.0</code> にできるが、<code>.vscode/launch.json</code> が <code>bin/Debug/net10.0-windows/</code> を決め打ちしているのと、このリポジトリが実際には Windows 専用(PowerShell スクリプト、Phase 0〜1 の WinForms)であることから、<strong>変えない</strong>判断にした。変えるなら launch.json も同時に直す必要がある(1行)。</p>
+<p><code>unsafe</code> について。Silk.NET は <code>void*</code> を取る API を持っていて、<code>VertexAttribPointer</code> のオフセットや <code>BufferData</code> のデータ先頭がそれに当たる。グラフィックス周りでは普通のことで、避けようとするほうが不自然になる。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<p><strong>Day 14 は Day 13 のコピーではない。</strong> Phase が変わるので、<code>reference/Day14</code> は空から作った新しいプロジェクトになる。写経先も <code>work/RawGL</code> ではなく <strong><code>work/HonyaEngine</code> を新規に作る</strong>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>Day14.csproj</code></td><td>15</td><td>Silk.NET のパッケージ参照3つ。<strong>Phase 2 の37行から半分以下に</strong></td></tr>
+<tr><td><code>Shader.cs</code></td><td>261</td><td><strong>今日の中心</strong>。ファイル読み込み、ホットリロード、uniform</td></tr>
+<tr><td><code>Program.cs</code></td><td>305</td><td>ウィンドウ設定、三角形、ループ</td></tr>
+<tr><td><code>shaders/basic.vert</code></td><td>21</td><td>Day 13 の頂点シェーダをファイルに出したもの</td></tr>
+<tr><td><code>shaders/basic.frag</code></td><td>19</td><td>同上 + <code>uTime</code> による脈動</td></tr>
+</tbody>
+</table></div>
+<p>実コード行は <strong>333行</strong>(Day 13 は 1,103行)。うち <code>Shader.cs</code> の154行が今日の新しい内容で、<code>Program.cs</code> の179行はDay 13 からの移し替えが大半。<strong>1〜2時間で収まる。</strong></p>
+<h3 id="s12">NuGet パッケージ</h3>
+<div class="code"><pre><code>Silk.NET.Windowing 2.23.0   ウィンドウ生成(内部で GLFW を使う)
+Silk.NET.OpenGL    2.23.0   OpenGL バインディング
+Silk.NET.Input     2.23.0   キーボード・マウス</code></pre></div>
+<p><code>dotnet restore</code> で自動的に入る。ネイティブの GLFW も<code>Silk.NET.Windowing.Glfw</code> 経由で一緒に入るので、別途用意する必要はない。</p>
+<h3 id="s13">写経する順番</h3>
+<ol><li><code>Day14.csproj</code> — <strong>Phase 2 の csproj と見比べる</strong>。何が消えたかが Phase 3 の宣言</li><li><code>shaders/basic.vert</code> / <code>.frag</code> — Day 13 の文字列をファイルに移すだけ</li><li><code>Shader.cs</code> — <strong>今日の中心</strong>。<code>TryCreateProgram</code> → <code>TryCompile</code> → <code>TryReload</code> → uniform、の順に読む。<strong>失敗時に何をしないか</strong>(要点5)に注目する</li><li><code>Program.cs</code> の <code>Main</code> と <code>OnLoad</code> — Day 12 の300行がここに畳まれている</li><li><code>Program.cs</code> の <code>CreateTriangle</code> — Day 13 と1対1で見比べる</li><li><code>Program.cs</code> の <code>OnRender</code> — 行列の掛ける順序(要点4)</li></ol>
+<p>Day 13 との比較:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day13/Program.cs reference/Day14/Program.cs
+git diff --no-index reference/Day13/Shader.cs  reference/Day14/Shader.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s14">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day14 -c Release</code></pre></div>
+<ol><li>起動時にターミナルへ GL の情報が出る。<strong><code>AllocConsole</code> が無くなった</strong>ので、<code>dotnet run</code> した端末にそのまま出る</li><li>シェーダの読み込み元が <strong><code>reference/Day14/shaders</code></strong>(<code>bin/...</code> ではない)と表示される</li><li><strong>Day 13 とまったく同じ三角形</strong>が回転している。上が赤、左下が緑、右下が青で、中心は混色。回転しても歪まない</li><li>明るさがゆっくり脈打つ(<code>uTime</code> による)</li><li>タイトルバーが<code>Day14 - Silk.NET へ移行  60.0 fps | VSync:ON | 塗り | F5:シェーダ再読込 W:ワイヤー V:VSync Space:停止 Esc:終了</code></li><li><strong>F5 でホットリロードが効く。</strong> <code>shaders/basic.frag</code> の最終行のコメントを外して保存し、F5 を押すと<strong>アプリを止めずに色が反転する</strong>。コンソールに <code>[リロード成功]</code></li><li><strong>わざと壊しても落ちない。</strong> <code>.frag</code> に適当な文字列を書いて F5 すると<code>[リロード失敗] 古いシェーダを使い続けます</code> が出て、<strong>絵はそのまま動き続ける</strong></li><li><strong>W</strong> でワイヤーフレーム、<strong>V</strong> で VSync、<strong>Space</strong> で回転停止、<strong>Esc</strong> で終了</li></ol>
+<p>Day 13 と同じ絵であることは目視ではなく実測で確認してある。<code>glReadPixels</code> で5点を読み、Day 13 の値と突き合わせた結果:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>位置</th><th>Day 14</th><th>Day 13</th><th></th></tr></thead>
+<tbody>
+<tr><td>左下すみ (5,5)</td><td>25,28,33</td><td>25,28,33</td><td>一致</td></tr>
+<tr><td>中央 (320,240)</td><td>144,106,107</td><td>144,106,107</td><td>一致</td></tr>
+<tr><td>上頂点付近 (320,370)</td><td>245,56,57</td><td>245,56,57</td><td>一致</td></tr>
+<tr><td>左下頂点付近 (200,130)</td><td>59,234,64</td><td>59,234,64</td><td>一致</td></tr>
+<tr><td>右下頂点付近 (440,130)</td><td>59,64,234</td><td>59,64,234</td><td>一致</td></tr>
+</tbody>
+</table></div>
+<p><strong>全点が完全一致</strong>。要点4の「転置しなくてよい」がこれで裏付けられている。</p>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong><code>DirectoryNotFoundException: shaders</code></strong> → 実行ディレクトリから上に<code>shaders</code> フォルダが見つからない。<code>dotnet run --project</code> で起動しているか</li><li><strong>三角形が出ない / 画面外へ飛ぶ</strong> → 行列の掛ける順序(要点4)。<code>Scale * Rotate</code> にすると回転と一緒にアスペクト補正まで回ってしまう</li><li><strong><code>transpose</code> を true にしたら壊れた</strong> → 正しい。要点4のとおり false が正解</li><li><strong><code>Shader</code> があいまいだとコンパイルエラー</strong> → <code>Silk.NET.OpenGL</code> にも<code>Shader</code> 型がある。<code>namespace HonyaEngine;</code> の中なら自分のほうが優先されるので問題にならないが、トップレベルステートメントで書くとぶつかる</li><li><strong>F5 を押しても何も起きない</strong> → ウィンドウにフォーカスがあるか。また、エディタが<strong>保存していない</strong>可能性(VSCode の自動保存を確認)</li><li><strong>F5 でリロードしたら文字化けした GLSL エラーが出る</strong> →シェーダファイルの文字コード。<strong>UTF-8(BOM なし)</strong>で保存する。PowerShell の <code>Set-Content</code> は既定で BOM を付けるので使わないこと</li><li><strong><code>uniform 'uTime' が見つかりません</code> の警告</strong> → 要点6。<code>FragColor</code> を上書きするよう書き換えると実際に出る。バグではない</li><li><strong>fps が 60 に張り付かない</strong> → <code>options.VSync</code> と、ドライバ側の垂直同期設定(Day 12 と同じ)</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>W</code></td><td>「回転する三角形」の「塗り / ワイヤー」</td><td>三角形1枚の3辺だけが残る。線の色も頂点の色を補間したもの</td></tr>
+<tr><td><code>Space</code></td><td>同じ実験台の「回す / 止める」</td><td>止めても uTime は進むので、明るさの脈動は続く</td></tr>
+<tr><td><code>F5</code></td><td>「ホットリロード」の「F5 TryReload」</td><td>「壊す」で F5 すると失敗のログが出て、絵は古いシェーダのまま動き続ける</td></tr>
+<tr><td>(キーなし)</td><td>「回転する三角形」の transpose、掛ける順序、平行移動</td><td>改造課題1。transpose を true にすると逆回りになり、縦横比の補正も一緒に回って形が伸び縮みする。そこへ平行移動を足すと、0.3 が w に入って遠近がついたように歪む</td></tr>
+<tr><td>(キーなし)</td><td>「ホットリロード」の「先に消す」</td><td>reference と逆の手順。失敗したとたんに描くものが無くなる</td></tr>
+<tr><td><code>V</code></td><td>このページには無い</td><td>ブラウザは画面の更新に合わせて描くので、VSync を切る手段が無い</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day14 の Program.cs(三角形の頂点、OnRender、OnUpdate のタイトルバー)、Shader.cs(TryReload、uniform のキャッシュ)、shaders の basic.vert と basic.frag を JS に移したもの。三角形はソフトウェア版の GL(docs/site/softgl.js)で描いていて、画素の値は手元の GPU と一致しない(本文の5点の表は実機の値)。シェーダのコンパイル結果は4通りの書き換えごとに決めてある。</p></div>
+</section>
+<section class="part"><h2 id="s15">改造課題</h2>
+<h3 id="s16">課題1(易): 行列の規約を自分で壊してみる</h3>
+<p>要点4を頭でなく手で確認する。<strong>壊れ方を知っておくと、後で必ず助かる。</strong></p>
+<ol><li><code>SetMatrix4</code> の <code>transpose</code> を <code>true</code> にする。どう壊れるか。なぜその壊れ方になるのかを、要点4の表で説明できるか</li><li>掛ける順序を <code>CreateScale(...) * CreateRotationZ(...)</code> に変える。何が起きるか。<strong>アスペクト補正が回転してしまう</strong>のを目で確認する</li><li><code>Matrix4x4.CreateTranslation(0.3f, 0.0f, 0.0f)</code> を足して、三角形を右に寄せる。回転の前に掛けるか後に掛けるかで結果がどう変わるか</li><li><code>Matrix4x4</code> の中身を <code>Console.WriteLine</code> して、<code>M11</code>〜<code>M44</code> のどこに平行移動成分が入るか確かめる(Phase 1 の自作 <code>Mat4</code> と比べる)</li></ol>
+<h3 id="s17">課題2(中): シェーダを保存した瞬間に反映する</h3>
+<p>F5 を押すのすら惜しくなってくる。<code>FileSystemWatcher</code> で自動化する。</p>
+<ol><li><code>shaders</code> フォルダを監視し、<code>.vert</code> / <code>.frag</code> の変更でリロードする</li><li><strong>変更通知は1回の保存で複数回飛ぶ。</strong> そのまま繋ぐと1回の保存で何度もコンパイルが走る。最後の通知から数百ms待ってから実行する(デバウンス)</li><li><strong>通知はワーカースレッドで来る。</strong> そこから GL を呼んではいけない(コンテキストはスレッドに紐付いている。Day 12 の要点1)。フラグを立てて、次の <code>OnRender</code> で実際のリロードを行う</li><li><strong>保存途中の不完全なファイルを読むことがある。</strong> 要点5の <code>TryCreateProgram</code> が<code>IOException</code> を握り潰しているのはこのためで、実際に踏むか確かめる</li></ol>
+<p>3 が特に重要。<strong>GL の呼び出しは必ず描画スレッドから</strong>という制約は、Phase 4 以降で非同期リソース読み込み(Day 21)をやるときに本格的に効いてくる。</p>
+<h3 id="s18">課題3(難): <code>Shader</code> を「マテリアル」へ育てる前段を作る</h3>
+<p>Day 15 でマテリアルを抽象化するので、その下ごしらえ。</p>
+<ol><li>現在の <code>SetFloat</code> / <code>SetVector3</code> / <code>SetMatrix4</code> は、呼ぶ側がuniform の名前と型を知っている前提。<strong>シェーダに聞けるようにする</strong>。<code>glGetProgramiv(GL_ACTIVE_UNIFORMS)</code> と <code>glGetActiveUniform</code> で、リンク済みプログラムから uniform の名前・型・場所を全部列挙できる</li><li>列挙結果を辞書に持ち、<code>Dictionary&lt;string, object&gt;</code> で値を設定できるようにする。型が合わなければ実行時に警告する</li><li><strong>なぜこれが要るのか</strong>を考える。マテリアルは「このシェーダに、この値の組を設定したもの」なので、値の組をデータとして持てないとファイルから読めない(Day 24 のシリアライズ)</li><li>発展: uniform ブロック(UBO)を調べる。ビュー行列や投影行列のように<strong>全マテリアルで共通の値</strong>を、マテリアルごとに設定し直すのは無駄で、Phase 3 の後半で効いてくる</li></ol>
+</section>
+<section class="part"><h2 id="s19">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0(Windowing / OpenGL / Input)</li><li>OpenGL 3.3 コアプロファイル / GLSL 3.30 / VSync ON で 60.0 fps</li><li><code>glReadPixels</code> による5点比較で、<strong>Day 13 と完全一致</strong>することを確認(完成条件の表)</li><li>ホットリロードの成功(<code>[リロード成功]</code>)と失敗(<code>[リロード失敗]</code> +アプリは 60fps のまま継続)の両方を実測で確認</li><li>実コード行 1,103行(Day 13)→ <strong>333行</strong>(Day 14)</li><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 14 Silk.NETへ移行、シェーダー管理クラス / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/softgl.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, segValue, stat, animate } = Lab;
+const G = SoftGL, M = G.Mat;
+const W = 640, H = 480, CLEAR = [0.10, 0.11, 0.13, 1];
+
+// Program.TriangleVertices と同じ [x, y, r, g, b]
+const TRIANGLE = { vertices: [
+  { p: [0.0, 0.6], c: [1.0, 0.2, 0.2] },     // 上   : 赤
+  { p: [-0.6, -0.5], c: [0.2, 1.0, 0.2] },   // 左下 : 緑
+  { p: [0.6, -0.5], c: [0.2, 0.2, 1.0] },    // 右下 : 青
+] };
+// basic.vert: gl_Position = uTransform * vec4(aPosition, 0.0, 1.0)。uTransform は GL が見る行列(列ベクトル規約)
+const basicVert = (Gm) => (v) => ({ pos: M.mulColumn(Gm, [v.p[0], v.p[1], 0, 1]), vary: v.c });
+// basic.frag: 明るさを 0.75〜1.0 で脈打たせる
+const basicFrag = (time) => { const pulse = 0.875 + 0.125 * Math.sin(time * 2.0); return (c) => [c[0] * pulse, c[1] * pulse, c[2] * pulse, 1]; };
+// 最終行のコメントを外した版: FragColor を上書きするので pulse(と uTime)は結果に効かない
+const invertFrag = () => (c) => [1 - c[0], 1 - c[1], 1 - c[2], 1];
+const n3 = (v) => (Math.abs(v) < 5e-7 ? 0 : v).toFixed(3);
+
+// ------------------------------------------------------------
+// 1. 回転する三角形と、行列の規約
+// ------------------------------------------------------------
+const tri = { target: G.createTarget(W, H), angle: 0, time: 0, fpsT: 0, fpsN: 0, fps: 0, data: M.identity() };
+['tri-wire', 'tri-play', 'tri-transpose', 'tri-order', 'tri-move'].forEach((id) => seg(id, () => triDraw()));
+function triMatrix() {
+  const aspect = W / H;
+  const R = M.rotationZ(tri.angle), S = M.scale(1 / aspect, 1, 1), T = M.translation(0.3, 0, 0);
+  // reference: CreateRotationZ(_angle) * CreateScale(1 / aspect, 1, 1)(行ベクトル規約なので、回転してから縮める)
+  let m = segValue('tri-order') === 'rs' ? M.mul(R, S) : M.mul(S, R);
+  const mv = segValue('tri-move');
+  if (mv === 'first') m = M.mul(T, m);
+  else if (mv === 'last') m = M.mul(m, T);
+  return m;
+}
+function grid(m, label) {
+  const cells = m.map((v, i) => `<td style="text-align:right;padding:2px 6px;font-variant-numeric:tabular-nums">${label ? `<span style="color:var(--muted);font-size:10px">${i} </span>` : ''}${n3(v)}</td>`);
+  let rows = '';
+  for (let r = 0; r < 4; r++) rows += `<tr>${cells.slice(r * 4, r * 4 + 4).join('')}</tr>`;
+  return `<table style="font-size:12px;margin:0">${rows}</table>`;
+}
+function triDraw() {
+  const t = tri.target, data = triMatrix(), transpose = segValue('tri-transpose') === '1';
+  const Gm = M.asSeenByGL(data, transpose);
+  G.clear(t, CLEAR);
+  G.draw(t, TRIANGLE, { vs: basicVert(Gm), fs: basicFrag(tri.time), polygonMode: segValue('tri-wire') === '1' ? 'line' : 'fill' });
+  const { ctx, w, h } = fit($('tri-canvas'));
+  G.present(t, ctx, w, h);
+  tri.data = data;
+  $('tri-mem').innerHTML = grid(data, true);
+  $('tri-gl').innerHTML = grid(Gm, false);
+  const paused = segValue('tri-play') === '0', wire = segValue('tri-wire') === '1';
+  $('tri-title').textContent = `Day14 - Silk.NET へ移行  ${tri.fps.toFixed(1)} fps | VSync:ON | ${wire ? 'ワイヤー' : '塗り'}${paused ? ' | 一時停止中' : ''} | F5:シェーダ再読込 W:ワイヤー V:VSync Space:停止 Esc:終了`;
+}
+$('tri-read').addEventListener('click', () => {
+  const t = tri.target, pts = [['左下すみ', 5, 5], ['中央', 320, 240], ['上頂点付近', 320, 370], ['左下頂点付近', 200, 130], ['右下頂点付近', 440, 130]];
+  const lines = [`[glReadPixels] 角度 ${tri.angle.toFixed(2)} rad / uTime ${tri.time.toFixed(2)} 秒のフレーム(このページの値)`];
+  for (const [name, x, y] of pts) lines.push(`  ${name.padEnd(7, '　')} (${x},${y})  ${G.readPixel(t, x, y).join(',')}`);
+  const con = $('tri-console'); con.style.display = ''; con.textContent = lines.join('\n');
+});
+animate($('tri-lab'), (dt) => {
+  tri.time += dt;   // uTime は止めても進む(OnUpdate の _elapsedSeconds)
+  if (segValue('tri-play') === '1') tri.angle += dt;   // 1 秒で 1 ラジアン
+  tri.fpsN++; tri.fpsT += dt;
+  if (tri.fpsT >= 0.5) { tri.fps = tri.fpsN / tri.fpsT; tri.fpsN = 0; tri.fpsT = 0; }
+  triDraw();
+});
+triDraw();
+
+// ------------------------------------------------------------
+// 2. ホットリロード
+// ------------------------------------------------------------
+const ORIG = `#version 330 core
+
+in vec3 vColor;
+
+out vec4 FragColor;
+
+// 経過秒。ホットリロードの実験用に、時間で変化する要素を1つ入れてある。
+uniform float uTime;
+
+void main()
+{
+    // 明るさをゆっくり脈打たせる。0.75 〜 1.0 の範囲。
+    float pulse = 0.875 + 0.125 * sin(uTime * 2.0);
+
+    FragColor = vec4(vColor * pulse, 1.0);
+
+    // --- ホットリロードを試すなら、この下の行のコメントを外して F5 ---
+    // FragColor = vec4(1.0 - vColor, 1.0);
+}`;
+// ディスクの上のファイル。compile はこのページで決めたコンパイル結果
+const FILES = {
+  orig: { src: ORIG, compile: () => ({ ok: true, fs: basicFrag, usesTime: true }) },
+  invert: { src: ORIG.replace('    // FragColor = vec4(1.0 - vColor', '    FragColor = vec4(1.0 - vColor'), compile: () => ({ ok: true, fs: invertFrag, usesTime: false }) },
+  broken: { src: ORIG + '\n\nthis is not glsl', compile: () => ({ ok: false, error: 'basic.frag のコンパイルに失敗しました:\n0(21) : error C0000: syntax error, unexpected reserved word "this" at token "this"' }) },
+  locked: { src: ORIG + '\n(エディタが保存している途中。別のプロセスが掴んでいて読めない)', compile: () => ({ ok: false, error: "ファイルを読めません: The process cannot access the file '...\\shaders\\basic.frag' because it is being used by another process." }) },
+};
+const hr = { log: [] };
+// ディスクの上のファイルを出す。元と違う行には色を付け、そこまでスクロールする
+function showSource(v) {
+  const orig = ORIG.split('\n'), esc = (x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  $('hr-src').innerHTML = FILES[v].src.split('\n').map((l, i) => (l === orig[i] ? esc(l) : `<mark style="background:var(--warn);color:#000">${esc(l) || ' '}</mark>`)).join('\n');
+  const m = $('hr-src').querySelector('mark');
+  $('hr-src').scrollTop = m ? m.offsetTop - $('hr-src').offsetTop - 120 : 0;
+}
+const hrLog = (s) => { hr.log.push(...s.split('\n')); if (hr.log.length > 200) hr.log.splice(0, hr.log.length - 200); $('hr-console').textContent = hr.log.join('\n'); $('hr-console').scrollTop = 1e9; };
+// Shader クラス(必要なところだけ)
+class Shader {
+  constructor(file) { this.nextName = 1; this.locations = new Map(); this.warned = new Set(); const r = this.tryCreateProgram(file); this.program = r.program; }
+  // 頂点シェーダ・フラグメントシェーダ・プログラムの3つに番号を振る(GL と同じく同じ名前空間から取る)
+  tryCreateProgram(file) {
+    const vert = this.nextName++;
+    const res = FILES[file].compile();
+    if (!res.ok) return { error: res.error };
+    this.nextName++;   // フラグメントシェーダ
+    return { program: { id: this.nextName++, fs: res.fs, usesTime: res.usesTime, vert } };
+  }
+  tryReload(file, early) {
+    if (early) { hrLog(`  (このページだけ) 先に古いプログラム ${this.program ? this.program.id : 0} を消した`); this.program = null; }
+    const r = this.tryCreateProgram(file);
+    if (!r.program) { hrLog(`[リロード失敗] 古いシェーダを使い続けます:\n${r.error}`); if (early) hrLog('  → 古いものはもう無い。描くものが無いので、画面は背景だけになる'); return false; }
+    this.program = r.program;
+    this.locations.clear(); this.warned.clear();
+    hrLog('[リロード成功]');
+    return true;
+  }
+  getUniformLocation(name) {
+    if (this.locations.has(name)) return this.locations.get(name);
+    if (!this.program) return -1;
+    // 場所はリンクのたびに決め直される。uTime が結果に効かないと最適化で消えて -1
+    const loc = name === 'uTransform' ? 0 : name === 'uTime' && this.program.usesTime ? 1 : -1;
+    if (loc < 0 && !this.warned.has(name)) { this.warned.add(name); hrLog(`[警告] uniform '${name}' が見つかりません(未使用で削除された可能性)`); }
+    this.locations.set(name, loc);
+    return loc;
+  }
+}
+function hrReset() {
+  hr.shader = new Shader('orig'); hr.file = 'orig'; hr.time = 0; hr.angle = 0; hr.reloads = 0; hr.fails = 0;
+  hr.target = hr.target || G.createTarget(W / 2, H / 2);
+  showSource('orig');
+  for (const b of $('hr-file').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.v === 'orig'));
+  hr.log = []; hrLog('シェーダを読み込みました: reference/Day14/shaders\nF5 でシェーダを再読み込みします(実行したまま編集できます)');
+}
+seg('hr-file', (v) => { hr.file = v; showSource(v); hrLog(`(basic.frag を${{ orig: '元に戻して', invert: '書き換えて', broken: '壊して', locked: '保存している途中' }[v]}${v === 'locked' ? '' : '保存した'}。F5 を押すまで絵は変わらない)`); });
+seg('hr-order', () => {});
+$('hr-f5').addEventListener('click', () => { hrLog(''); hrLog('F5'); if (hr.shader.tryReload(hr.file, segValue('hr-order') === 'early')) hr.reloads++; else hr.fails++; });
+$('hr-reset').addEventListener('click', hrReset);
+function hrDraw() {
+  const t = hr.target, sh = hr.shader, p = sh.program;
+  G.clear(t, CLEAR);
+  if (p) {
+    // OnRender と同じ順に uniform を送る(場所が -1 なら送らない)
+    sh.getUniformLocation('uTransform');
+    sh.getUniformLocation('uTime');
+    const Gm = M.asSeenByGL(M.mul(M.rotationZ(hr.angle), M.scale(H / W, 1, 1)), false);
+    G.draw(t, TRIANGLE, { vs: basicVert(Gm), fs: p.fs(hr.time) });
+  }
+  const { ctx, w, h } = fit($('hr-canvas'));
+  G.present(t, ctx, w, h);
+  const cache = [...sh.locations].map(([k, v]) => `${k} → ${v}`).join(', ') || '(空)';
+  $('hr-stats').innerHTML = stat('使っているプログラム', p ? p.id : '0(無い)') + stat('uniform のキャッシュ', cache) + stat('成功 / 失敗', `${hr.reloads} / ${hr.fails}`);
+}
+animate($('hr-lab'), (dt) => { hr.time += dt; hr.angle += dt; hrDraw(); });
+function narrow() { $('hr-grid').style.gridTemplateColumns = $('hr-grid').clientWidth < 560 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'; }
+window.addEventListener('resize', narrow); narrow();
+hrReset(); hrDraw();
+})();
+</script>
+</body>
+</html>
