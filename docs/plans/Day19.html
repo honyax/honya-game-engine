@@ -253,7 +253,7 @@ C 可変・同じ実時間    : 7444383E9D7F0545  不一致</code></pre></div>
 <tr><td><code>A</code> / <code>S</code> / <code>B</code> / <code>O</code> / <code>G</code> / <code>Z</code> / <code>C</code> / <code>P</code> / <code>W</code> / <code>F</code> / <code>R</code> / <code>V</code> / <code>Home</code> / <code>F5</code> / <code>Esc</code></td><td>このページには無い</td><td>Day 16〜18 の描画まわり(アトラス・ソート・バッチ・3D 背景など)</td></tr>
 </tbody>
 </table></div>
-<p class="note">実験台は reference/Day19 の GameLoop.cs と、Program.cs の InitializeSprites・UpdateSprites・Interpolate・OnUpdate・SetSimulationRate・RunDeterminismCheck・Checksum を JS(docs/site/dotnet.js の乱数と、このページの中のスクリプト)に移したもの。reference のファイルをそのままコンパイルし、窓だけを差し替えて Program の関数を直接呼ぶ C# の小さなプログラムと、20,000 枚の初期状態(全フィールドのビット)と、決定性チェックの出力 8 回ぶんが一致した。fps・遅れ・移動量の数字はこのページで測った値で、本文の表(手元の RTX 3070 環境の値)とは環境によって違う。</p></div>
+<p class="note">実験台は reference/Day19 の GameLoop.cs と、Program.cs の InitializeSprites・UpdateSprites・Interpolate・OnUpdate・SetSimulationRate・RunDeterminismCheck・Checksum を JS(GameLoop は docs/site/enginecore.js、乱数は docs/site/dotnet.js、残りはこのページの中のスクリプト)に移したもの。reference のファイルをそのままコンパイルし、窓だけを差し替えて Program の関数を直接呼ぶ C# の小さなプログラムと、20,000 枚の初期状態(全フィールドのビット)と、決定性チェックの出力 8 回ぶんが一致した。fps・遅れ・移動量の数字はこのページで測った値で、本文の表(手元の RTX 3070 環境の値)とは環境によって違う。</p></div>
 <h3 id="s21">ビルド</h3>
 <ul><li><code>dotnet build reference/Day19</code> が警告 0 で通る</li><li><code>dotnet format whitespace reference/Day19/Day19.csproj --verify-no-changes</code> の差分が 0</li></ul>
 </section>
@@ -296,42 +296,18 @@ C 可変・同じ実時間    : 7444383E9D7F0545  不一致</code></pre></div>
 </div>
 <script src="../site/lab.js"></script>
 <script src="../site/dotnet.js"></script>
+<script src="../site/enginecore.js"></script>
 <script>
-// ---------------- reference/Day19 の GameLoop.cs と Program.cs(InitializeSprites・UpdateSprites・RunDeterminismCheck・Checksum)を移したもの ----------------
-// float の計算は1回ごとに Math.fround で丸める(C# と同じビットを出すため)。GameLoop は double なのでそのまま
+// ---------------- reference/Day19 の Program.cs(InitializeSprites・UpdateSprites・RunDeterminismCheck・Checksum)を移したもの ----------------
+// float の計算は1回ごとに Math.fround で丸める(C# と同じビットを出すため)。GameLoop は docs/site/enginecore.js
 const LOOP19 = (() => {
 const f = Math.fround;
 const DN = typeof window !== 'undefined' && window.DotNet ? window.DotNet : require('C:/var/honya-game-engine/docs/site/dotnet.js');
+const Core = typeof window !== 'undefined' && window.Core ? window.Core : require('C:/var/honya-game-engine/docs/site/enginecore.js');
+const { GameLoop } = Core;
+const fmtF = DN.fmtFixed;
 const TAU = f(2 * Math.PI);
 const MAX_SPRITES = 20000;
-
-class GameLoop {
-  constructor(fixedDeltaTime = 1.0 / 60.0) {
-    this.accumulator = 0; this.fixedDeltaTime = fixedDeltaTime; this.maxStepsPerFrame = 8; this.dropExcess = true;
-    this.alpha = 0; this.stepsLastFrame = 0; this.totalSteps = 0; this.simulationTime = 0; this.droppedSeconds = 0;
-  }
-  get lag() { return this.accumulator; }
-  advance(frameSeconds, fixedUpdate) {
-    if (Number.isNaN(frameSeconds) || frameSeconds < 0) frameSeconds = 0;
-    this.accumulator += frameSeconds;
-    this.stepsLastFrame = 0;
-    while (this.accumulator >= this.fixedDeltaTime && this.stepsLastFrame < this.maxStepsPerFrame) {
-      fixedUpdate(f(this.fixedDeltaTime));
-      this.accumulator -= this.fixedDeltaTime;
-      this.simulationTime += this.fixedDeltaTime;
-      this.totalSteps++;
-      this.stepsLastFrame++;
-    }
-    if (this.accumulator >= this.fixedDeltaTime && this.dropExcess) {
-      // 1ステップ未満の端数だけ残して捨てる
-      const keep = this.accumulator % this.fixedDeltaTime;
-      this.droppedSeconds += this.accumulator - keep;
-      this.accumulator = keep;
-    }
-    this.alpha = Math.min(Math.max(this.accumulator / this.fixedDeltaTime, 0), 1);
-  }
-  reset() { this.accumulator = 0; this.alpha = 0; this.stepsLastFrame = 0; this.droppedSeconds = 0; }
-}
 
 // MathF.Cos / Sin(CRT の cosf / sinf)が、JS の値を float に丸めたものと 1 ulp ずれる角度。
 // C# に同じ角度で計算させて、ずれたものだけを持つ: [スプライトの番号, cos のビット, sin のビット](0 はずれなし)
@@ -379,24 +355,10 @@ function updateSprites(sp, count, dt, width, height) {
 const snapshot = (sp, count) => sp.slice(0, count).map((s) => ({ ...s }));
 
 // FNV-1a(64 ビット)を float のビット表現にかける
-const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
-const MASK = (1n << 64n) - 1n, PRIME = 1099511628211n;
 function checksum(sp, count) {
-  let h = 14695981039346656037n;
-  const mix = (v) => { F32[0] = v; const u = U32[0]; for (let b = 0; b < 4; b++) { h ^= BigInt((u >>> (b * 8)) & 255); h = (h * PRIME) & MASK; } };
-  for (let i = 0; i < count; i++) { mix(sp[i].px); mix(sp[i].py); mix(sp[i].rot); }
-  return h.toString(16).toUpperCase().padStart(16, '0');
-}
-
-// C# の F 書式(ちょうど真ん中は偶数の側へ)
-function fmtF(x, d) {
-  const s = x.toFixed(d);
-  const [ip, fp] = Math.abs(x).toFixed(60).split('.');
-  if (/^50*$/.test(fp.slice(d))) {
-    const last = Number(d > 0 ? fp[d - 1] : ip[ip.length - 1]);
-    if (last % 2 === 0) return (x < 0 ? '-' : '') + (d > 0 ? `${ip}.${fp.slice(0, d)}` : ip);
-  }
-  return s;
+  const vals = [];
+  for (let i = 0; i < count; i++) vals.push(sp[i].px, sp[i].py, sp[i].rot);
+  return Core.hex16(Core.fnv1aFloats(vals));
 }
 
 // Program.RunDeterminismCheck。fixedDeltaTime は今のループの値(double)

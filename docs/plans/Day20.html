@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 20 入力システム(ポーリング+イベント)</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 時間の粒度が3つある</a></li><li class="l3"><a href="#s5">2. 「押されている」と「押した瞬間」は別物</a></li><li class="l3"><a href="#s6">3. ステップの間に押して離したら?</a></li><li class="l3"><a href="#s7">4. キーではなくアクションを見る</a></li><li class="l3"><a href="#s8">5. リプレイは「入力を溜めて順に返す」だけ</a></li><li class="l3"><a href="#s9">6. フォーカスを失うと KeyUp が来ない</a></li><li class="l3"><a href="#s10">7. デバッグキーとゲームキーは分けたほうがよい</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17">プレイヤーの操作</a></li><li class="l3"><a href="#s18">記録と再生(今日の見せ場)</a></li><li class="l3"><a href="#s19">固定レートを変えても入力が効くこと</a></li><li class="l3"><a href="#s20">タイトルバーの読み方</a></li><li class="l3"><a href="#s21">ビルド</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): 入力の分離を進める</a></li><li class="l3"><a href="#s24">課題2(中): 記録をファイルに保存する</a></li><li class="l3"><a href="#s25">課題3(難): 入力遅延と先行入力(バッファリング)</a></li><li class="l2"><a href="#s26">動作確認済み環境</a></li><li class="l3"><a href="#s27"><code>InputSystem</code> の不変条件(偽の <code>IKeyboard</code> / <code>IMouse</code> で駆動)</a></li><li class="l3"><a href="#s28">記録・再生(<code>reference/Day20</code> のコードをそのまま使用)</a></li><li class="l3"><a href="#s29">検証の途中で直したこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 4 / Day 20 / 計画書</p>
+  <h1>入力システム(ポーリング+イベント)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. 時間の粒度が3つある</a></li><li class="l3"><a href="#s5">2. 「押されている」と「押した瞬間」は別物</a></li><li class="l3"><a href="#s6">3. ステップの間に押して離したら?</a></li><li class="l3"><a href="#s7">4. キーではなくアクションを見る</a></li><li class="l3"><a href="#s8">5. リプレイは「入力を溜めて順に返す」だけ</a></li><li class="l3"><a href="#s9">6. フォーカスを失うと KeyUp が来ない</a></li><li class="l3"><a href="#s10">7. デバッグキーとゲームキーは分けたほうがよい</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">新規ファイル</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">キーの変更</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">完成条件</a></li><li class="l3"><a href="#s17">プレイヤーの操作</a></li><li class="l3"><a href="#s18">記録と再生(今日の見せ場)</a></li><li class="l3"><a href="#s19">固定レートを変えても入力が効くこと</a></li><li class="l3"><a href="#s20">タイトルバーの読み方</a></li><li class="l3"><a href="#s21">ビルド</a></li><li class="l2"><a href="#s22">改造課題</a></li><li class="l3"><a href="#s23">課題1(易): 入力の分離を進める</a></li><li class="l3"><a href="#s24">課題2(中): 記録をファイルに保存する</a></li><li class="l3"><a href="#s25">課題3(難): 入力遅延と先行入力(バッファリング)</a></li><li class="l2"><a href="#s26">動作確認済み環境</a></li><li class="l3"><a href="#s27"><code>InputSystem</code> の不変条件(偽の <code>IKeyboard</code> / <code>IMouse</code> で駆動)</a></li><li class="l3"><a href="#s28">記録・再生(<code>reference/Day20</code> のコードをそのまま使用)</a></li><li class="l3"><a href="#s29">検証の途中で直したこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 4 / ロードマップ該当行: 「入力システム(ポーリング+イベント)」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>矢印キーで動かした操作を記録して、再生すると寸分たがわず同じ動きが再現される。</strong></p>
+<p>Day 19 で「同じ入力なら同じ結果」を確かめた。今日はそこに<strong>実際の入力</strong>を載せる。入力が決定的な形で扱えれば、記録した入力列を流し直すだけでリプレイになる——これが今日の到達点で、Day 19 の設計が配当を返す場面でもある。</p>
+<p>デバッグ用のキー(Day 16〜19 で足してきたもの)はイベントで直接処理していた。それはそれで正しいが、<strong>ゲームの入力を同じやり方で書くと壊れる</strong>。なぜ壊れるのか、どう分けるのかが今日の主題。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<p>ロードマップの指定は「-」。設計寄りの回なので、次を読んでおくと見通しがよくなる。</p>
+<ul><li><a href="https://gameprogrammingpatterns.com/command.html">Game Programming Patterns: Command</a> —入力とアクションを分ける話。今日の <code>GameAction</code> はこの発想の軽量版</li><li><a href="https://gafferongames.com/post/fix_your_timestep/">Fix Your Timestep! (Gaffer On Games)</a> —Day 19 で読んだ回。今日は「固定ステップに入力をどう合わせるか」の視点で読み直す</li><li><a href="https://gafferongames.com/post/deterministic_lockstep/">Gaffer On Games: Deterministic Lockstep</a> —記録した入力だけで同期する仕組み。今日のリプレイと<strong>まったく同じ原理</strong></li><li>復習として <strong>Day19.md の要点4(何を FixedUpdate に書くか)と要点7(決定性)</strong></li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. 時間の粒度が3つある</h3>
+<p>入力まわりで踏む罠は、突き詰めるとこれに尽きる。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>粒度</th><th>誰が決めるか</th><th>どのくらいか</th></tr></thead>
+<tbody>
+<tr><td>1. デバイスのイベント</td><td>OS。不定</td><td>1フレームに何回でも来る</td></tr>
+<tr><td>2. 描画フレーム</td><td>可変</td><td>数千fps 出ることもある</td></tr>
+<tr><td>3. シミュレーションのステップ</td><td><strong>こちらが固定</strong></td><td>60Hz など</td></tr>
+</tbody>
+</table></div>
+<p>ゲームのロジックが見たいのは <strong>3 だけ</strong>。だから 1 を溜めておいて、3 の境界で1枚の値に畳む。それが <code>InputSnapshot</code> で、畳む役が <code>InputSystem.BeginStep()</code>。</p>
+<p>畳んでしまえば、ゲームのロジックから見た入力は「毎ステップ渡ってくる、変わらない1個の値」になる。おかげで</p>
+<ul><li>ステップの途中で入力が変わらない(判定が安定する)</li><li><strong>そのまま記録できる</strong>(要点5)</li><li>テストで好きな値を差し込める</li></ul>
+<p>が全部手に入る。今日の <code>UpdatePlayer</code> は入力を<strong>引数で受け取る</strong>形にしてあり、グローバルなキーボードの状態を直接見に行かない。これが後半のリプレイを可能にしている。</p>
+<h3 id="s5">2. 「押されている」と「押した瞬間」は別物</h3>
+<p><code>Held</code> / <code>Pressed</code> / <code>Released</code> の3つを持つ。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>意味</th><th>例</th></tr></thead>
+<tbody>
+<tr><td><code>Held</code></td><td>このステップの間、押されていた</td><td>移動、チャージ、ガード</td></tr>
+<tr><td><code>Pressed</code></td><td>このステップで<strong>新たに</strong>押された</td><td>ジャンプ、発射、決定</td></tr>
+<tr><td><code>Released</code></td><td>このステップで離された</td><td>溜め攻撃の発動、長押しの終わり</td></tr>
+</tbody>
+</table></div>
+<p>ジャンプを <code>Held</code> で書くと、押しっぱなしで毎ステップ発動する。逆に移動を <code>Pressed</code> で書くと、1ステップしか動かない。<strong>この2つの取り違えは、入力バグの過半数を占める</strong>。</p>
+<p>「押した瞬間」の実装で気をつける点が2つある。</p>
+<p><strong>(a) オートリピートを弾く</strong></p>
+<p>キーを押しっぱなしにすると、OS が <code>KeyDown</code> を繰り返し送ってくる。これは Day 14 でシェーダのホットリロードを検証したときに踏んだのと同じ挙動で、そのまま <code>Pressed</code> に流すと毎秒何十回も「押した瞬間」が発生する。すでに押されているぶんを除いてから立てる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>GameAction newlyPressed = action &amp; ~_heldNow;</code></pre></div>
+<p><strong>(b) 1ステップぶんで消費して捨てる</strong></p>
+<p><code>Pressed</code> は <code>BeginStep()</code> で空にする。これを忘れると、1フレームで複数ステップ回ったとき(Day 19 要点2)に<strong>同じ「押した瞬間」を何度も消費</strong>する。ジャンプが2回発動する形で表面化する。</p>
+<p>実測で確かめた(偽のキーボードで <code>InputSystem</code> を直接駆動):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>検証</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td><code>KeyDown</code> を6回連続で送っても <code>Pressed</code> は1回だけ</td><td>OK</td></tr>
+<tr><td>押しっぱなしで8ステップ回しても <code>Pressed</code> は1回だけ</td><td>OK</td></tr>
+<tr><td>押しっぱなしの間 <code>Held</code> は5ステップとも立つ</td><td>OK</td></tr>
+</tbody>
+</table></div>
+<h3 id="s6">3. ステップの間に押して離したら?</h3>
+<p>1ステップ(60Hz なら 16.7ms)の間に、フレームは何回も回る。その間に「押して離した」場合、ステップ境界の時点では<strong>もう離れている</strong>。素直に書くと <code>Held</code> が立たず、タップがまったく効かない。</p>
+<p>対策は、<code>Held</code> に「このステップで押された」を足すこと。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>Held = _heldNow | _pendingPressed;</code></pre></div>
+<p>こうすると、素早いタップでも<strong>そのステップの間は押されていた</strong>ことになる。実測すると <code>Pressed</code> / <code>Released</code> / <code>Held</code> の3つが同時に立ち、次のステップで全部消える。取りこぼしも持ち越しも起きない。</p>
+<p>これは設計判断であって唯一の正解ではない。「タップは移動に含めない」仕様なら足さないほうがよい。<strong>どちらを選んだかを決めて、1箇所に書いておく</strong>のが大事。</p>
+<div class="inject"><figure class="lab" id="tl-lab">
+  <div class="lab-head">
+    <h3>入力を1ステップに畳む — イベント・フレーム・ステップ(要点1〜3)</h3>
+    <span class="tag">reference の InputMap.cs・InputSnapshot.cs・InputSystem.cs(OnKeyDown のオートリピート除け、BeginStep の畳み方)を JS に移し、ブラウザの実時間の上で Day 19 の GameLoop を回したもの。上から「キーのイベント」「描画フレーム」「ステップの境界」と、各ステップの InputSnapshot(Held / Pressed / Released)を直近 2 秒ぶん並べる。ボタン(またはこの図を選んでからの X キーと ← キー)を押しっぱなしにすると、0.5 秒後から毎秒 30 回の KeyDown が届く(OS のオートリピートの真似。間隔はこのページだけ)。「reference の書き方を外す」3つと、ダッシュの発動回数の数え方はこのページだけ</span>
+  </div>
+  <div class="stage" style="padding:12px"><canvas id="tl-chart" tabindex="0" style="height:300px;outline-offset:2px" aria-label="キーのイベント、描画フレーム、ステップの境界と、ステップごとの Held・Pressed・Released の時間図。選んでから X と左矢印キーで操作できる"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">押す(押しっぱなしでオートリピート。タップは押してすぐ離す)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="tl-x" style="touch-action:none">X(Dash)</button><button class="btn" id="tl-left" style="touch-action:none">←(MoveLeft)</button><button class="btn" id="tl-tap">X をタップ</button><button class="btn" id="tl-tapl">← をタップ</button></div>
+    </div>
+    <div class="ctl"><span class="label">シミュレーション</span>
+      <div class="seg" id="tl-rate"><button data-v="60" aria-pressed="true">60Hz</button><button data-v="20" aria-pressed="false">20Hz</button><button data-v="5" aria-pressed="false">5Hz</button></div>
+    </div>
+    <div class="ctl"><span class="label">reference の書き方を外す(このページだけ)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="tl-repeat"><button data-v="1" aria-pressed="true">オートリピートを弾く</button><button data-v="0" aria-pressed="false">弾かない</button></div><div class="seg" id="tl-held"><button data-v="1" aria-pressed="true">Held に押した瞬間を足す</button><button data-v="0" aria-pressed="false">足さない</button></div><div class="seg" id="tl-consume"><button data-v="1" aria-pressed="true">Pressed を消費する</button><button data-v="0" aria-pressed="false">消費しない</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">確かめる</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="tl-check">不変条件(15 項目)</button><button class="btn" id="tl-reset">数を戻す</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="tl-stats"></div><p id="tl-note" style="margin:10px 0 0"></p><pre id="tl-console" style="margin:10px 0 0;white-space:pre-wrap;font-size:12.5px;display:none"></pre></div>
+</figure></div>
+<h3 id="s7">4. キーではなくアクションを見る</h3>
+<p>ゲームのコードが <code>Key.Left</code> を直接見ると、次が全部できなくなる。</p>
+<ul><li>キーコンフィグ(ユーザーがキーを変えられない)</li><li>ゲームパッド対応(スティックは <code>Key</code> ではない)</li><li>複数割り当て(矢印キーと WASD の両方)</li><li><strong>リプレイ</strong>(記録したいのは「左に動きたかった」であって「左キー」ではない)</li></ul>
+<p>だから間に1枚挟む。<strong>デバイス → アクション → ゲームのロジック</strong>。<code>InputMap</code> が前半、<code>InputSnapshot</code> が後半の境界になる。</p>
+<p><code>GameAction</code> を <code>[Flags]</code> の列挙型にしてあるのは、「今どのアクションが有効か」を <code>uint</code> 1個で表せるようにするため。集合演算(AND / OR)で判定でき、そのまま記録もできる。<strong>32個までしか作れない</strong>が、それを超えるならカテゴリごとに分けるべき合図。</p>
+<p>「どちらへ動きたいか」への翻訳も <code>InputSnapshot</code> の担当にしてある。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>public Vector2 MoveAxis { get; }   // -1〜1、斜めは正規化済み</code></pre></div>
+<p>斜めを正規化しないと<strong>斜め移動が √2 倍速くなる</strong>。2D ゲームの古典的なバグ。また <code>Vector2.Normalize</code> は長さ0で NaN を返すので、無入力を弾いておく必要がある(<strong>入力が無い状態が最も頻繁</strong>なので、ここを踏むと毎フレーム NaN が撒かれる)。</p>
+<h3 id="s8">5. リプレイは「入力を溜めて順に返す」だけ</h3>
+<p>大がかりな機能に見えるが、Day 19 の固定タイムステップと今日の <code>InputSnapshot</code> がそろっていれば<strong>ほとんど何もしていない</strong>。</p>
+<div class="code"><pre><code>ゲームの状態(t+1) = f(ゲームの状態(t), 入力(t))</code></pre></div>
+<p>f が決定的(Day 19 要点7)で、入力が全部記録されているなら、初期状態から同じ入力を流せば必ず同じ結果になる。だから<strong>画面を録画する必要が無い</strong>——入力列だけあれば再現できる。1時間のプレイでも 60Hz × 3600秒 × 20バイト ≒ 4MB。</p>
+<p>実測(擬似的な操作列を 300 ステップぶん記録して再生):</p>
+<div class="code"><pre><code>[記録停止] 300 ステップ (5.00 秒ぶん) / 終了時ハッシュ D35E4CB90A9CF6C8
+  記録終了時点の座標: &lt;50.516518, 130.90172&gt; 速度: &lt;15.81633, -288.16577&gt;
+[再生開始] 300 ステップ
+  再生終了時点の座標: &lt;50.516518, 130.90172&gt; 速度: &lt;15.81633, -288.16577&gt;
+[再生終了] ハッシュ D35E4CB90A9CF6C8 / 記録時 D35E4CB90A9CF6C8  一致</code></pre></div>
+<p>座標も速度も<strong>ビット単位で一致</strong>する。</p>
+<p>記録データには「前提条件」を一緒に入れておく必要がある。今日は <code>FixedDeltaTime</code> だけだが、<strong>これが違うと入力列が同じでも結果が変わる</strong> (1ステップの重みが変わるので別のシミュレーションになる)。実際のリプレイ形式には、さらにゲームのバージョンと乱数の種が入る。</p>
+<p>この性質はリプレイだけでなく、</p>
+<ul><li>ロールバック方式のネットワーク対戦(過去に戻って入力を差し替え、やり直す)</li><li>タイムアタックの記録検証(サーバで再生して不正を検出する)</li><li>バグの再現(「この入力列で落ちる」を添付できる)</li></ul>
+<p>の土台になる。<strong>エンジンを決定的に作っておいたことの配当</strong>がここで返ってくる。</p>
+<div class="inject"><figure class="lab" id="rp-lab">
+  <div class="lab-head">
+    <h3>記録して、再生する — 入力列だけで同じ動きになる(要点4〜6、完成条件の 矢印キー・X・M・N)</h3>
+    <span class="tag">reference/Day20 の Program.cs(UpdatePlayer・FixedUpdate の入力の出どころ・ToggleRecording・StartReplay・FinishReplay・PlayerChecksum・RecorderLabel)と、入力の4つのクラスを JS に移したもの。図を選んでから矢印キーと X で星を動かす(画面のボタンでもよい)。M で記録、もう一度 M で停止、N で再生。図の外を押してフォーカスが外れると、押しっぱなしを Clear する(要点6)。点線の輪は記録を始めた位置。上の行はタイトルバーと同じ書式で、fps などはこのページの値。「台本で記録する」は、このページの擬似的な操作列(7 ステップごとに 8 方向を右から時計回りに回し、23 ステップごとに X を叩く)で 300 ステップを一気に記録するもの。台本と同じ手順(記録の前に 40 ステップ動かし、記録後に 90 ステップ動かし、← を押したまま N)を reference のコードを直接回した C# で走らせると、ハッシュ・座標・速度が一致した。背景の 1000 枚のスプライトと描画まわりのキーはこのページには無い</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="rp-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="rp-canvas" tabindex="0" style="width:100%;aspect-ratio:3/2;height:auto;max-height:460px;outline-offset:-3px" aria-label="黄色い星を矢印キーとXで動かす。Mで記録、Nで再生"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">動かす(押しっぱなしで効く)</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="rp-pad"><button class="btn" data-key="Left" style="touch-action:none">←</button><button class="btn" data-key="Up" style="touch-action:none">↑</button><button class="btn" data-key="Down" style="touch-action:none">↓</button><button class="btn" data-key="Right" style="touch-action:none">→</button><button class="btn primary" data-key="X" style="touch-action:none">X ダッシュ</button></div>
+    </div>
+    <div class="ctl"><span class="label">記録と再生</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="rp-m">M 記録 / 停止</button><button class="btn" id="rp-n">N 再生</button><button class="btn" id="rp-script">台本で記録する(300 ステップ)</button></div>
+    </div>
+    <div class="ctl"><span class="label">シミュレーション(1 / 2 / 3 / 4)と補間(I)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="rp-rate"><button data-v="120" aria-pressed="false">120Hz</button><button data-v="60" aria-pressed="true">60Hz</button><button data-v="20" aria-pressed="false">20Hz</button><button data-v="5" aria-pressed="false">5Hz</button></div><div class="seg" id="rp-interp"><button data-v="1" aria-pressed="true">補間 ON</button><button data-v="0" aria-pressed="false">OFF</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="rp-stats"></div><pre id="rp-console" style="margin:10px 0 0;max-height:240px;overflow:auto;white-space:pre-wrap;font-size:12.5px"></pre></div>
+</figure></div>
+<h3 id="s9">6. フォーカスを失うと KeyUp が来ない</h3>
+<p>押しっぱなしのまま Alt+Tab で別のウィンドウへ移ると、<code>KeyUp</code> が届かない。戻ってきたときに<strong>ずっと右へ走り続ける</strong>のはこれが原因。</p>
+<p>対策は「フォーカスを失ったら押しっぱなしを全部解除する」。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>_window.FocusChanged += focused =&gt; { if (!focused) _inputSystem.Clear(); };</code></pre></div>
+<p>同じ <code>Clear()</code> をリプレイの開始時にも呼んでいる。そうしないと、<code>N</code> を押した瞬間に押していたキーが再生に混ざる。</p>
+<h3 id="s10">7. デバッグキーとゲームキーは分けたほうがよい</h3>
+<p>今日、矢印キーをプレイヤーに使うために、スプライト数の増減を<code>Up</code>/<code>Down</code> から <code>PageUp</code>/<code>PageDown</code> へ移した。WASD も使いたいところだが、<code>W</code>(ワイヤーフレーム)・<code>A</code>(アトラス)・<code>S</code>(ソート)がデバッグ用に埋まっていて割り当てられない。</p>
+<p>これは<strong>実際によく起きる問題</strong>で、本来はデバッグ用の入力を別のマップに分け、「デバッグモードのときだけ有効」にするのが筋。今日はそこまでやらないが、<code>InputMap</code> を複数持てる形にはなっている(改造課題1で扱う)。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<h3 id="s12">新規ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>行数</th><th>実コード</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td><code>InputSystem.cs</code></td><td>193</td><td>109</td><td>デバイスのイベントを受け、ステップ境界でスナップショットに畳む</td></tr>
+<tr><td><code>InputSnapshot.cs</code></td><td>112</td><td>40</td><td>1ステップぶんの入力。<code>Held</code> / <code>Pressed</code> / <code>Released</code> / <code>MoveAxis</code></td></tr>
+<tr><td><code>InputRecorder.cs</code></td><td>107</td><td>57</td><td>記録と再生</td></tr>
+<tr><td><code>InputMap.cs</code></td><td>92</td><td>40</td><td><code>GameAction</code> の定義と、キーとの対応表</td></tr>
+</tbody>
+</table></div>
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>差分</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>Program.cs</code></td><td>+295 / -14</td><td>プレイヤー(矢印キーで動く1枚)、入力の組み込み、M/N キー、記録・再生の検証</td></tr>
+</tbody>
+</table></div>
+<p><code>GameLoop.cs</code> を含む Day 19 までのクラスは<strong>すべて無変更</strong>。入力システムがゲームループの外側に素直に載ることの確認になっている。実コード行数は 444 行。</p>
+<h3 id="s14">キーの変更</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>キー</th><th>Day 19 まで</th><th>Day 20</th></tr></thead>
+<tbody>
+<tr><td>矢印キー</td><td>スプライト数(上下のみ)</td><td><strong>プレイヤーの移動</strong></td></tr>
+<tr><td><code>PageUp</code> / <code>PageDown</code></td><td>—</td><td>スプライト数 ±1000</td></tr>
+<tr><td><code>X</code></td><td>—</td><td>ダッシュ(押した瞬間)</td></tr>
+<tr><td><code>M</code> / <code>N</code></td><td>—</td><td>入力の記録 / 再生</td></tr>
+</tbody>
+</table></div>
+<h3 id="s15">写経する順番</h3>
+<ol><li><strong><code>InputMap.cs</code></strong> — <code>GameAction</code> の列挙と対応表。実コード 40 行</li><li><strong><code>InputSnapshot.cs</code></strong> — 値の器。<code>MoveAxis</code> の正規化と NaN 対策だけ注意</li><li><strong><code>InputSystem.cs</code></strong> — 今日の心臓部。<code>BeginStep()</code> の畳み方(要点2・3)</li><li><strong><code>InputRecorder.cs</code></strong> — 溜めて順に返すだけ。短い</li><li><strong><code>Program.cs</code> の <code>UpdatePlayer</code></strong> — 入力を<strong>引数で受け取る</strong>形になっていることを確認</li><li><strong><code>Program.cs</code> の <code>FixedUpdate</code></strong> — 再生中と通常時で入力の出どころを切り替える分岐</li><li><strong>記録・再生まわり</strong>(<code>ToggleRecording</code> / <code>StartReplay</code> / <code>FinishReplay</code>)</li></ol>
+</section>
+<section class="part"><h2 id="s16">完成条件</h2>
+<p><code>dotnet run --project reference/Day20 -c Release</code> で確認する。</p>
+<h3 id="s17">プレイヤーの操作</h3>
+<ul><li><strong>矢印キー</strong>で黄色い星が動く。斜めに入れても速くならない</li><li><strong><code>X</code></strong> でダッシュ。押しっぱなしにしても<strong>連続では発動しない</strong> (オートリピートが弾かれている)。クールダウン中は星がオレンジになる</li><li>画面の端で跳ね返る</li></ul>
+<h3 id="s18">記録と再生(今日の見せ場)</h3>
+<ol><li><strong><code>M</code></strong> を押す → コンソールに <code>[記録開始]</code></li><li>矢印キーと <code>X</code> で 5〜10 秒ほど動かす。タイトルバーの <code>記録中 N</code> が増えていく</li><li><strong><code>M</code></strong> をもう一度 → <code>[記録停止] N ステップ ... 終了時ハッシュ XXXX</code></li><li>さらに適当に動かして、プレイヤーを別の場所へ持っていく</li><li><strong><code>N</code></strong> を押す → プレイヤーが記録開始時の位置へ飛び、<strong>同じ動きをなぞる</strong></li><li>再生が終わると <code>[再生終了] ハッシュ ... 一致</code> と出る</li></ol>
+<p><strong>4 が大事</strong>。再生前にプレイヤーがどこにいても、記録時と同じ結果になる。記録しているのは座標ではなく<strong>入力だけ</strong>で、初期状態は巻き戻されている。</p>
+<h3 id="s19">固定レートを変えても入力が効くこと</h3>
+<ol><li><strong><code>4</code></strong> でシミュレーションを 5Hz に落とす</li><li>矢印キーで動かす。<strong>動きは 5Hz のままだが、補間で滑らかに見える</strong>(Day 19 要点3)</li><li><code>X</code> を素早く連打する。5Hz でも<strong>押した瞬間が取りこぼされない</strong>(要点3)</li><li><strong><code>2</code></strong> で 60Hz に戻す</li></ol>
+<p>5Hz のときに <code>N</code> で再生すると「ステップ間隔を記録時の 60Hz に戻します」と出る。入力列が同じでも 1 ステップの重みが違えば別の結果になるため(要点5)。</p>
+<h3 id="s20">タイトルバーの読み方</h3>
+<div class="code"><pre><code>Day20 - 入力システム  3943.9 fps | sim 60Hz step:0 α:0.19 遅れ:3.2ms 捨て:0.00s |
+補間:ON 負荷:0us 破棄:ON | 記録なし | スプライト:1000 DC:1</code></pre></div>
+<p><code>記録なし</code> の位置が <code>記録中 120</code> / <code>再生中 45/300</code> / <code>記録 300</code> と変わる。</p>
+<p>Day 16〜19 のキー(1/2/3/4・I・L・K・Y・A/S/B/O/G・Z/C/P/W/F/R/V/Space/Home/F5/Esc)もそのまま使える。</p>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td>矢印キー</td><td>「記録して、再生する」の図を選んでから矢印キー(画面のボタンでもよい)</td><td>斜めに入れても速くならない(MoveAxis の長さは 1)。画面の端で跳ね返る</td></tr>
+<tr><td><code>X</code></td><td>同じ図の X と「入力を1ステップに畳む」の X</td><td>押しっぱなしでも連続では発動しない。クールダウン中は星がオレンジ。「弾かない」にするとオートリピートのたびに Pressed が立つ</td></tr>
+<tr><td><code>M</code> / <code>N</code></td><td>「記録して、再生する」の M・N(図を選んでいればキーでも)と「台本で記録する」</td><td>N を押すと記録開始の位置へ飛び、同じ動きをなぞる。終わると「一致」</td></tr>
+<tr><td><code>1</code> / <code>2</code> / <code>3</code> / <code>4</code>、<code>I</code></td><td>同じ実験台のシミュレーションと補間。「入力を1ステップに畳む」にもレートがある</td><td>5Hz でも X の素早いタップを取りこぼさない。5Hz で N を押すと 60Hz に戻す</td></tr>
+<tr><td>(Alt+Tab)</td><td>図の外を押してフォーカスを外す</td><td>押しっぱなしが Clear される(要点6)</td></tr>
+<tr><td>(キーなし)</td><td>「入力を1ステップに畳む」の「reference の書き方を外す」と「不変条件(15 項目)」</td><td>reference に無い比較。外すと不変条件のどれが落ちるかが分かる</td></tr>
+<tr><td><code>PageUp</code> / <code>PageDown</code>、<code>L</code> / <code>K</code> / <code>Y</code>、<code>A</code> / <code>S</code> / <code>B</code> / <code>O</code> / <code>G</code> / <code>Z</code> / <code>C</code> / <code>P</code> / <code>W</code> / <code>F</code> / <code>R</code> / <code>V</code> / <code>Space</code> / <code>Home</code> / <code>F5</code> / <code>Esc</code></td><td>このページには無い</td><td>スプライト数・負荷・決定性チェックは Day 19 のページ、描画まわりは Day 16〜18</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day20 の InputMap.cs・InputSnapshot.cs・InputSystem.cs・InputRecorder.cs(docs/site/enginecore.js)と、Program.cs の UpdatePlayer・FixedUpdate の入力まわり・ToggleRecording・StartReplay・FinishReplay・PlayerChecksum を JS に移したもの。reference のファイルをそのままコンパイルし、窓・キーボード・マウスだけを差し替えて Program の関数を直接呼ぶ C# の小さなプログラムと、不変条件 15 項目の出力と、台本どおりの記録・再生(60Hz のまま再生する場合と、5Hz に変えてから N を押す場合)のハッシュ・座標・速度が一致した。本文の記録・再生の実測(ハッシュ D35E4CB90A9CF6C8)は操作列の細部が書かれていないので、このページの台本とは別のもの。</p></div>
+<h3 id="s21">ビルド</h3>
+<ul><li><code>dotnet build reference/Day20</code> が警告 0 で通る</li><li><code>dotnet format whitespace reference/Day20/Day20.csproj --verify-no-changes</code> の差分が 0</li></ul>
+</section>
+<section class="part"><h2 id="s22">改造課題</h2>
+<h3 id="s23">課題1(易): 入力の分離を進める</h3>
+<p>要点7の「デバッグキーとゲームキーが衝突する」を実際に直す。</p>
+<ol><li><code>InputMap</code> をもう1つ作り、デバッグ用のアクション(<code>ToggleWireframe</code>、<code>ToggleAtlas</code> など)を定義する</li><li><code>InputSystem</code> を2つ持ち、<code>F1</code> でデバッグ用の有効/無効を切り替える。<strong>無効のときは W / A / S がゲーム側に流れる</strong>ようにする</li><li>WASD をプレイヤーの移動に割り当て、矢印キーと併用できることを確認する</li><li><code>InputMap.Resolve</code> の線形探索を <code>Dictionary</code> に置き換えて、1万件の割り当てで速度を比べる。<strong>そもそも何件で意味が出るか</strong> (ヒント: 実際に引かれるのは1フレームに数回。Day 17 の「ドローコールを数える」と同じで、まず回数を数える)</li></ol>
+<h3 id="s24">課題2(中): 記録をファイルに保存する</h3>
+<p>要点5の「入力列だけあれば再現できる」を、プロセスをまたいで確かめる。</p>
+<ol><li><code>InputSnapshot</code> をバイナリで書き出す。<code>Held</code> / <code>Pressed</code> / <code>Released</code> は <code>uint</code> 3個、マウスは省略してよい</li><li>ヘッダに前提条件を入れる。最低限 <code>FixedDeltaTime</code> と初期状態、できればフォーマットのバージョン番号</li><li>起動時にファイルを読んで自動再生するモードを付ける(コマンドライン引数か、環境変数で)</li><li><strong>わざと壊す</strong>。ヘッダの <code>FixedDeltaTime</code> を書き換えて再生し、ハッシュが合わなくなることを確認する</li><li>圧縮を試す。<strong>同じ入力が続く区間</strong>が多いので、ランレングス符号化(何ステップ同じか)がよく効くはず。1分間の記録が何バイトになるか</li></ol>
+<h3 id="s25">課題3(難): 入力遅延と先行入力(バッファリング)</h3>
+<p>「押したのに反応しない」の正体を掘る。<strong>ゲームの手触りに直結する話</strong>。</p>
+<ol><li>今の実装で、キーを押してから画面に出るまでの遅延を数える。最悪ケースは何ステップぶんか(ヒント: 入力 → 次のステップ境界 → シミュレーション → 描画 → 表示。VSync も入る)</li><li><strong>先行入力(input buffering)</strong> を入れる。<code>Pressed</code> を1ステップで捨てず、数ステップ保持しておき、「まだ着地していないがジャンプを押した」を拾えるようにする。何ステップ保持するのが妥当か</li><li>保持すると副作用が出る。<strong>古い入力が意図せず発動する</strong>ことがあるので、消費したら明示的に捨てる仕組みが要る</li><li>逆方向の実験: <code>InputSystem.BeginStep</code> をステップの<strong>後</strong>に呼ぶように変えて、遅延が1ステップ増えることを確認する。16.7ms の差が体感できるか</li><li>発展: 記録・再生で遅延を測る。同じ入力列を「先行入力あり/なし」で再生して、結果が変わることを確認する</li></ol>
+<p>2 は格闘ゲームやアクションゲームで必ず入っている仕組みで、<strong>入力を1ステップで捨てる素朴な実装は、実は手触りが悪い</strong>。「正しく実装する」と「気持ちよく遊べる」が別物である例として押さえておく。</p>
+</section>
+<section class="part"><h2 id="s26">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11 / NVIDIA GeForce RTX 3070(ドライバ 596.49)</li><li>Silk.NET 2.23.0 / OpenGL 3.3 コアプロファイル / 960x640 / Release ビルド</li></ul>
+<h3 id="s27"><code>InputSystem</code> の不変条件(偽の <code>IKeyboard</code> / <code>IMouse</code> で駆動)</h3>
+<p><code>IKeyboard</code> と <code>IMouse</code> はインターフェースなので、実装を差し替えればウィンドウを開かずに検証できる。22 項目すべて合格。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>検証</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>オートリピート: <code>KeyDown</code> を6回送っても <code>Pressed</code> は1回</td><td>OK</td></tr>
+<tr><td>オートリピート中も <code>Held</code> は立つ</td><td>OK</td></tr>
+<tr><td>ステップ内でのタップ: <code>Pressed</code>・<code>Released</code>・<code>Held</code> が同時に立つ</td><td>OK</td></tr>
+<tr><td>タップの次のステップでは3つとも消える</td><td>OK</td></tr>
+<tr><td>押しっぱなしで8ステップ回しても <code>Pressed</code> は1回</td><td>OK</td></tr>
+<tr><td>押しっぱなしの間 <code>Held</code> は5ステップとも立つ</td><td>OK</td></tr>
+<tr><td>離したステップで <code>Released</code> が立ち、次から <code>Held</code> が消える</td><td>OK</td></tr>
+<tr><td>マウス移動 +10, +10, -5 の合計が +15</td><td>OK</td></tr>
+<tr><td>ホイール 1.0 + 2.0 の合計が 3.0</td><td>OK</td></tr>
+<tr><td><code>Clear()</code> で押しっぱなしが消える</td><td>OK</td></tr>
+<tr><td>記録した8ステップが順序も内容も完全に一致して再生される</td><td>OK</td></tr>
+<tr><td>記録した入力の <code>Dash</code> の <code>Pressed</code> は1ステップだけ</td><td>OK</td></tr>
+<tr><td>無入力の <code>MoveAxis</code> が <code>Zero</code>(NaN にならない)</td><td>OK</td></tr>
+<tr><td>斜め入力の <code>MoveAxis</code> の長さが 1.00000</td><td>OK</td></tr>
+<tr><td>左右同時押しで X 成分が 0 になる</td><td>OK</td></tr>
+</tbody>
+</table></div>
+<h3 id="s28">記録・再生(<code>reference/Day20</code> のコードをそのまま使用)</h3>
+<p>擬似的な操作列(7ステップごとに方向転換、23ステップごとにダッシュ)を300 ステップぶん記録し、プレイヤーを別の場所へ動かしてから再生した。</p>
+<div class="code"><pre><code>[記録停止] 300 ステップ (5.00 秒ぶん) / 終了時ハッシュ D35E4CB90A9CF6C8
+  記録終了時点の座標: &lt;50.516518, 130.90172&gt; 速度: &lt;15.81633, -288.16577&gt;
+[再生開始] 300 ステップ
+  再生終了時点の座標: &lt;50.516518, 130.90172&gt; 速度: &lt;15.81633, -288.16577&gt;
+[再生終了] ハッシュ D35E4CB90A9CF6C8 / 記録時 D35E4CB90A9CF6C8  一致</code></pre></div>
+<p>座標・速度・ハッシュのすべてがビット単位で一致した。</p>
+<h3 id="s29">検証の途中で直したこと</h3>
+<p><code>InputSnapshot.MouseDelta</code> のコメントに「差分で取ると途中の往復が消える」と書いていたが、<strong>これは誤り</strong>だった。絶対座標だけを見ている限り、イベントごとの差分の合計は「今の位置 − 前のステップの位置」と必ず一致する(途中が打ち消し合う)。検証で往復させたときに合計がゼロになって気付いた。</p>
+<p>合計の形で持つ本当の理由は、カーソルを画面中央へ戻すマウスルックを入れたときに<strong>戻した瞬間の座標の飛びを除外できる</strong>こと。コメントを書き直してある。</p>
+<ul><li><code>dotnet build</code> 警告 0 / <code>dotnet format whitespace --verify-no-changes</code> 差分 0</li></ul>
+</section>
+<footer class="end">Day 20 入力システム(ポーリング+イベント) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/dotnet.js"></script>
+<script src="../site/enginecore.js"></script>
+<script>
+// ---------------- reference/Day20 の Program.cs(UpdatePlayer・PlayerChecksum・FixedUpdate の入力の出どころ・記録と再生)を移したもの ----------------
+// float の計算は1回ごとに Math.fround で丸める。InputSystem などは docs/site/enginecore.js
+const PLAYER20 = (() => {
+const f = Math.fround;
+const Core = typeof window !== 'undefined' && window.Core ? window.Core : require('C:/var/honya-game-engine/docs/site/enginecore.js');
+const { GameAction } = Core;
+const DN = typeof window !== 'undefined' && window.DotNet ? window.DotNet : require('C:/var/honya-game-engine/docs/site/dotnet.js');
+const F = DN.fmtFixed, vec = (v) => `<${DN.fmtFloat(v[0])}, ${DN.fmtFloat(v[1])}>`;
+const opt = { divByMul: false };
+
+const newPlayer = (w = 960, h = 640) => ({ pos: [f(w * f(0.5)), f(h * f(0.5))], prev: [f(w * f(0.5)), f(h * f(0.5))], vel: [0, 0], rot: 0, prevRot: 0, cooldown: 0 });
+const len = (v) => f(Math.sqrt(f(f(v[0] * v[0]) + f(v[1] * v[1]))));
+
+// Program.UpdatePlayer
+function updatePlayer(p, dt, input, width = 960, height = 640) {
+  const acceleration = f(2600), maxSpeed = f(480), friction = f(6), dashSpeed = f(1200), dashInterval = f(0.45);
+  p.prev = [...p.pos]; p.prevRot = p.rot;
+  const axis = input.moveAxis;
+  p.vel = [f(p.vel[0] + f(f(axis[0] * acceleration) * dt)), f(p.vel[1] + f(f(axis[1] * acceleration) * dt))];
+  // ダッシュは押した瞬間だけ
+  p.cooldown = Math.max(0, f(p.cooldown - dt));
+  if (input.wasPressed(GameAction.Dash) && p.cooldown <= 0) {
+    let dir;
+    if (axis[0] !== 0 || axis[1] !== 0) dir = axis;
+    else if (p.vel[0] !== 0 || p.vel[1] !== 0) { const l = len(p.vel); dir = [f(p.vel[0] / l), f(p.vel[1] / l)]; }
+    else dir = [1, 0];
+    p.vel = [f(p.vel[0] + f(dir[0] * dashSpeed)), f(p.vel[1] + f(dir[1] * dashSpeed))];
+    p.cooldown = dashInterval;
+  }
+  // 摩擦(指数減衰の1次近似)
+  const k = Math.max(0, f(1 - f(friction * dt)));
+  p.vel = [f(p.vel[0] * k), f(p.vel[1] * k)];
+  const speed = len(p.vel);
+  if (speed > maxSpeed && p.cooldown <= 0) {
+    if (opt.divByMul) { const inv = f(1 / speed); p.vel = [f(f(p.vel[0] * inv) * maxSpeed), f(f(p.vel[1] * inv) * maxSpeed)]; }
+    else p.vel = [f(f(p.vel[0] / speed) * maxSpeed), f(f(p.vel[1] / speed) * maxSpeed)];
+  }
+  p.pos = [f(p.pos[0] + f(p.vel[0] * dt)), f(p.pos[1] + f(p.vel[1] * dt))];
+  // 向きではなく速さで回す
+  p.rot = f(p.rot + f(f(speed * dt) * f(0.012)));
+  const half = f(34), wf = f(width), hf = f(height);
+  if (p.pos[0] < half) { p.pos[0] = half; p.vel[0] = f(Math.abs(p.vel[0]) * f(0.4)); }
+  else if (p.pos[0] > f(wf - half)) { p.pos[0] = f(wf - half); p.vel[0] = f(-f(Math.abs(p.vel[0]) * f(0.4))); }
+  if (p.pos[1] < half) { p.pos[1] = half; p.vel[1] = f(Math.abs(p.vel[1]) * f(0.4)); }
+  else if (p.pos[1] > f(hf - half)) { p.pos[1] = f(hf - half); p.vel[1] = f(-f(Math.abs(p.vel[1]) * f(0.4))); }
+}
+
+const playerChecksum = (p) => Core.fnv1aFloats([p.pos[0], p.pos[1], p.vel[0], p.vel[1], p.rot]);
+
+// Program の入力まわり(FixedUpdate の入力の出どころ、ToggleRecording・StartReplay・FinishReplay、RecorderLabel)
+class Demo {
+  constructor(log = () => {}) {
+    this.log = log;
+    this.loop = new Core.GameLoop(1.0 / 60.0);
+    this.inputSystem = new Core.InputSystem(Core.InputMap.createDefault());
+    this.recorder = new Core.InputRecorder();
+    this.player = newPlayer();
+    this.recordStart = null; this.recordEndHash = 0n;
+    this.lastInput = Core.InputSnapshot.empty;
+  }
+  fixedUpdate(dt) {
+    let input;
+    if (this.recorder.mode === 'Replaying') {
+      input = this.recorder.tryReplay();
+      if (input) this.inputSystem.setCurrent(input);
+      else { this.finishReplay(); input = this.inputSystem.beginStep(); }
+    } else {
+      input = this.inputSystem.beginStep();
+      this.recorder.record(input);
+    }
+    this.lastInput = input;
+    updatePlayer(this.player, dt, input);
+  }
+  toggleRecording() {
+    const r = this.recorder, p = this.player;
+    if (r.mode === 'Recording') {
+      r.stopRecording();
+      this.recordEndHash = playerChecksum(p);
+      this.log(`[記録停止] ${r.count} ステップ (${F(r.count * r.fixedDeltaTime, 2)} 秒ぶん) / 終了時ハッシュ ${Core.hex16(this.recordEndHash)}`);
+      return;
+    }
+    r.startRecording(this.loop.fixedDeltaTime);
+    this.recordStart = { pos: [...p.pos], vel: [...p.vel], rot: p.rot, cooldown: p.cooldown };
+    this.log(`[記録開始] ${F(1.0 / this.loop.fixedDeltaTime, 0)}Hz。矢印キーで動かして、もう一度 M で停止`);
+  }
+  startReplay() {
+    const r = this.recorder, p = this.player;
+    if (r.count === 0) { this.log('[再生] 記録がありません。先に M キーで記録してください'); return; }
+    if (Math.abs(this.loop.fixedDeltaTime - r.fixedDeltaTime) > 1e-9) {
+      this.log(`[再生] ステップ間隔を記録時の ${F(1.0 / r.fixedDeltaTime, 0)}Hz に戻します`);
+      this.loop.fixedDeltaTime = r.fixedDeltaTime; this.loop.reset();
+    }
+    const st = this.recordStart;
+    p.pos = [...st.pos]; p.vel = [...st.vel]; p.rot = st.rot; p.cooldown = st.cooldown;
+    p.prev = [...p.pos]; p.prevRot = p.rot;
+    this.inputSystem.clear();
+    r.startReplaying();
+    this.log(`[再生開始] ${r.count} ステップ`);
+  }
+  finishReplay() {
+    const hash = playerChecksum(this.player), match = hash === this.recordEndHash;
+    this.log(`[再生終了] ハッシュ ${Core.hex16(hash)} / 記録時 ${Core.hex16(this.recordEndHash)}  ${match ? '一致' : '不一致'}`);
+    this.log(match ? '  → 入力列だけで同じ結果が再現できた。これがリプレイの原理' : '  → 不一致。入力以外の要素(実時間、乱数、描画側の書き込み)が紛れ込んでいる');
+    this.recorder.stop();
+  }
+  recorderLabel() {
+    const r = this.recorder;
+    return r.mode === 'Recording' ? `記録中 ${r.count}` : r.mode === 'Replaying' ? `再生中 ${r.playHead}/${r.count}` : r.count > 0 ? `記録 ${r.count}` : '記録なし';
+  }
+}
+
+// 擬似的な操作列(このページの「台本」): 7 ステップごとに 8 方向を回し(右から時計回り)、23 ステップごとにダッシュを叩く
+const DIRS8 = [['Right'], ['Right', 'Down'], ['Down'], ['Left', 'Down'], ['Left'], ['Left', 'Up'], ['Up'], ['Right', 'Up']];
+class Script {
+  constructor(sys) { this.sys = sys; this.held = []; }
+  drive(i, phase) {
+    const want = DIRS8[(Math.floor(i / 7) + phase) % 8];
+    for (const k of this.held) if (!want.includes(k)) this.sys.keyUp(k);
+    for (const k of want) if (!this.held.includes(k)) this.sys.keyDown(k);
+    this.held = want;
+    if (i % 23 === 0) { this.sys.keyDown('X'); this.sys.keyUp('X'); }
+  }
+  releaseAll() { for (const k of this.held) this.sys.keyUp(k); this.held = []; }
+}
+
+// InputSystem の不変条件(本文の「動作確認済み環境」の表の 15 行)。偽のキーボードの代わりに keyDown / keyUp を直接呼ぶ
+function runInputCheck(options = {}) {
+  const lines = []; let fails = 0, count = 0;
+  const check = (name, ok, detail = '') => { count++; if (!ok) fails++; lines.push(`  [${ok ? 'OK' : 'NG'}] ${name}${detail ? '  ' + detail : ''}`); };
+  const sys = () => { const x = new Core.InputSystem(Core.InputMap.createDefault()); Object.assign(x.options, options); return x; };
+  const A = GameAction, nm = Core.actionNames;
+  {
+    const s = sys(); for (let i = 0; i < 6; i++) s.keyDown('X');
+    let pressed = 0, held = true;
+    for (let step = 0; step < 3; step++) { const x = s.beginStep(); if (x.wasPressed(A.Dash)) pressed++; held = held && x.isHeld(A.Dash); for (let i = 0; i < 3; i++) s.keyDown('X'); }
+    check('オートリピート: KeyDown を6回送っても Pressed は1回', pressed === 1, `${pressed} 回`);
+    check('オートリピート中も Held は立つ', held);
+  }
+  {
+    const s = sys(); s.keyDown('Left'); s.keyUp('Left');
+    const a = s.beginStep();
+    check('ステップ内でのタップ: Pressed・Released・Held が同時に立つ', a.wasPressed(A.MoveLeft) && a.wasReleased(A.MoveLeft) && a.isHeld(A.MoveLeft), `${nm(a.pressed)} / ${nm(a.released)} / ${nm(a.held)}`);
+    const b = s.beginStep();
+    check('タップの次のステップでは3つとも消える', b.pressed === 0 && b.released === 0 && b.held === 0, `${nm(b.pressed)} / ${nm(b.released)} / ${nm(b.held)}`);
+  }
+  {
+    const s = sys(); s.keyDown('Right');
+    let pressed = 0, held = 0;
+    for (let step = 0; step < 8; step++) { const x = s.beginStep(); if (x.wasPressed(A.MoveRight)) pressed++; if (step < 5 && x.isHeld(A.MoveRight)) held++; }
+    check('押しっぱなしで8ステップ回しても Pressed は1回', pressed === 1, `${pressed} 回`);
+    check('押しっぱなしの間 Held は5ステップとも立つ', held === 5, `${held} / 5`);
+    s.keyUp('Right');
+    const r = s.beginStep(), n = s.beginStep();
+    check('離したステップで Released が立ち、次から Held が消える', r.wasReleased(A.MoveRight) && !r.isHeld(A.MoveRight) && !n.isHeld(A.MoveRight) && !n.wasReleased(A.MoveRight));
+  }
+  {
+    const s = sys();
+    s.mouseMove([100, 100]); s.beginStep();
+    s.mouseMove([110, 100]); s.mouseMove([120, 100]); s.mouseMove([115, 100]);
+    s.scroll(1.0); s.scroll(2.0);
+    const x = s.beginStep();
+    check('マウス移動 +10, +10, -5 の合計が +15', x.mouseDelta[0] === 15, DN.fmtFloat(x.mouseDelta[0]));
+    check('ホイール 1.0 + 2.0 の合計が 3.0', x.scroll === 3, DN.fmtFloat(x.scroll));
+    s.keyDown('Up'); s.clear();
+    const c = s.beginStep();
+    check('Clear() で押しっぱなしが消える', c.held === 0, nm(c.held));
+  }
+  {
+    const s = sys(), rec = new Core.InputRecorder(); rec.startRecording(1.0 / 60.0);
+    const orig = [], seq = ['Left', 'Left', 'Up', 'X', 'Right', 'Right', 'Down', 'X'];
+    for (let i = 0; i < 8; i++) { s.keyDown(seq[i]); if (i % 2 === 1) s.keyUp(seq[i - 1]); const x = s.beginStep(); rec.record(x); orig.push(x); }
+    rec.stopRecording(); rec.startReplaying();
+    let same = true, dash = 0, n = 0, y;
+    while ((y = rec.tryReplay())) { same = same && y.held === orig[n].held && y.pressed === orig[n].pressed && y.released === orig[n].released; if (y.wasPressed(A.Dash)) dash++; n++; }
+    check('記録した8ステップが順序も内容も完全に一致して再生される', same && n === 8, `${n} ステップ`);
+    check('記録した入力の Dash の Pressed は1ステップだけ', dash === 1, `${dash} ステップ`);
+  }
+  {
+    const none = new Core.InputSnapshot();
+    const z = none.moveAxis;
+    check('無入力の MoveAxis が Zero(NaN にならない)', z[0] === 0 && z[1] === 0, vec(z));
+    const d = new Core.InputSnapshot(A.MoveRight | A.MoveUp).moveAxis, l = len(d);
+    check('斜め入力の MoveAxis の長さが 1.00000', Math.abs(f(l - 1)) < 1e-6, `${F(l, 5)} ${vec(d)}`);
+    const lr = new Core.InputSnapshot(A.MoveRight | A.MoveLeft).moveAxis;
+    check('左右同時押しで X 成分が 0 になる', lr[0] === 0, vec(lr));
+  }
+  lines.push(fails === 0 ? '  すべて合格' : `  ${fails} 件 不合格`);
+  lines.push(`  (項目数 ${count})`);
+  return { lines, fails, count };
+}
+
+return { opt, newPlayer, updatePlayer, playerChecksum, Demo, Script, DIRS8, vec, runInputCheck };
+})();
+
+(() => {
+'use strict';
+const { $, tok, fit, seg, setSeg, segValue, stat, animate } = Lab;
+const P = PLAYER20, C = Core, A = C.GameAction, f = Math.fround;
+const F = DotNet.fmtFixed, fl = DotNet.fmtFloat;
+const W = 960, H = 640;
+const KEYS = { ArrowLeft: 'Left', ArrowRight: 'Right', ArrowUp: 'Up', ArrowDown: 'Down', x: 'X', X: 'X' };
+
+// ------------------------------------------------------------
+// 1. 入力を1ステップに畳む
+// ------------------------------------------------------------
+const tl = {
+  sys: new C.InputSystem(C.InputMap.createDefault()), loop: new C.GameLoop(1 / 60), last: 0,
+  events: [], frames: [], steps: [], held: {}, counts: null,
+};
+const REPEAT_DELAY = 0.5, REPEAT_INTERVAL = 1 / 30;
+const now = () => performance.now() / 1000;
+function tlCounts() { tl.counts = { press: 0, keyDown: 0, pressedSteps: 0, tapsLeft: 0, heldLeftAfterTap: 0, pressLeft: 0, heldLeftSteps: 0 }; }
+tlCounts();
+// キーの物理的な押し下げ。repeat はオートリピートで届いた KeyDown
+function tlDown(key, kind = 'down') {
+  tl.sys.keyDown(key);
+  tl.events.push({ t: now(), key, kind });
+  if (key === 'X') { tl.counts.keyDown++; if (kind !== 'repeat') tl.counts.press++; }
+  if (key === 'Left' && kind !== 'repeat') tl.counts.pressLeft++;
+}
+function tlUp(key) { tl.sys.keyUp(key); tl.events.push({ t: now(), key, kind: 'up' }); }
+// ボタンを押しっぱなしにしたときの OS のオートリピートの真似
+function holdButton(btn, key) {
+  const start = (ev) => { ev.preventDefault(); if (tl.held[key]) return; tl.held[key] = { next: now() + REPEAT_DELAY }; tlDown(key); btn.setAttribute('aria-pressed', 'true'); };
+  const end = () => { if (!tl.held[key]) return; delete tl.held[key]; tlUp(key); btn.removeAttribute('aria-pressed'); };
+  btn.addEventListener('pointerdown', start); btn.addEventListener('pointerup', end); btn.addEventListener('pointerleave', end); btn.addEventListener('pointercancel', end);
+}
+holdButton($('tl-x'), 'X'); holdButton($('tl-left'), 'Left');
+$('tl-tap').addEventListener('click', () => { tlDown('X'); tlUp('X'); });
+$('tl-tapl').addEventListener('click', () => { tl.counts.tapsLeft++; tlDown('Left'); tlUp('Left'); });
+const tlCanvas = $('tl-chart');
+tlCanvas.addEventListener('keydown', (e) => { const k = KEYS[e.key]; if (k !== 'X' && k !== 'Left') return; e.preventDefault(); tlDown(k, e.repeat ? 'repeat' : 'down'); });
+tlCanvas.addEventListener('keyup', (e) => { const k = KEYS[e.key]; if (k !== 'X' && k !== 'Left') return; e.preventDefault(); tlUp(k); });
+tlCanvas.addEventListener('blur', () => tl.sys.clear());
+seg('tl-rate', (v) => { tl.loop.fixedDeltaTime = 1 / Number(v); tl.loop.reset(); });
+seg('tl-repeat', (v) => { tl.sys.options.filterRepeat = v === '1'; tlNote(); });
+seg('tl-held', (v) => { tl.sys.options.heldIncludesPressed = v === '1'; tlNote(); });
+seg('tl-consume', (v) => { tl.sys.options.consumePressed = v === '1'; if (v === '1') tl.sys.pendingPressed = 0; tlNote(); });
+$('tl-reset').addEventListener('click', () => { tlCounts(); tl.events = []; tl.steps = []; tl.frames = []; });
+$('tl-check').addEventListener('click', () => {
+  const r = P.runInputCheck({ ...tl.sys.options });
+  $('tl-console').style.display = '';
+  $('tl-console').textContent = ['[InputSystem の不変条件](今の設定で)', ...r.lines].join('\n');
+});
+function tlNote() {
+  const o = tl.sys.options, msg = [];
+  if (!o.filterRepeat) msg.push('オートリピートを弾かないので、X を押しっぱなしにすると KeyDown が届くたびに Pressed が立つ(ジャンプの連発)。');
+  if (!o.heldIncludesPressed) msg.push('Held に押した瞬間を足さないので、← をステップの間にタップすると Held が立たない(5Hz だと取りこぼしやすい)。');
+  if (!o.consumePressed) msg.push('Pressed を消費しないので、一度押すとそのあと毎ステップ Pressed が立ち続ける。');
+  $('tl-note').textContent = msg.length ? msg.join('') : 'reference の書き方。X を押しっぱなしにしても Pressed は最初の1ステップだけで、オートリピートの KeyDown(細い印)は弾かれる。ステップの間のタップは、そのステップで Pressed・Released・Held の3つが同時に立つ。';
+}
+tlNote();
+function tlFrame() {
+  const t = now();
+  const dt = tl.last ? Math.min(t - tl.last, 0.25) : 0;
+  tl.last = t;
+  for (const [key, h] of Object.entries(tl.held)) while (t >= h.next) { tlDown(key, 'repeat'); h.next += REPEAT_INTERVAL; }
+  tl.frames.push(t);
+  tl.loop.advance(dt, () => {
+    const s = tl.sys.beginStep();
+    tl.steps.push({ t, held: s.held, pressed: s.pressed, released: s.released });
+    if (s.wasPressed(A.Dash)) tl.counts.pressedSteps++;
+    if (s.isHeld(A.MoveLeft)) tl.counts.heldLeftSteps++;
+  });
+  const cut = t - 2.2;
+  for (const k of ['events', 'frames', 'steps']) { const a = tl[k]; let i = 0; while (i < a.length && (a[i].t ?? a[i]) < cut) i++; if (i) a.splice(0, i); }
+}
+function tlDraw() {
+  const { ctx, w, h } = fit(tlCanvas);
+  const t1 = now(), t0 = t1 - 2;
+  const L = 96, R = w - 8;
+  const X = (t) => L + ((t - t0) / 2) * (R - L);
+  const rows = ['X のイベント', '← のイベント', '描画フレーム', 'ステップ', 'Held X', 'Pressed X', 'Released X', 'Held ←', 'Pressed ←', 'Released ←'];
+  const rh = (h - 8) / rows.length;
+  const Y = (r) => 4 + r * rh;
+  ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+  rows.forEach((name, r) => {
+    ctx.fillStyle = tok('--muted'); ctx.fillText(name, 4, Y(r) + rh / 2);
+    ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(L, Y(r) + rh); ctx.lineTo(R, Y(r) + rh); ctx.stroke();
+  });
+  ctx.textBaseline = 'alphabetic';
+  // イベント
+  for (const e of tl.events) {
+    if (e.t < t0) continue;
+    const r = e.key === 'X' ? 0 : 1, x = X(e.t);
+    if (e.kind === 'up') { ctx.fillStyle = tok('--expl'); ctx.fillRect(x - 1.5, Y(r) + 3, 3, rh - 6); }
+    else if (e.kind === 'repeat') { ctx.fillStyle = tok('--good'); ctx.fillRect(x - 0.5, Y(r) + rh * 0.45, 1.5, rh * 0.5); }
+    else { ctx.fillStyle = tok('--good'); ctx.fillRect(x - 1.5, Y(r) + 3, 3, rh - 6); }
+  }
+  // フレーム
+  ctx.fillStyle = tok('--muted');
+  for (const t of tl.frames) if (t >= t0) ctx.fillRect(X(t), Y(2) + rh * 0.3, 1, rh * 0.4);
+  // ステップと、その InputSnapshot
+  const sw = Math.max(2, Math.min(14, (tl.loop.fixedDeltaTime / 2) * (R - L) - 2));
+  for (const s of tl.steps) {
+    if (s.t < t0) continue;
+    const x = X(s.t);
+    ctx.strokeStyle = tok('--accent'); ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.moveTo(x, Y(3) + 2); ctx.lineTo(x, Y(10) - 2); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillStyle = tok('--accent'); ctx.fillRect(x - 1.5, Y(3) + 3, 3, rh - 6);
+    const cell = (r, on, color) => { if (!on) return; ctx.fillStyle = color; ctx.fillRect(x - sw / 2, Y(r) + 4, sw, rh - 8); };
+    cell(4, s.held & A.Dash, tok('--semi')); cell(5, s.pressed & A.Dash, tok('--good')); cell(6, s.released & A.Dash, tok('--expl'));
+    cell(7, s.held & A.MoveLeft, tok('--semi')); cell(8, s.pressed & A.MoveLeft, tok('--good')); cell(9, s.released & A.MoveLeft, tok('--expl'));
+  }
+  const c = tl.counts;
+  $('tl-stats').innerHTML = stat('X を押した回数', c.press) + stat('X の KeyDown(リピート込み)', c.keyDown) + stat('Pressed(Dash)が立ったステップ', c.pressedSteps)
+    + stat('← のタップ / Held が立ったステップ', `${c.tapsLeft} / ${c.heldLeftSteps}`) + stat('ステップ(累計)', tl.loop.totalSteps);
+}
+animate($('tl-lab'), () => { tlFrame(); tlDraw(); });
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) tl.last = 0; }).observe($('tl-lab'));
+tlDraw();
+
+// ------------------------------------------------------------
+// 2. 記録して、再生する
+// ------------------------------------------------------------
+const rpLog = [];
+const log = (s) => { rpLog.push(s); if (rpLog.length > 200) rpLog.splice(0, rpLog.length - 200); $('rp-console').textContent = rpLog.join('\n'); $('rp-console').scrollTop = 1e9; };
+const rp = { demo: new P.Demo(log), interpolate: true, last: 0, first: true, fpsElapsed: 0, fpsFrames: 0, fps: 0, focused: false };
+const cv = $('rp-canvas');
+function setRate(hz) { rp.demo.loop.fixedDeltaTime = 1.0 / hz; rp.demo.loop.reset(); log(`シミュレーション: ${hz}Hz (1ステップ ${F(1000.0 / hz, 2)}ms)`); setSeg('rp-rate', hz); }
+function rpKey(e, down) {
+  const k = KEYS[e.key];
+  if (k) { e.preventDefault(); if (down) rp.demo.inputSystem.keyDown(k); else rp.demo.inputSystem.keyUp(k); return; }
+  if (!down || e.repeat) return;
+  const m = { m: () => rp.demo.toggleRecording(), n: () => rp.demo.startReplay(), 1: () => setRate(120), 2: () => setRate(60), 3: () => setRate(20), 4: () => setRate(5), i: () => { rp.interpolate = !rp.interpolate; setSeg('rp-interp', rp.interpolate ? '1' : '0'); } }[e.key.toLowerCase()];
+  if (m) { e.preventDefault(); m(); }
+}
+cv.addEventListener('keydown', (e) => rpKey(e, true));
+cv.addEventListener('keyup', (e) => rpKey(e, false));
+cv.addEventListener('focus', () => { rp.focused = true; });
+// フォーカスを失ったら押しっぱなしを解除する(要点6)
+cv.addEventListener('blur', () => { rp.focused = false; rp.demo.inputSystem.clear(); });
+for (const b of document.querySelectorAll('#rp-pad [data-key]')) {
+  const k = b.dataset.key;
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (b.dataset.down) return; b.dataset.down = '1'; rp.demo.inputSystem.keyDown(k); });
+  const up = () => { if (!b.dataset.down) return; delete b.dataset.down; rp.demo.inputSystem.keyUp(k); };
+  b.addEventListener('pointerup', up); b.addEventListener('pointerleave', up); b.addEventListener('pointercancel', up);
+}
+$('rp-m').addEventListener('click', () => rp.demo.toggleRecording());
+$('rp-n').addEventListener('click', () => rp.demo.startReplay());
+$('rp-script').addEventListener('click', () => {
+  const d = rp.demo;
+  if (d.recorder.mode === 'Replaying') d.recorder.stop();
+  if (d.recorder.mode === 'Recording') d.toggleRecording();
+  d.inputSystem.clear();
+  const sc = new P.Script(d.inputSystem), dt = f(d.loop.fixedDeltaTime);
+  log('(台本で 300 ステップを一気に記録する)');
+  d.toggleRecording();
+  for (let i = 0; i < 300; i++) { sc.drive(i, 0); d.fixedUpdate(dt); }
+  sc.releaseAll();
+  d.toggleRecording();
+  log(`  記録終了時点の座標: ${P.vec(d.player.pos)} 速度: ${P.vec(d.player.vel)}`);
+  d.player.prev = [...d.player.pos]; d.player.prevRot = d.player.rot;
+});
+seg('rp-rate', (v) => setRate(Number(v)));
+seg('rp-interp', (v) => { rp.interpolate = v === '1'; });
+function lerp(a, b, t) { return a + (b - a) * t; }
+function star(ctx, x, y, r, rot) { ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = rot - Math.PI / 2 + (k * Math.PI) / 5, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+function rpRender() {
+  const { ctx, w } = fit(cv);
+  const h = cv.clientHeight;
+  const sc = Math.min(w / W, h / H), ox = (w - W * sc) / 2, oy = (h - H * sc) / 2;
+  ctx.fillStyle = '#14171f'; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(sc, sc);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 2; ctx.strokeRect(0, 0, W, H);
+  const d = rp.demo, p = d.player, a = rp.interpolate ? d.loop.alpha : 1;
+  if (d.recordStart) {
+    ctx.setLineDash([8, 8]); ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(d.recordStart.pos[0], d.recordStart.pos[1], 40, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const x = lerp(p.prev[0], p.pos[0], a), y = lerp(p.prev[1], p.pos[1], a), rot = lerp(p.prevRot, p.rot, a);
+  ctx.fillStyle = p.cooldown > 0 ? 'rgba(255,140,77,0.95)' : 'rgb(255,242,89)';
+  star(ctx, x, y, 34, rot); ctx.fill();
+  ctx.font = 'bold 26px sans-serif';
+  const mode = d.recorder.mode;
+  if (mode === 'Recording') { ctx.fillStyle = '#ff5c5c'; ctx.fillText(`● 記録中 ${d.recorder.count}`, 20, 40); }
+  if (mode === 'Replaying') { ctx.fillStyle = '#7da7ff'; ctx.fillText(`▶ 再生中 ${d.recorder.playHead}/${d.recorder.count}`, 20, 40); }
+  if (!rp.focused) { ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = `${Math.round(Math.max(22, 13 / sc))}px sans-serif`; ctx.fillText(sc < 0.6 ? 'ここを押すとキーで操作できる' : 'ここを押すと、矢印キー・X・M・N・1〜4・I で操作できる', 20, H - 24); }
+  ctx.restore();
+}
+function rpStats() {
+  const d = rp.demo, ax = d.lastInput.moveAxis, sp = Math.hypot(d.player.vel[0], d.player.vel[1]);
+  $('rp-stats').innerHTML = stat('MoveAxis', P.vec(ax)) + stat('MoveAxis の長さ', F(Math.hypot(ax[0], ax[1]), 5)) + stat('速さ', F(sp, 1) + ' px/s')
+    + stat('ダッシュのクールダウン', F(d.player.cooldown, 2) + ' s') + stat('記録', d.recorderLabel());
+}
+animate($('rp-lab'), () => {
+  const t = performance.now();
+  let delta = rp.last ? (t - rp.last) / 1000 : 0;
+  rp.last = t;
+  if (rp.first) { rp.first = false; delta = 0; }
+  if (delta > 1) delta = 0;
+  const d = rp.demo;
+  d.loop.advance(delta, (dt) => d.fixedUpdate(dt));
+  rp.fpsFrames++; rp.fpsElapsed += delta;
+  if (rp.fpsElapsed >= 0.5) {
+    rp.fps = rp.fpsFrames / rp.fpsElapsed; rp.fpsFrames = 0; rp.fpsElapsed = 0;
+    const lp = d.loop;
+    $('rp-title').textContent = `Day20 - 入力システム  ${F(rp.fps, 1)} fps | sim ${F(1.0 / lp.fixedDeltaTime, 0)}Hz step:${lp.stepsLastFrame} α:${F(lp.alpha, 2)} 遅れ:${F(lp.lag * 1000.0, 1)}ms 捨て:${F(lp.droppedSeconds, 2)}s | `
+      + `補間:${rp.interpolate ? 'ON' : 'OFF'} 負荷:0us 破棄:ON | ${d.recorderLabel()}`;
+  }
+  rpRender(); rpStats();
+});
+if ('IntersectionObserver' in window) new IntersectionObserver((es) => { for (const e of es) if (!e.isIntersecting) rp.last = 0; }).observe($('rp-lab'));
+$('rp-title').textContent = 'Day20 - 入力システム(0.5 秒ごとに更新)';
+log('矢印キー:移動  X:ダッシュ(押した瞬間)  M:入力を記録/停止  N:再生');
+rpRender(); rpStats();
+})();
+</script>
+</body>
+</html>

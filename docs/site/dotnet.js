@@ -2,6 +2,7 @@
 //  .NET の値を JS で同じに出すための部品。window.DotNet にまとめて置く
 //  - DotNetRandom: System.Random(種あり)と同じ並びを出す。Next(n) は Math.trunc(nextDouble() * n) で同じになる
 //  - fmtFloat: C# の float.ToString()(最短の桁数、ちょうど真ん中は偶数の側へ、E 表記の閾値も同じ)
+//  - fmtFixed: C# の F 書式({x:F2} など。ちょうど真ん中は偶数の側へ: 3.625 → 3.62)
 //  計画書の実験台(Day 19〜 の乱数、Day 25〜30 の衝突判定 collision2d.js)が共有する
 // ============================================================
 (() => {
@@ -58,7 +59,19 @@ function roundEven(x, p) {
   return String((x < 0 ? -1 : 1) * Number(`${mant[0]}.${mant.slice(1)}e${e}`));
 }
 
-const DotNet = { DotNetRandom, fmtFloat };
+// ---------------- C# の F 書式(double を {x:Fd} で書いたもの) ----------------
+// toFixed はちょうど真ん中を大きい側へ丸めるが、.NET は偶数の側へ丸める
+function fmtFixed(x, d) {
+  const s = x.toFixed(d);
+  const [ip, fp] = Math.abs(x).toFixed(60).split('.');
+  if (/^50*$/.test(fp.slice(d))) {
+    const last = Number(d > 0 ? fp[d - 1] : ip[ip.length - 1]);
+    if (last % 2 === 0) return (x < 0 ? '-' : '') + (d > 0 ? `${ip}.${fp.slice(0, d)}` : ip);
+  }
+  return s;
+}
+
+const DotNet = { DotNetRandom, fmtFloat, fmtFixed };
 if (typeof window !== 'undefined') window.DotNet = DotNet;
 if (typeof module !== 'undefined') module.exports = DotNet;
 })();
