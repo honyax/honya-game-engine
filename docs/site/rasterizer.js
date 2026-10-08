@@ -6,6 +6,7 @@
 //  - Day 4: Vertex.cs と Framebuffer.Rgb(float)、バリセントリック補間する FillTriangle(PixelShader を受け取る)
 //  - Day 5: Mat4.cs(行ベクトル規約)と、float の頂点を画素の中心で判定する FillTriangle(バイアスは最小の正の数)
 //  - Day 6: Mat4.LookAt と Perspective、Camera.cs、Rasterizer.TryProjectToScreen
+//  - Day 7: DepthBuffer.cs と、深度テストつきの FillTriangle(色を計算する前に判定する)
 //
 //  - 画素の色は reference と同じ 0xAARRGGBB の整数で持つ。canvas に出すときだけ並べ替える(toCanvas)
 //  - 実験台が数えたいもの(判定した画素・塗った画素)は stats に足していく。reference には無い
@@ -195,11 +196,60 @@ function projectToScreen(p, mvp, width, height) {
   return [(c[0] * iw * 0.5 + 0.5) * width, (0.5 - c[1] * iw * 0.5) * height, c[2] * iw];
 }
 
+// ---------------- Day 7: DepthBuffer と、深度テストつきの Rasterizer ----------------
+// 頂点の pos は [画面 x, 画面 y, NDC の z](z は 0 = near、1 = far。画面上で線形なので単純補間でよい)
+class DepthBuffer {
+  constructor(w, h) { this.width = w; this.height = h; this.depth = new Float32Array(w * h); this.clear(); }
+  clear() { this.depth.fill(1); }   // 1.0 = 遠クリップ面。何も描かれていない
+}
+class Rasterizer7 {
+  constructor(target) { this.target = target; this.depthBuffer = new DepthBuffer(target.width, target.height); this.depthTest = true; this.laterWins = false; this.stats = { tested: 0, filled: 0, triangles: 0, rejected: 0 }; }
+  // TryProjectToScreen を 3 頂点に通し、1 つでも W が正でなければ捨てる
+  drawTriangle(v0, v1, v2, mvp, shader) {
+    const t = this.target, s = [v0, v1, v2].map((v) => projectToScreen(v.pos, mvp, t.width, t.height));
+    if (s.some((p) => !p)) return;
+    this.fillTriangle(vertex5(s[0], v0.color), vertex5(s[1], v1.color), vertex5(s[2], v2.color), shader);
+  }
+  fillTriangle(v0, v1, v2, shader) {
+    this.stats.triangles++;
+    const E = (a, b, px, py) => (b[0] - a[0]) * (py - a[1]) - (b[1] - a[1]) * (px - a[0]);
+    const TL = (a, b) => (a[1] === b[1] && b[0] > a[0]) || b[1] < a[1];
+    let area = E(v0.pos, v1.pos, v2.pos[0], v2.pos[1]);
+    if (area === 0) return;
+    if (area < 0) { [v1, v2] = [v2, v1]; area = -area; }
+    const t = this.target, p0 = v0.pos, p1 = v1.pos, p2 = v2.pos;
+    const minX = Math.max(Math.floor(Math.min(p0[0], p1[0], p2[0])), 0), maxX = Math.min(Math.ceil(Math.max(p0[0], p1[0], p2[0])), t.width - 1);
+    const minY = Math.max(Math.floor(Math.min(p0[1], p1[1], p2[1])), 0), maxY = Math.min(Math.ceil(Math.max(p0[1], p1[1], p2[1])), t.height - 1);
+    const B = Number.MIN_VALUE, b0 = TL(p1, p2) ? 0 : -B, b1 = TL(p2, p0) ? 0 : -B, b2 = TL(p0, p1) ? 0 : -B;
+    const inv = 1 / area, px = t.pixels, w = t.width, depth = this.depthBuffer.depth, c0 = v0.color, c1 = v1.color, c2 = v2.color;
+    for (let y = minY; y <= maxY; y++) {
+      const py = y + 0.5;
+      for (let x = minX; x <= maxX; x++) {
+        this.stats.tested++;
+        const qx = x + 0.5, w0 = E(p1, p2, qx, py), w1 = E(p2, p0, qx, py), w2 = E(p0, p1, qx, py);
+        if (w0 + b0 < 0 || w1 + b1 < 0 || w2 + b2 < 0) continue;
+        const l0 = w0 * inv, l1 = w1 * inv, l2 = w2 * inv, i = y * w + x;
+        // 深度テストは色を計算する前に。等しければ先に描いたほうを残す(laterWins はこのページだけ: > で捨てる = 後勝ち)
+        // 深度だけは reference と同じく float で計算する(同一平面の 2 枚が丸めでばらつく = Zファイティングが出る)
+        const F = Math.fround, z = F(F(F(F(p0[2]) * F(l0)) + F(F(p1[2]) * F(l1))) + F(F(p2[2]) * F(l2)));
+        if (this.depthTest) {
+          if (this.laterWins ? z > depth[i] : z >= depth[i]) { this.stats.rejected++; continue; }
+          depth[i] = z;
+        }
+        const a = [c0[0] * l0 + c1[0] * l1 + c2[0] * l2, c0[1] * l0 + c1[1] * l1 + c2[1] * l2, c0[2] * l0 + c1[2] * l1 + c2[2] * l2];
+        px[i] = shader ? shader(a) : rgbF(a[0], a[1], a[2]);
+        this.stats.filled++;
+      }
+    }
+  }
+  drawTriangleWireframe(a, b, c, color) { Rasterizer5.prototype.drawTriangleWireframe.call(this, a, b, c, color); }
+}
+
 // GameWindow の HueColor(Day 2〜)
 function hueColor(h01) {
   const h = (h01 - Math.floor(h01)) * 6, s = Math.trunc(h), f = h - s, up = Math.trunc(f * 255), down = Math.trunc((1 - f) * 255);
   return [rgb(255, up, 0), rgb(down, 255, 0), rgb(0, 255, up), rgb(0, down, 255), rgb(up, 0, 255), rgb(255, 0, down)][Math.min(5, s)];
 }
 
-window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen };
+window.Raster = { rgb, Framebuffer, edgeFunction, isTopLeft, Rasterizer3, hueColor, rgbF, vertex, vertexFromPacked, Rasterizer4, Mat4, vertex5, Rasterizer5, sub3, dot3, cross3, norm3, camera, viewProjection, projectToScreen, DepthBuffer, Rasterizer7 };
 })();

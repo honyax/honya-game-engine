@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 07 Zバッファ(深度テスト)</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+.doc p code, .doc li code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. アイデア: ピクセルごとに「今の勝者の深さ」を覚えておく</a></li><li class="l3"><a href="#s5">2. コードは短くなる</a></li><li class="l3"><a href="#s6">3. なぜ深度は「補間するだけ」で正しいのか</a></li><li class="l3"><a href="#s7">4. 深度テストは色を計算する前に行う</a></li><li class="l3"><a href="#s8">5. 等号を含めない(z &gt;= なら捨てる)</a></li><li class="l3"><a href="#s9">6. 深度バッファを覗く</a></li><li class="l3"><a href="#s10">7. 実測 — コストは正直に増える</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 画家のアルゴリズムを、この絵で試して壊す</a></li><li class="l3"><a href="#s16">課題2(中): Zファイティングを再現し、対策を試す</a></li><li class="l3"><a href="#s17">課題3(難): 深度バッファを 16bit 整数にする</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">Phase 1 / Day 07 / 計画書</p>
+  <h1>Zバッファ(深度テスト)</h1>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l2"><a href="#s2">事前に読む資料</a></li><li class="l2"><a href="#s3">理論の要点</a></li><li class="l3"><a href="#s4">1. アイデア: ピクセルごとに「今の勝者の深さ」を覚えておく</a></li><li class="l3"><a href="#s5">2. コードは短くなる</a></li><li class="l3"><a href="#s6">3. なぜ深度は「補間するだけ」で正しいのか</a></li><li class="l3"><a href="#s7">4. 深度テストは色を計算する前に行う</a></li><li class="l3"><a href="#s8">5. 等号を含めない(z &gt;= なら捨てる)</a></li><li class="l3"><a href="#s9">6. 深度バッファを覗く</a></li><li class="l3"><a href="#s10">7. 実測 — コストは正直に増える</a></li><li class="l2"><a href="#s11">前Dayからの差分概要</a></li><li class="l3"><a href="#s12">写経する順番</a></li><li class="l2"><a href="#s13">完成条件</a></li><li class="l2"><a href="#s14">改造課題</a></li><li class="l3"><a href="#s15">課題1(易): 画家のアルゴリズムを、この絵で試して壊す</a></li><li class="l3"><a href="#s16">課題2(中): Zファイティングを再現し、対策を試す</a></li><li class="l3"><a href="#s17">課題3(難): 深度バッファを 16bit 整数にする</a></li><li class="l2"><a href="#s18">動作確認済み環境</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Phase 1 / ロードマップ該当行: 「Zバッファ」</p>
+</section>
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p>立方体を貫通する板が、正しく前後関係を保って描かれる。<strong>描く順番を一切気にしなくてよくなる。</strong></p>
+<p>Day 6 の画家のアルゴリズムでは原理的に描けなかった絵が、配列を1枚増やすだけで描けるようになる。しかも<strong>コードは短くなる</strong>。</p>
+</section>
+<section class="part"><h2 id="s2">事前に読む資料</h2>
+<ul><li>ロードマップ上の必読資料は指定なし</li><li><a href="https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation/depth-buffer-depth-interpolation.html">Scratchapixel: The Depth Buffer</a> —深度の補間がなぜ線形にできるのかを扱っている(今日の要点3)</li><li><a href="https://ja.wikipedia.org/wiki/Z%E3%83%90%E3%83%83%E3%83%95%E3%82%A1">Wikipedia: Zバッファ</a> — 歴史的経緯の確認に</li><li>復習として Day06.md の要点4(深度の非線形性)と要点6(画家のアルゴリズムの限界)</li></ul>
+</section>
+<section class="part"><h2 id="s3">理論の要点</h2>
+<h3 id="s4">1. アイデア: ピクセルごとに「今の勝者の深さ」を覚えておく</h3>
+<p>画面と同じ解像度の float 配列をもう1枚用意し、<strong>そのピクセルに現在描かれているものの深度</strong>を記録しておく。</p>
+<p>新しいピクセルを描こうとするたびに、</p>
+<ol><li>そのピクセルの深度を求める</li><li>既に記録されている深度と比べる</li><li><strong>手前なら</strong>描いて深度を更新する。奥なら捨てる</li></ol>
+<p>これだけ。三角形単位ではなく<strong>ピクセル単位</strong>で判定するのが Day 6 との決定的な違いで、これによって Day 6 で挙げた限界がすべて消える。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Day 6 の問題</th><th>Zバッファでどうなるか</th></tr></thead>
+<tbody>
+<tr><td>交差する三角形が解けない</td><td>交差線を境に自然に切り替わる。特別な処理は不要</td></tr>
+<tr><td>前後関係が循環する配置</td><td>そもそも三角形同士を比較しないので起こり得ない</td></tr>
+<tr><td>三角形1枚に深度が1つしかない</td><td>ピクセルごとに深度を持つので問題にならない</td></tr>
+<tr><td>毎フレームのソートが重い</td><td>ソートが要らなくなる</td></tr>
+</tbody>
+</table></div>
+<p>そして描画順序が完全に自由になる。<strong>これが実用上いちばん効く。</strong>物体を追加するのに「どこに挿入するか」を考えなくてよくなり、マルチスレッドやGPUでの並列描画も可能になる。</p>
+<h3 id="s5">2. コードは短くなる</h3>
+<p>Day 6 → Day 7 の差分は、行数では増えている(実コードで +52 行。大半はシーンに足した板と深度の表示)。それでも、<strong>判定の仕組みは Day 6 より小さい</strong>。</p>
+<p>消えたもの: 三角形を溜める配列、深度の計算、ソート、二段構えの描画メソッド。増えたもの: <code>DepthBuffer</code> クラス(実質10行)、走査ループの中の6行、毎フレームのクリア1行。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>float z = v0.Position.Z * l0 + v1.Position.Z * l1 + v2.Position.Z * l2;
+
+if (depthTest)
+{
+    if (z &gt;= depth[index]) continue;   // 奥なら捨てる
+    depth[index] = z;
+}</code></pre></div>
+<p><strong>正しくなったのに簡単になった</strong>。こういう解法は滅多にないので味わっておくとよい。</p>
+<h3 id="s6">3. なぜ深度は「補間するだけ」で正しいのか</h3>
+<p>深度バッファに入れているのは、カメラからの距離ではなく <strong>NDC の Z</strong> (透視除算を済ませた後の値、0 = 近クリップ面、1 = 遠クリップ面)。</p>
+<p>これには理由がある。<strong>透視除算後の Z は、画面上で線形に変化する</strong>。つまり画面座標 x, y の1次式になっているので、Day 4 のバリセントリック補間をそのまま使えば、内部の任意のピクセルの正しい深度が求まる。</p>
+<p>一方、<strong>カメラからの距離そのものを補間すると間違う</strong>。遠近感によって「画面上で等間隔でも、実空間では等間隔でない」ためで、奥に行くほど1ピクセルが担当する実距離が伸びていく。</p>
+<p>そして<strong>色やUVなどの属性は、まさにこの「間違う」側</strong>。Day 4 から今日までずっと属性を単純補間してきたが、実は3Dでは正しくない。今は面が単色なので誤差が見えていないだけで、<strong>Day 8 でテクスチャを貼った瞬間に破綻が目に見える</strong>ようになる。その修正(透視補正補間)が Day 8 の主題になる。</p>
+<p>「Z だけは単純補間でよい」というのは、Zバッファがうまくいく理由の核心でもある。</p>
+<h3 id="s7">4. 深度テストは色を計算する前に行う</h3>
+<div class="code"><span class="lang">csharp</span><pre><code>float z = ...;
+if (z &gt;= depth[index]) continue;   // ここで捨てる
+depth[index] = z;
+
+Vec3 attribute = ...;              // 通ったピクセルだけが色を計算する
+pixels[index] = ...;</code></pre></div>
+<p>順序が大事。落ちるピクセルのために色やテクスチャを計算するのは丸損なので、<strong>判定は可能な限り早く</strong>行う。Day 9 でシェーディングが重くなるほど効いてくる。</p>
+<p>GPUもまったく同じ考えで、本来ならピクセルシェーダの後にあるはずの深度テストを条件が許すときは前倒しする(<strong>アーリーZ</strong>)。シェーダの中で深度を書き換えたり、ピクセルを捨てたりするとこの最適化が無効になって激重になる、というのはGPUプログラミングの常識になっている。</p>
+<h3 id="s8">5. 等号を含めない(z &gt;= なら捨てる)</h3>
+<p>同じ深度のピクセルが来たときは、<strong>先に描いたほうを残す</strong>。後勝ちにすると、描画順を変えただけで絵が変わってしまい、「順序を気にしなくてよい」というZバッファの利点が壊れる。</p>
+<p>とはいえ、深度がぴったり同じになる状況は本来おかしい。2つの面が同じ場所にある(同一平面)ということで、この状態では浮動小数の誤差でどちらが勝つかがピクセルごとにばらつき、<strong>ちらつく斑点</strong>(Zファイティング)になる。</p>
+<p>本Dayの制作中に実際にこれを踏んだ。2枚の板を <code>RotationZ</code> で90度回して「直交させたつもり」だったが、<code>RotationZ</code> は板を<strong>自分の平面の中で</strong>回すだけなので、2枚が同一平面に重なってしまい、画面が斑点だらけになった。<code>RotationY</code> に直して解決している(コード中にコメントを残した)。</p>
+<p>現実の対処法は、</p>
+<ul><li>そもそも同一平面に2つの面を置かない(地面と地面のデカールなど)</li><li>深度に微小なオフセットを足す(<strong>ポリゴンオフセット</strong>)</li><li>near を大きくして深度の精度を稼ぐ(Day 6 の要点4)</li></ul>
+<div class="inject"><figure class="lab" id="zb-lab">
+  <div class="lab-head">
+    <h3>深度テストを拡大して見る — 交差する2枚と、同一平面の2枚(要点1・4・5)</h3>
+    <span class="tag">reference の Rasterizer.FillTriangle の深度テスト(z を補間して、z &gt;= 深度なら捨てる。通ったら書き込んでから色を計算)を JS に移し(docs/site/rasterizer.js)、40x26 の小さなフレームバッファに2枚の三角形を描いて拡大したもの。左が色、右が深度バッファ(白いほど手前)。「同一平面」の2枚は同じ平面の上に頂点の違う三角形を置いたもので、補間の丸めで深度がわずかに食い違う。描く順と「&gt; で捨てる(後勝ち)」はこのページだけの切り替え</span>
+  </div>
+  <div class="stage" style="padding:12px">
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px" id="zb-grid">
+      <canvas id="zb-color" style="width:100%;aspect-ratio:40/26;height:auto;image-rendering:pixelated" aria-label="2枚の三角形の色"></canvas>
+      <canvas id="zb-depth" style="width:100%;aspect-ratio:40/26;height:auto;image-rendering:pixelated" aria-label="深度バッファ"></canvas>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">例と描く順</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="zb-scene"><button data-v="cross" aria-pressed="true">交差する2枚</button><button data-v="flat" aria-pressed="false">同一平面の2枚</button></div><div class="seg" id="zb-order"><button data-v="ab" aria-pressed="true">黄 → 青</button><button data-v="ba" aria-pressed="false">青 → 黄</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">深度テスト(Z)と等号の扱い</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="zb-test"><button data-v="1" aria-pressed="true">深度テスト ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="zb-eq"><button data-v="ge" aria-pressed="true">z &gt;= で捨てる(reference)</button><button data-v="gt" aria-pressed="false">z &gt; で捨てる(後勝ち)</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="zb-stats"></div></div>
+</figure></div>
+<h3 id="s9">6. 深度バッファを覗く</h3>
+<p>D キーで深度バッファの中身を白黒表示できる。手前が白、奥が黒。</p>
+<p>そのまま NDC の Z を明るさにすると<strong>ほぼ真っ白</strong>になって何も見えない。Day 6 の要点4で見たとおり深度値が手前に極端に偏っているためで、near=0.1 / far=100 では距離5の点でも深度は 0.99 を超えている。</p>
+<p>そこで<strong>カメラからの距離に逆算してから</strong>表示している。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// 投影行列は ndcZ = far/(far-near) * (1 - near/distance) を作っていたので、
+// これを distance について解く
+float distance = near / (1.0f - ndcZ * (far - near) / far);</code></pre></div>
+<p>この式は「深度値がどう作られたか」を理解していないと書けないので、Day 6 の復習にちょうどよい。</p>
+<p>深度バッファの可視化はデバッグの基本技でもある。絵がおかしいときに「形は合っているのか」「深度が壊れているのか」を切り分けられる。</p>
+<div class="inject"><figure class="lab" id="sc7-lab">
+  <div class="lab-head">
+    <h3>板と立方体のシーン — Zバッファで交差を描く(要点1・6、Z・D・W キー)</h3>
+    <span class="tag">reference の GameWindow.cs(Render の板2枚と立方体4個、DrawCube、DrawQuad、VisualizeDepth の距離への逆算)を JS に移して 640x480 に描いたもの(docs/site/rasterizer.js)。1 フレーム 52 枚。render と、深度テストで捨てた画素の数はこのページの値。「描く順を逆にする」と「深度をそのまま表示(逆算しない)」はこのページだけ</span>
+  </div>
+  <div class="readout" style="padding-bottom:0"><pre id="sc7-title" style="margin:0;white-space:pre-wrap;font-size:12.5px"></pre></div>
+  <div class="stage"><canvas id="sc7-canvas" style="width:100%;aspect-ratio:4/3;height:auto;max-height:420px" aria-label="黄色と水色の板が直交して中央の立方体を貫き、まわりを小さな立方体が回る"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">深度テスト(Z)、深度の表示(D)、ワイヤー(W)</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc7-test"><button data-v="1" aria-pressed="true">深度テスト ON</button><button data-v="0" aria-pressed="false">OFF</button></div><div class="seg" id="sc7-view"><button data-v="color" aria-pressed="true">色</button><button data-v="depth" aria-pressed="false">深度(距離に逆算)</button><button data-v="raw" aria-pressed="false">深度をそのまま</button></div><div class="seg" id="sc7-wire"><button data-v="0" aria-pressed="true">塗りだけ</button><button data-v="1" aria-pressed="false">ワイヤー</button></div></div>
+    </div>
+    <div class="ctl"><span class="label">描く順(このページだけ)と動き</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg" id="sc7-order"><button data-v="fwd" aria-pressed="true">reference の順</button><button data-v="rev" aria-pressed="false">逆にする</button></div><div class="seg" id="sc7-play"><button data-v="1" aria-pressed="true">動かす</button><button data-v="0" aria-pressed="false">止める</button></div></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="sc7-stats"></div></div>
+</figure></div>
+<h3 id="s10">7. 実測 — コストは正直に増える</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Day</th><th>内容</th><th>三角形</th><th>render</th></tr></thead>
+<tbody>
+<tr><td>6</td><td>画家のアルゴリズム</td><td>48</td><td>1.9〜2.0 ms</td></tr>
+<tr><td>7</td><td>Zバッファ</td><td>52</td><td><strong>4.1〜4.6 ms</strong></td></tr>
+</tbody>
+</table></div>
+<p>増えた理由は2つあり、片方は本質的ではない。</p>
+<ul><li><strong>本質的</strong>: ピクセルごとに深度の補間・比較・書き込みが増えた</li><li><strong>本質的でない</strong>: 今日のシーンは大きな板2枚を追加したので、塗るピクセル数そのものが Day 6 より大幅に多い</li></ul>
+<p>Zバッファには「奥のピクセルはシェーディングを省ける」という節約効果もあるが、今日はシェーディングが単なる色のコピーなので恩恵がほぼない。<strong>Day 9 で光の計算が乗ると、この節約が効き始める</strong>。</p>
+<p>なおメモリは 640x480 x float = 1.2MB 増える。1970年代にはこれが現実的でなかったので画家のアルゴリズムが使われていた。<strong>メモリが安くなったからZバッファが標準になった</strong>、という側面がある。</p>
+</section>
+<section class="part"><h2 id="s11">前Dayからの差分概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>ファイル</th><th>変更</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td><code>DepthBuffer.cs</code></td><td><strong>新規(約50行)</strong></td><td>float 配列1枚と <code>Clear()</code> だけ。実質のコードは10行</td></tr>
+<tr><td><code>Rasterizer.cs</code></td><td>+42 / -3行</td><td><code>Depth</code> プロパティ、<code>DepthTestEnabled</code>、走査ループ内の深度テスト</td></tr>
+<tr><td><code>GameWindow.cs</code></td><td>差し替え(+119 / -96行)</td><td>ソート機構を削除。貫通する板を追加。深度可視化を追加</td></tr>
+</tbody>
+</table></div>
+<p><code>Rasterizer.DepthTestEnabled</code> は実験用フラグではなく<strong>正式な描画設定</strong>。OpenGL の <code>glEnable(GL_DEPTH_TEST)</code> に相当し、半透明描画や常に手前に出したいUIのために切る用途がある。今後も残る。</p>
+<h3 id="s12">写経する順番</h3>
+<ol><li><code>DepthBuffer.cs</code> — 短い。<code>Clear()</code> を 1.0 で埋める理由のコメントを読む</li><li><code>Rasterizer.cs</code> — 走査ループに6行足すだけ。<strong>足す位置(色の計算より前)</strong>が要点</li><li><code>GameWindow.cs</code> — Day 6 のソート機構を消す作業が中心。<code>VisualizeDepth</code> は深度の逆算式の練習になるので自分で導いてみるとよい</li></ol>
+<p>差分の確認:</p>
+<div class="code"><pre><code>git diff --no-index reference/Day06/Rasterizer.cs reference/Day07/Rasterizer.cs
+git diff --no-index reference/Day06/GameWindow.cs reference/Day07/GameWindow.cs</code></pre></div>
+</section>
+<section class="part"><h2 id="s13">完成条件</h2>
+<div class="code"><pre><code>dotnet run --project reference/Day07 -c Release</code></pre></div>
+<ol><li><strong>黄色と水色の板2枚が直交</strong>して立っており、中央の立方体を<strong>貫通</strong>している</li><li>板と立方体の<strong>交差線がくっきり出ている</strong>。片方がもう片方を不自然に覆っていない</li><li>周囲を回る小さな立方体が、板の手前に来たり奥に隠れたりする</li><li><strong>Z</strong> キーで深度テストを切ると絵が崩壊する(後から描いたものが常に勝つ)。もう一度押すと直る</li><li><strong>D</strong> キーで深度バッファが白黒表示になる。<strong>手前が白く、奥ほど黒い</strong>。板が奥に向かってなめらかなグラデーションになっている</li><li><strong>W</strong> キーでワイヤーフレーム</li><li>タイトルバーが <code>58.x fps | 52 tri | render 4.x ms | 深度テスト:ON</code> のようになっている</li></ol>
+<p>うまくいかないときの確認ポイント:</p>
+<ul><li><strong>物体が虫食いに抜ける / 前フレームの残像が出る</strong> → 毎フレームの <code>Depth.Clear()</code> を忘れている。症状が独特なので、見たらまずここを疑う</li><li><strong>何も描かれない</strong> → <code>Clear()</code> の値。0.0 で埋めると全部が「既に最前面」になって全滅する</li><li><strong>奥のものが手前に出る</strong> → 比較の向きが逆。小さいほど手前(<code>z &gt;= depth</code> なら捨てる)</li><li><strong>ちらつく斑点が出る</strong> → Zファイティング。同一平面に2つの面が乗っている。要点5</li><li><strong>深度表示が真っ白 / 真っ黒</strong> → 距離への逆算をしていない、または表示範囲が合っていない。要点6</li><li><strong>深度テストは効いているのに、面の縁がギザギザに欠ける</strong> → 深度を「画面座標の Z」ではなく「カメラからの距離」で補間している。要点3</li></ul>
+<div class="inject"><h3>実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>実機のキー</th><th>このページ</th><th>見どころ</th></tr></thead>
+<tbody>
+<tr><td><code>Z</code></td><td>「板と立方体のシーン」の「深度テスト OFF」、「深度テストを拡大して見る」の「OFF」</td><td>後から描いたものが常に勝つ。ON なら描く順を逆にしても絵は同じ</td></tr>
+<tr><td><code>D</code></td><td>同じ実験台の「深度(距離に逆算)」</td><td>手前が白、奥ほど黒。「そのまま」にすると NDC の Z が手前に偏っていてほぼ真っ白になる(要点6)</td></tr>
+<tr><td><code>W</code></td><td>同じ実験台の「ワイヤー」</td><td>板は三角形 2 枚ずつ</td></tr>
+<tr><td>(キーなし)</td><td>「深度テストを拡大して見る」の「同一平面の2枚」</td><td>深度がほぼ同じなので、補間の丸めでどちらが勝つかが画素ごとにばらつく(Zファイティング)</td></tr>
+<tr><td><code>Esc</code></td><td>このページには無い</td><td>終了</td></tr>
+</tbody>
+</table></div>
+<p class="note">実験台は reference/Day07 の DepthBuffer.cs、Rasterizer.cs(深度テスト)、GameWindow.cs(シーンと VisualizeDepth)を JS に移したもの(docs/site/rasterizer.js)。深度は float に丸めて持つ(reference と同じ)。補間は double。render の時間はこのページの値。</p></div>
+</section>
+<section class="part"><h2 id="s14">改造課題</h2>
+<h3 id="s15">課題1(易): 画家のアルゴリズムを、この絵で試して壊す</h3>
+<p>Day 6 のソート機構(<code>_triangleBuffer</code> と <code>DrawSubmitted</code>)を Day 7 のシーンに移植する。</p>
+<ol><li>深度テストを切り、三角形を奥から順にソートして描く</li><li><strong>貫通している板と立方体が正しく描けないこと</strong>を確認する。板の全体が立方体の手前に来るか、逆に全部奥に行くかのどちらかになるはず</li><li>ソートの基準を「平均」「最も手前の頂点」「最も奥の頂点」に変えても、どれも正解にならないことを確認する</li></ol>
+<p>Day 6 で理屈として説明したことを、実際の絵として見るのが目的。</p>
+<h3 id="s16">課題2(中): Zファイティングを再現し、対策を試す</h3>
+<ol><li>板を2枚、<strong>まったく同じ位置</strong>に置く(色だけ変える)。斑点が出るはず</li><li>カメラを近づけたり遠ざけたりすると、斑点の出方がどう変わるか</li><li><code>Camera.NearPlane</code> を 0.01 と 1.0 で比べる。どちらが斑点が減るか。Day 6 の要点4で計算したことと一致するか</li><li>片方の板の深度に小さなオフセットを足して解決する(ポリゴンオフセット)。<strong>オフセットはいくつなら足りるか</strong>。近くと遠くで必要な量が変わることに気づけるか</li></ol>
+<h3 id="s17">課題3(難): 深度バッファを 16bit 整数にする</h3>
+<p><code>float[]</code>(32bit)ではなく <code>ushort[]</code>(16bit)で深度バッファを実装する。</p>
+<ol><li>NDC の Z(0〜1)を 0〜65535 に写して格納する</li><li>メモリは半分になる。速度はどう変わるか(<strong>キャッシュに乗りやすくなるので速くなる可能性がある</strong>)</li><li>どんなシーンで破綻するか。near と far の比を大きくしていくと、どのあたりから前後関係が壊れ始めるか</li></ol>
+<p>さらに余力があれば <strong>逆Z(reversed-Z)</strong> を調べて実装してみるとよい。「near を 1、far を 0 に割り当てて、深度テストの向きを逆にする」だけで浮動小数の精度分布と深度の非線形性が打ち消し合い、精度が劇的に改善する技法で、現代のゲームエンジンではほぼ標準になっている。Day 6 の要点4で見た「深度が手前に偏る」問題への、最もエレガントな解答。</p>
+</section>
+<section class="part"><h2 id="s18">動作確認済み環境</h2>
+<ul><li>.NET SDK 10.0.102 / Windows 11</li><li>Release ビルドで 57〜59 fps、render 4.12〜4.64 ms(52枚)</li></ul>
+</section>
+<footer class="end">Day 07 Zバッファ(深度テスト) / honya-game-engine</footer>
+</main>
+</div>
+<script src="../site/lab.js"></script>
+<script src="../site/rasterizer.js"></script>
+<script>
+(() => {
+'use strict';
+const { $, fit, seg, segValue, stat, animate } = Lab;
+const R = Raster, M = R.Mat4;
+
+// ------------------------------------------------------------
+// 1. 深度テストを拡大して見る
+// ------------------------------------------------------------
+const ZW = 40, ZH = 26;
+const YELLOW = [0.95, 0.85, 0.35], BLUE = [0.35, 0.65, 0.95];
+// 画面座標と NDC の z を直接与える。交差: 黄は左が手前で右が奥、青はその逆なので中ほどで入れ替わる
+// 同一平面: z = 0.3 + 0.01 * x の同じ平面に、頂点の違う三角形を 2 枚置く
+const plane = (x) => 0.3 + 0.0123456 * x;
+const SCENES = {
+  cross: [[[2, 3, 0.2], [37, 6, 0.8], [8, 23, 0.25]], [[38, 2, 0.15], [36, 24, 0.2], [3, 14, 0.85]]],
+  flat: [[[1.3, 2.1, plane(1.3)], [38.7, 4.9, plane(38.7)], [6.1, 24.3, plane(6.1)]], [[37.9, 1.7, plane(37.9)], [35.2, 24.6, plane(35.2)], [2.4, 13.3, plane(2.4)]]],
+};
+function zbDraw() {
+  const fb = new R.Framebuffer(ZW, ZH), ras = new R.Rasterizer7(fb);
+  fb.clear(R.rgb(12, 14, 22));
+  ras.depthTest = segValue('zb-test') === '1'; ras.laterWins = segValue('zb-eq') === 'gt';
+  const [a, b] = SCENES[segValue('zb-scene')];
+  const tris = [[a, YELLOW], [b, BLUE]];
+  if (segValue('zb-order') === 'ba') tris.reverse();
+  for (const [t, c] of tris) ras.fillTriangle(R.vertex5(t[0], c), R.vertex5(t[1], c), R.vertex5(t[2], c));
+  const c1 = document.createElement('canvas'); c1.width = ZW; c1.height = ZH; fb.toCanvas(c1);
+  { const { ctx, w, h } = fit($('zb-color')); ctx.imageSmoothingEnabled = false; ctx.drawImage(c1, 0, 0, w, h); }
+  { // 深度バッファ(白いほど手前。1.0 = 何も無い は暗い)
+    const d = new R.Framebuffer(ZW, ZH), dep = ras.depthBuffer.depth;
+    for (let i = 0; i < dep.length; i++) { const v = dep[i] >= 1 ? 0.05 : 1 - dep[i]; d.pixels[i] = R.rgbF(v, v, v); }
+    const c2 = document.createElement('canvas'); c2.width = ZW; c2.height = ZH; d.toCanvas(c2);
+    const { ctx, w, h } = fit($('zb-depth')); ctx.imageSmoothingEnabled = false; ctx.drawImage(c2, 0, 0, w, h);
+  }
+  // 両方が重なる画素のうち、黄と青のどちらが残ったか
+  let yellow = 0, blue = 0;
+  const yc = R.rgbF(...YELLOW), bc = R.rgbF(...BLUE);
+  for (const p of fb.pixels) { if (p === yc) yellow++; else if (p === bc) blue++; }
+  $('zb-stats').innerHTML = stat('黄の画素 / 青の画素', `${yellow} / ${blue}`) + stat('深度テストで捨てた', ras.stats.rejected) + stat('塗った(上書きを含む)', ras.stats.filled);
+}
+['zb-scene', 'zb-order', 'zb-test', 'zb-eq'].forEach((id) => seg(id, zbDraw));
+
+// ------------------------------------------------------------
+// 2. 板と立方体のシーン
+// ------------------------------------------------------------
+const W = 640, H = 480, fb = new R.Framebuffer(W, H), ras = new R.Rasterizer7(fb);
+const off = document.createElement('canvas'); off.width = W; off.height = H;
+const sc = { t: 0, ms: 0, fps: 0, n: 0, acc: 0 };
+const hue3 = (h) => { const c = R.hueColor(h); return [((c >>> 16) & 255) / 255, ((c >>> 8) & 255) / 255, (c & 255) / 255]; };
+const CORNERS = Array.from({ length: 8 }, (_, i) => [i & 1 ? 1 : -1, i & 2 ? 1 : -1, i & 4 ? 1 : -1]);
+const FACES = [[0, 2, 6, 4], [1, 5, 7, 3], [0, 4, 5, 1], [2, 3, 7, 6], [0, 1, 3, 2], [4, 6, 7, 5]];
+function render(t) {
+  ras.stats = { tested: 0, filled: 0, triangles: 0, rejected: 0 };
+  ras.depthTest = segValue('sc7-test') === '1';
+  fb.clear(R.rgb(12, 14, 22)); ras.depthBuffer.clear();
+  const orbit = t * 0.25, cam = R.camera({ position: [Math.sin(orbit) * 6, 2.2, Math.cos(orbit) * 6], target: [0, 0, 0], aspect: W / H });
+  const vp = R.viewProjection(cam), jobs = [], wire = segValue('sc7-wire') === '1';
+  const tri = (p0, p1, p2, color, mvp) => jobs.push(() => {
+    ras.drawTriangle(R.vertex5(p0, color), R.vertex5(p1, color), R.vertex5(p2, color), mvp);
+    if (wire) { const s = [p0, p1, p2].map((p) => R.projectToScreen(p, mvp, W, H)); if (s.every(Boolean)) ras.drawTriangleWireframe(s[0], s[1], s[2], R.rgb(240, 240, 240)); }
+  });
+  const cube = (mvp, br) => FACES.forEach((q, f) => { const c = hue3(f / 6).map((v) => v * br); tri(CORNERS[q[0]], CORNERS[q[1]], CORNERS[q[2]], c, mvp); tri(CORNERS[q[0]], CORNERS[q[2]], CORNERS[q[3]], c, mvp); });
+  const quad = (mvp, c) => { tri([-1, -1, 0], [1, -1, 0], [1, 1, 0], c, mvp); tri([-1, -1, 0], [1, 1, 0], [-1, 1, 0], c.map((v) => v * 0.8), mvp); };
+  cube(M.mul([M.scale(1.15), M.rotationY(t * 0.6), M.rotationX(t * 0.31)].reduce((x, y) => M.mul(x, y)), vp), 1);
+  // 板2枚。RotationY で 90 度ずらして直交させる(RotationZ だと同一平面のまま回るだけ)
+  for (let i = 0; i < 2; i++) quad(M.mul([M.scale(2.3), M.rotationY((Math.PI / 2) * i), M.rotationY(t * 0.45)].reduce((x, y) => M.mul(x, y)), vp), i === 0 ? [0.95, 0.85, 0.35] : [0.35, 0.85, 0.95]);
+  for (let i = 0; i < 3; i++) {
+    const model = [M.scale(0.42), M.rotationZ(t * 1.7), M.translation(2.9, 0, 0), M.rotationY(t * 0.8 + (i * 2 * Math.PI) / 3)].reduce((x, y) => M.mul(x, y));
+    cube(M.mul(model, vp), 0.55 + 0.15 * i);
+  }
+  if (segValue('sc7-order') === 'rev') jobs.reverse();
+  for (const j of jobs) j();
+  // VisualizeDepth: NDC の z を距離に逆算して 2.5〜9.5 を白〜黒に(raw はこのページだけ: 逆算せずに z をそのまま明るさに)
+  const view = segValue('sc7-view');
+  if (view !== 'color') {
+    const dep = ras.depthBuffer.depth, near = cam.near, far = cam.far;
+    for (let i = 0; i < dep.length; i++) {
+      const z = dep[i];
+      if (z >= 1) continue;
+      let shade;
+      if (view === 'raw') shade = z;   // NDC の z をそのまま明るさに。手前に偏っているのでほぼ真っ白
+      else { const dist = near / (1 - (z * (far - near)) / far); shade = 1 - Math.min(1, Math.max(0, (dist - 2.5) / 7)); }
+      fb.pixels[i] = R.rgbF(shade, shade, shade);
+    }
+  }
+}
+function scDraw() {
+  const t0 = performance.now();
+  render(sc.t);
+  sc.ms = sc.ms * 0.9 + (performance.now() - t0) * 0.1;
+  fb.toCanvas(off);
+  const { ctx, w, h } = fit($('sc7-canvas')), k = Math.min(w / W, h / H);
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(off, (w - W * k) / 2, (h - H * k) / 2, W * k, H * k);
+  const s = ras.stats;
+  $('sc7-title').textContent = `Day07 - Zバッファ  ${sc.fps.toFixed(1)} fps | ${s.triangles} tri | render ${sc.ms.toFixed(2)} ms | 深度テスト:${ras.depthTest ? 'ON' : 'OFF'} | Z:深度テスト D:深度表示 W:ワイヤー Esc:終了`;
+  $('sc7-stats').innerHTML = stat('三角形', s.triangles) + stat('塗った画素', s.filled.toLocaleString()) + stat('深度テストで捨てた画素', s.rejected.toLocaleString());
+}
+['sc7-test', 'sc7-view', 'sc7-wire', 'sc7-order', 'sc7-play'].forEach((id) => seg(id, scDraw));
+animate($('sc7-lab'), (dt) => {
+  dt = Math.max(0, dt);
+  if (segValue('sc7-play') === '1') sc.t += dt;
+  sc.n++; sc.acc += dt; if (sc.acc >= 0.5) { sc.fps = sc.n / sc.acc; sc.n = 0; sc.acc = 0; }
+  scDraw();
+});
+function narrow() { $('zb-grid').style.gridTemplateColumns = $('zb-grid').clientWidth < 520 ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)'; }
+window.addEventListener('resize', () => { narrow(); zbDraw(); });
+narrow(); zbDraw(); scDraw();
+})();
+</script>
+</body>
+</html>
