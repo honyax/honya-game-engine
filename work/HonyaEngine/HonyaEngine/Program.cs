@@ -764,6 +764,14 @@ internal static class Program
 
         /// <summary>一列に並べた球を端から撞く。**運動量が伝わっていく**。</summary>
         Cradle,
+
+        /// <summary>
+        /// 傾きを振った箱を落とす。**今日の到達点**。
+        ///
+        /// 角から落ちた箱が、跳ねて、傾いて、最後は面で落ち着く。
+        /// 接触点の上限を 1 にすると<b>いつまでも落ち着かない</b>のが見どころ。
+        /// </summary>
+        BoxDrop,
     }
 
     /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
@@ -831,6 +839,32 @@ internal static class Program
 
     /// <summary>次に撃つときに中心を外すか(Ctrl+Shift+Alt+F8 で交互に入れ替わる)。</summary>
     private static bool _kickOffCenter = true;
+
+    // ================================================================
+    //  Day 44: 箱(OBB)の衝突(44a: 接触マニフォールド / 44b: 分離軸定理)
+    // ================================================================
+
+    /// <summary>
+    /// 接触点を描くか(Ctrl+Shift+Alt+3)。**マニフォールドを目で見るための唯一の窓**。
+    ///
+    /// 数字(HUD の「接触」)だけでは、4点がどこに立っているかが分からない。
+    /// 箱を床の縁に半分載せたときに、
+    /// <b>点が縁の上に並び直す</b>のはこれを出さないと見えない。
+    /// </summary>
+    private static bool _showContacts = true;
+
+    /// <summary>接触点を描くマテリアル。**光の影響を受けない**ように発光で描く。</summary>
+    private static Material _contactMaterial = null!;
+
+    /// <summary>
+    /// 1組あたりの接触点の上限(Ctrl+Shift+Alt+4)。**今日いちばんの実験**。
+    ///
+    /// 4 が本来の値。1 にすると Day 43 の「1点だけの接触」に戻り、
+    /// 床に置いた箱が支えきれずに震え出す。
+    /// </summary>
+    private static readonly int[] ContactLimits = [1, 2, 4];
+
+    private static int _contactLimitIndex = 2;
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
@@ -1567,6 +1601,20 @@ internal static class Program
             RoughnessFactor = 0.35f,
         };
 
+        // **接触点の印**(Day 44)。ライティングを受けると影の中で見えなくなるので、
+        // 発光(<see cref="Material.EmissiveFactor"/>)で描いて必ず目立たせる。
+        // 物理の正しさを目で確かめるための道具なので、
+        // 「絵として自然か」より「必ず見えるか」を優先している。
+        _contactMaterial = new Material(_shader)
+        {
+            Name = "contact-point",
+            MainTexture = white,
+            BaseColorFactor = new Vector4(0.05f, 0.05f, 0.05f, 1.0f),
+            MetallicFactor = 0.0f,
+            RoughnessFactor = 1.0f,
+            EmissiveFactor = new Vector3(4.0f, 0.9f, 0.15f),
+        };
+
         // --- 2D ---
         _spriteShader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "sprite.vert"),
@@ -1784,7 +1832,14 @@ internal static class Program
         Console.WriteLine("Ctrl+Shift+Alt+F5:速度の反復 1/2/4/8(**1 だと柱が沈む**)  Ctrl+Shift+Alt+F6:位置補正 ON/OFF");
         Console.WriteLine("Ctrl+Shift+Alt+F7:球を1つ降らせる  Ctrl+Shift+Alt+F8:撃つ(**中心 / 中心を外す が交互**)");
         Console.WriteLine("Ctrl+Shift+Alt+F9:内訳(運動量・エネルギー・めり込み)  Ctrl+Shift+Alt+F10:停止");
-        Console.WriteLine("Ctrl+Shift+Alt+F11:コマ送り  Ctrl+Shift+Alt+F12:今日の自己チェック");
+        Console.WriteLine("Ctrl+Shift+Alt+F11:コマ送り  Ctrl+Shift+Alt+F12:Day 43 の自己チェック");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 44: 箱(OBB)の衝突(Ctrl+Shift+Alt+数字キー)---");
+        Console.WriteLine("Ctrl+Shift+Alt+1:箱デモ ON/OFF。**傾きを振った箱が落ちて、面で落ち着く。今日の到達点**");
+        Console.WriteLine("Ctrl+Shift+Alt+3:接触点の表示 ON/OFF(**光る玉がマニフォールドの点**)");
+        Console.WriteLine("Ctrl+Shift+Alt+4:1組あたりの接触点 1/2/4(**1 にすると箱が落ち着かない。今日の実験**)");
+        Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。順番にすると床の箱が揺れ止まない)");
+        Console.WriteLine("Ctrl+Shift+Alt+0:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
         Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
@@ -2892,7 +2947,14 @@ internal static class Program
             // 積み上げデモで一番下の球が沈んでいるかは、影の大きさで気づける。
             foreach (RigidBody physicsBody in Physics.Bodies)
             {
-                _shadow.Draw(_sphere, BodyMatrix(physicsBody));
+                // **平面は影を落とさない**(Day 44)。無限に広いので、
+                // 描こうとすると影の箱の中が真っ暗になる。
+                if (physicsBody.Shape.Kind == ColliderKind.Plane)
+                {
+                    continue;
+                }
+
+                _shadow.Draw(BodyMesh(physicsBody), BodyMatrix(physicsBody));
             }
 
             _shadow.Draw(_quad, FloorMatrix());
@@ -3144,6 +3206,10 @@ internal static class Program
         if (_physicsDemo)
         {
             lines.AppendLine(PhysicsLabel());
+
+            // **今日の1行**(Day 44)。接触が何組・何点あるか、
+            // そしてそれがどの軸から出たかは、絵をいくら見ても分からない。
+            lines.AppendLine(ContactLabel());
         }
 
         if (_model is not null)
@@ -3976,23 +4042,20 @@ internal static class Program
         Physics.Clear();
         BodyColors.Clear();
         Physics.VelocityIterations = IterationSteps[_iterationIndex];
+        Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
 
         // **床は無限に広い平面**。描いている板(20x20)の外にも続いているので、
-        // 遠くへ飛んでいった球も落ちない。有限の床が要るのは Day 44 以降。
-        Physics.AddPlane(Plane3D.FromPointNormal(
-            new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY));
+        // 遠くへ飛んでいった物も落ちない。
+        // 有限の床が要るときは静的な箱を置く(箱の上に物を載せられるのは Day 44b から)。
+        AddPhysicsPlane(new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY);
 
         // **見えない壁を4枚**。摩擦が無いので、横向きの速度は一切減らない——
-        // 囲っておかないと、一度滑り始めた球は画面の外まで行ったきり戻ってこない。
+        // 囲っておかないと、一度滑り始めた物は画面の外まで行ったきり戻ってこない。
         // 縁石(<see cref="RenderPhysics"/> が描く箱)は、この壁の位置の目印。
-        Physics.AddPlane(Plane3D.FromPointNormal(
-            new Vector3(-PhysicsWallDistance, 0.0f, 0.0f), Vector3.UnitX));
-        Physics.AddPlane(Plane3D.FromPointNormal(
-            new Vector3(PhysicsWallDistance, 0.0f, 0.0f), -Vector3.UnitX));
-        Physics.AddPlane(Plane3D.FromPointNormal(
-            new Vector3(0.0f, 0.0f, -PhysicsWallDistance), Vector3.UnitZ));
-        Physics.AddPlane(Plane3D.FromPointNormal(
-            new Vector3(0.0f, 0.0f, PhysicsWallDistance), -Vector3.UnitZ));
+        AddPhysicsPlane(new Vector3(-PhysicsWallDistance, 0.0f, 0.0f), Vector3.UnitX);
+        AddPhysicsPlane(new Vector3(PhysicsWallDistance, 0.0f, 0.0f), -Vector3.UnitX);
+        AddPhysicsPlane(new Vector3(0.0f, 0.0f, -PhysicsWallDistance), Vector3.UnitZ);
+        AddPhysicsPlane(new Vector3(0.0f, 0.0f, PhysicsWallDistance), -Vector3.UnitZ);
 
         switch (scene)
         {
@@ -4007,7 +4070,33 @@ internal static class Program
             case PhysicsScene.Cradle:
                 BuildCradleScene();
                 break;
+
+            case PhysicsScene.BoxDrop:
+                BuildBoxDropScene();
+                break;
         }
+    }
+
+    /// <summary>
+    /// 平面を1枚足す。**色の配列と添字を揃えるためだけのヘルパ**(Day 44)。
+    ///
+    /// Day 43 の平面は体ではなかったので、<c>BodyColors</c> に席が要らなかった。
+    /// 今日から平面も体(<see cref="RigidBody.CreatePlane"/>)になったので、
+    /// **色の配列にも席を作らないと添字がずれる**。
+    /// 平面は描かないので色は使われないが、番号を揃えるためだけに詰めておく。
+    ///
+    /// <para>
+    /// 「色の配列の添字 = 体の番号」という雑な対応が、
+    /// 平面が体になった途端に手当てを要求してきた——
+    /// <b>並行配列の弱いところ</b>が素直に出た箇所になる。
+    /// 体の数が増えてきたら、色は <c>Dictionary</c> か
+    /// 体の側の付帯情報に移すことになる。
+    /// </para>
+    /// </summary>
+    private static void AddPhysicsPlane(Vector3 point, Vector3 normal)
+    {
+        Physics.AddBody(RigidBody.CreatePlane(point, normal));
+        BodyColors.Add(Vector4.One);
     }
 
     /// <summary>
@@ -4112,6 +4201,44 @@ internal static class Program
         BodyColors.Add(SrgbToLinear(new Vector4(0.95f, 0.35f, 0.25f, 1.0f)));
     }
 
+    /// <summary>
+    /// 箱を落とす。**傾きだけを振った5つの箱**(Ctrl+Shift+Alt+1)。**今日の到達点**。
+    ///
+    /// 質量も大きさも同じで、初めの傾きだけが違う。
+    /// <list type="bullet">
+    /// <item>まっすぐな箱は<b>4点で着地して、そのまま止まる</b></item>
+    /// <item>少し傾いた箱は<b>辺の2点で着地し、倒れて4点になる</b></item>
+    /// <item>大きく傾いた箱は<b>角の1点で着地し、跳ねて向きを変えてから落ち着く</b></item>
+    /// </list>
+    /// 接触点の数(Ctrl+Shift+Alt+3 で表示)が着地の様子とそのまま対応している。
+    ///
+    /// <para>
+    /// <b>Ctrl+Shift+Alt+4 で上限を 1 にすると、どれも落ち着かなくなる</b>——
+    /// これが今日いちばん見てほしいところ(要点3)。
+    /// </para>
+    /// </summary>
+    private static void BuildBoxDropScene()
+    {
+        float[] tilts = [0.0f, 0.10f, 0.35f, 0.62f, 0.95f];
+
+        for (int i = 0; i < tilts.Length; i++)
+        {
+            RigidBody body = RigidBody.CreateBox(1.0f, 0.4f);
+            body.Position = new Vector3((i - 2) * 1.7f, 3.2f, 0.0f);
+
+            // 傾きは z 軸まわり。**画面の手前から見て、傾きの差が読める向き**にする。
+            body.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, tilts[i]);
+            body.Restitution = 0.25f;
+            body.AngularDamping = 0.25f;
+            Physics.AddBody(body);
+
+            // 緑(まっすぐ)→ 紫(大きく傾いている)。**色が傾きの目盛り**になる。
+            float t = tilts[i] / 0.95f;
+            BodyColors.Add(SrgbToLinear(
+                new Vector4(0.30f + (0.55f * t), 0.75f - (0.45f * t), 0.35f + (0.55f * t), 1.0f)));
+        }
+    }
+
     /// <summary>球を1つ降らせる(Ctrl+Shift+Alt+F7)。</summary>
     private static void SpawnBall()
     {
@@ -4175,7 +4302,7 @@ internal static class Program
             // 半径いっぱい(0.9)まで外すと 20rad/s を超えてただのブレになるので、
             // **見て回転が追える速さ**(1〜2回転/秒)に収まるところを選んである。
             Vector3 point = offCenter
-                ? body.Position + new Vector3(body.Radius * 0.35f, 0.0f, 0.0f)
+                ? body.Position + new Vector3(body.Shape.BoundingRadius * 0.35f, 0.0f, 0.0f)
                 : body.Position;
 
             body.ApplyImpulseAtPoint(impulse, point);
@@ -4232,7 +4359,7 @@ internal static class Program
     /// </summary>
     private static void RenderPhysics()
     {
-        _drawCalls = Physics.Bodies.Count + 5;
+        _drawCalls = Physics.Bodies.Count + 5 + (_showContacts ? Physics.Contacts.Count : 0);
 
         Draw(_quad, _floorMaterial, FloorMatrix());
 
@@ -4243,10 +4370,64 @@ internal static class Program
 
         for (int i = 0; i < Physics.Bodies.Count; i++)
         {
+            RigidBody body = Physics.Bodies[i];
+
+            // **平面は描かない**(Day 44)。無限に広いので描きようが無く、
+            // 床の板と縁石が位置の目印になっている。
+            if (body.Shape.Kind == ColliderKind.Plane)
+            {
+                continue;
+            }
+
             _physicsMaterial.BaseColorFactor = BodyColors[i];
-            Draw(_sphere, _physicsMaterial, BodyMatrix(Physics.Bodies[i]));
+            Draw(BodyMesh(body), _physicsMaterial, BodyMatrix(body));
+        }
+
+        RenderContacts();
+    }
+
+    /// <summary>
+    /// 接触点を光る小球で描く(Ctrl+Shift+Alt+3)。**マニフォールドを目で見る**。
+    ///
+    /// 深いほど大きく描く。床に置いた箱の4点が同じ大きさで並ぶこと、
+    /// 傾いた箱では手前の角だけが大きいことが、
+    /// <b>数字を読まずに</b>分かるようにしてある。
+    ///
+    /// <para>
+    /// <b>物理は描画を知らないまま</b>なのがここでも保たれている。
+    /// <see cref="PhysicsWorld.Contacts"/> は解決のために持っている情報で、
+    /// それを絵にするかどうかは <c>Program</c> の勝手——
+    /// 物理の側に「デバッグ描画」を持たせないのが Day 43 から引いている線。
+    /// </para>
+    /// </summary>
+    private static void RenderContacts()
+    {
+        if (!_showContacts)
+        {
+            return;
+        }
+
+        foreach (ContactPoint contact in Physics.Contacts)
+        {
+            // 深さ 0 で 6cm、1cm めり込むごとに 2cm 大きくする。
+            float depth = MathF.Max(-contact.Separation, 0.0f);
+            float size = 0.06f + MathF.Min(depth * 2.0f, 0.10f);
+
+            Draw(
+                _sphere,
+                _contactMaterial,
+                Matrix4x4.CreateScale(size) * Matrix4x4.CreateTranslation(contact.Point));
         }
     }
+
+    /// <summary>
+    /// 体の形に合うメッシュ。**球なら球、箱なら立方体**(Day 44)。
+    ///
+    /// 単位球も単位立方体も「差し渡し1」で作ってあるので、
+    /// 拡大率は <see cref="BodyMatrix"/> 側で寸法をそのまま入れれば合う。
+    /// </summary>
+    private static Mesh<Vertex> BodyMesh(RigidBody body) =>
+        body.Shape.Kind == ColliderKind.Box ? _cube : _sphere;
 
     /// <summary>
     /// 縁石4本の行列。**見えない壁の位置を目に見えるようにする**だけのもの。
@@ -4278,16 +4459,39 @@ internal static class Program
     ///
     /// 単位球は半径 0.5(直径 1)なので、拡大は直径をそのまま入れる。
     /// </summary>
-    private static Matrix4x4 BodyMatrix(RigidBody body) =>
-        Matrix4x4.CreateScale(body.Radius * 2.0f)
-        * Matrix4x4.CreateFromQuaternion(Interpolate(body.PreviousOrientation, body.Orientation))
-        * Matrix4x4.CreateTranslation(Interpolate(body.PreviousPosition, body.Position));
+    private static Matrix4x4 BodyMatrix(RigidBody body)
+    {
+        // 単位球は半径 0.5(直径 1)、単位立方体も一辺 1。
+        // どちらも「差し渡し1」なので、拡大は寸法を2倍したものをそのまま入れる。
+        Vector3 scale = body.Shape.Kind == ColliderKind.Box
+            ? body.Shape.HalfExtents * 2.0f
+            : new Vector3(body.Shape.Radius * 2.0f);
+
+        return Matrix4x4.CreateScale(scale)
+            * Matrix4x4.CreateFromQuaternion(
+                Interpolate(body.PreviousOrientation, body.Orientation))
+            * Matrix4x4.CreateTranslation(Interpolate(body.PreviousPosition, body.Position));
+    }
 
     private static string PhysicsSceneLabel() => _physicsScene switch
     {
         PhysicsScene.Stack => "積み上げ",
         PhysicsScene.Cradle => "撞き玉",
+        PhysicsScene.BoxDrop => "箱を落とす",
         _ => "落下",
+    };
+
+    /// <summary>箱の筋書きかどうか(Ctrl+Shift+Alt+1 の ON/OFF 判定に使う)。</summary>
+    private static bool IsBoxScene(PhysicsScene scene) => scene >= PhysicsScene.BoxDrop;
+
+    /// <summary>体の形を1行で。**寸法まで出す**ので、積み上げのずれに気づける。</summary>
+    private static string ShapeLabel(RigidBody body) => body.Shape.Kind switch
+    {
+        ColliderKind.Box =>
+            $"箱 {body.Shape.HalfExtents.X * 2.0f:F2}x{body.Shape.HalfExtents.Y * 2.0f:F2}"
+            + $"x{body.Shape.HalfExtents.Z * 2.0f:F2}m",
+        ColliderKind.Plane => "平面",
+        _ => $"球 r={body.Shape.Radius:F2}m",
     };
 
     /// <summary>
@@ -4298,13 +4502,31 @@ internal static class Program
     /// <b>最大めり込みと運動エネルギーは常に数字で</b>出しておく。
     /// </summary>
     private static string PhysicsLabel() =>
-        $"物理[{PhysicsSceneLabel()}]  体:{Physics.Bodies.Count}  接触:{Physics.Contacts.Count}  "
+        $"物理[{PhysicsSceneLabel()}]  体:{Physics.DynamicCount}  接触:{Physics.Contacts.Count}  "
         + $"組:{Physics.PairTests}  "
         + $"{(Physics.Integrator == IntegratorMode.SemiImplicit ? "セミインプリシット" : "**陽的オイラー**")}  "
         + $"反復:{Physics.VelocityIterations}  既定e:{RestitutionSteps[_restitutionIndex]:F2}  "
         + $"補正:{OnOff(Physics.PositionCorrection)}  めり込み:{Physics.MaxPenetration * 100.0f:F2}cm  "
         + $"KE:{Physics.TotalKineticEnergy:F2}J  {_physicsMilliseconds:F2}ms"
         + (_physicsPaused ? "  [停止中]" : string.Empty);
+
+    /// <summary>
+    /// 接触の内訳(Day 44)。**絵から読めないものだけを1行に**。
+    ///
+    /// 見どころは3つ。
+    /// <list type="bullet">
+    /// <item><b>組と点が別</b>——床に置いた箱1つで「1組・4点」が正しい姿</item>
+    /// <item><b>面 / 点</b>——どこから接触が出たか(<see cref="ManifoldSource"/>)。
+    ///   今日は箱と平面なら面、球が絡めば点</item>
+    /// <item><b>上限</b>——Ctrl+Shift+Alt+4 で 1 にすると、点の数が組の数と同じになる</item>
+    /// </list>
+    /// </summary>
+    private static string ContactLabel() =>
+        $"接触[{Physics.ContactPairs}組 {Physics.Contacts.Count}点 上限{Physics.MaxContactsPerPair}]  "
+        + $"面:{Physics.SourceCount(ManifoldSource.FaceA) + Physics.SourceCount(ManifoldSource.FaceB)}  "
+        + $"点:{Physics.SourceCount(ManifoldSource.Point)}  "
+        + $"解き方:{(Physics.SolveContactsTogether ? "同時" : "**順番**")}  "
+        + $"表示:{OnOff(_showContacts)}";
 
     /// <summary>
     /// 今の内訳をコンソールへ(Ctrl+Shift+Alt+F9)。
@@ -4321,8 +4543,9 @@ internal static class Program
             + $"  反復: {Physics.VelocityIterations}  位置補正: {OnOff(Physics.PositionCorrection)}"
             + $"(率 {Physics.CorrectionRate:F2} / 許容 {Physics.Slop * 100.0f:F1}cm)");
         Console.WriteLine(
-            $"  体: {Physics.Bodies.Count} 個  平面: {Physics.Planes.Count} 枚  "
-            + $"接触: {Physics.Contacts.Count} 点  試した組: {Physics.PairTests}");
+            $"  体: {Physics.DynamicCount} 個(動くもの)  平面: {Physics.PlaneCount} 枚  "
+            + $"接触: {Physics.ContactPairs} 組 / {Physics.Contacts.Count} 点"
+            + $"(1組の上限 {Physics.MaxContactsPerPair})  試した組: {Physics.PairTests}");
         Console.WriteLine(
             $"  合計運動量: ({Physics.TotalMomentum.X:F3}, {Physics.TotalMomentum.Y:F3}, "
             + $"{Physics.TotalMomentum.Z:F3}) kg·m/s");
@@ -4334,11 +4557,18 @@ internal static class Program
         for (int i = 0; i < Physics.Bodies.Count; i++)
         {
             RigidBody body = Physics.Bodies[i];
+
+            // **平面は飛ばす**(Day 44)。位置も速度も意味を持たない。
+            if (body.Shape.Kind == ColliderKind.Plane)
+            {
+                continue;
+            }
+
             Console.WriteLine(
-                $"  [{i,2}] 高さ {body.Position.Y - PhysicsFloorY:F3}m  "
+                $"  [{i,2}] {ShapeLabel(body),-22} 高さ {body.Position.Y - PhysicsFloorY:F3}m  "
                 + $"速度 {body.LinearVelocity.Length():F3}m/s  "
                 + $"角速度 {body.AngularVelocity.Length():F3}rad/s  "
-                + $"質量 {body.Mass:F2}kg  半径 {body.Radius:F2}m  e={body.Restitution:F2}");
+                + $"質量 {(body.IsStatic ? "静的" : $"{body.Mass:F2}kg")}  e={body.Restitution:F2}");
         }
 
         Console.WriteLine();
@@ -11579,7 +11809,92 @@ internal static class Program
 
         switch (key)
         {
-            // --- 今日のスイッチ(剛体力学の基礎)---
+            // --- 今日のスイッチ(箱の衝突: 分離軸定理と接触マニフォールド)---
+            //
+            // **Ctrl+Shift+Alt + 数字キー**。段はこれで8つ目になる。
+            // Day 43 で「修飾キー3つ + ファンクションキー」を使い切ったので、
+            // 予告どおり<b>同じ修飾キーの数字キーの段</b>へ移った。
+            //
+            // <b>この塊をいちばん上に置くこと</b>。下にある
+            // `case Key.Number1 when ctrl && shift:` も `case Key.Number1 when ctrl:` も
+            // **Ctrl+Shift+Alt+1 で成立してしまう**ので、
+            // 1つでも上に来ていると今日のキーが1つも届かない。
+            // Day 39 から毎日書いている
+            // 「**ガード付き case は具体的なものほど上**」がそのまま続いている。
+            //
+            // <b>数字キーの段も、これでほぼ最後**。Day 45 以降は
+            // Day 40 の <c>FeatureToggles</c> のように、
+            // 割り当ての表そのものをデータにするしかない。
+            case Key.Number1 when ctrl && shift && alt:
+                // **今日の到達点**。傾きを振った5つの箱を落とす。
+                if (_physicsDemo && IsBoxScene(_physicsScene))
+                {
+                    _physicsDemo = false;
+                    Physics.Clear();
+                    BodyColors.Clear();
+                    _orbit.Reset();
+                    Console.WriteLine("箱デモ: OFF");
+                }
+                else
+                {
+                    ShowPhysicsDemo(PhysicsScene.BoxDrop);
+                    Console.WriteLine(
+                        $"箱デモ: {PhysicsSceneLabel()}({Physics.DynamicCount} 体)");
+                    Console.WriteLine(
+                        "  3:接触点の表示  4:**1組の接触点 1/2/4(今日の実験)**  "
+                        + "7:接触点の解き方  0:自己チェック");
+                }
+
+                break;
+
+            case Key.Number3 when ctrl && shift && alt:
+                _showContacts = !_showContacts;
+                Console.WriteLine(
+                    _showContacts
+                        ? "接触点の表示: ON(**光る玉がマニフォールドの点**。深いほど大きい)"
+                        : "接触点の表示: OFF");
+                break;
+
+            case Key.Number4 when ctrl && shift && alt:
+                // **今日いちばんの実験**。1組から採る接触点を減らすと何が起きるか。
+                _contactLimitIndex = (_contactLimitIndex + 1) % ContactLimits.Length;
+                Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+
+                Console.WriteLine(
+                    $"1組あたりの接触点: {Physics.MaxContactsPerPair} 点"
+                    + (Physics.MaxContactsPerPair == 1
+                        ? "(**Day 43 と同じ1点**。床の箱が支えきれずに震え出す)"
+                        : string.Empty)
+                    + (Physics.MaxContactsPerPair == 4
+                        ? "(本来の値。面で触れているものが面で支えられる)"
+                        : string.Empty));
+                break;
+
+            case Key.Number7 when ctrl && shift && alt:
+                // **今日いちばん深い比較**(要点5)。Day 43 の <c>Ctrl+Shift+Alt+F2</c>
+                // (積分法の切り替え)と同じ性格のつまみで、
+                // 「正しい解き方」と「素朴な解き方」を並べて見るためだけにある。
+                Physics.SolveContactsTogether = !Physics.SolveContactsTogether;
+
+                Console.WriteLine(
+                    Physics.SolveContactsTogether
+                        ? "接触点の解き方: **同時**(4点を同じ状態から決めてまとめて掛ける)"
+                        : "接触点の解き方: **順番**(Day 43 と同じ。1点目が全部を背負う)");
+
+                if (!Physics.SolveContactsTogether)
+                {
+                    Console.WriteLine(
+                        "  **床の箱1つでも揺れが止まらない**"
+                        + "(Ctrl+Shift+Alt+F9 の角速度が 0 に落ちない。積むと崩れる: Day 44b)");
+                }
+
+                break;
+
+            case Key.Number0 when ctrl && shift && alt:
+                RunBoxCollisionCheck();
+                break;
+
+            // --- Day 43 のスイッチ(剛体力学の基礎)---
             //
             // **Ctrl+Shift+Alt + ファンクションキー**。段はこれで7つ目になる
             // (Ctrl+F / Shift+F / Ctrl+Shift+F / Ctrl+Alt+F / Alt+F / Shift+Alt+F /
@@ -15015,9 +15330,15 @@ internal static class Program
         (float deep8, float top8) = Stack(8, 300);
 
         // 理想の高さは 0.45 + 3 × 0.9 = 3.15m(許容めり込みぶんだけ下がる)。
+        //
+        // **倍率のしきい値は Day 44 で 3.0 から 2.0 へ緩めた**。
+        // 位置の補正が「印で測り直す」形になって、1周のときのめり込みが
+        // 64.4mm から 37.4mm に改善したため(8周のほうは 14.7 → 12.8mm)。
+        // **数字が良くなったせいで通らなくなったチェック**で、
+        // 中身の主張(反復が足りないと沈む)は変わっていない。
         checks.Check(
             "反復1周だと柱が沈む(**素朴版の限界**)",
-            deep1 > deep8 * 3.0f,
+            deep1 > deep8 * 2.0f,
             $"めり込み {deep1 * 1000.0f:F1}mm(高さ {top1:F3}m)");
         checks.Check(
             "反復8周なら持つ(めり込みが許容量の数倍以内)",
@@ -15108,6 +15429,298 @@ internal static class Program
             $"セミ {driftSemi:F4}J / 陽的 {driftEuler:+0.0000;-0.0000}J");
 
         checks.Report("すべて合格(球は落ち、跳ね、積める)");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// 今日の自己チェック(Ctrl+Shift+Alt+0)。
+    ///
+    /// 箱の判定は<b>間違っていてもそれらしく動く</b>のが Day 43 より始末が悪い。
+    /// 接触点が1つしか出なくても、4点を順番に解いても、
+    /// 箱はとりあえず床の上に乗る。「なんとなく乗っている」と「合っている」を
+    /// 分けられるのは数字だけなので、
+    /// <b>解析解(慣性モーメント)と、接触点の数と、落ち着いたあとの揺れ</b>で押さえる。
+    ///
+    /// <para>
+    /// <see cref="PhysicsWorld"/> も <see cref="Collision3D"/> も GL を知らないので、
+    /// **窓を1枚も出さずに全項目が走る**。Day 43 と同じ性格の層のまま。
+    /// </para>
+    /// </summary>
+    private static void RunBoxCollisionCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 44: 箱の衝突の自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 形と慣性テンソル(要点1)
+        // ============================================================
+
+        // 全長 1 x 2 x 3、質量 12kg。I_x = 1/12 · 12 · (2² + 3²) = 13。
+        Vector3 inertia = Collider.Box(new Vector3(0.5f, 1.0f, 1.5f)).InertiaLocal(12.0f);
+
+        checks.Check(
+            "箱の慣性モーメントが 1/12 m (h² + d²)",
+            MathF.Abs(inertia.X - 13.0f) < 1e-4f
+                && MathF.Abs(inertia.Y - 10.0f) < 1e-4f
+                && MathF.Abs(inertia.Z - 5.0f) < 1e-4f,
+            $"({inertia.X:F3}, {inertia.Y:F3}, {inertia.Z:F3})(期待 13 / 10 / 5)");
+
+        checks.Check(
+            "細長い箱は**長い方向を軸にすると回しやすい**(I が最小)",
+            inertia.Z < inertia.Y && inertia.Y < inertia.X,
+            $"z 軸まわり {inertia.Z:F1} < y {inertia.Y:F1} < x {inertia.X:F1}");
+
+        Vector3 cubeInertia = Collider.Box(0.5f).InertiaLocal(6.0f);
+        checks.Check(
+            "立方体の慣性は**等方**(3つとも 1/6 m a²)",
+            MathF.Abs(cubeInertia.X - 1.0f) < 1e-5f
+                && MathF.Abs(cubeInertia.Y - 1.0f) < 1e-5f
+                && MathF.Abs(cubeInertia.Z - 1.0f) < 1e-5f,
+            $"({cubeInertia.X:F4}, {cubeInertia.Y:F4}, {cubeInertia.Z:F4})");
+
+        checks.Check(
+            "球の慣性は Day 43 と同じ 2/5 m r²",
+            MathF.Abs(Collider.Sphere(0.5f).InertiaLocal(2.0f).X - 0.2f) < 1e-6f,
+            $"{Collider.Sphere(0.5f).InertiaLocal(2.0f).X:F4}");
+
+        RigidBody slab = RigidBody.CreateBox(12.0f, new Vector3(0.5f, 1.0f, 1.5f));
+        slab.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI * 0.5f);
+        slab.UpdateInertiaWorld();
+
+        Vector3 spun = Vector3.Transform(Vector3.UnitX, slab.InverseInertiaWorld);
+        checks.Check(
+            "箱は**回すと世界の慣性テンソルが変わる**(90度で x と y が入れ替わる)",
+            MathF.Abs(spun.X - 0.1f) < 1e-4f && MathF.Abs(spun.Y) < 1e-4f,
+            $"({spun.X:F4}, {spun.Y:F4}, {spun.Z:F4})(期待 1/10)");
+
+        RigidBody ball = RigidBody.CreateSphere(2.0f, 0.5f);
+        ball.Orientation = Quaternion.CreateFromYawPitchRoll(0.7f, -1.1f, 2.3f);
+        ball.UpdateInertiaWorld();
+
+        Vector3 ballSpun = Vector3.Transform(Vector3.UnitX, ball.InverseInertiaWorld);
+        checks.Check(
+            "球は回しても変わらない(Day 43 のまま)",
+            MathF.Abs(ballSpun.X - 5.0f) < 1e-3f && MathF.Abs(ballSpun.Y) < 1e-4f,
+            $"({ballSpun.X:F4}, {ballSpun.Y:F4}, {ballSpun.Z:F4})");
+
+        // ============================================================
+        //  2. 接触マニフォールド(要点3)
+        // ============================================================
+
+        var floor = Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY);
+
+        var flat = new Box3D(new Vector3(0.0f, 0.45f, 0.0f), new Vector3(0.5f), Quaternion.Identity);
+        ContactManifold flatContact = Collision3D.BoxPlane(flat, floor);
+
+        checks.Check(
+            "床に平らに置いた箱は**4点**で支えられる",
+            flatContact.Count == 4,
+            $"{flatContact.Count} 点");
+
+        bool sameDepth = true;
+        Vector3 centroid = Vector3.Zero;
+        for (int i = 0; i < flatContact.Count; i++)
+        {
+            sameDepth &= MathF.Abs(flatContact.Points[i].Depth - 0.05f) < 1e-5f;
+            centroid += flatContact.Points[i].Point;
+        }
+
+        centroid /= MathF.Max(flatContact.Count, 1);
+
+        checks.Check("4点の深さはどれも 0.05m(平らに乗っている)", sameDepth);
+        checks.Check(
+            "4点の重心が箱の中心の真下",
+            MathF.Abs(centroid.X) < 1e-5f && MathF.Abs(centroid.Z) < 1e-5f,
+            $"({centroid.X:F5}, {centroid.Y:F5}, {centroid.Z:F5})");
+
+        var onEdge = new Box3D(
+            new Vector3(0.0f, 0.70f, 0.0f),
+            new Vector3(0.5f),
+            Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI * 0.25f));
+
+        checks.Check(
+            "45度傾けて辺で立てた箱は**2点**",
+            Collision3D.BoxPlane(onEdge, floor).Count == 2,
+            $"{Collision3D.BoxPlane(onEdge, floor).Count} 点");
+
+        // 対角 (1,1,1) 方向を真下に向ける回転。
+        Vector3 from = Vector3.Normalize(Vector3.One);
+        Vector3 to = -Vector3.UnitY;
+        Quaternion cornerDown = Quaternion.CreateFromAxisAngle(
+            Vector3.Normalize(Vector3.Cross(from, to)),
+            MathF.Acos(Math.Clamp(Vector3.Dot(from, to), -1.0f, 1.0f)));
+
+        var onCorner = new Box3D(new Vector3(0.0f, 0.86f, 0.0f), new Vector3(0.5f), cornerDown);
+
+        checks.Check(
+            "角で立てた箱は**1点**(接触点の数 = 支え方の数)",
+            Collision3D.BoxPlane(onCorner, floor).Count == 1,
+            $"{Collision3D.BoxPlane(onCorner, floor).Count} 点");
+
+        ContactManifold reduced = Collision3D.BoxPlane(flat, floor);
+        reduced.Reduce(1);
+        checks.Check("上限 1 に絞ると点が1つになる", reduced.Count == 1);
+
+        var manual = new ContactManifold { Normal = Vector3.UnitY };
+        manual.Add(Vector3.Zero, 0.1f);
+        manual.Add(Vector3.UnitX, 0.2f);
+        manual.Add(Vector3.UnitY, 0.3f);
+        manual.Add(Vector3.UnitZ, 0.4f);
+        manual.Add(new Vector3(2.0f, 0.0f, 0.0f), 0.5f);
+
+        bool shallowDropped = manual.Count == 4;
+        for (int i = 0; i < manual.Count; i++)
+        {
+            shallowDropped &= manual.Points[i].Depth >= 0.2f - 1e-6f;
+        }
+
+        checks.Check(
+            "満杯のマニフォールドは**いちばん浅い点を捨てる**",
+            shallowDropped && MathF.Abs(manual.MaxDepth - 0.5f) < 1e-6f,
+            $"{manual.Count} 点、最深 {manual.MaxDepth:F2}");
+
+        // ============================================================
+        //  3. Collider にしたことで消えた分岐(要点2)
+        // ============================================================
+
+        var world = new PhysicsWorld();
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, -0.5f, 0.0f), Vector3.UnitY));
+
+        RigidBody landed = RigidBody.CreateBox(1.0f, 0.5f);
+        landed.Position = new Vector3(0.0f, -0.2f, 0.0f);
+        world.AddBody(landed);
+        world.Step(1.0f / 600.0f);
+
+        bool noNegative = true;
+        foreach (ContactPoint contact in world.Contacts)
+        {
+            noNegative &= contact.A >= 0 && contact.B >= 0;
+        }
+
+        checks.Check(
+            "**相手が -1 になる接触が無い**(平面も体になった)",
+            noNegative && world.Contacts.Count == 4,
+            $"{world.Contacts.Count} 点");
+        checks.Check(
+            "平面は体として数え、動く体には数えない",
+            world.Bodies.Count == 2 && world.PlaneCount == 1 && world.DynamicCount == 1,
+            $"体 {world.Bodies.Count} / 平面 {world.PlaneCount} / 動く体 {world.DynamicCount}");
+        checks.Check(
+            "1組から出た接触が4点(組と点は別の数)",
+            world.ContactPairs == 1 && world.Contacts.Count == 4,
+            $"{world.ContactPairs} 組 / {world.Contacts.Count} 点");
+
+        // ============================================================
+        //  4. 落として、支えられる
+        // ============================================================
+
+        // 落とした箱が、最後の1秒でどれだけ揺れているかを測る。
+        // **最後の値だけを見ると揺れを見逃す**ので、その間の最大値を採る。
+        static (float Height, float Tilt, float Spin) DropBox(
+            int maxContacts, int steps, bool together = true)
+        {
+            var w = new PhysicsWorld
+            {
+                MaxContactsPerPair = maxContacts,
+                SolveContactsTogether = together,
+            };
+            w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+            RigidBody body = RigidBody.CreateBox(1.0f, 0.5f);
+            body.Position = new Vector3(0.0f, 2.0f, 0.0f);
+            body.Restitution = 0.0f;
+            w.AddBody(body);
+
+            float tilt = 0.0f;
+            float spin = 0.0f;
+
+            for (int i = 0; i < steps; i++)
+            {
+                w.Step(1.0f / 60.0f);
+
+                if (i < steps - 60)
+                {
+                    continue;
+                }
+
+                Vector3 axis = Vector3.Transform(Vector3.UnitY, body.Orientation);
+                tilt = MathF.Max(tilt, MathF.Acos(Math.Clamp(axis.Y, -1.0f, 1.0f)));
+                spin = MathF.Max(spin, body.AngularVelocity.Length());
+            }
+
+            return (body.Position.Y, tilt, spin);
+        }
+
+        (float height4, float tilt4, float spin4) = DropBox(4, 300);
+
+        checks.Check(
+            "平らに落とした箱は、高さが半分の長さぶんで止まる",
+            MathF.Abs(height4 - 0.5f) < 0.01f,
+            $"{height4:F4}m(期待 0.5000m)");
+        checks.Check(
+            "最後の1秒、傾きも角速度もぴたりと 0(4点で支えている)",
+            tilt4 < 0.002f && spin4 < 0.002f,
+            $"傾き {tilt4 * 180.0f / MathF.PI:F4} 度、角速度 {spin4:F5} rad/s");
+
+        (_, float tilt1, float spin1) = DropBox(1, 300);
+
+        checks.Check(
+            "**接触点を1つに絞ると落ち着かない**(今日の見どころ)",
+            spin1 > 20.0f * MathF.Max(spin4, 1e-4f),
+            $"1点 {spin1:F4} rad/s / 4点 {spin4:F5} rad/s");
+        checks.Check(
+            "1点だと傾き続ける(4点なら傾かない)",
+            tilt1 > tilt4 + 0.005f,
+            $"1点 {tilt1 * 180.0f / MathF.PI:F2} 度 / 4点 {tilt4 * 180.0f / MathF.PI:F3} 度");
+
+        (_, _, float spinLoose) = DropBox(4, 300, together: false);
+
+        checks.Check(
+            "**4点を順番に解くと、床の箱1つでも揺れが止まらない**(要点5)",
+            spinLoose > 20.0f * MathF.Max(spin4, 1e-4f),
+            $"順番 {spinLoose:F4} rad/s / 同時 {spin4:F5} rad/s");
+
+        // ============================================================
+        //  5. 回転が本当に効くこと
+        // ============================================================
+
+        var tipWorld = new PhysicsWorld();
+        tipWorld.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+        RigidBody tipping = RigidBody.CreateBox(1.0f, 0.5f);
+        tipping.Position = new Vector3(0.0f, 1.2f, 0.0f);
+        tipping.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.6f);
+        tipping.Restitution = 0.0f;
+        tipping.AngularDamping = 0.4f;
+        tipWorld.AddBody(tipping);
+
+        float maxSpin = 0.0f;
+        for (int i = 0; i < 90; i++)
+        {
+            tipWorld.Step(1.0f / 60.0f);
+            maxSpin = MathF.Max(maxSpin, tipping.AngularVelocity.Length());
+        }
+
+        checks.Check(
+            "角から落ちた箱は**接触のインパルスで回り出す**(球では起きなかった)",
+            maxSpin > 0.5f,
+            $"最大角速度 {maxSpin:F3} rad/s");
+
+        for (int i = 0; i < 600; i++)
+        {
+            tipWorld.Step(1.0f / 60.0f);
+        }
+
+        Vector3 tippedUp = Vector3.Transform(Vector3.UnitY, tipping.Orientation);
+        float finalTilt = MathF.Acos(Math.Clamp(MathF.Abs(tippedUp.Y), -1.0f, 1.0f));
+
+        checks.Check(
+            "最後は面で落ち着く(いちばん近い面が下を向く)",
+            finalTilt < 0.06f && tipping.AngularVelocity.Length() < 0.05f,
+            $"傾き {finalTilt * 180.0f / MathF.PI:F2} 度、角速度 {tipping.AngularVelocity.Length():F4} rad/s");
+
+        checks.Report("すべて合格(箱は落ち、面で支えられる)");
         Console.WriteLine();
     }
 

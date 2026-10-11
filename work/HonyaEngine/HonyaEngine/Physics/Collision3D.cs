@@ -9,7 +9,7 @@ namespace HonyaEngine;
 /// <b>回転を扱い始めたから</b>。
 ///
 /// <list type="bullet">
-/// <item>力やインパルスを**どこに**掛けるかでトルクが変わる(要点2)</item>
+/// <item>力やインパルスを**どこに**掛けるかでトルクが変わる(Day 43 の要点2)</item>
 /// <item>だから「押し戻す向き」だけでなく「押し戻す場所」が要る</item>
 /// </list>
 ///
@@ -60,26 +60,34 @@ internal readonly struct Contact3D
 }
 
 /// <summary>
-/// 3D の衝突判定。**今日は球と平面だけ**。
+/// 3D の衝突判定。**今日、箱が入って3通りになった**。
 ///
-/// <see cref="Collision2D"/> の説明に書いた表を、3D で埋め始める日になる。
+/// <see cref="Collision2D"/> の説明に書いた表を、3D で埋めていく。
 /// Phase 7 で扱う形は 球 / 箱(OBB) / カプセル / 平面 / 地形 の5種類なので、
-/// 組み合わせは 15 通り。今日はそのうち<b>2通り</b>。
+/// 組み合わせは 15 通り。今日終わって<b>3通り</b>。
 ///
 /// <list type="table">
-/// <item><term>球 × 球</term><description>今日。中心距離と半径の和を比べるだけ</description></item>
-/// <item><term>球 × 平面</term><description>今日。符号付き距離と半径を比べるだけ</description></item>
-/// <item><term>箱 × 箱</term><description>Day 44(分離軸定理と接触マニフォールド)</description></item>
+/// <item><term>球 × 球</term><description>Day 43。中心距離と半径の和を比べるだけ</description></item>
+/// <item><term>球 × 平面</term><description>Day 43。符号付き距離と半径を比べるだけ</description></item>
+/// <item><term>箱 × 平面</term><description><b>今日</b>。8つの頂点を平面に落とすだけ</description></item>
+/// <item><term>球 × 箱</term><description>Day 44b。箱の上のいちばん近い点との距離</description></item>
+/// <item><term>箱 × 箱</term><description>Day 44b。分離軸定理</description></item>
 /// <item><term>カプセル × 各種</term><description>Day 45(線分間距離)</description></item>
 /// <item><term>地形 × 各種</term><description>Day 46(高さマップ)</description></item>
 /// </list>
 ///
 /// <para>
-/// <b>2通りしか無いのに、今日の山場はここではない</b>のが大事なところ。
-/// 判定は 10 行で終わり、残りの 300 行は「当たったあとどうするか」
-/// (<see cref="PhysicsWorld"/> のインパルス解決)に費やされる。
-/// 物理エンジンの難しさは判定ではなく<b>解決</b>にある、というのが
-/// 今日いちばん体で分かってほしいこと。
+/// <b>今日足す判定は短い</b>。箱と平面は8つの頂点を平面に落とすだけで、
+/// 分離軸定理はまだ要らない——平面は片側しか無いので、
+/// 試すべき軸は平面の法線1本だけだと最初から分かっている。
+/// 箱どうしになると軸が 15 本に増え、判定が一気に膨らむ(Day 44b)。
+/// </para>
+///
+/// <para>
+/// 戻り値も変わった。Day 43 は1点(<see cref="Contact3D"/>)を返していたが、
+/// 今日からは<b>最大4点の束</b>(<see cref="ContactManifold"/>)を返す。
+/// 球が絡む判定は点が1つしか出ないので <see cref="Contact3D"/> のまま書いて、
+/// <see cref="Collide"/> のところで束に包み直している。
 /// </para>
 /// </summary>
 internal static class Collision3D
@@ -155,4 +163,102 @@ internal static class Collision3D
 
         return Contact3D.Touching(plane.Normal, depth, point);
     }
+
+    /// <summary>
+    /// 箱と平面。**8つの頂点を平面に落とすだけ**(要点3)。
+    ///
+    /// 平面より下にある頂点が、そのまま接触点になる。
+    /// 分離軸定理を持ち出すまでもない——平面は片側しか無いので、
+    /// **試すべき軸は平面の法線1本だけ**だと分かっている。
+    ///
+    /// <para>
+    /// <b>ここが今日いちばん分かりやすいマニフォールド</b>になる。
+    /// 箱を平らに置けば4つの頂点が同時に沈むので接触点が4つ、
+    /// 傾けて辺で立てれば2つ、角で立てれば1つ。
+    /// <b>接触点の数が、そのまま支え方の数</b>になっているのが目で見える。
+    /// </para>
+    ///
+    /// <para>
+    /// 法線は平面の法線そのもの(箱 = A を平面 = B から引き離す向き)。
+    /// 種類の札が <see cref="ManifoldSource.FaceB"/> なのは、
+    /// <b>基準面が平面(B)の側</b>だから——箱の面ではなく平面が支えている。
+    /// </para>
+    /// </summary>
+    public static ContactManifold BoxPlane(in Box3D box, in Plane3D plane)
+    {
+        var manifold = new ContactManifold
+        {
+            Normal = plane.Normal,
+            Source = ManifoldSource.FaceB,
+        };
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = box.Corner(i);
+            float distance = plane.SignedDistance(corner);
+
+            if (distance >= 0.0f)
+            {
+                continue;
+            }
+
+            // 接触点はめり込んだ領域の真ん中(頂点と、その真上の面上の点の中点)。
+            manifold.Add(corner - (plane.Normal * (distance * 0.5f)), -distance);
+        }
+
+        return manifold;
+    }
+
+    /// <summary>
+    /// 2つの剛体を当てる。**形の組み合わせで判定関数を選ぶだけ**の窓口。
+    ///
+    /// Day 43 では <see cref="PhysicsWorld"/> が
+    /// 「体どうしなら <see cref="SphereSphere"/>、平面なら <see cref="SpherePlane"/>」と
+    /// 直に呼び分けていた。形が2つしか無いうちはそれで足りたが、
+    /// 5種類になると 15 通りになるので、**分岐は1箇所にまとめる**。
+    ///
+    /// <para>
+    /// 判定関数は片方の順番でしか書いていないので、
+    /// 逆順で来たときは <see cref="ContactManifold.Flipped"/> で法線を裏返す。
+    /// <b>「平面と箱」を書かずに「箱と平面」だけ書けばよい</b>ようにするための仕掛けで、
+    /// 形が増えるほど効いてくる(15 通りのうち実際に書くのは 5 通りで済む)。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>球と箱、箱と箱はまだ無い</b>(Day 44b)。今日のうちは <c>default</c> に落ちて、
+    /// 当たらずに素通りする。今日のデモが箱を間を空けて並べているのはそのため。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>平面どうしは当たらない</b>ことにしてある。どちらも静的なので、
+    /// 当たっていても何も起きない。
+    /// </para>
+    /// </summary>
+    public static ContactManifold Collide(RigidBody a, RigidBody b)
+    {
+        switch (a.Shape.Kind, b.Shape.Kind)
+        {
+            case (ColliderKind.Sphere, ColliderKind.Sphere):
+                return Wrap(SphereSphere(a.ToSphere(), b.ToSphere()));
+
+            case (ColliderKind.Sphere, ColliderKind.Plane):
+                return Wrap(SpherePlane(a.ToSphere(), b.ToPlane()));
+
+            case (ColliderKind.Plane, ColliderKind.Sphere):
+                return Wrap(SpherePlane(b.ToSphere(), a.ToPlane())).Flipped();
+
+            case (ColliderKind.Box, ColliderKind.Plane):
+                return BoxPlane(a.ToBox(), b.ToPlane());
+
+            case (ColliderKind.Plane, ColliderKind.Box):
+                return BoxPlane(b.ToBox(), a.ToPlane()).Flipped();
+
+            default:
+                return default;
+        }
+    }
+
+    /// <summary>1点の判定結果を、マニフォールドの形に包み直す。</summary>
+    private static ContactManifold Wrap(in Contact3D contact) =>
+        contact.Hit ? ContactManifold.Single(contact, ManifoldSource.Point) : default;
 }
