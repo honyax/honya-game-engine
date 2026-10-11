@@ -28,14 +28,22 @@ namespace HonyaEngine;
 /// 質量はスカラー1つだが、慣性は<b>軸によって違う</b>ので 3x3 の行列(テンソル)になる。
 /// 鉛筆は芯の向きには回しやすく、横に振るのは回しにくい——
 /// この差を1つの数では書けない。
-/// 球だけは例外的にどの軸も同じ(等方)なので、今日は楽ができる(要点4)。
+/// 球だけは例外的にどの軸も同じ(等方)なので1段簡単になる(Day 43 の要点3)。
 /// </para>
 ///
 /// <para>
-/// <b>逆数で持つ</b>のが物理エンジンの定石(要点3)。
+/// <b>逆数で持つ</b>のが物理エンジンの定石(Day 43 の要点3)。
 /// <see cref="InverseMass"/> が 0 なら「無限の質量」= 動かない物体で、
 /// 分岐を書かずに静的な床や壁を表せる。
 /// 割り算が消えて掛け算になるので、0 除算の心配も無くなる。
+/// </para>
+///
+/// <para>
+/// <b>Day 44 で形が外に出た</b>。Day 43 のこの型は <c>Radius</c> を直接持っていて、
+/// 「体 = 球」と言い切った作りだった。今日 <see cref="Collider"/> を切り出したので、
+/// 体が持つのは <see cref="Shape"/> ひとつになる。
+/// 慣性テンソルの計算も形の側(<see cref="Collider.InertiaLocal"/>)へ移った——
+/// <b>体は「重さと動き」だけを知り、寸法は形が知る</b>という分け方になる。
 /// </para>
 /// </summary>
 internal sealed class RigidBody
@@ -105,8 +113,10 @@ internal sealed class RigidBody
     ///
     /// <para>
     /// <b>球なら回しても変わらない</b>(対角が3つとも同じなので、
-    /// 回転で挟んでも元に戻る)。今日のデモではこの行列は定数のまま——
-    /// それでも一般形で書いてあるのは、Day 44 の箱でここが効いてくるから。
+    /// 回転で挟んでも元に戻る)。Day 43 のデモではこの行列は定数のままだった——
+    /// それでも一般形で書いておいたのは、箱でここが効いてくるから。
+    /// <b>今日その日が来た</b>。箱は3つの対角が違うので、
+    /// 傾けた箱を回すたびに世界での回しにくさが変わる。
     /// </para>
     /// </summary>
     public Matrix4x4 InverseInertiaWorld = Matrix4x4.Identity;
@@ -142,8 +152,14 @@ internal sealed class RigidBody
     /// <summary>角速度の減衰。<see cref="LinearDamping"/> と同じ性格。</summary>
     public float AngularDamping;
 
-    /// <summary>球の半径。**今日は形が球しか無い**ので、体が直接持っている。</summary>
-    public float Radius = 0.5f;
+    /// <summary>
+    /// この体の形。**寸法はすべてここにある**(Day 44)。
+    ///
+    /// Day 43 では <c>Radius</c> という名前で体が直接持っていた。
+    /// 箱には半径が無いので、形ごと外に出した(<see cref="Collider"/>)。
+    /// 判定は <see cref="Collision3D.Collide"/> がこの札を見て振り分ける。
+    /// </summary>
+    public Collider Shape = Collider.Sphere(0.5f);
 
     /// <summary>逆質量が 0 かどうか。**動かない物体**。</summary>
     public bool IsStatic => InverseMass <= 0.0f;
@@ -190,17 +206,46 @@ internal sealed class RigidBody
     /// **殻のほうが回しにくい**のは、同じ質量が外側に集まっているから。
     /// フィギュアスケートで腕を縮めると速く回るのと同じ話。
     /// </summary>
-    public static RigidBody CreateSphere(float mass, float radius)
+    public static RigidBody CreateSphere(float mass, float radius) =>
+        Create(mass, Collider.Sphere(radius));
+
+    /// <summary>
+    /// 中身の詰まった箱を作る。**半分の長さ**で渡す(要点1)。
+    ///
+    /// 慣性モーメントは <c>1/12 · m · (h² + d²)</c>。
+    /// 球と違って<b>軸ごとに違う値</b>になるので、
+    /// 細長い箱は「長い方向を軸にして回す」のは楽で、「横に振る」のは大変になる。
+    /// 今日のデモで細長い箱を撃つと、**倒れる向きが偏る**のがそれ。
+    /// </summary>
+    public static RigidBody CreateBox(float mass, Vector3 halfExtents) =>
+        Create(mass, Collider.Box(halfExtents));
+
+    /// <summary>中身の詰まった立方体。</summary>
+    public static RigidBody CreateBox(float mass, float halfSize) =>
+        Create(mass, Collider.Box(halfSize));
+
+    /// <summary>
+    /// 形と質量から体を1つ作る。**形ごとの分岐はここに無い**(Day 44)。
+    ///
+    /// Day 43 は <c>CreateSphere</c> の中に <c>0.4f * mass * radius * radius</c> と
+    /// 直に書いてあった。形が増えたので、慣性の式は形の側
+    /// (<see cref="Collider.InertiaLocal"/>)へ移した——
+    /// カプセル(Day 45)を足すときに、ここは1行も変わらない。
+    /// </summary>
+    public static RigidBody Create(float mass, in Collider shape)
     {
-        float inertia = 0.4f * mass * radius * radius;
+        Vector3 inertia = shape.InertiaLocal(mass);
 
         var body = new RigidBody
         {
+            Shape = shape,
             InverseMass = mass > 0.0f ? 1.0f / mass : 0.0f,
-            InverseInertiaLocal = inertia > 0.0f
-                ? new Vector3(1.0f / inertia)
-                : Vector3.Zero,
-            Radius = radius,
+
+            // **成分ごとに逆数を取る**。0 のまま割ると無限になるので、0 は 0 のまま。
+            InverseInertiaLocal = new Vector3(
+                inertia.X > 0.0f ? 1.0f / inertia.X : 0.0f,
+                inertia.Y > 0.0f ? 1.0f / inertia.Y : 0.0f,
+                inertia.Z > 0.0f ? 1.0f / inertia.Z : 0.0f),
         };
 
         body.UpdateInertiaWorld();
@@ -208,21 +253,88 @@ internal sealed class RigidBody
     }
 
     /// <summary>
-    /// 動かない球。**逆質量も逆慣性も 0**。
+    /// 動かない体。**逆質量も逆慣性も 0**。
     ///
-    /// 「無限に重い球」なので、何をぶつけても動かないし回らない。
-    /// 平面(<see cref="Plane3D"/>)で足りない静的な形を置きたいときに使う。
+    /// 「無限に重い」ので、何をぶつけても動かないし回らない。
+    /// 床の箱や、動かない障害物に使う。
+    ///
+    /// <para>
+    /// <b><see cref="UpdateInertiaWorld"/> を必ず呼ぶ</b>。
+    /// <see cref="InverseInertiaWorld"/> の初期値は単位行列なので、
+    /// 呼ばないままだと「回しにくさ 0」ではなく「回しにくさ 1」の体になる。
+    /// すると <c>PhysicsWorld.AngularTerm</c> が <c>|r x n|²</c> をそのまま返し、
+    /// <b>接触点が体の位置から離れているほど押し戻しが効かなくなる</b>——
+    /// 壁(±5m)に当たった球が沈み込む形で出る。
+    /// </para>
     /// </summary>
-    public static RigidBody CreateStaticSphere(float radius) =>
-        new()
+    public static RigidBody CreateStatic(in Collider shape)
+    {
+        var body = new RigidBody
         {
+            Shape = shape,
             InverseMass = 0.0f,
             InverseInertiaLocal = Vector3.Zero,
-            Radius = radius,
+
+            // **反発係数は 1**。<see cref="PhysicsWorld"/> は2つの体の小さいほうを採るので、
+            // 1 にしておくと<b>相手の値がそのまま通る</b>。
+            // Day 43 の平面は反発係数を持っていなかった(ぶつけた球の値をそのまま使った)ので、
+            // 平面を体にしても同じ意味になるように揃えてある。
+            // 「跳ねない床」が欲しければ、作ったあとで 0 を入れる。
+            Restitution = 1.0f,
         };
 
+        // **逆慣性テンソルを世界へ運び直す**(Day 46 で足した)。
+        // 初期値が単位行列なので、これを呼ばないと「回しにくさ 0」にならない。
+        body.UpdateInertiaWorld();
+        return body;
+    }
+
+    /// <summary>
+    /// 無限に広い平面。**必ず静的**(Day 44)。
+    ///
+    /// Day 43 では平面だけ <see cref="PhysicsWorld"/> が別のリストに持っていて、
+    /// 接触の相手番号が <c>-1</c> になるという歪みを生んでいた。
+    /// 今日、平面も「形の1つを持った動かない体」にしたので、その分岐が消えた。
+    ///
+    /// <para>
+    /// <b><see cref="Position"/> が「重心」でなくなる</b>のは承知のうえ。
+    /// 無限に広い形に重心は無いが、逆質量が 0 なので重心が使われる場所が無い——
+    /// ここでは「平面が通る点」の意味になる。
+    /// Bullet の <c>btStaticPlaneShape</c> もまったく同じ割り切りをしている。
+    /// </para>
+    /// </summary>
+    public static RigidBody CreatePlane(Vector3 point, Vector3 normal)
+    {
+        var body = new RigidBody
+        {
+            Shape = Collider.Plane(normal),
+            Position = point,
+            InverseMass = 0.0f,
+            InverseInertiaLocal = Vector3.Zero,
+
+            // **相手の反発係数をそのまま通す**(<see cref="CreateStatic"/> と同じ理由)。
+            Restitution = 1.0f,
+        };
+
+        body.UpdateInertiaWorld();
+        return body;
+    }
+
     /// <summary>球としての形。判定関数へ渡すときの受け皿。</summary>
-    public Sphere3D ToSphere() => new(Position, Radius);
+    public Sphere3D ToSphere() => new(Position, Shape.Radius);
+
+    /// <summary>箱としての形。**向きは体の向きがそのまま箱の向きになる**。</summary>
+    public Box3D ToBox() => new(Position, Shape.HalfExtents, Orientation);
+
+    /// <summary>
+    /// 平面としての形。法線は体の向きで回した先。
+    ///
+    /// 平面は静的なので実際には回らないが、
+    /// 「形は物体座標、世界での姿は体が決める」を3つの形で揃えておくと、
+    /// 判定側が形の置き方を気にしなくてよくなる。
+    /// </summary>
+    public Plane3D ToPlane() =>
+        Plane3D.FromPointNormal(Position, Vector3.Transform(Shape.Normal, Orientation));
 
     /// <summary>
     /// 慣性テンソルの逆数を世界座標へ運び直す。**向きが変わるたびに要る**。
@@ -233,10 +345,11 @@ internal sealed class RigidBody
     /// 列ベクトル規約の教科書では <c>R · D · R^T</c> と書かれるが、同じものを指している。
     ///
     /// <para>
-    /// <b>球なら計算する意味が無い</b>(結果が入力と同じ)。
-    /// それでも毎ステップ呼んでいるのは、Day 44 で箱を足したときに
+    /// <b>球なら計算する意味が無かった</b>(結果が入力と同じ)。
+    /// それでも Day 43 から毎ステップ呼んでいたのは、箱を足したときに
     /// <b>ここだけが正しく効いていない</b>という事故を防ぐため——
-    /// 使わないうちから正しい形で書いておくと、後で足すのが1行で済む。
+    /// 実際、今日 <see cref="Collider.InertiaLocal"/> を足すだけで箱が正しく回った。
+    /// <b>使わないうちから正しい形で書いておくと、後で足すのが1行で済む</b>の実例になっている。
     /// </para>
     /// </summary>
     public void UpdateInertiaWorld()
@@ -251,7 +364,7 @@ internal sealed class RigidBody
     public void ApplyForce(Vector3 force) => Force += force;
 
     /// <summary>
-    /// 世界座標のある点に力を掛ける。**ここでトルクが生まれる**(要点2)。
+    /// 世界座標のある点に力を掛ける。**ここでトルクが生まれる**(Day 43 の要点2)。
     ///
     /// <c>τ = r × F</c>。r は重心から作用点へのベクトル。
     /// 外積なので、
@@ -357,7 +470,7 @@ internal sealed class RigidBody
     /// 位置と向きを進める。**速度 → 位置**。
     ///
     /// 並進は <c>x += v·dt</c> でよいが、回転はクォータニオンなので
-    /// <c>q += ½ ω q dt</c> という見慣れない式になる(要点5)。
+    /// <c>q += ½ ω q dt</c> という見慣れない式になる(Day 43 の要点4)。
     ///
     /// <para>
     /// 足し算をした時点で単位クォータニオンから外れる(長さが 1 でなくなる)ので、
