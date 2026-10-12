@@ -15,8 +15,7 @@ namespace HonyaEngine;
 /// つまり「どの軸まわりにも回りにくさが同じ」なので、
 /// <see cref="RigidBody"/> 側の計算も1段簡単になる(Day 43 の要点3)。
 /// **今日足す箱(<see cref="Box3D"/>)では、この2つがどちらも崩れる**——
-/// 判定は向きを見ることになり(箱どうしなら 15 本の軸。Day 44b)、
-/// 慣性テンソルは軸ごとに違う値になる。
+/// 判定は 15 本の軸を調べることになり、慣性テンソルは軸ごとに違う値になる。
 /// </para>
 ///
 /// <para>
@@ -95,7 +94,7 @@ internal readonly struct Plane3D
     ///
     /// 内積1回と引き算1回。**3D の衝突判定でいちばん多く呼ばれる式**で、
     /// 球と平面(<see cref="Collision3D.SpherePlane"/>)も、
-    /// 視錐台カリングも、SAT の投影(Day 44b)も、全部これでできている。
+    /// 視錐台カリングも、**今日の SAT の投影**も、全部これでできている。
     /// </summary>
     public float SignedDistance(Vector3 point) => Vector3.Dot(Normal, point) - Distance;
 
@@ -109,8 +108,7 @@ internal readonly struct Plane3D
 /// <see cref="Box2D"/>(Day 25)の3D版だが、性格はだいぶ違う。
 /// 2D の箱は軸に沿った AABB で、判定は各軸の重なりを見るだけだった。
 /// こちらは**向きを持つ**ので、比べるべき軸が最初から決まっていない——
-/// 箱どうしの判定に分離軸定理(Day 44b)が要るのはそのため。
-/// 今日は平面との判定だけなので、頂点が出せれば足りる。
+/// そこで出てくるのが分離軸定理(要点1)。
 ///
 /// <para>
 /// 持っているのは中心・半分の長さ・向きの3つだけ。
@@ -150,8 +148,85 @@ internal readonly struct Box3D
         Orientation = orientation;
     }
 
+    /// <summary>箱の x 軸(世界座標)。**長さ1**。</summary>
+    public Vector3 AxisX => Vector3.Transform(Vector3.UnitX, Orientation);
+
+    /// <summary>箱の y 軸(世界座標)。</summary>
+    public Vector3 AxisY => Vector3.Transform(Vector3.UnitY, Orientation);
+
+    /// <summary>箱の z 軸(世界座標)。</summary>
+    public Vector3 AxisZ => Vector3.Transform(Vector3.UnitZ, Orientation);
+
+    /// <summary>
+    /// 添字で軸を取る。**SAT のループが添字で回る**ので要る。
+    ///
+    /// 0 = x、1 = y、2 = z。範囲外は z を返す(呼ぶ側が 0〜2 で回すので起きない)。
+    /// </summary>
+    public Vector3 Axis(int index) => index switch
+    {
+        0 => AxisX,
+        1 => AxisY,
+        _ => AxisZ,
+    };
+
+    /// <summary>半分の長さを添字で取る。<see cref="Axis"/> と対で使う。</summary>
+    public float Extent(int index) => index switch
+    {
+        0 => HalfExtents.X,
+        1 => HalfExtents.Y,
+        _ => HalfExtents.Z,
+    };
+
     /// <summary>物体座標の点を世界へ。</summary>
     public Vector3 ToWorld(Vector3 local) => Center + Vector3.Transform(local, Orientation);
+
+    /// <summary>
+    /// 世界の点を物体座標へ。**箱の判定はほとんどここから始まる**。
+    ///
+    /// 物体座標へ持ち込めば、箱は原点中心の軸に沿った箱になる。
+    /// 「傾いた箱と点」の問題が「軸に沿った箱と点」に化けるので、
+    /// Day 25 の 2D で書いた <c>Collision2D.CircleBox</c> と同じ手が使える。
+    /// </summary>
+    public Vector3 ToLocal(Vector3 world) =>
+        Vector3.Transform(world - Center, Quaternion.Conjugate(Orientation));
+
+    /// <summary>
+    /// 箱の上(内側を含む)でいちばん近い点。**物体座標で各成分を clamp するだけ**。
+    ///
+    /// 傾いた箱でも、物体座標へ持ち込めば軸に沿った箱になるので、
+    /// x・y・z それぞれを ±半分の長さに切り詰めれば終わる。
+    /// **点が箱の中にあるときは、その点自身が返る**——
+    /// 距離が 0 になるので、球と箱の判定(<see cref="Collision3D.SphereBox"/>)では
+    /// そこだけ別に扱うことになる。
+    /// </summary>
+    public Vector3 ClosestPoint(Vector3 world)
+    {
+        Vector3 local = ToLocal(world);
+        Vector3 clamped = Vector3.Clamp(local, -HalfExtents, HalfExtents);
+        return ToWorld(clamped);
+    }
+
+    /// <summary>
+    /// この向きに投影したときの「半径」。**SAT の主役**(要点1)。
+    ///
+    /// <code>
+    ///   r(n) = |e_x (a_x · n)| + |e_y (a_y · n)| + |e_z (a_z · n)|
+    /// </code>
+    ///
+    /// 箱を軸 n に落とすと線分になる。その線分の中心は箱の中心を落とした点で、
+    /// 長さの半分がこの値。**絶対値の和になる**のは、
+    /// どの角がいちばん n の向きに突き出るかを場合分けせずに済ませるため——
+    /// 3つの軸それぞれについて「n に沿った成分を、突き出る側へ」足している。
+    ///
+    /// <para>
+    /// n が箱の軸の1つと揃っているときは、他の2項が 0 になって
+    /// その軸の半分の長さがそのまま出る。当たり前の答えが出るのが確認になる。
+    /// </para>
+    /// </summary>
+    public float ProjectedRadius(Vector3 axis) =>
+        MathF.Abs(HalfExtents.X * Vector3.Dot(AxisX, axis))
+        + MathF.Abs(HalfExtents.Y * Vector3.Dot(AxisY, axis))
+        + MathF.Abs(HalfExtents.Z * Vector3.Dot(AxisZ, axis));
 
     /// <summary>
     /// 8つの頂点のうち1つ。添字の**下位3ビットが各軸の符号**。
@@ -165,6 +240,23 @@ internal readonly struct Box3D
             (index & 1) != 0 ? HalfExtents.X : -HalfExtents.X,
             (index & 2) != 0 ? HalfExtents.Y : -HalfExtents.Y,
             (index & 4) != 0 ? HalfExtents.Z : -HalfExtents.Z);
+
+        return ToWorld(local);
+    }
+
+    /// <summary>
+    /// この向きにいちばん突き出た頂点(**支持点**)。
+    ///
+    /// 物体座標で「各軸の成分の符号を、n の側へ倒す」だけ。
+    /// 凸形状の判定で繰り返し出てくる関数で、GJK も EPA もこれ1本でできている
+    /// (発展課題として Day 44b の改造課題3に置いた)。
+    /// </summary>
+    public Vector3 Support(Vector3 direction)
+    {
+        var local = new Vector3(
+            Vector3.Dot(AxisX, direction) >= 0.0f ? HalfExtents.X : -HalfExtents.X,
+            Vector3.Dot(AxisY, direction) >= 0.0f ? HalfExtents.Y : -HalfExtents.Y,
+            Vector3.Dot(AxisZ, direction) >= 0.0f ? HalfExtents.Z : -HalfExtents.Z);
 
         return ToWorld(local);
     }
