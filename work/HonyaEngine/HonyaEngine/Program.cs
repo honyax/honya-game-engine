@@ -772,6 +772,15 @@ internal static class Program
         /// 接触点の上限を 1 にすると<b>いつまでも落ち着かない</b>のが見どころ。
         /// </summary>
         BoxDrop,
+
+        /// <summary>箱を縦に積む。**球より安定する**——面が4点で支えるから。</summary>
+        BoxStack,
+
+        /// <summary>球と箱を混ぜて、傾けた静的な箱の上に落とす。**5通りの判定が全部走る**。</summary>
+        BoxMix,
+
+        /// <summary>細長い箱を回しながら落とす。**辺×辺の軸が出る**場面。</summary>
+        BoxTumble,
     }
 
     /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
@@ -865,6 +874,9 @@ internal static class Program
     private static readonly int[] ContactLimits = [1, 2, 4];
 
     private static int _contactLimitIndex = 2;
+
+    /// <summary>降らせた箱の数。色を巡回させるのに使う。</summary>
+    private static int _boxSpawnCount;
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
@@ -1836,9 +1848,11 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("--- Day 44: 箱(OBB)の衝突(Ctrl+Shift+Alt+数字キー)---");
         Console.WriteLine("Ctrl+Shift+Alt+1:箱デモ ON/OFF。**傾きを振った箱が落ちて、面で落ち着く。今日の到達点**");
+        Console.WriteLine("Ctrl+Shift+Alt+2:筋書き(箱を落とす/箱を積む/球と箱/箱が転がる)");
         Console.WriteLine("Ctrl+Shift+Alt+3:接触点の表示 ON/OFF(**光る玉がマニフォールドの点**)");
         Console.WriteLine("Ctrl+Shift+Alt+4:1組あたりの接触点 1/2/4(**1 にすると箱が落ち着かない。今日の実験**)");
-        Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。順番にすると床の箱が揺れ止まない)");
+        Console.WriteLine("Ctrl+Shift+Alt+5:箱を1つ降らせる  Ctrl+Shift+Alt+6:接触の内訳(どの軸が効いたか)");
+        Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。切ると積んだ箱が崩れる)");
         Console.WriteLine("Ctrl+Shift+Alt+0:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
@@ -4017,9 +4031,12 @@ internal static class Program
 
         // **カメラは少し高いところから**。真横から見ると重なりが読めず、
         // 真上から見ると高さが読めない。物理は高さの絵なので、やや斜め上に置く。
+        //
+        // **柱を組む筋書きだけは引いて上げる**(Day 44)。
+        // 箱を6段積むと 5m を超えるので、Day 43 の画角では上が切れる。
         _orbit.Reset();
-        _orbit.Target = new Vector3(0.0f, 1.0f, 0.0f);
-        _orbit.Distance = 12.0f;
+        _orbit.Target = new Vector3(0.0f, scene == PhysicsScene.BoxStack ? 2.4f : 1.0f, 0.0f);
+        _orbit.Distance = scene == PhysicsScene.BoxStack ? 15.0f : 12.0f;
         _orbit.Yaw = 0.35f;
         _orbit.Pitch = 0.22f;
         _orbit.Apply();
@@ -4046,7 +4063,7 @@ internal static class Program
 
         // **床は無限に広い平面**。描いている板(20x20)の外にも続いているので、
         // 遠くへ飛んでいった物も落ちない。
-        // 有限の床が要るときは静的な箱を置く(箱の上に物を載せられるのは Day 44b から)。
+        // 有限の床が要るときは静的な箱を置く(<see cref="BuildBoxTumbleScene"/>)。
         AddPhysicsPlane(new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY);
 
         // **見えない壁を4枚**。摩擦が無いので、横向きの速度は一切減らない——
@@ -4073,6 +4090,18 @@ internal static class Program
 
             case PhysicsScene.BoxDrop:
                 BuildBoxDropScene();
+                break;
+
+            case PhysicsScene.BoxStack:
+                BuildBoxStackScene();
+                break;
+
+            case PhysicsScene.BoxMix:
+                BuildBoxMixScene();
+                break;
+
+            case PhysicsScene.BoxTumble:
+                BuildBoxTumbleScene();
                 break;
         }
     }
@@ -4237,6 +4266,172 @@ internal static class Program
             BodyColors.Add(SrgbToLinear(
                 new Vector4(0.30f + (0.55f * t), 0.75f - (0.45f * t), 0.35f + (0.55f * t), 1.0f)));
         }
+    }
+
+    /// <summary>
+    /// 箱を積む。**球の積み上げ(<see cref="BuildStackScene"/>)と見比べる**のが眼目。
+    ///
+    /// 同じ反復回数でも、箱のほうが目に見えて安定する。
+    /// 球は1点でしか触れないので、下の球が少しずれると上が転がり落ちるが、
+    /// 箱は<b>4点で支える</b>ので横ずれに強い。
+    ///
+    /// <para>
+    /// 摩擦が無いので<b>ずらして積むことはできない</b>(横向きの支えが無い)。
+    /// 真上にきれいに積む形だけが、摩擦なしで成立する積み方になる。
+    /// </para>
+    /// </summary>
+    private static void BuildBoxStackScene()
+    {
+        const float half = 0.42f;
+
+        for (int i = 0; i < 6; i++)
+        {
+            RigidBody body = RigidBody.CreateBox(1.0f, half);
+            body.Position = new Vector3(0.0f, PhysicsFloorY + half + (i * half * 2.0f), 0.0f);
+            body.Restitution = 0.0f;
+            body.AngularDamping = 0.4f;
+            Physics.AddBody(body);
+
+            float t = i / 5.0f;
+            BodyColors.Add(SrgbToLinear(
+                new Vector4(0.85f - (0.4f * t), 0.55f + (0.3f * t), 0.25f + (0.5f * t), 1.0f)));
+        }
+    }
+
+    /// <summary>
+    /// 球と箱を混ぜて、**傾けた静的な箱**の上に落とす。
+    ///
+    /// この筋書きだけで<b>今日足した判定が全部走る</b>——
+    /// 球×箱、箱×箱、箱×平面、そして Day 43 の球×球・球×平面。
+    /// HUD の「面 / 辺 / 点」の内訳が刻々と変わるのが見える。
+    ///
+    /// <para>
+    /// <b>台は動かない箱</b>(<see cref="RigidBody.CreateStatic"/>)。
+    /// 平面と違って<b>端がある</b>ので、滑り落ちた物は台の縁から落ちる——
+    /// Day 43 で「平面には端が無い」と書いた話への、今日の答えになっている。
+    /// </para>
+    ///
+    /// <para>
+    /// 摩擦が無いので、乗ったものは必ず滑り落ちる。
+    /// **止まってほしければ Day 47 まで待つ**。
+    /// </para>
+    /// </summary>
+    private static void BuildBoxMixScene()
+    {
+        RigidBody ramp = RigidBody.CreateStatic(Collider.Box(new Vector3(2.8f, 0.2f, 1.8f)));
+        ramp.Position = new Vector3(-1.0f, 1.1f, 0.0f);
+        ramp.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -0.32f);
+        ramp.Restitution = 0.1f;
+        Physics.AddBody(ramp);
+        BodyColors.Add(SrgbToLinear(new Vector4(0.45f, 0.45f, 0.50f, 1.0f)));
+
+        for (int i = 0; i < 8; i++)
+        {
+            bool box = (i % 2) == 0;
+
+            RigidBody body = box
+                ? RigidBody.CreateBox(1.0f, 0.30f)
+                : RigidBody.CreateSphere(1.0f, 0.32f);
+
+            body.Position = new Vector3(
+                -3.2f + (i * 0.42f), 3.4f + (i * 0.55f), ((i % 3) - 1) * 0.45f);
+            body.Orientation = Quaternion.CreateFromYawPitchRoll(i * 0.4f, i * 0.3f, i * 0.2f);
+            body.Restitution = 0.25f;
+            body.AngularDamping = 0.25f;
+            Physics.AddBody(body);
+
+            // 箱は暖色、球は寒色。**形の違いが色で分かる**ようにしておく。
+            BodyColors.Add(SrgbToLinear(box
+                ? new Vector4(0.95f, 0.55f, 0.20f, 1.0f)
+                : new Vector4(0.25f, 0.60f, 0.95f, 1.0f)));
+        }
+    }
+
+    /// <summary>
+    /// 細長い箱を回しながら落とす。**辺×辺の軸が出る場面**(要点1)。
+    ///
+    /// 角と角がすれ違うように当たると、
+    /// 面の法線 6 本では分離を見つけられず、辺の外積 9 本のどれかが最小になる。
+    /// HUD の「辺」が 0 でなくなるのはたいていこの筋書き。
+    ///
+    /// <para>
+    /// 細長い箱は<b>慣性テンソルが軸ごとに大きく違う</b>(Day 44a の要点1)。
+    /// 長い方向を軸にして回すのは楽で、横に振るのは大変——
+    /// 同じ角速度を与えても、当たったあとに残る回り方が軸によって違うのが見える。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>台は有限の箱</b>なので、落ちた箱は台の縁からこぼれ落ちる。
+    /// </para>
+    /// </summary>
+    private static void BuildBoxTumbleScene()
+    {
+        RigidBody pedestal = RigidBody.CreateStatic(Collider.Box(new Vector3(1.8f, 0.35f, 1.8f)));
+        pedestal.Position = new Vector3(0.0f, PhysicsFloorY + 0.35f, 0.0f);
+        pedestal.Restitution = 0.2f;
+        Physics.AddBody(pedestal);
+        BodyColors.Add(SrgbToLinear(new Vector4(0.40f, 0.42f, 0.48f, 1.0f)));
+
+        for (int i = 0; i < 4; i++)
+        {
+            RigidBody body = RigidBody.CreateBox(1.0f, new Vector3(0.75f, 0.16f, 0.24f));
+            body.Position = new Vector3(((i % 2) - 0.5f) * 1.4f, 3.0f + (i * 0.9f), (i - 1.5f) * 0.5f);
+            body.Orientation = Quaternion.CreateFromYawPitchRoll(0.7f * i, 0.5f, 0.9f);
+
+            // **回しながら落とす**。角速度があると、当たる瞬間の姿勢が毎回違う。
+            body.AngularVelocity = new Vector3(2.0f, 1.2f, -1.5f);
+            body.Restitution = 0.3f;
+            body.AngularDamping = 0.15f;
+            Physics.AddBody(body);
+
+            float t = i / 3.0f;
+            BodyColors.Add(SrgbToLinear(
+                new Vector4(0.90f - (0.5f * t), 0.35f + (0.4f * t), 0.75f, 1.0f)));
+        }
+    }
+
+    /// <summary>
+    /// 箱を1つ降らせる(Ctrl+Shift+Alt+5)。
+    ///
+    /// <see cref="SpawnBall"/> の箱版。**向きを毎回変える**のがこちらの要点で、
+    /// 同じ形でも落ちる姿勢が違えば、着地の接触点の数が変わる。
+    /// </summary>
+    private static void SpawnBox()
+    {
+        if (!_physicsDemo)
+        {
+            return;
+        }
+
+        float angle = _boxSpawnCount * 2.399963f;   // 黄金角。**重ならないように散る**
+
+        // 縦横比を少しずつ変える。**細長いものほど倒れやすい**のが見える。
+        var half = new Vector3(
+            0.22f + (0.10f * (_boxSpawnCount % 3)),
+            0.22f,
+            0.22f + (0.06f * ((_boxSpawnCount + 1) % 3)));
+
+        // 質量は体積に比例させる(密度をそろえる)。
+        float mass = half.X * half.Y * half.Z * 8.0f * 6.0f;
+
+        RigidBody body = RigidBody.CreateBox(mass, half);
+        body.Position = new Vector3(MathF.Cos(angle) * 1.8f, 4.5f, MathF.Sin(angle) * 1.8f);
+        body.Orientation = Quaternion.CreateFromYawPitchRoll(angle, angle * 0.7f, angle * 0.3f);
+        body.Restitution = RestitutionSteps[_restitutionIndex];
+        body.AngularDamping = 0.25f;
+
+        Physics.AddBody(body);
+        BodyColors.Add(SrgbToLinear(new Vector4(
+            0.55f + (0.4f * MathF.Abs(MathF.Sin(angle))),
+            0.45f,
+            0.30f + (0.5f * MathF.Abs(MathF.Cos(angle))),
+            1.0f)));
+
+        _boxSpawnCount++;
+
+        Console.WriteLine(
+            $"箱を1つ追加: 半分の長さ ({half.X:F2}, {half.Y:F2}, {half.Z:F2})m "
+            + $"質量 {body.Mass:F2}kg  体 {Physics.DynamicCount} 個(動くもの)");
     }
 
     /// <summary>球を1つ降らせる(Ctrl+Shift+Alt+F7)。</summary>
@@ -4478,6 +4673,9 @@ internal static class Program
         PhysicsScene.Stack => "積み上げ",
         PhysicsScene.Cradle => "撞き玉",
         PhysicsScene.BoxDrop => "箱を落とす",
+        PhysicsScene.BoxStack => "箱を積む",
+        PhysicsScene.BoxMix => "球と箱",
+        PhysicsScene.BoxTumble => "箱が転がる",
         _ => "落下",
     };
 
@@ -4516,14 +4714,15 @@ internal static class Program
     /// 見どころは3つ。
     /// <list type="bullet">
     /// <item><b>組と点が別</b>——床に置いた箱1つで「1組・4点」が正しい姿</item>
-    /// <item><b>面 / 点</b>——どこから接触が出たか(<see cref="ManifoldSource"/>)。
-    ///   今日は箱と平面なら面、球が絡めば点</item>
+    /// <item><b>面 / 辺 / 点</b>——どの軸から接触が出たか(<see cref="ManifoldSource"/>)。
+    ///   面で触れているはずなのに「辺」が並ぶなら、<see cref="Sat"/> の下駄を疑う</item>
     /// <item><b>上限</b>——Ctrl+Shift+Alt+4 で 1 にすると、点の数が組の数と同じになる</item>
     /// </list>
     /// </summary>
     private static string ContactLabel() =>
         $"接触[{Physics.ContactPairs}組 {Physics.Contacts.Count}点 上限{Physics.MaxContactsPerPair}]  "
         + $"面:{Physics.SourceCount(ManifoldSource.FaceA) + Physics.SourceCount(ManifoldSource.FaceB)}  "
+        + $"辺:{Physics.SourceCount(ManifoldSource.EdgeEdge)}  "
         + $"点:{Physics.SourceCount(ManifoldSource.Point)}  "
         + $"解き方:{(Physics.SolveContactsTogether ? "同時" : "**順番**")}  "
         + $"表示:{OnOff(_showContacts)}";
@@ -4569,6 +4768,63 @@ internal static class Program
                 + $"速度 {body.LinearVelocity.Length():F3}m/s  "
                 + $"角速度 {body.AngularVelocity.Length():F3}rad/s  "
                 + $"質量 {(body.IsStatic ? "静的" : $"{body.Mass:F2}kg")}  e={body.Restitution:F2}");
+        }
+
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// 接触の内訳をコンソールへ(Ctrl+Shift+Alt+6)。**SAT が何を選んだかを見る**。
+    ///
+    /// HUD の1行では組の合計しか出ないので、
+    /// 「どの体とどの体が、どの軸で、何点で触れているか」をここで全部出す。
+    /// <b>箱が震えるときに最初に見る場所</b>で、
+    /// 点が1つしか立っていない組を探すのが定石になる。
+    /// </summary>
+    private static void DescribeContacts()
+    {
+        Console.WriteLine();
+        Console.WriteLine($"--- 接触の内訳({PhysicsSceneLabel()})---");
+        Console.WriteLine(
+            $"  {Physics.ContactPairs} 組 / {Physics.Contacts.Count} 点"
+            + $"(1組の上限 {Physics.MaxContactsPerPair})");
+        Console.WriteLine(
+            $"  解き方: {(Physics.SolveContactsTogether ? "同時(4点をまとめて)" : "順番(1点ずつ)")}");
+        Console.WriteLine(
+            $"  出どころ: A面 {Physics.SourceCount(ManifoldSource.FaceA)}  "
+            + $"B面 {Physics.SourceCount(ManifoldSource.FaceB)}  "
+            + $"辺×辺 {Physics.SourceCount(ManifoldSource.EdgeEdge)}  "
+            + $"点(球) {Physics.SourceCount(ManifoldSource.Point)}");
+        Console.WriteLine();
+
+        if (Physics.Contacts.Count == 0)
+        {
+            Console.WriteLine("  接触なし(全部宙に浮いている)");
+            Console.WriteLine();
+            return;
+        }
+
+        int previousPair = -1;
+
+        for (int i = 0; i < Physics.Contacts.Count; i++)
+        {
+            ContactPoint contact = Physics.Contacts[i];
+
+            // 同じ組の点は続けて並んでいるので、組が変わったときだけ見出しを出す。
+            int pairKey = (contact.A * 1000) + contact.B;
+            if (pairKey != previousPair)
+            {
+                previousPair = pairKey;
+                Console.WriteLine(
+                    $"  [{contact.A,2}]{ShapeLabel(Physics.Bodies[contact.A])} × "
+                    + $"[{contact.B,2}]{ShapeLabel(Physics.Bodies[contact.B])}  "
+                    + $"法線 ({contact.Normal.X:F2}, {contact.Normal.Y:F2}, {contact.Normal.Z:F2})");
+            }
+
+            Console.WriteLine(
+                $"      点 ({contact.Point.X:F2}, {contact.Point.Y:F2}, {contact.Point.Z:F2})  "
+                + $"めり込み {-contact.Separation * 1000.0f:F2}mm  "
+                + $"跳ね返り目標 {contact.Bounce:F3}m/s");
         }
 
         Console.WriteLine();
@@ -11839,10 +12095,37 @@ internal static class Program
                 {
                     ShowPhysicsDemo(PhysicsScene.BoxDrop);
                     Console.WriteLine(
-                        $"箱デモ: {PhysicsSceneLabel()}({Physics.DynamicCount} 体)");
+                        $"箱デモ: {PhysicsSceneLabel()}({Physics.DynamicCount} 体)。"
+                        + "**Ctrl+Shift+Alt+2 で筋書きを切り替え**");
                     Console.WriteLine(
                         "  3:接触点の表示  4:**1組の接触点 1/2/4(今日の実験)**  "
-                        + "7:接触点の解き方  0:自己チェック");
+                        + "5:箱を追加  6:接触の内訳  0:自己チェック");
+                }
+
+                break;
+
+            case Key.Number2 when ctrl && shift && alt:
+                {
+                    PhysicsScene next = _physicsScene switch
+                    {
+                        PhysicsScene.BoxDrop => PhysicsScene.BoxStack,
+                        PhysicsScene.BoxStack => PhysicsScene.BoxMix,
+                        PhysicsScene.BoxMix => PhysicsScene.BoxTumble,
+                        _ => PhysicsScene.BoxDrop,
+                    };
+
+                    ShowPhysicsDemo(next);
+                    Console.WriteLine(_physicsScene switch
+                    {
+                        PhysicsScene.BoxStack =>
+                            "筋書き: **箱を積む**(縦に6個。球の積み上げより安定する)",
+                        PhysicsScene.BoxMix =>
+                            "筋書き: **球と箱**(傾けた静的な箱の上へ。5通りの判定が全部走る)",
+                        PhysicsScene.BoxTumble =>
+                            "筋書き: **箱が転がる**(細長い箱を回しながら。辺×辺の軸が出る)",
+                        _ =>
+                            "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
+                    });
                 }
 
                 break;
@@ -11870,6 +12153,14 @@ internal static class Program
                         : string.Empty));
                 break;
 
+            case Key.Number5 when ctrl && shift && alt:
+                SpawnBox();
+                break;
+
+            case Key.Number6 when ctrl && shift && alt:
+                DescribeContacts();
+                break;
+
             case Key.Number7 when ctrl && shift && alt:
                 // **今日いちばん深い比較**(要点5)。Day 43 の <c>Ctrl+Shift+Alt+F2</c>
                 // (積分法の切り替え)と同じ性格のつまみで、
@@ -11884,8 +12175,8 @@ internal static class Program
                 if (!Physics.SolveContactsTogether)
                 {
                     Console.WriteLine(
-                        "  **床の箱1つでも揺れが止まらない**"
-                        + "(Ctrl+Shift+Alt+F9 の角速度が 0 に落ちない。積むと崩れる: Day 44b)");
+                        "  **箱を積む筋書き(Ctrl+Shift+Alt+2)で見ると一目で分かる**"
+                        + "——柱がじりじり滑って崩れる");
                 }
 
                 break;
@@ -15436,13 +15727,20 @@ internal static class Program
     /// 今日の自己チェック(Ctrl+Shift+Alt+0)。
     ///
     /// 箱の判定は<b>間違っていてもそれらしく動く</b>のが Day 43 より始末が悪い。
-    /// 接触点が1つしか出なくても、4点を順番に解いても、
+    /// 辺×辺の軸を落としても、接触点が1つしか出なくても、
     /// 箱はとりあえず床の上に乗る。「なんとなく乗っている」と「合っている」を
     /// 分けられるのは数字だけなので、
-    /// <b>解析解(慣性モーメント)と、接触点の数と、落ち着いたあとの揺れ</b>で押さえる。
+    /// <b>解析解(慣性モーメント・投影半径)と、接触点の数</b>で押さえる。
     ///
     /// <para>
-    /// <see cref="PhysicsWorld"/> も <see cref="Collision3D"/> も GL を知らないので、
+    /// 面白いのは<b>ランダムな配置を何十万通りも試す</b>2つの項目で、
+    /// 「面の法線6本だけでは足りない配置が実在する」ことを、
+    /// 理屈ではなく<b>実物を探し当てて</b>示している。
+    /// SAT を写経していて「辺×辺の 9 本は本当に要るのか」と思ったら、ここを走らせる。
+    /// </para>
+    ///
+    /// <para>
+    /// <see cref="PhysicsWorld"/> も <see cref="Sat"/> も GL を知らないので、
     /// **窓を1枚も出さずに全項目が走る**。Day 43 と同じ性格の層のまま。
     /// </para>
     /// </summary>
@@ -15505,7 +15803,200 @@ internal static class Program
             $"({ballSpun.X:F4}, {ballSpun.Y:F4}, {ballSpun.Z:F4})");
 
         // ============================================================
-        //  2. 接触マニフォールド(要点3)
+        //  2. 箱の形そのもの
+        // ============================================================
+
+        var box = new Box3D(Vector3.Zero, new Vector3(0.5f, 1.0f, 1.5f), Quaternion.Identity);
+
+        checks.Check(
+            "軸に揃えた投影は、その軸の半分の長さ",
+            MathF.Abs(box.ProjectedRadius(Vector3.UnitY) - 1.0f) < 1e-5f,
+            $"{box.ProjectedRadius(Vector3.UnitY):F5}");
+
+        Vector3 diagonal = Vector3.Normalize(Vector3.One);
+        float expectedRadius = (0.5f + 1.0f + 1.5f) / MathF.Sqrt(3.0f);
+        checks.Check(
+            "斜めの投影は各軸の寄与の**絶対値の和**",
+            MathF.Abs(box.ProjectedRadius(diagonal) - expectedRadius) < 1e-5f,
+            $"{box.ProjectedRadius(diagonal):F5}(期待 {expectedRadius:F5})");
+
+        bool cornersInside = true;
+        Span<Vector3> probes =
+        [
+            Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ, diagonal,
+            Vector3.Normalize(new Vector3(1.0f, -2.0f, 0.5f)),
+        ];
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = box.Corner(i);
+            foreach (Vector3 probe in probes)
+            {
+                if (MathF.Abs(Vector3.Dot(corner, probe)) > box.ProjectedRadius(probe) + 1e-4f)
+                {
+                    cornersInside = false;
+                }
+            }
+        }
+
+        checks.Check("8つの頂点は、どの向きに投影しても投影半径の内側", cornersInside);
+
+        checks.Check(
+            "外の点の最近接点は面の上",
+            (box.ClosestPoint(new Vector3(3.0f, 0.0f, 0.0f)) - new Vector3(0.5f, 0.0f, 0.0f))
+                .Length() < 1e-5f);
+
+        var interior = new Vector3(0.2f, 0.3f, 0.4f);
+        checks.Check(
+            "中の点の最近接点は**その点自身**(距離 0 になるので別扱いが要る)",
+            (box.ClosestPoint(interior) - interior).Length() < 1e-5f);
+
+        checks.Check(
+            "支持点は、その向きにいちばん突き出た頂点",
+            (box.Support(Vector3.One) - new Vector3(0.5f, 1.0f, 1.5f)).Length() < 1e-5f);
+
+        var tilted = new Box3D(
+            new Vector3(1.0f, 2.0f, 3.0f),
+            new Vector3(0.5f),
+            Quaternion.CreateFromYawPitchRoll(0.4f, -0.7f, 1.1f));
+
+        var sample = new Vector3(0.3f, -0.2f, 0.9f);
+        checks.Check(
+            "物体座標と世界座標が往復する(傾いた箱でも)",
+            (tilted.ToLocal(tilted.ToWorld(sample)) - sample).Length() < 1e-5f);
+
+        // ============================================================
+        //  3. 分離軸定理(要点1)
+        // ============================================================
+
+        var unit = new Box3D(Vector3.Zero, new Vector3(0.5f), Quaternion.Identity);
+
+        checks.Check(
+            "離れた箱は当たらない",
+            !Sat.BoxBox(unit, new Box3D(new Vector3(3.0f, 0.0f, 0.0f), new Vector3(0.5f), Quaternion.Identity)).Hit);
+
+        var overlapping = new Box3D(new Vector3(0.8f, 0.0f, 0.0f), new Vector3(0.5f), Quaternion.Identity);
+        ContactManifold faceToFace = Sat.BoxBox(unit, overlapping);
+
+        checks.Check(
+            "軸に沿って重なった箱の深さが 1.0 - 0.8 = 0.2m",
+            faceToFace.Hit && MathF.Abs(faceToFace.MaxDepth - 0.2f) < 1e-4f,
+            $"{faceToFace.MaxDepth:F5}m");
+        checks.Check(
+            "法線は**A を B から引き離す向き**(-x)",
+            (faceToFace.Normal - new Vector3(-1.0f, 0.0f, 0.0f)).Length() < 1e-4f,
+            $"({faceToFace.Normal.X:F2}, {faceToFace.Normal.Y:F2}, {faceToFace.Normal.Z:F2})");
+        checks.Check(
+            "面と面なので接触点は**4つ**",
+            faceToFace.Count == 4
+                && (faceToFace.Source == ManifoldSource.FaceA
+                    || faceToFace.Source == ManifoldSource.FaceB),
+            $"{faceToFace.Count} 点 / {faceToFace.Source}");
+
+        ContactManifold swapped = Sat.BoxBox(overlapping, unit);
+        checks.Check(
+            "A と B を入れ替えると法線が逆になり、深さは変わらない",
+            swapped.Hit
+                && (swapped.Normal + faceToFace.Normal).Length() < 1e-4f
+                && MathF.Abs(swapped.MaxDepth - faceToFace.MaxDepth) < 1e-4f,
+            $"({swapped.Normal.X:F2}, {swapped.Normal.Y:F2}, {swapped.Normal.Z:F2})");
+
+        // --- 面の法線6本では足りないこと ---
+        //
+        // 素朴に「面の法線だけ」で判定するとどうなるかを、その場で書いて比べる。
+        static bool SeparatedOn(in Box3D a, in Box3D b, Vector3 axis, Vector3 toCenter) =>
+            a.ProjectedRadius(axis) + b.ProjectedRadius(axis)
+                <= MathF.Abs(Vector3.Dot(toCenter, axis));
+
+        static bool FaceOnlyOverlap(in Box3D a, in Box3D b)
+        {
+            Vector3 toCenter = b.Center - a.Center;
+
+            for (int i = 0; i < 3; i++)
+            {
+                if (SeparatedOn(a, b, a.Axis(i), toCenter) || SeparatedOn(a, b, b.Axis(i), toCenter))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        static Quaternion RandomRotation(Random random) =>
+            Quaternion.CreateFromYawPitchRoll(
+                (float)(random.NextDouble() * Math.Tau),
+                (float)(random.NextDouble() * Math.Tau),
+                (float)(random.NextDouble() * Math.Tau));
+
+        static Vector3 RandomDirection(Random random)
+        {
+            var v = new Vector3(
+                (float)(random.NextDouble() * 2.0 - 1.0),
+                (float)(random.NextDouble() * 2.0 - 1.0),
+                (float)(random.NextDouble() * 2.0 - 1.0));
+
+            return v.LengthSquared() > 1e-6f ? Vector3.Normalize(v) : Vector3.UnitX;
+        }
+
+        var random = new Random(4444);
+        int edgeOnly = -1;
+        int edgeContact = -1;
+
+        for (int trial = 0; trial < 400000 && (edgeOnly < 0 || edgeContact < 0); trial++)
+        {
+            var a = new Box3D(Vector3.Zero, new Vector3(0.5f), RandomRotation(random));
+            var b = new Box3D(
+                RandomDirection(random) * (0.85f + ((float)random.NextDouble() * 0.75f)),
+                new Vector3(0.5f),
+                RandomRotation(random));
+
+            ContactManifold manifold = Sat.BoxBox(a, b);
+
+            if (edgeOnly < 0 && FaceOnlyOverlap(a, b) && !manifold.Hit)
+            {
+                edgeOnly = trial;
+            }
+
+            if (edgeContact < 0 && manifold.Source == ManifoldSource.EdgeEdge && manifold.Count == 1)
+            {
+                edgeContact = trial;
+            }
+        }
+
+        checks.Check(
+            "**面の法線6本だけでは足りない**配置が実在する(辺×辺の軸が要る)",
+            edgeOnly >= 0,
+            edgeOnly >= 0 ? $"{edgeOnly} 回目の試行で発見" : "見つからなかった");
+        checks.Check(
+            "辺×辺から出る接触は**点が1つ**",
+            edgeContact >= 0,
+            edgeContact >= 0 ? $"{edgeContact} 回目の試行で発見" : "見つからなかった");
+
+        // 深く重ねると必ず当たる(15 本すべてで重なる)。
+        int missed = 0;
+        var deepRandom = new Random(9999);
+        for (int trial = 0; trial < 20000; trial++)
+        {
+            var a = new Box3D(Vector3.Zero, new Vector3(0.5f), RandomRotation(deepRandom));
+            var b = new Box3D(
+                RandomDirection(deepRandom) * ((float)deepRandom.NextDouble() * 0.2f),
+                new Vector3(0.5f),
+                RandomRotation(deepRandom));
+
+            if (!Sat.BoxBox(a, b).Hit)
+            {
+                missed++;
+            }
+        }
+
+        checks.Check(
+            "中心がほぼ重なった箱は**必ず当たる**(20,000 通り試して取りこぼし 0)",
+            missed == 0,
+            $"取りこぼし {missed} 件");
+
+        // ============================================================
+        //  4. 接触マニフォールド(Day 44a の要点3・今日の要点2)
         // ============================================================
 
         var floor = Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY);
@@ -15580,8 +16071,63 @@ internal static class Program
             shallowDropped && MathF.Abs(manual.MaxDepth - 0.5f) < 1e-6f,
             $"{manual.Count} 点、最深 {manual.MaxDepth:F2}");
 
+        // 半分だけ台に載せると、点が台の縁の上に並び直す。
+        var pedestal = new Box3D(Vector3.Zero, new Vector3(1.0f, 0.5f, 1.0f), Quaternion.Identity);
+        var overhang = new Box3D(new Vector3(1.0f, 0.95f, 0.0f), new Vector3(0.5f), Quaternion.Identity);
+        ContactManifold clipped = Sat.BoxBox(overhang, pedestal);
+
+        float maxX = float.MinValue;
+        for (int i = 0; i < clipped.Count; i++)
+        {
+            maxX = MathF.Max(maxX, clipped.Points[i].Point.X);
+        }
+
+        checks.Check(
+            "台から半分はみ出した箱の接触点は、**台の縁までで切り落とされる**",
+            clipped.Count == 4 && maxX < 1.0f + 1e-4f,
+            $"{clipped.Count} 点、いちばん外の点 x = {maxX:F4}(台の縁は 1.0)");
+
         // ============================================================
-        //  3. Collider にしたことで消えた分岐(要点2)
+        //  5. 球と箱
+        // ============================================================
+
+        var target = new Box3D(Vector3.Zero, new Vector3(1.0f, 0.5f, 1.0f), Quaternion.Identity);
+
+        Contact3D above = Collision3D.SphereBox(
+            new Sphere3D(new Vector3(0.0f, 0.8f, 0.0f), 0.4f), target);
+
+        checks.Check(
+            "面の真上の球: 法線は面の法線、深さは 0.1m",
+            above.Hit
+                && (above.Normal - Vector3.UnitY).Length() < 1e-5f
+                && MathF.Abs(above.Depth - 0.1f) < 1e-5f,
+            $"深さ {above.Depth:F5}");
+
+        Contact3D nearCorner = Collision3D.SphereBox(
+            new Sphere3D(new Vector3(1.2f, 0.7f, 1.2f), 0.5f), target);
+
+        checks.Check(
+            "角の近くの球: 法線は**角から球へ**",
+            nearCorner.Hit && (nearCorner.Normal - diagonal).Length() < 1e-4f,
+            $"({nearCorner.Normal.X:F3}, {nearCorner.Normal.Y:F3}, {nearCorner.Normal.Z:F3})");
+
+        Contact3D inside = Collision3D.SphereBox(
+            new Sphere3D(new Vector3(0.0f, 0.1f, 0.0f), 0.2f), target);
+
+        checks.Check(
+            "中心が箱の中でも NaN を返さず、**いちばん近い面へ逃がす**",
+            inside.Hit
+                && float.IsFinite(inside.Normal.X)
+                && (inside.Normal - Vector3.UnitY).Length() < 1e-5f
+                && MathF.Abs(inside.Depth - 0.6f) < 1e-5f,
+            $"法線 ({inside.Normal.X:F2}, {inside.Normal.Y:F2}, {inside.Normal.Z:F2}) 深さ {inside.Depth:F3}");
+
+        checks.Check(
+            "離れた球は当たらない",
+            !Collision3D.SphereBox(new Sphere3D(new Vector3(0.0f, 3.0f, 0.0f), 0.4f), target).Hit);
+
+        // ============================================================
+        //  6. Collider にしたことで消えた分岐(Day 44a の要点2)
         // ============================================================
 
         var world = new PhysicsWorld();
@@ -15612,7 +16158,7 @@ internal static class Program
             $"{world.ContactPairs} 組 / {world.Contacts.Count} 点");
 
         // ============================================================
-        //  4. 落として、支えられる
+        //  7. 落として、支えられて、積む
         // ============================================================
 
         // 落とした箱が、最後の1秒でどれだけ揺れているかを測る。
@@ -15681,8 +16227,84 @@ internal static class Program
             spinLoose > 20.0f * MathF.Max(spin4, 1e-4f),
             $"順番 {spinLoose:F4} rad/s / 同時 {spin4:F5} rad/s");
 
+        static (float Penetration, float Top, float Drift) BoxStack(
+            int count, int steps, bool together)
+        {
+            const float half = 0.45f;
+
+            var w = new PhysicsWorld { SolveContactsTogether = together };
+            w.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+            for (int i = 0; i < count; i++)
+            {
+                RigidBody body = RigidBody.CreateBox(1.0f, half);
+                body.Position = new Vector3(0.0f, half + (i * half * 2.0f), 0.0f);
+                body.Restitution = 0.0f;
+                w.AddBody(body);
+            }
+
+            for (int i = 0; i < steps; i++)
+            {
+                w.Step(1.0f / 60.0f);
+            }
+
+            float drift = 0.0f;
+            for (int i = 1; i < w.Bodies.Count; i++)
+            {
+                Vector3 position = w.Bodies[i].Position;
+                drift = MathF.Max(drift, new Vector2(position.X, position.Z).Length());
+            }
+
+            return (w.MaxPenetration, w.Bodies[^1].Position.Y, drift);
+        }
+
+        (float deep, float top, float drift) = BoxStack(6, 300, together: true);
+        (_, float looseTop, float looseDrift) = BoxStack(6, 300, together: false);
+
+        checks.Check(
+            "箱の柱6段が**横にずれない**(4点を同時に解いているから)",
+            drift < 0.01f && top > 4.70f,
+            $"横ずれ {drift * 1000.0f:F2}mm、最上段 {top:F3}m(理想 4.950m)");
+        checks.Check(
+            "**順番に解くと同じ柱が崩れる**(Day 44a の要点5)",
+            looseDrift > 1.0f && looseTop < 2.0f,
+            $"横ずれ {looseDrift:F2}m、最上段 {looseTop:F3}m");
+        checks.Check(
+            "ただし段数ぶん沈む(**蓄積インパルスが無いから**。Day 47 の宿題)",
+            deep > 0.02f,
+            $"めり込み {deep * 1000.0f:F1}mm(許容 5.0mm)");
+
+        static float BoxPenetrationAfter(bool correction, int steps)
+        {
+            var w = new PhysicsWorld { Gravity = Vector3.Zero, PositionCorrection = correction };
+
+            RigidBody a = RigidBody.CreateBox(1.0f, 0.5f);
+            a.Position = new Vector3(-0.35f, 0.0f, 0.0f);
+            RigidBody b = RigidBody.CreateBox(1.0f, 0.5f);
+            b.Position = new Vector3(0.35f, 0.0f, 0.0f);
+
+            w.AddBody(a);
+            w.AddBody(b);
+
+            for (int i = 0; i < steps; i++)
+            {
+                w.Step(1.0f / 60.0f);
+            }
+
+            return w.MaxPenetration;
+        }
+
+        checks.Check(
+            "深くめり込んだ箱2つが、許容量(5mm)近くまで押し戻される",
+            BoxPenetrationAfter(correction: true, 60) < 0.01f,
+            $"{BoxPenetrationAfter(correction: true, 60) * 1000.0f:F2}mm(初期 300mm)");
+        checks.Check(
+            "位置補正を切ると**めり込んだまま**",
+            BoxPenetrationAfter(correction: false, 60) > 0.25f,
+            $"{BoxPenetrationAfter(correction: false, 60) * 1000.0f:F1}mm");
+
         // ============================================================
-        //  5. 回転が本当に効くこと
+        //  8. 回転が本当に効くこと
         // ============================================================
 
         var tipWorld = new PhysicsWorld();
@@ -15720,7 +16342,7 @@ internal static class Program
             finalTilt < 0.06f && tipping.AngularVelocity.Length() < 0.05f,
             $"傾き {finalTilt * 180.0f / MathF.PI:F2} 度、角速度 {tipping.AngularVelocity.Length():F4} rad/s");
 
-        checks.Report("すべて合格(箱は落ち、面で支えられる)");
+        checks.Report("すべて合格(箱は落ち、面で支えられ、積める)");
         Console.WriteLine();
     }
 

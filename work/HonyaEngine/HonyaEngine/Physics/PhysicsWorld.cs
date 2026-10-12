@@ -128,6 +128,7 @@ internal readonly struct ContactPoint
 ///
 /// <para>
 /// <b>今日もブロードフェーズを入れない</b>。総当たりなので体が N 個で N(N-1)/2 組。
+/// 箱どうしは 15 本の軸を試すぶん球より重いが、
 /// 100 個で 4,950 組なら毎ステップ回しても平気で、
 /// 空間分割(Day 26 の3D版)は Day 46 で足す。
 /// **速くする前に正しくする**の順で進める。
@@ -153,7 +154,7 @@ internal sealed class PhysicsWorld
     private readonly List<(int Start, int Count)> _manifolds = [];
 
     /// <summary>接触の出どころ別の数(<see cref="ManifoldSource"/> の添字)。HUD 用。</summary>
-    private readonly int[] _sourceCounts = new int[4];
+    private readonly int[] _sourceCounts = new int[5];
 
     /// <summary>重力加速度 [m/s²]。地球はおよそ 9.81。</summary>
     public Vector3 Gravity { get; set; } = new(0.0f, -9.81f, 0.0f);
@@ -183,12 +184,11 @@ internal sealed class PhysicsWorld
     public int MaxContactsPerPair { get; set; } = ContactManifold.MaxPoints;
 
     /// <summary>
-    /// 1組の接触点を**同時に**解くか(要点5)。**切ると床の箱が落ち着かない**。
+    /// 1組の接触点を**同時に**解くか(Day 44a の要点5)。**切ると柱が崩れる**。
     ///
     /// true(既定)なら、4点ぶんのインパルスを同じ状態から計算してからまとめて掛ける。
     /// false なら Day 43 と同じで、1点ずつ順に解く——
-    /// <b>1点目が全部を背負い、その偏りがトルクになって、床に置いた箱が揺れ止まない</b>
-    /// (積むと崩れる。Day 44b)。
+    /// <b>1点目が全部を背負い、その偏りがトルクになって積んだ箱が滑り出す</b>。
     ///
     /// <para>
     /// Day 43 の <see cref="IntegratorMode"/> と同じ性格のつまみで、
@@ -319,6 +319,8 @@ internal sealed class PhysicsWorld
     /// 直前のステップで、この出どころから出た接触が何組あったか。
     ///
     /// **絵からは読めない数字**なので HUD に出す。
+    /// 面で触れているはずなのに <see cref="ManifoldSource.EdgeEdge"/> が並ぶときは、
+    /// たいてい <see cref="Sat"/> の下駄が効いていない(要点1)。
     /// </summary>
     public int SourceCount(ManifoldSource source) => _sourceCounts[(int)source];
 
@@ -541,8 +543,8 @@ internal sealed class PhysicsWorld
     /// 残り3点は「もう離れている」と見て何もしない——
     /// つまり<b>1点目だけが箱の重さを全部背負う</b>。
     /// 角1つで支えているのと変わらないので、そこを中心にトルクが立つ。
-    /// 床に置いた箱1つでも、支える点の偏りが毎ステップ入れ替わって
-    /// <b>揺れがいつまでも止まらない</b>。積むとこの偏りが段ごとに重なって崩れる(Day 44b)。
+    /// 摩擦の無い世界では、傾いた接触は横向きに押すことになるので、
+    /// <b>積んだ箱がじりじり滑って崩れる</b>(実際に3段で崩れた)。
     /// </para>
     ///
     /// <para>
@@ -685,7 +687,7 @@ internal sealed class PhysicsWorld
     /// <para>
     /// <b>測り直し方が Day 44 で変わった</b>(要点4)。Day 43 は判定関数をもう一度呼んで
     /// 「今の位置ならどれだけめり込んでいるか」を計算していた。
-    /// 箱どうしの判定は重い(Day 44b で 15 本の軸 + クリップになる)ので、
+    /// 箱では判定そのものが重い(15 本の軸 + クリップ)ので、
     /// 4周 × 接触の数だけ呼び直すと目に見えて遅くなる。
     /// </para>
     ///
