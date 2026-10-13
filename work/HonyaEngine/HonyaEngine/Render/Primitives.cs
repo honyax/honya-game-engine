@@ -205,6 +205,143 @@ internal static class Primitives
         return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
     }
 
+    /// <summary>
+    /// Y 軸に沿った円柱。半径 0.5、高さ 1、中心が原点(Day 45)。
+    ///
+    /// <b>カプセルを描くために足した</b>。カプセルは「球を線分に沿って滑らせたもの」なので、
+    /// 絵のほうも<b>球2つ + 円柱1本</b>で描ける——
+    /// <see cref="Collision3D.CapsuleBox"/> が判定を球に落として解いているのと
+    /// まったく同じ分け方になっている。
+    ///
+    /// <para>
+    /// <b>カプセル用のメッシュを作らないのはなぜか</b>。カプセルは
+    /// 半径と半分の高さの2つで形が決まるので、寸法ごとにメッシュが要る。
+    /// <b>非一様な拡大では正しく描けない</b>のが理由で、
+    /// Y だけ引き伸ばすと半球が楕円に潰れてしまう。
+    /// 一方この分け方なら、球は一様に拡大(半径)、
+    /// 円柱は<b>XZ に半径・Y に高さ</b>という素直な拡大で済み、
+    /// **どんな寸法のカプセルでもメッシュ2本で描ける**。
+    /// ドローコールは1体あたり3回になるが、
+    /// カプセルは画面に数本しか出ないので釣り合う。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>フタも張る</b>。カプセルとして使うぶんには球で隠れて見えないが、
+    /// 円柱だけを単体で置いたときに中が透けると
+    /// 「メッシュが壊れている」と見分けが付かない。
+    /// 側面と同じ頂点を使い回さないのは、<b>法線が違う</b>から——
+    /// 側面の法線は横を向き、フタの法線は上下を向く。
+    /// 立方体が 8 頂点ではなく 24 頂点だったのと同じ事情(Day 12)。
+    /// </para>
+    /// </summary>
+    /// <param name="slices">円周方向の分割数。</param>
+    public static Mesh<Vertex> CreateCylinder(GL gl, int slices = 32)
+    {
+        var vertices = new List<Vertex>((slices + 1) * 2 + (slices + 2) * 2);
+        var indices = new List<uint>(slices * 12);
+
+        Vector4 white = Vector4.One;
+
+        // --- 側面 ---
+        //
+        // 経度は 0〜slices(slices+1 本)。**最後の1本は最初と同じ位置**だが、
+        // U が 0 と 1 で違うので別の頂点にする(球と同じ事情)。
+        for (int y = 0; y < 2; y++)
+        {
+            float v = y;
+            float height = (v - 0.5f);   // -0.5 か +0.5
+
+            for (int x = 0; x <= slices; x++)
+            {
+                float u = (float)x / slices;
+                float phi = u * MathF.Tau;
+                float sinPhi = MathF.Sin(phi);
+                float cosPhi = MathF.Cos(phi);
+
+                // 側面の法線は**真横**。上下の成分を持たない。
+                var normal = new Vector3(sinPhi, 0.0f, cosPhi);
+                var position = new Vector3(sinPhi * 0.5f, height, cosPhi * 0.5f);
+
+                // ∂P/∂u。φ で微分すると (cosφ, 0, -sinφ)。
+                // 球(<see cref="CreateSphere"/>)と同じ理由で w = -1 になる。
+                var tangent = new Vector4(cosPhi, 0.0f, -sinPhi, -1.0f);
+
+                vertices.Add(new Vertex(position, new Vector2(u, v), white, normal, tangent));
+            }
+        }
+
+        int stride = slices + 1;
+
+        for (int x = 0; x < slices; x++)
+        {
+            uint bottomLeft = (uint)x;
+            uint bottomRight = bottomLeft + 1;
+            uint topLeft = bottomLeft + (uint)stride;
+            uint topRight = topLeft + 1;
+
+            // 外から見て反時計回り(CCW)。球と同じ巻き順に揃えてある。
+            indices.Add(bottomLeft);
+            indices.Add(topLeft);
+            indices.Add(topRight);
+            indices.Add(topRight);
+            indices.Add(bottomRight);
+            indices.Add(bottomLeft);
+        }
+
+        // --- フタ2枚 ---
+        //
+        // 中心の1点から扇状に張る(トライアングルファン相当を
+        // インデックスで組む)。
+        for (int cap = 0; cap < 2; cap++)
+        {
+            bool top = cap == 1;
+            float height = top ? 0.5f : -0.5f;
+            Vector3 normal = top ? Vector3.UnitY : -Vector3.UnitY;
+            var tangent = new Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+
+            uint center = (uint)vertices.Count;
+            vertices.Add(new Vertex(
+                new Vector3(0.0f, height, 0.0f), new Vector2(0.5f, 0.5f), white, normal, tangent));
+
+            for (int x = 0; x <= slices; x++)
+            {
+                float phi = (float)x / slices * MathF.Tau;
+                float sinPhi = MathF.Sin(phi);
+                float cosPhi = MathF.Cos(phi);
+
+                vertices.Add(new Vertex(
+                    new Vector3(sinPhi * 0.5f, height, cosPhi * 0.5f),
+                    new Vector2((sinPhi + 1.0f) * 0.5f, (cosPhi + 1.0f) * 0.5f),
+                    white,
+                    normal,
+                    tangent));
+            }
+
+            for (int x = 0; x < slices; x++)
+            {
+                uint a = center + 1 + (uint)x;
+                uint b = a + 1;
+
+                // **上下で巻き順が逆**。どちらも「外から見て CCW」にしたいので、
+                // 上フタと下フタでは頂点の並べる向きが入れ替わる。
+                if (top)
+                {
+                    indices.Add(center);
+                    indices.Add(b);
+                    indices.Add(a);
+                }
+                else
+                {
+                    indices.Add(center);
+                    indices.Add(a);
+                    indices.Add(b);
+                }
+            }
+        }
+
+        return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
+    }
+
     /// <summary>四角形1面ぶんの頂点4つとインデックス6つを足す。</summary>
     private static void AddFace(
         List<Vertex> vertices,

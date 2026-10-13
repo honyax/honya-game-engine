@@ -14,11 +14,23 @@ internal enum ColliderKind
     /// <summary>球。中心と半径。**回転を考えなくてよい形**。</summary>
     Sphere,
 
-    /// <summary>箱(OBB)。中心と各軸の半分の長さ、そして向き。**今日の主役**。</summary>
+    /// <summary>箱(OBB)。中心と各軸の半分の長さ、そして向き。**Day 44 の主役**。</summary>
     Box,
 
     /// <summary>無限に広い平面。床・壁。**必ず静的**。</summary>
     Plane,
+
+    /// <summary>
+    /// カプセル。中心と半径と半分の高さ、そして向き。**今日の主役**。
+    ///
+    /// 札を<b>いちばん最後に足した</b>のは、
+    /// <see cref="Collider.InertiaLocal"/> や HUD の表示が
+    /// <c>switch</c> の <c>default</c> に落ちる形で書いてあり、
+    /// 途中に挿すと既存の値の意味が変わりうるため。
+    /// 列挙の値を保存(Day 32 のシーン直列化)している場合はなおさらで、
+    /// **札は末尾に足す**のが定石になる。
+    /// </summary>
+    Capsule,
 }
 
 /// <summary>
@@ -79,6 +91,14 @@ internal readonly struct Collider
     /// 「半分」で持つのは、判定の式に出てくるのがいつも半分の側だから。
     /// 中心からの距離を比べるので、全長を持っていると
     /// 判定のたびに 2 で割ることになる。
+    ///
+    /// <para>
+    /// <b>カプセルはここの Y だけを使う</b>(<see cref="HalfHeight"/>)。
+    /// 専用のフィールドを増やしてもよかったが、
+    /// カプセルの寸法は「半径」と「半分の高さ」の2つしかなく、
+    /// 半径は <see cref="Radius"/> に席がある。残る1つのために
+    /// 構造体を 4 バイト太らせるより、**箱と席を分け合う**ほうを採った。
+    /// </para>
     /// </summary>
     public readonly Vector3 HalfExtents;
 
@@ -116,6 +136,30 @@ internal readonly struct Collider
         new(ColliderKind.Plane, 0.0f, Vector3.Zero, Vector3.Normalize(normal));
 
     /// <summary>
+    /// カプセルの形。**半径と「線分の半分の長さ」**で渡す(Day 45)。
+    ///
+    /// <b><paramref name="halfHeight"/> は全高の半分ではない</b>のが引っかかりどころ。
+    /// カプセルの全高は <c>2 * (halfHeight + radius)</c> になる——
+    /// 線分の両端に半球が1つずつ生えるぶん、半径2つぶん背が伸びる。
+    /// 身長 1.8m・半径 0.35m のキャラクターなら
+    /// <c>halfHeight = (1.8 - 2*0.35) / 2 = 0.55</c>。
+    /// <see cref="FromHeight"/> はこの計算を代わりにやってくれる。
+    /// </summary>
+    public static Collider Capsule(float radius, float halfHeight) =>
+        new(ColliderKind.Capsule, radius, new Vector3(0.0f, halfHeight, 0.0f), Vector3.Zero);
+
+    /// <summary>
+    /// 全高と半径からカプセルを作る。**人型を作るときはこちら**。
+    ///
+    /// 全高が半径の2倍に足りないときは、半分の高さが 0 に潰れて**球になる**。
+    /// エラーにせず球へ落とすのは、
+    /// 「太くて低いカプセル」を作りかけたときに落ちるより、
+    /// 素直に球として動いてくれたほうがデバッグしやすいから。
+    /// </summary>
+    public static Collider FromHeight(float radius, float totalHeight) =>
+        Capsule(radius, MathF.Max((totalHeight * 0.5f) - radius, 0.0f));
+
+    /// <summary>
     /// おおよその大きさ [m]。**中心からいちばん遠い点までの距離**。
     ///
     /// 描画のスケールや、Day 46 のブロードフェーズで
@@ -126,8 +170,21 @@ internal readonly struct Collider
     {
         ColliderKind.Sphere => Radius,
         ColliderKind.Box => HalfExtents.Length(),
+        ColliderKind.Capsule => HalfHeight + Radius,
         _ => 0.0f,
     };
+
+    /// <summary>
+    /// カプセルの**線分の半分の長さ** [m]。カプセル以外では 0。
+    ///
+    /// 席は <see cref="HalfExtents"/> の Y。名前を付けておかないと、
+    /// 判定のあちこちに <c>Shape.HalfExtents.Y</c> と書くことになって、
+    /// **箱の寸法を触っているように読めてしまう**。
+    /// </summary>
+    public float HalfHeight => HalfExtents.Y;
+
+    /// <summary>カプセルの全高 [m]。<c>2 * (HalfHeight + Radius)</c>。</summary>
+    public float TotalHeight => 2.0f * (HalfHeight + Radius);
 
     /// <summary>
     /// この形の慣性モーメントを、**主軸まわりの3つ**で返す(要点1)。
@@ -147,12 +204,19 @@ internal readonly struct Collider
     /// 長い棒を軸のまわりに回すのが簡単で、横に振るのが大変なのはこれ。
     /// </item>
     /// <item>
+    /// <b>カプセル</b>(Day 45): 円柱1本 + 半球2つに分けて、
+    /// <b>平行軸の定理</b>で足し合わせる。値は2種類しか出てこない——
+    /// 軸まわり(<c>I_y</c>)と、それに直交する2つ(<c>I_x = I_z</c>)。
+    /// <b>軸まわりだけが極端に小さい</b>のがカプセルの性格で、
+    /// 転がしたカプセルが必ず「横倒しでころころ転がる」のはこのため。
+    /// </item>
+    /// <item>
     /// <b>平面</b>: 0(静的にしか使わないので、慣性は使われない)。
     /// </item>
     /// </list>
     ///
     /// <para>
-    /// <b>球と箱の差が、今日の絵の差になる</b>。球は等方なので
+    /// <b>球と箱の差が、Day 44 の絵の差になった</b>。球は等方なので
     /// <see cref="RigidBody.UpdateInertiaWorld"/> が何もしないのと同じだった。
     /// 箱は3つの値が違うので、**回すたびに世界での回しにくさが変わる**。
     /// Day 43 で「使わないうちから正しい形で書いておく」と言って
@@ -177,8 +241,72 @@ internal readonly struct Collider
                         third * mass * (e.X + e.Y));
                 }
 
+            case ColliderKind.Capsule:
+                return CapsuleInertia(mass, Radius, HalfHeight);
+
             default:
                 return Vector3.Zero;
         }
+    }
+
+    /// <summary>
+    /// カプセルの慣性モーメント。**円柱 + 半球2つを、平行軸の定理で足す**(Day 45a の要点5)。
+    ///
+    /// カプセルは1本の式で書ける形ではないので、2つに割って足す。
+    /// 質量は<b>体積の比で分ける</b>——密度が一様な物体なので、これで正しい。
+    ///
+    /// <code>
+    ///   L = 2h(円柱の高さ)、r = 半径
+    ///   円柱の体積 V_c = π r² L      半球2つ = 球の体積 V_s = 4/3 π r³
+    ///   m_c = m · V_c/(V_c+V_s)、 m_s = m · V_s/(V_c+V_s)
+    ///
+    ///   I_y(軸まわり)   = 1/2 m_c r²  +  2/5 m_s r²
+    ///   I_x = I_z        = m_c (L²/12 + r²/4)  +  m_s (2/5 r² + L²/4 + 3/8 L r)
+    /// </code>
+    ///
+    /// <para>
+    /// <b>半球の項の <c>L²/4 + 3/8 L r</c> が平行軸の定理</b>。
+    /// 半球の重心は球の中心から <c>3r/8</c> ずれているので、
+    /// 「球の中心まわり → 半球の重心まわり → カプセルの中心まわり」と
+    /// 2段で運び直すと、ずれの2乗の差としてこの形が残る。
+    /// <b>ここを <c>L²/4</c> だけにすると、太くて短いカプセルで数 % 狂う</b>——
+    /// 絵では気づけないので、自己チェックで球と一致することを確かめてある。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>h = 0 にすると球の <c>2/5 m r²</c> にぴたりと戻る</b>。
+    /// 円柱の体積が 0 になって <c>m_c = 0</c>、<c>m_s = m</c> になり、
+    /// I_y も I_x も <c>2/5 m r²</c> に落ちる。
+    /// 式を書き終えたら必ず確かめておきたい種類の性質で、
+    /// **境界で既知の答えに戻るか**は導出のいちばん安い検算になる。
+    /// </para>
+    /// </summary>
+    private static Vector3 CapsuleInertia(float mass, float radius, float halfHeight)
+    {
+        if (mass <= 0.0f || radius <= 0.0f)
+        {
+            return Vector3.Zero;
+        }
+
+        float length = halfHeight * 2.0f;
+        float r2 = radius * radius;
+
+        // 体積で質量を分ける。**π は比を取ると消える**ので書かない。
+        float cylinderVolume = r2 * length;
+        float sphereVolume = (4.0f / 3.0f) * r2 * radius;
+        float total = cylinderVolume + sphereVolume;
+
+        float cylinderMass = mass * (cylinderVolume / total);
+        float sphereMass = mass * (sphereVolume / total);
+
+        // 軸まわり。円柱は 1/2 m r²、球は 2/5 m r²。**どちらも中心を通る軸**なので運び直しが要らない。
+        float axial = (0.5f * cylinderMass * r2) + (0.4f * sphereMass * r2);
+
+        // 軸に直交する向き。半球の項に平行軸の定理が効く。
+        float lateral =
+            (cylinderMass * (((length * length) / 12.0f) + (r2 / 4.0f)))
+            + (sphereMass * ((0.4f * r2) + ((length * length) / 4.0f) + (0.375f * length * radius)));
+
+        return new Vector3(lateral, axial, lateral);
     }
 }

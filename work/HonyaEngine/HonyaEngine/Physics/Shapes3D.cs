@@ -20,9 +20,10 @@ namespace HonyaEngine;
 ///
 /// <para>
 /// 実際のゲームでも球は現役で、弾・投擲物・爆風の範囲・簡易な足元判定は
-/// たいてい球で足りる。キャラクター本体はカプセル(Day 45)に化けるが、
+/// たいてい球で足りる。キャラクター本体はカプセル(<see cref="Capsule3D"/>)になるが、
 /// カプセルは「線分から一定距離」——つまり<b>球を引き伸ばしたもの</b>なので、
-/// 今日書く球の判定がそのまま下敷きになる。
+/// Day 43 で書いた球の判定がそのまま下敷きになる。
+/// <b>今日のカプセルの判定は、全部いったん球に落として解いている</b>。
 /// </para>
 /// </summary>
 internal readonly struct Sphere3D
@@ -126,7 +127,7 @@ internal readonly struct Plane3D
 /// 箱は<b>3D で最初に出会う「回転が効く形」</b>になる。
 /// 球は等方なので、慣性テンソルも判定も向きを無視できた。
 /// 箱では慣性テンソルが軸ごとに違い、判定も向きを見る。
-/// Day 45 のカプセルは「線分から一定距離」なので軸1本ぶんだけ向きが効く——
+/// <see cref="Capsule3D"/> は「線分から一定距離」なので軸1本ぶんだけ向きが効く——
 /// **球 → 箱 → カプセルは、向きの効き方が 0 → 3 → 1 の順**に並んでいる。
 /// </para>
 /// </summary>
@@ -207,6 +208,88 @@ internal readonly struct Box3D
     }
 
     /// <summary>
+    /// 線分にいちばん近い、箱の上の点。**距離が凸なので三分探索で詰める**(Day 45a の要点3)。
+    ///
+    /// 線分と箱の最近接点対は、解析的に解こうとすると
+    /// 「線分の端 × 箱の 6 面 + 12 辺 + 8 頂点」の場合分けになって手に負えない。
+    /// 代わりに、線分のパラメータ t を1つの変数と見て**最小化する**。
+    ///
+    /// <code>
+    ///   f(t) = |seg(t) から箱までの距離|²      t ∈ [0, 1]
+    /// </code>
+    ///
+    /// <para>
+    /// <b>f は t について凸</b>。凸集合までの距離は点について凸な関数で、
+    /// <c>t ↦ seg(t)</c> は一次(アフィン)なので、合成しても凸のまま。
+    /// 凸なら谷は1つしかない——だから<b>三分探索</b>が使える。
+    /// 区間を3等分して、内側の2点のうち値の大きいほうを捨てる、を繰り返すだけ。
+    /// 1回で区間が 2/3 になるので、32 回で 10⁻⁶ 以下まで詰まる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>「交互に投げ合う」方式(交互射影)は使えない</b>。
+    /// 片方の上の点をもう片方へ投げ返すのを繰り返す素朴な手で、
+    /// 凸どうしなら理屈のうえでは最近接点対に収束する。
+    /// ところが<b>収束が絶望的に遅い</b>——箱と線分が浅い角度で向き合うと、
+    /// 64 回まわしても 5cm ずれる配置が 2,000 通り中 61 件も残った
+    /// (この日、実際にそう書いて自己チェックで落ちた)。
+    /// 三分探索なら回数ぶんだけ確実に区間が縮むので、
+    /// <b>「何回まわせば十分か」が事前に言える</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>物体座標で解く</b>のが速さの肝。物体座標へ持ち込めば箱は軸に沿った箱になり、
+    /// 距離の計算が <c>Clamp</c> 1回で済む。
+    /// 回転(クォータニオンの変換)は最初と最後の3回だけで、
+    /// 探索の内側には入らない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>線分が箱を貫いているときは距離 0 に落ちる</b>。
+    /// そのときは最近接点が意味を持たないので、
+    /// 呼ぶ側(<see cref="Collision3D.CapsuleBox"/>)が
+    /// 「球の中心が箱の中」の枝——<see cref="Collision3D.SphereBox"/> の
+    /// いちばん近い面へ逃がす処理——に落ちる。
+    /// </para>
+    /// </summary>
+    public Vector3 ClosestPoint(in Segment3D segment, out Vector3 onSegment)
+    {
+        // **物体座標へ**。ここから先、箱は原点中心の軸に沿った箱になる。
+        Vector3 localStart = ToLocal(segment.Start);
+        Vector3 localDelta = ToLocal(segment.End) - localStart;
+
+        float low = 0.0f;
+        float high = 1.0f;
+
+        // 32 回で (2/3)^32 ≒ 5×10⁻⁶。線分の長さが 10m でも 50µm の精度。
+        for (int i = 0; i < 32; i++)
+        {
+            float third = (high - low) / 3.0f;
+            float a = low + third;
+            float b = high - third;
+
+            if (LocalDistanceSquared(localStart + (localDelta * a))
+                < LocalDistanceSquared(localStart + (localDelta * b)))
+            {
+                high = b;
+            }
+            else
+            {
+                low = a;
+            }
+        }
+
+        float t = (low + high) * 0.5f;
+
+        onSegment = segment.PointAt(t);
+        return ToWorld(Vector3.Clamp(localStart + (localDelta * t), -HalfExtents, HalfExtents));
+    }
+
+    /// <summary>物体座標の点から箱までの距離の2乗。**中にあれば 0**。</summary>
+    private float LocalDistanceSquared(Vector3 local) =>
+        (local - Vector3.Clamp(local, -HalfExtents, HalfExtents)).LengthSquared();
+
+    /// <summary>
     /// この向きに投影したときの「半径」。**SAT の主役**(要点1)。
     ///
     /// <code>
@@ -260,4 +343,302 @@ internal readonly struct Box3D
 
         return ToWorld(local);
     }
+}
+
+/// <summary>
+/// 線分。**カプセルの背骨**であり、今日の判定が全部ここから始まる。
+///
+/// 点と点を結んだだけの、いちばん素朴な形。
+/// それでも独立した型にしてあるのは、
+/// <b>今日の判定がほぼ「線分に対する最近接点」だけでできている</b>から。
+///
+/// <list type="bullet">
+/// <item>球とカプセル … 球の中心にいちばん近い線分上の点を取る</item>
+/// <item>カプセルとカプセル … 2本の線分の最近接点を取る(<see cref="ClosestPoints"/>)</item>
+/// <item>カプセルと箱 … 線分と箱の最近接点を取る(<see cref="Box3D.ClosestPoint(in Segment3D, out Vector3)"/>)</item>
+/// </list>
+///
+/// <para>
+/// <b>正規化した向きを持たない</b>のがこの型の性格。
+/// 「始点 + 向き × 長さ」で持つと、長さ 0 の線分(2点が一致)を作った瞬間に
+/// 向きが NaN になる。始点と終点だけで持てば退化しても壊れず、
+/// 向きが要る場面(<see cref="Axis"/> を持つのはカプセルの側)だけで
+/// 正規化を考えればよい。
+/// </para>
+/// </summary>
+internal readonly struct Segment3D
+{
+    public readonly Vector3 Start;
+    public readonly Vector3 End;
+
+    public Segment3D(Vector3 start, Vector3 end)
+    {
+        Start = start;
+        End = end;
+    }
+
+    /// <summary>始点から終点へのベクトル。**正規化していない**(長さが情報)。</summary>
+    public Vector3 Delta => End - Start;
+
+    public float Length => Delta.Length();
+
+    /// <summary>中点。カプセルの重心はここ。</summary>
+    public Vector3 Center => (Start + End) * 0.5f;
+
+    /// <summary>パラメータ t(0 で始点、1 で終点)の位置。</summary>
+    public Vector3 PointAt(float t) => Start + (Delta * t);
+
+    /// <summary>
+    /// 点にいちばん近い線分上の点。**直線に落としてから 0〜1 に切り詰めるだけ**。
+    ///
+    /// <code>
+    ///   t = (p - Start)·d / (d·d)      d = End - Start
+    /// </code>
+    /// これは「点を直線へ垂直に落としたときのパラメータ」。
+    /// <b>線分は直線の一部でしかない</b>ので、t が範囲を出たら端が答えになる——
+    /// だから <c>Clamp</c> 1回で終わる。
+    ///
+    /// <para>
+    /// この「直線で解いてから範囲に切り詰める」形は今日じゅう何度も出てくる。
+    /// 箱の最近接点(<see cref="Box3D.ClosestPoint(Vector3)"/>)が
+    /// 物体座標で各成分を clamp するだけだったのと、まったく同じ考え方になっている。
+    /// </para>
+    /// </summary>
+    public Vector3 ClosestPoint(Vector3 point, out float t)
+    {
+        Vector3 delta = Delta;
+        float lengthSquared = delta.LengthSquared();
+
+        // **長さ 0 の線分**(2点が一致)。割れないので始点を返す。
+        // カプセルの半分の高さを 0 にすると本当にここへ来る——そのときカプセルは球になる。
+        if (lengthSquared < 1e-12f)
+        {
+            t = 0.0f;
+            return Start;
+        }
+
+        t = Math.Clamp(Vector3.Dot(point - Start, delta) / lengthSquared, 0.0f, 1.0f);
+        return Start + (delta * t);
+    }
+
+    /// <summary>点にいちばん近い線分上の点(パラメータが要らないとき)。</summary>
+    public Vector3 ClosestPoint(Vector3 point) => ClosestPoint(point, out _);
+
+    /// <summary>
+    /// 2つの線分の最近接点。**今日いちばん大事な 40 行**(要点2)。
+    ///
+    /// 直線どうしなら、Day 44 の <c>Sat.ClosestPointsOnLines</c> と同じく
+    /// 連立方程式を1回解けば終わる。**線分だと端で場合分けが要る**——
+    /// 解いた (s, t) が 0〜1 を出たら、そこは線分の外なので答えにならない。
+    ///
+    /// <code>
+    ///   d1 = P1 - P0、d2 = Q1 - Q0、r = P0 - Q0
+    ///   a = d1·d1、b = d1·d2、c = d1·r、e = d2·d2、f = d2·r
+    ///   s = (b f - c e) / (a e - b²)、 t = (b s + f) / e
+    /// </code>
+    ///
+    /// <para>
+    /// <b>手順は「まず s を切り詰め、その s に対する t を求め、t も切り詰めたら s を求め直す」</b>。
+    /// t を切り詰めた時点で「t を固定したときの最適な s」は変わるので、
+    /// 求め直さないと答えがずれる。ここを省くと、
+    /// <b>すれ違う2本のカプセルで接触点が端に寄りすぎる</b>という形で出る。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>平行なとき</b>(分母 <c>a e - b²</c> が 0)は最近接点が1つに決まらない。
+    /// そのときは <c>s = 0</c> を選んで、そこから t を決める——
+    /// 距離としては正しく、床に寝かせた2本のカプセルでは
+    /// このあと端の球を足す(<see cref="Collision3D.CapsuleCapsule"/>)ので実害が無い。
+    /// </para>
+    ///
+    /// <para>
+    /// 出典は Christer Ericson, <i>Real-Time Collision Detection</i> 5.1.9
+    /// (<c>ClosestPtSegmentSegment</c>)。
+    /// 物理エンジンでカプセルを扱うなら必ず1本は書くことになる関数で、
+    /// <b>Bullet も PhysX も中身はこれ</b>。
+    /// </para>
+    /// </summary>
+    public static void ClosestPoints(
+        in Segment3D p,
+        in Segment3D q,
+        out Vector3 closestOnP,
+        out Vector3 closestOnQ)
+    {
+        Vector3 d1 = p.Delta;
+        Vector3 d2 = q.Delta;
+        Vector3 r = p.Start - q.Start;
+
+        float a = Vector3.Dot(d1, d1);
+        float e = Vector3.Dot(d2, d2);
+        float f = Vector3.Dot(d2, r);
+
+        const float epsilon = 1e-12f;
+
+        float s;
+        float t;
+
+        if (a <= epsilon && e <= epsilon)
+        {
+            // 両方とも点。**カプセル2つが球2つに退化した場合**。
+            closestOnP = p.Start;
+            closestOnQ = q.Start;
+            return;
+        }
+
+        if (a <= epsilon)
+        {
+            // P が点。**球とカプセルの判定に落ちる**。
+            s = 0.0f;
+            t = Math.Clamp(f / e, 0.0f, 1.0f);
+        }
+        else
+        {
+            float c = Vector3.Dot(d1, r);
+
+            if (e <= epsilon)
+            {
+                // Q が点。
+                t = 0.0f;
+                s = Math.Clamp(-c / a, 0.0f, 1.0f);
+            }
+            else
+            {
+                float b = Vector3.Dot(d1, d2);
+                float denominator = (a * e) - (b * b);
+
+                // **平行なら分母が 0**。s は 0 に決め打ちする。
+                s = denominator > epsilon
+                    ? Math.Clamp(((b * f) - (c * e)) / denominator, 0.0f, 1.0f)
+                    : 0.0f;
+
+                t = ((b * s) + f) / e;
+
+                // **t が外へ出たら、t を端に留めたうえで s を求め直す**。
+                // ここを省くと答えが端に寄りすぎる。
+                if (t < 0.0f)
+                {
+                    t = 0.0f;
+                    s = Math.Clamp(-c / a, 0.0f, 1.0f);
+                }
+                else if (t > 1.0f)
+                {
+                    t = 1.0f;
+                    s = Math.Clamp((b - c) / a, 0.0f, 1.0f);
+                }
+            }
+        }
+
+        closestOnP = p.PointAt(s);
+        closestOnQ = q.PointAt(t);
+    }
+}
+
+/// <summary>
+/// カプセル。**線分から一定の距離にある点の集合**(要点1)。
+///
+/// 別の言い方をすると、<b>球を線分に沿って滑らせた跡</b>。
+/// この一言が今日の判定を全部説明してしまう——
+/// 相手にいちばん近い位置へ球を滑らせれば、あとは Day 43 の球の判定に落ちる。
+///
+/// <para>
+/// <b>球 → 箱 → カプセルで、向きの効き方が 0 → 3 → 1 と並ぶ</b>
+/// (Day 44 の <see cref="Box3D"/> に書いたとおり)。
+/// カプセルは軸1本ぶんだけ向きを持つので、
+/// </para>
+/// <list type="bullet">
+/// <item>判定は<b>球とほとんど同じ安さ</b>(線分の最近接点を1回取るだけ)</item>
+/// <item>慣性テンソルは<b>軸方向と横方向の2種類</b>(箱の3種類より1つ少ない)</item>
+/// <item>角も辺も無いので、<b>SAT のような場合分けが要らない</b></item>
+/// </list>
+///
+/// <para>
+/// <b>だからキャラクターはカプセルで表す</b>。人型を箱で囲うと角が地形に引っかかり、
+/// 球で囲うと背が足りない。カプセルなら「立った人の形」に近いうえに、
+/// <b>どの向きから当たっても丸い</b>ので、階段でも坂でも段差でも
+/// 引っかからずに滑る。Unity の <c>CharacterController</c> も
+/// Unreal の <c>UCapsuleComponent</c> も、中身はこの形。
+/// </para>
+///
+/// <para>
+/// <b>円柱ではなくカプセルを選ぶ</b>のはロードマップに書いたとおりで、
+/// 円柱はフチ(側面と底面の境の円)の場合分けが多く、工数対効果が悪い。
+/// 実際のゲームエンジンでもカプセル近似が一般的になっている。
+/// </para>
+/// </summary>
+internal readonly struct Capsule3D
+{
+    /// <summary>背骨の線分。**両端は「球の中心」であって、カプセルの先端ではない**。</summary>
+    public readonly Segment3D Segment;
+
+    /// <summary>半径 [m]。線分からこの距離までがカプセルの中。</summary>
+    public readonly float Radius;
+
+    public Capsule3D(in Segment3D segment, float radius)
+    {
+        Segment = segment;
+        Radius = radius;
+    }
+
+    public Capsule3D(Vector3 start, Vector3 end, float radius)
+        : this(new Segment3D(start, end), radius)
+    {
+    }
+
+    /// <summary>重心(線分の中点)。**密度が一様なら、ここが重心になる**。</summary>
+    public Vector3 Center => Segment.Center;
+
+    /// <summary>線分の半分の長さ [m]。**全高は <c>2 * (HalfHeight + Radius)</c>**。</summary>
+    public float HalfHeight => Segment.Length * 0.5f;
+
+    /// <summary>
+    /// 軸の向き(長さ1)。線分が退化していれば上向きを返す。
+    ///
+    /// **カプセルが球に退化しても NaN を出さない**ための保険。
+    /// 半分の高さ 0 のカプセルは、正しく球として振る舞ってほしい。
+    /// </summary>
+    public Vector3 Axis
+    {
+        get
+        {
+            Vector3 delta = Segment.Delta;
+            float length = delta.Length();
+            return length > 1e-6f ? delta / length : Vector3.UnitY;
+        }
+    }
+
+    /// <summary>
+    /// 中心・向き・寸法から作る。**軸は物体座標の Y**。
+    ///
+    /// 剛体の向き(<see cref="RigidBody.Orientation"/>)がそのままカプセルの向きになる。
+    /// <b>Y 軸に決め打ちする</b>のは、キャラクターが立っている姿勢と揃えるため——
+    /// 慣性テンソル(<see cref="Collider.InertiaLocal"/>)も同じ約束で書いてある。
+    /// </summary>
+    public static Capsule3D FromCenter(
+        Vector3 center, Quaternion orientation, float radius, float halfHeight)
+    {
+        Vector3 axis = Vector3.Transform(Vector3.UnitY, orientation) * halfHeight;
+        return new Capsule3D(center - axis, center + axis, radius);
+    }
+
+    /// <summary>
+    /// **相手にいちばん近い位置へ滑らせた球**。今日の判定の共通の入口。
+    ///
+    /// カプセルが「球を線分に沿って滑らせたもの」なら、
+    /// 相手に対する判定は「いちばん近い位置に球を置いたときの、球の判定」で足りる。
+    /// <b>球と球・球と平面・球と箱は Day 43〜44 で全部書いてある</b>ので、
+    /// 今日足す判定は実質「どこへ滑らせるか」を決めるだけになる。
+    ///
+    /// <para>
+    /// <b>これが厳密に正しいのは相手が凸のとき</b>。凸形状なら
+    /// 「最近接点の対」が距離を決めるので、そこに置いた球で判定して過不足がない。
+    /// 凹んだ形(Day 46 の地形)では面ごとに分けて当てることになる。
+    /// </para>
+    /// </summary>
+    public Sphere3D SphereNear(Vector3 point) => new(Segment.ClosestPoint(point), Radius);
+
+    /// <summary>下側の端の球(**足元**)。Day 45b のキャラクターが接地判定に使う。</summary>
+    public Sphere3D LowerSphere => new(Segment.Start, Radius);
+
+    /// <summary>上側の端の球(**頭**)。</summary>
+    public Sphere3D UpperSphere => new(Segment.End, Radius);
 }
