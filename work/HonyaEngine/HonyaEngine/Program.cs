@@ -580,6 +580,16 @@ internal static class Program
     /// <summary>材質グリッドの球。<see cref="Primitives.CreateSphere"/> が作る。</summary>
     private static Mesh<Vertex> _sphere = null!;
 
+    /// <summary>
+    /// 円柱(Day 45)。**カプセルの胴**として使う。
+    ///
+    /// カプセル1本を描くのに <see cref="_sphere"/> 2つとこれ1本、
+    /// 合わせて3回の <c>Draw</c> になる。
+    /// 寸法ごとのメッシュを作らずに済むのが値打ちで、
+    /// 理由は <see cref="Primitives.CreateCylinder"/> のコメントに書いた。
+    /// </summary>
+    private static Mesh<Vertex> _cylinder = null!;
+
     /// <summary>材質グリッドのマテリアル。**球ごとに金属度と粗さを書き換えて使い回す**。</summary>
     private static Material _gridMaterial = null!;
 
@@ -781,6 +791,16 @@ internal static class Program
 
         /// <summary>細長い箱を回しながら落とす。**辺×辺の軸が出る**場面。</summary>
         BoxTumble,
+
+        /// <summary>
+        /// カプセルを落とす(Day 45)。**寝ると2点で支えられる**のを見る筋書き。
+        ///
+        /// 傾けて落としたカプセルは1点で着地して倒れ、
+        /// 倒れ切ると端2つで支えられて止まる。
+        /// 箱の日(Day 44)に「接触点の数 = 支え方の数」と書いたのが、
+        /// <b>同じ物体が転がる間に 1 → 2 と変わる</b>形で見える。
+        /// </summary>
+        CapsuleDrop,
     }
 
     /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
@@ -877,6 +897,13 @@ internal static class Program
 
     /// <summary>降らせた箱の数。色を巡回させるのに使う。</summary>
     private static int _boxSpawnCount;
+
+    // ================================================================
+    //  Day 45: カプセル衝突とキャラクターコントローラ(キネマティック)
+    // ================================================================
+
+    /// <summary>降らせたカプセルの数。色を巡回させるのに使う。</summary>
+    private static int _capsuleSpawnCount;
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
@@ -1391,6 +1418,10 @@ internal static class Program
         // 49 個並べても 15 万枚で、いまどきの GPU には何でもない数。
         _sphere = Primitives.CreateSphere(_gl);
 
+        // **円柱は Day 45 で足した**。カプセルの胴に使う。
+        // 分割数 32 で三角形 128 枚。球と組み合わせて1本のカプセルになる。
+        _cylinder = Primitives.CreateCylinder(_gl);
+
         _cubeMaterial = new Material(_shader)
         {
             MainTexture = _texture,
@@ -1838,7 +1869,7 @@ internal static class Program
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
         Console.WriteLine("--- Day 43: 剛体力学の基礎(Ctrl+Shift+Alt+F1〜F12)---");
-        Console.WriteLine("Ctrl+Shift+Alt+F1:物理デモ ON/OFF。**球が落ちて跳ねて積まれる。今日の到達点**");
+        Console.WriteLine("Ctrl+Shift+Alt+F1:物理デモ ON/OFF。**球が落ちて跳ねて積まれる**");
         Console.WriteLine("Ctrl+Shift+Alt+F2:積分法(セミインプリシット / **陽的オイラー**。数字キー4と併せて見る)");
         Console.WriteLine("Ctrl+Shift+Alt+F3:反発係数 0/0.3/0.6/0.9  Ctrl+Shift+Alt+F4:筋書き(落下/積み上げ/撞き玉)");
         Console.WriteLine("Ctrl+Shift+Alt+F5:速度の反復 1/2/4/8(**1 だと柱が沈む**)  Ctrl+Shift+Alt+F6:位置補正 ON/OFF");
@@ -1847,13 +1878,17 @@ internal static class Program
         Console.WriteLine("Ctrl+Shift+Alt+F11:コマ送り  Ctrl+Shift+Alt+F12:Day 43 の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 44: 箱(OBB)の衝突(Ctrl+Shift+Alt+数字キー)---");
-        Console.WriteLine("Ctrl+Shift+Alt+1:箱デモ ON/OFF。**傾きを振った箱が落ちて、面で落ち着く。今日の到達点**");
-        Console.WriteLine("Ctrl+Shift+Alt+2:筋書き(箱を落とす/箱を積む/球と箱/箱が転がる)");
+        Console.WriteLine("Ctrl+Shift+Alt+1:箱デモ ON/OFF。**傾きを振った箱が落ちて、面で落ち着く**");
+        Console.WriteLine("Ctrl+Shift+Alt+2:筋書き(箱を落とす/箱を積む/球と箱/箱が転がる/**カプセルを落とす**)");
         Console.WriteLine("Ctrl+Shift+Alt+3:接触点の表示 ON/OFF(**光る玉がマニフォールドの点**)");
-        Console.WriteLine("Ctrl+Shift+Alt+4:1組あたりの接触点 1/2/4(**1 にすると箱が落ち着かない。今日の実験**)");
+        Console.WriteLine("Ctrl+Shift+Alt+4:1組あたりの接触点 1/2/4(**1 にすると箱もカプセルも落ち着かない**)");
         Console.WriteLine("Ctrl+Shift+Alt+5:箱を1つ降らせる  Ctrl+Shift+Alt+6:接触の内訳(どの軸が効いたか)");
         Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。切ると積んだ箱が崩れる)");
-        Console.WriteLine("Ctrl+Shift+Alt+0:今日の自己チェック");
+        Console.WriteLine("Ctrl+Shift+Alt+0:Day 44 の自己チェック");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 45: カプセル衝突とキャラクターコントローラ(X の段)---");
+        Console.WriteLine("Ctrl+Alt+X:カプセルを1つ降らせる");
+        Console.WriteLine("Ctrl+Shift+Alt+X:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
         Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
@@ -2965,6 +3000,15 @@ internal static class Program
                 // 描こうとすると影の箱の中が真っ暗になる。
                 if (physicsBody.Shape.Kind == ColliderKind.Plane)
                 {
+                    continue;
+                }
+
+                // **カプセルは3つに分けて落とす**(Day 45)。
+                // 本編の描画(<see cref="DrawCapsule"/>)と同じ分け方でないと、
+                // 影だけ形が違うという分かりにくい壊れ方をする。
+                if (physicsBody.Shape.Kind == ColliderKind.Capsule)
+                {
+                    ShadowCapsule(InterpolatedCapsule(physicsBody));
                     continue;
                 }
 
@@ -4103,6 +4147,10 @@ internal static class Program
             case PhysicsScene.BoxTumble:
                 BuildBoxTumbleScene();
                 break;
+
+            case PhysicsScene.CapsuleDrop:
+                BuildCapsuleDropScene();
+                break;
         }
     }
 
@@ -4390,6 +4438,148 @@ internal static class Program
         }
     }
 
+    // ================================================================
+    //  Day 45: カプセル衝突とキャラクターコントローラ(キネマティック)
+    // ================================================================
+
+    /// <summary>
+    /// カプセルを落とす(Ctrl+Shift+Alt+2 で選ぶ)。**寝ると2点で支えられる**(要点4)。
+    ///
+    /// 傾きを振った5本を落とす。傾いた4本は<b>1点で着地して倒れ</b>、
+    /// 倒れ切ると<b>端2つで支えられて止まる</b>。
+    /// まっすぐ立てた1本目だけは倒れるきっかけが無く、1点で立ったまま残る
+    /// (理屈のうえでは倒れない。自己チェックが傾けて落としているのはそのため)。
+    /// 接触点の表示(Ctrl+Shift+Alt+3)を出しておくと、
+    /// 光る玉が1つから2つに増える瞬間が見える。
+    ///
+    /// <para>
+    /// <b>床のカプセルは必ず横倒しで止まる</b>。カプセルの慣性は
+    /// 軸まわりだけが極端に小さいので(要点5)、
+    /// 立った姿勢は少しでも傾けば戻ってこない。
+    /// </para>
+    /// </summary>
+    private static void BuildCapsuleDropScene()
+    {
+        float[] tilts = [0.0f, 0.25f, 0.6f, 1.1f, MathF.PI * 0.5f];
+
+        for (int i = 0; i < tilts.Length; i++)
+        {
+            RigidBody body = RigidBody.CreateCapsule(1.0f, 0.28f, 0.45f);
+            body.Position = new Vector3((i - 2) * 1.7f, 3.0f, 0.0f);
+            body.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, tilts[i]);
+            body.Restitution = 0.2f;
+            body.AngularDamping = 0.3f;
+            Physics.AddBody(body);
+
+            // 水色(立っている)→ 橙(寝ている)。**色が初めの傾きの目盛り**。
+            float t = tilts[i] / (MathF.PI * 0.5f);
+            BodyColors.Add(SrgbToLinear(
+                new Vector4(0.30f + (0.60f * t), 0.65f - (0.10f * t), 0.90f - (0.65f * t), 1.0f)));
+        }
+    }
+
+    /// <summary>
+    /// カプセルを1つ降らせる(Ctrl+Alt+X)。
+    ///
+    /// <see cref="SpawnBox"/> のカプセル版。**縦横比を毎回変える**ので、
+    /// 細長いものほど転がりやすいのが見える(要点5)。
+    /// </summary>
+    private static void SpawnCapsule()
+    {
+        if (!_physicsDemo)
+        {
+            return;
+        }
+
+        float angle = _capsuleSpawnCount * 2.399963f;   // 黄金角。**重ならないように散る**
+
+        float radius = 0.20f + (0.06f * (_capsuleSpawnCount % 3));
+        float halfHeight = 0.22f + (0.18f * ((_capsuleSpawnCount + 1) % 3));
+
+        // 質量は体積に比例させる(密度をそろえる)。円柱 + 球の体積。
+        float volume =
+            (MathF.PI * radius * radius * halfHeight * 2.0f)
+            + ((4.0f / 3.0f) * MathF.PI * radius * radius * radius);
+
+        RigidBody body = RigidBody.CreateCapsule(volume * 900.0f * 0.001f, radius, halfHeight);
+        body.Position = new Vector3(MathF.Cos(angle) * 1.8f, 4.5f, MathF.Sin(angle) * 1.8f);
+        body.Orientation = Quaternion.CreateFromYawPitchRoll(angle, angle * 0.7f, angle * 0.3f);
+        body.Restitution = RestitutionSteps[_restitutionIndex];
+        body.AngularDamping = 0.25f;
+
+        Physics.AddBody(body);
+        BodyColors.Add(SrgbToLinear(new Vector4(
+            0.30f + (0.5f * MathF.Abs(MathF.Sin(angle))),
+            0.65f,
+            0.55f + (0.4f * MathF.Abs(MathF.Cos(angle))),
+            1.0f)));
+
+        _capsuleSpawnCount++;
+
+        Console.WriteLine(
+            $"カプセルを1つ追加: 半径 {radius:F2}m 全高 {2.0f * (halfHeight + radius):F2}m "
+            + $"質量 {body.Mass:F2}kg  体 {Physics.DynamicCount} 個(動くもの)");
+    }
+
+    /// <summary>
+    /// カプセル1本を描く。**下の球・胴の円柱・上の球**の3回(要点6)。
+    ///
+    /// 円柱は XZ に半径・Y に線分の長さで拡大する。
+    /// <b>非一様な拡大でも円柱なら正しい形になる</b>のがこの分け方の値打ちで、
+    /// カプセル1本ぶんのメッシュを寸法ごとに作らずに済む。
+    /// </summary>
+    private static void DrawCapsule(in Capsule3D capsule, Material material)
+    {
+        float diameter = capsule.Radius * 2.0f;
+        float length = capsule.Segment.Length;
+
+        Draw(_sphere, material,
+            Matrix4x4.CreateScale(diameter)
+                * Matrix4x4.CreateTranslation(capsule.Segment.Start));
+
+        Draw(_sphere, material,
+            Matrix4x4.CreateScale(diameter)
+                * Matrix4x4.CreateTranslation(capsule.Segment.End));
+
+        // 線分が潰れているときは胴を描かない(カプセルが球になっている)。
+        if (length <= 1e-4f)
+        {
+            return;
+        }
+
+        Draw(_cylinder, material,
+            Matrix4x4.CreateScale(diameter, length, diameter)
+                * RotationTo(capsule.Axis)
+                * Matrix4x4.CreateTranslation(capsule.Center));
+    }
+
+    /// <summary>
+    /// 「+Y をこの向きへ倒す」回転。**カプセルの胴**が使う(Day 45b で接地の印も使う)。
+    ///
+    /// 軸は <c>cross(+Y, 向き)</c>、角度は内積から。
+    /// <b>真下を向いたときだけ軸が作れない</b>(外積が 0)ので、
+    /// そのときは適当な軸で 180 度回す——
+    /// Day 43 の「中心が一致した球」と同じ種類の退化で、
+    /// <b>放っておくと NaN が絵に混ざる</b>。
+    /// </summary>
+    private static Matrix4x4 RotationTo(Vector3 direction)
+    {
+        float dot = Math.Clamp(Vector3.Dot(Vector3.UnitY, direction), -1.0f, 1.0f);
+
+        if (dot > 0.9999f)
+        {
+            return Matrix4x4.Identity;
+        }
+
+        if (dot < -0.9999f)
+        {
+            return Matrix4x4.CreateFromAxisAngle(Vector3.UnitX, MathF.PI);
+        }
+
+        Vector3 axis = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, direction));
+        return Matrix4x4.CreateFromAxisAngle(axis, MathF.Acos(dot));
+    }
+
     /// <summary>
     /// 箱を1つ降らせる(Ctrl+Shift+Alt+5)。
     ///
@@ -4575,11 +4765,38 @@ internal static class Program
             }
 
             _physicsMaterial.BaseColorFactor = BodyColors[i];
+
+            // **カプセルだけ3回に分かれる**(Day 45)。
+            // 球と箱は1つのメッシュを拡大すれば済むが、
+            // カプセルは球2つ + 円柱1本でしか正しく描けない
+            // (<see cref="Primitives.CreateCylinder"/> のコメント)。
+            if (body.Shape.Kind == ColliderKind.Capsule)
+            {
+                DrawCapsule(InterpolatedCapsule(body), _physicsMaterial);
+                _drawCalls += 2;
+                continue;
+            }
+
             Draw(BodyMesh(body), _physicsMaterial, BodyMatrix(body));
         }
 
         RenderContacts();
     }
+
+    /// <summary>
+    /// 描画用に補間したカプセル(Day 45)。**位置も向きも1ステップ前と混ぜる**。
+    ///
+    /// <see cref="BodyMatrix"/> が球と箱にしているのと同じことを、
+    /// 行列ではなく形そのものに対してやっている。
+    /// <see cref="DrawCapsule"/> が線分の両端を必要とするので、
+    /// 行列を作る前に「補間後の姿勢のカプセル」が要る。
+    /// </summary>
+    private static Capsule3D InterpolatedCapsule(RigidBody body) =>
+        Capsule3D.FromCenter(
+            Interpolate(body.PreviousPosition, body.Position),
+            Interpolate(body.PreviousOrientation, body.Orientation),
+            body.Shape.Radius,
+            body.Shape.HalfHeight);
 
     /// <summary>
     /// 接触点を光る小球で描く(Ctrl+Shift+Alt+3)。**マニフォールドを目で見る**。
@@ -4620,9 +4837,38 @@ internal static class Program
     ///
     /// 単位球も単位立方体も「差し渡し1」で作ってあるので、
     /// 拡大率は <see cref="BodyMatrix"/> 側で寸法をそのまま入れれば合う。
+    ///
+    /// <para>
+    /// <b>カプセルはここに来ない</b>(Day 45)。1つのメッシュでは描けないので、
+    /// 呼ぶ側が <see cref="DrawCapsule"/> へ振り分けている。
+    /// 「メッシュ1つ + 行列1つ」で表せる形と、そうでない形の境目がここ。
+    /// </para>
     /// </summary>
     private static Mesh<Vertex> BodyMesh(RigidBody body) =>
         body.Shape.Kind == ColliderKind.Box ? _cube : _sphere;
+
+    /// <summary>カプセル1本ぶんの影(球2つ + 円柱1本)。**本編と同じ分け方**。</summary>
+    private static void ShadowCapsule(in Capsule3D capsule)
+    {
+        float diameter = capsule.Radius * 2.0f;
+        float length = capsule.Segment.Length;
+
+        _shadow.Draw(_sphere,
+            Matrix4x4.CreateScale(diameter)
+                * Matrix4x4.CreateTranslation(capsule.Segment.Start));
+
+        _shadow.Draw(_sphere,
+            Matrix4x4.CreateScale(diameter)
+                * Matrix4x4.CreateTranslation(capsule.Segment.End));
+
+        if (length > 1e-4f)
+        {
+            _shadow.Draw(_cylinder,
+                Matrix4x4.CreateScale(diameter, length, diameter)
+                    * RotationTo(capsule.Axis)
+                    * Matrix4x4.CreateTranslation(capsule.Center));
+        }
+    }
 
     /// <summary>
     /// 縁石4本の行列。**見えない壁の位置を目に見えるようにする**だけのもの。
@@ -4676,10 +4922,18 @@ internal static class Program
         PhysicsScene.BoxStack => "箱を積む",
         PhysicsScene.BoxMix => "球と箱",
         PhysicsScene.BoxTumble => "箱が転がる",
+        PhysicsScene.CapsuleDrop => "カプセルを落とす",
         _ => "落下",
     };
 
-    /// <summary>箱の筋書きかどうか(Ctrl+Shift+Alt+1 の ON/OFF 判定に使う)。</summary>
+    /// <summary>
+    /// 箱かカプセルの筋書きかどうか(Ctrl+Shift+Alt+1 の ON/OFF 判定に使う)。
+    ///
+    /// **札を末尾に足したので、この比較がそのまま通った**(Day 45)。
+    /// <see cref="PhysicsScene.CapsuleDrop"/> を <c>BoxDrop</c> の手前に挿していたら、
+    /// ここだけ静かに嘘になっていた——列挙の値に順序の意味を持たせると、
+    /// <b>足す場所が仕様になる</b>。
+    /// </summary>
     private static bool IsBoxScene(PhysicsScene scene) => scene >= PhysicsScene.BoxDrop;
 
     /// <summary>体の形を1行で。**寸法まで出す**ので、積み上げのずれに気づける。</summary>
@@ -4689,6 +4943,8 @@ internal static class Program
             $"箱 {body.Shape.HalfExtents.X * 2.0f:F2}x{body.Shape.HalfExtents.Y * 2.0f:F2}"
             + $"x{body.Shape.HalfExtents.Z * 2.0f:F2}m",
         ColliderKind.Plane => "平面",
+        ColliderKind.Capsule =>
+            $"カプセル r={body.Shape.Radius:F2}m h={body.Shape.TotalHeight:F2}m",
         _ => $"球 r={body.Shape.Radius:F2}m",
     };
 
@@ -12065,7 +12321,33 @@ internal static class Program
 
         switch (key)
         {
-            // --- 今日のスイッチ(箱の衝突: 分離軸定理と接触マニフォールド)---
+            // --- 今日のスイッチ(カプセル衝突とキャラクターコントローラ)---
+            //
+            // **X の段**。Day 44 で「Ctrl+Shift+Alt + 数字/ファンクション」を使い切り、
+            // 修飾キー3つの組み合わせはもう残っていない。
+            // そこで<b>唯一まるごと空いていた文字キー</b>である X に移った——
+            // A〜Z のうち X だけが `case Key.X:` を持っていなかった。
+            //
+            // <b>素の X には触らない</b>。X は Day 18 の <see cref="InputMap"/> で
+            // ダッシュに割り当ててある(Day 45b のキャラクターが「走る」に使う)。
+            //
+            // <b>この塊はいちばん上に置くこと</b>。`case Key.X:` は今のところ
+            // どこにも無いので今日は事故らないが、
+            // 明日 X を素で使うコードを下に足すと**修飾キー付きが全部そちらに吸われる**。
+            // Day 39 から毎日書いている「ガード付き case は具体的なものほど上」がそのまま続く。
+            //
+            // <b>文字キーの段も、これで最後**。Day 46 以降は
+            // Day 40 の <c>FeatureToggles</c> のように、
+            // 割り当ての表そのものをデータにするしかない。
+            case Key.X when ctrl && alt && !shift:
+                SpawnCapsule();
+                break;
+
+            case Key.X when ctrl && shift && alt:
+                RunCapsuleCheck();
+                break;
+
+            // --- Day 44 のスイッチ(箱の衝突: 分離軸定理と接触マニフォールド)---
             //
             // **Ctrl+Shift+Alt + 数字キー**。段はこれで8つ目になる。
             // Day 43 で「修飾キー3つ + ファンクションキー」を使い切ったので、
@@ -12078,8 +12360,9 @@ internal static class Program
             // Day 39 から毎日書いている
             // 「**ガード付き case は具体的なものほど上**」がそのまま続いている。
             //
-            // <b>数字キーの段も、これでほぼ最後**。Day 45 以降は
-            // Day 40 の <c>FeatureToggles</c> のように、
+            // <b>数字キーの段も、これでほぼ最後**。予告どおり
+            // Day 45 は文字キー(X の段)へ移った。
+            // Day 46 以降は Day 40 の <c>FeatureToggles</c> のように、
             // 割り当ての表そのものをデータにするしかない。
             case Key.Number1 when ctrl && shift && alt:
                 // **今日の到達点**。傾きを振った5つの箱を落とす。
@@ -12106,11 +12389,13 @@ internal static class Program
 
             case Key.Number2 when ctrl && shift && alt:
                 {
+                    // **Day 45 でカプセルが1つ増えて5つ巡る**。
                     PhysicsScene next = _physicsScene switch
                     {
                         PhysicsScene.BoxDrop => PhysicsScene.BoxStack,
                         PhysicsScene.BoxStack => PhysicsScene.BoxMix,
                         PhysicsScene.BoxMix => PhysicsScene.BoxTumble,
+                        PhysicsScene.BoxTumble => PhysicsScene.CapsuleDrop,
                         _ => PhysicsScene.BoxDrop,
                     };
 
@@ -12123,6 +12408,8 @@ internal static class Program
                             "筋書き: **球と箱**(傾けた静的な箱の上へ。5通りの判定が全部走る)",
                         PhysicsScene.BoxTumble =>
                             "筋書き: **箱が転がる**(細長い箱を回しながら。辺×辺の軸が出る)",
+                        PhysicsScene.CapsuleDrop =>
+                            "筋書き: **カプセルを落とす**(Day 45。倒れると接触点が1点から2点になる)",
                         _ =>
                             "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
                     });
@@ -16345,6 +16632,353 @@ internal static class Program
         checks.Report("すべて合格(箱は落ち、面で支えられ、積める)");
         Console.WriteLine();
     }
+
+    /// <summary>
+    /// 今日の自己チェック(Ctrl+Shift+Alt+X)。
+    ///
+    /// 今日押さえるのは<b>判定</b>(カプセル)の層。
+    /// 線分の最近接点・慣性テンソル・2点の接触を、
+    /// <b>解析解と総当たりの突き合わせ</b>で確かめる。
+    /// Day 45b でキャラクター(坂・段差・接地・滑り)の項目がここに足される。
+    ///
+    /// <para>
+    /// <see cref="PhysicsWorld"/> も <see cref="Collision3D"/> も GL を知らないので、
+    /// **窓を1枚も出さずに全項目が走る**。Day 43 から続く層のまま。
+    /// </para>
+    /// </summary>
+    private static void RunCapsuleCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 45: カプセルの自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 線分と最近接点(要点2)
+        // ============================================================
+
+        var segment = new Segment3D(new Vector3(-1.0f, 0.0f, 0.0f), new Vector3(1.0f, 0.0f, 0.0f));
+
+        checks.Check(
+            "線分の真横の点は、真下の点が最近接",
+            (segment.ClosestPoint(new Vector3(0.3f, 2.0f, 0.0f)) - new Vector3(0.3f, 0.0f, 0.0f))
+                .Length() < 1e-5f);
+
+        checks.Check(
+            "線分の外へ出た点は**端が最近接**(直線ではなく線分)",
+            (segment.ClosestPoint(new Vector3(5.0f, 1.0f, 0.0f)) - new Vector3(1.0f, 0.0f, 0.0f))
+                .Length() < 1e-5f);
+
+        var degenerate = new Segment3D(Vector3.One, Vector3.One);
+        checks.Check(
+            "長さ 0 の線分でも NaN を返さない(カプセルが球に退化した場合)",
+            float.IsFinite(degenerate.ClosestPoint(Vector3.Zero).X)
+                && (degenerate.ClosestPoint(Vector3.Zero) - Vector3.One).Length() < 1e-6f);
+
+        // すれ違う2本(ねじれの位置)。x 軸の線分と、z 軸方向へ持ち上げた y 軸の線分。
+        var alongX = new Segment3D(new Vector3(-1.0f, 0.0f, 0.0f), new Vector3(1.0f, 0.0f, 0.0f));
+        var alongY = new Segment3D(new Vector3(0.0f, -1.0f, 2.0f), new Vector3(0.0f, 1.0f, 2.0f));
+
+        Segment3D.ClosestPoints(alongX, alongY, out Vector3 onX, out Vector3 onY);
+
+        checks.Check(
+            "ねじれの位置の2線分: 最近接点は**それぞれの中ほど**",
+            onX.Length() < 1e-5f && (onY - new Vector3(0.0f, 0.0f, 2.0f)).Length() < 1e-5f,
+            $"({onX.X:F3}, {onX.Y:F3}, {onX.Z:F3}) / ({onY.X:F3}, {onY.Y:F3}, {onY.Z:F3})");
+
+        // 平行に並べた2本。ずらしてあるので、答えは端に寄る。
+        var parallelA = new Segment3D(new Vector3(0.0f, 0.0f, 0.0f), new Vector3(2.0f, 0.0f, 0.0f));
+        var parallelB = new Segment3D(new Vector3(3.0f, 1.0f, 0.0f), new Vector3(5.0f, 1.0f, 0.0f));
+
+        Segment3D.ClosestPoints(parallelA, parallelB, out Vector3 pa, out Vector3 pb);
+
+        checks.Check(
+            "平行で離れた2線分: **向かい合う端どうし**が最近接",
+            (pa - new Vector3(2.0f, 0.0f, 0.0f)).Length() < 1e-4f
+                && (pb - new Vector3(3.0f, 1.0f, 0.0f)).Length() < 1e-4f,
+            $"距離 {(pa - pb).Length():F4}(期待 {MathF.Sqrt(2.0f):F4})");
+
+        // 総当たりで確かめる。**答えを別の方法で出して突き合わせる**のがいちばん強い。
+        var random = new Random(1234);
+        float worstError = 0.0f;
+
+        for (int trial = 0; trial < 2000; trial++)
+        {
+            var s1 = new Segment3D(RandomPoint(random), RandomPoint(random));
+            var s2 = new Segment3D(RandomPoint(random), RandomPoint(random));
+
+            Segment3D.ClosestPoints(s1, s2, out Vector3 c1, out Vector3 c2);
+            float solved = (c1 - c2).Length();
+
+            // 総当たり: 両方の線分を 200 等分して全部の組を試す。
+            float brute = float.MaxValue;
+            for (int i = 0; i <= 200; i++)
+            {
+                Vector3 p = s1.PointAt(i / 200.0f);
+                for (int j = 0; j <= 200; j++)
+                {
+                    brute = MathF.Min(brute, (p - s2.PointAt(j / 200.0f)).Length());
+                }
+            }
+
+            // 解析解は総当たりより小さいか同じになるはず。
+            worstError = MathF.Max(worstError, solved - brute);
+        }
+
+        checks.Check(
+            "**総当たりの答えを上回らない**(2,000 通り × 201² 組で確認)",
+            worstError < 1e-3f,
+            $"最悪 {worstError * 1000.0f:F4}mm");
+
+        // ============================================================
+        //  2. カプセルの形と慣性テンソル(要点1・要点5)
+        // ============================================================
+
+        var upright = Capsule3D.FromCenter(
+            new Vector3(0.0f, 1.0f, 0.0f), Quaternion.Identity, 0.3f, 0.5f);
+
+        checks.Check(
+            "立てたカプセル: 線分は中心の上下 0.5m",
+            (upright.Segment.Start - new Vector3(0.0f, 0.5f, 0.0f)).Length() < 1e-5f
+                && (upright.Segment.End - new Vector3(0.0f, 1.5f, 0.0f)).Length() < 1e-5f);
+
+        checks.Check(
+            "全高は 2(半分の高さ + 半径)= 1.6m",
+            MathF.Abs(Collider.Capsule(0.3f, 0.5f).TotalHeight - 1.6f) < 1e-5f,
+            $"{Collider.Capsule(0.3f, 0.5f).TotalHeight:F4}m");
+
+        checks.Check(
+            "全高から作ると、半分の高さが逆算できる(全高 1.8m・半径 0.35m → 0.55m)",
+            MathF.Abs(Collider.FromHeight(0.35f, 1.8f).HalfHeight - 0.55f) < 1e-5f,
+            $"{Collider.FromHeight(0.35f, 1.8f).HalfHeight:F4}m");
+
+        Vector3 sphereLike = Collider.Capsule(0.5f, 0.0f).InertiaLocal(2.0f);
+        checks.Check(
+            "**半分の高さ 0 のカプセルは球**(2/5 m r² = 0.2)",
+            MathF.Abs(sphereLike.X - 0.2f) < 1e-5f
+                && MathF.Abs(sphereLike.Y - 0.2f) < 1e-5f
+                && MathF.Abs(sphereLike.Z - 0.2f) < 1e-5f,
+            $"({sphereLike.X:F5}, {sphereLike.Y:F5}, {sphereLike.Z:F5})");
+
+        Vector3 capsuleInertia = Collider.Capsule(0.3f, 0.6f).InertiaLocal(5.0f);
+        checks.Check(
+            "カプセルの慣性は**軸まわりだけが小さい**(横は2つとも同じ)",
+            capsuleInertia.Y < capsuleInertia.X * 0.25f
+                && MathF.Abs(capsuleInertia.X - capsuleInertia.Z) < 1e-6f,
+            $"軸 {capsuleInertia.Y:F4} / 横 {capsuleInertia.X:F4}");
+
+        // 細長いカプセルは、同じ質量・同じ長さの棒(1/12 m L²)に近づいていく。
+        Vector3 slender = Collider.Capsule(0.02f, 1.0f).InertiaLocal(1.0f);
+        float rod = (1.0f / 12.0f) * 1.0f * 2.0f * 2.0f;   // 全長 2m の細い棒
+        checks.Check(
+            "細いカプセルは**細長い棒 1/12 m L²** に近づく",
+            MathF.Abs(slender.X - rod) / rod < 0.05f,
+            $"{slender.X:F5}(棒なら {rod:F5})");
+
+        // ============================================================
+        //  3. カプセルの判定(要点1〜4)
+        // ============================================================
+
+        var floor = Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY);
+
+        var standing = new Capsule3D(
+            new Vector3(0.0f, 0.25f, 0.0f), new Vector3(0.0f, 1.25f, 0.0f), 0.3f);
+        ContactManifold standingContact = Collision3D.CapsulePlane(standing, floor);
+
+        checks.Check(
+            "立てたカプセルが床にめり込むと**1点**(深さ 0.05m)",
+            standingContact.Count == 1 && MathF.Abs(standingContact.MaxDepth - 0.05f) < 1e-5f,
+            $"{standingContact.Count} 点 / 深さ {standingContact.MaxDepth:F4}m");
+
+        var lying = new Capsule3D(
+            new Vector3(-0.5f, 0.25f, 0.0f), new Vector3(0.5f, 0.25f, 0.0f), 0.3f);
+        ContactManifold lyingContact = Collision3D.CapsulePlane(lying, floor);
+
+        checks.Check(
+            "**寝かせたカプセルは2点**(接触点の数 = 支え方の数)",
+            lyingContact.Count == 2,
+            $"{lyingContact.Count} 点");
+
+        bool sameDepth = lyingContact.Count == 2
+            && MathF.Abs(lyingContact.Points[0].Depth - lyingContact.Points[1].Depth) < 1e-6f;
+        checks.Check("寝かせたカプセルの2点は同じ深さ", sameDepth);
+
+        checks.Check(
+            "浮いているカプセルは当たらない",
+            !Collision3D.CapsulePlane(
+                new Capsule3D(new Vector3(0.0f, 2.0f, 0.0f), new Vector3(0.0f, 3.0f, 0.0f), 0.3f),
+                floor).Hit);
+
+        // 球とカプセル。**線分の中ほどに当てる**。
+        Contact3D sphereHit = Collision3D.SphereCapsule(
+            new Sphere3D(new Vector3(0.6f, 0.0f, 0.0f), 0.4f),
+            new Capsule3D(new Vector3(0.0f, -1.0f, 0.0f), new Vector3(0.0f, 1.0f, 0.0f), 0.3f));
+
+        checks.Check(
+            "球とカプセル: 法線は**球を押し出す向き**(+x)、深さは 0.7 - 0.6 = 0.1m",
+            sphereHit.Hit
+                && (sphereHit.Normal - Vector3.UnitX).Length() < 1e-4f
+                && MathF.Abs(sphereHit.Depth - 0.1f) < 1e-4f,
+            $"深さ {sphereHit.Depth:F5}m");
+
+        // カプセルとカプセル。十字にすれ違う2本(**軸は 0.4m ずらしてある**)。
+        // ぴたりと交差させると最近接点が一致して法線が決まらなくなり、
+        // 「入れ替えたら逆向き」の確認ができない——Day 43 の「中心が一致した球」と同じ退化。
+        var crossA = new Capsule3D(
+            new Vector3(-1.0f, 0.0f, 0.0f), new Vector3(1.0f, 0.0f, 0.0f), 0.3f);
+        var crossB = new Capsule3D(
+            new Vector3(0.0f, 0.4f, -1.0f), new Vector3(0.0f, 0.4f, 1.0f), 0.3f);
+
+        ContactManifold crossed = Collision3D.CapsuleCapsule(crossA, crossB);
+        checks.Check(
+            "十字にすれ違う2本のカプセルは当たる(深さ 0.6 - 0.4 = 0.2m)",
+            crossed.Hit
+                && MathF.Abs(crossed.MaxDepth - 0.2f) < 1e-4f
+                && (crossed.Normal + Vector3.UnitY).Length() < 1e-4f,
+            $"{crossed.Count} 点 / 深さ {crossed.MaxDepth:F4}m / "
+                + $"法線 ({crossed.Normal.X:F2}, {crossed.Normal.Y:F2}, {crossed.Normal.Z:F2})");
+
+        ContactManifold crossedSwapped = Collision3D.CapsuleCapsule(crossB, crossA);
+        checks.Check(
+            "A と B を入れ替えると法線が逆になり、深さは変わらない",
+            (crossedSwapped.Normal + crossed.Normal).Length() < 1e-4f
+                && MathF.Abs(crossedSwapped.MaxDepth - crossed.MaxDepth) < 1e-4f);
+
+        // 平行に重ねた2本は2点。
+        ContactManifold stacked = Collision3D.CapsuleCapsule(
+            new Capsule3D(new Vector3(-0.5f, 0.5f, 0.0f), new Vector3(0.5f, 0.5f, 0.0f), 0.3f),
+            new Capsule3D(new Vector3(-0.5f, 0.0f, 0.0f), new Vector3(0.5f, 0.0f, 0.0f), 0.3f));
+
+        checks.Check(
+            "**平行に重ねた2本のカプセルは2点**(1点だと転がって落ちる)",
+            stacked.Count == 2,
+            $"{stacked.Count} 点");
+
+        // カプセルと箱。箱の上面(y = 0.5)に寝かせる。
+        var platform = new Box3D(Vector3.Zero, new Vector3(2.0f, 0.5f, 2.0f), Quaternion.Identity);
+        ContactManifold onBox = Collision3D.CapsuleBox(
+            new Capsule3D(new Vector3(-0.5f, 0.7f, 0.0f), new Vector3(0.5f, 0.7f, 0.0f), 0.3f),
+            platform);
+
+        checks.Check(
+            "箱の上に寝かせたカプセルは**2点以上**で支えられる",
+            onBox.Count >= 2 && (onBox.Normal - Vector3.UnitY).Length() < 1e-4f,
+            $"{onBox.Count} 点 / 法線 ({onBox.Normal.X:F2}, {onBox.Normal.Y:F2}, {onBox.Normal.Z:F2})");
+
+        checks.Check(
+            "深さは 0.3 - 0.2 = 0.1m",
+            MathF.Abs(onBox.MaxDepth - 0.1f) < 1e-4f,
+            $"{onBox.MaxDepth:F4}m");
+
+        // **台からはみ出した端に、宙に浮いた接触点を立てない**。
+        ContactManifold overhang = Collision3D.CapsuleBox(
+            new Capsule3D(new Vector3(1.6f, 0.7f, 0.0f), new Vector3(3.6f, 0.7f, 0.0f), 0.3f),
+            platform);
+
+        bool insideBox = true;
+        for (int i = 0; i < overhang.Count; i++)
+        {
+            insideBox &= overhang.Points[i].Point.X < 2.0f + 0.3f;
+        }
+
+        checks.Check(
+            "台からはみ出した端に**宙に浮いた接触点を立てない**",
+            overhang.Hit && insideBox,
+            $"{overhang.Count} 点");
+
+        // 三分探索の答えを総当たりで確かめる(要点3)。
+        // **交互射影で書いていたときはここで落ちた**——2,000 通り中 581 件で
+        // 20cm 以上ずれていた。凸なら収束するという理屈は正しくても、
+        // 打ち切り回数を決められない手は使えない。
+        var boxRandom = new Random(777);
+        float worstBoxError = 0.0f;
+
+        for (int trial = 0; trial < 400; trial++)
+        {
+            var box = new Box3D(
+                RandomPoint(boxRandom) * 0.4f,
+                new Vector3(0.4f, 0.7f, 0.5f),
+                Quaternion.CreateFromYawPitchRoll(
+                    (float)(boxRandom.NextDouble() * Math.Tau),
+                    (float)(boxRandom.NextDouble() * Math.Tau),
+                    (float)(boxRandom.NextDouble() * Math.Tau)));
+
+            var probe = new Segment3D(
+                RandomPoint(boxRandom) * 2.0f, RandomPoint(boxRandom) * 2.0f);
+
+            Vector3 onBoxPoint = box.ClosestPoint(probe, out Vector3 onSegmentPoint);
+            float solved = (onBoxPoint - onSegmentPoint).Length();
+
+            // 総当たり: 線分を 400 等分して、各点から箱への最近接点を取る。
+            float brute = float.MaxValue;
+            for (int i = 0; i <= 400; i++)
+            {
+                Vector3 p = probe.PointAt(i / 400.0f);
+                brute = MathF.Min(brute, (box.ClosestPoint(p) - p).Length());
+            }
+
+            worstBoxError = MathF.Max(worstBoxError, solved - brute);
+        }
+
+        checks.Check(
+            "線分と箱の**三分探索が総当たりと一致**(400 通り)",
+            worstBoxError < 1e-3f,
+            $"最悪 {worstBoxError * 1000.0f:F4}mm");
+
+        // ============================================================
+        //  4. 剛体としてのカプセル
+        // ============================================================
+
+        var world = new PhysicsWorld();
+        world.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+        RigidBody rolled = RigidBody.CreateCapsule(1.0f, 0.3f, 0.5f);
+        rolled.Position = new Vector3(0.0f, 2.0f, 0.0f);
+
+        // 少し傾けて落とす。**まっすぐ立てると理屈のうえでは倒れない**。
+        rolled.Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, 0.35f);
+        rolled.Restitution = 0.0f;
+        rolled.AngularDamping = 0.3f;
+        world.AddBody(rolled);
+
+        for (int i = 0; i < 400; i++)
+        {
+            world.Step(1.0f / 60.0f);
+        }
+
+        Vector3 axisAfter = Vector3.Transform(Vector3.UnitY, rolled.Orientation);
+        checks.Check(
+            "落としたカプセルは**横倒しで止まる**(軸が水平になる)",
+            MathF.Abs(axisAfter.Y) < 0.15f,
+            $"軸の Y 成分 {axisAfter.Y:F4}");
+
+        checks.Check(
+            "横倒しのカプセルは、高さが半径ぶんで止まる",
+            MathF.Abs(rolled.Position.Y - 0.3f) < 0.02f,
+            $"{rolled.Position.Y:F4}m(期待 0.3000m)");
+
+        checks.Check(
+            "止まったカプセルは**2点で支えられている**",
+            world.Contacts.Count == 2,
+            $"{world.Contacts.Count} 点 / {world.ContactPairs} 組");
+
+        // **ぴたりと 0 にはならない**。摩擦もスリープも無いので、
+        // 2点で支えられた物体は接触の付き外れぶんだけ細かく揺れ続ける。
+        // 「止まって見える」程度に収まっていることだけを確かめる(どちらも Day 47)。
+        checks.Check(
+            "角速度がほぼ残っていない(目で見て止まっている)",
+            rolled.AngularVelocity.Length() < 0.15f,
+            $"{rolled.AngularVelocity.Length():F5} rad/s(摩擦もスリープも無いので 0 にはならない)");
+
+        checks.Report("すべて合格(カプセルは寝て支えられる)");
+        Console.WriteLine();
+    }
+
+    /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>
+    private static Vector3 RandomPoint(Random random) =>
+        new(
+            (float)((random.NextDouble() * 2.0) - 1.0),
+            (float)((random.NextDouble() * 2.0) - 1.0),
+            (float)((random.NextDouble() * 2.0) - 1.0));
 
     /// <summary>
     /// 自己チェックの結果を数えて出すだけの小さな道具。

@@ -225,6 +225,18 @@ internal sealed class RigidBody
         Create(mass, Collider.Box(halfSize));
 
     /// <summary>
+    /// 中身の詰まったカプセルを作る(Day 45)。**半径と「線分の半分の長さ」**で渡す。
+    ///
+    /// <b>この関数に慣性の式が1行も無い</b>のが Day 44 の設計の答え合わせになる。
+    /// 形が体から出ているので、カプセルを足すのに
+    /// <see cref="Create"/> も <see cref="UpdateInertiaWorld"/> も1文字も変わらなかった。
+    /// 「形が2つ目になった時点で切り出す」判断が正しかったことが、
+    /// **3つ目でようやく確かめられる**。
+    /// </summary>
+    public static RigidBody CreateCapsule(float mass, float radius, float halfHeight) =>
+        Create(mass, Collider.Capsule(radius, halfHeight));
+
+    /// <summary>
     /// 形と質量から体を1つ作る。**形ごとの分岐はここに無い**(Day 44)。
     ///
     /// Day 43 は <c>CreateSphere</c> の中に <c>0.4f * mass * radius * radius</c> と
@@ -325,6 +337,17 @@ internal sealed class RigidBody
 
     /// <summary>箱としての形。**向きは体の向きがそのまま箱の向きになる**。</summary>
     public Box3D ToBox() => new(Position, Shape.HalfExtents, Orientation);
+
+    /// <summary>
+    /// カプセルとしての形(Day 45)。**軸は体の Y 軸**。
+    ///
+    /// 立っているカプセルは <see cref="Orientation"/> が単位クォータニオン。
+    /// 横倒しになれば軸も一緒に倒れる——
+    /// <b>剛体としてのカプセルは倒れるが、キャラクターのカプセルは倒れない</b>
+    /// (Day 45b のキャラクターは向きを持たず、常に立っている)。
+    /// </summary>
+    public Capsule3D ToCapsule() =>
+        Capsule3D.FromCenter(Position, Orientation, Shape.Radius, Shape.HalfHeight);
 
     /// <summary>
     /// 平面としての形。法線は体の向きで回した先。
