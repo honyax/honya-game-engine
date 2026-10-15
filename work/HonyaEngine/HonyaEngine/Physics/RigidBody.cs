@@ -344,7 +344,7 @@ internal sealed class RigidBody
     /// 立っているカプセルは <see cref="Orientation"/> が単位クォータニオン。
     /// 横倒しになれば軸も一緒に倒れる——
     /// <b>剛体としてのカプセルは倒れるが、キャラクターのカプセルは倒れない</b>
-    /// (Day 45b のキャラクターは向きを持たず、常に立っている)。
+    /// (<see cref="CharacterController"/> は向きを持たず、常に立っている)。
     /// </summary>
     public Capsule3D ToCapsule() =>
         Capsule3D.FromCenter(Position, Orientation, Shape.Radius, Shape.HalfHeight);

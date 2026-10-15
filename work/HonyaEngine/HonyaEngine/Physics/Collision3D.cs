@@ -89,6 +89,13 @@ internal readonly struct Contact3D
 /// </para>
 ///
 /// <para>
+/// <b>そのぶん今日の重心は <see cref="CharacterController"/> にある</b>。
+/// 判定が答えるのは「当たったか」までで、
+/// 「坂は登れるか」「段差は越えられるか」「今は接地しているか」は
+/// 判定の外側で決めることになる——**そこが今日の 350 行**。
+/// </para>
+///
+/// <para>
 /// 戻り値は Day 44 のまま<b>最大4点の束</b>(<see cref="ContactManifold"/>)。
 /// カプセルは球と同じく1点しか出ないことが多いが、
 /// <b>寝かせると2点になる</b>——床に転がしたカプセルが震えないのはそのおかげで、
@@ -517,15 +524,16 @@ internal static class Collision3D
     /// <summary>
     /// カプセルを体1つに当てる。**形の札を見て振り分けるだけ**の窓口(Day 45)。
     ///
-    /// <see cref="Collide"/> のカプセルの枝は、全部ここへ落ちてくる。
-    /// 引数を体ではなく<b>形(<see cref="Capsule3D"/>)で受けている</b>のは、
-    /// 体になっていないカプセルも相手にできるようにするため——
-    /// Day 45b のキャラクターは剛体ではない(質量も速度も物理には預けない)ので、
+    /// <see cref="Collide"/> と役目が重なるようだが、こちらは
+    /// <b>体になっていないカプセル</b>——つまり <see cref="CharacterController"/> の
+    /// 当たり判定用の形——を相手にできる。
+    /// キャラクターは剛体ではない(質量も速度も物理には預けていない)ので、
     /// <c>RigidBody</c> を1つでっち上げて <see cref="Collide"/> を呼ぶ、という形にはしたくない。
     ///
     /// <para>
     /// 法線は<b>カプセル(A)を体(B)から引き離す向き</b>。
-    /// <see cref="Collide"/> でカプセルが B 側に来る組は、これを裏返して使う。
+    /// <see cref="PhysicsWorld.QueryCapsule"/> と
+    /// <see cref="CharacterController"/> はこの約束に寄りかかっている。
     /// </para>
     /// </summary>
     public static ContactManifold CapsuleAgainst(in Capsule3D capsule, RigidBody body) =>

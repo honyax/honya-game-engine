@@ -636,7 +636,7 @@ internal readonly struct Capsule3D
     /// </summary>
     public Sphere3D SphereNear(Vector3 point) => new(Segment.ClosestPoint(point), Radius);
 
-    /// <summary>下側の端の球(**足元**)。Day 45b のキャラクターが接地判定に使う。</summary>
+    /// <summary>下側の端の球(**足元**)。<see cref="CharacterController"/> が接地判定に使う。</summary>
     public Sphere3D LowerSphere => new(Segment.Start, Radius);
 
     /// <summary>上側の端の球(**頭**)。</summary>

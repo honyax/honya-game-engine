@@ -135,7 +135,16 @@ internal readonly struct ContactPoint
 /// </para>
 ///
 /// <para>
-/// <b>摩擦もスリープも無い</b>。だから今日の箱は転がらずに滑り、
+/// <b>Day 45 で「進める」以外の入口が1つ増えた</b>——
+/// <see cref="QueryCapsule"/> と <see cref="OverlapCapsule"/>。
+/// シミュレーションを1歩進めるのではなく、
+/// <b>今この形を置いたら何に当たるか</b>を問うだけのもので、
+/// <see cref="CharacterController"/> がこれだけを使って動く。
+/// 世界の側は「キャラクター」という言葉を知らないままでいられる。
+/// </para>
+///
+/// <para>
+/// <b>摩擦もスリープも無い</b>。だから箱は転がらずに滑り、
 /// 止まったように見えても計算は回り続ける。どちらも Day 47。
 /// </para>
 /// </summary>
@@ -340,6 +349,100 @@ internal sealed class PhysicsWorld
     public int AddPlane(Plane3D plane) =>
         AddBody(RigidBody.CreatePlane(
             plane.Normal * plane.Distance, plane.Normal));
+
+    /// <summary>
+    /// カプセルと当たっている体を集める。**キャラクターのための問い合わせ**(Day 45b の要点1)。
+    ///
+    /// <see cref="Step"/> が回している総当たりとは<b>別の入口</b>にしてある。
+    /// キャラクターは剛体ではない——質量も速度も物理に預けていないので、
+    /// <c>_bodies</c> に並ぶ資格が無い。
+    /// それでも「世界の形と当たっているか」は知りたいので、
+    /// <b>読むだけの問い合わせ</b>をここに置く。
+    ///
+    /// <para>
+    /// <b>これが「クエリ」と呼ばれる種類の API</b>。
+    /// Unity の <c>Physics.OverlapCapsule</c>、Unreal の <c>SweepMulti</c>、
+    /// Bullet の <c>contactTest</c> が同じ役をしている。
+    /// シミュレーションを進めるのとは別に、
+    /// <b>今この形を置いたら何に当たるか</b>を問える窓口が要る——
+    /// キャラクター・カメラの遮蔽・銃弾・AI の視線、どれもこれを使う。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>結果は呼ぶ側が用意した入れ物に書く</b>(<c>Span</c>)。
+    /// キャラクターは毎ステップ 10 回以上これを呼ぶので、
+    /// <c>List</c> を毎回作るとそのままゴミになる。
+    /// 入りきらないぶんは捨てる——キャラクターが同時に触る面は
+    /// せいぜい数枚なので、8 も見れば足りる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>今日も総当たり</b>。体が数十個なら平気だが、
+    /// キャラクターが1歩動くたびに世界じゅうの体を見るのは筋が悪い。
+    /// <b>ここが Day 46 のブロードフェーズのいちばん分かりやすい客</b>になる。
+    /// </para>
+    /// </summary>
+    /// <returns>書き込んだ数。</returns>
+    public int QueryCapsule(in Capsule3D capsule, Span<ContactManifold> results)
+    {
+        int count = 0;
+        CapsuleQueries++;
+
+        foreach (RigidBody body in _bodies)
+        {
+            if (count >= results.Length)
+            {
+                break;
+            }
+
+            CapsuleQueryTests++;
+
+            ContactManifold manifold = Collision3D.CapsuleAgainst(capsule, body);
+            if (manifold.Hit)
+            {
+                results[count++] = manifold;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// カプセルがどこかに埋まっているか。**当たったかどうかだけ**を知りたいとき。
+    ///
+    /// 段差を登るときに「持ち上げた先に天井が無いか」を確かめるのに使う。
+    /// 押し戻す量は要らないので、1つ見つけたところで打ち切る——
+    /// <b>問いが小さければ答えも早い</b>という、クエリを分けておく値打ちがここに出る。
+    /// </summary>
+    public bool OverlapCapsule(in Capsule3D capsule)
+    {
+        CapsuleQueries++;
+
+        foreach (RigidBody body in _bodies)
+        {
+            CapsuleQueryTests++;
+
+            if (Collision3D.CapsuleAgainst(capsule, body).Hit)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>直前のフレームに投げたカプセルの問い合わせの回数。**HUD 用**。</summary>
+    public int CapsuleQueries { get; private set; }
+
+    /// <summary>その問い合わせで試した体の延べ数。**Day 46 で減る数字**。</summary>
+    public long CapsuleQueryTests { get; private set; }
+
+    /// <summary>問い合わせの計測を 0 に戻す。**フレームの頭で呼ぶ**。</summary>
+    public void ResetQueryStats()
+    {
+        CapsuleQueries = 0;
+        CapsuleQueryTests = 0;
+    }
 
     public void Clear()
     {
