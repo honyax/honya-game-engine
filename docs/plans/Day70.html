@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 70 揺れもの</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+  #collide-canvas { cursor: crosshair; touch-action: none; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model と AnimationPlayer の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 揺れものは「先端の点」を Verlet で動かすだけ</a></li><li class="l3"><a href="#s7">2. 長さを戻し、先端の向きから回転を逆算する</a></li><li class="l3"><a href="#s8">3. コライダー — 球とカプセルから押し出す</a></li><li class="l3"><a href="#s9">4. center — 先端をどの座標で覚えるか</a></li><li class="l3"><a href="#s10">5. 固定の刻みで回し、体の動きは刻みの時刻で渡す</a></li><li class="l3"><a href="#s11">6. AvatarSample_A の揺れもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">揺れものは描く側を知らず、AnimationPlayer は揺れものを知らない</a></li><li class="l3"><a href="#s18">1フレームの中の揺れもの — 順番がそのまま設計</a></li><li class="l3"><a href="#s19">鎖の中は自分で掛け進め、鎖の外は補間して読む</a></li><li class="l3"><a href="#s20">今日残した歪み</a></li><li class="l3"><a href="#s21">試して分かったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. F2: 体を動かす</a></li><li class="l3"><a href="#s24">2. F3 / F4: 揺れもの・center</a></li><li class="l3"><a href="#s25">3. F5 / F6: コライダーとカプセル</a></li><li class="l3"><a href="#s26">4. F7 / F8 / F9: 硬さ・抵抗・スロー</a></li><li class="l3"><a href="#s27">5. Day 69 までの機能が全部生きていること</a></li><li class="l3"><a href="#s28">6. F12: 自己チェック(13 項目すべて合格)</a></li><li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): 風を吹かせる</a></li><li class="l3"><a href="#s32">課題2(中): 144 Hz の画面で髪をカクつかせない</a></li><li class="l3"><a href="#s33">課題3(難): 鎖の途中に揺れないノードを挟む</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 70 / 計画書</p>
+  <h1>SpringBone — 髪と胸とフードを、体に遅れてついて来させる</h1>
+  <p class="lede">先端の点を Verlet で動かし、その向きへ骨を回す。物理エンジンを使わない「それっぽい物理」</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model と AnimationPlayer の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 揺れものは「先端の点」を Verlet で動かすだけ</a></li><li class="l3"><a href="#s7">2. 長さを戻し、先端の向きから回転を逆算する</a></li><li class="l3"><a href="#s8">3. コライダー — 球とカプセルから押し出す</a></li><li class="l3"><a href="#s9">4. center — 先端をどの座標で覚えるか</a></li><li class="l3"><a href="#s10">5. 固定の刻みで回し、体の動きは刻みの時刻で渡す</a></li><li class="l3"><a href="#s11">6. AvatarSample_A の揺れもの</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">揺れものは描く側を知らず、AnimationPlayer は揺れものを知らない</a></li><li class="l3"><a href="#s18">1フレームの中の揺れもの — 順番がそのまま設計</a></li><li class="l3"><a href="#s19">鎖の中は自分で掛け進め、鎖の外は補間して読む</a></li><li class="l3"><a href="#s20">今日残した歪み</a></li><li class="l3"><a href="#s21">試して分かったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. F2: 体を動かす</a></li><li class="l3"><a href="#s24">2. F3 / F4: 揺れもの・center</a></li><li class="l3"><a href="#s25">3. F5 / F6: コライダーとカプセル</a></li><li class="l3"><a href="#s26">4. F7 / F8 / F9: 硬さ・抵抗・スロー</a></li><li class="l3"><a href="#s27">5. Day 69 までの機能が全部生きていること</a></li><li class="l3"><a href="#s28">6. F12: 自己チェック(13 項目すべて合格)</a></li><li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): 風を吹かせる</a></li><li class="l3"><a href="#s32">課題2(中): 144 Hz の画面で髪をカクつかせない</a></li><li class="l3"><a href="#s33">課題3(難): 鎖の途中に揺れないノードを挟む</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 69 で顔が動くようになった。今日は髪を動かす。</p>
+<p>VRM の揺れもの(<code>VRMC_springBone</code>)は、Day 43〜47 で作った剛体の物理とはまったく別物だ。質量も慣性テンソルも接触の連立も持たず、<strong>骨の先端の点1つを、前のステップに動いた分だけ動かし続ける</strong>(Verlet 積分)。そこへ「ファイルの形へ戻す力」と「重力」を足し、骨の長さへ戻し、体の球から押し出す。決まった先端の向きへ骨を回せば、髪の頂点は Day 41 からのスキニングでそのまま曲がる。</p>
+<p>ロードマップの注意書きのとおり、<strong>体が動かないと揺れない</strong>。アニメーションが入るのは Day 71 なので、今日は骨を手で動かして確かめる(首を振る・腰をひねる・跳ねる・置き場所ごと回す)。そして4つ目の「置き場所ごと回す」で、<strong>アバターを丸ごと回しても髪がまったく揺れない</strong>という、今日いちばん大事な現象に出会う。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「VRMの揺れもの」ページで <code>F2</code> を押すと、VRMビューアが出てアバターが首を振り、髪が遅れてついて来る。押すたびに、腰をひねる・跳ねる・置き場所ごと回す、と動かし方が変わる。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「VRMの揺れもの」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>体を動かす: 動かさない → 首を振る → 腰をひねる → 跳ねる → 置き場所ごと回す。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>揺れもの ON / OFF(起動時は ON)。切ると髪がファイルの形のまま頭に貼り付いて動く</td></tr>
+<tr><td><code>F4</code></td><td>center: ファイルの値(Root)↔ 使わない(世界)。<strong>置き場所ごと回したときに揺れるかどうかが変わる</strong></td></tr>
+<tr><td><code>F5</code></td><td>コライダー: 効かせる → 効かせて線で見せる → 効かせずに線で見せる</td></tr>
+<tr><td><code>F6</code></td><td>腕をカプセルに: ファイル(腕の球 14 個)↔ 腕1本をカプセル1本に</td></tr>
+<tr><td><code>F7</code></td><td>硬さを試す: ファイルの値 x1 → x0.25 → x0</td></tr>
+<tr><td><code>F8</code></td><td>抵抗を 0 に: ファイルの値(髪 0.4)↔ 全部 0。止めてもしばらく揺れ続ける</td></tr>
+<tr><td><code>F9</code></td><td>スロー: x1 ↔ x0.25(揺れの刻みは 60 Hz のまま、回す回数が減る)</td></tr>
+<tr><td><code>F10</code></td><td>見る向き: 全身 → 上半身の正面 → 横 → 後ろ。<strong>髪の揺れは後ろと横から見る</strong></td></tr>
+<tr><td><code>F11</code></td><td>内訳(鎖ごとの関節・揺れ方の値・center・コライダーの形と付いている骨・かかった時間)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(13 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「VRMの揺れもの」(32 枚目)が直接開く。どの項目も、VRMビューアが出ていなければ出してから効く。<strong>VRMビューアを出さない限り、今日の差分は読み込みのとき以外1行も通らない</strong>(毎フレームの更新は <code>_vrmDemo</code> で、線の表示は <code>VrmVisible()</code> で守ってある。置き場所の回転も <code>_vrmDemo</code> が立っていなければ 0)。</p>
+
+<figure class="lab" id="chain-lab">
+  <div class="lab-head">
+    <h3>実験台: 1本の鎖</h3>
+    <span class="tag">要点1〜4。式と順番は reference/Day70 の VrmSpringBone.StepSpring と同じ(体と髪の形はこのページで描いた 2D のもの)</span>
+  </div>
+  <canvas id="chain-canvas" style="height:340px" aria-label="頭から下がる2本の髪の鎖"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">体の動かし方(F2)</span>
+      <div class="seg" id="chain-motion">
+        <button data-v="none" aria-pressed="false">動かさない</button><button data-v="tilt" aria-pressed="true">首をかしげる</button><button data-v="carry" aria-pressed="false">置き場所ごと動かす</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">center(F4)</span>
+      <div class="seg" id="chain-center">
+        <button data-v="root" aria-pressed="true">Root(置き場所)</button><button data-v="world" aria-pressed="false">使わない(世界)</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">硬さ stiffness(F7)</span><div class="range"><input type="range" id="chain-stiff" min="0" max="2" step="0.05" value="0.8"><output id="chain-stiff-out"></output></div></div>
+    <div class="ctl"><span class="label">抵抗 dragForce(F8)</span><div class="range"><input type="range" id="chain-drag" min="0" max="1" step="0.01" value="0.4"><output id="chain-drag-out"></output></div></div>
+    <div class="ctl"><span class="label">重力 gravityPower</span><div class="range"><input type="range" id="chain-grav" min="0" max="1" step="0.05" value="0"><output id="chain-grav-out"></output></div></div>
+    <div class="ctl"><span class="label">コライダー(F5)</span>
+      <div class="seg" id="chain-col">
+        <button data-v="on" aria-pressed="true">効かせる</button><button data-v="off" aria-pressed="false">効かせない</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">長さの拘束(実機には無い切り替え)</span>
+      <div class="seg" id="chain-len">
+        <button data-v="on" aria-pressed="true">あり</button><button data-v="off" aria-pressed="false">なし</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="chain-stats"></div><p id="chain-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「動かすのは点で、骨はその点を向くだけ」</strong>。揺れものの状態は、関節ごとの先端の点(今と1つ前)の2つだけだ。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// VrmSpringBone.Integrate(Day 70)。three-vrm の VRMSpringBoneJoint.update と同じ形
+次 = 今 + (今 - 前) x (1 - dragForce)        // 慣性
+     + 戻す向き x stiffness x dt              // 硬さ(ファイルの形の向きへ)
+     + 重力の向き x gravityPower x dt          // 重力</code></pre></div>
+<p>決まった点を骨の長さへ戻し、体の球から押し出し、その向きへ骨を回す(要点2)。速度という変数は無く、<strong>「今 - 前」が速度の代わり</strong>になっている。</p>
+<p><strong>2つ目は「center が揺れの基準」</strong>。先端の点をどの座標で覚えるかを、鎖ごとに <code>center</code> で決める。AvatarSample_A は全部 <code>Root</code>(アバターのいちばん上のノード)なので、Root ごと動いた分——置き場所の行列で回した分や、Day 72 でキャラが歩いた分——は先端も一緒に運ばれて、<strong>揺れに入らない</strong>。揺れるのは、Root から見て体が動いたとき(首・腰)だけ。上の実験台の「置き場所ごと動かす」で、center を切り替えて見比べられる。</p>
+<p><strong>3つ目は「刻みを固定したら、体の動きも刻みの時刻で渡す」</strong>。<code>dragForce</code> は「1ステップで慣性を何割削るか」なので、ステップの長さが画面の速さで変わると揺れ方が変わる。そこで 1/60 秒の固定の刻みで回す。ところが固定にしただけでは足りず、30 fps の画面で1フレームに2ステップ回すとき、<strong>2回とも今の体を見せると 60 fps より揺れ方が大きく変わる</strong>(2 秒後の曲がりが 48 度 → 35 度)。前のフレームの体との間を補間して渡すと、30 / 60 / 144 fps がそろう(要点5)。</p>
+
+<h3 id="s3">今日は Model と AnimationPlayer の口</h3>
+<p>新規は <code>Model/VrmSpringBone.cs</code> の1本。変更は <code>AnimationPlayer</code>(姿勢を外から書き足す口を3つ)、<code>VrmAvatar</code>(揺れものを持って流す)、そして <code>Program.cs</code>。</p>
+<p><strong>キャラを描く側(<code>RenderVrm</code>・影パス・速度バッファ)は1行も変わっていない</strong>。揺れものが書き換えるのは髪の骨の回転だけで、関節行列を作るのは今までどおり <code>AnimationPlayer</code>。描く側は Day 68 から同じ関節行列を読んでいるだけで、髪が揺れているかどうかを知らない。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_springBone-1.0/README.ja.md">VRMC_springBone-1.0 の README.ja.md</a> — 一次資料。<code>colliders</code>(球・カプセル)、<code>colliderGroups</code>、<code>springs</code>(<code>joints</code>・<code>colliderGroups</code>・<code>center</code>)、関節ごとの <code>hitRadius</code> / <code>stiffness</code> / <code>gravityPower</code> / <code>gravityDir</code> / <code>dragForce</code> と既定値</li>
+<li><a href="https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm-springbone/src">three-vrm の three-vrm-springbone</a> — 実装の手本。<code>VRMSpringBoneJoint.ts</code> の <code>update</code>(Verlet の式・長さの拘束・回転の逆算)と <code>_collision</code>、<code>VRMSpringBoneColliderShapeSphere.ts</code> / <code>...Capsule.ts</code> の <code>calculateCollision</code>。式と順番はここに合わせた</li>
+<li>Day 19 の計画書(固定タイムステップ+補間)— 要点5。あちらは描くときに状態を補間し、今日は揺らすときに体の動きを補間する</li>
+<li>Day 41 の計画書(スキニング)— 関節行列 = 逆バインド行列 x 関節の世界行列。骨を回せば髪の頂点が曲がる理由</li>
+<li>Day 68 の計画書 要点7(関節 91 本と uniform の枠 64 本)— 髪の骨(<code>J_Sec_Hair*</code>)は髪のメッシュのスキン(18 本)に詰めて入っている</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. 揺れものは「先端の点」を Verlet で動かすだけ</h3>
+<p>関節1つが持つ状態は、<strong>先端の点の今と1つ前の位置</strong>だけ。速度は持たず、差 <code>今 - 前</code> を速度の代わりにする(位置 Verlet)。1ステップで足すのは3つ。</p>
+<div class="table-wrap"><table><thead><tr><th>項</th><th>式</th><th>意味</th></tr></thead><tbody>
+<tr><td>慣性</td><td><code>(今 - 前) x (1 - dragForce)</code></td><td>前のステップに動いた分だけ、今のステップも動く。<code>dragForce</code> はその分を<strong>1ステップで何割削るか</strong>(0.4 なら 40%)</td></tr>
+<tr><td>硬さ</td><td><code>戻す向き x stiffness x dt</code></td><td>ファイルの形の骨の向き(長さ 1)へ、1 秒あたり <code>stiffness</code> m だけ寄せる</td></tr>
+<tr><td>重力</td><td><code>gravityDir x gravityPower x dt</code></td><td>決めた向きへ、1 秒あたり <code>gravityPower</code> m だけ寄せる</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>硬さと重力は「力」ではなく「移動量」</strong>。dt を1回掛けるだけで、dt² ではない。名前は力でも、効き方は「毎秒どれだけ寄せるか」の速さ。仕様もこの形で値を決めている(自己チェック2: 硬さ 1 で 1/60 m = 1.667cm、重力 0.5 で 0.833cm)</li>
+<li><strong>硬さは角度によらず同じ大きさ</strong>。足すのは長さ 1 の向きなので、5 度ずれていても 90 度ずれていても、1ステップで寄せる量は同じ。ばね(ずれに比例する力)とは違う</li>
+<li><strong>体が止まれば、先端はファイルの形の位置に止まる</strong>。戻す向きと今の向きが一致すれば、硬さを足しても長さの拘束で同じ所に戻る。揺れるのは、体が動いて「戻す先」が先端から離れたときだけ</li>
+</ul>
+<p>上の実験台で、抵抗を 0 にして首をかしげ、「動かさない」に戻すと、しばらく揺れ続ける。硬さを 0 にすると、揺らした髪は戻らない(実機の <code>F7</code> で x0 にすると、髪が跳ね上がったまま 167 度曲がって止まる)。</p>
+
+<h3 id="s7">2. 長さを戻し、先端の向きから回転を逆算する</h3>
+<p>積分した点は骨の長さからずれるので、<strong>根からの向きのまま、骨の長さの所へ戻す</strong>(<code>ConstrainLength</code>)。実験台で「長さの拘束: なし」にすると、硬さが同じ向きを毎ステップ足し続け、慣性に積もって、先端の点(橙)が骨の先からどこまでも流れていく。</p>
+<p>点が決まったら、骨をその点へ向ける。</p>
+<svg viewBox="0 0 640 230" role="img" aria-label="先端の点から骨の回転を逆算する図" style="width:100%;max-width:640px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow70a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <circle cx="160" cy="50" r="7" fill="var(--ink)"/><text x="176" y="44">骨の根(親の世界行列で決まる)</text>
+    <line x1="160" y1="50" x2="160" y2="200" stroke="var(--muted)" stroke-width="3" stroke-dasharray="7 5"/>
+    <circle cx="160" cy="200" r="5" fill="var(--muted)"/><text x="40" y="218" fill="var(--muted)">ファイルの回転のままの先端</text>
+    <line x1="160" y1="50" x2="262" y2="180" stroke="var(--accent)" stroke-width="4"/>
+    <circle cx="262" cy="180" r="7" fill="var(--warn)"/><text x="276" y="186">先端の点(積分して、長さとコライダーで直した)</text>
+    <path d="M160,128 A78,78 0 0,0 207,111" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#arrow70a)"/>
+    <text x="214" y="122" fill="var(--accent)">FromTo(骨の向き → 先端の向き)</text>
+    <text x="330" y="60">回転 = ファイルの回転 x FromTo</text>
+    <text x="330" y="82" fill="var(--muted)" font-size="12">いつもファイルの回転から作る。前のステップの回転に積まない</text>
+  </g>
+</svg>
+<div class="code"><span class="lang">csharp</span><pre><code>// VrmSpringBone.StepSpring の 4 段目
+Matrix4x4.Invert(restWorld, out Matrix4x4 restWorldInverse);           // ファイルの回転のままの骨の逆
+Vector3 to = Normalize(Vector3.Transform(nextWorld, restWorldInverse)); // 先端を骨のローカルへ
+joint.Rotation = Quaternion.Normalize(joint.RestRotation * FromTo(joint.BoneAxis, to));</code></pre></div>
+<ul>
+<li><strong>鎖は根から先へ</strong>。1つ目の骨を回すと2つ目の骨の根が動くので、2つ目は1つ目を回し終えてから決める。鎖の世界行列は鎖の中で掛け進める(設計書)</li>
+<li><strong>最後の関節は先端の印</strong>で、揺れない。ファイルの <code>joints</code> が 3 個なら、揺れる骨は 2 本(AvatarSample_A の 46 個の関節のうち、揺れるのは 34 個)</li>
+<li>移動と拡大はアニメーションの値のまま。揺れものが書くのは<strong>回転だけ</strong></li>
+</ul>
+<p>自己チェック6 は、硬さ 0・抵抗 1(慣性なし)の振り子を 10cm 横へずらし、骨が置いてきた先端を向くこと(26.57 度 = atan(10/20))、子のノードがその点にちょうど来ること(ずれ 0.0001mm)を確かめる。</p>
+
+<h3 id="s8">3. コライダー — 球とカプセルから押し出す</h3>
+<p>先端の点は半径 <code>hitRadius</code> の球として、体のコライダー(ノードに付いた球かカプセル)と比べる。</p>
+<div class="table-wrap"><table><thead><tr><th>形</th><th>距離(表面どうし)</th><th>押し出す向き</th></tr></thead><tbody>
+<tr><td>球</td><td><code>|点 - 中心| - 半径 - hitRadius</code></td><td>中心から点へ</td></tr>
+<tr><td>カプセル</td><td>線分 head–tail の、点にいちばん近い所を中心にした球と同じ</td><td>線分から点へ(線分に垂直。端より外は端から)</td></tr>
+</tbody></table></div>
+<p>距離が負なら、その分だけ外へ押し出し、<strong>もう一度長さを戻す</strong>。この「押し出してから長さを戻す」がくせ者で、根がコライダーに近いと、長さを戻したときにまた少し中へ入る(下の実験台で根を近づけると見える)。首を振ったときのめり込みは、コライダーを切ると最大 41.0mm、効かせても最大 15.8mm 残る(自己チェック13)。押し出しは「次のステップでまた押す」を繰り返して、だんだん外へ出す形になっている。</p>
+<p><strong>ファイルの形の時点で、もう毛先がめり込んでいる</strong>。AvatarSample_A の横と後ろの毛先は、胸の上(<code>upperChest</code>)の球に最大 31.6mm、腕の付け根の球に 22.3mm 入った形で書き出されている。だから揺れものを入れた最初の1秒で毛先が押し出され、じっと立っていても 7 個の関節が押された形(最大 48 度)で止まる。肩に髪がかかった形を、作者がコライダーで作っているわけだ(three-vrm でも UniVRM でも同じ式なので同じ形になる)。</p>
+
+<figure class="lab" id="collide-lab">
+  <div class="lab-head">
+    <h3>実験台: コライダーの押し出し</h3>
+    <span class="tag">要点3。式は reference/Day70 の SphereDistance / CapsuleDistance / ConstrainLength と同じ。先端(橙の丸)はドラッグで動かせる</span>
+  </div>
+  <canvas id="collide-canvas" style="height:300px" aria-label="コライダーと骨の先端"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">コライダーの形</span>
+      <div class="seg" id="collide-shape">
+        <button data-v="capsule" aria-pressed="true">カプセル</button><button data-v="sphere" aria-pressed="false">球</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">骨の根の位置</span>
+      <div class="seg" id="collide-root">
+        <button data-v="far" aria-pressed="true">横から(離れている)</button><button data-v="near" aria-pressed="false">コライダーのすぐ上</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">先端の半径 hitRadius(cm)</span><div class="range"><input type="range" id="collide-hit" min="0" max="2" step="0.1" value="1.0"><output id="collide-hit-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="collide-stats"></div><p id="collide-note"></p></div>
+</figure>
+
+<h3 id="s9">4. center — 先端をどの座標で覚えるか</h3>
+<p>先端の点(今と前)は世界の座標で覚えてもよいし、あるノード(<code>center</code>)の座標で覚えてもよい。違いは<strong>そのノードごと動いたとき</strong>に出る。</p>
+<div class="table-wrap"><table><thead><tr><th>先端を覚える座標</th><th>center ごと(置き場所ごと)動くと</th><th>center から見て体が動くと</th></tr></thead><tbody>
+<tr><td>世界(center 無し)</td><td>先端は世界に取り残される → 遅れて揺れる</td><td>揺れる</td></tr>
+<tr><td>center のノード(AvatarSample_A は全部 <code>Root</code>)</td><td>先端も一緒に運ばれる → <strong>揺れない</strong></td><td>揺れる</td></tr>
+</tbody></table></div>
+<p>実機の「置き場所ごと回す」(<code>F2</code> の最後)は、<strong>ノードの姿勢を1つも変えず、置き場所の行列だけを左右に 60 度回す</strong>。center が Root(置き場所と一緒に回る)なら、先端の速さは 0.2cm/s(止まっているのと同じ)、center を外すと 150cm/s で髪が振り回される。</p>
+<p>なぜ作者は Root を center にするのか。Day 72 でキャラが歩き回ると、置き場所の行列が毎フレーム数 cm 動き、振り向けば一気に回る。世界の座標で揺らすと、<strong>歩く・走る・振り向く・ワープするたびに髪が大きくなびく</strong>。center を Root にすると、それらは全部揺れに入らず、揺れるのはアニメーションが体を動かした分(歩きの上下動・腕振りにつられた胸の回転)だけになる。走ってなびかせたいなら、center を外すか、Day 72 で移動の速さを風のように足す(改造課題1)。</p>
+<p>コードでは、先端の点を <code>center</code> の座標で積分し、世界へ戻して長さとコライダーを当て、また <code>center</code> の座標へ戻して覚える(<code>StepSpring</code> の 2〜3 段目)。<code>center</code> を変えると覚えている座標の意味が変わるので、その鎖の先端を置き直す(<code>Spring.StateCenter</code>)。</p>
+
+<h3 id="s10">5. 固定の刻みで回し、体の動きは刻みの時刻で渡す</h3>
+<p><code>dragForce</code> は「1ステップで慣性を何割削るか」。three-vrm は描くフレームの dt をそのまま使うので、画面の速さでステップの長さが変わり、揺れ方も変わる。今日は Day 19 の固定タイムステップと同じく、<strong>1/60 秒の固定の刻み</strong>で回す(<code>StepSeconds</code>)。</p>
+<p>ただし固定にしただけでは足りなかった。30 fps の画面では1フレームに2ステップ回すが、2回とも「今のフレームの体」を見せると、<strong>体の動き2ステップ分が1回目に一度に入る</strong>。揺れものは非線形(硬さが角度によらず一定・長さの拘束)なので、この入り方の違いが揺れ方を大きく変える。</p>
+<div class="table-wrap"><table><thead><tr><th>体を 30 度 x sin(2πt) で揺すって 2 秒後の曲がり(振り子の台、硬さ 0.8・抵抗 0.4)</th><th>30 fps</th><th>60 fps</th><th>144 fps</th></tr></thead><tbody>
+<tr><td>可変 dt(three-vrm の形)</td><td>51.05 度</td><td>48.36 度</td><td>45.83 度</td></tr>
+<tr><td>固定の刻み・体は今のフレームのまま</td><td><strong>35.16 度</strong></td><td>48.36 度</td><td>47.25 度</td></tr>
+<tr><td>固定の刻み・体をステップの時刻へ補間(今日)</td><td>48.36 度</td><td>48.36 度</td><td>48.36 度</td></tr>
+</tbody></table></div>
+<p>(表は下の実験台と同じ式を倍精度で回した値。C# の実機では行列の線形補間で体を戻すので、30 / 144 fps が 60 fps と 0.83mm 以内に来る。自己チェック9)</p>
+<p>補間は「鎖の外」の行列だけでよい。鎖の根の親(頭や胸の上)、<code>center</code>、コライダーのノード。この3つの前のフレームの値を覚えておき、ステップの時刻に合わせて <code>Matrix4x4.Lerp</code> で混ぜる(<code>OuterWorld</code>)。鎖の中は、補間した根の親から掛け進めるので、自然にステップの時刻の値になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// VrmSpringBone.Update。30 fps なら steps = 2、1回目は alpha = 0.5(前のフレームとの真ん中の体)
+float behind = _accumulator + ((steps - 1 - step) * StepSeconds);   // フレームの終わりから、どれだけ前か
+float alpha = Math.Clamp(1.0f - (behind / dt), 0.0f, 1.0f);
+StepSpring(pose, spring, alpha);</code></pre></div>
+
+<figure class="lab" id="step-lab">
+  <div class="lab-head">
+    <h3>実験台: 固定の刻みと補間</h3>
+    <span class="tag">要点5。振り子の台(自己チェック9 と同じ揺すり方)を、30 / 60 / 144 fps で 3 秒回す。Verlet の式は reference/Day70 の Integrate と同じ</span>
+  </div>
+  <canvas id="step-canvas" style="height:260px" aria-label="3つの画面の速さでの曲がりの時間変化"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">回し方</span>
+      <div class="seg" id="step-mode">
+        <button data-v="var" aria-pressed="false">可変 dt</button><button data-v="fixed" aria-pressed="false">固定・補間なし</button><button data-v="interp" aria-pressed="true">固定・体を補間(今日)</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">抵抗 dragForce</span><div class="range"><input type="range" id="step-drag" min="0" max="1" step="0.05" value="0.4"><output id="step-drag-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="step-stats"></div><p id="step-note"></p></div>
+</figure>
+
+<h3 id="s11">6. AvatarSample_A の揺れもの</h3>
+<p><code>VRMC_springBone</code> は <code>VRMC_vrm</code> の中ではなく<strong>隣の拡張</strong>として入っている(揺れないアバターは持たない)。中身は鎖 12 本・コライダー 22 個(全部球)・まとまり 10。</p>
+<div class="table-wrap"><table><thead><tr><th>鎖</th><th>本数</th><th>揺れる関節</th><th>硬さ</th><th>抵抗</th><th>重力</th><th>当たるコライダー</th></tr></thead><tbody>
+<tr><td><code>Hair</code></td><td>7</td><td>2〜4 個ずつ、計 24</td><td>0.80〜0.85</td><td>0.40</td><td>0</td><td>10 まとまり全部(頭・首・胸・背骨・腕・手)</td></tr>
+<tr><td><code>Bust</code></td><td>2</td><td>2 個ずつ</td><td>0.75</td><td>0.05</td><td>0</td><td>なし</td></tr>
+<tr><td><code>Hood</code></td><td>1</td><td>2</td><td>0.75</td><td>0.05</td><td>0</td><td>なし</td></tr>
+<tr><td><code>HoodString</code></td><td>2</td><td>2 個ずつ</td><td>0.26</td><td>0</td><td>0.25(下へ)</td><td>なし</td></tr>
+</tbody></table></div>
+<p>コライダーはどれも<strong>ヒューマノイドの骨</strong>に付いている(<code>spine</code>・<code>upperChest</code> に3つ・<code>neck</code>・<code>head</code>・上腕に3つずつ・前腕に4つずつ・手)。<code>center</code> は 12 本とも <code>Root</code>(ノード 0)。髪は重力 0 で、ファイルの形そのものが「垂れた形」になっている。</p>
+<p>動かし方ごとに、どの鎖が揺れるかは向きで決まる(<code>F2</code> を4秒ずつ。後半2秒の先端の速さの最大)。</p>
+<div class="table-wrap"><table><thead><tr><th>動かし方</th><th>髪</th><th>胸</th><th>フード</th><th>紐</th></tr></thead><tbody>
+<tr><td>首を振る(頭の骨を左右に 35 度)</td><td><strong>125cm/s</strong></td><td>0</td><td>0</td><td>0</td></tr>
+<tr><td>腰をひねる(腰の骨を左右に 30 度)</td><td>79cm/s</td><td>41cm/s</td><td>24cm/s</td><td>28cm/s</td></tr>
+<tr><td>跳ねる(腰の骨を上下に 6cm)</td><td>36cm/s</td><td><strong>114cm/s</strong></td><td>32cm/s</td><td>31cm/s</td></tr>
+<tr><td>置き場所ごと回す(center が Root)</td><td>0.2cm/s</td><td>0</td><td>0</td><td>0.2cm/s</td></tr>
+<tr><td>置き場所ごと回す(center を外す)</td><td><strong>150cm/s</strong></td><td>83cm/s</td><td>50cm/s</td><td>67cm/s</td></tr>
+</tbody></table></div>
+<p>首を振っても胸とフードが揺れないのは、それらの根が首より上に無いから(胸の上 <code>upperChest</code> にぶら下がっている)。跳ねても髪があまり揺れないのは、<strong>上下の動きが真下を向いた髪の骨の向きと揃っていて、長さの拘束に消される</strong>から。前を向いた胸の骨は上下の動きに真横から振られ、抵抗も 0.05 と小さいので、いちばん大きく跳ねる。</p>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>役割</th><th>行数</th></tr></thead><tbody>
+<tr><td><code>Model/VrmSpringBone.cs</code></td><td>VRM の揺れもの。関節の揺れ方(<code>JointSettings</code>)・コライダー(<code>Collider</code> / <code>ColliderGroup</code>)・関節(<code>Joint</code>)・鎖(<code>Spring</code>)、固定の刻みで回す <code>Update</code>、1ステップの <code>StepSpring</code>、状態を持たない式(<code>Integrate</code> / <code>ConstrainLength</code> / <code>SphereDistance</code> / <code>CapsuleDistance</code> / <code>FromTo</code>)、ファイルから読む <code>Read</code> / <code>ReadFile</code>。<strong>GL も描く側も知らない</strong></td><td>709</td></tr>
+</tbody></table></div>
+
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Model/AnimationPlayer.cs</code></td><td><code>Evaluate</code> の 4〜5 段目を <code>UpdateWorldAndJoints</code> に切り出す(既存の行は動かさず、3 段目の後ろに数行差し込むだけ)、<code>GetLocalPose</code> / <code>SetLocalPose</code></td><td>+37 / −0</td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td>説明、コンストラクタの引数と <code>SpringBone</code>、<code>Load</code> で <code>VRMC_springBone</code> を写して読む、<code>UpdateSprings</code></td><td>+35 / −2</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>OnUpdate</code>・<code>VrmPlacement</code>・<code>OnRender</code>・HUD に1か所ずつ、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数</td><td>+832 / −3</td></tr>
+<tr><td><code>Day70.csproj</code></td><td><code>Day69.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p class="note">今日の差分は Day 69 と同じくらい重い(新規 709 行 + 変更 904 行。どれもコメント込み)。<code>Program.cs</code> の今日の関数は、髪が揺れて HUD に出るまでの前半が約 240 行、内訳と自己チェックの後半が約 390 行。1日で重ければ、下の順番の <strong>6 まで</strong>(髪が揺れるまで)と <strong>7</strong>(内訳・自己チェック)で2回に分けるとよい。6 の (e) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+
+<h3 id="s15">写経する順番</h3>
+<p>依存の向きに沿って並べてある。この順に写せば、途中でビルドが通らない状態を作らずに済む。</p>
+<ol>
+<li><strong><code>Model/AnimationPlayer.cs</code>(変更)</strong> — 順に、(a) <code>Evaluate</code> の 3 段目(<code>_pose[i] = _accumulator[i].Resolve(...)</code> のループ)の直後に <code>UpdateWorldAndJoints();</code> と閉じ括弧、<code>UpdateWorldAndJoints</code> の説明と頭の行を差し込む(<code>// --- 4. 木を降りて世界行列 ---</code> から下はそのまま新しい関数の中身になる)、(b) <code>GetNodeWorld</code> の手前に <code>GetLocalPose</code> と <code>SetLocalPose</code>。<code>VrmSpringBone</code> が呼ぶので先に足す</li>
+<li><strong><code>Model/VrmSpringBone.cs</code>(新規)</strong> — <code>AnimationPlayer</code>(1 で足した口)・<code>Model</code>・<code>NodePose</code>・<code>GltfLoader.ReadJson</code> しか使わない</li>
+<li><strong><code>Model/VrmAvatar.cs</code>(変更)</strong> — 順に、クラスの説明の「Day 70 で足したもの」、コンストラクタの引数(1行ずつに展開して <code>VrmSpringBone springBone</code> を足す)と <code>SpringBone = springBone;</code>、<code>Expressions</code> の直後に <code>SpringBone</code> のプロパティ、<code>Load</code> の <code>springBone</code> の宣言・<code>VRMC_springBone</code> の写し・最後の <code>VrmSpringBone.Read</code>、<code>UpdateFace</code> の直後に <code>UpdateSprings</code></li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 69」のフィールド(<code>_vrmMorphUploads</code>)の直後に「Day 70」の 13 個(<code>_vrmMotion</code> / <code>VrmMotions</code> / <code>_vrmMotionTime</code> / <code>_vrmSprings</code> / <code>_vrmIgnoreCenter</code> / <code>_vrmColliderMode</code> / <code>_vrmCapsuleArms</code> / <code>_vrmStiffnessScale</code> / <code>_vrmNoDrag</code> / <code>_vrmSlowMotion</code> / <code>_vrmView</code> / <code>VrmViews</code> / <code>VrmArmCapsules</code>)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>VrmNear</code>(3つ)の直後(<code>CheckList</code> の手前)に、定数 8 個(<code>VrmShakeDegrees</code> 〜 <code>VrmTurnPeriod</code>)/ <code>VrmTurnYaw</code> / <code>UpdateVrmSprings</code> / <code>ApplyVrmMotion</code> / <code>ApplyVrmSpringTrials</code> / <code>VrmArmCapsule</code> / <code>RenderVrmColliders</code> / <code>VrmCenterName</code> / <code>VrmColliderModeName</code> / <code>VrmSpringLabel</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — 順に、
+(a) <code>OnUpdate</code> の <code>UpdateVrmFace(...)</code> の直後に <code>UpdateVrmSprings(...)</code>、
+(b) <code>VrmPlacement</code> に <code>turn</code> の行を足し、<code>return</code> の式全体を <code>turn * (...)</code> で包む、
+(c) <code>OnRender</code> の <code>RenderVrm();</code> の直後に <code>RenderVrmColliders();</code>、
+(d) <code>DrawOverlayInfo</code> の <code>VrmFaceLabel()</code> の行の直後に <code>VrmSpringLabel()</code> の行、
+(e) <code>BuildMenu</code> の「VRMの表情」ページの直後(<code>return menu;</code> の手前)に「VRMの揺れもの」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 7 で足す関数を指すので、分けて写すなら後回しにする)、
+(f) <code>RunDebugMenuCheck</code> の項目数を <strong>311 → 322</strong> へ</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 5 の続きに <code>DescribeVrmSprings</code> / <code>CreateSpringRig</code> / <code>RunSpringRig</code> / <code>RunVrmSpringsOffscreen</code> / <code>RunVrmSpringCheck</code></li>
+<li><strong><code>Day70.csproj</code></strong> — <code>Day69.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+</section>
+
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> に1本足し、<code>AnimationPlayer</code> に口を3つ開けた。矢印の向きは今日も <code>Model/ → Render/</code> だけで、今日の新しいクラスは <code>Render/</code> を1つも使わない。</p>
+
+<h3 id="s17">揺れものは描く側を知らず、AnimationPlayer は揺れものを知らない</h3>
+<svg viewBox="0 0 720 270" role="img" aria-label="Day 70 の依存の図" style="width:100%;max-width:720px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow70" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <rect x="250" y="8" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="27" text-anchor="middle">Program</text><text x="360" y="42" text-anchor="middle" font-size="11" fill="var(--muted)">体を動かす・試しを当てる・線を描く</text>
+    <rect x="250" y="84" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="102" text-anchor="middle">Model/VrmAvatar</text><text x="360" y="117" text-anchor="middle" font-size="11" fill="var(--muted)">SpringBone・UpdateSprings</text>
+    <rect x="250" y="160" width="220" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="360" y="179" text-anchor="middle">Model/VrmSpringBone(今日)</text><text x="360" y="195" text-anchor="middle" font-size="11" fill="var(--muted)">先端の点・固定の刻み・補間</text>
+    <rect x="20" y="222" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="130" y="240" text-anchor="middle">Model/AnimationPlayer</text><text x="130" y="255" text-anchor="middle" font-size="11" fill="var(--muted)">Get/SetLocalPose・UpdateWorldAndJoints</text>
+    <rect x="490" y="222" width="210" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="595" y="240" text-anchor="middle">Model/Model・NodePose</text><text x="595" y="255" text-anchor="middle" font-size="11" fill="var(--muted)">ノードの木とファイルの姿勢</text>
+    <rect x="510" y="84" width="190" height="40" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-dasharray="5 4"/><text x="605" y="102" text-anchor="middle" fill="var(--muted)">Render/(MToon・影・速度)</text><text x="605" y="117" text-anchor="middle" font-size="11" fill="var(--muted)">関節行列を読むだけ</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#arrow70)">
+    <path d="M360,48 L360,82"/><path d="M360,124 L360,158"/>
+    <path d="M300,204 L170,220"/><path d="M420,204 L560,220"/>
+    <path d="M470,28 L600,82"/>
+    <path d="M250,104 L120,104 L120,220"/>
+  </g>
+</svg>
+<p>コメントを落としてから型名を拾って確かめた。</p>
+<div class="table-wrap"><table><thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Model/VrmSpringBone</code></td><td><code>AnimationPlayer</code> / <code>Model</code> / <code>NodePose</code> / <code>GltfLoader</code>(<code>ReadJson</code> だけ)/ JSON</td><td><strong>GL・描く側・<code>VrmAvatar</code>・表情</strong>。誰が体を動かしたか(手で動かしたのか、Day 71 の VRMA か)も知らない</td></tr>
+<tr><td><code>Model/AnimationPlayer</code></td><td>今までどおり <code>Model</code> と <code>AnimationClip</code></td><td><strong>揺れもの</strong>。「姿勢を外から書き足す口」を開けただけで、誰が書くかを知らない</td></tr>
+<tr><td><code>Model/VrmAvatar</code></td><td><code>VrmSpringBone</code> を読んで持ち、<code>UpdateSprings</code> で自分の <code>AnimationPlayer</code> と一緒に渡す</td><td>どう揺らすか(式は全部 <code>VrmSpringBone</code>)</td></tr>
+<tr><td><code>Render/</code> の全部</td><td>関節行列(Day 68 のまま)</td><td>揺れもの。髪の骨が回ったことを関節行列の値でしか知らない</td></tr>
+</tbody></table></div>
+<p><strong>揺れものに世界行列を直接書かせなかった</strong>。<code>VrmSpringBone</code> が書くのはローカルの回転(<code>SetLocalPose</code>)だけで、世界行列と関節行列を作るのは今までどおり <code>AnimationPlayer</code>(<code>UpdateWorldAndJoints</code>)。行列を作る場所が1つに保たれるので、スキニングを切る(Day 41 の <code>SkinningEnabled</code>)・関節が多すぎるスキンを単位行列にする(Day 41 の <code>_skinTooLarge</code>)といった約束を、揺れものが知らずに済む。</p>
+
+<h3 id="s18">1フレームの中の揺れもの — 順番がそのまま設計</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">体の姿勢(<code>vrm.Animation.Update</code>)— 今日はクリップが無いのでファイルの姿勢</div>
+    <div class="rw"><span>書く <b>全部のノードのローカル姿勢(髪の回転もファイルの値に戻る)・世界行列・関節行列</b></span></div>
+    <div class="swap">3 より後に置くと: 揺れものが書いた髪の回転を、ファイルの値で上書きする(髪が頭に貼り付く)</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">手で動かす(<code>ApplyVrmMotion</code>)→ <code>UpdateWorldAndJoints</code></div>
+    <div class="rw"><span>書く <b>頭・腰のローカル姿勢、世界行列</b></span></div>
+    <div class="swap">3 より後に置くと: 揺れものが1フレーム前の首を見る。髪が首より1フレーム遅れて付いて来る(揺れとは別の遅れ)</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">揺らす(<code>vrm.UpdateSprings</code>)— 鎖の外を集める → 固定の刻みで回す → 回転を書く → <code>UpdateWorldAndJoints</code></div>
+    <div class="rw"><span>読む <b>鎖の根の親・center・コライダーの世界行列(置き場所を掛けた値)</b></span><span>書く <b>髪の骨のローカル回転・関節行列</b></span></div>
+    <div class="swap">最後の <code>UpdateWorldAndJoints</code> を忘れると: 回転は書けているのに絵が変わらない(関節行列が古いまま)</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">影パス(<code>DrawVrmShadow</code>)・キャラ(<code>RenderVrm</code>)・速度バッファ</div>
+    <div class="rw"><span>読む <b>3 で作り直した関節行列</b></span></div>
+    <div class="swap">Day 68 のまま。何も足していない</div>
+  </div></li>
+</ol>
+<p>1〜3 を <code>OnUpdate</code>(Day 69 の表情の直後)に置いたのは、表情と同じく<strong>影パスより前</strong>に関節行列を作り直したいから。<strong>Day 19 の <code>FixedUpdate</code> には入れなかった</strong>。体の姿勢(アニメーションと置き場所)はフレームごとに決まるので、固定の刻みのほうへ持ち込むと、体まで固定の刻みで評価し直すことになる。揺れものは自分で時間を溜めて固定の刻みで払い(<code>_accumulator</code>)、体はフレームの値を補間して読む(次の節)。一時停止中は時刻だけ止め、呼ぶこと自体は止めない(止めないと、1 が髪をファイルの形に戻したまま描かれる)。</p>
+
+<h3 id="s19">鎖の中は自分で掛け進め、鎖の外は補間して読む</h3>
+<p>1ステップで揺れものが読む世界行列は2種類ある。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>どこから読むか</th><th>なぜ</th></tr></thead><tbody>
+<tr><td><strong>鎖の外</strong>(鎖の根の親・center・コライダーのノード)</td><td><code>AnimationPlayer.GetNodeWorld</code> x 置き場所。フレームの頭に集め(<code>Capture</code>)、前のフレームの値と <code>alpha</code> で混ぜる(<code>OuterWorld</code>)</td><td>体の動きをステップの時刻で渡すため(要点5)</td></tr>
+<tr><td><strong>鎖の中</strong>(2つ目から先の関節の親)</td><td>補間した根の親から、決めた回転で1段ずつ掛け進める(<code>parentWorld = local.ToMatrix() * parentWorld</code>)</td><td>1つ前の関節の結果を、その場で読む必要があるから。<code>AnimationPlayer</code> の世界行列は 3 の最後まで古いまま</td></tr>
+</tbody></table></div>
+<p>最初は、関節を1つ決めるたびに <code>AnimationPlayer</code> にその1ノードの世界行列を作り直させていた(<code>UpdateWorld(node)</code> という口を開けていた)。補間を入れたとき、それでは根の親が「今のフレームの値」のままになって補間が鎖の中に届かないと分かり、鎖の中は揺れものが自分で掛け進める形に変えた。おかげで <code>AnimationPlayer</code> に開ける口が1つ減った。</p>
+
+<h3 id="s20">今日残した歪み</h3>
+<p><strong>1つ目: 鎖は親子が続いている前提</strong>。鎖の中を掛け進めるので、<code>joints</code> の間に揺れないノードが挟まっていると、そのノードの移動と回転が抜け落ちる(読むときに「親が1つ前の関節ではない」と知らせるだけ)。AvatarSample_A の 12 本は全部続いている(自己チェック11)。直すなら改造課題3。</p>
+<p><strong>2つ目: 補間は行列の線形補間</strong>。1フレームの間の動き(数度)なら回転の縮みは見えないが、置き場所がワープしたフレーム(裏通り ↔ 床の上)では途中の行列が意味を持たない。center が Root なら置き場所の動きは揺れに入らないので、今のアバターでは表に出ない。</p>
+<p><strong>3つ目: 144 Hz の画面では髪が 60 Hz でしか動かない</strong>。ステップを回さないフレームは、前に決めた回転を書き戻すだけ。体は 144 Hz で滑らかに動き、髪だけが 60 Hz の段で付いて来る。Day 19 と同じく、描くときに前のステップとの間を補間すれば消える(改造課題2)。開発機は 60 Hz なので見えていない。</p>
+<p><strong>4つ目: 拡大を見ていない</strong>。<code>hitRadius</code> とコライダーの半径は、ノードの拡大を掛けずにそのまま使う(three-vrm も同じ)。アバターを 2 倍に置くと、髪が体から浮いて見える。</p>
+<p><strong>5つ目: 押し出しきれない</strong>。押し出してから長さを戻すので、根がコライダーに近いとまた中へ入る(要点3)。首を振ると最大 15.8mm 残る。仕様の式どおりで、作者もこの式で形を決めているので、今日は直さない。</p>
+<p><strong>6つ目: 体の動かし方と腕のカプセルが <code>Program.cs</code> に直書き</strong>(<code>ApplyVrmMotion</code> / <code>VrmArmCapsule</code>)。動かし方は Day 71 の VRMA に置き換わる。カプセルは本来作者がファイルに書くもので、見せるための仮置き(Day 69 の自作の表情と同じ扱い)。</p>
+
+<h3 id="s21">試して分かったこと</h3>
+<ul>
+<li><strong>ファイルの形で毛先が体にめり込んでいる</strong>。最初、じっと立っているだけで髪が 50 度曲がり、式の誤りを疑った。コライダーを切ると 0.03 度で止まるので、ファイルの形の毛先が胸の上の球に最大 31.6mm 入っていて、それが押し出されていた。押された形で止まり、3 秒と 4 秒で 0.0076 度しか変わらない(自己チェック12)</li>
+<li><strong>固定の刻みにしただけでは揺れ方がそろわない</strong>。30 fps で 2 秒後の曲がりが 35.16 度(60 fps は 48.36 度)と、可変 dt(51.05 度)より悪くなった。体の動きを補間して渡したら 48.36 度にそろった(要点5)</li>
+<li><strong>1/144 を 288 回足しても 2 秒に届かない</strong>。float の端数で 120 回目のステップを取りこぼし、144 fps だけ 4.6cm ずれた。数えるときに 10 マイクロ秒だけ甘くした</li>
+<li><strong>抵抗 0 でも、いずれ止まる</strong>。長さの拘束が、骨に沿った向きの速さを毎ステップ捨てるから。振り子の台では、止めてから静まるまで 抵抗 0.4 で 0.42 秒、0.05 で 1.52 秒、0 で 2.73 秒</li>
+<li><strong>曲がりの角度では「揺れているか」が読めない</strong>。じっと立っていても押された毛先が 48 度を示す。HUD には先端の速さ(center の座標)を足した。置き場所ごと回して center が Root なら、ここがほぼ 0 になる</li>
+<li><strong>硬さ 0 の髪は戻らない</strong>。首を振ってから止めると、跳ね上がった形(167 度)のまま止まる。重力も 0 なので、どこにも引かれない</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day70 -c Release</code> で起動する。起動直後は Day 69 までの絵のまま。今日の主役は「VRMの揺れもの」のページ(<code>Shift+F1</code> で直接開く)から。どの項目も、VRMビューアが出ていなければ出してから効く。</p>
+
+<h3 id="s23">1. F2: 体を動かす</h3>
+<p>まず <code>F10</code> を3回押して「上半身の後ろ」から見る(頭の骨を真ん中に、1.1m 離れる)。<code>F2</code> を押すたびに動かし方が変わる。</p>
+<ul>
+<li>首を振る … 頭が左右に 35 度振れ、髪が遅れて流れ、振り返しで反対側へ広がる</li>
+<li>腰をひねる … 上半身ごと回り、髪・胸・フード・紐が全部遅れる(<code>F10</code> で横から見るとよい)</li>
+<li>跳ねる … 腰が上下に 6cm。前を向いた胸がいちばん跳ね、真下を向いた髪はあまり揺れない(要点6)</li>
+<li>置き場所ごと回す … アバターが丸ごと左右に 60 度回る。<strong>髪は揺れない</strong>(固い髪のまま回る)</li>
+</ul>
+<p>HUD に3行目が増える。</p>
+<div class="code"><pre><code>揺れもの:ON 鎖12本/関節34  動き:首を振る  center:ファイルの値(Root)  コライダー:効かせる 22個 押し出し4回  硬さx1.00  抵抗:ファイル  先端の速さ 最大38.6cm/s  曲がり 最大24.8度  ステップ1回 0.030ms</code></pre></div>
+<p>60 Hz の画面なら「ステップ 1 回」。じっと立っていれば先端の速さは 0 に近く、曲がりはコライダーに押された毛先の分(48 度前後)が出たまま。1フレームにかかる時間は 0.03〜0.06ms。</p>
+
+<h3 id="s24">2. F3 / F4: 揺れもの・center</h3>
+<ul>
+<li><code>F3</code> … 首を振ったまま切ると、髪がファイルの形のまま頭と一緒に回る(固いヘルメットのように見える)。入れ直すと、その場から揺れ始める</li>
+<li><code>F4</code> … 「置き場所ごと回す」のまま押して center を外すと、<strong>髪が回す向きと逆へ大きく振られる</strong>(先端の速さ 最大 150cm/s 前後)。戻すと止まる(0.2cm/s 前後)</li>
+</ul>
+
+<h3 id="s25">3. F5 / F6: コライダーとカプセル</h3>
+<ul>
+<li><code>F5</code>(1回目)… 水色の線で体のコライダー(頭・首・胸の上の3つ・背骨・腕と手)、橙の点で揺れる関節の先端が出る。深度を見ずに描くので、体の中の球も見える。毛先の橙の点が、胸と肩の水色の球の表面に並んでいる(押し出された形)</li>
+<li><code>F5</code>(2回目)… 効かせずに見せる。首を振ると、橙の点が頭や肩の球の中へ入る</li>
+<li><code>F6</code> … 腕の球の並び(上腕 3 個・前腕 4 個)が、1本ずつのカプセルに変わる(HUD の「22個」が「12個(腕はカプセル)」)。毛先が当たるのは肩の付け根の球だけなので、絵はほとんど変わらない。カプセルの形は線で見て確かめる</li>
+</ul>
+
+<h3 id="s26">4. F7 / F8 / F9: 硬さ・抵抗・スロー</h3>
+<ul>
+<li><code>F7</code> … x0.25 で大きく遅れてゆっくり戻る。x0 で首を振ってから止める(<code>F2</code> を「動かさない」まで回す)と、<strong>髪が跳ね上がったまま戻らない</strong>(曲がり 最大 167 度)</li>
+<li><code>F8</code> … 首を振ってから止めると、ファイルの値なら 0.5 秒ほどで静まるのが、2 秒ほど揺れ続ける(止めて1秒後の先端の速さ 98cm/s、2秒後 3.8cm/s)</li>
+<li><code>F9</code> … 揺れも動かし方も 1/4 の速さ。揺れ方そのものは変わらない(刻みは 1/60 秒のまま、回す回数が減るだけ)</li>
+</ul>
+
+<h3 id="s27">5. Day 69 までの機能が全部生きていること</h3>
+<p>揺れものを持つファイルは <code>assets/</code> の中で AvatarSample_A だけなので、ほかのモデルの読み込みは Day 69 と同じ道を通る。毎フレームの更新は <code>_vrmDemo</code> で守ってある。「VRMビューア」の自己チェック(15 項目)、「VRMの表情」の自己チェック(12 項目)、Day 48 の割り当て表(322 項目)が通ること。「VRMの表情」の項目(まばたき・表情)は、首を振りながらでも同じように効く。</p>
+<p class="note">開発機の電源の都合で、Day 69 との画素の突き合わせはしていない。VRMビューアの床の上だけで確かめた(裏通りは描いていない)。床の上で揺れものを切った絵は、Day 69 の全身の絵と同じに見えることを目で確かめた。</p>
+
+<h3 id="s28">6. F12: 自己チェック(13 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 70 自己チェック(Verlet の式・長さとコライダー・回転の逆算・center・固定ステップ・ファイルの揺れもの・アバターで揺らす)===
+  [OK] 慣性は「今 - 前」を足すだけ(1cm 動いた次は、dragForce 0 で 1cm、0.4 で 0.6cm、1 で 0cm だけ動く)  1.00 / 0.60 / 0.00cm
+  [OK] 硬さと重力は移動量(dt を1回掛けるだけ。硬さ 1 で戻す向きへ 1/60 m、重力 0.5 で下へ 1/120 m)  (1.667, -0.833, 0)cm
+  [OK] 長さの拘束は、根からの向きのまま骨の長さへ戻す(遠くても近くても 7cm ちょうど、向きは変えない)  3 点とも 7.00cm / 根に重なった点は動かさない
+  [OK] 球との距離は 中心からの距離 - 半径 - 先端の半径。負ならその分だけ外向きに押し出すと、表面にちょうど触れる  中の点 -6.0cm → x = 11.0cm / 外の点 9.0cm
+  [OK] カプセルは線分のいちばん近い点の球(端より外は端の球、間は真横から。押し出す向きは線分に垂直)  頭の外 5.0cm / 真ん中 -2.0cm / 尾の外 9.14cm
+  [OK] 先端の点から骨の回転を逆算する(体を 10cm ずらすと、骨は置いてきた先端を向き、子のノードがその点に来る)  子と先端のずれ 0.0001mm / 曲がり 26.57度(atan(10/20) = 26.57)
+  [OK] 体を止めれば、硬さがファイルの向きへ戻す(髪と同じ硬さ 0.8・抵抗 0.4。1 秒揺すってから 3 秒待つ)  揺すっている間 最大 50.6度 → 3 秒後 0.00度
+  [OK] center ごと動いた分は揺れに入らない(置き場所を揺すると、center = 根で揺れず、center 無しで揺れる。体を揺すれば center = 根でも揺れる)  置き場所: center 根 0.00度 / 無し 47.7度  体: 35.8度
+  [OK] 揺れは固定の刻み(1/60 秒)で進める(30 / 60 / 144 fps で同じ揺すり方をすると、2 秒後の先端がほぼ同じ所に来る)  60 fps との差 いちばん大きくて 0.83mm
+  [OK] ファイルの揺れものは 12 本の鎖・34 個の揺れる関節・22 個の球(カプセルは無い。コライダーに当たるのは髪の 7 本だけ)  鎖 12 本(髪 7・胸 2・フード 1・紐 2)/ 関節 34 / 球 22 / まとまり 10
+  [OK] 鎖は親子が根から先へ続き、center は全部 Root、コライダーはどれもヒューマノイドの骨に付いている  コライダーの骨 spine, upperChest, neck, head, leftUpperArm, leftLowerArm, leftHand, rightUpperArm, rightLowerArm, rightHand
+  [OK] じっと立っていれば止まる(コライダーが無ければ髪はファイルの形のまま。有れば、胸と肩の球にめり込んだ毛先が押し出された形で止まり、3 秒と 4 秒で形が変わらない)  コライダー無し 髪 0.03度 / 有り 押し出された関節 7 個(最大 48.1度)・1 秒の間の変化 0.0076度 / 紐 1.6度
+  [OK] 首を振ると髪だけが遅れる(髪が大きく曲がり、コライダーが押し出して、めり込みは切ったときの半分より浅い。揺れもの以外のノードは1つも変わらない)  髪 最大 58.1度 / 押し出し 774 回 / めり込み 最大 15.8mm(切ると 41.0mm)/ ほかのノード そのまま
+  すべて合格(Verlet の式・長さとコライダー・回転の逆算・center・固定ステップ・ファイルの揺れもの・アバターの揺れが仕様どおり)</code></pre></div>
+<p>1〜5 は式だけを呼ぶ。6〜9 は GL を使わない小さな <code>Model</code>(振り子の台: 根・体・骨・先端の印の4ノード。<code>CreateSpringRig</code>)で回す。12・13 は読み込み済みのアバターの <code>Model</code> を借り、<strong>別の <code>AnimationPlayer</code> と、ファイルから読み直した揺れもの</strong>で回すので、表示中の姿勢と状態には触らない。どの状態で押しても同じ数字になる(VRMビューアを出す前でも、首を振っている最中でも)。</p>
+
+<h3 id="s29">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>1本の鎖: 首をかしげる</td><td><code>F2</code> の「首を振る」(実機は横に振る。2D の実験台では横に傾ける動きで代わりに見せる)</td></tr>
+<tr><td>1本の鎖: 置き場所ごと動かす + center</td><td><code>F2</code> の「置き場所ごと回す」+ <code>F4</code>(実機は回す。実験台は横へ動かす)</td></tr>
+<tr><td>1本の鎖: 硬さを 0 / 0.2</td><td><code>F7</code>(x0 / x0.25)</td></tr>
+<tr><td>1本の鎖: 抵抗を 0</td><td><code>F8</code></td></tr>
+<tr><td>1本の鎖: 重力</td><td>実機に対応するキーは無い(ファイルの値は紐だけ 0.25)</td></tr>
+<tr><td>1本の鎖: コライダーを切る</td><td><code>F5</code> の3つ目(効かせずに見せる)</td></tr>
+<tr><td>1本の鎖: 長さの拘束なし</td><td>実機に対応するキーは無い</td></tr>
+<tr><td>コライダーの押し出し: カプセル</td><td><code>F6</code>(腕をカプセルに)+ <code>F5</code> で線を見る</td></tr>
+<tr><td>固定の刻みと補間</td><td>実機に対応するキーは無い(画面は 60 Hz。自己チェック9 が 30 / 144 fps を回して確かめる)</td></tr>
+</tbody></table></div>
+<p class="note">実験台の体と髪は、頭の円と肩の円、4 本の骨の鎖を 2 本だけ描いた 2D の形で、値もこのページで決めた(髪の硬さ 0.8・抵抗 0.4 と、ファイルの形で毛先が肩の球に少しめり込んでいることは実物と同じにしてある)。式と順番(Verlet・長さの拘束・押し出してから長さを戻す・先端の向きへ骨を回す・center の座標で覚える・固定の刻み)は reference と同じ。</p>
+</section>
+
+<section class="part"><h2 id="s30">改造課題</h2>
+
+<h3 id="s31">課題1(易): 風を吹かせる</h3>
+<p>VRM 1.0 の揺れものに風は無い。<code>VrmSpringBone</code> に <code>Wind</code>(世界の向きと強さ。1 秒あたりの移動量)を足し、<code>Integrate</code> に重力と同じ形の項を1つ足す。強さを時間で揺らす(<code>sin</code> を2つ重ねる)と、それらしくなる。center の座標で積分しているので、風の向きは重力と同じく <code>worldToCenter</code> で回してから足すこと。Day 72 でキャラが走るとき、走る速さの逆向きの風を足せば、center が Root のままでも「走ってなびく」が作れる。</p>
+
+<h3 id="s32">課題2(中): 144 Hz の画面で髪をカクつかせない</h3>
+<p>今日残した歪みの3つ目。<code>Joint</code> に1つ前のステップの回転を覚えさせ、ステップを回さないフレームでは、持ち越した端数 <code>_accumulator / StepSeconds</code> で前と今の回転を <code>Quaternion.Slerp</code> して書く(Day 19 の描画の補間と同じ考え方)。補間した回転は「少し過去の髪」になる——1ステップ分(16.7ms)遅れる代わりに滑らかになる、という取引になることを確かめる。60 Hz の画面で確かめるには、<code>StepSeconds</code> を 1/20 にすると段が目で見える。</p>
+
+<h3 id="s33">課題3(難): 鎖の途中に揺れないノードを挟む</h3>
+<p>今日残した歪みの1つ目。<code>Joint</code> に「1つ前の関節からこの関節までの間のノード」を覚えさせ、<code>StepSpring</code> で掛け進めるときに、間のノードのローカル行列(アニメーションの値)も順に掛ける。確かめるには、AvatarSample_A の髪の鎖を1つ飛ばしで読む(<code>joints</code> の偶数番だけを使う)ように <code>Read</code> を一時的に変える。直す前は髪の形が崩れ、直した後はファイルの形のまま揺れること。あわせて、<code>ChildLocal</code>(骨の長さと向き)も間のノードを通した位置にする必要がある。</p>
+</section>
+
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)。Day 68 と同じファイル</p>
+<p>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 13 項目(VRMビューアを出す前と、首を振っている最中)、Day 68 の自己チェック 15 項目、Day 69 の自己チェック 12 項目、Day 48 の割り当て表(322 項目)、床の上で上半身を後ろ・横・正面から見た絵(動かさない・首を振る(揺れもの ON / OFF)・腰をひねる・置き場所ごと回す(center あり / なし)・コライダーを見せる(効かせる / 効かせない)・腕のカプセル・硬さ 0・抵抗 0)</p>
+
+<h3 id="s35">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>Python で同じ式を回して、C# の数字を突き合わせた</strong>。30 fps の 35.16 度(補間なし)を Python でもそのまま再現できたので、式の写し間違いではなく渡し方の問題だと切り分けられた。補間を入れた版も 48.36 度で一致</li>
+<li><strong>重力の試しは絵が変わらなかった</strong>。髪はもともと真下へ垂れた形で、重力 0.6 を足しても差は 3,800 画素ほど。<code>F8</code> は抵抗の試しに替えた</li>
+<li><strong>跳ねるといちばん揺れるのは胸</strong>。最初は「重力の効く紐が跳ねる」と書きかけたが、鎖ごとに先端の速さを測ると、前を向いて抵抗の小さい胸が 114cm/s で、紐は 31cm/s だった</li>
+<li><strong>コンソールに「〜」を出すと化ける</strong>(CP932)。表示の文字列では使わない(Day 69 と同じ)</li>
+</ul>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, setSeg, stat, arrow, animate } = Lab;
+
+// ============================================================
+//  揺れものの式(reference/Day70/Model/VrmSpringBone.cs の移植。2D)
+//  この Day の実験台だけが使う。ほかの Day でも要るようになったら docs/site/ へ移す。
+// ============================================================
+const H = 1 / 60;   // StepSeconds
+const add = (a, b) => [a[0] + b[0], a[1] + b[1]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
+const mul = (a, s) => [a[0] * s, a[1] * s];
+const len = (a) => Math.hypot(a[0], a[1]);
+const norm = (a) => { const l = len(a); return l > 1e-12 ? [a[0] / l, a[1] / l] : [0, 0]; };
+const dirOf = (angle) => [Math.cos(angle), Math.sin(angle)];
+const rot = (p, a) => [p[0] * Math.cos(a) - p[1] * Math.sin(a), p[0] * Math.sin(a) + p[1] * Math.cos(a)];
+const DEG = Math.PI / 180;
+
+// VrmSpringBone.Integrate
+function integrate(cur, prev, restDir, gravDir, stiff, gravity, drag, dt) {
+  return add(add(add(cur, mul(sub(cur, prev), 1 - drag)), mul(restDir, stiff * dt)), mul(gravDir, gravity * dt));
+}
+// VrmSpringBone.ConstrainLength
+function constrain(tail, root, length) {
+  const o = sub(tail, root), l = len(o);
+  return l > 1e-9 ? add(root, mul(o, length / l)) : tail;
+}
+// VrmSpringBone.SphereDistance / CapsuleDistance(normal も返す)
+function sphereDistance(c, r, p, pr) {
+  const o = sub(p, c), l = len(o);
+  return { d: l - r - pr, n: l > 1e-9 ? mul(o, 1 / l) : [0, 1], near: c };
+}
+function capsuleDistance(a, b, r, p, pr) {
+  const s = sub(b, a), ls = s[0] * s[0] + s[1] * s[1];
+  const t = ls > 1e-12 ? Math.min(Math.max(((p[0] - a[0]) * s[0] + (p[1] - a[1]) * s[1]) / ls, 0), 1) : 0;
+  return sphereDistance(add(a, mul(s, t)), r, p, pr);
+}
+
+// ============================================================
+//  実験台1: 1本の鎖(左右に1本ずつ)
+// ============================================================
+// 置き場所(Root)の座標で: 首の付け根が原点、頭の中心は首から (0, 0.11)、頭の半径 0.10。
+// 髪の根は頭の中心から (±0.09, 0.08)。骨は 4 本、長さ 0.045。ファイルの形の向きは頭の座標で -86 / -92 / -100 / -108 度(内へ巻く)。
+// 肩の球は置き場所の座標で (±0.10, -0.035)、半径 0.06。ファイルの形の毛先は肩の球に少しめり込んでいる(実物と同じ)。
+const HEAD = { c: [0, 0.11], r: 0.10 };
+const SHOULDERS = [{ c: [0.10, -0.035], r: 0.06 }, { c: [-0.10, -0.035], r: 0.06 }];
+const BONE = 0.045, HIT = 0.0107;
+const REST_DEG = [-86, -92, -100, -108];
+const chain = {
+  motion: 'tilt', center: 'root', stiff: 0.8, drag: 0.4, grav: 0, col: true, len: true,
+  time: 0, acc: 0, prevPose: null, sides: [],
+};
+function poseAt(t) {
+  const tilt = chain.motion === 'tilt' ? 35 * DEG * Math.sin(2 * Math.PI * t / 1.2) : 0;
+  const x = chain.motion === 'carry' ? 0.25 * Math.sin(2 * Math.PI * t / 0.8) : 0;
+  return { tilt, x };
+}
+// 頭の座標 → 置き場所の座標 → 世界
+const headToWorld = (pose, p) => add(rot(add(p, [0, 0]), pose.tilt), [pose.x, 0]);
+const carrierToWorld = (pose, p) => [p[0] + pose.x, p[1]];
+// center の座標: Root(置き場所)なら置き場所の平行移動を引く、世界ならそのまま
+const toCenter = (pose, p) => chain.center === 'root' ? [p[0] - pose.x, p[1]] : p;
+const fromCenter = (pose, p) => chain.center === 'root' ? [p[0] + pose.x, p[1]] : p;
+function colliders(pose) {
+  return [{ c: headToWorld(pose, HEAD.c), r: HEAD.r }].concat(SHOULDERS.map((s) => ({ c: carrierToWorld(pose, s.c), r: s.r })));
+}
+// ファイルの形(回転はファイルのまま)の骨の向きと根を、根から先へ
+function restChain(pose, side) {
+  const out = [];
+  let root = headToWorld(pose, [0.09 * side, 0.19]);
+  for (let i = 0; i < REST_DEG.length; i++) {
+    const a = (side > 0 ? REST_DEG[i] : 180 - REST_DEG[i]) * DEG + pose.tilt;
+    const d = dirOf(a);
+    out.push({ root, dir: d });
+    root = add(root, mul(d, BONE));
+  }
+  return out;
+}
+function resetChain() {
+  const pose = poseAt(chain.time);
+  chain.sides = [1, -1].map((side) => {
+    const rest = restChain(pose, side);
+    return { side, joints: rest.map((j) => { const t = toCenter(pose, add(j.root, mul(j.dir, BONE))); return { cur: t, prev: t, dir: j.dir, tail: add(j.root, mul(j.dir, BONE)), bend: 0, speed: 0, pen: 0 }; }) };
+  });
+  chain.acc = 0;
+}
+// VrmSpringBone.StepSpring(1 ステップ。体はステップの時刻の値を使う)
+function stepChain(pose) {
+  const cols = colliders(pose);
+  for (const s of chain.sides) {
+    // ファイルの回転からの相対角(1 つ前の骨に対する曲がり)
+    let parentDir = null;
+    let root = headToWorld(pose, [0.09 * s.side, 0.19]);
+    for (let i = 0; i < s.joints.length; i++) {
+      const j = s.joints[i];
+      const restAbs = (s.side > 0 ? REST_DEG[i] : 180 - REST_DEG[i]) * DEG;
+      const restPrev = i === 0 ? null : (s.side > 0 ? REST_DEG[i - 1] : 180 - REST_DEG[i - 1]) * DEG;
+      const restAngle = i === 0 ? restAbs + pose.tilt : Math.atan2(parentDir[1], parentDir[0]) + (restAbs - restPrev);
+      const restDir = dirOf(restAngle);
+      let next = fromCenter(pose, integrate(j.cur, j.prev, restDir, [0, -1], chain.stiff, chain.grav, chain.drag, H));
+      if (chain.len) next = constrain(next, root, BONE);
+      if (chain.col) {
+        for (const c of cols) {
+          const r = sphereDistance(c.c, c.r, next, HIT);
+          if (r.d < 0) { next = sub(next, mul(r.n, r.d)); if (chain.len) next = constrain(next, root, BONE); }
+        }
+      }
+      j.prev = j.cur;
+      j.cur = toCenter(pose, next);
+      j.speed = len(sub(j.cur, j.prev)) / H;
+      j.tail = next;
+      j.dir = norm(sub(next, root));
+      j.bend = Math.acos(Math.max(-1, Math.min(1, j.dir[0] * restDir[0] + j.dir[1] * restDir[1]))) / DEG;
+      j.pen = Math.max(0, ...cols.map((c) => -sphereDistance(c.c, c.r, next, HIT).d));
+      parentDir = j.dir;
+      root = add(root, mul(j.dir, BONE));
+    }
+  }
+}
+function advanceChain(dt) {
+  chain.time += dt;
+  chain.acc += dt;
+  // 固定の刻みで払う。体の姿勢は式で決まっているので、ステップの時刻の値をそのまま引ける(補間と同じ結果)
+  let steps = 0;
+  while (chain.acc >= H - 1e-9 && steps < 4) {
+    chain.acc -= H;
+    steps++;
+    stepChain(poseAt(chain.time - chain.acc));
+  }
+  if (steps === 4) chain.acc = 0;
+  // 長さの拘束が無いと、硬さが同じ向きを足し続けて先端がどこまでも流れていく。30cm 離れたら置き直して見せ直す
+  if (!chain.len && chain.sides.some((s) => s.joints.some((j) => len(sub(j.tail, headToWorld(poseAt(chain.time), [0.09 * s.side, 0.19]))) > 0.3))) resetChain();
+}
+function drawChain() {
+  const { ctx, w, h } = fit($('chain-canvas'));
+  const pose = poseAt(chain.time);
+  const S = Math.min(w / 0.9, h / 0.42);
+  const cx = w / 2, cy = h * 0.66;
+  const P = (p) => [cx + p[0] * S, cy - p[1] * S];
+  // 体(肩の線と首)
+  ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 3;
+  const sh = [carrierToWorld(pose, [-0.22, -0.03]), carrierToWorld(pose, [0, 0.0]), carrierToWorld(pose, [0.22, -0.03])];
+  ctx.beginPath(); sh.forEach((p, i) => { const q = P(p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.stroke();
+  // コライダー
+  const cols = colliders(pose);
+  cols.forEach((c, k) => {
+    const q = P(c.c);
+    ctx.beginPath(); ctx.arc(q[0], q[1], c.r * S, 0, Math.PI * 2);
+    if (k === 0) { ctx.fillStyle = '#f2dccf'; ctx.fill(); }
+    ctx.setLineDash(chain.col ? [] : [4, 4]);
+    ctx.strokeStyle = chain.col ? tok('--accent') : tok('--line'); ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]);
+  });
+  // ファイルの形(点線)
+  for (const side of [1, -1]) {
+    const rest = restChain(pose, side);
+    ctx.strokeStyle = tok('--line'); ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); rest.forEach((j, i) => { const a = P(j.root); i ? ctx.lineTo(a[0], a[1]) : ctx.moveTo(a[0], a[1]); });
+    const e = P(add(rest[rest.length - 1].root, mul(rest[rest.length - 1].dir, BONE))); ctx.lineTo(e[0], e[1]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // いまの鎖と先端の点
+  for (const s of chain.sides) {
+    let root = headToWorld(pose, [0.09 * s.side, 0.19]);
+    ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); const r0 = P(root); ctx.moveTo(r0[0], r0[1]);
+    for (const j of s.joints) { root = add(root, mul(j.dir, BONE)); const q = P(root); ctx.lineTo(q[0], q[1]); }
+    ctx.stroke();
+    for (const j of s.joints) {
+      const q = P(j.tail);
+      ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(q[0], q[1], Math.max(3, HIT * S), 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+function updateChainStats() {
+  const js = chain.sides.flatMap((s) => s.joints);
+  const speed = Math.max(...js.map((j) => j.speed));
+  const bend = Math.max(...js.map((j) => j.bend));
+  const pen = Math.max(...js.map((j) => j.pen));
+  let stretch = 0;
+  for (const s of chain.sides) {
+    let root = headToWorld(poseAt(chain.time), [0.09 * s.side, 0.19]);
+    for (const j of s.joints) { stretch = Math.max(stretch, Math.abs(len(sub(j.tail, root)) - BONE)); root = add(root, mul(j.dir, BONE)); }
+  }
+  $('chain-stats').innerHTML =
+    stat('先端の速さ 最大(center の座標)', (speed * 100).toFixed(1) + ' cm/s') +
+    stat('曲がり 最大', bend.toFixed(1) + ' 度') +
+    stat('めり込み 最大', (pen * 1000).toFixed(1) + ' mm') +
+    stat('骨の長さのずれ 最大', (stretch * 1000).toFixed(1) + ' mm');
+  let note;
+  if (!chain.len) note = '長さの拘束なし: 硬さは長さ 1 の向きを毎ステップ足すので、慣性に積もって先端の点(橙)が骨の先からどこまでも流れていく(30cm 離れたら置き直している)。骨は点の向きを向くだけなので、絵の骨は伸びないが、揺れ方は成り立たない。';
+  else if (chain.motion === 'carry' && chain.center === 'root') note = 'center = Root(置き場所)。置き場所ごと動いた分は先端も一緒に運ばれるので、揺れない(先端の速さが 0 のまま)。center を「使わない」にすると揺れる。';
+  else if (chain.motion === 'carry') note = 'center を使わない: 先端を世界の座標で覚えるので、置き場所が動くと先端が取り残されて遅れる。Day 72 で歩くと、これが毎歩起きる。';
+  else if (chain.stiff === 0) note = '硬さ 0: ファイルの形へ戻す力が無い。揺らした髪は慣性が尽きた所で止まったまま戻らない。';
+  else if (!chain.col) note = 'コライダーを切ると、毛先が肩の球の中へ入る(めり込みが増える)。ファイルの形で毛先が肩に少し入っていることも分かる。';
+  else note = '橙の点が先端の点。毎ステップ、慣性・硬さ・重力を足し、長さを戻し、球から押し出してから、骨をその点へ向ける。点線はファイルの形。';
+  $('chain-note').textContent = note;
+}
+function syncChainOutputs() {
+  $('chain-stiff-out').textContent = chain.stiff.toFixed(2);
+  $('chain-drag-out').textContent = chain.drag.toFixed(2);
+  $('chain-grav-out').textContent = chain.grav.toFixed(2);
+}
+seg('chain-motion', (v) => { chain.motion = v; chain.time = 0; resetChain(); });
+seg('chain-center', (v) => { chain.center = v; resetChain(); });
+seg('chain-col', (v) => { chain.col = v === 'on'; });
+seg('chain-len', (v) => { chain.len = v === 'on'; resetChain(); });
+for (const [id, key] of [['chain-stiff', 'stiff'], ['chain-drag', 'drag'], ['chain-grav', 'grav']]) {
+  $(id).addEventListener('input', (e) => { chain[key] = parseFloat(e.target.value); syncChainOutputs(); });
+}
+syncChainOutputs();
+resetChain();
+if (reduceMotion) {
+  // 動かさずに、首をかしげて 1.3 秒たったときの形を描いておく
+  for (let i = 0; i < 78; i++) advanceChain(H);
+  drawChain(); updateChainStats();
+} else {
+  let statTimer = 0;
+  animate($('chain-lab'), (dt) => {
+    advanceChain(dt);
+    drawChain();
+    statTimer += dt;
+    if (statTimer > 0.15) { statTimer = 0; updateChainStats(); }
+  });
+}
+
+// ============================================================
+//  実験台2: コライダーの押し出し
+// ============================================================
+const col = { shape: 'capsule', root: 'far', hit: 0.010, tail: [-0.06, 0.03] };
+const CAP = { a: [-0.08, 0], b: [0.08, 0], r: 0.05 };
+const SPH = { c: [0, 0], r: 0.06 };
+const COL_LEN = 0.11;
+// 離れた根は横から(骨がコライダーを横切る。押し出す向きが骨とほぼ垂直)、近い根はカプセルのすぐ上(押し出す向きが骨と揃う)
+const colRoot = () => col.root === 'far' ? [-0.16, 0.07] : [-0.02, 0.07];
+function colView() {
+  const { w, h } = { w: $('collide-canvas').clientWidth, h: $('collide-canvas').clientHeight };
+  const S = Math.min(w / 0.42, h / 0.3);
+  return { S, cx: w / 2, cy: h * 0.62 };
+}
+function evaluateCollide() {
+  const root = colRoot();
+  const dist = (p) => col.shape === 'capsule' ? capsuleDistance(CAP.a, CAP.b, CAP.r, p, col.hit) : sphereDistance(SPH.c, SPH.r, p, col.hit);
+  const c0 = constrain(col.tail, root, COL_LEN);          // 積分した点を長さへ戻した所
+  const r0 = dist(c0);
+  const p1 = r0.d < 0 ? sub(c0, mul(r0.n, r0.d)) : c0;    // 押し出した所(表面)
+  const p2 = constrain(p1, root, COL_LEN);                 // もう一度長さを戻した所
+  return { root, c0, r0, p1, p2, d2: dist(p2).d };
+}
+function drawCollide() {
+  const { ctx, w, h } = fit($('collide-canvas'));
+  const { S, cx, cy } = colView();
+  const P = (p) => [cx + p[0] * S, cy - p[1] * S];
+  const e = evaluateCollide();
+  // コライダー
+  ctx.fillStyle = tok('--accent-soft'); ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 1.5;
+  if (col.shape === 'capsule') {
+    const a = P(CAP.a), b = P(CAP.b), r = CAP.r * S;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1] - r); ctx.lineTo(b[0], b[1] - r); ctx.arc(b[0], b[1], r, -Math.PI / 2, Math.PI / 2); ctx.lineTo(a[0], a[1] + r); ctx.arc(a[0], a[1], r, Math.PI / 2, Math.PI * 1.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = tok('--muted'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.setLineDash([]);
+  } else {
+    const c = P(SPH.c); ctx.beginPath(); ctx.arc(c[0], c[1], SPH.r * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  // 骨の長さの円
+  const rt = P(e.root);
+  ctx.strokeStyle = tok('--line'); ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.arc(rt[0], rt[1], COL_LEN * S, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  // 根と骨
+  ctx.fillStyle = tok('--ink'); ctx.beginPath(); ctx.arc(rt[0], rt[1], 5, 0, Math.PI * 2); ctx.fill();
+  const p2 = P(e.p2);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(rt[0], rt[1]); ctx.lineTo(p2[0], p2[1]); ctx.stroke();
+  // いちばん近い所と押し出し
+  if (e.r0.d < 0) {
+    const n = P(e.r0.near);
+    ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(n[0], n[1], 3, 0, Math.PI * 2); ctx.fill();
+    const c0 = P(e.c0), p1 = P(e.p1);
+    arrow(ctx, c0[0], c0[1], p1[0], p1[1], tok('--accent'), 2);
+    ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(p1[0], p1[1], 4, 0, Math.PI * 2); ctx.fill();
+  }
+  // 先端(ドラッグする点)と、最後に決まった点
+  const t = P(col.tail);
+  ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(t[0], t[1], 8, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(p2[0], p2[1], Math.max(4, col.hit * S), 0, Math.PI * 2); ctx.fill();
+  ctx.font = '12px ' + tok('--font-mono'); ctx.fillStyle = tok('--muted');
+  ctx.fillText('橙の輪 = 積分した点(ドラッグ)/ 橙の丸 = 決まった先端 / 点線の円 = 骨の長さ', 8, 16);
+  return e;
+}
+function updateCollide() {
+  $('collide-hit-out').textContent = (col.hit * 100).toFixed(1);
+  const e = drawCollide();
+  const pen0 = Math.max(0, -e.r0.d), pen2 = Math.max(0, -e.d2);
+  $('collide-stats').innerHTML =
+    stat('長さを戻した時点のめり込み', (pen0 * 1000).toFixed(1) + ' mm') +
+    stat('押し出したあと', '0.0 mm') +
+    stat('もう一度長さを戻したあと', (pen2 * 1000).toFixed(1) + ' mm');
+  $('collide-note').textContent = pen0 === 0
+    ? '当たっていない。先端をコライダーの中へドラッグしてみる。'
+    : pen2 > 0.001
+      ? '押し出した点(灰)は骨の長さの円の外にある。長さを戻すと、また中へ入る。根がコライダーに近いほど残る(実機で首を振ると最大 15.8mm 残る)。次のステップでまた押されて、だんだん外へ出ていく。'
+      : (col.shape === 'capsule'
+        ? 'カプセルは線分(点線)のいちばん近い所から押し出す。端より外では端の球と同じになる。押し出してから長さを戻しても、根が離れていればほぼ表面に残る。'
+        : '球は中心から押し出す。押し出してから長さを戻しても、根が離れていればほぼ表面に残る。');
+}
+seg('collide-shape', (v) => { col.shape = v; updateCollide(); });
+seg('collide-root', (v) => { col.root = v; col.tail = v === 'far' ? [-0.06, 0.03] : [0.0, -0.02]; updateCollide(); });
+$('collide-hit').addEventListener('input', (e) => { col.hit = parseFloat(e.target.value) / 100; updateCollide(); });
+{
+  const cv = $('collide-canvas');
+  let dragging = false;
+  const toWorld = (ev) => {
+    const rect = cv.getBoundingClientRect();
+    const { S, cx, cy } = colView();
+    return [(ev.clientX - rect.left - cx) / S, -(ev.clientY - rect.top - cy) / S];
+  };
+  cv.addEventListener('pointerdown', (ev) => { dragging = true; cv.setPointerCapture(ev.pointerId); col.tail = toWorld(ev); updateCollide(); });
+  cv.addEventListener('pointermove', (ev) => { if (dragging) { col.tail = toWorld(ev); updateCollide(); } });
+  cv.addEventListener('pointerup', () => { dragging = false; });
+}
+
+// ============================================================
+//  実験台3: 固定の刻みと補間(自己チェック9 の振り子の台)
+// ============================================================
+// 体は原点で Z 回転(30 度 x sin(2πt))、骨の根は体の (0, 1)、ファイルの形の骨は真下へ 0.2。硬さ 0.8。
+const RIG_L = 0.2;
+const step = { mode: 'interp', drag: 0.4 };
+const bodyAngle = (t) => 30 * DEG * Math.sin(2 * Math.PI * t);
+const rigRoot = (a) => [-Math.sin(a), Math.cos(a)];
+const rigRest = (a) => [Math.sin(a), -Math.cos(a)];
+function rigStep(cur, prev, a, dt, drag) {
+  const r = rigRoot(a);
+  const next = constrain(integrate(cur, prev, rigRest(a), [0, -1], 0.8, 0, drag, dt), r, RIG_L);
+  return [next, cur];
+}
+function rigBend(tail, a) {
+  const v = norm(sub(tail, rigRoot(a))), d = rigRest(a);
+  return Math.acos(Math.max(-1, Math.min(1, v[0] * d[0] + v[1] * d[1]))) / DEG * Math.sign(v[0] * d[1] - v[1] * d[0] || 1);
+}
+function runRig(fps, mode, drag, seconds) {
+  let cur = [0, 1 - RIG_L], prev = cur, acc = 0, stepTime = 0;
+  const dt = 1 / fps, out = [];
+  for (let f = 1; f <= Math.round(seconds * fps); f++) {
+    const t = f * dt;
+    if (mode === 'var') {
+      [cur, prev] = rigStep(cur, prev, bodyAngle(t), dt, drag);
+    } else {
+      acc += dt;
+      while (acc >= H - 1e-9) {
+        acc -= H;
+        stepTime += H;
+        [cur, prev] = rigStep(cur, prev, bodyAngle(mode === 'interp' ? stepTime : t), H, drag);
+      }
+    }
+    out.push([t, rigBend(cur, bodyAngle(t))]);
+  }
+  return out;
+}
+const FPS = [30, 60, 144];
+const FPS_COLORS = () => [tok('--warn'), tok('--accent'), tok('--good')];
+function updateStep() {
+  $('step-drag-out').textContent = step.drag.toFixed(2);
+  const runs = FPS.map((fps) => runRig(fps, step.mode, step.drag, 3));
+  const { ctx, w, h } = fit($('step-canvas'));
+  const x0 = 44, x1 = w - 12, y0 = 16, y1 = h - 26;
+  const X = (t) => x0 + t / 3 * (x1 - x0), Y = (v) => (y0 + y1) / 2 - v / 70 * (y1 - y0) / 2;
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, Y(0)); ctx.lineTo(x1, Y(0)); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [-60, -30, 0, 30, 60]) ctx.fillText(String(v), 8, Y(v) + 4);
+  for (let t = 0; t <= 3; t++) ctx.fillText(t + 's', X(t) - 6, h - 8);
+  ctx.strokeStyle = tok('--grid'); ctx.beginPath(); ctx.moveTo(X(2), y0); ctx.lineTo(X(2), y1); ctx.stroke();
+  const colors = FPS_COLORS();
+  runs.forEach((run, k) => {
+    ctx.strokeStyle = colors[k]; ctx.lineWidth = k === 1 ? 3 : 1.6;
+    ctx.beginPath(); run.forEach(([t, b], i) => { i ? ctx.lineTo(X(t), Y(b)) : ctx.moveTo(X(t), Y(b)); }); ctx.stroke();
+    ctx.fillStyle = colors[k]; ctx.fillText(FPS[k] + ' fps', x1 - 150 + k * 50, y0 + 10);
+  });
+  const at2 = runs.map((run, k) => run[Math.round(2 * FPS[k]) - 1][1]);
+  const spread = Math.max(...at2) - Math.min(...at2);
+  $('step-stats').innerHTML = FPS.map((fps, k) => stat(fps + ' fps の 2 秒後', Math.abs(at2[k]).toFixed(2) + ' 度')).join('') + stat('ばらつき', spread.toFixed(2) + ' 度');
+  $('step-note').textContent = step.mode === 'var'
+    ? '可変 dt: 慣性を削る回数が画面の速さで変わる(144 fps は 1 秒に 144 回削る)。抵抗を大きくすると差が広がる。'
+    : step.mode === 'fixed'
+      ? '固定の刻みでも、体を今のフレームの値で渡すと 30 fps が大きくずれる。1 フレームに 2 ステップ回すとき、体の動き 2 ステップ分が 1 回目に一度に入るから。'
+      : '固定の刻み + 体をステップの時刻で渡す: 3 本がぴったり重なる(今日の実装)。';
+}
+seg('step-mode', (v) => { step.mode = v; updateStep(); });
+$('step-drag').addEventListener('input', (e) => { step.drag = parseFloat(e.target.value); updateStep(); });
+
+// ------------------------------------------------------------
+updateCollide(); updateStep(); updateChainStats();
+window.addEventListener('resize', () => { updateCollide(); updateStep(); drawChain(); });
+window.SpringLab = { integrate, constrain, sphereDistance, capsuleDistance, runRig };
+})();
+</script>
+</body>
+</html>
