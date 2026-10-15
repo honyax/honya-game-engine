@@ -521,6 +521,374 @@ internal static class Collision3D
         }
     }
 
+    // ================================================================
+    //  Day 46: 地形(ハイトマップ)の判定
+    // ================================================================
+
+    /// <summary>
+    /// 1回の地形の判定で見る三角形の上限。**はみ出したら諦める**。
+    ///
+    /// 1マス 1m の地形に半径 0.35m のカプセルを立てれば、
+    /// 触れうるマスは 2×2 = 4、三角形は 8 枚。
+    /// 32 枚あれば「4×4 マスにまたがる大きな箱」まで届く。
+    /// <b>足りなくなるのは地形のマスを細かくしすぎたとき</b>で、
+    /// そのときはマスを粗くするのが正しい直し方になる。
+    /// </summary>
+    private const int MaxTerrainTriangles = 32;
+
+    /// <summary>
+    /// 球と三角形。**最近接点まで測って、面の法線で押し戻す**(要点2・要点3)。
+    ///
+    /// 前半は <see cref="SphereBox"/> とまったく同じ形をしている——
+    /// 「相手の上でいちばん近い点を取って、距離を半径と比べる」。
+    /// 違うのは<b>押し戻す向きの決め方</b>で、ここが今日いちばん細かい判断になる。
+    ///
+    /// <para>
+    /// <b>法線は必ず三角形の面の法線にする</b>(内部エッジ対策。要点3)。
+    /// 素直に「中心 - 最近接点」を正規化すると、
+    /// 最近接点が三角形の<b>辺</b>に乗ったときに横向きの法線が出る。
+    /// 平らな地面を2枚の三角形で作って球を転がすと、
+    /// 対角線をまたぐ瞬間だけ<b>横へ蹴られる</b>——
+    /// これが有名な「内部エッジ問題」で、
+    /// 三角形メッシュの地形を書いた人が必ず1度は踏む。
+    /// </para>
+    ///
+    /// <para>
+    /// 面の法線に寄せると、代わりに<b>本当の縁</b>(地形の端や崖の上端)でも
+    /// 上向きに押してしまう。地形の中では縁のほとんどが内部エッジなので、
+    /// この取り替えは<b>ほぼ必ず得</b>になる。
+    /// Bullet の <c>btInternalEdgeUtility</c> は隣の面の向きを覚えておいて
+    /// 「本当の縁か内部の縁か」を見分けるが、
+    /// <b>高さの格子ならそもそも内部の縁しか無い</b>(端以外)ので、
+    /// ここまで割り切ってよい。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>裏側へ潜った球</b>は別扱い。深くめり込むと最近接点までの距離が
+    /// 半径を超えてしまい、素直に書くと「当たっていない」と答えて
+    /// <b>地面をすり抜けて落ちていく</b>。
+    /// 面の裏側(<c>signed &lt; 0</c>)で、かつ最近接点が面の内側なら、
+    /// 上へ押し戻す量を「半径 - 符号付き距離」にする——
+    /// <see cref="SpherePlane"/> が裏へ抜けた球を戻すのと同じ式になる。
+    /// </para>
+    /// </summary>
+    public static Contact3D SphereTriangle(in Sphere3D sphere, in Triangle3D triangle)
+    {
+        Vector3 closest = triangle.ClosestPoint(sphere.Center);
+        float signed = triangle.SignedDistance(sphere.Center);
+
+        if (signed < 0.0f)
+        {
+            // **面の裏側**(要点3)。地面に潜っている状態で、
+            // 素直に距離を測ると半径を超えて「当たっていない」と答えてしまい、
+            // <b>そのまま落ちていく</b>。
+            //
+            // 拾うかどうかは<b>真上から見て、この三角形の中にいるか</b>で決める。
+            // 「最近接点が面の内側か」で決めると、深く潜った球では
+            // 最近接点が縁や角に寄ってしまい、
+            // <b>周りのどの三角形も受け持たない穴</b>ができる。
+            // 高さの格子は「1つの (x, z) に高さが1つ」なので、
+            // 真上から見た内外で決めれば必ずどれかが受け持つ。
+            if (!triangle.ContainsColumn(sphere.Center))
+            {
+                return Contact3D.None;
+            }
+
+            // 押し戻す量は「半径 + 潜ったぶん」。<see cref="SpherePlane"/> が
+            // 裏へ抜けた球を戻すのとまったく同じ式になる。
+            return Contact3D.Touching(
+                triangle.Normal,
+                sphere.Radius - signed,
+                sphere.Center - (triangle.Normal * signed));
+        }
+
+        float squared = (sphere.Center - closest).LengthSquared();
+        if (squared >= sphere.Radius * sphere.Radius)
+        {
+            return Contact3D.None;
+        }
+
+        // **法線は面の法線**(内部エッジ対策)。深さは実際の距離から測る。
+        return Contact3D.Touching(
+            triangle.Normal, sphere.Radius - MathF.Sqrt(squared), closest);
+    }
+
+    /// <summary>
+    /// カプセルと三角形。**線分と三角形の最近接点を取って、球と三角形に落とす**。
+    ///
+    /// Day 45 の <see cref="CapsuleBox"/> とまったく同じ形。
+    /// 「どこへ球を滑らせるか」を決めれば、あとは球の判定がそのまま使える——
+    /// カプセルが「線分から一定の距離」であることの配当が、
+    /// 相手が三角形になっても変わらずに効いている。
+    ///
+    /// <para>
+    /// <b>端の球を足す処理(<c>AddCapsuleEnds</c>)が要らない</b>のが、
+    /// 箱のときとの違い。地形の上に寝かせたカプセルは
+    /// <b>複数の三角形にまたがる</b>ので、
+    /// 三角形ごとに1点ずつ出せば自然に2点以上のマニフォールドになる
+    /// (<see cref="CapsuleTerrain"/>)。
+    /// 面が1枚しか無い箱では、そうはいかなかった。
+    /// </para>
+    /// </summary>
+    public static Contact3D CapsuleTriangle(in Capsule3D capsule, in Triangle3D triangle)
+    {
+        triangle.ClosestPoint(capsule.Segment, out Vector3 onSegment);
+
+        return SphereTriangle(new Sphere3D(onSegment, capsule.Radius), triangle);
+    }
+
+    /// <summary>
+    /// 球と地形。**触れうるマスの三角形を全部当てて、深い順に4点まで採る**(要点4)。
+    ///
+    /// 手順は3つだけ。
+    /// <list type="number">
+    /// <item>外接箱からマスの範囲を出す(<see cref="Terrain3D.CellRange"/>。割り算2回)</item>
+    /// <item>そのマスの三角形を1枚ずつ当てて、当たったものを控える</item>
+    /// <item>いちばん深いものの法線をマニフォールドの法線にして、点を並べる</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>3 が今日の新しいところ</b>。マニフォールドは法線を1本しか持てない
+    /// (Day 44a の要点3)のに、地形の三角形はそれぞれ違う向きを向いている。
+    /// 谷の底にはまった球なら、左の斜面と右の斜面から別の向きに押される——
+    /// そのままでは2本の法線が要ることになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>いちばん深いものを基準にして、向きの近いものだけを足す</b>のが答え。
+    /// 向きが 60 度以上違う面は捨てる(<c>Dot &lt; 0.5</c>)。
+    /// 捨てられた面は<b>次のステップで拾われる</b>——
+    /// 押し戻されて浅くなれば、今度は別の面がいちばん深くなるので、
+    /// 数ステップで谷の底に落ち着く。
+    /// <b>1ステップで完全に解こうとしない</b>のは Day 43 から一貫している構えで、
+    /// 速度の反復も位置の補正も同じ考え方でできている。
+    /// </para>
+    /// </summary>
+    public static ContactManifold SphereTerrain(in Sphere3D sphere, in Terrain3D terrain)
+    {
+        Span<Contact3D> hits = stackalloc Contact3D[MaxTerrainTriangles];
+        int count = GatherTerrain(sphere.Bounds, terrain, hits, sphere, default, useCapsule: false);
+
+        return BuildTerrainManifold(hits[..count], sphere.Radius);
+    }
+
+    /// <summary>
+    /// カプセルと地形。**球と地形と同じ手順で、当てる関数だけが違う**。
+    ///
+    /// <b>地形の上を歩けるようになるのはこの関数</b>。
+    /// <see cref="CharacterController"/> は
+    /// <see cref="PhysicsWorld.QueryCapsule"/> 越しにこれを呼び、
+    /// 返ってきた法線の Y から「登れる坂か」を決める(Day 45b の要点2)。
+    /// つまり<b>坂の上限は三角形1枚ごとに効く</b>ことになる。
+    /// </summary>
+    public static ContactManifold CapsuleTerrain(in Capsule3D capsule, in Terrain3D terrain)
+    {
+        Span<Contact3D> hits = stackalloc Contact3D[MaxTerrainTriangles];
+        int count = GatherTerrain(
+            capsule.Bounds, terrain, hits, default, capsule, useCapsule: true);
+
+        return BuildTerrainManifold(hits[..count], capsule.Radius);
+    }
+
+    /// <summary>
+    /// 箱と地形。**8つの角の下に地面があるかを見るだけ**(要点4)。
+    ///
+    /// 球やカプセルとは<b>まったく違う解き方</b>をしている。
+    /// 箱と三角形をまともに当てると分離軸が 13 本(箱の3面 + 三角形の1面 + 外積9本)、
+    /// そこから接触点を作るのに面のクリップが要る——Day 44 の SAT がもう1本要ることになる。
+    ///
+    /// <para>
+    /// <b>地形が「高さの関数」であることを使えば、それが要らない</b>。
+    /// 箱の角の (x, z) における地面の高さは
+    /// <see cref="Terrain3D.TryHeightAt"/> が補間1回で答える。
+    /// 角がそれより下にあれば、そのぶん押し上げればよい。
+    /// 床に置いた箱は<b>4つの角が同時に沈む</b>ので、
+    /// Day 44 で欲しかった「面で支える4点」が自然に出る。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>代償ははっきりしている</b>。角が1つも沈んでいないのに
+    /// 面の途中が地形の尖った峰に刺さっている、という配置を見逃す。
+    /// 1マスより小さい箱では起きないので、
+    /// <b>「地形のマスより小さい箱しか置かない」</b>という約束で回避している。
+    /// まともに直すなら箱と三角形の SAT を書くことになる(改造課題3)。
+    /// </para>
+    ///
+    /// <para>
+    /// 深さを<b>法線に沿って測り直している</b>のも要点。
+    /// 高さの差(縦の距離)をそのまま深さにすると、
+    /// 急な斜面では実際のめり込みより大きくなって箱が跳ねる——
+    /// 45 度の斜面なら 1.41 倍。法線の Y を掛けるだけで正しくなる。
+    /// </para>
+    /// </summary>
+    public static ContactManifold BoxTerrain(in Box3D box, in Terrain3D terrain)
+    {
+        Span<Contact3D> hits = stackalloc Contact3D[8];
+        int count = 0;
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 corner = box.Corner(i);
+
+            if (!terrain.TryHeightAt(corner.X, corner.Z, out float ground)
+                || corner.Y >= ground)
+            {
+                continue;
+            }
+
+            terrain.TryNormalAt(corner.X, corner.Z, out Vector3 normal);
+
+            // **縦の差 × 法線の Y** が、法線に沿った本当のめり込み。
+            float depth = (ground - corner.Y) * normal.Y;
+            if (depth <= 0.0f)
+            {
+                continue;
+            }
+
+            hits[count++] = Contact3D.Touching(
+                normal, depth, new Vector3(corner.X, ground, corner.Z));
+        }
+
+        // 角の間隔は箱の大きさで決まるので、まとめる距離もそれに合わせる。
+        return BuildTerrainManifold(hits[..count], box.HalfExtents.Length() * 0.5f);
+    }
+
+    /// <summary>
+    /// 触れうるマスの三角形を1枚ずつ当てて、当たったものを控える。
+    ///
+    /// 球とカプセルで当てる関数が違うだけなので、
+    /// <paramref name="useCapsule"/> で切り替えている——
+    /// Day 45 の <c>AddCapsuleEnds</c> と同じ理由で、
+    /// <b>委譲(デリゲート)を挟むと内側のループで割り当てが起きる</b>。
+    /// </summary>
+    private static int GatherTerrain(
+        in Aabb3D bounds,
+        in Terrain3D terrain,
+        Span<Contact3D> hits,
+        in Sphere3D sphere,
+        in Capsule3D capsule,
+        bool useCapsule)
+    {
+        if (!terrain.CellRange(bounds, out int x0, out int z0, out int x1, out int z1))
+        {
+            return 0;
+        }
+
+        int count = 0;
+
+        for (int cz = z0; cz <= z1; cz++)
+        {
+            for (int cx = x0; cx <= x1; cx++)
+            {
+                for (int which = 0; which < 2; which++)
+                {
+                    if (count >= hits.Length)
+                    {
+                        return count;
+                    }
+
+                    Triangle3D triangle = terrain.Triangle(cx, cz, which);
+
+                    Contact3D contact = useCapsule
+                        ? CapsuleTriangle(capsule, triangle)
+                        : SphereTriangle(sphere, triangle);
+
+                    if (contact.Hit)
+                    {
+                        hits[count++] = contact;
+                    }
+                }
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// 三角形ごとの接触を、1本の法線を持つマニフォールドにまとめる(要点4)。
+    ///
+    /// <list type="number">
+    /// <item>いちばん深いものを選ぶ。**その法線がマニフォールドの法線**</item>
+    /// <item>向きが 60 度以内の接触だけを足す。それ以外は次のステップに任せる</item>
+    /// <item>深さは法線に沿って測り直す(<c>depth × cosθ</c>)</item>
+    /// <item>近すぎる点は捨てる。**同じ点を2つ持つと押し戻しが半分になる**</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>4 は Day 45 で踏んだ落とし穴と同じ</b>。
+    /// 隣り合う三角形は辺を共有しているので、
+    /// 球がその辺の上に乗っていると<b>2枚とも同じ点を返す</b>。
+    /// まとめて解くとき点の数で割る(Day 44a の要点5)ので、
+    /// 同じ点が2つあると押し戻しがちょうど半分になって沈む。
+    /// </para>
+    /// </summary>
+    private static ContactManifold BuildTerrainManifold(
+        ReadOnlySpan<Contact3D> hits, float mergeScale)
+    {
+        if (hits.Length == 0)
+        {
+            return default;
+        }
+
+        // --- 1. いちばん深いものを選ぶ ---
+        int deepest = 0;
+        for (int i = 1; i < hits.Length; i++)
+        {
+            if (hits[i].Depth > hits[deepest].Depth)
+            {
+                deepest = i;
+            }
+        }
+
+        var manifold = new ContactManifold
+        {
+            Normal = hits[deepest].Normal,
+
+            // 基準面は地形(B)の側。箱と平面(Day 44)・カプセルと平面(Day 45)と同じ扱い。
+            Source = ManifoldSource.FaceB,
+        };
+
+        manifold.Add(hits[deepest].Point, hits[deepest].Depth);
+
+        // 近すぎる点をまとめる距離。**相手の大きさに比例させる**——
+        // 半径 0.1m の小石と半径 2m の岩で同じ絶対値を使うと、
+        // 片方では何もまとまらず、片方では全部1点になる。
+        float mergeSquared = MathF.Max(mergeScale * 0.35f, 1e-3f);
+        mergeSquared *= mergeSquared;
+
+        // --- 2〜4. 残りを足す ---
+        for (int i = 0; i < hits.Length && manifold.Count < ContactManifold.MaxPoints; i++)
+        {
+            if (i == deepest)
+            {
+                continue;
+            }
+
+            float alignment = Vector3.Dot(hits[i].Normal, manifold.Normal);
+            if (alignment < 0.5f)
+            {
+                continue;
+            }
+
+            bool duplicate = false;
+            for (int k = 0; k < manifold.Count; k++)
+            {
+                if ((manifold.Points[k].Point - hits[i].Point).LengthSquared() < mergeSquared)
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate)
+            {
+                manifold.Add(hits[i].Point, hits[i].Depth * alignment);
+            }
+        }
+
+        return manifold;
+    }
+
     /// <summary>
     /// カプセルを体1つに当てる。**形の札を見て振り分けるだけ**の窓口(Day 45)。
     ///
@@ -548,8 +916,12 @@ internal static class Collision3D
 
             ColliderKind.Capsule => CapsuleCapsule(capsule, body.ToCapsule()),
 
+            // **地形(Day 46)**。ここが繋がると地形の上を歩けるようになる。
+            ColliderKind.HeightField => CapsuleTerrain(capsule, body.ToTerrain()),
+
             _ => default,
         };
+
     /// <summary>
     /// 2つの剛体を当てる。**形の組み合わせで判定関数を選ぶだけ**の窓口。
     ///
@@ -609,10 +981,30 @@ internal static class Collision3D
             case (ColliderKind.Box, ColliderKind.Box):
                 return Sat.BoxBox(a.ToBox(), b.ToBox());
 
+            // --- 地形(Day 46)---
+            //
+            // **カプセルの2行より上に置く**。下に置くと、
+            // (カプセル, 地形) が上の `(Capsule, _)` に吸われて
+            // <see cref="CapsuleAgainst"/> 経由になる——
+            // それでも同じ関数に着くので<b>たまたま動く</b>が、
+            // 「具体的なものほど上」の並びが崩れる。
+            // 地形どうしは当たらない(どちらも静的)。
+            case (ColliderKind.Sphere, ColliderKind.HeightField):
+                return SphereTerrain(a.ToSphere(), b.ToTerrain());
+
+            case (ColliderKind.HeightField, ColliderKind.Sphere):
+                return SphereTerrain(b.ToSphere(), a.ToTerrain()).Flipped();
+
+            case (ColliderKind.Box, ColliderKind.HeightField):
+                return BoxTerrain(a.ToBox(), b.ToTerrain());
+
+            case (ColliderKind.HeightField, ColliderKind.Box):
+                return BoxTerrain(b.ToBox(), a.ToTerrain()).Flipped();
+
             // --- カプセル(Day 45)---
             //
             // **相手が何であっても1行**。ここまで落ちてきた時点で
-            // 相手はカプセルか、球・箱・平面のどれか。
+            // 相手はカプセルか、球・箱・平面・地形のどれか。
             // 振り分けは <see cref="CapsuleAgainst"/> に任せる。
             case (ColliderKind.Capsule, _):
                 return CapsuleAgainst(a.ToCapsule(), b);

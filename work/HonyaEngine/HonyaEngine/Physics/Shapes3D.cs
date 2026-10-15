@@ -3,6 +3,72 @@ using System.Numerics;
 namespace HonyaEngine;
 
 /// <summary>
+/// 軸に平行な直方体(AABB)。**3D でいちばん安い形**。今日は地形の三角形を探す窓になる(要点1)。
+///
+/// <see cref="Aabb2D"/>(Day 25)の 3D 版。回らない前提を置くだけで、
+/// 判定が「区間が重なっているか」を x・y・z で1回ずつ見るだけになる——
+/// <b>比較6つで終わる</b>。
+///
+/// <para>
+/// 当たり判定の形としては使いにくい(斜めを向いた剣を表せない)のに
+/// AABB がどこにでも出てくるのは、<b>ほかの形の「外接箱」として使える</b>から。
+/// 今日の地形は、球やカプセルの外接箱から<b>触れうるマスの範囲</b>を割り算2回で出し
+/// (<see cref="Terrain3D.CellRange"/>)、そのマスの三角形だけを当てる。
+/// Day 46b のブロードフェーズも、<b>形を1つも知らない</b>まま外接箱だけで候補を絞る。
+/// </para>
+/// </summary>
+internal readonly struct Aabb3D
+{
+    public readonly Vector3 Min;
+    public readonly Vector3 Max;
+
+    public Aabb3D(Vector3 min, Vector3 max)
+    {
+        Min = min;
+        Max = max;
+    }
+
+    /// <summary>中心と半分の大きさから作る。</summary>
+    public static Aabb3D FromCenter(Vector3 center, Vector3 halfSize) =>
+        new(center - halfSize, center + halfSize);
+
+    /// <summary>中心と半径(等方)から作る。**球の外接箱**。</summary>
+    public static Aabb3D FromCenter(Vector3 center, float radius) =>
+        FromCenter(center, new Vector3(radius));
+
+    public Vector3 Center => (Min + Max) * 0.5f;
+
+    public Vector3 Size => Max - Min;
+
+    public Vector3 HalfSize => (Max - Min) * 0.5f;
+
+    public bool Contains(Vector3 point) =>
+        point.X >= Min.X && point.X <= Max.X
+        && point.Y >= Min.Y && point.Y <= Max.Y
+        && point.Z >= Min.Z && point.Z <= Max.Z;
+
+    /// <summary>六方に広げた箱。**判定に余裕を持たせる**ときに使う。</summary>
+    public Aabb3D Expanded(float amount) =>
+        new(Min - new Vector3(amount), Max + new Vector3(amount));
+
+    /// <summary>2つを包む最小の箱。木構造(BVH)を組むときの基本操作。</summary>
+    public static Aabb3D Union(in Aabb3D a, in Aabb3D b) =>
+        new(Vector3.Min(a.Min, b.Min), Vector3.Max(a.Max, b.Max));
+
+    /// <summary>
+    /// 重なっているか。**軸ごとに区間の重なりを見るだけ**。
+    ///
+    /// 「重なっていない」条件のほうが短いので、そちらを否定して書く。
+    /// <b>1軸でも離れていれば重なっていない</b>ので、たいていの組は
+    /// 最初の比較で返る——これが AABB が足切りに向いている理由。
+    /// </summary>
+    public static bool Overlap(in Aabb3D a, in Aabb3D b) =>
+        a.Min.X <= b.Max.X && a.Max.X >= b.Min.X
+        && a.Min.Y <= b.Max.Y && a.Max.Y >= b.Min.Y
+        && a.Min.Z <= b.Max.Z && a.Max.Z >= b.Min.Z;
+}
+
+/// <summary>
 /// 球。**3D でいちばん安い形**。
 ///
 /// <see cref="Circle2D"/> の3D版で、性格もそのまま——
@@ -36,6 +102,9 @@ internal readonly struct Sphere3D
         Center = center;
         Radius = radius;
     }
+
+    /// <summary>外接する AABB(Day 46)。**地形のマス探しが見るのはこれだけ**。</summary>
+    public Aabb3D Bounds => Aabb3D.FromCenter(Center, Radius);
 }
 
 /// <summary>
@@ -312,6 +381,29 @@ internal readonly struct Box3D
         + MathF.Abs(HalfExtents.Z * Vector3.Dot(AxisZ, axis));
 
     /// <summary>
+    /// 外接する AABB(Day 46)。**<see cref="ProjectedRadius"/> を世界の3軸で使う**。
+    ///
+    /// 傾いた箱を包む箱の半径は、各世界軸への投影の絶対値の和になる——
+    /// つまり「その軸に落としたときの半径」そのもので、
+    /// <b>SAT のために書いた関数がそのまま使える</b>。
+    /// <see cref="Obb2D.Bounds"/>(Day 25)で <c>|cos|*hx + |sin|*hy</c> と
+    /// 書いていたのと同じ式が、3D では軸3本ぶんの和になっている。
+    ///
+    /// <para>
+    /// <b>回すと外接箱は太る</b>。45 度回した立方体の外接箱は
+    /// 一辺が √2 倍になり、体積は 2.8 倍。
+    /// ブロードフェーズ(Day 46b)の候補が「当たっていないのに出てくる」原因の多くはこれで、
+    /// 箱を回しながら落とす筋書き(Day 44)では候補の数が目に見えて増える。
+    /// </para>
+    /// </summary>
+    public Aabb3D Bounds => Aabb3D.FromCenter(
+        Center,
+        new Vector3(
+            ProjectedRadius(Vector3.UnitX),
+            ProjectedRadius(Vector3.UnitY),
+            ProjectedRadius(Vector3.UnitZ)));
+
+    /// <summary>
     /// 8つの頂点のうち1つ。添字の**下位3ビットが各軸の符号**。
     ///
     /// <c>0b000</c> が (-x, -y, -z)、<c>0b111</c> が (+x, +y, +z)。
@@ -343,6 +435,247 @@ internal readonly struct Box3D
 
         return ToWorld(local);
     }
+}
+
+/// <summary>
+/// 三角形。**地形を構成する最小の面**であり、今日の判定の入口(要点2)。
+///
+/// 3点しか持たない。法線は毎回作ると <c>Normalize</c> が判定のたびに走るので、
+/// **構築のときに1回だけ計算して持つ**——
+/// 地形は1回作れば動かないので、これで完全に元が取れる。
+///
+/// <para>
+/// <b>裏表がある</b>。<see cref="Normal"/> の向きが「表」で、
+/// 地形の三角形は必ず上を向くように組んである(<see cref="Terrain3D.Triangle"/>)。
+/// 表裏を決めておかないと、地面に潜った物体をどちらへ押し戻せばよいか決まらない。
+/// </para>
+///
+/// <para>
+/// <b>凸であること</b>が今日いちばん効く性質。3点しか無いので当然凸で、
+/// だから <see cref="ClosestPoint(Vector3)"/> は1点に決まり、
+/// 線分との最近接点は Day 45 の箱とまったく同じ**三分探索**で詰まる
+/// (Day 45a の要点3)。<b>地形そのものは凹んでいる</b>が、
+/// 面ごとに分ければ全部凸——これが「凹んだ形を三角形に割って扱う」ことの意味になる。
+/// </para>
+/// </summary>
+internal readonly struct Triangle3D
+{
+    public readonly Vector3 A;
+    public readonly Vector3 B;
+    public readonly Vector3 C;
+
+    /// <summary>面の向き(長さ1)。**構築時に1回だけ計算する**。</summary>
+    public readonly Vector3 Normal;
+
+    public Triangle3D(Vector3 a, Vector3 b, Vector3 c)
+    {
+        A = a;
+        B = b;
+        C = c;
+
+        // 潰れた三角形(3点が一直線)では外積が 0 になる。
+        // **そのまま正規化すると NaN が絵にも物理にも流れる**ので、上向きに逃がす。
+        Vector3 cross = Vector3.Cross(b - a, c - a);
+        float length = cross.Length();
+        Normal = length > 1e-12f ? cross / length : Vector3.UnitY;
+    }
+
+    /// <summary>外接する AABB。**ブロードフェーズと地形のマス探しに使う**。</summary>
+    public Aabb3D Bounds =>
+        new(Vector3.Min(A, Vector3.Min(B, C)), Vector3.Max(A, Vector3.Max(B, C)));
+
+    /// <summary>点から面(無限に広げた平面)までの符号付き距離。**表側が正**。</summary>
+    public float SignedDistance(Vector3 point) => Vector3.Dot(point - A, Normal);
+
+    /// <summary>
+    /// 三角形の上でいちばん近い点。**7つの領域に分けて解く**(要点2)。
+    ///
+    /// 三角形のまわりの空間は、最近接点がどこになるかで7つに分かれる——
+    /// 頂点3つ・辺3つ・面1つ。素直に書くと
+    /// 「3頂点と3辺と面に落として、いちばん近いものを選ぶ」で 7 回の計算になるが、
+    /// <b>領域を順に潰していけば1回で済む</b>。
+    ///
+    /// <code>
+    ///   1. A の外側の頂点領域か? → A
+    ///   2. B の外側の頂点領域か? → B
+    ///   3. AB の辺の領域か?      → AB 上の点
+    ///   4. C …(以下同様)
+    ///   7. どれでもない           → 面の上へ落とす
+    /// </code>
+    ///
+    /// <para>
+    /// 判定に使っているのは全部<b>内積</b>で、割り算は最後の1〜2回だけ。
+    /// 出典は Christer Ericson, <i>Real-Time Collision Detection</i> 5.1.5
+    /// (<c>ClosestPtPointTriangle</c>)。
+    /// Day 45 の <see cref="Segment3D.ClosestPoint(Vector3, out float)"/> が
+    /// 「直線で解いて範囲に切り詰める」だったのの、次元が1つ上がった版になる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b><paramref name="onFace"/> が今日の要</b>。
+    /// 最近接点が面の内側(7番目の領域)だったかどうかを返す。
+    /// これが false ということは「三角形の縁か角が最近接」——
+    /// つまり<b>隣の三角形の受け持ちかもしれない</b>ということで、
+    /// 内部エッジ問題(要点3)の分かれ道がここになる。
+    /// </para>
+    /// </summary>
+    public Vector3 ClosestPoint(Vector3 point, out bool onFace)
+    {
+        onFace = false;
+
+        Vector3 ab = B - A;
+        Vector3 ac = C - A;
+        Vector3 ap = point - A;
+
+        // --- 1. A の頂点領域 ---
+        float d1 = Vector3.Dot(ab, ap);
+        float d2 = Vector3.Dot(ac, ap);
+        if (d1 <= 0.0f && d2 <= 0.0f)
+        {
+            return A;
+        }
+
+        // --- 2. B の頂点領域 ---
+        Vector3 bp = point - B;
+        float d3 = Vector3.Dot(ab, bp);
+        float d4 = Vector3.Dot(ac, bp);
+        if (d3 >= 0.0f && d4 <= d3)
+        {
+            return B;
+        }
+
+        // --- 3. AB の辺領域 ---
+        float vc = (d1 * d4) - (d3 * d2);
+        if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+        {
+            return A + (ab * (d1 / (d1 - d3)));
+        }
+
+        // --- 4. C の頂点領域 ---
+        Vector3 cp = point - C;
+        float d5 = Vector3.Dot(ab, cp);
+        float d6 = Vector3.Dot(ac, cp);
+        if (d6 >= 0.0f && d5 <= d6)
+        {
+            return C;
+        }
+
+        // --- 5. AC の辺領域 ---
+        float vb = (d5 * d2) - (d1 * d6);
+        if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+        {
+            return A + (ac * (d2 / (d2 - d6)));
+        }
+
+        // --- 6. BC の辺領域 ---
+        float va = (d3 * d6) - (d5 * d4);
+        if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+        {
+            return B + ((C - B) * ((d4 - d3) / ((d4 - d3) + (d5 - d6))));
+        }
+
+        // --- 7. 面の内側 ---
+        //
+        // ここまで落ちてきたら、点を面へ垂直に落とした先が三角形の中にある。
+        // **重心座標で書く**と、上で計算した va・vb・vc がそのまま面積比になっている。
+        onFace = true;
+
+        float denominator = 1.0f / (va + vb + vc);
+        return A + (ab * (vb * denominator)) + (ac * (vc * denominator));
+    }
+
+    /// <summary>面の上でいちばん近い点(面の内側かどうかが要らないとき)。</summary>
+    public Vector3 ClosestPoint(Vector3 point) => ClosestPoint(point, out _);
+
+    /// <summary>
+    /// 線分にいちばん近い、三角形の上の点。**Day 45 の箱とまったく同じ三分探索**。
+    ///
+    /// 三角形は凸なので、「線分上の点から三角形までの距離」は
+    /// パラメータ t について凸な関数になる(Day 45a の要点3)。
+    /// 凸なら谷は1つしかないので、区間を3等分して
+    /// 内側の2点のうち値の大きいほうを捨てる、を繰り返せば確実に詰まる。
+    ///
+    /// <para>
+    /// <b>箱のときと違って物体座標へ移す必要が無い</b>。
+    /// 箱は「物体座標なら軸に沿った箱になる」ことに寄りかかっていたが、
+    /// 三角形は最初から <see cref="ClosestPoint(Vector3, out bool)"/> が
+    /// どの向きでも解けるので、そのまま世界座標で回せる。
+    /// </para>
+    ///
+    /// <para>
+    /// 32 回で区間が (2/3)^32 ≒ 5×10⁻⁶ になる。
+    /// 1マス 1m の地形なら 5µm の精度で、絵にも判定にも十分。
+    /// </para>
+    /// </summary>
+    public Vector3 ClosestPoint(in Segment3D segment, out Vector3 onSegment)
+    {
+        float low = 0.0f;
+        float high = 1.0f;
+
+        for (int i = 0; i < 32; i++)
+        {
+            float third = (high - low) / 3.0f;
+            float a = low + third;
+            float b = high - third;
+
+            if (DistanceSquared(segment.PointAt(a)) < DistanceSquared(segment.PointAt(b)))
+            {
+                high = b;
+            }
+            else
+            {
+                low = a;
+            }
+        }
+
+        float t = (low + high) * 0.5f;
+
+        onSegment = segment.PointAt(t);
+        return ClosestPoint(onSegment);
+    }
+
+    /// <summary>
+    /// 真上から見たとき、この点が三角形の中に入っているか(Day 46a の要点3)。
+    ///
+    /// <b>高さの格子だからこそ意味がある問い</b>。地形は「1つの (x, z) に高さが1つ」なので、
+    /// x と z だけ見れば「その点の真上(または真下)にこの面があるか」が決まる。
+    /// 一般の三角形メッシュでは、真上に何枚も面が重なりうるので使えない。
+    ///
+    /// <para>
+    /// 使い道は<b>地面に深く潜った物体を拾うこと</b>。
+    /// 潜ってしまうと最近接点は三角形の縁や角になり、
+    /// <see cref="ClosestPoint(Vector3, out bool)"/> の「面の内側か」だけでは
+    /// <b>どの三角形も受け持たない</b>状態が起きる。
+    /// 真上から見た内外で決めれば、隣り合う面のどれかが必ず受け持つ。
+    /// </para>
+    ///
+    /// <para>
+    /// 中身は 2D の点と三角形の内外判定。3辺それぞれについて
+    /// 「点が辺の左右どちら側か」を外積の符号で見て、<b>符号が揃っていれば中</b>。
+    /// 縁のちょうど上では符号が 0 になるので、
+    /// <b>両側の三角形が受け持つ</b>ように 0 も中に含めてある——
+    /// 重複した接触点は、マニフォールドを組むときにまとめられる。
+    /// </para>
+    /// </summary>
+    public bool ContainsColumn(Vector3 point)
+    {
+        float d1 = Edge2D(point, A, B);
+        float d2 = Edge2D(point, B, C);
+        float d3 = Edge2D(point, C, A);
+
+        bool anyNegative = d1 < 0.0f || d2 < 0.0f || d3 < 0.0f;
+        bool anyPositive = d1 > 0.0f || d2 > 0.0f || d3 > 0.0f;
+
+        return !(anyNegative && anyPositive);
+    }
+
+    /// <summary>xz 平面で「点が辺のどちら側か」。**符号だけを使う**。</summary>
+    private static float Edge2D(Vector3 point, Vector3 from, Vector3 to) =>
+        ((point.X - to.X) * (from.Z - to.Z)) - ((from.X - to.X) * (point.Z - to.Z));
+
+    /// <summary>点から三角形までの距離の2乗。**三分探索の評価関数**。</summary>
+    private float DistanceSquared(Vector3 point) =>
+        (point - ClosestPoint(point)).LengthSquared();
 }
 
 /// <summary>
@@ -641,4 +974,16 @@ internal readonly struct Capsule3D
 
     /// <summary>上側の端の球(**頭**)。</summary>
     public Sphere3D UpperSphere => new(Segment.End, Radius);
+
+    /// <summary>
+    /// 外接する AABB(Day 46)。**端の球2つを包むだけ**。
+    ///
+    /// カプセルは「線分から半径ぶんの距離」なので、
+    /// 線分の両端に半径を足した箱がそのまま外接箱になる。
+    /// <b>間の胴を考えなくてよい</b>のは、線分が両端の間にしか無いから——
+    /// カプセルが箱や球より「外接箱に無駄が出にくい」形なのはこの素直さによる。
+    /// </summary>
+    public Aabb3D Bounds => Aabb3D.Union(
+        Aabb3D.FromCenter(Segment.Start, Radius),
+        Aabb3D.FromCenter(Segment.End, Radius));
 }

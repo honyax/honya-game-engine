@@ -294,6 +294,24 @@ internal sealed class PhysicsWorld
         }
     }
 
+    /// <summary>地形の形を持った体の数(Day 46)。**普通は 0 か 1**。</summary>
+    public int TerrainCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (RigidBody body in _bodies)
+            {
+                if (body.Shape.Kind == ColliderKind.HeightField)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
     /// <summary>全部の体の運動エネルギーの合計 [J]。</summary>
     public float TotalKineticEnergy
     {
@@ -349,6 +367,15 @@ internal sealed class PhysicsWorld
     public int AddPlane(Plane3D plane) =>
         AddBody(RigidBody.CreatePlane(
             plane.Normal * plane.Distance, plane.Normal));
+
+    /// <summary>
+    /// 地形を1枚足す(Day 46)。**中身は「地形の形を持った静的な体」**。
+    ///
+    /// <paramref name="corner"/> は格子の (0, 0) 隅の世界座標。
+    /// <see cref="AddPlane"/> と同じで、呼ぶ側の書き味のためだけにある薄い包み。
+    /// </summary>
+    public int AddTerrain(HeightField field, Vector3 corner) =>
+        AddBody(RigidBody.CreateTerrain(field, corner));
 
     /// <summary>
     /// カプセルと当たっている体を集める。**キャラクターのための問い合わせ**(Day 45b の要点1)。

@@ -801,6 +801,17 @@ internal static class Program
         /// <b>同じ物体が転がる間に 1 → 2 と変わる</b>形で見える。
         /// </summary>
         CapsuleDrop,
+
+        /// <summary>
+        /// 地形の上へ大量に落とす(Day 46)。**今日の到達点のもう半分**。
+        ///
+        /// 起伏の上へ球・箱・カプセルを 60 個降らせる。見どころは2つ——
+        /// <b>谷に転がり集まること</b>(地形の判定)と、
+        /// <b>候補の組が総当たりの数分の1になること</b>(ブロードフェーズ)。
+        /// Shift+G で総当たりに戻すと、
+        /// <b>絵は1ピクセルも変わらないのに1ステップの時間だけが増える</b>。
+        /// </summary>
+        Terrain,
     }
 
     /// <summary>キャラクターデモの筋書き(Day 45)。**確かめたいことが1つずつ**ある。</summary>
@@ -814,6 +825,16 @@ internal static class Program
 
         /// <summary>箱と球とカプセルが転がっている中を歩く。**キネマティックと動的の同居**。</summary>
         Obstacles,
+
+        /// <summary>
+        /// 起伏のある地形の上を歩く(Day 46)。**今日の到達点**。
+        ///
+        /// Day 45 の坂は静的な箱を傾けたものだった。今日は本物の地形で、
+        /// <b>坂の上限が三角形1枚ごとに効く</b>。
+        /// 緩い丘(約 29 度)は登れて、急な丘(約 58 度)は登れない——
+        /// 途中まで登って止まるのが、坂の上限が効いている証拠になる。
+        /// </summary>
+        Terrain,
     }
 
     /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
@@ -954,6 +975,45 @@ internal static class Program
     /// </para>
     /// </summary>
     private static Vector3 _characterSpawn = new(0.0f, PhysicsFloorY + 0.2f, 2.6f);
+
+    // ================================================================
+    //  Day 46: Heightmap コライダ(地形)とブロードフェーズ(均一グリッド)
+    // ================================================================
+
+    /// <summary>地形1辺のマスの数。**格子点はこれ + 1**。</summary>
+    private const int TerrainCells = 48;
+
+    /// <summary>地形の1マスの一辺 [m]。**判定と描画で同じ値を使う**。</summary>
+    private const float TerrainCellSize = 0.5f;
+
+    /// <summary>地形の広がり [m]。24m 四方。</summary>
+    private const float TerrainSpan = TerrainCells * TerrainCellSize;
+
+    /// <summary>
+    /// 今の地形(Day 46)。**筋書きを切り替えるたびに作り直す**。
+    ///
+    /// <c>null</c> なら地形の無い筋書き(Day 45 までのもの)。
+    /// 描画も判定も「地形があるか」だけで分岐する。
+    /// </summary>
+    private static HeightField? _terrain;
+
+    /// <summary>
+    /// 地形の描画用メッシュ。**高さの格子から起こす**(<see cref="Primitives.CreateHeightField"/>)。
+    ///
+    /// <b>判定とまったく同じ割り方で作る</b>のが肝。
+    /// ここがずれると「見えている坂と登れる坂が違う」という、
+    /// いちばん切り分けにくいバグになる。
+    /// </summary>
+    private static Mesh<Vertex>? _terrainMesh;
+
+    /// <summary>地形の (0, 0) 隅の世界座標。**体の位置と同じ値**。</summary>
+    private static Vector3 _terrainOrigin;
+
+    /// <summary>地形を描くマテリアル。</summary>
+    private static Material _terrainMaterial = null!;
+
+    /// <summary>地形の上に降らせた体の数。**乱数の種と色の巡回に使う**。</summary>
+    private static int _terrainSpawnCount;
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
@@ -1723,6 +1783,20 @@ internal static class Program
             EmissiveFactor = new Vector3(0.05f, 0.20f, 0.28f),
         };
 
+        // **地形**(Day 46)。格子のテクスチャ(<c>uv-test.png</c>)を貼るのは、
+        // <b>マスの大きさが目で読めるようにする</b>ため——
+        // 「地形のマス」と「ブロードフェーズのマス」は別ものなので、
+        // どちらの話をしているのかが絵で区別できないと混乱する。
+        // 判定に使う三角形は、この格子の1マスをさらに2枚に割ったもの。
+        _terrainMaterial = new Material(_shader)
+        {
+            Name = "terrain",
+            MainTexture = _texture,
+            BaseColorFactor = SrgbToLinear(new Vector4(0.42f, 0.52f, 0.36f, 1.0f)),
+            MetallicFactor = 0.0f,
+            RoughnessFactor = 0.85f,
+        };
+
         // --- 2D ---
         _spriteShader = _resources.LoadShader(
             Path.Combine(shaderDirectory, "sprite.vert"),
@@ -1958,6 +2032,12 @@ internal static class Program
         Console.WriteLine("Ctrl+Shift+X:**段差の乗り越え ON/OFF(切ると 15cm の段で止まる)**");
         Console.WriteLine("Ctrl+Alt+X:カプセルを1つ降らせる  Shift+Alt+X:キャラクターの内訳");
         Console.WriteLine("Ctrl+Shift+Alt+X:今日の自己チェック");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 46: 地形とブロードフェーズ(G の段)---");
+        Console.WriteLine("Ctrl+G:地形デモ ON/OFF。**起伏の上を歩ける。今日の到達点**");
+        Console.WriteLine("  緩い丘(29度)は登れて、急な丘(58度)は登れない。Alt+X で上限を切ると登れる");
+        Console.WriteLine("Ctrl+Shift+Alt+G:今日の自己チェック");
+        Console.WriteLine("  ※素の G(3D背景の ON/OFF)は今までどおり。修飾キー付きだけが今日のもの");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
         Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
@@ -3094,7 +3174,10 @@ internal static class Program
             {
                 // **平面は影を落とさない**(Day 44)。無限に広いので、
                 // 描こうとすると影の箱の中が真っ暗になる。
-                if (physicsBody.Shape.Kind == ColliderKind.Plane)
+                //
+                // **地形は下で別に落とす**(Day 46)。専用のメッシュなので、
+                // <see cref="BodyMesh"/> では描けない。
+                if (physicsBody.Shape.Kind is ColliderKind.Plane or ColliderKind.HeightField)
                 {
                     continue;
                 }
@@ -3118,7 +3201,17 @@ internal static class Program
                 ShadowCapsule(Character.ToCapsule());
             }
 
-            _shadow.Draw(_quad, FloorMatrix());
+            // **地形は影を受けるし落とす**(Day 46)。丘の陰が谷に落ちると、
+            // 起伏の形が一段読みやすくなる——
+            // 平らな床と違って、地形は<b>自分自身に影を落とす</b>のがおもしろいところ。
+            if (_terrainMesh is not null)
+            {
+                _shadow.Draw(_terrainMesh, Matrix4x4.CreateTranslation(_terrainOrigin));
+            }
+            else
+            {
+                _shadow.Draw(_quad, FloorMatrix());
+            }
         }
         else if (_demo is not null)
         {
@@ -4193,11 +4286,18 @@ internal static class Program
         //
         // **柱を組む筋書きだけは引いて上げる**(Day 44)。
         // 箱を6段積むと 5m を超えるので、Day 43 の画角では上が切れる。
+        //
+        // **地形の筋書きは 24m 四方**なので、いちばん引いて上から見る(Day 46)。
         _orbit.Reset();
         _orbit.Target = new Vector3(0.0f, scene == PhysicsScene.BoxStack ? 2.4f : 1.0f, 0.0f);
-        _orbit.Distance = scene == PhysicsScene.BoxStack ? 15.0f : 12.0f;
+        _orbit.Distance = scene switch
+        {
+            PhysicsScene.BoxStack => 15.0f,
+            PhysicsScene.Terrain => 26.0f,
+            _ => 12.0f,
+        };
         _orbit.Yaw = 0.35f;
-        _orbit.Pitch = 0.22f;
+        _orbit.Pitch = scene == PhysicsScene.Terrain ? 0.55f : 0.22f;
         _orbit.Apply();
     }
 
@@ -4217,8 +4317,17 @@ internal static class Program
 
         Physics.Clear();
         BodyColors.Clear();
+        DisposeTerrain();
         Physics.VelocityIterations = IterationSteps[_iterationIndex];
         Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+        // **地形の筋書きでは、平らな床も縁石も張らない**(Day 46)。
+        // 地形そのものが床なので、上に平面を重ねると
+        // 谷が埋まって「起伏の上を歩く」絵にならない。
+        if (scene == PhysicsScene.Terrain)
+        {
+            BuildTerrainScene();
+            return;
+        }
 
         // **床は無限に広い平面**。描いている板(20x20)の外にも続いているので、
         // 遠くへ飛んでいった物も落ちない。
@@ -4674,11 +4783,13 @@ internal static class Program
 
         // **カメラは肩越しくらいの高さ**。真上から見ると段差の高さが読めず、
         // 真横から見ると坂の向きが読めない。
+        //
+        // **地形だけ少し引く**(Day 46)。24m 四方の起伏を見渡すには 11m では近い。
         _orbit.Reset();
         _orbit.Target = Character.Position + new Vector3(0.0f, 1.0f, 0.0f);
-        _orbit.Distance = 11.0f;
+        _orbit.Distance = scene == CharacterScene.Terrain ? 15.0f : 11.0f;
         _orbit.Yaw = 0.0f;
-        _orbit.Pitch = 0.30f;
+        _orbit.Pitch = scene == CharacterScene.Terrain ? 0.42f : 0.30f;
         _orbit.Apply();
     }
 
@@ -4705,8 +4816,16 @@ internal static class Program
 
         Physics.Clear();
         BodyColors.Clear();
+        DisposeTerrain();
         Physics.VelocityIterations = IterationSteps[_iterationIndex];
         Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+        // **地形の筋書きは床も縁石も張らない**(Day 46)。地形が床そのもの。
+        if (scene == CharacterScene.Terrain)
+        {
+            BuildTerrainCourse();
+            Character.Teleport(_characterSpawn);
+            return;
+        }
 
         AddPhysicsPlane(new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY);
         AddPhysicsPlane(new Vector3(-PhysicsWallDistance, 0.0f, 0.0f), Vector3.UnitX);
@@ -5109,6 +5228,7 @@ internal static class Program
     {
         CharacterScene.Steps => "階段",
         CharacterScene.Obstacles => "障害物",
+        CharacterScene.Terrain => "地形",
         _ => "坂",
     };
 
@@ -5155,6 +5275,224 @@ internal static class Program
             + $"(体は全部で {Physics.Bodies.Count} 個。**Day 46 のブロードフェーズで減る数字**)");
         Console.WriteLine($"  1ステップ: {_characterMilliseconds:F3}ms");
         Console.WriteLine();
+    }
+
+    // ================================================================
+    //  Day 46: Heightmap コライダ(地形)とブロードフェーズ(均一グリッド)
+    // ================================================================
+
+    /// <summary>
+    /// 地形の高さを1点ぶん決める(Day 46)。**手続きで作るので素材が要らない**。
+    ///
+    /// 引数は<b>地形の隅からの相対位置 [m]</b>。世界座標ではない。
+    /// 実際のゲームでは PNG のグレースケールを読むか、
+    /// ノイズ関数(Perlin / Simplex)で作ることが多いが、
+    /// ここは<b>再現できること</b>を最優先にして正弦波の和にしてある——
+    /// 自己チェックが同じ地形を作り直せないと、坂の角度を数字で確かめられない。
+    ///
+    /// <para>
+    /// 中身は4つの足し算。
+    /// </para>
+    /// <list type="number">
+    /// <item><b>細かい起伏</b> … 正弦波2本。歩いていて退屈しないための飾り</item>
+    /// <item><b>急な丘</b> … 円錐。傾き atan(1.6) ≒ <b>58 度</b>で、
+    /// 既定の坂の上限(50 度)を超える——<b>登れない</b></item>
+    /// <item><b>緩い丘</b> … 円錐。傾き atan(0.55) ≒ <b>29 度</b>で、<b>登れる</b></item>
+    /// <item><b>出発点をならす</b> … 立ち位置が坂だと、
+    /// 「動いていないのに滑っていないか」が確かめにくい</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>円錐にした</b>のは、傾きが半径方向にどこでも一定になるから。
+    /// ガウス型の丘だと場所ごとに傾きが変わるので、
+    /// 「何度の坂が登れるか」を目で確かめる道具にならない。
+    /// </para>
+    /// </summary>
+    private static float TerrainHeightAt(float x, float z)
+    {
+        // 1. 細かい起伏。
+        float height =
+            (0.42f * MathF.Sin(x * 0.42f) * MathF.Cos(z * 0.38f))
+            + (0.20f * MathF.Sin((x * 0.90f) + 1.3f) * MathF.Sin(z * 0.80f));
+
+        // 2. 急な丘(58 度)。**登れないほうの目印**。
+        float steep = new Vector2(x - 17.5f, z - 7.0f).Length();
+        height += MathF.Max(2.6f - (1.60f * steep), 0.0f);
+
+        // 3. 緩い丘(29 度)。**登れるほうの目印**。
+        float gentle = new Vector2(x - 6.5f, z - 17.0f).Length();
+        height += MathF.Max(1.5f - (0.55f * gentle), 0.0f);
+
+        // 4. 出発点(12, 21)のまわり半径 1.5m を平らにならす。
+        //    2.0m かけて元の高さへ戻す(いきなり戻すと、そこが崖になる)。
+        float toSpawn = new Vector2(x - 12.0f, z - 21.0f).Length();
+        return height * Math.Clamp((toSpawn - 1.5f) / 2.0f, 0.0f, 1.0f);
+    }
+
+    /// <summary>
+    /// 地形を作って世界に置く(Day 46)。**描画メッシュも同時に起こす**。
+    ///
+    /// <b>高さの配列は1本しか作らない</b>。
+    /// 判定(<see cref="HeightField"/>)と描画(<see cref="Mesh{T}"/>)が
+    /// 同じ配列から生まれるので、**そもそも食い違いようがない**——
+    /// 「絵と当たり判定を一致させる」いちばん確実なやり方は、
+    /// 元のデータを1つにしてしまうこと。
+    /// </summary>
+    private static void AddTerrain()
+    {
+        DisposeTerrain();
+
+        int points = TerrainCells + 1;
+        var heights = new float[points * points];
+
+        for (int z = 0; z < points; z++)
+        {
+            for (int x = 0; x < points; x++)
+            {
+                heights[(z * points) + x] =
+                    TerrainHeightAt(x * TerrainCellSize, z * TerrainCellSize);
+            }
+        }
+
+        _terrain = new HeightField(heights, points, points, TerrainCellSize);
+
+        // 地形の中心が原点に来るように置く。**隅の座標**を渡すので半分ずらす。
+        _terrainOrigin = new Vector3(-TerrainSpan * 0.5f, PhysicsFloorY, -TerrainSpan * 0.5f);
+
+        _terrainMesh = Primitives.CreateHeightField(
+            _gl, heights, points, points, TerrainCellSize, uvScale: 4.0f);
+
+        Physics.AddTerrain(_terrain, _terrainOrigin);
+        BodyColors.Add(Vector4.One);   // 地形は専用のマテリアルで描くので色は使わない
+
+        // **地形の縁に見えない壁を立てる**。地形は端で切れているので、
+        // 囲っておかないと転がった物が縁から落ちて二度と戻ってこない。
+        // Day 43 から使っている縁石(±5m)より外なので、そちらとは別に張る。
+        float wall = TerrainSpan * 0.5f;
+        AddPhysicsPlane(new Vector3(-wall, 0.0f, 0.0f), Vector3.UnitX);
+        AddPhysicsPlane(new Vector3(wall, 0.0f, 0.0f), -Vector3.UnitX);
+        AddPhysicsPlane(new Vector3(0.0f, 0.0f, -wall), Vector3.UnitZ);
+        AddPhysicsPlane(new Vector3(0.0f, 0.0f, wall), -Vector3.UnitZ);
+
+        // **受け皿の床**。地形をすり抜けた物を拾う(要点3の「潜った球」の保険)。
+        // 地形の下 6m に張っておけば、絵にも判定にも出てこない。
+        AddPhysicsPlane(new Vector3(0.0f, PhysicsFloorY - 6.0f, 0.0f), Vector3.UnitY);
+    }
+
+    /// <summary>地形を捨てる。**メッシュは GL の資源なので明示的に解放する**。</summary>
+    private static void DisposeTerrain()
+    {
+        _terrainMesh?.Dispose();
+        _terrainMesh = null;
+        _terrain = null;
+    }
+
+    /// <summary>
+    /// 地形の上に大量に落とす筋書き(Day 46)。**60 個が谷へ集まる**。
+    ///
+    /// 60 個も置くと、総当たりでは 2,000 組近くを毎ステップ試すことになる。
+    /// 今日はまだ総当たりのまま——**この筋書きが Day 46b のブロードフェーズの客**になる。
+    /// </summary>
+    private static void BuildTerrainScene()
+    {
+        AddTerrain();
+        _terrainSpawnCount = 0;
+
+        SpawnTerrainBodies(60);
+    }
+
+    /// <summary>
+    /// 地形の上へ体を降らせる(Day 46)。**同じ形を3種類まぜる**。
+    ///
+    /// 混ぜるのは絵のためだけではない——
+    /// 球・箱・カプセルで<b>外接箱の太り方が違う</b>ので、
+    /// ブロードフェーズ(Day 46b)の候補の出方も変わる。
+    /// 回っている箱は外接箱がいちばん太る(最大 √3 ≒ 1.73 倍)。
+    /// </summary>
+    private static void SpawnTerrainBodies(int count)
+    {
+        var random = new Random(20460 + _terrainSpawnCount);
+
+        for (int i = 0; i < count; i++)
+        {
+            int kind = _terrainSpawnCount % 3;
+
+            RigidBody body = kind switch
+            {
+                0 => RigidBody.CreateSphere(1.0f, 0.22f + ((float)random.NextDouble() * 0.10f)),
+                1 => RigidBody.CreateBox(1.0f, 0.20f + ((float)random.NextDouble() * 0.10f)),
+                _ => RigidBody.CreateCapsule(1.0f, 0.16f, 0.18f),
+            };
+
+            // **地形の上のほうから落とす**。丘の頂上(2.6m)より上に置かないと、
+            // 出た瞬間に丘へめり込んだ状態から始まって弾け飛ぶ。
+            body.Position = new Vector3(
+                ((float)random.NextDouble() - 0.5f) * (TerrainSpan - 3.0f),
+                PhysicsFloorY + 4.5f + ((float)random.NextDouble() * 4.0f),
+                ((float)random.NextDouble() - 0.5f) * (TerrainSpan - 3.0f));
+
+            body.Orientation = Quaternion.CreateFromYawPitchRoll(
+                (float)random.NextDouble() * 6.28f,
+                (float)random.NextDouble() * 6.28f,
+                (float)random.NextDouble() * 6.28f);
+
+            body.Restitution = 0.15f;
+            body.AngularDamping = 0.4f;
+
+            Physics.AddBody(body);
+
+            BodyColors.Add(SrgbToLinear(kind switch
+            {
+                0 => new Vector4(0.30f, 0.62f, 0.95f, 1.0f),
+                1 => new Vector4(0.95f, 0.60f, 0.22f, 1.0f),
+                _ => new Vector4(0.40f, 0.88f, 0.50f, 1.0f),
+            }));
+
+            _terrainSpawnCount++;
+        }
+    }
+
+    /// <summary>
+    /// 地形の上を歩く筋書き(Day 46)。**今日の到達点**。
+    ///
+    /// Day 45 の坂(静的な箱を傾けたもの)と違い、
+    /// <b>坂の角度が場所ごとに連続に変わる</b>。
+    /// 緩い丘を登り、急な丘の途中で止まり、谷を降りる——
+    /// HUD の「傾き」がそのまま今立っている三角形の角度になっている。
+    ///
+    /// <para>
+    /// <b>転がる物も少しだけ置く</b>。動く体と地形が同じ世界にいることを見せるため。
+    /// </para>
+    /// </summary>
+    private static void BuildTerrainCourse()
+    {
+        AddTerrain();
+        _terrainSpawnCount = 0;
+
+        SpawnTerrainBodies(24);
+
+        // 出発点は、地形をならしてある (12, 21) の真上(世界座標では (0, ?, 9))。
+        _characterSpawn = new Vector3(
+            _terrainOrigin.X + 12.0f,
+            PhysicsFloorY + 0.3f,
+            _terrainOrigin.Z + 21.0f);
+    }
+
+    /// <summary>
+    /// 地形を描く(Day 46)。**当たり判定に使っている高さの配列そのものから起こしたメッシュ**。
+    ///
+    /// 位置は体の位置(= 格子の隅)そのままで、回転も拡大も無い。
+    /// <b>地形は回らない</b>と決めてあるので、行列は平行移動1つで足りる。
+    /// </summary>
+    private static void RenderTerrain()
+    {
+        if (_terrainMesh is null)
+        {
+            return;
+        }
+
+        Draw(_terrainMesh, _terrainMaterial, Matrix4x4.CreateTranslation(_terrainOrigin));
+        _drawCalls++;
     }
 
     /// <summary>
@@ -5323,11 +5661,20 @@ internal static class Program
     {
         _drawCalls = Physics.Bodies.Count + 5 + (_showContacts ? Physics.Contacts.Count : 0);
 
-        Draw(_quad, _floorMaterial, FloorMatrix());
-
-        foreach (Matrix4x4 wall in WallMatrices())
+        // **地形があるときは平らな床も縁石も描かない**(Day 46)。
+        // 地形が床そのものなので、上に板を重ねると谷が隠れる。
+        if (_terrain is not null)
         {
-            Draw(_cube, _floorMaterial, wall);
+            RenderTerrain();
+        }
+        else
+        {
+            Draw(_quad, _floorMaterial, FloorMatrix());
+
+            foreach (Matrix4x4 wall in WallMatrices())
+            {
+                Draw(_cube, _floorMaterial, wall);
+            }
         }
 
         for (int i = 0; i < Physics.Bodies.Count; i++)
@@ -5336,7 +5683,11 @@ internal static class Program
 
             // **平面は描かない**(Day 44)。無限に広いので描きようが無く、
             // 床の板と縁石が位置の目印になっている。
-            if (body.Shape.Kind == ColliderKind.Plane)
+            //
+            // **地形も描かない**(Day 46)。専用のメッシュで
+            // <see cref="RenderTerrain"/> がすでに描いている——
+            // 1つのメッシュと行列では表せない形が、カプセルに続いて2つ目になった。
+            if (body.Shape.Kind is ColliderKind.Plane or ColliderKind.HeightField)
             {
                 continue;
             }
@@ -5507,6 +5858,7 @@ internal static class Program
             PhysicsScene.BoxMix => "球と箱",
             PhysicsScene.BoxTumble => "箱が転がる",
             PhysicsScene.CapsuleDrop => "カプセルを落とす",
+            PhysicsScene.Terrain => "地形に落とす",
             _ => "落下",
         };
 
@@ -5529,6 +5881,9 @@ internal static class Program
         ColliderKind.Plane => "平面",
         ColliderKind.Capsule =>
             $"カプセル r={body.Shape.Radius:F2}m h={body.Shape.TotalHeight:F2}m",
+        ColliderKind.HeightField =>
+            $"地形 {body.Shape.Field!.CellsX}x{body.Shape.Field!.CellsZ}マス "
+            + $"({body.Shape.Field!.TriangleCount:N0}三角形)",
         _ => $"球 r={body.Shape.Radius:F2}m",
     };
 
@@ -12905,6 +13260,54 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(地形とブロードフェーズ)---
+            //
+            // **G の段**(Day 46)。Day 45 で「文字キーの段もこれで最後」と書いたが、
+            // 正確には「**まるごと空いている**文字キーが最後」だった。
+            // A〜Z のうち X 以外は全部 `case Key.G:` のような<b>ガードの無い case</b>を
+            // 持っていて、それは同時に「修飾キー付きの席はまだ空いている」ことでもある。
+            //
+            // <b>だからこの塊は素の `case Key.G:` より上に置く</b>。
+            // 下に置くと、ガードの無い case が Ctrl+G も Shift+G も全部飲み込んで、
+            // 今日のスイッチは1つも動かない。
+            // Day 39 から毎日書いている「ガード付き case は具体的なものほど上」が、
+            // <b>今日はじめて「既に使われている文字キー」に対して効く</b>。
+            //
+            // <b>素の G は今までどおり</b>(3D 背景の ON/OFF)。
+            // 修飾キーを1つでも押していれば、そちらは今日のものになる——
+            // つまり <c>Ctrl+G</c> で 3D 背景を切っていた人には挙動が変わる。
+            // 割り当ての表そのものをデータにする(Day 40 の <c>FeatureToggles</c> のような形)
+            // 片付け方は Day 48 で。<c>OnKeyDown</c> を丸ごと表に置き換えて <c>Program.cs</c> から追い出す。
+            //
+            // G を選んだのは <b>G</b>round(地形)と <b>G</b>rid(格子)の頭文字だから。
+            case Key.G when ctrl && !shift && !alt:
+                // **今日の到達点**。起伏の上をキャラクターが歩き回る。
+                if (_characterDemo && _characterScene == CharacterScene.Terrain)
+                {
+                    _characterDemo = false;
+                    _physicsDemo = false;
+                    Physics.Clear();
+                    BodyColors.Clear();
+                    DisposeTerrain();
+                    _orbit.Reset();
+                    Console.WriteLine("地形デモ: OFF");
+                }
+                else
+                {
+                    ShowCharacterDemo(CharacterScene.Terrain);
+                    Console.WriteLine(
+                        "地形デモ: **起伏の上を歩ける**(矢印キー / X で走る / Space でジャンプ)");
+                    Console.WriteLine(
+                        "  手前の緩い丘(**29 度**)は登れて、奥の急な丘(**58 度**)は登れない。"
+                        + "Alt+X で坂の上限を切ると登れる");
+                }
+
+                break;
+
+            case Key.G when ctrl && shift && alt:
+                RunTerrainCheck();
+                break;
+
             // --- 今日のスイッチ(カプセル衝突とキャラクターコントローラ)---
             //
             // **X の段**。Day 44 で「Ctrl+Shift+Alt + 数字/ファンクション」を使い切り、
@@ -12933,6 +13336,11 @@ internal static class Program
                     _physicsDemo = false;
                     Physics.Clear();
                     BodyColors.Clear();
+
+                    // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
+                    // 放っておくと切り替えるたびに VRAM が積み上がる。
+                    DisposeTerrain();
+
                     _orbit.Reset();
                     Console.WriteLine("キャラクターデモ: OFF");
                 }
@@ -13048,6 +13456,11 @@ internal static class Program
                     _characterDemo = false;   // 世界を消すならキャラクターも下ろす(Day 45)
                     Physics.Clear();
                     BodyColors.Clear();
+
+                    // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
+                    // 放っておくと切り替えるたびに VRAM が積み上がる。
+                    DisposeTerrain();
+
                     _orbit.Reset();
                     Console.WriteLine("箱デモ: OFF");
                 }
@@ -13073,6 +13486,7 @@ internal static class Program
                         PhysicsScene.BoxStack => PhysicsScene.BoxMix,
                         PhysicsScene.BoxMix => PhysicsScene.BoxTumble,
                         PhysicsScene.BoxTumble => PhysicsScene.CapsuleDrop,
+                        PhysicsScene.CapsuleDrop => PhysicsScene.Terrain,
                         _ => PhysicsScene.BoxDrop,
                     };
 
@@ -13087,6 +13501,8 @@ internal static class Program
                             "筋書き: **箱が転がる**(細長い箱を回しながら。辺×辺の軸が出る)",
                         PhysicsScene.CapsuleDrop =>
                             "筋書き: **カプセルを落とす**(Day 45。倒れると接触点が1点から2点になる)",
+                        PhysicsScene.Terrain =>
+                            "筋書き: **地形に落とす**(Day 46。60 個が谷に集まる)",
                         _ =>
                             "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
                     });
@@ -13179,6 +13595,11 @@ internal static class Program
 
                     Physics.Clear();
                     BodyColors.Clear();
+
+                    // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
+                    // 放っておくと切り替えるたびに VRAM が積み上がる。
+                    DisposeTerrain();
+
                     _orbit.Reset();
                     Console.WriteLine("物理デモ: OFF");
                 }
@@ -18034,6 +18455,657 @@ internal static class Program
 
         checks.Report("すべて合格(カプセルは寝て支えられ、キャラクターは坂と段差を歩く)");
         Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Day 46 の自己チェック(Ctrl+Shift+Alt+G)。**窓を1枚も出さずに走る**。
+    ///
+    /// 今日の中身は <c>Physics/</c> に入っていて、GL も窓も一切知らない。
+    /// おかげでこのチェックは <see cref="OnLoad"/> を通らずに走る——
+    /// Day 26 の衝突判定、Day 43〜45 の物理と同じ性格。
+    ///
+    /// <para>
+    /// <b>今日いちばん大事なのは「三角形の最近接点」と「坂の上限」</b>。
+    /// 前者は7つの領域の場合分けを総当たりと突き合わせ、
+    /// 後者は地形の上を実際に歩かせて「登れた高さ」を測る。
+    /// 絵では「登れていない」のか「引っかかっている」のかが区別できないので、数字で確かめる。
+    /// </para>
+    /// </summary>
+    private static void RunTerrainCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 46: 地形の自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. AABB(要点1)
+        // ============================================================
+
+        var unit = new Aabb3D(new Vector3(-1.0f), new Vector3(1.0f));
+
+        checks.Check(
+            "重なる箱は重なると答える",
+            Aabb3D.Overlap(unit, Aabb3D.FromCenter(new Vector3(1.5f, 0.0f, 0.0f), 1.0f)));
+
+        checks.Check(
+            "**1軸でも離れていれば重ならない**",
+            !Aabb3D.Overlap(unit, Aabb3D.FromCenter(new Vector3(0.0f, 2.5f, 0.0f), 1.0f)));
+
+        checks.Check(
+            "接している箱は重なる扱い(境界を含む)",
+            Aabb3D.Overlap(unit, Aabb3D.FromCenter(new Vector3(2.0f, 0.0f, 0.0f), 1.0f)));
+
+        // 球・箱・カプセルの外接箱が、本当に形を包んでいるか。
+        // **総当たりで確かめる**——形の上の点を大量に取って、全部が箱の中にあるか。
+        var random = new Random(4600);
+        bool contained = true;
+
+        for (int trial = 0; trial < 200; trial++)
+        {
+            var sphere = new Sphere3D(RandomPoint(random) * 3.0f, 0.2f + ((float)random.NextDouble() * 0.8f));
+            Aabb3D bounds = sphere.Bounds;
+
+            for (int k = 0; k < 40; k++)
+            {
+                Vector3 direction = Vector3.Normalize(RandomPoint(random) + new Vector3(1e-4f));
+                contained &= bounds.Contains(sphere.Center + (direction * sphere.Radius));
+            }
+        }
+
+        checks.Check("球の外接箱が球を包む(200 個 × 表面 40 点)", contained);
+
+        contained = true;
+        for (int trial = 0; trial < 200; trial++)
+        {
+            var box = new Box3D(
+                RandomPoint(random) * 3.0f,
+                new Vector3(0.2f, 0.5f, 0.9f),
+                Quaternion.CreateFromYawPitchRoll(
+                    (float)random.NextDouble() * 6.3f,
+                    (float)random.NextDouble() * 6.3f,
+                    (float)random.NextDouble() * 6.3f));
+
+            Aabb3D bounds = box.Bounds.Expanded(1e-4f);
+            for (int index = 0; index < 8; index++)
+            {
+                contained &= bounds.Contains(box.Corner(index));
+            }
+        }
+
+        checks.Check("**回した箱**の外接箱が8つの角を包む(200 通り)", contained);
+
+        var axisAligned = new Box3D(Vector3.Zero, new Vector3(0.5f), Quaternion.Identity);
+        var turned = new Box3D(
+            Vector3.Zero, new Vector3(0.5f),
+            Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 4.0f));
+
+        checks.Check(
+            "**45 度回した立方体の外接箱は √2 倍に太る**(候補が増える理由)",
+            MathF.Abs(turned.Bounds.Size.X - (axisAligned.Bounds.Size.X * MathF.Sqrt(2.0f))) < 1e-4f,
+            $"{axisAligned.Bounds.Size.X:F3}m → {turned.Bounds.Size.X:F3}m");
+
+        var lying = new Capsule3D(new Vector3(-1.0f, 2.0f, 0.0f), new Vector3(1.0f, 2.0f, 0.0f), 0.3f);
+        checks.Check(
+            "寝かせたカプセルの外接箱は 2.6 x 0.6 x 0.6",
+            (lying.Bounds.Size - new Vector3(2.6f, 0.6f, 0.6f)).Length() < 1e-5f,
+            $"({lying.Bounds.Size.X:F2}, {lying.Bounds.Size.Y:F2}, {lying.Bounds.Size.Z:F2})");
+
+        // ============================================================
+        //  2. 三角形(要点2)
+        // ============================================================
+
+        var flat = new Triangle3D(
+            new Vector3(0.0f, 0.0f, 0.0f),
+            new Vector3(0.0f, 0.0f, 1.0f),
+            new Vector3(1.0f, 0.0f, 1.0f));
+
+        checks.Check(
+            "地形の巻き順で作った三角形の法線は**真上**",
+            (flat.Normal - Vector3.UnitY).Length() < 1e-6f,
+            $"({flat.Normal.X:F3}, {flat.Normal.Y:F3}, {flat.Normal.Z:F3})");
+
+        var degenerateTriangle = new Triangle3D(Vector3.Zero, Vector3.UnitX, Vector3.UnitX * 2.0f);
+        checks.Check(
+            "潰れた三角形でも NaN を返さない(3点が一直線)",
+            float.IsFinite(degenerateTriangle.Normal.X) && degenerateTriangle.Normal.LengthSquared() > 0.5f);
+
+        Vector3 inside = flat.ClosestPoint(new Vector3(0.3f, 2.0f, 0.6f), out bool onFace);
+        checks.Check(
+            "面の真上の点は**真下が最近接**で、面の内側と答える",
+            onFace && (inside - new Vector3(0.3f, 0.0f, 0.6f)).Length() < 1e-5f);
+
+        flat.ClosestPoint(new Vector3(-2.0f, 0.0f, 0.5f), out bool onFaceEdge);
+        checks.Check(
+            "**辺の外側の点は面の内側ではない**(内部エッジの分かれ道)",
+            !onFaceEdge);
+
+        Vector3 corner = flat.ClosestPoint(new Vector3(-1.0f, 0.0f, -1.0f), out _);
+        checks.Check(
+            "頂点の外側の点は**その頂点**が最近接",
+            corner.Length() < 1e-5f);
+
+        // 総当たりと突き合わせる。**重心座標を細かく刻んで全部試す**。
+        float worstTriangleError = 0.0f;
+
+        for (int trial = 0; trial < 400; trial++)
+        {
+            var triangle = new Triangle3D(RandomPoint(random), RandomPoint(random), RandomPoint(random));
+            Vector3 point = RandomPoint(random) * 2.0f;
+
+            float solved = (point - triangle.ClosestPoint(point)).Length();
+
+            float brute = float.MaxValue;
+            const int steps = 60;
+            for (int i = 0; i <= steps; i++)
+            {
+                for (int j = 0; i + j <= steps; j++)
+                {
+                    float u = i / (float)steps;
+                    float v = j / (float)steps;
+                    Vector3 on = triangle.A
+                        + ((triangle.B - triangle.A) * u)
+                        + ((triangle.C - triangle.A) * v);
+
+                    brute = MathF.Min(brute, (point - on).Length());
+                }
+            }
+
+            worstTriangleError = MathF.Max(worstTriangleError, solved - brute);
+        }
+
+        checks.Check(
+            "点と三角形の最近接点が**総当たりを上回らない**(400 通り × 1,891 点)",
+            worstTriangleError < 1e-3f,
+            $"最悪 {worstTriangleError * 1000.0f:F4}mm");
+
+        // 線分との最近接点(三分探索)も総当たりと突き合わせる。
+        float worstSegmentError = 0.0f;
+
+        for (int trial = 0; trial < 300; trial++)
+        {
+            var triangle = new Triangle3D(RandomPoint(random), RandomPoint(random), RandomPoint(random));
+            var segment = new Segment3D(RandomPoint(random) * 2.0f, RandomPoint(random) * 2.0f);
+
+            Vector3 onTriangle = triangle.ClosestPoint(segment, out Vector3 onSegment);
+            float solved = (onTriangle - onSegment).Length();
+
+            float brute = float.MaxValue;
+            for (int i = 0; i <= 300; i++)
+            {
+                Vector3 sample = segment.PointAt(i / 300.0f);
+                brute = MathF.Min(brute, (sample - triangle.ClosestPoint(sample)).Length());
+            }
+
+            worstSegmentError = MathF.Max(worstSegmentError, solved - brute);
+        }
+
+        checks.Check(
+            "線分と三角形の最近接点が**総当たりを上回らない**(三分探索。300 通り)",
+            worstSegmentError < 1e-3f,
+            $"最悪 {worstSegmentError * 1000.0f:F4}mm");
+
+        // ============================================================
+        //  3. 高さの格子(要点1)
+        // ============================================================
+
+        var ramp = BuildTestField(17, 17, 1.0f, (x, z) => x * 0.5f);   // x 方向に 26.57 度の一様な坂
+        var rampTerrain = new Terrain3D(ramp, new Vector3(-8.0f, 0.0f, -8.0f));
+
+        checks.Check(
+            "格子点 17x17 なら**マスは 16x16**、三角形は 512 枚",
+            ramp.CellsX == 16 && ramp.CellsZ == 16 && ramp.TriangleCount == 512,
+            $"{ramp.CellsX}x{ramp.CellsZ} / {ramp.TriangleCount} 枚");
+
+        checks.Check(
+            "広がりはマスの数 × マスの大きさ(16m)",
+            MathF.Abs(ramp.SizeX - 16.0f) < 1e-5f && MathF.Abs(ramp.SizeZ - 16.0f) < 1e-5f);
+
+        checks.Check(
+            "外接箱の上は最大の格子点、**下は厚みぶん余分**(-2m 〜 8m)",
+            MathF.Abs(rampTerrain.Bounds.Min.Y + Terrain3D.RecoveryDepth) < 1e-5f
+                && MathF.Abs(rampTerrain.Bounds.Max.Y - 8.0f) < 1e-5f,
+            $"[{rampTerrain.Bounds.Min.Y:F2}, {rampTerrain.Bounds.Max.Y:F2}]");
+
+        checks.Check(
+            "格子点の世界座標は原点ぶんずれる",
+            (rampTerrain.Vertex(0, 0) - new Vector3(-8.0f, 0.0f, -8.0f)).Length() < 1e-5f
+                && (rampTerrain.Vertex(16, 16) - new Vector3(8.0f, 8.0f, 8.0f)).Length() < 1e-5f);
+
+        checks.Check(
+            "地形の外は当たらない(範囲の外を正直に答える)",
+            !rampTerrain.TryHeightAt(-20.0f, 0.0f, out _)
+                && !rampTerrain.TryNormalAt(0.0f, 40.0f, out _));
+
+        checks.Check(
+            "一様な坂の高さが解析解と一致(x = 3.7m)",
+            rampTerrain.TryHeightAt(-8.0f + 3.7f, 0.0f, out float rampHeight)
+                && MathF.Abs(rampHeight - (3.7f * 0.5f)) < 1e-4f,
+            $"{rampHeight:F4}m");
+
+        checks.Check(
+            "一様な坂の法線は 26.57 度(atan 0.5)",
+            rampTerrain.TryNormalAt(0.0f, 0.0f, out Vector3 rampNormal)
+                && MathF.Abs((MathF.Acos(rampNormal.Y) * 180.0f / MathF.PI) - 26.565f) < 0.01f,
+            $"{MathF.Acos(rampNormal.Y) * 180.0f / MathF.PI:F3}度");
+
+        // **高さの問い合わせと三角形が一致するか**(要点1)。
+        // 双一次補間で書くとここがずれる。マスの中を細かく刻んで、
+        // 「その点が乗っている三角形の平面」との差を測る。
+        var bumpy = BuildTestField(9, 9, 1.0f, (x, z) =>
+            MathF.Sin(x * 0.9f) + (0.7f * MathF.Cos(z * 1.1f)) + (0.3f * x * z * 0.1f));
+        var bumpyTerrain = new Terrain3D(bumpy, Vector3.Zero);
+
+        float worstPlaneError = 0.0f;
+
+        for (int i = 1; i < 160; i++)
+        {
+            for (int j = 1; j < 160; j++)
+            {
+                float x = i * (8.0f / 160.0f);
+                float z = j * (8.0f / 160.0f);
+
+                if (!bumpyTerrain.TryHeightAt(x, z, out float sampled))
+                {
+                    continue;
+                }
+
+                // その点が乗っている三角形を取り、平面の式で高さを出す。
+                int cellX = (int)MathF.Floor(x);
+                int cellZ = (int)MathF.Floor(z);
+                Triangle3D triangle = bumpyTerrain.Triangle(
+                    cellX, cellZ, (z - cellZ) >= (x - cellX) ? 0 : 1);
+
+                // 平面 n·(p - A) = 0 を y について解く。
+                float planeY = triangle.A.Y
+                    - (((triangle.Normal.X * (x - triangle.A.X))
+                        + (triangle.Normal.Z * (z - triangle.A.Z))) / triangle.Normal.Y);
+
+                worstPlaneError = MathF.Max(worstPlaneError, MathF.Abs(sampled - planeY));
+            }
+        }
+
+        checks.Check(
+            "**高さの問い合わせが三角形の平面とぴったり一致**(双一次補間ではない。25,000 点)",
+            worstPlaneError < 1e-4f,
+            $"最悪 {worstPlaneError * 1000.0f:F4}mm");
+
+        checks.Check(
+            "マスの範囲は割り算で出る(中央 2x2m の箱 → 2x2 マス)",
+            bumpyTerrain.CellRange(
+                new Aabb3D(new Vector3(3.1f, -9.0f, 3.1f), new Vector3(4.9f, 9.0f, 4.9f)),
+                out int cx0, out int cz0, out int cx1, out int cz1)
+                && cx0 == 3 && cz0 == 3 && cx1 == 4 && cz1 == 4,
+            $"x [{cx0}, {cx1}]  z [{cz0}, {cz1}]");
+
+        checks.Check(
+            "地形から完全に外れた箱は false(全部のマスを試さずに済む)",
+            !bumpyTerrain.CellRange(
+                new Aabb3D(new Vector3(20.0f, 0.0f, 20.0f), new Vector3(21.0f, 1.0f, 21.0f)),
+                out _, out _, out _, out _));
+
+        // ============================================================
+        //  4. 地形の判定(要点2〜4)
+        // ============================================================
+
+        var level = BuildTestField(9, 9, 1.0f, (x, z) => 0.0f);
+        var levelTerrain = new Terrain3D(level, Vector3.Zero);
+
+        ContactManifold resting = Collision3D.SphereTerrain(
+            new Sphere3D(new Vector3(4.0f, 0.4f, 4.0f), 0.5f), levelTerrain);
+
+        checks.Check(
+            "平らな地形に乗った球: 法線は真上、めり込み 0.1m",
+            resting.Hit
+                && (resting.Normal - Vector3.UnitY).Length() < 1e-5f
+                && MathF.Abs(resting.MaxDepth - 0.1f) < 1e-4f,
+            $"深さ {resting.MaxDepth:F4}m");
+
+        checks.Check(
+            "地形の上に浮いた球は当たらない",
+            !Collision3D.SphereTerrain(
+                new Sphere3D(new Vector3(4.0f, 0.8f, 4.0f), 0.5f), levelTerrain).Hit);
+
+        ContactManifold sunk = Collision3D.SphereTerrain(
+            new Sphere3D(new Vector3(4.3f, -1.2f, 4.4f), 0.5f), levelTerrain);
+
+        checks.Check(
+            "**地形に潜った球は上へ押し戻される**(すり抜けたぶんも含めて)",
+            sunk.Hit
+                && (sunk.Normal - Vector3.UnitY).Length() < 1e-5f
+                && sunk.MaxDepth > 1.6f,
+            $"深さ {sunk.MaxDepth:F3}m");
+
+        // **内部エッジ問題**(要点3)。平らな地形の上を球を滑らせて、
+        // 法線が1度でも横を向いたら不合格。
+        float worstTilt = 0.0f;
+        bool alwaysHit = true;
+
+        for (int i = 0; i <= 400; i++)
+        {
+            float t = 0.6f + (i * (6.8f / 400.0f));
+            ContactManifold rolling = Collision3D.SphereTerrain(
+                new Sphere3D(new Vector3(t, 0.45f, t * 0.83f), 0.5f), levelTerrain);
+
+            alwaysHit &= rolling.Hit;
+            if (rolling.Hit)
+            {
+                worstTilt = MathF.Max(
+                    worstTilt, MathF.Acos(Math.Clamp(rolling.Normal.Y, -1.0f, 1.0f)));
+            }
+        }
+
+        checks.Check(
+            "**格子点の真下に潜っても押し戻される**(どの三角形も受け持たない穴を塞ぐ)",
+            Collision3D.SphereTerrain(
+                new Sphere3D(new Vector3(4.0f, -1.2f, 4.0f), 0.5f), levelTerrain).Hit);
+
+        checks.Check(
+            "**2m 下まで潜っても組になる**(外接箱を下へ厚くしてある。要点3)",
+            Aabb3D.Overlap(
+                new Terrain3D(level, Vector3.Zero).Bounds,
+                Aabb3D.FromCenter(new Vector3(4.0f, -1.5f, 4.0f), 0.3f)));
+
+        checks.Check(
+            "**内部エッジで蹴られない**(平らな地形を 401 点なめて、法線は常に真上)",
+            alwaysHit && worstTilt < 1e-4f,
+            $"最悪の傾き {worstTilt * 180.0f / MathF.PI:F5}度");
+
+        ContactManifold capsuleOnGround = Collision3D.CapsuleTerrain(
+            Capsule3D.FromCenter(new Vector3(4.0f, 0.85f, 4.0f), Quaternion.Identity, 0.35f, 0.55f),
+            levelTerrain);
+
+        checks.Check(
+            "立てたカプセルが地形に接地する(足元 -0.05m)",
+            capsuleOnGround.Hit
+                && (capsuleOnGround.Normal - Vector3.UnitY).Length() < 1e-5f
+                && MathF.Abs(capsuleOnGround.MaxDepth - 0.05f) < 1e-4f,
+            $"深さ {capsuleOnGround.MaxDepth:F4}m");
+
+        ContactManifold lyingCapsule = Collision3D.CapsuleTerrain(
+            new Capsule3D(new Vector3(2.5f, 0.25f, 4.0f), new Vector3(5.5f, 0.25f, 4.0f), 0.3f),
+            levelTerrain);
+
+        checks.Check(
+            "**寝かせたカプセルは複数の三角形で支えられる**(点が2つ以上)",
+            lyingCapsule.Count >= 2,
+            $"{lyingCapsule.Count} 点");
+
+        ContactManifold boxOnGround = Collision3D.BoxTerrain(
+            new Box3D(new Vector3(4.0f, 0.2f, 4.0f), new Vector3(0.3f), Quaternion.Identity),
+            levelTerrain);
+
+        checks.Check(
+            "**平らに置いた箱は4点で支えられる**(下の4隅が同時に沈む)",
+            boxOnGround.Count == 4
+                && (boxOnGround.Normal - Vector3.UnitY).Length() < 1e-5f,
+            $"{boxOnGround.Count} 点  深さ {boxOnGround.MaxDepth:F3}m");
+
+        checks.Check(
+            "地形の外にいる球は当たらない(判定を1枚も走らせない)",
+            !Collision3D.SphereTerrain(
+                new Sphere3D(new Vector3(30.0f, 0.0f, 30.0f), 0.5f), levelTerrain).Hit);
+
+        // 坂の上の球は、坂の法線で押し戻される。
+        ContactManifold onRamp = Collision3D.SphereTerrain(
+            new Sphere3D(new Vector3(0.0f, 4.0f + 0.4f, 0.0f), 0.5f), rampTerrain);
+
+        checks.Check(
+            "坂の上の球は**坂の法線**で押し戻される(26.57 度)",
+            onRamp.Hit
+                && MathF.Abs((MathF.Acos(onRamp.Normal.Y) * 180.0f / MathF.PI) - 26.565f) < 0.01f,
+            $"{MathF.Acos(onRamp.Normal.Y) * 180.0f / MathF.PI:F3}度");
+
+        // 今日のデモの地形が、狙った角度になっているか。
+        var demoField = BuildTestField(
+            TerrainCells + 1, TerrainCells + 1, TerrainCellSize,
+            (x, z) => TerrainHeightAt(x, z));
+        var demoTerrain = new Terrain3D(demoField, Vector3.Zero);
+
+        demoTerrain.TryNormalAt(17.5f - 1.2f, 7.0f, out Vector3 steepNormal);
+        demoTerrain.TryNormalAt(6.5f - 1.2f, 17.0f, out Vector3 gentleNormal);
+
+        float steepDegrees = MathF.Acos(Math.Clamp(steepNormal.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI;
+        float gentleDegrees = MathF.Acos(Math.Clamp(gentleNormal.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI;
+
+        checks.Check(
+            "デモの急な丘は**坂の上限(50 度)より急**",
+            steepDegrees > 50.0f,
+            $"{steepDegrees:F1}度");
+
+        checks.Check(
+            "デモの緩い丘は**坂の上限より緩い**",
+            gentleDegrees < 50.0f && gentleDegrees > 15.0f,
+            $"{gentleDegrees:F1}度");
+
+        checks.Check(
+            "デモの出発点は平ら(立っただけで滑らない)",
+            demoTerrain.TryNormalAt(12.0f, 21.0f, out Vector3 spawnNormal)
+                && spawnNormal.Y > 0.9999f,
+            $"{MathF.Acos(Math.Clamp(spawnNormal.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI:F3}度");
+
+        // ============================================================
+        //  5. 通しで動かす(要点5)
+        // ============================================================
+
+        var settled = BuildTerrainDropWorld();
+        for (int step = 0; step < 400; step++)
+        {
+            settled.Step(1.0f / 60.0f);
+        }
+
+        var terrainForCheck = new Terrain3D(demoField, new Vector3(-TerrainSpan * 0.5f, PhysicsFloorY, -TerrainSpan * 0.5f));
+        int belowGround = 0;
+        float fastest = 0.0f;
+
+        foreach (RigidBody body in settled.Bodies)
+        {
+            if (body.IsStatic)
+            {
+                continue;
+            }
+
+            fastest = MathF.Max(fastest, body.LinearVelocity.Length());
+
+            if (terrainForCheck.TryHeightAt(body.Position.X, body.Position.Z, out float ground)
+                && body.Position.Y < ground - 0.5f)
+            {
+                belowGround++;
+            }
+        }
+
+        checks.Check(
+            "**400 ステップ落としても、地形をすり抜けた体が1つも無い**",
+            belowGround == 0,
+            $"{belowGround} 個");
+
+        // **止まりきることは求めない**。摩擦もスリープも Day 47 なので、
+        // 坂の上の物は滑り続け、壁で跳ね返って戻ってくる。
+        // ここで見たいのは「落ち着くか」ではなく<b>「爆発しないか」</b>——
+        // 深いめり込みから過大なインパルスが出ると、
+        // 体が数十 m/s で吹き飛ぶ形ですぐ分かる。
+        checks.Check(
+            "400 ステップ落としても**吹き飛ばない**(最速でも 6m/s 未満。摩擦は Day 47)",
+            fastest < 6.0f,
+            $"最速 {fastest:F3}m/s");
+
+        checks.Check(
+            "落ち着いてもめり込みは slop の数倍以内(地形の上でも沈まない)",
+            settled.MaxPenetration < 0.03f,
+            $"{settled.MaxPenetration * 1000.0f:F1}mm");
+
+        // --- キャラクターを地形の上で歩かせる ---
+        //
+        // **地形だけの世界**で試す。転がっている体が邪魔をすると、
+        // 「登れないのが坂の上限のせいか、箱に当たったせいか」が分からなくなる。
+        PhysicsWorld walkWorld = BuildTerrainOnlyWorld();
+        var walker = new CharacterController();
+
+        // 出発点は地形をならしてあるところ。
+        Vector3 spawn = new(
+            -TerrainSpan * 0.5f + 12.0f, PhysicsFloorY + 0.3f, -TerrainSpan * 0.5f + 21.0f);
+        walker.Teleport(spawn);
+
+        for (int step = 0; step < 60; step++)
+        {
+            walkWorld.Step(1.0f / 60.0f);
+            walker.Move(walkWorld, Vector3.Zero, run: false, jump: false, 1.0f / 60.0f);
+        }
+
+        checks.Check(
+            "**地形の上に立つと接地する**(平らな出発点)",
+            walker.IsGrounded && walker.GroundSlopeDegrees < 1.0f,
+            $"傾き {walker.GroundSlopeDegrees:F2}度  高さ {walker.Position.Y:F3}m");
+
+        // 緩い丘(-x, +z 方向)へ歩く。
+        Vector3 gentleFoot = new(
+            -TerrainSpan * 0.5f + 6.5f + 4.0f, PhysicsFloorY + 0.3f, -TerrainSpan * 0.5f + 17.0f);
+        float gentleTop = WalkTowardHill(walkWorld, gentleFoot, -Vector3.UnitX);
+
+        Vector3 steepFoot = new(
+            -TerrainSpan * 0.5f + 17.5f + 4.0f, PhysicsFloorY + 0.3f, -TerrainSpan * 0.5f + 7.0f);
+        float steepTop = WalkTowardHill(walkWorld, steepFoot, -Vector3.UnitX);
+
+        checks.Check(
+            "**緩い丘(29 度)は登れる**(1m 以上高いところまで行ける)",
+            gentleTop > 1.0f,
+            $"{gentleTop:F2}m 登った");
+
+        checks.Check(
+            "**急な丘(58 度)は登れない**(坂の上限で弾かれる)",
+            steepTop < 0.6f,
+            $"{steepTop:F2}m しか登れない");
+
+        Console.WriteLine(
+            checks.Failures == 0
+                ? "  → 全項目 OK"
+                : $"  → **{checks.Failures} 件が不合格**");
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// 地形と壁だけの世界(自己チェック用)。**動く体を1つも置かない**。
+    ///
+    /// キャラクターの歩行を測るときは、転がっている体が邪魔になる。
+    /// <b>1つの実験で変えるのは1つだけ</b>にしておかないと、
+    /// 結果がどちらの原因なのか分からなくなる。
+    /// </summary>
+    private static PhysicsWorld BuildTerrainOnlyWorld()
+    {
+        var world = new PhysicsWorld();
+
+        HeightField field = BuildTestField(
+            TerrainCells + 1, TerrainCells + 1, TerrainCellSize, TerrainHeightAt);
+
+        world.AddTerrain(field, new Vector3(-TerrainSpan * 0.5f, PhysicsFloorY, -TerrainSpan * 0.5f));
+
+        float wall = TerrainSpan * 0.5f;
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(-wall, 0.0f, 0.0f), Vector3.UnitX));
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(wall, 0.0f, 0.0f), -Vector3.UnitX));
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, -wall), Vector3.UnitZ));
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, wall), -Vector3.UnitZ));
+
+        return world;
+    }
+
+    /// <summary>自己チェック用の地形を、高さの式から作る。</summary>
+    private static HeightField BuildTestField(
+        int columns, int rows, float cellSize, Func<float, float, float> height)
+    {
+        var heights = new float[columns * rows];
+
+        for (int z = 0; z < rows; z++)
+        {
+            for (int x = 0; x < columns; x++)
+            {
+                heights[(z * columns) + x] = height(x * cellSize, z * cellSize);
+            }
+        }
+
+        return new HeightField(heights, columns, rows, cellSize);
+    }
+
+    /// <summary>
+    /// 自己チェック用の世界を組む。**地形の上へ 200 体を落とす**。同じ種で必ず同じ配置になる。
+    ///
+    /// 乱数の種を固定し、体を足す順番も固定してある。
+    /// 今日はまだ総当たりなので、200 体で 2 万組近くを毎ステップ試している。
+    /// </summary>
+    private static PhysicsWorld BuildTerrainDropWorld()
+    {
+        var world = new PhysicsWorld();
+
+        var field = BuildTestField(
+            TerrainCells + 1, TerrainCells + 1, TerrainCellSize, TerrainHeightAt);
+
+        world.AddTerrain(field, new Vector3(-TerrainSpan * 0.5f, PhysicsFloorY, -TerrainSpan * 0.5f));
+
+        float wall = TerrainSpan * 0.5f;
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(-wall, 0.0f, 0.0f), Vector3.UnitX));
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(wall, 0.0f, 0.0f), -Vector3.UnitX));
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, -wall), Vector3.UnitZ));
+        world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, wall), -Vector3.UnitZ));
+        world.AddPlane(Plane3D.FromPointNormal(
+            new Vector3(0.0f, PhysicsFloorY - 6.0f, 0.0f), Vector3.UnitY));
+
+        var random = new Random(46046);
+
+        for (int i = 0; i < 200; i++)
+        {
+            RigidBody body = (i % 3) switch
+            {
+                0 => RigidBody.CreateSphere(1.0f, 0.22f),
+                1 => RigidBody.CreateBox(1.0f, 0.20f),
+                _ => RigidBody.CreateCapsule(1.0f, 0.16f, 0.18f),
+            };
+
+            body.Position = new Vector3(
+                ((float)random.NextDouble() - 0.5f) * (TerrainSpan - 3.0f),
+                PhysicsFloorY + 4.0f + ((float)random.NextDouble() * 6.0f),
+                ((float)random.NextDouble() - 0.5f) * (TerrainSpan - 3.0f));
+
+            body.Orientation = Quaternion.CreateFromYawPitchRoll(
+                (float)random.NextDouble() * 6.28f,
+                (float)random.NextDouble() * 6.28f,
+                (float)random.NextDouble() * 6.28f);
+
+            body.Restitution = 0.15f;
+            body.AngularDamping = 0.4f;
+
+            world.AddBody(body);
+        }
+
+        return world;
+    }
+
+    /// <summary>
+    /// 丘へ向かって 4 秒歩かせて、**どれだけ登れたか**を返す。
+    ///
+    /// 坂の上限が効いていれば急な丘では登れず、
+    /// 効いていなければ壁でもよじ登る(Day 45b の要点2)。
+    /// <b>数字で確かめないと、絵では「登れていない」のか
+    /// 「引っかかっている」のかが区別できない</b>。
+    /// </summary>
+    private static float WalkTowardHill(PhysicsWorld world, Vector3 start, Vector3 direction)
+    {
+        var walker = new CharacterController();
+        walker.Teleport(start);
+
+        // まず落ち着かせる(空中から落とすと最初の数フレームで滑る)。
+        for (int step = 0; step < 30; step++)
+        {
+            walker.Move(world, Vector3.Zero, run: false, jump: false, 1.0f / 60.0f);
+        }
+
+        float baseline = walker.Position.Y;
+        float highest = baseline;
+
+        for (int step = 0; step < 240; step++)
+        {
+            walker.Move(world, direction, run: false, jump: false, 1.0f / 60.0f);
+            highest = MathF.Max(highest, walker.Position.Y);
+        }
+
+        return highest - baseline;
     }
 
     /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>
