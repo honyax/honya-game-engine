@@ -342,6 +342,119 @@ internal static class Primitives
         return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
     }
 
+    /// <summary>
+    /// 高さの格子からメッシュを起こす(Day 46)。**当たり判定と同じ割り方で作る**。
+    ///
+    /// <b>受け取るのは数だけ</b>——高さの配列・格子点の数・マスの大きさ。
+    /// <c>HeightField</c> という型を引数に取らないのは、
+    /// <b><c>Render</c> が <c>Physics</c> を知らないままでいるため</b>。
+    /// Day 26 から <c>Physics/</c> は「どこにも依存しない層」だったが、
+    /// 今日は逆向き——<b>描画のほうが物理を知らずに済む</b>ように線を引いてある
+    /// (Day 46 の設計書「矢印を1本も足さないために」)。
+    ///
+    /// <para>
+    /// <b>三角形の割り方は <c>Terrain3D.Triangle</c> と1枚もずらしてはいけない</b>。
+    /// マスの対角線を (0,0)-(1,1) で割る、という約束が両方に書いてある。
+    /// ここがずれると<b>見えている坂と登れる坂が食い違う</b>——
+    /// 絵は正しく見えるのにキャラクターだけ違う場所を歩く、という
+    /// いちばん切り分けにくい種類のバグになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>法線は格子点ごとに平均する</b>(判定は面の法線を使うのに)。
+    /// 面の法線をそのまま使うと、マスの境目で陰影がはっきり折れて
+    /// <b>地形が「折り紙」に見える</b>。絵は滑らかに、判定は面ごとに——
+    /// この食い違いは意図的なもので、
+    /// 判定のほうを滑らかな法線にすると平らな面でも物が滑り出す
+    /// (<c>Terrain3D.TryNormalAt</c> のコメント)。
+    /// </para>
+    ///
+    /// <para>
+    /// 法線は<b>隣の格子点の高さの差</b>から出す(中央差分)。
+    /// 三角形を数えて平均するより短く、結果もほぼ同じになる——
+    /// 格子が等間隔なので、x 方向と z 方向の傾きが分かれば面の向きが決まる。
+    /// </para>
+    /// </summary>
+    /// <param name="heights">高さの配列。長さは <c>columns * rows</c> 以上。</param>
+    /// <param name="columns">x 方向の格子点の数。</param>
+    /// <param name="rows">z 方向の格子点の数。</param>
+    /// <param name="cellSize">1マスの一辺 [m]。</param>
+    /// <param name="uvScale">テクスチャを何マスで1周させるか。</param>
+    public static Mesh<Vertex> CreateHeightField(
+        GL gl,
+        ReadOnlySpan<float> heights,
+        int columns,
+        int rows,
+        float cellSize,
+        float uvScale = 4.0f)
+    {
+        var vertices = new List<Vertex>(columns * rows);
+        var indices = new List<uint>((columns - 1) * (rows - 1) * 6);
+
+        Vector4 white = Vector4.One;
+
+        for (int z = 0; z < rows; z++)
+        {
+            for (int x = 0; x < columns; x++)
+            {
+                float height = heights[(z * columns) + x];
+
+                // **中央差分**。端では片側だけを使う(前方/後方差分)。
+                // 端を特別扱いしないと、配列の外を読むか、
+                // 端の1列だけ法線が真上を向いて縁が光る。
+                float left = heights[(z * columns) + Math.Max(x - 1, 0)];
+                float right = heights[(z * columns) + Math.Min(x + 1, columns - 1)];
+                float back = heights[(Math.Max(z - 1, 0) * columns) + x];
+                float front = heights[(Math.Min(z + 1, rows - 1) * columns) + x];
+
+                float spanX = (Math.Min(x + 1, columns - 1) - Math.Max(x - 1, 0)) * cellSize;
+                float spanZ = (Math.Min(z + 1, rows - 1) - Math.Max(z - 1, 0)) * cellSize;
+
+                // 面 y = h(x, z) の法線は (-∂h/∂x, 1, -∂h/∂z) を正規化したもの。
+                // 傾きが 0(平らな地面)なら、そのまま (0, 1, 0) に戻る。
+                var normal = Vector3.Normalize(new Vector3(
+                    -(right - left) / MathF.Max(spanX, 1e-6f),
+                    1.0f,
+                    -(front - back) / MathF.Max(spanZ, 1e-6f)));
+
+                // 接線は「U の増える向き」= +x を、法線に直交するように倒したもの。
+                // 平らなら (1, 0, 0) に戻る。
+                Vector3 tangent = Vector3.Normalize(
+                    new Vector3(1.0f, 0.0f, 0.0f) - (normal * normal.X));
+
+                vertices.Add(new Vertex(
+                    new Vector3(x * cellSize, height, z * cellSize),
+                    new Vector2(x / uvScale, z / uvScale),
+                    white,
+                    normal,
+                    new Vector4(tangent, 1.0f)));
+            }
+        }
+
+        for (int z = 0; z < rows - 1; z++)
+        {
+            for (int x = 0; x < columns - 1; x++)
+            {
+                uint v00 = (uint)((z * columns) + x);
+                uint v10 = v00 + 1;
+                uint v01 = v00 + (uint)columns;
+                uint v11 = v01 + 1;
+
+                // **対角線 (0,0)-(1,1) で割る**。判定側(`Terrain3D.Triangle`)と同じ。
+                // 巻き順も同じで、上から見て反時計回り(法線が +Y)になる。
+                indices.Add(v00);
+                indices.Add(v01);
+                indices.Add(v11);
+
+                indices.Add(v00);
+                indices.Add(v11);
+                indices.Add(v10);
+            }
+        }
+
+        return new Mesh<Vertex>(gl, vertices.ToArray(), indices.ToArray(), Vertex.Attributes);
+    }
+
     /// <summary>四角形1面ぶんの頂点4つとインデックス6つを足す。</summary>
     private static void AddFace(
         List<Vertex> vertices,

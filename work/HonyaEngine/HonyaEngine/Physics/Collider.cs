@@ -31,6 +31,21 @@ internal enum ColliderKind
     /// **札は末尾に足す**のが定石になる。
     /// </summary>
     Capsule,
+
+    /// <summary>
+    /// 地形(ハイトマップ)。**今日の主役**(Day 46a の要点1)。
+    ///
+    /// これまでの4つと決定的に違うのは、<b>寸法が数個の数で書けない</b>こと。
+    /// 高さの格子は数万要素の配列で、<see cref="Collider"/> の中に値では入らない。
+    /// だから <see cref="Collider.Field"/> だけが**参照**になっている——
+    /// 「形は数個の数」という Day 44 からの前提が、今日はじめて崩れた。
+    ///
+    /// <para>
+    /// <b>必ず静的</b>。地形が動く(慣性テンソルを持つ)ことは考えない。
+    /// 動かしたいなら、地形ではなく箱の集まりで作ることになる。
+    /// </para>
+    /// </summary>
+    HeightField,
 }
 
 /// <summary>
@@ -112,12 +127,37 @@ internal readonly struct Collider
     /// </summary>
     public readonly Vector3 Normal;
 
-    private Collider(ColliderKind kind, float radius, Vector3 halfExtents, Vector3 normal)
+    /// <summary>
+    /// 地形の高さの格子。地形以外では <c>null</c>(Day 46)。
+    ///
+    /// <b>この構造体で唯一の参照型のフィールド</b>。
+    /// 球の半径も箱の半径ベクトルも数個の数で足りたが、
+    /// 地形の「形」は 129×129 = 16,641 個の高さの配列で、値では持てない。
+    ///
+    /// <para>
+    /// <b>Collider が 8 バイト太った</b>のが代償。判定の内側のループで
+    /// コピーされる構造体なので、無視できる話ではない——
+    /// が、共用体で重ねるにしても参照は別枠に置かざるを得ないので、
+    /// どのみち席は要る。ここは素直に足した。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>地形の実体は共有される</b>。同じ <see cref="HeightField"/> を
+    /// いくつもの体が指してよい(タイル状に並べた世界)。
+    /// 高さの配列は読むだけなので、共有しても壊れない。
+    /// </para>
+    /// </summary>
+    public readonly HeightField? Field;
+
+    private Collider(
+        ColliderKind kind, float radius, Vector3 halfExtents, Vector3 normal,
+        HeightField? field = null)
     {
         Kind = kind;
         Radius = radius;
         HalfExtents = halfExtents;
         Normal = normal;
+        Field = field;
     }
 
     /// <summary>球の形。</summary>
@@ -160,6 +200,17 @@ internal readonly struct Collider
         Capsule(radius, MathF.Max((totalHeight * 0.5f) - radius, 0.0f));
 
     /// <summary>
+    /// 地形の形(Day 46)。**高さの格子をそのまま抱える**。
+    ///
+    /// 世界のどこに置くかは体の位置(<see cref="RigidBody.Position"/>)が決める。
+    /// その位置が<b>格子の (0, 0) 隅</b>になる——
+    /// <see cref="RigidBody.ToTerrain"/> が2つを組み合わせて
+    /// <see cref="Terrain3D"/> を作る。
+    /// </summary>
+    public static Collider Terrain(HeightField field) =>
+        new(ColliderKind.HeightField, 0.0f, Vector3.Zero, Vector3.Zero, field);
+
+    /// <summary>
     /// おおよその大きさ [m]。**中心からいちばん遠い点までの距離**。
     ///
     /// 描画のスケールや、Day 46 のブロードフェーズで
@@ -171,6 +222,10 @@ internal readonly struct Collider
         ColliderKind.Sphere => Radius,
         ColliderKind.Box => HalfExtents.Length(),
         ColliderKind.Capsule => HalfHeight + Radius,
+
+        // 平面と地形は 0。平面は無限に広く、地形は「中心からの距離」では
+        // 大きさを表せない(細長い板のような形になりうる)。
+        // **外接箱が要るときは <see cref="RigidBody.Bounds"/> を使う**(Day 46)。
         _ => 0.0f,
     };
 
