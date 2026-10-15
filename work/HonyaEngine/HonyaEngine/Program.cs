@@ -1012,7 +1012,22 @@ internal static class Program
     /// <summary>地形を描くマテリアル。</summary>
     private static Material _terrainMaterial = null!;
 
-    /// <summary>地形の上に降らせた体の数。**乱数の種と色の巡回に使う**。</summary>
+    /// <summary>格子のマスを描くか(Alt+G)。**ブロードフェーズを目で見る**。</summary>
+    private static bool _showGridCells;
+
+    /// <summary>
+    /// 試せるマスの大きさ [m](Ctrl+Shift+G で巡回)。
+    ///
+    /// **3D では小さいほうへ外す罰が重い**——1個がまたぐマスの数は
+    /// 辺の比の3乗で増える。2倍細かくすると 8 倍。
+    /// 掃引すると、小さい側でも大きい側でも遅くなる谷の形が見える。
+    /// </summary>
+    private static readonly float[] GridCellSteps = [0.5f, 1.0f, 2.0f, 4.0f, 8.0f];
+
+    /// <summary>今のマスの大きさの添字。既定は 2.0m。</summary>
+    private static int _gridCellIndex = 2;
+
+    /// <summary>地形の上に降らせた体の数。**ブロードフェーズの効きを見るための数**。</summary>
     private static int _terrainSpawnCount;
 
     /// <summary>
@@ -2036,7 +2051,10 @@ internal static class Program
         Console.WriteLine("--- Day 46: 地形とブロードフェーズ(G の段)---");
         Console.WriteLine("Ctrl+G:地形デモ ON/OFF。**起伏の上を歩ける。今日の到達点**");
         Console.WriteLine("  緩い丘(29度)は登れて、急な丘(58度)は登れない。Alt+X で上限を切ると登れる");
-        Console.WriteLine("Ctrl+Shift+Alt+G:今日の自己チェック");
+        Console.WriteLine("Shift+G:ブロードフェーズ(**均一グリッド / 総当たり**。絵は変わらず時間だけ変わる)");
+        Console.WriteLine("Alt+G:格子のマスを線で描く  Ctrl+Shift+G:マスの大きさ 0.5/1/2/4/8m");
+        Console.WriteLine("Ctrl+Alt+G:体を 40 個降らせる(**組の数の減り方を見る**)");
+        Console.WriteLine("Shift+Alt+G:地形とブロードフェーズの内訳  Ctrl+Shift+Alt+G:今日の自己チェック");
         Console.WriteLine("  ※素の G(3D背景の ON/OFF)は今までどおり。修飾キー付きだけが今日のもの");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
@@ -3471,6 +3489,11 @@ internal static class Program
             {
                 lines.AppendLine(CharacterLabel());
             }
+
+            // **今日の1行**(Day 46)。ブロードフェーズは効いていても
+            // <b>絵が1ピクセルも変わらない</b>ので、
+            // 数字が出ていないと切り替えたことにすら気づけない。
+            lines.AppendLine(BroadphaseLine());
         }
 
         if (_model is not null)
@@ -4320,6 +4343,8 @@ internal static class Program
         DisposeTerrain();
         Physics.VelocityIterations = IterationSteps[_iterationIndex];
         Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+        ConfigureBroadphase();
+
         // **地形の筋書きでは、平らな床も縁石も張らない**(Day 46)。
         // 地形そのものが床なので、上に平面を重ねると
         // 谷が埋まって「起伏の上を歩く」絵にならない。
@@ -4819,6 +4844,8 @@ internal static class Program
         DisposeTerrain();
         Physics.VelocityIterations = IterationSteps[_iterationIndex];
         Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+        ConfigureBroadphase();
+
         // **地形の筋書きは床も縁石も張らない**(Day 46)。地形が床そのもの。
         if (scene == CharacterScene.Terrain)
         {
@@ -5388,10 +5415,26 @@ internal static class Program
     }
 
     /// <summary>
-    /// 地形の上に大量に落とす筋書き(Day 46)。**60 個が谷へ集まる**。
+    /// ブロードフェーズの格子の範囲を、今の筋書きに合わせる(Day 46)。
+    ///
+    /// **格子は世界より少し広く**取る。外へ出たものは端のマスに丸められるので
+    /// 取りこぼしは起きないが、端のマスが混んで遅くなる。
+    /// 地形が 24m 四方なので、32m 四方あれば飛び出した物も収まる。
+    /// </summary>
+    private static void ConfigureBroadphase()
+    {
+        Physics.GridOrigin = new Vector3(-16.0f, -4.0f, -16.0f);
+        Physics.GridSize = new Vector3(32.0f, 24.0f, 32.0f);
+        Physics.CellSize = GridCellSteps[_gridCellIndex];
+    }
+
+    /// <summary>
+    /// 地形の上に大量に落とす筋書き(Day 46)。**ブロードフェーズの客**。
     ///
     /// 60 個も置くと、総当たりでは 2,000 組近くを毎ステップ試すことになる。
-    /// 今日はまだ総当たりのまま——**この筋書きが Day 46b のブロードフェーズの客**になる。
+    /// `Ctrl+Alt+G` でさらに 40 個ずつ足せるので、
+    /// <b>組の数がどう増えるか</b>を数字で追える——
+    /// 総当たりは体数の2乗、格子はほぼ比例で増える。
     /// </summary>
     private static void BuildTerrainScene()
     {
@@ -5406,7 +5449,7 @@ internal static class Program
     ///
     /// 混ぜるのは絵のためだけではない——
     /// 球・箱・カプセルで<b>外接箱の太り方が違う</b>ので、
-    /// ブロードフェーズ(Day 46b)の候補の出方も変わる。
+    /// ブロードフェーズの候補の出方も変わる。
     /// 回っている箱は外接箱がいちばん太る(最大 √3 ≒ 1.73 倍)。
     /// </summary>
     private static void SpawnTerrainBodies(int count)
@@ -5461,7 +5504,9 @@ internal static class Program
     /// HUD の「傾き」がそのまま今立っている三角形の角度になっている。
     ///
     /// <para>
-    /// <b>転がる物も少しだけ置く</b>。動く体と地形が同じ世界にいることを見せるため。
+    /// <b>転がる物も少しだけ置く</b>。動く体と地形が同じ世界にいることを見せるためで、
+    /// キャラクターの足元の問い合わせがブロードフェーズを通ることも
+    /// これで確かめられる(HUD の「問合」が「16 回 / 数十体」で収まる)。
     /// </para>
     /// </summary>
     private static void BuildTerrainCourse()
@@ -5493,6 +5538,196 @@ internal static class Program
 
         Draw(_terrainMesh, _terrainMaterial, Matrix4x4.CreateTranslation(_terrainOrigin));
         _drawCalls++;
+    }
+
+    /// <summary>
+    /// ブロードフェーズのマスを線で描く(Alt+G)。**中身のあるマスだけ**(要点3)。
+    ///
+    /// 空のマスまで描くと画面が線で埋まって何も読めない。
+    /// 中身のあるマスだけ描けば、<b>体がどう散らばっているか</b>と
+    /// <b>マスの大きさが物に対して適切か</b>が一目で分かる——
+    /// マスが物より小さければ1個が何マスにもまたがった格子模様が出るし、
+    /// 大きすぎれば全部が1つの箱に収まってしまう。
+    ///
+    /// <para>
+    /// <b>線で描くために <c>PolygonMode</c> を一時的に切り替える</b>。
+    /// 塗りつぶしで描くと中の体が見えなくなる。
+    /// 半透明にする手もあるが、そのためにブレンドの設定と描画順の管理が要る——
+    /// デバッグ表示にそこまで払う価値は無い。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>上限を決めて打ち切る</b>。マスを 0.5m にすると中身のあるマスが
+    /// 数千になり、それだけでドローコールが跳ね上がる。
+    /// 診断用の絵が本体より重くなるのは本末転倒なので、512 で止める。
+    /// </para>
+    /// </summary>
+    private static void RenderGridCells()
+    {
+        if (!_showGridCells || Physics.Broadphase != BroadphaseMode.UniformGrid)
+        {
+            return;
+        }
+
+        SpatialGrid3D grid = Physics.Grid;
+
+        // **まだ組んでいない格子は覗けない**。描画は物理より先に走りうる——
+        // シーンを組んだ直後の1フレーム目や、一時停止中に切り替えたときがそれ。
+        if (!grid.IsBuilt)
+        {
+            return;
+        }
+
+        _gl.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
+
+        _contactMaterial.BaseColorFactor = new Vector4(0.05f, 0.05f, 0.05f, 1.0f);
+        _contactMaterial.EmissiveFactor = new Vector3(0.25f, 0.9f, 1.6f);
+
+        int drawn = 0;
+
+        for (int z = 0; z < grid.Layers && drawn < 512; z++)
+        {
+            for (int y = 0; y < grid.Rows && drawn < 512; y++)
+            {
+                for (int x = 0; x < grid.Columns && drawn < 512; x++)
+                {
+                    if (grid.CellContents(x, y, z).Length == 0)
+                    {
+                        continue;
+                    }
+
+                    Aabb3D cell = grid.CellBounds(x, y, z);
+
+                    Draw(
+                        _cube,
+                        _contactMaterial,
+                        Matrix4x4.CreateScale(cell.Size)
+                            * Matrix4x4.CreateTranslation(cell.Center));
+
+                    drawn++;
+                }
+            }
+        }
+
+        _drawCalls += drawn;
+
+        // 接触点の印は橙に戻しておく(<see cref="RenderContacts"/> が使う)。
+        _contactMaterial.EmissiveFactor = new Vector3(4.0f, 0.9f, 0.15f);
+
+        _gl.PolygonMode(
+            TriangleFace.FrontAndBack, _wireframe ? PolygonMode.Line : PolygonMode.Fill);
+    }
+
+    /// <summary>マスの大きさを1段変える(Ctrl+Shift+G)。**次のステップから効く**。</summary>
+    private static void CycleGridCellSize()
+    {
+        _gridCellIndex = (_gridCellIndex + 1) % GridCellSteps.Length;
+        Physics.CellSize = GridCellSteps[_gridCellIndex];
+
+        Console.WriteLine(
+            $"格子のマス: **{GridCellSteps[_gridCellIndex]:F1}m**"
+            + $"(体の平均的な差し渡しの2〜3倍が目安。小さすぎると"
+            + $"1個が {(int)MathF.Pow(2.0f, 3.0f)} 倍の勢いでマスにまたがる)");
+    }
+
+    /// <summary>
+    /// HUD の1行(Day 46)。**絵からは絶対に読めない数字**。
+    ///
+    /// ブロードフェーズは<b>効いていても絵が1ピクセルも変わらない</b>——
+    /// それが正しく効いている証拠でもあるので、
+    /// 数字が出ていないと「切り替えたつもり」で終わってしまう。
+    /// 候補の組と総当たりの組を並べて出すのがこの行の眼目になる。
+    /// </summary>
+    private static string BroadphaseLine()
+    {
+        SpatialGrid3D grid = Physics.Grid;
+
+        string mode = Physics.Broadphase == BroadphaseMode.UniformGrid
+            ? $"格子{Physics.CellSize:F1}m"
+            : "**総当たり**";
+
+        string ratio = Physics.BruteForcePairs > 0
+            ? $"({100.0 * Physics.PairTests / Physics.BruteForcePairs:F1}%)"
+            : string.Empty;
+
+        return $"広域[{mode}]  候補:{Physics.PairTests:N0}/{Physics.BruteForcePairs:N0}{ratio}  "
+            + (Physics.Broadphase == BroadphaseMode.UniformGrid
+                ? $"登録:{grid.EntryCount}  使用マス:{grid.OccupiedCells}/{grid.CellCount:N0}  "
+                    + $"最混雑:{grid.MaxPerCell}  はみ出し:{grid.OversizedCount}  "
+                : string.Empty)
+            + (_terrain is not null
+                ? $"地形:{_terrain.Columns}x{_terrain.Rows}点 {_terrain.TriangleCount:N0}三角形"
+                : "地形なし");
+    }
+
+    /// <summary>
+    /// 地形とブロードフェーズの内訳をコンソールへ(Shift+Alt+G)。
+    ///
+    /// **1画面で切り分けが済む**ように並べてある。
+    /// 「体が地面をすり抜ける」ときの原因は、たいてい
+    /// 地形の範囲外に出たか、格子のはみ出し組から漏れたかのどちらか。
+    /// </summary>
+    private static void DescribeBroadphase()
+    {
+        SpatialGrid3D grid = Physics.Grid;
+
+        Console.WriteLine();
+        Console.WriteLine("--- 地形とブロードフェーズの内訳(Day 46)---");
+
+        if (_terrain is not null)
+        {
+            var terrain = new Terrain3D(_terrain, _terrainOrigin);
+            Aabb3D bounds = terrain.Bounds;
+
+            Console.WriteLine(
+                $"  地形: {_terrain.Columns}x{_terrain.Rows} 点  "
+                + $"マス {_terrain.CellsX}x{_terrain.CellsZ}  1マス {_terrain.CellSize:F2}m  "
+                + $"三角形 {_terrain.TriangleCount:N0} 枚");
+            Console.WriteLine(
+                $"  広がり: x [{bounds.Min.X:F1}, {bounds.Max.X:F1}]  "
+                + $"z [{bounds.Min.Z:F1}, {bounds.Max.Z:F1}]  "
+                + $"高さ [{bounds.Min.Y:F2}, {bounds.Max.Y:F2}]");
+            Console.WriteLine(
+                $"  容量: 高さの配列 {_terrain.Columns * _terrain.Rows * 4 / 1024.0:F1}KB"
+                + $"(同じ形を三角形メッシュで持つと約 "
+                + $"{_terrain.TriangleCount * 3 * 12 / 1024.0:F0}KB)");
+
+            if (terrain.TryHeightAt(Character.Position.X, Character.Position.Z, out float ground)
+                && terrain.TryNormalAt(Character.Position.X, Character.Position.Z, out Vector3 n))
+            {
+                Console.WriteLine(
+                    $"  キャラクターの足元: 地面 {ground:F2}m  足元 {Character.Position.Y:F2}m  "
+                    + $"傾き {MathF.Acos(Math.Clamp(n.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI:F1}度");
+            }
+        }
+        else
+        {
+            Console.WriteLine("  地形: なし(Ctrl+G で地形デモへ)");
+        }
+
+        Console.WriteLine(
+            $"  ブロードフェーズ: {(Physics.Broadphase == BroadphaseMode.UniformGrid
+                ? "均一グリッド" : "総当たり")}"
+            + $"  マス {Physics.CellSize:F1}m  範囲 {Physics.GridSize.X:F0}x"
+            + $"{Physics.GridSize.Y:F0}x{Physics.GridSize.Z:F0}m");
+        Console.WriteLine(
+            $"  マスの数: {grid.Columns}x{grid.Rows}x{grid.Layers} = {grid.CellCount:N0}  "
+            + $"中身のあるマス {grid.OccupiedCells}  いちばん混んでいるマス {grid.MaxPerCell} 個");
+        Console.WriteLine(
+            $"  登録: {grid.EntryCount} 件 / 体 {Physics.Bodies.Count} 個"
+            + $"(1体あたり {(Physics.Bodies.Count > 0
+                ? grid.EntryCount / (float)Physics.Bodies.Count : 0.0f):F2} マス)");
+        Console.WriteLine(
+            $"  はみ出し(格子に入らない): {grid.OversizedCount} 個"
+            + "(**平面と地形**。全部の相手と組にする)");
+        Console.WriteLine(
+            $"  組: 同居 {grid.CoLocatedPairs:N0} → AABB を通過 {Physics.PairTests:N0}  "
+            + $"(総当たりなら {Physics.BruteForcePairs:N0})");
+        Console.WriteLine(
+            $"  キャラクターの問い合わせ: {Physics.CapsuleQueries} 回 / "
+            + $"延べ {Physics.CapsuleQueryTests} 体");
+        Console.WriteLine($"  1ステップ: 物理 {_physicsMilliseconds:F2}ms");
+        Console.WriteLine();
     }
 
     /// <summary>
@@ -5714,6 +5949,9 @@ internal static class Program
         RenderCharacter();
 
         RenderContacts();
+
+        // **ブロードフェーズのマス**(Day 46)。いちばん最後に線で重ねる。
+        RenderGridCells();
     }
 
     /// <summary>
@@ -13300,8 +13538,57 @@ internal static class Program
                     Console.WriteLine(
                         "  手前の緩い丘(**29 度**)は登れて、奥の急な丘(**58 度**)は登れない。"
                         + "Alt+X で坂の上限を切ると登れる");
+                    Console.WriteLine(
+                        "  Shift+G:ブロードフェーズ  Alt+G:マスを描く  "
+                        + "Ctrl+Shift+G:マスの大きさ  Shift+Alt+G:内訳");
                 }
 
+                break;
+
+            case Key.G when shift && !ctrl && !alt:
+                // **今日いちばん分かりやすい実験**(要点1)。
+                // 絵は1ピクセルも変わらず、HUD の「候補」と ms だけが動く。
+                Physics.Broadphase = Physics.Broadphase == BroadphaseMode.UniformGrid
+                    ? BroadphaseMode.BruteForce
+                    : BroadphaseMode.UniformGrid;
+
+                Console.WriteLine(
+                    Physics.Broadphase == BroadphaseMode.UniformGrid
+                        ? $"ブロードフェーズ: **均一グリッド**(マス {Physics.CellSize:F1}m)。"
+                            + "絵は変わらず、HUD の「候補」と物理の ms が減る"
+                        : "ブロードフェーズ: **総当たり**(Day 45 までのやり方)。"
+                            + "体を増やすほど n² が効いてくる");
+                break;
+
+            case Key.G when alt && !ctrl && !shift:
+                _showGridCells = !_showGridCells;
+                Console.WriteLine(
+                    $"格子のマスの表示: {OnOff(_showGridCells)}"
+                    + (_showGridCells
+                        ? "(**中身のあるマスだけ**を線で描く。512 個で打ち切る)"
+                        : string.Empty));
+                break;
+
+            case Key.G when ctrl && shift && !alt:
+                CycleGridCellSize();
+                break;
+
+            case Key.G when ctrl && alt && !shift:
+                // **体を増やして n² を体感する**。総当たりだと組の数が跳ね上がる。
+                if (_terrain is null)
+                {
+                    Console.WriteLine("先に Ctrl+G(地形デモ)か Ctrl+Shift+Alt+2 で地形の筋書きへ");
+                    break;
+                }
+
+                SpawnTerrainBodies(40);
+                Console.WriteLine(
+                    $"体を 40 個追加(全部で {Physics.Bodies.Count} 個)。"
+                    + "**総当たりの組は2乗、格子の候補はほぼ比例**で増える");
+                break;
+
+            case Key.G when shift && alt && !ctrl:
+                DescribeBroadphase();
                 break;
 
             case Key.G when ctrl && shift && alt:
@@ -13502,7 +13789,7 @@ internal static class Program
                         PhysicsScene.CapsuleDrop =>
                             "筋書き: **カプセルを落とす**(Day 45。倒れると接触点が1点から2点になる)",
                         PhysicsScene.Terrain =>
-                            "筋書き: **地形に落とす**(Day 46。60 個が谷に集まる)",
+                            "筋書き: **地形に落とす**(Day 46。60 個が谷に集まる。Shift+G で総当たりと比較)",
                         _ =>
                             "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
                     });
@@ -18465,16 +18752,16 @@ internal static class Program
     /// Day 26 の衝突判定、Day 43〜45 の物理と同じ性格。
     ///
     /// <para>
-    /// <b>今日いちばん大事なのは「三角形の最近接点」と「坂の上限」</b>。
-    /// 前者は7つの領域の場合分けを総当たりと突き合わせ、
-    /// 後者は地形の上を実際に歩かせて「登れた高さ」を測る。
-    /// 絵では「登れていない」のか「引っかかっている」のかが区別できないので、数字で確かめる。
+    /// <b>今日いちばん大事なのは「格子と総当たりで接触の集合が一致する」</b>。
+    /// ブロードフェーズは<b>速さのための仕掛けで、答えを変えてはいけない</b>。
+    /// 絵からは絶対に分からないので、
+    /// <b>同じ世界を2通りに解いて突き合わせる</b>のがいちばん確実な確かめ方になる。
     /// </para>
     /// </summary>
     private static void RunTerrainCheck()
     {
         Console.WriteLine();
-        Console.WriteLine("--- Day 46: 地形の自己チェック ---");
+        Console.WriteLine("--- Day 46: 地形とブロードフェーズの自己チェック ---");
         var checks = new CheckList();
 
         // ============================================================
@@ -18494,6 +18781,14 @@ internal static class Program
         checks.Check(
             "接している箱は重なる扱い(境界を含む)",
             Aabb3D.Overlap(unit, Aabb3D.FromCenter(new Vector3(2.0f, 0.0f, 0.0f), 1.0f)));
+
+        checks.Check(
+            "無限の箱は有限ではない(格子に入れられない札)",
+            !Aabb3D.Infinite.IsFinite && unit.IsFinite);
+
+        checks.Check(
+            "**無限の箱は何とでも重なる**(平面の足切りが場合分け無しで書ける)",
+            Aabb3D.Overlap(Aabb3D.Infinite, Aabb3D.FromCenter(new Vector3(1e6f), 1.0f)));
 
         // 球・箱・カプセルの外接箱が、本当に形を包んでいるか。
         // **総当たりで確かめる**——形の上の点を大量に取って、全部が箱の中にあるか。
@@ -18549,6 +18844,10 @@ internal static class Program
             "寝かせたカプセルの外接箱は 2.6 x 0.6 x 0.6",
             (lying.Bounds.Size - new Vector3(2.6f, 0.6f, 0.6f)).Length() < 1e-5f,
             $"({lying.Bounds.Size.X:F2}, {lying.Bounds.Size.Y:F2}, {lying.Bounds.Size.Z:F2})");
+
+        checks.Check(
+            "平面の外接箱は無限(体の <c>Bounds()</c> 越し)",
+            !RigidBody.CreatePlane(Vector3.Zero, Vector3.UnitY).Bounds().IsFinite);
 
         // ============================================================
         //  2. 三角形(要点2)
@@ -18884,10 +19183,133 @@ internal static class Program
             $"{MathF.Acos(Math.Clamp(spawnNormal.Y, -1.0f, 1.0f)) * 180.0f / MathF.PI:F3}度");
 
         // ============================================================
-        //  5. 通しで動かす(要点5)
+        //  5. ブロードフェーズ(要点1〜3)
         // ============================================================
 
-        var settled = BuildTerrainDropWorld();
+        var grid = new SpatialGrid3D();
+        grid.Configure(new Vector3(-10.0f), new Vector3(20.0f), 2.0f);
+
+        Aabb3D[] simple =
+        [
+            Aabb3D.FromCenter(new Vector3(0.0f, 0.0f, 0.0f), 0.4f),
+            Aabb3D.FromCenter(new Vector3(0.5f, 0.0f, 0.0f), 0.4f),
+            Aabb3D.FromCenter(new Vector3(8.0f, 0.0f, 8.0f), 0.4f),
+            Aabb3D.Infinite,
+        ];
+
+        grid.Build(simple);
+        int simplePairs = grid.CollectPairs(simple);
+
+        checks.Check(
+            "無限の箱は格子に入らず、**はみ出し**として数えられる",
+            grid.OversizedCount == 1 && grid.EntryCount >= 3,
+            $"はみ出し {grid.OversizedCount}  登録 {grid.EntryCount}");
+
+        checks.Check(
+            "**はみ出しは全部の相手と組になる**(取りこぼすと床をすり抜ける)",
+            simplePairs == 4,
+            $"{simplePairs} 組(近い2個 + 無限 × 3)");
+
+        checks.Check(
+            "離れた2個は組にならない",
+            !ContainsPair(grid.Pairs, 1, 2));
+
+        // **同じ組が2回出ないこと**。またがっているとマスごとに見つかる。
+        var wide = new SpatialGrid3D();
+        wide.Configure(new Vector3(-10.0f), new Vector3(20.0f), 0.5f);
+
+        Aabb3D[] straddling =
+        [
+            Aabb3D.FromCenter(new Vector3(0.0f), 0.55f),
+            Aabb3D.FromCenter(new Vector3(0.3f, 0.0f, 0.0f), 0.55f),
+        ];
+
+        wide.Build(straddling);
+        int straddlingPairs = wide.CollectPairs(straddling);
+
+        checks.Check(
+            "**またがっていても組は1回だけ**(印で重複を潰す)",
+            straddlingPairs == 1 && wide.EntryCount > 20,
+            $"{straddlingPairs} 組 / 登録 {wide.EntryCount} 件");
+
+        // --- 今日いちばん大事なチェック: 格子と総当たりで接触が一致する ---
+        HashSet<(int, int)> bruteContacts = StepAndCollectPairs(BroadphaseMode.BruteForce, 2.0f);
+        HashSet<(int, int)> gridContacts = StepAndCollectPairs(BroadphaseMode.UniformGrid, 2.0f);
+
+        checks.Check(
+            "**格子と総当たりで接触の組がぴったり一致する**(200 体)",
+            bruteContacts.SetEquals(gridContacts),
+            $"総当たり {bruteContacts.Count} 組 / 格子 {gridContacts.Count} 組");
+
+        // マスの大きさを変えても答えが変わらないこと。
+        bool sameAcrossCellSizes = true;
+        foreach (float cellSize in GridCellSteps)
+        {
+            sameAcrossCellSizes &=
+                StepAndCollectPairs(BroadphaseMode.UniformGrid, cellSize).SetEquals(bruteContacts);
+        }
+
+        checks.Check(
+            "**マスの大きさを 0.5m〜8m に振っても接触は同じ**(速さだけが変わる)",
+            sameAcrossCellSizes);
+
+        // 候補の数がどれだけ減ったか。
+        var measured = BuildBroadphaseWorld(BroadphaseMode.UniformGrid, 2.0f);
+        measured.Step(1.0f / 60.0f);
+        long gridCandidates = measured.PairTests;
+        long bruteCandidates = measured.BruteForcePairs;
+
+        checks.Check(
+            "**候補が総当たりの 1/4 以下に減る**(200 体)",
+            gridCandidates * 4 < bruteCandidates,
+            $"{gridCandidates:N0} / {bruteCandidates:N0} 組"
+            + $"({100.0 * gridCandidates / bruteCandidates:F1}%)");
+
+        checks.Check(
+            "登録件数は体の数以上(またがったぶんだけ重複する)",
+            measured.Grid.EntryCount >= measured.Bodies.Count - measured.Grid.OversizedCount,
+            $"登録 {measured.Grid.EntryCount} / 体 {measured.Bodies.Count}");
+
+        checks.Check(
+            "地形と平面が**はみ出し**に回っている(格子に入れると全マスを埋める)",
+            measured.Grid.OversizedCount == 6,
+            $"{measured.Grid.OversizedCount} 個(平面5 + 地形1)");
+
+        // --- 問い合わせ(キャラクターの足元)---
+        Span<ContactManifold> hits = stackalloc ContactManifold[8];
+        var standing = Capsule3D.FromCenter(
+            new Vector3(0.0f, PhysicsFloorY + 0.9f, 0.0f), Quaternion.Identity, 0.35f, 0.55f);
+
+        var queryWorld = BuildBroadphaseWorld(BroadphaseMode.UniformGrid, 2.0f);
+        queryWorld.Step(1.0f / 60.0f);
+        queryWorld.ResetQueryStats();
+        int found = queryWorld.QueryCapsule(standing, hits);
+
+        var bruteQueryWorld = BuildBroadphaseWorld(BroadphaseMode.BruteForce, 2.0f);
+        bruteQueryWorld.Step(1.0f / 60.0f);
+        bruteQueryWorld.ResetQueryStats();
+        Span<ContactManifold> bruteHits = stackalloc ContactManifold[8];
+        int bruteFound = bruteQueryWorld.QueryCapsule(standing, bruteHits);
+
+        checks.Check(
+            "**問い合わせの答えが格子でも総当たりでも同じ**(キャラクターの足元)",
+            found == bruteFound,
+            $"格子 {found} 件 / 総当たり {bruteFound} 件");
+
+        checks.Check(
+            "**問い合わせで試す体の数が減る**(格子のほうが少ない)",
+            queryWorld.CapsuleQueryTests < bruteQueryWorld.CapsuleQueryTests,
+            $"格子 {queryWorld.CapsuleQueryTests} 体 / 総当たり {bruteQueryWorld.CapsuleQueryTests} 体");
+
+        checks.Check(
+            "格子を組む前の問い合わせでも取りこぼさない(総当たりに落ちる)",
+            new PhysicsWorld().QueryCapsule(standing, hits) == 0);
+
+        // ============================================================
+        //  6. 通しで動かす(Day 46a の要点5)
+        // ============================================================
+
+        var settled = BuildBroadphaseWorld(BroadphaseMode.UniformGrid, 2.0f);
         for (int step = 0; step < 400; step++)
         {
             settled.Step(1.0f / 60.0f);
@@ -18991,7 +19413,13 @@ internal static class Program
     /// </summary>
     private static PhysicsWorld BuildTerrainOnlyWorld()
     {
-        var world = new PhysicsWorld();
+        var world = new PhysicsWorld
+        {
+            Broadphase = BroadphaseMode.UniformGrid,
+            CellSize = 2.0f,
+            GridOrigin = new Vector3(-16.0f, -4.0f, -16.0f),
+            GridSize = new Vector3(32.0f, 24.0f, 32.0f),
+        };
 
         HeightField field = BuildTestField(
             TerrainCells + 1, TerrainCells + 1, TerrainCellSize, TerrainHeightAt);
@@ -19003,6 +19431,10 @@ internal static class Program
         world.AddPlane(Plane3D.FromPointNormal(new Vector3(wall, 0.0f, 0.0f), -Vector3.UnitX));
         world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, -wall), Vector3.UnitZ));
         world.AddPlane(Plane3D.FromPointNormal(new Vector3(0.0f, 0.0f, wall), -Vector3.UnitZ));
+
+        // **1回だけ進めて格子を組ませる**。問い合わせは Step とは別の入口なので、
+        // 一度も進めていない世界では格子がまだ無い(総当たりに落ちる)。
+        world.Step(1.0f / 60.0f);
 
         return world;
     }
@@ -19025,14 +19457,21 @@ internal static class Program
     }
 
     /// <summary>
-    /// 自己チェック用の世界を組む。**地形の上へ 200 体を落とす**。同じ種で必ず同じ配置になる。
+    /// 自己チェック用の世界を組む。**同じ種で必ず同じ配置になる**。
     ///
+    /// ブロードフェーズを比べるためのものなので、
+    /// <b>2通りで組んだ世界が1ビットも違わない</b>ことが命になる。
     /// 乱数の種を固定し、体を足す順番も固定してある。
-    /// 今日はまだ総当たりなので、200 体で 2 万組近くを毎ステップ試している。
     /// </summary>
-    private static PhysicsWorld BuildTerrainDropWorld()
+    private static PhysicsWorld BuildBroadphaseWorld(BroadphaseMode mode, float cellSize)
     {
-        var world = new PhysicsWorld();
+        var world = new PhysicsWorld
+        {
+            Broadphase = mode,
+            CellSize = cellSize,
+            GridOrigin = new Vector3(-16.0f, -4.0f, -16.0f),
+            GridSize = new Vector3(32.0f, 24.0f, 32.0f),
+        };
 
         var field = BuildTestField(
             TerrainCells + 1, TerrainCells + 1, TerrainCellSize, TerrainHeightAt);
@@ -19075,6 +19514,58 @@ internal static class Program
         }
 
         return world;
+    }
+
+    /// <summary>
+    /// 世界を 90 ステップ進めてから、接触している組を集める。
+    ///
+    /// **90 ステップ進めてから**なのが要点。作った直後は全員が空中にいて
+    /// 接触が1つも無いので、比べても何も分からない。
+    /// 地形に着いて、互いに積み重なった状態で比べる。
+    /// </summary>
+    private static HashSet<(int, int)> StepAndCollectPairs(BroadphaseMode mode, float cellSize)
+    {
+        // **まず総当たりで 90 ステップ進める**。
+        // ここを比べたい設定で進めてしまうと、両者の状態がだんだんずれて
+        // 「接触が1組違う」のが<b>ブロードフェーズのせいなのか、
+        // 解く順番のせいなのか</b>分からなくなる。
+        //
+        // 組の間はガウス・ザイデル(Day 43 の要点8)なので、
+        // <b>解く順番が変われば結果もわずかに変わる</b>——
+        // これはブロードフェーズの正しさとは別の話。
+        // 同じ状態から1ステップだけ切り替えて比べれば、
+        // 「候補の作り方」だけを比べたことになる。
+        PhysicsWorld world = BuildBroadphaseWorld(BroadphaseMode.BruteForce, cellSize);
+
+        for (int step = 0; step < 90; step++)
+        {
+            world.Step(1.0f / 60.0f);
+        }
+
+        world.Broadphase = mode;
+        world.Step(1.0f / 60.0f);
+
+        var pairs = new HashSet<(int, int)>();
+        foreach (ContactPoint contact in world.Contacts)
+        {
+            pairs.Add((contact.A, contact.B));
+        }
+
+        return pairs;
+    }
+
+    /// <summary>組が入っているか(自己チェック用)。</summary>
+    private static bool ContainsPair(ReadOnlySpan<BroadPair> pairs, int a, int b)
+    {
+        foreach (BroadPair pair in pairs)
+        {
+            if ((pair.A == a && pair.B == b) || (pair.A == b && pair.B == a))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

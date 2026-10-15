@@ -75,7 +75,7 @@ internal sealed class HeightField
         CellSize = MathF.Max(cellSize, 1e-3f);
 
         // **最小と最大はここで1回だけ**。外接箱を作るたびに全部なめると、
-        // 外接箱を毎ステップ見る側(Day 46b のブロードフェーズ)が数万要素を走査することになる。
+        // ブロードフェーズが毎ステップ数万要素を走査することになる。
         float min = float.MaxValue;
         float max = float.MinValue;
 
@@ -210,8 +210,8 @@ internal readonly struct Terrain3D
     /// これが有限なので、地形は平面と違って
     /// <b>理屈のうえではブロードフェーズの格子に入れられる</b>。
     /// ただし1枚で世界じゅうを覆うので、入れると全部のマスに登録されて
-    /// 格子の意味が無くなる——Day 46b の格子(<c>SpatialGrid3D</c>)が
-    /// 「大きすぎるものは別扱い」で弾くのはそのため(Day 46b の要点2)。
+    /// 格子の意味が無くなる——<see cref="SpatialGrid3D"/> が
+    /// 「大きすぎるものは別扱い」で弾くのはそのため(要点2)。
     ///
     /// <para>
     /// <b>下だけ <see cref="RecoveryDepth"/> ぶん広い</b>のがこの箱の非対称なところ。
