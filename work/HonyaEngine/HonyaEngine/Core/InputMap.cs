@@ -31,6 +31,16 @@ internal enum GameAction : uint
 
     /// <summary>押した瞬間だけ効くアクション。「押されている」では表せない(要点2)。</summary>
     Dash = 1u << 4,
+
+    /// <summary>
+    /// ジャンプ(Day 45)。**押した瞬間**で読む。
+    ///
+    /// <see cref="Dash"/> と同じ性格で、「押されている」で読むと
+    /// 押しっぱなしで着地するたびに跳ね続ける。
+    /// <see cref="CharacterController"/> は
+    /// <c>WasPressed</c> のほうを見ている。
+    /// </summary>
+    Jump = 1u << 5,
 }
 
 /// <summary>
@@ -70,7 +80,7 @@ internal sealed class InputMap
         return result;
     }
 
-    /// <summary>既定の割り当て。矢印キーで移動、X でダッシュ。</summary>
+    /// <summary>既定の割り当て。矢印キーで移動、X でダッシュ、Space でジャンプ。</summary>
     public static InputMap CreateDefault()
     {
         var map = new InputMap();
@@ -80,6 +90,15 @@ internal sealed class InputMap
         map.Bind(Key.Up, GameAction.MoveUp);
         map.Bind(Key.Down, GameAction.MoveDown);
         map.Bind(Key.X, GameAction.Dash);
+
+        // **ジャンプは Space**(Day 45)。ここでいよいよ衝突が起きた——
+        // Space は Day 19 から「一時停止」に割り当ててある。
+        // 下に書いた「デバッグモードのときだけ有効にするのが筋」を
+        // 逆向きにやることで凌いでいて、
+        // <c>Program.OnKeyDown</c> がキャラクターデモ中だけ Space を飲み込む。
+        // **本当の解は割り当ての表そのものをデータにする**ことで、
+        // Day 40 の <c>FeatureToggles</c> がやったのと同じ形になる。
+        map.Bind(Key.Space, GameAction.Jump);
 
         // WASD も割り当てたいところだが、このデモでは
         // W(ワイヤーフレーム)・A(アトラス)・S(ソート)がデバッグ用に埋まっている。
