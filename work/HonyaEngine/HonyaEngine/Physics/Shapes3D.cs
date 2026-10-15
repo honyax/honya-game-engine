@@ -3,7 +3,7 @@ using System.Numerics;
 namespace HonyaEngine;
 
 /// <summary>
-/// 軸に平行な直方体(AABB)。**3D でいちばん安い形**。今日は地形の三角形を探す窓になる(要点1)。
+/// 軸に平行な直方体(AABB)。**3D でいちばん安い形**であり、今日の主役の片方(要点1)。
 ///
 /// <see cref="Aabb2D"/>(Day 25)の 3D 版。回らない前提を置くだけで、
 /// 判定が「区間が重なっているか」を x・y・z で1回ずつ見るだけになる——
@@ -12,9 +12,17 @@ namespace HonyaEngine;
 /// <para>
 /// 当たり判定の形としては使いにくい(斜めを向いた剣を表せない)のに
 /// AABB がどこにでも出てくるのは、<b>ほかの形の「外接箱」として使える</b>から。
-/// 今日の地形は、球やカプセルの外接箱から<b>触れうるマスの範囲</b>を割り算2回で出し
-/// (<see cref="Terrain3D.CellRange"/>)、そのマスの三角形だけを当てる。
-/// Day 46b のブロードフェーズも、<b>形を1つも知らない</b>まま外接箱だけで候補を絞る。
+/// 今日のブロードフェーズ(<see cref="SpatialGrid3D"/>)は、
+/// <b>形を1つも知らない</b>まま外接箱だけで候補を絞る。
+/// 球でも箱でもカプセルでも地形でも、いったんここへ落としてしまえば同じに扱える。
+/// </para>
+///
+/// <para>
+/// <b>「無限に広い」を表せる</b>ようにしてある(<see cref="Infinite"/>)。
+/// 平面(<see cref="Plane3D"/>)には外接箱が無いので、
+/// 素直に書くと「平面だけ別扱い」の分岐がブロードフェーズの中に生える。
+/// 無限を1つの値として持てば、<b>格子の側は「入らないもの」として一律に扱える</b>——
+/// <see cref="IsFinite"/> がその札になる。
 /// </para>
 /// </summary>
 internal readonly struct Aabb3D
@@ -36,11 +44,33 @@ internal readonly struct Aabb3D
     public static Aabb3D FromCenter(Vector3 center, float radius) =>
         FromCenter(center, new Vector3(radius));
 
+    /// <summary>
+    /// 世界を丸ごと覆う箱。**平面のための値**。
+    ///
+    /// <see cref="float.PositiveInfinity"/> をそのまま入れてある。
+    /// <c>float.MaxValue</c> でも実害は無さそうに見えるが、
+    /// <b>引き算した途端にあふれる</b>(Max - Min が inf になる)ので、
+    /// 最初から inf にしておくほうが挙動が読める。
+    /// </summary>
+    public static Aabb3D Infinite => new(
+        new Vector3(float.NegativeInfinity), new Vector3(float.PositiveInfinity));
+
     public Vector3 Center => (Min + Max) * 0.5f;
 
     public Vector3 Size => Max - Min;
 
     public Vector3 HalfSize => (Max - Min) * 0.5f;
+
+    /// <summary>
+    /// 有限の大きさを持つか。**格子に入れられるかの札**(要点2)。
+    ///
+    /// 平面は無限なので false。地形(<see cref="Terrain3D"/>)は有限だが広いので、
+    /// 「有限だが大きすぎる」ほうは <see cref="SpatialGrid3D"/> が
+    /// マスの数で別に足切りする——<b>無限と巨大は別の問題</b>。
+    /// </summary>
+    public bool IsFinite =>
+        float.IsFinite(Min.X) && float.IsFinite(Min.Y) && float.IsFinite(Min.Z)
+        && float.IsFinite(Max.X) && float.IsFinite(Max.Y) && float.IsFinite(Max.Z);
 
     public bool Contains(Vector3 point) =>
         point.X >= Min.X && point.X <= Max.X
@@ -103,7 +133,7 @@ internal readonly struct Sphere3D
         Radius = radius;
     }
 
-    /// <summary>外接する AABB(Day 46)。**地形のマス探しが見るのはこれだけ**。</summary>
+    /// <summary>外接する AABB。**ブロードフェーズが見るのはこれだけ**(Day 46)。</summary>
     public Aabb3D Bounds => Aabb3D.FromCenter(Center, Radius);
 }
 
@@ -392,7 +422,7 @@ internal readonly struct Box3D
     /// <para>
     /// <b>回すと外接箱は太る</b>。45 度回した立方体の外接箱は
     /// 一辺が √2 倍になり、体積は 2.8 倍。
-    /// ブロードフェーズ(Day 46b)の候補が「当たっていないのに出てくる」原因の多くはこれで、
+    /// ブロードフェーズの候補が「当たっていないのに出てくる」原因の多くはこれで、
     /// 箱を回しながら落とす筋書き(Day 44)では候補の数が目に見えて増える。
     /// </para>
     /// </summary>

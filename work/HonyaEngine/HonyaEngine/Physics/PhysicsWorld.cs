@@ -15,6 +15,29 @@ internal enum IntegratorMode
 }
 
 /// <summary>
+/// 候補の組をどう作るか(Day 46b の要点1)。**答えは同じで、速さだけが違う**。
+///
+/// Day 43 から今日まで、判定は全部の組を試す総当たりだった。
+/// 体が数十個のうちは平気でも、n² は 100 個で 4,950 組、
+/// 1,000 個で 50 万組——<b>体を増やした瞬間に壁に当たる</b>。
+///
+/// <para>
+/// つまみとして残してあるのは、Day 43 の <see cref="IntegratorMode"/> と同じ理由。
+/// <b>「正しいが遅いもの」を隣に置いておく</b>と、
+/// 速いほうが本当に同じ答えを出しているかを実際に突き合わせられる。
+/// 今日の自己チェックは、まさにそれを 200 体でやっている。
+/// </para>
+/// </summary>
+internal enum BroadphaseMode
+{
+    /// <summary>全部の組を試す。**Day 43〜45 のやり方**。n(n-1)/2 組。</summary>
+    BruteForce,
+
+    /// <summary>均一グリッドで絞る(<see cref="SpatialGrid3D"/>)。**Day 26 の 3D 版**。</summary>
+    UniformGrid,
+}
+
+/// <summary>
 /// 1つの接触点。**判定の結果 + 解決に必要な下ごしらえ**。
 ///
 /// <para>
@@ -150,6 +173,25 @@ internal readonly struct ContactPoint
 /// </summary>
 internal sealed class PhysicsWorld
 {
+    /// <summary>
+    /// 1回の問い合わせで格子から受け取る候補の上限(Day 46)。
+    ///
+    /// **足りないと取りこぼす**ので、キャラクターの足元に来うる数より
+    /// 十分多く取る。64 なら、1マスに 60 個ひしめいていても届く。
+    /// <c>stackalloc</c> なので割り当ては起きない。
+    /// </summary>
+    private const int MaxQueryCandidates = 64;
+
+    /// <summary>
+    /// 問い合わせの箱を広げる余裕 [m](Day 46)。
+    ///
+    /// 格子を組んだのは <see cref="Step"/> の判定の段で、
+    /// そのあと位置の補正が体を数ミリ動かしている。
+    /// **ブロードフェーズは取りこぼしが許されない**ので、
+    /// ずれうるぶんだけ広げてから問い合わせる。
+    /// </summary>
+    private const float QueryMargin = 0.05f;
+
     private readonly List<RigidBody> _bodies = [];
     private readonly List<ContactPoint> _contacts = [];
 
@@ -164,6 +206,29 @@ internal sealed class PhysicsWorld
 
     /// <summary>接触の出どころ別の数(<see cref="ManifoldSource"/> の添字)。HUD 用。</summary>
     private readonly int[] _sourceCounts = new int[5];
+
+    /// <summary>
+    /// ブロードフェーズの格子(Day 46)。**世界が1つ持っていればよい**。
+    ///
+    /// 毎ステップ組み直すが、配列は使い回すので割り当てが起きない。
+    /// <see cref="Step"/> と <see cref="QueryCapsule"/> が<b>同じ格子を使い回す</b>——
+    /// 1回組んだものを2通りに使うのは Day 26 の卒業制作と同じ形。
+    /// </summary>
+    private readonly SpatialGrid3D _grid = new();
+
+    /// <summary>体ごとの外接 AABB(Day 46)。**ステップの頭で1回だけ作る**。</summary>
+    private Aabb3D[] _bounds = [];
+
+    /// <summary>
+    /// 今のステップで格子を組んだか(Day 46)。
+    ///
+    /// <see cref="QueryCapsule"/> は <see cref="Step"/> とは別の入口なので、
+    /// **格子がまだ無い状態で呼ばれうる**(総当たりに切り替えている、
+    /// 一時停止している、シーンを組み直した直後)。
+    /// そのときは黙って総当たりに落ちる——
+    /// <b>速さのための仕掛けが、正しさの前提になってはいけない</b>。
+    /// </summary>
+    private bool _gridReady;
 
     /// <summary>重力加速度 [m/s²]。地球はおよそ 9.81。</summary>
     public Vector3 Gravity { get; set; } = new(0.0f, -9.81f, 0.0f);
@@ -245,12 +310,54 @@ internal sealed class PhysicsWorld
     /// </summary>
     public float RestitutionThreshold { get; set; } = 1.0f;
 
+    /// <summary>
+    /// 候補の組の作り方(Day 46)。**既定は均一グリッド**。
+    ///
+    /// <see cref="BroadphaseMode.BruteForce"/> にすると Day 45 までの総当たりに戻る。
+    /// <b>絵は1ピクセルも変わらない</b>のが正しい姿で、
+    /// 変わるのは <see cref="PairTests"/> と1ステップの時間だけ。
+    /// </summary>
+    public BroadphaseMode Broadphase { get; set; } = BroadphaseMode.UniformGrid;
+
+    /// <summary>
+    /// 格子1マスの一辺 [m](Day 46)。**性能はここでほぼ決まる**(要点3)。
+    ///
+    /// 小さすぎると1個が大量のマスにまたがり(3D では<b>辺の比の3乗</b>で効く)、
+    /// 大きすぎると1マスに大量に入って結局そのマスの中で総当たりになる。
+    /// 目安は「物体の平均的な差し渡しの2〜3倍」だが、**最後は測って決める**。
+    /// </summary>
+    public float CellSize { get; set; } = 2.0f;
+
+    /// <summary>格子が覆う範囲の隅(Day 46)。**外に出たものは端のマスに丸められる**。</summary>
+    public Vector3 GridOrigin { get; set; } = new(-32.0f, -8.0f, -32.0f);
+
+    /// <summary>格子が覆う範囲の大きさ [m](Day 46)。</summary>
+    public Vector3 GridSize { get; set; } = new(64.0f, 32.0f, 64.0f);
+
+    /// <summary>ブロードフェーズの格子(**読むだけ**。可視化と自己チェック用)。</summary>
+    public SpatialGrid3D Grid => _grid;
+
     public IReadOnlyList<RigidBody> Bodies => _bodies;
 
     public IReadOnlyList<ContactPoint> Contacts => _contacts;
 
-    /// <summary>直前のステップで試した組の数。**総当たりの代償**。</summary>
+    /// <summary>
+    /// 直前のステップでナローフェーズを呼んだ組の数。
+    ///
+    /// Day 45 までは「総当たりの組の数」とほぼ同じ意味だった。
+    /// **今日から、これはブロードフェーズを通り抜けた候補の数**になる——
+    /// <see cref="BruteForcePairs"/> と並べて見ると、絞れた割合が分かる。
+    /// </summary>
     public long PairTests { get; private set; }
+
+    /// <summary>
+    /// 総当たりなら試すことになる組の数(Day 46)。**比べるための数字**。
+    ///
+    /// 動かないものどうしを除いた n(n-1)/2 相当。
+    /// HUD に <see cref="PairTests"/> と並べて出すと、
+    /// <b>「200 体で 19,900 組 → 480 組」</b>のような減り方が数字で見える。
+    /// </summary>
+    public long BruteForcePairs { get; private set; }
 
     /// <summary>直前のステップで当たっていた組の数。**接触点の数とは別**。</summary>
     public int ContactPairs => _manifolds.Count;
@@ -415,6 +522,36 @@ internal sealed class PhysicsWorld
         int count = 0;
         CapsuleQueries++;
 
+        // --- ブロードフェーズが使えるなら使う(Day 46b の要点3)---
+        //
+        // **キャラクターはこの問い合わせを1ステップに 10 回以上投げる**。
+        // 体が 200 個あれば、Day 45 のやり方では 2,000 体ぶんの判定が走っていた。
+        // 格子で絞れば、足元のマスにいる数個で済む。
+        if (_gridReady)
+        {
+            Span<int> candidates = stackalloc int[MaxQueryCandidates];
+
+            // **少し広げて問い合わせる**。位置の補正(Step の4段目)は
+            // 格子を組んだあとに体を数ミリ動かすので、
+            // ぴったりの箱で問い合わせると端の相手を落としうる。
+            int found = _grid.Query(capsule.Bounds.Expanded(QueryMargin), candidates);
+
+            for (int k = 0; k < found && count < results.Length; k++)
+            {
+                CapsuleQueryTests++;
+
+                ContactManifold manifold =
+                    Collision3D.CapsuleAgainst(capsule, _bodies[candidates[k]]);
+
+                if (manifold.Hit)
+                {
+                    results[count++] = manifold;
+                }
+            }
+
+            return count;
+        }
+
         foreach (RigidBody body in _bodies)
         {
             if (count >= results.Length)
@@ -444,6 +581,24 @@ internal sealed class PhysicsWorld
     public bool OverlapCapsule(in Capsule3D capsule)
     {
         CapsuleQueries++;
+
+        if (_gridReady)
+        {
+            Span<int> candidates = stackalloc int[MaxQueryCandidates];
+            int found = _grid.Query(capsule.Bounds.Expanded(QueryMargin), candidates);
+
+            for (int k = 0; k < found; k++)
+            {
+                CapsuleQueryTests++;
+
+                if (Collision3D.CapsuleAgainst(capsule, _bodies[candidates[k]]).Hit)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         foreach (RigidBody body in _bodies)
         {
@@ -478,7 +633,13 @@ internal sealed class PhysicsWorld
         _manifolds.Clear();
         Array.Clear(_sourceCounts);
         PairTests = 0;
+        BruteForcePairs = 0;
         MaxPenetration = 0.0f;
+
+        // **格子は体の番号で中身を持っている**(Day 46)。
+        // 体を全部捨てたのに格子が残っていると、
+        // 次の問い合わせが<b>存在しない番号を引く</b>。
+        _gridReady = false;
     }
 
     /// <summary>
@@ -582,43 +743,106 @@ internal sealed class PhysicsWorld
         PairTests = 0;
         MaxPenetration = 0.0f;
 
-        for (int i = 0; i < _bodies.Count; i++)
+        // **総当たりならいくつ試すことになったか**を、常に数えておく(Day 46)。
+        // 絞れた割合は「絞ったあとの数」だけでは分からない。
+        long dynamicCount = DynamicCount;
+        long total = _bodies.Count;
+        BruteForcePairs = ((total * (total - 1)) / 2)
+            - (((total - dynamicCount) * (total - dynamicCount - 1)) / 2);
+
+        if (Broadphase == BroadphaseMode.BruteForce)
         {
-            RigidBody a = _bodies[i];
+            _gridReady = false;
 
-            for (int j = i + 1; j < _bodies.Count; j++)
+            // --- Day 45 までのやり方 ---
+            for (int i = 0; i < _bodies.Count; i++)
             {
-                RigidBody b = _bodies[j];
-
-                // **動かないものどうしは見ない**。当たっていても何も起きない。
-                if (a.IsStatic && b.IsStatic)
+                for (int j = i + 1; j < _bodies.Count; j++)
                 {
-                    continue;
-                }
-
-                PairTests++;
-
-                ContactManifold manifold = Collision3D.Collide(a, b);
-                if (!manifold.Hit)
-                {
-                    continue;
-                }
-
-                // **実験用の間引き**。既定では何もしない(4 が上限なので)。
-                manifold.Reduce(MaxContactsPerPair);
-
-                _sourceCounts[(int)manifold.Source]++;
-                MaxPenetration = MathF.Max(MaxPenetration, manifold.MaxDepth);
-
-                // **区切りを覚えておく**。この範囲の点は同じ組から出たもので、
-                // 速度の解決ではまとめて1回で解く(要点5)。
-                _manifolds.Add((_contacts.Count, manifold.Count));
-
-                for (int k = 0; k < manifold.Count; k++)
-                {
-                    Add(i, j, manifold.Normal, manifold.Points[k], a, b);
+                    TestPair(i, j);
                 }
             }
+
+            return;
+        }
+
+        // --- ブロードフェーズで絞る(Day 46b の要点1)---
+        //
+        // **格子は形を1つも知らない**。渡すのは外接箱の列だけで、
+        // 返ってくるのは番号の組だけ。
+        // だから形が増えても(今日は地形が増えた)格子は1行も変わらない。
+        UpdateBounds();
+        _grid.Configure(GridOrigin, GridSize, CellSize);
+        _grid.Build(_bounds.AsSpan(0, _bodies.Count));
+        _grid.CollectPairs(_bounds.AsSpan(0, _bodies.Count));
+        _gridReady = true;
+
+        foreach (BroadPair pair in _grid.Pairs)
+        {
+            TestPair(pair.A, pair.B);
+        }
+    }
+
+    /// <summary>
+    /// 体ごとの外接 AABB を作り直す(Day 46)。**ステップの頭で1回だけ**。
+    ///
+    /// 格子を組むときと候補を集めるときの2回なめるので、
+    /// <b>その場で作ると2回計算することになる</b>。
+    /// 箱の外接箱はクォータニオンの変換を3回含むので、地味に効く。
+    /// </summary>
+    private void UpdateBounds()
+    {
+        if (_bounds.Length < _bodies.Count)
+        {
+            _bounds = new Aabb3D[Math.Max(_bodies.Count * 2, 64)];
+        }
+
+        for (int i = 0; i < _bodies.Count; i++)
+        {
+            _bounds[i] = _bodies[i].Bounds();
+        }
+    }
+
+    /// <summary>
+    /// 1組を実際に当てて、当たっていれば接触点を登録する(Day 46 で切り出した)。
+    ///
+    /// Day 45 まではこの中身が二重ループの内側に直接書いてあった。
+    /// <b>候補の作り方が2通りになった</b>ので、
+    /// 「候補をどう作るか」と「候補をどう当てるか」を分けている——
+    /// ブロードフェーズを足すときにいちばん先にやる整理がこれになる。
+    /// </summary>
+    private void TestPair(int i, int j)
+    {
+        RigidBody a = _bodies[i];
+        RigidBody b = _bodies[j];
+
+        // **動かないものどうしは見ない**。当たっていても何も起きない。
+        if (a.IsStatic && b.IsStatic)
+        {
+            return;
+        }
+
+        PairTests++;
+
+        ContactManifold manifold = Collision3D.Collide(a, b);
+        if (!manifold.Hit)
+        {
+            return;
+        }
+
+        // **実験用の間引き**。既定では何もしない(4 が上限なので)。
+        manifold.Reduce(MaxContactsPerPair);
+
+        _sourceCounts[(int)manifold.Source]++;
+        MaxPenetration = MathF.Max(MaxPenetration, manifold.MaxDepth);
+
+        // **区切りを覚えておく**。この範囲の点は同じ組から出たもので、
+        // 速度の解決ではまとめて1回で解く(Day 44a の要点5)。
+        _manifolds.Add((_contacts.Count, manifold.Count));
+
+        for (int k = 0; k < manifold.Count; k++)
+        {
+            Add(i, j, manifold.Normal, manifold.Points[k], a, b);
         }
     }
 

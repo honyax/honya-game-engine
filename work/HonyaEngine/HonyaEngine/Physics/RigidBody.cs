@@ -405,6 +405,29 @@ internal sealed class RigidBody
     public Terrain3D ToTerrain() => new(Shape.Field!, Position);
 
     /// <summary>
+    /// 外接する AABB。**ブロードフェーズが見るのはこれだけ**(Day 46b の要点1)。
+    ///
+    /// 形ごとに外接箱の作り方は違うが、<b>出てくるものは同じ型</b>。
+    /// おかげで <see cref="SpatialGrid3D"/> は形の札を1度も見ずに済む——
+    /// 形が増えても格子は変わらない、というのがこの一段の値打ちになる。
+    ///
+    /// <para>
+    /// <b>平面だけが無限を返す</b>。外接箱が作れない形なので、
+    /// <see cref="Aabb3D.Infinite"/> という値でそれを表す。
+    /// 「作れません」を例外や <c>null</c> ではなく<b>値で表す</b>と、
+    /// 呼ぶ側の分岐が1つ消える(Day 46 の設計書)。
+    /// </para>
+    /// </summary>
+    public Aabb3D Bounds() => Shape.Kind switch
+    {
+        ColliderKind.Sphere => ToSphere().Bounds,
+        ColliderKind.Box => ToBox().Bounds,
+        ColliderKind.Capsule => ToCapsule().Bounds,
+        ColliderKind.HeightField => ToTerrain().Bounds,
+        _ => Aabb3D.Infinite,
+    };
+
+    /// <summary>
     /// 慣性テンソルの逆数を世界座標へ運び直す。**向きが変わるたびに要る**。
     ///
     /// <c>R^T · D · R</c>。System.Numerics は行ベクトル規約
