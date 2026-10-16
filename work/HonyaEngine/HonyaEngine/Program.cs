@@ -94,21 +94,21 @@ namespace HonyaEngine;
 /// (<see cref="PostProcess"/>)。3D の背景には
 /// **1.0 を超える明るさを持つ立方体**と、0.25 から 32 までの**明るさの階段**を置いた。
 ///
-/// Shift+3 でトーンマップを「なし」にすると、階段の 1.0 から上が**全部同じ白**になる。
-/// ACES にすると 4 のあたりまで段差が戻り、Shift+5 で露出を下げれば 32 まで読める。
+/// 「HDR とブルーム」の F4 でトーンマップを「なし」にすると、階段の 1.0 から上が**全部同じ白**になる。
+/// ACES にすると 4 のあたりまで段差が戻り、「HDR とブルーム」の F6 で露出を下げれば 32 まで読める。
 ///
-/// そこで Shift+1 を押してシーンバッファを 8bit に落とすと、
+/// そこで 「HDR とブルーム」の F2 を押してシーンバッファを 8bit に落とすと、
 /// **露出をいくら下げても上の段は戻ってこない**——畳む前に 1.0 で切られているから。
 /// これが HDR パイプラインが要る理由そのもの。
 ///
 /// **Day 32 での変更**: 本物のモデルが載った。
 /// glTF 2.0 を自前で読み(<see cref="GltfLoader"/>)、
 /// Khronos の公式サンプル(DamagedHelmet / WaterBottle / Lantern / BoxTextured)を
-/// Shift+0 で切り替えられる。
+/// 「HDR とブルーム」の F11 で切り替えられる。
 ///
 /// Day 10 の OBJ ローダとの違いは**マテリアルが仕様に入っていること**で、
 /// ベースカラー・法線・メタリック/ラフネス・AO・発光の5枚が
-/// 1つのファイルから出てくる。Shift+9 でそれを1枚ずつ画面に出せる——
+/// 1つのファイルから出てくる。「HDR とブルーム」の F10 でそれを1枚ずつ画面に出せる——
 /// **今日はベースカラーしか絵に使わない**が、読み込みは全部済ませてある。
 /// 使い始めるのは法線が Day 34、メタリック/ラフネスが Day 35、AO が Day 37。
 ///
@@ -128,9 +128,9 @@ namespace HonyaEngine;
 /// ランバート反射が Cook-Torrance BRDF(<see cref="Pbr"/>)に置き換わり、
 /// Day 32 で読むだけしていた**メタリックとラフネスがやっと絵に効く**。
 ///
-/// Ctrl+Shift+5 で材質グリッド(球 7x7)が出る。
+/// 「PBR」の F6 で材質グリッド(球 7x7)が出る。
 /// 縦が金属度、横が粗さ——**2つの数字だけで材質の空間が張られている**ことが
-/// 1枚の絵に出る。Ctrl+Shift+1 で Day 34 のランバートに戻せるので、
+/// 1枚の絵に出る。「PBR」の F2 で Day 34 のランバートに戻せるので、
 /// 同じシーンを並べて見比べられる。
 ///
 /// 金属の行がほとんど黒くなるのは**正しい**。金属は拡散反射をせず、
@@ -141,10 +141,10 @@ namespace HonyaEngine;
 ///
 /// HDR の空を手で焼き(<see cref="SkyImage"/>)、キューブマップへ写して、
 /// そこから3枚を事前計算する——放射照度(拡散)、事前フィルタ(鏡面)、
-/// BRDF の表(材質)。`Ctrl+Alt+1` で切ると Day 35 の
+/// BRDF の表(材質)。`「IBL と環境マップ」の F2` で切ると Day 35 の
 /// 「環境光は定数」に戻るので、**金属が真っ黒に戻る**のを見比べられる。
 ///
-/// 材質グリッド(Ctrl+Shift+5)を出したまま IBL を入れると、
+/// 材質グリッド(「PBR」の F6)を出したまま IBL を入れると、
 /// **黒かった上の行に景色が映る**。Day 35 で「正しいが物足りない」と書いた絵が、
 /// ここで完成する。
 ///
@@ -156,10 +156,9 @@ namespace HonyaEngine;
 /// カメラから見た法線と距離を1枚に焼き(幾何パス)、
 /// **すでに描いてある深度を世界の模型として使って**遮蔽率を作る。
 ///
-/// キーは `Ctrl+F1`〜`F11`。数字キーは Shift / Ctrl / Alt / Ctrl+Shift / Ctrl+Alt の
-/// 5段で埋まったので、今日からファンクションキーへ移った
-/// (`Alt+F4` が窓を閉じるので Alt は使えない)。
-/// `Ctrl+F2` で遮蔽率だけを全画面に出せる——
+/// キーは **「SSAO」ページ**(`F1` で送る)。当時は数字キーが5段で埋まり、
+/// ファンクションキーへ移らざるを得なかった——**その場しのぎは Day 48 で表にした**。
+/// `「SSAO」の F3` で遮蔽率だけを全画面に出せる——
 /// **合成した絵からは半径もバイアスも読み取れない**ので、これが今日の主な道具になる。
 ///
 /// **Day 38 での変更**: 輪郭の階段が消え、絵に色が付いた。
@@ -181,8 +180,8 @@ namespace HonyaEngine;
 /// FXAA は文字を滲ませるため、外に出さないと今日の絵が成立しない——
 /// Day 37 の <see cref="OnRender"/> に「分けるのは Day 38」と書いた宿題がこれ。
 ///
-/// キーは `Shift+F1`〜`F12`(`Shift+F3` だけは Day 24 の先客が居るので空き)。
-/// `Shift+F11` の左右比較が今日の主な道具になる——
+/// キーは **「FXAA と色調整」ページ**(`F1` で送る)。
+/// `「FXAA と色調整」の F11` の左右比較が今日の主な道具になる——
 /// **アンチエイリアスも色も、隣に並べないと分からない**。
 ///
 /// **Day 39 での変更**: **デモ v1 が組み上がった**。
@@ -204,12 +203,13 @@ namespace HonyaEngine;
 ///
 /// 3つ目は<b>シーンをファイルに書くこと</b>(<see cref="DemoScene"/>)。
 /// <c>assets/scenes/demo-v1.json</c> に地面・壁・小物・光の設定が並び、
-/// <c>Ctrl+Shift+F10</c> で読み直せる。
+/// <c>「デモ v1」の F11</c> で読み直せる。
 /// **影・SSAO・本描画の3つのパスが同じ並びを回る**ようになり、
 /// Day 33 で書いた「フラグにするのは Day 39 の仕事」という宿題も片付いた。
 ///
-/// キーは `Ctrl+Shift+F1`〜`F12`、自己チェックは `Ctrl+Alt+F12`。
-/// `Ctrl+Shift+F12` で決めの構図に飛ぶ。
+/// キーは **「デモ v1」ページ**(`F1` で送る)。自己チェックだけは席が足りず、
+/// 「カメラワークと機能」の 1 に置いてある。
+/// `「デモ v1」の 1` で決めの構図に飛ぶ。
 ///
 /// **Day 40 での変更**: **デモ v1 が動き出した**。Phase 6 の最終日。
 ///
@@ -220,16 +220,16 @@ namespace HonyaEngine;
 /// 1つ目は<b>カメラワーク</b>(<see cref="CameraPath"/>)。
 /// 注視点・距離・方位・仰角・画角を持つキーフレームを並べ、
 /// Catmull-Rom スプラインで繋いでゆっくり巡回する。
-/// <c>Ctrl+Alt+F4</c> で線形補間に落とすと、**キーを通過する瞬間に速度が飛ぶ**——
+/// <c>「カメラワークと機能」の F5</c> で線形補間に落とすと、**キーを通過する瞬間に速度が飛ぶ**——
 /// 絵では気づけないので、HUD に m/s と 度/s を出してある。
 ///
 /// 2つ目は<b>機能の ON/OFF 表</b>(<see cref="FeatureToggles"/>)。
 /// Day 31〜38 のスイッチは switch 文に8日ぶん散らばっていて、
 /// 「全部 OFF の素の絵」へ1キーで行けなかった。
-/// 表にすると <c>Ctrl+Alt+F9</c> の1押しで往復でき、
-/// <c>Ctrl+Alt+F10</c> の機能ツアーは
+/// 表にすると <c>「カメラワークと機能」の F10</c> の1押しで往復でき、
+/// <c>「カメラワークと機能」の F11</c> の機能ツアーは
 /// **1つずつ切っては戻す**のを勝手に繰り返す。
-/// Day 39 の <c>Ctrl+Shift+F12</c> がフラグを手で12個並べていたのも、
+/// Day 39 の <c>「デモ v1」の 1</c> がフラグを手で12個並べていたのも、
 /// <c>SetAll(true)</c> の1行になった。
 ///
 /// これで Phase 6 のマイルストーン——
@@ -238,8 +238,8 @@ namespace HonyaEngine;
 /// ゆっくりしたカメラパンで見られる(各機能は ON/OFF 切り替え可能)**——
 /// に到達する。
 ///
-/// キーは `Ctrl+Alt+F1`〜`F11`(`F12` は Day 39 の自己チェックが先客)。
-/// `Ctrl+Alt+F1` で再生が始まる。
+/// キーは **「カメラワークと機能」ページ**(`F1` で送る)。
+/// `「カメラワークと機能」の F2` で再生が始まる。
 /// </summary>
 internal static class Program
 {
@@ -358,7 +358,7 @@ internal static class Program
     // ここに増える状態は「UI をどこで描くか」の1つだけになった。
 
     /// <summary>
-    /// HUD の文字を**後処理に通すか**(Shift+F5)。
+    /// HUD の文字を**後処理に通すか**(「FXAA と色調整」の F5)。
     ///
     /// <b>Day 37 まではずっと通していた</b>。シーンと同じバッファに描いていたので、
     /// 露出を上げると文字まで白飛びし、トーンマップの曲線で色が転んでいた。
@@ -367,7 +367,7 @@ internal static class Program
     ///
     /// <para>
     /// 既定は <c>false</c>(通さない)。ON にすると Day 37 までの挙動に戻るので、
-    /// 露出を上げて文字が飛ぶところと、Shift+F1 で FXAA を切ったときに
+    /// 露出を上げて文字が飛ぶところと、「FXAA と色調整」の F2 で FXAA を切ったときに
     /// 字の輪郭が戻るところを見比べられる。
     /// </para>
     /// </summary>
@@ -401,7 +401,13 @@ internal static class Program
     /// </summary>
     private static FeatureToggles _features = null!;
 
-    /// <summary>カメラワークを再生中か(Ctrl+Alt+F2)。</summary>
+    /// <summary>
+    /// **デバッグ操作の割り当て表**(<see cref="BuildDebugMenu"/> が組む。Day 48)。
+    /// Day 31〜47 のスイッチ 159 個が 16 ページに入っている。
+    /// </summary>
+    private static DebugMenu _menu = null!;
+
+    /// <summary>カメラワークを再生中か(「カメラワークと機能」の F3)。</summary>
     private static bool _cameraPlaying;
 
     /// <summary>再生位置(秒)。1周したら勝手に戻る。</summary>
@@ -412,10 +418,10 @@ internal static class Program
 
     private static readonly float[] CameraSpeedSteps = [0.25f, 0.5f, 1.0f, 2.0f];
 
-    /// <summary>補間方式(Ctrl+Alt+F4)。**線形にすると継ぎ目で速度が飛ぶ**。</summary>
+    /// <summary>補間方式(「カメラワークと機能」の F5)。**線形にすると継ぎ目で速度が飛ぶ**。</summary>
     private static CameraInterpolation _cameraInterpolation = CameraInterpolation.CatmullRom;
 
-    /// <summary>区間の出入りで速度を 0 に寄せるか(Ctrl+Alt+F5)。</summary>
+    /// <summary>区間の出入りで速度を 0 に寄せるか(「カメラワークと機能」の F6)。</summary>
     private static bool _cameraEase = true;
 
     /// <summary>いま画面が動いている速さ(HUD 用。**線形と Catmull-Rom の差はここに出る**)。</summary>
@@ -428,7 +434,7 @@ internal static class Program
     /// <summary>組み上げたシーン。無い間は Day 38 までのデモが出る。</summary>
     private static DemoScene? _demo;
 
-    /// <summary>使える HDRI。**Ctrl+Shift+F3 で回す**。3枚で「太陽の写り方」が3通り見られる。</summary>
+    /// <summary>使える HDRI。**「デモ v1」の F4 で回す**。3枚で「太陽の写り方」が3通り見られる。</summary>
     private static readonly string[] HdriPaths =
     [
         // 太陽がきれいに撮れているもの。抽出が素直に決まる(視半径 0.3 度)。
@@ -455,7 +461,7 @@ internal static class Program
     /// <summary>空を Y 軸まわりに回した角度(ラジアン)。<c>equirect.frag</c> の <c>uSkyYaw</c>。</summary>
     private static float _skyYaw;
 
-    /// <summary>空の回転を効かせるか(Ctrl+Shift+F11。**回さないとどうなるか**を見る窓)。</summary>
+    /// <summary>空の回転を効かせるか(「デモ v1」の F12。**回さないとどうなるか**を見る窓)。</summary>
     private static bool _applySkyYaw = true;
 
     /// <summary>空を回したあとの太陽の向き(進む向き)。**平行光源に入るのはこちら**。</summary>
@@ -464,12 +470,12 @@ internal static class Program
     /// <summary>環境マップから太陽を抜くか(**二重計上を消す**)。</summary>
     private static bool _removeSunFromIbl = true;
 
-    /// <summary>太陽を取り出すしきい値(最大輝度に対する比)。Ctrl+Shift+F6 で回す。</summary>
+    /// <summary>太陽を取り出すしきい値(最大輝度に対する比)。「デモ v1」の F7 で回す。</summary>
     private static float _sunThreshold = 0.05f;
 
     private static readonly float[] SunThresholdSteps = [0.30f, 0.10f, 0.05f, 0.02f];
 
-    /// <summary>影を落とす設定を一括で無視するか(Ctrl+Shift+F7。**影が消える**)。</summary>
+    /// <summary>影を落とす設定を一括で無視するか(「デモ v1」の F8。**影が消える**)。</summary>
     private static bool _sceneShadows = true;
 
     /// <summary><c>.hdr</c> の読み込みと解析にかかった時間。</summary>
@@ -488,32 +494,32 @@ internal static class Program
 
     private static float _manualShadowRadius;
 
-    /// <summary>太陽を何度回したか(Ctrl+Alt+5)。**空と平行光源が同時に動く**。</summary>
+    /// <summary>太陽を何度回したか(「IBL と環境マップ」の F6)。**空と平行光源が同時に動く**。</summary>
     private static float _sunYaw;
 
-    /// <summary>IBL の3枚を巡回表示する状態(Ctrl+Alt+7)。0 = 通常。</summary>
+    /// <summary>IBL の3枚を巡回表示する状態(「IBL と環境マップ」の F8)。0 = 通常。</summary>
     private static int _iblViewIndex;
 
     // ===== Day 34: 法線マップと視差マッピング =====
 
-    /// <summary>法線マップを使うか(Alt+1)。OFF にすると頂点法線だけになる。</summary>
+    /// <summary>法線マップを使うか(「法線マップと視差」の F2)。OFF にすると頂点法線だけになる。</summary>
     private static bool _normalMapping = true;
 
-    /// <summary>法線マップの緑を反転するか(Alt+8)。**DirectX 形式の素材の見え方**。</summary>
+    /// <summary>法線マップの緑を反転するか(「法線マップと視差」の F9)。**DirectX 形式の素材の見え方**。</summary>
     private static bool _flipGreen;
 
-    /// <summary>視差の方式(Alt+2)。0=なし 1=単純視差 2=急峻視差 3=視差遮蔽。</summary>
+    /// <summary>視差の方式(「法線マップと視差」の F3)。0=なし 1=単純視差 2=急峻視差 3=視差遮蔽。</summary>
     private static int _parallaxMode = 3;
 
-    /// <summary>視差の深さ(Alt+3)。<see cref="Material.ParallaxScale"/> に入れる。</summary>
+    /// <summary>視差の深さ(「法線マップと視差」の F4)。<see cref="Material.ParallaxScale"/> に入れる。</summary>
     private static float _parallaxScale = 0.05f;
 
-    /// <summary>レイマーチの刻み数(Alt+4)。真正面で最小、寝かせるほど最大に近づく。</summary>
+    /// <summary>レイマーチの刻み数(「法線マップと視差」の F5)。真正面で最小、寝かせるほど最大に近づく。</summary>
     private static int _parallaxMinSteps = 8;
     private static int _parallaxMaxSteps = 32;
 
     /// <summary>
-    /// 材質テストの板を出すか(Alt+5)。**視差はこれが無いと確かめられない**。
+    /// 材質テストの板を出すか(「法線マップと視差」の F6)。**視差はこれが無いと確かめられない**。
     ///
     /// 読み込むモデルは高さマップを持っていない(glTF に無い)ので、
     /// 視差を見るには自前の素材を貼った面が要る。
@@ -524,11 +530,11 @@ internal static class Program
     /// <summary>テスト板のマテリアル。<see cref="SurfaceMaps"/> が作った3枚を貼る。</summary>
     private static Material _surfaceMaterial = null!;
 
-    /// <summary>テスト板の UV の繰り返し数(Alt+6)。</summary>
+    /// <summary>テスト板の UV の繰り返し数(「法線マップと視差」の F7)。</summary>
     private static float _surfaceTiling = 2.0f;
 
     /// <summary>
-    /// ファイルの TANGENT を捨てて、こちらで作り直すか(Alt+7)。
+    /// ファイルの TANGENT を捨てて、こちらで作り直すか(「法線マップと視差」の F8)。
     /// **見比べるためだけの切り替え**で、実用では常に false。
     /// </summary>
     private static bool _forceGeneratedTangents;
@@ -536,7 +542,7 @@ internal static class Program
     // ===== Day 35: 物理ベースレンダリング(Cook-Torrance)=====
 
     /// <summary>
-    /// Cook-Torrance を使うか(Ctrl+Shift+1)。OFF で Day 34 のランバートに戻る。
+    /// Cook-Torrance を使うか(「PBR」の F2)。OFF で Day 34 のランバートに戻る。
     ///
     /// **切り替えられるようにしてあるのが今日の肝**。
     /// PBR の値打ちは「単体で見て正しい」ことではなく
@@ -545,26 +551,26 @@ internal static class Program
     /// </summary>
     private static bool _pbrEnabled = true;
 
-    /// <summary>金属度の上書き(Ctrl+Shift+2)。0=モデル既定 / 1=0.0 / 2=0.5 / 3=1.0。</summary>
+    /// <summary>金属度の上書き(「PBR」の F3)。0=モデル既定 / 1=0.0 / 2=0.5 / 3=1.0。</summary>
     private static int _metallicOverride;
 
-    /// <summary>粗さの上書き(Ctrl+Shift+3)。0=モデル既定 / 1=0.05 / 2=0.3 / 3=0.6 / 4=1.0。</summary>
+    /// <summary>粗さの上書き(「PBR」の F4)。0=モデル既定 / 1=0.05 / 2=0.3 / 3=0.6 / 4=1.0。</summary>
     private static int _roughnessOverride;
 
     /// <summary>
-    /// 非金属の F0(Ctrl+Shift+4)。既定は 0.04。
+    /// 非金属の F0(「PBR」の F5)。既定は 0.04。
     /// 0.00(反射しない) / 0.04(普通) / 0.08(宝石) / 0.17(ダイヤモンド)。
     /// </summary>
     private static float _dielectricF0 = Pbr.DielectricF0;
 
-    /// <summary>α の作り方(Ctrl+Shift+6)。true なら α = roughness²(glTF の流儀)。</summary>
+    /// <summary>α の作り方(「PBR」の F7)。true なら α = roughness²(glTF の流儀)。</summary>
     private static bool _perceptualRoughness = true;
 
-    /// <summary>環境光に粗い鏡面を足すか(Ctrl+Shift+7)。**Day 36 の IBL までのつなぎ**。</summary>
+    /// <summary>環境光に粗い鏡面を足すか(「PBR」の F8)。**Day 36 の IBL までのつなぎ**。</summary>
     private static bool _ambientSpecular = true;
 
     /// <summary>
-    /// 材質グリッドを出すか(Ctrl+Shift+5)。**PBR はこれが無いと確かめられない**。
+    /// 材質グリッドを出すか(「PBR」の F6)。**PBR はこれが無いと確かめられない**。
     ///
     /// 縦に金属度、横に粗さを振った球を並べる。
     /// PBR の解説がどれもこの絵を載せるのは、
@@ -594,7 +600,7 @@ internal static class Program
     private static Material _gridMaterial = null!;
 
     /// <summary>
-    /// 材質グリッドのベースカラー(Ctrl+Shift+8)。
+    /// 材質グリッドのベースカラー(「PBR」の F9)。
     ///
     /// **金属は F0 がベースカラーそのものになる**ので、
     /// 色を変えると金属の行だけ鏡面に色が乗る。
@@ -693,14 +699,14 @@ internal static class Program
     /// </summary>
     private static AnimationPlayer? _animation;
 
-    /// <summary>再生速度の候補(Alt+F5 で巡回)。</summary>
+    /// <summary>再生速度の候補(「スキニング」の F5 で巡回)。</summary>
     private static readonly float[] PlaybackSpeeds = [0.25f, 0.5f, 1.0f, 2.0f];
 
     private static int _playbackSpeedIndex = 2;
 
     // --- Day 42: アニメーション制御 ---
 
-    /// <summary>ロコモーションの決め方(Shift+Alt+F2)。</summary>
+    /// <summary>ロコモーションの決め方(「アニメのブレンド」の F3)。</summary>
     private enum LocomotionMode
     {
         /// <summary>Day 41 と同じ。クリップを1本そのまま再生する。</summary>
@@ -731,7 +737,7 @@ internal static class Program
     /// </summary>
     private static float _moveSpeed;
 
-    /// <summary>速度を自動で上下させるか(Shift+Alt+F7)。**既定で ON**。</summary>
+    /// <summary>速度を自動で上下させるか(「アニメのブレンド」の F7)。**既定で ON**。</summary>
     private static bool _speedSweep = true;
 
     private static float _sweepPhase;
@@ -742,7 +748,7 @@ internal static class Program
     /// <summary>速度の上限。Fox の走りのクリップが表している速さに合わせてある。</summary>
     private const float MaxMoveSpeed = 3.2f;
 
-    /// <summary>クロスフェードの候補(Shift+Alt+F8)。**0 を先頭に置いてある**。</summary>
+    /// <summary>クロスフェードの候補(「アニメのブレンド」の F8)。**0 を先頭に置いてある**。</summary>
     private static readonly float[] CrossFadeSeconds = [0.0f, 0.1f, 0.25f, 0.5f];
 
     private static int _crossFadeIndex = 2;
@@ -751,7 +757,7 @@ internal static class Program
     private static readonly ClipWeight[] _blendScratch = new ClipWeight[AnimationPlayer.MaxBlendClips];
 
     /// <summary>
-    /// コマ送り(Alt+F8)の1回ぶん。**1/30 秒**。
+    /// コマ送り(「スキニング」の F8)の1回ぶん。**1/30 秒**。
     ///
     /// アニメーションのキーは 24〜30fps 刻みで打たれていることが多いので、
     /// この幅で送ると「キーとキーの間」がちょうど1〜2コマになる。
@@ -808,7 +814,7 @@ internal static class Program
         /// 起伏の上へ球・箱・カプセルを 60 個降らせる。見どころは2つ——
         /// <b>谷に転がり集まること</b>(地形の判定)と、
         /// <b>候補の組が総当たりの数分の1になること</b>(ブロードフェーズ)。
-        /// Shift+G で総当たりに戻すと、
+        /// 「地形とブロードフェーズ」の F3 で総当たりに戻すと、
         /// <b>絵は1ピクセルも変わらないのに1ステップの時間だけが増える</b>。
         /// </summary>
         Terrain,
@@ -828,10 +834,10 @@ internal static class Program
     /// <summary>キャラクターデモの筋書き(Day 45)。**確かめたいことが1つずつ**ある。</summary>
     private enum CharacterScene
     {
-        /// <summary>傾きを振った坂。**坂の上限(Alt+X)が効く**(要点2)。</summary>
+        /// <summary>傾きを振った坂。**坂の上限(「カプセルとキャラクタ」の F4)が効く**(要点2)。</summary>
         Slopes,
 
-        /// <summary>高さを振った階段。**段差の乗り越え(Ctrl+Shift+X)が効く**(要点3)。</summary>
+        /// <summary>高さを振った階段。**段差の乗り越え(「カプセルとキャラクタ」の F5)が効く**(要点3)。</summary>
         Steps,
 
         /// <summary>箱と球とカプセルが転がっている中を歩く。**キネマティックと動的の同居**。</summary>
@@ -848,14 +854,14 @@ internal static class Program
         Terrain,
     }
 
-    /// <summary>物理デモを出しているか(Ctrl+Shift+Alt+F1)。</summary>
+    /// <summary>物理デモを出しているか(「剛体力学」の F2)。</summary>
     private static bool _physicsDemo;
 
     /// <summary>
     /// 剛体の世界。**Program は「組み立てて、進めて、描く」だけ**。
     ///
     /// 中身(積分・判定・解決)は <see cref="PhysicsWorld"/> にあり、
-    /// そこは GL も窓も一切知らない。おかげで自己チェック(Ctrl+Shift+Alt+F12)は
+    /// そこは GL も窓も一切知らない。おかげで自己チェック(「剛体力学」の 1)は
     /// **画面を1枚も出さずに走る**——Day 26 の衝突判定、Day 42 のブレンドと同じ性格。
     /// </summary>
     private static readonly PhysicsWorld Physics = new();
@@ -877,18 +883,18 @@ internal static class Program
     private static Material _physicsMaterial = null!;
 
     /// <summary>
-    /// 反発係数の候補(Ctrl+Shift+Alt+F3)。
+    /// 反発係数の候補(「剛体力学」の F4)。
     ///
     /// **これは「これから作る球の既定値」**で、今ある球の値とは限らない。
     /// 落下の筋書きは5球にそれぞれ違う e を振っているので、
     /// HUD の「既定e」と絵が食い違って見える——
-    /// `Ctrl+Shift+Alt+F3` を1回押すと全部がこの値に揃う。
+    /// `「剛体力学」の F4` を1回押すと全部がこの値に揃う。
     /// </summary>
     private static readonly float[] RestitutionSteps = [0.0f, 0.3f, 0.6f, 0.9f];
 
     private static int _restitutionIndex = 2;
 
-    /// <summary>速度の解決を何周するか(Ctrl+Shift+Alt+F5)。**1 が素朴版**。</summary>
+    /// <summary>速度の解決を何周するか(「剛体力学」の F6)。**1 が素朴版**。</summary>
     private static readonly int[] IterationSteps = [1, 2, 4, 8];
 
     private static int _iterationIndex = 3;
@@ -896,7 +902,7 @@ internal static class Program
     /// <summary>物理だけを止める。**画面は動いたまま**なのでカメラを回して観察できる。</summary>
     private static bool _physicsPaused;
 
-    /// <summary>コマ送りで進めたいステップ数(Ctrl+Shift+Alt+F10)。</summary>
+    /// <summary>コマ送りで進めたいステップ数(「剛体力学」の F11)。</summary>
     private static int _physicsStepsRequested;
 
     /// <summary>1ステップの所要時間 [ms]。移動平均。</summary>
@@ -911,7 +917,7 @@ internal static class Program
     /// <summary>降らせた球の数。色を巡回させるのに使う。</summary>
     private static int _spawnCount;
 
-    /// <summary>次に撃つときに中心を外すか(Ctrl+Shift+Alt+F8 で交互に入れ替わる)。</summary>
+    /// <summary>次に撃つときに中心を外すか(「剛体力学」の F9 で交互に入れ替わる)。</summary>
     private static bool _kickOffCenter = true;
 
     // ================================================================
@@ -919,7 +925,7 @@ internal static class Program
     // ================================================================
 
     /// <summary>
-    /// 接触点を描くか(Ctrl+Shift+Alt+3)。**マニフォールドを目で見るための唯一の窓**。
+    /// 接触点を描くか(「箱の衝突」の F4)。**マニフォールドを目で見るための唯一の窓**。
     ///
     /// 数字(HUD の「接触」)だけでは、4点がどこに立っているかが分からない。
     /// 箱を床の縁に半分載せたときに、
@@ -931,7 +937,7 @@ internal static class Program
     private static Material _contactMaterial = null!;
 
     /// <summary>
-    /// 1組あたりの接触点の上限(Ctrl+Shift+Alt+4)。**今日いちばんの実験**。
+    /// 1組あたりの接触点の上限(「箱の衝突」の F5)。**今日いちばんの実験**。
     ///
     /// 4 が本来の値。1 にすると Day 43 の「1点だけの接触」に戻り、
     /// 床に置いた箱が支えきれずに震え出す。
@@ -948,7 +954,7 @@ internal static class Program
     // ================================================================
 
     /// <summary>
-    /// 摩擦の坂(Ctrl+F、または Ctrl+Shift+Alt+2 で選ぶ)。**今日の到達点**(要点3)。
+    /// 摩擦の坂(「摩擦とソルバ」の F2、または 「箱の衝突」の F3 で選ぶ)。**今日の到達点**(要点3)。
     ///
     /// 同じ坂の上に、合成 μ だけを振った箱を5つ並べる。
     /// 質量も寸法も初速も同じなので、<b>止まるかどうかの違いは μ だけで説明が付く</b>。
@@ -1037,7 +1043,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 摩擦係数の上書きを1段変える(Shift+Alt+F)。**次のステップから効く**。
+    /// 摩擦係数の上書きを1段変える(「摩擦とソルバ」の F7)。**次のステップから効く**。
     ///
     /// 既に生まれている接触点にも次のステップで新しい μ が入るので、
     /// <b>押した瞬間に坂の箱が一斉に滑り出す/止まる</b>のが見える。
@@ -1099,7 +1105,7 @@ internal static class Program
     //  Day 45: カプセル衝突とキャラクターコントローラ(キネマティック)
     // ================================================================
 
-    /// <summary>キャラクターデモを出しているか(Ctrl+X)。</summary>
+    /// <summary>キャラクターデモを出しているか(「カプセルとキャラクタ」の F2)。</summary>
     private static bool _characterDemo;
 
     /// <summary>
@@ -1175,11 +1181,11 @@ internal static class Program
     /// <summary>地形を描くマテリアル。</summary>
     private static Material _terrainMaterial = null!;
 
-    /// <summary>格子のマスを描くか(Alt+G)。**ブロードフェーズを目で見る**。</summary>
+    /// <summary>格子のマスを描くか(「地形とブロードフェーズ」の F4)。**ブロードフェーズを目で見る**。</summary>
     private static bool _showGridCells;
 
     /// <summary>
-    /// 試せるマスの大きさ [m](Ctrl+Shift+G で巡回)。
+    /// 試せるマスの大きさ [m](「地形とブロードフェーズ」の F5 で巡回)。
     ///
     /// **3D では小さいほうへ外す罰が重い**——1個がまたぐマスの数は
     /// 辺の比の3乗で増える。2倍細かくすると 8 倍。
@@ -1216,7 +1222,7 @@ internal static class Program
     private static readonly float[] RampFrictions = [0.1f, 0.3f, 0.5f, 0.7f, 0.9f];
 
     /// <summary>
-    /// 摩擦係数の上書きの候補(Shift+Alt+F)。**負なら体ごとの値を使う**。
+    /// 摩擦係数の上書きの候補(「摩擦とソルバ」の F7)。**負なら体ごとの値を使う**。
     ///
     /// 「今の場面で全部を μ = 0.2 にしたらどうなるか」を1キーで試すためのもの。
     /// 地形の上の 60 個を一斉に凍らせたり滑らせたりできる。
@@ -1226,7 +1232,7 @@ internal static class Program
     private static int _frictionIndex;
 
     /// <summary>
-    /// 画面に出す成分(Shift+9)。
+    /// 画面に出す成分(「HDR とブルーム」の F10)。
     /// 0=通常 1=ベースカラー 2=法線(頂点) 3=メタリック 4=ラフネス 5=AO 6=発光 7=法線マップ
     /// 8=影の係数(Day 33)。22=骨の重み(Day 41)。
     /// </summary>
@@ -1262,7 +1268,7 @@ internal static class Program
     /// ここを 2.5 にすると、**モデル全部が発光体のように滲む**。
     /// HDR パイプラインは 1.0 を超えたものを「まぶしいもの」として扱うので、
     /// 普通の物体が 1.0 を超えると絵が壊れる。
-    /// **明るさの基準を決めるのは光源側の仕事**で、露出(Shift+5/6)はそのあとの調整。
+    /// **明るさの基準を決めるのは光源側の仕事**で、露出(「HDR とブルーム」の F6/6)はそのあとの調整。
     /// </summary>
     private static Vector3 _lightColor = new(1.15f, 1.11f, 1.04f);
 
@@ -1566,7 +1572,7 @@ internal static class Program
     ///
     /// **ACES にも白飛びする点(ホワイトポイント)はある**。
     /// 使っているカーブフィットは 7 くらいで 1.0 に達するので、8 から右は白のまま。
-    /// そこを見たければ露出を下げる(Shift+5)——
+    /// そこを見たければ露出を下げる(「HDR とブルーム」の F6)——
     /// **「畳み方」と「どこを切り出すか」は別の道具**で、両方いる。
     /// </summary>
     private static readonly float[] LadderSteps = [0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f];
@@ -1810,7 +1816,7 @@ internal static class Program
         // --- 今日の主役: デモ v1 の下ごしらえ(Day 39)---
         //
         // **手書きの光を控えておく**。デモに入ると HDRI から測った値で上書きするので、
-        // Ctrl+Shift+F1 で戻ったときに書き戻せるようにしておく。
+        // 「デモ v1」の F2 で戻ったときに書き戻せるようにしておく。
         // 「元に戻す」を後から足すのは大抵つらいので、上書きする側を書くときに一緒に用意する。
         _manualLightDirection = _lightDirection;
         _manualLightColor = _lightColor;
@@ -1825,7 +1831,13 @@ internal static class Program
         // その `_ssao` や `_post` が出来上がっている必要がある。
         _features = BuildFeatureToggles();
 
-        // Day 38 までの絵から始める。デモは Ctrl+Shift+F1 で入る。
+        // --- 今日の主役: デバッグ操作の割り当て表(Day 48)---
+        //
+        // **表も同じ事情で、ここより後ろでなければ組めない**。
+        // 中身は `_ssao` や `_post` を触るラムダなので、先に出来上がっている必要がある。
+        _menu = BuildDebugMenu();
+
+        // Day 38 までの絵から始める。デモは 「デモ v1」の F2 で入る。
         _useHdriSky = false;
         _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
 
@@ -2217,153 +2229,24 @@ internal static class Program
         Console.WriteLine("Enter:卒業制作(見下ろし型アクション)の開始 / 終了   Backspace:タイトルへ戻る");
         Console.WriteLine("  ゲーム中: 矢印キーで移動、攻撃は自動。レベルアップで ↑↓ と Enter で選ぶ");
         Console.WriteLine();
-        Console.WriteLine("--- Day 43: 剛体力学の基礎(Ctrl+Shift+Alt+F1〜F12)---");
-        Console.WriteLine("Ctrl+Shift+Alt+F1:物理デモ ON/OFF。**球が落ちて跳ねて積まれる**");
-        Console.WriteLine("Ctrl+Shift+Alt+F2:積分法(セミインプリシット / **陽的オイラー**。数字キー4と併せて見る)");
-        Console.WriteLine("Ctrl+Shift+Alt+F3:反発係数 0/0.3/0.6/0.9  Ctrl+Shift+Alt+F4:筋書き(落下/積み上げ/撞き玉)");
-        Console.WriteLine("Ctrl+Shift+Alt+F5:速度の反復 1/2/4/8(**Day 47 の温存が入って 1 でも持つ**)  Ctrl+Shift+Alt+F6:位置補正");
-        Console.WriteLine("Ctrl+Shift+Alt+F7:球を1つ降らせる  Ctrl+Shift+Alt+F8:撃つ(**中心 / 中心を外す が交互**)");
-        Console.WriteLine("Ctrl+Shift+Alt+F9:内訳(運動量・エネルギー・めり込み)  Ctrl+Shift+Alt+F10:停止");
-        Console.WriteLine("Ctrl+Shift+Alt+F11:コマ送り  Ctrl+Shift+Alt+F12:Day 43 の自己チェック");
+
+        // --- 割り当て表から起こす(Day 48)---
+        //
+        // 昨日までここには **140 行のキー一覧**が手で並んでいた。
+        // Day 31 から毎日書き足していたもので、
+        // <b>書き忘れても動く</b>——つまり必ずずれていく種類のコードだった。
+        // 実際、Day 40 の行は「「カメラワークと機能」の F12」で終わっていて F12 が抜けている。
+        // 表から起こせば、ずれようが無い。
+        _menu.PrintIndex();
         Console.WriteLine();
-        Console.WriteLine("--- Day 44: 箱(OBB)の衝突(Ctrl+Shift+Alt+数字キー)---");
-        Console.WriteLine("Ctrl+Shift+Alt+1:箱デモ ON/OFF。**傾きを振った箱が落ちて、面で落ち着く**");
-        Console.WriteLine("Ctrl+Shift+Alt+2:筋書き(箱を落とす/箱を積む/球と箱/箱が転がる/**カプセルを落とす**)");
-        Console.WriteLine("Ctrl+Shift+Alt+3:接触点の表示 ON/OFF(**光る玉がマニフォールドの点**)");
-        Console.WriteLine("Ctrl+Shift+Alt+4:1組あたりの接触点 1/2/4(**1 にすると箱もカプセルも落ち着かない**)");
-        Console.WriteLine("Ctrl+Shift+Alt+5:箱を1つ降らせる  Ctrl+Shift+Alt+6:接触の内訳(どの軸が効いたか)");
-        Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。切ると積んだ箱が横にずれる)");
-        Console.WriteLine("Ctrl+Shift+Alt+0:Day 44 の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 45: カプセル衝突とキャラクターコントローラ(X の段)---");
-        Console.WriteLine("Ctrl+X:キャラクターデモ ON/OFF。**坂と階段の上を歩き回れる。今日の到達点**");
-        Console.WriteLine("  矢印キー:歩く(カメラ基準)  X 押しっぱなし:走る  Space:ジャンプ");
-        Console.WriteLine("Shift+X:筋書き(坂/階段/障害物)  Alt+X:**坂の上限 ON/OFF(切ると壁も登れる)**");
-        Console.WriteLine("Ctrl+Shift+X:**段差の乗り越え ON/OFF(切ると 15cm の段で止まる)**");
-        Console.WriteLine("Ctrl+Alt+X:カプセルを1つ降らせる  Shift+Alt+X:キャラクターの内訳");
-        Console.WriteLine("Ctrl+Shift+Alt+X:今日の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 46: 地形とブロードフェーズ(G の段)---");
-        Console.WriteLine("Ctrl+G:地形デモ ON/OFF。**起伏の上を歩ける。今日の到達点**");
-        Console.WriteLine("  緩い丘(29度)は登れて、急な丘(58度)は登れない。Alt+X で上限を切ると登れる");
-        Console.WriteLine("Shift+G:ブロードフェーズ(**均一グリッド / 総当たり**。絵は変わらず時間だけ変わる)");
-        Console.WriteLine("Alt+G:格子のマスを線で描く  Ctrl+Shift+G:マスの大きさ 0.5/1/2/4/8m");
-        Console.WriteLine("Ctrl+Alt+G:体を 40 個降らせる(**組の数の減り方を見る**)");
-        Console.WriteLine("Shift+Alt+G:地形とブロードフェーズの内訳  Ctrl+Shift+Alt+G:今日の自己チェック");
-        Console.WriteLine("  ※素の G(3D背景の ON/OFF)は今までどおり。修飾キー付きだけが今日のもの");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 47: 摩擦・Sequential Impulses・スリープ(F の段)---");
-        Console.WriteLine("Ctrl+F:摩擦デモ ON/OFF。**坂 26.57 度に μ を振った5箱。今日の到達点**");
-        Console.WriteLine("  μ=0.1/0.3/0.5/0.7/0.9。**tan 26.57°= 0.50 が境目**で、上の2つだけ止まる");
-        Console.WriteLine("Shift+F:摩擦 ON/OFF  Shift+Alt+F:μ の上書き(体ごと/0/0.2/0.5/1.0)");
-        Console.WriteLine("Alt+F:**蓄積インパルス ON/OFF**(切ると Day 46 の解き方。柱が沈む)");
-        Console.WriteLine("Ctrl+Shift+F:**温存(ウォームスタート)ON/OFF**(切ると反復を減らせなくなる)");
-        Console.WriteLine("Ctrl+Alt+F:眠り ON/OFF(**色が沈んだ体が眠っている**)");
-        Console.WriteLine("Ctrl+Shift+Alt+F:今日の自己チェック");
-        Console.WriteLine("  ※素の F(視野角)は今までどおり。修飾キー付きだけが今日のもの");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
-        Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
-        Console.WriteLine("Shift+Alt+F2:決め方(OFF / ブレンドツリー / ステートマシン)");
-        Console.WriteLine("Shift+Alt+F3:位相同期 ON/OFF(**OFF にすると足が合わなくなる**)");
-        Console.WriteLine("Shift+Alt+F5 / F6:速度を 0.2m/s ずつ増減  Shift+Alt+F7:自動スイープ ON/OFF");
-        Console.WriteLine("Shift+Alt+F8:クロスフェード 0/0.1/0.25/0.5 秒(ステートマシンのとき)");
-        Console.WriteLine("Shift+Alt+F9:今の混合の内訳  Shift+Alt+F12:今日の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 41: 頂点ブレンディングとスキニング(Alt+F1〜F12)---");
-        Console.WriteLine("Alt+F1:CesiumMan を出して歩かせる。**今日の到達点はこれ**");
-        Console.WriteLine("Alt+F2:アニメ付きの5体を巡回(人型 / キツネ / 棒 / 最小例 / スキン無し)");
-        Console.WriteLine("Alt+F3:次のクリップへ(**Fox だけが Survey / Walk / Run の3本**)");
-        Console.WriteLine("Alt+F5:再生 / 一時停止  Alt+F8:1/30 秒ずつコマ送り  Alt+F10:先頭へ戻す");
-        Console.WriteLine("Alt+F6:スキニング ON/OFF(**骨は動いたまま頂点だけ止まる**)");
-        Console.WriteLine("Alt+F7:再生速度 0.25/0.5/1/2 倍  Alt+F9:骨の重みを色で見る(成分 22)");
-        Console.WriteLine("Alt+F11:リグの内訳を出す  Alt+F12:今日の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 40: カメラワークと機能トグル(Ctrl+Alt+F1〜F11)---");
-        Console.WriteLine("Ctrl+Alt+F1:デモ v1 を出して**カメラワークを再生**。**今日の到達点はこれ**");
-        Console.WriteLine("Ctrl+Alt+F2:再生 / 一時停止(止めれば左ドラッグで手動に戻れる)");
-        Console.WriteLine("Ctrl+Alt+F3:次のショットへ飛ぶ  Ctrl+Alt+F6:再生速度 0.25/0.5/1/2 倍");
-        Console.WriteLine("Ctrl+Alt+F4:補間 Catmull-Rom / 線形(**通過点で速度が飛ぶ**)");
-        Console.WriteLine("Ctrl+Alt+F5:イージング ON/OFF(**軌跡は変わらず、速さの配分だけ変わる**)");
-        Console.WriteLine("Ctrl+Alt+F7:機能を1つ選ぶ  Ctrl+Alt+F8:選んだ機能を ON/OFF");
-        Console.WriteLine("Ctrl+Alt+F9:全部 ON / 全部 OFF(**必須構成の絵と素の絵を往復**)");
-        Console.WriteLine("Ctrl+Alt+F10:機能ツアー(1つずつ切っては戻す)  Ctrl+Alt+F11:今日の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 39: デモ v1 の組み上げ(Ctrl+Shift+F1〜F12)---");
-        Console.WriteLine("Ctrl+Shift+F12:デモ v1 の決めの構図へ。**今日の到達点はこの1枚**");
-        Console.WriteLine("Ctrl+Shift+F1:デモ ON/OFF  Ctrl+Shift+F2:空を HDRI / 手焼き(Day 36)で切替");
-        Console.WriteLine("Ctrl+Shift+F3:HDRI を回す(3枚。**太陽の写り方が3通り**)");
-        Console.WriteLine("Ctrl+Shift+F4:平行光源を HDRI から取るか手書きか(**影が空と食い違う**)");
-        Console.WriteLine("Ctrl+Shift+F5:環境マップから太陽を抜く(**二重計上**)  Ctrl+Shift+F6:抽出のしきい値");
-        Console.WriteLine("Ctrl+Shift+F7:影を全部落とさなくする  Ctrl+Shift+F11:空の回転 ON/OFF");
-        Console.WriteLine("Ctrl+Shift+F8:スクリーンショット  Ctrl+Shift+F9:シーンの内訳");
-        Console.WriteLine("Ctrl+Shift+F10:シーンを読み直す(**assets/scenes/demo-v1.json を書き換えて押す**)");
-        Console.WriteLine("Ctrl+Alt+F12:今日の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 38: FXAA と簡易カラーグレーディング(Shift+F1〜F12)---");
-        Console.WriteLine("Shift+F12:FXAA が効く構図へ。**画面の左が加工前、右が加工後**");
-        Console.WriteLine("Shift+F1:FXAA ON/OFF  Shift+F2:輝度 / 縁の検出 / 混合量 を全画面に出す");
-        Console.WriteLine("Shift+F4:効き(低/中/高/極)  Shift+F5:UI を後処理に通すか(Day 37 まで の挙動)");
-        Console.WriteLine("Shift+F6:グレーディング ON/OFF  Shift+F7:下敷き(夕暮れ / 月夜 / 退色 / モノクロ)");
-        Console.WriteLine("Shift+F8:コントラスト  Shift+F9:彩度  Shift+F10:色温度");
-        Console.WriteLine("Shift+F11:左右比較(FXAA / グレーディング)  Ctrl+F12:今日の自己チェック");
-        Console.WriteLine("  ※Shift+F3 は Day 24(シーンをコードから組み直す)が使っているので空き");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 37: スクリーンスペース環境遮蔽(Ctrl+F1〜F11)---");
-        Console.WriteLine("Ctrl+F9:SSAO が効く構図へ。**立方体の接地と隅に暗がりが出る**");
-        Console.WriteLine("Ctrl+F1:SSAO ON/OFF  Ctrl+F2:遮蔽率 / ビュー法線 / 距離 を全画面に出す");
-        Console.WriteLine("Ctrl+F3:半径  Ctrl+F4:標本数  Ctrl+F5:ぼかし(OFF でノイズのタイルが見える)");
-        Console.WriteLine("Ctrl+F6:AO バッファを半解像度に  Ctrl+F7:強さ  Ctrl+F8:下駄(0 で縞が出る)");
-        Console.WriteLine("Ctrl+F11:直接光にも掛ける(**わざと間違える**)  Ctrl+F10:SSAO の自己チェック");
-        Console.WriteLine("  Shift+9 の成分に SSAO が増えた(成分 21)");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 36: 環境マッピングと IBL(Ctrl+Alt + 数字)---");
-        Console.WriteLine("Ctrl+Alt+9:材質グリッド + IBL。**黒かった金属の行に景色が映る**");
-        Console.WriteLine("Ctrl+Alt+1:IBL ON/OFF(OFF で Day 35 の「環境光は定数」に戻る)  Ctrl+Alt+2:空の表示");
-        Console.WriteLine("Ctrl+Alt+3:環境光の強さ  Ctrl+Alt+4:空に事前フィルタの段を出す(粗さとぼけの対応)");
-        Console.WriteLine("Ctrl+Alt+5:太陽を30度回して焼き直す  Ctrl+Alt+6:空を8bitに落として焼き直す");
-        Console.WriteLine("Ctrl+Alt+7:焼いた3枚を1枚ずつ見る  Ctrl+Alt+8:事前フィルタを使わず原寸を引く");
-        Console.WriteLine("Ctrl+Alt+0:IBL の自己チェック");
-        Console.WriteLine("  Shift+9 の成分に 放射照度 / 映り込み / BRDFの表 が増えた");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 35: 物理ベースレンダリング(Ctrl+Shift + 数字)---");
-        Console.WriteLine("Ctrl+Shift+5:材質グリッド(球 7x7。縦=金属度 横=粗さ)。**PBR はここでいちばん分かる**");
-        Console.WriteLine("Ctrl+Shift+1:Cook-Torrance / ランバート(Day 34)を切り替え");
-        Console.WriteLine("Ctrl+Shift+2:金属度の上書き  Ctrl+Shift+3:粗さの上書き  Ctrl+Shift+4:非金属の F0");
-        Console.WriteLine("Ctrl+Shift+6:α = r² / r  Ctrl+Shift+7:環境鏡面(Day 36 までのつなぎ)  Ctrl+Shift+8:グリッドの色");
-        Console.WriteLine("Ctrl+Shift+9:グリッド + 鏡面のみ表示  Ctrl+Shift+0:PBR の自己チェック");
-        Console.WriteLine("  Shift+9 の成分に 拡散 / 鏡面 / フレネルF / 分布D / 幾何G が増えた");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 34: 法線マップ・視差マッピング(Alt + 数字)---");
-        Console.WriteLine("Alt+5:材質テストの板(レンガ)。**視差はここでしか確かめられない**");
-        Console.WriteLine("Alt+1:法線マップ ON/OFF  Alt+2:視差(なし/単純/急峻/POM)  Alt+3:視差の深さ");
-        Console.WriteLine("Alt+4:レイマーチの刻み  Alt+6:板の繰り返し  Alt+7:ファイルの接線 / 生成した接線");
-        Console.WriteLine("Alt+8:法線マップの緑を反転(DirectX 形式)  Alt+9:最終法線を表示  Alt+0:接空間の自己チェック");
-        Console.WriteLine("  Shift+9 の成分に 接線T / 従接線B / 最終法線N / 高さ が増えた");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 33: シャドウマッピング(Ctrl + 数字)---");
-        Console.WriteLine("Ctrl+1:影 ON/OFF  Ctrl+2:解像度 512/1024/2048/4096  Ctrl+3:PCF 1タップ/3x3/5x5/7x7");
-        Console.WriteLine("Ctrl+4:深度バイアス(0 でアクネが出る)  Ctrl+5:傾きに比例したバイアス  Ctrl+6:深度パスの表カリング");
-        Console.WriteLine("Ctrl+7:シャドウマップを隅に表示  Ctrl+8:光の届く範囲 3/6/12/24m  Ctrl+9:光の向きを 30 度回す");
-        Console.WriteLine("Ctrl+0:影の自己チェックと計測   Shift+9 を 8 回押すと「影の係数」だけを見られる");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 32: glTF(Shift + 数字)---");
-        Console.WriteLine("Shift+0:モデル切り替え(DamagedHelmet / WaterBottle / Lantern / BoxTextured / 無し)");
-        Console.WriteLine("Shift+9:表示する成分(通常/ベースカラー/法線/金属/粗さ/AO/発光/法線マップ/影/T/B/N/高さ)");
-        Console.WriteLine("Shift+-:glTF の自己チェック");
-        Console.WriteLine();
-        Console.WriteLine("--- Day 31: HDR パイプライン(Shift + 数字)---");
-        Console.WriteLine("Shift+1:シーンバッファ RGBA16F / RGBA8   Shift+2:ブルーム  Shift+3:トーンマップ(なし/Reinhard/ACES)");
-        Console.WriteLine("Shift+4:表示する段(最終/シーンのみ/明部/ぼかし後)  Shift+5 / Shift+6:露出  Shift+7:ブルームのしきい値");
-        Console.WriteLine("Shift+8:HDR の自己チェック  F5:シェーダのリロード(後処理も含む)");
-        Console.WriteLine("  G で 3D 背景を出すと、光る立方体と**明るさの階段**(0.25〜32)が見える");
+        Console.WriteLine("  F1:次のページ  Shift+F1:前のページ  Ctrl+F1:この目次  Alt+F1:今日の自己チェック");
         Console.WriteLine();
         Console.WriteLine("J:更新方式(構造体配列/GameObject/ECS)  H:ライフサイクルの実演  D:ECS の自己チェック");
         Console.WriteLine("F6:衝突デモ  F7:形の切り替え  F8:押し戻し  F9:衝突判定の自己チェック");
         Console.WriteLine("F10:総当たり/グリッド  F11:マスの可視化  F12:ブロードフェーズの自己チェックと計測");
         Console.WriteLine(", / . :マスの大きさ  -:体の大きさ(面積一定/固定)");
         Console.WriteLine("5:効果音  6:衝突音  7:同じ音の上限  8:ピッチ揺らぎ  9:定位  0:BGM");
-        Console.WriteLine("[ / ] :音量  F1:オーディオの自己チェックと計測");
+        Console.WriteLine("[ / ] :音量  \\ :オーディオの自己チェックと計測");
         Console.WriteLine("; :画面内の表示(なし/情報/アトラス/見本帳)  / :テキストの自己チェックと計測");
         Console.WriteLine("F2:シーンを保存  F3:読み込み(Shift併用でコードから組み直し)  F4:往復の自己チェック");
         Console.WriteLine("Q:非同期ロード  E:同期ロード  U:アンロード  T:ハンドルの自己チェック");
@@ -3172,7 +3055,7 @@ internal static class Program
             // <b>分岐を Render3D の中ではなくここに置く</b>のが要点。
             // グリッドと板を選ぶ分岐自体は Render3D の中にもあるが、そちらは
             // `_draw3D`(G キー)でまるごと飛ばされる枝の内側にある。
-            // Ctrl+Shift+5 で「グリッドを出せ」と言われたのに
+            // 「PBR」の F6 で「グリッドを出せ」と言われたのに
             // 3D 背景のスイッチで消えるのは筋が通らないので、判断をここへ上げた。
             //
             // ドローコールは RenderMaterialGrid / RenderSurfaceDemo が数える。
@@ -3184,7 +3067,7 @@ internal static class Program
             // **モデルを見せている間はデモを出さない**(Day 32)。
             // ゲームモード(_playing)で同じことをしているのと理由も同じで、
             // スプライトの群れと重ねると、どちらの陰影を見ているのか分からなくなる。
-            // Day 31 までのデモは Shift+0 で「モデル無し」まで回すと戻る。
+            // Day 31 までのデモは 「HDR とブルーム」の F11 で「モデル無し」まで回すと戻る。
             // ドローコールは RenderModel が数える(パーツ数がそのまま回数になる)。
             Render3D();
         }
@@ -3201,7 +3084,7 @@ internal static class Program
             RenderResourceStrip();
         }
 
-        // **UI を後処理に通すか**(Day 38。Shift+F5)。
+        // **UI を後処理に通すか**(Day 38。「FXAA と色調整」の F5)。
         //
         // Day 37 まではここに RenderText があった——つまり HUD の文字は
         // シーンと同じ RGBA16F のバッファに描かれ、
@@ -3218,12 +3101,12 @@ internal static class Program
 
         _post.End(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
-        // **焼いたシャドウマップを最後に隅へ出す**(Ctrl+7)。
+        // **焼いたシャドウマップを最後に隅へ出す**(「シャドウマップ」の F8)。
         // 後処理の外に置いてあるので、露出やトーンマップの影響を受けない——
         // デバッグ表示は「見たままの値」であってほしいので、通してはいけない。
         _shadow.DrawDebug(_window.FramebufferSize.X, _window.FramebufferSize.Y);
 
-        // **遮蔽率を全画面に出す**(Ctrl+F2)。こちらも後処理の外。
+        // **遮蔽率を全画面に出す**(「SSAO」の F3)。こちらも後処理の外。
         //
         // 隅に小さく出す影のデバッグ表示と違って画面いっぱいに出すのは、
         // AO の善し悪しが**1画素単位のノイズと暗がりの広がり方**で決まるから。
@@ -3440,7 +3323,7 @@ internal static class Program
         {
             // **フラグで選ぶ**(Day 39)。この関数の説明に書いた宿題がここで片付いた——
             // 手書きの分岐ではなく、シーンのデータが「落とすかどうか」を持っている。
-            // Ctrl+Shift+F7 で <see cref="_sceneShadows"/> を切ると全部落とさなくなり、
+            // 「デモ v1」の F8 で <see cref="_sceneShadows"/> を切ると全部落とさなくなり、
             // **影がどれだけ絵を支えているか**が分かる。
             if (_sceneShadows)
             {
@@ -3676,6 +3559,12 @@ internal static class Program
         var lines = new System.Text.StringBuilder();
 
         lines.AppendLine($"Day40   {_fps:F1} fps   DC:{_drawCalls}");
+
+        // **今日の1行**(Day 48)。メニューが開いているかどうかは
+        // <b>絵からは1ピクセルも読み取れない</b>のに、
+        // F2〜F12 と数字キーの意味が丸ごと入れ替わる。
+        // 出していないと「押しても何も起きない」の原因が分からなくなる。
+        lines.AppendLine(_menu.HudLine());
 
         // **今日の1行**(Day 43)。物理は「なんとなく動いている」で済ませてしまいやすい。
         // めり込み量と運動エネルギーが数字で出ていないと、
@@ -3984,7 +3873,7 @@ internal static class Program
     {
         if (_demo is null)
         {
-            return $"デモ:OFF(Ctrl+Shift+F1 で入る)  空:{_env.SourceLabel}";
+            return $"デモ:OFF(「デモ v1」の F2 で入る)  空:{_env.SourceLabel}";
         }
 
         SkyAnalysis.Sun sun = _skyAnalysis.Sun;
@@ -4342,7 +4231,7 @@ internal static class Program
     {
         if (_animation is null || _locomotionTree is null)
         {
-            return "ロコモーション:使えるモデルではない(Shift+Alt+F1 で Fox へ)";
+            return "ロコモーション:使えるモデルではない(「アニメのブレンド」の F2 で Fox へ)";
         }
 
         string mode = _locomotion switch
@@ -4388,12 +4277,12 @@ internal static class Program
         return text.ToString();
     }
 
-    /// <summary>今の混合の内訳をコンソールへ(Shift+Alt+F9)。</summary>
+    /// <summary>今の混合の内訳をコンソールへ(「アニメのブレンド」の F9)。</summary>
     private static void DescribeBlend()
     {
         if (_animation is null || _model is null)
         {
-            Console.WriteLine("モデルがありません(Shift+Alt+F1 で Fox を出す)");
+            Console.WriteLine("モデルがありません(「アニメのブレンド」の F2 で Fox を出す)");
             return;
         }
 
@@ -4439,7 +4328,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// アニメーションを持つモデルだけを巡回する(Alt+F2)。
+    /// アニメーションを持つモデルだけを巡回する(「スキニング」の F3)。
     /// <see cref="ModelPaths"/> の後ろ5体で、**Day 41 で足したぶんそのもの**。
     /// </summary>
     private static readonly string[] AnimatedModelPaths =
@@ -4451,7 +4340,7 @@ internal static class Program
         "models/BoxAnimated.glb",
     ];
 
-    /// <summary>アニメーション用のモデルへ切り替える下ごしらえ(Alt+F1 / Alt+F2 で共通)。</summary>
+    /// <summary>アニメーション用のモデルへ切り替える下ごしらえ(「スキニング」の F2 / 「スキニング」の F3 で共通)。</summary>
     private static void ShowAnimatedModel(string relativePath)
     {
         // **デモ v1 は最優先で描かれる**(Render3D)ので、出したままだとモデルが見えない。
@@ -4477,7 +4366,7 @@ internal static class Program
     // ================================================================
 
     /// <summary>
-    /// 物理デモを出す下ごしらえ(Ctrl+Shift+Alt+F1 / F4)。
+    /// 物理デモを出す下ごしらえ(「剛体力学」の F2 / F4)。
     ///
     /// <see cref="ShowAnimatedModel"/> と同じ形。
     /// **他のデモを全部下ろしてから**でないと、
@@ -4752,7 +4641,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 箱を落とす。**傾きだけを振った5つの箱**(Ctrl+Shift+Alt+1)。**今日の到達点**。
+    /// 箱を落とす。**傾きだけを振った5つの箱**(「箱の衝突」の F2)。**今日の到達点**。
     ///
     /// 質量も大きさも同じで、初めの傾きだけが違う。
     /// <list type="bullet">
@@ -4760,10 +4649,10 @@ internal static class Program
     /// <item>少し傾いた箱は<b>辺の2点で着地し、倒れて4点になる</b></item>
     /// <item>大きく傾いた箱は<b>角の1点で着地し、跳ねて向きを変えてから落ち着く</b></item>
     /// </list>
-    /// 接触点の数(Ctrl+Shift+Alt+3 で表示)が着地の様子とそのまま対応している。
+    /// 接触点の数(「箱の衝突」の F4 で表示)が着地の様子とそのまま対応している。
     ///
     /// <para>
-    /// <b>Ctrl+Shift+Alt+4 で上限を 1 にすると、どれも落ち着かなくなる</b>——
+    /// <b>「箱の衝突」の F5 で上限を 1 にすると、どれも落ち着かなくなる</b>——
     /// これが今日いちばん見てほしいところ(要点3)。
     /// </para>
     /// </summary>
@@ -4835,7 +4724,7 @@ internal static class Program
     /// <para>
     /// <b>Day 47 で挙動が変わった筋書き</b>。摩擦が入るまでは乗ったものが必ず滑り落ちていたが、
     /// 今日からは台の上に留まるものが出る。
-    /// <c>Shift+F</c> で摩擦を切ると、Day 46 までの絵に戻る。
+    /// <c>「摩擦とソルバ」の F3</c> で摩擦を切ると、Day 46 までの絵に戻る。
     /// </para>
     /// </summary>
     private static void BuildBoxMixScene()
@@ -4917,13 +4806,13 @@ internal static class Program
     // ================================================================
 
     /// <summary>
-    /// カプセルを落とす(Ctrl+Shift+Alt+2 で選ぶ)。**寝ると2点で支えられる**(要点4)。
+    /// カプセルを落とす(「箱の衝突」の F3 で選ぶ)。**寝ると2点で支えられる**(要点4)。
     ///
     /// 傾きを振った5本を落とす。傾いた4本は<b>1点で着地して倒れ</b>、
     /// 倒れ切ると<b>端2つで支えられて止まる</b>。
     /// まっすぐ立てた1本目だけは倒れるきっかけが無く、1点で立ったまま残る
     /// (理屈のうえでは倒れない。自己チェックが傾けて落としているのはそのため)。
-    /// 接触点の表示(Ctrl+Shift+Alt+3)を出しておくと、
+    /// 接触点の表示(「箱の衝突」の F4)を出しておくと、
     /// 光る玉が1つから2つに増える瞬間が見える。
     ///
     /// <para>
@@ -4953,7 +4842,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// カプセルを1つ降らせる(Ctrl+Alt+X)。
+    /// カプセルを1つ降らせる(「カプセルとキャラクタ」の F6)。
     ///
     /// <see cref="SpawnBox"/> のカプセル版。**縦横比を毎回変える**ので、
     /// 細長いものほど転がりやすいのが見える(要点5)。
@@ -4996,7 +4885,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// キャラクターデモを出す下ごしらえ(Ctrl+X / Shift+X)。
+    /// キャラクターデモを出す下ごしらえ(「カプセルとキャラクタ」の F2 / 「カプセルとキャラクタ」の F3)。
     ///
     /// <see cref="ShowPhysicsDemo"/> と同じ形だが、
     /// <b>物理デモも同時に立てる</b>のが違い——
@@ -5047,8 +4936,8 @@ internal static class Program
     /// キャラクターの遊び場を組む。**筋書きごとに確かめたいことが1つ**。
     ///
     /// <list type="bullet">
-    /// <item><b>坂</b> … 傾きを 15/30/45/60 度に振った4枚。上限(Alt+X)で登れる範囲が変わる</item>
-    /// <item><b>階段</b> … 段差 15/30/45cm の3本。乗り越え(Ctrl+Shift+X)で越えられる段が変わる</item>
+    /// <item><b>坂</b> … 傾きを 15/30/45/60 度に振った4枚。上限(「カプセルとキャラクタ」の F4)で登れる範囲が変わる</item>
+    /// <item><b>階段</b> … 段差 15/30/45cm の3本。乗り越え(「カプセルとキャラクタ」の F5)で越えられる段が変わる</item>
     /// <item><b>障害物</b> … 動く箱・球・カプセルの中を歩く。**押されるが押さない**のが見える</item>
     /// </list>
     ///
@@ -5107,7 +4996,7 @@ internal static class Program
     /// 坂を4枚(要点2)。**傾き 15 / 30 / 45 / 60 度**。
     ///
     /// 既定の上限は 50 度なので、<b>45 度までは登れて 60 度は登れない</b>。
-    /// `Alt+X` で上限を切ると 60 度も登れるようになり、
+    /// `「カプセルとキャラクタ」の F4` で上限を切ると 60 度も登れるようになり、
     /// <b>ほとんど壁のような面をよじ登る</b>のが見える——
     /// 「登れる坂かどうか」が物理ではなく決めごとであることが、これで分かる。
     ///
@@ -5171,7 +5060,7 @@ internal static class Program
     ///
     /// 既定の乗り越え(<see cref="CharacterController.StepOffset"/>)は 35cm なので、
     /// <b>15cm と 30cm は登れて、45cm は登れない</b>。
-    /// `Ctrl+Shift+X` で切ると 15cm ですら越えられなくなり、
+    /// `「カプセルとキャラクタ」の F5` で切ると 15cm ですら越えられなくなり、
     /// <b>床のわずかな段差に足を取られる</b>のが体感できる。
     ///
     /// <para>
@@ -5485,7 +5374,7 @@ internal static class Program
     };
 
     /// <summary>
-    /// キャラクターの内訳をコンソールへ(Shift+Alt+X)。
+    /// キャラクターの内訳をコンソールへ(「カプセルとキャラクタ」の F7)。
     ///
     /// **設定と状態を並べて出す**。坂が登れない・段差が越えられないとき、
     /// 原因は「上限の設定」か「引っかかり」のどちらかしかないので、
@@ -5657,7 +5546,7 @@ internal static class Program
     /// 地形の上に大量に落とす筋書き(Day 46)。**ブロードフェーズの客**。
     ///
     /// 60 個も置くと、総当たりでは 2,000 組近くを毎ステップ試すことになる。
-    /// `Ctrl+Alt+G` でさらに 40 個ずつ足せるので、
+    /// `「地形とブロードフェーズ」の F6` でさらに 40 個ずつ足せるので、
     /// <b>組の数がどう増えるか</b>を数字で追える——
     /// 総当たりは体数の2乗、格子はほぼ比例で増える。
     /// </summary>
@@ -5766,7 +5655,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// ブロードフェーズのマスを線で描く(Alt+G)。**中身のあるマスだけ**(要点3)。
+    /// ブロードフェーズのマスを線で描く(「地形とブロードフェーズ」の F4)。**中身のあるマスだけ**(要点3)。
     ///
     /// 空のマスまで描くと画面が線で埋まって何も読めない。
     /// 中身のあるマスだけ描けば、<b>体がどう散らばっているか</b>と
@@ -5843,7 +5732,7 @@ internal static class Program
             TriangleFace.FrontAndBack, _wireframe ? PolygonMode.Line : PolygonMode.Fill);
     }
 
-    /// <summary>マスの大きさを1段変える(Ctrl+Shift+G)。**次のステップから効く**。</summary>
+    /// <summary>マスの大きさを1段変える(「地形とブロードフェーズ」の F5)。**次のステップから効く**。</summary>
     private static void CycleGridCellSize()
     {
         _gridCellIndex = (_gridCellIndex + 1) % GridCellSteps.Length;
@@ -5886,7 +5775,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 地形とブロードフェーズの内訳をコンソールへ(Shift+Alt+G)。
+    /// 地形とブロードフェーズの内訳をコンソールへ(「地形とブロードフェーズ」の F7)。
     ///
     /// **1画面で切り分けが済む**ように並べてある。
     /// 「体が地面をすり抜ける」ときの原因は、たいてい
@@ -5927,7 +5816,7 @@ internal static class Program
         }
         else
         {
-            Console.WriteLine("  地形: なし(Ctrl+G で地形デモへ)");
+            Console.WriteLine("  地形: なし(「地形とブロードフェーズ」の F2 で地形デモへ)");
         }
 
         Console.WriteLine(
@@ -5956,7 +5845,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 箱を1つ降らせる(Ctrl+Shift+Alt+5)。
+    /// 箱を1つ降らせる(「箱の衝突」の F6)。
     ///
     /// <see cref="SpawnBall"/> の箱版。**向きを毎回変える**のがこちらの要点で、
     /// 同じ形でも落ちる姿勢が違えば、着地の接触点の数が変わる。
@@ -5999,7 +5888,7 @@ internal static class Program
             + $"質量 {body.Mass:F2}kg  体 {Physics.DynamicCount} 個(動くもの)");
     }
 
-    /// <summary>球を1つ降らせる(Ctrl+Shift+Alt+F7)。</summary>
+    /// <summary>球を1つ降らせる(「剛体力学」の F8)。</summary>
     private static void SpawnBall()
     {
         if (!_physicsDemo)
@@ -6033,7 +5922,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 全部の球を**中心を外して**撃つ(Ctrl+Shift+Alt+F8)。
+    /// 全部の球を**中心を外して**撃つ(「剛体力学」の F9)。
     ///
     /// **これがトルクの実演**(要点2)。同じ大きさの撃力でも、
     /// 中心に掛ければ真上に飛ぶだけ、外して掛ければ飛びながら回る。
@@ -6206,7 +6095,7 @@ internal static class Program
             body.Shape.HalfHeight);
 
     /// <summary>
-    /// 接触点を光る小球で描く(Ctrl+Shift+Alt+3)。**マニフォールドを目で見る**。
+    /// 接触点を光る小球で描く(「箱の衝突」の F4)。**マニフォールドを目で見る**。
     ///
     /// 深いほど大きく描く。床に置いた箱の4点が同じ大きさで並ぶこと、
     /// 傾いた箱では手前の角だけが大きいことが、
@@ -6338,7 +6227,7 @@ internal static class Program
         };
 
     /// <summary>
-    /// 箱かカプセルの筋書きかどうか(Ctrl+Shift+Alt+1 の ON/OFF 判定に使う)。
+    /// 箱かカプセルの筋書きかどうか(「箱の衝突」の F2 の ON/OFF 判定に使う)。
     ///
     /// **札を末尾に足したので、この比較がそのまま通った**(Day 45)。
     /// <see cref="PhysicsScene.CapsuleDrop"/> を <c>BoxDrop</c> の手前に挿していたら、
@@ -6386,7 +6275,7 @@ internal static class Program
     /// <item><b>組と点が別</b>——床に置いた箱1つで「1組・4点」が正しい姿</item>
     /// <item><b>面 / 辺 / 点</b>——どの軸から接触が出たか(<see cref="ManifoldSource"/>)。
     ///   面で触れているはずなのに「辺」が並ぶなら、<see cref="Sat"/> の下駄を疑う</item>
-    /// <item><b>上限</b>——Ctrl+Shift+Alt+4 で 1 にすると、点の数が組の数と同じになる</item>
+    /// <item><b>上限</b>——「箱の衝突」の F5 で 1 にすると、点の数が組の数と同じになる</item>
     /// </list>
     /// </summary>
     private static string ContactLabel() =>
@@ -6398,7 +6287,7 @@ internal static class Program
         + $"表示:{OnOff(_showContacts)}";
 
     /// <summary>
-    /// 今の内訳をコンソールへ(Ctrl+Shift+Alt+F9)。
+    /// 今の内訳をコンソールへ(「剛体力学」の F10)。
     ///
     /// **保存量を並べて出す**のが眼目。運動量と運動エネルギーは、
     /// 衝突が正しく解けているかを外から確かめられる数少ない手掛かりになる。
@@ -6460,7 +6349,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 接触の内訳をコンソールへ(Ctrl+Shift+Alt+6)。**SAT が何を選んだかを見る**。
+    /// 接触の内訳をコンソールへ(「箱の衝突」の F7)。**SAT が何を選んだかを見る**。
     ///
     /// HUD の1行では組の合計しか出ないので、
     /// 「どの体とどの体が、どの軸で、何点で触れているか」をここで全部出す。
@@ -6621,7 +6510,7 @@ internal static class Program
         // その π を省き、**光の強さのほうで吸わせていた**。
         // だから式を差し替えるとシーン全体が 1/π に沈む。
         //
-        // ここで掛けているのは「Ctrl+Shift+1 で切り替えたときに
+        // ここで掛けているのは「「PBR」の F2 で切り替えたときに
         // 明るさが揃っていないと見比べられない」という理由だけで、
         // 物理的には π を掛けたほうが正しい強さ(uLightColor が放射輝度になる)。
         shader.SetVector3("uLightColor", _pbrEnabled ? _lightColor * MathF.PI : _lightColor);
@@ -6666,7 +6555,7 @@ internal static class Program
         // **物理デモはさらに優先する**(Day 43)。今日の主役なので、
         // 出ている間はこれだけを描く。ほかのデモは
         // <see cref="ShowPhysicsDemo"/> が全部下ろしているが、
-        // あとから Ctrl+Shift+F1 でデモ v1 を出されると重なるので、ここでも守る。
+        // あとから 「デモ v1」の F2 でデモ v1 を出されると重なるので、ここでも守る。
         if (_physicsDemo)
         {
             RenderPhysics();
@@ -6742,7 +6631,7 @@ internal static class Program
     /// 映り込む景色が無ければ本当に黒い。Day 36 の IBL がこれを埋める。
     /// </item>
     /// <item>
-    /// <b>金属のハイライトには色が付く</b>(Ctrl+Shift+8 で金や銅に)。
+    /// <b>金属のハイライトには色が付く</b>(「PBR」の F9 で金や銅に)。
     /// 非金属のハイライトは白いまま。F0 の1行が効いている場所。
     /// </item>
     /// <item>
@@ -6788,7 +6677,7 @@ internal static class Program
         // ハイライトのぶんの余地を上に残しておかないと材質が読めない。
         //
         // π は Render3D と同じ理由(Cook-Torrance の 1/π を釣り合わせる)。
-        // ここで一緒に掛けておかないと、Ctrl+Shift+1 の切り替えで明るさが飛ぶ。
+        // ここで一緒に掛けておかないと、「PBR」の F2 の切り替えで明るさが飛ぶ。
         shader.SetVector3(
             "uLightColor",
             _lightColor * GridLightScale * (_pbrEnabled ? MathF.PI : 1.0f));
@@ -7083,7 +6972,7 @@ internal static class Program
                 "  ロコモーション: "
                 + string.Join(" → ", _locomotionTree.Samples.Select(
                     sample => $"{sample.Name}({sample.Parameter:F1}m/s)"))
-                + "  (Shift+Alt+F1 で再生)");
+                + "  (「アニメのブレンド」の F2 で再生)");
         }
 
         Console.WriteLine(
@@ -7172,7 +7061,7 @@ internal static class Program
     /// 並べる順は<b>パイプラインの順</b>——
     /// 空 → 影 → 材質 → 環境光 → 遮蔽 → 後処理。
     /// 名前順やDay順ではなく、絵が出来上がる順に並べておくと、
-    /// <c>Ctrl+Alt+F10</c> のツアーが<b>絵が組み上がっていく順に</b>見えるようになる。
+    /// <c>「カメラワークと機能」の F11</c> のツアーが<b>絵が組み上がっていく順に</b>見えるようになる。
     /// </para>
     ///
     /// <para>
@@ -7267,7 +7156,7 @@ internal static class Program
     /// <para>
     /// <b>速度を毎フレーム測る</b>のが今日の道具。
     /// 補間方式の違いは通過点の 0.1 秒にしか出ないので、
-    /// 数字を出しておかないと <c>Ctrl+Alt+F4</c> を押しても何が変わったか分からない。
+    /// 数字を出しておかないと <c>「カメラワークと機能」の F5</c> を押しても何が変わったか分からない。
     /// </para>
     /// </summary>
     private static void UpdateDemoCamera(double deltaSeconds)
@@ -7312,7 +7201,7 @@ internal static class Program
         _orbit.Apply();
     }
 
-    /// <summary>次のショットの頭へ飛ぶ(<c>Ctrl+Alt+F3</c>)。</summary>
+    /// <summary>次のショットの頭へ飛ぶ(<c>「カメラワークと機能」の F4</c>)。</summary>
     private static void JumpToNextShot()
     {
         if (_demo?.Shots is not { KeyCount: > 1 } path)
@@ -7335,7 +7224,7 @@ internal static class Program
     ///
     /// <para>
     /// **勝手に戻されるのを避ける**ため。ツアーは毎回 <c>SetAll(true)</c> から
-    /// 組み直すので、走っている間に <c>Ctrl+Alt+F8</c> で1つ切っても、
+    /// 組み直すので、走っている間に <c>「カメラワークと機能」の F9</c> で1つ切っても、
     /// 数秒後には元へ戻ってしまう。**押しても効かないスイッチ**は
     /// バグにしか見えないので、押された時点でツアーのほうを終わらせる。
     /// </para>
@@ -7371,7 +7260,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **今日の自己チェック**(<c>Ctrl+Alt+F11</c>)。
+    /// **今日の自己チェック**(<c>「カメラワークと機能」の F12</c>)。
     ///
     /// <para>
     /// カメラワークは「なんとなく滑らかに見える」で済ませられてしまうので、
@@ -7394,7 +7283,7 @@ internal static class Program
 
         if (_demo?.Shots is not { KeyCount: > 1 } path)
         {
-            Console.WriteLine("  デモ v1 が読み込まれていないので、カメラ側は飛ばしました(Ctrl+Alt+F1)");
+            Console.WriteLine("  デモ v1 が読み込まれていないので、カメラ側は飛ばしました(「カメラワークと機能」の F2)");
         }
         else
         {
@@ -7624,7 +7513,7 @@ internal static class Program
     // ================================================================
 
     /// <summary>
-    /// **シーンを読み込んで、光を合わせる**(Day 39)。<c>Ctrl+Shift+F1</c> / <c>Ctrl+Shift+F10</c>。
+    /// **シーンを読み込んで、光を合わせる**(Day 39)。<c>「デモ v1」の F2</c> / <c>「デモ v1」の F11</c>。
     ///
     /// 順番に意味がある。
     /// <code>
@@ -7650,7 +7539,7 @@ internal static class Program
             return;
         }
 
-        // **先に捨てる**。読み直し(Ctrl+Shift+F10)で 2 セット持つと、
+        // **先に捨てる**。読み直し(「デモ v1」の F11)で 2 セット持つと、
         // 1k のテクスチャが 20 枚ぶん重複する。
         _demo?.Dispose();
         _demo = null;
@@ -7670,7 +7559,7 @@ internal static class Program
 
         double sceneMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
 
-        // シーンが指している HDRI を既定にする(Ctrl+Shift+F3 で変えるまで)。
+        // シーンが指している HDRI を既定にする(「デモ v1」の F4 で変えるまで)。
         int index = Array.IndexOf(HdriPaths, _demo.HdriPath);
         if (index >= 0)
         {
@@ -7699,14 +7588,14 @@ internal static class Program
         Console.WriteLine($"  影を落とすもの: {_demo.ShadowCasterCount} / {_demo.Items.Count}");
 
         // カメラワークがあれば秒数まで出す(Day 40)。**読み直しても再生位置は頭に戻す**——
-        // JSON を書き換えて Ctrl+Shift+F10 を押したとき、
+        // JSON を書き換えて 「デモ v1」の F11 を押したとき、
         // 直したショットを見たいのに途中から始まるのは不便。
         if (_demo.Shots is { KeyCount: > 1 } cameraPath)
         {
             _cameraTime = 0.0f;
             Console.WriteLine(
                 $"  カメラワーク: {cameraPath.KeyCount} ショット / "
-                + $"1周 {cameraPath.TotalDuration:F1}秒  (Ctrl+Alt+F1 で再生)");
+                + $"1周 {cameraPath.TotalDuration:F1}秒  (「カメラワークと機能」の F2 で再生)");
         }
 
         Console.WriteLine();
@@ -7892,10 +7781,10 @@ internal static class Program
 
         // **色調整もシーンの持ち物**(Day 40)。露出や IBL の強さと同じで、
         // 「この絵をどう見せたいか」の一部なので JSON 側に置く。
-        // Day 38 のキー(Shift+F6〜F10)で上書きできるのは今までどおり。
+        // Day 38 のキー(「FXAA と色調整」の F6〜F10)で上書きできるのは今までどおり。
         DemoScene.GradeSettings grade = _demo.Grade;
 
-        // **先に下敷きを外す**。Shift+F7 で「月夜」などを当てたままデモに入ると、
+        // **先に下敷きを外す**。「FXAA と色調整」の F7 で「月夜」などを当てたままデモに入ると、
         // 色フィルタ(JSON には無い項目)だけが残って、
         // シーンの指定どおりの色にならない。
         _post.Grade.ApplyPreset(GradePreset.Neutral);
@@ -7923,7 +7812,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 決めの構図に合わせる(<c>Ctrl+Shift+F12</c>)。
+    /// 決めの構図に合わせる(<c>「デモ v1」の 1</c>)。
     ///
     /// <para>
     /// <b>Day 40 で画角も運ぶようになった</b>。
@@ -7948,7 +7837,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// カメラワークを頭から再生する(<c>Ctrl+Alt+F1</c>)。
+    /// カメラワークを頭から再生する(<c>「カメラワークと機能」の F2</c>)。
     ///
     /// <para>
     /// <b>shots が無いシーンでは黙って静止画のまま</b>にする。
@@ -7974,7 +7863,7 @@ internal static class Program
 
         Console.WriteLine(
             $"カメラワーク: {path.KeyCount} ショット / 1周 {path.TotalDuration:F1}秒 で再生"
-            + "  (Ctrl+Alt+F2 で一時停止、Ctrl+Alt+F3 で次のショット)");
+            + "  (「カメラワークと機能」の F3 で一時停止、「カメラワークと機能」の F4 で次のショット)");
     }
 
     /// <summary>
@@ -8002,7 +7891,7 @@ internal static class Program
         SetCap(EnableCap.CullFace, _culling);
     }
 
-    /// <summary>シーンの内訳をコンソールに出す(<c>Ctrl+Shift+F9</c>)。</summary>
+    /// <summary>シーンの内訳をコンソールに出す(<c>「デモ v1」の F10</c>)。</summary>
     private static void DescribeDemoScene()
     {
         DemoScene demo = _demo!;
@@ -8052,7 +7941,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **今日の自己チェック**(<c>Ctrl+Alt+F12</c>)。
+    /// **今日の自己チェック**(<c>「カメラワークと機能」の 1</c>)。
     ///
     /// <para>
     /// 確かめるものは3つ。
@@ -8347,7 +8236,7 @@ internal static class Program
     /// <summary>
     /// **明るさの階段**を空中に並べる。0.25 から 32 まで、隣どうしが 2 倍。
     ///
-    /// これがあると、トーンマップの切り替え(Shift+3)が
+    /// これがあると、トーンマップの切り替え(「HDR とブルーム」の F4)が
     /// 「なんとなく雰囲気が変わる」ではなく**どこが潰れているか**として読める。
     /// 絵作りの機能は感想になりやすいので、
     /// **数字が分かっているものを1つ置いておく**と判断が早くなる。
@@ -11072,7 +10961,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **glTF ローダの自己チェック**(Shift+-)。
+    /// **glTF ローダの自己チェック**(「HDR とブルーム」の F12)。
     ///
     /// 4体すべてを読み、**書かれ方の違う経路が全部通るか**を確かめる。
     /// 「1体読めた」は「その1体が読めた」でしかない——
@@ -11179,7 +11068,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **FXAA とカラーグレーディングの自己チェック**(Ctrl+F12)。
+    /// **FXAA とカラーグレーディングの自己チェック**(「SSAO」の 1)。
     ///
     /// この2つは、絵を見ても正しいかどうかが分からない類のもの。
     ///   - FXAA … 縁が残っていても滲んでいても、どちらも「そういう絵」に見える
@@ -11705,7 +11594,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **SSAO の自己チェック**(Ctrl+F10)。
+    /// **SSAO の自己チェック**(「SSAO」の F11)。
     ///
     /// AO は IBL(Day 36)と同じで、<b>間違っていても「それらしい絵」になる</b>。
     /// 半径が倍でも、上下が反転していても、全体がうっすら暗いだけの絵は出る。
@@ -12100,7 +11989,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **IBL の自己チェック**(Ctrl+Alt+0)。
+    /// **IBL の自己チェック**(「IBL と環境マップ」の F11)。
     ///
     /// IBL がいちばん厄介なのは、<b>間違っていても「それらしく良い絵」になる</b>こと。
     /// 上下が反転していても、強さが π ぶんずれていても、
@@ -12461,7 +12350,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **PBR の自己チェック**(Ctrl+Shift+0)。
+    /// **PBR の自己チェック**(「PBR」の F11)。
     ///
     /// 見た目だけでは絶対に分からないことを確かめる。
     /// PBR の怖いところは<b>間違っていても「それらしい絵」が出る</b>ことで、
@@ -12852,7 +12741,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **接空間の自己チェック**(Alt+0)。
+    /// **接空間の自己チェック**(「法線マップと視差」の F11)。
     ///
     /// 接空間は「絵からは正しさが読めない」ものの筆頭になる。
     ///   - 接線が 90 度ずれていても、凹凸の向きが変わるだけで絵は出る
@@ -13148,7 +13037,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **シャドウマッピングの自己チェック**(Ctrl+0)。
+    /// **シャドウマッピングの自己チェック**(「シャドウマップ」の F11)。
     ///
     /// 影は「出ない」「全部影になる」「ずれる」の3つが同じくらい起きるうえ、
     /// **どれも絵からは原因が読めない**——光源行列、深度の焼き込み、座標の写し直し、
@@ -13358,7 +13247,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// **HDR バッファが本当に 1.0 を超えて持てるかを確かめる自己チェック**(Shift+8)。
+    /// **HDR バッファが本当に 1.0 を超えて持てるかを確かめる自己チェック**(「HDR とブルーム」の F9)。
     ///
     /// 今日の主張は「8bit のバッファでは明るさが 1.0 で切られてしまう」の一点なので、
     /// それを絵の印象ではなく**読み戻した数値**で確かめる。
@@ -13755,316 +13644,96 @@ internal static class Program
             : model;
     }
 
+    /// <summary>
+    /// キー入力の入口。**今日、ここが 2424 行から 458 行になった**(Day 48)。
+    /// うち **switch そのものは 405 行**で、残りは3段の振り分けとこの説明。
+    ///
+    /// <para>
+    /// Day 31 から Day 47 まで、その日のスイッチはここへ
+    /// <b>修飾キーの組み合わせ</b>で足してきた。Ctrl+F の段、Shift+F の段、
+    /// Ctrl+Shift+F の段……と埋めていって、昨日の時点で <b>case 225 個</b>。
+    /// 組み合わせは Day 43 で尽き、Day 45 からは文字キー(X / G / F)に逃げていた。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>本当に重かったのはキー不足ではない</b>。C# の switch は上から順に照合するので、
+    /// <c>case Key.F1 when ctrl:</c> は <b>「剛体力学」の F2 でも成立する</b>。
+    /// だから新しい段はいつも既存の段より<b>上</b>に置かねばならず、
+    /// ガードには <c>!shift &amp;&amp; !alt</c> という否定が並んでいた。
+    /// **switch の並び順が仕様の一部**になっていて、
+    /// 間違えた日は「今日のキーが1つも効かない」という形でしか気づけない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>いまは3段になっている</b>。
+    /// </para>
+    /// <list type="number">
+    /// <item><c>F1</c> … <see cref="DebugMenu"/> のページ送り。**常にメニューのもの**</item>
+    /// <item>開いているページに引き当たれば実行して終わり。<b>完全一致なので並び順は効かない</b></item>
+    /// <item>どれでもなければ、下の switch(<b>素のキーだけ</b>)へ流す</item>
+    /// </list>
+    ///
+    /// <para>
+    /// 素のキーを switch に残したのは、<b>取り上げたくないから</b>。
+    /// Esc も Space も F5 のシェーダ再読込も Day 14 から手が憶えている。
+    /// メニューを開いている間だけ F2〜F12 と数字キーを席として借りて、
+    /// 閉じれば元に戻る(<see cref="DebugMenu.Index"/>)。
+    /// </para>
+    /// </summary>
     private static void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
     {
         bool shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
         bool ctrl = keyboard.IsKeyPressed(Key.ControlLeft) || keyboard.IsKeyPressed(Key.ControlRight);
         bool alt = keyboard.IsKeyPressed(Key.AltLeft) || keyboard.IsKeyPressed(Key.AltRight);
 
+        // --- 1段目: ページ送り(今日の主役)---
+        //
+        // **F1 だけはメニューが常に取る**。ここを他のキーと同じ扱いにすると、
+        // 「開き方を憶えていないと開けない」ものになる。
+        //
+        // <b>修飾キーがここにだけ残っている</b>のは、
+        // メニュー自身の操作(戻る・目次・自己チェック)が
+        // <b>どのページにも属さない</b>ため。席に置くと、そのページでしか使えなくなる。
+        if (key == Key.F1)
+        {
+            if (alt)
+            {
+                RunDebugMenuCheck();
+            }
+            else if (ctrl)
+            {
+                _menu.PrintIndex();
+            }
+            else if (shift)
+            {
+                _menu.Previous();
+                _menu.PrintCurrent();
+            }
+            else
+            {
+                _menu.Next();
+                _menu.PrintCurrent();
+            }
+
+            return;
+        }
+
+        // --- 2段目: 開いているページを引く ---
+        //
+        // <b>この1行が、昨日までの 1990 行を置き換えている</b>。
+        // 閉じているときは必ず false が返るので、素のキーはそのまま下へ流れる。
+        if (_menu.TryInvoke(key))
+        {
+            return;
+        }
+
+        // --- 3段目: 素のキー ---
+        //
+        // ここに残っているのは**修飾キーを使わないもの**だけになった。
+        // ガードは <c>_playing</c> のような「状況」だけで、
+        // 修飾キーの否定(<c>!shift &amp;&amp; !alt</c>)はもう1つも無い。
         switch (key)
         {
-            // --- 今日のスイッチ(摩擦・Sequential Impulses・スリープ)---
-            //
-            // **F の段**(Day 47)。Day 46 の `G` と同じ事情で、
-            // 素の `case Key.F:`(視野角の切り替え)はガードを持っていない。
-            // <b>だからこの塊はそれより上に置く</b>——
-            // 下に置くと Ctrl+F も Shift+F も全部そちらに吸われて、今日のスイッチは1つも動かない。
-            //
-            // F を選んだのは <b>F</b>riction(摩擦)の頭文字だから。
-            case Key.F when ctrl && !shift && !alt:
-                // **今日の到達点**。μ だけを振った箱を坂に並べる。
-                if (_physicsDemo && !_characterDemo && _physicsScene == PhysicsScene.FrictionRamp)
-                {
-                    _physicsDemo = false;
-                    Physics.Clear();
-                    BodyColors.Clear();
-                    DisposeTerrain();
-                    _orbit.Reset();
-                    Console.WriteLine("摩擦デモ: OFF");
-                }
-                else
-                {
-                    ShowPhysicsDemo(PhysicsScene.FrictionRamp);
-                    Console.WriteLine(
-                        "摩擦デモ: **坂 26.57 度(tan = 0.50)に μ を振った5箱**。"
-                        + "手前から μ = 0.1 / 0.3 / 0.5 / 0.7 / 0.9");
-                    Console.WriteLine(
-                        "  **μ > tan θ の箱だけが止まる**。真ん中(0.5)がちょうど境目。"
-                        + "黄色い球は μ = 1 でも転がり落ちる(転がり摩擦は入れていない)");
-                    Console.WriteLine(
-                        "  Shift+F:摩擦 ON/OFF  Alt+F:蓄積インパルス  Ctrl+Shift+F:温存  "
-                        + "Ctrl+Alt+F:眠り  Shift+Alt+F:μ の上書き");
-                }
-
-                break;
-
-            case Key.F when shift && !ctrl && !alt:
-                Physics.FrictionEnabled = !Physics.FrictionEnabled;
-                WakeAllBodies();
-                Console.WriteLine(
-                    Physics.FrictionEnabled
-                        ? "摩擦: **ON**(クーロン摩擦。上限は μ × 押し付けている強さ)"
-                        : "摩擦: **OFF**(Day 46 までの世界。**坂の箱が全部滑り出す**)");
-                break;
-
-            case Key.F when alt && !ctrl && !shift:
-                Physics.AccumulateImpulses = !Physics.AccumulateImpulses;
-                WakeAllBodies();
-                Console.WriteLine(
-                    Physics.AccumulateImpulses
-                        ? "インパルス: **蓄積してクランプ**(Sequential Impulses。負の補正が出せる)"
-                        : "インパルス: **1周ごとにクランプ**(Day 46 までのやり方。"
-                            + "**掛けすぎを戻せないので柱が沈む**)");
-                Console.WriteLine(
-                    Physics.AccumulateImpulses
-                        ? "  温存も一緒に戻った(蓄積が無いと温存は成り立たない)"
-                        : "  **温存も一緒に止まる**。合計を減らせないので、"
-                            + "持ち越すと単調に増えて置いた箱が跳ね上がる");
-                Console.WriteLine(
-                    "  差が出るのは**柱が高いとき**。Ctrl+Shift+Alt+2 で「箱を積む」へ、"
-                    + "Ctrl+Shift+Alt+F5 で反復を 1〜2 に落とすと分かりやすい");
-                break;
-
-            case Key.F when ctrl && shift && !alt:
-                Physics.WarmStarting = !Physics.WarmStarting;
-                WakeAllBodies();
-                Console.WriteLine(
-                    Physics.WarmStarting
-                        ? "温存(ウォームスタート): **ON**(前のステップのインパルスから始める)"
-                        : "温存(ウォームスタート): **OFF**(毎ステップ 0 から。"
-                            + "**反復回数を減らすと途端に沈む**)");
-
-                if (Physics.WarmStarting && !Physics.AccumulateImpulses)
-                {
-                    Console.WriteLine(
-                        "  ただし今は蓄積が OFF なので**温存は働かない**(Alt+F で蓄積を戻す)");
-                }
-
-                break;
-
-            case Key.F when ctrl && alt && !shift:
-                Physics.SleepEnabled = !Physics.SleepEnabled;
-                Console.WriteLine(
-                    Physics.SleepEnabled
-                        ? "眠り: **ON**(接触で繋がった島ごとに眠る。**色が沈んだ体が眠っている**)"
-                        : "眠り: **OFF**(全部起こした。**1ステップの ms が増える**)");
-                break;
-
-            case Key.F when shift && alt && !ctrl:
-                CycleFrictionOverride();
-                break;
-
-            case Key.F when ctrl && shift && alt:
-                RunSolverCheck();
-                break;
-
-            // --- 今日のスイッチ(地形とブロードフェーズ)---
-            //
-            // **G の段**(Day 46)。Day 45 で「文字キーの段もこれで最後」と書いたが、
-            // 正確には「**まるごと空いている**文字キーが最後」だった。
-            // A〜Z のうち X 以外は全部 `case Key.G:` のような<b>ガードの無い case</b>を
-            // 持っていて、それは同時に「修飾キー付きの席はまだ空いている」ことでもある。
-            //
-            // <b>だからこの塊は素の `case Key.G:` より上に置く</b>。
-            // 下に置くと、ガードの無い case が Ctrl+G も Shift+G も全部飲み込んで、
-            // 今日のスイッチは1つも動かない。
-            // Day 39 から毎日書いている「ガード付き case は具体的なものほど上」が、
-            // <b>今日はじめて「既に使われている文字キー」に対して効く</b>。
-            //
-            // <b>素の G は今までどおり</b>(3D 背景の ON/OFF)。
-            // 修飾キーを1つでも押していれば、そちらは今日のものになる——
-            // つまり <c>Ctrl+G</c> で 3D 背景を切っていた人には挙動が変わる。
-            // 割り当ての表そのものをデータにする(Day 40 の <c>FeatureToggles</c> のような形)
-            // 片付け方は Day 48 で。<c>OnKeyDown</c> を丸ごと表に置き換えて <c>Program.cs</c> から追い出す。
-            //
-            // G を選んだのは <b>G</b>round(地形)と <b>G</b>rid(格子)の頭文字だから。
-            case Key.G when ctrl && !shift && !alt:
-                // **今日の到達点**。起伏の上をキャラクターが歩き回る。
-                if (_characterDemo && _characterScene == CharacterScene.Terrain)
-                {
-                    _characterDemo = false;
-                    _physicsDemo = false;
-                    Physics.Clear();
-                    BodyColors.Clear();
-                    DisposeTerrain();
-                    _orbit.Reset();
-                    Console.WriteLine("地形デモ: OFF");
-                }
-                else
-                {
-                    ShowCharacterDemo(CharacterScene.Terrain);
-                    Console.WriteLine(
-                        "地形デモ: **起伏の上を歩ける**(矢印キー / X で走る / Space でジャンプ)");
-                    Console.WriteLine(
-                        "  手前の緩い丘(**29 度**)は登れて、奥の急な丘(**58 度**)は登れない。"
-                        + "Alt+X で坂の上限を切ると登れる");
-                    Console.WriteLine(
-                        "  Shift+G:ブロードフェーズ  Alt+G:マスを描く  "
-                        + "Ctrl+Shift+G:マスの大きさ  Shift+Alt+G:内訳");
-                }
-
-                break;
-
-            case Key.G when shift && !ctrl && !alt:
-                // **今日いちばん分かりやすい実験**(要点1)。
-                // 絵は1ピクセルも変わらず、HUD の「候補」と ms だけが動く。
-                Physics.Broadphase = Physics.Broadphase == BroadphaseMode.UniformGrid
-                    ? BroadphaseMode.BruteForce
-                    : BroadphaseMode.UniformGrid;
-
-                Console.WriteLine(
-                    Physics.Broadphase == BroadphaseMode.UniformGrid
-                        ? $"ブロードフェーズ: **均一グリッド**(マス {Physics.CellSize:F1}m)。"
-                            + "絵は変わらず、HUD の「候補」と物理の ms が減る"
-                        : "ブロードフェーズ: **総当たり**(Day 45 までのやり方)。"
-                            + "体を増やすほど n² が効いてくる");
-                break;
-
-            case Key.G when alt && !ctrl && !shift:
-                _showGridCells = !_showGridCells;
-                Console.WriteLine(
-                    $"格子のマスの表示: {OnOff(_showGridCells)}"
-                    + (_showGridCells
-                        ? "(**中身のあるマスだけ**を線で描く。512 個で打ち切る)"
-                        : string.Empty));
-                break;
-
-            case Key.G when ctrl && shift && !alt:
-                CycleGridCellSize();
-                break;
-
-            case Key.G when ctrl && alt && !shift:
-                // **体を増やして n² を体感する**。総当たりだと組の数が跳ね上がる。
-                if (_terrain is null)
-                {
-                    Console.WriteLine("先に Ctrl+G(地形デモ)か Ctrl+Shift+Alt+2 で地形の筋書きへ");
-                    break;
-                }
-
-                SpawnTerrainBodies(40);
-                Console.WriteLine(
-                    $"体を 40 個追加(全部で {Physics.Bodies.Count} 個)。"
-                    + "**総当たりの組は2乗、格子の候補はほぼ比例**で増える");
-                break;
-
-            case Key.G when shift && alt && !ctrl:
-                DescribeBroadphase();
-                break;
-
-            case Key.G when ctrl && shift && alt:
-                RunTerrainCheck();
-                break;
-
-            // --- 今日のスイッチ(カプセル衝突とキャラクターコントローラ)---
-            //
-            // **X の段**。Day 44 で「Ctrl+Shift+Alt + 数字/ファンクション」を使い切り、
-            // 修飾キー3つの組み合わせはもう残っていない。
-            // そこで<b>唯一まるごと空いていた文字キー</b>である X に移った——
-            // A〜Z のうち X だけが `case Key.X:` を持っていなかった。
-            //
-            // <b>素の X には触らない</b>。X は Day 18 の <see cref="InputMap"/> で
-            // ダッシュに割り当ててあり、キャラクターデモでは「走る」になる。
-            // だから <c>Ctrl+X</c> を押した瞬間だけ一緒に走ることになるが、
-            // その瞬間にデモが消えるので実害は無い。
-            //
-            // <b>この塊はいちばん上に置くこと</b>。`case Key.X:` は今のところ
-            // どこにも無いので今日は事故らないが、
-            // 明日 X を素で使うコードを下に足すと**修飾キー付きが全部そちらに吸われる**。
-            // Day 39 から毎日書いている「ガード付き case は具体的なものほど上」がそのまま続く。
-            //
-            // <b>文字キーの段も、これで最後**。Day 46 以降は
-            // Day 40 の <c>FeatureToggles</c> のように、
-            // 割り当ての表そのものをデータにするしかない。
-            case Key.X when ctrl && !shift && !alt:
-                // **今日の到達点**。坂と階段の上をキャラクターが歩き回る。
-                if (_characterDemo)
-                {
-                    _characterDemo = false;
-                    _physicsDemo = false;
-                    Physics.Clear();
-                    BodyColors.Clear();
-
-                    // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
-                    // 放っておくと切り替えるたびに VRAM が積み上がる。
-                    DisposeTerrain();
-
-                    _orbit.Reset();
-                    Console.WriteLine("キャラクターデモ: OFF");
-                }
-                else
-                {
-                    ShowCharacterDemo(CharacterScene.Slopes);
-                    Console.WriteLine(
-                        $"キャラクターデモ: {CharacterSceneLabel()}。"
-                        + "**矢印キーで歩く / X を押しっぱなしで走る / Space でジャンプ**");
-                    Console.WriteLine(
-                        "  Shift+X:筋書き  Alt+X:**坂の上限**  Ctrl+Shift+X:**段差の乗り越え**  "
-                        + "Ctrl+Alt+X:カプセルを追加  Shift+Alt+X:内訳  Ctrl+Shift+Alt+X:自己チェック");
-                    Console.WriteLine(
-                        "  移動は**カメラ基準**。マウスで視点を回すと進む向きも一緒に回る");
-                }
-
-                break;
-
-            case Key.X when shift && !ctrl && !alt:
-                {
-                    CharacterScene next = _characterScene switch
-                    {
-                        CharacterScene.Slopes => CharacterScene.Steps,
-                        CharacterScene.Steps => CharacterScene.Obstacles,
-                        _ => CharacterScene.Slopes,
-                    };
-
-                    ShowCharacterDemo(next);
-                    Console.WriteLine(_characterScene switch
-                    {
-                        CharacterScene.Steps =>
-                            "筋書き: **階段**(段差 15 / 30 / 45cm。既定の乗り越えは 35cm)",
-                        CharacterScene.Obstacles =>
-                            "筋書き: **障害物**(箱・球・カプセルの中を歩く。押されるが押さない)",
-                        _ =>
-                            "筋書き: **坂**(15 / 30 / 45 / 60 度。既定の上限は 50 度)",
-                    });
-                }
-
-                break;
-
-            case Key.X when alt && !ctrl && !shift:
-                // **今日いちばん分かりやすい実験**(要点2)。
-                Character.UseSlopeLimit = !Character.UseSlopeLimit;
-
-                Console.WriteLine(
-                    Character.UseSlopeLimit
-                        ? $"坂の上限: **{Character.SlopeLimitDegrees:F0}度まで**"
-                            + "(これより急な面は「壁」。押し戻しから上向きを抜く)"
-                        : "坂の上限: **なし**(押し戻しがそのまま登りになる。"
-                            + "60 度の坂も、ほとんど垂直な壁もよじ登れる)");
-                break;
-
-            case Key.X when ctrl && shift && !alt:
-                // **段差の実験**(要点3)。階段の筋書きで見ると一目で分かる。
-                Character.UseStepOffset = !Character.UseStepOffset;
-
-                Console.WriteLine(
-                    Character.UseStepOffset
-                        ? $"段差の乗り越え: **{Character.StepOffset * 100.0f:F0}cm まで**"
-                            + "(持ち上げて、進んで、落とす)"
-                        : "段差の乗り越え: **なし**(15cm の段でも止まる。"
-                            + "階段を降りるときの吸い付きも切れる)");
-                break;
-
-            case Key.X when ctrl && alt && !shift:
-                SpawnCapsule();
-                break;
-
-            case Key.X when shift && alt && !ctrl:
-                DescribeCharacter();
-                break;
-
-            case Key.X when ctrl && shift && alt:
-                RunCapsuleCheck();
-                break;
-
             // **ジャンプの Space を横取りする**(Day 45)。
             // Space は Day 19 から「一時停止」だが、
             // <see cref="InputMap"/> で <see cref="GameAction.Jump"/> にも割り当てた。
@@ -14076,1711 +13745,6 @@ internal static class Program
             // <see cref="InputSnapshot"/> 越しに読む(Day 18 の要点2)ので、
             // <b>キーイベントとシミュレーションが直につながらない</b>形は保たれている。
             case Key.Space when _characterDemo:
-                break;
-
-            // --- Day 44 のスイッチ(箱の衝突: 分離軸定理と接触マニフォールド)---
-            //
-            // **Ctrl+Shift+Alt + 数字キー**。段はこれで8つ目になる。
-            // Day 43 で「修飾キー3つ + ファンクションキー」を使い切ったので、
-            // 予告どおり<b>同じ修飾キーの数字キーの段</b>へ移った。
-            //
-            // <b>この塊をいちばん上に置くこと</b>。下にある
-            // `case Key.Number1 when ctrl && shift:` も `case Key.Number1 when ctrl:` も
-            // **Ctrl+Shift+Alt+1 で成立してしまう**ので、
-            // 1つでも上に来ていると今日のキーが1つも届かない。
-            // Day 39 から毎日書いている
-            // 「**ガード付き case は具体的なものほど上**」がそのまま続いている。
-            //
-            // <b>数字キーの段も、これでほぼ最後**。予告どおり
-            // Day 45 は文字キー(X の段)へ移り、そこも今日で埋まった。
-            // Day 46 以降は Day 40 の <c>FeatureToggles</c> のように、
-            // 割り当ての表そのものをデータにするしかない。
-            case Key.Number1 when ctrl && shift && alt:
-                // **今日の到達点**。傾きを振った5つの箱を落とす。
-                if (_physicsDemo && IsBoxScene(_physicsScene))
-                {
-                    _physicsDemo = false;
-                    _characterDemo = false;   // 世界を消すならキャラクターも下ろす(Day 45)
-                    Physics.Clear();
-                    BodyColors.Clear();
-
-                    // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
-                    // 放っておくと切り替えるたびに VRAM が積み上がる。
-                    DisposeTerrain();
-
-                    _orbit.Reset();
-                    Console.WriteLine("箱デモ: OFF");
-                }
-                else
-                {
-                    ShowPhysicsDemo(PhysicsScene.BoxDrop);
-                    Console.WriteLine(
-                        $"箱デモ: {PhysicsSceneLabel()}({Physics.DynamicCount} 体)。"
-                        + "**Ctrl+Shift+Alt+2 で筋書きを切り替え**");
-                    Console.WriteLine(
-                        "  3:接触点の表示  4:**1組の接触点 1/2/4(今日の実験)**  "
-                        + "5:箱を追加  6:接触の内訳  0:自己チェック");
-                }
-
-                break;
-
-            case Key.Number2 when ctrl && shift && alt:
-                {
-                    // **Day 45 でカプセルが1つ増えて5つ巡る**。
-                    PhysicsScene next = _physicsScene switch
-                    {
-                        PhysicsScene.BoxDrop => PhysicsScene.BoxStack,
-                        PhysicsScene.BoxStack => PhysicsScene.BoxMix,
-                        PhysicsScene.BoxMix => PhysicsScene.BoxTumble,
-                        PhysicsScene.BoxTumble => PhysicsScene.CapsuleDrop,
-                        PhysicsScene.CapsuleDrop => PhysicsScene.Terrain,
-                        PhysicsScene.Terrain => PhysicsScene.FrictionRamp,
-                        _ => PhysicsScene.BoxDrop,
-                    };
-
-                    ShowPhysicsDemo(next);
-                    Console.WriteLine(_physicsScene switch
-                    {
-                        PhysicsScene.BoxStack =>
-                            "筋書き: **箱を積む**(縦に6個。球の積み上げより安定する)",
-                        PhysicsScene.BoxMix =>
-                            "筋書き: **球と箱**(傾けた静的な箱の上へ。5通りの判定が全部走る)",
-                        PhysicsScene.BoxTumble =>
-                            "筋書き: **箱が転がる**(細長い箱を回しながら。辺×辺の軸が出る)",
-                        PhysicsScene.CapsuleDrop =>
-                            "筋書き: **カプセルを落とす**(Day 45。倒れると接触点が1点から2点になる)",
-                        PhysicsScene.Terrain =>
-                            "筋書き: **地形に落とす**(Day 46。60 個が谷に集まる。Shift+G で総当たりと比較)",
-                        PhysicsScene.FrictionRamp =>
-                            "筋書き: **摩擦の坂**(Day 47。μ=0.1/0.3/0.5/0.7/0.9。tan 26.57°=0.5 が境目)",
-                        _ =>
-                            "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
-                    });
-                }
-
-                break;
-
-            case Key.Number3 when ctrl && shift && alt:
-                _showContacts = !_showContacts;
-                Console.WriteLine(
-                    _showContacts
-                        ? "接触点の表示: ON(**光る玉がマニフォールドの点**。深いほど大きい)"
-                        : "接触点の表示: OFF");
-                break;
-
-            case Key.Number4 when ctrl && shift && alt:
-                // **今日いちばんの実験**。1組から採る接触点を減らすと何が起きるか。
-                _contactLimitIndex = (_contactLimitIndex + 1) % ContactLimits.Length;
-                Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
-
-                Console.WriteLine(
-                    $"1組あたりの接触点: {Physics.MaxContactsPerPair} 点"
-                    + (Physics.MaxContactsPerPair == 1
-                        ? "(**Day 43 と同じ1点**。床の箱が支えきれずに震え出す)"
-                        : string.Empty)
-                    + (Physics.MaxContactsPerPair == 4
-                        ? "(本来の値。面で触れているものが面で支えられる)"
-                        : string.Empty));
-                break;
-
-            case Key.Number5 when ctrl && shift && alt:
-                SpawnBox();
-                break;
-
-            case Key.Number6 when ctrl && shift && alt:
-                DescribeContacts();
-                break;
-
-            case Key.Number7 when ctrl && shift && alt:
-                // **今日いちばん深い比較**(要点5)。Day 43 の <c>Ctrl+Shift+Alt+F2</c>
-                // (積分法の切り替え)と同じ性格のつまみで、
-                // 「正しい解き方」と「素朴な解き方」を並べて見るためだけにある。
-                Physics.SolveContactsTogether = !Physics.SolveContactsTogether;
-
-                Console.WriteLine(
-                    Physics.SolveContactsTogether
-                        ? "接触点の解き方: **同時**(4点を同じ状態から決めてまとめて掛ける)"
-                        : "接触点の解き方: **順番**(Day 43 と同じ。1点目が全部を背負う)");
-
-                if (!Physics.SolveContactsTogether)
-                {
-                    Console.WriteLine(
-                        "  **箱を積む筋書き(Ctrl+Shift+Alt+2)で見ると分かる**"
-                        + "——柱がじりじり滑って横にずれる");
-                    Console.WriteLine(
-                        "  **Day 47 で崩れなくなった**(摩擦が横向きの逃げを押さえる)。"
-                        + "Shift+F で摩擦を切ると、Day 46 までのように崩れ落ちる");
-                }
-
-                break;
-
-            case Key.Number0 when ctrl && shift && alt:
-                RunBoxCollisionCheck();
-                break;
-
-            // --- Day 43 のスイッチ(剛体力学の基礎)---
-            //
-            // **Ctrl+Shift+Alt + ファンクションキー**。段はこれで7つ目になる
-            // (Ctrl+F / Shift+F / Ctrl+Shift+F / Ctrl+Alt+F / Alt+F / Shift+Alt+F /
-            //  Ctrl+Shift+Alt+F)。修飾キー3つの組み合わせはこれ1つしか残っていないので、
-            // **次の日からは別の当て方を考える**ことになる(数字キーの段も同様に埋まりつつある)。
-            //
-            // <b>この塊はいちばん上に置くこと</b>。下にある
-            // `case Key.F1 when ctrl && alt:`(Day 40)も
-            // `case Key.F1 when ctrl && shift:`(Day 39)も
-            // **Ctrl+Shift+Alt+F1 で成立してしまう**ので、
-            // 1つでも上に来ていると今日のキーが1つも届かない。
-            // Day 39 から毎日書いている話がここで最大になる——
-            // **ガード付き case は「具体的なものほど上」**が唯一の守り方。
-            //
-            // <b>Ctrl+Shift+Alt+F4 は Alt+F4 ではない</b>ので窓は閉じない(Day 40 と同じ)。
-            case Key.F1 when ctrl && shift && alt:
-                // **今日の到達点**。球を落として、跳ねさせて、積む。
-                // もう一度押すと消える。**消して出し直せば作り直し**になる。
-                if (_physicsDemo)
-                {
-                    _physicsDemo = false;
-
-                    // **キャラクターも一緒に下ろす**(Day 45)。
-                    // 世界を消してキャラクターだけ残すと、
-                    // 床の無いところを落ち続けることになる。
-                    _characterDemo = false;
-
-                    Physics.Clear();
-                    BodyColors.Clear();
-
-                    // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
-                    // 放っておくと切り替えるたびに VRAM が積み上がる。
-                    DisposeTerrain();
-
-                    _orbit.Reset();
-                    Console.WriteLine("物理デモ: OFF");
-                }
-                else
-                {
-                    ShowPhysicsDemo(_physicsScene);
-                    Console.WriteLine(
-                        $"物理デモ: {PhysicsSceneLabel()}({Physics.Bodies.Count} 体)。"
-                        + "**Ctrl+Shift+Alt+F4 で筋書きを切り替え**");
-                    Console.WriteLine(
-                        "  F2:積分法  F3:反発係数  F5:反復回数  F6:位置補正  "
-                        + "F7:球を追加  F8:撃つ  F9:内訳  F10:停止  F11:コマ送り");
-                }
-
-                break;
-
-            case Key.F2 when ctrl && shift && alt:
-                // **今日いちばん深い比較**。2行の順番を入れ替えるだけで、
-                // エネルギーが増える積分器と、増えない積分器が入れ替わる。
-                Physics.Integrator = Physics.Integrator == IntegratorMode.SemiImplicit
-                    ? IntegratorMode.Explicit
-                    : IntegratorMode.SemiImplicit;
-
-                Console.WriteLine(
-                    Physics.Integrator == IntegratorMode.SemiImplicit
-                        ? "積分: セミインプリシット(速度 → 位置。**ゲームの標準**)"
-                        : "積分: **陽的オイラー**(位置 → 速度。エネルギーが増え続ける)");
-                if (Physics.Integrator == IntegratorMode.Explicit)
-                {
-                    // **60Hz だと差が小さい**。増える量は 1ステップあたり g²dt²/2 なので、
-                    // dt を大きくすると2乗で効いてくる。数字キーの 3(20Hz)や 4(5Hz)で
-                    // シミュレーションレートを落とすと、跳ねるたびに高くなるのが一目で分かる。
-                    Console.WriteLine(
-                        "  **数字キーの 3(20Hz)や 4(5Hz)を押す**と一目で分かる"
-                        + "(増える量は dt の2乗に比例)");
-                }
-
-                break;
-
-            case Key.F3 when ctrl && shift && alt:
-                {
-                    _restitutionIndex = (_restitutionIndex + 1) % RestitutionSteps.Length;
-                    float restitution = RestitutionSteps[_restitutionIndex];
-
-                    // **今ある球にも反映する**。作り直さないと効かないのでは、
-                    // 「同じ場面で e だけを変える」比較ができない。
-                    foreach (RigidBody body in Physics.Bodies)
-                    {
-                        body.Restitution = restitution;
-                    }
-
-                    Console.WriteLine(
-                        $"反発係数: {restitution:F2}"
-                        + (restitution <= 0.0f ? "(**跳ねない**。当たったら止まる)" : string.Empty)
-                        + (restitution >= 0.9f ? "(**ほぼ完全弾性**。なかなか止まらない)" : string.Empty)
-                        + "  ※落下デモの5段の振り分けも、ここで上書きされる");
-                }
-
-                break;
-
-            case Key.F4 when ctrl && shift && alt:
-                {
-                    PhysicsScene next = _physicsScene switch
-                    {
-                        PhysicsScene.Drop => PhysicsScene.Stack,
-                        PhysicsScene.Stack => PhysicsScene.Cradle,
-                        _ => PhysicsScene.Drop,
-                    };
-
-                    ShowPhysicsDemo(next);
-                    Console.WriteLine(_physicsScene switch
-                    {
-                        PhysicsScene.Stack =>
-                            "筋書き: **積み上げ**(縦に6個。反復回数を 1 にすると沈む)",
-                        PhysicsScene.Cradle =>
-                            "筋書き: **撞き玉**(左から撞く。運動量が伝わっていく)",
-                        _ =>
-                            "筋書き: **落下**(反発係数 0 / 0.25 / 0.5 / 0.75 / 0.95 の5球)",
-                    });
-                }
-
-                break;
-
-            case Key.F5 when ctrl && shift && alt:
-                _iterationIndex = (_iterationIndex + 1) % IterationSteps.Length;
-                Physics.VelocityIterations = IterationSteps[_iterationIndex];
-                Console.WriteLine(
-                    $"速度の反復: {Physics.VelocityIterations} 周"
-                    + (Physics.VelocityIterations == 1
-                        ? "(**素朴版**。積み上げが持たない)"
-                        : string.Empty)
-                    + "  ※積み上げの筋書きでいちばん効く");
-                break;
-
-            case Key.F6 when ctrl && shift && alt:
-                Physics.PositionCorrection = !Physics.PositionCorrection;
-                Console.WriteLine(
-                    Physics.PositionCorrection
-                        ? $"位置補正: ON(率 {Physics.CorrectionRate:F2} / 許容 {Physics.Slop * 100.0f:F1}cm)"
-                        : "位置補正: **OFF**(速度は直るが、めり込みは戻らない。HUD の「めり込み」を見る)");
-                break;
-
-            case Key.F7 when ctrl && shift && alt:
-                SpawnBall();
-                break;
-
-            case Key.F8 when ctrl && shift && alt:
-                // **押すたびに交互**にする。中心と、中心を外した場合を
-                // 続けて撃つと、同じ大きさの撃力でも回るかどうかが変わるのが見える。
-                KickBodies(_kickOffCenter);
-                _kickOffCenter = !_kickOffCenter;
-                break;
-
-            case Key.F9 when ctrl && shift && alt:
-                DescribePhysics();
-                break;
-
-            case Key.F10 when ctrl && shift && alt:
-                _physicsPaused = !_physicsPaused;
-                _physicsStepsRequested = 0;
-                Console.WriteLine(
-                    _physicsPaused
-                        ? "物理: 一時停止(**カメラは動かせる**。Ctrl+Shift+Alt+F11 でコマ送り)"
-                        : "物理: 再開");
-                break;
-
-            case Key.F11 when ctrl && shift && alt:
-                // 止まっていなければ、まず止めてから1歩進める。
-                _physicsPaused = true;
-                _physicsStepsRequested++;
-                Console.WriteLine(
-                    $"物理: コマ送り {_physicsStepsRequested} ステップ待ち"
-                    + $"(1ステップ = {_loop.FixedDeltaTime * 1000.0:F1}ms)");
-                break;
-
-            case Key.F12 when ctrl && shift && alt:
-                RunRigidBodyCheck();
-                break;
-
-            // --- Day 40 のスイッチ(カメラワークと機能トグル)---
-            //
-            // **Ctrl+Alt + ファンクションキー**。Ctrl+F(Day 37)、Shift+F(Day 38)、
-            // Ctrl+Shift+F(Day 39)が埋まったので、残りはここしかない。
-            // <c>Ctrl+Alt+F12</c> だけは Day 39 の自己チェックが先客なので、
-            // 今日は **F1〜F11** に収める。
-            //
-            // <b>Ctrl+Alt+F4 は Alt+F4 ではない</b>ので窓は閉じない。
-            // Day 37 が避けたのは Alt 単独との組み合わせで、Ctrl が入れば別のキーになる。
-            //
-            // <b>この塊もいちばん上に置く</b>。下にある `case Key.F1 when ctrl:`(Day 37)は
-            // Ctrl+Alt+F1 でも成立してしまう。Day 39 の塊と同じ理由で、
-            // **順番が仕様の一部**になっている。
-            case Key.F1 when ctrl && alt:
-                // **今日の到達点**。シーンを出して、必須構成を全部入れて、カメラを回す。
-                if (_demo is null)
-                {
-                    LoadDemoScene();
-                }
-
-                if (_demo is not null)
-                {
-                    StopTourIfRunning();
-                    _useHdriSky = true;
-                    _sunFromHdri = true;
-                    _sceneShadows = true;
-                    _post.Split = PostSplit.None;
-                    _debugChannel = 0;
-                    SetSpriteCount(0);
-
-                    // **Day 39 が手で 12 個並べていたところ**。表にした御利益がここに出る。
-                    _features.SetAll(true);
-
-                    BakeSky();
-                    ApplyDemoLighting();
-                    PlayDemoCamera();
-                }
-
-                break;
-
-            case Key.F2 when ctrl && alt:
-                _cameraPlaying = !_cameraPlaying;
-                Console.WriteLine(
-                    _cameraPlaying
-                        ? "カメラワーク: 再生"
-                        : "カメラワーク: 一時停止(**止めている間は左ドラッグで手動に戻れる**)");
-                break;
-
-            case Key.F3 when ctrl && alt:
-                JumpToNextShot();
-                break;
-
-            case Key.F4 when ctrl && alt:
-                // **今日いちばん効く比較**。線形に落とすと、キーを通過する瞬間に
-                // HUD の m/s が飛ぶ。絵のほうでも、通過点でパンが「カクッ」と折れる。
-                _cameraInterpolation = _cameraInterpolation == CameraInterpolation.CatmullRom
-                    ? CameraInterpolation.Linear
-                    : CameraInterpolation.CatmullRom;
-                Console.WriteLine(
-                    _cameraInterpolation == CameraInterpolation.CatmullRom
-                        ? "補間: Catmull-Rom(前後を覗いて接線を決める。**通過点で速度が繋がる**)"
-                        : "補間: 線形(**通過点で速度が飛ぶ**。HUD の m/s を見ながら押す)");
-                break;
-
-            case Key.F5 when ctrl && alt:
-                // **軌跡は1ミリも動かない**のが要点。動くのは速さの配分だけ。
-                _cameraEase = !_cameraEase;
-                Console.WriteLine(
-                    _cameraEase
-                        ? "イージング: smoothstep(静止と滑らかに繋がる)"
-                        : "イージング: なし(**止まっていたカメラがいきなり最高速で動き出す**)");
-                break;
-
-            case Key.F6 when ctrl && alt:
-                {
-                    int index = Array.IndexOf(CameraSpeedSteps, _cameraSpeed);
-                    _cameraSpeed = CameraSpeedSteps[(index + 1) % CameraSpeedSteps.Length];
-                    Console.WriteLine($"再生速度: x{_cameraSpeed:F2}");
-                }
-
-                break;
-
-            case Key.F7 when ctrl && alt:
-                _features.SelectNext();
-                Console.WriteLine(
-                    $"選択: {_features.Features[_features.Selected].Name}"
-                    + $"({OnOff(_features.Features[_features.Selected].Value)})"
-                    + "  Ctrl+Alt+F8 で切り替え");
-                break;
-
-            case Key.F8 when ctrl && alt:
-                {
-                    StopTourIfRunning();
-
-                    FeatureToggles.Feature feature = _features.ToggleSelected();
-                    Console.WriteLine(
-                        $"{feature.Name}: {OnOff(feature.Value)}"
-                        + (feature.Value ? string.Empty : $"  — {feature.Effect}"));
-                }
-
-                break;
-
-            case Key.F9 when ctrl && alt:
-                {
-                    // **素の絵と必須構成の絵の往復**。Day 31 の出発点がどれだけ素っ気ないか、
-                    // 8日ぶんの積み上げが何をしていたかが、1押しで見える。
-                    StopTourIfRunning();
-
-                    bool on = !_features.AllOn;
-                    _features.SetAll(on);
-                    Console.WriteLine(
-                        on
-                            ? $"機能: 全部 ON({_features.Features.Count} 項目。必須構成の絵)"
-                            : "機能: 全部 OFF(**Day 31 に戻した絵**。ベースカラーと平行光源だけ)");
-                }
-
-                break;
-
-            case Key.F10 when ctrl && alt:
-                if (_features.TourActive)
-                {
-                    _features.EndTour();
-                    Console.WriteLine("機能ツアー: 終了(始める前の状態に戻した)");
-                }
-                else
-                {
-                    Console.WriteLine();
-                    Console.WriteLine(
-                        $"機能ツアー: {_features.TourInterval:F1} 秒ごとに1つずつ切っては戻す");
-                    Console.WriteLine(_features.BeginTour());
-                }
-
-                break;
-
-            case Key.F11 when ctrl && alt:
-                RunCameraCheck();
-                break;
-
-            // --- Day 39 のスイッチ(デモ v1 の組み上げ)---
-            //
-            // **Ctrl+Shift + ファンクションキー**。Day 37 が Ctrl+F、Day 38 が Shift+F を
-            // 取ったので、残っている安全な組み合わせがここになる。
-            //
-            // <b>Alt+F は今日も使えない</b>。Day 37 の但し書きのとおり、
-            // Alt+F4 が窓を閉じるので隣を押し間違えるとアプリが落ちる。
-            //
-            // <b>この塊はガードの弱い case より必ず上に置く</b>。
-            // 下にある `case Key.F1 when ctrl:`(Day 37)は
-            // Ctrl+Shift+F1 でも成立してしまうので、
-            // **順番が仕様の一部**になっている。C# の switch は上から順に照合する。
-            case Key.F1 when ctrl && shift:
-                if (_demo is null)
-                {
-                    LoadDemoScene();
-                }
-                else
-                {
-                    UnloadDemoScene();
-                }
-
-                break;
-
-            case Key.F2 when ctrl && shift:
-                // **今日いちばん効く比較**。同じシーンを手焼きの空(Day 36)と
-                // 本物の HDRI で見比べる。手焼きは「それらしい」が、
-                // 空の細部が無いので**磨いた金属に何も映らない**。
-                _useHdriSky = !_useHdriSky;
-                BakeSky();
-                ApplyDemoLighting();
-                Console.WriteLine(
-                    _useHdriSky
-                        ? "空: HDRI(本物。太陽も雲も地面も映る)"
-                        : "空: 手焼き(Day 36。**太陽の向きは手書きの値**)");
-                break;
-
-            case Key.F3 when ctrl && shift:
-                // **3枚とも太陽の写り方が違う**。方位は空の回転で揃えてあるので、
-                // 動くのは光の質だけ。
-                _hdriIndex = (_hdriIndex + 1) % HdriPaths.Length;
-                _useHdriSky = true;
-                BakeSky();
-                ApplyDemoLighting();
-                break;
-
-            case Key.F4 when ctrl && shift:
-                // **わざと食い違わせる窓**。手書きの向きに戻すと、
-                // 空の太陽と影の向きが別々になる——Day 36 で先送りにした問題そのもの。
-                _sunFromHdri = !_sunFromHdri;
-                ApplyDemoLighting();
-                Console.WriteLine(
-                    _sunFromHdri
-                        ? "平行光源: HDRI から抽出(絵の中の太陽と一致する)"
-                        : "平行光源: 手書き(Day 38 まで。**影の向きが空と食い違う**)");
-                break;
-
-            case Key.F5 when ctrl && shift:
-                // **二重計上を見る窓**。抜くのをやめると影の中が明るくなる。
-                _removeSunFromIbl = !_removeSunFromIbl;
-                BakeSky();
-                Console.WriteLine(
-                    _removeSunFromIbl
-                        ? "環境マップ: 太陽を抜く(平行光源と足しても二重にならない)"
-                        : "環境マップ: 太陽を残す(**影の中まで明るくなる**。粗い金属には映り込む)");
-                break;
-
-            case Key.F6 when ctrl && shift:
-                {
-                    int index = Array.IndexOf(SunThresholdSteps, _sunThreshold);
-                    _sunThreshold = SunThresholdSteps[(index + 1) % SunThresholdSteps.Length];
-                    BakeSky();
-                    ApplyDemoLighting();
-                    Console.WriteLine($"太陽のしきい値: 最大輝度の {_sunThreshold:F2} 倍");
-                }
-
-                break;
-
-            case Key.F7 when ctrl && shift:
-                // **影がどれだけ絵を支えているか**。全部の投げ手を落とすと、
-                // 物が床に置かれている感じが一気に消える(SSAO は残る)。
-                _sceneShadows = !_sceneShadows;
-                Console.WriteLine(
-                    _sceneShadows
-                        ? "シーンの影: ON(castShadow が true のものだけ深度パスへ)"
-                        : "シーンの影: OFF(**全部の投げ手を落とす**。接地感が消える)");
-                break;
-
-            case Key.F8 when ctrl && shift:
-                {
-                    // **デモはスクリーンショットが撮れて初めてデモ**。
-                    // 後処理を全部通したあとの絵をそのまま PNG にする。
-                    string saved = Screenshot.Save(
-                        _gl,
-                        _window.FramebufferSize.X,
-                        _window.FramebufferSize.Y,
-                        Path.Combine(Environment.CurrentDirectory, "screenshots"));
-                    Console.WriteLine($"スクリーンショット: {saved}");
-                }
-
-                break;
-
-            case Key.F9 when ctrl && shift:
-                if (_demo is null)
-                {
-                    Console.WriteLine("デモ v1: 読み込まれていません(Ctrl+Shift+F1)");
-                }
-                else
-                {
-                    DescribeDemoScene();
-                }
-
-                break;
-
-            case Key.F10 when ctrl && shift:
-                // **JSON を書き換えて押す**。これがあると絵作りが回り始める。
-                if (_demo is null)
-                {
-                    Console.WriteLine("デモ v1: 読み込まれていません(Ctrl+Shift+F1)");
-                }
-                else
-                {
-                    LoadDemoScene();
-                    Console.WriteLine("デモ v1: 読み直した");
-                }
-
-                break;
-
-            case Key.F11 when ctrl && shift:
-                // **空を回さないとどうなるか**。HDRI を撮影時の方位のまま使うと、
-                // 太陽が壁の裏に回って通りが日陰になる——
-                // 「HDRI を1枚拾ってきて貼っただけ」の絵がこれ。
-                _applySkyYaw = !_applySkyYaw;
-                BakeSky();
-                ApplyDemoLighting();
-                Console.WriteLine(
-                    _applySkyYaw
-                        ? "空の回転: シーンの指定どおり(太陽を狙った方位へ持ってくる)"
-                        : "空の回転: 0 度(**HDRI の撮影時の方位のまま**)");
-                break;
-
-            case Key.F12 when ctrl && shift:
-                // **一足飛びで見どころへ**(Shift+F12 と同じ趣旨)。
-                if (_demo is null)
-                {
-                    LoadDemoScene();
-                }
-
-                _useHdriSky = true;
-                _sunFromHdri = true;
-                _sceneShadows = true;
-                _post.Split = PostSplit.None;
-                _debugChannel = 0;
-                SetSpriteCount(0);
-
-                // **Day 40 でここが1行になった**。
-                // 元は `_env.Enabled = true; _shadow.Enabled = true; ...` と
-                // フラグを手で並べていて、機能が増えるたびに書き足す必要があった。
-                // 書き忘れても絵は出る——ただ「前と違う絵」になるだけなので、
-                // 原因を探すのがいちばん厄介な種類のバグになる。
-                StopTourIfRunning();
-                _features.SetAll(true);
-
-                BakeSky();
-                ApplyDemoLighting();
-                FrameDemoScene();
-
-                Console.WriteLine(
-                    "デモ v1 の決めの構図"
-                    + "  Ctrl+Shift+F4 で太陽の出どころ、Ctrl+Shift+F5 で二重計上を見比べる");
-                break;
-
-            // 自己チェックは Ctrl+Alt+F12(Day 39)。Ctrl+F12 は Day 38 が使っている。
-            case Key.F12 when ctrl && alt:
-                RunSceneCheck();
-                break;
-
-            // --- 今日のスイッチ(アニメーション制御)---
-            //
-            // **Shift+Alt + ファンクションキー**。段はこれで6つ目
-            // (Ctrl+F / Shift+F / Ctrl+Shift+F / Ctrl+Alt+F / Alt+F / Shift+Alt+F)。
-            //
-            // <b>Day 41 の Alt+F の塊より前に置くこと</b>。
-            // `case Key.F1 when alt:` は **Shift+Alt+F1 でも成立する**ので、
-            // 下に置くと今日のキーが1つも届かない。
-            // 下にある `case Key.F1 when shift:`(Day 38)も同じ理由で後ろでなければならない。
-            // Day 39・40・41 と同じ話が、段が増えるたびに厳しくなっていく——
-            // **ガード付き case は「具体的なものほど上」**が唯一の守り方。
-            case Key.F1 when shift && alt:
-                // **今日の到達点**。キツネを出して、速度を自動で上下させる。
-                ShowAnimatedModel("models/Fox.glb");
-                if (_locomotionTree is not null)
-                {
-                    _locomotion = LocomotionMode.BlendTree;
-                    _speedSweep = true;
-                    _sweepPhase = 0.0f;
-                    _locomotionStates?.Reset(0);
-
-                    if (_animation is not null)
-                    {
-                        _animation.Paused = false;
-                        _animation.SyncPhase = true;
-                    }
-
-                    Console.WriteLine(
-                        "ロコモーション: ブレンドツリー。速度が 0 ↔ "
-                        + $"{MaxMoveSpeed:F1}m/s を {SweepSeconds:F0} 秒で往復します");
-                    Console.WriteLine(
-                        "  **Shift+Alt+F3 で位相同期を切ると、足が合わなくなる**");
-                }
-                else
-                {
-                    Console.WriteLine("このモデルではロコモーションを組めません(クリップが2本未満)");
-                }
-
-                break;
-
-            case Key.F2 when shift && alt:
-                _locomotion = _locomotion switch
-                {
-                    LocomotionMode.Off => LocomotionMode.BlendTree,
-                    LocomotionMode.BlendTree => LocomotionMode.StateMachine,
-                    _ => LocomotionMode.Off,
-                };
-
-                // ステートマシンへ移るときは、今の速度の状態から始める
-                // (前回の状態が残っていると、いきなりクロスフェードが走る)。
-                if (_locomotion == LocomotionMode.StateMachine)
-                {
-                    _locomotionStates?.Reset(0);
-                }
-
-                Console.WriteLine(_locomotion switch
-                {
-                    LocomotionMode.BlendTree =>
-                        "決め方: **ブレンドツリー**(常に隣り合う2本が混ざる。速度に対して連続)",
-                    LocomotionMode.StateMachine =>
-                        "決め方: **ステートマシン**(どれか1つ。移り変わる瞬間だけ混ざる)",
-                    _ => "決め方: OFF(Day 41 と同じ。クリップを1本そのまま再生)",
-                });
-                break;
-
-            case Key.F3 when shift && alt:
-                if (_animation is not null)
-                {
-                    _animation.SyncPhase = !_animation.SyncPhase;
-                    Console.WriteLine(
-                        _animation.SyncPhase
-                            ? "位相同期: ON(全クリップが同じ正規化位置を指す)"
-                            : "位相同期: OFF(**各クリップが自分の長さで勝手に回る**。足が合わなくなる)");
-                }
-
-                break;
-
-            case Key.F5 when shift && alt:
-                _speedSweep = false;
-                _moveSpeed = MathF.Max(0.0f, _moveSpeed - 0.2f);
-                Console.WriteLine($"速度: {_moveSpeed:F2}m/s  {BlendLabel()}");
-                break;
-
-            case Key.F6 when shift && alt:
-                _speedSweep = false;
-                _moveSpeed = MathF.Min(MaxMoveSpeed, _moveSpeed + 0.2f);
-                Console.WriteLine($"速度: {_moveSpeed:F2}m/s  {BlendLabel()}");
-                break;
-
-            case Key.F7 when shift && alt:
-                _speedSweep = !_speedSweep;
-                Console.WriteLine(
-                    _speedSweep
-                        ? $"速度: 自動({SweepSeconds:F0} 秒で往復)"
-                        : $"速度: 手動({_moveSpeed:F2}m/s。Shift+Alt+F5 / F6 で増減)");
-                break;
-
-            case Key.F8 when shift && alt:
-                _crossFadeIndex = (_crossFadeIndex + 1) % CrossFadeSeconds.Length;
-                if (_locomotionStates is not null)
-                {
-                    _locomotionStates.FadeSeconds = CrossFadeSeconds[_crossFadeIndex];
-                }
-
-                Console.WriteLine(
-                    $"クロスフェード: {CrossFadeSeconds[_crossFadeIndex]:F2}s"
-                    + (CrossFadeSeconds[_crossFadeIndex] <= 0.0f
-                        ? "(**0 秒。切り替わりで足がワープする**)"
-                        : string.Empty)
-                    + "  ※ステートマシンのときだけ効く");
-                break;
-
-            case Key.F9 when shift && alt:
-                DescribeBlend();
-                break;
-
-            case Key.F12 when shift && alt:
-                RunLocomotionCheck();
-                break;
-
-            // --- Day 41 のスイッチ(スキニングアニメーション)---
-            //
-            // **素の Alt + ファンクションキー**。Ctrl+Alt(Day 40)、Ctrl+Shift(Day 39)、
-            // Shift(Day 38)、Ctrl(Day 37)が埋まって、ここだけが空いていた。
-            //
-            // <b>Alt+F4 は使わない</b>。Windows が窓を閉じるので、押した瞬間に終わる。
-            // Ctrl+Alt+F4(Day 40)は別のキーなので問題にならない。
-            //
-            // <b>ctrl && alt の塊より後に置くこと</b>。`case Key.F1 when alt:` は
-            // Ctrl+Alt+F1 でも成立してしまうので、**順番が仕様の一部**になっている
-            // (Day 39・Day 40 の但し書きと同じ話。段が増えるたびにこれが効いてくる)。
-            case Key.F1 when alt:
-                // **今日の到達点**。19 関節の人型を出して歩かせる。
-                ShowAnimatedModel("models/CesiumMan.glb");
-                Console.WriteLine(
-                    "CesiumMan が歩いています。"
-                    + "**Alt+F6 でスキニングを切ると、骨は動いたままバインドポーズに戻る**");
-                break;
-
-            case Key.F2 when alt:
-                {
-                    // アニメーション付きの5体を巡回する。
-                    string current = _modelIndex >= 0 && _modelIndex < ModelPaths.Length
-                        ? ModelPaths[_modelIndex]
-                        : string.Empty;
-
-                    int at = Array.IndexOf(AnimatedModelPaths, current);
-                    ShowAnimatedModel(AnimatedModelPaths[(at + 1) % AnimatedModelPaths.Length]);
-                }
-
-                break;
-
-            case Key.F3 when alt:
-                // クリップを次へ。**3本持っているのは Fox だけ**。
-                if (_animation is not null && _model is not null && _model.Animations.Count > 1)
-                {
-                    _animation.NextClip();
-                    Console.WriteLine(
-                        $"クリップ: {_animation.ClipName}"
-                        + $"({_animation.ClipIndex + 1}/{_model.Animations.Count})  {_animation.Duration:F2}s");
-                }
-                else
-                {
-                    Console.WriteLine("クリップが1本以下です(3本あるのは Fox。Alt+F2 で切り替え)");
-                }
-
-                break;
-
-            case Key.F5 when alt:
-                if (_animation is not null)
-                {
-                    _animation.Paused = !_animation.Paused;
-                    Console.WriteLine(
-                        _animation.Paused
-                            ? $"アニメ: 一時停止({_animation.Time:F2}s)。Alt+F8 で 1/30 秒ずつ送れる"
-                            : "アニメ: 再生");
-                }
-
-                break;
-
-            case Key.F6 when alt:
-                // **今日いちばん効く見比べ**。骨は動き続けるのに頂点が動かなくなる。
-                if (_animation is not null)
-                {
-                    _animation.SkinningEnabled = !_animation.SkinningEnabled;
-                    Console.WriteLine(
-                        _animation.SkinningEnabled
-                            ? "スキニング: ON"
-                            : "スキニング: OFF(**関節行列を全部単位行列にした = バインドポーズ**)");
-                }
-
-                break;
-
-            case Key.F7 when alt:
-                _playbackSpeedIndex = (_playbackSpeedIndex + 1) % PlaybackSpeeds.Length;
-                if (_animation is not null)
-                {
-                    _animation.Speed = PlaybackSpeeds[_playbackSpeedIndex];
-                }
-
-                Console.WriteLine($"再生速度: {PlaybackSpeeds[_playbackSpeedIndex]:F2} 倍");
-                break;
-
-            case Key.F8 when alt:
-                // コマ送り。**止めてから送る**——動いたまま送っても差が分からない。
-                if (_animation is not null)
-                {
-                    _animation.Paused = true;
-                    _animation.Advance(AnimationStepSeconds);
-                    Console.WriteLine($"コマ送り: {_animation.Time:F3}s / {_animation.Duration:F2}s");
-                }
-
-                break;
-
-            case Key.F9 when alt:
-                // 骨の重みを色で見る(成分 22)。もう一度押すと通常へ戻る。
-                _debugChannel = _debugChannel == 22 ? 0 : 22;
-                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
-                break;
-
-            case Key.F10 when alt:
-                if (_animation is not null)
-                {
-                    // **Day 42 で Rewind に変えた**。SelectClip だと混ぜているものが1本に潰れる。
-                    _animation.Rewind();
-                    Console.WriteLine("アニメ: 先頭へ戻した");
-                }
-
-                break;
-
-            case Key.F11 when alt:
-                DescribeRig();
-                break;
-
-            case Key.F12 when alt:
-                RunSkinningCheck();
-                break;
-
-            // --- 今日のスイッチ(FXAA と簡易カラーグレーディング)---
-            //
-            // **Shift + ファンクションキー**。Day 37 が Ctrl+F1〜F11 を取ったので、
-            // その隣の段を使う。数字キーは Shift / Ctrl / Alt / Ctrl+Shift / Ctrl+Alt の
-            // 5段とも埋まっている(Day 37 の但し書き参照)。
-            //
-            // <b>Shift+F3 だけ飛ばしてある</b>。Day 24 の
-            // 「シーンをコードから組み直す」が先に居るためで、上書きすると
-            // 過去Dayの動作確認が通らなくなる。**歯抜けは仕方がない**——
-            // 育っていく砂場では、キー割り当ては必ずこうなる。
-            //
-            // ガード付きの case は上から順に照合されるので、
-            // 下のほうにある `case Key.F5:`(シェーダ再読込)より前に置くこと。
-            case Key.F1 when shift:
-                _post.FxaaEnabled = !_post.FxaaEnabled;
-                Console.WriteLine(
-                    _post.FxaaEnabled
-                        ? "FXAA: ON(合成 → LDR バッファ → FXAA → 画面。パスが1つ増える)"
-                        : "FXAA: OFF(**輪郭が階段に戻る**。合成が直接画面へ書く)");
-                break;
-
-            case Key.F2 when shift:
-                // **今日いちばん使う窓のひとつ**。FXAA は絵を見ても
-                // 「効いているのか滲んでいるのか」が区別できない。
-                _post.FxaaDebugView = _post.FxaaDebugView switch
-                {
-                    FxaaDebugView.None => FxaaDebugView.Luma,
-                    FxaaDebugView.Luma => FxaaDebugView.Edge,
-                    FxaaDebugView.Edge => FxaaDebugView.Blend,
-                    _ => FxaaDebugView.None,
-                };
-                Console.WriteLine($"FXAA の表示: {FxaaViewLabel()}");
-                break;
-
-            // Shift+F3 は Day 24 の「シーンをコードから組み直す」が使っている。
-
-            case Key.F4 when shift:
-                _post.SetFxaaQuality(_post.Quality switch
-                {
-                    FxaaQuality.Low => FxaaQuality.Medium,
-                    FxaaQuality.Medium => FxaaQuality.High,
-                    FxaaQuality.High => FxaaQuality.Extreme,
-                    _ => FxaaQuality.Low,
-                });
-                Console.WriteLine(
-                    $"FXAA の効き: {FxaaQualityLabel()}"
-                    + $"(しきい値 {_post.FxaaEdgeThreshold:F3}/{_post.FxaaEdgeThresholdMin:F4}"
-                    + $"  歩幅 {_post.FxaaSpanMax:F0}tx)"
-                    + "  ※上げるほど拾うが、**細い線が滲み始める**");
-                break;
-
-            case Key.F5 when shift:
-                // **Day 37 までの置き方に戻す窓**。
-                // 露出(Shift+5/6)を上げると HUD の文字まで白飛びし、
-                // モノクロ(Shift+F7 で4回)にすると文字まで灰色になる。
-                _uiThroughPost = !_uiThroughPost;
-                Console.WriteLine(
-                    _uiThroughPost
-                        ? "UI: 後処理を通す(Day 37 まで)※露出を上げると**文字が白飛びする**"
-                        : "UI: 後処理の外(今日から)※FXAA も掛からないので字が滲まない");
-                break;
-
-            case Key.F6 when shift:
-                _post.Grade.Enabled = !_post.Grade.Enabled;
-                Console.WriteLine(
-                    _post.Grade.Enabled
-                        ? $"カラーグレーディング: ON({GradeLabel()})"
-                        : "カラーグレーディング: OFF(Day 37 までの素の色)");
-                break;
-
-            case Key.F7 when shift:
-                _post.Grade.ApplyPreset(_post.Grade.Preset switch
-                {
-                    GradePreset.Neutral => GradePreset.Sunset,
-                    GradePreset.Sunset => GradePreset.Moonlight,
-                    GradePreset.Moonlight => GradePreset.Bleach,
-                    GradePreset.Bleach => GradePreset.Monochrome,
-                    _ => GradePreset.Neutral,
-                });
-                _post.Grade.Enabled = true;
-                Console.WriteLine($"下敷き: {GradeLabel()}");
-                break;
-
-            case Key.F8 when shift:
-                {
-                    int index = Array.IndexOf(ColorGrade.ContrastSteps, _post.Grade.Contrast);
-                    _post.Grade.Contrast =
-                        ColorGrade.ContrastSteps[(index + 1) % ColorGrade.ContrastSteps.Length];
-                    _post.Grade.MarkCustom();
-                    Console.WriteLine(
-                        $"コントラスト: {_post.Grade.Contrast:F2}"
-                        + $"  ※{ColorGrade.MiddleGrey:F2}(18% グレー)を中心に回る");
-                }
-
-                break;
-
-            case Key.F9 when shift:
-                {
-                    int index = Array.IndexOf(ColorGrade.SaturationSteps, _post.Grade.Saturation);
-                    _post.Grade.Saturation =
-                        ColorGrade.SaturationSteps[(index + 1) % ColorGrade.SaturationSteps.Length];
-                    _post.Grade.MarkCustom();
-                    Console.WriteLine($"彩度: {_post.Grade.Saturation:F2}");
-                }
-
-                break;
-
-            case Key.F10 when shift:
-                {
-                    int index = Array.IndexOf(ColorGrade.TemperatureSteps, _post.Grade.Temperature);
-                    _post.Grade.Temperature =
-                        ColorGrade.TemperatureSteps[(index + 1) % ColorGrade.TemperatureSteps.Length];
-                    _post.Grade.MarkCustom();
-
-                    Vector3 balance = _post.Grade.WhiteBalance;
-                    Console.WriteLine(
-                        $"色温度: {_post.Grade.Temperature:+0;-0;0}  "
-                        + (_post.Grade.Temperature > 0.0f ? "暖色" : "寒色/D65")
-                        + $"  LMS の増幅率 ({balance.X:F3}, {balance.Y:F3}, {balance.Z:F3})");
-                }
-
-                break;
-
-            case Key.F11 when shift:
-                // **今日の主な道具**。アンチエイリアスも色も、隣に並べないと分からない。
-                _post.Split = _post.Split switch
-                {
-                    PostSplit.None => PostSplit.Fxaa,
-                    PostSplit.Fxaa => PostSplit.Grade,
-                    _ => PostSplit.None,
-                };
-                Console.WriteLine(_post.Split switch
-                {
-                    PostSplit.Fxaa => "左右比較: 左 = FXAA 前 / 右 = FXAA 後",
-                    PostSplit.Grade => "左右比較: 左 = グレーディング前 / 右 = 後",
-                    _ => "左右比較: なし",
-                });
-                break;
-
-            case Key.F12 when shift:
-                // **一足飛びで見どころへ**(Ctrl+F9 と同じ趣旨)。
-                // ジャギーがいちばん見える構図は「明るい空を背景にした斜めの縁」。
-                _post.FxaaEnabled = true;
-                _post.SetFxaaQuality(FxaaQuality.High);
-                _post.FxaaDebugView = FxaaDebugView.None;
-                _post.Split = PostSplit.Fxaa;
-                _post.Grade.ApplyPreset(GradePreset.Sunset);
-                _post.Grade.Enabled = true;
-                _uiThroughPost = false;
-
-                _materialGrid = false;
-                _surfaceDemo = false;
-                _draw3D = true;
-                _debugChannel = 0;
-                SetModel(ModelPaths.Length);
-
-                // **スプライトの群れを消す**(Ctrl+F9 と同じ理由)。
-                // 今日見たいのは1画素幅の階段なので、上に何か重なると読めない。
-                SetSpriteCount(0);
-
-                // **少し引いて、市松の床を奥まで見せる**。
-                //
-                // ジャギーがいちばんよく見えるのは、
-                //   1. 白飛びした空を背景にした<b>立方体の斜めの縁</b>
-                //   2. 遠くへ向かって細かくなる<b>市松模様</b>
-                // の2つ。近づきすぎると縁が画面から外れ、
-                // 見下ろしすぎると空が消えて 1 が無くなる。
-                // 分割線(画面の真ん中)を床の模様がまたぐようにしてあるので、
-                // **同じ模様の左右を見比べられる**。
-                _orbit.Yaw = 0.55f;
-                _orbit.Pitch = 0.08f;
-                _orbit.Target = new Vector3(0.0f, 0.40f, 0.0f);
-                _orbit.Distance = 9.0f;
-                _orbit.Apply();
-
-                Console.WriteLine(
-                    "FXAA が効く構図(**画面の左が加工前、右が加工後**)"
-                    + "  Shift+F11 で比較を切り、Shift+F1 で FXAA を切って見比べる");
-                break;
-
-            // --- 今日のスイッチ(スクリーンスペース環境遮蔽)---
-            //
-            // **数字キーが5段とも埋まった**。Shift(Day 31・32)、Ctrl(Day 33)、
-            // Alt(Day 34)、Ctrl+Shift(Day 35)、Ctrl+Alt(Day 36)。
-            // 6段目として Ctrl+Alt+Shift も作れるが、片手で押せないので
-            // **ファンクションキーへ移った**。
-            //
-            // <b>Alt+F1〜 は使えない</b>。Alt+F4 が窓を閉じるので、
-            // 隣を押し間違えた瞬間にアプリが終わる。Ctrl+F は安全。
-            //
-            // ここも上から順に照合されるので、ガード付きを先に置く
-            // (下のほうに `case Key.F5:`(シェーダ再読込)がある)。
-            case Key.F1 when ctrl:
-                _ssao.Enabled = !_ssao.Enabled;
-                Console.WriteLine(
-                    _ssao.Enabled
-                        ? "SSAO: ON(物と物が接するところに暗がりが出る)"
-                        : "SSAO: OFF(Day 36 まで。**立方体が床から浮いて見える**)");
-                break;
-
-            case Key.F2 when ctrl:
-                // **今日いちばん使う窓**。合成した絵からは半径もバイアスも読み取れない。
-                _ssao.DebugView = _ssao.DebugView switch
-                {
-                    SsaoDebugView.None => SsaoDebugView.Occlusion,
-                    SsaoDebugView.Occlusion => SsaoDebugView.Normal,
-                    SsaoDebugView.Normal => SsaoDebugView.Depth,
-                    _ => SsaoDebugView.None,
-                };
-                Console.WriteLine($"SSAO の表示: {SsaoViewLabel()}");
-                break;
-
-            case Key.F3 when ctrl:
-                // **絵の印象をいちばん強く決めるつまみ**。
-                // 小さいと接地の線だけ、大きいと部屋の隅ぜんぶが暗くなる。
-                _ssao.Radius = _ssao.Radius switch
-                {
-                    < 0.35f => 0.5f,
-                    < 0.75f => 1.0f,
-                    < 1.5f => 2.0f,
-                    _ => 0.25f,
-                };
-                Console.WriteLine(
-                    $"SSAO の半径: {_ssao.Radius:F2}m"
-                    + "  ※大きいほど広く暗くなるが、**遠くの物まで遮蔽物と数え始める**");
-                break;
-
-            case Key.F4 when ctrl:
-                {
-                    int index = Array.IndexOf(Ssao.SampleCounts, _ssao.SampleCount);
-                    _ssao.SampleCount = Ssao.SampleCounts[(index + 1) % Ssao.SampleCounts.Length];
-                    Console.WriteLine(
-                        $"SSAO の標本数: {_ssao.SampleCount}本"
-                        + "  ※Ctrl+F5 でぼかしを切ると、少ないほど荒れるのが直接見える");
-                }
-
-                break;
-
-            case Key.F5 when ctrl:
-                _ssao.BlurEnabled = !_ssao.BlurEnabled;
-                Console.WriteLine(
-                    _ssao.BlurEnabled
-                        ? "SSAO のぼかし: ON(4x4 平均。ノイズのタイルが消える)"
-                        : "SSAO のぼかし: OFF  ※**4x4 の格子模様が見える**のが正解");
-                break;
-
-            case Key.F6 when ctrl:
-                _ssao.SetHalfResolution(!_ssao.HalfResolution);
-                Console.WriteLine(
-                    $"SSAO の解像度: {_ssao.Width}x{_ssao.Height}"
-                    + $"({(_ssao.HalfResolution ? "画面の半分。画素数は 1/4" : "画面と同じ")})");
-                break;
-
-            case Key.F7 when ctrl:
-                _ssao.Strength = _ssao.Strength switch
-                {
-                    < 0.75f => 1.0f,
-                    < 1.25f => 1.5f,
-                    < 1.75f => 2.0f,
-                    _ => 0.5f,
-                };
-                Console.WriteLine($"SSAO の強さ: {_ssao.Strength:F1}");
-                break;
-
-            case Key.F8 when ctrl:
-                // **0 にすると平らな面に縞が出る**。シャドウアクネと同じ現象を、
-                // 今度は「自分自身を遮蔽物と数えてしまう」形で見る。
-                _ssao.Bias = _ssao.Bias switch
-                {
-                    < 0.005f => 0.01f,
-                    < 0.02f => 0.025f,
-                    < 0.04f => 0.05f,
-                    _ => 0.0f,
-                };
-                Console.WriteLine(
-                    $"SSAO の下駄: {_ssao.Bias:F3}"
-                    + (_ssao.Bias <= 0.0f ? "  ※**平らな床に縞が出る**のが正解" : string.Empty));
-                break;
-
-            case Key.F9 when ctrl:
-                // **一足飛びで見どころへ**(Ctrl+Alt+9 などと同じ趣旨)。
-                // 立方体が床に乗っている構図が、今日いちばん分かりやすい。
-                _ssao.Enabled = true;
-                _ssao.DebugView = SsaoDebugView.None;
-
-                // **見せるための設定にそろえる**。既定より少し強くしてあるのは、
-                // 「効いているかどうか」を最初に分からせるため——
-                // 実際に絵を作るときは既定(強さ 1.0)から詰める。
-                _ssao.Radius = 1.0f;
-                _ssao.Strength = 2.0f;
-                _ssao.SampleCount = 32;
-                _ssao.BlurEnabled = true;
-                _materialGrid = false;
-                _surfaceDemo = false;
-                _draw3D = true;
-                _debugChannel = 0;
-                SetModel(ModelPaths.Length);
-
-                // **スプライトの群れを消す**。
-                //
-                // Day 31 以来のデモは 3D の上に 1000 枚のスプライトを重ねている。
-                // 今日の暗がりは接地の細い線なので、上に何か重なると完全に読めない
-                // (材質グリッドを出す Ctrl+Shift+5 や Ctrl+Alt+9 でも同じことが起きる。
-                // あちらは球が大きいので気づきにくいが、同じ問題を抱えている)。
-                // PageUp で元に戻せる。
-                SetSpriteCount(0);
-                // **目線を落として立方体の根元に寄せる**。
-                // 接地の暗がりは床と物の境目にしか出ないので、
-                // 見下ろすと床の面積ばかりが増えて、いちばん見たい線が細くなる。
-                _orbit.Yaw = 0.9f;
-                _orbit.Pitch = 0.10f;
-                _orbit.Target = new Vector3(0.0f, -0.35f, 0.0f);
-                _orbit.Distance = 4.0f;
-                _orbit.Apply();
-                Console.WriteLine(
-                    "SSAO が効く構図(**立方体の根元に暗がりの帯が出る**)"
-                    + "  Ctrl+F1 で切って見比べる");
-                break;
-
-            case Key.F10 when ctrl:
-                RunSsaoCheck();
-                break;
-
-            // 自己チェックは Ctrl+F12(Day 38)。今日のキーは Shift+F12 まで埋まったので、
-            // 空いていた Ctrl 側の末尾を使う。
-            case Key.F12 when ctrl:
-                RunAaCheck();
-                break;
-
-            case Key.F11 when ctrl:
-                // **わざと間違えるための窓**。AO を直接光に掛けると何が起きるか。
-                _ssao.ApplyToDirectLight = !_ssao.ApplyToDirectLight;
-                Console.WriteLine(
-                    _ssao.ApplyToDirectLight
-                        ? "AO を直接光にも掛けた ※**日向の壁際まで暗くなる**のが正解。これは誤用"
-                        : "AO は環境光にだけ掛かる(正しい使い方)");
-                break;
-
-            // --- 今日のスイッチ(環境マッピングと IBL)---
-            //
-            // **Ctrl+Alt + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)、
-            // Ctrl+Shift(Day 35)に続く5段目。
-            //
-            // **Alt+Shift を使わなかった**のは、Windows でキーボードレイアウトの
-            // 切り替えに割り当てられていることが多いため。押した瞬間に
-            // 入力方式が変わってしまうと、原因が分からないまま手が止まる。
-            //
-            // ガード付きの case は上から順に照合されるので、
-            // **2つ押しの組はここでも先頭**に置く(Day 35 と同じ理由)。
-            case Key.Number1 when ctrl && alt:
-                _env.Enabled = !_env.Enabled;
-                Console.WriteLine(
-                    _env.Enabled
-                        ? "IBL: ON(まわりの景色が光になる)"
-                        : "IBL: OFF(Day 35 の「環境光は定数」に戻る。**金属が黒くなる**)");
-                break;
-
-            case Key.Number2 when ctrl && alt:
-                _env.SkyboxVisible = !_env.SkyboxVisible;
-                Console.WriteLine($"空の表示: {OnOff(_env.SkyboxVisible)}(**照明とは無関係**。見た目だけ)");
-                break;
-
-            case Key.Number3 when ctrl && alt:
-                _env.Intensity = _env.Intensity switch
-                {
-                    < 0.4f => 0.5f,
-                    < 0.8f => 1.0f,
-                    < 1.5f => 2.0f,
-                    _ => 0.25f,
-                };
-                Console.WriteLine($"環境光の強さ: {_env.Intensity:F2}");
-                break;
-
-            case Key.Number4 when ctrl && alt:
-                // 空として事前フィルタの段を出す。**粗さとぼけ具合の対応を目で確かめる**窓。
-                _env.SkyboxMip = _env.SkyboxMip + 1 >= EnvironmentMap.PrefilterMipCount
-                    ? -1
-                    : _env.SkyboxMip + 1;
-                Console.WriteLine(
-                    _env.SkyboxMip < 0
-                        ? "空に出すもの: 環境マップそのもの"
-                        : $"空に出すもの: 事前フィルタ 第{_env.SkyboxMip}段"
-                            + $"(粗さ {(float)_env.SkyboxMip / (EnvironmentMap.PrefilterMipCount - 1):F2} 相当)");
-                break;
-
-            case Key.Number5 when ctrl && alt:
-                {
-                    // **太陽を回して焼き直す**。空・影・平行光源が一緒に動く。
-                    //
-                    // 焼き直しに 1 秒近くかかるのでフレームが止まる。
-                    // 「環境が変わったら焼き直しが要る」という IBL の性質が、
-                    // そのまま体感として出る——動く太陽を扱うゲームで
-                    // IBL をどうするかは、それだけで大きな設計問題になる。
-                    _sunYaw += MathF.PI / 6.0f;
-
-                    Matrix4x4 rotation = Matrix4x4.CreateRotationY(MathF.PI / 6.0f);
-                    _lightDirection = Vector3.Normalize(Vector3.TransformNormal(_lightDirection, rotation));
-
-                    var watch = Stopwatch.StartNew();
-                    _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
-
-                    Console.WriteLine(
-                        $"太陽を 30 度回した(通算 {_sunYaw * 180.0f / MathF.PI:F0} 度)"
-                        + $"  焼き直し {watch.Elapsed.TotalMilliseconds:F0}ms");
-                }
-
-                break;
-
-            case Key.Number6 when ctrl && alt:
-                {
-                    // **空を 8bit に落として焼き直す**。Day 31 の Shift+1 と同じ実験を、
-                    // 今度は「光源としての環境」で行う。
-                    _env.ClampSkyToLdr = !_env.ClampSkyToLdr;
-                    _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
-
-                    Console.WriteLine(
-                        _env.ClampSkyToLdr
-                            ? "空を 1.0 で頭打ちにして焼き直した  ※環境光がのっぺりするのが正解"
-                            : "空を HDR のまま焼き直した(太陽は 300)");
-                }
-
-                break;
-
-            case Key.Number7 when ctrl && alt:
-                // 焼いた3枚を1枚ずつ見る。**「なんとなく良くなった」で済ませないため**。
-                _iblViewIndex = (_iblViewIndex + 1) % 4;
-                _debugChannel = _iblViewIndex == 0 ? 0 : 17 + _iblViewIndex;
-                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
-                break;
-
-            case Key.Number8 when ctrl && alt:
-                _env.UsePrefilter = !_env.UsePrefilter;
-                Console.WriteLine(
-                    _env.UsePrefilter
-                        ? "鏡面の環境: 事前フィルタ(粗さに応じた段を引く)"
-                        : "鏡面の環境: 原寸のみ  ※粗い金属が鏡になり、太陽の反射がちらつくのが正解");
-                break;
-
-            case Key.Number9 when ctrl && alt:
-                // **一足飛びで見どころへ**(Alt+9 / Ctrl+Shift+9 と同じ趣旨)。
-                // 材質グリッドに IBL を当てた絵が、今日いちばん見せたいもの。
-                _env.Enabled = true;
-                _env.SkyboxVisible = true;
-                _pbrEnabled = true;
-                _materialGrid = true;
-                _debugChannel = 0;
-                _iblViewIndex = 0;
-                _orbit.Yaw = 0.0f;
-                _orbit.Pitch = 0.0f;
-                _orbit.Target = Vector3.Zero;
-                _orbit.Distance = 13.0f;
-                _orbit.Apply();
-                Console.WriteLine("材質グリッド + IBL(**上の行に景色が映る**)");
-                break;
-
-            case Key.Number0 when ctrl && alt:
-                RunIblCheck();
-                break;
-
-            // --- 今日のスイッチ(物理ベースレンダリング)---
-            //
-            // **Ctrl+Shift + 数字**。Shift(Day 31・32)、Ctrl(Day 33)、Alt(Day 34)に続く4段目。
-            //
-            // ガード付きの case は**上から順に照合される**ので、
-            // **2つ押しの組は1つ押しより必ず先に置く**。
-            // 下の `when ctrl` を先に書くと、Ctrl+Shift+1 がそちら(影の ON/OFF)に吸われて、
-            // 「押しても何も起きない」ではなく「別の機能が動く」という分かりにくい壊れ方をする。
-            case Key.Number1 when ctrl && shift:
-                _pbrEnabled = !_pbrEnabled;
-                Console.WriteLine(
-                    _pbrEnabled
-                        ? "陰影: Cook-Torrance(物理ベース)"
-                        : "陰影: ランバート(Day 34 まで。金属度も粗さも効かない)");
-                break;
-
-            case Key.Number2 when ctrl && shift:
-                _metallicOverride = (_metallicOverride + 1) % 4;
-                Console.WriteLine(
-                    $"金属度の上書き: {(_metallicOverride == 0 ? "しない(モデルの値)" : $"{MetallicOverrideValue():F2}")}");
-                break;
-
-            case Key.Number3 when ctrl && shift:
-                _roughnessOverride = (_roughnessOverride + 1) % 5;
-                Console.WriteLine(
-                    $"粗さの上書き: {(_roughnessOverride == 0 ? "しない(モデルの値)" : $"{RoughnessOverrideValue():F2}")}");
-                break;
-
-            case Key.Number4 when ctrl && shift:
-                // 非金属の F0。**0.04 から動かす理由はほとんど無い**が、
-                // 動かすと「非金属の鏡面はこんなに弱い」ことが逆に分かる。
-                _dielectricF0 = _dielectricF0 switch
-                {
-                    < 0.02f => 0.04f,
-                    < 0.06f => 0.08f,
-                    < 0.12f => 0.17f,
-                    _ => 0.00f,
-                };
-                Console.WriteLine(
-                    $"非金属の F0: {_dielectricF0:F2}"
-                    + _dielectricF0 switch
-                    {
-                        < 0.02f => "(反射しない。物理的には有り得ない)",
-                        < 0.06f => "(水・プラスチック・ガラス。ほとんどの物質)",
-                        < 0.12f => "(宝石)",
-                        _ => "(ダイヤモンド)",
-                    });
-                break;
-
-            case Key.Number5 when ctrl && shift:
-                _materialGrid = !_materialGrid;
-                if (_materialGrid)
-                {
-                    // **正面から見せる**。材質を見比べる絵なので、
-                    // 斜めから見ると列ごとに視線の角度が変わり、
-                    // フレネルのせいで右へ行くほど明るくなってしまう。
-                    _orbit.Yaw = 0.0f;
-                    _orbit.Pitch = 0.0f;
-                    _orbit.Target = Vector3.Zero;
-                    _orbit.Distance = 13.0f;
-                    _orbit.Apply();
-                }
-
-                Console.WriteLine(
-                    _materialGrid
-                        ? $"材質グリッド: {MaterialGridSize}x{MaterialGridSize}(縦=金属度 0→1 / 横=粗さ 0→1)"
-                            + "  ※上の行が黒いのは正しい。映り込む景色が要る(Day 36)"
-                        : "材質グリッド: OFF");
-                break;
-
-            case Key.Number6 when ctrl && shift:
-                _perceptualRoughness = !_perceptualRoughness;
-                Console.WriteLine(
-                    _perceptualRoughness
-                        ? "α の作り方: roughness²(glTF・Unreal・Unity の流儀)"
-                        : "α の作り方: roughness そのまま  ※中央より右がほとんど同じに見える");
-                break;
-
-            case Key.Number7 when ctrl && shift:
-                _ambientSpecular = !_ambientSpecular;
-                Console.WriteLine(
-                    _ambientSpecular
-                        ? "環境鏡面: ON(Day 36 の IBL までの粗いつなぎ)"
-                        : "環境鏡面: OFF  ※金属がハイライト以外真っ黒になるのが素の姿");
-                break;
-
-            case Key.Number8 when ctrl && shift:
-                _gridColorIndex = (_gridColorIndex + 1) % GridColors.Length;
-                Console.WriteLine(
-                    $"グリッドのベースカラー: {GridColors[_gridColorIndex].Name}"
-                    + "  ※金属の行だけ鏡面に色が乗る(F0 = ベースカラー)");
-                break;
-
-            case Key.Number9 when ctrl && shift:
-                // **一足飛びで見どころへ**(Alt+9 と同じ趣旨)。
-                // 鏡面だけを見ると、粗さとフレネルの効きが拡散に邪魔されずに読める。
-                _pbrEnabled = true;
-                _materialGrid = true;
-                _debugChannel = 14;
-                _orbit.Yaw = 0.0f;
-                _orbit.Pitch = 0.0f;
-                _orbit.Target = Vector3.Zero;
-                _orbit.Distance = 13.0f;
-                _orbit.Apply();
-                Console.WriteLine($"材質グリッド + 表示する成分: {DebugChannelLabel()}");
-                break;
-
-            case Key.Number0 when ctrl && shift:
-                RunPbrCheck();
-                break;
-
-            // --- 今日のスイッチ(法線マップと視差マッピング)---
-            //
-            // **Alt + 数字**。Shift(Day 31・32)、Ctrl(Day 33)に続く3段目。
-            // 修飾キーが日の目印になっているので、
-            // 「あの機能は何日目だったか」を手が覚える。
-            case Key.Number1 when alt:
-                _normalMapping = !_normalMapping;
-                Console.WriteLine($"法線マップ: {OnOff(_normalMapping)}");
-                break;
-
-            case Key.Number2 when alt:
-                _parallaxMode = (_parallaxMode + 1) % 4;
-                Console.WriteLine($"視差マッピング: {ParallaxLabel()}");
-                break;
-
-            case Key.Number3 when alt:
-                _parallaxScale = _parallaxScale switch
-                {
-                    < 0.03f => 0.05f,
-                    < 0.08f => 0.10f,
-                    < 0.13f => 0.18f,
-                    _ => 0.02f,
-                };
-                Console.WriteLine(
-                    $"視差の深さ: {_parallaxScale:F3}"
-                    + (_parallaxScale > 0.15f ? "(縁の破綻が見える)" : string.Empty));
-                break;
-
-            case Key.Number4 when alt:
-                // 刻み数。**粗くすると急峻視差の段差がはっきり出る**。
-                (_parallaxMinSteps, _parallaxMaxSteps) = (_parallaxMinSteps, _parallaxMaxSteps) switch
-                {
-                    (8, 32) => (4, 8),
-                    (4, 8) => (16, 64),
-                    _ => (8, 32),
-                };
-                Console.WriteLine($"レイマーチの刻み: {_parallaxMinSteps}〜{_parallaxMaxSteps}");
-                break;
-
-            case Key.Number5 when alt:
-                _surfaceDemo = !_surfaceDemo;
-                Console.WriteLine(
-                    _surfaceDemo
-                        ? "材質テスト: レンガの板(手前の床が寝ているので、そこで視差を見る)"
-                        : "材質テスト: OFF");
-                break;
-
-            case Key.Number6 when alt:
-                _surfaceTiling = _surfaceTiling switch
-                {
-                    < 1.5f => 2.0f,
-                    < 3.0f => 4.0f,
-                    _ => 1.0f,
-                };
-                Console.WriteLine($"テスト板の繰り返し: {_surfaceTiling:F0}x{_surfaceTiling:F0}");
-                break;
-
-            case Key.Number7 when alt:
-                // **ファイルの接線と、生成した接線を見比べる**。
-                // 読み直しになるのでフレームが止まる(モデルの読み込みは同期。Day 32)。
-                _forceGeneratedTangents = !_forceGeneratedTangents;
-                Console.WriteLine(
-                    _forceGeneratedTangents
-                        ? "接線: ファイルの TANGENT を無視して生成する"
-                        : "接線: ファイルにあればそれを使う");
-                if (_model is not null)
-                {
-                    SetModel(_modelIndex);
-                }
-
-                break;
-
-            case Key.Number8 when alt:
-                _flipGreen = !_flipGreen;
-                Console.WriteLine(
-                    $"法線マップの緑: {(_flipGreen ? "反転(DirectX 形式)" : "そのまま(OpenGL 形式)")}"
-                    + (_flipGreen ? "  ※凹凸が裏返って見えるのが正解" : string.Empty));
-                break;
-
-            case Key.Number9 when alt:
-                _normalMapping = true;
-                _debugChannel = 11;
-                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
-                break;
-
-            case Key.Number0 when alt:
-                RunTangentCheck();
-                break;
-
-            // --- 今日のスイッチ(シャドウマッピング)---
-            //
-            // **Ctrl + 数字**。Shift + 数字は Day 31・32 で埋まったので、次の段へ移った。
-            // 修飾キーで日をまとめておくと、あとから「あの機能は何日目だったか」を
-            // 手が覚えている、という副産物がある。
-            //
-            // ガード付きの case は**上から順に照合される**ので、
-            // 修飾キー付きを全部先に置く(Shift 版と同じ理由。下のコメント参照)。
-            case Key.Number1 when ctrl:
-                _shadow.Enabled = !_shadow.Enabled;
-                Console.WriteLine($"影: {OnOff(_shadow.Enabled)}");
-                break;
-
-            case Key.Number2 when ctrl:
-                {
-                    int index = Array.IndexOf(ShadowMap.Resolutions, _shadow.Resolution);
-                    int next = ShadowMap.Resolutions[(index + 1) % ShadowMap.Resolutions.Length];
-                    _shadow.SetResolution(next);
-                    Console.WriteLine(
-                        $"シャドウマップ: {next}x{next}  {_shadow.ByteSize / (1024.0 * 1024.0):F1}MB"
-                        + $"  1テクセル {_shadow.WorldPerTexel * 100.0f:F1}cm");
-                }
-
-                break;
-
-            case Key.Number3 when ctrl:
-                _shadow.PcfRadius = (_shadow.PcfRadius + 1) % 4;
-                Console.WriteLine(
-                    $"PCF: 半径{_shadow.PcfRadius}"
-                    + $"({(2 * _shadow.PcfRadius) + 1}x{(2 * _shadow.PcfRadius) + 1} = {_shadow.TapCount}タップ)");
-                break;
-
-            case Key.Number4 when ctrl:
-                // **0 を必ず通す**。アクネが出る状態を1周ごとに見られるようにしてある。
-                _shadow.DepthBias = _shadow.DepthBias switch
-                {
-                    <= 0.0f => 0.0005f,
-                    < 0.001f => 0.0015f,
-                    < 0.003f => 0.006f,
-                    _ => 0.0f,
-                };
-                Console.WriteLine(
-                    $"深度バイアス: {_shadow.DepthBias:F4}"
-                    + (_shadow.DepthBias <= 0.0f ? "(アクネが出る)" : string.Empty));
-                break;
-
-            case Key.Number5 when ctrl:
-                _shadow.SlopeBias = !_shadow.SlopeBias;
-                Console.WriteLine($"傾きに比例したバイアス: {OnOff(_shadow.SlopeBias)}");
-                break;
-
-            case Key.Number6 when ctrl:
-                _shadow.CullFrontFaces = !_shadow.CullFrontFaces;
-                Console.WriteLine(
-                    $"深度パスのカリング: {(_shadow.CullFrontFaces ? "表を捨てる(裏だけ焼く)" : "裏を捨てる(通常)")}"
-                    + (_shadow.CullFrontFaces ? "  ※床のような1枚板は影を落とさなくなる" : string.Empty));
-                break;
-
-            case Key.Number7 when ctrl:
-                _shadow.ShowMap = !_shadow.ShowMap;
-                Console.WriteLine($"シャドウマップの表示: {OnOff(_shadow.ShowMap)}");
-                break;
-
-            case Key.Number8 when ctrl:
-                // 光の箱の広さ。**広げるほど影が粗くなる**のを 1 キーで見るためのもの。
-                _shadow.Radius = _shadow.Radius switch
-                {
-                    < 4.0f => 6.0f,
-                    < 9.0f => 12.0f,
-                    < 18.0f => 24.0f,
-                    _ => 3.0f,
-                };
-                Console.WriteLine(
-                    $"光の届く範囲: 半径 {_shadow.Radius:F0}m"
-                    + $"  1テクセル {_shadow.WorldPerTexel * 100.0f:F1}cm");
-                break;
-
-            case Key.Number9 when ctrl:
-                // 光を Y 軸まわりに 30 度ずつ回す。**影が動くと形が読める**。
-                _lightDirection = Vector3.Normalize(
-                    Vector3.Transform(_lightDirection, Matrix4x4.CreateRotationY(MathF.PI / 6.0f)));
-                Console.WriteLine(
-                    $"光の向き: ({_lightDirection.X:F2}, {_lightDirection.Y:F2}, {_lightDirection.Z:F2})");
-                break;
-
-            case Key.Number0 when ctrl:
-                RunShadowCheck();
-                break;
-
-            // --- 今日のスイッチ(HDR パイプライン)---
-            //
-            // **Shift + 数字**にまとめた。文字キーはもう空きが無く、
-            // 数字の裏なら「Shift を押しながらなら今日のもの」と一列に覚えられる。
-            //
-            // ここが**ガード付き case を先に置く**必要のある場所。
-            // 下の `case Key.Number1:`(シミュレーションレート)を先に書くと、
-            // Shift ごと吸われて Shift+1 が届かない
-            // (C# は上から順に照合する。逆に書くとコンパイルエラーになる)。
-            case Key.Number1 when shift:
-                _post.SceneFormat = _post.SceneFormat == RenderTargetFormat.Rgba16F
-                    ? RenderTargetFormat.Rgba8
-                    : RenderTargetFormat.Rgba16F;
-                Console.WriteLine(
-                    $"シーンバッファ: {(_post.SceneFormat == RenderTargetFormat.Rgba16F ? "RGBA16F(HDR)" : "RGBA8(1.0 で切られる)")}"
-                    + $"  {_post.ByteSize / (1024.0 * 1024.0):F1}MB");
-                break;
-
-            case Key.Number2 when shift:
-                _post.BloomEnabled = !_post.BloomEnabled;
-                Console.WriteLine($"ブルーム: {(_post.BloomEnabled ? "ON" : "OFF")}");
-                break;
-
-            case Key.Number3 when shift:
-                _post.ToneMap = _post.ToneMap switch
-                {
-                    ToneMapOperator.None => ToneMapOperator.Reinhard,
-                    ToneMapOperator.Reinhard => ToneMapOperator.Aces,
-                    _ => ToneMapOperator.None,
-                };
-                Console.WriteLine($"トーンマップ: {ToneMapLabel()}");
-                break;
-
-            case Key.Number4 when shift:
-                _post.DebugView = _post.DebugView switch
-                {
-                    PostDebugView.Final => PostDebugView.SceneOnly,
-                    PostDebugView.SceneOnly => PostDebugView.Bright,
-                    PostDebugView.Bright => PostDebugView.Bloom,
-                    _ => PostDebugView.Final,
-                };
-                Console.WriteLine($"表示する段: {DebugViewLabel()}");
-                break;
-
-            case Key.Number5 when shift:
-            case Key.Number6 when shift:
-                // 1 段(2倍)ではなく 1.3 倍刻みにしてある。
-                // 2倍だと明るさが飛びすぎて「ちょうどいいところ」を通り過ぎる。
-                _post.Exposure = Math.Clamp(
-                    _post.Exposure * (key == Key.Number6 ? 1.3f : 1.0f / 1.3f),
-                    0.02f,
-                    64.0f);
-                Console.WriteLine($"露出: {_post.Exposure:F2}");
-                break;
-
-            case Key.Number7 when shift:
-                _post.BloomThreshold = _post.BloomThreshold switch
-                {
-                    < 0.8f => 1.0f,
-                    < 1.2f => 1.5f,
-                    < 2.0f => 2.5f,
-                    _ => 0.7f,
-                };
-                Console.WriteLine($"ブルームのしきい値: {_post.BloomThreshold:F1}");
-                break;
-
-            case Key.Number8 when shift:
-                RunHdrCheck();
-                break;
-
-            // --- 今日のスイッチ(glTF)---
-            case Key.Number9 when shift:
-                // Day 35 で BRDF の5つ、Day 36 で IBL の3つ、Day 37 で SSAO、
-                // Day 41 で骨の重みが増えて 23 通りになった。
-                // **多いので Alt+9 と Ctrl+Shift+9 で目当ての成分へ直接飛べる**ようにしてある。
-                _debugChannel = (_debugChannel + 1) % 23;
-                Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
-                break;
-
-            case Key.Number0 when shift:
-                // 最後まで行ったら「無し」を1周ぶん挟む。
-                // **Day 31 までのデモに戻れる**ようにしておかないと、
-                // 明るさの階段やスプライトの計測が見られなくなる。
-                SetModel(_modelIndex + 1 > ModelPaths.Length ? 0 : _modelIndex + 1);
-                break;
-
-            case Key.Minus when shift:
-                RunGltfCheck();
                 break;
 
             case Key.Escape:
@@ -15989,7 +13953,9 @@ internal static class Program
                 Console.WriteLine($"音量: {_audio.MasterVolume:P0}");
                 break;
 
-            case Key.F1:
+            // **F1 から引っ越した**(Day 48)。F1 はメニューのページ送りになったので、
+            // ここに置いても二度と届かない。音量の <c>[</c> <c>]</c> の隣に寄せてある。
+            case Key.BackSlash:
                 RunAudioCheck();
                 break;
 
@@ -16173,6 +14139,1975 @@ internal static class Program
     }
 
     /// <summary>
+    /// **割り当て表を組む**(Day 48)。今日いちばん長い関数だが、**中身は全部データ**。
+    ///
+    /// <para>
+    /// ページの並びは Day 31 から Day 47 の順。
+    /// 昨日までの「Ctrl+F の段」「Shift+F の段」がそのまま1ページになっている——
+    /// 修飾キーの組み合わせが、たまたま Day ごとのテーマと1対1だったため。
+    /// つまり<b>分類は最初からあって、キーの組み合わせで表現していただけ</b>だった。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>ここより後ろでないと組めない</b>のは <see cref="BuildFeatureToggles"/> と同じ理由。
+    /// 表が持っているのは <c>_ssao.Enabled</c> などへの読み書きの手順なので、
+    /// その <c>_ssao</c> や <c>_post</c> が出来上がっている必要がある。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>キーはどこにも書いていない</b>。登録した順に F2, F3, … F12, 1, 2, … 0 が
+    /// 割り当たる(<see cref="DebugMenu.Slots"/>)。
+    /// 書かせると必ず重複するし、重複しても<b>動いてしまう</b>——
+    /// それが昨日までの switch で起きていたことそのものだった。
+    /// </para>
+    /// </summary>
+    private static DebugMenu BuildDebugMenu()
+    {
+        var menu = new DebugMenu();
+
+        // --- Day 31-32。露出・トーンマップ・glTF の読み込み ---
+        DebugMenu.Page hdr = menu.Add("HDR とブルーム", "Day 31-32。露出・トーンマップ・glTF の読み込み");
+
+        hdr.Add("シーンバッファ", "16F と 8bit を往復する。8bit だと明るい側が潰れる", () =>
+        {
+            _post.SceneFormat = _post.SceneFormat == RenderTargetFormat.Rgba16F
+                ? RenderTargetFormat.Rgba8
+                : RenderTargetFormat.Rgba16F;
+            Console.WriteLine(
+                $"シーンバッファ: {(_post.SceneFormat == RenderTargetFormat.Rgba16F ? "RGBA16F(HDR)" : "RGBA8(1.0 で切られる)")}"
+                + $"  {_post.ByteSize / (1024.0 * 1024.0):F1}MB");
+        });
+
+        hdr.Add("ブルーム", "明るいところがにじむ", () =>
+        {
+            _post.BloomEnabled = !_post.BloomEnabled;
+            Console.WriteLine($"ブルーム: {(_post.BloomEnabled ? "ON" : "OFF")}");
+        });
+
+        hdr.Add("トーンマップ", "HDR を画面の 0〜1 に落とす曲線", () =>
+        {
+            _post.ToneMap = _post.ToneMap switch
+            {
+                ToneMapOperator.None => ToneMapOperator.Reinhard,
+                ToneMapOperator.Reinhard => ToneMapOperator.Aces,
+                _ => ToneMapOperator.None,
+            };
+            Console.WriteLine($"トーンマップ: {ToneMapLabel()}");
+        });
+
+        hdr.Add("表示する段", "合成の途中経過をそのまま出す", () =>
+        {
+            _post.DebugView = _post.DebugView switch
+            {
+                PostDebugView.Final => PostDebugView.SceneOnly,
+                PostDebugView.SceneOnly => PostDebugView.Bright,
+                PostDebugView.Bright => PostDebugView.Bloom,
+                _ => PostDebugView.Final,
+            };
+            Console.WriteLine($"表示する段: {DebugViewLabel()}");
+        });
+
+        hdr.Add("露出 −", "1.3 分の1 ずつ暗く", () => ChangeExposure(1.0f / 1.3f));
+
+        hdr.Add("露出 +", "1.3 倍ずつ明るく", () => ChangeExposure(1.3f));
+
+        hdr.Add("ブルームのしきい値", "どこからを「明るい」とみなすか", () =>
+        {
+            _post.BloomThreshold = _post.BloomThreshold switch
+            {
+                < 0.8f => 1.0f,
+                < 1.2f => 1.5f,
+                < 2.0f => 2.5f,
+                _ => 0.7f,
+            };
+            Console.WriteLine($"ブルームのしきい値: {_post.BloomThreshold:F1}");
+        });
+
+        hdr.Add("自己チェック", "浮動小数バッファと露出の往復を検算する", () =>
+        {
+            RunHdrCheck();
+        });
+
+        hdr.Add("表示する成分", "法線・粗さ・金属度などを直に見る", () =>
+        {
+            // Day 35 で BRDF の5つ、Day 36 で IBL の3つ、Day 37 で SSAO、
+            // Day 41 で骨の重みが増えて 23 通りになった。
+            // **多いので 「法線マップと視差」の F10 と 「PBR」の F10 で目当ての成分へ直接飛べる**ようにしてある。
+            _debugChannel = (_debugChannel + 1) % 23;
+            Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+        });
+
+        hdr.Add("モデルを切り替え", "glTF を順に読み込む(Day 32)", () =>
+        {
+            // 最後まで行ったら「無し」を1周ぶん挟む。
+            // **Day 31 までのデモに戻れる**ようにしておかないと、
+            // 明るさの階段やスプライトの計測が見られなくなる。
+            SetModel(_modelIndex + 1 > ModelPaths.Length ? 0 : _modelIndex + 1);
+        });
+
+        hdr.Add("自己チェック(glTF)", "読み込んだモデルの構造を検算する", () =>
+        {
+            RunGltfCheck();
+        });
+
+        // --- Day 33。深度パスとバイアスの詰め ---
+        DebugMenu.Page shadow = menu.Add("シャドウマップ", "Day 33。深度パスとバイアスの詰め");
+
+        shadow.Add("影", "深度パスを丸ごと切る", () =>
+        {
+            _shadow.Enabled = !_shadow.Enabled;
+            Console.WriteLine($"影: {OnOff(_shadow.Enabled)}");
+        });
+
+        shadow.Add("解像度", "1024〜4096。輪郭のギザギザと VRAM が入れ替わる", () =>
+        {
+            int index = Array.IndexOf(ShadowMap.Resolutions, _shadow.Resolution);
+            int next = ShadowMap.Resolutions[(index + 1) % ShadowMap.Resolutions.Length];
+            _shadow.SetResolution(next);
+            Console.WriteLine(
+                $"シャドウマップ: {next}x{next}  {_shadow.ByteSize / (1024.0 * 1024.0):F1}MB"
+                + $"  1テクセル {_shadow.WorldPerTexel * 100.0f:F1}cm");
+        });
+
+        shadow.Add("PCF", "取る点を増やして輪郭をぼかす", () =>
+        {
+            _shadow.PcfRadius = (_shadow.PcfRadius + 1) % 4;
+            Console.WriteLine(
+                $"PCF: 半径{_shadow.PcfRadius}"
+                + $"({(2 * _shadow.PcfRadius) + 1}x{(2 * _shadow.PcfRadius) + 1} = {_shadow.TapCount}タップ)");
+        });
+
+        shadow.Add("深度バイアス", "小さいとアクネ、大きいと影が浮く", () =>
+        {
+            // **0 を必ず通す**。アクネが出る状態を1周ごとに見られるようにしてある。
+            _shadow.DepthBias = _shadow.DepthBias switch
+            {
+                <= 0.0f => 0.0005f,
+                < 0.001f => 0.0015f,
+                < 0.003f => 0.006f,
+                _ => 0.0f,
+            };
+            Console.WriteLine(
+                $"深度バイアス: {_shadow.DepthBias:F4}"
+                + (_shadow.DepthBias <= 0.0f ? "(アクネが出る)" : string.Empty));
+        });
+
+        shadow.Add("傾きバイアス", "浅く当たる面ほど下駄を増やす", () =>
+        {
+            _shadow.SlopeBias = !_shadow.SlopeBias;
+            Console.WriteLine($"傾きに比例したバイアス: {OnOff(_shadow.SlopeBias)}");
+        });
+
+        shadow.Add("深度パスのカリング", "表を捨てて裏だけ焼く", () =>
+        {
+            _shadow.CullFrontFaces = !_shadow.CullFrontFaces;
+            Console.WriteLine(
+                $"深度パスのカリング: {(_shadow.CullFrontFaces ? "表を捨てる(裏だけ焼く)" : "裏を捨てる(通常)")}"
+                + (_shadow.CullFrontFaces ? "  ※床のような1枚板は影を落とさなくなる" : string.Empty));
+        });
+
+        shadow.Add("マップの表示", "焼いた深度を画面の隅に出す", () =>
+        {
+            _shadow.ShowMap = !_shadow.ShowMap;
+            Console.WriteLine($"シャドウマップの表示: {OnOff(_shadow.ShowMap)}");
+        });
+
+        shadow.Add("光の届く範囲", "正射影の箱の大きさ", () =>
+        {
+            // 光の箱の広さ。**広げるほど影が粗くなる**のを 1 キーで見るためのもの。
+            _shadow.Radius = _shadow.Radius switch
+            {
+                < 4.0f => 6.0f,
+                < 9.0f => 12.0f,
+                < 18.0f => 24.0f,
+                _ => 3.0f,
+            };
+            Console.WriteLine(
+                $"光の届く範囲: 半径 {_shadow.Radius:F0}m"
+                + $"  1テクセル {_shadow.WorldPerTexel * 100.0f:F1}cm");
+        });
+
+        shadow.Add("光の向き", "太陽を回す", () =>
+        {
+            // 光を Y 軸まわりに 30 度ずつ回す。**影が動くと形が読める**。
+            _lightDirection = Vector3.Normalize(
+                Vector3.Transform(_lightDirection, Matrix4x4.CreateRotationY(MathF.PI / 6.0f)));
+            Console.WriteLine(
+                $"光の向き: ({_lightDirection.X:F2}, {_lightDirection.Y:F2}, {_lightDirection.Z:F2})");
+        });
+
+        shadow.Add("自己チェック", "行列と深度の往復を検算する", () =>
+        {
+            RunShadowCheck();
+        });
+
+        // --- Day 34。接空間と、面を押し込んで見せる工夫 ---
+        DebugMenu.Page normal = menu.Add("法線マップと視差", "Day 34。接空間と、面を押し込んで見せる工夫");
+
+        normal.Add("法線マップ", "凹凸の向きをテクスチャから取る", () =>
+        {
+            _normalMapping = !_normalMapping;
+            Console.WriteLine($"法線マップ: {OnOff(_normalMapping)}");
+        });
+
+        normal.Add("視差マッピング", "オフセット → 急峻 → 遮蔽 と段を上げる", () =>
+        {
+            _parallaxMode = (_parallaxMode + 1) % 4;
+            Console.WriteLine($"視差マッピング: {ParallaxLabel()}");
+        });
+
+        normal.Add("視差の深さ", "面をどれだけ押し込むか", () =>
+        {
+            _parallaxScale = _parallaxScale switch
+            {
+                < 0.03f => 0.05f,
+                < 0.08f => 0.10f,
+                < 0.13f => 0.18f,
+                _ => 0.02f,
+            };
+            Console.WriteLine(
+                $"視差の深さ: {_parallaxScale:F3}"
+                + (_parallaxScale > 0.15f ? "(縁の破綻が見える)" : string.Empty));
+        });
+
+        normal.Add("レイマーチの刻み", "視線の角度で本数を変える", () =>
+        {
+            // 刻み数。**粗くすると急峻視差の段差がはっきり出る**。
+            (_parallaxMinSteps, _parallaxMaxSteps) = (_parallaxMinSteps, _parallaxMaxSteps) switch
+            {
+                (8, 32) => (4, 8),
+                (4, 8) => (16, 64),
+                _ => (8, 32),
+            };
+            Console.WriteLine($"レイマーチの刻み: {_parallaxMinSteps}〜{_parallaxMaxSteps}");
+        });
+
+        normal.Add("材質テスト", "レンガの板を出す", () =>
+        {
+            _surfaceDemo = !_surfaceDemo;
+            Console.WriteLine(
+                _surfaceDemo
+                    ? "材質テスト: レンガの板(手前の床が寝ているので、そこで視差を見る)"
+                    : "材質テスト: OFF");
+        });
+
+        normal.Add("板の繰り返し", "タイリングの数", () =>
+        {
+            _surfaceTiling = _surfaceTiling switch
+            {
+                < 1.5f => 2.0f,
+                < 3.0f => 4.0f,
+                _ => 1.0f,
+            };
+            Console.WriteLine($"テスト板の繰り返し: {_surfaceTiling:F0}x{_surfaceTiling:F0}");
+        });
+
+        normal.Add("接線", "ファイルの TANGENT と自前生成を入れ替える", () =>
+        {
+            // **ファイルの接線と、生成した接線を見比べる**。
+            // 読み直しになるのでフレームが止まる(モデルの読み込みは同期。Day 32)。
+            _forceGeneratedTangents = !_forceGeneratedTangents;
+            Console.WriteLine(
+                _forceGeneratedTangents
+                    ? "接線: ファイルの TANGENT を無視して生成する"
+                    : "接線: ファイルにあればそれを使う");
+            if (_model is not null)
+            {
+                SetModel(_modelIndex);
+            }
+        });
+
+        normal.Add("法線マップの緑", "OpenGL 流と DirectX 流", () =>
+        {
+            _flipGreen = !_flipGreen;
+            Console.WriteLine(
+                $"法線マップの緑: {(_flipGreen ? "反転(DirectX 形式)" : "そのまま(OpenGL 形式)")}"
+                + (_flipGreen ? "  ※凹凸が裏返って見えるのが正解" : string.Empty));
+        });
+
+        normal.Add("決めの構図", "法線マップの違いが出る並びにする", () =>
+        {
+            _normalMapping = true;
+            _debugChannel = 11;
+            Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+        });
+
+        normal.Add("自己チェック", "接空間の直交性を検算する", () =>
+        {
+            RunTangentCheck();
+        });
+
+        // --- Day 35。Cook-Torrance と材質グリッド ---
+        DebugMenu.Page pbr = menu.Add("PBR", "Day 35。Cook-Torrance と材質グリッド");
+
+        pbr.Add("陰影", "Cook-Torrance と Blinn-Phong", () =>
+        {
+            _pbrEnabled = !_pbrEnabled;
+            Console.WriteLine(
+                _pbrEnabled
+                    ? "陰影: Cook-Torrance(物理ベース)"
+                    : "陰影: ランバート(Day 34 まで。金属度も粗さも効かない)");
+        });
+
+        pbr.Add("金属度の上書き", "全部を金属/非金属に倒す", () =>
+        {
+            _metallicOverride = (_metallicOverride + 1) % 4;
+            Console.WriteLine(
+                $"金属度の上書き: {(_metallicOverride == 0 ? "しない(モデルの値)" : $"{MetallicOverrideValue():F2}")}");
+        });
+
+        pbr.Add("粗さの上書き", "つるつる〜ざらざらを固定する", () =>
+        {
+            _roughnessOverride = (_roughnessOverride + 1) % 5;
+            Console.WriteLine(
+                $"粗さの上書き: {(_roughnessOverride == 0 ? "しない(モデルの値)" : $"{RoughnessOverrideValue():F2}")}");
+        });
+
+        pbr.Add("非金属の F0", "垂直に入ったときの反射率", () =>
+        {
+            // 非金属の F0。**0.04 から動かす理由はほとんど無い**が、
+            // 動かすと「非金属の鏡面はこんなに弱い」ことが逆に分かる。
+            _dielectricF0 = _dielectricF0 switch
+            {
+                < 0.02f => 0.04f,
+                < 0.06f => 0.08f,
+                < 0.12f => 0.17f,
+                _ => 0.00f,
+            };
+            Console.WriteLine(
+                $"非金属の F0: {_dielectricF0:F2}"
+                + _dielectricF0 switch
+                {
+                    < 0.02f => "(反射しない。物理的には有り得ない)",
+                    < 0.06f => "(水・プラスチック・ガラス。ほとんどの物質)",
+                    < 0.12f => "(宝石)",
+                    _ => "(ダイヤモンド)",
+                });
+        });
+
+        pbr.Add("材質グリッド", "金属度 × 粗さの一覧を並べる", () =>
+        {
+            _materialGrid = !_materialGrid;
+            if (_materialGrid)
+            {
+                // **正面から見せる**。材質を見比べる絵なので、
+                // 斜めから見ると列ごとに視線の角度が変わり、
+                // フレネルのせいで右へ行くほど明るくなってしまう。
+                _orbit.Yaw = 0.0f;
+                _orbit.Pitch = 0.0f;
+                _orbit.Target = Vector3.Zero;
+                _orbit.Distance = 13.0f;
+                _orbit.Apply();
+            }
+
+            Console.WriteLine(
+                _materialGrid
+                    ? $"材質グリッド: {MaterialGridSize}x{MaterialGridSize}(縦=金属度 0→1 / 横=粗さ 0→1)"
+                        + "  ※上の行が黒いのは正しい。映り込む景色が要る(Day 36)"
+                    : "材質グリッド: OFF");
+        });
+
+        pbr.Add("α の作り方", "roughness² を通すかどうか", () =>
+        {
+            _perceptualRoughness = !_perceptualRoughness;
+            Console.WriteLine(
+                _perceptualRoughness
+                    ? "α の作り方: roughness²(glTF・Unreal・Unity の流儀)"
+                    : "α の作り方: roughness そのまま  ※中央より右がほとんど同じに見える");
+        });
+
+        pbr.Add("環境鏡面", "IBL までの粗いつなぎ", () =>
+        {
+            _ambientSpecular = !_ambientSpecular;
+            Console.WriteLine(
+                _ambientSpecular
+                    ? "環境鏡面: ON(Day 36 の IBL までの粗いつなぎ)"
+                    : "環境鏡面: OFF  ※金属がハイライト以外真っ黒になるのが素の姿");
+        });
+
+        pbr.Add("ベースカラー", "グリッドの下地の色", () =>
+        {
+            _gridColorIndex = (_gridColorIndex + 1) % GridColors.Length;
+            Console.WriteLine(
+                $"グリッドのベースカラー: {GridColors[_gridColorIndex].Name}"
+                + "  ※金属の行だけ鏡面に色が乗る(F0 = ベースカラー)");
+        });
+
+        pbr.Add("決めの構図", "材質グリッド + 成分の表示", () =>
+        {
+            // **一足飛びで見どころへ**(「法線マップと視差」の F10 と同じ趣旨)。
+            // 鏡面だけを見ると、粗さとフレネルの効きが拡散に邪魔されずに読める。
+            _pbrEnabled = true;
+            _materialGrid = true;
+            _debugChannel = 14;
+            _orbit.Yaw = 0.0f;
+            _orbit.Pitch = 0.0f;
+            _orbit.Target = Vector3.Zero;
+            _orbit.Distance = 13.0f;
+            _orbit.Apply();
+            Console.WriteLine($"材質グリッド + 表示する成分: {DebugChannelLabel()}");
+        });
+
+        pbr.Add("自己チェック", "エネルギー保存とフレネルを検算する", () =>
+        {
+            RunPbrCheck();
+        });
+
+        // --- Day 36。まわりの景色を光として使う ---
+        DebugMenu.Page ibl = menu.Add("IBL と環境マップ", "Day 36。まわりの景色を光として使う");
+
+        ibl.Add("IBL", "まわりの景色を光として使う", () =>
+        {
+            _env.Enabled = !_env.Enabled;
+            Console.WriteLine(
+                _env.Enabled
+                    ? "IBL: ON(まわりの景色が光になる)"
+                    : "IBL: OFF(Day 35 の「環境光は定数」に戻る。**金属が黒くなる**)");
+        });
+
+        ibl.Add("空の表示", "見た目だけ。照明とは無関係", () =>
+        {
+            _env.SkyboxVisible = !_env.SkyboxVisible;
+            Console.WriteLine($"空の表示: {OnOff(_env.SkyboxVisible)}(**照明とは無関係**。見た目だけ)");
+        });
+
+        ibl.Add("環境光の強さ", "IBL の倍率", () =>
+        {
+            _env.Intensity = _env.Intensity switch
+            {
+                < 0.4f => 0.5f,
+                < 0.8f => 1.0f,
+                < 1.5f => 2.0f,
+                _ => 0.25f,
+            };
+            Console.WriteLine($"環境光の強さ: {_env.Intensity:F2}");
+        });
+
+        ibl.Add("空に出すもの", "環境マップと事前フィルタの段", () =>
+        {
+            // 空として事前フィルタの段を出す。**粗さとぼけ具合の対応を目で確かめる**窓。
+            _env.SkyboxMip = _env.SkyboxMip + 1 >= EnvironmentMap.PrefilterMipCount
+                ? -1
+                : _env.SkyboxMip + 1;
+            Console.WriteLine(
+                _env.SkyboxMip < 0
+                    ? "空に出すもの: 環境マップそのもの"
+                    : $"空に出すもの: 事前フィルタ 第{_env.SkyboxMip}段"
+                        + $"(粗さ {(float)_env.SkyboxMip / (EnvironmentMap.PrefilterMipCount - 1):F2} 相当)");
+        });
+
+        ibl.Add("太陽を回す", "30 度ずつ。影と映り込みが一緒に回る", () =>
+        {
+            // **太陽を回して焼き直す**。空・影・平行光源が一緒に動く。
+            //
+            // 焼き直しに 1 秒近くかかるのでフレームが止まる。
+            // 「環境が変わったら焼き直しが要る」という IBL の性質が、
+            // そのまま体感として出る——動く太陽を扱うゲームで
+            // IBL をどうするかは、それだけで大きな設計問題になる。
+            _sunYaw += MathF.PI / 6.0f;
+
+            Matrix4x4 rotation = Matrix4x4.CreateRotationY(MathF.PI / 6.0f);
+            _lightDirection = Vector3.Normalize(Vector3.TransformNormal(_lightDirection, rotation));
+
+            var watch = Stopwatch.StartNew();
+            _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+            Console.WriteLine(
+                $"太陽を 30 度回した(通算 {_sunYaw * 180.0f / MathF.PI:F0} 度)"
+                + $"  焼き直し {watch.Elapsed.TotalMilliseconds:F0}ms");
+        });
+
+        ibl.Add("空を LDR に潰す", "1.0 で頭打ちにして焼き直す", () =>
+        {
+            // **空を 8bit に落として焼き直す**。Day 31 の 「HDR とブルーム」の F2 と同じ実験を、
+            // 今度は「光源としての環境」で行う。
+            _env.ClampSkyToLdr = !_env.ClampSkyToLdr;
+            _env.Bake(_lightDirection, _window.FramebufferSize.X, _window.FramebufferSize.Y);
+
+            Console.WriteLine(
+                _env.ClampSkyToLdr
+                    ? "空を 1.0 で頭打ちにして焼き直した  ※環境光がのっぺりするのが正解"
+                    : "空を HDR のまま焼き直した(太陽は 300)");
+        });
+
+        ibl.Add("表示する成分", "拡散と鏡面の内訳を出す", () =>
+        {
+            // 焼いた3枚を1枚ずつ見る。**「なんとなく良くなった」で済ませないため**。
+            _iblViewIndex = (_iblViewIndex + 1) % 4;
+            _debugChannel = _iblViewIndex == 0 ? 0 : 17 + _iblViewIndex;
+            Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+        });
+
+        ibl.Add("事前フィルタ", "粗さに応じた段を引くかどうか", () =>
+        {
+            _env.UsePrefilter = !_env.UsePrefilter;
+            Console.WriteLine(
+                _env.UsePrefilter
+                    ? "鏡面の環境: 事前フィルタ(粗さに応じた段を引く)"
+                    : "鏡面の環境: 原寸のみ  ※粗い金属が鏡になり、太陽の反射がちらつくのが正解");
+        });
+
+        ibl.Add("決めの構図", "材質グリッドに景色を映す", () =>
+        {
+            // **一足飛びで見どころへ**(「法線マップと視差」の F10 / 「PBR」の F10 と同じ趣旨)。
+            // 材質グリッドに IBL を当てた絵が、今日いちばん見せたいもの。
+            _env.Enabled = true;
+            _env.SkyboxVisible = true;
+            _pbrEnabled = true;
+            _materialGrid = true;
+            _debugChannel = 0;
+            _iblViewIndex = 0;
+            _orbit.Yaw = 0.0f;
+            _orbit.Pitch = 0.0f;
+            _orbit.Target = Vector3.Zero;
+            _orbit.Distance = 13.0f;
+            _orbit.Apply();
+            Console.WriteLine("材質グリッド + IBL(**上の行に景色が映る**)");
+        });
+
+        ibl.Add("自己チェック", "積分の総和を検算する", () =>
+        {
+            RunIblCheck();
+        });
+
+        // --- Day 37。画面空間の遮蔽で接地感を出す ---
+        DebugMenu.Page ssao = menu.Add("SSAO", "Day 37。画面空間の遮蔽で接地感を出す");
+
+        ssao.Add("SSAO", "物と物が接するところに暗がりを出す", () =>
+        {
+            _ssao.Enabled = !_ssao.Enabled;
+            Console.WriteLine(
+                _ssao.Enabled
+                    ? "SSAO: ON(物と物が接するところに暗がりが出る)"
+                    : "SSAO: OFF(Day 36 まで。**立方体が床から浮いて見える**)");
+        });
+
+        ssao.Add("AO の表示", "遮蔽バッファそのものを見る", () =>
+        {
+            // **今日いちばん使う窓**。合成した絵からは半径もバイアスも読み取れない。
+            _ssao.DebugView = _ssao.DebugView switch
+            {
+                SsaoDebugView.None => SsaoDebugView.Occlusion,
+                SsaoDebugView.Occlusion => SsaoDebugView.Normal,
+                SsaoDebugView.Normal => SsaoDebugView.Depth,
+                _ => SsaoDebugView.None,
+            };
+            Console.WriteLine($"SSAO の表示: {SsaoViewLabel()}");
+        });
+
+        ssao.Add("半径", "どれだけ離れた遮蔽まで拾うか", () =>
+        {
+            // **絵の印象をいちばん強く決めるつまみ**。
+            // 小さいと接地の線だけ、大きいと部屋の隅ぜんぶが暗くなる。
+            _ssao.Radius = _ssao.Radius switch
+            {
+                < 0.35f => 0.5f,
+                < 0.75f => 1.0f,
+                < 1.5f => 2.0f,
+                _ => 0.25f,
+            };
+            Console.WriteLine(
+                $"SSAO の半径: {_ssao.Radius:F2}m"
+                + "  ※大きいほど広く暗くなるが、**遠くの物まで遮蔽物と数え始める**");
+        });
+
+        ssao.Add("標本数", "多いほど滑らかで重い", () =>
+        {
+            int index = Array.IndexOf(Ssao.SampleCounts, _ssao.SampleCount);
+            _ssao.SampleCount = Ssao.SampleCounts[(index + 1) % Ssao.SampleCounts.Length];
+            Console.WriteLine(
+                $"SSAO の標本数: {_ssao.SampleCount}本"
+                + "  ※「SSAO」の F6 でぼかしを切ると、少ないほど荒れるのが直接見える");
+        });
+
+        ssao.Add("ぼかし", "4x4 平均。ノイズのタイルを消す", () =>
+        {
+            _ssao.BlurEnabled = !_ssao.BlurEnabled;
+            Console.WriteLine(
+                _ssao.BlurEnabled
+                    ? "SSAO のぼかし: ON(4x4 平均。ノイズのタイルが消える)"
+                    : "SSAO のぼかし: OFF  ※**4x4 の格子模様が見える**のが正解");
+        });
+
+        ssao.Add("解像度", "半分にして速さを買う", () =>
+        {
+            _ssao.SetHalfResolution(!_ssao.HalfResolution);
+            Console.WriteLine(
+                $"SSAO の解像度: {_ssao.Width}x{_ssao.Height}"
+                + $"({(_ssao.HalfResolution ? "画面の半分。画素数は 1/4" : "画面と同じ")})");
+        });
+
+        ssao.Add("強さ", "暗がりの濃さ", () =>
+        {
+            _ssao.Strength = _ssao.Strength switch
+            {
+                < 0.75f => 1.0f,
+                < 1.25f => 1.5f,
+                < 1.75f => 2.0f,
+                _ => 0.5f,
+            };
+            Console.WriteLine($"SSAO の強さ: {_ssao.Strength:F1}");
+        });
+
+        ssao.Add("下駄", "自分自身を遮蔽と数えないための余裕", () =>
+        {
+            // **0 にすると平らな面に縞が出る**。シャドウアクネと同じ現象を、
+            // 今度は「自分自身を遮蔽物と数えてしまう」形で見る。
+            _ssao.Bias = _ssao.Bias switch
+            {
+                < 0.005f => 0.01f,
+                < 0.02f => 0.025f,
+                < 0.04f => 0.05f,
+                _ => 0.0f,
+            };
+            Console.WriteLine(
+                $"SSAO の下駄: {_ssao.Bias:F3}"
+                + (_ssao.Bias <= 0.0f ? "  ※**平らな床に縞が出る**のが正解" : string.Empty));
+        });
+
+        ssao.Add("決めの構図", "立方体の根元に暗がりの帯が出る並び", () =>
+        {
+            // **一足飛びで見どころへ**(「IBL と環境マップ」の F10 などと同じ趣旨)。
+            // 立方体が床に乗っている構図が、今日いちばん分かりやすい。
+            _ssao.Enabled = true;
+            _ssao.DebugView = SsaoDebugView.None;
+
+            // **見せるための設定にそろえる**。既定より少し強くしてあるのは、
+            // 「効いているかどうか」を最初に分からせるため——
+            // 実際に絵を作るときは既定(強さ 1.0)から詰める。
+            _ssao.Radius = 1.0f;
+            _ssao.Strength = 2.0f;
+            _ssao.SampleCount = 32;
+            _ssao.BlurEnabled = true;
+            _materialGrid = false;
+            _surfaceDemo = false;
+            _draw3D = true;
+            _debugChannel = 0;
+            SetModel(ModelPaths.Length);
+
+            // **スプライトの群れを消す**。
+            //
+            // Day 31 以来のデモは 3D の上に 1000 枚のスプライトを重ねている。
+            // 今日の暗がりは接地の細い線なので、上に何か重なると完全に読めない
+            // (材質グリッドを出す 「PBR」の F6 や 「IBL と環境マップ」の F10 でも同じことが起きる。
+            // あちらは球が大きいので気づきにくいが、同じ問題を抱えている)。
+            // PageUp で元に戻せる。
+            SetSpriteCount(0);
+            // **目線を落として立方体の根元に寄せる**。
+            // 接地の暗がりは床と物の境目にしか出ないので、
+            // 見下ろすと床の面積ばかりが増えて、いちばん見たい線が細くなる。
+            _orbit.Yaw = 0.9f;
+            _orbit.Pitch = 0.10f;
+            _orbit.Target = new Vector3(0.0f, -0.35f, 0.0f);
+            _orbit.Distance = 4.0f;
+            _orbit.Apply();
+            Console.WriteLine(
+                "SSAO が効く構図(**立方体の根元に暗がりの帯が出る**)"
+                + "  「SSAO」の F2 で切って見比べる");
+        });
+
+        ssao.Add("自己チェック", "半球サンプルの分布を検算する", () =>
+        {
+            RunSsaoCheck();
+        });
+
+        ssao.Add("直接光にも掛ける", "**誤用の実演**。日向の壁際まで暗くなる", () =>
+        {
+            // **わざと間違えるための窓**。AO を直接光に掛けると何が起きるか。
+            _ssao.ApplyToDirectLight = !_ssao.ApplyToDirectLight;
+            Console.WriteLine(
+                _ssao.ApplyToDirectLight
+                    ? "AO を直接光にも掛けた ※**日向の壁際まで暗くなる**のが正解。これは誤用"
+                    : "AO は環境光にだけ掛かる(正しい使い方)");
+        });
+
+        ssao.Add("自己チェック(AA)", "FXAA の輝度計算を検算する", () =>
+        {
+            RunAaCheck();
+        });
+
+        // --- Day 38。縁のぼかしとカラーグレーディング ---
+        DebugMenu.Page aa = menu.Add("FXAA と色調整", "Day 38。縁のぼかしとカラーグレーディング");
+
+        aa.Add("FXAA", "縁を見つけてぼかす", () =>
+        {
+            _post.FxaaEnabled = !_post.FxaaEnabled;
+            Console.WriteLine(
+                _post.FxaaEnabled
+                    ? "FXAA: ON(合成 → LDR バッファ → FXAA → 画面。パスが1つ増える)"
+                    : "FXAA: OFF(**輪郭が階段に戻る**。合成が直接画面へ書く)");
+        });
+
+        aa.Add("FXAA の表示", "どこを縁と見たかを出す", () =>
+        {
+            // **今日いちばん使う窓のひとつ**。FXAA は絵を見ても
+            // 「効いているのか滲んでいるのか」が区別できない。
+            _post.FxaaDebugView = _post.FxaaDebugView switch
+            {
+                FxaaDebugView.None => FxaaDebugView.Luma,
+                FxaaDebugView.Luma => FxaaDebugView.Edge,
+                FxaaDebugView.Edge => FxaaDebugView.Blend,
+                _ => FxaaDebugView.None,
+            };
+            Console.WriteLine($"FXAA の表示: {FxaaViewLabel()}");
+        });
+
+        aa.Add("FXAA の効き", "品質の段を回す", () =>
+        {
+            _post.SetFxaaQuality(_post.Quality switch
+            {
+                FxaaQuality.Low => FxaaQuality.Medium,
+                FxaaQuality.Medium => FxaaQuality.High,
+                FxaaQuality.High => FxaaQuality.Extreme,
+                _ => FxaaQuality.Low,
+            });
+            Console.WriteLine(
+                $"FXAA の効き: {FxaaQualityLabel()}"
+                + $"(しきい値 {_post.FxaaEdgeThreshold:F3}/{_post.FxaaEdgeThresholdMin:F4}"
+                + $"  歩幅 {_post.FxaaSpanMax:F0}tx)"
+                + "  ※上げるほど拾うが、**細い線が滲み始める**");
+        });
+
+        aa.Add("UI を後処理へ", "通すと露出を上げたとき文字が白飛びする", () =>
+        {
+            // **Day 37 までの置き方に戻す窓**。
+            // 露出(「HDR とブルーム」の F6/6)を上げると HUD の文字まで白飛びし、
+            // モノクロ(「FXAA と色調整」の F7 で4回)にすると文字まで灰色になる。
+            _uiThroughPost = !_uiThroughPost;
+            Console.WriteLine(
+                _uiThroughPost
+                    ? "UI: 後処理を通す(Day 37 まで)※露出を上げると**文字が白飛びする**"
+                    : "UI: 後処理の外(今日から)※FXAA も掛からないので字が滲まない");
+        });
+
+        aa.Add("カラーグレーディング", "色の調整を丸ごと切る", () =>
+        {
+            _post.Grade.Enabled = !_post.Grade.Enabled;
+            Console.WriteLine(
+                _post.Grade.Enabled
+                    ? $"カラーグレーディング: ON({GradeLabel()})"
+                    : "カラーグレーディング: OFF(Day 37 までの素の色)");
+        });
+
+        aa.Add("下敷き", "プリセットを順に回す", () =>
+        {
+            _post.Grade.ApplyPreset(_post.Grade.Preset switch
+            {
+                GradePreset.Neutral => GradePreset.Sunset,
+                GradePreset.Sunset => GradePreset.Moonlight,
+                GradePreset.Moonlight => GradePreset.Bleach,
+                GradePreset.Bleach => GradePreset.Monochrome,
+                _ => GradePreset.Neutral,
+            });
+            _post.Grade.Enabled = true;
+            Console.WriteLine($"下敷き: {GradeLabel()}");
+        });
+
+        aa.Add("コントラスト", "明暗の開き", () =>
+        {
+            int index = Array.IndexOf(ColorGrade.ContrastSteps, _post.Grade.Contrast);
+            _post.Grade.Contrast =
+                ColorGrade.ContrastSteps[(index + 1) % ColorGrade.ContrastSteps.Length];
+            _post.Grade.MarkCustom();
+            Console.WriteLine(
+                $"コントラスト: {_post.Grade.Contrast:F2}"
+                + $"  ※{ColorGrade.MiddleGrey:F2}(18% グレー)を中心に回る");
+        });
+
+        aa.Add("彩度", "色の濃さ", () =>
+        {
+            int index = Array.IndexOf(ColorGrade.SaturationSteps, _post.Grade.Saturation);
+            _post.Grade.Saturation =
+                ColorGrade.SaturationSteps[(index + 1) % ColorGrade.SaturationSteps.Length];
+            _post.Grade.MarkCustom();
+            Console.WriteLine($"彩度: {_post.Grade.Saturation:F2}");
+        });
+
+        aa.Add("色温度", "青寄り〜赤寄り", () =>
+        {
+            int index = Array.IndexOf(ColorGrade.TemperatureSteps, _post.Grade.Temperature);
+            _post.Grade.Temperature =
+                ColorGrade.TemperatureSteps[(index + 1) % ColorGrade.TemperatureSteps.Length];
+            _post.Grade.MarkCustom();
+
+            Vector3 balance = _post.Grade.WhiteBalance;
+            Console.WriteLine(
+                $"色温度: {_post.Grade.Temperature:+0;-0;0}  "
+                + (_post.Grade.Temperature > 0.0f ? "暖色" : "寒色/D65")
+                + $"  LMS の増幅率 ({balance.X:F3}, {balance.Y:F3}, {balance.Z:F3})");
+        });
+
+        aa.Add("左右比較", "画面を割って加工前後を並べる", () =>
+        {
+            // **今日の主な道具**。アンチエイリアスも色も、隣に並べないと分からない。
+            _post.Split = _post.Split switch
+            {
+                PostSplit.None => PostSplit.Fxaa,
+                PostSplit.Fxaa => PostSplit.Grade,
+                _ => PostSplit.None,
+            };
+            Console.WriteLine(_post.Split switch
+            {
+                PostSplit.Fxaa => "左右比較: 左 = FXAA 前 / 右 = FXAA 後",
+                PostSplit.Grade => "左右比較: 左 = グレーディング前 / 右 = 後",
+                _ => "左右比較: なし",
+            });
+        });
+
+        aa.Add("決めの構図", "左が加工前、右が加工後", () =>
+        {
+            // **一足飛びで見どころへ**(「SSAO」の F10 と同じ趣旨)。
+            // ジャギーがいちばん見える構図は「明るい空を背景にした斜めの縁」。
+            _post.FxaaEnabled = true;
+            _post.SetFxaaQuality(FxaaQuality.High);
+            _post.FxaaDebugView = FxaaDebugView.None;
+            _post.Split = PostSplit.Fxaa;
+            _post.Grade.ApplyPreset(GradePreset.Sunset);
+            _post.Grade.Enabled = true;
+            _uiThroughPost = false;
+
+            _materialGrid = false;
+            _surfaceDemo = false;
+            _draw3D = true;
+            _debugChannel = 0;
+            SetModel(ModelPaths.Length);
+
+            // **スプライトの群れを消す**(「SSAO」の F10 と同じ理由)。
+            // 今日見たいのは1画素幅の階段なので、上に何か重なると読めない。
+            SetSpriteCount(0);
+
+            // **少し引いて、市松の床を奥まで見せる**。
+            //
+            // ジャギーがいちばんよく見えるのは、
+            //   1. 白飛びした空を背景にした<b>立方体の斜めの縁</b>
+            //   2. 遠くへ向かって細かくなる<b>市松模様</b>
+            // の2つ。近づきすぎると縁が画面から外れ、
+            // 見下ろしすぎると空が消えて 1 が無くなる。
+            // 分割線(画面の真ん中)を床の模様がまたぐようにしてあるので、
+            // **同じ模様の左右を見比べられる**。
+            _orbit.Yaw = 0.55f;
+            _orbit.Pitch = 0.08f;
+            _orbit.Target = new Vector3(0.0f, 0.40f, 0.0f);
+            _orbit.Distance = 9.0f;
+            _orbit.Apply();
+
+            Console.WriteLine(
+                "FXAA が効く構図(**画面の左が加工前、右が加工後**)"
+                + "  「FXAA と色調整」の F11 で比較を切り、「FXAA と色調整」の F2 で FXAA を切って見比べる");
+        });
+
+        // --- Day 39。HDRI・太陽の抽出・決めの構図 ---
+        DebugMenu.Page demo = menu.Add("デモ v1", "Day 39。HDRI・太陽の抽出・決めの構図");
+
+        demo.Add("デモの読み込み", "シーンを出す / しまう", () =>
+        {
+            if (_demo is null)
+            {
+                LoadDemoScene();
+            }
+            else
+            {
+                UnloadDemoScene();
+            }
+        });
+
+        demo.Add("空", "HDRI と手焼きを往復する", () =>
+        {
+            // **今日いちばん効く比較**。同じシーンを手焼きの空(Day 36)と
+            // 本物の HDRI で見比べる。手焼きは「それらしい」が、
+            // 空の細部が無いので**磨いた金属に何も映らない**。
+            _useHdriSky = !_useHdriSky;
+            BakeSky();
+            ApplyDemoLighting();
+            Console.WriteLine(
+                _useHdriSky
+                    ? "空: HDRI(本物。太陽も雲も地面も映る)"
+                    : "空: 手焼き(Day 36。**太陽の向きは手書きの値**)");
+        });
+
+        demo.Add("HDRI を切り替え", "3枚。太陽の写り方が違う", () =>
+        {
+            // **3枚とも太陽の写り方が違う**。方位は空の回転で揃えてあるので、
+            // 動くのは光の質だけ。
+            _hdriIndex = (_hdriIndex + 1) % HdriPaths.Length;
+            _useHdriSky = true;
+            BakeSky();
+            ApplyDemoLighting();
+        });
+
+        demo.Add("平行光源", "HDRI から取るか手書きか", () =>
+        {
+            // **わざと食い違わせる窓**。手書きの向きに戻すと、
+            // 空の太陽と影の向きが別々になる——Day 36 で先送りにした問題そのもの。
+            _sunFromHdri = !_sunFromHdri;
+            ApplyDemoLighting();
+            Console.WriteLine(
+                _sunFromHdri
+                    ? "平行光源: HDRI から抽出(絵の中の太陽と一致する)"
+                    : "平行光源: 手書き(Day 38 まで。**影の向きが空と食い違う**)");
+        });
+
+        demo.Add("太陽を環境から抜く", "抜かないと平行光源と二重に足される", () =>
+        {
+            // **二重計上を見る窓**。抜くのをやめると影の中が明るくなる。
+            _removeSunFromIbl = !_removeSunFromIbl;
+            BakeSky();
+            Console.WriteLine(
+                _removeSunFromIbl
+                    ? "環境マップ: 太陽を抜く(平行光源と足しても二重にならない)"
+                    : "環境マップ: 太陽を残す(**影の中まで明るくなる**。粗い金属には映り込む)");
+        });
+
+        demo.Add("太陽のしきい値", "どこからを太陽とみなすか", () =>
+        {
+            int index = Array.IndexOf(SunThresholdSteps, _sunThreshold);
+            _sunThreshold = SunThresholdSteps[(index + 1) % SunThresholdSteps.Length];
+            BakeSky();
+            ApplyDemoLighting();
+            Console.WriteLine($"太陽のしきい値: 最大輝度の {_sunThreshold:F2} 倍");
+        });
+
+        demo.Add("シーンの影", "castShadow の指定を効かせる", () =>
+        {
+            // **影がどれだけ絵を支えているか**。全部の投げ手を落とすと、
+            // 物が床に置かれている感じが一気に消える(SSAO は残る)。
+            _sceneShadows = !_sceneShadows;
+            Console.WriteLine(
+                _sceneShadows
+                    ? "シーンの影: ON(castShadow が true のものだけ深度パスへ)"
+                    : "シーンの影: OFF(**全部の投げ手を落とす**。接地感が消える)");
+        });
+
+        demo.Add("スクリーンショット", "PNG に落とす", () =>
+        {
+            // **デモはスクリーンショットが撮れて初めてデモ**。
+            // 後処理を全部通したあとの絵をそのまま PNG にする。
+            string saved = Screenshot.Save(
+                _gl,
+                _window.FramebufferSize.X,
+                _window.FramebufferSize.Y,
+                Path.Combine(Environment.CurrentDirectory, "screenshots"));
+            Console.WriteLine($"スクリーンショット: {saved}");
+        });
+
+        demo.Add("デモの内訳", "何が読み込まれているか", () =>
+        {
+            if (_demo is null)
+            {
+                Console.WriteLine("デモ v1: 読み込まれていません(「デモ v1」の F2)");
+            }
+            else
+            {
+                DescribeDemoScene();
+            }
+        });
+
+        demo.Add("光の内訳", "抽出した太陽の向きと色", () =>
+        {
+            // **JSON を書き換えて押す**。これがあると絵作りが回り始める。
+            if (_demo is null)
+            {
+                Console.WriteLine("デモ v1: 読み込まれていません(「デモ v1」の F2)");
+            }
+            else
+            {
+                LoadDemoScene();
+                Console.WriteLine("デモ v1: 読み直した");
+            }
+        });
+
+        demo.Add("空の回転", "方位をシーンの指定に合わせる", () =>
+        {
+            // **空を回さないとどうなるか**。HDRI を撮影時の方位のまま使うと、
+            // 太陽が壁の裏に回って通りが日陰になる——
+            // 「HDRI を1枚拾ってきて貼っただけ」の絵がこれ。
+            _applySkyYaw = !_applySkyYaw;
+            BakeSky();
+            ApplyDemoLighting();
+            Console.WriteLine(
+                _applySkyYaw
+                    ? "空の回転: シーンの指定どおり(太陽を狙った方位へ持ってくる)"
+                    : "空の回転: 0 度(**HDRI の撮影時の方位のまま**)");
+        });
+
+        demo.Add("決めの構図", "必須構成を全部入れる", () =>
+        {
+            // **一足飛びで見どころへ**(「FXAA と色調整」の F12 と同じ趣旨)。
+            if (_demo is null)
+            {
+                LoadDemoScene();
+            }
+
+            _useHdriSky = true;
+            _sunFromHdri = true;
+            _sceneShadows = true;
+            _post.Split = PostSplit.None;
+            _debugChannel = 0;
+            SetSpriteCount(0);
+
+            // **Day 40 でここが1行になった**。
+            // 元は `_env.Enabled = true; _shadow.Enabled = true; ...` と
+            // フラグを手で並べていて、機能が増えるたびに書き足す必要があった。
+            // 書き忘れても絵は出る——ただ「前と違う絵」になるだけなので、
+            // 原因を探すのがいちばん厄介な種類のバグになる。
+            StopTourIfRunning();
+            _features.SetAll(true);
+
+            BakeSky();
+            ApplyDemoLighting();
+            FrameDemoScene();
+
+            Console.WriteLine(
+                "デモ v1 の決めの構図"
+                + "  「デモ v1」の F5 で太陽の出どころ、「デモ v1」の F6 で二重計上を見比べる");
+        });
+
+        // --- Day 40。ショットの補間と、機能の一括切り替え ---
+        DebugMenu.Page camera = menu.Add("カメラワークと機能", "Day 40。ショットの補間と、機能の一括切り替え");
+
+        camera.Add("決めの構図", "シーン + 必須構成 + カメラ再生", () =>
+        {
+            // **今日の到達点**。シーンを出して、必須構成を全部入れて、カメラを回す。
+            if (_demo is null)
+            {
+                LoadDemoScene();
+            }
+
+            if (_demo is not null)
+            {
+                StopTourIfRunning();
+                _useHdriSky = true;
+                _sunFromHdri = true;
+                _sceneShadows = true;
+                _post.Split = PostSplit.None;
+                _debugChannel = 0;
+                SetSpriteCount(0);
+
+                // **Day 39 が手で 12 個並べていたところ**。表にした御利益がここに出る。
+                _features.SetAll(true);
+
+                BakeSky();
+                ApplyDemoLighting();
+                PlayDemoCamera();
+            }
+        });
+
+        camera.Add("カメラワーク", "再生 / 一時停止", () =>
+        {
+            _cameraPlaying = !_cameraPlaying;
+            Console.WriteLine(
+                _cameraPlaying
+                    ? "カメラワーク: 再生"
+                    : "カメラワーク: 一時停止(**止めている間は左ドラッグで手動に戻れる**)");
+        });
+
+        camera.Add("次のショットへ", "並びを飛ばす", () =>
+        {
+            JumpToNextShot();
+        });
+
+        camera.Add("補間", "Catmull-Rom と線形", () =>
+        {
+            // **今日いちばん効く比較**。線形に落とすと、キーを通過する瞬間に
+            // HUD の m/s が飛ぶ。絵のほうでも、通過点でパンが「カクッ」と折れる。
+            _cameraInterpolation = _cameraInterpolation == CameraInterpolation.CatmullRom
+                ? CameraInterpolation.Linear
+                : CameraInterpolation.CatmullRom;
+            Console.WriteLine(
+                _cameraInterpolation == CameraInterpolation.CatmullRom
+                    ? "補間: Catmull-Rom(前後を覗いて接線を決める。**通過点で速度が繋がる**)"
+                    : "補間: 線形(**通過点で速度が飛ぶ**。HUD の m/s を見ながら押す)");
+        });
+
+        camera.Add("イージング", "smoothstep の有無", () =>
+        {
+            // **軌跡は1ミリも動かない**のが要点。動くのは速さの配分だけ。
+            _cameraEase = !_cameraEase;
+            Console.WriteLine(
+                _cameraEase
+                    ? "イージング: smoothstep(静止と滑らかに繋がる)"
+                    : "イージング: なし(**止まっていたカメラがいきなり最高速で動き出す**)");
+        });
+
+        camera.Add("再生速度", "倍率を回す", () =>
+        {
+            int index = Array.IndexOf(CameraSpeedSteps, _cameraSpeed);
+            _cameraSpeed = CameraSpeedSteps[(index + 1) % CameraSpeedSteps.Length];
+            Console.WriteLine($"再生速度: x{_cameraSpeed:F2}");
+        });
+
+        camera.Add("機能を選ぶ", "カーソルを1つ進める", () =>
+        {
+            _features.SelectNext();
+            Console.WriteLine(
+                $"選択: {_features.Features[_features.Selected].Name}"
+                + $"({OnOff(_features.Features[_features.Selected].Value)})"
+                + "  「カメラワークと機能」の F9 で切り替え");
+        });
+
+        camera.Add("選んだ機能を反転", "1つだけ切って絵を比べる", () =>
+        {
+            StopTourIfRunning();
+
+            FeatureToggles.Feature feature = _features.ToggleSelected();
+            Console.WriteLine(
+                $"{feature.Name}: {OnOff(feature.Value)}"
+                + (feature.Value ? string.Empty : $"  — {feature.Effect}"));
+        });
+
+        camera.Add("全部 ON / OFF", "素の絵と必須構成の絵を往復する", () =>
+        {
+            // **素の絵と必須構成の絵の往復**。Day 31 の出発点がどれだけ素っ気ないか、
+            // 8日ぶんの積み上げが何をしていたかが、1押しで見える。
+            StopTourIfRunning();
+
+            bool on = !_features.AllOn;
+            _features.SetAll(on);
+            Console.WriteLine(
+                on
+                    ? $"機能: 全部 ON({_features.Features.Count} 項目。必須構成の絵)"
+                    : "機能: 全部 OFF(**Day 31 に戻した絵**。ベースカラーと平行光源だけ)");
+        });
+
+        camera.Add("機能ツアー", "1つずつ切っては戻す", () =>
+        {
+            if (_features.TourActive)
+            {
+                _features.EndTour();
+                Console.WriteLine("機能ツアー: 終了(始める前の状態に戻した)");
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine(
+                    $"機能ツアー: {_features.TourInterval:F1} 秒ごとに1つずつ切っては戻す");
+                Console.WriteLine(_features.BeginTour());
+            }
+        });
+
+        camera.Add("自己チェック", "補間とイージングを検算する", () =>
+        {
+            RunCameraCheck();
+        });
+
+        camera.Add("自己チェック(シーン)", "シーンの読み込みを検算する", () =>
+        {
+            RunSceneCheck();
+        });
+
+        // --- Day 41。glTF のアニメーションと関節行列 ---
+        DebugMenu.Page skin = menu.Add("スキニング", "Day 41。glTF のアニメーションと関節行列");
+
+        skin.Add("人型を出す", "CesiumMan を読む", () =>
+        {
+            // **今日の到達点**。19 関節の人型を出して歩かせる。
+            ShowAnimatedModel("models/CesiumMan.glb");
+            Console.WriteLine(
+                "CesiumMan が歩いています。"
+                + "**「スキニング」の F6 でスキニングを切ると、骨は動いたままバインドポーズに戻る**");
+        });
+
+        skin.Add("モデルを切り替え", "リグ済みモデルを順に", () =>
+        {
+            // アニメーション付きの5体を巡回する。
+            string current = _modelIndex >= 0 && _modelIndex < ModelPaths.Length
+                ? ModelPaths[_modelIndex]
+                : string.Empty;
+
+            int at = Array.IndexOf(AnimatedModelPaths, current);
+            ShowAnimatedModel(AnimatedModelPaths[(at + 1) % AnimatedModelPaths.Length]);
+        });
+
+        skin.Add("クリップを切り替え", "モデルが持つアニメを順に", () =>
+        {
+            // クリップを次へ。**3本持っているのは Fox だけ**。
+            if (_animation is not null && _model is not null && _model.Animations.Count > 1)
+            {
+                _animation.NextClip();
+                Console.WriteLine(
+                    $"クリップ: {_animation.ClipName}"
+                    + $"({_animation.ClipIndex + 1}/{_model.Animations.Count})  {_animation.Duration:F2}s");
+            }
+            else
+            {
+                Console.WriteLine("クリップが1本以下です(3本あるのは Fox。「スキニング」の F3 で切り替え)");
+            }
+        });
+
+        skin.Add("再生 / 一時停止", "止めて姿勢を確かめる", () =>
+        {
+            if (_animation is not null)
+            {
+                _animation.Paused = !_animation.Paused;
+                Console.WriteLine(
+                    _animation.Paused
+                        ? $"アニメ: 一時停止({_animation.Time:F2}s)。「スキニング」の F8 で 1/30 秒ずつ送れる"
+                        : "アニメ: 再生");
+            }
+        });
+
+        skin.Add("スキニング", "切ると束ねる前の姿勢が出る", () =>
+        {
+            // **今日いちばん効く見比べ**。骨は動き続けるのに頂点が動かなくなる。
+            if (_animation is not null)
+            {
+                _animation.SkinningEnabled = !_animation.SkinningEnabled;
+                Console.WriteLine(
+                    _animation.SkinningEnabled
+                        ? "スキニング: ON"
+                        : "スキニング: OFF(**関節行列を全部単位行列にした = バインドポーズ**)");
+            }
+        });
+
+        skin.Add("再生速度", "倍率を回す", () =>
+        {
+            _playbackSpeedIndex = (_playbackSpeedIndex + 1) % PlaybackSpeeds.Length;
+            if (_animation is not null)
+            {
+                _animation.Speed = PlaybackSpeeds[_playbackSpeedIndex];
+            }
+
+            Console.WriteLine($"再生速度: {PlaybackSpeeds[_playbackSpeedIndex]:F2} 倍");
+        });
+
+        skin.Add("コマ送り", "1/30 秒ずつ進める", () =>
+        {
+            // コマ送り。**止めてから送る**——動いたまま送っても差が分からない。
+            if (_animation is not null)
+            {
+                _animation.Paused = true;
+                _animation.Advance(AnimationStepSeconds);
+                Console.WriteLine($"コマ送り: {_animation.Time:F3}s / {_animation.Duration:F2}s");
+            }
+        });
+
+        skin.Add("重みを見る", "表示する成分をボーン重みに切り替える", () =>
+        {
+            // 骨の重みを色で見る(成分 22)。もう一度押すと通常へ戻る。
+            _debugChannel = _debugChannel == 22 ? 0 : 22;
+            Console.WriteLine($"表示する成分: {DebugChannelLabel()}");
+        });
+
+        skin.Add("先頭へ戻す", "時刻を 0 に", () =>
+        {
+            if (_animation is not null)
+            {
+                // **Day 42 で Rewind に変えた**。SelectClip だと混ぜているものが1本に潰れる。
+                _animation.Rewind();
+                Console.WriteLine("アニメ: 先頭へ戻した");
+            }
+        });
+
+        skin.Add("リグの内訳", "関節の数と木の深さ", () =>
+        {
+            DescribeRig();
+        });
+
+        skin.Add("自己チェック", "関節行列の合成を検算する", () =>
+        {
+            RunSkinningCheck();
+        });
+
+        // --- Day 42。歩き↔走りを速度で混ぜる ---
+        DebugMenu.Page blend = menu.Add("アニメのブレンド", "Day 42。歩き↔走りを速度で混ぜる");
+
+        blend.Add("四足を出す", "Fox を読む", () =>
+        {
+            // **今日の到達点**。キツネを出して、速度を自動で上下させる。
+            ShowAnimatedModel("models/Fox.glb");
+            if (_locomotionTree is not null)
+            {
+                _locomotion = LocomotionMode.BlendTree;
+                _speedSweep = true;
+                _sweepPhase = 0.0f;
+                _locomotionStates?.Reset(0);
+
+                if (_animation is not null)
+                {
+                    _animation.Paused = false;
+                    _animation.SyncPhase = true;
+                }
+
+                Console.WriteLine(
+                    "ロコモーション: ブレンドツリー。速度が 0 ↔ "
+                    + $"{MaxMoveSpeed:F1}m/s を {SweepSeconds:F0} 秒で往復します");
+                Console.WriteLine(
+                    "  **「アニメのブレンド」の F4 で位相同期を切ると、足が合わなくなる**");
+            }
+            else
+            {
+                Console.WriteLine("このモデルではロコモーションを組めません(クリップが2本未満)");
+            }
+        });
+
+        blend.Add("決め方", "ブレンドツリーと閾値の切り替え", () =>
+        {
+            _locomotion = _locomotion switch
+            {
+                LocomotionMode.Off => LocomotionMode.BlendTree,
+                LocomotionMode.BlendTree => LocomotionMode.StateMachine,
+                _ => LocomotionMode.Off,
+            };
+
+            // ステートマシンへ移るときは、今の速度の状態から始める
+            // (前回の状態が残っていると、いきなりクロスフェードが走る)。
+            if (_locomotion == LocomotionMode.StateMachine)
+            {
+                _locomotionStates?.Reset(0);
+            }
+
+            Console.WriteLine(_locomotion switch
+            {
+                LocomotionMode.BlendTree =>
+                    "決め方: **ブレンドツリー**(常に隣り合う2本が混ざる。速度に対して連続)",
+                LocomotionMode.StateMachine =>
+                    "決め方: **ステートマシン**(どれか1つ。移り変わる瞬間だけ混ざる)",
+                _ => "決め方: OFF(Day 41 と同じ。クリップを1本そのまま再生)",
+            });
+        });
+
+        blend.Add("位相同期", "全クリップを同じ正規化位置に揃える", () =>
+        {
+            if (_animation is not null)
+            {
+                _animation.SyncPhase = !_animation.SyncPhase;
+                Console.WriteLine(
+                    _animation.SyncPhase
+                        ? "位相同期: ON(全クリップが同じ正規化位置を指す)"
+                        : "位相同期: OFF(**各クリップが自分の長さで勝手に回る**。足が合わなくなる)");
+            }
+        });
+
+        blend.Add("速度 −", "遅くする", () =>
+        {
+            _speedSweep = false;
+            _moveSpeed = MathF.Max(0.0f, _moveSpeed - 0.2f);
+            Console.WriteLine($"速度: {_moveSpeed:F2}m/s  {BlendLabel()}");
+        });
+
+        blend.Add("速度 +", "速くする", () =>
+        {
+            _speedSweep = false;
+            _moveSpeed = MathF.Min(MaxMoveSpeed, _moveSpeed + 0.2f);
+            Console.WriteLine($"速度: {_moveSpeed:F2}m/s  {BlendLabel()}");
+        });
+
+        blend.Add("速度を自動で振る", "往復させて繋ぎ目を見る", () =>
+        {
+            _speedSweep = !_speedSweep;
+            Console.WriteLine(
+                _speedSweep
+                    ? $"速度: 自動({SweepSeconds:F0} 秒で往復)"
+                    : $"速度: 手動({_moveSpeed:F2}m/s。「アニメのブレンド」の F5 / F6 で増減)");
+        });
+
+        blend.Add("クロスフェード", "切り替えにかける秒数", () =>
+        {
+            _crossFadeIndex = (_crossFadeIndex + 1) % CrossFadeSeconds.Length;
+            if (_locomotionStates is not null)
+            {
+                _locomotionStates.FadeSeconds = CrossFadeSeconds[_crossFadeIndex];
+            }
+
+            Console.WriteLine(
+                $"クロスフェード: {CrossFadeSeconds[_crossFadeIndex]:F2}s"
+                + (CrossFadeSeconds[_crossFadeIndex] <= 0.0f
+                    ? "(**0 秒。切り替わりで足がワープする**)"
+                    : string.Empty)
+                + "  ※ステートマシンのときだけ効く");
+        });
+
+        blend.Add("ブレンドの内訳", "いまどの2本が何割か", () =>
+        {
+            DescribeBlend();
+        });
+
+        blend.Add("自己チェック", "重みの合計と連続性を検算する", () =>
+        {
+            RunLocomotionCheck();
+        });
+
+        // --- Day 43。積分・反発・インパルス解決 ---
+        DebugMenu.Page rigid = menu.Add("剛体力学", "Day 43。積分・反発・インパルス解決");
+
+        rigid.Add("物理デモ", "球を落として、跳ねさせて、積む", () =>
+        {
+            // **今日の到達点**。球を落として、跳ねさせて、積む。
+            // もう一度押すと消える。**消して出し直せば作り直し**になる。
+            if (_physicsDemo)
+            {
+                _physicsDemo = false;
+
+                // **キャラクターも一緒に下ろす**(Day 45)。
+                // 世界を消してキャラクターだけ残すと、
+                // 床の無いところを落ち続けることになる。
+                _characterDemo = false;
+
+                Physics.Clear();
+                BodyColors.Clear();
+
+                // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
+                // 放っておくと切り替えるたびに VRAM が積み上がる。
+                DisposeTerrain();
+
+                _orbit.Reset();
+                Console.WriteLine("物理デモ: OFF");
+            }
+            else
+            {
+                ShowPhysicsDemo(_physicsScene);
+                Console.WriteLine(
+                    $"物理デモ: {PhysicsSceneLabel()}({Physics.Bodies.Count} 体)。"
+                    + "**このページの F5 で筋書きを切り替え**");
+            }
+        });
+
+        rigid.Add("積分", "セミインプリシットと陽的オイラー", () =>
+        {
+            // **今日いちばん深い比較**。2行の順番を入れ替えるだけで、
+            // エネルギーが増える積分器と、増えない積分器が入れ替わる。
+            Physics.Integrator = Physics.Integrator == IntegratorMode.SemiImplicit
+                ? IntegratorMode.Explicit
+                : IntegratorMode.SemiImplicit;
+
+            Console.WriteLine(
+                Physics.Integrator == IntegratorMode.SemiImplicit
+                    ? "積分: セミインプリシット(速度 → 位置。**ゲームの標準**)"
+                    : "積分: **陽的オイラー**(位置 → 速度。エネルギーが増え続ける)");
+            if (Physics.Integrator == IntegratorMode.Explicit)
+            {
+                // **60Hz だと差が小さい**。増える量は 1ステップあたり g²dt²/2 なので、
+                // dt を大きくすると2乗で効いてくる。数字キーの 3(20Hz)や 4(5Hz)で
+                // シミュレーションレートを落とすと、跳ねるたびに高くなるのが一目で分かる。
+                Console.WriteLine(
+                    "  **数字キーの 3(20Hz)や 4(5Hz)を押す**と一目で分かる"
+                    + "(増える量は dt の2乗に比例)");
+            }
+        });
+
+        rigid.Add("反発係数", "跳ね返り方を振る", () =>
+        {
+            _restitutionIndex = (_restitutionIndex + 1) % RestitutionSteps.Length;
+            float restitution = RestitutionSteps[_restitutionIndex];
+
+            // **今ある球にも反映する**。作り直さないと効かないのでは、
+            // 「同じ場面で e だけを変える」比較ができない。
+            foreach (RigidBody body in Physics.Bodies)
+            {
+                body.Restitution = restitution;
+            }
+
+            Console.WriteLine(
+                $"反発係数: {restitution:F2}"
+                + (restitution <= 0.0f ? "(**跳ねない**。当たったら止まる)" : string.Empty)
+                + (restitution >= 0.9f ? "(**ほぼ完全弾性**。なかなか止まらない)" : string.Empty)
+                + "  ※落下デモの5段の振り分けも、ここで上書きされる");
+        });
+
+        rigid.Add("筋書き", "落下 / 積み上げ / 撞き玉", () =>
+        {
+            PhysicsScene next = _physicsScene switch
+            {
+                PhysicsScene.Drop => PhysicsScene.Stack,
+                PhysicsScene.Stack => PhysicsScene.Cradle,
+                _ => PhysicsScene.Drop,
+            };
+
+            ShowPhysicsDemo(next);
+            Console.WriteLine(_physicsScene switch
+            {
+                PhysicsScene.Stack =>
+                    "筋書き: **積み上げ**(縦に6個。反復回数を 1 にすると沈む)",
+                PhysicsScene.Cradle =>
+                    "筋書き: **撞き玉**(左から撞く。運動量が伝わっていく)",
+                _ =>
+                    "筋書き: **落下**(反発係数 0 / 0.25 / 0.5 / 0.75 / 0.95 の5球)",
+            });
+        });
+
+        rigid.Add("速度の反復", "1ステップに何周解くか", () =>
+        {
+            _iterationIndex = (_iterationIndex + 1) % IterationSteps.Length;
+            Physics.VelocityIterations = IterationSteps[_iterationIndex];
+            Console.WriteLine(
+                $"速度の反復: {Physics.VelocityIterations} 周"
+                + (Physics.VelocityIterations == 1
+                    ? "(**素朴版**。積み上げが持たない)"
+                    : string.Empty)
+                + "  ※積み上げの筋書きでいちばん効く");
+        });
+
+        rigid.Add("位置補正", "めり込みを押し戻すかどうか", () =>
+        {
+            Physics.PositionCorrection = !Physics.PositionCorrection;
+            Console.WriteLine(
+                Physics.PositionCorrection
+                    ? $"位置補正: ON(率 {Physics.CorrectionRate:F2} / 許容 {Physics.Slop * 100.0f:F1}cm)"
+                    : "位置補正: **OFF**(速度は直るが、めり込みは戻らない。HUD の「めり込み」を見る)");
+        });
+
+        rigid.Add("球を追加", "1つ落とす", () =>
+        {
+            SpawnBall();
+        });
+
+        rigid.Add("撃つ", "中心と、中心を外したのを交互に", () =>
+        {
+            // **押すたびに交互**にする。中心と、中心を外した場合を
+            // 続けて撃つと、同じ大きさの撃力でも回るかどうかが変わるのが見える。
+            KickBodies(_kickOffCenter);
+            _kickOffCenter = !_kickOffCenter;
+        });
+
+        rigid.Add("物理の内訳", "体・接触・エネルギーの数字", () =>
+        {
+            DescribePhysics();
+        });
+
+        rigid.Add("一時停止", "カメラは動かせる", () =>
+        {
+            _physicsPaused = !_physicsPaused;
+            _physicsStepsRequested = 0;
+            Console.WriteLine(
+                _physicsPaused
+                    ? "物理: 一時停止(**カメラは動かせる**。「剛体力学」の F12 でコマ送り)"
+                    : "物理: 再開");
+        });
+
+        rigid.Add("コマ送り", "1ステップだけ進める", () =>
+        {
+            // 止まっていなければ、まず止めてから1歩進める。
+            _physicsPaused = true;
+            _physicsStepsRequested++;
+            Console.WriteLine(
+                $"物理: コマ送り {_physicsStepsRequested} ステップ待ち"
+                + $"(1ステップ = {_loop.FixedDeltaTime * 1000.0:F1}ms)");
+        });
+
+        rigid.Add("自己チェック", "運動量と角運動量の保存を検算する", () =>
+        {
+            RunRigidBodyCheck();
+        });
+
+        // --- Day 44。分離軸定理と接触マニフォールド ---
+        DebugMenu.Page box = menu.Add("箱の衝突", "Day 44。分離軸定理と接触マニフォールド");
+
+        box.Add("箱デモ", "傾きを振った5つの箱を落とす", () =>
+        {
+            // **今日の到達点**。傾きを振った5つの箱を落とす。
+            if (_physicsDemo && IsBoxScene(_physicsScene))
+            {
+                _physicsDemo = false;
+                _characterDemo = false;   // 世界を消すならキャラクターも下ろす(Day 45)
+                Physics.Clear();
+                BodyColors.Clear();
+
+                // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
+                // 放っておくと切り替えるたびに VRAM が積み上がる。
+                DisposeTerrain();
+
+                _orbit.Reset();
+                Console.WriteLine("箱デモ: OFF");
+            }
+            else
+            {
+                ShowPhysicsDemo(PhysicsScene.BoxDrop);
+                Console.WriteLine(
+                    $"箱デモ: {PhysicsSceneLabel()}({Physics.DynamicCount} 体)。"
+                    + "**このページの F3 で筋書きを切り替え**");
+            }
+        });
+
+        box.Add("筋書き", "積む / 球と箱 / 転がる / カプセル / 地形 / 摩擦の坂", () =>
+        {
+            // **Day 45 でカプセルが1つ増えて5つ巡る**。
+            PhysicsScene next = _physicsScene switch
+            {
+                PhysicsScene.BoxDrop => PhysicsScene.BoxStack,
+                PhysicsScene.BoxStack => PhysicsScene.BoxMix,
+                PhysicsScene.BoxMix => PhysicsScene.BoxTumble,
+                PhysicsScene.BoxTumble => PhysicsScene.CapsuleDrop,
+                PhysicsScene.CapsuleDrop => PhysicsScene.Terrain,
+                PhysicsScene.Terrain => PhysicsScene.FrictionRamp,
+                _ => PhysicsScene.BoxDrop,
+            };
+
+            ShowPhysicsDemo(next);
+            Console.WriteLine(_physicsScene switch
+            {
+                PhysicsScene.BoxStack =>
+                    "筋書き: **箱を積む**(縦に6個。球の積み上げより安定する)",
+                PhysicsScene.BoxMix =>
+                    "筋書き: **球と箱**(傾けた静的な箱の上へ。5通りの判定が全部走る)",
+                PhysicsScene.BoxTumble =>
+                    "筋書き: **箱が転がる**(細長い箱を回しながら。辺×辺の軸が出る)",
+                PhysicsScene.CapsuleDrop =>
+                    "筋書き: **カプセルを落とす**(Day 45。倒れると接触点が1点から2点になる)",
+                PhysicsScene.Terrain =>
+                    "筋書き: **地形に落とす**(Day 46。60 個が谷に集まる。「地形とブロードフェーズ」の F3 で総当たりと比較)",
+                PhysicsScene.FrictionRamp =>
+                    "筋書き: **摩擦の坂**(Day 47。μ=0.1/0.3/0.5/0.7/0.9。tan 26.57°=0.5 が境目)",
+                _ =>
+                    "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
+            });
+        });
+
+        box.Add("接触点の表示", "マニフォールドの点を光る玉で出す", () =>
+        {
+            _showContacts = !_showContacts;
+            Console.WriteLine(
+                _showContacts
+                    ? "接触点の表示: ON(**光る玉がマニフォールドの点**。深いほど大きい)"
+                    : "接触点の表示: OFF");
+        });
+
+        box.Add("1組あたりの接触点", "1 点に減らすと床の箱が震え出す", () =>
+        {
+            // **今日いちばんの実験**。1組から採る接触点を減らすと何が起きるか。
+            _contactLimitIndex = (_contactLimitIndex + 1) % ContactLimits.Length;
+            Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+
+            Console.WriteLine(
+                $"1組あたりの接触点: {Physics.MaxContactsPerPair} 点"
+                + (Physics.MaxContactsPerPair == 1
+                    ? "(**Day 43 と同じ1点**。床の箱が支えきれずに震え出す)"
+                    : string.Empty)
+                + (Physics.MaxContactsPerPair == 4
+                    ? "(本来の値。面で触れているものが面で支えられる)"
+                    : string.Empty));
+        });
+
+        box.Add("箱を追加", "1つ落とす", () =>
+        {
+            SpawnBox();
+        });
+
+        box.Add("接触の内訳", "面 / 辺 / 点の内訳", () =>
+        {
+            DescribeContacts();
+        });
+
+        box.Add("接触点の解き方", "同時に決めるか、順番に決めるか", () =>
+        {
+            // **今日いちばん深い比較**(要点5)。Day 43 の <c>「剛体力学」の F3</c>
+            // (積分法の切り替え)と同じ性格のつまみで、
+            // 「正しい解き方」と「素朴な解き方」を並べて見るためだけにある。
+            Physics.SolveContactsTogether = !Physics.SolveContactsTogether;
+
+            Console.WriteLine(
+                Physics.SolveContactsTogether
+                    ? "接触点の解き方: **同時**(4点を同じ状態から決めてまとめて掛ける)"
+                    : "接触点の解き方: **順番**(Day 43 と同じ。1点目が全部を背負う)");
+
+            if (!Physics.SolveContactsTogether)
+            {
+                Console.WriteLine(
+                    "  **箱を積む筋書き(「箱の衝突」の F3)で見ると分かる**"
+                    + "——柱がじりじり滑って横にずれる");
+                Console.WriteLine(
+                    "  **Day 47 で崩れなくなった**(摩擦が横向きの逃げを押さえる)。"
+                    + "「摩擦とソルバ」の F3 で摩擦を切ると、Day 46 までのように崩れ落ちる");
+            }
+        });
+
+        box.Add("自己チェック", "分離軸とマニフォールドを検算する", () =>
+        {
+            RunBoxCollisionCheck();
+        });
+
+        // --- Day 45。坂・段差・接地判定 ---
+        DebugMenu.Page character = menu.Add("カプセルとキャラクタ", "Day 45。坂・段差・接地判定");
+
+        character.Add("キャラクターデモ", "坂と階段の上を歩き回る", () =>
+        {
+            // **今日の到達点**。坂と階段の上をキャラクターが歩き回る。
+            if (_characterDemo)
+            {
+                _characterDemo = false;
+                _physicsDemo = false;
+                Physics.Clear();
+                BodyColors.Clear();
+
+                // **地形も捨てる**(Day 46)。メッシュは GL の資源なので、
+                // 放っておくと切り替えるたびに VRAM が積み上がる。
+                DisposeTerrain();
+
+                _orbit.Reset();
+                Console.WriteLine("キャラクターデモ: OFF");
+            }
+            else
+            {
+                ShowCharacterDemo(CharacterScene.Slopes);
+                Console.WriteLine(
+                    $"キャラクターデモ: {CharacterSceneLabel()}。"
+                    + "**矢印キーで歩く / X を押しっぱなしで走る / Space でジャンプ**");
+                Console.WriteLine(
+                    "  移動は**カメラ基準**。マウスで視点を回すと進む向きも一緒に回る");
+            }
+        });
+
+        character.Add("筋書き", "坂 / 階段 / 障害物", () =>
+        {
+            CharacterScene next = _characterScene switch
+            {
+                CharacterScene.Slopes => CharacterScene.Steps,
+                CharacterScene.Steps => CharacterScene.Obstacles,
+                _ => CharacterScene.Slopes,
+            };
+
+            ShowCharacterDemo(next);
+            Console.WriteLine(_characterScene switch
+            {
+                CharacterScene.Steps =>
+                    "筋書き: **階段**(段差 15 / 30 / 45cm。既定の乗り越えは 35cm)",
+                CharacterScene.Obstacles =>
+                    "筋書き: **障害物**(箱・球・カプセルの中を歩く。押されるが押さない)",
+                _ =>
+                    "筋書き: **坂**(15 / 30 / 45 / 60 度。既定の上限は 50 度)",
+            });
+        });
+
+        character.Add("坂の上限", "切ると垂直に近い壁もよじ登る", () =>
+        {
+            // **今日いちばん分かりやすい実験**(要点2)。
+            Character.UseSlopeLimit = !Character.UseSlopeLimit;
+
+            Console.WriteLine(
+                Character.UseSlopeLimit
+                    ? $"坂の上限: **{Character.SlopeLimitDegrees:F0}度まで**"
+                        + "(これより急な面は「壁」。押し戻しから上向きを抜く)"
+                    : "坂の上限: **なし**(押し戻しがそのまま登りになる。"
+                        + "60 度の坂も、ほとんど垂直な壁もよじ登れる)");
+        });
+
+        character.Add("段差の乗り越え", "切ると 15cm の段でも止まる", () =>
+        {
+            // **段差の実験**(要点3)。階段の筋書きで見ると一目で分かる。
+            Character.UseStepOffset = !Character.UseStepOffset;
+
+            Console.WriteLine(
+                Character.UseStepOffset
+                    ? $"段差の乗り越え: **{Character.StepOffset * 100.0f:F0}cm まで**"
+                        + "(持ち上げて、進んで、落とす)"
+                    : "段差の乗り越え: **なし**(15cm の段でも止まる。"
+                        + "階段を降りるときの吸い付きも切れる)");
+        });
+
+        character.Add("カプセルを追加", "1つ落とす", () =>
+        {
+            SpawnCapsule();
+        });
+
+        character.Add("キャラクタの内訳", "接地・傾き・段差の数字", () =>
+        {
+            DescribeCharacter();
+        });
+
+        character.Add("自己チェック", "線分間距離を検算する", () =>
+        {
+            RunCapsuleCheck();
+        });
+
+        // --- Day 46。Heightmap と均一グリッド ---
+        DebugMenu.Page terrain = menu.Add("地形とブロードフェーズ", "Day 46。Heightmap と均一グリッド");
+
+        terrain.Add("地形デモ", "起伏の上を歩き回る", () =>
+        {
+            // **今日の到達点**。起伏の上をキャラクターが歩き回る。
+            if (_characterDemo && _characterScene == CharacterScene.Terrain)
+            {
+                _characterDemo = false;
+                _physicsDemo = false;
+                Physics.Clear();
+                BodyColors.Clear();
+                DisposeTerrain();
+                _orbit.Reset();
+                Console.WriteLine("地形デモ: OFF");
+            }
+            else
+            {
+                ShowCharacterDemo(CharacterScene.Terrain);
+                Console.WriteLine(
+                    "地形デモ: **起伏の上を歩ける**(矢印キー / X で走る / Space でジャンプ)");
+                Console.WriteLine(
+                    "  手前の緩い丘(**29 度**)は登れて、奥の急な丘(**58 度**)は登れない。"
+                    + "「カプセルとキャラクタ」の F4 で坂の上限を切ると登れる");
+            }
+        });
+
+        terrain.Add("ブロードフェーズ", "均一グリッドと総当たり。**絵は変わらない**", () =>
+        {
+            // **今日いちばん分かりやすい実験**(要点1)。
+            // 絵は1ピクセルも変わらず、HUD の「候補」と ms だけが動く。
+            Physics.Broadphase = Physics.Broadphase == BroadphaseMode.UniformGrid
+                ? BroadphaseMode.BruteForce
+                : BroadphaseMode.UniformGrid;
+
+            Console.WriteLine(
+                Physics.Broadphase == BroadphaseMode.UniformGrid
+                    ? $"ブロードフェーズ: **均一グリッド**(マス {Physics.CellSize:F1}m)。"
+                        + "絵は変わらず、HUD の「候補」と物理の ms が減る"
+                    : "ブロードフェーズ: **総当たり**(Day 45 までのやり方)。"
+                        + "体を増やすほど n² が効いてくる");
+        });
+
+        terrain.Add("マスを描く", "中身のあるマスだけ線で出す", () =>
+        {
+            _showGridCells = !_showGridCells;
+            Console.WriteLine(
+                $"格子のマスの表示: {OnOff(_showGridCells)}"
+                + (_showGridCells
+                    ? "(**中身のあるマスだけ**を線で描く。512 個で打ち切る)"
+                    : string.Empty));
+        });
+
+        terrain.Add("マスの大きさ", "格子の目を変える", () =>
+        {
+            CycleGridCellSize();
+        });
+
+        terrain.Add("体を 40 個追加", "総当たりの組は2乗で増える", () =>
+        {
+            // **体を増やして n² を体感する**。総当たりだと組の数が跳ね上がる。
+            if (_terrain is null)
+            {
+                Console.WriteLine("先に 「地形とブロードフェーズ」の F2(地形デモ)か 「箱の衝突」の F3 で地形の筋書きへ");
+                return;
+            }
+
+            SpawnTerrainBodies(40);
+            Console.WriteLine(
+                $"体を 40 個追加(全部で {Physics.Bodies.Count} 個)。"
+                + "**総当たりの組は2乗、格子の候補はほぼ比例**で増える");
+        });
+
+        terrain.Add("ブロードフェーズの内訳", "候補の数とマスの使われ方", () =>
+        {
+            DescribeBroadphase();
+        });
+
+        terrain.Add("自己チェック", "高さの補間を検算する", () =>
+        {
+            RunTerrainCheck();
+        });
+
+        // --- Day 47。クーロン摩擦・Sequential Impulses・眠り ---
+        DebugMenu.Page solver = menu.Add("摩擦とソルバ", "Day 47。クーロン摩擦・Sequential Impulses・眠り");
+
+        solver.Add("摩擦の坂", "μ を振った5箱を 26.57 度の坂に並べる", () =>
+        {
+            // **今日の到達点**。μ だけを振った箱を坂に並べる。
+            if (_physicsDemo && !_characterDemo && _physicsScene == PhysicsScene.FrictionRamp)
+            {
+                _physicsDemo = false;
+                Physics.Clear();
+                BodyColors.Clear();
+                DisposeTerrain();
+                _orbit.Reset();
+                Console.WriteLine("摩擦デモ: OFF");
+            }
+            else
+            {
+                ShowPhysicsDemo(PhysicsScene.FrictionRamp);
+                Console.WriteLine(
+                    "摩擦デモ: **坂 26.57 度(tan = 0.50)に μ を振った5箱**。"
+                    + "手前から μ = 0.1 / 0.3 / 0.5 / 0.7 / 0.9");
+                Console.WriteLine(
+                    "  **μ > tan θ の箱だけが止まる**。真ん中(0.5)がちょうど境目。"
+                    + "黄色い球は μ = 1 でも転がり落ちる(転がり摩擦は入れていない)");
+            }
+        });
+
+        solver.Add("摩擦", "切ると坂の箱が全部滑り出す", () =>
+        {
+            Physics.FrictionEnabled = !Physics.FrictionEnabled;
+            WakeAllBodies();
+            Console.WriteLine(
+                Physics.FrictionEnabled
+                    ? "摩擦: **ON**(クーロン摩擦。上限は μ × 押し付けている強さ)"
+                    : "摩擦: **OFF**(Day 46 までの世界。**坂の箱が全部滑り出す**)");
+        });
+
+        solver.Add("蓄積インパルス", "Sequential Impulses。負の補正が出せる", () =>
+        {
+            Physics.AccumulateImpulses = !Physics.AccumulateImpulses;
+            WakeAllBodies();
+            Console.WriteLine(
+                Physics.AccumulateImpulses
+                    ? "インパルス: **蓄積してクランプ**(Sequential Impulses。負の補正が出せる)"
+                    : "インパルス: **1周ごとにクランプ**(Day 46 までのやり方。"
+                        + "**掛けすぎを戻せないので柱が沈む**)");
+            Console.WriteLine(
+                Physics.AccumulateImpulses
+                    ? "  温存も一緒に戻った(蓄積が無いと温存は成り立たない)"
+                    : "  **温存も一緒に止まる**。合計を減らせないので、"
+                        + "持ち越すと単調に増えて置いた箱が跳ね上がる");
+            Console.WriteLine(
+                "  差が出るのは**柱が高いとき**。「箱の衝突」の F3 で「箱を積む」へ、"
+                + "「剛体力学」の F6 で反復を 1〜2 に落とすと分かりやすい");
+        });
+
+        solver.Add("温存", "前のステップのインパルスから始める", () =>
+        {
+            Physics.WarmStarting = !Physics.WarmStarting;
+            WakeAllBodies();
+            Console.WriteLine(
+                Physics.WarmStarting
+                    ? "温存(ウォームスタート): **ON**(前のステップのインパルスから始める)"
+                    : "温存(ウォームスタート): **OFF**(毎ステップ 0 から。"
+                        + "**反復回数を減らすと途端に沈む**)");
+
+            if (Physics.WarmStarting && !Physics.AccumulateImpulses)
+            {
+                Console.WriteLine(
+                    "  ただし今は蓄積が OFF なので**温存は働かない**(「摩擦とソルバ」の F4 で蓄積を戻す)");
+            }
+        });
+
+        solver.Add("眠り", "接触で繋がった島ごとに眠らせる", () =>
+        {
+            Physics.SleepEnabled = !Physics.SleepEnabled;
+            Console.WriteLine(
+                Physics.SleepEnabled
+                    ? "眠り: **ON**(接触で繋がった島ごとに眠る。**色が沈んだ体が眠っている**)"
+                    : "眠り: **OFF**(全部起こした。**1ステップの ms が増える**)");
+        });
+
+        solver.Add("μ の上書き", "全部の体の摩擦係数を揃える", () =>
+        {
+            CycleFrictionOverride();
+        });
+
+        solver.Add("自己チェック", "収束と摩擦円を検算する", () =>
+        {
+            RunSolverCheck();
+        });
+        return menu;
+    }
+
+    /// <summary>
+    /// 露出を掛け算で動かす(Day 48 で切り出した)。
+    ///
+    /// <para>
+    /// 昨日までは <c>case Key.Number5 when shift:</c> が
+    /// <c>case Key.Number6 when shift:</c> へ<b>フォールスルー</b>していて、
+    /// 本文の中で <c>key == Key.Number6</c> を見て上下を決めていた。
+    /// 表には「どのキーで入ってきたか」が無いので、素直に引数にした——
+    /// <b>キーの正体を本文が知っている</b>という結び付きが、これで1つ減っている。
+    /// </para>
+    ///
+    /// <para>
+    /// 1 段(2倍)ではなく 1.3 倍刻みにしてあるのは Day 31 からの判断。
+    /// 2倍だと明るさが飛びすぎて「ちょうどいいところ」を通り過ぎる。
+    /// </para>
+    /// </summary>
+    private static void ChangeExposure(float factor)
+    {
+        _post.Exposure = Math.Clamp(_post.Exposure * factor, 0.02f, 64.0f);
+        Console.WriteLine($"露出: {_post.Exposure:F2}");
+    }
+
+    /// <summary>
     /// スプライトの数を変える。GameObject モードならシーンのほうもそろえる。
     ///
     /// 上限から <c>LayerTest</c> のぶんと階層の実演のぶんを引いてあるのは、
@@ -16345,7 +16280,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 今日の自己チェック(Shift+Alt+F12)。
+    /// 今日の自己チェック(「アニメのブレンド」の F10)。
     ///
     /// ブレンドは**間違っていてもそれらしく動く**のが厄介なところで、
     /// 重みが 0.4/0.4(合計 0.8)でも、位相がずれていても、
@@ -16616,7 +16551,7 @@ internal static class Program
             freeDrift > syncedDrift * 10.0f,
             $"ずれ {freeDrift:E2}(同期していれば {syncedDrift:E2})");
 
-        // Rewind が重みを壊さないこと(Alt+F10 の経路)。
+        // Rewind が重みを壊さないこと(「スキニング」の F10 の経路)。
         player.SetBlend([new ClipWeight(walkClip, 0.5f), new ClipWeight(runClip, 0.5f)]);
         player.Advance(0.3f);
         player.Rewind();
@@ -16668,7 +16603,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// リグの内訳をコンソールに出す(Alt+F11)。**骨の名前と親子が見えると話が早い**。
+    /// リグの内訳をコンソールに出す(「スキニング」の F11)。**骨の名前と親子が見えると話が早い**。
     ///
     /// スキニングが妙なときの原因は、たいてい「思っていた骨と違う骨が動いている」。
     /// 木の形と関節の並び(= JOINTS_0 の値の意味)を並べて出しておく。
@@ -16677,7 +16612,7 @@ internal static class Program
     {
         if (_model is null || _animation is null)
         {
-            Console.WriteLine("モデルがありません(Alt+F1 で CesiumMan を出す)");
+            Console.WriteLine("モデルがありません(「スキニング」の F2 で CesiumMan を出す)");
             return;
         }
 
@@ -16722,7 +16657,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 今日の自己チェック(Alt+F12)。
+    /// 今日の自己チェック(「スキニング」の F12)。
     ///
     /// スキニングは**間違っていても絵が出る**のがいちばんの厄介さで、
     /// 「なんとなく動いているから合っている」が通用しない。
@@ -17144,7 +17079,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 今日の自己チェック(Ctrl+Shift+Alt+F12)。
+    /// 今日の自己チェック(「剛体力学」の 1)。
     ///
     /// 物理は**間違っていてもそれらしく動く**のが厄介なところで、
     /// 積分の順番が逆でも、慣性テンソルが定数でも、
@@ -17777,7 +17712,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 今日の自己チェック(Ctrl+Shift+Alt+0)。
+    /// 今日の自己チェック(「箱の衝突」の F9)。
     ///
     /// 箱の判定は<b>間違っていてもそれらしく動く</b>のが Day 43 より始末が悪い。
     /// 辺×辺の軸を落としても、接触点が1つしか出なくても、
@@ -18413,7 +18348,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 今日の自己チェック(Ctrl+Shift+Alt+X)。
+    /// 今日の自己チェック(「カプセルとキャラクタ」の F8)。
     ///
     /// 今日は<b>2つの層をまとめて押さえる</b>。
     /// <list type="number">
@@ -19133,7 +19068,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// Day 46 の自己チェック(Ctrl+Shift+Alt+G)。**窓を1枚も出さずに走る**。
+    /// Day 46 の自己チェック(「地形とブロードフェーズ」の F8)。**窓を1枚も出さずに走る**。
     ///
     /// 今日の中身は <c>Physics/</c> に入っていて、GL も窓も一切知らない。
     /// おかげでこのチェックは <see cref="OnLoad"/> を通らずに走る——
@@ -19988,7 +19923,7 @@ internal static class Program
     }
 
     /// <summary>
-    /// 今日の自己チェック(Ctrl+Shift+Alt+F)。**画面を1枚も出さずに走る**。
+    /// 今日の自己チェック(「摩擦とソルバ」の F8)。**画面を1枚も出さずに走る**。
     ///
     /// 今日の題材は<b>どれも絵からは判定できない</b>。
     /// 「柱が沈んでいない」「摩擦が正しい」「眠っている」は、
@@ -20633,6 +20568,141 @@ internal static class Program
             (float)((random.NextDouble() * 2.0) - 1.0),
             (float)((random.NextDouble() * 2.0) - 1.0),
             (float)((random.NextDouble() * 2.0) - 1.0));
+
+    /// <summary>
+    /// **今日の自己チェック**(<c>Alt+F1</c>)。Day 48。
+    ///
+    /// <para>
+    /// 割り当て表は<b>間違っていても動いてしまう</b>のが厄介なところ。
+    /// 同じキーに2つ登録しても、席が足りなくても、
+    /// 出るのは「押したのに何も起きない」という一番追いにくい症状になる。
+    /// 昨日までの switch がまさにそれで、
+    /// **並び順を間違えた日は、その日のキーが1つも効かない**まま気づけなかった。
+    /// </para>
+    ///
+    /// <para>
+    /// だから確かめるのは「絵が合っているか」ではなく<b>表の形</b>。
+    /// 席の重複・容量・F1 の不可侵・輪の閉じ方——
+    /// どれも起動した瞬間に決まっていて、**押さなくても分かる**ものばかりになっている。
+    /// </para>
+    /// </summary>
+    private static void RunDebugMenuCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 48: 割り当て表の自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 表の形(押さなくても分かること)
+        // ============================================================
+
+        int entryCount = _menu.Pages.Sum(page => page.Entries.Count);
+
+        checks.Check("ページがある", _menu.Pages.Count > 0, $"{_menu.Pages.Count} 枚");
+        checks.Check(
+            "**Day 31〜47 のスイッチが全部入っている**",
+            entryCount == 159,
+            $"{entryCount} 項目");
+
+        bool withinCapacity = _menu.Pages.All(page => page.Entries.Count <= DebugMenu.SlotCount);
+        checks.Check(
+            $"どのページも席({DebugMenu.SlotCount})に収まっている",
+            withinCapacity,
+            $"最大 {_menu.Pages.Max(page => page.Entries.Count)} 項目");
+
+        // **同じページに同じキーが2つ無い**。席は登録順で決まるので原理的に起きないが、
+        // 「起きないはず」を確かめておかないと、`Add` にキーを書けるよう直した日に静かに壊れる。
+        bool unique = _menu.Pages.All(page =>
+            page.Entries.Select(entry => entry.Key).Distinct().Count() == page.Entries.Count);
+        checks.Check("同じページにキーの重複が無い", unique);
+
+        // **F1 はどのページにも入っていない**。入っていると、そのページに入った瞬間
+        // ページ送りが効かなくなり、**閉じる手段が無くなる**。
+        bool f1Free = _menu.Pages.All(page => page.Entries.All(entry => entry.Key != Key.F1));
+        checks.Check("**F1 はどのページも取っていない**(必ず閉じられる)", f1Free);
+
+        bool labelled = _menu.Pages.All(page =>
+            !string.IsNullOrWhiteSpace(page.Name)
+            && page.Entries.All(entry =>
+                !string.IsNullOrWhiteSpace(entry.Name) && !string.IsNullOrWhiteSpace(entry.Effect)));
+        checks.Check("名前と効果がすべて埋まっている(一覧が読める)", labelled);
+
+        // ============================================================
+        //  2. ページ送りの輪(閉じた状態を1つ挟む)
+        // ============================================================
+
+        int saved = _menu.Index;
+
+        while (_menu.Index != -1)
+        {
+            _menu.Next();
+        }
+
+        for (int i = 0; i < _menu.Pages.Count; i++)
+        {
+            _menu.Next();
+        }
+
+        checks.Check(
+            "最後のページまで送れる",
+            _menu.Index == _menu.Pages.Count - 1,
+            $"{_menu.Index + 1} 枚目");
+
+        _menu.Next();
+        checks.Check("**もう1回送ると閉じる**(押し続ければ必ず元に戻る)", _menu.Index == -1);
+
+        _menu.Previous();
+        checks.Check(
+            "閉じた状態から戻ると最後のページ",
+            _menu.Index == _menu.Pages.Count - 1);
+
+        _menu.Next();
+        while (_menu.Index != saved)
+        {
+            _menu.Next();
+        }
+
+        // ============================================================
+        //  3. 引き当て(**副作用を出さないよう使い捨ての表で試す**)
+        // ============================================================
+        //
+        // `_menu` の項目は本物の機能に繋がっているので、ここで呼ぶと
+        // SSAO が切れたりデモが出たりする。**チェックが世界を書き換える**のは筋が悪い。
+
+        int fired = 0;
+        var probe = new DebugMenu();
+        DebugMenu.Page probePage = probe.Add("試し", "自己チェック用");
+        probePage.Add("1つ目", "数えるだけ", () => fired++);
+        probePage.Add("2つ目", "数えるだけ", () => fired++);
+
+        checks.Check(
+            "**閉じている間は何も引き当てない**(素のキーを取り上げない)",
+            !probe.TryInvoke(DebugMenu.Slots[0]) && fired == 0);
+
+        probe.Next();
+        checks.Check(
+            "開けば席のキーが引き当たる",
+            probe.TryInvoke(DebugMenu.Slots[0]) && fired == 1);
+
+        checks.Check(
+            "席にないキーは引き当たらない(下の switch へ流れる)",
+            !probe.TryInvoke(DebugMenu.Slots[2]) && fired == 1);
+
+        checks.Check(
+            "F1 は表に無いので引き当たらない",
+            !probe.TryInvoke(Key.F1));
+
+        // **席の並びは F2 から**。F1 を空けてあることが、ここで数として出る。
+        checks.Check(
+            "席の先頭は F2(F1 はページ送り)",
+            DebugMenu.Slots[0] == Key.F2 && !DebugMenu.Slots.Contains(Key.F1));
+
+        checks.Report();
+
+        Console.WriteLine(
+            $"  昨日の OnKeyDown は 2424 行・case 225 個。"
+            + $"今日は 458 行と、{_menu.Pages.Count} ページ {entryCount} 項目の表になった");
+    }
 
     /// <summary>
     /// 自己チェックの結果を数えて出すだけの小さな道具。
