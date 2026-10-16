@@ -812,6 +812,17 @@ internal static class Program
         /// <b>絵は1ピクセルも変わらないのに1ステップの時間だけが増える</b>。
         /// </summary>
         Terrain,
+
+        /// <summary>
+        /// 摩擦を振った箱を坂に置く(Day 47)。**今日の到達点**。
+        ///
+        /// 同じ坂の上に μ だけ違う箱を5つ並べる。
+        /// <b>μ が坂の傾きの正接(tan θ)より大きい箱だけが止まる</b>——
+        /// 高校物理の「静止摩擦角」が、そのまま絵で出る。
+        /// 一緒に置いた球は<b>μ をいくつにしても転がり落ちる</b>:
+        /// 転がり摩擦を入れていないから(要点3)。
+        /// </summary>
+        FrictionRamp,
     }
 
     /// <summary>キャラクターデモの筋書き(Day 45)。**確かめたいことが1つずつ**ある。</summary>
@@ -933,6 +944,158 @@ internal static class Program
     private static int _boxSpawnCount;
 
     // ================================================================
+    //  Day 47: 摩擦・Sequential Impulses・スリープ(ミニ物理エンジン完成)
+    // ================================================================
+
+    /// <summary>
+    /// 摩擦の坂(Ctrl+F、または Ctrl+Shift+Alt+2 で選ぶ)。**今日の到達点**(要点3)。
+    ///
+    /// 同じ坂の上に、合成 μ だけを振った箱を5つ並べる。
+    /// 質量も寸法も初速も同じなので、<b>止まるかどうかの違いは μ だけで説明が付く</b>。
+    ///
+    /// <para>
+    /// 坂の傾きは <c>tan θ = 0.5</c>(26.57 度)にしてある。
+    /// 斜面に置いた物が滑り出す条件は
+    /// <code>
+    ///   m g sinθ  &gt;  μ · m g cosθ      ⇔      tanθ &gt; μ
+    /// </code>
+    /// で、<b>質量が両辺から消える</b>——重い箱も軽い箱も同じ角度で滑り出す。
+    /// 並べた 0.1 / 0.3 / 0.5 / 0.7 / 0.9 のうち、
+    /// <b>0.7 と 0.9 が止まり、0.1 と 0.3 が滑り、0.5 がちょうど境目</b>になる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>μ を体に入れるとき2乗している</b>のが引っかかりどころ。
+    /// 摩擦は2つの体の<b>相乗平均</b> <c>√(μa μb)</c> で混ざるので(要点3)、
+    /// 坂を μ = 1 にしておけば <c>√(μ箱 × 1) = √μ箱</c>。
+    /// 狙った合成値を出すには、箱にその2乗を入れることになる。
+    /// <b>「係数の混ぜ方」が絵にどう出るかを、いちばん短く確かめられる場所</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>球は μ をいくつにしても転がり落ちる</b>。
+    /// 今日入れたのは滑りに対する摩擦だけで、<b>転がり摩擦は入れていない</b>。
+    /// 球は接触点での相対速度が 0 のまま転がれる(それが「転がる」の定義)ので、
+    /// 摩擦が仕事をする場面が無い——
+    /// <b>モデルに無いものは、係数をいくら上げても出てこない</b>。
+    /// </para>
+    /// </summary>
+    private static void BuildFrictionRampScene()
+    {
+        Quaternion tilt = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -RampTilt);
+
+        // --- 坂(動かない箱)---
+        RigidBody ramp = RigidBody.CreateStatic(Collider.Box(new Vector3(3.2f, 0.15f, 3.0f)));
+        ramp.Position = new Vector3(0.0f, 1.6f, 0.0f);
+        ramp.Orientation = tilt;
+        ramp.Restitution = 0.0f;
+
+        // **坂は μ = 1**。相乗平均なので、こうしておくと箱の側の値だけで合成が決まる。
+        ramp.Friction = 1.0f;
+        Physics.AddBody(ramp);
+        BodyColors.Add(SrgbToLinear(new Vector4(0.42f, 0.44f, 0.50f, 1.0f)));
+
+        const float half = 0.25f;
+
+        for (int i = 0; i < RampFrictions.Length; i++)
+        {
+            float target = RampFrictions[i];
+
+            RigidBody body = RigidBody.CreateBox(1.0f, half);
+
+            // 坂の上面のすぐ上に、奥行き方向へ並べる。
+            // **坂の物体座標で置いてから世界へ運ぶ**ので、傾きを変えても並びが崩れない。
+            var local = new Vector3(-2.1f, 0.15f + half + 0.002f, (i - 2.0f) * 0.9f);
+            body.Position = ramp.Position + Vector3.Transform(local, tilt);
+
+            // **箱も坂に沿わせて置く**。水平に置くと角1つで着地して、
+            // 落ち着くまでの数フレームが「滑り出したのか倒れたのか」分からなくなる。
+            body.Orientation = tilt;
+
+            // 合成が狙いどおりになるよう、坂の μ で割る(坂は 1 なので実質2乗)。
+            body.Friction = target * target / ramp.Friction;
+            body.Restitution = 0.0f;
+            Physics.AddBody(body);
+
+            // 滑る側を寒色、止まる側を暖色。**色が μ の目盛り**。
+            float t = i / (RampFrictions.Length - 1.0f);
+            BodyColors.Add(SrgbToLinear(
+                new Vector4(0.20f + (0.75f * t), 0.55f, 0.95f - (0.70f * t), 1.0f)));
+        }
+
+        // --- 球を1つ(転がり摩擦を入れていないことの実演)---
+        RigidBody ball = RigidBody.CreateSphere(1.0f, 0.30f);
+        ball.Position = ramp.Position
+            + Vector3.Transform(new Vector3(-2.1f, 0.15f + 0.30f + 0.002f, 2.6f), tilt);
+        ball.Orientation = tilt;
+
+        // **μ を最大にしても止まらない**。転がる物には滑りが無いので摩擦が効かない。
+        ball.Friction = 1.0f;
+        ball.Restitution = 0.0f;
+        Physics.AddBody(ball);
+        BodyColors.Add(SrgbToLinear(new Vector4(0.95f, 0.85f, 0.25f, 1.0f)));
+    }
+
+    /// <summary>
+    /// 摩擦係数の上書きを1段変える(Shift+Alt+F)。**次のステップから効く**。
+    ///
+    /// 既に生まれている接触点にも次のステップで新しい μ が入るので、
+    /// <b>押した瞬間に坂の箱が一斉に滑り出す/止まる</b>のが見える。
+    /// </summary>
+    private static void CycleFrictionOverride()
+    {
+        _frictionIndex = (_frictionIndex + 1) % FrictionSteps.Length;
+        Physics.FrictionOverride = FrictionSteps[_frictionIndex];
+
+        // **眠っている体は起こす**。μ を変えても眠ったままだと何も起きず、
+        // 「効いていない」ように見えてしまう。
+        WakeAllBodies();
+
+        Console.WriteLine(
+            Physics.FrictionOverride < 0.0f
+                ? "摩擦係数: **体ごとの値**(坂は μ を振った5箱。真ん中が境目)"
+                : $"摩擦係数: **全部 μ = {Physics.FrictionOverride:F2}** に上書き"
+                    + $"(坂 26.57 度の境目は 0.50)");
+    }
+
+    /// <summary>眠っている体を全部起こす。**つまみを動かしたときに必ず呼ぶ**。</summary>
+    private static void WakeAllBodies()
+    {
+        foreach (RigidBody body in Physics.Bodies)
+        {
+            body.Wake();
+        }
+    }
+
+    /// <summary>
+    /// 解法の状態を1行で(Day 47)。**絵から読めないものだけ**。
+    ///
+    /// 見どころは3つ。
+    /// <list type="bullet">
+    /// <item><b>温存の当たり率</b>——<c>温存 14/16点</c> のように出る。
+    ///   ここが 0 に張り付いていたら照合が効いていない(<see cref="ContactCache.MatchDistance"/>)</item>
+    /// <item><b>眠り</b>——<c>3/12体 島4</c>。島の数が体の数と同じなら、誰も触れ合っていない</item>
+    /// <item><b>蓄積 / 素朴</b>——切り替えても<b>絵はしばらく同じ</b>で、
+    ///   柱を高くしたときにだけ差が出る</item>
+    /// </list>
+    /// </summary>
+    private static string SolverLabel() =>
+        $"解法[{(Physics.AccumulateImpulses ? "蓄積" : "**素朴**")} "
+        + (Physics.WarmStartActive
+            ? $"温存{Physics.WarmStartedPoints}/{Physics.Contacts.Count}点 組{Physics.CachedPairs}]"
+            : Physics.WarmStarting ? "**温存は蓄積とセット**]" : "**温存OFF**]")
+        + $"  摩擦:{FrictionLabel()}  "
+        + (Physics.SleepEnabled
+            ? $"眠り:{Physics.SleepingCount}/{Physics.DynamicCount}体 島{Physics.IslandCount}"
+            : "眠り:**OFF**");
+
+    /// <summary>摩擦の設定を短く。**上書きしているかどうかを必ず出す**。</summary>
+    private static string FrictionLabel() =>
+        !Physics.FrictionEnabled ? "**OFF**"
+        : Physics.FrictionOverride >= 0.0f ? $"μ={Physics.FrictionOverride:F2}(上書き)"
+        : "体ごと";
+
+    // ================================================================
     //  Day 45: カプセル衝突とキャラクターコントローラ(キネマティック)
     // ================================================================
 
@@ -1029,6 +1192,38 @@ internal static class Program
 
     /// <summary>地形の上に降らせた体の数。**ブロードフェーズの効きを見るための数**。</summary>
     private static int _terrainSpawnCount;
+
+    // ================================================================
+    //  Day 47: 摩擦・Sequential Impulses・スリープ(ミニ物理エンジン完成)
+    // ================================================================
+
+    /// <summary>
+    /// 摩擦の坂の傾き [rad]。**正接がちょうど 0.5** になる角度(要点3)。
+    ///
+    /// 26.57 度。<c>tan 26.57° = 0.5</c> なので、
+    /// <b>合成 μ が 0.5 より大きい箱だけが止まる</b>——
+    /// 並べた5つのうち真ん中(μ = 0.5)がちょうど境目になる。
+    /// </summary>
+    private const float RampTilt = 0.46365f;
+
+    /// <summary>
+    /// 坂に並べる箱の**合成**摩擦係数(Day 47)。**真ん中が境目**。
+    ///
+    /// 体に入れる値ではないことに注意。摩擦は2つの体の相乗平均で混ざるので、
+    /// 坂を μ = 1 にしたうえで<b>箱に μ² を入れる</b>と、合成がこの値になる
+    /// (<see cref="BuildFrictionRampScene"/>)。
+    /// </summary>
+    private static readonly float[] RampFrictions = [0.1f, 0.3f, 0.5f, 0.7f, 0.9f];
+
+    /// <summary>
+    /// 摩擦係数の上書きの候補(Shift+Alt+F)。**負なら体ごとの値を使う**。
+    ///
+    /// 「今の場面で全部を μ = 0.2 にしたらどうなるか」を1キーで試すためのもの。
+    /// 地形の上の 60 個を一斉に凍らせたり滑らせたりできる。
+    /// </summary>
+    private static readonly float[] FrictionSteps = [-1.0f, 0.0f, 0.2f, 0.5f, 1.0f];
+
+    private static int _frictionIndex;
 
     /// <summary>
     /// 画面に出す成分(Shift+9)。
@@ -2026,7 +2221,7 @@ internal static class Program
         Console.WriteLine("Ctrl+Shift+Alt+F1:物理デモ ON/OFF。**球が落ちて跳ねて積まれる**");
         Console.WriteLine("Ctrl+Shift+Alt+F2:積分法(セミインプリシット / **陽的オイラー**。数字キー4と併せて見る)");
         Console.WriteLine("Ctrl+Shift+Alt+F3:反発係数 0/0.3/0.6/0.9  Ctrl+Shift+Alt+F4:筋書き(落下/積み上げ/撞き玉)");
-        Console.WriteLine("Ctrl+Shift+Alt+F5:速度の反復 1/2/4/8(**1 だと柱が沈む**)  Ctrl+Shift+Alt+F6:位置補正 ON/OFF");
+        Console.WriteLine("Ctrl+Shift+Alt+F5:速度の反復 1/2/4/8(**Day 47 の温存が入って 1 でも持つ**)  Ctrl+Shift+Alt+F6:位置補正");
         Console.WriteLine("Ctrl+Shift+Alt+F7:球を1つ降らせる  Ctrl+Shift+Alt+F8:撃つ(**中心 / 中心を外す が交互**)");
         Console.WriteLine("Ctrl+Shift+Alt+F9:内訳(運動量・エネルギー・めり込み)  Ctrl+Shift+Alt+F10:停止");
         Console.WriteLine("Ctrl+Shift+Alt+F11:コマ送り  Ctrl+Shift+Alt+F12:Day 43 の自己チェック");
@@ -2037,7 +2232,7 @@ internal static class Program
         Console.WriteLine("Ctrl+Shift+Alt+3:接触点の表示 ON/OFF(**光る玉がマニフォールドの点**)");
         Console.WriteLine("Ctrl+Shift+Alt+4:1組あたりの接触点 1/2/4(**1 にすると箱もカプセルも落ち着かない**)");
         Console.WriteLine("Ctrl+Shift+Alt+5:箱を1つ降らせる  Ctrl+Shift+Alt+6:接触の内訳(どの軸が効いたか)");
-        Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。切ると積んだ箱が崩れる)");
+        Console.WriteLine("Ctrl+Shift+Alt+7:接触点の解き方(同時 / **順番**。切ると積んだ箱が横にずれる)");
         Console.WriteLine("Ctrl+Shift+Alt+0:Day 44 の自己チェック");
         Console.WriteLine();
         Console.WriteLine("--- Day 45: カプセル衝突とキャラクターコントローラ(X の段)---");
@@ -2056,6 +2251,16 @@ internal static class Program
         Console.WriteLine("Ctrl+Alt+G:体を 40 個降らせる(**組の数の減り方を見る**)");
         Console.WriteLine("Shift+Alt+G:地形とブロードフェーズの内訳  Ctrl+Shift+Alt+G:今日の自己チェック");
         Console.WriteLine("  ※素の G(3D背景の ON/OFF)は今までどおり。修飾キー付きだけが今日のもの");
+        Console.WriteLine();
+        Console.WriteLine("--- Day 47: 摩擦・Sequential Impulses・スリープ(F の段)---");
+        Console.WriteLine("Ctrl+F:摩擦デモ ON/OFF。**坂 26.57 度に μ を振った5箱。今日の到達点**");
+        Console.WriteLine("  μ=0.1/0.3/0.5/0.7/0.9。**tan 26.57°= 0.50 が境目**で、上の2つだけ止まる");
+        Console.WriteLine("Shift+F:摩擦 ON/OFF  Shift+Alt+F:μ の上書き(体ごと/0/0.2/0.5/1.0)");
+        Console.WriteLine("Alt+F:**蓄積インパルス ON/OFF**(切ると Day 46 の解き方。柱が沈む)");
+        Console.WriteLine("Ctrl+Shift+F:**温存(ウォームスタート)ON/OFF**(切ると反復を減らせなくなる)");
+        Console.WriteLine("Ctrl+Alt+F:眠り ON/OFF(**色が沈んだ体が眠っている**)");
+        Console.WriteLine("Ctrl+Shift+Alt+F:今日の自己チェック");
+        Console.WriteLine("  ※素の F(視野角)は今までどおり。修飾キー付きだけが今日のもの");
         Console.WriteLine();
         Console.WriteLine("--- Day 42: アニメーション制御(Shift+Alt+F1〜F12)---");
         Console.WriteLine("Shift+Alt+F1:Fox を出して**速度に応じた歩き↔走りのブレンド**。**今日の到達点**");
@@ -3494,6 +3699,11 @@ internal static class Program
             // <b>絵が1ピクセルも変わらない</b>ので、
             // 数字が出ていないと切り替えたことにすら気づけない。
             lines.AppendLine(BroadphaseLine());
+
+            // **今日の1行**(Day 47)。温存が効いているか、何体が眠っているかは
+            // 絵からは絶対に読み取れない。**眠っている体は色が沈む**ようにしてあるが、
+            // それだけでは「何割が眠っているか」までは分からない。
+            lines.AppendLine(SolverLabel());
         }
 
         if (_model is not null)
@@ -4312,14 +4522,22 @@ internal static class Program
         //
         // **地形の筋書きは 24m 四方**なので、いちばん引いて上から見る(Day 46)。
         _orbit.Reset();
-        _orbit.Target = new Vector3(0.0f, scene == PhysicsScene.BoxStack ? 2.4f : 1.0f, 0.0f);
+        _orbit.Target = new Vector3(0.0f, scene switch
+        {
+            PhysicsScene.BoxStack => 2.4f,
+            PhysicsScene.FrictionRamp => 1.4f,
+            _ => 1.0f,
+        }, 0.0f);
         _orbit.Distance = scene switch
         {
             PhysicsScene.BoxStack => 15.0f,
             PhysicsScene.Terrain => 26.0f,
             _ => 12.0f,
         };
-        _orbit.Yaw = 0.35f;
+
+        // **摩擦の坂だけ真横から**(Day 47)。滑っているかどうかは
+        // <b>坂に沿った位置</b>で見るので、坂を真横から見るのがいちばん読みやすい。
+        _orbit.Yaw = scene == PhysicsScene.FrictionRamp ? 1.45f : 0.35f;
         _orbit.Pitch = scene == PhysicsScene.Terrain ? 0.55f : 0.22f;
         _orbit.Apply();
     }
@@ -4359,8 +4577,10 @@ internal static class Program
         // 有限の床が要るときは静的な箱を置く(<see cref="BuildBoxTumbleScene"/>)。
         AddPhysicsPlane(new Vector3(0.0f, PhysicsFloorY, 0.0f), Vector3.UnitY);
 
-        // **見えない壁を4枚**。摩擦が無いので、横向きの速度は一切減らない——
-        // 囲っておかないと、一度滑り始めた物は画面の外まで行ったきり戻ってこない。
+        // **見えない壁を4枚**。Day 46 までは摩擦が無く、横向きの速度が一切減らなかったので、
+        // 囲っておかないと一度滑り始めた物は画面の外まで行ったきり戻ってこなかった。
+        // **Day 47 で摩擦が入り、囲いが無くてもいずれ止まるようになった**が、
+        // 壁は残してある——止まるまでに数メートル滑るので、見えるところに居てほしい。
         // 縁石(<see cref="RenderPhysics"/> が描く箱)は、この壁の位置の目印。
         AddPhysicsPlane(new Vector3(-PhysicsWallDistance, 0.0f, 0.0f), Vector3.UnitX);
         AddPhysicsPlane(new Vector3(PhysicsWallDistance, 0.0f, 0.0f), -Vector3.UnitX);
@@ -4399,6 +4619,10 @@ internal static class Program
 
             case PhysicsScene.CapsuleDrop:
                 BuildCapsuleDropScene();
+                break;
+
+            case PhysicsScene.FrictionRamp:
+                BuildFrictionRampScene();
                 break;
         }
     }
@@ -4609,8 +4833,9 @@ internal static class Program
     /// </para>
     ///
     /// <para>
-    /// 摩擦が無いので、乗ったものは必ず滑り落ちる。
-    /// **止まってほしければ Day 47 まで待つ**。
+    /// <b>Day 47 で挙動が変わった筋書き</b>。摩擦が入るまでは乗ったものが必ず滑り落ちていたが、
+    /// 今日からは台の上に留まるものが出る。
+    /// <c>Shift+F</c> で摩擦を切ると、Day 46 までの絵に戻る。
     /// </para>
     /// </summary>
     private static void BuildBoxMixScene()
@@ -5831,6 +6056,11 @@ internal static class Program
                 continue;
             }
 
+            // **眠っている体は先に起こす**(Day 47)。
+            // <see cref="RigidBody.ApplyImpulseAtPoint"/> は眠っている体を動かさないので、
+            // これを忘れると<b>寝ている球だけ撃っても飛ばない</b>。
+            body.Wake();
+
             var impulse = new Vector3(0.0f, 4.0f * body.Mass, 0.0f);
 
             // 中心を外す。**外した量がそのまま腕の長さ**になる。
@@ -5927,7 +6157,13 @@ internal static class Program
                 continue;
             }
 
-            _physicsMaterial.BaseColorFactor = BodyColors[i];
+            // **眠っている体は色を沈める**(Day 47)。
+            // 眠りは絵に一切出ない——止まっている物は、計算していてもいなくても同じに見える。
+            // 見えないものを見えるようにするのは HUD の数字でもできるが、
+            // <b>どの体が眠っているか</b>は色でしか出せない。
+            _physicsMaterial.BaseColorFactor = body.IsSleeping
+                ? BodyColors[i] * new Vector4(0.25f, 0.25f, 0.30f, 1.0f)
+                : BodyColors[i];
 
             // **カプセルだけ3回に分かれる**(Day 45)。
             // 球と箱は1つのメッシュを拡大すれば済むが、
@@ -6097,6 +6333,7 @@ internal static class Program
             PhysicsScene.BoxTumble => "箱が転がる",
             PhysicsScene.CapsuleDrop => "カプセルを落とす",
             PhysicsScene.Terrain => "地形に落とす",
+            PhysicsScene.FrictionRamp => "摩擦の坂",
             _ => "落下",
         };
 
@@ -6174,6 +6411,20 @@ internal static class Program
             $"  積分: {(Physics.Integrator == IntegratorMode.SemiImplicit ? "セミインプリシット" : "陽的オイラー")}"
             + $"  反復: {Physics.VelocityIterations}  位置補正: {OnOff(Physics.PositionCorrection)}"
             + $"(率 {Physics.CorrectionRate:F2} / 許容 {Physics.Slop * 100.0f:F1}cm)");
+
+        // **Day 47 の3行**。解き方・摩擦・眠りは、どれも絵からは読み取れない。
+        Console.WriteLine(
+            $"  解き方: {(Physics.AccumulateImpulses ? "蓄積してクランプ" : "1周ごとにクランプ(素朴)")}"
+            + $"  温存: {OnOff(Physics.WarmStartActive)}"
+            + $"({Physics.WarmStartedPoints}/{Physics.Contacts.Count} 点が持ち越し、"
+            + $"新規 {Physics.NewContactPoints} 点、覚えている組 {Physics.CachedPairs})");
+        Console.WriteLine(
+            $"  摩擦: {FrictionLabel()}  反発のしきい値: {Physics.RestitutionThreshold:F2}m/s");
+        Console.WriteLine(
+            $"  眠り: {OnOff(Physics.SleepEnabled)}  {Physics.SleepingCount}/{Physics.DynamicCount} 体が眠り  "
+            + $"島 {Physics.IslandCount} 個  "
+            + $"しきい値 {Physics.SleepLinearThreshold:F2}m/s / {Physics.SleepAngularThreshold:F2}rad/s / "
+            + $"{Physics.SleepTime:F2}s");
         Console.WriteLine(
             $"  体: {Physics.DynamicCount} 個(動くもの)  平面: {Physics.PlaneCount} 枚  "
             + $"接触: {Physics.ContactPairs} 組 / {Physics.Contacts.Count} 点"
@@ -6200,7 +6451,9 @@ internal static class Program
                 $"  [{i,2}] {ShapeLabel(body),-22} 高さ {body.Position.Y - PhysicsFloorY:F3}m  "
                 + $"速度 {body.LinearVelocity.Length():F3}m/s  "
                 + $"角速度 {body.AngularVelocity.Length():F3}rad/s  "
-                + $"質量 {(body.IsStatic ? "静的" : $"{body.Mass:F2}kg")}  e={body.Restitution:F2}");
+                + $"質量 {(body.IsStatic ? "静的" : $"{body.Mass:F2}kg")}  e={body.Restitution:F2}  "
+                + $"μ={body.Friction:F2}"
+                + (body.IsSleeping ? $"  **眠り**" : $"  起床({body.SleepTimer:F2}s)"));
         }
 
         Console.WriteLine();
@@ -6254,10 +6507,22 @@ internal static class Program
                     + $"法線 ({contact.Normal.X:F2}, {contact.Normal.Y:F2}, {contact.Normal.Z:F2})");
             }
 
+            // **Day 47 で溜まったインパルスが読めるようになった**。
+            // 床に置いた 1kg の箱が4点で支えられているなら、
+            // 法線インパルスの合計は <c>m g dt = 1 × 9.81 / 60 ≈ 0.16 N·s</c> になるはず——
+            // <b>数字が理屈と合うかを確かめられる数少ない場所</b>。
+            float tangent = MathF.Sqrt(
+                (contact.TangentImpulse1 * contact.TangentImpulse1)
+                + (contact.TangentImpulse2 * contact.TangentImpulse2));
+
             Console.WriteLine(
                 $"      点 ({contact.Point.X:F2}, {contact.Point.Y:F2}, {contact.Point.Z:F2})  "
                 + $"めり込み {-contact.Separation * 1000.0f:F2}mm  "
-                + $"跳ね返り目標 {contact.Bounce:F3}m/s");
+                + $"跳ね返り目標 {contact.Bounce:F3}m/s  "
+                + $"法線J {contact.NormalImpulse:F4}  "
+                + $"接線J {tangent:F4}/{contact.Friction * contact.NormalImpulse:F4}"
+                + $"(μ={contact.Friction:F2})"
+                + (contact.WarmStarted ? "  温存" : "  新規"));
         }
 
         Console.WriteLine();
@@ -13498,6 +13763,101 @@ internal static class Program
 
         switch (key)
         {
+            // --- 今日のスイッチ(摩擦・Sequential Impulses・スリープ)---
+            //
+            // **F の段**(Day 47)。Day 46 の `G` と同じ事情で、
+            // 素の `case Key.F:`(視野角の切り替え)はガードを持っていない。
+            // <b>だからこの塊はそれより上に置く</b>——
+            // 下に置くと Ctrl+F も Shift+F も全部そちらに吸われて、今日のスイッチは1つも動かない。
+            //
+            // F を選んだのは <b>F</b>riction(摩擦)の頭文字だから。
+            case Key.F when ctrl && !shift && !alt:
+                // **今日の到達点**。μ だけを振った箱を坂に並べる。
+                if (_physicsDemo && !_characterDemo && _physicsScene == PhysicsScene.FrictionRamp)
+                {
+                    _physicsDemo = false;
+                    Physics.Clear();
+                    BodyColors.Clear();
+                    DisposeTerrain();
+                    _orbit.Reset();
+                    Console.WriteLine("摩擦デモ: OFF");
+                }
+                else
+                {
+                    ShowPhysicsDemo(PhysicsScene.FrictionRamp);
+                    Console.WriteLine(
+                        "摩擦デモ: **坂 26.57 度(tan = 0.50)に μ を振った5箱**。"
+                        + "手前から μ = 0.1 / 0.3 / 0.5 / 0.7 / 0.9");
+                    Console.WriteLine(
+                        "  **μ > tan θ の箱だけが止まる**。真ん中(0.5)がちょうど境目。"
+                        + "黄色い球は μ = 1 でも転がり落ちる(転がり摩擦は入れていない)");
+                    Console.WriteLine(
+                        "  Shift+F:摩擦 ON/OFF  Alt+F:蓄積インパルス  Ctrl+Shift+F:温存  "
+                        + "Ctrl+Alt+F:眠り  Shift+Alt+F:μ の上書き");
+                }
+
+                break;
+
+            case Key.F when shift && !ctrl && !alt:
+                Physics.FrictionEnabled = !Physics.FrictionEnabled;
+                WakeAllBodies();
+                Console.WriteLine(
+                    Physics.FrictionEnabled
+                        ? "摩擦: **ON**(クーロン摩擦。上限は μ × 押し付けている強さ)"
+                        : "摩擦: **OFF**(Day 46 までの世界。**坂の箱が全部滑り出す**)");
+                break;
+
+            case Key.F when alt && !ctrl && !shift:
+                Physics.AccumulateImpulses = !Physics.AccumulateImpulses;
+                WakeAllBodies();
+                Console.WriteLine(
+                    Physics.AccumulateImpulses
+                        ? "インパルス: **蓄積してクランプ**(Sequential Impulses。負の補正が出せる)"
+                        : "インパルス: **1周ごとにクランプ**(Day 46 までのやり方。"
+                            + "**掛けすぎを戻せないので柱が沈む**)");
+                Console.WriteLine(
+                    Physics.AccumulateImpulses
+                        ? "  温存も一緒に戻った(蓄積が無いと温存は成り立たない)"
+                        : "  **温存も一緒に止まる**。合計を減らせないので、"
+                            + "持ち越すと単調に増えて置いた箱が跳ね上がる");
+                Console.WriteLine(
+                    "  差が出るのは**柱が高いとき**。Ctrl+Shift+Alt+2 で「箱を積む」へ、"
+                    + "Ctrl+Shift+Alt+F5 で反復を 1〜2 に落とすと分かりやすい");
+                break;
+
+            case Key.F when ctrl && shift && !alt:
+                Physics.WarmStarting = !Physics.WarmStarting;
+                WakeAllBodies();
+                Console.WriteLine(
+                    Physics.WarmStarting
+                        ? "温存(ウォームスタート): **ON**(前のステップのインパルスから始める)"
+                        : "温存(ウォームスタート): **OFF**(毎ステップ 0 から。"
+                            + "**反復回数を減らすと途端に沈む**)");
+
+                if (Physics.WarmStarting && !Physics.AccumulateImpulses)
+                {
+                    Console.WriteLine(
+                        "  ただし今は蓄積が OFF なので**温存は働かない**(Alt+F で蓄積を戻す)");
+                }
+
+                break;
+
+            case Key.F when ctrl && alt && !shift:
+                Physics.SleepEnabled = !Physics.SleepEnabled;
+                Console.WriteLine(
+                    Physics.SleepEnabled
+                        ? "眠り: **ON**(接触で繋がった島ごとに眠る。**色が沈んだ体が眠っている**)"
+                        : "眠り: **OFF**(全部起こした。**1ステップの ms が増える**)");
+                break;
+
+            case Key.F when shift && alt && !ctrl:
+                CycleFrictionOverride();
+                break;
+
+            case Key.F when ctrl && shift && alt:
+                RunSolverCheck();
+                break;
+
             // --- 今日のスイッチ(地形とブロードフェーズ)---
             //
             // **G の段**(Day 46)。Day 45 で「文字キーの段もこれで最後」と書いたが、
@@ -13774,6 +14134,7 @@ internal static class Program
                         PhysicsScene.BoxMix => PhysicsScene.BoxTumble,
                         PhysicsScene.BoxTumble => PhysicsScene.CapsuleDrop,
                         PhysicsScene.CapsuleDrop => PhysicsScene.Terrain,
+                        PhysicsScene.Terrain => PhysicsScene.FrictionRamp,
                         _ => PhysicsScene.BoxDrop,
                     };
 
@@ -13790,6 +14151,8 @@ internal static class Program
                             "筋書き: **カプセルを落とす**(Day 45。倒れると接触点が1点から2点になる)",
                         PhysicsScene.Terrain =>
                             "筋書き: **地形に落とす**(Day 46。60 個が谷に集まる。Shift+G で総当たりと比較)",
+                        PhysicsScene.FrictionRamp =>
+                            "筋書き: **摩擦の坂**(Day 47。μ=0.1/0.3/0.5/0.7/0.9。tan 26.57°=0.5 が境目)",
                         _ =>
                             "筋書き: **箱を落とす**(傾き 0 / 0.10 / 0.35 / 0.62 / 0.95 rad の5箱)",
                     });
@@ -13842,8 +14205,11 @@ internal static class Program
                 if (!Physics.SolveContactsTogether)
                 {
                     Console.WriteLine(
-                        "  **箱を積む筋書き(Ctrl+Shift+Alt+2)で見ると一目で分かる**"
-                        + "——柱がじりじり滑って崩れる");
+                        "  **箱を積む筋書き(Ctrl+Shift+Alt+2)で見ると分かる**"
+                        + "——柱がじりじり滑って横にずれる");
+                    Console.WriteLine(
+                        "  **Day 47 で崩れなくなった**(摩擦が横向きの逃げを押さえる)。"
+                        + "Shift+F で摩擦を切ると、Day 46 までのように崩れ落ちる");
                 }
 
                 break;
@@ -17300,19 +17666,28 @@ internal static class Program
 
         // 理想の高さは 0.45 + 3 × 0.9 = 3.15m(許容めり込みぶんだけ下がる)。
         //
-        // **倍率のしきい値は Day 44 で 3.0 から 2.0 へ緩めた**。
-        // 位置の補正が「印で測り直す」形になって、1周のときのめり込みが
-        // 64.4mm から 37.4mm に改善したため(8周のほうは 14.7 → 12.8mm)。
-        // **数字が良くなったせいで通らなくなったチェック**で、
-        // 中身の主張(反復が足りないと沈む)は変わっていない。
+        // **このチェックは Day 47 で主張が裏返った**。
+        // Day 43 では「反復1周だと沈む(素朴版の限界)」を確かめる場所だった——
+        // 実際、Day 46 までは1周で 64.4mm、8周でも 14.7mm 沈んでいた。
+        // 今日ウォームスタート(要点2)と段の入れ替え(要点4)が入り、
+        // <b>1周でもめり込みが許容量(5mm)まで落ちた</b>。
+        //
+        // <b>数字が良くなってチェックが通らなくなるのは3度目</b>
+        // (Day 44 で一度しきい値を緩めている)。
+        // 主張が古くなったら書き換えるのが正しく、
+        // <b>しきい値をいじって延命させるのは、いちばんやってはいけないこと</b>。
         checks.Check(
-            "反復1周だと柱が沈む(**素朴版の限界**)",
-            deep1 > deep8 * 2.0f,
-            $"めり込み {deep1 * 1000.0f:F1}mm(高さ {top1:F3}m)");
+            "**反復1周でも柱が沈まない**(Day 46 では 64.4mm 沈んでいた)",
+            deep1 <= 0.006f && top1 > 3.10f,
+            $"めり込み {deep1 * 1000.0f:F2}mm(高さ {top1:F3}m / 理想 3.150m)");
         checks.Check(
-            "反復8周なら持つ(めり込みが許容量の数倍以内)",
-            deep8 < 0.02f && top8 > 3.10f,
-            $"めり込み {deep8 * 1000.0f:F1}mm(高さ {top8:F3}m / 理想 3.150m)");
+            "反復8周なら当然持つ(Day 46 の 14.7mm から改善)",
+            deep8 < 0.006f && top8 > 3.12f,
+            $"めり込み {deep8 * 1000.0f:F2}mm(高さ {top8:F3}m / 理想 3.150m)");
+        checks.Check(
+            "**温存は反復回数を買っている**(1周と8周でほとんど差が無い)",
+            MathF.Abs(top1 - top8) < 0.02f,
+            $"1周 {top1:F4}m / 8周 {top8:F4}m");
 
         // ============================================================
         //  8. 落として跳ねる(全部を通す)
@@ -17893,17 +18268,23 @@ internal static class Program
             "**接触点を1つに絞ると落ち着かない**(今日の見どころ)",
             spin1 > 20.0f * MathF.Max(spin4, 1e-4f),
             $"1点 {spin1:F4} rad/s / 4点 {spin4:F5} rad/s");
+        // **今日、揺れ幅が半分以下になった**(Day 46 は 0.94 度 / 0.735 rad/s)。
+        // 摩擦が横向きの逃げを押さえるので、1点で支えていても暴れ方が小さい。
+        // <b>主張は生きているが、しきい値は緩める必要があった</b>。
         checks.Check(
-            "1点だと傾き続ける(4点なら傾かない)",
-            tilt1 > tilt4 + 0.005f,
-            $"1点 {tilt1 * 180.0f / MathF.PI:F2} 度 / 4点 {tilt4 * 180.0f / MathF.PI:F3} 度");
+            "1点だと傾き続ける(4点なら傾かない。Day 46 の 0.94 度から半減)",
+            tilt1 > tilt4 + 0.002f,
+            $"1点 {tilt1 * 180.0f / MathF.PI:F3} 度 / 4点 {tilt4 * 180.0f / MathF.PI:F3} 度");
 
         (_, _, float spinLoose) = DropBox(4, 300, together: false);
 
+        // **ここも Day 47 で主張が変わった**。Day 46 までは、4点を順番に解くと
+        // 床の箱1つでも揺れが止まらなかった(0.118 rad/s)。蓄積インパルスが入り、
+        // 先に押しすぎた点の分を後の周で取り戻せるようになったので、<b>順番でも落ち着く</b>。
         checks.Check(
-            "**4点を順番に解くと、床の箱1つでも揺れが止まらない**(要点5)",
-            spinLoose > 20.0f * MathF.Max(spin4, 1e-4f),
-            $"順番 {spinLoose:F4} rad/s / 同時 {spin4:F5} rad/s");
+            "4点を順番に解いても床の箱は落ち着く(Day 46 までは揺れ続けた。蓄積インパルスが効いている)",
+            spinLoose < 0.002f,
+            $"順番 {spinLoose:F5} rad/s / 同時 {spin4:F5} rad/s");
 
         static (float Penetration, float Top, float Drift) BoxStack(
             int count, int steps, bool together)
@@ -17941,16 +18322,23 @@ internal static class Program
 
         checks.Check(
             "箱の柱6段が**横にずれない**(4点を同時に解いているから)",
-            drift < 0.01f && top > 4.70f,
+            drift < 0.01f && top > 4.90f,
             $"横ずれ {drift * 1000.0f:F2}mm、最上段 {top:F3}m(理想 4.950m)");
+
+        // **ここも Day 47 で主張が変わった**。
+        // Day 46 までは順番に解くと柱が崩れ落ちていた(横ずれ 12.9m、最上段 0.45m)。
+        // 摩擦が入って横向きの逃げを押さえるようになったので、<b>崩れなくなった</b>——
+        // それでも 3.5cm ずれるので、同時に解く値打ちは残っている。
         checks.Check(
-            "**順番に解くと同じ柱が崩れる**(Day 44a の要点5)",
-            looseDrift > 1.0f && looseTop < 2.0f,
-            $"横ずれ {looseDrift:F2}m、最上段 {looseTop:F3}m");
+            "順番に解くと**横にずれる**(Day 46 では崩れ落ちていた。摩擦が支えている)",
+            looseDrift > drift + 0.005f && looseTop > 4.5f,
+            $"横ずれ {looseDrift * 1000.0f:F1}mm、最上段 {looseTop:F3}m");
+
+        // **Day 44 が「Day 47 の宿題」と書いた項目**。今日それが片付いた。
         checks.Check(
-            "ただし段数ぶん沈む(**蓄積インパルスが無いから**。Day 47 の宿題)",
-            deep > 0.02f,
-            $"めり込み {deep * 1000.0f:F1}mm(許容 5.0mm)");
+            "**段数ぶん沈まなくなった**(Day 46 の 96.2mm → 許容量まで)",
+            deep <= 0.006f,
+            $"めり込み {deep * 1000.0f:F2}mm(許容 {5.0f:F1}mm)");
 
         static float BoxPenetrationAfter(bool correction, int steps)
         {
@@ -19597,6 +19985,646 @@ internal static class Program
         }
 
         return highest - baseline;
+    }
+
+    /// <summary>
+    /// 今日の自己チェック(Ctrl+Shift+Alt+F)。**画面を1枚も出さずに走る**。
+    ///
+    /// 今日の題材は<b>どれも絵からは判定できない</b>。
+    /// 「柱が沈んでいない」「摩擦が正しい」「眠っている」は、
+    /// 目で見ても<b>それらしく見えるかどうか</b>しか分からない。
+    /// だから数字で押さえる——
+    /// 静止摩擦角や停止距離のように<b>手計算で答えが出る場面</b>を選んで突き合わせるのが要点。
+    /// </summary>
+    private static void RunSolverCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 47: 摩擦・Sequential Impulses・スリープの自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 接線の作り方(要点3)
+        // ============================================================
+
+        var random = new Random(4700);
+        float worstTangentError = 0.0f;
+
+        for (int trial = 0; trial < 400; trial++)
+        {
+            Vector3 normal = RandomPoint(random);
+            if (normal.LengthSquared() < 1e-6f)
+            {
+                continue;
+            }
+
+            normal = Vector3.Normalize(normal);
+            ContactPoint.BuildTangents(normal, out Vector3 t1, out Vector3 t2);
+
+            worstTangentError = MathF.Max(worstTangentError, MathF.Abs(Vector3.Dot(normal, t1)));
+            worstTangentError = MathF.Max(worstTangentError, MathF.Abs(Vector3.Dot(normal, t2)));
+            worstTangentError = MathF.Max(worstTangentError, MathF.Abs(Vector3.Dot(t1, t2)));
+            worstTangentError = MathF.Max(worstTangentError, MathF.Abs(t1.Length() - 1.0f));
+            worstTangentError = MathF.Max(worstTangentError, MathF.Abs(t2.Length() - 1.0f));
+        }
+
+        checks.Check(
+            "接線2本が法線と直交し、互いにも直交して長さ1(400 通り)",
+            worstTangentError < 1e-5f,
+            $"最悪 {worstTangentError:E2}");
+
+        bool axisSafe = true;
+        Vector3[] axes =
+        [
+            Vector3.UnitX, -Vector3.UnitX, Vector3.UnitY,
+            -Vector3.UnitY, Vector3.UnitZ, -Vector3.UnitZ,
+        ];
+
+        foreach (Vector3 axis in axes)
+        {
+            ContactPoint.BuildTangents(axis, out Vector3 t1, out Vector3 t2);
+            axisSafe &= float.IsFinite(t1.X) && float.IsFinite(t2.X);
+            axisSafe &= MathF.Abs(Vector3.Dot(axis, t1)) < 1e-5f;
+        }
+
+        checks.Check(
+            "**法線が軸に平行でも NaN が出ない**(成分が最小の軸を選ぶから)",
+            axisSafe);
+
+        // ============================================================
+        //  2. 摩擦係数の混ぜ方(要点3)
+        // ============================================================
+
+        var mixWorld = new PhysicsWorld { Gravity = Vector3.Zero };
+        RigidBody mixFloor = RigidBody.CreatePlane(Vector3.Zero, Vector3.UnitY);
+        mixFloor.Friction = 0.81f;
+        mixWorld.AddBody(mixFloor);
+
+        RigidBody mixBox = RigidBody.CreateBox(1.0f, 0.5f);
+        mixBox.Position = new Vector3(0.0f, 0.499f, 0.0f);
+        mixBox.Friction = 0.25f;
+        mixWorld.AddBody(mixBox);
+        mixWorld.Step(1.0f / 60.0f);
+
+        checks.Check(
+            "摩擦は**相乗平均** √(0.25 x 0.81) = 0.45",
+            mixWorld.Contacts.Count > 0
+                && MathF.Abs(mixWorld.Contacts[0].Friction - 0.45f) < 1e-4f,
+            mixWorld.Contacts.Count > 0 ? $"{mixWorld.Contacts[0].Friction:F4}" : "接触なし");
+
+        mixBox.Friction = 0.0f;
+        mixWorld.Step(1.0f / 60.0f);
+
+        checks.Check(
+            "**片方が 0 なら合成も 0**(氷の上では何を置いても滑る)",
+            mixWorld.Contacts.Count > 0 && mixWorld.Contacts[0].Friction == 0.0f);
+
+        mixWorld.FrictionOverride = 0.33f;
+        mixWorld.Step(1.0f / 60.0f);
+
+        checks.Check(
+            "上書き(<c>FrictionOverride</c>)は体ごとの値より優先される",
+            mixWorld.Contacts.Count > 0
+                && MathF.Abs(mixWorld.Contacts[0].Friction - 0.33f) < 1e-5f);
+
+        // ============================================================
+        //  3. 温存(ウォームスタート。要点2)
+        // ============================================================
+
+        // **同じ柱を2通りで回して、沈み方を比べる**。
+        // 反復回数も初期配置も同じなので、差は温存だけで説明が付く。
+        PhysicsWorld warm = BuildStackWorld(6, accumulate: true, warmStarting: true, iterations: 8);
+        PhysicsWorld cold = BuildStackWorld(6, accumulate: true, warmStarting: false, iterations: 8);
+
+        StepWorld(warm, 3.0f);
+        StepWorld(cold, 3.0f);
+
+        checks.Check(
+            "**温存ありのほうが柱が沈まない**(6段・反復8周・3秒)",
+            TopBoxHeight(warm) > TopBoxHeight(cold) + 0.05f,
+            $"温存あり {TopBoxHeight(warm):F3}m / なし {TopBoxHeight(cold):F3}m"
+                + $"(理論 {StackTopHeight(6):F3}m)");
+
+        checks.Check(
+            "温存ありなら理論の高さから 2cm 以内",
+            MathF.Abs(TopBoxHeight(warm) - StackTopHeight(6)) < 0.02f,
+            $"ずれ {(TopBoxHeight(warm) - StackTopHeight(6)) * 1000.0f:F1}mm");
+
+        checks.Check(
+            "めり込みは許容(スロップ)の2倍以内に収まる",
+            warm.MaxPenetration <= warm.Slop * 2.0f,
+            $"{warm.MaxPenetration * 1000.0f:F2}mm(許容 {warm.Slop * 1000.0f:F1}mm)");
+
+        checks.Check(
+            "落ち着いた柱では**ほとんどの点が持ち越せている**",
+            warm.Contacts.Count > 0
+                && warm.WarmStartedPoints >= (int)(warm.Contacts.Count * 0.8f),
+            $"{warm.WarmStartedPoints}/{warm.Contacts.Count} 点");
+
+        checks.Check(
+            "キャッシュが覚えている組は、今触れている組と同じ数",
+            warm.CachedPairs == warm.ContactPairs,
+            $"覚えている {warm.CachedPairs} 組 / 触れている {warm.ContactPairs} 組");
+
+        // 離れたら忘れる。**組が消えたのに覚えたままだと、次に触れた瞬間に弾ける**。
+        PhysicsWorld forget = BuildStackWorld(2, accumulate: true, warmStarting: true, iterations: 8);
+        StepWorld(forget, 0.5f);
+        int rememberedWhileTouching = forget.CachedPairs;
+
+        int scatter = 0;
+        foreach (RigidBody body in forget.Bodies)
+        {
+            scatter++;
+            if (!body.IsStatic)
+            {
+                body.Wake();
+                body.Position += new Vector3(scatter * 10.0f, 20.0f, 0.0f);
+            }
+        }
+
+        forget.Step(1.0f / 60.0f);
+
+        checks.Check(
+            "離れた組はキャッシュから消える(<c>Prune</c>)",
+            rememberedWhileTouching > 0 && forget.CachedPairs == 0,
+            $"接触中 {rememberedWhileTouching} 組 → 離れたあと {forget.CachedPairs} 組");
+
+        // ============================================================
+        //  4. 蓄積インパルス(要点1)
+        // ============================================================
+
+        // **正直な結果を先に**。柱がゆっくり落ち着くだけの場面では、
+        // 蓄積クランプと素朴なクランプは<b>1ビットも違わない</b>——
+        // 必要なインパルスが増える一方なので、負の補正を出す機会が来ない。
+        PhysicsWorld accumulated =
+            BuildStackWorld(6, accumulate: true, warmStarting: false, iterations: 4);
+        PhysicsWorld naive =
+            BuildStackWorld(6, accumulate: false, warmStarting: false, iterations: 4);
+
+        StepWorld(accumulated, 2.0f);
+        StepWorld(naive, 2.0f);
+
+        checks.Check(
+            "**蓄積クランプ単体では素朴版と同じ結果**(λ が常に正の場面では差が出ない)",
+            MathF.Abs(TopBoxHeight(accumulated) - TopBoxHeight(naive)) < 1e-4f,
+            $"蓄積 {TopBoxHeight(accumulated):F5}m / 素朴 {TopBoxHeight(naive):F5}m");
+
+        checks.Check(
+            "**素朴版では温存が働かない**(合計を減らせないので単調に増えてしまう)",
+            !new PhysicsWorld { AccumulateImpulses = false, WarmStarting = true }.WarmStartActive);
+
+        // **負の補正が出せることを直接見る**。
+        // 落ち着いた柱から重力を消すと、持ち越したインパルスは<b>全部余分</b>になる。
+        // 蓄積クランプなら合計を 0 まで減らせる——素朴版にはできない動き。
+        PhysicsWorld unloaded = BuildStackWorld(4, accumulate: true, warmStarting: true, iterations: 8);
+        StepWorld(unloaded, 2.0f);
+
+        foreach (RigidBody body in unloaded.Bodies)
+        {
+            body.Wake();
+        }
+
+        unloaded.Step(1.0f / 60.0f);
+        float loadedImpulse = TotalNormalImpulse(unloaded);
+
+        unloaded.Gravity = Vector3.Zero;
+        float fastest = 0.0f;
+
+        for (int step = 0; step < 10; step++)
+        {
+            foreach (RigidBody body in unloaded.Bodies)
+            {
+                body.Wake();
+            }
+
+            unloaded.Step(1.0f / 60.0f);
+
+            foreach (RigidBody body in unloaded.Bodies)
+            {
+                if (!body.IsStatic)
+                {
+                    fastest = MathF.Max(fastest, body.LinearVelocity.Length());
+                }
+            }
+        }
+
+        checks.Check(
+            "**重力を消すと溜まったインパルスが 0 まで減る**(負の補正が出せている証拠)",
+            loadedImpulse > 0.0f && TotalNormalImpulse(unloaded) < loadedImpulse * 0.1f,
+            $"{loadedImpulse:F4} → {TotalNormalImpulse(unloaded):F4} N·s");
+
+        checks.Check(
+            "そのとき柱は跳ね上がらない(持ち越しを掛けっぱなしにしていない)",
+            fastest < 0.3f,
+            $"いちばん速い体で {fastest:F3}m/s");
+
+        // ============================================================
+        //  5. 摩擦 — 静止摩擦角(要点3)
+        // ============================================================
+
+        // **tan θ = 0.5 の坂**。μ がこれより大きい箱だけが止まる。
+        float tangent = MathF.Tan(RampTilt);
+
+        checks.Check(
+            "坂の傾きの正接がちょうど 0.50(26.57 度)",
+            MathF.Abs(tangent - 0.5f) < 1e-3f,
+            $"tan {RampTilt * 180.0f / MathF.PI:F2}° = {tangent:F4}");
+
+        float slide01 = RampSlide(0.1f, 1.0f, 1.5f);
+        float slide03 = RampSlide(0.3f, 1.0f, 1.5f);
+        float slide05 = RampSlide(0.5f, 1.0f, 1.5f);
+        float slide07 = RampSlide(0.7f, 1.0f, 1.5f);
+        float slide09 = RampSlide(0.9f, 1.0f, 1.5f);
+
+        checks.Check(
+            "**μ = 0.1 の箱は滑り落ちる**(1.5 秒で 1m 以上)",
+            slide01 > 1.0f,
+            $"{slide01:F3}m");
+
+        checks.Check(
+            "μ = 0.3 も滑るが、0.1 より遅い",
+            slide03 > 0.2f && slide03 < slide01,
+            $"{slide03:F3}m");
+
+        checks.Check(
+            "**μ = 0.7 の箱は止まる**(1.5 秒で 1cm 未満)",
+            slide07 < 0.01f,
+            $"{slide07 * 1000.0f:F2}mm");
+
+        checks.Check(
+            "μ = 0.9 も止まる",
+            slide09 < 0.01f,
+            $"{slide09 * 1000.0f:F2}mm");
+
+        checks.Check(
+            "**μ = 0.5 はちょうど境目**(数センチだけずれて止まる)",
+            slide05 < slide03 && slide05 >= slide07,
+            $"{slide05 * 1000.0f:F1}mm");
+
+        checks.Check(
+            "μ が大きいほど滑る距離が短い(単調)",
+            slide01 > slide03 && slide03 > slide05 && slide05 >= slide07 && slide07 >= slide09);
+
+        // **質量が式から消える**。ここが摩擦のいちばん反直感的なところ。
+        float lightSlide = RampSlide(0.3f, 1.0f, 1.5f);
+        float heavySlide = RampSlide(0.3f, 20.0f, 1.5f);
+
+        checks.Check(
+            "**滑る距離は質量によらない**(1kg と 20kg で 1% 以内)",
+            MathF.Abs(lightSlide - heavySlide) < MathF.Max(lightSlide, 1e-3f) * 0.01f,
+            $"1kg {lightSlide:F4}m / 20kg {heavySlide:F4}m");
+
+        checks.Check(
+            "摩擦を切ると μ = 0.9 でも滑り落ちる(Day 46 までの世界)",
+            RampSlide(0.9f, 1.0f, 1.5f, frictionEnabled: false) > 1.0f);
+
+        // ============================================================
+        //  6. 摩擦円錐(要点3)
+        // ============================================================
+
+        // **接線2本を別々にクランプしていないこと**を確かめる。
+        // 別々に切ると上限の形が正方形になり、斜め 45 度だけ √2 倍の摩擦が出る。
+        float worstRatio = 0.0f;
+        bool coneHeld = true;
+
+        for (int trial = 0; trial < 64; trial++)
+        {
+            float angle = trial * MathF.Tau / 64.0f;
+            var direction = new Vector3(MathF.Cos(angle), 0.0f, MathF.Sin(angle));
+
+            float ratio = SlidingFrictionRatio(direction, 0.4f);
+            coneHeld &= ratio <= 1.05f;
+            worstRatio = MathF.Max(worstRatio, ratio);
+        }
+
+        checks.Check(
+            "**接線インパルスの合成が μ λn を超えない**(滑る向きを 64 通り)",
+            coneHeld,
+            $"最大 {worstRatio:F4}(正方形クランプなら 1.414 まで出る)");
+
+        checks.Check(
+            "滑っている接触では上限いっぱいまで使う(円錐の縁に乗る)",
+            worstRatio > 0.95f,
+            $"最大 {worstRatio:F4}");
+
+        // ============================================================
+        //  7. 停止距離(要点3・4)
+        // ============================================================
+
+        // **v² / (2 μ g)**。高校物理の式そのもの。
+        // 段の順番(要点4)が正しくないとここがずれる——
+        // 位置を解く前の速度で進めていると、止まったあとも毎ステップ滑り続ける。
+        float stopDistance = SlideDistance(frictionEnabled: true, out float endSpeed);
+        float theory = 16.0f / (2.0f * 0.5f * 9.81f);
+
+        checks.Check(
+            "μ = 0.5 の床を 4m/s で滑らせた箱は**止まる**",
+            endSpeed < 1e-3f,
+            $"{endSpeed:E2}m/s");
+
+        checks.Check(
+            "**停止距離が v²/(2μg) と 10% 以内で一致**",
+            MathF.Abs(stopDistance - theory) < theory * 0.10f,
+            $"実測 {stopDistance:F3}m / 理論 {theory:F3}m");
+
+        checks.Check(
+            "**摩擦を切ると 1mm も減速しない**(Day 46 までの氷)",
+            SlideDistance(frictionEnabled: false, out float icySpeed) > 7.9f && icySpeed > 3.999f,
+            $"{icySpeed:F4}m/s");
+
+        // ============================================================
+        //  8. 眠り(要点5)
+        // ============================================================
+
+        PhysicsWorld sleeper = BuildStackWorld(1, accumulate: true, warmStarting: true, iterations: 8);
+        StepWorld(sleeper, 0.4f);
+        bool awakeEarly = !sleeper.Bodies[1].IsSleeping;
+
+        StepWorld(sleeper, 1.0f);
+
+        checks.Check(
+            "落ち着いた箱は**しばらく経ってから**眠る(0.4 秒ではまだ起きている)",
+            awakeEarly && sleeper.Bodies[1].IsSleeping);
+
+        Vector3 sleepingPosition = sleeper.Bodies[1].Position;
+        StepWorld(sleeper, 1.0f);
+
+        checks.Check(
+            "**眠っている体は 1mm も動かない**(重力すら掛からない)",
+            (sleeper.Bodies[1].Position - sleepingPosition).Length() < 1e-6f);
+
+        checks.Check(
+            "眠っている体は速度も 0",
+            sleeper.Bodies[1].LinearVelocity.LengthSquared() == 0.0f);
+
+        // **上から落として起こす**。
+        RigidBody waker = RigidBody.CreateBox(1.0f, 0.25f);
+        waker.Position = new Vector3(0.0f, 3.0f, 0.0f);
+        sleeper.AddBody(waker);
+        StepWorld(sleeper, 1.0f);
+
+        checks.Check(
+            "**上から物が落ちてくると眠っていた箱が起きる**",
+            !sleeper.Bodies[1].IsSleeping || sleeper.Bodies[1].SleepTimer < sleeper.SleepTime);
+
+        // **島でまとめて眠る**。
+        PhysicsWorld island = BuildStackWorld(4, accumulate: true, warmStarting: true, iterations: 8);
+        StepWorld(island, 2.5f);
+
+        checks.Check(
+            "積んだ4段は**全部まとめて眠る**(島の判定)",
+            island.SleepingCount == 4,
+            $"{island.SleepingCount}/4 体");
+
+        checks.Check(
+            "接触で繋がった4段は**1つの島**",
+            island.IslandCount == 1,
+            $"島 {island.IslandCount} 個");
+
+        island.Bodies[1].Wake();
+        island.Step(1.0f / 60.0f);
+
+        checks.Check(
+            "**1体を起こすと島ごと起きる**",
+            island.SleepingCount == 0,
+            $"眠り {island.SleepingCount}/4 体");
+
+        StepWorld(island, 2.5f);
+        bool sleptAgain = island.SleepingCount == 4;
+        island.SleepEnabled = false;
+        island.Step(1.0f / 60.0f);
+
+        checks.Check(
+            "眠りを切ると**今眠っているものも起きる**",
+            sleptAgain && island.SleepingCount == 0);
+
+        // **眠らない体が1つ居ると島ごと眠らない**。
+        PhysicsWorld insomnia = BuildStackWorld(4, accumulate: true, warmStarting: true, iterations: 8);
+        insomnia.Bodies[2].AllowSleep = false;
+        StepWorld(insomnia, 3.0f);
+
+        checks.Check(
+            "**AllowSleep を切った体が居る島は誰も眠らない**",
+            insomnia.SleepingCount == 0,
+            $"眠り {insomnia.SleepingCount}/4 体");
+
+        // **静的な体は島を繋がない**。繋いだら世界じゅうが1つの島になる。
+        var separate = new PhysicsWorld();
+        separate.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+        for (int i = 0; i < 3; i++)
+        {
+            RigidBody box = RigidBody.CreateBox(1.0f, 0.25f);
+            box.Position = new Vector3((i - 1) * 4.0f, 0.26f, 0.0f);
+            box.Restitution = 0.0f;
+            separate.AddBody(box);
+        }
+
+        StepWorld(separate, 0.5f);
+
+        checks.Check(
+            "**床の上に離れて置いた3個は3つの島**(静的な体は島を繋がない)",
+            separate.IslandCount == 3,
+            $"島 {separate.IslandCount} 個");
+
+        Console.WriteLine();
+        checks.Report("すべて合格。**ミニ物理エンジンが一通り揃った**");
+        Console.WriteLine();
+    }
+
+    /// <summary>自己チェック用の柱の箱の半径。</summary>
+    private const float StackHalf = 0.25f;
+
+    /// <summary>
+    /// 自己チェック用の柱。**床 + 箱を縦に <paramref name="height"/> 個**。
+    ///
+    /// 解き方のつまみを引数で受けるので、
+    /// <b>同じ配置を2通りで回して比べる</b>ことができる。
+    /// </summary>
+    private static PhysicsWorld BuildStackWorld(
+        int height, bool accumulate, bool warmStarting, int iterations)
+    {
+        var world = new PhysicsWorld
+        {
+            AccumulateImpulses = accumulate,
+            WarmStarting = warmStarting,
+            VelocityIterations = iterations,
+            Broadphase = BroadphaseMode.BruteForce,
+        };
+
+        RigidBody floor = RigidBody.CreatePlane(Vector3.Zero, Vector3.UnitY);
+        floor.Friction = 0.6f;
+        world.AddBody(floor);
+
+        for (int i = 0; i < height; i++)
+        {
+            RigidBody box = RigidBody.CreateBox(1.0f, StackHalf);
+
+            // **ぴったり積む**。隙間を空けると落下の勢いが乗って比較にならない。
+            box.Position = new Vector3(0.0f, StackHalf + (i * StackHalf * 2.0f), 0.0f);
+            box.Restitution = 0.0f;
+            box.Friction = 0.6f;
+            world.AddBody(box);
+        }
+
+        return world;
+    }
+
+    /// <summary>めり込みが無いときの、いちばん上の箱の中心の高さ。</summary>
+    private static float StackTopHeight(int height) => StackHalf + ((height - 1) * StackHalf * 2.0f);
+
+    /// <summary>いちばん上(最後に足した)箱の中心の高さ。**沈み具合の物差し**。</summary>
+    private static float TopBoxHeight(PhysicsWorld world) => world.Bodies[^1].Position.Y;
+
+    /// <summary>今この世界に溜まっている法線インパルスの合計 [N·s]。</summary>
+    private static float TotalNormalImpulse(PhysicsWorld world)
+    {
+        float total = 0.0f;
+
+        foreach (ContactPoint contact in world.Contacts)
+        {
+            total += contact.NormalImpulse;
+        }
+
+        return total;
+    }
+
+    /// <summary>固定ステップで <paramref name="seconds"/> 秒ぶん進める。</summary>
+    private static void StepWorld(PhysicsWorld world, float seconds)
+    {
+        int steps = (int)MathF.Round(seconds * 60.0f);
+
+        for (int i = 0; i < steps; i++)
+        {
+            world.Step(1.0f / 60.0f);
+        }
+    }
+
+    /// <summary>
+    /// 坂に置いた箱が <paramref name="seconds"/> 秒で滑った距離 [m]。**静止摩擦角の物差し**。
+    ///
+    /// 坂は μ = 1 にしてあるので、箱に μ² を入れれば合成が
+    /// <paramref name="friction"/> になる(<see cref="BuildFrictionRampScene"/> と同じ手)。
+    /// 距離は<b>坂に沿った向き</b>で測る——真下に落ちたぶんを混ぜないため。
+    /// </summary>
+    private static float RampSlide(
+        float friction, float mass, float seconds, bool frictionEnabled = true)
+    {
+        var world = new PhysicsWorld
+        {
+            FrictionEnabled = frictionEnabled,
+            Broadphase = BroadphaseMode.BruteForce,
+        };
+
+        Quaternion tilt = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, -RampTilt);
+
+        RigidBody ramp = RigidBody.CreateStatic(Collider.Box(new Vector3(8.0f, 0.2f, 2.0f)));
+        ramp.Orientation = tilt;
+        ramp.Restitution = 0.0f;
+        ramp.Friction = 1.0f;
+        world.AddBody(ramp);
+
+        const float half = 0.25f;
+
+        RigidBody box = RigidBody.CreateBox(mass, half);
+        box.Position = Vector3.Transform(new Vector3(-3.0f, 0.2f + half + 0.001f, 0.0f), tilt);
+        box.Orientation = tilt;
+        box.Restitution = 0.0f;
+        box.Friction = friction * friction;
+
+        // **眠らせない**。止まった箱が眠るのは正しい挙動だが、
+        // 「摩擦で止まったのか眠って止まったのか」が区別できなくなる。
+        box.AllowSleep = false;
+        world.AddBody(box);
+
+        Vector3 start = box.Position;
+
+        // 坂に沿った下り方向(坂の物体座標の +X を世界へ運んだもの)。
+        Vector3 downhill = Vector3.Transform(Vector3.UnitX, tilt);
+
+        StepWorld(world, seconds);
+
+        return MathF.Max(Vector3.Dot(box.Position - start, downhill), 0.0f);
+    }
+
+    /// <summary>
+    /// 滑っている接触で、接線インパルスが上限の何割まで使われているか。**摩擦円錐の検算**。
+    ///
+    /// 1 を超えたら円錐からはみ出している(= 接線2本を別々にクランプしている)。
+    /// <paramref name="direction"/> を1周ぶん振ると、
+    /// <b>正方形クランプなら 45 度で 1.414 が出る</b>。
+    ///
+    /// <para>
+    /// 1 をほんの少し(2% ほど)超えることはある。
+    /// 摩擦は法線より<b>先に</b>解くので、上限に使う法線インパルスが
+    /// 1周ぶん古いことがあるため——Box2D も同じ性質を持っている。
+    /// </para>
+    /// </summary>
+    private static float SlidingFrictionRatio(Vector3 direction, float friction)
+    {
+        var world = new PhysicsWorld { Broadphase = BroadphaseMode.BruteForce };
+
+        RigidBody floor = RigidBody.CreatePlane(Vector3.Zero, Vector3.UnitY);
+        floor.Friction = 1.0f;
+        world.AddBody(floor);
+
+        RigidBody box = RigidBody.CreateBox(1.0f, 0.25f);
+
+        // **わずかにめり込ませて置く**。判定は位置を進める前に走るので(要点4)、
+        // 浮かせて置くと1ステップ目に接触が生まれない。
+        box.Position = new Vector3(0.0f, 0.2495f, 0.0f);
+        box.Restitution = 0.0f;
+        box.Friction = friction * friction;
+        box.AllowSleep = false;
+        world.AddBody(box);
+
+        // **十分速く滑らせる**。ゆっくりだと止まってしまい、上限に届かない。
+        // 2ステップ回すのは、1ステップ目に接触ができて法線インパルスが溜まるのを待つため。
+        box.LinearVelocity = direction * 8.0f;
+        world.Step(1.0f / 60.0f);
+        box.LinearVelocity = direction * 8.0f;
+        world.Step(1.0f / 60.0f);
+
+        float worst = 0.0f;
+
+        foreach (ContactPoint contact in world.Contacts)
+        {
+            if (contact.NormalImpulse <= 0.0f || contact.Friction <= 0.0f)
+            {
+                continue;
+            }
+
+            float magnitude = MathF.Sqrt(
+                (contact.TangentImpulse1 * contact.TangentImpulse1)
+                + (contact.TangentImpulse2 * contact.TangentImpulse2));
+
+            worst = MathF.Max(worst, magnitude / (contact.Friction * contact.NormalImpulse));
+        }
+
+        return worst;
+    }
+
+    /// <summary>
+    /// 平らな床を 4m/s で滑らせた箱が、2 秒で進んだ距離 [m]。**停止距離の物差し**。
+    ///
+    /// 摩擦ありなら <c>v²/(2μg)</c> で止まり、摩擦なしなら等速で 8m 進む。
+    /// </summary>
+    private static float SlideDistance(bool frictionEnabled, out float speed)
+    {
+        var world = new PhysicsWorld { FrictionEnabled = frictionEnabled };
+        world.AddPlane(Plane3D.FromPointNormal(Vector3.Zero, Vector3.UnitY));
+
+        RigidBody puck = RigidBody.CreateBox(1.0f, 0.25f);
+        puck.Position = new Vector3(0.0f, 0.2505f, 0.0f);
+        puck.LinearVelocity = new Vector3(4.0f, 0.0f, 0.0f);
+        puck.Restitution = 0.0f;
+        puck.AllowSleep = false;
+        world.AddBody(puck);
+
+        float startX = puck.Position.X;
+        StepWorld(world, 2.0f);
+
+        speed = puck.LinearVelocity.Length();
+        return puck.Position.X - startX;
     }
 
     /// <summary>自己チェックで使う、-1〜1 の立方体の中のランダムな点。</summary>

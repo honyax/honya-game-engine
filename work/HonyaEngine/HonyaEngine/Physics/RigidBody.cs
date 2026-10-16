@@ -153,6 +153,66 @@ internal sealed class RigidBody
     public float AngularDamping;
 
     /// <summary>
+    /// 摩擦係数 μ(Day 47 の要点3)。**0 なら Day 46 までの世界**(氷の上)。
+    ///
+    /// クーロン摩擦のモデルでは、接触面に沿って掛けられる力の上限が
+    /// <c>μ × 押し付けている力</c> で決まる。**面積も速さも出てこない**——
+    /// レンガを立てて置いても寝かせて置いても滑り出す角度が同じ、という
+    /// 高校物理の結論がそのままモデルになっている。
+    ///
+    /// <para>
+    /// <b>静止摩擦と動摩擦を区別していない</b>。本来は「動き出す前」のほうが
+    /// 係数が大きく、だから物は動き出した瞬間にがくんと加速する。
+    /// 2つ持つと「今この接触は滑っているのか」を毎ステップ判定することになり、
+    /// 判定が揺れるとがたつく。Box2D も Bullet も既定では1つしか持たない。
+    /// </para>
+    ///
+    /// <para>
+    /// 2つの体の値は<b>相乗平均</b> <c>√(μa μb)</c> で混ぜる(<see cref="PhysicsWorld"/>)。
+    /// 反発係数が「小さいほう」なのと違う混ぜ方なのは、
+    /// <b>片方が 0(完全に滑る)なら全体も 0 になってほしい</b>一方で、
+    /// ざらざら同士は両方の値より大きくならないでほしいから。
+    /// 物性ではなくモデルの選択で、Box2D も同じ式を使っている。
+    /// </para>
+    /// </summary>
+    public float Friction = 0.5f;
+
+    // ===== 眠り(Day 47 の要点5)=====
+
+    /// <summary>
+    /// 眠っているか。**眠った体は積分もされず、解かれもしない**。
+    ///
+    /// 静的な体(<see cref="IsStatic"/>)との違いは<b>起きられること</b>だけ。
+    /// 解いている間は逆質量 0 の体とまったく同じに振る舞う
+    /// (<see cref="SolverInverseMass"/>)。
+    ///
+    /// <para>
+    /// 眠りが要るのは速さのためだけではない。
+    /// <b>止まっているはずの物が数値誤差でじりじり動く</b>のを止める役もある——
+    /// 積み上げた箱が一晩かけて崩れる、という現象が消える。
+    /// </para>
+    /// </summary>
+    public bool IsSleeping { get; private set; }
+
+    /// <summary>
+    /// どれだけの間「止まっている」と言えているか [s]。**眠りの判定はこれで決める**。
+    ///
+    /// 1瞬でも速く動いたら 0 に戻る。<see cref="PhysicsWorld.SleepTime"/> を
+    /// 超えたら眠る資格ができるが、<b>眠るかどうかは島(接触で繋がった塊)で決まる</b>ので
+    /// この値だけでは決まらない(要点5)。
+    /// </summary>
+    public float SleepTimer;
+
+    /// <summary>
+    /// 眠ってよいか。**false なら永久に起きている**。
+    ///
+    /// プレイヤーが乗る足場のように「必ず反応してほしい」ものに使う。
+    /// 1つでも眠らない体が島に居ると<b>島ごと眠らない</b>——
+    /// 眠っている体に乗ったら反応しない、という事故を防ぐため。
+    /// </summary>
+    public bool AllowSleep = true;
+
+    /// <summary>
     /// この体の形。**寸法はすべてここにある**(Day 44)。
     ///
     /// Day 43 では <c>Radius</c> という名前で体が直接持っていた。
@@ -166,6 +226,28 @@ internal sealed class RigidBody
 
     /// <summary>質量 [kg]。静的なら <see cref="float.PositiveInfinity"/>。</summary>
     public float Mass => InverseMass > 0.0f ? 1.0f / InverseMass : float.PositiveInfinity;
+
+    /// <summary>動く見込みがあるか(Day 47)。**静的でも眠ってもいない**。</summary>
+    public bool IsMovable => InverseMass > 0.0f && !IsSleeping;
+
+    /// <summary>
+    /// 解くときに使う逆質量(Day 47)。**眠っている体は 0**。
+    ///
+    /// <see cref="InverseMass"/> をそのまま書き換えてしまうと、
+    /// 起きたときに元の値を復元する必要が出てくる——
+    /// 「一時的に無限に重い」を<b>元の値を壊さずに表す</b>ための1枚。
+    ///
+    /// <para>
+    /// 島(要点5)が正しく組めていれば、解いている最中の組に
+    /// 眠っている動的な体が混ざることは無い。それでもここを通しておくのは、
+    /// <b>島が崩れたときに物がすり抜けるのではなく、単に固いままになる</b>ようにするため。
+    /// 安全側に倒れる書き方を選んでいる。
+    /// </para>
+    /// </summary>
+    public float SolverInverseMass => IsSleeping ? 0.0f : InverseMass;
+
+    /// <summary>解くときに使う逆慣性テンソル(Day 47)。**眠っていれば零行列**。</summary>
+    public Matrix4x4 SolverInverseInertia => IsSleeping ? default : InverseInertiaWorld;
 
     /// <summary>運動エネルギー [J]。**並進と回転の両方**。自己チェックで使う。</summary>
     public float KineticEnergy
@@ -451,6 +533,34 @@ internal sealed class RigidBody
         InverseInertiaWorld = Matrix4x4.Transpose(rotation) * diagonal * rotation;
     }
 
+    /// <summary>
+    /// 起こす(Day 47)。**眠りの時計も 0 に戻す**。
+    ///
+    /// 起こすだけで時計を戻さないと、次のステップで
+    /// <b>また即座に眠る</b>(時計がしきい値を超えたままなので)。
+    /// 「起こす」は状態を1つ変えることではなく、
+    /// <b>止まっていた記録を捨てること</b>だと思うと間違えにくい。
+    /// </summary>
+    public void Wake()
+    {
+        IsSleeping = false;
+        SleepTimer = 0.0f;
+    }
+
+    /// <summary>
+    /// 眠らせる(Day 47)。**速度を 0 に落とす**。
+    ///
+    /// 速度を残したまま眠らせると、起きた瞬間にその速度で動き出す——
+    /// 何時間も止まっていた箱が、触った途端に横へ飛ぶ。
+    /// 「眠るほど遅い」と判定したのだから、捨ててしまってよい。
+    /// </summary>
+    public void Sleep()
+    {
+        IsSleeping = true;
+        LinearVelocity = Vector3.Zero;
+        AngularVelocity = Vector3.Zero;
+    }
+
     /// <summary>重心に力を掛ける。**トルクは立たない**。</summary>
     public void ApplyForce(Vector3 force) => Force += force;
 
@@ -504,6 +614,14 @@ internal sealed class RigidBody
     /// </summary>
     public void ApplyImpulseAtPoint(Vector3 impulse, Vector3 worldPoint)
     {
+        // **眠っている体は動かない**(Day 47)。静的な体で逆質量が 0 なのと同じことを、
+        // 眠りでは <see cref="SolverInverseMass"/> でやっている。
+        // 掛ける側が毎回それを気にせずに済むよう、ここでも止めておく。
+        if (IsSleeping)
+        {
+            return;
+        }
+
         LinearVelocity += impulse * InverseMass;
 
         Vector3 angularImpulse = Vector3.Cross(worldPoint - Position, impulse);
@@ -536,7 +654,10 @@ internal sealed class RigidBody
     /// </summary>
     public void IntegrateVelocity(float dt, Vector3 gravity)
     {
-        if (IsStatic)
+        // **眠っている体には重力すら掛けない**(Day 47)。
+        // ここを通してしまうと、毎ステップ 0.16m/s ずつ下向きの速度が付き、
+        // 眠りの判定(<see cref="SleepTimer"/>)が一瞬で 0 に戻って眠れなくなる。
+        if (IsStatic || IsSleeping)
         {
             return;
         }
@@ -577,7 +698,11 @@ internal sealed class RigidBody
         PreviousPosition = Position;
         PreviousOrientation = Orientation;
 
-        if (IsStatic)
+        // **控えるのは眠っていてもやる**(Day 47)。
+        // 眠った体は動かないので前と今が同じ値になり、補間しても同じ姿勢が出る。
+        // 「控えてから返る」の順にしておかないと、眠った瞬間の1フレームだけ
+        // <b>1ステップ前の姿勢が残ったまま補間される</b>。
+        if (IsStatic || IsSleeping)
         {
             return;
         }

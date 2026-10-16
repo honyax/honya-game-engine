@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace HonyaEngine;
 
@@ -59,7 +60,7 @@ internal enum BroadphaseMode
 /// </item>
 /// </list>
 /// </summary>
-internal readonly struct ContactPoint
+internal struct ContactPoint
 {
     public readonly int A;
     public readonly int B;
@@ -67,15 +68,33 @@ internal readonly struct ContactPoint
     /// <summary>押し戻す向き。**A を B から引き離す向き**で長さ1。</summary>
     public readonly Vector3 Normal;
 
+    /// <summary>
+    /// 接線その1(Day 47 の要点3)。**法線と直交する2本のうち片方**。
+    ///
+    /// 摩擦は「接触面に沿った向き」に掛かる。面は2次元なので、
+    /// 向きを表すには直交する2本が要る——法線1本だけでは足りない。
+    /// この2本の取り方は<b>面の中で好きに回してよい</b>(要点3)。
+    /// </summary>
+    public readonly Vector3 Tangent1;
+
+    /// <summary>接線その2。<c>Normal x Tangent1</c>。</summary>
+    public readonly Vector3 Tangent2;
+
     /// <summary>接触点(世界座標)。速度の解決はこの点で相対速度を測る。</summary>
     public readonly Vector3 Point;
 
     /// <summary>
-    /// 接触点を **A の物体座標で**表したもの。**位置の補正で測り直すのに使う**(要点4)。
+    /// 接触点を **A の物体座標で**表したもの。**位置の補正で測り直すのに使う**(Day 44a の要点4)。
     ///
     /// 体に画鋲で留めた印だと思えばよい。体が動けば印も一緒に動くので、
     /// 「印どうしがどれだけ離れたか」を見れば、判定をやり直さずに
     /// 今のめり込みが分かる。
+    ///
+    /// <para>
+    /// <b>Day 47 で2つ目の役目が付いた</b>。前のステップの接触点と
+    /// <b>同じ点かどうかを照合する鍵</b>にもなる(<see cref="ContactCache"/>)。
+    /// 「体に貼り付けた印」という性格が、そのまま持ち越しの鍵として使える。
+    /// </para>
     /// </summary>
     public readonly Vector3 LocalA;
 
@@ -100,6 +119,52 @@ internal readonly struct ContactPoint
     /// </summary>
     public readonly float Bounce;
 
+    /// <summary>
+    /// この接触の摩擦係数 μ(Day 47)。**2つの体の相乗平均**。
+    ///
+    /// 接触ごとに持つのは、同じ体でも相手によって滑りやすさが違うから——
+    /// 氷の上のゴムと、紙やすりの上のゴムは別の μ になる。
+    /// </summary>
+    public readonly float Friction;
+
+    // ===== ここから下は解いている間に書き換わる(Day 47)=====
+
+    /// <summary>
+    /// 法線方向の実効質量の逆数(Day 47 の要点1)。**下ごしらえで1回だけ計算する**。
+    ///
+    /// Day 46 までは反復のたびに <c>AngularTerm</c> を2回計算していた。
+    /// 反復が8周なら8回、点が4つなら32回——
+    /// <b>体の姿勢は反復の間に変わらない</b>ので、全部同じ値が出ていた。
+    /// 先に1回だけ計算して持っておくのが Sequential Impulses の書き方。
+    /// </summary>
+    public float NormalMass;
+
+    /// <summary>接線1方向の実効質量の逆数。</summary>
+    public float TangentMass1;
+
+    /// <summary>接線2方向の実効質量の逆数。</summary>
+    public float TangentMass2;
+
+    /// <summary>
+    /// 法線方向に**溜まった**インパルス [N·s](Day 47 の要点1)。
+    ///
+    /// <b>これが今日いちばん大事な1つのフィールド</b>。
+    /// Day 46 までは1周ごとに「今掛けるぶん」を計算して、
+    /// それが負なら捨てていた。今日は<b>合計を持ち、合計が負にならないように</b>する——
+    /// 途中の周では負の補正(掛けすぎたぶんを戻す)が許される。
+    /// これだけで反復が正しい答えへ収束するようになる。
+    /// </summary>
+    public float NormalImpulse;
+
+    /// <summary>接線1方向に溜まったインパルス。**符号は両向きに振れる**。</summary>
+    public float TangentImpulse1;
+
+    /// <summary>接線2方向に溜まったインパルス。</summary>
+    public float TangentImpulse2;
+
+    /// <summary>前のステップから持ち越したか(Day 47)。**HUD と自己チェック用**。</summary>
+    public bool WarmStarted;
+
     public ContactPoint(
         int a,
         int b,
@@ -108,7 +173,8 @@ internal readonly struct ContactPoint
         Vector3 localA,
         Vector3 localB,
         float separation,
-        float bounce)
+        float bounce,
+        float friction)
     {
         A = a;
         B = b;
@@ -118,6 +184,34 @@ internal readonly struct ContactPoint
         LocalB = localB;
         Separation = separation;
         Bounce = bounce;
+        Friction = friction;
+
+        BuildTangents(normal, out Tangent1, out Tangent2);
+    }
+
+    /// <summary>
+    /// 法線と直交する2本を作る(Day 47 の要点3)。**どの向きでもよい**。
+    ///
+    /// 摩擦の上限は接線ベクトルの<b>合成した長さ</b>で決めるので(摩擦円錐)、
+    /// 2本をどう回して取っても結果は変わらない。
+    /// だから「とにかく法線と直交する1本」を安く作れればよい。
+    ///
+    /// <para>
+    /// 安く作るときの罠は<b>選んだ軸が法線と平行になる場合</b>で、
+    /// 外積が 0 ベクトルになって正規化が NaN を返す。
+    /// <b>法線の成分がいちばん小さい軸</b>を選べば、
+    /// 平行になりようがない——法線は長さ1なので、
+    /// 3成分のうち最小のものは必ず 1/√3 より小さい。
+    /// </para>
+    /// </summary>
+    public static void BuildTangents(Vector3 normal, out Vector3 tangent1, out Vector3 tangent2)
+    {
+        Vector3 axis = MathF.Abs(normal.X) < 0.57735f
+            ? Vector3.UnitX
+            : MathF.Abs(normal.Y) < 0.57735f ? Vector3.UnitY : Vector3.UnitZ;
+
+        tangent1 = Vector3.Normalize(Vector3.Cross(normal, axis));
+        tangent2 = Vector3.Cross(normal, tangent1);
     }
 }
 
@@ -125,10 +219,14 @@ internal readonly struct ContactPoint
 /// 剛体の世界。**1ステップを5段で進める**。
 ///
 /// <list type="number">
-/// <item>積分 … 力と重力から速度を、速度から位置を進める(<see cref="IntegratorMode"/>)</item>
-/// <item>判定 … 総当たりで接触を集める</item>
-/// <item>速度の解決 … インパルスで、めり込む向きの相対速度を消す</item>
+/// <item>速度の積分 … 力と重力から速度を進める(<see cref="IntegratorMode"/>)</item>
+/// <item>判定 … 候補を作って当てる(<see cref="BroadphaseMode"/>)</item>
+/// <item>下ごしらえ … 実効質量を先に出し、前のステップのインパルスを掛け直す(Day 47)</item>
+/// <item>速度の解決 … 摩擦 → 法線の順に、インパルスを溜めながら何周もする</item>
+/// <item>位置の積分 … <b>解いたあとの</b>速度で位置を進める(Day 47 で順番が変わった)</item>
 /// <item>位置の補正 … 残っためり込みを押し戻す</item>
+/// <item>持ち越し … 溜まったインパルスをキャッシュへ書き戻す(Day 47)</item>
+/// <item>眠り … 島ごとに、止まっている塊を計算から外す(Day 47)</item>
 /// <item>後始末 … 力の溜め場を空にする</item>
 /// </list>
 ///
@@ -150,11 +248,9 @@ internal readonly struct ContactPoint
 /// </para>
 ///
 /// <para>
-/// <b>今日もブロードフェーズを入れない</b>。総当たりなので体が N 個で N(N-1)/2 組。
-/// 箱どうしは 15 本の軸を試すぶん球より重いが、
-/// 100 個で 4,950 組なら毎ステップ回しても平気で、
-/// 空間分割(Day 26 の3D版)は Day 46 で足す。
-/// **速くする前に正しくする**の順で進める。
+/// <b>Day 46 で候補の作り方が2通りになった</b>(<see cref="BroadphaseMode"/>)。
+/// 総当たりなら体が N 個で N(N-1)/2 組。均一グリッドなら、
+/// 近くにあるものだけが組になる。<b>答えは同じで、速さだけが違う</b>。
 /// </para>
 ///
 /// <para>
@@ -167,8 +263,18 @@ internal readonly struct ContactPoint
 /// </para>
 ///
 /// <para>
-/// <b>摩擦もスリープも無い</b>。だから箱は転がらずに滑り、
-/// 止まったように見えても計算は回り続ける。どちらも Day 47。
+/// <b>Day 47 で段が5つから8つに増えた</b>。判定と解決の間に<b>下ごしらえ</b>が入り、
+/// 最後に<b>インパルスの持ち越し</b>と<b>眠りの更新</b>が付いた。
+/// 増えた3段はどれも「解く」ことそのものではなく、
+/// <b>反復を良い初期値から始めるため</b>と<b>止まったものを計算から外すため</b>にある——
+/// Sequential Impulses が反復法だという性格が、そのまま段の形に出ている。
+/// </para>
+///
+/// <para>
+/// <b>これでミニ物理エンジンが一通り揃う</b>。
+/// 積分(Day 43)・形と判定(Day 44〜46)・ブロードフェーズ(Day 46)・
+/// 摩擦と収束と眠り(Day 47)。
+/// この先は Day 48 が入力の整理、Day 49〜50 がエフェクトなので、物理の本体に手を入れるのは今日が最後になる。
 /// </para>
 /// </summary>
 internal sealed class PhysicsWorld
@@ -229,6 +335,28 @@ internal sealed class PhysicsWorld
     /// <b>速さのための仕掛けが、正しさの前提になってはいけない</b>。
     /// </summary>
     private bool _gridReady;
+
+    /// <summary>
+    /// 前のステップのインパルスを覚えておく辞書(Day 47 の要点2)。
+    ///
+    /// **世界が1つ持つ**。組ごとに分けて持たせる案もあるが、
+    /// 組は毎ステップ生まれては消えるので、置き場所が無い。
+    /// </summary>
+    private readonly ContactCache _cache = new();
+
+    /// <summary>接触で繋がった塊(島)を作るもの(Day 47 の要点5)。**眠りの判定にだけ使う**。</summary>
+    private readonly IslandBuilder _islands = new();
+
+    /// <summary>
+    /// 島ごとの「いちばん眠りが浅い体の時計」[s]。**添字は島の代表の体番号**。
+    ///
+    /// 体の数ぶん取ってあるが、実際に使うのは代表の席だけ。
+    /// 島の数は毎ステップ変わるので、**代表の番号で引ける形**にしておくのがいちばん安い。
+    /// </summary>
+    private float[] _islandSleepTimers = [];
+
+    /// <summary>キャッシュへ書き戻すときの一時置き場。**割り当てを起こさないため**。</summary>
+    private readonly CachedPoint[] _cacheScratch = new CachedPoint[ContactManifold.MaxPoints];
 
     /// <summary>重力加速度 [m/s²]。地球はおよそ 9.81。</summary>
     public Vector3 Gravity { get; set; } = new(0.0f, -9.81f, 0.0f);
@@ -334,6 +462,94 @@ internal sealed class PhysicsWorld
     /// <summary>格子が覆う範囲の大きさ [m](Day 46)。</summary>
     public Vector3 GridSize { get; set; } = new(64.0f, 32.0f, 64.0f);
 
+    // ===== Day 47: Sequential Impulses・摩擦・眠り =====
+
+    /// <summary>
+    /// インパルスを溜めながら解くか(Day 47 の要点1)。**切ると Day 46 の解き方に戻る**。
+    ///
+    /// true(既定)なら<b>合計が負にならないように</b>クランプするので、
+    /// 途中の周で「掛けすぎたぶんを戻す」ことができる。
+    /// false なら1周ごとに計算した値を <c>max(0, ...)</c> で切って掛ける——
+    /// <b>戻せないので、掛けすぎたまま次の周へ進む</b>。
+    ///
+    /// <para>
+    /// Day 43 の <see cref="IntegratorMode"/> と同じ性格のつまみ。
+    /// 6段の柱で切ると、同じ反復回数でも<b>目に見えて沈む</b>。
+    /// </para>
+    /// </summary>
+    public bool AccumulateImpulses { get; set; } = true;
+
+    /// <summary>
+    /// 前のステップのインパルスを初期値に使うか(Day 47 の要点2)。**切ると柱が沈む**。
+    ///
+    /// 効き目がいちばん分かりやすいのは<b>反復回数を落としたとき</b>。
+    /// 反復2周 + 温存ありは、反復8周 + 温存なしとほぼ同じに見える——
+    /// <b>良い初期値は反復回数を買える</b>。
+    /// </summary>
+    public bool WarmStarting { get; set; } = true;
+
+    /// <summary>
+    /// 実際に温存が働いているか(Day 47)。**蓄積を切ると温存も止まる**。
+    ///
+    /// <b>この2つは切り離せない</b>。素朴なクランプ(1周ごとに <c>max(0, λ)</c>)では
+    /// 合計を<b>減らせない</b>ので、持ち越した値が大きすぎても直せない。
+    /// しかも1ステップで溜まる量は必ず 0 以上なので、
+    /// <b>持ち越しを続けると単調に増え続ける</b>——
+    /// 置いてあるだけの箱が、数秒後に突然跳ね上がる。
+    ///
+    /// <para>
+    /// Erin Catto の資料で蓄積クランプと温存がいつも一組で説明されるのは、
+    /// <b>片方だけでは成り立たないから</b>。
+    /// つまみは2つ用意してあるが、実際に効く組み合わせは3通りしかない。
+    /// </para>
+    /// </summary>
+    public bool WarmStartActive => WarmStarting && AccumulateImpulses;
+
+    /// <summary>
+    /// 摩擦を掛けるか(Day 47 の要点3)。**切ると Day 46 までの氷の世界**。
+    ///
+    /// 切った瞬間に、坂に乗っていた箱が全部滑り出す。
+    /// Day 43 から「見えない壁で囲っていた」のは、これが無かったからだった。
+    /// </summary>
+    public bool FrictionEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 摩擦係数を上書きする値。**負なら体ごとの値を使う**(既定)。
+    ///
+    /// 0 以上を入れると全部の接触がその μ になる——
+    /// 「今の場面で μ を 0.1 にしたらどうなるか」を1キーで試すための実験用。
+    /// </summary>
+    public float FrictionOverride { get; set; } = -1.0f;
+
+    /// <summary>
+    /// 眠りを使うか(Day 47 の要点5)。**切ると全部起きる**。
+    ///
+    /// 切った瞬間に眠っていた体が全部起きるので、
+    /// <b>眠っていた体がどれだけあったか</b>が1ステップの時間の差で分かる。
+    /// </summary>
+    public bool SleepEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 眠ってよい速さの上限 [m/s]。**これより遅い状態が続いたら眠る**。
+    ///
+    /// 小さすぎると永久に眠れない(数値誤差でこの程度は常に動く)。
+    /// 大きすぎると<b>ゆっくり滑っている物が止まる</b>——
+    /// 傾きの緩い坂を滑り降りている箱が、途中で凍り付いたように止まって見える。
+    /// </summary>
+    public float SleepLinearThreshold { get; set; } = 0.05f;
+
+    /// <summary>眠ってよい角速度の上限 [rad/s]。**転がっている球を止めないように**。</summary>
+    public float SleepAngularThreshold { get; set; } = 0.10f;
+
+    /// <summary>
+    /// 眠るまでに要る時間 [s]。**短いと動いている物が止まる**。
+    ///
+    /// 跳ね返りの頂点では速度が一瞬 0 になる。
+    /// そこで眠らせてしまうと<b>ボールが空中で止まる</b>ので、
+    /// 「しばらく遅いままだったこと」を条件にする。
+    /// </summary>
+    public float SleepTime { get; set; } = 0.5f;
+
     /// <summary>ブロードフェーズの格子(**読むだけ**。可視化と自己チェック用)。</summary>
     public SpatialGrid3D Grid => _grid;
 
@@ -364,6 +580,41 @@ internal sealed class PhysicsWorld
 
     /// <summary>直前のステップで残っていた最大のめり込み [m]。**沈んでいるかの目安**。</summary>
     public float MaxPenetration { get; private set; }
+
+    /// <summary>前のステップからインパルスを引き継げた点の数(Day 47)。**温存が効いている証拠**。</summary>
+    public int WarmStartedPoints => _cache.MatchedPoints;
+
+    /// <summary>今のステップで新しく生まれた接触点の数(Day 47)。</summary>
+    public int NewContactPoints => _cache.NewPoints;
+
+    /// <summary>キャッシュが覚えている組の数(Day 47)。**増え続けていたら <c>Prune</c> の疑い**。</summary>
+    public int CachedPairs => _cache.PairCount;
+
+    /// <summary>接触で繋がった塊の数(Day 47 の要点5)。**静的な体は数に入らない**。</summary>
+    public int IslandCount { get; private set; }
+
+    /// <summary>
+    /// 眠っている体の数(Day 47)。**動く体のうち何個が計算から外れているか**。
+    ///
+    /// <see cref="DynamicCount"/> と並べて見ると、
+    /// 「60 個のうち 57 個が眠っている」のような状態が数字で分かる。
+    /// </summary>
+    public int SleepingCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (RigidBody body in _bodies)
+            {
+                if (body.IsSleeping)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
 
     /// <summary>動く体の数(逆質量が 0 でないもの)。</summary>
     public int DynamicCount
@@ -640,6 +891,12 @@ internal sealed class PhysicsWorld
         // 体を全部捨てたのに格子が残っていると、
         // 次の問い合わせが<b>存在しない番号を引く</b>。
         _gridReady = false;
+
+        // **持ち越しも捨てる**(Day 47)。キャッシュの鍵は体の番号なので、
+        // 体を入れ替えると<b>まったく別の組のインパルスを引き継ぐ</b>。
+        // 筋書きを切り替えた1フレーム目だけ物が弾け飛ぶ、という形で出る。
+        _cache.Clear();
+        IslandCount = 0;
     }
 
     /// <summary>
@@ -656,53 +913,114 @@ internal sealed class PhysicsWorld
             return;
         }
 
-        // --- 1. 積分 ---
+        // --- 1. 速度の積分 ---
         //
-        // **Day 43 でいちばん大事だった分岐**。
-        // 中身はどちらも同じ2つの呼び出しで、順番だけが逆になっている。
-        if (Integrator == IntegratorMode.SemiImplicit)
-        {
-            IntegrateVelocities(dt);
-            IntegratePositions(dt);
-        }
-        else
+        // **Day 43 でいちばん大事だった分岐**が、今日ここで形を変えた(要点4)。
+        //
+        // Day 46 まではこの段で速度と位置をまとめて進めていた。
+        // <b>位置を「解く前の速度」で進めていた</b>ことになる——
+        // 重力を足したばかりの速度なので、床に置いてある物も毎ステップ
+        // <c>g·dt² ≈ 2.7mm</c> だけ沈み、それを位置の補正が押し返す、という
+        // 賽の河原のような釣り合いになっていた。
+        //
+        // <b>摩擦を入れてはじめてそれが表に出た</b>。
+        // 傾いた面の上では、沈むぶんのうち<b>面に沿った成分</b>を
+        // 位置の補正が戻せない(補正は法線の向きにしか押さないので)。
+        // 結果、止まっているはずの箱が毎ステップ
+        // <c>g·dt²·sinθ</c> ずつ坂を下る——
+        // <b>μ をいくら上げても、速度 0 のまま滑り落ちる</b>。
+        //
+        // 直し方は順番を入れ替えるだけ。
+        // <b>解いたあとの速度で位置を進める</b>ようにすると、
+        // 速度が 0 に解けている物は位置も動かない。
+        // Box2D も Bullet もこの順で、Day 43 の並びのほうが例外だった。
+        if (Integrator == IntegratorMode.Explicit)
         {
             // **陽的オイラー**。位置を「1ステップ前の速度」で進めてから速度を更新する。
             // 直感的にはこちらのほうが自然に見えるのに、エネルギーが増え続ける。
+            // <b>比べるために残してある道</b>なので、順番の入れ替えはしない。
             IntegratePositions(dt);
-            IntegrateVelocities(dt);
         }
+
+        IntegrateVelocities(dt);
 
         // --- 2. 判定 ---
         GenerateContacts();
 
-        // --- 3. 速度の解決 ---
+        // --- 3. 下ごしらえ(Day 47 の要点1・2)---
         //
-        // **組の間は順番に、組の中は同時に**(要点5)。
+        // 実効質量を先に出しておき、前のステップのインパルスを掛け直す。
+        // **この1段があるかないかで、同じ反復回数でも柱の沈み方が変わる**。
+        PrepareContacts();
+
+        // --- 4. 速度の解決 ---
+        //
+        // **組の間は順番に、組の中は同時に**(Day 44a の要点5)。
         // 外側の周回(組から組へ)はガウス・ザイデル——直前の組の結果を見て解くので、
         // 柱の下から上へ荷重が伝わる。
         // 内側(1つの組の4点)はヤコビ——同じ状態から一度に決めるので、
         // 対称な接触では4点が完全に同じ大きさになり、余計なトルクが立たない。
+        //
+        // **今日、1周の中身が2段になった**(要点3)。
+        // 摩擦を先に解いてから法線を解く——順番に理由がある。
         for (int iteration = 0; iteration < VelocityIterations; iteration++)
         {
             foreach ((int start, int count) in _manifolds)
             {
+                if (FrictionEnabled)
+                {
+                    SolveFriction(start, count);
+                }
+
                 SolveManifold(start, count);
             }
         }
 
-        // --- 4. 位置の補正 ---
+        // --- 5. 位置の積分(要点4)---
+        //
+        // **解いたあとの速度で進める**。ここが Day 46 から動いた1行。
+        // 接触で速度が 0 に解けた物は、位置も 1mm も動かない。
+        if (Integrator == IntegratorMode.SemiImplicit)
+        {
+            IntegratePositions(dt);
+        }
+
+        // --- 6. 位置の補正 ---
         if (PositionCorrection)
         {
             CorrectPositions();
         }
 
-        // --- 5. 後始末 ---
+        // --- 7. 持ち越し(Day 47 の要点2)---
+        StoreImpulses();
+
+        // --- 8. 眠り(Day 47 の要点5)---
+        UpdateSleep(dt);
+
+        // --- 9. 後始末 ---
         foreach (RigidBody body in _bodies)
         {
             body.ClearAccumulators();
         }
     }
+
+    /// <summary>
+    /// 解いている間だけ接触点を書き換えるための窓(Day 47)。
+    ///
+    /// <c>List&lt;T&gt;</c> の添字は<b>値のコピー</b>を返すので、
+    /// <c>_contacts[i].NormalImpulse += x</c> とは書けない
+    /// (構造体を <c>class</c> にすれば書けるが、接触点は毎ステップ数百個生まれるので
+    /// それだけの数のゴミが出る)。
+    /// <see cref="CollectionsMarshal.AsSpan"/> は<b>リストの内部配列をそのまま指す</b>ので、
+    /// 添字で書き換えたものがリストに残る。
+    ///
+    /// <para>
+    /// <b>要素を足したり消したりしている間に使ってはいけない</b>。
+    /// 内部配列が作り直されると、手元の <c>Span</c> は古い配列を指したままになる。
+    /// ここでは<b>判定が終わってから</b>しか使わないので安全。
+    /// </para>
+    /// </summary>
+    private Span<ContactPoint> ContactSpan => CollectionsMarshal.AsSpan(_contacts);
 
     private void IntegrateVelocities(float dt)
     {
@@ -742,6 +1060,11 @@ internal sealed class PhysicsWorld
         Array.Clear(_sourceCounts);
         PairTests = 0;
         MaxPenetration = 0.0f;
+
+        // **持ち越しの印を1つ進める**(Day 47)。
+        // このあと <see cref="Add"/> が引いた組だけが新しい印を持ち、
+        // 引かれなかった組は <see cref="StoreImpulses"/> の最後で捨てられる。
+        _cache.BeginStep();
 
         // **総当たりならいくつ試すことになったか**を、常に数えておく(Day 46)。
         // 絞れた割合は「絞ったあとの数」だけでは分からない。
@@ -875,22 +1198,135 @@ internal sealed class PhysicsWorld
         // **ゆっくりぶつかったものは跳ねない**。しきい値が無いと置いた箱が震え続ける。
         float bounce = approach < -RestitutionThreshold ? -restitution * approach : 0.0f;
 
-        // **接触点を両方の体に貼り付けておく**(要点4)。
+        // **摩擦は相乗平均で混ぜる**(Day 47 の要点3)。
+        // 反発係数(小さいほう)と違う式なのは、
+        // <b>片方が 0 なら全体も 0</b> にしたいから——氷の上では何を置いても滑る。
+        // 実験用の上書き(<see cref="FrictionOverride"/>)が入っていればそちらが勝つ。
+        float friction = FrictionOverride >= 0.0f
+            ? FrictionOverride
+            : MathF.Sqrt(a.Friction * b.Friction);
+
+        // **接触点を両方の体に貼り付けておく**(Day 44a の要点4)。
         // 位置の補正はこの2つの印がどれだけ離れたかだけを見る。
+        // Day 47 からは<b>持ち越しの照合の鍵</b>にもなる。
         Vector3 localA = Vector3.Transform(
             point.Point - a.Position, Quaternion.Conjugate(a.Orientation));
         Vector3 localB = Vector3.Transform(
             point.Point - b.Position, Quaternion.Conjugate(b.Orientation));
 
-        _contacts.Add(new ContactPoint(
-            indexA, indexB, normal, point.Point, localA, localB, -point.Depth, bounce));
+        var contact = new ContactPoint(
+            indexA, indexB, normal, point.Point, localA, localB,
+            -point.Depth, bounce, friction);
+
+        // **前のステップの同じ点を探す**(Day 47 の要点2)。
+        // 見つかればインパルスを引き継ぐ。見つからなければ 0 から。
+        if (WarmStartActive && _cache.TryMatch(indexA, indexB, localA, localB, out CachedPoint cached))
+        {
+            contact.NormalImpulse = cached.NormalImpulse;
+            contact.TangentImpulse1 = cached.TangentImpulse1;
+            contact.TangentImpulse2 = cached.TangentImpulse2;
+            contact.WarmStarted = true;
+        }
+
+        _contacts.Add(contact);
     }
 
     /// <summary>
-    /// 1組ぶんの接触点をまとめて解く。**4点は同時に決める**(要点5)。
+    /// 解く前の下ごしらえ(Day 47 の要点1・2)。**実効質量と、持ち越しの適用**。
+    ///
+    /// やることは2つ。
+    ///
+    /// <list type="number">
+    /// <item>
+    /// <b>実効質量を先に出す</b>。Day 46 までは反復のたびに計算していたが、
+    /// <b>反復の間に体の姿勢は変わらない</b>ので毎回同じ値が出ていた。
+    /// 8周 × 4点で 32 回だったものが1回になる。
+    /// </item>
+    /// <item>
+    /// <b>持ち越したインパルスを掛ける</b>。
+    /// 覚えているのは「前のステップで最終的に必要だった大きさ」なので、
+    /// <b>それを掛けた状態から反復を始める</b>と、
+    /// 反復は差分だけを直せばよくなる。
+    /// </item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>掛けるのは接線も一緒</b>。法線だけ持ち越して摩擦を 0 から始めると、
+    /// 積んだ箱が毎ステップ少しずつ横へずれる——
+    /// 摩擦こそ「前と同じ力で押さえ続ける」性格のものだから、
+    /// 温存の効きがいちばん大きい。
+    /// </para>
+    /// </summary>
+    private void PrepareContacts()
+    {
+        Span<ContactPoint> contacts = ContactSpan;
+
+        for (int i = 0; i < contacts.Length; i++)
+        {
+            ref ContactPoint contact = ref contacts[i];
+
+            RigidBody a = _bodies[contact.A];
+            RigidBody b = _bodies[contact.B];
+
+            Vector3 rA = contact.Point - a.Position;
+            Vector3 rB = contact.Point - b.Position;
+
+            contact.NormalMass = EffectiveMass(a, b, rA, rB, contact.Normal);
+            contact.TangentMass1 = EffectiveMass(a, b, rA, rB, contact.Tangent1);
+            contact.TangentMass2 = EffectiveMass(a, b, rA, rB, contact.Tangent2);
+
+            if (!contact.WarmStarted)
+            {
+                continue;
+            }
+
+            // 摩擦を切っているなら、接線ぶんは持ち越さない——
+            // **切った瞬間に前の摩擦が1回だけ効く**のを防ぐ。
+            if (!FrictionEnabled)
+            {
+                contact.TangentImpulse1 = 0.0f;
+                contact.TangentImpulse2 = 0.0f;
+            }
+
+            Vector3 impulse =
+                (contact.Normal * contact.NormalImpulse)
+                + (contact.Tangent1 * contact.TangentImpulse1)
+                + (contact.Tangent2 * contact.TangentImpulse2);
+
+            a.ApplyImpulseAtPoint(impulse, contact.Point);
+            b.ApplyImpulseAtPoint(-impulse, contact.Point);
+        }
+    }
+
+    /// <summary>
+    /// この向きの実効質量の逆数。**分母をひっくり返したもの**(Day 47 の要点1)。
+    ///
+    /// Day 43 から使ってきた分母
+    /// <c>(1/mA + 1/mB) + n·((I⁻¹(rA×n))×rA) + n·((I⁻¹(rB×n))×rB)</c>
+    /// をそのまま逆数にしただけ。**割り算を1回で済ませるため**に、
+    /// 逆数の形で持っておく——逆質量を持つのと同じ発想(Day 43 の要点3)。
+    ///
+    /// <para>
+    /// <b>眠っている体は逆質量 0 として扱う</b>(<see cref="RigidBody.SolverInverseMass"/>)。
+    /// そうしないと「動くはず」と見積もった分母で小さすぎるインパルスを出し、
+    /// 眠っている体に乗ったものが沈む。
+    /// </para>
+    /// </summary>
+    private static float EffectiveMass(
+        RigidBody a, RigidBody b, Vector3 rA, Vector3 rB, Vector3 direction)
+    {
+        float denominator = a.SolverInverseMass + b.SolverInverseMass;
+        denominator += AngularTerm(a, rA, direction);
+        denominator += AngularTerm(b, rB, direction);
+
+        return denominator > 0.0f ? 1.0f / denominator : 0.0f;
+    }
+
+    /// <summary>
+    /// 1組ぶんの接触点の**法線方向**をまとめて解く。**4点は同時に決める**(Day 44a の要点5)。
     ///
     /// Day 43 は接触が1点しか無かったので、順番に解けばそれで済んだ。
-    /// 今日は1組から4点出るので、<b>その4点をどう解くか</b>という問題が新しく生まれる。
+    /// Day 44 から1組で4点出るので、<b>その4点をどう解くか</b>という問題が生まれた。
     ///
     /// <para>
     /// <b>順番に解くと壊れる</b>。1点目を解いた時点で接触点の相対速度は 0 になり、
@@ -919,104 +1355,207 @@ internal sealed class PhysicsWorld
     /// そちらは偏りが問題にならず、むしろ「直前の組の結果を見る」ことで
     /// 柱の下から上へ荷重が伝わる(Day 43 の要点8)。
     /// </para>
+    ///
+    /// <para>
+    /// <b>Day 47 で中身が <see cref="SolveNormal"/> に移った</b>。
+    /// ここに残っているのは「4点をどう配るか」だけで、
+    /// 「1点をどう解くか」は蓄積インパルスの話になったので分けてある。
+    /// </para>
     /// </summary>
     private void SolveManifold(int start, int count)
     {
+        Span<ContactPoint> contacts = ContactSpan;
+
         // **Day 43 と同じ解き方**(<see cref="SolveContactsTogether"/> を切ったとき)。
         // 1点ずつ、直前の結果を見ながら解く。比べるために残してある。
         if (!SolveContactsTogether)
         {
             for (int k = 0; k < count; k++)
             {
-                ApplyNormalImpulse(start + k, NormalImpulse(_contacts[start + k]));
+                SolveNormal(ref contacts[start + k], 1);
             }
 
             return;
         }
 
-        Span<float> magnitudes = stackalloc float[ContactManifold.MaxPoints];
-
         // --- 1周目: **同じ状態から**、点ごとの大きさを決める ---
+        //
+        // <b>Day 47 で少し形が変わった</b>。以前は「大きさを配列に溜めてから
+        // まとめて掛ける」の2周だったが、蓄積インパルスは
+        // <b>ContactPoint 自身が合計を持つ</b>ので、溜め場が要らなくなった。
+        // 代わりに「同じ状態から」を保つために、
+        // <see cref="SolveNormal"/> に点の数を渡して割らせている。
+        Span<float> velocities = stackalloc float[ContactManifold.MaxPoints];
+
         for (int k = 0; k < count; k++)
         {
-            magnitudes[k] = NormalImpulse(_contacts[start + k]);
+            velocities[k] = NormalVelocity(contacts[start + k]);
         }
 
-        // --- 2周目: まとめて掛ける。**点の数で割る** ---
+        // --- 2周目: 同じ状態から決めた速度を使って掛ける。**点の数で割る** ---
         for (int k = 0; k < count; k++)
         {
-            ApplyNormalImpulse(start + k, magnitudes[k] / count);
+            SolveNormal(ref contacts[start + k], count, velocities[k]);
         }
     }
 
-    /// <summary>接触点1つにインパルスを掛ける。**押すだけ**(負なら何もしない)。</summary>
-    private void ApplyNormalImpulse(int index, float magnitude)
+    /// <summary>
+    /// 接触点1つの法線方向を解く(Day 47 の要点1)。**Sequential Impulses の心臓**。
+    ///
+    /// <code>
+    ///   λ  = (目標の離れる速度 - 今の相対速度) × 実効質量
+    ///   合計 = clamp(合計 + λ, 0, ∞)      ← **ここが今日の全部**
+    ///   実際に掛けるぶん = 新しい合計 - 古い合計
+    /// </code>
+    ///
+    /// <para>
+    /// <b>Day 46 までは「今掛けるぶん」を直接 0 でクランプしていた</b>。
+    /// つまり<b>負の補正が出せなかった</b>——一度掛けすぎたら、それを戻す手が無い。
+    /// 柱の下のほうを解くたびに上が持ち上げられ、次の周でまた押し戻される。
+    /// 反復を増やしても振動するだけで、答えに近づかない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>合計をクランプすると、途中の周では負も許される</b>。
+    /// 「掛けすぎたぶんを引く」ことができるので、反復が本当の答えへ収束する。
+    /// 接触の条件は<b>合計が押す向きであること</b>だけで、
+    /// 途中の1周がどちら向きかは物理的に意味を持たない——
+    /// この一段の読み替えが Erin Catto の Sequential Impulses の核心で、
+    /// コードの差は <c>MathF.Max</c> を置く場所が変わるだけになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <paramref name="share"/> は<b>同じ組の点の数</b>。
+    /// 4点を同時に解くとき、1点で速度差を全部消せる大きさを4点ぶん足すと4倍になる
+    /// ので、割ってから掛ける(Day 44a の要点5)。
+    /// </para>
+    /// </summary>
+    private void SolveNormal(ref ContactPoint contact, int share, float normalVelocity = float.NaN)
     {
-        if (magnitude <= 0.0f)
+        if (float.IsNaN(normalVelocity))
+        {
+            normalVelocity = NormalVelocity(contact);
+        }
+
+        float lambda = (contact.Bounce - normalVelocity) * contact.NormalMass / share;
+
+        float applied;
+
+        if (AccumulateImpulses)
+        {
+            // **合計をクランプする**。これが今日の1行。
+            float previous = contact.NormalImpulse;
+            contact.NormalImpulse = MathF.Max(previous + lambda, 0.0f);
+            applied = contact.NormalImpulse - previous;
+        }
+        else
+        {
+            // **Day 46 までの素朴版**。今掛けるぶんを 0 でクランプする。
+            // 合計は摩擦の上限に要るので、記録だけはしておく。
+            applied = MathF.Max(lambda, 0.0f);
+            contact.NormalImpulse += applied;
+        }
+
+        if (applied == 0.0f)
         {
             return;
         }
 
-        ContactPoint contact = _contacts[index];
-        Vector3 impulse = contact.Normal * magnitude;
-
+        Vector3 impulse = contact.Normal * applied;
         _bodies[contact.A].ApplyImpulseAtPoint(impulse, contact.Point);
         _bodies[contact.B].ApplyImpulseAtPoint(-impulse, contact.Point);
     }
 
+    /// <summary>接触点での、法線方向の相対速度 [m/s]。**近づいていれば負**。</summary>
+    private float NormalVelocity(in ContactPoint contact)
+    {
+        Vector3 relative =
+            _bodies[contact.A].VelocityAt(contact.Point)
+            - _bodies[contact.B].VelocityAt(contact.Point);
+
+        return Vector3.Dot(relative, contact.Normal);
+    }
+
     /// <summary>
-    /// 接触点1つに掛けるべきインパルスの大きさ。**Day 43 の心臓部がそのまま生きている**。
+    /// 1組ぶんの摩擦を解く(Day 47 の要点3)。**接線2方向をまとめてクランプする**。
     ///
-    /// <code>
-    ///   j = (目標の離れる速度 - 今の相対速度) / (逆質量と逆慣性から決まる係数)
-    /// </code>
-    ///
-    /// 分母は「この向きに単位インパルスを掛けたら、接触点の相対速度がどれだけ変わるか」。
-    /// 軽いものほど、また回りやすいものほど大きくなる——
-    /// つまり<b>動かしやすいものほど、同じ速度差を作るのに要るインパルスが小さい</b>。
+    /// 法線方向が「押すことしかできない」のに対し、摩擦は<b>両向きに効く</b>——
+    /// 滑ろうとする向きの逆に、上限まで。上限がクーロン摩擦の
+    /// <c>|λt| ≤ μ λn</c> で、<b>押し付けが強いほど滑りにくい</b>ことを式にしたもの。
     ///
     /// <para>
-    /// <b>今日から回転の項が本当に効く</b>。Day 43 の球どうしでは
-    /// 法線が必ず中心を通るので <c>r × n = 0</c>、回転の寄与は常に 0 だった。
-    /// 箱は接触点が中心からずれるので、
-    /// <b>同じ大きさのインパルスでも掛ける場所で効き方が変わる</b>——
-    /// 角から着地した箱が起き上がるのは、この項があるから。
+    /// <b>2本を別々にクランプしてはいけない</b>。
+    /// t1 と t2 をそれぞれ ±μλn で切ると、上限の形が円ではなく<b>正方形</b>になり、
+    /// 斜め 45 度に滑るときだけ √2 倍の摩擦が出る——
+    /// <b>斜めに押すと止まりやすい床</b>ができてしまう。
+    /// 2本を平面上のベクトルとして扱い、<b>長さでクランプする</b>のが正しい
+    /// (これを摩擦円錐と呼ぶ)。
     /// </para>
     ///
     /// <para>
-    /// <b>負の値は返さない</b>。接触は押すことしかできない。
-    /// これを許すと、離れていく物を引き戻す(接着剤のような)力になる。
+    /// <b>法線より先に解く</b>のは Box2D と同じ順。摩擦の上限は
+    /// <b>その時点で溜まっている法線インパルス</b>で決まるので、
+    /// 「1周前の法線」を使うことになる。
+    /// 逆順にすると、その周で新しく増えた法線ぶんまで摩擦の上限に入り、
+    /// <b>着地の瞬間だけ摩擦が過剰に効いて物が張り付く</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// 温存(要点2)がここでいちばん効く。前のステップの摩擦インパルスから
+    /// 始められると、<b>1周目からすでに上限近くの力で押さえられる</b>——
+    /// 坂に置いた箱が「1フレーム目だけずり落ちてから止まる」のを防ぐ。
     /// </para>
     /// </summary>
-    private float NormalImpulse(in ContactPoint contact)
+    private void SolveFriction(int start, int count)
     {
-        RigidBody a = _bodies[contact.A];
-        RigidBody b = _bodies[contact.B];
+        Span<ContactPoint> contacts = ContactSpan;
 
-        Vector3 rA = contact.Point - a.Position;
-        Vector3 rB = contact.Point - b.Position;
-
-        Vector3 relative = a.VelocityAt(contact.Point) - b.VelocityAt(contact.Point);
-        float normalVelocity = Vector3.Dot(relative, contact.Normal);
-
-        // 目標(<see cref="ContactPoint.Bounce"/>)まで離れているなら、もう掛けるものが無い。
-        float delta = contact.Bounce - normalVelocity;
-        if (delta <= 0.0f)
+        for (int k = 0; k < count; k++)
         {
-            return 0.0f;
+            ref ContactPoint contact = ref contacts[start + k];
+
+            if (contact.Friction <= 0.0f)
+            {
+                continue;
+            }
+
+            RigidBody a = _bodies[contact.A];
+            RigidBody b = _bodies[contact.B];
+
+            Vector3 relative = a.VelocityAt(contact.Point) - b.VelocityAt(contact.Point);
+
+            // 接線2方向それぞれで「滑りを止めるのに要るぶん」を出す。
+            // **点の数で割る**のは法線と同じ理由(Day 44a の要点5)。
+            float lambda1 =
+                -Vector3.Dot(relative, contact.Tangent1) * contact.TangentMass1 / count;
+            float lambda2 =
+                -Vector3.Dot(relative, contact.Tangent2) * contact.TangentMass2 / count;
+
+            float oldX = contact.TangentImpulse1;
+            float oldY = contact.TangentImpulse2;
+
+            var sum = new Vector2(oldX + lambda1, oldY + lambda2);
+
+            // **クーロンの上限**。押し付けている強さ × μ。
+            float limit = contact.Friction * contact.NormalImpulse;
+
+            if (sum.LengthSquared() > limit * limit)
+            {
+                // 上限を超えた = **滑っている**。向きはそのままで長さだけ詰める。
+                sum = sum.LengthSquared() > 1e-12f
+                    ? Vector2.Normalize(sum) * limit
+                    : Vector2.Zero;
+            }
+
+            contact.TangentImpulse1 = sum.X;
+            contact.TangentImpulse2 = sum.Y;
+
+            Vector3 impulse =
+                (contact.Tangent1 * (sum.X - oldX)) + (contact.Tangent2 * (sum.Y - oldY));
+
+            a.ApplyImpulseAtPoint(impulse, contact.Point);
+            b.ApplyImpulseAtPoint(-impulse, contact.Point);
         }
-
-        // --- 分母 ---
-        //
-        // 並進の寄与は逆質量の和。回転の寄与は
-        //   n · ( (I⁻¹ (r × n)) × r )
-        // で、「腕の長さ r で回したときに、接触点がどれだけ動くか」を測っている。
-        float denominator = a.InverseMass + b.InverseMass;
-        denominator += AngularTerm(a, rA, contact.Normal);
-        denominator += AngularTerm(b, rB, contact.Normal);
-
-        // 両方とも動かない(逆質量も逆慣性も 0)。掛けても何も起きない。
-        return denominator > 0.0f ? delta / denominator : 0.0f;
     }
 
     /// <summary>
@@ -1028,7 +1567,9 @@ internal sealed class PhysicsWorld
     /// </summary>
     private static float AngularTerm(RigidBody body, Vector3 r, Vector3 normal)
     {
-        Vector3 angular = Vector3.Transform(Vector3.Cross(r, normal), body.InverseInertiaWorld);
+        // **眠っている体は零行列**(Day 47)。回転の寄与が 0 になり、
+        // 静的な体とまったく同じ扱いになる。
+        Vector3 angular = Vector3.Transform(Vector3.Cross(r, normal), body.SolverInverseInertia);
         return Vector3.Dot(Vector3.Cross(angular, r), normal);
     }
 
@@ -1080,7 +1621,12 @@ internal sealed class PhysicsWorld
                 RigidBody a = _bodies[contact.A];
                 RigidBody b = _bodies[contact.B];
 
-                float inverseMassSum = a.InverseMass + b.InverseMass;
+                // **眠っている体は動かさない**(Day 47)。
+                // 両方眠っていれば(あるいは静的なら)和が 0 になり、この組は飛ばされる。
+                float inverseMassA = a.SolverInverseMass;
+                float inverseMassB = b.SolverInverseMass;
+
+                float inverseMassSum = inverseMassA + inverseMassB;
                 if (inverseMassSum <= 0.0f)
                 {
                     continue;
@@ -1101,8 +1647,189 @@ internal sealed class PhysicsWorld
 
                 Vector3 correction = contact.Normal * (overlap * CorrectionRate / inverseMassSum);
 
-                a.Position += correction * a.InverseMass;
-                b.Position -= correction * b.InverseMass;
+                a.Position += correction * inverseMassA;
+                b.Position -= correction * inverseMassB;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 溜まったインパルスをキャッシュへ書き戻す(Day 47 の要点2)。**ステップの最後に1回**。
+    ///
+    /// 組ごとにまとめて書くので、<see cref="_manifolds"/> の区切りをそのまま使える。
+    /// 書き終えたら、このステップで触れなかった組を捨てる(<see cref="ContactCache.Prune"/>)。
+    ///
+    /// <para>
+    /// <b>温存を切っているときは何も書かない</b>。書いておいて読まないのでも動くが、
+    /// <b>切っている間に古い値が溜まる</b>と、戻した瞬間に大昔のインパルスが1回だけ効く。
+    /// つまみを切り替えたときに一瞬跳ねるのは、たいていこの種の取りこぼしから来る。
+    /// </para>
+    /// </summary>
+    private void StoreImpulses()
+    {
+        if (!WarmStartActive)
+        {
+            _cache.Clear();
+            return;
+        }
+
+        foreach ((int start, int count) in _manifolds)
+        {
+            ContactPoint first = _contacts[start];
+
+            for (int k = 0; k < count; k++)
+            {
+                ContactPoint contact = _contacts[start + k];
+
+                _cacheScratch[k] = new CachedPoint
+                {
+                    LocalA = contact.LocalA,
+                    LocalB = contact.LocalB,
+                    NormalImpulse = contact.NormalImpulse,
+                    TangentImpulse1 = contact.TangentImpulse1,
+                    TangentImpulse2 = contact.TangentImpulse2,
+                };
+            }
+
+            _cache.Store(first.A, first.B, _cacheScratch.AsSpan(0, count));
+        }
+
+        _cache.Prune();
+    }
+
+    /// <summary>
+    /// 眠りを更新する(Day 47 の要点5)。**島ごとに、まとめて眠らせる**。
+    ///
+    /// 3段でやる。
+    ///
+    /// <list type="number">
+    /// <item><b>島を組む</b> … 接触で繋がった動く体を1つにまとめる(<see cref="IslandBuilder"/>)</item>
+    /// <item><b>体ごとの時計を進める</b> … 遅ければ足し、速ければ 0 に戻す</item>
+    /// <item><b>島の中でいちばん浅い時計に合わせる</b> … 全部眠らせるか、全部起こすか</item>
+    /// </list>
+    ///
+    /// <para>
+    /// <b>「いちばん浅い」を採るのが肝</b>。島の中に1体でも動いているものが居れば、
+    /// その体の時計は 0 なので島全体が起きたままになる。
+    /// 6段の柱に7段目を落とすと、落ちてきた箱が触れた瞬間に
+    /// <b>柱ぜんぶが一斉に起きる</b>——これが欲しかった挙動。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>眠っている体も判定は通る</b>。ここで省いているのは
+    /// 積分(<see cref="RigidBody.IntegrateVelocity"/>)と解決だけで、
+    /// ブロードフェーズもナローフェーズも今までどおり動く——
+    /// <b>そうしないと、眠っている体に何かがぶつかっても気づけない</b>。
+    /// 判定まで省くには「眠った体を格子から抜いて、動くものが近づいたら戻す」
+    /// 仕掛けが要る。効くのは体が数千個の規模からなので、今日は入れていない。
+    /// </para>
+    /// </summary>
+    private void UpdateSleep(float dt)
+    {
+        // --- 切っているなら全部起こす ---
+        //
+        // 「眠りを切る」は「眠らせない」ではなく「今眠っているものも起こす」。
+        // 切ったのに眠ったままの体が残っていると、**触っても反応しない置物**になる。
+        if (!SleepEnabled)
+        {
+            foreach (RigidBody body in _bodies)
+            {
+                if (body.IsSleeping)
+                {
+                    body.Wake();
+                }
+            }
+
+            IslandCount = 0;
+            return;
+        }
+
+        // --- 1. 島を組む ---
+        _islands.Begin(_bodies.Count);
+
+        foreach ((int start, int _) in _manifolds)
+        {
+            ContactPoint contact = _contacts[start];
+
+            RigidBody a = _bodies[contact.A];
+            RigidBody b = _bodies[contact.B];
+
+            // **静的な体は繋がない**。床は世界じゅうと触れているので、
+            // 繋いだ瞬間に全部が1つの島になり、誰かが動いている限り誰も眠れない。
+            if (a.IsStatic || b.IsStatic)
+            {
+                continue;
+            }
+
+            _islands.Union(contact.A, contact.B);
+        }
+
+        if (_islandSleepTimers.Length < _bodies.Count)
+        {
+            _islandSleepTimers = new float[Math.Max(_bodies.Count * 2, 64)];
+        }
+
+        Span<float> timers = _islandSleepTimers.AsSpan(0, _bodies.Count);
+        timers.Fill(float.MaxValue);
+
+        // --- 2. 体ごとの時計を進めて、島の最小値を集める ---
+        int dynamicIslands = 0;
+
+        for (int i = 0; i < _bodies.Count; i++)
+        {
+            RigidBody body = _bodies[i];
+            if (body.IsStatic)
+            {
+                continue;
+            }
+
+            // **眠っている体の時計は進めない**(進めても意味が無い)。
+            // 速度は 0 なので、進めても結果は同じだが、
+            // 「起きている体だけが時計を持つ」と読めるほうが分かりやすい。
+            if (!body.IsSleeping)
+            {
+                bool slow =
+                    body.LinearVelocity.LengthSquared()
+                        < SleepLinearThreshold * SleepLinearThreshold
+                    && body.AngularVelocity.LengthSquared()
+                        < SleepAngularThreshold * SleepAngularThreshold;
+
+                body.SleepTimer = slow ? body.SleepTimer + dt : 0.0f;
+            }
+
+            // **眠らない体が居る島は眠らない**。時計を 0 として混ぜれば、
+            // 最小値が 0 になって島ごと起きたままになる——分岐が1つも要らない。
+            float timer = body.AllowSleep ? body.SleepTimer : 0.0f;
+
+            int root = _islands.Find(i);
+            if (timers[root] == float.MaxValue)
+            {
+                dynamicIslands++;
+            }
+
+            timers[root] = MathF.Min(timers[root], timer);
+        }
+
+        IslandCount = dynamicIslands;
+
+        // --- 3. 島ごとに眠らせるか起こすか ---
+        for (int i = 0; i < _bodies.Count; i++)
+        {
+            RigidBody body = _bodies[i];
+            if (body.IsStatic)
+            {
+                continue;
+            }
+
+            bool shouldSleep = timers[_islands.Find(i)] >= SleepTime;
+
+            if (shouldSleep && !body.IsSleeping)
+            {
+                body.Sleep();
+            }
+            else if (!shouldSleep && body.IsSleeping)
+            {
+                body.Wake();
             }
         }
     }
