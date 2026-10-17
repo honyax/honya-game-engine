@@ -87,7 +87,7 @@
      + 戻す向き x stiffness x dt              // 硬さ(ファイルの形の向きへ)
      + 重力の向き x gravityPower x dt          // 重力</code></pre></div>
 <p>決まった点を骨の長さへ戻し、体の球から押し出し、その向きへ骨を回す(要点2)。速度という変数は無く、<strong>「今 - 前」が速度の代わり</strong>になっている。</p>
-<p><strong>2つ目は「center が揺れの基準」</strong>。先端の点をどの座標で覚えるかを、鎖ごとに <code>center</code> で決める。AvatarSample_A は全部 <code>Root</code>(アバターのいちばん上のノード)なので、Root ごと動いた分——置き場所の行列で回した分や、Day 72 でキャラが歩いた分——は先端も一緒に運ばれて、<strong>揺れに入らない</strong>。揺れるのは、Root から見て体が動いたとき(首・腰)だけ。上の実験台の「置き場所ごと動かす」で、center を切り替えて見比べられる。</p>
+<p><strong>2つ目は「center が揺れの基準」</strong>。先端の点をどの座標で覚えるかを、鎖ごとに <code>center</code> で決める。AvatarSample_A は全部 <code>Root</code>(アバターのいちばん上のノード)なので、Root ごと動いた分——置き場所の行列で回した分や、Day 73 でキャラが歩いた分——は先端も一緒に運ばれて、<strong>揺れに入らない</strong>。揺れるのは、Root から見て体が動いたとき(首・腰)だけ。上の実験台の「置き場所ごと動かす」で、center を切り替えて見比べられる。</p>
 <p><strong>3つ目は「刻みを固定したら、体の動きも刻みの時刻で渡す」</strong>。<code>dragForce</code> は「1ステップで慣性を何割削るか」なので、ステップの長さが画面の速さで変わると揺れ方が変わる。そこで 1/60 秒の固定の刻みで回す。ところが固定にしただけでは足りず、30 fps の画面で1フレームに2ステップ回すとき、<strong>2回とも今の体を見せると 60 fps より揺れ方が大きく変わる</strong>(2 秒後の曲がりが 48 度 → 35 度)。前のフレームの体との間を補間して渡すと、30 / 60 / 144 fps がそろう(要点5)。</p>
 
 <h3 id="s3">今日は Model と AnimationPlayer の口</h3>
@@ -187,7 +187,7 @@ joint.Rotation = Quaternion.Normalize(joint.RestRotation * FromTo(joint.BoneAxis
 <tr><td>center のノード(AvatarSample_A は全部 <code>Root</code>)</td><td>先端も一緒に運ばれる → <strong>揺れない</strong></td><td>揺れる</td></tr>
 </tbody></table></div>
 <p>実機の「置き場所ごと回す」(<code>F2</code> の最後)は、<strong>ノードの姿勢を1つも変えず、置き場所の行列だけを左右に 60 度回す</strong>。center が Root(置き場所と一緒に回る)なら、先端の速さは 0.2cm/s(止まっているのと同じ)、center を外すと 150cm/s で髪が振り回される。</p>
-<p>なぜ作者は Root を center にするのか。Day 72 でキャラが歩き回ると、置き場所の行列が毎フレーム数 cm 動き、振り向けば一気に回る。世界の座標で揺らすと、<strong>歩く・走る・振り向く・ワープするたびに髪が大きくなびく</strong>。center を Root にすると、それらは全部揺れに入らず、揺れるのはアニメーションが体を動かした分(歩きの上下動・腕振りにつられた胸の回転)だけになる。走ってなびかせたいなら、center を外すか、Day 72 で移動の速さを風のように足す(改造課題1)。</p>
+<p>なぜ作者は Root を center にするのか。Day 73 でキャラが歩き回ると、置き場所の行列が毎フレーム数 cm 動き、振り向けば一気に回る。世界の座標で揺らすと、<strong>歩く・走る・振り向く・ワープするたびに髪が大きくなびく</strong>。center を Root にすると、それらは全部揺れに入らず、揺れるのはアニメーションが体を動かした分(歩きの上下動・腕振りにつられた胸の回転)だけになる。走ってなびかせたいなら、center を外すか、Day 73 で移動の速さを風のように足す(改造課題1)。</p>
 <p>コードでは、先端の点を <code>center</code> の座標で積分し、世界へ戻して長さとコライダーを当て、また <code>center</code> の座標へ戻して覚える(<code>StepSpring</code> の 2〜3 段目)。<code>center</code> を変えると覚えている座標の意味が変わるので、その鎖の先端を置き直す(<code>Spring.StateCenter</code>)。</p>
 
 <h3 id="s10">5. 固定の刻みで回し、体の動きは刻みの時刻で渡す</h3>
@@ -435,7 +435,7 @@ StepSpring(pose, spring, alpha);</code></pre></div>
 <section class="part"><h2 id="s30">改造課題</h2>
 
 <h3 id="s31">課題1(易): 風を吹かせる</h3>
-<p>VRM 1.0 の揺れものに風は無い。<code>VrmSpringBone</code> に <code>Wind</code>(世界の向きと強さ。1 秒あたりの移動量)を足し、<code>Integrate</code> に重力と同じ形の項を1つ足す。強さを時間で揺らす(<code>sin</code> を2つ重ねる)と、それらしくなる。center の座標で積分しているので、風の向きは重力と同じく <code>worldToCenter</code> で回してから足すこと。Day 72 でキャラが走るとき、走る速さの逆向きの風を足せば、center が Root のままでも「走ってなびく」が作れる。</p>
+<p>VRM 1.0 の揺れものに風は無い。<code>VrmSpringBone</code> に <code>Wind</code>(世界の向きと強さ。1 秒あたりの移動量)を足し、<code>Integrate</code> に重力と同じ形の項を1つ足す。強さを時間で揺らす(<code>sin</code> を2つ重ねる)と、それらしくなる。center の座標で積分しているので、風の向きは重力と同じく <code>worldToCenter</code> で回してから足すこと。Day 73 でキャラが走るとき、走る速さの逆向きの風を足せば、center が Root のままでも「走ってなびく」が作れる。</p>
 
 <h3 id="s32">課題2(中): 144 Hz の画面で髪をカクつかせない</h3>
 <p>今日残した歪みの3つ目。<code>Joint</code> に1つ前のステップの回転を覚えさせ、ステップを回さないフレームでは、持ち越した端数 <code>_accumulator / StepSeconds</code> で前と今の回転を <code>Quaternion.Slerp</code> して書く(Day 19 の描画の補間と同じ考え方)。補間した回転は「少し過去の髪」になる——1ステップ分(16.7ms)遅れる代わりに滑らかになる、という取引になることを確かめる。60 Hz の画面で確かめるには、<code>StepSeconds</code> を 1/20 にすると段が目で見える。</p>
@@ -653,7 +653,7 @@ function updateChainStats() {
   let note;
   if (!chain.len) note = '長さの拘束なし: 硬さは長さ 1 の向きを毎ステップ足すので、慣性に積もって先端の点(橙)が骨の先からどこまでも流れていく(30cm 離れたら置き直している)。骨は点の向きを向くだけなので、絵の骨は伸びないが、揺れ方は成り立たない。';
   else if (chain.motion === 'carry' && chain.center === 'root') note = 'center = Root(置き場所)。置き場所ごと動いた分は先端も一緒に運ばれるので、揺れない(先端の速さが 0 のまま)。center を「使わない」にすると揺れる。';
-  else if (chain.motion === 'carry') note = 'center を使わない: 先端を世界の座標で覚えるので、置き場所が動くと先端が取り残されて遅れる。Day 72 で歩くと、これが毎歩起きる。';
+  else if (chain.motion === 'carry') note = 'center を使わない: 先端を世界の座標で覚えるので、置き場所が動くと先端が取り残されて遅れる。Day 73 で歩くと、これが毎歩起きる。';
   else if (chain.stiff === 0) note = '硬さ 0: ファイルの形へ戻す力が無い。揺らした髪は慣性が尽きた所で止まったまま戻らない。';
   else if (!chain.col) note = 'コライダーを切ると、毛先が肩の球の中へ入る(めり込みが増える)。ファイルの形で毛先が肩に少し入っていることも分かる。';
   else note = '橙の点が先端の点。毎ステップ、慣性・硬さ・重力を足し、長さを戻し、球から押し出してから、骨をその点へ向ける。点線はファイルの形。';

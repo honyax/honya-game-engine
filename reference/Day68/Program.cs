@@ -18690,7 +18690,7 @@ internal static class Program
 
         // ===== Day 68: VRM 1.0 と MToon(VRM編)=====
         //
-        // **VRM編の初日**。Day 71 まではこのページでアバター単体を確かめながら作り、Day 72 でデモの主役に差し替える。
+        // **VRM編の初日**。Day 71 まではこのページでアバター単体を確かめながら作り、Day 73 でデモの主役に差し替える。
         // 増えたのは Model/ に1本(VrmAvatar)、Render/ に1本(MToon)、シェーダ2本。キャラは別のフォワードパスで描く。
         DebugMenu.Page vrmViewer = menu.Add(
             "VRMビューア", "Day 68。VRM 1.0 のアバターを MToon で描く");
@@ -34516,7 +34516,7 @@ internal static class Program
         _drawCalls++;
 
         // **速度バッファにも載せる**(Day 54)。Program.Draw を通らないので、自分で覚えさせる。
-        // 載せないと、キャラが動いたとき(Day 72 で歩く)に TAA が「カメラの動きだけ」で前のフレームを引き、残像が出る。
+        // 載せないと、キャラが動いたとき(Day 73 で歩く)に TAA が「カメラの動きだけ」で前のフレームを引き、残像が出る。
         // アウトラインは載せない(同じメッシュを2回記録すると、2回目を「別の物」として数えてしまう)。
         if (!outline)
         {
