@@ -407,6 +407,53 @@ internal static class Program
     /// </summary>
     private static DebugMenu _menu = null!;
 
+    // --- 今日の主役: パーティクル(Day 49)---
+
+    /// <summary>ビルボードを組んで1回で描くバッチ。</summary>
+    private static ParticleRenderer _particles = null!;
+
+    /// <summary>主な放出口。筋書きごとに設定を丸ごと入れ替える。</summary>
+    private static ParticleEmitter _emitter = null!;
+
+    /// <summary>
+    /// 火の粉。焚き火の筋書きでだけ動く。
+    ///
+    /// <para>
+    /// **テクスチャが同じなのでドローコールは増えない**(<see cref="ParticleRenderer.Draw"/>)。
+    /// 放出口を分けるのは「設定の束」を分けたいだけで、描く側から見れば粒の列が伸びるだけ。
+    /// </para>
+    /// </summary>
+    private static ParticleEmitter _sparks = null!;
+
+    private static Handle<Shader> _particleShader;
+
+    /// <summary>中心が明るい丸(1コマ)。火・火花・爆発。</summary>
+    private static Handle<Texture> _dotTexture;
+
+    /// <summary>広がりながら薄れる煙の 4x4 コマ送り。</summary>
+    private static Handle<Texture> _smokeTexture;
+
+    private static bool _particleDemo;
+
+    private static ParticleScene _particleScene = ParticleScene.Fire;
+
+    /// <summary>重力を効かせるか。切ると粒がまっすぐ飛び続ける。</summary>
+    private static bool _particleGravity = true;
+
+    /// <summary>フリップブックを使うか。切ると全コマのうち先頭だけを出す。</summary>
+    private static bool _flipbook = true;
+
+    private static readonly float[] EmitScales = [0.5f, 1.0f, 2.0f, 4.0f];
+
+    private static int _emitScaleIndex = 1;
+
+    private static readonly float[] ParticleIntensities = [1.0f, 2.0f, 4.0f, 8.0f];
+
+    private static int _intensityIndex = 1;
+
+    /// <summary>粒を進めるのに掛かった時間(移動平均)。HUD 用。</summary>
+    private static double _particleMilliseconds;
+
     /// <summary>カメラワークを再生中か(「カメラワークと機能」の F3)。</summary>
     private static bool _cameraPlaying;
 
@@ -770,6 +817,25 @@ internal static class Program
     // ================================================================
 
     /// <summary>今日のデモの筋書き。**見せたいものごとに初期配置が違う**。</summary>
+    /// <summary>パーティクルの筋書き(Day 49)。</summary>
+    private enum ParticleScene
+    {
+        /// <summary>焚き火。**加算合成の見本**。上へ細く、オレンジから赤へ。</summary>
+        Fire,
+
+        /// <summary>煙。**アルファ合成とフリップブックの見本**。ゆっくり広がって薄れる。</summary>
+        Smoke,
+
+        /// <summary>爆発。**バーストの見本**。球状に一気に撒いて、抵抗で止める。</summary>
+        Explosion,
+
+        /// <summary>足元の土埃。**円盤から外へ**。Day 50 でキャラクターに付ける。</summary>
+        Dust,
+
+        /// <summary>負荷計測。**8000 粒を出して ms を見る**。CPU の限界がここに出る。</summary>
+        Stress,
+    }
+
     private enum PhysicsScene
     {
         /// <summary>反発係数を振った5球を落とす。**跳ね方の違いが1画面で見える**。</summary>
@@ -2024,6 +2090,37 @@ internal static class Program
             Path.Combine(shaderDirectory, "sprite.vert"),
             Path.Combine(shaderDirectory, "sprite.frag"));
 
+        // --- 今日の主役: パーティクル(Day 49)---
+        //
+        // **絵はコードで作る**(<see cref="ParticleTextures"/>)。
+        // パーティクルの絵は「形」ではなく「中心から縁への減衰の仕方」なので、
+        // 素材を用意するより数式で書くほうが、何が効いているのかが分かる。
+        _particleShader = _resources.LoadShader(
+            Path.Combine(shaderDirectory, "particle.vert"),
+            Path.Combine(shaderDirectory, "particle.frag"));
+
+        // **sRGB として読ませない**。この2枚は色ではなく「濃さの型紙」で、
+        // RGB は白に固定してある(色は頂点色で付ける)。
+        // sRGB を通すとアルファ以外が意味なく曲げられる。
+        _dotTexture = _resources.LoadTextureFromPixels(
+            "particle-dot-64", ParticleTextures.CreateSoftDot(64), 64, 64, srgb: false);
+
+        _smokeTexture = _resources.LoadTextureFromPixels(
+            "particle-smoke-4x4-64",
+            ParticleTextures.CreateSmokeFlipbook(64, 4, 4),
+            256,
+            256,
+            srgb: false);
+
+        // **コマ送りの升をにじませない**。既定の繰り返しだと、
+        // 升の右端を引くときに隣のコマが混ざる(Day 18 のアトラスと同じ落とし穴)。
+        _resources.GetTexture(_smokeTexture).SetWrap(TextureWrap.ClampToEdge);
+
+        _particles = new ParticleRenderer(_gl, _resources.GetShader(_particleShader));
+        _emitter = new ParticleEmitter(capacity: 8192, seed: 4901);
+        _sparks = new ParticleEmitter(capacity: 1024, seed: 4902);
+        ApplyParticleScene();
+
         string[] paths = SpriteNames
             .Select(name => ResolveAssetPath($"textures/{name}.png"))
             .ToArray();
@@ -2677,6 +2774,11 @@ internal static class Program
             UpdateLocomotion((float)deltaSeconds);
             _animation?.Update((float)deltaSeconds);
 
+            // **パーティクルも可変 dt**(Day 49)。粒は当たり判定を持たず、
+            // 誰にも影響を与えないので、カメラワークやアニメと同じ扱いでよい。
+            // 逆に言うと、**粒に物を押させたくなった日は固定ステップへ移す**ことになる。
+            UpdateParticles((float)deltaSeconds);
+
             string? tourMessage = _features.Update((float)deltaSeconds);
             if (tourMessage is not null)
             {
@@ -3094,6 +3196,14 @@ internal static class Program
         // 今日それを外に出す。決め手になったのは FXAA で、
         // **字は1画素の細い線の塊**なので、輪郭を均す処理といちばん相性が悪い。
         // ON にすると Day 37 までの挙動に戻るので、見比べられる。
+        // **粒は不透明なものを全部描いたあと**(Day 49)。
+        //
+        // 半透明は「後ろに何が描かれているか」が決まってからでないと混ぜられない。
+        // <b>後処理の中(_post.Begin と _post.End の間)</b>に置いてあるのも大事で、
+        // ここに描けばシーンと同じ RGBA16F に載る——
+        // 加算合成で 1.0 を超えた粒が、そのままブルームに拾われて<b>にじむ</b>。
+        RenderParticles();
+
         if (_uiThroughPost)
         {
             RenderText();
@@ -3565,6 +3675,14 @@ internal static class Program
         // F2〜F12 と数字キーの意味が丸ごと入れ替わる。
         // 出していないと「押しても何も起きない」の原因が分からなくなる。
         lines.AppendLine(_menu.HudLine());
+
+        // **今日の1行**(Day 49)。粒の数も、並べ替えの代償も、絵からは読めない。
+        // とくに「並べ替えに何 ms 掛かっているか」は、
+        // アルファ合成に切り替えた瞬間に増えるので、出しておかないと気づけない。
+        if (_particleDemo)
+        {
+            lines.AppendLine(ParticleLabel());
+        }
 
         // **今日の1行**(Day 43)。物理は「なんとなく動いている」で済ませてしまいやすい。
         // めり込み量と運動エネルギーが数字で出ていないと、
@@ -16082,6 +16200,153 @@ internal static class Program
         {
             RunSolverCheck();
         });
+
+        // --- Day 49。ビルボード・加算合成・コマ送り ---
+        //
+        // **昨日の値打ちがここに出る**。Day 48 までなら、
+        // まだ空いている修飾キーの組み合わせを探すところから始まっていた。
+        // 今日やったのは<b>この 17 行を足しただけ</b>で、
+        // キーも一覧も HUD の案内も、全部そこから起きている。
+        DebugMenu.Page particles = menu.Add(
+            "パーティクル", "Day 49。ビルボード・加算合成・コマ送り");
+
+        particles.Add("パーティクルデモ", "焚き火を出す。背景の床と箱はそのまま残す", () =>
+        {
+            if (_particleDemo)
+            {
+                HideParticleDemo();
+                Console.WriteLine("パーティクルデモ: OFF");
+            }
+            else
+            {
+                ShowParticleDemo(ParticleScene.Fire);
+                Console.WriteLine(
+                    "パーティクルデモ: **焚き火**(加算合成)。"
+                    + "炎と火の粉で放出口は2つだが、**テクスチャが同じなのでドローコールは1回**");
+            }
+        });
+
+        particles.Add("筋書き", "火 / 煙 / 爆発 / 土埃 / 負荷", () =>
+        {
+            ParticleScene next = _particleScene switch
+            {
+                ParticleScene.Fire => ParticleScene.Smoke,
+                ParticleScene.Smoke => ParticleScene.Explosion,
+                ParticleScene.Explosion => ParticleScene.Dust,
+                ParticleScene.Dust => ParticleScene.Stress,
+                _ => ParticleScene.Fire,
+            };
+
+            ShowParticleDemo(next);
+            Console.WriteLine(_particleScene switch
+            {
+                ParticleScene.Smoke =>
+                    "筋書き: **煙**(アルファ合成 + 4x4 のコマ送り)。並べ替えが ON になる",
+                ParticleScene.Explosion =>
+                    "筋書き: **爆発**(加算 + バースト 500)。もう一度出すか F10 で撒き直す",
+                ParticleScene.Dust =>
+                    "筋書き: **足元の土埃**(円盤から外へ)。Day 50 でキャラクターに付ける",
+                ParticleScene.Stress =>
+                    "筋書き: **負荷計測**(8192 粒で飽和)。HUD の「更新」ms を見る",
+                _ =>
+                    "筋書き: **焚き火**(加算)。炎 + 火の粉",
+            });
+        });
+
+        particles.Add("混ぜ方", "加算 / アルファ / 事前乗算。**切り替えると火が煙になる**", () =>
+        {
+            _particles.Blend = _particles.Blend switch
+            {
+                ParticleBlend.Additive => ParticleBlend.Alpha,
+                ParticleBlend.Alpha => ParticleBlend.Premultiplied,
+                _ => ParticleBlend.Additive,
+            };
+
+            Console.WriteLine(_particles.Blend switch
+            {
+                ParticleBlend.Alpha =>
+                    "混ぜ方: **アルファ**(src·a + dst·(1-a))。重ねても明るくならない。"
+                    + "**火に掛けると濁った灰色になる**",
+                ParticleBlend.Premultiplied =>
+                    "混ぜ方: **事前乗算**(src + dst·(1-a))。"
+                    + "**式1つで加算とアルファの両方**——a=0 の粒は加算、a=1 の粒はアルファになる",
+                _ =>
+                    "混ぜ方: **加算**(src·a + dst)。重なるほど明るい。"
+                    + "**煙に掛けると発光する雲になる**",
+            });
+        });
+
+        particles.Add("奥行きで並べ替え", "アルファ合成では必須。加算では要らない", () =>
+        {
+            _particles.SortByDepth = !_particles.SortByDepth;
+            Console.WriteLine(
+                _particles.SortByDepth
+                    ? "並べ替え: **ON**(遠い順に描く)。HUD に掛かった ms が出る"
+                    : "並べ替え: **OFF**。**アルファ合成の煙で見ると、粒が四角く抜ける**");
+        });
+
+        particles.Add("深度を書く", "**わざと間違える**。半透明が深度を書くと何が起きるか", () =>
+        {
+            _particles.DepthWrite = !_particles.DepthWrite;
+            Console.WriteLine(
+                _particles.DepthWrite
+                    ? "深度書き込み: **ON**(誤用の実演)。"
+                    + "**手前の粒が壁になって、その裏の粒が四角く消える**"
+                    : "深度書き込み: OFF(正しい設定)。深度は読むが書かない");
+        });
+
+        particles.Add("明るさ", "1 / 2 / 4 / 8 倍。**1 を超えるとブルームに拾われる**", () =>
+        {
+            _intensityIndex = (_intensityIndex + 1) % ParticleIntensities.Length;
+            _particles.Intensity = ParticleIntensities[_intensityIndex];
+            Console.WriteLine(
+                $"明るさ: **x{_particles.Intensity:F0}**"
+                + (_particles.Intensity > 1.0f
+                    ? "(RGBA16F に 1.0 超えで置くので、ブルームがにじませる)"
+                    : "(ブルームのしきい値を越えないので、にじまない)"));
+        });
+
+        particles.Add("放出量", "x0.5 / x1 / x2 / x4。**容量を超えると撒かれなくなる**", () =>
+        {
+            _emitScaleIndex = (_emitScaleIndex + 1) % EmitScales.Length;
+            ApplyParticleScene();
+            Console.WriteLine(
+                $"放出量: **x{EmitScales[_emitScaleIndex]:F1}**({_emitter.EmitRate:F0} 個/秒)。"
+                + "釣り合いの数は「放出 × 寿命」で決まる(F12 の内訳を見る)");
+        });
+
+        particles.Add("重力", "切ると粒がまっすぐ飛び続ける", () =>
+        {
+            _particleGravity = !_particleGravity;
+            ApplyParticleScene();
+            Console.WriteLine(
+                _particleGravity
+                    ? $"重力: **ON**({_emitter.Gravity.Y:F1} m/s²)。"
+                    + "**炎は上向き**(浮力の代用)、火の粉と埃は下向き"
+                    : "重力: **OFF**(0)。初速のまま直進して、抵抗だけで減速する");
+        });
+
+        particles.Add("コマ送り", "フリップブックの ON/OFF。煙と土埃で効く", () =>
+        {
+            _flipbook = !_flipbook;
+            ApplyParticleScene();
+            Console.WriteLine(
+                _flipbook
+                    ? $"コマ送り: **ON**({_emitter.FrameCount} コマ)。寿命に沿って升を進める"
+                    : "コマ送り: **OFF**(先頭の升だけ)。**煙がずっと同じ形のまま薄れる**");
+        });
+
+        particles.Add("一発撒く", "バースト 400。爆発・ヒットのように「1回だけ」出す", () =>
+        {
+            _emitter.Burst(400);
+            Console.WriteLine(
+                $"バースト: 400 個(生きている粒 {_emitter.Count} / 容量 {_emitter.Capacity})");
+        });
+
+        particles.Add("内訳", "放出・寿命・釣り合いの数・転送量", DescribeParticles);
+
+        particles.Add("自己チェック", "端数・分布・積分・ビルボードの基底を検算する", RunParticleCheck);
+
         return menu;
     }
 
@@ -20600,8 +20865,8 @@ internal static class Program
 
         checks.Check("ページがある", _menu.Pages.Count > 0, $"{_menu.Pages.Count} 枚");
         checks.Check(
-            "**Day 31〜47 のスイッチが全部入っている**",
-            entryCount == 159,
+            "**Day 31 以降のスイッチが全部入っている**",
+            entryCount == 171,
             $"{entryCount} 項目");
 
         bool withinCapacity = _menu.Pages.All(page => page.Entries.Count <= DebugMenu.SlotCount);
@@ -20700,8 +20965,719 @@ internal static class Program
         checks.Report();
 
         Console.WriteLine(
-            $"  昨日の OnKeyDown は 2424 行・case 225 個。"
-            + $"今日は 458 行と、{_menu.Pages.Count} ページ {entryCount} 項目の表になった");
+            $"  Day 47 の OnKeyDown は 2424 行・case 225 個だった。"
+            + $"いまは {_menu.Pages.Count} ページ {entryCount} 項目の表で、"
+            + "**Day 49 で足したのは表の 12 行だけ**");
+    }
+
+    /// <summary>
+    /// パーティクルデモを出す / 下ろす。
+    ///
+    /// <para>
+    /// <b>床と箱は残す</b>のが今日だけの扱いになる。他のデモは
+    /// 「それだけを見る絵」にしてきたが、粒は<b>背景が無いと確かめられない</b>——
+    /// 箱の裏に回った粒が隠れること(深度テスト)も、
+    /// 手前の粒が壁になること(深度書き込みの誤用)も、
+    /// 前後に何か置いていないと絵に出ない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>空だけは消す</b>。加算合成は<b>暗いところでしか効かない</b>——
+    /// 白い空の前では、足しても足しても白のままになる。
+    /// 実際、これを入れる前は「炎が1粒も見えない」状態だった(計画書の要点2)。
+    /// 花火が夜にしか上がらないのと同じ話で、
+    /// <b>加算を使うなら背景を暗くする</b>のは演出ではなく前提条件になる。
+    /// </para>
+    /// </summary>
+    private static void ShowParticleDemo(ParticleScene scene)
+    {
+        if (_demo is not null)
+        {
+            UnloadDemoScene();
+        }
+
+        StopTourIfRunning();
+
+        if (_model is not null)
+        {
+            SetModel(ModelPaths.Length);
+        }
+
+        _materialGrid = false;
+        _surfaceDemo = false;
+        _physicsDemo = false;
+        _characterDemo = false;
+        _debugChannel = 0;
+        SetSpriteCount(0);
+
+        // 背景として Day 31 の床と箱を出しておく。**深度の確認に要る**。
+        _draw3D = true;
+
+        // **空を消す**(上の説明)。下ろすときに戻す。
+        _env.SkyboxVisible = false;
+
+        _particleDemo = true;
+        _particleScene = scene;
+
+        // **筋書きごとにカメラを寄せる**(Day 43 の物理デモと同じ作法)。
+        // 粒は 0.1〜2m と小さいので、既定の距離 9m のままだと点にしか見えない。
+        _orbit.Target = scene switch
+        {
+            ParticleScene.Dust => new Vector3(0.0f, 0.1f, 2.4f),
+            ParticleScene.Smoke => new Vector3(0.0f, 2.6f, 0.0f),
+            ParticleScene.Explosion => new Vector3(0.0f, 1.8f, 0.0f),
+            ParticleScene.Stress => new Vector3(0.0f, 1.6f, 0.0f),
+            _ => new Vector3(0.0f, 1.6f, 0.0f),
+        };
+
+        _orbit.Distance = scene switch
+        {
+            ParticleScene.Smoke => 9.0f,
+            ParticleScene.Stress => 13.0f,
+            ParticleScene.Explosion => 9.0f,
+            _ => 4.5f,
+        };
+
+        _orbit.Yaw = 0.5f;
+        _orbit.Pitch = 0.12f;
+        _orbit.Apply();
+
+        _emitter.Clear();
+        _sparks.Clear();
+        ApplyParticleScene();
+    }
+
+    private static void HideParticleDemo()
+    {
+        _particleDemo = false;
+
+        // **借りた状態は返す**。空を消したままにすると、
+        // 次に IBL やデモ v1 を出した人が「空が出ない」で悩むことになる。
+        _env.SkyboxVisible = true;
+
+        _emitter.Clear();
+        _sparks.Clear();
+    }
+
+    /// <summary>
+    /// 筋書きに合わせて放出口と描き方を設定する。
+    ///
+    /// <para>
+    /// <b>設定は全部ここに集めてある</b>。放出口のクラスにプリセットを持たせると、
+    /// 「火とはこういうものだ」という判断がエンジン側に入ってしまう——
+    /// <see cref="ParticleEmitter"/> は<b>撒いて進めて捨てるだけ</b>にしておきたい。
+    /// Day 22 のコンポーネントで「振る舞いは使う側」と決めたのと同じ線引きになる。
+    /// </para>
+    /// </summary>
+    private static void ApplyParticleScene()
+    {
+        float emitScale = EmitScales[_emitScaleIndex];
+
+        _sparks.Emitting = false;
+        _sparks.EmitRate = 0.0f;
+        _emitter.FlipbookColumns = 1;
+        _emitter.FlipbookRows = 1;
+        _emitter.Emitting = true;
+
+        switch (_particleScene)
+        {
+            case ParticleScene.Smoke:
+                _emitter.Position = new Vector3(0.0f, 1.10f, 0.0f);
+                _emitter.Shape = ParticleShape.Cone;
+                _emitter.Direction = Vector3.UnitY;
+                _emitter.ConeAngleDegrees = 12.0f;
+                _emitter.Radius = 0.25f;
+                _emitter.EmitRate = 80.0f * emitScale;
+                _emitter.LifetimeMin = 2.2f;
+                _emitter.LifetimeMax = 3.4f;
+                _emitter.SpeedMin = 0.5f;
+                _emitter.SpeedMax = 1.0f;
+                _emitter.Gravity = new Vector3(0.0f, 0.35f, 0.0f);
+                _emitter.Drag = 0.5f;
+                // **煙は大きく、濃く**。ここは何度も外したところで、
+                // 0.5m の粒を 200 個出しても<b>画面には何も出ない</b>。
+                // テクスチャの減衰が (1-r)² なので四角形の中の実効的な不透明度は低く、
+                // さらに寿命に沿ってアルファが 0 へ落ちるので、
+                // **小さい粒はいくら数を増やしても濃さが積み上がらない**。
+                // 画面に出るかどうかを決めているのは数ではなく<b>1粒の面積</b>になる。
+                _emitter.StartSize = 1.0f;
+                _emitter.EndSize = 3.0f;
+                _emitter.SizeJitter = 0.35f;
+
+                // **消えきらせない**。アルファ 0 まで落とすと、
+                // コマ送り側の薄れ(0.45 倍)と二重になって最後の半分が見えなくなる。
+                _emitter.StartColor = new Vector4(0.85f, 0.86f, 0.90f, 0.90f);
+                _emitter.EndColor = new Vector4(0.32f, 0.33f, 0.40f, 0.25f);
+                _emitter.SpinRange = 0.5f;
+                _emitter.FlipbookColumns = _flipbook ? 4 : 1;
+                _emitter.FlipbookRows = _flipbook ? 4 : 1;
+
+                _particles.Blend = ParticleBlend.Alpha;
+                _particles.SortByDepth = true;
+                _intensityIndex = 0;
+                break;
+
+            case ParticleScene.Explosion:
+                _emitter.Position = new Vector3(0.0f, 1.8f, 0.0f);
+                _emitter.Shape = ParticleShape.Sphere;
+                _emitter.Radius = 0.3f;
+
+                // **撒き続けない**。爆発は Burst でしか出さない。
+                _emitter.EmitRate = 0.0f;
+                _emitter.LifetimeMin = 0.6f;
+                _emitter.LifetimeMax = 1.4f;
+                _emitter.SpeedMin = 4.0f;
+                _emitter.SpeedMax = 11.0f;
+                _emitter.Gravity = new Vector3(0.0f, -6.0f, 0.0f);
+
+                // **抵抗を強めに**。初速だけ与えて空気で止めると「弾けた」形になる。
+                _emitter.Drag = 2.5f;
+                _emitter.StartSize = 0.5f;
+                _emitter.EndSize = 0.02f;
+                _emitter.SizeJitter = 0.4f;
+                _emitter.StartColor = new Vector4(1.0f, 0.90f, 0.55f, 1.0f);
+                _emitter.EndColor = new Vector4(0.8f, 0.15f, 0.02f, 0.0f);
+                _emitter.SpinRange = 3.0f;
+
+                _particles.Blend = ParticleBlend.Additive;
+                _particles.SortByDepth = false;
+                _intensityIndex = 1;
+
+                _emitter.Burst(500);
+                break;
+
+            case ParticleScene.Dust:
+                _emitter.Position = new Vector3(0.0f, -0.45f, 2.4f);
+                _emitter.Shape = ParticleShape.Disc;
+                _emitter.Radius = 0.45f;
+                _emitter.EmitRate = 140.0f * emitScale;
+                _emitter.LifetimeMin = 0.7f;
+                _emitter.LifetimeMax = 1.3f;
+                _emitter.SpeedMin = 0.5f;
+                _emitter.SpeedMax = 1.4f;
+                _emitter.Gravity = new Vector3(0.0f, -1.2f, 0.0f);
+                _emitter.Drag = 1.8f;
+                _emitter.StartSize = 0.6f;
+                _emitter.EndSize = 1.8f;
+                _emitter.SizeJitter = 0.3f;
+                _emitter.StartColor = new Vector4(0.86f, 0.79f, 0.66f, 0.90f);
+                _emitter.EndColor = new Vector4(0.62f, 0.57f, 0.50f, 0.20f);
+                _emitter.SpinRange = 1.0f;
+                _emitter.FlipbookColumns = _flipbook ? 4 : 1;
+                _emitter.FlipbookRows = _flipbook ? 4 : 1;
+
+                _particles.Blend = ParticleBlend.Alpha;
+                _particles.SortByDepth = true;
+                _intensityIndex = 0;
+                break;
+
+            case ParticleScene.Stress:
+                _emitter.Position = new Vector3(0.0f, 1.6f, 0.0f);
+                _emitter.Shape = ParticleShape.Sphere;
+                _emitter.Radius = 2.0f;
+
+                // **プールを飽和させる**。8192 個を 1.3 秒の寿命で埋めるには
+                // 毎秒 6300 個ほど要る(6300 × 1.3 ≒ 8190)。
+                _emitter.EmitRate = 6300.0f * emitScale;
+                _emitter.LifetimeMin = 1.2f;
+                _emitter.LifetimeMax = 1.4f;
+                _emitter.SpeedMin = 1.0f;
+                _emitter.SpeedMax = 3.0f;
+                _emitter.Gravity = new Vector3(0.0f, -2.0f, 0.0f);
+                _emitter.Drag = 0.3f;
+                _emitter.StartSize = 0.10f;
+                _emitter.EndSize = 0.02f;
+                _emitter.SizeJitter = 0.2f;
+                _emitter.StartColor = new Vector4(0.55f, 0.80f, 1.0f, 1.0f);
+                _emitter.EndColor = new Vector4(0.15f, 0.30f, 0.7f, 0.0f);
+                _emitter.SpinRange = 0.5f;
+
+                _particles.Blend = ParticleBlend.Additive;
+                _particles.SortByDepth = false;
+                _intensityIndex = 1;
+                break;
+
+            default:
+                // **中央の箱の天面に載せる**(箱は y = -0.5〜1.0 を占める)。
+                // 床に置くと箱の中に埋まって1粒も見えない——
+                // 粒は当たり判定を持たないので、**めり込んでも何も起きずに隠れるだけ**になる。
+                _emitter.Position = new Vector3(0.0f, 1.0f, 0.0f);
+                _emitter.Shape = ParticleShape.Cone;
+                _emitter.Direction = Vector3.UnitY;
+                _emitter.ConeAngleDegrees = 18.0f;
+                _emitter.Radius = 0.12f;
+                _emitter.EmitRate = 260.0f * emitScale;
+                _emitter.LifetimeMin = 0.5f;
+                _emitter.LifetimeMax = 1.0f;
+                _emitter.SpeedMin = 1.2f;
+                _emitter.SpeedMax = 2.2f;
+
+                // **炎は上向きの「重力」**。熱で上がる力を、重力の符号を変えて代用する。
+                // 本当は浮力だが、粒に温度を持たせない限り式は同じ形になる。
+                _emitter.Gravity = new Vector3(0.0f, 1.2f, 0.0f);
+                _emitter.Drag = 1.2f;
+                _emitter.StartSize = 0.42f;
+                _emitter.EndSize = 0.05f;
+                _emitter.SizeJitter = 0.3f;
+                _emitter.StartColor = new Vector4(1.0f, 0.72f, 0.28f, 1.0f);
+                _emitter.EndColor = new Vector4(0.9f, 0.12f, 0.02f, 0.0f);
+                _emitter.SpinRange = 1.5f;
+
+                _sparks.Emitting = true;
+                _sparks.Position = new Vector3(0.0f, 1.05f, 0.0f);
+                _sparks.Shape = ParticleShape.Cone;
+                _sparks.Direction = Vector3.UnitY;
+                _sparks.ConeAngleDegrees = 35.0f;
+                _sparks.Radius = 0.1f;
+                _sparks.EmitRate = 40.0f * emitScale;
+                _sparks.LifetimeMin = 0.8f;
+                _sparks.LifetimeMax = 1.6f;
+                _sparks.SpeedMin = 2.5f;
+                _sparks.SpeedMax = 4.5f;
+                _sparks.Gravity = new Vector3(0.0f, -3.0f, 0.0f);
+                _sparks.Drag = 0.4f;
+                _sparks.StartSize = 0.06f;
+                _sparks.EndSize = 0.01f;
+                _sparks.SizeJitter = 0.5f;
+                _sparks.StartColor = new Vector4(1.0f, 0.95f, 0.7f, 1.0f);
+                _sparks.EndColor = new Vector4(1.0f, 0.4f, 0.1f, 0.0f);
+
+                _particles.Blend = ParticleBlend.Additive;
+                _particles.SortByDepth = false;
+                _intensityIndex = 2;
+                break;
+        }
+
+        ApplyParticleGravity();
+        _particles.Intensity = ParticleIntensities[_intensityIndex];
+    }
+
+    /// <summary>重力の ON/OFF。**設定を壊さずに切る**ため、掛け算で 0 にする。</summary>
+    private static void ApplyParticleGravity()
+    {
+        if (_particleGravity)
+        {
+            return;
+        }
+
+        _emitter.Gravity = Vector3.Zero;
+        _sparks.Gravity = Vector3.Zero;
+    }
+
+    /// <summary>いま使うテクスチャ。**コマ送りする筋書きだけ煙のアトラス**。</summary>
+    private static Texture CurrentParticleTexture() =>
+        _resources.GetTexture(_emitter.FrameCount > 1 ? _smokeTexture : _dotTexture);
+
+    private static void UpdateParticles(float deltaSeconds)
+    {
+        if (!_particleDemo)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+
+        _emitter.Update(deltaSeconds);
+        _sparks.Update(deltaSeconds);
+
+        _particleMilliseconds =
+            (_particleMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+    }
+
+    /// <summary>
+    /// 粒を描く。**不透明なものを全部描いたあと**に呼ぶ。
+    ///
+    /// <para>
+    /// 放出口が2つあっても<b>テクスチャが同じならドローコールは1回</b>。
+    /// <see cref="ParticleRenderer.Draw"/> はテクスチャが変わったときだけ流すので、
+    /// 焚き火の炎と火の粉は同じ1回に畳まれる。
+    /// </para>
+    /// </summary>
+    private static void RenderParticles()
+    {
+        if (!_particleDemo || _playing)
+        {
+            return;
+        }
+
+        Texture texture = CurrentParticleTexture();
+
+        _particles.Begin(_camera);
+        _particles.Draw(_emitter, texture);
+
+        if (_sparks.Count > 0)
+        {
+            // 火の粉は常に丸。煙のアトラスを使う筋書きでは出さない。
+            _particles.Draw(_sparks, _resources.GetTexture(_dotTexture));
+        }
+
+        _particles.End();
+    }
+
+    /// <summary>HUD の1行(Day 49)。**絵から読めないものだけ**。</summary>
+    private static string ParticleLabel()
+    {
+        string blend = _particles.Blend switch
+        {
+            ParticleBlend.Alpha => "アルファ",
+            ParticleBlend.Premultiplied => "事前乗算",
+            _ => "加算",
+        };
+
+        string sort = _particles.SortByDepth
+            ? $"並替:ON {_particles.SortMilliseconds:F2}ms"
+            : "並替:OFF";
+
+        return
+            $"粒:{_emitter.Count + _sparks.Count}/{_emitter.Capacity}  DC:{_particles.DrawCallCount}  "
+            + $"{blend}  {sort}  深度書込:{OnOff(_particles.DepthWrite)}  "
+            + $"x{_particles.Intensity:F0}  更新:{_particleMilliseconds:F2}ms"
+            + (_particles.DroppedCount > 0 ? $"  **捨てた:{_particles.DroppedCount}**" : string.Empty);
+    }
+
+    /// <summary>いまの設定を並べて出す。</summary>
+    private static void DescribeParticles()
+    {
+        Console.WriteLine();
+        Console.WriteLine($"--- パーティクルの内訳({_particleScene})---");
+        Console.WriteLine(
+            $"  生きている粒: {_emitter.Count}(+ 火の粉 {_sparks.Count})/ 容量 {_emitter.Capacity}");
+        Console.WriteLine(
+            $"  放出: {_emitter.EmitRate:F0} 個/秒 × {EmitScales[_emitScaleIndex]:F1}  "
+            + $"寿命 {_emitter.LifetimeMin:F1}〜{_emitter.LifetimeMax:F1}秒");
+        Console.WriteLine(
+            $"  **釣り合いの目安**: 放出 × 寿命 = "
+            + $"{_emitter.EmitRate * (_emitter.LifetimeMin + _emitter.LifetimeMax) * 0.5f:F0} 個"
+            + "(これが容量を超えると粒が撒かれなくなる)");
+        Console.WriteLine(
+            $"  形: {_emitter.Shape}  速さ {_emitter.SpeedMin:F1}〜{_emitter.SpeedMax:F1}m/s  "
+            + $"重力 {_emitter.Gravity.Y:F1}  抵抗 {_emitter.Drag:F1}/s");
+        Console.WriteLine(
+            $"  大きさ: {_emitter.StartSize:F2}m → {_emitter.EndSize:F2}m  "
+            + $"コマ: {_emitter.FlipbookColumns}x{_emitter.FlipbookRows} = {_emitter.FrameCount}");
+        Console.WriteLine(
+            $"  ドローコール: {_particles.DrawCallCount} 回  頂点 {(_emitter.Count + _sparks.Count) * 4} 個  "
+            + $"転送 {(_emitter.Count + _sparks.Count) * 4 * 24 / 1024.0:F0}KB/フレーム");
+    }
+
+    /// <summary>
+    /// **今日の自己チェック**。Day 49。
+    ///
+    /// <para>
+    /// パーティクルは<b>見た目が正しさの唯一の手がかり</b>になりやすい。
+    /// 「なんとなく火っぽい」で通してしまうと、
+    /// 端数の取りこぼしも、円錐の偏りも、寿命の取り違えも、全部そのまま残る。
+    /// ここで確かめるのは<b>数えられるもの</b>だけにしてある。
+    /// </para>
+    /// </summary>
+    private static void RunParticleCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 49: パーティクルの自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 撒く数がフレームレートに依らない(要点5)
+        // ============================================================
+
+        static int EmitOverOneSecond(float step)
+        {
+            var emitter = new ParticleEmitter(capacity: 100000, seed: 1)
+            {
+                EmitRate = 200.0f,
+                LifetimeMin = 100.0f,
+                LifetimeMax = 100.0f,
+                Gravity = Vector3.Zero,
+            };
+
+            for (float time = 0.0f; time < 1.0f - (step * 0.5f); time += step)
+            {
+                emitter.Update(step);
+            }
+
+            return emitter.Count;
+        }
+
+        int at60 = EmitOverOneSecond(1.0f / 60.0f);
+        int at144 = EmitOverOneSecond(1.0f / 144.0f);
+
+        checks.Check(
+            "**60fps でも 144fps でも 1 秒で同じ数**(端数を持ち越している)",
+            Math.Abs(at60 - at144) <= 1 && Math.Abs(at60 - 200) <= 1,
+            $"60fps:{at60} / 144fps:{at144}(理論 200)");
+
+        // ============================================================
+        //  2. 寿命と詰め直し(swap-remove)
+        // ============================================================
+
+        var pool = new ParticleEmitter(capacity: 64, seed: 2)
+        {
+            EmitRate = 0.0f,
+            LifetimeMin = 0.5f,
+            LifetimeMax = 0.5f,
+            Gravity = Vector3.Zero,
+        };
+
+        pool.Burst(40);
+        checks.Check("Burst した数だけ生きている", pool.Count == 40, $"{pool.Count} 個");
+        checks.Check("生きている粒は先頭から連続している", pool.Alive.Length == pool.Count);
+
+        pool.Update(0.3f);
+        checks.Check("寿命の途中では減らない", pool.Count == 40);
+
+        pool.Update(0.3f);
+        checks.Check("**寿命を超えたら全部消える**", pool.Count == 0, $"{pool.Count} 個");
+
+        pool.Burst(1000);
+        checks.Check(
+            "**容量を超えて撒かない**(黙って上書きしない)",
+            pool.Count == 64,
+            $"{pool.Count} / 容量 64");
+
+        // ============================================================
+        //  3. 寿命に沿った値(色・大きさ・コマ)
+        // ============================================================
+
+        var curve = new ParticleEmitter(capacity: 8, seed: 3)
+        {
+            StartColor = new Vector4(1.0f, 0.0f, 0.0f, 1.0f),
+            EndColor = new Vector4(0.0f, 0.0f, 1.0f, 0.0f),
+            StartSize = 1.0f,
+            EndSize = 0.0f,
+            SizeJitter = 0.0f,
+            FlipbookColumns = 4,
+            FlipbookRows = 4,
+        };
+
+        checks.Check("t=0 で StartColor", curve.ColorAt(0.0f) == curve.StartColor);
+        checks.Check("t=1 で EndColor", curve.ColorAt(1.0f) == curve.EndColor);
+        checks.Check(
+            "t=0.5 でちょうど半分",
+            MathF.Abs(curve.ColorAt(0.5f).W - 0.5f) < 1e-5f);
+
+        checks.Check(
+            "揺らぎ 0 なら大きさは補間そのもの",
+            MathF.Abs(curve.SizeAt(0.25f, 0.5f) - 0.75f) < 1e-5f,
+            $"{curve.SizeAt(0.25f, 0.5f):F3}");
+
+        checks.Check("t=0 は先頭のコマ", curve.FrameAt(0.0f) == 0);
+        checks.Check(
+            "**t=1 は最後のコマ**(輪に戻らない)",
+            curve.FrameAt(1.0f) == curve.FrameCount - 1,
+            $"{curve.FrameAt(1.0f)} / {curve.FrameCount - 1}");
+
+        bool frameInRange = true;
+        for (int i = 0; i <= 100; i++)
+        {
+            int frame = curve.FrameAt(i / 100.0f);
+            frameInRange &= frame >= 0 && frame < curve.FrameCount;
+        }
+
+        checks.Check("コマ番号が範囲から出ない", frameInRange);
+
+        // ============================================================
+        //  4. 撒く向きの分布(要点6)
+        // ============================================================
+
+        var cone = new ParticleEmitter(capacity: 4096, seed: 4)
+        {
+            EmitRate = 0.0f,
+            Shape = ParticleShape.Cone,
+            Direction = Vector3.UnitY,
+            ConeAngleDegrees = 20.0f,
+            Radius = 0.0f,
+            SpeedMin = 1.0f,
+            SpeedMax = 1.0f,
+            LifetimeMin = 10.0f,
+            LifetimeMax = 10.0f,
+            Gravity = Vector3.Zero,
+        };
+
+        cone.Burst(2000);
+
+        float cosLimit = MathF.Cos(20.0f * MathF.PI / 180.0f);
+        bool insideCone = true;
+        float meanCos = 0.0f;
+
+        foreach (Particle particle in cone.Alive)
+        {
+            Vector3 direction = Vector3.Normalize(particle.Velocity);
+            float cosine = Vector3.Dot(direction, Vector3.UnitY);
+            insideCone &= cosine >= cosLimit - 1e-4f;
+            meanCos += cosine;
+        }
+
+        meanCos /= cone.Count;
+
+        checks.Check("**全部が円錐の中**(20 度を超えない)", insideCone);
+
+        // cos を一様に振っているので、平均は (1 + cosLimit) / 2 に寄る。
+        // 角度を一様に振ると軸寄りに偏り、平均がこれより大きくなる。
+        float expected = (1.0f + cosLimit) / 2.0f;
+        checks.Check(
+            "**軸のまわりに偏っていない**(cos を一様に振っている)",
+            MathF.Abs(meanCos - expected) < 0.01f,
+            $"平均 cos {meanCos:F4}(理論 {expected:F4})");
+
+        var disc = new ParticleEmitter(capacity: 2048, seed: 5)
+        {
+            EmitRate = 0.0f,
+            Shape = ParticleShape.Disc,
+            Radius = 1.0f,
+            SpeedMin = 0.0f,
+            SpeedMax = 0.0f,
+            LifetimeMin = 10.0f,
+            LifetimeMax = 10.0f,
+            Gravity = Vector3.Zero,
+            Position = Vector3.Zero,
+        };
+
+        disc.Burst(1500);
+
+        bool flat = true;
+        bool insideRadius = true;
+        int inner = 0;
+
+        foreach (Particle particle in disc.Alive)
+        {
+            flat &= MathF.Abs(particle.Position.Y) < 1e-5f;
+
+            float radius = new Vector2(particle.Position.X, particle.Position.Z).Length();
+            insideRadius &= radius <= 1.0f + 1e-4f;
+
+            if (radius <= MathF.Sqrt(0.5f))
+            {
+                inner++;
+            }
+        }
+
+        checks.Check("円盤は水平(Y が 0)", flat);
+        checks.Check("円盤の外に出ない", insideRadius);
+
+        // **面積で一様**なら、半径 1/√2 の内側にちょうど半分入る。
+        // 半径を一様に振ると中心に偏り、ここが 70% ほどになる。
+        float innerRatio = inner / (float)disc.Count;
+        checks.Check(
+            "**面積で一様**(半径 1/√2 の内側が半分)",
+            MathF.Abs(innerRatio - 0.5f) < 0.05f,
+            $"{innerRatio:P1}");
+
+        // ============================================================
+        //  5. 積分と抵抗(要点7)
+        // ============================================================
+
+        var motion = new ParticleEmitter(capacity: 8, seed: 6)
+        {
+            EmitRate = 0.0f,
+            Shape = ParticleShape.Cone,
+            Direction = Vector3.UnitY,
+            ConeAngleDegrees = 0.0f,
+            Radius = 0.0f,
+            SpeedMin = 10.0f,
+            SpeedMax = 10.0f,
+            LifetimeMin = 100.0f,
+            LifetimeMax = 100.0f,
+            Gravity = new Vector3(0.0f, -10.0f, 0.0f),
+        };
+
+        motion.Burst(1);
+        motion.Update(0.1f);
+
+        // セミインプリシット(Day 43 要点1): v を先に進めてから p に足す。
+        //   v = 10 - 10×0.1 = 9      p = 0 + 9×0.1 = 0.9
+        // 陽的オイラーなら p = 0 + 10×0.1 = 1.0 になる。
+        checks.Check(
+            "**セミインプリシット**(速度を先に進める)",
+            MathF.Abs(motion.Alive[0].Position.Y - 0.9f) < 1e-4f,
+            $"Y = {motion.Alive[0].Position.Y:F4}(陽的オイラーなら 1.0)");
+
+        var drag = new ParticleEmitter(capacity: 8, seed: 7)
+        {
+            EmitRate = 0.0f,
+            Shape = ParticleShape.Cone,
+            Direction = Vector3.UnitY,
+            ConeAngleDegrees = 0.0f,
+            Radius = 0.0f,
+            SpeedMin = 10.0f,
+            SpeedMax = 10.0f,
+            LifetimeMin = 100.0f,
+            LifetimeMax = 100.0f,
+            Gravity = Vector3.Zero,
+            Drag = 20.0f,
+        };
+
+        drag.Burst(1);
+
+        // **dt が大きくても符号が反転しない**。(1 - Drag·dt) だと
+        // 20 × 0.5 = 10 で -9 倍になり、粒が逆走して吹き飛ぶ。
+        drag.Update(0.5f);
+
+        checks.Check(
+            "**抵抗で逆走しない**(指数減衰にしてある)",
+            drag.Alive[0].Velocity.Y > 0.0f && drag.Alive[0].Velocity.Y < 10.0f,
+            $"v = {drag.Alive[0].Velocity.Y:F5}(1 - Drag·dt なら -90)");
+
+        // ============================================================
+        //  6. ビルボードの基底(要点1)
+        // ============================================================
+
+        var view = Matrix4x4.CreateLookAt(
+            new Vector3(3.0f, 2.0f, 5.0f), new Vector3(0.0f, 1.0f, 0.0f), Vector3.UnitY);
+
+        var right = new Vector3(view.M11, view.M21, view.M31);
+        var up = new Vector3(view.M12, view.M22, view.M32);
+        var forward = new Vector3(view.M13, view.M23, view.M33);
+
+        checks.Check(
+            "ビュー行列から取った右・上の長さが 1",
+            MathF.Abs(right.Length() - 1.0f) < 1e-5f && MathF.Abs(up.Length() - 1.0f) < 1e-5f);
+
+        checks.Check(
+            "**右と上が直交している**(ビルボードが歪まない)",
+            MathF.Abs(Vector3.Dot(right, up)) < 1e-5f,
+            $"内積 {Vector3.Dot(right, up):E1}");
+
+        // 右 × 上 = 前(視線の逆向き)。ここが逆だと四角形が裏を向く。
+        checks.Check(
+            "右 × 上 がカメラの奥行き軸と一致する",
+            Vector3.Distance(Vector3.Cross(right, up), forward) < 1e-5f);
+
+        // ============================================================
+        //  7. 手続きテクスチャ(要点2)
+        // ============================================================
+
+        byte[] dot = ParticleTextures.CreateSoftDot(64);
+        int center = (((32 * 64) + 32) * 4) + 3;
+        int edge = (((32 * 64) + 2) * 4) + 3;
+
+        checks.Check(
+            "丸の中心が縁より濃い",
+            dot[center] > 240 && dot[edge] < 16,
+            $"中心 {dot[center]} / 縁 {dot[edge]}");
+
+        byte[] smoke = ParticleTextures.CreateSmokeFlipbook(32, 4, 4);
+
+        checks.Check(
+            "コマ送りの大きさが 列×升 になっている",
+            smoke.Length == 128 * 128 * 4,
+            $"{smoke.Length / 4} 画素");
+
+        // **コマ送りは形だけを持ち、消え方は色のカーブに任せる**(要点3)。
+        // ここで 0 まで落とすと、EndColor のアルファ 0 と二重に掛かって煙が見えなくなる。
+        int firstCenter = (((16 * 128) + 16) * 4) + 3;
+        int lastCenter = ((((3 * 32) + 16) * 128) + (3 * 32) + 16) * 4 + 3;
+
+        checks.Check(
+            "最後のコマは先頭より薄い(広がって拡散する)",
+            smoke[lastCenter] < smoke[firstCenter],
+            $"先頭 {smoke[firstCenter]} → 最後 {smoke[lastCenter]}");
+
+        checks.Check(
+            "**最後のコマでも透明になりきらない**(色のカーブと二重に消えない)",
+            smoke[lastCenter] > 40,
+            $"アルファ {smoke[lastCenter]}");
+
+        checks.Report();
     }
 
     /// <summary>
