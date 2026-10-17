@@ -13,7 +13,7 @@ C#で自作ゲームエンジンを写経形式で学ぶリポジトリ。全体
 - `reference/DayXX/`: Claudeが作成するリファレンスコード(答え)。各Dayは独立してビルド・実行可能
 - `work/`: ユーザーが写経・改造するコード。**ユーザーの学習領域。明示的に依頼されない限り編集しないこと**(レビュー時に読むのは可)
   - Dayフォルダは作らず、`Framebuffer` / `SoftwareRasterizer` / `RawGL` / `HonyaEngine` / `Labs` の5系統を継続的に成長させる。区切りはgitのタグ/コミット(`day05` 等)
-  - 教養編のうちシェーダー中心の題材(Day 57・58・63a・63b)は `HonyaEngine/Sandbox` に、エンジンと独立した題材(Day 59〜62・64a〜65c・67)は `Labs` に置く。デモのシーンに効かせる題材(Day 66a のプローブGI)は `HonyaEngine` 本体に入れる。3Dゲーム編(物理・エフェクト)は `HonyaEngine` 本体+`Sandbox`。VRM編(Day 68〜72)はデモのアバターを差し替えるので `HonyaEngine` 本体に入れる(Day 68 は Day 66a のコピー+差分で始める)
+  - 教養編のうちシェーダー中心の題材(Day 57・58・63a・63b)は `HonyaEngine/Sandbox` に、エンジンと独立した題材(Day 59〜62・64a〜65c・67)は `Labs` に置く。デモのシーンに効かせる題材(Day 66a のプローブGI)は `HonyaEngine` 本体に入れる。3Dゲーム編(物理・エフェクト)は `HonyaEngine` 本体+`Sandbox`。VRM編(Day 68〜73)はデモのアバターを差し替えるので `HonyaEngine` 本体に入れる(Day 68 は Day 66a のコピー+差分で始める)
 - `assets/`: 複数Dayで共有する素材(テクスチャ、objモデル、HDRI等)
 
 ## 技術スタック

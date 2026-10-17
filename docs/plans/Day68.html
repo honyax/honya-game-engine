@@ -226,7 +226,7 @@ vec3 indirect = gi * base.rgb;   // 影の色は使わない</code></pre></div>
 <li><strong>どこで</strong> … シーンを描き終えたあと(ディファードなら光を当て終えたあと)、粒の手前。ライティングパスは頭で G-Buffer の深度をシーンのバッファへ写している(Day 52)ので、キャラは壁の陰に入れば隠れる</li>
 <li><strong>灯りは届く8個だけ</strong> … フォワードは光を uniform の配列で渡すしかない。シーンの全部(群れを出せば 1000 個)は渡せない。<strong>キャラは小さい</strong>ので、キャラを包む球に届く光だけを CPU で選び、明るい順に8個まで渡す(<code>MToon.SelectLights</code>)。Unity のフォワードが「1つの物に効く光の数」に上限を持つのと同じ考え方。比べる明るさは<strong>キャラのいちばん近い点で</strong>測る。中心で測ると、肩には当たっているのに中心には届かない大きな光が落ちる(自己チェック6)</li>
 <li><strong>環境光はプローブをそのまま</strong> … MToon の環境光は「その向きの放射照度」を3回(法線・真上・真下)引くだけなので、空1枚(IBL)でも格子(Day 66a のプローブ)でも同じ関数で済む。<code>ProbeSh</code> / <code>ProbeIrradiance</code> は textured.frag から1文字も変えずに写した(自己チェック15)</li>
-<li><strong>速度バッファにも載せる</strong> … <code>Program.Draw</code> を通らないので、<code>_motion.Record</code> を自分で呼ぶ。載せないと、キャラが動いたとき(Day 72)に TAA が「カメラの動きだけ」で前のフレームを引き、残像が出る</li>
+<li><strong>速度バッファにも載せる</strong> … <code>Program.Draw</code> を通らないので、<code>_motion.Record</code> を自分で呼ぶ。載せないと、キャラが動いたとき(Day 73)に TAA が「カメラの動きだけ」で前のフレームを引き、残像が出る</li>
 <li><strong>影は落とす、SSAO には入れない</strong> … 影パスは G-Buffer と無関係なので、キャラも焼く(床と壁に影が落ち、髪の影が顔に落ちる)。SSAO はディファードでは G-Buffer から作るので、キャラが居ない。フォワードのときだけ入れると、描き方を切り替えたときに足元の暗がりが出たり消えたりするので、<strong>どちらでも入れない</strong>(今日残した歪みの1つ目)</li>
 </ul>
 <p>結果、F9 でシーンを Forward+ ↔ ディファードに切り替えても、<strong>キャラの描き方は1行も変わらない</strong>。変わるのは背景だけだ。</p>
@@ -350,7 +350,7 @@ vec3 indirect = gi * base.rgb;   // 影の色は使わない</code></pre></div>
   <li><span class="no">5</span><div>
     <div class="what">プローブの球・粒・速度・後処理(TAA・被写界深度・ブルーム)</div>
     <div class="rw"><span>読む <b>キャラを含む深度と速度</b></span></div>
-    <div class="swap">キャラを速度に載せないと: 動いたときに TAA の残像が出る(Day 72 で効く)</div>
+    <div class="swap">キャラを速度に載せないと: 動いたときに TAA の残像が出る(Day 73 で効く)</div>
   </div></li>
 </ol>
 
@@ -377,7 +377,7 @@ vec3 indirect = gi * base.rgb;   // 影の色は使わない</code></pre></div>
 <h3 id="s21">今日残した歪み</h3>
 <p><strong>1つ目: SSAO にキャラが居ない</strong>。足元と服の重なりに暗がりが出ない。ディファードの SSAO は G-Buffer から作り、キャラは G-Buffer に居ないため。直すなら、キャラの法線と距離だけを SSAO の入力に描き足す(G-Buffer の2枚目と同じ形式で、キャラのパスの前に)。</p>
 <p><strong>2つ目: 影パスはアルファを見ない</strong>(<code>depth.frag</code> は空っぽ)。髪の毛先は四角いまま影に落ちる(改造課題3)。</p>
-<p><strong>3つ目: 置き場所と光の差し替えが <code>Program.cs</code> に直書き</strong>(<code>VrmAlleySpot</code> / <code>VrmAlleyYaw</code> / <code>VrmStageLight*</code>)。Day 72 でデモの主役に差し替えるときは、<code>demo-final.json</code> の <code>player</code> の出現位置を使うことになる。</p>
+<p><strong>3つ目: 置き場所と光の差し替えが <code>Program.cs</code> に直書き</strong>(<code>VrmAlleySpot</code> / <code>VrmAlleyYaw</code> / <code>VrmStageLight*</code>)。Day 73 でデモの主役に差し替えるときは、<code>demo-final.json</code> の <code>player</code> の出現位置を使うことになる。</p>
 <p><strong>4つ目: 頂点を4倍持っている</strong>。VRoid は1つのメッシュの全プリミティブで同じ頂点の並び(顔 4,060 個・体 7,964 個・髪 8,435 個)を共有するが、ローダーはプリミティブごとに <code>Mesh</code> を作るので、15 本のバッファに 94,016 頂点(1頂点 96 バイトで 9.0MB)を持つ。共有すれば 20,459 頂点(2.0MB)で済む。glTF は「同じアクセサを複数のプリミティブが指す」のを許しているので、アクセサの番号で頂点バッファを使い回せばよい。</p>
 <p><strong>5つ目: UV アニメーションと <code>KHR_texture_transform</code> を読まない</strong>。今日のアバターは全部 0 / 単位なので絵は変わらない(改造課題2)。</p>
 <p><strong>6つ目: 選ぶ灯りが入れ替わる瞬間に明るさが飛ぶ</strong>。8個の枠からあふれた9番目の灯りは、キャラが近づいて順位が上がった瞬間に 0 から全部へ跳ねる。今日の裏通りは届く灯りが1個なので起きない。群れ(Day 52)の中を歩かせると見える。</p>
