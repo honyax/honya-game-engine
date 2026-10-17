@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 71 VRM アニメーション</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+  #gaze-canvas { cursor: crosshair; touch-action: none; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model の2本と、AnimationPlayer の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. VRMA は「描くものの無い glTF」で、拡張は名札だけ</a></li><li class="l3"><a href="#s7">2. 休みの回転がそろっていない — 正規化</a></li><li class="l3"><a href="#s8">3. アバターへ戻す — 同じ式を、反対向きに</a></li><li class="l3"><a href="#s9">4. 腰の移動 — 背丈の比で縮める</a></li><li class="l3"><a href="#s10">5. 表情 — translation.x がそのまま重み</a></li><li class="l3"><a href="#s11">6. 視線 — yaw と pitch、rangeMap、内と外</a></li><li class="l3"><a href="#s12">7. クリップの切り替え — 位相同期を切る</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">VRMA はプレイヤーを知らず、プレイヤーは VRMA を知らない</a></li><li class="l3"><a href="#s19">写すのは読み込みのとき — three-vrm との違い</a></li><li class="l3"><a href="#s20">1フレームの中のアニメーション — 順番がそのまま設計</a></li><li class="l3"><a href="#s21">今日残した歪み</a></li><li class="l3"><a href="#s22">試して分かったこと</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. F2: クリップを流す</a></li><li class="l3"><a href="#s25">2. F3 / F4: 写し方</a></li><li class="l3"><a href="#s26">3. F5 / F6 / F7: 表情と視線</a></li><li class="l3"><a href="#s27">4. F8: 切り替え</a></li><li class="l3"><a href="#s28">5. Day 70 までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">6. F12: 自己チェック(13 項目すべて合格)</a></li><li class="l3"><a href="#s30">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): カメラを見るとき、首も少し回す</a></li><li class="l3"><a href="#s33">課題2(中): 1回だけ流して、最後の姿勢で止める</a></li><li class="l3"><a href="#s34">課題3(難): アバターに無い骨のキーを、子の骨へ寄せる</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 71 / 計画書</p>
+  <h1>VRM アニメーション — 正規化された骨で、体・表情・視線を同じ時刻で流す</h1>
+  <p class="lede">.vrma のキーを「休みの姿勢からの回り方」に直してアバターの骨へ写し、Day 41〜42 の再生と混ぜ方にそのまま乗せる</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model の2本と、AnimationPlayer の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. VRMA は「描くものの無い glTF」で、拡張は名札だけ</a></li><li class="l3"><a href="#s7">2. 休みの回転がそろっていない — 正規化</a></li><li class="l3"><a href="#s8">3. アバターへ戻す — 同じ式を、反対向きに</a></li><li class="l3"><a href="#s9">4. 腰の移動 — 背丈の比で縮める</a></li><li class="l3"><a href="#s10">5. 表情 — translation.x がそのまま重み</a></li><li class="l3"><a href="#s11">6. 視線 — yaw と pitch、rangeMap、内と外</a></li><li class="l3"><a href="#s12">7. クリップの切り替え — 位相同期を切る</a></li><li class="l2"><a href="#s13">前Dayからの差分概要</a></li><li class="l3"><a href="#s14">新規ファイル</a></li><li class="l3"><a href="#s15">変更ファイル</a></li><li class="l3"><a href="#s16">写経する順番</a></li><li class="l2"><a href="#s17">設計書</a></li><li class="l3"><a href="#s18">VRMA はプレイヤーを知らず、プレイヤーは VRMA を知らない</a></li><li class="l3"><a href="#s19">写すのは読み込みのとき — three-vrm との違い</a></li><li class="l3"><a href="#s20">1フレームの中のアニメーション — 順番がそのまま設計</a></li><li class="l3"><a href="#s21">今日残した歪み</a></li><li class="l3"><a href="#s22">試して分かったこと</a></li><li class="l2"><a href="#s23">完成条件</a></li><li class="l3"><a href="#s24">1. F2: クリップを流す</a></li><li class="l3"><a href="#s25">2. F3 / F4: 写し方</a></li><li class="l3"><a href="#s26">3. F5 / F6 / F7: 表情と視線</a></li><li class="l3"><a href="#s27">4. F8: 切り替え</a></li><li class="l3"><a href="#s28">5. Day 70 までの機能が全部生きていること</a></li><li class="l3"><a href="#s29">6. F12: 自己チェック(13 項目すべて合格)</a></li><li class="l3"><a href="#s30">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s31">改造課題</a></li><li class="l3"><a href="#s32">課題1(易): カメラを見るとき、首も少し回す</a></li><li class="l3"><a href="#s33">課題2(中): 1回だけ流して、最後の姿勢で止める</a></li><li class="l3"><a href="#s34">課題3(難): アバターに無い骨のキーを、子の骨へ寄せる</a></li><li class="l2"><a href="#s35">動作確認済み環境</a></li><li class="l3"><a href="#s36">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 68〜70 でアバターは絵になり、顔が動き、髪が揺れるようになった。ただし体は、Day 70 で手で首や腰を振った以外は T ポーズのまま。今日は VRM アニメーション(<code>.vrma</code>)を読んで体を動かす。</p>
+<p>VRMA の中身は、拡張子が違うだけの glTF のアニメーションだ。Day 41 のローダーで読めるし、Day 42 のプレイヤーで流せる。<strong>ところがキーをそのままアバターの骨へ書くと、腕があらぬ方へ向く</strong>。キーは「ファイルの骨のローカルの回転」で書かれていて、骨の休みの回転(T ポーズのときのローカルの回転)がファイルごと・アバターごとに違うからだ。今日の主題はこの食い違いを消す<strong>正規化</strong>で、それさえ済めば、表情(表情ノードの <code>translation.x</code>)と視線(視線ノードの回転)は「ノードのアニメーションの形を借りた値」として同じ時刻で読むだけになる。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「VRMのアニメーション」ページで <code>F2</code> を押すと、VRMビューアが出てアバターが右手を挙げて手を振り、笑って、左右を見る。髪は Day 70 の揺れもので体についてくる。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「VRMのアニメーション」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>クリップ: 止める → <code>honya-wave</code>(今日の自作)→ <code>test</code>(three-vrm の見本)→ 7種セットを置いていれば <code>VRMA_01</code>〜<code>VRMA_07</code>。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>正規化: する ↔ しない(キーをそのまま同じ名前の骨へ)。<strong>test で切ると、下ろすはずの腕が横へ伸びたままねじれる</strong></td></tr>
+<tr><td><code>F4</code></td><td>腰の高さを合わせる: 背丈の比で縮める ↔ そのまま。honya-wave で切ると、腰が 10cm 上がって足が床から浮く</td></tr>
+<tr><td><code>F5</code></td><td>表情のトラック: 当てる ↔ 当てない(表情は「VRMの表情」のページの選択のまま)</td></tr>
+<tr><td><code>F6</code></td><td>視線: VRMA のとおり → カメラを見る → 正面のまま</td></tr>
+<tr><td><code>F7</code></td><td>目の範囲: ファイルの rangeMap ↔ 角度そのまま。<strong>そのままだと白目をむく</strong></td></tr>
+<tr><td><code>F8</code></td><td>切り替え: 0.3 秒で混ぜる ↔ 即座(Day 42 のクロスフェード)</td></tr>
+<tr><td><code>F9</code></td><td>顔に寄る(「VRMビューア」の F6 と同じ。視線と表情は顔に寄って見る)</td></tr>
+<tr><td><code>F10</code></td><td>スロー: x1 ↔ x0.25(「VRMの揺れもの」の F9 と同じスイッチ)</td></tr>
+<tr><td><code>F11</code></td><td>内訳(読んだ VRMA ごとの骨・表情・視線のキー、休みの回転、腰の高さ、写し方ごとのずれ、アバターの視線の設定)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(13 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「VRMのアニメーション」(33 枚目)が直接開く。どの項目も、VRMビューアが出ていなければ出してから効く。<strong>VRMビューアを出さない限り、今日の差分は読み込みのとき以外1行も通らない</strong>(毎フレームの <code>UpdateVrmAnimation</code> は <code>_vrmDemo</code> で、表情と視線は Day 69・70 の関数の中で守られている)。<code>.vrma</code> を読むのは、初めて <code>F2</code> を押したとき(1本 0.5〜0.7ms)。</p>
+
+<figure class="lab" id="norm-lab">
+  <div class="lab-head">
+    <h3>実験台: 同じ動きが、ファイルごとに違うキーになる</h3>
+    <span class="tag">要点2〜3。右の上腕1本。左がファイルの骨の木、右がアバター。正規化と戻す式は reference/Day71 の VrmAnimation.Normalize / Denormalize と同じ形(骨の休みの回転は、このページで決めた値)</span>
+  </div>
+  <canvas id="norm-canvas" style="height:300px" aria-label="ファイルの腕とアバターの腕"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">ファイルの休みの回転</span>
+      <div class="seg" id="norm-file">
+        <button data-v="unit" aria-pressed="false">単位(UniVRM 流)</button><button data-v="blender" aria-pressed="true">ばらばら(Blender 流)</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">動き(世界の向きで)</span>
+      <div class="seg" id="norm-motion">
+        <button data-v="down" aria-pressed="true">腕を下ろす</button><button data-v="forward" aria-pressed="false">前へ上げる</button><button data-v="twist" aria-pressed="false">ねじる</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">角度</span><div class="range"><input type="range" id="norm-angle" min="0" max="90" step="1" value="60"><output id="norm-angle-out"></output></div></div>
+    <div class="ctl"><span class="label">写し方(F3)</span>
+      <div class="seg" id="norm-map">
+        <button data-v="normalize" aria-pressed="true">正規化して写す</button><button data-v="raw" aria-pressed="false">キーをそのまま</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="norm-stats"></div><p id="norm-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「キーの数字そのものには、動きの意味が無い」</strong>。VRMA のキーはファイルの骨のローカルの回転で、骨の休みの回転の上に掛ける値だ。three-vrm の見本 <code>test.vrma</code>(Blender で書いた)は 51 本の骨の休みの回転が全部ばらばらで、同じ「腕を下ろす」でも、休みの回転が単位のファイルとはまったく違う数字になる。上の実験台で「ファイルの休みの回転」を切り替えると、キーの値が変わる。</p>
+<p><strong>2つ目は「間に、世界にそろえた物差しを1つ挟む」</strong>。キーを一度<strong>正規化された回転</strong>(休みの姿勢からどれだけ回ったかを、世界にそろえた向きで書いたもの)に直し、アバターの休みの回転で戻す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// VrmAnimation.CreateClip(Day 71)。three-vrm の VRMAnimationLoaderPlugin と VRMHumanoidRig を1本にした形
+正規化   N = P x q x C^-1          // P, C = ファイルの「祖先の骨」と「この骨」の休みの世界の回転
+戻す     r = W^-1 x N x W x R      // W = アバターの親ノードの休みの世界の回転、R = 骨の休みのローカルの回転
+まとめて r = A x q x B             // A = W^-1 x P、B = C^-1 x W x R(骨ごとの定数)</code></pre></div>
+<p><strong>3つ目は「写すのは読み込みのとき1回」</strong>。両側から決まった回転を掛けるだけなので、キーを写してから補間しても、補間してから写しても同じになる。だからキーを1回だけ写した <code>AnimationClip</code> を作れば、再生・ブレンド・クロスフェードは Day 41〜42 の道をそのまま通る。<code>AnimationPlayer</code> は VRMA のことを何も知らない。</p>
+
+<h3 id="s3">今日は Model の2本と、AnimationPlayer の口</h3>
+<p>新規は <code>Model/VrmAnimation.cs</code>(VRMA を読んで、アバターのノードへ写したクリップを作る)と <code>Model/VrmLookAt.cs</code>(視線を目の骨の回転に直す)の2本。変更は <code>AnimationPlayer</code>(クリップの表を外から渡す口・クリップごとの時刻)、<code>AnimationClip</code>(キーを写す <code>Map</code>)、<code>GltfLoader</code>(メッシュを読まない道)、<code>VrmAvatar</code>(クリップを持って切り替え、表情と視線を読み出す)、そして <code>Program.cs</code>。</p>
+<p><strong>キャラを描く側は今日も1行も変わっていない</strong>。アニメーションが書き換えるのはノードの姿勢だけで、関節行列を作るのは Day 41 からの <code>AnimationPlayer</code>。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm_animation-1.0/README.ja.md">VRMC_vrm_animation-1.0 の README.ja.md</a> — 一次資料。<code>humanoid.humanBones</code>(骨 → ノード)、T ポーズの約束(回転は任意)、移動を持ってよいのは hips だけ、表情は <code>translation.x</code>、視線はノードの回転(+Z が正面、Y まわりが yaw・X まわりが pitch)、読むのは最初のアニメーションだけ</li>
+<li><a href="https://github.com/vrm-c/vrm-specification/tree/master/specification/VRMC_vrm-1.0">VRMC_vrm-1.0 の lookAt</a> — 視線の型(bone / expression)、<code>offsetFromHeadBone</code>、<code>rangeMapHorizontalInner</code> / <code>Outer</code> / <code>VerticalDown</code> / <code>Up</code>(入力の上限と出力の倍率)</li>
+<li><a href="https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm-animation/src">three-vrm の three-vrm-animation</a> — 実装の手本。<code>VRMAnimationLoaderPlugin.ts</code> の <code>_parseAnimation</code>(キーを正規化する式 <code>a' = p x a x c^-1</code>、腰の移動、表情と視線の振り分け)と <code>createVRMAnimationClip.ts</code>(腰の高さの比)</li>
+<li><a href="https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm-core/src">three-vrm の three-vrm-core</a> — <code>humanoid/VRMHumanoidRig.ts</code>(正規化された骨 → アバターの骨)と <code>lookAt/VRMLookAtBoneApplier.ts</code>(rangeMap と内外)</li>
+<li>Day 42 の計画書(ブレンドとクロスフェード)— 今日の切り替えは Day 42 の <code>SetBlend</code> そのもの。違うのは位相同期を切ること(要点7)</li>
+<li>Day 68 の計画書(ヒューマノイドの骨の表)・Day 69 の計画書(表情の重み)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. VRMA は「描くものの無い glTF」で、拡張は名札だけ</h3>
+<p>VRMA の中身は、骨の木(T ポーズ)と普通の glTF のアニメーション。拡張 <code>VRMC_vrm_animation</code> は「どのノードが何か」を書くだけで、動きそのものは全部チャンネルのキーにある。</p>
+<div class="table-wrap"><table><thead><tr><th>動き</th><th>拡張が名指すもの</th><th>チャンネル</th><th>読み方</th></tr></thead><tbody>
+<tr><td>体</td><td><code>humanoid.humanBones</code>(骨の名前 → ノード)</td><td>回転(hips だけは移動も)</td><td>正規化してアバターの骨へ写す(要点2〜4)</td></tr>
+<tr><td>表情</td><td><code>expressions.preset</code> / <code>custom</code>(表情の名前 → ノード)</td><td>移動</td><td><strong><code>translation.x</code> がそのまま重み</strong>。y と z は使わない(要点5)</td></tr>
+<tr><td>視線</td><td><code>lookAt.node</code></td><td>回転</td><td>+Z を回した向きから yaw と pitch(要点6)</td></tr>
+</tbody></table></div>
+<p>メッシュを1つも持たないので、Day 32 からの <code>GltfLoader.Load</code> は「描けるメッシュが1つもありません」で止まる。そこで<strong>ノードの木とアニメーションの段だけを通る口</strong>(<code>GltfLoader.LoadAnimations</code>)を開けた。GL に触らないので、窓を開く前でも、自己チェックからでも読める。</p>
+<p>今日流すのは2本(どちらもリポジトリに入っている)と、各自が置く7種セット。</p>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>長さ</th><th>キー</th><th>骨の休みの回転</th><th>腰の高さ</th></tr></thead><tbody>
+<tr><td><code>honya-wave.vrma</code>(今日の自作。<code>assets/vrma/make_honya_wave.py</code>)</td><td>4.00 秒</td><td>腰の移動・6本の回転・happy と aa・視線</td><td>20 本とも単位(UniVRM 流)</td><td>1.000m</td></tr>
+<tr><td><code>test.vrma</code>(three-vrm の見本)</td><td>3.00 秒</td><td>右の上腕・happy・視線の3本だけ</td><td><strong>51 本とも単位でない</strong>(Blender 流)</td><td>0.850m</td></tr>
+<tr><td><code>VRMA_01</code>〜<code>07</code>(VRoid の7種セット。各自で入手)</td><td colspan="4">リポジトリに入れない(利用条件で取り出せる形の再配布が禁止)。置けば F2 に並び、流している間は HUD にクレジットを出す</td></tr>
+</tbody></table></div>
+
+<h3 id="s7">2. 休みの回転がそろっていない — 正規化</h3>
+<p>骨のローカルの回転は「親から見た向き」で、休みの姿勢でも単位とは限らない。Blender は骨の +Y を骨の伸びる向きに合わせるので、横へ伸びる腕の骨は休みの姿勢で 90 度回っている。VRoid の AvatarSample_A も、腰が 7.2 度、目の骨が 23.1 度傾いた休みの回転を持つ。</p>
+<p>正規化された回転は、<strong>休みの姿勢からどれだけ回ったかを、世界にそろえた向きで</strong>書いたものだ。骨の世界の回転を「回り方 x 休みの世界の回転」に分けたときの「回り方」で、正規化された骨の木では、親子が順に掛け合わさる(<code>世界 = 親の回り方 x 子の回り方 x 休みの世界</code>)。</p>
+<svg viewBox="0 0 720 200" role="img" aria-label="ファイルのキーから正規化された回転を経てアバターの回転へ写す図" style="width:100%;max-width:720px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow71" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <rect x="10" y="40" width="200" height="80" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="110" y="64" text-anchor="middle">ファイルのキー q</text>
+    <text x="110" y="86" text-anchor="middle" font-size="11" fill="var(--muted)">ファイルの骨のローカルの回転</text>
+    <text x="110" y="104" text-anchor="middle" font-size="11" fill="var(--muted)">休みの回転はファイルごとに違う</text>
+    <rect x="260" y="40" width="200" height="80" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="360" y="64" text-anchor="middle">正規化された回転 N</text>
+    <text x="360" y="86" text-anchor="middle" font-size="11" fill="var(--muted)">休みの姿勢からの回り方</text>
+    <text x="360" y="104" text-anchor="middle" font-size="11" fill="var(--muted)">世界にそろえた向き(どのファイルでも同じ)</text>
+    <rect x="510" y="40" width="200" height="80" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="610" y="64" text-anchor="middle">アバターの回転 r</text>
+    <text x="610" y="86" text-anchor="middle" font-size="11" fill="var(--muted)">アバターの骨のローカルの回転</text>
+    <text x="610" y="104" text-anchor="middle" font-size="11" fill="var(--muted)">休みの回転はアバターごとに違う</text>
+    <text x="235" y="30" text-anchor="middle" fill="var(--accent)">N = P x q x C^-1</text>
+    <text x="485" y="30" text-anchor="middle" fill="var(--accent)">r = W^-1 x N x W x R</text>
+    <text x="360" y="160" text-anchor="middle" fill="var(--muted)" font-size="12">読み込みのとき、骨ごとの定数 A = W^-1 x P と B = C^-1 x W x R を作り、キーを r = A x q x B へ1回だけ写す</text>
+    <text x="360" y="180" text-anchor="middle" fill="var(--muted)" font-size="12">キーをそのまま書く(F3 を切る)と、q を r の場所へ直接入れることになる</text>
+  </g>
+  <g stroke="var(--accent)" stroke-width="2" fill="none" marker-end="url(#arrow71)">
+    <path d="M212,80 L256,80"/><path d="M462,80 L506,80"/>
+  </g>
+</svg>
+<p>正規化の式 <code>N = P x q x C^-1</code> の <code>P</code> は<strong>いちばん近い祖先の骨</strong>の休みの世界の回転、<code>C</code> はこの骨の休みの世界の回転(拡大は見ない)。親が骨のとき休みの姿勢のキーは <code>q = P^-1 x C</code> なので、<code>N</code> は単位になる(自己チェック1)。間に骨でないノードが挟まっていても祖先の骨まで登るのは、正規化された骨の木が骨だけでできているから。</p>
+<p>実験台で「キーをそのまま」にして、ファイルの休みの回転を切り替えると、ずれの大きさが変わる。<strong>ファイルが UniVRM 流(単位)でもずれる</strong>のは、アバターの休みの回転(ここでは腰の傾き)のほうも単位でないから。実機では test.vrma をそのまま当てると最大 77.7 度、honya-wave でも最大 11.9 度ずれる(自己チェック11)。</p>
+
+<h3 id="s8">3. アバターへ戻す — 同じ式を、反対向きに</h3>
+<p>正規化された回転を、アバターの骨のローカルの回転へ戻す。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// VrmAnimation.Denormalize。three-vrm の VRMHumanoidRig.update と同じ式
+public static Quaternion Denormalize(Quaternion normalized, Quaternion parentRestWorld, Quaternion restLocal) =>
+    Quaternion.Inverse(parentRestWorld) * normalized * parentRestWorld * restLocal;</code></pre></div>
+<ul>
+<li><code>W^-1 x N x W</code> は「世界にそろえた向きの回り方 N を、親の休みの向きから見直したもの」。それを骨の休みの回転 <code>R</code> の上に掛ける</li>
+<li><code>W</code> はアバターの<strong>親ノード</strong>(骨とは限らない)の休みの世界の回転。親が回り方 N<sub>親</sub> で動いていれば、骨の世界の回転は <code>N<sub>親</sub> x W x W^-1 x N x W x R = N<sub>親</sub> x N x (W x R)</code> になり、正規化された木の掛け算とそろう(自己チェック2)</li>
+<li>System.Numerics の <code>Quaternion</code> の <code>*</code> はハミルトン積で、<strong>右を先に回す</strong>(<code>a * b</code> は b のあとに a)。行列(行ベクトル規約)の <code>Ma * Mb</code> とは並びが逆になる。<code>AnimationPlayer</code> の <code>local * _world[parent]</code> は、クォータニオンなら <code>親 * local</code></li>
+</ul>
+<p>キーごとの写しは <code>A x q x B</code> で、<strong>補間とぶつからない</strong>。両側から決まった回転を掛けるのは球面の上の距離を変えないので、2つのキーの間の slerp の道筋がそのまま写る。だから <code>AnimationClip.Sampler.Map</code> でキーを1回写せば、あとは Day 41 の <code>SampleRotation</code> がそのまま使える。</p>
+<p>実機の自己チェック10 は、ファイルの骨の木も <code>AnimationPlayer</code> で同じ時刻まで流し、<strong>両方にある骨の「回り方」を比べる</strong>。test.vrma(Blender 流)でも honya-wave(UniVRM 流)でも、8 つの時刻のずれの最大は 0.000 度(ファイルの骨は最大 60.0 度・118.4 度回っている)。</p>
+
+<h3 id="s9">4. 腰の移動 — 背丈の比で縮める</h3>
+<p>移動のキーを持ってよいのは hips だけ(仕様)。腰の移動は「hips の親から見た位置」なので、ファイルの hips の親の休みの世界の行列で世界の位置にし、<strong>アバターの腰の高さ ÷ ファイルの腰の高さ</strong>で縮めてから、アバターの hips の親の座標へ戻す。</p>
+<div class="table-wrap"><table><thead><tr><th>クリップ</th><th>ファイルの腰の高さ</th><th>AvatarSample_A の腰の高さ</th><th>比</th><th>縮めないと</th></tr></thead><tbody>
+<tr><td>honya-wave</td><td>1.000m</td><td>0.895m</td><td>0.8954</td><td><strong>腰が 10.4cm 上がり、足が床から浮く</strong>(自己チェック12)</td></tr>
+<tr><td>test</td><td>0.850m</td><td>0.895m</td><td>1.053</td><td>test は腰の移動を持たないので変わらない</td></tr>
+</tbody></table></div>
+<p>ほかの骨の移動は捨てる(仕様で禁止。背丈の違うアバターに当てると、腕が伸び縮みする)。骨の長さはアバターのまま、回り方だけを写すのがヒューマノイドのリターゲットの基本形だ。</p>
+
+<h3 id="s10">5. 表情 — translation.x がそのまま重み</h3>
+<p>表情ごとのノードの移動の x 成分を、同じ名前の表情の重みとして読む(<code>VrmAnimation.SampleExpression</code>)。重みは 0〜1 に収める(仕様。範囲の外の値を受け取ったら、実装が収める)。表情の名前はプリセットなら約束があるので(Day 69 の要点)、どのアバターにも同じ呼び方で書ける。</p>
+<ul>
+<li><strong>キーを持たない表情には触らない</strong>。test は happy しか持たないので、まばたき(Day 69 の自動まばたき)も口も、メニューの選択のまま動き続ける</li>
+<li><strong>VRMA の表情は最後に書く</strong>(<code>UpdateVrmFace</code> の、自動まばたきの行の後ろ)。メニューの重みを寄せる <code>Fade</code> より前に書くと、寄せる途中で VRMA の値が目標の値へ引き戻される</li>
+<li>クリップを混ぜている間は、表情も体と同じ重みで混ぜる。片方のクリップにしか無い表情は、無いほうを 0 として混ぜる(出ていくクリップの笑顔は、出ていくのに合わせて消える)</li>
+<li>表情は体と<strong>同じクリップの時刻</strong>で読む(<code>AnimationPlayer.ClipTime</code> を開けた)。だから体を先に進め(<code>UpdateVrmAnimation</code>)、そのあとで表情を書く</li>
+</ul>
+
+<h3 id="s11">6. 視線 — yaw と pitch、rangeMap、内と外</h3>
+<p>視線ノードの回転で +Z を回し、その向きから yaw(Y まわり。左 = +X が正)と pitch(上が正)を出す。仕様の「Extrinsic ZXY」(Y → X の順のオイラー角)と同じで、Z まわりは捨てる。</p>
+<p><strong>見たい角度をそのまま目に渡さない</strong>。目の玉は顔の中で 10 度ほどしか回らず、それ以上回すと瞳が顔の外へ出る(白目をむく)。そこで <code>rangeMap</code> で縮める。</p>
+<div class="table-wrap"><table><thead><tr><th>表(AvatarSample_A の値)</th><th>使う場面</th><th>見たい角度 → 目の角度</th></tr></thead><tbody>
+<tr><td><code>rangeMapHorizontalOuter</code>(90 → 12)</td><td>左を見るときの左目、右を見るときの右目(<strong>外へ</strong>)</td><td>45 度 → 6 度、90 度以上 → 12 度</td></tr>
+<tr><td><code>rangeMapHorizontalInner</code>(90 → 8)</td><td>左を見るときの右目、右を見るときの左目(<strong>鼻の側へ</strong>)</td><td>45 度 → 4 度</td></tr>
+<tr><td><code>rangeMapVerticalUp</code> / <code>Down</code>(90 → 10)</td><td>上下(両目同じ)</td><td>45 度 → 5 度</td></tr>
+</tbody></table></div>
+<p>決めた角度は、目の骨の<strong>正規化された回転</strong>(Y まわり yaw・X まわり pitch)として <code>Denormalize</code> で戻す。AvatarSample_A の目の骨は休みの回転が 23.1 度傾いているので、ローカルの回転に直接 yaw を掛けると斜めに回る(自己チェック5 が、世界の向きで左目 6.00 度・右目 4.00 度になることを確かめる)。</p>
+<p>「カメラを見る」(F6)は、目の位置(頭の骨から <code>offsetFromHeadBone</code> = 6cm 上)からカメラへの向きを、<strong>休みの頭の向きで</strong>測る。首を振っていても(「VRMの揺れもの」の F2)、目は振った首を打ち消すように回る。</p>
+
+<figure class="lab" id="gaze-lab">
+  <div class="lab-head">
+    <h3>実験台: 視線と rangeMap</h3>
+    <span class="tag">要点6。頭を上から見た図(顔は下向き、左目が右側)。カメラの点はドラッグで動かせる。表の値と内外の振り分けは reference/Day71 の VrmLookAt.MapAngles と同じ</span>
+  </div>
+  <canvas id="gaze-canvas" style="height:320px" aria-label="頭を上から見た図と、見たい角度と目の角度の表"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">目の範囲(F7)</span>
+      <div class="seg" id="gaze-range">
+        <button data-v="file" aria-pressed="true">ファイルの rangeMap</button><button data-v="full" aria-pressed="false">角度そのまま</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">上下(見たい pitch)</span><div class="range"><input type="range" id="gaze-pitch" min="-60" max="60" step="1" value="0"><output id="gaze-pitch-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="gaze-stats"></div><p id="gaze-note"></p></div>
+</figure>
+
+<h3 id="s12">7. クリップの切り替え — 位相同期を切る</h3>
+<p>切り替えは Day 42 の <code>SetBlend</code>(重みを付けて2本を混ぜる)そのもので、0.3 秒かけて出ていくクリップの重みを 1 → 0、入ってくるクリップの重みを 0 → 1 にする(<code>VrmAvatar.UpdateAnimation</code>)。違うのは<strong>位相同期を切る</strong>こと。</p>
+<ul>
+<li>Day 42 の歩きと走りは、長さの違う2本を「1周のどこか」(位相)でそろえて混ぜた。足の運びが同じ動きだから成り立つ</li>
+<li>VRMA どうしは別々の動き。位相をそろえると、入ってくるクリップが頭からではなく、<strong>出ていくクリップと同じ割合の位置から</strong>始まってしまう</li>
+<li>そこで <code>SyncPhase = false</code> にし(クリップごとに自分の時刻で回る)、入ってくるクリップだけを頭へ戻す口 <code>RestartClip</code> を開けた(<code>Rewind</code> は全部を戻してしまう)</li>
+</ul>
+<p>即座に切り替えると、honya-wave から test へ移った瞬間に右の上腕が 1 フレームで 78.3 度飛ぶ。0.3 秒混ぜると、1 フレームの最大は 9.8 度(test の腕の振りそのものが 1 フレーム 3 度ほど)。</p>
+
+<figure class="lab" id="fade-lab">
+  <div class="lab-head">
+    <h3>実験台: 切り替えの重みと、入ってくるクリップの時刻</h3>
+    <span class="tag">要点5・7。1.5 秒で手を振るクリップ(A)から腕を下ろすクリップ(B)へ移る。腕の角度は動作イメージのための 1 本の数(実機は骨ごとのクォータニオンを混ぜる)</span>
+  </div>
+  <canvas id="fade-canvas" style="height:260px" aria-label="切り替えの前後の腕の角度と表情の重み"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">切り替え(F8)</span>
+      <div class="seg" id="fade-mode">
+        <button data-v="cross" aria-pressed="true">混ぜる</button><button data-v="instant" aria-pressed="false">即座</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">混ぜる秒数</span><div class="range"><input type="range" id="fade-sec" min="0.05" max="1" step="0.05" value="0.3"><output id="fade-sec-out"></output></div></div>
+    <div class="ctl"><span class="label">入ってくるクリップの時刻</span>
+      <div class="seg" id="fade-start">
+        <button data-v="head" aria-pressed="true">頭から(今日)</button><button data-v="phase" aria-pressed="false">位相をそろえる(Day 42)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="fade-stats"></div><p id="fade-note"></p></div>
+</figure>
+</section>
+
+<section class="part"><h2 id="s13">前Dayからの差分概要</h2>
+
+<h3 id="s14">新規ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>役割</th><th>行数</th></tr></thead><tbody>
+<tr><td><code>Model/VrmAnimation.cs</code></td><td>VRMA 1本。<code>Load</code>(拡張の名札を読み、チャンネルを骨・表情・視線に振り分ける)、<code>CreateClip</code>(アバターのノードへ写したクリップ)、<code>SampleExpression</code> / <code>TrySampleLookAt</code>、式の道具(<code>Normalize</code> / <code>Denormalize</code> / <code>YawPitch</code> / <code>RestWorldRotation</code> / <code>RestWorldMatrix</code>)。<strong>AnimationPlayer も GL も VrmAvatar も知らない</strong></td><td>385</td></tr>
+<tr><td><code>Model/VrmLookAt.cs</code></td><td>視線。<code>Read</code> / <code>ReadFile</code>(<code>VRMC_vrm.lookAt</code>)、<code>MapAngles</code>(rangeMap と内外)、<code>Apply</code>(目の骨を回す)、<code>AnglesTo</code>(目の位置から的を見る角度)</td><td>232</td></tr>
+</tbody></table></div>
+
+<h3 id="s15">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Model/AnimationClip.cs</code></td><td><code>Sampler.Map</code>(キーの値を1つずつ写した新しい sampler)</td><td>+21 / −0</td></tr>
+<tr><td><code>Model/AnimationPlayer.cs</code></td><td>クリップの表 <code>_clips</code> とコンストラクタの2つ目、<code>_model.Animations</code> を <code>_clips</code> へ(9 行)、<code>SetBlend</code> で時刻の欄を伸ばす、<code>ClipTime</code> / <code>RestartClip</code></td><td>+58 / −12</td></tr>
+<tr><td><code>Model/GltfLoader.cs</code></td><td><code>LoadAnimations</code>(ノードの木とアニメーションだけ)と <code>LoadContext.BuildAnimations</code></td><td>+34 / −0</td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td>説明、コンストラクタ(<code>VrmLookAt</code>・クリップの表で作るプレイヤー・位相同期を切る)、フィールドとプロパティ、<code>Load</code> で <code>lookAt</code> を写して読む、<code>AddClip</code> / <code>RetargetClips</code> / <code>Play</code> / <code>UpdateAnimation</code> / <code>ApplyClipFace</code> / <code>TryClipLookAt</code></td><td>+188 / −4</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>OnUpdate</code>・<code>UpdateVrmFace</code>・<code>UpdateVrmSprings</code>・HUD に1か所ずつ、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数</td><td>+670 / −5</td></tr>
+<tr><td><code>Day71.csproj</code></td><td><code>Day70.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p>素材(写経の対象外): <code>assets/vrma/</code> に <code>honya-wave.vrma</code>・その生成スクリプト <code>make_honya_wave.py</code>・<code>test.vrma</code>・<code>README.md</code>(入手元とライセンス、7種セットの置き方)。<code>.gitignore</code> に7種セットの除外、<code>.gitattributes</code> に <code>*.vrma binary</code>。</p>
+<p class="note">今日の差分は Day 70 と同じくらい重い(新規 617 行 + 変更 約 1,000 行。どれもコメント込み)。<code>Program.cs</code> の今日の関数は、手を振るまでの前半が約 160 行、内訳と自己チェックの後半が約 330 行。1日で重ければ、下の順番の <strong>9 まで</strong>(手を振るまで)と <strong>10</strong>(内訳・自己チェック)で2回に分けるとよい。9 の (e) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+
+<h3 id="s16">写経する順番</h3>
+<p>依存の向きに沿って並べてある。この順に写せば、途中でビルドが通らない状態を作らずに済む。</p>
+<ol>
+<li><strong><code>Model/AnimationClip.cs</code>(変更)</strong> — <code>Sampler</code> の <code>Key</code> の手前に <code>Map</code>。<code>VrmAnimation</code> がキーを写すのに使う</li>
+<li><strong><code>Model/AnimationPlayer.cs</code>(変更)</strong> — 順に、(a) <code>_model</code> の直後に <code>_clips</code>、(b) <code>_clipTimes</code> の <code>readonly</code> を外す、(c) コンストラクタを2つにする(既存は <code>: this(model, model.Animations)</code> だけにし、本体は <code>clips</code> を受ける2つ目へ。<code>_clipTimes</code> の大きさと最後の <code>SelectClip</code> の引数も <code>clips</code> に)、(d) <code>Clip</code> / <code>Duration</code> / <code>SetBlend</code> / <code>SelectClip</code> / <code>NextClip</code> / <code>Advance</code> / <code>TimeOf</code> / <code>Evaluate</code> の <code>_model.Animations</code> を <code>_clips</code> へ(9 行)、(e) <code>SetBlend</code> の頭で時刻の欄を伸ばす、(f) <code>TimeOf</code> の手前に <code>ClipTime</code> と <code>RestartClip</code></li>
+<li><strong><code>Model/GltfLoader.cs</code>(変更)</strong> — <code>Load</code> の直後に <code>LoadAnimations</code>、<code>LoadContext.Build</code> の直後に <code>BuildAnimations</code></li>
+<li><strong><code>Model/VrmAnimation.cs</code>(新規)</strong> — 1 の <code>Map</code> と 3 の <code>LoadAnimations</code>、<code>Model</code> / <code>ModelNode</code> / <code>AnimationClip</code> しか使わない</li>
+<li><strong><code>Model/VrmLookAt.cs</code>(新規)</strong> — 4 の式の道具(<code>RestWorldRotation</code> / <code>Denormalize</code>)と <code>AnimationPlayer</code> を使う</li>
+<li><strong><code>Model/VrmAvatar.cs</code>(変更)</strong> — 順に、クラスの説明の「Day 71 で足したもの」、コンストラクタの引数 <code>VrmLookAt lookAt</code> と本体(<code>LookAt = lookAt;</code>、プレイヤーを <code>_clips</code> で作って <code>SyncPhase = false</code>)、コンストラクタの直後のフィールド6つ(<code>_clips</code> / <code>_animations</code> / <code>_faceScratch</code> / <code>_currentClip</code> / <code>_previousClip</code> / <code>_fade</code>)、<code>Animation</code> の説明、<code>SpringBone</code> の直後のプロパティ6つ(<code>LookAt</code> / <code>Clips</code> / <code>CurrentClip</code> / <code>PreviousClip</code> / <code>Fade</code> / <code>FadeSeconds</code>)、<code>Load</code> の <code>lookAt</code> の宣言・写し・最後の <code>new VrmAvatar(...)</code>(1行ずつに展開して <code>VrmLookAt.Read</code> を足す)、<code>UpdateSprings</code> の直後に <code>AddClip</code> / <code>RetargetClips</code> / <code>Play</code> / <code>UpdateAnimation</code> / <code>ApplyClipFace</code> / <code>TryClipLookAt</code></li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 70」のフィールド(<code>VrmArmCapsules</code>)の直後に「Day 71」の 10 個(<code>_vrmClipsLoaded</code> / <code>_vrmClip</code> / <code>_vrmNormalize</code> / <code>_vrmScaleHips</code> / <code>_vrmClipFace</code> / <code>_vrmGaze</code> / <code>VrmGazes</code> / <code>_vrmGazeFullRange</code> / <code>_vrmCrossFade</code> / <code>_vrmClipFaces</code>)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunVrmSpringCheck</code> の直後(<code>CheckList</code> の手前)に、<code>VrmClipProbe</code> / <code>VrmClipFadeSeconds</code> / <code>VrmVroidCredit</code> / <code>IsVroidClip</code> / <code>EnsureVrmClips</code> / <code>UpdateVrmAnimation</code> / <code>ApplyVrmGaze</code> / <code>VrmClipName</code> / <code>VrmClipText</code> / <code>VrmClipLabel</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — 順に、
+(a) <code>OnUpdate</code> の <code>UpdateVrmFace(...)</code> の手前に <code>UpdateVrmAnimation(...)</code>、
+(b) <code>UpdateVrmFace</code> の自動まばたきの行(<code>faces.SetWeight("blink", ...)</code>)の直後に <code>_vrmClipFaces = ...ApplyClipFace()...</code>、
+(c) <code>UpdateVrmSprings</code> の説明の箇条を書き換え、<code>vrm.Animation.Update(dt);</code> を消して、<code>ApplyVrmMotion(...)</code> の直後に <code>ApplyVrmGaze(vrm);</code>、
+(d) <code>DrawOverlayInfo</code> の <code>VrmSpringLabel()</code> の行の直後に <code>VrmClipLabel()</code> の行、
+(e) <code>BuildMenu</code> の「VRMの揺れもの」ページの直後(<code>return menu;</code> の手前)に「VRMのアニメーション」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 10 で足す関数を指すので、分けて写すなら後回しにする)、
+(f) <code>RunDebugMenuCheck</code> の項目数を <strong>322 → 333</strong> へ</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 8 の続きに <code>DescribeVrmClips</code> / <code>VrmAngleBetween</code> / <code>VrmRotationOf</code> / <code>VrmBoneTurns</code> / <code>CompareVrmClip</code> / <code>RunVrmClipCheck</code></li>
+<li><strong><code>Day71.csproj</code></strong> — <code>Day70.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+<p class="note">9 の (a) と (c) は組で写す。(a) だけ写した状態でもビルドは通るが、体の時刻が1フレームに2回進む(倍速で動く)。</p>
+</section>
+
+<section class="part"><h2 id="s17">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> に2本足し、<code>AnimationPlayer</code> に口を2つ(クリップの表を外から渡す・クリップごとの時刻)開けた。矢印の向きは今日も <code>Model/ → Render/</code> だけで、今日の新しいクラスは <code>Render/</code> を1つも使わない。</p>
+
+<h3 id="s18">VRMA はプレイヤーを知らず、プレイヤーは VRMA を知らない</h3>
+<svg viewBox="0 0 720 280" role="img" aria-label="Day 71 の依存の図" style="width:100%;max-width:720px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow71b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <rect x="250" y="8" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="27" text-anchor="middle">Program</text><text x="360" y="42" text-anchor="middle" font-size="11" fill="var(--muted)">VRMA を探して読む・視線の選び方</text>
+    <rect x="250" y="84" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="102" text-anchor="middle">Model/VrmAvatar</text><text x="360" y="117" text-anchor="middle" font-size="11" fill="var(--muted)">クリップの表・切り替え・表情と視線を読む</text>
+    <rect x="40" y="160" width="220" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="150" y="179" text-anchor="middle">Model/VrmAnimation(今日)</text><text x="150" y="195" text-anchor="middle" font-size="11" fill="var(--muted)">読む・正規化して写す・式の道具</text>
+    <rect x="460" y="160" width="220" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="570" y="179" text-anchor="middle">Model/VrmLookAt(今日)</text><text x="570" y="195" text-anchor="middle" font-size="11" fill="var(--muted)">rangeMap・目の骨を回す</text>
+    <rect x="20" y="232" width="250" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="145" y="250" text-anchor="middle">Model/GltfLoader・AnimationClip</text><text x="145" y="265" text-anchor="middle" font-size="11" fill="var(--muted)">LoadAnimations・Sampler.Map</text>
+    <rect x="450" y="232" width="250" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="575" y="250" text-anchor="middle">Model/AnimationPlayer</text><text x="575" y="265" text-anchor="middle" font-size="11" fill="var(--muted)">外から渡すクリップの表・ClipTime</text>
+    <rect x="530" y="84" width="170" height="40" rx="6" fill="var(--surface)" stroke="var(--line)" stroke-dasharray="5 4"/><text x="615" y="102" text-anchor="middle" fill="var(--muted)">Render/</text><text x="615" y="117" text-anchor="middle" font-size="11" fill="var(--muted)">関節行列を読むだけ</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#arrow71b)">
+    <path d="M360,48 L360,82"/>
+    <path d="M300,124 L180,158"/><path d="M420,124 L540,158"/>
+    <path d="M150,204 L150,230"/>
+    <path d="M460,190 L262,186"/>
+    <path d="M570,204 L570,230"/>
+    <path d="M470,110 L600,230"/>
+    <path d="M470,28 L610,82"/>
+  </g>
+</svg>
+<p>コメントを落としてから型名を拾って確かめた。</p>
+<div class="table-wrap"><table><thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Model/VrmAnimation</code></td><td><code>GltfLoader</code>(<code>ReadJson</code> と <code>LoadAnimations</code>)/ <code>Model</code> / <code>ModelNode</code> / <code>AnimationClip</code> / JSON</td><td><strong><code>AnimationPlayer</code>・GL・<code>VrmAvatar</code>・表情</strong>。写したクリップを誰がどう流すかを知らない</td></tr>
+<tr><td><code>Model/VrmLookAt</code></td><td><code>AnimationPlayer</code>(目の骨の姿勢を書く)/ <code>Model</code> / <code>NodePose</code> / <code>VrmAnimation</code>(静的な式の道具だけ)/ JSON</td><td>VRMA。見たい角度がファイルから来たのかカメラから来たのかを知らない。表情も知らない(expression 型の視線を読まない理由)</td></tr>
+<tr><td><code>Model/AnimationPlayer</code></td><td>今までどおり <code>Model</code> と <code>AnimationClip</code></td><td><strong>VRM のすべて</strong>。外から渡されたクリップの表を流すだけ</td></tr>
+<tr><td><code>Model/VrmAvatar</code></td><td><code>VrmAnimation</code> を写して持ち、<code>Play</code> で切り替え、<code>ClipTime</code> で表情と視線を読む</td><td>正規化の式(全部 <code>VrmAnimation</code>)、rangeMap(全部 <code>VrmLookAt</code>)</td></tr>
+</tbody></table></div>
+<p><strong>モデルは読んだまま変えない</strong>(Day 41 の約束)。VRM のアバターはクリップを持たず、あとから読んだ VRMA を自分のノードへ写して持つ。写したクリップを <code>Model.Animations</code> に足すのではなく、<strong>プレイヤーにクリップの表を外から渡す</strong>口を開けた(<code>new AnimationPlayer(model, clips)</code>)。表はあとから伸びてよい(<code>SetBlend</code> が時刻の欄を伸ばして追いつく)。</p>
+
+<h3 id="s19">写すのは読み込みのとき — three-vrm との違い</h3>
+<p>three-vrm は、正規化された骨の木(各骨の休みの回転が単位の、もう1組のノード)を実際に作り、クリップはそちらを動かし、<strong>毎フレーム</strong>その回転をアバターの骨へ写す(<code>VRMHumanoidRig.update</code>)。今日はその写しを<strong>キーのほうへ前倒しした</strong>。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>three-vrm(正規化された木を毎フレーム写す)</th><th>今日(キーを読み込みのとき写す)</th></tr></thead><tbody>
+<tr><td>毎フレームの仕事</td><td>骨の数だけ <code>W^-1 x N x W x R</code></td><td>無い(Day 41 の再生だけ)</td></tr>
+<tr><td>正規化された回転を外から書く(手で骨を動かす・IK)</td><td>正規化された木に書くだけで済む</td><td>書く側が <code>Denormalize</code> を呼ぶ(今日は目の骨だけ。<code>VrmLookAt.Apply</code>)</td></tr>
+<tr><td>写し方を変える(F3・F4)</td><td>—</td><td>クリップを作り直す(<code>RetargetClips</code>。番号は変わらない)</td></tr>
+</tbody></table></div>
+<p>今日は動きの源が VRMA だけなので、前倒しのほうが軽く、<code>AnimationPlayer</code> にも手が入らない。Day 72 で Mixamo のクリップ(正規化されていない別の骨の木)を写すときも、同じ <code>CreateClip</code> の形で「キーを1回写す」に乗せられる。</p>
+
+<h3 id="s20">1フレームの中のアニメーション — 順番がそのまま設計</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">体の姿勢(<code>UpdateVrmAnimation</code> → <code>VrmAvatar.UpdateAnimation</code>)— 切り替えの重み → <code>SetBlend</code> → <code>Animation.Update</code></div>
+    <div class="rw"><span>書く <b>全部のノードのローカル姿勢(目と髪もクリップかファイルの値に戻る)・世界行列・関節行列・クリップごとの時刻</b></span></div>
+    <div class="swap">2 より後に置くと: 表情が1フレーム前の時刻で読まれる(体より先に笑う)。3 より後に置くと: 目と髪の回転をクリップの値で上書きする</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">表情(<code>UpdateVrmFace</code>)— メニューの重みを寄せる → 自動まばたき → <strong>VRMA の表情(<code>ApplyClipFace</code>)</strong> → 顔へ流す</div>
+    <div class="rw"><span>読む <b>1 で進めたクリップの時刻</b></span><span>書く <b>表情の重み・モーフ・マテリアル</b></span></div>
+    <div class="swap"><code>ApplyClipFace</code> を寄せる前に置くと: VRMA の重みがメニューの目標へ引き戻される</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">手で動かす(<code>ApplyVrmMotion</code>。Day 70)→ <strong>視線(<code>ApplyVrmGaze</code>)</strong> → <code>UpdateWorldAndJoints</code></div>
+    <div class="rw"><span>読む <b>頭の世界行列(カメラを見るとき)</b></span><span>書く <b>目の骨のローカル姿勢・世界行列</b></span></div>
+    <div class="swap">視線を手で動かす前に置くと: 首を振りながらカメラを見るとき、振る前の頭から測るので視線がずれる</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">揺らす(<code>vrm.UpdateSprings</code>。Day 70)</div>
+    <div class="rw"><span>読む <b>1〜3 で決まった体</b></span><span>書く <b>髪の骨のローカル回転・関節行列</b></span></div>
+    <div class="swap">Day 70 のまま。VRMA が体を動かすので、手で動かさなくても髪が揺れる</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">影パス・キャラ・速度バッファ</div>
+    <div class="rw"><span>読む <b>4 で作り直した関節行列</b></span></div>
+    <div class="swap">Day 68 のまま。何も足していない</div>
+  </div></li>
+</ol>
+<p>Day 70 では <code>UpdateVrmSprings</code> の中にあった <code>vrm.Animation.Update(dt)</code> を、<strong>表情より前の <code>UpdateVrmAnimation</code> へ移した</strong>。表情を体と同じ時刻で読むためで、揺れものから見た順番(体 → 手で動かす → 揺らす)は変わっていない。</p>
+
+<h3 id="s21">今日残した歪み</h3>
+<p><strong>1つ目: アバターに無い骨のキーは捨てる</strong>。VRMA が <code>upperChest</code> を回していて、アバターが <code>upperChest</code> を持たないと、その回転が失われる(胸から上が少し起き上がった姿勢になる)。AvatarSample_A は VRM の骨を 54 本持ち(無いのは顎の <code>jaw</code> だけ)、今日の2本のキーの骨は全部そろっているので表に出ない。直すなら改造課題3。</p>
+<p><strong>2つ目: いつもループする</strong>。<code>AnimationPlayer</code> は剰余で折り返すので、7種セットのような見せ用の1回きりの動きも頭から繰り返す。Day 72 でエモートにするときは「1回流して最後の姿勢で止める」が要る(改造課題2)。</p>
+<p><strong>3つ目: 「止める」は混ぜない</strong>。<code>SetBlend</code> は重みを合計 1 に正規化するので、「クリップ 0.3 + 何もない 0.7」が作れない。止めると T ポーズへ1フレームで戻る。</p>
+<p><strong>4つ目: 視線は bone 型だけ</strong>。<code>VrmLookAt</code> は表情を知らないので、expression 型(瞳の絵を <code>lookLeft</code> などの重みで動かすアバター)は目が動かない。AvatarSample_A は bone 型。</p>
+<p><strong>5つ目: 腰の縮尺は腰の高さの比だけ</strong>。脚の長さの比ではないので、脚の短いアバターに大股のクリップを当てると足が滑る。Day 72 の移動のクリップで向き合う。</p>
+
+<h3 id="s22">試して分かったこと</h3>
+<ul>
+<li><strong>正規化が要るのは、ファイルが変だからではない</strong>。休みの回転が全部単位の honya-wave でも、キーをそのまま当てると最大 11.9 度ずれる。アバター側(腰 7.2 度など)の休みの回転も単位でないから。両側をそろえる物差しが要る</li>
+<li><strong>目の骨にも同じ式が要る</strong>。AvatarSample_A の目の骨は休みの回転が 23.1 度傾いていて、ローカルに yaw を掛けると斜め下へ回った。正規化された回転として <code>Denormalize</code> で戻したら、世界の向きで 6.00 度 / 4.00 度ちょうどになった</li>
+<li><strong>位相同期が既定で ON</strong>(Day 42)。そのまま切り替えると、test が頭ではなく honya-wave と同じ割合の位置から始まった。VRMA どうしの切り替えには合わない</li>
+<li><strong>切り替えを混ぜても、髪の揺れはほとんど変わらない</strong>。即座だと右の上腕が 1 フレームで 78.3 度飛ぶ(混ぜると 9.8 度)が、髪の先端の速さはどちらも 75cm/s 前後。test の腕の振りそのもの(0.5 秒で 90 度)に振られている</li>
+<li><strong>VRMA は軽い</strong>。読み込みは1本 0.5〜0.7ms、写したあとは Day 41 の再生と同じ値段</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s23">完成条件</h2>
+<p><code>dotnet run --project reference/Day71 -c Release</code> で起動する。起動直後は Day 70 までの絵のまま。今日の主役は「VRMのアニメーション」のページ(<code>Shift+F1</code> で直接開く)から。</p>
+
+<h3 id="s24">1. F2: クリップを流す</h3>
+<ul>
+<li>1回目(<code>honya-wave</code>)… 右手を挙げて手を振る。腰が左右にひねられて少し上下し、首をかしげる。0.5〜1.0 秒で笑い(happy)、1.0〜1.4 秒に口が開く(aa)。目が左右へ動く(<code>F9</code> で顔に寄って見る)。髪と胸が体についてくる(Day 70 の揺れもの)</li>
+<li>2回目(<code>test</code>)… 0.5 秒で右腕が下へ回って戻り、1.5 秒で笑い、2.5 秒で真左(90 度)を見る(目は左目 12 度・右目 8 度で頭打ち)</li>
+<li>7種セットを置いていれば、3回目から <code>VRMA_01</code>〜<code>07</code>。HUD の VRMA の行の末尾にクレジットが出る</li>
+<li>最後に「止める」で T ポーズへ戻る</li>
+</ul>
+<p>HUD に4行目が増える。</p>
+<div class="code"><pre><code>VRMA:honya-wave 1.30/4.00s  写し方:正規化 腰x0.895  表情:2個書いた  視線:VRMA のとおり 見たい 左17.8 上5.0度 → 目 左目2.4 右目1.6 上0.6度</code></pre></div>
+<p>「見たい」が視線ノードの角度、「目」が rangeMap を通して目の骨に渡した角度。左を見ているときは左目(外)が右目(内)より大きく回る。</p>
+
+<h3 id="s25">2. F3 / F4: 写し方</h3>
+<ul>
+<li><code>F3</code>(test のとき)… 下へ回るはずの右腕が、横へ伸びたままねじれる。Blender 流の休みの回転で書かれたキーを、アバターの骨の休みの回転の上にそのまま書いたから</li>
+<li><code>F3</code>(honya-wave のとき)… 挙げた腕の向きと腰の傾きが少し変わる(最大 11.9 度)</li>
+<li><code>F4</code>(honya-wave のとき)… 腰が 10cm 上がり、足が床から浮く。test は腰の移動を持たないので変わらない</li>
+</ul>
+
+<h3 id="s26">3. F5 / F6 / F7: 表情と視線</h3>
+<ul>
+<li><code>F5</code> … 当てないと、表情は「VRMの表情」のページの選択のまま(笑わない)。当てている間も、キーの無い表情(まばたき・ページで選んだ口)はページの値で動く</li>
+<li><code>F6</code> … 「カメラを見る」でカメラを左右に回すと、目が追ってくる。首を振っている最中(「VRMの揺れもの」の F2)でも、目は首と逆へ回ってカメラを見続ける。「正面のまま」で目が止まる</li>
+<li><code>F7</code> … 「角度そのまま」で test の 2.5 秒(真左を見る)を見ると、瞳が顔の外へ回って白目をむく</li>
+</ul>
+
+<h3 id="s27">4. F8: 切り替え</h3>
+<p>混ぜるなら 0.3 秒かけて次のクリップへ移る(HUD の「← 前のクリップ 残り 0.xx」)。即座なら次のクリップの頭の姿勢へ1フレームで飛ぶ。どちらのときも、入ってくるクリップは頭から流れる。</p>
+
+<h3 id="s28">5. Day 70 までの機能が全部生きていること</h3>
+<p><code>AnimationPlayer</code> を変えたので、Day 41(スキニング)と Day 42(アニメのブレンド)の自己チェックが通ること。「VRMビューア」(15 項目)・「VRMの表情」(12 項目)・「VRMの揺れもの」(13 項目)の自己チェック、Day 48 の割り当て表(333 項目)が通ること。「VRMの揺れもの」の F2(首を振るなど)は、クリップを流しながらでも上乗せで効く。</p>
+<p class="note">開発機の電源の都合で、Day 70 との画素の突き合わせはしていない。VRMビューアの床の上だけで確かめた(裏通りは描いていない)。</p>
+
+<h3 id="s29">6. F12: 自己チェック(13 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 71 自己チェック(正規化と戻す式・視線と rangeMap・クリップの時刻・VRMA の読み込み・アバターに当てる)===
+  [OK] 正規化 N = P x q x C^-1(休みの姿勢のキーは単位になり、世界の Z まわりに 30 度回したキーは「Z まわり 30 度」そのものになる)  休みのキー 0.000度 / 30 度回したキー 30.00度
+  [OK] 戻す r = W^-1 x N x W x R(親子とも休みの回転が傾いていても、世界の回転 = 親の回り方 x 子の回り方 x 休みの世界の回転)  ずれ 0.0000度
+  [OK] 視線のノードの回転 → yaw と pitch(+Z を回した向きから。Y まわり 30 度・X まわり -10 度で、左 30 度・上 10 度。Y まわり -90 度は右 90 度)  左 30.00 上 10.00 / 左 -90.00度
+  [OK] rangeMap は見たい角度を目の角度へ比例で縮め、上限で頭打ち(左 45 度: 左目は外へ 12 x 0.5、右目は内へ 8 x 0.5。120 度は 12 / 8。右を見れば左右が入れ替わる)  左目 6.0 右目 4.0 上 5.0 / 頭打ち 12.0 8.0 下 -10.0 / 右を見る 左目 -4.0 右目 -6.0度
+  [OK] 目の骨も体の骨と同じ式で戻す(休みの回転が傾いた目でも、左 45 度を見ると世界の向きで左目 6 度・右目 4 度だけ左へ回る)  左目 6.00度 / 右目 4.00度(目の骨の休みの回転 23.1度)
+  [OK] 切り替えは、出ていくクリップを途中のまま、入ってくるクリップを頭から流す(位相同期を切り、1本だけ頭へ戻す。1 秒流してから切り替えて 0.15 秒)  出ていく 1.15秒 / 入ってくる 0.15秒
+  [OK] test.vrma(three-vrm の見本)は Blender 流(骨 51 本の休みの回転が全部単位でない。キーは右の上腕・happy・視線の3本、3 秒、腰の高さ 0.85m)  骨 51 / 傾いた休み 51 / キー rightUpperArm + happy + 視線 / 3.00秒 / 腰 0.850m
+  [OK] honya-wave.vrma(今日の自作)は UniVRM 流(骨 20 本の休みの回転が全部単位。腰の移動と6本の回転、happy と aa、視線。4 秒、腰の高さ 1.0m)  骨 20 / 傾いた休み 0 / キー 7 本 / 表情 happy, aa / 4.00秒 / 腰 1.000m
+  [OK] アバターの視線は bone 型(目の位置は頭の骨の 6cm 上。rangeMap は外 12・内 8・上 10・下 10 度。目の骨が両方ある)  型 bone / 外 12 内 8 上 10 下 10度
+  [OK] 正規化して写すと、アバターの骨はファイルの骨と同じだけ回る(休みの回転が Blender 流でも UniVRM 流でも。両方にある骨を 8 つの時刻で比べた最大)  ずれ test 0.000度 / honya-wave 0.000度(ファイルの骨は最大 60.0度 / 118.4度 回っている)
+  [OK] 正規化しないと、休みの回転が違う骨ほどずれる(キーをそのまま書く。test.vrma は全部の骨、honya-wave でもアバターの腰や胸の傾きのぶん)  test 最大 77.7度(rightThumbMetacarpal)/ honya-wave 最大 11.9度(rightUpperArm)
+  [OK] 腰の移動は背丈の比で縮める(腰の高さ 1.0m のファイルを 0.895m のアバターへ。縮めれば腰はファイルの腰 x 比の位置に来る。縮めないと 10cm 浮く)  比 0.8954 / ずれ 縮める 0.000mm・縮めない 10.4cm
+  [OK] 表情は translation.x がそのまま重み、視線は回転から角度(test の happy は 1.0 秒の 0 と 1.5 秒の 1 の間で 0.5、キーの無い表情は触らない。2.5 秒で真左 90 度)  happy 0.500 / sad 無し / 視線 左 90.00度 / honya-wave の aa 0.600
+  すべて合格(正規化と戻す式・視線と rangeMap・クリップの時刻・VRMA の読み込み・アバターへの当て方が仕様どおり)</code></pre></div>
+<p>1〜3 は式だけを呼ぶ。4〜6 はアバターの <code>Model</code> を借り、ファイルから読み直した視線と、別の <code>AnimationPlayer</code> で回す。7〜13 は <code>assets/vrma/</code> の2本を読み直し、ファイルの骨の木もアバターも別の <code>AnimationPlayer</code> で同じ時刻まで流して比べる。<strong>表示中の姿勢には触らない</strong>ので、VRMビューアを出す前でも、クリップを流している最中でも同じ数字になる。</p>
+
+<h3 id="s30">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>同じ動き: ファイルの休みの回転</td><td><code>F2</code> で honya-wave(単位)と test(ばらばら)を切り替える</td></tr>
+<tr><td>同じ動き: 写し方</td><td><code>F3</code></td></tr>
+<tr><td>視線: カメラの点をドラッグ</td><td><code>F6</code> の「カメラを見る」+ マウスでカメラを回す</td></tr>
+<tr><td>視線: 目の範囲</td><td><code>F7</code></td></tr>
+<tr><td>切り替え: 混ぜる / 即座</td><td><code>F8</code></td></tr>
+<tr><td>切り替え: 位相をそろえる</td><td>実機に対応するキーは無い(<code>VrmAvatar</code> のコンストラクタの <code>SyncPhase = false</code> を消すと見られる)</td></tr>
+</tbody></table></div>
+<p class="note">実験台の腕・頭・クリップの形は、このページで決めた値(式と順番は reference と同じ)。実験台の回転は動作イメージで、実機の数字(自己チェック)とは合わせていない。</p>
+</section>
+
+<section class="part"><h2 id="s31">改造課題</h2>
+
+<h3 id="s32">課題1(易): カメラを見るとき、首も少し回す</h3>
+<p>目だけでは 12 度しか回らないので、横から見ると目線が届いていない。「カメラを見る」のとき、見たい角度の 30% を頭の骨に回す。頭の骨の回転も<strong>正規化された回転として作り、<code>VrmAnimation.Denormalize</code> で戻す</strong>(Y まわりに yaw x 0.3)。目に渡す角度は残りの 70% にする。<code>ApplyVrmGaze</code> の中で、目より先に頭を書き、<code>UpdateWorldAndJoints</code> を挟んでから目の角度を測ること(要点6の「休みの頭の向きで測る」が、首を回したぶんを差し引いてくれる)。</p>
+
+<h3 id="s33">課題2(中): 1回だけ流して、最後の姿勢で止める</h3>
+<p>今日残した歪みの2つ目。<code>AnimationPlayer</code> に <code>Loop</code>(既定 true)を足し、false なら <code>Advance</code> の <code>Wrap</code> の代わりに <code>Math.Clamp(time, 0, duration)</code> で止める。<code>VrmAvatar.Play</code> に <code>loop</code> の引数を足し、止まったら(時刻が長さに届いたら)前のクリップへ混ぜて戻す、まで作ると、Day 72 のエモートの形になる。位相同期を切ってあるので、クリップごとの時刻(<code>_clipTimes</code>)のほうを止めればよい。</p>
+
+<h3 id="s34">課題3(難): アバターに無い骨のキーを、子の骨へ寄せる</h3>
+<p>今日残した歪みの1つ目。VRMA に <code>upperChest</code> のキーがあり、アバターに <code>upperChest</code> が無いとき、正規化された回転 <code>N<sub>upperChest</sub></code> を、アバターにある子の骨(<code>neck</code>・<code>leftShoulder</code>・<code>rightShoulder</code>)の正規化された回転の<strong>左から</strong>掛ける(<code>N<sub>neck</sub>' = N<sub>upperChest</sub> x N<sub>neck</sub></code>)。子の骨にキーが無ければ、<code>upperChest</code> のキーをそのまま子のキーにする。キーの時刻が骨ごとに違うときは、両方の時刻を合わせた表を作り直す必要がある。確かめるには、<code>make_honya_wave.py</code> に <code>upperChest</code> のキーを足し、<code>VrmAvatar.HumanBones</code> から一時的に <code>upperChest</code> を外して読み、自己チェック10 のずれが 0 に戻ることを見る。</p>
+</section>
+
+<section class="part"><h2 id="s35">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)。Day 68 と同じファイル。VRMA: <code>assets/vrma/</code> の honya-wave.vrma と test.vrma(VRoid の7種セットは置かずに確かめた)</p>
+<p>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 13 項目(VRMビューアを出す前と、クリップを流している最中)、Day 41・42・68・69・70 の自己チェック、Day 48 の割り当て表(333 項目)、床の上で見た絵(T ポーズ・honya-wave の 1.3 秒と 1.8 秒・正規化しない・腰を縮めない・test の 0.5 秒・test を正規化しない・顔に寄って test の 2.6 秒・目の範囲を角度そのまま・カメラを見る)、切り替えの前後の右の上腕の動き(混ぜる / 即座)</p>
+
+<h3 id="s36">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>ファイルの骨の木も AnimationPlayer で流せる</strong>。<code>LoadAnimations</code> で読んだノードとクリップから GL を持たない <code>Model</code> を作れば(Day 70 の振り子の台と同じ形)、ファイルの側の「正解の動き」が同じ物差しで取れる。自己チェック10・11 はこれで比べた</li>
+<li><strong>three-vrm の bone 型の視線は、上を見るときに <code>rangeMapVerticalDown</code> を引いているように読める</strong>(pitch の符号の取り方)。AvatarSample_A は上下とも 10 度なので結果は同じ。今日は名前どおり、上を見るときに <code>Up</code> を使った</li>
+<li><strong>7種セットはリポジトリに入れられない</strong>ので、見本は three-vrm の test.vrma(MIT)と、スクリプトで作った honya-wave.vrma(CC0)にした。test.vrma は Blender 流、honya-wave は UniVRM 流と、休みの回転の書き方が両極端なので、正規化の見比べにはむしろ都合がよかった</li>
+<li><strong>コンソールに「〜」を出すと化ける</strong>(CP932)。表示の文字列では使わない(Day 69・70 と同じ)</li>
+</ul>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat, arrow, animate } = Lab;
+const DEG = Math.PI / 180;
+
+// ============================================================
+//  クォータニオン(x, y, z, w)。ハミルトン積 qmul(a, b) は b を先に回す(System.Numerics の * と同じ)
+// ============================================================
+const qaxis = (ax, deg) => { const h = deg * DEG / 2, s = Math.sin(h); return [ax[0] * s, ax[1] * s, ax[2] * s, Math.cos(h)]; };
+const qmul = (a, b) => [
+  a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+  a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+  a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+];
+const qinv = (q) => [-q[0], -q[1], -q[2], q[3]];
+const qrot = (q, v) => { const p = qmul(qmul(q, [v[0], v[1], v[2], 0]), qinv(q)); return [p[0], p[1], p[2]]; };
+const qangle = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]))) / DEG;
+const X = [1, 0, 0], Y = [0, 1, 0], Z = [0, 0, 1];
+const I = [0, 0, 0, 1];
+
+// VrmAnimation.Normalize / Denormalize と同じ形
+const normalize = (q, P, C) => qmul(qmul(P, q), qinv(C));
+const denormalize = (N, W, R) => qmul(qmul(qmul(qinv(W), N), W), R);
+
+// ============================================================
+//  実験台1: 同じ動きが、ファイルごとに違うキーになる
+// ============================================================
+// 右の上腕(休みの姿勢で -X へ伸びる)。ファイルの休みの回転は2通り、アバターの休みの回転は1通り(このページで決めた値)。
+const FILES = {
+  unit: { P: I, C: I },
+  // Blender 流: 腰の回転 (0.5, 0.5, -0.5, 0.5) を受け継ぎ、骨の +Y が腕の伸びる向きを向く
+  blender: { P: [0.5, 0.5, -0.5, 0.5], C: qmul(qaxis(Z, 90), qaxis(Y, 25)) },
+};
+const AVATAR = { W: qaxis(X, 7.2), R: qmul(qaxis(X, -7.2), qaxis(Y, 4)) };   // 腰が 7.2 度傾いた親と、それを打ち消して少しずれた骨
+const norm = { file: 'blender', motion: 'down', angle: 60, map: 'normalize' };
+const motionTurn = () => norm.motion === 'down' ? qaxis(Z, norm.angle) : norm.motion === 'forward' ? qaxis(Y, norm.angle) : qaxis(X, norm.angle);
+function evaluateNorm() {
+  const f = FILES[norm.file];
+  const N = motionTurn();
+  const key = qmul(qmul(qinv(f.P), N), f.C);                   // ファイルに書かれるキー(N = P q C^-1 を q について解いた)
+  const fileWorld = qmul(f.P, key);
+  const fileTurn = qmul(fileWorld, qinv(f.C));                  // = N
+  const raw = norm.map === 'normalize' ? denormalize(normalize(key, f.P, f.C), AVATAR.W, AVATAR.R) : key;
+  const avatarWorld = qmul(AVATAR.W, raw);
+  const avatarTurn = qmul(avatarWorld, qinv(qmul(AVATAR.W, AVATAR.R)));
+  return { key, raw, fileWorld, fileTurn, avatarWorld, avatarTurn, error: qangle(fileTurn, avatarTurn) };
+}
+function drawArm(ctx, ox, oy, S, turn, boneWorld, title) {
+  const view = qmul(qaxis(X, 14), qaxis(Y, -28));
+  const P = (v) => { const p = qrot(view, v); return [ox + p[0] * S, oy - p[1] * S]; };
+  const line = (a, b, color, width, dash) => { const p = P(a), q = P(b); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); ctx.setLineDash([]); };
+  // 体(肩から腰へ)と床の向き
+  line([0, 0, 0], [0.05, -0.45, 0], tok('--muted'), 3);
+  line([0, 0, 0], [0.25, 0.02, 0], tok('--muted'), 3);
+  // 休みの腕(点線)
+  line([0, 0, 0], [-0.53, 0, 0], tok('--line'), 2, [5, 4]);
+  // いまの腕と親指の向き(+Z を回したもの)
+  const elbow = qrot(turn, [-0.28, 0, 0]), hand = qrot(turn, [-0.53, 0, 0]);
+  line([0, 0, 0], elbow, tok('--accent'), 5);
+  line(elbow, hand, tok('--accent'), 4);
+  const thumb = qrot(turn, [0, 0, 0.09]);
+  line(hand, [hand[0] + thumb[0], hand[1] + thumb[1], hand[2] + thumb[2]], tok('--warn'), 3);
+  // 骨のローカルの軸(この骨の世界の回転で X / Y / Z を回したもの)
+  const axes = [[X, '--expl', 'x'], [Y, '--good', 'y'], [Z, '--semi', 'z']];
+  const mid = qrot(turn, [-0.14, 0, 0]);
+  for (const [axis, color, name] of axes) {
+    const d = qrot(boneWorld, axis);
+    const end = [mid[0] + d[0] * 0.09, mid[1] + d[1] * 0.09, mid[2] + d[2] * 0.09];
+    const a = P(mid), b = P(end);
+    arrow(ctx, a[0], a[1], b[0], b[1], tok(color), 2);
+    ctx.fillStyle = tok(color); ctx.font = '11px ' + tok('--font-mono'); ctx.fillText(name, b[0] + 3, b[1] - 3);
+  }
+  ctx.fillStyle = tok('--ink'); ctx.font = '13px ' + tok('--font-body');
+  ctx.fillText(title, ox - 120, 22);
+}
+function updateNorm() {
+  $('norm-angle-out').textContent = norm.angle + ' 度';
+  const e = evaluateNorm();
+  const { ctx, w, h } = fit($('norm-canvas'));
+  const S = Math.min(w / 2 / 0.75, h / 0.75);
+  drawArm(ctx, w * 0.25 + 0.2 * S, h * 0.42, S, e.fileTurn, e.fileWorld, 'ファイルの骨の木');
+  drawArm(ctx, w * 0.75 + 0.2 * S, h * 0.42, S, e.avatarTurn, e.avatarWorld, 'アバター');
+  ctx.strokeStyle = tok('--line'); ctx.beginPath(); ctx.moveTo(w / 2, 10); ctx.lineTo(w / 2, h - 10); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillText('青 = 腕 / 橙 = 親指の向き / 矢印 = 骨のローカルの軸 / 点線 = T ポーズ', 8, h - 8);
+  const f4 = (q) => '(' + q.map((v) => v.toFixed(2)).join(', ') + ')';
+  $('norm-stats').innerHTML =
+    stat('ファイルのキー q', f4(e.key)) +
+    stat('アバターに書いた回転', f4(e.raw)) +
+    stat('回り方のずれ', e.error.toFixed(1) + ' 度');
+  let note;
+  if (norm.map === 'normalize') note = '正規化して写すと、ファイルの休みの回転がどちらでも、アバターの腕はファイルの腕と同じだけ回る(ずれ 0 度)。キーの数字はファイルごとに違うのに、動きは同じ。骨のローカルの軸(矢印)の向きが左右で違うことにも注目。';
+  else if (norm.file === 'blender') note = 'キーをそのまま: Blender 流のファイルでは、骨の +Y が腕の向きなので、同じ「腕を下ろす」でもキーは別の軸まわりの回転になっている。それをアバターの骨にそのまま書くと、まったく違う向きへ回る。';
+  else note = 'キーをそのまま: ファイルの休みの回転が単位でも、アバターの側(腰が 7.2 度傾いた親)が単位でないので、少しずれる。実機の honya-wave で最大 11.9 度。';
+  $('norm-note').textContent = note;
+}
+seg('norm-file', (v) => { norm.file = v; updateNorm(); });
+seg('norm-motion', (v) => { norm.motion = v; updateNorm(); });
+seg('norm-map', (v) => { norm.map = v; updateNorm(); });
+$('norm-angle').addEventListener('input', (e) => { norm.angle = parseFloat(e.target.value); updateNorm(); });
+
+// ============================================================
+//  実験台2: 視線と rangeMap(VrmLookAt.MapAngles と同じ振り分け。値は AvatarSample_A)
+// ============================================================
+const RANGE = { outer: [90, 12], inner: [90, 8], up: [90, 10], down: [90, 10] };
+const map = (r, deg) => r[1] * Math.min(Math.max(deg / r[0], 0), 1);
+function mapAngles(yaw, pitch, full) {
+  if (full) return [yaw, yaw, pitch];
+  const left = yaw >= 0 ? map(RANGE.outer, yaw) : -map(RANGE.inner, -yaw);
+  const right = yaw >= 0 ? map(RANGE.inner, yaw) : -map(RANGE.outer, -yaw);
+  const vertical = pitch >= 0 ? map(RANGE.up, pitch) : -map(RANGE.down, -pitch);
+  return [left, right, vertical];
+}
+const gaze = { target: [0.35, 0.55], pitch: 0, full: false };   // 上から見た座標(x = 左 +X、y = 顔の向き +Z)
+function gazeView() {
+  const cv = $('gaze-canvas');
+  const w = cv.clientWidth, h = cv.clientHeight;
+  const S = Math.min(w * 0.55 / 1.6, h / 1.2);
+  return { S, cx: w * 0.3, cy: h * 0.32 };
+}
+function updateGaze() {
+  $('gaze-pitch-out').textContent = gaze.pitch + ' 度';
+  const { ctx, w, h } = fit($('gaze-canvas'));
+  const { S, cx, cy } = gazeView();
+  const P = (p) => [cx + p[0] * S, cy + p[1] * S];
+  const yaw = Math.atan2(gaze.target[0], gaze.target[1]) / DEG;
+  const [left, right, vertical] = mapAngles(yaw, gaze.pitch, gaze.full);
+  // 頭と鼻
+  const c = P([0, 0]);
+  ctx.fillStyle = '#f2dccf'; ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(c[0], c[1], 0.1 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const nose = P([0, 0.115]); ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(nose[0], nose[1], 3, 0, Math.PI * 2); ctx.fill();
+  // 見たい向き(目の間から的へ)
+  const mid = P([0, 0.075]), tg = P(gaze.target);
+  ctx.strokeStyle = tok('--line'); ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(mid[0], mid[1]); ctx.lineTo(tg[0], tg[1]); ctx.stroke(); ctx.setLineDash([]);
+  // 目(左目は +X 側)。瞳を目の向きへ寄せ、視線の矢印を伸ばす
+  for (const [x, eyeYaw, name] of [[0.035, left, '左目'], [-0.035, right, '右目']]) {
+    const e = P([x, 0.075]);
+    const a = eyeYaw * DEG, d = [Math.sin(a), Math.cos(a)];
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = tok('--muted'); ctx.beginPath(); ctx.arc(e[0], e[1], 0.022 * S, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const visible = Math.abs(eyeYaw) < 60;
+    if (visible) { ctx.fillStyle = '#5a3b2e'; ctx.beginPath(); ctx.arc(e[0] + d[0] * 0.012 * S, e[1] + d[1] * 0.012 * S, 0.008 * S, 0, Math.PI * 2); ctx.fill(); }
+    arrow(ctx, e[0], e[1], e[0] + d[0] * 0.3 * S, e[1] + d[1] * 0.3 * S, tok('--accent'), 2);
+    ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono'); ctx.fillText(name, e[0] - 12, e[1] - 0.03 * S);
+  }
+  // 的(カメラ)
+  ctx.fillStyle = tok('--warn'); ctx.beginPath(); ctx.arc(tg[0], tg[1], 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body'); ctx.fillText('カメラ(ドラッグ)', tg[0] + 10, tg[1] + 4);
+  // 右側: rangeMap の表(見たい角度 0〜120 → 目の角度)
+  const gx0 = w * 0.62, gx1 = w - 16, gy0 = 24, gy1 = h - 34;
+  const GX = (v) => gx0 + v / 120 * (gx1 - gx0), GY = (v) => gy1 - v / 14 * (gy1 - gy0);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(gx0, gy0); ctx.lineTo(gx0, gy1); ctx.lineTo(gx1, gy1); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [0, 30, 60, 90, 120]) ctx.fillText(String(v), GX(v) - 6, gy1 + 14);
+  for (const v of [0, 4, 8, 12]) ctx.fillText(String(v), gx0 - 20, GY(v) + 4);
+  ctx.fillText('見たい角度 → 目の角度(度)', gx0 + 6, gy0 - 8);
+  for (const [r, color, name] of [[RANGE.outer, '--accent', '外 12'], [RANGE.inner, '--good', '内 8']]) {
+    ctx.strokeStyle = tok(color); ctx.lineWidth = 2; ctx.beginPath();
+    for (let v = 0; v <= 120; v += 2) { const x = GX(v), y = GY(map(r, v)); v ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke(); ctx.fillStyle = tok(color); ctx.fillText(name, GX(100), GY(r[1]) - 6);
+  }
+  const ay = Math.min(Math.abs(yaw), 120);
+  ctx.strokeStyle = tok('--warn'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(GX(ay), gy0); ctx.lineTo(GX(ay), gy1); ctx.stroke(); ctx.setLineDash([]);
+  $('gaze-stats').innerHTML =
+    stat('見たい yaw(左が正)', yaw.toFixed(1) + ' 度') +
+    stat('左目', left.toFixed(1) + ' 度') +
+    stat('右目', right.toFixed(1) + ' 度') +
+    stat('上下', vertical.toFixed(1) + ' 度');
+  $('gaze-note').textContent = gaze.full
+    ? '角度そのまま: 見たい角度を目の玉にそのまま渡す。60 度を超えると瞳が顔の外へ回り、白目だけになる(図では瞳を描かない)。実機の F7 で test の 2.5 秒(真左)を見ると、この状態になる。'
+    : (Math.abs(yaw) < 1
+      ? '正面: 目は回らない。カメラの点を左右へドラッグする。'
+      : (yaw > 0
+        ? '左を見る: 左目は外へ(外の表 12 度)、右目は鼻の側へ(内の表 8 度)。90 度を超えると頭打ち。'
+        : '右を見る: 右目が外へ、左目が鼻の側へ。左右の表が入れ替わる。'));
+}
+seg('gaze-range', (v) => { gaze.full = v === 'full'; updateGaze(); });
+$('gaze-pitch').addEventListener('input', (e) => { gaze.pitch = parseFloat(e.target.value); updateGaze(); });
+{
+  const cv = $('gaze-canvas');
+  let dragging = false;
+  const toHead = (ev) => {
+    const rect = cv.getBoundingClientRect();
+    const { S, cx, cy } = gazeView();
+    return [(ev.clientX - rect.left - cx) / S, (ev.clientY - rect.top - cy) / S];
+  };
+  const move = (ev) => { const p = toHead(ev); if (Math.hypot(p[0], p[1]) > 0.14) { gaze.target = p; updateGaze(); } };
+  cv.addEventListener('pointerdown', (ev) => { dragging = true; cv.setPointerCapture(ev.pointerId); move(ev); });
+  cv.addEventListener('pointermove', (ev) => { if (dragging) move(ev); });
+  cv.addEventListener('pointerup', () => { dragging = false; });
+}
+
+// ============================================================
+//  実験台3: 切り替えの重みと、入ってくるクリップの時刻
+// ============================================================
+// A = 手を振る(4 秒でループ)、B = 腕を下ろして戻す(3 秒でループ)。1.5 秒で A から B へ移る。
+const smooth = (a, b, x) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
+const tri = (t, a, b) => (t <= a || t >= b) ? 0 : 1 - Math.abs(t - (a + b) / 2) / ((b - a) / 2);
+const CLIP_A = { duration: 4, arm: (t) => 75 + 12 * Math.sin(2 * Math.PI * 1.5 * t), happy: (t) => smooth(0.5, 1, t) * (1 - smooth(3, 3.5, t)) };
+const CLIP_B = { duration: 3, arm: (t) => -90 * tri(t, 0, 1), happy: (t) => tri(t, 1, 2) };
+const SWITCH = 1.5;
+const fade = { mode: 'cross', seconds: 0.3, start: 'head' };
+function sampleFade(t) {
+  const ta = t % CLIP_A.duration;
+  if (t < SWITCH) return { arm: CLIP_A.arm(ta), happy: CLIP_A.happy(ta), tb: null };
+  const w = fade.mode === 'instant' ? 1 : Math.min((t - SWITCH) / fade.seconds, 1);
+  // 頭から: B の時刻は切り替えてからの経過。位相をそろえる: A と同じ「1 周の割合」で B を読む(Day 42 の既定)
+  const tb = fade.start === 'head' ? (t - SWITCH) % CLIP_B.duration : ((t / CLIP_A.duration) % 1) * CLIP_B.duration;
+  return { arm: (1 - w) * CLIP_A.arm(ta) + w * CLIP_B.arm(tb), happy: (1 - w) * CLIP_A.happy(ta) + w * CLIP_B.happy(tb), tb, w };
+}
+function updateFade() {
+  $('fade-sec-out').textContent = fade.seconds.toFixed(2) + ' 秒';
+  const { ctx, w, h } = fit($('fade-canvas'));
+  const x0 = 44, x1 = w - 44, y0 = 16, y1 = h - 26, T = 3.5;
+  const Xt = (t) => x0 + t / T * (x1 - x0), Ya = (v) => (y0 + y1) / 2 - v / 100 * (y1 - y0) / 2, Yh = (v) => y1 - v * (y1 - y0);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, Ya(0)); ctx.lineTo(x1, Ya(0)); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [-90, 0, 90]) ctx.fillText(String(v), 8, Ya(v) + 4);
+  for (let t = 0; t <= 3; t++) ctx.fillText(t + 's', Xt(t) - 6, h - 8);
+  ctx.fillText('表情', x1 + 6, Yh(1) + 4);
+  ctx.strokeStyle = tok('--grid'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Xt(SWITCH), y0); ctx.lineTo(Xt(SWITCH), y1); ctx.stroke();
+  if (fade.mode === 'cross') { ctx.fillStyle = tok('--grid'); ctx.fillRect(Xt(SWITCH), y0, Xt(SWITCH + fade.seconds) - Xt(SWITCH), y1 - y0); }
+  const step = 1 / 60;
+  let maxJump = 0, prev = null;
+  const arm = [], happy = [];
+  for (let t = 0; t <= T + 1e-9; t += step) {
+    const s = sampleFade(t);
+    arm.push([t, s.arm]); happy.push([t, s.happy]);
+    if (prev !== null && t > SWITCH - step && t < SWITCH + 0.6) maxJump = Math.max(maxJump, Math.abs(s.arm - prev));
+    prev = s.arm;
+  }
+  ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]); ctx.beginPath();
+  happy.forEach(([t, v], i) => { i ? ctx.lineTo(Xt(t), Yh(v)) : ctx.moveTo(Xt(t), Yh(v)); }); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 3; ctx.beginPath();
+  arm.forEach(([t, v], i) => { i ? ctx.lineTo(Xt(t), Ya(v)) : ctx.moveTo(Xt(t), Ya(v)); }); ctx.stroke();
+  ctx.fillStyle = tok('--accent'); ctx.fillText('腕の角度', x0 + 4, y0 + 10);
+  ctx.fillStyle = tok('--warn'); ctx.fillText('happy の重み(点線)', x0 + 80, y0 + 10);
+  ctx.fillStyle = tok('--muted'); ctx.fillText('← A(手を振る)', Xt(SWITCH) - 110, y1 - 4); ctx.fillText('B(腕を下ろす)→', Xt(SWITCH) + 6, y1 - 4);
+  const at = sampleFade(SWITCH + 1e-6);
+  $('fade-stats').innerHTML =
+    stat('1 フレーム(1/60 秒)の腕の変化 最大', maxJump.toFixed(1) + ' 度') +
+    stat('切り替えた瞬間の B の時刻', at.tb.toFixed(2) + ' 秒');
+  $('fade-note').textContent = fade.start === 'phase'
+    ? '位相をそろえる: B が頭からではなく、A と同じ「1 周の割合」(1.5 / 4 = 0.375)の位置 1.13 秒から始まる。腕を下ろす動きが見えないまま、B の笑顔の途中から入る。Day 42 の歩きと走りには正しく、VRMA どうしには合わない。'
+    : (fade.mode === 'instant'
+      ? '即座: 1 フレームで A の姿勢から B の頭の姿勢へ飛ぶ(実機の右の上腕で 78.3 度)。'
+      : '混ぜる: 出ていく A は途中のまま流れ続け、重みだけが 1 → 0 に下がる。入ってくる B は頭から。表情(点線)も同じ重みで混ざるので、A の笑顔は出ていくのに合わせて消える。');
+}
+seg('fade-mode', (v) => { fade.mode = v; updateFade(); });
+seg('fade-start', (v) => { fade.start = v; updateFade(); });
+$('fade-sec').addEventListener('input', (e) => { fade.seconds = parseFloat(e.target.value); updateFade(); });
+
+// ------------------------------------------------------------
+updateNorm(); updateGaze(); updateFade();
+if (!reduceMotion) {
+  // 実験台1 だけ、角度をゆっくり往復させる(つまみを動かすと止まる)
+  let auto = true, clock = 0;
+  $('norm-angle').addEventListener('pointerdown', () => { auto = false; });
+  animate($('norm-lab'), (dt) => {
+    if (!auto) return;
+    clock += dt;
+    norm.angle = Math.round(45 + 45 * Math.sin(clock * 0.8));
+    $('norm-angle').value = norm.angle;
+    updateNorm();
+  });
+}
+window.addEventListener('resize', () => { updateNorm(); updateGaze(); updateFade(); });
+window.VrmaLab = { normalize, denormalize, mapAngles, evaluateNorm, sampleFade };
+})();
+</script>
+</body>
+</html>
