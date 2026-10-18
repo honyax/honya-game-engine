@@ -57,6 +57,48 @@ internal static class ParticleTextures
     }
 
     /// <summary>
+    /// **トレイルの断面**(Day 50)。中心の帯が濃く、上下の縁へ落ちる。
+    ///
+    /// <para>
+    /// <b>横方向(U)には何も持たない</b>。トレイルの長さ方向の濃淡は
+    /// <see cref="Trail.ColorAt"/>(頂点色)が付けるので、
+    /// テクスチャが持つのは<b>幅方向の断面だけ</b>でよい。
+    /// こうしておくと、尾を伸ばしても模様が引き伸ばされない——
+    /// 「長さは頂点、断面はテクスチャ」と役割を分けた結果になる。
+    /// </para>
+    ///
+    /// <para>
+    /// 縁を <c>(1 - d)³</c> で落としてあるのは <see cref="CreateSoftDot"/> より1乗ぶん強い。
+    /// リボンは面積が広いので、2乗だと<b>帯の縁がはっきり出て板に見える</b>。
+    /// </para>
+    /// </summary>
+    public static byte[] CreateTrailStrip(int size)
+    {
+        byte[] pixels = new byte[size * size * 4];
+
+        for (int y = 0; y < size; y++)
+        {
+            // 中心が 0、上下の縁が 1。
+            float distance = MathF.Abs((((y + 0.5f) / size) * 2.0f) - 1.0f);
+            float falloff = MathF.Max(0.0f, 1.0f - distance);
+            float alpha = falloff * falloff * falloff;
+
+            var value = (byte)(Math.Clamp(alpha, 0.0f, 1.0f) * 255.0f);
+
+            for (int x = 0; x < size; x++)
+            {
+                int i = ((y * size) + x) * 4;
+                pixels[i + 0] = 255;
+                pixels[i + 1] = 255;
+                pixels[i + 2] = 255;
+                pixels[i + 3] = value;
+            }
+        }
+
+        return pixels;
+    }
+
+    /// <summary>
     /// **広がりながら薄れる煙のコマ送り**。<paramref name="columns"/> × <paramref name="rows"/> の升に並べる。
     ///
     /// <para>

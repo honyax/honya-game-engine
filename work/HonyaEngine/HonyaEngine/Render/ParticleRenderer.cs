@@ -78,6 +78,27 @@ internal struct ParticleVertex
 /// 半透明なものが深度を書くと、**後ろに描かれる粒が深度テストで落ちる**——
 /// 手前の粒が「壁」になって、その裏の粒が消える。
 /// </para>
+///
+/// <para>
+/// <b>Day 50 で3つ増えた</b>。
+/// </para>
+/// <list type="number">
+/// <item>
+/// <b>ソフトパーティクル</b>(<see cref="SetSceneDepth"/>)…
+/// シーンの深度を読んで、床や壁に近い画素を薄くする。
+/// 四角形が地面を貫いてできる<b>まっすぐな切り口</b>が消える(要点1)。
+/// </item>
+/// <item>
+/// <b>混ぜ方を積む単位ごとに切り替えられる</b>(<see cref="Draw(ParticleEmitter, Texture, ParticleBlend)"/>)…
+/// 加算の閃光と半透明の煙が1フレームに同居する。
+/// テクスチャの切り替えと同じ扱いで、<b>変わったところでフラッシュする</b>。
+/// </item>
+/// <item>
+/// <b>トレイル</b>(<see cref="Draw(Trail, Texture, ParticleBlend)"/>)…
+/// リボンも「ワールド座標の四角形の列」なので、
+/// <b>粒とまったく同じ頂点・同じシェーダ・同じバッファ</b>に載る。
+/// </item>
+/// </list>
 /// </summary>
 internal sealed class ParticleRenderer : IDisposable
 {
@@ -85,6 +106,9 @@ internal sealed class ParticleRenderer : IDisposable
     private readonly Shader _shader;
     private readonly int _capacity;
     private readonly ParticleVertex[] _vertices;
+
+    /// <summary>トレイルの節ごとの「横方向」。**継ぎ目で辻褄を合わせるため先に全部出す**。</summary>
+    private Vector3[] _jointSide = new Vector3[64];
 
     /// <summary>並べ替え用の作業領域。**(奥行き, 粒の添字)** を詰めて `Array.Sort` に掛ける。</summary>
     private float[] _depths;
@@ -100,6 +124,17 @@ internal sealed class ParticleRenderer : IDisposable
     private Vector3 _cameraPosition;
 
     private Texture? _currentTexture;
+
+    /// <summary>いま GL に入っている混ぜ方。**これが変わる境目がドローコールの境目**(Day 50)。</summary>
+    private ParticleBlend _currentBlend;
+
+    /// <summary>シーンの深度のコピー。null ならソフトパーティクルは効かない(Day 50)。</summary>
+    private Texture? _sceneDepth;
+
+    private float _near = 0.1f;
+    private float _far = 100.0f;
+    private Vector2 _screenSize = new(1.0f, 1.0f);
+
     private int _pending;
     private bool _disposed;
 
@@ -195,15 +230,58 @@ internal sealed class ParticleRenderer : IDisposable
     /// <summary>明るさの倍率。1 を超えるとブルームのしきい値を越えて**にじむ**。</summary>
     public float Intensity { get; set; } = 2.0f;
 
+    /// <summary>
+    /// **ソフトパーティクル**を効かせるか(Day 50)。切ると Day 49 の絵に戻る——
+    /// 粒の四角形が床を貫いた<b>まっすぐな切り口</b>が出る。
+    /// </summary>
+    public bool SoftParticles { get; set; } = true;
+
+    /// <summary>
+    /// 何メートル手前から薄れ始めるか(Day 50)。
+    ///
+    /// <para>
+    /// 小さすぎると切り口が消えず、大きすぎると<b>粒全体が薄くなって存在感が無くなる</b>。
+    /// 粒の大きさと同じくらい(土埃なら 0.3〜0.5m)が目安になる。
+    /// </para>
+    /// </summary>
+    public float SoftFadeDistance { get; set; } = 0.35f;
+
     public int DrawCallCount { get; private set; }
 
     public int ParticleCount { get; private set; }
+
+    /// <summary>積んだトレイルの帯の枚数(Day 50)。粒とは別に数える。</summary>
+    public int TrailSegmentCount { get; private set; }
 
     /// <summary>プールに入りきらず捨てた粒の数。**0 でないなら容量が足りていない**。</summary>
     public int DroppedCount { get; private set; }
 
     /// <summary>並べ替えに掛かった時間(ms)。**アルファ合成の代償がここに出る**。</summary>
     public double SortMilliseconds { get; private set; }
+
+    /// <summary>
+    /// **シーンの深度を渡す**(Day 50)。ソフトパーティクルの入力になる。
+    ///
+    /// <para>
+    /// <b>いま描き込んでいるフレームバッファの深度そのものを渡してはいけない</b>。
+    /// 「書き込み先として挿さっているテクスチャを、同じ描画で読む」のは
+    /// OpenGL では<b>フィードバックループ</b>で、結果は未定義になる。
+    /// 呼ぶ側で<b>コピーしてから</b>渡すこと(<see cref="PostProcess.CaptureDepth"/>)。
+    /// </para>
+    ///
+    /// <para>
+    /// <paramref name="near"/> と <paramref name="far"/> が要るのは、
+    /// 深度バッファの値が<b>線形ではない</b>ため(要点2)。
+    /// 引き算する前に、両方を「カメラからの距離(m)」へ戻す必要がある。
+    /// </para>
+    /// </summary>
+    public void SetSceneDepth(Texture? depth, float near, float far, int width, int height)
+    {
+        _sceneDepth = depth;
+        _near = MathF.Max(1e-4f, near);
+        _far = MathF.Max(_near + 1e-4f, far);
+        _screenSize = new Vector2(Math.Max(1, width), Math.Max(1, height));
+    }
 
     public void Begin(Camera camera)
     {
@@ -217,6 +295,7 @@ internal sealed class ParticleRenderer : IDisposable
 
         DrawCallCount = 0;
         ParticleCount = 0;
+        TrailSegmentCount = 0;
         DroppedCount = 0;
         SortMilliseconds = 0.0;
         _pending = 0;
@@ -225,11 +304,23 @@ internal sealed class ParticleRenderer : IDisposable
         _shader.Use();
         _shader.SetMatrix4("uViewProjection", _viewProjection);
         _shader.SetInt("uTexture", 0);
-        _shader.SetFloat("uIntensity", Intensity);
-        _shader.SetInt("uPremultiply", Blend == ParticleBlend.Premultiplied ? 1 : 0);
+
+        // --- ソフトパーティクル(Day 50)---
+        //
+        // **深度が無ければ切る**。シェーダ側は uSoftFade が 0 なら
+        // テクスチャを1回も引かないので、深度を渡さないまま呼んでも安全。
+        bool soft = SoftParticles && _sceneDepth is not null;
+
+        _shader.SetInt("uSceneDepth", 1);
+        _shader.SetFloat("uSoftFade", soft ? MathF.Max(0.0f, SoftFadeDistance) : 0.0f);
+        _shader.SetVector2("uNearFar", new Vector2(_near, _far));
+        _shader.SetVector2("uScreenSize", _screenSize);
 
         _gl.Enable(EnableCap.Blend);
-        ApplyBlend();
+
+        _currentBlend = Blend;
+        ApplyBlend(_currentBlend);
+        _shader.SetFloat("uIntensity", IntensityFor(_currentBlend));
 
         // **深度は読む**。不透明な床や箱の裏に回った粒は隠れてほしい。
         _gl.Enable(EnableCap.DepthTest);
@@ -241,22 +332,34 @@ internal sealed class ParticleRenderer : IDisposable
         _gl.Disable(EnableCap.CullFace);
     }
 
+    /// <summary>1つの放出口を、レンダラ既定の混ぜ方(<see cref="Blend"/>)で積む。</summary>
+    public void Draw(ParticleEmitter emitter, Texture texture) => Draw(emitter, texture, Blend);
+
     /// <summary>
-    /// 1つの放出口を積む。テクスチャが変わったらそこでフラッシュする。
+    /// 1つの放出口を積む。**テクスチャか混ぜ方が変わったらそこでフラッシュする**(Day 50)。
+    ///
+    /// <para>
+    /// Day 49 の混ぜ方は <see cref="Begin"/> で1回決めるだけだった。
+    /// エフェクトを扱い始めると<b>加算の閃光と半透明の煙が同じフレームに出る</b>ので、
+    /// 積む単位ごとに切り替えられないと、どちらかを諦めることになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>混ぜ方は GL の状態</b>なので、途中で変えるには
+    /// それまでに積んだぶんを描き切ってからでないといけない——
+    /// テクスチャの切り替えとまったく同じ理屈で、
+    /// <b>切り替えの回数がそのままドローコールの数</b>になる。
+    /// だから <see cref="EffectSystem.Draw"/> は混ぜ方でまとめて回している。
+    /// </para>
     /// </summary>
-    public void Draw(ParticleEmitter emitter, Texture texture)
+    public void Draw(ParticleEmitter emitter, Texture texture, ParticleBlend blend)
     {
         if (emitter.Count == 0)
         {
             return;
         }
 
-        if (_currentTexture is not null && _currentTexture != texture)
-        {
-            Flush();
-        }
-
-        _currentTexture = texture;
+        SetState(texture, blend);
 
         ReadOnlySpan<Particle> alive = emitter.Alive;
 
@@ -270,6 +373,114 @@ internal sealed class ParticleRenderer : IDisposable
             {
                 Append(emitter, alive[i]);
             }
+        }
+    }
+
+    /// <summary>
+    /// **トレイルを1本積む**(Day 50)。節の列から帯を張る。
+    ///
+    /// <para>
+    /// <b>粒とまったく同じ入れ物に載る</b>のがこの実装の要点になる。
+    /// 頂点は <see cref="ParticleVertex"/>、シェーダは <c>particle.vert/frag</c>、
+    /// インデックスは <see cref="_indexBuffer"/> の使い回し——
+    /// 帯1枚が四角形1枚なので、粒と同じ「4頂点・6インデックス」で収まる。
+    /// トレイル専用の VAO もシェーダも1本も増えていない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>横方向は節ごとに1回だけ出す</b>(<see cref="_jointSide"/>)。
+    /// 帯ごとに計算すると、隣り合う2枚が共有するはずの辺が
+    /// <b>わずかに違う場所</b>に来て、継ぎ目に隙間が開く。
+    /// 節で1つに決めておけば、両側の帯が同じ2点を使うので必ず閉じる。
+    /// </para>
+    ///
+    /// <para>
+    /// 節の向きは<b>前後の節を結んだ向き</b>にする(端は片側だけ)。
+    /// 曲がり角で「入ってくる向き」と「出ていく向き」の中間を取ることになり、
+    /// これが無いと<b>急カーブの外側で帯が折れて尖る</b>。
+    /// </para>
+    /// </summary>
+    public void Draw(Trail trail, Texture texture, ParticleBlend blend)
+    {
+        if (trail.Count < 2)
+        {
+            return;
+        }
+
+        SetState(texture, blend);
+
+        if (_jointSide.Length < trail.Count)
+        {
+            _jointSide = new Vector3[trail.Count];
+        }
+
+        for (int i = 0; i < trail.Count; i++)
+        {
+            Vector3 previous = trail[Math.Max(0, i - 1)].Position;
+            Vector3 next = trail[Math.Min(trail.Count - 1, i + 1)].Position;
+
+            _jointSide[i] = Trail.Side(next - previous, _cameraPosition - trail[i].Position);
+        }
+
+        for (int i = 0; i + 1 < trail.Count; i++)
+        {
+            if (_pending >= _capacity)
+            {
+                Flush();
+
+                if (_pending >= _capacity)
+                {
+                    DroppedCount++;
+                    return;
+                }
+            }
+
+            // 節0がいちばん古い(尾)なので、i 側が尾、i+1 側が先端に近い。
+            float tailAge = trail.NormalizedAge(i);
+            float headAge = trail.NormalizedAge(i + 1);
+
+            Vector3 tailOffset = _jointSide[i] * (trail.WidthAt(tailAge) * 0.5f);
+            Vector3 headOffset = _jointSide[i + 1] * (trail.WidthAt(headAge) * 0.5f);
+
+            Vector3 tail = trail[i].Position;
+            Vector3 head = trail[i + 1].Position;
+
+            uint tailColor = SpriteVertex.PackColor(trail.ColorAt(tailAge));
+            uint headColor = SpriteVertex.PackColor(trail.ColorAt(headAge));
+
+            // **U が帯の長さ方向、V が幅方向**。
+            // 絵(<see cref="ParticleTextures.CreateTrailStrip"/>)は V にだけ濃淡を持つので、
+            // U をどう取っても見た目は同じ——それでも寿命に沿わせておくと、
+            // 模様のあるテクスチャに差し替えたときにそのまま流れる。
+            int baseIndex = _pending * 4;
+
+            _vertices[baseIndex + 0] = new ParticleVertex
+            {
+                Position = tail + tailOffset,
+                TexCoord = new Vector2(tailAge, 0.0f),
+                Color = tailColor,
+            };
+            _vertices[baseIndex + 1] = new ParticleVertex
+            {
+                Position = head + headOffset,
+                TexCoord = new Vector2(headAge, 0.0f),
+                Color = headColor,
+            };
+            _vertices[baseIndex + 2] = new ParticleVertex
+            {
+                Position = head - headOffset,
+                TexCoord = new Vector2(headAge, 1.0f),
+                Color = headColor,
+            };
+            _vertices[baseIndex + 3] = new ParticleVertex
+            {
+                Position = tail - tailOffset,
+                TexCoord = new Vector2(tailAge, 1.0f),
+                Color = tailColor,
+            };
+
+            _pending++;
+            TrailSegmentCount++;
         }
     }
 
@@ -402,6 +613,59 @@ internal sealed class ParticleRenderer : IDisposable
         ParticleCount++;
     }
 
+    /// <summary>
+    /// テクスチャと混ぜ方を今から積むものに合わせる(Day 50)。
+    /// **どちらが変わってもフラッシュ**する。
+    /// </summary>
+    private void SetState(Texture texture, ParticleBlend blend)
+    {
+        // **先に描き切る**。順番を逆にすると、すでに積んである粒が
+        // これから設定する混ぜ方で描かれてしまう。
+        if ((_currentTexture is not null && _currentTexture != texture) || blend != _currentBlend)
+        {
+            Flush();
+        }
+
+        _currentTexture = texture;
+
+        if (blend != _currentBlend)
+        {
+            _currentBlend = blend;
+            ApplyBlend(blend);
+
+            _shader.Use();
+            _shader.SetInt("uPremultiply", blend == ParticleBlend.Premultiplied ? 1 : 0);
+            _shader.SetFloat("uIntensity", IntensityFor(blend));
+        }
+    }
+
+    /// <summary>
+    /// その混ぜ方での明るさの倍率(Day 50)。**アルファのときは必ず 1 倍**。
+    ///
+    /// <para>
+    /// <see cref="Intensity"/> は<b>加算のための倍率</b>だった(Day 49 の要点2)。
+    /// 加算では RGB を持ち上げたぶんが素直に明るさになり、
+    /// 1.0 を超えればブルームが拾ってにじむ。
+    /// </para>
+    ///
+    /// <para>
+    /// ところが<b>アルファ合成の粒に同じ倍率を掛けると、色が白く飛ぶ</b>。
+    /// 土埃の色 (0.62, 0.55, 0.44) を 2 倍すると (1.24, 1.10, 0.88) で、
+    /// 3成分とも 1.0 付近に張り付いて<b>土の色が消える</b>——
+    /// おまけにブルームのしきい値も越えるので、足元だけが光る。
+    /// Day 49 は加算の粒しか同時に出さなかったので気づけなかった箇所で、
+    /// <b>加算とアルファが同居した今日、初めて症状が出た</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// アルファの粒を明るくしたいなら
+    /// <see cref="ParticleEmitter.StartColor"/> のほうを上げる。
+    /// 「明るさ」と「色」を混ぜないための線引きになる。
+    /// </para>
+    /// </summary>
+    private float IntensityFor(ParticleBlend blend) =>
+        blend == ParticleBlend.Alpha ? 1.0f : Intensity;
+
     private unsafe void Flush()
     {
         if (_pending == 0 || _currentTexture is null)
@@ -410,6 +674,14 @@ internal sealed class ParticleRenderer : IDisposable
         }
 
         _shader.Use();
+
+        // **深度は必ず何かを挿しておく**(Day 50)。
+        // ソフトパーティクルを切っていてもシェーダには sampler2D が宣言されており、
+        // 何も挿さっていないユニットを持つプログラムは、
+        // ドライバによっては「不完全」として描画ごと落とす。
+        // 引かれない(uSoftFade が 0)ので、粒のテクスチャを挿しておけば足りる。
+        (_sceneDepth ?? _currentTexture).Bind(TextureUnit.Texture1);
+
         _currentTexture.Bind(TextureUnit.Texture0);
 
         _gl.BindVertexArray(_vertexArray);
@@ -434,9 +706,50 @@ internal sealed class ParticleRenderer : IDisposable
         _pending = 0;
     }
 
-    private void ApplyBlend()
+    /// <summary>
+    /// **深度バッファの値を「カメラからの距離(m)」へ戻す**(Day 50)。
+    ///
+    /// <para>
+    /// 深度バッファに入っているのは <c>z</c> ではなく <c>1/z</c> に近いもので、
+    /// 手前に精度が偏っている(要点2)。そのまま引き算すると、
+    /// 近くでは効きすぎ、遠くではまったく効かないフェードになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <c>particle.frag</c> の同名の関数と<b>1文字ずつ同じ式</b>にしてある。
+    /// 自己チェックがこちらを検算することで、シェーダ側の式も一緒に確かめられる——
+    /// GPU の中身は読めないので、<b>片方を C# に持ってきて確かめる</b>のが唯一の手になる。
+    /// </para>
+    /// </summary>
+    public static float LinearizeDepth(float depth01, float near, float far)
     {
-        switch (Blend)
+        float ndc = (depth01 * 2.0f) - 1.0f;
+        return 2.0f * near * far / (far + near - (ndc * (far - near)));
+    }
+
+    /// <summary>
+    /// ソフトパーティクルの薄め方(Day 50)。**1 でそのまま、0 で消える**。
+    ///
+    /// <para>
+    /// 差が負(粒のほうが奥)になるのは、深度テストを通り抜けた画素では起きない。
+    /// それでも <c>Clamp</c> しておくのは、深度の精度の都合で
+    /// <b>ちょうど同じ面のときに符号が揺れる</b>ため——
+    /// クランプしないと床と同じ高さの粒がちらつく。
+    /// </para>
+    /// </summary>
+    public static float SoftFade(float sceneDistance, float particleDistance, float fadeDistance)
+    {
+        if (fadeDistance <= 0.0f)
+        {
+            return 1.0f;
+        }
+
+        return Math.Clamp((sceneDistance - particleDistance) / fadeDistance, 0.0f, 1.0f);
+    }
+
+    private void ApplyBlend(ParticleBlend blend)
+    {
+        switch (blend)
         {
             case ParticleBlend.Alpha:
                 // 普通の半透明。**重ねても明るくならない**ので煙・埃向き。

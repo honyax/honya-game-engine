@@ -454,6 +454,49 @@ internal static class Program
     /// <summary>粒を進めるのに掛かった時間(移動平均)。HUD 用。</summary>
     private static double _particleMilliseconds;
 
+    /// <summary>エフェクトとトレイルを進めるのに掛かった時間(移動平均)。HUD 用(Day 50)。</summary>
+    private static double _effectMilliseconds;
+
+    // --- 今日の主役: エフェクト応用(Day 50)---
+
+    /// <summary>一発もののエフェクトを貸し出すプール。**足元・着弾・爆発**。</summary>
+    private static EffectSystem _effects = null!;
+
+    /// <summary>振り回すものの軌跡。**エフェクトデモの光源が引きずる**。</summary>
+    private static Trail _trail = null!;
+
+    /// <summary>トレイルの断面(中心が濃い帯)。</summary>
+    private static Handle<Texture> _trailTexture;
+
+    /// <summary>エフェクトデモが出ているか。**今日の到達点**。</summary>
+    private static bool _effectDemo;
+
+    /// <summary>デモの発生源を回すための時計(秒)。可変 dt で進める。</summary>
+    private static float _effectTime;
+
+    /// <summary>デモの発生源が土埃を撒く間隔の目盛り。**距離で刻む**(足取りと同じ道具)。</summary>
+    private static FootstepTracker _demoPuffs = new() { Stride = 0.4f };
+
+    /// <summary>トレイルを出すか。</summary>
+    private static bool _trailEnabled = true;
+
+    private static readonly float[] TrailLifetimes = [0.15f, 0.35f, 0.7f, 1.2f];
+
+    private static int _trailLifetimeIndex = 1;
+
+    /// <summary>キャラクターの足元に土埃を出すか(「キャラクター」デモと連動)。</summary>
+    private static bool _footDust = true;
+
+    /// <summary>歩幅の目盛り。**一歩ごとに1回**だけ土埃を出す。</summary>
+    private static FootstepTracker _footsteps = new() { Stride = 0.85f };
+
+    /// <summary>前のステップで接地していたか。**着地の瞬間を拾う**ために持つ。</summary>
+    private static bool _wasGrounded = true;
+
+    private static readonly float[] SoftFadeDistances = [0.1f, 0.35f, 0.8f, 2.0f];
+
+    private static int _softFadeIndex = 1;
+
     /// <summary>カメラワークを再生中か(「カメラワークと機能」の F3)。</summary>
     private static bool _cameraPlaying;
 
@@ -2121,6 +2164,24 @@ internal static class Program
         _sparks = new ParticleEmitter(capacity: 1024, seed: 4902);
         ApplyParticleScene();
 
+        // --- 今日の主役: エフェクト応用(Day 50)---
+        //
+        // **トレイルの絵も数式**。断面(中心が濃い帯)だけを持たせて、
+        // 長さ方向の濃淡は頂点色に任せる(ParticleTextures.CreateTrailStrip)。
+        _trailTexture = _resources.LoadTextureFromPixels(
+            "particle-trail-64", ParticleTextures.CreateTrailStrip(64), 64, 64, srgb: false);
+
+        // **端でにじませない**。繰り返しのままだと、帯の上端を引くときに
+        // 下端(同じく透明)が混ざる——実害は小さいが、煙のアトラスと同じ理由で潰しておく。
+        _resources.GetTexture(_trailTexture).SetWrap(TextureWrap.ClampToEdge);
+
+        // 12 本もあれば、走りながら爆発を2つ出しても足りる。
+        // 足りなくなったら HUD の「出せなかった」が増えるので、そこで気づける。
+        _effects = new EffectSystem(slots: 12, capacityPerSlot: 256, seed: 5000);
+
+        _trail = new Trail(capacity: 96);
+        ApplyTrailSettings();
+
         string[] paths = SpriteNames
             .Select(name => ResolveAssetPath($"textures/{name}.png"))
             .ToArray();
@@ -2778,6 +2839,15 @@ internal static class Program
             // 誰にも影響を与えないので、カメラワークやアニメと同じ扱いでよい。
             // 逆に言うと、**粒に物を押させたくなった日は固定ステップへ移す**ことになる。
             UpdateParticles((float)deltaSeconds);
+
+            // **エフェクトとトレイルも可変 dt**(Day 50)。理由は上と同じ。
+            //
+            // <b>デモが出ていなくても呼ぶ</b>のが Day 49 との違いになる。
+            // 足元の土埃はキャラクターデモから出るので、
+            // 「パーティクルのデモが出ているとき」に紐付けると、
+            // <b>歩いても何も出ない</b>という形で嵌まる。
+            // 1本も貸し出していなければ中は素通りなので、常に呼んでよい。
+            UpdateEffects((float)deltaSeconds);
 
             string? tourMessage = _features.Update((float)deltaSeconds);
             if (tourMessage is not null)
@@ -3684,6 +3754,14 @@ internal static class Program
             lines.AppendLine(ParticleLabel());
         }
 
+        // **今日の1行**(Day 50)。ソフトパーティクルが効いているかは
+        // <b>絵を見れば分かる</b>が、そのために毎フレーム深度を1枚写していることと、
+        // 混ぜ方の切り替えでドローコールが何回に増えたかは絵から読めない。
+        if (_effectDemo || _effects.ActiveCount > 0)
+        {
+            lines.AppendLine(EffectLabel());
+        }
+
         // **今日の1行**(Day 43)。物理は「なんとなく動いている」で済ませてしまいやすい。
         // めり込み量と運動エネルギーが数字で出ていないと、
         // 沈んでいるのか、震えているのか、そもそも止まっているのかが分からない。
@@ -4510,6 +4588,10 @@ internal static class Program
         _debugChannel = 0;
         SetSpriteCount(0);
 
+        // **エフェクトデモも下ろす**(Day 50)。床すれすれを回る発生源は
+        // 物理の筋書きの床とは無関係な高さに居るので、重ねると宙に浮いて見える。
+        HideEffectDemo();
+
         _physicsDemo = true;
 
         // **キャラクターは下ろす**(Day 45)。剛体の筋書きへ切り替えたのに
@@ -5031,6 +5113,16 @@ internal static class Program
         _debugChannel = 0;
         SetSpriteCount(0);
 
+        // **エフェクトデモは下ろす**(Day 50)。回り続ける発生源は
+        // キャラクターの世界とは無関係な高さに居る。
+        // 足元の土埃(<see cref="UpdateFootsteps"/>)はデモとは別の経路で出るので、
+        // ここで下ろしても土埃は出る。
+        HideEffectDemo();
+
+        // 出発点へ戻すので、歩数の端数も捨てる(Day 50)。
+        _footsteps.Reset();
+        _wasGrounded = true;
+
         _physicsDemo = true;
         _characterDemo = true;
         _physicsPaused = false;
@@ -5339,12 +5431,20 @@ internal static class Program
             input.WasPressed(GameAction.Jump),
             dt);
 
+        // **足元の土埃**(Day 50)。移動のあと・押し戻しのあとに呼ぶ——
+        // 接地しているか、どの面に立っているかが確定しているのはここから。
+        UpdateFootsteps(dt);
+
         // **落ちたら戻す**。見えない壁で四方は囲ってあるが、
         // 床をすり抜けるようなことがあってもデモが続けられるように。
         if (Character.Position.Y < PhysicsFloorY - 5.0f)
         {
             Character.Teleport(_characterSpawn);
             Console.WriteLine("キャラクターが落ちたので出発点へ戻した");
+
+            // **瞬間移動したぶんを歩数に数えない**(Day 50)。
+            // リセットしないと、戻された瞬間に土埃が上限まで出る。
+            _footsteps.Reset();
         }
 
         _characterMilliseconds =
@@ -16347,6 +16447,103 @@ internal static class Program
 
         particles.Add("自己チェック", "端数・分布・積分・ビルボードの基底を検算する", RunParticleCheck);
 
+        // --- Day 50。トレイル・ソフトパーティクル・土埃/ヒット/爆発 ---
+        //
+        // **2日続けて、ページを1枚足すだけで済んでいる**。
+        // Day 48 の片付けが無ければ、ここでまた
+        // 「まだ空いている修飾キーの組み合わせ」を探すところから始まっていた。
+        DebugMenu.Page effects = menu.Add(
+            "エフェクト", "Day 50。トレイル・ソフトパーティクル・土埃/ヒット/爆発");
+
+        effects.Add("エフェクトデモ", "床すれすれを回る発生源。土埃とトレイルが出る", () =>
+        {
+            if (_effectDemo)
+            {
+                HideEffectDemo();
+                Console.WriteLine("エフェクトデモ: OFF");
+            }
+            else
+            {
+                ShowEffectDemo();
+                Console.WriteLine(
+                    "エフェクトデモ: **ON**。床すれすれを回る発生源が土埃を落とし、"
+                    + "軌跡がトレイルとして残る。**F3 でソフトパーティクルを切ると、"
+                    + "土埃が床を貫いた切り口が出る**");
+            }
+        });
+
+        effects.Add("ソフトパーティクル", "**今日の到達点**。切ると床に刺さる", () =>
+        {
+            _particles.SoftParticles = !_particles.SoftParticles;
+            Console.WriteLine(
+                _particles.SoftParticles
+                    ? $"ソフトパーティクル: **ON**(フェード {_particles.SoftFadeDistance:F2}m)。"
+                    + "深度を1枚写して、床に近い画素を薄くしている"
+                    : "ソフトパーティクル: **OFF**(Day 49 の絵)。"
+                    + "**四角形が床を貫いた、まっすぐな切り口**が出る");
+        });
+
+        effects.Add("フェード距離", "0.1 / 0.35 / 0.8 / 2.0m。**大きすぎると粒が消える**", () =>
+        {
+            _softFadeIndex = (_softFadeIndex + 1) % SoftFadeDistances.Length;
+            _particles.SoftFadeDistance = SoftFadeDistances[_softFadeIndex];
+            Console.WriteLine(
+                $"フェード距離: **{_particles.SoftFadeDistance:F2}m**"
+                + (_particles.SoftFadeDistance < 0.2f
+                    ? "(短すぎ。切り口が消えきらない)"
+                    : _particles.SoftFadeDistance > 1.0f
+                        ? "(長すぎ。**粒全体が薄くなって存在感が消える**)"
+                        : "(粒の大きさと同じくらいが目安)"));
+        });
+
+        effects.Add("トレイル", "軌跡のリボン ON/OFF", () =>
+        {
+            _trailEnabled = !_trailEnabled;
+            Console.WriteLine(
+                _trailEnabled
+                    ? "トレイル: **ON**。節をリングバッファに溜めて、帯を張っている"
+                    : "トレイル: OFF(溜まっている節は寿命ぶんだけ残る)");
+        });
+
+        effects.Add("尾の長さ", "0.15 / 0.35 / 0.7 / 1.2 秒。**節の数が変わる**", () =>
+        {
+            _trailLifetimeIndex = (_trailLifetimeIndex + 1) % TrailLifetimes.Length;
+            ApplyTrailSettings();
+            Console.WriteLine(
+                $"尾の寿命: **{_trail.Lifetime:F2}秒**。"
+                + $"釣り合いは 2.2m/s ÷ {_trail.MinDistance:F2}m × {_trail.Lifetime:F2}秒 = "
+                + $"{2.2f / _trail.MinDistance * _trail.Lifetime:F0} 節 / 容量 {_trail.Capacity}");
+        });
+
+        effects.Add("着弾を1発", "加算 + 円錐。**面の法線に沿って跳ねる**", () =>
+        {
+            _effects.Spawn(EffectKind.Hit, EffectSpawnPoint(), Vector3.UnitY);
+            Console.WriteLine($"着弾: 貸出中 {_effects.ActiveCount} / {_effects.SlotCount} 本");
+        });
+
+        effects.Add("爆発を1発", "**閃光(加算)+ 煙(アルファ)で2本使う**", () =>
+        {
+            _effects.Spawn(EffectKind.Explosion, EffectSpawnPoint(), Vector3.UnitY);
+            Console.WriteLine(
+                $"爆発: 貸出中 {_effects.ActiveCount} / {_effects.SlotCount} 本。"
+                + "**混ぜ方が違うので放出口が2本**。HUD の DC が 1 増える");
+        });
+
+        effects.Add("足元の土埃", "「キャラクター」デモと連動。**一歩ごとに1回**", () =>
+        {
+            _footDust = !_footDust;
+            _footsteps.Reset();
+            Console.WriteLine(
+                _footDust
+                    ? "足元の土埃: **ON**。「キャラクター」ページの F2 で歩くと、"
+                    + "歩幅ごとに1回・着地で1回出る"
+                    : "足元の土埃: OFF");
+        });
+
+        effects.Add("内訳", "貸出中の本数・節の数・深度の写しの代償", DescribeEffects);
+
+        effects.Add("自己チェック", "深度の線形化・リングバッファ・歩幅を検算する", RunEffectCheck);
+
         return menu;
     }
 
@@ -20866,7 +21063,7 @@ internal static class Program
         checks.Check("ページがある", _menu.Pages.Count > 0, $"{_menu.Pages.Count} 枚");
         checks.Check(
             "**Day 31 以降のスイッチが全部入っている**",
-            entryCount == 171,
+            entryCount == 181,
             $"{entryCount} 項目");
 
         bool withinCapacity = _menu.Pages.All(page => page.Entries.Count <= DebugMenu.SlotCount);
@@ -21002,6 +21199,10 @@ internal static class Program
         {
             SetModel(ModelPaths.Length);
         }
+
+        // **エフェクトデモも下ろす**(Day 50)。どちらも同じ床の上に粒を出すので、
+        // 重ねると「どちらの粒を見ているのか」が分からなくなる。
+        HideEffectDemo();
 
         _materialGrid = false;
         _surfaceDemo = false;
@@ -21295,23 +21496,326 @@ internal static class Program
     /// </summary>
     private static void RenderParticles()
     {
-        if (!_particleDemo || _playing)
+        if (_playing)
         {
             return;
         }
 
-        Texture texture = CurrentParticleTexture();
-
-        _particles.Begin(_camera);
-        _particles.Draw(_emitter, texture);
-
-        if (_sparks.Count > 0)
+        // **描くものが1つも無ければ深度のコピーもしない**(Day 50)。
+        // コピーは画面1枚ぶんの帯域を使うので、
+        // 「粒が出ていないフレームでも払っている」のは避けたい。
+        bool hasTrail = _trailEnabled && _effectDemo && _trail.Count >= 2;
+        if (!_particleDemo && _effects.ActiveCount == 0 && !hasTrail)
         {
-            // 火の粉は常に丸。煙のアトラスを使う筋書きでは出さない。
-            _particles.Draw(_sparks, _resources.GetTexture(_dotTexture));
+            return;
         }
 
+        // --- ソフトパーティクルの下ごしらえ(Day 50)---
+        //
+        // **不透明なものを描き終えた今この時点**で深度を写す。
+        // 早すぎると床や箱が入っておらず、遅すぎると粒どうしが互いを消し合う。
+        if (_particles.SoftParticles)
+        {
+            _post.CaptureDepth();
+        }
+
+        _particles.SetSceneDepth(
+            _particles.SoftParticles ? _post.SceneDepth : null,
+            _camera.NearPlane,
+            _camera.FarPlane,
+            _post.Scene.Width,
+            _post.Scene.Height);
+
+        _particles.Begin(_camera);
+
+        if (_particleDemo)
+        {
+            _particles.Draw(_emitter, CurrentParticleTexture());
+
+            if (_sparks.Count > 0)
+            {
+                // 火の粉は常に丸。煙のアトラスを使う筋書きでは出さない。
+                _particles.Draw(_sparks, _resources.GetTexture(_dotTexture));
+            }
+        }
+
+        // **トレイルを先に敷く**(Day 50)。加算なので順番は結果を変えないが、
+        // このあとエフェクトが加算 → アルファの順で積むので、
+        // ここで加算を出しておくと<b>切り替えが1回で済む</b>。
+        if (hasTrail)
+        {
+            _particles.Draw(_trail, _resources.GetTexture(_trailTexture), ParticleBlend.Additive);
+        }
+
+        // 一発ものは自分で混ぜ方を持っている(EffectSystem が加算 → アルファでまとめる)。
+        _effects.Draw(
+            _particles,
+            _resources.GetTexture(_dotTexture),
+            _resources.GetTexture(_smokeTexture));
+
         _particles.End();
+    }
+
+    // ================================================================
+    //  Day 50: エフェクト応用(トレイル・ソフトパーティクル・土埃/ヒット/爆発)
+    // ================================================================
+
+    /// <summary>
+    /// **デモの発生源の位置**(Day 50)。床すれすれを回りながら上下する。
+    ///
+    /// <para>
+    /// <b>床に近いところを通す</b>のが今日の要になる。
+    /// 土埃もトレイルも四角形の集まりなので、床と交わったところに
+    /// <b>まっすぐな切り口</b>が出る——ソフトパーティクルはそれを消すための技法で、
+    /// <b>切り口が出ない位置に置いてしまうと効き目が見えない</b>。
+    /// </para>
+    ///
+    /// <para>
+    /// 上下に揺らしてあるのはトレイルのため。
+    /// 完全な水平の円だと、リボンが1枚の平面に収まってしまい、
+    /// <b>節ごとに横方向を出し直している意味が絵に出ない</b>。
+    /// </para>
+    /// </summary>
+    private static Vector3 EffectSourcePosition(float time)
+    {
+        float angle = time * 1.25f;
+
+        // **中央の箱の手前**を回す。箱の上を回すと、面白い半分(床との交わり)が
+        // 箱に隠れてしまう。中心を +Z へずらして、開けた床の上に円を置く。
+        return new Vector3(
+            MathF.Cos(angle) * 1.4f,
+            PhysicsFloorY + 0.42f + (MathF.Sin(angle * 3.0f) * 0.26f),
+            1.5f + (MathF.Sin(angle) * 1.4f));
+    }
+
+    /// <summary>
+    /// エフェクトデモを出す。**Day 49 の <see cref="ShowParticleDemo"/> と同じ作法**で、
+    /// ぶつかるデモを全部下ろしてから背景だけを残す。
+    /// </summary>
+    private static void ShowEffectDemo()
+    {
+        if (_demo is not null)
+        {
+            UnloadDemoScene();
+        }
+
+        StopTourIfRunning();
+
+        if (_model is not null)
+        {
+            SetModel(ModelPaths.Length);
+        }
+
+        HideParticleDemo();
+
+        _materialGrid = false;
+        _surfaceDemo = false;
+        _physicsDemo = false;
+        _characterDemo = false;
+        _debugChannel = 0;
+        SetSpriteCount(0);
+
+        // 背景の床と箱が要る。**刺さりを見るための面**なので、今日はこれが主役の一部。
+        _draw3D = true;
+
+        // **空を消す**(Day 49 と同じ理由)。着弾と爆発は加算なので、
+        // 明るい空の前では足しても足しても白のままになる。
+        _env.SkyboxVisible = false;
+
+        _effectDemo = true;
+        _effectTime = 0.0f;
+        _trail.Clear();
+        _effects.Clear();
+
+        // **低い視点から見る**。切り口がいちばんよく見えるのは、
+        // 床を斜めから舐めるように見たとき——真上から見ると交線が短くて分からない。
+        //
+        // <b>正面(Yaw 0)から見る</b>のは、斜めから覗くと
+        // 隅の箱(3, 0, 3)にカメラが潜り込んで視界が塞がるため。
+        _orbit.Target = new Vector3(0.0f, PhysicsFloorY + 0.2f, 1.3f);
+        _orbit.Distance = 4.4f;
+        _orbit.Yaw = 0.0f;
+        _orbit.Pitch = 0.16f;
+        _orbit.Apply();
+    }
+
+    private static void HideEffectDemo()
+    {
+        _effectDemo = false;
+
+        // **借りた状態は返す**(Day 49 と同じ)。
+        _env.SkyboxVisible = true;
+
+        _trail.Clear();
+        _effects.Clear();
+    }
+
+    /// <summary>
+    /// トレイルの見た目を設定する。**寿命を変えると尾の長さが変わる**。
+    ///
+    /// <para>
+    /// 幅と色をここに集めてあるのは <see cref="ApplyParticleScene"/> と同じ判断で、
+    /// <see cref="Trail"/> 自身は「節を溜める」以外を知らないままにしておきたい。
+    /// </para>
+    /// </summary>
+    private static void ApplyTrailSettings()
+    {
+        _trail.Lifetime = TrailLifetimes[_trailLifetimeIndex];
+
+        // **速さ ÷ 間隔 × 寿命**が容量(96)を超えないように取る。
+        // 発生源は 2.2m/s なので、0.06m 間隔・寿命 1.2 秒でも 44 節。
+        _trail.MinDistance = 0.06f;
+
+        _trail.StartWidth = 0.26f;
+        _trail.EndWidth = 0.02f;
+
+        // 先端は白に近く、末尾は青へ落ちる。**加算で描くのでアルファが明るさ**になる。
+        _trail.StartColor = new Vector4(0.75f, 0.9f, 1.0f, 1.0f);
+        _trail.EndColor = new Vector4(0.15f, 0.35f, 1.0f, 0.0f);
+    }
+
+    /// <summary>
+    /// エフェクトとトレイルを進める(Day 50)。**デモが出ていなくても呼ばれる**。
+    ///
+    /// <para>
+    /// 足元の土埃は「キャラクター」デモから出るので、
+    /// エフェクトデモのスイッチに紐付けてしまうと<b>歩いても何も出ない</b>。
+    /// プールが空なら中身はほぼ素通りなので、常に呼んでよい。
+    /// </para>
+    /// </summary>
+    private static void UpdateEffects(float deltaSeconds)
+    {
+        var stopwatch = Stopwatch.StartNew();
+
+        _effects.Update(deltaSeconds);
+
+        if (_effectDemo)
+        {
+            // **進む前と後の両方を出す**。距離が要るので、片方だけでは刻めない。
+            Vector3 previous = EffectSourcePosition(_effectTime);
+            _effectTime += deltaSeconds;
+            Vector3 current = EffectSourcePosition(_effectTime);
+
+            if (_trailEnabled)
+            {
+                _trail.Move(current);
+            }
+
+            // 発生源の真下に土埃を落とす。**距離で刻む**ので、
+            // fps が変わっても土埃の間隔は変わらない(要点5)。
+            int puffs = _demoPuffs.Advance(Vector3.Distance(previous, current));
+            for (int i = 0; i < puffs; i++)
+            {
+                // **落とすのは真下の床**。発生源自身の高さで撒くと宙に浮いてしまい、
+                // 「床に刺さる」が起きないのでソフトパーティクルの効き目が見えない。
+                _effects.Spawn(
+                    EffectKind.Landing,
+                    new Vector3(current.X, PhysicsFloorY + 0.04f, current.Z),
+                    Vector3.UnitY);
+            }
+        }
+
+        // **デモを切っても尾は消えるまで動かす**。
+        // 切った瞬間に消すと、リボンが1フレームで消えて不自然に見える。
+        _trail.Update(deltaSeconds);
+
+        _effectMilliseconds =
+            (_effectMilliseconds * 0.9) + (stopwatch.Elapsed.TotalMilliseconds * 0.1);
+    }
+
+    /// <summary>
+    /// **キャラクターの足元に土埃を出す**(Day 50)。<see cref="UpdateCharacter"/> から呼ぶ。
+    ///
+    /// <para>
+    /// <b>「歩いている間ずっと出す」にしない</b>のが今日の判断になる。
+    /// 出しっぱなしにすると、走ったときに土埃が濃くなりすぎるうえ、
+    /// フレームレートで濃さが変わる。実際の足音と同じで、
+    /// <b>距離を刻んで一歩ごとに1回</b>のほうが素直に見える
+    /// (<see cref="FootstepTracker"/>)。
+    /// </para>
+    ///
+    /// <para>
+    /// 距離は<b>水平速度 × dt</b> で見積もる。実際に動いた量ではないので、
+    /// 壁に押し戻されたフレームではわずかに多く数える——
+    /// 足音の間隔の話なので、この程度の誤差は絵に出ない。
+    /// 厳密にやるなら <see cref="CharacterController.Move"/> の前後で位置の差を取る。
+    /// </para>
+    /// </summary>
+    private static void UpdateFootsteps(float deltaSeconds)
+    {
+        if (!_footDust)
+        {
+            _wasGrounded = Character.IsGrounded;
+            return;
+        }
+
+        if (Character.IsGrounded && !_wasGrounded)
+        {
+            // **着地の瞬間**。空中から接地に変わったフレームで1回だけ。
+            // 接地の判定は Day 45 の吸い付き込みなので、坂を下るだけでは発火しない。
+            _effects.Spawn(EffectKind.Landing, Character.Position, Character.GroundNormal);
+            _footsteps.Reset();
+        }
+        else if (Character.IsGrounded)
+        {
+            // **走ると歩幅が広がる**。同じ歩幅のままだと、
+            // 速いぶんだけ土埃の数が増えて煙幕になる。
+            _footsteps.Stride =
+                Character.HorizontalSpeed > Character.WalkSpeed * 1.2f ? 1.3f : 0.85f;
+
+            int steps = _footsteps.Advance(Character.HorizontalSpeed * deltaSeconds);
+
+            for (int i = 0; i < steps; i++)
+            {
+                _effects.Spawn(EffectKind.FootDust, Character.Position, Character.GroundNormal);
+            }
+        }
+        else
+        {
+            // 空中では数えない。**次に着いたときが一歩目**になる。
+            _footsteps.Reset();
+        }
+
+        _wasGrounded = Character.IsGrounded;
+    }
+
+    /// <summary>
+    /// 「いま見ている場所」にエフェクトを1発出す(メニューの F8 / F9)。
+    ///
+    /// <para>
+    /// エフェクトデモが出ているときは<b>発生源の位置</b>、
+    /// キャラクターデモなら<b>足元の少し前</b>、どちらでもなければ注視点。
+    /// 「押したのに画面外で出た」がいちばん気が抜けるので、
+    /// <b>いま映っているものに合わせる</b>。
+    /// </para>
+    /// </summary>
+    private static Vector3 EffectSpawnPoint()
+    {
+        if (_effectDemo)
+        {
+            return EffectSourcePosition(_effectTime);
+        }
+
+        if (_characterDemo)
+        {
+            return Character.Position + new Vector3(0.0f, 0.6f, 0.0f);
+        }
+
+        return _orbit.Target;
+    }
+
+    /// <summary>HUD の1行(Day 50)。**絵から読めないものだけ**。</summary>
+    private static string EffectLabel()
+    {
+        string soft = _particles.SoftParticles
+            ? $"ソフト:ON {_particles.SoftFadeDistance:F2}m 深度写し:{_post.DepthCopyMilliseconds:F3}ms"
+            : "ソフト:**OFF**(床に刺さる)";
+
+        return
+            $"効果:{_effects.ActiveCount}/{_effects.SlotCount}本 粒:{_effects.ParticleCount}  "
+            + $"尾:{_trail.Count}/{_trail.Capacity}節 帯:{_particles.TrailSegmentCount}  "
+            + $"DC:{_particles.DrawCallCount}  {soft}  更新:{_effectMilliseconds:F2}ms"
+            + (_effects.DroppedSpawns > 0 ? $"  **出せず:{_effects.DroppedSpawns}**" : string.Empty);
     }
 
     /// <summary>HUD の1行(Day 49)。**絵から読めないものだけ**。</summary>
@@ -21676,6 +22180,347 @@ internal static class Program
             "**最後のコマでも透明になりきらない**(色のカーブと二重に消えない)",
             smoke[lastCenter] > 40,
             $"アルファ {smoke[lastCenter]}");
+
+        checks.Report();
+    }
+
+    /// <summary>エフェクトの内訳を並べて出す(Day 50)。</summary>
+    private static void DescribeEffects()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- エフェクトの内訳(Day 50)---");
+        Console.WriteLine(
+            $"  貸出中: {_effects.ActiveCount} / {_effects.SlotCount} 本  "
+            + $"粒 {_effects.ParticleCount} 個  累計 {_effects.TotalSpawns} 回  "
+            + $"出せなかった {_effects.DroppedSpawns} 回");
+
+        foreach ((EffectKind kind, int count) in _effects.ActiveEffects())
+        {
+            Console.WriteLine($"    {kind}: {count} 粒");
+        }
+
+        Console.WriteLine(
+            $"  トレイル: {_trail.Count} / {_trail.Capacity} 節  "
+            + $"寿命 {_trail.Lifetime:F2}秒  間隔 {_trail.MinDistance:F3}m  "
+            + $"幅 {_trail.StartWidth:F2}→{_trail.EndWidth:F2}m  "
+            + $"捨てた節 {_trail.DroppedPoints}");
+
+        // **釣り合いの見積もり**。粒の「放出 × 寿命」(Day 49)と同じ形。
+        Console.WriteLine(
+            $"  **尾の釣り合い**: 速さ 2.2m/s ÷ 間隔 {_trail.MinDistance:F3}m × 寿命 "
+            + $"{_trail.Lifetime:F2}秒 = {2.2f / _trail.MinDistance * _trail.Lifetime:F0} 節"
+            + "(容量を超えると尾が寿命より短くなる)");
+
+        Console.WriteLine(
+            $"  ソフトパーティクル: {OnOff(_particles.SoftParticles)}  "
+            + $"フェード {_particles.SoftFadeDistance:F2}m  "
+            + $"near/far {_camera.NearPlane:F2}/{_camera.FarPlane:F0}");
+
+        // **深度のコピーの代償**。遅延確保なので、一度も使っていなければ 0 のまま。
+        long depthBytes = _post.SceneDepth is null
+            ? 0
+            : (long)_post.Scene.Width * _post.Scene.Height * 3;
+
+        Console.WriteLine(
+            $"  深度の写し: {depthBytes / 1024.0 / 1024.0:F1}MB  "
+            + $"{_post.DepthCopyMilliseconds:F3}ms/フレーム(CPU 側の積み込みだけ)");
+
+        Console.WriteLine(
+            $"  ドローコール: {_particles.DrawCallCount} 回  "
+            + $"帯 {_particles.TrailSegmentCount} 枚  粒 {_particles.ParticleCount} 個");
+    }
+
+    /// <summary>
+    /// **今日の自己チェック**。Day 50。
+    ///
+    /// <para>
+    /// 今日の3つは、どれも<b>間違っていても「それっぽく」見えてしまう</b>。
+    /// 深度の線形化を忘れても粒は薄くなるし(近くだけ効きすぎるだけ)、
+    /// リングバッファがねじれても速く動かさなければ気づけないし、
+    /// 足取りの端数を捨てても、走っている間は土埃が出る。
+    /// だから<b>数えられるものを数える</b>。
+    /// </para>
+    /// </summary>
+    private static void RunEffectCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("--- Day 50: エフェクトの自己チェック ---");
+        var checks = new CheckList();
+
+        // ============================================================
+        //  1. 深度の線形化(要点2)
+        // ============================================================
+
+        const float Near = 0.1f;
+        const float Far = 100.0f;
+
+        float atNear = ParticleRenderer.LinearizeDepth(0.0f, Near, Far);
+        float atFar = ParticleRenderer.LinearizeDepth(1.0f, Near, Far);
+        float atHalf = ParticleRenderer.LinearizeDepth(0.5f, Near, Far);
+
+        checks.Check(
+            "深度 0 が near、深度 1 が far に戻る",
+            MathF.Abs(atNear - Near) < 1e-3f && MathF.Abs(atFar - Far) < 1e-2f,
+            $"{atNear:F4}m / {atFar:F2}m");
+
+        // **これが今日いちばん腑に落ちる数字**。深度バッファの真ん中は、
+        // 距離で言えば near のすぐ先しかない。
+        checks.Check(
+            "**深度の真ん中は距離の真ん中ではない**(手前に精度が偏っている)",
+            atHalf < 1.0f,
+            $"深度 0.5 = {atHalf:F3}m(距離の真ん中なら 50m)");
+
+        bool monotonic = true;
+        float previousDistance = 0.0f;
+        for (int i = 0; i <= 100; i++)
+        {
+            float distance = ParticleRenderer.LinearizeDepth(i / 100.0f, Near, Far);
+            monotonic &= distance >= previousDistance;
+            previousDistance = distance;
+        }
+
+        checks.Check("深度が増えれば距離も増える(単調)", monotonic);
+
+        // ============================================================
+        //  2. ソフトパーティクルの薄め方(要点1)
+        // ============================================================
+
+        checks.Check(
+            "面と同じ位置にある粒は消える",
+            ParticleRenderer.SoftFade(5.0f, 5.0f, 0.5f) == 0.0f);
+
+        checks.Check(
+            "**フェード距離だけ手前にあればそのまま**",
+            MathF.Abs(ParticleRenderer.SoftFade(5.0f, 4.5f, 0.5f) - 1.0f) < 1e-6f);
+
+        checks.Check(
+            "半分だけ離れていれば半分",
+            MathF.Abs(ParticleRenderer.SoftFade(5.0f, 4.75f, 0.5f) - 0.5f) < 1e-6f,
+            $"{ParticleRenderer.SoftFade(5.0f, 4.75f, 0.5f):F3}");
+
+        checks.Check(
+            "面より奥でも負にならない(クランプ)",
+            ParticleRenderer.SoftFade(5.0f, 6.0f, 0.5f) == 0.0f);
+
+        checks.Check(
+            "**フェード距離 0 で切れる**(深度を渡していないとき)",
+            ParticleRenderer.SoftFade(5.0f, 5.0f, 0.0f) == 1.0f);
+
+        // ============================================================
+        //  3. トレイルのリングバッファ(要点3)
+        // ============================================================
+
+        var trail = new Trail(capacity: 8)
+        {
+            Lifetime = 1.0f,
+            MinDistance = 1.0f,
+        };
+
+        trail.Move(Vector3.Zero);
+        checks.Check("最初の1回で節が2つできる(長さ 0 の帯)", trail.Count == 2, $"{trail.Count} 節");
+
+        trail.Move(new Vector3(0.5f, 0.0f, 0.0f));
+        checks.Check(
+            "**間隔未満では節が増えない**(先端が動くだけ)",
+            trail.Count == 2 && trail[trail.Count - 1].Position.X == 0.5f,
+            $"{trail.Count} 節、先端 {trail[trail.Count - 1].Position.X:F2}");
+
+        trail.Move(new Vector3(1.2f, 0.0f, 0.0f));
+        checks.Check("間隔を越えたら節が増える", trail.Count == 3, $"{trail.Count} 節");
+
+        for (int i = 2; i <= 10; i++)
+        {
+            trail.Move(new Vector3(i * 1.2f, 0.0f, 0.0f));
+        }
+
+        checks.Check("容量を超えて溜め込まない", trail.Count == 8, $"{trail.Count} / 容量 8");
+
+        bool ordered = true;
+        for (int i = 1; i < trail.Count; i++)
+        {
+            ordered &= trail[i].Position.X > trail[i - 1].Position.X;
+        }
+
+        // **ここが swap-remove との分かれ道**(要点3)。末尾と入れ替えていたら、
+        // ここで並びが崩れてリボンがねじれる。
+        checks.Check(
+            "**溢れても並びが古い順のまま**(リングバッファ)",
+            ordered,
+            $"先頭 {trail[0].Position.X:F1} → 先端 {trail[trail.Count - 1].Position.X:F1}");
+
+        checks.Check("溢れたぶんを数えている", trail.DroppedPoints > 0, $"{trail.DroppedPoints} 節");
+
+        trail.Update(0.6f);
+        checks.Check("寿命の途中では減らない", trail.Count == 8, $"{trail.Count} 節");
+
+        trail.Update(0.6f);
+        checks.Check("**寿命を超えたら古いほうから消える**", trail.Count == 0, $"{trail.Count} 節");
+
+        // ============================================================
+        //  4. リボンの横方向(要点4)
+        // ============================================================
+
+        var direction = new Vector3(1.0f, 0.0f, 0.0f);
+        var toCamera = new Vector3(0.0f, 1.0f, 1.0f);
+        Vector3 side = Trail.Side(direction, toCamera);
+
+        checks.Check("横方向の長さが 1", MathF.Abs(side.Length() - 1.0f) < 1e-5f);
+
+        checks.Check(
+            "**進行方向とカメラ方向の両方に垂直**",
+            MathF.Abs(Vector3.Dot(side, Vector3.Normalize(direction))) < 1e-5f
+            && MathF.Abs(Vector3.Dot(side, Vector3.Normalize(toCamera))) < 1e-5f);
+
+        // 剣先が真っ直ぐこちらへ向かってくると外積が潰れる。
+        // **正規化で NaN が出るとリボンが丸ごと消える**ので、逃げ道が要る。
+        Vector3 degenerate = Trail.Side(new Vector3(0.0f, 0.0f, 1.0f), new Vector3(0.0f, 0.0f, 3.0f));
+
+        checks.Check(
+            "**真正面から見ても NaN にならない**(縮退の逃げ道)",
+            !float.IsNaN(degenerate.X) && MathF.Abs(degenerate.Length() - 1.0f) < 1e-5f,
+            $"({degenerate.X:F2}, {degenerate.Y:F2}, {degenerate.Z:F2})");
+
+        checks.Check(
+            "長さ 0 を渡しても落ちない",
+            MathF.Abs(Trail.Side(Vector3.Zero, Vector3.Zero).Length() - 1.0f) < 1e-5f);
+
+        var taper = new Trail(capacity: 4) { StartWidth = 0.3f, EndWidth = 0.02f };
+        checks.Check(
+            "先端が太く、末尾が細い",
+            taper.WidthAt(0.0f) > taper.WidthAt(1.0f),
+            $"{taper.WidthAt(0.0f):F2}m → {taper.WidthAt(1.0f):F2}m");
+
+        // ============================================================
+        //  5. 足取りの目盛り(要点5)
+        // ============================================================
+
+        var tracker = new FootstepTracker { Stride = 1.0f };
+
+        int total = 0;
+        for (int i = 0; i < 100; i++)
+        {
+            total += tracker.Advance(0.1f);
+        }
+
+        checks.Check(
+            "**細かく進めても取りこぼさない**(端数を持ち越している)",
+            total == 10,
+            $"10m を 0.1m 刻みで {total} 歩(理論 10)");
+
+        var coarse = new FootstepTracker { Stride = 1.0f };
+        int burst = coarse.Advance(2.5f);
+
+        checks.Check(
+            "一度に何歩ぶんか進んだら、その数だけ返る",
+            burst == 2,
+            $"2.5m で {burst} 歩(端数 0.5m は次へ)");
+
+        checks.Check("越えていなければ 0 歩", coarse.Advance(0.2f) == 0);
+
+        var huge = new FootstepTracker { Stride = 1.0f };
+        checks.Check(
+            "**巨大な dt で暴発しない**(上限を置いてある)",
+            huge.Advance(1000.0f) <= 4,
+            $"1000m で {new FootstepTracker { Stride = 1.0f }.Advance(1000.0f)} 歩");
+
+        var reset = new FootstepTracker { Stride = 1.0f };
+        reset.Advance(0.9f);
+        reset.Reset();
+        checks.Check("Reset で端数が消える(着地で数え直す)", reset.Advance(0.5f) == 0);
+
+        // ============================================================
+        //  6. エフェクトのプール(要点6)
+        // ============================================================
+
+        var effects = new EffectSystem(slots: 3, capacityPerSlot: 256, seed: 77);
+
+        effects.Spawn(EffectKind.Hit, Vector3.Zero, Vector3.UnitY);
+        checks.Check("Spawn で1本借りる", effects.ActiveCount == 1, $"{effects.ActiveCount} 本");
+
+        effects.Update(0.001f);
+        checks.Check("粒が生きている間は返らない", effects.ActiveCount == 1);
+
+        // 着弾の寿命は最長 0.32 秒。**それを超えれば空きに戻る**。
+        effects.Update(1.0f);
+        checks.Check(
+            "**粒が尽きたら自分で返る**(呼んだ側は消さない)",
+            effects.ActiveCount == 0,
+            $"{effects.ActiveCount} 本");
+
+        // 爆発は閃光(加算)と煙(アルファ)で2本使う。
+        var pair = new EffectSystem(slots: 4, capacityPerSlot: 256, seed: 78);
+        pair.Spawn(EffectKind.Explosion, Vector3.Zero, Vector3.UnitY);
+
+        checks.Check(
+            "**爆発は2本使う**(閃光と煙は混ぜ方が違う)",
+            pair.ActiveCount == 2,
+            $"{pair.ActiveCount} 本");
+
+        var tight = new EffectSystem(slots: 1, capacityPerSlot: 64, seed: 79);
+        tight.Spawn(EffectKind.Hit, Vector3.Zero, Vector3.UnitY);
+        tight.Spawn(EffectKind.Hit, Vector3.Zero, Vector3.UnitY);
+
+        checks.Check(
+            "**空きが無ければ黙って潰さず数える**",
+            tight.ActiveCount == 1 && tight.DroppedSpawns == 1,
+            $"貸出 {tight.ActiveCount} 本 / 出せず {tight.DroppedSpawns} 回");
+
+        // ============================================================
+        //  7. エフェクトの表(要点6)
+        // ============================================================
+
+        var probe = new ParticleEmitter(capacity: 256, seed: 80);
+
+        int dustBurst = EffectSystem.Configure(
+            probe, EffectKind.FootDust, Vector3.Zero, Vector3.UnitY,
+            out ParticleBlend dustBlend, out bool dustFlipbook);
+
+        checks.Check(
+            "土埃はアルファ + コマ送り(**重ねても明るくならない**)",
+            dustBlend == ParticleBlend.Alpha && dustFlipbook,
+            $"{dustBlend} / コマ送り {dustFlipbook} / {dustBurst} 粒");
+
+        int hitBurst = EffectSystem.Configure(
+            probe, EffectKind.Hit, Vector3.Zero, Vector3.UnitY,
+            out ParticleBlend hitBlend, out bool hitFlipbook);
+
+        checks.Check(
+            "着弾は加算 + 丸(**重なるほど明るい**)",
+            hitBlend == ParticleBlend.Additive && !hitFlipbook,
+            $"{hitBlend} / コマ送り {hitFlipbook} / {hitBurst} 粒");
+
+        // **一発ものは撒き続けない**。ここが立っていると、
+        // 借りた本が永久に返らずプールが埋まる。
+        checks.Check(
+            "**一発ものは放出を止めてある**(でないとプールが返らない)",
+            !probe.Emitting && probe.EmitRate == 0.0f);
+
+        EffectSystem.Configure(
+            probe, EffectKind.Hit, Vector3.Zero, new Vector3(1.0f, 0.0f, 0.0f),
+            out _, out _);
+
+        checks.Check(
+            "着弾の円錐の軸が、当たった面の法線を向く",
+            Vector3.Distance(probe.Direction, new Vector3(1.0f, 0.0f, 0.0f)) < 1e-5f,
+            $"({probe.Direction.X:F2}, {probe.Direction.Y:F2}, {probe.Direction.Z:F2})");
+
+        // ============================================================
+        //  8. トレイルの絵(断面だけを持つ)
+        // ============================================================
+
+        byte[] strip = ParticleTextures.CreateTrailStrip(64);
+        int stripCenter = (((32 * 64) + 10) * 4) + 3;
+        int stripEdge = (((1 * 64) + 10) * 4) + 3;
+        int stripCenterRight = (((32 * 64) + 60) * 4) + 3;
+
+        checks.Check(
+            "帯の中心が縁より濃い",
+            strip[stripCenter] > 240 && strip[stripEdge] < 16,
+            $"中心 {strip[stripCenter]} / 縁 {strip[stripEdge]}");
+
+        checks.Check(
+            "**長さ方向には濃淡を持たない**(尾の濃さは頂点色の仕事)",
+            strip[stripCenter] == strip[stripCenterRight]);
 
         checks.Report();
     }

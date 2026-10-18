@@ -91,6 +91,15 @@ internal sealed class Framebuffer : IDisposable
     public static Framebuffer CreateDepthOnly(GL gl, int width, int height) =>
         new(gl, width, height);
 
+    /// <summary>
+    /// GL のフレームバッファ名(Day 50)。**転送(blit)の相手を指すのに要る**。
+    ///
+    /// バインドは <see cref="Bind"/> がやるので、普段は外から見る必要が無い。
+    /// <see cref="BlitDepthTo"/> だけは<b>2つのフレームバッファを同時に指す</b>ので、
+    /// 片方の名前を取り出せないと書けない。
+    /// </summary>
+    public uint Handle => _handle;
+
     /// <summary>描き込み先のテクスチャ。**これを次のパスで読む**。深度専用のときは null。</summary>
     public Texture Color { get; private set; } = null!;
 
@@ -195,6 +204,49 @@ internal sealed class Framebuffer : IDisposable
         int height = Height;
         Destroy();
         Create(width, height);
+    }
+
+    /// <summary>
+    /// **深度だけを別のフレームバッファへ写す**(Day 50)。ソフトパーティクルの下ごしらえ。
+    ///
+    /// <para>
+    /// <b>なぜコピーが要るのか</b>。ソフトパーティクルは
+    /// 「いま描いている画素の奥に、どれだけ近い面があるか」を読む。
+    /// その深度は<b>まさにいま描き込み先として挿さっている</b>ものなので、
+    /// そのまま <c>sampler2D</c> で読むと<b>フィードバックループ</b>になる——
+    /// OpenGL の仕様では結果が未定義で、
+    /// ドライバによっては動き、別のドライバでは真っ黒になり、
+    /// <b>どちらの場合もエラーは出ない</b>。いちばん怖い種類の間違いになる。
+    /// </para>
+    ///
+    /// <para>
+    /// 逃げ方は「読む用のコピーを1枚持つ」。実際のエンジンでも
+    /// 半透明を描く直前に深度を解決(resolve)してから渡すのが定石で、
+    /// Unity の <c>_CameraDepthTexture</c> はまさにこれになる。
+    /// </para>
+    ///
+    /// <para>
+    /// <c>glBlitFramebuffer</c> は<b>GPU 内のコピー</b>なので CPU は待たない。
+    /// フィルタが <c>Nearest</c> でなければならないのは深度だからで、
+    /// <c>Linear</c> を指定すると <c>GL_INVALID_OPERATION</c> になる
+    /// (深度の平均に意味が無いのは <see cref="Texture.CreateDepthTarget"/> と同じ話)。
+    /// </para>
+    /// </summary>
+    public void BlitDepthTo(Framebuffer destination)
+    {
+        _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, _handle);
+        _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, destination.Handle);
+
+        _gl.BlitFramebuffer(
+            0, 0, Width, Height,
+            0, 0, destination.Width, destination.Height,
+            ClearBufferMask.DepthBufferBit,
+            BlitFramebufferFilter.Nearest);
+
+        // **借りた状態は返す**。読み書きの割り当てを残したまま次の描画へ行くと、
+        // 「なぜかシーンではなくコピーへ描かれている」という形で後から出る。
+        _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, 0);
+        _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, 0);
     }
 
     private void Create(int width, int height)
