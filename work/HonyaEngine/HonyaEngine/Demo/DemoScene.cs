@@ -7,6 +7,31 @@ using Silk.NET.OpenGL;
 namespace HonyaEngine;
 
 /// <summary>
+/// シーンの1つを<b>当たり判定としてどう扱うか</b>(Day 51)。
+/// JSON の <c>collision</c> に <c>"box"</c> / <c>"plane"</c> / <c>"none"</c> と書く。
+///
+/// <para>
+/// <b>描画メッシュから自動で起こさない</b>のが今日の判断。
+/// 60m 角の地面の板を素直に箱にすると<b>厚み 0 の箱</b>になり、
+/// 街灯の細い柱は<b>腕まで含んだ大きな箱</b>になる。
+/// どちらも「メッシュを見れば分かる」ことではないので、
+/// 露出や太陽の方位と同じく<b>絵を作る人が書く</b>ほうへ寄せた
+/// (<see cref="DemoScene"/> の説明にある「シーンはコードではなくファイルに書く」)。
+/// </para>
+/// </summary>
+internal enum SceneCollisionKind
+{
+    /// <summary>当たらない。**通り抜ける小物**(倒したタイヤなど)。</summary>
+    None,
+
+    /// <summary>世界軸に沿った箱で近似する。**既定**。</summary>
+    Box,
+
+    /// <summary>無限に広い平面。**地面だけ**。</summary>
+    Plane,
+}
+
+/// <summary>
 /// **デモ v1 のシーン**(Day 39)。今日の主役その3。
 ///
 /// Day 31〜38 で積んだ描画機能——HDR / glTF / 影 / 法線 / PBR / IBL / SSAO / FXAA——は、
@@ -66,12 +91,31 @@ internal sealed class DemoScene : IDisposable
     /// <param name="Material">見た目。</param>
     /// <param name="Transform">世界行列。</param>
     /// <param name="CastShadow">影を落とすか(深度パスに入れるか)。</param>
+    /// <param name="BoundsMin">
+    /// **世界空間の境界箱**(Day 51)。<see cref="SceneCollision"/> が
+    /// 当たり判定の箱を起こすのに使う。
+    ///
+    /// <para>
+    /// <b>世界空間で持つ</b>のは、そうしないと「どの行列を掛ければよいか」が
+    /// 種類ごとに違うから。板は <see cref="Transform"/> がそのまま答えだが、
+    /// glTF のパーツは <c>Model.Part.BoundsMin</c> が<b>すでに
+    /// <c>Part.Transform</c> を通ったあとの値</b>なので、
+    /// 掛けるべきなのは小物を置く行列(<c>placement</c>)だけになる。
+    /// 使う側にこの区別を持ち出させると必ず取り違える——
+    /// 実際に一度取り違えて、ゴミ箱の当たり判定が 3m の箱になった。
+    /// </para>
+    /// </param>
+    /// <param name="BoundsMax">同上。</param>
+    /// <param name="Collision">当たり判定としての扱い(Day 51)。</param>
     internal readonly record struct Item(
         string Name,
         Mesh<Vertex> Mesh,
         Material Material,
         Matrix4x4 Transform,
-        bool CastShadow);
+        bool CastShadow,
+        Vector3 BoundsMin,
+        Vector3 BoundsMax,
+        SceneCollisionKind Collision);
 
     private readonly List<Model> _models = [];
     private readonly List<Handle<Texture>> _textures = [];
@@ -159,6 +203,21 @@ internal sealed class DemoScene : IDisposable
     /// 遠近が誇張されて壁が倒れて見える。35〜45 度あたりが落ち着く。
     /// </summary>
     public float CameraFieldOfView { get; private set; } = 40.0f * (MathF.PI / 180.0f);
+
+    /// <summary>
+    /// **プレイヤーの出発点**(Day 51)。<c>player.spawn</c>。足元の位置。
+    ///
+    /// <para>
+    /// 決めの構図(<see cref="CameraTarget"/>)と別に持つ。
+    /// あちらは「この絵をどう見せたいか」で、こちらは「どこから遊び始めるか」——
+    /// 同じ数字にしたくなる場面はあるが、意味が違うものを1つの欄に詰めると
+    /// <b>片方の都合でもう片方が動く</b>。
+    /// </para>
+    /// </summary>
+    public Vector3 PlayerSpawn { get; private set; } = Vector3.Zero;
+
+    /// <summary>出発点で向いている方角(ラジアン。JSON には度で書く。Day 51)。</summary>
+    public float PlayerYaw { get; private set; }
 
     /// <summary>
     /// カメラワーク(Day 40)。<c>camera.shots</c> が無ければ <c>null</c> で、
@@ -271,6 +330,19 @@ internal sealed class DemoScene : IDisposable
             scene.Shots = ReadCameraPath(camera, scene);
         }
 
+        // --- プレイヤーの出発点(Day 51)---
+        //
+        // **書いていなくても読める**。Day 39〜50 の JSON はこの節を持たないので、
+        // 既定(原点・北向き)のまま通る。逆に今日足した節を古い Day が読んでも、
+        // 知らないキーは黙って飛ばされる(System.Text.Json の既定)——
+        // <b>assets/ は全部の Day で共有している</b>ので、
+        // どちらの向きにも壊れないことをここで担保しておく。
+        if (root.TryGetProperty("player", out JsonElement player))
+        {
+            scene.PlayerSpawn = GetVector3(player, "spawn", Vector3.Zero);
+            scene.PlayerYaw = GetFloat(player, "yaw", 0.0f) * (MathF.PI / 180.0f);
+        }
+
         // --- 1. マテリアル(板に貼るぶん)---
         var materials = new Dictionary<string, Material>(StringComparer.Ordinal);
 
@@ -295,12 +367,23 @@ internal sealed class DemoScene : IDisposable
                         $"{Path.GetFileName(jsonPath)}: マテリアル \"{materialName}\" が materials に見つかりません");
                 }
 
+                Matrix4x4 transform = ReadTransform(entry);
+
+                // 板は XY 平面の 1x1(<see cref="Primitives.CreateQuad"/>)。
+                // **厚みは 0** なので、箱にするときは最低の厚みを与えることになる
+                // (<see cref="SceneCollision.MinThickness"/>)。
+                (Vector3 boardMin, Vector3 boardMax) = TransformBounds(
+                    new Vector3(-0.5f, -0.5f, 0.0f), new Vector3(0.5f, 0.5f, 0.0f), transform);
+
                 scene._items.Add(new Item(
                     Name: GetString(entry, "name", "板"),
                     Mesh: quad,
                     Material: material,
-                    Transform: ReadTransform(entry),
-                    CastShadow: GetBool(entry, "castShadow", false)));
+                    Transform: transform,
+                    CastShadow: GetBool(entry, "castShadow", false),
+                    BoundsMin: boardMin,
+                    BoundsMax: boardMax,
+                    Collision: ReadCollision(entry)));
 
                 // 板は三角形2枚。glTF のぶんは AddProp が数える。
                 scene.TriangleCount += 2;
@@ -503,15 +586,28 @@ internal sealed class DemoScene : IDisposable
             * Matrix4x4.CreateTranslation(GetVector3(entry, "position", Vector3.Zero));
 
         bool castShadow = GetBool(entry, "castShadow", true);
+        SceneCollisionKind collision = ReadCollision(entry);
 
         foreach (Model.Part part in parts)
         {
+            // **パーツ単位の境界箱**(Day 51)。1体が何個かのパーツに割れているので、
+            // 当たり判定を作る側が名前で束ね直す(<see cref="SceneCollision"/>)。
+            //
+            // <b>掛けるのは <c>placement</c> だけ</b>。<c>Part.BoundsMin</c> は
+            // <c>Part.Transform</c> を通ったあとのモデル空間の値なので、
+            // <c>Transform</c>(= <c>Part.Transform * placement</c>)を掛けると二重になる。
+            (Vector3 partMin, Vector3 partMax) =
+                TransformBounds(part.BoundsMin, part.BoundsMax, placement);
+
             _items.Add(new Item(
                 Name: $"{name}/{part.Name}",
                 Mesh: part.Mesh,
                 Material: part.Material,
                 Transform: part.Transform * placement,
-                CastShadow: castShadow));
+                CastShadow: castShadow,
+                BoundsMin: partMin,
+                BoundsMax: partMax,
+                Collision: collision));
         }
 
         TriangleCount += parts.Sum(part => part.Mesh.IndexCount / 3);
@@ -528,8 +624,28 @@ internal sealed class DemoScene : IDisposable
     /// </summary>
     private static Vector3 AlignToGround(Vector3 min, Vector3 max, Matrix4x4 orientation)
     {
-        var rotatedMin = new Vector3(float.MaxValue);
-        var rotatedMax = new Vector3(float.MinValue);
+        (Vector3 rotatedMin, Vector3 rotatedMax) = TransformBounds(min, max, orientation);
+
+        return new Vector3(
+            -(rotatedMin.X + rotatedMax.X) * 0.5f,
+            -rotatedMin.Y,
+            -(rotatedMin.Z + rotatedMax.Z) * 0.5f);
+    }
+
+    /// <summary>
+    /// 境界箱を行列で運んで、包み直す(Day 51 で <see cref="AlignToGround"/> から切り出した)。
+    ///
+    /// <para>
+    /// <b>8 隅を全部通す</b>。中心と大きさだけを回しても正しい箱にならない——
+    /// <b>斜めに回した箱は、元より必ず大きくなる</b>。
+    /// この「必ず大きくなる」が、Day 51 で当たり判定が実物より太る理由そのものになる。
+    /// </para>
+    /// </summary>
+    internal static (Vector3 Min, Vector3 Max) TransformBounds(
+        Vector3 min, Vector3 max, in Matrix4x4 matrix)
+    {
+        var resultMin = new Vector3(float.MaxValue);
+        var resultMax = new Vector3(float.MinValue);
 
         for (int corner = 0; corner < 8; corner++)
         {
@@ -538,16 +654,30 @@ internal sealed class DemoScene : IDisposable
                 (corner & 2) == 0 ? min.Y : max.Y,
                 (corner & 4) == 0 ? min.Z : max.Z);
 
-            Vector3 transformed = Vector3.Transform(point, orientation);
-            rotatedMin = Vector3.Min(rotatedMin, transformed);
-            rotatedMax = Vector3.Max(rotatedMax, transformed);
+            Vector3 transformed = Vector3.Transform(point, matrix);
+            resultMin = Vector3.Min(resultMin, transformed);
+            resultMax = Vector3.Max(resultMax, transformed);
         }
 
-        return new Vector3(
-            -(rotatedMin.X + rotatedMax.X) * 0.5f,
-            -rotatedMin.Y,
-            -(rotatedMin.Z + rotatedMax.Z) * 0.5f);
+        return (resultMin, resultMax);
     }
+
+    /// <summary>
+    /// <c>collision</c> を読む(Day 51)。**書いていなければ箱**。
+    ///
+    /// <para>
+    /// 既定を <see cref="SceneCollisionKind.Box"/> にしてあるのは、
+    /// <b>書き忘れたときに通り抜けるより、書き忘れたときにぶつかるほうが気づける</b>から。
+    /// 通り抜けは「そういう演出かもしれない」と思ってしまう。
+    /// </para>
+    /// </summary>
+    private static SceneCollisionKind ReadCollision(JsonElement entry) =>
+        GetString(entry, "collision", "box").ToLowerInvariant() switch
+        {
+            "none" => SceneCollisionKind.None,
+            "plane" => SceneCollisionKind.Plane,
+            _ => SceneCollisionKind.Box,
+        };
 
     /// <summary>
     /// 板1枚の世界行列。**板は +Z を向いている**(<see cref="Primitives.CreateQuad"/>)ので、

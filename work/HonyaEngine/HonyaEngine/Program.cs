@@ -497,6 +497,81 @@ internal static class Program
 
     private static int _softFadeIndex = 1;
 
+    // ===== Day 51: プレイアブルデモ組み上げ =====
+
+    /// <summary>
+    /// プレイアブルデモが出ているか。**今日の主スイッチ**。
+    ///
+    /// <para>
+    /// <see cref="_demo"/>(Day 39 のシーン)と <see cref="_characterDemo"/>(Day 45)が
+    /// <b>同時に立つ唯一の状態</b>で、今日までは互いに相手を下ろし合っていた。
+    /// 描画の枝を先頭に1つ足すだけで済むよう、状態は増やさずフラグ1つで表す。
+    /// </para>
+    /// </summary>
+    private static bool _playable;
+
+    /// <summary>
+    /// 操作されるキャラクターの見た目(Day 51)。
+    ///
+    /// <para>
+    /// <b><c>_player</c> という名前は取れなかった</b>——Day 17 で
+    /// GameObject 版のプレイヤー(<see cref="PlayerController"/>)がその名前を使っている。
+    /// 22,000 行の <c>Program</c> に 17 Day ぶんのデモが同居していると、
+    /// <b>いちばん素直な名前はたいてい先客がいる</b>。
+    /// 番号を足して <c>_player2</c> にするより、意味の違う語を選ぶほうがよい。
+    /// </para>
+    /// </summary>
+    private static PlayableDemo? _avatar;
+
+    /// <summary>三人称の追従カメラ(Day 51)。**回す操作は <see cref="_orbit"/> のまま**。</summary>
+    private static readonly FollowCamera _follow = new();
+
+    /// <summary>シーンから起こした環境コライダのまとめ(Day 51)。</summary>
+    private static SceneCollision.Result _sceneCollision;
+
+    /// <summary>当たり判定を絵で出すか(Day 51)。環境の箱とキャラクターのカプセル。</summary>
+    private static bool _showColliders;
+
+    /// <summary>速度でクリップを混ぜるか(Day 51)。切ると走っても足が止まる。</summary>
+    private static bool _avatarBlend = true;
+
+    /// <summary>追従の速さの段(Day 51)。**0 は Day 45 の「即座に追う」**。</summary>
+    private static readonly float[] FollowSmoothingSteps = [0.0f, 5.0f, 10.0f, 20.0f];
+
+    private static int _followSmoothIndex = 2;
+
+    /// <summary>肩越しの構え(距離 / 注視点の高さ / 仰角)。**近・中・遠の3つ**。</summary>
+    private static readonly (string Name, float Distance, float Height, float Pitch)[] ShoulderPresets =
+    [
+        ("近", 1.6f, 0.42f, 0.30f),
+        ("中", 2.8f, 0.52f, 0.38f),
+        ("遠", 4.5f, 0.65f, 0.46f),
+    ];
+
+    private static int _shoulderIndex = 1;
+
+    private static Vector3 _playableSpawn;
+
+    private static float _playableSpawnYaw;
+
+    private static double _avatarLoadMilliseconds;
+
+    /// <summary>
+    /// 操作するモデル。**Fox は Survey / Walk / Run の3本を持っている**——
+    /// <c>FindClip</c> の「idle / survey / stand」がそのまま当たるので、
+    /// Day 42 のブレンド木に何も足さずに載る。
+    /// Mixamo から落としたモデルに差し替えるときも、
+    /// クリップ名に walk / run が入っていれば同じ経路を通る。
+    /// </summary>
+    private const string AvatarModelPath = "models/Fox.glb";
+
+    /// <summary>世界での全高 [m]。**キツネなので 70cm**。カプセルの高さもこれに合わせる。</summary>
+    private const float AvatarHeight = 0.70f;
+
+    private const float AvatarWalkSpeed = 2.0f;
+
+    private const float AvatarRunSpeed = 5.0f;
+
     /// <summary>カメラワークを再生中か(「カメラワークと機能」の F3)。</summary>
     private static bool _cameraPlaying;
 
@@ -2816,7 +2891,16 @@ internal static class Program
             // **本物の三人称カメラは Day 51**。滑らかに遅れて付いていく、
             // 壁に入ったら寄る、進行方向を先読みする——
             // どれもここには無い。今はキャラクターが画面外へ出ないだけで足りる。
-            if (_characterDemo)
+            //
+            // **今日その1行を置き換えた**(Day 51)。プレイアブルデモの間だけ
+            // <see cref="FollowCamera"/> が注視点を遅らせ、壁に入れば寄る。
+            // Day 45 の素朴な追従は、プレイアブルでないキャラクターデモに残してある——
+            // <b>2つを並べて切り替えられる</b>ほうが、足した3つの効き目が分かる。
+            if (_playable)
+            {
+                UpdateFollowCamera((float)deltaSeconds);
+            }
+            else if (_characterDemo)
             {
                 _orbit.Target = Character.Position + new Vector3(0.0f, 1.0f, 0.0f);
                 _orbit.Apply();
@@ -2834,6 +2918,18 @@ internal static class Program
             // 逆にすると、速度が変わったフレームだけ1フレーム古い重みで描かれる。
             UpdateLocomotion((float)deltaSeconds);
             _animation?.Update((float)deltaSeconds);
+
+            // **操作されるキャラクターも可変 dt**(Day 51)。理由は上とまったく同じで、
+            // 当たりを取るのはカプセルのままなので、骨の位置に決定性は要らない。
+            //
+            // <b>カメラより後ろに置く</b>のが今日の順番。姿勢は
+            // <see cref="CharacterController.Position"/> と <c>FacingYaw</c> から作るので、
+            // カメラが先でも絵は変わらない——それでも「世界を決めてから見た目を作る」
+            // 並びにしておくと、あとで先読みカメラ(改造課題1)を足すときに順番で悩まない。
+            if (_playable && _avatar is not null)
+            {
+                _avatar.Advance(Character, (float)deltaSeconds, _avatarBlend);
+            }
 
             // **パーティクルも可変 dt**(Day 49)。粒は当たり判定を持たず、
             // 誰にも影響を与えないので、カメラワークやアニメと同じ扱いでよい。
@@ -3354,7 +3450,26 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_demo is not null)
+        if (_playable)
+        {
+            // **キャラクターも遮蔽物**(Day 51)。入れないと、
+            // キツネの足の下だけ AO が 1.0 になって<b>そこに穴が開く</b>——
+            // このメソッドの説明にある「写っているのに幾何バッファに無いもの」が、
+            // 今日いちばん動き回る形で出てくる。
+            foreach (DemoScene.Item item in _demo!.Items)
+            {
+                _ssao.Draw(item.Mesh, item.Transform);
+            }
+
+            if (_avatar is not null)
+            {
+                foreach (Model.Part part in _avatar.Model.Parts)
+                {
+                    _ssao.Draw(part.Mesh, _avatar.PartMatrix(part), _avatar.PartJoints(part));
+                }
+            }
+        }
+        else if (_demo is not null)
         {
             // **AO はシーン全部に効かせる**(Day 39)。
             // 影(<see cref="RenderShadowPass"/>)は「落とす側」を選ぶが、
@@ -3450,7 +3565,35 @@ internal static class Program
 
         float angle = Interpolate(_previousAngle, _angle);
 
-        if (_physicsDemo)
+        if (_playable)
+        {
+            // **シーンとキャラクターの両方を落とす**(Day 51)。
+            // Day 39 の枝(フラグで選ぶ)と Day 41 の枝(関節行列を渡す)を
+            // 順に並べただけで、新しい判断は1つも無い。
+            //
+            // <b>キャラクターの影は今日の絵でいちばん効く</b>——
+            // 足元に影が無いと、地面の上に立っているのか浮いているのかが読めず、
+            // 走っている絵が「滑っている」ように見える。
+            if (_sceneShadows)
+            {
+                foreach (DemoScene.Item item in _demo!.Items)
+                {
+                    if (item.CastShadow)
+                    {
+                        _shadow.Draw(item.Mesh, item.Transform);
+                    }
+                }
+            }
+
+            if (_avatar is not null)
+            {
+                foreach (Model.Part part in _avatar.Model.Parts)
+                {
+                    _shadow.Draw(part.Mesh, _avatar.PartMatrix(part), _avatar.PartJoints(part));
+                }
+            }
+        }
+        else if (_physicsDemo)
         {
             // **球は影を落とす**(Day 43)。落下デモは高さが主役なので、
             // 床に落ちる影が無いと「どのくらいの高さにいるか」が読めない。
@@ -3760,6 +3903,14 @@ internal static class Program
         if (_effectDemo || _effects.ActiveCount > 0)
         {
             lines.AppendLine(EffectLabel());
+        }
+
+        // **今日の1行**(Day 51)。三人称カメラは「遅れているのか、
+        // 壁に寄せられているのか」が絵から区別できない。混ざっている比率も同じで、
+        // 数字が出ていないとブレンドが効いているのか単に走っているだけなのか分からない。
+        if (_playable)
+        {
+            lines.AppendLine(PlayableLabel());
         }
 
         // **今日の1行**(Day 43)。物理は「なんとなく動いている」で済ませてしまいやすい。
@@ -6428,7 +6579,9 @@ internal static class Program
             * Matrix4x4.CreateTranslation(Interpolate(body.PreviousPosition, body.Position));
     }
 
-    private static string PhysicsSceneLabel() => _characterDemo
+    private static string PhysicsSceneLabel() => _playable
+        ? "プレイアブル"
+        : _characterDemo
         ? CharacterSceneLabel()
         : _physicsScene switch
         {
@@ -6769,6 +6922,15 @@ internal static class Program
         shader.SetInt("uParallaxMode", _parallaxMode);
         shader.SetInt("uParallaxMinSteps", _parallaxMinSteps);
         shader.SetInt("uParallaxMaxSteps", _parallaxMaxSteps);
+
+        // **プレイアブルデモがいちばん優先**(Day 51)。
+        // シーンとキャラクターが同時に立つ唯一の状態なので、
+        // <see cref="_physicsDemo"/> の枝(物理の体だけを描く)より先に見る。
+        if (_playable)
+        {
+            RenderPlayable();
+            return;
+        }
 
         // **物理デモはさらに優先する**(Day 43)。今日の主役なので、
         // 出ている間はこれだけを描く。ほかのデモは
@@ -7797,6 +7959,15 @@ internal static class Program
         ApplyDemoLighting();
         FrameDemoScene();
 
+        // **読み直したら環境コライダも組み直す**(Day 51)。
+        // <c>Ctrl+Shift+F10</c> で JSON を書き換えて読み直したとき、
+        // 絵だけ新しくてコライダが古いと<b>見えない壁</b>が残る——
+        // 「絵と当たり判定を別に持つ」ことの、いちばん素直な落とし穴。
+        if (_playable)
+        {
+            BuildPlayableWorld();
+        }
+
         Console.WriteLine();
         Console.WriteLine($"デモ v1: 「{_demo.Name}」");
         Console.WriteLine(
@@ -7822,6 +7993,10 @@ internal static class Program
     /// <summary>デモを畳んで Day 38 までの絵に戻す。</summary>
     private static void UnloadDemoScene()
     {
+        // **プレイアブルを先に畳む**(Day 51)。順番が逆だと、
+        // 捨てたシーンから起こしたコライダが世界に残ったままになる。
+        HidePlayableDemo();
+
         _demo?.Dispose();
         _demo = null;
 
@@ -16544,6 +16719,95 @@ internal static class Program
 
         effects.Add("自己チェック", "深度の線形化・リングバッファ・歩幅を検算する", RunEffectCheck);
 
+        // --- Day 51。プレイアブルデモ組み上げ ---
+        DebugMenu.Page playable = menu.Add(
+            "プレイアブルデモ", "Day 51。三人称カメラ・環境コリジョン・移動とアニメ");
+
+        playable.Add("プレイアブルデモ", "**今日の到達点**。裏通りをキツネが歩き回る", () =>
+        {
+            if (_playable)
+            {
+                HidePlayableDemo();
+                Console.WriteLine("プレイアブルデモ: OFF(デモ v1 を眺める絵に戻る)");
+            }
+            else
+            {
+                ShowPlayableDemo();
+            }
+        });
+
+        playable.Add("追従の速さ", "即時 / 5 / 10 / 20。**即時が Day 45 の挙動**", () =>
+        {
+            _followSmoothIndex = (_followSmoothIndex + 1) % FollowSmoothingSteps.Length;
+            _follow.Smoothing = FollowSmoothingSteps[_followSmoothIndex];
+
+            Console.WriteLine(
+                _follow.Smoothing <= 0.0f
+                    ? "追従: **即時**(Day 45 の1行と同じ)。段差を登った瞬間に絵が跳ねる"
+                    : $"追従: **{_follow.Smoothing:F0}/s**。"
+                    + $"1秒で残り {MathF.Exp(-_follow.Smoothing) * 100.0f:F3}% まで詰める"
+                    + (_follow.Smoothing < 6.0f ? "(遅い。走るとキャラクターが端へ逃げる)" : string.Empty));
+        });
+
+        playable.Add("カメラの壁寄せ", "切ると**壁に潜って世界の裏側が見える**", () =>
+        {
+            _follow.CollisionEnabled = !_follow.CollisionEnabled;
+            Console.WriteLine(
+                _follow.CollisionEnabled
+                    ? $"壁寄せ: **ON**(半径 {_follow.CollisionRadius:F2}m の球を "
+                    + $"{_follow.CollisionSteps} 回置いて探す)。左の壁に背中を付けると寄る"
+                    : "壁寄せ: OFF。**壁際まで下がるとカメラが煉瓦の中に入る**");
+        });
+
+        playable.Add("肩越しの構え", "近 / 中 / 遠。距離・高さ・仰角をまとめて振る", () =>
+        {
+            _shoulderIndex = (_shoulderIndex + 1) % ShoulderPresets.Length;
+            ApplyShoulderPreset();
+
+            (string name, float distance, float height, float pitch) = ShoulderPresets[_shoulderIndex];
+            Console.WriteLine(
+                $"構え: **{name}**  距離 {distance:F1}m  注視点の高さ {height:F2}m  "
+                + $"仰角 {pitch * 180.0f / MathF.PI:F0}度");
+        });
+
+        playable.Add("当たり判定を出す", "**環境の箱とカプセル**。絵とのずれが見える", () =>
+        {
+            _showColliders = !_showColliders;
+            Console.WriteLine(
+                _showColliders
+                    ? "当たり判定: **ON**。**斜めのバリアが世界軸の箱に太っている**のと、"
+                    + "モデルとカプセルが別物なのが見える"
+                    : "当たり判定: OFF");
+        });
+
+        playable.Add("アニメのブレンド", "切ると走っても**足が止まる**", () =>
+        {
+            _avatarBlend = !_avatarBlend;
+            Console.WriteLine(
+                _avatarBlend
+                    ? "ブレンド: **ON**。速度でクリップを混ぜる(Day 42 のブレンド木)"
+                    : "ブレンド: OFF。**立ち止まりのクリップに固定**——"
+                    + "走っても足が止まったまま滑る");
+        });
+
+        playable.Add("出発点へ戻す", "位置・向き・カメラの遅れをまとめて捨てる", () =>
+        {
+            if (!_playable)
+            {
+                Console.WriteLine("プレイアブルデモが出ていません(このページの F2)");
+                return;
+            }
+
+            RespawnAvatar();
+            Console.WriteLine(
+                $"出発点: ({_playableSpawn.X:F2}, {_playableSpawn.Y:F2}, {_playableSpawn.Z:F2})  "
+                + $"向き {_playableSpawnYaw * 180.0f / MathF.PI:F0}度");
+        });
+
+        playable.Add("内訳", "環境コライダを1つずつ並べる。**見えない壁の正体**", DescribePlayable);
+
+        playable.Add("自己チェック", "追従・壁寄せ・寸法合わせ・ブレンド木を検算する", RunPlayableCheck);
+
         return menu;
     }
 
@@ -21063,7 +21327,7 @@ internal static class Program
         checks.Check("ページがある", _menu.Pages.Count > 0, $"{_menu.Pages.Count} 枚");
         checks.Check(
             "**Day 31 以降のスイッチが全部入っている**",
-            entryCount == 181,
+            entryCount == 190,
             $"{entryCount} 項目");
 
         bool withinCapacity = _menu.Pages.All(page => page.Entries.Count <= DebugMenu.SlotCount);
@@ -21777,6 +22041,768 @@ internal static class Program
         }
 
         _wasGrounded = Character.IsGrounded;
+    }
+
+    // ================================================================
+    //  Day 51: プレイアブルデモ組み上げ
+    // ================================================================
+
+    /// <summary>
+    /// **Day 39 のシーンの中へキャラクターを下ろす**(Day 51)。今日の到達点。
+    ///
+    /// <para>
+    /// 新しい機能はほとんど無い。やっているのは<b>すでにあるものを繋ぐ</b>ことだけで、
+    /// 繋ぐ相手は5つある——
+    /// シーン(Day 39)、キャラクターコントローラ(Day 45)、ブロードフェーズ(Day 46)、
+    /// アニメのブレンド(Day 42)、足元のエフェクト(Day 50)。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>今日いちばん手間が掛かったのは「繋ぐ」ではなく「下ろす」ほう</b>だった。
+    /// Day 39 以降、デモ v1 は<b>他の全部と排他</b>で、
+    /// <c>ShowCharacterDemo</c> も <c>ShowPhysicsDemo</c> も
+    /// 冒頭で <see cref="UnloadDemoScene"/> を呼んでいる。
+    /// 今日はそこを1つだけ崩す——<b>シーンとキャラクターだけは同時に立つ</b>。
+    /// 崩し方を最小にするために、状態は <see cref="_playable"/> の1つしか増やしていない。
+    /// </para>
+    /// </summary>
+    private static void ShowPlayableDemo()
+    {
+        StopTourIfRunning();
+
+        // **カメラワークも止める**。カメラワークは _orbit の方位・仰角・距離を毎フレーム書くので、
+        // 再生したまま入ると、追従カメラがショットの並びに引きずられて、キツネのまわりを勝手に回り続ける。
+        // (Day 55 の検証で見つかった。それまでは機能ツアーしか止めておらず、設計書の「排他」が守られていなかった。
+        // Day 51 まで遡って直してある)
+        _cameraPlaying = false;
+
+        // **エフェクトデモは下ろす**(Day 50 と同じ理由)。
+        // 回り続ける発生源はキャラクターの世界とは無関係な高さに居る。
+        HideEffectDemo();
+        HideParticleDemo();
+
+        if (_model is not null)
+        {
+            SetModel(ModelPaths.Length);
+        }
+
+        _materialGrid = false;
+        _surfaceDemo = false;
+        _draw3D = true;
+        _debugChannel = 0;
+        SetSpriteCount(0);
+
+        // **シーンが無ければ読む**。<see cref="LoadDemoScene"/> は
+        // <see cref="_playable"/> がまだ false のうちに呼ぶので、
+        // 中の「プレイアブルなら組み直す」枝には入らない。
+        if (_demo is null)
+        {
+            LoadDemoScene();
+        }
+
+        if (_demo is null)
+        {
+            Console.WriteLine("プレイアブルデモ: シーンが読めないので中止した");
+            return;
+        }
+
+        if (!LoadAvatarModel())
+        {
+            return;
+        }
+
+        _playable = true;
+
+        // **物理は動かす**。環境は静的な体しかないので何も落ちてこないが、
+        // <see cref="PhysicsWorld.Step"/> を回さないと
+        // <b>ブロードフェーズの格子が組まれない</b>——
+        // キャラクターの問い合わせが総当たりに落ちて、環境の体を毎回全部舐めることになる。
+        _physicsDemo = true;
+        _characterDemo = true;
+        _physicsPaused = false;
+        _physicsStepsRequested = 0;
+
+        BuildPlayableWorld();
+
+        Console.WriteLine();
+        Console.WriteLine($"プレイアブルデモ: **ON**「{_demo.Name}」");
+        Console.WriteLine(
+            $"  環境コライダ {_sceneCollision.BoxCount} 箱 + {_sceneCollision.PlaneCount} 面"
+            + $"(描画 {_sceneCollision.SourceItemCount} 個 / 当たらない {_sceneCollision.SkippedCount} 個)");
+        Console.WriteLine(
+            $"  キャラクター {Path.GetFileName(_avatar!.Model.SourcePath)} 全高 {_avatar.Height:F2}m / "
+            + $"半径 {_avatar.Radius:F2}m / 倍率 x{_avatar.Scale:F3} / 読込 {_avatarLoadMilliseconds:F0}ms");
+        Console.WriteLine(
+            "  矢印キーで歩く、X で走る、Space で跳ぶ(Day 45 と同じ割り当て)。"
+            + "マウスのドラッグで回り、ホイールで寄る");
+        Console.WriteLine();
+    }
+
+    /// <summary>プレイアブルデモを畳んで、Day 39 のシーンを眺める絵に戻す。</summary>
+    private static void HidePlayableDemo()
+    {
+        if (!_playable)
+        {
+            return;
+        }
+
+        _playable = false;
+        _showColliders = false;
+
+        _avatar?.Dispose();
+        _avatar = null;
+
+        // **環境の体は捨てる**。残したまま物理デモへ移ると、
+        // 裏通りの街灯が見えないところで球を跳ね返す。
+        Physics.Clear();
+        BodyColors.Clear();
+        _sceneCollision = default;
+
+        _physicsDemo = false;
+        _characterDemo = false;
+
+        _footsteps.Reset();
+        _effects.Clear();
+
+        // **カプセルの寸法を Day 45 の既定へ戻す**。
+        // 借りた状態は返す、という Day 49 からの作法をここでも守る——
+        // 戻さないと「カプセルとキャラクタ」のデモが 70cm のキツネのまま始まる。
+        Character.Radius = 0.35f;
+        Character.Height = 1.8f;
+        Character.WalkSpeed = 3.2f;
+        Character.RunSpeed = 6.4f;
+        Character.StepOffset = 0.35f;
+        Character.JumpHeight = 1.1f;
+
+        _orbit.MinDistance = 2.0f;
+    }
+
+    /// <summary>
+    /// キャラクターのモデルを読んで、ブレンド木を組んで、寸法を合わせる。
+    ///
+    /// <para>
+    /// <b>クリップの探し方は <see cref="BuildLocomotion"/>(Day 42)と同じ関数</b>を使う。
+    /// 「歩き」がどのクリップかの判断が2か所にあると、
+    /// 見比べ用のデモと実プレイで<b>違うクリップが選ばれうる</b>——
+    /// しかも絵は両方それらしく出るので、まず気づけない。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>ツリーの点は「そのクリップが表す速さ」</b>(Day 42 の要点)。
+    /// 今日はそれが <see cref="CharacterController.WalkSpeed"/> と
+    /// <see cref="CharacterController.RunSpeed"/> そのものになる——
+    /// Day 42 では手で振る値だったので <c>MaxMoveSpeed</c> という別の定数だった。
+    /// <b>実際に出る速さと点が一致していないと、走っているのに歩きの重みが残る</b>。
+    /// </para>
+    /// </summary>
+    private static bool LoadAvatarModel()
+    {
+        string? path = TryResolveAssetPath(AvatarModelPath);
+
+        if (path is null)
+        {
+            Console.WriteLine($"プレイアブルデモ: assets/{AvatarModelPath} が見つかりません");
+            return false;
+        }
+
+        // **先に捨てる**。読み直しで2体持つ理由が無い(SetModel と同じ作法)。
+        _avatar?.Dispose();
+        _avatar = null;
+
+        var stopwatch = Stopwatch.StartNew();
+
+        Model model;
+
+        try
+        {
+            model = GltfLoader.Load(_gl, _resources, path, _shader);
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"プレイアブルデモ: モデルが読めません — {exception.Message}");
+            return false;
+        }
+
+        int idle = FindClip(model, "idle", "survey", "stand");
+        int walk = FindClip(model, "walk");
+        int run = FindClip(model, "run", "sprint", "jog");
+
+        BlendTree1D? tree = null;
+
+        if (idle >= 0 && walk >= 0 && run >= 0)
+        {
+            tree = new BlendTree1D("ロコモーション",
+            [
+                new BlendTree1D.Sample("立ち止まり", idle, 0.0f),
+                new BlendTree1D.Sample("歩き", walk, AvatarWalkSpeed),
+                new BlendTree1D.Sample("走り", run, AvatarRunSpeed),
+            ]);
+        }
+        else
+        {
+            Console.WriteLine(
+                $"プレイアブルデモ: {Path.GetFileName(path)} に idle/walk/run が揃っていないので、"
+                + "クリップ1本で回します");
+        }
+
+        var playable = new PlayableDemo(model, tree);
+
+        // **今のポーズで測る**(Day 41 の FrameModel と同じ理由)。
+        // バインドポーズの箱はスキン付きのモデルでは当てにならない。
+        (Vector3 boundsMin, Vector3 boundsMax) = MeasurePosedBounds(model, playable.Animation);
+        playable.Fit(boundsMin, boundsMax, AvatarHeight);
+
+        _avatar = playable;
+        _avatarLoadMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+        return true;
+    }
+
+    /// <summary>
+    /// シーンから環境コライダを起こして、キャラクターを出発点に立たせる。
+    ///
+    /// <para>
+    /// <see cref="BuildCharacterScene"/>(Day 45)と<b>形をそろえてある</b>——
+    /// 世界を捨てる → 設定を入れる → ブロードフェーズを構える → 体を足す → 立たせる。
+    /// 違うのは「体を足す」が手書きの坂や階段ではなく
+    /// <see cref="SceneCollision.Build"/> だという1点だけ。
+    /// </para>
+    /// </summary>
+    private static void BuildPlayableWorld()
+    {
+        Physics.Clear();
+        BodyColors.Clear();
+        DisposeTerrain();
+
+        Physics.VelocityIterations = IterationSteps[_iterationIndex];
+        Physics.MaxContactsPerPair = ContactLimits[_contactLimitIndex];
+        ConfigureBroadphase();
+
+        _sceneCollision = SceneCollision.Build(_demo!, Physics, BodyColors);
+
+        _physicsScene = PhysicsScene.Drop;   // HUD の表示だけ。体は上で組んだ
+        _spawnCount = 0;
+
+        _playableSpawn = _demo!.PlayerSpawn;
+        _playableSpawnYaw = _demo.PlayerYaw;
+
+        // **カプセルをモデルに合わせる**(逆ではない)。
+        // モデルをカプセルに合わせると 1.8m のキツネになる。
+        // 実際のゲームも「カプセルはキャラクターに合わせて作る」ほうが自然で、
+        // 半径と全高は <see cref="PlayableDemo.Fit"/> が測った値をそのまま使う。
+        Character.Radius = _avatar!.Radius;
+        Character.Height = _avatar.Height;
+
+        // **足回りも縮める**。1.8m 用の 35cm の段差は、
+        // 70cm のキツネにとっては胸の高さになる。
+        Character.StepOffset = _avatar.Height * 0.35f;
+        Character.WalkSpeed = AvatarWalkSpeed;
+        Character.RunSpeed = AvatarRunSpeed;
+        Character.JumpHeight = _avatar.Height * 0.9f;
+
+        // **寄れるようにする**。既定の下限 2m は 70cm のキツネには遠い。
+        _orbit.MinDistance = 1.0f;
+
+        RespawnAvatar();
+    }
+
+    /// <summary>
+    /// 出発点へ戻す。**カメラの遅れも捨てる**。
+    ///
+    /// <para>
+    /// <see cref="FollowCamera.Snap"/> を呼ばないと、戻した瞬間に
+    /// <b>カメラだけが元居た場所からゆっくり飛んでくる</b>——
+    /// 遅れて追う仕組みを入れると必ず出るので、
+    /// 瞬間移動と追従は<b>いつも対で扱う</b>。
+    /// </para>
+    /// </summary>
+    private static void RespawnAvatar()
+    {
+        Character.Teleport(_playableSpawn, _playableSpawnYaw);
+
+        // 瞬間移動したぶんを歩数に数えない(Day 50)。
+        _footsteps.Reset();
+        _wasGrounded = true;
+        _effects.Clear();
+
+        ApplyShoulderPreset();
+
+        // **カメラは背中側**。キャラクターの向きが f なら、目は f + π の方角に立つ——
+        // <see cref="OrbitCameraController.EyePosition"/> は
+        // 方位 yaw のとき (sin yaw, cos yaw) 側へ離れるので、
+        // 進行方向の真後ろに置くには半周ぶん足す。
+        // こうしておくと「上キー = 画面の奥」と「キャラクターの正面」が最初から一致する。
+        _orbit.Yaw = _playableSpawnYaw + MathF.PI;
+        _orbit.Apply();
+
+        _follow.Snap(Character.Position);
+        UpdateFollowCamera(0.0f);
+    }
+
+    /// <summary>肩越しの構えを1つ選んで、距離・高さ・仰角をまとめて入れる。</summary>
+    private static void ApplyShoulderPreset()
+    {
+        (_, float distance, float height, float pitch) = ShoulderPresets[_shoulderIndex];
+
+        _orbit.Distance = distance;
+        _orbit.Pitch = pitch;
+        _follow.HeightOffset = height;
+        _follow.Smoothing = FollowSmoothingSteps[_followSmoothIndex];
+    }
+
+    /// <summary>
+    /// 三人称カメラを1フレームぶん進める(Day 51)。**可変 dt 側から呼ぶ**。
+    ///
+    /// <para>
+    /// <b>方位・仰角・距離は <see cref="_orbit"/> から借りる</b>。
+    /// マウスのドラッグとホイールは Day 15 から
+    /// <see cref="OrbitCameraController"/> の仕事で、今日そこを作り直す理由が無い。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>最後に <c>_orbit.Target</c> を書き戻す</b>のを忘れないこと。
+    /// 影の箱(Day 33)も AO も、<b>注視点を世界のどこに置くか</b>で
+    /// 覆う範囲を決めている。書き戻さないと、キャラクターが歩いて離れた先で
+    /// <b>影だけが出発点に取り残される</b>。
+    /// </para>
+    /// </summary>
+    private static void UpdateFollowCamera(float deltaSeconds)
+    {
+        _follow.Update(
+            Character.Position,
+            _orbit.Yaw,
+            _orbit.Pitch,
+            _orbit.Distance,
+            ProbeCamera,
+            deltaSeconds);
+
+        _follow.Apply(_camera);
+
+        _orbit.Target = _follow.Target;
+    }
+
+    /// <summary>
+    /// 「その点に半径 r の球を置いたら何かに埋まるか」(Day 51)。
+    /// **<see cref="FollowCamera"/> が物理を知らないための1本**。
+    ///
+    /// <para>
+    /// 中身は Day 45 で段差の天井を調べるのに作った
+    /// <see cref="PhysicsWorld.OverlapCapsule"/> そのもの。
+    /// 半分の高さ 0 のカプセルは球として振る舞う
+    /// (<see cref="Capsule3D.Axis"/> の「退化しても NaN を出さない」保険)。
+    /// </para>
+    /// </summary>
+    private static bool ProbeCamera(Vector3 point, float radius) =>
+        Physics.OverlapCapsule(new Capsule3D(point, point, radius));
+
+    /// <summary>
+    /// プレイアブルデモを描く(Day 51)。**シーン + キャラクター**。
+    ///
+    /// <para>
+    /// <see cref="RenderDemoScene"/> と <see cref="RenderModel"/> を並べただけで、
+    /// 新しい描画は1つも無い。<b>今日の絵は既存の2本を同じフレームに置いただけ</b>という
+    /// ことが、この短さに出ている。
+    /// </para>
+    /// </summary>
+    private static void RenderPlayable()
+    {
+        DemoScene demo = _demo!;
+
+        _drawCalls = demo.Items.Count + (_avatar?.Model.Parts.Count ?? 0);
+
+        foreach (DemoScene.Item item in demo.Items)
+        {
+            SetCap(EnableCap.CullFace, _culling && !item.Material.DoubleSided);
+            Draw(item.Mesh, item.Material, item.Transform);
+        }
+
+        if (_avatar is not null)
+        {
+            foreach (Model.Part part in _avatar.Model.Parts)
+            {
+                SetCap(EnableCap.CullFace, _culling && !part.Material.DoubleSided);
+                Draw(part.Mesh, part.Material, _avatar.PartMatrix(part), _avatar.PartJoints(part));
+            }
+        }
+
+        SetCap(EnableCap.CullFace, _culling);
+
+        if (_showColliders)
+        {
+            RenderSceneColliders();
+
+            // カプセルも出す(Day 45 の絵)。**モデルとカプセルのずれ**がここで見える。
+            RenderCharacter();
+        }
+    }
+
+    /// <summary>
+    /// 環境コライダを箱で描く(Day 51。メニューの F6)。
+    ///
+    /// <para>
+    /// <b>絵と当たり判定がどれだけ違うか</b>を見るためだけのもの。
+    /// 84 度回した道路バリアが世界軸の箱に太っていること、
+    /// 街灯の腕まで含んだ箱が柱の周りに立っていること——
+    /// どちらも <see cref="SceneCollision"/> の説明に書いた代償で、
+    /// 出してみると「歩いていて引っかかる場所」と一致する。
+    /// </para>
+    /// </summary>
+    private static void RenderSceneColliders()
+    {
+        for (int i = 0; i < Physics.Bodies.Count; i++)
+        {
+            RigidBody body = Physics.Bodies[i];
+
+            if (body.Shape.Kind is ColliderKind.Plane or ColliderKind.HeightField)
+            {
+                continue;
+            }
+
+            _physicsMaterial.BaseColorFactor = BodyColors[i];
+            Draw(BodyMesh(body), _physicsMaterial, BodyMatrix(body));
+            _drawCalls++;
+        }
+    }
+
+    /// <summary>HUD の1行(Day 51)。**絵から読めないものだけ**。</summary>
+    private static string PlayableLabel()
+    {
+        string gait = Character.HorizontalSpeed > Character.WalkSpeed * 1.05f
+            ? "走り"
+            : Character.HorizontalSpeed > 0.05f ? "歩き" : "静止";
+
+        return $"プレイアブル[{gait}]  速さ:{Character.HorizontalSpeed:F2}m/s  "
+            + $"混合:{(_avatarBlend ? _avatar?.BlendLabel() ?? "-" : "**OFF**")}  "
+            + $"追従:{(_follow.Smoothing <= 0.0f ? "即時" : $"{_follow.Smoothing:F0}/s")}  "
+            + $"構え:{ShoulderPresets[_shoulderIndex].Name}  "
+            + $"カメラ:{_follow.AppliedDistance:F2}/{_follow.WantedDistance:F2}m"
+            + $"{(_follow.Blocked ? "**壁**" : string.Empty)}  "
+            + $"球:{_follow.LastProbeCount}回  "
+            + $"環境:{_sceneCollision.BoxCount}箱+{_sceneCollision.PlaneCount}面";
+    }
+
+    /// <summary>
+    /// プレイアブルデモの内訳をコンソールへ(メニューの F9)。
+    ///
+    /// <para>
+    /// <b>環境コライダを1つずつ並べる</b>のが眼目。
+    /// 「歩いていて見えない壁に当たる」ときの原因はここにしか無く、
+    /// 箱の中心と大きさが出ていれば、絵と突き合わせられる。
+    /// </para>
+    /// </summary>
+    private static void DescribePlayable()
+    {
+        if (!_playable || _avatar is null)
+        {
+            Console.WriteLine("プレイアブルデモが出ていません(このページの F2)");
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"--- プレイアブルデモの内訳「{_demo!.Name}」---");
+        Console.WriteLine(
+            $"  キャラクター: {Path.GetFileName(_avatar.Model.SourcePath)}  "
+            + $"全高 {_avatar.Height:F2}m  半径 {_avatar.Radius:F2}m  倍率 x{_avatar.Scale:F4}  "
+            + $"三角形 {_avatar.Model.TriangleCount:N0}  関節 {_avatar.Model.JointCount}");
+        Console.WriteLine(
+            $"  いま: 位置 ({Character.Position.X:F2}, {Character.Position.Y:F2}, {Character.Position.Z:F2})  "
+            + $"向き {Character.FacingYaw * 180.0f / MathF.PI:F0}度  "
+            + $"速さ {Character.HorizontalSpeed:F2}m/s  {(Character.IsGrounded ? "接地" : "空中")}");
+        Console.WriteLine(
+            $"  混合: {(_avatarBlend ? _avatar.BlendLabel() : "OFF(立ち止まりに固定)")}"
+            + $"  位相 {_avatar.Animation.Phase:F3}  周期 {_avatar.Animation.Duration:F2}s");
+
+        if (_avatar.Locomotion is { } tree)
+        {
+            Console.WriteLine(
+                "  ツリーの点: " + string.Join(" / ", tree.Samples.Select(
+                    sample => $"{sample.Name} {sample.Parameter:F2}m/s")));
+        }
+
+        Console.WriteLine(
+            $"  カメラ: 注視点 ({_follow.Target.X:F2}, {_follow.Target.Y:F2}, {_follow.Target.Z:F2})  "
+            + $"距離 {_follow.AppliedDistance:F2}/{_follow.WantedDistance:F2}m  "
+            + $"追従 {_follow.Smoothing:F0}/s  壁寄せ {OnOff(_follow.CollisionEnabled)}  "
+            + $"球 {_follow.LastProbeCount} 回/フレーム");
+
+        Console.WriteLine(
+            $"  環境: 箱 {_sceneCollision.BoxCount} / 面 {_sceneCollision.PlaneCount} / "
+            + $"当たらない {_sceneCollision.SkippedCount}(描画は {_sceneCollision.SourceItemCount} 個)");
+
+        foreach (SceneCollision.Piece piece in _sceneCollision.Pieces)
+        {
+            Vector3 size = piece.HalfExtents * 2.0f;
+            Console.WriteLine(
+                $"    {piece.Name,-20} 中心 ({piece.Center.X,6:F2}, {piece.Center.Y,5:F2}, {piece.Center.Z,6:F2})"
+                + $"  大きさ {size.X,5:F2} x {size.Y,5:F2} x {size.Z,5:F2} m");
+        }
+
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// **今日の自己チェック**(メニューの F10。Day 51)。
+    ///
+    /// <para>
+    /// 今日の主役は3つとも<b>絵で確かめにくい</b>。
+    /// カメラの遅れは「気持ちいいかどうか」でしか判断できず、
+    /// 環境コライダは目に見えず、モデルとカプセルの寸法合わせは
+    /// 少しずれていても<b>それらしく見えてしまう</b>。
+    /// 数字で押さえられるものだけをここに集める。
+    /// </para>
+    ///
+    /// <list type="number">
+    /// <item>
+    /// <b>追従がフレームレートに依らない</b>。60fps と 144fps で 1 秒ぶん回して、
+    /// 同じ場所に来るか。<c>Lerp(a, b, 0.1f)</c> で書いていたら必ず落ちる項目。
+    /// </item>
+    /// <item><b>壁寄せ</b>。塞いだ距離より近くへ寄るか、塞がなければ寄らないか。</item>
+    /// <item><b>環境コライダ</b>。板に厚みが入るか、パーツが名前で束ねられるか。</item>
+    /// <item><b>寸法合わせ</b>。モデルの全高とカプセルの全高が一致するか。</item>
+    /// <item><b>ブレンド木</b>。歩きの速さでちょうど歩き 1.0 になるか。</item>
+    /// </list>
+    /// </summary>
+    private static void RunPlayableCheck()
+    {
+        Console.WriteLine();
+        Console.WriteLine("=== Day 51 自己チェック(三人称カメラ・環境コリジョン・寸法合わせ)===");
+
+        var checks = new CheckList();
+
+        // --- 1. 追従がフレームレートに依らない ---
+        //
+        // 同じ出発点から、同じ 1 秒ぶんを別の刻みで回す。
+        // 指数の形なら「1秒でどれだけ残るか」は刻みによらないので、
+        // 残り距離は小数点以下まで一致する。
+        var slow = new FollowCamera { HeightOffset = 0.0f, Smoothing = 10.0f, CollisionEnabled = false };
+        var fast = new FollowCamera { HeightOffset = 0.0f, Smoothing = 10.0f, CollisionEnabled = false };
+
+        var goal = new Vector3(10.0f, 0.0f, 0.0f);
+        slow.Snap(Vector3.Zero);
+        fast.Snap(Vector3.Zero);
+
+        for (int i = 0; i < 60; i++)
+        {
+            slow.Update(goal, 0.0f, 0.0f, 4.0f, null, 1.0f / 60.0f);
+        }
+
+        for (int i = 0; i < 144; i++)
+        {
+            fast.Update(goal, 0.0f, 0.0f, 4.0f, null, 1.0f / 144.0f);
+        }
+
+        float gap = Vector3.Distance(slow.Target, fast.Target);
+        checks.Check(
+            "追従がフレームレートに依らない",
+            gap < 0.002f,
+            $"60fps {slow.Target.X:F4}m / 144fps {fast.Target.X:F4}m  差 {gap * 1000.0f:F3}mm");
+
+        // 理屈どおりなら 1 秒後の残りは exp(-10) = 4.54e-5 倍。
+        float expected = 10.0f * MathF.Exp(-10.0f);
+        checks.Check(
+            "1秒後の残りが exp(-k) 倍",
+            MathF.Abs((10.0f - slow.Target.X) - expected) < 0.01f,
+            $"残り {10.0f - slow.Target.X:F5}m / 理論値 {expected:F5}m");
+
+        // --- 2. 平滑 0 なら即座に届く ---
+        var instant = new FollowCamera { HeightOffset = 0.0f, Smoothing = 0.0f, CollisionEnabled = false };
+        instant.Snap(Vector3.Zero);
+        instant.Update(goal, 0.0f, 0.0f, 4.0f, null, 1.0f / 60.0f);
+
+        checks.Check(
+            "平滑 0 は1フレームで届く(Day 45 の挙動)",
+            Vector3.Distance(instant.Target, goal) < 1e-5f,
+            $"{instant.Target.X:F4}m");
+
+        // --- 3. 壁寄せ ---
+        var walled = new FollowCamera
+        {
+            HeightOffset = 0.0f,
+            Smoothing = 0.0f,
+            CollisionEnabled = true,
+            MinDistance = 0.8f,
+            CollisionSteps = 20,
+        };
+
+        walled.Snap(Vector3.Zero);
+
+        // 注視点から 2m より遠いところは全部塞がっている、という作り物。
+        bool Wall(Vector3 point, float radius) => point.Length() > 2.0f;
+
+        walled.Update(Vector3.Zero, 0.0f, 0.0f, 6.0f, Wall, 1.0f / 60.0f);
+
+        checks.Check(
+            "塞がれた側へは寄る",
+            walled.AppliedDistance <= 2.0f && walled.AppliedDistance >= walled.MinDistance,
+            $"要求 {walled.WantedDistance:F2}m → 実際 {walled.AppliedDistance:F2}m");
+
+        checks.Check("壁に寄せられたことが分かる", walled.Blocked);
+
+        walled.CollisionEnabled = false;
+        walled.Update(Vector3.Zero, 0.0f, 0.0f, 6.0f, Wall, 1.0f / 60.0f);
+
+        checks.Check(
+            "壁寄せを切れば要求どおり",
+            MathF.Abs(walled.AppliedDistance - 6.0f) < 1e-5f && !walled.Blocked,
+            $"{walled.AppliedDistance:F2}m");
+
+        // 全部塞がっている(注視点そのものが箱の中)ときは、いちばん寄せる。
+        walled.CollisionEnabled = true;
+        walled.Update(Vector3.Zero, 0.0f, 0.0f, 6.0f, static (_, _) => true, 1.0f / 60.0f);
+
+        checks.Check(
+            "どこも空いていなければ下限まで寄る",
+            MathF.Abs(walled.AppliedDistance - walled.MinDistance) < 1e-5f,
+            $"{walled.AppliedDistance:F2}m");
+
+        // --- 4. カメラは背中側に立つ ---
+        //
+        // 向き f のキャラクターに対して方位 f + π を与えると、
+        // 目は正面の<b>反対側</b>に来る(<see cref="RespawnAvatar"/> の理屈)。
+        const float facing = 0.7f;
+        var forward = new Vector3(MathF.Sin(facing), 0.0f, MathF.Cos(facing));
+        Vector3 eye = OrbitCameraController.EyePosition(
+            Vector3.Zero, 3.0f, facing + MathF.PI, 0.0f);
+
+        checks.Check(
+            "方位 f+π で目は背中側",
+            Vector3.Dot(Vector3.Normalize(eye), forward) < -0.99f,
+            $"内積 {Vector3.Dot(Vector3.Normalize(eye), forward):F3}");
+
+        // --- 5. 環境コライダ ---
+        if (_demo is null)
+        {
+            checks.Check("シーンが読み込まれている", false, "「デモ v1」の F2 か、このページの F2 で読む");
+        }
+        else
+        {
+            // **本番の世界には足さない**。捨てる世界へ組んで、数字だけ見る。
+            var probe = new PhysicsWorld();
+            var probeColors = new List<Vector4>();
+            SceneCollision.Result result = SceneCollision.Build(_demo, probe, probeColors);
+
+            checks.Check(
+                "体の数と色の数が揃う(並行配列)",
+                probe.Bodies.Count == probeColors.Count,
+                $"体 {probe.Bodies.Count} / 色 {probeColors.Count}");
+
+            checks.Check(
+                "地面は無限平面",
+                result.PlaneCount == 1,
+                $"平面 {result.PlaneCount} 枚");
+
+            checks.Check(
+                "パーツが名前で束ねられる",
+                result.BoxCount < result.SourceItemCount,
+                $"描画 {result.SourceItemCount} 個 → 箱 {result.BoxCount} 個");
+
+            bool thick = result.Pieces.All(
+                piece => piece.HalfExtents.X >= SceneCollision.MinThickness * 0.5f - 1e-6f
+                    && piece.HalfExtents.Y >= SceneCollision.MinThickness * 0.5f - 1e-6f
+                    && piece.HalfExtents.Z >= SceneCollision.MinThickness * 0.5f - 1e-6f);
+
+            checks.Check(
+                "厚み 0 の箱が無い(壁の板)",
+                thick,
+                $"下限 {SceneCollision.MinThickness * 100.0f:F0}cm");
+
+            // 壁の板は 24m x 5.5m。**世界軸に沿った箱に太っても、板の面積は保つ**。
+            SceneCollision.Piece? wall = result.Pieces
+                .Cast<SceneCollision.Piece?>()
+                .FirstOrDefault(piece => piece!.Value.Name.Contains("左の壁", StringComparison.Ordinal));
+
+            checks.Check(
+                "左の壁が板の寸法どおり",
+                wall is not null
+                    && MathF.Abs((wall.Value.HalfExtents.Z * 2.0f) - 24.0f) < 0.2f
+                    && MathF.Abs((wall.Value.HalfExtents.Y * 2.0f) - 5.5f) < 0.2f,
+                wall is null
+                    ? "見つからない"
+                    : $"{wall.Value.HalfExtents.X * 2.0f:F2} x {wall.Value.HalfExtents.Y * 2.0f:F2}"
+                        + $" x {wall.Value.HalfExtents.Z * 2.0f:F2} m");
+
+            checks.Check(
+                "出発点をシーンから読めている",
+                _demo.PlayerSpawn != Vector3.Zero || _demo.PlayerYaw != 0.0f,
+                $"({_demo.PlayerSpawn.X:F2}, {_demo.PlayerSpawn.Y:F2}, {_demo.PlayerSpawn.Z:F2})"
+                    + $" / {_demo.PlayerYaw * 180.0f / MathF.PI:F0}度");
+        }
+
+        // --- 6. 寸法合わせとブレンド木 ---
+        if (_avatar is null)
+        {
+            checks.Check("キャラクターが読み込まれている", false, "このページの F2 で出す");
+        }
+        else
+        {
+            checks.Check(
+                "モデルの全高が目標どおり",
+                MathF.Abs(_avatar.Height - AvatarHeight) < 1e-4f,
+                $"{_avatar.Height:F3}m(倍率 x{_avatar.Scale:F4})");
+
+            checks.Check(
+                "カプセルがモデルに合っている",
+                MathF.Abs(Character.Height - _avatar.Height) < 1e-4f
+                    && MathF.Abs(Character.Radius - _avatar.Radius) < 1e-4f,
+                $"全高 {Character.Height:F3}m / 半径 {Character.Radius:F3}m");
+
+            checks.Check(
+                "半径が全高より細い",
+                _avatar.Radius * 2.0f < _avatar.Height,
+                $"直径 {_avatar.Radius * 2.0f:F3}m < 全高 {_avatar.Height:F3}m");
+
+            if (_avatar.Locomotion is { } tree)
+            {
+                Span<ClipWeight> weights = stackalloc ClipWeight[AnimationPlayer.MaxBlendClips];
+
+                int atRest = tree.Evaluate(0.0f, weights);
+                checks.Check(
+                    "静止でクリップ1本",
+                    atRest == 1 && MathF.Abs(weights[0].Weight - 1.0f) < 1e-4f,
+                    $"{atRest} 本");
+
+                // **点の上でも2本返る**のが <see cref="BlendTree1D.Evaluate"/> の作り。
+                // 挟む2点を探してから内分するので、右側の重みが 0 の 2 本になる。
+                // 「本数が1つ」ではなく<b>「歩きの重みが 1.0」</b>を確かめるのが正しい——
+                // 最初ここを本数で書いて落ちた。
+                int atWalk = tree.Evaluate(AvatarWalkSpeed, weights);
+                checks.Check(
+                    "歩きの速さでちょうど歩き 1.0",
+                    MathF.Abs(weights[0].Weight - 1.0f) < 1e-4f
+                        && _avatar.Model.Animations[weights[0].Clip].Name
+                            .Contains("walk", StringComparison.OrdinalIgnoreCase),
+                    $"{atWalk} 本  {_avatar.Model.Animations[weights[0].Clip].Name} "
+                        + $"{weights[0].Weight:F4}"
+                        + (atWalk > 1
+                            ? $" + {_avatar.Model.Animations[weights[1].Clip].Name} {weights[1].Weight:F4}"
+                            : string.Empty));
+
+                float middle = (AvatarWalkSpeed + AvatarRunSpeed) * 0.5f;
+                int atMiddle = tree.Evaluate(middle, weights);
+                float sum = 0.0f;
+                for (int i = 0; i < atMiddle; i++)
+                {
+                    sum += weights[i].Weight;
+                }
+
+                checks.Check(
+                    "歩きと走りの間は2本で合計 1.0",
+                    atMiddle == 2 && MathF.Abs(sum - 1.0f) < 1e-4f,
+                    $"{middle:F2}m/s で {atMiddle} 本  合計 {sum:F4}");
+
+                int beyond = tree.Evaluate(AvatarRunSpeed * 2.0f, weights);
+                checks.Check(
+                    "右端より速くても走り 1.0 で頭打ち",
+                    beyond == 1 && MathF.Abs(weights[0].Weight - 1.0f) < 1e-4f,
+                    $"{beyond} 本");
+            }
+            else
+            {
+                checks.Check("ブレンド木が組めている", false, "idle/walk/run が揃っていない");
+            }
+        }
+
+        checks.Report("すべて合格(三人称カメラ・環境コリジョン・寸法合わせが仕様どおり)");
+        Console.WriteLine();
     }
 
     /// <summary>
