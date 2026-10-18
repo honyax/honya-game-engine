@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 72 セルルックの仕上げ</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+  .swatches { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 0; }
+  .swatch { flex: 1 1 120px; min-width: 110px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .swatch .chip { height: 54px; }
+  .swatch .cap { font-size: 12px; padding: 4px 6px; color: var(--muted); font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は後処理の出口と、キャラのパスの2行</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. MToon の約束と、ACES が白と色にすること</a></li><li class="l3"><a href="#s7">2. どこでキャラを分けるか — 出口だけを変える</a></li><li class="l3"><a href="#s8">3. 割合をアルファに書く — 書くのはキャラだけ</a></li><li class="l3"><a href="#s9">4. TAA は割合も混ぜ、ぼかしは素通しにする</a></li><li class="l3"><a href="#s10">5. 出口: ブルームから外し、1 で切って sRGB で出す</a></li><li class="l3"><a href="#s11">6. three-vrm と突き合わせる — 同じ光、同じ符号化</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">キャラを分ける場所の3案</a></li><li class="l3"><a href="#s17">1フレームの中のアルファ — 順番がそのまま設計</a></li><li class="l3"><a href="#s18">後処理はキャラを知らず、キャラは出口を知らない</a></li><li class="l3"><a href="#s19">今日残した歪み</a></li><li class="l3"><a href="#s20">試して分かったこと</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. F2 / F3: 出口を切り替える・並べる</a></li><li class="l3"><a href="#s23">2. F6: three-vrm の光で見る</a></li><li class="l3"><a href="#s24">3. F4 / F9: 割合を見る</a></li><li class="l3"><a href="#s25">4. F5 / F10: 符号化と露出</a></li><li class="l3"><a href="#s26">5. F7: 裏通りに立たせる</a></li><li class="l3"><a href="#s27">6. Day 71 までの機能が全部生きていること</a></li><li class="l3"><a href="#s28">7. F12: 自己チェック(8 項目すべて合格)</a></li><li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): キャラの出口に「白の上限」を足す</a></li><li class="l3"><a href="#s32">課題2(中): 手前の粒にはシーンの出口を通す</a></li><li class="l3"><a href="#s33">課題3(難): 被写界深度にも割合を運ぶ</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 72 / 計画書</p>
+  <h1>セルルックの仕上げ — キャラだけを ACES とブルームから外す</h1>
+  <p class="lede">シーンは HDR のまま畳み、MToon のキャラだけは作者が見ている「表示の色」で出す。分ける印をアルファに書き、TAA に一緒に運ばせる</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は後処理の出口と、キャラのパスの2行</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. MToon の約束と、ACES が白と色にすること</a></li><li class="l3"><a href="#s7">2. どこでキャラを分けるか — 出口だけを変える</a></li><li class="l3"><a href="#s8">3. 割合をアルファに書く — 書くのはキャラだけ</a></li><li class="l3"><a href="#s9">4. TAA は割合も混ぜ、ぼかしは素通しにする</a></li><li class="l3"><a href="#s10">5. 出口: ブルームから外し、1 で切って sRGB で出す</a></li><li class="l3"><a href="#s11">6. three-vrm と突き合わせる — 同じ光、同じ符号化</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">変更ファイル</a></li><li class="l3"><a href="#s14">写経する順番</a></li><li class="l2"><a href="#s15">設計書</a></li><li class="l3"><a href="#s16">キャラを分ける場所の3案</a></li><li class="l3"><a href="#s17">1フレームの中のアルファ — 順番がそのまま設計</a></li><li class="l3"><a href="#s18">後処理はキャラを知らず、キャラは出口を知らない</a></li><li class="l3"><a href="#s19">今日残した歪み</a></li><li class="l3"><a href="#s20">試して分かったこと</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. F2 / F3: 出口を切り替える・並べる</a></li><li class="l3"><a href="#s23">2. F6: three-vrm の光で見る</a></li><li class="l3"><a href="#s24">3. F4 / F9: 割合を見る</a></li><li class="l3"><a href="#s25">4. F5 / F10: 符号化と露出</a></li><li class="l3"><a href="#s26">5. F7: 裏通りに立たせる</a></li><li class="l3"><a href="#s27">6. Day 71 までの機能が全部生きていること</a></li><li class="l3"><a href="#s28">7. F12: 自己チェック(8 項目すべて合格)</a></li><li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): キャラの出口に「白の上限」を足す</a></li><li class="l3"><a href="#s32">課題2(中): 手前の粒にはシーンの出口を通す</a></li><li class="l3"><a href="#s33">課題3(難): 被写界深度にも割合を運ぶ</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 68 からアバターはシーンと同じ HDR のバッファに描かれ、Day 31 からの出口(露出 → ブルーム → ACES → ガンマ)を通っている。ところが MToon は「光 1 のとき明るい側 = ベースカラー」の約束で作られていて、作者は<strong>後処理なし</strong>(three-vrm / UniVRM の既定)で見た目を決めている。ACES を通すと白い服が 231 で止まって灰色に寄り、1 を超えた分はブルームでにじみ、中間が持ち上がって色が浅くなる。</p>
+<p>今日はシーンを HDR のまま残し、<strong>キャラの画素だけを「1 で切って sRGB」の出口へ通す</strong>。キャラもずらして描いて TAA で均し、壁に隠れ、同じ速さでぼけてほしいので、描く場所は変えない。変えるのは出口の曲線だけで、そのために「どの画素がキャラか」という印を、後処理の入口から出口まで運ぶ。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「セルルックの仕上げ」ページで <code>F3</code>(左右に並べる)を押すと、左半分が Day 71 の出口(にじんだ白い服・白っぽい肌)、右半分が今日の出口(輪郭の締まった白・色の残った肌と髪)で並ぶ。<code>F6</code> で three-vrm の見本と同じ光にすると、キャラの明るい側がベースカラーの絵の値のまま出る。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「セルルックの仕上げ」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>キャラの色: 表示の色(今日)↔ シーンと同じ(ACES・ブルーム。Day 71)。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>左右に並べる: 左半分を Day 71 の出口にする</td></tr>
+<tr><td><code>F4</code></td><td>割合を見る: シーンのバッファのアルファ(キャラの割合)を白で重ねる</td></tr>
+<tr><td><code>F5</code></td><td>出口の符号化: sRGB の式(three-vrm と同じ)↔ ガンマ 2.2(シーンと同じ)</td></tr>
+<tr><td><code>F6</code></td><td>光: 床の上(白 1.0・空 1/4。Day 68)↔ three-vrm の見本(右上手前から白 1.0・環境光なし)と同じ光と写る範囲</td></tr>
+<tr><td><code>F7</code></td><td>裏通りに立たせる(「VRMビューア」の F8 と同じ。夜の灯り・TAA・被写界深度の中)</td></tr>
+<tr><td><code>F8</code></td><td>顔に寄る(「VRMビューア」の F6 と同じ)</td></tr>
+<tr><td><code>F9</code></td><td>AA: FXAA ↔ TAA(TAA にすると、割合も履歴と混ざる)</td></tr>
+<tr><td><code>F10</code></td><td>露出: x1 → x2 → x0.5(<strong>露出はキャラにも掛かる</strong>)</td></tr>
+<tr><td><code>F11</code></td><td>内訳(出口の曲線の表、いまの画面のキャラの画素の数と明るさ)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(8 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「セルルックの仕上げ」(34 枚目)が直接開く。<code>F7</code> 以外の項目は、VRMビューアが出ていなければ出してから効く。<strong>キャラを描かないフレームは、出口も明部の抽出もアルファを見ない</strong>ので、VRMビューアを出さない限り絵は Day 71 と1画素も変わらない(検証の途中で分かったこと)。</p>
+
+<figure class="lab" id="tone-lab">
+  <div class="lab-head">
+    <h3>実験台: 同じ色が、2本の出口でどう出るか</h3>
+    <span class="tag">要点1・5。MToon の明るい側(ベースカラー x 届いた光)を、シーンの出口(ACES + ガンマ 2.2)とキャラの出口(1 で切って sRGB)に通す。曲線は reference/Day72 の composite.frag と同じ式。色見本の値はこのページで決めた値</span>
+  </div>
+  <canvas id="tone-canvas" style="height:240px" aria-label="ACES とキャラの出口の曲線"></canvas>
+  <div class="swatches" id="tone-swatches"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">色(ベースカラーの絵の画素)</span>
+      <div class="seg" id="tone-color">
+        <button data-v="white" aria-pressed="true">白い服</button><button data-v="skin" aria-pressed="false">肌</button><button data-v="hair" aria-pressed="false">髪</button><button data-v="ribbon" aria-pressed="false">リボン</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">光(平行光の強さ)</span><div class="range"><input type="range" id="tone-light" min="0.25" max="2" step="0.05" value="1"><output id="tone-light-out"></output></div></div>
+    <div class="ctl"><span class="label">環境光</span><div class="range"><input type="range" id="tone-ambient" min="0" max="0.5" step="0.05" value="0.25"><output id="tone-ambient-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="tone-stats"></div><p id="tone-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「MToon は後処理なしで見る約束で作られている」</strong>。MToon は N・L を掛けず、明るい側に「ベースカラー x 光の色」をそのまま置く。光 1 で照らせば、明るい側はベースカラーの絵の画素の値そのものになる。そこへ ACES を通すと、白(1.0)は 0.80(画面で 231)に沈み、18% のグレーは 0.27 へ持ち上がる。上の実験台で「白い服」を選び、光 1・環境光 0 にすると、キャラの出口は 255、シーンの出口は 231 になる。</p>
+<p><strong>2つ目は「分けるのは出口だけ」</strong>。キャラを後処理のあとで描き足すと TAA も被写界深度も掛からず、ずらしで輪郭が震え、壁の陰との深度も合わない。キャラは今までどおりシーンのバッファに描き、<strong>どの画素がキャラかの印(割合)をアルファに書いて出口まで運ぶ</strong>。出口は印の割合だけ、ACES の代わりに「1 で切って sRGB」を使う。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// composite.frag(Day 72)。割合 0 の画素は Day 71 と1行も変わらない
+vec3 display = LinearToSrgb(Aces(露出 x シーン + ブルーム));                  // シーンの出口(今まで)
+vec3 character = LinearToSrgbExact(clamp(露出 x シーン, 0, 1));               // キャラの出口(今日)
+display = mix(display, character, 割合);                                     // 画面の値の上で重ねる</code></pre></div>
+<p><strong>3つ目は「印も TAA で均す」</strong>。キャラは毎フレーム1画素未満ずらして描かれるので、輪郭の画素の割合は 0 と 1 を行き来する。色だけ TAA で混ぜて割合を今のフレームのまま出口へ渡すと、同じ「混ざった色」に ACES と表示の色を交互に掛けることになり、輪郭がちらつく。<strong>割合を色と同じ重みで混ぜれば</strong>、割合も「この画素のうちキャラが占める面積」に落ち着く(実験台「割合の運び方」)。</p>
+
+<h3 id="s3">今日は後処理の出口と、キャラのパスの2行</h3>
+<p>新規ファイルは無い。変更は <code>Render/PostProcess.cs</code>(割合の約束・出口のつまみ・曲線の式)、シェーダ5本(<code>composite.frag</code> / <code>bright.frag</code> / <code>taa.frag</code> / <code>dof-combine.frag</code> / <code>motion-blur.frag</code>)、そして <code>Program.cs</code>(<code>RenderVrm</code> の前後に2行と半透明の混ぜ方、ページ1枚、HUD、内訳と自己チェック)。</p>
+<p><strong>MToon のシェーダ(<code>mtoon.frag</code>)は1行も変わっていない</strong>。不透明・MASK・線のパスはもともとアルファに 1 を書いていて、半透明はベースカラーのアルファを書いている。それがそのまま「割合」になる。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://github.com/pixiv/three-vrm/blob/dev/packages/three-vrm/examples/dnd.html">three-vrm の examples/dnd.html</a> — 今日の突き合わせの相手。<code>WebGLRenderer</code> はトーンマップを設定しない(three.js の既定は <code>NoToneMapping</code>、出口は sRGB)、光は位置 (1, 1, 1) の白い <code>DirectionalLight</code>(強さ π)1本だけで環境光は無い、カメラは縦の画角 30 度で (0, 1, 5) から (0, 1, 0) を見る。<a href="https://pixiv.github.io/three-vrm/packages/three-vrm/examples/dnd.html">公開されているページ</a>に .vrm を落とすと、その場で見られる</li>
+<li><a href="https://github.com/vrm-c/vrm-specification/tree/master/specification/VRMC_materials_mtoon-1.0">VRMC_materials_mtoon-1.0</a> — 明るい側と影の色の混ぜ方(Day 68 の要点2)。N・L を掛けないので、光 1 の明るい側はベースカラーそのものになる</li>
+<li><a href="https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/">Krzysztof Narkowicz「ACES Filmic Tone Mapping Curve」</a> — Day 31 から使っている有理式。白(1.0)が 0.80 にしかならないこと、1.0 に届くのはリニアで 7.25 であることを、式から確かめる</li>
+<li><a href="https://en.wikipedia.org/wiki/SRGB">sRGB(Wikipedia)</a> — 暗部の直線と 2.4 乗の折れ線。Day 31 の出口の「2.2 乗」との違いは暗部に出る</li>
+<li>Day 31 の計画書(HDR の出口の順番)・Day 54 の計画書(TAA の解決)・Day 55 の計画書(被写界深度とモーションブラーの差し込み)・Day 68 の計画書(要点2の囲み「光の強さは 1 前後の約束」)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. MToon の約束と、ACES が白と色にすること</h3>
+<p>MToon の明るい側は <code>ベースカラー x 光の色</code>(N・L を掛けない)。作者は「白い平行光 1 + 環境光わずか」で、トーンマップ無しの画面を見て色を決める。だから<strong>光 1 で照らした明るい側は、ベースカラーの絵の画素の値で画面に出るのが正解</strong>になる。Day 31 からの出口は、そこへ3つのことをする。</p>
+<div class="table-wrap"><table><thead><tr><th>出口の段</th><th>キャラに起きること</th><th>数字(式・実機)</th></tr></thead><tbody>
+<tr><td>ブルーム(しきい値 1.0)</td><td>1 を超えた白い服と肌がにじむ</td><td>床の上の光(白 1.0 + 空 1/4)で、キャラの画素の <strong>44.8%</strong> が 1 を超える(いちばん明るい成分 1.34)</td></tr>
+<tr><td>ACES</td><td>白が灰色に寄る</td><td>1.0 → 0.804(画面で <strong>231</strong>)。255 に届くのはリニアで 7.25 を超えてから</td></tr>
+<tr><td>ACES</td><td>中間が持ち上がり、色が浅くなる</td><td>18% のグレー → 0.267。赤茶 (0.60, 0.25, 0.18) の彩度(画面の値で (最大 − 最小) / 最大)が 42% → 34%</td></tr>
+</tbody></table></div>
+<p>ACES はチャンネルごとに同じ曲線を掛ける。明るいところで曲線が寝るので、明るいチャンネルほど押し下げられ、暗いチャンネルは持ち上がる。チャンネルどうしの差が縮むので、色が浅くなる。写実のシーンではそれが「フィルムらしさ」になるが、<strong>セルルックでは塗った色が変わる</strong>ことになる。</p>
+<p>上の実験台で「肌」を選び、環境光を 0.25 にすると、シーンの出口は白っぽい肌になる(実機の <code>F3</code> の左半分と同じ)。キャラの出口でも 1 を超えたチャンネルは切れるので、肌の赤みは少し飛ぶ——<strong>床の上の光は MToon の約束(光 1・環境光わずか)より明るい</strong>(検証の途中で分かったこと)。</p>
+
+<h3 id="s7">2. どこでキャラを分けるか — 出口だけを変える</h3>
+<p>シーンとキャラで違うのは<strong>出口の曲線だけ</strong>。ずらし・履歴・深度・速度・ぼけは、同じ場所に立っている物として同じに扱いたい。</p>
+<div class="table-wrap"><table><thead><tr><th>分け方</th><th>TAA</th><th>被写界深度・モーションブラー</th><th>出口</th></tr></thead><tbody>
+<tr><td>A. キャラを後処理のあとで描き足す</td><td><strong>掛からない</strong>。ずらしたまま描くと輪郭が震え、ずらさずに描くとシーンの深度と半画素ずれる</td><td>掛からない(裏通りのボケの中で、キャラだけくっきり)</td><td>思いどおり</td></tr>
+<tr><td>B. 逆トーンマップで HDR に埋める(出口で元に戻る値を書く)</td><td>掛かる</td><td>掛かる</td><td>白は 7.25 で書くことになり、<strong>ブルームが真っ白に光る</strong>。輪郭で背景と混ぜると、7.25 が平均に勝って明るい縁が出る</td></tr>
+<tr><td><strong>C. 今日: 割合をアルファで運び、出口で分ける</strong></td><td>掛かる(割合も一緒に混ぜる)</td><td>掛かる(割合は素通し)</td><td>割合の分だけキャラの出口</td></tr>
+</tbody></table></div>
+<p>C の代わりに払うのは、<strong>後処理の段がアルファを運ぶ約束</strong>を守ること。Day 31 から、どの段もアルファに 1 を書いて捨てていた。今日、TAA・被写界深度の重ね・モーションブラーの3段が、出す画素のアルファに入口の割合を入れるようになった(要点4)。</p>
+
+<h3 id="s8">3. 割合をアルファに書く — 書くのはキャラだけ</h3>
+<p>シーンを描くシェーダ(<code>textured.frag</code>・<code>deferred.frag</code>・空…)は、どれもアルファに 1 を書いている。だから「キャラが書いたら 1」では区別できない。順番で区別する。</p>
+<ol>
+<li><strong>キャラの直前に、アルファだけを 0 に消す</strong>(<code>PostProcess.BeginCharacter</code>。<code>glColorMask(false, false, false, true)</code> にして <code>glClear</code>)。色と深度は残る</li>
+<li><strong>キャラを描く</strong>。不透明・MASK・線は 1 を書く。深度に負けた画素(壁の陰)は 0 のまま</li>
+<li><strong>アルファへの書き込みを閉じる</strong>(<code>PostProcess.EndCharacter</code>。<code>glColorMask(true, true, true, false)</code>)。このあとの粒・プローブの球・文字は色だけを書く</li>
+<li><strong>後処理の頭で開け直す</strong>(<code>EndCore</code>)。TAA の履歴や被写界深度の層はアルファも書くので</li>
+</ol>
+<p>半透明(瞳・ハイライト・眉)は色と同じ混ぜ方のままだと、アルファが <code>a x a + 下 x (1 − a)</code> になる。髪の上に乗った眉は下が 1 なので 1 のままだが、シーンの上に直接乗った半透明の端は a x a に薄まる。そこで<strong>アルファだけ混ぜ方を変える</strong>(<code>glBlendFuncSeparate</code> の後ろ2つを <code>One, OneMinusSrcAlpha</code>)。膜を1枚重ねた分だけキャラが増える、という「割合」の足し算になる。</p>
+<p>もう1つの約束: <strong>キャラを描いたフレームだけ、出口がアルファを見る</strong>(<code>PostProcess.CharacterDrawn</code>。<code>Begin</code> で下ろし、<code>EndCharacter</code> で立てる)。描かないフレームのアルファは 1 だらけなので、見たら画面全体がキャラになる。自己チェックが後処理だけを回すときも、これで Day 31〜71 の数字が変わらない。</p>
+
+<h3 id="s9">4. TAA は割合も混ぜ、ぼかしは素通しにする</h3>
+<p>TAA は「今のフレームを 1 割、履歴を 9 割」で混ぜ続ける(Day 54)。キャラの割合も<strong>同じ重みで</strong>混ぜる。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// taa.frag(Day 72)の最後。色の箱とは別に、近所 3x3 の割合の最小〜最大を取ってある
+float historyCoverage = texture(uHistory, historyUv).a;           // 双線形(Catmull-Rom の負の重みで 0〜1 をはみ出させない)
+if (uRectify != 0)
+{
+    historyCoverage = clamp(historyCoverage, coverageMin, coverageMax);   // 立ち去った画素に割合を残さない
+}
+
+float coverage = mix(historyCoverage, currentCoverage, uCurrentWeight);</code></pre></div>
+<ul>
+<li><strong>疑う</strong>のは、キャラが動いて立ち去った画素に割合が残ると、背景が「1 で切る」出口を通ってしまうから。止まった絵の輪郭は、近所に 0 と 1 の両方があるので箱が [0, 1] になり、履歴がそのまま生きる</li>
+<li>速度・疑った量の表示(<code>uDebug</code> 2・3)はアルファに 0 を書く。表示用の絵をキャラの出口へ通さないため</li>
+<li>自己チェック8: 割合 1 の次に割合 0 を解くと、疑わなければ <strong>0.900</strong>、分散で疑えば 0.000。色は 0.200 のまま</li>
+</ul>
+<p>被写界深度(<code>dof-combine.frag</code>)とモーションブラー(<code>motion-blur.frag</code>)は、<strong>入口の画素の割合を素通しにする</strong>。被写界深度の半分の大きさの層は、アルファを「錯乱円」と「覆い」に使っていて、割合を運ぶ席が無い。ぼけたキャラの輪郭のはみ出しはシーンの出口を通る(今日残した歪みの1つ目)。</p>
+
+<figure class="lab" id="cov-lab">
+  <div class="lab-head">
+    <h3>実験台: 割合の運び方 — ずらしで揺れる輪郭</h3>
+    <span class="tag">要点3・4・設計書。白い服(明るさ 1.2)と暗い背景(0.05)の境目を横から見た 1 列 24 画素。毎フレーム Halton でずらして描き、今のフレームを 1 割ずつ混ぜる(疑わない)。式は taa.frag・composite.frag と同じ形、値はこのページで決めた値</span>
+  </div>
+  <canvas id="cov-canvas" style="height:300px" aria-label="輪郭の画素の割合と出口の値"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">割合の運び方</span>
+      <div class="seg" id="cov-mode">
+        <button data-v="taa" aria-pressed="true">TAA で色と一緒に混ぜる(今日)</button><button data-v="current" aria-pressed="false">今のフレームの割合のまま</button><button data-v="after" aria-pressed="false">キャラを出口のあとで描く(案 A)</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">輪郭の位置(画素)</span><div class="range"><input type="range" id="cov-edge" min="9" max="13" step="0.05" value="11.35"><output id="cov-edge-out"></output></div></div>
+    <div class="ctl"><span class="label">ずらし</span>
+      <div class="seg" id="cov-jitter">
+        <button data-v="on" aria-pressed="true">あり</button><button data-v="off" aria-pressed="false">なし</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="cov-stats"></div><p id="cov-note"></p></div>
+</figure>
+
+<h3 id="s10">5. 出口: ブルームから外し、1 で切って sRGB で出す</h3>
+<p>明部の抽出(<code>bright.frag</code>)は、抜く重みに <code>1 − 割合</code> を掛ける。キャラの画素はにじみの元にならない。合成(<code>composite.frag</code>)はキャラの出口を別に作って、画面の値の上で割合どおりに重ねる。</p>
+<div class="table-wrap"><table><thead><tr><th>段</th><th>シーンの出口(今まで)</th><th>キャラの出口(今日)</th><th>なぜ</th></tr></thead><tbody>
+<tr><td>露出</td><td>掛ける</td><td><strong>掛ける</strong></td><td>同じカメラで撮った絵。夜の裏通りで露出 1.30 なら、キャラも 1.30 倍で写る(自己チェック6)</td></tr>
+<tr><td>ブルーム</td><td>足す</td><td>足さない・元にもしない</td><td>three-vrm の既定に無い。白い服が光らない(自己チェック7)</td></tr>
+<tr><td>グレーディング</td><td>掛ける</td><td><strong>掛ける</strong></td><td>夕焼けの色かぶりはキャラにも乗ってほしい。既定はニュートラル(素通し)</td></tr>
+<tr><td>トーンマップ</td><td>ACES</td><td>0〜1 で切る</td><td>MToon の約束(光 1 で明るい側 = ベースカラー)のまま出す</td></tr>
+<tr><td>符号化</td><td>ガンマ 2.2</td><td><strong>sRGB の式</strong></td><td>テクスチャを戻した式の逆。光 1 の明るい側が、絵の画素の値のまま出る(要点6)</td></tr>
+</tbody></table></div>
+<p><strong>重ねるのは符号化のあと</strong>。キャラは「表示の色で描いた層」なので、画面の値の上で重ねる(割合 0.5 なら、2本の出口の真ん中。自己チェック5)。リニアの値で重ねると、片方を ACES、片方を 1 で切ったものを足すことになり、どちらの曲線とも違う値が輪郭に出る。</p>
+
+<h3 id="s11">6. three-vrm と突き合わせる — 同じ光、同じ符号化</h3>
+<p>three.js の出口は既定で <code>NoToneMapping</code> + sRGB。テクスチャは GPU が sRGB の式でリニアへ戻すので(Day 31 から <code>Srgb8Alpha8</code>)、出口も<strong>同じ式の逆</strong>で符号化すれば、光 1 の明るい側は絵の画素の値に戻る。</p>
+<div class="table-wrap"><table><thead><tr><th>出口(割合 1)</th><th>sRGB の 256 段をリニアに戻して置き、8bit で読み返す(自己チェック3)</th></tr></thead><tbody>
+<tr><td>sRGB の式(今日)</td><td><strong>256/256 段が一致</strong></td></tr>
+<tr><td>ガンマ 2.2(シーンの出口の符号化)</td><td>最大 9 段ずれる(画素 7 が 16 に。暗いほど持ち上がる。白と中間はほぼ同じ)</td></tr>
+<tr><td>ACES + ガンマ 2.2(Day 71)</td><td>最大 27 段ずれる</td></tr>
+</tbody></table></div>
+<p>光も合わせる。three-vrm の見本(<code>examples/dnd.html</code>)は、位置 (1, 1, 1) から原点へ向かう白の平行光(three.js の強さ π は、物理の単位で「1」)1本だけで、環境光が無い。<code>F6</code> でこの光にする(<code>VrmThreeLightDirection</code>・空を 0)。カメラは画角 60 度のまま、見本(画角 30 度・5m)と<strong>同じ高さが写る距離</strong>まで寄せる(5 x tan 15 度 / tan 30 度 = 2.3m)。</p>
+<p>この光で数えると、キャラの画素のいちばん明るい成分は <strong>1.00</strong>(1 を超える画素は 25 個だけ)。MToon の約束どおり、明るい側がベースカラーで頭打ちになる。床の上の光(空 1/4)の 1.34 と比べると、Day 68 の光がまだ約束より明るいことも分かる。</p>
+
+<figure class="lab" id="enc-lab">
+  <div class="lab-head">
+    <h3>実験台: 絵の画素は、出口を通って何段に戻るか</h3>
+    <span class="tag">要点6。ベースカラーの絵の画素(0〜255)を sRGB の式でリニアに戻し、光 1 で照らした値として3本の出口に通す。式は reference/Day72 の PostProcess.SrgbDecode / SrgbEncode / Gamma22 / AcesFilmic と同じ</span>
+  </div>
+  <canvas id="enc-canvas" style="height:220px" aria-label="出口ごとの、元の画素からのずれ"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">絵の画素</span><div class="range"><input type="range" id="enc-level" min="0" max="255" step="1" value="26"><output id="enc-level-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="enc-stats"></div><p id="enc-note"></p></div>
+</figure>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">変更ファイル</h3>
+<p>新規ファイルは無い。</p>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>shaders/composite.frag</code></td><td>冒頭の説明、uniform 4つ(<code>uCharacterLayer</code> / <code>uCharacterEncoding</code> / <code>uCharacterSplit</code> / <code>uShowCoverage</code>)、<code>LinearToSrgbExact</code>、<code>main</code> の頭(割合とキャラの出口)と最後(画面の値で重ねる・割合を見る)</td><td>+76 / −2</td></tr>
+<tr><td><code>shaders/bright.frag</code></td><td><code>uCharacterLayer</code>、アルファを読み、重みに <code>1 − 割合</code></td><td>+12 / −1</td></tr>
+<tr><td><code>shaders/taa.frag</code></td><td>冒頭の説明、今のフレームの割合と近所の最小〜最大、出す画素のアルファ(5 か所)、最後に割合を混ぜる</td><td>+33 / −7</td></tr>
+<tr><td><code>shaders/dof-combine.frag</code></td><td>入口の割合を読んで、出す画素のアルファへ(表示は 0)</td><td>+8 / −3</td></tr>
+<tr><td><code>shaders/motion-blur.frag</code></td><td>同じ(3 か所の出口)</td><td>+8 / −4</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td>クラスの説明、プロパティ5つ(<code>CharacterLayer</code> / <code>CharacterSrgb</code> / <code>CharacterSplit</code> / <code>ShowCoverage</code> / <code>CharacterDrawn</code>)と <code>UseCharacterLayer</code>、<code>Begin</code> の1行、<code>BeginCharacter</code> / <code>EndCharacter</code>、<code>EndCore</code> の <code>ColorMask</code>、<code>ExtractBright</code> と <code>Composite</code> の uniform、曲線の式4つ(<code>AcesFilmic</code> / <code>Gamma22</code> / <code>SrgbEncode</code> / <code>SrgbDecode</code>)</td><td>+106 / −0</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、<code>RenderVrm</code>(2行と半透明の混ぜ方)、HUD に1行、<code>ReadTexture</code> の RGBA、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数、今日の関数一式</td><td>+573 / −4</td></tr>
+<tr><td><code>Day72.csproj</code></td><td><code>Day71.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p class="note">今日の差分は約 820 行(コメント込み)。<code>Program.cs</code> の今日の関数は 407 行で、うち自己チェック(<code>RunVrmLookCheck</code>)が 243 行。1日で重ければ、下の順番の <strong>10 まで</strong>(出口を切り替えて見比べるまで)と <strong>11</strong>(内訳・自己チェック)で2回に分けるとよい。9 の (d) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+
+<h3 id="s14">写経する順番</h3>
+<p>シェーダは C# のビルドに関わらないので先に写す(uniform を送る側より先に受ける側があってよい。逆だと「見つからない」の警告が出る)。そのあと C# を依存の向きに沿って並べてある。</p>
+<ol>
+<li><strong><code>shaders/taa.frag</code>(変更)</strong> — 冒頭の説明の最後に「Day 72 から」の段落、<code>main</code> の頭で <code>currentSample</code> と割合の3つ、<code>uDebug == 1</code> の出口、3x3 の中で <code>neighborSample</code> と最小〜最大、速度の表示と画面の外の出口、疑った量の表示、最後の「混ぜる」のあとに割合を混ぜる</li>
+<li><strong><code>shaders/dof-combine.frag</code>(変更)</strong> — <code>sharpSample</code> と <code>coverage</code>、表示の出口を 0 に、最後の出口に <code>coverage</code></li>
+<li><strong><code>shaders/motion-blur.frag</code>(変更)</strong> — <code>sceneSample</code> と <code>coverage</code>、3 か所の出口</li>
+<li><strong><code>shaders/bright.frag</code>(変更)</strong> — <code>uCharacterLayer</code>、<code>scene</code> を読む形に、重みに <code>1 − 割合</code></li>
+<li><strong><code>shaders/composite.frag</code>(変更)</strong> — 冒頭の説明の最後に「Day 72 で出口が2本に」、グレーディングの uniform の後ろに「キャラの層」の4つ、<code>LinearToSrgb</code> の後ろに <code>LinearToSrgbExact</code>、<code>main</code> の <code>texture(uScene, ...)</code> の行を割合とキャラの出口に、最後の <code>FragColor</code> を「画面の値で重ねる」に</li>
+<li><strong><code>Render/PostProcess.cs</code>(変更)</strong> — 順に、(a) クラスの説明の最後に「Day 72 で出口が2本に」、(b) <code>MotionBlurApplied</code> の後ろにプロパティ5つと <code>UseCharacterLayer</code>、(c) <code>Begin</code> に <code>CharacterDrawn = false;</code>、(d) <code>CaptureDepth</code> の手前に <code>BeginCharacter</code> / <code>EndCharacter</code>、(e) <code>EndCore</code> の <code>PolygonMode</code> の後ろに <code>ColorMask</code>、(f) <code>ExtractBright</code> と <code>Composite</code> に uniform、(g) <code>BindTarget</code> の手前に曲線の式4つ</li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 71」のフィールド(<code>_vrmClipFaces</code>)の直後に「Day 72」の 6 個(<code>VrmThreeLightDirection</code> / <code>VrmThreeFieldOfView</code> / <code>VrmThreeDistance</code> / <code>VrmThreeTargetHeight</code> / <code>VrmExposureSteps</code> / <code>_vrmExposureStep</code>)</li>
+<li><strong><code>Program.cs</code> の <code>RenderVrm</code></strong> — <code>placement</code> の直後に <code>_post.BeginCharacter();</code>、半透明の <code>BlendFunc</code> を <code>BlendFuncSeparate</code> に、最後に <code>_post.EndCharacter();</code>。<strong>3つを組で写す</strong>(<code>BeginCharacter</code> だけ写すと、アルファが開いたまま粒が割合を書く)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)と組み込み</strong> — 順に、
+(a) ファイル末尾の <code>RunVrmClipCheck</code> の直後(<code>CheckList</code> の手前)に、見出しと <code>ToByte</code> / <code>VrmThreeLightActive</code> / <code>ToggleVrmThreeLight</code> / <code>VrmLookName</code> / <code>VrmLookLightName</code> / <code>VrmLookLabel</code>、
+(b) <code>DrawOverlayInfo</code> の <code>VrmClipLabel()</code> の行の直後に <code>VrmLookLabel()</code> の行、
+(c) <code>ReadTexture</code> の <code>format</code> を switch に(4 なら RGBA)と説明の1行、
+(d) <code>BuildMenu</code> の「VRMのアニメーション」ページの直後(<code>return menu;</code> の手前)に「セルルックの仕上げ」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 11 で足す関数を指すので、分けて写すなら後回しにする)、
+(e) <code>RunDebugMenuCheck</code> の項目数を <strong>333 → 344</strong> へ</li>
+<li><strong>ここで一度動かす</strong> — <code>Shift+F1</code> → <code>F3</code> で左右に並ぶこと、<code>F6</code> で光が変わること</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 9 (a) の続きに <code>DescribeVrmLook</code> / <code>RunVrmLookCheck</code></li>
+<li><strong><code>Day72.csproj</code></strong> — <code>Day71.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+</section>
+
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>層は増えていない</strong>。後処理(<code>Render/PostProcess</code> とシェーダ)に「アルファはキャラの割合」という約束を1つ足し、キャラのパス(<code>Program.RenderVrm</code>)がその約束を守る2行を足した。</p>
+
+<h3 id="s16">キャラを分ける場所の3案</h3>
+<p>要点2の表のとおり、<strong>分けるのは出口だけ</strong>にした。決め手は TAA で、キャラだけ TAA を外すと、ずらしたままの輪郭が毎フレーム震えるか(ずらして描く)、シーンの深度と半画素ずれる(ずらさずに描く)。被写界深度も、裏通りでキャラだけくっきり浮く。どちらも「同じ場所に立っていない」絵になる。</p>
+<p>代わりに、<strong>印を出口まで運ぶ</strong>ことが要る。印の運び手は「色と一緒に混ぜる段」と「素通しにする段」に分かれる。</p>
+<div class="table-wrap"><table><thead><tr><th>段</th><th>割合をどう扱うか</th><th>そうしないと</th></tr></thead><tbody>
+<tr><td>TAA</td><td><strong>色と同じ重みで混ぜる</strong>・疑うときは近所の箱へ</td><td>今のフレームの割合のまま: 輪郭が ACES と表示の色を交互に通ってちらつく(実験台「割合の運び方」)</td></tr>
+<tr><td>被写界深度・モーションブラー</td><td>入口の割合を素通し</td><td>(運ぶ席が無い。ぼけたはみ出しはシーンの出口。歪みの1つ目)</td></tr>
+<tr><td>明部の抽出</td><td><code>1 − 割合</code> だけ抜く</td><td>白い服がにじみの元になる</td></tr>
+<tr><td>合成</td><td>画面の値の上で割合どおりに重ねる</td><td>—</td></tr>
+<tr><td>FXAA</td><td>読まない(合成のあとの 8bit の絵)</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3 id="s17">1フレームの中のアルファ — 順番がそのまま設計</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">空・シーン(フォワード / ディファードのライティング)</div>
+    <div class="rw"><span>書く <b>色と深度。アルファには 1(誰も読まない)</b></span></div>
+    <div class="swap">Day 71 のまま。1 を書くのを止めさせる必要は無い(2 で消すので)</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what"><code>_post.BeginCharacter()</code> — アルファだけを 0 に消し、書き込みを開ける</div>
+    <div class="rw"><span>書く <b>アルファ全部を 0</b></span></div>
+    <div class="swap">1 より前に置くと: シーンの 1 が残り、画面全体がキャラの出口を通る</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">キャラ(不透明・MASK → 線 → 半透明)</div>
+    <div class="rw"><span>書く <b>色・深度・割合(不透明と線は 1、半透明は a + 下 x (1 − a))</b></span></div>
+    <div class="swap">半透明を色と同じ混ぜ方にすると: シーンの上に直接乗った端の割合が a x a に薄まる</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what"><code>_post.EndCharacter()</code> — アルファへの書き込みを閉じ、「描いた」を立てる</div>
+    <div class="rw"><span>書く <b><code>CharacterDrawn = true</code></b></span></div>
+    <div class="swap">閉じないと: 5 の煙や球がアルファに自分の値を書き、その画素の割合が変わる</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">揺れものの線・プローブの球・SDF・粒・文字・速度</div>
+    <div class="rw"><span>書く <b>色だけ(アルファは閉じている)</b></span></div>
+    <div class="swap">キャラの手前の粒は、キャラの出口を通る(歪みの2つ目)</div>
+  </div></li>
+  <li><span class="no">6</span><div>
+    <div class="what"><code>_post.End</code> — 頭で <code>ColorMask</code> を開け直し、TAA → 被写界深度 → モーションブラー → 明部 → 合成 → FXAA</div>
+    <div class="rw"><span>読む <b>割合(TAA が混ぜ、ぼかしは素通し)</b></span><span>書く <b>画面</b></span></div>
+    <div class="swap">開け直さないと: TAA の履歴にアルファが書けず、割合も被写界深度の錯乱円も消える</div>
+  </div></li>
+</ol>
+<p>Day 68 の「1フレームの中のキャラの居場所」(Day 68 の設計書)は1つも動いていない。キャラは今日もシーンのあと・粒の前で描かれ、深度と速度を残す。<strong>足したのは、キャラの前後に挟んだ2つの呼び出しだけ</strong>。</p>
+
+<h3 id="s18">後処理はキャラを知らず、キャラは出口を知らない</h3>
+<p>コメントを落としてから型名を拾って確かめた(<code>PostProcess.cs</code> が触る型は今日も <code>TemporalAA</code> / <code>DepthOfField</code> / <code>MotionBlur</code> とテクスチャ類だけ。<code>mtoon.frag</code> に今日の uniform は1つも無い)。</p>
+<div class="table-wrap"><table><thead><tr><th>だれ</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Render/PostProcess</code></td><td>「アルファは割合」「割合を書くのは <code>BeginCharacter</code> と <code>EndCharacter</code> の間」</td><td><strong>VRM・MToon・誰がキャラか</strong>。割合を書く物が何人いても同じに扱える</td></tr>
+<tr><td><code>mtoon.frag</code></td><td>今までどおり、アルファに 1(不透明)か base.a(半透明)を書く</td><td>出口が2本あること。トーンマップの有無で式を変えない</td></tr>
+<tr><td><code>Program.RenderVrm</code></td><td>キャラの前後で2つ呼ぶこと・半透明のアルファの混ぜ方</td><td>出口の曲線(全部 <code>composite.frag</code>)</td></tr>
+<tr><td>シェーダ5本</td><td>入口のアルファを割合として運ぶ・読む</td><td>割合を書いたのが誰か</td></tr>
+</tbody></table></div>
+<p>だから Day 73 でデモのアバターを差し替えても、キャラが2人になっても、<code>RenderVrm</code> の2行がそのまま効く。逆に、<strong>セルルックで描きたい物が他にあれば</strong>(たとえば MToon で描いた小物)、同じ2つの呼び出しで挟めばよい。</p>
+
+<h3 id="s19">今日残した歪み</h3>
+<p><strong>1つ目: 被写界深度とモーションブラーは割合を運ばない</strong>。ぼけた輪郭のはみ出し(キャラの色が背景側へ広がった所)は割合 0 なのでシーンの出口を通り、割合 1 の内側とのあいだに薄い段差が出うる。裏通りの決めの構図ではキャラにピントが合っているので見えない。直すなら改造課題3。</p>
+<p><strong>2つ目: キャラの手前に描かれた物は、キャラの出口を通る</strong>。粒・プローブの球・SDF はアルファを閉じたあとに描くので、キャラの上に重なった画素の割合は 1 のまま。加算の火の粉がキャラの前を横切ると、ACES で畳まれずに 1 で切れる。直すなら改造課題2。</p>
+<p><strong>3つ目: 床の上の光は MToon の約束より明るい</strong>。Day 68 で決めた「白 1.0 + 空 1/4」では、キャラの画素の 44.8% が 1 を超えて切れる(肌の赤みが少し飛ぶ)。three-vrm の光(<code>F6</code>)なら最大 1.00。床の上の光を変えると Day 68〜71 の絵と計画書の数字が全部変わるので、今日は変えなかった。</p>
+<p><strong>4つ目: 出口の符号化が2つある</strong>。シーンはガンマ 2.2、キャラは sRGB の式。シーンも sRGB の式にするのが筋だが、Day 31 からの絵と自己チェックの数字が全部動くので、キャラの側だけ正しくした(<code>F5</code> でキャラもガンマ 2.2 にできる)。</p>
+<p><strong>5つ目: シーンのブルームはキャラの上に乗らない</strong>。街灯のにじみは、キャラの輪郭で止まる(割合 1 の画素はシーンの出口の値を捨てる)。写実のレンズのにじみなら手前の物にも掛かるが、three-vrm の既定に合わせた。</p>
+
+<h3 id="s20">試して分かったこと</h3>
+<ul>
+<li><strong>キャラの出口を切れば、Day 71 と1画素も違わない</strong>。床の上の VRMビューアを Day 71 と同じ台本で撮り、1920x1080 の全画素で差 0。入れると 83,861 画素が変わり、全部キャラの周り(キャラの画素 61,609 + 消えたにじみ)に収まった</li>
+<li><strong>three-vrm の光で、明るい側はちょうど 1.00 で頭打ちになる</strong>。MToon の約束(光 1 で明るい側 = ベースカラー)が、数えた値でそのまま見えた。画面では白が 255 まで届き(ACES は 235 止まり)、キャラの画素の平均の彩度が 14.9% → 16.7% に戻った(平均の明るさは 158 → 156 でほぼ同じ)</li>
+<li><strong>裏通りでは、違いは白飛びではなく中間と色に出る</strong>。夜の露出 1.30 でも、キャラの画素は 1 を超えない(いちばん明るい成分 0.75 x 1.30 = 0.98)。ACES は中間を持ち上げて色を浅くするので、今日の出口ではキャラの色が濃く、少し暗く見える</li>
+<li><strong>半透明のアルファは色と同じ混ぜ方では足りない</strong>。<code>BlendFunc</code> のままだと割合が a x a になる。後ろ2つを <code>One, OneMinusSrcAlpha</code> に分けた</li>
+<li><strong>Day 31 からのアルファの 1 が、そのまま使えなくした理由</strong>。最初は「シーンは 1 を書く、キャラは 0 を書く」(アルファ = シーンの割合)を考えたが、半透明の粒(<code>SrcAlpha, OneMinusSrcAlpha</code>)がシーンの上に乗ると <code>1 − a + a x a</code> に減り、煙の後ろの背景がキャラの出口を通る。「キャラの直前で消し、キャラのあとで閉じる」にした</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day72 -c Release</code> で起動する。起動直後は Day 71 と同じ絵。今日の主役は「セルルックの仕上げ」のページ(<code>Shift+F1</code> で直接開く)から。HUD に1行増える。</p>
+<div class="code"><pre><code>仕上げ:キャラ 表示の色(sRGB・ACES とブルームを通さない)  光:床の上  露出:1.00  AA:FXAA</code></pre></div>
+
+<h3 id="s22">1. F2 / F3: 出口を切り替える・並べる</h3>
+<ul>
+<li><code>F2</code>(シーンと同じ)… 白い服のまわりがにじみ、肌が白っぽく、髪が浅くなる(Day 71 の絵)。戻すと服の輪郭が締まり、肌の赤みと髪の茶色が戻る</li>
+<li><code>F3</code> … アバターの真ん中で左右に分かれる。<code>F8</code> で顔に寄ると、左の頬は白、右の頬は肌色で並ぶ</li>
+</ul>
+
+<h3 id="s23">2. F6: three-vrm の光で見る</h3>
+<p>背景が暗くなり(空 0)、右上手前から白い光が当たる。<code>F11</code> の内訳の最後の行が「いちばん明るい成分 1.00」になる。</p>
+<p><strong>three-vrm 本体と並べるとき</strong>: ブラウザで <a href="https://pixiv.github.io/three-vrm/packages/three-vrm/examples/dnd.html">three-vrm の dnd の見本</a>を開き、<code>assets/models/AvatarSample_A.vrm</code> を落とす。光とトーンマップがそろっているので、体と服の明るい側の色(白い服・リボンの青・肌)が同じになる。違って見えてよいのは、こちらだけにある床の影・線の太さの見え方(画角が違う)・髪の暗い側(こちらは影のパスでも陰が付く)。<code>F2</code> で Day 71 の出口に戻すと、白い服が灰色に寄り、リボンの青が浅くなるのが並べて分かる。</p>
+<p class="note">開発機ではブラウザの操作ができなかったので、three-vrm 本体との並べ比べはしていない。そろっていることは、光の向きと強さ・トーンマップ無し・sRGB の往復(自己チェック3)を数字で確かめた。</p>
+
+<h3 id="s24">3. F4 / F9: 割合を見る</h3>
+<ul>
+<li><code>F4</code> … 暗くしたシーンの上に、キャラの形が白く出る。FXAA のときの割合は 0 か 1(半透明の瞳と眉の所だけ途中の値)</li>
+<li><code>F9</code> で TAA にしてから <code>F4</code> … 輪郭と髪の毛先が灰色になる(割合を履歴と混ぜた値)。カメラを回すと、灰色の帯が輪郭と一緒に動き、背景に白い跡が残らない(疑うので)</li>
+</ul>
+
+<h3 id="s25">4. F5 / F10: 符号化と露出</h3>
+<ul>
+<li><code>F5</code>(ガンマ 2.2)… 白と中間はほぼ同じ。黒いインナーと髪の暗い所がわずかに浮く(画素 7 が 16 に)</li>
+<li><code>F10</code> … x2 で、キャラもシーンと一緒に明るくなり、明るい側が 1 で切れて白い服と肌が平らになる。x0.5 で一緒に暗くなる。3回押すと元(x1)に戻る</li>
+</ul>
+
+<h3 id="s26">5. F7: 裏通りに立たせる</h3>
+<p>完成版の夜(露出 1.30・TAA・被写界深度)で、街灯の手前に立つ。<code>F2</code> で切り替えると、Day 71 の出口では服が黄色っぽく浅く、今日の出口では橙が濃く出る。<code>F4</code> で割合を見ると、キャラの形だけが白い(背景のボケは割合 0)。</p>
+<p class="note">裏通りは GPU の負荷が大きいので(開発機の電源の都合)、開発機では1回だけ3枚撮って確かめた。</p>
+
+<h3 id="s27">6. Day 71 までの機能が全部生きていること</h3>
+<p>後処理の5段を変えたので、Day 31(HDR)・Day 38(FXAA)・Day 54(TAA)・Day 55(被写界深度とモーションブラー)の自己チェックが通ること。どれも後処理だけを回すときはキャラを描かないので、アルファを見ずに Day 71 と同じ数字になる。「VRMビューア」(15 項目)・「VRMのアニメーション」(13 項目)の自己チェック、Day 48 の割り当て表(344 項目)が通ること。</p>
+
+<h3 id="s28">7. F12: 自己チェック(8 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 72 自己チェック(出口の曲線・sRGB の往復・キャラの割合の混ぜ方・ブルーム・TAA)===
+  [OK] ACES は白(1.0)を 0.80 に沈める(画面で 231。表示の色なら 255。ACES で 255 に届くのはリニアで 7 を超えてから)  ACES 0.804 → 231 / 表示の色 255 / ACES が 1 に届くのは 7.25
+  [OK] ACES は中間を持ち上げ、色を浅くする(18% のグレーが 0.27 に。赤茶 (0.60, 0.25, 0.18) の彩度が 8 割ほどに落ちる)  グレー 0.18 → 0.267 / 彩度 表示の色 42% → ACES 34%
+  [OK] 割合 1 の画素は、ベースカラーの絵の値のまま出る(sRGB の 256 段をリニアに戻して置き、出口で 8bit に戻すと全部一致。three-vrm の既定の出口と同じ)  sRGB 256/256 段が一致 / ガンマ 2.2 なら最大 9 段ずれる(画素 7 が 16)/ ACES なら最大 27 段
+  [OK] 割合 0 の画素は Day 71 と同じ値(0 から 4 の 256 段。キャラを描かなかったフレームは、アルファが 1 でもキャラの出口を使わない)  割合 0 で違う段 0 / キャラを描かないフレームで違う段 0
+  [OK] 割合が途中の画素(輪郭)は、2本の出口を画面の値の上で割合どおりに混ぜる(0.5 なら真ん中)  (ACES + 表示の色)/ 2 との差 最大 0.5 段
+  [OK] 露出はキャラにも掛かる(半分の明るさの絵を露出 2 で出すと、元の 256 段に戻る。外すのはトーンマップとブルームだけ)  256/256 段が一致
+  [OK] キャラの画素はブルームの元にしない(明るさ 4 の画素を、割合 0 なら抜き、割合 1 なら抜かない)  明部の抽出 割合 0: 255 / 割合 1: 0
+  [OK] TAA はキャラの割合を色と同じ重みで混ぜる(割合 1 の次に割合 0 を解くと、疑わなければ 0.9。疑えば近所の箱へ押し込んで 0。色は 0.2 のまま)  疑わない 0.900 / 分散で疑う 0.000(色 0.200 / 0.200)
+  すべて合格(出口の曲線・sRGB の往復・割合の混ぜ方・露出・ブルーム・TAA が仕様どおり)</code></pre></div>
+<p>1〜2 は式だけ。3〜7 は、作った絵とアルファをシーンのバッファへ書き、本番と同じ出口を通して 256x4 の 8bit で読み返す(画面を 256 本の帯に分けて、帯ごとに1画素)。8 は 64x64 の絵で TAA を2回解く。<strong>後処理のつまみと TAA の履歴は戻す</strong>ので、VRMビューアを出す前でも出したあとでも同じ数字になる。</p>
+
+<h3 id="s29">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>2本の出口: 光</td><td><code>F6</code>(床の上の白 1.0 / three-vrm の白 1.0)、<code>F10</code>(露出は光の強さと同じ効き)</td></tr>
+<tr><td>2本の出口: 環境光</td><td><code>F6</code>(床の上は空 1/4、three-vrm は 0)</td></tr>
+<tr><td>2本の出口: シーン / キャラの見比べ</td><td><code>F2</code>・<code>F3</code></td></tr>
+<tr><td>割合の運び方: TAA で混ぜる / 今のフレームのまま</td><td><code>F9</code>(TAA / FXAA)+ <code>F4</code>。「今のフレームのまま」に当たるキーは無い(<code>taa.frag</code> の最後の <code>coverage</code> を <code>currentCoverage</code> にすると見られる)</td></tr>
+<tr><td>割合の運び方: 出口のあとで描く</td><td>実機に対応するキーは無い(設計書の案 A)</td></tr>
+<tr><td>絵の画素と符号化</td><td><code>F5</code></td></tr>
+</tbody></table></div>
+<p class="note">実験台の色見本と輪郭の明るさは、このページで決めた値(式と順番は reference と同じ)。動作イメージで、実機の数字(自己チェック・内訳)とは合わせていない。</p>
+</section>
+
+<section class="part"><h2 id="s30">改造課題</h2>
+
+<h3 id="s31">課題1(易): キャラの出口に「白の上限」を足す</h3>
+<p>床の上の光では、キャラの画素の 45% が 1 を超えて切れる(歪みの3つ目)。<code>PostProcess</code> に <code>CharacterWhite</code>(既定 1.0)を足し、<code>composite.frag</code> のキャラの出口で <code>character / uCharacterWhite</code> にしてから切る。1.34 にすると床の上で白い服が切れなくなる代わりに、three-vrm の光では全体が暗くなる——<strong>「光を約束どおりにする」のと「出口で合わせる」のどちらが筋か</strong>を、<code>F6</code> で見比べて考える。</p>
+
+<h3 id="s32">課題2(中): 手前の粒にはシーンの出口を通す</h3>
+<p>歪みの2つ目。粒(<code>RenderParticles</code>)を描く間だけアルファを開け、粒のブレンドを <code>BlendFuncSeparate</code> にして、アルファ側を「下の割合 x (1 − 粒の覆い)」(<code>Zero, OneMinusSrcAlpha</code>)にする。加算の粒(<code>SrcAlpha, One</code>)は覆いを持たないので、明るさから覆いを作る(たとえば <code>min(1, 粒の明るさ)</code> をアルファに出す)。<code>F7</code> の裏通りで「VFX」の粒をキャラの前に出して、ACES で畳まれるかを確かめる。</p>
+
+<h3 id="s33">課題3(難): 被写界深度にも割合を運ぶ</h3>
+<p>歪みの1つ目。被写界深度の半分の大きさの層(<code>DepthOfField</code> の <code>_layers</code>)に3枚目(R8 か R16F)を足し、<code>dof-gather.frag</code> で奥の層・手前の層と同じ重みで割合を集め、<code>dof-combine.frag</code> で色と同じ式(<code>mix(sharp, far, farAmount)</code> と前掛けのアルファ)で重ねる。確かめるには、<code>F7</code> の裏通りで <code>FocusDistance</code> をキャラより手前に寄せ、ぼけたキャラの輪郭が <code>F4</code> で灰色にぼけること、<code>F3</code> の右半分で輪郭に段差が出ないことを見る。</p>
+</section>
+
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)。Day 68 と同じファイル。</p>
+<p>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 8 項目(VRMビューアを出す前と後)、Day 31・38・54・55・68・71 の自己チェック、Day 48 の割り当て表(344 項目)、床の上の Day 71 との全画素の突き合わせ(出口を切って差 0)、床の上で見た絵(表示の色 / シーンと同じ / 左右に並べる / 顔に寄って並べる / three-vrm の光で両方 / ガンマ 2.2 / 割合を TAA と FXAA で / 露出 x2)、裏通りで見た絵(表示の色 / シーンと同じ / 割合)</p>
+
+<h3 id="s35">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>内訳を自己チェックの直後に押すと、自己チェックが書いた作り物の絵を数える</strong>(シーンのバッファを借りて帯を書くので)。次のフレームで描き直されるので、1フレーム空ければ正しい数字になる</li>
+<li><strong>three-vrm の dnd の見本は、カメラの画角が 30 度</strong>。こちらは 60 度のまま距離で合わせたので、遠近の付き方(腕の先の細り方)は少し違う。色を比べるには関係しない</li>
+<li><strong>ブラウザ拡張がつながっていなかった</strong>ので、three-vrm 本体の画面は撮れなかった(完成条件2の囲み)。光と出口の約束を数字でそろえるところまでにした</li>
+<li><strong>コンソールに「〜」を出すと化ける</strong>(CP932)。自己チェックの文字列では「0 から 4」と書いた(Day 69〜71 と同じ)</li>
+</ul>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat, animate } = Lab;
+
+// ============================================================
+//  出口の式(reference/Day72 の PostProcess.AcesFilmic / Gamma22 / SrgbEncode / SrgbDecode と同じ)
+// ============================================================
+const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
+const aces = (x) => clamp01((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14));
+const gamma22 = (x) => Math.pow(Math.max(x, 0), 1 / 2.2);
+const srgbEncode = (x) => { x = clamp01(x); return x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; };
+const srgbDecode = (x) => x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+const toByte = (x) => Math.round(clamp01(x) * 255);
+const sceneExit = (x) => gamma22(aces(x));       // シーンの出口(ブルームは除く)
+const characterExit = (x) => srgbEncode(x);       // キャラの出口
+const css = (c) => `rgb(${toByte(c[0])},${toByte(c[1])},${toByte(c[2])})`;
+const saturation = (c) => { const mx = Math.max(...c), mn = Math.min(...c); return mx > 0 ? (mx - mn) / mx : 0; };
+
+// ============================================================
+//  実験台1: 同じ色が、2本の出口でどう出るか
+// ============================================================
+// 色はベースカラーの絵の画素(sRGB の 0〜255)。このページで決めた値
+const COLORS = {
+  white: { name: '白い服', px: [246, 243, 238] },
+  skin: { name: '肌', px: [252, 226, 212] },
+  hair: { name: '髪', px: [128, 74, 70] },
+  ribbon: { name: 'リボン', px: [40, 120, 190] },
+};
+const tone = { color: 'white', light: 1, ambient: 0.25 };
+function updateTone() {
+  $('tone-light-out').textContent = tone.light.toFixed(2);
+  $('tone-ambient-out').textContent = tone.ambient.toFixed(2);
+  const base = COLORS[tone.color].px.map((v) => srgbDecode(v / 255));
+  const lit = base.map((v) => v * (tone.light + tone.ambient));   // MToon の明るい側: ベースカラー x (光 + 環境光)
+  const scene = lit.map(sceneExit), character = lit.map(characterExit);
+  const bloom = Math.max(...lit) > 1;
+
+  // 曲線
+  const { ctx, w, h } = fit($('tone-canvas'));
+  const x0 = 40, x1 = w - 14, y0 = 12, y1 = h - 26, XM = 2;
+  const X = (v) => x0 + v / XM * (x1 - x0), Y = (v) => y1 - v * (y1 - y0);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const v of [0, 0.5, 1, 1.5, 2]) ctx.fillText(v.toFixed(1), X(v) - 8, h - 8);
+  for (const v of [0, 128, 255]) ctx.fillText(String(v), 6, Y(v / 255) + 4);
+  ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(1), y0); ctx.lineTo(X(1), y1); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillText('リニアの値 → 画面の値(しきい値 1.0 より右はブルームの元)', x0 + 6, y0 + 10);
+  for (const [f, color, name] of [[sceneExit, '--warn', 'シーン(ACES + 2.2)'], [characterExit, '--accent', 'キャラ(1 で切って sRGB)']]) {
+    ctx.strokeStyle = tok(color); ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = 0; i <= 200; i++) { const v = i / 200 * XM; i ? ctx.lineTo(X(v), Y(f(v))) : ctx.moveTo(X(v), Y(f(v))); }
+    ctx.stroke(); ctx.fillStyle = tok(color); ctx.fillText(name, X(1.3), Y(f(1.3)) + (color === '--warn' ? 16 : -6));
+  }
+  const ch = ['#d33', '#3a3', '#36d'];
+  lit.forEach((v, i) => {
+    const vx = Math.min(v, XM);
+    ctx.fillStyle = ch[i];
+    ctx.beginPath(); ctx.arc(X(vx), Y(sceneExit(v)), 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(X(vx), Y(characterExit(v)), 3.5, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // 色見本
+  const label = (c) => c.map(toByte).join(', ');
+  $('tone-swatches').innerHTML =
+    `<div class="swatch"><div class="chip" style="background:${css(COLORS[tone.color].px.map((v) => v / 255))}"></div><div class="cap">絵の画素 ${COLORS[tone.color].px.join(', ')}</div></div>` +
+    `<div class="swatch"><div class="chip" style="background:${css(scene)}${bloom ? ';box-shadow:0 0 18px 6px rgba(255,255,255,0.8) inset' : ''}"></div><div class="cap">シーンの出口 ${label(scene)}${bloom ? '(にじむ)' : ''}</div></div>` +
+    `<div class="swatch"><div class="chip" style="background:${css(character)}"></div><div class="cap">キャラの出口 ${label(character)}</div></div>`;
+  $('tone-stats').innerHTML =
+    stat('届いた光', (tone.light + tone.ambient).toFixed(2)) +
+    stat('いちばん明るい成分', Math.max(...lit).toFixed(2)) +
+    stat('彩度 シーン → キャラ', (saturation(scene) * 100).toFixed(0) + '% → ' + (saturation(character) * 100).toFixed(0) + '%');
+  const same = character.every((v, i) => toByte(v) === COLORS[tone.color].px[i]);
+  $('tone-note').textContent = same
+    ? 'キャラの出口が絵の画素の値そのものになった。光 1・環境光 0 は three-vrm の見本の光で、MToon の作者が見ている絵(要点6)。'
+    : bloom
+      ? '1 を超えたチャンネルがある。シーンの出口ではブルームの元になってにじみ、ACES で畳まれる。キャラの出口では 1 で切れる(切れたチャンネルの分だけ色が変わる)。'
+      : 'どのチャンネルも 1 以下。シーンの出口は中間を持ち上げて色を浅くし、キャラの出口は「明るさ x 絵の色」をそのまま出す。';
+}
+seg('tone-color', (v) => { tone.color = v; updateTone(); });
+$('tone-light').addEventListener('input', (e) => { tone.light = parseFloat(e.target.value); updateTone(); });
+$('tone-ambient').addEventListener('input', (e) => { tone.ambient = parseFloat(e.target.value); updateTone(); });
+
+// ============================================================
+//  実験台2: 割合の運び方
+// ============================================================
+// 1 列 24 画素。輪郭より左がキャラ(白い服 1.2)、右が背景(0.05)。画素の真ん中1点で取る(ずらしが無ければ階段)。
+const N = 24, CHAR = 1.2, BG = 0.05, WEIGHT = 0.1;
+const halton = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
+const cov = { mode: 'taa', edge: 11.35, jitter: true, frame: 0, histColor: null, histCov: null, trace: [] };
+function stepCoverage() {
+  const j = cov.jitter ? halton((cov.frame % 8) + 1, 2) - 0.5 : 0;
+  cov.frame++;
+  const curCov = [], curColor = [];
+  for (let i = 0; i < N; i++) { const c = (i + 0.5 + j) < cov.edge ? 1 : 0; curCov.push(c); curColor.push(c ? CHAR : BG); }
+  if (!cov.histColor) { cov.histColor = curColor.slice(); cov.histCov = curCov.slice(); }
+  else {
+    for (let i = 0; i < N; i++) {
+      cov.histColor[i] += (curColor[i] - cov.histColor[i]) * WEIGHT;   // taa.frag の mix(履歴, 今, 0.1)(疑わない)
+      cov.histCov[i] += (curCov[i] - cov.histCov[i]) * WEIGHT;
+    }
+  }
+  // 出口(composite.frag): mix(シーンの出口, キャラの出口, 割合)を画面の値の上で。base は今日の形(比べる物差し)
+  const out = [], base = [];
+  for (let i = 0; i < N; i++) {
+    base.push(sceneExit(cov.histColor[i]) * (1 - cov.histCov[i]) + characterExit(cov.histColor[i]) * cov.histCov[i]);
+    let v;
+    if (cov.mode === 'after') {
+      // 案 A: シーン(背景)だけ TAA を通し、キャラは出口のあとで今のフレームの形のまま描き足す
+      const bgOnly = BG;
+      v = curCov[i] ? characterExit(CHAR) : sceneExit(bgOnly);
+    } else {
+      const a = cov.mode === 'taa' ? cov.histCov[i] : curCov[i];
+      const c = cov.histColor[i];
+      v = sceneExit(c) * (1 - a) + characterExit(c) * a;
+    }
+    out.push(v);
+  }
+  return { curCov, out, base };
+}
+function drawCoverage(state) {
+  const { ctx, w, h } = fit($('cov-canvas'));
+  const edgePixel = Math.floor(cov.edge);
+  const cw = (w - 40) / N, x0 = 20;
+  const rowY = [16, 64, 112];
+  const names = ['今のフレームの割合', 'TAA が混ぜた割合', '画面に出る値'];
+  ctx.font = '11px ' + tok('--font-mono');
+  for (let r = 0; r < 3; r++) {
+    ctx.fillStyle = tok('--muted'); ctx.fillText(names[r], x0, rowY[r] - 3);
+    for (let i = 0; i < N; i++) {
+      const v = r === 0 ? state.curCov[i] : r === 1 ? (cov.mode === 'taa' ? cov.histCov[i] : cov.mode === 'current' ? state.curCov[i] : state.curCov[i]) : state.out[i];
+      const g = Math.round(clamp01(v) * 255);
+      ctx.fillStyle = `rgb(${g},${g},${g})`;
+      ctx.fillRect(x0 + i * cw + 1, rowY[r], cw - 2, 30);
+      if (i === edgePixel) { ctx.strokeStyle = tok('--accent'); ctx.lineWidth = 2; ctx.strokeRect(x0 + i * cw + 1, rowY[r], cw - 2, 30); }
+    }
+  }
+  // 輪郭の画素の、画面に出る値の移り変わり(直近 60 フレーム)
+  const gy0 = 160, gy1 = h - 18;
+  const Y = (b) => gy1 - (b - 40) / 215 * (gy1 - gy0);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, gy0); ctx.lineTo(x0, gy1); ctx.lineTo(w - 20, gy1); ctx.stroke();
+  ctx.fillStyle = tok('--muted');
+  ctx.fillText('枠の画素の画面の値(直近 60 フレーム)', x0 + 6, gy0 + 4);
+  for (const b of [60, 150, 240]) ctx.fillText(String(b), 0, Y(b) + 4);
+  for (const [key, color, width] of [['base', '--muted', 1], ['out', '--accent', 2]]) {
+    ctx.strokeStyle = tok(color); ctx.lineWidth = width; ctx.beginPath();
+    cov.trace.forEach((t, i) => { const x = x0 + (i / 59) * (w - 40 - x0); i ? ctx.lineTo(x, Y(t[key])) : ctx.moveTo(x, Y(t[key])); });
+    ctx.stroke();
+  }
+  ctx.fillStyle = tok('--muted'); ctx.fillText('灰 = 今日の形 / 青 = 選んだ運び方', w - 230, gy0 + 4);
+}
+function updateCoverageStats() {
+  $('cov-edge-out').textContent = cov.edge.toFixed(2);
+  // TAA の履歴そのものも、8 点のずらしを 1 割ずつ混ぜるので波打つ(色の側の波。どの運び方にもある)。
+  // 割合の運び方で足されるのは、今日の形(base)からのずれの分。2つを分けて出す
+  const recent = cov.trace.slice(-16);
+  let wave = 0, extra = 0;
+  for (let i = 0; i < recent.length; i++) {
+    extra = Math.max(extra, Math.abs(recent[i].out - recent[i].base));
+    if (i > 0) wave = Math.max(wave, Math.abs(recent[i].base - recent[i - 1].base));
+  }
+  const edgePixel = Math.floor(cov.edge);
+  $('cov-stats').innerHTML =
+    stat('枠の画素の面積', (clamp01(cov.edge - edgePixel)).toFixed(2)) +
+    stat('TAA が混ぜた割合', cov.histCov ? cov.histCov[edgePixel].toFixed(2) : '-') +
+    stat('色の側の波(1 フレームの跳び)', wave + ' 段') +
+    stat('運び方で足されるずれ', extra + ' 段');
+  $('cov-note').textContent = cov.mode === 'taa'
+    ? '今日の形。割合も色と同じく 1 割ずつ混ぜるので、輪郭の画素の割合が「キャラが占める面積」に寄っていく。残る揺れは TAA の履歴そのものの波(色の側)だけ。'
+    : cov.mode === 'current'
+      ? '色は TAA で混ざっているのに、割合は今のフレームの 0 か 1。同じ「混ざった色」に ACES と表示の色が交互に掛かり、色の側の波の上に、2本の出口の差(この色で 10〜20 段)が乗る。'
+      : '案 A。キャラは TAA を通らないので、ずらしの分だけ輪郭が 1 画素ずつ出入りする(ずらしを切れば止まるが、シーンと半画素ずれる)。';
+}
+function runCoverage(frames) {
+  let state;
+  for (let i = 0; i < frames; i++) {
+    state = stepCoverage();
+    const edgePixel = Math.floor(cov.edge);
+    cov.trace.push({ out: toByte(state.out[edgePixel]), base: toByte(state.base[edgePixel]) });
+    if (cov.trace.length > 60) cov.trace.shift();
+  }
+  return state;
+}
+function resetCoverage() { cov.histColor = null; cov.histCov = null; cov.trace = []; cov.frame = 0; }
+let covState = runCoverage(80);
+function refreshCoverage() { drawCoverage(covState); updateCoverageStats(); }
+seg('cov-mode', (v) => { cov.mode = v; resetCoverage(); covState = runCoverage(80); refreshCoverage(); });
+seg('cov-jitter', (v) => { cov.jitter = v === 'on'; resetCoverage(); covState = runCoverage(80); refreshCoverage(); });
+$('cov-edge').addEventListener('input', (e) => { cov.edge = parseFloat(e.target.value); resetCoverage(); covState = runCoverage(80); refreshCoverage(); });
+if (!reduceMotion) {
+  let acc = 0;
+  animate($('cov-canvas'), (dt) => {
+    acc += dt;
+    if (acc < 1 / 20) return;   // 20 フレーム/秒でゆっくり進める
+    acc = 0;
+    covState = runCoverage(1);
+    refreshCoverage();
+  });
+}
+
+// ============================================================
+//  実験台3: 絵の画素は、出口を通って何段に戻るか
+// ============================================================
+const encLevels = Array.from({ length: 256 }, (_, i) => {
+  const linear = srgbDecode(i / 255);
+  return { linear, srgb: toByte(srgbEncode(linear)), gamma: toByte(gamma22(linear)), aces: toByte(sceneExit(linear)) };
+});
+const enc = { level: 26 };
+function updateEncoding() {
+  $('enc-level-out').textContent = String(enc.level);
+  const { ctx, w, h } = fit($('enc-canvas'));
+  const x0 = 40, x1 = w - 14, y0 = 12, y1 = h - 24;
+  const X = (i) => x0 + i / 255 * (x1 - x0), Y = (d) => (y0 + y1) / 2 - d / 30 * (y1 - y0) / 2;
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, Y(0)); ctx.lineTo(x1, Y(0)); ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const d of [-30, 0, 30]) ctx.fillText((d > 0 ? '+' : '') + d, 6, Y(d) + 4);
+  for (const i of [0, 64, 128, 192, 255]) ctx.fillText(String(i), X(i) - 8, h - 6);
+  ctx.fillText('絵の画素 → 出口のずれ(段)', x0 + 6, y0 + 8);
+  for (const [key, color, name] of [['srgb', '--accent', 'sRGB の式(今日)'], ['gamma', '--good', 'ガンマ 2.2'], ['aces', '--warn', 'ACES + 2.2(Day 71)']]) {
+    ctx.strokeStyle = tok(color); ctx.lineWidth = key === 'srgb' ? 3 : 1.6; ctx.beginPath();
+    encLevels.forEach((e, i) => { const y = Y(e[key] - i); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+    ctx.stroke();
+    ctx.fillStyle = tok(color); ctx.fillText(name, X(key === 'aces' ? 150 : key === 'gamma' ? 30 : 200), Y(key === 'aces' ? encLevels[150].aces - 150 : key === 'gamma' ? 12 : 0) - 6);
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(enc.level), y0); ctx.lineTo(X(enc.level), y1); ctx.stroke(); ctx.setLineDash([]);
+  const e = encLevels[enc.level];
+  const gammaWorst = encLevels.reduce((m, v, i) => Math.max(m, Math.abs(v.gamma - i)), 0);
+  $('enc-stats').innerHTML =
+    stat('リニア', e.linear.toFixed(4)) +
+    stat('sRGB の式', String(e.srgb)) +
+    stat('ガンマ 2.2', String(e.gamma)) +
+    stat('ACES + 2.2', String(e.aces));
+  $('enc-note').textContent =
+    `sRGB の式は 256 段とも元の画素に戻る(太い線が 0 に張り付く)。ガンマ 2.2 は暗いほど持ち上がり、最大 ${gammaWorst} 段。ACES は暗部を持ち上げ、明部を押し下げる(自己チェック3)。`;
+}
+$('enc-level').addEventListener('input', (e) => { enc.level = parseInt(e.target.value, 10); updateEncoding(); });
+
+updateTone();
+refreshCoverage();
+updateEncoding();
+window.addEventListener('resize', () => { updateTone(); refreshCoverage(); updateEncoding(); });
+
+// Node で数字を確かめるための口(ブラウザでは使わない)
+if (typeof window.__day72 === 'object') Object.assign(window.__day72, { aces, gamma22, srgbEncode, srgbDecode, toByte, encLevels, cov, runCoverage, resetCoverage });
+})();
+</script>
+</body>
+</html>
