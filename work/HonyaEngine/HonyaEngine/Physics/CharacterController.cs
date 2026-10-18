@@ -814,14 +814,23 @@ internal sealed class CharacterController
         FacingYaw += difference * step;
     }
 
-    /// <summary>足元を指定の場所へ置き直す。**速度も状態も全部消す**。</summary>
-    public void Teleport(Vector3 footPosition)
+    /// <summary>
+    /// 足元を指定の場所へ置き直す。**速度も状態も全部消す**。
+    ///
+    /// <para>
+    /// <paramref name="facingYaw"/> は Day 51 で足した。
+    /// シーンの出発点(<see cref="DemoScene.PlayerYaw"/>)には向きも書いてあるので、
+    /// 置き直したあとに <see cref="FacingYaw"/> を外から書ける必要が出た——
+    /// <b>省略すれば今までどおり北(+Z)向き</b>なので、Day 45〜50 の呼び出しは変わらない。
+    /// </para>
+    /// </summary>
+    public void Teleport(Vector3 footPosition, float facingYaw = 0.0f)
     {
         Position = footPosition;
         Velocity = Vector3.Zero;
         IsGrounded = false;
         GroundNormal = Vector3.UnitY;
-        FacingYaw = 0.0f;
+        FacingYaw = facingYaw;
         ResolvedContacts = 0;
         SteppedUp = false;
         LastStepHeight = 0.0f;
