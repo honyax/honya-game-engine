@@ -160,6 +160,18 @@ internal sealed class PostProcess : IDisposable
     /// <summary>シーンを描き込む先。深度つき。**ここだけ画面と同じ大きさ**。</summary>
     private readonly Framebuffer _scene;
 
+    /// <summary>
+    /// シーンの深度のコピー(Day 50)。**ソフトパーティクルが読む**。
+    ///
+    /// <para>
+    /// <b>要るときまで作らない</b>。1920x1080 で 5.9MB あり、
+    /// ソフトパーティクルを使わない日は1バイトも払う理由が無い。
+    /// 「切っているのに VRAM を食っている」を避けるための遅延確保で、
+    /// HUD の VRAM の数字が<b>切り替えた瞬間に増える</b>のが見えるようにもなる。
+    /// </para>
+    /// </summary>
+    private Framebuffer? _depthCopy;
+
     /// <summary>明部を抜いた結果。ぼかす前の姿を残しておくと、しきい値の効き目が見られる。</summary>
     private readonly Framebuffer _bright;
 
@@ -296,9 +308,18 @@ internal sealed class PostProcess : IDisposable
     /// <summary>合成まで済ませた 8bit の絵。自己チェックが読み戻すために公開する。</summary>
     public Framebuffer Ldr => _ldr;
 
+    /// <summary>
+    /// シーンの深度のコピー(Day 50)。**<see cref="CaptureDepth"/> を呼ぶまで null**。
+    /// </summary>
+    public Texture? SceneDepth => _depthCopy?.Depth;
+
+    /// <summary>深度のコピーに掛かった時間(移動平均、ms)。**代償を数える**(Day 50)。</summary>
+    public double DepthCopyMilliseconds { get; private set; }
+
     /// <summary>パイプラインが抱えている VRAM の推定バイト数。</summary>
     public long ByteSize =>
-        _scene.ByteSize + _bright.ByteSize + _blurA.ByteSize + _blurB.ByteSize + _ldr.ByteSize;
+        _scene.ByteSize + _bright.ByteSize + _blurA.ByteSize + _blurB.ByteSize + _ldr.ByteSize
+        + (_depthCopy?.ByteSize ?? 0);
 
     /// <summary>
     /// **直前のフレーム**で走らせたフルスクリーンパスの数。代償を数えるための値。
@@ -328,6 +349,53 @@ internal sealed class PostProcess : IDisposable
         _scene.Bind();
         _gl.ClearColor(clearColor.X, clearColor.Y, clearColor.Z, clearColor.W);
         _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+    }
+
+    /// <summary>
+    /// **いまのシーンの深度を、読める形に写し取る**(Day 50)。
+    ///
+    /// <para>
+    /// 呼ぶのは<b>不透明なものを全部描き終わったあと、半透明を描く直前</b>。
+    /// 早すぎると床や箱がまだ入っておらず、
+    /// 遅すぎる(半透明のあと)と<b>粒どうしが互いを遮る</b>ことになる。
+    /// </para>
+    ///
+    /// <para>
+    /// 写す先はここで初めて作る。<see cref="_scene"/> の深度は
+    /// レンダーバッファ(読めない)なので、<b>テクスチャの側へ写す</b>ことになり、
+    /// これが <see cref="Framebuffer.CreateDepthOnly"/> の3つ目の使い道になった
+    /// (1つ目はシャドウマップ、2つ目は……と数えると、実は2つ目)。
+    /// </para>
+    ///
+    /// <para>
+    /// 終わったら<b>シーンへ描き戻せる状態にして返す</b>。
+    /// <see cref="Framebuffer.BlitDepthTo"/> が読み書きの割り当てを 0 に戻すので、
+    /// ここで <see cref="Framebuffer.Bind"/> し直さないと、
+    /// 続きの半透明が<b>画面に直接描かれる</b>(そして後処理を通らない)。
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// 計っているのは<b>CPU が命令を積むまで</b>の時間で、GPU が転送を終えるまでではない
+    /// (GL の呼び出しは基本的に非同期)。数字は 0.01ms 程度にしかならないが、
+    /// <b>フレームあたり画面1枚ぶんの帯域</b>を使っていることは変わらない——
+    /// 正確に測るには <c>glQueryCounter</c>(タイムスタンプクエリ)が要る。
+    /// </remarks>
+    public void CaptureDepth()
+    {
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        _depthCopy ??= Framebuffer.CreateDepthOnly(_gl, _scene.Width, _scene.Height);
+        _depthCopy.Resize(_scene.Width, _scene.Height);
+
+        _scene.BlitDepthTo(_depthCopy);
+
+        _scene.Bind();
+
+        double elapsed =
+            (System.Diagnostics.Stopwatch.GetTimestamp() - start) * 1000.0
+            / System.Diagnostics.Stopwatch.Frequency;
+
+        DepthCopyMilliseconds = (DepthCopyMilliseconds * 0.9) + (elapsed * 0.1);
     }
 
     /// <summary>
@@ -422,6 +490,11 @@ internal sealed class PostProcess : IDisposable
         // **LDR バッファは画面と同じ大きさのまま**(Day 38)。
         // ここを縮めると FXAA が拡大後の階段を見られなくなる。
         _ldr.Resize(width, height);
+
+        // 深度のコピーはまだ無いかもしれない(Day 50)。
+        // 転送は「同じ大きさどうし」でなくても通るが、
+        // 大きさが違うと**画面の一部を引き伸ばした深度**を読むことになる。
+        _depthCopy?.Resize(width, height);
     }
 
     /// <summary>後処理のシェーダを読み直す(F5)。**絵を見ながら曲線をいじる**ために要る。</summary>
@@ -662,6 +735,9 @@ internal sealed class PostProcess : IDisposable
         _blurA.Dispose();
         _blurB.Dispose();
         _ldr.Dispose();
+
+        // 深度のコピーは遅延確保なので、一度も使っていなければ null(Day 50)。
+        _depthCopy?.Dispose();
 
         _gl.DeleteVertexArray(_emptyVao);
         _emptyVao = 0;

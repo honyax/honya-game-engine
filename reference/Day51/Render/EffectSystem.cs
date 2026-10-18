@@ -308,7 +308,18 @@ internal sealed class EffectSystem
 
                     // 円盤から外へ。**足が着いた面に沿って広がる**のが土埃らしさになる。
                     emitter.Shape = ParticleShape.Disc;
-                    emitter.Radius = landing ? 0.34f : 0.16f;
+
+                    // **一歩ぶんは床から少し浮かせ、カプセルの外周から出す**。
+                    // 足元(= 床の高さ)から撒くと、粒が床すれすれを這うので
+                    // ソフトパーティクル(フェード 0.35m)で<b>ほぼ透明</b>になり、
+                    // さらに半径がカプセル(0.35m)より小さいと<b>体の陰に隠れる</b>。
+                    // 着地は粒が大きく勢いもあるので、床に置いたままでも縁が残る。
+                    if (!landing)
+                    {
+                        emitter.Position = position + (up * 0.12f);
+                    }
+
+                    emitter.Radius = landing ? 0.34f : 0.30f;
                     emitter.SpeedMin = landing ? 0.9f : 0.4f;
                     emitter.SpeedMax = landing ? 2.1f : 1.0f;
                     emitter.LifetimeMin = landing ? 0.5f : 0.35f;
@@ -318,11 +329,12 @@ internal sealed class EffectSystem
                     emitter.Gravity = new Vector3(0.0f, -0.6f, 0.0f);
                     emitter.Drag = 3.2f;
 
-                    emitter.StartSize = landing ? 0.18f : 0.10f;
-                    emitter.EndSize = landing ? 0.70f : 0.38f;
+                    emitter.StartSize = landing ? 0.18f : 0.16f;
+                    emitter.EndSize = landing ? 0.70f : 0.48f;
 
                     // 乾いた土の色。**アルファは低め**——濃い煙にすると足元が汚れて見える。
-                    emitter.StartColor = new Vector4(0.72f, 0.66f, 0.55f, landing ? 0.75f : 0.45f);
+                    // ただし一歩ぶんはソフトパーティクルで下半分が削れるので、0.45 では消えてしまう。
+                    emitter.StartColor = new Vector4(0.72f, 0.66f, 0.55f, landing ? 0.75f : 0.6f);
                     emitter.EndColor = new Vector4(0.62f, 0.58f, 0.50f, 0.0f);
 
                     emitter.FlipbookColumns = 4;
