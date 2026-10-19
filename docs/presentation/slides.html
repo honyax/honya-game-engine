@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自作エンジン教材の発表</title>
+<!--
+  部内発表会のスライド。ブラウザで直接開く(外部ライブラリなし)。
+  構成は outline.md。動画は media/ に置けば自動で読み込む(無ければ枠に置き場所を出す)。
+  操作: → ← Space / Home End / N 発表者メモ / F 全画面 / T 明暗 / URL 末尾 #15 でそのページ
+-->
+<style>
+:root {
+  --bg: #f4f6f8;
+  --frame: #d9dee6;
+  --surface: #ffffff;
+  --sunken: #eef1f5;
+  --ink: #18202c;
+  --muted: #586274;
+  --line: #d6dce5;
+  --accent: #1f5fbf;
+  --accent-soft: #e3ecfa;
+  --semi: #12808f;
+  --expl: #c8433f;
+  --warn: #b7791f;
+  --good: #2f7d4f;
+  --font: "BIZ UDPGothic", "Yu Gothic UI", "Hiragino Sans", "Meiryo", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Consolas", "BIZ UDGothic", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151b; --frame: #07090c; --surface: #181d25; --sunken: #141920; --ink: #e4e8ee; --muted: #9aa5b6;
+    --line: #2c3442; --accent: #7da7ff; --accent-soft: #1d2a43; --semi: #4cc3cf; --expl: #ff7d76;
+    --warn: #e8b04f; --good: #6cc68f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151b; --frame: #07090c; --surface: #181d25; --sunken: #141920; --ink: #e4e8ee; --muted: #9aa5b6;
+  --line: #2c3442; --accent: #7da7ff; --accent-soft: #1d2a43; --semi: #4cc3cf; --expl: #ff7d76;
+  --warn: #e8b04f; --good: #6cc68f; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--frame); color: var(--ink); font-family: var(--font); overflow: hidden; }
+
+/* ---------- 舞台: 1280x720 を画面に収まるよう拡大縮小する ---------- */
+#stage {
+  position: absolute; left: 0; top: 0; width: 1280px; height: 720px;
+  transform-origin: 0 0; background: var(--bg); overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+}
+.slide { position: absolute; inset: 0; padding: 48px 64px 56px; display: none; flex-direction: column; }
+.slide.active { display: flex; }
+.notes { display: none; }
+
+/* ---------- 共通の部品 ---------- */
+.kicker { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: 0.08em; }
+h1 { font-size: 52px; line-height: 1.3; margin: 0; font-weight: 700; }
+h2 { font-size: 36px; line-height: 1.3; margin: 6px 0 0; font-weight: 700; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.days {
+  flex: none; font-size: 16px; font-weight: 700; color: var(--accent); background: var(--accent-soft);
+  border-radius: 999px; padding: 8px 18px; margin-top: 4px; white-space: nowrap;
+}
+p, li { font-size: 21px; line-height: 1.6; }
+.lead { font-size: 24px; color: var(--muted); margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 16px; }
+code { font-family: var(--mono); font-size: 0.9em; background: var(--sunken); padding: 1px 6px; border-radius: 4px; }
+ul.plain { list-style: none; padding: 0; margin: 0; }
+ul.plain li { position: relative; padding-left: 26px; margin: 0 0 10px; }
+ul.plain li::before { content: ""; position: absolute; left: 4px; top: 13px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 26px; }
+.card h3 { margin: 0 0 10px; font-size: 22px; }
+.card p, .card li { font-size: 18px; }
+.card.big { padding: 28px 32px; }
+.card.big h3 { font-size: 26px; margin-bottom: 22px; }
+.card.big li { font-size: 23px; margin-bottom: 22px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.fill { flex: 1; min-height: 0; }
+
+/* ---------- 成果物のページの型: 左に絵、右に毎フレームの流れ、下に一言 ---------- */
+.work { display: grid; grid-template-columns: 1fr 470px; grid-template-rows: minmax(0, 1fr); gap: 32px; flex: 1; min-height: 0; }
+.work > div:last-child { min-height: 0; overflow: hidden; }
+.media {
+  position: relative; border-radius: 14px; overflow: hidden; background: var(--sunken);
+  border: 1px solid var(--line); min-height: 0;
+}
+.media video, .media img, .media iframe, .media canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border: 0; }
+.media video, .media img { object-fit: cover; }
+.media .ph {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--muted); text-align: center; padding: 24px;
+  background: repeating-linear-gradient(135deg, transparent 0 14px, rgba(127, 140, 160, 0.08) 14px 28px);
+}
+.media .ph b { font-size: 22px; color: var(--ink); }
+.media .ph code { font-size: 15px; }
+.flow { list-style: none; margin: 0; padding: 0; counter-reset: step; display: flex; flex-direction: column; gap: 6px; }
+.flow li {
+  counter-increment: step; position: relative; font-size: 17px; line-height: 1.4;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 7px 14px 7px 52px;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.flow li::before {
+  content: counter(step); position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff;
+  font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center;
+}
+:root[data-theme="dark"] .flow li::before { color: #10151d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .flow li::before { color: #10151d; } }
+.flow li .d { margin-left: auto; flex: none; font-size: 13px; color: var(--muted); }
+.flow li.loop { background: transparent; border-style: dashed; color: var(--muted); font-size: 16px; padding-left: 52px; }
+.flow li.loop::before { content: "↻"; background: transparent; color: var(--accent); font-size: 22px; border: 0; }
+.flowcap { font-size: 15px; font-weight: 700; color: var(--muted); margin: 0 0 8px; letter-spacing: 0.05em; }
+.insight {
+  margin-top: 20px; display: flex; gap: 16px; align-items: baseline;
+  background: var(--accent-soft); border-radius: 12px; padding: 14px 22px; font-size: 21px; line-height: 1.5;
+}
+.insight .tag { flex: none; font-size: 14px; font-weight: 700; color: var(--accent); letter-spacing: 0.06em; }
+
+/* ---------- 表紙・章扉 ---------- */
+.cover { justify-content: center; }
+.cover h1 { font-size: 58px; }
+.cover .sub { font-size: 26px; color: var(--muted); margin-top: 22px; }
+.cover .by { margin-top: 56px; font-size: 20px; color: var(--muted); }
+.cover .bar { width: 120px; height: 6px; background: var(--accent); border-radius: 3px; margin-bottom: 30px; }
+
+/* ---------- 数字の並び ---------- */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 18px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+.stat b { display: block; font-size: 34px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 15px; color: var(--muted); }
+
+/* ---------- ロードマップの帯 ---------- */
+/* 各 Phase は同じ幅のカード。Day 数の比率は下の細い帯(.ruler)で見せる */
+.road { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 2px 0 0; }
+.road .ph-band { border-radius: 10px; padding: 9px 12px; color: #fff; line-height: 1.35; }
+.road .ph-band b { font-size: 16px; }
+.road .ph-band .r { font-size: 13px; opacity: 0.85; margin-left: 6px; }
+.road .ph-band .nm { display: block; font-size: 15px; font-weight: 700; margin-top: 2px; }
+.road .ph-band .ms { display: block; font-size: 13px; opacity: 0.92; }
+.ruler { display: flex; gap: 2px; height: 10px; margin-top: 10px; }
+.ruler span { border-radius: 3px; }
+.ruler-cap { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+/* ---------- 年表 ---------- */
+.timeline { list-style: none; margin: 0; padding: 0 0 0 26px; border-left: 3px solid var(--line); }
+.timeline li { position: relative; margin: 0 0 13px; font-size: 19px; line-height: 1.5; }
+.timeline li::before { content: ""; position: absolute; left: -35px; top: 8px; width: 15px; height: 15px; border-radius: 50%; background: var(--surface); border: 3px solid var(--accent); }
+.timeline .when { display: inline-block; width: 70px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.timeline .why { display: block; margin-left: 70px; font-size: 16px; color: var(--muted); }
+
+/* ---------- create-day の工程 ---------- */
+.pipe { display: flex; flex-wrap: wrap; gap: 8px 6px; align-items: center; }
+.pipe span { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; font-size: 16px; }
+.pipe span.v { border-color: var(--good); color: var(--good); font-weight: 700; }
+.pipe i { font-style: normal; color: var(--muted); }
+.pipe.big { gap: 12px 8px; }
+.pipe.big span { font-size: 20px; padding: 10px 16px; }
+
+/* ---------- 発展のタイル ---------- */
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.tile .n { font-size: 13px; font-weight: 700; color: var(--accent); }
+.tile b { display: block; font-size: 18px; margin: 4px 0 6px; line-height: 1.35; }
+.tile span { font-size: 14px; color: var(--muted); line-height: 1.5; display: block; }
+.tile.vrm { border-color: var(--semi); }
+.tile.vrm .n { color: var(--semi); }
+
+/* ---------- 物理の実験台 ---------- */
+.lab-ui { position: absolute; left: 14px; top: 12px; right: 14px; display: flex; gap: 8px; align-items: center; z-index: 2; pointer-events: none; }
+.lab-ui button {
+  pointer-events: auto; font: inherit; font-size: 15px; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
+}
+.lab-ui button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.lab-ui .readout { margin-left: auto; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; background: var(--surface); padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); }
+.lab-hint { position: absolute; left: 14px; bottom: 10px; font-size: 14px; color: var(--muted); z-index: 2; pointer-events: none; }
+.live { display: inline-block; font-size: 13px; font-weight: 700; color: #fff; background: var(--expl); border-radius: 6px; padding: 3px 9px; margin-left: 10px; vertical-align: 6px; letter-spacing: 0.06em; }
+
+/* ---------- 枠の外: ページ番号・進捗・発表者メモ ---------- */
+#chrome { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: transparent; z-index: 5; }
+#progress { height: 100%; background: var(--accent); width: 0; transition: width 0.25s ease; }
+.pageno { position: absolute; right: 28px; bottom: 18px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.section-mark { position: absolute; left: 64px; bottom: 18px; font-size: 14px; color: var(--muted); }
+#notes {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 30vh; display: none; z-index: 4;
+  background: var(--surface); border-top: 1px solid var(--line); padding: 16px 24px; overflow: auto;
+  font-size: 17px; line-height: 1.7;
+}
+body.show-notes #notes { display: block; }
+#notes .t { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+
+/* ---------- 印刷(PDF 書き出し): 1枚 = 1ページ ---------- */
+@page { size: 1280px 720px; margin: 0; }
+@media print {
+  body { overflow: visible; background: none; }
+  #stage { position: static; transform: none !important; box-shadow: none; width: auto; height: auto; overflow: visible; background: none; }
+  .slide { display: flex !important; position: relative; width: 1280px; height: 720px; break-after: page; background: var(--bg); }
+  #chrome, #notes { display: none !important; }
+}
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- ======================= はじめに ======================= -->
+
+<section class="slide cover" data-section="はじめに">
+  <div class="bar"></div>
+  <h1>Claude Code で<br>自作ゲームエンジンの<br>独学用教材を作ってみた</h1>
+  <div class="sub">自分に合った教材は、作れる</div>
+  <aside class="notes">今日は「自作ゲームエンジン」そのものより、「自分専用の教材を AI に作らせる」という話をします。エンジンはその教材でここまで作れた、という成果物として見せます。</aside>
+</section>
+
+<section class="slide" data-section="はじめに">
+  <div class="head"><div><div class="kicker">先に完成品</div><h2>CPU で1ピクセル塗るところから、ここまで</h2></div><div class="days">Day 56</div></div>
+  <div class="media fill" data-src="media/day56.mp4" data-label="最終デモ: 夜の裏通りを三人称で走り回る(多光源・TAA・被写界深度)"></div>
+  <div class="stats">
+    <div class="stat"><b>約2.5か月</b><span>Day 01 から 51 まで</span></div>
+    <div class="stat"><b>85 Day</b><span>答えのコード。計画書は 86 枚</span></div>
+    <div class="stat"><b>約6.7万行</b><span>C#(Day 56 時点)+シェーダ 約4,600行</span></div>
+  </div>
+  <aside class="notes">動画を流しながら。外部エンジンは使わず C# と OpenGL だけ。数字は発表直前に取り直す。後で実機でも動かします。</aside>
+</section>
+
+<section class="slide" data-section="はじめに">
+  <div class="head"><div><div class="kicker">動機</div><h2>自分に合った教材が欲しかった</h2></div></div>
+  <div class="grid2 fill" style="grid-template-columns: 1fr 1fr; align-items: stretch;">
+    <div class="card big">
+      <h3 class="muted">既存の教材とのずれ</h3>
+      <ul class="plain">
+        <li>言語が C++ 前提(自分は C# メイン)</li>
+        <li>「エンジンの使い方」か「低レイヤだけ」のどちらか</li>
+        <li>順番が自分の興味と合わない(物理が無い、デモまで届かない)</li>
+        <li>まとまった時間を前提にしている</li>
+      </ul>
+    </div>
+    <div class="card big" style="border-color: var(--accent);">
+      <h3 style="color: var(--accent);">自分の条件</h3>
+      <ul class="plain">
+        <li>C# / .NET、ゲーム開発 20 年</li>
+        <li>なるべく低いレイヤから(GPU を使わない描画から)</li>
+        <li>1 Day ずつ自分のペースで、毎回「動くもの」ができる</li>
+        <li>最後は AAA 風のデモをキャラが走り回る</li>
+      </ul>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">やったこと</span>この条件を Claude Code に渡して、ロードマップ・計画書・答えのコードまで作らせた</div>
+  <aside class="notes">「30日でできる!OS自作入門」の形式が好きで、あれのゲームエンジン版が欲しかった。でも自分の条件にぴったり合う本は無い。無いなら作ればいい。</aside>
+</section>
+
+<!-- ======================= 教材の作り方 ======================= -->
+
+<section class="slide" data-section="教材の作り方">
+  <div class="head"><div><div class="kicker">教材の作り方 1/5</div><h2>ロードマップを対話で作る</h2></div><div class="days">docs/roadmap.html</div></div>
+  <div class="road" id="road"></div>
+  <div class="ruler" id="ruler"></div>
+  <div class="ruler-cap"><span>Day 1</span><span>帯の長さ = Day 数</span><span>Day 73</span></div>
+  <div class="grid3" style="margin-top: 20px;">
+    <div class="card"><h3>方針を比べてから決める</h3><p>ソフトウェアラスタライザ自作 / 生 OpenGL / Silk.NET / MonoGame を比較させ、<b>結論と理由</b>をロードマップに残した</p></div>
+    <div class="card"><h3>Phase ごとに「動くもの」</h3><p>各 Phase の終わりにマイルストーンを置く。Day 30 でゲーム1本、Day 56 で最終デモ</p></div>
+    <div class="card"><h3>手持ちの教科書と対応</h3><p>ゲームグラフィックス特論・西川本の章と Day の対応表も作らせた。「その日に読む資料」が決まる</p></div>
+  </div>
+  <aside class="notes">最初にやったのは全体の地図づくり。何を自作して何をライブラリに任せるか、を比較表で検討させて、その結論を残しているので後から迷わない。</aside>
+</section>
+
+<section class="slide" data-section="教材の作り方">
+  <div class="head"><div><div class="kicker">教材の作り方 2/5</div><h2>1 Day の教材の形</h2></div><div class="days">docs/plans/DayXX.html + reference/DayXX</div></div>
+  <div class="grid3 fill">
+    <div class="card">
+      <h3>計画書</h3>
+      <ul class="plain small">
+        <li>今日のゴール(動くもの1行)</li>
+        <li>事前に読む資料</li>
+        <li>理論の要点(図つき)</li>
+        <li>前 Day からの差分・設計書</li>
+        <li>完成条件(何が見えれば OK か)</li>
+        <li>改造課題(理解の確認)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>実験台</h3>
+      <p>計画書の中で、その日の理論をブラウザで動かして確かめる部品</p>
+      <p class="muted small">例: 箱の接触点が何点で支えるか、TAA の履歴の混ぜ方、パーティクルの寿命 …</p>
+    </div>
+    <div class="card">
+      <h3>答えのコード</h3>
+      <p>前 Day の完全コピー+その日の差分。<b>どの Day も単体で動く</b></p>
+      <p class="muted small">写経しても、改造しても、読むだけでもいい。1 Day の差分は数百行(1〜3時間)に収める</p>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">ポイント</span>「何を作るか」と「なぜそう動くか」と「答え」が、毎回そろって出てくる</div>
+  <aside class="notes">使い方は人それぞれなので、写経の手順の話は省きます。自分は git diff --no-index で前日との差分を見ながら打っていますが、そこは本題ではない。</aside>
+</section>
+
+<section class="slide" data-section="教材の作り方">
+  <div class="head"><div><div class="kicker">教材の作り方 3/5</div><h2>実験台: 理論を動かして確かめる</h2></div><div class="days">Day 47 の計画書</div></div>
+  <div class="work">
+    <div class="media" data-frame="../plans/Day47.html" data-label="計画書(Day 47)をそのまま表示"></div>
+    <div>
+      <p class="flowcap">計画書の中身(実物)</p>
+      <ul class="plain">
+        <li>文章 → 実験台 → 文章、の順に並ぶ</li>
+        <li>実験台はつまみを動かすと、その場で結果が変わる</li>
+        <li>物理・TAA・ラスタライザなどは、C# の実装を JS に移したものを複数の Day で共有</li>
+        <li>外部ライブラリなし。ファイルを直接開けば動く</li>
+      </ul>
+      <p class="muted small" style="margin-top: 18px;">左の枠はスクロール・操作できます</p>
+    </div>
+  </div>
+  <aside class="notes">ここで計画書を少しスクロールして見せる。実験台は物理のページでもう一度触ります。最初は Markdown の計画書だったのを、途中で HTML に作り直して実験台を足した(後のスライドで)。</aside>
+</section>
+
+<section class="slide" data-section="教材の作り方">
+  <div class="head"><div><div class="kicker">教材の作り方 4/5</div><h2>Claude Code の仕掛け: create-day スキル</h2></div></div>
+  <p class="flowcap">「Day 47 を作成して」の一言で、1 Day 分の教材ができるまで</p>
+  <div class="pipe big">
+    <span>ロードマップを読む</span><i>→</i><span>前 Day を確認</span><i>→</i><span>答えのコード</span><i>→</i>
+    <span>整形</span><i>→</i><span class="v">ビルド</span><i>→</i><span>計画書</span><i>→</i>
+    <span class="v">写経順の漏れを検算</span><i>→</i><span class="v">HTML を検証</span><i>→</i><span>ロードマップにリンク</span>
+  </div>
+  <p class="muted small" style="margin: 10px 0 0;">緑 = 確かめる工程</p>
+  <div class="grid2" style="margin-top: 26px;">
+    <div class="card"><h3>確かめる手順まで書く</h3><p>AI に作らせていちばん怖いのは「それっぽいけど合っていない」。ビルド・検算・検証をスキルの手順に入れておく</p></div>
+    <div class="card"><h3>失敗したら、手順を足す</h3><p>写経する順番に漏れがあった → スキルに「コマンドで検算する」手順を追加。数字は「実測してから書く」も同じ</p></div>
+  </div>
+  <aside class="notes">緑の工程が検証。毎回同じ手順で作らせるので、85 Day 作っても品質がそろう。失敗するたびに手順を足してきた。</aside>
+</section>
+
+<section class="slide" data-section="教材の作り方">
+  <div class="head"><div><div class="kicker">教材の作り方 5/5</div><h2>教材を育てる: 途中で計画を変えていい</h2></div></div>
+  <div class="grid2 fill" style="grid-template-columns: 1.35fr 1fr; align-items: start;">
+    <ul class="timeline">
+      <li><span class="when">8/08</span>物理エンジンを足した<span class="why">最初の計画には無かった。キャラが走り回るデモに要る</span></li>
+      <li><span class="when">8/15</span>卒業制作の題材を差し替えた<span class="why">敵が数百体の題材へ。スプライトバッチと ECS が「ゲームの必然」になる</span></li>
+      <li><span class="when">9月</span>膨らんだ Day を a/b に分けた<span class="why">44a/44b、54a/54b … 1 Day を写経 1〜3 時間に保つ</span></li>
+      <li><span class="when">10月</span>計画書を HTML に作り直した<span class="why">Markdown から、図と実験台のあるページへ</span></li>
+      <li><span class="when">10月</span>VRM 編を足した<span class="why">トゥーン調のアバターを、仕様どおりに描いてみたくなった</span></li>
+    </ul>
+    <div class="card" style="border-color: var(--accent);">
+      <h3 style="color: var(--accent);">自作教材のいちばんの利点</h3>
+      <p>理解度や興味が変わったら、教材のほうを変えられる</p>
+      <p class="muted small">分からなければ説明を足す、重ければ分ける、作りたくなったら章を足す。本ではできない</p>
+    </div>
+  </div>
+  <aside class="notes">ここが今日いちばん言いたいこと。計画を変えたら、後続の Day にも修正を波及させる。</aside>
+</section>
+
+<!-- ======================= 成果物 ======================= -->
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 1/9</div><h2>描画の土台: GPU の仕事を一度 CPU で書く</h2></div><div class="days">Day 1〜13</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day10.mp4" data-label="ソフトウェアラスタライザ: 回転するテクスチャ付きモデル(Day 10)"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>頂点を行列で変換(モデル→ビュー→投影)<span class="d">Day 5〜6</span></li>
+        <li>w で割る(透視除算)と遠くが小さくなる<span class="d">Day 6</span></li>
+        <li>三角形の内側を塗る(エッジ関数)<span class="d">Day 3〜4</span></li>
+        <li>Z バッファで手前の物だけ残す<span class="d">Day 7</span></li>
+        <li>テクスチャと陰影で色を決める<span class="d">Day 8〜9</span></li>
+        <li>ピクセルの配列を画面へ転送<span class="d">Day 1</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+      <p class="muted small" style="margin: 10px 0 0;">Day 11〜13: 同じことを GPU に頼む「儀式」も自前で書いた</p>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>ここを通すと、GPU の話が「知っていることの言い換え」になる</div>
+  <aside class="notes">Day 10 で obj を読んでクリッピングまで。CPU だけなので遅いが、全部の段が自分の書いたコード。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 2/9</div><h2>レンダラとエンジンコア</h2></div><div class="days">Day 14〜24</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day18.mp4" data-label="スプライト 1 万枚を少ないドローコールで描く(Day 18)"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>入力を集める(ポーリング+イベント)<span class="d">Day 20</span></li>
+        <li>溜まった時間を 1/60 秒ずつ消化して更新<span class="d">Day 19</span></li>
+        <li>エンティティを ECS で回す<span class="d">Day 22→23</span></li>
+        <li>スプライトを溜めて、テクスチャ順に並べる<span class="d">Day 17〜18</span></li>
+        <li>頂点バッファに詰めて、まとめて描く<span class="d">Day 17</span></li>
+        <li>余った時間で補間して表示<span class="d">Day 19</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>同じものを2回書く(GameObject → ECS)と、両方の設計の理由が腹に落ちる</div>
+  <aside class="notes">Day 14 から Silk.NET。リソース管理とシーンのシリアライズもこの範囲。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 3/9</div><h2>卒業制作: 見下ろし型の時間耐久アクション</h2></div><div class="days">Day 25〜30</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day30.mp4" data-label="敵が数百体押し寄せるアクション(Day 30)"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>入力でプレイヤーを動かす</li>
+        <li>敵を湧かせる(数百体)</li>
+        <li>武器が自動で攻撃する</li>
+        <li>格子に登録して、近い組だけ候補にする<span class="d">Day 26</span></li>
+        <li>当たり判定(AABB・円・回転した箱)<span class="d">Day 25</span></li>
+        <li>経験値 → レベルアップで武器を選ぶ<span class="d">Day 30</span></li>
+        <li class="loop">次のフレームへ(音・文字も自前: Day 27〜28)</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>敵が数百体の題材だから、1 万スプライトも ECS も「ゲームの必然」として効いた</div>
+  <aside class="notes">エンジンで1本作ると設計の穴が全部見える。ここでエンジン編はおしまい、以降はデモの作り込み。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 4/9</div><h2>HDR とポストエフェクト</h2></div><div class="days">Day 31, 37, 38</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day38.mp4" data-label="必須構成の ON / OFF 比較(Day 40 の機能トグル)"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ(描いたあと)</p>
+      <ol class="flow">
+        <li>シーンを HDR のバッファに描く(1.0 を超える明るさを残す)<span class="d">Day 31</span></li>
+        <li>SSAO: 深度と法線から、隅の暗がりを作る<span class="d">Day 37</span></li>
+        <li>ブルーム: 明るい所を抜き出し、ぼかして足す<span class="d">Day 31</span></li>
+        <li>トーンマッピング(ACES)で画面に収める<span class="d">Day 31</span></li>
+        <li>FXAA でギザギザを消し、色を整える<span class="d">Day 38</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>「映画っぽさ」の正体は、描いたあとの後処理</div>
+  <aside class="notes">各機能を ON/OFF できるので、比較して見せる。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 5/9</div><h2>材質と光: PBR・IBL・影</h2></div><div class="days">Day 32〜36, 39〜40</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day40.mp4" data-label="デモ v1: HDRI と CC0 アセットの静的シーン(Day 40)"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>(起動時)glTF からモデルと材質を読む<span class="d">Day 32</span></li>
+        <li>光から見た深度 = 影の地図を描く<span class="d">Day 33</span></li>
+        <li>法線マップで面の向きを細かくする<span class="d">Day 34</span></li>
+        <li>金属・粗さで反射を計算(Cook-Torrance)<span class="d">Day 35</span></li>
+        <li>HDRI から環境光を足す(IBL)<span class="d">Day 36</span></li>
+        <li>影は周りを何点か見てぼかす(PCF)<span class="d">Day 33</span></li>
+        <li class="loop">次のフレームへ(このあと後処理)</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>HDRI 1 枚で、シーンの説得力が激変する(費用対効果が最大)</div>
+  <aside class="notes">Day 39〜40 でデモ v1 を組み上げ。ゆっくりしたカメラパンと機能トグル。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 6/9</div><h2>キャラクター: アニメーションと移動</h2></div><div class="days">Day 41〜42, 45b</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day42.mp4" data-label="歩き ↔ 走りが滑らかに繋がる(Day 42)"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>移動速度から idle / walk / run の重みを決める<span class="d">Day 42</span></li>
+        <li>各クリップを時刻で取り出して混ぜる<span class="d">Day 42</span></li>
+        <li>ボーンの行列を親から順に掛ける<span class="d">Day 41</span></li>
+        <li>頂点シェーダで頂点をボーンに追従させる<span class="d">Day 41</span></li>
+        <li>体はカプセル。坂・段差に沿って滑らせ、接地を判定<span class="d">Day 45b</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>キャラは剛体として転がさない。「自分で動かすカプセル」が 3D ゲーム実用の要</div>
+  <aside class="notes">アセットは glTF Sample Assets の Fox。</aside>
+</section>
+
+<section class="slide" data-section="成果物" data-lab="physics">
+  <div class="head"><div><div class="kicker">成果物 7/9</div><h2>ミニ物理エンジン<span class="live">ライブ</span></h2></div><div class="days">Day 43〜47</div></div>
+  <div class="work">
+    <div class="media" id="phys-wrap">
+      <canvas id="phys"></canvas>
+      <div class="lab-ui">
+        <button type="button" id="phys-reset">積み直す</button>
+        <button type="button" id="phys-contacts" aria-pressed="true">接触点</button>
+        <button type="button" id="phys-ball" aria-pressed="false">球を落とす</button>
+        <span class="readout" id="phys-readout"></span>
+      </div>
+      <div class="lab-hint">クリックした位置に落とす。眠った物は灰色(docs/site/physics2d.js = Day 47 の 2D 版)</div>
+    </div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>重力などの力から速度を進める<span class="d">Day 43</span></li>
+        <li>格子で、近い組だけ候補にする<span class="d">Day 46b</span></li>
+        <li>接触判定: 球・箱・カプセル・地形<span class="d">Day 43〜46a</span></li>
+        <li>接触点をまとめる(1組最大 4 点)<span class="d">Day 44a</span></li>
+        <li>重なりと速度を解く(摩擦・反発、8 周)<span class="d">Day 47</span></li>
+        <li>新しい速度で位置を進める<span class="d">Day 43</span></li>
+        <li>止まった山は眠らせる<span class="d">Day 47</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>接触点を 1 点ずつ順に解くと、床の箱が揺れ止まない。積むと「4 点を同時に解く」意味が分かる</div>
+  <aside class="notes">ここで実際に箱を落として見せる。赤い点が接触点。山が落ち着くと灰色(眠り)になって計算から外れる。Box2D の Sequential Impulses の最小構成。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 8/9</div><h2>エフェクトとプレイアブルデモ</h2></div><div class="days">Day 48〜51</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day51.mp4" data-label="デモ v1 のシーンを三人称で走り回る(Day 51)"></div>
+    <div>
+      <p class="flowcap">1 フレームの全体(ここまでの全部)</p>
+      <ol class="flow">
+        <li>入力 → 三人称カメラ<span class="d">Day 20</span></li>
+        <li>キャラを動かす(カプセル)<span class="d">Day 45b</span></li>
+        <li>アニメを混ぜる<span class="d">Day 42</span></li>
+        <li>物理を 1 ステップ進める<span class="d">Day 47</span></li>
+        <li>足元の土埃・ヒット・軌跡<span class="d">Day 49〜50</span></li>
+        <li>描画(PBR・影・IBL)<span class="d">Day 32〜36</span></li>
+        <li>後処理(SSAO・ブルーム・AA)<span class="d">Day 31〜38</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">分かったこと</span>パーティクルは深度で薄めて、地面への「刺さり」を消すのが見栄えのコツ</div>
+  <aside class="notes">ここまでの全部が1フレームの中でどの順に動くか。動画を見せながら。</aside>
+</section>
+
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 9/9</div><h2>仕上げ: 多光源・TAA・被写界深度<span class="live">ライブ</span></h2></div><div class="days">Day 52〜56</div></div>
+  <div class="work">
+    <div class="media" data-src="media/day56-lights.mp4" data-label="夜の裏通り(Day 56)。ライブデモの保険"></div>
+    <div>
+      <p class="flowcap">毎フレームの流れ</p>
+      <ol class="flow">
+        <li>G-Buffer に位置・法線・材質を書き出す<span class="d">Day 52a</span></li>
+        <li>点光源ごとに「光の球」を描いて足す(1024 個)<span class="d">Day 52b</span></li>
+        <li>Forward+ とも比べる(光を升目に振り分ける)<span class="d">Day 53</span></li>
+        <li>TAA: 毎フレーム少しずらし、履歴と混ぜる<span class="d">Day 54</span></li>
+        <li>被写界深度・モーションブラー<span class="d">Day 55</span></li>
+        <li class="loop">次のフレームへ</li>
+      </ol>
+    </div>
+  </div>
+  <div class="insight"><span class="tag">ライブデモ</span><code>dotnet run -c Release --project reference/Day56</code></div>
+  <aside class="notes">ここで実機に切り替える。歩く → 走る → 光の多い路地 → 機能トグルで TAA を切って比較、くらいで2分。</aside>
+</section>
+
+<!-- ======================= 発展 ======================= -->
+
+<section class="slide" data-section="発展">
+  <div class="head"><div><div class="kicker">発展</div><h2>その先: 教養編と VRM 編</h2></div><div class="days">Day 57〜73</div></div>
+  <div class="tiles">
+    <div class="tile"><span class="n">Day 57</span><b>コンピュートシェーダ</b><span>GPU でパーティクル</span></div>
+    <div class="tile"><span class="n">Day 58</span><b>レイマーチング</b><span>距離関数だけで絵を描く</span></div>
+    <div class="tile"><span class="n">Day 59〜61</span><b>パストレーサ</b><span>CPU で書いて GPU へ移植</span></div>
+    <div class="tile"><span class="n">Day 62</span><b>ハードウェア RT</b><span>Vulkan、加速構造</span></div>
+    <div class="tile"><span class="n">Day 63</span><b>ジオメトリ・テッセレーション</b><span>段の値段も測る</span></div>
+    <div class="tile"><span class="n">Day 64</span><b>メッシュシェーダ</b><span>メッシュレットと GPU カリング</span></div>
+    <div class="tile"><span class="n">Day 65</span><b>GPU 駆動・Hi-Z</b><span>Nanite の基礎理論を読む</span></div>
+    <div class="tile"><span class="n">Day 66</span><b>焼いたプローブ GI</b><span>球面調和。Lumen・DDGI 講読</span></div>
+    <div class="tile"><span class="n">Day 67</span><b>Gaussian Splatting</b><span>ポリゴンでない描き方</span></div>
+    <div class="tile vrm"><span class="n">Day 68〜73</span><b>VRM 編</b><span>MToon・表情・揺れもの・アニメ再生</span></div>
+  </div>
+  <div class="insight"><span class="tag">ねらい</span>UE5 の Nanite / Lumen が「何を解決しているか」が分かるところまで</div>
+  <aside class="notes">教養編は順不同のつまみ食い。VRM 編はフォトリアルのシーンにトゥーン調のキャラを立たせる。今ちょうどここを作っている。</aside>
+</section>
+
+<!-- ======================= まとめ ======================= -->
+
+<section class="slide" data-section="まとめ">
+  <div class="head"><div><div class="kicker">まとめ</div><h2>自分に合った教材は、作れる</h2></div></div>
+  <div class="grid3 fill" style="align-content: start;">
+    <div class="card"><h3>条件を渡す</h3><p>言語・レイヤ・順番・ペース・ゴールを伝えると、その人専用のカリキュラムになる</p></div>
+    <div class="card"><h3>確かめる手順を書く</h3><p>スキルに確かめる手順まで書くと、85 Day 作っても品質がそろう</p></div>
+    <div class="card"><h3>途中で変えていい</h3><p>分からなければ足す、重ければ分ける。教材のほうが自分に合わせて育つ</p></div>
+  </div>
+  <div class="insight" style="font-size: 26px; justify-content: center;">ありがとうございました。質問どうぞ</div>
+  <aside class="notes">このスライドも Claude Code で作りました(outline.md で構成を相談 → この HTML)。</aside>
+</section>
+
+</div>
+
+<div id="chrome"><div id="progress"></div></div>
+<div id="notes"><div class="t" id="notes-title"></div><div id="notes-body"></div></div>
+
+<script src="../site/physics2d.js"></script>
+<script>
+'use strict';
+(() => {
+const stage = document.getElementById('stage');
+const slides = [...document.querySelectorAll('.slide')];
+const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let cur = 0;
+
+// ---------- ページ番号と章名を各スライドに付ける(表紙は除く) ----------
+slides.forEach((s, i) => {
+  if (i === 0) return;
+  const no = document.createElement('div'); no.className = 'pageno'; no.textContent = `${i + 1} / ${slides.length}`; s.appendChild(no);
+  const sec = document.createElement('div'); sec.className = 'section-mark'; sec.textContent = s.dataset.section || ''; s.appendChild(sec);
+});
+
+// ---------- 動画・画像・計画書の枠: ファイルが無ければ置き場所を出す ----------
+function placeholder(el, what) {
+  const ph = document.createElement('div'); ph.className = 'ph';
+  ph.innerHTML = `<b></b><span></span><code></code>`;
+  ph.querySelector('b').textContent = el.dataset.label || '';
+  ph.querySelector('span').textContent = what;
+  ph.querySelector('code').textContent = 'docs/presentation/' + (el.dataset.src || el.dataset.frame);
+  el.appendChild(ph);
+}
+for (const el of document.querySelectorAll('.media[data-src]')) {
+  const src = el.dataset.src;
+  if (/\.(mp4|webm)$/i.test(src)) {
+    const v = document.createElement('video');
+    v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto';
+    v.addEventListener('error', () => { v.remove(); placeholder(el, '動画をここに置く'); });
+    v.src = src; el.appendChild(v);
+  } else {
+    const img = new Image();
+    img.addEventListener('error', () => { img.remove(); placeholder(el, '画像をここに置く'); });
+    img.src = src; img.alt = el.dataset.label || ''; el.appendChild(img);
+  }
+}
+// 計画書は重いので、そのスライドに来たときに初めて読み込む
+function loadFrames(s) {
+  for (const el of s.querySelectorAll('.media[data-frame]')) {
+    if (el.querySelector('iframe')) continue;
+    const f = document.createElement('iframe'); f.src = el.dataset.frame; f.title = el.dataset.label || ''; el.appendChild(f);
+  }
+}
+
+// ---------- 拡大縮小: 1280x720 を画面に収める(メモ表示中はその上に) ----------
+function fit() {
+  const notesH = document.body.classList.contains('show-notes') ? window.innerHeight * 0.3 : 0;
+  const W = window.innerWidth, H = window.innerHeight - notesH;
+  const k = Math.min(W / 1280, H / 720);
+  const x = (W - 1280 * k) / 2, y = (H - 720 * k) / 2;
+  stage.style.transform = `translate(${x}px, ${y}px) scale(${k})`;
+}
+
+// ---------- ページ送り ----------
+function show(i) {
+  cur = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach((s, j) => s.classList.toggle('active', j === cur));
+  const s = slides[cur];
+  for (const v of document.querySelectorAll('video')) { if (s.contains(v)) v.play().catch(() => {}); else v.pause(); }
+  loadFrames(s);
+  document.getElementById('progress').style.width = `${(cur / (slides.length - 1)) * 100}%`;
+  const n = s.querySelector('.notes');
+  document.getElementById('notes-title').textContent = `${cur + 1} / ${slides.length}  ${s.dataset.section || ''}`;
+  document.getElementById('notes-body').textContent = n ? n.textContent : '';
+  if (location.hash !== `#${cur + 1}`) history.replaceState(null, '', `#${cur + 1}`);
+  Physics.active(s.dataset.lab === 'physics');
+}
+function fromHash() { const n = parseInt(location.hash.slice(1), 10); return Number.isFinite(n) ? n - 1 : 0; }
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (k === 'ArrowRight' || k === 'PageDown' || k === ' ') { e.preventDefault(); show(cur + 1); }
+  else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace') { e.preventDefault(); show(cur - 1); }
+  else if (k === 'Home') show(0);
+  else if (k === 'End') show(slides.length - 1);
+  else if (k === 'n' || k === 'N') { document.body.classList.toggle('show-notes'); fit(); }
+  else if (k === 'f' || k === 'F') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
+  else if (k === 't' || k === 'T') {
+    const root = document.documentElement;
+    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    root.dataset.theme = dark ? 'light' : 'dark';
+    try { localStorage.setItem('slides-theme', root.dataset.theme); } catch (_) {}
+  }
+});
+// 画面の左右をクリックしてページ送り(ボタン・実験台・計画書の枠の上は除く)
+stage.addEventListener('click', (e) => {
+  if (e.target.closest('button, a, .media, iframe')) return;
+  const r = stage.getBoundingClientRect();
+  show(e.clientX - r.left > r.width / 2 ? cur + 1 : cur - 1);
+});
+window.addEventListener('resize', fit);
+window.addEventListener('hashchange', () => show(fromHash()));
+try { const t = localStorage.getItem('slides-theme'); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
+
+// ---------- ロードマップの帯(幅 = Day 数) ----------
+const road = [
+  ['P0', '土台', 1, 1, 'ピクセルを 60fps', '#5b6b82'],
+  ['P1', 'ソフトラスタライザ', 2, 10, '回転するモデル', '#3d6fb8'],
+  ['P2', '生 OpenGL', 11, 13, '自作バインディングで三角形', '#3d6fb8'],
+  ['P3', 'レンダラ', 14, 18, 'スプライト 1 万枚', '#2f7f8f'],
+  ['P4', 'エンジンコア', 19, 24, 'ECS とシーン', '#2f7f8f'],
+  ['P5', 'ゲーム', 25, 30, 'ゲーム 1 本完成', '#2f7d4f'],
+  ['P6', 'デモ必須編', 31, 40, 'PBR+IBL+影のデモ v1', '#a0662a'],
+  ['P7', '3D ゲーム編', 41, 51, '走り回れるデモ', '#b0503c'],
+  ['P8', 'デモ推奨編', 52, 56, '最終デモ', '#8a4a9a'],
+  ['教養', '教養編', 57, 67, '現代技術を手で確かめる', '#6a7484'],
+  ['VRM', 'VRM 編', 68, 73, 'トゥーン調のアバター', '#6a7484'],
+];
+const roadEl = document.getElementById('road'), rulerEl = document.getElementById('ruler');
+for (const [id, name, a, b, ms, col] of road) {
+  const d = document.createElement('div'); d.className = 'ph-band'; d.style.background = col;
+  d.innerHTML = `<b></b><span class="r"></span><span class="nm"></span><span class="ms"></span>`;
+  d.querySelector('b').textContent = id;
+  d.querySelector('.r').textContent = `Day ${a === b ? a : a + '〜' + b}`;
+  d.querySelector('.nm').textContent = name;
+  d.querySelector('.ms').textContent = ms;
+  roadEl.appendChild(d);
+  const r = document.createElement('span'); r.style.flex = `${b - a + 1} 1 0`; r.style.background = col; rulerEl.appendChild(r);
+}
+
+// ---------- 物理の実験台(Phys2D = Day 47 の 2D 版) ----------
+const Physics = (() => {
+  if (!window.Phys2D) return { active() {} };
+  const { Shape, Body, World, drawBody, drawContacts, drawPlanes } = Phys2D;
+  const canvas = document.getElementById('phys'), wrap = document.getElementById('phys-wrap');
+  const DT = 1 / 60, HALF = 4.2, MAX_BODIES = 70;
+  let world, on = false, raf = 0, last = 0, acc = 0, showContacts = true, ball = false;
+
+  function build() {
+    world = new World(); world.solver = 'day47';
+    const floor = Body.plane(0, 0, 0, 1); floor.friction = 0.6; world.add(floor);
+    world.add(Body.plane(-HALF, 0, 1, 0)); world.add(Body.plane(HALF, 0, -1, 0));
+    // 4-3-2-1 のピラミッド
+    const s = 0.25;
+    for (let row = 0; row < 4; row++) {
+      for (let i = 0; i < 4 - row; i++) {
+        const b = new Body(1, Shape.box(s, s));
+        b.x = (i - (3 - row) / 2) * (2 * s + 0.02) - 1.2; b.y = s + row * 2 * s; b.restitution = 0; b.friction = 0.6;
+        world.add(b);
+      }
+    }
+    // 柱を1本
+    for (let i = 0; i < 5; i++) {
+      const b = new Body(1, Shape.box(0.2, 0.2)); b.x = 2.0; b.y = 0.2 + i * 0.4; b.restitution = 0; b.friction = 0.6; world.add(b);
+    }
+  }
+  function view() {
+    const W = canvas.width / devicePixelRatio, H = canvas.height / devicePixelRatio;
+    const sc = Math.min(W / (2 * HALF + 0.4), (H - 70) / 4.2);
+    return { W, H, v: { X: (x) => W / 2 + x * sc, Y: (y) => H - 40 - y * sc, s: sc }, sc };
+  }
+  function resize() {
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    canvas.width = Math.round(w * devicePixelRatio); canvas.height = Math.round(h * devicePixelRatio);
+  }
+  function draw() {
+    const ctx = canvas.getContext('2d');
+    const { W, H, v } = view();
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    drawPlanes(ctx, world, v, tok('--ink'), W, H);
+    const pal = [tok('--accent'), tok('--semi'), tok('--warn'), tok('--good')];
+    world.bodies.forEach((b, i) => {
+      if (b.shape.kind === 'plane') return;
+      drawBody(ctx, b, v, b.sleeping ? tok('--line') : pal[i % pal.length], acc / DT);
+    });
+    if (showContacts) drawContacts(ctx, world, v, tok('--expl'));
+    const n = world.bodies.filter((b) => b.shape.kind !== 'plane').length;
+    document.getElementById('phys-readout').textContent =
+      `物体 ${n} / 接触点 ${world.contacts.length} / 眠り ${world.sleepingCount}`;
+  }
+  function frame(t) {
+    if (!on) return;
+    const dt = last ? Math.min((t - last) / 1000, 0.1) : DT; last = t;
+    acc += dt;
+    while (acc >= DT) { world.step(DT); acc -= DT; }
+    draw();
+    raf = requestAnimationFrame(frame);
+  }
+  function drop(e) {
+    if (e.target.closest('button')) return;
+    const r = canvas.getBoundingClientRect();
+    const { W, sc } = view();
+    const px = (e.clientX - r.left) / r.width * W;
+    const x = Math.max(-HALF + 0.4, Math.min(HALF - 0.4, (px - W / 2) / sc));
+    const b = ball ? new Body(1, Shape.circle(0.22)) : new Body(1, Shape.box(0.25, 0.25));
+    b.x = x; b.y = 3.6; b.angle = ball ? 0 : (Math.random() - 0.5) * 0.8; b.restitution = ball ? 0.4 : 0.1; b.friction = 0.6;
+    // 上限を超えたら古いものから消す(平面3枚は残す)
+    if (world.bodies.length >= MAX_BODIES) { world.bodies.splice(3, 1); world.cache.clear(); }
+    world.add(b);
+    for (const o of world.bodies) o.wake?.();
+  }
+  canvas.addEventListener('click', drop);
+  document.getElementById('phys-reset').addEventListener('click', () => { build(); acc = 0; draw(); });
+  const tgl = (id, fn) => { const el = document.getElementById(id); el.addEventListener('click', () => { el.setAttribute('aria-pressed', String(fn())); draw(); }); };
+  tgl('phys-contacts', () => (showContacts = !showContacts));
+  tgl('phys-ball', () => (ball = !ball));
+  window.addEventListener('resize', () => { if (on) { resize(); draw(); } });
+  build();
+  return {
+    active(yes) {
+      if (yes === on) return;
+      on = yes;
+      if (on) { resize(); last = 0; raf = requestAnimationFrame(frame); } else cancelAnimationFrame(raf);
+    },
+  };
+})();
+
+fit();
+show(fromHash());
+})();
+</script>
+</body>
+</html>
