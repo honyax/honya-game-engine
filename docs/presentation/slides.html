@@ -171,14 +171,6 @@ ul.plain li::before { content: ""; position: absolute; left: 4px; top: 13px; wid
 .tile.vrm .n { color: var(--semi); }
 
 /* ---------- 物理の実験台 ---------- */
-.lab-ui { position: absolute; left: 14px; top: 12px; right: 14px; display: flex; gap: 8px; align-items: center; z-index: 2; pointer-events: none; }
-.lab-ui button {
-  pointer-events: auto; font: inherit; font-size: 15px; padding: 6px 14px; border-radius: 8px; cursor: pointer;
-  background: var(--surface); color: var(--ink); border: 1px solid var(--line);
-}
-.lab-ui button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
-.lab-ui .readout { margin-left: auto; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; background: var(--surface); padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); }
-.lab-hint { position: absolute; left: 14px; bottom: 10px; font-size: 14px; color: var(--muted); z-index: 2; pointer-events: none; }
 .live { display: inline-block; font-size: 13px; font-weight: 700; color: #fff; background: var(--expl); border-radius: 6px; padding: 3px 9px; margin-left: 10px; vertical-align: 6px; letter-spacing: 0.06em; }
 
 /* ---------- 枠の外: ページ番号・進捗・発表者メモ ---------- */
@@ -312,7 +304,7 @@ body.show-notes #notes { display: block; }
       <p class="muted small" style="margin-top: 18px;">左の枠はスクロール・操作できます</p>
     </div>
   </div>
-  <aside class="notes">ここで計画書を少しスクロールして見せる。実験台は物理のページでもう一度触ります。最初は Markdown の計画書だったのを、途中で HTML に作り直して実験台を足した(後のスライドで)。</aside>
+  <aside class="notes">ここで計画書を少しスクロールして見せる。最初は Markdown の計画書だったのを、途中で HTML に作り直して実験台を足した(後のスライドで)。</aside>
 </section>
 
 <section class="slide" data-section="教材の作り方">
@@ -477,19 +469,10 @@ body.show-notes #notes { display: block; }
   <aside class="notes">アセットは glTF Sample Assets の Fox。</aside>
 </section>
 
-<section class="slide" data-section="成果物" data-lab="physics">
-  <div class="head"><div><div class="kicker">成果物 7/9</div><h2>ミニ物理エンジン<span class="live">ライブ</span></h2></div><div class="days">Day 43〜47</div></div>
+<section class="slide" data-section="成果物">
+  <div class="head"><div><div class="kicker">成果物 7/9</div><h2>ミニ物理エンジン</h2></div><div class="days">Day 43〜47</div></div>
   <div class="work">
-    <div class="media" id="phys-wrap">
-      <canvas id="phys"></canvas>
-      <div class="lab-ui">
-        <button type="button" id="phys-reset">積み直す</button>
-        <button type="button" id="phys-contacts" aria-pressed="true">接触点</button>
-        <button type="button" id="phys-ball" aria-pressed="false">球を落とす</button>
-        <span class="readout" id="phys-readout"></span>
-      </div>
-      <div class="lab-hint">クリックした位置に落とす。眠った物は灰色(docs/site/physics2d.js = Day 47 の 2D 版)</div>
-    </div>
+    <div class="media" data-src="media/day47.mp4" data-label="起伏のある地形に球・箱・カプセルを降らせる(Day 47)"></div>
     <div>
       <p class="flowcap">毎フレームの流れ</p>
       <ol class="flow">
@@ -505,7 +488,7 @@ body.show-notes #notes { display: block; }
     </div>
   </div>
   <div class="insight"><span class="tag">分かったこと</span>接触点を 1 点ずつ順に解くと、床の箱が揺れ止まない。積むと「4 点を同時に解く」意味が分かる</div>
-  <aside class="notes">ここで実際に箱を落として見せる。赤い点が接触点。山が落ち着くと灰色(眠り)になって計算から外れる。Box2D の Sequential Impulses の最小構成。</aside>
+  <aside class="notes">地形(Heightmap)の上に球・箱・カプセルを 40 個ずつ降らせている。坂を転がって谷に溜まり、落ち着いたものは眠って計算から外れる。Box2D の Sequential Impulses の最小構成。</aside>
 </section>
 
 <section class="slide" data-section="成果物">
@@ -588,7 +571,6 @@ body.show-notes #notes { display: block; }
 <div id="chrome"><div id="progress"></div></div>
 <div id="notes"><div class="t" id="notes-title"></div><div id="notes-body"></div></div>
 
-<script src="../site/physics2d.js"></script>
 <script>
 'use strict';
 (() => {
@@ -655,7 +637,6 @@ function show(i) {
   document.getElementById('notes-title').textContent = `${cur + 1} / ${slides.length}  ${s.dataset.section || ''}`;
   document.getElementById('notes-body').textContent = n ? n.textContent : '';
   if (location.hash !== `#${cur + 1}`) history.replaceState(null, '', `#${cur + 1}`);
-  Physics.active(s.dataset.lab === 'physics');
 }
 function fromHash() { const n = parseInt(location.hash.slice(1), 10); return Number.isFinite(n) ? n - 1 : 0; }
 
@@ -710,94 +691,6 @@ for (const [id, name, a, b, ms, col] of road) {
   roadEl.appendChild(d);
   const r = document.createElement('span'); r.style.flex = `${b - a + 1} 1 0`; r.style.background = col; rulerEl.appendChild(r);
 }
-
-// ---------- 物理の実験台(Phys2D = Day 47 の 2D 版) ----------
-const Physics = (() => {
-  if (!window.Phys2D) return { active() {} };
-  const { Shape, Body, World, drawBody, drawContacts, drawPlanes } = Phys2D;
-  const canvas = document.getElementById('phys'), wrap = document.getElementById('phys-wrap');
-  const DT = 1 / 60, HALF = 4.2, MAX_BODIES = 70;
-  let world, on = false, raf = 0, last = 0, acc = 0, showContacts = true, ball = false;
-
-  function build() {
-    world = new World(); world.solver = 'day47';
-    const floor = Body.plane(0, 0, 0, 1); floor.friction = 0.6; world.add(floor);
-    world.add(Body.plane(-HALF, 0, 1, 0)); world.add(Body.plane(HALF, 0, -1, 0));
-    // 4-3-2-1 のピラミッド
-    const s = 0.25;
-    for (let row = 0; row < 4; row++) {
-      for (let i = 0; i < 4 - row; i++) {
-        const b = new Body(1, Shape.box(s, s));
-        b.x = (i - (3 - row) / 2) * (2 * s + 0.02) - 1.2; b.y = s + row * 2 * s; b.restitution = 0; b.friction = 0.6;
-        world.add(b);
-      }
-    }
-    // 柱を1本
-    for (let i = 0; i < 5; i++) {
-      const b = new Body(1, Shape.box(0.2, 0.2)); b.x = 2.0; b.y = 0.2 + i * 0.4; b.restitution = 0; b.friction = 0.6; world.add(b);
-    }
-  }
-  function view() {
-    const W = canvas.width / devicePixelRatio, H = canvas.height / devicePixelRatio;
-    const sc = Math.min(W / (2 * HALF + 0.4), (H - 70) / 4.2);
-    return { W, H, v: { X: (x) => W / 2 + x * sc, Y: (y) => H - 40 - y * sc, s: sc }, sc };
-  }
-  function resize() {
-    const w = wrap.clientWidth, h = wrap.clientHeight;
-    canvas.width = Math.round(w * devicePixelRatio); canvas.height = Math.round(h * devicePixelRatio);
-  }
-  function draw() {
-    const ctx = canvas.getContext('2d');
-    const { W, H, v } = view();
-    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    drawPlanes(ctx, world, v, tok('--ink'), W, H);
-    const pal = [tok('--accent'), tok('--semi'), tok('--warn'), tok('--good')];
-    world.bodies.forEach((b, i) => {
-      if (b.shape.kind === 'plane') return;
-      drawBody(ctx, b, v, b.sleeping ? tok('--line') : pal[i % pal.length], acc / DT);
-    });
-    if (showContacts) drawContacts(ctx, world, v, tok('--expl'));
-    const n = world.bodies.filter((b) => b.shape.kind !== 'plane').length;
-    document.getElementById('phys-readout').textContent =
-      `物体 ${n} / 接触点 ${world.contacts.length} / 眠り ${world.sleepingCount}`;
-  }
-  function frame(t) {
-    if (!on) return;
-    const dt = last ? Math.min((t - last) / 1000, 0.1) : DT; last = t;
-    acc += dt;
-    while (acc >= DT) { world.step(DT); acc -= DT; }
-    draw();
-    raf = requestAnimationFrame(frame);
-  }
-  function drop(e) {
-    if (e.target.closest('button')) return;
-    const r = canvas.getBoundingClientRect();
-    const { W, sc } = view();
-    const px = (e.clientX - r.left) / r.width * W;
-    const x = Math.max(-HALF + 0.4, Math.min(HALF - 0.4, (px - W / 2) / sc));
-    const b = ball ? new Body(1, Shape.circle(0.22)) : new Body(1, Shape.box(0.25, 0.25));
-    b.x = x; b.y = 3.6; b.angle = ball ? 0 : (Math.random() - 0.5) * 0.8; b.restitution = ball ? 0.4 : 0.1; b.friction = 0.6;
-    // 上限を超えたら古いものから消す(平面3枚は残す)
-    if (world.bodies.length >= MAX_BODIES) { world.bodies.splice(3, 1); world.cache.clear(); }
-    world.add(b);
-    for (const o of world.bodies) o.wake?.();
-  }
-  canvas.addEventListener('click', drop);
-  document.getElementById('phys-reset').addEventListener('click', () => { build(); acc = 0; draw(); });
-  const tgl = (id, fn) => { const el = document.getElementById(id); el.addEventListener('click', () => { el.setAttribute('aria-pressed', String(fn())); draw(); }); };
-  tgl('phys-contacts', () => (showContacts = !showContacts));
-  tgl('phys-ball', () => (ball = !ball));
-  window.addEventListener('resize', () => { if (on) { resize(); draw(); } });
-  build();
-  return {
-    active(yes) {
-      if (yes === on) return;
-      on = yes;
-      if (on) { resize(); last = 0; raf = requestAnimationFrame(frame); } else cancelAnimationFrame(raf);
-    },
-  };
-})();
 
 fit();
 show(fromHash());

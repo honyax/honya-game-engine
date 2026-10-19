@@ -26,6 +26,12 @@ internal sealed class KeyStep
     public int Times { get; set; } = 1;
     public double Every { get; set; } = 0.15;
     public string[]? Mods { get; set; }
+
+    // マウス(カメラを回す・寄せる)。wheel はホイールの目盛り(正で奥へ = 寄る)、
+    // drag は左ドラッグの移動量 [dx, dy](画素)。duration 秒かけて少しずつ動かす
+    public int Wheel { get; set; }
+    public double[]? Drag { get; set; }
+    public double Duration { get; set; } = 0.3;
 }
 
 internal sealed class Clip
@@ -38,6 +44,10 @@ internal sealed class Clip
     public int Height { get; set; } = 720;
     public string Ffmpeg { get; set; } = "ffmpeg";
     public KeyStep[] Keys { get; set; } = [];
+
+    // 縮める前に切り抜く範囲(ffmpeg の crop の引数。例: "iw*2/3:ih*2/3:iw/6:ih/3")。
+    // 消せない画面上の表示(2D のスプライトなど)を外すときに使う。無ければ切り抜かない
+    public string? Crop { get; set; }
 
     // 圧縮のしかた(ffmpeg の出力側の引数)。record.ps1 が形式ごとに渡す。無ければ H.264
     public string[] Codec { get; set; } = ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart"];
@@ -64,7 +74,8 @@ internal sealed class Clip
 /// </summary>
 internal sealed class KeyScript
 {
-    private readonly record struct KeyEvent(double At, string Key, bool Down, bool Sys);
+    // Msg が 0 でなければ、キーではなくそのままのメッセージ(マウス)を送る
+    private readonly record struct KeyEvent(double At, string Key, bool Down, bool Sys, uint Msg = 0, nint WParam = 0, nint LParam = 0);
 
     private readonly List<KeyEvent> _events;
     private int _next;
@@ -97,6 +108,28 @@ internal sealed class KeyScript
             if (step.Up is not null)
             {
                 events.Add(new KeyEvent(step.At, step.Up, false, sys));
+            }
+
+            if (step.Wheel != 0)
+            {
+                // GLFW は wParam の上位 16 ビット(1 目盛り = 120)だけを見る
+                events.Add(new KeyEvent(step.At, "", true, false, WmMouseWheel, (nint)(step.Wheel * 120 << 16), 0));
+            }
+
+            if (step.Drag is { Length: 2 } drag)
+            {
+                // 位置は「押した瞬間のカーソルからの差」で持っておき、送るときに足す(Send 参照)
+                int moves = Math.Max(1, (int)(step.Duration * 60));
+                events.Add(new KeyEvent(step.At, DragKey, true, false, WmLButtonDown, MkLButton, Point(0, 0)));
+                for (int i = 1; i <= moves; i++)
+                {
+                    double t = (double)i / moves;
+                    int dx = (int)Math.Round(drag[0] * t);
+                    int dy = (int)Math.Round(drag[1] * t);
+                    events.Add(new KeyEvent(step.At + (step.Duration * t), DragKey, true, false, WmMouseMove, MkLButton, Point(dx, dy)));
+                }
+
+                events.Add(new KeyEvent(step.At + step.Duration, DragKey, true, false, WmLButtonUp, 0, Point((int)Math.Round(drag[0]), (int)Math.Round(drag[1]))));
             }
 
             if (step.Tap is not null)
@@ -135,8 +168,56 @@ internal sealed class KeyScript
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKeyW(uint code, uint mapType);
 
+    private const uint WmMouseMove = 0x0200;
+    private const uint WmLButtonDown = 0x0201;
+    private const uint WmLButtonUp = 0x0202;
+    private const uint WmMouseWheel = 0x020A;
+    private const nint MkLButton = 0x0001;
+
+    private static nint Point(int x, int y) => (nint)((y << 16) | (x & 0xFFFF));
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern bool ScreenToClient(nint hWnd, ref NativePoint point);
+
+    private const string DragKey = "(drag)";
+
+    // ドラッグを始めた瞬間の本物のカーソルの位置(窓の中の座標)
+    private static NativePoint _dragBase;
+
     private static void Send(nint hwnd, KeyEvent e)
     {
+        if (e.Msg != 0)
+        {
+            nint position = e.LParam;
+            if (e.Key == DragKey)
+            {
+                // GLFW は押した瞬間の位置を本物のカーソル(GetCursorPos)から取り、移動はメッセージの座標で受ける。
+                // 本物のカーソルを起点にして差を足さないと、最初の移動で差分が跳ねてカメラが飛ぶ
+                if (e.Msg == WmLButtonDown)
+                {
+                    GetCursorPos(out _dragBase);
+                    ScreenToClient(hwnd, ref _dragBase);
+                }
+
+                int dx = (short)(e.LParam & 0xFFFF);
+                int dy = (short)((e.LParam >> 16) & 0xFFFF);
+                position = Point(_dragBase.X + dx, _dragBase.Y + dy);
+            }
+
+            PostMessageW(hwnd, e.Msg, e.WParam, position);
+            return;
+        }
+
         (uint vk, bool extended, uint fixedScancode) = VirtualKey(e.Key);
 
         // GLFW はキーをスキャンコードで見分ける。記号のキーは配列(日本語 / 英語)で仮想キーとの対応が変わるので、

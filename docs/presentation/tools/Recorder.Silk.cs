@@ -117,7 +117,7 @@ internal static class SilkRecorder
 
             // GL の原点は左下なので上下を返す。縮める先の縦横比が違っても歪めないよう、収めてから余白を足す
             _sink.Start(_frameWidth, _frameHeight, "rgb24",
-                $"vflip,scale={_clip.Width}:{_clip.Height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                $"vflip,{(_clip.Crop is null ? "" : $"crop={_clip.Crop},")}scale={_clip.Width}:{_clip.Height}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 + $"pad={_clip.Width}:{_clip.Height}:(ow-iw)/2:(oh-ih)/2");
         }
 

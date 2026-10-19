@@ -86,6 +86,7 @@ foreach ($scene in $targets) {
         ffmpeg  = $ffmpeg
         keys    = @($scene.keys)
         codec   = $codec
+        crop    = $scene.crop
     }
     $clipPath = Join-Path $dst 'record.json'
     $clip | ConvertTo-Json -Depth 6 | Out-File -Encoding utf8 $clipPath
