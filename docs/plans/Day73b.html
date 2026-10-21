@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 73b VRMで遊ぶ</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は VrmAvatar の層と、AnimationPlayer の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 差し替えるのは「置き場所」と「カプセル」だけ</a></li><li class="l3"><a href="#s7">2. 速さの向きが逆になる — カプセルがクリップに従う</a></li><li class="l3"><a href="#s8">3. エモートは移動の上に重ねる</a></li><li class="l3"><a href="#s9">4. エモートだけ位相の外で回す</a></li><li class="l3"><a href="#s10">5. 入力は表を通す — E の横取り</a></li><li class="l3"><a href="#s11">6. クレジットと、カメラの構え</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">誰が何を知っているか — VrmAvatar は操作を知らない</a></li><li class="l3"><a href="#s18">1フレームの中の流れ — 固定ステップと可変 dt の受け渡し</a></li><li class="l3"><a href="#s19">今日残した歪み</a></li><li class="l3"><a href="#s20">試して分かったこと</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. F2: VRM で歩き回る</a></li><li class="l3"><a href="#s23">2. E: エモート</a></li><li class="l3"><a href="#s24">3. F3 / F6: アバターと速さ</a></li><li class="l3"><a href="#s25">4. Day 73a までの機能が全部生きていること</a></li><li class="l3"><a href="#s26">5. F12: 自己チェック(遊んでいる間は 8 項目すべて合格)</a></li><li class="l3"><a href="#s27">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): エモートを Q で選び直す</a></li><li class="l3"><a href="#s30">課題2(中): 跳んでいる間は idle の上に「跳び」のポーズを重ねる</a></li><li class="l3"><a href="#s31">課題3(難): 歩きながら手を振る — 骨ごとのマスク</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 73b / 計画書</p>
+  <h1>VRMで遊ぶ — デモの主役を VRM のアバターに差し替え、歩き・走り・エモートを付ける</h1>
+  <p class="lede">カプセルが体を運び、73a のブレンド木が足踏みを選び、E で VRMA のエモートを上に重ねる。速さの向きは Day 51 と逆になる</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は VrmAvatar の層と、AnimationPlayer の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. 差し替えるのは「置き場所」と「カプセル」だけ</a></li><li class="l3"><a href="#s7">2. 速さの向きが逆になる — カプセルがクリップに従う</a></li><li class="l3"><a href="#s8">3. エモートは移動の上に重ねる</a></li><li class="l3"><a href="#s9">4. エモートだけ位相の外で回す</a></li><li class="l3"><a href="#s10">5. 入力は表を通す — E の横取り</a></li><li class="l3"><a href="#s11">6. クレジットと、カメラの構え</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">誰が何を知っているか — VrmAvatar は操作を知らない</a></li><li class="l3"><a href="#s18">1フレームの中の流れ — 固定ステップと可変 dt の受け渡し</a></li><li class="l3"><a href="#s19">今日残した歪み</a></li><li class="l3"><a href="#s20">試して分かったこと</a></li><li class="l2"><a href="#s21">完成条件</a></li><li class="l3"><a href="#s22">1. F2: VRM で歩き回る</a></li><li class="l3"><a href="#s23">2. E: エモート</a></li><li class="l3"><a href="#s24">3. F3 / F6: アバターと速さ</a></li><li class="l3"><a href="#s25">4. Day 73a までの機能が全部生きていること</a></li><li class="l3"><a href="#s26">5. F12: 自己チェック(遊んでいる間は 8 項目すべて合格)</a></li><li class="l3"><a href="#s27">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s28">改造課題</a></li><li class="l3"><a href="#s29">課題1(易): エモートを Q で選び直す</a></li><li class="l3"><a href="#s30">課題2(中): 跳んでいる間は idle の上に「跳び」のポーズを重ねる</a></li><li class="l3"><a href="#s31">課題3(難): 歩きながら手を振る — 骨ごとのマスク</a></li><li class="l2"><a href="#s32">動作確認済み環境</a></li><li class="l3"><a href="#s33">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>VRM編の最後の日。Day 68〜72 で VRM のアバターは MToon で描かれ、表情が動き、髪が揺れ、VRMA で動くようになった。Day 73a で移動用のクリップ(idle・walk・run)を VRM の骨へ写し、足が滑らない速さで混ぜられるようになった。ただし、ここまでは全部「VRMビューア」の床の上の話で、デモ(Day 51 から歩き回れる裏通り)の主役はまだキツネのままだ。</p>
+<p>今日は<strong>デモのキツネを VRM のアバターに差し替える</strong>。新しく作る仕組みはほとんど無い。キャラを描く道(Day 68 の別のフォワードパス)はもう裏通りで動いていて、置き場所の行列をカプセルの足元に変えるだけで済む。今日の設計の中心は2つで、1つは<strong>カプセルの速さをどちらが決めるか</strong>(Day 51 と向きが逆になる)、もう1つは<strong>移動のクリップの上に、1回きりのエモートを重ねる</strong>ことだ。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「VRMで遊ぶ」ページで <code>F2</code> を押すと、完成版の夜の裏通りに VRM のアバターが立ち、矢印キーで歩き、X で走る。立ち止まって E を押すと、VRoid のエモート(VRMA)を1回流して、表情付きで手を振る・ポーズを取る。流している間は画面の左下にクレジットが出る。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「VRMで遊ぶ」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>VRMで遊ぶ: 完成版(夜・Forward+・TAA・被写界深度・灯り 7 個)に入り、VRM のキャラを操作する。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>アバター: VRM ↔ キツネ(Day 51)。遊んでいる途中なら、その場でモデルとカプセルだけを差し替える</td></tr>
+<tr><td><code>F4</code></td><td>エモート: E で流すクリップを選ぶ(<code>assets/vrma/</code> の .vrma。7種セットを置いていれば最初は <code>VRMA_01</code>、無ければ <code>honya-wave</code>)</td></tr>
+<tr><td><code>F5</code></td><td>エモートを出す: E と同じ(立ち止まっているときだけ)</td></tr>
+<tr><td><code>F6</code></td><td>速さをクリップに合わせる: 合わせる(歩き 0.97・走り 2.36 m/s)↔ キツネの速さ(歩き 2.0・走り 5.0 m/s)。<strong>合わせないと足が滑る</strong></td></tr>
+<tr><td><code>F7</code></td><td>位相合わせ: 合わせる ↔ 合わせない(「移動のリターゲット」の F8 と同じスイッチ)</td></tr>
+<tr><td><code>F8</code></td><td>揺れもの: ON ↔ OFF(「VRMの揺れもの」と同じスイッチ)</td></tr>
+<tr><td><code>F9</code></td><td>まばたき: 自動 ↔ 止める(「VRMの表情」と同じスイッチ)</td></tr>
+<tr><td><code>F10</code></td><td>視線: VRMA のとおり → カメラを見る → 正面のまま(「VRMのアニメーション」の F6 と同じ)</td></tr>
+<tr><td><code>F11</code></td><td>内訳(アバター・カプセルの寸法・速さとしきい値・走りの足の滑り・エモートの候補)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(8 項目。遊ぶ前は 7 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「VRMで遊ぶ」(36 枚目)が直接開く。遊んでいる間の操作は Day 51 と同じ(矢印で歩く、X で走る、Space で跳ぶ、マウスのドラッグで回り、ホイールで寄る)に、<strong>E のエモート</strong>が1つ増えた。Day 51 の「プレイアブルデモ」と Day 56 の「完成版で遊ぶ」も、最後に選んだアバターで入る。</p>
+
+<figure class="lab" id="emote-lab">
+  <div class="lab-head">
+    <h3>実験台: 移動のクリップの上にエモートを重ねる</h3>
+    <span class="tag">要点3〜4。横軸は E を押してからの秒数。上の帯がクリップの重み(移動 = 灰、エモート = 青)、下の線がエモートのクリップを読む時刻。式は VrmAvatar.EmoteEnvelope / LayerEmote と AnimationPlayer.Duration と同じ形</span>
+  </div>
+  <canvas id="emote-canvas" style="height:300px" aria-label="エモートの重みと、エモートを読む時刻の時間変化"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">エモート</span>
+      <div class="seg" id="emote-clip">
+        <button data-v="4" aria-pressed="true">honya-wave(4.0 秒)</button><button data-v="11.8" aria-pressed="false">VRMA_01(11.8 秒)</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">歩き出す(エモートをやめる)</span><div class="range"><input type="range" id="emote-cancel" min="0" max="12" step="0.1" value="12"><output id="emote-cancel-out"></output></div></div>
+    <div class="ctl"><span class="label">エモートの時刻</span>
+      <div class="seg" id="emote-own">
+        <button data-v="own" aria-pressed="true">位相の外(自分の時刻)</button><button data-v="sync" aria-pressed="false">位相の中(Day 42 のまま)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="emote-stats"></div><p id="emote-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「速さはクリップが決め、カプセルがそれに従う」</strong>。Day 51 のキツネは、歩き 2.0・走り 5.0 m/s という<strong>ゲームの側で決めた速さ</strong>を、そのままブレンド木のしきい値にしていた(キツネのクリップは根の移動を持たず、足が滑らない速さを測れないから)。今日は向きが逆で、Day 73a で測った「足が滑らない速さ」(歩き 0.97・走り 2.36 m/s)を、<strong>カプセルの歩きと走りの速さ</strong>にする。その速さちょうどで歩きだけ・走りだけが流れるので、足は床に止まる。</p>
+<p><strong>2つ目は「エモートは移動の上に重ねる層」</strong>。エモートを流している間も、移動の木は毎フレーム重みを決めている。その重みを (1 − e) 倍に縮め、空いた e をエモートが埋める。e は頭の 0.3 秒で 0 → 1、終わりの 0.3 秒で 1 → 0 になるので、移動からエモートへ・エモートから移動へ、どちらも混ぜながら移る。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// VrmAvatar.PlayBlend(Day 73b)
+e        = EmoteEnvelope(エモートの時刻, 長さ, 0.3)        // 0 → 1 → 1 → 0
+重み     = 移動の重み x (1 - e) + エモート x e               // LayerEmote。合計は 1 のまま
+Animation.SetOwnTime(エモート, true)                         // エモートだけ位相の外で、自分の頭から流す</code></pre></div>
+<p><strong>3つ目は「エモートだけ位相の外に出す」</strong>。移動のクリップは位相を合わせて混ぜている(Day 42)。同じプレイヤーにエモートを足すと、エモートも「位相 x 長さ」の時刻で読まれ、頭から流れない(手を振る途中から始まる)。位相合わせを丸ごと切ると、今度は歩きと走りの足がずれる。そこで <code>AnimationPlayer</code> に「このクリップだけは自分の時刻で回し、周期にも数えない」という口(<code>SetOwnTime</code>)を開けた。</p>
+
+<h3 id="s3">今日は VrmAvatar の層と、AnimationPlayer の口</h3>
+<p>新規ファイルは無い。変更は <code>AnimationPlayer</code>(位相の外のクリップ)、<code>VrmAvatar</code>(エモートの層)、<code>InputMap</code>(<code>GameAction.Emote</code> と E の割り当て)、そして <code>Program.cs</code>(デモに VRM を立たせる、カプセルの寸法と速さ、エモートの合図、クレジット、追従カメラの構え)。</p>
+<p><strong>キャラを描く道は1行も変わっていない</strong>。<code>RenderVrm</code>・影パス・速度バッファへの記録は Day 68〜72 のまま、置き場所の行列(<code>VrmPlacement</code>)がカプセルの足元を返すようになっただけで、裏通りの夜の灯り・プローブGI・TAA・セルルックの仕上げ(Day 72)がそのまま効く。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li>Day 51 の計画書(カプセルが体を運び、モデルは見た目だけ。置き場所の「足元合わせ → 倍率 → 向き → 位置」、カプセルをモデルに合わせる、追従カメラ)— 今日はこの形にキツネの代わりに VRM を入れる</li>
+<li>Day 73a の計画書(要点4: 足が滑らない速さ = ファイルの速さ x 腰の高さの比、要点5: 位相合わせ)</li>
+<li>Day 42 の計画書(位相同期とブレンド)と Day 71 の計画書(要点7: クリップの切り替えでは位相同期を切る)— 今日の「位相の外」は、この2つを同じプレイヤーで両立させるための口</li>
+<li>Day 45 の計画書(入力の表と、Space の横取り)— E も同じ形で横取りする</li>
+<li><a href="https://vroid.booth.pm/items/5512385">VRMアニメーション7種セット</a> の利用条件 — クレジットの表記(「キャラクターアニメーション: ピクシブ株式会社 VRoidプロジェクト」)が必須。流している間は画面に出す</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. 差し替えるのは「置き場所」と「カプセル」だけ</h3>
+<p>Day 51 のデモは、<strong>カプセル(当たり判定)とモデル(見た目)が別物</strong>という作りだった。2つを結ぶのは「足元と向きから世界行列を作る」「速さを木に渡す」「モデルの寸法をカプセルに合わせる」の3本だけで、逆向きの矢印は無い。だから差し替えるのも、この3本の相手だけでよい。</p>
+<div class="table-wrap"><table><thead><tr><th>結ぶ道</th><th>Day 51(キツネ)</th><th>Day 73b(VRM)</th></tr></thead><tbody>
+<tr><td>置く</td><td><code>PlayableDemo.Transform</code> = 足元合わせ x 倍率 x 向き x 位置</td><td><code>VrmPlacement</code> = 足元合わせ x 向き x 位置(VRM は m で書かれているので倍率は無い)</td></tr>
+<tr><td>混ぜる</td><td>カプセルの速さ → キツネの木(しきい値 2.0 / 5.0)</td><td>カプセルの速さ → 73a の木(しきい値 0.97 / 2.36)。<strong>カプセルの速さもこのしきい値</strong>(要点2)</td></tr>
+<tr><td>合わせる</td><td>今のポーズの箱から全高 0.70m・半径 0.19m</td><td><strong>idle の姿勢の箱</strong>から全高 1.564m・半径 0.138m</td></tr>
+</tbody></table></div>
+<p>寸法は <strong>idle の姿勢で測る</strong>(Day 51 の「今のポーズで測る」と同じ理由)。VRM 1.0 は T ポーズで書き出すので、ファイルの箱は腕を広げた横幅 1.37m を持つ。腕を下ろした idle なら 0.51m で、足元の水平の中心も体の真ん中になる。測るのは別の <code>AnimationPlayer</code> で、表示中の姿勢には触らない。</p>
+<p>VRM 1.0 の正面は +Z で、<code>CharacterController.FacingYaw</code> も「+Z を Y まわりに回した向き」(速度から <code>atan2(x, z)</code>)なので、向きはそのまま渡せる。</p>
+
+<h3 id="s7">2. 速さの向きが逆になる — カプセルがクリップに従う</h3>
+<div class="table-wrap"><table><thead><tr><th></th><th>Day 51(キツネ)</th><th>Day 73b(VRM)</th></tr></thead><tbody>
+<tr><td>先に決まるもの</td><td>ゲームの速さ(歩き 2.0・走り 5.0 m/s)</td><td>クリップの速さ(73a で根の移動から測った 0.97・2.36 m/s)</td></tr>
+<tr><td>後から合わせるもの</td><td>木のしきい値</td><td>カプセルの歩きと走りの速さ</td></tr>
+<tr><td>なぜそうするか</td><td>キツネのクリップは根の移動を持たず、足が滑らない速さを測れない</td><td>測れるので、測った速さで運べば足が滑らない</td></tr>
+</tbody></table></div>
+<p>F6 で「キツネの速さ」にすると、カプセルは歩き 2.0・走り 5.0 m/s で進むのに、クリップは同じ歩幅のまま。歩きは木の上で走りと混ざって速歩きのように見え、走りは<strong>クリップの倍以上の速さで足が滑る</strong>(自己チェックで走りの足の滑りが -0.11 → 2.53 m/s)。</p>
+<figure class="lab" id="speed-lab">
+  <div class="lab-head">
+    <h3>実験台: カプセルの速さと、木が選ぶクリップと、足の滑り</h3>
+    <span class="tag">要点2。しきい値は代役をアバターに当てたときの値(idle 0、walk 0.97、run 2.36 m/s)。足の滑りは「運ぶ速さ - 混ぜたクリップの足が滑らない速さ」の目安</span>
+  </div>
+  <canvas id="speed-canvas" style="height:220px" aria-label="カプセルの速さ・木の重み・足の滑り"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">速さ(F6)</span>
+      <div class="seg" id="speed-match">
+        <button data-v="clip" aria-pressed="true">クリップに合わせる</button><button data-v="fox" aria-pressed="false">キツネの速さ</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">操作</span>
+      <div class="seg" id="speed-input">
+        <button data-v="stop" aria-pressed="false">止まる</button><button data-v="walk" aria-pressed="true">矢印(歩き)</button><button data-v="run" aria-pressed="false">矢印 + X(走り)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="speed-stats"></div><p id="speed-note"></p></div>
+</figure>
+
+<h3 id="s8">3. エモートは移動の上に重ねる</h3>
+<p>エモートの間も、移動の木は毎フレーム重みを出している。エモートの重みを e として、移動の重みを (1 − e) 倍に縮め、エモートを e で足す(<code>VrmAvatar.LayerEmote</code>)。合計は 1 のままなので、<code>SetBlend</code> がもう一度正規化しても何も変わらない。</p>
+<ul>
+<li><strong>重みの形</strong>(<code>EmoteEnvelope</code>)は、頭の 0.3 秒で 0 → 1、終わりの 0.3 秒で 1 → 0。抜け終わるのがちょうどクリップの終わりなので、AnimationPlayer がループの頭へ折り返す1フレームは重み 0 で見えない。<strong>VRMA はいつもループする</strong>(Day 71 の今日残した歪み2)が、それを直さずに「1回だけ流す」が作れた</li>
+<li><strong>途中でやめる</strong>(<code>StopEmote</code>)ときは、いまの重みから同じ速さ(0.3 秒で 1)で下げる。いきなり 0 にすると、挙げた腕が1フレームで下りる</li>
+<li><strong>表情も同じ重みで混ざる</strong>。Day 71 の <code>ApplyClipFace</code> は、混ぜているクリップの重みで表情を足し合わせるので、エモートが抜けていく間に笑顔も一緒に消える(コードは1行も足していない)</li>
+</ul>
+<p><strong>エモートは立ち止まっているときだけ出し、動き出したらやめる</strong>(速さ 0.3 m/s が境目)。VRoid の7種セットは体じゅう 52 本の骨のキーを持つので、歩きながら重ねると、エモートの重みの分だけ脚が歩きをやめ、カプセルだけが進んで足が滑る。上半身だけに重ねる(骨ごとのマスク)なら歩きながら手を振れるが、今日は作らない(改造課題3)。</p>
+
+<h3 id="s9">4. エモートだけ位相の外で回す</h3>
+<p>Day 42 の位相合わせは、混ぜているクリップ全部を「同じ 1 周のどこか」で読む。周期は重みで混ぜた長さ(<code>Duration</code>)で、時刻は <code>位相 x そのクリップの長さ</code>。歩きと走りにはこれが要る。ところがエモートを同じ表に足すと、2つ壊れる。</p>
+<ol>
+<li><strong>エモートが頭から流れない</strong>。読む時刻が「位相 x 4 秒」になり、エモートを始めた瞬間の位相(0〜1 のどこか)から始まる</li>
+<li><strong>歩調が変わる</strong>。周期にエモートの長さが混ざり、歩き 0.25 + 走り 0.25 + エモート 0.5 なら 0.90 秒が 2.45 秒に伸びる(エモートが入ってくる間だけ、脚がゆっくりになる)</li>
+</ol>
+<p>Day 71 の VRMA の切り替えは、位相合わせを丸ごと切って避けた(<code>SyncPhase = false</code>)。今日は歩きと走りの位相は合わせたまま、エモートだけを外に出したいので、<code>AnimationPlayer.SetOwnTime(clip, true)</code> を開けた。外に出したクリップはクリップごとの時刻(Day 71 の <code>_clipTimes</code>)で読み、周期にも数えない。<code>RestartClip</code> で頭へ戻せる。</p>
+
+<h3 id="s10">5. 入力は表を通す — E の横取り</h3>
+<p>エモートの合図はキーのイベントで直に出さず、<strong>入力の表(<code>InputMap</code>)に <code>GameAction.Emote</code> を足し、固定ステップが <code>InputSnapshot</code> 越しに読む</strong>(Day 18 の要点2、Day 45 のジャンプと同じ)。こうしておくと、Day 19 の入力の録画と再生(M / N)にもエモートが乗る。</p>
+<p>E は「実演用のテクスチャを同期で読む」に埋まっているので、Space(一時停止とジャンプ)と同じく、<code>OnKeyDown</code> が VRM のキャラで遊んでいる間だけ E を飲み込む。固定ステップは「押された」の印(<code>_vrmEmoteRequested</code>)を立てるだけで、エモートを流すのは可変 dt のアニメーションの側。押した瞬間は1ステップにしか乗らないので、印にして渡す。</p>
+
+<h3 id="s11">6. クレジットと、カメラの構え</h3>
+<p><strong>クレジットは HUD を消しても出す</strong>。7種セットの利用条件で、流している間の表記が必須。Day 71 は HUD の1行に出していたが、HUD(<code>;</code> で切り替える文字の表示)を消すと1文字も出なくなる。今日は、VRoid のクリップの重みが 0 より大きい間(入ってくる途中・抜ける途中も含む)、HUD とは別に画面の左下へ描く(<code>DrawVrmCredit</code>)。VRMビューアの床の上でも同じ。</p>
+<p><strong>追従カメラの構えはキャラの全高に比例させる</strong>。Day 51 の肩越しの構え(中: 距離 2.8m・注視点の高さ 0.52m)は 70cm のキツネに合わせた値で、1.56m の VRM にそのまま使うと、注視点が腰より低く、頭が画面の上から切れた。距離と高さに「全高 / キツネの全高」(2.23)を掛ければ、どのキャラでも同じ構図になる(仰角は比に関係しない)。</p>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">新規ファイル</h3>
+<p>無い。</p>
+
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Core/InputMap.cs</code></td><td><code>GameAction.Emote</code>(1ビット)と、E の割り当て</td><td>+10 / −0</td></tr>
+<tr><td><code>Model/AnimationPlayer.cs</code></td><td><code>_ownTimeClips</code>(位相の外のクリップ)、<code>Duration</code> で数えない、<code>SetOwnTime</code>、<code>TimeOf</code> で自分の時刻を読む、<code>RestartClip</code> の説明</td><td>+36 / −2</td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td>エモートのフィールドとプロパティ、<code>PlayBlend</code> で重ねる、<code>PlayEmote</code> / <code>StopEmote</code> / <code>ClearEmote</code> / <code>EmoteEnvelope</code> / <code>LayerEmote</code> / <code>AdvanceEmote</code>、<code>Play</code> でエモートを捨てる</td><td>+132 / −1</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、組み込み(<code>OnKeyDown</code>・<code>UpdateCharacter</code>・<code>VrmVisible</code>・毎フレームの守り3か所・<code>VrmPlacement</code>・<code>UpdateVrmAnimation</code>・<code>LoadAvatarModel</code>・<code>ShowPlayableDemo</code> の表示・<code>BuildPlayableWorld</code> から <code>ApplyPlayableAvatarSize</code> を切り出す・<code>ApplyShoulderPreset</code>・<code>HidePlayableDemo</code>・HUD・<code>RenderText</code>)、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数</td><td>+693 / −20</td></tr>
+<tr><td><code>Day73b.csproj</code></td><td><code>Day73a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p class="note"><code>Program.cs</code> の今日の関数は、遊べるまでの前半が約 270 行、内訳と自己チェックの後半が約 170 行。1日で重ければ、下の順番の <strong>6 まで</strong>(遊べるまで)と <strong>7</strong>(後半)で2回に分けるとよい。6 の (n) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+
+<h3 id="s15">写経する順番</h3>
+<p>依存の向きに沿って並べてある。この順に写せば、途中でビルドが通らない状態を作らずに済む。</p>
+<ol>
+<li><strong><code>Core/InputMap.cs</code>(変更)</strong> — <code>GameAction</code> の <code>Jump</code> の直後に <code>Emote = 1u &lt;&lt; 6</code>、<code>CreateDefault</code> の Space の割り当ての直後に E の割り当て</li>
+<li><strong><code>Model/AnimationPlayer.cs</code>(変更)</strong> — 順に、(a) <code>_blendCount</code> の直後に <code>_ownTimeClips</code>、(b) <code>Duration</code> のループの頭で位相の外のクリップを飛ばす、(c) <code>RestartClip</code> の説明の1行目(コメントのみ)、(d) <code>TimeOf</code> の手前に <code>SetOwnTime</code>、<code>TimeOf</code> の条件に <code>!_ownTimeClips.Contains(clip)</code></li>
+<li><strong><code>Model/VrmAvatar.cs</code>(変更)</strong> — 順に、(a) <code>_fade</code> の直後にエモートのフィールド4つ、(b) <code>FadeSeconds</code> の直後にプロパティ4つ(<code>EmoteClip</code> / <code>EmoteTime</code> / <code>EmoteWeight</code> / <code>EmoteFadeSeconds</code>)、(c) <code>PlayBlend</code> の本体を「重ねてから <code>SetBlend</code>」に、その直後に <code>PlayEmote</code> / <code>StopEmote</code> / <code>ClearEmote</code> / <code>EmoteEnvelope</code> / <code>LayerEmote</code> / <code>AdvanceEmote</code>、(d) <code>Play</code> の頭に <code>ClearEmote();</code>。2 の <code>SetOwnTime</code> を使う</li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 73a」のフィールド(<code>_vrmLocomotionSlideStep</code>)の直後に「Day 73b」の 9 個(<code>_vrmPlayable</code> から <code>_vrmPlayableAlign</code> まで)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunVrmLocomotionCheck</code> の直後(<code>CheckList</code> の手前)に、<code>VrmActive</code> / <code>VrmPlayableActive</code> / <code>StartVrmPlay</code> / <code>LoadVrmPlayable</code> / <code>MeasureVrmIdleBounds</code> / <code>VrmPlayableFit</code> / <code>VrmPlayablePlacement</code> / <code>VrmEmoteCandidates</code> / <code>DefaultVrmEmote</code> / <code>VrmEmoteName</code> / <code>UpdateVrmPlayable</code> / <code>ToggleVrmPlayableAvatar</code> / <code>VrmPlayableLabel</code> / <code>VrmCreditVisible</code> / <code>DrawVrmCredit</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — 順に、
+(a) <code>RenderText</code> の頭で <code>credit</code> を求めて早期リターンの条件を変え、<code>DrawOverlayInfo</code> を <code>_overlay != 0</code> のときだけにし、最後に <code>DrawVrmCredit</code>、
+(b) <code>DrawOverlayInfo</code> の「VRM」の段の直後に <code>VrmPlayableLabel()</code> の行(<code>if (VrmPlayableActive())</code> で包む)、
+(c) <code>UpdateCharacter</code> の <code>Character.Move(...)</code> の直後にエモートの合図、
+(d) <code>OnKeyDown</code> の <code>case Key.Space when _characterDemo:</code> の直後に <code>case Key.E when ...:</code>、
+(e) 構えの項目(「プレイアブルデモ」ページ)で、表示する距離と高さに <code>ShoulderScale()</code> を掛ける、
+(f) <code>ShowPlayableDemo</code> の「キャラクター ...」の表示を、キツネと VRM で出し分ける、
+(g) <code>HidePlayableDemo</code> の <code>_avatar = null;</code> の直後にエモートを捨てる2行、
+(h) <code>LoadAvatarModel</code> の頭に VRM の道、
+(i) <code>BuildPlayableWorld</code> のカプセルの段を <code>ApplyPlayableAvatarSize</code> に切り出して呼ぶ(速さの行が変わる)、
+(j) <code>ApplyShoulderPreset</code> に全高の比を掛け、直後に <code>ShoulderScale</code>、
+(k) <code>VrmVisible</code> に <code>|| VrmPlayableActive()</code>、<code>VrmPlacement</code> の頭に遊んでいるときの道、
+(l) <code>UpdateVrmFace</code>・<code>UpdateVrmSprings</code>・<code>UpdateVrmAnimation</code> の守り <code>!_vrmDemo</code> を <code>!VrmActive()</code> へ(3か所)、
+(m) <code>UpdateVrmAnimation</code> の <code>float dt = ...;</code> の直後に、遊んでいるときの道(73a の分かれ道より先)、
+(n) <code>BuildDebugMenu</code> の「移動のリターゲット」ページの直後(<code>return menu;</code> の手前)に「VRMで遊ぶ」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 7 で足す関数を指すので、分けて写すなら後回しにする)、
+(o) <code>RunDebugMenuCheck</code> の項目数を <strong>355 → 366</strong> へ</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 5 の続きに <code>DescribeVrmPlayable</code> / <code>RunVrmPlayableCheck</code></li>
+<li><strong><code>Day73b.csproj</code></strong> — <code>Day73a.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+<p class="note">6 の (h) と (i) は組で写す。(h) だけだと、VRM で入ったときに <code>BuildPlayableWorld</code> がキツネの寸法(<code>_avatar!</code>)を読みにいって止まる。(l) と (m) も組で写す。(l) だけだと、遊んでいる間に Day 71 の <code>UpdateAnimation</code> が回り、アバターが T ポーズで滑っていく。</p>
+</section>
+
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> の2本(<code>AnimationPlayer</code>・<code>VrmAvatar</code>)に口を開け、<code>Core/InputMap</code> に1ビット足し、残りは <code>Program</code> がデモの道具(カプセル・追従カメラ・入力)と VRM の道具(アバター・木・エモート)をつなぐ。</p>
+
+<h3 id="s17">誰が何を知っているか — VrmAvatar は操作を知らない</h3>
+<p>コメントを落としてから型名を拾って確かめた。</p>
+<div class="table-wrap"><table><thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Model/AnimationPlayer</code></td><td>今までどおり <code>Model</code> と <code>AnimationClip</code> と <code>ClipWeight</code>。今日増えたのは「このクリップは自分の時刻」という印だけ</td><td><strong>エモート・VRM</strong>。なぜ外に出すのかを知らない</td></tr>
+<tr><td><code>Model/VrmAvatar</code></td><td><code>AnimationPlayer</code> / <code>VrmAnimation</code> / <code>ClipWeight</code>。重みを受け取り、エモートを重ねて流す</td><td><strong><code>GameAction</code>・<code>CharacterController</code>・<code>BlendTree1D</code>・<code>MixamoClip</code></strong>。重みが速さから来たのか、エモートがキーから来たのかを知らない</td></tr>
+<tr><td><code>Core/InputMap</code></td><td>キーと <code>GameAction</code></td><td>エモートが何をするか</td></tr>
+<tr><td><code>Program</code></td><td>カプセルの速さを木に渡し、合図でエモートを始め、動いたらやめる。カプセルの寸法と速さを VRM に合わせる</td><td>エモートの重みの形と重ね方(全部 <code>VrmAvatar</code>)、位相の外の扱い(<code>AnimationPlayer</code>)</td></tr>
+</tbody></table></div>
+<p><strong>「動いたらやめる」は <code>Program</code> が決める</strong>。<code>VrmAvatar</code> は <code>StopEmote</code> を受けるだけで、何の速さで止めるかを知らない。移動中も上半身だけ重ねる(改造課題3)ように方針を変えるとき、変わるのは <code>Program</code> の判断と、重ね方(骨ごとのマスク)の2か所になる。</p>
+
+<h3 id="s18">1フレームの中の流れ — 固定ステップと可変 dt の受け渡し</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">固定ステップ: <code>UpdateCharacter</code> — カプセルを動かし(Day 45)、E が押されていれば印を立てる</div>
+    <div class="rw"><span>読む <b>InputSnapshot(押した瞬間)</b></span><span>書く <b>カプセルの位置・向き・速さ、<code>_vrmEmoteRequested</code></b></span></div>
+    <div class="swap">ここでエモートを流すと: 固定ステップが1フレームに0回・2回走るので、アニメーションの時刻が絵の時刻とずれる(Day 51 で「アニメは可変 dt」と決めた理由と同じ)</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">可変 dt: <code>UpdateVrmAnimation</code> → <code>UpdateVrmPlayable</code> — 印を下ろしてエモートを始める → 動いていたらやめる → 木で重み → <code>PlayBlend</code>(エモートを重ねて <code>SetBlend</code> → <code>Update</code>)</div>
+    <div class="rw"><span>読む <b>1 のカプセルの速さ</b></span><span>書く <b>全部のノードのローカル姿勢・関節行列・エモートの時刻と重み</b></span></div>
+    <div class="swap">「動いていたらやめる」を「始める」より前に置くと: 走りながら E を押したとき、始めたエモートを同じフレームで止めるので、0.3 秒だけ腕が動いて戻る(今は「動いている間は出さない」で先に断る)</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">表情(<code>UpdateVrmFace</code>。Day 69〜71)— まばたき → VRMA の表情(<code>ApplyClipFace</code>)</div>
+    <div class="rw"><span>読む <b>2 で混ぜたクリップの重み(エモートの重み)と時刻</b></span></div>
+    <div class="swap">2 より前に置くと: エモートを始めたフレームの表情が1フレーム前の重み(0)で読まれる。目には見えないが、抜けるときは1フレーム笑顔が残る</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">揺らす(<code>UpdateVrmSprings</code>。Day 70)— 置き場所はカプセルの足元(<code>VrmPlacement</code>)</div>
+    <div class="rw"><span>読む <b>2 の体と、1 のカプセルの位置と向き</b></span><span>書く <b>髪とスカートの骨・関節行列</b></span></div>
+    <div class="swap">Day 70 のまま。カプセルが進むと置き場所が動くので、走れば髪が後ろへなびく</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">描く(影パス・<code>RenderVrm</code>・速度バッファ)→ 文字(<code>RenderText</code>。クレジット)</div>
+    <div class="rw"><span>読む <b>4 で作り直した関節行列、2 の重み(クレジットを出すか)</b></span></div>
+    <div class="swap">Day 68〜72 のまま。TAA は速度バッファで歩いたキャラの動きを知る(Day 68 で「Day 73 で歩く」と書いておいた所)</div>
+  </div></li>
+</ol>
+
+<h3 id="s19">今日残した歪み</h3>
+<p><strong>1つ目: 跳んでいる間のクリップが無い</strong>。Space で跳ぶと、カプセルは跳ぶがアバターは idle か歩きのまま空中を上下する。跳ぶクリップ(Mixamo の Jump)を足し、<code>CharacterController.IsGrounded</code> で木の外から切り替えるのが次の段(Day 42 のステートマシン)。</p>
+<p><strong>2つ目: 跳ぶ高さと段差が背丈の比のまま</strong>。Day 51 の「全高 x 0.9 を跳ぶ・全高 x 0.35 の段差を上れる」をそのまま使ったので、1.56m のアバターは 1.4m 跳び、55cm の段差を上る。キツネの寸法を背丈で伸ばした値で、人には高すぎる。</p>
+<p><strong>3つ目: カプセルが細い</strong>。半径は idle の姿勢の細いほうの辺(前後の厚み)の半分で 0.138m。腕を振ると、壁に寄ったとき肘が壁にめり込んで見える(当たりは胴だけ。Day 51 と同じ割り切り)。</p>
+<p><strong>4つ目: エモートは立ち止まっているときだけ</strong>。体じゅうの骨を持つクリップを丸ごと重ねるので、歩きながらは出せない(改造課題3)。</p>
+<p><strong>5つ目: SSAO にキャラが入らない</strong>。Day 68 から残っている歪みで、ディファードの SSAO は G-Buffer から作り、キャラは G-Buffer に居ない。フォワード+ の今日のデモでも、キャラの足元に接地の暗がりが出ない(影は落ちる)。</p>
+<p><strong>6つ目: Day 51 の自己チェックはキツネで遊んでいるときに押す</strong>。キツネの寸法と木を検算するので、VRM で遊んでいる間に押すと「キャラクターが読み込まれている」が落ちる。<code>F3</code> でキツネにしてから押す。</p>
+
+<h3 id="s20">試して分かったこと</h3>
+<ul>
+<li><strong>カメラの構えはキツネの寸法だった</strong>。最初に VRM を立たせたら、追従カメラが近すぎて頭が画面の上から切れた。Day 51 の構えの表は 70cm のキツネに合わせた値で、全高の比を掛けたら Day 51 と同じ構図になった(距離 2.8m → 6.25m)。キツネに戻すと比は 1 で、Day 51 の絵のまま</li>
+<li><strong>位相の外が要ることは、自己チェックを書いて数字で分かった</strong>。エモートを外に出さないと、歩き 0.25 + 走り 0.25 + エモート 0.5 の周期が 0.90 秒から 2.45 秒に伸び、1 秒流したエモートの時刻が 1.63 秒になった(頭から流れていない)</li>
+<li><strong>VRMA はいつもループする(Day 71 の歪み)が、直さずに済んだ</strong>。重みの形の終わりを「クリップの終わりで 0」に合わせれば、ループの継ぎ目は重み 0 の1フレームに隠れる</li>
+<li><strong>クレジットは HUD の中に出しても足りない</strong>。HUD を消して撮った絵にクレジットが無かった。HUD とは別に描くようにした</li>
+<li><strong>キツネと VRM の差し替えは、カプセルの寸法と構えを合わせ直すだけで済んだ</strong>。世界(環境の当たり判定)を組み直さず、居る場所もそのまま</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day73b -c Release</code> で起動する。起動直後は Day 73a までの絵のまま。今日の主役は「VRMで遊ぶ」のページ(<code>Shift+F1</code> で直接開く)から。</p>
+
+<h3 id="s22">1. F2: VRM で歩き回る</h3>
+<ul>
+<li><code>F2</code> … 完成版の夜の裏通りに入り、キツネの居た場所に VRM のアバターが背中を向けて立つ。腕を下ろしてその場で息をする(idle)。コンソールに「キャラクター AvatarSample_A.vrm(VRM)全高 1.56m / 半径 0.14m / 歩き 0.97・走り 2.36 m/s / E でエモート」</li>
+<li>矢印キー … 歩く(0.97 m/s)。足元に土埃(Day 50)、髪とスカートが歩調に合わせて揺れる。カメラは背中から全身を入れて追う</li>
+<li>矢印 + X … 走る(2.36 m/s)。上体が前へ傾き、髪が後ろへなびく</li>
+<li>街灯の下を通ると、キャラにも灯りが当たる(Day 68 の「キャラに届く灯りを CPU で選ぶ」)。白い服は光ってにじまない(Day 72 のセルルックの仕上げ)</li>
+</ul>
+<p>HUD に1行増える。</p>
+<div class="code"><pre><code>VRMで遊ぶ:速さ 2.36 m/s(カプセル 歩き 0.97・走り 2.36)  honya-run 1.00  エモート:-  E で VRMA_01  カプセル 1.56m 半径 0.14m</code></pre></div>
+
+<h3 id="s23">2. E: エモート</h3>
+<ul>
+<li>立ち止まって E … 0.3 秒で選んであるエモートに移り、最後まで流れて 0.3 秒で idle に戻る。7種セットを置いていれば最初は <code>VRMA_01</code>(11.8 秒)。画面の左下にクレジットが出る(HUD を <code>;</code> で消しても出る)</li>
+<li><code>F4</code> で <code>honya-wave</code> にして E … 手を振って笑う(表情も同じ重みで入って抜ける)</li>
+<li>エモートの途中で矢印 … 0.3 秒で抜けて歩きに戻る</li>
+<li>歩きながら E … 何も起きず、コンソールに「動いている間は出さない」</li>
+</ul>
+
+<h3 id="s24">3. F3 / F6: アバターと速さ</h3>
+<ul>
+<li><code>F3</code> … その場でキツネに変わる(カプセルが 0.70m に縮み、カメラが寄る)。もう一度押すと VRM に戻る</li>
+<li><code>F6</code>(キツネの速さ)… 歩きが速歩きになり(歩きと走りが混ざる)、走りでは足が床の上を大きく滑る。戻すと止まる</li>
+</ul>
+
+<h3 id="s25">4. Day 73a までの機能が全部生きていること</h3>
+<p><code>AnimationPlayer</code> と <code>VrmAvatar</code> を変えたので、Day 42(アニメのブレンド)・Day 71(VRMのアニメーション)・Day 73a(移動のリターゲット)の自己チェックが通ること。Day 51 のプレイアブルデモの自己チェックが、キツネで遊んでいるときに通ること。Day 48 の割り当て表(366 項目)が通ること。「VRMビューア」のページへ移ると、デモは下ろされて床の上に戻る。</p>
+
+<h3 id="s26">5. F12: 自己チェック(遊んでいる間は 8 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 73b 自己チェック(E の割り当て・エモートの重ね方・位相の外・置き場所・カプセルの寸法と速さ)===
+  [OK] E はエモートだけに割り当てる(ほかの操作と重ならない1ビット。エモートを持つ鍵は E の1つ)  E → Emote / エモートを持つ鍵 1 個
+  [OK] エモートの重みは頭の 0.3 秒で入り、終わりの 0.3 秒で抜ける(4 秒のクリップで 0 / 0.5 / 1 / 1 / 0.5 / 0。抜け終わるのがちょうど終わり)  0.00 / 0.50 / 1.00 / 1.00 / 0.50 / 0.00
+  [OK] エモートは移動の重みを (1 - e) 倍に縮めて重ねる(歩き 0.6 + 走り 0.4 に e = 0.25 で 0.45 + 0.30 + 0.25。合計は 1 のまま。e = 0 なら移動のまま)  0.45 + 0.30 + 0.25 = 1.00 / e = 0 で 2 本
+  [OK] エモートは位相の外で、自分の頭から流れる(1 秒流すと 1.00 秒。周期は歩きと走りだけの 0.90 秒、2本の位相はそろったまま。外に出さないと周期が 2.45 秒に伸び、エモートは位相 x 4 秒の時刻で読まれる)  外に出す: エモート 1.00秒 / 周期 0.90秒 / 位相 歩き 0.111 走り 0.111  出さない: エモート 1.63秒 / 周期 2.45秒
+  [OK] 足元の中心がカプセルの足元に来て、正面(+Z)がカプセルの向きを向く(向きは CharacterController と同じ atan2(x, z) で読み戻せる)  足元のずれ 0.000mm / 向き 0.7000 rad(カプセル 0.7000)
+  [OK] カプセルは idle の姿勢で測る(全高は 1.4〜1.8m、半径は 0.12m 以上で直径 < 全高。腕を下ろしたぶん、横幅は T ポーズの半分以下)  全高 1.564m / 半径 0.138m / 横幅 idle 0.51m・T ポーズ 1.37m
+  [OK] カプセルの歩きと走りの速さは木のしきい値(その速さで歩きだけ・走りだけが流れ、走りの足はほぼ止まる。キツネの速さ 5.0 m/s のままだと走りで足が大きく滑る)  歩き 0.97・走り 2.36 m/s / 走りの足の滑り -0.11 m/s(キツネの速さなら 2.53 m/s)
+  [OK] 遊んでいるカプセルが、測った寸法と速さになっている  全高 1.564m 半径 0.138m / 歩き 0.97・走り 2.36 m/s
+  すべて合格(E の割り当て・エモートの重ね方・位相の外・置き場所・カプセルの寸法と速さが仕様どおり)</code></pre></div>
+<p>1〜3 は式と表だけを呼ぶ。4 は代役の walk・run と honya-wave を読み直して別の <code>AnimationPlayer</code> で回す。5 は行列だけ、6〜7 はアバターの <code>Model</code> を借りて別のプレイヤーで測る。8 は VRM で遊んでいるときだけ並ぶ(遊ぶ前に押すと 7 項目)。<strong>表示中の姿勢には触らない</strong>ので、遊んでいる最中に押しても絵は止まらない。</p>
+
+<h3 id="s27">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>エモート: クリップ</td><td><code>F4</code>(honya-wave / VRMA_01)</td></tr>
+<tr><td>エモート: 歩き出す</td><td>エモートの途中で矢印キー</td></tr>
+<tr><td>エモート: 位相の中</td><td>実機に対応するキーは無い(<code>VrmAvatar.PlayEmote</code> の <code>SetOwnTime</code> の行を消すと見られる)</td></tr>
+<tr><td>速さ: クリップに合わせる / キツネの速さ</td><td><code>F6</code></td></tr>
+<tr><td>速さ: 操作</td><td>矢印キー、矢印 + X</td></tr>
+</tbody></table></div>
+<p class="note">実験台は動作イメージで、実機の数字(自己チェック)とは合わせていない。</p>
+</section>
+
+<section class="part"><h2 id="s28">改造課題</h2>
+
+<h3 id="s29">課題1(易): エモートを Q で選び直す</h3>
+<p>いまは <code>F4</code>(メニュー)で選ぶ。<code>GameAction.EmoteNext</code> を足して Q に割り当て、<code>UpdateCharacter</code> で印を立て、<code>UpdateVrmPlayable</code> で <code>VrmEmoteCandidates</code> の次へ進める。Q も「実演用のテクスチャを非同期で読む」に埋まっているので、E と同じく <code>OnKeyDown</code> で横取りする。入力の録画(M)と再生(N)で、選び直しまで再現されることを確かめる。</p>
+
+<h3 id="s30">課題2(中): 跳んでいる間は idle の上に「跳び」のポーズを重ねる</h3>
+<p>今日残した歪みの1つ目。Mixamo の Jump(か、腰を少し沈めて膝を曲げた1コマのポーズを <code>make_honya_locomotion.py</code> で作ったもの)を <code>assets/mixamo/</code> に足して読み、<code>Character.IsGrounded</code> が false の間だけ、エモートと同じ重ね方(<code>LayerEmote</code>)で 0.15 秒で入れて、着地で抜く。重ねる仕組みは今日のエモートの層がそのまま使える(ただしエモートと同時には重ねられないので、層を2本にするか、跳んでいる間はエモートをやめる)。</p>
+
+<h3 id="s31">課題3(難): 歩きながら手を振る — 骨ごとのマスク</h3>
+<p>今日残した歪みの4つ目。エモートの重みを骨ごとに変える。<code>AnimationPlayer.Evaluate</code> は「クリップごとに全部のノードへ同じ重み」で足し込んでいるので、<code>SetBlend</code> とは別に「クリップ i を、ノード n には重み x m[n] で足す」マスクの表を渡せるようにする。マスクは <code>spine</code> から上(<code>chest</code>・<code>upperChest</code>・<code>neck</code>・<code>head</code>・両腕と指)を 1、腰と脚を 0。腰の回転を 0 にすると、エモートの上半身のひねりが腰の向きに付いてこないので、<code>spine</code> だけ 0.5 にするとつながりが自然になる。歩きながら <code>honya-wave</code> を流し、脚は歩き・腕は手を振るになれば完成。そのうえで「動いたらやめる」を外す。</p>
+</section>
+
+<section class="part"><h2 id="s32">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)。移動用クリップ: <code>assets/mixamo/</code> の代役3本(Mixamo の本物では確かめていない)。エモート: <code>assets/vrma/</code> の honya-wave・test と、各自で置く VRoid の7種セット(手元に置いて確かめた)</p>
+<p>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック(遊ぶ前 7 項目・VRM で遊んでいる最中 8 項目)、Day 42・51(キツネに戻してから)・71・73a の自己チェック、Day 48 の割り当て表(366 項目)、完成版の裏通りで撮った絵(立つ・歩く・走る・VRMA_01 のエモート・HUD を消したクレジット・歩き出してエモートをやめる・キツネに差し替え・VRM に戻す)</p>
+
+<h3 id="s33">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>検証の途中で開発機が落ちた</strong>(停電)。電源が戻ってから同じ台本で走らせ直し、最後まで通った。落ちた回のコンソールの記録は、書き込みの途中だったのですべて NUL になっていた。ソースとリポジトリは無事だった</li>
+<li><strong>VRMA_01 は 11.8 秒ある</strong>。7種セットは見せ用の長い動きなので、エモートとして流すと止まっている時間が長い。途中で歩き出せばやめられるので困らないが、短いエモートが欲しければ <code>honya-wave</code>(4 秒)を選ぶ</li>
+<li><strong>コンソールに「〜」を出すと化ける</strong>(CP932)。表示の文字列では使わない(Day 69〜73a と同じ)</li>
+</ul>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat } = Lab;
+
+// ============================================================
+//  実験台1: 移動のクリップの上にエモートを重ねる
+// ============================================================
+// VrmAvatar.EmoteEnvelope と同じ形。途中でやめたら、その時の重みから 0.3 秒で 1 の速さで下げる(StopEmote)。
+const FADE = 0.3;
+const envelope = (t, d) => Math.max(0, Math.min(1, t / FADE, (d - t) / FADE));
+const emote = { duration: 4, cancel: 12, own: 'own', now: 0 };
+seg('emote-clip', (v) => { emote.duration = Number(v); emote.now = 0; drawEmote(); });
+seg('emote-own', (v) => { emote.own = v; drawEmote(); });
+$('emote-cancel').addEventListener('input', (ev) => { emote.cancel = Number(ev.target.value); emote.now = 0; drawEmote(); });
+
+// 1 本の時間軸を 1/60 秒ずつ回し、重みと「エモートを読む時刻」を並べる。
+// 移動は idle だけ(長さ 4.0 秒)。位相の中なら、周期は idle とエモートの重みで混ぜた長さ、読む時刻は 位相 x エモートの長さ。
+function simulate() {
+  const dt = 1 / 60, steps = Math.ceil(14 / dt);
+  const out = [];
+  let limit = 1, weight = 0, phase = 0.37, own = 0, ended = false;  // 位相はエモートを始める前の、どこか途中から
+  for (let i = 0; i <= steps; i++) {
+    const t = i * dt;
+    if (!ended) {
+      if (t >= emote.cancel) limit = Math.min(limit, weight) - dt / FADE;
+      weight = Math.max(0, Math.min(envelope(t, emote.duration), limit));
+      if (t >= emote.duration || (t >= emote.cancel && weight <= 0)) { ended = true; weight = 0; }
+    }
+    const duration = emote.own === 'own' ? 4.0 : (4.0 * (1 - weight) + emote.duration * weight);
+    phase = (phase + dt / duration) % 1;
+    own += dt;
+    const read = ended ? null : (emote.own === 'own' ? own : phase * emote.duration);
+    out.push({ t, weight, read });
+  }
+  return out;
+}
+
+function drawEmote() {
+  $('emote-cancel-out').textContent = emote.cancel >= 12 ? 'しない' : emote.cancel.toFixed(1) + ' 秒';
+  const data = simulate();
+  const { ctx, w, h } = fit($('emote-canvas'));
+  const x0 = 40, x1 = w - 12, T = 13;
+  const X = (t) => x0 + (x1 - x0) * t / T;
+  const bandTop = 18, bandH = 90, lineTop = 140, lineH = h - lineTop - 30;
+
+  // 上: 重みの帯(移動 = 灰、エモート = 青)
+  for (let i = 0; i < data.length - 1; i++) {
+    const a = data[i];
+    if (a.t > T) break;
+    const xa = X(a.t), xb = X(data[i + 1].t) + 0.5;
+    ctx.fillStyle = tok('--line'); ctx.fillRect(xa, bandTop, xb - xa, bandH);
+    ctx.fillStyle = tok('--accent'); ctx.fillRect(xa, bandTop + bandH * (1 - a.weight), xb - xa, bandH * a.weight);
+  }
+  ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body');
+  ctx.fillText('重み(青 = エモート、灰 = 移動)', x0, bandTop - 4);
+
+  // 下: エモートを読む時刻(正しくは 45 度の直線 = 自分の頭から)
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(X(0), lineTop + lineH); ctx.lineTo(X(Math.min(emote.duration, T)), lineTop + lineH - lineH * Math.min(emote.duration, T) / 12); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 2; ctx.beginPath();
+  let started = false;
+  for (const d of data) {
+    if (d.t > T || d.read === null) { started = false; continue; }
+    const y = lineTop + lineH - lineH * Math.min(d.read, 12) / 12;
+    if (!started) { ctx.moveTo(X(d.t), y); started = true; } else ctx.lineTo(X(d.t), y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = tok('--ink'); ctx.fillText('エモートを読む時刻(点線 = 頭から流したときの正解)', x0, lineTop - 6);
+
+  // 時間の目盛りと「いま」
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (let s = 0; s <= T; s += 2) ctx.fillText(s + 's', X(s) - 6, h - 8);
+  const now = Math.min(emote.now, T);
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(X(now), bandTop); ctx.lineTo(X(now), lineTop + lineH); ctx.stroke();
+
+  const cur = data[Math.min(data.length - 1, Math.round(now * 60))];
+  $('emote-stats').innerHTML =
+    stat('いま', now.toFixed(2) + ' 秒') +
+    stat('重み', '移動 ' + (1 - cur.weight).toFixed(2) + ' + エモート ' + cur.weight.toFixed(2)) +
+    stat('エモートを読む時刻', cur.read === null ? '-' : cur.read.toFixed(2) + ' 秒');
+  let note;
+  if (emote.own === 'sync') note = '位相の中に置くと、エモートは「位相 x 長さ」の時刻で読まれる。始めた瞬間の位相(ここでは 0.37)の途中から始まり、周期にもエモートの長さが混ざって、読む速さが重みと一緒に変わる(線が点線から外れる)。';
+  else if (emote.cancel < emote.duration) note = '途中で歩き出すと、その時の重みから 0.3 秒で抜けて移動に戻る。形の続き(終わりの 0.3 秒)を待たない。';
+  else note = '位相の外なら、エモートは自分の頭から流れる(線が点線に重なる)。重みは頭の 0.3 秒で入り、終わりの 0.3 秒で抜け、抜け終わるのがちょうどクリップの終わり。ループの継ぎ目は重み 0 に隠れる。';
+  $('emote-note').textContent = note;
+}
+
+if (reduceMotion) { emote.now = 2; drawEmote(); }
+else Lab.animate($('emote-canvas'), (dt) => { emote.now = (emote.now + dt) % 13; drawEmote(); });
+drawEmote();
+
+// ============================================================
+//  実験台2: カプセルの速さと、木が選ぶクリップと、足の滑り
+// ============================================================
+const TREE = [
+  { name: 'idle', speed: 0.0, color: '--muted' },
+  { name: 'walk', speed: 0.97, color: '--accent' },
+  { name: 'run', speed: 2.36, color: '--warn' },
+];
+function evaluate(v) {
+  if (v <= 0) return [[0, 1]];
+  if (v >= TREE[2].speed) return [[2, 1]];
+  const upper = v < TREE[1].speed ? 1 : 2;
+  const a = TREE[upper - 1], b = TREE[upper];
+  const t = (v - a.speed) / (b.speed - a.speed);
+  return [[upper - 1, 1 - t], [upper, t]];
+}
+const speed = { match: 'clip', input: 'walk' };
+seg('speed-match', (v) => { speed.match = v; drawSpeed(); });
+seg('speed-input', (v) => { speed.input = v; drawSpeed(); });
+
+function drawSpeed() {
+  const walkSpeed = speed.match === 'clip' ? TREE[1].speed : 2.0;
+  const runSpeed = speed.match === 'clip' ? TREE[2].speed : 5.0;
+  const v = speed.input === 'stop' ? 0 : speed.input === 'walk' ? walkSpeed : runSpeed;
+  const weights = evaluate(v);
+  const clipSpeed = weights.reduce((s, [i, wt]) => s + TREE[i].speed * wt, 0);   // 混ぜたクリップの足が滑らない速さ(目安)
+  const slip = v - clipSpeed;
+
+  const { ctx, w, h } = fit($('speed-canvas'));
+  const x0 = 30, x1 = w - 20, vmax = 5.5;
+  const X = (s) => x0 + (x1 - x0) * s / vmax;
+  const axisY = 60;
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x0, axisY); ctx.lineTo(x1, axisY); ctx.stroke();
+  ctx.font = '12px ' + tok('--font-mono');
+  for (const p of TREE) {
+    ctx.fillStyle = tok(p.color);
+    ctx.beginPath(); ctx.arc(X(p.speed), axisY, 6, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillText(p.name + ' ' + p.speed.toFixed(2), X(p.speed) - 16, axisY - 14);
+  }
+  // カプセルの速さ(▼)と、足が滑らない速さ(●)。間の線が滑り
+  ctx.strokeStyle = tok('--warn'); ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(X(clipSpeed), axisY + 34); ctx.lineTo(X(v), axisY + 34); ctx.stroke();
+  ctx.fillStyle = tok('--ink');
+  ctx.beginPath(); ctx.moveTo(X(v) - 7, axisY + 18); ctx.lineTo(X(v) + 7, axisY + 18); ctx.lineTo(X(v), axisY + 28); ctx.closePath(); ctx.fill();
+  ctx.fillText('カプセル ' + v.toFixed(2), X(v) - 30, axisY + 54);
+  ctx.fillStyle = tok('--accent');
+  ctx.beginPath(); ctx.arc(X(clipSpeed), axisY + 34, 5, 0, 2 * Math.PI); ctx.fill();
+
+  // 重みの棒
+  TREE.forEach((p, i) => {
+    const wt = (weights.find(([j]) => j === i) || [i, 0])[1];
+    const y = 130 + i * 26;
+    ctx.fillStyle = tok('--line'); ctx.fillRect(x0 + 50, y, (x1 - x0) * 0.5, 16);
+    ctx.fillStyle = tok(p.color); ctx.fillRect(x0 + 50, y, (x1 - x0) * 0.5 * wt, 16);
+    ctx.fillStyle = tok('--ink'); ctx.fillText(p.name + ' ' + wt.toFixed(2), x0, y + 13);
+  });
+
+  $('speed-stats').innerHTML =
+    stat('カプセルの速さ', v.toFixed(2) + ' m/s') +
+    stat('木の重み', weights.map(([i, wt]) => TREE[i].name + ' ' + wt.toFixed(2)).join(' + ')) +
+    stat('足の滑り(目安)', (slip >= 0 ? '+' : '') + slip.toFixed(2) + ' m/s');
+  $('speed-note').textContent = speed.match === 'clip'
+    ? 'カプセルの速さを木のしきい値に合わせると、歩きでは歩きだけ、走りでは走りだけが流れ、運ぶ速さとクリップの足が滑らない速さが一致する(滑り 0)。'
+    : 'キツネの速さのままだと、歩き(2.0 m/s)は木の上で走りと混ざり、走り(5.0 m/s)は木の端(2.36)を越えて走りだけになる。クリップは同じ歩幅のまま、カプセルだけが速く進むので、足が前へ引きずられる。';
+}
+drawSpeed();
+})();
+</script>
+</body>
+</html>
