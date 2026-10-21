@@ -1,0 +1,670 @@
+using System.Numerics;
+using System.Text.Json;
+using Silk.NET.OpenGL;
+
+namespace HonyaEngine;
+
+/// <summary>
+/// **VRM 1.0 のアバター1体**(Day 68)。中身は glTF の <see cref="Model"/> に、
+/// <c>VRMC_vrm</c> 拡張の2つ——<b>メタ情報</b>(誰のアバターで、何に使ってよいか)と
+/// <b>ヒューマノイド</b>(どのノードが腰で、どれが左手か)——を足したもの。
+///
+/// <para>
+/// <b>VRM は glTF そのもの</b>。拡張子が .vrm なだけで、中身は glb で、拡張を知らないローダーでも
+/// メッシュ・マテリアル(PBR の値)・スキンまでは読める。VRM が足しているのは「人型であること」の約束で、
+/// ヒューマノイドのボーンの表があるから、Day 71 で<b>別のアバター用に作ったアニメーションを当てられる</b>
+/// (ボーン名で書かれた動きを、このアバターのノード番号へ引き直すだけで済む)。
+/// </para>
+///
+/// <para>
+/// <b>VRM 0.x は読まない</b>。0.x は拡張の名前(<c>VRM</c>)も、座標の向き(-Z 向き)も、
+/// マテリアルの持ち方(MToon の値を文字列のキーで持つ)も 1.0 と違う。VRoid Hub に上がっているファイルの多くは 0.x なので、
+/// 読めないときは何で書き出し直せばよいかを知らせて止める。
+/// </para>
+///
+/// <para>
+/// 今日はまだ動かさないので、姿勢はファイルのまま(VRM 1.0 は T ポーズで書き出す決まり)。
+/// それでも <see cref="AnimationPlayer"/> を持っておくのは、関節行列とノードの世界行列を作るのが彼の仕事だから。
+/// Day 69 で表情、Day 70 で揺れもの、Day 71 でアニメーションがここに増えていく。
+/// </para>
+///
+/// <para>
+/// <b>Day 69 で足したもの</b>。表情(<see cref="Expressions"/>)と、それをモーフとマテリアルへ流す <see cref="UpdateFace"/>。
+/// 表情は「どのモーフを・どの色を動かすか」を番号で書いているので、Model を読み終えてから引き直す。
+/// </para>
+///
+/// <para>
+/// <b>Day 70 で足したもの</b>。揺れもの(<see cref="SpringBone"/>)と、姿勢に揺れを書き足す <see cref="UpdateSprings"/>。
+/// 揺れものは <c>VRMC_vrm</c> の中ではなく、<b>隣の拡張 <c>VRMC_springBone</c></b> に入っている(揺れないアバターは持たない)。
+/// </para>
+///
+/// <para>
+/// <b>Day 71 で足したもの</b>。視線(<see cref="LookAt"/>)と、VRM アニメーション(.vrma)のクリップ。
+/// VRMA は別のファイルなので、読んだものを <see cref="AddClip"/> で自分のノードへ写して持つ。体は <see cref="Animation"/> が流し、
+/// 表情と視線は同じ時刻で読み出す(<see cref="ApplyClipFace"/> / <see cref="TryClipLookAt"/>)。
+/// </para>
+/// </summary>
+internal sealed class VrmAvatar : IDisposable
+{
+    /// <summary>
+    /// **VRM 1.0 で必ず割り当てる 15 本**。仕様の humanoid.md の表で「Required」とあるもの。
+    /// 胸(chest)や首(neck)は任意で、無いアバターもありうる——アニメーションを当てる側は、無い骨を親へ寄せて扱う。
+    /// </summary>
+    public static readonly string[] RequiredBones =
+    [
+        "hips", "spine", "head",
+        "leftUpperLeg", "leftLowerLeg", "leftFoot",
+        "rightUpperLeg", "rightLowerLeg", "rightFoot",
+        "leftUpperArm", "leftLowerArm", "leftHand",
+        "rightUpperArm", "rightLowerArm", "rightHand",
+    ];
+
+    /// <summary>
+    /// **骨の親子の約束**(子 → 親)。必須の骨どうしだけ。ノードの木の上で、子の骨の祖先に親の骨が居なければならない
+    /// (間に任意の骨や VRM の外のノードが挟まってもよい)。自己チェックが木を登って確かめる。
+    /// </summary>
+    public static readonly (string Child, string Parent)[] RequiredHierarchy =
+    [
+        ("spine", "hips"), ("head", "spine"),
+        ("leftUpperLeg", "hips"), ("leftLowerLeg", "leftUpperLeg"), ("leftFoot", "leftLowerLeg"),
+        ("rightUpperLeg", "hips"), ("rightLowerLeg", "rightUpperLeg"), ("rightFoot", "rightLowerLeg"),
+        ("leftUpperArm", "spine"), ("leftLowerArm", "leftUpperArm"), ("leftHand", "leftLowerArm"),
+        ("rightUpperArm", "spine"), ("rightLowerArm", "rightUpperArm"), ("rightHand", "rightLowerArm"),
+    ];
+
+    /// <summary>
+    /// **メタ情報**。VRM 1.0 の <c>meta</c>。名前・作者と、<b>利用条件</b>(アバターとして使ってよい人・商用・再配布・改変・クレジット)。
+    ///
+    /// <para>
+    /// 利用条件がファイルの中に入っているのが VRM の特徴で、アプリはこれを読んで表示する(あるいは使わせない)責任を負う。
+    /// 今日のアバターは VRoid Studio で書き出したとき、ここが既定の「作者のみ・再配布禁止」のままだった
+    /// (書き出し直して VRoid Hub の利用条件に揃えた。計画書の素材の節)。
+    /// </para>
+    /// </summary>
+    internal sealed record Meta(
+        string Name,
+        string[] Authors,
+        string LicenseUrl,
+        string AvatarPermission,
+        string CommercialUsage,
+        string CreditNotation,
+        bool AllowRedistribution,
+        string Modification);
+
+    private VrmAvatar(
+        Model model,
+        string specVersion,
+        Meta meta,
+        IReadOnlyDictionary<string, int> humanBones,
+        VrmExpressions expressions,
+        VrmSpringBone springBone,
+        VrmLookAt lookAt)
+    {
+        Model = model;
+        SpecVersion = specVersion;
+        Info = meta;
+        HumanBones = humanBones;
+        Expressions = expressions;
+        SpringBone = springBone;
+        LookAt = lookAt;
+
+        // **クリップの表は自分で持つ**(Day 71)。モデルのクリップ(VRM は持たない)ではなく、VRMA を写したものを流す。
+        // **位相同期は切る**。Day 42 の歩きと走りは「1周のどこか」をそろえて混ぜたが、VRMA どうしは別々の動き。
+        // 切り替えるときは、出ていくクリップは途中のまま、入ってくるクリップは頭から流したい(Play)。
+        Animation = new AnimationPlayer(model, _clips) { SyncPhase = false };
+    }
+
+    /// <summary>VRMA を写したクリップ(<see cref="Animation"/> が流す表)。<see cref="_animations"/> と同じ並び。</summary>
+    private readonly List<AnimationClip> _clips = [];
+
+    /// <summary>読んだ VRMA(写す前の、ファイルのままのもの)。</summary>
+    private readonly List<VrmAnimation> _animations = [];
+
+    /// <summary>VRMA の表情をクリップの重みで混ぜるための作業場。</summary>
+    private readonly Dictionary<string, float> _faceScratch = [];
+
+    private int _currentClip = -1;
+    private int _previousClip = -1;
+    private float _fade = 1.0f;
+
+    // --- エモート(Day 73b)---
+    private int _emote = -1;
+    private float _emoteTime;
+    private float _emoteLimit = 1.0f;
+    private bool _emoteReleasing;
+
+    /// <summary>メッシュ・マテリアル・スキン。glTF として読んだぶん。</summary>
+    public Model Model { get; }
+
+    /// <summary>関節行列とノードの世界行列。Day 71 から、VRMA を写したクリップ(<see cref="Clips"/>)も流す。</summary>
+    public AnimationPlayer Animation { get; }
+
+    /// <summary><c>VRMC_vrm.specVersion</c>。"1.0" のはず。</summary>
+    public string SpecVersion { get; }
+
+    /// <summary>メタ情報(名前・作者・利用条件)。</summary>
+    public Meta Info { get; }
+
+    /// <summary>
+    /// **ヒューマノイドの骨 → ノード番号**。<c>humanoid.humanBones</c> をそのまま写したもの。
+    /// 名前は仕様の表の名前(<c>hips</c>・<c>leftUpperArm</c> など)で、ノードの名前(<c>J_Bip_C_Hips</c>)とは別物。
+    /// <b>ノードの名前はツールごとに違う</b>ので、人型として扱うときは必ずこの表を通す。
+    /// </summary>
+    public IReadOnlyDictionary<string, int> HumanBones { get; }
+
+    /// <summary>
+    /// **表情**(Day 69)。重みを書いて <see cref="UpdateFace"/> を呼ぶと、顔のモーフとマテリアルが動く。
+    /// </summary>
+    public VrmExpressions Expressions { get; }
+
+    /// <summary>
+    /// **揺れもの**(Day 70)。体を動かしてから <see cref="UpdateSprings"/> を呼ぶと、髪・胸・フードの骨が遅れてついて来る。
+    /// </summary>
+    public VrmSpringBone SpringBone { get; }
+
+    /// <summary>
+    /// **視線**(Day 71)。見たい角度を渡すと、目の骨を回す。
+    /// </summary>
+    public VrmLookAt LookAt { get; }
+
+    /// <summary>読んだ VRMA(Day 71)。番号は <see cref="Play"/> に渡す番号と同じ。</summary>
+    public IReadOnlyList<VrmAnimation> Clips => _animations;
+
+    /// <summary>流しているクリップ。-1 ならファイルの姿勢(T ポーズ)。</summary>
+    public int CurrentClip => _currentClip;
+
+    /// <summary>出ていく途中のクリップ。切り替えが済んでいれば -1。</summary>
+    public int PreviousClip => _fade < 1.0f ? _previousClip : -1;
+
+    /// <summary>切り替えの進み(0 → 1)。</summary>
+    public float Fade => _fade;
+
+    /// <summary>切り替えにかける秒数。0 なら即座。</summary>
+    public float FadeSeconds { get; private set; }
+
+    /// <summary>流しているエモート(<see cref="Clips"/> の番号)。-1 なら流していない(Day 73b)。</summary>
+    public int EmoteClip => _emote;
+
+    /// <summary>エモートの頭からの秒数(Day 73b。HUD 用)。</summary>
+    public float EmoteTime => _emoteTime;
+
+    /// <summary>最後のフレームのエモートの重み(Day 73b)。入ってくる間と抜ける間は 0 と 1 の途中。</summary>
+    public float EmoteWeight { get; private set; }
+
+    /// <summary>エモートが入ってくる秒数と抜ける秒数(Day 73b)。</summary>
+    public float EmoteFadeSeconds { get; private set; } = 0.3f;
+
+    /// <summary>MToon で描くマテリアルの数(HUD 用)。</summary>
+    public int MToonMaterialCount => Model.Materials.Count(material => material.MToon is not null);
+
+    /// <summary>
+    /// **読む**。glTF として <see cref="GltfLoader.Load"/> で読み、JSON をもう一度開いて <c>VRMC_vrm</c> を読む。
+    /// VRM 1.0 でなければ例外にする(何で書き出し直せばよいかを添える)。
+    /// </summary>
+    public static VrmAvatar Load(GL gl, RenderResources resources, string path, Handle<Shader> shader)
+    {
+        // **先に拡張を確かめる**。0.x のファイルを Model として読んでから断ると、18MB 分のテクスチャを無駄に上げることになる。
+        string specVersion;
+        Meta meta;
+        Dictionary<string, int> bones;
+        JsonElement expressions;
+        JsonElement springBone;
+        JsonElement lookAt;
+
+        using (JsonDocument json = GltfLoader.ReadJson(path))
+        {
+            JsonElement root = json.RootElement;
+            JsonElement extensions = root.TryGetProperty("extensions", out JsonElement e) ? e : default;
+
+            if (extensions.ValueKind != JsonValueKind.Object
+                || !extensions.TryGetProperty("VRMC_vrm", out JsonElement vrm))
+            {
+                string hint = extensions.ValueKind == JsonValueKind.Object && extensions.TryGetProperty("VRM", out _)
+                    ? "VRM 0.x のファイルです。VRoid Studio(v1.20 以降)で開き、VRM 1.0 で書き出し直してください"
+                    : "VRMC_vrm 拡張がありません(VRM ではない glTF です)";
+                throw new InvalidDataException($"{Path.GetFileName(path)}: {hint}");
+            }
+
+            specVersion = Text(vrm, "specVersion", "?");
+            meta = ReadMeta(vrm.TryGetProperty("meta", out JsonElement m) ? m : default);
+            bones = ReadHumanBones(vrm);
+
+            // **表情は Model を読んでからでないと引けない**(モーフとマテリアルを番号で名指ししている)。
+            // JSON の文書はここで閉じるので、表情の部分だけ写しを取っておく(Clone は文書から切り離した写しを作る)。
+            expressions = vrm.TryGetProperty("expressions", out JsonElement ex) ? ex.Clone() : default;
+
+            // **揺れものも Model を読んでから**(ノードを番号で指している)。こちらは VRMC_vrm の隣の拡張。
+            springBone = extensions.TryGetProperty("VRMC_springBone", out JsonElement sb) ? sb.Clone() : default;
+
+            // **視線は VRMC_vrm の中**。目の骨の休みの回転を読むので、これも Model を読んでから。
+            lookAt = vrm.TryGetProperty("lookAt", out JsonElement la) ? la.Clone() : default;
+        }
+
+        Model model = GltfLoader.Load(gl, resources, path, shader);
+        return new VrmAvatar(
+            model,
+            specVersion,
+            meta,
+            bones,
+            VrmExpressions.Read(expressions, model),
+            VrmSpringBone.Read(springBone, model),
+            VrmLookAt.Read(lookAt, model, bones));
+    }
+
+    /// <summary>
+    /// **表情を顔へ流す**(Day 69)。表情の重み → モーフの重みとマテリアルの値 → 頂点の合成と GPU への転送。
+    /// 毎フレーム呼んでよい(重みが前のフレームと同じモーフは送らない)。戻り値は頂点を送ったモーフの数。
+    ///
+    /// <para>
+    /// <b>描く前、影パスより前に呼ぶ</b>。影パスは同じ Mesh を使うので、後から書き換えると影だけ1フレーム前の顔になる。
+    /// </para>
+    /// </summary>
+    public int UpdateFace()
+    {
+        Expressions.Update();
+
+        int uploaded = 0;
+        foreach (MorphTargets morph in Model.Morphs)
+        {
+            if (morph.Apply())
+            {
+                uploaded++;
+            }
+        }
+
+        return uploaded;
+    }
+
+    /// <summary>
+    /// **姿勢に揺れを書き足す**(Day 70)。<see cref="Animation"/> で体の姿勢を決めた<b>あと</b>に呼ぶ。
+    /// <paramref name="placement"/> は描くときと同じ置き場所の行列(揺れは置いた先の世界で計算する)。
+    ///
+    /// <para>
+    /// <b>描く前、影パスより前に呼ぶ</b>(表情の <see cref="UpdateFace"/> と同じ理由)。関節行列を作り直すのはここなので、
+    /// 後ろへずらすと、影と速度バッファが1フレーム前の髪で描かれる。
+    /// </para>
+    /// </summary>
+    public void UpdateSprings(float deltaSeconds, Matrix4x4 placement) =>
+        SpringBone.Update(Animation, placement, deltaSeconds);
+
+    /// <summary>
+    /// **VRMA を足す**(Day 71)。自分のノードへ写したクリップを作って表に足し、番号を返す。
+    /// </summary>
+    public int AddClip(VrmAnimation animation)
+    {
+        _animations.Add(animation);
+        _clips.Add(animation.CreateClip(Model, HumanBones));
+        return _clips.Count - 1;
+    }
+
+    /// <summary>
+    /// **写し方を変えて作り直す**(Day 71。見比べ用)。番号は変わらないので、流しているクリップはそのまま新しい写し方で動く。
+    /// </summary>
+    public void RetargetClips(bool normalize, bool scaleHips)
+    {
+        for (int i = 0; i < _animations.Count; i++)
+        {
+            _clips[i] = _animations[i].CreateClip(Model, HumanBones, normalize, scaleHips);
+        }
+    }
+
+    /// <summary>
+    /// **クリップを差し替える**(Day 73a)。番号はそのまま。Mixamo のクリップを「根の移動を抜く / 残す」で読み直したときや、
+    /// 代役から Mixamo のファイルへ持ち替えたときに使う。今の写し方(正規化・腰の縮尺)で写す。
+    /// </summary>
+    public void ReplaceClip(int index, VrmAnimation animation, bool normalize = true, bool scaleHips = true)
+    {
+        _animations[index] = animation;
+        _clips[index] = animation.CreateClip(Model, HumanBones, normalize, scaleHips);
+    }
+
+    /// <summary>
+    /// **速さで混ぜたクリップを流す**(Day 73a。毎フレーム)。<see cref="UpdateAnimation"/> の代わりに呼ぶ。
+    ///
+    /// <para>
+    /// 重みはブレンド木(Day 42 の <see cref="BlendTree1D"/>)が決めて渡す。<b>位相は合わせる</b>(<paramref name="syncPhase"/>)——
+    /// 歩きの 1.1 秒と走りの 0.7 秒を別々に回すと、混ぜている間に左右の足の順番がずれて、脚が 4 本あるように見える(Day 42 の要点)。
+    /// <see cref="Play"/> で選んだクリップは止める(戻るときは <see cref="Play"/> で選び直す)。
+    /// </para>
+    /// </summary>
+    public void PlayBlend(ReadOnlySpan<ClipWeight> weights, float deltaSeconds, bool syncPhase = true)
+    {
+        _currentClip = -1;
+        _previousClip = -1;
+        _fade = 1.0f;
+
+        // **エモートを上に重ねる**(Day 73b)。移動の重みを (1 - e) 倍に縮め、空いた分をエモートが e で埋める。
+        Span<ClipWeight> layered = stackalloc ClipWeight[AnimationPlayer.MaxBlendClips];
+        int count = LayerEmote(weights, _emote, AdvanceEmote(deltaSeconds), layered);
+
+        Animation.SyncPhase = syncPhase;
+        Animation.SetBlend(layered[..count]);
+        Animation.Update(deltaSeconds);
+    }
+
+    /// <summary>
+    /// **エモートを1回流す**(Day 73b)。移動のクリップの上に <paramref name="fadeSeconds"/> で入ってきて、
+    /// 終わりの <paramref name="fadeSeconds"/> で抜けていく。<see cref="PlayBlend"/> の中で重なる。
+    ///
+    /// <para>
+    /// <b>エモートは位相の外で流す</b>(<see cref="AnimationPlayer.SetOwnTime"/>)。移動のクリップは位相を合わせて混ぜているので、
+    /// そのままエモートを足すと「位相 x エモートの長さ」の時刻で読まれ、頭から流れない(手を振る途中から始まる)。
+    /// </para>
+    /// </summary>
+    public void PlayEmote(int clip, float fadeSeconds)
+    {
+        ClearEmote();
+
+        _emote = clip;
+        _emoteTime = 0.0f;
+        _emoteLimit = 1.0f;
+        _emoteReleasing = false;
+        EmoteFadeSeconds = fadeSeconds;
+
+        Animation.SetOwnTime(clip, true);
+        Animation.RestartClip(clip);
+    }
+
+    /// <summary>
+    /// **エモートを途中でやめる**(Day 73b)。いまの重みから <see cref="EmoteFadeSeconds"/> で抜く(歩き出したときなど)。
+    /// いきなり 0 にすると、手を挙げた腕が1フレームで下りる。
+    /// </summary>
+    public void StopEmote() => _emoteReleasing = _emote >= 0;
+
+    /// <summary>エモートをすぐに捨てる(混ぜずに)。ページを移るときなど、続きを見せる相手が居ないとき。</summary>
+    public void ClearEmote()
+    {
+        if (_emote >= 0)
+        {
+            Animation.SetOwnTime(_emote, false);
+        }
+
+        _emote = -1;
+        EmoteWeight = 0.0f;
+    }
+
+    /// <summary>
+    /// **エモートの重みの形**(Day 73b)。頭の <paramref name="fadeSeconds"/> で 0 → 1、終わりの <paramref name="fadeSeconds"/> で 1 → 0。
+    /// 抜け終わるのがちょうどクリップの終わりなので、ループの継ぎ目(頭の姿勢へ戻る1フレーム)は重み 0 で見えない。
+    /// </summary>
+    public static float EmoteEnvelope(float time, float duration, float fadeSeconds)
+    {
+        float fade = MathF.Max(fadeSeconds, 1e-4f);
+        return Math.Clamp(MathF.Min(time / fade, (duration - time) / fade), 0.0f, 1.0f);
+    }
+
+    /// <summary>
+    /// **移動の重みの上にエモートを重ねる**(Day 73b)。移動の重みは (1 - <paramref name="weight"/>) 倍、エモートは <paramref name="weight"/>。
+    /// 合計は元のまま 1。<paramref name="emote"/> が -1 か重みが 0 なら、移動の重みをそのまま写す。書いた本数を返す。
+    /// </summary>
+    public static int LayerEmote(ReadOnlySpan<ClipWeight> below, int emote, float weight, Span<ClipWeight> destination)
+    {
+        bool layered = emote >= 0 && weight > 0.0f;
+        int count = 0;
+
+        foreach (ClipWeight entry in below)
+        {
+            // 重ねる側と同じ番号が下にあれば(移動のクリップをエモートに選んだときなど)、下の分は捨てる。
+            if (count < destination.Length - (layered ? 1 : 0) && !(layered && entry.Clip == emote))
+            {
+                destination[count++] = new ClipWeight(entry.Clip, layered ? entry.Weight * (1.0f - weight) : entry.Weight);
+            }
+        }
+
+        if (layered)
+        {
+            destination[count++] = new ClipWeight(emote, weight);
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// エモートの時刻を進めて、いまの重みを返す。終わったら(抜け終わったら)位相の内へ戻して -1 にする。
+    /// </summary>
+    private float AdvanceEmote(float deltaSeconds)
+    {
+        if (_emote < 0)
+        {
+            return 0.0f;
+        }
+
+        _emoteTime += deltaSeconds;
+
+        // 途中でやめたときは、いまの重みから同じ速さで下げる(形の続きは使わない)。
+        if (_emoteReleasing)
+        {
+            _emoteLimit = MathF.Min(_emoteLimit, EmoteWeight) - (deltaSeconds / MathF.Max(EmoteFadeSeconds, 1e-4f));
+        }
+
+        float duration = _clips[_emote].Duration;
+        EmoteWeight = MathF.Max(0.0f, MathF.Min(EmoteEnvelope(_emoteTime, duration, EmoteFadeSeconds), _emoteLimit));
+
+        if (_emoteTime >= duration || (_emoteReleasing && EmoteWeight <= 0.0f))
+        {
+            ClearEmote();
+        }
+
+        return EmoteWeight;
+    }
+
+    /// <summary>
+    /// **クリップを切り替える**(Day 71)。-1 ならファイルの姿勢へ戻す。
+    /// <paramref name="fadeSeconds"/> が 0 より大きく、前にもクリップが流れていれば、その秒数で混ぜながら移る(Day 42 のクロスフェード)。
+    /// 入ってくるクリップは頭から流す。
+    /// </summary>
+    public void Play(int clip, float fadeSeconds)
+    {
+        // エモートは移動の上に重ねるもの(Day 73b)。1本を選んで流す Day 71 の道に移るなら、重ねる相手が居ない。
+        ClearEmote();
+
+        if (clip == _currentClip)
+        {
+            return;
+        }
+
+        Animation.RestartClip(clip);
+
+        bool crossFade = fadeSeconds > 0.0f && _currentClip >= 0 && clip >= 0;
+        _previousClip = crossFade ? _currentClip : -1;
+        _fade = crossFade ? 0.0f : 1.0f;
+        _currentClip = clip;
+        FadeSeconds = fadeSeconds;
+    }
+
+    /// <summary>
+    /// **体の姿勢を進める**(Day 71。毎フレーム)。切り替えの重みを決めて <see cref="Animation"/> に渡し、時刻を進める。
+    /// Day 70 までの <c>Animation.Update</c> の代わり——クリップが無ければファイルの姿勢のまま。
+    /// </summary>
+    public void UpdateAnimation(float deltaSeconds)
+    {
+        if (_fade < 1.0f)
+        {
+            _fade = MathF.Min(1.0f, _fade + (deltaSeconds / MathF.Max(FadeSeconds, 1e-4f)));
+        }
+
+        Span<ClipWeight> blend = stackalloc ClipWeight[2];
+        int count = 0;
+
+        // **重み 0 で書かない**(SetBlend は 0 の項を捨てる。Day 42 の AnimationStateMachine と同じ注意)。
+        if (_fade < 1.0f && _previousClip >= 0)
+        {
+            blend[count++] = new ClipWeight(_previousClip, 1.0f - _fade);
+        }
+
+        if (_currentClip >= 0)
+        {
+            blend[count++] = new ClipWeight(_currentClip, MathF.Max(_fade, 1e-3f));
+        }
+
+        // **位相は合わせない**(Day 73a で <see cref="PlayBlend"/> が立てるので、ここで戻す)。
+        // クロスフェードの入ってくるクリップは頭から流したいので、クリップごとの時刻で回す。
+        Animation.SyncPhase = false;
+        Animation.SetBlend(blend[..count]);
+        Animation.Update(deltaSeconds);
+    }
+
+    /// <summary>
+    /// **VRMA の表情を書く**(Day 71)。流しているクリップの時刻で表情のキーを読み、クリップの重みで混ぜて <see cref="Expressions"/> へ書く。
+    /// キーを持たない表情には触らない(メニューや自動まばたきが書いた値のまま)。<see cref="UpdateFace"/> の前に呼ぶ。
+    /// 戻り値は書いた表情の数。
+    /// </summary>
+    public int ApplyClipFace()
+    {
+        _faceScratch.Clear();
+
+        foreach (ClipWeight entry in Animation.Blend)
+        {
+            VrmAnimation animation = _animations[entry.Clip];
+            float time = Animation.ClipTime(entry.Clip);
+
+            foreach (string name in animation.Expressions.Keys)
+            {
+                // 片方のクリップにしか無い表情は、無いほうを 0 として混ぜる(出ていくクリップの笑顔は、出ていくのに合わせて消える)。
+                _faceScratch[name] = _faceScratch.GetValueOrDefault(name) + (entry.Weight * (animation.SampleExpression(name, time) ?? 0.0f));
+            }
+        }
+
+        foreach ((string name, float weight) in _faceScratch)
+        {
+            Expressions.SetWeight(name, weight);
+        }
+
+        return _faceScratch.Count;
+    }
+
+    /// <summary>
+    /// **VRMA の視線を読む**(Day 71。度)。視線のキーを持つクリップの値を、クリップの重みで混ぜる。どれも持たなければ false。
+    /// </summary>
+    public bool TryClipLookAt(out float yaw, out float pitch)
+    {
+        yaw = 0.0f;
+        pitch = 0.0f;
+        float total = 0.0f;
+
+        foreach (ClipWeight entry in Animation.Blend)
+        {
+            if (_animations[entry.Clip].TrySampleLookAt(Animation.ClipTime(entry.Clip), out float y, out float p))
+            {
+                yaw += y * entry.Weight;
+                pitch += p * entry.Weight;
+                total += entry.Weight;
+            }
+        }
+
+        if (total <= 0.0f)
+        {
+            return false;
+        }
+
+        yaw /= total;
+        pitch /= total;
+        return true;
+    }
+
+    /// <summary>
+    /// 骨のノード番号。割り当てられていなければ -1(任意の骨は無いことがある)。
+    /// </summary>
+    public int BoneNode(string bone) => HumanBones.TryGetValue(bone, out int node) ? node : -1;
+
+    /// <summary>
+    /// **骨の世界の位置**。<paramref name="placement"/> はアバターを置く行列(足元をどこに立たせるか)。
+    /// 「顔に寄る」カメラが <c>head</c> を引くのに使う——ノードの名前ではなく骨の名前で引けるのがヒューマノイドの値打ち。
+    /// </summary>
+    public Vector3 BonePosition(string bone, Matrix4x4 placement)
+    {
+        int node = BoneNode(bone);
+        if (node < 0)
+        {
+            return placement.Translation;
+        }
+
+        return (Animation.GetNodeWorld(node) * placement).Translation;
+    }
+
+    /// <summary>
+    /// **ノード <paramref name="node"/> の祖先に <paramref name="ancestor"/> が居るか**。
+    /// 骨の親子の約束(<see cref="RequiredHierarchy"/>)を確かめるのに使う。
+    /// </summary>
+    public bool IsAncestor(int ancestor, int node)
+    {
+        for (int current = Model.Nodes[node].Parent; current >= 0; current = Model.Nodes[current].Parent)
+        {
+            if (current == ancestor)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// パーツに送る関節行列。スキンを持たないパーツは空(受け取った側は uSkinned = 0)。
+    /// </summary>
+    public ReadOnlySpan<Matrix4x4> PartJoints(in Model.Part part) =>
+        part.SkinIndex >= 0 ? Animation.GetJointMatrices(part.SkinIndex) : default;
+
+    /// <summary>
+    /// パーツを置く行列。スキン付きは単位行列(位置は関節行列が持つ)なので、置き場所の行列だけになる。
+    /// VRoid のアバターは3つのメッシュが全部スキン付き。
+    /// </summary>
+    public static Matrix4x4 PartMatrix(in Model.Part part, Matrix4x4 placement) =>
+        part.Transform * placement;
+
+    public void Dispose()
+    {
+        // プレイヤーは GPU のものを握っていないので、モデルだけ畳めばよい(Program.SetModel のコメント)。
+        Model.Dispose();
+    }
+
+    private static Meta ReadMeta(JsonElement meta)
+    {
+        string[] authors = meta.ValueKind == JsonValueKind.Object
+            && meta.TryGetProperty("authors", out JsonElement list)
+            && list.ValueKind == JsonValueKind.Array
+                ? list.EnumerateArray().Select(author => author.GetString() ?? "?").ToArray()
+                : [];
+
+        // **省略されたときの値は、仕様が決めた「いちばん厳しい側」**。書いていない許可は、許可していないものとして読む。
+        return new Meta(
+            Text(meta, "name", "?"),
+            authors,
+            Text(meta, "licenseUrl", "?"),
+            Text(meta, "avatarPermission", "onlyAuthor"),
+            Text(meta, "commercialUsage", "personalNonProfit"),
+            Text(meta, "creditNotation", "required"),
+            meta.ValueKind == JsonValueKind.Object
+                && meta.TryGetProperty("allowRedistribution", out JsonElement r)
+                && r.ValueKind == JsonValueKind.True,
+            Text(meta, "modification", "prohibited"));
+    }
+
+    private static Dictionary<string, int> ReadHumanBones(JsonElement vrm)
+    {
+        var bones = new Dictionary<string, int>();
+
+        if (vrm.TryGetProperty("humanoid", out JsonElement humanoid)
+            && humanoid.TryGetProperty("humanBones", out JsonElement humanBones)
+            && humanBones.ValueKind == JsonValueKind.Object)
+        {
+            // **1.0 は「骨の名前 → {node}」の辞書**。0.x は配列で、要素の中に bone と node を持っていた。
+            foreach (JsonProperty bone in humanBones.EnumerateObject())
+            {
+                if (bone.Value.TryGetProperty("node", out JsonElement node) && node.ValueKind == JsonValueKind.Number)
+                {
+                    bones[bone.Name] = node.GetInt32();
+                }
+            }
+        }
+
+        return bones;
+    }
+
+    private static string Text(JsonElement owner, string name, string fallback) =>
+        owner.ValueKind == JsonValueKind.Object
+        && owner.TryGetProperty(name, out JsonElement value)
+        && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? fallback
+            : fallback;
+}
