@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 73a 移動のリターゲット</title>
+<link rel="stylesheet" href="../site/doc.css">
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model の1本と、VrmAnimation の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. Mixamo のクリップは「ヒューマノイドの名前を持たない骨の木」</a></li><li class="l3"><a href="#s7">2. 表さえあれば Day 71 の道 — cm も正規化が吸収する</a></li><li class="l3"><a href="#s8">3. 根の移動 — 時刻に比例して進んだ分を抜く</a></li><li class="l3"><a href="#s9">4. 足が滑らない速さ — ファイルの速さ x 腰の高さの比</a></li><li class="l3"><a href="#s10">5. 速さで混ぜる — Day 42 の木と位相合わせ</a></li><li class="l3"><a href="#s11">6. 前提: ファイルの休みの姿勢は T ポーズ</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">MixamoClip は VRMA の手前に立つだけ</a></li><li class="l3"><a href="#s18">根の移動を抜くのは読み込みのとき — 毎フレーム取り出さない理由</a></li><li class="l3"><a href="#s19">1フレームの中の移動 — 順番がそのまま設計</a></li><li class="l3"><a href="#s20">今日残した歪み</a></li><li class="l3"><a href="#s21">試して分かったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. F2 / F4: 速さで混ぜる</a></li><li class="l3"><a href="#s24">2. F6 / F7: 円を歩いて、足を見る</a></li><li class="l3"><a href="#s25">3. F5 / F8 / F9: 抜くもの・合わせるもの・写し方</a></li><li class="l3"><a href="#s26">4. F3: Mixamo のファイルで確かめる</a></li><li class="l3"><a href="#s27">5. Day 72 までの機能が全部生きていること</a></li><li class="l3"><a href="#s28">6. F12: 自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): しきい値を脚の長さの比で決める</a></li><li class="l3"><a href="#s32">課題2(中): 抜いた直線の向きを「前」にする</a></li><li class="l3"><a href="#s33">課題3(難): ルートモーションで運ぶ</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 73a / 計画書</p>
+  <h1>移動のリターゲット — Mixamo の idle・walk・run を VRM の骨へ写し、足が滑らない速さで混ぜる</h1>
+  <p class="lede">骨の名前の表を作れば、あとは Day 71 の正規化のまま。前へ進む歩きから根の移動を抜き、抜いた傾きをブレンド木のしきい値にする</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol><li class="l2"><a href="#s1">今日のゴール</a></li><li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li><li class="l3"><a href="#s3">今日は Model の1本と、VrmAnimation の口</a></li><li class="l2"><a href="#s4">事前に読む資料</a></li><li class="l2"><a href="#s5">理論の要点</a></li><li class="l3"><a href="#s6">1. Mixamo のクリップは「ヒューマノイドの名前を持たない骨の木」</a></li><li class="l3"><a href="#s7">2. 表さえあれば Day 71 の道 — cm も正規化が吸収する</a></li><li class="l3"><a href="#s8">3. 根の移動 — 時刻に比例して進んだ分を抜く</a></li><li class="l3"><a href="#s9">4. 足が滑らない速さ — ファイルの速さ x 腰の高さの比</a></li><li class="l3"><a href="#s10">5. 速さで混ぜる — Day 42 の木と位相合わせ</a></li><li class="l3"><a href="#s11">6. 前提: ファイルの休みの姿勢は T ポーズ</a></li><li class="l2"><a href="#s12">前Dayからの差分概要</a></li><li class="l3"><a href="#s13">新規ファイル</a></li><li class="l3"><a href="#s14">変更ファイル</a></li><li class="l3"><a href="#s15">写経する順番</a></li><li class="l2"><a href="#s16">設計書</a></li><li class="l3"><a href="#s17">MixamoClip は VRMA の手前に立つだけ</a></li><li class="l3"><a href="#s18">根の移動を抜くのは読み込みのとき — 毎フレーム取り出さない理由</a></li><li class="l3"><a href="#s19">1フレームの中の移動 — 順番がそのまま設計</a></li><li class="l3"><a href="#s20">今日残した歪み</a></li><li class="l3"><a href="#s21">試して分かったこと</a></li><li class="l2"><a href="#s22">完成条件</a></li><li class="l3"><a href="#s23">1. F2 / F4: 速さで混ぜる</a></li><li class="l3"><a href="#s24">2. F6 / F7: 円を歩いて、足を見る</a></li><li class="l3"><a href="#s25">3. F5 / F8 / F9: 抜くもの・合わせるもの・写し方</a></li><li class="l3"><a href="#s26">4. F3: Mixamo のファイルで確かめる</a></li><li class="l3"><a href="#s27">5. Day 72 までの機能が全部生きていること</a></li><li class="l3"><a href="#s28">6. F12: 自己チェック(10 項目すべて合格)</a></li><li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li><li class="l2"><a href="#s30">改造課題</a></li><li class="l3"><a href="#s31">課題1(易): しきい値を脚の長さの比で決める</a></li><li class="l3"><a href="#s32">課題2(中): 抜いた直線の向きを「前」にする</a></li><li class="l3"><a href="#s33">課題3(難): ルートモーションで運ぶ</a></li><li class="l2"><a href="#s34">動作確認済み環境</a></li><li class="l3"><a href="#s35">検証の途中で分かったこと</a></li></ol></nav>
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 71 でアバターは VRMA(<code>.vrma</code>)で動くようになった。ただし VRoid の7種セットは挨拶やピースのような見せ用の動きで、<strong>歩き・走りのループが無い</strong>。デモでキャラを歩かせるには、移動用のクリップを別に持ってくる必要がある。定番は Adobe の Mixamo で、idle・walk・run がそろっている。</p>
+<p>Mixamo のクリップは VRMA ではない。骨の名前は <code>mixamorig:LeftArm</code> のようにツールの名前で、どれが VRM の <code>leftUpperArm</code> かを書いた表を持たない。単位は cm で、配布は FBX だけ。そして歩きのクリップは、その場で足踏みせずに<strong>前へ進む</strong>。今日はこの3つの違いを埋めて、VRMビューアの床の上で、アバターを速さに応じて立ち止まらせ・歩かせ・走らせる。デモのキャラを差し替えるのは Day 73b。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「移動のリターゲット」ページで <code>F2</code> を押すと、VRMビューアが出てアバターがその場で息をし(idle)、<code>F4</code> で速さを上げると歩き、さらに上げると走る。<code>F6</code> で床の上を円く歩かせると、接地した足が床の上で止まって見える。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「移動のリターゲット」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>移動クリップ: 流す ↔ 止める(Day 71 のページで選んでいたクリップに戻す)。速さで idle・walk・run を混ぜる。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>素材: 代役(<code>honya-*.glb</code>。リポジトリに入っている)↔ Mixamo(各自で入手して glb に直したもの。無ければ入手のしかたを出して代役に戻る)</td></tr>
+<tr><td><code>F4</code></td><td>速さ: 止まる → 歩きの速さ → 歩きと走りの間 → 走りの速さ → 上げ下げ(10 秒で止まる → 走る → 止まる)</td></tr>
+<tr><td><code>F5</code></td><td>根の移動: 抜く ↔ 残す。<strong>残すと、クリップの中でアバターが前へ歩いて行き、ループの頭で引き戻される</strong></td></tr>
+<tr><td><code>F6</code></td><td>円を歩く: その場で足踏み ↔ 床の上を半径 2.5m の円で進む(カメラが円の全体を見る位置へ引く)</td></tr>
+<tr><td><code>F7</code></td><td>足を滑らせる: 進む速さ x1 → x1.5 → x0.6。<strong>クリップの速さと進む速さが食い違うと、足が床の上を滑る</strong>(円を歩いているときに効く)</td></tr>
+<tr><td><code>F8</code></td><td>位相合わせ: 合わせる ↔ 合わせない(Day 42)。<strong>合わせないと、歩きと走りを混ぜている間に脚が4本あるように見える</strong></td></tr>
+<tr><td><code>F9</code></td><td>正規化: する ↔ しない(Day 71 と同じスイッチ)。<strong>しないと、アバターが空へ飛んで消える</strong></td></tr>
+<tr><td><code>F10</code></td><td>スロー: x1 ↔ x0.25(「VRMのアニメーション」の F10 と同じスイッチ)</td></tr>
+<tr><td><code>F11</code></td><td>内訳(3本ごとの骨の表の当たり方・休みの姿勢・腰の高さ・根の移動と速さ・足の滑り、骨の表 52 本)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(10 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「移動のリターゲット」(35 枚目)が直接開く。どの項目も、VRMビューアが出ていなければ出し、移動用クリップを読んでから効く。<strong><code>F2</code> を押すまで、今日の差分は1行も通らない</strong>(毎フレームの分かれ道は <code>_vrmLocomotion</code> で守られている)。3本を読むのは初めて項目を押したときで、合わせて 15ms ほど。</p>
+
+<figure class="lab" id="slip-lab">
+  <div class="lab-head">
+    <h3>実験台: 根の移動を抜いて、クリップの速さで運ぶ</h3>
+    <span class="tag">要点3〜4。横から見た左右の脚。脚の振り方は代役(make_honya_locomotion.py)の stride と同じ形を 2D にしたもの。床の上の線は、接地している間に足首が描いた跡</span>
+  </div>
+  <canvas id="slip-canvas" style="height:280px" aria-label="横から見た脚と、床の上の足の跡"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">クリップ</span>
+      <div class="seg" id="slip-clip">
+        <button data-v="walk" aria-pressed="true">歩き</button><button data-v="run" aria-pressed="false">走り</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">根の移動(F5)</span>
+      <div class="seg" id="slip-root">
+        <button data-v="remove" aria-pressed="true">抜く</button><button data-v="keep" aria-pressed="false">残す</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">運ぶ速さ(F7)</span>
+      <div class="seg" id="slip-scale">
+        <button data-v="0.6" aria-pressed="false">x0.6</button><button data-v="1" aria-pressed="true">x1</button><button data-v="1.5" aria-pressed="false">x1.5</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="slip-stats"></div><p id="slip-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「骨の表さえ作れば、あとは Day 71 の道」</strong>。VRMA は「どのノードが hips か」を拡張に書くが、Mixamo は書かない。ノードの名前から表を引いて <code>ノード番号 → VRM の骨の名前</code> を作れば、そこから先(休みの回転を測って正規化し、アバターの休みの回転で戻す)は VRMA と1行も変わらない。Day 71 の <code>VrmAnimation.Load</code> の後半を <code>FromHumanoid</code> として切り出し、両方から呼ぶ。</p>
+<p><strong>2つ目は「根の移動を抜き、抜いた傾きを速さとして使う」</strong>。Mixamo の歩きは腰が前へ進む。ゲームでは体を運ぶのはカプセル(Day 51)なので、クリップの中の前進は消してその場で足踏みさせる。消すのは「時刻に比例して進んだ分」の直線で、<strong>その傾きが「このクリップの足が滑らない速さ」</strong>になる。</p>
+<div class="code"><span class="lang">csharp</span><pre><code>// MixamoClip.Load(Day 73a)。腰の移動のキーを世界の m に直してから
+d = 腰(終わり) - 腰(始まり)                       // 1 周で進んだ距離(水平だけ)
+腰'(t) = 腰(t) - d x (t - 始まり) / 長さ          // 最後のキーが最初のキーに重なり、継ぎ目が消える
+ファイルの速さ = |d| / 長さ                        // 歩き 1.211m / 1.1 秒 = 1.10 m/s
+アバターの速さ = ファイルの速さ x 腰の高さの比      // 0.895m / 1.02m = 0.878 → 0.97 m/s</code></pre></div>
+<p><strong>3つ目は「しきい値はアバターでの速さ」</strong>。Day 42 のブレンド木(<code>BlendTree1D</code>)に、idle 0・walk 0.97・run 2.36 m/s を並べる。歩きの速さちょうどで歩きだけが流れ、その速さで体を運んだときだけ、接地した足が床の上で止まる。速さを 1.5 倍にすると、同じ歩幅のまま 1.5 倍の距離を進むので足が前へ引きずられる(上の実験台の x1.5)。</p>
+
+<h3 id="s3">今日は Model の1本と、VrmAnimation の口</h3>
+<p>新規は <code>Model/MixamoClip.cs</code>(Mixamo のクリップ1本を読み、骨の表を作り、根の移動を測って抜き、<code>VrmAnimation</code> にする)の1本。変更は <code>AnimationClip</code>(時刻付きでキーを写す <code>MapTimed</code>・<code>StartTime</code>)、<code>VrmAnimation</code>(<code>Load</code> の後半を <code>FromHumanoid</code> に切り出す)、<code>VrmAvatar</code>(クリップの差し替えと、速さで混ぜて流す口)、そして <code>Program.cs</code>。</p>
+<p><strong>キャラを描く側と <code>AnimationPlayer</code> は今日も1行も変わっていない</strong>。Mixamo のクリップも、読み込みのときに1回だけアバターのノードへ写した <code>AnimationClip</code> になり、Day 42 のブレンドと位相合わせの道をそのまま通る。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/humanoidAnimation">three-vrm の examples/humanoidAnimation</a> — 実装の手本。<code>mixamoVRMRigMap.js</code>(Mixamo の骨の名前 → VRM の骨の名前の表)と <code>loadMixamoAnimation.js</code>(休みの回転で正規化する式、腰の高さの比)。今日の表と式は、これと同じ形になっている</li>
+<li><a href="https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html">Mixamo の FAQ</a> — 利用条件(作品の中で使うのは自由、アニメーションのファイルそのものの再配布は不可)。リポジトリに Mixamo のファイルを入れず、代役を作った理由</li>
+<li><a href="https://docs.blender.org/manual/en/latest/addons/import_export/scene_fbx.html">Blender マニュアルの FBX</a> と <a href="https://docs.blender.org/manual/en/latest/addons/import_export/scene_gltf2.html">glTF 2.0</a> — 変換のスクリプト(<code>assets/mixamo/fbx_to_glb.py</code>)で決めた設定(骨の向きを直さない・先っぽの骨を残す・シーンの時間軸を1本で書く)</li>
+<li>Day 71 の計画書(要点2〜4: 正規化・戻す式・腰の縮尺)— 今日の写し方はこれそのもの</li>
+<li>Day 42 の計画書(ブレンド木と位相同期)と Day 51 の計画書(カプセルが体を運び、モデルは見た目だけ)— 根の移動を抜く理由</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. Mixamo のクリップは「ヒューマノイドの名前を持たない骨の木」</h3>
+<p>Mixamo のクリップの中身は、65 本の骨の木と、その骨のアニメーション。VRMA と違って「どのノードが何か」を書いた拡張は無く、手がかりはノードの名前だけだ。そこで<strong>名前の表</strong>(<code>MixamoClip.BoneTable</code>。左右合わせて 52 本)を引く。</p>
+<div class="table-wrap"><table><thead><tr><th>Mixamo</th><th>VRM</th><th>注意</th></tr></thead><tbody>
+<tr><td><code>Hips</code> / <code>Spine</code> / <code>Spine1</code> / <code>Spine2</code> / <code>Neck</code> / <code>Head</code></td><td><code>hips</code> / <code>spine</code> / <code>chest</code> / <code>upperChest</code> / <code>neck</code> / <code>head</code></td><td>背骨は 3 本ずつで対応がずれない。upperChest を持たないアバターなら Spine2 の回転は捨てる</td></tr>
+<tr><td><code>LeftShoulder</code> / <code>LeftArm</code> / <code>LeftForeArm</code> / <code>LeftHand</code></td><td><code>leftShoulder</code> / <code>leftUpperArm</code> / <code>leftLowerArm</code> / <code>leftHand</code></td><td><strong>腕の名前が1段ずれる</strong>。Mixamo の <code>Arm</code> は上腕</td></tr>
+<tr><td><code>LeftUpLeg</code> / <code>LeftLeg</code> / <code>LeftFoot</code> / <code>LeftToeBase</code></td><td><code>leftUpperLeg</code> / <code>leftLowerLeg</code> / <code>leftFoot</code> / <code>leftToes</code></td><td>脚も同じく、<code>Leg</code> はすね</td></tr>
+<tr><td><code>LeftHandThumb1〜3</code></td><td><code>leftThumbMetacarpal</code> / <code>Proximal</code> / <code>Distal</code></td><td><strong>親指だけ名前の数え方が違う</strong>(VRM 1.0 は手のひらの中の骨から数える)</td></tr>
+<tr><td><code>LeftHandIndex1〜3</code>(Middle・Ring・Pinky も)</td><td><code>leftIndexProximal</code> / <code>Intermediate</code> / <code>Distal</code></td><td>小指は Pinky → Little</td></tr>
+</tbody></table></div>
+<p>名前の前の <code>mixamorig:</code> は、<strong>最後のコロンより後ろを取る</strong>ことで落とす(<code>MixamoClip.BoneName</code>)。Mixamo は同じ場面に2体目を読ませると <code>mixamorig1:</code> のように番号を振るので、決まった前置きを消すのでは足りない。表に無い骨(<code>HeadTop_End</code>・<code>LeftToe_End</code>・指の 4)は先っぽで、捨ててよい。</p>
+<p>配布は FBX だけなので、<strong>Blender に1回だけ通して glb に直す</strong>(<code>assets/mixamo/fbx_to_glb.py</code>)。FBX は仕様が公開されていない閉じた形式で、ローダーを書くと数百行になる。glTF なら Day 41 からの <code>GltfLoader.LoadAnimations</code>(Day 71 で足したメッシュを読まない道)がそのまま読める。</p>
+<p>Mixamo のファイルはリポジトリに入れられない(利用条件)。そこで<strong>同じ形を持つ代役</strong>を Python で作って入れた(<code>assets/mixamo/make_honya_locomotion.py</code>。CC0)。</p>
+<div class="table-wrap"><table><thead><tr><th>Mixamo を Blender で直した glb と同じにしたところ</th><th>代役での値</th></tr></thead><tbody>
+<tr><td>骨の名前</td><td><code>mixamorig:Hips</code> など 65 本</td></tr>
+<tr><td>単位</td><td>cm。親の <code>Armature</code> が 0.01 倍を持つ。腰の高さは 102cm(AvatarSample_A は 89.5cm)</td></tr>
+<tr><td>骨の休みの回転</td><td><strong>ばらばら</strong>。Blender と同じく「骨の +Y を子の向きへ」向けて作るので、T ポーズでも腕は 90 度、脚は 180 度回った回転を持つ(65 本のうち 47 本が単位でない)</td></tr>
+<tr><td>根の移動</td><td>歩きと走りは前へ進む(Mixamo で In Place を付けずに落としたのと同じ)</td></tr>
+<tr><td>長さ・コマ</td><td>idle 4.0 秒・walk 1.1 秒・run 0.7 秒。30 fps で、最初と最後のキーが同じ姿勢</td></tr>
+</tbody></table></div>
+
+<h3 id="s7">2. 表さえあれば Day 71 の道 — cm も正規化が吸収する</h3>
+<p>表ができたら、<code>VrmAnimation.FromHumanoid</code> に「ノードの木・クリップ・表」を渡す。中身は Day 71 の <code>Load</code> の後半そのもので、骨ごとに「ファイルの祖先の骨の休みの世界の回転 P」と「この骨の休みの世界の回転 C」を測っておき、アバターに当てるときに <code>r = A x q x B</code> の形で写す(Day 71 の要点2〜3)。</p>
+<p><strong>休みの回転がばらばらなのは、正規化にとっては何でもない</strong>。正規化は「休みの姿勢からどれだけ回ったか」を世界にそろえた向きで測り直すので、ファイルの骨のローカルの軸がどちらを向いていてもよい。自己チェックでは、アバターの骨の回り方とファイルの骨の回り方の差が最大 0.04 度(指の骨の数値の誤差)だった。</p>
+<p><strong>cm も何もしなくてよい</strong>。腰の移動のキーは「腰の親(<code>Armature</code>)の座標」で書かれていて、Day 71 の腰の写し方は「ファイルの腰の親の休みの世界行列」を通して世界の m に直す。0.01 倍はその行列に入っているので、勝手に掛かる。回転は単位を持たないので、そもそも関係しない。</p>
+<p>逆に言うと、<strong>単位を直していたのも正規化の道</strong>だった。正規化を切る(<code>F9</code>)と、回転のキーがそのまま書かれて手足が全部ねじれるだけでなく、腰の移動の 102(cm)がそのまま m として当たり、アバターは 90m ほど上へ飛んで画面から消える。</p>
+
+<h3 id="s8">3. 根の移動 — 時刻に比例して進んだ分を抜く</h3>
+<p>Mixamo の歩き(In Place なし)では、腰の移動のキーが 1 周で 1m 以上前へ進む。Day 51 のデモは<strong>カプセルが体を運び、モデルは見た目だけ</strong>という作りなので、このまま当てると、カプセルが進む分とクリップが進む分が2重になる(上の実験台の「残す」)。ループの頭では腰が 1 周ぶん引き戻されるので、アバターは前へ歩いて行っては戻る。</p>
+<p>抜くのは<strong>直線</strong>だ。ループのクリップは最初と最後の姿勢が同じで、腰だけが 1 周ぶん前にいる。その差 <code>d</code> を時刻に比例して引けば、最後のキーが最初のキーに重なり、継ぎ目が消える。</p>
+<ul>
+<li><strong>水平だけを抜く</strong>。上下(1 歩ごとに沈む)と左右の揺れは残す。それが歩きの絵の一部で、自己チェックでは抜く前と後で上下の幅が同じ 2.99cm だった</li>
+<li><strong>世界に直してから測る</strong>。<code>Armature</code> は 0.01 倍だけでなく、Blender の向きの直し(Z 上 → Y 上)を持ちうる。キーの座標のまま「Z が前」と決め打ちせず、腰の親の休みの世界行列で世界へ直し、水平の成分を引いてから戻す</li>
+<li><strong>読み込みのときに1回だけ</strong>。抜いたキーで新しい sampler を作る(<code>AnimationClip.Sampler.MapTimed</code>)。<code>Map</code>(Day 71)はキーの値しか渡さないので、時刻も渡す版を足した</li>
+</ul>
+
+<h3 id="s9">4. 足が滑らない速さ — ファイルの速さ x 腰の高さの比</h3>
+<p>抜いた直線の傾き <code>|d| / 長さ</code> が、そのクリップの<strong>足が滑らない速さ</strong>になる。モーションキャプチャーの根の移動は、接地した足が床に止まるように体が進んだ記録だからだ。代役は手で決めた速さではなく、脚の動きから同じ関係を満たす速さを求めて書いた(地面を蹴っている半周に、足首が腰に対して後ろへ動く速さの平均。歩き 1.10 m/s・走り 2.69 m/s)。</p>
+<p>アバターに当てるときは<strong>腰の高さの比を掛ける</strong>。Day 71 の腰の縮尺と同じ比で、腰の高さが 0.878 倍のアバターは、同じ角度で脚を振ると歩幅も 0.878 倍になる。</p>
+<div class="table-wrap"><table><thead><tr><th>クリップ</th><th>1 周で進む</th><th>ファイルの速さ</th><th>アバターの速さ(x 0.878)</th><th>足の滑り(アバターの速さで運んだとき)</th></tr></thead><tbody>
+<tr><td>honya-walk(1.10 秒)</td><td>1.211m</td><td>1.10 m/s</td><td><strong>0.97 m/s</strong></td><td>-0.03 m/s</td></tr>
+<tr><td>honya-run(0.70 秒)</td><td>1.882m</td><td>2.69 m/s</td><td><strong>2.36 m/s</strong></td><td>-0.11 m/s</td></tr>
+</tbody></table></div>
+<p>足の滑りは、クリップをアバターに当てて1周回し、左の足首が地面を蹴っている半周の平均の速さを、体を運ぶ速さから引いたもの(<code>Program.MeasureFootSlip</code>)。0 なら止まって見える。0 から少し外れるのは、<strong>腰の高さの比が脚の長さの比と同じではない</strong>から(AvatarSample_A は代役より脚が少し短い)。走りほど歩幅が大きいので、ずれも大きく出る。</p>
+
+<h3 id="s10">5. 速さで混ぜる — Day 42 の木と位相合わせ</h3>
+<p>3本は Day 42 の <code>BlendTree1D</code> に、アバターでの速さをしきい値として並べる。速さが 2 本のしきい値の間なら、その2本を距離の比で混ぜる。</p>
+<figure class="lab" id="blend-lab">
+  <div class="lab-head">
+    <h3>実験台: 速さ → 重み、混ぜた周期、2本の位相</h3>
+    <span class="tag">要点5。しきい値と長さは代役をアバターに当てたときの値(idle 0 / 4.0 秒、walk 0.97 / 1.1 秒、run 2.36 / 0.7 秒)。周期は AnimationPlayer.Duration と同じ「重みで混ぜた長さ」</span>
+  </div>
+  <canvas id="blend-canvas" style="height:240px" aria-label="速さの軸とクリップの重み、2本の位相の時計"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">速さ(F4)</span><div class="range"><input type="range" id="blend-speed" min="0" max="3" step="0.01" value="1.66"><output id="blend-speed-out"></output></div></div>
+    <div class="ctl"><span class="label">位相合わせ(F8)</span>
+      <div class="seg" id="blend-sync">
+        <button data-v="on" aria-pressed="true">合わせる</button><button data-v="off" aria-pressed="false">合わせない</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="blend-stats"></div><p id="blend-note"></p></div>
+</figure>
+<p><strong>位相は合わせる</strong>(Day 42 の要点)。歩きの 1.1 秒と走りの 0.7 秒を別々に回すと、混ぜている間に「歩きの左足が前」と「走りの右足が前」が重なり、脚が4本あるように見える。合わせると2本は同じ「1 周のどこか」で読まれ、周期は重みで混ぜた長さ(50:50 なら 0.90 秒)になる。速さを上げるほど歩調が詰まるのは、この1行だけで手に入る。</p>
+<p>Day 71 の VRMA の切り替えは<strong>位相を合わせない</strong>(入ってくるクリップを頭から流したい)。同じ <code>AnimationPlayer</code> を両方に使うので、<code>VrmAvatar.PlayBlend</code> が <code>SyncPhase = true</code> を立て、<code>UpdateAnimation</code>(Day 71)が <code>false</code> に戻す。</p>
+<p><strong>速さは寄せる</strong>。<code>F4</code> で選んだ速さへ、1 秒に 4 m/s までの割合で近づける。一気に変えると、重みも1フレームで飛ぶ(Day 51 のキャラクターも加速度を持つ)。</p>
+
+<h3 id="s11">6. 前提: ファイルの休みの姿勢は T ポーズ</h3>
+<p>正規化の式は「休みの姿勢からどれだけ回ったか」を写す。だから<strong>ファイルの休みの姿勢とアバターの休みの姿勢が同じ形</strong>であることが前提になる。VRM 1.0 のアバターは T ポーズで書き出す決まりで、Mixamo の既定のキャラクター(Y Bot)も T ポーズだ。</p>
+<figure class="lab" id="rest-lab">
+  <div class="lab-head">
+    <h3>実験台: 休みの姿勢が T ポーズでないと、腕が上がらない(下がらない)</h3>
+    <span class="tag">要点6。正面から見た左腕1本。クリップは「腕を体の横へ下ろす」(水平から 72 度)。アバターの休みの姿勢は T ポーズ</span>
+  </div>
+  <canvas id="rest-canvas" style="height:240px" aria-label="ファイルの腕とアバターの腕を正面から"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">ファイルの休みの姿勢</span>
+      <div class="seg" id="rest-pose">
+        <button data-v="0" aria-pressed="true">T ポーズ</button><button data-v="45" aria-pressed="false">A ポーズ(45 度)</button><button data-v="72" aria-pressed="false">1 コマ目の姿勢(72 度)</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">クリップの腕(水平から下へ)</span><div class="range"><input type="range" id="rest-angle" min="0" max="90" step="1" value="72"><output id="rest-angle-out"></output></div></div>
+  </div>
+  <div class="readout"><div class="stats" id="rest-stats"></div><p id="rest-note"></p></div>
+</figure>
+<p>休みの姿勢の腕が下がっているファイルでは、腕を下ろす動きが「ほとんど回っていない」と測られ、アバターの腕は T ポーズのまま残る。<strong>式は正しく働いていて、前提のほうが崩れている</strong>。そこで読み込みのときに、ファイルの休みの姿勢で<strong>左の上腕が水平から何度垂れているか</strong>(<code>MixamoClip.ArmDroopDegrees</code>)を測り、10 度を超えたら知らせる。</p>
+<p>これは作り話ではない。今日、代役を Blender で FBX に書き出して <code>fbx_to_glb.py</code> で戻したところ、Blender の glTF の読み込みが 1 コマ目の姿勢を休みの姿勢にしてしまい、<strong>腕が 72 度垂れた休みの姿勢</strong>になった。流すと腕が T ポーズのまま歩く(下の設計書「試して分かったこと」)。Mixamo から落とすときに <strong>With Skin</strong> を選ぶのはこのためで、スキンのバインドポーズ(T ポーズ)が休みの姿勢になる。</p>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">新規ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>役割</th><th>行数</th></tr></thead><tbody>
+<tr><td><code>Model/MixamoClip.cs</code></td><td>Mixamo のクリップ1本。<code>BoneTable</code>(52 本の名前の表)、<code>Load</code>(表を引く → 割れたクリップをまとめる → 時刻を 0 に揃える → 根の移動を測って抜く → T ポーズを確かめる → <code>VrmAnimation.FromHumanoid</code>)、<code>BoneName</code> / <code>KindOf</code> / <code>Merge</code>、<code>FileSpeed</code> / <code>AvatarSpeed</code> / <code>ArmDroopDegrees</code>。<strong>AnimationPlayer も VrmAvatar も GL も知らない</strong></td><td>307</td></tr>
+</tbody></table></div>
+
+<h3 id="s14">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Model/AnimationClip.cs</code></td><td><code>Sampler.StartTime</code>(いちばん早いキーの時刻)と <code>Sampler.MapTimed</code>(時刻も渡してキーを写し、時刻をずらす)</td><td>+32 / −0</td></tr>
+<tr><td><code>Model/VrmAnimation.cs</code></td><td><code>Load</code> の後半を <code>FromHumanoid</code> に切り出す(<code>clips[0]</code> を引数の <code>clip</code> へ2か所)</td><td>+23 / −2</td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td><code>ReplaceClip</code>(番号はそのまま差し替える)と <code>PlayBlend</code>(速さで混ぜた重みで流す)、<code>UpdateAnimation</code> で位相合わせを戻す1行</td><td>+33 / −0</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、今日の関数一式、<code>UpdateVrmAnimation</code>・<code>VrmPlacement</code>・HUD に1か所ずつ、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数</td><td>+722 / −2</td></tr>
+<tr><td><code>Day73a.csproj</code></td><td><code>Day72.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p>素材(写経の対象外): <code>assets/mixamo/</code> に代役の3本(<code>honya-idle.glb</code>・<code>honya-walk.glb</code>・<code>honya-run.glb</code>)、その生成スクリプト <code>make_honya_locomotion.py</code>、変換のスクリプト <code>fbx_to_glb.py</code>、<code>README.md</code>(Mixamo の落とし方とライセンス)。<code>.gitignore</code> に Mixamo のファイル(<code>*.fbx</code> と、<code>honya-</code> で始まらない <code>*.glb</code>)の除外。</p>
+<p class="note">今日の差分は Day 71 と同じくらい重い(新規 307 行 + 変更 約 810 行。どれもコメント込み)。<code>Program.cs</code> の今日の関数は、歩かせるまでの前半が約 250 行、足の滑り・内訳・自己チェックの後半が約 230 行。1日で重ければ、下の順番の <strong>7 まで</strong>(歩かせるまで)と <strong>8</strong>(後半)で2回に分けるとよい。7 の (d) でメニューの <code>F11</code>・<code>F12</code> の2行を飛ばせば、そこまででビルドが通り <code>F2</code>〜<code>F10</code> が全部動く。</p>
+
+<h3 id="s15">写経する順番</h3>
+<p>依存の向きに沿って並べてある。この順に写せば、途中でビルドが通らない状態を作らずに済む。</p>
+<ol>
+<li><strong><code>Model/AnimationClip.cs</code>(変更)</strong> — <code>Sampler</code> の <code>EndTime</code> の直後に <code>StartTime</code>、<code>Map</code> の直後に <code>MapTimed</code>。<code>MixamoClip</code> が時刻を揃えて根の移動を抜くのに使う</li>
+<li><strong><code>Model/VrmAnimation.cs</code>(変更)</strong> — <code>Load</code> の「2. 木とクリップを読む」の直後で <code>return FromHumanoid(...)</code> して閉じ、<code>FromHumanoid</code> の説明と宣言を開いて「3. 腰の親と、腰の高さ」から下をその中身にする。中の <code>clips[0]</code> の2か所(<code>foreach</code> と最後の <code>new VrmAnimation</code> の長さ)を <code>clip</code> へ</li>
+<li><strong><code>Model/MixamoClip.cs</code>(新規)</strong> — 1 の <code>StartTime</code> / <code>MapTimed</code> と 2 の <code>FromHumanoid</code>、Day 71 の <code>GltfLoader.LoadAnimations</code> / <code>VrmAnimation.RestWorldMatrix</code> / <code>HipsScale</code> を使う</li>
+<li><strong><code>Model/VrmAvatar.cs</code>(変更)</strong> — <code>Play</code> の手前に <code>ReplaceClip</code> と <code>PlayBlend</code>、<code>UpdateAnimation</code> の <code>Animation.SetBlend</code> の手前に <code>Animation.SyncPhase = false;</code>(コメント2行と)</li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 72」のフィールド(<code>_vrmExposureStep</code>)の直後に「Day 73a」の 20 個(<code>VrmLocomotionProbe</code> から <code>_vrmLocomotionSlideStep</code> まで)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunVrmLookCheck</code> の直後(<code>CheckList</code> の手前)に、<code>VrmLocomotionFallbackSpeeds</code> / <code>EnsureVrmLocomotion</code> / <code>VrmLocomotionSourceName</code> / <code>LoadVrmLocomotion</code> / <code>BuildVrmLocomotionTree</code> / <code>VrmLocomotionThreshold</code> / <code>VrmLocomotionTreeText</code> / <code>VrmLocomotionTargetSpeed</code> / <code>UpdateVrmLocomotion</code> / <code>VrmLocomotionCircleActive</code> / <code>VrmLocomotionCirclePlacement</code> / <code>FrameVrmLocomotion</code> / <code>VrmLocomotionLabel</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — 順に、
+(a) <code>UpdateVrmAnimation</code> の最後の行を <code>float dt = ...;</code> と「今日の分かれ道」(<code>_vrmLocomotion</code> なら <code>UpdateVrmLocomotion</code> して戻る)と <code>_vrm.UpdateAnimation(dt);</code> に、
+(b) <code>VrmPlacement</code> の <code>Matrix4x4 turn = ...;</code> の直後に「円を歩く」の <code>if</code>、
+(c) <code>DrawOverlayInfo</code> の <code>VrmLookLabel()</code> の行の直後に <code>VrmLocomotionLabel()</code> の行(<code>if (_vrmLocomotion)</code> で包む)、
+(d) <code>BuildDebugMenu</code> の「セルルックの仕上げ」ページの直後(<code>return menu;</code> の手前)に「移動のリターゲット」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 8 で足す関数を指すので、分けて写すなら後回しにする)、
+(e) <code>RunDebugMenuCheck</code> の項目数を <strong>344 → 355</strong> へ</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 6 の続きに <code>MeasureFootSlip</code> / <code>DescribeVrmLocomotion</code> / <code>RunVrmLocomotionCheck</code></li>
+<li><strong><code>Day73a.csproj</code></strong> — <code>Day72.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+<p class="note">名前の頭が <code>Vrm</code> なのは、Day 42 の <code>_locomotion</code>・<code>_locomotionTree</code>・<code>LocomotionLabel</code>・<code>RunLocomotionCheck</code>(Fox のブレンド木)がすでにあるから。今日のものは VRM のアバターのための移動なので、ほかの VRM のページと同じ <code>_vrm</code> / <code>Vrm</code> を頭に付けた。</p>
+</section>
+
+<section class="part"><h2 id="s16">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Model/</code> に1本足し、<code>VrmAnimation</code> に口を1つ(骨の表を外から渡す <code>FromHumanoid</code>)、<code>VrmAvatar</code> に口を2つ(差し替え・速さで混ぜて流す)開けた。矢印の向きは今日も <code>Model/ → Render/</code> だけで、<code>MixamoClip</code> は <code>Render/</code> を1つも使わない。</p>
+
+<h3 id="s17">MixamoClip は VRMA の手前に立つだけ</h3>
+<svg viewBox="0 0 720 270" role="img" aria-label="Day 73a の依存の図" style="width:100%;max-width:720px;display:block;margin:8px 0 12px">
+  <defs><marker id="arrow73a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+  <g font-size="13" fill="var(--ink)">
+    <rect x="250" y="8" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="27" text-anchor="middle">Program</text><text x="360" y="42" text-anchor="middle" font-size="11" fill="var(--muted)">3本を探す・木を組む・速さ・円</text>
+    <rect x="40" y="96" width="220" height="44" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="150" y="115" text-anchor="middle">Model/MixamoClip(今日)</text><text x="150" y="131" text-anchor="middle" font-size="11" fill="var(--muted)">名前の表・根の移動・T ポーズ</text>
+    <rect x="460" y="96" width="220" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="570" y="115" text-anchor="middle">Model/VrmAvatar</text><text x="570" y="131" text-anchor="middle" font-size="11" fill="var(--muted)">ReplaceClip・PlayBlend(今日)</text>
+    <rect x="250" y="176" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="360" y="194" text-anchor="middle">Model/VrmAnimation</text><text x="360" y="209" text-anchor="middle" font-size="11" fill="var(--muted)">FromHumanoid(今日)・CreateClip</text>
+    <rect x="20" y="226" width="250" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="145" y="244" text-anchor="middle">Model/GltfLoader・AnimationClip</text><text x="145" y="259" text-anchor="middle" font-size="11" fill="var(--muted)">LoadAnimations・MapTimed(今日)</text>
+    <rect x="480" y="226" width="220" height="40" rx="6" fill="var(--surface)" stroke="var(--line)"/><text x="590" y="244" text-anchor="middle">Model/AnimationPlayer</text><text x="590" y="259" text-anchor="middle" font-size="11" fill="var(--muted)">Day 71 のまま(SyncPhase・SetBlend)</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.5" fill="none" marker-end="url(#arrow73a)">
+    <path d="M300,48 L190,94"/><path d="M420,48 L530,94"/>
+    <path d="M200,140 L300,174"/>
+    <path d="M110,140 L110,224"/>
+    <path d="M520,140 L420,174"/>
+    <path d="M600,140 L600,224"/>
+    <path d="M300,216 L230,224"/>
+  </g>
+</svg>
+<p>コメントを落としてから型名を拾って確かめた。</p>
+<div class="table-wrap"><table><thead><tr><th>クラス</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Model/MixamoClip</code></td><td><code>GltfLoader</code>(<code>LoadAnimations</code>)/ <code>VrmAnimation</code>(<code>FromHumanoid</code>・<code>RestWorldMatrix</code>・<code>HipsScale</code>)/ <code>AnimationClip</code> / <code>Model</code>(<code>AvatarSpeed</code> の引数)/ <code>ModelNode</code></td><td><strong><code>AnimationPlayer</code>・<code>VrmAvatar</code>・<code>BlendTree1D</code>・GL</strong>。読んだクリップを誰がどう混ぜるかを知らない</td></tr>
+<tr><td><code>Model/VrmAnimation</code></td><td>Day 71 のまま</td><td><strong><code>MixamoClip</code></strong>。骨の表が VRMA の拡張から来たのか、名前から作ったのかを知らない</td></tr>
+<tr><td><code>Model/VrmAvatar</code></td><td>Day 71 のまま(<code>VrmAnimation</code> を写して持ち、<code>AnimationPlayer</code> で流す)</td><td><code>MixamoClip</code>・<code>BlendTree1D</code>。<code>PlayBlend</code> は重みを受け取るだけで、重みをどう決めたかを知らない</td></tr>
+<tr><td><code>Program</code></td><td>3本をファイル名で選び、<code>MixamoClip.AvatarSpeed</code> で木を組み、速さを決めて重みにする</td><td>名前の表と根の移動の抜き方(全部 <code>MixamoClip</code>)</td></tr>
+</tbody></table></div>
+<p><strong>Mixamo のクリップは、読み終えた時点で VRMA と見分けがつかない</strong>。<code>VrmAvatar.Clips</code> に並ぶのは同じ <code>VrmAnimation</code> で、Day 71 の写し方の作り直し(<code>RetargetClips</code>。<code>F9</code>)もそのまま効く。違いを知っているのは <code>MixamoClip</code> だけ、という形にしたかったので、Day 71 の <code>Load</code> を「名札を読む段」と「表から先の段」に割った。</p>
+
+<h3 id="s18">根の移動を抜くのは読み込みのとき — 毎フレーム取り出さない理由</h3>
+<p>根の移動の扱いには2通りある。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>今日(読み込みのときに抜き、傾きを速さにする)</th><th>ルートモーション駆動(毎フレームの腰の進みで体を運ぶ)</th></tr></thead><tbody>
+<tr><td>体を運ぶもの</td><td>カプセル(Day 51)。クリップは足踏みするだけ</td><td>クリップ。カプセルはクリップが進んだ分だけ動かす</td></tr>
+<tr><td>足の滑り</td><td>速さがしきい値から外れると滑る(しきい値ちょうどなら止まる)</td><td>原理的に滑らない</td></tr>
+<tr><td>操作の手触り</td><td>速さ・加速度・止まり方をゲームの側が決められる</td><td>クリップが決める(止まりたいのに一歩出る)</td></tr>
+<tr><td>毎フレームの仕事</td><td>無い(Day 42 の再生だけ)</td><td>腰の進みを取り出し、モデルから引いてカプセルへ渡す</td></tr>
+</tbody></table></div>
+<p>デモは Day 51 から「カプセルが体を運ぶ」で作ってあり、壁や段差との当たりもカプセルが受け持つので、今日は左を選んだ。<strong>足が滑らないことは、しきい値をアバターでの速さにすることで、混ぜの点の上で保証する</strong>。点と点の間(歩きと走りの間)では、2本の歩幅を重みで混ぜた速さと運ぶ速さが少しずれるが、位相を合わせてあるので目立たない。</p>
+
+<h3 id="s19">1フレームの中の移動 — 順番がそのまま設計</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">速さを寄せる(<code>UpdateVrmLocomotion</code>)— <code>F4</code> の選び方から寄せる先を決め、1 秒に 4 m/s まで近づける</div>
+    <div class="rw"><span>書く <b><code>_vrmLocomotionSpeed</code></b></span></div>
+    <div class="swap">2 より後に置くと: 重みが1フレーム前の速さで決まる(Day 42 の「重みを先に決めてから時刻を進める」と同じ理由)</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">木で重みにして流す(<code>BlendTree1D.Evaluate</code> → <code>VrmAvatar.PlayBlend</code>)</div>
+    <div class="rw"><span>読む <b>速さ</b></span><span>書く <b>全部のノードのローカル姿勢・世界行列・関節行列・位相</b></span></div>
+    <div class="swap">Day 71 の <code>UpdateAnimation</code> と同じ場所(表情より前)。表情と揺れものはこの体を読む</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">円の上を進む(<code>_vrmLocomotionAngle += 速さ x F7 の倍率 / 半径 x dt</code>)</div>
+    <div class="rw"><span>読む <b>1 の速さ</b></span><span>書く <b>円の上の角度(<code>VrmPlacement</code> が読む)</b></span></div>
+    <div class="swap">揺れもの(5)より後に置くと: 揺れものは1フレーム前の置き場所で揺れ、描くのは今の置き場所になるので、髪が体に1フレーム遅れる</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">表情(<code>UpdateVrmFace</code>。Day 69〜71)</div>
+    <div class="rw"><span>読む <b>2 のクリップの時刻</b>(移動用クリップは表情のキーを持たないので、まばたきとメニューの選択のまま)</span></div>
+    <div class="swap">Day 71 のまま</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">揺らす(<code>UpdateVrmSprings</code>。Day 70)</div>
+    <div class="rw"><span>読む <b>2 の体と、3 で決まった置き場所(<code>VrmPlacement</code>)</b></span><span>書く <b>髪の骨のローカル回転・関節行列</b></span></div>
+    <div class="swap">Day 70 のまま。円を歩くと置き場所が毎フレーム動くので、手で動かさなくても髪とスカートが後ろへなびく</div>
+  </div></li>
+</ol>
+<p><code>VrmPlacement</code> は1フレームに何度も呼ばれる(揺れもの・影・キャラ・視線・カメラ)。だから<strong>角度を進めるのは 3 の1か所だけ</strong>にして、<code>VrmPlacement</code> はそれを読むだけにした。<code>VrmPlacement</code> の中で角度を進めると、呼ばれた回数だけ速く回る。</p>
+
+<h3 id="s20">今日残した歪み</h3>
+<p><strong>1つ目: しきい値は腰の高さの比で縮めている</strong>。脚の長さの比ではないので、走りで 0.11 m/s ほど足が滑る(歩幅の大きいクリップほど目立つ)。直すなら改造課題1。</p>
+<p><strong>2つ目: 体を運ぶのはまだ「円」</strong>。進む速さは木に渡した速さから出しているだけで、操作もカプセルも無い。Day 73b で、Day 51 のカプセルの速さ(<code>CharacterController.HorizontalSpeed</code>)を木に渡し、置き場所をカプセルの足元にする。</p>
+<p><strong>3つ目: 「前」は +Z と決め打ち</strong>。抜いた直線の向き(<code>MixamoClip.Drift</code>)は測っているが、置き場所の向きには使っていない。Mixamo の歩きは +Z へ進むので困らないが、斜めや横へ進むクリップ(ストレイフ)を混ぜると、進む向きと体の向きがずれる(改造課題2)。</p>
+<p><strong>4つ目: In Place のクリップは速さを決め打ち</strong>。根の移動が無いと速さを測れないので、歩き 1.2 m/s・走り 3.0 m/s で混ぜる。足は滑りうる。</p>
+<p><strong>5つ目: T ポーズでないファイルは知らせるだけ</strong>。休みの姿勢を T ポーズへ直す(腕の骨の休みの回転を作り直す)ことはしていない。With Skin で落とし直すのが確実。</p>
+<p><strong>6つ目: 移動用の3本は Day 71 のクリップの列にも並ぶ</strong>。同じ <code>VrmAvatar.Clips</code> に足したので、「VRMのアニメーション」の <code>F2</code> で honya-idle なども順に回ってくる。番号は読み直しても変えない(<code>ReplaceClip</code>)ので、列が伸び続けることはない。</p>
+
+<h3 id="s21">試して分かったこと</h3>
+<ul>
+<li><strong>最初の「足が滑らない速さ」の測り方は間違っていた</strong>。代役の速さを「足首がいちばん低いコマ」の速さの平均で求めたら、歩き 0.57 m/s・走り 4.6 m/s という変な値になった。腰が上下するので、振り出しの終わり(足が前へ動いているコマ)まで「接地」に数えて打ち消し合っていた。「足首が腰に対して後ろへ動いている半周」の平均に変えて 1.10 / 2.69 m/s になった。C# の <code>MeasureFootSlip</code> も同じ測り方</li>
+<li><strong>Blender の glTF の書き出しは、骨1本ずつ別のアニメーションに割ることがある</strong>。代役を FBX に書き出して戻したら 13 本に割れていた。アクションごと(<code>ACTIONS</code>)でもシーンの時間軸(<code>SCENE</code>)でも同じだった。読む側で「狙うノードが重ならないならまとめる」(<code>MixamoClip.Merge</code>)を足した。Mixamo の本物の FBX(1ファイル1テイク)なら割れないはずだが、ほかの道具を通したファイルでも読めるようにしておいた</li>
+<li><strong>Blender の書き出しは 1 コマ目から始まる</strong>(時刻が 0 ではなく 1/24 秒など)。そのまま流すと、ループの頭に1コマぶん止まる間ができる。全部のキーを頭のキーの時刻だけ前へずらす(<code>MapTimed</code> の <code>shift</code>)</li>
+<li><strong>往復させたファイルは T ポーズでなくなった</strong>。Blender の glTF の読み込みが 1 コマ目の姿勢を休みの姿勢にするので、腕が 72 度垂れた。流すと、腕だけ T ポーズのまま歩く(要点6)。読み込みのときの「腕の垂れ」の確かめで、すぐ気づけた</li>
+<li><strong>正規化を切るとアバターが消える</strong>。Day 71 の VRMA(m で書かれている)では「足が浮く」程度だったが、Mixamo は cm なので腰が 90m 上へ飛ぶ。単位を直していたのも正規化の道(腰の親の休みの世界行列)だった</li>
+<li><strong>名前がぶつかった</strong>。Day 42 の Fox のブレンド木が <code>_locomotion</code> などの名前をすでに使っていたので、今日のものには <code>Vrm</code> を付けた</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s22">完成条件</h2>
+<p><code>dotnet run --project reference/Day73a -c Release</code> で起動する。起動直後は Day 72 までの絵のまま。今日の主役は「移動のリターゲット」のページ(<code>Shift+F1</code> で直接開く)から。</p>
+
+<h3 id="s23">1. F2 / F4: 速さで混ぜる</h3>
+<ul>
+<li><code>F2</code> … VRMビューアが出て、アバターが T ポーズから腕を下ろし、その場で息をする(idle)。コンソールに3本を読んだ行が出る(骨 52/52 本を表で引けた、根の移動 0.00 / 1.10 / 2.69 m/s、アバターで 0.00 / 0.97 / 2.36 m/s)</li>
+<li><code>F4</code> を1回(歩きの速さ)… 0.25 秒ほどで歩きになる。腕を前後に振り、腰が 1 歩ごとに沈む。髪とスカートが歩調に合わせて揺れる</li>
+<li>2回目(歩きと走りの間)… 歩きと走りが半分ずつ。歩調が詰まる(周期 1.10 → 0.90 秒)</li>
+<li>3回目(走りの速さ)… 走り。上体が前へ傾き、膝が大きく曲がる</li>
+<li>4回目(上げ下げ)… 10 秒かけて止まる → 走る → 止まる をくり返す。重みが途切れずに移る</li>
+</ul>
+<p>HUD に1行増える。</p>
+<div class="code"><pre><code>移動:代役  速さ 1.66 m/s(歩きと走りの間)  honya-walk 0.50 + honya-run 0.50  周期 0.90s  しきい値 0.00/0.97/2.36  根の移動:抜く  位相:合わせる</code></pre></div>
+
+<h3 id="s24">2. F6 / F7: 円を歩いて、足を見る</h3>
+<ul>
+<li><code>F6</code> … カメラが引き、アバターが床の上を半径 2.5m の円で進む。<code>F10</code>(スロー)にして足元を見ると、接地した足が床の格子の上でほぼ止まっている</li>
+<li><code>F7</code>(x1.5)… 同じ歩調のまま速く進むので、接地した足が前へ引きずられる(アイススケートのように見える)。x0.6 では後ろへ滑る(ムーンウォーク)</li>
+<li>速さを「歩きと走りの間」にしても、足はほとんど滑らない(位相が合っているので、2本の歩幅が混ざる)</li>
+</ul>
+
+<h3 id="s25">3. F5 / F8 / F9: 抜くもの・合わせるもの・写し方</h3>
+<ul>
+<li><code>F5</code>(残す)… その場の足踏みだったアバターが、前(カメラのほう)へ歩いて来ては、ループの頭で元の場所へ引き戻される</li>
+<li><code>F8</code>(合わせない)… 速さを「歩きと走りの間」にすると、2本の左右の足の順番がずれ、脚が4本あるように見える。合わせると1組に戻る</li>
+<li><code>F9</code>(しない)… アバターが画面から消える(腰が cm のまま当たり、90m 上へ飛ぶ)。揺れものも暴れる。戻すと床の上に戻る</li>
+</ul>
+
+<h3 id="s26">4. F3: Mixamo のファイルで確かめる</h3>
+<p><code>assets/mixamo/README.md</code> の手順で Idle・Walking・Running を落とし、<code>fbx_to_glb.py</code> で glb に直して置く。<code>F3</code> で Mixamo に切り替え、<code>F11</code> の内訳で次を確かめる。</p>
+<ul>
+<li>骨が 52 本とも表で引けている(表に無い骨の行が出ない)</li>
+<li><strong>腕の垂れが 0 度付近</strong>(10 度を超えていれば、休みの姿勢が T ポーズでない。With Skin で落とし直す)</li>
+<li>歩き・走りの「1周で進む」が 1m 前後で、速さが 0 でない(0 なら In Place で落としている)</li>
+<li>足の滑りが歩きの速さの 2 割以内</li>
+</ul>
+<p>置いていなければ、<code>F3</code> は入手のしかたを出して代役に戻る。</p>
+
+<h3 id="s27">5. Day 72 までの機能が全部生きていること</h3>
+<p><code>VrmAnimation</code> と <code>VrmAvatar</code> を変えたので、Day 71(VRMのアニメーション。13 項目)・Day 72(セルルックの仕上げ。8 項目)・Day 42(アニメのブレンド)の自己チェックが通ること。Day 48 の割り当て表(355 項目)が通ること。「VRMのアニメーション」の <code>F2</code> は、移動クリップを止めたあと今までどおり VRMA を流す。</p>
+
+<h3 id="s28">6. F12: 自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 73a 自己チェック(骨の表・根の移動・T ポーズ・アバターに当てる・速さ・足の滑り)===
+  [OK] 骨の表は 52 本で、左右とも同じ形(どちらの列にも重複が無く、VRM の必須の 15 本を全部含む)  52 本 / 必須で表に無い骨 無し
+  [OK] 名前は最後のコロンより後ろで引き(mixamorig1: でも引ける)、役目はファイル名で決める(Jogging は走り)  Breathing Idle.glb → idle / Walking.glb → walk / Running.glb → run / Slow Jogging.glb → run / honya-walk.glb → walk / Dance.glb → -
+  [OK] 骨ごとに割れたクリップは1本にまとめる(狙うノードが重ならないときだけ。重なるなら別のクリップなので最初の1本)  重ならない2本 → 2 チャンネル / 重なる2本 → 1 チャンネル
+  [OK] 代役の骨は全部表で引け、休みの回転はばらばら、休みの姿勢は T ポーズ(Blender の書き出しと同じ形。腕は水平)  引けた骨 52 / 表に無い骨 0 / 休みの回転が単位でない骨 47 / 腕の垂れ -0.00度
+  [OK] クリップの長さと時刻(歩き 1.10 秒・走り 0.70 秒。頭のキーは 0 秒)  歩き 1.100 秒 / 走り 0.700 秒
+  [OK] 根の移動を抜くと、腰は 1 周で元の場所に戻る(水平の継ぎ目が 1mm 未満。上下の揺れは抜く前と同じ。抜いた傾きが速さ 1.10 m/s)  継ぎ目 0.00mm(残すと 1.211m)/ 上下 2.99cm(抜く前 2.99cm)/ 1 周で進んだ (-0.000, 1.211)m → 1.101 m/s
+  [OK] 正規化すれば、アバターの骨はファイルの骨と同じだけ回る(Day 71 の式のまま。しないと休みの回転の差だけねじれる)  正規化 最大 0.040度(rightMiddleProximal)/ しない 最大 178.8度(leftUpperLeg)/ ファイルの骨がいちばん回った角度 148.2度
+  [OK] アバターでの速さ = ファイルの速さ x 腰の高さの比(腰 1.02m のファイルを 0.895m のアバターへ。歩幅も同じ比で縮む)  腰の比 0.878 / 歩き 1.10 → 0.97 m/s / 走り 2.69 → 2.36 m/s
+  [OK] ブレンド木のしきい値はアバターでの速さ(歩きの速さちょうどで歩きだけ、歩きと走りの間で半分ずつ)  0.97 m/s → 歩き 1.00 / 1.66 m/s → 歩き 0.50 + 走り 0.50
+  [OK] クリップの速さで運べば、接地した足はほぼ止まる(歩きの速さの 2 割以内。x1.5 なら前へ、x0.6 なら後ろへ、運んだ速さの食い違いの分だけ滑る)  x1 -0.03 / x1.5 0.46 / x0.6 -0.41 m/s(歩きの速さ 0.97)
+  すべて合格(骨の表・根の移動・T ポーズ・正規化・速さ・足の滑りが仕様どおり)</code></pre></div>
+<p>1〜3 は式と表だけを呼ぶ。4〜6 は代役の walk と run を読み直す。7〜10 はアバターの <code>Model</code> を借り、ファイルの骨の木もアバターも別の <code>AnimationPlayer</code> で回して比べる(Day 71 の <code>CompareVrmClip</code> をそのまま使った)。<strong>素材の切り替えに関わらず代役で確かめ、表示中の姿勢には触らない</strong>ので、VRMビューアを出す前でも、Mixamo を流している最中でも同じ数字になる。</p>
+
+<h3 id="s29">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>根の移動: クリップ(歩き / 走り)</td><td><code>F4</code> で「歩きの速さ」「走りの速さ」</td></tr>
+<tr><td>根の移動: 抜く / 残す</td><td><code>F5</code></td></tr>
+<tr><td>根の移動: 運ぶ速さ</td><td><code>F6</code>(円を歩く)にしてから <code>F7</code></td></tr>
+<tr><td>速さで混ぜる: 速さ</td><td><code>F4</code>(5 段。「上げ下げ」で連続に動く)</td></tr>
+<tr><td>速さで混ぜる: 位相合わせ</td><td><code>F8</code></td></tr>
+<tr><td>休みの姿勢: ファイルの休みの姿勢</td><td>実機に対応するキーは無い(T ポーズでない Mixamo のファイルを置くと見られる。内訳の「腕の垂れ」で確かめる)</td></tr>
+</tbody></table></div>
+<p class="note">実験台の脚・腕・クリップの形は、このページで決めた値(式と順番は reference と同じ)。実験台は動作イメージで、実機の数字(自己チェック)とは合わせていない。</p>
+</section>
+
+<section class="part"><h2 id="s30">改造課題</h2>
+
+<h3 id="s31">課題1(易): しきい値を脚の長さの比で決める</h3>
+<p>今日残した歪みの1つ目。<code>MixamoClip.AvatarSpeed</code> の「腰の高さの比」を、<strong>脚の長さの比</strong>(<code>leftUpperLeg</code> → <code>leftLowerLeg</code> → <code>leftFoot</code> の休みの世界の位置の距離の和を、ファイルとアバターで比べたもの)に変える。<code>F11</code> の内訳の「足の滑り」が、走りでも 0 に近づくかを見る。腰の移動の縮尺(Day 71 の <code>HipsScale</code>)は変えないこと——腰の高さは床から測った値なので、そちらは腰の高さの比のままが正しい。</p>
+
+<h3 id="s32">課題2(中): 抜いた直線の向きを「前」にする</h3>
+<p>今日残した歪みの3つ目。<code>MixamoClip.Drift</code> の水平の向きから角度 <code>atan2(d.x, d.z)</code> を出し、そのクリップの「進む向き」として持つ。円を歩くときの置き場所の向きを、木の重みで混ぜた進む向きだけ戻す(体を進む向きと逆に回す)。確かめるには、<code>make_honya_locomotion.py</code> の歩きの腰の移動を斜め(x にも速さを足す)にした glb を作って walk として置き、直す前は体が円の接線から斜めを向いて歩くこと、直したあとは接線を向くことを見る。</p>
+
+<h3 id="s33">課題3(難): ルートモーションで運ぶ</h3>
+<p>設計書の2つ目の表の右側。根の移動を抜かずに読み(<code>F5</code> の「残す」)、毎フレーム「腰の水平の位置の、前のフレームからの差」を取り出して円の上の進みに使い、取り出した分を腰から引いて描く。ループの頭で腰が引き戻される1フレームは、差が 1 周ぶん負になるので捨てる(1 周で進む距離を足す)。足は原理的に滑らなくなるが、<code>F4</code> で速さを選べなくなる(進む速さはクリップが決める)。Day 73b でカプセルに運ばせるときに、どちらが向いているかを考えてみる。</p>
+</section>
+
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: VRoid Studio 2.14.0 で書き出した AvatarSample_A(VRM 1.0)。Day 68 と同じファイル。移動用クリップ: <code>assets/mixamo/</code> の代役3本。<strong>Mixamo の本物のファイルでは確かめていない</strong>(Adobe のアカウントが要るので、写経のときに確かめる。完成条件の 4)。変換のスクリプトは、代役を Blender 5.2 で FBX に書き出して戻したファイルで確かめた</p>
+<p>確かめたこと: ビルド、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 10 項目(VRMビューアを出す前と、移動クリップを流している最中)、Day 42・71・72 の自己チェック、Day 48 の割り当て表(355 項目)、床の上で見た絵(歩き・歩きと走りの間・走り・円を歩く・正規化しない・根の移動を残す)、Blender で往復させたファイル(13 本に割れたクリップ・1/24 秒から始まる時刻・腕が 72 度垂れた休みの姿勢)の読み込み</p>
+
+<h3 id="s35">検証の途中で分かったこと</h3>
+<ul>
+<li><strong>代役の速さは脚から求めると決まる</strong>。手で決めた速さ(最初は歩き 1.35 m/s)だと、アバターに当てたときの足の滑りがクリップの出来に左右される。脚の動きから速さを求めて腰を進めれば、根の移動の傾きと足の動きが必ず釣り合い、自己チェックで「足が止まる」を確かめられる</li>
+<li><strong>ブレンド木は、点のちょうど上で2本を返す</strong>(「歩き 1.0 + 走り 0.0」)。Day 42 の <code>BlendTree1D</code> の作りで、<code>SetBlend</code> が重み 0 の項を捨てるので害は無い。自己チェックは本数ではなく重みで見た</li>
+<li><strong>根の移動を残したクリップでは、足の滑りの物差しが使えない</strong>(地面を蹴っている半周を「足首が後ろへ動くコマ」で見分けているので、腰ごと前へ進むと見分けられない)。残したときの様子は、腰の継ぎ目(1 周で 1.211m)のほうで確かめた</li>
+<li><strong>コンソールに「〜」を出すと化ける</strong>(CP932)。表示の文字列では使わない(Day 69〜72 と同じ)</li>
+</ul>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat, animate } = Lab;
+const DEG = Math.PI / 180;
+
+// ============================================================
+//  実験台1: 根の移動を抜いて、クリップの速さで運ぶ
+// ============================================================
+// 脚の振り方は make_honya_locomotion.py の stride と同じ形(横から見た 2D)。単位は m。前が +x。
+const LEG = { thigh: 0.45, shin: 0.43, hipY: 0.96, ankle: 0.08 };
+const CLIPS = {
+  walk: { duration: 1.1, hip: 24, knee: 55, bob: 0.03 },
+  run: { duration: 0.7, hip: 38, knee: 95, bob: 0.06 },
+};
+
+// 時刻 t の、腰から見た左右の足首(と膝)。phase = 0 で左脚が前へ振り出し始める
+function pose(clip, t) {
+  const phase = 2 * Math.PI * t / clip.duration;
+  const s = Math.sin(phase), c = Math.cos(phase);
+  const hipY = LEG.hipY - clip.bob * s * s;
+  const leg = (sw, cw) => {
+    const thigh = clip.hip * sw * DEG;                                       // 前へ振る角度(縦から)
+    const bend = clip.knee * (0.15 + 0.85 * Math.pow(Math.max(cw, 0), 1.5)) * DEG;
+    const knee = [LEG.thigh * Math.sin(thigh), hipY - LEG.thigh * Math.cos(thigh)];
+    const ankle = [knee[0] + LEG.shin * Math.sin(thigh - bend), knee[1] - LEG.shin * Math.cos(thigh - bend)];
+    return { knee, ankle };
+  };
+  return { hipY, left: leg(s, c), right: leg(-s, -c) };
+}
+
+// 足が滑らない速さ = 地面を蹴っている半周(足首が腰に対して後ろへ動く間)の、後ろへ動く速さの平均。代役の planted_speed と同じ
+function plantedSpeed(clip) {
+  const steps = 240, dt = clip.duration / steps;
+  let sum = 0, n = 0;
+  for (let i = 0; i < steps; i++) {
+    const a = pose(clip, i * dt).left.ankle[0], b = pose(clip, (i + 1) * dt).left.ankle[0];
+    if (b < a) { sum += (a - b) / dt; n++; }
+  }
+  return sum / n;
+}
+for (const k in CLIPS) CLIPS[k].speed = plantedSpeed(CLIPS[k]);
+// 接地の高さ(足首がいちばん低いところから 1.5cm 以内を「接地」として跡を描く)
+for (const k in CLIPS) {
+  let low = Infinity;
+  for (let i = 0; i < 200; i++) { const p = pose(CLIPS[k], CLIPS[k].duration * i / 200); low = Math.min(low, p.left.ankle[1], p.right.ankle[1]); }
+  CLIPS[k].low = low;
+}
+
+const slip = { clip: 'walk', root: 'remove', scale: 1, t: 0, body: 0, trails: [] };
+function resetSlip() { slip.t = 0; slip.body = 0; slip.trails = []; }
+seg('slip-clip', (v) => { slip.clip = v; resetSlip(); drawSlip(); });
+seg('slip-root', (v) => { slip.root = v; resetSlip(); drawSlip(); });
+seg('slip-scale', (v) => { slip.scale = Number(v); resetSlip(); drawSlip(); });
+
+function worldHip(clip) {
+  // 残すなら、クリップの中でも腰が進む(1 周ぶん進んでループの頭で戻る)
+  const inClip = slip.root === 'keep' ? clip.speed * (slip.t % clip.duration) : 0;
+  return slip.body + inClip;
+}
+
+function stepSlip(dt) {
+  const clip = CLIPS[slip.clip];
+  slip.t += dt;
+  slip.body += clip.speed * slip.scale * dt;
+  const p = pose(clip, slip.t), hx = worldHip(clip);
+  for (const [side, leg] of [['L', p.left], ['R', p.right]]) {
+    if (leg.ankle[1] < clip.low + 0.015) slip.trails.push({ side, x: hx + leg.ankle[0], time: slip.t });
+  }
+  slip.trails = slip.trails.filter((m) => slip.t - m.time < 3);
+}
+
+function drawSlip() {
+  const clip = CLIPS[slip.clip];
+  const { ctx, w, h } = fit($('slip-canvas'));
+  const S = Math.min(h / 1.35, w / 4.2);
+  const ground = h - 46;
+  const hx = worldHip(clip);
+  const camera = slip.body;                                   // カメラは運んだ体についていく
+  const X = (x) => w * 0.45 + (x - camera) * S;
+  const Yp = (y) => ground - y * S;
+
+  // 床と目盛り(1m ごと)
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, ground); ctx.lineTo(w, ground); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (let m = Math.floor(camera - 3); m <= camera + 4; m++) {
+    const x = X(m);
+    ctx.beginPath(); ctx.moveTo(x, ground); ctx.lineTo(x, ground + 6); ctx.stroke();
+    ctx.fillText(m + 'm', x + 2, ground + 18);
+  }
+
+  // 接地した足首の跡。滑っていなければ点、滑っていれば線になる
+  for (const m of slip.trails) {
+    const age = (slip.t - m.time) / 3;
+    ctx.globalAlpha = 1 - age;
+    ctx.fillStyle = m.side === 'L' ? tok('--accent') : tok('--warn');
+    ctx.fillRect(X(m.x) - 1.5, ground - (m.side === 'L' ? 6 : 12), 3, 4);
+  }
+  ctx.globalAlpha = 1;
+
+  // 脚(左 = 青、右 = 橙)と胴
+  const p = pose(clip, slip.t);
+  const hip = [X(hx), Yp(p.hipY)];
+  const draw = (leg, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(hip[0], hip[1]);
+    ctx.lineTo(X(hx + leg.knee[0]), Yp(leg.knee[1]));
+    ctx.lineTo(X(hx + leg.ankle[0]), Yp(leg.ankle[1]));
+    ctx.lineTo(X(hx + leg.ankle[0] + 0.12), Yp(Math.max(leg.ankle[1] - 0.06, 0.01)));
+    ctx.stroke();
+  };
+  draw(p.right, tok('--warn'));
+  ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(hip[0], hip[1]); ctx.lineTo(hip[0] + 0.04 * S, hip[1] - 0.55 * S); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(hip[0] + 0.05 * S, hip[1] - 0.68 * S, 0.1 * S, 0, 2 * Math.PI); ctx.fill();
+  draw(p.left, tok('--accent'));
+
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillText('青 = 左脚 / 橙 = 右脚 / 床の印 = 接地している間の足首(3 秒で消える)', 8, h - 8);
+
+  const carried = clip.speed * slip.scale;
+  const foot = slip.root === 'keep' ? carried : carried - clip.speed;
+  $('slip-stats').innerHTML =
+    stat('クリップの速さ', clip.speed.toFixed(2) + ' m/s') +
+    stat('運ぶ速さ', carried.toFixed(2) + ' m/s') +
+    stat('接地した足の速さ', (foot >= 0 ? '+' : '') + foot.toFixed(2) + ' m/s');
+  let note;
+  if (slip.root === 'keep') note = '根の移動を残すと、クリップの中でも腰が進むので、運ぶ分と2重になる。接地した足は運ぶ速さのまま前へ引きずられ、ループの頭で腰が 1 周ぶん引き戻される(床の印が長い線になって途切れる)。';
+  else if (slip.scale === 1) note = '根の移動を抜き、抜いた傾き(クリップの速さ)で体を運ぶと、接地した足は床の上でほぼ止まる(床の印が点に近い)。実機ではこの速さがブレンド木のしきい値になる。';
+  else if (slip.scale > 1) note = '同じ歩調のままクリップより速く運ぶと、接地した足が前へ引きずられる(床の印が前へ伸びる)。アイススケートのように見える。';
+  else note = 'クリップより遅く運ぶと、接地した足が後ろへ滑る(床の印が後ろへ伸びる)。ムーンウォークのように見える。';
+  $('slip-note').textContent = note;
+}
+
+if (reduceMotion) {
+  for (let i = 0; i < 90; i++) stepSlip(1 / 60);
+  drawSlip();
+} else {
+  animate($('slip-canvas'), (dt) => { stepSlip(dt); drawSlip(); });
+}
+drawSlip();
+
+// ============================================================
+//  実験台2: 速さ → 重み、混ぜた周期、2本の位相
+// ============================================================
+// BlendTree1D.Evaluate と AnimationPlayer.Duration と同じ式。しきい値は代役をアバターに当てたときの値
+const TREE = [
+  { name: 'idle', speed: 0.0, duration: 4.0, color: '--muted' },
+  { name: 'walk', speed: 0.97, duration: 1.1, color: '--accent' },
+  { name: 'run', speed: 2.36, duration: 0.7, color: '--warn' },
+];
+function evaluate(v) {
+  if (v <= TREE[0].speed) return [[0, 1]];
+  if (v >= TREE[TREE.length - 1].speed) return [[TREE.length - 1, 1]];
+  let upper = 1;
+  while (upper < TREE.length - 1 && TREE[upper].speed <= v) upper++;
+  const a = TREE[upper - 1], b = TREE[upper];
+  const t = (v - a.speed) / (b.speed - a.speed);
+  return [[upper - 1, 1 - t], [upper, t]];
+}
+const blend = { speed: 1.66, sync: 'on', phase: 0, times: [0, 0, 0] };
+$('blend-speed').addEventListener('input', (ev) => { blend.speed = Number(ev.target.value); drawBlend(); });
+seg('blend-sync', (v) => { blend.sync = v; drawBlend(); });
+
+function stepBlend(dt) {
+  const weights = evaluate(blend.speed);
+  const duration = weights.reduce((s, [i, wt]) => s + TREE[i].duration * wt, 0);
+  blend.phase = (blend.phase + dt / duration) % 1;
+  for (let i = 0; i < TREE.length; i++) blend.times[i] = (blend.times[i] + dt) % TREE[i].duration;
+}
+
+function drawBlend() {
+  $('blend-speed-out').textContent = blend.speed.toFixed(2) + ' m/s';
+  const weights = evaluate(blend.speed);
+  const duration = weights.reduce((s, [i, wt]) => s + TREE[i].duration * wt, 0);
+  const { ctx, w, h } = fit($('blend-canvas'));
+
+  // 速さの軸と点
+  const x0 = 30, x1 = w * 0.55, axisY = 50, vmax = 3;
+  const X = (v) => x0 + (x1 - x0) * v / vmax;
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x0, axisY); ctx.lineTo(x1, axisY); ctx.stroke();
+  ctx.font = '12px ' + tok('--font-mono');
+  for (const p of TREE) {
+    ctx.fillStyle = tok(p.color);
+    ctx.beginPath(); ctx.arc(X(p.speed), axisY, 6, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillText(p.name + ' ' + p.speed.toFixed(2), X(p.speed) - 16, axisY - 14);
+  }
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(X(blend.speed), axisY - 10); ctx.lineTo(X(blend.speed), axisY + 10); ctx.stroke();
+
+  // 重みの棒
+  TREE.forEach((p, i) => {
+    const wt = (weights.find(([j]) => j === i) || [i, 0])[1];
+    const y = 90 + i * 34;
+    ctx.fillStyle = tok('--line'); ctx.fillRect(x0 + 50, y, x1 - x0 - 50, 18);
+    ctx.fillStyle = tok(p.color); ctx.fillRect(x0 + 50, y, (x1 - x0 - 50) * wt, 18);
+    ctx.fillStyle = tok('--ink'); ctx.fillText(p.name, x0, y + 14);
+    ctx.fillText(wt.toFixed(2), x0 + 56 + (x1 - x0 - 50) * wt, y + 14);
+  });
+
+  // 歩きと走りの位相の時計(針 = 左足を前へ振り出し始める瞬間からの割合)
+  const clocks = [1, 2];
+  clocks.forEach((i, k) => {
+    const cx = w * 0.68 + k * w * 0.17, cy = h * 0.5, r = Math.min(w * 0.07, h * 0.3);
+    const phase = blend.sync === 'on' ? blend.phase : blend.times[i] / TREE[i].duration;
+    const active = weights.some(([j, wt]) => j === i && wt > 0);
+    ctx.globalAlpha = active ? 1 : 0.35;
+    ctx.strokeStyle = tok('--line'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    // 右半分 = 左足が前、左半分 = 右足が前
+    ctx.fillStyle = tok('--accent-soft');
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
+    const a = -Math.PI / 2 + phase * 2 * Math.PI;
+    ctx.strokeStyle = tok(TREE[i].color); ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.stroke();
+    ctx.fillStyle = tok('--ink'); ctx.font = '12px ' + tok('--font-body');
+    ctx.fillText(TREE[i].name, cx - 14, cy + r + 18);
+    ctx.globalAlpha = 1;
+  });
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillText('時計の色の付いた半分 = 左足が前', w * 0.6, h - 8);
+
+  const pw = blend.sync === 'on' ? blend.phase : blend.times[1] / TREE[1].duration;
+  const pr = blend.sync === 'on' ? blend.phase : blend.times[2] / TREE[2].duration;
+  let gap = Math.abs(pw - pr); gap = Math.min(gap, 1 - gap);
+  $('blend-stats').innerHTML =
+    stat('重み', weights.map(([i, wt]) => TREE[i].name + ' ' + wt.toFixed(2)).join(' + ')) +
+    stat('周期', duration.toFixed(2) + ' 秒') +
+    stat('歩きと走りの位相の差', (gap * 360).toFixed(0) + ' 度');
+  const mixing = weights.length === 2 && weights[0][0] === 1;
+  $('blend-note').textContent = blend.sync === 'on'
+    ? '位相を合わせると、2本は同じ「1 周のどこか」で読まれ、針はいつも重なる。周期は重みで混ぜた長さになり、速さを上げるほど歩調が詰まる。'
+    : mixing
+      ? '合わせないと、歩きと走りがそれぞれの長さで回り、針の差が毎周変わる。差が 180 度に近いと、歩きの左足が前・走りの右足が前が重なって、脚が4本あるように見える。'
+      : '合わせないと、2本はそれぞれの長さで回る。速さを歩きと走りの間(0.97〜2.36)にすると、混ぜた絵に差が出る。';
+}
+
+if (reduceMotion) drawBlend();
+else animate($('blend-canvas'), (dt) => { stepBlend(dt); drawBlend(); });
+drawBlend();
+
+// ============================================================
+//  実験台3: 休みの姿勢が T ポーズでないと、腕が上がらない(下がらない)
+// ============================================================
+// 正規化 = 「休みの姿勢からどれだけ回ったか」。ファイルの腕の角度(水平から下へ)をそのまま回り方に直し、アバター(T ポーズ)へ足す
+const rest = { pose: 0, angle: 72 };
+seg('rest-pose', (v) => { rest.pose = Number(v); drawRest(); });
+$('rest-angle').addEventListener('input', (ev) => { rest.angle = Number(ev.target.value); drawRest(); });
+
+function drawRest() {
+  $('rest-angle-out').textContent = rest.angle + ' 度';
+  const turn = rest.angle - rest.pose;             // ファイルの骨が休みの姿勢から回った角度(= 正規化された回転)
+  const avatar = 0 + turn;                         // アバターの休みの姿勢は T ポーズ(0 度)
+  const { ctx, w, h } = fit($('rest-canvas'));
+  const S = Math.min(h / 1.3, w / 3.2);
+  const figure = (cx, title, restDeg, nowDeg) => {
+    const sy = h * 0.32;
+    ctx.strokeStyle = tok('--muted'); ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx, sy + 0.55 * S); ctx.stroke();
+    ctx.fillStyle = tok('--muted'); ctx.beginPath(); ctx.arc(cx, sy - 0.14 * S, 0.1 * S, 0, 2 * Math.PI); ctx.fill();
+    const arm = (deg, color, width, dash) => {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []);
+      ctx.beginPath(); ctx.moveTo(cx + 0.06 * S, sy);
+      ctx.lineTo(cx + 0.06 * S + Math.cos(deg * DEG) * 0.55 * S, sy + Math.sin(deg * DEG) * 0.55 * S); ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    arm(restDeg, tok('--line'), 3, [5, 4]);
+    arm(nowDeg, tok('--accent'), 5);
+    ctx.fillStyle = tok('--ink'); ctx.font = '13px ' + tok('--font-body');
+    ctx.fillText(title, cx - 50, 20);
+  };
+  figure(w * 0.28, 'ファイル', rest.pose, rest.angle);
+  figure(w * 0.72, 'アバター', 0, avatar);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(w / 2, 10); ctx.lineTo(w / 2, h - 10); ctx.stroke();
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  ctx.fillText('点線 = 休みの姿勢の腕 / 青 = いまの腕', 8, h - 8);
+  $('rest-stats').innerHTML =
+    stat('ファイルの腕', rest.angle + ' 度') +
+    stat('休みの姿勢からの回り方', turn + ' 度') +
+    stat('アバターの腕', avatar + ' 度') +
+    stat('ずれ', Math.abs(avatar - rest.angle) + ' 度');
+  $('rest-note').textContent = rest.pose === 0
+    ? 'ファイルも T ポーズなら、回り方をそのままアバターへ足せばよく、腕は同じ向きになる(ずれ 0 度)。'
+    : 'ファイルの休みの姿勢の腕が ' + rest.pose + ' 度下がっていると、同じ「体の横へ下ろした腕」が ' + turn + ' 度しか回っていないと測られる。アバター(T ポーズ)にはその分しか足されないので、腕は ' + rest.pose + ' 度上に残る。式は正しく、前提(休みの姿勢 = T ポーズ)が崩れている。';
+}
+drawRest();
+})();
+</script>
+</body>
+</html>
