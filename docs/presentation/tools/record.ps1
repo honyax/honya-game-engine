@@ -5,6 +5,7 @@
 #    record.ps1 -All       … 表の全部を撮る
 #    -Format h264 | vp9 | lossless … 書き出しの形式(既定 h264)。lossless は比較用の無劣化
 #    -OutDir <フォルダ>     … 出力先を media/ 以外にする(比較用)
+#    -SceneFile <ファイル名> … 撮影の表を替える(既定 scenes.json。静止画は stills.ps1 が stills.json で呼ぶ)
 #
 #  reference/DayXX には触らない。docs/presentation/.record/DayXX にコピーし、
 #  そこへ Recorder.Silk.cs を足してビルド・撮影し、撮り終えたらコピーを消す。
@@ -15,7 +16,8 @@ param(
     [switch]$All,
     [switch]$Keep,  # 撮影後も作業用コピーを残す(調べたいとき用)
     [ValidateSet('h264', 'vp9', 'lossless')][string]$Format = 'h264',
-    [string]$OutDir
+    [string]$OutDir,
+    [string]$SceneFile = 'scenes.json'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,11 +39,11 @@ $ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
 if (-not $ffmpeg) { throw 'ffmpeg が PATH にありません' }
 $ffprobe = Join-Path (Split-Path $ffmpeg -Parent) 'ffprobe.exe'
 
-$scenes = Get-Content (Join-Path $tools 'scenes.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$scenes = Get-Content (Join-Path $tools $SceneFile) -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($All) { $targets = $scenes }
 elseif ($Name) { $targets = @($scenes | Where-Object { $_.name -eq $Name }) }
 else { throw '撮るものを指定してください(例: record.ps1 day40 / record.ps1 -All)' }
-if ($targets.Count -eq 0) { throw "scenes.json に $Name がありません" }
+if ($targets.Count -eq 0) { throw "$SceneFile に $Name がありません" }
 
 New-Item -ItemType Directory -Force $media | Out-Null
 
@@ -94,7 +96,9 @@ foreach ($scene in $targets) {
     if (Test-Path $out) { Remove-Item -Force $out }
     $env:HONYA_RECORD = $clipPath
     try {
-        $proc = Start-Process -FilePath $exe -WorkingDirectory $dst -PassThru
+        # アプリのコンソール出力(切り替えのたびに状態を書く)を残す。-Keep のとき、手順の確かめに使える
+        $proc = Start-Process -FilePath $exe -WorkingDirectory $dst -PassThru `
+            -RedirectStandardOutput (Join-Path $dst 'stdout.log') -RedirectStandardError (Join-Path $dst 'stderr.log')
         $limit = [int]($scene.warmup + $scene.seconds + 90)
         if (-not $proc.WaitForExit($limit * 1000)) {
             Stop-Process -Id $proc.Id -Force
