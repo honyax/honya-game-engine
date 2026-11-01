@@ -28,10 +28,11 @@ internal sealed class KeyStep
     public string[]? Mods { get; set; }
 
     // マウス(カメラを回す・寄せる)。wheel はホイールの目盛り(正で奥へ = 寄る)、
-    // drag は左ドラッグの移動量 [dx, dy](画素)。duration 秒かけて少しずつ動かす
+    // drag は左ドラッグの移動量 [dx, dy](画素)。duration 秒かけて少しずつ動かす(既定 0.3 秒)。
+    // wheel は duration を書いたときだけ、その秒数に分けて送る(書かなければ一度に回す)
     public int Wheel { get; set; }
     public double[]? Drag { get; set; }
-    public double Duration { get; set; } = 0.3;
+    public double? Duration { get; set; }
 }
 
 internal sealed class Clip
@@ -112,24 +113,35 @@ internal sealed class KeyScript
 
             if (step.Wheel != 0)
             {
-                // GLFW は wParam の上位 16 ビット(1 目盛り = 120)だけを見る
-                events.Add(new KeyEvent(step.At, "", true, false, WmMouseWheel, (nint)(step.Wheel * 120 << 16), 0));
+                // GLFW は wParam の上位 16 ビット(1 目盛り = 120)を 120 で割って渡すので、120 未満の端数も届く。
+                // 1 目盛りずつ送るとカメラの距離が段になって跳ぶので、duration があれば 1/60 秒ごとに細かく割って送る
+                int moves = step.Duration is double seconds ? Math.Max(1, (int)(seconds * 60)) : 1;
+                int total = step.Wheel * 120;
+                int sent = 0;
+                for (int i = 1; i <= moves; i++)
+                {
+                    int delta = (int)Math.Round((double)total * i / moves) - sent;
+                    sent += delta;
+                    double at = step.At + ((step.Duration ?? 0.0) * (i - 1) / moves);
+                    events.Add(new KeyEvent(at, "", true, false, WmMouseWheel, (nint)((delta & 0xFFFF) << 16), 0));
+                }
             }
 
             if (step.Drag is { Length: 2 } drag)
             {
                 // 位置は「押した瞬間のカーソルからの差」で持っておき、送るときに足す(Send 参照)
-                int moves = Math.Max(1, (int)(step.Duration * 60));
+                double duration = step.Duration ?? 0.3;
+                int moves = Math.Max(1, (int)(duration * 60));
                 events.Add(new KeyEvent(step.At, DragKey, true, false, WmLButtonDown, MkLButton, Point(0, 0)));
                 for (int i = 1; i <= moves; i++)
                 {
                     double t = (double)i / moves;
                     int dx = (int)Math.Round(drag[0] * t);
                     int dy = (int)Math.Round(drag[1] * t);
-                    events.Add(new KeyEvent(step.At + (step.Duration * t), DragKey, true, false, WmMouseMove, MkLButton, Point(dx, dy)));
+                    events.Add(new KeyEvent(step.At + (duration * t), DragKey, true, false, WmMouseMove, MkLButton, Point(dx, dy)));
                 }
 
-                events.Add(new KeyEvent(step.At + step.Duration, DragKey, true, false, WmLButtonUp, 0, Point((int)Math.Round(drag[0]), (int)Math.Round(drag[1]))));
+                events.Add(new KeyEvent(step.At + duration, DragKey, true, false, WmLButtonUp, 0, Point((int)Math.Round(drag[0]), (int)Math.Round(drag[1]))));
             }
 
             if (step.Tap is not null)
@@ -288,6 +300,7 @@ internal sealed class FrameSink
     private readonly Clip _clip;
     private readonly int _framesTotal;
     private int _framesWritten;
+    private readonly Dictionary<int, int> _repeated = [];
     private Process? _ffmpeg;
     private BlockingCollection<byte[]>? _queue;
     private Thread? _writer;
@@ -362,6 +375,14 @@ internal sealed class FrameSink
         int due = Math.Min(_framesTotal, (int)Math.Floor(now * _clip.Fps) + 1);
         if (due > _framesWritten)
         {
+            // 升目を2つ以上まとめて埋める = アプリが 1/30 秒に間に合わなかった。動画ではそこがカクつく。
+            // 絵が止まっている場面と見分けがつかないので、何秒目で何回重ねたかを最後に出す
+            if (due - _framesWritten > 1)
+            {
+                int second = _framesWritten / _clip.Fps;
+                _repeated[second] = _repeated.GetValueOrDefault(second) + due - _framesWritten - 1;
+            }
+
             byte[] frame = read();
             while (_framesWritten < due)
             {
@@ -374,6 +395,10 @@ internal sealed class FrameSink
         {
             // 書き出しが終わるのを裏で待つ(窓を閉じるのは、窓の持ち主のスレッドで)
             _queue!.CompleteAdding();
+            Console.WriteLine(_repeated.Count == 0
+                ? "[録画] 同じ絵の重ね: なし(すべての升目に間に合った)"
+                : $"[録画] 同じ絵の重ね: 計 {_repeated.Values.Sum()} 枚 / {_framesTotal} 枚("
+                    + string.Join(" ", _repeated.OrderBy(p => p.Key).Select(p => $"{p.Key}秒目 {p.Value}")) + ")");
             var waiter = new Thread(() =>
             {
                 _writer!.Join();

@@ -104,12 +104,9 @@ internal static class SilkRecorder
         // 撮影開始の時刻を 0 とした「今」。準備の間は負になる
         double now = Clock.Elapsed.TotalSeconds - _clip.Warmup;
         _keys.SendDue(_hwnd, now);
-        if (now < 0.0)
-        {
-            return;
-        }
 
-        if (!_sink.Started)
+        // ffmpeg は撮り始める 1 秒前に起動しておく。撮影開始の瞬間に起動すると、その待ちで最初の数コマが重なる
+        if (!_sink.Started && now >= -1.0)
         {
             Vector2D<int> size = _window.FramebufferSize;
             _frameWidth = size.X;
@@ -119,6 +116,11 @@ internal static class SilkRecorder
             _sink.Start(_frameWidth, _frameHeight, "rgb24",
                 $"vflip,{(_clip.Crop is null ? "" : $"crop={_clip.Crop},")}scale={_clip.Width}:{_clip.Height}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 + $"pad={_clip.Width}:{_clip.Height}:(ow-iw)/2:(oh-ih)/2");
+        }
+
+        if (now < 0.0)
+        {
+            return;
         }
 
         _sink.Tick(now, ReadFrame);
