@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 74 トゥーンの表面下散乱</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+  .ball-wrap { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .ball-wrap canvas { flex: 0 0 auto; width: 240px; height: 240px; border-radius: 6px; background: var(--panel, transparent); image-rendering: pixelated; }
+  .ball-wrap .cap { font-size: 12px; color: var(--muted); font-family: var(--font-mono); margin-top: 4px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol>
+<li class="l2"><a href="#s1">今日のゴール</a></li>
+<li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li>
+<li class="l3"><a href="#s3">今日は MToon のシェーダへの足し算と、1つの新しいクラス</a></li>
+<li class="l2"><a href="#s4">事前に読む資料</a></li>
+<li class="l2"><a href="#s5">理論の要点</a></li>
+<li class="l3"><a href="#s6">1. 表面下散乱の4つの作り方 — 場所をまたいで広げるか</a></li>
+<li class="l3"><a href="#s7">2. 影の境目からの距離 d — MToon の境目は N・L = -shift</a></li>
+<li class="l3"><a href="#s8">3. 境目の2本の帯と、散乱色のランプ</a></li>
+<li class="l3"><a href="#s9">4. 逆光の透け — 厚みの代わりにマスク</a></li>
+<li class="l3"><a href="#s10">5. マスク — 肌のマテリアル x 肌らしさ</a></li>
+<li class="l3"><a href="#s11">6. どこに足すか — 2色の上に、光ごとに</a></li>
+<li class="l2"><a href="#s12">前Dayからの差分概要</a></li>
+<li class="l3"><a href="#s13">変更ファイル</a></li>
+<li class="l3"><a href="#s14">写経する順番</a></li>
+<li class="l2"><a href="#s15">設計書</a></li>
+<li class="l3"><a href="#s16">MToon とは別のクラスにした理由</a></li>
+<li class="l3"><a href="#s17">mtoon.frag の main の中の順番</a></li>
+<li class="l3"><a href="#s18">だれが何を知っているか</a></li>
+<li class="l3"><a href="#s19">今日残した歪み</a></li>
+<li class="l3"><a href="#s20">試して分かったこと</a></li>
+<li class="l2"><a href="#s21">完成条件</a></li>
+<li class="l3"><a href="#s22">1. F2 / F10 / F8: 2段影の顔で、境目のにじみを見る</a></li>
+<li class="l3"><a href="#s23">2. F3: 成分を1つずつ見る</a></li>
+<li class="l3"><a href="#s24">3. F8 / F4: 逆光と、マスクの3段</a></li>
+<li class="l3"><a href="#s25">4. F9 / F6: 裏通りで、点光源の散乱</a></li>
+<li class="l3"><a href="#s26">5. F5 / F7: 落ち影と強さ</a></li>
+<li class="l3"><a href="#s27">6. OFF なら Day 73b と同じ絵であること</a></li>
+<li class="l3"><a href="#s28">7. F12: 自己チェック(10 項目すべて合格)</a></li>
+<li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li>
+<li class="l2"><a href="#s30">改造課題</a></li>
+<li class="l3"><a href="#s31">課題1(易): 部位ごとの透けの強さ</a></li>
+<li class="l3"><a href="#s32">課題2(中): 肌らしさをテクスチャに焼く</a></li>
+<li class="l3"><a href="#s33">課題3(難): 場所をまたぐ拡散を、キャラの画素だけで</a></li>
+<li class="l2"><a href="#s34">動作確認済み環境</a></li>
+</ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 74 / 計画書</p>
+  <h1>トゥーンの表面下散乱 — MToon の2色の上に、肌のにじみと透けを足す</h1>
+  <p class="lede">光が肌の中へ潜って、少し離れた所から出てくる。その「にじみ」を、画素が自分の N・L だけを見て足す近似で描く。パスもバッファも増やさない</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol>
+<li class="l2"><a href="#s1">今日のゴール</a></li>
+<li class="l2"><a href="#s4">事前に読む資料</a></li>
+<li class="l2"><a href="#s5">理論の要点</a></li>
+<li class="l2"><a href="#s12">前Dayからの差分概要</a></li>
+<li class="l2"><a href="#s15">設計書</a></li>
+<li class="l2"><a href="#s21">完成条件</a></li>
+<li class="l2"><a href="#s30">改造課題</a></li>
+<li class="l2"><a href="#s34">動作確認済み環境</a></li>
+</ol></nav>
+
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>肌は光を表面で返すだけでなく、中へ通して散らし、少し離れた所から外へ出す(表面下散乱、Subsurface Scattering)。写実の絵では、影の境目が赤くにじみ、耳や指が逆光で赤く透ける。トゥーンの絵でも、境目に赤みを1本差すだけで「肌らしさ」が出る。</p>
+<p>今日の題材は、サムザップの記事「表面下散乱(SSS)の実装案比較とトゥーン調への適用方法」。記事は4つの作り方を同じキャラで比べ、<strong>トゥーンの2段影を壊さずに安く足せる案</strong>を選んでいる。それを Day 68 の MToon へ移す。<strong>VRM の仕様の外にある足し算なので、既定は OFF</strong>。OFF なら Day 73b(と three-vrm)と同じ絵のまま。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「トゥーンの表面下散乱」ページで <code>F10</code>(顔に2段影)→ <code>F8</code>(光を真横へ)→ <code>F2</code>(散乱 ON)と押すと、顔の影の境目の影の側に、オレンジがかった赤い帯がにじむ。<code>F8</code> をもう1回押して逆光にすると、顔・首・手が赤く透ける。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「トゥーンの表面下散乱」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>表面下散乱: OFF(VRM の仕様どおり)↔ ON。<strong>今日の到達点</strong></td></tr>
+<tr><td><code>F3</code></td><td>成分: 通常 → 散乱だけ → 境目の帯だけ → 逆光の透けだけ → 影の境目からの距離 d</td></tr>
+<tr><td><code>F4</code></td><td>マスク: 肌のマテリアル x 肌らしさ(既定)→ 肌のマテリアルだけ → 全部のマテリアル</td></tr>
+<tr><td><code>F5</code></td><td>落ち影の境目: 乗せない(記事と同じ)↔ 乗せる(PCF でぼけた影の縁も境目にする)</td></tr>
+<tr><td><code>F6</code></td><td>点光源にも: 足す(既定)↔ 太陽だけ(記事と同じ)</td></tr>
+<tr><td><code>F7</code></td><td>強さ: x1(0.5)↔ x3(記事の比較画像と同じく、見やすさのための誇張)</td></tr>
+<tr><td><code>F8</code></td><td>光の向き: 床の上 → 真横(境目が顔の真ん中を通る)→ 逆光(キャラの向こうに太陽)</td></tr>
+<tr><td><code>F9</code></td><td>裏通りに立たせる(「VRMビューア」の F8 と同じ。ランプは夜の段に切り替わる)</td></tr>
+<tr><td><code>F10</code></td><td>顔に2段影(試し): ファイルの値 ↔ 顔に影の色と硬い境目を付ける。ON にすると顔に寄る</td></tr>
+<tr><td><code>F11</code></td><td>内訳(つまみの値・マテリアルごとのマスクと境目・顔の帯の表・ランプの色)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(10 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「トゥーンの表面下散乱」(37 枚目)が直接開く。<code>F9</code> 以外の項目は、VRMビューアが出ていなければ出してから効く。<code>F3</code>〜<code>F7</code> は押すと散乱も ON にする(切り替えた結果が見えるように)。</p>
+
+<figure class="lab" id="ball-lab">
+  <div class="lab-head">
+    <h3>実験台: 肌の球を MToon で照らし、散乱を足す</h3>
+    <span class="tag">要点1・2・4・6。式・つまみ・既定値は reference/Day74 の mtoon.frag と ToonSss と同じ。光の色 1、環境光はベースカラー x 0.25(床の上の空 1/4 の目安)、出口は Day 72 のキャラの出口(1 で切って sRGB)。球の肌の色はこのページで決めた値</span>
+  </div>
+  <div class="ball-wrap">
+    <div><canvas id="ball-off" width="120" height="120" aria-label="散乱なしの球"></canvas><div class="cap">散乱 OFF(MToon だけ)</div></div>
+    <div><canvas id="ball-on" width="120" height="120" aria-label="散乱ありの球"></canvas><div class="cap" id="ball-on-cap">散乱 ON</div></div>
+  </div>
+  <div class="controls">
+    <div class="ctl"><span class="label">材質(AvatarSample_A の値)</span>
+      <div class="seg" id="ball-mat">
+        <button data-v="face" aria-pressed="false">顔(ファイルの値)</button><button data-v="twotone" aria-pressed="true">顔に2段影(試し)</button><button data-v="body" aria-pressed="false">体</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">光の向き(0 = カメラの側から、90 = 真横、180 = 逆光)</span><div class="range"><input type="range" id="ball-az" min="0" max="180" step="1" value="90"><output id="ball-az-out"></output></div></div>
+    <div class="ctl"><span class="label">右の球に出すもの</span>
+      <div class="seg" id="ball-view">
+        <button data-v="0" aria-pressed="true">通常</button><button data-v="1" aria-pressed="false">散乱だけ</button><button data-v="4" aria-pressed="false">距離 d</button>
+      </div>
+    </div>
+    <div class="ctl"><span class="label">強さ</span>
+      <div class="seg" id="ball-int">
+        <button data-v="1" aria-pressed="true">x1(0.5)</button><button data-v="3" aria-pressed="false">x3(1.5)</button>
+      </div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="ball-stats"></div><p id="ball-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「場所をまたいで広げない」</strong>。本物の散乱は、鼻に当たった光が頬から出てくる——ある点の色が、まわりの点に当たった光で決まる。それを描くには、照らした結果を画面か UV の上でぼかす別のパスが要る。今日の作り方は、<strong>画素が自分の N・L だけを見て「境目の近くなら赤みを足す」</strong>。にじむ「ように見える」だけだが、MToon の1パスの中で済む(要点1)。</p>
+<p><strong>2つ目は「境目からの距離 d を作る」</strong>。MToon の影の度合いは <code>linearstep(-1 + toony, 1 - toony, N・L + shift)</code> なので、ちょうど半分になるのは <code>N・L = -shift</code>。そこを 0、受光の中心を 1、影の奥を -1 にそろえた d に、表層と深層の2本の帯を乗せる(要点2・3)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// mtoon.frag(Day 74)。直接光の2色はそのままにして、上から足す
+float d = BoundaryDistance(nDotL, shift);                       // -1 影の奥 / 0 境目 / 1 受光の中心
+vec3 ramp = SssRamp(d);                                         // 境目の近くだけ色味(両端は白)
+sss += (SssBoundary(d, ramp) + SssTransmission(nDotL, l, v, ramp)) * 光の色 * マスク * 強さ;
+color = direct + indirect + rim + emissive + sss;</code></pre></div>
+<p><strong>3つ目は「このアバターでは、そのままでは見えない」</strong>。AvatarSample_A の顔は<strong>影の色がベースカラーと同じ</strong>で、体と服は <code>shift 1</code>(影の側が無い)。記事の作り方は2段影のある絵が前提なので、境目に帯を足しても、境目そのものが絵に出ていない。<code>F10</code> の試しで顔に2段影を付けると、記事の比較画像と同じ見え方になる(試して分かったこと)。上の実験台で「顔(ファイルの値)」と「顔に2段影」を切り替えると、同じ散乱でも見え方が変わる。</p>
+
+<h3 id="s3">今日は MToon のシェーダへの足し算と、1つの新しいクラス</h3>
+<p>新規は <code>Render/ToonSss.cs</code>(つまみ・ランプ・マスク・C# の式)。変更は <code>shaders/mtoon.frag</code>(uniform と関数5つ、太陽と点光源への組み込み、成分表示)、<code>Model/VrmExpressions.cs</code>(1行。試しのため)、<code>Program.cs</code>(フィールド・送る3か所・ページ1枚・HUD・内訳・自己チェック)。</p>
+<p><strong>キャラの描き方(Day 68 の「キャラの3回」)と後処理は1行も変わっていない</strong>。足したのは MToon のパスが1画素ごとに足す色だけで、パスもバッファもテクスチャの大きな物も増えない(増えたのは 256x4 のランプ1枚)。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://tech.sumzap.co.jp/entry/toon-shader-subsurface-scattering">サムザップ「表面下散乱(SSS)の実装案比較とトゥーン調への適用方法」</a>(2026-10-20) — 今日の手本。4つの作り方の比較、採用した「境目の2本の帯 + 逆光の透け」の式、ランプとマスクの作り方。Unity(URP)と Unity Toon Shader の上の実装で、<code>_BaseColor_Step</code>(影の段の位置)から境目を出している。今日はそこを MToon の <code>shift</code> に置き換える</li>
+<li><a href="https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-14-advanced-techniques-realistic-real-time-skin">GPU Gems 3 第14章「Advanced Techniques for Realistic Real-Time Skin Rendering」</a> — テクスチャ空間でぼかす作り方(記事の比較の2つ目)。拡散の形をガウスの足し合わせで近似する</li>
+<li><a href="https://www.iryoku.com/separable-sss/">Jorge Jimenez「Separable Subsurface Scattering」</a> — 画面の上で縦横2回ぼかす作り方(比較の1つ目)。改造課題3の手本</li>
+<li><a href="https://advances.realtimerendering.com/s2011/">SIGGRAPH 2011 Advances in Real-Time Rendering</a> の Eric Penner「Pre-Integrated Skin Shading」 — 「N・L と曲率で引く表」に散乱を焼き込む作り方(比較の3つ目)。記事も今日も、この表を式に置き換えた近似</li>
+<li><a href="https://colinbarrebrisebois.com/2011/03/07/gdc-2011-approximating-translucency-for-a-fast-cheap-and-convincing-subsurface-scattering-look/">Colin Barré-Brisebois「Approximating Translucency for a Fast, Cheap and Convincing Subsurface-Scattering Look」</a>(GDC 2011) — 逆光の透けの近似(比較の4つ目)。厚みのテクスチャと「光源を見つめる向き」の累乗</li>
+<li><a href="https://github.com/vrm-c/vrm-specification/tree/master/specification/VRMC_materials_mtoon-1.0">VRMC_materials_mtoon-1.0</a> — 影の度合いの式(<code>shadingShift</code> と <code>shadingToony</code>)。今日の境目はこの式から出る</li>
+<li>Day 68 の計画書(要点2: 影の度合い)・Day 72 の計画書(要点1: キャラの出口は 1 で切って sRGB)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. 表面下散乱の4つの作り方 — 場所をまたいで広げるか</h3>
+<p>肌に入った光は、中で何度も向きを変え、入った点から数ミリ離れた所から出てくる。赤い光ほど遠くまで届く(血と皮下組織が青と緑を先に吸う)ので、<strong>影の境目の影の側が赤くにじむ</strong>。リアルタイムの作り方は、「どこで広げるか」で4つに分かれる(記事の比較)。</p>
+<div class="table-wrap"><table><thead><tr><th>作り方</th><th>どこで広げるか</th><th>必要なもの</th><th>トゥーンとの相性</th></tr></thead><tbody>
+<tr><td>スクリーンスペース</td><td>照らした結果を<strong>画面の上で</strong>ぼかす</td><td>専用のパス・中間バッファ・深度(奥行きで広げる幅を変える)</td><td>2段影の段差までぼける</td></tr>
+<tr><td>テクスチャスペース</td><td>照らした結果を <strong>UV の上で</strong>ぼかす</td><td>UV の重なりが無いこと・照らした絵を描くパス</td><td>いちばん肌らしいが重い</td></tr>
+<tr><td>Pre-Integrated</td><td><strong>広げない</strong>。N・L で引く表に、広げた結果を焼いておく</td><td>表(1枚のテクスチャ)</td><td>2段影を保てる</td></tr>
+<tr><td>透けの近似</td><td><strong>広げない</strong>。逆光の向きと厚みで透けを足す</td><td>厚み(マスク)</td><td>境目のにじみは作れない</td></tr>
+</tbody></table></div>
+<p>記事が選び、今日移すのは<strong>下の2つの組み合わせ</strong>。どちらも「広げない」ので1パスで済む。代わりに失うものがある。</p>
+<ul>
+<li><strong>場所をまたぐ拡散は作れない</strong>。鼻に当たった光が頬へ回る、指の間から光が漏れる、のような絵は、まわりの画素を見ないと描けない</li>
+<li><strong>落ち影の縁にはにじまない</strong>(記事)。境目は N・L から作るので、髪が顔に落とす影の縁は境目にならない(今日は <code>F5</code> で縁も境目にできるが、幅は PCF のぼけの中だけ。要点2)</li>
+<li>記事も断っているとおり、<strong>Pre-Integrated の忠実な実装ではない</strong>。本来の表は「N・L と曲率」の2次元で、拡散の形を積分して焼く。記事と今日は、曲率を見ずに、帯の形を式で決める</li>
+</ul>
+
+<h3 id="s7">2. 影の境目からの距離 d — MToon の境目は N・L = -shift</h3>
+<p>MToon の影の度合い(Day 68 の要点2)は <code>shading = linearstep(-1 + toony, 1 - toony, N・L + shift)</code>。<strong>ちょうど半分(明るい側と影の色の真ん中)になるのは <code>N・L + shift = 0</code></strong>、つまり境目 <code>b = -shift</code>。そこからの距離を、両側で別々に割って -1〜1 にそろえる。</p>
+<div class="code"><span class="lang">text</span><pre><code>b = -shift
+d = N・L >= b ? (N・L - b) / (1 - b)      // 明るい側: 境目で 0、N・L = 1 で 1
+              : (N・L - b) / (1 + b)      // 影の側:   境目で 0、N・L = -1 で -1</code></pre></div>
+<p>片側だけで割ると、境目が真ん中に無いマテリアル(髪は <code>b = 0.35</code>)で、明るい側と影の側の帯の幅が違って見える。両側を別々に割ると、どのマテリアルでも「境目から端まで」が同じ 1 になり、帯の幅のつまみを共有できる。</p>
+<div class="table-wrap"><table><thead><tr><th>マテリアル(AvatarSample_A)</th><th>shift / toony</th><th>境目 b</th><th>d</th></tr></thead><tbody>
+<tr><td>顔(Face_00_SKIN)</td><td>-0.05 / 0.05</td><td>N・L = 0.05</td><td>N・L 0.525 で 0.5、-1 で -1</td></tr>
+<tr><td>髪(HAIR_01〜04)</td><td>-0.35 / 0.35</td><td>N・L = 0.35</td><td>N・L -0.325 で -0.5</td></tr>
+<tr><td>体と服(Body_00_SKIN・CLOTH)</td><td>1 / 1</td><td>N・L = -1(影の側が無い)</td><td><strong>いつも 1</strong></td></tr>
+</tbody></table></div>
+<p><strong>影の側が無いマテリアルは、いつも受光の中心(d = 1)にいる扱いにする</strong>。<code>1 + b = 0</code> で割れないからではなく、<strong>見えている境目が無いところに、にじませる相手は無い</strong>から。そのまま式に通すと、真後ろ(N・L が -1 に近い所)だけに帯が乗り、境目の無い体の背中に赤い縁取りが出る。</p>
+<p><code>F5</code>(落ち影の境目)を入れると、PCF の割合 0〜1 を <code>shadow x 2 - 1</code> で -1〜1 に引き直し、<code>min(d, それ)</code> を取る。<strong>体と服にとっては、これが唯一の境目</strong>になる。ただし PCF のぼけは数テクセルしかないので、帯はいつも細い。</p>
+
+<h3 id="s8">3. 境目の2本の帯と、散乱色のランプ</h3>
+<p>境目の近くに、幅の違う2本の帯を置く。<strong>表層</strong>は狭く明るい色(浅く散ってすぐ出てきた光)、<strong>深層</strong>は広く暗い赤(奥まで潜って血の色を拾った光)。</p>
+<div class="code"><span class="lang">text</span><pre><code>表層 = saturate(1 - |d| / 表層の半幅)²            半幅 0.25
+深層 = saturate(1 - |d| / max(深層の半幅, 表層の半幅))²   半幅 0.6
+重み = lerp(0.45, 1, saturate(-d / 深層の半幅))      // 明るい側は 0.45、影の奥ほど 1
+境目の帯 = (表層の色 x ランプ x 表層 + 深層の色 x ランプ x 深層 x 0.6) x 重み</code></pre></div>
+<ul>
+<li><strong>2乗する</strong>のは、1次のままだと帯の端で傾きが急に 0 になり、<strong>帯の形が線として見える</strong>から(下の実験台で「1次」に切り替えると、帯の端に角が出る)</li>
+<li><strong>明るい側を 0.45 倍</strong>にするのは、明るい側は直接光でもともと明るく、足した色が埋もれて白っぽく濁るだけだから。実機ではもっとはっきりしていて、明るい側の肌は R が 1 を超えて<strong>すでに 1 で切れている</strong>(Day 72 のキャラの出口)。赤を足しても画面の値は変わらない(要点6)</li>
+<li><strong>ランプ</strong>(256x4)は帯に色味を付けるだけ。横が d(<code>u = d x 0.5 + 0.5</code>)、<strong>両端は白(色を変えない)、真ん中付近だけ色味が乗る</strong>。縦は下の2行が夜(寒色)、上の2行が昼(暖色)。床の上は昼、裏通りは夜の段を引く</li>
+</ul>
+<p>記事のランプは画家が描いたテクスチャ。今日は画像をリポジトリに足さず、<code>ToonSss.CreateRamp</code> が式で作る(中央から u で 0.35 離れたら白、その間は smoothstep)。<strong>sRGB にしない・ミップを付けない・端で止める</strong>の3つが要る(<code>ToonSss.Load</code> のコメント)。</p>
+
+<figure class="lab" id="band-lab">
+  <div class="lab-head">
+    <h3>実験台: 2本の帯とランプ — d を横に並べる</h3>
+    <span class="tag">要点2・3。式と既定値は reference/Day74 の ToonSss.Bands / RampColor と同じ。下の帯は「光 1 で足す色」(強さ 0.5)を画面の色で並べたもの</span>
+  </div>
+  <canvas id="band-canvas" style="height:260px" aria-label="d に対する2本の帯と重み"></canvas>
+  <div class="controls">
+    <div class="ctl"><span class="label">表層の半幅</span><div class="range"><input type="range" id="band-wrap" min="0.02" max="1" step="0.01" value="0.25"><output id="band-wrap-out"></output></div></div>
+    <div class="ctl"><span class="label">深層の半幅</span><div class="range"><input type="range" id="band-deep" min="0.02" max="1.5" step="0.01" value="0.6"><output id="band-deep-out"></output></div></div>
+    <div class="ctl"><span class="label">深層の強さ</span><div class="range"><input type="range" id="band-deepint" min="0" max="1.5" step="0.05" value="0.6"><output id="band-deepint-out"></output></div></div>
+    <div class="ctl"><span class="label">帯の形</span>
+      <div class="seg" id="band-shape"><button data-v="sq" aria-pressed="true">2乗(今日)</button><button data-v="lin" aria-pressed="false">1次</button></div>
+    </div>
+    <div class="ctl"><span class="label">ランプの段</span>
+      <div class="seg" id="band-row"><button data-v="1" aria-pressed="true">昼(床の上)</button><button data-v="0" aria-pressed="false">夜(裏通り)</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="band-stats"></div><p id="band-note"></p></div>
+</figure>
+
+<h3 id="s9">4. 逆光の透け — 厚みの代わりにマスク</h3>
+<div class="code"><span class="lang">text</span><pre><code>透け = saturate(-L・V)⁴ x saturate(-N・L x 0.5 + 0.5) x 深層の色 x ランプ x 0.8</code></pre></div>
+<ul>
+<li><strong>前半</strong>は「光がカメラの向こうから来ているか」。<code>L</code> は光へ向かう向き、<code>V</code> はカメラへ向かう向きなので、光源を見つめるときに <code>-L・V = 1</code>。4乗で、真向かいの狭い範囲に絞る(<code>-L・V = 0.5</code> なら 0.0625)</li>
+<li><strong>後半</strong>は「その面が光に背を向けているか」。光の当たる側の面は透けではなく直接光で明るいので、背を向けた面ほど強くする(境目の面で半分)</li>
+<li><strong>厚みは見ていない</strong>。本来は薄い所(耳・指・鼻)ほど透けるので、Barré-Brisebois の作り方は厚みのテクスチャを焼く。記事も今日も、<strong>マスクが厚みを兼ねる</strong>(要点5)</li>
+</ul>
+<p>体と服は <code>shift 1</code> なので、逆光でも MToon の色は明るい側のまま(影が出ない設定)。<strong>体の散乱は透けだけ</strong>になる。実験台で「体」を選び、光の向きを 180 にすると、境目の帯は出ずに、縁の内側(光に背を向けた面)だけが赤くなる。</p>
+
+<h3 id="s10">5. マスク — 肌のマテリアル x 肌らしさ</h3>
+<p>記事のマスクは、ベースカラーと同じ UV の R に「透けの強さ」を描いたテクスチャ。AvatarSample_A には無いので、2段で代用する。</p>
+<ol>
+<li><strong>マテリアル1枚ごとに 1 か 0</strong>。VRoid はマテリアル名の末尾に部位を付ける(<code>_SKIN</code> / <code>_HAIR</code> / <code>_CLOTH</code> / <code>_EYE</code> / <code>_FACE</code>)。<code>_SKIN</code> の2枚(顔と体)だけが 1</li>
+<li><strong>画素ごとの肌らしさを掛ける</strong>。<strong>体のテクスチャにはタイツとインナーも描かれている</strong>ので、1 だけでは逆光で脚とインナーが赤茶に透ける。ベースカラー(リニア)が明るく、暖かい色だけを残す</li>
+</ol>
+<div class="code"><span class="lang">glsl</span><pre><code>float SkinLikeness(vec3 c)   // c はリニアのベースカラー
+{
+    float luminance = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    return smoothstep(0.2, 0.45, luminance) * smoothstep(0.03, 0.12, c.r - c.b);
+}</code></pre></div>
+<p>しきい値は、顔と体のテクスチャの画素を数えて決めた。肌は輝度 0.6〜0.9・<code>R - B</code> が 0.2〜0.5。タイツと黒いインナーは輝度 0.1 以下。白い布は <code>R - B</code> がほぼ 0。<strong>この式は画家のマスクの代役で、このアバターでしか通用しない</strong>(肌色に近い服を着たアバターでは服も透ける。歪みの1つ目)。</p>
+
+<h3 id="s11">6. どこに足すか — 2色の上に、光ごとに</h3>
+<p>Pre-Integrated の元の作り方は、ランバートの <code>N・L</code> の代わりに表を引く——拡散の明るさそのものを置き換える。トゥーンでそれをすると、作者が塗った影の色と境目の形が変わってしまう。記事と同じく、<strong>MToon の直接光(影の色とベースカラーの2色)はそのままにして、上から足す</strong>。</p>
+<ul>
+<li><strong>光ごとに足す</strong>。太陽の分を足したあと、点光源のループの中でも同じ式で足す。記事はメインライトだけだが、<strong>夜の裏通りでは月が暗く、灯りのほうが肌を照らす</strong>(試して分かったこと: 点光源を外すと散乱がほぼ消える)。点光源は影を落とさないので、<code>F5</code> は太陽にだけ効く</li>
+<li><strong>光の色を掛ける</strong>。夜の灯りの橙で照らせば、散乱もその色になる。ランプの夜の段(寒色)は、月と灯りの色に寄りすぎないように赤みを抑える役</li>
+<li><strong>出口は Day 72 のキャラの出口</strong>(1 で切って sRGB)。足した結果が 1 を超えたチャンネルは切れる。明るい側に赤を足しても見えないのはこのため。<strong>散乱が絵に出るのは、1 より十分暗い所だけ</strong>——記事の 0.45 は、ここで理屈が通る。<strong>影の色が明るすぎると、影の側でも R が切れる</strong>。そのときは足した赤が消えて G と B だけが増え、境目の影が赤くならずに白っぽくなる(試して分かったこと)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Render/ToonSss.cs</code>(新規)</td><td>つまみと切り替え、ランプを作る・送る、マスク(<code>IsSkin</code> / <code>MaskOf</code> / <code>SkinLikeness</code>)、C# の式(<code>BoundaryDistance</code> / <code>Bands</code> / <code>Backlight</code> / <code>RampColor</code> / <code>CreateRamp</code> / <code>Scatter</code>)</td><td>+314</td></tr>
+<tr><td><code>shaders/mtoon.frag</code></td><td>冒頭の説明に1行、散乱の uniform 15 個と定数、関数5つ(<code>BoundaryDistance</code> / <code>SkinLikeness</code> / <code>SssRamp</code> / <code>SssBoundary</code> / <code>SssTransmission</code>)、太陽の直接光の3行の書き換えと散乱、点光源のループの散乱、成分表示、最後の足し算</td><td>+146 / −3</td></tr>
+<tr><td><code>Model/VrmExpressions.cs</code></td><td><code>ColorBind.Initial</code> を書けるように(「顔に2段影」の試しのため)</td><td>+6 / −2</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、ランプを作る1行、<code>ApplyMToonFrame</code> と <code>DrawMToonPart</code> に1行ずつ、<code>RenderVrm</code> のアウトラインの条件、HUD に1行、ページ1枚(11 項目)、<code>RunDebugMenuCheck</code> の項目数、今日の関数一式</td><td>+533 / −2</td></tr>
+<tr><td><code>Day74.csproj</code></td><td><code>Day73b.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p class="note">今日の差分は約 1000 行(コメント込み)。<code>Program.cs</code> の今日の関数は約 400 行で、うち自己チェック(<code>RunSssCheck</code>)が約 180 行、ページが約 150 行。1日で重ければ、下の順番の <strong>8 まで</strong>(F2〜F10 で絵を見比べるまで)と <strong>9</strong>(内訳・自己チェック)で2回に分けるとよい。</p>
+
+<h3 id="s14">写経する順番</h3>
+<p>シェーダは C# のビルドに関わらないので先に写す(uniform を送る側より先に受ける側があってよい)。そのあと C# を依存の向きに沿って並べてある。</p>
+<ol>
+<li><strong><code>shaders/mtoon.frag</code>(変更)</strong> — 順に、(a) 冒頭の「色は3つの足し算」の表に「散乱」の1行、(b) <code>uProbeSh</code> の後ろ(<code>PI</code> の手前)に散乱の uniform と <code>SSS_LIT_SIDE_WEIGHT</code>、(c) <code>Shading</code> の後ろ(<code>PerturbNormal</code> の手前)に <code>BoundaryDistance</code> / <code>SkinLikeness</code> / <code>SssRamp</code> / <code>SssBoundary</code> / <code>SssTransmission</code>、(d) <code>main</code> の太陽の直接光を <code>sunNDotL</code> / <code>sunShadow</code> に分け、<code>lightForRim</code> の後ろに「表面下散乱: 太陽」、(e) 点光源のループで <code>pointL</code> / <code>pointNDotL</code> に分け、ループの最後に散乱、(f) 成分表示(<code>uMToonView == 6</code>)の後ろに <code>uSssView</code> の4行、(g) <code>color</code> の足し算に2つ</li>
+<li><strong><code>Render/ToonSss.cs</code>(新規)</strong> — 丸ごと。<code>Material</code> / <code>Shader</code> / <code>RenderResources</code> / <code>Texture</code> しか使わない</li>
+<li><strong><code>Model/VrmExpressions.cs</code>(変更)</strong> — <code>ColorBind.Initial</code> の説明と <code>{ get; set; }</code></li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 73b」のフィールドの最後(<code>_vrmPlayableAlign</code>)の直後に「Day 74」の3つ(<code>Sss</code> / <code>_sssExaggerate</code> / <code>SssExaggeration</code>)</li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — (a) <code>OnLoad</code> の <code>_mtoonShader</code> を読んだ直後に <code>Sss.Load(_resources);</code>、(b) <code>ApplyMToonFrame</code> の <code>_probes.Apply</code> の直後に <code>Sss.Apply(...)</code>、(c) <code>DrawMToonPart</code> の <code>MToonOf(part).Apply</code> の直後に <code>uSssMask</code>、(d) <code>RenderVrm</code> のアウトラインの条件に <code>&amp;&amp; Sss.View == 0</code></li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunVrmPlayableCheck</code> の直後(<code>CheckList</code> の手前)に、見出しと <code>_sssSideDirection</code> / <code>_sssBackDirection</code> / <code>SssLightMode</code> / <code>SssLightName</code> / <code>CycleSssLight</code> / <code>_sssSavedFace</code> / <code>SssTwoToneShade</code> / <code>SssTwoToneToony</code> / <code>ToggleSssTwoTone</code> / <code>SssMaskName</code> / <code>SssViewName</code> / <code>SssLabel</code></li>
+<li><strong><code>Program.cs</code> のページと HUD</strong> — (a) <code>DrawOverlayInfo</code> の <code>VrmLookLabel()</code> の行の直後に <code>SssLabel()</code> の行、(b) <code>BuildMenu</code> の「VRMで遊ぶ」ページの直後(<code>return menu;</code> の手前)に「トゥーンの表面下散乱」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 9 で足す関数を指すので、分けて写すなら後回しにする)、(c) <code>RunDebugMenuCheck</code> の項目数を <strong>366 → 377</strong> へ</li>
+<li><strong>ここで一度動かす</strong> — <code>Shift+F1</code> → <code>F10</code> → <code>F8</code> → <code>F2</code> で、顔の境目に赤い帯がにじむこと</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 6 の続きに <code>DescribeSss</code> / <code>RunSssCheck</code></li>
+<li><strong><code>Day74.csproj</code></strong> — <code>Day73b.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+</section>
+
+<section class="part"><h2 id="s15">設計書</h2>
+<p><strong>層は増えていない</strong>。<code>Render/</code> に「MToon の上に足す見た目」のクラスを1つ足し、MToon のシェーダがその値を受けて足し算をする。キャラのパス(<code>RenderVrm</code>)の形と、1フレームの中のキャラの居場所(Day 68 の設計書)は動いていない。</p>
+
+<h3 id="s16">MToon とは別のクラスにした理由</h3>
+<p><code>MToon</code> は「ファイルに書かれた値だけを持つ。こちらの判断で足した値は1つも無い」と決めたクラス(Day 68)。表面下散乱のつまみは<strong>全部こちらの判断</strong>(記事のプロパティの名前と意味を借り、値はこのアバターと照明に合わせて決めた)。同じクラスに混ぜると、どこまでが作者の指定で、どこからが自分の味付けかが読めなくなる。</p>
+<div class="table-wrap"><table><thead><tr><th>置き場所の案</th><th>良いところ</th><th>困るところ</th></tr></thead><tbody>
+<tr><td>A. <code>MToon</code> にプロパティを足す</td><td>マテリアルごとに値を持てる</td><td>「ファイルの値だけ」の約束が崩れる。VRM を書き出す道具が無い値を、マテリアルごとに持っても埋める人がいない</td></tr>
+<tr><td><strong>B. 今日: <code>ToonSss</code> を1つ、Program が持つ</strong></td><td>MToon は Day 73b のまま。OFF にすれば仕様どおりの絵だと、コードの形で言える</td><td>マテリアルごとの値は持てない(マスクの 1 か 0 だけ。改造課題1)</td></tr>
+<tr><td>C. 別のシェーダ(MToon の写し + 散乱)</td><td>MToon のシェーダに手を入れない</td><td>402 行の写しが2本になり、MToon を直すたびに両方を直す</td></tr>
+</tbody></table></div>
+<p>シェーダだけは C と逆に、<strong><code>mtoon.frag</code> に足した</strong>。散乱は「光ごとの N・L」「境目の shift」「落ち影の割合」を MToon の計算の途中から借りるので、別のパスにすると全部をもう一度計算することになる。代わりに <code>uSssEnabled</code> が 0 なら何もしない(OFF のとき Day 73b と1画素も違わないことを確かめた)。</p>
+
+<h3 id="s17">mtoon.frag の main の中の順番</h3>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">影の色と境目のずらし(Day 68 のまま)</div>
+    <div class="rw"><span>読む <b>shadeColor・shift</b></span></div>
+    <div class="swap">—</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">太陽の直接光。<code>sunNDotL</code> と <code>sunShadow</code> を<strong>1回だけ</strong>求める</div>
+    <div class="rw"><span>書く <b>direct = mix(影の色, ベースカラー, 影の度合い x 影) x 光</b></span></div>
+    <div class="swap">Day 73b は <code>ShadowFactor</code> を式の中で呼んでいた。3 で落ち影の割合を使うので変数に出した(PCF を2回引かないため)</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">太陽の散乱: マスク → d(→ 落ち影と min)→ ランプ → 帯 + 透け</div>
+    <div class="rw"><span>読む <b>sunNDotL・shift・sunShadow・base.rgb</b></span><span>書く <b>sssBoundary・sssTransmission</b></span></div>
+    <div class="swap">direct に掛けると: 影の色が書き換わり、作者の2段影の形が変わる(要点6)。<strong>別の変数に貯めて、最後に足す</strong></div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">点光源のループ。直接光のあとに同じ式で散乱を足す</div>
+    <div class="rw"><span>書く <b>direct・lightForRim・sssBoundary・sssTransmission</b></span></div>
+    <div class="swap">ループの外で足すと: 光ごとの N・L が無いので、境目を作れない</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">環境光とリム(Day 68 のまま)</div>
+    <div class="rw"><span>書く <b>indirect・rim</b></span></div>
+    <div class="swap">環境光には散乱を足さない。上下で均した一様な光なので、境目が無い</div>
+  </div></li>
+  <li><span class="no">6</span><div>
+    <div class="what">成分表示(MToon の F4 → 散乱の <code>uSssView</code>)</div>
+    <div class="rw"><span>書く <b>FragColor(ここで返る)</b></span></div>
+    <div class="swap">MToon の成分表示より前に置くと: MToon の成分を見ているのに散乱が出る</div>
+  </div></li>
+  <li><span class="no">7</span><div>
+    <div class="what"><code>color = direct + indirect + rim + emissive + 散乱</code></div>
+    <div class="rw"><span>書く <b>FragColor</b></span></div>
+    <div class="swap">アウトラインの回は、このあと線の色で上書きする(散乱は捨てられる。歪みの4つ目)</div>
+  </div></li>
+</ol>
+
+<h3 id="s18">だれが何を知っているか</h3>
+<p>コメントを落としてから型名を拾って確かめた(<code>ToonSss.cs</code> が使う型は <code>Material</code> / <code>Shader</code> / <code>RenderResources</code> / <code>Texture</code> / <code>Handle</code> / <code>TextureUnit</code> だけ。<code>MToon</code> は説明の中にしか出てこない。<code>MToon.cs</code> は今日1行も変わっていない)。</p>
+<div class="table-wrap"><table><thead><tr><th>だれ</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Render/ToonSss</code></td><td>つまみ・ランプ・マテリアルの名前の末尾 <code>_SKIN</code>・ベースカラーの肌らしさ</td><td><strong>MToon の値</strong>(shift はシェーダが MToon から直接読む)・VRM・表情</td></tr>
+<tr><td><code>Render/MToon</code></td><td>ファイルの値(Day 68 のまま)</td><td>散乱があること</td></tr>
+<tr><td><code>mtoon.frag</code></td><td>MToon の式と散乱の式。散乱は MToon の途中の値(N・L・shift・影)を借りる</td><td>散乱のつまみがどこから来たか</td></tr>
+<tr><td><code>Program</code></td><td>ランプの段を場所で選ぶ(床の上は昼、裏通りは夜)、パーツごとにマスクを送る</td><td>散乱の式</td></tr>
+</tbody></table></div>
+
+<h3 id="s19">今日残した歪み</h3>
+<p><strong>1つ目: マスクは式の代役</strong>。肌らしさのしきい値は AvatarSample_A のテクスチャに合わせて決めた。肌色に近い服(ベージュのニット)や、暗い肌のアバターでは外れる。本来はアバターごとに画家がマスクを描く。直すなら改造課題2(焼いたマスクに筆を入れられるようにする)。</p>
+<p><strong>2つ目: 透けは影を見ない</strong>。壁の陰に立っていても、壁の向こうの太陽に向かえば透ける。点光源は影を落とさないので、灯りとのあいだに何があっても透ける。夜の裏通りでは灯りとキャラのあいだに物が少ないので目立たない。</p>
+<p><strong>3つ目: 「顔に2段影」の試しは、表情の覚えた色を書き換える</strong>。Day 69 の「赤面」が顔の影の色に色の割り当てを持っていて、毎フレーム「読んだときの色」へ戻す。マテリアルだけ書き換えると次のフレームで元に戻るので、<code>ColorBind.Initial</code> を書けるようにした(Model に1行)。試しのために Model へ手を入れた形で、ファイルの値を実行中に変える仕組み(エディタ)を作るときに、まとめて考え直す。</p>
+<p><strong>4つ目: アウトラインの回でも散乱を計算して捨てる</strong>。線の色で上書きするので結果には出ない。線を持つ顔と体の分だけ、無駄な計算をしている(<code>uOutlinePass</code> で枝を切れば済むが、今日は式を読みやすいほうにした。時間は測っていない)。</p>
+<p><strong>5つ目: ランプは式から作る</strong>。画家が描き直す前の「たたき台」で、色味を変えるには C# を書き換えてビルドし直す。記事のように PNG を読むなら、<code>LoadTexture(path, generateMipmaps: false, srgb: false)</code> と端で止める設定の3つを守る。</p>
+<p><strong>6つ目: 落ち影の境目は PCF の幅しかない</strong>。<code>F5</code> の帯の幅は、影の縁のぼけ(3x3 なら 1 テクセルほど)で決まり、つまみの半幅とは関係が無い。広げるには影の縁そのものをぼかす(PCSS など)必要がある。</p>
+
+<h3 id="s20">試して分かったこと</h3>
+<ul>
+<li><strong>OFF なら Day 73b と1画素も違わない</strong>。床の上の VRMビューアを同じ台本で撮り、HUD の領域を除いた全画素で差 0(HUD は今日の1行の分だけ違う)</li>
+<li><strong>AvatarSample_A の顔には、塗られた影の色が無い</strong>。顔の <code>shadeColorFactor</code> は白で、影の色の絵はベースカラーの絵と同じ。だから光を真横から当てても、顔の色は境目で変わらない。散乱の帯は「境目のにじみ」に見えず、横顔に薄く赤みが差すだけになった。顔の影の色を (0.60, 0.42, 0.46)・toony を 0.9 にした試し(<code>F10</code>)で、記事の比較画像と同じ見え方になった</li>
+<li><strong>体と服には境目が無い</strong>(<code>shift 1</code>)。<code>F3</code> の「距離 d」で体と服は真っ白、顔だけに階調がある。体の散乱は逆光の透けだけ</li>
+<li><strong>マテリアルのマスクだけでは、タイツとインナーが透ける</strong>。体のテクスチャにはタイツ(輝度 0.05 前後)と黒いインナーが描かれている。逆光で脚が赤茶になった。肌らしさを掛けると、顔・首・手だけが透ける</li>
+<li><strong>明るい側に足した色は見えない</strong>。顔のベースカラーは光 1 + 環境光で R が 1 を超え、Day 72 のキャラの出口で切れている。画素で比べると、境目の明るい側は 255 のまま、影の側だけ赤が増えた</li>
+<li><strong>影の色が薄いと、散乱で赤みが「縮む」</strong>。最初の試しの影の色 x (0.80, 0.62, 0.64) では、床の上の光で影の側の R が 252 前後(リニアでほぼ 1)になっていた。散乱を ON にすると、境目は柔らかくなるのに、ピンクの影の面積が小さくなったように見えた——足した R は 1 で切れ、G と B だけが増えて、影が明るい側の色へ寄ったため。x (0.60, 0.42, 0.46) に濃くすると、影の側の R は 227 になり、ON で 234(x3 で 247)へ上がって、G と B はほとんど変わらない。境目の影が赤みを増す、記事の見え方になった。<strong>散乱は「影の側の R に余裕がある」絵でしか効かない</strong></li>
+<li><strong>強さ 0.35 では、2段影の顔でも気付く人だけ気付く</strong>くらいだった。0.5 を既定にし、記事の比較画像と同じ誇張(x3)を <code>F7</code> に置いた</li>
+<li><strong>夜の裏通りでは、散乱はほぼ灯りから来る</strong>。散乱だけを表示して点光源あり・なしで撮り比べると、14,459 画素が変わった(太陽だけにすると、顔と首はほぼ黒)。記事の「メインライトだけ」は、昼の屋外の前提</li>
+<li><strong>正面寄りの光では、境目が顔の上に来ない</strong>。床の上の光(左上手前から)では顔のほとんどが明るい側で、境目は鼻の下とあごの裏にしか無い。<code>F8</code> の真横は、境目が顔の真ん中を通る向きとして足した</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day74 -c Release</code> で起動する。起動直後は Day 73b と同じ絵。今日の主役は「トゥーンの表面下散乱」のページ(<code>Shift+F1</code> で直接開く)から。VRMビューアを出すと HUD に1行増える。</p>
+<div class="code"><pre><code>散乱:ON  成分:通常  マスク:肌のマテリアル x 肌らしさ  落ち影:乗せない  点光源:足す  強さ:0.50  ランプ:昼  光:真横</code></pre></div>
+
+<h3 id="s22">1. F2 / F10 / F8: 2段影の顔で、境目のにじみを見る</h3>
+<ul>
+<li><code>F10</code> … 顔に寄り、顔に影の色が付く(右半分が少し暗いピンク)。<code>F8</code> で真横にすると、境目が顔の真ん中を縦に通る</li>
+<li><code>F2</code> … 境目の影の側に、オレンジがかった赤い帯がにじむ。明るい側はほとんど変わらない(白で切れている)。<code>F7</code> で x3 にすると、記事の比較画像くらいはっきりする</li>
+<li><code>F10</code> をもう1回 … ファイルの値に戻る。同じ散乱でも、横顔に薄く赤みが差すだけになる</li>
+</ul>
+
+<h3 id="s23">2. F3: 成分を1つずつ見る</h3>
+<ul>
+<li>散乱だけ … キャラの肌以外は黒。顔の影の側と首の付け根が赤い</li>
+<li>境目の帯だけ … 顔の境目に沿った帯。<strong>体は黒</strong>(境目が無い)</li>
+<li>逆光の透けだけ … 床の上の光では、ほぼ黒(光がカメラの側にある)</li>
+<li>距離 d … 黒 = 影の奥、灰 = 境目、白 = 受光の中心。<strong>体と服は真っ白</strong>。<code>F8</code> を押すたびに、顔の灰色の線が動く</li>
+</ul>
+
+<h3 id="s24">3. F8 / F4: 逆光と、マスクの3段</h3>
+<ul>
+<li><code>F8</code> を逆光まで進める … キャラが暗い影の色になり(顔)、体と服は明るいまま(<code>shift 1</code>)。散乱 ON なら顔・首・手が赤く透ける</li>
+<li><code>F4</code>(肌のマテリアルだけ)… <strong>タイツとインナーまで赤茶に透ける</strong>。もう1回(全部)… 髪の境目にも帯が乗り、汚れのように見える。もう1回で元に戻る</li>
+</ul>
+
+<h3 id="s25">4. F9 / F6: 裏通りで、点光源の散乱</h3>
+<p>完成版の夜で、街灯の手前に立つ。HUD のランプが「夜」になる。<code>F3</code> の「散乱だけ」で、灯りの側の顔と首が赤く出る。<code>F6</code>(太陽だけ)にすると、ほぼ真っ黒になる——夜の散乱は灯りから来ている。</p>
+
+<h3 id="s26">5. F5 / F7: 落ち影と強さ</h3>
+<ul>
+<li><code>F5</code>(乗せる)… <code>F3</code> の「境目の帯だけ」で、髪が首と顔に落とす影の縁に、細い帯が出る(幅は PCF のぼけの中だけ)</li>
+<li><code>F7</code> … x3 で、境目の帯と透けがはっきりする(記事の比較画像と同じ誇張)。x1 に戻すと「気付く人だけ気付く」くらい</li>
+</ul>
+
+<h3 id="s27">6. OFF なら Day 73b と同じ絵であること</h3>
+<p>散乱を OFF にしたまま、「VRMビューア」(Day 68)・「セルルックの仕上げ」(Day 72)・「VRMで遊ぶ」(Day 73b)の自己チェックが通ること。Day 48 の割り当て表(<code>Alt+F1</code>)が <strong>377 項目</strong>で通ること。</p>
+
+<h3 id="s28">7. F12: 自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 74 自己チェック(境目の距離・帯・逆光の透け・ランプ・マスク・シェーダの写し)===
+  [OK] 境目(N・L = -shift)で d = 0、両端で ±1、両側を別々に割る(顔の境目 0.05 と 1 の中間 0.525 で 0.5。髪は境目 0.35 と -1 の中間 -0.325 で -0.5)  顔 0.000 / 1.000 / -1.000 / 0.500  髪 -0.500
+  [OK] 影の側が無い(体と服。shift 1)なら、どの向きでも d = 1(見えている境目が無いところには帯を乗せない)  N・L = -1 で 1.00 / 1 で 1.00
+  [OK] 帯は境目で 1、半幅で 0、2乗で端がなだらか(表層の半幅の 0.01 手前で 0.0016。深層は d = 0.25 で (1 - 0.25/0.6)² = 0.340)  境目 1.00/1.00 / 半幅 0.00 / 0.01 手前 0.0016 / 深層 0.3403
+  [OK] 明るい側は 0.45 倍、影の側へ行くほど 1 倍(境目で 0.45、深層の端で 1。同じ距離なら影の側の帯のほうが濃い)  重み 境目 0.45 / 深層の端 1.00  帯の和 d = -0.15 で 0.292、+0.15 で 0.224
+  [OK] 透けは光源を見つめる向きで、光に背を向けた面ほど強い(真向かい・背を向けた面で 1、光を向いた面で 0、横から見たら 0、L・V = -0.5 で 0.5⁴ = 0.0625、境目の面で半分)  1.000 / 0.000 / 0.000 / 0.0625 / 0.500
+  [OK] ランプは両端が白(色を変えない)、真ん中だけ色味が乗る。下の2行が夜(寒色)、上の2行が昼(暖色)  真ん中 夜 (140, 166, 255) / 昼 (255, 158, 97)
+  [OK] 肌らしさは明るく暖かい色だけ 1(肌 1、タイツ(暗い)0、白い布(R - B = 0)0)  肌 1.000 / タイツ 0.000 / 白 0.000
+  [OK] マスクが 1 になるのは顔と体の2枚だけ(VRoid のマテリアル名の末尾 _SKIN。髪・服・目は 0)  N00_000_00_Face_00_SKIN (Instance) / N00_000_00_Body_00_SKIN (Instance)
+  [OK] 顔には境目があり、体には無い(顔 shift -0.05 は境目の帯が乗る。体 shift 1 は透けだけ)  顔 shift -0.05 / 体 shift 1.00
+  [OK] 受光側の重みが C# と同じ、境目・帯・透けの関数と肌らしさのしきい値がシェーダにある  受光側の重み 0.45
+  すべて合格(境目の距離・帯の形・逆光の透け・ランプ・マスク・シェーダの写しが仕様どおり)</code></pre></div>
+<p>1〜7 は式だけ(<code>ToonSss</code> の C# の式とランプの画素)。8〜9 はアバターを読んでマテリアルの名前と値を見る。10 はシェーダの文字列。<strong>表示中の絵には触らない</strong>ので、VRMビューアを出す前でも出したあとでも同じ数字になる。</p>
+<p><code>F11</code> の内訳の「顔の帯の表」は、床の上(昼の段)・強さ 0.5 で、境目(N・L 0.05)の足す色が <code>(0.326, 0.073, 0.034)</code>、N・L 0.00 で <code>(0.256, 0.055, 0.026)</code> になる(下の実験台の帯の値と同じ)。</p>
+
+<h3 id="s29">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>球: 材質「顔(ファイルの値)」/「顔に2段影」</td><td><code>F10</code></td></tr>
+<tr><td>球: 材質「体」</td><td>体は全身に写っている。<code>F3</code> の「距離 d」で真っ白なのを見る</td></tr>
+<tr><td>球: 光の向き 0〜180</td><td><code>F8</code>(床の上 / 真横 = 90 / 逆光 = 180)。床の上の光(<code>VrmStageLight</code>)は水平の向きでおよそ 35、ただし上からの角度が 37 度(実験台は 20 度)</td></tr>
+<tr><td>球: 散乱だけ・距離 d</td><td><code>F3</code></td></tr>
+<tr><td>球: 強さ x1 / x3</td><td><code>F7</code></td></tr>
+<tr><td>帯: 表層・深層の半幅、深層の強さ、帯の形</td><td>実機にキーは無い(<code>ToonSss</code> の既定値を書き換えてビルドし直す)</td></tr>
+<tr><td>帯: ランプの段(昼 / 夜)</td><td><code>F9</code>(床の上は昼、裏通りは夜)</td></tr>
+</tbody></table></div>
+<p class="note">球の肌の色(リニア (0.95, 0.72, 0.60))と環境光(ベースカラー x 0.25)は、このページで決めた値(式と順番とつまみは reference と同じ)。実機の顔は法線が球ではないので、明るさの分布は違う。帯の実験台の数字は、内訳の「顔の帯の表」と一致する。</p>
+</section>
+
+<section class="part"><h2 id="s30">改造課題</h2>
+
+<h3 id="s31">課題1(易): 部位ごとの透けの強さ</h3>
+<p><code>ToonSss.MaskOf</code> を、マテリアルごとに 0〜1 の値を返す形にする(顔 1.0、体 0.6 など)。体は厚い(胴や脚)ので顔より透けにくい、という差を付ける。<code>F8</code> の逆光で首と手の透け方が顔とどう変わるかを見る。さらに、顔の中でも耳だけ強くするには何が要るか(画素ごとの情報が要る)を考える——課題2への入口。</p>
+
+<h3 id="s32">課題2(中): 肌らしさをテクスチャに焼く</h3>
+<p>シェーダが毎画素計算している <code>SkinLikeness</code> を、起動時に CPU で体と顔のベースカラーの絵から計算し、R8 のテクスチャ(<code>Texture.CreateR8</code>)に焼く。シェーダは焼いたマスクを読むだけにする(記事と同じ形)。焼いた結果を PNG に書き出し(<code>Screenshot</code> の PNG の書き方が使える)、画像編集ソフトで耳を明るく塗ってから読み直せるようにすると、「画家が描くマスク」の流れが一通りそろう。</p>
+
+<h3 id="s33">課題3(難): 場所をまたぐ拡散を、キャラの画素だけで</h3>
+<p>要点1の表のいちばん上(スクリーンスペース)を、Day 72 の「キャラの割合」(シーンのバッファのアルファ)を使って作る。キャラを描いたあとに、<strong>割合が 1 の画素だけ</strong>を横・縦の2回に分けてぼかし(Jimenez の分離ぼかし。幅は深度で割って、遠いほど狭く)、ぼかした色と元の色の差を、肌らしさの分だけ戻す。今日の帯と並べて、鼻の影が頬へにじむか、2段影の段差がぼけるか(記事の言う短所)を確かめる。</p>
+</section>
+
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: Day 68 と同じ AvatarSample_A(VRM 1.0)。</p>
+<p>確かめたこと: ビルド(警告 0)、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 10 項目(VRMビューアを出す前と後)、Day 48 の割り当て表(377 項目)、Day 68・72・73b の自己チェック、OFF のときの Day 73b との全画素の突き合わせ(HUD を除いて差 0)、床の上で見た絵(正面寄りの光で ON / OFF / x3・境目の帯・距離 d、真横の光で ファイルの値 / 2段影の試しの ON / OFF / x3、逆光で マスク3段・透けだけ、落ち影の帯)、裏通りで見た絵(ON / OFF / 散乱だけ、点光源あり / 太陽だけ)</p>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat } = Lab;
+
+// ============================================================
+//  式(reference/Day74 の ToonSss.cs と mtoon.frag と同じ)
+// ============================================================
+const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
+const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const linearStep = (a, b, x) => (b - a <= 1e-6 ? (x >= a ? 1 : 0) : clamp01((x - a) / (b - a)));
+const srgbEncode = (x) => { x = clamp01(x); return x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; };
+const toByte = (x) => Math.round(clamp01(x) * 255);
+const add = (a, b) => a.map((v, i) => v + b[i]);
+const mul = (a, b) => a.map((v, i) => v * b[i]);
+const scale = (a, s) => a.map((v) => v * s);
+const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+
+const SSS = {
+  color: [1.0, 0.45, 0.35], deepColor: [0.75, 0.12, 0.08],
+  wrap: 0.25, deepWrap: 0.6, deepIntensity: 0.6, backlight: 0.8, intensity: 0.5,
+  litSideWeight: 0.45,
+};
+const DAY_TINT = [1.0, 0.62, 0.38], NIGHT_TINT = [0.55, 0.65, 1.0];
+
+/** ToonSss.BoundaryDistance */
+function boundaryDistance(nDotL, shift) {
+  const b = -shift;
+  if (1 + b < 1e-3) return 1;
+  if (1 - b < 1e-3) return -1;
+  const x = nDotL - b;
+  return x >= 0 ? x / (1 - b) : x / (1 + b);
+}
+/** ToonSss.Bands。square = false は実験台の「1次」(reference には無い) */
+function bands(d, wrap, deepWrap, square = true) {
+  const deepWidth = Math.max(deepWrap, wrap);
+  let shallow = clamp01(1 - Math.abs(d) / wrap);
+  let deep = clamp01(1 - Math.abs(d) / deepWidth);
+  if (square) { shallow *= shallow; deep *= deep; }
+  const shadowSide = clamp01(-d / deepWidth);
+  return { shallow, deep, weight: SSS.litSideWeight + (1 - SSS.litSideWeight) * shadowSide };
+}
+/** ToonSss.Backlight(lDotV は L・V。L は光へ向かう向き) */
+function backlight(lDotV, nDotL) {
+  let back = clamp01(-lDotV); back *= back; back *= back;
+  return back * clamp01(-nDotL * 0.5 + 0.5);
+}
+/** ToonSss.RampColor */
+function rampColor(u, tint) {
+  let t = clamp01(1 - Math.abs(u - 0.5) / 0.35); t = t * t * (3 - 2 * t);
+  return lerp3([1, 1, 1], tint, t);
+}
+/** ToonSss.Scatter(光の色とマスクと強さを掛ける前) */
+function scatter(d, nDotL, lDotV, day, p = SSS, square = true) {
+  const u = clamp01(d * 0.5 + 0.5);
+  const ramp = lerp3(rampColor(u, NIGHT_TINT), rampColor(u, DAY_TINT), day);
+  const b = bands(d, p.wrap, p.deepWrap, square);
+  const boundary = scale(add(scale(mul(p.color, ramp), b.shallow), scale(mul(p.deepColor, ramp), b.deep * p.deepIntensity)), b.weight);
+  const transmission = scale(mul(p.deepColor, ramp), backlight(lDotV, nDotL) * p.backlight);
+  return { boundary, transmission };
+}
+/** ToonSss.SkinLikeness */
+function skinLikeness(c) {
+  const lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  return smooth(0.2, 0.45, lum) * smooth(0.03, 0.12, c[0] - c[2]);
+}
+
+// Node で数字を確かめるための口(ブラウザでは使わない)
+if (typeof window.__day74 === 'object') Object.assign(window.__day74, { boundaryDistance, bands, backlight, rampColor, scatter, skinLikeness, SSS });
+
+// ============================================================
+//  実験台1: 肌の球を MToon で照らし、散乱を足す
+// ============================================================
+const SKIN = [0.95, 0.72, 0.60];   // このページで決めた肌の色(リニア)
+const MATERIALS = {
+  face: { name: '顔(ファイルの値)', shift: -0.05, toony: 0.05, shade: [1, 1, 1] },
+  twotone: { name: '顔に2段影(試し)', shift: -0.05, toony: 0.9, shade: [0.60, 0.42, 0.46] },
+  body: { name: '体', shift: 1, toony: 1, shade: [1, 1, 1] },
+};
+const ball = { mat: 'twotone', az: 90, view: 0, intensity: 1 };
+const N = 120;
+
+function renderBall(canvas, withSss) {
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(N, N);
+  const m = MATERIALS[ball.mat];
+  const el = 20 * Math.PI / 180, az = ball.az * Math.PI / 180;
+  // カメラは +Z から -Z を見る。L は光へ向かう向き(上から 20 度)。0 = カメラの側、90 = 左から、180 = 向こうから
+  const L = [-Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)];
+  const V = [0, 0, 1];
+  const lDotV = L[0] * V[0] + L[1] * V[1] + L[2] * V[2];
+  const shadeColor = mul(m.shade, SKIN);
+  const mask = skinLikeness(SKIN);
+  const intensity = SSS.intensity * ball.intensity;
+  let lit = 0, clipped = 0, maxAdd = 0, changed = 0;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const i = (y * N + x) * 4;
+      const nx = (x + 0.5) / N * 2 - 1, ny = 1 - (y + 0.5) / N * 2;
+      const r2 = nx * nx + ny * ny;
+      if (r2 > 1) { img.data[i + 3] = 0; continue; }
+      const n = [nx, ny, Math.sqrt(1 - r2)];
+      const nDotL = n[0] * L[0] + n[1] * L[1] + n[2] * L[2];
+      const shading = linearStep(-1 + m.toony, 1 - m.toony, nDotL + m.shift);
+      const direct = lerp3(shadeColor, SKIN, shading);
+      const indirect = scale(SKIN, 0.25);
+      let color = add(direct, indirect);
+      const d = boundaryDistance(nDotL, m.shift);
+      const s = scatter(d, nDotL, lDotV, 1);
+      const sss = scale(add(s.boundary, s.transmission), mask * intensity);
+      let out = color;
+      if (withSss) {
+        if (ball.view === 1) out = sss;
+        else if (ball.view === 4) out = [d * 0.5 + 0.5, d * 0.5 + 0.5, d * 0.5 + 0.5];
+        else out = add(color, sss);
+      }
+      const px = out.map((v) => toByte(ball.view === 4 && withSss ? v : srgbEncode(v)));
+      if (!withSss || ball.view === 0) {
+        if (shading > 0.5) { lit++; if (color[0] >= 1) clipped++; }
+        const before = color.map((v) => toByte(srgbEncode(v)));
+        if (withSss && px.some((v, k) => Math.abs(v - before[k]) >= 3)) changed++;
+      }
+      maxAdd = Math.max(maxAdd, sss[0]);
+      img.data[i] = px[0]; img.data[i + 1] = px[1]; img.data[i + 2] = px[2]; img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return { lit, clipped, maxAdd, changed, lDotV };
+}
+function updateBall() {
+  $('ball-az-out').textContent = ball.az + ' 度';
+  renderBall($('ball-off'), false);
+  const r = renderBall($('ball-on'), true);
+  $('ball-on-cap').textContent = ball.view === 1 ? '散乱だけ' : ball.view === 4 ? '影の境目からの距離 d' : '散乱 ON';
+  const m = MATERIALS[ball.mat];
+  $('ball-stats').innerHTML =
+    stat('境目', m.shift >= 1 ? '無し(影の側が無い)' : 'N・L = ' + (-m.shift).toFixed(2)) +
+    stat('L・V', r.lDotV.toFixed(2)) +
+    stat('足す赤の最大', r.maxAdd.toFixed(3)) +
+    stat('明るい側で R が 1 で切れた割合', r.lit ? Math.round(r.clipped / r.lit * 100) + '%' : '-');
+  const note = ball.mat === 'face'
+    ? '影の色 = ベースカラーなので、左の球には境目が見えない。散乱の帯は「横顔の赤み」にしか見えない(試して分かったこと)。'
+    : ball.mat === 'body'
+      ? 'shift 1 なので d はいつも 1。境目の帯は出ない。光の向きを 180 にすると、縁の内側だけが透ける(要点4)。'
+      : '境目の影の側に帯がにじむ。明るい側は R がもう 1 で切れているので、足しても変わらない(要点6)。';
+  $('ball-note').textContent = note + (ball.view === 0 ? ` 散乱で 3 段以上変わった画素は ${r.changed} 個。` : '');
+}
+seg('ball-mat', (v) => { ball.mat = v; updateBall(); });
+seg('ball-view', (v) => { ball.view = parseInt(v, 10); updateBall(); });
+seg('ball-int', (v) => { ball.intensity = parseInt(v, 10); updateBall(); });
+$('ball-az').addEventListener('input', (e) => { ball.az = parseInt(e.target.value, 10); updateBall(); });
+
+// ============================================================
+//  実験台2: 2本の帯とランプ
+// ============================================================
+const band = { wrap: 0.25, deepWrap: 0.6, deepIntensity: 0.6, square: true, day: 1 };
+function updateBand() {
+  $('band-wrap-out').textContent = band.wrap.toFixed(2);
+  $('band-deep-out').textContent = band.deepWrap.toFixed(2);
+  $('band-deepint-out').textContent = band.deepIntensity.toFixed(2);
+  const p = Object.assign({}, SSS, { wrap: band.wrap, deepWrap: band.deepWrap, deepIntensity: band.deepIntensity });
+  const { ctx, w, h } = fit($('band-canvas'));
+  const x0 = 40, x1 = w - 14, y0 = 16, y1 = h - 64, strip = h - 44;
+  const X = (d) => x0 + (d + 1) / 2 * (x1 - x0), Y = (v) => y1 - v * (y1 - y0);
+  ctx.strokeStyle = tok('--line'); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(0), y0); ctx.lineTo(X(0), y1); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = tok('--muted'); ctx.font = '11px ' + tok('--font-mono');
+  for (const d of [-1, -0.5, 0, 0.5, 1]) ctx.fillText(d.toFixed(1), X(d) - 10, y1 + 14);
+  for (const v of [0, 0.5, 1]) ctx.fillText(v.toFixed(1), 8, Y(v) + 4);
+  ctx.fillText('影の奥', X(-1) + 4, y0 + 2); ctx.fillText('境目', X(0) + 4, y0 + 2); ctx.fillText('受光の中心', X(1) - 64, y0 + 2);
+  const curves = [
+    ['shallow', '--accent', '表層'], ['deep', '--warn', '深層'], ['weight', '--good', '重み'],
+  ];
+  for (const [key, color, name] of curves) {
+    ctx.strokeStyle = tok(color); ctx.lineWidth = key === 'weight' ? 1.4 : 2.2; ctx.beginPath();
+    for (let i = 0; i <= 400; i++) { const d = i / 200 - 1; const v = bands(d, p.wrap, p.deepWrap, band.square)[key]; i ? ctx.lineTo(X(d), Y(v)) : ctx.moveTo(X(d), Y(v)); }
+    ctx.stroke();
+  }
+  // 足す色(光 1・強さ 0.5)の明るさ(赤)を太線で
+  ctx.strokeStyle = tok('--ink'); ctx.lineWidth = 2.6; ctx.beginPath();
+  for (let i = 0; i <= 400; i++) { const d = i / 200 - 1; const v = scatter(d, 0, 0, band.day, p, band.square).boundary[0] * SSS.intensity; i ? ctx.lineTo(X(d), Y(v)) : ctx.moveTo(X(d), Y(v)); }
+  ctx.stroke();
+  let lx = x0 + 8;
+  for (const [, color, name] of [...curves, [null, '--ink', '足す赤(x 強さ 0.5)']]) { ctx.fillStyle = tok(color); ctx.fillRect(lx, y0 + 12, 10, 3); ctx.fillText(name, lx + 14, y0 + 17); lx += ctx.measureText(name).width + 34; }
+  // 下の帯: 肌(影の色の側を想定した 0.5 x 肌)に足した色を画面の色で
+  for (let px = 0; px < x1 - x0; px++) {
+    const d = px / (x1 - x0) * 2 - 1;
+    const s = scatter(d, 0, 0, band.day, p, band.square).boundary;
+    const c = add(scale(SKIN, 0.5), scale(s, SSS.intensity)).map((v) => toByte(srgbEncode(v)));
+    ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; ctx.fillRect(x0 + px, strip, 1, 14);
+    const r = lerp3(rampColor(clamp01(d * 0.5 + 0.5), NIGHT_TINT), rampColor(clamp01(d * 0.5 + 0.5), DAY_TINT), band.day).map(toByte);
+    ctx.fillStyle = `rgb(${r[0]},${r[1]},${r[2]})`; ctx.fillRect(x0 + px, strip + 18, 1, 10);
+  }
+  ctx.fillStyle = tok('--muted'); ctx.fillText('肌 x 0.5 + 足す色', 4, strip + 11); ctx.fillText('ランプ', 4, strip + 27);
+
+  const sum = (d) => { const b = bands(d, p.wrap, p.deepWrap, band.square); return (b.shallow + b.deep * p.deepIntensity) * b.weight; };
+  const face = (nDotL) => scale(scatter(boundaryDistance(nDotL, -0.05), nDotL, 0, band.day, p, band.square).boundary, SSS.intensity).map((v) => v.toFixed(3)).join(', ');
+  $('band-stats').innerHTML =
+    stat('帯の和 d = -0.15', sum(-0.15).toFixed(3)) +
+    stat('帯の和 d = +0.15', sum(0.15).toFixed(3)) +
+    stat('顔 N・L 0.05 に足す色', '(' + face(0.05) + ')') +
+    stat('顔 N・L 0.00 に足す色', '(' + face(0) + ')');
+  $('band-note').textContent = band.square
+    ? '帯は境目で 1、半幅で 0。影の側(左)は重みが 1 へ上がるので、同じ距離でも濃い。既定値なら顔の2つの値は内訳の「顔の帯の表」と同じ。'
+    : '1次にすると、帯の端(半幅の所)で傾きが急に 0 になり、下の色の帯に角(線)が見える。';
+}
+$('band-wrap').addEventListener('input', (e) => { band.wrap = parseFloat(e.target.value); updateBand(); });
+$('band-deep').addEventListener('input', (e) => { band.deepWrap = parseFloat(e.target.value); updateBand(); });
+$('band-deepint').addEventListener('input', (e) => { band.deepIntensity = parseFloat(e.target.value); updateBand(); });
+seg('band-shape', (v) => { band.square = v === 'sq'; updateBand(); });
+seg('band-row', (v) => { band.day = parseInt(v, 10); updateBand(); });
+
+updateBall();
+updateBand();
+window.addEventListener('resize', () => { updateBand(); });
+void reduceMotion;   // 動きのある図は無い(つまみを動かしたときだけ描き直す)
+})();
+</script>
+</body>
+</html>
