@@ -1,0 +1,315 @@
+#version 430 core
+
+// ============================================================
+//  Day 57: GPU パーティクルのシミュレーション
+// ============================================================
+//
+// **今日いちばん大事なファイル**。ここに書いた1本のプログラムが、
+// 100 万個の粒それぞれに対して1回ずつ走る。
+// C# 側(GpuParticles.Simulate)がやっているのは、
+// uniform をいくつか送って glDispatchCompute を1回呼ぶことだけ——
+// **粒の配列は CPU に1バイトも渡っていない**。
+//
+// -----------------------------------------------------------------
+//  ワークグループ
+// -----------------------------------------------------------------
+//
+// コンピュートシェーダの呼び出しは「ワークグループ」という塊に分かれて走る。
+//   * ワークグループの大きさ … local_size_x/y/z。**コンパイル時の定数**
+//   * ワークグループの数     … glDispatchCompute の引数。**実行時に決まる**
+//   * 呼び出しの総数         … 大きさ x 数
+//
+// 塊に分かれているのは GPU の作りがそうなっているから。
+// 1つのワークグループは必ず**1つの演算ユニット**(NVIDIA なら SM、AMD なら CU)に載り、
+// その中でだけ共有メモリ(shared)と barrier() が使える。
+// 別のワークグループどうしは、**走る順番も、同時に走るかどうかも決まっていない**。
+//
+// LOCAL_SIZE は C# 側から #define で差し込む(Shader.InjectDefines)。
+// uniform にできないのは、shared 配列の大きさとして使うから——
+// 配列の大きさはコンパイル時に決まっていなければならない。
+#ifndef LOCAL_SIZE
+#define LOCAL_SIZE 256
+#endif
+
+layout (local_size_x = LOCAL_SIZE) in;
+
+// -----------------------------------------------------------------
+//  SSBO(シェーダストレージバッファ)
+// -----------------------------------------------------------------
+//
+// **OpenGL 4.3 で入った、シェーダから読み書きできる大きなバッファ**。
+// Day 53 のテクスチャバッファ(TBO)は読むだけだったが、こちらは書ける。
+//
+// `std430` は詰め方の決まり。**std140 との違いが今日の落とし穴**で、
+// std140 だと配列の要素が必ず 16 バイト境界に丸められる(float の配列が 4 倍に膨らむ)。
+// std430 はそれをしないので、C# の構造体とそのまま突き合わせられる。
+//
+// ただし **vec3 は 16 バイトに整列する**(12 ではない)という規則は std430 にも残る。
+// 下の Particle が「vec3 + float」の組を2つにしてあるのはそのためで、
+//   position(0-11) age(12-15) velocity(16-27) lifetime(28-31) = ちょうど 32 バイト。
+// **float を1つ抜くと、そこに 12 バイトの穴が空いて C# 側とずれる**。
+struct Particle
+{
+    vec3 position;
+    float age;
+    vec3 velocity;
+    float lifetime;
+};
+
+// binding = 0 は「0 番の口に挿してあるバッファ」。
+// C# 側の glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffer) と対になる。
+layout (std430, binding = 0) buffer Particles
+{
+    // **大きさを書かない配列**が末尾に1つだけ置ける(可変長配列)。
+    // 実際の長さは挿したバッファの大きさで決まり、particles.length() で聞ける。
+    Particle particles[];
+};
+
+uniform uint uCount;
+uniform float uDeltaTime;
+uniform float uTime;
+
+// 0 = 噴水 / 1 = 引力 / 2 = 渦。
+uniform int uMode;
+
+// 1 なら全部の粒を撒き直す(起動直後と、数・筋書きを変えたとき)。
+uniform int uReset;
+
+// 撒き直すたびに変える数。**同じ値のままだと、同じ粒が毎回同じ方向へ出る**。
+uniform uint uSalt;
+
+uniform vec3 uGravity;
+uniform vec3 uOrigin;
+uniform vec3 uAttractor;
+uniform float uAttractorStrength;
+
+// ------------------------------------------------------------
+//  乱数 — **状態を持てないので、番号から作る**
+// ------------------------------------------------------------
+//
+// CPU の ParticleEmitter は Random を1つ持って順に引いていたが、
+// ここでは 100 万個が同時に走るので「次の値」という考え方が成り立たない。
+// 代わりに**番号を混ぜて散らす**(ハッシュ)。同じ番号からは必ず同じ値が出るので、
+// 何度走らせても同じ結果になる——GPU のシミュレーションを検算できるのはこの性質のおかげ。
+//
+// 式は PCG 系の整数ハッシュ。掛ける定数に意味は無く、
+// 「ビットがよく混ざる」ことだけが求められている。
+uint Hash(uint x)
+{
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+// 0.0 以上 1.0 未満。上位ビットのほうがよく混ざるので 24 ビットだけ使う。
+float Random(uint seed)
+{
+    return float(Hash(seed) & 0x00ffffffu) / 16777216.0;
+}
+
+// 球の中で一様な向き。**cos を一様に引く**のが要点で、
+// 角度のほうを一様に引くと極に粒が溜まる(Day 37 の SSAO カーネルと同じ話)。
+vec3 RandomDirection(uint seed)
+{
+    float z = (Random(seed) * 2.0) - 1.0;
+    float angle = Random(seed + 7919u) * 6.2831853;
+    float r = sqrt(max(0.0, 1.0 - (z * z)));
+    return vec3(r * cos(angle), z, r * sin(angle));
+}
+
+// ------------------------------------------------------------
+//  撒く
+// ------------------------------------------------------------
+//
+// **CPU は1個も撒かない**。死んだ粒が自分で生まれ直す。
+// Day 49 の放出口(EmitRate と端数の持ち越し)がまるごと消えているのは、
+// 「プールに空きを探して詰める」という仕事が、
+// **並列では書けない**(誰が空きを取るかの取り合いになる)から。
+// GPU では「粒の番号は最初から最後まで変わらない」ほうが素直に書ける。
+Particle Spawn(uint index, float startAge)
+{
+    uint seed = Hash(index + (uSalt * 2654435761u));
+
+    Particle p;
+
+    if (uMode == 0)
+    {
+        // 噴水: 足元の小さな円盤から、上向きの円錐へ。
+        //
+        // **広がりは絵の都合で決めている**。狭くすると粒が1か所に密集して、
+        // 加算合成では中心が真っ白に飽和する——100 万個ともなると、
+        // 「明るさを配る」(GpuParticles.ParticleIntensity)だけでは足りず、撒く範囲も要る。
+        float angle = Random(seed) * 6.2831853;
+        float radius = sqrt(Random(seed + 1u)) * 0.35;
+
+        p.position = uOrigin + vec3(cos(angle) * radius, 0.0, sin(angle) * radius);
+
+        vec3 spread = RandomDirection(seed + 2u);
+        p.velocity = normalize(vec3(spread.x * 0.18, 1.0, spread.z * 0.18))
+            * (7.0 + (Random(seed + 3u) * 4.0));
+
+        // **落ちきるくらいで消す**。長くすると、跳ねたあと床を這う粒が
+        // 広い絨毯になって、噴き上がりの形が埋もれる。
+        p.lifetime = 1.8 + (Random(seed + 4u) * 1.2);
+    }
+    else if (uMode == 1)
+    {
+        // 引力: 中心から 3〜9m の殻に置いて、**その距離での円軌道の速さ**で蹴り出す。
+        //
+        // 適当な速さで蹴ると、遅い粒は全部まっすぐ中心へ落ちて1点に潰れる
+        // (Day 57 の検証で最初にそうなった)。円軌道の速さは v = sqrt(GM / r) で、
+        // ここでは GM が uAttractorStrength にあたる。0.8〜1.3 倍に散らすと楕円になり、
+        // **殻のまま回り続ける**。
+        vec3 direction = RandomDirection(seed);
+        float orbit = 3.0 + (Random(seed + 1u) * 6.0);
+        p.position = uAttractor + (direction * orbit);
+
+        // 軌道面をばらけさせる。**半径方向の成分を抜いた向き**が接線。
+        // 2本がたまたま平行だと長さが 0 になるので、そのときだけ別の作り方に逃げる。
+        vec3 other = RandomDirection(seed + 11u);
+        vec3 tangent = other - (direction * dot(other, direction));
+        float tangentLength = length(tangent);
+        tangent = tangentLength > 1e-3
+            ? tangent / tangentLength
+            : normalize(cross(direction, vec3(0.0, 0.0, 1.0)) + vec3(1e-3));
+
+        p.velocity = tangent * (sqrt(uAttractorStrength / orbit) * (0.8 + (Random(seed + 2u) * 0.5)));
+
+        // **軌道はゆっくり崩れるので、寿命で入れ替える**。長すぎると全部が中心に溜まる。
+        p.lifetime = 10.0 + (Random(seed + 3u) * 8.0);
+    }
+    else
+    {
+        // 渦: 床の上の広い円盤から、ゆっくり立ち上がる。
+        float angle = Random(seed) * 6.2831853;
+        float radius = sqrt(Random(seed + 1u)) * 5.0;
+
+        p.position = uOrigin + vec3(cos(angle) * radius, Random(seed + 2u) * 0.4, sin(angle) * radius);
+        p.velocity = vec3(0.0, 0.8 + (Random(seed + 3u) * 0.6), 0.0);
+        p.lifetime = 6.0 + (Random(seed + 4u) * 4.0);
+    }
+
+    p.age = startAge;
+    return p;
+}
+
+void main()
+{
+    // gl_GlobalInvocationID = gl_WorkGroupID * gl_WorkGroupSize + gl_LocalInvocationID。
+    // 「自分は通しで何番目か」。粒の番号にそのまま使う。
+    uint index = gl_GlobalInvocationID.x;
+
+    // **切り上げたぶんの番人**(要点3)。
+    // ワークグループは丸ごとしか撒けないので、100 万を 256 で割ると 3907 グループ = 1,000,192 呼び出し。
+    // 余った 192 個がここで帰る。**これを書き忘れると配列の外を書く**——
+    // SSBO の範囲外アクセスは仕様上「書き込みが捨てられるか、バッファ内のどこかに落ちる」で、
+    // 落ちない代わりに**別の粒が壊れる**という見つけにくい形で出る。
+    if (index >= uCount)
+    {
+        return;
+    }
+
+    if (uReset != 0)
+    {
+        // ------------------------------------------------------------
+        //  **時間の途中から始める**(要点8)
+        // ------------------------------------------------------------
+        //
+        // 全員 age = 0 で撒くと2つ困る。
+        //   (1) 寿命ぶんの時間ごとに<b>全員が同時に生まれ直して脈打つ</b>
+        //   (2) 筋書きを切り替えた直後、全員が撒き口に固まっていて、
+        //       定常の形になるまで寿命ぶん(数秒)待たされる
+        //
+        // 寿命の途中の齢を配り、そのぶん**先へ進めた位置**から始めればどちらも消える。
+        // 噴水は放物運動の式で厳密に送れるが、渦は速度場なので上向きのぶんだけ、
+        // 引力はそもそも殻がそのまま定常なので送らない——
+        // <b>「だいたい定常の形」で始められればよい</b>ので、それぞれ違う扱いでよい。
+        Particle fresh = Spawn(index, 0.0);
+        float age = Random(Hash(index) + 12345u) * fresh.lifetime;
+
+        if (uMode == 0)
+        {
+            fresh.position += (fresh.velocity * age) + (0.5 * uGravity * age * age);
+            fresh.velocity += uGravity * age;
+
+            if (fresh.position.y < uOrigin.y)
+            {
+                fresh.position.y = uOrigin.y;
+                fresh.velocity.y = abs(fresh.velocity.y) * 0.35;
+            }
+        }
+        else if (uMode == 2)
+        {
+            fresh.position.y += fresh.velocity.y * age;
+        }
+
+        fresh.age = age;
+        particles[index] = fresh;
+        return;
+    }
+
+    Particle p = particles[index];
+
+    p.age += uDeltaTime;
+
+    if (p.age >= p.lifetime)
+    {
+        // **死んだらその場で生まれ直す**。詰め直しも、空き探しも要らない。
+        particles[index] = Spawn(index, 0.0);
+        return;
+    }
+
+    if (uMode == 0)
+    {
+        // 噴水: 重力で落ちて、床で跳ねる。
+        p.velocity += uGravity * uDeltaTime;
+        p.position += p.velocity * uDeltaTime;
+
+        if (p.position.y < uOrigin.y)
+        {
+            p.position.y = uOrigin.y;
+
+            // 跳ね返りと摩擦。Day 43 の反発係数と同じ考え方の、いちばん雑な形。
+            p.velocity.y = abs(p.velocity.y) * 0.35;
+            p.velocity.xz *= 0.75;
+        }
+    }
+    else if (uMode == 1)
+    {
+        // 引力: 逆二乗の引力。**分母に小さな数を足す**のが要点で、
+        // 足さないと中心に近づいた1個が無限大の加速度をもらって画面の外へ消える。
+        vec3 toCenter = uAttractor - p.position;
+        float distanceSquared = dot(toCenter, toCenter) + 0.5;
+
+        p.velocity += normalize(toCenter) * (uAttractorStrength / distanceSquared) * uDeltaTime;
+
+        // ごくわずかに減速させる。**強くすると軌道が保たない**(すぐ中心へ落ちる)。
+        p.velocity *= 1.0 - (0.02 * uDeltaTime);
+        p.position += p.velocity * uDeltaTime;
+    }
+    else
+    {
+        // 渦: 位置から速度を作る(速度場)。**前の速度をほとんど使わない**ので、
+        // 粒どうしが同じ流れに乗り、煙のような筋になる。
+        vec3 toAxis = p.position - uOrigin;
+        float radius = max(0.3, length(toAxis.xz));
+
+        // **normalize を使わずに radius で割る**。真ん中に来た粒は toAxis.xz が 0 になり、
+        // normalize(0) は 0/0 = NaN になる。NaN は足しても掛けても NaN のままなので、
+        // 1個でも出ると**その粒が永久に画面から消える**(しかも原因は絵に出ない)。
+        vec3 swirl = vec3(-toAxis.z, 0.0, toAxis.x) / radius;
+        vec3 outward = vec3(toAxis.x, 0.0, toAxis.z) / radius;
+        float rise = 0.6 + (0.5 * sin((p.position.y * 0.7) + (uTime * 0.8)));
+
+        vec3 target = (swirl * (3.0 / radius)) + vec3(0.0, rise, 0.0) - (outward * 0.35);
+
+        // 目標の速度へ寄せる(指数的な追従)。
+        p.velocity = mix(p.velocity, target, clamp(uDeltaTime * 3.0, 0.0, 1.0));
+        p.position += p.velocity * uDeltaTime;
+    }
+
+    particles[index] = p;
+}
