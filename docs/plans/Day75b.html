@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 75b キャラ専用の影</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+  .face-stage canvas { width: 100%; aspect-ratio: 16 / 9; display: block; border-radius: 6px; }
+  .box-stage canvas { width: 100%; aspect-ratio: 16 / 8; display: block; border-radius: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--line); }
+  .rg-figure svg { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol>
+<li class="l2"><a href="#s1">今日のゴール</a></li>
+<li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li>
+<li class="l3"><a href="#s3">今日は Render に1本と、読む側の分かれ道</a></li>
+<li class="l2"><a href="#s4">事前に読む資料</a></li>
+<li class="l2"><a href="#s5">理論の要点</a></li>
+<li class="l3"><a href="#s6">1. 1枚のシャドウマップでは、顔の影が拾えない</a></li>
+<li class="l3"><a href="#s7">2. キャラ専用のシャドウマップ — 箱をキャラに合わせる</a></li>
+<li class="l3"><a href="#s8">3. 箱の奥より遠い受け手 — 1.0 で止める</a></li>
+<li class="l3"><a href="#s9">4. 画面の影 — 1枚に2つの答え</a></li>
+<li class="l3"><a href="#s10">5. 読む側で使い分ける</a></li>
+<li class="l3"><a href="#s11">6. このアバターは影の色 = ベースカラー</a></li>
+<li class="l2"><a href="#s12">前Dayからの差分概要</a></li>
+<li class="l3"><a href="#s13">新規・変更ファイル</a></li>
+<li class="l3"><a href="#s14">写経する順番</a></li>
+<li class="l2"><a href="#s15">設計書</a></li>
+<li class="l3"><a href="#s16">1フレームの中の影(Day 75b)</a></li>
+<li class="l3"><a href="#s17">画面の影が古いかどうか — 世代の番号</a></li>
+<li class="l3"><a href="#s18">だれが何を知っているか</a></li>
+<li class="l3"><a href="#s19">今日残した歪み</a></li>
+<li class="l3"><a href="#s20">試して分かったこと</a></li>
+<li class="l2"><a href="#s21">完成条件</a></li>
+<li class="l3"><a href="#s22">1. F4: R と G を見比べる</a></li>
+<li class="l3"><a href="#s23">2. F6 / F10 / F3: 顔の前髪の影</a></li>
+<li class="l3"><a href="#s24">3. F5: 解像度とアクネ</a></li>
+<li class="l3"><a href="#s25">4. F7 / F9: 夜と Forward+</a></li>
+<li class="l3"><a href="#s26">5. 切れば Day 75a と同じ絵であること</a></li>
+<li class="l3"><a href="#s27">6. F12: 自己チェック(10 項目すべて合格)</a></li>
+<li class="l3"><a href="#s28">実験台と実機のキーの対応</a></li>
+<li class="l2"><a href="#s29">改造課題</a></li>
+<li class="l3"><a href="#s30">課題1(易): バイアスをテクセルの大きさに比例させる</a></li>
+<li class="l3"><a href="#s31">課題2(中): G をキャラの画素だけで作る</a></li>
+<li class="l3"><a href="#s32">課題3(難): 世界の影から、キャラ自身の粗い影を外す</a></li>
+<li class="l2"><a href="#s33">動作確認済み環境</a></li>
+</ol></aside>
+
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 75b / 計画書</p>
+  <h1>キャラ専用の影 — キャラだけを焼く小さなシャドウマップと、2チャンネルの画面の影</h1>
+  <p class="lede">シーン全体を覆う1枚のシャドウマップでは、キャラの顔は十数テクセルしか持たない。キャラだけを、キャラを包む小さな箱でもう1回焼き、画面の影の G に入れる。シーンは R、MToon は G を読む——同じ1枚のテクスチャを、読む人によって使い分ける</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol>
+<li class="l2"><a href="#s1">今日のゴール</a></li>
+<li class="l2"><a href="#s4">事前に読む資料</a></li>
+<li class="l2"><a href="#s5">理論の要点</a></li>
+<li class="l2"><a href="#s12">前Dayからの差分概要</a></li>
+<li class="l2"><a href="#s15">設計書</a></li>
+<li class="l2"><a href="#s21">完成条件</a></li>
+<li class="l2"><a href="#s29">改造課題</a></li>
+<li class="l2"><a href="#s33">動作確認済み環境</a></li>
+</ol></nav>
+
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 75a で、キャラの形(法線と距離)を G-Buffer に入れた。SSAO はキャラを普通の物として扱うようになった。今日はその形を、もう1つの画面の処理——<strong>影</strong>に使う。</p>
+<p>完成版の裏通りのシャドウマップは、半径 16m の箱を 2048 テクセルで焼いている。1テクセルは 1.6cm、深度のバイアスは 7cm。建物や街灯の影には十分だが、顔の幅は 10 テクセルほどしかなく、前髪と額の隙間(2〜3cm)はバイアスに飲まれる。<strong>前髪の影が顔に落ちない</strong>。手本のアークナイツ:エンドフィールドは、シーンのシャドウマップとは別に、キャラなどのための 1024x1024 の枠を4つ持つアトラスを焼き、画面の影(RG8)の G にその結果を入れている。R はシーンのライティング、G はキャラの体・顔・髪が読む。この形を Day 75a のエンジンへ移す。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「キャラ専用の影」ページで <code>F8</code>(夕暮れの裏通りに立たせる)→ <code>F4</code> を2回(画面の影の G)と押すと、キャラの顔に前髪の影、首に顎の影が細かく出ている。<code>F4</code> をもう1回戻して R にすると、顔の影がほとんど消える。<code>F10</code>(顔に寄る)と <code>F6</code>(顔に2段影)で合成した絵にし、<code>F3</code> で MToon が読むチャンネルを G ↔ R と切り替えると、額に落ちる前髪の影が出たり消えたりする。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「キャラ専用の影」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>キャラ専用の影: 使う(今日。既定)↔ 使わない(Day 75a。MToon が世界のシャドウマップを自分で引く)</td></tr>
+<tr><td><code>F3</code></td><td>MToon が読むチャンネル: G(キャラの影。今日)↔ R(世界の影)</td></tr>
+<tr><td><code>F4</code></td><td>表示: 通常 → 画面の影 R → 画面の影 G → キャラのシャドウマップ(右下)→ MToon の影の度合い</td></tr>
+<tr><td><code>F5</code></td><td>キャラの影の解像度: 512 → 1024 → 2048(既定)→ 4096</td></tr>
+<tr><td><code>F6</code></td><td>顔に2段影(「トゥーンの表面下散乱」の F10 と同じ。要点6)</td></tr>
+<tr><td><code>F7</code></td><td>時間帯: 夕暮れ ↔ 夜</td></tr>
+<tr><td><code>F8</code></td><td>裏通りに立たせる(完成版の夕暮れ。シーンをディファードにする)/ もう1回で床の上へ</td></tr>
+<tr><td><code>F9</code></td><td>シーンの描き方: ディファード ↔ Forward+(「VRMビューア」の F9 と同じ)</td></tr>
+<tr><td><code>F10</code></td><td>顔に寄る ↔ 全身</td></tr>
+<tr><td><code>F11</code></td><td>内訳(2枚のシャドウマップの箱と1テクセル・画面の影の形式・1フレームの中の影・R と G が影の画素の数)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(10 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「キャラ専用の影」(39 枚目)が直接開く。<code>F8</code> と <code>F9</code> 以外は、キャラが出ていなければ夕暮れの裏通り(ディファード)に立たせてから効く。<strong>夜ではなく夕暮れに立たせる</strong>のは、夜の太陽(月)が 5% しかなく、キャラの影がほとんど絵に出ないから(灯りは影を持たない)。</p>
+
+<figure class="lab" id="face-lab">
+  <div class="lab-head">
+    <h3>実験台: 顔の断面と、2枚のシャドウマップ</h3>
+    <span class="tag">要点1・2。光の空間で見た顔の縦の断面(光は左から)。額の前に前髪が浮いている。横線がテクセルの境目、短い縦棒が各テクセルに焼かれた深度。動作のイメージで、形と数は実機と一致させていない</span>
+  </div>
+  <div class="stage face-stage"><canvas id="face-canvas" aria-label="顔の断面とシャドウマップ"></canvas></div>
+  <div class="legend" id="face-legend"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">引くシャドウマップ(F3 の R / G)</span>
+      <div class="seg" id="f-map"><button data-v="char" aria-pressed="true">キャラ専用(G)</button><button data-v="world" aria-pressed="false">世界(R)</button></div>
+    </div>
+    <div class="ctl"><span class="label">キャラの影の解像度(F5)</span>
+      <div class="seg" id="f-res"><button data-v="512" aria-pressed="false">512</button><button data-v="1024" aria-pressed="false">1024</button><button data-v="2048" aria-pressed="true">2048</button><button data-v="4096" aria-pressed="false">4096</button></div>
+    </div>
+    <div class="ctl"><span class="label">バイアス</span>
+      <div class="seg" id="f-bias"><button data-v="own" aria-pressed="true">その箱の既定</button><button data-v="tex" aria-pressed="false">テクセルに比例(課題1)</button><button data-v="zero" aria-pressed="false">0</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="face-stats"></div><p id="face-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「箱を小さくすれば、テクセルは細かくなる」</strong>。シャドウマップの1テクセルの大きさは「箱の幅 / 解像度」で決まる。解像度を上げるより、<strong>写す範囲をキャラだけに絞る</strong>ほうがずっと効く。同じ 2048 でも、半径 16m の世界の箱は 15.6mm、半径 1.2m のキャラの箱は 1.2mm(1/13)。深度のバイアスも範囲に比例するので、72mm から 1.8mm に縮む(要点1・2)。</p>
+<div class="code"><span class="lang">C#</span><pre><code>// Program.RenderVrmCharacterShadow(Day 75b)。世界の影パスの直後に、Day 33 の道具の2つ目でキャラだけを焼く
+(Vector3 center, float radius) = vrm.<strong>ShadowBounds</strong>(VrmPlacement(), VrmShadowMargin, VrmShadowRadiusStep);
+_characterShadow.Radius = radius;                 // 関節を全部包む球(1.2m)
+_characterShadow.Begin(_lightDirection, center);  // 光の向きは世界と同じ
+DrawVrmShadow(_characterShadow);
+_characterShadow.End(width, height);</code></pre></div>
+<p><strong>2つ目は「答えを画面に1回だけ書いて、読む人がチャンネルを選ぶ」</strong>。シャドウマップを引く計算(位置を戻す・PCF)を、画面の画素ごとに1回だけ全画面のパスでやり、RG8 の1枚に書く。R は世界の影(Day 75a までのライティングパスと同じ答え)、G はキャラ専用の影 x R。<strong>シーンのライティングパスは R、MToon は G を読む</strong>。照らす人はもうシャドウマップを知らなくてよい(要点4・5)。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// deferred.frag(Day 75b)
+float shadow = uScreenShadowEnabled == 1 ? texelFetch(uScreenShadow, pixel, 0)<strong>.r</strong> : ShadowFactor(...);
+
+// mtoon.frag の SunShadow(Day 75b)
+vec2 rg = texelFetch(uScreenShadow, ivec2(gl_FragCoord.xy), 0).rg;
+return uScreenShadowChannel == 1 ? rg.r : rg<strong>.g</strong>;</code></pre></div>
+<p><strong>3つ目は「画面の影は、形が G-Buffer にあるから作れる」</strong>。画面の影の入力は G-Buffer の2枚目(法線と距離)だけ。Day 75a でキャラの形を入れたので、キャラの画素でも位置が戻せる。形を入れないと(Day 75a の F2)、キャラの画素には後ろの壁の距離が入っていて、壁の影の値になってしまう——そのとき MToon は画面の影を読まず、Day 74 までどおり自分でシャドウマップを引く(要点5)。</p>
+
+<h3 id="s3">今日は Render に1本と、読む側の分かれ道</h3>
+<p>新規は <code>Render/ScreenShadow.cs</code> と、シェーダ2本(<code>screen-shadow.frag</code> と、その表示の <code>screen-shadow-view.frag</code>)。キャラ専用のシャドウマップは<strong>新しいクラスを作らず</strong>、Day 33 の <code>ShadowMap</code> をもう1つ作る。変更は、RG8 の形式(<code>Texture</code>・<code>Framebuffer</code>)、箱を外から読めるようにする <code>ShadowMap</code>、世代の番号の <code>GBuffer</code>、キャラを包む球の <code>VrmAvatar</code>、読む側の <code>deferred.frag</code>・<code>mtoon.frag</code>、<code>Program.cs</code>(焼く1回・画面の影の1回・読み口・ページ1枚・内訳と自己チェック)。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://endfield-behind-the-frame.vinluo46.chatgpt.site/en">Endfield: Behind the Frame — PC Rendering Analysis</a> — 今日の手本。節 3(シャドウマップ: シーンは 4096x4096 のアトラスに 2048 の枠が3つ、キャラなどの追加の影は 4096x1024 に 1024 の枠が4つ。どちらも D16)、節 12(画面の影 r103303: 1920x1080 の R8G8_UNORM。R はシーンのディファードのライティング3本が読み、G は追加のアトラスを引いたキャラの見え方で、体・顔・主な髪が読む。目のまわりと瞳は R を読む)、節 14(キャラの肌の式で、R を世界の光の見え方 W、G をキャラの見え方 S として別々に使う)。中国語の原文からの AI 翻訳で、ページ自身が「誤りがありうる」と断っている。第三者による1フレームの解析で、公式の資料ではない。<strong>枠の箱をどうキャラに合わせているか、アトラスにキャラ以外も入るかは書かれていない</strong></li>
+<li><a href="https://learnopengl.com/Advanced-Lighting/Shadows/Shadow-Mapping">LearnOpenGL: Shadow Mapping</a> — 正射影の箱・シャドウアクネとバイアス・PCF・「箱の奥より遠い点は影にしない(<code>projCoords.z &gt; 1.0</code>)」。今日の要点3はこの最後の扱いを、キャラの箱では逆にする話</li>
+<li><a href="https://learn.microsoft.com/en-us/windows/win32/dxtecharts/common-techniques-to-improve-shadow-depth-maps">Common Techniques to Improve Shadow Depth Maps(Microsoft)</a> — 「光の箱をシーンに合わせて締める」「テクセルに合わせて動かす」「バイアスと傾き」。キャラの箱を球にしたこと、テクセルに合わせていないこと(今日残した歪み)の背景</li>
+<li>Day 33 の計画書(シャドウマップの正射影の箱・バイアス・PCF)、Day 52 の計画書(ライティングパスが G-Buffer の距離から位置を戻すこと)、Day 75a の計画書(キャラの形を G-Buffer に入れたこと・ステンシルの印)、Day 74 の計画書(「顔に2段影」。このアバターの顔は影の色がベースカラーと同じ)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. 1枚のシャドウマップでは、顔の影が拾えない</h3>
+<p>シャドウマップの細かさは「箱の幅 / 解像度」で決まる。完成版の裏通りは、太陽の仰角が 8 度しかなく、高さ 4m の建物が 28m 先まで影を落とすので、箱の半径を 16m にしてある(Day 39)。</p>
+<div class="table-wrap"><table><thead><tr><th></th><th>世界のシャドウマップ</th><th>キャラ専用(今日)</th></tr></thead><tbody>
+<tr><td>箱の半径</td><td>16m(シーンの設定)</td><td>1.2m(関節を全部包む球。余白 15cm)</td></tr>
+<tr><td>解像度</td><td>2048</td><td>2048</td></tr>
+<tr><td>1テクセル</td><td><strong>15.6mm</strong></td><td><strong>1.2mm</strong>(1/13)</td></tr>
+<tr><td>深度のバイアス(<code>DepthBias</code> x 深度の範囲)</td><td>0.0015 x 48m = <strong>72mm</strong>(傾きで最大 6 倍足される)</td><td>0.0005 x 3.6m = <strong>1.8mm</strong></td></tr>
+<tr><td>顔の幅(約 15cm)に入るテクセル</td><td>約 10</td><td>約 130</td></tr>
+<tr><td>VRAM</td><td>12.0MB</td><td>12.0MB(深度 3B / 画素)</td></tr>
+</tbody></table></div>
+<p>バイアスが問題の本体だ。比べる深度を「バイアスだけ手前」にずらすので、<strong>遮る物と受ける面の隙間がバイアスより狭いと、影にならない</strong>。前髪と額の隙間は 2〜3cm、世界のバイアスは 7cm。だから世界の影では、前髪の影が顔に落ちない。バイアスを小さくすればよさそうだが、テクセルが 1.6cm もあると、曲がった面では1テクセルの中で深度が数 cm 変わり、自分自身を影にする(シャドウアクネ)。<strong>細かい影には、細かいテクセルと小さいバイアスの両方が要る</strong>。上の実験台で「世界(R)」を選ぶと、前髪の影が消える。</p>
+<p>裏通りの夕暮れで数えると、キャラの画素 64,213 のうち、世界の影(R)で影になるのは 3,256(5.1%)、キャラ専用の影を掛けた G では 9,855(15.3%)。<strong>G でだけ影になる画素が 6,599</strong>——前髪の影・顎の下・髪どうしの影だ。</p>
+
+<h3 id="s7">2. キャラ専用のシャドウマップ — 箱をキャラに合わせる</h3>
+<p>キャラだけを、キャラを包む小さな箱で焼く。<strong>道具は Day 33 の <code>ShadowMap</code> のまま</strong>で、2つ目を作り、毎フレーム中心と半径をキャラに合わせる。光の向きは世界と同じ。</p>
+<ul>
+<li><strong>測るのはスキンの関節の全部</strong>(<code>VrmAvatar.ShadowBounds</code>)。ヒューマノイドの骨だけだと、髪とスカートの揺れる骨(VRoid の <code>J_Sec_*</code>)が入らず、毛先の影が箱からはみ出して切れる。AvatarSample_A は関節 81 本、T ポーズでいちばん遠い関節は中心から 0.84m</li>
+<li><strong>余白 15cm</strong>。関節は皮膚の内側にあるので、毛先・指先・靴の分を足す</li>
+<li><strong>半径は 10cm 刻みに切り上げる</strong>。待機のアニメーションでも関節の箱は毎フレーム数 mm 伸び縮みする。半径がそのまま1テクセルの大きさになるので、刻まないと影の縁が息をするたびに揺れる</li>
+<li><strong>箱は球</strong>(正射影の幅は直径)。キャラが向きを変えても大きさが変わらない。光の向きに合わせて締めた直方体にすれば、T ポーズの腕の分だけ細かくできる</li>
+<li><strong>焼くのはキャラだけ</strong>。この箱が答えるのは「キャラ自身が落とす影」だけで、建物の影は世界のシャドウマップが答える(要点4の G = キャラ x R)</li>
+</ul>
+<p>バイアスは世界の 1/3(0.0005)にした。バイアスは「深度の範囲に対する割合」なので、範囲が 48m から 3.6m に縮んだ時点で、同じ 0.0015 でも 4.5mm になる。それでも鼻や前髪の影には大きく、影が物から浮く。逆に解像度を 512 に下げると、1テクセル 4.7mm に対してバイアス 1.8mm は足りず、<strong>顔と首にアクネの縞が出る</strong>(完成条件3。実験台で 512 を選ぶ)。バイアスはテクセルの大きさに比例させるのが筋で、今日は固定のまま残した(課題1)。</p>
+
+<h3 id="s8">3. 箱の奥より遠い受け手 — 1.0 で止める</h3>
+<p>キャラの影は、床にも後ろの壁にも落ちる。後ろの壁は、キャラの箱の奥(中心から半径の 1.5 倍)よりずっと遠い。そこで<strong>光の空間で見る</strong>と話が簡単になる——光は平行なので、キャラの影はどこに落ちても、光の空間では<strong>キャラの真後ろ</strong>にある。箱の横の範囲(xy)はキャラの影を全部覆っていて、はみ出すのは奥行き(z)だけだ。</p>
+<div class="table-wrap"><table><thead><tr><th>z が 1 を超えた受け手の扱い</th><th>キャラの真後ろの壁</th><th>箱の横の外の壁(境界色 1.0 が返る)</th></tr></thead><tbody>
+<tr><td>そのまま比べる</td><td>影(正しい)</td><td><strong>影</strong>(z − バイアス &gt; 1.0 なので。箱の外が全部暗くなる)</td></tr>
+<tr><td>当たっている扱い(Day 33 の世界の影のやり方)</td><td><strong>当たる</strong>(キャラの影が消える)</td><td>当たる</td></tr>
+<tr><td><strong>1.0 で止める(今日)</strong></td><td>影(1.0 − バイアス &gt; キャラの深度)</td><td>当たる(1.0 − バイアス &gt; 1.0 は成り立たない)</td></tr>
+</tbody></table></div>
+<div class="code"><span class="lang">glsl</span><pre><code>// screen-shadow.frag(Day 75b)
+characterProj.z = <strong>min(characterProj.z, 1.0)</strong>;   // 箱の奥より遠い受け手は、箱の奥の面に置く</code></pre></div>
+<p>世界のシャドウマップが「z &gt; 1 は当たっている」にしてよかったのは、箱がシーン全体を覆っていて、奥の外に受け手がほとんど無いから。キャラの箱は小さいので、奥の外こそ影の落ちる先になる。下の実験台で3つの扱いを切り替えられる。</p>
+
+<figure class="lab" id="box-lab">
+  <div class="lab-head">
+    <h3>実験台: キャラの箱と、箱の外の受け手</h3>
+    <span class="tag">要点3。光の空間を上から見た図(光は左から)。点線の四角がキャラの箱(手前の面・奥の面)、灰色の丸がキャラ。右の縦の線が後ろの壁、点がそこで比べた結果。動作のイメージ</span>
+  </div>
+  <div class="stage box-stage"><canvas id="box-canvas" aria-label="キャラの箱と受け手"></canvas></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">z が 1 を超えた受け手</span>
+      <div class="seg" id="b-mode"><button data-v="clamp" aria-pressed="true">1.0 で止める(今日)</button><button data-v="raw" aria-pressed="false">そのまま比べる</button><button data-v="lit" aria-pressed="false">当たっている扱い</button></div>
+    </div>
+    <div class="ctl"><span class="label">壁までの距離</span>
+      <div class="seg" id="b-wall"><button data-v="near" aria-pressed="false">箱の中</button><button data-v="far" aria-pressed="true">箱の奥より遠い</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="box-stats"></div><p id="box-note"></p></div>
+</figure>
+
+<h3 id="s9">4. 画面の影 — 1枚に2つの答え</h3>
+<p>Day 74 までは、照らす人(<code>textured.frag</code>・<code>deferred.frag</code>・<code>mtoon.frag</code>)がそれぞれシャドウマップを引いていた。シャドウマップが2枚になり、読む人によって欲しい答えが違う。そこで<strong>引く仕事を全画面の1パスにまとめ、答えを画面の画素ごとに書いておく</strong>。これが画面の影(<code>ScreenShadow</code>)。</p>
+<figure class="rg-figure">
+<svg viewBox="0 0 760 230" role="img" aria-label="画面の影の入力と読む人">
+  <g font-size="13" fill="var(--ink)">
+    <rect x="10" y="20" width="170" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="95" y="40" text-anchor="middle">G-Buffer の2枚目</text>
+    <text x="95" y="56" text-anchor="middle" fill="var(--muted)" font-size="11">法線と距離(キャラも)</text>
+    <rect x="10" y="90" width="170" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="95" y="110" text-anchor="middle">世界のシャドウマップ</text>
+    <text x="95" y="126" text-anchor="middle" fill="var(--muted)" font-size="11">半径 16m・15.6mm/テクセル</text>
+    <rect x="10" y="160" width="170" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="95" y="180" text-anchor="middle">キャラ専用のシャドウマップ</text>
+    <text x="95" y="196" text-anchor="middle" fill="var(--muted)" font-size="11">半径 1.2m・1.2mm/テクセル</text>
+
+    <rect x="270" y="70" width="200" height="90" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="370" y="96" text-anchor="middle">画面の影(RG8・1920x1080)</text>
+    <text x="370" y="120" text-anchor="middle" font-size="12">R = 世界の影</text>
+    <text x="370" y="140" text-anchor="middle" font-size="12">G = キャラ専用の影 x R</text>
+
+    <rect x="560" y="40" width="190" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="655" y="60" text-anchor="middle">ライティングパス</text>
+    <text x="655" y="76" text-anchor="middle" fill="var(--muted)" font-size="11">R を読む(シーン)</text>
+    <rect x="560" y="146" width="190" height="44" rx="6" fill="var(--surface)" stroke="var(--line)"/>
+    <text x="655" y="166" text-anchor="middle">MToon(キャラの色)</text>
+    <text x="655" y="182" text-anchor="middle" fill="var(--muted)" font-size="11">G を読む(線の回だけ自分で引く)</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.5" fill="none">
+    <path d="M180 42 L270 95"/><path d="M180 112 L270 115"/><path d="M180 182 L270 138"/>
+    <path d="M470 100 L560 62"/><path d="M470 130 L560 168"/>
+  </g>
+</svg>
+</figure>
+<ul>
+<li><strong>R = 世界の影</strong>。<code>deferred.frag</code> の <code>ShadowFactor</code> と同じ式・同じバイアス・同じ PCF。<strong>位置の戻し方も同じ</strong>にした(<code>uv = gl_FragCoord.xy / uScreenSize</code>。<code>fullscreen.vert</code> の <code>vUv</code> を使うと、補間の丸めで PCF の 25 タップのうち1つが境目で入れ替わる画素が出た)</li>
+<li><strong>G = キャラ専用の影 x R</strong>。キャラ専用のシャドウマップにはキャラしか居ないので、建物や街灯の影の中に立ったときのために R を掛ける。キャラの影が届かない所では G = R(自己チェック5)</li>
+<li><strong>RG8</strong>(1画素 2B、4.0MB)。影の値は PCF のタップの平均(5x5 なら 1/25 刻み)で、もともと粗い。8bit に丸めた差は 1/510 以下</li>
+<li><strong>空は当たっている扱い</strong>(距離 0 の画素は R = G = 1)</li>
+</ul>
+<p>手本との違いもある。手本の画面の影は、半分・4分の1の解像度で遮蔽(カプセルによる近似)を計算してから原寸で合わせ、別のパスの接触影(画面空間のレイ)も持っている。このエンジンは原寸で2枚を引くだけにした。</p>
+
+<h3 id="s10">5. 読む側で使い分ける</h3>
+<div class="table-wrap"><table><thead><tr><th>読む人</th><th>画面の影があるフレーム</th><th>無いフレーム(Forward+・F2 で切った)</th></tr></thead><tbody>
+<tr><td>ライティングパス(<code>deferred.frag</code>)</td><td><strong>R</strong>(Day 75a と同じ答え。違いは 8bit の丸めだけ)</td><td>自分で世界のシャドウマップを引く</td></tr>
+<tr><td>MToon の不透明と半透明の回</td><td><strong>G</strong>(キャラの形が G-Buffer にあるときだけ。F3 で R も選べる)</td><td>自分で世界のシャドウマップを引く(Day 74 まで)</td></tr>
+<tr><td>MToon の線の回</td><td colspan="2">いつも自分で引く。線は表面の外へ押し出した殻なので、その画素の画面の影はキャラの後ろの壁や床のもの——縁に壁の影の色の線が出てしまう</td></tr>
+<tr><td><code>textured.frag</code>(フォワードのシーン)</td><td colspan="2">読み口を作っていない(画面の影はディファードのフレームでしか作らないので)</td></tr>
+</tbody></table></div>
+<p>瞳と眉(半透明)は G-Buffer に居ないが、その画素の G-Buffer には下の顔が入っているので、顔の G を読む。手本は目のまわりと瞳に R を読ませている。</p>
+<p>読むかどうかは「その画面の影が今のものか」で決める(設計書「世代の番号」)。フォワードのフレームでは作らないので、古い影を読まないように C# が <code>uScreenShadowEnabled</code> / <code>uScreenShadowChannel</code> を 0 にして送る。</p>
+
+<h3 id="s11">6. このアバターは影の色 = ベースカラー</h3>
+<p>作ってみて分かったことがある。<strong>AvatarSample_A は、口以外の全部のマテリアルで、影の色の絵(<code>shadeMultiplyTexture</code>)がベースカラーの絵と同じで、影の色の係数も白</strong>(Day 74 の「顔に2段影」の説明と同じ話)。MToon の陰影は「明るい側と影の側の2色から選ぶ」なので、2色が同じなら影に入っても色が変わらない。G が顔に前髪の影を正しく持っていても、合成した絵ではほぼ見えない(夕暮れの顔で、G と Day 75a の差は 56 画素)。</p>
+<p>だから今日のページは、影の値そのものを見る表示(<code>F4</code>: 画面の影 R / G、MToon の影の度合い)を用意し、合成した絵で見比べたいときは <code>F6</code>(Day 74 の「顔に2段影」。顔の影の色を (0.60, 0.42, 0.46) 倍、toony 0.9)を使う。2段影にすると、顔のまわり 600x700 画素の切り出しで、G と R の絵は 8 段階以上違う画素が約 1.5 万になり、額に前髪の影がはっきり出る。</p>
+<p>夕暮れの太陽も強く、顔は 255 で白飛びしている。影の色に変わっても、両方が白に張り付いて見分けられないことがある(2段影の影の色は暗いので見分けられる)。夜は月が 5% で、キャラの明るさはほとんど灯りが決めている(点光源は影を持たない)。</p>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">新規・変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Render/Texture.cs</code></td><td><code>RenderTargetFormat.Rg8</code> と、その内部形式の行</td><td>+17</td></tr>
+<tr><td><code>Render/Framebuffer.cs</code></td><td><code>BytesPerPixel</code> に RG8(2B)</td><td>+3</td></tr>
+<tr><td><code>Render/ShadowMap.cs</code></td><td><code>Center</code> / <code>Direction</code> / <code>Generation</code>(<code>Begin</code> で決める)</td><td>+18</td></tr>
+<tr><td><code>Render/GBuffer.cs</code></td><td><code>Generation</code>(<code>Begin</code> で 1 増やす)</td><td>+6</td></tr>
+<tr><td><code>Render/ScreenShadow.cs</code>(新規)</td><td>画面の影。RG8 の書き込み先・<code>Render</code>・<code>Ready</code>(世代の番号)・<code>Apply</code>・表示</td><td>+272</td></tr>
+<tr><td><code>shaders/screen-shadow.frag</code>(新規)</td><td>位置を戻し、2枚を PCF で引いて R と G に書く</td><td>+130</td></tr>
+<tr><td><code>shaders/screen-shadow-view.frag</code>(新規)</td><td>R か G を白黒で出す</td><td>+19</td></tr>
+<tr><td><code>shaders/deferred.frag</code></td><td>画面の影の読み口(R)</td><td>+11 / −1</td></tr>
+<tr><td><code>shaders/mtoon.frag</code></td><td>冒頭の説明、読み口の uniform、<code>SunShadow</code>、<code>ShadowFactor(n, l)</code> の2か所を <code>SunShadow</code> に</td><td>+27 / −2</td></tr>
+<tr><td><code>Model/VrmAvatar.cs</code></td><td><code>ShadowBounds</code>(キャラを包む球)</td><td>+39</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、生成・リサイズ・読み直し・後始末、影パスに1行、<code>DrawVrmShadow</code> の引数、ライティングパスの頭に1行、<code>ApplyLighting</code> と <code>ApplyMToonFrame</code> の読み口、表示、HUD、ページ1枚(11 項目)、項目数、今日の関数一式</td><td>+670 / −4</td></tr>
+<tr><td><code>Day75b.csproj</code></td><td><code>Day75a.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p>今日の差分は約 1,190 行(コメント込み)。<code>Program.cs</code> の今日の関数は約 500 行で、うち自己チェック(<code>RunVrmShadowCheck</code>)が約 210 行、内訳が約 70 行。1日で重ければ、下の順番の 12 まで(<code>F2</code>〜<code>F10</code> で絵を見比べるまで)と、13(内訳・自己チェック)で2回に分けるとよい。</p>
+
+<h3 id="s14">写経する順番</h3>
+<p>形式(<code>Render/</code> の土台)→ 箱を読める <code>ShadowMap</code> と世代の番号 → 画面の影(クラスとシェーダ)→ 読む側のシェーダ → キャラを包む球 → <code>Program.cs</code> の順。<code>Program.cs</code> は、組み込み(呼ぶ側)より先に今日の関数の前半(呼ばれる側)を写す。</p>
+<ol>
+<li><strong><code>Render/Texture.cs</code>(変更)</strong> — <code>RenderTargetFormat</code> の最後(<code>Rg16F,</code> の後ろ)に <code>Rg8</code> と説明、<code>Create</code> の形式の表に <code>RenderTargetFormat.Rg8 =&gt; (InternalFormat.RG8, PixelFormat.RG, PixelType.UnsignedByte)</code> の1行</li>
+<li><strong><code>Render/Framebuffer.cs</code>(変更)</strong> — <code>BytesPerPixel</code> の <code>Rg16F =&gt; 4,</code> の後ろに <code>Rg8 =&gt; 2</code></li>
+<li><strong><code>Render/ShadowMap.cs</code>(変更)</strong> — <code>ShowMap</code> の手前に <code>Center</code> / <code>Direction</code> / <code>Generation</code>、<code>Begin</code> の <code>LightSpaceMatrix = view * projection;</code> の直後に3行</li>
+<li><strong><code>Render/GBuffer.cs</code>(変更)</strong> — <code>ByteSize</code> の後ろに <code>Generation</code>、<code>Begin</code> の頭に <code>Generation++;</code></li>
+<li><strong><code>shaders/screen-shadow.frag</code>(新規)</strong> — <code>ViewPosition</code> と PCF のループは <code>deferred.frag</code> と同じ式。<code>main</code> の R → G の順</li>
+<li><strong><code>shaders/screen-shadow-view.frag</code>(新規)</strong></li>
+<li><strong><code>Render/ScreenShadow.cs</code>(新規)</strong> — <code>ScreenShadowView</code>、クラスの説明、<code>Unit = 15</code>、コンストラクタ、<code>Enabled</code> / <code>Ready</code> / <code>HasCharacter</code>、<code>Render</code>、<code>Apply</code>、<code>DrawDebug</code>、<code>Resize</code> ほか</li>
+<li><strong><code>shaders/deferred.frag</code>(変更)</strong> — <code>uLightSpaceMatrix</code> の後ろに読み口の uniform 2つ、<code>main</code> の <code>float shadow = ...</code> を三項演算子に</li>
+<li><strong><code>shaders/mtoon.frag</code>(変更)</strong> — (a) 冒頭の説明に Day 75b の段落、(b) <code>uShadowTexelSize</code> の後ろに <code>uScreenShadowChannel</code> と <code>uScreenShadow</code>、(c) <code>PointAttenuation</code> の手前に <code>SunShadow</code>、(d) <code>ShadowFactor(n, l)</code> の2か所(N・L の陰影だけ / 太陽の直接光)を <code>SunShadow(n, l)</code> に</li>
+<li><strong><code>Model/VrmAvatar.cs</code>(変更)</strong> — <code>BonePosition</code> の後ろ(<code>IsAncestor</code> の手前)に <code>ShadowBounds</code></li>
+<li><strong><code>Program.cs</code> のフィールドと今日の関数(前半)</strong> — (a)「Day 75a」のフィールドの最後(<code>_vrmSamplesPassed</code>)の直後に「Day 75b」の5つ、(b) ファイル末尾の <code>RunVrmShapeCheck</code> の直後(<code>CheckList</code> の手前)に、見出しと <code>VrmShadowMargin</code> / <code>VrmShadowRadiusStep</code> / <code>VrmCharacterShadowActive</code> / <code>RenderVrmCharacterShadow</code> / <code>RenderScreenShadowPass</code> / <code>VrmScreenShadowChannel</code> / <code>VrmShadowLabel</code> / <code>VrmShadowViewName</code>、続けて <code>EnsureVrmShadowStage</code> / <code>ShowVrmShadowStage</code> / <code>CycleVrmShadowView</code> / <code>CycleVrmShadowResolution</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — (a) 生成: <code>_deferredLighting = new ...</code> の直後に <code>_characterShadow</code> と <code>_screenShadow</code>、(b) <code>OnFramebufferResize</code> の <code>_gbuffer.Resize</code> の直後に <code>_screenShadow.Resize</code>、(c) <code>OnRender</code> の <code>_shadow.DrawDebug</code> の直後に表示2行、(d) <code>RenderShadowPass</code> の頭に <code>_vrmCharacterShadowBaked = false;</code>、<code>DrawVrmShadow()</code> を <code>DrawVrmShadow(_shadow)</code> に、<code>_shadow.End</code> の直後に <code>RenderVrmCharacterShadow();</code>、(e) <code>DrawOverlayInfo</code> の <code>VrmShapeLabel()</code> の行の直後に <code>VrmShadowLabel()</code> の行、(f) <code>ApplyLighting</code> の <code>_shadow.Apply(shader);</code> の直後に <code>_screenShadow.Apply(shader);</code>、(g) シェーダの読み直し(<code>_deferredLighting.ReloadShaders()</code> の直後)、(h) <code>BuildMenu</code> の「キャラとディファード」ページの直後(<code>return menu;</code> の手前)に「キャラ専用の影」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 13 で足す関数を指すので、分けて写すなら後回しにする)、(i) <code>OnClosing</code> の <code>_deferredLighting.Dispose()</code> の直後に2つの <code>Dispose</code>、(j) <code>RunDebugMenuCheck</code> の項目数を 388 → 399、(k) <code>RenderDeferredLighting</code> の頭に <code>RenderScreenShadowPass();</code>、(l) <code>ApplyMToonFrame</code> の <code>_shadow.Apply(shader);</code> の直後に読み口の4行、(m) <code>DrawVrmShadow</code> の引数 <code>ShadowMap target</code> と、中の <code>_shadow.Draw</code> を <code>target.Draw</code> に — ここで一度動かす。<code>Shift+F1</code> → <code>F8</code> → <code>F4</code> を2回で、顔と首に細かい影が出ること</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 11 の続きに <code>ReadScreenShadow</code> / <code>VrmShadowFrame</code> / <code>RenderVrmShadowFrame</code> / <code>CountCharacterShadow</code> / <code>DescribeVrmShadow</code> / <code>RunVrmShadowCheck</code></li>
+<li><strong><code>Day75b.csproj</code></strong> — <code>Day75a.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+</section>
+
+<section class="part"><h2 id="s15">設計書</h2>
+<p>層は増えていない。<code>Render/</code> に「影を画面に書いておく人」(<code>ScreenShadow</code>)が1人増え、読む人(ライティングパスと MToon)はシャドウマップの代わりにその1枚を読むようになった。キャラ専用のシャドウマップは、新しい道具ではなく Day 33 の道具の2つ目。箱をどこに置くかは <code>Program</code> が決める。</p>
+
+<h3 id="s16">1フレームの中の影(Day 75b)</h3>
+<p>Day 75a の設計書「1フレームの中のキャラ」の 1 番に1段足し、3 と 4 の間に1段増えた。</p>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">影パス: 世界(シーン + キャラ)→ <strong>キャラ専用</strong>(キャラだけ。<code>RenderVrmCharacterShadow</code>)</div>
+    <div class="rw"><span>書く <b>世界のシャドウマップ・キャラ専用のシャドウマップ</b></span></div>
+    <div class="swap">世界の影からキャラを抜くと: 床と壁に落ちるキャラの影は R が受け持っているので、消える(シーンのライティングパスは G を読まない)</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">G-Buffer パス: シーン → キャラの形(Day 75a)</div>
+    <div class="rw"><span>書く <b>G-Buffer の4枚・深度・印</b></span></div>
+    <div class="swap">—</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">SSAO(Day 75a のまま)</div>
+    <div class="rw"><span>読む <b>法線と距離</b></span><span>書く <b>遮蔽率</b></span></div>
+    <div class="swap">—</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what"><strong>画面の影</strong>(<code>RenderScreenShadowPass</code>。<code>RenderDeferredLighting</code> の頭)</div>
+    <div class="rw"><span>読む <b>G-Buffer の2枚目・2枚のシャドウマップ</b></span><span>書く <b>RG8(R = 世界 / G = キャラ x R)</b></span></div>
+    <div class="swap">2 より前に置くと: キャラの形がまだ無く、キャラの画素の位置が戻せない。1 より前に置くと: 前のフレームの影を引く</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">ライティングパス(印 1 ではない画素だけ。Day 75a)</div>
+    <div class="rw"><span>読む <b>G-Buffer・画面の影の R</b></span><span>書く <b>シーンの色</b></span></div>
+    <div class="swap">4 より前に置くと: 画面の影がまだ古い(<code>Ready</code> が倒れている)ので、自分でシャドウマップを引く。絵は同じだが今日の形にならない</div>
+  </div></li>
+  <li><span class="no">6</span><div>
+    <div class="what">キャラの色(<code>RenderVrm</code>。不透明 → 線 → 半透明)</div>
+    <div class="rw"><span>読む <b>画面の影の G(線の回だけ世界のシャドウマップ)</b></span><span>書く <b>キャラの色</b></span></div>
+    <div class="swap">—</div>
+  </div></li>
+</ol>
+<p><strong>画面の影を <code>RenderDeferredLighting</code> の頭に置いた</strong>のは、ライティングパスを呼ぶ所が <code>OnRender</code> だけではないから。自己チェックの1フレームの道具(Day 75a の <code>RenderVrmShapeFrame</code>)も、Day 53 の計測の <code>RenderLitScene</code> も、ここを通る。<code>OnRender</code> に1行足すだけだと、それらのフレームでは画面の影が作られない。</p>
+
+<h3 id="s17">画面の影が古いかどうか — 世代の番号</h3>
+<p>最初は「フレームの頭で <code>Ready</code> を倒し、作ったら立てる」形にした。Day 52 の自己チェックが落ちた——「フォワードとディファードで同じ絵」が平均 11% 違った。Day 52 の自己チェックは自分で G-Buffer とシャドウマップを描き直し、<code>DeferredLighting.Render</code> を直接呼ぶ。画面の影はその前のフレームのまま「作った」ことになっていて、ライティングパスが別の絵の影を読んでいた。</p>
+<p>画面の影は、G-Buffer と世界のシャドウマップの<strong>写し</strong>だ。写しが古いかどうかは、元が描き直されたかで決まる。そこで <code>GBuffer</code> と <code>ShadowMap</code> に「描き直した回数」(<code>Generation</code>。<code>Begin</code> のたびに 1 増える)を持たせ、<code>ScreenShadow</code> は作ったときの2つの番号を覚えておく。</p>
+<div class="code"><span class="lang">C#</span><pre><code>// ScreenShadow(Day 75b)
+public bool Ready =>
+    Enabled
+    &amp;&amp; _gbuffer is not null &amp;&amp; _gbuffer.<strong>Generation == _gbufferGeneration</strong>
+    &amp;&amp; _world is not null &amp;&amp; _world.<strong>Generation == _worldGeneration</strong>;</code></pre></div>
+<p>フォワードのフレームでは影パスがシャドウマップを焼き直すので番号が変わり、<code>Ready</code> は倒れる。だれかが G-Buffer を描き直しても倒れる。<strong>「いつ倒すか」をだれも覚えておかなくてよい</strong>のがこの形の値打ち。代わりに、<code>GBuffer</code> と <code>ShadowMap</code> が「写しを取る人がいる」ことに備えて番号を持つようになった(どちらも番号の使い道は知らない)。</p>
+
+<h3 id="s18">だれが何を知っているか</h3>
+<p>コメントを落としてから型名を拾って確かめた。<code>ScreenShadow.cs</code> が使う型は <code>GBuffer</code> / <code>Camera</code> / <code>ShadowMap</code> / <code>Framebuffer</code> / <code>Texture</code> / <code>Shader</code> / <code>RenderResources</code> で、<code>VrmAvatar</code> も <code>MToon</code> も出てこない。<code>ShadowMap.cs</code> と <code>GBuffer.cs</code> には <code>ScreenShadow</code> が出てこない(番号の説明のコメントにだけある)。</p>
+<div class="table-wrap"><table><thead><tr><th>だれ</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Render/ShadowMap</code></td><td>箱の中心・向き・焼き直した回数(今日足した)</td><td>自分がキャラ専用か世界か。番号を読む人がいること</td></tr>
+<tr><td><code>Render/GBuffer</code></td><td>描き直した回数(今日足した)</td><td>画面の影</td></tr>
+<tr><td><code>Render/ScreenShadow</code></td><td>2枚のシャドウマップの引き方、R と G の約束、写しが古いかどうか</td><td>キャラが何者か(VRM か、MToon か)。2枚目の箱の決め方</td></tr>
+<tr><td><code>Model/VrmAvatar</code></td><td>キャラを包む球(関節から測る)</td><td>シャドウマップ</td></tr>
+<tr><td><code>deferred.frag</code> / <code>mtoon.frag</code></td><td>自分が読むチャンネル(R / G)</td><td>もう1枚のシャドウマップがあること</td></tr>
+<tr><td><code>Program</code></td><td>キャラ専用の箱をキャラに合わせる、どのフレームで作るか、MToon にどのチャンネルを読ませるか</td><td>R と G の中身の式(<code>screen-shadow.frag</code> が持つ)</td></tr>
+</tbody></table></div>
+
+<h3 id="s19">今日残した歪み</h3>
+<ul>
+<li><strong>1つ目: 世界の影が、キャラ自身に落とす粗い影も G に入る</strong>。G = キャラ専用の影 x R で、R の世界のシャドウマップにはキャラも焼かれている。今の裏通りでは世界のバイアス(72mm)がキャラの凹凸より大きく、R の影はキャラ専用の影にすでに含まれる分しか出ない(「キャラの箱の手前より光に近い遮蔽物だけを数える」形と比べて、違ったのは 28 画素)。世界のバイアスを 0.0003 に下げると 1,156 画素が 0.25 以上暗くなる。シーンの設定によっては表に出る(課題3)</li>
+<li><strong>2つ目: バイアスがテクセルの大きさに比例していない</strong>。解像度を 512 に下げると顔と首にアクネの縞が出る(課題1)</li>
+<li><strong>3つ目: Forward+ のフレームでは、キャラ専用の影を使わない</strong>。画面の影は G-Buffer の距離から位置を戻すので、ディファードのフレームでしか作れない。Forward+ に切り替えると顔の前髪の影が消える。SSAO の幾何パスの距離を使えば作れる(Day 75a の <code>DrawVrmSsao</code> でキャラも入っている)</li>
+<li><strong>4つ目: G を画面の全画素で作っている</strong>。G を読むのはキャラの画素(画面の 3.1%)と、その上の瞳・眉だけで、床と壁の G は誰も読まない(表示で街灯の影が抜けているのはそのため)。キャラ専用のシャドウマップの PCF の 9 タップを、残りの 97% でも引いている。時間は測っていない(課題2)</li>
+<li><strong>5つ目: 箱の位置をテクセルに合わせていない</strong>。キャラが歩くと箱が少しずつ動き、テクセルの格子も一緒に動く。影の縁がちらつくはずだが、歩かせて確かめていない(世界のシャドウマップも同じで、Day 33 から合わせていない)</li>
+<li><strong>6つ目: キャラ1人分だけ</strong>。手本は 1024 の枠を4つ持つアトラスで、複数のキャラ(か大事な物)に枠を割り振っている。このエンジンのキャラは1人なので、2048 の1枚にした</li>
+</ul>
+
+<h3 id="s20">試して分かったこと</h3>
+<ul>
+<li><strong>キャラ専用の影を切れば、Day 75a と1画素も違わない</strong>。夕暮れの裏通り・ディファード・全身を同じ台本で撮り、全画素で差 0</li>
+<li><strong>使うと、シーンの画素は 8bit の丸めの分だけ変わる</strong>。キャラ以外の 200 万画素のうち、1% 以上違う成分は約 1,000 個で最大 2.0%。全部が半影の暗い端(PCF 25 タップの 1/25・2/25・3/25 が 8bit の段に乗らない所)</li>
+<li><strong>最初は2画素だけ 29% 違った</strong>。位置を戻す uv を <code>fullscreen.vert</code> の <code>vUv</code> で作っていて、<code>deferred.frag</code> の <code>gl_FragCoord.xy / uScreenSize</code> と最後の桁が違い、PCF の1タップが境目で入れ替わっていた。同じ式にしたら消えた</li>
+<li><strong>世界の影(R)を MToon に読ませても、Day 75a とほとんど同じ</strong>。Day 75a の MToon は頂点から運んだ正確な位置で引き、R は G-Buffer の距離(16bit の浮動小数点)から戻した位置で引く。それでも絵の違いは縁の数千画素だけ(2段影で顔に寄った切り出しで、8 段階以上違うのは約 2,400 画素)</li>
+<li><strong>合成した絵には、2段影にしないと出ない</strong>(要点6)。夕暮れの顔では、G と Day 75a の差が 56 画素だった。影の値の表示(<code>F4</code>)と MToon の影の度合いでは、G だけに前髪の影がはっきり出る</li>
+<li><strong>「キャラの箱の手前より光に近い遮蔽物だけを世界の影として数える」形も作って比べた</strong>。受け手の深度を箱の光の側の端で止めて世界のシャドウマップと比べる、1行の <code>min</code> で書ける。今の裏通りでは差が 28 画素しか出ないので外した(歪みの1つ目・課題3)</li>
+<li><strong>球の半径は、いちばん遠い関節までの距離より大きくなる</strong>。T ポーズでいちばん遠い関節は中心から 0.84m だが、半径は 1.2m になった。球を「関節の箱(軸にそろった直方体)の対角線の半分」で決めているので、箱の角の空いた所まで含む。関節から直接いちばん遠い距離を測れば 1.0m(1テクセル 1.0mm)に締まる。自己チェックは「包んでいること」と「刻みに乗っていること」だけを見ている</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day75b -c Release</code> で起動する。起動直後は Day 75a と同じ絵(キャラが出ていないので)。今日の主役は「キャラ専用の影」のページ(<code>Shift+F1</code> で直接開く)から。キャラを出すと HUD に1行増える。</p>
+<div class="code"><pre><code>キャラの影:画面の影 G(キャラの影)  世界:1.6cm/tx  キャラ:2048 半径1.2m 1.2mm/tx  表示:通常</code></pre></div>
+
+<h3 id="s22">1. F4: R と G を見比べる</h3>
+<ul>
+<li><code>F8</code> … 完成版の夕暮れの裏通りで、街灯の手前にキャラが立つ。シーンはディファード。太陽は仰角 8 度で、キャラの左から当たる</li>
+<li><code>F4</code>(画面の影 R)… 白黒の絵。後ろの壁にキャラと街灯の影が粗く落ちている。キャラの顔と体にはほとんど影が無い</li>
+<li><code>F4</code>(画面の影 G)… キャラの顔に前髪の影、首に顎の影、髪に髪の影が細かく出る。後ろの壁と床のキャラの影もくっきりする(壁と床の G は誰も読まない)。街灯と建物の影は R と同じ形で残る(G = キャラ専用の影 x R)</li>
+<li><code>F4</code>(キャラのシャドウマップ)… 右下に、キャラだけを焼いた深度が出る</li>
+<li><code>F4</code>(MToon の影の度合い)… キャラが白黒になる。黒が影の側。<code>F3</code> で R にすると顔の黒い筋が消える</li>
+</ul>
+
+<h3 id="s23">2. F6 / F10 / F3: 顔の前髪の影</h3>
+<p><code>F4</code> で通常に戻し、<code>F10</code> で顔に寄り、<code>F6</code> で顔に2段影を付ける。額の右側と頬に、前髪の形の影(ピンクがかった影の色)が落ちる。<code>F3</code> で R にすると消え、<code>F2</code> で使わない(Day 75a)にしても消える。</p>
+
+<h3 id="s24">3. F5: 解像度とアクネ</h3>
+<p><code>F4</code> を MToon の影の度合いにして <code>F5</code> を回す。512(1テクセル 4.7mm)では顔と首に細かい縞(アクネ)が出て、前髪の影の縁がぎざぎざになる。4096(0.6mm)では縁がさらに締まる。HUD とコンソールに1テクセルの大きさと VRAM(512 で 0.8MB、4096 で 48.0MB)が出る。</p>
+
+<h3 id="s25">4. F7 / F9: 夜と Forward+</h3>
+<ul>
+<li><code>F7</code>(夜)… 月は太陽の 5% で、キャラの明るさは灯りが決める。G を読んでいても、合成した絵の違いはほとんど見えない</li>
+<li><code>F9</code>(Forward+)… HUD が「世界のシャドウマップを自分で引く(画面の影が無いフレーム)」になる。<code>F4</code> の画面の影の表示は出ない(コンソールに「ディファードのフレームでしか作らない」)</li>
+</ul>
+
+<h3 id="s26">5. 切れば Day 75a と同じ絵であること</h3>
+<p><code>F2</code> で使わないにした裏通りが、Day 75a の裏通りと同じ絵であること。「キャラとディファード」(Day 75a)・「ディファード」(Day 52)・「SSAO」(Day 37)・「TAA」(Day 54)・「シャドウマップ」(Day 33)・「VRMビューア」(Day 68)・「トゥーンの表面下散乱」(Day 74)の自己チェックが通ること。Day 48 の割り当て表(<code>Alt+F1</code>)が <strong>399 項目</strong>で通ること。</p>
+
+<h3 id="s27">6. F12: 自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 75b 自己チェック(箱の決め方・画面の影の形式・R と G の中身・読む側の切り替え・シェーダ)===
+  [OK] 画面の影は RG8・画面と同じ大きさ(1画素 2B。R = 世界の影 / G = キャラの影)  1920x1080  4.0MB
+  [OK] キャラの箱は、関節を全部包む球(余白 15cm、半径は 10cm 刻みに切り上げ)  関節 81 本  いちばん遠い関節 0.84m + 余白 0.15 / 半径 1.2m
+  [OK] キャラの影の1テクセルは、世界の影の 1/10 より細かい(同じ 2048 でも、箱の大きさで決まる)  世界 15.6mm / キャラ 1.17mm(1/13)
+  [OK] キャラの画素では、G の影が R より多い(世界の影はバイアスが大きく、顔に落ちる前髪の影を拾えない)  キャラ 64,213 画素  影: R 3,256 / G 9,855(G だけ 6,599)
+  [OK] G は「キャラ専用の影 x R」(R より明るい画素は無い。建物の影の中に立てば、キャラも影に入る)  R より明るい G 0 画素 / R の影がそのまま G に入った画素 403,539
+  [OK] シーンの画素は、画面の影を使っても Day 75a と同じ色(R は deferred.frag と同じ式。差は 8bit の丸めだけ)  キャラ以外 2,009,387 画素のうち 1% 以上違う成分 1,010(最大 2.0%)
+  [OK] 画面の影を使わないと(F2)、Day 75a の形に戻る(キャラ専用の影は焼かず、MToon は自分で世界のシャドウマップを引く)  作った いいえ / キャラを焼いた いいえ / MToon の読み口 0
+  [OK] Forward+ のフレームでは画面の影を作らず、MToon は自分で引く(G-Buffer が無いので位置を戻せない)  作った いいえ / MToon の読み口 0
+  [OK] キャラの形を G-Buffer に入れないと(Day 75a の F2)、R は作るが MToon は読まない(キャラの画素に後ろの壁の値が入る)  作った はい / キャラを焼いた いいえ / MToon の読み口 0
+  [OK] シェーダの読み口: MToon は SunShadow(線の回だけ自分で引く)、ライティングパスは R、画面の影はキャラの箱の奥で止める  線の回 自分で引く / 直接の呼び出し 無し / ライティングパス R / 奥で止める はい
+  すべて合格(箱・画面の影の形式・R と G の中身・読む側の切り替え・シェーダが仕様どおり)</code></pre></div>
+<p>キャラが出ていなければ、夕暮れの裏通りに立たせてから測る。Day 75a の1フレームの道具(影 → G-Buffer → SSAO → 画面の影 → ライティング → キャラの色)で描き、画面の影とシーンの色を読み返す。それを切り替えを変えて4回(今日の形 / 画面の影を使わない / Forward+ / 形を入れない)繰り返す。数は揺れもので数十画素ずつ揺れる。切り替えは全部元に戻す。</p>
+<p><code>F11</code> の内訳は、同じ1フレームを描いて、2枚のシャドウマップの箱・1テクセル・バイアス(世界 72mm / キャラ 1.8mm)、画面の影の形式、1フレームの中の影の6段、キャラの画素のうち R と G が影の画素の数を出す。</p>
+
+<h3 id="s28">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>引くシャドウマップ: キャラ専用(G)/ 世界(R)</td><td><code>F3</code>(MToon が読むチャンネル)。白黒で見るなら <code>F4</code> の画面の影 R / G</td></tr>
+<tr><td>キャラの影の解像度</td><td><code>F5</code></td></tr>
+<tr><td>バイアス: その箱の既定 / テクセルに比例 / 0</td><td>実機にキーは無い(既定だけ。比例は課題1)</td></tr>
+<tr><td>z が 1 を超えた受け手</td><td>実機にキーは無い(1.0 で止める形だけ。<code>screen-shadow.frag</code> の1行)</td></tr>
+<tr><td>壁までの距離</td><td>実機にキーは無い(裏通りの後ろの壁は箱の奥より遠い。<code>F4</code> の G で壁のキャラの影が見える)</td></tr>
+</tbody></table></div>
+<p class="note">実験台の顔の断面・前髪・テクセルの数・箱と壁の位置は、このページで決めた動作のイメージ。深度の比べ方(バイアスを引いて比べる・PCF の平均・z を 1.0 で止める)は reference と同じ規則で動かしている。</p>
+</section>
+
+<section class="part"><h2 id="s29">改造課題</h2>
+
+<h3 id="s30">課題1(易): バイアスをテクセルの大きさに比例させる</h3>
+<p>歪みの2つ目。<code>ShadowMap</code> に「1テクセルあたりのバイアス」(例えば 1.5 テクセル)を持たせ、<code>Apply</code> と <code>ScreenShadow.Render</code> で送る <code>uShadowBias</code> を <code>WorldPerTexel</code> から計算する(深度の単位に直すには、範囲 3 x 半径で割る)。512 でアクネが消えること、4096 で前髪の影が浮かないことを、<code>F4</code> の MToon の影の度合いで確かめる。世界の影に同じ式を当てると何 mm になるかも出す。</p>
+
+<h3 id="s31">課題2(中): G をキャラの画素だけで作る</h3>
+<p>歪みの4つ目。画面の影のパスを2回に分け、1回目はステンシルの試験なしで R だけ(G には R をそのまま)、2回目は <code>StencilFunc(Equal, 1, 0xFF)</code> でキャラの印の画素だけ G を書き直す(Day 75a の印をそのまま使う。<code>ColorMask</code> で G だけ書く)。画面の影の書き込み先にはステンシルが無いので、G-Buffer の深度とステンシルを貸してもらう形を考える。瞳と眉(印の外)の G はどうなるかも見る。時間はタイマークエリで測る(ハーネスで全開の計測を回さないこと)。</p>
+
+<h3 id="s32">課題3(難): 世界の影から、キャラ自身の粗い影を外す</h3>
+<p>歪みの1つ目。G の世界の影を「キャラの箱の光の側の端より光に近い遮蔽物だけ」にする。<code>ShadowMap</code> に世界の点を箱の深度(0〜1)に写す <code>LightDepth</code> を足し、箱の端(中心から光の来る方へ半径だけ戻った点)の世界での深度を送って、<code>screen-shadow.frag</code> で受け手の深度を <code>min(proj.z, 端の深度)</code> にしてから世界のシャドウマップと比べる。世界の <code>DepthBias</code> を 0.0003 に下げ、切る / 切らないで G を見比べる(試したときは 1,156 画素が 0.25 以上違った)。正射影なので端の深度が箱の横のどこでも同じになる理由と、キャラのすぐ前(1m 以内)にある物の影がキャラに落ちなくなる代償も説明する。</p>
+</section>
+
+<section class="part"><h2 id="s33">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: Day 68 と同じ AvatarSample_A(VRM 1.0)。.vrma を置いていない状態(T ポーズ)で確かめた。</p>
+<p>確かめたこと: ビルド(警告 0)、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 10 項目(2回)、内訳、Day 33・37・52・54・68・74・75a の自己チェック、Day 48 の割り当て表(399 項目)、毎フレームの GL エラー 0、キャラ専用の影を切ったときの Day 75a との全画素の突き合わせ(夕暮れの裏通り・ディファード・全身で差 0)、裏通りで見た絵(通常・画面の影 R / G・キャラのシャドウマップ・MToon の影の度合い(G / R / 512 / 4096)・顔に2段影(G / R / 使わない)・夜・Forward+)。時間は測っていない(開発機の電源の都合で、ハーネスでは計測を回さない)。</p>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, tok, fit, seg, stat } = Lab;
+
+// ============================================================
+//  実験台1: 顔の断面と、2枚のシャドウマップ
+//  光の空間の縦の断面。x = 光の進む向きの深さ(cm。左が光に近い)、y = 光と直交する向き(cm。上が +)。
+//  比べ方は reference と同じ(受け手の深さ − バイアス > テクセルに焼かれた深さ なら影。PCF は 1 次元の 3 タップ)。
+//  形と寸法はこのページで決めた動作のイメージ
+// ============================================================
+const Y0 = -10, Y1 = 12;                 // 断面の範囲(cm)
+// 顔の面(額〜顎)。中心がいちばん光に近く、額の上と顎の下で急に奥へ回り込む(光に対して寝た面ほどアクネが出やすい)
+const faceX = (y) => 0.06 * y * y + 0.05 * Math.pow(Math.max(0, Math.abs(y) - 5), 3);
+const fringe = { y0: 3.0, y1: 9.5, x0: -2.4, x1: -1.8 };   // 前髪(額の前に浮いている板)
+const RADIUS = { world: 1600, char: 120 };                 // 箱の半径(cm)
+const DEPTH_BIAS = { world: 0.0015, char: 0.0005 };        // 深度の範囲(3 x 半径)に対する割合
+
+const fstate = { map: 'char', res: 2048, bias: 'own' };
+
+function texelSize() {
+  const res = fstate.map === 'world' ? 2048 : fstate.res;
+  return (RADIUS[fstate.map] * 2) / res;  // cm
+}
+function biasCm(normalDot) {
+  const t = texelSize();
+  let base;
+  if (fstate.bias === 'zero') base = 0;
+  else if (fstate.bias === 'tex') base = 1.5 * t;
+  else base = DEPTH_BIAS[fstate.map] * RADIUS[fstate.map] * 3;
+  // 傾きのバイアス(reference と同じ: 6 倍 x (1 − N・L))
+  return base + base * 6 * (1 - normalDot);
+}
+// y の位置で、光に最も近い面の深さ(テクセルの中心で1回だけ焼く)
+function nearestAt(y) {
+  let d = faceX(y);
+  if (y >= fringe.y0 && y <= fringe.y1) d = Math.min(d, fringe.x0);
+  return d;
+}
+function texelDepth(i, t) {
+  const yc = Y0 + (i + 0.5) * t;
+  return nearestAt(yc);
+}
+function faceNormalDot(y) {
+  // 面 x = f(y) の法線と、光の来る向き(−x)との内積
+  const slope = (faceX(y + 0.01) - faceX(y - 0.01)) / 0.02;   // dx/dy
+  const nx = -1, ny = slope;
+  const len = Math.hypot(nx, ny);
+  return Math.max(0, (-nx) / len * 1);   // 光は −x から来る → 光へ向かう向き (−1, 0)
+}
+function sampleShadow(y) {
+  const t = texelSize();
+  const i = Math.floor((y - Y0) / t);
+  const recv = faceX(y);
+  const b = biasCm(faceNormalDot(y));
+  let lit = 0;
+  for (let k = -1; k <= 1; k++) lit += (recv - b) > texelDepth(i + k, t) ? 0 : 1;
+  return lit / 3;
+}
+function truthShadow(y) { return y >= fringe.y0 && y <= fringe.y1; }
+
+function drawFace() {
+  const canvas = $('face-canvas');
+  const { ctx, w, h } = fit(canvas);
+  const ink = tok('--ink') || '#222', muted = tok('--muted') || '#777', line = tok('--line') || '#ccc';
+  const accent = tok('--accent') || '#c0392b', warn = tok('--warn') || '#d68910', good = tok('--good') || '#2e8b57';
+  const X0 = -6, X1 = 14;
+  const sx = (x) => 40 + (x - X0) / (X1 - X0) * (w - 60);
+  const sy = (y) => h - 14 - (y - Y0) / (Y1 - Y0) * (h - 28);
+
+  // 光
+  ctx.strokeStyle = warn; ctx.globalAlpha = 0.35; ctx.lineWidth = 1;
+  for (let y = Y0 + 1; y < Y1; y += 2) { ctx.beginPath(); ctx.moveTo(sx(X0), sy(y)); ctx.lineTo(sx(X0 + 1.5), sy(y)); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  Lab.arrow(ctx, sx(X0) + 2, sy(Y1 - 1), sx(X0) + 36, sy(Y1 - 1), warn, 2);
+  ctx.fillStyle = muted; ctx.font = '12px sans-serif'; ctx.fillText('光', sx(X0) + 40, sy(Y1 - 1) + 4);
+
+  // テクセルの境目と、焼かれた深さ(テクセルが細かすぎるときは間引いて描く)
+  const t = texelSize();
+  const n = Math.ceil((Y1 - Y0) / t);
+  const step = Math.max(1, Math.ceil(n / 90));
+  ctx.lineWidth = 1;
+  for (let i = 0; i < n; i += step) {
+    const y = Y0 + i * t;
+    ctx.strokeStyle = line; ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(sx(X0 + 1.6), sy(y)); ctx.lineTo(sx(X1), sy(y)); ctx.stroke();
+    ctx.globalAlpha = 1;
+    const d = texelDepth(i, t);
+    ctx.strokeStyle = accent;
+    ctx.beginPath(); ctx.moveTo(sx(d), sy(y)); ctx.lineTo(sx(d), sy(Math.min(Y1, y + t))); ctx.stroke();
+  }
+
+  // 前髪
+  ctx.fillStyle = 'rgba(90,60,40,0.85)';
+  ctx.fillRect(sx(fringe.x0), sy(fringe.y1), sx(fringe.x1) - sx(fringe.x0), sy(fringe.y0) - sy(fringe.y1));
+
+  // 顔の面: 当たっている所と影の所
+  let shadowed = 0, acne = 0, missed = 0, total = 0;
+  ctx.lineWidth = 4; ctx.lineCap = 'round';
+  for (let y = Y0; y < Y1 - 0.05; y += 0.1) {
+    const s = sampleShadow(y + 0.05);
+    const truth = truthShadow(y + 0.05);
+    total++;
+    // 前髪の縁から 1.5 テクセル以内は半影(PCF でぼける所)なので、アクネに数えない
+    const nearEdge = Math.min(Math.abs(y - fringe.y0), Math.abs(y - fringe.y1)) < 1.5 * t;
+    if (s < 0.5) { shadowed++; if (!truth && !nearEdge) acne++; } else if (truth) missed++;
+    ctx.strokeStyle = s < 0.5 ? ink : '#f3d9b8';
+    ctx.globalAlpha = 0.35 + 0.65 * (1 - s) * (s < 0.5 ? 1 : 0) + (s >= 0.5 ? 0.65 : 0);
+    ctx.beginPath(); ctx.moveTo(sx(faceX(y)), sy(y)); ctx.lineTo(sx(faceX(y + 0.1)), sy(y + 0.1)); ctx.stroke();
+  }
+  ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+
+  ctx.fillStyle = muted; ctx.font = '12px sans-serif';
+  ctx.fillText('前髪', sx(fringe.x0) - 30, sy(fringe.y1) - 4);
+  ctx.fillText('顔(額〜顎)', sx(faceX(-8)) + 8, sy(-8));
+
+  const bias = biasCm(1);
+  $('face-stats').innerHTML =
+    stat('1テクセル', (t * 10).toFixed(1), ' mm') +
+    stat('バイアス(正面)', (bias * 10).toFixed(1), ' mm') +
+    stat('前髪の影(顔の上)', (100 * (1 - missed / Math.max(1, total * (fringe.y1 - fringe.y0) / (Y1 - Y0)))).toFixed(0), ' %') +
+    stat('アクネ(影でない所が影)', String(acne), ' 点');
+  let note;
+  if (fstate.map === 'world') note = '世界のシャドウマップ: バイアスが前髪と額の隙間より大きく、前髪の影が顔に落ちない(R)。テクセルの境目も顔の幅に数本しか無い。';
+  else if (acne > 0) note = 'バイアスがテクセルに対して小さく、曲がった面が自分の焼かれた深さに負けている(アクネ)。課題1の「テクセルに比例」で消える。';
+  else note = 'キャラ専用のシャドウマップ: テクセルが細かく、バイアスも小さいので、前髪の影が額に落ちる(G)。';
+  $('face-note').textContent = note;
+}
+
+function legendFace() {
+  $('face-legend').innerHTML =
+    '<span><i style="background:#f3d9b8"></i>顔(当たっている)</span>' +
+    '<span><i style="background:' + (tok('--ink') || '#222') + '"></i>顔(影)</span>' +
+    '<span><i style="background:' + (tok('--accent') || '#c0392b') + '"></i>テクセルに焼かれた深さ</span>' +
+    '<span><i style="background:rgba(90,60,40,0.85)"></i>前髪</span>';
+}
+
+seg('f-map', (v) => { fstate.map = v; drawFace(); });
+seg('f-res', (v) => { fstate.res = Number(v); drawFace(); });
+seg('f-bias', (v) => { fstate.bias = v; drawFace(); });
+legendFace();
+drawFace();
+window.addEventListener('resize', drawFace);
+
+// ============================================================
+//  実験台2: キャラの箱と、箱の外の受け手
+//  光の空間を上から見る。x = 深さ(0〜1 が箱の手前の面〜奥の面)、y = 横(箱は −1〜1)。
+//  キャラは箱の中心の丸。壁は x = wallX の縦線。z > 1 の扱いを3通りで比べる(reference は 1.0 で止める)
+// ============================================================
+const bstate = { mode: 'clamp', wall: 'far' };
+const BIAS = 0.01;
+const CHAR = { x: 0.5, y: 0, r: 0.32 };
+function storedDepth(y) {
+  // 箱の横の外は境界色 1.0。中はキャラの手前の面の深さ、キャラが無ければ 1.0(クリアの値)
+  if (Math.abs(y) > 1) return 1.0;
+  const dy = y - CHAR.y;
+  if (Math.abs(dy) >= CHAR.r) return 1.0;
+  return CHAR.x - Math.sqrt(CHAR.r * CHAR.r - dy * dy);
+}
+function shadowAt(x, y) {
+  let z = x;
+  if (z > 1) {
+    if (bstate.mode === 'lit') return false;
+    if (bstate.mode === 'clamp') z = 1.0;
+  }
+  return (z - BIAS) > storedDepth(y);
+}
+function drawBox() {
+  const canvas = $('box-canvas');
+  const { ctx, w, h } = fit(canvas);
+  const ink = tok('--ink') || '#222', muted = tok('--muted') || '#777', line = tok('--line') || '#ccc';
+  const accent = tok('--accent') || '#c0392b', warn = tok('--warn') || '#d68910', good = tok('--good') || '#2e8b57';
+  const XMIN = -0.3, XMAX = 2.0, YMIN = -2.2, YMAX = 2.2;
+  const sx = (x) => 20 + (x - XMIN) / (XMAX - XMIN) * (w - 40);
+  const sy = (y) => h / 2 - y / (YMAX - YMIN) * (h - 20);
+
+  // 光
+  for (let y = -2; y <= 2; y += 0.5) Lab.arrow(ctx, sx(XMIN), sy(y), sx(XMIN + 0.18), sy(y), warn, 1.5);
+
+  // 箱
+  ctx.setLineDash([5, 4]); ctx.strokeStyle = muted; ctx.lineWidth = 1.5;
+  ctx.strokeRect(sx(0), sy(1), sx(1) - sx(0), sy(-1) - sy(1));
+  ctx.setLineDash([]);
+  ctx.fillStyle = muted; ctx.font = '12px sans-serif';
+  ctx.fillText('手前の面(z = 0)', sx(0) + 4, sy(1) - 6);
+  ctx.fillText('奥の面(z = 1)', sx(1) - 70, sy(-1) + 16);
+
+  // キャラの影の筋(光の空間では真後ろ)
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  ctx.fillRect(sx(CHAR.x), sy(CHAR.r), sx(XMAX) - sx(CHAR.x), sy(-CHAR.r) - sy(CHAR.r));
+
+  // キャラ
+  ctx.fillStyle = '#9aa3ad';
+  ctx.beginPath(); ctx.arc(sx(CHAR.x), sy(CHAR.y), (sx(CHAR.r) - sx(0)), 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = ink; ctx.fillText('キャラ', sx(CHAR.x) - 18, sy(0) + 4);
+
+  // 壁
+  const wallX = bstate.wall === 'far' ? 1.6 : 0.9;
+  ctx.strokeStyle = line; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(sx(wallX), sy(YMAX - 0.1)); ctx.lineTo(sx(wallX), sy(YMIN + 0.1)); ctx.stroke();
+
+  let wrongShadow = 0, missing = 0, total = 0;
+  for (let y = -2; y <= 2.001; y += 0.1) {
+    const s = shadowAt(wallX, y);
+    const truth = Math.abs(y - CHAR.y) < CHAR.r;
+    total++;
+    if (s && !truth) wrongShadow++;
+    if (!s && truth) missing++;
+    ctx.fillStyle = s ? ink : '#f6e7c8';
+    ctx.strokeStyle = (s !== truth) ? accent : 'transparent';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(sx(wallX), sy(y), 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = muted; ctx.fillText('後ろの壁(z = ' + wallX.toFixed(1) + ')', sx(wallX) + 10, sy(YMAX - 0.3));
+
+  $('box-stats').innerHTML =
+    stat('壁の点', String(total)) +
+    stat('影になるはずが当たっている', String(missing)) +
+    stat('当たるはずが影', String(wrongShadow));
+  let note;
+  if (wallX <= 1) note = '壁が箱の中なら、3つの扱いのどれでも同じ。違いが出るのは z が 1 を超えたときだけ。';
+  else if (bstate.mode === 'clamp') note = '1.0 で止めると、キャラの真後ろだけが影(1.0 − バイアス > キャラの深さ)、箱の横の外は当たる(1.0 − バイアス > 1.0 は成り立たない)。';
+  else if (bstate.mode === 'raw') note = 'そのまま比べると、箱の横の外は境界色 1.0 と比べて全部影になる(赤い縁の点)。';
+  else note = '当たっている扱い(世界の影のやり方)では、キャラの影が後ろの壁から消える。小さな箱では奥の外こそ影の落ちる先。';
+  $('box-note').textContent = note;
+}
+seg('b-mode', (v) => { bstate.mode = v; drawBox(); });
+seg('b-wall', (v) => { bstate.wall = v; drawBox(); });
+drawBox();
+window.addEventListener('resize', drawBox);
+
+// 動かす部品は無い(つまみを動かしたときだけ描き直す)ので、reduceMotion でも同じ絵になる
+void reduceMotion;
+})();
+</script>
+</body>
+</html>
