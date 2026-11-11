@@ -1,0 +1,158 @@
+#version 430 core
+
+// ============================================================
+//  Day 57: 数え上げ — 共有メモリとアトミック操作
+// ============================================================
+//
+// **粒の合計を GPU の中だけで出す**。
+// 「生きている粒が何個か」「その平均の高さは何 m か」を、100 万個の配列から1回の
+// ディスパッチで出す。CPU に配列を戻せば数行で書ける処理だが、
+// 32MB を毎フレーム PCI Express に流すことになる(要点7)。
+//
+// このファイルの目的は数字そのものではなく、
+// **GPU で「全部を1つにまとめる」とはどう書くのか**を手で確かめること。
+// 並列計算でいちばん基本の型で、リダクション(畳み込み)と呼ばれる。
+//
+// -----------------------------------------------------------------
+//  なぜ素直に足せないか
+// -----------------------------------------------------------------
+//
+// C# なら `foreach (var p in particles) sum += p.y;` で終わる。
+// GPU では 100 万個が同時に走るので、この `sum +=` が全部ぶつかる。
+// 「読んで、足して、書く」の間に他の呼び出しが割り込むと、**足したはずの値が消える**。
+//
+// 割り込まれない足し算が atomicAdd。ただし**同じ番地への atomic は順番待ちになる**ので、
+// 100 万回ぶつけると、そこが1本の行列になって並列性が消える。
+//
+// そこで2段にする。
+//   1. **ワークグループの中で畳む**(共有メモリ + barrier)… ここは速い
+//   2. **グループの代表だけが atomicAdd**… 100 万回が 3907 回(1,000,000 / 256)に減る
+//
+// uNaive を 1 にすると1段目を飛ばして 100 万回ぶつける。
+// GPU の時間を見比べるためのもので、**これが今日いちばん分かりやすい数字**になる。
+
+#ifndef LOCAL_SIZE
+#define LOCAL_SIZE 256
+#endif
+
+layout (local_size_x = LOCAL_SIZE) in;
+
+struct Particle
+{
+    vec3 position;
+    float age;
+    vec3 velocity;
+    float lifetime;
+};
+
+// **readonly を書く**。ここでは読むだけだと宣言しておくと、
+// ドライバがキャッシュの扱いを選べる。書き込みの競合を人間が見落とす余地も減る。
+layout (std430, binding = 0) readonly buffer Particles
+{
+    Particle particles[];
+};
+
+// 集計の置き場。**たった 12 バイトの SSBO**。
+layout (std430, binding = 1) buffer Stats
+{
+    uint aliveCount;
+
+    // **高さの合計 x 100**。整数にしてあるのは、GLSL 4.3 の atomicAdd が
+    // int / uint にしか無いため(float 版は NV_shader_atomic_float などの拡張)。
+    // 小数を固定小数にして整数で足すのは、この制約に対する定番の逃げ方。
+    //
+    // 桁あふれに注意。高さを 20m で頭打ちにしてあるので1個あたり最大 2000、
+    // 100 万個で 2.0e9。uint の上限 4.29e9 に収まっている——
+    // **上限を外すと静かに一周する**(エラーは出ない)。
+    uint heightFixed;
+};
+
+uniform uint uCount;
+
+// 1 なら共有メモリを使わず、呼び出しごとに atomicAdd する。
+uniform int uNaive;
+
+// ------------------------------------------------------------
+//  共有メモリ
+// ------------------------------------------------------------
+//
+// **ワークグループの中だけで見えるメモリ**。SSBO(VRAM)より1桁以上速く、
+// そのぶん小さい(仕様の保証は 32KB、最近の GPU は 48〜64KB)。
+// LOCAL_SIZE = 1024 なら 4 バイト x 1024 x 2 = 8KB を使うことになる。
+//
+// **中身は毎回ゴミから始まる**。前のディスパッチの値が残っているとは限らないし、
+// 0 で始まる保証も無い。使う前に必ず全員が自分のぶんを書く。
+shared uint sAlive[LOCAL_SIZE];
+shared uint sHeight[LOCAL_SIZE];
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+
+    // **ここでは早期 return してはいけない**(要点5の落とし穴)。
+    // この下に barrier() があり、barrier は
+    // **ワークグループの全員が同じ回数通る**ことが条件になっている。
+    // 範囲外の呼び出しだけ先に帰ると、残りが永久に待つ(または未定義動作)。
+    // だから「帰る」のではなく「0 を持って参加する」。
+    uint alive = 0u;
+    uint height = 0u;
+
+    if (index < uCount)
+    {
+        Particle p = particles[index];
+
+        if (p.age < p.lifetime)
+        {
+            alive = 1u;
+            height = uint(clamp(p.position.y, 0.0, 20.0) * 100.0);
+        }
+    }
+
+    if (uNaive != 0)
+    {
+        // --- 比べるための、いちばん素朴な形 ---
+        //
+        // 100 万個が2つの番地に殺到する。GPU は atomic を取りこぼさないので
+        // **答えは正しい**——正しいのに遅い、というのがここで見たいこと。
+        if (alive != 0u)
+        {
+            atomicAdd(aliveCount, alive);
+            atomicAdd(heightFixed, height);
+        }
+
+        return;
+    }
+
+    uint local = gl_LocalInvocationID.x;
+
+    sAlive[local] = alive;
+    sHeight[local] = height;
+
+    // **書いたものを隣が読む前に、全員が書き終わるのを待つ**。
+    // barrier() はワークグループの中だけの待ち合わせで、他のグループとは無関係。
+    barrier();
+
+    // 木を畳むように半分ずつ足す。256 個なら 8 回(log2 256)で1つになる。
+    //
+    // stride は LOCAL_SIZE という**定数**から作っているので、
+    // ループの回る回数はワークグループの全員で同じ。
+    // barrier() が if の外に置いてあるのと合わせて、
+    // 「全員が同じ回数 barrier を通る」が守られている。
+    for (uint stride = uint(LOCAL_SIZE) / 2u; stride > 0u; stride >>= 1u)
+    {
+        if (local < stride)
+        {
+            sAlive[local] += sAlive[local + stride];
+            sHeight[local] += sHeight[local + stride];
+        }
+
+        barrier();
+    }
+
+    // **グループにつき1回だけ VRAM を触る**。ここが2段構えの値打ち。
+    if (local == 0u)
+    {
+        atomicAdd(aliveCount, sAlive[0]);
+        atomicAdd(heightFixed, sHeight[0]);
+    }
+}

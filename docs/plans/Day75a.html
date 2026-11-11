@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Day 75a 形は共有、色はフォワード</title>
+<link rel="stylesheet" href="../site/doc.css">
+<style>
+  .grid-stage canvas { width: 100%; aspect-ratio: 40 / 24; display: block; border-radius: 6px; image-rendering: pixelated; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside class="side" aria-label="目次"><ol>
+<li class="l2"><a href="#s1">今日のゴール</a></li>
+<li class="l3"><a href="#s2">今日いちばん大事な3つ</a></li>
+<li class="l3"><a href="#s3">今日は Render の深度まわりと、MToon のシェーダの枝</a></li>
+<li class="l2"><a href="#s4">事前に読む資料</a></li>
+<li class="l2"><a href="#s5">理論の要点</a></li>
+<li class="l3"><a href="#s6">1. キャラとディファードの3つの混ぜ方</a></li>
+<li class="l3"><a href="#s7">2. ステンシル — 深度の隣の 8bit の印</a></li>
+<li class="l3"><a href="#s8">3. 形は MToon の同じシェーダで書く</a></li>
+<li class="l3"><a href="#s9">4. Z プレパスと深度の Equal — 1画素1回</a></li>
+<li class="l3"><a href="#s10">5. 写し合う深度は、形式をそろえる</a></li>
+<li class="l3"><a href="#s11">6. 画面の処理は形しか見ない — SSAO と速度</a></li>
+<li class="l2"><a href="#s12">前Dayからの差分概要</a></li>
+<li class="l3"><a href="#s13">変更ファイル</a></li>
+<li class="l3"><a href="#s14">写経する順番</a></li>
+<li class="l2"><a href="#s15">設計書</a></li>
+<li class="l3"><a href="#s16">1フレームの中のキャラ(Day 75a)</a></li>
+<li class="l3"><a href="#s17">G-Buffer に書くシェーダの選び方</a></li>
+<li class="l3"><a href="#s18">だれが何を知っているか</a></li>
+<li class="l3"><a href="#s19">今日残した歪み</a></li>
+<li class="l3"><a href="#s20">試して分かったこと</a></li>
+<li class="l2"><a href="#s21">完成条件</a></li>
+<li class="l3"><a href="#s22">1. F4 / F3: 穴と、照らされたキャラ</a></li>
+<li class="l3"><a href="#s23">2. F5: 印・法線・遮蔽率</a></li>
+<li class="l3"><a href="#s24">3. F2 / F10: 足元の暗がり</a></li>
+<li class="l3"><a href="#s25">4. F7: Less ならキャラが消える</a></li>
+<li class="l3"><a href="#s26">5. F9 / F6: Forward+ と、キャラ自身の AO</a></li>
+<li class="l3"><a href="#s27">6. 形を入れなければ Day 74 と同じ絵であること</a></li>
+<li class="l3"><a href="#s28">7. F12: 自己チェック(10 項目すべて合格)</a></li>
+<li class="l3"><a href="#s29">実験台と実機のキーの対応</a></li>
+<li class="l2"><a href="#s30">改造課題</a></li>
+<li class="l3"><a href="#s31">課題1(易): 印を2種類にする</a></li>
+<li class="l3"><a href="#s32">課題2(中): フォワードの SSAO でも毛先を捨てる</a></li>
+<li class="l3"><a href="#s33">課題3(難): キャラだけを照らす2本目のライティングパス</a></li>
+<li class="l2"><a href="#s34">動作確認済み環境</a></li>
+</ol></aside>
+<main class="doc">
+<header class="top">
+  <p class="eyebrow">VRM編 / Day 75a / 計画書</p>
+  <h1>形は共有、色はフォワード — キャラを G-Buffer に入れ、ステンシルでライティングパスから外す</h1>
+  <p class="lede">キャラの法線と距離は G-Buffer に書いて、SSAO のような画面の処理と分け合う。色はこれまでどおり MToon のフォワードパスで付ける。2つをつなぐのは、深度の隣の 8bit の印</p>
+  <div class="meta">
+    <span><a href="../roadmap.html">ロードマップへ戻る</a></span>
+    <span>「実験台」の印が付いたものは、このページで足した動かせる図</span>
+  </div>
+</header>
+<nav class="toc-inline" aria-label="目次"><ol>
+<li class="l2"><a href="#s1">今日のゴール</a></li>
+<li class="l2"><a href="#s4">事前に読む資料</a></li>
+<li class="l2"><a href="#s5">理論の要点</a></li>
+<li class="l2"><a href="#s12">前Dayからの差分概要</a></li>
+<li class="l2"><a href="#s15">設計書</a></li>
+<li class="l2"><a href="#s21">完成条件</a></li>
+<li class="l2"><a href="#s30">改造課題</a></li>
+<li class="l2"><a href="#s34">動作確認済み環境</a></li>
+</ol></nav>
+
+<section class="part" style="border-top:0;margin-top:0;padding-top:0">
+<p>Day 68 で、MToon のキャラを「シーンを描き終えたあとの別のフォワードパス」で描くことにした。G-Buffer には影の色も境目のずらしも書く欄が無いからだ。代わりに1つ歪みを残した——<strong>キャラは G-Buffer に居ないので、SSAO にキャラが入らない</strong>(Day 68 の今日残した歪みの1つ目)。足元にも、壁際にも、キャラの形の暗がりが出ない。</p>
+<p>今日の手本は、アークナイツ:エンドフィールドの PC 版のフレーム解析(Endfield: Behind the Frame)。そこでは、キャラも深度プレパスと G-Buffer に入り、ステンシルの下位ビットに「キャラ」の分類が書かれ、シーンのライティングパスはその画素を飛ばす。キャラの色は、そのあとのフォワードパスで付く。<strong>形は共有し、色だけ別に付ける</strong>。この形を Day 74 のエンジンへ移す。</p>
+</section>
+
+<section class="part"><h2 id="s1">今日のゴール</h2>
+<p><strong>メニューの「キャラとディファード」ページで <code>F8</code>(裏通りに立たせる)→ <code>F5</code> を3回(SSAO の遮蔽率)と押すと、キャラの足元と体のまわりに暗がりが出ている。<code>F2</code> で形を外すと、暗がりがキャラの形ごと消える(Day 74 の絵)。<code>F4</code> で色を消すと、キャラの形に空が抜ける——ライティングパスがステンシルで飛ばした画素だ。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>キー(「キャラとディファード」ページ)</th><th>何が起きるか</th></tr></thead><tbody>
+<tr><td><code>F2</code></td><td>キャラの形を G-Buffer に: 入れる(今日。既定)↔ 入れない(Day 74)。フォワードのフレームでは SSAO の幾何パスに入れる</td></tr>
+<tr><td><code>F3</code></td><td>ライティングパスから外す: 外す(ステンシルの試験。既定)↔ 外さない。<strong>絵は変わらない</strong>(<code>F4</code> と組み合わせて見る)</td></tr>
+<tr><td><code>F4</code></td><td>キャラの色(MToon): 描く ↔ 描かない。描かないと、ライティングパスが残した穴が見える</td></tr>
+<tr><td><code>F5</code></td><td>表示: 通常 → ステンシルの印(紫)→ G-Buffer の法線 → SSAO の遮蔽率</td></tr>
+<tr><td><code>F6</code></td><td>キャラ自身にも AO: 掛けない(既定)↔ MToon の環境光に掛ける</td></tr>
+<tr><td><code>F7</code></td><td>色のパスの深度の比べ方: Equal(今日)↔ Less(Day 74 のまま。キャラが消える)</td></tr>
+<tr><td><code>F8</code></td><td>裏通りに立たせる(完成版の夜。シーンをディファードにする)/ もう1回で床の上へ</td></tr>
+<tr><td><code>F9</code></td><td>シーンの描き方: ディファード ↔ Forward+(「VRMビューア」の F9 と同じ)</td></tr>
+<tr><td><code>F10</code></td><td>足元に寄る ↔ 全身</td></tr>
+<tr><td><code>F11</code></td><td>内訳(深度とステンシルの形式・1フレームの中のキャラ・印の数・不透明の回が塗った回数)</td></tr>
+<tr><td><code>F12</code></td><td>今日の自己チェック(10 項目)</td></tr>
+</tbody></table></div>
+<p>メニューを閉じた状態で <code>Shift+F1</code> を押すと、最後のページ「キャラとディファード」(38 枚目)が直接開く。<code>F2</code>〜<code>F7</code> と <code>F10</code> は、キャラが出ていなければ裏通り(ディファード)に立たせてから効く。</p>
+
+<figure class="lab" id="grid-lab">
+  <div class="lab-head">
+    <h3>実験台: 画面の升目で、印・ライティングパス・塗った回数を見る</h3>
+    <span class="tag">要点2・4・6。1マスが1画素。裏通りの壁と床、手前に街灯、その間にキャラ(髪・頭・胴・腕・脚・前髪の7枚)。動作のイメージで、数は実機と一致させていない</span>
+  </div>
+  <div class="stage grid-stage"><canvas id="grid-canvas" aria-label="升目の画面"></canvas></div>
+  <div class="legend" id="grid-legend"></div>
+  <div class="controls">
+    <div class="ctl"><span class="label">キャラの形を G-Buffer に(F2)</span>
+      <div class="seg" id="g-shape"><button data-v="1" aria-pressed="true">入れる</button><button data-v="0" aria-pressed="false">入れない(Day 74)</button></div>
+    </div>
+    <div class="ctl"><span class="label">ライティングパスから外す(F3)</span>
+      <div class="seg" id="g-skip"><button data-v="1" aria-pressed="true">外す</button><button data-v="0" aria-pressed="false">外さない</button></div>
+    </div>
+    <div class="ctl"><span class="label">キャラの色(F4)</span>
+      <div class="seg" id="g-color"><button data-v="1" aria-pressed="true">描く</button><button data-v="0" aria-pressed="false">描かない</button></div>
+    </div>
+    <div class="ctl"><span class="label">色のパスの比べ方(F7)</span>
+      <div class="seg" id="g-cmp"><button data-v="eq" aria-pressed="true">Equal</button><button data-v="less" aria-pressed="false">Less</button></div>
+    </div>
+    <div class="ctl"><span class="label">パーツを描く順(形を入れないときの重ね塗りが変わる)</span>
+      <div class="seg" id="g-order"><button data-v="file" aria-pressed="true">ファイルの順</button><button data-v="back" aria-pressed="false">奥から</button><button data-v="front" aria-pressed="false">手前から</button></div>
+    </div>
+    <div class="ctl"><span class="label">表示(F5)</span>
+      <div class="seg" id="g-view"><button data-v="normal" aria-pressed="true">通常</button><button data-v="stencil" aria-pressed="false">ステンシルの印</button><button data-v="count" aria-pressed="false">MToon が塗った回数</button><button data-v="ao" aria-pressed="false">遮蔽率</button></div>
+    </div>
+  </div>
+  <div class="readout"><div class="stats" id="grid-stats"></div><p id="grid-note"></p></div>
+</figure>
+
+<h3 id="s2">今日いちばん大事な3つ</h3>
+<p><strong>1つ目は「形と色を分ける」</strong>。G-Buffer に書くのは光を当てるための材料だが、そのうち<strong>法線と距離</strong>は、SSAO のような画面の処理も読む。キャラの色の材料(影の色・境目)は G-Buffer に書けないが、形なら書ける。形だけを書いて画面の処理と分け合い、色は Day 68 のフォワードパスで付ける(要点1)。</p>
+<p><strong>2つ目は「ステンシルで、ライティングパスに触らせない」</strong>。キャラを G-Buffer に書くと、ライティングパスはその画素を PBR の物として照らそうとする。深度の隣の 8bit に「キャラ」の印 1 を書き、ライティングパスは <code>NotEqual 1</code> の画素だけを塗る。ステンシルの試験は画素シェーダの前にあるので、外した画素では <code>deferred.frag</code> が<strong>走りもしない</strong>(要点2)。</p>
+<div class="code"><span class="lang">C#</span><pre><code>// G-Buffer パス: キャラを描く間だけ、深度に勝った画素へ 1 を書く(GBuffer.BeginCharacter)
+_gl.StencilFunc(StencilFunction.Always, CharacterStencil, 0xFF);
+_gl.StencilOp(StencilOp.Keep, StencilOp.Keep, <strong>StencilOp.Replace</strong>);
+
+// ライティングパス: 印が 1 ではない画素だけ照らす。印は読むだけ(DeferredLighting.Render)
+_gl.StencilMask(0x00);
+_gl.StencilFunc(<strong>StencilFunction.Notequal</strong>, GBuffer.CharacterStencil, 0xFF);</code></pre></div>
+<p><strong>3つ目は「G-Buffer の深度が、そのまま Z プレパスになる」</strong>。キャラの深度は G-Buffer パスで決まっているので、色のパスは深度を <code>Equal</code> で比べるだけでよい。いちばん手前の面の画素だけが通り、<strong>MToon の画素シェーダは1画素につき1回</strong>しか走らない(裏通りの全身で 113,664 回 → 64,219 回)。そのためには、G-Buffer の回と色の回で<strong>深度が最後の桁まで同じ</strong>でなければならない——だから G-Buffer にも MToon の同じシェーダで書く(要点3・4)。</p>
+
+<h3 id="s3">今日は Render の深度まわりと、MToon のシェーダの枝</h3>
+<p>新規ファイルは無い。変更は <code>Render/</code> の5本(深度にステンシルを同居させる <code>Framebuffer</code>・<code>Texture</code>・<code>PostProcess</code>、印を付ける <code>GBuffer</code>、印を見て飛ばす <code>DeferredLighting</code>)、シェーダ2本(<code>mtoon.frag</code> の G-Buffer の枝、<code>deferred.frag</code> の印の表示)、<code>Program.cs</code>(G-Buffer パスにキャラ、SSAO の幾何パスにキャラ、色のパスの比べ方、ページ1枚、内訳と自己チェック)。</p>
+<p><strong>キャラの色の描き方(Day 68 の「キャラの3回」)は、1回目の深度の比べ方しか変わっていない</strong>。足したのは、その前の「形だけ書く1回」と、ステンシルの試験。</p>
+</section>
+
+<section class="part"><h2 id="s4">事前に読む資料</h2>
+<ul>
+<li><a href="https://endfield-behind-the-frame.vinluo46.chatgpt.site/en">Endfield: Behind the Frame — PC Rendering Analysis</a> — 今日の手本。1フレームのパスの並び(深度プレパス → G-Buffer 5枚 → GTAO・SSR・画面の影 → シーンのライティング3本 → キャラのフォワード)、G-Buffer の形式、ステンシルの下位3ビットの分類(シーンの 0〜2 とキャラの 4。キャラの値 36・目の 52 はどちらも下位3ビットが 4)。<strong>中国語の原文からの AI 翻訳</strong>で、ページ自身が「用語や言い回しに誤りがありうる」と断っている。数値は原文で確かめる。第三者による1フレームの解析で、公式の資料ではない</li>
+<li><a href="https://learnopengl.com/Advanced-OpenGL/Stencil-testing">LearnOpenGL: Stencil testing</a> — <code>glStencilFunc</code>(比べ方・基準値・マスク)と <code>glStencilOp</code>(試験に落ちた / 深度に落ちた / 両方通った、のそれぞれで何を書くか)。今日はこの2つと <code>glStencilMask</code> しか使わない</li>
+<li><a href="https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBlitFramebuffer.xhtml">glBlitFramebuffer(OpenGL 4 リファレンス)</a> — 「深度かステンシルを写すなら、写す元と先の形式がそろっていないと <code>GL_INVALID_OPERATION</code>」(要点5)</li>
+<li><a href="https://learnopengl.com/Advanced-Lighting/Deferred-Shading">LearnOpenGL: Deferred Shading</a> — 最後の「Combining deferred rendering with forward rendering」の節。ディファードの後ろにフォワードを足すときに深度を写す話(Day 52 でやったこと)</li>
+<li>Day 68 の計画書(要点6「キャラだけ別のフォワードパス」・設計書「1フレームの中のキャラの居場所」・今日残した歪みの1つ目)、Day 52 の計画書(G-Buffer の4枚と、ライティングパスの頭で深度を写すこと)、Day 37 の計画書(SSAO の入力はビュー空間の法線と距離)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s5">理論の要点</h2>
+
+<h3 id="s6">1. キャラとディファードの3つの混ぜ方</h3>
+<p>トゥーンのキャラを、ディファードで描くシーンに置く作り方は大きく3つある(手本の解析の冒頭の比べ方)。違いは「キャラが G-Buffer に何を書くか」と「キャラの色をどこで付けるか」。</p>
+<div class="table-wrap"><table><thead><tr><th>作り方</th><th>キャラが G-Buffer に書くもの</th><th>キャラの色を付ける所</th><th>画面の処理(SSAO など)にキャラが居るか</th></tr></thead><tbody>
+<tr><td>キャラだけフォワード(解析の言う HoYoverse の並び。<strong>Day 68〜74</strong>)</td><td>何も書かない</td><td>シーンのライティングのあと、別のフォワードパス</td><td>居ない(足元に暗がりが出ない)</td></tr>
+<tr><td>形は共有、色はフォワード(<strong>Endfield。今日</strong>)</td><td>深度・法線・速度などの形と、ステンシルの「キャラ」の印</td><td>同じく別のフォワードパス。シーンのライティングは印の画素を飛ばす</td><td>居る</td></tr>
+<tr><td>両方ディファード(解析の言う鳴潮)</td><td>形に加えて、トゥーンの色の材料も G-Buffer に書く</td><td>G-Buffer から(解析は「同じライティングパスではなく、キャラの G-Buffer の段がすでにフォワードの照明に近い情報を書いている」とも書いている)</td><td>居る</td></tr>
+</tbody></table></div>
+<p>今日の作り方の値打ちは、<strong>キャラの色の描き方を1行も変えずに、画面の処理へキャラを入れられる</strong>こと。MToon の式は Day 68 のフォワードのまま、G-Buffer の欄も増やさない。代わりに、キャラの形を2回描く(G-Buffer の回と色の回)。3つ目の作り方は1回で済むが、G-Buffer にトゥーンの欄が要り、ライティングパスにトゥーンの枝が入る(改造課題3)。</p>
+
+<h3 id="s7">2. ステンシル — 深度の隣の 8bit の印</h3>
+<p>ステンシルは、深度のバッファの隣に置く<strong>画素ごとの 8bit の整数</strong>。色にも深度にもならず、「この画素を描くかどうか」の試験にだけ使う。試験は2つの関数で決まる。</p>
+<div class="table-wrap"><table><thead><tr><th>呼ぶもの</th><th>決めること</th><th>G-Buffer パス(キャラの間)</th><th>ライティングパス</th></tr></thead><tbody>
+<tr><td><code>glStencilFunc(比べ方, 基準値, マスク)</code></td><td>通すか。<code>(基準値 &amp; マスク) 比べ方 (いまの値 &amp; マスク)</code></td><td><code>Always, 1, 0xFF</code>(いつも通す)</td><td><code>Notequal, 1, 0xFF</code>(印 1 ではない画素だけ)</td></tr>
+<tr><td><code>glStencilOp(落ちた, 深度に落ちた, 通った)</code></td><td>3つの場合のそれぞれで、何を書くか</td><td><code>Keep, Keep, Replace</code>(深度に勝った画素だけ 1 に)</td><td><code>Keep, Keep, Keep</code></td></tr>
+<tr><td><code>glStencilMask(ビット)</code></td><td>書き込める桁</td><td><code>0xFF</code></td><td><code>0x00</code>(読むだけ。光の球が重なっても印は変わらない)</td></tr>
+</tbody></table></div>
+<ul>
+<li><strong>深度に負けた画素には印が付かない</strong>。<code>glStencilOp</code> の3つ目(両方通った)でだけ書くので、街灯の陰に入った腕には印が付かない(実験台の街灯の後ろ)。MASK の毛先も、<code>discard</code> で捨てた画素には書かれない</li>
+<li><strong>キャラはシーンの後ろで描く</strong>。キャラのあとに手前の物を描くと、その物が深度に勝って色と法線を上書きしても、印はキャラのまま残る(印を付けない物は、印を消しもしない)</li>
+<li><strong>試験は画素シェーダの前</strong>。<code>discard</code> は画素シェーダを走らせてから捨てるが、ステンシルの試験に落ちた画素ではシェーダが走らない(GPU の早期の試験。深度の試験と同じ場所)</li>
+<li><strong>毎フレーム 0 に消す</strong>。<code>GBuffer.Begin</code> と <code>PostProcess.Begin</code> で、色と深度と一緒に消す。消さないと、動いたキャラの抜け殻の形に、照らされない穴が残る。消すときは書き込みの口(<code>glStencilMask</code>)が開いていなければならないので、ライティングパスは最後に <code>0xFF</code> へ戻して帰る</li>
+</ul>
+<p>8bit あるのに今日使う値は 1 つだけ。手本の解析では、下位3ビットで「どの照明の式で照らすか」をシーンの 3 種類(0・1・2)とキャラ(4)に分け、上のビットに別の区別(キャラ 36・目 52)を持たせている。マスクを使えば、同じ 8bit に別々の意味を詰められる(改造課題1)。</p>
+
+<h3 id="s8">3. 形は MToon の同じシェーダで書く</h3>
+<p>G-Buffer に書くのは Day 52 と同じ4枚。キャラは <code>mtoon.frag</code> に Day 52 の <code>textured.frag</code> と同じ枝を足して書く——<strong>表面が決まったところで打ち切る</strong>。</p>
+<div class="code"><span class="lang">glsl</span><pre><code>// mtoon.frag(Day 75a)。アルファで捨て、法線を決めたあと。光はまだ計算していない
+if (uGBufferPass == 1)
+{
+    FragColor    = vec4(sqrt(max(base.rgb, vec3(0.0))), 1.0);   // 0: ベースカラー(表示用)
+    GMaterial    = vec4(1.0, 1.0, 0.0, 1.0);                     // 1: AO 1 / 粗さ 1 / 金属 0
+    GNormalDepth = vec4(normalize(mat3(uView) * n), -(uView * vec4(vWorldPos, 1.0)).z);  // 2: SSAO が読む
+    GEmissive    = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+}</code></pre></div>
+<ul>
+<li><strong>画面の処理が読むのは2枚目だけ</strong>。ライティングパスは印の画素を飛ばすので、0・1・3 枚目は誰も読まない。それでも G-Buffer の表示(「ディファード」の F5)で意味の通る値を入れておく</li>
+<li><strong>枝の場所は「捨てたあと、光の前」</strong>。MASK の毛先は捨ててから書くので、G-Buffer の形にも毛先の切り抜きが入る。両面のマテリアルの裏返し、法線マップも当てたあと——色の回と同じ法線になる</li>
+<li><strong>同じシェーダにする本当の理由は頂点の側</strong>。色の回は深度を <code>Equal</code> で比べる(要点4)。G-Buffer を別のシェーダ(Day 37 の <code>geometry.vert</code> など)で書くと、スキニングの掛け算の順番が違うだけで深度の最後の桁がずれ、キャラに穴が開く。同じ <code>mtoon.vert</code>・同じ行列・同じ関節なら、同じ GPU で同じ値になる(自己チェック4: 穴 0)</li>
+</ul>
+<p>出口に <code>layout (location = N)</code> を振るのも Day 52 と同じ。ふだんの色の回はシーンのバッファの1枚にしか繋がっていないので、1〜3 番は捨てられる。</p>
+
+<h3 id="s9">4. Z プレパスと深度の Equal — 1画素1回</h3>
+<p>Day 74 までの色の回は、深度を <code>Less</code> で比べながら書いていた。パーツを描く順によっては、奥の面を塗ったあとで手前の面が塗り直す(重ね塗り)。MToon の画素シェーダは影・点光源 8 個・散乱・リムと重いので、塗り直しの分だけ無駄になる。</p>
+<p>今日は G-Buffer パスがキャラの深度を先に書いている。ライティングパスの頭でシーンのバッファへ写してある(Day 52)ので、色の回の時点で<strong>いちばん手前の面の深度はもう決まっている</strong>。比べ方を <code>Equal</code> にし、深度は書かない。</p>
+<div class="table-wrap"><table><thead><tr><th>色の回の比べ方</th><th>通る画素</th><th>裏通りの全身(1920x1080)で、不透明の回が塗った回数</th></tr></thead><tbody>
+<tr><td>形を入れない <code>Less</code>(Day 74)</td><td>描いた時点で手前なら全部</td><td>113,664 回(見えている画素の 1.77 倍)</td></tr>
+<tr><td>形を入れて <code>Equal</code>(今日)</td><td>G-Buffer の深度とぴったり同じ画素だけ</td><td><strong>64,219 回</strong>(印 64,213 画素の 1.00 倍。差は同じ深度で重なる数画素)</td></tr>
+<tr><td>形を入れて <code>Less</code>(F7)</td><td>無い。自分が書いた深度と「同じ」は「手前」ではない</td><td><strong>0 回</strong>(キャラが消え、線と半透明だけが残る)</td></tr>
+</tbody></table></div>
+<p>これがエンジンで言う Z プレパス(深度プレパス)の効き目。手本はシーンもキャラも専用の深度プレパスで先に深度を書くが、このエンジンでは G-Buffer パスがその役を兼ねる。キャラの頂点の仕事(スキニング)は2回になるが、画素の仕事は1回に減る。実験台で「形を入れない」を選び、描く順を「奥から」にすると、重ね塗りがいちばん増える。</p>
+<p>2回目の線(殻)と3回目の半透明(瞳・眉)は Day 68 のまま <code>Less</code> で描く。どちらも G-Buffer に書いていない(殻は表面ではなく、膜は後ろを隠さない)ので、比べる相手は不透明の面の深度になる。</p>
+
+<h3 id="s10">5. 写し合う深度は、形式をそろえる</h3>
+<p>ライティングパスはシーンのバッファへ描くので、印もシーンのバッファの側に要る。G-Buffer の深度を写すときに、ステンシルも一緒に写す(<code>BlitDepthTo(_post.Scene, stencil: true)</code>)。ここに <code>glBlitFramebuffer</code> の約束が効いてくる。</p>
+<blockquote>深度かステンシルを写すとき、写す元と先の深度とステンシルの形式がそろっていなければ <code>GL_INVALID_OPERATION</code>。</blockquote>
+<p>深度だけを写すときも同じで、ステンシルを持つ側と持たない側の間では写せない。シーンの深度は G-Buffer から来て、速度のバッファ(Day 54)と読む用のコピー(Day 50 のソフトパーティクル)へ出ていく。</p>
+<div class="table-wrap"><table><thead><tr><th>深度を持つもの</th><th>Day 74</th><th>Day 75a</th></tr></thead><tbody>
+<tr><td>色を持つフレームバッファの深度(G-Buffer・シーン・速度ほか)</td><td>レンダーバッファ <code>DepthComponent24</code>(3B)</td><td>レンダーバッファ <code>Depth24Stencil8</code>(4B)。<code>DepthStencilAttachment</code> に挿す</td></tr>
+<tr><td>読む用のコピー(<code>PostProcess.CaptureDepth</code>)</td><td>テクスチャ <code>DepthComponent24</code></td><td>テクスチャ <code>Depth24Stencil8</code>(<code>CreateDepthOnly(..., stencil: true)</code>)。読むと深度が返るので、粒のシェーダは変わらない</td></tr>
+<tr><td>シャドウマップ</td><td>テクスチャ <code>DepthComponent24</code></td><td>そのまま(誰とも写し合わない)</td></tr>
+</tbody></table></div>
+<p>「どれとどれが写し合うか」を覚えておくより、<strong>色を持つフレームバッファの深度は全部同じ形式にしておく</strong>ほうが間違えない。24bit の深度は GPU の中ではたいてい 32bit に置かれるので、8bit はその空きに入る。HUD と内訳のバイト数は 3B → 4B になり、Day 52 と Day 54 の自己チェックの「深度 3B」も 4B に直した。</p>
+
+<h3 id="s11">6. 画面の処理は形しか見ない — SSAO と速度</h3>
+<p>SSAO(Day 37)が読むのは、ビュー空間の法線と距離だけ。キャラの法線と距離が G-Buffer の2枚目に入れば、SSAO はキャラを<strong>普通の物として</strong>扱う。足元の床と、キャラの後ろの壁に暗がりが出る。</p>
+<ul>
+<li><strong>フォワードのフレームでも入れる</strong>。Forward+ のときは G-Buffer が無く、SSAO は自分の幾何パスを描く。そこへキャラの不透明と MASK のパーツを足す(<code>DrawVrmSsao</code>)。Day 68 が「どちらでも入れない」にしたのは、片方だけだと描き方を切り替えたときに足元の暗がりが出たり消えたりするから。今日は「どちらでも入れる」にした</li>
+<li><strong>キャラ自身に AO を掛けるかは別の話</strong>。遮蔽率のテクスチャにはキャラの画素の値も入っている(腕の付け根・首まわり・髪の重なりが暗い)。掛けるかは見た目の判断で、MToon の陰影は直接光の2色で決めたいので既定は掛けない。<code>F6</code> で環境光にだけ掛けられる(<code>textured.frag</code> の Day 37 と同じ約束)</li>
+<li><strong>速度は今までどおり色の回が記録する</strong>。手本は G-Buffer の2枚目に動きを書くが、このエンジンの速度は別のパス(Day 54)で、物ごとに <code>_motion.Record</code> で覚えさせる。キャラは Day 68 から色の回で記録しているので、G-Buffer の回では記録しない(同じメッシュを2回記録すると、2回目を別の物として数える)</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s12">前Dayからの差分概要</h2>
+
+<h3 id="s13">変更ファイル</h3>
+<div class="table-wrap"><table><thead><tr><th>ファイル</th><th>何が変わったか</th><th>差分</th></tr></thead><tbody>
+<tr><td><code>Render/Texture.cs</code></td><td><code>CreateDepthTarget</code> にステンシル付きの形(<code>stencil</code> 引数)</td><td>+11 / −4</td></tr>
+<tr><td><code>Render/Framebuffer.cs</code></td><td>深度のレンダーバッファを <code>Depth24Stencil8</code> に、<code>CreateDepthOnly</code> の <code>stencil</code>、<code>ByteSize</code> の深度 4B、<code>BlitDepthTo</code> の <code>stencil</code>、説明</td><td>+51 / −12</td></tr>
+<tr><td><code>Render/PostProcess.cs</code></td><td><code>Begin</code> でステンシルも消す、深度のコピーをステンシル付きに</td><td>+6 / −2</td></tr>
+<tr><td><code>Render/GBuffer.cs</code></td><td><code>CharacterStencil</code>、<code>Begin</code> でステンシルも消す、<code>BeginCharacter</code> / <code>EndCharacter</code></td><td>+47 / −1</td></tr>
+<tr><td><code>shaders/deferred.frag</code></td><td><code>uStencilView</code>(印の表示)</td><td>+10</td></tr>
+<tr><td><code>Render/DeferredLighting.cs</code></td><td><code>SkipCharacters</code>、<code>Render</code> の頭と最後のステンシル、<code>DrawCharacterMask</code></td><td>+70</td></tr>
+<tr><td><code>shaders/mtoon.frag</code></td><td>出口の番号と G-Buffer の3枚、<code>uGBufferPass</code>、AO の uniform、G-Buffer の枝、環境光への AO</td><td>+48 / −1</td></tr>
+<tr><td><code>Program.cs</code></td><td>フィールド、G-Buffer パス・SSAO の幾何パス・<code>OnRender</code> に1行ずつ、<code>ApplyMToonFrame</code> の AO、<code>RenderVrm</code> の比べ方と数える口、<code>DrawMToonPart</code> の引数、深度を写す行、メッセージ1つ、<code>OnClosing</code>、HUD、内訳と過去の自己チェックのバイト数、ページ1枚(11 項目)、項目数、今日の関数一式</td><td>+835 / −14</td></tr>
+<tr><td><code>Day75a.csproj</code></td><td><code>Day74.csproj</code> からのリネームのみ</td><td>—</td></tr>
+</tbody></table></div>
+<p>今日の差分は約 1,080 行(コメント込み)。<code>Program.cs</code> の今日の関数は約 600 行で、うち自己チェック(<code>RunVrmShapeCheck</code>)が約 230 行、1フレームを描いて読み返す道具が約 150 行、内訳が約 60 行。1日で重ければ、下の順番の 10 まで(<code>F2</code>〜<code>F10</code> で絵を見比べるまで)と、11(内訳・自己チェック)で2回に分けるとよい。</p>
+
+<h3 id="s14">写経する順番</h3>
+<p>深度の形式(<code>Render/</code> の土台)→ 印を付ける側と読む側 → シェーダ → <code>Program.cs</code> の順。<code>Program.cs</code> は、組み込み(呼ぶ側)より先に今日の関数の前半(呼ばれる側)を写す。</p>
+<ol>
+<li><strong><code>Render/Texture.cs</code>(変更)</strong> — <code>CreateDepthTarget</code> の説明に <code>stencil</code> の段落、引数 <code>bool stencil = false</code>、<code>TexImage2D</code> の3か所(内部形式・形・型)を三項演算子に</li>
+<li><strong><code>Render/Framebuffer.cs</code>(変更)</strong> — 順に、(a) クラスの説明に Day 75a の段落、(b) <code>_stencil</code> フィールド、(c) 深度専用のコンストラクタに <code>stencil</code>、(d) <code>CreateDepthOnly</code> に <code>stencil</code>、(e) <code>ByteSize</code>(深度 4B、ステンシル無しの深度テクスチャは 3B)、(f) <code>BlitDepthTo</code> の説明と <code>stencil</code> 引数とマスク、(g) <code>CreateColorAttachments</code> の深度を <code>Depth24Stencil8</code> と <code>DepthStencilAttachment</code> に、(h) <code>CreateDepthOnlyAttachments</code> の付け先</li>
+<li><strong><code>Render/PostProcess.cs</code>(変更)</strong> — <code>Begin</code> の <code>Clear</code> にステンシル、<code>CaptureDepth</code> の <code>stencil: true</code></li>
+<li><strong><code>Render/GBuffer.cs</code>(変更)</strong> — <code>CharacterStencil</code>、コンストラクタのコメント1行、<code>Begin</code> の説明と <code>ClearStencil</code> とステンシルの <code>Clear</code>、<code>End</code> の手前に <code>BeginCharacter</code> / <code>EndCharacter</code></li>
+<li><strong><code>shaders/deferred.frag</code>(変更)</strong> — <code>uOverdrawView</code> の後ろに <code>uStencilView</code>、<code>main</code> の頭に4行</li>
+<li><strong><code>Render/DeferredLighting.cs</code>(変更)</strong> — <code>CullLights</code> の後ろに <code>SkipCharacters</code>、<code>Render</code> の説明に1段落、ポリゴンの塗り方の直後に「0. キャラの画素を外す」、最後の「借りた状態は返す」にステンシル、<code>IsVisible</code> の手前に <code>DrawCharacterMask</code></li>
+<li><strong><code>shaders/mtoon.frag</code>(変更)</strong> — (a) 冒頭の説明に Day 75a の段落、(b) <code>out vec4 FragColor;</code> を4つの <code>layout</code> の出口と <code>uGBufferPass</code> と AO の uniform 3つに、(c) <code>PerturbNormal</code> の直後に G-Buffer の枝、(d) <code>indirect</code> の直後に AO</li>
+<li><strong><code>Program.cs</code> のフィールド</strong> — 「Day 74」のフィールドの最後(<code>SssExaggeration</code>)の直後に「Day 75a」の8つ(<code>_vrmInGBuffer</code> 〜 <code>_vrmSamplesPassed</code>)</li>
+<li><strong><code>Program.cs</code> の今日の関数(前半)</strong> — ファイル末尾の <code>RunSssCheck</code> の直後(<code>CheckList</code> の手前)に、見出しと <code>VrmShapeInGBuffer</code> / <code>RenderVrmGBuffer</code> / <code>DrawVrmSsao</code> / <code>RenderVrmStencilView</code> / <code>EnsureVrmShapeStage</code> / <code>VrmShapeViewName</code> / <code>CycleVrmShapeView</code> / <code>ToggleVrmFeetCamera</code> / <code>VrmShapeLabel</code></li>
+<li><strong><code>Program.cs</code> の組み込み</strong> — (a) <code>RenderGBufferPass</code> の <code>uGBufferPass</code> を 0 に戻した直後に <code>RenderVrmGBuffer();</code>、(b) <code>RenderSsaoPass</code> の <code>_vrmDemo</code> の枝のコメントと、<code>EndGeometry</code> の手前に <code>DrawVrmSsao();</code>、(c) <code>OnRender</code> の <code>RenderVrm();</code> の直後に <code>RenderVrmStencilView();</code>、(d) <code>ApplyMToonFrame</code> の <code>Sss.Apply</code> の直後に AO の5行、(e) <code>RenderVrm</code> の頭に「色を描かない」、1回目の前後に比べ方・数える口・戻す2行、(f) <code>DrawMToonPart</code> の <code>gbuffer</code> 引数と記録の条件、(g) <code>RenderDeferredLighting</code> の <code>BlitDepthTo</code> に <code>stencil: true</code>、(h) <code>ToggleVrmPath</code> のメッセージ、(i) <code>OnClosing</code> の <code>_deferredLighting.Dispose()</code> の直後に問い合わせを捨てる、(j) <code>DrawOverlayInfo</code> の <code>SssLabel()</code> の行の直後に <code>VrmShapeLabel()</code> の行、(k) <code>DescribeDeferred</code> の深度の行、<code>RunDeferredCheck</code> の <code>expectedBytes</code> と項目名、<code>RunTaaCheck</code> の <code>velocityBytes</code>、(l) <code>BuildMenu</code> の「トゥーンの表面下散乱」ページの直後(<code>return menu;</code> の手前)に「キャラとディファード」ページ(11 項目。<code>F11</code>・<code>F12</code> の2項目は 11 で足す関数を指すので、分けて写すなら後回しにする)、(m) <code>RunDebugMenuCheck</code> の項目数を 377 → 388 へ<br>ここで一度動かす — <code>Shift+F1</code> → <code>F8</code> → <code>F4</code> で、キャラの形に空が抜けること</li>
+<li><strong><code>Program.cs</code> の今日の関数(後半)</strong> — 9 の続きに <code>VrmShapeFrame</code> / <code>RenderVrmShapeFrame</code> / <code>ReadStencil</code> / <code>ReadGBufferDistances</code> / <code>DepthStencilBits</code> / <code>CompareOcclusion</code> / <code>DescribeVrmShape</code> / <code>RunVrmShapeCheck</code></li>
+<li><strong><code>Day75a.csproj</code></strong> — <code>Day74.csproj</code> をリネームするだけ(中身は同じ)</li>
+</ol>
+</section>
+
+<section class="part"><h2 id="s15">設計書</h2>
+<p>層は増えていない。<code>Render/</code> の中で、「深度の隣に印を置ける」ようにした土台(<code>Framebuffer</code>)と、印を付ける人(<code>GBuffer</code>)と読む人(<code>DeferredLighting</code>)が決まった。だれに印を付けるかは <code>Program</code> が決める。</p>
+
+<h3 id="s16">1フレームの中のキャラ(Day 75a)</h3>
+<p>Day 68 の設計書「1フレームの中のキャラの居場所」の 2〜4 番が変わった。</p>
+<ol class="pipeline">
+  <li><span class="no">1</span><div>
+    <div class="what">影パス(Day 68 のまま。キャラも焼く)</div>
+    <div class="rw"><span>書く <b>シャドウマップ</b></span></div>
+    <div class="swap">—</div>
+  </div></li>
+  <li><span class="no">2</span><div>
+    <div class="what">G-Buffer パス: シーン(<code>Render3D</code>)→ <strong>キャラの形</strong>(<code>RenderVrmGBuffer</code>)</div>
+    <div class="rw"><span>書く <b>G-Buffer の4枚・深度・ステンシル 1(キャラが勝った画素だけ)</b></span></div>
+    <div class="swap">キャラを先に描くと: 後から手前に来たシーンの物が色と法線を上書きしても、印はキャラのまま残る。ライティングパスがその物を照らさない</div>
+  </div></li>
+  <li><span class="no">3</span><div>
+    <div class="what">SSAO(G-Buffer の2枚目を読む。フォワードなら自分の幾何パスにキャラを足す)</div>
+    <div class="rw"><span>読む <b>法線と距離(キャラを含む)</b></span><span>書く <b>遮蔽率</b></span></div>
+    <div class="swap">2 より前に置くと: キャラの形がまだ無い(Day 52 から「G-Buffer の後ろ」が SSAO の約束)</div>
+  </div></li>
+  <li><span class="no">4</span><div>
+    <div class="what">ライティングパス: 深度と<strong>ステンシル</strong>をシーンのバッファへ写し、印 1 ではない画素だけを照らす</div>
+    <div class="rw"><span>読む <b>G-Buffer・印</b></span><span>書く <b>シーンの色(キャラの画素は空のまま)</b></span></div>
+    <div class="swap">ステンシルを写さないと: シーンのバッファの印は 0 のままで、キャラの画素も PBR で照らす(絵は同じ。捨てる計算が増える)</div>
+  </div></li>
+  <li><span class="no">5</span><div>
+    <div class="what">キャラの色(<code>RenderVrm</code>): 不透明と MASK は深度 <code>Equal</code>・書かない → 線 → 半透明(Day 68 のまま)</div>
+    <div class="rw"><span>読む <b>4 で写した深度</b></span><span>書く <b>キャラの色・キャラの割合(Day 72)・速度の記録</b></span></div>
+    <div class="swap"><code>Less</code> のままだと: 自分の深度に負けて、不透明の回は1画素も塗れない(F7)。色の回を飛ばすと: 4 が残した空の穴が見える(F4)</div>
+  </div></li>
+  <li><span class="no">6</span><div>
+    <div class="what">印の表示(F5 の1段目)。印と等しい画素だけに紫を重ねる</div>
+    <div class="rw"><span>読む <b>シーンのバッファのステンシル</b></span></div>
+    <div class="swap">5 より前に置くと: キャラの色に上書きされて見えない</div>
+  </div></li>
+</ol>
+
+<h3 id="s17">G-Buffer に書くシェーダの選び方</h3>
+<p>キャラの形を G-Buffer に書くシェーダには、ほかに2つの案があった。決め手は要点3の「深度が最後の桁まで同じか」。</p>
+<div class="table-wrap"><table><thead><tr><th>案</th><th>良いところ</th><th>困るところ</th></tr></thead><tbody>
+<tr><td>A. SSAO の幾何シェーダ(<code>geometry.vert</code> / <code>.frag</code>。<code>Ssao.Draw</code> で描く)</td><td>形だけを書く専用の軽いシェーダ。フォワードの SSAO と同じ道具</td><td>頂点シェーダが違う(<code>uModelView</code> と <code>uProjection</code> に分けて掛ける)ので、色の回の <code>Equal</code> で穴が開く。アルファを見ないので毛先が四角い。出口が1つで、G-Buffer の4枚に書けない</td></tr>
+<tr><td>B. <code>textured.frag</code> の G-Buffer の枝(Day 52)</td><td>シーンと同じ枝をそのまま使える</td><td>頂点シェーダが <code>textured.vert</code> になる。両面の裏返しも無い。MToon のマテリアルの値の送り方(<code>MToon.Apply</code>)と別に、PBR の値を送る道が要る</td></tr>
+<tr><td>C. <strong>今日</strong>: <code>mtoon.frag</code> に G-Buffer の枝</td><td>色の回と同じ頂点シェーダ・同じ捨て方・同じ法線。<code>DrawMToonPart</code> をそのまま呼べる</td><td>G-Buffer の回でも MToon の値を全部送る(使わない値も。歪みの4つ目)。MToon のシェーダが G-Buffer の並び(<code>GBuffer.Layout</code>)を知る</td></tr>
+</tbody></table></div>
+<p>フォワードのフレームだけは A を使う(<code>DrawVrmSsao</code>)。そこでは色の回が <code>Less</code> で深度を書くので、深度が食い違っても穴は開かない。毛先が四角いままなのが、ディファードとの小さな違いとして残る(歪みの1つ目)。</p>
+
+<h3 id="s18">だれが何を知っているか</h3>
+<p>コメントを落としてから型名を拾って確かめた(<code>DeferredLighting.cs</code> が使う型は <code>Camera</code> / <code>GBuffer</code> / <code>PointLight</code> / <code>Shader</code> / <code>RenderResources</code> / <code>Mesh</code> / <code>Primitives</code> などで、<code>MToon</code> も <code>VrmAvatar</code> も出てこない。<code>Framebuffer.cs</code> は <code>Texture</code> だけ)。</p>
+<div class="table-wrap"><table><thead><tr><th>だれ</th><th>知っていること</th><th>知らないこと</th></tr></thead><tbody>
+<tr><td><code>Render/Framebuffer</code></td><td>深度はいつもステンシル付き。写すときにステンシルも運べる</td><td>印の意味(1 がキャラであること)</td></tr>
+<tr><td><code>Render/GBuffer</code></td><td>印の値 <code>CharacterStencil</code>、付け方(勝った画素だけ)、毎フレーム消すこと</td><td>何に印を付けるか(キャラか、MToon か)</td></tr>
+<tr><td><code>Render/DeferredLighting</code></td><td>「印 <code>GBuffer.CharacterStencil</code> の画素は照らさない」、印の見せ方</td><td>その画素をだれが塗るか。VRM・MToon</td></tr>
+<tr><td><code>mtoon.frag</code></td><td>G-Buffer の4枚の並び(<code>textured.frag</code> と同じ約束)</td><td>ステンシル(書くのは GL の状態で、シェーダは触らない)</td></tr>
+<tr><td><code>Program</code></td><td>キャラに印を付ける・シーンの後ろで描く・色の回の比べ方を変える・フォワードなら SSAO の幾何パスに足す</td><td>印の値そのもの(<code>GBuffer</code> の定数を通して使う)</td></tr>
+</tbody></table></div>
+<p>印の値は <code>GBuffer</code> に置いた。付ける側(<code>GBuffer.BeginCharacter</code>)と読む側(<code>DeferredLighting</code>)が同じ定数を見るので、値を変えても1か所で済む。</p>
+
+<h3 id="s19">今日残した歪み</h3>
+<p><strong>1つ目: フォワードの SSAO の幾何パスはアルファを見ない</strong>。<code>DrawVrmSsao</code> は <code>geometry.frag</code> で描くので、MASK の毛先が四角いまま遮蔽物になる。ディファード(<code>mtoon.frag</code> の枝で捨ててから書く)と、形が毛先の分だけ違う。直すなら改造課題2。</p>
+<p><strong>2つ目: 線(アウトライン)と半透明は G-Buffer に居ない</strong>。線の画素は印の外なので、ライティングパスはその下の壁や床を照らし、そのあと線の色で上書きされる(線の幅のぶん、捨てる計算をしている)。SSAO にも線の幅は入らない。数画素の幅なので、絵には出ていない。</p>
+<p><strong>3つ目: ステンシルの 8bit のうち、使っているのは 1 の値1つだけ</strong>。手本は下位3ビットで照明の式を選び、上のビットで目を分けている。このエンジンのライティングパスは1本なので、今は分ける相手がいない。</p>
+<p><strong>4つ目: G-Buffer の回でも <code>ApplyMToonFrame</code> を呼ぶ</strong>。形しか書かないのに、影・IBL・プローブ・散乱のランプまで送っている(灯りだけは 0 個にした)。送るのは CPU の仕事で、フレームに1回なので測っていない。G-Buffer の回だけ行列と関節とアルファの値に絞るなら、<code>ApplyMToonFrame</code> を2つに割ることになる。</p>
+<p><strong>5つ目: 自己チェックの小さな描画が、深度テストを自分で入れている</strong>。<code>OnRender</code> では、深度テストを入れるのは空の描画(<code>DrawSkybox</code>)で、ディファードのライティングパスは借りた状態を返すだけ。空を描かない自己チェックでは深度テストが切れたままで、色の回が <code>Equal</code> も <code>Less</code> も比べずに塗った(試して分かったこと)。「だれが深度テストを入れるか」がどこにも書かれていない形は Day 74 以前からあり、今日表に出た。</p>
+<p><strong>6つ目: キャラの頂点の仕事が2回になった</strong>。スキニング(関節 60 本)と法線の計算を、G-Buffer の回と色の回で2回する。画素の仕事は 1.77 倍から 1 倍に減ったが、時間は測っていない(<code>F11</code> の内訳は回数だけ)。</p>
+
+<h3 id="s20">試して分かったこと</h3>
+<ul>
+<li><strong>形を入れなければ Day 74 と1画素も違わない</strong>。裏通りを同じ台本で撮り、ディファードでも Forward+ でも全画素で差 0。深度の形式をステンシル付きにしたことは、絵に1画素も出ていない</li>
+<li><strong>入れると、差はキャラのまわりの床と壁に出る</strong>。裏通りのディファードで 77,175 画素が変わり、最大の差は 255 段階の 14。キャラの内側で変わったのは縁の数百画素だけ(キャラの色の描き方は変わっていない)</li>
+<li><strong>夜の裏通りでは、合成した絵の差は小さい</strong>。遮蔽率の表示(F5)では足元と脚のまわりの床がはっきり暗いが、SSAO が掛かるのは環境光(夜の空とプローブ)だけなので、絵の上では数段階。足元に寄った絵で、8 段階以上暗くなったのは 235 画素だった。<strong>形が入ったかどうかは、遮蔽率の表示で見る</strong>のが確か</li>
+<li><strong>遮蔽率の表示で、脚のまわりの床に放射状の薄い筋が出る</strong>。細い脚の両側で、SSAO の標本が脚に当たる向きと当たらない向きに分かれるように見える(半径 1m・標本 32 本・ぼかし ON の既定のまま)。原因は確かめていない</li>
+<li><strong>色を消すと穴、外さないと灰色のキャラ</strong>。<code>F4</code> だけだと、キャラの形に夜空が抜ける(ライティングパスが飛ばした画素)。<code>F3</code> で外さないようにすると、G-Buffer の枝が書いたベースカラーと粗さ 1 で、灰色がかった PBR のキャラが出る</li>
+<li><strong>最初の自己チェックで、<code>Equal</code> も <code>Less</code> も形を入れないのも、同じ 175,966 回だった</strong>。小さな描画で空を描かなかったので、深度テストが切れたままだった(歪みの5つ目)。入れると <code>Equal</code> 64,219 回 / <code>Less</code> 0 回 / 形なし 113,664 回に分かれた</li>
+<li><strong><code>Equal</code> でも、印より数画素多く塗る</strong>。64,213 画素に 64,219 回(別の走りでは 64,157 に 64,165)。2つの面がちょうど同じ深度で重なる画素があり、どちらも通る。どの面どうしかは突き止めていない。穴(印の画素なのに塗れない)は 0</li>
+</ul>
+</section>
+
+<section class="part"><h2 id="s21">完成条件</h2>
+<p><code>dotnet run --project reference/Day75a -c Release</code> で起動する。起動直後は Day 74 と同じ絵(キャラが出ていないので)。今日の主役は「キャラとディファード」のページ(<code>Shift+F1</code> で直接開く)から。キャラを出すと HUD に1行増える。</p>
+<div class="code"><pre><code>キャラの形:G-Buffer + ステンシル 1  照明:キャラを外す  色:MToon  比べ方:Equal  キャラに AO:掛けない  表示:通常</code></pre></div>
+
+<h3 id="s22">1. F4 / F3: 穴と、照らされたキャラ</h3>
+<ul>
+<li><code>F8</code> … 完成版の夜の裏通りで、街灯の手前にキャラが立つ。シーンはディファード</li>
+<li><code>F4</code>(描かない)… キャラの形に夜空が抜ける。線(アウトライン)も瞳も出ない</li>
+<li><code>F3</code>(外さない)… 穴に、灰色がかった PBR のキャラが出る。もう1回 <code>F3</code>・<code>F4</code> で元に戻す——<strong>どちらでも、色を描けば絵は同じ</strong></li>
+</ul>
+
+<h3 id="s23">2. F5: 印・法線・遮蔽率</h3>
+<ul>
+<li>ステンシルの印 … キャラの体・髪・顔が紫になる。縁の線は印の外で、紫にならない(瞳と眉も印の外だが、印のある顔の上に重なっているので紫の下に隠れる)</li>
+<li>G-Buffer の法線 … シーンと同じ色合いで、キャラの法線が入っている。<code>F2</code> で外すと、キャラの所に後ろの壁と床の法線が出る</li>
+<li>SSAO の遮蔽率 … 足元と脚のまわりの床、体の後ろの壁際が暗い。<code>F2</code> で外すと、キャラの形ごと消える</li>
+</ul>
+
+<h3 id="s24">3. F2 / F10: 足元の暗がり</h3>
+<p><code>F10</code> で足元に寄り、<code>F2</code> を押し比べる。靴のまわりと脚の間の床が、入れたほうでわずかに暗い(夜は環境光が弱いので、数段階の差。遮蔽率の表示にしたままだとはっきり見える)。</p>
+
+<h3 id="s25">4. F7: Less ならキャラが消える</h3>
+<p><code>F7</code>(Less)… キャラの形が夜空の色で抜け、瞳と眉(半透明)だけが色付きで浮く。不透明の回が自分の深度に負けたため。Day 74 の比べ方のまま G-Buffer に形を入れると、こうなる。</p>
+
+<h3 id="s26">5. F9 / F6: Forward+ と、キャラ自身の AO</h3>
+<ul>
+<li><code>F9</code>(Forward+)… HUD が「SSAO の幾何パス(フォワード)」になる。<code>F5</code> の遮蔽率で、足元の暗がりがディファードと同じように出ている。<code>F3</code>・<code>F4</code>・<code>F7</code> はディファードのときだけ効く</li>
+<li><code>F6</code>(掛ける)… キャラの腕の付け根・首まわり・髪の重なりの縁が、ごくわずかに暗くなる。夜は環境光が弱いので、撮り比べて差を 10 倍に強調すると見える程度</li>
+</ul>
+
+<h3 id="s27">6. 形を入れなければ Day 74 と同じ絵であること</h3>
+<p><code>F2</code> で外した裏通りが、Day 74 の裏通り(「VRMビューア」の F8・F9)と同じ絵であること。「ディファード」(Day 52。G-Buffer は1画素 24B + 深度とステンシル 4B)・「SSAO」(Day 37)・「TAA」(Day 54。速度は RG16F + 深度 4B)・「VRMビューア」(Day 68)・「トゥーンの表面下散乱」(Day 74)の自己チェックが通ること。Day 48 の割り当て表(<code>Alt+F1</code>)が <strong>388 項目</strong>で通ること。</p>
+
+<h3 id="s28">7. F12: 自己チェック(10 項目すべて合格)</h3>
+<div class="code"><pre><code>=== Day 75a 自己チェック(深度とステンシルの形式・印・色のパスの比べ方・ライティングパス・SSAO・シェーダ)===
+  [OK] G-Buffer とシーンのバッファの深度に、8bit のステンシルが付いている(同じ形式でないと写せない)  G-Buffer 24+8bit / シーン 24+8bit
+  [OK] キャラの画素にだけ印 1 が付き、そこには G-Buffer の形(距離)がある  印 64,213 画素 / 1 以外の印 0 / 距離 0 の印 0
+  [OK] 印はシーンのバッファへそのまま写っている(深度と一緒に写す。写さないとライティングパスが印を見られない)  一致 2,073,600 / 2,073,600
+  [OK] Equal で比べても、印の画素は全部キャラの色で塗られる(同じ mtoon.vert なので深度が最後の桁まで同じ。穴が無い)  塗れなかった印 0 / 64,213
+  [OK] Equal なら重ね塗りはほぼ 0(塗った回数 = 印の数。差は同じ深度で重なる数画素だけ。形を入れない Day 74 の形では奥の面も塗る)  Equal 64,219 回 / 印 64,213(差 6)/ Day 74 の形 113,664 回(x1.77)
+  [OK] Less で比べると、不透明の回は1画素も塗れない(自分が書いた深度と同じは「手前」ではない)  0 回
+  [OK] ライティングパスは印の画素を塗らない(色を描かずに見ると、印の画素はクリア色のまま。外さなければ塗る)  外す: 塗った 0 / 外さない: 塗った 64,213(印 64,213)
+  [OK] ディファード: キャラを G-Buffer に入れると、印の外(床と壁)が暗くなる(SSAO はキャラを普通の物として扱う)  0.05 以上暗くなった画素 44,974(遮蔽の差の合計 9797)
+  [OK] フォワード(Forward+)でも、SSAO の幾何パスにキャラが入る(描き方を切り替えても足元の暗がりが消えない)  0.05 以上暗くなった画素 46,508(遮蔽の差の合計 10071)
+  [OK] mtoon.frag の G-Buffer の枝は、アルファで捨てたあと・光を計算する前にあり、2枚目に textured.frag と同じ形で書く  discard 11525 < 枝 12294 < 光 12725
+  すべて合格(形式・印・色のパスの比べ方・ライティングパス・SSAO・シェーダが仕様どおり)</code></pre></div>
+<p>キャラが出ていなければ、裏通りに立たせてから測る。<strong>影 → G-Buffer → SSAO → ライティング → キャラの色</strong>を <code>OnRender</code> と同じ順に呼んで1フレームを描き、ステンシル・シーンの色とアルファ・G-Buffer の距離・遮蔽率を読み返す。それを切り替えを変えて5回(今日の形 / 形なし / Less / 色なしで外す / 色なしで外さない)繰り返す。不透明の回が塗った回数は <code>GL_SAMPLES_PASSED</code> の問い合わせで数える。数は揺れもので数十画素ずつ揺れる(別の走りでは印 64,157・Equal 64,165)。切り替えは全部元に戻す。</p>
+<p><code>F11</code> の内訳は、同じ1フレームを描いて、印の画素(画面の 3.1%)と、不透明の回が塗った回数(Equal で印の 1.00 倍 / 形を入れない Less で 1.77 倍)を出す。</p>
+
+<h3 id="s29">実験台と実機のキーの対応</h3>
+<div class="table-wrap"><table><thead><tr><th>実験台の操作</th><th>実機</th></tr></thead><tbody>
+<tr><td>キャラの形を G-Buffer に</td><td><code>F2</code></td></tr>
+<tr><td>ライティングパスから外す</td><td><code>F3</code></td></tr>
+<tr><td>キャラの色</td><td><code>F4</code></td></tr>
+<tr><td>色のパスの比べ方</td><td><code>F7</code></td></tr>
+<tr><td>パーツを描く順</td><td>実機にキーは無い(<code>RenderVrm</code> はファイルの順。<code>F11</code> の内訳の「形を入れない Less」がファイルの順の回数)</td></tr>
+<tr><td>表示: 通常 / ステンシルの印 / 遮蔽率</td><td><code>F5</code>(実機の3段目は G-Buffer の法線。「MToon が塗った回数」は実機では数だけ <code>F11</code>)</td></tr>
+</tbody></table></div>
+<p class="note">実験台の升目・パーツの形と深さ・街灯・遮蔽率の広がりは、このページで決めた動作のイメージ。印の付き方・ライティングパスの飛ばし方・<code>Equal</code> と <code>Less</code> の通り方・重ね塗りの数え方は reference と同じ規則で動かしている。</p>
+</section>
+
+<section class="part"><h2 id="s30">改造課題</h2>
+
+<h3 id="s31">課題1(易): 印を2種類にする</h3>
+<p>髪のパーツ(マテリアル名に <code>_HAIR</code>)には印 2、ほかのキャラのパーツには印 1 を書く。ライティングパスは「印が 0 の画素だけ照らす」(<code>StencilFunc(Equal, 0, 0xFF)</code>)に変え、印の表示は 1 と 2 を別の色にする。<code>NotEqual 1</code> のままだと何が起きるか(髪だけ PBR で照らされ、MToon が上書きする)を先に予想してから確かめる。手本の「下位3ビットで分類、上のビットで目」に近づけるなら、マスク(<code>glStencilFunc</code> の3つ目の引数)をどう使うかも考える。</p>
+
+<h3 id="s32">課題2(中): フォワードの SSAO でも毛先を捨てる</h3>
+<p>歪みの1つ目。<code>geometry.vert</code> に UV を通し、<code>geometry.frag</code> にベースカラーのテクスチャとしきい値を足して、MASK のパーツだけ <code>discard</code> する(Day 68 の改造課題3「影パスでアルファを見る」と同じ形)。<code>Ssao.Draw</code> の既存の呼び出しを1つも書き換えずに済む形(既定引数)にできるか。ディファードと Forward+ で、遮蔽率の表示の毛先の形を見比べる。</p>
+
+<h3 id="s33">課題3(難): キャラだけを照らす2本目のライティングパス</h3>
+<p>要点1の表の3つ目(両方ディファード)を試す。G-Buffer の空き(1枚目の A・2枚目は埋まっている・4枚目の A)に、MToon の <code>shift</code> と <code>toony</code> と影の色の明るさを詰め、ライティングパスに<strong>印 1 の画素だけを塗る2本目</strong>(<code>StencilFunc(Equal, 1, 0xFF)</code>)を足して、太陽の2色だけを出す。今日のフォワードの絵と並べ、何が足りないか(影の色のテクスチャ・リム・マットキャップ・点光源の上限・半透明)を数える。G-Buffer に欄を足す代償(1画素のバイト数)も <code>GBuffer.ByteSize</code> で出す。</p>
+</section>
+
+<section class="part"><h2 id="s34">動作確認済み環境</h2>
+<p>Windows 11 / .NET 10 / NVIDIA GeForce RTX 3070(OpenGL 4.3)、1920x1080、VSync あり(60 Hz)</p>
+<p>アバター: Day 68 と同じ AvatarSample_A(VRM 1.0)。</p>
+<p>確かめたこと: ビルド(警告 0)、<code>dotnet format whitespace --verify-no-changes</code>、自己チェック 10 項目(キャラを出した直後と数十フレーム後)、内訳、Day 37・49(粒)・52・54・68・74 の自己チェック、Day 48 の割り当て表(388 項目)、毎フレームの GL エラー 0、形を入れないときの Day 74 との全画素の突き合わせ(ディファード・Forward+ とも差 0)、裏通りで見た絵(通常・色なしで外す / 外さない・印・G-Buffer の法線(入れる / 入れない)・遮蔽率(入れる / 入れない)・足元(入れる / 入れない)・キャラ自身の AO・Less・Forward+ の遮蔽率(入れる / 入れない))</p>
+</section>
+<p class="prose" style="margin-top:2em"><a href="../roadmap.html">ロードマップへ戻る</a></p>
+</main>
+</div>
+
+<script src="../site/lab.js"></script>
+<script>
+(() => {
+'use strict';
+const { reduceMotion, $, fit, seg, segValue, stat } = Lab;
+
+// ============================================================
+//  実験台: 画面の升目で、印・ライティングパス・塗った回数を見る
+//  規則は reference/Day75a と同じ(印は深度に勝った画素だけ / ライティングは NotEqual 1 /
+//  色の回は形があれば Equal・書かない、無ければ Less・書く)。形・色・数はこのページで決めた動作のイメージ
+// ============================================================
+const W = 40, H = 24;
+
+// 背景: 上が壁(奥 10)、下が床(手前ほど近い)。街灯は x 26..27 で、キャラより手前(深さ 4)
+const FLOOR_ROW = 14;
+function backgroundDepth(x, y) { return y < FLOOR_ROW ? 10 : 10 - (y - FLOOR_ROW + 1) * 0.55; }
+function postCovers(x, y) { return x >= 26 && x < 27.4 && y >= 1 && y < 21.5; }
+const POST_DEPTH = 4.0;
+
+// キャラのパーツ(ファイルの順)。深さが小さいほど手前
+const PARTS = [
+  { name: '頭', kind: 'ell', cx: 20, cy: 5.8, rx: 2.2, ry: 2.6, depth: 5.3, color: [1.0, 0.86, 0.76] },
+  { name: '胴', kind: 'rect', x0: 17.6, x1: 22.4, y0: 8, y1: 14.5, depth: 5.5, color: [0.95, 0.86, 0.68] },
+  { name: '左腕', kind: 'rect', x0: 10.5, x1: 17.8, y0: 8.2, y1: 9.6, depth: 5.35, color: [0.95, 0.86, 0.68] },
+  { name: '右腕', kind: 'rect', x0: 22.2, x1: 29.5, y0: 8.2, y1: 9.6, depth: 5.35, color: [0.95, 0.86, 0.68] },
+  { name: '後ろ髪', kind: 'ell', cx: 20, cy: 5.6, rx: 3.0, ry: 3.4, depth: 5.75, color: [0.36, 0.22, 0.16] },
+  { name: '脚', kind: 'legs', depth: 5.55, color: [0.28, 0.20, 0.17] },
+  { name: '前髪', kind: 'rect', x0: 17.9, x1: 22.1, y0: 3.0, y1: 4.9, depth: 5.12, color: [0.42, 0.27, 0.19] },
+];
+function covers(p, x, y) {
+  if (p.kind === 'rect') return x >= p.x0 && x < p.x1 && y >= p.y0 && y < p.y1;
+  if (p.kind === 'ell') { const dx = (x - p.cx) / p.rx, dy = (y - p.cy) / p.ry; return dx * dx + dy * dy <= 1; }
+  // 脚は2本
+  return y >= 14 && y < 21.5 && ((x >= 18.3 && x < 19.7) || (x >= 20.3 && x < 21.7));
+}
+
+const SKY = [0.06, 0.08, 0.16];
+const OUTLINE = [0.10, 0.06, 0.06];
+function wallColor(x, y) {
+  const brick = ((Math.floor(y / 1) % 2) ? (x + 1) : x) % 3 === 0 ? 0.82 : 1.0;
+  return [0.55 * brick, 0.24 * brick, 0.16 * brick];
+}
+function floorColor(x, y) { const t = ((x * 7 + y * 13) % 5) / 5; return [0.42 + t * 0.06, 0.30 + t * 0.04, 0.22]; }
+
+const state = { shape: true, skip: true, color: true, eq: true, order: 'file', view: 'normal' };
+
+function orderedParts() {
+  const list = PARTS.slice();
+  if (state.order === 'back') list.sort((a, b) => b.depth - a.depth);
+  if (state.order === 'front') list.sort((a, b) => a.depth - b.depth);
+  return list;
+}
+
+/** 1フレームを升目の上で回す。マスごとに、印・ライティングの有無・MToon が塗った回数・遮蔽率・最終の色を返す */
+function simulate() {
+  const cells = [];
+  const parts = orderedParts();
+  const wins = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const cx = x + 0.5, cy = y + 0.5;
+      let sceneDepth = backgroundDepth(cx, cy);
+      const post = postCovers(cx, cy);
+      if (post) sceneDepth = Math.min(sceneDepth, POST_DEPTH);
+      const frags = parts.filter((p) => covers(p, cx, cy));
+      let front = null;
+      for (const f of frags) if (!front || f.depth < front.depth) front = f;
+      const win = front !== null && front.depth < sceneDepth;
+      if (win) wins[y * W + x] = 1;
+      cells.push({ x, y, sceneDepth, post, frags, front, win });
+    }
+  }
+
+  let marked = 0, lit = 0, skipped = 0, painted = 0, visible = 0;
+  for (const c of cells) {
+    c.mark = state.shape && c.win ? 1 : 0;
+    marked += c.mark;
+    visible += c.win ? 1 : 0;
+
+    // ライティングパス: 印の画素は飛ばす(外すとき)
+    c.lit = !(state.skip && c.mark === 1);
+    if (c.lit) lit++; else skipped++;
+
+    // 色の回(不透明): 形があれば深度は決まっている。Equal なら手前の面だけ1回、Less なら 0 回
+    let count = 0;
+    if (state.shape) {
+      if (state.eq && c.win && state.color) count = 1;   // 色を描かないなら、色の回は走らない
+    } else {
+      // 形を入れない(Day 74): 描く順に Less で比べて書く。手前に来るたびに塗り直す
+      let depth = c.sceneDepth;
+      for (const f of c.frags) if (f.depth < depth) { count++; depth = f.depth; }
+    }
+    c.count = count;
+    painted += count;
+
+    // 遮蔽率: 形が入っていれば、床の足元と、腕と胴の下の壁際が暗い(このページで決めた広がり)
+    let ao = 1;
+    if (!c.win && !c.post) {
+      if (c.y >= FLOOR_ROW && state.shape) {
+        const dx = (c.x + 0.5 - 20) / 3.2, dy = (c.y + 0.5 - 21.2) / 1.4;
+        ao -= 0.55 * Math.exp(-(dx * dx + dy * dy));
+      }
+      if (c.y >= FLOOR_ROW && Math.abs(c.x + 0.5 - 26.7) < 2.5 && c.y > 19) ao -= 0.25 * (1 - Math.abs(c.x + 0.5 - 26.7) / 2.5);
+      if (c.y === FLOOR_ROW - 1 || c.y === FLOOR_ROW) ao -= 0.2;
+    }
+    c.ao = Math.max(0, ao);
+  }
+
+  // 最終の色
+  const drawColorPass = !(state.shape && !state.color);   // 実機と同じく、色を描かないのは形を入れたときだけ
+  for (const c of cells) {
+    let col;
+    const bg = c.post ? [0.10, 0.10, 0.11] : (c.y < FLOOR_ROW ? wallColor(c.x, c.y) : floorColor(c.x, c.y));
+    const bgLit = bg.map((v) => v * (0.72 + 0.28 * c.ao));
+    if (c.win) {
+      if (state.shape) {
+        // G-Buffer にはキャラ。照らせば灰色っぽい PBR、飛ばせば空のまま
+        col = c.lit ? c.front.color.map((v) => 0.25 + v * 0.35) : SKY;
+      } else {
+        col = bgLit;   // G-Buffer には後ろの壁と床。ライティングはそれを照らす
+      }
+      if (drawColorPass && c.count > 0) col = c.front.color;
+    } else {
+      col = c.lit || !c.mark ? bgLit : SKY;
+    }
+    c.col = col;
+  }
+
+  // 線(殻): キャラの縁の外側1マス。印は付かない。色の回を描くときだけ
+  if (drawColorPass) {
+    for (const c of cells) {
+      if (c.win) continue;
+      let edge = false;
+      for (let oy = -1; oy <= 1 && !edge; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const nx = c.x + ox, ny = c.y + oy;
+          if (nx >= 0 && nx < W && ny >= 0 && ny < H && wins[ny * W + nx]) { edge = true; break; }
+        }
+      }
+      if (edge && !c.post) c.col = OUTLINE;
+    }
+  }
+
+  return { cells, marked, lit, skipped, painted, visible };
+}
+
+const css = (c) => `rgb(${Math.round(Math.min(1, c[0]) * 255)},${Math.round(Math.min(1, c[1]) * 255)},${Math.round(Math.min(1, c[2]) * 255)})`;
+const HEAT = ['rgba(0,0,0,0)', 'rgb(70,170,110)', 'rgb(230,190,60)', 'rgb(225,90,60)', 'rgb(200,40,120)'];
+
+function draw() {
+  const canvas = $('grid-canvas');
+  const { ctx, w, h } = fit(canvas);
+  const cw = w / W, ch = h / H;
+  const r = simulate();
+
+  for (const c of r.cells) {
+    let col = css(c.col);
+    if (state.view === 'ao') { const g = Math.round(c.ao * 255); col = `rgb(${g},${g},${g})`; }
+    if (state.view === 'count') { const k = c.col.map((v) => v * 0.35); col = css(k); }
+    ctx.fillStyle = col;
+    ctx.fillRect(c.x * cw, c.y * ch, Math.ceil(cw), Math.ceil(ch));
+    if (state.view === 'stencil' && c.mark) {
+      ctx.fillStyle = 'rgba(255,0,255,0.55)';
+      ctx.fillRect(c.x * cw, c.y * ch, Math.ceil(cw), Math.ceil(ch));
+    }
+    if (state.view === 'count' && c.count > 0) {
+      ctx.fillStyle = HEAT[Math.min(c.count, HEAT.length - 1)];
+      ctx.fillRect(c.x * cw + 1, c.y * ch + 1, Math.ceil(cw) - 2, Math.ceil(ch) - 2);
+    }
+  }
+
+  // 升目の線(1マス = 1画素であることを見せる)
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 1; x < W; x++) { ctx.moveTo(x * cw, 0); ctx.lineTo(x * cw, h); }
+  for (let y = 1; y < H; y++) { ctx.moveTo(0, y * ch); ctx.lineTo(w, y * ch); }
+  ctx.stroke();
+
+  const ratio = r.visible > 0 ? (r.painted / r.visible).toFixed(2) : '—';
+  $('grid-stats').innerHTML =
+    stat('印 1 の画素', r.marked) +
+    stat('ライティングの画素シェーダ', r.lit, ` 回(飛ばした ${r.skipped})`) +
+    stat('MToon(不透明)が塗った回数', r.painted, ` 回(見えているキャラ ${r.visible} 画素の ${ratio} 倍)`);
+  // 実験台の数(このページの升目で数えたもの。実機の 1.77 倍とは形が違うので一致しない)
+
+  let note;
+  if (!state.shape) {
+    note = '形を入れない(Day 74): 印は無く、ライティングパスはキャラの後ろの壁と床を照らす。色の回は Less で書きながら塗るので、描く順によっては奥の面を塗ってから手前で塗り直す。遮蔽率にキャラの形が出ない。';
+  } else if (!state.eq) {
+    note = 'Less: 色の回の不透明は、自分が G-Buffer に書いた深度と「同じ」で負け、1画素も塗れない。線だけが縁に残る(実機では瞳と眉も残る)。';
+  } else if (!state.color) {
+    note = state.skip
+      ? '色を描かない: 印の画素はライティングパスが飛ばしたので、空(クリア色)のまま。これがステンシルの効き目。'
+      : '色を描かない・外さない: 印の画素も G-Buffer のキャラ(ベースカラー・粗さ 1)として PBR で照らされる。色を描けば上書きされる計算。';
+  } else {
+    note = state.skip
+      ? '今日の形: ライティングは印の外だけ、MToon は1画素1回。描く順を変えても回数は変わらない。'
+      : '外さない: 絵は同じ。ただしライティングパスが印の画素も照らしてから、MToon が上書きしている。';
+  }
+  $('grid-note').textContent = note;
+
+  $('grid-legend').innerHTML = state.view === 'count'
+    ? HEAT.slice(1).map((c, i) => `<span><i style="background:${c}"></i>${i + 1} 回${i === 3 ? ' 以上' : ''}</span>`).join('')
+    : state.view === 'stencil'
+      ? '<span><i style="background:rgba(255,0,255,0.7)"></i>印 1(ライティングパスが飛ばす画素)</span><span><i style="background:rgb(26,15,15)"></i>線(印の外)</span>'
+      : state.view === 'ao'
+        ? '<span><i style="background:#fff"></i>遮られていない</span><span><i style="background:#555"></i>遮られている</span>'
+        : `<span><i style="background:${css(SKY)}"></i>空(クリア色)</span><span><i style="background:rgb(26,15,15)"></i>線</span>`;
+}
+
+// Node で動きを確かめるための口(ブラウザでは使わない)
+if (typeof window.__day75a === 'object') Object.assign(window.__day75a, { simulate, state });
+
+seg('g-shape', (v) => { state.shape = v === '1'; draw(); });
+seg('g-skip', (v) => { state.skip = v === '1'; draw(); });
+seg('g-color', (v) => { state.color = v === '1'; draw(); });
+seg('g-cmp', (v) => { state.eq = v === 'eq'; draw(); });
+seg('g-order', (v) => { state.order = v; draw(); });
+seg('g-view', (v) => { state.view = v; draw(); });
+window.addEventListener('resize', draw);
+draw();
+void reduceMotion;   // 動かす図ではない(押したときだけ描き直す)ので、動きを抑える設定でもそのまま
+void segValue;
+})();
+</script>
+</body>
+</html>
